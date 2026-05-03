@@ -1,0 +1,76 @@
+name: Agent Guard
+description: Deterministic secret scanning guardrails for CI
+
+inputs:
+  paths:
+    description: Space-separated paths to scan.
+    required: false
+    default: "."
+  gitleaks-version:
+    description: Gitleaks version to install if gitleaks is not already available.
+    required: false
+    default: "8.30.1"
+  gitleaks-checksum:
+    description: Optional sha256 checksum for the selected gitleaks archive.
+    required: false
+    default: ""
+  config-path:
+    description: Optional gitleaks config path. Defaults to the bundled Agent Guard config.
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Check shell dependencies
+      shell: bash
+      run: |
+        set -euo pipefail
+        command -v jq >/dev/null || { echo "jq is required" >&2; exit 2; }
+        command -v git >/dev/null || { echo "git is required" >&2; exit 2; }
+
+    - name: Install gitleaks if missing
+      shell: bash
+      run: |
+        set -euo pipefail
+        if command -v gitleaks >/dev/null; then
+          exit 0
+        fi
+
+        version="${{ inputs.gitleaks-version }}"
+        os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+        arch="$(uname -m)"
+        case "$arch" in
+          x86_64|amd64) arch="x64" ;;
+          arm64|aarch64) arch="arm64" ;;
+          *) echo "unsupported architecture for gitleaks install: $arch" >&2; exit 2 ;;
+        esac
+
+        archive="gitleaks_${version}_${os}_${arch}.tar.gz"
+        url="https://github.com/gitleaks/gitleaks/releases/download/v${version}/${archive}"
+        tmp="$(mktemp -d)"
+        curl -fsSL "$url" -o "$tmp/$archive"
+
+        checksum="${{ inputs.gitleaks-checksum }}"
+        if [ -n "$checksum" ]; then
+          echo "$checksum  $tmp/$archive" | shasum -a 256 -c -
+        else
+          echo "No gitleaks-checksum input provided; relying on HTTPS transport only." >&2
+        fi
+
+        tar -xzf "$tmp/$archive" -C "$tmp"
+        mkdir -p "$RUNNER_TEMP/agent-guard-bin"
+        mv "$tmp/gitleaks" "$RUNNER_TEMP/agent-guard-bin/gitleaks"
+        chmod +x "$RUNNER_TEMP/agent-guard-bin/gitleaks"
+        echo "$RUNNER_TEMP/agent-guard-bin" >> "$GITHUB_PATH"
+
+    - name: Run Agent Guard
+      shell: bash
+      env:
+        AGENT_GUARD_GITLEAKS_CONFIG: ${{ inputs.config-path }}
+      run: |
+        set -euo pipefail
+        if [ -z "${AGENT_GUARD_GITLEAKS_CONFIG:-}" ]; then
+          unset AGENT_GUARD_GITLEAKS_CONFIG
+        fi
+        "${GITHUB_ACTION_PATH}/bin/agent-guard" scan-path ${{ inputs.paths }}
