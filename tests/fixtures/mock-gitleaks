@@ -1,0 +1,40 @@
+#!/usr/bin/env sh
+set -u
+
+mode=${1:-}
+case "$mode" in
+  stdin)
+    input=$(cat)
+    case "$input" in
+      *AGENT_GUARD_TEST_SECRET*|*AKIAIOSFODNN7EXAMPLE*)
+        printf '%s\n' "Finding: REDACTED"
+        exit 1
+        ;;
+      *)
+        exit 0
+        ;;
+    esac
+    ;;
+  dir)
+    shift
+    for arg in "$@"; do
+      case "$arg" in
+        -*|--*) continue ;;
+        *)
+          if [ -f "$arg" ] && grep -q 'AGENT_GUARD_TEST_SECRET' "$arg"; then
+            printf '%s\n' "Finding: REDACTED"
+            exit 1
+          fi
+          if [ -d "$arg" ] && grep -R -q 'AGENT_GUARD_TEST_SECRET' "$arg" 2>/dev/null; then
+            printf '%s\n' "Finding: REDACTED"
+            exit 1
+          fi
+          ;;
+      esac
+    done
+    exit 0
+    ;;
+  *)
+    exit 0
+    ;;
+esac

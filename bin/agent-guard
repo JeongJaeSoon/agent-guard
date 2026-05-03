@@ -74,11 +74,12 @@ mktemp_file() {
 run_gitleaks_stdin() {
   label=$1
   out=$(mktemp_file) || die "failed to create temp file"
-  if gitleaks stdin --redact --no-banner --config "$GITLEAKS_CONFIG" --exit-code 1 >"$out" 2>&1; then
+  gitleaks stdin --redact --no-banner --config "$GITLEAKS_CONFIG" --exit-code 1 >"$out" 2>&1
+  status=$?
+  if [ "$status" -eq 0 ]; then
     rm -f "$out"
     return 0
   fi
-  status=$?
   if [ "$status" -eq 1 ]; then
     info "$PROGRAM: secret-like value detected in $label"
     sed 's/^/  /' "$out" >&2
@@ -154,10 +155,13 @@ scan_untracked_files() {
   while IFS= read -r path; do
     [ -n "$path" ] || continue
     [ -f "$path" ] || continue
-    if ! run_gitleaks_stdin "untracked file: $path" <"$path"; then
-      status=$?
-      [ "$status" -eq 1 ] && result=1 || result=2
-    fi
+    run_gitleaks_stdin "untracked file: $path" <"$path"
+    status=$?
+    case "$status" in
+      0) ;;
+      1) [ "$result" -eq 0 ] && result=1 ;;
+      *) result=2 ;;
+    esac
   done <"$list"
   rm -f "$list"
   return "$result"
@@ -208,11 +212,12 @@ scan_path() {
   for path in "$@"; do
     [ -e "$path" ] || die "path not found: $path"
     out=$(mktemp_file) || die "failed to create temp file"
-    if gitleaks dir "$path" --redact --no-banner --config "$GITLEAKS_CONFIG" --exit-code 1 >"$out" 2>&1; then
+    gitleaks dir "$path" --redact --no-banner --config "$GITLEAKS_CONFIG" --exit-code 1 >"$out" 2>&1
+    status=$?
+    if [ "$status" -eq 0 ]; then
       rm -f "$out"
       continue
     fi
-    status=$?
     if [ "$status" -eq 1 ]; then
       info "$PROGRAM: secret-like value detected in path: $path"
       sed 's/^/  /' "$out" >&2
