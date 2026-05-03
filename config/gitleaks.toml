@@ -1,0 +1,14 @@
+title = "agent-guard"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Obvious dummy placeholders"
+regexes = [
+  '''(?i)example[_-]?(token|key|secret|password)''',
+  '''(?i)dummy[_-]?(token|key|secret|password)''',
+  '''(?i)not[-_ ]?a[-_ ]?real[-_ ]?(token|key|secret|password)''',
+  '''x{8,}''',
+  '''0{12,}'''
+]

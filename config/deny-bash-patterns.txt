@@ -1,0 +1,9 @@
+# POSIX ERE patterns. Blank lines and lines starting with # are ignored.
+(^|[[:space:];|&])cat[[:space:]]+([^;|&[:space:]]*/)?\.env([^[:alnum:]_.-]|$)
+(^|[[:space:];|&])printenv([^[:alnum:]_-]|$)
+(^|[[:space:];|&])env([^[:alnum:]_-]|$)
+security[[:space:]]+find-generic-password
+op[[:space:]]+read
+vault[[:space:]]+kv[[:space:]]+get
+aws[[:space:]]+secretsmanager[[:space:]]+get-secret-value
+(curl|wget).*(TOKEN|SECRET|PASSWORD|API[_-]?KEY|ACCESS[_-]?KEY)

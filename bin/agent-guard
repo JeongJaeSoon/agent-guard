@@ -1,0 +1,417 @@
+#!/usr/bin/env sh
+set -u
+
+PROGRAM=agent-guard
+VERSION=1.0.0
+
+script_dir() {
+  # shellcheck disable=SC2164
+  CDPATH= cd -- "$(dirname -- "$0")" && pwd -P
+}
+
+BIN_DIR=$(script_dir)
+ROOT_DIR=$(CDPATH= cd -- "$BIN_DIR/.." && pwd -P)
+
+GITLEAKS_CONFIG=${AGENT_GUARD_GITLEAKS_CONFIG:-"$ROOT_DIR/config/gitleaks.toml"}
+DENY_READ_PATHS=${AGENT_GUARD_DENY_READ_PATHS:-"$ROOT_DIR/config/deny-read-paths.txt"}
+DENY_BASH_PATTERNS=${AGENT_GUARD_DENY_BASH_PATTERNS:-"$ROOT_DIR/config/deny-bash-patterns.txt"}
+
+usage() {
+  cat >&2 <<'EOF'
+Usage:
+  agent-guard hook-pre-tool
+  agent-guard hook-post-tool
+  agent-guard hook-stop
+  agent-guard scan-staged
+  agent-guard scan-working-tree
+  agent-guard scan-path PATH...
+  agent-guard check
+  agent-guard version
+EOF
+}
+
+info() {
+  printf '%s\n' "$*" >&2
+}
+
+die() {
+  info "$PROGRAM: $*"
+  exit 2
+}
+
+need_cmd() {
+  command -v "$1" >/dev/null 2>&1 || die "required command not found: $1"
+}
+
+need_jq() {
+  need_cmd jq
+}
+
+need_git() {
+  need_cmd git
+}
+
+need_gitleaks() {
+  need_cmd gitleaks
+  [ -f "$GITLEAKS_CONFIG" ] || die "gitleaks config not found: $GITLEAKS_CONFIG"
+}
+
+check_deps() {
+  need_cmd sh
+  need_cmd jq
+  need_cmd git
+  need_cmd gitleaks
+  [ -f "$GITLEAKS_CONFIG" ] || die "gitleaks config not found: $GITLEAKS_CONFIG"
+  [ -f "$DENY_READ_PATHS" ] || die "deny read policy not found: $DENY_READ_PATHS"
+  [ -f "$DENY_BASH_PATTERNS" ] || die "deny bash policy not found: $DENY_BASH_PATTERNS"
+  info "$PROGRAM: dependencies ok"
+}
+
+mktemp_file() {
+  mktemp "${TMPDIR:-/tmp}/agent-guard.XXXXXX" 2>/dev/null || mktemp /tmp/agent-guard.XXXXXX
+}
+
+run_gitleaks_stdin() {
+  label=$1
+  out=$(mktemp_file) || die "failed to create temp file"
+  if gitleaks stdin --redact --no-banner --config "$GITLEAKS_CONFIG" --exit-code 1 >"$out" 2>&1; then
+    rm -f "$out"
+    return 0
+  fi
+  status=$?
+  if [ "$status" -eq 1 ]; then
+    info "$PROGRAM: secret-like value detected in $label"
+    sed 's/^/  /' "$out" >&2
+    rm -f "$out"
+    return 1
+  fi
+  info "$PROGRAM: gitleaks failed while scanning $label"
+  sed 's/^/  /' "$out" >&2
+  rm -f "$out"
+  return 2
+}
+
+scan_text_direct() {
+  label=$1
+  text=$2
+  [ -n "$text" ] || return 0
+  printf '%s\n' "$text" | run_gitleaks_stdin "$label"
+}
+
+scan_text_hook() {
+  label=$1
+  text=$2
+  scan_text_direct "$label" "$text"
+  status=$?
+  case "$status" in
+    0) return 0 ;;
+    1) return 2 ;;
+    *) return 2 ;;
+  esac
+}
+
+extract_added_lines() {
+  awk '
+    /^diff --git / { next }
+    /^index / { next }
+    /^--- / { next }
+    /^\+\+\+ / { next }
+    /^@@ / { next }
+    /^\+/ { sub(/^\+/, ""); print }
+  '
+}
+
+extract_patch_added_lines() {
+  awk '
+    /^\+\+\+ / { next }
+    /^\+[^+]/ { sub(/^\+/, ""); print }
+  '
+}
+
+inside_git_repo() {
+  git rev-parse --is-inside-work-tree >/dev/null 2>&1
+}
+
+scan_staged() {
+  need_git
+  need_gitleaks
+  inside_git_repo || die "scan-staged must run inside a git work tree"
+  added=$(git diff --cached --unified=0 --no-ext-diff -- . | extract_added_lines)
+  [ -n "$added" ] || return 0
+  scan_text_direct "staged added lines" "$added"
+}
+
+scan_untracked_files() {
+  need_git
+  need_gitleaks
+  list=$(mktemp_file) || die "failed to create temp file"
+  git ls-files --others --exclude-standard >"$list" || {
+    rm -f "$list"
+    die "failed to list untracked files"
+  }
+
+  result=0
+  while IFS= read -r path; do
+    [ -n "$path" ] || continue
+    [ -f "$path" ] || continue
+    if ! run_gitleaks_stdin "untracked file: $path" <"$path"; then
+      status=$?
+      [ "$status" -eq 1 ] && result=1 || result=2
+    fi
+  done <"$list"
+  rm -f "$list"
+  return "$result"
+}
+
+scan_working_tree() {
+  need_git
+  need_gitleaks
+  inside_git_repo || die "scan-working-tree must run inside a git work tree"
+
+  if git rev-parse --verify HEAD >/dev/null 2>&1; then
+    tracked=$(git diff --unified=0 --no-ext-diff HEAD -- . | extract_added_lines)
+  else
+    tracked=$(
+      {
+        git diff --cached --unified=0 --no-ext-diff -- .
+        git diff --unified=0 --no-ext-diff -- .
+      } | extract_added_lines
+    )
+  fi
+
+  result=0
+  if [ -n "$tracked" ]; then
+    scan_text_direct "working tree added lines" "$tracked"
+    status=$?
+    case "$status" in
+      0) ;;
+      1) result=1 ;;
+      *) result=2 ;;
+    esac
+  fi
+
+  scan_untracked_files
+  status=$?
+  case "$status" in
+    0) ;;
+    1) [ "$result" -eq 0 ] && result=1 ;;
+    *) result=2 ;;
+  esac
+
+  return "$result"
+}
+
+scan_path() {
+  need_gitleaks
+  [ "$#" -gt 0 ] || die "scan-path requires at least one path"
+  result=0
+  for path in "$@"; do
+    [ -e "$path" ] || die "path not found: $path"
+    out=$(mktemp_file) || die "failed to create temp file"
+    if gitleaks dir "$path" --redact --no-banner --config "$GITLEAKS_CONFIG" --exit-code 1 >"$out" 2>&1; then
+      rm -f "$out"
+      continue
+    fi
+    status=$?
+    if [ "$status" -eq 1 ]; then
+      info "$PROGRAM: secret-like value detected in path: $path"
+      sed 's/^/  /' "$out" >&2
+      [ "$result" -eq 0 ] && result=1
+    else
+      info "$PROGRAM: gitleaks failed while scanning path: $path"
+      sed 's/^/  /' "$out" >&2
+      result=2
+    fi
+    rm -f "$out"
+  done
+  return "$result"
+}
+
+json_value() {
+  expr=$1
+  input=$2
+  printf '%s' "$input" | jq -r "$expr"
+}
+
+matches_deny_path() {
+  candidate=$1
+  [ -f "$DENY_READ_PATHS" ] || return 1
+
+  # Strip common prefixes so hooks can pass absolute, relative, or file:// paths.
+  case "$candidate" in
+    file://*) candidate=${candidate#file://} ;;
+  esac
+
+  while IFS= read -r pattern || [ -n "$pattern" ]; do
+    case "$pattern" in
+      ''|\#*) continue ;;
+    esac
+    case "$candidate" in
+      $pattern|*/$pattern) return 0 ;;
+    esac
+  done <"$DENY_READ_PATHS"
+  return 1
+}
+
+check_sensitive_reads() {
+  input=$1
+  need_jq
+  [ -f "$DENY_READ_PATHS" ] || die "deny read policy not found: $DENY_READ_PATHS"
+
+  values=$(printf '%s' "$input" | jq -r '.tool_input // {} | .. | strings')
+  [ -n "$values" ] || return 0
+
+  printf '%s\n' "$values" | while IFS= read -r value; do
+    [ -n "$value" ] || continue
+    if matches_deny_path "$value"; then
+      info "$PROGRAM: blocked sensitive file access: $value"
+      exit 2
+    fi
+  done
+}
+
+check_bash_command() {
+  input=$1
+  need_jq
+  cmd=$(json_value '.tool_input.command // .tool_input.cmd // empty' "$input")
+  [ -n "$cmd" ] || return 0
+
+  [ -f "$DENY_BASH_PATTERNS" ] || die "deny bash policy not found: $DENY_BASH_PATTERNS"
+  while IFS= read -r pattern || [ -n "$pattern" ]; do
+    case "$pattern" in
+      ''|\#*) continue ;;
+    esac
+    if printf '%s\n' "$cmd" | grep -Eq "$pattern"; then
+      info "$PROGRAM: blocked risky shell command by deny pattern"
+      exit 2
+    fi
+  done <"$DENY_BASH_PATTERNS"
+
+  if printf '%s\n' "$cmd" | grep -Eq '(^|[^[:alnum:]_-])git[[:space:]]+(commit|push)([^[:alnum:]_-]|$)'; then
+    scan_staged
+    status=$?
+    case "$status" in
+      0) return 0 ;;
+      1) info "$PROGRAM: staged changes contain secret-like values; blocking git command"; exit 2 ;;
+      *) exit 2 ;;
+    esac
+  fi
+}
+
+scan_mcp_input() {
+  input=$1
+  need_jq
+  text=$(printf '%s' "$input" | jq -c '.tool_input // {}')
+  scan_text_hook "MCP tool input" "$text"
+}
+
+scan_proposed_write() {
+  input=$1
+  tool=$2
+  need_jq
+
+  case "$tool" in
+    Write)
+      content=$(json_value '.tool_input.content // empty' "$input")
+      scan_text_hook "proposed Write content" "$content"
+      ;;
+    Edit)
+      content=$(json_value '.tool_input.new_string // empty' "$input")
+      scan_text_hook "proposed Edit content" "$content"
+      ;;
+    MultiEdit)
+      content=$(printf '%s' "$input" | jq -r '[.tool_input.edits[]?.new_string // empty] | join("\n")')
+      scan_text_hook "proposed MultiEdit content" "$content"
+      ;;
+    apply_patch)
+      patch=$(printf '%s' "$input" | jq -r '
+        .tool_input.patch // .tool_input.input // .tool_input.diff // .tool_input.content // empty
+        | if type == "string" then . else tojson end
+      ')
+      added=$(printf '%s\n' "$patch" | extract_patch_added_lines)
+      scan_text_hook "proposed apply_patch added lines" "$added"
+      ;;
+  esac
+}
+
+hook_pre_tool() {
+  need_jq
+  input=$(cat)
+  [ -n "$input" ] || return 0
+  tool=$(json_value '.tool_name // .tool // .name // empty' "$input")
+
+  case "$tool" in
+    Write|Edit|MultiEdit|apply_patch)
+      scan_proposed_write "$input" "$tool"
+      ;;
+    Read|Grep|Glob)
+      check_sensitive_reads "$input"
+      ;;
+    Bash)
+      check_bash_command "$input"
+      ;;
+    mcp__*)
+      scan_mcp_input "$input"
+      ;;
+    *)
+      return 0
+      ;;
+  esac
+}
+
+is_mutation_tool() {
+  case "$1" in
+    Write|Edit|MultiEdit|apply_patch|Bash|mcp__*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+hook_post_tool() {
+  need_jq
+  input=$(cat)
+  [ -n "$input" ] || return 0
+  tool=$(json_value '.tool_name // .tool // .name // empty' "$input")
+  is_mutation_tool "$tool" || return 0
+
+  scan_working_tree
+  status=$?
+  case "$status" in
+    0) return 0 ;;
+    1) info "$PROGRAM: changed files contain secret-like values after tool execution"; exit 2 ;;
+    *) exit 2 ;;
+  esac
+}
+
+hook_stop() {
+  need_jq
+  input=$(cat)
+  if [ -n "$input" ]; then
+    active=$(json_value '.stop_hook_active // false' "$input")
+    if [ "$active" = "true" ]; then
+      info "$PROGRAM: stop hook already active; skipping repeat scan to avoid a loop"
+      return 0
+    fi
+  fi
+
+  scan_working_tree
+  status=$?
+  case "$status" in
+    0) return 0 ;;
+    1) info "$PROGRAM: changed files contain secret-like values before stop"; exit 2 ;;
+    *) exit 2 ;;
+  esac
+}
+
+cmd=${1:-}
+case "$cmd" in
+  hook-pre-tool) hook_pre_tool ;;
+  hook-post-tool) hook_post_tool ;;
+  hook-stop) hook_stop ;;
+  scan-staged) shift; scan_staged "$@" ;;
+  scan-working-tree) shift; scan_working_tree "$@" ;;
+  scan-path) shift; scan_path "$@" ;;
+  check) check_deps ;;
+  version) printf '%s %s\n' "$PROGRAM" "$VERSION" ;;
+  ''|-h|--help|help) usage; exit 0 ;;
+  *) usage; exit 2 ;;
+esac
