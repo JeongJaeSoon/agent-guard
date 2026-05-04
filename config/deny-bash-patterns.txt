@@ -1,9 +1,18 @@
 # POSIX ERE patterns. Blank lines and lines starting with # are ignored.
-(^|[[:space:];|&])cat[[:space:]]+([^;|&[:space:]]*/)?\.env([^[:alnum:]_.-]|$)
+#
+# Generic file-read bypass for deny-read-paths is handled in bash_matches_deny_path
+# inside bin/agent-guard, so this list only carries shell idioms that have no
+# obvious path argument (printenv, secret managers, exfiltration via curl/wget,
+# etc.).
 (^|[[:space:];|&])printenv([^[:alnum:]_-]|$)
-(^|[[:space:];|&])env([^[:alnum:]_-]|$)
+(^|[[:space:];|&])env[[:space:]]*($|[;|&])
 security[[:space:]]+find-generic-password
 op[[:space:]]+read
+op[[:space:]]+item[[:space:]]+get
 vault[[:space:]]+kv[[:space:]]+get
+vault[[:space:]]+read
 aws[[:space:]]+secretsmanager[[:space:]]+get-secret-value
+aws[[:space:]]+ssm[[:space:]]+get-parameter
+gcloud[[:space:]]+secrets[[:space:]]+versions[[:space:]]+access
 (curl|wget).*(TOKEN|SECRET|PASSWORD|API[_-]?KEY|ACCESS[_-]?KEY)
+gh[[:space:]]+auth[[:space:]]+token

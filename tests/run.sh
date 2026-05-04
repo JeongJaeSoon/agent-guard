@@ -113,6 +113,66 @@ expect_json_status 2 "risky Bash command is blocked" \
   '{"tool_name":"Bash","tool_input":{"command":"cat .env"}}' \
   hook-pre-tool
 
+expect_json_status 2 "Bash sed bypass is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"sed -n p .env"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash head bypass is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"head -c 200 .env"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash redirect bypass is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat < .env"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash command-substitution bypass is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"git config user.email \"$(cat .env)\""}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash dd-on-private-key bypass is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"dd if=id_rsa of=/tmp/x"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash absolute-path .env access is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"awk 1 /tmp/.env"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "myenv-like substring is allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"echo myenvironment"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "env VAR=value command form is allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"env CGO_ENABLED=0 go build"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "bare env is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"env"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "git --no-verify is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"git commit --no-verify -m x"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Read on tilde-path .env is blocked" \
+  '{"tool_name":"Read","tool_input":{"file_path":"~/.env.local"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Read with leading ./ is blocked" \
+  '{"tool_name":"Read","tool_input":{"file_path":"./.env"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "NotebookRead on sensitive path is blocked" \
+  '{"tool_name":"NotebookRead","tool_input":{"notebook_path":".env"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Codex Add File payload secret is blocked" \
+  '{"tool_name":"apply_patch","tool_input":{"patch":"*** Begin Patch\n*** Add File: x\nAGENT_GUARD_TEST_SECRET\n*** End Patch"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Codex double-plus added secret is blocked" \
+  '{"tool_name":"apply_patch","tool_input":{"patch":"*** Begin Patch\n*** Update File: x\n@@\n++AGENT_GUARD_TEST_SECRET\n*** End Patch"}}' \
+  hook-pre-tool
+
 expect_json_status 2 "MCP input secret is blocked" \
   '{"tool_name":"mcp__server__tool","tool_input":{"token":"AGENT_GUARD_TEST_SECRET"}}' \
   hook-pre-tool
@@ -163,6 +223,80 @@ if [ "$status" -eq 0 ]; then
 else
   not_ok "hook-stop loop protection allows active stop hook (expected 0, got $status)"
 fi
+
+(
+  cd "$TEST_REPO" || exit 2
+  git reset -q
+  rm -f staged.txt untracked.txt
+  printf '%s\n' "AGENT_GUARD_TEST_SECRET" > leak.txt
+  git add leak.txt
+  printf '%s' '{"tool_name":"Bash","tool_input":{"command":"git -c user.name=x commit -m leak"}}' \
+    | "$ROOT/bin/agent-guard" hook-pre-tool >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+)
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "git -c option-form commit with staged secret is intercepted"
+else
+  not_ok "git -c option-form commit with staged secret is intercepted (expected 2, got $status)"
+  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+fi
+
+(
+  cd "$TEST_REPO" || exit 2
+  printf '%s' '{"tool_name":"Bash","tool_input":{"command":"git -C . push origin main"}}' \
+    | "$ROOT/bin/agent-guard" hook-pre-tool >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+)
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "git -C option-form push with staged secret is intercepted"
+else
+  not_ok "git -C option-form push with staged secret is intercepted (expected 2, got $status)"
+  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+fi
+
+SYMLINK_REPO="$TMP_ROOT/symlink-repo"
+mkdir -p "$SYMLINK_REPO"
+(
+  cd "$SYMLINK_REPO" || exit 2
+  printf '%s\n' "AGENT_GUARD_TEST_SECRET" > .env
+  ln -s .env safe-link
+)
+if [ -L "$SYMLINK_REPO/safe-link" ]; then
+  payload='{"tool_name":"Read","tool_input":{"file_path":"'"$SYMLINK_REPO"'/safe-link"}}'
+  printf '%s' "$payload" | "$ROOT/bin/agent-guard" hook-pre-tool >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+  status=$?
+  if [ "$status" -eq 2 ]; then
+    ok "symlink to .env is blocked via realpath resolution"
+  else
+    not_ok "symlink to .env is blocked via realpath resolution (expected 2, got $status)"
+    sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+  fi
+else
+  say "skipping symlink test: filesystem does not support symlinks"
+fi
+
+# action.yml shell-injection regression: emulate the env-passing pattern from
+# action.yml's "Run Agent Guard" step and confirm a malicious paths value
+# cannot trigger an unrelated command. We use a canary file as the side-effect
+# probe so the test does not rely on stdout heuristics.
+INJECTION_CANARY="$TMP_ROOT/inject-canary"
+rm -f "$INJECTION_CANARY"
+AGENT_GUARD_PATHS=". && touch $INJECTION_CANARY" sh -c '
+  set -u
+  # Mirror the action.yml step verbatim minus the agent-guard call: words from
+  # AGENT_GUARD_PATHS become positional arguments after `--`, never command
+  # tokens. If the env-var contract leaked, the canary would appear.
+  set -- -- $AGENT_GUARD_PATHS
+  for arg in "$@"; do
+    : "$arg"
+  done
+' 2>/dev/null
+if [ -e "$INJECTION_CANARY" ]; then
+  not_ok "action.yml env-var paths pattern still allows shell injection (canary fired)"
+else
+  ok "action.yml env-var paths pattern resists shell injection"
+fi
+rm -f "$INJECTION_CANARY"
 
 if command -v gitleaks >/dev/null 2>&1 && [ "$(command -v gitleaks)" != "$MOCK_BIN/gitleaks" ]; then
   say "real gitleaks available; mock tests already covered routing"

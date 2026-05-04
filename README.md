@@ -4,6 +4,19 @@ Agent Guard inserts deterministic secret-scanning checks into AI coding agent ho
 
 It is intentionally small. It does not teach agents how to behave, manage vaults, rotate credentials, verify live credentials, produce dashboards, or replace GitHub Secret Scanning and Push Protection.
 
+## Channels
+
+Agent Guard offers four independent integration points. Pick whichever match your workflow — they do **not** chain. Each row lists what that channel alone can and cannot block.
+
+| Channel | What it blocks | What it cannot see |
+|---|---|---|
+| Agent hook (Claude Code / Codex) | Pre-tool: deny-listed reads (`.env`, `id_rsa`, …), risky shell idioms, secrets in proposed `Write`/`Edit`/`apply_patch`, secrets in MCP tool input. Post-tool & Stop: secrets in working-tree diff & untracked files. | Edits the user makes by hand outside the agent session. |
+| Native Git pre-commit hook | Secrets in staged added lines at commit time. | Reads the agent performed earlier; commits made with `--no-verify`. |
+| GitHub Action | Secrets in any tracked file on a PR/push. | Anything that already merged before the workflow ran. |
+| Direct CLI (`bin/agent-guard scan-*`) | Whatever you point it at, on demand. | Anything outside the invocation. |
+
+Defense-in-depth is best, but a single channel still meaningfully reduces risk. The agent-hook channel is the only one that can stop a leak **before** the secret leaves the host.
+
 ## Requirements
 
 - `sh`
@@ -82,9 +95,14 @@ The root `action.yml` lets consumers use the repository directly:
 - uses: JeongJaeSoon/agent-guard@v1
   with:
     paths: "."
+    gitleaks-checksum: "<sha256 of the gitleaks release archive>"
 ```
 
-For high-security environments, pin to a full commit SHA instead of a moving tag.
+The `gitleaks-checksum` input is required by default. Pin a known-good sha256 for the `gitleaks-version` you select — this stops a compromised release URL from injecting a malicious binary into your CI runner.
+
+To opt out (local experimentation only) set `require-checksum: "false"`. Do not do this in production CI.
+
+For high-security environments, also pin Agent Guard to a full commit SHA instead of the moving `@v1` tag.
 
 ## Configuration
 

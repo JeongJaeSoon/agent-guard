@@ -14,6 +14,12 @@ inputs:
     description: Optional sha256 checksum for the selected gitleaks archive.
     required: false
     default: ""
+  require-checksum:
+    description: When true, fail if gitleaks-checksum is empty. Defaults to true so CI
+      cannot silently fall back to HTTPS-only integrity. Set to false only for local
+      experimentation.
+    required: false
+    default: "true"
   config-path:
     description: Optional gitleaks config path. Defaults to the bundled Agent Guard config.
     required: false
@@ -31,13 +37,17 @@ runs:
 
     - name: Install gitleaks if missing
       shell: bash
+      env:
+        AGENT_GUARD_GITLEAKS_VERSION: ${{ inputs.gitleaks-version }}
+        AGENT_GUARD_GITLEAKS_CHECKSUM: ${{ inputs.gitleaks-checksum }}
+        AGENT_GUARD_REQUIRE_CHECKSUM: ${{ inputs.require-checksum }}
       run: |
         set -euo pipefail
         if command -v gitleaks >/dev/null; then
           exit 0
         fi
 
-        version="${{ inputs.gitleaks-version }}"
+        version="$AGENT_GUARD_GITLEAKS_VERSION"
         os="$(uname -s | tr '[:upper:]' '[:lower:]')"
         arch="$(uname -m)"
         case "$arch" in
@@ -46,16 +56,23 @@ runs:
           *) echo "unsupported architecture for gitleaks install: $arch" >&2; exit 2 ;;
         esac
 
+        checksum="$AGENT_GUARD_GITLEAKS_CHECKSUM"
+        require_checksum="${AGENT_GUARD_REQUIRE_CHECKSUM:-true}"
+        if [ -z "$checksum" ] && [ "$require_checksum" = "true" ]; then
+          echo "agent-guard: gitleaks-checksum input is required when require-checksum=true" >&2
+          echo "  Provide a pinned sha256 for gitleaks ${version} or pass require-checksum=false explicitly." >&2
+          exit 2
+        fi
+
         archive="gitleaks_${version}_${os}_${arch}.tar.gz"
         url="https://github.com/gitleaks/gitleaks/releases/download/v${version}/${archive}"
         tmp="$(mktemp -d)"
         curl -fsSL "$url" -o "$tmp/$archive"
 
-        checksum="${{ inputs.gitleaks-checksum }}"
         if [ -n "$checksum" ]; then
           echo "$checksum  $tmp/$archive" | shasum -a 256 -c -
         else
-          echo "No gitleaks-checksum input provided; relying on HTTPS transport only." >&2
+          echo "agent-guard: no gitleaks-checksum provided; relying on HTTPS transport only." >&2
         fi
 
         tar -xzf "$tmp/$archive" -C "$tmp"
@@ -68,9 +85,14 @@ runs:
       shell: bash
       env:
         AGENT_GUARD_GITLEAKS_CONFIG: ${{ inputs.config-path }}
+        AGENT_GUARD_PATHS: ${{ inputs.paths }}
       run: |
         set -euo pipefail
         if [ -z "${AGENT_GUARD_GITLEAKS_CONFIG:-}" ]; then
           unset AGENT_GUARD_GITLEAKS_CONFIG
         fi
-        "${GITHUB_ACTION_PATH}/bin/agent-guard" scan-path ${{ inputs.paths }}
+        # Split on whitespace deliberately so multiple paths can be passed,
+        # but keep the value sourced from an env var rather than an
+        # unquoted ${{ }} expansion to avoid YAML-time shell injection.
+        # shellcheck disable=SC2086
+        "${GITHUB_ACTION_PATH}/bin/agent-guard" scan-path -- $AGENT_GUARD_PATHS
