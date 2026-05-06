@@ -4,6 +4,11 @@ set -u
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 TMP_ROOT=${TMPDIR:-/tmp}/agent-guard-tests.$$
 MOCK_BIN="$TMP_ROOT/bin"
+ORIGINAL_PATH=$PATH
+REAL_GITLEAKS=$(command -v gitleaks 2>/dev/null || true)
+REAL_SH=$(command -v sh)
+REAL_DIRNAME=$(command -v dirname)
+REAL_PWD=$(command -v pwd)
 PATH="$MOCK_BIN:$PATH"
 export PATH
 export AGENT_GUARD_GITLEAKS_CONFIG="$ROOT/config/gitleaks.toml"
@@ -467,8 +472,12 @@ fi
 
 # --- gitleaks not installed -----------------------------------------------
 
-NO_GITLEAKS_PATH=$(printf '%s' "$PATH" | tr ':' '\n' | grep -v "^$MOCK_BIN$" | grep -v "^$ERROR_BIN$" | tr '\n' ':')
-PATH="$NO_GITLEAKS_PATH" "$ROOT/bin/agent-guard" scan-path "$CLEAN_DIR" >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+NO_GITLEAKS_BIN="$TMP_ROOT/no-gitleaks-bin"
+mkdir -p "$NO_GITLEAKS_BIN"
+ln -s "$REAL_SH" "$NO_GITLEAKS_BIN/sh"
+ln -s "$REAL_DIRNAME" "$NO_GITLEAKS_BIN/dirname"
+ln -s "$REAL_PWD" "$NO_GITLEAKS_BIN/pwd"
+PATH="$NO_GITLEAKS_BIN" "$ROOT/bin/agent-guard" scan-path "$CLEAN_DIR" >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
 status=$?
 if [ "$status" -eq 2 ]; then
   ok "scan-path dies when gitleaks is unavailable"
@@ -601,8 +610,22 @@ else
   sed 's/^/  stderr: /' /tmp/agent-guard-test.err
 fi
 
-if command -v gitleaks >/dev/null 2>&1 && [ "$(command -v gitleaks)" != "$MOCK_BIN/gitleaks" ]; then
-  say "real gitleaks available; mock tests already covered routing"
+if [ -n "$REAL_GITLEAKS" ]; then
+  REAL_DIRTY_DIR="$TMP_ROOT/real-dirty-dir"
+  mkdir -p "$REAL_DIRTY_DIR"
+  {
+    printf '%s\n' '-----BEGIN RSA PRIVATE KEY-----'
+    printf '%s\n' 'MIIEpAIBAAKCAQEAwH6yqpN5f7c7k4KQkKtQ3Rvy9zfrlWvLq8Vbkg=='
+    printf '%s\n' '-----END RSA PRIVATE KEY-----'
+  } > "$REAL_DIRTY_DIR/key.pem"
+  PATH="$(dirname "$REAL_GITLEAKS"):$ORIGINAL_PATH" "$ROOT/bin/agent-guard" scan-path "$REAL_DIRTY_DIR" >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+  status=$?
+  if [ "$status" -eq 1 ]; then
+    ok "real gitleaks detects a private key through scan-path"
+  else
+    not_ok "real gitleaks detects a private key through scan-path (expected 1, got $status)"
+    sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+  fi
 else
   say "real gitleaks not available; skipped real-gitleaks integration tests"
 fi
