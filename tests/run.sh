@@ -275,17 +275,12 @@ else
   say "skipping symlink test: filesystem does not support symlinks"
 fi
 
-# action.yml shell-injection regression: emulate the env-passing pattern from
-# action.yml's "Run Agent Guard" step and confirm a malicious paths value
-# cannot trigger an unrelated command. We use a canary file as the side-effect
-# probe so the test does not rely on stdout heuristics.
+# action.yml shell-injection regression for AGENT_GUARD_PATHS.
 INJECTION_CANARY="$TMP_ROOT/inject-canary"
 rm -f "$INJECTION_CANARY"
 AGENT_GUARD_PATHS=". && touch $INJECTION_CANARY" sh -c '
   set -u
-  # Mirror the action.yml step verbatim minus the agent-guard call: words from
-  # AGENT_GUARD_PATHS become positional arguments after `--`, never command
-  # tokens. If the env-var contract leaked, the canary would appear.
+  # If path splitting leaked into command execution, the canary would appear.
   set -- -- $AGENT_GUARD_PATHS
   for arg in "$@"; do
     : "$arg"

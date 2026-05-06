@@ -91,8 +91,6 @@ runs:
         if [ -z "${AGENT_GUARD_GITLEAKS_CONFIG:-}" ]; then
           unset AGENT_GUARD_GITLEAKS_CONFIG
         fi
-        # Split on whitespace deliberately so multiple paths can be passed,
-        # but keep the value sourced from an env var rather than an
-        # unquoted ${{ }} expansion to avoid YAML-time shell injection.
+        # Split paths from env, not from unquoted YAML-time input expansion.
         # shellcheck disable=SC2086
         "${GITHUB_ACTION_PATH}/bin/agent-guard" scan-path -- $AGENT_GUARD_PATHS

@@ -122,13 +122,7 @@ extract_added_lines() {
   '
 }
 
-# Codex apply_patch payloads use a custom envelope:
-#   *** Begin Patch
-#   *** Add File: path        (followed by raw content lines, no leading +)
-#   *** Update File: path     (followed by unified-diff-like hunks: + adds, - removes, " " context)
-#   *** Delete File: path
-#   *** End Patch
-# This extractor yields every line that introduces new content into the tree.
+# Extract lines introduced by Codex apply_patch envelopes or unified diffs.
 extract_patch_added_lines() {
   awk '
     BEGIN { mode = "none" }
@@ -296,9 +290,7 @@ normalize_path() {
 
 resolve_path() {
   candidate=$1
-  # Best-effort symlink resolution. Fail open to the original string so a
-  # missing realpath binary or a path that does not exist on disk does not
-  # silently disable the policy match.
+  # Resolve symlinks when possible; otherwise keep matching the original path.
   resolved=$(
     if command -v realpath >/dev/null 2>&1; then
       realpath -- "$candidate" 2>/dev/null
@@ -358,9 +350,7 @@ check_sensitive_reads() {
 }
 
 deny_path_basename_pattern() {
-  # Translate one deny-read-paths line into a POSIX-ERE alternative usable by
-  # grep -E. The patterns are shell case globs; we convert the few constructs
-  # actually in use (literal text plus * wildcards) to ERE.
+  # Convert the supported deny-read shell globs to POSIX ERE.
   pattern=$1
   py=
   i=1
@@ -387,9 +377,7 @@ bash_matches_deny_path() {
     esac
     converted=$(deny_path_basename_pattern "$entry")
     [ -n "$converted" ] || continue
-    # Match the path either at a word boundary or after a directory separator,
-    # so `cat .env`, `cat ./.env`, `cat /tmp/.env`, `dd if=.env`, and
-    # `$(cat .env)` are all caught while bare words like `myenv` are not.
+    # Catch path arguments and shell words without matching substrings like myenv.
     regex='(^|[^[:alnum:]_./~-])('${converted}'|[^[:space:]<>|;&`$()]*/'${converted}')([^[:alnum:]_.-]|$)'
     if printf '%s\n' "$cmd" | grep -Eq "$regex"; then
       return 0
@@ -400,9 +388,7 @@ bash_matches_deny_path() {
 
 is_git_commit_or_push() {
   cmd=$1
-  # Match the git binary token followed anywhere by a commit/push subcommand,
-  # tolerating switches like `git -c user.x=y commit`, `git -C . push`, and
-  # `/usr/bin/git --git-dir=.git --work-tree=. commit`.
+  # Allow git options before commit/push, e.g. `git -c x=y commit`.
   printf '%s\n' "$cmd" | grep -Eq '(^|[^[:alnum:]_./-])git([[:space:]]|$)'  || return 1
   printf '%s\n' "$cmd" | grep -Eq '(^|[^[:alnum:]_-])(commit|push)([^[:alnum:]_-]|$)'
 }

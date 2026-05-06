@@ -1,9 +1,5 @@
 # POSIX ERE patterns. Blank lines and lines starting with # are ignored.
-#
-# Generic file-read bypass for deny-read-paths is handled in bash_matches_deny_path
-# inside bin/agent-guard, so this list only carries shell idioms that have no
-# obvious path argument (printenv, secret managers, exfiltration via curl/wget,
-# etc.).
+# Path-based reads are handled from deny-read-paths; keep only pathless shell idioms here.
 (^|[[:space:];|&])printenv([^[:alnum:]_-]|$)
 (^|[[:space:];|&])env[[:space:]]*($|[;|&])
 security[[:space:]]+find-generic-password

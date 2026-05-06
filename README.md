@@ -118,6 +118,8 @@ Policy files:
 - `config/deny-read-paths.txt`
 - `config/deny-bash-patterns.txt`
 
+The bundled deny-read policy is conservative, including local credential files such as `.env*`, SSH keys/config, cloud CLI credentials, and certificate bundles. If your workflow needs a different read policy, point `AGENT_GUARD_DENY_READ_PATHS` at your own deny-list file.
+
 Project-local `.gitleaks.toml` files are not automatically trusted.
 
 ## Tests
