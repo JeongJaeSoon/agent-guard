@@ -1,9 +1,14 @@
 # POSIX ERE patterns. Blank lines and lines starting with # are ignored.
-(^|[[:space:];|&])cat[[:space:]]+([^;|&[:space:]]*/)?\.env([^[:alnum:]_.-]|$)
+# Path-based reads are handled from deny-read-paths; keep only pathless shell idioms here.
 (^|[[:space:];|&])printenv([^[:alnum:]_-]|$)
-(^|[[:space:];|&])env([^[:alnum:]_-]|$)
+(^|[[:space:];|&])env[[:space:]]*($|[;|&])
 security[[:space:]]+find-generic-password
 op[[:space:]]+read
+op[[:space:]]+item[[:space:]]+get
 vault[[:space:]]+kv[[:space:]]+get
+vault[[:space:]]+read
 aws[[:space:]]+secretsmanager[[:space:]]+get-secret-value
+aws[[:space:]]+ssm[[:space:]]+get-parameter
+gcloud[[:space:]]+secrets[[:space:]]+versions[[:space:]]+access
 (curl|wget).*(TOKEN|SECRET|PASSWORD|API[_-]?KEY|ACCESS[_-]?KEY)
+gh[[:space:]]+auth[[:space:]]+token

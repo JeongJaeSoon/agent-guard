@@ -122,10 +122,39 @@ extract_added_lines() {
   '
 }
 
+# Extract lines introduced by Codex apply_patch envelopes or unified diffs.
 extract_patch_added_lines() {
   awk '
-    /^\+\+\+ / { next }
-    /^\+[^+]/ { sub(/^\+/, ""); print }
+    BEGIN { mode = "none" }
+    /^\*\*\* Begin Patch/ { mode = "none"; next }
+    /^\*\*\* End Patch/ { mode = "none"; next }
+    /^\*\*\* Add File:/ { mode = "add"; next }
+    /^\*\*\* Update File:/ { mode = "update"; next }
+    /^\*\*\* Delete File:/ { mode = "none"; next }
+    /^\*\*\* End of File/ { next }
+    /^@@/ { next }
+    {
+      if (mode == "add") {
+        line = $0
+        sub(/^\+/, "", line)
+        print line
+        next
+      }
+      if (mode == "update") {
+        if (substr($0, 1, 1) == "+") {
+          line = substr($0, 2)
+          print line
+        }
+        next
+      }
+      # Fallback: treat as a unified diff hunk.
+      if (/^\+\+\+ /) next
+      if (/^\+/) {
+        line = $0
+        sub(/^\+/, "", line)
+        print line
+      }
+    }
   '
 }
 
@@ -207,6 +236,9 @@ scan_working_tree() {
 
 scan_path() {
   need_gitleaks
+  if [ "${1:-}" = "--" ]; then
+    shift
+  fi
   [ "$#" -gt 0 ] || die "scan-path requires at least one path"
   result=0
   for path in "$@"; do
@@ -238,15 +270,43 @@ json_value() {
   printf '%s' "$input" | jq -r "$expr"
 }
 
-matches_deny_path() {
+normalize_path() {
   candidate=$1
-  [ -f "$DENY_READ_PATHS" ] || return 1
-
-  # Strip common prefixes so hooks can pass absolute, relative, or file:// paths.
   case "$candidate" in
     file://*) candidate=${candidate#file://} ;;
   esac
+  case "$candidate" in
+    '~') candidate=${HOME:-/} ;;
+    '~/'*) candidate=${HOME:-/}/${candidate#~/} ;;
+  esac
+  while :; do
+    case "$candidate" in
+      './'*) candidate=${candidate#./} ;;
+      *) break ;;
+    esac
+  done
+  printf '%s' "$candidate"
+}
 
+resolve_path() {
+  candidate=$1
+  # Resolve symlinks when possible; otherwise keep matching the original path.
+  resolved=$(
+    if command -v realpath >/dev/null 2>&1; then
+      realpath -- "$candidate" 2>/dev/null
+    elif command -v readlink >/dev/null 2>&1; then
+      readlink -f -- "$candidate" 2>/dev/null
+    fi
+  )
+  if [ -n "$resolved" ]; then
+    printf '%s' "$resolved"
+  else
+    printf '%s' "$candidate"
+  fi
+}
+
+candidate_matches_deny() {
+  candidate=$1
   while IFS= read -r pattern || [ -n "$pattern" ]; do
     case "$pattern" in
       ''|\#*) continue ;;
@@ -255,6 +315,20 @@ matches_deny_path() {
       $pattern|*/$pattern) return 0 ;;
     esac
   done <"$DENY_READ_PATHS"
+  return 1
+}
+
+matches_deny_path() {
+  raw=$1
+  [ -f "$DENY_READ_PATHS" ] || return 1
+
+  normalized=$(normalize_path "$raw")
+  candidate_matches_deny "$normalized" && return 0
+
+  resolved=$(resolve_path "$normalized")
+  if [ "$resolved" != "$normalized" ]; then
+    candidate_matches_deny "$resolved" && return 0
+  fi
   return 1
 }
 
@@ -275,6 +349,55 @@ check_sensitive_reads() {
   done
 }
 
+deny_path_basename_pattern() {
+  # Convert the supported deny-read shell globs to POSIX ERE.
+  pattern=$1
+  py=
+  i=1
+  len=${#pattern}
+  while [ "$i" -le "$len" ]; do
+    ch=$(printf '%s' "$pattern" | cut -c"$i")
+    case "$ch" in
+      '*') py=${py}'[^[:space:]<>|;&`$()]*' ;;
+      '.'|'^'|'$'|'+'|'?'|'('|')'|'['|']'|'{'|'}'|'|'|'\\') py=${py}'\'${ch} ;;
+      '/') py=${py}'/' ;;
+      *) py=${py}${ch} ;;
+    esac
+    i=$((i + 1))
+  done
+  printf '%s' "$py"
+}
+
+bash_matches_deny_path() {
+  cmd=$1
+  [ -f "$DENY_READ_PATHS" ] || return 1
+  while IFS= read -r entry || [ -n "$entry" ]; do
+    case "$entry" in
+      ''|\#*) continue ;;
+    esac
+    converted=$(deny_path_basename_pattern "$entry")
+    [ -n "$converted" ] || continue
+    # Catch path arguments and shell words without matching substrings like myenv.
+    regex='(^|[^[:alnum:]_./~-])('${converted}'|[^[:space:]<>|;&`$()]*/'${converted}')([^[:alnum:]_.-]|$)'
+    if printf '%s\n' "$cmd" | grep -Eq "$regex"; then
+      return 0
+    fi
+  done <"$DENY_READ_PATHS"
+  return 1
+}
+
+is_git_commit_or_push() {
+  cmd=$1
+  # Allow git options before commit/push, e.g. `git -c x=y commit`.
+  printf '%s\n' "$cmd" | grep -Eq '(^|[^[:alnum:]_./-])git([[:space:]]|$)'  || return 1
+  printf '%s\n' "$cmd" | grep -Eq '(^|[^[:alnum:]_-])(commit|push)([^[:alnum:]_-]|$)'
+}
+
+is_git_hook_bypass() {
+  cmd=$1
+  printf '%s\n' "$cmd" | grep -Eq '(--no-verify|--no-gpg-sign)([^[:alnum:]_-]|$)'
+}
+
 check_bash_command() {
   input=$1
   need_jq
@@ -292,7 +415,16 @@ check_bash_command() {
     fi
   done <"$DENY_BASH_PATTERNS"
 
-  if printf '%s\n' "$cmd" | grep -Eq '(^|[^[:alnum:]_-])git[[:space:]]+(commit|push)([^[:alnum:]_-]|$)'; then
+  if bash_matches_deny_path "$cmd"; then
+    info "$PROGRAM: blocked shell command referencing a deny-listed path"
+    exit 2
+  fi
+
+  if is_git_commit_or_push "$cmd"; then
+    if is_git_hook_bypass "$cmd"; then
+      info "$PROGRAM: blocked git command that disables hooks/signing"
+      exit 2
+    fi
     scan_staged
     status=$?
     case "$status" in
@@ -349,7 +481,7 @@ hook_pre_tool() {
     Write|Edit|MultiEdit|apply_patch)
       scan_proposed_write "$input" "$tool"
       ;;
-    Read|Grep|Glob)
+    Read|NotebookRead|Grep|Glob)
       check_sensitive_reads "$input"
       ;;
     Bash)
