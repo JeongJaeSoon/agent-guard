@@ -44,14 +44,6 @@ need_cmd() {
   command -v "$1" >/dev/null 2>&1 || die "required command not found: $1"
 }
 
-need_jq() {
-  need_cmd jq
-}
-
-need_git() {
-  need_cmd git
-}
-
 need_gitleaks() {
   need_cmd gitleaks
   [ -f "$GITLEAKS_CONFIG" ] || die "gitleaks config not found: $GITLEAKS_CONFIG"
@@ -276,11 +268,7 @@ block_on_scan_status() {
 
 extract_added_lines() {
   awk '
-    /^diff --git / { next }
-    /^index / { next }
-    /^--- / { next }
-    /^\+\+\+ / { next }
-    /^@@ / { next }
+    /^(diff --git|index|---|\+\+\+|@@) / { next }
     /^\+/ { sub(/^\+/, ""); print }
   '
 }
@@ -326,7 +314,7 @@ inside_git_repo() {
 }
 
 scan_staged() {
-  need_git
+  need_cmd git
   need_gitleaks
   inside_git_repo || die "scan-staged must run inside a git work tree"
   added=$(git diff --cached --unified=0 --no-ext-diff -- . | extract_added_lines)
@@ -335,7 +323,7 @@ scan_staged() {
 }
 
 scan_untracked_files() {
-  need_git
+  need_cmd git
   need_gitleaks
   list=$(mktemp_file) || die "failed to create temp file"
   git ls-files --others --exclude-standard >"$list" || {
@@ -371,7 +359,7 @@ scan_untracked_files() {
 }
 
 scan_working_tree() {
-  need_git
+  need_cmd git
   need_gitleaks
   inside_git_repo || die "scan-working-tree must run inside a git work tree"
 
@@ -508,7 +496,7 @@ matches_deny_path() {
 
 check_sensitive_reads() {
   input=$1
-  need_jq
+  need_cmd jq
   [ -f "$DENY_READ_PATHS" ] || die "deny read policy not found: $DENY_READ_PATHS"
 
   values=$(printf '%s' "$input" | jq -r '.tool_input // {} | .. | strings')
@@ -610,9 +598,6 @@ git_option_takes_value() {
 
 is_git_global_option() {
   case "$1" in
-    --git-dir=*|--work-tree=*|--namespace=*|--exec-path=*|--config-env=*|-c*|-C*) return 0 ;;
-    --literal-pathspecs|--glob-pathspecs|--noglob-pathspecs|--icase-pathspecs) return 0 ;;
-    --no-pager|--no-replace-objects|-p|-P|--) return 0 ;;
     -*) return 0 ;;
     *) return 1 ;;
   esac
@@ -697,7 +682,7 @@ check_git_command() {
 
 check_bash_command() {
   input=$1
-  need_jq
+  need_cmd jq
   cmd=$(json_value '.tool_input.command // .tool_input.cmd // empty' "$input")
   [ -n "$cmd" ] || return 0
 
@@ -735,7 +720,7 @@ check_bash_command() {
 
 scan_mcp_input() {
   input=$1
-  need_jq
+  need_cmd jq
   text=$(printf '%s' "$input" | jq -c '.tool_input // {}')
   scan_text_direct "MCP tool input" "$text"
   block_on_scan_status "$?" "MCP tool input contains secret-like values"
@@ -744,7 +729,7 @@ scan_mcp_input() {
 scan_proposed_write() {
   input=$1
   tool=$2
-  need_jq
+  need_cmd jq
 
   case "$tool" in
     Write)
@@ -775,7 +760,7 @@ scan_proposed_write() {
 }
 
 hook_pre_tool() {
-  need_jq
+  need_cmd jq
   input=$(cat)
   [ -n "$input" ] || return 0
   tool=$(json_value '.tool_name // .tool // .name // empty' "$input")
@@ -807,7 +792,7 @@ is_mutation_tool() {
 }
 
 hook_post_tool() {
-  need_jq
+  need_cmd jq
   input=$(cat)
   [ -n "$input" ] || return 0
   tool=$(json_value '.tool_name // .tool // .name // empty' "$input")
@@ -818,7 +803,7 @@ hook_post_tool() {
 }
 
 hook_stop() {
-  need_jq
+  need_cmd jq
   input=$(cat)
   if [ -n "$input" ]; then
     active=$(json_value '.stop_hook_active // false' "$input")
