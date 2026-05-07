@@ -826,9 +826,13 @@ mock_checksums_url="file://$ROOT/tests/fixtures/gitleaks-checksums-mock.txt"
 checksum_out=$(AGENT_GUARD_GITLEAKS_CHECKSUMS_URL="$mock_checksums_url" "$ROOT/bin/agent-guard" checksum 8.30.1 2>&1)
 checksum_status=$?
 if [ "$checksum_status" -eq 0 ] \
-   && printf '%s\n' "$checksum_out" | grep -q 'sha256:' \
-   && printf '%s\n' "$checksum_out" | grep -q 'gitleaks-checksum:'; then
-  ok "checksum subcommand prints sha256 and YAML snippet from mock URL"
+   && printf '%s\n' "$checksum_out" | grep -q 'darwin/arm64:' \
+   && printf '%s\n' "$checksum_out" | grep -q 'darwin/x64:' \
+   && printf '%s\n' "$checksum_out" | grep -q 'linux/arm64:' \
+   && printf '%s\n' "$checksum_out" | grep -q 'linux/x64:' \
+   && printf '%s\n' "$checksum_out" | grep -q 'gitleaks-checksum:' \
+   && printf '%s\n' "$checksum_out" | grep -q 'agent-guard setup --install'; then
+  ok "checksum subcommand prints all four platforms with paste-ready snippets"
 else
   not_ok "checksum subcommand mock fetch failed (exit $checksum_status)"
   printf '%s\n' "$checksum_out" | sed 's/^/  /'
