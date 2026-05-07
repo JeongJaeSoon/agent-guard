@@ -524,6 +524,23 @@ else
   sed 's/^/  stderr: /' /tmp/agent-guard-test.err
 fi
 
+# --- deny-bash-patterns fail-closed on invalid ERE -------------------------
+# Regression guard: an invalid line in a custom deny file must NOT silently
+# disable the rest of the policy. The combined `grep -f` exits with status 2,
+# which we translate to a hard block instead of treating it as "no match".
+BAD_PATTERNS_FILE="$TMP_ROOT/bad-deny-bash.txt"
+printf '%s\n' '[unterminated-bracket' >"$BAD_PATTERNS_FILE"
+printf '%s' '{"tool_name":"Bash","tool_input":{"command":"echo hi"}}' \
+  | AGENT_GUARD_DENY_BASH_PATTERNS="$BAD_PATTERNS_FILE" \
+    "$ROOT/bin/agent-guard" hook-pre-tool >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "deny-bash-patterns invalid ERE fails closed"
+else
+  not_ok "deny-bash-patterns invalid ERE fails closed (expected 2, got $status)"
+  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+fi
+
 # --- gitleaks not installed -----------------------------------------------
 
 NO_GITLEAKS_BIN="$TMP_ROOT/no-gitleaks-bin"

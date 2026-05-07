@@ -27,7 +27,7 @@ Defense-in-depth is best, but a single channel still meaningfully reduces risk. 
 
 No Python, Node, npm hook manager, Docker, Go/Rust runtime, skills, prompts, or reporting layer is required.
 
-`make doctor` prints the installed `gitleaks` version alongside the dependency check.
+`make check` prints the installed `gitleaks` version alongside the dependency check.
 
 ## Commands
 
@@ -59,7 +59,6 @@ make install       # ./install.sh git-hooks
 make test          # tests/run.sh
 make scan          # bin/agent-guard scan-working-tree
 make scan-staged   # bin/agent-guard scan-staged
-make doctor        # check + installed gitleaks version
 make checksum      # how to pin a gitleaks-checksum for CI
 ```
 
