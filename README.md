@@ -69,7 +69,7 @@ That's it. From here, every `Read`, `Write`, `Edit`, `Bash`, and MCP tool call g
 /plugin install JeongJaeSoon/agent-guard@latest
 ```
 
-Restart Codex so the hooks load.
+Restart Codex so the hooks load. Codex does not auto-discover the `commands/` directory, so `/agent-guard:checksum` and `/agent-guard:verify` are not available — ask Codex to run `${CODEX_PLUGIN_ROOT}/bin/agent-guard checksum` (or `scan-working-tree`) directly when you need them.
 
 ### GitHub Actions
 
@@ -85,7 +85,20 @@ Restart Codex so the hooks load.
 - `@v1.1.2` — pin to a specific release for fully reproducible CI
 - `@<full-commit-sha>` — pin to a commit for the strictest security posture
 
-**Filling in `gitleaks-checksum`:** run [`agent-guard checksum [VERSION]`](#fetching-a-gitleaks-checksum) (or [`/agent-guard:checksum`](#slash-commands) inside Claude Code) — it prints the value pre-formatted for paste. Use `require-checksum: "false"` only for local experimentation; never in production CI.
+**Filling in `gitleaks-checksum`:** the helper prints the linux/x64 value pre-formatted for paste. Pick the path that matches what you have on hand:
+
+```sh
+# (a) inside Claude Code (after plugin install)
+/agent-guard:checksum
+
+# (b) with agent-guard on disk (Direct CLI install or clone)
+agent-guard checksum
+
+# (c) no install — one-liner suitable for adoption-time:
+curl -fsSL https://raw.githubusercontent.com/JeongJaeSoon/agent-guard/v1/scripts/gitleaks-checksum.sh | sh
+```
+
+Use `require-checksum: "false"` only for local experimentation; never in production CI.
 
 ### Direct CLI install (no clone)
 
@@ -127,13 +140,13 @@ agent-guard setup --install \
   [--gitleaks-version 8.30.1]
 ```
 
-The checksum is required. The fastest way to get it: run [`agent-guard checksum [VERSION]`](#fetching-a-gitleaks-checksum) — it auto-detects your OS / arch and prints the right value, formatted for both `--gitleaks-checksum` (CLI) and `gitleaks-checksum:` (GitHub Actions YAML).
+The checksum is required. The fastest way to get it: run [`agent-guard checksum [VERSION]`](#fetching-a-gitleaks-checksum) — it prints every supported OS / arch with paste-ready snippets for both `--gitleaks-checksum` (CLI) and `gitleaks-checksum:` (GitHub Actions YAML).
 
 `jq` is never auto-installed; `setup` prints the right `brew` / `apt-get` / `dnf` command for your OS.
 
 ### Fetching a `gitleaks-checksum`
 
-Looking up the right sha256 by hand is the most common chore around dependency setup. The bundled helper does it for you:
+Looking up the right sha256 by hand is the most common chore around dependency setup. The bundled helper does it for you and prints every supported platform — so the value is correct regardless of where you run it from (e.g. on macOS for a Linux CI runner).
 
 ```sh
 agent-guard checksum             # uses the version pinned in action.yml (8.30.1)
@@ -143,21 +156,29 @@ agent-guard checksum 8.30.0      # specific version
 Output (paste-ready):
 
 ```
-gitleaks v8.30.1 — darwin/arm64
+gitleaks v8.30.1 — sha256 by OS/arch
 
-sha256: <hex>
+  darwin/arm64: <hex-a>   <- this machine
+  darwin/x64:   <hex-b>
+  linux/arm64:  <hex-c>
+  linux/x64:    <hex-d>
 
-GitHub Actions workflow:
-  gitleaks-checksum: "<hex>"
+GitHub Actions workflow (CI runners are typically linux/x64):
+  gitleaks-checksum: "<hex-d>"
 
-agent-guard setup CLI:
-  agent-guard setup --install --gitleaks-checksum <hex> --gitleaks-version 8.30.1
+agent-guard setup CLI (this machine: darwin/arm64):
+  agent-guard setup --install --gitleaks-checksum <hex-a> --gitleaks-version 8.30.1
 ```
 
-Equivalent surfaces:
-- `/agent-guard:checksum [VERSION]` — Claude Code slash command (calls the same script under the plugin path)
-- `make checksum [VERSION=X.Y.Z]` — from a clone
-- `scripts/gitleaks-checksum.sh [VERSION]` — direct script invocation
+Equivalent surfaces — pick whichever matches your channel:
+
+| You have | How to invoke |
+|---|---|
+| Claude Code plugin | `/agent-guard:checksum [VERSION]` (slash command, calls the same script under the plugin path) |
+| Codex plugin | Ask Codex to run `${CODEX_PLUGIN_ROOT}/bin/agent-guard checksum [VERSION]` (no automatic slash command) |
+| Direct CLI install / Native hook (binary on PATH) | `agent-guard checksum [VERSION]` |
+| Clone of this repo | `make checksum [VERSION=X.Y.Z]` or `scripts/gitleaks-checksum.sh [VERSION]` |
+| Nothing installed yet (e.g. preparing a GitHub Actions workflow) | `curl -fsSL https://raw.githubusercontent.com/JeongJaeSoon/agent-guard/v1/scripts/gitleaks-checksum.sh \| sh` (pin to `v1.1.2` or a full SHA for stricter reproducibility) |
 
 ### Without `agent-guard` on disk (Claude Code / Codex plugin only)
 
@@ -169,7 +190,7 @@ The plugin install does not place a binary on the filesystem — install depende
 | Debian / Ubuntu | `sudo apt-get install -y jq` &nbsp;+ download `gitleaks` from its [releases page](https://github.com/gitleaks/gitleaks/releases) |
 | Fedora | `sudo dnf install -y jq` &nbsp;+ download `gitleaks` from its [releases page](https://github.com/gitleaks/gitleaks/releases) |
 
-After dependencies are in place, run `/reload-plugins` in Claude Code (or restart Codex) and re-run the smoke test. Plugin users can still reach the [`/agent-guard:checksum`](#fetching-a-gitleaks-checksum) helper from inside their session — no PATH binary required.
+After dependencies are in place, run `/reload-plugins` in Claude Code (or restart Codex) and re-run the smoke test. Plugin users can still reach the [`gitleaks-checksum` helper](#fetching-a-gitleaks-checksum) from inside their session — no PATH binary required (Claude Code: `/agent-guard:checksum`; Codex: ask the agent to run `${CODEX_PLUGIN_ROOT}/bin/agent-guard checksum`).
 
 ## Verify the install
 
@@ -212,7 +233,7 @@ bin/agent-guard scan-working-tree
 bin/agent-guard scan-path PATH...
 bin/agent-guard check              # dependency / gitleaks version check
 bin/agent-guard setup              # report dependency status; --install opts in to gitleaks download
-bin/agent-guard checksum [VERSION] # fetch the gitleaks-checksum for your OS/arch
+bin/agent-guard checksum [VERSION] # fetch the gitleaks-checksum for every supported OS/arch
 bin/agent-guard version
 ```
 
@@ -221,7 +242,7 @@ bin/agent-guard version
 | Command | What it does |
 |---|---|
 | `/agent-guard:verify` | One-shot deterministic secret scan over the working tree (staged + unstaged + untracked). Claude Code only. |
-| `/agent-guard:checksum [VERSION]` | Fetch the gitleaks release sha256 for your OS / arch and emit paste-ready snippets for both GitHub Actions YAML and `agent-guard setup --install`. Claude Code only. |
+| `/agent-guard:checksum [VERSION]` | Fetch the gitleaks release sha256 for every supported OS / arch and emit paste-ready snippets for both GitHub Actions YAML and `agent-guard setup --install`. Claude Code only — Codex / GitHub Action / no-install paths are listed in [Fetching a gitleaks-checksum](#fetching-a-gitleaks-checksum). |
 
 ### Exit codes
 
@@ -240,7 +261,7 @@ make install       # ./install.sh git-hooks
 make test          # tests/run.sh
 make scan          # bin/agent-guard scan-working-tree
 make scan-staged   # bin/agent-guard scan-staged
-make checksum      # fetch the gitleaks-checksum for your OS/arch (override with VERSION=X.Y.Z)
+make checksum      # fetch the gitleaks-checksum for every supported OS/arch (override with VERSION=X.Y.Z)
 ```
 
 `tests/run.sh` uses a mock `gitleaks` to validate routing without downloading dependencies. With real `gitleaks` installed, `bin/agent-guard scan-path .` does a full scan.
