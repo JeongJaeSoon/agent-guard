@@ -1,17 +1,31 @@
 # Agent Guard
 
-Agent Guard inserts deterministic secret-scanning checks into AI coding agent hooks, native Git hooks, and GitHub Actions.
+[![Release](https://img.shields.io/github/v/release/JeongJaeSoon/agent-guard)](https://github.com/JeongJaeSoon/agent-guard/releases)
+[![CI](https://github.com/JeongJaeSoon/agent-guard/actions/workflows/ci.yml/badge.svg)](https://github.com/JeongJaeSoon/agent-guard/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+> Deterministic secret-scanning guardrails for AI coding agents, native Git hooks, and GitHub Actions.
+
+Agent Guard intercepts AI coding agents (Claude Code, Codex) before they read sensitive files, propose writes containing secrets, or run risky shell commands — and re-scans the working tree after every change. Backed by [gitleaks](https://github.com/gitleaks/gitleaks); no Python, Node, Docker, or vault account required.
+
+```text
+> Please read .env to set up the project
+
+agent-guard: blocked sensitive file access: .env
+```
 
 It is a thin layer — not a vault, not a credential rotator, not a replacement for GitHub Secret Scanning and Push Protection.
 
 ## Contents
 
-- [Channels](#channels) — pick which one(s) to use
-- [Install](#install) — Claude Code, Codex, GitHub Actions, Direct CLI, Native Git hook
-- [Verify](#verify-your-install)
+- [Channels](#channels) — pick which integration(s) to use
+- [Quick start (Claude Code)](#quick-start-claude-code) — 3 commands, ~1 minute
+- [Install other channels](#install-other-channels) — Codex, GitHub Actions, Direct CLI, Native Git hook
+- [Dependencies & setup](#dependencies--setup) — check `jq` / `gitleaks`, auto-install, troubleshoot
+- [Verify the install](#verify-the-install)
 - [What it catches](#what-it-catches)
 - [Configuration](#configuration)
-- [Reference](#reference) — CLI subcommands, slash commands, exit codes
+- [Reference](#reference)
 - [Development](#development)
 
 ## Channels
@@ -25,18 +39,29 @@ Pick one or more — they don't chain. Each row lists what that channel alone ca
 | GitHub Action | Secrets in any tracked file on a PR/push. | Anything that already merged before the workflow ran. |
 | Direct CLI (`bin/agent-guard scan-*`) | Whatever you point it at, on demand. | Anything outside the invocation. |
 
-## Install
+## Quick start (Claude Code)
 
-**Prerequisites**: `sh`, `git`, `jq`, [`gitleaks`](https://github.com/gitleaks/gitleaks) (>= 8.30 recommended) on macOS or Linux.
+**Prerequisites**: `git`, `jq`, `gitleaks` (>= 8.30 recommended) on macOS or Linux. Missing something? Jump to [Dependencies & setup](#dependencies--setup) — `agent-guard setup` will tell you exactly what to install.
 
-### Claude Code
+1. **Install the plugin and reload**:
 
-```text
-/plugin marketplace add JeongJaeSoon/agent-guard
-/plugin install agent-guard@latest
-```
+   ```text
+   /plugin marketplace add JeongJaeSoon/agent-guard
+   /plugin install agent-guard@latest
+   /reload-plugins
+   ```
 
-Run `/reload-plugins` (or restart your Claude Code session) so the hooks load.
+2. **Smoke-test** by asking the agent to read `.env`. The hook should block it:
+
+   ```text
+   agent-guard: blocked sensitive file access: .env
+   ```
+
+   If the read goes through silently, see [Dependencies & setup](#dependencies--setup) — `gitleaks` is most likely missing.
+
+That's it. From here, every `Read`, `Write`, `Edit`, `Bash`, and MCP tool call goes through the guard.
+
+## Install other channels
 
 ### Codex
 
@@ -65,8 +90,6 @@ curl -fsSL https://github.com/JeongJaeSoon/agent-guard/releases/latest/download/
 
 The script downloads the latest release, verifies its sha256, extracts to `~/.agent-guard`, symlinks `~/.local/bin/agent-guard`, and runs `agent-guard setup` to report dependency status. Override with `AGENT_GUARD_VERSION`, `AGENT_GUARD_HOME`, or `AGENT_GUARD_BIN_DIR`.
 
-`agent-guard setup` is opt-in: nothing is installed by default. If `gitleaks` is missing it prints the exact `--install` command (which requires `--gitleaks-checksum SHA`). `jq` is left to your system package manager.
-
 ### Native Git hook
 
 Requires `agent-guard` on disk. The Claude Code / Codex plugin install does **not** place a binary on the filesystem, so use Direct CLI install or a clone first:
@@ -80,14 +103,47 @@ cd <your-project>
 
 Sets `core.hooksPath=githooks` only when it will not overwrite an existing setup. No Husky / npm hook manager required.
 
-## Verify your install
+## Dependencies & setup
+
+Agent Guard requires `sh`, `git`, `jq`, and `gitleaks` (>= 8.30 recommended) on macOS or Linux. The right setup path depends on whether you have the `agent-guard` binary on disk.
+
+### With `agent-guard` on disk (Direct CLI install or clone)
+
+```sh
+agent-guard check       # strict pass/fail (exit 2 if anything is missing)
+agent-guard setup       # per-dependency status with install hints
+```
+
+`agent-guard setup` is opt-in: by default it only reports status, never installs. To download `gitleaks` automatically with checksum verification:
+
+```sh
+agent-guard setup --install \
+  --gitleaks-checksum <sha256-from-published-checksums.txt> \
+  [--gitleaks-version 8.30.1]
+```
+
+The checksum is required — fetch it from `https://github.com/gitleaks/gitleaks/releases/download/v${version}/gitleaks_${version}_checksums.txt`. `jq` is never auto-installed; `setup` prints the right `brew` / `apt-get` / `dnf` command for your OS.
+
+### Without `agent-guard` on disk (Claude Code / Codex plugin only)
+
+The plugin install does not place a binary on the filesystem — install dependencies with your package manager:
+
+| OS | Command |
+|---|---|
+| macOS | `brew install jq gitleaks` |
+| Debian / Ubuntu | `sudo apt-get install -y jq` &nbsp;+ download `gitleaks` from its [releases page](https://github.com/gitleaks/gitleaks/releases) |
+| Fedora | `sudo dnf install -y jq` &nbsp;+ download `gitleaks` from its [releases page](https://github.com/gitleaks/gitleaks/releases) |
+
+After dependencies are in place, run `/reload-plugins` in Claude Code (or restart Codex) and re-run the smoke test.
+
+## Verify the install
 
 | Channel | How to verify |
 |---|---|
-| Claude Code | `/plugin list` should show `agent-guard`. Run `/agent-guard:verify` for a one-shot working-tree scan, or smoke-test the hook by asking the agent to read a deny-listed file (e.g. "read `.env`") — it should be blocked with `blocked sensitive file access: .env`. |
+| Claude Code | `/plugin list` should show `agent-guard`. Run `/agent-guard:verify` for a one-shot working-tree scan, or smoke-test the hook by asking the agent to read `.env` (should be blocked with `blocked sensitive file access: .env`). |
 | Codex | Smoke-test by asking the agent to read `.env`; it should be blocked. (`/agent-guard:verify` is Claude Code only — fall back to `agent-guard scan-working-tree` directly.) |
-| GitHub Actions | A workflow run reporting either "no findings" or a deliberate finding (PR you crafted with a fake high-entropy secret) confirms the channel is wired. |
-| Direct CLI install | `agent-guard check` for a strict pass/fail; `agent-guard setup` for a per-dependency status report. |
+| GitHub Actions | A workflow run reporting either "no findings" or a deliberate finding (PR you crafted with a fake high-entropy secret) confirms it. |
+| Direct CLI install | `agent-guard check` for a strict pass/fail. |
 | Cloned repo | `./install.sh check` or `make check`. |
 
 ## What it catches
@@ -106,7 +162,7 @@ Patch and diff scans inspect added lines only — removing an existing leaked va
 Override the bundled policies via environment variables:
 
 - `AGENT_GUARD_GITLEAKS_CONFIG` — gitleaks rules (default: `config/gitleaks.toml`)
-- `AGENT_GUARD_DENY_READ_PATHS` — deny-list for `Read`/`NotebookRead`/`Grep`/`Glob` (default: `config/deny-read-paths.txt`)
+- `AGENT_GUARD_DENY_READ_PATHS` — deny-list for `Read` / `NotebookRead` / `Grep` / `Glob` (default: `config/deny-read-paths.txt`)
 - `AGENT_GUARD_DENY_BASH_PATTERNS` — deny-list for `Bash` (default: `config/deny-bash-patterns.txt`)
 
 Project-local `.gitleaks.toml` files are not automatically trusted.
@@ -124,8 +180,6 @@ bin/agent-guard setup        # report dependency status; --install opts in to gi
 bin/agent-guard version
 ```
 
-`setup --install --gitleaks-checksum SHA [--gitleaks-version X.Y.Z]` downloads `gitleaks` to `~/.agent-guard/bin/`. The checksum must match the published value at `https://github.com/gitleaks/gitleaks/releases/download/vX.Y.Z/gitleaks_X.Y.Z_checksums.txt`. `jq` is never auto-installed.
-
 ### Slash commands
 
 | Command | What it does |
@@ -134,9 +188,9 @@ bin/agent-guard version
 
 ### Exit codes
 
-- `0`: clean / allow
-- `1`: findings (direct scan commands)
-- `2`: block agent hook action or signal usage / dependency failure
+- `0` — clean / allow
+- `1` — findings (direct scan commands)
+- `2` — block agent hook action or signal usage / dependency failure
 
 (Hook entry points `hook-pre-tool`, `hook-post-tool`, and `hook-stop` are invoked by Claude Code, Codex, or Git via `hooks/hooks.json` — not by users directly.)
 
@@ -152,4 +206,4 @@ make scan-staged   # bin/agent-guard scan-staged
 make checksum      # how to pin a gitleaks-checksum for CI
 ```
 
-Run `tests/run.sh` for the test suite — it uses a mock `gitleaks` to validate routing without downloading dependencies. With real `gitleaks` installed, `bin/agent-guard scan-path .` does a full scan.
+`tests/run.sh` uses a mock `gitleaks` to validate routing without downloading dependencies. With real `gitleaks` installed, `bin/agent-guard scan-path .` does a full scan.
