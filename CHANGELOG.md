@@ -1,0 +1,8 @@
+## v1.0.1 - 2026-05-07
+
+- chore(release): add automated release workflow (#5)
+- simplify: remove scan_text_hook, fix sub-shell exit, drop make doctor, optimize deny-pattern checks (#4)
+- chore: usability and robustness pass (#3)
+- [codex] Add CI and clean public-readiness scan noise (#2)
+- Harden against Bash/path bypass, Codex patch parsing, symlink, and action injection (#1)
+
