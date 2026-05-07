@@ -94,6 +94,20 @@ for file in \
   run_expect 0 "json syntax: $file" jq -e . "$file"
 done
 
+for event in PreToolUse PostToolUse; do
+  canonical=$(jq -r ".hooks.${event}[0].matcher" "$ROOT/hooks/hooks.json")
+  for file in \
+    "$ROOT/examples/claude/settings.project.json" \
+    "$ROOT/examples/codex/hooks.json"; do
+    actual=$(jq -r ".hooks.${event}[0].matcher" "$file")
+    if [ "$actual" = "$canonical" ]; then
+      ok "$event matcher in $file matches hooks/hooks.json"
+    else
+      not_ok "$event matcher in $file matches hooks/hooks.json (got: $actual)"
+    fi
+  done
+done
+
 expect_json_status 2 "Claude Write secret is blocked" \
   '{"tool_name":"Write","tool_input":{"file_path":"app.txt","content":"AGENT_GUARD_TEST_SECRET"}}' \
   hook-pre-tool
@@ -156,6 +170,10 @@ expect_json_status 2 "bare env is blocked" \
 
 expect_json_status 2 "git --no-verify is blocked" \
   '{"tool_name":"Bash","tool_input":{"command":"git commit --no-verify -m x"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "git word plus commit text is not treated as git commit" \
+  '{"tool_name":"Bash","tool_input":{"command":"git status && echo commit"}}' \
   hook-pre-tool
 
 expect_json_status 2 "Read on tilde-path .env is blocked" \
@@ -258,6 +276,36 @@ else
   not_ok "git -C option-form push with staged secret is intercepted (expected 2, got $status)"
   sed 's/^/  stderr: /' /tmp/agent-guard-test.err
 fi
+
+(
+  cd "$TEST_REPO" || exit 2
+  printf '%s' '{"tool_name":"Bash","tool_input":{"command":"git status && git -C . push origin main"}}' \
+    | "$ROOT/bin/agent-guard" hook-pre-tool >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+)
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "chained git push after non-mutating git command is intercepted"
+else
+  not_ok "chained git push after non-mutating git command is intercepted (expected 2, got $status)"
+  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+fi
+
+(
+  cd "$TEST_REPO" || exit 2
+  printf '%s' '{"tool_name":"Bash","tool_input":{"command":"git status&&git -C . push origin main"}}' \
+    | "$ROOT/bin/agent-guard" hook-pre-tool >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+)
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "chained git push without separator spaces is intercepted"
+else
+  not_ok "chained git push without separator spaces is intercepted (expected 2, got $status)"
+  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+fi
+
+expect_json_status 2 "git hook bypass without separator spaces is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"git commit --no-verify&&echo done"}}' \
+  hook-pre-tool
 
 SYMLINK_REPO="$TMP_ROOT/symlink-repo"
 mkdir -p "$SYMLINK_REPO"
@@ -614,9 +662,9 @@ if [ -n "$REAL_GITLEAKS" ]; then
   REAL_DIRTY_DIR="$TMP_ROOT/real-dirty-dir"
   mkdir -p "$REAL_DIRTY_DIR"
   {
-    printf '%s\n' '-----BEGIN RSA PRIVATE KEY-----'
+    printf '%s%s\n' '-----BEGIN RSA ' 'PRIVATE KEY-----'
     printf '%s\n' 'MIIEpAIBAAKCAQEAwH6yqpN5f7c7k4KQkKtQ3Rvy9zfrlWvLq8Vbkg=='
-    printf '%s\n' '-----END RSA PRIVATE KEY-----'
+    printf '%s%s\n' '-----END RSA ' 'PRIVATE KEY-----'
   } > "$REAL_DIRTY_DIR/key.pem"
   PATH="$(dirname "$REAL_GITLEAKS"):$ORIGINAL_PATH" "$ROOT/bin/agent-guard" scan-path "$REAL_DIRTY_DIR" >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
   status=$?
