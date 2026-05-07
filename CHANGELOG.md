@@ -1,3 +1,7 @@
+## v1.1.1 - 2026-05-07
+
+- fix(bootstrap): follow redirects when resolving latest version (#19)
+
 ## v1.1.0 - 2026-05-07
 
 - Revert "chore(release): v1.1.0 (#15)" (#17)
