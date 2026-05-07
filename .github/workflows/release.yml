@@ -1,0 +1,170 @@
+name: release
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "major | minor | patch"
+        required: true
+        default: patch
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+      dry_run:
+        description: "Open the release PR but skip merge / tag / publish"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Compute next version
+        id: ver
+        run: |
+          set -euo pipefail
+          cur=$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || echo 0.0.0)
+          IFS=. read -r MA MI PA <<<"$cur"
+          case "${{ inputs.bump }}" in
+            major) MA=$((MA+1)); MI=0; PA=0 ;;
+            minor) MI=$((MI+1)); PA=0 ;;
+            patch) PA=$((PA+1)) ;;
+          esac
+          v="${MA}.${MI}.${PA}"
+          echo "version=$v"           >> "$GITHUB_OUTPUT"
+          echo "major=v${MA}"         >> "$GITHUB_OUTPUT"
+          echo "branch=release/v${v}" >> "$GITHUB_OUTPUT"
+          echo "previous=${cur}"      >> "$GITHUB_OUTPUT"
+
+      - name: Guard against duplicate release
+        run: |
+          set -euo pipefail
+          if git rev-parse "v${{ steps.ver.outputs.version }}" >/dev/null 2>&1; then
+            echo "tag v${{ steps.ver.outputs.version }} already exists - aborting"
+            exit 1
+          fi
+
+      - name: Bump version in tracked files
+        run: |
+          set -euo pipefail
+          v="${{ steps.ver.outputs.version }}"
+          for f in .claude-plugin/plugin.json .codex-plugin/plugin.json; do
+            jq --arg v "$v" '.version=$v' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
+          done
+          # Replace any pinned semver in README install snippets (no-op if none).
+          sed -i -E "s|agent-guard@[0-9]+\.[0-9]+\.[0-9]+|agent-guard@${v}|g" README.md
+
+      - name: Build CHANGELOG entry
+        run: |
+          set -euo pipefail
+          v="${{ steps.ver.outputs.version }}"
+          last=$(git describe --tags --abbrev=0 2>/dev/null || git rev-list --max-parents=0 HEAD)
+          {
+            echo "## v${v} - $(date +%F)"
+            echo
+            git log "${last}..HEAD" --pretty='- %s' || true
+            echo
+            if [ -f CHANGELOG.md ]; then
+              cat CHANGELOG.md
+            fi
+          } > CHANGELOG.new
+          mv CHANGELOG.new CHANGELOG.md
+
+      - name: Open release PR
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          v="${{ steps.ver.outputs.version }}"
+          br="${{ steps.ver.outputs.branch }}"
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$br"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "no changes to commit - aborting"
+            exit 1
+          fi
+          git commit -m "chore(release): v${v}"
+          git push -u origin "$br"
+          printf -v body 'Automated release PR for v%s.\n\nTriggered by @%s via workflow_dispatch.\nPrevious tag: %s\nBump: %s\nDry run: %s\n' \
+            "$v" \
+            "${{ github.actor }}" \
+            "${{ steps.ver.outputs.previous }}" \
+            "${{ inputs.bump }}" \
+            "${{ inputs.dry_run }}"
+          url=$(gh pr create \
+            --title "release: v${v}" \
+            --body "$body" \
+            --label release \
+            --base main --head "$br")
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "Opened: $url"
+
+      - name: Auto-merge release PR
+        if: ${{ !inputs.dry_run }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr merge "${{ steps.pr.outputs.url }}" --squash --delete-branch --auto
+
+      - name: Wait for PR to merge
+        if: ${{ !inputs.dry_run }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 60); do
+            state=$(gh pr view "${{ steps.pr.outputs.url }}" --json state -q .state)
+            echo "attempt $i: state=$state"
+            if [ "$state" = "MERGED" ]; then
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "PR did not merge within 10 minutes"
+          exit 1
+
+      - name: Tag and publish release
+        if: ${{ !inputs.dry_run }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          v="${{ steps.ver.outputs.version }}"
+          maj="${{ steps.ver.outputs.major }}"
+          git fetch origin main
+          git checkout main
+          git pull --ff-only origin main
+
+          git tag "v${v}"
+          git tag -f "${maj}"
+          git push origin "v${v}"
+          git push origin "${maj}" --force
+
+          tar --exclude='./.git' --exclude='./tests' \
+              -czf "agent-guard-${v}.tar.gz" .
+          sha256sum "agent-guard-${v}.tar.gz" > "agent-guard-${v}.tar.gz.sha256"
+
+          gh release create "v${v}" \
+            --title "Agent Guard v${v}" \
+            --generate-notes \
+            "agent-guard-${v}.tar.gz" \
+            "agent-guard-${v}.tar.gz.sha256" \
+            install.sh
