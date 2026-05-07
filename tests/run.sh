@@ -290,6 +290,23 @@ else
   sed 's/^/  stderr: /' /tmp/agent-guard-test.err
 fi
 
+(
+  cd "$TEST_REPO" || exit 2
+  printf '%s' '{"tool_name":"Bash","tool_input":{"command":"git status&&git -C . push origin main"}}' \
+    | "$ROOT/bin/agent-guard" hook-pre-tool >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+)
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "chained git push without separator spaces is intercepted"
+else
+  not_ok "chained git push without separator spaces is intercepted (expected 2, got $status)"
+  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+fi
+
+expect_json_status 2 "git hook bypass without separator spaces is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"git commit --no-verify&&echo done"}}' \
+  hook-pre-tool
+
 SYMLINK_REPO="$TMP_ROOT/symlink-repo"
 mkdir -p "$SYMLINK_REPO"
 (

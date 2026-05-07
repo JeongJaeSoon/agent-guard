@@ -400,6 +400,34 @@ is_shell_command_separator() {
   esac
 }
 
+shell_command_words() {
+  printf '%s\n' "$1" | awk '
+    {
+      out = ""
+      for (i = 1; i <= length($0); i++) {
+        c = substr($0, i, 1)
+        n = substr($0, i + 1, 1)
+        if (c == "&" && n == "&") {
+          out = out " && "
+          i++
+          continue
+        }
+        if (c == "|" && n == "|") {
+          out = out " || "
+          i++
+          continue
+        }
+        if (c == ";" || c == "|") {
+          out = out " " c " "
+          continue
+        }
+        out = out c
+      }
+      print out
+    }
+  '
+}
+
 git_option_takes_value() {
   case "$1" in
     -c|-C|--git-dir|--work-tree|--namespace|--exec-path|--config-env) return 0 ;;
@@ -421,8 +449,9 @@ is_git_commit_or_push() {
   cmd=$1
   (
     set -f
+    words=$(shell_command_words "$cmd")
     # shellcheck disable=SC2086
-    set -- $cmd
+    set -- $words
 
     command_start=1
     while [ "$#" -gt 0 ]; do
@@ -466,8 +495,9 @@ is_git_hook_bypass() {
   cmd=$1
   (
     set -f
+    words=$(shell_command_words "$cmd")
     # shellcheck disable=SC2086
-    set -- $cmd
+    set -- $words
 
     while [ "$#" -gt 0 ]; do
       token=$1
