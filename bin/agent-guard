@@ -65,6 +65,10 @@ check_deps() {
   [ -f "$DENY_READ_PATHS" ] || die "deny read policy not found: $DENY_READ_PATHS"
   [ -f "$DENY_BASH_PATTERNS" ] || die "deny bash policy not found: $DENY_BASH_PATTERNS"
   info "$PROGRAM: dependencies ok"
+  gl_version=$(gitleaks version 2>/dev/null | head -1)
+  if [ -n "$gl_version" ]; then
+    info "$PROGRAM: gitleaks $gl_version (>= 8.30 recommended)"
+  fi
 }
 
 mktemp_file() {
@@ -187,20 +191,31 @@ scan_untracked_files() {
     die "failed to list untracked files"
   }
 
-  result=0
+  # Stream every untracked file through a single gitleaks stdin call.
+  # The "### file: <path>" header lets a finding's surrounding context
+  # still indicate which file produced it, while keeping the gitleaks
+  # process count at O(1) instead of O(N) per untracked file.
+  blob=$(mktemp_file) || { rm -f "$list"; die "failed to create temp file"; }
+  any=0
   while IFS= read -r path; do
     [ -n "$path" ] || continue
     [ -f "$path" ] || continue
-    run_gitleaks_stdin "untracked file: $path" <"$path"
-    status=$?
-    case "$status" in
-      0) ;;
-      1) [ "$result" -eq 0 ] && result=1 ;;
-      *) result=2 ;;
-    esac
+    any=1
+    printf '### file: %s\n' "$path" >>"$blob"
+    cat -- "$path" >>"$blob"
+    printf '\n' >>"$blob"
   done <"$list"
   rm -f "$list"
-  return "$result"
+
+  if [ "$any" -eq 0 ]; then
+    rm -f "$blob"
+    return 0
+  fi
+
+  run_gitleaks_stdin "untracked files" <"$blob"
+  status=$?
+  rm -f "$blob"
+  return "$status"
 }
 
 scan_working_tree() {

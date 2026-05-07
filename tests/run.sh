@@ -13,6 +13,12 @@ PATH="$MOCK_BIN:$PATH"
 export PATH
 export AGENT_GUARD_GITLEAKS_CONFIG="$ROOT/config/gitleaks.toml"
 
+# Isolate git from the developer's global config so inherited values like
+# core.hooksPath or init.templateDir cannot leak into freshly-initialised
+# repos and silently invalidate the install.sh safety tests.
+export GIT_CONFIG_GLOBAL=/dev/null
+export GIT_CONFIG_SYSTEM=/dev/null
+
 pass=0
 fail=0
 
@@ -658,20 +664,94 @@ else
   sed 's/^/  stderr: /' /tmp/agent-guard-test.err
 fi
 
+# --- Codex full-payload routing -------------------------------------------
+# Lock the contract against openai/codex's pre-tool-use input schema:
+# event keys are PascalCase, payload keys are snake_case, and unknown keys
+# (model, permission_mode, session_id, …) must not break routing.
+expect_json_status 2 "Codex full-payload Bash on .env is blocked" \
+  '{"cwd":"/tmp","hook_event_name":"PreToolUse","model":"gpt-5","permission_mode":"default","session_id":"s1","tool_input":{"command":"cat .env"},"tool_name":"Bash","tool_use_id":"u1","transcript_path":null,"turn_id":"t1"}' \
+  hook-pre-tool
+
+# --- Untracked single-shot scan -------------------------------------------
+SHOT_REPO="$TMP_ROOT/shot-repo"
+mkdir -p "$SHOT_REPO"
+(
+  cd "$SHOT_REPO" || exit 2
+  git init -q
+  git config user.email t@e
+  git config user.name t
+  printf 'ok\n' > README.md
+  git add README.md
+  git commit -q -m init
+  for i in 1 2 3 4 5; do
+    printf 'lorem ipsum %d\n' "$i" > "untracked_$i.txt"
+  done
+  printf 'AGENT_GUARD_TEST_SECRET\n' >> untracked_3.txt
+  "$ROOT/bin/agent-guard" scan-working-tree >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+)
+status=$?
+if [ "$status" -eq 1 ]; then
+  ok "scan-working-tree single-shot detects a secret among 5 untracked files"
+else
+  not_ok "scan-working-tree single-shot detects a secret among 5 untracked files (expected 1, got $status)"
+  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+fi
+if grep -q 'untracked files' /tmp/agent-guard-test.err; then
+  ok "single-shot scan reports an 'untracked files' label"
+else
+  not_ok "single-shot scan reports an 'untracked files' label"
+  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+fi
+
+# --- agent-guard check announces gitleaks version ------------------------
+"$ROOT/bin/agent-guard" check >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+if grep -q 'gitleaks' /tmp/agent-guard-test.err; then
+  ok "check prints a gitleaks version line"
+else
+  not_ok "check prints a gitleaks version line"
+  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+fi
+
 if [ -n "$REAL_GITLEAKS" ]; then
-  REAL_DIRTY_DIR="$TMP_ROOT/real-dirty-dir"
-  mkdir -p "$REAL_DIRTY_DIR"
+  # Synthetic PEM fixtures: gitleaks default rules match on the BEGIN/END
+  # headers, so the body content is irrelevant for detection. We split the
+  # header literal across two printf arguments so this script itself never
+  # contains "BEGIN <KIND> PRIVATE KEY-----" on a single line — that keeps
+  # the test source clean to upstream secret scanners. The body is an
+  # obvious placeholder string ("...AGENT-GUARD-FIXTURE-NEVER-A-REAL-KEY...")
+  # so a casual reader cannot mistake it for a leaked key.
+  PEM_BODY='AGENT-GUARD-FIXTURE-NEVER-A-REAL-KEY'
+  PEM_BODY="${PEM_BODY}-${PEM_BODY}-${PEM_BODY}-${PEM_BODY}"
+
+  RSA_FIXTURE_DIR="$TMP_ROOT/rsa-fixture-dir"
+  mkdir -p "$RSA_FIXTURE_DIR"
   {
     printf '%s%s\n' '-----BEGIN RSA ' 'PRIVATE KEY-----'
-    printf '%s\n' 'MIIEpAIBAAKCAQEAwH6yqpN5f7c7k4KQkKtQ3Rvy9zfrlWvLq8Vbkg=='
+    printf '%s\n' "$PEM_BODY"
     printf '%s%s\n' '-----END RSA ' 'PRIVATE KEY-----'
-  } > "$REAL_DIRTY_DIR/key.pem"
-  PATH="$(dirname "$REAL_GITLEAKS"):$ORIGINAL_PATH" "$ROOT/bin/agent-guard" scan-path "$REAL_DIRTY_DIR" >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+  } > "$RSA_FIXTURE_DIR/key.pem"
+  PATH="$(dirname "$REAL_GITLEAKS"):$ORIGINAL_PATH" "$ROOT/bin/agent-guard" scan-path "$RSA_FIXTURE_DIR" >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
   status=$?
   if [ "$status" -eq 1 ]; then
-    ok "real gitleaks detects a private key through scan-path"
+    ok "real gitleaks detects an RSA private key through scan-path"
   else
-    not_ok "real gitleaks detects a private key through scan-path (expected 1, got $status)"
+    not_ok "real gitleaks detects an RSA private key through scan-path (expected 1, got $status)"
+    sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+  fi
+
+  OPENSSH_FIXTURE_DIR="$TMP_ROOT/openssh-fixture-dir"
+  mkdir -p "$OPENSSH_FIXTURE_DIR"
+  {
+    printf '%s%s\n' '-----BEGIN OPENSSH ' 'PRIVATE KEY-----'
+    printf '%s\n' "$PEM_BODY"
+    printf '%s%s\n' '-----END OPENSSH ' 'PRIVATE KEY-----'
+  } > "$OPENSSH_FIXTURE_DIR/openssh.key"
+  PATH="$(dirname "$REAL_GITLEAKS"):$ORIGINAL_PATH" "$ROOT/bin/agent-guard" scan-path "$OPENSSH_FIXTURE_DIR" >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+  status=$?
+  if [ "$status" -eq 1 ]; then
+    ok "real gitleaks detects an OpenSSH private key through scan-path"
+  else
+    not_ok "real gitleaks detects an OpenSSH private key through scan-path (expected 1, got $status)"
     sed 's/^/  stderr: /' /tmp/agent-guard-test.err
   fi
 else
