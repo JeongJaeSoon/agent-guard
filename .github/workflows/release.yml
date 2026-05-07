@@ -168,15 +168,18 @@ jobs:
           git push origin "v${v}"
           git push origin "${maj}" --force
 
-          # Exclude the output tarball + its sha256 sidecar so tar does not
-          # detect "file changed as we read it" when its own output grows
-          # in the directory it is enumerating. This was a latent race that
-          # surfaced once bootstrap.sh added enough input to cross the
-          # detection threshold (release run 25510030204).
+          # Build the tarball entirely outside the directory tar is enumerating.
+          # Excluding the output file alone is not enough: as the output grows
+          # it changes the enclosing '.' directory's mtime, and tar then reports
+          # "file changed as we read it" against '.' itself and exits 1. Run
+          # 25510030204 hit this for v1.1.0 (fixed once with --exclude in #16),
+          # and run 25511359582 hit it again for v1.1.1 -- proving --exclude
+          # only narrows the race rather than eliminating it. Writing to a
+          # temp dir and mv'ing the finished tarball back is bulletproof.
+          tarball_tmp=$(mktemp -d)/agent-guard-${v}.tar.gz
           tar --exclude='./.git' --exclude='./tests' \
-              --exclude="./agent-guard-${v}.tar.gz" \
-              --exclude="./agent-guard-${v}.tar.gz.sha256" \
-              -czf "agent-guard-${v}.tar.gz" .
+              -czf "$tarball_tmp" .
+          mv "$tarball_tmp" "agent-guard-${v}.tar.gz"
           sha256sum "agent-guard-${v}.tar.gz" > "agent-guard-${v}.tar.gz.sha256"
 
           gh release create "v${v}" \
