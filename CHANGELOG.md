@@ -1,3 +1,9 @@
+## v1.1.0 - 2026-05-07
+
+- feat(install): publish bootstrap.sh for one-line curl | sh CLI install (#14)
+- feat(setup): add agent-guard setup subcommand for opt-in dependency bootstrap (#13)
+- docs: restructure README into user-facing path and Reference/Development (#12)
+
 ## v1.0.2 - 2026-05-07
 
 - fix(release): pick latest semver tag, ignore moving major tag (#10)
