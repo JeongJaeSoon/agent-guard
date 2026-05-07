@@ -41,17 +41,31 @@ The `gitleaks-checksum` is integrity metadata, not a credential — commit it di
 ### Direct CLI install (no clone)
 
 ```sh
+curl -fsSL https://github.com/JeongJaeSoon/agent-guard/releases/latest/download/bootstrap.sh | sh
+```
+
+The bootstrap script:
+
+- resolves the latest release version via the GitHub `releases/latest` redirect (override with `AGENT_GUARD_VERSION=1.2.3`),
+- downloads `agent-guard-X.Y.Z.tar.gz` and the published `.sha256`, verifies the checksum, and extracts to `~/.agent-guard` (override with `AGENT_GUARD_HOME`),
+- symlinks `~/.local/bin/agent-guard` (override with `AGENT_GUARD_BIN_DIR`),
+- runs `agent-guard setup` so you immediately see per-dependency status and any install hints.
+
+`agent-guard setup` is opt-in: it does *not* install anything by default. If `gitleaks` is missing, it prints the exact `--install` command (which requires `--gitleaks-checksum SHA` from the published gitleaks release). `jq` is left to your system package manager — `setup` prints the appropriate `brew`/`apt-get`/`dnf` command for your OS.
+
+<details>
+<summary>Manual equivalent (no <code>curl | sh</code>)</summary>
+
+```sh
 mkdir -p ~/.agent-guard && cd ~/.agent-guard
 gh release download --repo JeongJaeSoon/agent-guard --pattern '*.tar.gz' --pattern '*.sha256'
 shasum -a 256 -c agent-guard-*.tar.gz.sha256
 tar -xzf agent-guard-*.tar.gz
 ln -sf "$PWD/bin/agent-guard" ~/.local/bin/agent-guard
-agent-guard setup        # report dependency status; print install hints if any are missing
+agent-guard setup
 ```
 
-`agent-guard setup` is opt-in: it does *not* install anything by default. If `gitleaks` is missing, it prints the exact `--install` command (which requires you to pass `--gitleaks-checksum SHA` from the published gitleaks release). `jq` is left to your system package manager — `setup` prints the appropriate `brew`/`apt-get`/`dnf` command for your OS.
-
-A future minor release will bundle a one-line `curl | sh` installer; the steps above are the manual equivalent that works today.
+</details>
 
 ### Native Git hook
 
