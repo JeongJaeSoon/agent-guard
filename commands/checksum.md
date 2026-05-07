@@ -13,7 +13,7 @@ Fetches the published `gitleaks_<VER>_checksums.txt` from the gitleaks releases 
 
 ## Interpretation
 
-- **Exit 0** — the script printed `sha256: <hex>` plus a `gitleaks-checksum:` YAML snippet and an `agent-guard setup --install` command line. Surface both snippets to the user verbatim. Do not modify them.
+- **Exit 0** — the script prints all platform `sha256:` entries and emits both the `gitleaks-checksum:` YAML snippet and the `agent-guard setup --install` command; surface them verbatim.
 - **`failed to fetch`** — the version probably does not exist. Suggest the user double-check the version on https://github.com/gitleaks/gitleaks/releases.
 - **`no entry for ...`** — the user's OS / arch is not among gitleaks' prebuilt releases. The script lists the available archive names; relay them.
 - **`curl is required`** — instruct the user to install `curl`, then re-run.
