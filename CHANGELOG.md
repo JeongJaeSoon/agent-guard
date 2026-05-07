@@ -1,3 +1,9 @@
+## v1.0.2 - 2026-05-07
+
+- fix(release): pick latest semver tag, ignore moving major tag (#10)
+- chore(release): also bump marketplace.json plugin version (#9)
+- docs: add Quickstart section with plugin install paths (#8)
+
 ## v1.0.1 - 2026-05-07
 
 - chore(release): add automated release workflow (#5)
