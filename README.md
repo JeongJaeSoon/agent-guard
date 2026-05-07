@@ -34,7 +34,9 @@ Pick the channel matching your environment. All commands resolve to the same rel
     gitleaks-checksum: "<sha256 of the gitleaks release archive>"
 ```
 
-`@v1` tracks the latest 1.x release. Pin to a full commit SHA for high-security environments.
+`@v1` is a moving major tag — patch and minor releases are picked up automatically with no workflow edit. To upgrade across a major (`v1` → `v2`), bump the tag explicitly. Pin to a full commit SHA for high-security environments.
+
+The `gitleaks-checksum` is integrity metadata, not a credential — commit it directly to your workflow file. Storing it as a GitHub Secret would hide the audit trail without adding security: the value is the public SHA-256 of a public release archive, and the whole point of pinning is that reviewers can see *what* you are pinning to.
 
 ### Direct CLI install (no clone)
 
@@ -49,22 +51,34 @@ agent-guard check
 
 A future minor release will bundle a one-line `curl | sh` installer; the steps above are the manual equivalent that works today.
 
-### Native Git hook (after one of the above)
+### Native Git hook
+
+Adding the native Git hook channel requires `agent-guard` on disk. The Claude Code / Codex plugin install does **not** place a binary on the filesystem, so use Direct CLI install or a clone first:
 
 ```sh
 cd <your-project>
-~/.agent-guard/install.sh git-hooks
+~/.agent-guard/install.sh git-hooks   # after Direct CLI install
+# or, from a clone of this repo:
+./install.sh git-hooks
 ```
 
 See [Native Git hook](#native-git-hook) under Advanced setup for behavior around existing `core.hooksPath` setups.
 
 ### Verify your install
 
-```sh
-./install.sh check
-```
+The right verification depends on the channel you used.
 
-Prints the installed `gitleaks` version alongside the dependency check. `make check` is equivalent.
+| Channel | How to verify |
+|---|---|
+| Claude Code | `/plugin list` should show `agent-guard`. To smoke-test the hook, ask the agent to read a deny-listed file (e.g. "read `.env`") — the agent should be blocked with `blocked sensitive file access: .env`. |
+| Codex | Same shape as Claude Code; the agent should be blocked when asked to read `.env`. |
+| GitHub Actions | The action runs on PR/push. A workflow run that reports either "no findings" (clean repo) or a deliberate finding (PR you crafted with a fake high-entropy secret) confirms the channel is wired. |
+| Direct CLI install | `agent-guard check` — works because `~/.local/bin/agent-guard` is on PATH after the symlink step. |
+| Cloned repo | `./install.sh check` or `make check` from the repo root. |
+
+Both `agent-guard check` and `./install.sh check` print the resolved `gitleaks` version alongside the dependency check.
+
+> The plugin channels currently rely on triggering the hook to verify. A future plugin-native slash command (`/agent-guard:verify`) will provide a one-step check directly inside Claude Code / Codex; tracked separately from this restructure.
 
 ## How it works
 
@@ -196,12 +210,14 @@ Project-local `.gitleaks.toml` files are not automatically trusted.
 
 ### CLI subcommands
 
-User-callable commands for ad-hoc scanning, used by Git hooks, GitHub Actions, and manual checks:
+User-callable commands, used by Git hooks, GitHub Actions, and manual checks:
 
 ```sh
 bin/agent-guard scan-staged
 bin/agent-guard scan-working-tree
 bin/agent-guard scan-path PATH...
+bin/agent-guard check        # dependency / gitleaks version check
+bin/agent-guard version
 ```
 
 ### Hook entry points
