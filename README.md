@@ -4,6 +4,56 @@ Agent Guard inserts deterministic secret-scanning checks into AI coding agent ho
 
 It is intentionally small. It does not teach agents how to behave, manage vaults, rotate credentials, verify live credentials, produce dashboards, or replace GitHub Secret Scanning and Push Protection.
 
+## Quickstart
+
+Pick the channel matching your environment. All commands resolve to the same released version.
+
+### Claude Code
+
+```text
+/plugin marketplace add JeongJaeSoon/agent-guard
+/plugin install agent-guard@latest
+```
+
+### Codex
+
+```text
+/plugin install JeongJaeSoon/agent-guard@latest
+```
+
+### GitHub Actions
+
+```yaml
+- uses: JeongJaeSoon/agent-guard@v1
+  with:
+    paths: "."
+    gitleaks-checksum: "<sha256 of the gitleaks release archive>"
+```
+
+`@v1` tracks the latest 1.x release. Pin to a full commit SHA for high-security environments.
+
+### Direct CLI install (no clone)
+
+```sh
+mkdir -p ~/.agent-guard && cd ~/.agent-guard
+gh release download --repo JeongJaeSoon/agent-guard --pattern '*.tar.gz' --pattern '*.sha256'
+shasum -a 256 -c agent-guard-*.tar.gz.sha256
+tar -xzf agent-guard-*.tar.gz
+ln -sf "$PWD/bin/agent-guard" ~/.local/bin/agent-guard
+agent-guard check
+```
+
+A future minor release will bundle a one-line `curl | sh` installer; the steps above are the manual equivalent that works today.
+
+### Native Git hook (after one of the above)
+
+```sh
+cd <your-project>
+~/.agent-guard/install.sh git-hooks
+```
+
+See **Advanced setup** below for the full per-channel configuration, including how to wire local `examples/claude/settings.project.json` into a project, the Codex hook contract, and the `gitleaks-checksum` pinning policy for CI.
+
 ## Channels
 
 Agent Guard offers four independent integration points. Pick whichever match your workflow — they do **not** chain. Each row lists what that channel alone can and cannot block.
