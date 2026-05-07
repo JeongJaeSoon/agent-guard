@@ -1,3 +1,9 @@
+## v1.1.2 - 2026-05-07
+
+- feat(plugin): add /agent-guard:verify slash command (#26)
+- chore(release): make release.yml idempotent on re-dispatch (#25)
+- fix(release): bump VERSION constant in bin/agent-guard on release (#24)
+
 ## v1.1.1 - 2026-05-07
 
 - Revert "chore(release): v1.1.1 (#20)" (#22)
