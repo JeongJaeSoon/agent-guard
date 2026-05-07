@@ -27,6 +27,7 @@ Usage:
   agent-guard scan-path PATH...
   agent-guard check
   agent-guard setup [--install --gitleaks-checksum SHA [--gitleaks-version X.Y.Z]]
+  agent-guard checksum [VERSION]
   agent-guard version
 EOF
 }
@@ -827,6 +828,7 @@ case "$cmd" in
   scan-path) shift; scan_path "$@" ;;
   check) check_deps ;;
   setup) shift; do_setup "$@" ;;
+  checksum) shift; exec sh "$ROOT_DIR/scripts/gitleaks-checksum.sh" "$@" ;;
   version) printf '%s %s\n' "$PROGRAM" "$VERSION" ;;
   ''|-h|--help|help) usage; exit 0 ;;
   *) usage; exit 2 ;;

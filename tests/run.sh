@@ -86,6 +86,7 @@ for file in \
   "$ROOT/install.sh" \
   "$ROOT/bootstrap.sh" \
   "$ROOT/githooks/pre-commit" \
+  "$ROOT/scripts/gitleaks-checksum.sh" \
   "$ROOT/tests/run.sh"; do
   run_expect 0 "shell syntax: $file" sh -n "$file"
 done
@@ -811,6 +812,41 @@ if [ -n "$REAL_GITLEAKS" ]; then
   fi
 else
   say "real gitleaks not available; skipped real-gitleaks integration tests"
+fi
+
+checksum_help_out=$("$ROOT/bin/agent-guard" checksum --help 2>&1)
+if printf '%s\n' "$checksum_help_out" | grep -q 'Usage: gitleaks-checksum.sh'; then
+  ok "checksum --help prints usage from the helper script"
+else
+  not_ok "checksum --help did not surface helper script usage"
+  printf '%s\n' "$checksum_help_out" | sed 's/^/  /'
+fi
+
+mock_checksums_url="file://$ROOT/tests/fixtures/gitleaks-checksums-mock.txt"
+checksum_out=$(AGENT_GUARD_GITLEAKS_CHECKSUMS_URL="$mock_checksums_url" "$ROOT/bin/agent-guard" checksum 8.30.1 2>&1)
+checksum_status=$?
+if [ "$checksum_status" -eq 0 ] \
+   && printf '%s\n' "$checksum_out" | grep -q 'darwin/arm64:' \
+   && printf '%s\n' "$checksum_out" | grep -q 'darwin/x64:' \
+   && printf '%s\n' "$checksum_out" | grep -q 'linux/arm64:' \
+   && printf '%s\n' "$checksum_out" | grep -q 'linux/x64:' \
+   && printf '%s\n' "$checksum_out" | grep -q 'gitleaks-checksum:' \
+   && printf '%s\n' "$checksum_out" | grep -q 'agent-guard setup --install'; then
+  ok "checksum subcommand prints all four platforms with paste-ready snippets"
+else
+  not_ok "checksum subcommand mock fetch failed (exit $checksum_status)"
+  printf '%s\n' "$checksum_out" | sed 's/^/  /'
+fi
+
+missing_url="file://$ROOT/tests/fixtures/does-not-exist-checksums.txt"
+AGENT_GUARD_GITLEAKS_CHECKSUMS_URL="$missing_url" "$ROOT/bin/agent-guard" checksum 8.30.1 \
+  >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+checksum_missing_status=$?
+if [ "$checksum_missing_status" -eq 2 ] && grep -q 'failed to fetch' /tmp/agent-guard-test.err; then
+  ok "checksum subcommand exits 2 when the source URL is unreachable"
+else
+  not_ok "checksum subcommand fetch-failure path returned status $checksum_missing_status"
+  sed 's/^/  /' /tmp/agent-guard-test.err
 fi
 
 say "passed: $pass"
