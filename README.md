@@ -86,15 +86,15 @@ The right verification depends on the channel you used.
 
 | Channel | How to verify |
 |---|---|
-| Claude Code | `/plugin list` should show `agent-guard`. To smoke-test the hook, ask the agent to read a deny-listed file (e.g. "read `.env`") — the agent should be blocked with `blocked sensitive file access: .env`. |
-| Codex | Same shape as Claude Code; the agent should be blocked when asked to read `.env`. |
+| Claude Code | `/plugin list` should show `agent-guard`. Run `/agent-guard:verify` for a one-shot scan of the working tree, or smoke-test the hook by asking the agent to read a deny-listed file (e.g. "read `.env`") — the agent should be blocked with `blocked sensitive file access: .env`. |
+| Codex | Same shape as Claude Code; the agent should be blocked when asked to read `.env`. The `/agent-guard:verify` slash command is Claude Code-only at present; Codex users should fall back to running `agent-guard scan-working-tree` directly. |
 | GitHub Actions | The action runs on PR/push. A workflow run that reports either "no findings" (clean repo) or a deliberate finding (PR you crafted with a fake high-entropy secret) confirms the channel is wired. |
 | Direct CLI install | `agent-guard check` for a strict pass/fail; `agent-guard setup` for a per-dependency status report (and install hints if anything is missing). |
 | Cloned repo | `./install.sh check` or `make check` from the repo root. |
 
 Both `agent-guard check` and `./install.sh check` print the resolved `gitleaks` version alongside the dependency check.
 
-> The plugin channels currently rely on triggering the hook to verify. A future plugin-native slash command (`/agent-guard:verify`) will provide a one-step check directly inside Claude Code / Codex; tracked separately from this restructure.
+> Claude Code users can also run `/agent-guard:verify` for a one-step working-tree scan without crafting a hook trigger. See [Plugin slash commands](#plugin-slash-commands) under Reference for the full mapping.
 
 ## How it works
 
@@ -238,6 +238,16 @@ bin/agent-guard version
 ```
 
 `setup` is the dependency bootstrap entry point. By default it only reports status and prints install hints. Pass `--install --gitleaks-checksum SHA [--gitleaks-version X.Y.Z]` to actually download `gitleaks` into `~/.agent-guard/bin/`. The checksum is required (no implicit fetch) and must match the value published in the gitleaks release's `gitleaks_X.Y.Z_checksums.txt`. `jq` is never auto-installed — `setup` prints the appropriate package-manager command for your OS instead, since `jq` belongs with the system package manager.
+
+### Plugin slash commands
+
+Available inside Claude Code when `agent-guard` is installed as a plugin (auto-discovered from `commands/`).
+
+| Command | What it does |
+|---|---|
+| `/agent-guard:verify` | One-shot deterministic secret scan over the working tree (staged + unstaged + untracked), backed by the same gitleaks rules the hooks use. Reports clean tree silently; reports leaks with file paths and rule names if any are found. |
+
+Codex parity is **not implemented yet** — Codex's slash command convention differs from Claude Code's auto-discovered `commands/` layout, so the same source file does not light up there. Codex users running `agent-guard scan-working-tree` from a shell get the equivalent result.
 
 ### Hook entry points
 
