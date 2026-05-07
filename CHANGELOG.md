@@ -1,3 +1,8 @@
+## v1.1.1 - 2026-05-07
+
+- Revert "chore(release): v1.1.1 (#20)" (#22)
+- fix(release): build tarball outside the directory being archived (#21)
+
 ## v1.1.0 - 2026-05-07
 
 - Revert "chore(release): v1.1.0 (#15)" (#17)
