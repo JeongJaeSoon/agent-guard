@@ -36,7 +36,7 @@ Pick one or more — they don't chain. Each row lists what that channel alone ca
 /plugin install agent-guard@latest
 ```
 
-Restart your Claude Code session (or run `/plugin reload` if available) so the hooks load.
+Run `/reload-plugins` (or restart your Claude Code session) so the hooks load.
 
 ### Codex
 
