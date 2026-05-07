@@ -78,6 +78,10 @@ jobs:
           fi
           # Replace any pinned semver in README install snippets (no-op if none).
           sed -i -E "s|agent-guard@[0-9]+\.[0-9]+\.[0-9]+|agent-guard@${v}|g" README.md
+          # Bump the VERSION constant the CLI reports via 'agent-guard version'.
+          # Without this the binary ships a stale literal even after a tag bump
+          # (v1.1.1 shipped with VERSION=1.0.0 because this step was missing).
+          sed -i -E "s|^VERSION=[0-9]+\.[0-9]+\.[0-9]+$|VERSION=${v}|" bin/agent-guard
 
       - name: Build CHANGELOG entry
         run: |
