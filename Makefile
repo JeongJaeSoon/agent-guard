@@ -12,7 +12,7 @@ help:
 	@printf '  make test          Run the test suite (uses a mock gitleaks).\n'
 	@printf '  make scan          Scan the working tree for secrets.\n'
 	@printf '  make scan-staged   Scan staged changes only.\n'
-	@printf '  make checksum [VERSION=X.Y.Z]   Fetch the gitleaks-checksum to pin in CI.\n'
+	@printf '  make checksum [VERSION=X.Y.Z]   Fetch gitleaks-checksum for every supported OS/arch (CI typically picks linux/x64).\n'
 
 check:
 	@./install.sh check
