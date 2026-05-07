@@ -367,6 +367,12 @@ run_expect 2 "unknown subcommand exits 2" "$ROOT/bin/agent-guard" not-a-command
 
 run_expect 0 "check passes when deps and configs exist" "$ROOT/bin/agent-guard" check
 
+# --- setup -----------------------------------------------------------------
+
+run_expect 0 "setup --help exits 0" "$ROOT/bin/agent-guard" setup --help
+run_expect 2 "setup unknown flag exits 2" "$ROOT/bin/agent-guard" setup --bogus
+run_expect 0 "setup with all deps present exits 0" "$ROOT/bin/agent-guard" setup
+
 # --- scan-path -------------------------------------------------------------
 
 CLEAN_DIR="$TMP_ROOT/clean-dir"
@@ -554,6 +560,31 @@ if [ "$status" -eq 2 ]; then
   ok "scan-path dies when gitleaks is unavailable"
 else
   not_ok "scan-path dies when gitleaks is unavailable (expected 2, got $status)"
+fi
+
+# Reuse NO_GITLEAKS_BIN: jq must remain reachable so setup can report jq ok
+# while gitleaks is missing.
+ln -sf "$(command -v jq)" "$NO_GITLEAKS_BIN/jq"
+ln -sf "$(command -v git)" "$NO_GITLEAKS_BIN/git"
+ln -sf "$(command -v command)" "$NO_GITLEAKS_BIN/command" 2>/dev/null || true
+ln -sf "$(command -v uname)" "$NO_GITLEAKS_BIN/uname" 2>/dev/null || true
+
+PATH="$NO_GITLEAKS_BIN" "$ROOT/bin/agent-guard" setup >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+status=$?
+if [ "$status" -eq 1 ]; then
+  ok "setup exits 1 when gitleaks missing"
+else
+  not_ok "setup exits 1 when gitleaks missing (expected 1, got $status)"
+  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+fi
+
+PATH="$NO_GITLEAKS_BIN" "$ROOT/bin/agent-guard" setup --install >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "setup --install without --gitleaks-checksum exits 2"
+else
+  not_ok "setup --install without --gitleaks-checksum exits 2 (expected 2, got $status)"
+  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
 fi
 
 # --- extract_patch_added_lines via apply_patch dialects -------------------

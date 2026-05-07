@@ -26,6 +26,7 @@ Usage:
   agent-guard scan-working-tree
   agent-guard scan-path PATH...
   agent-guard check
+  agent-guard setup [--install --gitleaks-checksum SHA [--gitleaks-version X.Y.Z]]
   agent-guard version
 EOF
 }
@@ -69,6 +70,166 @@ check_deps() {
   if [ -n "$gl_version" ]; then
     info "$PROGRAM: gitleaks $gl_version (>= 8.30 recommended)"
   fi
+}
+
+GITLEAKS_DEFAULT_VERSION=8.30.1
+SETUP_INSTALL_DIR=${AGENT_GUARD_BIN_DIR:-$HOME/.agent-guard/bin}
+
+setup_status_line() {
+  name=$1
+  if command -v "$name" >/dev/null 2>&1; then
+    ver=$($name --version 2>/dev/null | head -1)
+    if [ -z "$ver" ]; then
+      ver=$($name version 2>/dev/null | head -1)
+    fi
+    info "$PROGRAM: $name  ok  (${ver:-installed})"
+    return 0
+  fi
+  info "$PROGRAM: $name  missing"
+  return 1
+}
+
+setup_suggest_jq_install() {
+  if command -v brew >/dev/null 2>&1; then
+    info "  brew install jq"
+  elif command -v apt-get >/dev/null 2>&1; then
+    info "  sudo apt-get install -y jq"
+  elif command -v dnf >/dev/null 2>&1; then
+    info "  sudo dnf install -y jq"
+  else
+    info "  https://stedolan.github.io/jq/download/"
+  fi
+}
+
+setup_install_gitleaks() {
+  version=$1
+  checksum=$2
+  if [ -z "$checksum" ]; then
+    die "setup: --gitleaks-checksum is required when using --install. Get the published value from https://github.com/gitleaks/gitleaks/releases/download/v${version}/gitleaks_${version}_checksums.txt"
+  fi
+
+  os=$(uname -s | tr '[:upper:]' '[:lower:]')
+  arch=$(uname -m)
+  case "$arch" in
+    x86_64|amd64) arch=x64 ;;
+    arm64|aarch64) arch=arm64 ;;
+    *) die "setup: unsupported architecture: $arch" ;;
+  esac
+  case "$os" in
+    darwin|linux) ;;
+    *) die "setup: unsupported os: $os" ;;
+  esac
+
+  need_cmd curl
+  need_cmd shasum
+  need_cmd tar
+
+  archive="gitleaks_${version}_${os}_${arch}.tar.gz"
+  url="https://github.com/gitleaks/gitleaks/releases/download/v${version}/${archive}"
+
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-setup.XXXXXX") || die "setup: failed to create temp dir"
+  # POSIX trap chain so caller's traps still run.
+  trap 'rm -rf "$tmp"' EXIT
+
+  info "$PROGRAM: downloading $archive"
+  curl -fsSL "$url" -o "$tmp/$archive" || die "setup: download failed: $url"
+
+  info "$PROGRAM: verifying sha256"
+  printf '%s  %s\n' "$checksum" "$tmp/$archive" | shasum -a 256 -c - >&2 \
+    || die "setup: checksum verification failed for $archive"
+
+  info "$PROGRAM: extracting"
+  tar -xzf "$tmp/$archive" -C "$tmp" || die "setup: extraction failed"
+
+  mkdir -p "$SETUP_INSTALL_DIR" || die "setup: cannot create install dir: $SETUP_INSTALL_DIR"
+  mv "$tmp/gitleaks" "$SETUP_INSTALL_DIR/gitleaks" || die "setup: failed to install gitleaks binary"
+  chmod +x "$SETUP_INSTALL_DIR/gitleaks"
+
+  info "$PROGRAM: installed gitleaks v${version} at $SETUP_INSTALL_DIR/gitleaks"
+  case ":$PATH:" in
+    *":$SETUP_INSTALL_DIR:"*) ;;
+    *)
+      info "$PROGRAM: $SETUP_INSTALL_DIR is not on PATH; add to your shell rc:"
+      info "  export PATH=\"$SETUP_INSTALL_DIR:\$PATH\""
+      ;;
+  esac
+}
+
+do_setup() {
+  install=0
+  version=$GITLEAKS_DEFAULT_VERSION
+  checksum=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --install) install=1 ;;
+      --gitleaks-version)
+        shift
+        [ $# -gt 0 ] || die "setup: --gitleaks-version requires a value"
+        version=$1
+        ;;
+      --gitleaks-version=*) version=${1#--gitleaks-version=} ;;
+      --gitleaks-checksum)
+        shift
+        [ $# -gt 0 ] || die "setup: --gitleaks-checksum requires a value"
+        checksum=$1
+        ;;
+      --gitleaks-checksum=*) checksum=${1#--gitleaks-checksum=} ;;
+      -h|--help)
+        cat >&2 <<'EOF'
+Usage:
+  agent-guard setup
+  agent-guard setup --install --gitleaks-checksum SHA [--gitleaks-version X.Y.Z]
+
+Default behavior is opt-in: setup only reports the dependency status.
+Pass --install to download gitleaks. The checksum is required and must
+match the published value at:
+  https://github.com/gitleaks/gitleaks/releases/download/vX.Y.Z/gitleaks_X.Y.Z_checksums.txt
+EOF
+        return 0
+        ;;
+      *) die "setup: unknown argument: $1" ;;
+    esac
+    shift
+  done
+
+  jq_ok=1; gitleaks_ok=1
+  setup_status_line jq       || jq_ok=0
+  setup_status_line git      || :
+  setup_status_line gitleaks || gitleaks_ok=0
+
+  if [ "$install" -eq 1 ]; then
+    if [ "$gitleaks_ok" -eq 1 ]; then
+      info "$PROGRAM: gitleaks already on PATH; skipping --install"
+    else
+      setup_install_gitleaks "$version" "$checksum"
+    fi
+    if [ "$jq_ok" -eq 0 ]; then
+      info "$PROGRAM: jq is not auto-installed; use your system package manager:"
+      setup_suggest_jq_install
+    fi
+    return 0
+  fi
+
+  if [ "$jq_ok" -eq 0 ] || [ "$gitleaks_ok" -eq 0 ]; then
+    info ""
+    if [ "$jq_ok" -eq 0 ]; then
+      info "$PROGRAM: install jq with your package manager:"
+      setup_suggest_jq_install
+    fi
+    if [ "$gitleaks_ok" -eq 0 ]; then
+      info "$PROGRAM: install gitleaks (rerun with --install to opt in):"
+      info "  agent-guard setup --install \\"
+      info "    --gitleaks-version $GITLEAKS_DEFAULT_VERSION \\"
+      info "    --gitleaks-checksum <sha256-from-published-checksums.txt>"
+      info ""
+      info "$PROGRAM: get the checksum from"
+      info "  https://github.com/gitleaks/gitleaks/releases/download/v$GITLEAKS_DEFAULT_VERSION/gitleaks_${GITLEAKS_DEFAULT_VERSION}_checksums.txt"
+    fi
+    return 1
+  fi
+
+  info "$PROGRAM: setup ok"
+  return 0
 }
 
 mktemp_file() {
@@ -680,6 +841,7 @@ case "$cmd" in
   scan-working-tree) shift; scan_working_tree "$@" ;;
   scan-path) shift; scan_path "$@" ;;
   check) check_deps ;;
+  setup) shift; do_setup "$@" ;;
   version) printf '%s %s\n' "$PROGRAM" "$VERSION" ;;
   ''|-h|--help|help) usage; exit 0 ;;
   *) usage; exit 2 ;;

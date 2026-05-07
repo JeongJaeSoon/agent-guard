@@ -46,8 +46,10 @@ gh release download --repo JeongJaeSoon/agent-guard --pattern '*.tar.gz' --patte
 shasum -a 256 -c agent-guard-*.tar.gz.sha256
 tar -xzf agent-guard-*.tar.gz
 ln -sf "$PWD/bin/agent-guard" ~/.local/bin/agent-guard
-agent-guard check
+agent-guard setup        # report dependency status; print install hints if any are missing
 ```
+
+`agent-guard setup` is opt-in: it does *not* install anything by default. If `gitleaks` is missing, it prints the exact `--install` command (which requires you to pass `--gitleaks-checksum SHA` from the published gitleaks release). `jq` is left to your system package manager — `setup` prints the appropriate `brew`/`apt-get`/`dnf` command for your OS.
 
 A future minor release will bundle a one-line `curl | sh` installer; the steps above are the manual equivalent that works today.
 
@@ -73,7 +75,7 @@ The right verification depends on the channel you used.
 | Claude Code | `/plugin list` should show `agent-guard`. To smoke-test the hook, ask the agent to read a deny-listed file (e.g. "read `.env`") — the agent should be blocked with `blocked sensitive file access: .env`. |
 | Codex | Same shape as Claude Code; the agent should be blocked when asked to read `.env`. |
 | GitHub Actions | The action runs on PR/push. A workflow run that reports either "no findings" (clean repo) or a deliberate finding (PR you crafted with a fake high-entropy secret) confirms the channel is wired. |
-| Direct CLI install | `agent-guard check` — works because `~/.local/bin/agent-guard` is on PATH after the symlink step. |
+| Direct CLI install | `agent-guard check` for a strict pass/fail; `agent-guard setup` for a per-dependency status report (and install hints if anything is missing). |
 | Cloned repo | `./install.sh check` or `make check` from the repo root. |
 
 Both `agent-guard check` and `./install.sh check` print the resolved `gitleaks` version alongside the dependency check.
@@ -217,8 +219,11 @@ bin/agent-guard scan-staged
 bin/agent-guard scan-working-tree
 bin/agent-guard scan-path PATH...
 bin/agent-guard check        # dependency / gitleaks version check
+bin/agent-guard setup        # report dependency status; --install opts in to gitleaks download
 bin/agent-guard version
 ```
+
+`setup` is the dependency bootstrap entry point. By default it only reports status and prints install hints. Pass `--install --gitleaks-checksum SHA [--gitleaks-version X.Y.Z]` to actually download `gitleaks` into `~/.agent-guard/bin/`. The checksum is required (no implicit fetch) and must match the value published in the gitleaks release's `gitleaks_X.Y.Z_checksums.txt`. `jq` is never auto-installed — `setup` prints the appropriate package-manager command for your OS instead, since `jq` belongs with the system package manager.
 
 ### Hook entry points
 
