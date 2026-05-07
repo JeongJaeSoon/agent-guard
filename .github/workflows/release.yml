@@ -168,7 +168,14 @@ jobs:
           git push origin "v${v}"
           git push origin "${maj}" --force
 
+          # Exclude the output tarball + its sha256 sidecar so tar does not
+          # detect "file changed as we read it" when its own output grows
+          # in the directory it is enumerating. This was a latent race that
+          # surfaced once bootstrap.sh added enough input to cross the
+          # detection threshold (release run 25510030204).
           tar --exclude='./.git' --exclude='./tests' \
+              --exclude="./agent-guard-${v}.tar.gz" \
+              --exclude="./agent-guard-${v}.tar.gz.sha256" \
               -czf "agent-guard-${v}.tar.gz" .
           sha256sum "agent-guard-${v}.tar.gz" > "agent-guard-${v}.tar.gz.sha256"
 
