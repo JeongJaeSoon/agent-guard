@@ -84,6 +84,7 @@ chmod +x "$MOCK_BIN/gitleaks"
 for file in \
   "$ROOT/bin/agent-guard" \
   "$ROOT/install.sh" \
+  "$ROOT/bootstrap.sh" \
   "$ROOT/githooks/pre-commit" \
   "$ROOT/tests/run.sh"; do
   run_expect 0 "shell syntax: $file" sh -n "$file"
