@@ -1,3 +1,8 @@
+## v1.1.0 - 2026-05-07
+
+- Revert "chore(release): v1.1.0 (#15)" (#17)
+- fix(release): exclude tarball self-reference from tar input (#16)
+
 ## v1.0.2 - 2026-05-07
 
 - fix(release): pick latest semver tag, ignore moving major tag (#10)
