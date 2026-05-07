@@ -103,15 +103,6 @@ scan_text_direct() {
   printf '%s\n' "$text" | run_gitleaks_stdin "$label"
 }
 
-scan_text_hook() {
-  label=$1
-  text=$2
-  scan_text_direct "$label" "$text"
-  status=$?
-  [ "$status" -eq 0 ] && return 0
-  return 2
-}
-
 block_on_scan_status() {
   status=$1
   message=$2
@@ -362,30 +353,36 @@ check_sensitive_reads() {
   values=$(printf '%s' "$input" | jq -r '.tool_input // {} | .. | strings')
   [ -n "$values" ] || return 0
 
-  printf '%s\n' "$values" | while IFS= read -r value; do
+  # Drive the loop from a temp file so it runs in this shell, not a pipeline
+  # sub-shell — that keeps `exit 2` definitive even if a future edit appends
+  # work after the loop.
+  tmp=$(mktemp_file) || die "failed to create temp file"
+  printf '%s\n' "$values" >"$tmp"
+  while IFS= read -r value; do
     [ -n "$value" ] || continue
     if matches_deny_path "$value"; then
       info "$PROGRAM: blocked sensitive file access: $value"
+      rm -f "$tmp"
       exit 2
     fi
-  done
+  done <"$tmp"
+  rm -f "$tmp"
 }
 
 deny_path_basename_pattern() {
   # Convert the supported deny-read shell globs to POSIX ERE.
   pattern=$1
   py=
-  i=1
-  len=${#pattern}
-  while [ "$i" -le "$len" ]; do
-    ch=$(printf '%s' "$pattern" | cut -c"$i")
+  remaining=$pattern
+  while [ -n "$remaining" ]; do
+    ch=${remaining%"${remaining#?}"}
+    remaining=${remaining#?}
     case "$ch" in
       '*') py=${py}'[^[:space:]<>|;&`$()]*' ;;
       '.'|'^'|'$'|'+'|'?'|'('|')'|'['|']'|'{'|'}'|'|'|'\\') py=${py}'\'${ch} ;;
       '/') py=${py}'/' ;;
       *) py=${py}${ch} ;;
     esac
-    i=$((i + 1))
   done
   printf '%s' "$py"
 }
@@ -544,15 +541,28 @@ check_bash_command() {
   [ -n "$cmd" ] || return 0
 
   [ -f "$DENY_BASH_PATTERNS" ] || die "deny bash policy not found: $DENY_BASH_PATTERNS"
-  while IFS= read -r pattern || [ -n "$pattern" ]; do
-    case "$pattern" in
-      ''|\#*) continue ;;
+  patterns=$(mktemp_file) || die "failed to create temp file"
+  grep -Ev '^[[:space:]]*(#|$)' "$DENY_BASH_PATTERNS" >"$patterns"
+  if [ -s "$patterns" ]; then
+    printf '%s\n' "$cmd" | grep -E -q -f "$patterns"
+    grep_status=$?
+    rm -f "$patterns"
+    case "$grep_status" in
+      0)
+        info "$PROGRAM: blocked risky shell command by deny pattern"
+        exit 2
+        ;;
+      1) ;;
+      *)
+        # grep failed (e.g., invalid ERE in a custom deny file). Fail closed —
+        # silently allowing here would let the rest of the deny list be bypassed.
+        info "$PROGRAM: deny-bash-patterns scan failed; refusing to allow command"
+        exit 2
+        ;;
     esac
-    if printf '%s\n' "$cmd" | grep -Eq "$pattern"; then
-      info "$PROGRAM: blocked risky shell command by deny pattern"
-      exit 2
-    fi
-  done <"$DENY_BASH_PATTERNS"
+  else
+    rm -f "$patterns"
+  fi
 
   if bash_matches_deny_path "$cmd"; then
     info "$PROGRAM: blocked shell command referencing a deny-listed path"
@@ -566,7 +576,8 @@ scan_mcp_input() {
   input=$1
   need_jq
   text=$(printf '%s' "$input" | jq -c '.tool_input // {}')
-  scan_text_hook "MCP tool input" "$text"
+  scan_text_direct "MCP tool input" "$text"
+  block_on_scan_status "$?" "MCP tool input contains secret-like values"
 }
 
 scan_proposed_write() {
@@ -577,15 +588,18 @@ scan_proposed_write() {
   case "$tool" in
     Write)
       content=$(json_value '.tool_input.content // empty' "$input")
-      scan_text_hook "proposed Write content" "$content"
+      scan_text_direct "proposed Write content" "$content"
+      block_on_scan_status "$?" "proposed Write contains secret-like values"
       ;;
     Edit)
       content=$(json_value '.tool_input.new_string // empty' "$input")
-      scan_text_hook "proposed Edit content" "$content"
+      scan_text_direct "proposed Edit content" "$content"
+      block_on_scan_status "$?" "proposed Edit contains secret-like values"
       ;;
     MultiEdit)
       content=$(printf '%s' "$input" | jq -r '[.tool_input.edits[]?.new_string // empty] | join("\n")')
-      scan_text_hook "proposed MultiEdit content" "$content"
+      scan_text_direct "proposed MultiEdit content" "$content"
+      block_on_scan_status "$?" "proposed MultiEdit contains secret-like values"
       ;;
     apply_patch)
       patch=$(printf '%s' "$input" | jq -r '
@@ -593,7 +607,8 @@ scan_proposed_write() {
         | if type == "string" then . else tojson end
       ')
       added=$(printf '%s\n' "$patch" | extract_patch_added_lines)
-      scan_text_hook "proposed apply_patch added lines" "$added"
+      scan_text_direct "proposed apply_patch added lines" "$added"
+      block_on_scan_status "$?" "proposed apply_patch contains secret-like values"
       ;;
   esac
 }

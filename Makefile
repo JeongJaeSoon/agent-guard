@@ -1,18 +1,17 @@
 # Agent Guard — discoverability layer for the existing scripts.
 # Each target is a thin pass-through to install.sh or bin/agent-guard.
 
-.PHONY: help check install test scan scan-staged doctor checksum
+.PHONY: help check install test scan scan-staged checksum
 
 help:
 	@printf 'Agent Guard — make targets\n'
 	@printf '\n'
 	@printf '  make help          Show this list (default).\n'
-	@printf '  make check         Verify dependencies and policy files.\n'
+	@printf '  make check         Verify deps and print installed gitleaks version.\n'
 	@printf '  make install       Configure the native git pre-commit hook.\n'
 	@printf '  make test          Run the test suite (uses a mock gitleaks).\n'
 	@printf '  make scan          Scan the working tree for secrets.\n'
 	@printf '  make scan-staged   Scan staged changes only.\n'
-	@printf '  make doctor        Check deps + print installed gitleaks version.\n'
 	@printf '  make checksum      How to pin a gitleaks-checksum for CI.\n'
 
 check:
@@ -29,8 +28,6 @@ scan:
 
 scan-staged:
 	@bin/agent-guard scan-staged
-
-doctor: check
 
 checksum:
 	@printf 'To pin gitleaks-checksum for the GitHub Action input:\n'
