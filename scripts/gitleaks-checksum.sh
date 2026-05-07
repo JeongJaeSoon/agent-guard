@@ -65,10 +65,10 @@ LINUX_ARM64=$(lookup_sha linux arm64)
 LINUX_X64=$(lookup_sha linux x64)
 
 if [ -z "$DARWIN_ARM64" ] || [ -z "$DARWIN_X64" ] || [ -z "$LINUX_ARM64" ] || [ -z "$LINUX_X64" ]; then
-  printf 'gitleaks-checksum: no entries for v%s in fetched checksums\n' "$VERSION" >&2
+  printf 'gitleaks-checksum: missing one or more required entries for v%s\n' "$VERSION" >&2
   printf 'available archives:\n' >&2
   printf '%s\n' "$checksums" | awk 'NF==2 {print "  " $2}' >&2
-  exit 1
+  exit 2
 fi
 
 local_sha=$(lookup_sha "$LOCAL_OS" "$LOCAL_ARCH")
