@@ -178,7 +178,7 @@ Equivalent surfaces — pick whichever matches your channel:
 | Codex plugin | Ask Codex to run `${CODEX_PLUGIN_ROOT}/bin/agent-guard checksum [VERSION]` (no automatic slash command) |
 | Direct CLI install / Native hook (binary on PATH) | `agent-guard checksum [VERSION]` |
 | Clone of this repo | `make checksum [VERSION=X.Y.Z]` or `scripts/gitleaks-checksum.sh [VERSION]` |
-| Nothing installed yet (e.g. preparing a GitHub Actions workflow) | `curl -fsSL https://raw.githubusercontent.com/JeongJaeSoon/agent-guard/v1/scripts/gitleaks-checksum.sh \| sh` (pin to `v1.1.2` or a full SHA for stricter reproducibility) |
+| Nothing installed yet (e.g. preparing a GitHub Actions workflow) | `curl -fsSL https://raw.githubusercontent.com/JeongJaeSoon/agent-guard/v1/scripts/gitleaks-checksum.sh \| sh` (`v1` is the moving major tag — substitute a full commit SHA or a specific minor-version tag for stricter reproducibility) |
 
 ### Without `agent-guard` on disk (Claude Code / Codex plugin only)
 
