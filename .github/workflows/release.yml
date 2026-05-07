@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       bump:
-        description: "major | minor | patch"
+        description: "major | minor | patch (ignored when version is set)"
         required: true
         default: patch
         type: choice
@@ -12,6 +12,11 @@ on:
           - patch
           - minor
           - major
+      version:
+        description: "Explicit X.Y.Z version. Overrides bump. Use to retry a failed release at the same version."
+        required: false
+        default: ""
+        type: string
       dry_run:
         description: "Open the release PR but skip merge / tag / publish"
         required: false
@@ -38,32 +43,89 @@ jobs:
         id: ver
         run: |
           set -euo pipefail
-          # Pick the latest semver tag (vX.Y.Z), ignoring moving tags like v1.
-          cur=$(git tag --sort=-version:refname --list 'v[0-9]*.[0-9]*.[0-9]*' \
-            | head -n1 | sed 's/^v//')
-          : "${cur:=0.0.0}"
-          IFS=. read -r MA MI PA <<<"$cur"
-          : "${MA:=0}"; : "${MI:=0}"; : "${PA:=0}"
-          case "${{ inputs.bump }}" in
-            major) MA=$((MA+1)); MI=0; PA=0 ;;
-            minor) MI=$((MI+1)); PA=0 ;;
-            patch) PA=$((PA+1)) ;;
-          esac
-          v="${MA}.${MI}.${PA}"
+          explicit="${{ inputs.version }}"
+          if [ -n "$explicit" ]; then
+            if ! printf '%s' "$explicit" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+              echo "version input must match X.Y.Z (got: $explicit)"
+              exit 1
+            fi
+            v="$explicit"
+            MA="${v%%.*}"
+            cur="$v"
+            echo "using explicit version v${v} - bump input ignored"
+          else
+            # Pick the latest semver tag (vX.Y.Z), ignoring moving tags like v1.
+            cur=$(git tag --sort=-version:refname --list 'v[0-9]*.[0-9]*.[0-9]*' \
+              | head -n1 | sed 's/^v//')
+            : "${cur:=0.0.0}"
+            IFS=. read -r MA MI PA <<<"$cur"
+            : "${MA:=0}"; : "${MI:=0}"; : "${PA:=0}"
+            case "${{ inputs.bump }}" in
+              major) MA=$((MA+1)); MI=0; PA=0 ;;
+              minor) MI=$((MI+1)); PA=0 ;;
+              patch) PA=$((PA+1)) ;;
+            esac
+            v="${MA}.${MI}.${PA}"
+          fi
           echo "version=$v"           >> "$GITHUB_OUTPUT"
           echo "major=v${MA}"         >> "$GITHUB_OUTPUT"
           echo "branch=release/v${v}" >> "$GITHUB_OUTPUT"
           echo "previous=${cur}"      >> "$GITHUB_OUTPUT"
 
-      - name: Guard against duplicate release
+      - name: Detect resume state
+        id: state
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          if git rev-parse "v${{ steps.ver.outputs.version }}" >/dev/null 2>&1; then
-            echo "tag v${{ steps.ver.outputs.version }} already exists - aborting"
-            exit 1
+          v="${{ steps.ver.outputs.version }}"
+
+          # Has the release PR for v$v already been merged into main? We probe
+          # by reading the manifest version on origin/main. If it equals the
+          # target $v, the bump + PR + merge phase was completed by a previous
+          # (failed) dispatch and must not be repeated.
+          git fetch origin main >/dev/null
+          main_version=""
+          if git show "origin/main:.claude-plugin/plugin.json" >/dev/null 2>&1; then
+            main_version=$(git show "origin/main:.claude-plugin/plugin.json" \
+              | jq -r '.version // ""')
+          fi
+          if [ "$main_version" = "$v" ]; then
+            echo "skip_pr_cycle=true" >> "$GITHUB_OUTPUT"
+            echo "manifests on origin/main already at v${v}; skipping PR cycle"
+          else
+            echo "skip_pr_cycle=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          # Does origin already carry tag v$v, and if so, is it on origin/main HEAD?
+          remote_tag_sha=$(git ls-remote --tags origin "v${v}" \
+            | awk -v t="refs/tags/v${v}" '$2==t {print $1}' \
+            | head -n1)
+          main_sha=$(git ls-remote origin main | awk '{print $1; exit}')
+          if [ -n "$remote_tag_sha" ]; then
+            if [ "$remote_tag_sha" = "$main_sha" ]; then
+              echo "skip_tag=true" >> "$GITHUB_OUTPUT"
+              echo "tag v${v} already at origin/main HEAD; skipping tag create"
+            else
+              echo "tag v${v} exists at $remote_tag_sha but origin/main HEAD is $main_sha"
+              echo "refusing to retag at a different commit; delete the tag or pick another version"
+              exit 1
+            fi
+          else
+            echo "skip_tag=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          # Does the release object already exist? If yes, assets will be
+          # uploaded with --clobber instead of attempting create.
+          if gh release view "v${v}" >/dev/null 2>&1; then
+            echo "release_exists=true" >> "$GITHUB_OUTPUT"
+            echo "release v${v} already exists; will upload assets with --clobber"
+          else
+            echo "release_exists=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Bump version in tracked files
+        if: steps.state.outputs.skip_pr_cycle != 'true'
         run: |
           set -euo pipefail
           v="${{ steps.ver.outputs.version }}"
@@ -84,6 +146,7 @@ jobs:
           sed -i -E "s|^VERSION=[0-9]+\.[0-9]+\.[0-9]+$|VERSION=${v}|" bin/agent-guard
 
       - name: Build CHANGELOG entry
+        if: steps.state.outputs.skip_pr_cycle != 'true'
         run: |
           set -euo pipefail
           v="${{ steps.ver.outputs.version }}"
@@ -101,6 +164,7 @@ jobs:
 
       - name: Open release PR
         id: pr
+        if: steps.state.outputs.skip_pr_cycle != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -132,14 +196,14 @@ jobs:
           echo "Opened: $url"
 
       - name: Auto-merge release PR
-        if: ${{ !inputs.dry_run }}
+        if: ${{ steps.state.outputs.skip_pr_cycle != 'true' && !inputs.dry_run }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh pr merge "${{ steps.pr.outputs.url }}" --squash --delete-branch --auto
 
       - name: Wait for PR to merge
-        if: ${{ !inputs.dry_run }}
+        if: ${{ steps.state.outputs.skip_pr_cycle != 'true' && !inputs.dry_run }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -163,13 +227,30 @@ jobs:
           set -euo pipefail
           v="${{ steps.ver.outputs.version }}"
           maj="${{ steps.ver.outputs.major }}"
-          git fetch origin main
+          git fetch origin main --tags
           git checkout main
           git pull --ff-only origin main
 
-          git tag "v${v}"
+          # Idempotent tag create. The Detect step's advisory skip_tag was
+          # computed before any PR-cycle merge could change main HEAD, so the
+          # authoritative comparison happens here against the freshly-pulled
+          # HEAD. If the tag points elsewhere (manual push at the wrong commit,
+          # stale local checkout) we abort instead of silently retagging.
+          head_sha=$(git rev-parse HEAD)
+          if git rev-parse --verify --quiet "refs/tags/v${v}" >/dev/null; then
+            tag_sha=$(git rev-parse "v${v}^{}")
+            if [ "$tag_sha" = "$head_sha" ]; then
+              echo "tag v${v} already at HEAD - skip create"
+            else
+              echo "tag v${v} exists at $tag_sha but HEAD is $head_sha - aborting"
+              exit 1
+            fi
+          else
+            git tag "v${v}"
+            git push origin "v${v}"
+          fi
+          # Major moving tag is idempotent by design (-f always replaces).
           git tag -f "${maj}"
-          git push origin "v${v}"
           git push origin "${maj}" --force
 
           # Build the tarball entirely outside the directory tar is enumerating.
@@ -186,10 +267,25 @@ jobs:
           mv "$tarball_tmp" "agent-guard-${v}.tar.gz"
           sha256sum "agent-guard-${v}.tar.gz" > "agent-guard-${v}.tar.gz.sha256"
 
-          gh release create "v${v}" \
-            --title "Agent Guard v${v}" \
-            --generate-notes \
-            "agent-guard-${v}.tar.gz" \
-            "agent-guard-${v}.tar.gz.sha256" \
-            install.sh \
-            bootstrap.sh
+          # Idempotent release publish: if a release object already exists
+          # (recovery path from a previous half-finished dispatch), upload the
+          # assets with --clobber so any stale assets are replaced. Otherwise
+          # create the release fresh with auto-generated notes. Recheck the
+          # state here rather than reusing Detect's output so we don't race a
+          # release object that was created between the two steps.
+          if gh release view "v${v}" >/dev/null 2>&1; then
+            gh release upload "v${v}" \
+              "agent-guard-${v}.tar.gz" \
+              "agent-guard-${v}.tar.gz.sha256" \
+              install.sh \
+              bootstrap.sh \
+              --clobber
+          else
+            gh release create "v${v}" \
+              --title "Agent Guard v${v}" \
+              --generate-notes \
+              "agent-guard-${v}.tar.gz" \
+              "agent-guard-${v}.tar.gz.sha256" \
+              install.sh \
+              bootstrap.sh
+          fi
