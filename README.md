@@ -110,6 +110,20 @@ For local testing, use `examples/codex/hooks.json`. Update the `author` field in
 
 The hook contract has been cross-checked against `openai/codex` schemas at `codex-rs/hooks/schema/generated/pre-tool-use.command.input.schema.json` and `codex-rs/config/src/hook_config.rs`: top-level event keys are PascalCase (`PreToolUse`, `PostToolUse`, `Stop`), the handler shape is `{ "type": "command", "command": ..., "timeout": <seconds> }`, and stdin payload keys are snake_case (`tool_name`, `tool_input`, ...). `exit 2` with a reason on stderr is Codex's documented blocking path.
 
+### Hook tool name coverage in Codex
+
+Codex registers a much smaller set of hook-visible tools than Claude Code. Source of truth: `codex-rs/core/src/tools/hook_names.rs`.
+
+| Hook `tool_name` | Codex source | Matcher aliases |
+|---|---|---|
+| `Bash` | `shell.rs`, `unified_exec.rs`, `local_shell.rs`, `shell_command.rs`, `sandboxing.rs` | (none) |
+| `apply_patch` | `apply_patch.rs` (handler + runtime) | `Write`, `Edit` |
+| (MCP tool's display name) | `mcp.rs`, `mcp_tool_call.rs` | (none) |
+
+Agent Guard's matcher (`Write|Edit|MultiEdit|Read|NotebookRead|Grep|Glob|Bash|apply_patch|mcp__.*`) is a Claude Code-shaped superset. In Codex, `MultiEdit`, `Read`, `NotebookRead`, `Grep`, and `Glob` are silently no-ops because Codex has no tool registered under those names — they remain in the matcher only for Claude Code coverage. The genuinely active surface in Codex is therefore `Write`/`Edit` (via the `apply_patch` alias), `Bash`, `apply_patch`, and any `mcp__*` tool.
+
+If a Codex agent tries to read a deny-listed file like `.env`, the read still has to happen through the shell (`cat .env`, `head .env`, redirects, command substitution, …), so the `Bash` matcher and `config/deny-bash-patterns.txt` close that path even though Codex lacks a dedicated `Read` tool.
+
 ### Verifying the example configs
 
 Both example configs drive the same `bin/agent-guard` entry points. To smoke-test them locally:

@@ -668,8 +668,14 @@ fi
 # Lock the contract against openai/codex's pre-tool-use input schema:
 # event keys are PascalCase, payload keys are snake_case, and unknown keys
 # (model, permission_mode, session_id, …) must not break routing.
+# Bash and apply_patch are the two hook-visible tool_names Codex registers
+# in core/src/tools/hook_names.rs; both must route correctly.
 expect_json_status 2 "Codex full-payload Bash on .env is blocked" \
   '{"cwd":"/tmp","hook_event_name":"PreToolUse","model":"gpt-5","permission_mode":"default","session_id":"s1","tool_input":{"command":"cat .env"},"tool_name":"Bash","tool_use_id":"u1","transcript_path":null,"turn_id":"t1"}' \
+  hook-pre-tool
+
+expect_json_status 2 "Codex full-payload apply_patch with secret is blocked" \
+  '{"cwd":"/tmp","hook_event_name":"PreToolUse","model":"gpt-5","permission_mode":"default","session_id":"s1","tool_input":{"patch":"*** Begin Patch\n*** Add File: leak.txt\n+AGENT_GUARD_TEST_SECRET\n*** End Patch"},"tool_name":"apply_patch","tool_use_id":"u2","transcript_path":null,"turn_id":"t1"}' \
   hook-pre-tool
 
 # --- Untracked single-shot scan -------------------------------------------
