@@ -21,7 +21,7 @@ It is a thin layer — not a vault, not a credential rotator, not a replacement 
 - [Channels](#channels) — pick which integration(s) to use
 - [Quick start (Claude Code)](#quick-start-claude-code) — 3 commands, ~1 minute
 - [Install other channels](#install-other-channels) — Codex, GitHub Actions, Direct CLI, Native Git hook
-- [Dependencies & setup](#dependencies--setup) — check `jq` / `gitleaks`, auto-install, troubleshoot
+- [Dependencies & setup](#dependencies--setup) — check `jq` / `gitleaks`, auto-install, fetch a `gitleaks-checksum`
 - [Verify the install](#verify-the-install)
 - [What it catches](#what-it-catches)
 - [Configuration](#configuration)
@@ -80,7 +80,12 @@ Restart Codex so the hooks load.
     gitleaks-checksum: "<sha256 of the gitleaks release archive>"
 ```
 
-`@v1` follows minor and patch releases automatically. Pin `gitleaks-checksum` from the published `gitleaks_${version}_checksums.txt`. Use `require-checksum: "false"` only for local experimentation. For high-security CI, also pin Agent Guard to a full commit SHA.
+**Pinning options for `@v1`:**
+- `@v1` — moving major tag, picks up minor / patch releases automatically (recommended default)
+- `@v1.1.2` — pin to a specific release for fully reproducible CI
+- `@<full-commit-sha>` — pin to a commit for the strictest security posture
+
+**Filling in `gitleaks-checksum`:** run [`agent-guard checksum [VERSION]`](#fetching-a-gitleaks-checksum) (or [`/agent-guard:checksum`](#slash-commands) inside Claude Code) — it prints the value pre-formatted for paste. Use `require-checksum: "false"` only for local experimentation; never in production CI.
 
 ### Direct CLI install (no clone)
 
@@ -122,7 +127,37 @@ agent-guard setup --install \
   [--gitleaks-version 8.30.1]
 ```
 
-The checksum is required — fetch it from `https://github.com/gitleaks/gitleaks/releases/download/v${version}/gitleaks_${version}_checksums.txt`. `jq` is never auto-installed; `setup` prints the right `brew` / `apt-get` / `dnf` command for your OS.
+The checksum is required. The fastest way to get it: run [`agent-guard checksum [VERSION]`](#fetching-a-gitleaks-checksum) — it auto-detects your OS / arch and prints the right value, formatted for both `--gitleaks-checksum` (CLI) and `gitleaks-checksum:` (GitHub Actions YAML).
+
+`jq` is never auto-installed; `setup` prints the right `brew` / `apt-get` / `dnf` command for your OS.
+
+### Fetching a `gitleaks-checksum`
+
+Looking up the right sha256 by hand is the most common chore around dependency setup. The bundled helper does it for you:
+
+```sh
+agent-guard checksum             # uses the version pinned in action.yml (8.30.1)
+agent-guard checksum 8.30.0      # specific version
+```
+
+Output (paste-ready):
+
+```
+gitleaks v8.30.1 — darwin/arm64
+
+sha256: <hex>
+
+GitHub Actions workflow:
+  gitleaks-checksum: "<hex>"
+
+agent-guard setup CLI:
+  agent-guard setup --install --gitleaks-checksum <hex> --gitleaks-version 8.30.1
+```
+
+Equivalent surfaces:
+- `/agent-guard:checksum [VERSION]` — Claude Code slash command (calls the same script under the plugin path)
+- `make checksum [VERSION=X.Y.Z]` — from a clone
+- `scripts/gitleaks-checksum.sh [VERSION]` — direct script invocation
 
 ### Without `agent-guard` on disk (Claude Code / Codex plugin only)
 
@@ -134,7 +169,7 @@ The plugin install does not place a binary on the filesystem — install depende
 | Debian / Ubuntu | `sudo apt-get install -y jq` &nbsp;+ download `gitleaks` from its [releases page](https://github.com/gitleaks/gitleaks/releases) |
 | Fedora | `sudo dnf install -y jq` &nbsp;+ download `gitleaks` from its [releases page](https://github.com/gitleaks/gitleaks/releases) |
 
-After dependencies are in place, run `/reload-plugins` in Claude Code (or restart Codex) and re-run the smoke test.
+After dependencies are in place, run `/reload-plugins` in Claude Code (or restart Codex) and re-run the smoke test. Plugin users can still reach the [`/agent-guard:checksum`](#fetching-a-gitleaks-checksum) helper from inside their session — no PATH binary required.
 
 ## Verify the install
 
@@ -175,8 +210,9 @@ Project-local `.gitleaks.toml` files are not automatically trusted.
 bin/agent-guard scan-staged
 bin/agent-guard scan-working-tree
 bin/agent-guard scan-path PATH...
-bin/agent-guard check        # dependency / gitleaks version check
-bin/agent-guard setup        # report dependency status; --install opts in to gitleaks download
+bin/agent-guard check              # dependency / gitleaks version check
+bin/agent-guard setup              # report dependency status; --install opts in to gitleaks download
+bin/agent-guard checksum [VERSION] # fetch the gitleaks-checksum for your OS/arch
 bin/agent-guard version
 ```
 
@@ -185,6 +221,7 @@ bin/agent-guard version
 | Command | What it does |
 |---|---|
 | `/agent-guard:verify` | One-shot deterministic secret scan over the working tree (staged + unstaged + untracked). Claude Code only. |
+| `/agent-guard:checksum [VERSION]` | Fetch the gitleaks release sha256 for your OS / arch and emit paste-ready snippets for both GitHub Actions YAML and `agent-guard setup --install`. Claude Code only. |
 
 ### Exit codes
 
@@ -203,7 +240,7 @@ make install       # ./install.sh git-hooks
 make test          # tests/run.sh
 make scan          # bin/agent-guard scan-working-tree
 make scan-staged   # bin/agent-guard scan-staged
-make checksum      # how to pin a gitleaks-checksum for CI
+make checksum      # fetch the gitleaks-checksum for your OS/arch (override with VERSION=X.Y.Z)
 ```
 
 `tests/run.sh` uses a mock `gitleaks` to validate routing without downloading dependencies. With real `gitleaks` installed, `bin/agent-guard scan-path .` does a full scan.
