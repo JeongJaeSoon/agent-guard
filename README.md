@@ -8,6 +8,10 @@ It is intentionally small. It does not teach agents how to behave, manage vaults
 
 Pick the channel matching your environment. All commands resolve to the same released version.
 
+### Prerequisites
+
+`sh`, `git`, `jq`, and [`gitleaks`](https://github.com/gitleaks/gitleaks) (>= 8.30 recommended) on macOS or Linux. No Python, Node, npm hook manager, Docker, or other runtime is required. If `gitleaks` is missing, the first hook invocation will fail with a clear error.
+
 ### Claude Code
 
 ```text
@@ -52,9 +56,19 @@ cd <your-project>
 ~/.agent-guard/install.sh git-hooks
 ```
 
-See **Advanced setup** below for the full per-channel configuration, including how to wire local `examples/claude/settings.project.json` into a project, the Codex hook contract, and the `gitleaks-checksum` pinning policy for CI.
+See [Native Git hook](#native-git-hook) under Advanced setup for behavior around existing `core.hooksPath` setups.
 
-## Channels
+### Verify your install
+
+```sh
+./install.sh check
+```
+
+Prints the installed `gitleaks` version alongside the dependency check. `make check` is equivalent.
+
+## How it works
+
+### Channels
 
 Agent Guard offers four independent integration points. Pick whichever match your workflow — they do **not** chain. Each row lists what that channel alone can and cannot block.
 
@@ -67,54 +81,7 @@ Agent Guard offers four independent integration points. Pick whichever match you
 
 Defense-in-depth is best, but a single channel still meaningfully reduces risk. The agent-hook channel is the only one that can stop a leak **before** the secret leaves the host.
 
-## Requirements
-
-- `sh`
-- `jq`
-- `git`
-- `gitleaks` (>= 8.30 recommended; older releases ship a smaller default ruleset)
-- standard macOS/Linux Unix utilities
-
-No Python, Node, npm hook manager, Docker, Go/Rust runtime, skills, prompts, or reporting layer is required.
-
-`make check` prints the installed `gitleaks` version alongside the dependency check.
-
-## Commands
-
-```sh
-bin/agent-guard hook-pre-tool
-bin/agent-guard hook-post-tool
-bin/agent-guard hook-stop
-bin/agent-guard scan-staged
-bin/agent-guard scan-working-tree
-bin/agent-guard scan-path PATH...
-```
-
-Hook commands read Claude Code or Codex hook JSON from stdin. Direct scan commands are used by Git hooks, GitHub Actions, and manual checks.
-
-Exit codes:
-
-- `0`: clean / allow
-- `1`: findings for direct scan commands
-- `2`: block an agent hook action or signal usage/dependency failure
-
-## Make targets
-
-A thin `Makefile` is provided as a discoverability layer over the same scripts:
-
-```sh
-make help          # one-screen index of every target
-make check         # ./install.sh check
-make install       # ./install.sh git-hooks
-make test          # tests/run.sh
-make scan          # bin/agent-guard scan-working-tree
-make scan-staged   # bin/agent-guard scan-staged
-make checksum      # how to pin a gitleaks-checksum for CI
-```
-
-`make` does not introduce orchestration logic; targets pass through to `install.sh` and `bin/agent-guard`.
-
-## What It Checks
+### What it checks
 
 - Proposed writes from `Write`, `Edit`, `MultiEdit`, and Codex `apply_patch`
 - Sensitive read/search paths such as `.env*`, private keys, `.aws/credentials`, `.npmrc`, `.pypirc`
@@ -127,23 +94,9 @@ Patch and diff scans inspect added lines only so removing an existing leaked val
 
 Detection sensitivity is bounded by the rules and allowlists shipped with the `gitleaks` binary on your machine. Short or context-free secret strings that the upstream ruleset does not recognise will pass — Agent Guard layers on top of, not in place of, GitHub Secret Scanning and Push Protection. Keep `gitleaks` up to date.
 
-## Install Checks
+## Advanced setup
 
-```sh
-./install.sh check
-```
-
-## Native Git Hook
-
-Agent Guard uses native Git hooks. It does not require Husky, npm, or another hook manager.
-
-```sh
-./install.sh git-hooks
-```
-
-The installer sets `core.hooksPath=githooks` only when it will not overwrite an existing hook setup.
-
-## Claude Code
+### Claude Code
 
 As a plugin, Agent Guard loads `.claude-plugin/plugin.json`, which points at `./hooks/hooks.json`.
 
@@ -151,7 +104,7 @@ For local testing, adapt `examples/claude/settings.project.json` and replace `/a
 
 For marketplace distribution, `.claude-plugin/marketplace.json` points at `JeongJaeSoon/agent-guard` by default. Update the `owner` field with your publisher info before publishing.
 
-## Codex
+### Codex
 
 Codex loads `.codex-plugin/plugin.json`, which points at `./hooks/hooks.json`.
 
@@ -159,7 +112,7 @@ For local testing, use `examples/codex/hooks.json`. Update the `author` field in
 
 The hook contract has been cross-checked against `openai/codex` schemas at `codex-rs/hooks/schema/generated/pre-tool-use.command.input.schema.json` and `codex-rs/config/src/hook_config.rs`: top-level event keys are PascalCase (`PreToolUse`, `PostToolUse`, `Stop`), the handler shape is `{ "type": "command", "command": ..., "timeout": <seconds> }`, and stdin payload keys are snake_case (`tool_name`, `tool_input`, ...). `exit 2` with a reason on stderr is Codex's documented blocking path.
 
-### Hook tool name coverage in Codex
+#### Hook tool name coverage in Codex
 
 Codex registers a much smaller set of hook-visible tools than Claude Code. Source of truth: `codex-rs/core/src/tools/hook_names.rs`.
 
@@ -173,7 +126,7 @@ Agent Guard's matcher (`Write|Edit|MultiEdit|Read|NotebookRead|Grep|Glob|Bash|ap
 
 If a Codex agent tries to read a deny-listed file like `.env`, the read still has to happen through the shell (`cat .env`, `head .env`, redirects, command substitution, …), so the `Bash` matcher and `config/deny-bash-patterns.txt` close that path even though Codex lacks a dedicated `Read` tool.
 
-### Verifying the example configs
+#### Verifying the example configs
 
 Both example configs drive the same `bin/agent-guard` entry points. To smoke-test them locally:
 
@@ -194,7 +147,7 @@ printf '%s' '{"tool_name":"Read","tool_input":{"file_path":".env"}}' \
 # expect: exit 2, "blocked sensitive file access: .env"
 ```
 
-## GitHub Actions
+### GitHub Actions
 
 The root `action.yml` lets consumers use the repository directly:
 
@@ -211,7 +164,17 @@ To opt out (local experimentation only) set `require-checksum: "false"`. Do not 
 
 For high-security environments, also pin Agent Guard to a full commit SHA instead of the moving `@v1` tag.
 
-## Configuration
+### Native Git hook
+
+Agent Guard uses native Git hooks. It does not require Husky, npm, or another hook manager.
+
+```sh
+./install.sh git-hooks
+```
+
+The installer sets `core.hooksPath=githooks` only when it will not overwrite an existing hook setup.
+
+### Configuration
 
 Agent Guard always passes the bundled `config/gitleaks.toml` unless you explicitly override it:
 
@@ -229,7 +192,53 @@ The bundled deny-read policy is conservative, including local credential files s
 
 Project-local `.gitleaks.toml` files are not automatically trusted.
 
-## Tests
+## Reference
+
+### CLI subcommands
+
+User-callable commands for ad-hoc scanning, used by Git hooks, GitHub Actions, and manual checks:
+
+```sh
+bin/agent-guard scan-staged
+bin/agent-guard scan-working-tree
+bin/agent-guard scan-path PATH...
+```
+
+### Hook entry points
+
+Called by Claude Code, Codex, or Git — not by users directly. Each reads hook JSON from stdin:
+
+```sh
+bin/agent-guard hook-pre-tool
+bin/agent-guard hook-post-tool
+bin/agent-guard hook-stop
+```
+
+### Exit codes
+
+- `0`: clean / allow
+- `1`: findings for direct scan commands
+- `2`: block an agent hook action or signal usage/dependency failure
+
+## Development
+
+### Make targets
+
+A thin `Makefile` is provided as a discoverability layer over the same scripts:
+
+```sh
+make help          # one-screen index of every target
+make check         # ./install.sh check
+make install       # ./install.sh git-hooks
+make test          # tests/run.sh
+make scan          # bin/agent-guard scan-working-tree
+make scan-staged   # bin/agent-guard scan-staged
+make checksum      # how to pin a gitleaks-checksum for CI
+```
+
+`make` does not introduce orchestration logic; targets pass through to `install.sh` and `bin/agent-guard`.
+
+### Tests
 
 ```sh
 tests/run.sh
