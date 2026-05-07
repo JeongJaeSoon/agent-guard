@@ -30,8 +30,11 @@ require() {
 
 resolve_latest_version() {
   # GitHub redirects releases/latest -> releases/tag/vX.Y.Z. We follow the
-  # redirect and read the effective URL rather than parsing release notes.
-  url=$(curl -fsS -o /dev/null -w '%{url_effective}' \
+  # redirect (-L) and read the effective URL rather than parsing release
+  # notes. Without -L curl stops at the 302 and url_effective stays at the
+  # input URL, so the sed match fails and we die with "could not parse
+  # version" -- previously broke v1.1.0 installs.
+  url=$(curl -fsSL -o /dev/null -w '%{url_effective}' \
     "https://github.com/${REPO}/releases/latest") \
     || die "could not query latest release"
   v=$(printf '%s' "$url" | sed -n -E 's|.*/tag/v([0-9]+\.[0-9]+\.[0-9]+)$|\1|p')
