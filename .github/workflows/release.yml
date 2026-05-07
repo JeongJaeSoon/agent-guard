@@ -66,6 +66,12 @@ jobs:
           for f in .claude-plugin/plugin.json .codex-plugin/plugin.json; do
             jq --arg v "$v" '.version=$v' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
           done
+          # Marketplace catalog: bump the agent-guard plugin entry's version field.
+          mp=.claude-plugin/marketplace.json
+          if [ -f "$mp" ]; then
+            jq --arg v "$v" '(.plugins[] | select(.name=="agent-guard") | .version) = $v' \
+              "$mp" > "$mp.tmp" && mv "$mp.tmp" "$mp"
+          fi
           # Replace any pinned semver in README install snippets (no-op if none).
           sed -i -E "s|agent-guard@[0-9]+\.[0-9]+\.[0-9]+|agent-guard@${v}|g" README.md
 
