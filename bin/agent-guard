@@ -104,10 +104,17 @@ scan_text_hook() {
   text=$2
   scan_text_direct "$label" "$text"
   status=$?
+  [ "$status" -eq 0 ] && return 0
+  return 2
+}
+
+block_on_scan_status() {
+  status=$1
+  message=$2
   case "$status" in
     0) return 0 ;;
-    1) return 2 ;;
-    *) return 2 ;;
+    1) info "$PROGRAM: $message"; exit 2 ;;
+    *) exit 2 ;;
   esac
 }
 
@@ -386,16 +393,103 @@ bash_matches_deny_path() {
   return 1
 }
 
+is_shell_command_separator() {
+  case "$1" in
+    ';'|'&&'|'||'|'|') return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+git_option_takes_value() {
+  case "$1" in
+    -c|-C|--git-dir|--work-tree|--namespace|--exec-path|--config-env) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+is_git_global_option() {
+  case "$1" in
+    --git-dir=*|--work-tree=*|--namespace=*|--exec-path=*|--config-env=*|-c*|-C*) return 0 ;;
+    --literal-pathspecs|--glob-pathspecs|--noglob-pathspecs|--icase-pathspecs) return 0 ;;
+    --no-pager|--no-replace-objects|-p|-P|--) return 0 ;;
+    -*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 is_git_commit_or_push() {
   cmd=$1
-  # Allow git options before commit/push, e.g. `git -c x=y commit`.
-  printf '%s\n' "$cmd" | grep -Eq '(^|[^[:alnum:]_./-])git([[:space:]]|$)'  || return 1
-  printf '%s\n' "$cmd" | grep -Eq '(^|[^[:alnum:]_-])(commit|push)([^[:alnum:]_-]|$)'
+  (
+    set -f
+    # shellcheck disable=SC2086
+    set -- $cmd
+
+    command_start=1
+    while [ "$#" -gt 0 ]; do
+      token=$1
+      shift
+
+      if [ "$command_start" -eq 1 ] && [ "$token" = "git" ]; then
+        while [ "$#" -gt 0 ]; do
+          token=$1
+          shift
+          if git_option_takes_value "$token"; then
+            [ "$#" -gt 0 ] && shift
+            continue
+          fi
+          is_git_global_option "$token" && continue
+
+          case "$token" in
+            commit|push)
+              return 0
+              ;;
+            *)
+              break
+              ;;
+          esac
+        done
+        command_start=0
+        continue
+      fi
+
+      if is_shell_command_separator "$token"; then
+        command_start=1
+      else
+        command_start=0
+      fi
+    done
+    return 1
+  )
 }
 
 is_git_hook_bypass() {
   cmd=$1
-  printf '%s\n' "$cmd" | grep -Eq '(--no-verify|--no-gpg-sign)([^[:alnum:]_-]|$)'
+  (
+    set -f
+    # shellcheck disable=SC2086
+    set -- $cmd
+
+    while [ "$#" -gt 0 ]; do
+      token=$1
+      shift
+      case "$token" in
+        --no-verify|--no-gpg-sign) return 0 ;;
+      esac
+    done
+    return 1
+  )
+}
+
+check_git_command() {
+  cmd=$1
+  if is_git_commit_or_push "$cmd"; then
+    if is_git_hook_bypass "$cmd"; then
+      info "$PROGRAM: blocked git command that disables hooks/signing"
+      exit 2
+    fi
+    scan_staged
+    block_on_scan_status "$?" "staged changes contain secret-like values; blocking git command"
+  fi
 }
 
 check_bash_command() {
@@ -420,19 +514,7 @@ check_bash_command() {
     exit 2
   fi
 
-  if is_git_commit_or_push "$cmd"; then
-    if is_git_hook_bypass "$cmd"; then
-      info "$PROGRAM: blocked git command that disables hooks/signing"
-      exit 2
-    fi
-    scan_staged
-    status=$?
-    case "$status" in
-      0) return 0 ;;
-      1) info "$PROGRAM: staged changes contain secret-like values; blocking git command"; exit 2 ;;
-      *) exit 2 ;;
-    esac
-  fi
+  check_git_command "$cmd"
 }
 
 scan_mcp_input() {
@@ -511,12 +593,7 @@ hook_post_tool() {
   is_mutation_tool "$tool" || return 0
 
   scan_working_tree
-  status=$?
-  case "$status" in
-    0) return 0 ;;
-    1) info "$PROGRAM: changed files contain secret-like values after tool execution"; exit 2 ;;
-    *) exit 2 ;;
-  esac
+  block_on_scan_status "$?" "changed files contain secret-like values after tool execution"
 }
 
 hook_stop() {
@@ -531,12 +608,7 @@ hook_stop() {
   fi
 
   scan_working_tree
-  status=$?
-  case "$status" in
-    0) return 0 ;;
-    1) info "$PROGRAM: changed files contain secret-like values before stop"; exit 2 ;;
-    *) exit 2 ;;
-  esac
+  block_on_scan_status "$?" "changed files contain secret-like values before stop"
 }
 
 cmd=${1:-}

@@ -6,7 +6,7 @@ case "$mode" in
   stdin)
     input=$(cat)
     case "$input" in
-      *AGENT_GUARD_TEST_SECRET*|*AKIAIOSFODNN7EXAMPLE*)
+      *AGENT_GUARD_TEST_SECRET*)
         printf '%s\n' "Finding: REDACTED"
         exit 1
         ;;

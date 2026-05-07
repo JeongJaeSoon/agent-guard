@@ -2,7 +2,7 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Bash|apply_patch|Edit|Write|mcp__.*",
+        "matcher": "Write|Edit|MultiEdit|Read|NotebookRead|Grep|Glob|Bash|apply_patch|mcp__.*",
         "hooks": [
           {
             "type": "command",
@@ -14,7 +14,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "Bash|apply_patch|Edit|Write|mcp__.*",
+        "matcher": "Write|Edit|MultiEdit|Bash|apply_patch|mcp__.*",
         "hooks": [
           {
             "type": "command",
