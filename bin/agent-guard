@@ -4,9 +4,33 @@ set -u
 PROGRAM=agent-guard
 VERSION=1.2.0
 
+# Resolve the script's own path, following symlinks. The bootstrap installer
+# drops a symlink at ~/.local/bin/agent-guard that points into ~/.agent-guard/
+# bin/agent-guard, so dirname "$0" alone (without symlink follow) computes the
+# config / scripts directory relative to ~/.local/ instead of ~/.agent-guard/.
+# POSIX-portable: walk the readlink chain by hand (BSD readlink lacks -f).
+script_path() {
+  p=$0
+  hops=0
+  max_hops=40
+  while [ -L "$p" ]; do
+    hops=$((hops + 1))
+    if [ "$hops" -gt "$max_hops" ]; then
+      printf '%s: too many symlink hops while resolving script path: %s\n' "$PROGRAM" "$p" >&2
+      exit 2
+    fi
+    target=$(readlink -- "$p")
+    case "$target" in
+      /*) p=$target ;;
+      *) p="$(dirname -- "$p")/$target" ;;
+    esac
+  done
+  printf '%s\n' "$p"
+}
+
 script_dir() {
   # shellcheck disable=SC2164
-  CDPATH= cd -- "$(dirname -- "$0")" && pwd -P
+  CDPATH= cd -- "$(dirname -- "$(script_path)")" && pwd -P
 }
 
 BIN_DIR=$(script_dir)
