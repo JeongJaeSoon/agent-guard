@@ -17,7 +17,7 @@ die() {
 }
 
 check() {
-  "$SCRIPT_DIR/bin/agent-guard" check
+  "$SCRIPT_DIR/plugins/agent-guard/bin/agent-guard" check
 }
 
 install_git_hooks() {

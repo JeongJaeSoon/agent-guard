@@ -86,8 +86,8 @@ jobs:
           # (failed) dispatch and must not be repeated.
           git fetch origin main >/dev/null
           main_version=""
-          if git show "origin/main:.claude-plugin/plugin.json" >/dev/null 2>&1; then
-            main_version=$(git show "origin/main:.claude-plugin/plugin.json" \
+          if git show "origin/main:plugins/agent-guard/.claude-plugin/plugin.json" >/dev/null 2>&1; then
+            main_version=$(git show "origin/main:plugins/agent-guard/.claude-plugin/plugin.json" \
               | jq -r '.version // ""')
           fi
           if [ "$main_version" = "$v" ]; then
@@ -129,7 +129,7 @@ jobs:
         run: |
           set -euo pipefail
           v="${{ steps.ver.outputs.version }}"
-          for f in .claude-plugin/plugin.json .codex-plugin/plugin.json; do
+          for f in plugins/agent-guard/.claude-plugin/plugin.json plugins/agent-guard/.codex-plugin/plugin.json; do
             jq --arg v "$v" '.version=$v' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
           done
           # Marketplace catalog: bump the agent-guard plugin entry's version field.
@@ -143,7 +143,7 @@ jobs:
           # Bump the VERSION constant the CLI reports via 'agent-guard version'.
           # Without this the binary ships a stale literal even after a tag bump
           # (v1.1.1 shipped with VERSION=1.0.0 because this step was missing).
-          sed -i -E "s|^VERSION=[0-9]+\.[0-9]+\.[0-9]+$|VERSION=${v}|" bin/agent-guard
+          sed -i -E "s|^VERSION=[0-9]+\.[0-9]+\.[0-9]+$|VERSION=${v}|" plugins/agent-guard/bin/agent-guard
 
       - name: Build CHANGELOG entry
         if: steps.state.outputs.skip_pr_cycle != 'true'
@@ -253,17 +253,16 @@ jobs:
           git tag -f "${maj}"
           git push origin "${maj}" --force
 
-          # Build the tarball entirely outside the directory tar is enumerating.
-          # Excluding the output file alone is not enough: as the output grows
-          # it changes the enclosing '.' directory's mtime, and tar then reports
-          # "file changed as we read it" against '.' itself and exits 1. Run
-          # 25510030204 hit this for v1.1.0 (fixed once with --exclude in #16),
-          # and run 25511359582 hit it again for v1.1.1 -- proving --exclude
-          # only narrows the race rather than eliminating it. Writing to a
-          # temp dir and mv'ing the finished tarball back is bulletproof.
+          # Build the tarball outside the directory tar is enumerating to
+          # avoid the "file changed as we read it" race documented for runs
+          # 25510030204 (v1.1.0) and 25511359582 (v1.1.1) -- writing to a temp
+          # dir and mv'ing the finished tarball back is bulletproof.
+          #
+          # Tarball root is plugins/agent-guard/ so the bootstrap-extracted
+          # layout (~/.agent-guard/bin/agent-guard) stays unchanged for
+          # existing v1.2.x Direct-CLI users on update.
           tarball_tmp=$(mktemp -d)/agent-guard-${v}.tar.gz
-          tar --exclude='./.git' --exclude='./tests' \
-              -czf "$tarball_tmp" .
+          tar -C plugins/agent-guard -czf "$tarball_tmp" .
           mv "$tarball_tmp" "agent-guard-${v}.tar.gz"
           sha256sum "agent-guard-${v}.tar.gz" > "agent-guard-${v}.tar.gz.sha256"
 

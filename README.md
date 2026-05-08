@@ -37,7 +37,7 @@ Pick one or more — they don't chain. Each row lists what that channel alone ca
 | Agent hook (Claude Code / Codex) | Pre-tool: deny-listed reads (`.env`, `id_rsa`, …), risky shell idioms, secrets in proposed `Write`/`Edit`/`apply_patch`, secrets in MCP tool input. Post-tool & Stop: secrets in working-tree diff & untracked files. | Edits the user makes by hand outside the agent session. |
 | Native Git pre-commit hook | Secrets in staged added lines at commit time. | Reads the agent performed earlier; commits made with `--no-verify`. |
 | GitHub Action | Secrets in any tracked file on a PR/push. | Anything that already merged before the workflow ran. |
-| Direct CLI (`bin/agent-guard scan-*`) | Whatever you point it at, on demand. | Anything outside the invocation. |
+| Direct CLI (`agent-guard scan-*`) | Whatever you point it at, on demand. | Anything outside the invocation. |
 
 ## Quick start (Claude Code)
 
@@ -69,9 +69,7 @@ That's it. From here, every `Read`, `Write`, `Edit`, `Bash`, and MCP tool call g
 codex plugin marketplace add JeongJaeSoon/agent-guard
 ```
 
-Then in the Codex TUI open `/plugins`, find **agent-guard**, press space to enable, and restart Codex so the hooks load. Codex does not auto-discover the `commands/` directory, so `/agent-guard:checksum` and `/agent-guard:verify` are not available — ask Codex to run `${CODEX_PLUGIN_ROOT}/bin/agent-guard checksum` (or `scan-working-tree`) directly when you need them.
-
-> **Codex 0.129+ note**: the marketplace adds successfully but the plugin is currently filtered out of the Codex `/plugins` browser (Codex 0.129 enforces `path` schema constraints that the v1.x layout doesn't satisfy). A `plugins/agent-guard/` subdirectory restructure is planned for v1.3.0. For now, install via Direct CLI (next section) and invoke `agent-guard scan-working-tree` from Codex directly.
+Then in the Codex TUI open `/plugins`, find **agent-guard**, press space to enable, and restart Codex so the hooks load. Codex does not auto-discover the `commands/` directory, so `/agent-guard:checksum` and `/agent-guard:verify` are not available as slash commands — ask Codex to run `${CODEX_PLUGIN_ROOT}/bin/agent-guard checksum` (or `scan-working-tree`) directly when you need either workflow.
 
 ### GitHub Actions
 
@@ -163,7 +161,7 @@ Equivalent surfaces — pick whichever matches your channel:
 | Claude Code plugin | `/agent-guard:checksum [VERSION]` (slash command, calls the same script under the plugin path) |
 | Codex plugin | Ask Codex to run `${CODEX_PLUGIN_ROOT}/bin/agent-guard checksum [VERSION]` (no automatic slash command) |
 | Direct CLI install / Native hook (binary on PATH) | `agent-guard checksum [VERSION]` |
-| Clone of this repo | `make checksum [VERSION=X.Y.Z]` or `scripts/gitleaks-checksum.sh [VERSION]` |
+| Clone of this repo | `make checksum [VERSION=X.Y.Z]` or `plugins/agent-guard/scripts/gitleaks-checksum.sh [VERSION]` |
 | Nothing installed yet (e.g. preparing a GitHub Actions workflow) | `curl -fsSL https://raw.githubusercontent.com/JeongJaeSoon/agent-guard/v1/scripts/gitleaks-checksum.sh \| sh` |
 
 ### Without `agent-guard` on disk (Claude Code / Codex plugin only)
@@ -203,9 +201,9 @@ Patch and diff scans inspect added lines only — removing an existing leaked va
 
 Override the bundled policies via environment variables:
 
-- `AGENT_GUARD_GITLEAKS_CONFIG` — gitleaks rules (default: `config/gitleaks.toml`)
-- `AGENT_GUARD_DENY_READ_PATHS` — deny-list for `Read` / `NotebookRead` / `Grep` / `Glob` (default: `config/deny-read-paths.txt`)
-- `AGENT_GUARD_DENY_BASH_PATTERNS` — deny-list for `Bash` (default: `config/deny-bash-patterns.txt`)
+- `AGENT_GUARD_GITLEAKS_CONFIG` — gitleaks rules (default: `plugins/agent-guard/config/gitleaks.toml`)
+- `AGENT_GUARD_DENY_READ_PATHS` — deny-list for `Read` / `NotebookRead` / `Grep` / `Glob` (default: `plugins/agent-guard/config/deny-read-paths.txt`)
+- `AGENT_GUARD_DENY_BASH_PATTERNS` — deny-list for `Bash` (default: `plugins/agent-guard/config/deny-bash-patterns.txt`)
 
 Project-local `.gitleaks.toml` files are not automatically trusted.
 
@@ -214,14 +212,16 @@ Project-local `.gitleaks.toml` files are not automatically trusted.
 ### CLI subcommands
 
 ```sh
-bin/agent-guard scan-staged
-bin/agent-guard scan-working-tree
-bin/agent-guard scan-path PATH...
-bin/agent-guard check              # dependency / gitleaks version check
-bin/agent-guard setup              # report dependency status; --install opts in to gitleaks download
-bin/agent-guard checksum [VERSION] # fetch the gitleaks-checksum for every supported OS/arch
-bin/agent-guard version
+agent-guard scan-staged
+agent-guard scan-working-tree
+agent-guard scan-path PATH...
+agent-guard check              # dependency / gitleaks version check
+agent-guard setup              # report dependency status; --install opts in to gitleaks download
+agent-guard checksum [VERSION] # fetch the gitleaks-checksum for every supported OS/arch
+agent-guard version
 ```
+
+From a clone, the binary lives at `plugins/agent-guard/bin/agent-guard`; `make scan` and `make scan-staged` are thin wrappers if you'd rather not type the full path.
 
 ### Slash commands
 
@@ -237,9 +237,9 @@ make help          # one-screen index of every target
 make check         # ./install.sh check
 make install       # ./install.sh git-hooks
 make test          # tests/run.sh
-make scan          # bin/agent-guard scan-working-tree
-make scan-staged   # bin/agent-guard scan-staged
+make scan          # plugins/agent-guard/bin/agent-guard scan-working-tree
+make scan-staged   # plugins/agent-guard/bin/agent-guard scan-staged
 make checksum      # fetch the gitleaks-checksum for every supported OS/arch (override with VERSION=X.Y.Z)
 ```
 
-`tests/run.sh` uses a mock `gitleaks` to validate routing without downloading dependencies. With real `gitleaks` installed, `bin/agent-guard scan-path .` does a full scan.
+`tests/run.sh` uses a mock `gitleaks` to validate routing without downloading dependencies. With real `gitleaks` installed, `plugins/agent-guard/bin/agent-guard scan-path .` does a full scan.

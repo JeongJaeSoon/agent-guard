@@ -4,4 +4,4 @@ set -u
 HOOK_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
 ROOT_DIR=$(CDPATH= cd -- "$HOOK_DIR/.." && pwd -P)
 
-exec "$ROOT_DIR/bin/agent-guard" scan-staged
+exec "$ROOT_DIR/plugins/agent-guard/bin/agent-guard" scan-staged
