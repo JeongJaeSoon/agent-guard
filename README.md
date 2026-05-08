@@ -80,10 +80,7 @@ Restart Codex so the hooks load. Codex does not auto-discover the `commands/` di
     gitleaks-checksum: "<sha256 of the gitleaks release archive>"
 ```
 
-**Pinning options for `@v1`:**
-- `@v1` — moving major tag, picks up minor / patch releases automatically (recommended default)
-- `@v1.1.2` — pin to a specific release for fully reproducible CI
-- `@<full-commit-sha>` — pin to a commit for the strictest security posture
+> Use `@v1` for auto-updates, or pin to a tag (`@v1.2.3`) or commit SHA for reproducibility.
 
 **Filling in `gitleaks-checksum`:** the helper prints the linux/x64 value pre-formatted for paste. Pick the path that matches what you have on hand:
 
