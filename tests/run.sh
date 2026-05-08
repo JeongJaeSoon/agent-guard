@@ -117,6 +117,28 @@ for event in PreToolUse PostToolUse; do
   done
 done
 
+# Pinned gitleaks default version is duplicated across three surfaces (the
+# CLI's setup --install default, the checksum helper's lookup default, and
+# the GitHub Action input default). They must stay in lock-step; otherwise
+# a user who copies the checksum from one channel into another silently
+# installs a different binary than the bundled rules expect.
+bin_ver=$(awk -F= '/^GITLEAKS_DEFAULT_VERSION=/ {print $2; exit}' "$PLUGIN_ROOT/bin/agent-guard")
+script_ver=$(awk -F= '/^DEFAULT_VERSION=/ {print $2; exit}' "$PLUGIN_ROOT/scripts/gitleaks-checksum.sh")
+action_ver=$(awk '
+  /^[[:space:]]*gitleaks-version:/ { in_block=1; next }
+  in_block && /^[[:space:]]*default:/ {
+    sub(/.*default:[[:space:]]*"/, "")
+    sub(/".*/, "")
+    print
+    exit
+  }
+' "$ROOT/action.yml")
+if [ -n "$bin_ver" ] && [ "$bin_ver" = "$script_ver" ] && [ "$bin_ver" = "$action_ver" ]; then
+  ok "gitleaks default version in sync across bin/agent-guard, gitleaks-checksum.sh, and action.yml ($bin_ver)"
+else
+  not_ok "gitleaks default version drift: bin=$bin_ver script=$script_ver action=$action_ver"
+fi
+
 expect_json_status 2 "Claude Write secret is blocked" \
   '{"tool_name":"Write","tool_input":{"file_path":"app.txt","content":"AGENT_GUARD_TEST_SECRET"}}' \
   hook-pre-tool
