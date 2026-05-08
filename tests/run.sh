@@ -500,6 +500,39 @@ else
   sed 's/^/  stderr: /' /tmp/agent-guard-test.err
 fi
 
+# --- hook silent-skip outside a git work tree ------------------------------
+# Regression: when the agent runs in a non-git cwd (e.g. ~), hook-post-tool
+# and hook-stop must exit 0 silently instead of erroring on every Stop event.
+
+NO_GIT_DIR="$TMP_ROOT/no-git"
+mkdir -p "$NO_GIT_DIR"
+
+(
+  cd "$NO_GIT_DIR" || exit 2
+  printf '%s' '{"tool_name":"Write","tool_input":{"file_path":"x.txt","content":"x"}}' \
+    | "$ROOT/bin/agent-guard" hook-post-tool >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+)
+status=$?
+if [ "$status" -eq 0 ] && [ ! -s /tmp/agent-guard-test.err ]; then
+  ok "hook-post-tool silently skips when cwd is not a git work tree"
+else
+  not_ok "hook-post-tool silently skips when cwd is not a git work tree (expected 0 + empty stderr, got $status)"
+  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+fi
+
+(
+  cd "$NO_GIT_DIR" || exit 2
+  printf '%s' '{"stop_hook_active":false}' \
+    | "$ROOT/bin/agent-guard" hook-stop >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+)
+status=$?
+if [ "$status" -eq 0 ] && [ ! -s /tmp/agent-guard-test.err ]; then
+  ok "hook-stop silently skips when cwd is not a git work tree"
+else
+  not_ok "hook-stop silently skips when cwd is not a git work tree (expected 0 + empty stderr, got $status)"
+  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+fi
+
 # --- gitleaks fail-closed when scanner errors ------------------------------
 
 ERROR_BIN="$TMP_ROOT/error-bin"

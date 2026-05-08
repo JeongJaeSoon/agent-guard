@@ -2,7 +2,7 @@
 set -u
 
 PROGRAM=agent-guard
-VERSION=1.2.1
+VERSION=1.2.2
 
 # Resolve the script's own path, following symlinks. The bootstrap installer
 # drops a symlink at ~/.local/bin/agent-guard that points into ~/.agent-guard/
@@ -818,10 +818,14 @@ is_mutation_tool() {
 
 hook_post_tool() {
   need_cmd jq
+  need_cmd git
   input=$(cat)
   [ -n "$input" ] || return 0
   tool=$(json_value '.tool_name // .tool // .name // empty' "$input")
   is_mutation_tool "$tool" || return 0
+
+  # Best-effort: silently skip when the agent runs outside a git work tree.
+  inside_git_repo || return 0
 
   scan_working_tree
   block_on_scan_status "$?" "changed files contain secret-like values after tool execution"
@@ -829,6 +833,7 @@ hook_post_tool() {
 
 hook_stop() {
   need_cmd jq
+  need_cmd git
   input=$(cat)
   if [ -n "$input" ]; then
     active=$(json_value '.stop_hook_active // false' "$input")
@@ -837,6 +842,8 @@ hook_stop() {
       return 0
     fi
   fi
+
+  inside_git_repo || return 0
 
   scan_working_tree
   block_on_scan_status "$?" "changed files contain secret-like values before stop"

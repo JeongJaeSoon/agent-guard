@@ -9,7 +9,7 @@ Fetches the published `gitleaks_<VER>_checksums.txt` from the gitleaks releases 
 
 ## Run
 
-!`sh "${CLAUDE_PLUGIN_ROOT:-.}/scripts/gitleaks-checksum.sh" $ARGUMENTS`
+!`sh "${CLAUDE_PLUGIN_ROOT}/scripts/gitleaks-checksum.sh" $ARGUMENTS`
 
 ## Interpretation
 
