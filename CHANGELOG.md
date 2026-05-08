@@ -1,3 +1,7 @@
+## v1.2.1 - 2026-05-08
+
+- fix(cli): follow symlinks when resolving SCRIPT_DIR (#34)
+
 ## v1.2.0 - 2026-05-08
 
 - docs: restructure README around user task flow (#32)
