@@ -818,6 +818,7 @@ is_mutation_tool() {
 
 hook_post_tool() {
   need_cmd jq
+  need_cmd git
   input=$(cat)
   [ -n "$input" ] || return 0
   tool=$(json_value '.tool_name // .tool // .name // empty' "$input")
@@ -832,6 +833,7 @@ hook_post_tool() {
 
 hook_stop() {
   need_cmd jq
+  need_cmd git
   input=$(cat)
   if [ -n "$input" ]; then
     active=$(json_value '.stop_hook_active // false' "$input")
