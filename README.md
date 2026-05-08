@@ -47,7 +47,7 @@ Pick one or more — they don't chain. Each row lists what that channel alone ca
 
    ```text
    /plugin marketplace add JeongJaeSoon/agent-guard
-   /plugin install agent-guard@latest
+   /plugin install agent-guard@agent-guard
    /reload-plugins
    ```
 
@@ -65,11 +65,13 @@ That's it. From here, every `Read`, `Write`, `Edit`, `Bash`, and MCP tool call g
 
 ### Codex
 
-```text
-/plugin install JeongJaeSoon/agent-guard@latest
+```sh
+codex plugin marketplace add JeongJaeSoon/agent-guard
 ```
 
-Restart Codex so the hooks load. Codex does not auto-discover the `commands/` directory, so `/agent-guard:checksum` and `/agent-guard:verify` are not available — ask Codex to run `${CODEX_PLUGIN_ROOT}/bin/agent-guard checksum` (or `scan-working-tree`) directly when you need them.
+Then in the Codex TUI open `/plugins`, find **agent-guard**, press space to enable, and restart Codex so the hooks load. Codex does not auto-discover the `commands/` directory, so `/agent-guard:checksum` and `/agent-guard:verify` are not available — ask Codex to run `${CODEX_PLUGIN_ROOT}/bin/agent-guard checksum` (or `scan-working-tree`) directly when you need them.
+
+> **Codex 0.129+ note**: the marketplace adds successfully but the plugin is currently filtered out of the Codex `/plugins` browser (Codex 0.129 enforces `path` schema constraints that the v1.x layout doesn't satisfy). A `plugins/agent-guard/` subdirectory restructure is planned for v1.3.0. For now, install via Direct CLI (next section) and invoke `agent-guard scan-working-tree` from Codex directly.
 
 ### GitHub Actions
 

@@ -9,7 +9,7 @@ One-shot secret scan over everything currently on disk: staged changes, unstaged
 
 ## Run
 
-!`"${CLAUDE_PLUGIN_ROOT:-.}/bin/agent-guard" scan-working-tree`
+!`"${CLAUDE_PLUGIN_ROOT}/bin/agent-guard" scan-working-tree`
 
 ## Interpretation
 
