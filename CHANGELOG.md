@@ -1,3 +1,9 @@
+## v1.2.0 - 2026-05-08
+
+- docs: restructure README around user task flow (#32)
+- feat: add gitleaks-checksum helper (script + subcommand + slash command) (#31)
+- refactor: simplify bin/agent-guard helper functions (#30)
+
 ## v1.1.2 - 2026-05-07
 
 - feat(plugin): add /agent-guard:verify slash command (#26)
