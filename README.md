@@ -155,7 +155,7 @@ agent-guard checksum 8.30.0      # specific version
 
 Output (paste-ready):
 
-```
+```text
 gitleaks v8.30.1 — sha256 by OS/arch
 
   darwin/arm64: <hex-a>   <- this machine
