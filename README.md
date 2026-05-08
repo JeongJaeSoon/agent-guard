@@ -82,20 +82,7 @@ Restart Codex so the hooks load. Codex does not auto-discover the `commands/` di
 
 > Use `@v1` for auto-updates, or pin to a tag (`@v1.2.3`) or commit SHA for reproducibility.
 
-**Filling in `gitleaks-checksum`:** the helper prints the linux/x64 value pre-formatted for paste. Pick the path that matches what you have on hand:
-
-```sh
-# (a) inside Claude Code (after plugin install)
-/agent-guard:checksum
-
-# (b) with agent-guard on disk (Direct CLI install or clone)
-agent-guard checksum
-
-# (c) no install — one-liner suitable for adoption-time:
-curl -fsSL https://raw.githubusercontent.com/JeongJaeSoon/agent-guard/v1/scripts/gitleaks-checksum.sh | sh
-```
-
-Use `require-checksum: "false"` only for local experimentation; never in production CI.
+Run [`agent-guard checksum`](#fetching-a-gitleaks-checksum) to fill in `gitleaks-checksum`. Use `require-checksum: "false"` only for local experimentation; never in production CI.
 
 ### Direct CLI install (no clone)
 
@@ -175,7 +162,7 @@ Equivalent surfaces — pick whichever matches your channel:
 | Codex plugin | Ask Codex to run `${CODEX_PLUGIN_ROOT}/bin/agent-guard checksum [VERSION]` (no automatic slash command) |
 | Direct CLI install / Native hook (binary on PATH) | `agent-guard checksum [VERSION]` |
 | Clone of this repo | `make checksum [VERSION=X.Y.Z]` or `scripts/gitleaks-checksum.sh [VERSION]` |
-| Nothing installed yet (e.g. preparing a GitHub Actions workflow) | `curl -fsSL https://raw.githubusercontent.com/JeongJaeSoon/agent-guard/v1/scripts/gitleaks-checksum.sh \| sh` (`v1` is the moving major tag — substitute a full commit SHA or a specific minor-version tag for stricter reproducibility) |
+| Nothing installed yet (e.g. preparing a GitHub Actions workflow) | `curl -fsSL https://raw.githubusercontent.com/JeongJaeSoon/agent-guard/v1/scripts/gitleaks-checksum.sh \| sh` |
 
 ### Without `agent-guard` on disk (Claude Code / Codex plugin only)
 
@@ -187,7 +174,7 @@ The plugin install does not place a binary on the filesystem — install depende
 | Debian / Ubuntu | `sudo apt-get install -y jq` &nbsp;+ download `gitleaks` from its [releases page](https://github.com/gitleaks/gitleaks/releases) |
 | Fedora | `sudo dnf install -y jq` &nbsp;+ download `gitleaks` from its [releases page](https://github.com/gitleaks/gitleaks/releases) |
 
-After dependencies are in place, run `/reload-plugins` in Claude Code (or restart Codex) and re-run the smoke test. Plugin users can still reach the [`gitleaks-checksum` helper](#fetching-a-gitleaks-checksum) from inside their session — no PATH binary required (Claude Code: `/agent-guard:checksum`; Codex: ask the agent to run `${CODEX_PLUGIN_ROOT}/bin/agent-guard checksum`).
+After installing dependencies, reload the plugin (Claude Code: `/reload-plugins`; Codex: restart) and re-run the smoke test.
 
 ## Verify the install
 
@@ -240,14 +227,6 @@ bin/agent-guard version
 |---|---|
 | `/agent-guard:verify` | One-shot deterministic secret scan over the working tree (staged + unstaged + untracked). Claude Code only. |
 | `/agent-guard:checksum [VERSION]` | Fetch the gitleaks release sha256 for every supported OS / arch and emit paste-ready snippets for both GitHub Actions YAML and `agent-guard setup --install`. Claude Code only — Codex / GitHub Action / no-install paths are listed in [Fetching a gitleaks-checksum](#fetching-a-gitleaks-checksum). |
-
-### Exit codes
-
-- `0` — clean / allow
-- `1` — findings (direct scan commands)
-- `2` — block agent hook action or signal usage / dependency failure
-
-(Hook entry points `hook-pre-tool`, `hook-post-tool`, and `hook-stop` are invoked by Claude Code, Codex, or Git via `hooks/hooks.json` — not by users directly.)
 
 ## Development
 
