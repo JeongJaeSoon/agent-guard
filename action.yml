@@ -93,4 +93,4 @@ runs:
         fi
         # Split paths from env, not from unquoted YAML-time input expansion.
         # shellcheck disable=SC2086
-        "${GITHUB_ACTION_PATH}/bin/agent-guard" scan-path -- $AGENT_GUARD_PATHS
+        "${GITHUB_ACTION_PATH}/plugins/agent-guard/bin/agent-guard" scan-path -- $AGENT_GUARD_PATHS

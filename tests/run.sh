@@ -2,6 +2,7 @@
 set -u
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
+PLUGIN_ROOT="$ROOT/plugins/agent-guard"
 TMP_ROOT=${TMPDIR:-/tmp}/agent-guard-tests.$$
 MOCK_BIN="$TMP_ROOT/bin"
 ORIGINAL_PATH=$PATH
@@ -11,7 +12,7 @@ REAL_DIRNAME=$(command -v dirname)
 REAL_PWD=$(command -v pwd)
 PATH="$MOCK_BIN:$PATH"
 export PATH
-export AGENT_GUARD_GITLEAKS_CONFIG="$ROOT/config/gitleaks.toml"
+export AGENT_GUARD_GITLEAKS_CONFIG="$PLUGIN_ROOT/config/gitleaks.toml"
 
 # Isolate git from the developer's global config so inherited values like
 # core.hooksPath or init.templateDir cannot leak into freshly-initialised
@@ -52,7 +53,7 @@ run_expect() {
 }
 
 json_to() {
-  printf '%s' "$1" | "$ROOT/bin/agent-guard" "$2" >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+  printf '%s' "$1" | "$PLUGIN_ROOT/bin/agent-guard" "$2" >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
 }
 
 expect_json_status() {
@@ -82,20 +83,20 @@ cp "$ROOT/tests/fixtures/mock-gitleaks" "$MOCK_BIN/gitleaks"
 chmod +x "$MOCK_BIN/gitleaks"
 
 for file in \
-  "$ROOT/bin/agent-guard" \
+  "$PLUGIN_ROOT/bin/agent-guard" \
   "$ROOT/install.sh" \
   "$ROOT/bootstrap.sh" \
   "$ROOT/githooks/pre-commit" \
-  "$ROOT/scripts/gitleaks-checksum.sh" \
+  "$PLUGIN_ROOT/scripts/gitleaks-checksum.sh" \
   "$ROOT/tests/run.sh"; do
   run_expect 0 "shell syntax: $file" sh -n "$file"
 done
 
 for file in \
-  "$ROOT/hooks/hooks.json" \
-  "$ROOT/.claude-plugin/plugin.json" \
+  "$PLUGIN_ROOT/hooks/hooks.json" \
+  "$PLUGIN_ROOT/.claude-plugin/plugin.json" \
   "$ROOT/.claude-plugin/marketplace.json" \
-  "$ROOT/.codex-plugin/plugin.json" \
+  "$PLUGIN_ROOT/.codex-plugin/plugin.json" \
   "$ROOT/.agents/plugins/marketplace.json" \
   "$ROOT/examples/claude/settings.project.json" \
   "$ROOT/examples/codex/hooks.json"; do
@@ -103,7 +104,7 @@ for file in \
 done
 
 for event in PreToolUse PostToolUse; do
-  canonical=$(jq -r ".hooks.${event}[0].matcher" "$ROOT/hooks/hooks.json")
+  canonical=$(jq -r ".hooks.${event}[0].matcher" "$PLUGIN_ROOT/hooks/hooks.json")
   for file in \
     "$ROOT/examples/claude/settings.project.json" \
     "$ROOT/examples/codex/hooks.json"; do
@@ -221,7 +222,7 @@ mkdir -p "$TEST_REPO"
 
   printf '%s\n' "AGENT_GUARD_TEST_SECRET" > staged.txt
   git add staged.txt
-  "$ROOT/bin/agent-guard" scan-staged >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+  "$PLUGIN_ROOT/bin/agent-guard" scan-staged >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
 )
 status=$?
 if [ "$status" -eq 1 ]; then
@@ -235,7 +236,7 @@ fi
   git reset -q
   rm -f staged.txt
   printf '%s\n' "AGENT_GUARD_TEST_SECRET" > untracked.txt
-  "$ROOT/bin/agent-guard" scan-working-tree >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+  "$PLUGIN_ROOT/bin/agent-guard" scan-working-tree >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
 )
 status=$?
 if [ "$status" -eq 1 ]; then
@@ -246,7 +247,7 @@ fi
 
 (
   cd "$TEST_REPO" || exit 2
-  printf '%s' '{"stop_hook_active":true}' | "$ROOT/bin/agent-guard" hook-stop >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+  printf '%s' '{"stop_hook_active":true}' | "$PLUGIN_ROOT/bin/agent-guard" hook-stop >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
 )
 status=$?
 if [ "$status" -eq 0 ]; then
@@ -262,7 +263,7 @@ fi
   printf '%s\n' "AGENT_GUARD_TEST_SECRET" > leak.txt
   git add leak.txt
   printf '%s' '{"tool_name":"Bash","tool_input":{"command":"git -c user.name=x commit -m leak"}}' \
-    | "$ROOT/bin/agent-guard" hook-pre-tool >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+    | "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
 )
 status=$?
 if [ "$status" -eq 2 ]; then
@@ -275,7 +276,7 @@ fi
 (
   cd "$TEST_REPO" || exit 2
   printf '%s' '{"tool_name":"Bash","tool_input":{"command":"git -C . push origin main"}}' \
-    | "$ROOT/bin/agent-guard" hook-pre-tool >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+    | "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
 )
 status=$?
 if [ "$status" -eq 2 ]; then
@@ -288,7 +289,7 @@ fi
 (
   cd "$TEST_REPO" || exit 2
   printf '%s' '{"tool_name":"Bash","tool_input":{"command":"git status && git -C . push origin main"}}' \
-    | "$ROOT/bin/agent-guard" hook-pre-tool >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+    | "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
 )
 status=$?
 if [ "$status" -eq 2 ]; then
@@ -301,7 +302,7 @@ fi
 (
   cd "$TEST_REPO" || exit 2
   printf '%s' '{"tool_name":"Bash","tool_input":{"command":"git status&&git -C . push origin main"}}' \
-    | "$ROOT/bin/agent-guard" hook-pre-tool >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+    | "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
 )
 status=$?
 if [ "$status" -eq 2 ]; then
@@ -324,7 +325,7 @@ mkdir -p "$SYMLINK_REPO"
 )
 if [ -L "$SYMLINK_REPO/safe-link" ]; then
   payload='{"tool_name":"Read","tool_input":{"file_path":"'"$SYMLINK_REPO"'/safe-link"}}'
-  printf '%s' "$payload" | "$ROOT/bin/agent-guard" hook-pre-tool >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+  printf '%s' "$payload" | "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
   status=$?
   if [ "$status" -eq 2 ]; then
     ok "symlink to .env is blocked via realpath resolution"
@@ -357,23 +358,23 @@ rm -f "$INJECTION_CANARY"
 # --- CLI dispatch ----------------------------------------------------------
 
 run_expect 0 "version subcommand prints program/version" \
-  "$ROOT/bin/agent-guard" version
+  "$PLUGIN_ROOT/bin/agent-guard" version
 case "$(cat /tmp/agent-guard-test.out)" in
   agent-guard*) ok "version output starts with program name" ;;
   *) not_ok "version output unexpected: $(cat /tmp/agent-guard-test.out)" ;;
 esac
 
-run_expect 0 "help subcommand exits 0" "$ROOT/bin/agent-guard" help
-run_expect 0 "no args exits 0 with usage on stderr" "$ROOT/bin/agent-guard"
-run_expect 2 "unknown subcommand exits 2" "$ROOT/bin/agent-guard" not-a-command
+run_expect 0 "help subcommand exits 0" "$PLUGIN_ROOT/bin/agent-guard" help
+run_expect 0 "no args exits 0 with usage on stderr" "$PLUGIN_ROOT/bin/agent-guard"
+run_expect 2 "unknown subcommand exits 2" "$PLUGIN_ROOT/bin/agent-guard" not-a-command
 
-run_expect 0 "check passes when deps and configs exist" "$ROOT/bin/agent-guard" check
+run_expect 0 "check passes when deps and configs exist" "$PLUGIN_ROOT/bin/agent-guard" check
 
 # --- setup -----------------------------------------------------------------
 
-run_expect 0 "setup --help exits 0" "$ROOT/bin/agent-guard" setup --help
-run_expect 2 "setup unknown flag exits 2" "$ROOT/bin/agent-guard" setup --bogus
-run_expect 0 "setup with all deps present exits 0" "$ROOT/bin/agent-guard" setup
+run_expect 0 "setup --help exits 0" "$PLUGIN_ROOT/bin/agent-guard" setup --help
+run_expect 2 "setup unknown flag exits 2" "$PLUGIN_ROOT/bin/agent-guard" setup --bogus
+run_expect 0 "setup with all deps present exits 0" "$PLUGIN_ROOT/bin/agent-guard" setup
 
 # --- scan-path -------------------------------------------------------------
 
@@ -381,24 +382,24 @@ CLEAN_DIR="$TMP_ROOT/clean-dir"
 mkdir -p "$CLEAN_DIR"
 printf '%s\n' "ok content" > "$CLEAN_DIR/safe.txt"
 run_expect 0 "scan-path is clean for benign directory" \
-  "$ROOT/bin/agent-guard" scan-path "$CLEAN_DIR"
+  "$PLUGIN_ROOT/bin/agent-guard" scan-path "$CLEAN_DIR"
 
 DIRTY_DIR="$TMP_ROOT/dirty-dir"
 mkdir -p "$DIRTY_DIR"
 printf '%s\n' "AGENT_GUARD_TEST_SECRET" > "$DIRTY_DIR/leak.txt"
 run_expect 1 "scan-path detects secret via mock gitleaks" \
-  "$ROOT/bin/agent-guard" scan-path "$DIRTY_DIR"
+  "$PLUGIN_ROOT/bin/agent-guard" scan-path "$DIRTY_DIR"
 
 run_expect 1 "scan-path with multiple paths returns 1 if any has a leak" \
-  "$ROOT/bin/agent-guard" scan-path "$CLEAN_DIR" "$DIRTY_DIR"
+  "$PLUGIN_ROOT/bin/agent-guard" scan-path "$CLEAN_DIR" "$DIRTY_DIR"
 
 run_expect 0 "scan-path accepts -- arg terminator before paths" \
-  "$ROOT/bin/agent-guard" scan-path -- "$CLEAN_DIR"
+  "$PLUGIN_ROOT/bin/agent-guard" scan-path -- "$CLEAN_DIR"
 
 run_expect 2 "scan-path dies when given a missing path" \
-  "$ROOT/bin/agent-guard" scan-path "$TMP_ROOT/does-not-exist"
+  "$PLUGIN_ROOT/bin/agent-guard" scan-path "$TMP_ROOT/does-not-exist"
 
-run_expect 2 "scan-path dies with no paths" "$ROOT/bin/agent-guard" scan-path
+run_expect 2 "scan-path dies with no paths" "$PLUGIN_ROOT/bin/agent-guard" scan-path
 
 # --- hook_pre_tool routing & passthroughs ---------------------------------
 
@@ -448,7 +449,7 @@ mkdir -p "$POST_REPO"
 (
   cd "$POST_REPO" || exit 2
   printf '%s' '{"tool_name":"Read","tool_input":{"file_path":"README.md"}}' \
-    | "$ROOT/bin/agent-guard" hook-post-tool >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+    | "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
 )
 status=$?
 if [ "$status" -eq 0 ]; then
@@ -462,7 +463,7 @@ fi
   cd "$POST_REPO" || exit 2
   printf '%s\n' "AGENT_GUARD_TEST_SECRET" > leaked.txt
   printf '%s' '{"tool_name":"Write","tool_input":{"file_path":"leaked.txt"}}' \
-    | "$ROOT/bin/agent-guard" hook-post-tool >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+    | "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
 )
 status=$?
 if [ "$status" -eq 2 ]; then
@@ -477,7 +478,7 @@ fi
 (
   cd "$POST_REPO" || exit 2
   rm -f leaked.txt
-  printf '%s' '{"stop_hook_active":false}' | "$ROOT/bin/agent-guard" hook-stop >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+  printf '%s' '{"stop_hook_active":false}' | "$PLUGIN_ROOT/bin/agent-guard" hook-stop >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
 )
 status=$?
 if [ "$status" -eq 0 ]; then
@@ -490,7 +491,7 @@ fi
 (
   cd "$POST_REPO" || exit 2
   printf '%s\n' "AGENT_GUARD_TEST_SECRET" > stop-leak.txt
-  printf '%s' '{"stop_hook_active":false}' | "$ROOT/bin/agent-guard" hook-stop >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+  printf '%s' '{"stop_hook_active":false}' | "$PLUGIN_ROOT/bin/agent-guard" hook-stop >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
 )
 status=$?
 if [ "$status" -eq 2 ]; then
@@ -510,7 +511,7 @@ mkdir -p "$NO_GIT_DIR"
 (
   cd "$NO_GIT_DIR" || exit 2
   printf '%s' '{"tool_name":"Write","tool_input":{"file_path":"x.txt","content":"x"}}' \
-    | "$ROOT/bin/agent-guard" hook-post-tool >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+    | "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
 )
 status=$?
 if [ "$status" -eq 0 ] && [ ! -s /tmp/agent-guard-test.err ]; then
@@ -523,7 +524,7 @@ fi
 (
   cd "$NO_GIT_DIR" || exit 2
   printf '%s' '{"stop_hook_active":false}' \
-    | "$ROOT/bin/agent-guard" hook-stop >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+    | "$PLUGIN_ROOT/bin/agent-guard" hook-stop >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
 )
 status=$?
 if [ "$status" -eq 0 ] && [ ! -s /tmp/agent-guard-test.err ]; then
@@ -544,7 +545,7 @@ exit 3
 EOSH
 chmod +x "$ERROR_BIN/gitleaks"
 
-PATH="$ERROR_BIN:$PATH" "$ROOT/bin/agent-guard" scan-path "$CLEAN_DIR" >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+PATH="$ERROR_BIN:$PATH" "$PLUGIN_ROOT/bin/agent-guard" scan-path "$CLEAN_DIR" >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
 status=$?
 if [ "$status" -eq 2 ]; then
   ok "scan-path fail-closes when gitleaks itself errors"
@@ -555,7 +556,7 @@ fi
 
 PATH="$ERROR_BIN:$PATH" sh -c '
   printf "%s" "{\"tool_name\":\"Write\",\"tool_input\":{\"content\":\"x\"}}" \
-    | "'"$ROOT"'/bin/agent-guard" hook-pre-tool
+    | "'"$PLUGIN_ROOT"'/bin/agent-guard" hook-pre-tool
 ' >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
 status=$?
 if [ "$status" -eq 2 ]; then
@@ -573,7 +574,7 @@ BAD_PATTERNS_FILE="$TMP_ROOT/bad-deny-bash.txt"
 printf '%s\n' '[unterminated-bracket' >"$BAD_PATTERNS_FILE"
 printf '%s' '{"tool_name":"Bash","tool_input":{"command":"echo hi"}}' \
   | AGENT_GUARD_DENY_BASH_PATTERNS="$BAD_PATTERNS_FILE" \
-    "$ROOT/bin/agent-guard" hook-pre-tool >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+    "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
 status=$?
 if [ "$status" -eq 2 ]; then
   ok "deny-bash-patterns invalid ERE fails closed"
@@ -589,7 +590,7 @@ mkdir -p "$NO_GITLEAKS_BIN"
 ln -s "$REAL_SH" "$NO_GITLEAKS_BIN/sh"
 ln -s "$REAL_DIRNAME" "$NO_GITLEAKS_BIN/dirname"
 ln -s "$REAL_PWD" "$NO_GITLEAKS_BIN/pwd"
-PATH="$NO_GITLEAKS_BIN" "$ROOT/bin/agent-guard" scan-path "$CLEAN_DIR" >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+PATH="$NO_GITLEAKS_BIN" "$PLUGIN_ROOT/bin/agent-guard" scan-path "$CLEAN_DIR" >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
 status=$?
 if [ "$status" -eq 2 ]; then
   ok "scan-path dies when gitleaks is unavailable"
@@ -604,7 +605,7 @@ ln -sf "$(command -v git)" "$NO_GITLEAKS_BIN/git"
 ln -sf "$(command -v command)" "$NO_GITLEAKS_BIN/command" 2>/dev/null || true
 ln -sf "$(command -v uname)" "$NO_GITLEAKS_BIN/uname" 2>/dev/null || true
 
-PATH="$NO_GITLEAKS_BIN" "$ROOT/bin/agent-guard" setup >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+PATH="$NO_GITLEAKS_BIN" "$PLUGIN_ROOT/bin/agent-guard" setup >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
 status=$?
 if [ "$status" -eq 1 ]; then
   ok "setup exits 1 when gitleaks missing"
@@ -613,7 +614,7 @@ else
   sed 's/^/  stderr: /' /tmp/agent-guard-test.err
 fi
 
-PATH="$NO_GITLEAKS_BIN" "$ROOT/bin/agent-guard" setup --install >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+PATH="$NO_GITLEAKS_BIN" "$PLUGIN_ROOT/bin/agent-guard" setup --install >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
 status=$?
 if [ "$status" -eq 2 ]; then
   ok "setup --install without --gitleaks-checksum exits 2"
@@ -652,7 +653,7 @@ NON_REPO_DIR="$TMP_ROOT/not-a-repo"
 mkdir -p "$NON_REPO_DIR"
 (
   cd "$NON_REPO_DIR" || exit 2
-  "$ROOT/bin/agent-guard" scan-staged >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+  "$PLUGIN_ROOT/bin/agent-guard" scan-staged >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
 )
 status=$?
 if [ "$status" -eq 2 ]; then
@@ -776,7 +777,7 @@ mkdir -p "$SHOT_REPO"
     printf 'lorem ipsum %d\n' "$i" > "untracked_$i.txt"
   done
   printf 'AGENT_GUARD_TEST_SECRET\n' >> untracked_3.txt
-  "$ROOT/bin/agent-guard" scan-working-tree >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+  "$PLUGIN_ROOT/bin/agent-guard" scan-working-tree >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
 )
 status=$?
 if [ "$status" -eq 1 ]; then
@@ -793,7 +794,7 @@ else
 fi
 
 # --- agent-guard check announces gitleaks version ------------------------
-"$ROOT/bin/agent-guard" check >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+"$PLUGIN_ROOT/bin/agent-guard" check >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
 if grep -q 'gitleaks' /tmp/agent-guard-test.err; then
   ok "check prints a gitleaks version line"
 else
@@ -819,7 +820,7 @@ if [ -n "$REAL_GITLEAKS" ]; then
     printf '%s\n' "$PEM_BODY"
     printf '%s%s\n' '-----END RSA ' 'PRIVATE KEY-----'
   } > "$RSA_FIXTURE_DIR/key.pem"
-  PATH="$(dirname "$REAL_GITLEAKS"):$ORIGINAL_PATH" "$ROOT/bin/agent-guard" scan-path "$RSA_FIXTURE_DIR" >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+  PATH="$(dirname "$REAL_GITLEAKS"):$ORIGINAL_PATH" "$PLUGIN_ROOT/bin/agent-guard" scan-path "$RSA_FIXTURE_DIR" >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
   status=$?
   if [ "$status" -eq 1 ]; then
     ok "real gitleaks detects an RSA private key through scan-path"
@@ -835,7 +836,7 @@ if [ -n "$REAL_GITLEAKS" ]; then
     printf '%s\n' "$PEM_BODY"
     printf '%s%s\n' '-----END OPENSSH ' 'PRIVATE KEY-----'
   } > "$OPENSSH_FIXTURE_DIR/openssh.key"
-  PATH="$(dirname "$REAL_GITLEAKS"):$ORIGINAL_PATH" "$ROOT/bin/agent-guard" scan-path "$OPENSSH_FIXTURE_DIR" >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+  PATH="$(dirname "$REAL_GITLEAKS"):$ORIGINAL_PATH" "$PLUGIN_ROOT/bin/agent-guard" scan-path "$OPENSSH_FIXTURE_DIR" >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
   status=$?
   if [ "$status" -eq 1 ]; then
     ok "real gitleaks detects an OpenSSH private key through scan-path"
@@ -847,7 +848,7 @@ else
   say "real gitleaks not available; skipped real-gitleaks integration tests"
 fi
 
-checksum_help_out=$("$ROOT/bin/agent-guard" checksum --help 2>&1)
+checksum_help_out=$("$PLUGIN_ROOT/bin/agent-guard" checksum --help 2>&1)
 if printf '%s\n' "$checksum_help_out" | grep -q 'Usage: gitleaks-checksum.sh'; then
   ok "checksum --help prints usage from the helper script"
 else
@@ -856,7 +857,7 @@ else
 fi
 
 mock_checksums_url="file://$ROOT/tests/fixtures/gitleaks-checksums-mock.txt"
-checksum_out=$(AGENT_GUARD_GITLEAKS_CHECKSUMS_URL="$mock_checksums_url" "$ROOT/bin/agent-guard" checksum 8.30.1 2>&1)
+checksum_out=$(AGENT_GUARD_GITLEAKS_CHECKSUMS_URL="$mock_checksums_url" "$PLUGIN_ROOT/bin/agent-guard" checksum 8.30.1 2>&1)
 checksum_status=$?
 if [ "$checksum_status" -eq 0 ] \
    && printf '%s\n' "$checksum_out" | grep -q 'darwin/arm64:' \
@@ -872,7 +873,7 @@ else
 fi
 
 missing_url="file://$ROOT/tests/fixtures/does-not-exist-checksums.txt"
-AGENT_GUARD_GITLEAKS_CHECKSUMS_URL="$missing_url" "$ROOT/bin/agent-guard" checksum 8.30.1 \
+AGENT_GUARD_GITLEAKS_CHECKSUMS_URL="$missing_url" "$PLUGIN_ROOT/bin/agent-guard" checksum 8.30.1 \
   >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
 checksum_missing_status=$?
 if [ "$checksum_missing_status" -eq 2 ] && grep -q 'failed to fetch' /tmp/agent-guard-test.err; then

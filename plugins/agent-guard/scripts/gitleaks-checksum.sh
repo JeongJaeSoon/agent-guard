@@ -7,7 +7,7 @@ set -u
 # 'agent-guard setup --install'.
 #
 # Usage:
-#   scripts/gitleaks-checksum.sh [VERSION]
+#   plugins/agent-guard/scripts/gitleaks-checksum.sh [VERSION]
 #
 # When VERSION is omitted, defaults to the value pinned in action.yml.
 # Override the source URL via AGENT_GUARD_GITLEAKS_CHECKSUMS_URL (used by tests).

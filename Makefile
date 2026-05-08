@@ -1,5 +1,5 @@
 # Agent Guard — discoverability layer for the existing scripts.
-# Each target is a thin pass-through to install.sh or bin/agent-guard.
+# Each target is a thin pass-through to install.sh or plugins/agent-guard/bin/agent-guard.
 
 .PHONY: help check install test scan scan-staged checksum
 
@@ -24,10 +24,10 @@ test:
 	@tests/run.sh
 
 scan:
-	@bin/agent-guard scan-working-tree
+	@plugins/agent-guard/bin/agent-guard scan-working-tree
 
 scan-staged:
-	@bin/agent-guard scan-staged
+	@plugins/agent-guard/bin/agent-guard scan-staged
 
 checksum:
-	@sh scripts/gitleaks-checksum.sh $(VERSION)
+	@sh plugins/agent-guard/scripts/gitleaks-checksum.sh $(VERSION)
