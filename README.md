@@ -15,7 +15,8 @@ It is not a vault, credential rotator, or replacement for GitHub Secret Scanning
 | Use case | Install path | Best first check |
 |---|---|---|
 | Claude Code agent guardrails | [Claude Code plugin](#claude-code-plugin) | Ask the agent to read `.env`; it should be blocked. |
-| Codex agent guardrails | [Codex plugin](#codex-plugin) | Ask Codex to read `.env`; it should be blocked. |
+| Codex stable guardrails | [Codex direct CLI + Git hook](#codex-plugin) | Run `agent-guard smoke-test`; commit a staged fixture secret, and it should fail. |
+| Codex experimental plugin hooks | [Codex plugin](#codex-plugin) | Enable `plugin_hooks`, trust hooks in `/hooks`, then ask Codex to read `.env`; it should be blocked. |
 | Local commits | [Native Git hook](#native-git-hook) | Commit a staged fixture secret; commit should fail. |
 | CI / PRs | [GitHub Actions](#github-actions) | Push a test PR with a gitleaks-detectable fixture; workflow should fail. |
 | Manual scans | [Direct CLI](#direct-cli) | Run `agent-guard smoke-test`. |
@@ -84,7 +85,7 @@ Useful Claude Code slash commands:
 
 ## Codex Plugin
 
-For Codex 0.129+ environments where marketplace hook loading is unavailable, use the direct CLI plus the native Git hook first:
+Use the direct CLI plus the native Git hook as the stable Codex path:
 
 ```sh
 curl -fsSL https://github.com/JeongJaeSoon/agent-guard/releases/latest/download/bootstrap.sh | sh
@@ -92,13 +93,16 @@ agent-guard scan-working-tree
 ~/.agent-guard/install.sh git-hooks
 ```
 
-That path gives you on-demand scans and commit-time blocking. If your Codex build supports plugin hooks, install from the marketplace for pre-tool read/write/bash guardrails:
+That path gives you on-demand scans and commit-time blocking.
+
+Codex plugin hooks are still behind an under-development Codex feature flag. If you accept that warning and want pre-tool read/write/bash guardrails, enable plugin hooks and install from the marketplace:
 
 ```sh
+codex features enable plugin_hooks
 codex plugin marketplace add JeongJaeSoon/agent-guard
 ```
 
-Then open `/plugins` in the Codex TUI, enable **agent-guard**, and restart Codex so hooks load.
+Then open `/plugins` in the Codex TUI, install **Agent Guard**, restart Codex, open `/hooks`, and trust the **PreToolUse**, **PostToolUse**, and **Stop** hooks.
 
 Smoke test:
 
