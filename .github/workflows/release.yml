@@ -262,7 +262,7 @@ jobs:
           # layout (~/.agent-guard/bin/agent-guard) stays unchanged for
           # existing v1.2.x Direct-CLI users on update.
           tarball_tmp=$(mktemp -d)/agent-guard-${v}.tar.gz
-          tar -C plugins/agent-guard -czf "$tarball_tmp" .
+          scripts/build-release-tarball.sh "$v" "$tarball_tmp"
           mv "$tarball_tmp" "agent-guard-${v}.tar.gz"
           sha256sum "agent-guard-${v}.tar.gz" > "agent-guard-${v}.tar.gz.sha256"
 

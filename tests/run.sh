@@ -86,6 +86,7 @@ for file in \
   "$PLUGIN_ROOT/bin/agent-guard" \
   "$ROOT/install.sh" \
   "$ROOT/bootstrap.sh" \
+  "$ROOT/scripts/build-release-tarball.sh" \
   "$ROOT/githooks/pre-commit" \
   "$PLUGIN_ROOT/scripts/gitleaks-checksum.sh" \
   "$ROOT/tests/run.sh"; do
@@ -832,6 +833,17 @@ fi
 
 run_expect 2 "install.sh unknown subcommand exits 2" "$ROOT/install.sh" not-a-command
 run_expect 0 "install.sh check passes" "$ROOT/install.sh" check
+
+RELEASE_TARBALL_DIR="$TMP_ROOT/release-tarball"
+mkdir -p "$RELEASE_TARBALL_DIR/out"
+run_expect 0 "release tarball builder succeeds" \
+  "$ROOT/scripts/build-release-tarball.sh" test "$RELEASE_TARBALL_DIR/agent-guard-test.tar.gz"
+tar -xzf "$RELEASE_TARBALL_DIR/agent-guard-test.tar.gz" -C "$RELEASE_TARBALL_DIR/out"
+if [ -x "$RELEASE_TARBALL_DIR/out/bin/agent-guard" ] && [ -x "$RELEASE_TARBALL_DIR/out/install.sh" ]; then
+  ok "release tarball contains bin/agent-guard and install.sh"
+else
+  not_ok "release tarball contains bin/agent-guard and install.sh"
+fi
 
 # --- githooks/pre-commit invokes scan-staged ------------------------------
 

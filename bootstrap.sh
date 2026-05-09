@@ -77,6 +77,7 @@ main() {
 
   bin_path="$HOME_DIR/bin/agent-guard"
   [ -x "$bin_path" ] || die "expected executable not found after extraction: $bin_path"
+  [ -x "$HOME_DIR/install.sh" ] || die "expected installer not found after extraction: $HOME_DIR/install.sh"
 
   mkdir -p "$BIN_DIR"
   ln -sf "$bin_path" "$BIN_DIR/agent-guard"
