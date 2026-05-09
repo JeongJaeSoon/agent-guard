@@ -1,3 +1,7 @@
+## v1.3.3 - 2026-05-09
+
+- fix: include install script in release tarball (#43)
+
 ## v1.3.2 - 2026-05-09
 
 - Fix real user install and verification flows
