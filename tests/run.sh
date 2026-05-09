@@ -779,6 +779,38 @@ else
   not_ok "installed native git hook blocks a staged secret"
 fi
 
+QUOTE_SOURCE="$TMP_ROOT/source-with-quote\"dir"
+QUOTE_REPO="$TMP_ROOT/quote-install-repo"
+mkdir -p "$QUOTE_SOURCE/plugins/agent-guard/bin" "$QUOTE_REPO"
+ln -s "$ROOT/install.sh" "$QUOTE_SOURCE/install.sh"
+ln -s "$PLUGIN_ROOT/bin/agent-guard" "$QUOTE_SOURCE/plugins/agent-guard/bin/agent-guard"
+(
+  cd "$QUOTE_REPO" || exit 2
+  git init -q --template="$EMPTY_TEMPLATE"
+  git config user.email t@e
+  git config user.name t
+  "$QUOTE_SOURCE/install.sh" git-hooks >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+)
+status=$?
+if [ "$status" -eq 0 ] && sh -n "$QUOTE_REPO/githooks/pre-commit"; then
+  ok "install.sh quotes generated hook paths safely"
+else
+  not_ok "install.sh quotes generated hook paths safely (expected install success and shell syntax ok)"
+  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+fi
+(
+  cd "$QUOTE_REPO" || exit 2
+  printf '%s\n' "AGENT_GUARD_TEST_SECRET" > leak.txt
+  git add leak.txt
+  git commit -m leak >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+)
+status=$?
+if [ "$status" -ne 0 ]; then
+  ok "installed hook works when agent path contains a quote"
+else
+  not_ok "installed hook works when agent path contains a quote"
+fi
+
 CONFLICT_REPO="$TMP_ROOT/conflict-repo"
 mkdir -p "$CONFLICT_REPO"
 (

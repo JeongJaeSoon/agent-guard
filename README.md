@@ -30,6 +30,8 @@ Agent Guard runs on macOS and Linux and expects:
 - `jq`
 - `gitleaks` 8.30 or newer recommended
 
+Install paths that download release archives also use `curl`, `tar`, `shasum`, and `ln`.
+
 With a direct CLI install:
 
 ```sh

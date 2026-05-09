@@ -76,7 +76,7 @@ install_git_hooks() {
         printf 'fi\n'
         printf '\n'
       fi
-      printf 'exec "%s" scan-staged\n' "$agent_guard_bin"
+      printf 'exec %s scan-staged\n' "$(shell_quote "$agent_guard_bin")"
     } >"$hook_path" || die "failed to write $hook_path"
     chmod +x "$hook_path" || die "failed to chmod $hook_path"
   fi
