@@ -51,6 +51,7 @@ Usage:
   agent-guard scan-path PATH...
   agent-guard check
   agent-guard setup [--install --gitleaks-checksum SHA [--gitleaks-version X.Y.Z]]
+  agent-guard smoke-test
   agent-guard checksum [VERSION]
   agent-guard version
 EOF
@@ -247,6 +248,81 @@ EOF
 
   info "$PROGRAM: setup ok"
   return 0
+}
+
+write_private_key_fixture() {
+  path=$1
+  body=AGENT-GUARD-FIXTURE-NEVER-A-REAL-KEY
+  body="${body}-${body}-${body}-${body}"
+  {
+    printf '%s%s\n' '-----BEGIN RSA ' 'PRIVATE KEY-----'
+    printf '%s\n' "$body"
+    printf '%s%s\n' '-----END RSA ' 'PRIVATE KEY-----'
+  } >"$path"
+}
+
+smoke_expect() {
+  expected=$1
+  label=$2
+  shift 2
+  ( "$@" ) >/dev/null 2>&1
+  status=$?
+  if [ "$status" -eq "$expected" ]; then
+    info "$PROGRAM: smoke ok: $label"
+    return 0
+  fi
+  die "smoke failed: $label (expected exit $expected, got $status)"
+}
+
+smoke_test() {
+  check_deps
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-smoke.XXXXXX") || die "smoke: failed to create temp dir"
+  trap 'rm -rf "$tmp"' EXIT INT TERM
+
+  mkdir -p "$tmp/clean" "$tmp/dirty"
+  printf '%s\n' "console.log('ok')" >"$tmp/clean/app.js"
+  write_private_key_fixture "$tmp/dirty/key.pem"
+
+  smoke_expect 0 "scan-path allows a clean directory" scan_path "$tmp/clean"
+  smoke_expect 1 "scan-path blocks a private-key fixture" scan_path "$tmp/dirty"
+
+  printf '%s' '{"tool_name":"Read","tool_input":{"file_path":".env"}}' \
+    | smoke_expect 2 "hook-pre-tool blocks .env reads" hook_pre_tool
+
+  write_payload=$(mktemp_file) || die "smoke: failed to create temp file"
+  {
+    printf '%s' '{"tool_name":"Write","tool_input":{"file_path":"key.pem","content":"'
+    sed 's/\\/\\\\/g; s/"/\\"/g; s/$/\\n/' "$tmp/dirty/key.pem" | tr -d '\n'
+    printf '%s\n' '"}}'
+  } >"$write_payload"
+  smoke_expect 2 "hook-pre-tool blocks secret-like writes" hook_pre_tool <"$write_payload"
+  rm -f "$write_payload"
+
+  repo="$tmp/repo"
+  mkdir -p "$repo"
+  (
+    cd "$repo" || exit 2
+    git init -q || exit 2
+    git config user.email test@example.com || exit 2
+    git config user.name "Agent Guard Smoke" || exit 2
+    printf '%s\n' ok >README.md
+    git add README.md || exit 2
+    git commit -q -m init || exit 2
+    mkdir -p githooks
+    {
+      printf '%s\n' '#!/usr/bin/env sh'
+      printf 'exec "%s" scan-staged\n' "$BIN_DIR/agent-guard"
+    } >githooks/pre-commit
+    chmod +x githooks/pre-commit || exit 2
+    git config core.hooksPath githooks || exit 2
+    write_private_key_fixture leak.pem
+    git add leak.pem || exit 2
+    git commit -m leak >/dev/null 2>&1
+    status=$?
+    [ "$status" -ne 0 ] || exit 1
+  ) || die "smoke failed: native pre-commit hook did not block staged fixture"
+  info "$PROGRAM: smoke ok: native pre-commit hook blocks staged fixture"
+  info "$PROGRAM: smoke-test ok"
 }
 
 mktemp_file() {
@@ -859,6 +935,7 @@ case "$cmd" in
   scan-path) shift; scan_path "$@" ;;
   check) check_deps ;;
   setup) shift; do_setup "$@" ;;
+  smoke-test) smoke_test ;;
   checksum) shift; exec sh "$ROOT_DIR/scripts/gitleaks-checksum.sh" "$@" ;;
   version) printf '%s %s\n' "$PROGRAM" "$VERSION" ;;
   ''|-h|--help|help) usage; exit 0 ;;

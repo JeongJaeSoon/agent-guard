@@ -10,6 +10,19 @@ permissions:
   contents: read
 
 jobs:
+  secret-guard:
+    name: Agent Guard
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Scan for secrets
+        uses: ./
+        with:
+          paths: "."
+          gitleaks-checksum: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
+
   test:
     name: Test
     runs-on: ubuntu-latest

@@ -117,6 +117,47 @@ for event in PreToolUse PostToolUse; do
   done
 done
 
+pre_tool_command=$(jq -r '.hooks.PreToolUse[0].hooks[0].command' "$PLUGIN_ROOT/hooks/hooks.json")
+read_env_payload='{"tool_name":"Read","tool_input":{"file_path":".env"}}'
+printf '%s' "$read_env_payload" \
+  | (cd "$PLUGIN_ROOT" && env -u CLAUDE_PLUGIN_ROOT -u CODEX_PLUGIN_ROOT sh -c "$pre_tool_command") \
+  >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "plugin hook command fails closed without root env vars"
+else
+  not_ok "plugin hook command fails closed without root env vars (expected 2, got $status)"
+  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+fi
+if grep -q 'plugin root env not set' /tmp/agent-guard-test.err; then
+  ok "plugin hook command explains missing root env vars"
+else
+  not_ok "plugin hook command explains missing root env vars"
+  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+fi
+
+printf '%s' "$read_env_payload" \
+  | (cd "$TMP_ROOT" && CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" sh -c "$pre_tool_command") \
+  >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "plugin hook command honors CLAUDE_PLUGIN_ROOT"
+else
+  not_ok "plugin hook command honors CLAUDE_PLUGIN_ROOT (expected 2, got $status)"
+  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+fi
+
+printf '%s' "$read_env_payload" \
+  | (cd "$TMP_ROOT" && CODEX_PLUGIN_ROOT="$PLUGIN_ROOT" sh -c "$pre_tool_command") \
+  >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "plugin hook command honors CODEX_PLUGIN_ROOT"
+else
+  not_ok "plugin hook command honors CODEX_PLUGIN_ROOT (expected 2, got $status)"
+  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+fi
+
 # Pinned gitleaks default version is duplicated across three surfaces (the
 # CLI's setup --install default, the checksum helper's lookup default, and
 # the GitHub Action input default). They must stay in lock-step; otherwise
@@ -127,8 +168,10 @@ script_ver=$(awk -F= '/^DEFAULT_VERSION=/ {print $2; exit}' "$PLUGIN_ROOT/script
 action_ver=$(awk '
   /^[[:space:]]*gitleaks-version:/ { in_block=1; next }
   in_block && /^[[:space:]]*default:/ {
-    sub(/.*default:[[:space:]]*"/, "")
-    sub(/".*/, "")
+    sub(/.*default:[[:space:]]*/, "")
+    sub(/[[:space:]]+#.*/, "")
+    gsub(/"/, "")
+    gsub(/^[[:space:]]+|[[:space:]]+$/, "")
     print
     exit
   }
@@ -389,6 +432,11 @@ esac
 run_expect 0 "help subcommand exits 0" "$PLUGIN_ROOT/bin/agent-guard" help
 run_expect 0 "no args exits 0 with usage on stderr" "$PLUGIN_ROOT/bin/agent-guard"
 run_expect 2 "unknown subcommand exits 2" "$PLUGIN_ROOT/bin/agent-guard" not-a-command
+if "$PLUGIN_ROOT/bin/agent-guard" help 2>&1 | grep -q 'smoke-test'; then
+  ok "help lists smoke-test"
+else
+  not_ok "help lists smoke-test"
+fi
 
 run_expect 0 "check passes when deps and configs exist" "$PLUGIN_ROOT/bin/agent-guard" check
 
@@ -693,8 +741,7 @@ INSTALL_REPO="$TMP_ROOT/install-repo"
 mkdir -p "$INSTALL_REPO"
 (
   cd "$INSTALL_REPO" || exit 2
-  # Use an empty template so the user's global init.templateDir cannot drop
-  # a stray pre-commit hook that the install safety check would refuse.
+  # Use an empty template so this case validates the no-existing-hook path.
   git init -q --template="$EMPTY_TEMPLATE"
   git config user.email t@e
   git config user.name t
@@ -713,6 +760,23 @@ if [ "$configured" = "githooks" ]; then
 else
   not_ok "install.sh sets core.hooksPath=githooks (got: $configured)"
 fi
+if [ -x "$INSTALL_REPO/githooks/pre-commit" ]; then
+  ok "install.sh writes an executable githooks/pre-commit"
+else
+  not_ok "install.sh writes an executable githooks/pre-commit"
+fi
+(
+  cd "$INSTALL_REPO" || exit 2
+  printf '%s\n' "AGENT_GUARD_TEST_SECRET" > leak.txt
+  git add leak.txt
+  git commit -m leak >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+)
+status=$?
+if [ "$status" -ne 0 ]; then
+  ok "installed native git hook blocks a staged secret"
+else
+  not_ok "installed native git hook blocks a staged secret"
+fi
 
 CONFLICT_REPO="$TMP_ROOT/conflict-repo"
 mkdir -p "$CONFLICT_REPO"
@@ -730,20 +794,40 @@ else
 fi
 
 PRECOMMIT_REPO="$TMP_ROOT/precommit-repo"
+PRECOMMIT_CANARY="$TMP_ROOT/precommit-canary"
 mkdir -p "$PRECOMMIT_REPO"
 (
   cd "$PRECOMMIT_REPO" || exit 2
   git init -q --template="$EMPTY_TEMPLATE"
+  git config user.email t@e
+  git config user.name t
   mkdir -p .git/hooks
-  printf '%s\n' '#!/bin/sh' > .git/hooks/pre-commit
+  {
+    printf '%s\n' '#!/bin/sh'
+    printf 'printf %%s legacy-ran > "%s"\n' "$PRECOMMIT_CANARY"
+  } > .git/hooks/pre-commit
   chmod +x .git/hooks/pre-commit
   "$ROOT/install.sh" git-hooks >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
 )
 status=$?
-if [ "$status" -eq 2 ]; then
-  ok "install.sh refuses to overwrite an existing .git/hooks/pre-commit"
+if [ "$status" -eq 0 ]; then
+  ok "install.sh chains an existing .git/hooks/pre-commit"
 else
-  not_ok "install.sh refuses to overwrite an existing .git/hooks/pre-commit (expected 2, got $status)"
+  not_ok "install.sh chains an existing .git/hooks/pre-commit (expected 0, got $status)"
+  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+fi
+(
+  cd "$PRECOMMIT_REPO" || exit 2
+  printf '%s\n' ok > README.md
+  git add README.md
+  git commit -m init >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+)
+status=$?
+if [ "$status" -eq 0 ] && [ "$(cat "$PRECOMMIT_CANARY" 2>/dev/null)" = "legacy-ran" ]; then
+  ok "installed hook runs the pre-existing pre-commit hook"
+else
+  not_ok "installed hook runs the pre-existing pre-commit hook"
+  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
 fi
 
 run_expect 2 "install.sh unknown subcommand exits 2" "$ROOT/install.sh" not-a-command
