@@ -1,3 +1,8 @@
+## v1.3.4 - 2026-05-09
+
+- docs: clarify codex plugin hook setup (#46)
+- ci: use checkout v5 (#45)
+
 ## v1.3.3 - 2026-05-09
 
 - fix: include install script in release tarball (#43)
