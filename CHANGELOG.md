@@ -1,3 +1,9 @@
+## v1.3.2 - 2026-05-09
+
+- Fix real user install and verification flows
+- simplify: narrow PostToolUse matcher, dedupe deny-read path, guard gitleaks version drift (#40)
+- docs: fix v1 raw URL for gitleaks-checksum.sh after plugin restructure (#39)
+
 ## v1.2.1 - 2026-05-08
 
 - fix(cli): follow symlinks when resolving SCRIPT_DIR (#34)
