@@ -32,6 +32,11 @@ Agent Guard runs on macOS and Linux and expects:
 
 Install paths that download release archives also use `curl`, `tar`, `shasum`, and `ln`.
 
+The PII filter has a built-in regex backend for common identifiers. The optional
+[pleno-anonymize](https://github.com/plenoai/pleno-anonymize) backend calls a
+self-hosted `/api/redact` HTTP endpoint with `curl`; it does not add a Python
+runtime dependency to Agent Guard.
+
 With a direct CLI install:
 
 ```sh
@@ -143,6 +148,7 @@ agent-guard scan-working-tree
 agent-guard scan-staged
 agent-guard setup
 agent-guard smoke-test
+agent-guard pii-filter
 agent-guard checksum
 ```
 
@@ -194,8 +200,40 @@ CI runners are usually `linux/x64`, so use the `linux/x64` value printed by the 
 - risky shell commands such as `printenv`, `op read`, `vault kv get`, `aws secretsmanager get-secret-value`, `cat .env`, and `git commit --no-verify`
 - staged added lines in the native pre-commit hook
 - working-tree added lines and untracked files after agent mutations
+- optional PII in proposed tool input when `AGENT_GUARD_PII_HOOK_MODE=block`
 
 Patch and diff scans inspect added lines only. Removing an existing leaked value is allowed.
+
+## PII Filtering
+
+Use `pii-filter` when text should be masked before it leaves the local workflow:
+
+```sh
+printf '%s\n' 'Contact jane.doe@example.com at 090-1234-5678' \
+  | agent-guard pii-filter
+```
+
+Default output uses deterministic placeholders such as `<EMAIL_ADDRESS>` and
+`<PHONE_NUMBER>`. For stronger Japanese / English PII detection, run a local
+pleno-anonymize service and point Agent Guard at its redaction endpoint:
+
+```sh
+AGENT_GUARD_PII_REDACT_URL=http://127.0.0.1:8080/api/redact \
+AGENT_GUARD_PII_LANGUAGE=ja \
+agent-guard pii-filter --backend pleno < prompt.txt
+```
+
+Agent hooks cannot safely rewrite a pending tool call in place. For that reason
+PII masking is a CLI preprocessing flow, while hook enforcement is block-only:
+
+```sh
+AGENT_GUARD_PII_HOOK_MODE=block
+```
+
+When enabled, proposed writes, shell commands, WebFetch/WebSearch inputs, and
+MCP tool inputs are checked for PII after the normal secret scan. If PII is
+detected, the hook blocks and points the agent back to `agent-guard pii-filter`
+so the text can be masked explicitly.
 
 ## Configuration
 
@@ -205,6 +243,10 @@ Override bundled policies with environment variables:
 AGENT_GUARD_GITLEAKS_CONFIG=/path/to/gitleaks.toml
 AGENT_GUARD_DENY_READ_PATHS=/path/to/deny-read-paths.txt
 AGENT_GUARD_DENY_BASH_PATTERNS=/path/to/deny-bash-patterns.txt
+AGENT_GUARD_PII_HOOK_MODE=off|block
+AGENT_GUARD_PII_BACKEND=regex|pleno
+AGENT_GUARD_PII_REDACT_URL=http://127.0.0.1:8080/api/redact
+AGENT_GUARD_PII_LANGUAGE=en
 ```
 
 Project-local `.gitleaks.toml` files are not automatically trusted.

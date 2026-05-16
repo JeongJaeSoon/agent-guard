@@ -315,6 +315,99 @@ expect_json_status 0 "WebSearch benign query is allowed" \
   '{"tool_name":"WebSearch","tool_input":{"query":"agent guard documentation"}}' \
   hook-pre-tool
 
+pii_out=$(printf '%s' 'Contact jane.doe@example.com from 192.168.0.1 or 090-1234-5678' \
+  | "$PLUGIN_ROOT/bin/agent-guard" pii-filter)
+if [ "$pii_out" = "Contact <EMAIL_ADDRESS> from <IP_ADDRESS> or <PHONE_NUMBER>" ]; then
+  ok "pii-filter regex backend masks common PII"
+else
+  not_ok "pii-filter regex backend masks common PII (got: $pii_out)"
+fi
+
+pii_clean=$(printf '%s' 'no personal data here' | "$PLUGIN_ROOT/bin/agent-guard" pii-filter)
+if [ "$pii_clean" = "no personal data here" ]; then
+  ok "pii-filter leaves clean text unchanged"
+else
+  not_ok "pii-filter leaves clean text unchanged (got: $pii_clean)"
+fi
+
+expect_json_status 0 "PII hook mode defaults off for Write content" \
+  '{"tool_name":"Write","tool_input":{"file_path":"note.txt","content":"email jane.doe@example.com"}}' \
+  hook-pre-tool
+
+printf '%s' '{"tool_name":"Write","tool_input":{"file_path":"note.txt","content":"email jane.doe@example.com"}}' \
+  | AGENT_GUARD_PII_HOOK_MODE=block "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool \
+    >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "PII hook block mode blocks Write content with PII"
+else
+  not_ok "PII hook block mode blocks Write content with PII (expected 2, got $status)"
+  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+fi
+
+printf '%s' '{"tool_name":"WebSearch","tool_input":{"query":"find jane.doe@example.com"}}' \
+  | AGENT_GUARD_PII_HOOK_MODE=block "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool \
+    >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "PII hook block mode blocks outbound WebSearch PII"
+else
+  not_ok "PII hook block mode blocks outbound WebSearch PII (expected 2, got $status)"
+  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+fi
+
+printf '%s' '{"tool_name":"Write","tool_input":{"content":"jane.doe@example.com"}}' \
+  | AGENT_GUARD_PII_HOOK_MODE=mask "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool \
+    >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+status=$?
+if [ "$status" -eq 2 ] && grep -q "pii-filter" /tmp/agent-guard-test.err; then
+  ok "PII hook mask mode is rejected with pii-filter guidance"
+else
+  not_ok "PII hook mask mode is rejected with pii-filter guidance (expected 2 + guidance, got $status)"
+  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+fi
+
+PII_MOCK_BIN="$TMP_ROOT/pii-bin"
+PII_REQUEST="$TMP_ROOT/pleno-request.json"
+mkdir -p "$PII_MOCK_BIN"
+cat > "$PII_MOCK_BIN/curl" <<'EOSH'
+#!/usr/bin/env sh
+payload=
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --data-binary)
+      shift
+      payload=$1
+      ;;
+    -X|-H)
+      shift
+      ;;
+  esac
+  shift
+done
+case "$payload" in
+  @*) cat "${payload#@}" > "$AGENT_GUARD_TEST_CURL_PAYLOAD" ;;
+esac
+printf '%s' '{"text":"Contact <PERSON> at <EMAIL_ADDRESS>"}'
+EOSH
+chmod +x "$PII_MOCK_BIN/curl"
+pleno_out=$(printf '%s' 'Contact Taro at taro@example.com' \
+  | PATH="$PII_MOCK_BIN:$PATH" \
+    AGENT_GUARD_PII_REDACT_URL="http://127.0.0.1:8080/api/redact" \
+    AGENT_GUARD_PII_LANGUAGE=ja \
+    AGENT_GUARD_TEST_CURL_PAYLOAD="$PII_REQUEST" \
+    "$PLUGIN_ROOT/bin/agent-guard" pii-filter --backend pleno)
+if [ "$pleno_out" = "Contact <PERSON> at <EMAIL_ADDRESS>" ]; then
+  ok "pii-filter pleno backend returns redacted text"
+else
+  not_ok "pii-filter pleno backend returns redacted text (got: $pleno_out)"
+fi
+if jq -e '.language == "ja" and (.text | contains("taro@example.com"))' "$PII_REQUEST" >/dev/null; then
+  ok "pii-filter pleno backend sends text and language"
+else
+  not_ok "pii-filter pleno backend sends text and language"
+fi
+
 TEST_REPO="$TMP_ROOT/repo"
 mkdir -p "$TEST_REPO"
 (

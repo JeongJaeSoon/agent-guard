@@ -49,6 +49,7 @@ Usage:
   agent-guard scan-staged
   agent-guard scan-working-tree
   agent-guard scan-path PATH...
+  agent-guard pii-filter [--backend regex|pleno] [--language LANG]
   agent-guard check
   agent-guard setup [--install --gitleaks-checksum SHA [--gitleaks-version X.Y.Z]]
   agent-guard smoke-test
@@ -365,6 +366,186 @@ block_on_scan_status() {
     1) info "$PROGRAM: $message"; exit 2 ;;
     *) exit 2 ;;
   esac
+}
+
+pii_backend_default() {
+  if [ -n "${AGENT_GUARD_PII_BACKEND:-}" ]; then
+    printf '%s' "$AGENT_GUARD_PII_BACKEND"
+  elif [ -n "${AGENT_GUARD_PII_REDACT_URL:-}" ]; then
+    printf '%s' "pleno"
+  else
+    printf '%s' "regex"
+  fi
+}
+
+mask_pii_regex_stream() {
+  awk '
+    {
+      gsub(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z][A-Za-z]+/, "<EMAIL_ADDRESS>")
+      gsub(/[0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9][0-9][0-9]/, "<US_SSN>")
+      gsub(/[0-9][0-9][0-9][0-9][ -]?[0-9][0-9][0-9][0-9][ -]?[0-9][0-9][0-9][0-9][ -]?[0-9][0-9][0-9][0-9]/, "<CREDIT_CARD>")
+      gsub(/[0-9][0-9]?[0-9]?[.][0-9][0-9]?[0-9]?[.][0-9][0-9]?[0-9]?[.][0-9][0-9]?[0-9]?/, "<IP_ADDRESS>")
+      gsub(/[(][0-9][0-9][0-9][)][ ]?[0-9][0-9][0-9][- ][0-9][0-9][0-9][0-9]/, "<PHONE_NUMBER>")
+      gsub(/[0-9][0-9][0-9][- ][0-9][0-9][0-9][- ][0-9][0-9][0-9][0-9]/, "<PHONE_NUMBER>")
+      gsub(/0[0-9][0-9]?[- ][0-9][0-9][0-9][0-9][- ][0-9][0-9][0-9][0-9]/, "<PHONE_NUMBER>")
+      print
+    }
+  '
+}
+
+pleno_pick_text_jq() {
+  cat <<'EOF'
+def pick:
+  if has("text") then .text
+  elif has("redacted_text") then .redacted_text
+  elif has("anonymized_text") then .anonymized_text
+  elif has("masked_text") then .masked_text
+  elif ((.result? | type) == "object" and (.result | has("text"))) then .result.text
+  elif ((.data? | type) == "object" and (.data | has("text"))) then .data.text
+  elif has("output") then .output
+  else null
+  end;
+EOF
+}
+
+mask_pii_pleno_stream() {
+  url=${AGENT_GUARD_PII_REDACT_URL:-}
+  language=${1:-${AGENT_GUARD_PII_LANGUAGE:-en}}
+  [ -n "$url" ] || die "pii-filter: AGENT_GUARD_PII_REDACT_URL is required for pleno backend"
+  need_cmd curl
+  need_cmd jq
+
+  payload=$(mktemp_file) || die "pii-filter: failed to create temp file"
+  response=$(mktemp_file) || { rm -f "$payload"; die "pii-filter: failed to create temp file"; }
+  jq -Rs --arg language "$language" '{text: ., language: $language}' >"$payload" || {
+    rm -f "$payload" "$response"
+    die "pii-filter: failed to build pleno request payload"
+  }
+
+  if ! curl -fsS -X POST "$url" -H "Content-Type: application/json" --data-binary "@$payload" >"$response"; then
+    rm -f "$payload" "$response"
+    die "pii-filter: pleno redact request failed"
+  fi
+  rm -f "$payload"
+
+  pick=$(pleno_pick_text_jq)
+  if ! jq -e "$pick pick != null" "$response" >/dev/null; then
+    rm -f "$response"
+    die "pii-filter: pleno response did not contain redacted text"
+  fi
+  jq -rj "$pick pick" "$response"
+  status=$?
+  rm -f "$response"
+  [ "$status" -eq 0 ] || die "pii-filter: failed to parse pleno response"
+}
+
+mask_pii_stream() {
+  backend=$1
+  language=$2
+  case "$backend" in
+    regex) mask_pii_regex_stream ;;
+    pleno) mask_pii_pleno_stream "$language" ;;
+    *) die "pii-filter: unsupported backend: $backend" ;;
+  esac
+}
+
+mask_pii_text() {
+  text=$1
+  backend=$(pii_backend_default)
+  language=${AGENT_GUARD_PII_LANGUAGE:-en}
+  printf '%s' "$text" | mask_pii_stream "$backend" "$language"
+}
+
+pii_hook_active() {
+  mode=${AGENT_GUARD_PII_HOOK_MODE:-off}
+  case "$mode" in
+    ''|off) return 1 ;;
+    block) return 0 ;;
+    mask)
+      die "AGENT_GUARD_PII_HOOK_MODE=mask is not supported in hooks; use 'agent-guard pii-filter' to mask text before tool use"
+      ;;
+    *)
+      die "unsupported AGENT_GUARD_PII_HOOK_MODE: $mode"
+      ;;
+  esac
+}
+
+scan_text_pii_if_enabled() {
+  label=$1
+  text=$2
+  [ -n "$text" ] || return 0
+  pii_hook_active || return 0
+  masked=$(mask_pii_text "$text") || return 2
+  if [ "$masked" != "$text" ]; then
+    info "$PROGRAM: PII detected in $label"
+    return 1
+  fi
+  return 0
+}
+
+block_on_pii_status() {
+  status=$1
+  label=$2
+  case "$status" in
+    0) return 0 ;;
+    1)
+      info "$PROGRAM: $label contains PII; run 'agent-guard pii-filter' to mask it before continuing"
+      exit 2
+      ;;
+    *) exit 2 ;;
+  esac
+}
+
+scan_guarded_text() {
+  label=$1
+  text=$2
+  secret_message=$3
+  scan_text_direct "$label" "$text"
+  block_on_scan_status "$?" "$secret_message"
+  scan_text_pii_if_enabled "$label" "$text"
+  block_on_pii_status "$?" "$label"
+}
+
+pii_filter_cmd() {
+  backend=$(pii_backend_default)
+  language=${AGENT_GUARD_PII_LANGUAGE:-en}
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --backend)
+        shift
+        [ "$#" -gt 0 ] || die "pii-filter: --backend requires a value"
+        backend=$1
+        ;;
+      --backend=*) backend=${1#--backend=} ;;
+      --language)
+        shift
+        [ "$#" -gt 0 ] || die "pii-filter: --language requires a value"
+        language=$1
+        ;;
+      --language=*) language=${1#--language=} ;;
+      -h|--help)
+        cat >&2 <<'EOF'
+Usage:
+  agent-guard pii-filter [--backend regex|pleno] [--language LANG]
+
+Reads text from stdin and writes masked text to stdout.
+
+Backends:
+  regex  Built-in deterministic masking for common email/phone/card/IP forms.
+  pleno  Optional HTTP adapter for a self-hosted pleno-anonymize /api/redact endpoint.
+
+Environment:
+  AGENT_GUARD_PII_REDACT_URL   Required for --backend pleno.
+  AGENT_GUARD_PII_LANGUAGE     Sent to pleno, default: en.
+  AGENT_GUARD_PII_HOOK_MODE    off or block. Hooks cannot rewrite tool payloads.
+EOF
+        return 0
+        ;;
+      *) die "pii-filter: unknown argument: $1" ;;
+    esac
+    shift
+  done
+  mask_pii_stream "$backend" "$language"
 }
 
 extract_added_lines() {
@@ -847,8 +1028,7 @@ check_bash_command() {
     exit 2
   fi
 
-  scan_text_direct "shell command" "$cmd"
-  block_on_scan_status "$?" "shell command contains secret-like values"
+  scan_guarded_text "shell command" "$cmd" "shell command contains secret-like values"
 
   check_git_command "$cmd"
 }
@@ -858,8 +1038,7 @@ scan_tool_input() {
   label=$2
   need_cmd jq
   text=$(printf '%s' "$input" | jq -c '.tool_input // {}')
-  scan_text_direct "$label" "$text"
-  block_on_scan_status "$?" "$label contains secret-like values"
+  scan_guarded_text "$label" "$text" "$label contains secret-like values"
 }
 
 scan_mcp_input() {
@@ -880,18 +1059,15 @@ scan_proposed_write() {
   case "$tool" in
     Write)
       content=$(json_value '.tool_input.content // empty' "$input")
-      scan_text_direct "proposed Write content" "$content"
-      block_on_scan_status "$?" "proposed Write contains secret-like values"
+      scan_guarded_text "proposed Write content" "$content" "proposed Write contains secret-like values"
       ;;
     Edit)
       content=$(json_value '.tool_input.new_string // empty' "$input")
-      scan_text_direct "proposed Edit content" "$content"
-      block_on_scan_status "$?" "proposed Edit contains secret-like values"
+      scan_guarded_text "proposed Edit content" "$content" "proposed Edit contains secret-like values"
       ;;
     MultiEdit)
       content=$(printf '%s' "$input" | jq -r '[.tool_input.edits[]?.new_string // empty] | join("\n")')
-      scan_text_direct "proposed MultiEdit content" "$content"
-      block_on_scan_status "$?" "proposed MultiEdit contains secret-like values"
+      scan_guarded_text "proposed MultiEdit content" "$content" "proposed MultiEdit contains secret-like values"
       ;;
     apply_patch)
       patch=$(printf '%s' "$input" | jq -r '
@@ -899,8 +1075,7 @@ scan_proposed_write() {
         | if type == "string" then . else tojson end
       ')
       added=$(printf '%s\n' "$patch" | extract_patch_added_lines)
-      scan_text_direct "proposed apply_patch added lines" "$added"
-      block_on_scan_status "$?" "proposed apply_patch contains secret-like values"
+      scan_guarded_text "proposed apply_patch added lines" "$added" "proposed apply_patch contains secret-like values"
       ;;
   esac
 }
@@ -1028,6 +1203,7 @@ case "$cmd" in
   scan-staged) shift; scan_staged "$@" ;;
   scan-working-tree) shift; scan_working_tree "$@" ;;
   scan-path) shift; scan_path "$@" ;;
+  pii-filter) shift; pii_filter_cmd "$@" ;;
   check) check_deps ;;
   setup) shift; do_setup "$@" ;;
   smoke-test) smoke_test ;;
