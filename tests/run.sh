@@ -231,6 +231,18 @@ expect_json_status 2 "Bash absolute-path .env access is blocked" \
   '{"tool_name":"Bash","tool_input":{"command":"awk 1 /tmp/.env"}}' \
   hook-pre-tool
 
+expect_json_status 2 "Bash quoted path fragment bypass is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat .e\"nv"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash escaped path fragment bypass is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat .e\\nv"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash command literal secret is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"printf AGENT_GUARD_TEST_SECRET > leaked.txt"}}' \
+  hook-pre-tool
+
 expect_json_status 0 "myenv-like substring is allowed" \
   '{"tool_name":"Bash","tool_input":{"command":"echo myenvironment"}}' \
   hook-pre-tool
@@ -263,6 +275,22 @@ expect_json_status 2 "NotebookRead on sensitive path is blocked" \
   '{"tool_name":"NotebookRead","tool_input":{"notebook_path":".env"}}' \
   hook-pre-tool
 
+expect_json_status 2 "Grep on explicit sensitive path is blocked" \
+  '{"tool_name":"Grep","tool_input":{"pattern":"API_KEY","path":".env"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "broad Grep content search for secrets is blocked" \
+  '{"tool_name":"Grep","tool_input":{"pattern":"API_KEY","path":".","output_mode":"content"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "broad Grep files-only search for secrets is allowed" \
+  '{"tool_name":"Grep","tool_input":{"pattern":"API_KEY","path":".","output_mode":"files_with_matches"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "broad Grep content search for benign text is allowed" \
+  '{"tool_name":"Grep","tool_input":{"pattern":"TODO","path":".","output_mode":"content"}}' \
+  hook-pre-tool
+
 expect_json_status 2 "Codex Add File payload secret is blocked" \
   '{"tool_name":"apply_patch","tool_input":{"patch":"*** Begin Patch\n*** Add File: x\nAGENT_GUARD_TEST_SECRET\n*** End Patch"}}' \
   hook-pre-tool
@@ -273,6 +301,18 @@ expect_json_status 2 "Codex double-plus added secret is blocked" \
 
 expect_json_status 2 "MCP input secret is blocked" \
   '{"tool_name":"mcp__server__tool","tool_input":{"token":"AGENT_GUARD_TEST_SECRET"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "WebFetch file URL to sensitive path is blocked" \
+  '{"tool_name":"WebFetch","tool_input":{"url":"file:///.env","prompt":"summarize"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "WebSearch query with secret is blocked" \
+  '{"tool_name":"WebSearch","tool_input":{"query":"AGENT_GUARD_TEST_SECRET"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "WebSearch benign query is allowed" \
+  '{"tool_name":"WebSearch","tool_input":{"query":"agent guard documentation"}}' \
   hook-pre-tool
 
 TEST_REPO="$TMP_ROOT/repo"

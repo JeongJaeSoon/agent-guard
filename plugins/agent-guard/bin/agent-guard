@@ -637,7 +637,7 @@ deny_path_basename_pattern() {
   printf '%s' "$py"
 }
 
-bash_matches_deny_path() {
+bash_matches_deny_path_literal() {
   cmd=$1
   [ -f "$DENY_READ_PATHS" ] || return 1
   while IFS= read -r entry || [ -n "$entry" ]; do
@@ -653,6 +653,37 @@ bash_matches_deny_path() {
     fi
   done <"$DENY_READ_PATHS"
   return 1
+}
+
+shell_dequote_for_policy() {
+  printf '%s\n' "$1" | awk '
+    {
+      out = ""
+      for (i = 1; i <= length($0); i++) {
+        c = substr($0, i, 1)
+        if (c == "\\") {
+          i++
+          if (i <= length($0)) {
+            out = out substr($0, i, 1)
+          }
+          continue
+        }
+        if (c == "\"" || c == "\047") {
+          continue
+        }
+        out = out c
+      }
+      print out
+    }
+  '
+}
+
+bash_matches_deny_path() {
+  cmd=$1
+  bash_matches_deny_path_literal "$cmd" && return 0
+  dequoted=$(shell_dequote_for_policy "$cmd")
+  [ "$dequoted" = "$cmd" ] && return 1
+  bash_matches_deny_path_literal "$dequoted"
 }
 
 is_shell_command_separator() {
@@ -816,15 +847,29 @@ check_bash_command() {
     exit 2
   fi
 
+  scan_text_direct "shell command" "$cmd"
+  block_on_scan_status "$?" "shell command contains secret-like values"
+
   check_git_command "$cmd"
 }
 
-scan_mcp_input() {
+scan_tool_input() {
   input=$1
+  label=$2
   need_cmd jq
   text=$(printf '%s' "$input" | jq -c '.tool_input // {}')
-  scan_text_direct "MCP tool input" "$text"
-  block_on_scan_status "$?" "MCP tool input contains secret-like values"
+  scan_text_direct "$label" "$text"
+  block_on_scan_status "$?" "$label contains secret-like values"
+}
+
+scan_mcp_input() {
+  scan_tool_input "$1" "MCP tool input"
+}
+
+scan_network_input() {
+  input=$1
+  check_sensitive_reads "$input"
+  scan_tool_input "$input" "network tool input"
 }
 
 scan_proposed_write() {
@@ -860,6 +905,50 @@ scan_proposed_write() {
   esac
 }
 
+is_broad_search_path() {
+  path=${1:-}
+  normalized=$(normalize_path "$path")
+  case "$normalized" in
+    ''|'.'|'./'|'/') return 0 ;;
+  esac
+  cwd=$(pwd -P 2>/dev/null || pwd)
+  [ "$normalized" = "$cwd" ] && return 0
+  return 1
+}
+
+is_broad_grep_glob() {
+  case "${1:-}" in
+    ''|'*'|'**'|'**/*'|'./**/*'|'*.*') return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+is_secret_search_pattern() {
+  pattern=$1
+  case "$pattern" in
+    ''|'.*'|'.+'|'^.*$'|'[[:print:]]*'|'[\\s\\S]*') return 0 ;;
+  esac
+  printf '%s\n' "$pattern" \
+    | grep -Eiq '(secret|token|password|passwd|credential|api[^[:alnum:]]*key|access[^[:alnum:]]*key|private[^[:alnum:]]*key|authorization|bearer|aws|openai|anthropic|stripe|github|ghp_|sk-)'
+}
+
+check_broad_grep_content() {
+  input=$1
+  output_mode=$(json_value '.tool_input.output_mode // empty' "$input")
+  [ "$output_mode" = "content" ] || return 0
+
+  path=$(json_value '.tool_input.path // empty' "$input")
+  glob=$(json_value '.tool_input.glob // empty' "$input")
+  pattern=$(json_value '.tool_input.pattern // empty' "$input")
+
+  is_broad_search_path "$path" || return 0
+  is_broad_grep_glob "$glob" || return 0
+  if is_secret_search_pattern "$pattern"; then
+    info "$PROGRAM: blocked broad Grep content search that could expose secrets"
+    exit 2
+  fi
+}
+
 hook_pre_tool() {
   need_cmd jq
   input=$(cat)
@@ -872,9 +961,15 @@ hook_pre_tool() {
       ;;
     Read|NotebookRead|Grep|Glob)
       check_sensitive_reads "$input"
+      if [ "$tool" = "Grep" ]; then
+        check_broad_grep_content "$input"
+      fi
       ;;
     Bash)
       check_bash_command "$input"
+      ;;
+    WebFetch|WebSearch)
+      scan_network_input "$input"
       ;;
     mcp__*)
       scan_mcp_input "$input"
