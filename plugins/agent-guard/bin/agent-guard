@@ -46,6 +46,7 @@ Usage:
   agent-guard hook-pre-tool
   agent-guard hook-post-tool
   agent-guard hook-stop
+  agent-guard pii-filter [--check]
   agent-guard scan-staged
   agent-guard scan-working-tree
   agent-guard scan-path PATH...
@@ -289,6 +290,9 @@ smoke_test() {
   printf '%s' '{"tool_name":"Read","tool_input":{"file_path":".env"}}' \
     | smoke_expect 2 "hook-pre-tool blocks .env reads" hook_pre_tool
 
+  printf '%s\n' "Contact smoke@example.com from 203.0.113.42" \
+    | smoke_expect 0 "pii-filter runs with the regex provider" pii_filter
+
   write_payload=$(mktemp_file) || die "smoke: failed to create temp file"
   {
     printf '%s' '{"tool_name":"Write","tool_input":{"file_path":"key.pem","content":"'
@@ -305,6 +309,7 @@ smoke_test() {
     git init -q || exit 2
     git config user.email test@example.com || exit 2
     git config user.name "Agent Guard Smoke" || exit 2
+    git config commit.gpgsign false || exit 2
     printf '%s\n' ok >README.md
     git add README.md || exit 2
     git commit -q -m init || exit 2
@@ -327,6 +332,196 @@ smoke_test() {
 
 mktemp_file() {
   mktemp "${TMPDIR:-/tmp}/agent-guard.XXXXXX" 2>/dev/null || mktemp /tmp/agent-guard.XXXXXX
+}
+
+pii_filter_usage() {
+  cat >&2 <<'EOF'
+Usage:
+  agent-guard pii-filter [--check]
+
+Reads text from stdin and writes masked text to stdout.
+Set AGENT_GUARD_PII_PROVIDER=regex|pleno|http to choose a provider.
+EOF
+}
+
+pii_provider() {
+  provider=${AGENT_GUARD_PII_PROVIDER:-regex}
+  case "$provider" in
+    regex|pleno|http) printf '%s' "$provider" ;;
+    *) die "pii-filter: unsupported provider: $provider (expected regex, pleno, or http)" ;;
+  esac
+}
+
+pii_regex_adapter_filter() {
+  need_cmd awk
+  awk '
+    BEGIN {
+      credit_card = "[0-9][0-9][0-9][0-9][ -]?[0-9][0-9][0-9][0-9][ -]?[0-9][0-9][0-9][0-9][ -]?[0-9][0-9][0-9][0-9]([ -]?[0-9][0-9][0-9])?"
+      ssn = "[0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9][0-9][0-9]"
+      ip_addr = "[0-9][0-9]?[0-9]?[.][0-9][0-9]?[0-9]?[.][0-9][0-9]?[0-9]?[.][0-9][0-9]?[0-9]?"
+      email = "[[:alnum:]_%+.-]+@[[:alnum:].-]+[.][[:alpha:]][[:alpha:]][[:alpha:]]*"
+      phone = "([+]?[0-9][ .-]?)?([(][0-9][0-9][0-9][)]|[0-9][0-9][0-9])[ .-]?[0-9][0-9][0-9][ .-]?[0-9][0-9][0-9][0-9]"
+    }
+    {
+      if (NR > 1) {
+        printf "%s", ORS
+      }
+      gsub(credit_card, "[PII:CREDIT_CARD]")
+      gsub(ssn, "[PII:SSN]")
+      gsub(ip_addr, "[PII:IP_ADDRESS]")
+      gsub(email, "[PII:EMAIL]")
+      gsub(phone, "[PII:PHONE]")
+      printf "%s", $0
+    }
+  '
+}
+
+pii_endpoint_adapter_filter() {
+  provider=$1
+  need_cmd curl
+  need_cmd jq
+  url=${AGENT_GUARD_PII_REDACT_URL:-}
+  [ -n "$url" ] || die "pii-filter: AGENT_GUARD_PII_REDACT_URL is required for provider: $provider"
+
+  out=$(mktemp_file) || die "pii-filter: failed to create temp file"
+  if ! jq -Rs '{text: .}' \
+    | curl -fsS -H 'Content-Type: application/json' -d @- "$url" >"$out"; then
+    rm -f "$out"
+    die "pii-filter: $provider provider request failed: $url"
+  fi
+
+  if ! jq -er '
+    if type == "object" and (.redacted_text | type == "string") then .redacted_text
+    elif type == "object" and (.anonymized_text | type == "string") then .anonymized_text
+    elif type == "object" and (.text | type == "string") then .text
+    elif type == "object" and (.data.redacted_text | type == "string") then .data.redacted_text
+    else error("missing redacted text")
+    end
+  ' "$out"; then
+    rm -f "$out"
+    die "pii-filter: $provider provider returned invalid response; expected JSON with redacted_text, anonymized_text, text, or data.redacted_text"
+  fi
+  rm -f "$out"
+}
+
+pii_adapter_filter() {
+  provider=${1:-$(pii_provider)}
+  case "$provider" in
+    regex) pii_regex_adapter_filter ;;
+    pleno|http) pii_endpoint_adapter_filter "$provider" ;;
+    *) die "pii-filter: unsupported provider: $provider (expected regex, pleno, or http)" ;;
+  esac
+}
+
+pii_adapter_check() {
+  provider=$1
+  case "$provider" in
+    regex)
+      need_cmd awk
+      info "$PROGRAM: PII provider regex ok"
+      ;;
+    pleno|http)
+      printf '%s' "agent-guard pii provider check" | pii_endpoint_adapter_filter "$provider" >/dev/null
+      status=$?
+      [ "$status" -eq 0 ] || exit "$status"
+      info "$PROGRAM: PII provider $provider ok"
+      ;;
+    *) die "pii-filter: unsupported provider: $provider (expected regex, pleno, or http)" ;;
+  esac
+}
+
+pii_filter() {
+  check=0
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --check) check=1 ;;
+      -h|--help)
+        pii_filter_usage
+        return 0
+        ;;
+      *) die "pii-filter: unknown argument: $1" ;;
+    esac
+    shift
+  done
+
+  provider=$(pii_provider)
+  if [ "$check" -eq 1 ]; then
+    pii_adapter_check "$provider"
+    return 0
+  fi
+  pii_adapter_filter "$provider"
+}
+
+pii_text_has_match() {
+  text=$1
+  [ -n "$text" ] || return 1
+  masked=$(printf '%s' "$text" | pii_adapter_filter)
+  status=$?
+  [ "$status" -eq 0 ] || exit "$status"
+  [ "$masked" != "$text" ]
+}
+
+pii_hook_block_enabled() {
+  mode=${AGENT_GUARD_PII_HOOK_MODE:-off}
+  case "$mode" in
+    off|'') return 1 ;;
+    block) return 0 ;;
+    mask)
+      die "PII hook mode mask is not supported; hooks cannot rewrite pending tool payloads. Use agent-guard pii-filter before invoking tools, or set AGENT_GUARD_PII_HOOK_MODE=block."
+      ;;
+    *) die "unsupported PII hook mode: $mode (expected off or block)" ;;
+  esac
+}
+
+block_on_pii_text() {
+  label=$1
+  text=$2
+  if pii_text_has_match "$text"; then
+    info "$PROGRAM: blocked PII in $label; run agent-guard pii-filter before using this tool"
+    exit 2
+  fi
+}
+
+check_pii_hook_input() {
+  input=$1
+  tool=$2
+  pii_hook_block_enabled || return 0
+  need_cmd jq
+
+  case "$tool" in
+    Write)
+      content=$(json_value '.tool_input.content // empty' "$input")
+      block_on_pii_text "proposed Write content" "$content"
+      ;;
+    Edit)
+      content=$(json_value '.tool_input.new_string // empty' "$input")
+      block_on_pii_text "proposed Edit content" "$content"
+      ;;
+    MultiEdit)
+      content=$(printf '%s' "$input" | jq -r '[.tool_input.edits[]?.new_string // empty] | join("\n")')
+      block_on_pii_text "proposed MultiEdit content" "$content"
+      ;;
+    apply_patch)
+      patch=$(printf '%s' "$input" | jq -r '
+        .tool_input.patch // .tool_input.input // .tool_input.diff // .tool_input.content // empty
+        | if type == "string" then . else tojson end
+      ')
+      added=$(printf '%s\n' "$patch" | extract_patch_added_lines)
+      block_on_pii_text "proposed apply_patch added lines" "$added"
+      ;;
+    Bash)
+      content=$(json_value '.tool_input.command // .tool_input.cmd // empty' "$input")
+      block_on_pii_text "Bash command" "$content"
+      ;;
+    WebFetch|WebSearch)
+      content=$(printf '%s' "$input" | jq -r '.tool_input // {} | .. | strings')
+      block_on_pii_text "$tool input" "$content"
+      ;;
+    mcp__*)
+      content=$(printf '%s' "$input" | jq -r '.tool_input // {} | .. | strings')
+      block_on_pii_text "MCP tool input" "$content"
+      ;;
+  esac
 }
 
 run_gitleaks_stdin() {
@@ -1045,10 +1240,9 @@ hook_pre_tool() {
     mcp__*)
       scan_mcp_input "$input"
       ;;
-    *)
-      return 0
-      ;;
   esac
+
+  check_pii_hook_input "$input" "$tool"
 }
 
 is_mutation_tool() {
@@ -1096,6 +1290,7 @@ case "$cmd" in
   hook-pre-tool) hook_pre_tool ;;
   hook-post-tool) hook_post_tool ;;
   hook-stop) hook_stop ;;
+  pii-filter) shift; pii_filter "$@" ;;
   scan-staged) shift; scan_staged "$@" ;;
   scan-working-tree) shift; scan_working_tree "$@" ;;
   scan-path) shift; scan_path "$@" ;;
