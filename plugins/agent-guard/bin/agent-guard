@@ -39,6 +39,7 @@ ROOT_DIR=$(CDPATH= cd -- "$BIN_DIR/.." && pwd -P)
 GITLEAKS_CONFIG=${AGENT_GUARD_GITLEAKS_CONFIG:-"$ROOT_DIR/config/gitleaks.toml"}
 DENY_READ_PATHS=${AGENT_GUARD_DENY_READ_PATHS:-"$ROOT_DIR/config/deny-read-paths.txt"}
 DENY_BASH_PATTERNS=${AGENT_GUARD_DENY_BASH_PATTERNS:-"$ROOT_DIR/config/deny-bash-patterns.txt"}
+PII_SUPPORTED_PROVIDERS="regex, http"
 
 usage() {
   cat >&2 <<'EOF'
@@ -335,20 +336,25 @@ mktemp_file() {
 }
 
 pii_filter_usage() {
-  cat >&2 <<'EOF'
+  cat >&2 <<EOF
 Usage:
   agent-guard pii-filter [--check]
 
 Reads text from stdin and writes masked text to stdout.
-Set AGENT_GUARD_PII_PROVIDER=regex|pleno|http to choose a provider.
+Set AGENT_GUARD_PII_PROVIDER to one of: $PII_SUPPORTED_PROVIDERS.
+Use --check to validate the selected provider before filtering.
 EOF
+}
+
+pii_unsupported_provider() {
+  die "pii-filter: unsupported provider: $1 (supported providers: $PII_SUPPORTED_PROVIDERS)"
 }
 
 pii_provider() {
   provider=${AGENT_GUARD_PII_PROVIDER:-regex}
   case "$provider" in
-    regex|pleno|http) printf '%s' "$provider" ;;
-    *) die "pii-filter: unsupported provider: $provider (expected regex, pleno, or http)" ;;
+    regex|http) printf '%s' "$provider" ;;
+    *) pii_unsupported_provider "$provider" ;;
   esac
 }
 
@@ -405,11 +411,15 @@ pii_endpoint_adapter_filter() {
 }
 
 pii_adapter_filter() {
-  provider=${1:-$(pii_provider)}
+  if [ "$#" -gt 0 ]; then
+    provider=$1
+  else
+    provider=$(pii_provider) || exit "$?"
+  fi
   case "$provider" in
     regex) pii_regex_adapter_filter ;;
-    pleno|http) pii_endpoint_adapter_filter "$provider" ;;
-    *) die "pii-filter: unsupported provider: $provider (expected regex, pleno, or http)" ;;
+    http) pii_endpoint_adapter_filter "$provider" ;;
+    *) pii_unsupported_provider "$provider" ;;
   esac
 }
 
@@ -418,15 +428,15 @@ pii_adapter_check() {
   case "$provider" in
     regex)
       need_cmd awk
-      info "$PROGRAM: PII provider regex ok"
+      info "$PROGRAM: PII provider validation ok: regex (supported providers: $PII_SUPPORTED_PROVIDERS)"
       ;;
-    pleno|http)
+    http)
       printf '%s' "agent-guard pii provider check" | pii_endpoint_adapter_filter "$provider" >/dev/null
       status=$?
       [ "$status" -eq 0 ] || exit "$status"
-      info "$PROGRAM: PII provider $provider ok"
+      info "$PROGRAM: PII provider validation ok: $provider (supported providers: $PII_SUPPORTED_PROVIDERS)"
       ;;
-    *) die "pii-filter: unsupported provider: $provider (expected regex, pleno, or http)" ;;
+    *) pii_unsupported_provider "$provider" ;;
   esac
 }
 
@@ -444,7 +454,7 @@ pii_filter() {
     shift
   done
 
-  provider=$(pii_provider)
+  provider=$(pii_provider) || exit "$?"
   if [ "$check" -eq 1 ]; then
     pii_adapter_check "$provider"
     return 0
