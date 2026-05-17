@@ -239,6 +239,18 @@ expect_json_status 2 "Bash escaped path fragment bypass is blocked" \
   '{"tool_name":"Bash","tool_input":{"command":"cat .e\\nv"}}' \
   hook-pre-tool
 
+expect_json_status 2 "Bash ANSI-C quoted path bypass is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat $'\''.e\\x6ev'\''"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash glob bracket path bypass is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat .e[n]v"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash glob wildcard path bypass is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat .e?v"}}' \
+  hook-pre-tool
+
 expect_json_status 2 "Bash command literal secret is blocked" \
   '{"tool_name":"Bash","tool_input":{"command":"printf AGENT_GUARD_TEST_SECRET > leaked.txt"}}' \
   hook-pre-tool

@@ -637,6 +637,75 @@ deny_path_basename_pattern() {
   printf '%s' "$py"
 }
 
+deny_path_char_hex_pattern() {
+  case "$1" in
+    0) printf '3[0]' ;; 1) printf '3[1]' ;; 2) printf '3[2]' ;; 3) printf '3[3]' ;;
+    4) printf '3[4]' ;; 5) printf '3[5]' ;; 6) printf '3[6]' ;; 7) printf '3[7]' ;;
+    8) printf '3[8]' ;; 9) printf '3[9]' ;;
+    a|A) printf '6[1]' ;; b|B) printf '6[2]' ;; c|C) printf '6[3]' ;;
+    d|D) printf '6[4]' ;; e|E) printf '6[5]' ;; f|F) printf '6[6]' ;;
+    g|G) printf '6[7]' ;; h|H) printf '6[8]' ;; i|I) printf '6[9]' ;;
+    j|J) printf '6[aA]' ;; k|K) printf '6[bB]' ;; l|L) printf '6[cC]' ;;
+    m|M) printf '6[dD]' ;; n|N) printf '6[eE]' ;; o|O) printf '6[fF]' ;;
+    p|P) printf '7[0]' ;; q|Q) printf '7[1]' ;; r|R) printf '7[2]' ;;
+    s|S) printf '7[3]' ;; t|T) printf '7[4]' ;; u|U) printf '7[5]' ;;
+    v|V) printf '7[6]' ;; w|W) printf '7[7]' ;; x|X) printf '7[8]' ;;
+    y|Y) printf '7[9]' ;; z|Z) printf '7[aA]' ;;
+    '.') printf '2[eE]' ;; '_') printf '5[fF]' ;; '-') printf '2[dD]' ;;
+    *) return 1 ;;
+  esac
+}
+
+deny_path_shell_expansion_char_pattern() {
+  ch=$1
+  case "$ch" in
+    '.'|'^'|'$'|'+'|'?'|'('|')'|'['|']'|'{'|'}'|'|'|'\\')
+      literal=\\$ch
+      ;;
+    *)
+      literal=$ch
+      ;;
+  esac
+
+  hex=$(deny_path_char_hex_pattern "$ch" 2>/dev/null || true)
+  case "$ch" in
+    '/')
+      printf '/'
+      ;;
+    '.')
+      if [ -n "$hex" ]; then
+        printf '(%s|\\\\x%s)' "$literal" "$hex"
+      else
+        printf '%s' "$literal"
+      fi
+      ;;
+    *)
+      if [ -n "$hex" ]; then
+        printf '(%s|\\\\x%s|\\?|\\*|\\[[^]]+\\])' "$literal" "$hex"
+      else
+        printf '(%s|\\?|\\*|\\[[^]]+\\])' "$literal"
+      fi
+      ;;
+  esac
+}
+
+deny_path_shell_expansion_pattern() {
+  # Match shell forms that can expand to a deny-listed path, such as
+  # .e[n]v, .e?v, .e*v, or $'.e\x6ev'.
+  pattern=$1
+  py=
+  remaining=$pattern
+  while [ -n "$remaining" ]; do
+    ch=${remaining%"${remaining#?}"}
+    remaining=${remaining#?}
+    case "$ch" in
+      '*') py=${py}'[^[:space:]<>|;&`$()]*' ;;
+      *) py=${py}$(deny_path_shell_expansion_char_pattern "$ch") ;;
+    esac
+  done
+  printf '%s' "$py"
+}
+
 bash_matches_deny_path_literal() {
   cmd=$1
   [ -f "$DENY_READ_PATHS" ] || return 1
@@ -647,6 +716,23 @@ bash_matches_deny_path_literal() {
     converted=$(deny_path_basename_pattern "$entry")
     [ -n "$converted" ] || continue
     # Catch path arguments and shell words without matching substrings like myenv.
+    regex='(^|[^[:alnum:]_./~-])('${converted}'|[^[:space:]<>|;&`$()]*/'${converted}')([^[:alnum:]_.-]|$)'
+    if printf '%s\n' "$cmd" | grep -Eq "$regex"; then
+      return 0
+    fi
+  done <"$DENY_READ_PATHS"
+  return 1
+}
+
+bash_matches_deny_path_shell_expansion() {
+  cmd=$1
+  [ -f "$DENY_READ_PATHS" ] || return 1
+  while IFS= read -r entry || [ -n "$entry" ]; do
+    case "$entry" in
+      ''|\#*) continue ;;
+    esac
+    converted=$(deny_path_shell_expansion_pattern "$entry")
+    [ -n "$converted" ] || continue
     regex='(^|[^[:alnum:]_./~-])('${converted}'|[^[:space:]<>|;&`$()]*/'${converted}')([^[:alnum:]_.-]|$)'
     if printf '%s\n' "$cmd" | grep -Eq "$regex"; then
       return 0
@@ -681,9 +767,11 @@ shell_dequote_for_policy() {
 bash_matches_deny_path() {
   cmd=$1
   bash_matches_deny_path_literal "$cmd" && return 0
+  bash_matches_deny_path_shell_expansion "$cmd" && return 0
   dequoted=$(shell_dequote_for_policy "$cmd")
   [ "$dequoted" = "$cmd" ] && return 1
-  bash_matches_deny_path_literal "$dequoted"
+  bash_matches_deny_path_literal "$dequoted" && return 0
+  bash_matches_deny_path_shell_expansion "$dequoted"
 }
 
 is_shell_command_separator() {
