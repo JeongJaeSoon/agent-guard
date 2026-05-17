@@ -619,20 +619,30 @@ check_sensitive_reads() {
   rm -f "$tmp"
 }
 
-deny_path_basename_pattern() {
-  # Convert the supported deny-read shell globs to POSIX ERE.
+deny_path_regex_fragment() {
+  # Convert supported deny-read shell globs to POSIX ERE fragments. The
+  # shell-expanded mode also catches command words that the shell can expand
+  # into a deny-listed path, such as .e[n]v, .e?v, .e*v, or $'.e\x6ev'.
   pattern=$1
+  mode=${2:-literal}
   py=
   remaining=$pattern
   while [ -n "$remaining" ]; do
     ch=${remaining%"${remaining#?}"}
     remaining=${remaining#?}
-    case "$ch" in
-      '*') py=${py}'[^[:space:]<>|;&`$()]*' ;;
-      '.'|'^'|'$'|'+'|'?'|'('|')'|'['|']'|'{'|'}'|'|'|'\\') py=${py}'\'${ch} ;;
-      '/') py=${py}'/' ;;
-      *) py=${py}${ch} ;;
-    esac
+    if [ "$mode" = "shell-expanded" ]; then
+      case "$ch" in
+        '*') py=${py}'[^[:space:]<>|;&`$()]*' ;;
+        *) py=${py}$(deny_path_shell_expansion_char_pattern "$ch") ;;
+      esac
+    else
+      case "$ch" in
+        '*') py=${py}'[^[:space:]<>|;&`$()]*' ;;
+        '.'|'^'|'$'|'+'|'?'|'('|')'|'['|']'|'{'|'}'|'|'|'\\') py=${py}'\'${ch} ;;
+        '/') py=${py}'/' ;;
+        *) py=${py}${ch} ;;
+      esac
+    fi
   done
   printf '%s' "$py"
 }
@@ -689,51 +699,24 @@ deny_path_shell_expansion_char_pattern() {
   esac
 }
 
-deny_path_shell_expansion_pattern() {
-  # Match shell forms that can expand to a deny-listed path, such as
-  # .e[n]v, .e?v, .e*v, or $'.e\x6ev'.
+deny_path_command_regex() {
   pattern=$1
-  py=
-  remaining=$pattern
-  while [ -n "$remaining" ]; do
-    ch=${remaining%"${remaining#?}"}
-    remaining=${remaining#?}
-    case "$ch" in
-      '*') py=${py}'[^[:space:]<>|;&`$()]*' ;;
-      *) py=${py}$(deny_path_shell_expansion_char_pattern "$ch") ;;
-    esac
-  done
-  printf '%s' "$py"
+  mode=$2
+  converted=$(deny_path_regex_fragment "$pattern" "$mode")
+  [ -n "$converted" ] || return 1
+  # Catch path arguments and shell words without matching substrings like myenv.
+  printf '%s' '(^|[^[:alnum:]_./~-])('"${converted}"'|[^[:space:]<>|;&`$()]*/'"${converted}"')([^[:alnum:]_.-]|$)'
 }
 
-bash_matches_deny_path_literal() {
+bash_matches_deny_path_mode() {
   cmd=$1
+  mode=$2
   [ -f "$DENY_READ_PATHS" ] || return 1
   while IFS= read -r entry || [ -n "$entry" ]; do
     case "$entry" in
       ''|\#*) continue ;;
     esac
-    converted=$(deny_path_basename_pattern "$entry")
-    [ -n "$converted" ] || continue
-    # Catch path arguments and shell words without matching substrings like myenv.
-    regex='(^|[^[:alnum:]_./~-])('${converted}'|[^[:space:]<>|;&`$()]*/'${converted}')([^[:alnum:]_.-]|$)'
-    if printf '%s\n' "$cmd" | grep -Eq "$regex"; then
-      return 0
-    fi
-  done <"$DENY_READ_PATHS"
-  return 1
-}
-
-bash_matches_deny_path_shell_expansion() {
-  cmd=$1
-  [ -f "$DENY_READ_PATHS" ] || return 1
-  while IFS= read -r entry || [ -n "$entry" ]; do
-    case "$entry" in
-      ''|\#*) continue ;;
-    esac
-    converted=$(deny_path_shell_expansion_pattern "$entry")
-    [ -n "$converted" ] || continue
-    regex='(^|[^[:alnum:]_./~-])('${converted}'|[^[:space:]<>|;&`$()]*/'${converted}')([^[:alnum:]_.-]|$)'
+    regex=$(deny_path_command_regex "$entry" "$mode") || continue
     if printf '%s\n' "$cmd" | grep -Eq "$regex"; then
       return 0
     fi
@@ -766,12 +749,12 @@ shell_dequote_for_policy() {
 
 bash_matches_deny_path() {
   cmd=$1
-  bash_matches_deny_path_literal "$cmd" && return 0
-  bash_matches_deny_path_shell_expansion "$cmd" && return 0
+  bash_matches_deny_path_mode "$cmd" "literal" && return 0
+  bash_matches_deny_path_mode "$cmd" "shell-expanded" && return 0
   dequoted=$(shell_dequote_for_policy "$cmd")
   [ "$dequoted" = "$cmd" ] && return 1
-  bash_matches_deny_path_literal "$dequoted" && return 0
-  bash_matches_deny_path_shell_expansion "$dequoted"
+  bash_matches_deny_path_mode "$dequoted" "literal" && return 0
+  bash_matches_deny_path_mode "$dequoted" "shell-expanded"
 }
 
 is_shell_command_separator() {

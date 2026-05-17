@@ -251,6 +251,10 @@ expect_json_status 2 "Bash glob wildcard path bypass is blocked" \
   '{"tool_name":"Bash","tool_input":{"command":"cat .e?v"}}' \
   hook-pre-tool
 
+expect_json_status 0 "Bash benign glob remains allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"ls *.md"}}' \
+  hook-pre-tool
+
 expect_json_status 2 "Bash command literal secret is blocked" \
   '{"tool_name":"Bash","tool_input":{"command":"printf AGENT_GUARD_TEST_SECRET > leaked.txt"}}' \
   hook-pre-tool
