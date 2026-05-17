@@ -196,7 +196,7 @@ To enable it, add an Actions secret named `OPENAI_API_KEY` in the GitHub reposit
 
 - `Read`, `NotebookRead`, `Grep`, and `Glob` access to deny-listed paths such as `.env*`, private keys, `.aws/credentials`, `.npmrc`, and `.pypirc`
 - `Write`, `Edit`, `MultiEdit`, and Codex `apply_patch` content containing secret-like values
-- MCP tool input JSON containing secret-like values
+- `WebFetch`, `WebSearch`, and MCP tool input JSON containing secret-like values
 - risky shell commands such as `printenv`, `op read`, `vault kv get`, `aws secretsmanager get-secret-value`, `cat .env`, and `git commit --no-verify`
 - staged added lines in the native pre-commit hook
 - working-tree added lines and untracked files after agent mutations
