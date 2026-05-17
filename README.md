@@ -26,11 +26,13 @@ It is not a vault, credential rotator, or replacement for GitHub Secret Scanning
 Agent Guard runs on macOS and Linux and expects:
 
 - `sh`
+- `awk`
 - `git`
 - `jq`
 - `gitleaks` 8.30 or newer recommended
 
 Install paths that download release archives also use `curl`, `tar`, `shasum`, and `ln`.
+PII endpoint providers also use `curl`.
 
 With a direct CLI install:
 
@@ -141,12 +143,55 @@ Common commands:
 agent-guard scan-path .
 agent-guard scan-working-tree
 agent-guard scan-staged
+agent-guard pii-filter
 agent-guard setup
 agent-guard smoke-test
 agent-guard checksum
 ```
 
 Override install defaults with `AGENT_GUARD_VERSION`, `AGENT_GUARD_HOME`, or `AGENT_GUARD_BIN_DIR`.
+
+## PII Filtering
+
+`agent-guard pii-filter` reads text from stdin, masks detected PII, and writes the masked text to stdout. The default provider is `regex`, a built-in shell/awk adapter with no Python runtime dependency:
+
+```sh
+printf '%s\n' 'Email jane@example.com from 203.0.113.42' | agent-guard pii-filter
+# Email [PII:EMAIL] from [PII:IP_ADDRESS]
+```
+
+The built-in regex provider masks common deterministic formats: email addresses, phone numbers, credit cards, US SSNs, and IP addresses. Clean text is passed through unchanged.
+
+Choose a provider with `AGENT_GUARD_PII_PROVIDER`:
+
+```sh
+AGENT_GUARD_PII_PROVIDER=regex agent-guard pii-filter --check
+```
+
+Endpoint-backed providers are available for external redaction services:
+
+```sh
+AGENT_GUARD_PII_PROVIDER=pleno \
+AGENT_GUARD_PII_REDACT_URL=http://127.0.0.1:8080/api/redact \
+agent-guard pii-filter --check
+
+printf '%s\n' 'Customer jane@example.com' \
+  | AGENT_GUARD_PII_PROVIDER=pleno \
+    AGENT_GUARD_PII_REDACT_URL=http://127.0.0.1:8080/api/redact \
+    agent-guard pii-filter
+```
+
+`pleno` and `http` use the same HTTP adapter: POST JSON as `{"text":"..."}` and read a redacted string from `redacted_text`, `anonymized_text`, `text`, or `data.redacted_text`. They require `curl`, `jq`, and `AGENT_GUARD_PII_REDACT_URL`; missing tools, missing URL, HTTP errors, invalid JSON, or unexpected response shapes fail closed.
+
+Agent Guard does not install, import, run, or manage `pleno-anonymize`, Docker, Python, or any hosted service. If you use `pleno`, run pleno-anonymize separately or point `AGENT_GUARD_PII_REDACT_URL` at a hosted compatible endpoint.
+
+Masking is a CLI workflow. Agent hooks cannot safely rewrite pending tool payloads, so hook PII enforcement is off by default. To block tool inputs containing PII, opt in explicitly:
+
+```sh
+AGENT_GUARD_PII_HOOK_MODE=block
+```
+
+In block mode, proposed `Write`, `Edit`, `MultiEdit`, `apply_patch`, `Bash`, `WebFetch`, `WebSearch`, and MCP inputs are blocked when PII is detected, with guidance to run `agent-guard pii-filter` first. `AGENT_GUARD_PII_HOOK_MODE=mask` is rejected because hooks cannot perform safe in-flight masking.
 
 ## Native Git Hook
 
@@ -198,6 +243,7 @@ To enable it, add an Actions secret named `OPENAI_API_KEY` in the GitHub reposit
 - `Write`, `Edit`, `MultiEdit`, and Codex `apply_patch` content containing secret-like values
 - `WebFetch`, `WebSearch`, and MCP tool input JSON containing secret-like values
 - risky shell commands such as `printenv`, `op read`, `vault kv get`, `aws secretsmanager get-secret-value`, `cat .env`, and `git commit --no-verify`
+- PII in proposed write, shell, web, or MCP inputs only when `AGENT_GUARD_PII_HOOK_MODE=block`
 - staged added lines in the native pre-commit hook
 - working-tree added lines and untracked files after agent mutations
 
@@ -211,6 +257,9 @@ Override bundled policies with environment variables:
 AGENT_GUARD_GITLEAKS_CONFIG=/path/to/gitleaks.toml
 AGENT_GUARD_DENY_READ_PATHS=/path/to/deny-read-paths.txt
 AGENT_GUARD_DENY_BASH_PATTERNS=/path/to/deny-bash-patterns.txt
+AGENT_GUARD_PII_PROVIDER=regex
+AGENT_GUARD_PII_REDACT_URL=http://127.0.0.1:8080/api/redact
+AGENT_GUARD_PII_HOOK_MODE=off
 ```
 
 Project-local `.gitleaks.toml` files are not automatically trusted.

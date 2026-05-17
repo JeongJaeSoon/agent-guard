@@ -7,6 +7,8 @@ TMP_ROOT=${TMPDIR:-/tmp}/agent-guard-tests.$$
 MOCK_BIN="$TMP_ROOT/bin"
 ORIGINAL_PATH=$PATH
 REAL_GITLEAKS=$(command -v gitleaks 2>/dev/null || true)
+REAL_CURL=$(command -v curl 2>/dev/null || true)
+REAL_JQ=$(command -v jq)
 REAL_SH=$(command -v sh)
 REAL_DIRNAME=$(command -v dirname)
 REAL_PWD=$(command -v pwd)
@@ -331,6 +333,65 @@ expect_json_status 0 "WebSearch benign query is allowed" \
   '{"tool_name":"WebSearch","tool_input":{"query":"agent guard documentation"}}' \
   hook-pre-tool
 
+expect_json_status 0 "PII hook mode defaults off" \
+  '{"tool_name":"Write","tool_input":{"file_path":"note.txt","content":"email jane@example.com"}}' \
+  hook-pre-tool
+
+printf '%s' '{"tool_name":"Write","tool_input":{"file_path":"note.txt","content":"email jane@example.com"}}' \
+  | AGENT_GUARD_PII_HOOK_MODE=block "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool \
+    >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "PII hook block mode blocks proposed Write content"
+else
+  not_ok "PII hook block mode blocks proposed Write content (expected 2, got $status)"
+  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+fi
+
+printf '%s' '{"tool_name":"WebSearch","tool_input":{"query":"look up 203.0.113.42"}}' \
+  | AGENT_GUARD_PII_HOOK_MODE=block "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool \
+    >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "PII hook block mode blocks WebSearch input"
+else
+  not_ok "PII hook block mode blocks WebSearch input (expected 2, got $status)"
+  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+fi
+
+printf '%s' '{"tool_name":"mcp__server__tool","tool_input":{"note":"call 555-123-4567"}}' \
+  | AGENT_GUARD_PII_HOOK_MODE=block "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool \
+    >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "PII hook block mode blocks MCP input"
+else
+  not_ok "PII hook block mode blocks MCP input (expected 2, got $status)"
+  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+fi
+
+printf '%s' '{"tool_name":"Write","tool_input":{"file_path":"note.txt","content":"AGENT_GUARD_TEST_SECRET jane@example.com"}}' \
+  | AGENT_GUARD_PII_HOOK_MODE=block "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool \
+    >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+status=$?
+if [ "$status" -eq 2 ] && grep -q 'secret-like' /tmp/agent-guard-test.err; then
+  ok "secret scanning runs before PII hook scanning"
+else
+  not_ok "secret scanning runs before PII hook scanning (expected secret-like block, got $status)"
+  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+fi
+
+printf '%s' '{"tool_name":"Write","tool_input":{"file_path":"note.txt","content":"clean"}}' \
+  | AGENT_GUARD_PII_HOOK_MODE=mask "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool \
+    >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+status=$?
+if [ "$status" -eq 2 ] && grep -q 'mask is not supported' /tmp/agent-guard-test.err; then
+  ok "PII hook mask mode is rejected"
+else
+  not_ok "PII hook mask mode is rejected (expected 2, got $status)"
+  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+fi
+
 TEST_REPO="$TMP_ROOT/repo"
 mkdir -p "$TEST_REPO"
 (
@@ -494,8 +555,239 @@ if "$PLUGIN_ROOT/bin/agent-guard" help 2>&1 | grep -q 'smoke-test'; then
 else
   not_ok "help lists smoke-test"
 fi
+if "$PLUGIN_ROOT/bin/agent-guard" help 2>&1 | grep -q 'pii-filter'; then
+  ok "help lists pii-filter"
+else
+  not_ok "help lists pii-filter"
+fi
 
 run_expect 0 "check passes when deps and configs exist" "$PLUGIN_ROOT/bin/agent-guard" check
+
+# --- pii-filter -----------------------------------------------------------
+
+PII_SAMPLE='Contact jane@example.com at +1 (415) 555-0199, card 4111 1111 1111 1111, ssn 123-45-6789, ip 203.0.113.42.'
+PII_EXPECTED='Contact [PII:EMAIL] at [PII:PHONE], card [PII:CREDIT_CARD], ssn [PII:SSN], ip [PII:IP_ADDRESS].'
+printf '%s\n' "$PII_SAMPLE" | "$PLUGIN_ROOT/bin/agent-guard" pii-filter \
+  >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+status=$?
+if [ "$status" -eq 0 ] && [ "$(cat /tmp/agent-guard-test.out)" = "$PII_EXPECTED" ]; then
+  ok "pii-filter regex provider masks common PII"
+else
+  not_ok "pii-filter regex provider masks common PII (status $status)"
+  sed 's/^/  stdout: /' /tmp/agent-guard-test.out
+  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+fi
+
+PII_CLEAN='No identifiers in this line.'
+printf '%s\n' "$PII_CLEAN" | "$PLUGIN_ROOT/bin/agent-guard" pii-filter \
+  >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+status=$?
+if [ "$status" -eq 0 ] && [ "$(cat /tmp/agent-guard-test.out)" = "$PII_CLEAN" ]; then
+  ok "pii-filter leaves clean text unchanged"
+else
+  not_ok "pii-filter leaves clean text unchanged (status $status)"
+  sed 's/^/  stdout: /' /tmp/agent-guard-test.out
+  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+fi
+
+printf '%s' "$PII_CLEAN" | "$PLUGIN_ROOT/bin/agent-guard" pii-filter \
+  >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+status=$?
+if [ "$status" -eq 0 ] && [ "$(cat /tmp/agent-guard-test.out)" = "$PII_CLEAN" ]; then
+  ok "pii-filter preserves clean text without trailing newline"
+else
+  not_ok "pii-filter preserves clean text without trailing newline (status $status)"
+  sed 's/^/  stdout: /' /tmp/agent-guard-test.out
+  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+fi
+
+printf '%s' 'Email jane@example.com' | "$PLUGIN_ROOT/bin/agent-guard" pii-filter \
+  >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+status=$?
+if [ "$status" -eq 0 ] && [ "$(cat /tmp/agent-guard-test.out)" = 'Email [PII:EMAIL]' ]; then
+  ok "pii-filter preserves masked text without trailing newline"
+else
+  not_ok "pii-filter preserves masked text without trailing newline (status $status)"
+  sed 's/^/  stdout: /' /tmp/agent-guard-test.out
+  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+fi
+
+run_expect 0 "pii-filter --check passes for default regex provider" \
+  "$PLUGIN_ROOT/bin/agent-guard" pii-filter --check
+
+printf '%s' 'x' | AGENT_GUARD_PII_PROVIDER=bogus "$PLUGIN_ROOT/bin/agent-guard" pii-filter \
+  >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "pii-filter rejects unknown providers"
+else
+  not_ok "pii-filter rejects unknown providers (expected 2, got $status)"
+  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+fi
+
+PII_MOCK_CURL_DIR="$TMP_ROOT/pii-curl-bin"
+PII_REQUEST_FILE="$TMP_ROOT/pii-request.json"
+PII_URL_FILE="$TMP_ROOT/pii-url.txt"
+mkdir -p "$PII_MOCK_CURL_DIR"
+cat > "$PII_MOCK_CURL_DIR/curl" <<'EOSH'
+#!/usr/bin/env sh
+last=
+for arg do
+  last=$arg
+done
+if [ -n "${PII_MOCK_CURL_URL:-}" ]; then
+  printf '%s\n' "$last" >"$PII_MOCK_CURL_URL"
+fi
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -d|--data|--data-raw|--data-binary)
+      shift
+      if [ "${1:-}" = "@-" ]; then
+        cat >"$PII_MOCK_CURL_REQUEST"
+      fi
+      ;;
+  esac
+  [ "$#" -gt 0 ] || break
+  shift
+done
+case "${PII_MOCK_CURL_MODE:-ok}" in
+  ok) printf '%s\n' '{"redacted_text":"masked by endpoint"}' ;;
+  data) printf '%s\n' '{"data":{"redacted_text":"masked by nested endpoint"}}' ;;
+  bad-json) printf '%s\n' 'not json' ;;
+  bad-response) printf '%s\n' '{"unexpected":"value"}' ;;
+  fail) printf '%s\n' 'synthetic curl failure' >&2; exit 7 ;;
+esac
+EOSH
+chmod +x "$PII_MOCK_CURL_DIR/curl"
+
+printf '%s' 'endpoint text jane@example.com' \
+  | PATH="$PII_MOCK_CURL_DIR:$PATH" \
+    AGENT_GUARD_PII_PROVIDER=pleno \
+    AGENT_GUARD_PII_REDACT_URL='http://127.0.0.1:8080/api/redact' \
+    PII_MOCK_CURL_REQUEST="$PII_REQUEST_FILE" \
+    PII_MOCK_CURL_URL="$PII_URL_FILE" \
+    "$PLUGIN_ROOT/bin/agent-guard" pii-filter \
+    >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+status=$?
+if [ "$status" -eq 0 ] && [ "$(cat /tmp/agent-guard-test.out)" = "masked by endpoint" ]; then
+  ok "pii-filter pleno provider uses endpoint adapter response"
+else
+  not_ok "pii-filter pleno provider uses endpoint adapter response (status $status)"
+  sed 's/^/  stdout: /' /tmp/agent-guard-test.out
+  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+fi
+if jq -e '.text == "endpoint text jane@example.com"' "$PII_REQUEST_FILE" >/dev/null 2>&1; then
+  ok "pii-filter endpoint adapter sends text JSON payload"
+else
+  not_ok "pii-filter endpoint adapter sends text JSON payload"
+  sed 's/^/  request: /' "$PII_REQUEST_FILE"
+fi
+if [ "$(cat "$PII_URL_FILE")" = "http://127.0.0.1:8080/api/redact" ]; then
+  ok "pii-filter endpoint adapter uses AGENT_GUARD_PII_REDACT_URL"
+else
+  not_ok "pii-filter endpoint adapter uses AGENT_GUARD_PII_REDACT_URL"
+fi
+
+PATH="$PII_MOCK_CURL_DIR:$PATH" \
+  AGENT_GUARD_PII_PROVIDER=http \
+  AGENT_GUARD_PII_REDACT_URL='http://127.0.0.1:8080/api/redact' \
+  PII_MOCK_CURL_REQUEST="$PII_REQUEST_FILE" \
+  PII_MOCK_CURL_MODE=data \
+  "$PLUGIN_ROOT/bin/agent-guard" pii-filter --check \
+  >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+status=$?
+if [ "$status" -eq 0 ]; then
+  ok "pii-filter http provider passes endpoint check"
+else
+  not_ok "pii-filter http provider passes endpoint check (expected 0, got $status)"
+  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+fi
+
+printf '%s' 'x' \
+  | env -u AGENT_GUARD_PII_REDACT_URL AGENT_GUARD_PII_PROVIDER=pleno \
+    "$PLUGIN_ROOT/bin/agent-guard" pii-filter \
+    >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "pii-filter endpoint provider fails closed when URL is missing"
+else
+  not_ok "pii-filter endpoint provider fails closed when URL is missing (expected 2, got $status)"
+  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+fi
+
+printf '%s' 'x' \
+  | PATH="$PII_MOCK_CURL_DIR:$PATH" \
+    AGENT_GUARD_PII_PROVIDER=pleno \
+    AGENT_GUARD_PII_REDACT_URL='http://127.0.0.1:8080/api/redact' \
+    PII_MOCK_CURL_REQUEST="$PII_REQUEST_FILE" \
+    PII_MOCK_CURL_MODE=fail \
+    "$PLUGIN_ROOT/bin/agent-guard" pii-filter \
+    >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "pii-filter endpoint provider fails closed on HTTP failure"
+else
+  not_ok "pii-filter endpoint provider fails closed on HTTP failure (expected 2, got $status)"
+  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+fi
+
+printf '%s' 'x' \
+  | PATH="$PII_MOCK_CURL_DIR:$PATH" \
+    AGENT_GUARD_PII_PROVIDER=pleno \
+    AGENT_GUARD_PII_REDACT_URL='http://127.0.0.1:8080/api/redact' \
+    PII_MOCK_CURL_REQUEST="$PII_REQUEST_FILE" \
+    PII_MOCK_CURL_MODE=bad-response \
+    "$PLUGIN_ROOT/bin/agent-guard" pii-filter \
+    >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "pii-filter endpoint provider fails closed on bad response shape"
+else
+  not_ok "pii-filter endpoint provider fails closed on bad response shape (expected 2, got $status)"
+  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+fi
+
+NO_CURL_BIN="$TMP_ROOT/no-curl-bin"
+mkdir -p "$NO_CURL_BIN"
+ln -s "$REAL_SH" "$NO_CURL_BIN/sh"
+ln -s "$REAL_DIRNAME" "$NO_CURL_BIN/dirname"
+ln -s "$REAL_PWD" "$NO_CURL_BIN/pwd"
+ln -s "$REAL_JQ" "$NO_CURL_BIN/jq"
+PATH="$NO_CURL_BIN" \
+  AGENT_GUARD_PII_PROVIDER=pleno \
+  AGENT_GUARD_PII_REDACT_URL='http://127.0.0.1:8080/api/redact' \
+  "$PLUGIN_ROOT/bin/agent-guard" pii-filter --check \
+  >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "pii-filter endpoint provider fails closed when curl is missing"
+else
+  not_ok "pii-filter endpoint provider fails closed when curl is missing (expected 2, got $status)"
+  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+fi
+
+if [ -n "$REAL_CURL" ]; then
+  NO_JQ_BIN="$TMP_ROOT/no-jq-bin"
+  mkdir -p "$NO_JQ_BIN"
+  ln -s "$REAL_SH" "$NO_JQ_BIN/sh"
+  ln -s "$REAL_DIRNAME" "$NO_JQ_BIN/dirname"
+  ln -s "$REAL_PWD" "$NO_JQ_BIN/pwd"
+  ln -s "$REAL_CURL" "$NO_JQ_BIN/curl"
+  PATH="$NO_JQ_BIN" \
+    AGENT_GUARD_PII_PROVIDER=pleno \
+    AGENT_GUARD_PII_REDACT_URL='http://127.0.0.1:8080/api/redact' \
+    "$PLUGIN_ROOT/bin/agent-guard" pii-filter --check \
+    >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+  status=$?
+  if [ "$status" -eq 2 ]; then
+    ok "pii-filter endpoint provider fails closed when jq is missing"
+  else
+    not_ok "pii-filter endpoint provider fails closed when jq is missing (expected 2, got $status)"
+    sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+  fi
+else
+  say "real curl not available; skipped missing-jq endpoint dependency test"
+fi
 
 # --- setup -----------------------------------------------------------------
 
