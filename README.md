@@ -168,22 +168,31 @@ Choose a provider with `AGENT_GUARD_PII_PROVIDER`:
 AGENT_GUARD_PII_PROVIDER=regex agent-guard pii-filter --check
 ```
 
+Supported providers:
+
+| Provider | Scope | Dependencies |
+|---|---|---|
+| `regex` | Built-in local adapter and default provider. Masks common deterministic formats without network access. | `awk` |
+| `http` | Generic HTTP endpoint adapter using Agent Guard's compatible request/response contract. | `curl`, `jq`, `AGENT_GUARD_PII_REDACT_URL` |
+
+Use `agent-guard pii-filter --check` to validate the selected provider. For `regex`, it checks local dependencies. For `http`, it checks `curl`, `jq`, `AGENT_GUARD_PII_REDACT_URL`, HTTP reachability, and response shape.
+
 Endpoint-backed providers are available for external redaction services:
 
 ```sh
-AGENT_GUARD_PII_PROVIDER=pleno \
+AGENT_GUARD_PII_PROVIDER=http \
 AGENT_GUARD_PII_REDACT_URL=http://127.0.0.1:8080/api/redact \
 agent-guard pii-filter --check
 
 printf '%s\n' 'Customer jane@example.com' \
-  | AGENT_GUARD_PII_PROVIDER=pleno \
+  | AGENT_GUARD_PII_PROVIDER=http \
     AGENT_GUARD_PII_REDACT_URL=http://127.0.0.1:8080/api/redact \
     agent-guard pii-filter
 ```
 
-`pleno` and `http` use the same HTTP adapter: POST JSON as `{"text":"..."}` and read a redacted string from `redacted_text`, `anonymized_text`, `text`, or `data.redacted_text`. They require `curl`, `jq`, and `AGENT_GUARD_PII_REDACT_URL`; missing tools, missing URL, HTTP errors, invalid JSON, or unexpected response shapes fail closed.
+The `http` provider POSTs JSON as `{"text":"..."}` and reads a redacted string from `redacted_text`, `anonymized_text`, `text`, or `data.redacted_text`. It requires `curl`, `jq`, and `AGENT_GUARD_PII_REDACT_URL`; missing tools, missing URL, HTTP errors, invalid JSON, or unexpected response shapes fail closed.
 
-Agent Guard does not install, import, run, or manage `pleno-anonymize`, Docker, Python, or any hosted service. If you use `pleno`, run pleno-anonymize separately or point `AGENT_GUARD_PII_REDACT_URL` at a hosted compatible endpoint.
+`pleno` is not a supported `AGENT_GUARD_PII_PROVIDER` value yet. Agent Guard does not install, import, run, or manage `pleno-anonymize`, Docker, Python, or any hosted service. Verified pleno-anonymize support requires a separate integration-test pass against the upstream `/api/redact` contract before `pleno` is exposed as a provider.
 
 Masking is a CLI workflow. Agent hooks cannot safely rewrite pending tool payloads, so hook PII enforcement is off by default. To block tool inputs containing PII, opt in explicitly:
 
