@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'root=${CLAUDE_PLUGIN_ROOT:-${CODEX_PLUGIN_ROOT:-}}; [ -n \"$root\" ] || { echo \"agent-guard: plugin root env not set\" >&2; exit 2; }; \"$root/bin/agent-guard\" hook-pre-tool'",
+            "command": "sh -c 'root=${PLUGIN_ROOT:-${CODEX_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}; [ -n \"$root\" ] || { echo \"agent-guard: plugin root env not set\" >&2; exit 2; }; \"$root/bin/agent-guard\" hook-pre-tool'",
             "timeout": 10
           }
         ]
@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'root=${CLAUDE_PLUGIN_ROOT:-${CODEX_PLUGIN_ROOT:-}}; [ -n \"$root\" ] || { echo \"agent-guard: plugin root env not set\" >&2; exit 2; }; \"$root/bin/agent-guard\" hook-post-tool'",
+            "command": "sh -c 'root=${PLUGIN_ROOT:-${CODEX_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}; [ -n \"$root\" ] || { echo \"agent-guard: plugin root env not set\" >&2; exit 2; }; \"$root/bin/agent-guard\" hook-post-tool'",
             "timeout": 20
           }
         ]
@@ -30,7 +30,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'root=${CLAUDE_PLUGIN_ROOT:-${CODEX_PLUGIN_ROOT:-}}; [ -n \"$root\" ] || { echo \"agent-guard: plugin root env not set\" >&2; exit 2; }; \"$root/bin/agent-guard\" hook-stop'",
+            "command": "sh -c 'root=${PLUGIN_ROOT:-${CODEX_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}; [ -n \"$root\" ] || { echo \"agent-guard: plugin root env not set\" >&2; exit 2; }; \"$root/bin/agent-guard\" hook-stop'",
             "timeout": 20
           }
         ]

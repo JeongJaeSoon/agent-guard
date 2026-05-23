@@ -9,7 +9,7 @@ One-shot secret scan over everything currently on disk: staged changes, unstaged
 
 ## Run
 
-!`"${CLAUDE_PLUGIN_ROOT}/bin/agent-guard" scan-working-tree`
+!`root="${PLUGIN_ROOT:-${CODEX_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}"; [ -n "$root" ] || { echo "agent-guard: plugin root env not set" >&2; exit 2; }; "$root/bin/agent-guard" scan-working-tree`
 
 ## Interpretation
 

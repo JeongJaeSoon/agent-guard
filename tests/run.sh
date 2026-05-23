@@ -121,9 +121,18 @@ for event in PreToolUse PostToolUse; do
 done
 
 pre_tool_command=$(jq -r '.hooks.PreToolUse[0].hooks[0].command' "$PLUGIN_ROOT/hooks/hooks.json")
+case "$pre_tool_command" in
+  *'${PLUGIN_ROOT:-${CODEX_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}'*)
+    ok "plugin hook command supports Codex and Claude plugin root env vars"
+    ;;
+  *)
+    not_ok "plugin hook command supports Codex and Claude plugin root env vars"
+    ;;
+esac
+
 read_env_payload='{"tool_name":"Read","tool_input":{"file_path":".env"}}'
 printf '%s' "$read_env_payload" \
-  | (cd "$PLUGIN_ROOT" && env -u CLAUDE_PLUGIN_ROOT -u CODEX_PLUGIN_ROOT sh -c "$pre_tool_command") \
+  | (cd "$PLUGIN_ROOT" && env -u PLUGIN_ROOT -u CLAUDE_PLUGIN_ROOT -u CODEX_PLUGIN_ROOT sh -c "$pre_tool_command") \
   >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
 status=$?
 if [ "$status" -eq 2 ]; then
@@ -136,6 +145,17 @@ if grep -q 'plugin root env not set' /tmp/agent-guard-test.err; then
   ok "plugin hook command explains missing root env vars"
 else
   not_ok "plugin hook command explains missing root env vars"
+  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+fi
+
+printf '%s' "$read_env_payload" \
+  | (cd "$TMP_ROOT" && PLUGIN_ROOT="$PLUGIN_ROOT" sh -c "$pre_tool_command") \
+  >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "plugin hook command honors PLUGIN_ROOT"
+else
+  not_ok "plugin hook command honors PLUGIN_ROOT (expected 2, got $status)"
   sed 's/^/  stderr: /' /tmp/agent-guard-test.err
 fi
 

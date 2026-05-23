@@ -277,6 +277,15 @@ agent-guard setup --install \
 
 The checksum helper prints all supported OS / arch values and paste-ready snippets for CLI setup and GitHub Actions.
 
+## Host Compatibility
+
+Agent Guard keeps one shared plugin payload for Claude Code and Codex:
+
+- `plugins/agent-guard/bin/agent-guard`, `config/`, and `hooks/hooks.json` are shared.
+- `.claude-plugin/plugin.json` and `.codex-plugin/plugin.json` are thin host manifests.
+- `commands/` is available in Claude Code today; Codex still uses the shared hooks and Direct CLI path for on-demand workflows.
+- Hook commands resolve `PLUGIN_ROOT`, `CODEX_PLUGIN_ROOT`, then `CLAUDE_PLUGIN_ROOT`, so the same hook file works across both plugin hosts.
+
 ## Development
 
 ```sh

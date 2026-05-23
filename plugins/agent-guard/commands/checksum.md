@@ -9,7 +9,7 @@ Fetches the published `gitleaks_<VER>_checksums.txt` from the gitleaks releases 
 
 ## Run
 
-!`sh "${CLAUDE_PLUGIN_ROOT}/scripts/gitleaks-checksum.sh" $ARGUMENTS`
+!`root="${PLUGIN_ROOT:-${CODEX_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}"; [ -n "$root" ] || { echo "agent-guard: plugin root env not set" >&2; exit 2; }; sh "$root/scripts/gitleaks-checksum.sh" $ARGUMENTS`
 
 ## Interpretation
 
