@@ -123,8 +123,8 @@ agent-guard: blocked sensitive file access: .env
 Codex does not currently auto-discover this plugin's `commands/` directory. Ask Codex to run the binary directly when you need those workflows:
 
 ```sh
-${CODEX_PLUGIN_ROOT}/bin/agent-guard scan-working-tree
-${CODEX_PLUGIN_ROOT}/bin/agent-guard checksum
+${PLUGIN_ROOT}/bin/agent-guard scan-working-tree
+${PLUGIN_ROOT}/bin/agent-guard checksum
 ```
 
 ## Direct CLI
@@ -276,6 +276,15 @@ agent-guard setup --install \
 ```
 
 The checksum helper prints all supported OS / arch values and paste-ready snippets for CLI setup and GitHub Actions.
+
+## Host Integrations
+
+Agent Guard shares its scanner implementation across Claude Code and Codex, but keeps host wiring explicit:
+
+- `plugins/agent-guard/bin/agent-guard`, `config/`, and `scripts/` are shared.
+- Claude Code uses `.claude-plugin/plugin.json`, `commands/`, and `hooks/hooks.json`.
+- Codex uses `.codex-plugin/plugin.json` and the plugin-root `hooks.json` companion file.
+- Codex does not auto-discover `commands/`, so on-demand workflows use the binary directly.
 
 ## Development
 
