@@ -1,4 +1,4 @@
-name: Plugin validation
+name: Plugin Validation
 
 on:
   pull_request:
@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   plugin-validation:
-    name: Plugin layout
+    name: Plugin Layout
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -20,14 +20,14 @@ jobs:
       - name: Run tests
         run: make test
 
-      - name: Validate Codex plugin layout
+      - name: Validate Codex Plugin Layout
         run: scripts/validate-plugin-layout.sh --codex
 
-      - name: Validate Claude plugin layout
+      - name: Validate Claude Plugin Layout
         run: scripts/validate-plugin-layout.sh --claude
 
-      - name: Validate plugin marketplaces
+      - name: Validate Plugin Marketplaces
         run: scripts/validate-plugin-layout.sh --marketplace
 
-      - name: Validate release archive layout
+      - name: Validate Release Archive Layout
         run: scripts/validate-plugin-layout.sh --archive
