@@ -1,0 +1,24 @@
+name: Plugin validation
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  plugin-validation:
+    name: Plugin layout
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Run tests
+        run: make test
+
+      - name: Validate plugin layout
+        run: scripts/validate-plugin-layout.sh
