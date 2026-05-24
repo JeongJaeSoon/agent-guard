@@ -96,8 +96,8 @@ for file in \
 done
 
 for file in \
+  "$PLUGIN_ROOT/hooks.json" \
   "$PLUGIN_ROOT/hooks/hooks.json" \
-  "$PLUGIN_ROOT/hooks/codex-hooks.json" \
   "$PLUGIN_ROOT/.claude-plugin/plugin.json" \
   "$ROOT/.claude-plugin/marketplace.json" \
   "$PLUGIN_ROOT/.codex-plugin/plugin.json" \
@@ -107,16 +107,16 @@ for file in \
   run_expect 0 "json syntax: $file" jq -e . "$file"
 done
 
-codex_manifest_hooks=$(jq -r '.hooks' "$PLUGIN_ROOT/.codex-plugin/plugin.json")
-if [ "$codex_manifest_hooks" = "./hooks/codex-hooks.json" ]; then
-  ok "Codex plugin manifest points at Codex-specific hooks"
+codex_manifest_hooks=$(jq -r 'has("hooks")' "$PLUGIN_ROOT/.codex-plugin/plugin.json")
+if [ "$codex_manifest_hooks" = "false" ]; then
+  ok "Codex plugin manifest leaves hooks to the root hooks.json companion"
 else
-  not_ok "Codex plugin manifest points at Codex-specific hooks (got: $codex_manifest_hooks)"
+  not_ok "Codex plugin manifest leaves hooks to the root hooks.json companion"
 fi
 
 for event in PreToolUse PostToolUse; do
   claude_canonical=$(jq -r ".hooks.${event}[0].matcher" "$PLUGIN_ROOT/hooks/hooks.json")
-  codex_canonical=$(jq -r ".hooks.${event}[0].matcher" "$PLUGIN_ROOT/hooks/codex-hooks.json")
+  codex_canonical=$(jq -r ".hooks.${event}[0].matcher" "$PLUGIN_ROOT/hooks.json")
   if [ "$codex_canonical" = "$claude_canonical" ]; then
     ok "$event matcher in Codex hooks matches Claude hooks"
   else
@@ -152,21 +152,21 @@ case "$claude_pre_tool_command" in
     ;;
 esac
 
-codex_pre_tool_command=$(jq -r '.hooks.PreToolUse[0].hooks[0].command' "$PLUGIN_ROOT/hooks/codex-hooks.json")
+codex_pre_tool_command=$(jq -r '.hooks.PreToolUse[0].hooks[0].command' "$PLUGIN_ROOT/hooks.json")
 case "$codex_pre_tool_command" in
-  *'CODEX_PLUGIN_ROOT'*)
-    ok "Codex hook command uses CODEX_PLUGIN_ROOT"
+  *'PLUGIN_ROOT'*)
+    ok "Codex hook command uses PLUGIN_ROOT"
     ;;
   *)
-    not_ok "Codex hook command uses CODEX_PLUGIN_ROOT"
+    not_ok "Codex hook command uses PLUGIN_ROOT"
     ;;
 esac
 case "$codex_pre_tool_command" in
-  *'CLAUDE_PLUGIN_ROOT'*|*'${PLUGIN_ROOT'*)
-    not_ok "Codex hook command does not depend on Claude or generic plugin root env vars"
+  *'CLAUDE_PLUGIN_ROOT'*|*'CODEX_PLUGIN_ROOT'*)
+    not_ok "Codex hook command does not depend on host-specific plugin root env vars"
     ;;
   *)
-    ok "Codex hook command does not depend on Claude or generic plugin root env vars"
+    ok "Codex hook command does not depend on host-specific plugin root env vars"
     ;;
 esac
 
@@ -211,19 +211,30 @@ else
 fi
 
 printf '%s' "$read_env_payload" \
-  | (cd "$PLUGIN_ROOT" && env -u CODEX_PLUGIN_ROOT -u CLAUDE_PLUGIN_ROOT sh -c "$codex_pre_tool_command") \
+  | (cd "$PLUGIN_ROOT" && env -u PLUGIN_ROOT -u CODEX_PLUGIN_ROOT -u CLAUDE_PLUGIN_ROOT sh -c "$codex_pre_tool_command") \
   >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
 status=$?
 if [ "$status" -eq 2 ]; then
-  ok "Codex hook command fails closed without CODEX_PLUGIN_ROOT"
+  ok "Codex hook command fails closed without PLUGIN_ROOT"
 else
-  not_ok "Codex hook command fails closed without CODEX_PLUGIN_ROOT (expected 2, got $status)"
+  not_ok "Codex hook command fails closed without PLUGIN_ROOT (expected 2, got $status)"
   sed 's/^/  stderr: /' /tmp/agent-guard-test.err
 fi
-if grep -q 'CODEX_PLUGIN_ROOT env not set' /tmp/agent-guard-test.err; then
-  ok "Codex hook command explains missing CODEX_PLUGIN_ROOT"
+if grep -q 'PLUGIN_ROOT env not set' /tmp/agent-guard-test.err; then
+  ok "Codex hook command explains missing PLUGIN_ROOT"
 else
-  not_ok "Codex hook command explains missing CODEX_PLUGIN_ROOT"
+  not_ok "Codex hook command explains missing PLUGIN_ROOT"
+  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+fi
+
+printf '%s' "$read_env_payload" \
+  | (cd "$TMP_ROOT" && PLUGIN_ROOT="$PLUGIN_ROOT" sh -c "$codex_pre_tool_command") \
+  >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "Codex hook command honors PLUGIN_ROOT"
+else
+  not_ok "Codex hook command honors PLUGIN_ROOT (expected 2, got $status)"
   sed 's/^/  stderr: /' /tmp/agent-guard-test.err
 fi
 
@@ -231,10 +242,10 @@ printf '%s' "$read_env_payload" \
   | (cd "$TMP_ROOT" && CODEX_PLUGIN_ROOT="$PLUGIN_ROOT" sh -c "$codex_pre_tool_command") \
   >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
 status=$?
-if [ "$status" -eq 2 ]; then
-  ok "Codex hook command honors CODEX_PLUGIN_ROOT"
+if grep -q 'PLUGIN_ROOT env not set' /tmp/agent-guard-test.err; then
+  ok "Codex hook command ignores CODEX_PLUGIN_ROOT"
 else
-  not_ok "Codex hook command honors CODEX_PLUGIN_ROOT (expected 2, got $status)"
+  not_ok "Codex hook command ignores CODEX_PLUGIN_ROOT"
   sed 's/^/  stderr: /' /tmp/agent-guard-test.err
 fi
 
@@ -242,7 +253,7 @@ printf '%s' "$read_env_payload" \
   | (cd "$TMP_ROOT" && CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" sh -c "$codex_pre_tool_command") \
   >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
 status=$?
-if grep -q 'CODEX_PLUGIN_ROOT env not set' /tmp/agent-guard-test.err; then
+if grep -q 'PLUGIN_ROOT env not set' /tmp/agent-guard-test.err; then
   ok "Codex hook command ignores CLAUDE_PLUGIN_ROOT"
 else
   not_ok "Codex hook command ignores CLAUDE_PLUGIN_ROOT"
