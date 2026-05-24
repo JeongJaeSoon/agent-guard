@@ -42,8 +42,12 @@ require_json() {
   fi
 }
 
-has_generic_plugin_root() {
-  printf '%s\n' "$1" | grep -Eq '(^|[^A-Z_])PLUGIN_ROOT([^A-Z_]|$)'
+contains_shell_variable_reference() {
+  value=$1
+  name=$2
+  pattern=$(printf '\\$\\{%s([^A-Za-z0-9_]|$)|\\$%s([^A-Za-z0-9_]|$)' "$name" "$name")
+
+  printf '%s\n' "$value" | grep -Eq "($pattern)"
 }
 
 validate_hook_commands() {
@@ -63,26 +67,29 @@ validate_hook_commands() {
   while IFS= read -r command; do
     case "$required" in
       PLUGIN_ROOT)
-        if has_generic_plugin_root "$command"; then
+        if contains_shell_variable_reference "$command" PLUGIN_ROOT; then
           ok "$host hook command uses PLUGIN_ROOT"
         else
           fail "$host hook command uses PLUGIN_ROOT"
         fi
-        case "$command" in
-          *CLAUDE_PLUGIN_ROOT*|*CODEX_PLUGIN_ROOT*) fail "$host hook command avoids CLAUDE_PLUGIN_ROOT and CODEX_PLUGIN_ROOT" ;;
-          *) ok "$host hook command avoids CLAUDE_PLUGIN_ROOT and CODEX_PLUGIN_ROOT" ;;
-        esac
+        if contains_shell_variable_reference "$command" CLAUDE_PLUGIN_ROOT || contains_shell_variable_reference "$command" CODEX_PLUGIN_ROOT; then
+          fail "$host hook command avoids CLAUDE_PLUGIN_ROOT and CODEX_PLUGIN_ROOT"
+        else
+          ok "$host hook command avoids CLAUDE_PLUGIN_ROOT and CODEX_PLUGIN_ROOT"
+        fi
         ;;
       *)
-        case "$command" in
-          *"$required"*) ok "$host hook command uses $required" ;;
-          *) fail "$host hook command uses $required" ;;
-        esac
-        case "$command" in
-          *CODEX_PLUGIN_ROOT*) fail "$host hook command avoids CODEX_PLUGIN_ROOT" ;;
-          *) ok "$host hook command avoids CODEX_PLUGIN_ROOT" ;;
-        esac
-        if has_generic_plugin_root "$command"; then
+        if contains_shell_variable_reference "$command" "$required"; then
+          ok "$host hook command uses $required"
+        else
+          fail "$host hook command uses $required"
+        fi
+        if contains_shell_variable_reference "$command" CODEX_PLUGIN_ROOT; then
+          fail "$host hook command avoids CODEX_PLUGIN_ROOT"
+        else
+          ok "$host hook command avoids CODEX_PLUGIN_ROOT"
+        fi
+        if contains_shell_variable_reference "$command" PLUGIN_ROOT; then
           fail "$host hook command avoids generic PLUGIN_ROOT"
         else
           ok "$host hook command avoids generic PLUGIN_ROOT"
@@ -124,7 +131,7 @@ validate_claude() {
   for command_file in "$PLUGIN_ROOT"/commands/*.md; do
     [ -e "$command_file" ] || continue
     command_count=$((command_count + 1))
-    if grep -q 'CLAUDE_PLUGIN_ROOT' "$command_file"; then
+    if grep -Eq '(\$\{CLAUDE_PLUGIN_ROOT([^A-Za-z0-9_]|$)|\$CLAUDE_PLUGIN_ROOT([^A-Za-z0-9_]|$))' "$command_file"; then
       ok "$command_file uses CLAUDE_PLUGIN_ROOT"
     else
       fail "$command_file uses CLAUDE_PLUGIN_ROOT"
