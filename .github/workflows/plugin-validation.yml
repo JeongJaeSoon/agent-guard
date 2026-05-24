@@ -20,5 +20,14 @@ jobs:
       - name: Run tests
         run: make test
 
-      - name: Validate plugin layout
-        run: scripts/validate-plugin-layout.sh
+      - name: Validate Codex plugin layout
+        run: scripts/validate-plugin-layout.sh --codex
+
+      - name: Validate Claude plugin layout
+        run: scripts/validate-plugin-layout.sh --claude
+
+      - name: Validate plugin marketplaces
+        run: scripts/validate-plugin-layout.sh --marketplace
+
+      - name: Validate release archive layout
+        run: scripts/validate-plugin-layout.sh --archive

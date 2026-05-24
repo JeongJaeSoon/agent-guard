@@ -7,6 +7,14 @@ tmpdir=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-layout.XXXXXX")
 trap 'rm -rf "$tmpdir"' EXIT INT TERM
 
 failures=0
+run_codex=0
+run_claude=0
+run_marketplace=0
+run_archive=0
+
+usage() {
+  printf 'usage: %s [--all|--codex|--claude|--marketplace|--archive]\n' "$0" >&2
+}
 
 ok() {
   printf 'ok: %s\n' "$1"
@@ -95,69 +103,118 @@ validate_archive_contains() {
   fi
 }
 
-require_json "$PLUGIN_ROOT/.codex-plugin/plugin.json"
-require_json "$PLUGIN_ROOT/hooks.json"
-require_json "$PLUGIN_ROOT/hooks/hooks.json"
-require_json "$ROOT/.agents/plugins/marketplace.json"
-require_json "$ROOT/.claude-plugin/marketplace.json"
+validate_codex() {
+  require_json "$PLUGIN_ROOT/.codex-plugin/plugin.json"
+  require_json "$PLUGIN_ROOT/hooks.json"
 
-if jq -e 'has("hooks") or has("apps") or has("mcpServers")' "$PLUGIN_ROOT/.codex-plugin/plugin.json" >/dev/null; then
-  fail "Codex plugin manifest does not declare unsupported companion fields"
-else
-  ok "Codex plugin manifest does not declare unsupported companion fields"
+  if jq -e 'has("hooks") or has("apps") or has("mcpServers")' "$PLUGIN_ROOT/.codex-plugin/plugin.json" >/dev/null; then
+    fail "Codex plugin manifest does not declare unsupported companion fields"
+  else
+    ok "Codex plugin manifest does not declare unsupported companion fields"
+  fi
+
+  validate_hook_commands "$PLUGIN_ROOT/hooks.json" "Codex" "PLUGIN_ROOT"
+}
+
+validate_claude() {
+  require_json "$PLUGIN_ROOT/hooks/hooks.json"
+  validate_hook_commands "$PLUGIN_ROOT/hooks/hooks.json" "Claude" "CLAUDE_PLUGIN_ROOT"
+
+  command_count=0
+  for command_file in "$PLUGIN_ROOT"/commands/*.md; do
+    [ -e "$command_file" ] || continue
+    command_count=$((command_count + 1))
+    if grep -q 'CLAUDE_PLUGIN_ROOT' "$command_file"; then
+      ok "$command_file uses CLAUDE_PLUGIN_ROOT"
+    else
+      fail "$command_file uses CLAUDE_PLUGIN_ROOT"
+    fi
+  done
+
+  if [ "$command_count" -gt 0 ]; then
+    ok "Claude slash command markdown files are present"
+  else
+    fail "Claude slash command markdown files are present"
+  fi
+}
+
+validate_marketplace() {
+  require_json "$ROOT/.agents/plugins/marketplace.json"
+  require_json "$ROOT/.claude-plugin/marketplace.json"
+
+  if jq -e '.plugins[] | select(.name == "agent-guard" and .source.path == "./plugins/agent-guard")' "$ROOT/.agents/plugins/marketplace.json" >/dev/null; then
+    ok "Codex marketplace points to ./plugins/agent-guard"
+  else
+    fail "Codex marketplace points to ./plugins/agent-guard"
+  fi
+
+  if jq -e '.plugins[] | select(.name == "agent-guard" and .source == "./plugins/agent-guard")' "$ROOT/.claude-plugin/marketplace.json" >/dev/null; then
+    ok "Claude marketplace points to ./plugins/agent-guard"
+  else
+    fail "Claude marketplace points to ./plugins/agent-guard"
+  fi
+}
+
+validate_archive() {
+  archive="$tmpdir/agent-guard-validation.tar.gz"
+
+  "$ROOT/scripts/build-release-tarball.sh" 0.0.0 "$archive"
+  tar -tzf "$archive" | sed 's#^\./##' >"$archive.list"
+
+  validate_archive_contains "$archive" ".codex-plugin/plugin.json"
+  validate_archive_contains "$archive" ".claude-plugin/plugin.json"
+  validate_archive_contains "$archive" "hooks.json"
+  validate_archive_contains "$archive" "hooks/hooks.json"
+
+  if [ -d "$PLUGIN_ROOT/commands" ]; then
+    archive_command_count=$(find "$PLUGIN_ROOT/commands" -type f -name '*.md' | wc -l | tr -d ' ')
+  else
+    archive_command_count=0
+  fi
+  if [ "$archive_command_count" -gt 0 ]; then
+    for command_file in "$PLUGIN_ROOT"/commands/*.md; do
+      command_name=${command_file#"$PLUGIN_ROOT/"}
+      validate_archive_contains "$archive" "$command_name"
+    done
+  else
+    fail "release archive has command markdown files to validate"
+  fi
+}
+
+if [ "$#" -eq 0 ]; then
+  run_codex=1
+  run_claude=1
+  run_marketplace=1
+  run_archive=1
 fi
 
-validate_hook_commands "$PLUGIN_ROOT/hooks.json" "Codex" "PLUGIN_ROOT"
-validate_hook_commands "$PLUGIN_ROOT/hooks/hooks.json" "Claude" "CLAUDE_PLUGIN_ROOT"
-
-command_count=0
-for command_file in "$PLUGIN_ROOT"/commands/*.md; do
-  [ -e "$command_file" ] || continue
-  command_count=$((command_count + 1))
-  if grep -q 'CLAUDE_PLUGIN_ROOT' "$command_file"; then
-    ok "$command_file uses CLAUDE_PLUGIN_ROOT"
-  else
-    fail "$command_file uses CLAUDE_PLUGIN_ROOT"
-  fi
+for mode in "$@"; do
+  case "$mode" in
+    --all)
+      run_codex=1
+      run_claude=1
+      run_marketplace=1
+      run_archive=1
+      ;;
+    --codex) run_codex=1 ;;
+    --claude) run_claude=1 ;;
+    --marketplace) run_marketplace=1 ;;
+    --archive) run_archive=1 ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      usage
+      exit 2
+      ;;
+  esac
 done
 
-if [ "$command_count" -gt 0 ]; then
-  ok "Claude slash command markdown files are present"
-else
-  fail "Claude slash command markdown files are present"
-fi
-
-if jq -e '.plugins[] | select(.name == "agent-guard" and .source.path == "./plugins/agent-guard")' "$ROOT/.agents/plugins/marketplace.json" >/dev/null; then
-  ok "Codex marketplace points to ./plugins/agent-guard"
-else
-  fail "Codex marketplace points to ./plugins/agent-guard"
-fi
-
-if jq -e '.plugins[] | select(.name == "agent-guard" and .source == "./plugins/agent-guard")' "$ROOT/.claude-plugin/marketplace.json" >/dev/null; then
-  ok "Claude marketplace points to ./plugins/agent-guard"
-else
-  fail "Claude marketplace points to ./plugins/agent-guard"
-fi
-
-archive="$tmpdir/agent-guard-validation.tar.gz"
-
-"$ROOT/scripts/build-release-tarball.sh" 0.0.0 "$archive"
-tar -tzf "$archive" | sed 's#^\./##' >"$archive.list"
-
-validate_archive_contains "$archive" ".codex-plugin/plugin.json"
-validate_archive_contains "$archive" ".claude-plugin/plugin.json"
-validate_archive_contains "$archive" "hooks.json"
-validate_archive_contains "$archive" "hooks/hooks.json"
-
-archive_command_count=$(find "$PLUGIN_ROOT/commands" -type f -name '*.md' | wc -l | tr -d ' ')
-if [ "$archive_command_count" -gt 0 ]; then
-  for command_file in "$PLUGIN_ROOT"/commands/*.md; do
-    command_name=${command_file#"$PLUGIN_ROOT/"}
-    validate_archive_contains "$archive" "$command_name"
-  done
-else
-  fail "release archive has command markdown files to validate"
-fi
+[ "$run_codex" -eq 1 ] && validate_codex
+[ "$run_claude" -eq 1 ] && validate_claude
+[ "$run_marketplace" -eq 1 ] && validate_marketplace
+[ "$run_archive" -eq 1 ] && validate_archive
 
 if [ "$failures" -eq 0 ]; then
   printf 'plugin layout validation passed\n'
