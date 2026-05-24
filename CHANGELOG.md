@@ -1,3 +1,19 @@
+## v1.3.5 - 2026-05-24
+
+- Merge pull request #57 from JeongJaeSoon/codex/plugin-layout-validation-ci
+- Normalize plugin validation workflow names
+- Tighten plugin root variable validation
+- Split plugin layout validation steps
+- Add plugin layout validation CI
+- Merge pull request #56 from JeongJaeSoon/codex/codex-claude-plugin-hooks
+- Align Codex hooks with plugin layout
+- Use host-specific plugin hooks
+- Improve Codex and Claude plugin hook compatibility
+- feat: add PII filtering provider adapters (#51)
+- [codex] Harden agent tool input scanning (#49)
+- [codex] Add Codex code review workflow (#55)
+- fix install hook quoting and docs
+
 ## v1.3.4 - 2026-05-09
 
 - docs: clarify codex plugin hook setup (#46)
