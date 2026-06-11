@@ -1,7 +1,23 @@
 # POSIX ERE patterns. Blank lines and lines starting with # are ignored.
 # Path-based reads are handled from deny-read-paths; keep only pathless shell idioms here.
 (^|[[:space:];|&])printenv([^[:alnum:]_-]|$)
-(^|[[:space:];|&])env[[:space:]]*($|[;|&])
+(^|[[:space:];|&])env[[:space:]]*($|[;&])
+# `env` whose output is piped or redirected dumps the environment into a sink
+# (`env | base64`, `env > /tmp/e`). Matching any `|`/`>` (rather than a fixed
+# sink list) closes gaps like `env | gzip` or `env | gpg`. The leading class
+# omits `|` so this fires on a real pipeline (` env|grep`) but not on `env`
+# inside a quoted regex alternation like 'a|env|b'. `env VAR=x cmd | grep` is not
+# matched because the pipe follows the wrapped command, not bare `env`.
+(^|[[:space:];&])env[[:space:]]*[|>]
+# Shell builtins that print every variable (export -p / declare -p / typeset -p,
+# and bare `set`). `set` keeps `;&` (not `|`) trailing so `set -e`/`set -o` and a
+# 'a|set|b' regex are not blocked, only a bare environment dump.
+(^|[[:space:];|&])(declare|typeset|export)[[:space:]]+-[A-Za-z]*p
+(^|[[:space:];|&])set[[:space:]]*($|[;&])
+# Reading /proc/<pid>/environ dumps the environment. The PID segment is often a
+# shell variable ($$, $BASHPID) the deny-read glob cannot match, so accept any
+# non-space, non-slash segment here.
+/proc/[^[:space:]/]+/environ
 security[[:space:]]+find-generic-password
 op[[:space:]]+read
 op[[:space:]]+item[[:space:]]+get
@@ -9,6 +25,15 @@ vault[[:space:]]+kv[[:space:]]+get
 vault[[:space:]]+read
 aws[[:space:]]+secretsmanager[[:space:]]+get-secret-value
 aws[[:space:]]+ssm[[:space:]]+get-parameter
+aws[[:space:]]+configure[[:space:]]+export-credentials
 gcloud[[:space:]]+secrets[[:space:]]+versions[[:space:]]+access
+gcloud[[:space:]]+auth[[:space:]]+print-(access|identity)-token
+az[[:space:]]+account[[:space:]]+get-access-token
+(^|[[:space:];|&])doppler[[:space:]]+(secrets|run)
+# Reading secret material out of kubectl requires an output flag; plain
+# `kubectl get secrets` (listing names only, or `-o name`) is intentionally left
+# allowed. Covers `secret/name` syntax, `-o`/`--output`, `-o=`/`-ojson` forms,
+# and `go-template` extraction.
+kubectl[[:space:]].*get[[:space:]]+secret(s)?(/[^[:space:]]+)?([[:space:]].*)?(-o|--output)[[:space:]=]*(yaml|json|jsonpath|go-template)
 (curl|wget).*(TOKEN|SECRET|PASSWORD|API[_-]?KEY|ACCESS[_-]?KEY)
 gh[[:space:]]+auth[[:space:]]+token

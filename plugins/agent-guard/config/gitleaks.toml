@@ -9,6 +9,9 @@ regexes = [
   '''(?i)example[_-]?(token|key|secret|password)''',
   '''(?i)dummy[_-]?(token|key|secret|password)''',
   '''(?i)not[-_ ]?a[-_ ]?real[-_ ]?(token|key|secret|password)''',
-  '''x{8,}''',
-  '''0{12,}'''
+  # Anchored to the whole secret so a placeholder shaped entirely from
+  # alphanumerics with a long run of x's (or all zeros) is still exempt, but a
+  # real secret that merely embeds such a run is no longer silently suppressed.
+  '''(?i)^[A-Za-z0-9]*x{12,}[A-Za-z0-9]*$''',
+  '''^0{12,}$'''
 ]
