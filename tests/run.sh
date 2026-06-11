@@ -432,6 +432,193 @@ expect_json_status 0 "WebSearch benign query is allowed" \
   '{"tool_name":"WebSearch","tool_input":{"query":"agent guard documentation"}}' \
   hook-pre-tool
 
+# --- Detection calibration & robustness (PR 1) ----------------------------
+# Rank 1: reading the process environment via /proc is an env-dump bypass.
+expect_json_status 2 "Bash /proc/self/environ read is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat /proc/self/environ"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash /proc/<pid>/environ with a shell PID is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat /proc/$$/environ"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "Bash /proc/cpuinfo read is allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat /proc/cpuinfo"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Read /proc/self/environ is blocked" \
+  '{"tool_name":"Read","tool_input":{"file_path":"/proc/self/environ"}}' \
+  hook-pre-tool
+
+# Rank 2: see through no-op wrappers / assignments before the git check, so a
+# hook-disabling commit cannot hide behind `env` or a `FOO=bar` prefix.
+expect_json_status 2 "env-wrapped git --no-verify is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"env git commit --no-verify -m x"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "assignment-prefixed git --no-verify is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"FOO=bar git commit --no-verify -m x"}}' \
+  hook-pre-tool
+
+# Rank 3: cloud / secrets-manager credential-dump siblings.
+expect_json_status 2 "gcloud auth print-access-token is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"gcloud auth print-access-token"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "az account get-access-token is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"az account get-access-token"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "aws configure export-credentials is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"aws configure export-credentials"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "kubectl get secret -o yaml is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"kubectl get secret db -o yaml"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "kubectl get secrets (names only) is allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"kubectl get secrets"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "kubectl get secret -o=yaml (equals form) is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"kubectl get secret db -o=yaml"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "kubectl get secret --output yaml (long flag) is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"kubectl get secret db --output yaml"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "kubectl get secret/name -o yaml (resource/name) is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"kubectl get secret/db -o yaml"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "kubectl get secret -o go-template is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"kubectl get secret db -o go-template={{.data}}"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "kubectl get secret -o name (names only) is allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"kubectl get secret db -o name"}}' \
+  hook-pre-tool
+
+# Output flag may precede the resource (kubectl get [(-o ...)] TYPE); both orders
+# must block, but a name merely containing "secret" must not false-positive.
+expect_json_status 2 "kubectl get -o yaml secret/name (flag before resource) is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"kubectl get -o yaml secret/my-secret"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "kubectl get -o json secrets (flag before plural type) is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"kubectl get -o json secrets"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "kubectl get configmap app-secret -o yaml (name contains secret) is allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"kubectl get configmap app-secret -o yaml"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "kubectl get pods -o yaml (no secret resource) is allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"kubectl get pods -o yaml"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "gcloud auth login is allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"gcloud auth login"}}' \
+  hook-pre-tool
+
+# Rank 6: env-dump FP fix — `env` inside a quoted alternation must not block.
+expect_json_status 2 "env piped to a sink is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"env | grep PATH"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "env inside a quoted regex alternation is allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"grep -E \"a|env|b\" notes.txt"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "python venv creation is allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"python -m venv .venv"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "env redirected to a file is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"env > dump.txt"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "env piped to a non-listed sink (gzip) is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"env | gzip"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "env VAR=x cmd piped (wrapped command, not bare env) is allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"env FOO=bar printf %s done | cat"}}' \
+  hook-pre-tool
+
+# Rank 7: allow committed .env templates, but never a real .env.
+expect_json_status 0 "Read .env.example template is allowed" \
+  '{"tool_name":"Read","tool_input":{"file_path":".env.example"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "Read .env.sample template is allowed" \
+  '{"tool_name":"Read","tool_input":{"file_path":".env.sample"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Read bare .env is blocked" \
+  '{"tool_name":"Read","tool_input":{"file_path":".env"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "Bash cat .env.example is allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat .env.example"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash cat of a template plus a real .env still blocks" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat .env.example .env"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash cp of a template to .env.local still blocks" \
+  '{"tool_name":"Bash","tool_input":{"command":"cp .env.example .env.local"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash cat of .env.local (not a template) is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat .env.local"}}' \
+  hook-pre-tool
+
+# Rank 8: shell builtins that print the whole environment.
+expect_json_status 2 "export -p is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"export -p"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "declare -p is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"declare -p"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "bare set is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"set"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "set -e is allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"set -e"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "set -o pipefail is allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"set -o pipefail"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "export of a single variable is allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"export FOO=bar"}}' \
+  hook-pre-tool
+
+# Rank 9: additional high-value secret file types.
+expect_json_status 2 "Read a PKCS#8 .p8 key is blocked" \
+  '{"tool_name":"Read","tool_input":{"file_path":"AuthKey.p8"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Read terraform state is blocked" \
+  '{"tool_name":"Read","tool_input":{"file_path":"terraform.tfstate"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Read .pgpass is blocked" \
+  '{"tool_name":"Read","tool_input":{"file_path":".pgpass"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "Read a terraform module file is allowed" \
+  '{"tool_name":"Read","tool_input":{"file_path":"main.tf"}}' \
+  hook-pre-tool
+
 expect_json_status 0 "PII hook mode defaults off" \
   '{"tool_name":"Write","tool_input":{"file_path":"note.txt","content":"email jane@example.com"}}' \
   hook-pre-tool
@@ -597,6 +784,61 @@ fi
 expect_json_status 2 "git hook bypass without separator spaces is blocked" \
   '{"tool_name":"Bash","tool_input":{"command":"git commit --no-verify&&echo done"}}' \
   hook-pre-tool
+
+# R2: wrapper/assignment-prefixed commits with NO --no-verify must still reach
+# the staged scan via is_git_commit_or_push (not via the hook-bypass shortcut).
+# leak.txt is still staged from the harness above.
+(
+  cd "$TEST_REPO" || exit 2
+  printf '%s' '{"tool_name":"Bash","tool_input":{"command":"env git commit -m leak"}}' \
+    | "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+)
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "env-wrapped git commit with staged secret triggers staged scan"
+else
+  not_ok "env-wrapped git commit with staged secret triggers staged scan (expected 2, got $status)"
+  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+fi
+
+(
+  cd "$TEST_REPO" || exit 2
+  printf '%s' '{"tool_name":"Bash","tool_input":{"command":"FOO=bar git commit -m leak"}}' \
+    | "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+)
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "assignment-prefixed git commit with staged secret triggers staged scan"
+else
+  not_ok "assignment-prefixed git commit with staged secret triggers staged scan (expected 2, got $status)"
+  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+fi
+
+(
+  cd "$TEST_REPO" || exit 2
+  printf '%s' '{"tool_name":"Bash","tool_input":{"command":"env -u HOME git commit -m leak"}}' \
+    | "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+)
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "env-with-option-wrapped git commit with staged secret triggers staged scan"
+else
+  not_ok "env-with-option-wrapped git commit with staged secret triggers staged scan (expected 2, got $status)"
+  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+fi
+
+(
+  cd "$TEST_REPO" || exit 2
+  printf '%s' '{"tool_name":"Bash","tool_input":{"command":"env git status"}}' \
+    | "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+)
+status=$?
+if [ "$status" -eq 0 ]; then
+  ok "env-wrapped git status (not commit/push) is allowed"
+else
+  not_ok "env-wrapped git status (not commit/push) is allowed (expected 0, got $status)"
+  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+fi
 
 SYMLINK_REPO="$TMP_ROOT/symlink-repo"
 mkdir -p "$SYMLINK_REPO"
@@ -1390,6 +1632,30 @@ else
   sed 's/^/  stderr: /' /tmp/agent-guard-test.err
 fi
 
+# --- Untracked scan is NUL-safe for non-ASCII filenames (Rank 4) ----------
+# git ls-files quotes non-ASCII paths unless core.quotePath=false; a newline
+# read loop would also mangle them. The scan must still see this file's secret.
+UTF8_REPO="$TMP_ROOT/utf8-repo"
+mkdir -p "$UTF8_REPO"
+(
+  cd "$UTF8_REPO" || exit 2
+  git init -q
+  git config user.email t@e
+  git config user.name t
+  printf 'ok\n' > README.md
+  git add README.md
+  git commit -q -m init
+  printf 'AGENT_GUARD_TEST_SECRET\n' > 'café-secret.txt'
+  "$PLUGIN_ROOT/bin/agent-guard" scan-working-tree >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+)
+status=$?
+if [ "$status" -eq 1 ]; then
+  ok "scan-working-tree detects a secret in a non-ASCII untracked filename"
+else
+  not_ok "scan-working-tree detects a secret in a non-ASCII untracked filename (expected 1, got $status)"
+  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+fi
+
 # --- agent-guard check announces gitleaks version ------------------------
 "$PLUGIN_ROOT/bin/agent-guard" check >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
 if grep -q 'gitleaks' /tmp/agent-guard-test.err; then
@@ -1439,6 +1705,27 @@ if [ -n "$REAL_GITLEAKS" ]; then
     ok "real gitleaks detects an OpenSSH private key through scan-path"
   else
     not_ok "real gitleaks detects an OpenSSH private key through scan-path (expected 1, got $status)"
+    sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+  fi
+
+  # Rank 5: the anchored allowlist no longer suppresses a real secret that
+  # merely contains a long run of x's. The PAT is assembled at runtime so this
+  # script never holds a contiguous `ghp_`-shaped literal that upstream scanners
+  # would flag; the 36-char body carries a 12-x run the old `x{8,}` regex masked.
+  PAT_HEAD='ghp_'
+  PAT_BODY='0123456789'
+  PAT_XRUN='xxxxxxxxxxxx'
+  PAT_TAIL='0123456789ABCD'
+  XRUN_FIXTURE_DIR="$TMP_ROOT/xrun-fixture-dir"
+  mkdir -p "$XRUN_FIXTURE_DIR"
+  printf 'token = %s%s%s%s\n' "$PAT_HEAD" "$PAT_BODY" "$PAT_XRUN" "$PAT_TAIL" \
+    > "$XRUN_FIXTURE_DIR/conf.txt"
+  PATH="$(dirname "$REAL_GITLEAKS"):$ORIGINAL_PATH" "$PLUGIN_ROOT/bin/agent-guard" scan-path "$XRUN_FIXTURE_DIR" >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+  status=$?
+  if [ "$status" -eq 1 ]; then
+    ok "real gitleaks still flags a PAT containing a 12-x run (anchored allowlist)"
+  else
+    not_ok "real gitleaks still flags a PAT containing a 12-x run (expected 1, got $status)"
     sed 's/^/  stderr: /' /tmp/agent-guard-test.err
   fi
 else

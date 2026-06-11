@@ -622,28 +622,35 @@ scan_untracked_files() {
   need_cmd git
   need_gitleaks
   list=$(mktemp_file) || die "failed to create temp file"
-  git ls-files --others --exclude-standard >"$list" || {
+  # core.quotePath=false + -z keep every filename byte-exact (non-ASCII,
+  # backslash, quote, even an embedded newline). The previous newline-delimited
+  # read silently skipped such names — letting a careless or adversarial agent
+  # park a secret in a file the backstop never scanned.
+  git -c core.quotePath=false ls-files --others --exclude-standard -z >"$list" || {
     rm -f "$list"
     die "failed to list untracked files"
   }
 
-  # Stream every untracked file through a single gitleaks stdin call.
-  # The "### file: <path>" header lets a finding's surrounding context
-  # still indicate which file produced it, while keeping the gitleaks
-  # process count at O(1) instead of O(N) per untracked file.
+  if [ ! -s "$list" ]; then
+    rm -f "$list"
+    return 0
+  fi
+
+  # Stream every untracked file through a single gitleaks stdin call. The
+  # "### file: <path>" header keeps a finding's context pointing at its file
+  # while holding the gitleaks process count at O(1). xargs -0 drives the
+  # NUL-delimited list because POSIX `read` cannot split on NUL.
   blob=$(mktemp_file) || { rm -f "$list"; die "failed to create temp file"; }
-  any=0
-  while IFS= read -r path; do
-    [ -n "$path" ] || continue
-    [ -f "$path" ] || continue
-    any=1
-    printf '### file: %s\n' "$path" >>"$blob"
-    cat -- "$path" >>"$blob"
-    printf '\n' >>"$blob"
-  done <"$list"
+  xargs -0 -I '{}' sh -c '
+    f=$1
+    [ -f "$f" ] || exit 0
+    printf "### file: %s\n" "$f"
+    cat -- "$f"
+    printf "\n"
+  ' _ '{}' >>"$blob" <"$list"
   rm -f "$list"
 
-  if [ "$any" -eq 0 ]; then
+  if [ ! -s "$blob" ]; then
     rm -f "$blob"
     return 0
   fi
@@ -763,8 +770,22 @@ resolve_path() {
   fi
 }
 
+# Allowlist short-circuit consulted before any deny-path check (both the Read and
+# Bash paths). It currently exempts committed `.env` placeholder templates that
+# the `.env*` deny glob would otherwise block. Matched on the exact basename so a
+# real secret file is never exempted by a crafted name. NOTE: a match here exempts
+# the candidate from ALL deny patterns, so only add names that never hold secrets.
+candidate_is_allowed() {
+  case "$1" in
+    .env.example|.env.sample|.env.template|.env.dist) return 0 ;;
+    */.env.example|*/.env.sample|*/.env.template|*/.env.dist) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 candidate_matches_deny() {
   candidate=$1
+  candidate_is_allowed "$candidate" && return 1
   while IFS= read -r pattern || [ -n "$pattern" ]; do
     case "$pattern" in
       ''|\#*) continue ;;
@@ -942,8 +963,33 @@ shell_dequote_for_policy() {
   '
 }
 
+# Drop tokens that name an allowed `.env` template (e.g. `.env.example`) before
+# the whole-command deny regex runs, so `cat .env.example` is allowed while
+# `cat .env.example .env` still blocks on the bare `.env` token. Globbing is
+# disabled inside a subshell so a stray `*` in the command is not expanded
+# against the real filesystem during word splitting.
+bash_strip_allowed_tokens() {
+  (
+    set -f
+    words=$(shell_command_words "$1")
+    # shellcheck disable=SC2086
+    set -- $words
+    result=
+    for token in "$@"; do
+      candidate_is_allowed "$token" && continue
+      if [ -z "$result" ]; then
+        result=$token
+      else
+        result="$result $token"
+      fi
+    done
+    printf '%s' "$result"
+  )
+}
+
 bash_matches_deny_path() {
   cmd=$1
+  cmd=$(bash_strip_allowed_tokens "$cmd")
   bash_matches_deny_path_mode "$cmd" "literal" && return 0
   bash_matches_deny_path_mode "$cmd" "shell-expanded" && return 0
   dequoted=$(shell_dequote_for_policy "$cmd")
@@ -1001,6 +1047,37 @@ is_git_global_option() {
   esac
 }
 
+is_assignment_token() {
+  case "$1" in
+    [A-Za-z_]*=*)
+      case "${1%%=*}" in
+        *[!A-Za-z0-9_]*) return 1 ;;
+        *) return 0 ;;
+      esac
+      ;;
+    *) return 1 ;;
+  esac
+}
+
+# Transparent wrappers that run the command following them; a git commit/push
+# behind one of these still stages/commits, so the gate must see through it.
+is_noop_wrapper() {
+  case "$1" in
+    env|command|sudo|nice|nohup|time|xargs) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# Wrapper options that consume the next token as a value (env -u NAME, env -C
+# DIR, nice -n N, …). Kept to unambiguous flags so the wrapped command head is
+# not misread as an option value.
+wrapper_option_takes_value() {
+  case "$1" in
+    -u|--unset|-C|--chdir|-S|--split-string|-n) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 is_git_commit_or_push() {
   cmd=$1
   (
@@ -1012,31 +1089,63 @@ is_git_commit_or_push() {
     command_start=1
     while [ "$#" -gt 0 ]; do
       token=$1
-      shift
 
-      if [ "$command_start" -eq 1 ] && [ "$token" = "git" ]; then
-        while [ "$#" -gt 0 ]; do
-          token=$1
+      if [ "$command_start" -eq 1 ]; then
+        # Strip leading `NAME=value` assignments and no-op wrappers so a wrapped
+        # invocation like `FOO=1 env git commit --no-verify` still reaches the
+        # git check below. command_start stays 1 so the next token is re-examined
+        # as the command head.
+        if is_assignment_token "$token"; then
           shift
-          if git_option_takes_value "$token"; then
-            [ "$#" -gt 0 ] && shift
-            continue
-          fi
-          is_git_global_option "$token" && continue
+          continue
+        fi
+        if is_noop_wrapper "$token"; then
+          shift
+          while [ "$#" -gt 0 ]; do
+            case "$1" in
+              --) shift; break ;;
+              -*)
+                if wrapper_option_takes_value "$1"; then
+                  shift
+                  [ "$#" -gt 0 ] && shift
+                else
+                  shift
+                fi
+                ;;
+              *)
+                is_assignment_token "$1" && { shift; continue; }
+                break
+                ;;
+            esac
+          done
+          continue
+        fi
+        if [ "$token" = "git" ]; then
+          shift
+          while [ "$#" -gt 0 ]; do
+            token=$1
+            shift
+            if git_option_takes_value "$token"; then
+              [ "$#" -gt 0 ] && shift
+              continue
+            fi
+            is_git_global_option "$token" && continue
 
-          case "$token" in
-            commit|push)
-              return 0
-              ;;
-            *)
-              break
-              ;;
-          esac
-        done
-        command_start=0
-        continue
+            case "$token" in
+              commit|push)
+                return 0
+                ;;
+              *)
+                break
+                ;;
+            esac
+          done
+          command_start=0
+          continue
+        fi
       fi
 
+      shift
       if is_shell_command_separator "$token"; then
         command_start=1
       else
