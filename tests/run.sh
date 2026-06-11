@@ -1490,14 +1490,28 @@ expect_json_status 0 "benign string-encoded tool_input is allowed" \
 expect_json_status 0 "benign string-encoded Write tool_input is allowed" \
   '{"tool_name":"Write","tool_input":"{\"file_path\":\"app.txt\",\"content\":\"example_token\"}"}' \
   hook-pre-tool
-# A non-JSON string tool_input decodes to {} (nothing structured to scan) -> allowed.
-expect_json_status 0 "non-JSON string tool_input is allowed (no crash, nothing to scan)" \
+# Only a string that decodes to an *object* is substituted. A non-object string
+# (plain text, or JSON decoding to an array/scalar) is left UNCHANGED -- coercing
+# it to {} would drop the leaf for the generic `.tool_input // {} | .. | strings`
+# scanners (see the regression guard below). For Bash the precise .command
+# extractor simply finds no field on a raw string, so there is nothing to scan.
+expect_json_status 0 "non-JSON string Bash tool_input is allowed (no command to scan)" \
   '{"tool_name":"Bash","tool_input":"not json at all"}' \
   hook-pre-tool
-# A string tool_input that decodes to a non-object (here a JSON array) is coerced
-# to {} so downstream .tool_input.<field> extraction cannot error -> allowed.
-expect_json_status 0 "string tool_input decoding to a non-object is coerced to {} (no crash)" \
+expect_json_status 0 "array-decoding string Bash tool_input is allowed (no command to scan)" \
   '{"tool_name":"Bash","tool_input":"[1,2,3]"}' \
+  hook-pre-tool
+# Regression guard (P1, PR #60 review): a raw-string tool_input MUST still reach
+# the generic scanners. mcp__*/WebFetch/WebSearch route through
+# `.tool_input // {} | .. | strings`, which inspects the raw string leaf, so a
+# string-encoded secret -- whether plain text or a JSON array/scalar that does
+# not decode to an object -- must still block. Coercing such input to {} (the
+# original R12 attempt) dropped the leaf and let a bare secret through.
+expect_json_status 2 "raw-string MCP tool_input with a secret is blocked (no coerce-to-{} fail-open)" \
+  '{"tool_name":"mcp__server__tool","tool_input":"AGENT_GUARD_TEST_SECRET"}' \
+  hook-pre-tool
+expect_json_status 2 "array-encoded-string MCP tool_input with a secret is blocked" \
+  '{"tool_name":"mcp__server__tool","tool_input":"[\"AGENT_GUARD_TEST_SECRET\"]"}' \
   hook-pre-tool
 
 # --- gitleaks not installed -----------------------------------------------

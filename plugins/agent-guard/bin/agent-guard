@@ -1340,16 +1340,23 @@ hook_pre_tool() {
   [ -n "$input" ] || return 0
 
   # A host may serialize tool_input as a JSON-encoded string instead of an
-  # object. Left as-is, every `.tool_input.<field>` extraction errors and `jq`
-  # emits nothing, so the scan no-ops (fail-open). Recover by decoding it back
-  # into an object so the existing checks see real fields. Anything that does
-  # not decode to an object (non-JSON text, or a JSON array/scalar) becomes {} —
-  # there are no structured fields to scan, which is correct. Normalizing keeps
-  # the checks effective rather than blocking, so a host that uses string
-  # encoding is not over-blocked.
+  # object. When that string decodes to an *object*, the precise-field extractors
+  # (.tool_input.command / .content / .file_path) would otherwise error on a
+  # string and yield nothing, so the Bash/Write checks silently no-op
+  # (fail-open). Decode it back into an object so those checks see real fields.
+  #
+  # Only an object is substituted. A string that does NOT decode to an object
+  # (plain text, or JSON that decodes to an array/scalar) is left UNCHANGED: the
+  # generic scanners for Read/Grep/WebFetch/WebSearch/MCP use
+  # `.tool_input // {} | .. | strings`, which already inspects a raw string leaf.
+  # Coercing such input to {} would drop that leaf and let a bare secret string
+  # (e.g. an mcp__* tool_input of "AGENT_GUARD_TEST_SECRET") through — a
+  # regression. Recover-not-block keeps a string-encoding host from being
+  # over-blocked.
   if [ "$(json_value '.tool_input | type' "$input")" = "string" ]; then
     input=$(printf '%s' "$input" \
-      | jq -c '.tool_input |= (try (fromjson | if type == "object" then . else {} end) catch {})')
+      | jq -c '(.tool_input | try fromjson catch null) as $decoded
+               | if ($decoded | type) == "object" then .tool_input = $decoded else . end')
   fi
 
   tool=$(json_value '.tool_name // .tool // .name // empty' "$input")
