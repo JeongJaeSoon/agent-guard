@@ -933,9 +933,19 @@ bash_matches_deny_path_mode() {
       ''|\#*) continue ;;
     esac
     regex=$(deny_path_command_regex "$entry" "$mode") || continue
-    if printf '%s\n' "$cmd" | grep -Eq "$regex"; then
-      return 0
-    fi
+    printf '%s\n' "$cmd" | grep -Eq "$regex"
+    grep_status=$?
+    case "$grep_status" in
+      0) return 0 ;;   # command references a deny-listed path -> block
+      1) ;;            # no match -> keep scanning
+      *)
+        # grep failed (e.g. a custom deny-read entry produced an invalid ERE).
+        # Fail closed, mirroring check_bash_command: silently allowing here
+        # would let one bad entry disable the rest of the deny-read path check.
+        info "$PROGRAM: deny-read-paths Bash scan failed; refusing to allow command"
+        exit 2
+        ;;
+    esac
   done <"$DENY_READ_PATHS"
   return 1
 }
@@ -1328,6 +1338,20 @@ hook_pre_tool() {
   need_cmd jq
   input=$(cat)
   [ -n "$input" ] || return 0
+
+  # A host may serialize tool_input as a JSON-encoded string instead of an
+  # object. Left as-is, every `.tool_input.<field>` extraction errors and `jq`
+  # emits nothing, so the scan no-ops (fail-open). Recover by decoding it back
+  # into an object so the existing checks see real fields. Anything that does
+  # not decode to an object (non-JSON text, or a JSON array/scalar) becomes {} —
+  # there are no structured fields to scan, which is correct. Normalizing keeps
+  # the checks effective rather than blocking, so a host that uses string
+  # encoding is not over-blocked.
+  if [ "$(json_value '.tool_input | type' "$input")" = "string" ]; then
+    input=$(printf '%s' "$input" \
+      | jq -c '.tool_input |= (try (fromjson | if type == "object" then . else {} end) catch {})')
+  fi
+
   tool=$(json_value '.tool_name // .tool // .name // empty' "$input")
 
   case "$tool" in
