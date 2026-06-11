@@ -114,7 +114,7 @@ else
   not_ok "Codex plugin manifest leaves hooks to the root hooks.json companion"
 fi
 
-for event in PreToolUse PostToolUse; do
+for event in PreToolUse PostToolUse Stop; do
   claude_canonical=$(jq -r ".hooks.${event}[0].matcher" "$PLUGIN_ROOT/hooks/hooks.json")
   codex_canonical=$(jq -r ".hooks.${event}[0].matcher" "$PLUGIN_ROOT/hooks.json")
   if [ "$codex_canonical" = "$claude_canonical" ]; then
@@ -130,6 +130,69 @@ for event in PreToolUse PostToolUse; do
       ok "$event matcher in $file matches hooks/hooks.json"
     else
       not_ok "$event matcher in $file matches hooks/hooks.json (got: $actual)"
+    fi
+  done
+done
+
+# Full hook-object parity: type, timeout, and the trailing hook-* subcommand
+# must agree across all four manifests. Command STRINGS legitimately differ by
+# host (CLAUDE_PLUGIN_ROOT vs PLUGIN_ROOT vs relative/absolute paths), so only
+# the stable trailing subcommand token is compared, not the whole command. This
+# catches a copy-paste swap (e.g. Stop wired to hook-post-tool, or a 10/20
+# timeout mismatch) that the matcher-only check above misses.
+hook_subcommand() {
+  jq -r ".hooks.${2}[0].hooks[0].command" "$1" \
+    | grep -oE 'hook-(pre-tool|post-tool|stop)' | tail -n1
+}
+
+for event in PreToolUse PostToolUse Stop; do
+  case "$event" in
+    PreToolUse)  expected_sub=hook-pre-tool;  expected_timeout=10 ;;
+    PostToolUse) expected_sub=hook-post-tool; expected_timeout=20 ;;
+    Stop)        expected_sub=hook-stop;      expected_timeout=20 ;;
+  esac
+
+  claude_type=$(jq -r ".hooks.${event}[0].hooks[0].type" "$PLUGIN_ROOT/hooks/hooks.json")
+  claude_timeout=$(jq -r ".hooks.${event}[0].hooks[0].timeout" "$PLUGIN_ROOT/hooks/hooks.json")
+  claude_sub=$(hook_subcommand "$PLUGIN_ROOT/hooks/hooks.json" "$event")
+
+  if [ "$claude_type" = "command" ]; then
+    ok "$event hook type is command in hooks/hooks.json"
+  else
+    not_ok "$event hook type is command in hooks/hooks.json (got: $claude_type)"
+  fi
+  if [ "$claude_timeout" = "$expected_timeout" ]; then
+    ok "$event timeout is $expected_timeout in hooks/hooks.json"
+  else
+    not_ok "$event timeout is $expected_timeout in hooks/hooks.json (got: $claude_timeout)"
+  fi
+  if [ "$claude_sub" = "$expected_sub" ]; then
+    ok "$event command invokes $expected_sub in hooks/hooks.json"
+  else
+    not_ok "$event command invokes $expected_sub in hooks/hooks.json (got: $claude_sub)"
+  fi
+
+  for file in \
+    "$PLUGIN_ROOT/hooks.json" \
+    "$ROOT/examples/claude/settings.project.json" \
+    "$ROOT/examples/codex/hooks.json"; do
+    actual_type=$(jq -r ".hooks.${event}[0].hooks[0].type" "$file")
+    actual_timeout=$(jq -r ".hooks.${event}[0].hooks[0].timeout" "$file")
+    actual_sub=$(hook_subcommand "$file" "$event")
+    if [ "$actual_type" = "$claude_type" ]; then
+      ok "$event hook type in $file matches hooks/hooks.json"
+    else
+      not_ok "$event hook type in $file matches hooks/hooks.json (got: $actual_type)"
+    fi
+    if [ "$actual_timeout" = "$claude_timeout" ]; then
+      ok "$event timeout in $file matches hooks/hooks.json"
+    else
+      not_ok "$event timeout in $file matches hooks/hooks.json (got: $actual_timeout)"
+    fi
+    if [ "$actual_sub" = "$claude_sub" ]; then
+      ok "$event command subcommand in $file matches hooks/hooks.json"
+    else
+      not_ok "$event command subcommand in $file matches hooks/hooks.json (got: $actual_sub)"
     fi
   done
 done
@@ -1342,6 +1405,114 @@ else
   not_ok "deny-bash-patterns invalid ERE fails closed (expected 2, got $status)"
   sed 's/^/  stderr: /' /tmp/agent-guard-test.err
 fi
+
+# --- deny-read-paths Bash scan fail-closed on invalid generated ERE --------
+# Parity with the deny-bash guard above: a custom deny-read entry that converts
+# to a grep-rejected ERE (here a trailing backslash) must hard-block during a
+# Bash command scan, not silently allow the rest of the deny-read check.
+BAD_READ_FILE="$TMP_ROOT/bad-deny-read.txt"
+printf '%s\n' 'x\' >"$BAD_READ_FILE"
+printf '%s' '{"tool_name":"Bash","tool_input":{"command":"echo hi"}}' \
+  | AGENT_GUARD_DENY_READ_PATHS="$BAD_READ_FILE" \
+    "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "deny-read-paths invalid generated ERE fails closed in Bash scan"
+else
+  not_ok "deny-read-paths invalid generated ERE fails closed in Bash scan (expected 2, got $status)"
+  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+fi
+
+# No-regression: a valid custom deny-read file must still allow benign commands
+# and still block a deny-listed path, so the fail-closed change does not over-block.
+GOOD_READ_FILE="$TMP_ROOT/good-deny-read.txt"
+printf '%s\n' '.env' >"$GOOD_READ_FILE"
+printf '%s' '{"tool_name":"Bash","tool_input":{"command":"echo hi"}}' \
+  | AGENT_GUARD_DENY_READ_PATHS="$GOOD_READ_FILE" \
+    "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >/dev/null 2>&1
+status=$?
+if [ "$status" -eq 0 ]; then
+  ok "valid deny-read file still allows a benign Bash command"
+else
+  not_ok "valid deny-read file still allows a benign Bash command (expected 0, got $status)"
+fi
+printf '%s' '{"tool_name":"Bash","tool_input":{"command":"cat .env"}}' \
+  | AGENT_GUARD_DENY_READ_PATHS="$GOOD_READ_FILE" \
+    "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >/dev/null 2>&1
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "valid deny-read file still blocks a deny-listed path in a Bash command"
+else
+  not_ok "valid deny-read file still blocks a deny-listed path in a Bash command (expected 2, got $status)"
+fi
+
+# Loop-level fail-closed: a bad-ERE entry placed AFTER a valid one must still
+# hard-block, even for a command that matches neither entry. This distinguishes
+# the real behavior (the scan reaches the bad entry and exits 2) from a
+# silent-skip regression where the bad entry is `continue`d and the command,
+# matching no valid entry, would slip through allowed.
+MULTI_READ_FILE="$TMP_ROOT/multi-deny-read.txt"
+printf '%s\n' '.env' 'x\' >"$MULTI_READ_FILE"
+printf '%s' '{"tool_name":"Bash","tool_input":{"command":"echo hi"}}' \
+  | AGENT_GUARD_DENY_READ_PATHS="$MULTI_READ_FILE" \
+    "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >/dev/null 2>&1
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "deny-read-paths loop fails closed when a bad entry follows a valid one"
+else
+  not_ok "deny-read-paths loop fails closed when a bad entry follows a valid one (expected 2, got $status)"
+fi
+
+# --- string-encoded tool_input is normalized, not silently skipped ----------
+# A host may serialize tool_input as a JSON string. Without normalization every
+# .tool_input.<field> extraction errors and yields empty, so the scan no-ops
+# (fail-open). hook_pre_tool decodes a string tool_input back into an object so
+# the existing checks still see the real fields. These cases take plain JSON, a
+# single subcommand, and assert only on exit status, so they use the
+# expect_json_status helper like the rest of the hook-pre-tool table.
+expect_json_status 2 "object tool_input blocks a deny pattern (baseline)" \
+  '{"tool_name":"Bash","tool_input":{"command":"printenv"}}' \
+  hook-pre-tool
+expect_json_status 2 "string-encoded tool_input blocks a deny pattern (no fail-open)" \
+  '{"tool_name":"Bash","tool_input":"{\"command\":\"printenv\"}"}' \
+  hook-pre-tool
+# The normalization lives in hook_pre_tool before the per-tool dispatch, so it
+# must also rescue content-scanning tools, not just Bash. A string-encoded Write
+# whose decoded content holds a secret must block (without the fix, extracting
+# .tool_input.content errors -> empty content -> scan finds nothing -> fail-open).
+expect_json_status 2 "string-encoded Write tool_input with a secret is blocked" \
+  '{"tool_name":"Write","tool_input":"{\"file_path\":\"app.txt\",\"content\":\"AGENT_GUARD_TEST_SECRET\"}"}' \
+  hook-pre-tool
+# Benign string-encoded commands/writes stay allowed (normalization does not over-block).
+expect_json_status 0 "benign string-encoded tool_input is allowed" \
+  '{"tool_name":"Bash","tool_input":"{\"command\":\"ls\"}"}' \
+  hook-pre-tool
+expect_json_status 0 "benign string-encoded Write tool_input is allowed" \
+  '{"tool_name":"Write","tool_input":"{\"file_path\":\"app.txt\",\"content\":\"example_token\"}"}' \
+  hook-pre-tool
+# Only a string that decodes to an *object* is substituted. A non-object string
+# (plain text, or JSON decoding to an array/scalar) is left UNCHANGED -- coercing
+# it to {} would drop the leaf for the generic `.tool_input // {} | .. | strings`
+# scanners (see the regression guard below). For Bash the precise .command
+# extractor simply finds no field on a raw string, so there is nothing to scan.
+expect_json_status 0 "non-JSON string Bash tool_input is allowed (no command to scan)" \
+  '{"tool_name":"Bash","tool_input":"not json at all"}' \
+  hook-pre-tool
+expect_json_status 0 "array-decoding string Bash tool_input is allowed (no command to scan)" \
+  '{"tool_name":"Bash","tool_input":"[1,2,3]"}' \
+  hook-pre-tool
+# Regression guard (P1, PR #60 review): a raw-string tool_input MUST still reach
+# the generic scanners. mcp__*/WebFetch/WebSearch route through
+# `.tool_input // {} | .. | strings`, which inspects the raw string leaf, so a
+# string-encoded secret -- whether plain text or a JSON array/scalar that does
+# not decode to an object -- must still block. Coercing such input to {} (the
+# original R12 attempt) dropped the leaf and let a bare secret through.
+expect_json_status 2 "raw-string MCP tool_input with a secret is blocked (no coerce-to-{} fail-open)" \
+  '{"tool_name":"mcp__server__tool","tool_input":"AGENT_GUARD_TEST_SECRET"}' \
+  hook-pre-tool
+expect_json_status 2 "array-encoded-string MCP tool_input with a secret is blocked" \
+  '{"tool_name":"mcp__server__tool","tool_input":"[\"AGENT_GUARD_TEST_SECRET\"]"}' \
+  hook-pre-tool
 
 # --- gitleaks not installed -----------------------------------------------
 
