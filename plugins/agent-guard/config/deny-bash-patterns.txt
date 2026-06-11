@@ -30,10 +30,16 @@ gcloud[[:space:]]+secrets[[:space:]]+versions[[:space:]]+access
 gcloud[[:space:]]+auth[[:space:]]+print-(access|identity)-token
 az[[:space:]]+account[[:space:]]+get-access-token
 (^|[[:space:];|&])doppler[[:space:]]+(secrets|run)
-# Reading secret material out of kubectl requires an output flag; plain
-# `kubectl get secrets` (listing names only, or `-o name`) is intentionally left
-# allowed. Covers `secret/name` syntax, `-o`/`--output`, `-o=`/`-ojson` forms,
-# and `go-template` extraction.
-kubectl[[:space:]].*get[[:space:]]+secret(s)?(/[^[:space:]]+)?([[:space:]].*)?(-o|--output)[[:space:]=]*(yaml|json|jsonpath|go-template)
+# Reading secret material out of kubectl requires a structured output flag;
+# plain `kubectl get secrets` (listing names only, or `-o name`) is intentionally
+# left allowed. kubectl accepts the output flag on either side of the resource
+# (`kubectl get [(-o|--output=)yaml|...] (TYPE...)`), so both orders are covered.
+# Each line anchors the secret resource on a token boundary (a leading space, so
+# `secret` is the resource type, not a substring of a name like `app-secret`) and
+# covers `secret/name` syntax, `-o`/`--output`, `-o=`/`-ojson`, and `go-template`.
+# Known accepted residual: `kubectl get all -o yaml -n secrets` (a namespace
+# literally named `secrets`) over-blocks; rare enough to favor closing the dump.
+kubectl[[:space:]].*get.*[[:space:]]secrets?(/[^[:space:]]+)?[[:space:]].*(-o|--output)[[:space:]=]*(yaml|json|jsonpath|go-template)
+kubectl[[:space:]].*get.*(-o|--output)[[:space:]=]*(yaml|json|jsonpath|go-template).*[[:space:]]secrets?(/[^[:space:]]+)?([[:space:]]|$)
 (curl|wget).*(TOKEN|SECRET|PASSWORD|API[_-]?KEY|ACCESS[_-]?KEY)
 gh[[:space:]]+auth[[:space:]]+token

@@ -501,6 +501,24 @@ expect_json_status 0 "kubectl get secret -o name (names only) is allowed" \
   '{"tool_name":"Bash","tool_input":{"command":"kubectl get secret db -o name"}}' \
   hook-pre-tool
 
+# Output flag may precede the resource (kubectl get [(-o ...)] TYPE); both orders
+# must block, but a name merely containing "secret" must not false-positive.
+expect_json_status 2 "kubectl get -o yaml secret/name (flag before resource) is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"kubectl get -o yaml secret/my-secret"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "kubectl get -o json secrets (flag before plural type) is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"kubectl get -o json secrets"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "kubectl get configmap app-secret -o yaml (name contains secret) is allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"kubectl get configmap app-secret -o yaml"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "kubectl get pods -o yaml (no secret resource) is allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"kubectl get pods -o yaml"}}' \
+  hook-pre-tool
+
 expect_json_status 0 "gcloud auth login is allowed" \
   '{"tool_name":"Bash","tool_input":{"command":"gcloud auth login"}}' \
   hook-pre-tool
