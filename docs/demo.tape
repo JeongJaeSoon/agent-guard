@@ -26,7 +26,7 @@ Hide
 Type "cd $(mktemp -d) && export PS1='$ ' && clear"
 Enter
 Show
-Sleep 600ms
+Sleep 800ms
 
 Type "# A secret (private key) slips into .env — generated live, never stored in this tape"
 Sleep 600ms
@@ -34,7 +34,11 @@ Enter
 Type "ssh-keygen -t rsa -b 2048 -N '' -f .env -q"
 Sleep 300ms
 Enter
-Sleep 1600ms
+Sleep 1800ms
+
+# ── blank line: separate setup from step 1 ──
+Enter
+Sleep 1000ms
 
 Type "# 1) The agent asks to read .env — blocked at the tool boundary, before the read"
 Sleep 600ms
@@ -42,7 +46,11 @@ Enter
 Type `echo '{"tool_name":"Read","tool_input":{"file_path":".env"}}' | agent-guard hook-pre-tool`
 Sleep 300ms
 Enter
-Sleep 2200ms
+Sleep 2600ms
+
+# ── blank line: separate step 1 from step 2 ──
+Enter
+Sleep 1000ms
 
 Type "# 2) And if a secret reaches the tree, a scan flags it deterministically"
 Sleep 600ms
@@ -50,9 +58,13 @@ Enter
 Type "agent-guard scan-path .env"
 Sleep 300ms
 Enter
-Sleep 2600ms
+Sleep 3000ms
+
+# ── blank line: separate step 2 from the closing line ──
+Enter
+Sleep 1000ms
 
 Type "# Real-time. No model in the loop. The leak is stopped before it lands."
 Sleep 600ms
 Enter
-Sleep 2600ms
+Sleep 2800ms
