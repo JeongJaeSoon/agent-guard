@@ -6,7 +6,7 @@
 
 **Stop your AI coding agent from leaking secrets — in real time, before the tool call runs.**
 
-![Agent Guard running its smoke test — every guardrail blocks (path scan, sensitive-read, secret-write, PII filter, native pre-commit)](docs/demo.gif)
+![Agent Guard blocking an agent's read of a .env that holds a private key, then a scan flagging the leak](docs/demo.gif)
 
 Agent Guard is a deterministic guardrail for AI coding agents (Claude Code, Codex) and the Git hooks, CI, and CLI around them. It blocks common ways an agent accidentally exposes secrets: reading `.env`, writing secret-like values, running shell commands that dump credentials, or leaving secrets in the working tree after a tool call. It uses [gitleaks](https://github.com/gitleaks/gitleaks) for detection and plain shell scripts for integration.
 
