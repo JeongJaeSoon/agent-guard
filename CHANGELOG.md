@@ -1,3 +1,8 @@
+## v1.3.8 - 2026-06-16
+
+- docs: separate demo steps with blank lines for readability (#66)
+- docs: render README badges in a single row (#65)
+
 ## v1.3.7 - 2026-06-16
 
 - feat(agent-guard): rename Action to a unique GitHub Marketplace name (#63)
