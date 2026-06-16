@@ -1,3 +1,9 @@
+## v1.3.6 - 2026-06-16
+
+- feat(agent-guard): unify positioning + Action branding for Marketplace publish (#61)
+- fix(agent-guard): close fail-open gaps in hook input handling and deny-read Bash scan (#60)
+- fix(agent-guard): calibrate secret-detection patterns (#59)
+
 ## v1.3.5 - 2026-05-24
 
 - Merge pull request #57 from JeongJaeSoon/codex/plugin-layout-validation-ci
