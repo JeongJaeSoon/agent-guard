@@ -4,9 +4,13 @@
 [![CI](https://github.com/JeongJaeSoon/agent-guard/actions/workflows/ci.yml/badge.svg)](https://github.com/JeongJaeSoon/agent-guard/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Deterministic secret-scanning guardrails for Claude Code, Codex, Git hooks, GitHub Actions, and direct CLI scans.
+**Stop your AI coding agent from leaking secrets — in real time, before the tool call runs.**
 
-Agent Guard blocks common ways an AI coding agent can accidentally expose secrets: reading `.env`, writing secret-like values, running shell commands that dump credentials, or leaving secrets in the working tree after a tool call. It uses [gitleaks](https://github.com/gitleaks/gitleaks) for detection and plain shell scripts for integration.
+![Agent Guard blocking an agent's read of a .env that holds a private key, then a scan flagging the leak](docs/demo.gif)
+
+Agent Guard is a deterministic guardrail for AI coding agents (Claude Code, Codex) and the Git hooks, CI, and CLI around them. It blocks common ways an agent accidentally exposes secrets: reading `.env`, writing secret-like values, running shell commands that dump credentials, or leaving secrets in the working tree after a tool call. It uses [gitleaks](https://github.com/gitleaks/gitleaks) for detection and plain shell scripts for integration.
+
+Unlike commit- or CI-time scanners that catch a leak *after* it lands, Agent Guard also runs at the agent's tool boundary — the `.env` read or secret write is blocked before it happens. Pair it with commit/CI scanning for defense in depth.
 
 It is not a vault, credential rotator, or replacement for GitHub Secret Scanning / Push Protection.
 

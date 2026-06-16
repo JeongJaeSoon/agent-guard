@@ -1,0 +1,35 @@
+# Security Policy
+
+## Supported versions
+
+Agent Guard ships fixes on the latest release line. Use the most recent tag:
+`@v1` for the GitHub Action, and the latest release for CLI and plugin installs.
+
+| Version | Supported |
+|---|---|
+| Latest release (1.x) | ✅ |
+| Older 1.x tags | Best effort |
+
+## Reporting a vulnerability
+
+Please report security issues **privately** — do not open a public issue for a
+sensitive report.
+
+- Preferred: GitHub [private vulnerability reporting](https://github.com/JeongJaeSoon/agent-guard/security/advisories/new).
+  This keeps the details private until a fix ships.
+
+We aim to acknowledge reports within a few days and to coordinate disclosure
+once a fix or mitigation is available.
+
+## Scope
+
+Agent Guard is a deterministic, thin guardrail — not a DLP system, EDR, or
+vault. It has documented blind spots by design (see
+[Known Limitations](README.md#known-limitations)): gitignored files are not
+scanned, only the git work tree is covered, path/command blocking uses fixed
+lists, command output is not inspected, and Bash detection is pattern-based.
+
+Behavior that falls within those documented limitations is expected, not a
+vulnerability. Suggestions to narrow a blind spot are welcome as regular issues
+or pull requests. Reports of a bypass that defeats a control the project claims
+to enforce are in scope — please report those privately as above.
