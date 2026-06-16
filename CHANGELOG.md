@@ -1,3 +1,7 @@
+## v1.3.7 - 2026-06-16
+
+- feat(agent-guard): rename Action to a unique GitHub Marketplace name (#63)
+
 ## v1.3.6 - 2026-06-16
 
 - feat(agent-guard): unify positioning + Action branding for Marketplace publish (#61)
