@@ -1,19 +1,21 @@
 name: HOL Plugin Scanner
 
 # Self-scan against the HOL AI Plugin Scanner, the quality/security gate required
-# to list Agent Guard on awesome-codex-plugins.
+# to list Agent Guard on awesome-codex-plugins (needs score >= 80, no high/critical
+# findings, and the scanner running in CI on the main branch).
 #
-# Phase 1 (this file): score check only. Runs read-only and does NOT upload SARIF,
-# so the unvetted third-party scanner action executes with the minimum privileges
-# needed to print a score. If the score clears the gate (>= 80, no high findings)
-# and we decide to list, switch to the upstream-required workflow that adds
-# `upload_sarif: true` plus `security-events: write`.
+# Runs read-only and does NOT upload SARIF: the list only requires the scanner to
+# run with a passing score, so the unvetted third-party scanner action executes
+# with the minimum privileges needed to print a score. SARIF upload (which would
+# need `security-events: write`) is recommended-only upstream and deliberately
+# skipped to keep this surface minimal.
 #
-# The scanner action is pinned to a full commit SHA (not a floating tag) because it
-# is a new, low-adoption third-party action; first-party actions/checkout stays on
-# its major tag to match this repo's existing workflow convention.
+# Both third-party and first-party actions are pinned to full commit SHAs (mutable
+# tags can be moved even on first-party repos); the Dependabot config bumps them.
 
 on:
+  push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
