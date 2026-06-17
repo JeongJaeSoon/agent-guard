@@ -27,7 +27,7 @@ jobs:
     steps:
       - name: Checkout
         if: env.HAS_OPENAI_API_KEY == 'true'
-        uses: actions/checkout@v5
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
         with:
           ref: refs/pull/${{ github.event.pull_request.number }}/merge
           persist-credentials: false
@@ -81,7 +81,7 @@ jobs:
       pull-requests: write
     steps:
       - name: Comment on PR
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
         env:
           CODEX_FINAL_MESSAGE: ${{ needs.codex.outputs.final_message }}
         with:
