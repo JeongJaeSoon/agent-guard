@@ -1,6 +1,6 @@
 # Agent Guard
 
-[![Release](https://img.shields.io/github/v/release/JeongJaeSoon/agent-guard)](https://github.com/JeongJaeSoon/agent-guard/releases) [![CI](https://github.com/JeongJaeSoon/agent-guard/actions/workflows/ci.yml/badge.svg)](https://github.com/JeongJaeSoon/agent-guard/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/JeongJaeSoon/agent-guard)](https://github.com/JeongJaeSoon/agent-guard/releases) [![GitHub Marketplace](https://img.shields.io/badge/Marketplace-Agent%20Guard-2EA44F?logo=github)](https://github.com/marketplace/actions/agent-guard-secret-guardrails) [![CI](https://github.com/JeongJaeSoon/agent-guard/actions/workflows/ci.yml/badge.svg)](https://github.com/JeongJaeSoon/agent-guard/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 **Stop your AI coding agent from leaking secrets — in real time, before the tool call runs.**
 
@@ -12,11 +12,35 @@ Unlike commit- or CI-time scanners that catch a leak *after* it lands, Agent Gua
 
 It is not a vault, credential rotator, or replacement for GitHub Secret Scanning / Push Protection.
 
+## Quick start (Claude Code)
+
+Install from the marketplace:
+
+```text
+/plugin marketplace add JeongJaeSoon/agent-guard
+/plugin install agent-guard@agent-guard
+/reload-plugins
+```
+
+Verify it's live — ask the agent to read your `.env`:
+
+```text
+Please read .env
+```
+
+It should refuse:
+
+```text
+agent-guard: blocked sensitive file access: .env
+```
+
+Detection needs `jq` and `gitleaks` on your machine (`brew install jq gitleaks`; see [Requirements](#requirements) for Linux). Using Codex, Git hooks, or CI instead? Pick your path below.
+
 ## Pick an install path
 
 | Use case | Install path | Best first check |
 |---|---|---|
-| Claude Code agent guardrails | [Claude Code plugin](#claude-code-plugin) | Ask the agent to read `.env`; it should be blocked. |
+| Claude Code agent guardrails | [Quick start (Claude Code)](#quick-start-claude-code) | Ask the agent to read `.env`; it should be blocked. |
 | Codex stable guardrails | [Codex direct CLI + Git hook](#codex-plugin) | Run `agent-guard smoke-test`; commit a staged fixture secret, and it should fail. |
 | Codex experimental plugin hooks | [Codex plugin](#codex-plugin) | Enable `plugin_hooks`, trust hooks in `/hooks`, then ask Codex to read `.env`; it should be blocked. |
 | Local commits | [Native Git hook](#native-git-hook) | Commit a staged fixture secret; commit should fail. |
@@ -62,27 +86,7 @@ On Debian / Ubuntu or Fedora, install `jq` with the system package manager and d
 
 ## Claude Code Plugin
 
-Install from the marketplace:
-
-```text
-/plugin marketplace add JeongJaeSoon/agent-guard
-/plugin install agent-guard@agent-guard
-/reload-plugins
-```
-
-Smoke test:
-
-```text
-Please read .env
-```
-
-Expected result:
-
-```text
-agent-guard: blocked sensitive file access: .env
-```
-
-Useful Claude Code slash commands:
+Install and verify in [Quick start (Claude Code)](#quick-start-claude-code). Useful slash commands once installed:
 
 ```text
 /agent-guard:verify
