@@ -780,6 +780,20 @@ else
   sed 's/^/  stderr: /' /tmp/agent-guard-test.err
 fi
 
+# mask mode: a 15-digit Amex card is hard-blocked on input (not just 16-digit).
+# (Assembled at runtime so this test file holds no contiguous PAN.)
+amex="3782 ""822463 ""10005"
+printf '%s' "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"note.txt\",\"content\":\"card $amex\"}}" \
+  | AGENT_GUARD_PII_HOOK_MODE=mask "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool \
+    >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+status=$?
+if [ "$status" -eq 2 ] && grep -q 'high-sensitivity PII' /tmp/agent-guard-test.err; then
+  ok "PII mask mode blocks Tier-2 PII (15-digit Amex) input"
+else
+  not_ok "PII mask mode blocks Tier-2 PII (15-digit Amex) input (expected 2, got $status)"
+  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+fi
+
 # mask mode: Tier-2 US SSN is hard-blocked on input.
 printf '%s' '{"tool_name":"Write","tool_input":{"file_path":"note.txt","content":"ssn 123-45-6789"}}' \
   | AGENT_GUARD_PII_HOOK_MODE=mask "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool \
@@ -2106,8 +2120,9 @@ fi
 
 # Without mask mode, PII in output is left untouched (no rewrite emitted).
 post_tool_out '{"tool_name":"Bash","tool_input":{"command":"x"},"tool_response":{"stdout":"user jane@example.com\n","stderr":"","interrupted":false,"isImage":false}}'
+post_status=$?
 post_out=$(cat /tmp/agent-guard-test.out)
-if [ -z "$post_out" ]; then
+if [ "$post_status" -eq 0 ] && [ -z "$post_out" ]; then
   ok "post-tool leaves PII untouched without mask mode (default)"
 else
   not_ok "post-tool leaves PII untouched without mask mode (default)"
@@ -2142,7 +2157,8 @@ fi
 # (pii_regex_adapter_filter vs mask_pii_response_json vs pii_tier2_present) is caught.
 # Card assembled at runtime so this test file holds no contiguous PAN.
 sync_cc="4111 1111 ""1111 1111"
-sync_sample="card $sync_cc ssn 123-45-6789 ip 8.8.8.8 mail x@y.io rrn 900101-1234567 mob 010-1234-5678"
+sync_amex="3782 ""822463 ""10005"
+sync_sample="card $sync_cc amex $sync_amex ssn 123-45-6789 ip 8.8.8.8 mail x@y.io rrn 900101-1234567 mob 010-1234-5678"
 sync_cli=$(printf '%s\n' "$sync_sample" | "$PLUGIN_ROOT/bin/agent-guard" pii-filter 2>/dev/null)
 sync_hin=$(printf '{"tool_name":"Read","tool_input":{"file_path":"m"},"tool_response":%s}' "$(printf '%s' "$sync_sample" | jq -Rs .)")
 sync_hook=$(printf '%s' "$sync_hin" | (cd "$TMP_ROOT" && AGENT_GUARD_PII_HOOK_MODE=mask "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool 2>/dev/null) | jq -r '.hookSpecificOutput.updatedToolOutput')

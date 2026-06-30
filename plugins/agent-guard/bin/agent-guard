@@ -357,6 +357,7 @@ pii_regex_adapter_filter() {
   awk '
     BEGIN {
       credit_card = "[0-9][0-9][0-9][0-9][ -]?[0-9][0-9][0-9][0-9][ -]?[0-9][0-9][0-9][0-9][ -]?[0-9][0-9][0-9][0-9]([ -]?[0-9][0-9][0-9])?"
+      amex = "3[47][0-9][0-9][ -]?[0-9][0-9][0-9][0-9][0-9][0-9][ -]?[0-9][0-9][0-9][0-9][0-9]"
       kr_rrn = "[0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9][0-9]"
       ssn = "[0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9][0-9][0-9]"
       ip_addr = "[0-9][0-9]?[0-9]?[.][0-9][0-9]?[0-9]?[.][0-9][0-9]?[0-9]?[.][0-9][0-9]?[0-9]?"
@@ -369,6 +370,7 @@ pii_regex_adapter_filter() {
         printf "%s", ORS
       }
       gsub(credit_card, "[PII:CREDIT_CARD]")
+      gsub(amex, "[PII:CREDIT_CARD]")
       gsub(kr_rrn, "[PII:KR_RRN]")
       gsub(ssn, "[PII:SSN]")
       gsub(ip_addr, "[PII:IP_ADDRESS]")
@@ -485,13 +487,15 @@ pii_hook_mode() {
 pii_tier2_present() {
   text=$1
   [ -n "$text" ] || return 1
+  need_cmd awk
   printf '%s' "$text" | awk '
     BEGIN {
       cc = "[0-9][0-9][0-9][0-9][ -]?[0-9][0-9][0-9][0-9][ -]?[0-9][0-9][0-9][0-9][ -]?[0-9][0-9][0-9][0-9]([ -]?[0-9][0-9][0-9])?"
+      amex = "3[47][0-9][0-9][ -]?[0-9][0-9][0-9][0-9][0-9][0-9][ -]?[0-9][0-9][0-9][0-9][0-9]"
       ssn = "[0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9][0-9][0-9]"
       rrn = "[0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9][0-9]"
     }
-    $0 ~ cc || $0 ~ ssn || $0 ~ rrn { found = 1 }
+    $0 ~ cc || $0 ~ amex || $0 ~ ssn || $0 ~ rrn { found = 1 }
     END { exit (found ? 0 : 1) }
   '
 }
@@ -509,8 +513,16 @@ block_on_pii_text() {
       exit 2
       ;;
     mask)
-      pii_tier2_present "$text" || return 0
-      info "$PROGRAM: blocked high-sensitivity PII (SSN/credit card/resident reg. no.) in $label"
+      # Fail closed: only a definitive "no Tier-2 PII" (status 1) lets input
+      # through; a detector error (awk missing/failed) blocks rather than
+      # silently allowing high-sensitivity PII into the tool.
+      pii_tier2_present "$text"
+      status=$?
+      case "$status" in
+        1) return 0 ;;
+        0) info "$PROGRAM: blocked high-sensitivity PII (SSN/credit card/resident reg. no.) in $label" ;;
+        *) info "$PROGRAM: blocked input: Tier-2 PII detector failed (status $status) in $label" ;;
+      esac
       exit 2
       ;;
   esac
@@ -519,6 +531,10 @@ block_on_pii_text() {
 check_pii_hook_input() {
   input=$1
   tool=$2
+  # Validate the mode in the main shell first: pii_hook_mode dies on an
+  # unsupported value, but the $(...) reads below would swallow that exit and
+  # silently disable the gate. Running it here (no subshell) fails closed.
+  pii_hook_mode >/dev/null
   [ "$(pii_hook_mode)" = off ] && return 0
   need_cmd jq
 
@@ -1530,6 +1546,7 @@ mask_pii_response_json() {
   printf '%s' "$resp" | jq -c '
     def mask_pii:
       gsub("[0-9]{4}[ -]?[0-9]{4}[ -]?[0-9]{4}[ -]?[0-9]{4}([ -]?[0-9]{3})?"; "[PII:CREDIT_CARD]")
+      | gsub("3[47][0-9]{2}[ -]?[0-9]{6}[ -]?[0-9]{5}"; "[PII:CREDIT_CARD]")
       | gsub("[0-9]{6}-[0-9]{7}"; "[PII:KR_RRN]")
       | gsub("[0-9]{3}-[0-9]{2}-[0-9]{4}"; "[PII:SSN]")
       | gsub("[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}"; "[PII:IP_ADDRESS]")
@@ -1551,6 +1568,10 @@ mask_pii_response_json() {
 # step that fails leaves the value unchanged and the original passes through).
 redact_tool_output() {
   input=$1
+  # Validate the mode in the main shell (pii_hook_mode dies on an unsupported
+  # value; the $(...) read below would otherwise swallow the exit and silently
+  # leave PII unmasked). A misconfigured mode fails loud instead of fail-open.
+  pii_hook_mode >/dev/null
   secrets_on=0; pii_on=0
   output_redact_enabled && secrets_on=1
   [ "$(pii_hook_mode)" = mask ] && pii_on=1
