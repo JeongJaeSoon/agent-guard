@@ -27,7 +27,9 @@ Agent Guard is a deterministic, thin guardrail — not a DLP system, EDR, or
 vault. It has documented blind spots by design (see
 [Known Limitations](README.md#known-limitations)): gitignored files are not
 scanned, only the git work tree is covered, path/command blocking uses fixed
-lists, tool-output masking is best-effort, and Bash detection is pattern-based.
+lists, tool-output masking is best-effort, Bash detection is pattern-based, and
+commands a user runs through the host's interactive shell escape (e.g. a
+`!`-prefixed command) never reach a tool hook and so are not scanned or masked.
 
 Behavior that falls within those documented limitations is expected, not a
 vulnerability. Suggestions to narrow a blind spot are welcome as regular issues
