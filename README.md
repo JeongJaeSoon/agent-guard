@@ -191,13 +191,19 @@ printf '%s\n' 'Customer jane@example.com' \
 
 Agent Guard does not install, import, run, or manage `pleno-anonymize`, Docker, Python, or any hosted service. If you use `pleno`, run pleno-anonymize separately or point `AGENT_GUARD_PII_REDACT_URL` at a hosted compatible endpoint.
 
-Masking is a CLI workflow. Agent hooks cannot safely rewrite pending tool payloads, so hook PII enforcement is off by default. To block tool inputs containing PII, opt in explicitly:
+PII handling in hooks is off by default. Two opt-in modes:
 
 ```sh
-AGENT_GUARD_PII_HOOK_MODE=block
+AGENT_GUARD_PII_HOOK_MODE=block   # block tool INPUTS that contain any PII
+# or
+AGENT_GUARD_PII_HOOK_MODE=mask    # mask PII in tool OUTPUTS; hard-block Tier-2 inputs
 ```
 
-In block mode, proposed `Write`, `Edit`, `MultiEdit`, `apply_patch`, `Bash`, `WebFetch`, `WebSearch`, and MCP inputs are blocked when PII is detected, with guidance to run `agent-guard pii-filter` first. `AGENT_GUARD_PII_HOOK_MODE=mask` is rejected because hooks cannot perform safe in-flight masking.
+In **block** mode, proposed `Write`, `Edit`, `MultiEdit`, `apply_patch`, `Bash`, `WebFetch`, `WebSearch`, and MCP inputs are blocked when any PII is detected, with guidance to run `agent-guard pii-filter` first.
+
+In **mask** mode, PII is masked in a tool's *output* (`PostToolUse`, the same path as secret redaction) so the model never sees it. On the *input* side, mask mode hard-blocks only **Tier-2** PII — credit card, US SSN, and Korean resident registration number, which must never reach a tool — and lets **Tier-1** PII (email, phone, IPv4) through to be masked on the way out. Hooks cannot rewrite a *pending* input payload, so Tier-1 input is allowed rather than masked in place; use `agent-guard pii-filter` for input-side masking.
+
+The regex provider recognizes email, phone (including Korean mobile), IPv4, credit card, US SSN, and Korean resident registration number.
 
 ## Native Git Hook
 
@@ -249,7 +255,7 @@ To enable it, add an Actions secret named `OPENAI_API_KEY` in the GitHub reposit
 - `Write`, `Edit`, `MultiEdit`, and Codex `apply_patch` content containing secret-like values
 - `WebFetch`, `WebSearch`, and MCP tool input JSON containing secret-like values
 - risky shell commands such as `printenv`, `op read`, `vault kv get`, `aws secretsmanager get-secret-value`, `cat .env`, and `git commit --no-verify`
-- PII in proposed write, shell, web, or MCP inputs only when `AGENT_GUARD_PII_HOOK_MODE=block`
+- PII in proposed write, shell, web, or MCP inputs — all PII when `AGENT_GUARD_PII_HOOK_MODE=block`, or only Tier-2 PII (credit card, US SSN, Korean resident registration number) when `AGENT_GUARD_PII_HOOK_MODE=mask`
 - staged added lines in the native pre-commit hook
 - working-tree added lines and untracked files after agent mutations
 
@@ -259,6 +265,8 @@ Patch and diff scans inspect added lines only. Removing an existing leaked value
 
 Beyond blocking, Agent Guard **masks** secret-like values in a tool's *output* before the model sees them. A `PostToolUse` redactor scans the result of `Bash` (stdout/stderr) and read-style tools (`Read`, `NotebookRead`, `Grep`, `Glob`, `WebFetch`, `WebSearch`, and `mcp__.*`) and rewrites any detected secret to `[REDACTED]` in place via `updatedToolOutput`, preserving the result's shape. This closes the gap where a command *prints* a credential the pre-tool check never saw — e.g. `cat memo.txt`, an env-printing CLI, or a tool that dumps `KEY=value` pairs. Detection combines gitleaks with a `KEY=value` env-assignment heuristic. It is on by default; disable with `AGENT_GUARD_OUTPUT_REDACT=off`.
 
+With `AGENT_GUARD_PII_HOOK_MODE=mask`, the same `PostToolUse` redactor also masks **PII** in tool output — email, phone (including Korean mobile), IPv4, credit card, US SSN, and Korean resident registration number become `[PII:TYPE]` placeholders in place. Secret redaction and PII masking compose into a single rewrite, so a result containing both is fully sanitized at once.
+
 ## Known Limitations
 
 Agent Guard is a deterministic, thin guardrail — not a DLP system, EDR, or vault. It scans tracked diffs, staged changes, and untracked files with gitleaks, and blocks a fixed list of sensitive paths and shell idioms. It deliberately does **not** inspect arbitrary file contents that a command reads, and it has these blind spots by design:
@@ -266,7 +274,7 @@ Agent Guard is a deterministic, thin guardrail — not a DLP system, EDR, or vau
 - **Gitignored files are not scanned.** The working-tree and post-tool/stop backstops use `git ls-files --others --exclude-standard` and `git diff`, both of which skip `.gitignore`d paths. A secret written to a gitignored file (e.g. `secrets/` or `*.local`) is not caught by the backstop. Keep real secrets out of the repo entirely.
 - **Only files inside the git work tree are covered.** The post-tool and stop hooks no-op outside a git repository, and scans are scoped to the current repo. Files outside the repo root, or written when no repo is present, get no backstop. Use `agent-guard scan-path <dir>` to scan an arbitrary tree on demand.
 - **Path and command blocking use fixed lists.** Read/Grep/Glob blocking matches the paths in `deny-read-paths.txt`; shell blocking matches the idioms in `deny-bash-patterns.txt`. A secret in an unlisted path, or read by an unlisted tool or flag, is not blocked. Extend the lists with `AGENT_GUARD_DENY_READ_PATHS` / `AGENT_GUARD_DENY_BASH_PATTERNS`.
-- **Output masking is best-effort.** Secret-like values in a tool's output (`Bash` stdout/stderr, file reads) are masked in place by the `PostToolUse` redactor (`AGENT_GUARD_OUTPUT_REDACT`, on by default), but detection is heuristic — gitleaks plus a `KEY=value` env-assignment rule. Unusual or custom secret formats can still slip through, and the redactor only sees results of the agent's *tool calls*. Treat output masking as defense in depth and keep real secrets out of agent sessions entirely.
+- **Output masking is best-effort.** Secret-like values in a tool's output (`Bash` stdout/stderr, file reads) are masked in place by the `PostToolUse` redactor (`AGENT_GUARD_OUTPUT_REDACT`, on by default), but detection is heuristic — gitleaks plus a `KEY=value` env-assignment rule. Unusual or custom secret formats can still slip through, and the redactor only sees results of the agent's *tool calls*. PII masking (`AGENT_GUARD_PII_HOOK_MODE=mask`) is likewise regex-based: it can over-match (a version string read as an IPv4) or miss locale formats it has no rule for. Both the secret redactor and the PII masker walk JSON string *values* only — a secret or PII string that appears as an object *key* is left unmasked, because rewriting keys could collapse two distinct keys onto one placeholder and drop an entry. Treat output masking as defense in depth and keep real secrets and personal data out of agent sessions entirely.
 - **Bash detection is pattern-based.** The denylist targets common-accident and obvious-malicious idioms; an actively-evading agent can craft a command that matches none of them. Treat shell blocking as defense in depth, not a complete adversarial boundary.
 
 For defense in depth, pair Agent Guard with GitHub Secret Scanning / Push Protection and a secrets manager so credentials never reach the working tree.
@@ -285,7 +293,7 @@ AGENT_GUARD_PII_HOOK_MODE=off
 AGENT_GUARD_OUTPUT_REDACT=mask
 ```
 
-Set `AGENT_GUARD_OUTPUT_REDACT=off` to disable masking secret-like values in tool output (default `mask`).
+Set `AGENT_GUARD_OUTPUT_REDACT=off` to disable masking secret-like values in tool output (default `mask`). Set `AGENT_GUARD_PII_HOOK_MODE` to `block` (block PII in tool inputs), `mask` (mask PII in tool outputs + hard-block Tier-2 PII inputs), or `off` (default).
 
 Project-local `.gitleaks.toml` files are not automatically trusted.
 
