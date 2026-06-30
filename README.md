@@ -257,7 +257,7 @@ Patch and diff scans inspect added lines only. Removing an existing leaked value
 
 ## What Gets Masked
 
-Beyond blocking, Agent Guard **masks** secret-like values in a tool's *output* before the model sees them. A `PostToolUse` redactor scans the result of `Bash` (stdout/stderr) and read-style tools (`Read`, `NotebookRead`, `Grep`, `Glob`, `WebFetch`, `WebSearch`) and rewrites any detected secret to `[REDACTED]` in place via `updatedToolOutput`, preserving the result's shape. This closes the gap where a command *prints* a credential the pre-tool check never saw — e.g. `cat memo.txt`, an env-printing CLI, or a tool that dumps `KEY=value` pairs. Detection combines gitleaks with a `KEY=value` env-assignment heuristic. It is on by default; disable with `AGENT_GUARD_OUTPUT_REDACT=off`.
+Beyond blocking, Agent Guard **masks** secret-like values in a tool's *output* before the model sees them. A `PostToolUse` redactor scans the result of `Bash` (stdout/stderr) and read-style tools (`Read`, `NotebookRead`, `Grep`, `Glob`, `WebFetch`, `WebSearch`, and `mcp__.*`) and rewrites any detected secret to `[REDACTED]` in place via `updatedToolOutput`, preserving the result's shape. This closes the gap where a command *prints* a credential the pre-tool check never saw — e.g. `cat memo.txt`, an env-printing CLI, or a tool that dumps `KEY=value` pairs. Detection combines gitleaks with a `KEY=value` env-assignment heuristic. It is on by default; disable with `AGENT_GUARD_OUTPUT_REDACT=off`.
 
 ## Known Limitations
 
