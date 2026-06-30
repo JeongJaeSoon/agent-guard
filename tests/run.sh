@@ -1938,6 +1938,98 @@ else
   sed 's/^/  /' /tmp/agent-guard-test.err
 fi
 
+# --- Tool-output secret redaction (PostToolUse updatedToolOutput) ----------
+# Masks secret-like values in a tool's RESULT before the model sees it. Run from
+# a non-git dir so the mutation-tool working-tree backstop stays inert and these
+# assertions isolate the redaction path. The harness mock gitleaks flags
+# AGENT_GUARD_TEST_SECRET; the env-assignment heuristic catches KEY=value dumps.
+post_tool_out() {
+  printf '%s' "$1" | (cd "$TMP_ROOT" && "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool) \
+    >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+}
+
+post_tool_out '{"tool_name":"Bash","tool_input":{"command":"loadsecrets"},"tool_response":{"stdout":"token AGENT_GUARD_TEST_SECRET here\n","stderr":"","interrupted":false,"isImage":false}}'
+post_status=$?
+post_out=$(cat /tmp/agent-guard-test.out)
+if [ "$post_status" -eq 0 ] \
+   && printf '%s' "$post_out" | grep -q '\[REDACTED\]' \
+   && ! printf '%s' "$post_out" | grep -q 'AGENT_GUARD_TEST_SECRET' \
+   && printf '%s' "$post_out" | jq -e '.hookSpecificOutput.updatedToolOutput | has("stdout") and has("stderr") and has("interrupted") and has("isImage")' >/dev/null 2>&1; then
+  ok "post-tool masks a gitleaks-detected secret in Bash stdout (shape preserved)"
+else
+  not_ok "post-tool masks a gitleaks-detected secret in Bash stdout (status $post_status)"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+post_tool_out '{"tool_name":"Bash","tool_input":{"command":"printenv-like"},"tool_response":{"stdout":"DATABASE_PASSWORD=hunter2-long-value\n","stderr":"","interrupted":false,"isImage":false}}'
+post_out=$(cat /tmp/agent-guard-test.out)
+if printf '%s' "$post_out" | grep -q '\[REDACTED\]' \
+   && ! printf '%s' "$post_out" | grep -q 'hunter2-long-value'; then
+  ok "post-tool env-assignment heuristic masks KEY=value gitleaks misses"
+else
+  not_ok "post-tool env-assignment heuristic masks KEY=value gitleaks misses"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+post_tool_out '{"tool_name":"Read","tool_input":{"file_path":"memo.txt"},"tool_response":"API_KEY=supersecretvalue123\n"}'
+post_out=$(cat /tmp/agent-guard-test.out)
+if printf '%s' "$post_out" | jq -e '.hookSpecificOutput.updatedToolOutput | type == "string"' >/dev/null 2>&1 \
+   && ! printf '%s' "$post_out" | grep -q 'supersecretvalue123'; then
+  ok "post-tool masks secrets in Read string output (shape stays string)"
+else
+  not_ok "post-tool masks secrets in Read string output"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+post_tool_out '{"tool_name":"Bash","tool_input":{"command":"echo hi"},"tool_response":{"stdout":"hello world\n","stderr":"","interrupted":false,"isImage":false}}'
+post_status=$?
+post_out=$(cat /tmp/agent-guard-test.out)
+if [ "$post_status" -eq 0 ] && [ -z "$post_out" ]; then
+  ok "post-tool leaves clean output untouched (no rewrite emitted)"
+else
+  not_ok "post-tool leaves clean output untouched (status $post_status)"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+printf '%s' '{"tool_name":"Read","tool_input":{"file_path":"memo.txt"},"tool_response":"API_KEY=supersecretvalue123\n"}' \
+  | (cd "$TMP_ROOT" && AGENT_GUARD_OUTPUT_REDACT=off "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool) \
+  >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+post_status=$?
+if [ "$post_status" -eq 0 ] && [ ! -s /tmp/agent-guard-test.out ]; then
+  ok "post-tool redaction disabled via AGENT_GUARD_OUTPUT_REDACT=off"
+else
+  not_ok "post-tool redaction disabled via AGENT_GUARD_OUTPUT_REDACT=off (status $post_status)"
+  sed 's/^/  out: /' /tmp/agent-guard-test.out
+fi
+
+# Overlapping secrets: when one detected value is a prefix of another, redaction
+# must scrub both. Lexicographic order would replace the prefix first and strand
+# the longer secret's suffix (UNIQUESUFFIX) — longest-first ordering prevents it.
+post_tool_out '{"tool_name":"Bash","tool_input":{"command":"x"},"tool_response":{"stdout":"AWS_SECRET=abcdwxyzcommonpart\nAWS_SECRET_KEY=abcdwxyzcommonpartUNIQUESUFFIX\n","stderr":"","interrupted":false,"isImage":false}}'
+post_out=$(cat /tmp/agent-guard-test.out)
+if printf '%s' "$post_out" | grep -q '\[REDACTED\]' \
+   && ! printf '%s' "$post_out" | grep -q 'abcdwxyzcommonpart' \
+   && ! printf '%s' "$post_out" | grep -q 'UNIQUESUFFIX'; then
+  ok "post-tool redacts overlapping secrets without leaking the longer suffix"
+else
+  not_ok "post-tool redacts overlapping secrets without leaking the longer suffix"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+# Log/timestamp prefix must not hijack the env-heuristic split: the value is
+# anchored to the matched key's delimiter, not the first ":" (here inside the
+# "12:00:00" timestamp). A clean copy in a SEPARATE leaf (stderr) only gets
+# masked if the extracted literal is the real value, so this catches a mis-slice.
+post_tool_out '{"tool_name":"Bash","tool_input":{"command":"x"},"tool_response":{"stdout":"2026-06-30T12:00:00Z level=info password=SuperSecretLogValue\n","stderr":"echoed SuperSecretLogValue\n","interrupted":false,"isImage":false}}'
+post_out=$(cat /tmp/agent-guard-test.out)
+if printf '%s' "$post_out" | grep -q '\[REDACTED\]' \
+   && ! printf '%s' "$post_out" | grep -q 'SuperSecretLogValue'; then
+  ok "post-tool anchors env value past a log prefix and masks it across leaves"
+else
+  not_ok "post-tool anchors env value past a log prefix and masks it across leaves"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
 say "passed: $pass"
 say "failed: $fail"
 

@@ -1,3 +1,7 @@
+## Unreleased
+
+- feat(agent-guard): mask secret-like values in tool output via PostToolUse `updatedToolOutput`, closing the gap where a command prints credentials the pre-tool check never sees (`cat memo.txt`, env-printing CLIs, `KEY=value` dumps). On by default; disable with `AGENT_GUARD_OUTPUT_REDACT=off`. Detection combines gitleaks with a `KEY=value` env-assignment heuristic; redaction preserves the tool result's shape and fails safe (never corrupts output).
+
 ## v1.3.8 - 2026-06-16
 
 - docs: separate demo steps with blank lines for readability (#66)

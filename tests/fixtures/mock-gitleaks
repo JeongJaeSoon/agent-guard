@@ -4,13 +4,24 @@ set -u
 mode=${1:-}
 case "$mode" in
   stdin)
+    shift
+    report_path=''
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --report-path) shift; report_path=${1:-} ;;
+        --report-path=*) report_path=${1#--report-path=} ;;
+      esac
+      shift
+    done
     input=$(cat)
     case "$input" in
       *AGENT_GUARD_TEST_SECRET*)
+        [ -n "$report_path" ] && printf '%s\n' '[{"Secret":"AGENT_GUARD_TEST_SECRET"}]' >"$report_path"
         printf '%s\n' "Finding: REDACTED"
         exit 1
         ;;
       *)
+        [ -n "$report_path" ] && printf '%s\n' '[]' >"$report_path"
         exit 0
         ;;
     esac

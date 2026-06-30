@@ -255,6 +255,10 @@ To enable it, add an Actions secret named `OPENAI_API_KEY` in the GitHub reposit
 
 Patch and diff scans inspect added lines only. Removing an existing leaked value is allowed.
 
+## What Gets Masked
+
+Beyond blocking, Agent Guard **masks** secret-like values in a tool's *output* before the model sees them. A `PostToolUse` redactor scans the result of `Bash` (stdout/stderr) and read-style tools (`Read`, `NotebookRead`, `Grep`, `Glob`, `WebFetch`, `WebSearch`, and `mcp__.*`) and rewrites any detected secret to `[REDACTED]` in place via `updatedToolOutput`, preserving the result's shape. This closes the gap where a command *prints* a credential the pre-tool check never saw — e.g. `cat memo.txt`, an env-printing CLI, or a tool that dumps `KEY=value` pairs. Detection combines gitleaks with a `KEY=value` env-assignment heuristic. It is on by default; disable with `AGENT_GUARD_OUTPUT_REDACT=off`.
+
 ## Known Limitations
 
 Agent Guard is a deterministic, thin guardrail — not a DLP system, EDR, or vault. It scans tracked diffs, staged changes, and untracked files with gitleaks, and blocks a fixed list of sensitive paths and shell idioms. It deliberately does **not** inspect arbitrary file contents that a command reads, and it has these blind spots by design:
@@ -262,7 +266,7 @@ Agent Guard is a deterministic, thin guardrail — not a DLP system, EDR, or vau
 - **Gitignored files are not scanned.** The working-tree and post-tool/stop backstops use `git ls-files --others --exclude-standard` and `git diff`, both of which skip `.gitignore`d paths. A secret written to a gitignored file (e.g. `secrets/` or `*.local`) is not caught by the backstop. Keep real secrets out of the repo entirely.
 - **Only files inside the git work tree are covered.** The post-tool and stop hooks no-op outside a git repository, and scans are scoped to the current repo. Files outside the repo root, or written when no repo is present, get no backstop. Use `agent-guard scan-path <dir>` to scan an arbitrary tree on demand.
 - **Path and command blocking use fixed lists.** Read/Grep/Glob blocking matches the paths in `deny-read-paths.txt`; shell blocking matches the idioms in `deny-bash-patterns.txt`. A secret in an unlisted path, or read by an unlisted tool or flag, is not blocked. Extend the lists with `AGENT_GUARD_DENY_READ_PATHS` / `AGENT_GUARD_DENY_BASH_PATTERNS`.
-- **Command output is not inspected.** Blocking a `Read` or `Bash` invocation is based on the requested path and the command text, not on what the command prints. A command that reads an unlisted secret file or expands a variable at runtime (e.g. `echo "$TOKEN"`) can surface a secret the pre-tool check never sees.
+- **Output masking is best-effort.** Secret-like values in a tool's output (`Bash` stdout/stderr, file reads) are masked in place by the `PostToolUse` redactor (`AGENT_GUARD_OUTPUT_REDACT`, on by default), but detection is heuristic — gitleaks plus a `KEY=value` env-assignment rule. Unusual or custom secret formats can still slip through, and the redactor only sees results of the agent's *tool calls*. Treat output masking as defense in depth and keep real secrets out of agent sessions entirely.
 - **Bash detection is pattern-based.** The denylist targets common-accident and obvious-malicious idioms; an actively-evading agent can craft a command that matches none of them. Treat shell blocking as defense in depth, not a complete adversarial boundary.
 
 For defense in depth, pair Agent Guard with GitHub Secret Scanning / Push Protection and a secrets manager so credentials never reach the working tree.
@@ -278,7 +282,10 @@ AGENT_GUARD_DENY_BASH_PATTERNS=/path/to/deny-bash-patterns.txt
 AGENT_GUARD_PII_PROVIDER=regex
 AGENT_GUARD_PII_REDACT_URL=http://127.0.0.1:8080/api/redact
 AGENT_GUARD_PII_HOOK_MODE=off
+AGENT_GUARD_OUTPUT_REDACT=mask
 ```
+
+Set `AGENT_GUARD_OUTPUT_REDACT=off` to disable masking secret-like values in tool output (default `mask`).
 
 Project-local `.gitleaks.toml` files are not automatically trusted.
 
