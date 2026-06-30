@@ -1392,19 +1392,140 @@ is_mutation_tool() {
   esac
 }
 
+# --- Tool-output secret redaction (PostToolUse) ------------------------------
+# The pre-tool checks only ever see a command string or a file path; they never
+# see what a command PRINTS or what a file read RETURNS. A shell command that
+# dumps credentials to stdout (an env-printing CLI, `cat` of a secret-bearing
+# note) therefore leaks the secret into the model context unscanned. PostToolUse
+# can rewrite an already-produced result before the model sees it via
+# `hookSpecificOutput.updatedToolOutput` (Claude Code >= 2.1.121), so here we
+# scan the tool_response and mask any secret-like spans in place.
+#
+# Fail-safe: this path runs for (potentially) every tool result, so any error
+# emits NOTHING and lets the original output through unchanged. A redaction bug
+# must never corrupt a tool result.
+
+output_redact_enabled() {
+  case "${AGENT_GUARD_OUTPUT_REDACT:-mask}" in
+    off|'') return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
+# Recall booster for the most common leak shape: `KEY=value`, `export KEY=value`
+# or `KEY: value` dumps whose key name looks secret-bearing. gitleaks misses most
+# of these (custom value formats), so emit the VALUE for literal redaction.
+secretish_env_values() {
+  awk '
+    {
+      low = tolower($0)
+      # Anchor the value to the delimiter that follows the matched key, not the
+      # first [=:] on the line — a log/timestamp prefix (e.g. "12:00:00") would
+      # otherwise hijack the split and mis-slice the value. tolower preserves
+      # byte offsets for ASCII, so RSTART/RLENGTH from `low` apply to $0.
+      if (match(low, /(password|passwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|credential|client[_-]?secret|auth[_-]?token|webhook)[a-z0-9_]*[ \t]*[=:]/)) {
+        val = substr($0, RSTART + RLENGTH)
+        gsub(/^[ \t"'\''`]+/, "", val)
+        gsub(/[ \t"'\''`,;]+$/, "", val)
+        if (length(val) >= 4) print val
+      }
+    }
+  '
+}
+
+# Collect the literal secret strings present in $1 (the tool output text):
+# gitleaks findings (when gitleaks is available) plus the env-assignment
+# heuristic. Prints one secret per line; empty output means nothing to redact.
+detect_output_secrets() {
+  text=$1
+  {
+    # ponytail: forks gitleaks once per matched tool output. Acceptable because
+    # tool results reaching the hook are already harness-truncated; if a large
+    # WebFetch/MCP stream ever dominates latency, gate this on a size cap or an
+    # in-process pre-filter before the fork.
+    if command -v gitleaks >/dev/null 2>&1 && [ -f "$GITLEAKS_CONFIG" ]; then
+      report=$(mktemp_file) || report=''
+      if [ -n "$report" ]; then
+        printf '%s\n' "$text" \
+          | gitleaks stdin --report-format json --report-path "$report" \
+              --no-banner --config "$GITLEAKS_CONFIG" >/dev/null 2>&1
+        [ -s "$report" ] && jq -r '.[]?.Secret // empty' "$report" 2>/dev/null
+        rm -f "$report"
+      fi
+    fi
+    printf '%s\n' "$text" | secretish_env_values
+  } | awk 'NF' | sort -u
+}
+
+# Replace every detected secret literal with a placeholder inside ANY string leaf
+# of the tool_response JSON ($1), preserving the original shape exactly
+# (updatedToolOutput must match the tool's native output shape). $2 is the
+# newline-separated secret list. Prints the redacted JSON, or nothing on failure.
+redact_tool_response_json() {
+  resp=$1
+  secrets=$2
+  secrets_json=$(printf '%s' "$secrets" | jq -R . 2>/dev/null | jq -s . 2>/dev/null) || return 1
+  [ -n "$secrets_json" ] || return 1
+  printf '%s' "$resp" | jq -c --argjson secrets "$secrets_json" '
+    def walk(f): def w: if type == "object" then map_values(w)
+                        elif type == "array" then map(w)
+                        else . end | f; w;
+    def redact($s): reduce ($s | sort_by(length) | reverse)[] as $x (.;
+      if ($x | length) > 0 then ((. / $x) | join("[REDACTED]")) else . end);
+    walk(if type == "string" then redact($secrets) else . end)
+  ' 2>/dev/null
+}
+
+# PostToolUse output guard: scan this tool's result and, if any secret-like value
+# is present, emit updatedToolOutput with it masked, then exit 0 (a non-zero exit
+# makes Claude Code ignore the JSON). Never blocks; never corrupts on error.
+redact_tool_output() {
+  input=$1
+  output_redact_enabled || return 0
+
+  resp=$(printf '%s' "$input" | jq -c '.tool_response // empty' 2>/dev/null) || return 0
+  case "$resp" in
+    ''|null) return 0 ;;
+  esac
+
+  text=$(printf '%s' "$input" \
+    | jq -r '.tool_response | if type == "string" then . else [.. | strings] | join("\n") end' 2>/dev/null)
+  [ -n "$text" ] || return 0
+
+  secrets=$(detect_output_secrets "$text")
+  [ -n "$secrets" ] || return 0
+
+  redacted=$(redact_tool_response_json "$resp" "$secrets")
+  [ -n "$redacted" ] || return 0
+  [ "$redacted" != "$resp" ] || return 0
+
+  printf '%s' "$input" \
+    | jq -c --argjson ut "$redacted" \
+        '{hookSpecificOutput: {hookEventName: "PostToolUse", updatedToolOutput: $ut}}' 2>/dev/null \
+    || return 0
+  info "$PROGRAM: masked secret-like values in $(json_value '.tool_name // "tool"' "$input") output"
+  exit 0
+}
+
 hook_post_tool() {
   need_cmd jq
-  need_cmd git
   input=$(cat)
   [ -n "$input" ] || return 0
   tool=$(json_value '.tool_name // .tool // .name // empty' "$input")
-  is_mutation_tool "$tool" || return 0
 
-  # Best-effort: silently skip when the agent runs outside a git work tree.
-  inside_git_repo || return 0
+  # Mutation tools keep the working-tree backstop (may exit 2). It runs first so
+  # a secret written to disk is still surfaced even when redaction is enabled.
+  if is_mutation_tool "$tool"; then
+    need_cmd git
+    if inside_git_repo; then
+      scan_working_tree
+      block_on_scan_status "$?" "changed files contain secret-like values after tool execution"
+    fi
+  fi
 
-  scan_working_tree
-  block_on_scan_status "$?" "changed files contain secret-like values after tool execution"
+  # All matched tools: mask secret-like values in the tool's output before the
+  # model sees them (may emit updatedToolOutput and exit 0).
+  redact_tool_output "$input"
 }
 
 hook_stop() {
