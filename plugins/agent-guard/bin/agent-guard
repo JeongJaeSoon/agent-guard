@@ -357,9 +357,11 @@ pii_regex_adapter_filter() {
   awk '
     BEGIN {
       credit_card = "[0-9][0-9][0-9][0-9][ -]?[0-9][0-9][0-9][0-9][ -]?[0-9][0-9][0-9][0-9][ -]?[0-9][0-9][0-9][0-9]([ -]?[0-9][0-9][0-9])?"
+      kr_rrn = "[0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9][0-9]"
       ssn = "[0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9][0-9][0-9]"
       ip_addr = "[0-9][0-9]?[0-9]?[.][0-9][0-9]?[0-9]?[.][0-9][0-9]?[0-9]?[.][0-9][0-9]?[0-9]?"
       email = "[[:alnum:]_%+.-]+@[[:alnum:].-]+[.][[:alpha:]][[:alpha:]][[:alpha:]]*"
+      kr_mobile = "01[0-9][ -]?[0-9][0-9][0-9][0-9][ -]?[0-9][0-9][0-9][0-9]"
       phone = "([+]?[0-9][ .-]?)?([(][0-9][0-9][0-9][)]|[0-9][0-9][0-9])[ .-]?[0-9][0-9][0-9][ .-]?[0-9][0-9][0-9][0-9]"
     }
     {
@@ -367,9 +369,11 @@ pii_regex_adapter_filter() {
         printf "%s", ORS
       }
       gsub(credit_card, "[PII:CREDIT_CARD]")
+      gsub(kr_rrn, "[PII:KR_RRN]")
       gsub(ssn, "[PII:SSN]")
       gsub(ip_addr, "[PII:IP_ADDRESS]")
       gsub(email, "[PII:EMAIL]")
+      gsub(kr_mobile, "[PII:PHONE]")
       gsub(phone, "[PII:PHONE]")
       printf "%s", $0
     }
@@ -461,31 +465,61 @@ pii_text_has_match() {
   [ "$masked" != "$text" ]
 }
 
-pii_hook_block_enabled() {
+pii_hook_mode() {
   mode=${AGENT_GUARD_PII_HOOK_MODE:-off}
   case "$mode" in
-    off|'') return 1 ;;
-    block) return 0 ;;
-    mask)
-      die "PII hook mode mask is not supported; hooks cannot rewrite pending tool payloads. Use agent-guard pii-filter before invoking tools, or set AGENT_GUARD_PII_HOOK_MODE=block."
-      ;;
-    *) die "unsupported PII hook mode: $mode (expected off or block)" ;;
+    off|'') printf 'off' ;;
+    block) printf 'block' ;;
+    mask) printf 'mask' ;;
+    *) die "unsupported PII hook mode: $mode (expected off, block, or mask)" ;;
   esac
 }
 
+# High-sensitivity ("Tier 2") PII that must never reach a tool input even in
+# mask mode: SSN, credit card, and Korean resident registration number. Detected
+# directly (provider-independent) so the input gate works for any provider, since
+# only the regex adapter exposes typed markers. These patterns mirror the Tier-2
+# rules in pii_regex_adapter_filter (CLI) and mask_pii_response_json (output); if
+# you change one, change all three. tests/run.sh drives a credit card, SSN, and
+# resident reg. no. through this gate (expect exit 2) and through the masker.
+pii_tier2_present() {
+  text=$1
+  [ -n "$text" ] || return 1
+  printf '%s' "$text" | awk '
+    BEGIN {
+      cc = "[0-9][0-9][0-9][0-9][ -]?[0-9][0-9][0-9][0-9][ -]?[0-9][0-9][0-9][0-9][ -]?[0-9][0-9][0-9][0-9]([ -]?[0-9][0-9][0-9])?"
+      ssn = "[0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9][0-9][0-9]"
+      rrn = "[0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9][0-9]"
+    }
+    $0 ~ cc || $0 ~ ssn || $0 ~ rrn { found = 1 }
+    END { exit (found ? 0 : 1) }
+  '
+}
+
+# Input gate. block mode blocks ANY PII (run pii-filter first); mask mode only
+# hard-blocks Tier-2 PII on the way in (Tier-1 — email/phone/IP — is allowed in
+# and masked on the way out instead). off never reaches here.
 block_on_pii_text() {
   label=$1
   text=$2
-  if pii_text_has_match "$text"; then
-    info "$PROGRAM: blocked PII in $label; run agent-guard pii-filter before using this tool"
-    exit 2
-  fi
+  case "$(pii_hook_mode)" in
+    block)
+      pii_text_has_match "$text" || return 0
+      info "$PROGRAM: blocked PII in $label; run agent-guard pii-filter before using this tool"
+      exit 2
+      ;;
+    mask)
+      pii_tier2_present "$text" || return 0
+      info "$PROGRAM: blocked high-sensitivity PII (SSN/credit card/resident reg. no.) in $label"
+      exit 2
+      ;;
+  esac
 }
 
 check_pii_hook_input() {
   input=$1
   tool=$2
-  pii_hook_block_enabled || return 0
+  [ "$(pii_hook_mode)" = off ] && return 0
   need_cmd jq
 
   case "$tool" in
@@ -1466,6 +1500,9 @@ redact_tool_response_json() {
   secrets=$2
   secrets_json=$(printf '%s' "$secrets" | jq -R . 2>/dev/null | jq -s . 2>/dev/null) || return 1
   [ -n "$secrets_json" ] || return 1
+  # Redacts string VALUES only; object KEYS are left untouched. Transforming keys
+  # could collide two distinct keys onto one placeholder and silently drop an
+  # entry; a secret appearing as a JSON key is a documented limitation (README).
   printf '%s' "$resp" | jq -c --argjson secrets "$secrets_json" '
     def walk(f): def w: if type == "object" then map_values(w)
                         elif type == "array" then map(w)
@@ -1479,31 +1516,86 @@ redact_tool_response_json() {
 # PostToolUse output guard: scan this tool's result and, if any secret-like value
 # is present, emit updatedToolOutput with it masked, then exit 0 (a non-zero exit
 # makes Claude Code ignore the JSON). Never blocks; never corrupts on error.
+# Mask PII inside ANY string leaf of the tool_response JSON ($1), preserving the
+# original shape. The regex patterns mirror pii_regex_adapter_filter (the CLI
+# adapter) so the hook and `agent-guard pii-filter` mask the same things; Tier-2
+# (credit card / KR resident reg. no. / SSN) is masked first so a Tier-1 pattern
+# can't shadow it, and KR mobile before the generic phone pattern. Like the
+# secret redactor, this masks string VALUES only — object KEYS are left as-is
+# (masking keys risks collapsing distinct keys onto one placeholder); PII in a
+# JSON key is a documented limitation (README). Prints the masked JSON, or
+# nothing on failure (e.g. a jq build without Oniguruma gsub).
+mask_pii_response_json() {
+  resp=$1
+  printf '%s' "$resp" | jq -c '
+    def mask_pii:
+      gsub("[0-9]{4}[ -]?[0-9]{4}[ -]?[0-9]{4}[ -]?[0-9]{4}([ -]?[0-9]{3})?"; "[PII:CREDIT_CARD]")
+      | gsub("[0-9]{6}-[0-9]{7}"; "[PII:KR_RRN]")
+      | gsub("[0-9]{3}-[0-9]{2}-[0-9]{4}"; "[PII:SSN]")
+      | gsub("[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}"; "[PII:IP_ADDRESS]")
+      | gsub("[A-Za-z0-9_%+.-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}"; "[PII:EMAIL]")
+      | gsub("01[0-9][ -]?[0-9]{4}[ -]?[0-9]{4}"; "[PII:PHONE]")
+      | gsub("(\\+?[0-9][ .-]?)?(\\([0-9]{3}\\)|[0-9]{3})[ .-]?[0-9]{3}[ .-]?[0-9]{4}"; "[PII:PHONE]");
+    def walk(f): def w: if type == "object" then map_values(w)
+                        elif type == "array" then map(w)
+                        else . end | f; w;
+    walk(if type == "string" then mask_pii else . end)
+  ' 2>/dev/null
+}
+
+# PostToolUse output guard. Applies, in one rewrite: secret-literal redaction
+# (AGENT_GUARD_OUTPUT_REDACT, on by default) and PII masking
+# (AGENT_GUARD_PII_HOOK_MODE=mask). Both transform the same tool_response and are
+# emitted as a single updatedToolOutput, so they compose instead of racing for
+# the one rewrite slot. Never blocks; never corrupts on error (fail-safe: any
+# step that fails leaves the value unchanged and the original passes through).
 redact_tool_output() {
   input=$1
-  output_redact_enabled || return 0
+  secrets_on=0; pii_on=0
+  output_redact_enabled && secrets_on=1
+  [ "$(pii_hook_mode)" = mask ] && pii_on=1
+  [ "$secrets_on" -eq 1 ] || [ "$pii_on" -eq 1 ] || return 0
 
   resp=$(printf '%s' "$input" | jq -c '.tool_response // empty' 2>/dev/null) || return 0
   case "$resp" in
     ''|null) return 0 ;;
   esac
 
-  text=$(printf '%s' "$input" \
-    | jq -r '.tool_response | if type == "string" then . else [.. | strings] | join("\n") end' 2>/dev/null)
-  [ -n "$text" ] || return 0
+  out=$resp
+  did_secret=0; did_pii=0
 
-  secrets=$(detect_output_secrets "$text")
-  [ -n "$secrets" ] || return 0
+  if [ "$secrets_on" -eq 1 ]; then
+    text=$(printf '%s' "$out" \
+      | jq -r 'if type == "string" then . else [.. | strings] | join("\n") end' 2>/dev/null)
+    if [ -n "$text" ]; then
+      secrets=$(detect_output_secrets "$text")
+      if [ -n "$secrets" ]; then
+        r=$(redact_tool_response_json "$out" "$secrets")
+        if [ -n "$r" ] && [ "$r" != "$out" ]; then out=$r; did_secret=1; fi
+      fi
+    fi
+  fi
 
-  redacted=$(redact_tool_response_json "$resp" "$secrets")
-  [ -n "$redacted" ] || return 0
-  [ "$redacted" != "$resp" ] || return 0
+  if [ "$pii_on" -eq 1 ]; then
+    r=$(mask_pii_response_json "$out")
+    if [ -n "$r" ] && [ "$r" != "$out" ]; then out=$r; did_pii=1; fi
+  fi
+
+  [ "$out" != "$resp" ] || return 0
 
   printf '%s' "$input" \
-    | jq -c --argjson ut "$redacted" \
+    | jq -c --argjson ut "$out" \
         '{hookSpecificOutput: {hookEventName: "PostToolUse", updatedToolOutput: $ut}}' 2>/dev/null \
     || return 0
-  info "$PROGRAM: masked secret-like values in $(json_value '.tool_name // "tool"' "$input") output"
+
+  tool=$(json_value '.tool_name // "tool"' "$input")
+  if [ "$did_secret" -eq 1 ] && [ "$did_pii" -eq 1 ]; then
+    info "$PROGRAM: masked secret-like values and PII in $tool output"
+  elif [ "$did_pii" -eq 1 ]; then
+    info "$PROGRAM: masked PII in $tool output"
+  else
+    info "$PROGRAM: masked secret-like values in $tool output"
+  fi
   exit 0
 }
 
@@ -1523,8 +1615,9 @@ hook_post_tool() {
     fi
   fi
 
-  # All matched tools: mask secret-like values in the tool's output before the
-  # model sees them (may emit updatedToolOutput and exit 0).
+  # All matched tools: mask secret-like values (and PII, when
+  # AGENT_GUARD_PII_HOOK_MODE=mask) in the tool's output before the model sees
+  # them (may emit updatedToolOutput and exit 0).
   redact_tool_output "$input"
 }
 

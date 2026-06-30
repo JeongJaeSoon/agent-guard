@@ -730,14 +730,65 @@ else
   sed 's/^/  stderr: /' /tmp/agent-guard-test.err
 fi
 
+# mask mode: clean input passes through (nothing to block on the way in).
 printf '%s' '{"tool_name":"Write","tool_input":{"file_path":"note.txt","content":"clean"}}' \
   | AGENT_GUARD_PII_HOOK_MODE=mask "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool \
     >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
 status=$?
-if [ "$status" -eq 2 ] && grep -q 'mask is not supported' /tmp/agent-guard-test.err; then
-  ok "PII hook mask mode is rejected"
+if [ "$status" -eq 0 ]; then
+  ok "PII mask mode allows clean input"
 else
-  not_ok "PII hook mask mode is rejected (expected 2, got $status)"
+  not_ok "PII mask mode allows clean input (expected 0, got $status)"
+  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+fi
+
+# mask mode: Tier-1 PII (email) is allowed IN — it gets masked on output instead.
+printf '%s' '{"tool_name":"Write","tool_input":{"file_path":"note.txt","content":"contact jane@example.com"}}' \
+  | AGENT_GUARD_PII_HOOK_MODE=mask "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool \
+    >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+status=$?
+if [ "$status" -eq 0 ]; then
+  ok "PII mask mode allows Tier-1 PII (email) input"
+else
+  not_ok "PII mask mode allows Tier-1 PII (email) input (expected 0, got $status)"
+  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+fi
+
+# mask mode: Tier-2 PII (KR resident registration number) is hard-blocked on input.
+printf '%s' '{"tool_name":"Write","tool_input":{"file_path":"note.txt","content":"id 900101-1234567"}}' \
+  | AGENT_GUARD_PII_HOOK_MODE=mask "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool \
+    >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+status=$?
+if [ "$status" -eq 2 ] && grep -q 'high-sensitivity PII' /tmp/agent-guard-test.err; then
+  ok "PII mask mode blocks Tier-2 PII (resident reg. no.) input"
+else
+  not_ok "PII mask mode blocks Tier-2 PII input (expected 2, got $status)"
+  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+fi
+
+# mask mode: Tier-2 credit card is hard-blocked on input.
+# (Card number assembled at runtime so this test file holds no contiguous PAN.)
+cc="4111 1111 ""1111 1111"
+printf '%s' "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"note.txt\",\"content\":\"card $cc\"}}" \
+  | AGENT_GUARD_PII_HOOK_MODE=mask "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool \
+    >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+status=$?
+if [ "$status" -eq 2 ] && grep -q 'high-sensitivity PII' /tmp/agent-guard-test.err; then
+  ok "PII mask mode blocks Tier-2 PII (credit card) input"
+else
+  not_ok "PII mask mode blocks Tier-2 PII (credit card) input (expected 2, got $status)"
+  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+fi
+
+# mask mode: Tier-2 US SSN is hard-blocked on input.
+printf '%s' '{"tool_name":"Write","tool_input":{"file_path":"note.txt","content":"ssn 123-45-6789"}}' \
+  | AGENT_GUARD_PII_HOOK_MODE=mask "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool \
+    >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+status=$?
+if [ "$status" -eq 2 ] && grep -q 'high-sensitivity PII' /tmp/agent-guard-test.err; then
+  ok "PII mask mode blocks Tier-2 PII (US SSN) input"
+else
+  not_ok "PII mask mode blocks Tier-2 PII (US SSN) input (expected 2, got $status)"
   sed 's/^/  stderr: /' /tmp/agent-guard-test.err
 fi
 
@@ -2028,6 +2079,80 @@ if printf '%s' "$post_out" | grep -q '\[REDACTED\]' \
 else
   not_ok "post-tool anchors env value past a log prefix and masks it across leaves"
   printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+# --- PII output masking (PostToolUse, AGENT_GUARD_PII_HOOK_MODE=mask) ---------
+# Masks PII in a tool's RESULT (parallel to secret redaction). Run from the
+# non-git TMP_ROOT so the mutation backstop stays inert.
+post_tool_pii() {
+  printf '%s' "$1" | (cd "$TMP_ROOT" && AGENT_GUARD_PII_HOOK_MODE=mask "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool) \
+    >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+}
+
+post_tool_pii '{"tool_name":"Bash","tool_input":{"command":"x"},"tool_response":{"stdout":"user jane@example.com ip 10.1.2.3 id 900101-1234567\n","stderr":"","interrupted":false,"isImage":false}}'
+post_status=$?
+post_out=$(cat /tmp/agent-guard-test.out)
+if [ "$post_status" -eq 0 ] \
+   && printf '%s' "$post_out" | grep -q '\[PII:EMAIL\]' \
+   && printf '%s' "$post_out" | grep -q '\[PII:IP_ADDRESS\]' \
+   && printf '%s' "$post_out" | grep -q '\[PII:KR_RRN\]' \
+   && ! printf '%s' "$post_out" | grep -q 'jane@example.com' \
+   && printf '%s' "$post_out" | jq -e '.hookSpecificOutput.updatedToolOutput | has("stdout") and has("stderr")' >/dev/null 2>&1; then
+  ok "post-tool mask mode masks email/IP/KR-RRN in output (shape preserved)"
+else
+  not_ok "post-tool mask mode masks PII in output"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+# Without mask mode, PII in output is left untouched (no rewrite emitted).
+post_tool_out '{"tool_name":"Bash","tool_input":{"command":"x"},"tool_response":{"stdout":"user jane@example.com\n","stderr":"","interrupted":false,"isImage":false}}'
+post_out=$(cat /tmp/agent-guard-test.out)
+if [ -z "$post_out" ]; then
+  ok "post-tool leaves PII untouched without mask mode (default)"
+else
+  not_ok "post-tool leaves PII untouched without mask mode (default)"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+# Secret redaction and PII masking compose into one updatedToolOutput across leaves.
+post_tool_pii '{"tool_name":"Bash","tool_input":{"command":"x"},"tool_response":{"stdout":"DATABASE_PASSWORD=hunter2longvalue\n","stderr":"notified jane@example.com\n","interrupted":false,"isImage":false}}'
+post_out=$(cat /tmp/agent-guard-test.out)
+if printf '%s' "$post_out" | grep -q '\[REDACTED\]' \
+   && printf '%s' "$post_out" | grep -q '\[PII:EMAIL\]' \
+   && ! printf '%s' "$post_out" | grep -q 'jane@example.com'; then
+  ok "post-tool composes secret redaction and PII masking in one rewrite"
+else
+  not_ok "post-tool composes secret redaction and PII masking in one rewrite"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+# CLI pii-filter (regex adapter) masks Korean PII: resident reg. no. and mobile.
+pii_cli=$(printf 'rrn 900101-1234567 mob 010-1234-5678\n' | "$PLUGIN_ROOT/bin/agent-guard" pii-filter 2>/dev/null)
+if printf '%s' "$pii_cli" | grep -q '\[PII:KR_RRN\]' \
+   && printf '%s' "$pii_cli" | grep -q '\[PII:PHONE\]' \
+   && ! printf '%s' "$pii_cli" | grep -q '900101-1234567'; then
+  ok "pii-filter masks Korean resident reg. no. and mobile"
+else
+  not_ok "pii-filter masks Korean resident reg. no. and mobile"
+  printf '%s\n' "$pii_cli" | sed 's/^/  out: /'
+fi
+
+# The CLI regex adapter and the hook output masker must mask the SAME sample
+# identically — credit card and SSN are included so a drift in either Tier-2 rule
+# (pii_regex_adapter_filter vs mask_pii_response_json vs pii_tier2_present) is caught.
+# Card assembled at runtime so this test file holds no contiguous PAN.
+sync_cc="4111 1111 ""1111 1111"
+sync_sample="card $sync_cc ssn 123-45-6789 ip 8.8.8.8 mail x@y.io rrn 900101-1234567 mob 010-1234-5678"
+sync_cli=$(printf '%s\n' "$sync_sample" | "$PLUGIN_ROOT/bin/agent-guard" pii-filter 2>/dev/null)
+sync_hin=$(printf '{"tool_name":"Read","tool_input":{"file_path":"m"},"tool_response":%s}' "$(printf '%s' "$sync_sample" | jq -Rs .)")
+sync_hook=$(printf '%s' "$sync_hin" | (cd "$TMP_ROOT" && AGENT_GUARD_PII_HOOK_MODE=mask "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool 2>/dev/null) | jq -r '.hookSpecificOutput.updatedToolOutput')
+if [ -n "$sync_hook" ] && [ "$sync_cli" = "$sync_hook" ] \
+   && printf '%s' "$sync_hook" | grep -q '\[PII:CREDIT_CARD\]' \
+   && printf '%s' "$sync_hook" | grep -q '\[PII:SSN\]'; then
+  ok "CLI pii-filter and hook output masker mask identically (incl. card + SSN)"
+else
+  not_ok "CLI pii-filter and hook output masker mask identically"
+  printf '%s\n' "  cli : $sync_cli" "  hook: $sync_hook"
 fi
 
 say "passed: $pass"

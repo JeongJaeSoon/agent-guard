@@ -1,6 +1,7 @@
 ## Unreleased
 
 - feat(agent-guard): mask secret-like values in tool output via PostToolUse `updatedToolOutput`, closing the gap where a command prints credentials the pre-tool check never sees (`cat memo.txt`, env-printing CLIs, `KEY=value` dumps). On by default; disable with `AGENT_GUARD_OUTPUT_REDACT=off`. Detection combines gitleaks with a `KEY=value` env-assignment heuristic; redaction preserves the tool result's shape and fails safe (never corrupts output).
+- feat(agent-guard): unseal `AGENT_GUARD_PII_HOOK_MODE=mask` — mask PII (email, phone incl. Korean mobile, IPv4, credit card, US SSN, Korean resident registration number) in tool output via the same PostToolUse path, composing with secret redaction into one rewrite. Tier policy: mask mode hard-blocks only Tier-2 PII (credit card / SSN / resident reg. no.) on inputs and lets Tier-1 (email/phone/IP) through to be masked on output; `block` mode (block all PII inputs) is unchanged. Adds Korean resident registration number and mobile patterns to the regex provider.
 
 ## v1.3.8 - 2026-06-16
 
