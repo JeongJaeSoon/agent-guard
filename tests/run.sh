@@ -4,6 +4,14 @@ set -u
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 PLUGIN_ROOT="$ROOT/plugins/agent-guard"
 TMP_ROOT=${TMPDIR:-/tmp}/agent-guard-tests.$$
+# Unique, non-predictable temp files for hook stdout/stderr capture. Using a
+# mktemp-created directory (instead of fixed /tmp/... paths) avoids the
+# insecure-temp-file / TOCTOU class (CWE-377): a local actor cannot pre-create
+# or symlink a known path to race or corrupt the contents, and parallel runs of
+# this suite no longer collide.
+TESTTMP=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-test.XXXXXX")
+OUT="$TESTTMP/out"
+ERR="$TESTTMP/err"
 MOCK_BIN="$TMP_ROOT/bin"
 ORIGINAL_PATH=$PATH
 REAL_GITLEAKS=$(command -v gitleaks 2>/dev/null || true)
@@ -43,19 +51,19 @@ run_expect() {
   expected=$1
   name=$2
   shift 2
-  "$@" >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+  "$@" >"$OUT" 2>"$ERR"
   status=$?
   if [ "$status" -eq "$expected" ]; then
     ok "$name"
   else
     not_ok "$name (expected $expected, got $status)"
-    sed 's/^/  stdout: /' /tmp/agent-guard-test.out
-    sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+    sed 's/^/  stdout: /' "$OUT"
+    sed 's/^/  stderr: /' "$ERR"
   fi
 }
 
 json_to() {
-  printf '%s' "$1" | "$PLUGIN_ROOT/bin/agent-guard" "$2" >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+  printf '%s' "$1" | "$PLUGIN_ROOT/bin/agent-guard" "$2" >"$OUT" 2>"$ERR"
 }
 
 expect_json_status() {
@@ -69,14 +77,13 @@ expect_json_status() {
     ok "$name"
   else
     not_ok "$name (expected $expected, got $status)"
-    sed 's/^/  stdout: /' /tmp/agent-guard-test.out
-    sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+    sed 's/^/  stdout: /' "$OUT"
+    sed 's/^/  stderr: /' "$ERR"
   fi
 }
 
 cleanup() {
-  rm -rf "$TMP_ROOT"
-  rm -f /tmp/agent-guard-test.out /tmp/agent-guard-test.err
+  rm -rf "$TMP_ROOT" "$TESTTMP"
 }
 trap cleanup EXIT INT TERM
 
@@ -236,91 +243,91 @@ esac
 read_env_payload='{"tool_name":"Read","tool_input":{"file_path":".env"}}'
 printf '%s' "$read_env_payload" \
   | (cd "$PLUGIN_ROOT" && env -u CLAUDE_PLUGIN_ROOT -u CODEX_PLUGIN_ROOT sh -c "$claude_pre_tool_command") \
-  >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+  >"$OUT" 2>"$ERR"
 status=$?
 if [ "$status" -eq 2 ]; then
   ok "Claude hook command fails closed without CLAUDE_PLUGIN_ROOT"
 else
   not_ok "Claude hook command fails closed without CLAUDE_PLUGIN_ROOT (expected 2, got $status)"
-  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+  sed 's/^/  stderr: /' "$ERR"
 fi
-if grep -q 'CLAUDE_PLUGIN_ROOT env not set' /tmp/agent-guard-test.err; then
+if grep -q 'CLAUDE_PLUGIN_ROOT env not set' "$ERR"; then
   ok "Claude hook command explains missing CLAUDE_PLUGIN_ROOT"
 else
   not_ok "Claude hook command explains missing CLAUDE_PLUGIN_ROOT"
-  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+  sed 's/^/  stderr: /' "$ERR"
 fi
 
 printf '%s' "$read_env_payload" \
   | (cd "$TMP_ROOT" && CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" sh -c "$claude_pre_tool_command") \
-  >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+  >"$OUT" 2>"$ERR"
 status=$?
 if [ "$status" -eq 2 ]; then
   ok "Claude hook command honors CLAUDE_PLUGIN_ROOT"
 else
   not_ok "Claude hook command honors CLAUDE_PLUGIN_ROOT (expected 2, got $status)"
-  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+  sed 's/^/  stderr: /' "$ERR"
 fi
 
 printf '%s' "$read_env_payload" \
   | (cd "$TMP_ROOT" && CODEX_PLUGIN_ROOT="$PLUGIN_ROOT" sh -c "$claude_pre_tool_command") \
-  >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+  >"$OUT" 2>"$ERR"
 status=$?
-if grep -q 'CLAUDE_PLUGIN_ROOT env not set' /tmp/agent-guard-test.err; then
+if grep -q 'CLAUDE_PLUGIN_ROOT env not set' "$ERR"; then
   ok "Claude hook command ignores CODEX_PLUGIN_ROOT"
 else
   not_ok "Claude hook command ignores CODEX_PLUGIN_ROOT"
-  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+  sed 's/^/  stderr: /' "$ERR"
 fi
 
 printf '%s' "$read_env_payload" \
   | (cd "$PLUGIN_ROOT" && env -u PLUGIN_ROOT -u CODEX_PLUGIN_ROOT -u CLAUDE_PLUGIN_ROOT sh -c "$codex_pre_tool_command") \
-  >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+  >"$OUT" 2>"$ERR"
 status=$?
 if [ "$status" -eq 2 ]; then
   ok "Codex hook command fails closed without PLUGIN_ROOT"
 else
   not_ok "Codex hook command fails closed without PLUGIN_ROOT (expected 2, got $status)"
-  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+  sed 's/^/  stderr: /' "$ERR"
 fi
-if grep -q 'PLUGIN_ROOT env not set' /tmp/agent-guard-test.err; then
+if grep -q 'PLUGIN_ROOT env not set' "$ERR"; then
   ok "Codex hook command explains missing PLUGIN_ROOT"
 else
   not_ok "Codex hook command explains missing PLUGIN_ROOT"
-  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+  sed 's/^/  stderr: /' "$ERR"
 fi
 
 printf '%s' "$read_env_payload" \
   | (cd "$TMP_ROOT" && PLUGIN_ROOT="$PLUGIN_ROOT" sh -c "$codex_pre_tool_command") \
-  >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+  >"$OUT" 2>"$ERR"
 status=$?
 if [ "$status" -eq 2 ]; then
   ok "Codex hook command honors PLUGIN_ROOT"
 else
   not_ok "Codex hook command honors PLUGIN_ROOT (expected 2, got $status)"
-  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+  sed 's/^/  stderr: /' "$ERR"
 fi
 
 printf '%s' "$read_env_payload" \
   | (cd "$TMP_ROOT" && CODEX_PLUGIN_ROOT="$PLUGIN_ROOT" sh -c "$codex_pre_tool_command") \
-  >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+  >"$OUT" 2>"$ERR"
 status=$?
-if grep -q 'PLUGIN_ROOT env not set' /tmp/agent-guard-test.err; then
+if grep -q 'PLUGIN_ROOT env not set' "$ERR"; then
   ok "Codex hook command ignores CODEX_PLUGIN_ROOT"
 else
   not_ok "Codex hook command ignores CODEX_PLUGIN_ROOT"
-  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+  sed 's/^/  stderr: /' "$ERR"
 fi
 
 printf '%s' "$read_env_payload" \
   | (cd "$TMP_ROOT" && CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" sh -c "$codex_pre_tool_command") \
-  >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+  >"$OUT" 2>"$ERR"
 status=$?
-if grep -q 'PLUGIN_ROOT env not set' /tmp/agent-guard-test.err; then
+if grep -q 'PLUGIN_ROOT env not set' "$ERR"; then
   ok "Codex hook command ignores CLAUDE_PLUGIN_ROOT"
 else
   not_ok "Codex hook command ignores CLAUDE_PLUGIN_ROOT"
-  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+  sed 's/^/  stderr: /' "$ERR"
 fi
 
 # Pinned gitleaks default version is duplicated across three surfaces (the
@@ -688,82 +695,82 @@ expect_json_status 0 "PII hook mode defaults off" \
 
 printf '%s' '{"tool_name":"Write","tool_input":{"file_path":"note.txt","content":"email jane@example.com"}}' \
   | AGENT_GUARD_PII_HOOK_MODE=block "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool \
-    >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+    >"$OUT" 2>"$ERR"
 status=$?
 if [ "$status" -eq 2 ]; then
   ok "PII hook block mode blocks proposed Write content"
 else
   not_ok "PII hook block mode blocks proposed Write content (expected 2, got $status)"
-  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+  sed 's/^/  stderr: /' "$ERR"
 fi
 
 printf '%s' '{"tool_name":"WebSearch","tool_input":{"query":"look up 203.0.113.42"}}' \
   | AGENT_GUARD_PII_HOOK_MODE=block "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool \
-    >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+    >"$OUT" 2>"$ERR"
 status=$?
 if [ "$status" -eq 2 ]; then
   ok "PII hook block mode blocks WebSearch input"
 else
   not_ok "PII hook block mode blocks WebSearch input (expected 2, got $status)"
-  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+  sed 's/^/  stderr: /' "$ERR"
 fi
 
 printf '%s' '{"tool_name":"mcp__server__tool","tool_input":{"note":"call 555-123-4567"}}' \
   | AGENT_GUARD_PII_HOOK_MODE=block "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool \
-    >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+    >"$OUT" 2>"$ERR"
 status=$?
 if [ "$status" -eq 2 ]; then
   ok "PII hook block mode blocks MCP input"
 else
   not_ok "PII hook block mode blocks MCP input (expected 2, got $status)"
-  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+  sed 's/^/  stderr: /' "$ERR"
 fi
 
 printf '%s' '{"tool_name":"Write","tool_input":{"file_path":"note.txt","content":"AGENT_GUARD_TEST_SECRET jane@example.com"}}' \
   | AGENT_GUARD_PII_HOOK_MODE=block "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool \
-    >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+    >"$OUT" 2>"$ERR"
 status=$?
-if [ "$status" -eq 2 ] && grep -q 'secret-like' /tmp/agent-guard-test.err; then
+if [ "$status" -eq 2 ] && grep -q 'secret-like' "$ERR"; then
   ok "secret scanning runs before PII hook scanning"
 else
   not_ok "secret scanning runs before PII hook scanning (expected secret-like block, got $status)"
-  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+  sed 's/^/  stderr: /' "$ERR"
 fi
 
 # mask mode: clean input passes through (nothing to block on the way in).
 printf '%s' '{"tool_name":"Write","tool_input":{"file_path":"note.txt","content":"clean"}}' \
   | AGENT_GUARD_PII_HOOK_MODE=mask "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool \
-    >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+    >"$OUT" 2>"$ERR"
 status=$?
 if [ "$status" -eq 0 ]; then
   ok "PII mask mode allows clean input"
 else
   not_ok "PII mask mode allows clean input (expected 0, got $status)"
-  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+  sed 's/^/  stderr: /' "$ERR"
 fi
 
 # mask mode: Tier-1 PII (email) is allowed IN — it gets masked on output instead.
 printf '%s' '{"tool_name":"Write","tool_input":{"file_path":"note.txt","content":"contact jane@example.com"}}' \
   | AGENT_GUARD_PII_HOOK_MODE=mask "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool \
-    >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+    >"$OUT" 2>"$ERR"
 status=$?
 if [ "$status" -eq 0 ]; then
   ok "PII mask mode allows Tier-1 PII (email) input"
 else
   not_ok "PII mask mode allows Tier-1 PII (email) input (expected 0, got $status)"
-  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+  sed 's/^/  stderr: /' "$ERR"
 fi
 
 # mask mode: Tier-2 PII (KR resident registration number) is hard-blocked on input.
 printf '%s' '{"tool_name":"Write","tool_input":{"file_path":"note.txt","content":"id 900101-1234567"}}' \
   | AGENT_GUARD_PII_HOOK_MODE=mask "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool \
-    >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+    >"$OUT" 2>"$ERR"
 status=$?
-if [ "$status" -eq 2 ] && grep -q 'high-sensitivity PII' /tmp/agent-guard-test.err; then
+if [ "$status" -eq 2 ] && grep -q 'high-sensitivity PII' "$ERR"; then
   ok "PII mask mode blocks Tier-2 PII (resident reg. no.) input"
 else
   not_ok "PII mask mode blocks Tier-2 PII input (expected 2, got $status)"
-  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+  sed 's/^/  stderr: /' "$ERR"
 fi
 
 # mask mode: Tier-2 credit card is hard-blocked on input.
@@ -771,13 +778,13 @@ fi
 cc="4111 1111 ""1111 1111"
 printf '%s' "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"note.txt\",\"content\":\"card $cc\"}}" \
   | AGENT_GUARD_PII_HOOK_MODE=mask "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool \
-    >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+    >"$OUT" 2>"$ERR"
 status=$?
-if [ "$status" -eq 2 ] && grep -q 'high-sensitivity PII' /tmp/agent-guard-test.err; then
+if [ "$status" -eq 2 ] && grep -q 'high-sensitivity PII' "$ERR"; then
   ok "PII mask mode blocks Tier-2 PII (credit card) input"
 else
   not_ok "PII mask mode blocks Tier-2 PII (credit card) input (expected 2, got $status)"
-  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+  sed 's/^/  stderr: /' "$ERR"
 fi
 
 # mask mode: a 15-digit Amex card is hard-blocked on input (not just 16-digit).
@@ -785,25 +792,25 @@ fi
 amex="3782 ""822463 ""10005"
 printf '%s' "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"note.txt\",\"content\":\"card $amex\"}}" \
   | AGENT_GUARD_PII_HOOK_MODE=mask "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool \
-    >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+    >"$OUT" 2>"$ERR"
 status=$?
-if [ "$status" -eq 2 ] && grep -q 'high-sensitivity PII' /tmp/agent-guard-test.err; then
+if [ "$status" -eq 2 ] && grep -q 'high-sensitivity PII' "$ERR"; then
   ok "PII mask mode blocks Tier-2 PII (15-digit Amex) input"
 else
   not_ok "PII mask mode blocks Tier-2 PII (15-digit Amex) input (expected 2, got $status)"
-  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+  sed 's/^/  stderr: /' "$ERR"
 fi
 
 # mask mode: Tier-2 US SSN is hard-blocked on input.
 printf '%s' '{"tool_name":"Write","tool_input":{"file_path":"note.txt","content":"ssn 123-45-6789"}}' \
   | AGENT_GUARD_PII_HOOK_MODE=mask "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool \
-    >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+    >"$OUT" 2>"$ERR"
 status=$?
-if [ "$status" -eq 2 ] && grep -q 'high-sensitivity PII' /tmp/agent-guard-test.err; then
+if [ "$status" -eq 2 ] && grep -q 'high-sensitivity PII' "$ERR"; then
   ok "PII mask mode blocks Tier-2 PII (US SSN) input"
 else
   not_ok "PII mask mode blocks Tier-2 PII (US SSN) input (expected 2, got $status)"
-  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+  sed 's/^/  stderr: /' "$ERR"
 fi
 
 TEST_REPO="$TMP_ROOT/repo"
@@ -819,7 +826,7 @@ mkdir -p "$TEST_REPO"
 
   printf '%s\n' "AGENT_GUARD_TEST_SECRET" > staged.txt
   git add staged.txt
-  "$PLUGIN_ROOT/bin/agent-guard" scan-staged >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+  "$PLUGIN_ROOT/bin/agent-guard" scan-staged >"$OUT" 2>"$ERR"
 )
 status=$?
 if [ "$status" -eq 1 ]; then
@@ -833,7 +840,7 @@ fi
   git reset -q
   rm -f staged.txt
   printf '%s\n' "AGENT_GUARD_TEST_SECRET" > untracked.txt
-  "$PLUGIN_ROOT/bin/agent-guard" scan-working-tree >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+  "$PLUGIN_ROOT/bin/agent-guard" scan-working-tree >"$OUT" 2>"$ERR"
 )
 status=$?
 if [ "$status" -eq 1 ]; then
@@ -844,7 +851,7 @@ fi
 
 (
   cd "$TEST_REPO" || exit 2
-  printf '%s' '{"stop_hook_active":true}' | "$PLUGIN_ROOT/bin/agent-guard" hook-stop >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+  printf '%s' '{"stop_hook_active":true}' | "$PLUGIN_ROOT/bin/agent-guard" hook-stop >"$OUT" 2>"$ERR"
 )
 status=$?
 if [ "$status" -eq 0 ]; then
@@ -860,53 +867,53 @@ fi
   printf '%s\n' "AGENT_GUARD_TEST_SECRET" > leak.txt
   git add leak.txt
   printf '%s' '{"tool_name":"Bash","tool_input":{"command":"git -c user.name=x commit -m leak"}}' \
-    | "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+    | "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
 )
 status=$?
 if [ "$status" -eq 2 ]; then
   ok "git -c option-form commit with staged secret is intercepted"
 else
   not_ok "git -c option-form commit with staged secret is intercepted (expected 2, got $status)"
-  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+  sed 's/^/  stderr: /' "$ERR"
 fi
 
 (
   cd "$TEST_REPO" || exit 2
   printf '%s' '{"tool_name":"Bash","tool_input":{"command":"git -C . push origin main"}}' \
-    | "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+    | "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
 )
 status=$?
 if [ "$status" -eq 2 ]; then
   ok "git -C option-form push with staged secret is intercepted"
 else
   not_ok "git -C option-form push with staged secret is intercepted (expected 2, got $status)"
-  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+  sed 's/^/  stderr: /' "$ERR"
 fi
 
 (
   cd "$TEST_REPO" || exit 2
   printf '%s' '{"tool_name":"Bash","tool_input":{"command":"git status && git -C . push origin main"}}' \
-    | "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+    | "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
 )
 status=$?
 if [ "$status" -eq 2 ]; then
   ok "chained git push after non-mutating git command is intercepted"
 else
   not_ok "chained git push after non-mutating git command is intercepted (expected 2, got $status)"
-  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+  sed 's/^/  stderr: /' "$ERR"
 fi
 
 (
   cd "$TEST_REPO" || exit 2
   printf '%s' '{"tool_name":"Bash","tool_input":{"command":"git status&&git -C . push origin main"}}' \
-    | "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+    | "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
 )
 status=$?
 if [ "$status" -eq 2 ]; then
   ok "chained git push without separator spaces is intercepted"
 else
   not_ok "chained git push without separator spaces is intercepted (expected 2, got $status)"
-  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+  sed 's/^/  stderr: /' "$ERR"
 fi
 
 expect_json_status 2 "git hook bypass without separator spaces is blocked" \
@@ -919,53 +926,53 @@ expect_json_status 2 "git hook bypass without separator spaces is blocked" \
 (
   cd "$TEST_REPO" || exit 2
   printf '%s' '{"tool_name":"Bash","tool_input":{"command":"env git commit -m leak"}}' \
-    | "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+    | "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
 )
 status=$?
 if [ "$status" -eq 2 ]; then
   ok "env-wrapped git commit with staged secret triggers staged scan"
 else
   not_ok "env-wrapped git commit with staged secret triggers staged scan (expected 2, got $status)"
-  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+  sed 's/^/  stderr: /' "$ERR"
 fi
 
 (
   cd "$TEST_REPO" || exit 2
   printf '%s' '{"tool_name":"Bash","tool_input":{"command":"FOO=bar git commit -m leak"}}' \
-    | "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+    | "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
 )
 status=$?
 if [ "$status" -eq 2 ]; then
   ok "assignment-prefixed git commit with staged secret triggers staged scan"
 else
   not_ok "assignment-prefixed git commit with staged secret triggers staged scan (expected 2, got $status)"
-  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+  sed 's/^/  stderr: /' "$ERR"
 fi
 
 (
   cd "$TEST_REPO" || exit 2
   printf '%s' '{"tool_name":"Bash","tool_input":{"command":"env -u HOME git commit -m leak"}}' \
-    | "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+    | "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
 )
 status=$?
 if [ "$status" -eq 2 ]; then
   ok "env-with-option-wrapped git commit with staged secret triggers staged scan"
 else
   not_ok "env-with-option-wrapped git commit with staged secret triggers staged scan (expected 2, got $status)"
-  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+  sed 's/^/  stderr: /' "$ERR"
 fi
 
 (
   cd "$TEST_REPO" || exit 2
   printf '%s' '{"tool_name":"Bash","tool_input":{"command":"env git status"}}' \
-    | "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+    | "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
 )
 status=$?
 if [ "$status" -eq 0 ]; then
   ok "env-wrapped git status (not commit/push) is allowed"
 else
   not_ok "env-wrapped git status (not commit/push) is allowed (expected 0, got $status)"
-  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+  sed 's/^/  stderr: /' "$ERR"
 fi
 
 SYMLINK_REPO="$TMP_ROOT/symlink-repo"
@@ -977,13 +984,13 @@ mkdir -p "$SYMLINK_REPO"
 )
 if [ -L "$SYMLINK_REPO/safe-link" ]; then
   payload='{"tool_name":"Read","tool_input":{"file_path":"'"$SYMLINK_REPO"'/safe-link"}}'
-  printf '%s' "$payload" | "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+  printf '%s' "$payload" | "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
   status=$?
   if [ "$status" -eq 2 ]; then
     ok "symlink to .env is blocked via realpath resolution"
   else
     not_ok "symlink to .env is blocked via realpath resolution (expected 2, got $status)"
-    sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+    sed 's/^/  stderr: /' "$ERR"
   fi
 else
   say "skipping symlink test: filesystem does not support symlinks"
@@ -1011,9 +1018,9 @@ rm -f "$INJECTION_CANARY"
 
 run_expect 0 "version subcommand prints program/version" \
   "$PLUGIN_ROOT/bin/agent-guard" version
-case "$(cat /tmp/agent-guard-test.out)" in
+case "$(cat "$OUT")" in
   agent-guard*) ok "version output starts with program name" ;;
-  *) not_ok "version output unexpected: $(cat /tmp/agent-guard-test.out)" ;;
+  *) not_ok "version output unexpected: $(cat "$OUT")" ;;
 esac
 
 run_expect 0 "help subcommand exits 0" "$PLUGIN_ROOT/bin/agent-guard" help
@@ -1037,61 +1044,61 @@ run_expect 0 "check passes when deps and configs exist" "$PLUGIN_ROOT/bin/agent-
 PII_SAMPLE='Contact jane@example.com at +1 (415) 555-0199, card 4111 1111 1111 1111, ssn 123-45-6789, ip 203.0.113.42.'
 PII_EXPECTED='Contact [PII:EMAIL] at [PII:PHONE], card [PII:CREDIT_CARD], ssn [PII:SSN], ip [PII:IP_ADDRESS].'
 printf '%s\n' "$PII_SAMPLE" | "$PLUGIN_ROOT/bin/agent-guard" pii-filter \
-  >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+  >"$OUT" 2>"$ERR"
 status=$?
-if [ "$status" -eq 0 ] && [ "$(cat /tmp/agent-guard-test.out)" = "$PII_EXPECTED" ]; then
+if [ "$status" -eq 0 ] && [ "$(cat "$OUT")" = "$PII_EXPECTED" ]; then
   ok "pii-filter regex provider masks common PII"
 else
   not_ok "pii-filter regex provider masks common PII (status $status)"
-  sed 's/^/  stdout: /' /tmp/agent-guard-test.out
-  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+  sed 's/^/  stdout: /' "$OUT"
+  sed 's/^/  stderr: /' "$ERR"
 fi
 
 PII_CLEAN='No identifiers in this line.'
 printf '%s\n' "$PII_CLEAN" | "$PLUGIN_ROOT/bin/agent-guard" pii-filter \
-  >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+  >"$OUT" 2>"$ERR"
 status=$?
-if [ "$status" -eq 0 ] && [ "$(cat /tmp/agent-guard-test.out)" = "$PII_CLEAN" ]; then
+if [ "$status" -eq 0 ] && [ "$(cat "$OUT")" = "$PII_CLEAN" ]; then
   ok "pii-filter leaves clean text unchanged"
 else
   not_ok "pii-filter leaves clean text unchanged (status $status)"
-  sed 's/^/  stdout: /' /tmp/agent-guard-test.out
-  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+  sed 's/^/  stdout: /' "$OUT"
+  sed 's/^/  stderr: /' "$ERR"
 fi
 
 printf '%s' "$PII_CLEAN" | "$PLUGIN_ROOT/bin/agent-guard" pii-filter \
-  >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+  >"$OUT" 2>"$ERR"
 status=$?
-if [ "$status" -eq 0 ] && [ "$(cat /tmp/agent-guard-test.out)" = "$PII_CLEAN" ]; then
+if [ "$status" -eq 0 ] && [ "$(cat "$OUT")" = "$PII_CLEAN" ]; then
   ok "pii-filter preserves clean text without trailing newline"
 else
   not_ok "pii-filter preserves clean text without trailing newline (status $status)"
-  sed 's/^/  stdout: /' /tmp/agent-guard-test.out
-  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+  sed 's/^/  stdout: /' "$OUT"
+  sed 's/^/  stderr: /' "$ERR"
 fi
 
 printf '%s' 'Email jane@example.com' | "$PLUGIN_ROOT/bin/agent-guard" pii-filter \
-  >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+  >"$OUT" 2>"$ERR"
 status=$?
-if [ "$status" -eq 0 ] && [ "$(cat /tmp/agent-guard-test.out)" = 'Email [PII:EMAIL]' ]; then
+if [ "$status" -eq 0 ] && [ "$(cat "$OUT")" = 'Email [PII:EMAIL]' ]; then
   ok "pii-filter preserves masked text without trailing newline"
 else
   not_ok "pii-filter preserves masked text without trailing newline (status $status)"
-  sed 's/^/  stdout: /' /tmp/agent-guard-test.out
-  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+  sed 's/^/  stdout: /' "$OUT"
+  sed 's/^/  stderr: /' "$ERR"
 fi
 
 run_expect 0 "pii-filter --check passes for default regex provider" \
   "$PLUGIN_ROOT/bin/agent-guard" pii-filter --check
 
 printf '%s' 'x' | AGENT_GUARD_PII_PROVIDER=bogus "$PLUGIN_ROOT/bin/agent-guard" pii-filter \
-  >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+  >"$OUT" 2>"$ERR"
 status=$?
 if [ "$status" -eq 2 ]; then
   ok "pii-filter rejects unknown providers"
 else
   not_ok "pii-filter rejects unknown providers (expected 2, got $status)"
-  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+  sed 's/^/  stderr: /' "$ERR"
 fi
 
 PII_MOCK_CURL_DIR="$TMP_ROOT/pii-curl-bin"
@@ -1136,14 +1143,14 @@ printf '%s' 'endpoint text jane@example.com' \
     PII_MOCK_CURL_REQUEST="$PII_REQUEST_FILE" \
     PII_MOCK_CURL_URL="$PII_URL_FILE" \
     "$PLUGIN_ROOT/bin/agent-guard" pii-filter \
-    >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+    >"$OUT" 2>"$ERR"
 status=$?
-if [ "$status" -eq 0 ] && [ "$(cat /tmp/agent-guard-test.out)" = "masked by endpoint" ]; then
+if [ "$status" -eq 0 ] && [ "$(cat "$OUT")" = "masked by endpoint" ]; then
   ok "pii-filter pleno provider uses endpoint adapter response"
 else
   not_ok "pii-filter pleno provider uses endpoint adapter response (status $status)"
-  sed 's/^/  stdout: /' /tmp/agent-guard-test.out
-  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+  sed 's/^/  stdout: /' "$OUT"
+  sed 's/^/  stderr: /' "$ERR"
 fi
 if jq -e '.text == "endpoint text jane@example.com"' "$PII_REQUEST_FILE" >/dev/null 2>&1; then
   ok "pii-filter endpoint adapter sends text JSON payload"
@@ -1163,25 +1170,25 @@ PATH="$PII_MOCK_CURL_DIR:$PATH" \
   PII_MOCK_CURL_REQUEST="$PII_REQUEST_FILE" \
   PII_MOCK_CURL_MODE=data \
   "$PLUGIN_ROOT/bin/agent-guard" pii-filter --check \
-  >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+  >"$OUT" 2>"$ERR"
 status=$?
 if [ "$status" -eq 0 ]; then
   ok "pii-filter http provider passes endpoint check"
 else
   not_ok "pii-filter http provider passes endpoint check (expected 0, got $status)"
-  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+  sed 's/^/  stderr: /' "$ERR"
 fi
 
 printf '%s' 'x' \
   | env -u AGENT_GUARD_PII_REDACT_URL AGENT_GUARD_PII_PROVIDER=pleno \
     "$PLUGIN_ROOT/bin/agent-guard" pii-filter \
-    >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+    >"$OUT" 2>"$ERR"
 status=$?
 if [ "$status" -eq 2 ]; then
   ok "pii-filter endpoint provider fails closed when URL is missing"
 else
   not_ok "pii-filter endpoint provider fails closed when URL is missing (expected 2, got $status)"
-  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+  sed 's/^/  stderr: /' "$ERR"
 fi
 
 printf '%s' 'x' \
@@ -1191,13 +1198,13 @@ printf '%s' 'x' \
     PII_MOCK_CURL_REQUEST="$PII_REQUEST_FILE" \
     PII_MOCK_CURL_MODE=fail \
     "$PLUGIN_ROOT/bin/agent-guard" pii-filter \
-    >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+    >"$OUT" 2>"$ERR"
 status=$?
 if [ "$status" -eq 2 ]; then
   ok "pii-filter endpoint provider fails closed on HTTP failure"
 else
   not_ok "pii-filter endpoint provider fails closed on HTTP failure (expected 2, got $status)"
-  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+  sed 's/^/  stderr: /' "$ERR"
 fi
 
 printf '%s' 'x' \
@@ -1207,13 +1214,13 @@ printf '%s' 'x' \
     PII_MOCK_CURL_REQUEST="$PII_REQUEST_FILE" \
     PII_MOCK_CURL_MODE=bad-response \
     "$PLUGIN_ROOT/bin/agent-guard" pii-filter \
-    >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+    >"$OUT" 2>"$ERR"
 status=$?
 if [ "$status" -eq 2 ]; then
   ok "pii-filter endpoint provider fails closed on bad response shape"
 else
   not_ok "pii-filter endpoint provider fails closed on bad response shape (expected 2, got $status)"
-  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+  sed 's/^/  stderr: /' "$ERR"
 fi
 
 NO_CURL_BIN="$TMP_ROOT/no-curl-bin"
@@ -1226,13 +1233,13 @@ PATH="$NO_CURL_BIN" \
   AGENT_GUARD_PII_PROVIDER=pleno \
   AGENT_GUARD_PII_REDACT_URL='http://127.0.0.1:8080/api/redact' \
   "$PLUGIN_ROOT/bin/agent-guard" pii-filter --check \
-  >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+  >"$OUT" 2>"$ERR"
 status=$?
 if [ "$status" -eq 2 ]; then
   ok "pii-filter endpoint provider fails closed when curl is missing"
 else
   not_ok "pii-filter endpoint provider fails closed when curl is missing (expected 2, got $status)"
-  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+  sed 's/^/  stderr: /' "$ERR"
 fi
 
 if [ -n "$REAL_CURL" ]; then
@@ -1246,13 +1253,13 @@ if [ -n "$REAL_CURL" ]; then
     AGENT_GUARD_PII_PROVIDER=pleno \
     AGENT_GUARD_PII_REDACT_URL='http://127.0.0.1:8080/api/redact' \
     "$PLUGIN_ROOT/bin/agent-guard" pii-filter --check \
-    >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+    >"$OUT" 2>"$ERR"
   status=$?
   if [ "$status" -eq 2 ]; then
     ok "pii-filter endpoint provider fails closed when jq is missing"
   else
     not_ok "pii-filter endpoint provider fails closed when jq is missing (expected 2, got $status)"
-    sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+    sed 's/^/  stderr: /' "$ERR"
   fi
 else
   say "real curl not available; skipped missing-jq endpoint dependency test"
@@ -1337,28 +1344,28 @@ mkdir -p "$POST_REPO"
 (
   cd "$POST_REPO" || exit 2
   printf '%s' '{"tool_name":"Read","tool_input":{"file_path":"README.md"}}' \
-    | "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+    | "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool >"$OUT" 2>"$ERR"
 )
 status=$?
 if [ "$status" -eq 0 ]; then
   ok "hook-post-tool ignores non-mutation tools"
 else
   not_ok "hook-post-tool ignores non-mutation tools (expected 0, got $status)"
-  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+  sed 's/^/  stderr: /' "$ERR"
 fi
 
 (
   cd "$POST_REPO" || exit 2
   printf '%s\n' "AGENT_GUARD_TEST_SECRET" > leaked.txt
   printf '%s' '{"tool_name":"Write","tool_input":{"file_path":"leaked.txt"}}' \
-    | "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+    | "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool >"$OUT" 2>"$ERR"
 )
 status=$?
 if [ "$status" -eq 2 ]; then
   ok "hook-post-tool blocks when working tree has a new secret"
 else
   not_ok "hook-post-tool blocks when working tree has a new secret (expected 2, got $status)"
-  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+  sed 's/^/  stderr: /' "$ERR"
 fi
 
 # --- hook_stop ------------------------------------------------------------
@@ -1366,27 +1373,27 @@ fi
 (
   cd "$POST_REPO" || exit 2
   rm -f leaked.txt
-  printf '%s' '{"stop_hook_active":false}' | "$PLUGIN_ROOT/bin/agent-guard" hook-stop >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+  printf '%s' '{"stop_hook_active":false}' | "$PLUGIN_ROOT/bin/agent-guard" hook-stop >"$OUT" 2>"$ERR"
 )
 status=$?
 if [ "$status" -eq 0 ]; then
   ok "hook-stop allows clean working tree when not active"
 else
   not_ok "hook-stop allows clean working tree when not active (expected 0, got $status)"
-  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+  sed 's/^/  stderr: /' "$ERR"
 fi
 
 (
   cd "$POST_REPO" || exit 2
   printf '%s\n' "AGENT_GUARD_TEST_SECRET" > stop-leak.txt
-  printf '%s' '{"stop_hook_active":false}' | "$PLUGIN_ROOT/bin/agent-guard" hook-stop >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+  printf '%s' '{"stop_hook_active":false}' | "$PLUGIN_ROOT/bin/agent-guard" hook-stop >"$OUT" 2>"$ERR"
 )
 status=$?
 if [ "$status" -eq 2 ]; then
   ok "hook-stop blocks when working tree has a secret and not active"
 else
   not_ok "hook-stop blocks when working tree has a secret and not active (expected 2, got $status)"
-  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+  sed 's/^/  stderr: /' "$ERR"
 fi
 
 # --- hook silent-skip outside a git work tree ------------------------------
@@ -1399,27 +1406,27 @@ mkdir -p "$NO_GIT_DIR"
 (
   cd "$NO_GIT_DIR" || exit 2
   printf '%s' '{"tool_name":"Write","tool_input":{"file_path":"x.txt","content":"x"}}' \
-    | "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+    | "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool >"$OUT" 2>"$ERR"
 )
 status=$?
-if [ "$status" -eq 0 ] && [ ! -s /tmp/agent-guard-test.err ]; then
+if [ "$status" -eq 0 ] && [ ! -s "$ERR" ]; then
   ok "hook-post-tool silently skips when cwd is not a git work tree"
 else
   not_ok "hook-post-tool silently skips when cwd is not a git work tree (expected 0 + empty stderr, got $status)"
-  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+  sed 's/^/  stderr: /' "$ERR"
 fi
 
 (
   cd "$NO_GIT_DIR" || exit 2
   printf '%s' '{"stop_hook_active":false}' \
-    | "$PLUGIN_ROOT/bin/agent-guard" hook-stop >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+    | "$PLUGIN_ROOT/bin/agent-guard" hook-stop >"$OUT" 2>"$ERR"
 )
 status=$?
-if [ "$status" -eq 0 ] && [ ! -s /tmp/agent-guard-test.err ]; then
+if [ "$status" -eq 0 ] && [ ! -s "$ERR" ]; then
   ok "hook-stop silently skips when cwd is not a git work tree"
 else
   not_ok "hook-stop silently skips when cwd is not a git work tree (expected 0 + empty stderr, got $status)"
-  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+  sed 's/^/  stderr: /' "$ERR"
 fi
 
 # --- gitleaks fail-closed when scanner errors ------------------------------
@@ -1433,25 +1440,25 @@ exit 3
 EOSH
 chmod +x "$ERROR_BIN/gitleaks"
 
-PATH="$ERROR_BIN:$PATH" "$PLUGIN_ROOT/bin/agent-guard" scan-path "$CLEAN_DIR" >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+PATH="$ERROR_BIN:$PATH" "$PLUGIN_ROOT/bin/agent-guard" scan-path "$CLEAN_DIR" >"$OUT" 2>"$ERR"
 status=$?
 if [ "$status" -eq 2 ]; then
   ok "scan-path fail-closes when gitleaks itself errors"
 else
   not_ok "scan-path fail-closes when gitleaks itself errors (expected 2, got $status)"
-  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+  sed 's/^/  stderr: /' "$ERR"
 fi
 
 PATH="$ERROR_BIN:$PATH" sh -c '
   printf "%s" "{\"tool_name\":\"Write\",\"tool_input\":{\"content\":\"x\"}}" \
     | "'"$PLUGIN_ROOT"'/bin/agent-guard" hook-pre-tool
-' >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+' >"$OUT" 2>"$ERR"
 status=$?
 if [ "$status" -eq 2 ]; then
   ok "hook-pre-tool fail-closes when gitleaks errors during a Write scan"
 else
   not_ok "hook-pre-tool fail-closes when gitleaks errors during a Write scan (expected 2, got $status)"
-  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+  sed 's/^/  stderr: /' "$ERR"
 fi
 
 # --- deny-bash-patterns fail-closed on invalid ERE -------------------------
@@ -1462,13 +1469,13 @@ BAD_PATTERNS_FILE="$TMP_ROOT/bad-deny-bash.txt"
 printf '%s\n' '[unterminated-bracket' >"$BAD_PATTERNS_FILE"
 printf '%s' '{"tool_name":"Bash","tool_input":{"command":"echo hi"}}' \
   | AGENT_GUARD_DENY_BASH_PATTERNS="$BAD_PATTERNS_FILE" \
-    "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+    "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
 status=$?
 if [ "$status" -eq 2 ]; then
   ok "deny-bash-patterns invalid ERE fails closed"
 else
   not_ok "deny-bash-patterns invalid ERE fails closed (expected 2, got $status)"
-  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+  sed 's/^/  stderr: /' "$ERR"
 fi
 
 # --- deny-read-paths Bash scan fail-closed on invalid generated ERE --------
@@ -1479,13 +1486,13 @@ BAD_READ_FILE="$TMP_ROOT/bad-deny-read.txt"
 printf '%s\n' 'x\' >"$BAD_READ_FILE"
 printf '%s' '{"tool_name":"Bash","tool_input":{"command":"echo hi"}}' \
   | AGENT_GUARD_DENY_READ_PATHS="$BAD_READ_FILE" \
-    "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+    "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
 status=$?
 if [ "$status" -eq 2 ]; then
   ok "deny-read-paths invalid generated ERE fails closed in Bash scan"
 else
   not_ok "deny-read-paths invalid generated ERE fails closed in Bash scan (expected 2, got $status)"
-  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+  sed 's/^/  stderr: /' "$ERR"
 fi
 
 # No-regression: a valid custom deny-read file must still allow benign commands
@@ -1586,7 +1593,7 @@ mkdir -p "$NO_GITLEAKS_BIN"
 ln -s "$REAL_SH" "$NO_GITLEAKS_BIN/sh"
 ln -s "$REAL_DIRNAME" "$NO_GITLEAKS_BIN/dirname"
 ln -s "$REAL_PWD" "$NO_GITLEAKS_BIN/pwd"
-PATH="$NO_GITLEAKS_BIN" "$PLUGIN_ROOT/bin/agent-guard" scan-path "$CLEAN_DIR" >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+PATH="$NO_GITLEAKS_BIN" "$PLUGIN_ROOT/bin/agent-guard" scan-path "$CLEAN_DIR" >"$OUT" 2>"$ERR"
 status=$?
 if [ "$status" -eq 2 ]; then
   ok "scan-path dies when gitleaks is unavailable"
@@ -1601,22 +1608,22 @@ ln -sf "$(command -v git)" "$NO_GITLEAKS_BIN/git"
 ln -sf "$(command -v command)" "$NO_GITLEAKS_BIN/command" 2>/dev/null || true
 ln -sf "$(command -v uname)" "$NO_GITLEAKS_BIN/uname" 2>/dev/null || true
 
-PATH="$NO_GITLEAKS_BIN" "$PLUGIN_ROOT/bin/agent-guard" setup >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+PATH="$NO_GITLEAKS_BIN" "$PLUGIN_ROOT/bin/agent-guard" setup >"$OUT" 2>"$ERR"
 status=$?
 if [ "$status" -eq 1 ]; then
   ok "setup exits 1 when gitleaks missing"
 else
   not_ok "setup exits 1 when gitleaks missing (expected 1, got $status)"
-  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+  sed 's/^/  stderr: /' "$ERR"
 fi
 
-PATH="$NO_GITLEAKS_BIN" "$PLUGIN_ROOT/bin/agent-guard" setup --install >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+PATH="$NO_GITLEAKS_BIN" "$PLUGIN_ROOT/bin/agent-guard" setup --install >"$OUT" 2>"$ERR"
 status=$?
 if [ "$status" -eq 2 ]; then
   ok "setup --install without --gitleaks-checksum exits 2"
 else
   not_ok "setup --install without --gitleaks-checksum exits 2 (expected 2, got $status)"
-  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+  sed 's/^/  stderr: /' "$ERR"
 fi
 
 # --- extract_patch_added_lines via apply_patch dialects -------------------
@@ -1649,7 +1656,7 @@ NON_REPO_DIR="$TMP_ROOT/not-a-repo"
 mkdir -p "$NON_REPO_DIR"
 (
   cd "$NON_REPO_DIR" || exit 2
-  "$PLUGIN_ROOT/bin/agent-guard" scan-staged >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+  "$PLUGIN_ROOT/bin/agent-guard" scan-staged >"$OUT" 2>"$ERR"
 )
 status=$?
 if [ "$status" -eq 2 ]; then
@@ -1671,14 +1678,14 @@ mkdir -p "$INSTALL_REPO"
   git init -q --template="$EMPTY_TEMPLATE"
   git config user.email t@e
   git config user.name t
-  "$ROOT/install.sh" git-hooks >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+  "$ROOT/install.sh" git-hooks >"$OUT" 2>"$ERR"
 )
 status=$?
 if [ "$status" -eq 0 ]; then
   ok "install.sh git-hooks succeeds in a clean repo"
 else
   not_ok "install.sh git-hooks succeeds in a clean repo (expected 0, got $status)"
-  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+  sed 's/^/  stderr: /' "$ERR"
 fi
 configured=$(cd "$INSTALL_REPO" && git config --get core.hooksPath || true)
 if [ "$configured" = "githooks" ]; then
@@ -1695,7 +1702,7 @@ fi
   cd "$INSTALL_REPO" || exit 2
   printf '%s\n' "AGENT_GUARD_TEST_SECRET" > leak.txt
   git add leak.txt
-  git commit -m leak >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+  git commit -m leak >"$OUT" 2>"$ERR"
 )
 status=$?
 if [ "$status" -ne 0 ]; then
@@ -1714,20 +1721,20 @@ ln -s "$PLUGIN_ROOT/bin/agent-guard" "$QUOTE_SOURCE/plugins/agent-guard/bin/agen
   git init -q --template="$EMPTY_TEMPLATE"
   git config user.email t@e
   git config user.name t
-  "$QUOTE_SOURCE/install.sh" git-hooks >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+  "$QUOTE_SOURCE/install.sh" git-hooks >"$OUT" 2>"$ERR"
 )
 status=$?
 if [ "$status" -eq 0 ] && sh -n "$QUOTE_REPO/githooks/pre-commit"; then
   ok "install.sh quotes generated hook paths safely"
 else
   not_ok "install.sh quotes generated hook paths safely (expected install success and shell syntax ok)"
-  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+  sed 's/^/  stderr: /' "$ERR"
 fi
 (
   cd "$QUOTE_REPO" || exit 2
   printf '%s\n' "AGENT_GUARD_TEST_SECRET" > leak.txt
   git add leak.txt
-  git commit -m leak >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+  git commit -m leak >"$OUT" 2>"$ERR"
 )
 status=$?
 if [ "$status" -ne 0 ]; then
@@ -1742,7 +1749,7 @@ mkdir -p "$CONFLICT_REPO"
   cd "$CONFLICT_REPO" || exit 2
   git init -q --template="$EMPTY_TEMPLATE"
   git config core.hooksPath someone-elses-hooks
-  "$ROOT/install.sh" git-hooks >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+  "$ROOT/install.sh" git-hooks >"$OUT" 2>"$ERR"
 )
 status=$?
 if [ "$status" -eq 2 ]; then
@@ -1765,27 +1772,27 @@ mkdir -p "$PRECOMMIT_REPO"
     printf 'printf %%s legacy-ran > "%s"\n' "$PRECOMMIT_CANARY"
   } > .git/hooks/pre-commit
   chmod +x .git/hooks/pre-commit
-  "$ROOT/install.sh" git-hooks >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+  "$ROOT/install.sh" git-hooks >"$OUT" 2>"$ERR"
 )
 status=$?
 if [ "$status" -eq 0 ]; then
   ok "install.sh chains an existing .git/hooks/pre-commit"
 else
   not_ok "install.sh chains an existing .git/hooks/pre-commit (expected 0, got $status)"
-  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+  sed 's/^/  stderr: /' "$ERR"
 fi
 (
   cd "$PRECOMMIT_REPO" || exit 2
   printf '%s\n' ok > README.md
   git add README.md
-  git commit -m init >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+  git commit -m init >"$OUT" 2>"$ERR"
 )
 status=$?
 if [ "$status" -eq 0 ] && [ "$(cat "$PRECOMMIT_CANARY" 2>/dev/null)" = "legacy-ran" ]; then
   ok "installed hook runs the pre-existing pre-commit hook"
 else
   not_ok "installed hook runs the pre-existing pre-commit hook"
-  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+  sed 's/^/  stderr: /' "$ERR"
 fi
 
 run_expect 2 "install.sh unknown subcommand exits 2" "$ROOT/install.sh" not-a-command
@@ -1813,14 +1820,14 @@ mkdir -p "$HOOK_REPO"
   git config user.name t
   printf '%s\n' "AGENT_GUARD_TEST_SECRET" > leak.txt
   git add leak.txt
-  "$ROOT/githooks/pre-commit" >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+  "$ROOT/githooks/pre-commit" >"$OUT" 2>"$ERR"
 )
 status=$?
 if [ "$status" -eq 1 ]; then
   ok "githooks/pre-commit blocks commits with staged secrets"
 else
   not_ok "githooks/pre-commit blocks commits with staged secrets (expected 1, got $status)"
-  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+  sed 's/^/  stderr: /' "$ERR"
 fi
 
 # --- Codex full-payload routing -------------------------------------------
@@ -1852,20 +1859,20 @@ mkdir -p "$SHOT_REPO"
     printf 'lorem ipsum %d\n' "$i" > "untracked_$i.txt"
   done
   printf 'AGENT_GUARD_TEST_SECRET\n' >> untracked_3.txt
-  "$PLUGIN_ROOT/bin/agent-guard" scan-working-tree >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+  "$PLUGIN_ROOT/bin/agent-guard" scan-working-tree >"$OUT" 2>"$ERR"
 )
 status=$?
 if [ "$status" -eq 1 ]; then
   ok "scan-working-tree single-shot detects a secret among 5 untracked files"
 else
   not_ok "scan-working-tree single-shot detects a secret among 5 untracked files (expected 1, got $status)"
-  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+  sed 's/^/  stderr: /' "$ERR"
 fi
-if grep -q 'untracked files' /tmp/agent-guard-test.err; then
+if grep -q 'untracked files' "$ERR"; then
   ok "single-shot scan reports an 'untracked files' label"
 else
   not_ok "single-shot scan reports an 'untracked files' label"
-  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+  sed 's/^/  stderr: /' "$ERR"
 fi
 
 # --- Untracked scan is NUL-safe for non-ASCII filenames (Rank 4) ----------
@@ -1882,23 +1889,23 @@ mkdir -p "$UTF8_REPO"
   git add README.md
   git commit -q -m init
   printf 'AGENT_GUARD_TEST_SECRET\n' > 'café-secret.txt'
-  "$PLUGIN_ROOT/bin/agent-guard" scan-working-tree >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+  "$PLUGIN_ROOT/bin/agent-guard" scan-working-tree >"$OUT" 2>"$ERR"
 )
 status=$?
 if [ "$status" -eq 1 ]; then
   ok "scan-working-tree detects a secret in a non-ASCII untracked filename"
 else
   not_ok "scan-working-tree detects a secret in a non-ASCII untracked filename (expected 1, got $status)"
-  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+  sed 's/^/  stderr: /' "$ERR"
 fi
 
 # --- agent-guard check announces gitleaks version ------------------------
-"$PLUGIN_ROOT/bin/agent-guard" check >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
-if grep -q 'gitleaks' /tmp/agent-guard-test.err; then
+"$PLUGIN_ROOT/bin/agent-guard" check >"$OUT" 2>"$ERR"
+if grep -q 'gitleaks' "$ERR"; then
   ok "check prints a gitleaks version line"
 else
   not_ok "check prints a gitleaks version line"
-  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+  sed 's/^/  stderr: /' "$ERR"
 fi
 
 if [ -n "$REAL_GITLEAKS" ]; then
@@ -1919,13 +1926,13 @@ if [ -n "$REAL_GITLEAKS" ]; then
     printf '%s\n' "$PEM_BODY"
     printf '%s%s\n' '-----END RSA ' 'PRIVATE KEY-----'
   } > "$RSA_FIXTURE_DIR/key.pem"
-  PATH="$(dirname "$REAL_GITLEAKS"):$ORIGINAL_PATH" "$PLUGIN_ROOT/bin/agent-guard" scan-path "$RSA_FIXTURE_DIR" >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+  PATH="$(dirname "$REAL_GITLEAKS"):$ORIGINAL_PATH" "$PLUGIN_ROOT/bin/agent-guard" scan-path "$RSA_FIXTURE_DIR" >"$OUT" 2>"$ERR"
   status=$?
   if [ "$status" -eq 1 ]; then
     ok "real gitleaks detects an RSA private key through scan-path"
   else
     not_ok "real gitleaks detects an RSA private key through scan-path (expected 1, got $status)"
-    sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+    sed 's/^/  stderr: /' "$ERR"
   fi
 
   OPENSSH_FIXTURE_DIR="$TMP_ROOT/openssh-fixture-dir"
@@ -1935,13 +1942,13 @@ if [ -n "$REAL_GITLEAKS" ]; then
     printf '%s\n' "$PEM_BODY"
     printf '%s%s\n' '-----END OPENSSH ' 'PRIVATE KEY-----'
   } > "$OPENSSH_FIXTURE_DIR/openssh.key"
-  PATH="$(dirname "$REAL_GITLEAKS"):$ORIGINAL_PATH" "$PLUGIN_ROOT/bin/agent-guard" scan-path "$OPENSSH_FIXTURE_DIR" >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+  PATH="$(dirname "$REAL_GITLEAKS"):$ORIGINAL_PATH" "$PLUGIN_ROOT/bin/agent-guard" scan-path "$OPENSSH_FIXTURE_DIR" >"$OUT" 2>"$ERR"
   status=$?
   if [ "$status" -eq 1 ]; then
     ok "real gitleaks detects an OpenSSH private key through scan-path"
   else
     not_ok "real gitleaks detects an OpenSSH private key through scan-path (expected 1, got $status)"
-    sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+    sed 's/^/  stderr: /' "$ERR"
   fi
 
   # Rank 5: the anchored allowlist no longer suppresses a real secret that
@@ -1956,13 +1963,13 @@ if [ -n "$REAL_GITLEAKS" ]; then
   mkdir -p "$XRUN_FIXTURE_DIR"
   printf 'token = %s%s%s%s\n' "$PAT_HEAD" "$PAT_BODY" "$PAT_XRUN" "$PAT_TAIL" \
     > "$XRUN_FIXTURE_DIR/conf.txt"
-  PATH="$(dirname "$REAL_GITLEAKS"):$ORIGINAL_PATH" "$PLUGIN_ROOT/bin/agent-guard" scan-path "$XRUN_FIXTURE_DIR" >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+  PATH="$(dirname "$REAL_GITLEAKS"):$ORIGINAL_PATH" "$PLUGIN_ROOT/bin/agent-guard" scan-path "$XRUN_FIXTURE_DIR" >"$OUT" 2>"$ERR"
   status=$?
   if [ "$status" -eq 1 ]; then
     ok "real gitleaks still flags a PAT containing a 12-x run (anchored allowlist)"
   else
     not_ok "real gitleaks still flags a PAT containing a 12-x run (expected 1, got $status)"
-    sed 's/^/  stderr: /' /tmp/agent-guard-test.err
+    sed 's/^/  stderr: /' "$ERR"
   fi
 else
   say "real gitleaks not available; skipped real-gitleaks integration tests"
@@ -1994,13 +2001,13 @@ fi
 
 missing_url="file://$ROOT/tests/fixtures/does-not-exist-checksums.txt"
 AGENT_GUARD_GITLEAKS_CHECKSUMS_URL="$missing_url" "$PLUGIN_ROOT/bin/agent-guard" checksum 8.30.1 \
-  >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+  >"$OUT" 2>"$ERR"
 checksum_missing_status=$?
-if [ "$checksum_missing_status" -eq 2 ] && grep -q 'failed to fetch' /tmp/agent-guard-test.err; then
+if [ "$checksum_missing_status" -eq 2 ] && grep -q 'failed to fetch' "$ERR"; then
   ok "checksum subcommand exits 2 when the source URL is unreachable"
 else
   not_ok "checksum subcommand fetch-failure path returned status $checksum_missing_status"
-  sed 's/^/  /' /tmp/agent-guard-test.err
+  sed 's/^/  /' "$ERR"
 fi
 
 # --- Tool-output secret redaction (PostToolUse updatedToolOutput) ----------
@@ -2010,12 +2017,12 @@ fi
 # AGENT_GUARD_TEST_SECRET; the env-assignment heuristic catches KEY=value dumps.
 post_tool_out() {
   printf '%s' "$1" | (cd "$TMP_ROOT" && "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool) \
-    >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+    >"$OUT" 2>"$ERR"
 }
 
 post_tool_out '{"tool_name":"Bash","tool_input":{"command":"loadsecrets"},"tool_response":{"stdout":"token AGENT_GUARD_TEST_SECRET here\n","stderr":"","interrupted":false,"isImage":false}}'
 post_status=$?
-post_out=$(cat /tmp/agent-guard-test.out)
+post_out=$(cat "$OUT")
 if [ "$post_status" -eq 0 ] \
    && printf '%s' "$post_out" | grep -q '\[REDACTED\]' \
    && ! printf '%s' "$post_out" | grep -q 'AGENT_GUARD_TEST_SECRET' \
@@ -2027,7 +2034,7 @@ else
 fi
 
 post_tool_out '{"tool_name":"Bash","tool_input":{"command":"printenv-like"},"tool_response":{"stdout":"DATABASE_PASSWORD=hunter2-long-value\n","stderr":"","interrupted":false,"isImage":false}}'
-post_out=$(cat /tmp/agent-guard-test.out)
+post_out=$(cat "$OUT")
 if printf '%s' "$post_out" | grep -q '\[REDACTED\]' \
    && ! printf '%s' "$post_out" | grep -q 'hunter2-long-value'; then
   ok "post-tool env-assignment heuristic masks KEY=value gitleaks misses"
@@ -2037,7 +2044,7 @@ else
 fi
 
 post_tool_out '{"tool_name":"Read","tool_input":{"file_path":"memo.txt"},"tool_response":"API_KEY=supersecretvalue123\n"}'
-post_out=$(cat /tmp/agent-guard-test.out)
+post_out=$(cat "$OUT")
 if printf '%s' "$post_out" | jq -e '.hookSpecificOutput.updatedToolOutput | type == "string"' >/dev/null 2>&1 \
    && ! printf '%s' "$post_out" | grep -q 'supersecretvalue123'; then
   ok "post-tool masks secrets in Read string output (shape stays string)"
@@ -2048,7 +2055,7 @@ fi
 
 post_tool_out '{"tool_name":"Bash","tool_input":{"command":"echo hi"},"tool_response":{"stdout":"hello world\n","stderr":"","interrupted":false,"isImage":false}}'
 post_status=$?
-post_out=$(cat /tmp/agent-guard-test.out)
+post_out=$(cat "$OUT")
 if [ "$post_status" -eq 0 ] && [ -z "$post_out" ]; then
   ok "post-tool leaves clean output untouched (no rewrite emitted)"
 else
@@ -2058,20 +2065,20 @@ fi
 
 printf '%s' '{"tool_name":"Read","tool_input":{"file_path":"memo.txt"},"tool_response":"API_KEY=supersecretvalue123\n"}' \
   | (cd "$TMP_ROOT" && AGENT_GUARD_OUTPUT_REDACT=off "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool) \
-  >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+  >"$OUT" 2>"$ERR"
 post_status=$?
-if [ "$post_status" -eq 0 ] && [ ! -s /tmp/agent-guard-test.out ]; then
+if [ "$post_status" -eq 0 ] && [ ! -s "$OUT" ]; then
   ok "post-tool redaction disabled via AGENT_GUARD_OUTPUT_REDACT=off"
 else
   not_ok "post-tool redaction disabled via AGENT_GUARD_OUTPUT_REDACT=off (status $post_status)"
-  sed 's/^/  out: /' /tmp/agent-guard-test.out
+  sed 's/^/  out: /' "$OUT"
 fi
 
 # Overlapping secrets: when one detected value is a prefix of another, redaction
 # must scrub both. Lexicographic order would replace the prefix first and strand
 # the longer secret's suffix (UNIQUESUFFIX) — longest-first ordering prevents it.
 post_tool_out '{"tool_name":"Bash","tool_input":{"command":"x"},"tool_response":{"stdout":"AWS_SECRET=abcdwxyzcommonpart\nAWS_SECRET_KEY=abcdwxyzcommonpartUNIQUESUFFIX\n","stderr":"","interrupted":false,"isImage":false}}'
-post_out=$(cat /tmp/agent-guard-test.out)
+post_out=$(cat "$OUT")
 if printf '%s' "$post_out" | grep -q '\[REDACTED\]' \
    && ! printf '%s' "$post_out" | grep -q 'abcdwxyzcommonpart' \
    && ! printf '%s' "$post_out" | grep -q 'UNIQUESUFFIX'; then
@@ -2086,7 +2093,7 @@ fi
 # "12:00:00" timestamp). A clean copy in a SEPARATE leaf (stderr) only gets
 # masked if the extracted literal is the real value, so this catches a mis-slice.
 post_tool_out '{"tool_name":"Bash","tool_input":{"command":"x"},"tool_response":{"stdout":"2026-06-30T12:00:00Z level=info password=SuperSecretLogValue\n","stderr":"echoed SuperSecretLogValue\n","interrupted":false,"isImage":false}}'
-post_out=$(cat /tmp/agent-guard-test.out)
+post_out=$(cat "$OUT")
 if printf '%s' "$post_out" | grep -q '\[REDACTED\]' \
    && ! printf '%s' "$post_out" | grep -q 'SuperSecretLogValue'; then
   ok "post-tool anchors env value past a log prefix and masks it across leaves"
@@ -2100,12 +2107,12 @@ fi
 # non-git TMP_ROOT so the mutation backstop stays inert.
 post_tool_pii() {
   printf '%s' "$1" | (cd "$TMP_ROOT" && AGENT_GUARD_PII_HOOK_MODE=mask "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool) \
-    >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
+    >"$OUT" 2>"$ERR"
 }
 
 post_tool_pii '{"tool_name":"Bash","tool_input":{"command":"x"},"tool_response":{"stdout":"user jane@example.com ip 10.1.2.3 id 900101-1234567\n","stderr":"","interrupted":false,"isImage":false}}'
 post_status=$?
-post_out=$(cat /tmp/agent-guard-test.out)
+post_out=$(cat "$OUT")
 if [ "$post_status" -eq 0 ] \
    && printf '%s' "$post_out" | grep -q '\[PII:EMAIL\]' \
    && printf '%s' "$post_out" | grep -q '\[PII:IP_ADDRESS\]' \
@@ -2121,7 +2128,7 @@ fi
 # Without mask mode, PII in output is left untouched (no rewrite emitted).
 post_tool_out '{"tool_name":"Bash","tool_input":{"command":"x"},"tool_response":{"stdout":"user jane@example.com\n","stderr":"","interrupted":false,"isImage":false}}'
 post_status=$?
-post_out=$(cat /tmp/agent-guard-test.out)
+post_out=$(cat "$OUT")
 if [ "$post_status" -eq 0 ] && [ -z "$post_out" ]; then
   ok "post-tool leaves PII untouched without mask mode (default)"
 else
@@ -2131,7 +2138,7 @@ fi
 
 # Secret redaction and PII masking compose into one updatedToolOutput across leaves.
 post_tool_pii '{"tool_name":"Bash","tool_input":{"command":"x"},"tool_response":{"stdout":"DATABASE_PASSWORD=hunter2longvalue\n","stderr":"notified jane@example.com\n","interrupted":false,"isImage":false}}'
-post_out=$(cat /tmp/agent-guard-test.out)
+post_out=$(cat "$OUT")
 if printf '%s' "$post_out" | grep -q '\[REDACTED\]' \
    && printf '%s' "$post_out" | grep -q '\[PII:EMAIL\]' \
    && ! printf '%s' "$post_out" | grep -q 'jane@example.com'; then
