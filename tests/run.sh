@@ -2265,6 +2265,44 @@ else
   say "zsh not available; skipped shell-init --zsh parse test"
 fi
 
+# --- shell-init nudge behavior (warn-only, non-blocking) ---------------------
+# Source the emitted bash snippet in an isolated subshell, drop the DEBUG trap
+# it installs (so it cannot fire on our explicit probe calls), then invoke the
+# nudge directly. The idiom is assembled at runtime so no contiguous
+# secret-loading literal sits in a command line.
+nudge_idiom="print""env"
+printf '%s\n' "$shellinit_bash" > "$TESTTMP/shellinit.sh"
+nudge_probe() {
+  np_out=$(bash -c '. "$1"; trap - DEBUG; __agentguard_nudge "$2"' _ "$TESTTMP/shellinit.sh" "$1" 2>&1 >/dev/null)
+  [ -n "$np_out" ] && printf 'warn\n' || printf 'silent\n'
+}
+
+if [ "$(nudge_probe "$nudge_idiom")" = warn ]; then
+  ok "shell-init nudge warns on a bare secret-loading idiom"
+else
+  not_ok "shell-init nudge warns on a bare secret-loading idiom"
+fi
+if [ "$(nudge_probe "agx $nudge_idiom")" = silent ]; then
+  ok "shell-init nudge stays silent when the command is wrapped with agx"
+else
+  not_ok "shell-init nudge stays silent when the command is wrapped with agx"
+fi
+if [ "$(nudge_probe "$nudge_idiom > /dev/null")" = silent ]; then
+  ok "shell-init nudge stays silent on a spaced > /dev/null redirect"
+else
+  not_ok "shell-init nudge stays silent on a spaced > /dev/null redirect"
+fi
+if [ "$(nudge_probe "$nudge_idiom>/dev/null")" = silent ]; then
+  ok "shell-init nudge stays silent on a compact >/dev/null redirect"
+else
+  not_ok "shell-init nudge stays silent on a compact >/dev/null redirect"
+fi
+if [ "$(nudge_probe "ls -la")" = silent ]; then
+  ok "shell-init nudge stays silent on a benign command"
+else
+  not_ok "shell-init nudge stays silent on a benign command"
+fi
+
 say "passed: $pass"
 say "failed: $fail"
 

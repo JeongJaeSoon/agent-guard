@@ -1806,7 +1806,7 @@ agx() { command agent-guard exec -- "$@"; }
 __agentguard_nudge() {
   [ -n "$1" ] || return 0
   case "$1" in
-    __agentguard_nudge*|*agx*|*'agent-guard exec'*|*'>/dev/null'*|*'2>/dev/null'*) return 0 ;;
+    __agentguard_nudge*|*agx*|*'agent-guard exec'*|*'>/dev/null'*|*'> /dev/null'*|*'2>/dev/null'*|*'2> /dev/null'*) return 0 ;;
   esac
   case "$1" in
     *printenv*|*'env |'*|*'op read'*|*'vault kv get'*|*'aws secretsmanager get-secret-value'*|*'gh auth token'*|*'cat '*.env*)
