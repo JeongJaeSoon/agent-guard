@@ -1,3 +1,18 @@
+## v1.4.0 - 2026-07-01
+
+- test: harden tests/run.sh temp files with mktemp (CWE-377) (#82)
+- chore(changelog): drop stale Unreleased block ahead of v1.4.0 (#81)
+- ci: bump actions/github-script from 7.1.0 to 9.0.0 (#71)
+- ci: bump actions/checkout from 5.0.1 to 7.0.0 (#74)
+- ci: bump openai/codex-action from 1.8 to 1.9 (#76)
+- ci: bump hashgraph-online/ai-plugin-scanner-action (#75)
+- docs: document shell-escape hook-bypass blind spot (#80)
+- feat(agent-guard): mask PII in tool output via mask mode (#78)
+- feat(agent-guard): mask secret-like values in tool output (#77)
+- docs(readme): lead with a Claude Code quick start to lift install conversion (#73)
+- feat(plugin): add Codex composer icon for Agent Guard (#72)
+- ci: add HOL plugin scanner self-scan and harden CI workflows (#68)
+
 ## v1.3.8 - 2026-06-16
 
 - docs: separate demo steps with blank lines for readability (#66)
