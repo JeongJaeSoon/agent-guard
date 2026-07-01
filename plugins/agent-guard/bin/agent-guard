@@ -1473,7 +1473,17 @@ secretish_env_values() {
       # first [=:] on the line — a log/timestamp prefix (e.g. "12:00:00") would
       # otherwise hijack the split and mis-slice the value. tolower preserves
       # byte offsets for ASCII, so RSTART/RLENGTH from `low` apply to $0.
-      if (match(low, /(password|passwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|credential|client[_-]?secret|auth[_-]?token|webhook)[a-z0-9_]*[ \t]*[=:]/)) {
+      #
+      # Two matchers, OR-ed so RSTART/RLENGTH come from whichever hits:
+      #  1. distinctive secret-bearing key words (safe as bare prefixes).
+      #  2. short ambiguous abbreviations `pat`/`pwd` — matched ONLY as a
+      #     compound-key suffix (preceded by _ or -, e.g. github_pat, db_pwd) AND
+      #     ending right at the delimiter, so the ubiquitous bare shell vars
+      #     PATH= / PWD= (directory paths) and benign compounds like NODE_PATH= /
+      #     FILE_PATTERN= do NOT get masked. No word-boundary metachar exists in
+      #     portable ERE, hence the explicit leading [_-] anchor and the absence
+      #     of a trailing [a-z0-9_]* run before the delimiter.
+      if (match(low, /(password|passwd|passphrase|db[_-]?pass(word)?|secret|token|refresh[_-]?token|auth[_-]?token|session[_-]?key|api[_-]?key|access[_-]?key|private[_-]?key|signing[_-]?key|encryption[_-]?key|credential|client[_-]?secret|bearer|webhook)[a-z0-9_]*[ \t]*[=:]/) || match(low, /[_-](pat|pwd)[ \t]*[=:]/)) {
         val = substr($0, RSTART + RLENGTH)
         gsub(/^[ \t"'\''`]+/, "", val)
         gsub(/[ \t"'\''`,;]+$/, "", val)
@@ -1504,6 +1514,18 @@ detect_output_secrets() {
       fi
     fi
     printf '%s\n' "$text" | secretish_env_values
+    # JWTs (three base64url segments; first two start `eyJ`). gitleaks' own JWT
+    # rule is narrow; emit the whole compact token for literal redaction.
+    printf '%s\n' "$text" \
+      | grep -Eo 'eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+' 2>/dev/null || true
+    # Bearer credentials, from `Authorization: Bearer <tok>` or a bare
+    # `Bearer <tok>`. Emit just the token (>=8 chars) so the redactor masks the
+    # credential but leaves the `Authorization: Bearer ` label intact. The token
+    # class includes base64/base64url payload chars (+ / = ~) so a value like
+    # `Bearer abc+/def==` is matched whole, not truncated at the first `+`.
+    printf '%s\n' "$text" \
+      | grep -Eio 'bearer[ \t]+[-A-Za-z0-9._~+/=]+' 2>/dev/null \
+      | awk '{ tok = $2; if (length(tok) >= 8) print tok }' || true
   } | awk 'NF' | sort -u
 }
 
