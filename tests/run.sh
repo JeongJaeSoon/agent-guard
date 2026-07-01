@@ -2102,6 +2102,86 @@ else
   printf '%s\n' "$post_out" | sed 's/^/  out: /'
 fi
 
+# JWT (three base64url segments, first two start `eyJ`) is masked whole. The
+# token is glued from fragments at runtime so this file holds no contiguous
+# JWT-shaped literal an upstream scanner would flag. gitleaks is not relied on
+# here (the mock only flags AGENT_GUARD_TEST_SECRET) — the JWT producer detects it.
+jwt_h='eyJ''hbGciOiJIUzI1NiJ9'
+jwt_p='eyJ''zdWIiOiJhZ2VudCJ9'
+jwt_s='sig''NatureVal_ABC-123xyz'
+jwt_tok="$jwt_h.$jwt_p.$jwt_s"
+jwt_in=$(jq -nc --arg s "cached session token $jwt_tok in memory" \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:($s+"\n"),stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$jwt_in"
+post_status=$?
+post_out=$(cat "$OUT")
+if [ "$post_status" -eq 0 ] \
+   && printf '%s' "$post_out" | grep -q '\[REDACTED\]' \
+   && ! printf '%s' "$post_out" | grep -Fq "$jwt_tok" \
+   && printf '%s' "$post_out" | jq -e '.hookSpecificOutput.updatedToolOutput | has("stdout") and has("stderr") and has("interrupted") and has("isImage")' >/dev/null 2>&1; then
+  ok "post-tool masks a JWT in tool output (shape preserved)"
+else
+  not_ok "post-tool masks a JWT in tool output (status $post_status)"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+# Bearer credential: only the token is masked, the `Authorization: Bearer ` label
+# survives. Token glued from fragments so no contiguous credential sits in-file.
+bear_tok='abcDEF123''_bearer-token-value'
+bear_in=$(jq -nc --arg s "Authorization: Bearer $bear_tok" \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:($s+"\n"),stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$bear_in"
+post_status=$?
+post_out=$(cat "$OUT")
+if [ "$post_status" -eq 0 ] \
+   && printf '%s' "$post_out" | grep -q '\[REDACTED\]' \
+   && ! printf '%s' "$post_out" | grep -Fq "$bear_tok" \
+   && printf '%s' "$post_out" | grep -q 'Authorization: Bearer' \
+   && printf '%s' "$post_out" | jq -e '.hookSpecificOutput.updatedToolOutput | has("stdout") and has("stderr")' >/dev/null 2>&1; then
+  ok "post-tool masks a Bearer token but keeps the Authorization label"
+else
+  not_ok "post-tool masks a Bearer token but keeps the Authorization label (status $post_status)"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+# Newly-covered env key: SESSION_KEY= (value glued from fragments).
+sk_val='s3ssion''-key-secret-value-xyz'
+sk_in=$(jq -nc --arg s "SESSION_KEY=$sk_val" \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:($s+"\n"),stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$sk_in"
+post_status=$?
+post_out=$(cat "$OUT")
+if [ "$post_status" -eq 0 ] \
+   && printf '%s' "$post_out" | grep -q '\[REDACTED\]' \
+   && ! printf '%s' "$post_out" | grep -Fq "$sk_val" \
+   && printf '%s' "$post_out" | jq -e '.hookSpecificOutput.updatedToolOutput | has("stdout")' >/dev/null 2>&1; then
+  ok "post-tool env heuristic masks a newly-covered SESSION_KEY= value"
+else
+  not_ok "post-tool env heuristic masks a newly-covered SESSION_KEY= value (status $post_status)"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+# Over-masking guard: a benign sentence that merely contains the word "token"
+# (no key delimiter, no secret shape) must survive VERBATIM even when a real
+# secret on another line forces a rewrite. Catches regex creep that would mask
+# ordinary prose. PASSPHRASE= value glued from fragments.
+benign_line='The deployment token is rotated every 90 days.'
+pp_val='correct''-horse-battery-staple-7'
+guard_in=$(jq -nc --arg b "$benign_line" --arg v "PASSPHRASE=$pp_val" \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:($b+"\n"+$v+"\n"),stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$guard_in"
+post_status=$?
+post_out=$(cat "$OUT")
+if [ "$post_status" -eq 0 ] \
+   && printf '%s' "$post_out" | grep -q '\[REDACTED\]' \
+   && ! printf '%s' "$post_out" | grep -Fq "$pp_val" \
+   && printf '%s' "$post_out" | grep -Fq "$benign_line"; then
+  ok "post-tool does not over-mask benign prose containing the word token"
+else
+  not_ok "post-tool does not over-mask benign prose containing the word token (status $post_status)"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
 # --- PII output masking (PostToolUse, AGENT_GUARD_PII_HOOK_MODE=mask) ---------
 # Masks PII in a tool's RESULT (parallel to secret redaction). Run from the
 # non-git TMP_ROOT so the mutation backstop stays inert.
