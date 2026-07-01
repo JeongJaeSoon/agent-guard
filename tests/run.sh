@@ -2182,6 +2182,65 @@ else
   printf '%s\n' "$post_out" | sed 's/^/  out: /'
 fi
 
+# Bearer token containing base64/base64url payload chars (+ / = ~) must be masked
+# WHOLE, not truncated at the first `+`. Regression for the char-class fix. The
+# distinctive tail must not survive (it would if the match stopped early).
+b64_tok='abcDEF123''+/tailXYZ=='
+b64_in=$(jq -nc --arg s "Authorization: Bearer $b64_tok" \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:($s+"\n"),stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$b64_in"
+post_status=$?
+post_out=$(cat "$OUT")
+if [ "$post_status" -eq 0 ] \
+   && printf '%s' "$post_out" | grep -q '\[REDACTED\]' \
+   && ! printf '%s' "$post_out" | grep -Fq "$b64_tok" \
+   && ! printf '%s' "$post_out" | grep -Fq 'tailXYZ' \
+   && printf '%s' "$post_out" | grep -q 'Authorization: Bearer'; then
+  ok "post-tool masks a Bearer token whole when it holds base64 chars"
+else
+  not_ok "post-tool masks a Bearer token whole when it holds base64 chars (status $post_status)"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+# All-caps BEARER (HTTP auth scheme is case-insensitive) must still be caught.
+caps_tok='ZYXwvu987''_caps-bearer-tok'
+caps_in=$(jq -nc --arg s "authorization: BEARER $caps_tok" \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:($s+"\n"),stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$caps_in"
+post_status=$?
+post_out=$(cat "$OUT")
+if [ "$post_status" -eq 0 ] \
+   && printf '%s' "$post_out" | grep -q '\[REDACTED\]' \
+   && ! printf '%s' "$post_out" | grep -Fq "$caps_tok"; then
+  ok "post-tool masks an all-caps BEARER token"
+else
+  not_ok "post-tool masks an all-caps BEARER token (status $post_status)"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+# Over-masking guard for the pat/pwd suffix rule: benign keys that merely START
+# with pat/pwd after an underscore (NODE_PATH=, FILE_PATTERN=) must survive
+# verbatim, even when a real secret on another line forces a rewrite. Regression
+# for anchoring `_pat`/`_pwd` to the delimiter.
+np_line='NODE_PATH=/usr/lib/node_modules'
+fp_line='FILE_PATTERN=*.md'
+pat_secret='s3ssion''-key-secret-value-xyz'
+pat_in=$(jq -nc --arg a "$np_line" --arg b "$fp_line" --arg s "SESSION_KEY=$pat_secret" \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:($a+"\n"+$b+"\n"+$s+"\n"),stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$pat_in"
+post_status=$?
+post_out=$(cat "$OUT")
+if [ "$post_status" -eq 0 ] \
+   && printf '%s' "$post_out" | grep -q '\[REDACTED\]' \
+   && ! printf '%s' "$post_out" | grep -Fq "$pat_secret" \
+   && printf '%s' "$post_out" | grep -Fq "$np_line" \
+   && printf '%s' "$post_out" | grep -Fq "$fp_line"; then
+  ok "post-tool does not over-mask NODE_PATH= / FILE_PATTERN= benign keys"
+else
+  not_ok "post-tool does not over-mask NODE_PATH= / FILE_PATTERN= benign keys (status $post_status)"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
 # --- PII output masking (PostToolUse, AGENT_GUARD_PII_HOOK_MODE=mask) ---------
 # Masks PII in a tool's RESULT (parallel to secret redaction). Run from the
 # non-git TMP_ROOT so the mutation backstop stays inert.
