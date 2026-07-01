@@ -267,6 +267,24 @@ Beyond blocking, Agent Guard **masks** secret-like values in a tool's *output* b
 
 With `AGENT_GUARD_PII_HOOK_MODE=mask`, the same `PostToolUse` redactor also masks **PII** in tool output — email, phone (including Korean mobile), IPv4, credit card, US SSN, and Korean resident registration number become `[PII:TYPE]` placeholders in place. Secret redaction and PII masking compose into a single rewrite, so a result containing both is fully sanitized at once.
 
+## Shell integration (masking `!` shell-escape output)
+
+The `PostToolUse` redactor only ever sees the results of the agent's *tool calls*. When you type a `!`-prefixed command at the Claude Code prompt, it runs in the session shell and its **output is captured into the transcript and sent to the model** — but it is not a tool call, so **no** Agent Guard hook fires (a documented blind spot). If that output carries a credential, the model sees it unmasked.
+
+`agent-guard exec` closes that gap. It runs the command (it never blocks it — you still see the real output yourself), captures combined stdout+stderr, masks secret-like values (and PII, when `AGENT_GUARD_PII_HOOK_MODE=mask`) with the same detection engine the output redactor uses, prints the **redacted** text, and propagates the command's exit code. Only the masked text reaches the transcript and the model. Capture is buffered, so this is for non-interactive info commands (env / secret / config dumps), not TUIs or streaming programs. `AGENT_GUARD_OUTPUT_REDACT=off` disables secret masking; masking is on by default.
+
+```sh
+agent-guard exec -- printenv          # runs it, but the transcript gets [REDACTED] in place of secrets
+```
+
+To make this ergonomic, add the shell integration to your `~/.bashrc` / `~/.zshrc`:
+
+```sh
+eval "$(agent-guard shell-init)"
+```
+
+This defines `agx` (a thin wrapper for `agent-guard exec --`) so you can run `agx <cmd>` — in Claude Code, `!agx <cmd>` — and have the output masked before the model sees it. It also installs a **warn-only, non-blocking** nudge (a zsh `preexec` / bash `DEBUG` trap) that reminds you to use `agx` when you run a known secret-loading idiom without it. The nudge never blocks or modifies your command; pass `--bash` or `--zsh` to force a target shell.
+
 ## Known Limitations
 
 Agent Guard is a deterministic, thin guardrail — not a DLP system, EDR, or vault. It scans tracked diffs, staged changes, and untracked files with gitleaks, and blocks a fixed list of sensitive paths and shell idioms. It deliberately does **not** inspect arbitrary file contents that a command reads, and it has these blind spots by design:
@@ -276,7 +294,7 @@ Agent Guard is a deterministic, thin guardrail — not a DLP system, EDR, or vau
 - **Path and command blocking use fixed lists.** Read/Grep/Glob blocking matches the paths in `deny-read-paths.txt`; shell blocking matches the idioms in `deny-bash-patterns.txt`. A secret in an unlisted path, or read by an unlisted tool or flag, is not blocked. Extend the lists with `AGENT_GUARD_DENY_READ_PATHS` / `AGENT_GUARD_DENY_BASH_PATTERNS`.
 - **Output masking is best-effort.** Secret-like values in a tool's output (`Bash` stdout/stderr, file reads) are masked in place by the `PostToolUse` redactor (`AGENT_GUARD_OUTPUT_REDACT`, on by default), but detection is heuristic — gitleaks plus a `KEY=value` env-assignment rule. Unusual or custom secret formats can still slip through, and the redactor only sees results of the agent's *tool calls*. PII masking (`AGENT_GUARD_PII_HOOK_MODE=mask`) is likewise regex-based: it can over-match (a version string read as an IPv4) or miss locale formats it has no rule for. Both the secret redactor and the PII masker walk JSON string *values* only — a secret or PII string that appears as an object *key* is left unmasked, because rewriting keys could collapse two distinct keys onto one placeholder and drop an entry. Treat output masking as defense in depth and keep real secrets and personal data out of agent sessions entirely.
 - **Bash detection is pattern-based.** The denylist targets common-accident and obvious-malicious idioms; an actively-evading agent can craft a command that matches none of them. Treat shell blocking as defense in depth, not a complete adversarial boundary.
-- **User-typed shell-escape commands bypass every hook.** Agent Guard works entirely through tool-use hooks (`PreToolUse` / `PostToolUse`) and git hooks. A command the user runs directly through the host's interactive shell escape — for example a `!`-prefixed command typed at the agent prompt — never becomes a tool call, so **no** Agent Guard hook fires: neither the input block nor the output redactor. A secret that such a command prints (e.g. an env- or vault-reading CLI whose output is not redirected to `/dev/null`) lands in the session transcript unmasked. Run secret-loading commands *through* the agent's tools so the hooks apply, or redirect their output away from the transcript — both streams, since many CLIs print credentials or secret-bearing diagnostics to stderr (`>/dev/null 2>&1`).
+- **User-typed shell-escape commands bypass every hook.** Agent Guard works entirely through tool-use hooks (`PreToolUse` / `PostToolUse`) and git hooks. A command the user runs directly through the host's interactive shell escape — for example a `!`-prefixed command typed at the agent prompt — never becomes a tool call, so **no** Agent Guard hook fires: neither the input block nor the output redactor. A secret that such a command prints (e.g. an env- or vault-reading CLI whose output is not redirected to `/dev/null`) lands in the session transcript unmasked. The recommended mitigation is to run such commands via `agx <cmd>` / `agent-guard exec -- <cmd>` (see [Shell integration](#shell-integration-masking--shell-escape-output)) so their output is masked *before* it reaches the model. Alternatively, run secret-loading commands *through* the agent's tools so the hooks apply, or redirect their output away from the transcript — both streams, since many CLIs print credentials or secret-bearing diagnostics to stderr (`>/dev/null 2>&1`).
 
 For defense in depth, pair Agent Guard with GitHub Secret Scanning / Push Protection and a secrets manager so credentials never reach the working tree.
 
