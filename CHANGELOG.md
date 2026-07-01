@@ -1,3 +1,8 @@
+## v1.5.0 - 2026-07-01
+
+- feat(shell): mask ! shell-escape output via agent-guard exec + shell-init (#86)
+- feat(detection): broaden output secret recall (JWT, bearer, more env keys) (#85)
+
 ## v1.4.0 - 2026-07-01
 
 - test: harden tests/run.sh temp files with mktemp (CWE-377) (#82)
