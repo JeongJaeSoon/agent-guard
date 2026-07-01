@@ -46,6 +46,8 @@ Usage:
   agent-guard hook-pre-tool
   agent-guard hook-post-tool
   agent-guard hook-stop
+  agent-guard exec [--] <cmd> [args...]
+  agent-guard shell-init [--bash|--zsh]
   agent-guard pii-filter [--check]
   agent-guard scan-staged
   agent-guard scan-working-tree
@@ -1682,11 +1684,233 @@ hook_stop() {
   block_on_scan_status "$?" "changed files contain secret-like values before stop"
 }
 
+# --- exec: mask secrets/PII in a shell-escape command's captured output -------
+# Threat model: in Claude Code, a `!`-prefixed command runs in the session shell
+# and its OUTPUT is captured into the transcript and sent to the model, but NO
+# agent-guard hook fires for `!` (a documented blind spot). The user is fine with
+# the command running and seeing its output themselves; the risk is secret-bearing
+# output reaching the model. `agent-guard exec` closes that gap: it RUNS the
+# command (never blocks), captures combined stdout+stderr, masks secret-like
+# values (and PII, when enabled), prints the REDACTED text, and propagates the
+# command's exit code. Capture is BUFFERED, so this is for NON-INTERACTIVE info
+# commands (env / secret / config dumps), not TUIs or streaming programs.
+
+# Literal (non-regex) replacement of every detected secret in $1 with [REDACTED],
+# processing longest-first so a shorter secret that is a prefix of a longer one
+# cannot strand the tail (mirrors the rationale in redact_tool_response_json).
+# Uses awk index()/substr() so a secret containing regex metacharacters is matched
+# as a literal, never compiled as a pattern (sed/gsub would misfire). The secret
+# list ($2, newline-separated) is passed through the environment and read via
+# ENVIRON so awk does not process backslash escapes in the values. Prints the
+# redacted text with no added trailing newline (the caller re-adds one).
+redact_plaintext_literal() {
+  text=$1
+  secrets=$2
+  printf '%s' "$text" | AG_SECRETS="$secrets" awk '
+    BEGIN {
+      n = split(ENVIRON["AG_SECRETS"], raw, "\n")
+      m = 0
+      for (i = 1; i <= n; i++) if (length(raw[i]) > 0) sec[++m] = raw[i]
+      # Sort secrets by descending length (longest-first).
+      for (i = 1; i <= m; i++)
+        for (j = i + 1; j <= m; j++)
+          if (length(sec[j]) > length(sec[i])) { t = sec[i]; sec[i] = sec[j]; sec[j] = t }
+    }
+    { buf = (NR == 1 ? $0 : buf ORS $0) }
+    END {
+      for (i = 1; i <= m; i++) {
+        s = sec[i]; slen = length(s)
+        if (slen == 0) continue
+        out = ""; idx = index(buf, s)
+        while (idx > 0) {
+          out = out substr(buf, 1, idx - 1) "[REDACTED]"
+          buf = substr(buf, idx + slen)
+          idx = index(buf, s)
+        }
+        buf = out buf
+      }
+      printf "%s", buf
+    }
+  '
+}
+
+do_exec() {
+  [ "${1:-}" = "--" ] && shift
+  if [ "$#" -eq 0 ]; then
+    {
+      printf '%s\n' "Usage: $PROGRAM exec [--] <cmd> [args...]"
+      printf '%s\n' "Runs <cmd>, captures combined stdout+stderr (BUFFERED; for"
+      printf '%s\n' "non-interactive info commands), masks secret-like values and"
+      printf '%s\n' "PII, prints the redacted output, then exits with <cmd>'s status."
+    } >&2
+    exit 2
+  fi
+
+  # Validate the PII mode up front so a misconfiguration fails loud (pii_hook_mode
+  # dies on an unsupported value) instead of silently leaving PII unmasked.
+  pii_hook_mode >/dev/null
+
+  out=$("$@" 2>&1)
+  status=$?
+
+  masked=$out
+
+  # Secret-literal redaction (AGENT_GUARD_OUTPUT_REDACT, default mask). Fail-safe:
+  # on any error the original output is preserved rather than swallowed.
+  if output_redact_enabled; then
+    secrets=$(detect_output_secrets "$masked" 2>/dev/null) || secrets=''
+    if [ -n "$secrets" ]; then
+      r=$(redact_plaintext_literal "$masked" "$secrets" 2>/dev/null)
+      [ -n "$r" ] && masked=$r
+    fi
+  fi
+
+  # PII masking (AGENT_GUARD_PII_HOOK_MODE=mask), reusing the same CLI masker the
+  # pii-filter subcommand uses. Fail-safe: keep the prior text if it errors.
+  if [ "$(pii_hook_mode)" = mask ]; then
+    r=$(printf '%s' "$masked" | pii_regex_adapter_filter 2>/dev/null)
+    [ -n "$r" ] && masked=$r
+  fi
+
+  printf '%s\n' "$masked"
+  exit "$status"
+}
+
+# --- shell-init: emit an rc snippet installing `agx` + a warn-only nudge -------
+# `eval "$(agent-guard shell-init)"` in the user's shell rc defines `agx` (an
+# alias for `agent-guard exec --`) and a NON-BLOCKING preexec/DEBUG nudge that
+# reminds the user to wrap known secret-loading idioms with `agx` so their output
+# is masked before the model sees it.
+shell_init_target() {
+  # Default to `auto`: emit a snippet that picks the hook at SOURCE time in the
+  # user's interactive shell. We cannot detect the parent shell here — this
+  # script runs under its own `#!/usr/bin/env sh` interpreter, and $ZSH_VERSION
+  # / $BASH_VERSION are non-exported shell parameters invisible to a child
+  # process. `--bash` / `--zsh` force a single hook for users who prefer it.
+  target=auto
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --bash) target=bash ;;
+      --zsh) target=zsh ;;
+      -h|--help) target=help ;;
+      *) die "shell-init: unknown argument: $1 (expected --bash or --zsh)" ;;
+    esac
+    shift
+  done
+  printf '%s' "$target"
+}
+
+# Emit the zsh preexec hook. add-zsh-hook chains onto any existing preexec
+# rather than clobbering it; the plain-function fallback is only for ancient zsh.
+shell_init_zsh_hook() {
+  cat <<'EOF'
+# zsh: fire the nudge before each interactive command (command line in $1). Use
+# add-zsh-hook when available so an existing preexec is not clobbered.
+if autoload -Uz add-zsh-hook 2>/dev/null; then
+  add-zsh-hook preexec __agentguard_nudge
+else
+  preexec() { __agentguard_nudge "$1"; }
+fi
+EOF
+}
+
+# Emit the bash DEBUG-trap hook. A DEBUG trap is process-global, so we CHAIN
+# onto any pre-existing trap instead of overwriting it. A sourced rc cannot read
+# an existing DEBUG trap (bash does not expose it to sourced/function scope
+# without functrace), so we DEFER the install to the first prompt via
+# PROMPT_COMMAND — where the trap IS visible — then chain and self-remove.
+shell_init_bash_hook() {
+  cat <<'EOF'
+# bash: install the nudge as a DEBUG trap that fires before each interactive
+# command ($BASH_COMMAND). Deferred to the first prompt so we can read and CHAIN
+# onto any pre-existing DEBUG trap instead of clobbering it; runs exactly once.
+# ponytail: assumes PROMPT_COMMAND is a string, not a bash 5.1+ array.
+__agentguard_sq=\'
+__agentguard_boot='__agentguard_prev=$(trap -p DEBUG);
+case "$__agentguard_prev" in
+  (*__agentguard_nudge*) : ;;
+  ("") trap "__agentguard_nudge \"\$BASH_COMMAND\"" DEBUG ;;
+  (*) __agentguard_prev=${__agentguard_prev#trap -- $__agentguard_sq};
+      __agentguard_prev=${__agentguard_prev%$__agentguard_sq DEBUG};
+      trap "${__agentguard_prev}; __agentguard_nudge \"\$BASH_COMMAND\"" DEBUG ;;
+esac;
+unset __agentguard_prev;
+PROMPT_COMMAND=${PROMPT_COMMAND#eval \"\$__agentguard_boot\";};
+unset __agentguard_boot __agentguard_sq'
+case "${PROMPT_COMMAND:-}" in
+  (*__agentguard_boot*) ;;
+  (*) PROMPT_COMMAND="eval \"\$__agentguard_boot\";${PROMPT_COMMAND:-}" ;;
+esac
+EOF
+}
+
+shell_init() {
+  target=$(shell_init_target "$@")
+  if [ "$target" = help ]; then
+    {
+      printf '%s\n' "Usage: $PROGRAM shell-init [--bash|--zsh]"
+      printf '%s\n' "Emits a shell snippet for: eval \"\$($PROGRAM shell-init)\""
+    } >&2
+    return 0
+  fi
+
+  # Shared comment header + the `agx` wrapper and nudge function body (identical
+  # for both shells). The nudge is warn-only: it NEVER blocks or modifies the
+  # command. It skips commands that already route through agx / agent-guard exec,
+  # or that discard BOTH output streams (a bare >/dev/null or 2>/dev/null still
+  # leaves the other stream transcript-bound, so those must NOT skip), and only
+  # fires on a small curated set of secret-loading idioms. The match is a
+  # pure-shell `case` glob (no subprocess per command, so it is fast).
+  cat <<'EOF'
+# --- agent-guard shell integration (managed by: agent-guard shell-init) -------
+# Threat: a `!`-prefixed command in Claude Code runs in your shell and its OUTPUT
+# is captured into the transcript and sent to the model. No agent-guard hook fires
+# for `!`. Run secret-printing commands as `agx <cmd>` (in Claude Code: `!agx
+# <cmd>`) so their output is masked BEFORE the model sees it. The nudge below is a
+# warn-only reminder; it never blocks or changes your command.
+agx() { command agent-guard exec -- "$@"; }
+__agentguard_nudge() {
+  [ -n "$1" ] || return 0
+  case "$1" in
+    __agentguard_nudge*|*agx*|*'agent-guard exec'*) return 0 ;;
+  esac
+  # Skip only when BOTH streams are discarded — secrets leak via stdout OR
+  # stderr into the transcript, so a lone `>/dev/null` / `2>/dev/null` must not
+  # suppress the nudge. `2>&1 >/dev/null` (wrong order — stderr keeps the tty) is
+  # deliberately NOT matched.
+  case "$1" in
+    *'>/dev/null 2>&1'*|*'> /dev/null 2>&1'*|*'&>/dev/null'*|*'&> /dev/null'*) return 0 ;;
+  esac
+  case "$1" in
+    *printenv*|*'env |'*|*'op read'*|*'vault kv get'*|*'aws secretsmanager get-secret-value'*|*'gh auth token'*|*'cat '*.env*)
+      printf '\033[33magent-guard: this command may print secrets to the transcript — consider: agx <cmd>\033[0m\n' >&2
+      ;;
+  esac
+  return 0
+}
+EOF
+  case "$target" in
+    zsh) shell_init_zsh_hook ;;
+    bash) shell_init_bash_hook ;;
+    auto)
+      # Detect the shell at SOURCE time in the user's interactive shell, where
+      # $ZSH_VERSION / $BASH_VERSION are actually set (unlike in this child sh).
+      printf '%s\n' 'if [ -n "${ZSH_VERSION:-}" ]; then'
+      shell_init_zsh_hook
+      printf '%s\n' 'elif [ -n "${BASH_VERSION:-}" ]; then'
+      shell_init_bash_hook
+      printf '%s\n' 'fi'
+      ;;
+  esac
+}
+
 cmd=${1:-}
 case "$cmd" in
   hook-pre-tool) hook_pre_tool ;;
   hook-post-tool) hook_post_tool ;;
   hook-stop) hook_stop ;;
+  exec) shift; do_exec "$@" ;;
+  shell-init) shift; shell_init "$@" ;;
   pii-filter) shift; pii_filter "$@" ;;
   scan-staged) shift; scan_staged "$@" ;;
   scan-working-tree) shift; scan_working_tree "$@" ;;
