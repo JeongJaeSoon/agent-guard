@@ -1760,7 +1760,12 @@ do_exec() {
 # reminds the user to wrap known secret-loading idioms with `agx` so their output
 # is masked before the model sees it.
 shell_init_target() {
-  target=''
+  # Default to `auto`: emit a snippet that picks the hook at SOURCE time in the
+  # user's interactive shell. We cannot detect the parent shell here — this
+  # script runs under its own `#!/usr/bin/env sh` interpreter, and $ZSH_VERSION
+  # / $BASH_VERSION are non-exported shell parameters invisible to a child
+  # process. `--bash` / `--zsh` force a single hook for users who prefer it.
+  target=auto
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --bash) target=bash ;;
@@ -1770,13 +1775,51 @@ shell_init_target() {
     esac
     shift
   done
-  if [ -z "$target" ]; then
-    if [ -n "${ZSH_VERSION:-}" ]; then target=zsh
-    elif [ -n "${BASH_VERSION:-}" ]; then target=bash
-    else target=bash
-    fi
-  fi
   printf '%s' "$target"
+}
+
+# Emit the zsh preexec hook. add-zsh-hook chains onto any existing preexec
+# rather than clobbering it; the plain-function fallback is only for ancient zsh.
+shell_init_zsh_hook() {
+  cat <<'EOF'
+# zsh: fire the nudge before each interactive command (command line in $1). Use
+# add-zsh-hook when available so an existing preexec is not clobbered.
+if autoload -Uz add-zsh-hook 2>/dev/null; then
+  add-zsh-hook preexec __agentguard_nudge
+else
+  preexec() { __agentguard_nudge "$1"; }
+fi
+EOF
+}
+
+# Emit the bash DEBUG-trap hook. A DEBUG trap is process-global, so we CHAIN
+# onto any pre-existing trap instead of overwriting it. A sourced rc cannot read
+# an existing DEBUG trap (bash does not expose it to sourced/function scope
+# without functrace), so we DEFER the install to the first prompt via
+# PROMPT_COMMAND — where the trap IS visible — then chain and self-remove.
+shell_init_bash_hook() {
+  cat <<'EOF'
+# bash: install the nudge as a DEBUG trap that fires before each interactive
+# command ($BASH_COMMAND). Deferred to the first prompt so we can read and CHAIN
+# onto any pre-existing DEBUG trap instead of clobbering it; runs exactly once.
+# ponytail: assumes PROMPT_COMMAND is a string, not a bash 5.1+ array.
+__agentguard_sq=\'
+__agentguard_boot='__agentguard_prev=$(trap -p DEBUG);
+case "$__agentguard_prev" in
+  (*__agentguard_nudge*) : ;;
+  ("") trap "__agentguard_nudge \"\$BASH_COMMAND\"" DEBUG ;;
+  (*) __agentguard_prev=${__agentguard_prev#trap -- $__agentguard_sq};
+      __agentguard_prev=${__agentguard_prev%$__agentguard_sq DEBUG};
+      trap "${__agentguard_prev}; __agentguard_nudge \"\$BASH_COMMAND\"" DEBUG ;;
+esac;
+unset __agentguard_prev;
+PROMPT_COMMAND=${PROMPT_COMMAND#eval \"\$__agentguard_boot\";};
+unset __agentguard_boot __agentguard_sq'
+case "${PROMPT_COMMAND:-}" in
+  (*__agentguard_boot*) ;;
+  (*) PROMPT_COMMAND="eval \"\$__agentguard_boot\";${PROMPT_COMMAND:-}" ;;
+esac
+EOF
 }
 
 shell_init() {
@@ -1791,10 +1834,11 @@ shell_init() {
 
   # Shared comment header + the `agx` wrapper and nudge function body (identical
   # for both shells). The nudge is warn-only: it NEVER blocks or modifies the
-  # command. It skips commands that already route through agx / agent-guard exec
-  # or discard output (>/dev/null, 2>/dev/null), and only fires on a small curated
-  # set of secret-loading idioms. The match is a pure-shell `case` glob (no
-  # subprocess per command, so it is fast).
+  # command. It skips commands that already route through agx / agent-guard exec,
+  # or that discard BOTH output streams (a bare >/dev/null or 2>/dev/null still
+  # leaves the other stream transcript-bound, so those must NOT skip), and only
+  # fires on a small curated set of secret-loading idioms. The match is a
+  # pure-shell `case` glob (no subprocess per command, so it is fast).
   cat <<'EOF'
 # --- agent-guard shell integration (managed by: agent-guard shell-init) -------
 # Threat: a `!`-prefixed command in Claude Code runs in your shell and its OUTPUT
@@ -1806,7 +1850,14 @@ agx() { command agent-guard exec -- "$@"; }
 __agentguard_nudge() {
   [ -n "$1" ] || return 0
   case "$1" in
-    __agentguard_nudge*|*agx*|*'agent-guard exec'*|*'>/dev/null'*|*'> /dev/null'*|*'2>/dev/null'*|*'2> /dev/null'*) return 0 ;;
+    __agentguard_nudge*|*agx*|*'agent-guard exec'*) return 0 ;;
+  esac
+  # Skip only when BOTH streams are discarded — secrets leak via stdout OR
+  # stderr into the transcript, so a lone `>/dev/null` / `2>/dev/null` must not
+  # suppress the nudge. `2>&1 >/dev/null` (wrong order — stderr keeps the tty) is
+  # deliberately NOT matched.
+  case "$1" in
+    *'>/dev/null 2>&1'*|*'> /dev/null 2>&1'*|*'&>/dev/null'*|*'&> /dev/null'*) return 0 ;;
   esac
   case "$1" in
     *printenv*|*'env |'*|*'op read'*|*'vault kv get'*|*'aws secretsmanager get-secret-value'*|*'gh auth token'*|*'cat '*.env*)
@@ -1816,24 +1867,19 @@ __agentguard_nudge() {
   return 0
 }
 EOF
-  if [ "$target" = zsh ]; then
-    cat <<'EOF'
-# zsh: fire the nudge before each interactive command (command line in $1). Use
-# add-zsh-hook when available so an existing preexec is not clobbered.
-if autoload -Uz add-zsh-hook 2>/dev/null; then
-  add-zsh-hook preexec __agentguard_nudge
-else
-  preexec() { __agentguard_nudge "$1"; }
-fi
-EOF
-  else
-    cat <<'EOF'
-# bash: fire the nudge before each interactive command (command line in
-# $BASH_COMMAND). The DEBUG trap is not inherited by functions by default, so the
-# nudge body cannot recurse into itself.
-trap '__agentguard_nudge "$BASH_COMMAND"' DEBUG
-EOF
-  fi
+  case "$target" in
+    zsh) shell_init_zsh_hook ;;
+    bash) shell_init_bash_hook ;;
+    auto)
+      # Detect the shell at SOURCE time in the user's interactive shell, where
+      # $ZSH_VERSION / $BASH_VERSION are actually set (unlike in this child sh).
+      printf '%s\n' 'if [ -n "${ZSH_VERSION:-}" ]; then'
+      shell_init_zsh_hook
+      printf '%s\n' 'elif [ -n "${BASH_VERSION:-}" ]; then'
+      shell_init_bash_hook
+      printf '%s\n' 'fi'
+      ;;
+  esac
 }
 
 cmd=${1:-}

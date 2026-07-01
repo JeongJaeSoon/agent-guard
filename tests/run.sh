@@ -2265,6 +2265,53 @@ else
   say "zsh not available; skipped shell-init --zsh parse test"
 fi
 
+# With no flag, shell-init emits an auto snippet that detects the shell at
+# SOURCE time — it must carry BOTH hooks and still parse under sh -n.
+shellinit_auto=$("$PLUGIN_ROOT/bin/agent-guard" shell-init 2>/dev/null)
+if printf '%s' "$shellinit_auto" | grep -q 'ZSH_VERSION' \
+   && printf '%s' "$shellinit_auto" | grep -q 'BASH_VERSION'; then
+  ok "shell-init (auto) emits a source-time shell detector"
+else
+  not_ok "shell-init (auto) emits a source-time shell detector"
+fi
+if printf '%s\n' "$shellinit_auto" | sh -n - 2>"$ERR"; then
+  ok "shell-init (auto) snippet parses under sh -n"
+else
+  not_ok "shell-init (auto) snippet parses under sh -n"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+# The bash hook must CHAIN onto a pre-existing DEBUG trap, not clobber it. The
+# install is deferred to PROMPT_COMMAND, so simulate the first prompt tick by
+# eval-ing PROMPT_COMMAND at top level (where the trap is actually visible).
+printf '%s\n' "$shellinit_bash" > "$TESTTMP/shellinit.sh"
+chain_out=$(bash -c '
+  trap "true PRIOR_MARKER" DEBUG
+  __agentguard_nudge() { :; }
+  . "$1"
+  eval "${PROMPT_COMMAND:-:}"   # first prompt: deferred installer runs, chains
+  case "$(trap -p DEBUG)" in *PRIOR_MARKER*) m=kept ;; *) m=lost ;; esac
+  case "$(trap -p DEBUG)" in *__agentguard_nudge*) n=chained ;; *) n=missing ;; esac
+  printf "%s-%s\n" "$m" "$n"
+' _ "$TESTTMP/shellinit.sh" 2>/dev/null)
+if [ "$chain_out" = kept-chained ]; then
+  ok "shell-init bash hook chains onto an existing DEBUG trap"
+else
+  not_ok "shell-init bash hook chains onto an existing DEBUG trap (got: $chain_out)"
+fi
+# With no pre-existing DEBUG trap, the deferred installer still installs cleanly.
+fresh_out=$(bash -c '
+  __agentguard_nudge() { :; }
+  . "$1"
+  eval "${PROMPT_COMMAND:-:}"
+  case "$(trap -p DEBUG)" in *__agentguard_nudge*) printf installed ;; *) printf missing ;; esac
+' _ "$TESTTMP/shellinit.sh" 2>/dev/null)
+if [ "$fresh_out" = installed ]; then
+  ok "shell-init bash hook installs the nudge when no DEBUG trap exists"
+else
+  not_ok "shell-init bash hook installs the nudge when no DEBUG trap exists (got: $fresh_out)"
+fi
+
 # --- shell-init nudge behavior (warn-only, non-blocking) ---------------------
 # Source the emitted bash snippet in an isolated subshell, drop the DEBUG trap
 # it installs (so it cannot fire on our explicit probe calls), then invoke the
@@ -2287,15 +2334,20 @@ if [ "$(nudge_probe "agx $nudge_idiom")" = silent ]; then
 else
   not_ok "shell-init nudge stays silent when the command is wrapped with agx"
 fi
-if [ "$(nudge_probe "$nudge_idiom > /dev/null")" = silent ]; then
-  ok "shell-init nudge stays silent on a spaced > /dev/null redirect"
+if [ "$(nudge_probe "$nudge_idiom >/dev/null 2>&1")" = silent ]; then
+  ok "shell-init nudge stays silent when BOTH streams are discarded"
 else
-  not_ok "shell-init nudge stays silent on a spaced > /dev/null redirect"
+  not_ok "shell-init nudge stays silent when BOTH streams are discarded"
 fi
-if [ "$(nudge_probe "$nudge_idiom>/dev/null")" = silent ]; then
-  ok "shell-init nudge stays silent on a compact >/dev/null redirect"
+if [ "$(nudge_probe "$nudge_idiom >/dev/null")" = warn ]; then
+  ok "shell-init nudge still warns on a bare stdout-only redirect (stderr leaks)"
 else
-  not_ok "shell-init nudge stays silent on a compact >/dev/null redirect"
+  not_ok "shell-init nudge still warns on a bare stdout-only redirect (stderr leaks)"
+fi
+if [ "$(nudge_probe "$nudge_idiom 2>/dev/null")" = warn ]; then
+  ok "shell-init nudge still warns on a bare stderr-only redirect (stdout leaks)"
+else
+  not_ok "shell-init nudge still warns on a bare stderr-only redirect (stdout leaks)"
 fi
 if [ "$(nudge_probe "ls -la")" = silent ]; then
   ok "shell-init nudge stays silent on a benign command"
