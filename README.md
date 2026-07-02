@@ -312,6 +312,10 @@ Agent Guard is a deterministic, thin guardrail — not a DLP system, EDR, or vau
 
 For defense in depth, pair Agent Guard with GitHub Secret Scanning / Push Protection and a secrets manager so credentials never reach the working tree.
 
+## Coverage benchmark
+
+`make bench` runs a deterministic, per-channel leak-prevention benchmark against the **real** gitleaks engine, classifying each case as `blocked` / `masked` / `leaked` (plus `false-positive` for benign controls) across the read-tool, bash-read, bash-cmd, bash-output, read-output, mcp-output, and `!` bang channels. It honestly records the `!` bang channel as structurally uncovered and surfaces coverage gaps as measurements rather than hiding them. See [`docs/benchmark.md`](docs/benchmark.md) for the channel model, latest results, and findings.
+
 ## Configuration
 
 Override bundled policies with environment variables:
