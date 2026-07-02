@@ -2056,16 +2056,21 @@ do_setup_shell() {
   fi
 
   # Invocation baked into the rc line, self-healing against the bare name later
-  # leaving $PATH: prefer `agent-guard` on $PATH at rc-eval time (durable — follows
-  # version bumps through a symlink), but ALWAYS co-bake THIS binary's absolute path
-  # as a fallback.
-  # Without the fallback, a bare name that later leaves $PATH (CLI uninstalled,
-  # plugin-only left) makes the eval fail command-not-found and silently install
-  # NO guard — and the runtime resolver can't help once snippet generation itself
-  # fails. `if/else` (not `&&/||`) so exactly one branch's output is emitted. The
-  # emitted snippet keeps its `auto` shell detection, so the line works in bash+zsh.
+  # failing to generate a snippet: prefer `agent-guard` on $PATH at rc-eval time
+  # (durable — follows version bumps through a symlink) but ALWAYS co-bake THIS
+  # binary's absolute path as a fallback.
+  # The probe is by OUTPUT, not mere presence: capture `agent-guard shell-init`'s
+  # stdout, and fall back to the baked absolute path whenever it is empty — whether
+  # because the bare name left $PATH (CLI uninstalled, plugin-only left) OR because
+  # a stale/stub `agent-guard` earlier on $PATH errored or emitted nothing (e.g. an
+  # older build that rejects --experimental-bang-guard). Either way the guard still
+  # installs from $SELF_BIN instead of silently vanishing. The probe's stderr is
+  # suppressed (it is speculative and handled); the fallback runs unmuted. Without
+  # this, snippet generation could fail and the runtime resolver can't help once the
+  # snippet itself was never produced. The emitted snippet keeps its `auto` shell
+  # detection, so the line works in bash+zsh.
   abs=$(sh_squote "$SELF_BIN")
-  line="eval \"\$(if command -v agent-guard >/dev/null 2>&1; then agent-guard shell-init${bang}; else $abs shell-init${bang}; fi)\""
+  line="eval \"\$(_agi=; command -v agent-guard >/dev/null 2>&1 && _agi=\$(agent-guard shell-init${bang} 2>/dev/null); if [ -n \"\$_agi\" ]; then printf '%s\\n' \"\$_agi\"; else $abs shell-init${bang}; fi)\""
 
   begin='# >>> agent-guard shell-init >>>'
   end='# <<< agent-guard shell-init <<<'
