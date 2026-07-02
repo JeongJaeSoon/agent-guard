@@ -113,6 +113,13 @@ independently validates the tool-channel block-plus-redact design.
   flags is a false-positive.
 - **`PostToolUse` cases run from a non-git working directory** so the mutation backstop
   (working-tree scan) stays inert and the output-redaction path is measured in isolation.
+- **Scanner health is proven before scoring.** Pre-tool `exit 2` is overloaded — the engine
+  returns it for a real block *and* for fail-closed infra errors, and a malformed gitleaks
+  config can even make gitleaks exit 1 (reported as "secret detected"), so a broken config
+  would make every case look blocked. Before scoring, the harness asserts a known secret is
+  blocked and a known-benign command passes; if either fails it aborts (exit 3) rather than
+  emit a misleading matrix. A genuine `exit 2` gitleaks execution failure is additionally
+  scored `error` (indeterminate), never `protected`.
 - **Extensible:** the interceptor under test is `$AGENT_GUARD_BIN`. A peer tool with the same
   block/redact CLI shape could be dropped in behind the same channel drivers to compare
   coverage — not built here, but the harness is structured for it.

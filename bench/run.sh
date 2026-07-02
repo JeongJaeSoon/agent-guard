@@ -30,6 +30,10 @@ if ! command -v gitleaks >/dev/null 2>&1; then
 fi
 command -v jq >/dev/null 2>&1 || { echo "bench: jq is required" >&2; exit 3; }
 [ -x "$BIN" ] || { echo "bench: engine not found/executable at $BIN" >&2; exit 3; }
+# The most common scanner-health failure Codex flagged: a missing/invalid config
+# makes every gitleaks-dependent case exit 2. Fail fast here with a clear message
+# rather than letting it surface as an ambiguous exit 2 during scoring.
+[ -f "$CFG" ] || { echo "bench: gitleaks config not found at $CFG" >&2; exit 3; }
 
 # A non-git scratch dir so hook-post-tool's mutation backstop (working-tree
 # scan) stays inert and we isolate the output-redaction path.
@@ -63,10 +67,21 @@ post_read() { jq -cn --arg s "$1"                 '{tool_name:"Read",tool_respon
 post_mcp()  { jq -cn --arg s "$1"                 '{tool_name:"mcp__srv__tool",tool_response:{content:$s}}'; }
 
 # --- interceptor drivers ------------------------------------------------------
-# pre-tool: outcome is blocked (exit 2) or leaked (allowed through).
+# pre-tool: exit 2 is OVERLOADED — the engine uses it both for a real policy
+# block (secret detected / deny-listed path) AND for fail-closed infra errors
+# (missing/invalid gitleaks config, `gitleaks stdin` fatal status). Keying on
+# the exit code alone would score an infra failure as `blocked`/`protected` and
+# overstate the headline rate. So on exit 2 we inspect stderr for the engine's
+# infra-failure markers and score those `error` (indeterminate), never blocked —
+# symmetric with drive_post/drive_exec. Anything else on exit 2 is a real block.
 drive_pre() { # json
-  printf '%s' "$1" | "$BIN" hook-pre-tool >/dev/null 2>&1
-  [ "$?" -eq 2 ] && echo blocked || echo leaked
+  err=$(printf '%s' "$1" | "$BIN" hook-pre-tool 2>&1 >/dev/null)
+  st=$?
+  [ "$st" -eq 2 ] || { echo leaked; return; }
+  case "$err" in
+    *"gitleaks failed while scanning"*|*"gitleaks config not found"*) echo error ;;
+    *) echo blocked ;;
+  esac
 }
 
 # post-tool: masked if the emitted updatedToolOutput drops the secret and shows
@@ -114,6 +129,29 @@ record() { # channel, variant, kind, outcome
   printf '%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4" "$v" >>"$RESULTS"
 }
 
+# --- scanner health probe (before scoring any gitleaks-dependent case) --------
+# pre-tool exit 2 is trustworthy as "blocked" only if the detector is actually
+# healthy. A malformed gitleaks config is the sharp edge: in practice gitleaks
+# exits 1 (not 2) on a fatal config-load error, which the engine reports as
+# "secret detected" — so a broken config makes EVERYTHING look blocked and would
+# silently inflate the headline rate. The config is fixed for the whole run, so
+# one probe covers every case: assert a known secret blocks AND a known-benign
+# command passes. If either fails the detector is unhealthy — abort with a clear
+# message rather than emit a misleading matrix. (This is the robust complement to
+# drive_pre's stderr-based `error` classification, which only catches genuine
+# exit-2 gitleaks failures.)
+scanner_health_probe() {
+  probe_secret=$(canary anthropic)
+  if [ "$(drive_pre "$(pre_bash "git config user.email \"$probe_secret\"")")" != blocked ]; then
+    echo "bench: scanner health check failed — a known secret was not blocked; gitleaks/config is unhealthy" >&2
+    exit 3
+  fi
+  if [ "$(drive_pre "$(pre_bash 'echo build finished in 4.2s')")" != leaked ]; then
+    echo "bench: scanner health check failed — a benign command was blocked; gitleaks config is over-triggering (likely invalid)" >&2
+    exit 3
+  fi
+}
+
 # --- cases --------------------------------------------------------------------
 run_cases() {
   # read-tool (sensitive file read, blocked on path) --------------------------
@@ -155,6 +193,7 @@ run_cases() {
   s=$(canary apikey);  record bang-wrapped exec secret "$(drive_exec "${s#API_KEY=}")"
 }
 
+scanner_health_probe
 run_cases
 
 # --- render matrix + metrics --------------------------------------------------
