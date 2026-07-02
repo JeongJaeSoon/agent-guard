@@ -35,6 +35,18 @@ script_dir() {
 
 BIN_DIR=$(script_dir)
 ROOT_DIR=$(CDPATH= cd -- "$BIN_DIR/.." && pwd -P)
+# Absolute path of THIS binary. Baked into the shell-init snippet so the wrappers
+# can find agent-guard even when it is NOT on $PATH (e.g. a plugin-only install,
+# where the binary lives in the plugin cache and is never symlinked onto PATH).
+SELF_BIN="$BIN_DIR/agent-guard"
+
+# Emit $1 as a safely single-quoted POSIX shell word, so a path with spaces (or,
+# rarely, an embedded quote) survives being baked into an emitted snippet.
+sh_squote() {
+  printf "'"
+  printf '%s' "$1" | sed "s/'/'\\\\''/g"
+  printf "'"
+}
 
 GITLEAKS_CONFIG=${AGENT_GUARD_GITLEAKS_CONFIG:-"$ROOT_DIR/config/gitleaks.toml"}
 DENY_READ_PATHS=${AGENT_GUARD_DENY_READ_PATHS:-"$ROOT_DIR/config/deny-read-paths.txt"}
@@ -47,7 +59,8 @@ Usage:
   agent-guard hook-post-tool
   agent-guard hook-stop
   agent-guard exec [--] <cmd> [args...]
-  agent-guard shell-init [--bash|--zsh]
+  agent-guard shell-init [--bash|--zsh] [--experimental-bang-guard]
+  agent-guard setup-shell [--bash|--zsh|--rc FILE] [--experimental-bang-guard]
   agent-guard pii-filter [--check]
   agent-guard scan-staged
   agent-guard scan-working-tree
@@ -1878,15 +1891,23 @@ shell_init_bang_guard() {
 # terminating dump commands.
 __agentguard_guard() {  # $1 = real command name, remaining args forwarded
   __ag_cmd=$1; shift
-  if [ -n "${CLAUDECODE:-}" ] && command -v agent-guard >/dev/null 2>&1; then
-    # `exec` runs the wrapped command in agent-guard's OWN child process, where
-    # these override functions do not exist — so the real binary runs and there
-    # is no re-entry (no inner `command` needed).
-    command agent-guard exec -- "$__ag_cmd" "$@"
-  else
-    # `command` bypasses this override so the real binary runs (no recursion).
-    command "$__ag_cmd" "$@"
+  if [ -n "${CLAUDECODE:-}" ]; then
+    # Route through `agent-guard exec` (resolved via $PATH or the baked path) so
+    # the output is masked. `exec` runs the command in agent-guard's OWN child
+    # process, where these overrides do not exist, so the real binary runs with
+    # no re-entry (no inner `command` needed).
+    if __ag_exe=$(__agentguard_exe); then
+      command "$__ag_exe" exec -- "$__ag_cmd" "$@"
+      return
+    fi
+    # Unlike agx, this is a TRANSPARENT override (the user just typed `cat`), so
+    # fail OPEN — run the command — but WARN loudly that the output is unmasked
+    # rather than leaking silently. A stale baked path after a plugin update
+    # lands here; `agent-guard setup-shell` re-bakes it.
+    printf 'agent-guard: bang-guard cannot locate the agent-guard binary; %s output is NOT masked. Re-run: agent-guard setup-shell\n' "$__ag_cmd" >&2
   fi
+  # `command` bypasses this override so the real binary runs (no recursion).
+  command "$__ag_cmd" "$@"
 }
 # A user alias for one of these (e.g. `alias cat='cat -n'`) would otherwise
 # alias-expand the `${name}()` token while this eval is PARSED, so the function
@@ -1925,6 +1946,11 @@ shell_init() {
   # leaves the other stream transcript-bound, so those must NOT skip), and only
   # fires on a small curated set of secret-loading idioms. The match is a
   # pure-shell `case` glob (no subprocess per command, so it is fast).
+  #
+  # Bake this binary's absolute path so the wrappers resolve agent-guard even when
+  # it is not on $PATH (plugin-only install). Emitted as its own assignment (the
+  # heredoc below is single-quoted, so it cannot expand a shell variable itself).
+  printf '__agentguard_bin=%s\n' "$(sh_squote "$SELF_BIN")"
   cat <<'EOF'
 # --- agent-guard shell integration (managed by: agent-guard shell-init) -------
 # Threat: a `!`-prefixed command in Claude Code runs in your shell and its OUTPUT
@@ -1932,7 +1958,32 @@ shell_init() {
 # for `!`. Run secret-printing commands as `agx <cmd>` (in Claude Code: `!agx
 # <cmd>`) so their output is masked BEFORE the model sees it. The nudge below is a
 # warn-only reminder; it never blocks or changes your command.
-agx() { command agent-guard exec -- "$@"; }
+#
+# Resolve the agent-guard binary at call time: an explicit $AGENT_GUARD_BIN wins,
+# then $PATH (the durable path for a CLI install, unaffected by version bumps),
+# then the absolute path baked in above (lets a plugin-only install work without
+# putting agent-guard on $PATH). Prints the resolved command; non-zero if none.
+__agentguard_exe() {
+  if [ -n "${AGENT_GUARD_BIN:-}" ] && [ -x "$AGENT_GUARD_BIN" ]; then
+    printf '%s' "$AGENT_GUARD_BIN"; return 0
+  fi
+  if command -v agent-guard >/dev/null 2>&1; then printf '%s' agent-guard; return 0; fi
+  if [ -n "${__agentguard_bin:-}" ] && [ -x "$__agentguard_bin" ]; then
+    printf '%s' "$__agentguard_bin"; return 0
+  fi
+  return 1
+}
+# `agx <cmd>` masks a command's output. It is an EXPLICIT mask request, so if the
+# binary cannot be found it FAILS CLOSED (loud error, does not run the command
+# unmasked) — running it raw would leak exactly what you asked to mask.
+agx() {
+  if __ag_exe=$(__agentguard_exe); then
+    command "$__ag_exe" exec -- "$@"
+  else
+    printf 'agent-guard: agx cannot locate the agent-guard binary; NOT running (output would be unmasked). Re-run: agent-guard setup-shell\n' >&2
+    return 127
+  fi
+}
 __agentguard_nudge() {
   [ -n "$1" ] || return 0
   case "$1" in
@@ -1971,6 +2022,94 @@ EOF
   [ "$bang_guard" = 1 ] && shell_init_bang_guard
 }
 
+# `setup-shell` — write the `eval "$(... shell-init ...)"` line into the user's
+# shell rc so the wrappers load in every new shell (hence every Claude Code shell
+# snapshot). This is the one manual step a plugin-only install needs: a plugin
+# cannot edit your rc, so run this once (by absolute path if agent-guard is not
+# yet on $PATH). Idempotent — re-running replaces the managed block in place.
+do_setup_shell() {
+  sh_target= rc= bang=
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --bash) sh_target=bash ;;
+      --zsh) sh_target=zsh ;;
+      --rc) shift; rc=${1:-}; [ -n "$rc" ] || die "setup-shell: --rc requires a path" ;;
+      --experimental-bang-guard) bang=' --experimental-bang-guard' ;;
+      -h|--help)
+        {
+          printf '%s\n' "Usage: $PROGRAM setup-shell [--bash|--zsh|--rc FILE] [--experimental-bang-guard]"
+          printf '%s\n' "Adds the shell-init line to your shell rc (idempotent). Restart your"
+          printf '%s\n' "shell and any Claude Code session afterwards to apply."
+        } >&2
+        return 0 ;;
+      *) die "setup-shell: unknown option: $1 (see: $PROGRAM setup-shell --help)" ;;
+    esac
+    shift
+  done
+
+  # Pick the rc file: explicit --rc wins, else derive from the chosen/detected shell.
+  if [ -z "$rc" ]; then
+    if [ -z "$sh_target" ]; then
+      case "${SHELL:-}" in */bash) sh_target=bash ;; *) sh_target=zsh ;; esac
+    fi
+    case "$sh_target" in bash) rc=$HOME/.bashrc ;; *) rc=$HOME/.zshrc ;; esac
+  fi
+
+  # Invocation baked into the rc line: prefer the bare name when agent-guard is on
+  # $PATH (durable — unaffected by version bumps), else the absolute path of THIS
+  # binary so a plugin-only install still resolves. The emitted snippet keeps its
+  # `auto` shell detection, so the same line works in bash and zsh.
+  if command -v agent-guard >/dev/null 2>&1; then inv=agent-guard; else inv=$SELF_BIN; fi
+  q=$(sh_squote "$inv")
+  line="eval \"\$($q shell-init${bang})\""
+
+  begin='# >>> agent-guard shell-init >>>'
+  end='# <<< agent-guard shell-init <<<'
+
+  # If the rc is a symlink (e.g. into a dotfiles repo), edit the file it points
+  # at rather than replacing the link with a regular file. Walk the chain by hand
+  # (BSD readlink lacks -f), matching script_path() above.
+  rc_real=$rc hops=0
+  while [ -L "$rc_real" ]; do
+    hops=$((hops + 1)); [ "$hops" -le 40 ] || die "setup-shell: too many symlink hops resolving $rc"
+    t=$(readlink -- "$rc_real")
+    case "$t" in /*) rc_real=$t ;; *) rc_real=$(dirname -- "$rc_real")/$t ;; esac
+  done
+  rc_dir=$(dirname -- "$rc_real")
+  [ -d "$rc_dir" ] || die "setup-shell: directory does not exist: $rc_dir"
+
+  # Build the new content in a temp file in the SAME directory as the target, so
+  # the final `mv` is an atomic same-filesystem rename: the rc is never left
+  # half-written, even if this process is killed mid-run.
+  tmp=$(mktemp "$rc_dir/.agent-guard-rc.XXXXXX" 2>/dev/null) \
+    || die "setup-shell: failed to create temp file in $rc_dir"
+  if [ -f "$rc_real" ]; then
+    # Seed perms/owner from the existing rc (a plain `>` below keeps the inode's
+    # mode while rewriting content); a brand-new rc keeps mktemp's private 0600.
+    cp -p "$rc_real" "$tmp" 2>/dev/null || :
+    # Strip any existing managed block, then REFUSE if we hit a begin marker with
+    # no matching end (`END{exit skip}`): silently dropping everything after an
+    # unbalanced marker would eat unrelated rc content.
+    if ! awk -v b="$begin" -v e="$end" \
+      '$0==b{skip=1} skip==0{print} $0==e{skip=0} END{exit skip}' "$rc_real" >"$tmp"; then
+      rm -f "$tmp"
+      die "setup-shell: $rc_real has '$begin' with no matching '$end'; refusing to overwrite. Fix or remove that block, then re-run."
+    fi
+  else
+    : >"$tmp"
+  fi
+  {
+    printf '%s\n' "$begin"
+    printf '%s\n' "# Managed by 'agent-guard setup-shell' — remove this block to disable."
+    printf '%s\n' "$line"
+    printf '%s\n' "$end"
+  } >>"$tmp"
+  mv "$tmp" "$rc_real" || { rm -f "$tmp"; die "setup-shell: failed to write $rc_real"; }
+
+  info "$PROGRAM: shell integration written to $rc_real"
+  info "$PROGRAM: restart your shell (and any Claude Code session) to apply"
+}
+
 cmd=${1:-}
 case "$cmd" in
   hook-pre-tool) hook_pre_tool ;;
@@ -1984,6 +2123,7 @@ case "$cmd" in
   scan-path) shift; scan_path "$@" ;;
   check) check_deps ;;
   setup) shift; do_setup "$@" ;;
+  setup-shell) shift; do_setup_shell "$@" ;;
   smoke-test) smoke_test ;;
   checksum) shift; exec sh "$ROOT_DIR/scripts/gitleaks-checksum.sh" "$@" ;;
   version) printf '%s %s\n' "$PROGRAM" "$VERSION" ;;
