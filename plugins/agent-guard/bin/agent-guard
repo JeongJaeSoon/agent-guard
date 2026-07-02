@@ -1792,8 +1792,10 @@ shell_init_target() {
     case "$1" in
       --bash) target=bash ;;
       --zsh) target=zsh ;;
+      # Handled separately in shell_init(); accepted here so parsing doesn't die.
+      --experimental-bang-guard) : ;;
       -h|--help) target=help ;;
-      *) die "shell-init: unknown argument: $1 (expected --bash or --zsh)" ;;
+      *) die "shell-init: unknown argument: $1 (expected --bash, --zsh, or --experimental-bang-guard)" ;;
     esac
     shift
   done
@@ -1844,12 +1846,63 @@ esac
 EOF
 }
 
+# EXPERIMENTAL, opt-in (`shell-init --experimental-bang-guard`). Emit function
+# overrides for the common file/env dump commands so `!`-typed reads are routed
+# through `agent-guard exec` (output masked) BEFORE the transcript captures them.
+#
+# Why functions, not the preexec nudge above: Claude Code builds a "shell
+# snapshot" of your interactive shell for `!` commands. That snapshot runs
+# `unalias -a` and drops preexec/DEBUG hooks — so aliases and the nudge do NOT
+# fire for `!`. It DOES keep functions, so these overrides are the one lever that
+# actually intercepts `!cat .env`.
+#
+# Best-effort, NOT a security control:
+#   * covers only these command names; trivially bypassed by an absolute path
+#     (`/bin/cat`), `source`/`.`, `python -c 'open(...)'`, redirection (`< file`).
+#   * gated on $CLAUDECODE so it is INERT in your normal terminal — cat/head/tail
+#     behave exactly as before there; masking only kicks in inside Claude Code.
+#   * `exec` buffers combined output (no streaming/paging) and adds a gitleaks
+#     scan per call, so wrap only cheap, interactive dump commands.
+shell_init_bang_guard() {
+  cat <<'EOF'
+# --- agent-guard EXPERIMENTAL bang-command guard (opt-in) --------------------
+# Routes `!`-typed dump commands through `agent-guard exec` so their output is
+# masked before Claude Code captures it. Active ONLY inside Claude Code
+# ($CLAUDECODE); inert in a normal terminal. Best-effort — see docs.
+# NOTE: `agent-guard exec` buffers the whole output, so streaming/follow commands
+# would hang. `tail` is deliberately NOT wrapped for that reason; wrap only
+# terminating dump commands.
+__agentguard_guard() {  # $1 = real command name, remaining args forwarded
+  __ag_cmd=$1; shift
+  if [ -n "${CLAUDECODE:-}" ] && command -v agent-guard >/dev/null 2>&1; then
+    # `exec` runs the wrapped command in agent-guard's OWN child process, where
+    # these override functions do not exist — so the real binary runs and there
+    # is no re-entry (no inner `command` needed).
+    command agent-guard exec -- "$__ag_cmd" "$@"
+  else
+    # `command` bypasses this override so the real binary runs (no recursion).
+    command "$__ag_cmd" "$@"
+  fi
+}
+for __ag_name in cat head printenv; do
+  eval "${__ag_name}() { __agentguard_guard ${__ag_name} \"\$@\"; }"
+done
+unset __ag_name
+EOF
+}
+
 shell_init() {
   target=$(shell_init_target "$@")
+  bang_guard=0
+  for __ag_arg in "$@"; do
+    [ "$__ag_arg" = --experimental-bang-guard ] && bang_guard=1
+  done
   if [ "$target" = help ]; then
     {
-      printf '%s\n' "Usage: $PROGRAM shell-init [--bash|--zsh]"
+      printf '%s\n' "Usage: $PROGRAM shell-init [--bash|--zsh] [--experimental-bang-guard]"
       printf '%s\n' "Emits a shell snippet for: eval \"\$($PROGRAM shell-init)\""
+      printf '%s\n' "  --experimental-bang-guard  also override cat/head/printenv so"
+      printf '%s\n' "                             \`!\`-typed reads are masked inside Claude Code"
     } >&2
     return 0
   fi
@@ -1902,6 +1955,9 @@ EOF
       printf '%s\n' 'fi'
       ;;
   esac
+  # The bang guard is shell-agnostic (plain functions), so it is emitted after
+  # the shell-specific hook wiring, for any target, only when opted in.
+  [ "$bang_guard" = 1 ] && shell_init_bang_guard
 }
 
 cmd=${1:-}

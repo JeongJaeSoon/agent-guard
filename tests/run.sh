@@ -2494,6 +2494,60 @@ else
   not_ok "shell-init nudge stays silent on a benign command"
 fi
 
+# --- shell-init experimental bang guard (opt-in function overrides) -----------
+# Emitted ONLY with --experimental-bang-guard; overrides cat/head/printenv
+# to route through `agent-guard exec` (mask) but ONLY inside Claude Code
+# ($CLAUDECODE), staying inert in a normal terminal.
+if printf '%s' "$shellinit_auto" | grep -q '__agentguard_guard'; then
+  not_ok "shell-init omits the bang guard without the opt-in flag"
+else
+  ok "shell-init omits the bang guard without the opt-in flag"
+fi
+shellinit_bg=$("$PLUGIN_ROOT/bin/agent-guard" shell-init --experimental-bang-guard 2>/dev/null)
+if printf '%s' "$shellinit_bg" | grep -q '__agentguard_guard'; then
+  ok "shell-init --experimental-bang-guard emits the guard functions"
+else
+  not_ok "shell-init --experimental-bang-guard emits the guard functions"
+fi
+if printf '%s\n' "$shellinit_bg" | sh -n - 2>"$ERR"; then
+  ok "bang guard snippet parses under sh -n"
+else
+  not_ok "bang guard snippet parses under sh -n"; sed 's/^/  stderr: /' "$ERR"
+fi
+if command -v zsh >/dev/null 2>&1; then
+  if printf '%s\n' "$shellinit_bg" | zsh -n - 2>"$ERR"; then
+    ok "bang guard snippet parses under zsh -n"
+  else
+    not_ok "bang guard snippet parses under zsh -n"; sed 's/^/  stderr: /' "$ERR"
+  fi
+fi
+
+# Behavioral routing: use a PATH stub `agent-guard` that only echoes a marker, so
+# the test asserts the gating decision (route vs. passthrough) without depending
+# on the real masker (covered by the exec tests above).
+bg_dir="$TESTTMP/bangguard"
+mkdir -p "$bg_dir/bin"
+cat >"$bg_dir/bin/agent-guard" <<'STUB'
+#!/bin/sh
+[ "$1" = exec ] && { printf 'ROUTED\n'; exit 0; }
+exit 0
+STUB
+chmod +x "$bg_dir/bin/agent-guard"
+printf 'hello-plain\n' >"$bg_dir/file.txt"
+printf '%s\n' "$shellinit_bg" >"$bg_dir/guard.sh"
+bg_in_cc=$(PATH="$bg_dir/bin:$PATH" CLAUDECODE=1 sh -c '. "$1"; cat "$2"' _ "$bg_dir/guard.sh" "$bg_dir/file.txt" 2>/dev/null)
+if [ "$bg_in_cc" = ROUTED ]; then
+  ok "bang guard routes dump commands through agent-guard exec inside Claude Code"
+else
+  not_ok "bang guard routes through exec inside Claude Code (got: $bg_in_cc)"
+fi
+bg_out_cc=$(PATH="$bg_dir/bin:$PATH" sh -c 'unset CLAUDECODE; . "$1"; cat "$2"' _ "$bg_dir/guard.sh" "$bg_dir/file.txt" 2>/dev/null)
+if [ "$bg_out_cc" = hello-plain ]; then
+  ok "bang guard is inert (passthrough) outside Claude Code"
+else
+  not_ok "bang guard passthrough outside Claude Code (got: $bg_out_cc)"
+fi
+
 say "passed: $pass"
 say "failed: $fail"
 
