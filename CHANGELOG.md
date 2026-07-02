@@ -1,3 +1,7 @@
+## v1.6.0 - 2026-07-02
+
+- feat(shell): experimental opt-in bang-command guard (#92)
+
 ## v1.5.0 - 2026-07-01
 
 - feat(shell): mask ! shell-escape output via agent-guard exec + shell-init (#86)
