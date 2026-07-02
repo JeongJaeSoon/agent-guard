@@ -2547,6 +2547,24 @@ if [ "$bg_out_cc" = hello-plain ]; then
 else
   not_ok "bang guard passthrough outside Claude Code (got: $bg_out_cc)"
 fi
+# Regression: a pre-existing `alias cat=...` must NOT stop the override from
+# installing. Without the per-name `unalias` before each `eval`, the alias
+# expands the function name at parse time and the guard is never defined,
+# leaving `!cat` unguarded. Only reproducible in shells that expand aliases.
+for bg_sh in bash zsh; do
+  command -v "$bg_sh" >/dev/null 2>&1 || continue
+  bg_alias=$(PATH="$bg_dir/bin:$PATH" CLAUDECODE=1 "$bg_sh" -c '
+    [ -n "$BASH_VERSION" ] && shopt -s expand_aliases
+    alias cat="cat -n"
+    . "$1"
+    cat "$2"
+  ' _ "$bg_dir/guard.sh" "$bg_dir/file.txt" 2>/dev/null)
+  if [ "$bg_alias" = ROUTED ]; then
+    ok "bang guard defeats a pre-existing cat alias under $bg_sh"
+  else
+    not_ok "bang guard vs pre-existing cat alias under $bg_sh (got: $bg_alias)"
+  fi
+done
 
 say "passed: $pass"
 say "failed: $fail"

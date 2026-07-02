@@ -1863,6 +1863,10 @@ EOF
 #     behave exactly as before there; masking only kicks in inside Claude Code.
 #   * `exec` buffers combined output (no streaming/paging) and adds a gitleaks
 #     scan per call, so wrap only cheap, interactive dump commands.
+#   * `exec` captures output via shell substitution, so it is TEXT-ONLY: a
+#     binary / NUL-containing read loses embedded NULs and its trailing newline.
+#     For faithful binary output use `command cat` / `\cat` (or shell-init
+#     without this flag). This guard targets text config/secret dumps, not blobs.
 shell_init_bang_guard() {
   cat <<'EOF'
 # --- agent-guard EXPERIMENTAL bang-command guard (opt-in) --------------------
@@ -1884,7 +1888,14 @@ __agentguard_guard() {  # $1 = real command name, remaining args forwarded
     command "$__ag_cmd" "$@"
   fi
 }
+# A user alias for one of these (e.g. `alias cat='cat -n'`) would otherwise
+# alias-expand the `${name}()` token while this eval is PARSED, so the function
+# would fail to define and `!cat` would stay unguarded. Drop the alias FIRST, as
+# its own statement, so by the time the inner eval is parsed no alias remains.
+# (Claude Code's snapshot `unalias -a`s anyway, so this is a no-op for a normal
+# terminal — it only fixes the shell where you run `eval "$(... shell-init)"`.)
 for __ag_name in cat head printenv; do
+  unalias "$__ag_name" 2>/dev/null || :
   eval "${__ag_name}() { __agentguard_guard ${__ag_name} \"\$@\"; }"
 done
 unset __ag_name
