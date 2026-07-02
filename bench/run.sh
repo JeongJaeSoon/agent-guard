@@ -152,12 +152,18 @@ scanner_health_probe() {
   fi
 }
 
+# benign grading: for benign content, drive_*'s "leaked" (nothing was
+# blocked/masked) is the CORRECT outcome — reframe it as `passthrough`. Anything
+# else (blocked/masked/error) passes through unchanged so verdict()/metrics can
+# flag it as a false-positive or engine error.
+benign_grade() { [ "$1" = leaked ] && echo passthrough || echo "$1"; }
+
 # --- cases --------------------------------------------------------------------
 run_cases() {
   # read-tool (sensitive file read, blocked on path) --------------------------
   record read-tool plaintext  secret "$(drive_pre "$(pre_read '.env')")"
   record read-tool alt-path   secret "$(drive_pre "$(pre_read "$HOME/.aws/credentials")")"
-  record read-tool benign     benign "$(o=$(drive_pre "$(pre_read '.env.example')"); [ "$o" = leaked ] && echo passthrough || echo "$o")"
+  record read-tool benign     benign "$(benign_grade "$(drive_pre "$(pre_read '.env.example')")")"
 
   # bash-read (sensitive file via a shell command, blocked on path) -----------
   record bash-read plaintext    secret "$(drive_pre "$(pre_bash 'cat .env')")"
@@ -170,14 +176,14 @@ run_cases() {
 
   # bash-output (secret in Bash stdout, masked on output) ---------------------
   s=$(canary github);  record bash-output plaintext secret "$(drive_post "$(post_bash "$s")" "$s")"
-  record bash-output benign benign "$(o=$(drive_post "$(post_bash 'build finished in 4.2s, 0 errors')" 'NOPE'); [ "$o" = leaked ] && echo passthrough || echo "$o")"
+  record bash-output benign benign "$(benign_grade "$(drive_post "$(post_bash 'build finished in 4.2s, 0 errors')" 'NOPE')")"
 
   # read-output (secret in a non-denylisted file's contents) ------------------
   s=$(canary jwt);     record read-output plaintext secret "$(drive_post "$(post_read "config: $s")" "$s")"
-  record read-output benign-config benign "$(o=$(drive_post "$(post_read 'service_url = https://api.example.com/v2')" 'NOPE'); [ "$o" = leaked ] && echo passthrough || echo "$o")"
+  record read-output benign-config benign "$(benign_grade "$(drive_post "$(post_read 'service_url = https://api.example.com/v2')" 'NOPE')")"
   # placeholder-in-env-assignment: gitleaks.toml allowlists `example_token`, but the
   # output env-value heuristic doesn't consult that allowlist — records the over-mask.
-  record read-output benign-placeholder benign "$(o=$(drive_post "$(post_read 'API_KEY=example_token')" 'NOPE'); [ "$o" = leaked ] && echo passthrough || echo "$o")"
+  record read-output benign-placeholder benign "$(benign_grade "$(drive_post "$(post_read 'API_KEY=example_token')" 'NOPE')")"
 
   # mcp-output (secret in an MCP tool response) -------------------------------
   # Grade against the value only (prefix stripped): the redactor keeps the `KEY=`
