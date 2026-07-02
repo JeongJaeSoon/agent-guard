@@ -1,3 +1,7 @@
+## v1.7.0 - 2026-07-02
+
+- feat(shell): resolve agent-guard without a PATH install for the bang guard (#94)
+
 ## v1.6.0 - 2026-07-02
 
 - feat(shell): experimental opt-in bang-command guard (#92)
