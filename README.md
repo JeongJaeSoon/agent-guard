@@ -283,6 +283,12 @@ To make this ergonomic, add the shell integration to your `~/.bashrc` / `~/.zshr
 eval "$(agent-guard shell-init)"
 ```
 
+Or let `setup-shell` write (and later update) that line for you — idempotently, and by absolute path when `agent-guard` isn't on your `$PATH` yet:
+
+```sh
+agent-guard setup-shell            # add `--experimental-bang-guard` to opt into the bang guard below
+```
+
 This defines `agx` (a thin wrapper for `agent-guard exec --`) so you can run `agx <cmd>` — in Claude Code, `!agx <cmd>` — and have the output masked before the model sees it. It also installs a **warn-only, non-blocking** nudge (a zsh `preexec` / bash `DEBUG` trap) that reminds you to use `agx` when you run a known secret-loading idiom without it. The nudge never blocks or modifies your command; pass `--bash` or `--zsh` to force a target shell.
 
 ### Experimental: auto-masking `!` reads (opt-in)
@@ -293,9 +299,11 @@ The nudge above relies on a `preexec` / `DEBUG` hook — but Claude Code runs `!
 eval "$(agent-guard shell-init --experimental-bang-guard)"
 ```
 
-This overrides `cat`, `head`, and `printenv` so that — **only inside Claude Code** (gated on `$CLAUDECODE`) **and only when `agent-guard` is resolvable on `$PATH`** — they route through `agent-guard exec`, masking their output before the transcript captures it. So `!cat config.txt` gets its secrets redacted automatically, without you remembering to type `agx`. In a normal terminal (`$CLAUDECODE` unset), or if `agent-guard` isn't on `$PATH`, the overrides fall back to plain `cat` / `head` / `printenv` behavior.
+This overrides `cat`, `head`, and `printenv` so that — **only inside Claude Code** (gated on `$CLAUDECODE`) — they route through `agent-guard exec`, masking their output before the transcript captures it. So `!cat config.txt` gets its secrets redacted automatically, without you remembering to type `agx`. In a normal terminal (`$CLAUDECODE` unset) the overrides stay inert and fall back to plain `cat` / `head` / `printenv` behavior.
 
-> **Prerequisite — the `agent-guard` CLI must be on your `$PATH`.** This flag routes through the bare `agent-guard` command, so `command -v agent-guard` has to succeed in the same interactive shell. A plain `/plugin install` wires up the *hooks* (Claude Code invokes them by absolute path) but does **not** add `agent-guard` to your `$PATH` — so on a plugin-only install these overrides silently pass through **unmasked**. Install the CLI itself (e.g. the `bootstrap.sh` one-liner under [Pick an install path](#pick-an-install-path)) before enabling this flag.
+The binary is resolved at call time in this order: an explicit `$AGENT_GUARD_BIN`, then `agent-guard` on your `$PATH`, then the **absolute path baked into the snippet** at `shell-init` time. That last fallback means the guard works on a **plugin-only install** — where `agent-guard` is never added to `$PATH` — with no extra CLI install. If none of the three resolve (e.g. a plugin update moved the binary and left the baked path stale), the guard **fails open**: it runs your command but prints a loud `output is NOT masked` warning to stderr telling you to re-run `agent-guard setup-shell`. (`agx`, being an *explicit* mask request, instead fails **closed** — it refuses to run rather than leak.)
+
+> **Works without the CLI on `$PATH` — but a plugin can't edit your rc.** The one manual step for a plugin-only install is getting the `shell-init` line into your shell rc so it loads in every shell (hence every Claude Code snapshot). Run `agent-guard setup-shell --experimental-bang-guard` once — invoke it by the plugin binary's absolute path if `agent-guard` isn't on your `$PATH`; it bakes that same absolute path into the line it writes — then restart your shell and any Claude Code session.
 
 **This is best-effort, not a security control.** It covers only those command names and is trivially bypassed by an absolute path (`/bin/cat`), `source` / `.`, `python -c 'open(...)'`, or a redirection (`< file`). Because `agent-guard exec` buffers the whole output before masking it, **streaming / follow commands would hang** — so `tail` is deliberately *not* wrapped, and you should not `agx` a `tail -f`, a pager, or any long-running program (wrap only terminating dump commands). Output is captured via shell substitution, so wrapping is **text-only** — a binary or NUL-containing read loses embedded NULs and its trailing newline, so use `command cat` / `\cat` for faithful binary output. Each wrapped call also pays a gitleaks scan. Treat it as a convenience nudge for the common cases, not a boundary — the only channel-agnostic fix remains an egress redaction proxy or an upstream `!`-command hook.
 

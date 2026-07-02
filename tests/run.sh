@@ -2566,6 +2566,144 @@ for bg_sh in bash zsh; do
   fi
 done
 
+# --- CLI-less operation: baked path + resolver (no agent-guard on $PATH) ------
+# A plugin-only install never symlinks agent-guard onto $PATH, so the wrappers
+# must resolve it via the absolute path baked into the snippet. These tests strip
+# $PATH down to a minimal set (no agent-guard) to prove that fallback.
+if printf '%s' "$shellinit_bg" | grep -q '^__agentguard_bin='; then
+  ok "shell-init bakes the absolute binary path (__agentguard_bin)"
+else
+  not_ok "shell-init bakes the absolute binary path (__agentguard_bin)"
+fi
+if printf '%s' "$shellinit_bg" | grep -q '__agentguard_exe()'; then
+  ok "shell-init emits the __agentguard_exe resolver"
+else
+  not_ok "shell-init emits the __agentguard_exe resolver"
+fi
+
+# Route via the BAKED path when agent-guard is not on $PATH: point the baked line
+# at the stub and drop $PATH so `command -v agent-guard` cannot find anything.
+bg_baked="$bg_dir/guard-baked.sh"
+sed "s#^__agentguard_bin=.*#__agentguard_bin='$bg_dir/bin/agent-guard'#" "$bg_dir/guard.sh" >"$bg_baked"
+bg_nopath=$(PATH=/usr/bin:/bin CLAUDECODE=1 sh -c '. "$1"; cat "$2"' _ "$bg_baked" "$bg_dir/file.txt" 2>/dev/null)
+if [ "$bg_nopath" = ROUTED ]; then
+  ok "bang guard routes via the baked path when agent-guard is off \$PATH"
+else
+  not_ok "bang guard routes via baked path off \$PATH (got: $bg_nopath)"
+fi
+
+# $AGENT_GUARD_BIN wins over both $PATH and the baked path.
+cat >"$bg_dir/bin/ag-override" <<'STUB'
+#!/bin/sh
+[ "$1" = exec ] && { printf 'ENVROUTED\n'; exit 0; }
+exit 0
+STUB
+chmod +x "$bg_dir/bin/ag-override"
+bg_env=$(PATH="$bg_dir/bin:$PATH" CLAUDECODE=1 AGENT_GUARD_BIN="$bg_dir/bin/ag-override" \
+  sh -c '. "$1"; cat "$2"' _ "$bg_dir/guard.sh" "$bg_dir/file.txt" 2>/dev/null)
+if [ "$bg_env" = ENVROUTED ]; then
+  ok "\$AGENT_GUARD_BIN takes priority in the resolver"
+else
+  not_ok "\$AGENT_GUARD_BIN priority in the resolver (got: $bg_env)"
+fi
+
+# When NO binary resolves (stale baked path, nothing on $PATH), the TRANSPARENT
+# bang guard fails OPEN — it still runs the command — but warns loudly on stderr.
+bg_none="$bg_dir/guard-none.sh"
+sed "s#^__agentguard_bin=.*#__agentguard_bin='/nonexistent/agent-guard'#" "$bg_dir/guard.sh" >"$bg_none"
+bg_open=$(PATH=/usr/bin:/bin CLAUDECODE=1 sh -c '. "$1"; cat "$2"' _ "$bg_none" "$bg_dir/file.txt" 2>"$ERR")
+if [ "$bg_open" = hello-plain ]; then
+  ok "bang guard fails OPEN (runs the command) when no binary resolves"
+else
+  not_ok "bang guard fail-open passthrough when no binary resolves (got: $bg_open)"
+fi
+if grep -q 'NOT masked' "$ERR"; then
+  ok "bang guard warns loudly on stderr when it cannot mask"
+else
+  not_ok "bang guard warns loudly on stderr when it cannot mask"
+fi
+
+# agx is an EXPLICIT mask request, so it fails CLOSED — it must NOT run the
+# command unmasked when the binary is missing; it returns 127 instead.
+agx_out=$(PATH=/usr/bin:/bin sh -c '. "$1"; agx cat "$2"; printf "rc=%s" "$?"' _ "$bg_none" "$bg_dir/file.txt" 2>/dev/null)
+case "$agx_out" in
+  *hello-plain*) not_ok "agx fails CLOSED when no binary resolves (leaked: $agx_out)" ;;
+  *rc=127*)      ok "agx fails CLOSED (rc=127, does not run) when no binary resolves" ;;
+  *)             not_ok "agx fail-closed return code (got: $agx_out)" ;;
+esac
+
+# --- setup-shell: write the shell-init line into an rc, idempotently ----------
+ss_rc="$TESTTMP/setup.rc"
+"$PLUGIN_ROOT/bin/agent-guard" setup-shell --rc "$ss_rc" >/dev/null 2>&1
+if grep -q '>>> agent-guard shell-init >>>' "$ss_rc" 2>/dev/null; then
+  ok "setup-shell writes a managed shell-init block into the rc"
+else
+  not_ok "setup-shell writes a managed shell-init block into the rc"
+fi
+"$PLUGIN_ROOT/bin/agent-guard" setup-shell --rc "$ss_rc" >/dev/null 2>&1
+ss_markers=$(grep -c '>>> agent-guard shell-init >>>' "$ss_rc" 2>/dev/null)
+if [ "$ss_markers" = 1 ]; then
+  ok "setup-shell is idempotent (one managed block after two runs)"
+else
+  not_ok "setup-shell idempotent (begin-marker count: $ss_markers)"
+fi
+printf 'export AG_TEST_KEEP=1\n' >>"$ss_rc"
+"$PLUGIN_ROOT/bin/agent-guard" setup-shell --rc "$ss_rc" >/dev/null 2>&1
+if grep -q 'export AG_TEST_KEEP=1' "$ss_rc" 2>/dev/null; then
+  ok "setup-shell preserves unrelated rc lines"
+else
+  not_ok "setup-shell preserves unrelated rc lines"
+fi
+"$PLUGIN_ROOT/bin/agent-guard" setup-shell --rc "$ss_rc" --experimental-bang-guard >/dev/null 2>&1
+if grep -q 'shell-init --experimental-bang-guard' "$ss_rc" 2>/dev/null; then
+  ok "setup-shell threads --experimental-bang-guard into the rc line"
+else
+  not_ok "setup-shell threads --experimental-bang-guard into the rc line"
+fi
+if "$PLUGIN_ROOT/bin/agent-guard" setup-shell --bogus >/dev/null 2>&1; then
+  not_ok "setup-shell rejects an unknown option"
+else
+  ok "setup-shell rejects an unknown option"
+fi
+# An unbalanced managed block (begin marker, no matching end) must make
+# setup-shell REFUSE and leave the rc untouched — never silently drop the
+# user content that follows the orphaned marker.
+ss_bad="$TESTTMP/setup-bad.rc"
+{
+  printf '%s\n' 'export AG_BEFORE=1'
+  printf '%s\n' '# >>> agent-guard shell-init >>>'
+  printf '%s\n' 'export AG_ORPHAN_KEEP=1'
+} >"$ss_bad"
+ss_bad_before=$(cat "$ss_bad")
+if "$PLUGIN_ROOT/bin/agent-guard" setup-shell --rc "$ss_bad" >/dev/null 2>&1; then
+  not_ok "setup-shell refuses an rc with an unbalanced managed-block marker"
+else
+  ok "setup-shell refuses an rc with an unbalanced managed-block marker"
+fi
+if [ "$(cat "$ss_bad")" = "$ss_bad_before" ]; then
+  ok "setup-shell leaves the rc untouched when it refuses"
+else
+  not_ok "setup-shell leaves the rc untouched when it refuses"
+fi
+# A symlinked rc is written THROUGH to its target (dotfiles workflow): the link
+# stays a link and the real file gets the managed block + keeps its content.
+if ln -s "$TESTTMP/real-rc" "$TESTTMP/link-rc" 2>/dev/null; then
+  printf 'export AG_DOTFILES=1\n' >"$TESTTMP/real-rc"
+  "$PLUGIN_ROOT/bin/agent-guard" setup-shell --rc "$TESTTMP/link-rc" >/dev/null 2>&1
+  if [ -L "$TESTTMP/link-rc" ] && grep -q '>>> agent-guard shell-init >>>' "$TESTTMP/real-rc" 2>/dev/null; then
+    ok "setup-shell writes through a symlinked rc (link preserved, target updated)"
+  else
+    not_ok "setup-shell writes through a symlinked rc (link preserved, target updated)"
+  fi
+  if grep -q 'export AG_DOTFILES=1' "$TESTTMP/real-rc" 2>/dev/null; then
+    ok "setup-shell preserves target content when writing through a symlink"
+  else
+    not_ok "setup-shell preserves target content when writing through a symlink"
+  fi
+else
+  say "symlinks not supported here; skipped setup-shell symlink test"
+fi
+
 say "passed: $pass"
 say "failed: $fail"
 
