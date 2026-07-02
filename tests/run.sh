@@ -2660,6 +2660,25 @@ if grep -q 'shell-init --experimental-bang-guard' "$ss_rc" 2>/dev/null; then
 else
   not_ok "setup-shell threads --experimental-bang-guard into the rc line"
 fi
+# Self-healing invocation: the rc line prefers `agent-guard` on $PATH but bakes an
+# absolute-path fallback, so it stays a valid generator even if the bare name later
+# leaves $PATH.
+ss_heal="$TESTTMP/setup-heal.rc"
+"$PLUGIN_ROOT/bin/agent-guard" setup-shell --rc "$ss_heal" --experimental-bang-guard >/dev/null 2>&1
+if grep -q 'if command -v agent-guard' "$ss_heal" 2>/dev/null; then
+  ok "setup-shell bakes a self-healing invocation (PATH name + absolute fallback)"
+else
+  not_ok "setup-shell bakes a self-healing invocation (PATH name + absolute fallback)"
+fi
+# Regression for the exact leak found in live testing: with agent-guard NOT on
+# $PATH, a bare-name invocation would fail command-not-found and install NOTHING.
+# The baked absolute fallback must still generate the snippet, so `agx` gets defined.
+heal=$(PATH=/usr/bin:/bin sh -c '. "$1"; command -v agx >/dev/null 2>&1 && echo INSTALLED || echo MISSING' _ "$ss_heal" 2>/dev/null)
+if [ "$heal" = INSTALLED ]; then
+  ok "setup-shell rc line installs the guard even with agent-guard off \$PATH"
+else
+  not_ok "setup-shell rc line installs the guard off \$PATH (got: $heal)"
+fi
 if "$PLUGIN_ROOT/bin/agent-guard" setup-shell --bogus >/dev/null 2>&1; then
   not_ok "setup-shell rejects an unknown option"
 else

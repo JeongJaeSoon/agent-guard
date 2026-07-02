@@ -2055,13 +2055,17 @@ do_setup_shell() {
     case "$sh_target" in bash) rc=$HOME/.bashrc ;; *) rc=$HOME/.zshrc ;; esac
   fi
 
-  # Invocation baked into the rc line: prefer the bare name when agent-guard is on
-  # $PATH (durable — unaffected by version bumps), else the absolute path of THIS
-  # binary so a plugin-only install still resolves. The emitted snippet keeps its
-  # `auto` shell detection, so the same line works in bash and zsh.
-  if command -v agent-guard >/dev/null 2>&1; then inv=agent-guard; else inv=$SELF_BIN; fi
-  q=$(sh_squote "$inv")
-  line="eval \"\$($q shell-init${bang})\""
+  # Invocation baked into the rc line, self-healing against the bare name later
+  # leaving $PATH: prefer `agent-guard` on $PATH at rc-eval time (durable — follows
+  # version bumps through a symlink), but ALWAYS co-bake THIS binary's absolute path
+  # as a fallback.
+  # Without the fallback, a bare name that later leaves $PATH (CLI uninstalled,
+  # plugin-only left) makes the eval fail command-not-found and silently install
+  # NO guard — and the runtime resolver can't help once snippet generation itself
+  # fails. `if/else` (not `&&/||`) so exactly one branch's output is emitted. The
+  # emitted snippet keeps its `auto` shell detection, so the line works in bash+zsh.
+  abs=$(sh_squote "$SELF_BIN")
+  line="eval \"\$(if command -v agent-guard >/dev/null 2>&1; then agent-guard shell-init${bang}; else $abs shell-init${bang}; fi)\""
 
   begin='# >>> agent-guard shell-init >>>'
   end='# <<< agent-guard shell-init <<<'
