@@ -2660,6 +2660,44 @@ if grep -q 'shell-init --experimental-bang-guard' "$ss_rc" 2>/dev/null; then
 else
   not_ok "setup-shell threads --experimental-bang-guard into the rc line"
 fi
+# Self-healing invocation: the rc line prefers `agent-guard` on $PATH but bakes an
+# absolute-path fallback keyed on OUTPUT (not mere presence), so it stays a valid
+# generator even if the bare name later leaves $PATH or a stale binary emits nothing.
+ss_heal="$TESTTMP/setup-heal.rc"
+"$PLUGIN_ROOT/bin/agent-guard" setup-shell --rc "$ss_heal" --experimental-bang-guard >/dev/null 2>&1
+if grep -q '_agi=$(agent-guard shell-init' "$ss_heal" 2>/dev/null \
+   && grep -q 'if \[ -n "$_agi" \]' "$ss_heal" 2>/dev/null; then
+  ok "setup-shell bakes a self-healing invocation (output probe + absolute fallback)"
+else
+  not_ok "setup-shell bakes a self-healing invocation (output probe + absolute fallback)"
+fi
+# Regression for the exact leak found in live testing: with agent-guard NOT on
+# $PATH, a bare-name invocation would fail command-not-found and install NOTHING.
+# The baked absolute fallback must still generate the snippet, so `agx` gets defined.
+heal=$(PATH=/usr/bin:/bin sh -c '. "$1"; command -v agx >/dev/null 2>&1 && echo INSTALLED || echo MISSING' _ "$ss_heal" 2>/dev/null)
+if [ "$heal" = INSTALLED ]; then
+  ok "setup-shell rc line installs the guard even with agent-guard off \$PATH"
+else
+  not_ok "setup-shell rc line installs the guard off \$PATH (got: $heal)"
+fi
+# Regression for CodeRabbit's P2: a STALE/STUB `agent-guard` earlier on $PATH whose
+# `shell-init` emits nothing (or errors) must NOT shadow the baked fallback. The
+# output probe falls back to $SELF_BIN, so `agx` still gets defined rather than the
+# guard silently vanishing.
+heal_stub_dir="$TESTTMP/heal-stub-bin"
+mkdir -p "$heal_stub_dir"
+cat >"$heal_stub_dir/agent-guard" <<'STUB'
+#!/bin/sh
+# Older/stub build: does not know shell-init, emits nothing and exits nonzero.
+exit 3
+STUB
+chmod +x "$heal_stub_dir/agent-guard"
+heal_stub=$(PATH="$heal_stub_dir:/usr/bin:/bin" sh -c '. "$1"; command -v agx >/dev/null 2>&1 && echo INSTALLED || echo MISSING' _ "$ss_heal" 2>/dev/null)
+if [ "$heal_stub" = INSTALLED ]; then
+  ok "setup-shell rc line falls back to the baked path when a stub agent-guard shadows \$PATH"
+else
+  not_ok "setup-shell rc line falls back past a stub agent-guard (got: $heal_stub)"
+fi
 if "$PLUGIN_ROOT/bin/agent-guard" setup-shell --bogus >/dev/null 2>&1; then
   not_ok "setup-shell rejects an unknown option"
 else
