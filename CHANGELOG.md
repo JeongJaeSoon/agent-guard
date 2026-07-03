@@ -1,3 +1,7 @@
+## v1.7.1 - 2026-07-03
+
+- fix(shell): make setup-shell rc line self-healing when the CLI leaves $PATH (#96)
+
 ## v1.7.0 - 2026-07-02
 
 - feat(shell): resolve agent-guard without a PATH install for the bang guard (#94)
