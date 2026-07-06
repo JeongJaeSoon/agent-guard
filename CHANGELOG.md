@@ -1,3 +1,8 @@
+## v1.8.0 - 2026-07-06
+
+- feat(detection): catch low-entropy vendor-prefixed tokens by shape alone (#101)
+- feat(detection): allow dotenv-style template files via suffix rule (#100)
+
 ## v1.7.1 - 2026-07-03
 
 - fix(shell): make setup-shell rc line self-healing when the CLI leaves $PATH (#96)
