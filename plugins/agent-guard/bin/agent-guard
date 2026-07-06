@@ -836,14 +836,16 @@ resolve_path() {
 }
 
 # Allowlist short-circuit consulted before any deny-path check (both the Read and
-# Bash paths). It currently exempts committed `.env` placeholder templates that
-# the `.env*` deny glob would otherwise block. Matched on the exact basename so a
-# real secret file is never exempted by a crafted name. NOTE: a match here exempts
-# the candidate from ALL deny patterns, so only add names that never hold secrets.
+# Bash paths). It exempts committed dotenv-style placeholder templates that the
+# `.env*` deny glob would otherwise block: any basename starting with `.env` and
+# ending with a template suffix (`.envrc.sample`, `.env.local.example`, ...).
+# Matched on the basename only, with the suffix anchored at the end, so a real
+# secret file (`.env`, `.envrc`, `.env.production`, `.env.example.bak`) is never
+# exempted by a crafted path. NOTE: a match here exempts the candidate from ALL
+# deny patterns, so the rule must only admit shapes that never hold secrets.
 candidate_is_allowed() {
-  case "$1" in
-    .env.example|.env.sample|.env.template|.env.dist) return 0 ;;
-    */.env.example|*/.env.sample|*/.env.template|*/.env.dist) return 0 ;;
+  case "${1##*/}" in
+    .env*.example|.env*.sample|.env*.template|.env*.dist) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -1042,7 +1044,9 @@ shell_dequote_for_policy() {
 # the whole-command deny regex runs, so `cat .env.example` is allowed while
 # `cat .env.example .env` still blocks on the bare `.env` token. Globbing is
 # disabled inside a subshell so a stray `*` in the command is not expanded
-# against the real filesystem during word splitting.
+# against the real filesystem during word splitting. Caveat: tokens are stripped
+# textually, without symlink resolution — a template-named symlink to a real
+# secret passes this gate (the Read path re-checks the resolved target instead).
 bash_strip_allowed_tokens() {
   (
     set -f
