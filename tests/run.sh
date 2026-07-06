@@ -647,6 +647,66 @@ expect_json_status 2 "Bash cat of .env.local (not a template) is blocked" \
   '{"tool_name":"Bash","tool_input":{"command":"cat .env.local"}}' \
   hook-pre-tool
 
+# Suffix rule: any `.env*` basename ending with a template suffix is allowed,
+# but the suffix must be final and the bare names stay blocked.
+expect_json_status 0 "Read .envrc.sample template is allowed" \
+  '{"tool_name":"Read","tool_input":{"file_path":".envrc.sample"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "Read .env.local.example template is allowed" \
+  '{"tool_name":"Read","tool_input":{"file_path":".env.local.example"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Read bare .envrc is blocked" \
+  '{"tool_name":"Read","tool_input":{"file_path":".envrc"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Read .env.example.bak (suffix not final) is blocked" \
+  '{"tool_name":"Read","tool_input":{"file_path":".env.example.bak"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "Bash cat .envrc.sample is allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat .envrc.sample"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "Bash cat .env.local.example is allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat .env.local.example"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash cat .envrc is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat .envrc"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash cat .env.example.bak (suffix not final) is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat .env.example.bak"}}' \
+  hook-pre-tool
+
+# Path-prefixed candidates go through basename stripping before the suffix match.
+expect_json_status 0 "Read config/.env.local.example (path-prefixed template) is allowed" \
+  '{"tool_name":"Read","tool_input":{"file_path":"config/.env.local.example"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "Bash cat config/.envrc.sample (path-prefixed template) is allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat config/.envrc.sample"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Read config/.env.local (path-prefixed, not a template) is blocked" \
+  '{"tool_name":"Read","tool_input":{"file_path":"config/.env.local"}}' \
+  hook-pre-tool
+
+# A template basename never exempts a file inside a deny-listed directory.
+expect_json_status 2 "Read template inside a deny-listed directory is blocked" \
+  '{"tool_name":"Read","tool_input":{"file_path":".env.production/.envrc.sample"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Read template under a deny-listed mid-path component is blocked" \
+  '{"tool_name":"Read","tool_input":{"file_path":"app/.env/.env.local.example"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash cat of a template inside a deny-listed directory is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat .env.production/.envrc.sample"}}' \
+  hook-pre-tool
+
 # Rank 8: shell builtins that print the whole environment.
 expect_json_status 2 "export -p is blocked" \
   '{"tool_name":"Bash","tool_input":{"command":"export -p"}}' \
