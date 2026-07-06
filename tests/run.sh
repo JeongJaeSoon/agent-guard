@@ -694,6 +694,19 @@ expect_json_status 2 "Read config/.env.local (path-prefixed, not a template) is 
   '{"tool_name":"Read","tool_input":{"file_path":"config/.env.local"}}' \
   hook-pre-tool
 
+# A template basename never exempts a file inside a deny-listed directory.
+expect_json_status 2 "Read template inside a deny-listed directory is blocked" \
+  '{"tool_name":"Read","tool_input":{"file_path":".env.production/.envrc.sample"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Read template under a deny-listed mid-path component is blocked" \
+  '{"tool_name":"Read","tool_input":{"file_path":"app/.env/.env.local.example"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash cat of a template inside a deny-listed directory is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat .env.production/.envrc.sample"}}' \
+  hook-pre-tool
+
 # Rank 8: shell builtins that print the whole environment.
 expect_json_status 2 "export -p is blocked" \
   '{"tool_name":"Bash","tool_input":{"command":"export -p"}}' \
