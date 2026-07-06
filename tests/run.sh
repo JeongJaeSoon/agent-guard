@@ -1971,6 +1971,87 @@ if [ -n "$REAL_GITLEAKS" ]; then
     not_ok "real gitleaks still flags a PAT containing a 12-x run (expected 1, got $status)"
     sed 's/^/  stderr: /' "$ERR"
   fi
+
+  # Issue #98: the vendor-token shape rule catches a LOW-entropy token under a
+  # generic variable name. Every alternation branch gets a fixture (a typo in
+  # one branch must not ship green), and the bodies are low-entropy on purpose
+  # so the default entropy-gated rules stay silent — each CAUGHT verdict is
+  # attributable to the shape rule alone. Assembled at runtime so this file
+  # never holds a contiguous token-shaped literal.
+  LOWPAT_HEAD='ghp_'
+  LOWPAT_BODY='1212121212121212121212121212121212ab'
+  SHAPE_B35='121212121212121212121212121212121ab'
+  SHAPE_B20='121212121212121212ab'
+  SHAPE_B16='ABABABABABABAB12'
+  SHAPE_B82="${LOWPAT_BODY}_${LOWPAT_BODY}12121212a"
+  SHAPE_B64="12121212121212121212121212121212121212121212121212121212121212ab"
+  SHAPE_FIXTURE_DIR="$TMP_ROOT/shape-fixture-dir"
+  mkdir -p "$SHAPE_FIXTURE_DIR"
+  for shape_case in \
+    "github-classic ${LOWPAT_HEAD} ${LOWPAT_BODY}" \
+    "github-oauth gho_ ${LOWPAT_BODY}" \
+    "github-user ghu_ ${LOWPAT_BODY}" \
+    "github-app ghs_ ${LOWPAT_BODY}" \
+    "github-refresh ghr_ ${LOWPAT_BODY}" \
+    "github-fine-grained github_pat_ ${SHAPE_B82}" \
+    "aws-a3t A3TA ${SHAPE_B16}" \
+    "aws-akia AKIA ${SHAPE_B16}" \
+    "aws-asia ASIA ${SHAPE_B16}" \
+    "aws-abia ABIA ${SHAPE_B16}" \
+    "aws-acca ACCA ${SHAPE_B16}" \
+    "anthropic sk-ant- ${SHAPE_B20}" \
+    "openai-project sk-proj- ${SHAPE_B20}" \
+    "openai-service-account sk-svcacct- ${SHAPE_B20}" \
+    "openai-admin sk-admin- ${SHAPE_B20}" \
+    "npm npm_ ${LOWPAT_BODY}" \
+    "gcp-api-key AIza ${SHAPE_B35}" \
+    "slack-bot xoxb- 1212121212-1212121212121-abababababababababababab" \
+    "slack-refresh xoxe- 1-1212121212-abababababababababababab" \
+    "gitlab glpat- ${SHAPE_B20}" \
+    "digitalocean dop_v1_ ${SHAPE_B64}"; do
+    shape_label=${shape_case%% *}
+    shape_rest=${shape_case#* }
+    shape_head=${shape_rest%% *}
+    shape_body=${shape_rest#* }
+    printf 'AGDEMO_VAR=%s%s\n' "$shape_head" "$shape_body" > "$SHAPE_FIXTURE_DIR/conf.txt"
+    PATH="$(dirname "$REAL_GITLEAKS"):$ORIGINAL_PATH" "$PLUGIN_ROOT/bin/agent-guard" scan-path "$SHAPE_FIXTURE_DIR" >"$OUT" 2>"$ERR"
+    status=$?
+    if [ "$status" -eq 1 ]; then
+      ok "shape rule flags a low-entropy $shape_label token under a generic key"
+    else
+      not_ok "shape rule flags a low-entropy $shape_label token under a generic key (expected 1, got $status)"
+      sed 's/^/  stderr: /' "$ERR"
+    fi
+  done
+
+  # ...and `exec` masks the same value end-to-end (the shell-escape path the
+  # issue was reported against).
+  exec_shape=$(PATH="$(dirname "$REAL_GITLEAKS"):$ORIGINAL_PATH" "$PLUGIN_ROOT/bin/agent-guard" exec -- printf 'AGDEMO_VAR=%s%s\n' "$LOWPAT_HEAD" "$LOWPAT_BODY" 2>/dev/null)
+  if printf '%s' "$exec_shape" | grep -q '\[REDACTED\]' \
+     && ! printf '%s' "$exec_shape" | grep -q "$LOWPAT_BODY"; then
+    ok "exec masks a low-entropy vendor-prefixed token under a generic key"
+  else
+    not_ok "exec masks a low-entropy vendor-prefixed token under a generic key"
+    printf '%s\n' "  out: $exec_shape"
+  fi
+
+  # Docs placeholders stay exempt from the shape rule: an all-x body (the
+  # rule-scoped x-run allowlist) and the AWS documentation key ending in
+  # EXAMPLE.
+  PLACEHOLDER_FIXTURE_DIR="$TMP_ROOT/shape-placeholder-dir"
+  mkdir -p "$PLACEHOLDER_FIXTURE_DIR"
+  {
+    printf 'AGDEMO_VAR=%sxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n' "$LOWPAT_HEAD"
+    printf 'AGDEMO_AWS=%s%s\n' 'AKIA' 'IOSFODNN7EXAMPLE'
+  } > "$PLACEHOLDER_FIXTURE_DIR/conf.txt"
+  PATH="$(dirname "$REAL_GITLEAKS"):$ORIGINAL_PATH" "$PLUGIN_ROOT/bin/agent-guard" scan-path "$PLACEHOLDER_FIXTURE_DIR" >"$OUT" 2>"$ERR"
+  status=$?
+  if [ "$status" -eq 0 ]; then
+    ok "shape rule leaves x-run and AWS-docs EXAMPLE placeholders alone"
+  else
+    not_ok "shape rule leaves x-run and AWS-docs EXAMPLE placeholders alone (expected 0, got $status)"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
 else
   say "real gitleaks not available; skipped real-gitleaks integration tests"
 fi

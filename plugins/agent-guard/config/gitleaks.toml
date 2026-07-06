@@ -3,6 +3,31 @@ title = "agent-guard"
 [extend]
 useDefault = true
 
+# Shape-only re-detection of vendor-distinctive token prefixes. The default
+# ruleset entropy-gates these shapes, so a LOW-entropy value carrying a real
+# vendor prefix passes every default rule when no secret-ish keyword precedes
+# it (issue #98). The prefixes are distinctive enough that shape alone is the
+# signal, so match them with NO entropy filter. Lists the shapes measured to
+# leak on gitleaks 8.30 defaults.
+[[rules]]
+id = "agent-guard-vendor-token-shape"
+description = "Vendor-prefixed token matched by shape alone (default rules entropy-gate it)"
+regex = '''\b(?:gh[opusr]_[0-9A-Za-z]{36}|github_pat_[0-9A-Za-z_]{82}|(?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}|sk-(?:ant|proj|svcacct|admin)-[0-9A-Za-z_-]{20,}|npm_[0-9A-Za-z]{36}|AIza[0-9A-Za-z_-]{35}|xox[abeprs]-[0-9A-Za-z-]{20,}|glpat-[0-9A-Za-z_-]{20,}|dop_v1_[0-9a-f]{64})\b'''
+keywords = ["ghp_", "gho_", "ghu_", "ghs_", "ghr_", "github_pat_", "a3t", "akia", "asia", "abia", "acca", "sk-ant-", "sk-proj-", "sk-svcacct-", "sk-admin-", "npm_", "aiza", "xoxa-", "xoxb-", "xoxe-", "xoxp-", "xoxr-", "xoxs-", "glpat-", "dop_v1_"]
+
+  # Docs-style placeholders: an x-run of 12+ in the token body, or the AWS
+  # documentation keys ending in EXAMPLE (anchored to the AWS branch so a
+  # variable-length token cannot earn the exemption by appending the word).
+  # Scoped to THIS rule — the global x-run allowlist below is anchored to
+  # all-alphanumeric secrets, which a `ghp_…` match can never satisfy because
+  # of the underscore.
+  [[rules.allowlists]]
+  regexTarget = "secret"
+  regexes = [
+    '''(?i)x{12,}''',
+    '''^(?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z0-9]*EXAMPLE$'''
+  ]
+
 [[allowlists]]
 description = "Obvious dummy placeholders"
 regexes = [
