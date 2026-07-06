@@ -1989,6 +1989,7 @@ if [ -n "$REAL_GITLEAKS" ]; then
   mkdir -p "$SHAPE_FIXTURE_DIR"
   for shape_case in \
     "github-classic ${LOWPAT_HEAD} ${LOWPAT_BODY}" \
+    "github-embedded-x-run ${LOWPAT_HEAD} 121212121212xxxxxxxxxxxx121212121212" \
     "github-oauth gho_ ${LOWPAT_BODY}" \
     "github-user ghu_ ${LOWPAT_BODY}" \
     "github-app ghs_ ${LOWPAT_BODY}" \
@@ -2035,9 +2036,11 @@ if [ -n "$REAL_GITLEAKS" ]; then
     printf '%s\n' "  out: $exec_shape"
   fi
 
-  # Docs placeholders stay exempt from the shape rule: an all-x body (the
-  # rule-scoped x-run allowlist) and the AWS documentation key ending in
-  # EXAMPLE.
+  # Docs placeholders stay exempt from the shape rule: a body that is one
+  # x-run through the end of the token (the anchored rule-scoped allowlist —
+  # an x-run merely EMBEDDED in a token does not exempt it, covered by the
+  # github-embedded-x-run fixture above) and the AWS documentation key ending
+  # in EXAMPLE.
   PLACEHOLDER_FIXTURE_DIR="$TMP_ROOT/shape-placeholder-dir"
   mkdir -p "$PLACEHOLDER_FIXTURE_DIR"
   {

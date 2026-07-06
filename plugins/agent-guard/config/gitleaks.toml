@@ -15,16 +15,17 @@ description = "Vendor-prefixed token matched by shape alone (default rules entro
 regex = '''\b(?:gh[opusr]_[0-9A-Za-z]{36}|github_pat_[0-9A-Za-z_]{82}|(?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}|sk-(?:ant|proj|svcacct|admin)-[0-9A-Za-z_-]{20,}|npm_[0-9A-Za-z]{36}|AIza[0-9A-Za-z_-]{35}|xox[abeprs]-[0-9A-Za-z-]{20,}|glpat-[0-9A-Za-z_-]{20,}|dop_v1_[0-9a-f]{64})\b'''
 keywords = ["ghp_", "gho_", "ghu_", "ghs_", "ghr_", "github_pat_", "a3t", "akia", "asia", "abia", "acca", "sk-ant-", "sk-proj-", "sk-svcacct-", "sk-admin-", "npm_", "aiza", "xoxa-", "xoxb-", "xoxe-", "xoxp-", "xoxr-", "xoxs-", "glpat-", "dop_v1_"]
 
-  # Docs-style placeholders: an x-run of 12+ in the token body, or the AWS
-  # documentation keys ending in EXAMPLE (anchored to the AWS branch so a
-  # variable-length token cannot earn the exemption by appending the word).
-  # Scoped to THIS rule — the global x-run allowlist below is anchored to
+  # Docs-style placeholders. Both entries are anchored to the WHOLE secret so
+  # a token that merely embeds the pattern keeps its finding: a short vendor
+  # prefix (longest is github_pat_, 11 chars) followed by an x-run through the
+  # end of the token, or the AWS documentation keys ending in EXAMPLE. Scoped
+  # to THIS rule — the global x-run allowlist below is anchored to
   # all-alphanumeric secrets, which a `ghp_…` match can never satisfy because
   # of the underscore.
   [[rules.allowlists]]
   regexTarget = "secret"
   regexes = [
-    '''(?i)x{12,}''',
+    '''(?i)^[a-z0-9._-]{0,12}x{12,}$''',
     '''^(?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z0-9]*EXAMPLE$'''
   ]
 
