@@ -1744,9 +1744,14 @@ hook_stop() {
 # session-start noise.
 hook_session_start() {
   # Mirror the runtime resolution of __agentguard_exe in the shell snippet: an
-  # explicit $AGENT_GUARD_BIN wins, then `agent-guard` on $PATH. (Its third
-  # fallback — the absolute path baked into the rc — is a shell-local variable
-  # this hook cannot see; a stale baked path already warns loudly at `!` time.)
+  # explicit $AGENT_GUARD_BIN wins, then `agent-guard` on $PATH. Known gap: its
+  # third fallback — the absolute path baked into the rc by setup-shell — is a
+  # shell-local variable this hook cannot see, so a plugin-only install pinned
+  # to a stale-but-still-executable plugin-cache binary is NOT detected here
+  # (the bang guard only warns when that baked path is UNresolvable, not when it
+  # resolves to old rules). Closing that needs rc parsing, deliberately out of
+  # this hook's scope (see #103); it belongs at the setup-shell / bang-guard
+  # layer. Scoped to $AGENT_GUARD_BIN then $PATH per #103.
   if [ -n "${AGENT_GUARD_BIN:-}" ] && [ -x "$AGENT_GUARD_BIN" ]; then
     cli=$AGENT_GUARD_BIN
   elif command -v agent-guard >/dev/null 2>&1; then
