@@ -35,6 +35,18 @@
           }
         ]
       }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c '[ -n \"${CLAUDE_PLUGIN_ROOT:-}\" ] || { echo \"agent-guard: CLAUDE_PLUGIN_ROOT env not set\" >&2; exit 2; }; \"${CLAUDE_PLUGIN_ROOT}/bin/agent-guard\" hook-session-start'",
+            "timeout": 5
+          }
+        ]
+      }
     ]
   }
 }

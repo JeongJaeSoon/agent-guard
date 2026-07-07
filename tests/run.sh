@@ -204,6 +204,29 @@ for event in PreToolUse PostToolUse Stop; do
   done
 done
 
+# SessionStart (version-drift warning) is wired in hooks/hooks.json alone: the
+# Codex host has no SessionStart event, and the manual-install example ships no
+# plugin (same binary is both plugin and CLI), so plugin/CLI drift cannot occur.
+ss_hook_matcher=$(jq -r '.hooks.SessionStart[0].matcher' "$PLUGIN_ROOT/hooks/hooks.json")
+ss_hook_command=$(jq -r '.hooks.SessionStart[0].hooks[0].command' "$PLUGIN_ROOT/hooks/hooks.json")
+ss_hook_timeout=$(jq -r '.hooks.SessionStart[0].hooks[0].timeout' "$PLUGIN_ROOT/hooks/hooks.json")
+if [ "$ss_hook_matcher" = "startup|resume|clear" ]; then
+  ok "SessionStart matcher covers startup/resume/clear in hooks/hooks.json"
+else
+  not_ok "SessionStart matcher covers startup/resume/clear in hooks/hooks.json (got: $ss_hook_matcher)"
+fi
+case "$ss_hook_command" in
+  *'CLAUDE_PLUGIN_ROOT'*'hook-session-start'*)
+    ok "SessionStart command invokes hook-session-start via CLAUDE_PLUGIN_ROOT" ;;
+  *)
+    not_ok "SessionStart command invokes hook-session-start via CLAUDE_PLUGIN_ROOT (got: $ss_hook_command)" ;;
+esac
+if [ "$ss_hook_timeout" = 5 ]; then
+  ok "SessionStart timeout is 5 in hooks/hooks.json"
+else
+  not_ok "SessionStart timeout is 5 in hooks/hooks.json (got: $ss_hook_timeout)"
+fi
+
 claude_pre_tool_command=$(jq -r '.hooks.PreToolUse[0].hooks[0].command' "$PLUGIN_ROOT/hooks/hooks.json")
 case "$claude_pre_tool_command" in
   *'CLAUDE_PLUGIN_ROOT'*)
@@ -2775,6 +2798,136 @@ case "$agx_out" in
   *rc=127*)      ok "agx fails CLOSED (rc=127, does not run) when no binary resolves" ;;
   *)             not_ok "agx fail-closed return code (got: $agx_out)" ;;
 esac
+
+# --- hook-session-start: drift warning driven by the shell-init marker --------
+# The hook no longer re-derives the CLI: it compares the plugin's own VERSION
+# against $AGENT_GUARD_SHELL_INIT_VERSION, which the shell-init snippet exports
+# at rc-eval time (ground truth for whatever binary actually masks). These tests
+# drive the hook purely by that env var; the plugin binary is invoked by
+# absolute path with a minimal PATH so nothing else leaks in.
+AG_VERSION=$(sed -n 's/^VERSION=//p' "$PLUGIN_ROOT/bin/agent-guard" | head -n1)
+
+run_session_start() {  # $1 = value for the marker env ('' => marker unset)
+  sh -c 'unset AGENT_GUARD_SHELL_INIT_VERSION
+         [ -n "$1" ] && export AGENT_GUARD_SHELL_INIT_VERSION="$1"
+         PATH=/usr/bin:/bin exec "$2" hook-session-start' _ "$1" "$PLUGIN_ROOT/bin/agent-guard"
+}
+
+vd_out=$(run_session_start 0.0.1 2>"$ERR")
+vd_status=$?
+if [ "$vd_status" -eq 0 ] && printf '%s' "$vd_out" | jq -e '.systemMessage' >/dev/null 2>&1; then
+  ok "hook-session-start emits a systemMessage JSON warning on marker mismatch"
+else
+  not_ok "hook-session-start systemMessage on mismatch (status $vd_status, got: $vd_out)"
+fi
+case "$vd_out" in
+  *"$AG_VERSION"*0.0.1*) ok "drift warning names both the plugin and the masking version" ;;
+  *) not_ok "drift warning names both versions (got: $vd_out)" ;;
+esac
+
+vd_out=$(run_session_start "$AG_VERSION" 2>"$ERR")
+if [ $? -eq 0 ] && [ -z "$vd_out" ]; then
+  ok "hook-session-start is silent when the marker matches the plugin version"
+else
+  not_ok "hook-session-start silent on marker match (got: $vd_out)"
+fi
+
+vd_out=$(run_session_start "" 2>"$ERR")
+if [ $? -eq 0 ] && [ -z "$vd_out" ]; then
+  ok "hook-session-start is silent when the marker is absent (integration not loaded)"
+else
+  not_ok "hook-session-start silent with no marker (got: $vd_out)"
+fi
+
+vd_out=$(run_session_start 'not a version' 2>"$ERR")
+if [ $? -eq 0 ] && [ -z "$vd_out" ]; then
+  ok "hook-session-start is silent when the marker cannot be parsed"
+else
+  not_ok "hook-session-start silent on unparseable marker (got: $vd_out)"
+fi
+
+# --- shell-init exports the resolved binary's version as the marker -----------
+# The snippet must export AGENT_GUARD_SHELL_INIT_VERSION = the VERSION of the
+# binary __agentguard_exe actually resolves, across all three paths. Stubs whose
+# `version` subcommand prints a known string stand in for the resolved binary;
+# sourcing the snippet must set the marker to that string.
+shellinit_plain=$("$PLUGIN_ROOT/bin/agent-guard" shell-init 2>/dev/null)
+if printf '%s' "$shellinit_plain" | grep -q 'AGENT_GUARD_SHELL_INIT_VERSION'; then
+  ok "shell-init snippet exports the AGENT_GUARD_SHELL_INIT_VERSION marker"
+else
+  not_ok "shell-init snippet exports the marker"
+fi
+if printf '%s\n' "$shellinit_plain" | sh -n - 2>"$ERR"; then
+  ok "shell-init (marker) snippet parses under sh -n"
+else
+  not_ok "shell-init (marker) snippet parses under sh -n"; sed 's/^/  stderr: /' "$ERR"
+fi
+
+mk_dir="$TESTTMP/marker"
+mkdir -p "$mk_dir/bin"
+# Two version stubs: the one $PATH/baked resolution finds, and the one only
+# $AGENT_GUARD_BIN points at (distinct version proves precedence).
+printf '#!/bin/sh\n[ "$1" = version ] && { printf "agent-guard 9.9.9\\n"; exit 0; }\nexit 0\n' >"$mk_dir/bin/agent-guard"
+printf '#!/bin/sh\n[ "$1" = version ] && { printf "agent-guard 7.7.7\\n"; exit 0; }\nexit 0\n' >"$mk_dir/bin/ag-env"
+chmod +x "$mk_dir/bin/agent-guard" "$mk_dir/bin/ag-env"
+printf '%s\n' "$shellinit_plain" >"$mk_dir/guard.sh"
+# Source a snippet in a clean external shell and echo the resulting marker (or
+# UNSET). PATH and AGENT_GUARD_BIN are passed as args and set INSIDE the `sh -c`
+# (an external command, so the assignments cannot leak into this test process) —
+# the single point of variation between the resolution-path cases below.
+source_marker() {  # $1 = snippet file  $2 = PATH  $3 = AGENT_GUARD_BIN ('' => unset)
+  sh -c 'unset AGENT_GUARD_SHELL_INIT_VERSION
+         PATH=$2
+         if [ -n "$3" ]; then AGENT_GUARD_BIN=$3; export AGENT_GUARD_BIN; else unset AGENT_GUARD_BIN; fi
+         . "$1"; printf %s "${AGENT_GUARD_SHELL_INIT_VERSION:-UNSET}"' _ "$1" "$2" "$3" 2>/dev/null
+}
+
+# (a) resolved via $PATH
+mk_path=$(source_marker "$mk_dir/guard.sh" "$mk_dir/bin:/usr/bin:/bin" "")
+if [ "$mk_path" = 9.9.9 ]; then
+  ok "shell-init marker reflects the version resolved via \$PATH"
+else
+  not_ok "shell-init marker via \$PATH (got: $mk_path)"
+fi
+
+# (b) resolved via the BAKED path when agent-guard is off $PATH (plugin-only)
+mk_baked="$mk_dir/guard-baked.sh"
+sed "s#^__agentguard_bin=.*#__agentguard_bin='$mk_dir/bin/agent-guard'#" "$mk_dir/guard.sh" >"$mk_baked"
+mk_bakedver=$(source_marker "$mk_baked" "/usr/bin:/bin" "")
+if [ "$mk_bakedver" = 9.9.9 ]; then
+  ok "shell-init marker reflects the version resolved via the baked path (plugin-only)"
+else
+  not_ok "shell-init marker via baked path (got: $mk_bakedver)"
+fi
+
+# (c) $AGENT_GUARD_BIN outranks both $PATH and the baked path
+mk_env=$(source_marker "$mk_dir/guard.sh" "$mk_dir/bin:/usr/bin:/bin" "$mk_dir/bin/ag-env")
+if [ "$mk_env" = 7.7.7 ]; then
+  ok "shell-init marker honors \$AGENT_GUARD_BIN over \$PATH and the baked path"
+else
+  not_ok "shell-init marker \$AGENT_GUARD_BIN precedence (got: $mk_env)"
+fi
+
+# (d) no binary resolves anywhere => marker stays unset (hook then silent)
+mk_none="$mk_dir/guard-none.sh"
+sed "s#^__agentguard_bin=.*#__agentguard_bin='/nonexistent/agent-guard'#" "$mk_dir/guard.sh" >"$mk_none"
+mk_unset=$(source_marker "$mk_none" "/usr/bin:/bin" "")
+if [ "$mk_unset" = UNSET ]; then
+  ok "shell-init leaves the marker unset when no binary resolves"
+else
+  not_ok "shell-init marker unset when nothing resolves (got: $mk_unset)"
+fi
+
+# (e) a STALE inherited marker is cleared when this shell's resolution fails, so
+# each rc-eval is authoritative ("present iff loaded", not inherited from parent)
+mk_reset=$(sh -c 'export AGENT_GUARD_SHELL_INIT_VERSION=1.2.3
+  PATH=/usr/bin:/bin; unset AGENT_GUARD_BIN
+  . "$1"; printf %s "${AGENT_GUARD_SHELL_INIT_VERSION:-UNSET}"' _ "$mk_none" 2>/dev/null)
+if [ "$mk_reset" = UNSET ]; then
+  ok "shell-init clears a stale inherited marker when nothing resolves"
+else
+  not_ok "shell-init clears stale inherited marker on resolution failure (got: $mk_reset)"
+fi
 
 # --- setup-shell: write the shell-init line into an rc, idempotently ----------
 ss_rc="$TESTTMP/setup.rc"
