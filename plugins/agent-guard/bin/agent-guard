@@ -58,6 +58,7 @@ Usage:
   agent-guard hook-pre-tool
   agent-guard hook-post-tool
   agent-guard hook-stop
+  agent-guard hook-session-start
   agent-guard exec [--] <cmd> [args...]
   agent-guard shell-init [--bash|--zsh] [--experimental-bang-guard]
   agent-guard setup-shell [--bash|--zsh|--rc FILE] [--experimental-bang-guard]
@@ -1725,6 +1726,46 @@ hook_stop() {
   block_on_scan_status "$?" "changed files contain secret-like values before stop"
 }
 
+# --- hook-session-start: warn when the shell-integration CLI version drifts ---
+# The plugin (this binary; follows `claude plugin update`) and the standalone
+# CLI (what agx / the bang guard resolve at runtime) install and update
+# independently. A plugin-only update silently leaves `!`-command masking on
+# the old CLI's rules while the hooks look current, so compare version strings
+# at session start and warn on mismatch. Cheap by design: no gitleaks run.
+#
+# Output contract (SessionStart, per the Claude Code hooks docs): plain stdout
+# on exit 0 is injected into Claude's CONTEXT, and non-zero exits render as a
+# "hook error" notice — neither is a clean user-facing warning. The top-level
+# `systemMessage` JSON field on exit 0 is the documented way to show the user
+# a non-blocking message, so that is what this emits. SessionStart can never
+# block, and this hook stays SILENT (exit 0, no output) when: no CLI resolves
+# (plugin-only user, nothing to sync), versions match, or the resolved
+# binary's version cannot be parsed — a warn-only hook must never become
+# session-start noise.
+hook_session_start() {
+  # Mirror the runtime resolution of __agentguard_exe in the shell snippet: an
+  # explicit $AGENT_GUARD_BIN wins, then `agent-guard` on $PATH. (Its third
+  # fallback — the absolute path baked into the rc — is a shell-local variable
+  # this hook cannot see; a stale baked path already warns loudly at `!` time.)
+  if [ -n "${AGENT_GUARD_BIN:-}" ] && [ -x "$AGENT_GUARD_BIN" ]; then
+    cli=$AGENT_GUARD_BIN
+  elif command -v agent-guard >/dev/null 2>&1; then
+    cli=agent-guard
+  else
+    return 0
+  fi
+  cli_version=$("$cli" version 2>/dev/null | awk 'NR==1 {print $2; exit}')
+  # Accept only a digit-led version token drawn from a safe charset: rejects an
+  # unparseable version (fail quiet) and keeps the hand-built JSON below
+  # injection-safe (no quotes/backslashes/whitespace to escape).
+  case $cli_version in
+    ''|[!0-9]*|*[!0-9A-Za-z.+-]*) return 0 ;;
+  esac
+  [ "$cli_version" != "$VERSION" ] || return 0
+  printf '{"systemMessage":"%s"}\n' \
+    "agent-guard: plugin hooks are $VERSION but the shell-integration CLI resolves to $cli_version - agx and bang-guard masking follow the CLI. Update whichever is older (re-run the installer for the CLI, or 'claude plugin update' for the plugin), then re-run: agent-guard setup-shell"
+}
+
 # --- exec: mask secrets/PII in a shell-escape command's captured output -------
 # Threat model: in Claude Code, a `!`-prefixed command runs in the session shell
 # and its OUTPUT is captured into the transcript and sent to the model, but NO
@@ -2152,6 +2193,7 @@ case "$cmd" in
   hook-pre-tool) hook_pre_tool ;;
   hook-post-tool) hook_post_tool ;;
   hook-stop) hook_stop ;;
+  hook-session-start) hook_session_start ;;
   exec) shift; do_exec "$@" ;;
   shell-init) shift; shell_init "$@" ;;
   pii-filter) shift; pii_filter "$@" ;;

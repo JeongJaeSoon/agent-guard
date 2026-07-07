@@ -204,6 +204,29 @@ for event in PreToolUse PostToolUse Stop; do
   done
 done
 
+# SessionStart (version-drift warning) is wired in hooks/hooks.json alone: the
+# Codex host has no SessionStart event, and the manual-install example ships no
+# plugin (same binary is both plugin and CLI), so plugin/CLI drift cannot occur.
+ss_hook_matcher=$(jq -r '.hooks.SessionStart[0].matcher' "$PLUGIN_ROOT/hooks/hooks.json")
+ss_hook_command=$(jq -r '.hooks.SessionStart[0].hooks[0].command' "$PLUGIN_ROOT/hooks/hooks.json")
+ss_hook_timeout=$(jq -r '.hooks.SessionStart[0].hooks[0].timeout' "$PLUGIN_ROOT/hooks/hooks.json")
+if [ "$ss_hook_matcher" = "startup|resume|clear" ]; then
+  ok "SessionStart matcher covers startup/resume/clear in hooks/hooks.json"
+else
+  not_ok "SessionStart matcher covers startup/resume/clear in hooks/hooks.json (got: $ss_hook_matcher)"
+fi
+case "$ss_hook_command" in
+  *'CLAUDE_PLUGIN_ROOT'*'hook-session-start'*)
+    ok "SessionStart command invokes hook-session-start via CLAUDE_PLUGIN_ROOT" ;;
+  *)
+    not_ok "SessionStart command invokes hook-session-start via CLAUDE_PLUGIN_ROOT (got: $ss_hook_command)" ;;
+esac
+if [ "$ss_hook_timeout" = 5 ]; then
+  ok "SessionStart timeout is 5 in hooks/hooks.json"
+else
+  not_ok "SessionStart timeout is 5 in hooks/hooks.json (got: $ss_hook_timeout)"
+fi
+
 claude_pre_tool_command=$(jq -r '.hooks.PreToolUse[0].hooks[0].command' "$PLUGIN_ROOT/hooks/hooks.json")
 case "$claude_pre_tool_command" in
   *'CLAUDE_PLUGIN_ROOT'*)
@@ -2774,6 +2797,67 @@ case "$agx_out" in
   *hello-plain*) not_ok "agx fails CLOSED when no binary resolves (leaked: $agx_out)" ;;
   *rc=127*)      ok "agx fails CLOSED (rc=127, does not run) when no binary resolves" ;;
   *)             not_ok "agx fail-closed return code (got: $agx_out)" ;;
+esac
+
+# --- hook-session-start: version drift between plugin and shell-integration CLI
+# Resolution mirrors __agentguard_exe ($AGENT_GUARD_BIN, then $PATH). Stub CLIs
+# on a minimal PATH stand in for the standalone install; the plugin binary under
+# test is invoked by absolute path so it never resolves itself. The helper runs
+# with AGENT_GUARD_BIN cleared (unless the test sets it) so a developer's real
+# environment cannot leak in.
+AG_VERSION=$(sed -n 's/^VERSION=//p' "$PLUGIN_ROOT/bin/agent-guard" | head -n1)
+vd_dir="$TESTTMP/versiondrift"
+mkdir -p "$vd_dir/old" "$vd_dir/cur" "$vd_dir/junk"
+printf '#!/bin/sh\nprintf "agent-guard 0.0.1\\n"\n' >"$vd_dir/old/agent-guard"
+printf '#!/bin/sh\nprintf "agent-guard %s\\n"\n' "$AG_VERSION" >"$vd_dir/cur/agent-guard"
+printf '#!/bin/sh\nprintf "not a version line\\n"\n' >"$vd_dir/junk/agent-guard"
+chmod +x "$vd_dir/old/agent-guard" "$vd_dir/cur/agent-guard" "$vd_dir/junk/agent-guard"
+
+run_session_start() {  # $1 = stub dir prepended to a minimal PATH ('' for none)
+  sh -c 'unset AGENT_GUARD_BIN; PATH="${1:+$1:}/usr/bin:/bin" "$2" hook-session-start' \
+    _ "$1" "$PLUGIN_ROOT/bin/agent-guard"
+}
+
+vd_out=$(run_session_start "$vd_dir/old" 2>"$ERR")
+vd_status=$?
+if [ "$vd_status" -eq 0 ] && printf '%s' "$vd_out" | jq -e '.systemMessage' >/dev/null 2>&1; then
+  ok "hook-session-start emits a systemMessage JSON warning on version mismatch"
+else
+  not_ok "hook-session-start systemMessage on mismatch (status $vd_status, got: $vd_out)"
+fi
+case "$vd_out" in
+  *"$AG_VERSION"*0.0.1*) ok "drift warning names both the plugin and CLI versions" ;;
+  *) not_ok "drift warning names both versions (got: $vd_out)" ;;
+esac
+
+vd_out=$(run_session_start "$vd_dir/cur" 2>"$ERR")
+if [ $? -eq 0 ] && [ -z "$vd_out" ]; then
+  ok "hook-session-start is silent when plugin and CLI versions match"
+else
+  not_ok "hook-session-start silent on version match (got: $vd_out)"
+fi
+
+vd_out=$(run_session_start "" 2>"$ERR")
+if [ $? -eq 0 ] && [ -z "$vd_out" ]; then
+  ok "hook-session-start is silent when no CLI resolves (plugin-only install)"
+else
+  not_ok "hook-session-start silent with no CLI on PATH (got: $vd_out)"
+fi
+
+vd_out=$(run_session_start "$vd_dir/junk" 2>"$ERR")
+if [ $? -eq 0 ] && [ -z "$vd_out" ]; then
+  ok "hook-session-start is silent when the CLI version cannot be parsed"
+else
+  not_ok "hook-session-start silent on unparseable CLI version (got: $vd_out)"
+fi
+
+# $AGENT_GUARD_BIN outranks $PATH: with a matching CLI on PATH but the env var
+# pointing at the old stub, the warning must report the env var's version.
+vd_out=$(sh -c 'PATH="$1:/usr/bin:/bin" AGENT_GUARD_BIN="$2" "$3" hook-session-start' \
+  _ "$vd_dir/cur" "$vd_dir/old/agent-guard" "$PLUGIN_ROOT/bin/agent-guard" 2>"$ERR")
+case "$vd_out" in
+  *0.0.1*) ok "hook-session-start honors \$AGENT_GUARD_BIN over \$PATH" ;;
+  *) not_ok "hook-session-start \$AGENT_GUARD_BIN precedence (got: $vd_out)" ;;
 esac
 
 # --- setup-shell: write the shell-init line into an rc, idempotently ----------
