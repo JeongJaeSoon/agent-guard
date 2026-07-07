@@ -1,3 +1,8 @@
+## v1.9.0 - 2026-07-07
+
+- feat(plugin): warn on version drift between plugin hooks and the shell-integration CLI (#104)
+- feat(bench): per-channel leak-prevention benchmark (#90)
+
 ## v1.8.0 - 2026-07-06
 
 - feat(detection): catch low-entropy vendor-prefixed tokens by shape alone (#101)
