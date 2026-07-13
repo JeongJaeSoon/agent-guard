@@ -41,7 +41,7 @@ Detection needs `jq` and `gitleaks` on your machine (`brew install jq gitleaks`;
 | Use case | Install path | Best first check |
 |---|---|---|
 | Claude Code agent guardrails | [Quick start (Claude Code)](#quick-start-claude-code) | Ask the agent to read `.env`; it should be blocked. |
-| Codex plugin guardrails | [Codex plugin](#codex-plugin) | Trust the hooks, run `$setup-agent-guard`, then ask Codex to run `cat .env`; Bash should be blocked. |
+| Codex plugin guardrails | [Codex plugin](#codex-plugin) | Trust the hooks, run `$setup-agent-guard`, and require both live hook probes to pass. |
 | Codex CLI + Git backstop | [Direct CLI](#direct-cli) + [Native Git hook](#native-git-hook) | Run `agent-guard smoke-test`; commit a staged fixture secret, and it should fail. |
 | Local commits | [Native Git hook](#native-git-hook) | Commit a staged fixture secret; commit should fail. |
 | CI / PRs | [GitHub Actions](#github-actions) | Push a test PR with a gitleaks-detectable fixture; workflow should fail. |
@@ -76,7 +76,7 @@ make check
 make smoke-test
 ```
 
-The Claude Code and Codex plugin installs do not put `agent-guard` on your shell `PATH`. In Codex, invoke `$setup-agent-guard`: it checks first, presents the exact host-appropriate install plan, requests approval, and runs `check` plus `smoke-test`. It never installs software merely because a session started. Claude Code users can run the equivalent manual commands below.
+The Claude Code and Codex plugin installs do not put `agent-guard` on your shell `PATH`. In Codex, invoke `$setup-agent-guard`: it uses the plugin-local binary even when a different standalone version is on `PATH`, presents the exact host-appropriate install plan, requests approval, runs `check` plus `smoke-test`, verifies hook trust, and runs live host probes. It never installs software merely because a session started. Claude Code users can run the equivalent manual commands below.
 
 Manual macOS equivalent:
 
@@ -103,19 +103,21 @@ Install from the marketplace:
 codex plugin marketplace add JeongJaeSoon/agent-guard
 ```
 
-Then open `/plugins` in Codex, install **Agent Guard**, trust the **SessionStart**, **PreToolUse**, **PostToolUse**, and **Stop** hooks, and restart Codex. SessionStart reports degraded protection when a dependency is unavailable and points Codex to `$setup-agent-guard`; installation remains approval-gated.
+Then open `/plugins` in Codex, install **Agent Guard**, open **Settings > Hooks**, trust the **SessionStart**, **PreToolUse**, **PostToolUse**, and **Stop** hooks, and restart Codex. Re-check this screen after plugin updates: a changed hook is marked **Modified** and remains inactive until you review and trust it again. SessionStart reports degraded protection when a dependency is unavailable and points Codex to `$setup-agent-guard`; installation remains approval-gated. An untrusted SessionStart hook cannot display that guidance.
 
-Smoke test:
+Run `$setup-agent-guard` and require all three layers to pass: plugin-local `check`, plugin-local `smoke-test`, and the live host probes. For the pre-tool probe, ask Codex to run this harmless command; the comment is inspected but no sensitive file is read:
 
-```text
-Please run `cat .env` in the shell.
+```sh
+printf '%s\n' 'AGENT_GUARD_LIVE_PROBE_EXECUTED'; : # cat .env
 ```
 
-Expected result:
+Expected result: Agent Guard blocks the command before `AGENT_GUARD_LIVE_PROBE_EXECUTED` is printed. For the post-tool probe, print the documented fake value below and confirm that the raw value is masked or replaced before it reaches the model:
 
-```text
-agent-guard: blocked shell command referencing a deny-listed path
+```sh
+printf '%s\n' 'DEMO_TOKEN=ghp_abcdefghijklmnopqrstuvwxyz0123456789'
 ```
+
+Codex may expose shell execution through a wrapping or orchestration tool such as `functions.exec`. Agent Guard cannot replace or wrap Codex's host executor; it protects only nested operations that the current Codex release dispatches to plugin hooks. Test the exact route used in the current task. If the pre-tool marker or raw fake token appears, protection is not active on that route even when the binary smoke test passes. Use a native Git hook or CI as the backstop and do not treat the plugin setup as complete for that host route.
 
 Codex loads the plugin's `skills/` directory but does not use the Claude `commands/` directory. Use `$setup-agent-guard` for setup; ask Codex to run the binary directly for other workflows:
 

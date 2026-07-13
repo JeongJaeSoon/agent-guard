@@ -120,6 +120,23 @@ else
   not_ok "Codex plugin manifest explicitly declares hook and skill paths"
 fi
 
+# Guided setup must verify the installed plugin itself and the live Codex hook
+# boundary. A standalone PATH binary or a passing binary smoke test is not proof
+# that the plugin hooks are trusted or dispatched by the host.
+setup_skill="$PLUGIN_ROOT/skills/setup-agent-guard/SKILL.md"
+if grep -Fq '../../bin/agent-guard' "$setup_skill" \
+   && grep -Fq 'Compare its `version` with the plugin binary' "$setup_skill" \
+   && grep -Fq 'Settings > Hooks' "$setup_skill" \
+   && grep -Fq '`Untrusted` and `Modified` as inactive' "$setup_skill" \
+   && grep -Fq 'AGENT_GUARD_LIVE_PROBE_EXECUTED' "$setup_skill" \
+   && grep -Fq 'DEMO_TOKEN=ghp_abcdefghijklmnopqrstuvwxyz0123456789' "$setup_skill" \
+   && grep -Fq '`functions.exec`' "$setup_skill" \
+   && grep -Fq 'They do not prove that the host is dispatching plugin hooks' "$setup_skill"; then
+  ok "Codex setup skill verifies plugin-local, trust, and live-hook layers"
+else
+  not_ok "Codex setup skill verifies plugin-local, trust, and live-hook layers"
+fi
+
 for event in PreToolUse PostToolUse Stop; do
   claude_canonical=$(jq -r ".hooks.${event}[0].matcher" "$PLUGIN_ROOT/hooks/hooks.json")
   codex_canonical=$(jq -r ".hooks.${event}[0].matcher" "$PLUGIN_ROOT/hooks.json")
@@ -2641,6 +2658,20 @@ else
   printf '%s\n' "  out: $exec_out"
 fi
 
+# `printenv NAME` emits a bare value. Preserve the variable-name context so a
+# low-entropy or documented fake value under a secret-bearing key is still
+# masked by exec and by the Claude bang-command wrapper.
+PRINTENV_KEY='DEMO_TOKEN'
+PRINTENV_VAL='ghp_''abcdefghijklmnopqrstuvwxyz0123456789'
+exec_printenv=$(DEMO_TOKEN="$PRINTENV_VAL" "$PLUGIN_ROOT/bin/agent-guard" exec -- printenv "$PRINTENV_KEY" 2>/dev/null)
+if printf '%s' "$exec_printenv" | grep -q '\[REDACTED\]' \
+   && ! printf '%s' "$exec_printenv" | grep -q "$PRINTENV_VAL"; then
+  ok "exec masks a bare printenv value using its variable-name context"
+else
+  not_ok "exec masks a bare printenv value using its variable-name context"
+  printf '%s\n' "  out: $exec_printenv"
+fi
+
 # Exit-code passthrough: the wrapped command's status propagates.
 "$PLUGIN_ROOT/bin/agent-guard" exec -- sh -c 'exit 7' >/dev/null 2>&1
 if [ "$?" -eq 7 ]; then
@@ -2859,6 +2890,16 @@ if [ "$bg_out_cc" = hello-plain ]; then
   ok "bang guard is inert (passthrough) outside Claude Code"
 else
   not_ok "bang guard passthrough outside Claude Code (got: $bg_out_cc)"
+fi
+
+bg_printenv=$(DEMO_TOKEN="$PRINTENV_VAL" AGENT_GUARD_BIN="$PLUGIN_ROOT/bin/agent-guard" \
+  CLAUDECODE=1 sh -c '. "$1"; printenv DEMO_TOKEN' _ "$bg_dir/guard.sh" 2>/dev/null)
+if printf '%s' "$bg_printenv" | grep -q '\[REDACTED\]' \
+   && ! printf '%s' "$bg_printenv" | grep -q "$PRINTENV_VAL"; then
+  ok "Claude bang guard masks a bare printenv value"
+else
+  not_ok "Claude bang guard masks a bare printenv value"
+  printf '%s\n' "  out: $bg_printenv"
 fi
 
 AGENT_GUARD_BIN="$PLUGIN_ROOT/bin/agent-guard" \

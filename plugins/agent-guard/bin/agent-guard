@@ -2,7 +2,7 @@
 set -u
 
 PROGRAM=agent-guard
-VERSION=1.10.0
+VERSION=1.10.1
 
 # Resolve the script's own path, following symlinks. The bootstrap installer
 # drops a symlink at ~/.local/bin/agent-guard that points into ~/.agent-guard/
@@ -1727,6 +1727,27 @@ detect_output_secrets() {
   } | awk 'NF' | sort -u
 }
 
+# `printenv NAME` prints only the value, so the output loses the secret-bearing
+# variable name that secretish_env_values needs as context. Reconstruct that
+# context from simple variable-name arguments, then emit only the detected
+# values for literal redaction of the original bare output. This intentionally
+# ignores options and invalid names; the normal gitleaks scan still covers them.
+detect_printenv_argument_secrets() {
+  [ "$#" -gt 1 ] || return 0
+  cmd_name=${1##*/}
+  [ "$cmd_name" = printenv ] || return 0
+  shift
+  for name in "$@"; do
+    case "$name" in
+      [A-Za-z_]* )
+        case "$name" in *[!A-Za-z0-9_]*) continue ;; esac
+        value=$(printenv "$name" 2>/dev/null) || continue
+        printf '%s=%s\n' "$name" "$value"
+        ;;
+    esac
+  done | secretish_env_values
+}
+
 # Replace every detected secret literal with a placeholder inside ANY string leaf
 # of the tool_response JSON ($1), preserving the original shape exactly
 # (updatedToolOutput must match the tool's native output shape). $2 is the
@@ -2034,7 +2055,12 @@ do_exec() {
   # Secret-literal redaction (AGENT_GUARD_OUTPUT_REDACT, default mask). Fail-safe:
   # on any error the original output is preserved rather than swallowed.
   if output_redact_enabled; then
-    secrets=$(detect_output_secrets "$masked" 2>/dev/null) || secrets=''
+    secrets=$(
+      {
+        detect_output_secrets "$masked"
+        detect_printenv_argument_secrets "$@"
+      } 2>/dev/null | awk 'NF' | sort -u
+    ) || secrets=''
     if [ -n "$secrets" ]; then
       r=$(redact_plaintext_literal "$masked" "$secrets" 2>/dev/null)
       [ -n "$r" ] && masked=$r
