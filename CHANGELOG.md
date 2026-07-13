@@ -1,6 +1,7 @@
 ## v1.10.1 - 2026-07-14
 
 - fix(codex): verify the plugin-local binary, hook trust, and live host dispatch during guided setup
+- fix(codex): use harmless dedicated sentinels for live PreToolUse and PostToolUse probes
 - docs(codex): document wrapping-tool boundaries and require pre/post live probes
 - fix(shell): mask bare `printenv NAME` values with their variable-name context
 

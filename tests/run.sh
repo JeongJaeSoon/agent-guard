@@ -128,8 +128,9 @@ if grep -Fq '../../bin/agent-guard' "$setup_skill" \
    && grep -Fq 'Compare its `version` with the plugin binary' "$setup_skill" \
    && grep -Fq 'Settings > Hooks' "$setup_skill" \
    && grep -Fq '`Untrusted` and `Modified` as inactive' "$setup_skill" \
-   && grep -Fq 'AGENT_GUARD_LIVE_PROBE_EXECUTED' "$setup_skill" \
-   && grep -Fq 'DEMO_TOKEN=ghp_abcdefghijklmnopqrstuvwxyz0123456789' "$setup_skill" \
+   && grep -Fq 'AGENT_GUARD_LIVE_PRE_TOOL_PROBE' "$setup_skill" \
+   && grep -Fq 'AGENT_GUARD_LIVE_POST_TOOL_PROBE' "$setup_skill" \
+   && ! grep -Fq 'cat .env' "$setup_skill" \
    && grep -Fq '`functions.exec`' "$setup_skill" \
    && grep -Fq 'They do not prove that the host is dispatching plugin hooks' "$setup_skill"; then
   ok "Codex setup skill verifies plugin-local, trust, and live-hook layers"
@@ -1479,6 +1480,10 @@ expect_json_status 0 "Bash on benign command passes" \
   '{"tool_name":"Bash","tool_input":{"command":"ls -la"}}' \
   hook-pre-tool
 
+expect_json_status 2 "live PreToolUse sentinel is blocked before execution" \
+  '{"tool_name":"Bash","tool_input":{"command":"printf %s AGENT_GUARD_LIVE_PRE_TOOL_PROBE"}}' \
+  hook-pre-tool
+
 expect_json_status 2 "MultiEdit with one secret edit is blocked" \
   '{"tool_name":"MultiEdit","tool_input":{"edits":[{"new_string":"clean line"},{"new_string":"AGENT_GUARD_TEST_SECRET"}]}}' \
   hook-pre-tool
@@ -2340,6 +2345,16 @@ if [ "$post_status" -eq 0 ] \
   ok "post-tool masks a gitleaks-detected secret in Bash stdout (shape preserved)"
 else
   not_ok "post-tool masks a gitleaks-detected secret in Bash stdout (status $post_status)"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+post_tool_out '{"tool_name":"Bash","tool_input":{"command":"printf sentinel"},"tool_response":{"stdout":"AGENT_GUARD_LIVE_POST_TOOL_PROBE\n","stderr":"","interrupted":false,"isImage":false}}'
+post_out=$(cat "$OUT")
+if printf '%s' "$post_out" | grep -q '\[REDACTED\]' \
+   && ! printf '%s' "$post_out" | grep -q 'AGENT_GUARD_LIVE_POST_TOOL_PROBE'; then
+  ok "live PostToolUse sentinel is rewritten before reaching the model"
+else
+  not_ok "live PostToolUse sentinel is rewritten before reaching the model"
   printf '%s\n' "$post_out" | sed 's/^/  out: /'
 fi
 

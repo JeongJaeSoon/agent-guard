@@ -58,11 +58,17 @@ Make Agent Guard operational without silently changing the machine. Diagnose fir
    - Pre-tool probe:
 
      ```sh
-     printf '%s\n' 'AGENT_GUARD_LIVE_PROBE_EXECUTED'; : # cat .env
+     printf '%s\n' 'AGENT_GUARD_LIVE_PRE_TOOL_PROBE'
      ```
 
      The expected result is an Agent Guard block before the marker is printed. If the marker appears, the live command boundary is not protected.
-   - Post-tool probe: print the documented fake value `DEMO_TOKEN=ghp_abcdefghijklmnopqrstuvwxyz0123456789`. The raw value must not reach the model; expect a masked or sanitized replacement.
+   - Post-tool probe:
+
+     ```sh
+     printf '%s\n' 'AGENT_GUARD_LIVE_POST_TOOL_PROBE'
+     ```
+
+     The raw marker must not reach the model; expect `[REDACTED]` in a masked or sanitized replacement. These sentinels prove host dispatch without reading a sensitive file or printing a credential-shaped value; the plugin-local smoke test separately proves the real detection rules.
    - If Codex exposes only a wrapping/orchestration tool such as `functions.exec`, test that exact route. Agent Guard cannot replace or wrap Codex's host executor; it can protect only nested calls that Codex exposes to plugin hooks. If either probe bypasses the hook, report the route as unsupported in the current host instead of claiming successful setup.
 
 8. After dependency, enablement, or trust changes, restart Codex and run both live probes again in a new task. In Codex, plugin hooks provide the supported command boundary; do not configure the Claude-specific bang-command shell wrapper as a Codex setup step.

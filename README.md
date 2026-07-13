@@ -105,17 +105,19 @@ codex plugin marketplace add JeongJaeSoon/agent-guard
 
 Then open `/plugins` in Codex, install **Agent Guard**, open **Settings > Hooks**, trust the **SessionStart**, **PreToolUse**, **PostToolUse**, and **Stop** hooks, and restart Codex. Re-check this screen after plugin updates: a changed hook is marked **Modified** and remains inactive until you review and trust it again. SessionStart reports degraded protection when a dependency is unavailable and points Codex to `$setup-agent-guard`; installation remains approval-gated. An untrusted SessionStart hook cannot display that guidance.
 
-Run `$setup-agent-guard` and require all three layers to pass: plugin-local `check`, plugin-local `smoke-test`, and the live host probes. For the pre-tool probe, ask Codex to run this harmless command; the comment is inspected but no sensitive file is read:
+Run `$setup-agent-guard` and require all three layers to pass: plugin-local `check`, plugin-local `smoke-test`, and the live host probes. For the pre-tool probe, ask Codex to run this harmless sentinel command:
 
 ```sh
-printf '%s\n' 'AGENT_GUARD_LIVE_PROBE_EXECUTED'; : # cat .env
+printf '%s\n' 'AGENT_GUARD_LIVE_PRE_TOOL_PROBE'
 ```
 
-Expected result: Agent Guard blocks the command before `AGENT_GUARD_LIVE_PROBE_EXECUTED` is printed. For the post-tool probe, print the documented fake value below and confirm that the raw value is masked or replaced before it reaches the model:
+Expected result: Agent Guard blocks the command before the sentinel is printed. For the post-tool probe, run the paired harmless sentinel and confirm that the raw marker is masked or replaced before it reaches the model:
 
 ```sh
-printf '%s\n' 'DEMO_TOKEN=ghp_abcdefghijklmnopqrstuvwxyz0123456789'
+printf '%s\n' 'AGENT_GUARD_LIVE_POST_TOOL_PROBE'
 ```
+
+These sentinels test only whether the host dispatched PreToolUse and PostToolUse. The plugin-local `smoke-test` separately exercises the real deny-list and secret-redaction rules without placing sensitive-looking instructions in the setup skill.
 
 Codex may expose shell execution through a wrapping or orchestration tool such as `functions.exec`. Agent Guard cannot replace or wrap Codex's host executor; it protects only nested operations that the current Codex release dispatches to plugin hooks. Test the exact route used in the current task. If the pre-tool marker or raw fake token appears, protection is not active on that route even when the binary smoke test passes. Use a native Git hook or CI as the backstop and do not treat the plugin setup as complete for that host route.
 

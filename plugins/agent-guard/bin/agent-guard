@@ -52,6 +52,8 @@ GITLEAKS_CONFIG=${AGENT_GUARD_GITLEAKS_CONFIG:-"$ROOT_DIR/config/gitleaks.toml"}
 DENY_READ_PATHS=${AGENT_GUARD_DENY_READ_PATHS:-"$ROOT_DIR/config/deny-read-paths.txt"}
 DENY_BASH_PATTERNS=${AGENT_GUARD_DENY_BASH_PATTERNS:-"$ROOT_DIR/config/deny-bash-patterns.txt"}
 GITLEAKS_PRIVATE_BIN_DIR=${AGENT_GUARD_GITLEAKS_BIN_DIR:-${AGENT_GUARD_BIN_DIR:-$HOME/.agent-guard/bin}}
+LIVE_PRE_TOOL_PROBE=AGENT_GUARD_LIVE_PRE_TOOL_PROBE
+LIVE_POST_TOOL_PROBE=AGENT_GUARD_LIVE_POST_TOOL_PROBE
 
 usage() {
   cat >&2 <<'EOF'
@@ -1447,6 +1449,16 @@ check_bash_command() {
   [ -n "$cmd" ] || return 0
   workdir=$(json_value '.tool_input.workdir // .tool_input.cwd // .cwd // empty' "$input")
 
+  # A harmless, deterministic sentinel lets setup prove that the host really
+  # dispatched PreToolUse without naming or touching any sensitive file. Keep
+  # this before configurable policy checks so the probe is stable everywhere.
+  case "$cmd" in
+    *"$LIVE_PRE_TOOL_PROBE"*)
+      info "$PROGRAM: blocked the live PreToolUse probe"
+      exit 2
+      ;;
+  esac
+
   [ -f "$DENY_BASH_PATTERNS" ] || die "deny bash policy not found: $DENY_BASH_PATTERNS"
   patterns=$(mktemp_file) || die "failed to create temp file"
   grep -Ev '^[[:space:]]*(#|$)' "$DENY_BASH_PATTERNS" >"$patterns"
@@ -1724,6 +1736,11 @@ detect_output_secrets() {
     printf '%s\n' "$text" \
       | grep -Eio 'bearer[ \t]+[-A-Za-z0-9._~+/=]+' 2>/dev/null \
       | awk '{ tok = $2; if (length(tok) >= 8) print tok }' || true
+    # The paired harmless sentinel proves that PostToolUse can rewrite a live
+    # host result. It is deliberately not credential-shaped and is used only as
+    # a dispatch probe; the ordinary smoke tests cover real detection rules.
+    printf '%s\n' "$text" \
+      | grep -Eo "$LIVE_POST_TOOL_PROBE" 2>/dev/null || true
   } | awk 'NF' | sort -u
 }
 
