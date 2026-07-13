@@ -2680,7 +2680,7 @@ PRINTENV_KEY='DEMO_TOKEN'
 # Keep the value deliberately non-vendor-shaped: this regression proves that
 # the variable name supplies the missing secret context for bare printenv output.
 PRINTENV_VAL='documented-fake-printenv-value-123456'
-exec_printenv=$(DEMO_TOKEN="$PRINTENV_VAL" "$PLUGIN_ROOT/bin/agent-guard" exec -- printenv "$PRINTENV_KEY" 2>/dev/null)
+exec_printenv=$(DEMO_TOKEN="${PRINTENV_VAL}" "$PLUGIN_ROOT/bin/agent-guard" exec -- printenv "$PRINTENV_KEY" 2>/dev/null)
 if printf '%s' "$exec_printenv" | grep -q '\[REDACTED\]' \
    && ! printf '%s' "$exec_printenv" | grep -q "$PRINTENV_VAL"; then
   ok "exec masks a bare printenv value using its variable-name context"
@@ -2909,7 +2909,7 @@ else
   not_ok "bang guard passthrough outside Claude Code (got: $bg_out_cc)"
 fi
 
-bg_printenv=$(DEMO_TOKEN="$PRINTENV_VAL" AGENT_GUARD_BIN="$PLUGIN_ROOT/bin/agent-guard" \
+bg_printenv=$(DEMO_TOKEN="${PRINTENV_VAL}" AGENT_GUARD_BIN="$PLUGIN_ROOT/bin/agent-guard" \
   CLAUDECODE=1 sh -c '. "$1"; printenv DEMO_TOKEN' _ "$bg_dir/guard.sh" 2>/dev/null)
 if printf '%s' "$bg_printenv" | grep -q '\[REDACTED\]' \
    && ! printf '%s' "$bg_printenv" | grep -q "$PRINTENV_VAL"; then
