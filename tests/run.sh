@@ -114,31 +114,23 @@ for file in \
   run_expect 0 "json syntax: $file" jq -e . "$file"
 done
 
-codex_manifest_hooks=$(jq -r 'has("hooks")' "$PLUGIN_ROOT/.codex-plugin/plugin.json")
-if [ "$codex_manifest_hooks" = "false" ]; then
-  ok "Codex plugin manifest leaves hooks to the root hooks.json companion"
+if jq -e '.hooks == "./hooks.json" and .skills == "./skills/"' "$PLUGIN_ROOT/.codex-plugin/plugin.json" >/dev/null; then
+  ok "Codex plugin manifest explicitly declares hook and skill paths"
 else
-  not_ok "Codex plugin manifest leaves hooks to the root hooks.json companion"
+  not_ok "Codex plugin manifest explicitly declares hook and skill paths"
 fi
 
 for event in PreToolUse PostToolUse Stop; do
   claude_canonical=$(jq -r ".hooks.${event}[0].matcher" "$PLUGIN_ROOT/hooks/hooks.json")
   codex_canonical=$(jq -r ".hooks.${event}[0].matcher" "$PLUGIN_ROOT/hooks.json")
-  if [ "$codex_canonical" = "$claude_canonical" ]; then
-    ok "$event matcher in Codex hooks matches Claude hooks"
-  else
-    not_ok "$event matcher in Codex hooks matches Claude hooks (got: $codex_canonical)"
-  fi
-  for file in \
-    "$ROOT/examples/claude/settings.project.json" \
-    "$ROOT/examples/codex/hooks.json"; do
-    actual=$(jq -r ".hooks.${event}[0].matcher" "$file")
-    if [ "$actual" = "$claude_canonical" ]; then
-      ok "$event matcher in $file matches hooks/hooks.json"
-    else
-      not_ok "$event matcher in $file matches hooks/hooks.json (got: $actual)"
-    fi
-  done
+  claude_example=$(jq -r ".hooks.${event}[0].matcher" "$ROOT/examples/claude/settings.project.json")
+  codex_example=$(jq -r ".hooks.${event}[0].matcher" "$ROOT/examples/codex/hooks.json")
+  [ "$claude_example" = "$claude_canonical" ] \
+    && ok "$event matcher in Claude example matches Claude plugin hooks" \
+    || not_ok "$event matcher in Claude example matches Claude plugin hooks (got: $claude_example)"
+  [ "$codex_example" = "$codex_canonical" ] \
+    && ok "$event matcher in Codex example matches Codex plugin hooks" \
+    || not_ok "$event matcher in Codex example matches Codex plugin hooks (got: $codex_example)"
 done
 
 # Full hook-object parity: type, timeout, and the trailing hook-* subcommand
@@ -204,17 +196,20 @@ for event in PreToolUse PostToolUse Stop; do
   done
 done
 
-# SessionStart (version-drift warning) is wired in hooks/hooks.json alone: the
-# Codex host has no SessionStart event, and the manual-install example ships no
-# plugin (same binary is both plugin and CLI), so plugin/CLI drift cannot occur.
+# SessionStart reports dependency readiness on both hosts and version drift for
+# the optional Claude shell integration.
 ss_hook_matcher=$(jq -r '.hooks.SessionStart[0].matcher' "$PLUGIN_ROOT/hooks/hooks.json")
 ss_hook_command=$(jq -r '.hooks.SessionStart[0].hooks[0].command' "$PLUGIN_ROOT/hooks/hooks.json")
 ss_hook_timeout=$(jq -r '.hooks.SessionStart[0].hooks[0].timeout' "$PLUGIN_ROOT/hooks/hooks.json")
-if [ "$ss_hook_matcher" = "startup|resume|clear" ]; then
-  ok "SessionStart matcher covers startup/resume/clear in hooks/hooks.json"
+if [ "$ss_hook_matcher" = "startup|resume|clear|compact" ]; then
+  ok "SessionStart matcher covers startup/resume/clear/compact in hooks/hooks.json"
 else
-  not_ok "SessionStart matcher covers startup/resume/clear in hooks/hooks.json (got: $ss_hook_matcher)"
+  not_ok "SessionStart matcher covers startup/resume/clear/compact in hooks/hooks.json (got: $ss_hook_matcher)"
 fi
+codex_ss_matcher=$(jq -r '.hooks.SessionStart[0].matcher' "$PLUGIN_ROOT/hooks.json")
+[ "$codex_ss_matcher" = "$ss_hook_matcher" ] \
+  && ok "Codex SessionStart matcher matches the supported lifecycle set" \
+  || not_ok "Codex SessionStart matcher matches the supported lifecycle set (got: $codex_ss_matcher)"
 case "$ss_hook_command" in
   *'CLAUDE_PLUGIN_ROOT'*'hook-session-start'*)
     ok "SessionStart command invokes hook-session-start via CLAUDE_PLUGIN_ROOT" ;;
@@ -377,6 +372,22 @@ else
   not_ok "gitleaks default version drift: bin=$bin_ver script=$script_ver action=$action_ver"
 fi
 
+# Release version is consumed independently by both plugin hosts and the Claude
+# marketplace. Keep every published surface aligned with the executable, and
+# require the latest changelog entry to describe that same release.
+plugin_ver=$(awk -F= '/^VERSION=/ {print $2; exit}' "$PLUGIN_ROOT/bin/agent-guard")
+claude_ver=$(jq -r '.version' "$PLUGIN_ROOT/.claude-plugin/plugin.json")
+codex_ver=$(jq -r '.version' "$PLUGIN_ROOT/.codex-plugin/plugin.json")
+market_ver=$(jq -r '.plugins[] | select(.name == "agent-guard") | .version' "$ROOT/.claude-plugin/marketplace.json")
+changelog_ver=$(sed -n 's/^## v\([^ ]*\) .*/\1/p' "$ROOT/CHANGELOG.md" | head -n1)
+if [ -n "$plugin_ver" ] && [ "$plugin_ver" = "$claude_ver" ] \
+   && [ "$plugin_ver" = "$codex_ver" ] && [ "$plugin_ver" = "$market_ver" ] \
+   && [ "$plugin_ver" = "$changelog_ver" ]; then
+  ok "release version in sync across binary, plugin manifests, marketplace, and changelog ($plugin_ver)"
+else
+  not_ok "release version drift: bin=$plugin_ver claude=$claude_ver codex=$codex_ver marketplace=$market_ver changelog=$changelog_ver"
+fi
+
 expect_json_status 2 "Claude Write secret is blocked" \
   '{"tool_name":"Write","tool_input":{"file_path":"app.txt","content":"AGENT_GUARD_TEST_SECRET"}}' \
   hook-pre-tool
@@ -387,6 +398,10 @@ expect_json_status 0 "safe example token is allowed" \
 
 expect_json_status 2 "Codex apply_patch added secret is blocked" \
   '{"tool_name":"apply_patch","tool_input":{"patch":"*** Begin Patch\n*** Add File: x\n+AGENT_GUARD_TEST_SECRET\n*** End Patch"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Codex canonical apply_patch command field is scanned" \
+  '{"tool_name":"apply_patch","tool_input":{"command":"*** Begin Patch\n*** Add File: x\n+AGENT_GUARD_TEST_SECRET\n*** End Patch"}}' \
   hook-pre-tool
 
 expect_json_status 0 "Codex apply_patch deleted secret is allowed" \
@@ -447,6 +462,26 @@ expect_json_status 2 "Bash glob wildcard path bypass is blocked" \
 
 expect_json_status 0 "Bash benign glob remains allowed" \
   '{"tool_name":"Bash","tool_input":{"command":"ls *.md"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "ripgrep negative glob over a denied extension is allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"rg --files -g '\''!*.pem'\''"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "command-wrapped ripgrep negative glob is allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"command rg --files --glob='\''!*.pem'\''"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "ripgrep positive glob over a denied extension remains blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"rg --files -g '\''*.pem'\''"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "literal bang-prefixed denied path remains blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat '\''!secret.pem'\''"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "negative glob does not hide a chained denied read" \
+  '{"tool_name":"Bash","tool_input":{"command":"rg --files -g '\''!*.pem'\'' && cat secret.pem"}}' \
   hook-pre-tool
 
 expect_json_status 2 "Bash command literal secret is blocked" \
@@ -973,6 +1008,36 @@ else
   sed 's/^/  stderr: /' "$ERR"
 fi
 
+# Codex runs hooks from the task root, which can differ from exec_command's
+# workdir. Honor the tool payload so the staged scan runs in the target repo.
+(
+  cd "$TMP_ROOT" || exit 2
+  jq -nc --arg workdir "$TEST_REPO" \
+    '{tool_name:"Bash",tool_input:{command:"git commit -m leak",workdir:$workdir}}' \
+    | "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+)
+status=$?
+if [ "$status" -eq 2 ] && grep -q 'staged changes contain secret-like values' "$ERR"; then
+  ok "Codex hook scans staged changes from tool_input.workdir"
+else
+  not_ok "Codex hook scans staged changes from tool_input.workdir (expected staged-secret block, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+(
+  cd "$TMP_ROOT" || exit 2
+  jq -nc --arg cwd "$TEST_REPO" \
+    '{tool_name:"Bash",cwd:$cwd,tool_input:{command:"git push origin main"}}' \
+    | "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+)
+status=$?
+if [ "$status" -eq 2 ] && grep -q 'staged changes contain secret-like values' "$ERR"; then
+  ok "host hook scans staged changes from top-level cwd"
+else
+  not_ok "host hook scans staged changes from top-level cwd (expected staged-secret block, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
 (
   cd "$TEST_REPO" || exit 2
   printf '%s' '{"tool_name":"Bash","tool_input":{"command":"git status && git -C . push origin main"}}' \
@@ -1062,17 +1127,20 @@ SYMLINK_REPO="$TMP_ROOT/symlink-repo"
 mkdir -p "$SYMLINK_REPO"
 (
   cd "$SYMLINK_REPO" || exit 2
-  printf '%s\n' "AGENT_GUARD_TEST_SECRET" > .env
-  ln -s .env safe-link
+  printf '%s\n' "sensitive fixture" > blocked-target.txt
+  ln -s blocked-target.txt safe-link
 )
+SYMLINK_DENY="$TESTTMP/symlink-deny-paths.txt"
+printf '%s\n' 'blocked-target.txt' >"$SYMLINK_DENY"
 if [ -L "$SYMLINK_REPO/safe-link" ]; then
   payload='{"tool_name":"Read","tool_input":{"file_path":"'"$SYMLINK_REPO"'/safe-link"}}'
-  printf '%s' "$payload" | "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+  printf '%s' "$payload" \
+    | AGENT_GUARD_DENY_READ_PATHS="$SYMLINK_DENY" "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
   status=$?
   if [ "$status" -eq 2 ]; then
-    ok "symlink to .env is blocked via realpath resolution"
+    ok "symlink to a deny-listed target is blocked via realpath resolution"
   else
-    not_ok "symlink to .env is blocked via realpath resolution (expected 2, got $status)"
+    not_ok "symlink to a deny-listed target is blocked via realpath resolution (expected 2, got $status)"
     sed 's/^/  stderr: /' "$ERR"
   fi
 else
@@ -1532,6 +1600,24 @@ else
   sed 's/^/  stderr: /' "$ERR"
 fi
 
+ERROR_ZERO_BIN="$TMP_ROOT/error-zero-bin"
+mkdir -p "$ERROR_ZERO_BIN"
+cat > "$ERROR_ZERO_BIN/gitleaks" <<'EOSH'
+#!/usr/bin/env sh
+echo "ERR skipping file: synthetic unreadable fixture" >&2
+exit 0
+EOSH
+chmod +x "$ERROR_ZERO_BIN/gitleaks"
+
+PATH="$ERROR_ZERO_BIN:$PATH" "$PLUGIN_ROOT/bin/agent-guard" scan-path "$CLEAN_DIR" >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "scan-path fail-closes when gitleaks exits 0 but reports an error"
+else
+  not_ok "scan-path fail-closes on gitleaks exit-0 error output (expected 2, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
 PATH="$ERROR_BIN:$PATH" sh -c '
   printf "%s" "{\"tool_name\":\"Write\",\"tool_input\":{\"content\":\"x\"}}" \
     | "'"$PLUGIN_ROOT"'/bin/agent-guard" hook-pre-tool
@@ -1676,7 +1762,8 @@ mkdir -p "$NO_GITLEAKS_BIN"
 ln -s "$REAL_SH" "$NO_GITLEAKS_BIN/sh"
 ln -s "$REAL_DIRNAME" "$NO_GITLEAKS_BIN/dirname"
 ln -s "$REAL_PWD" "$NO_GITLEAKS_BIN/pwd"
-PATH="$NO_GITLEAKS_BIN" "$PLUGIN_ROOT/bin/agent-guard" scan-path "$CLEAN_DIR" >"$OUT" 2>"$ERR"
+AGENT_GUARD_GITLEAKS_BIN=/nonexistent/gitleaks PATH="$NO_GITLEAKS_BIN" \
+  "$PLUGIN_ROOT/bin/agent-guard" scan-path "$CLEAN_DIR" >"$OUT" 2>"$ERR"
 status=$?
 if [ "$status" -eq 2 ]; then
   ok "scan-path dies when gitleaks is unavailable"
@@ -1688,10 +1775,12 @@ fi
 # while gitleaks is missing.
 ln -sf "$(command -v jq)" "$NO_GITLEAKS_BIN/jq"
 ln -sf "$(command -v git)" "$NO_GITLEAKS_BIN/git"
+ln -sf "$(command -v head)" "$NO_GITLEAKS_BIN/head"
 ln -sf "$(command -v command)" "$NO_GITLEAKS_BIN/command" 2>/dev/null || true
 ln -sf "$(command -v uname)" "$NO_GITLEAKS_BIN/uname" 2>/dev/null || true
 
-PATH="$NO_GITLEAKS_BIN" "$PLUGIN_ROOT/bin/agent-guard" setup >"$OUT" 2>"$ERR"
+AGENT_GUARD_GITLEAKS_BIN=/nonexistent/gitleaks PATH="$NO_GITLEAKS_BIN" \
+  "$PLUGIN_ROOT/bin/agent-guard" setup >"$OUT" 2>"$ERR"
 status=$?
 if [ "$status" -eq 1 ]; then
   ok "setup exits 1 when gitleaks missing"
@@ -1700,12 +1789,49 @@ else
   sed 's/^/  stderr: /' "$ERR"
 fi
 
-PATH="$NO_GITLEAKS_BIN" "$PLUGIN_ROOT/bin/agent-guard" setup --install >"$OUT" 2>"$ERR"
+AGENT_GUARD_GITLEAKS_BIN=/nonexistent/gitleaks PATH="$NO_GITLEAKS_BIN" \
+  "$PLUGIN_ROOT/bin/agent-guard" setup --install >"$OUT" 2>"$ERR"
 status=$?
 if [ "$status" -eq 2 ]; then
   ok "setup --install without --gitleaks-checksum exits 2"
 else
   not_ok "setup --install without --gitleaks-checksum exits 2 (expected 2, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+printf '%s' '{"tool_name":"Bash","tool_input":{"command":"brew install gitleaks"}}' \
+  | AGENT_GUARD_GITLEAKS_BIN=/nonexistent/gitleaks PATH="$NO_GITLEAKS_BIN" \
+    "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 0 ] && grep -q 'DEGRADED' "$ERR" && grep -q '\$setup-agent-guard' "$ERR"; then
+  ok "hook degrades open with an actionable setup warning when dependencies are missing"
+else
+  not_ok "hook degraded mode allows setup commands with a warning (status $status)"
+  sed 's/^/  stdout: /' "$OUT"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+EXEC_NOT_RUN="$TESTTMP/exec-not-run.txt"
+AGENT_GUARD_GITLEAKS_BIN=/nonexistent/gitleaks PATH="$NO_GITLEAKS_BIN" \
+  "$PLUGIN_ROOT/bin/agent-guard" exec -- sh -c 'printf ran >"$1"' _ "$EXEC_NOT_RUN" >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ] && [ ! -e "$EXEC_NOT_RUN" ]; then
+  ok "exec fails closed before running a command when masking dependencies are missing"
+else
+  not_ok "exec missing-dependency preflight prevents execution (status $status)"
+fi
+
+PRIVATE_GL_DIR="$TESTTMP/private-gitleaks-bin"
+mkdir -p "$PRIVATE_GL_DIR"
+cp "$ROOT/tests/fixtures/mock-gitleaks" "$PRIVATE_GL_DIR/gitleaks"
+chmod +x "$PRIVATE_GL_DIR/gitleaks"
+AGENT_GUARD_GITLEAKS_BIN_DIR="$PRIVATE_GL_DIR" PATH="$NO_GITLEAKS_BIN" \
+  "$PLUGIN_ROOT/bin/agent-guard" check >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 0 ] && grep -q 'gitleaks 0.0.0-mock' "$ERR"; then
+  ok "check discovers gitleaks in Agent Guard's private install directory"
+else
+  not_ok "check discovers privately installed gitleaks (status $status)"
   sed 's/^/  stderr: /' "$ERR"
 fi
 
@@ -2008,7 +2134,7 @@ if [ -n "$REAL_GITLEAKS" ]; then
     printf '%s%s\n' '-----BEGIN RSA ' 'PRIVATE KEY-----'
     printf '%s\n' "$PEM_BODY"
     printf '%s%s\n' '-----END RSA ' 'PRIVATE KEY-----'
-  } > "$RSA_FIXTURE_DIR/key.pem"
+  } > "$RSA_FIXTURE_DIR/rsa-private-key-fixture.txt"
   PATH="$(dirname "$REAL_GITLEAKS"):$ORIGINAL_PATH" "$PLUGIN_ROOT/bin/agent-guard" scan-path "$RSA_FIXTURE_DIR" >"$OUT" 2>"$ERR"
   status=$?
   if [ "$status" -eq 1 ]; then
@@ -2024,7 +2150,7 @@ if [ -n "$REAL_GITLEAKS" ]; then
     printf '%s%s\n' '-----BEGIN OPENSSH ' 'PRIVATE KEY-----'
     printf '%s\n' "$PEM_BODY"
     printf '%s%s\n' '-----END OPENSSH ' 'PRIVATE KEY-----'
-  } > "$OPENSSH_FIXTURE_DIR/openssh.key"
+  } > "$OPENSSH_FIXTURE_DIR/openssh-private-key-fixture.txt"
   PATH="$(dirname "$REAL_GITLEAKS"):$ORIGINAL_PATH" "$PLUGIN_ROOT/bin/agent-guard" scan-path "$OPENSSH_FIXTURE_DIR" >"$OUT" 2>"$ERR"
   status=$?
   if [ "$status" -eq 1 ]; then
@@ -2198,6 +2324,20 @@ if [ "$post_status" -eq 0 ] \
 else
   not_ok "post-tool masks a gitleaks-detected secret in Bash stdout (status $post_status)"
   printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+printf '%s' '{"tool_name":"Bash","tool_input":{"command":"loadsecrets"},"tool_response":{"stdout":"token AGENT_GUARD_TEST_SECRET here\n","stderr":"","interrupted":false,"isImage":false}}' \
+  | (cd "$TMP_ROOT" && AGENT_GUARD_HOOK_HOST=codex "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool) \
+    >"$OUT" 2>"$ERR"
+codex_post_status=$?
+codex_post_out=$(cat "$OUT")
+if [ "$codex_post_status" -eq 0 ] \
+   && printf '%s' "$codex_post_out" | jq -e '.decision == "block" and (.reason | type == "string") and (.hookSpecificOutput.additionalContext | contains("[REDACTED]"))' >/dev/null 2>&1 \
+   && ! printf '%s' "$codex_post_out" | grep -q 'AGENT_GUARD_TEST_SECRET'; then
+  ok "Codex post-tool uses decision block plus sanitized additionalContext"
+else
+  not_ok "Codex post-tool emits the supported sanitized-output contract (status $codex_post_status)"
+  printf '%s\n' "$codex_post_out" | sed 's/^/  out: /'
 fi
 
 post_tool_out '{"tool_name":"Bash","tool_input":{"command":"printenv-like"},"tool_response":{"stdout":"DATABASE_PASSWORD=hunter2-long-value\n","stderr":"","interrupted":false,"isImage":false}}'
@@ -2661,8 +2801,8 @@ else
   not_ok "shell-init nudge stays silent on a benign command"
 fi
 
-# --- shell-init experimental bang guard (opt-in function overrides) -----------
-# Emitted ONLY with --experimental-bang-guard; overrides cat/head/printenv
+# --- shell-init Claude bang guard (supported opt-in function overrides) -------
+# Emitted ONLY with --claude-bang-guard; overrides cat/head/printenv
 # to route through `agent-guard exec` (mask) but ONLY inside Claude Code
 # ($CLAUDECODE), staying inert in a normal terminal.
 if printf '%s' "$shellinit_auto" | grep -q '__agentguard_guard'; then
@@ -2670,11 +2810,17 @@ if printf '%s' "$shellinit_auto" | grep -q '__agentguard_guard'; then
 else
   ok "shell-init omits the bang guard without the opt-in flag"
 fi
-shellinit_bg=$("$PLUGIN_ROOT/bin/agent-guard" shell-init --experimental-bang-guard 2>/dev/null)
+shellinit_bg=$("$PLUGIN_ROOT/bin/agent-guard" shell-init --claude-bang-guard 2>/dev/null)
 if printf '%s' "$shellinit_bg" | grep -q '__agentguard_guard'; then
-  ok "shell-init --experimental-bang-guard emits the guard functions"
+  ok "shell-init --claude-bang-guard emits the guard functions"
 else
-  not_ok "shell-init --experimental-bang-guard emits the guard functions"
+  not_ok "shell-init --claude-bang-guard emits the guard functions"
+fi
+shellinit_bg_legacy=$("$PLUGIN_ROOT/bin/agent-guard" shell-init --experimental-bang-guard 2>/dev/null)
+if printf '%s' "$shellinit_bg_legacy" | grep -q '__agentguard_guard'; then
+  ok "shell-init accepts the deprecated --experimental-bang-guard alias"
+else
+  not_ok "shell-init accepts the deprecated --experimental-bang-guard alias"
 fi
 if printf '%s\n' "$shellinit_bg" | sh -n - 2>"$ERR"; then
   ok "bang guard snippet parses under sh -n"
@@ -2713,6 +2859,19 @@ if [ "$bg_out_cc" = hello-plain ]; then
   ok "bang guard is inert (passthrough) outside Claude Code"
 else
   not_ok "bang guard passthrough outside Claude Code (got: $bg_out_cc)"
+fi
+
+AGENT_GUARD_BIN="$PLUGIN_ROOT/bin/agent-guard" \
+AGENT_GUARD_GITLEAKS_BIN=/nonexistent/gitleaks \
+CLAUDECODE=1 sh -c '. "$1"; cat "$2"' _ "$bg_dir/guard.sh" "$bg_dir/file.txt" >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 0 ] && [ "$(cat "$OUT")" = hello-plain ] \
+   && grep -q 'dependencies are not ready' "$ERR"; then
+  ok "transparent bang guard fails open with a loud warning when masking is unavailable"
+else
+  not_ok "transparent bang guard degraded mode preserves command behavior with a warning (status $status)"
+  sed 's/^/  stdout: /' "$OUT"
+  sed 's/^/  stderr: /' "$ERR"
 fi
 # Regression: a pre-existing `alias cat=...` must NOT stop the override from
 # installing. Without the per-name `unalias` before each `eval`, the alias
@@ -2810,7 +2969,8 @@ AG_VERSION=$(sed -n 's/^VERSION=//p' "$PLUGIN_ROOT/bin/agent-guard" | head -n1)
 run_session_start() {  # $1 = value for the marker env ('' => marker unset)
   sh -c 'unset AGENT_GUARD_SHELL_INIT_VERSION
          [ -n "$1" ] && export AGENT_GUARD_SHELL_INIT_VERSION="$1"
-         PATH=/usr/bin:/bin exec "$2" hook-session-start' _ "$1" "$PLUGIN_ROOT/bin/agent-guard"
+         AGENT_GUARD_GITLEAKS_BIN="$3" PATH="$4" exec "$2" hook-session-start' \
+    _ "$1" "$PLUGIN_ROOT/bin/agent-guard" "$MOCK_BIN/gitleaks" "$MOCK_BIN:$ORIGINAL_PATH"
 }
 
 vd_out=$(run_session_start 0.0.1 2>"$ERR")
@@ -2844,6 +3004,16 @@ if [ $? -eq 0 ] && [ -z "$vd_out" ]; then
   ok "hook-session-start is silent when the marker cannot be parsed"
 else
   not_ok "hook-session-start silent on unparseable marker (got: $vd_out)"
+fi
+
+vd_out=$(AGENT_GUARD_GITLEAKS_BIN=/nonexistent/gitleaks \
+  PATH="$NO_GITLEAKS_BIN" "$PLUGIN_ROOT/bin/agent-guard" hook-session-start 2>"$ERR")
+if [ $? -eq 0 ] \
+   && printf '%s' "$vd_out" | jq -e '.systemMessage | contains("DEGRADED")' >/dev/null 2>&1 \
+   && printf '%s' "$vd_out" | grep -q '\$setup-agent-guard'; then
+  ok "hook-session-start guides dependency setup while protection is degraded"
+else
+  not_ok "hook-session-start emits an actionable degraded-mode warning (got: $vd_out)"
 fi
 
 # --- shell-init exports the resolved binary's version as the marker -----------
@@ -2951,17 +3121,25 @@ if grep -q 'export AG_TEST_KEEP=1' "$ss_rc" 2>/dev/null; then
 else
   not_ok "setup-shell preserves unrelated rc lines"
 fi
-"$PLUGIN_ROOT/bin/agent-guard" setup-shell --rc "$ss_rc" --experimental-bang-guard >/dev/null 2>&1
-if grep -q 'shell-init --experimental-bang-guard' "$ss_rc" 2>/dev/null; then
-  ok "setup-shell threads --experimental-bang-guard into the rc line"
+"$PLUGIN_ROOT/bin/agent-guard" setup-shell --rc "$ss_rc" --claude-bang-guard >/dev/null 2>&1
+if grep -q 'shell-init --claude-bang-guard' "$ss_rc" 2>/dev/null; then
+  ok "setup-shell threads --claude-bang-guard into the rc line"
 else
-  not_ok "setup-shell threads --experimental-bang-guard into the rc line"
+  not_ok "setup-shell threads --claude-bang-guard into the rc line"
+fi
+ss_legacy="$TESTTMP/setup-legacy.rc"
+"$PLUGIN_ROOT/bin/agent-guard" setup-shell --rc "$ss_legacy" --experimental-bang-guard >/dev/null 2>&1
+if grep -q 'shell-init --claude-bang-guard' "$ss_legacy" 2>/dev/null \
+   && ! grep -q 'shell-init --experimental-bang-guard' "$ss_legacy" 2>/dev/null; then
+  ok "setup-shell normalizes the deprecated bang-guard alias to the stable option"
+else
+  not_ok "setup-shell normalizes the deprecated bang-guard alias to the stable option"
 fi
 # Self-healing invocation: the rc line prefers `agent-guard` on $PATH but bakes an
 # absolute-path fallback keyed on OUTPUT (not mere presence), so it stays a valid
 # generator even if the bare name later leaves $PATH or a stale binary emits nothing.
 ss_heal="$TESTTMP/setup-heal.rc"
-"$PLUGIN_ROOT/bin/agent-guard" setup-shell --rc "$ss_heal" --experimental-bang-guard >/dev/null 2>&1
+"$PLUGIN_ROOT/bin/agent-guard" setup-shell --rc "$ss_heal" --claude-bang-guard >/dev/null 2>&1
 if grep -q '_agi=$(agent-guard shell-init' "$ss_heal" 2>/dev/null \
    && grep -q 'if \[ -n "$_agi" \]' "$ss_heal" 2>/dev/null; then
   ok "setup-shell bakes a self-healing invocation (output probe + absolute fallback)"

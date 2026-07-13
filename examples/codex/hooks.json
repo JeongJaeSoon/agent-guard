@@ -2,11 +2,11 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Write|Edit|MultiEdit|Read|NotebookRead|Grep|Glob|Bash|WebFetch|WebSearch|apply_patch|mcp__.*",
+        "matcher": "Bash|apply_patch|mcp__.*",
         "hooks": [
           {
             "type": "command",
-            "command": "./plugins/agent-guard/bin/agent-guard hook-pre-tool",
+            "command": "AGENT_GUARD_HOOK_HOST=codex ./plugins/agent-guard/bin/agent-guard hook-pre-tool",
             "timeout": 10
           }
         ]
@@ -14,11 +14,11 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "Write|Edit|MultiEdit|Bash|apply_patch|Read|NotebookRead|Grep|Glob|WebFetch|WebSearch|mcp__.*",
+        "matcher": "Bash|apply_patch|mcp__.*",
         "hooks": [
           {
             "type": "command",
-            "command": "./plugins/agent-guard/bin/agent-guard hook-post-tool",
+            "command": "AGENT_GUARD_HOOK_HOST=codex ./plugins/agent-guard/bin/agent-guard hook-post-tool",
             "timeout": 20
           }
         ]
@@ -30,8 +30,20 @@
         "hooks": [
           {
             "type": "command",
-            "command": "./plugins/agent-guard/bin/agent-guard hook-stop",
+            "command": "AGENT_GUARD_HOOK_HOST=codex ./plugins/agent-guard/bin/agent-guard hook-stop",
             "timeout": 20
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "AGENT_GUARD_HOOK_HOST=codex ./plugins/agent-guard/bin/agent-guard hook-session-start",
+            "timeout": 5
           }
         ]
       }

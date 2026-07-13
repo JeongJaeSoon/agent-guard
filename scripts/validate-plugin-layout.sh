@@ -110,14 +110,40 @@ validate_archive_contains() {
   fi
 }
 
+validate_setup_skill() {
+  skill="$PLUGIN_ROOT/skills/setup-agent-guard/SKILL.md"
+  metadata="$PLUGIN_ROOT/skills/setup-agent-guard/agents/openai.yaml"
+
+  require_file "$skill"
+  require_file "$metadata"
+  if [ -f "$skill" ] \
+     && [ "$(sed -n '1p' "$skill")" = "---" ] \
+     && [ "$(sed -n '2p' "$skill")" = "name: setup-agent-guard" ] \
+     && sed -n '3p' "$skill" | grep -Eq '^description: .+' \
+     && [ "$(sed -n '4p' "$skill")" = "---" ]; then
+    ok "setup-agent-guard skill has valid required frontmatter"
+  else
+    fail "setup-agent-guard skill has valid required frontmatter"
+  fi
+  if [ -f "$metadata" ] \
+     && grep -Eq '^[[:space:]]*display_name:[[:space:]]+"?.+"?$' "$metadata" \
+     && grep -Eq '^[[:space:]]*short_description:[[:space:]]+"?.+"?$' "$metadata" \
+     && grep -Fq '$setup-agent-guard' "$metadata"; then
+    ok "setup-agent-guard UI metadata is complete"
+  else
+    fail "setup-agent-guard UI metadata is complete"
+  fi
+}
+
 validate_codex() {
   require_json "$PLUGIN_ROOT/.codex-plugin/plugin.json"
   require_json "$PLUGIN_ROOT/hooks.json"
+  validate_setup_skill
 
-  if jq -e 'has("hooks") or has("apps") or has("mcpServers")' "$PLUGIN_ROOT/.codex-plugin/plugin.json" >/dev/null; then
-    fail "Codex plugin manifest does not declare unsupported companion fields"
+  if jq -e '.hooks == "./hooks.json" and .skills == "./skills/"' "$PLUGIN_ROOT/.codex-plugin/plugin.json" >/dev/null; then
+    ok "Codex plugin manifest declares hook and skill paths"
   else
-    ok "Codex plugin manifest does not declare unsupported companion fields"
+    fail "Codex plugin manifest declares hook and skill paths"
   fi
 
   validate_hook_commands "$PLUGIN_ROOT/hooks.json" "Codex" "PLUGIN_ROOT"
@@ -172,6 +198,8 @@ validate_archive() {
   validate_archive_contains "$archive" ".claude-plugin/plugin.json"
   validate_archive_contains "$archive" "hooks.json"
   validate_archive_contains "$archive" "hooks/hooks.json"
+  validate_archive_contains "$archive" "skills/setup-agent-guard/SKILL.md"
+  validate_archive_contains "$archive" "skills/setup-agent-guard/agents/openai.yaml"
 
   if [ -d "$PLUGIN_ROOT/commands" ]; then
     archive_command_count=$(find "$PLUGIN_ROOT/commands" -type f -name '*.md' | wc -l | tr -d ' ')

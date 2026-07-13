@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c '[ -n \"${CLAUDE_PLUGIN_ROOT:-}\" ] || { echo \"agent-guard: CLAUDE_PLUGIN_ROOT env not set\" >&2; exit 2; }; \"${CLAUDE_PLUGIN_ROOT}/bin/agent-guard\" hook-pre-tool'",
+            "command": "sh -c '[ -n \"${CLAUDE_PLUGIN_ROOT:-}\" ] || { echo \"agent-guard: CLAUDE_PLUGIN_ROOT env not set\" >&2; exit 2; }; AGENT_GUARD_HOOK_HOST=claude \"${CLAUDE_PLUGIN_ROOT}/bin/agent-guard\" hook-pre-tool'",
             "timeout": 10
           }
         ]
@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c '[ -n \"${CLAUDE_PLUGIN_ROOT:-}\" ] || { echo \"agent-guard: CLAUDE_PLUGIN_ROOT env not set\" >&2; exit 2; }; \"${CLAUDE_PLUGIN_ROOT}/bin/agent-guard\" hook-post-tool'",
+            "command": "sh -c '[ -n \"${CLAUDE_PLUGIN_ROOT:-}\" ] || { echo \"agent-guard: CLAUDE_PLUGIN_ROOT env not set\" >&2; exit 2; }; AGENT_GUARD_HOOK_HOST=claude \"${CLAUDE_PLUGIN_ROOT}/bin/agent-guard\" hook-post-tool'",
             "timeout": 20
           }
         ]
@@ -30,7 +30,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c '[ -n \"${CLAUDE_PLUGIN_ROOT:-}\" ] || { echo \"agent-guard: CLAUDE_PLUGIN_ROOT env not set\" >&2; exit 2; }; \"${CLAUDE_PLUGIN_ROOT}/bin/agent-guard\" hook-stop'",
+            "command": "sh -c '[ -n \"${CLAUDE_PLUGIN_ROOT:-}\" ] || { echo \"agent-guard: CLAUDE_PLUGIN_ROOT env not set\" >&2; exit 2; }; AGENT_GUARD_HOOK_HOST=claude \"${CLAUDE_PLUGIN_ROOT}/bin/agent-guard\" hook-stop'",
             "timeout": 20
           }
         ]
@@ -38,11 +38,11 @@
     ],
     "SessionStart": [
       {
-        "matcher": "startup|resume|clear",
+        "matcher": "startup|resume|clear|compact",
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c '[ -n \"${CLAUDE_PLUGIN_ROOT:-}\" ] || { echo \"agent-guard: CLAUDE_PLUGIN_ROOT env not set\" >&2; exit 2; }; \"${CLAUDE_PLUGIN_ROOT}/bin/agent-guard\" hook-session-start'",
+            "command": "sh -c '[ -n \"${CLAUDE_PLUGIN_ROOT:-}\" ] || { echo \"agent-guard: CLAUDE_PLUGIN_ROOT env not set\" >&2; exit 2; }; AGENT_GUARD_HOOK_HOST=claude \"${CLAUDE_PLUGIN_ROOT}/bin/agent-guard\" hook-session-start'",
             "timeout": 5
           }
         ]
