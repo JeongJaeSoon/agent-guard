@@ -2,7 +2,7 @@
 set -u
 
 PROGRAM=agent-guard
-VERSION=1.9.0
+VERSION=1.10.0
 
 # Resolve the script's own path, following symlinks. The bootstrap installer
 # drops a symlink at ~/.local/bin/agent-guard that points into ~/.agent-guard/
@@ -51,6 +51,7 @@ sh_squote() {
 GITLEAKS_CONFIG=${AGENT_GUARD_GITLEAKS_CONFIG:-"$ROOT_DIR/config/gitleaks.toml"}
 DENY_READ_PATHS=${AGENT_GUARD_DENY_READ_PATHS:-"$ROOT_DIR/config/deny-read-paths.txt"}
 DENY_BASH_PATTERNS=${AGENT_GUARD_DENY_BASH_PATTERNS:-"$ROOT_DIR/config/deny-bash-patterns.txt"}
+GITLEAKS_PRIVATE_BIN_DIR=${AGENT_GUARD_GITLEAKS_BIN_DIR:-${AGENT_GUARD_BIN_DIR:-$HOME/.agent-guard/bin}}
 
 usage() {
   cat >&2 <<'EOF'
@@ -60,8 +61,8 @@ Usage:
   agent-guard hook-stop
   agent-guard hook-session-start
   agent-guard exec [--] <cmd> [args...]
-  agent-guard shell-init [--bash|--zsh] [--experimental-bang-guard]
-  agent-guard setup-shell [--bash|--zsh|--rc FILE] [--experimental-bang-guard]
+  agent-guard shell-init [--bash|--zsh] [--claude-bang-guard]
+  agent-guard setup-shell [--bash|--zsh|--rc FILE] [--claude-bang-guard]
   agent-guard pii-filter [--check]
   agent-guard scan-staged
   agent-guard scan-working-tree
@@ -87,28 +88,65 @@ need_cmd() {
   command -v "$1" >/dev/null 2>&1 || die "required command not found: $1"
 }
 
+resolve_gitleaks() {
+  if [ -n "${AGENT_GUARD_GITLEAKS_BIN:-}" ]; then
+    [ -x "$AGENT_GUARD_GITLEAKS_BIN" ] || return 1
+    printf '%s\n' "$AGENT_GUARD_GITLEAKS_BIN"
+    return 0
+  fi
+  if command -v gitleaks >/dev/null 2>&1; then
+    command -v gitleaks
+    return 0
+  fi
+  if [ -x "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks" ]; then
+    printf '%s\n' "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks"
+    return 0
+  fi
+  return 1
+}
+
 need_gitleaks() {
-  need_cmd gitleaks
+  GITLEAKS_BIN=$(resolve_gitleaks) \
+    || die "required command not found: gitleaks (run \$setup-agent-guard or: $PROGRAM setup)"
   [ -f "$GITLEAKS_CONFIG" ] || die "gitleaks config not found: $GITLEAKS_CONFIG"
+}
+
+hook_dependencies_ready() {
+  command -v jq >/dev/null 2>&1 || return 1
+  resolve_gitleaks >/dev/null 2>&1 || return 1
+  [ -f "$GITLEAKS_CONFIG" ] || return 1
+  [ -f "$DENY_READ_PATHS" ] || return 1
+  [ -f "$DENY_BASH_PATTERNS" ] || return 1
+}
+
+emit_degraded_hook_warning() {
+  event=$1
+  message='agent-guard: protection is DEGRADED because jq, git, gitleaks, or a policy file is unavailable. Run $setup-agent-guard (or agent-guard setup), approve any required installation, verify with agent-guard check and smoke-test, then restart the host.'
+  info "$message"
+  case "$event" in
+    PreToolUse|PostToolUse)
+      printf '{"hookSpecificOutput":{"hookEventName":"%s","additionalContext":"%s"}}\n' "$event" "$message"
+      ;;
+  esac
 }
 
 check_deps() {
   need_cmd sh
   need_cmd jq
   need_cmd git
-  need_cmd gitleaks
+  need_gitleaks
   [ -f "$GITLEAKS_CONFIG" ] || die "gitleaks config not found: $GITLEAKS_CONFIG"
   [ -f "$DENY_READ_PATHS" ] || die "deny read policy not found: $DENY_READ_PATHS"
   [ -f "$DENY_BASH_PATTERNS" ] || die "deny bash policy not found: $DENY_BASH_PATTERNS"
   info "$PROGRAM: dependencies ok"
-  gl_version=$(gitleaks version 2>/dev/null | head -1)
+  gl_version=$("$GITLEAKS_BIN" version 2>/dev/null | head -1)
   if [ -n "$gl_version" ]; then
     info "$PROGRAM: gitleaks $gl_version (>= 8.30 recommended)"
   fi
 }
 
 GITLEAKS_DEFAULT_VERSION=8.30.1
-SETUP_INSTALL_DIR=${AGENT_GUARD_BIN_DIR:-$HOME/.agent-guard/bin}
+SETUP_INSTALL_DIR=$GITLEAKS_PRIVATE_BIN_DIR
 
 setup_status_line() {
   name=$1
@@ -121,6 +159,20 @@ setup_status_line() {
     return 0
   fi
   info "$PROGRAM: $name  missing"
+  return 1
+}
+
+setup_gitleaks_status_line() {
+  if gl=$(resolve_gitleaks); then
+    ver=$("$gl" version 2>/dev/null | head -1)
+    info "$PROGRAM: gitleaks  ok  (${ver:-installed}; $gl)"
+    return 0
+  fi
+  if [ -n "${AGENT_GUARD_GITLEAKS_BIN:-}" ]; then
+    info "$PROGRAM: gitleaks  missing (AGENT_GUARD_GITLEAKS_BIN is not executable: $AGENT_GUARD_GITLEAKS_BIN)"
+  else
+    info "$PROGRAM: gitleaks  missing"
+  fi
   return 1
 }
 
@@ -230,11 +282,11 @@ EOF
   jq_ok=1; gitleaks_ok=1
   setup_status_line jq       || jq_ok=0
   setup_status_line git      || :
-  setup_status_line gitleaks || gitleaks_ok=0
+  setup_gitleaks_status_line || gitleaks_ok=0
 
   if [ "$install" -eq 1 ]; then
     if [ "$gitleaks_ok" -eq 1 ]; then
-      info "$PROGRAM: gitleaks already on PATH; skipping --install"
+      info "$PROGRAM: gitleaks already available; skipping --install"
     else
       setup_install_gitleaks "$version" "$checksum"
     fi
@@ -298,7 +350,7 @@ smoke_test() {
 
   mkdir -p "$tmp/clean" "$tmp/dirty"
   printf '%s\n' "console.log('ok')" >"$tmp/clean/app.js"
-  write_private_key_fixture "$tmp/dirty/key.pem"
+  write_private_key_fixture "$tmp/dirty/private-key-fixture.txt"
 
   smoke_expect 0 "scan-path allows a clean directory" scan_path "$tmp/clean"
   smoke_expect 1 "scan-path blocks a private-key fixture" scan_path "$tmp/dirty"
@@ -311,8 +363,8 @@ smoke_test() {
 
   write_payload=$(mktemp_file) || die "smoke: failed to create temp file"
   {
-    printf '%s' '{"tool_name":"Write","tool_input":{"file_path":"key.pem","content":"'
-    sed 's/\\/\\\\/g; s/"/\\"/g; s/$/\\n/' "$tmp/dirty/key.pem" | tr -d '\n'
+    printf '%s' '{"tool_name":"Write","tool_input":{"file_path":"guard-fixture.txt","content":"'
+    sed 's/\\/\\\\/g; s/"/\\"/g; s/$/\\n/' "$tmp/dirty/private-key-fixture.txt" | tr -d '\n'
     printf '%s\n' '"}}'
   } >"$write_payload"
   smoke_expect 2 "hook-pre-tool blocks secret-like writes" hook_pre_tool <"$write_payload"
@@ -336,8 +388,8 @@ smoke_test() {
     } >githooks/pre-commit
     chmod +x githooks/pre-commit || exit 2
     git config core.hooksPath githooks || exit 2
-    write_private_key_fixture leak.pem
-    git add leak.pem || exit 2
+    write_private_key_fixture staged-fixture.txt
+    git add staged-fixture.txt || exit 2
     git commit -m leak >/dev/null 2>&1
     status=$?
     [ "$status" -ne 0 ] || exit 1
@@ -569,7 +621,7 @@ check_pii_hook_input() {
       ;;
     apply_patch)
       patch=$(printf '%s' "$input" | jq -r '
-        .tool_input.patch // .tool_input.input // .tool_input.diff // .tool_input.content // empty
+        .tool_input.command // .tool_input.patch // .tool_input.input // .tool_input.diff // .tool_input.content // empty
         | if type == "string" then . else tojson end
       ')
       added=$(printf '%s\n' "$patch" | extract_patch_added_lines)
@@ -592,10 +644,18 @@ check_pii_hook_input() {
 
 run_gitleaks_stdin() {
   label=$1
+  need_gitleaks
   out=$(mktemp_file) || die "failed to create temp file"
-  gitleaks stdin --redact --no-banner --config "$GITLEAKS_CONFIG" --exit-code 1 >"$out" 2>&1
+  "$GITLEAKS_BIN" stdin --redact --no-banner --no-color --log-level error \
+    --config "$GITLEAKS_CONFIG" --exit-code 1 >"$out" 2>&1
   status=$?
   if [ "$status" -eq 0 ]; then
+    if [ -s "$out" ]; then
+      info "$PROGRAM: gitleaks reported an error while scanning $label"
+      sed 's/^/  /' "$out" >&2
+      rm -f "$out"
+      return 2
+    fi
     rm -f "$out"
     return 0
   fi
@@ -775,9 +835,17 @@ scan_path() {
   for path in "$@"; do
     [ -e "$path" ] || die "path not found: $path"
     out=$(mktemp_file) || die "failed to create temp file"
-    gitleaks dir "$path" --redact --no-banner --config "$GITLEAKS_CONFIG" --exit-code 1 >"$out" 2>&1
+    "$GITLEAKS_BIN" dir "$path" --redact --no-banner --no-color --log-level error \
+      --config "$GITLEAKS_CONFIG" --exit-code 1 >"$out" 2>&1
     status=$?
     if [ "$status" -eq 0 ]; then
+      if [ -s "$out" ]; then
+        info "$PROGRAM: gitleaks reported an error while scanning path: $path"
+        sed 's/^/  /' "$out" >&2
+        result=2
+        rm -f "$out"
+        continue
+      fi
       rm -f "$out"
       continue
     fi
@@ -1065,6 +1133,77 @@ shell_dequote_for_policy() {
   '
 }
 
+# Remove only exclusion operands whose command context proves they do not name a
+# file to read. This is intentionally narrow: globally dropping `!*.pem` would
+# turn a literal path such as `cat '!secret.pem'` into a policy bypass. Ripgrep's
+# negative glob is common in repository scans and has an unambiguous grammar.
+bash_strip_exclusion_operands() {
+  (
+    set -f
+    words=$(shell_command_words "$1")
+    # shellcheck disable=SC2086
+    set -- $words
+    result= command_name= pending_glob=
+
+    append_policy_token() {
+      if [ -z "$result" ]; then result=$1; else result="$result $1"; fi
+    }
+    is_negative_glob_value() {
+      value=$1
+      case "$value" in
+        \'*\') value=${value#\'}; value=${value%\'} ;;
+        \"*\") value=${value#\"}; value=${value%\"} ;;
+      esac
+      case "$value" in !*) return 0 ;; *) return 1 ;; esac
+    }
+
+    for token in "$@"; do
+      if is_shell_command_separator "$token"; then
+        [ -n "$pending_glob" ] && append_policy_token "$pending_glob"
+        pending_glob=
+        append_policy_token "$token"
+        command_name=
+        continue
+      fi
+
+      if [ -z "$command_name" ]; then
+        if is_assignment_token "$token" || is_noop_wrapper "${token##*/}"; then
+          append_policy_token "$token"
+          continue
+        fi
+        command_name=${token##*/}
+        command_name=$(printf '%s' "$command_name" | tr -d "'\"")
+        append_policy_token "$token"
+        continue
+      fi
+
+      if [ "$command_name" = rg ]; then
+        if [ -n "$pending_glob" ]; then
+          if is_negative_glob_value "$token"; then
+            pending_glob=
+            continue
+          fi
+          append_policy_token "$pending_glob"
+          pending_glob=
+        fi
+        case "$token" in
+          -g|--glob|--iglob)
+            pending_glob=$token
+            continue
+            ;;
+          --glob=*|--iglob=*)
+            value=${token#*=}
+            is_negative_glob_value "$value" && continue
+            ;;
+        esac
+      fi
+      append_policy_token "$token"
+    done
+    [ -n "$pending_glob" ] && append_policy_token "$pending_glob"
+    printf '%s' "$result"
+  )
+}
+
 # Drop tokens that name an allowed `.env` template (e.g. `.env.example`) before
 # the whole-command deny regex runs, so `cat .env.example` is allowed while
 # `cat .env.example .env` still blocks on the bare `.env` token. Globbing is
@@ -1093,6 +1232,7 @@ bash_strip_allowed_tokens() {
 
 bash_matches_deny_path() {
   cmd=$1
+  cmd=$(bash_strip_exclusion_operands "$cmd")
   cmd=$(bash_strip_allowed_tokens "$cmd")
   bash_matches_deny_path_mode "$cmd" "literal" && return 0
   bash_matches_deny_path_mode "$cmd" "shell-expanded" && return 0
@@ -1281,12 +1421,21 @@ is_git_hook_bypass() {
 
 check_git_command() {
   cmd=$1
+  workdir=${2:-}
   if is_git_commit_or_push "$cmd"; then
     if is_git_hook_bypass "$cmd"; then
       info "$PROGRAM: blocked git command that disables hooks/signing"
       exit 2
     fi
-    scan_staged
+    if [ -n "$workdir" ]; then
+      (
+        CDPATH= cd -- "$workdir" 2>/dev/null \
+          || die "hook workdir is not accessible: $workdir"
+        scan_staged
+      )
+    else
+      scan_staged
+    fi
     block_on_scan_status "$?" "staged changes contain secret-like values; blocking git command"
   fi
 }
@@ -1296,6 +1445,7 @@ check_bash_command() {
   need_cmd jq
   cmd=$(json_value '.tool_input.command // .tool_input.cmd // empty' "$input")
   [ -n "$cmd" ] || return 0
+  workdir=$(json_value '.tool_input.workdir // .tool_input.cwd // .cwd // empty' "$input")
 
   [ -f "$DENY_BASH_PATTERNS" ] || die "deny bash policy not found: $DENY_BASH_PATTERNS"
   patterns=$(mktemp_file) || die "failed to create temp file"
@@ -1329,7 +1479,7 @@ check_bash_command() {
   scan_text_direct "shell command" "$cmd"
   block_on_scan_status "$?" "shell command contains secret-like values"
 
-  check_git_command "$cmd"
+  check_git_command "$cmd" "$workdir"
 }
 
 scan_tool_input() {
@@ -1374,7 +1524,7 @@ scan_proposed_write() {
       ;;
     apply_patch)
       patch=$(printf '%s' "$input" | jq -r '
-        .tool_input.patch // .tool_input.input // .tool_input.diff // .tool_input.content // empty
+        .tool_input.command // .tool_input.patch // .tool_input.input // .tool_input.diff // .tool_input.content // empty
         | if type == "string" then . else tojson end
       ')
       added=$(printf '%s\n' "$patch" | extract_patch_added_lines)
@@ -1429,6 +1579,10 @@ check_broad_grep_content() {
 }
 
 hook_pre_tool() {
+  if ! hook_dependencies_ready; then
+    emit_degraded_hook_warning PreToolUse
+    return 0
+  fi
   need_cmd jq
   input=$(cat)
   [ -n "$input" ] || return 0
@@ -1491,9 +1645,9 @@ is_mutation_tool() {
 # see what a command PRINTS or what a file read RETURNS. A shell command that
 # dumps credentials to stdout (an env-printing CLI, `cat` of a secret-bearing
 # note) therefore leaks the secret into the model context unscanned. PostToolUse
-# can rewrite an already-produced result before the model sees it via
-# `hookSpecificOutput.updatedToolOutput` (Claude Code >= 2.1.121), so here we
-# scan the tool_response and mask any secret-like spans in place.
+# can replace an already-produced result before the model sees it. Claude uses
+# `hookSpecificOutput.updatedToolOutput`; Codex blocks the original result and
+# receives a sanitized replacement in `additionalContext`.
 #
 # Fail-safe: this path runs for (potentially) every tool result, so any error
 # emits NOTHING and lets the original output through unchanged. A redaction bug
@@ -1547,11 +1701,11 @@ detect_output_secrets() {
     # tool results reaching the hook are already harness-truncated; if a large
     # WebFetch/MCP stream ever dominates latency, gate this on a size cap or an
     # in-process pre-filter before the fork.
-    if command -v gitleaks >/dev/null 2>&1 && [ -f "$GITLEAKS_CONFIG" ]; then
+    if gl=$(resolve_gitleaks) && [ -f "$GITLEAKS_CONFIG" ]; then
       report=$(mktemp_file) || report=''
       if [ -n "$report" ]; then
         printf '%s\n' "$text" \
-          | gitleaks stdin --report-format json --report-path "$report" \
+          | "$gl" stdin --report-format json --report-path "$report" \
               --no-banner --config "$GITLEAKS_CONFIG" >/dev/null 2>&1
         [ -s "$report" ] && jq -r '.[]?.Secret // empty' "$report" 2>/dev/null
         rm -f "$report"
@@ -1670,10 +1824,25 @@ redact_tool_output() {
 
   [ "$out" != "$resp" ] || return 0
 
-  printf '%s' "$input" \
-    | jq -c --argjson ut "$out" \
-        '{hookSpecificOutput: {hookEventName: "PostToolUse", updatedToolOutput: $ut}}' 2>/dev/null \
-    || return 0
+  case "${AGENT_GUARD_HOOK_HOST:-claude}" in
+    codex)
+      printf '%s' "$input" \
+        | jq -c --argjson ut "$out" '
+            {decision: "block",
+             reason: "Agent Guard blocked the original tool output because it contained sensitive values; use the sanitized replacement in additionalContext.",
+             hookSpecificOutput: {
+               hookEventName: "PostToolUse",
+               additionalContext: ("Agent Guard sanitized tool output:\n" + ($ut | tojson))
+             }}' 2>/dev/null \
+        || return 0
+      ;;
+    *)
+      printf '%s' "$input" \
+        | jq -c --argjson ut "$out" \
+            '{hookSpecificOutput: {hookEventName: "PostToolUse", updatedToolOutput: $ut}}' 2>/dev/null \
+        || return 0
+      ;;
+  esac
 
   tool=$(json_value '.tool_name // "tool"' "$input")
   if [ "$did_secret" -eq 1 ] && [ "$did_pii" -eq 1 ]; then
@@ -1687,6 +1856,10 @@ redact_tool_output() {
 }
 
 hook_post_tool() {
+  if ! hook_dependencies_ready; then
+    emit_degraded_hook_warning PostToolUse
+    return 0
+  fi
   need_cmd jq
   input=$(cat)
   [ -n "$input" ] || return 0
@@ -1695,20 +1868,24 @@ hook_post_tool() {
   # Mutation tools keep the working-tree backstop (may exit 2). It runs first so
   # a secret written to disk is still surfaced even when redaction is enabled.
   if is_mutation_tool "$tool"; then
-    need_cmd git
-    if inside_git_repo; then
+    if ! command -v git >/dev/null 2>&1; then
+      info "$PROGRAM: git is unavailable; skipping the post-tool working-tree backstop"
+    elif inside_git_repo; then
       scan_working_tree
       block_on_scan_status "$?" "changed files contain secret-like values after tool execution"
     fi
   fi
 
   # All matched tools: mask secret-like values (and PII, when
-  # AGENT_GUARD_PII_HOOK_MODE=mask) in the tool's output before the model sees
-  # them (may emit updatedToolOutput and exit 0).
+  # AGENT_GUARD_PII_HOOK_MODE=mask) using the selected host's output contract.
   redact_tool_output "$input"
 }
 
 hook_stop() {
+  if ! hook_dependencies_ready || ! command -v git >/dev/null 2>&1; then
+    emit_degraded_hook_warning Stop
+    return 0
+  fi
   need_cmd jq
   need_cmd git
   input=$(cat)
@@ -1726,7 +1903,7 @@ hook_stop() {
   block_on_scan_status "$?" "changed files contain secret-like values before stop"
 }
 
-# --- hook-session-start: warn when shell-integration masking drifts -----------
+# --- hook-session-start: report degraded setup and shell-integration drift ----
 # The plugin and the binary the shell integration (agx / bang guard) resolves at
 # runtime update independently, so updating one side silently leaves masking on
 # the OLD rules while the hooks look current — an invisible failure. Instead of
@@ -1742,24 +1919,37 @@ hook_stop() {
 # launched from a shell that sourced the rc, the marker is absent AND the
 # integration is inactive, so silence is correct (nothing is masking to drift).
 #
-# Output contract (SessionStart, per the docs): plain stdout on exit 0 is
-# injected into Claude's CONTEXT, and a non-zero exit renders as a "hook error"
-# notice — neither is a clean user-facing warning. The top-level `systemMessage`
-# JSON field on exit 0 is the documented non-blocking way to show the user a
-# message, so that is what this emits. Stays SILENT (exit 0, no output) when the
-# marker is absent (integration not loaded), equals the plugin version, or is
-# unparseable — a warn-only hook must never become session-start noise or block.
+# SessionStart is non-mutating: it reports missing dependencies and directs the
+# host to the approval-gated setup skill. It also reports Claude shell-wrapper
+# version drift. The Codex variant duplicates the message in additionalContext
+# so the model can act on it; both hosts receive a user-facing systemMessage.
 hook_session_start() {
+  message=
+  if ! hook_dependencies_ready || ! command -v git >/dev/null 2>&1; then
+    message='agent-guard protection is DEGRADED because jq, git, gitleaks, or a policy file is unavailable. Run $setup-agent-guard (or agent-guard setup), approve any required installation, verify with agent-guard check and smoke-test, then restart the host.'
+  fi
+
   marker=${AGENT_GUARD_SHELL_INIT_VERSION:-}
   # Accept only a digit-led version token drawn from a safe charset: an empty or
   # unparseable marker fails quiet, and the charset keeps the hand-built JSON
   # below injection-safe (no quotes/backslashes/whitespace to escape).
   case $marker in
-    ''|[!0-9]*|*[!0-9A-Za-z.+-]*) return 0 ;;
+    ''|[!0-9]*|*[!0-9A-Za-z.+-]*) ;;
+    *)
+      if [ "$marker" != "$VERSION" ]; then
+        drift="agent-guard plugin hooks are $VERSION but the Claude shell integration masks with $marker. Update whichever is older, then rerun agent-guard setup-shell."
+        if [ -n "$message" ]; then message="$message $drift"; else message=$drift; fi
+      fi
+      ;;
   esac
-  [ "$marker" != "$VERSION" ] || return 0
-  printf '{"systemMessage":"%s"}\n' \
-    "agent-guard: plugin hooks are $VERSION but the shell integration (agx / bang-guard) masks with $marker - update whichever is older (re-run the installer for the CLI, or 'claude plugin update' for the plugin), then re-run: agent-guard setup-shell"
+
+  [ -n "$message" ] || return 0
+  case "${AGENT_GUARD_HOOK_HOST:-claude}" in
+    codex)
+      printf '{"systemMessage":"%s","hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}\n' "$message" "$message"
+      ;;
+    *) printf '{"systemMessage":"%s"}\n' "$message" ;;
+  esac
 }
 
 # --- exec: mask secrets/PII in a shell-escape command's captured output -------
@@ -1767,10 +1957,11 @@ hook_session_start() {
 # and its OUTPUT is captured into the transcript and sent to the model, but NO
 # agent-guard hook fires for `!` (a documented blind spot). The user is fine with
 # the command running and seeing its output themselves; the risk is secret-bearing
-# output reaching the model. `agent-guard exec` closes that gap: it RUNS the
-# command (never blocks), captures combined stdout+stderr, masks secret-like
-# values (and PII, when enabled), prints the REDACTED text, and propagates the
-# command's exit code. Capture is BUFFERED, so this is for NON-INTERACTIVE info
+# output reaching the model. `agent-guard exec` closes that gap: it first checks
+# that masking is available (and fails closed before execution when it is not),
+# then captures combined stdout+stderr, masks secret-like values (and PII, when
+# enabled), prints the REDACTED text, and propagates the command's exit code.
+# Capture is BUFFERED, so this is for NON-INTERACTIVE info
 # commands (env / secret / config dumps), not TUIs or streaming programs.
 
 # Literal (non-regex) replacement of every detected secret in $1 with [REDACTED],
@@ -1827,6 +2018,13 @@ do_exec() {
   # Validate the PII mode up front so a misconfiguration fails loud (pii_hook_mode
   # dies on an unsupported value) instead of silently leaving PII unmasked.
   pii_hook_mode >/dev/null
+  if output_redact_enabled; then
+    need_cmd jq
+    need_gitleaks
+  fi
+  if [ "$(pii_hook_mode)" = mask ]; then
+    need_cmd awk
+  fi
 
   out=$("$@" 2>&1)
   status=$?
@@ -1870,10 +2068,11 @@ shell_init_target() {
     case "$1" in
       --bash) target=bash ;;
       --zsh) target=zsh ;;
-      # Handled separately in shell_init(); accepted here so parsing doesn't die.
-      --experimental-bang-guard) : ;;
+      # Handled separately in shell_init(); the experimental spelling remains a
+      # deprecated compatibility alias for rc files written by older releases.
+      --claude-bang-guard|--experimental-bang-guard) : ;;
       -h|--help) target=help ;;
-      *) die "shell-init: unknown argument: $1 (expected --bash, --zsh, or --experimental-bang-guard)" ;;
+      *) die "shell-init: unknown argument: $1 (expected --bash, --zsh, or --claude-bang-guard)" ;;
     esac
     shift
   done
@@ -1924,9 +2123,9 @@ esac
 EOF
 }
 
-# EXPERIMENTAL, opt-in (`shell-init --experimental-bang-guard`). Emit function
-# overrides for the common file/env dump commands so `!`-typed reads are routed
-# through `agent-guard exec` (output masked) BEFORE the transcript captures them.
+# Supported opt-in (`shell-init --claude-bang-guard`). Emit function overrides
+# for common file/env dump commands so `!`-typed reads are routed through
+# `agent-guard exec` (output masked) BEFORE the transcript captures them.
 #
 # Why functions, not the preexec nudge above: Claude Code builds a "shell
 # snapshot" of your interactive shell for `!` commands. That snapshot runs
@@ -1947,7 +2146,7 @@ EOF
 #     without this flag). This guard targets text config/secret dumps, not blobs.
 shell_init_bang_guard() {
   cat <<'EOF'
-# --- agent-guard EXPERIMENTAL bang-command guard (opt-in) --------------------
+# --- agent-guard Claude bang-command guard (supported opt-in) ----------------
 # Routes `!`-typed dump commands through `agent-guard exec` so their output is
 # masked before Claude Code captures it. Active ONLY inside Claude Code
 # ($CLAUDECODE); inert in a normal terminal. Best-effort — see docs.
@@ -1962,7 +2161,12 @@ __agentguard_guard() {  # $1 = real command name, remaining args forwarded
     # process, where these overrides do not exist, so the real binary runs with
     # no re-entry (no inner `command` needed).
     if __ag_exe=$(__agentguard_exe); then
-      command "$__ag_exe" exec -- "$__ag_cmd" "$@"
+      if command "$__ag_exe" check >/dev/null 2>&1; then
+        command "$__ag_exe" exec -- "$__ag_cmd" "$@"
+        return
+      fi
+      printf 'agent-guard: bang-guard dependencies are not ready; %s output is NOT masked. Run: agent-guard setup\n' "$__ag_cmd" >&2
+      command "$__ag_cmd" "$@"
       return
     fi
     # Unlike agx, this is a TRANSPARENT override (the user just typed `cat`), so
@@ -1992,14 +2196,17 @@ shell_init() {
   target=$(shell_init_target "$@")
   bang_guard=0
   for __ag_arg in "$@"; do
-    [ "$__ag_arg" = --experimental-bang-guard ] && bang_guard=1
+    case "$__ag_arg" in
+      --claude-bang-guard|--experimental-bang-guard) bang_guard=1 ;;
+    esac
   done
   if [ "$target" = help ]; then
     {
-      printf '%s\n' "Usage: $PROGRAM shell-init [--bash|--zsh] [--experimental-bang-guard]"
+      printf '%s\n' "Usage: $PROGRAM shell-init [--bash|--zsh] [--claude-bang-guard]"
       printf '%s\n' "Emits a shell snippet for: eval \"\$($PROGRAM shell-init)\""
-      printf '%s\n' "  --experimental-bang-guard  also override cat/head/printenv so"
-      printf '%s\n' "                             \`!\`-typed reads are masked inside Claude Code"
+      printf '%s\n' "  --claude-bang-guard       also override cat/head/printenv so"
+      printf '%s\n' "                            \`!\`-typed reads are masked inside Claude Code"
+      printf '%s\n' "  --experimental-bang-guard deprecated alias for --claude-bang-guard"
     } >&2
     return 0
   fi
@@ -2129,12 +2336,13 @@ do_setup_shell() {
       --bash) sh_target=bash ;;
       --zsh) sh_target=zsh ;;
       --rc) shift; rc=${1:-}; [ -n "$rc" ] || die "setup-shell: --rc requires a path" ;;
-      --experimental-bang-guard) bang=' --experimental-bang-guard' ;;
+      --claude-bang-guard|--experimental-bang-guard) bang=' --claude-bang-guard' ;;
       -h|--help)
         {
-          printf '%s\n' "Usage: $PROGRAM setup-shell [--bash|--zsh|--rc FILE] [--experimental-bang-guard]"
+          printf '%s\n' "Usage: $PROGRAM setup-shell [--bash|--zsh|--rc FILE] [--claude-bang-guard]"
           printf '%s\n' "Adds the shell-init line to your shell rc (idempotent). Restart your"
           printf '%s\n' "shell and any Claude Code session afterwards to apply."
+          printf '%s\n' "--experimental-bang-guard remains a deprecated compatibility alias."
         } >&2
         return 0 ;;
       *) die "setup-shell: unknown option: $1 (see: $PROGRAM setup-shell --help)" ;;
@@ -2158,7 +2366,7 @@ do_setup_shell() {
   # stdout, and fall back to the baked absolute path whenever it is empty — whether
   # because the bare name left $PATH (CLI uninstalled, plugin-only left) OR because
   # a stale/stub `agent-guard` earlier on $PATH errored or emitted nothing (e.g. an
-  # older build that rejects --experimental-bang-guard). Either way the guard still
+  # older build that rejects --claude-bang-guard). Either way the guard still
   # installs from $SELF_BIN instead of silently vanishing. The probe's stderr is
   # suppressed (it is speculative and handled); the fallback runs unmuted. Without
   # this, snippet generation could fail and the runtime resolver can't help once the

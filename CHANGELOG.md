@@ -1,3 +1,8 @@
+## v1.10.0 - 2026-07-13
+
+- feat(codex): add guided dependency setup and host-native hook responses
+- feat(shell): graduate the Claude bang-command guard to a supported opt-in
+
 ## v1.9.0 - 2026-07-07
 
 - feat(plugin): warn on version drift between plugin hooks and the shell-integration CLI (#104)
@@ -125,4 +130,3 @@
 - chore: usability and robustness pass (#3)
 - [codex] Add CI and clean public-readiness scan noise (#2)
 - Harden against Bash/path bypass, Codex patch parsing, symlink, and action injection (#1)
-

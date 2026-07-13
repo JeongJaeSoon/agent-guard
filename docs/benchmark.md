@@ -31,7 +31,7 @@ interception point:
 | `read-tool` | `Read`/`Grep`/`Glob` of a sensitive file | `PreToolUse` → block (exit 2) |
 | `bash-read` | a shell command that reads a sensitive file | `PreToolUse` → block |
 | `bash-cmd` | a secret embedded in a shell command | `PreToolUse` → block (gitleaks on the command) |
-| `bash-output` | a secret in `Bash` stdout/stderr | `PostToolUse` → mask (`updatedToolOutput`) |
+| `bash-output` | a secret in `Bash` stdout/stderr | `PostToolUse` → sanitized replacement (`updatedToolOutput` on Claude; block + `additionalContext` on Codex) |
 | `read-output` | a secret in a non-denylisted file's contents | `PostToolUse` → mask |
 | `mcp-output` | a secret in an MCP tool response | `PostToolUse` → mask |
 | `bang` | a `!`-prefixed shell-escape (`!cat .env`) | **none — no hook fires** |
