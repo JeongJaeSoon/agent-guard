@@ -2677,7 +2677,9 @@ fi
 # low-entropy or documented fake value under a secret-bearing key is still
 # masked by exec and by the Claude bang-command wrapper.
 PRINTENV_KEY='DEMO_TOKEN'
-PRINTENV_VAL='ghp_''abcdefghijklmnopqrstuvwxyz0123456789'
+# Keep the value deliberately non-vendor-shaped: this regression proves that
+# the variable name supplies the missing secret context for bare printenv output.
+PRINTENV_VAL='documented-fake-printenv-value-123456'
 exec_printenv=$(DEMO_TOKEN="$PRINTENV_VAL" "$PLUGIN_ROOT/bin/agent-guard" exec -- printenv "$PRINTENV_KEY" 2>/dev/null)
 if printf '%s' "$exec_printenv" | grep -q '\[REDACTED\]' \
    && ! printf '%s' "$exec_printenv" | grep -q "$PRINTENV_VAL"; then
