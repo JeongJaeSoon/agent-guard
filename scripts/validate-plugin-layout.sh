@@ -135,6 +135,27 @@ validate_setup_skill() {
   fi
 }
 
+validate_versions() {
+  cli_version=$(sed -n 's/^VERSION=//p' "$PLUGIN_ROOT/bin/agent-guard")
+  claude_version=$(jq -r '.version // ""' "$PLUGIN_ROOT/.claude-plugin/plugin.json")
+  codex_version=$(jq -r '.version // ""' "$PLUGIN_ROOT/.codex-plugin/plugin.json")
+  marketplace_version=$(jq -r '.plugins[] | select(.name == "agent-guard") | .version // ""' "$ROOT/.claude-plugin/marketplace.json")
+
+  if printf '%s\n' "$cli_version" | grep -Eq '^2\.[0-9]+\.[0-9]+$'; then
+    ok "Agent Guard CLI is on the 2.x release line"
+  else
+    fail "Agent Guard CLI is on the 2.x release line"
+  fi
+  if [ -n "$cli_version" ] \
+     && [ "$claude_version" = "$cli_version" ] \
+     && [ "$codex_version" = "$cli_version" ] \
+     && [ "$marketplace_version" = "$cli_version" ]; then
+    ok "CLI, Claude, Codex, and marketplace versions match ($cli_version)"
+  else
+    fail "CLI, Claude, Codex, and marketplace versions match"
+  fi
+}
+
 validate_codex() {
   require_json "$PLUGIN_ROOT/.codex-plugin/plugin.json"
   require_json "$PLUGIN_ROOT/hooks.json"
@@ -174,6 +195,7 @@ validate_claude() {
 validate_marketplace() {
   require_json "$ROOT/.agents/plugins/marketplace.json"
   require_json "$ROOT/.claude-plugin/marketplace.json"
+  validate_versions
 
   if jq -e '.plugins[] | select(.name == "agent-guard" and .source.path == "./plugins/agent-guard")' "$ROOT/.agents/plugins/marketplace.json" >/dev/null; then
     ok "Codex marketplace points to ./plugins/agent-guard"

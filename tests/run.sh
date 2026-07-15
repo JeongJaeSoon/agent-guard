@@ -102,6 +102,70 @@ for file in \
   run_expect 0 "shell syntax: $file" sh -n "$file"
 done
 
+# The direct installer must leave command wrapping active on a fresh install,
+# while AGENT_GUARD_COMMAND_WRAPPING=off is a persistent install-time opt-out.
+# Stub only the release downloads; archive verification, extraction, linking,
+# setup-shell, and rc generation all run through the real implementation.
+bootstrap_fixture="$TESTTMP/bootstrap-fixture"
+mkdir -p "$bootstrap_fixture/bin"
+"$ROOT/scripts/build-release-tarball.sh" 2.0.0 "$bootstrap_fixture/agent-guard-2.0.0.tar.gz"
+(
+  cd "$bootstrap_fixture" || exit 1
+  shasum -a 256 agent-guard-2.0.0.tar.gz >agent-guard-2.0.0.tar.gz.sha256
+)
+cat >"$bootstrap_fixture/bin/curl" <<'STUB'
+#!/bin/sh
+out=
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -o) shift; out=${1:-} ;;
+  esac
+  shift
+done
+case "$out" in
+  *.tar.gz) cp "$BOOTSTRAP_FIXTURE/agent-guard-2.0.0.tar.gz" "$out" ;;
+  *.tar.gz.sha256) cp "$BOOTSTRAP_FIXTURE/agent-guard-2.0.0.tar.gz.sha256" "$out" ;;
+  *) exit 2 ;;
+esac
+STUB
+chmod +x "$bootstrap_fixture/bin/curl"
+
+for bootstrap_mode in on off; do
+  bootstrap_home="$TESTTMP/bootstrap-$bootstrap_mode"
+  mkdir -p "$bootstrap_home"
+  if [ "$bootstrap_mode" = off ]; then
+    bootstrap_toggle=off
+  else
+    bootstrap_toggle=on
+  fi
+  BOOTSTRAP_FIXTURE="$bootstrap_fixture" \
+  AGENT_GUARD_VERSION=2.0.0 \
+  AGENT_GUARD_HOME="$bootstrap_home/agent-guard" \
+  AGENT_GUARD_BIN_DIR="$bootstrap_home/bin" \
+  AGENT_GUARD_COMMAND_WRAPPING="$bootstrap_toggle" \
+  HOME="$bootstrap_home" SHELL=/bin/zsh \
+  PATH="$bootstrap_fixture/bin:/usr/bin:/bin" \
+    sh "$ROOT/bootstrap.sh" >"$OUT" 2>"$ERR"
+  status=$?
+  if [ "$status" -eq 0 ] && [ -x "$bootstrap_home/bin/agent-guard" ]; then
+    ok "bootstrap installs Agent Guard with command wrapping $bootstrap_mode"
+  else
+    not_ok "bootstrap installs Agent Guard with command wrapping $bootstrap_mode (status $status)"
+  fi
+  if [ "$bootstrap_mode" = on ]; then
+    if grep -q 'agent-guard shell-init' "$bootstrap_home/.zshrc" 2>/dev/null \
+       && ! grep -q -- '--no-command-wrapping' "$bootstrap_home/.zshrc" 2>/dev/null; then
+      ok "bootstrap enables command wrapping by default"
+    else
+      not_ok "bootstrap enables command wrapping by default"
+    fi
+  elif grep -q 'shell-init --no-command-wrapping' "$bootstrap_home/.zshrc" 2>/dev/null; then
+    ok "bootstrap persists AGENT_GUARD_COMMAND_WRAPPING=off"
+  else
+    not_ok "bootstrap persists AGENT_GUARD_COMMAND_WRAPPING=off"
+  fi
+done
+
 for file in \
   "$PLUGIN_ROOT/hooks.json" \
   "$PLUGIN_ROOT/hooks/hooks.json" \
@@ -113,6 +177,14 @@ for file in \
   "$ROOT/examples/codex/hooks.json"; do
   run_expect 0 "json syntax: $file" jq -e . "$file"
 done
+
+if grep -Fq 'legacy_v1_before=$(git ls-remote origin refs/tags/v1' "$ROOT/.github/workflows/release.yml" \
+   && grep -Fq 'legacy_v1_after=$(git ls-remote origin refs/tags/v1' "$ROOT/.github/workflows/release.yml" \
+   && grep -Fq 'if [ "$legacy_v1_after" != "$legacy_v1_before" ]' "$ROOT/.github/workflows/release.yml"; then
+  ok "release automation preserves the v1 moving tag when publishing v2+"
+else
+  not_ok "release automation preserves the v1 moving tag when publishing v2+"
+fi
 
 if jq -e '.hooks == "./hooks.json" and .skills == "./skills/"' "$PLUGIN_ROOT/.codex-plugin/plugin.json" >/dev/null; then
   ok "Codex plugin manifest explicitly declares hook and skill paths"
@@ -215,7 +287,7 @@ for event in PreToolUse PostToolUse Stop; do
 done
 
 # SessionStart reports dependency readiness on both hosts and version drift for
-# the optional Claude shell integration.
+# the Claude shell integration.
 ss_hook_matcher=$(jq -r '.hooks.SessionStart[0].matcher' "$PLUGIN_ROOT/hooks/hooks.json")
 ss_hook_command=$(jq -r '.hooks.SessionStart[0].hooks[0].command' "$PLUGIN_ROOT/hooks/hooks.json")
 ss_hook_timeout=$(jq -r '.hooks.SessionStart[0].hooks[0].timeout' "$PLUGIN_ROOT/hooks/hooks.json")
@@ -2675,7 +2747,7 @@ fi
 
 # `printenv NAME` emits a bare value. Preserve the variable-name context so a
 # low-entropy or documented fake value under a secret-bearing key is still
-# masked by exec and by the Claude bang-command wrapper.
+# masked by exec and by the Claude command wrapper.
 PRINTENV_KEY='DEMO_TOKEN'
 # Keep the value deliberately non-vendor-shaped: this regression proves that
 # the variable name supplies the missing secret context for bare printenv output.
@@ -2849,37 +2921,48 @@ else
   not_ok "shell-init nudge stays silent on a benign command"
 fi
 
-# --- shell-init Claude bang guard (supported opt-in function overrides) -------
-# Emitted ONLY with --claude-bang-guard; overrides cat/head/printenv
-# to route through `agent-guard exec` (mask) but ONLY inside Claude Code
-# ($CLAUDECODE), staying inert in a normal terminal.
-if printf '%s' "$shellinit_auto" | grep -q '__agentguard_guard'; then
-  not_ok "shell-init omits the bang guard without the opt-in flag"
+# --- shell-init Claude command wrapping (stable, default-on overrides) --------
+# The default snippet overrides cat/head/printenv inside Claude Code. A durable
+# opt-out omits those functions, while both 1.x flags remain hidden compatibility
+# shims so an existing managed rc keeps working during upgrade.
+shellinit_wrap=$shellinit_auto
+if printf '%s' "$shellinit_wrap" | grep -q '__agentguard_wrap_command'; then
+  ok "shell-init enables Claude command wrapping by default"
 else
-  ok "shell-init omits the bang guard without the opt-in flag"
+  not_ok "shell-init enables Claude command wrapping by default"
 fi
-shellinit_bg=$("$PLUGIN_ROOT/bin/agent-guard" shell-init --claude-bang-guard 2>/dev/null)
-if printf '%s' "$shellinit_bg" | grep -q '__agentguard_guard'; then
-  ok "shell-init --claude-bang-guard emits the guard functions"
+shellinit_no_wrap=$("$PLUGIN_ROOT/bin/agent-guard" shell-init --no-command-wrapping 2>/dev/null)
+if printf '%s' "$shellinit_no_wrap" | grep -q '__agentguard_wrap_command'; then
+  not_ok "shell-init --no-command-wrapping omits automatic command overrides"
 else
-  not_ok "shell-init --claude-bang-guard emits the guard functions"
+  ok "shell-init --no-command-wrapping omits automatic command overrides"
 fi
-shellinit_bg_legacy=$("$PLUGIN_ROOT/bin/agent-guard" shell-init --experimental-bang-guard 2>/dev/null)
-if printf '%s' "$shellinit_bg_legacy" | grep -q '__agentguard_guard'; then
-  ok "shell-init accepts the deprecated --experimental-bang-guard alias"
+shellinit_v1_stable=$("$PLUGIN_ROOT/bin/agent-guard" shell-init --claude-bang-guard 2>/dev/null)
+shellinit_v1_experimental=$("$PLUGIN_ROOT/bin/agent-guard" shell-init --experimental-bang-guard 2>/dev/null)
+if printf '%s' "$shellinit_v1_stable" | grep -q '__agentguard_wrap_command' \
+   && printf '%s' "$shellinit_v1_experimental" | grep -q '__agentguard_wrap_command'; then
+  ok "shell-init keeps hidden compatibility for 1.x command-wrapper flags"
 else
-  not_ok "shell-init accepts the deprecated --experimental-bang-guard alias"
+  not_ok "shell-init keeps hidden compatibility for 1.x command-wrapper flags"
 fi
-if printf '%s\n' "$shellinit_bg" | sh -n - 2>"$ERR"; then
-  ok "bang guard snippet parses under sh -n"
+shellinit_help=$("$PLUGIN_ROOT/bin/agent-guard" shell-init --help 2>&1)
+if printf '%s' "$shellinit_help" | grep -q -- '--no-command-wrapping' \
+   && ! printf '%s' "$shellinit_help" | grep -q -- '--claude-bang-guard' \
+   && ! printf '%s' "$shellinit_help" | grep -q -- '--experimental-bang-guard'; then
+  ok "shell-init help exposes only the 2.x command-wrapping option"
 else
-  not_ok "bang guard snippet parses under sh -n"; sed 's/^/  stderr: /' "$ERR"
+  not_ok "shell-init help exposes only the 2.x command-wrapping option"
+fi
+if printf '%s\n' "$shellinit_wrap" | sh -n - 2>"$ERR"; then
+  ok "command-wrapping snippet parses under sh -n"
+else
+  not_ok "command-wrapping snippet parses under sh -n"; sed 's/^/  stderr: /' "$ERR"
 fi
 if command -v zsh >/dev/null 2>&1; then
-  if printf '%s\n' "$shellinit_bg" | zsh -n - 2>"$ERR"; then
-    ok "bang guard snippet parses under zsh -n"
+  if printf '%s\n' "$shellinit_wrap" | zsh -n - 2>"$ERR"; then
+    ok "command-wrapping snippet parses under zsh -n"
   else
-    not_ok "bang guard snippet parses under zsh -n"; sed 's/^/  stderr: /' "$ERR"
+    not_ok "command-wrapping snippet parses under zsh -n"; sed 's/^/  stderr: /' "$ERR"
   fi
 fi
 
@@ -2895,27 +2978,34 @@ exit 0
 STUB
 chmod +x "$bg_dir/bin/agent-guard"
 printf 'hello-plain\n' >"$bg_dir/file.txt"
-printf '%s\n' "$shellinit_bg" >"$bg_dir/guard.sh"
+printf '%s\n' "$shellinit_wrap" >"$bg_dir/guard.sh"
 bg_in_cc=$(PATH="$bg_dir/bin:$PATH" CLAUDECODE=1 sh -c '. "$1"; cat "$2"' _ "$bg_dir/guard.sh" "$bg_dir/file.txt" 2>/dev/null)
 if [ "$bg_in_cc" = ROUTED ]; then
-  ok "bang guard routes dump commands through agent-guard exec inside Claude Code"
+  ok "command wrapping routes dump commands through agent-guard exec inside Claude Code"
 else
-  not_ok "bang guard routes through exec inside Claude Code (got: $bg_in_cc)"
+  not_ok "command wrapping routes through exec inside Claude Code (got: $bg_in_cc)"
 fi
 bg_out_cc=$(PATH="$bg_dir/bin:$PATH" sh -c 'unset CLAUDECODE; . "$1"; cat "$2"' _ "$bg_dir/guard.sh" "$bg_dir/file.txt" 2>/dev/null)
 if [ "$bg_out_cc" = hello-plain ]; then
-  ok "bang guard is inert (passthrough) outside Claude Code"
+  ok "command wrapping is inert (passthrough) outside Claude Code"
 else
-  not_ok "bang guard passthrough outside Claude Code (got: $bg_out_cc)"
+  not_ok "command-wrapping passthrough outside Claude Code (got: $bg_out_cc)"
+fi
+bg_disabled=$(PATH="$bg_dir/bin:$PATH" CLAUDECODE=1 AGENT_GUARD_COMMAND_WRAPPING=off \
+  sh -c '. "$1"; cat "$2"' _ "$bg_dir/guard.sh" "$bg_dir/file.txt" 2>/dev/null)
+if [ "$bg_disabled" = hello-plain ]; then
+  ok "AGENT_GUARD_COMMAND_WRAPPING=off disables wrapping at runtime"
+else
+  not_ok "runtime command-wrapping opt-out (got: $bg_disabled)"
 fi
 
 bg_printenv=$(DEMO_TOKEN="${PRINTENV_VAL}" AGENT_GUARD_BIN="$PLUGIN_ROOT/bin/agent-guard" \
   CLAUDECODE=1 sh -c '. "$1"; printenv DEMO_TOKEN' _ "$bg_dir/guard.sh" 2>/dev/null)
 if printf '%s' "$bg_printenv" | grep -q '\[REDACTED\]' \
    && ! printf '%s' "$bg_printenv" | grep -q "$PRINTENV_VAL"; then
-  ok "Claude bang guard masks a bare printenv value"
+  ok "Claude command wrapping masks a bare printenv value"
 else
-  not_ok "Claude bang guard masks a bare printenv value"
+  not_ok "Claude command wrapping masks a bare printenv value"
   printf '%s\n' "  out: $bg_printenv"
 fi
 
@@ -2925,9 +3015,9 @@ CLAUDECODE=1 sh -c '. "$1"; cat "$2"' _ "$bg_dir/guard.sh" "$bg_dir/file.txt" >"
 status=$?
 if [ "$status" -eq 0 ] && [ "$(cat "$OUT")" = hello-plain ] \
    && grep -q 'dependencies are not ready' "$ERR"; then
-  ok "transparent bang guard fails open with a loud warning when masking is unavailable"
+  ok "transparent command wrapping fails open with a loud warning when masking is unavailable"
 else
-  not_ok "transparent bang guard degraded mode preserves command behavior with a warning (status $status)"
+  not_ok "transparent command wrapping degraded mode preserves command behavior with a warning (status $status)"
   sed 's/^/  stdout: /' "$OUT"
   sed 's/^/  stderr: /' "$ERR"
 fi
@@ -2944,9 +3034,9 @@ for bg_sh in bash zsh; do
     cat "$2"
   ' _ "$bg_dir/guard.sh" "$bg_dir/file.txt" 2>/dev/null)
   if [ "$bg_alias" = ROUTED ]; then
-    ok "bang guard defeats a pre-existing cat alias under $bg_sh"
+    ok "command wrapping defeats a pre-existing cat alias under $bg_sh"
   else
-    not_ok "bang guard vs pre-existing cat alias under $bg_sh (got: $bg_alias)"
+    not_ok "command wrapping vs pre-existing cat alias under $bg_sh (got: $bg_alias)"
   fi
 done
 
@@ -2954,12 +3044,12 @@ done
 # A plugin-only install never symlinks agent-guard onto $PATH, so the wrappers
 # must resolve it via the absolute path baked into the snippet. These tests strip
 # $PATH down to a minimal set (no agent-guard) to prove that fallback.
-if printf '%s' "$shellinit_bg" | grep -q '^__agentguard_bin='; then
+if printf '%s' "$shellinit_wrap" | grep -q '^__agentguard_bin='; then
   ok "shell-init bakes the absolute binary path (__agentguard_bin)"
 else
   not_ok "shell-init bakes the absolute binary path (__agentguard_bin)"
 fi
-if printf '%s' "$shellinit_bg" | grep -q '__agentguard_exe()'; then
+if printf '%s' "$shellinit_wrap" | grep -q '__agentguard_exe()'; then
   ok "shell-init emits the __agentguard_exe resolver"
 else
   not_ok "shell-init emits the __agentguard_exe resolver"
@@ -2971,9 +3061,9 @@ bg_baked="$bg_dir/guard-baked.sh"
 sed "s#^__agentguard_bin=.*#__agentguard_bin='$bg_dir/bin/agent-guard'#" "$bg_dir/guard.sh" >"$bg_baked"
 bg_nopath=$(PATH=/usr/bin:/bin CLAUDECODE=1 sh -c '. "$1"; cat "$2"' _ "$bg_baked" "$bg_dir/file.txt" 2>/dev/null)
 if [ "$bg_nopath" = ROUTED ]; then
-  ok "bang guard routes via the baked path when agent-guard is off \$PATH"
+  ok "command wrapping routes via the baked path when agent-guard is off \$PATH"
 else
-  not_ok "bang guard routes via baked path off \$PATH (got: $bg_nopath)"
+  not_ok "command wrapping routes via baked path off \$PATH (got: $bg_nopath)"
 fi
 
 # $AGENT_GUARD_BIN wins over both $PATH and the baked path.
@@ -2992,19 +3082,19 @@ else
 fi
 
 # When NO binary resolves (stale baked path, nothing on $PATH), the TRANSPARENT
-# bang guard fails OPEN — it still runs the command — but warns loudly on stderr.
+# command wrapping fails OPEN — it still runs the command — but warns loudly on stderr.
 bg_none="$bg_dir/guard-none.sh"
 sed "s#^__agentguard_bin=.*#__agentguard_bin='/nonexistent/agent-guard'#" "$bg_dir/guard.sh" >"$bg_none"
 bg_open=$(PATH=/usr/bin:/bin CLAUDECODE=1 sh -c '. "$1"; cat "$2"' _ "$bg_none" "$bg_dir/file.txt" 2>"$ERR")
 if [ "$bg_open" = hello-plain ]; then
-  ok "bang guard fails OPEN (runs the command) when no binary resolves"
+  ok "command wrapping fails OPEN (runs the command) when no binary resolves"
 else
-  not_ok "bang guard fail-open passthrough when no binary resolves (got: $bg_open)"
+  not_ok "command wrapping fail-open passthrough when no binary resolves (got: $bg_open)"
 fi
 if grep -q 'NOT masked' "$ERR"; then
-  ok "bang guard warns loudly on stderr when it cannot mask"
+  ok "command wrapping warns loudly on stderr when it cannot mask"
 else
-  not_ok "bang guard warns loudly on stderr when it cannot mask"
+  not_ok "command wrapping warns loudly on stderr when it cannot mask"
 fi
 
 # agx is an EXPLICIT mask request, so it fails CLOSED — it must NOT run the
@@ -3051,10 +3141,19 @@ else
 fi
 
 vd_out=$(run_session_start "" 2>"$ERR")
-if [ $? -eq 0 ] && [ -z "$vd_out" ]; then
-  ok "hook-session-start is silent when the marker is absent (integration not loaded)"
+if [ $? -eq 0 ] \
+   && printf '%s' "$vd_out" | jq -e '.systemMessage | contains("/agent-guard:setup-shell")' >/dev/null 2>&1; then
+  ok "Claude SessionStart guides default command-wrapping setup when the marker is absent"
 else
-  not_ok "hook-session-start silent with no marker (got: $vd_out)"
+  not_ok "Claude SessionStart guides command-wrapping setup with no marker (got: $vd_out)"
+fi
+
+vd_out=$(AGENT_GUARD_HOOK_HOST=codex AGENT_GUARD_GITLEAKS_BIN="$MOCK_BIN/gitleaks" \
+  PATH="$MOCK_BIN:$ORIGINAL_PATH" "$PLUGIN_ROOT/bin/agent-guard" hook-session-start 2>"$ERR")
+if [ $? -eq 0 ] && [ -z "$vd_out" ]; then
+  ok "Codex SessionStart does not request Claude command-wrapping setup"
+else
+  not_ok "Codex SessionStart stays scoped to Codex setup (got: $vd_out)"
 fi
 
 vd_out=$(run_session_start 'not a version' 2>"$ERR")
@@ -3179,25 +3278,43 @@ if grep -q 'export AG_TEST_KEEP=1' "$ss_rc" 2>/dev/null; then
 else
   not_ok "setup-shell preserves unrelated rc lines"
 fi
-"$PLUGIN_ROOT/bin/agent-guard" setup-shell --rc "$ss_rc" --claude-bang-guard >/dev/null 2>&1
-if grep -q 'shell-init --claude-bang-guard' "$ss_rc" 2>/dev/null; then
-  ok "setup-shell threads --claude-bang-guard into the rc line"
+if grep -q 'agent-guard shell-init' "$ss_rc" 2>/dev/null \
+   && ! grep -q -- '--no-command-wrapping' "$ss_rc" 2>/dev/null; then
+  ok "setup-shell enables command wrapping by default"
 else
-  not_ok "setup-shell threads --claude-bang-guard into the rc line"
+  not_ok "setup-shell enables command wrapping by default"
 fi
-ss_legacy="$TESTTMP/setup-legacy.rc"
-"$PLUGIN_ROOT/bin/agent-guard" setup-shell --rc "$ss_legacy" --experimental-bang-guard >/dev/null 2>&1
-if grep -q 'shell-init --claude-bang-guard' "$ss_legacy" 2>/dev/null \
-   && ! grep -q 'shell-init --experimental-bang-guard' "$ss_legacy" 2>/dev/null; then
-  ok "setup-shell normalizes the deprecated bang-guard alias to the stable option"
+ss_off="$TESTTMP/setup-off.rc"
+"$PLUGIN_ROOT/bin/agent-guard" setup-shell --rc "$ss_off" --no-command-wrapping >/dev/null 2>&1
+if grep -q 'shell-init --no-command-wrapping' "$ss_off" 2>/dev/null; then
+  ok "setup-shell persists the command-wrapping opt-out"
 else
-  not_ok "setup-shell normalizes the deprecated bang-guard alias to the stable option"
+  not_ok "setup-shell persists the command-wrapping opt-out"
+fi
+for ss_v1_flag in --claude-bang-guard --experimental-bang-guard; do
+  ss_v1="$TESTTMP/setup-v1-${ss_v1_flag#--}.rc"
+  "$PLUGIN_ROOT/bin/agent-guard" setup-shell --rc "$ss_v1" "$ss_v1_flag" >/dev/null 2>&1
+  if ! grep -q -- '--claude-bang-guard' "$ss_v1" 2>/dev/null \
+     && ! grep -q -- '--experimental-bang-guard' "$ss_v1" 2>/dev/null \
+     && ! grep -q -- '--no-command-wrapping' "$ss_v1" 2>/dev/null; then
+    ok "setup-shell normalizes the 1.x flag $ss_v1_flag to the 2.x default"
+  else
+    not_ok "setup-shell normalizes the 1.x flag $ss_v1_flag to the 2.x default"
+  fi
+done
+setup_shell_help=$("$PLUGIN_ROOT/bin/agent-guard" setup-shell --help 2>&1)
+if printf '%s' "$setup_shell_help" | grep -q -- '--no-command-wrapping' \
+   && ! printf '%s' "$setup_shell_help" | grep -q -- '--claude-bang-guard' \
+   && ! printf '%s' "$setup_shell_help" | grep -q -- '--experimental-bang-guard'; then
+  ok "setup-shell help exposes only the 2.x command-wrapping option"
+else
+  not_ok "setup-shell help exposes only the 2.x command-wrapping option"
 fi
 # Self-healing invocation: the rc line prefers `agent-guard` on $PATH but bakes an
 # absolute-path fallback keyed on OUTPUT (not mere presence), so it stays a valid
 # generator even if the bare name later leaves $PATH or a stale binary emits nothing.
 ss_heal="$TESTTMP/setup-heal.rc"
-"$PLUGIN_ROOT/bin/agent-guard" setup-shell --rc "$ss_heal" --claude-bang-guard >/dev/null 2>&1
+"$PLUGIN_ROOT/bin/agent-guard" setup-shell --rc "$ss_heal" >/dev/null 2>&1
 if grep -q '_agi=$(agent-guard shell-init' "$ss_heal" 2>/dev/null \
    && grep -q 'if \[ -n "$_agi" \]' "$ss_heal" 2>/dev/null; then
   ok "setup-shell bakes a self-healing invocation (output probe + absolute fallback)"

@@ -35,7 +35,7 @@ interception point:
 | `read-output` | a secret in a non-denylisted file's contents | `PostToolUse` → mask |
 | `mcp-output` | a secret in an MCP tool response | `PostToolUse` → mask |
 | `bang` | a `!`-prefixed shell-escape (`!cat .env`) | **none — no hook fires** |
-| `bang-wrapped` | `!agent-guard exec -- <cmd>` | `exec` wrapper → mask |
+| `bang-wrapped` | `!agent-guard exec -- <cmd>` | explicit `exec` wrapper → mask |
 
 ## Latest results
 
@@ -63,9 +63,9 @@ Engine `agent-guard 1.5.0`, `gitleaks 8.30.0`:
 
 - Passive hook-channel leak-prevention: **9/9 (100%)** secret cases blocked or masked (on the
   channels + variants tested — see *Not yet covered* for the important caveat). This counts
-  only channels a hook covers automatically; the opt-in `bang-wrapped` case is **not** folded in.
+  only channels a hook covers automatically; the explicit `bang-wrapped` case is **not** folded in.
 - `!` bang channel: **UNCOVERED** — no hook fires.
-- `!` bang + `agent-guard exec` (opt-in): **masked** — a mitigation the user must invoke, reported
+- `!` bang + `agent-guard exec` (explicit): **masked** — a mitigation the user must invoke, reported
   separately so it never inflates the passive-coverage number.
 - False-positive rate: **1/4 (25%)** benign cases mis-flagged.
 
@@ -93,8 +93,10 @@ peer (nopeek, claude-guard, Runwall, Cursor, Windsurf, Aider, Continue) shares t
 spot. The only channel-agnostic fix is to move the boundary off the hook system entirely: an
 **egress redaction proxy** in front of the model API (the approach taken by Lakera, Nightfall,
 Prompt Security, LiteLLM's `hide-secrets`, etc.), which sees every prompt regardless of how
-the agent produced it. Agent Guard's in-scope mitigation is the opt-in `agent-guard exec`
-wrapper (`bang-wrapped`), which masks the command's output before it reaches the model.
+the agent produced it. Agent Guard 2.x enables best-effort wrapping for `cat`, `head`, and
+`printenv` by default inside Claude Code, and keeps the explicit `agent-guard exec` / `agx`
+wrapper (`bang-wrapped`) for other terminating commands. The benchmark keeps raw `bang`
+separate because neither mitigation turns the shell-escape channel into a hook boundary.
 
 See also the upstream request to close this at the source:
 [`docs/upstream-bang-hook-request.md`](upstream-bang-hook-request.md), and Claude Code issue

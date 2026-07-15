@@ -20,7 +20,10 @@ Install from the marketplace:
 /plugin marketplace add JeongJaeSoon/agent-guard
 /plugin install agent-guard@agent-guard
 /reload-plugins
+/agent-guard:setup-shell
 ```
+
+The last command installs the default-on Claude command wrapping into your shell rc. Restart the shell and Claude Code after it succeeds. Plugin hooks are active after reload; shell wrapping for user-typed `!` commands requires this explicit rc update because plugins cannot edit it during installation.
 
 Verify it's live — ask the agent to read your `.env`:
 
@@ -93,6 +96,7 @@ Install and verify in [Quick start (Claude Code)](#quick-start-claude-code). Use
 ```text
 /agent-guard:verify
 /agent-guard:checksum [VERSION]
+/agent-guard:setup-shell
 ```
 
 ## Codex Plugin
@@ -136,7 +140,7 @@ Install the latest release without cloning:
 curl -fsSL https://github.com/JeongJaeSoon/agent-guard/releases/latest/download/bootstrap.sh | sh
 ```
 
-The installer verifies the release archive checksum, extracts to `~/.agent-guard`, links `agent-guard` into `~/.local/bin`, and runs `agent-guard setup`.
+The installer verifies the release archive checksum, extracts to `~/.agent-guard`, links `agent-guard` into `~/.local/bin`, runs `agent-guard setup`, and installs the default-on shell integration. Set `AGENT_GUARD_COMMAND_WRAPPING=off` on the bootstrap command for a persistent command-wrapping opt-out.
 
 Common commands:
 
@@ -150,7 +154,7 @@ agent-guard smoke-test
 agent-guard checksum
 ```
 
-Override install defaults with `AGENT_GUARD_VERSION`, `AGENT_GUARD_HOME`, or `AGENT_GUARD_BIN_DIR`.
+Override install defaults with `AGENT_GUARD_VERSION`, `AGENT_GUARD_HOME`, `AGENT_GUARD_BIN_DIR`, or `AGENT_GUARD_COMMAND_WRAPPING`.
 
 ## PII Filtering
 
@@ -222,13 +226,13 @@ This sets `core.hooksPath=githooks` only when it will not overwrite an existing 
 Add a workflow step:
 
 ```yaml
-- uses: JeongJaeSoon/agent-guard@v1
+- uses: JeongJaeSoon/agent-guard@v2
   with:
     paths: "."
     gitleaks-checksum: "<sha256 of the gitleaks release archive>"
 ```
 
-Use `@v1` for compatible updates, or pin a full tag / commit SHA for stricter reproducibility.
+Use `@v2` for compatible 2.x updates. The existing `@v1` moving tag remains on the 1.x line; pin `@v1`, a full tag, or a commit SHA when you intentionally stay on 1.x.
 
 Get the checksum with:
 
@@ -280,26 +284,29 @@ eval "$(agent-guard shell-init)"
 Or let `setup-shell` write (and later update) that line for you — idempotently, and by absolute path when `agent-guard` isn't on your `$PATH` yet:
 
 ```sh
-agent-guard setup-shell            # add `--claude-bang-guard` to opt into the bang guard below
+agent-guard setup-shell
 ```
 
 This defines `agx` (a thin wrapper for `agent-guard exec --`) so you can run `agx <cmd>` — in Claude Code, `!agx <cmd>` — and have the output masked before the model sees it. It also installs a **warn-only, non-blocking** nudge (a zsh `preexec` / bash `DEBUG` trap) that reminds you to use `agx` when you run a known secret-loading idiom without it. The nudge never blocks or modifies your command; pass `--bash` or `--zsh` to force a target shell.
 
-### Claude bang-command guard (supported opt-in)
+### Claude command wrapping (stable, default on)
 
-The nudge above relies on a `preexec` / `DEBUG` hook — but Claude Code runs `!` commands from a **shell snapshot** that strips those hooks (and `unalias -a`s), so the nudge never fires for `!`. The snapshot *does* keep shell **functions**, so an opt-in flag installs function overrides for the common dump commands instead:
+The nudge above relies on a `preexec` / `DEBUG` hook — but Claude Code runs `!` commands from a **shell snapshot** that strips those hooks (and `unalias -a`s), so the nudge never fires for `!`. The snapshot *does* keep shell **functions**, so Agent Guard installs function overrides for the common dump commands by default.
+
+The default `shell-init` output overrides `cat`, `head`, and `printenv` so that — **only inside Claude Code** (gated on `$CLAUDECODE`) — they route through `agent-guard exec`, masking their output before the transcript captures it. So `!cat config.txt` gets its secrets redacted automatically, without you remembering to type `agx`. In a normal terminal (`$CLAUDECODE` unset) the overrides stay inert and fall back to plain `cat` / `head` / `printenv` behavior.
+
+Turn automatic wrapping off for one process or shell by exporting `AGENT_GUARD_COMMAND_WRAPPING=off`. For a persistent opt-out, rewrite the managed block without the automatic overrides:
 
 ```sh
-eval "$(agent-guard shell-init --claude-bang-guard)"
+export AGENT_GUARD_COMMAND_WRAPPING=off  # runtime opt-out
+agent-guard setup-shell --no-command-wrapping  # persistent opt-out
 ```
 
-This overrides `cat`, `head`, and `printenv` so that — **only inside Claude Code** (gated on `$CLAUDECODE`) — they route through `agent-guard exec`, masking their output before the transcript captures it. So `!cat config.txt` gets its secrets redacted automatically, without you remembering to type `agx`. In a normal terminal (`$CLAUDECODE` unset) the overrides stay inert and fall back to plain `cat` / `head` / `printenv` behavior.
-
-The binary is resolved at call time in this order: an explicit `$AGENT_GUARD_BIN`, then `agent-guard` on your `$PATH`, then the **absolute path baked into the snippet** at `shell-init` time. The transparent bang guard preflights dependencies too. If the binary cannot resolve or protection is degraded, it **fails open** because the user typed an ordinary `cat`/`head`/`printenv`: it runs the command but prints a loud `output is NOT masked` warning. `agx`, being an explicit mask request, instead fails closed.
+The binary is resolved at call time in this order: an explicit `$AGENT_GUARD_BIN`, then `agent-guard` on your `$PATH`, then the **absolute path baked into the snippet** at `shell-init` time. Transparent command wrapping preflights dependencies too. If the binary cannot resolve or protection is degraded, it **fails open** because the user typed an ordinary `cat`/`head`/`printenv`: it runs the command but prints a loud `output is NOT masked` warning. `agx`, being an explicit mask request, instead fails closed.
 
 Because the plugin (auto-updated by `claude plugin update`) and the binary the integration actually resolves update independently, updating only one side can silently leave `agx` / `!`-command masking on older rules. To catch that, the `shell-init` snippet exports `AGENT_GUARD_SHELL_INIT_VERSION` — the version of the binary it resolved at rc-eval time (whichever of the three paths above won) — and a Claude Code `SessionStart` hook compares that marker against the plugin's own version, showing a **non-blocking warning** on mismatch. Because the marker records what the integration resolved at shell start (not a re-derivation the hook would have to guess), it stays silent unless the integration is genuinely loaded *and* drifting: a user who has `agent-guard` on `$PATH` but never ran `setup-shell` gets no warning, and a plugin-only install pinned to a stale baked binary is still covered. It is a start-up snapshot, so if you upgrade the resolved binary *in place* inside a long-lived shell and then launch Claude Code from it without opening a new shell, the warning reflects the version from when that shell started until you re-source your rc.
 
-> **Works without the CLI on `$PATH` — but a plugin can't edit your rc.** The one manual step for a plugin-only install is getting the `shell-init` line into your shell rc so it loads in every shell (hence every Claude Code snapshot). Run `agent-guard setup-shell --claude-bang-guard` once — invoke it by the plugin binary's absolute path if `agent-guard` isn't on your `$PATH`; it bakes that same absolute path into the line it writes — then restart your shell and any Claude Code session. The former `--experimental-bang-guard` spelling remains a deprecated compatibility alias and is normalized to the stable option when `setup-shell` rewrites the managed block.
+> **Works without the CLI on `$PATH` — but a plugin can't edit your rc.** Direct CLI bootstrap installs the default-on shell integration automatically. For a plugin-only install, run the plugin-local `agent-guard setup-shell` once — invoke it by absolute path if `agent-guard` isn't on your `$PATH`; it bakes that same absolute path into the line it writes — then restart your shell and any Claude Code session. See [Migrating from 1.x to 2.x](docs/migration-v2.md) for old managed blocks and opt-out behavior.
 
 **This is best-effort, not a security control.** It covers only those command names and is trivially bypassed by an absolute path (`/bin/cat`), `source` / `.`, `python -c 'open(...)'`, or a redirection (`< file`). Because `agent-guard exec` buffers the whole output before masking it, **streaming / follow commands would hang** — so `tail` is deliberately *not* wrapped, and you should not `agx` a `tail -f`, a pager, or any long-running program (wrap only terminating dump commands). Output is captured via shell substitution, so wrapping is **text-only** — a binary or NUL-containing read loses embedded NULs and its trailing newline, so use `command cat` / `\cat` for faithful binary output. Each wrapped call also pays a gitleaks scan. Treat it as a convenience nudge for the common cases, not a boundary — the only channel-agnostic fix remains an egress redaction proxy or an upstream `!`-command hook.
 
@@ -312,13 +319,13 @@ Agent Guard is a deterministic, thin guardrail — not a DLP system, EDR, or vau
 - **Path and command blocking use fixed lists.** Read/Grep/Glob blocking matches the paths in `deny-read-paths.txt`; shell blocking matches the idioms in `deny-bash-patterns.txt`. A secret in an unlisted path, or read by an unlisted tool or flag, is not blocked. Extend the lists with `AGENT_GUARD_DENY_READ_PATHS` / `AGENT_GUARD_DENY_BASH_PATTERNS`.
 - **Output masking is best-effort.** Secret-like values in a tool's output (`Bash` stdout/stderr, file reads) are masked in place by the `PostToolUse` redactor (`AGENT_GUARD_OUTPUT_REDACT`, on by default), but detection is heuristic — gitleaks plus a `KEY=value` env-assignment rule. Detection is also **entropy-gated**: a realistic high-entropy credential is masked regardless of context, but a low-entropy value is only caught when its key name looks secret-bearing (`*_TOKEN=`, `PASSWORD:`, …) or its shape carries a distinctive vendor prefix (GitHub `ghp_`/`github_pat_`, AWS `AKIA…`, Anthropic/OpenAI `sk-ant-`/`sk-proj-`, npm `npm_`, GCP `AIza…`, Slack `xox?-`, GitLab `glpat-`, DigitalOcean `dop_v1_` — matched by shape alone, with no entropy filter). A low-entropy secret under a generic variable name with no recognizable prefix passes through unmasked, non-secret-but-sensitive data (internal hostnames, base URLs, private config) is never a match at all, and other unusual or custom secret formats can still slip through. The redactor also only sees results of the agent's *tool calls*. PII masking (`AGENT_GUARD_PII_HOOK_MODE=mask`) is likewise regex-based: it can over-match (a version string read as an IPv4) or miss locale formats it has no rule for. Both the secret redactor and the PII masker walk JSON string *values* only — a secret or PII string that appears as an object *key* is left unmasked, because rewriting keys could collapse two distinct keys onto one placeholder and drop an entry. Treat output masking as defense in depth and keep real secrets and personal data out of agent sessions entirely.
 - **Bash detection is pattern-based.** The denylist targets common-accident and obvious-malicious idioms; an actively-evading agent can craft a command that matches none of them. Treat shell blocking as defense in depth, not a complete adversarial boundary.
-- **User-typed shell-escape commands bypass every hook.** Agent Guard works entirely through tool-use hooks (`PreToolUse` / `PostToolUse`) and git hooks. A command the user runs directly through the host's interactive shell escape — for example a `!`-prefixed command typed at the agent prompt — never becomes a tool call, so **no** Agent Guard hook fires: neither the input block nor the output redactor. A secret that such a command prints (e.g. an env- or vault-reading CLI whose output is not redirected to `/dev/null`) lands in the session transcript unmasked. The recommended mitigation is to run such commands via `agx <cmd>` / `agent-guard exec -- <cmd>` (see [Shell integration](#shell-integration-masking--shell-escape-output)) so their output is masked *before* it reaches the model — or, for automatic masking of the common dump commands, opt into the [Claude bang-command guard](#claude-bang-command-guard-supported-opt-in). Alternatively, run secret-loading commands *through* the agent's tools so the hooks apply, or redirect their output away from the transcript — both streams, since many CLIs print credentials or secret-bearing diagnostics to stderr (`>/dev/null 2>&1`).
+- **User-typed shell-escape commands bypass every hook.** Agent Guard works entirely through tool-use hooks (`PreToolUse` / `PostToolUse`) and git hooks. A command the user runs directly through the host's interactive shell escape — for example a `!`-prefixed command typed at the agent prompt — never becomes a tool call, so **no** Agent Guard hook fires: neither the input block nor the output redactor. A secret that such a command prints (e.g. an env- or vault-reading CLI whose output is not redirected to `/dev/null`) lands in the session transcript unmasked. The recommended mitigation is to run such commands via `agx <cmd>` / `agent-guard exec -- <cmd>` (see [Shell integration](#shell-integration-masking--shell-escape-output)) so their output is masked *before* it reaches the model, or use the default-on [Claude command wrapping](#claude-command-wrapping-stable-default-on) for the common dump commands. Alternatively, run secret-loading commands *through* the agent's tools so the hooks apply, or redirect their output away from the transcript — both streams, since many CLIs print credentials or secret-bearing diagnostics to stderr (`>/dev/null 2>&1`).
 
 For defense in depth, pair Agent Guard with GitHub Secret Scanning / Push Protection and a secrets manager so credentials never reach the working tree.
 
 ## Coverage benchmark
 
-`make bench` runs a deterministic, per-channel leak-prevention benchmark against the **real** gitleaks engine, classifying each case as `blocked` / `masked` / `leaked` (plus `false-positive` for benign controls) across the read-tool, bash-read, bash-cmd, bash-output, read-output, mcp-output, and `!` bang channels. It honestly records the `!` bang channel as structurally uncovered and surfaces coverage gaps as measurements rather than hiding them. See [`docs/benchmark.md`](docs/benchmark.md) for the channel model, latest results, and findings.
+`make bench` runs a deterministic, per-channel leak-prevention benchmark against the **real** gitleaks engine, classifying each case as `blocked` / `masked` / `leaked` (plus `false-positive` for benign controls) across the read-tool, bash-read, bash-cmd, bash-output, read-output, mcp-output, and `!` bang channels. It honestly records the raw `!` channel as structurally uncovered by hooks; default command wrapping and explicit `agx` are reported as best-effort shell mitigations, not counted as hook coverage. See [`docs/benchmark.md`](docs/benchmark.md) for the channel model, latest results, and findings.
 
 ## Configuration
 

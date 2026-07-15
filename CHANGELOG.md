@@ -1,3 +1,10 @@
+## v2.0.0 - 2026-07-14
+
+- feat(shell)!: make Claude command wrapping stable and default-on, with `--no-command-wrapping` and `AGENT_GUARD_COMMAND_WRAPPING=off` opt-outs
+- feat(install): enable command wrapping from direct bootstrap and add `/agent-guard:setup-shell` for plugin installs
+- docs: add the 1.x to 2.x migration guide and move GitHub Action examples to the preserved `v2` release line
+- ci(release): verify publishing `v2` does not move the existing `v1` compatibility tag
+
 ## v1.10.1 - 2026-07-14
 
 - fix(codex): verify the plugin-local binary, hook trust, and live host dispatch during guided setup
