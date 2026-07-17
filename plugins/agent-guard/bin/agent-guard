@@ -2244,15 +2244,18 @@ __agentguard_wrap_command() {  # $1 = real command name, remaining args forwarde
 }
 # A user alias for one of these (e.g. `alias cat='cat -n'`) would otherwise
 # alias-expand the `${name}()` token while this eval is PARSED, so the function
-# would fail to define and `!cat` would stay unguarded. Drop the alias FIRST, as
-# its own statement, so by the time the inner eval is parsed no alias remains.
-# (Claude Code's snapshot `unalias -a`s anyway, so this is a no-op for a normal
-# terminal — it only fixes the shell where you run `eval "$(... shell-init)"`.)
+# would fail to define and `!cat` would stay unguarded. Drop the alias before the
+# inner eval, then restore it so the normal interactive shell keeps its existing
+# behavior. Claude Code's snapshot runs `unalias -a`, exposing the function it
+# retained underneath the alias.
 for __ag_name in cat head printenv; do
+  __ag_alias=$(alias "$__ag_name" 2>/dev/null || :)
+  __ag_alias=${__ag_alias#alias }
   unalias "$__ag_name" 2>/dev/null || :
   eval "${__ag_name}() { __agentguard_wrap_command ${__ag_name} \"\$@\"; }"
+  [ -n "$__ag_alias" ] && eval "alias $__ag_alias"
 done
-unset __ag_name
+unset __ag_name __ag_alias
 EOF
 }
 

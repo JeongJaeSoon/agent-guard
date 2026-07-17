@@ -3021,22 +3021,33 @@ else
   sed 's/^/  stdout: /' "$OUT"
   sed 's/^/  stderr: /' "$ERR"
 fi
-# Regression: a pre-existing `alias cat=...` must NOT stop the override from
-# installing. Without the per-name `unalias` before each `eval`, the alias
-# expands the function name at parse time and the guard is never defined,
-# leaving `!cat` unguarded. Only reproducible in shells that expand aliases.
+# Regression: preserve a pre-existing alias in the normal shell, while keeping
+# the wrapper function underneath it for Claude Code's `unalias -a` snapshot.
+# Only reproducible in shells that expand aliases.
 for bg_sh in bash zsh; do
   command -v "$bg_sh" >/dev/null 2>&1 || continue
-  bg_alias=$(PATH="$bg_dir/bin:$PATH" CLAUDECODE=1 "$bg_sh" -c '
+  bg_alias_normal=$(PATH="$bg_dir/bin:$PATH" "$bg_sh" -c '
     [ -n "$BASH_VERSION" ] && shopt -s expand_aliases
-    alias cat="cat -n"
+    alias cat="printf ALIASED"
     . "$1"
+    eval "cat \"\$2\""
+  ' _ "$bg_dir/guard.sh" "$bg_dir/file.txt" 2>/dev/null)
+  if [ "$bg_alias_normal" = ALIASED ]; then
+    ok "command wrapping preserves a pre-existing cat alias under $bg_sh"
+  else
+    not_ok "command wrapping preserves a pre-existing cat alias under $bg_sh (got: $bg_alias_normal)"
+  fi
+  bg_alias_snapshot=$(PATH="$bg_dir/bin:$PATH" CLAUDECODE=1 "$bg_sh" -c '
+    [ -n "$BASH_VERSION" ] && shopt -s expand_aliases
+    alias cat="printf ALIASED"
+    . "$1"
+    unalias -a
     cat "$2"
   ' _ "$bg_dir/guard.sh" "$bg_dir/file.txt" 2>/dev/null)
-  if [ "$bg_alias" = ROUTED ]; then
-    ok "command wrapping defeats a pre-existing cat alias under $bg_sh"
+  if [ "$bg_alias_snapshot" = ROUTED ]; then
+    ok "command wrapping survives Claude alias cleanup under $bg_sh"
   else
-    not_ok "command wrapping vs pre-existing cat alias under $bg_sh (got: $bg_alias)"
+    not_ok "command wrapping after Claude alias cleanup under $bg_sh (got: $bg_alias_snapshot)"
   fi
 done
 
