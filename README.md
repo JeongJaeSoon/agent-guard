@@ -198,7 +198,7 @@ AGENT_GUARD_PII_HOOK_MODE=block   # block tool INPUTS that contain any PII
 AGENT_GUARD_PII_HOOK_MODE=mask    # mask PII in tool OUTPUTS; hard-block Tier-2 inputs
 ```
 
-In **block** mode, proposed `Write`, `Edit`, `MultiEdit`, `apply_patch`, `Bash`, `WebFetch`, `WebSearch`, and MCP inputs are blocked when any PII is detected, with guidance to run `agent-guard pii-filter` first.
+In **block** mode, proposed `Write`, `Edit`, `MultiEdit`, `NotebookEdit`, `apply_patch`, `Bash`, `WebFetch`, `WebSearch`, and MCP inputs are blocked when any PII is detected, with guidance to run `agent-guard pii-filter` first.
 
 In **mask** mode, PII is masked in a tool's *output* (`PostToolUse`, the same path as secret redaction) so the model never sees it. On the *input* side, mask mode hard-blocks only **Tier-2** PII — credit card, US SSN, and Korean resident registration number, which must never reach a tool — and lets **Tier-1** PII (email, phone, IPv4) through to be masked on the way out. Hooks cannot rewrite a *pending* input payload, so Tier-1 input is allowed rather than masked in place; use `agent-guard pii-filter` for input-side masking.
 
@@ -250,7 +250,7 @@ To enable it, add an Actions secret named `OPENAI_API_KEY` in the GitHub reposit
 
 ## What Gets Blocked
 
-- On Claude Code: `Read`, `NotebookRead`, `Grep`, and `Glob` access to deny-listed paths; `Write`, `Edit`, and `MultiEdit` secret-like content; and sensitive web/MCP inputs
+- On Claude Code: `Read`, `NotebookRead`, `Grep`, and `Glob` access to deny-listed paths; `Write`, `Edit`, `MultiEdit`, and `NotebookEdit` secret-like content; and sensitive web/MCP inputs
 - On Codex: supported hook surfaces (`Bash`, `apply_patch`, and MCP tools). Current Codex hooks do not intercept arbitrary Read/Grep/WebSearch calls, so Agent Guard does not claim coverage for them.
 - risky shell commands such as `printenv`, `op read`, `vault kv get`, `aws secretsmanager get-secret-value`, `cat .env`, and `git commit --no-verify`
 - PII in proposed write, shell, web, or MCP inputs — all PII when `AGENT_GUARD_PII_HOOK_MODE=block`, or only Tier-2 PII (credit card, US SSN, Korean resident registration number) when `AGENT_GUARD_PII_HOOK_MODE=mask`
