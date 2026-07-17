@@ -621,6 +621,10 @@ check_pii_hook_input() {
       content=$(printf '%s' "$input" | jq -r '[.tool_input.edits[]?.new_string // empty] | join("\n")')
       block_on_pii_text "proposed MultiEdit content" "$content"
       ;;
+    NotebookEdit)
+      content=$(json_value '.tool_input.new_source // empty' "$input")
+      block_on_pii_text "proposed NotebookEdit content" "$content"
+      ;;
     apply_patch)
       patch=$(printf '%s' "$input" | jq -r '
         .tool_input.command // .tool_input.patch // .tool_input.input // .tool_input.diff // .tool_input.content // empty
@@ -1534,6 +1538,11 @@ scan_proposed_write() {
       scan_text_direct "proposed MultiEdit content" "$content"
       block_on_scan_status "$?" "proposed MultiEdit contains secret-like values"
       ;;
+    NotebookEdit)
+      content=$(json_value '.tool_input.new_source // empty' "$input")
+      scan_text_direct "proposed NotebookEdit content" "$content"
+      block_on_scan_status "$?" "proposed NotebookEdit contains secret-like values"
+      ;;
     apply_patch)
       patch=$(printf '%s' "$input" | jq -r '
         .tool_input.command // .tool_input.patch // .tool_input.input // .tool_input.diff // .tool_input.content // empty
@@ -1622,7 +1631,7 @@ hook_pre_tool() {
   tool=$(json_value '.tool_name // .tool // .name // empty' "$input")
 
   case "$tool" in
-    Write|Edit|MultiEdit|apply_patch)
+    Write|Edit|MultiEdit|NotebookEdit|apply_patch)
       scan_proposed_write "$input" "$tool"
       ;;
     Read|NotebookRead|Grep|Glob)
@@ -1647,7 +1656,7 @@ hook_pre_tool() {
 
 is_mutation_tool() {
   case "$1" in
-    Write|Edit|MultiEdit|apply_patch|Bash|mcp__*) return 0 ;;
+    Write|Edit|MultiEdit|NotebookEdit|apply_patch|Bash|mcp__*) return 0 ;;
     *) return 1 ;;
   esac
 }

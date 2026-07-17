@@ -912,6 +912,17 @@ else
   sed 's/^/  stderr: /' "$ERR"
 fi
 
+printf '%s' '{"tool_name":"NotebookEdit","tool_input":{"notebook_path":"nb.ipynb","new_source":"contact jane@example.com"}}' \
+  | AGENT_GUARD_PII_HOOK_MODE=block "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool \
+    >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "PII hook block mode blocks proposed NotebookEdit content"
+else
+  not_ok "PII hook block mode blocks proposed NotebookEdit content (expected 2, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
 printf '%s' '{"tool_name":"WebSearch","tool_input":{"query":"look up 203.0.113.42"}}' \
   | AGENT_GUARD_PII_HOOK_MODE=block "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool \
     >"$OUT" 2>"$ERR"
@@ -1570,6 +1581,14 @@ expect_json_status 0 "Write with no content key passes" \
 
 expect_json_status 0 "Edit with clean new_string passes" \
   '{"tool_name":"Edit","tool_input":{"new_string":"const x = 1"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "NotebookEdit with secret new_source is blocked" \
+  '{"tool_name":"NotebookEdit","tool_input":{"notebook_path":"nb.ipynb","new_source":"AGENT_GUARD_TEST_SECRET"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "NotebookEdit with clean new_source passes" \
+  '{"tool_name":"NotebookEdit","tool_input":{"notebook_path":"nb.ipynb","new_source":"print(1)"}}' \
   hook-pre-tool
 
 # --- hook_post_tool routing -----------------------------------------------
