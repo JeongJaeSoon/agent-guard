@@ -1,4 +1,4 @@
-## Unreleased
+## v2.0.1 - 2026-07-17
 
 - fix(hooks): scan `NotebookEdit` cell content so secrets written to notebook cells are blocked (and PII when `AGENT_GUARD_PII_HOOK_MODE=block`) (#112)
 
