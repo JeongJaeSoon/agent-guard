@@ -1,7 +1,9 @@
 # Upstream feature request draft — a hook (or output redaction) for `!` bang commands
 
-> **Status: draft.** This is a ready-to-file issue for `anthropics/claude-code`. It is not
-> filed automatically — filing is an outward-facing action left to a maintainer's decision.
+> **Status: draft.** Agent Guard 2.x mitigates common dump commands with default-on
+> command wrapping, but a native upstream hook is still required for complete coverage.
+> This is a ready-to-file issue for `anthropics/claude-code`; filing remains a
+> maintainer decision.
 
 ---
 

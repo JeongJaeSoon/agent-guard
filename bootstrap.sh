@@ -5,12 +5,15 @@
 #   curl -fsSL https://github.com/JeongJaeSoon/agent-guard/releases/latest/download/bootstrap.sh | sh
 #
 # Environment overrides:
-#   AGENT_GUARD_VERSION   pin a specific version (e.g. 1.2.0). Defaults to the
+#   AGENT_GUARD_VERSION   pin a specific version (e.g. 2.0.0). Defaults to the
 #                         latest release resolved via the GitHub redirect.
 #   AGENT_GUARD_HOME      install destination (default: $HOME/.agent-guard).
 #   AGENT_GUARD_BIN_DIR   directory the agent-guard symlink lives in (default:
 #                         $HOME/.local/bin).
 #   AGENT_GUARD_REPO      override the source repo (default: JeongJaeSoon/agent-guard).
+#   AGENT_GUARD_COMMAND_WRAPPING
+#                         command wrapping is installed on by default. Set to
+#                         off, false, no, or 0 for a persistent opt-out.
 
 set -eu
 
@@ -98,6 +101,24 @@ main() {
   # 'setup' may exit 1 if deps are missing; that's expected and not a bootstrap
   # failure -- the user just gets the install hints.
   "$bin_path" setup || true
+  info ""
+
+  case "${AGENT_GUARD_COMMAND_WRAPPING:-on}" in
+    0|off|OFF|false|FALSE|no|NO)
+      info "$prog: installing shell integration with command wrapping off"
+      if ! "$bin_path" setup-shell --no-command-wrapping; then
+        info "$prog: WARNING: shell integration was not installed; run:"
+        info "  $bin_path setup-shell --no-command-wrapping"
+      fi
+      ;;
+    *)
+      info "$prog: installing shell integration with command wrapping on"
+      if ! "$bin_path" setup-shell; then
+        info "$prog: WARNING: shell integration was not installed; run:"
+        info "  $bin_path setup-shell"
+      fi
+      ;;
+  esac
   info ""
   info "$prog: done. v${VERSION} installed at $HOME_DIR."
 }
