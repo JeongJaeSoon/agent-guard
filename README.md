@@ -12,7 +12,9 @@ Unlike commit- or CI-time scanners that catch a leak *after* it lands, Agent Gua
 
 It is not a vault, credential rotator, or replacement for GitHub Secret Scanning / Push Protection.
 
-## Quick start (Claude Code)
+## Quick start
+
+### Claude Code
 
 Install from the marketplace:
 
@@ -37,14 +39,32 @@ It should refuse:
 agent-guard: blocked sensitive file access: .env
 ```
 
-Detection needs `jq` and `gitleaks` on your machine (`brew install jq gitleaks`; see [Requirements](#requirements)). The Codex plugin also ships a guided `$setup-agent-guard` skill. Using Codex, Git hooks, or CI instead? Pick your path below.
+### Codex
+
+Add the marketplace:
+
+```sh
+codex plugin marketplace add JeongJaeSoon/agent-guard
+```
+
+Open `/plugins` in Codex and install **Agent Guard**. Then open **Settings > Hooks**, trust the **SessionStart**, **PreToolUse**, **PostToolUse**, and **Stop** hooks, and restart Codex.
+
+Run the guided setup skill:
+
+```text
+$setup-agent-guard
+```
+
+Treat setup as complete only when the plugin-local dependency check, smoke test, and both live host probes pass. The probes confirm that the current Codex tool route actually dispatches to Agent Guard's hooks.
+
+Both plugins need `jq` and `gitleaks` on your machine (`brew install jq gitleaks`; see [Requirements](#requirements)). Using the CLI, Git hooks, or CI instead? Pick your path below.
 
 ## Pick an install path
 
 | Use case | Install path | Best first check |
 |---|---|---|
-| Claude Code agent guardrails | [Quick start (Claude Code)](#quick-start-claude-code) | Ask the agent to read `.env`; it should be blocked. |
-| Codex plugin guardrails | [Codex plugin](#codex-plugin) | Trust the hooks, run `$setup-agent-guard`, and require both live hook probes to pass. |
+| Claude Code agent guardrails | [Claude Code quick start](#claude-code) | Ask the agent to read `.env`; it should be blocked. |
+| Codex plugin guardrails | [Codex quick start](#codex) | Run `$setup-agent-guard` and require both live hook probes to pass. |
 | Codex CLI + Git backstop | [Direct CLI](#direct-cli) + [Native Git hook](#native-git-hook) | Run `agent-guard smoke-test`; commit a staged fixture secret, and it should fail. |
 | Local commits | [Native Git hook](#native-git-hook) | Commit a staged fixture secret; commit should fail. |
 | CI / PRs | [GitHub Actions](#github-actions) | Push a test PR with a gitleaks-detectable fixture; workflow should fail. |
@@ -91,7 +111,7 @@ On Debian / Ubuntu or Fedora, install `jq` with the system package manager and d
 
 ## Claude Code Plugin
 
-Install and verify in [Quick start (Claude Code)](#quick-start-claude-code). Useful slash commands once installed:
+Install and verify in the [Claude Code quick start](#claude-code). Useful slash commands once installed:
 
 ```text
 /agent-guard:verify
@@ -101,15 +121,9 @@ Install and verify in [Quick start (Claude Code)](#quick-start-claude-code). Use
 
 ## Codex Plugin
 
-Install from the marketplace:
+Start with the [Codex quick start](#codex). Re-check **Settings > Hooks** after plugin updates: a changed hook is marked **Modified** and remains inactive until you review and trust it again. SessionStart reports degraded protection when a dependency is unavailable and points Codex to `$setup-agent-guard`; installation remains approval-gated. An untrusted SessionStart hook cannot display that guidance.
 
-```sh
-codex plugin marketplace add JeongJaeSoon/agent-guard
-```
-
-Then open `/plugins` in Codex, install **Agent Guard**, open **Settings > Hooks**, trust the **SessionStart**, **PreToolUse**, **PostToolUse**, and **Stop** hooks, and restart Codex. Re-check this screen after plugin updates: a changed hook is marked **Modified** and remains inactive until you review and trust it again. SessionStart reports degraded protection when a dependency is unavailable and points Codex to `$setup-agent-guard`; installation remains approval-gated. An untrusted SessionStart hook cannot display that guidance.
-
-Run `$setup-agent-guard` and require all three layers to pass: plugin-local `check`, plugin-local `smoke-test`, and the live host probes. For the pre-tool probe, ask Codex to run this harmless sentinel command:
+The setup skill requires all three layers to pass: plugin-local `check`, plugin-local `smoke-test`, and the live host probes. For the pre-tool probe, ask Codex to run this harmless sentinel command:
 
 ```sh
 printf '%s\n' 'AGENT_GUARD_LIVE_PRE_TOOL_PROBE'
