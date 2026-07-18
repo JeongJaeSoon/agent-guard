@@ -140,6 +140,7 @@ validate_versions() {
   claude_version=$(jq -r '.version // ""' "$PLUGIN_ROOT/.claude-plugin/plugin.json")
   codex_version=$(jq -r '.version // ""' "$PLUGIN_ROOT/.codex-plugin/plugin.json")
   marketplace_version=$(jq -r '.plugins[] | select(.name == "agent-guard") | .version // ""' "$ROOT/.claude-plugin/marketplace.json")
+  managed_claude_ref=$(jq -r '.extraKnownMarketplaces["agent-guard"].source.ref // ""' "$ROOT/deployment/claude-managed-settings.example.json")
 
   if printf '%s\n' "$cli_version" | grep -Eq '^2\.[0-9]+\.[0-9]+$'; then
     ok "Agent Guard CLI is on the 2.x release line"
@@ -149,10 +150,11 @@ validate_versions() {
   if [ -n "$cli_version" ] \
      && [ "$claude_version" = "$cli_version" ] \
      && [ "$codex_version" = "$cli_version" ] \
-     && [ "$marketplace_version" = "$cli_version" ]; then
-    ok "CLI, Claude, Codex, and marketplace versions match ($cli_version)"
+     && [ "$marketplace_version" = "$cli_version" ] \
+     && [ "$managed_claude_ref" = "v$cli_version" ]; then
+    ok "CLI, Claude, Codex, marketplace, and managed settings versions match ($cli_version)"
   else
-    fail "CLI, Claude, Codex, and marketplace versions match"
+    fail "CLI, Claude, Codex, marketplace, and managed settings versions match"
   fi
 }
 
@@ -228,6 +230,11 @@ validate_archive() {
   validate_archive_contains "$archive" "THIRD_PARTY_NOTICES.md"
   validate_archive_contains "$archive" "skills/setup-agent-guard/SKILL.md"
   validate_archive_contains "$archive" "skills/setup-agent-guard/agents/openai.yaml"
+  validate_archive_contains "$archive" "managed-install.sh"
+  validate_archive_contains "$archive" "deployment/codex-hook"
+  validate_archive_contains "$archive" "deployment/codex-requirements.toml.template"
+  validate_archive_contains "$archive" "deployment/claude-managed-settings.example.json"
+  validate_archive_contains "$archive" "docs/managed-deployment.md"
 
   if [ -d "$PLUGIN_ROOT/commands" ]; then
     archive_command_count=$(find "$PLUGIN_ROOT/commands" -type f -name '*.md' | wc -l | tr -d ' ')

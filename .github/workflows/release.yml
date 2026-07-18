@@ -138,6 +138,15 @@ jobs:
             jq --arg v "$v" '(.plugins[] | select(.name=="agent-guard") | .version) = $v' \
               "$mp" > "$mp.tmp" && mv "$mp.tmp" "$mp"
           fi
+          # Keep the copy-pasteable managed Claude settings pinned to the same
+          # release as the plugin manifests and marketplace catalog.
+          managed=deployment/claude-managed-settings.example.json
+          if [ -f "$managed" ]; then
+            jq --arg ref "v${v}" '
+              .extraKnownMarketplaces["agent-guard"].source.ref = $ref
+              | (.strictKnownMarketplaces[] | select(.source == "github" and .repo == "JeongJaeSoon/agent-guard") | .ref) = $ref
+            ' "$managed" > "$managed.tmp" && mv "$managed.tmp" "$managed"
+          fi
           # Replace any pinned semver in README install snippets (no-op if none).
           sed -i -E "s|agent-guard@[0-9]+\.[0-9]+\.[0-9]+|agent-guard@${v}|g" README.md
           # Bump the VERSION constant the CLI reports via 'agent-guard version'.
