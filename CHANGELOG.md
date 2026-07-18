@@ -1,3 +1,7 @@
+## v2.2.0 - 2026-07-18
+
+- feat: add self-contained managed bootstrap (#119)
+
 ## v2.1.0 - 2026-07-18
 
 - feat: add managed deployment for Claude Code and Codex (#117)
