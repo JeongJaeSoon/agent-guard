@@ -1,3 +1,9 @@
+## Unreleased
+
+- Add optional PII filtering with local regex and compatible HTTP providers.
+- Split the README into focused integration, PII, and configuration guides.
+- Use `AGENT_GUARD_GITLEAKS_BIN_DIR` for the gitleaks install destination.
+
 ## v1.3.4 - 2026-05-09
 
 - docs: clarify codex plugin hook setup (#46)
@@ -52,4 +58,3 @@
 - chore: usability and robustness pass (#3)
 - [codex] Add CI and clean public-readiness scan noise (#2)
 - Harden against Bash/path bypass, Codex patch parsing, symlink, and action injection (#1)
-

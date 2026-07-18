@@ -93,7 +93,10 @@ check_deps() {
 }
 
 GITLEAKS_DEFAULT_VERSION=8.30.1
-SETUP_INSTALL_DIR=${AGENT_GUARD_BIN_DIR:-$HOME/.agent-guard/bin}
+# Keep AGENT_GUARD_BIN_DIR as a compatibility fallback. bootstrap.sh uses that
+# older variable for the Agent Guard symlink; new setup configuration should use
+# the unambiguous gitleaks-specific name.
+SETUP_INSTALL_DIR=${AGENT_GUARD_GITLEAKS_BIN_DIR:-${AGENT_GUARD_BIN_DIR:-$HOME/.agent-guard/bin}}
 
 setup_status_line() {
   name=$1
@@ -204,6 +207,8 @@ Default behavior is opt-in: setup only reports the dependency status.
 Pass --install to download gitleaks. The checksum is required and must
 match the published value at:
   https://github.com/gitleaks/gitleaks/releases/download/vX.Y.Z/gitleaks_X.Y.Z_checksums.txt
+
+Set AGENT_GUARD_GITLEAKS_BIN_DIR to override the gitleaks install directory.
 EOF
         return 0
         ;;

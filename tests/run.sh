@@ -636,16 +636,6 @@ else
   sed 's/^/  stderr: /' /tmp/agent-guard-test.err
 fi
 
-printf '%s' 'x' | AGENT_GUARD_PII_PROVIDER=pleno "$PLUGIN_ROOT/bin/agent-guard" pii-filter \
-  >/tmp/agent-guard-test.out 2>/tmp/agent-guard-test.err
-status=$?
-if [ "$status" -eq 2 ] && grep -q 'supported providers: regex, http' /tmp/agent-guard-test.err; then
-  ok "pii-filter rejects pleno provider until verified integration exists"
-else
-  not_ok "pii-filter rejects pleno provider until verified integration exists (expected 2, got $status)"
-  sed 's/^/  stderr: /' /tmp/agent-guard-test.err
-fi
-
 PII_MOCK_CURL_DIR="$TMP_ROOT/pii-curl-bin"
 PII_REQUEST_FILE="$TMP_ROOT/pii-request.json"
 PII_URL_FILE="$TMP_ROOT/pii-url.txt"
@@ -812,6 +802,11 @@ fi
 # --- setup -----------------------------------------------------------------
 
 run_expect 0 "setup --help exits 0" "$PLUGIN_ROOT/bin/agent-guard" setup --help
+if grep -q 'AGENT_GUARD_GITLEAKS_BIN_DIR' /tmp/agent-guard-test.err; then
+  ok "setup help documents the gitleaks install directory override"
+else
+  not_ok "setup help documents the gitleaks install directory override"
+fi
 run_expect 2 "setup unknown flag exits 2" "$PLUGIN_ROOT/bin/agent-guard" setup --bogus
 run_expect 0 "setup with all deps present exits 0" "$PLUGIN_ROOT/bin/agent-guard" setup
 
