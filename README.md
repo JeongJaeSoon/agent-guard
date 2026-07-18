@@ -12,31 +12,48 @@ It is not a vault, credential rotator, or replacement for GitHub Secret Scanning
 
 ## Quick start
 
-Install the CLI on macOS or Linux:
+### Claude Code
 
-```sh
-curl -fsSL https://github.com/JeongJaeSoon/agent-guard/releases/latest/download/bootstrap.sh | sh
-agent-guard setup
-agent-guard smoke-test
+Install Agent Guard from the Claude Code marketplace:
+
+```text
+/plugin marketplace add JeongJaeSoon/agent-guard
+/plugin install agent-guard@agent-guard
+/reload-plugins
 ```
 
-Scan the current repository:
+### Codex
+
+Enable plugin hooks and add the marketplace:
 
 ```sh
-agent-guard scan-working-tree
+codex features enable plugin_hooks
+codex plugin marketplace add JeongJaeSoon/agent-guard
 ```
 
-The installer verifies the release checksum, extracts to `~/.agent-guard`, and links `agent-guard` into `~/.local/bin`.
+Open `/plugins` in the Codex TUI, install **Agent Guard**, restart Codex, then open `/hooks` and trust its **PreToolUse**, **PostToolUse**, and **Stop** hooks.
 
-## Choose an integration
+### Verify
+
+Ask Claude Code or Codex:
+
+```text
+Please read .env
+```
+
+Agent Guard should block the request:
+
+```text
+agent-guard: blocked sensitive file access: .env
+```
+
+## Other integrations
 
 | Use case | Integration | Verification |
 |---|---|---|
-| Claude Code | [Plugin hooks](docs/integrations.md#claude-code) | Ask the agent to read `.env`; the read should be blocked. |
-| Codex | [CLI, Git hook, or plugin hooks](docs/integrations.md#codex) | Run `agent-guard smoke-test`; for plugin hooks, try reading `.env`. |
+| Manual scans | [Direct CLI](docs/integrations.md#direct-cli) | Run `agent-guard smoke-test`. |
 | Local commits | [Native pre-commit hook](docs/integrations.md#native-git-hook) | Commit a staged fixture secret; the commit should fail. |
 | CI and pull requests | [GitHub Actions](docs/integrations.md#github-actions) | Push a fixture secret; the workflow should fail. |
-| Manual scans | [Direct CLI](docs/integrations.md#direct-cli) | Run `agent-guard smoke-test`. |
 
 ## Protection scope
 
