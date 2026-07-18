@@ -294,6 +294,7 @@ jobs:
           scripts/build-release-tarball.sh "$v" "$tarball_tmp"
           mv "$tarball_tmp" "agent-guard-${v}.tar.gz"
           sha256sum "agent-guard-${v}.tar.gz" > "agent-guard-${v}.tar.gz.sha256"
+          sha256sum managed-bootstrap.sh > managed-bootstrap.sh.sha256
 
           # Idempotent release publish: if a release object already exists
           # (recovery path from a previous half-finished dispatch), upload the
@@ -307,6 +308,8 @@ jobs:
               "agent-guard-${v}.tar.gz.sha256" \
               install.sh \
               bootstrap.sh \
+              managed-bootstrap.sh \
+              managed-bootstrap.sh.sha256 \
               --clobber
           else
             gh release create "v${v}" \
@@ -315,5 +318,7 @@ jobs:
               "agent-guard-${v}.tar.gz" \
               "agent-guard-${v}.tar.gz.sha256" \
               install.sh \
-              bootstrap.sh
+              bootstrap.sh \
+              managed-bootstrap.sh \
+              managed-bootstrap.sh.sha256
           fi
