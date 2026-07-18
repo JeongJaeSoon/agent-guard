@@ -1,3 +1,12 @@
+## v2.1.0 - 2026-07-18
+
+- feat: add managed deployment for Claude Code and Codex (#117)
+- docs: pin community submission source (#116)
+- docs: prepare Claude marketplace submission review (#115)
+- docs: lead quick start with Claude Code and Codex (#54)
+- ci: bump hashgraph-online/ai-plugin-scanner-action from 1.2.286 to 1.2.484 (#111)
+- ci: bump openai/codex-action from 1.9 to 1.11 (#107)
+
 ## v2.0.1 - 2026-07-17
 
 - fix(hooks): scan `NotebookEdit` cell content so secrets written to notebook cells are blocked (and PII when `AGENT_GUARD_PII_HOOK_MODE=block`) (#112)
