@@ -9,7 +9,7 @@ set -eu
 
 PROGRAM=agent-guard-managed-bootstrap
 REPO=${AGENT_GUARD_REPO:-JeongJaeSoon/agent-guard}
-VERSION=${AGENT_GUARD_VERSION:-}
+VERSION=
 EXPECTED_ARCHIVE_SHA256=${AGENT_GUARD_ARCHIVE_SHA256:-}
 PREFIX=${AGENT_GUARD_PREFIX:-/opt/agent-guard}
 TARGET_USER=${AGENT_GUARD_TARGET_USER:-}
@@ -95,7 +95,7 @@ while [ "$#" -gt 0 ]; do
   shift
 done
 
-[ -n "$VERSION" ] || die "--version or AGENT_GUARD_VERSION is required for a managed install"
+[ -n "$VERSION" ] || die "--version is required for a managed install"
 printf '%s\n' "$VERSION" \
   | awk -F. 'NF == 3 && $1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ && $3 ~ /^[0-9]+$/ { found = 1 } END { exit found ? 0 : 1 }' \
   || die "invalid version (expected X.Y.Z): $VERSION"
@@ -181,10 +181,21 @@ download() {
 }
 
 dependency_ready() {
+  [ -f "$PREFIX/.managed-release" ] || return 1
+  expected_jq_sha256=$(awk -F= '$1 == "jq_sha256" {print $2; exit}' "$PREFIX/.managed-release")
+  expected_gitleaks_sha256=$(awk -F= '$1 == "gitleaks_sha256" {print $2; exit}' "$PREFIX/.managed-release")
+  case "$expected_jq_sha256/$expected_gitleaks_sha256" in
+    *[!0-9a-f/]*|*/|/*) return 1 ;;
+  esac
+  [ "${#expected_jq_sha256}" -eq 64 ] \
+    && [ "${#expected_gitleaks_sha256}" -eq 64 ] \
+    || return 1
   [ -x "$PREFIX/bin/jq" ] \
     && "$PREFIX/bin/jq" -n '.' >/dev/null 2>&1 \
+    && [ "$(sha256_file "$PREFIX/bin/jq")" = "$expected_jq_sha256" ] \
     && [ -x "$PREFIX/bin/gitleaks" ] \
-    && "$PREFIX/bin/gitleaks" version >/dev/null 2>&1
+    && "$PREFIX/bin/gitleaks" version >/dev/null 2>&1 \
+    && [ "$(sha256_file "$PREFIX/bin/gitleaks")" = "$expected_gitleaks_sha256" ]
 }
 
 managed_system_ready() {
@@ -266,7 +277,9 @@ if [ -n "$metadata_archive_sha256" ]; then
     printf 'version=%s\n' "$VERSION"
     printf 'archive_sha256=%s\n' "$metadata_archive_sha256"
     printf 'jq_version=%s\n' "$JQ_VERSION"
+    printf 'jq_sha256=%s\n' "$(sha256_file "$PREFIX/bin/jq")"
     printf 'gitleaks_version=%s\n' "$GITLEAKS_VERSION"
+    printf 'gitleaks_sha256=%s\n' "$(sha256_file "$PREFIX/bin/gitleaks")"
   } >"$metadata_tmp"
   chmod 0644 "$metadata_tmp"
   mv "$metadata_tmp" "$PREFIX/.managed-release"
@@ -288,6 +301,20 @@ detect_target_user() {
     Linux)
       TARGET_USER=${SUDO_USER:-}
       [ "$TARGET_USER" = root ] && TARGET_USER=
+      if [ -z "$TARGET_USER" ] && command -v loginctl >/dev/null 2>&1; then
+        for session_id in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $1}'); do
+          [ "$(loginctl show-session "$session_id" -p Active --value 2>/dev/null || true)" = yes ] \
+            || continue
+          candidate_user=$(loginctl show-session "$session_id" -p Name --value 2>/dev/null || true)
+          case "$candidate_user" in
+            ''|root) continue ;;
+            *) TARGET_USER=$candidate_user; break ;;
+          esac
+        done
+      fi
+      if [ -z "$TARGET_USER" ] && command -v who >/dev/null 2>&1; then
+        TARGET_USER=$(who 2>/dev/null | awk '$1 != "root" {print $1; exit}')
+      fi
       ;;
   esac
 }
@@ -335,6 +362,8 @@ resolve_target_identity() {
 run_user_phase() {
   command=$PREFIX/managed-install.sh
   if [ "$(id -u)" -ne 0 ]; then
+    [ "$(id -u "$TARGET_USER")" = "$(id -u)" ] \
+      || die "non-root execution can only configure the current user"
     HOME="$TARGET_HOME" SHELL="/bin/$TARGET_SHELL" \
       "$command" user --prefix "$PREFIX" "$shell_option" --rc "$rc_file"
     return
@@ -365,7 +394,7 @@ if [ "$skip_user" -eq 0 ]; then
     run_user_phase
     info "default-on shell wrapping installed for $TARGET_USER; it loads in the next shell/Claude session"
   else
-    info "no login user is available; system phase is complete and the next MDM login run must retry the user phase"
+    info "no login user is available; system phase is complete and the next MDM login run must retry the user phase (pass --target-user if automatic detection is unavailable)"
   fi
 fi
 

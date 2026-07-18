@@ -214,7 +214,9 @@ if [ "$status" -eq 0 ] \
    && [ -x "$managed_bootstrap_prefix/bin/jq" ] \
    && [ -x "$managed_bootstrap_prefix/bin/gitleaks" ] \
    && grep -Fq "version=$managed_bootstrap_version" "$managed_bootstrap_prefix/.managed-release" \
-   && grep -Fq "archive_sha256=$managed_bootstrap_sha" "$managed_bootstrap_prefix/.managed-release"; then
+   && grep -Fq "archive_sha256=$managed_bootstrap_sha" "$managed_bootstrap_prefix/.managed-release" \
+   && grep -Eq '^jq_sha256=[0-9a-f]{64}$' "$managed_bootstrap_prefix/.managed-release" \
+   && grep -Eq '^gitleaks_sha256=[0-9a-f]{64}$' "$managed_bootstrap_prefix/.managed-release"; then
   ok "managed bootstrap installs and records a checksum-verified release"
 else
   not_ok "managed bootstrap installs and records a checksum-verified release (status $status)"
@@ -236,7 +238,7 @@ else
 fi
 
 run_expect 2 "managed bootstrap requires an explicit release version" \
-  env AGENT_GUARD_VERSION= sh "$ROOT/managed-bootstrap.sh" \
+  env AGENT_GUARD_VERSION=9.9.9 sh "$ROOT/managed-bootstrap.sh" \
     --prefix "$managed_bootstrap_root/no-version" --skip-user
 
 wrong_managed_sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
@@ -248,6 +250,22 @@ run_expect 2 "managed bootstrap rejects a published checksum that differs from t
       --prefix "$managed_bootstrap_root/wrong-digest" \
       --jq-bin "$managed_bootstrap_jq" \
       --gitleaks-bin "$MOCK_BIN/gitleaks" \
+      --skip-user
+
+managed_bootstrap_tampered_jq="$managed_bootstrap_root/tampered-jq"
+cat >"$managed_bootstrap_tampered_jq" <<EOF
+#!/usr/bin/env sh
+# Deliberately differs from the recorded installed binary while remaining valid.
+exec "$REAL_JQ" "\$@"
+EOF
+chmod +x "$managed_bootstrap_tampered_jq"
+cp "$managed_bootstrap_tampered_jq" "$managed_bootstrap_prefix/bin/jq"
+run_expect 2 "managed bootstrap does not skip a runnable dependency whose identity changed" \
+  env AGENT_GUARD_RELEASE_BASE_URL="file://$managed_bootstrap_root/does-not-exist" \
+    sh "$ROOT/managed-bootstrap.sh" \
+      --version "$managed_bootstrap_version" \
+      --archive-sha256 "$managed_bootstrap_sha" \
+      --prefix "$managed_bootstrap_prefix" \
       --skip-user
 
 if grep -Fq 'AGENT_GUARD_PII_HOOK_MODE' "$ROOT/deployment/claude-managed-settings.example.json"; then
