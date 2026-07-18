@@ -4,6 +4,37 @@
 usable with MDM, configuration management, shared development images, or a team
 bootstrap repository; it does not require an Enterprise subscription by itself.
 
+## Minimal organization-owned surface
+
+Use the release-provided `managed-bootstrap.sh` when the device manager should
+not maintain a copy of Agent Guard's installation logic. The organization owns
+only:
+
+- an explicitly approved Agent Guard version and independently recorded archive digest;
+- its Claude managed settings and composed Codex requirements;
+- the MDM schedule and rollout/pilot controls.
+
+Agent Guard owns release/dependency download and verification, system staging,
+verification, target-user detection, and default-on shell wrapping. Download
+the bootstrap from the same versioned release, verify it with the adjacent
+`managed-bootstrap.sh.sha256` asset, retain the reviewed digest in MDM, and run:
+
+```sh
+sudo sh ./managed-bootstrap.sh \
+  --version X.Y.Z \
+  --archive-sha256 <independently-recorded-release-digest>
+```
+
+The script accepts organization-provided `--jq-bin` and `--gitleaks-bin`
+artifacts, otherwise it downloads Agent Guard's pinned versions and verifies
+their platform-specific SHA-256 values. It records the installed release digest
+under the managed prefix, skips matching downloads on later check-ins, and
+retries the user phase at login. It does not own or overwrite either product's
+policy files.
+
+The remaining sections describe the lower-level/manual composition path and
+the policy that must accompany either installation entrypoint.
+
 The deployment has two ownership boundaries:
 
 | Phase | Runs as | Purpose |
@@ -16,7 +47,7 @@ Codex protection is delivered through managed hooks. Claude Code uses its
 managed plugin hooks plus the user-scoped shell integration for the otherwise
 unhooked `!cat`/`!head`/`!printenv` path.
 
-## 1. Pin and stage the release
+## 1. Pin and stage the release (lower-level path)
 
 Use a reviewed Agent Guard release and approved `jq` and `gitleaks` binaries.
 Do not fetch an unpinned `latest` installer from a privileged MDM job. Either

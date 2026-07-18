@@ -11,6 +11,7 @@ trap 'rm -rf "$stage"' EXIT INT TERM
 cp -R "$ROOT/plugins/agent-guard/." "$stage/"
 cp "$ROOT/install.sh" "$stage/install.sh"
 cp "$ROOT/managed-install.sh" "$stage/managed-install.sh"
+cp "$ROOT/managed-bootstrap.sh" "$stage/managed-bootstrap.sh"
 cp -R "$ROOT/deployment" "$stage/deployment"
 mkdir -p "$stage/docs"
 cp "$ROOT/docs/managed-deployment.md" "$stage/docs/managed-deployment.md"

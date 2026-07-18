@@ -197,6 +197,27 @@ MDM, fleet-management, shared development images, and team-managed machines.
 It is not tied to an Enterprise subscription. The entrypoint keeps privileged
 and user-owned changes separate:
 
+For the smallest organization-owned deployment, use the release-provided
+[`managed-bootstrap.sh`](managed-bootstrap.sh). The organization keeps only the
+reviewed version/digest and its Claude/Codex policy; Agent Guard owns the
+platform-specific downloads, dependency checks, system install, verification,
+and default-on login-user shell phase:
+
+```sh
+sudo sh ./managed-bootstrap.sh \
+  --version X.Y.Z \
+  --archive-sha256 <independently-recorded-release-digest>
+```
+
+Download the bootstrap itself from that same versioned release, verify it with
+the adjacent `managed-bootstrap.sh.sha256` asset (and retain the reviewed digest
+in MDM), then schedule it at enrollment plus login/check-in.
+It never edits Claude managed settings or Codex TOML. A run with no login user
+still completes the system phase; the next login/check-in retries user setup.
+
+The lower-level entrypoint remains available when an organization already
+stages approved artifacts:
+
 ```sh
 # Administrator or device-management phase. Dependencies may be supplied from
 # the organization's already-approved packages.
