@@ -30,6 +30,9 @@ source repository that already backs a live marketplace entry.
   which includes merged PR
   [#54](https://github.com/JeongJaeSoon/agent-guard/pull/54) and its shared
   Claude Code/Codex Quick Start.
+- Submission-ready plugin payload: `bdf51638652db846e1b19aa28f99cfa2d3f337e3`,
+  merged through Agent Guard
+  [PR #115](https://github.com/JeongJaeSoon/agent-guard/pull/115).
 - Official repository: `anthropics/claude-plugins-official` at
   `f9cb226d81172f53a1787cc3ba90dc9ab51aa169`.
 - The official repository has no root `CONTRIBUTING.md` or `SECURITY.md` at that
@@ -42,7 +45,7 @@ source repository that already backs a live marketplace entry.
 |---|---|---|
 | Registration path | The repository README still links a plugin submission form, but current Claude Code docs clarify that the form targets the community marketplace and that official inclusion has no application process. | **Blocker outside the repo.** Prepare artifacts, but seek curator contact or use the community route. |
 | External PRs | Non-member PRs are closed unless they only add marketplace entries from a repository that already has a live entry. | **Blocker.** `JeongJaeSoon/agent-guard` is not already listed. |
-| Source pinning | External sources use `url` or `git-subdir` and a full commit SHA. Automated jobs later bump the SHA and re-scan. | **Ready after push.** Use `git-subdir` with `path: plugins/agent-guard`; fill the template SHA only after the prepared commit is reachable on GitHub. |
+| Source pinning | External sources use `url` or `git-subdir` and a full commit SHA. Automated jobs later bump the SHA and re-scan. | **Ready.** The `git-subdir` template uses `path: plugins/agent-guard` and pins reachable commit `bdf51638652db846e1b19aa28f99cfa2d3f337e3`. |
 | Name | Marketplace names are immutable kebab-case slugs. | **Ready.** `agent-guard` is stable and kebab-case. |
 | Manifest | Plugin root contains `.claude-plugin/plugin.json`; components stay at plugin root. New work prefers `skills/`, while `commands/` remains supported as legacy. | **Ready with legacy note.** Manifest is valid; Claude commands remain legacy-compatible and the Codex setup workflow is a skill. |
 | Hook review | External scan enumerates every hook and fails ungated `PreToolUse` or `PostToolUse` hooks. Descriptions must disclose hook scope and data access. | **Blocker.** Agent Guard's broad hooks are core behavior. Descriptions and privacy docs now disclose the scope, but disclosure does not override the scanner's broad-hook failure rule. |
@@ -74,13 +77,11 @@ catalog, not from an unpinned upstream branch.
 - No public application or direct PR path to `claude-plugins-official`.
 - Current official policy scan treats Agent Guard's ungated `PreToolUse` and
   `PostToolUse` hooks as a failure.
-- The catalog SHA cannot be finalized until this preparation commit is pushed
-  to a public ref. Do not pin an unreachable local commit.
 
 ### Recommended before any review request
 
-- Merge and release the manifest/documentation payload, then replace the SHA
-  placeholder in the entry template with the reachable 40-character commit.
+- Keep the pinned commit synchronized with any future plugin-payload change and
+  re-run submission validation before each submission or curator request.
 - Ask Anthropic whether an always-on local security guard can receive an
   explicit policy exception or whether a per-project activation gate is
   required. Do not silently weaken the product to satisfy the scanner.
