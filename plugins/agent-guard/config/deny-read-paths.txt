@@ -27,3 +27,17 @@ secrets.yaml
 secrets.yml
 service-account*.json
 gcp-sa*.json
+# Reading the process environment is equivalent to `env`/`printenv`. The Bash
+# variant (incl. variable PIDs like /proc/$$/environ) is handled in
+# deny-bash-patterns.txt, which the deny-read glob cannot match.
+/proc/*/environ
+# Additional high-value secret material (keystores, DB/Vault creds, IaC state).
+*.p8
+*.jks
+*.keystore
+.pgpass
+.my.cnf
+*.tfstate
+*.tfvars
+.vault-token
+.dev.vars

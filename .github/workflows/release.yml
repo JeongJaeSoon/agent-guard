@@ -35,7 +35,7 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
 
@@ -231,6 +231,18 @@ jobs:
           git checkout main
           git pull --ff-only origin main
 
+          # Releasing a new major line must not move an older major's compatibility
+          # tag. Capture v1 before publishing v2+ and prove it is unchanged after
+          # the new moving tag is pushed.
+          legacy_v1_before=""
+          if [ "${maj}" != "v1" ]; then
+            legacy_v1_before=$(git ls-remote origin refs/tags/v1 | awk '{print $1; exit}')
+            if [ -z "$legacy_v1_before" ]; then
+              echo "required legacy moving tag v1 is missing; refusing to publish ${maj}"
+              exit 1
+            fi
+          fi
+
           # Idempotent tag create. The Detect step's advisory skip_tag was
           # computed before any PR-cycle merge could change main HEAD, so the
           # authoritative comparison happens here against the freshly-pulled
@@ -252,6 +264,14 @@ jobs:
           # Major moving tag is idempotent by design (-f always replaces).
           git tag -f "${maj}"
           git push origin "${maj}" --force
+          if [ -n "$legacy_v1_before" ]; then
+            legacy_v1_after=$(git ls-remote origin refs/tags/v1 | awk '{print $1; exit}')
+            if [ "$legacy_v1_after" != "$legacy_v1_before" ]; then
+              echo "legacy moving tag v1 changed while publishing ${maj}; aborting release"
+              exit 1
+            fi
+            echo "verified legacy moving tag v1 remains at $legacy_v1_after"
+          fi
 
           # Build the tarball outside the directory tar is enumerating to
           # avoid the "file changed as we read it" race documented for runs
@@ -260,7 +280,7 @@ jobs:
           #
           # Tarball root is plugins/agent-guard/ so the bootstrap-extracted
           # layout (~/.agent-guard/bin/agent-guard) stays unchanged for
-          # existing v1.2.x Direct-CLI users on update.
+          # existing Direct-CLI users across major-version updates.
           tarball_tmp=$(mktemp -d)/agent-guard-${v}.tar.gz
           scripts/build-release-tarball.sh "$v" "$tarball_tmp"
           mv "$tarball_tmp" "agent-guard-${v}.tar.gz"

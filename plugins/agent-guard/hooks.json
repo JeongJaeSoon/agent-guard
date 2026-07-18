@@ -1,0 +1,52 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|apply_patch|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c '[ -n \"${PLUGIN_ROOT:-}\" ] || { echo \"agent-guard: PLUGIN_ROOT env not set\" >&2; exit 2; }; AGENT_GUARD_HOOK_HOST=codex \"${PLUGIN_ROOT}/bin/agent-guard\" hook-pre-tool'",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash|apply_patch|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c '[ -n \"${PLUGIN_ROOT:-}\" ] || { echo \"agent-guard: PLUGIN_ROOT env not set\" >&2; exit 2; }; AGENT_GUARD_HOOK_HOST=codex \"${PLUGIN_ROOT}/bin/agent-guard\" hook-post-tool'",
+            "timeout": 20
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c '[ -n \"${PLUGIN_ROOT:-}\" ] || { echo \"agent-guard: PLUGIN_ROOT env not set\" >&2; exit 2; }; AGENT_GUARD_HOOK_HOST=codex \"${PLUGIN_ROOT}/bin/agent-guard\" hook-stop'",
+            "timeout": 20
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c '[ -n \"${PLUGIN_ROOT:-}\" ] || { echo \"agent-guard: PLUGIN_ROOT env not set\" >&2; exit 2; }; AGENT_GUARD_HOOK_HOST=codex \"${PLUGIN_ROOT}/bin/agent-guard\" hook-session-start'",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

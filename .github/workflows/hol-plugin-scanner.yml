@@ -1,0 +1,46 @@
+name: HOL Plugin Scanner
+
+# Self-scan against the HOL AI Plugin Scanner, the quality/security gate required
+# to list Agent Guard on awesome-codex-plugins (needs score >= 80, no high/critical
+# findings, and the scanner running in CI on the main branch).
+#
+# Runs read-only and does NOT upload SARIF: the list only requires the scanner to
+# run with a passing score, so the unvetted third-party scanner action executes
+# with the minimum privileges needed to print a score. SARIF upload (which would
+# need `security-events: write`) is recommended-only upstream and deliberately
+# skipped to keep this surface minimal.
+#
+# Both third-party and first-party actions are pinned to full commit SHAs (mutable
+# tags can be moved even on first-party repos); the Dependabot config bumps them.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    name: HOL Plugin Scanner
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          # The scanner only reads the working tree, and the unvetted third-party
+          # scanner step runs right after. Don't leave GITHUB_TOKEN persisted in
+          # .git/config where that action could read it.
+          persist-credentials: false
+
+      - name: Run HOL AI Plugin Scanner
+        uses: hashgraph-online/ai-plugin-scanner-action@db7575a8d88632b312a1544513b6dbbdc4b4fecf # v1.2.484
+        with:
+          mode: scan
+          min_score: 80
+          fail_on_severity: high
+          format: text
+          upload_sarif: false
+          write_step_summary: true
