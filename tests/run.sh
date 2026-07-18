@@ -231,9 +231,29 @@ AGENT_GUARD_RELEASE_BASE_URL="file://$managed_bootstrap_root/does-not-exist" \
     --skip-user >"$OUT" 2>"$ERR"
 status=$?
 if [ "$status" -eq 0 ] && grep -Fq 'skipping downloads' "$ERR"; then
-  ok "managed bootstrap check-in skips matching downloads and repairs in place"
+  ok "managed bootstrap check-in skips downloads for a matching verified runtime"
 else
-  not_ok "managed bootstrap check-in skips matching downloads and repairs in place (status $status)"
+  not_ok "managed bootstrap check-in skips downloads for a matching verified runtime (status $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+mv "$managed_bootstrap_prefix/config/gitleaks.toml" \
+  "$managed_bootstrap_root/gitleaks.toml.missing"
+AGENT_GUARD_RELEASE_BASE_URL="file://$managed_bootstrap_release" \
+  sh "$ROOT/managed-bootstrap.sh" \
+    --version "$managed_bootstrap_version" \
+    --archive-sha256 "$managed_bootstrap_sha" \
+    --prefix "$managed_bootstrap_prefix" \
+    --jq-bin "$managed_bootstrap_jq" \
+    --gitleaks-bin "$MOCK_BIN/gitleaks" \
+    --skip-user >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 0 ] \
+   && [ -f "$managed_bootstrap_prefix/config/gitleaks.toml" ] \
+   && ! grep -Fq 'skipping downloads' "$ERR"; then
+  ok "managed bootstrap check-in reinstalls a cached runtime that fails verification"
+else
+  not_ok "managed bootstrap check-in reinstalls a cached runtime that fails verification (status $status)"
   sed 's/^/  stderr: /' "$ERR"
 fi
 

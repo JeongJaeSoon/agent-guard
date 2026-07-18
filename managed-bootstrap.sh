@@ -118,7 +118,9 @@ require() {
 require curl
 require tar
 require awk
+require find
 require mktemp
+require sort
 require uname
 
 os=$(uname -s)
@@ -198,6 +200,53 @@ dependency_ready() {
     && [ "$(sha256_file "$PREFIX/bin/gitleaks")" = "$expected_gitleaks_sha256" ]
 }
 
+payload_ready() {
+  payload_manifest=$PREFIX/.managed-payload.sha256
+  [ -f "$payload_manifest" ] || return 1
+  payload_count=0
+  while IFS= read -r manifest_line; do
+    expected_payload_sha256=${manifest_line%% *}
+    relative_payload_path=${manifest_line#* }
+    case "$expected_payload_sha256" in
+      *[!0-9a-f]*|'') return 1 ;;
+    esac
+    [ "${#expected_payload_sha256}" -eq 64 ] || return 1
+    case "$relative_payload_path" in
+      /*|''|..|../*|*/../*|*/..) return 1 ;;
+    esac
+    payload_file=$PREFIX/$relative_payload_path
+    [ -f "$payload_file" ] \
+      && [ "$(sha256_file "$payload_file")" = "$expected_payload_sha256" ] \
+      || return 1
+    payload_count=$((payload_count + 1))
+  done <"$payload_manifest"
+  [ "$payload_count" -gt 0 ]
+}
+
+write_payload_manifest() {
+  payload_manifest=$PREFIX/.managed-payload.sha256
+  payload_manifest_tmp=$payload_manifest.tmp.$$
+  payload_files=$tmp/managed-payload-files
+  find "$PREFIX" -type f \
+    ! -path "$PREFIX/bin/jq" \
+    ! -path "$PREFIX/bin/gitleaks" \
+    ! -path "$PREFIX/.managed-release" \
+    ! -path "$PREFIX/.managed-release.tmp.*" \
+    ! -path "$PREFIX/.managed-payload.sha256" \
+    ! -path "$PREFIX/.managed-payload.sha256.tmp.*" \
+    -print | LC_ALL=C sort >"$payload_files"
+  umask 022
+  : >"$payload_manifest_tmp"
+  while IFS= read -r payload_file; do
+    relative_payload_path=${payload_file#"$PREFIX"/}
+    printf '%s %s\n' "$(sha256_file "$payload_file")" "$relative_payload_path" \
+      >>"$payload_manifest_tmp"
+  done <"$payload_files"
+  [ -s "$payload_manifest_tmp" ] || die "managed payload manifest would be empty"
+  chmod 0644 "$payload_manifest_tmp"
+  mv "$payload_manifest_tmp" "$payload_manifest"
+}
+
 managed_system_ready() {
   [ -x "$PREFIX/bin/agent-guard" ] \
     && [ -x "$PREFIX/managed-install.sh" ] \
@@ -206,6 +255,8 @@ managed_system_ready() {
     && [ -f "$PREFIX/.managed-release" ] \
     && [ "$(awk -F= '$1 == "version" {print $2; exit}' "$PREFIX/.managed-release")" = "$VERSION" ] \
     && dependency_ready \
+    && payload_ready \
+    && "$PREFIX/managed-install.sh" verify --prefix "$PREFIX" >/dev/null 2>&1 \
     || return 1
   [ -z "$EXPECTED_ARCHIVE_SHA256" ] \
     || [ "$(awk -F= '$1 == "archive_sha256" {print $2; exit}' "$PREFIX/.managed-release")" = "$EXPECTED_ARCHIVE_SHA256" ]
@@ -271,6 +322,7 @@ fi
 "$PREFIX/managed-install.sh" verify --prefix "$PREFIX"
 
 if [ -n "$metadata_archive_sha256" ]; then
+  write_payload_manifest
   metadata_tmp=$PREFIX/.managed-release.tmp.$$
   umask 022
   {
