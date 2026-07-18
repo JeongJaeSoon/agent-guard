@@ -31,3 +31,6 @@ jobs:
 
       - name: Validate Release Archive Layout
         run: scripts/validate-plugin-layout.sh --archive
+
+      - name: Validate Marketplace Submission Readiness
+        run: make submission-check

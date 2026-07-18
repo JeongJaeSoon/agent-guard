@@ -220,6 +220,12 @@ validate_archive() {
   validate_archive_contains "$archive" ".claude-plugin/plugin.json"
   validate_archive_contains "$archive" "hooks.json"
   validate_archive_contains "$archive" "hooks/hooks.json"
+  validate_archive_contains "$archive" "README.md"
+  validate_archive_contains "$archive" "LICENSE"
+  validate_archive_contains "$archive" "PRIVACY.md"
+  validate_archive_contains "$archive" "SECURITY.md"
+  validate_archive_contains "$archive" "SUPPORT.md"
+  validate_archive_contains "$archive" "THIRD_PARTY_NOTICES.md"
   validate_archive_contains "$archive" "skills/setup-agent-guard/SKILL.md"
   validate_archive_contains "$archive" "skills/setup-agent-guard/agents/openai.yaml"
 

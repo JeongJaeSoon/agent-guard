@@ -109,6 +109,25 @@ brew install jq gitleaks
 
 On Debian / Ubuntu or Fedora, install `jq` with the system package manager and download `gitleaks` from its release page.
 
+## Trust, privacy, and support
+
+When the plugin is enabled, its `PreToolUse` and `PostToolUse` hooks run for every
+matched tool call in the session. They inspect supported tool inputs and outputs
+in memory, and mutation/stop backstops scan changed files in the current Git work
+tree. Default hook processing is local: Agent Guard has no telemetry, developer
+service, account, or analytics endpoint, and it does not retain inspected data.
+
+PII hook handling is off by default. The built-in `regex` provider stays local.
+If you explicitly select the `pleno` or `http` provider, text passed to
+`pii-filter`—and supported tool-input text in PII `block` mode—is sent to the
+exact endpoint in `AGENT_GUARD_PII_REDACT_URL`. Review that endpoint's privacy
+and retention terms before enabling it.
+
+Dependency downloads never happen from a lifecycle hook. The guided setup asks
+before installing anything and requires a published SHA-256 for the gitleaks
+archive. See [Privacy and data handling](PRIVACY.md), [Security](SECURITY.md),
+[Support](SUPPORT.md), and [Third-party notices](THIRD_PARTY_NOTICES.md).
+
 ## Claude Code Plugin
 
 Install and verify in the [Claude Code quick start](#claude-code). Useful slash commands once installed:
