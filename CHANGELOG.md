@@ -2,6 +2,16 @@
 
 - feat!: simplify managed deployment to settings merge plus developer setup (#122)
 
+Breaking changes (see the [2.x to 3.x migration guide](docs/migration-v3.md)):
+
+- Removed the `managed-install.sh` entrypoint and the self-contained
+  `managed-bootstrap.sh`, including the `managed-bootstrap.sh` /
+  `managed-bootstrap.sh.sha256` release assets.
+- Removed the Codex managed hook path (`deployment/codex-hook`,
+  `deployment/codex-requirements.toml.template`); Codex users install the
+  plugin through the standard install.
+- Removed `setup-shell --prepend-path`.
+
 ## v2.2.0 - 2026-07-18
 
 - feat: add self-contained managed bootstrap (#119)

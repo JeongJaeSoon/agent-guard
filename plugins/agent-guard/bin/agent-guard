@@ -695,9 +695,15 @@ block_on_scan_status() {
 }
 
 extract_added_lines() {
+  # Track hunk state so a file header (`+++ b/path`, before the first `@@`) is
+  # told apart from added CONTENT by position, not by shape. Matching `+++ ` by
+  # shape dropped any added line whose own content began with `++ ` — git
+  # prefixes it with one more `+`, so `++ SECRET` arrived as `+++ SECRET` and
+  # slipped past the scanner. Only `+` lines inside a hunk are additions.
   awk '
-    /^(diff --git|index|---|\+\+\+|@@) / { next }
-    /^\+/ { sub(/^\+/, ""); print }
+    /^diff --git / { in_hunk = 0; next }
+    /^@@/ { in_hunk = 1; next }
+    in_hunk && /^\+/ { sub(/^\+/, ""); print }
   '
 }
 

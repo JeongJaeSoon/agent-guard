@@ -20,6 +20,6 @@ Agent Guard supports macOS and Linux on x64 and arm64. Runtime hooks require
 `sh`, `awk`, `git`, `jq`, and gitleaks. Windows is not currently supported.
 Host support and known coverage boundaries are documented in the main README.
 
-The latest 2.x release is the actively supported line. The 1.x moving tag
+The latest 3.x release is the actively supported line. The 2.x moving tag
 receives security fixes only. General support is best effort; security reports
 are acknowledged on the timeline stated in `SECURITY.md`.

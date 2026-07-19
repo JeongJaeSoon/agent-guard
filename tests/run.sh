@@ -1088,6 +1088,49 @@ else
   not_ok "scan-working-tree detects untracked secret (expected 1, got $status)"
 fi
 
+# A staged line whose own content begins with "++ " reaches git diff as
+# "+++ ..." — the added-line filter must scan it, not mistake it for a
+# "+++ b/path" file header and drop it.
+(
+  cd "$TEST_REPO" || exit 2
+  git reset -q
+  rm -f staged.txt untracked.txt
+  printf '%s\n' "++ AGENT_GUARD_TEST_SECRET" > plusplus.txt
+  git add plusplus.txt
+  "$PLUGIN_ROOT/bin/agent-guard" scan-staged >"$OUT" 2>"$ERR"
+)
+status=$?
+if [ "$status" -eq 1 ]; then
+  ok "scan-staged scans an added line whose content starts with '++ '"
+else
+  not_ok "scan-staged scans an added line whose content starts with '++ ' (expected 1, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+# Same "++ " line, exercised through the working-tree diff path (a tracked
+# modification, not an untracked file which takes the cat path instead).
+(
+  cd "$TEST_REPO" || exit 2
+  git reset -q
+  printf '%s\n' "benign baseline" > plusplus.txt
+  git add plusplus.txt
+  git commit -q -m plusplus-baseline
+  printf '%s\n' "benign baseline" "++ AGENT_GUARD_TEST_SECRET" > plusplus.txt
+  "$PLUGIN_ROOT/bin/agent-guard" scan-working-tree >"$OUT" 2>"$ERR"
+)
+status=$?
+if [ "$status" -eq 1 ]; then
+  ok "scan-working-tree scans a tracked '++ ' line in a modified file"
+else
+  not_ok "scan-working-tree scans a tracked '++ ' line in a modified file (expected 1, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+(
+  cd "$TEST_REPO" || exit 2
+  git rm -q plusplus.txt >/dev/null 2>&1
+  git commit -q -m drop-plusplus >/dev/null 2>&1
+)
+
 (
   cd "$TEST_REPO" || exit 2
   printf '%s' '{"stop_hook_active":true}' | "$PLUGIN_ROOT/bin/agent-guard" hook-stop >"$OUT" 2>"$ERR"
@@ -2313,6 +2356,40 @@ if [ -n "$REAL_GITLEAKS" ]; then
     ok "real gitleaks still flags a PAT containing a 12-x run (anchored allowlist)"
   else
     not_ok "real gitleaks still flags a PAT containing a 12-x run (expected 1, got $status)"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+
+  # The word-placeholder allowlist is anchored to the whole secret too: a real
+  # vendor token that merely embeds `example_token` / `dummy_secret` keeps its
+  # finding, while a bare placeholder stays exempt. Assembled at runtime so this
+  # file never holds a contiguous vendor-shaped literal.
+  EMBED_HEAD='sk-proj-'
+  EMBED_TOKEN=$(printf '%sAAAAAAA%sBBBBBBBBCCCCCC' "$EMBED_HEAD" 'example_token')
+  EMBED_FIXTURE_DIR="$TMP_ROOT/embed-placeholder-dir"
+  mkdir -p "$EMBED_FIXTURE_DIR"
+  printf 'value = %s\n' "$EMBED_TOKEN" > "$EMBED_FIXTURE_DIR/conf.txt"
+  PATH="$(dirname "$REAL_GITLEAKS"):$ORIGINAL_PATH" "$PLUGIN_ROOT/bin/agent-guard" scan-path "$EMBED_FIXTURE_DIR" >"$OUT" 2>"$ERR"
+  status=$?
+  if [ "$status" -eq 1 ]; then
+    ok "real gitleaks flags a real token that merely embeds an example_token substring"
+  else
+    not_ok "real gitleaks flags a token embedding example_token (expected 1, got $status)"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+
+  PLACEHOLDER_WORD_DIR="$TMP_ROOT/placeholder-word-dir"
+  mkdir -p "$PLACEHOLDER_WORD_DIR"
+  {
+    printf 'a = %s\n' 'example_token'
+    printf 'b = %s\n' 'dummy_secret'
+    printf 'c = %s\n' 'not-a-real-token'
+  } > "$PLACEHOLDER_WORD_DIR/conf.txt"
+  PATH="$(dirname "$REAL_GITLEAKS"):$ORIGINAL_PATH" "$PLUGIN_ROOT/bin/agent-guard" scan-path "$PLACEHOLDER_WORD_DIR" >"$OUT" 2>"$ERR"
+  status=$?
+  if [ "$status" -eq 0 ]; then
+    ok "bare word placeholders stay exempt (example_token, dummy_secret, not-a-real-token)"
+  else
+    not_ok "bare word placeholders stay exempt (expected 0, got $status)"
     sed 's/^/  stderr: /' "$ERR"
   fi
 

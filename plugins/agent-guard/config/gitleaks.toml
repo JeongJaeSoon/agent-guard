@@ -31,13 +31,15 @@ keywords = ["ghp_", "gho_", "ghu_", "ghs_", "ghr_", "github_pat_", "a3t", "akia"
 
 [[allowlists]]
 description = "Obvious dummy placeholders"
+# Every entry is anchored to the WHOLE secret. A docs placeholder is exempt
+# only when the entire value is placeholder-shaped, so a real token that merely
+# embeds `example_token` / `dummy_secret` / an x-run keeps its finding (a
+# vendor prefix like `sk-proj-` carries a hyphen the alnum decoration cannot
+# span, so the embedded-substring bypass is closed).
 regexes = [
-  '''(?i)example[_-]?(token|key|secret|password)''',
-  '''(?i)dummy[_-]?(token|key|secret|password)''',
-  '''(?i)not[-_ ]?a[-_ ]?real[-_ ]?(token|key|secret|password)''',
-  # Anchored to the whole secret so a placeholder shaped entirely from
-  # alphanumerics with a long run of x's (or all zeros) is still exempt, but a
-  # real secret that merely embeds such a run is no longer silently suppressed.
+  '''(?i)^[a-z0-9]*example[_-]?(token|key|secret|password)[a-z0-9]*$''',
+  '''(?i)^[a-z0-9]*dummy[_-]?(token|key|secret|password)[a-z0-9]*$''',
+  '''(?i)^not[-_ ]?a[-_ ]?real[-_ ]?(token|key|secret|password)$''',
   '''(?i)^[A-Za-z0-9]*x{12,}[A-Za-z0-9]*$''',
   '''^0{12,}$'''
 ]

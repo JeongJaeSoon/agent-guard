@@ -199,10 +199,11 @@ Rolling Agent Guard out to an organization takes two steps:
    into the organization's Claude Code managed settings. It registers the
    Agent Guard marketplace pinned to a release tag and force-enables the
    plugin for every developer.
-2. **Each developer, once per machine**: run the setup commands — the
-   `setup-agent-guard` skill (or `agent-guard setup --install ...`) for the
-   `jq`/`gitleaks` dependencies, `/agent-guard:setup-shell` for the shell
-   integration, then `agent-guard smoke-test` to verify.
+2. **Each developer, once per machine**: run the setup commands —
+   `agent-guard setup --install ...` for the `jq`/`gitleaks` dependencies
+   (`/agent-guard:checksum` prints the paste-ready command),
+   `/agent-guard:setup-shell` for the shell integration, then
+   `agent-guard smoke-test` to verify.
 
 Developers who have not finished setup are reminded automatically: the
 plugin's `SessionStart` hook detects missing dependencies or a missing shell
@@ -282,13 +283,13 @@ This sets `core.hooksPath=githooks` only when it will not overwrite an existing 
 Add a workflow step:
 
 ```yaml
-- uses: JeongJaeSoon/agent-guard@v2
+- uses: JeongJaeSoon/agent-guard@v3
   with:
     paths: "."
     gitleaks-checksum: "<sha256 of the gitleaks release archive>"
 ```
 
-Use `@v2` for compatible 2.x updates. The existing `@v1` moving tag remains on the 1.x line; pin `@v1`, a full tag, or a commit SHA when you intentionally stay on 1.x.
+Use `@v3` for compatible 3.x updates. The `@v2` and `@v1` moving tags remain on the 2.x and 1.x lines; pin one of them, a full tag, or a commit SHA when you intentionally stay on an older line.
 
 Get the checksum with:
 

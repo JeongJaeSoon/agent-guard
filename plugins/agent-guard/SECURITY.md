@@ -3,13 +3,13 @@
 ## Supported versions
 
 Agent Guard ships fixes on the latest release line. Use the most recent tag:
-`@v2` for the GitHub Action, and the latest release for CLI and plugin installs.
+`@v3` for the GitHub Action, and the latest release for CLI and plugin installs.
 
 | Version | Supported |
 |---|---|
-| Latest release (2.x) | ✅ |
-| 1.x / `@v1` | Security fixes only |
-| Older 1.x tags | Best effort |
+| Latest release (3.x) | ✅ |
+| 2.x / `@v2` | Security fixes only |
+| 1.x / `@v1` | Best effort |
 
 ## Reporting a vulnerability
 
