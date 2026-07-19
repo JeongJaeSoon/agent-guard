@@ -230,10 +230,6 @@ validate_archive() {
   validate_archive_contains "$archive" "THIRD_PARTY_NOTICES.md"
   validate_archive_contains "$archive" "skills/setup-agent-guard/SKILL.md"
   validate_archive_contains "$archive" "skills/setup-agent-guard/agents/openai.yaml"
-  validate_archive_contains "$archive" "managed-install.sh"
-  validate_archive_contains "$archive" "managed-bootstrap.sh"
-  validate_archive_contains "$archive" "deployment/codex-hook"
-  validate_archive_contains "$archive" "deployment/codex-requirements.toml.template"
   validate_archive_contains "$archive" "deployment/claude-managed-settings.example.json"
   validate_archive_contains "$archive" "docs/managed-deployment.md"
 

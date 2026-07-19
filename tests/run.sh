@@ -95,198 +95,12 @@ for file in \
   "$PLUGIN_ROOT/bin/agent-guard" \
   "$ROOT/install.sh" \
   "$ROOT/bootstrap.sh" \
-  "$ROOT/managed-install.sh" \
-  "$ROOT/managed-bootstrap.sh" \
-  "$ROOT/deployment/codex-hook" \
   "$ROOT/scripts/build-release-tarball.sh" \
   "$ROOT/githooks/pre-commit" \
   "$PLUGIN_ROOT/scripts/gitleaks-checksum.sh" \
   "$ROOT/tests/run.sh"; do
   run_expect 0 "shell syntax: $file" sh -n "$file"
 done
-
-# Managed deployment is a two-phase, host-aware install: the system phase
-# places a stable payload for Codex managed hooks, while the user phase writes
-# Claude shell integration without requiring each user to run setup manually.
-managed_root="$TESTTMP/managed-deployment"
-managed_prefix="$managed_root/prefix"
-managed_user="$managed_root/user"
-mkdir -p "$managed_root" "$managed_user"
-
-sh "$ROOT/managed-install.sh" system \
-  --prefix "$managed_prefix" \
-  --gitleaks-bin "$MOCK_BIN/gitleaks" >"$OUT" 2>"$ERR"
-status=$?
-if [ "$status" -eq 0 ] \
-   && [ -x "$managed_prefix/bin/agent-guard" ] \
-   && [ -x "$managed_prefix/bin/gitleaks" ] \
-   && [ -x "$managed_prefix/deployment/codex-hook" ] \
-   && [ -x "$managed_prefix/managed-install.sh" ]; then
-  ok "managed system install stages Agent Guard, dependencies, and Codex dispatcher"
-else
-  not_ok "managed system install stages Agent Guard, dependencies, and Codex dispatcher (status $status)"
-  sed 's/^/  stderr: /' "$ERR"
-fi
-
-run_expect 0 "managed system install is idempotent from the installed prefix" \
-  sh "$managed_prefix/managed-install.sh" system --prefix "$managed_prefix"
-
-managed_fragment="$managed_root/agent-guard-requirements.toml"
-sh "$managed_prefix/managed-install.sh" render-codex \
-  --prefix "$managed_prefix" --output "$managed_fragment" >"$OUT" 2>"$ERR"
-status=$?
-if [ "$status" -eq 0 ] \
-   && grep -Fq 'hooks = true' "$managed_fragment" \
-   && grep -Fq "managed_dir = \"$managed_prefix\"" "$managed_fragment" \
-   && grep -Fq "$managed_prefix/deployment/codex-hook hook-pre-tool" "$managed_fragment" \
-   && ! grep -Eq '^[[:space:]]*allow_managed_hooks_only' "$managed_fragment"; then
-  ok "managed install renders an enforceable, non-exclusive Codex requirements fragment"
-else
-  not_ok "managed install renders an enforceable, non-exclusive Codex requirements fragment"
-fi
-
-if sh "$managed_prefix/managed-install.sh" render-codex \
-  --prefix "$managed_prefix" --output "$managed_fragment" >/dev/null 2>&1; then
-  not_ok "managed Codex renderer refuses to overwrite an existing requirements file"
-else
-  ok "managed Codex renderer refuses to overwrite an existing requirements file"
-fi
-
-printf '%s' '{"cwd":"/tmp","hook_event_name":"PreToolUse","model":"gpt-5","permission_mode":"default","session_id":"managed-test","tool_input":{"command":"cat .env"},"tool_name":"Bash","tool_use_id":"managed-use","transcript_path":null,"turn_id":"managed-turn"}' \
-  | "$managed_prefix/deployment/codex-hook" hook-pre-tool >"$OUT" 2>"$ERR"
-status=$?
-if [ "$status" -eq 2 ]; then
-  ok "managed Codex dispatcher blocks a deny-listed Bash input"
-else
-  not_ok "managed Codex dispatcher blocks a deny-listed Bash input (expected 2, got $status)"
-  sed 's/^/  stderr: /' "$ERR"
-fi
-
-HOME="$managed_user" SHELL=/bin/zsh \
-  sh "$managed_prefix/managed-install.sh" user \
-    --prefix "$managed_prefix" --rc "$managed_user/.zshrc" >"$OUT" 2>"$ERR"
-status=$?
-if [ "$status" -eq 0 ] \
-   && grep -Fq "PATH='$managed_prefix/bin':\$PATH; export PATH;" "$managed_user/.zshrc" \
-   && grep -Fq 'agent-guard shell-init' "$managed_user/.zshrc" \
-   && ! grep -Fq -- '--no-command-wrapping' "$managed_user/.zshrc"; then
-  ok "managed user install enables Claude wrapping with the managed bin directory"
-else
-  not_ok "managed user install enables Claude wrapping with the managed bin directory (status $status)"
-  sed 's/^/  stderr: /' "$ERR"
-fi
-
-# The standalone managed bootstrap is the organization-light MDM entrypoint.
-# It downloads a pinned Agent Guard release, verifies the published archive
-# checksum, delegates to managed-install.sh, and can use pre-approved dependency
-# binaries without copying deployment logic into an organization repository.
-managed_bootstrap_root="$TESTTMP/managed-bootstrap"
-managed_bootstrap_release="$managed_bootstrap_root/release"
-managed_bootstrap_prefix="$managed_bootstrap_root/prefix"
-managed_bootstrap_version=$(sed -n 's/^VERSION=//p' "$PLUGIN_ROOT/bin/agent-guard" | head -1)
-managed_bootstrap_archive="agent-guard-${managed_bootstrap_version}.tar.gz"
-managed_bootstrap_jq="$managed_bootstrap_root/mock-jq"
-mkdir -p "$managed_bootstrap_release"
-cat >"$managed_bootstrap_jq" <<EOF
-#!/usr/bin/env sh
-exec "$REAL_JQ" "\$@"
-EOF
-chmod +x "$managed_bootstrap_jq"
-"$ROOT/scripts/build-release-tarball.sh" "$managed_bootstrap_version" \
-  "$managed_bootstrap_release/$managed_bootstrap_archive"
-(
-  cd "$managed_bootstrap_release" || exit 1
-  shasum -a 256 "$managed_bootstrap_archive" >"$managed_bootstrap_archive.sha256"
-)
-managed_bootstrap_sha=$(awk '{print $1; exit}' "$managed_bootstrap_release/$managed_bootstrap_archive.sha256")
-
-AGENT_GUARD_RELEASE_BASE_URL="file://$managed_bootstrap_release" \
-  sh "$ROOT/managed-bootstrap.sh" \
-    --version "$managed_bootstrap_version" \
-    --archive-sha256 "$managed_bootstrap_sha" \
-    --prefix "$managed_bootstrap_prefix" \
-    --jq-bin "$managed_bootstrap_jq" \
-    --gitleaks-bin "$MOCK_BIN/gitleaks" \
-    --skip-user >"$OUT" 2>"$ERR"
-status=$?
-if [ "$status" -eq 0 ] \
-   && [ -x "$managed_bootstrap_prefix/bin/agent-guard" ] \
-   && [ -x "$managed_bootstrap_prefix/bin/jq" ] \
-   && [ -x "$managed_bootstrap_prefix/bin/gitleaks" ] \
-   && grep -Fq "version=$managed_bootstrap_version" "$managed_bootstrap_prefix/.managed-release" \
-   && grep -Fq "archive_sha256=$managed_bootstrap_sha" "$managed_bootstrap_prefix/.managed-release" \
-   && grep -Eq '^jq_sha256=[0-9a-f]{64}$' "$managed_bootstrap_prefix/.managed-release" \
-   && grep -Eq '^gitleaks_sha256=[0-9a-f]{64}$' "$managed_bootstrap_prefix/.managed-release"; then
-  ok "managed bootstrap installs and records a checksum-verified release"
-else
-  not_ok "managed bootstrap installs and records a checksum-verified release (status $status)"
-  sed 's/^/  stderr: /' "$ERR"
-fi
-
-AGENT_GUARD_RELEASE_BASE_URL="file://$managed_bootstrap_root/does-not-exist" \
-  sh "$ROOT/managed-bootstrap.sh" \
-    --version "$managed_bootstrap_version" \
-    --archive-sha256 "$managed_bootstrap_sha" \
-    --prefix "$managed_bootstrap_prefix" \
-    --skip-user >"$OUT" 2>"$ERR"
-status=$?
-if [ "$status" -eq 0 ] && grep -Fq 'skipping downloads' "$ERR"; then
-  ok "managed bootstrap check-in skips downloads for a matching verified runtime"
-else
-  not_ok "managed bootstrap check-in skips downloads for a matching verified runtime (status $status)"
-  sed 's/^/  stderr: /' "$ERR"
-fi
-
-mv "$managed_bootstrap_prefix/config/gitleaks.toml" \
-  "$managed_bootstrap_root/gitleaks.toml.missing"
-AGENT_GUARD_RELEASE_BASE_URL="file://$managed_bootstrap_release" \
-  sh "$ROOT/managed-bootstrap.sh" \
-    --version "$managed_bootstrap_version" \
-    --archive-sha256 "$managed_bootstrap_sha" \
-    --prefix "$managed_bootstrap_prefix" \
-    --jq-bin "$managed_bootstrap_jq" \
-    --gitleaks-bin "$MOCK_BIN/gitleaks" \
-    --skip-user >"$OUT" 2>"$ERR"
-status=$?
-if [ "$status" -eq 0 ] \
-   && [ -f "$managed_bootstrap_prefix/config/gitleaks.toml" ] \
-   && ! grep -Fq 'skipping downloads' "$ERR"; then
-  ok "managed bootstrap check-in reinstalls a cached runtime that fails verification"
-else
-  not_ok "managed bootstrap check-in reinstalls a cached runtime that fails verification (status $status)"
-  sed 's/^/  stderr: /' "$ERR"
-fi
-
-run_expect 2 "managed bootstrap requires an explicit release version" \
-  env AGENT_GUARD_VERSION=9.9.9 sh "$ROOT/managed-bootstrap.sh" \
-    --prefix "$managed_bootstrap_root/no-version" --skip-user
-
-wrong_managed_sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-run_expect 2 "managed bootstrap rejects a published checksum that differs from the organization pin" \
-  env AGENT_GUARD_RELEASE_BASE_URL="file://$managed_bootstrap_release" \
-    sh "$ROOT/managed-bootstrap.sh" \
-      --version "$managed_bootstrap_version" \
-      --archive-sha256 "$wrong_managed_sha" \
-      --prefix "$managed_bootstrap_root/wrong-digest" \
-      --jq-bin "$managed_bootstrap_jq" \
-      --gitleaks-bin "$MOCK_BIN/gitleaks" \
-      --skip-user
-
-managed_bootstrap_tampered_jq="$managed_bootstrap_root/tampered-jq"
-cat >"$managed_bootstrap_tampered_jq" <<EOF
-#!/usr/bin/env sh
-# Deliberately differs from the recorded installed binary while remaining valid.
-exec "$REAL_JQ" "\$@"
-EOF
-chmod +x "$managed_bootstrap_tampered_jq"
-cp "$managed_bootstrap_tampered_jq" "$managed_bootstrap_prefix/bin/jq"
-run_expect 2 "managed bootstrap does not skip a runnable dependency whose identity changed" \
-  env AGENT_GUARD_RELEASE_BASE_URL="file://$managed_bootstrap_root/does-not-exist" \
-    sh "$ROOT/managed-bootstrap.sh" \
-      --version "$managed_bootstrap_version" \
-      --archive-sha256 "$managed_bootstrap_sha" \
-      --prefix "$managed_bootstrap_prefix" \
-      --skip-user
 
 if grep -Fq 'AGENT_GUARD_PII_HOOK_MODE' "$ROOT/deployment/claude-managed-settings.example.json"; then
   not_ok "managed Claude settings do not force the opt-in PII hook mode"
@@ -2333,11 +2147,10 @@ run_expect 0 "release tarball builder succeeds" \
 tar -xzf "$RELEASE_TARBALL_DIR/agent-guard-test.tar.gz" -C "$RELEASE_TARBALL_DIR/out"
 if [ -x "$RELEASE_TARBALL_DIR/out/bin/agent-guard" ] \
    && [ -x "$RELEASE_TARBALL_DIR/out/install.sh" ] \
-   && [ -x "$RELEASE_TARBALL_DIR/out/managed-install.sh" ] \
-   && [ -x "$RELEASE_TARBALL_DIR/out/deployment/codex-hook" ]; then
-  ok "release tarball contains direct and managed install entrypoints"
+   && [ -f "$RELEASE_TARBALL_DIR/out/deployment/claude-managed-settings.example.json" ]; then
+  ok "release tarball contains the CLI, installer, and managed settings example"
 else
-  not_ok "release tarball contains direct and managed install entrypoints"
+  not_ok "release tarball contains the CLI, installer, and managed settings example"
 fi
 
 # --- githooks/pre-commit invokes scan-staged ------------------------------
