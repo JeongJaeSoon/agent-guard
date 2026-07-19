@@ -1,3 +1,7 @@
+## v3.0.0 - 2026-07-19
+
+- feat!: simplify managed deployment to settings merge plus developer setup (#122)
+
 ## v2.2.0 - 2026-07-18
 
 - feat: add self-contained managed bootstrap (#119)
