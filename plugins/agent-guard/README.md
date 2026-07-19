@@ -24,7 +24,10 @@ plugin. Until then, install from the project's marketplace:
 /reload-plugins
 ```
 
-Install `jq` and gitleaks, then verify:
+After installation, SessionStart reports `DEGRADED` protection whenever `jq`,
+`git`, gitleaks, or a bundled policy is unavailable. Follow its prompt to run
+`$setup-agent-guard` (or the plugin-local `agent-guard setup`); dependency
+installation always requires explicit approval. Then verify:
 
 ```text
 /agent-guard:verify
@@ -37,8 +40,10 @@ Optional Claude shell command wrapping requires an explicit shell-rc change:
 ```
 
 Restart the shell and Claude Code after setup. Dependency downloads never run
-from a lifecycle hook. The guided setup path asks before installing software and
-requires the published SHA-256 for the selected gitleaks archive.
+from a lifecycle hook. Until wrapping is loaded, SessionStart repeats the
+`/agent-guard:setup-shell` instruction. The guided setup path asks before
+installing software and requires the published SHA-256 for the selected
+gitleaks archive.
 
 ## Hooks and data scope
 
