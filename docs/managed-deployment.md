@@ -29,11 +29,8 @@ do not add `sha` beside `ref` and describe the result as commit-pinned.
 Once the managed settings land, Claude Code loads the plugin automatically.
 Each developer then completes setup in a Claude Code session:
 
-1. **Dependencies** (`jq`, `gitleaks`): use the
-   `agent-guard:setup-agent-guard` skill, which resolves the plugin-local
-   binary, proposes the install plan, and asks before changing anything.
-   The equivalent manual commands are `agent-guard setup` to diagnose, then
-   `agent-guard setup --install --gitleaks-version <version>
+1. **Dependencies** (`jq`, `gitleaks`): run `agent-guard setup` to diagnose,
+   then `agent-guard setup --install --gitleaks-version <version>
    --gitleaks-checksum <published-sha256>` — `/agent-guard:checksum` prints
    the paste-ready version/checksum pair. The plugin does not put
    `agent-guard` on `PATH`; ask Claude to run the plugin-local binary.
