@@ -41,9 +41,14 @@ jobs:
 
       - name: Compute next version
         id: ver
+        env:
+          # Pass the free-form input through the environment, never interpolated
+          # into the script body — `${{ inputs.version }}` inlined into `run:`
+          # executes as shell before the X.Y.Z check below can reject it.
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          explicit="${{ inputs.version }}"
+          explicit="$INPUT_VERSION"
           if [ -n "$explicit" ]; then
             if ! printf '%s' "$explicit" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
               echo "version input must match X.Y.Z (got: $explicit)"
