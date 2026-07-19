@@ -26,7 +26,8 @@ plugin. Until then, install from the project's marketplace:
 
 After installation, SessionStart reports `DEGRADED` protection whenever `jq`,
 `git`, gitleaks, or a bundled policy is unavailable. Follow its prompt to run
-`$setup-agent-guard` (or the plugin-local `agent-guard setup`); dependency
+the `agent-guard:setup-agent-guard` skill (or the plugin-local
+`agent-guard setup`); dependency
 installation always requires explicit approval. Then verify:
 
 ```text
@@ -72,6 +73,12 @@ gitleaks 8.30 or newer (recommended).
 - `/agent-guard:verify` — scan staged, unstaged, and untracked work-tree data.
 - `/agent-guard:checksum [VERSION]` — print published gitleaks checksums.
 - `/agent-guard:setup-shell` — install or refresh Claude command wrapping.
+
+## Skills
+
+- `agent-guard:setup-agent-guard` — diagnose dependencies, guide approved
+  installation, and verify live hook protection. Codex invokes the same skill
+  as `$setup-agent-guard`.
 
 ## Policies and support
 
