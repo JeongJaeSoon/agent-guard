@@ -22,10 +22,23 @@ Install from the marketplace:
 /plugin marketplace add JeongJaeSoon/agent-guard
 /plugin install agent-guard@agent-guard
 /reload-plugins
+```
+
+On the next session, Agent Guard reports `DEGRADED` protection if `jq`, `git`,
+gitleaks, or its bundled policy is unavailable and points you to
+`$setup-agent-guard` (or `agent-guard setup`). Dependency installation remains
+approval-gated; lifecycle hooks never install software.
+
+Enable the default-on Claude command wrapping with:
+
+```text
 /agent-guard:setup-shell
 ```
 
-The last command installs the default-on Claude command wrapping into your shell rc. Restart the shell and Claude Code after it succeeds. Plugin hooks are active after reload; shell wrapping for user-typed `!` commands requires this explicit rc update because plugins cannot edit it during installation.
+Restart the shell and Claude Code after it succeeds. Plugin hooks are active
+after reload; shell wrapping for user-typed `!` commands requires this explicit
+rc update because plugins cannot edit it during installation. If wrapping is
+missing, SessionStart automatically repeats the `setup-shell` instruction.
 
 Verify it's live — ask the agent to read your `.env`:
 
@@ -66,7 +79,6 @@ Both plugins need `jq` and `gitleaks` on your machine (`brew install jq gitleaks
 | Claude Code agent guardrails | [Claude Code quick start](#claude-code) | Ask the agent to read `.env`; it should be blocked. |
 | Codex plugin guardrails | [Codex quick start](#codex) | Run `$setup-agent-guard` and require both live hook probes to pass. |
 | Codex CLI + Git backstop | [Direct CLI](#direct-cli) + [Native Git hook](#native-git-hook) | Run `agent-guard smoke-test`; commit a staged fixture secret, and it should fail. |
-| Centrally managed machines | [Managed deployment](#managed-deployment) | Install the managed payload, merge the Codex requirements fragment, and run both host live probes. |
 | Local commits | [Native Git hook](#native-git-hook) | Commit a staged fixture secret; commit should fail. |
 | CI / PRs | [GitHub Actions](#github-actions) | Push a test PR with a gitleaks-detectable fixture; workflow should fail. |
 | Manual scans | [Direct CLI](#direct-cli) | Run `agent-guard smoke-test`. |
@@ -189,63 +201,6 @@ agent-guard checksum
 ```
 
 Override install defaults with `AGENT_GUARD_VERSION`, `AGENT_GUARD_HOME`, `AGENT_GUARD_BIN_DIR`, or `AGENT_GUARD_COMMAND_WRAPPING`.
-
-## Managed deployment
-
-Agent Guard ships a host-aware [`managed-install.sh`](managed-install.sh) for
-MDM, fleet-management, shared development images, and team-managed machines.
-It is not tied to an Enterprise subscription. The entrypoint keeps privileged
-and user-owned changes separate:
-
-For the smallest organization-owned deployment, use the release-provided
-[`managed-bootstrap.sh`](managed-bootstrap.sh). The organization keeps only the
-reviewed version/digest and its Claude/Codex policy; Agent Guard owns the
-platform-specific downloads, dependency checks, system install, verification,
-and default-on login-user shell phase:
-
-```sh
-sudo sh ./managed-bootstrap.sh \
-  --version X.Y.Z \
-  --archive-sha256 <independently-recorded-release-digest>
-```
-
-Download the bootstrap itself from that same versioned release, verify it with
-the adjacent `managed-bootstrap.sh.sha256` asset (and retain the reviewed digest
-in MDM), then schedule it at enrollment plus login/check-in.
-It never edits Claude managed settings or Codex TOML. A run with no login user
-still completes the system phase; the next login/check-in retries user setup.
-
-The lower-level entrypoint remains available when an organization already
-stages approved artifacts:
-
-```sh
-# Administrator or device-management phase. Dependencies may be supplied from
-# the organization's already-approved packages.
-sudo ./managed-install.sh system \
-  --prefix /opt/agent-guard \
-  --jq-bin /path/to/approved/jq \
-  --gitleaks-bin /path/to/approved/gitleaks
-
-# Render for review and merge; the script never overwrites requirements.toml.
-./managed-install.sh render-codex --prefix /opt/agent-guard
-
-# Run as the actual login user, never as root.
-/opt/agent-guard/managed-install.sh user --prefix /opt/agent-guard
-
-# Verify the installed payload and dependencies.
-/opt/agent-guard/managed-install.sh verify --prefix /opt/agent-guard
-```
-
-For Codex, the rendered `requirements.toml` fragment enables administrator-
-managed hooks and uses the installed absolute hook dispatcher. This avoids a
-per-user hook-trust step. For Claude Code, managed settings force-enable the
-plugin while the user phase installs the default-on `cat`/`head`/`printenv`
-shell wrapping. PII hooks remain at their built-in default (`off`) unless the
-organization explicitly selects a mode.
-
-See [Managed deployment for Claude Code and Codex](docs/managed-deployment.md)
-for settings examples, MDM locations, update strategy, and remaining host
-coverage limits.
 
 ## PII Filtering
 

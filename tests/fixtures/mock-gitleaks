@@ -15,7 +15,7 @@ case "$mode" in
     done
     input=$(cat)
     case "$input" in
-      *AGENT_GUARD_TEST_SECRET*|*"PRIVATE KEY"*)
+      *AGENT_GUARD_TEST_SECRET*)
         [ -n "$report_path" ] && printf '%s\n' '[{"Secret":"AGENT_GUARD_TEST_SECRET"}]' >"$report_path"
         printf '%s\n' "Finding: REDACTED"
         exit 1
@@ -32,11 +32,11 @@ case "$mode" in
       case "$arg" in
         -*|--*) continue ;;
         *)
-          if [ -f "$arg" ] && grep -Eq 'AGENT_GUARD_TEST_SECRET|PRIVATE KEY' "$arg"; then
+          if [ -f "$arg" ] && grep -q 'AGENT_GUARD_TEST_SECRET' "$arg"; then
             printf '%s\n' "Finding: REDACTED"
             exit 1
           fi
-          if [ -d "$arg" ] && grep -R -E -q 'AGENT_GUARD_TEST_SECRET|PRIVATE KEY' "$arg" 2>/dev/null; then
+          if [ -d "$arg" ] && grep -R -q 'AGENT_GUARD_TEST_SECRET' "$arg" 2>/dev/null; then
             printf '%s\n' "Finding: REDACTED"
             exit 1
           fi

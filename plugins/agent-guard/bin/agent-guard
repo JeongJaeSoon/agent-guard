@@ -65,7 +65,6 @@ Usage:
   agent-guard exec [--] <cmd> [args...]
   agent-guard shell-init [--bash|--zsh] [--no-command-wrapping]
   agent-guard setup-shell [--bash|--zsh|--rc FILE] [--no-command-wrapping]
-                          [--prepend-path DIR]
   agent-guard pii-filter [--check]
   agent-guard scan-staged
   agent-guard scan-working-tree
@@ -2410,36 +2409,23 @@ EOF
 # cannot edit your rc, so run this once (by absolute path if agent-guard is not
 # yet on $PATH). Idempotent — re-running replaces the managed block in place.
 do_setup_shell() {
-  sh_target= rc= wrapping= prepend_path=
+  sh_target= rc= wrapping=
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --bash) sh_target=bash ;;
       --zsh) sh_target=zsh ;;
       --rc) shift; rc=${1:-}; [ -n "$rc" ] || die "setup-shell: --rc requires a path" ;;
       --no-command-wrapping) wrapping=' --no-command-wrapping' ;;
-      --prepend-path)
-        shift
-        prepend_path=${1:-}
-        [ -n "$prepend_path" ] || die "setup-shell: --prepend-path requires a directory"
-        case "$prepend_path" in
-          /*) ;;
-          *) die "setup-shell: --prepend-path requires an absolute directory" ;;
-        esac
-        ;;
       # Hidden compatibility shims for 1.x managed blocks. The 2.x default is
       # on, so accepting either option and writing no option normalizes the rc.
       --claude-bang-guard|--experimental-bang-guard) wrapping= ;;
       -h|--help)
         {
           printf '%s\n' "Usage: $PROGRAM setup-shell [--bash|--zsh|--rc FILE] [--no-command-wrapping]"
-          printf '%s\n' "       $PROGRAM setup-shell [--prepend-path DIR]"
           printf '%s\n' "Adds the shell-init line to your shell rc (idempotent). Restart your"
           printf '%s\n' "shell and any Claude Code session afterwards to apply."
           printf '%s\n' "Command wrapping is enabled by default. Use --no-command-wrapping for"
           printf '%s\n' "a persistent opt-out, or AGENT_GUARD_COMMAND_WRAPPING=off at runtime."
-          printf '%s\n' "--prepend-path writes an absolute managed binary directory before the"
-          printf '%s\n' "shell-init line; managed installs can place agent-guard, jq, and"
-          printf '%s\n' "gitleaks there without relying on each user's existing PATH."
         } >&2
         return 0 ;;
       *) die "setup-shell: unknown option: $1 (see: $PROGRAM setup-shell --help)" ;;
@@ -2470,12 +2456,7 @@ do_setup_shell() {
   # snippet itself was never produced. The emitted snippet keeps its `auto` shell
   # detection, so the line works in bash+zsh.
   abs=$(sh_squote "$SELF_BIN")
-  path_prefix=
-  if [ -n "$prepend_path" ]; then
-    quoted_path=$(sh_squote "$prepend_path")
-    path_prefix="PATH=$quoted_path:\$PATH; export PATH; "
-  fi
-  line="${path_prefix}eval \"\$(_agi=; command -v agent-guard >/dev/null 2>&1 && _agi=\$(agent-guard shell-init${wrapping} 2>/dev/null); if [ -n \"\$_agi\" ]; then printf '%s\\n' \"\$_agi\"; else $abs shell-init${wrapping}; fi)\""
+  line="eval \"\$(_agi=; command -v agent-guard >/dev/null 2>&1 && _agi=\$(agent-guard shell-init${wrapping} 2>/dev/null); if [ -n \"\$_agi\" ]; then printf '%s\\n' \"\$_agi\"; else $abs shell-init${wrapping}; fi)\""
 
   begin='# >>> agent-guard shell-init >>>'
   end='# <<< agent-guard shell-init <<<'

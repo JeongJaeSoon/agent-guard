@@ -1,3 +1,10 @@
+## Unreleased
+
+- removed: retire the centrally managed install and bootstrap entrypoints added
+  in v2.1.0 and v2.2.0; plugin installation remains user-approved, while
+  SessionStart directs incomplete setups to `$setup-agent-guard` and
+  `/agent-guard:setup-shell`
+
 ## v2.2.0 - 2026-07-18
 
 - feat: add self-contained managed bootstrap (#119)
