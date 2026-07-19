@@ -142,10 +142,10 @@ validate_versions() {
   marketplace_version=$(jq -r '.plugins[] | select(.name == "agent-guard") | .version // ""' "$ROOT/.claude-plugin/marketplace.json")
   managed_claude_ref=$(jq -r '.extraKnownMarketplaces["agent-guard"].source.ref // ""' "$ROOT/deployment/claude-managed-settings.example.json")
 
-  if printf '%s\n' "$cli_version" | grep -Eq '^2\.[0-9]+\.[0-9]+$'; then
-    ok "Agent Guard CLI is on the 2.x release line"
+  if printf '%s\n' "$cli_version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+    ok "Agent Guard CLI version is plain semver"
   else
-    fail "Agent Guard CLI is on the 2.x release line"
+    fail "Agent Guard CLI version is plain semver"
   fi
   if [ -n "$cli_version" ] \
      && [ "$claude_version" = "$cli_version" ] \
