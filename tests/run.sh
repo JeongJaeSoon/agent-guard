@@ -2081,6 +2081,15 @@ else
   sed 's/^/  stderr: /' "$CANNOT_SCAN_ERR"
 fi
 
+# Operators filter stderr on the `agent-guard: ` prefix, so a message that drops
+# the colon is invisible to them no matter how well worded it is.
+if grep -q '^agent-guard: could not scan' "$CANNOT_SCAN_ERR"; then
+  ok "unscannable commit message keeps the agent-guard: prefix"
+else
+  not_ok "unscannable commit message keeps the agent-guard: prefix"
+  sed 's/^/  stderr: /' "$CANNOT_SCAN_ERR"
+fi
+
 if grep -q 'scan-staged' "$CANNOT_SCAN_ERR"; then
   not_ok "unscannable commit message does not name an internal subcommand"
   sed 's/^/  stderr: /' "$CANNOT_SCAN_ERR"

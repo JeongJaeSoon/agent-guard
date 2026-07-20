@@ -766,7 +766,7 @@ inside_git_repo() {
 # tree" describes agent-guard's plumbing instead of their problem.
 require_git_repo() {
   inside_git_repo && return 0
-  info "$PROGRAM could not scan: $(pwd) is not a git repository; run the command from inside the repository"
+  info "$PROGRAM: could not scan: $(pwd) is not a git repository; run the command from inside the repository"
   return "$SCAN_STATUS_UNAVAILABLE"
 }
 
