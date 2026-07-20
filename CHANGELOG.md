@@ -1,3 +1,18 @@
+## Unreleased
+
+- fix(hooks): report a scan that could not run distinctly from a detection
+  (#137). A scanner precondition failure and a real detection previously looked
+  identical — both printed and exited 2 — so an operator could not tell whether
+  agent-guard had found something in their staged changes or had never managed
+  to look. Both still fail closed; they now say which happened, and the message
+  names the directory and the action instead of an internal subcommand.
+
+  CLI behaviour change: `agent-guard scan-staged` and `agent-guard
+  scan-working-tree` invoked outside a git work tree now exit **3** rather than
+  2. Everything in this repo treats non-zero as failure (the native pre-commit
+  hook, the `make` targets, the verify command), so no consumer changes — but
+  scripts that test for exactly 2 should be updated.
+
 ## v3.0.0 - 2026-07-19
 
 - feat!: simplify managed deployment to settings merge plus developer setup (#122)

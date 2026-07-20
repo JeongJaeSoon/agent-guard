@@ -684,12 +684,26 @@ scan_text_direct() {
   printf '%s\n' "$text" | run_gitleaks_stdin "$label"
 }
 
+# Scan status protocol, shared by every scan_* function and this dispatcher:
+#   0 clean, 1 a secret was found, 3 the scan could not run, other scanner error.
+# 3 exists because "I found a secret in your staged changes" and "I never got to
+# look" are different facts and an operator has to be able to act on the right
+# one. Both still fail closed; a scan that cannot run is not a pass.
+SCAN_STATUS_UNAVAILABLE=3
+
 block_on_scan_status() {
   status=$1
   message=$2
   case "$status" in
     0) return 0 ;;
     1) info "$PROGRAM: $message"; exit 2 ;;
+    # Exit 2 is the host's only "block" signal, so it cannot carry the
+    # distinction — the message has to. The caller that returned this status
+    # already named the reason and the directory; add what it means.
+    "$SCAN_STATUS_UNAVAILABLE")
+      info "$PROGRAM: nothing was verified, so the command is blocked"
+      exit 2
+      ;;
     *) exit 2 ;;
   esac
 }
@@ -747,10 +761,19 @@ inside_git_repo() {
   git rev-parse --is-inside-work-tree >/dev/null 2>&1
 }
 
+# Name the directory and the action, not the internal subcommand: the operator
+# never typed `scan-staged`, so telling them it "must run inside a git work
+# tree" describes agent-guard's plumbing instead of their problem.
+require_git_repo() {
+  inside_git_repo && return 0
+  info "$PROGRAM: could not scan: $(pwd) is not a git repository; run the command from inside the repository"
+  return "$SCAN_STATUS_UNAVAILABLE"
+}
+
 scan_staged() {
   need_cmd git
   need_gitleaks
-  inside_git_repo || die "scan-staged must run inside a git work tree"
+  require_git_repo || return $?
   added=$(git diff --cached --unified=0 --no-ext-diff -- . | extract_added_lines)
   [ -n "$added" ] || return 0
   scan_text_direct "staged added lines" "$added"
@@ -802,7 +825,7 @@ scan_untracked_files() {
 scan_working_tree() {
   need_cmd git
   need_gitleaks
-  inside_git_repo || die "scan-working-tree must run inside a git work tree"
+  require_git_repo || return $?
 
   if git rev-parse --verify HEAD >/dev/null 2>&1; then
     tracked=$(git diff --unified=0 --no-ext-diff HEAD -- . | extract_added_lines)

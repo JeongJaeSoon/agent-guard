@@ -2035,19 +2035,103 @@ expect_json_status 2 "MCP input with secret in nested object is blocked" \
   '{"tool_name":"mcp__server__tool","tool_input":{"config":{"auth":{"token":"AGENT_GUARD_TEST_SECRET"}}}}' \
   hook-pre-tool
 
-# --- scan_staged outside a git work tree ----------------------------------
+# --- "could not scan" is distinguishable from "found a secret" -------------
+# Both fail closed, and at the hook boundary both must exit 2 because that is
+# the host's only block signal. So the MESSAGE is what has to tell an operator
+# which of the two happened: a secret in their staged changes, or a scan that
+# never ran. The assertions below pin both directions of that distinction.
 
-NON_REPO_DIR="$TMP_ROOT/not-a-repo"
-mkdir -p "$NON_REPO_DIR"
+mkdir -p "$TMP_ROOT/not-a-repo"
+# Canonicalize: $TMPDIR often ends in a slash, so "$TMP_ROOT/not-a-repo" can
+# carry a `//` that the binary's own `pwd` normalizes away. Compare like for
+# like, otherwise the message assertion below fails on punctuation.
+NON_REPO_DIR=$(CDPATH= cd -- "$TMP_ROOT/not-a-repo" && pwd)
 (
   cd "$NON_REPO_DIR" || exit 2
   "$PLUGIN_ROOT/bin/agent-guard" scan-staged >"$OUT" 2>"$ERR"
 )
 status=$?
-if [ "$status" -eq 2 ]; then
-  ok "scan-staged dies outside a git work tree"
+if [ "$status" -eq 3 ]; then
+  ok "scan-staged exits 3 (cannot scan) outside a git work tree"
 else
-  not_ok "scan-staged dies outside a git work tree (expected 2, got $status)"
+  not_ok "scan-staged exits 3 (cannot scan) outside a git work tree (expected 3, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+CANNOT_SCAN_ERR="$TESTTMP/cannot-scan-err"
+(
+  cd "$NON_REPO_DIR" || exit 2
+  jq -nc --arg cwd "$NON_REPO_DIR" \
+    '{tool_name:"Bash",tool_input:{command:"git commit -m x"},cwd:$cwd}' \
+    | "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$CANNOT_SCAN_ERR"
+)
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "commit from a non-repo cwd still fails closed"
+else
+  not_ok "commit from a non-repo cwd still fails closed (expected 2, got $status)"
+  sed 's/^/  stderr: /' "$CANNOT_SCAN_ERR"
+fi
+
+if grep -q 'could not scan' "$CANNOT_SCAN_ERR" \
+  && grep -Fq "$NON_REPO_DIR" "$CANNOT_SCAN_ERR"; then
+  ok "unscannable commit names the reason and the directory"
+else
+  not_ok "unscannable commit names the reason and the directory"
+  sed 's/^/  stderr: /' "$CANNOT_SCAN_ERR"
+fi
+
+# Operators filter stderr on the `agent-guard: ` prefix, so a message that drops
+# the colon is invisible to them no matter how well worded it is.
+if grep -q '^agent-guard: could not scan' "$CANNOT_SCAN_ERR"; then
+  ok "unscannable commit message keeps the agent-guard: prefix"
+else
+  not_ok "unscannable commit message keeps the agent-guard: prefix"
+  sed 's/^/  stderr: /' "$CANNOT_SCAN_ERR"
+fi
+
+if grep -q 'scan-staged' "$CANNOT_SCAN_ERR"; then
+  not_ok "unscannable commit message does not name an internal subcommand"
+  sed 's/^/  stderr: /' "$CANNOT_SCAN_ERR"
+else
+  ok "unscannable commit message does not name an internal subcommand"
+fi
+
+if grep -q 'secret-like' "$CANNOT_SCAN_ERR"; then
+  not_ok "unscannable commit is not reported as a secret detection"
+  sed 's/^/  stderr: /' "$CANNOT_SCAN_ERR"
+else
+  ok "unscannable commit is not reported as a secret detection"
+fi
+
+DETECTION_REPO="$TMP_ROOT/detection-repo"
+DETECTION_ERR="$TESTTMP/detection-err"
+mkdir -p "$DETECTION_REPO"
+(
+  cd "$DETECTION_REPO" || exit 2
+  git init -q
+  git config user.email t@e
+  git config user.name t
+  printf '%s\n' "AGENT_GUARD_TEST_SECRET" > leak.txt
+  git add leak.txt
+  jq -nc --arg cwd "$DETECTION_REPO" \
+    '{tool_name:"Bash",tool_input:{command:"git commit -m x"},cwd:$cwd}' \
+    | "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$DETECTION_ERR"
+)
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "commit with a staged secret is still blocked"
+else
+  not_ok "commit with a staged secret is still blocked (expected 2, got $status)"
+  sed 's/^/  stderr: /' "$DETECTION_ERR"
+fi
+
+if grep -q 'secret-like' "$DETECTION_ERR" \
+  && ! grep -q 'could not scan' "$DETECTION_ERR"; then
+  ok "secret detection is reported as a detection, not as a scan failure"
+else
+  not_ok "secret detection is reported as a detection, not as a scan failure"
+  sed 's/^/  stderr: /' "$DETECTION_ERR"
 fi
 
 # --- install.sh git-hooks safety ------------------------------------------

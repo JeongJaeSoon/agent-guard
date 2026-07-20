@@ -188,6 +188,8 @@ agent-guard smoke-test
 agent-guard checksum
 ```
 
+Scan commands exit `0` when nothing was found, `1` when a secret was detected, and `3` when the scan could not run at all — for example `scan-staged` outside a git work tree. `3` exists so that "I looked and it was clean" is never confused with "I never got to look"; both non-zero results mean the change is not cleared. Any other non-zero status is a scanner error.
+
 Override install defaults with `AGENT_GUARD_VERSION`, `AGENT_GUARD_HOME`, `AGENT_GUARD_BIN_DIR`, or `AGENT_GUARD_COMMAND_WRAPPING`.
 
 ## Managed deployment
