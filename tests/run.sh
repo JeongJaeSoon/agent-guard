@@ -1202,6 +1202,97 @@ else
   sed 's/^/  stderr: /' "$ERR"
 fi
 
+# Scan-target resolution. The gate must scan the repository the command actually
+# commits to, not the session cwd. Pairing a CLEAN payload cwd with a LEAKING
+# target repo isolates that: a block can only mean the target repo was scanned,
+# and an allow can only mean the session cwd was scanned instead.
+XTARGET_CLEAN="$TMP_ROOT/xtarget-clean"
+XTARGET_LEAK="$TMP_ROOT/xtarget-leak"
+mkdir -p "$XTARGET_CLEAN" "$XTARGET_LEAK"
+(
+  cd "$XTARGET_CLEAN" || exit 2
+  git init -q
+  git config user.email test@example.com
+  git config user.name test
+  printf '%s\n' "clean" > ok.txt
+  git add ok.txt
+)
+(
+  cd "$XTARGET_LEAK" || exit 2
+  git init -q
+  git config user.email test@example.com
+  git config user.name test
+  printf '%s\n' "AGENT_GUARD_TEST_SECRET" > leak.txt
+  git add leak.txt
+)
+
+# Runs one command with both the process cwd and the payload cwd set to the
+# clean repo. $3 is the command; $4 is an optional stderr pattern.
+xtarget_case() {
+  expected=$1
+  name=$2
+  command=$3
+  pattern=${4:-}
+  (
+    cd "$XTARGET_CLEAN" || exit 2
+    jq -nc --arg cwd "$XTARGET_CLEAN" --arg cmd "$command" \
+      '{tool_name:"Bash",cwd:$cwd,tool_input:{command:$cmd}}' \
+      | "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+  )
+  status=$?
+  if [ "$status" -eq "$expected" ] \
+    && { [ -z "$pattern" ] || grep -q "$pattern" "$ERR"; }; then
+    ok "$name"
+  else
+    not_ok "$name (expected $expected, got $status)"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+}
+
+# Control: without redirection the clean session cwd is scanned and allowed.
+# If this fails, every case below is measuring the wrong repository.
+xtarget_case 0 "commit in a clean repo without redirection is allowed" \
+  "git commit -m x"
+
+# Ordinary chains do not redirect the cwd and must not be refused.
+xtarget_case 0 "chained git add before commit in a clean repo is allowed" \
+  "git add . && git commit -m x"
+
+xtarget_case 2 "cd into another repo scans that repo's staged changes" \
+  "cd $XTARGET_LEAK && git commit -m x" \
+  'staged changes contain secret-like values'
+
+xtarget_case 2 "cd with a ; separator scans the target repo" \
+  "cd $XTARGET_LEAK; git commit -m x" \
+  'staged changes contain secret-like values'
+
+xtarget_case 2 "relative cd into another repo scans the target repo" \
+  "cd ../xtarget-leak && git commit -m x" \
+  'staged changes contain secret-like values'
+
+xtarget_case 2 "git -C into another repo scans that repo's staged changes" \
+  "git -C $XTARGET_LEAK commit -m x" \
+  'staged changes contain secret-like values'
+
+# --work-tree and --git-dir split the index from the work tree in ways a plain
+# `cd` cannot model, so they are refused rather than resolved. Both still block.
+xtarget_case 2 "git --work-tree redirection is refused" \
+  "git --work-tree=$XTARGET_LEAK commit -m x" \
+  'cannot determine'
+
+xtarget_case 2 "git --git-dir redirection is refused" \
+  "git --git-dir=$XTARGET_LEAK/.git commit -m x" \
+  'cannot determine'
+
+# Fail closed: silently scanning the session cwd here is the original bypass.
+xtarget_case 2 "cd through a variable is refused as unresolvable" \
+  'cd "$TARGET_DIR" && git commit -m x' \
+  'cannot determine'
+
+xtarget_case 2 "pushd redirection is refused as unresolvable" \
+  "pushd $XTARGET_LEAK && git commit -m x" \
+  'cannot determine'
+
 (
   cd "$TEST_REPO" || exit 2
   printf '%s' '{"tool_name":"Bash","tool_input":{"command":"git status && git -C . push origin main"}}' \
@@ -1233,7 +1324,7 @@ expect_json_status 2 "git hook bypass without separator spaces is blocked" \
   hook-pre-tool
 
 # R2: wrapper/assignment-prefixed commits with NO --no-verify must still reach
-# the staged scan via is_git_commit_or_push (not via the hook-bypass shortcut).
+# the staged scan via git_commit_target (not via the hook-bypass shortcut).
 # leak.txt is still staged from the harness above.
 (
   cd "$TEST_REPO" || exit 2
