@@ -1289,9 +1289,82 @@ xtarget_case 2 "cd through a variable is refused as unresolvable" \
   'cd "$TARGET_DIR" && git commit -m x' \
   'cannot determine'
 
-xtarget_case 2 "pushd redirection is refused as unresolvable" \
+xtarget_case 2 "pushd before a commit is refused as unresolvable" \
   "pushd $XTARGET_LEAK && git commit -m x" \
   'cannot determine'
+
+# An unresolvable cd only matters if a commit/push is actually reached. Blocking
+# ordinary navigation would be far more destructive than the bypass this fix
+# closes, so these must stay allowed.
+xtarget_case 0 "cd through a variable without a commit is allowed" \
+  'cd "$HOME" && ls'
+
+xtarget_case 0 "cd through a variable before a non-mutating git command is allowed" \
+  'cd "$VAR" && git status'
+
+xtarget_case 0 "cd through command substitution without a commit is allowed" \
+  'cd $(pwd)/sub && npm test'
+
+xtarget_case 0 "pushd without a commit is allowed" \
+  "pushd /tmp && ls"
+
+xtarget_case 0 "git --git-dir on a non-mutating subcommand is allowed" \
+  "git --git-dir=$XTARGET_LEAK/.git status"
+
+# The commit runs inside the same subshell as the cd, so the target is knowable
+# and gets scanned. A subshell that only *scopes* the cd is refused instead.
+xtarget_case 2 "subshell-wrapped cd and commit scans the target repo" \
+  "(cd $XTARGET_LEAK && git commit -m x)" \
+  'staged changes contain secret-like values'
+
+xtarget_case 2 "commit after a subshell-scoped cd is refused as unresolvable" \
+  "(cd $XTARGET_LEAK) && git commit -m x" \
+  'cannot determine'
+
+xtarget_case 2 "subshell-wrapped bare commit is refused as unresolvable" \
+  "(git commit -m x)" \
+  'cannot determine'
+
+# Session cwd on the LEAKING repo. Here the correct answer is "scan the original
+# cwd", so an allow means the cd target was scanned instead — a bypass.
+xtarget_leak_cwd_case() {
+  expected=$1
+  name=$2
+  command=$3
+  (
+    cd "$XTARGET_LEAK" || exit 2
+    jq -nc --arg cwd "$XTARGET_LEAK" --arg cmd "$command" \
+      '{tool_name:"Bash",cwd:$cwd,tool_input:{command:$cmd}}' \
+      | "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+  )
+  status=$?
+  if [ "$status" -eq "$expected" ]; then
+    ok "$name"
+  else
+    not_ok "$name (expected $expected, got $status)"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+}
+
+# Control: if this does not block, the cases below prove nothing.
+xtarget_leak_cwd_case 2 "commit in the leaking repo without redirection is blocked" \
+  "git commit -m x"
+
+# Bash runs the left side of a pipe in its own subshell, so the cd never reaches
+# the commit — it still runs in the original (leaking) cwd.
+xtarget_leak_cwd_case 2 "cd across a pipe does not move the scan target" \
+  "cd $XTARGET_CLEAN | git commit -m x"
+
+xtarget_leak_cwd_case 2 "cd backgrounded with & does not move the scan target" \
+  "cd $XTARGET_CLEAN & git commit -m x"
+
+# && and ; DO carry the cd, so these are correctly allowed. Keep them asserted
+# so a future tightening of the pipe rule cannot quietly break them.
+xtarget_leak_cwd_case 0 "cd across && moves the scan target to the clean repo" \
+  "cd $XTARGET_CLEAN && git commit -m x"
+
+xtarget_leak_cwd_case 0 "cd across ; moves the scan target to the clean repo" \
+  "cd $XTARGET_CLEAN ; git commit -m x"
 
 (
   cd "$TEST_REPO" || exit 2

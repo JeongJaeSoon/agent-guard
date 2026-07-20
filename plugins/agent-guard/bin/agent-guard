@@ -1352,6 +1352,25 @@ literal_path_value() {
   printf '%s' "$value"
 }
 
+# Tokens that end one command inside the target walk. `&` belongs here but is
+# deliberately absent from is_shell_command_separator(), whose other callers
+# treat it as an ordinary character.
+walk_separator() {
+  is_shell_command_separator "$1" && return 0
+  [ "$1" = '&' ]
+}
+
+# `|` and `&` run the left-hand command in its own subshell or background
+# process, so a `cd` there never reaches what follows; `&&`, `||` and `;` run in
+# the same shell and do carry it. Getting this backwards on `|` means scanning
+# the cd target while the commit happens in the original directory.
+separator_carries_cwd() {
+  case "$1" in
+    ';'|'&&'|'||') return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 join_dir() {
   case "$2" in
     /*) printf '%s' "$2"; return 0 ;;
@@ -1373,7 +1392,10 @@ join_dir() {
 #
 # Status 2 exists because the alternative — falling back to the payload workdir
 # — scans a repository the command never touches and reports success, which is
-# the scan bypass this function was extracted to close.
+# the scan bypass this function was extracted to close. It is reported only once
+# a commit/push token is actually reached: an unresolvable `cd` in a git-free
+# command is none of this gate's business, and blocking those would break far
+# more than the bypass ever did.
 git_commit_target() {
   cmd=$1
   base=${2:-}
@@ -1384,6 +1406,7 @@ git_commit_target() {
     set -- $words
 
     target=$base
+    unresolved=0
     command_start=1
     while [ "$#" -gt 0 ]; do
       token=$1
@@ -1418,22 +1441,47 @@ git_commit_target() {
           done
           continue
         fi
+        # A subshell scopes cwd changes in ways this walk does not track. Strip
+        # the parens so the commands inside are still examined, and mark the cwd
+        # unknown — an absolute `cd` inside the subshell re-establishes it,
+        # which is correct because the commit runs inside that subshell too.
+        case "$token" in
+          '('*)
+            unresolved=1
+            rest=$token
+            while [ "${rest#\(}" != "$rest" ]; do rest=${rest#\(}; done
+            shift
+            [ -n "$rest" ] && set -- "$rest" "$@"
+            continue
+            ;;
+        esac
         # Directory redirection expressed by the shell rather than by git.
         # `cd <literal>` is modelled exactly; every other form that can move the
-        # working directory is refused rather than guessed at.
+        # working directory marks the cwd unknown rather than being guessed at.
         case "$token" in
           cd|pushd|popd)
             shift
-            [ "$token" = "cd" ] || return 2
-            [ "$#" -gt 0 ] || return 2
-            dir=$(literal_path_value "$1") || return 2
-            shift
-            # A second operand means `cd old new` or an option form we do not
-            # model, so the resulting directory is not knowable here.
-            if [ "$#" -gt 0 ] && ! is_shell_command_separator "$1"; then
-              return 2
+            if [ "$token" != "cd" ]; then
+              # pushd/popd move a directory stack this walk does not maintain.
+              unresolved=1
+            elif [ "$#" -gt 0 ] && ! walk_separator "$1" \
+              && dir=$(literal_path_value "$1") \
+              && { [ "$#" -eq 1 ] || walk_separator "$2"; }; then
+              # The trailing check rejects `cd old new` and option forms, whose
+              # resulting directory is not knowable here.
+              case "$dir" in
+                /*)
+                  # An absolute cd re-establishes the cwd even if an earlier one
+                  # was unreadable.
+                  target=$dir
+                  unresolved=0
+                  ;;
+                *) target=$(join_dir "$target" "$dir") ;;
+              esac
+              shift
+            else
+              unresolved=1
             fi
-            target=$(join_dir "$target" "$dir")
             command_start=0
             continue
             ;;
@@ -1441,25 +1489,36 @@ git_commit_target() {
         if [ "$token" = "git" ]; then
           shift
           gitdir=$target
+          # Scoped to this one git invocation: its options do not affect any
+          # later command, so `git --git-dir=x status && git commit` must not
+          # taint the commit.
+          opt_unresolved=0
           while [ "$#" -gt 0 ]; do
             token=$1
             shift
             case "$token" in
               -C)
-                [ "$#" -gt 0 ] || return 2
-                dir=$(literal_path_value "$1") || return 2
-                shift
-                # Repeated -C compose, matching git's own handling.
-                gitdir=$(join_dir "$gitdir" "$dir")
+                if [ "$#" -gt 0 ]; then
+                  if dir=$(literal_path_value "$1"); then
+                    # Repeated -C compose, matching git's own handling.
+                    gitdir=$(join_dir "$gitdir" "$dir")
+                  else
+                    opt_unresolved=1
+                  fi
+                  shift
+                else
+                  opt_unresolved=1
+                fi
                 continue
                 ;;
               # ponytail: --git-dir/--work-tree split the index from the work
               # tree, which a plain `cd` into one directory cannot express — so
-              # resolving them risks scanning the wrong index. Refuse instead.
+              # resolving them risks scanning the wrong index. Mark unknown and
+              # fall through so the value token is still consumed below.
               # Upgrade path: pass them through to the git invocations inside
               # scan_staged rather than emulating them with a cd.
               --git-dir|--work-tree|--git-dir=*|--work-tree=*)
-                return 2
+                opt_unresolved=1
                 ;;
             esac
             if git_option_takes_value "$token"; then
@@ -1468,8 +1527,12 @@ git_commit_target() {
             fi
             is_git_global_option "$token" && continue
 
+            # `commit)` / `push)` close a subshell such as `(git commit)`.
             case "$token" in
-              commit|push)
+              commit|push|'commit)'|'push)')
+                if [ "$unresolved" -eq 1 ] || [ "$opt_unresolved" -eq 1 ]; then
+                  return 2
+                fi
                 printf '%s' "$gitdir"
                 return 0
                 ;;
@@ -1484,8 +1547,12 @@ git_commit_target() {
       fi
 
       shift
-      if is_shell_command_separator "$token"; then
+      if walk_separator "$token"; then
         command_start=1
+        if ! separator_carries_cwd "$token"; then
+          target=$base
+          unresolved=0
+        fi
       else
         command_start=0
       fi
