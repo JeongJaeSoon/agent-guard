@@ -100,7 +100,7 @@ make check
 make smoke-test
 ```
 
-The Claude Code and Codex plugin installs do not put `agent-guard` on your shell `PATH`. In Codex, invoke `$setup-agent-guard`: it uses the plugin-local binary even when a different standalone version is on `PATH`, presents the exact host-appropriate install plan, requests approval, runs `check` plus `smoke-test`, verifies hook trust, and runs live host probes. It never installs software merely because a session started. Claude Code users can run the equivalent manual commands below.
+The Claude Code and Codex plugin installs do not put `agent-guard` on your shell `PATH`. In Codex, invoke `$setup-agent-guard`: it uses the plugin-local binary even when a different standalone version is on `PATH`, presents the exact host-appropriate install plan, requests approval, runs `check` plus `smoke-test`, verifies hook trust, and runs live host probes. It never installs software merely because a session started. The same skill is available in Claude Code as `agent-guard:setup-agent-guard`; Claude Code users can also run the equivalent manual commands below.
 
 Manual macOS equivalent:
 
@@ -138,6 +138,13 @@ Install and verify in the [Claude Code quick start](#claude-code). Useful slash 
 /agent-guard:checksum [VERSION]
 /agent-guard:setup-shell
 ```
+
+For guided dependency diagnosis and installation, use the
+`agent-guard:setup-agent-guard` skill — the same skill Codex invokes as
+`$setup-agent-guard`. SessionStart recommends it when it reports degraded
+protection, but never invokes it: it only emits the warning. The skill's
+later hook-trust and live-probe steps are written for Codex; on Claude Code
+use `/agent-guard:verify` and `agent-guard smoke-test` instead.
 
 ## Codex Plugin
 
