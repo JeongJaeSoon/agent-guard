@@ -88,6 +88,20 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 mkdir -p "$MOCK_BIN"
+
+setup_shell_command="$PLUGIN_ROOT/commands/setup-shell.md"
+if grep -Eq '^!`' "$setup_shell_command"; then
+  not_ok "setup-shell slash command avoids unapprovable shell interpolation"
+else
+  ok "setup-shell slash command avoids unapprovable shell interpolation"
+fi
+if grep -Fq 'Use the Bash tool' "$setup_shell_command" \
+  && grep -Fq 'outside the sandbox' "$setup_shell_command" \
+  && grep -Fq 'directly in their terminal' "$setup_shell_command"; then
+  ok "setup-shell slash command documents the approval and terminal fallback"
+else
+  not_ok "setup-shell slash command documents the approval and terminal fallback"
+fi
 cp "$ROOT/tests/fixtures/mock-gitleaks" "$MOCK_BIN/gitleaks"
 chmod +x "$MOCK_BIN/gitleaks"
 

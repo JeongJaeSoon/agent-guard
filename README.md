@@ -374,6 +374,12 @@ Because the plugin (auto-updated by `claude plugin update`) and the binary the i
 
 > **Works without the CLI on `$PATH` — but a plugin can't edit your rc.** Direct CLI bootstrap installs the default-on shell integration automatically. For a plugin-only install, run the plugin-local `agent-guard setup-shell` once — invoke it by absolute path if `agent-guard` isn't on your `$PATH`; it bakes that same absolute path into the line it writes — then restart your shell and any Claude Code session. See [Migrating from 1.x to 2.x](docs/migration-v2.md) for old managed blocks and opt-out behavior.
 
+`/agent-guard:setup-shell` invokes that binary through Claude's Bash tool so a
+sandboxed session can request approval before writing the shell rc. If the host
+cannot grant that approval, run the displayed plugin-local command directly in
+your terminal; `!` command interpolation cannot request the required write
+permission.
+
 **This is best-effort, not a security control.** It covers only those command names and is trivially bypassed by an absolute path (`/bin/cat`), `source` / `.`, `python -c 'open(...)'`, or a redirection (`< file`). Because `agent-guard exec` buffers the whole output before masking it, **streaming / follow commands would hang** — so `tail` is deliberately *not* wrapped, and you should not `agx` a `tail -f`, a pager, or any long-running program (wrap only terminating dump commands). Output is captured via shell substitution, so wrapping is **text-only** — a binary or NUL-containing read loses embedded NULs and its trailing newline, so use `command cat` / `\cat` for faithful binary output. Each wrapped call also pays a gitleaks scan. Treat it as a convenience nudge for the common cases, not a boundary — the only channel-agnostic fix remains an egress redaction proxy or an upstream `!`-command hook.
 
 ## Known Limitations
