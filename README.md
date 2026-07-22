@@ -66,7 +66,8 @@ $setup-shell
 
 The skill resolves the current plugin-local binary and requests approval before
 updating the shell rc, so the versioned plugin-cache path does not need to be
-copied into the prompt.
+copied into the prompt. After the rc update, start a new shell and restart any
+agent sessions launched from that shell before relying on the integration.
 
 Both plugins need `jq` and `gitleaks` on your machine (`brew install jq gitleaks`; see [Requirements](#requirements)). Using the CLI, Git hooks, or CI instead? Pick your path below.
 

@@ -2013,11 +2013,17 @@ else
   sed 's/^/  stderr: /' "$ERR"
 fi
 
+codex_setup_ref="\$setup-agent-guard"
+claude_setup_ref='agent-guard:setup-agent-guard'
+
 printf '%s' '{"tool_name":"Bash","tool_input":{"command":"brew install gitleaks"}}' \
   | AGENT_GUARD_HOOK_HOST=codex AGENT_GUARD_GITLEAKS_BIN=/nonexistent/gitleaks PATH="$NO_GITLEAKS_BIN" \
     "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
 status=$?
-if [ "$status" -eq 0 ] && grep -q 'DEGRADED' "$ERR" && grep -q '\$setup-agent-guard' "$ERR"; then
+if [ "$status" -eq 0 ] \
+   && grep -q 'DEGRADED' "$ERR" \
+   && grep -Fq "$codex_setup_ref" "$ERR" \
+   && ! grep -Fq "$claude_setup_ref" "$ERR"; then
   ok "Codex hook degrades open with Codex setup guidance"
 else
   not_ok "Codex hook degraded mode uses Codex setup guidance (status $status)"
@@ -2031,8 +2037,8 @@ printf '%s' '{"tool_name":"Bash","tool_input":{"command":"brew install gitleaks"
 status=$?
 if [ "$status" -eq 0 ] \
    && grep -q 'DEGRADED' "$ERR" \
-   && grep -q 'agent-guard:setup-agent-guard' "$ERR" \
-   && ! grep -q '\$setup-agent-guard' "$ERR"; then
+   && grep -Fq "$claude_setup_ref" "$ERR" \
+   && ! grep -Fq "$codex_setup_ref" "$ERR"; then
   ok "Claude hook degrades open with Claude setup guidance"
 else
   not_ok "Claude hook degraded mode uses Claude setup guidance (status $status)"
@@ -3441,8 +3447,11 @@ fi
 vd_out=$(AGENT_GUARD_HOOK_HOST=codex AGENT_GUARD_GITLEAKS_BIN=/nonexistent/gitleaks \
   PATH="$NO_GITLEAKS_BIN" "$PLUGIN_ROOT/bin/agent-guard" hook-session-start 2>"$ERR")
 if [ $? -eq 0 ] \
-   && printf '%s' "$vd_out" | jq -e '.systemMessage | contains("DEGRADED")' >/dev/null 2>&1 \
-   && printf '%s' "$vd_out" | grep -q '\$setup-agent-guard'; then
+   && printf '%s' "$vd_out" | jq -e \
+        --arg expected "$codex_setup_ref" \
+        --arg unexpected "$claude_setup_ref" \
+        '.systemMessage | contains($expected) and (contains($unexpected) | not)' \
+        >/dev/null 2>&1; then
   ok "Codex SessionStart uses Codex dependency setup guidance"
 else
   not_ok "Codex SessionStart emits host-appropriate degraded guidance (got: $vd_out)"
@@ -3451,8 +3460,11 @@ fi
 vd_out=$(AGENT_GUARD_HOOK_HOST=claude AGENT_GUARD_GITLEAKS_BIN=/nonexistent/gitleaks \
   PATH="$NO_GITLEAKS_BIN" "$PLUGIN_ROOT/bin/agent-guard" hook-session-start 2>"$ERR")
 if [ $? -eq 0 ] \
-   && printf '%s' "$vd_out" | jq -e '.systemMessage | contains("agent-guard:setup-agent-guard")' >/dev/null 2>&1 \
-   && ! printf '%s' "$vd_out" | grep -q '\$setup-agent-guard'; then
+   && printf '%s' "$vd_out" | jq -e \
+        --arg expected "$claude_setup_ref" \
+        --arg unexpected "$codex_setup_ref" \
+        '.systemMessage | contains($expected) and (contains($unexpected) | not)' \
+        >/dev/null 2>&1; then
   ok "Claude SessionStart uses Claude dependency setup guidance"
 else
   not_ok "Claude SessionStart emits host-appropriate degraded guidance (got: $vd_out)"

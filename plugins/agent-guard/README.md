@@ -86,6 +86,7 @@ gitleaks 8.30 or newer (recommended).
   and runs live probes through that host's normal command surface.
 - `agent-guard:setup-shell` — install or refresh the optional shell integration
   through the plugin-local binary with approval before changing the shell rc.
+  Codex invokes the same skill as `$setup-shell`.
 
 ## Policies and support
 
