@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c '[ -n \"${PLUGIN_ROOT:-}\" ] || { echo \"agent-guard: PLUGIN_ROOT env not set\" >&2; exit 2; }; AGENT_GUARD_HOOK_HOST=codex \"${PLUGIN_ROOT}/bin/agent-guard\" hook-pre-tool'",
+            "command": "sh -c 'r=${PLUGIN_ROOT:-}; b=${r%/*}; if [ -n \"$r\" ] && [ -x \"$r/bin/agent-guard\" ]; then v=${r##*/}; case \"$v\" in [0-9]*.[0-9]*.[0-9]*) if [ ! -e \"$b/current\" ] || [ -L \"$b/current\" ]; then ln -sfn \"$v\" \"$b/current\" 2>/dev/null || :; fi ;; esac; fi; x=\"$b/current/bin/agent-guard\"; if [ ! -x \"$x\" ] && [ -n \"$r\" ]; then x=$(for c in \"$b\"/[0-9]*.[0-9]*.[0-9]*/bin/agent-guard; do [ -x \"$c\" ] || continue; v=${c%/bin/agent-guard}; printf \"%s\\\\t%s\\\\n\" \"${v##*/}\" \"$c\"; done | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1 | cut -f 2-); fi; if [ ! -x \"$x\" ] && [ -x \"$r/bin/agent-guard\" ]; then x=\"$r/bin/agent-guard\"; fi; if [ ! -x \"$x\" ]; then echo \"agent-guard: PLUGIN_ROOT env not set or no installed binary was found; continuing because AGENT_GUARD_INFRA_FAILURE_MODE=open (the default)\" >&2; [ \"${AGENT_GUARD_INFRA_FAILURE_MODE:-open}\" = closed ] && exit 2; exit 0; fi; AGENT_GUARD_HOOK_HOST=codex \"$x\" hook-pre-tool'",
             "timeout": 10
           }
         ]
@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c '[ -n \"${PLUGIN_ROOT:-}\" ] || { echo \"agent-guard: PLUGIN_ROOT env not set\" >&2; exit 2; }; AGENT_GUARD_HOOK_HOST=codex \"${PLUGIN_ROOT}/bin/agent-guard\" hook-post-tool'",
+            "command": "sh -c 'r=${PLUGIN_ROOT:-}; b=${r%/*}; if [ -n \"$r\" ] && [ -x \"$r/bin/agent-guard\" ]; then v=${r##*/}; case \"$v\" in [0-9]*.[0-9]*.[0-9]*) if [ ! -e \"$b/current\" ] || [ -L \"$b/current\" ]; then ln -sfn \"$v\" \"$b/current\" 2>/dev/null || :; fi ;; esac; fi; x=\"$b/current/bin/agent-guard\"; if [ ! -x \"$x\" ] && [ -n \"$r\" ]; then x=$(for c in \"$b\"/[0-9]*.[0-9]*.[0-9]*/bin/agent-guard; do [ -x \"$c\" ] || continue; v=${c%/bin/agent-guard}; printf \"%s\\\\t%s\\\\n\" \"${v##*/}\" \"$c\"; done | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1 | cut -f 2-); fi; if [ ! -x \"$x\" ] && [ -x \"$r/bin/agent-guard\" ]; then x=\"$r/bin/agent-guard\"; fi; if [ ! -x \"$x\" ]; then echo \"agent-guard: PLUGIN_ROOT env not set or no installed binary was found; continuing because AGENT_GUARD_INFRA_FAILURE_MODE=open (the default)\" >&2; [ \"${AGENT_GUARD_INFRA_FAILURE_MODE:-open}\" = closed ] && exit 2; exit 0; fi; AGENT_GUARD_HOOK_HOST=codex \"$x\" hook-post-tool'",
             "timeout": 20
           }
         ]
@@ -30,7 +30,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c '[ -n \"${PLUGIN_ROOT:-}\" ] || { echo \"agent-guard: PLUGIN_ROOT env not set\" >&2; exit 2; }; AGENT_GUARD_HOOK_HOST=codex \"${PLUGIN_ROOT}/bin/agent-guard\" hook-stop'",
+            "command": "sh -c 'r=${PLUGIN_ROOT:-}; b=${r%/*}; if [ -n \"$r\" ] && [ -x \"$r/bin/agent-guard\" ]; then v=${r##*/}; case \"$v\" in [0-9]*.[0-9]*.[0-9]*) if [ ! -e \"$b/current\" ] || [ -L \"$b/current\" ]; then ln -sfn \"$v\" \"$b/current\" 2>/dev/null || :; fi ;; esac; fi; x=\"$b/current/bin/agent-guard\"; if [ ! -x \"$x\" ] && [ -n \"$r\" ]; then x=$(for c in \"$b\"/[0-9]*.[0-9]*.[0-9]*/bin/agent-guard; do [ -x \"$c\" ] || continue; v=${c%/bin/agent-guard}; printf \"%s\\\\t%s\\\\n\" \"${v##*/}\" \"$c\"; done | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1 | cut -f 2-); fi; if [ ! -x \"$x\" ] && [ -x \"$r/bin/agent-guard\" ]; then x=\"$r/bin/agent-guard\"; fi; if [ ! -x \"$x\" ]; then echo \"agent-guard: PLUGIN_ROOT env not set or no installed binary was found; continuing because AGENT_GUARD_INFRA_FAILURE_MODE=open (the default)\" >&2; [ \"${AGENT_GUARD_INFRA_FAILURE_MODE:-open}\" = closed ] && exit 2; exit 0; fi; AGENT_GUARD_HOOK_HOST=codex \"$x\" hook-stop'",
             "timeout": 20
           }
         ]
@@ -42,7 +42,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c '[ -n \"${PLUGIN_ROOT:-}\" ] || { echo \"agent-guard: PLUGIN_ROOT env not set\" >&2; exit 2; }; AGENT_GUARD_HOOK_HOST=codex \"${PLUGIN_ROOT}/bin/agent-guard\" hook-session-start'",
+            "command": "sh -c 'r=${PLUGIN_ROOT:-}; b=${r%/*}; if [ -n \"$r\" ] && [ -x \"$r/bin/agent-guard\" ]; then v=${r##*/}; case \"$v\" in [0-9]*.[0-9]*.[0-9]*) if [ ! -e \"$b/current\" ] || [ -L \"$b/current\" ]; then ln -sfn \"$v\" \"$b/current\" 2>/dev/null || :; fi ;; esac; fi; x=\"$b/current/bin/agent-guard\"; if [ ! -x \"$x\" ] && [ -n \"$r\" ]; then x=$(for c in \"$b\"/[0-9]*.[0-9]*.[0-9]*/bin/agent-guard; do [ -x \"$c\" ] || continue; v=${c%/bin/agent-guard}; printf \"%s\\\\t%s\\\\n\" \"${v##*/}\" \"$c\"; done | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1 | cut -f 2-); fi; if [ ! -x \"$x\" ] && [ -x \"$r/bin/agent-guard\" ]; then x=\"$r/bin/agent-guard\"; fi; if [ ! -x \"$x\" ]; then echo \"agent-guard: PLUGIN_ROOT env not set or no installed binary was found; continuing because AGENT_GUARD_INFRA_FAILURE_MODE=open (the default)\" >&2; [ \"${AGENT_GUARD_INFRA_FAILURE_MODE:-open}\" = closed ] && exit 2; exit 0; fi; AGENT_GUARD_HOOK_HOST=codex \"$x\" hook-session-start'",
             "timeout": 5
           }
         ]

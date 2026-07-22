@@ -40,6 +40,44 @@ ROOT_DIR=$(CDPATH= cd -- "$BIN_DIR/.." && pwd -P)
 # where the binary lives in the plugin cache and is never symlinked onto PATH).
 SELF_BIN="$BIN_DIR/agent-guard"
 
+# Plugin managers install each release under a version directory. Keep one
+# sibling `current` symlink so shell snapshots and hook manifests never bake a
+# disposable version path. Direct CLI installs (ROOT_DIR is not a semver) keep
+# their existing stable ~/.agent-guard path.
+is_semver_dir() (
+  set -f
+  case ${1:-} in ''|*[!0-9.]*) return 1 ;; esac
+  old_ifs=$IFS
+  IFS=.
+  # shellcheck disable=SC2086
+  set -- $1
+  IFS=$old_ifs
+  [ "$#" -eq 3 ] && [ -n "$1" ] && [ -n "$2" ] && [ -n "$3" ]
+)
+
+PLUGIN_CACHE_VERSION=${ROOT_DIR##*/}
+PLUGIN_CACHE_BASE=
+if is_semver_dir "$PLUGIN_CACHE_VERSION"; then
+  PLUGIN_CACHE_BASE=${ROOT_DIR%/*}
+fi
+
+refresh_plugin_current_link() {
+  [ -n "$PLUGIN_CACHE_BASE" ] || return 0
+  current="$PLUGIN_CACHE_BASE/current"
+  # Never replace a real directory named current. The runtime resolvers below
+  # still fall back to the newest version directory in that environment.
+  if [ -e "$current" ] && [ ! -L "$current" ]; then
+    return 1
+  fi
+  # BSD and GNU ln both support -n to replace a symlink-to-directory itself
+  # instead of following it and creating a link inside the old version.
+  ln -sfn "$PLUGIN_CACHE_VERSION" "$current" 2>/dev/null
+}
+
+refresh_plugin_current_link || :
+STABLE_BIN=$SELF_BIN
+[ -n "$PLUGIN_CACHE_BASE" ] && STABLE_BIN="$PLUGIN_CACHE_BASE/current/bin/agent-guard"
+
 # Emit $1 as a safely single-quoted POSIX shell word, so a path with spaces (or,
 # rarely, an embedded quote) survives being baked into an emitted snippet.
 sh_squote() {
@@ -81,6 +119,21 @@ info() {
   printf '%s\n' "$*" >&2
 }
 
+# Read hook JSON without depending on external `cat`: dependency-degraded PATH
+# fixtures (and minimal hosts) still need the session_id to deduplicate warnings.
+read_stdin() {
+  stdin_value=
+  while IFS= read -r stdin_line || [ -n "$stdin_line" ]; do
+    if [ -n "$stdin_value" ]; then
+      stdin_value="$stdin_value
+$stdin_line"
+    else
+      stdin_value=$stdin_line
+    fi
+  done
+  printf '%s' "$stdin_value"
+}
+
 die() {
   info "$PROGRAM: $*"
   exit 2
@@ -115,21 +168,65 @@ need_gitleaks() {
 
 hook_dependencies_ready() {
   command -v jq >/dev/null 2>&1 || return 1
+  command -v git >/dev/null 2>&1 || return 1
   resolve_gitleaks >/dev/null 2>&1 || return 1
   [ -f "$GITLEAKS_CONFIG" ] || return 1
   [ -f "$DENY_READ_PATHS" ] || return 1
   [ -f "$DENY_BASH_PATTERNS" ] || return 1
 }
 
+infrastructure_failure_mode() {
+  case "${AGENT_GUARD_INFRA_FAILURE_MODE:-open}" in
+    open|closed) printf '%s\n' "${AGENT_GUARD_INFRA_FAILURE_MODE:-open}" ;;
+    *) printf '%s\n' open ;;
+  esac
+}
+
+hook_warning_once() {
+  warning_input=${1:-}
+  warning_session=${AGENT_GUARD_SESSION_ID:-}
+  if [ -z "$warning_session" ] && command -v jq >/dev/null 2>&1; then
+    warning_session=$(printf '%s' "$warning_input" | jq -r '.session_id // empty' 2>/dev/null) || warning_session=
+  fi
+  [ -n "$warning_session" ] || warning_session="${AGENT_GUARD_HOOK_HOST:-host}-${PPID:-0}"
+  case "$warning_session" in
+    *[!A-Za-z0-9._-]*) warning_session="${AGENT_GUARD_HOOK_HOST:-host}-${PPID:-0}" ;;
+  esac
+  warning_dir=${AGENT_GUARD_WARNING_DIR:-${TMPDIR:-/tmp}/agent-guard-warnings-${UID:-user}}
+  if [ ! -d "$warning_dir" ]; then
+    mkdir -p "$warning_dir" 2>/dev/null || return 0
+    chmod 700 "$warning_dir" 2>/dev/null || :
+  fi
+  warning_marker="$warning_dir/infrastructure-$warning_session"
+  (umask 077; set -C; : >"$warning_marker") 2>/dev/null
+}
+
+handle_hook_infrastructure_failure() {
+  event=$1
+  input=${2:-}
+  detail=$3
+  mode=$(infrastructure_failure_mode)
+  if hook_warning_once "$input"; then
+    case "$mode" in
+      closed) message="$detail Blocking because AGENT_GUARD_INFRA_FAILURE_MODE=closed." ;;
+      *) message="$detail continuing because AGENT_GUARD_INFRA_FAILURE_MODE=open (the default)." ;;
+    esac
+    info "$message"
+    case "$event" in
+      PreToolUse|PostToolUse)
+        printf '{"hookSpecificOutput":{"hookEventName":"%s","additionalContext":"%s"}}\n' "$event" "$message"
+        ;;
+    esac
+  fi
+  [ "$mode" = closed ] && exit 2
+  return 0
+}
+
 emit_degraded_hook_warning() {
   event=$1
-  message='agent-guard: protection is DEGRADED because jq, git, gitleaks, or a policy file is unavailable. Run $setup-agent-guard (or agent-guard setup), approve any required installation, verify with agent-guard check and smoke-test, then restart the host.'
-  info "$message"
-  case "$event" in
-    PreToolUse|PostToolUse)
-      printf '{"hookSpecificOutput":{"hookEventName":"%s","additionalContext":"%s"}}\n' "$event" "$message"
-      ;;
-  esac
+  input=${2:-}
+  handle_hook_infrastructure_failure "$event" "$input" \
+    'agent-guard: protection is DEGRADED because jq, git, gitleaks, or a policy file is unavailable. Run $setup-agent-guard (or agent-guard setup), approve any required installation, verify with agent-guard check and smoke-test, then restart the host;'
 }
 
 check_deps() {
@@ -688,7 +785,8 @@ scan_text_direct() {
 #   0 clean, 1 a secret was found, 3 the scan could not run, other scanner error.
 # 3 exists because "I found a secret in your staged changes" and "I never got to
 # look" are different facts and an operator has to be able to act on the right
-# one. Both still fail closed; a scan that cannot run is not a pass.
+# one. Hook callers apply AGENT_GUARD_INFRA_FAILURE_MODE to infrastructure
+# failures; direct scan commands preserve the status for their caller.
 SCAN_STATUS_UNAVAILABLE=3
 
 block_on_scan_status() {
@@ -697,14 +795,14 @@ block_on_scan_status() {
   case "$status" in
     0) return 0 ;;
     1) info "$PROGRAM: $message"; exit 2 ;;
-    # Exit 2 is the host's only "block" signal, so it cannot carry the
-    # distinction — the message has to. The caller that returned this status
-    # already named the reason and the directory; add what it means.
     "$SCAN_STATUS_UNAVAILABLE")
-      info "$PROGRAM: nothing was verified, so the command is blocked"
-      exit 2
+      handle_hook_infrastructure_failure "${HOOK_EVENT:-PreToolUse}" "${HOOK_INPUT:-}" \
+        "$PROGRAM: scanner infrastructure could not verify the command;"
       ;;
-    *) exit 2 ;;
+    *)
+      handle_hook_infrastructure_failure "${HOOK_EVENT:-PreToolUse}" "${HOOK_INPUT:-}" \
+        "$PROGRAM: scanner infrastructure failed before it could verify the command;"
+      ;;
   esac
 }
 
@@ -1629,12 +1727,14 @@ check_broad_grep_content() {
 }
 
 hook_pre_tool() {
+  input=$(read_stdin)
+  HOOK_EVENT=PreToolUse
+  HOOK_INPUT=$input
   if ! hook_dependencies_ready; then
-    emit_degraded_hook_warning PreToolUse
+    emit_degraded_hook_warning PreToolUse "$input"
     return 0
   fi
   need_cmd jq
-  input=$(cat)
   [ -n "$input" ] || return 0
 
   # A host may serialize tool_input as a JSON-encoded string instead of an
@@ -1932,21 +2032,21 @@ redact_tool_output() {
 }
 
 hook_post_tool() {
+  input=$(read_stdin)
+  HOOK_EVENT=PostToolUse
+  HOOK_INPUT=$input
   if ! hook_dependencies_ready; then
-    emit_degraded_hook_warning PostToolUse
+    emit_degraded_hook_warning PostToolUse "$input"
     return 0
   fi
   need_cmd jq
-  input=$(cat)
   [ -n "$input" ] || return 0
   tool=$(json_value '.tool_name // .tool // .name // empty' "$input")
 
   # Mutation tools keep the working-tree backstop (may exit 2). It runs first so
   # a secret written to disk is still surfaced even when redaction is enabled.
   if is_mutation_tool "$tool"; then
-    if ! command -v git >/dev/null 2>&1; then
-      info "$PROGRAM: git is unavailable; skipping the post-tool working-tree backstop"
-    elif inside_git_repo; then
+    if inside_git_repo; then
       scan_working_tree
       block_on_scan_status "$?" "changed files contain secret-like values after tool execution"
     fi
@@ -1958,13 +2058,15 @@ hook_post_tool() {
 }
 
 hook_stop() {
+  input=$(read_stdin)
+  HOOK_EVENT=Stop
+  HOOK_INPUT=$input
   if ! hook_dependencies_ready || ! command -v git >/dev/null 2>&1; then
-    emit_degraded_hook_warning Stop
+    emit_degraded_hook_warning Stop "$input"
     return 0
   fi
   need_cmd jq
   need_cmd git
-  input=$(cat)
   if [ -n "$input" ]; then
     active=$(json_value '.stop_hook_active // false' "$input")
     if [ "$active" = "true" ]; then
@@ -2267,15 +2369,11 @@ __agentguard_wrap_command() {  # $1 = real command name, remaining args forwarde
         command "$__ag_exe" exec -- "$__ag_cmd" "$@"
         return
       fi
-      printf 'agent-guard: command wrapping dependencies are not ready; %s output is NOT masked. Run: agent-guard setup\n' "$__ag_cmd" >&2
-      command "$__ag_cmd" "$@"
-      return
+      __agentguard_warn_infra_once 'command-wrapping dependencies are not ready'
+    else
+      __agentguard_warn_infra_once 'command wrapping cannot locate the agent-guard binary'
     fi
-    # Unlike agx, this is a TRANSPARENT override (the user just typed `cat`), so
-    # fail OPEN — run the command — but WARN loudly that the output is unmasked
-    # rather than leaking silently. A stale baked path after a plugin update
-    # lands here; `agent-guard setup-shell` re-bakes it.
-    printf 'agent-guard: command wrapping cannot locate the agent-guard binary; %s output is NOT masked. Re-run: agent-guard setup-shell\n' "$__ag_cmd" >&2
+    __agentguard_infra_closed && return 127
   fi
   # `command` bypasses this override so the real binary runs (no recursion).
   command "$__ag_cmd" "$@"
@@ -2327,10 +2425,11 @@ shell_init() {
   # fires on a small curated set of secret-loading idioms. The match is a
   # pure-shell `case` glob (no subprocess per command, so it is fast).
   #
-  # Bake this binary's absolute path so the wrappers resolve agent-guard even when
-  # it is not on $PATH (plugin-only install). Emitted as its own assignment (the
-  # heredoc below is single-quoted, so it cannot expand a shell variable itself).
-  printf '__agentguard_bin=%s\n' "$(sh_squote "$SELF_BIN")"
+  # Plugin installs bake only the stable sibling path plus their cache base.
+  # Direct CLI installs keep their already-stable absolute path. The cache base
+  # lets an existing session recover if `current` cannot be updated.
+  printf '__agentguard_bin=%s\n' "$(sh_squote "$STABLE_BIN")"
+  printf '__agentguard_plugin_base=%s\n' "$(sh_squote "$PLUGIN_CACHE_BASE")"
   cat <<'EOF'
 # --- agent-guard shell integration (managed by: agent-guard shell-init) -------
 # Threat: a `!`-prefixed command in Claude Code runs in your shell and its OUTPUT
@@ -2340,29 +2439,61 @@ shell_init() {
 # warn-only reminder; it never blocks or changes your command.
 #
 # Resolve the agent-guard binary at call time: an explicit $AGENT_GUARD_BIN wins,
-# then $PATH (the durable path for a CLI install, unaffected by version bumps),
-# then the absolute path baked in above (lets a plugin-only install work without
-# putting agent-guard on $PATH). Prints the resolved command; non-zero if none.
+# then the stable baked path, then the newest installed plugin version as a
+# recovery fallback, then $PATH for standalone CLI installs.
+__agentguard_latest_plugin_bin() {
+  [ -n "${__agentguard_plugin_base:-}" ] || return 1
+  __ag_latest=$(
+    for __ag_candidate in "$__agentguard_plugin_base"/[0-9]*.[0-9]*.[0-9]*/bin/agent-guard; do
+      [ -x "$__ag_candidate" ] || continue
+      __ag_version=${__ag_candidate%/bin/agent-guard}
+      __ag_version=${__ag_version##*/}
+      printf '%s\t%s\n' "$__ag_version" "$__ag_candidate"
+    done \
+      | sort -t. -k1,1n -k2,2n -k3,3n \
+      | tail -n 1 \
+      | cut -f 2-
+  )
+  [ -n "$__ag_latest" ] && [ -x "$__ag_latest" ] || return 1
+  printf '%s' "$__ag_latest"
+}
 __agentguard_exe() {
   if [ -n "${AGENT_GUARD_BIN:-}" ] && [ -x "$AGENT_GUARD_BIN" ]; then
     printf '%s' "$AGENT_GUARD_BIN"; return 0
   fi
-  if command -v agent-guard >/dev/null 2>&1; then printf '%s' agent-guard; return 0; fi
   if [ -n "${__agentguard_bin:-}" ] && [ -x "$__agentguard_bin" ]; then
     printf '%s' "$__agentguard_bin"; return 0
   fi
+  if __ag_latest=$(__agentguard_latest_plugin_bin); then
+    printf '%s' "$__ag_latest"; return 0
+  fi
+  if command -v agent-guard >/dev/null 2>&1; then printf '%s' agent-guard; return 0; fi
   return 1
 }
-# `agx <cmd>` masks a command's output. It is an EXPLICIT mask request, so if the
-# binary cannot be found it FAILS CLOSED (loud error, does not run the command
-# unmasked) — running it raw would leak exactly what you asked to mask.
+
+__agentguard_infra_closed() {
+  [ "${AGENT_GUARD_INFRA_FAILURE_MODE:-open}" = closed ]
+}
+__agentguard_warn_infra_once() {
+  [ "${__agentguard_infra_warned:-0}" = 1 ] && return 0
+  __agentguard_infra_warned=1
+  printf 'agent-guard: %s; output is NOT masked. Set AGENT_GUARD_INFRA_FAILURE_MODE=closed to refuse execution.\n' "$1" >&2
+}
+
+# Explicit agx and transparent command wrapping share one infrastructure policy:
+# open by default with one warning per shell, or closed when configured.
 agx() {
   if __ag_exe=$(__agentguard_exe); then
-    command "$__ag_exe" exec -- "$@"
+    if command "$__ag_exe" check >/dev/null 2>&1; then
+      command "$__ag_exe" exec -- "$@"
+      return
+    fi
+    __agentguard_warn_infra_once 'agx masking dependencies are not ready'
   else
-    printf 'agent-guard: agx cannot locate the agent-guard binary; NOT running (output would be unmasked). Re-run: agent-guard setup-shell\n' >&2
-    return 127
+    __agentguard_warn_infra_once 'agx cannot locate the agent-guard binary'
   fi
+  __agentguard_infra_closed && return 127
+  command "$@"
 }
 __agentguard_nudge() {
   [ -n "$1" ] || return 0
@@ -2470,22 +2601,14 @@ do_setup_shell() {
     case "$sh_target" in bash) rc=$HOME/.bashrc ;; *) rc=$HOME/.zshrc ;; esac
   fi
 
-  # Invocation baked into the rc line, self-healing against the bare name later
-  # failing to generate a snippet: prefer `agent-guard` on $PATH at rc-eval time
-  # (durable — follows version bumps through a symlink) but ALWAYS co-bake THIS
-  # binary's absolute path as a fallback.
-  # The probe is by OUTPUT, not mere presence: capture `agent-guard shell-init`'s
-  # stdout, and fall back to the baked absolute path whenever it is empty — whether
-  # because the bare name left $PATH (CLI uninstalled, plugin-only left) OR because
-  # a stale/stub `agent-guard` earlier on $PATH errored or emitted nothing (e.g. an
-  # older build that rejects --no-command-wrapping). Either way the integration
-  # installs from $SELF_BIN instead of silently vanishing. The probe's stderr is
-  # suppressed (it is speculative and handled); the fallback runs unmuted. Without
-  # this, snippet generation could fail and the runtime resolver can't help once the
-  # snippet itself was never produced. The emitted snippet keeps its `auto` shell
-  # detection, so the line works in bash+zsh.
-  abs=$(sh_squote "$SELF_BIN")
-  line="eval \"\$(_agi=; command -v agent-guard >/dev/null 2>&1 && _agi=\$(agent-guard shell-init${wrapping} 2>/dev/null); if [ -n \"\$_agi\" ]; then printf '%s\\n' \"\$_agi\"; else $abs shell-init${wrapping}; fi)\""
+  # Invoke only the stable path for plugin installs. If `current` is unavailable
+  # (for example, the cache is read-only), select the newest semantic-version
+  # directory at rc-eval time; a standalone PATH install remains the last
+  # compatibility fallback. The output probe prevents a stale stub from
+  # shadowing a working stable/plugin binary.
+  stable=$(sh_squote "$STABLE_BIN")
+  cache_base=$(sh_squote "$PLUGIN_CACHE_BASE")
+  line="eval \"\$(_agbin=$stable; _agbase=$cache_base; if [ ! -x \"\$_agbin\" ] && [ -n \"\$_agbase\" ]; then _agbin=\$(for _agc in \"\$_agbase\"/[0-9]*.[0-9]*.[0-9]*/bin/agent-guard; do [ -x \"\$_agc\" ] || continue; _agv=\${_agc%/bin/agent-guard}; printf '%s\\t%s\\n' \"\${_agv##*/}\" \"\$_agc\"; done | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1 | cut -f 2-); fi; _agi=; [ -x \"\$_agbin\" ] && _agi=\$(\"\$_agbin\" shell-init${wrapping} 2>/dev/null); if [ -z \"\$_agi\" ] && command -v agent-guard >/dev/null 2>&1; then _agi=\$(agent-guard shell-init${wrapping} 2>/dev/null); fi; [ -n \"\$_agi\" ] && printf '%s\\n' \"\$_agi\")\""
 
   begin='# >>> agent-guard shell-init >>>'
   end='# <<< agent-guard shell-init <<<'
