@@ -1,3 +1,10 @@
+## v3.0.1 - 2026-07-22
+
+- fix: handle sandboxed Agent Guard setup (#141)
+- docs: surface the setup skill as a Claude Code entry point (#135)
+- fix(hooks): report a scan that could not run distinctly from a detection (#137)
+- fix(security): close verified scan bypasses + finish v3.0.0 release (#124)
+
 ## Unreleased
 
 - fix(hooks): report a scan that could not run distinctly from a detection
