@@ -26,10 +26,10 @@ plugin. Until then, install from the project's marketplace:
 
 After installation, SessionStart reports `DEGRADED` protection whenever `jq`,
 `git`, gitleaks, or a bundled policy is unavailable. The warning names the
-skill in Codex form (`$setup-agent-guard`); in Claude Code, invoke it as
-`agent-guard:setup-agent-guard`, or run the plugin-local `agent-guard setup`
-directly. Dependency installation always requires explicit approval. Then
-verify:
+host-appropriate skill: `$setup-agent-guard` in Codex or
+`agent-guard:setup-agent-guard` in Claude Code. You can also run the
+plugin-local `agent-guard setup` directly. Dependency installation always
+requires explicit approval. Then verify:
 
 ```text
 /agent-guard:verify
@@ -82,7 +82,8 @@ gitleaks 8.30 or newer (recommended).
 
 - `agent-guard:setup-agent-guard` — resolve the plugin-local binary, diagnose
   `jq`/gitleaks, and guide approved installation. Codex invokes the same skill
-  as `$setup-agent-guard`; its hook-trust and live-probe steps are Codex-specific.
+  as `$setup-agent-guard`; the skill selects the correct host verification path
+  and runs live probes through that host's normal command surface.
 - `agent-guard:setup-shell` — install or refresh the optional shell integration
   through the plugin-local binary with approval before changing the shell rc.
 

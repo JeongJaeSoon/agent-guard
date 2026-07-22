@@ -109,7 +109,7 @@ resolve_gitleaks() {
 
 need_gitleaks() {
   GITLEAKS_BIN=$(resolve_gitleaks) \
-    || die "required command not found: gitleaks (run \$setup-agent-guard or: $PROGRAM setup)"
+    || die "required command not found: gitleaks (run: $PROGRAM setup)"
   [ -f "$GITLEAKS_CONFIG" ] || die "gitleaks config not found: $GITLEAKS_CONFIG"
 }
 
@@ -121,9 +121,17 @@ hook_dependencies_ready() {
   [ -f "$DENY_BASH_PATTERNS" ] || return 1
 }
 
+degraded_hook_message() {
+  case "${AGENT_GUARD_HOOK_HOST:-claude}" in
+    codex) setup_ref='$setup-agent-guard' ;;
+    *) setup_ref='agent-guard:setup-agent-guard' ;;
+  esac
+  printf 'agent-guard: protection is DEGRADED because jq, git, gitleaks, or a policy file is unavailable. Run %s (or agent-guard setup), approve any required installation, verify with agent-guard check and smoke-test, then restart the host.' "$setup_ref"
+}
+
 emit_degraded_hook_warning() {
   event=$1
-  message='agent-guard: protection is DEGRADED because jq, git, gitleaks, or a policy file is unavailable. Run $setup-agent-guard (or agent-guard setup), approve any required installation, verify with agent-guard check and smoke-test, then restart the host.'
+  message=$(degraded_hook_message)
   info "$message"
   case "$event" in
     PreToolUse|PostToolUse)
@@ -2003,7 +2011,7 @@ hook_stop() {
 hook_session_start() {
   message=
   if ! hook_dependencies_ready || ! command -v git >/dev/null 2>&1; then
-    message='agent-guard protection is DEGRADED because jq, git, gitleaks, or a policy file is unavailable. Run $setup-agent-guard (or agent-guard setup), approve any required installation, verify with agent-guard check and smoke-test, then restart the host.'
+    message=$(degraded_hook_message)
   fi
 
   marker=${AGENT_GUARD_SHELL_INIT_VERSION:-}

@@ -153,9 +153,10 @@ Install and verify in the [Claude Code quick start](#claude-code). Useful slash 
 For guided dependency diagnosis and installation, use the
 `agent-guard:setup-agent-guard` skill — the same skill Codex invokes as
 `$setup-agent-guard`. SessionStart recommends it when it reports degraded
-protection, but never invokes it: it only emits the warning. The skill's
-later hook-trust and live-probe steps are written for Codex; on Claude Code
-use `/agent-guard:verify` and `agent-guard smoke-test` instead.
+protection, but never invokes it: it only emits the warning. The skill selects
+the active host's plugin-verification path and runs live probes through that
+host's normal command surface. `/agent-guard:verify` remains a separate
+working-tree scan and does not prove live hook dispatch.
 
 ## Codex Plugin
 

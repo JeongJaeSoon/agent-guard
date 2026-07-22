@@ -240,14 +240,18 @@ else
   not_ok "Codex plugin manifest explicitly declares hook and skill paths"
 fi
 
-# Guided setup must verify the installed plugin itself and the live Codex hook
-# boundary. A standalone PATH binary or a passing binary smoke test is not proof
-# that the plugin hooks are trusted or dispatched by the host.
+# Guided setup must verify the installed plugin itself and select the active
+# host's live hook boundary. A standalone PATH binary or a passing binary smoke
+# test is not proof that plugin hooks are trusted or dispatched by either host.
 setup_skill="$PLUGIN_ROOT/skills/setup-agent-guard/SKILL.md"
 if grep -Fq '../../bin/agent-guard' "$setup_skill" \
    && grep -Fq 'Compare its `version` with the plugin binary' "$setup_skill" \
+   && grep -Fq 'Identify the active host' "$setup_skill" \
    && grep -Fq 'Settings > Hooks' "$setup_skill" \
    && grep -Fq '`Untrusted` and `Modified` as inactive' "$setup_skill" \
+   && grep -Fq 'Claude Code does not use that trust workflow' "$setup_skill" \
+   && grep -Fq 'normal `Bash` tool' "$setup_skill" \
+   && grep -Fq 'Do not apply one host' "$setup_skill" \
    && grep -Fq 'AGENT_GUARD_LIVE_PRE_TOOL_PROBE' "$setup_skill" \
    && grep -Fq 'AGENT_GUARD_LIVE_POST_TOOL_PROBE' "$setup_skill" \
    && ! grep -Fq 'cat .env' "$setup_skill" \
@@ -257,9 +261,9 @@ if grep -Fq '../../bin/agent-guard' "$setup_skill" \
    && grep -Fq 'run in a separate terminal' "$setup_skill" \
    && grep -Fq 'rerun the read-only' "$setup_skill" \
    && grep -Fq 'They do not prove that the host is dispatching plugin hooks' "$setup_skill"; then
-  ok "Codex setup skill verifies plugin-local, trust, and live-hook layers"
+  ok "shared setup skill selects host-specific trust and live-hook layers"
 else
-  not_ok "Codex setup skill verifies plugin-local, trust, and live-hook layers"
+  not_ok "shared setup skill selects host-specific trust and live-hook layers"
 fi
 
 for event in PreToolUse PostToolUse Stop; do
@@ -2010,13 +2014,28 @@ else
 fi
 
 printf '%s' '{"tool_name":"Bash","tool_input":{"command":"brew install gitleaks"}}' \
-  | AGENT_GUARD_GITLEAKS_BIN=/nonexistent/gitleaks PATH="$NO_GITLEAKS_BIN" \
+  | AGENT_GUARD_HOOK_HOST=codex AGENT_GUARD_GITLEAKS_BIN=/nonexistent/gitleaks PATH="$NO_GITLEAKS_BIN" \
     "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
 status=$?
 if [ "$status" -eq 0 ] && grep -q 'DEGRADED' "$ERR" && grep -q '\$setup-agent-guard' "$ERR"; then
-  ok "hook degrades open with an actionable setup warning when dependencies are missing"
+  ok "Codex hook degrades open with Codex setup guidance"
 else
-  not_ok "hook degraded mode allows setup commands with a warning (status $status)"
+  not_ok "Codex hook degraded mode uses Codex setup guidance (status $status)"
+  sed 's/^/  stdout: /' "$OUT"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+printf '%s' '{"tool_name":"Bash","tool_input":{"command":"brew install gitleaks"}}' \
+  | AGENT_GUARD_HOOK_HOST=claude AGENT_GUARD_GITLEAKS_BIN=/nonexistent/gitleaks PATH="$NO_GITLEAKS_BIN" \
+    "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 0 ] \
+   && grep -q 'DEGRADED' "$ERR" \
+   && grep -q 'agent-guard:setup-agent-guard' "$ERR" \
+   && ! grep -q '\$setup-agent-guard' "$ERR"; then
+  ok "Claude hook degrades open with Claude setup guidance"
+else
+  not_ok "Claude hook degraded mode uses Claude setup guidance (status $status)"
   sed 's/^/  stdout: /' "$OUT"
   sed 's/^/  stderr: /' "$ERR"
 fi
@@ -3419,14 +3438,24 @@ else
   not_ok "hook-session-start silent on unparseable marker (got: $vd_out)"
 fi
 
-vd_out=$(AGENT_GUARD_GITLEAKS_BIN=/nonexistent/gitleaks \
+vd_out=$(AGENT_GUARD_HOOK_HOST=codex AGENT_GUARD_GITLEAKS_BIN=/nonexistent/gitleaks \
   PATH="$NO_GITLEAKS_BIN" "$PLUGIN_ROOT/bin/agent-guard" hook-session-start 2>"$ERR")
 if [ $? -eq 0 ] \
    && printf '%s' "$vd_out" | jq -e '.systemMessage | contains("DEGRADED")' >/dev/null 2>&1 \
    && printf '%s' "$vd_out" | grep -q '\$setup-agent-guard'; then
-  ok "hook-session-start guides dependency setup while protection is degraded"
+  ok "Codex SessionStart uses Codex dependency setup guidance"
 else
-  not_ok "hook-session-start emits an actionable degraded-mode warning (got: $vd_out)"
+  not_ok "Codex SessionStart emits host-appropriate degraded guidance (got: $vd_out)"
+fi
+
+vd_out=$(AGENT_GUARD_HOOK_HOST=claude AGENT_GUARD_GITLEAKS_BIN=/nonexistent/gitleaks \
+  PATH="$NO_GITLEAKS_BIN" "$PLUGIN_ROOT/bin/agent-guard" hook-session-start 2>"$ERR")
+if [ $? -eq 0 ] \
+   && printf '%s' "$vd_out" | jq -e '.systemMessage | contains("agent-guard:setup-agent-guard")' >/dev/null 2>&1 \
+   && ! printf '%s' "$vd_out" | grep -q '\$setup-agent-guard'; then
+  ok "Claude SessionStart uses Claude dependency setup guidance"
+else
+  not_ok "Claude SessionStart emits host-appropriate degraded guidance (got: $vd_out)"
 fi
 
 # --- shell-init exports the resolved binary's version as the marker -----------
