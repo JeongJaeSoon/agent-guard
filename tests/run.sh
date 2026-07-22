@@ -88,6 +88,20 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 mkdir -p "$MOCK_BIN"
+
+setup_shell_command="$PLUGIN_ROOT/commands/setup-shell.md"
+if grep -Eq '^!`' "$setup_shell_command"; then
+  not_ok "setup-shell slash command avoids unapprovable shell interpolation"
+else
+  ok "setup-shell slash command avoids unapprovable shell interpolation"
+fi
+if grep -Fq 'Use the Bash tool' "$setup_shell_command" \
+  && grep -Fq 'outside the sandbox' "$setup_shell_command" \
+  && grep -Fq 'directly in their terminal' "$setup_shell_command"; then
+  ok "setup-shell slash command documents the approval and terminal fallback"
+else
+  not_ok "setup-shell slash command documents the approval and terminal fallback"
+fi
 cp "$ROOT/tests/fixtures/mock-gitleaks" "$MOCK_BIN/gitleaks"
 chmod +x "$MOCK_BIN/gitleaks"
 
@@ -222,6 +236,10 @@ if grep -Fq '../../bin/agent-guard' "$setup_skill" \
    && grep -Fq 'AGENT_GUARD_LIVE_POST_TOOL_PROBE' "$setup_skill" \
    && ! grep -Fq 'cat .env' "$setup_skill" \
    && grep -Fq '`functions.exec`' "$setup_skill" \
+   && grep -Fq 'blocked by the host sandbox' "$setup_skill" \
+   && grep -Fq 'Do not retry the same blocked write' "$setup_skill" \
+   && grep -Fq 'run in a separate terminal' "$setup_skill" \
+   && grep -Fq 'rerun the read-only' "$setup_skill" \
    && grep -Fq 'They do not prove that the host is dispatching plugin hooks' "$setup_skill"; then
   ok "Codex setup skill verifies plugin-local, trust, and live-hook layers"
 else
