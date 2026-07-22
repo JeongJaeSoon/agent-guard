@@ -68,6 +68,12 @@ The Claude plugin registers:
 - `SessionStart` to report missing dependencies and shell-integration version
   drift. It never installs software.
 
+Recognized checksum fields in `go.sum`, `package-lock.json`, `yarn.lock`,
+`Cargo.lock`, and `uv.lock` are allowlisted only when both their path and exact
+hash-line shape match. Other content in those files remains subject to normal
+secret detection. Output masking likewise replaces assignment values, not
+secret-like key names or surrounding prose.
+
 Default processing is local, ephemeral, and has no telemetry. PII hook handling
 is off by default. Selecting the optional `pleno` or `http` PII provider sends
 the text described in [PRIVACY.md](PRIVACY.md) to the user-configured endpoint.

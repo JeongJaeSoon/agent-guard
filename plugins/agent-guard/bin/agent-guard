@@ -774,11 +774,88 @@ run_gitleaks_stdin() {
   return 2
 }
 
+# Filter records encoded as one lockfile-kind byte, a tab, then the original
+# line. Keeping the checksum grammar in one place prevents staged diffs, host
+# writes, untracked files, and path scans from drifting apart.
+filter_lockfile_records() {
+  awk '
+    {
+      kind = substr($0, 1, 1)
+      line = substr($0, 3)
+      if (kind == "g" && line ~ /^[^[:space:]]+[[:space:]]+[^[:space:]]+[[:space:]]+h1:[A-Za-z0-9+\/]{43}=$/) next
+      if (kind == "p" && line ~ /^[[:space:]]*"integrity"[[:space:]]*:[[:space:]]*"(sha1-[A-Za-z0-9+\/]{27}=|sha256-[A-Za-z0-9+\/]{43}=|sha384-[A-Za-z0-9+\/]{64}|sha512-[A-Za-z0-9+\/]{86}==)"[,]?[[:space:]]*$/) next
+      if (kind == "y" && (line ~ /^[[:space:]]*integrity[[:space:]]+(sha1-[A-Za-z0-9+\/]{27}=|sha256-[A-Za-z0-9+\/]{43}=|sha384-[A-Za-z0-9+\/]{64}|sha512-[A-Za-z0-9+\/]{86}==)[[:space:]]*$/ || line ~ /^[[:space:]]*checksum:[[:space:]]*[0-9a-f]{64}[[:space:]]*$/)) next
+      if (kind == "c" && line ~ /^[[:space:]]*checksum[[:space:]]*=[[:space:]]*"[0-9a-f]{64}"[[:space:]]*$/) next
+      if (kind == "u" && (line ~ /^[[:space:]]*hash[[:space:]]*=[[:space:]]*"sha256:[0-9a-f]{64}"[,]?[[:space:]]*$/ || line ~ /^[[:space:]]*(sdist[[:space:]]*=[[:space:]]*)?\{[[:space:]]*url[[:space:]]*=[[:space:]]*"[^"]+"[[:space:]]*,[[:space:]]*hash[[:space:]]*=[[:space:]]*"sha256:[0-9a-f]{64}"[[:space:]]*,[[:space:]]*size[[:space:]]*=[[:space:]]*[0-9]+[[:space:]]*\}[,]?[[:space:]]*$/)) next
+      print line
+    }
+  '
+}
+
+# Gitleaks' bundled defaults skip common lockfiles by path. Agent Guard rescans
+# them through stdin after removing only exact checksum-field lines; this both
+# fixes checksum false positives and keeps credentials elsewhere detectable.
+filter_lockfile_hashes() {
+  path=$1
+  source=${2:-$path}
+  case "${path##*/}" in
+    go.sum) kind=g ;;
+    package-lock.json) kind=p ;;
+    yarn.lock) kind=y ;;
+    Cargo.lock) kind=c ;;
+    uv.lock) kind=u ;;
+    *) cat -- "$source"; return ;;
+  esac
+  awk -v kind="$kind" '{ print kind "\t" $0 }' "$source" | filter_lockfile_records
+}
+
+scan_lockfiles_under() {
+  root=$1
+  label=$2
+  blob=$(mktemp_file) || die "failed to create temp file"
+  find "$root" -type f \( \
+      -name go.sum -o -name package-lock.json -o -name yarn.lock -o \
+      -name Cargo.lock -o -name uv.lock \
+    \) -exec "$SELF_BIN" filter-lockfile-hashes '{}' '{}' \; >"$blob"
+  find_status=$?
+  if [ "$find_status" -ne 0 ]; then
+    rm -f "$blob"
+    info "$PROGRAM: failed to prepare lockfiles in $label"
+    return 2
+  fi
+  if [ ! -s "$blob" ]; then
+    rm -f "$blob"
+    return 0
+  fi
+  run_gitleaks_stdin "$label lockfile content" <"$blob"
+  status=$?
+  rm -f "$blob"
+  return "$status"
+}
+
 scan_text_direct() {
   label=$1
   text=$2
   [ -n "$text" ] || return 0
   printf '%s\n' "$text" | run_gitleaks_stdin "$label"
+}
+
+# Remove only recognized lockfile checksum fields before scanning proposed file
+# content. The logical path controls the exception; the temporary filename does
+# not, so the same checksum-shaped text in any other file remains detectable.
+scan_file_text_direct() {
+  label=$1
+  path=$2
+  text=$3
+  [ -n "$text" ] || return 0
+  [ -n "$path" ] || { scan_text_direct "$label" "$text"; return $?; }
+
+  source=$(mktemp_file) || die "failed to create temp file"
+  printf '%s\n' "$text" >"$source"
+  filter_lockfile_hashes "$path" "$source" | run_gitleaks_stdin "$label"
+  status=$?
+  rm -f "$source"
+  return "$status"
 }
 
 # Scan status protocol, shared by every scan_* function and this dispatcher:
@@ -806,55 +883,71 @@ block_on_scan_status() {
   esac
 }
 
+# Extract only added diff lines, dropping exact checksum fields only when the
+# diff header identifies one of the supported lockfiles.
 extract_added_lines() {
-  # Track hunk state so a file header (`+++ b/path`, before the first `@@`) is
-  # told apart from added CONTENT by position, not by shape. Matching `+++ ` by
-  # shape dropped any added line whose own content began with `++ ` — git
-  # prefixes it with one more `+`, so `++ SECRET` arrived as `+++ SECRET` and
-  # slipped past the scanner. Only `+` lines inside a hunk are additions.
   awk '
-    /^diff --git / { in_hunk = 0; next }
+    function lockfile_kind(path, parts, count, name) {
+      count = split(path, parts, "/")
+      name = parts[count]
+      if (name == "go.sum") return "g"
+      if (name == "package-lock.json") return "p"
+      if (name == "yarn.lock") return "y"
+      if (name == "Cargo.lock") return "c"
+      if (name == "uv.lock") return "u"
+      return "-"
+    }
+    /^diff --git / { in_hunk = 0; path = ""; next }
+    !in_hunk && /^\+\+\+ b\// { path = substr($0, 7); next }
     /^@@/ { in_hunk = 1; next }
-    in_hunk && /^\+/ { sub(/^\+/, ""); print }
-  '
+    in_hunk && /^\+/ { print lockfile_kind(path) "\t" substr($0, 2) }
+  ' | filter_lockfile_records
 }
-
 # Extract lines introduced by Codex apply_patch envelopes or unified diffs.
 extract_patch_added_lines() {
   awk '
-    BEGIN { mode = "none" }
-    /^\*\*\* Begin Patch/ { mode = "none"; next }
-    /^\*\*\* End Patch/ { mode = "none"; next }
-    /^\*\*\* Add File:/ { mode = "add"; next }
-    /^\*\*\* Update File:/ { mode = "update"; next }
-    /^\*\*\* Delete File:/ { mode = "none"; next }
+    function lockfile_kind(path, parts, count, name) {
+      count = split(path, parts, "/")
+      name = parts[count]
+      if (name == "go.sum") return "g"
+      if (name == "package-lock.json") return "p"
+      if (name == "yarn.lock") return "y"
+      if (name == "Cargo.lock") return "c"
+      if (name == "uv.lock") return "u"
+      return "-"
+    }
+    BEGIN { mode = "none"; in_hunk = 0 }
+    /^\*\*\* Begin Patch/ { mode = "none"; in_hunk = 0; next }
+    /^\*\*\* End Patch/ { mode = "none"; in_hunk = 0; next }
+    /^\*\*\* Add File:/ { path = $0; sub(/^\*\*\* Add File:[ \t]*/, "", path); mode = "add"; next }
+    /^\*\*\* Update File:/ { path = $0; sub(/^\*\*\* Update File:[ \t]*/, "", path); mode = "update"; next }
+    /^\*\*\* Delete File:/ { mode = "none"; path = ""; in_hunk = 0; next }
     /^\*\*\* End of File/ { next }
-    /^@@/ { next }
+    /^diff --git / { if (mode == "none") in_hunk = 0; next }
+    /^@@/ { if (mode == "none") in_hunk = 1; next }
     {
       if (mode == "add") {
         line = $0
         sub(/^\+/, "", line)
-        print line
+        print lockfile_kind(path) "\t" line
         next
       }
       if (mode == "update") {
-        if (substr($0, 1, 1) == "+") {
-          line = substr($0, 2)
-          print line
-        }
+        if (substr($0, 1, 1) == "+")
+          print lockfile_kind(path) "\t" substr($0, 2)
         next
       }
       # Fallback: treat as a unified diff hunk.
-      if (/^\+\+\+ /) next
-      if (/^\+/) {
+      if (!in_hunk && /^\+\+\+ b\//) { path = substr($0, 7); next }
+      if (!in_hunk && /^\+\+\+ /) next
+      if (in_hunk && /^\+/) {
         line = $0
         sub(/^\+/, "", line)
-        print line
+        print lockfile_kind(path) "\t" line
       }
     }
-  '
+  ' | filter_lockfile_records
 }
-
 inside_git_repo() {
   git rev-parse --is-inside-work-tree >/dev/null 2>&1
 }
@@ -895,19 +988,30 @@ scan_untracked_files() {
     return 0
   fi
 
-  # Stream every untracked file through a single gitleaks stdin call. The
-  # "### file: <path>" header keeps a finding's context pointing at its file
-  # while holding the gitleaks process count at O(1). xargs -0 drives the
-  # NUL-delimited list because POSIX `read` cannot split on NUL.
+  # Stream every untracked file through one gitleaks stdin call. Exact checksum
+  # fields are removed only for supported lockfile basenames; all other content
+  # from those files, including credentials, remains in the stream.
   blob=$(mktemp_file) || { rm -f "$list"; die "failed to create temp file"; }
   xargs -0 -I '{}' sh -c '
     f=$1
+    filter=$2
     [ -f "$f" ] || exit 0
     printf "### file: %s\n" "$f"
-    cat -- "$f"
+    case "${f##*/}" in
+      go.sum|package-lock.json|yarn.lock|Cargo.lock|uv.lock)
+        "$filter" filter-lockfile-hashes "$f" "$f"
+        ;;
+      *) cat -- "$f" ;;
+    esac
     printf "\n"
-  ' _ '{}' >>"$blob" <"$list"
+  ' _ '{}' "$SELF_BIN" >>"$blob" <"$list"
+  prepare_status=$?
   rm -f "$list"
+  if [ "$prepare_status" -ne 0 ]; then
+    rm -f "$blob"
+    info "$PROGRAM: failed to prepare untracked files for scanning"
+    return 2
+  fi
 
   if [ ! -s "$blob" ]; then
     rm -f "$blob"
@@ -976,13 +1080,8 @@ scan_path() {
         info "$PROGRAM: gitleaks reported an error while scanning path: $path"
         sed 's/^/  /' "$out" >&2
         result=2
-        rm -f "$out"
-        continue
       fi
-      rm -f "$out"
-      continue
-    fi
-    if [ "$status" -eq 1 ]; then
+    elif [ "$status" -eq 1 ]; then
       info "$PROGRAM: secret-like value detected in path: $path"
       sed 's/^/  /' "$out" >&2
       [ "$result" -eq 0 ] && result=1
@@ -992,6 +1091,14 @@ scan_path() {
       result=2
     fi
     rm -f "$out"
+
+    scan_lockfiles_under "$path" "path: $path"
+    status=$?
+    case "$status" in
+      0) ;;
+      1) [ "$result" -eq 0 ] && result=1 ;;
+      *) result=2 ;;
+    esac
   done
   return "$result"
 }
@@ -1651,23 +1758,27 @@ scan_proposed_write() {
 
   case "$tool" in
     Write)
+      path=$(json_value '.tool_input.file_path // .tool_input.path // empty' "$input")
       content=$(json_value '.tool_input.content // empty' "$input")
-      scan_text_direct "proposed Write content" "$content"
+      scan_file_text_direct "proposed Write content" "$path" "$content"
       block_on_scan_status "$?" "proposed Write contains secret-like values"
       ;;
     Edit)
+      path=$(json_value '.tool_input.file_path // .tool_input.path // empty' "$input")
       content=$(json_value '.tool_input.new_string // empty' "$input")
-      scan_text_direct "proposed Edit content" "$content"
+      scan_file_text_direct "proposed Edit content" "$path" "$content"
       block_on_scan_status "$?" "proposed Edit contains secret-like values"
       ;;
     MultiEdit)
+      path=$(json_value '.tool_input.file_path // .tool_input.path // empty' "$input")
       content=$(printf '%s' "$input" | jq -r '[.tool_input.edits[]?.new_string // empty] | join("\n")')
-      scan_text_direct "proposed MultiEdit content" "$content"
+      scan_file_text_direct "proposed MultiEdit content" "$path" "$content"
       block_on_scan_status "$?" "proposed MultiEdit contains secret-like values"
       ;;
     NotebookEdit)
+      path=$(json_value '.tool_input.notebook_path // .tool_input.file_path // empty' "$input")
       content=$(json_value '.tool_input.new_source // empty' "$input")
-      scan_text_direct "proposed NotebookEdit content" "$content"
+      scan_file_text_direct "proposed NotebookEdit content" "$path" "$content"
       block_on_scan_status "$?" "proposed NotebookEdit contains secret-like values"
       ;;
     apply_patch)
@@ -1815,27 +1926,57 @@ output_redact_enabled() {
 # of these (custom value formats), so emit the VALUE for literal redaction.
 secretish_env_values() {
   awk '
+    BEGIN {
+      core = "password|passwd|passphrase|db[_-]?pass(word)?|secret|secret[_-]?key|token|refresh[_-]?token|auth[_-]?token|session[_-]?key|api[_-]?key|access[_-]?key|private[_-]?key|signing[_-]?key|encryption[_-]?key|credential|client[_-]?secret|bearer|webhook"
+      # Match complete assignment keys that END in a secret-bearing term.
+      # Arbitrary suffixes such as password_policy or token_name are metadata,
+      # not values to redact. Bare PATH/PWD remain excluded; compound _pat/_pwd
+      # keys keep their intended coverage.
+      key = "[a-z0-9_.-]*(" core "|[_-](pat|pwd))"
+      equals_assignment = "(^|[ \t,{;])[\"'\''`]?" key "[\"'\''`]?[ \t]*="
+      # A colon is ambiguous in prose. Accept it only at the start of a YAML
+      # field or after a JSON/map delimiter, never after arbitrary text.
+      colon_assignment = "(^[ \t]*|[,{][ \t]*)[\"'\''`]?" key "[\"'\''`]?[ \t]*:"
+    }
+    function emit_value(source, start, raw, quote, end, value) {
+      raw = substr(source, start)
+      sub(/^[ \t]+/, "", raw)
+      quote = substr(raw, 1, 1)
+      if (quote == "\"" || quote == "'\''" || quote == "`") {
+        raw = substr(raw, 2)
+        end = index(raw, quote)
+        if (end == 0) return
+        value = substr(raw, 1, end - 1)
+      } else {
+        value = raw
+        sub(/[ \t,;].*$/, "", value)
+      }
+      if (length(value) >= 4) print value
+    }
     {
-      low = tolower($0)
-      # Anchor the value to the delimiter that follows the matched key, not the
-      # first [=:] on the line — a log/timestamp prefix (e.g. "12:00:00") would
-      # otherwise hijack the split and mis-slice the value. tolower preserves
-      # byte offsets for ASCII, so RSTART/RLENGTH from `low` apply to $0.
-      #
-      # Two matchers, OR-ed so RSTART/RLENGTH come from whichever hits:
-      #  1. distinctive secret-bearing key words (safe as bare prefixes).
-      #  2. short ambiguous abbreviations `pat`/`pwd` — matched ONLY as a
-      #     compound-key suffix (preceded by _ or -, e.g. github_pat, db_pwd) AND
-      #     ending right at the delimiter, so the ubiquitous bare shell vars
-      #     PATH= / PWD= (directory paths) and benign compounds like NODE_PATH= /
-      #     FILE_PATTERN= do NOT get masked. No word-boundary metachar exists in
-      #     portable ERE, hence the explicit leading [_-] anchor and the absence
-      #     of a trailing [a-z0-9_]* run before the delimiter.
-      if (match(low, /(password|passwd|passphrase|db[_-]?pass(word)?|secret|token|refresh[_-]?token|auth[_-]?token|session[_-]?key|api[_-]?key|access[_-]?key|private[_-]?key|signing[_-]?key|encryption[_-]?key|credential|client[_-]?secret|bearer|webhook)[a-z0-9_]*[ \t]*[=:]/) || match(low, /[_-](pat|pwd)[ \t]*[=:]/)) {
-        val = substr($0, RSTART + RLENGTH)
-        gsub(/^[ \t"'\''`]+/, "", val)
-        gsub(/[ \t"'\''`,;]+$/, "", val)
-        if (length(val) >= 4) print val
+      rest = $0
+      while (length(rest) > 0) {
+        low = tolower(rest)
+        match(low, equals_assignment)
+        eq_start = RSTART
+        eq_length = RLENGTH
+        match(low, colon_assignment)
+        colon_start = RSTART
+        colon_length = RLENGTH
+
+        start = eq_start
+        matched_length = eq_length
+        if (colon_start > 0 && (start == 0 || colon_start < start)) {
+          start = colon_start
+          matched_length = colon_length
+        }
+        if (start == 0) break
+
+        # Emit exactly the quoted value or the next unquoted token. Continuing
+        # after the delimiter finds multiple assignments on one log line while
+        # leaving adjacent status text untouched.
+        emit_value(rest, start + matched_length)
+        rest = substr(rest, start + matched_length)
       }
     }
   '
@@ -2669,6 +2810,7 @@ case "$cmd" in
   scan-staged) shift; scan_staged "$@" ;;
   scan-working-tree) shift; scan_working_tree "$@" ;;
   scan-path) shift; scan_path "$@" ;;
+  filter-lockfile-hashes) shift; filter_lockfile_hashes "$@" ;;
   check) check_deps ;;
   setup) shift; do_setup "$@" ;;
   setup-shell) shift; do_setup_shell "$@" ;;
