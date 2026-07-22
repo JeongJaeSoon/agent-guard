@@ -57,6 +57,17 @@ $setup-agent-guard
 
 Treat setup as complete only when the plugin-local dependency check, smoke test, and both live host probes pass. The probes confirm that the current Codex tool route actually dispatches to Agent Guard's hooks.
 
+To install or refresh the optional Agent Guard shell integration, choose
+**Set Up Agent Guard Shell** from the `/` menu or invoke:
+
+```text
+$setup-shell
+```
+
+The skill resolves the current plugin-local binary and requests approval before
+updating the shell rc, so the versioned plugin-cache path does not need to be
+copied into the prompt.
+
 Both plugins need `jq` and `gitleaks` on your machine (`brew install jq gitleaks`; see [Requirements](#requirements)). Using the CLI, Git hooks, or CI instead? Pick your path below.
 
 ## Pick an install path
@@ -166,7 +177,10 @@ These sentinels test only whether the host dispatched PreToolUse and PostToolUse
 
 Codex may expose shell execution through a wrapping or orchestration tool such as `functions.exec`. Agent Guard cannot replace or wrap Codex's host executor; it protects only nested operations that the current Codex release dispatches to plugin hooks. Test the exact route used in the current task. If the pre-tool marker or raw fake token appears, protection is not active on that route even when the binary smoke test passes. Use a native Git hook or CI as the backstop and do not treat the plugin setup as complete for that host route.
 
-Codex loads the plugin's `skills/` directory but does not use the Claude `commands/` directory. Use `$setup-agent-guard` for setup; ask Codex to run the binary directly for other workflows:
+Codex loads the plugin's `skills/` directory but does not use the Claude
+`commands/` directory. Use `$setup-agent-guard` for dependency and hook setup,
+and `$setup-shell` to install or refresh the optional shell integration. Ask
+Codex to run the binary directly for other workflows:
 
 ```sh
 ${PLUGIN_ROOT}/bin/agent-guard scan-working-tree
@@ -440,7 +454,9 @@ Agent Guard shares its scanner implementation across Claude Code and Codex, but 
 - `plugins/agent-guard/bin/agent-guard`, `config/`, and `scripts/` are shared.
 - Claude Code uses `.claude-plugin/plugin.json`, `commands/`, and `hooks/hooks.json`.
 - Codex uses `.codex-plugin/plugin.json`, which explicitly declares `hooks.json` and `skills/`; hook commands set `AGENT_GUARD_HOOK_HOST=codex` so output follows the Codex contract.
-- Codex uses `$setup-agent-guard` for guided dependency setup. Claude `commands/` remain Claude-specific; other Codex workflows use the binary directly.
+- Codex uses `$setup-agent-guard` for guided dependency setup and `$setup-shell`
+  for the optional shell integration. Claude `commands/` remain Claude-specific;
+  other Codex workflows use the binary directly.
 
 ## Development
 

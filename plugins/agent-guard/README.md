@@ -59,8 +59,8 @@ The Claude plugin registers:
 - `PostToolUse` for supported tools. It scans output for secret-like values and,
   after mutations, scans changed files in the current Git work tree.
 - `Stop` to scan changed files in the current Git work tree.
-- `SessionStart` to report missing dependencies and shell-integration version
-  drift. It never installs software.
+- `SessionStart` to report missing dependencies and, on Claude Code,
+  shell-integration version drift. It never installs software.
 
 Default processing is local, ephemeral, and has no telemetry. PII hook handling
 is off by default. Selecting the optional `pleno` or `http` PII provider sends
@@ -83,6 +83,8 @@ gitleaks 8.30 or newer (recommended).
 - `agent-guard:setup-agent-guard` — resolve the plugin-local binary, diagnose
   `jq`/gitleaks, and guide approved installation. Codex invokes the same skill
   as `$setup-agent-guard`; its hook-trust and live-probe steps are Codex-specific.
+- `agent-guard:setup-shell` — install or refresh the optional shell integration
+  through the plugin-local binary with approval before changing the shell rc.
 
 ## Policies and support
 

@@ -102,6 +102,22 @@ if grep -Fq 'Use the Bash tool' "$setup_shell_command" \
 else
   not_ok "setup-shell slash command documents the approval and terminal fallback"
 fi
+
+setup_shell_skill="$PLUGIN_ROOT/skills/setup-shell/SKILL.md"
+setup_shell_metadata="$PLUGIN_ROOT/skills/setup-shell/agents/openai.yaml"
+if grep -Fq '../../bin/agent-guard' "$setup_shell_skill" \
+  && grep -Fq 'Obtain host approval' "$setup_shell_skill" \
+  && grep -Fq 'is separate from plugin' "$setup_shell_skill" \
+  && grep -Fq 'Do not retry the same blocked write' "$setup_shell_skill" \
+  && grep -Fq 'terminal, wait for confirmation' "$setup_shell_skill" \
+  && grep -Fq 'restart the shell' "$setup_shell_skill" \
+  && grep -Fq 'agent sessions launched from that shell' "$setup_shell_skill" \
+  && ! grep -Eq 'Claude Code|Codex' "$setup_shell_skill" \
+  && ! grep -Eq 'Claude Code|Codex' "$setup_shell_metadata"; then
+  ok "setup-shell skill stays host-neutral with approval and fallback guidance"
+else
+  not_ok "setup-shell skill stays host-neutral with approval and fallback guidance"
+fi
 cp "$ROOT/tests/fixtures/mock-gitleaks" "$MOCK_BIN/gitleaks"
 chmod +x "$MOCK_BIN/gitleaks"
 
@@ -3387,6 +3403,15 @@ else
   not_ok "Codex SessionStart stays scoped to Codex setup (got: $vd_out)"
 fi
 
+vd_out=$(AGENT_GUARD_HOOK_HOST=codex AGENT_GUARD_SHELL_INIT_VERSION=0.0.1 \
+  AGENT_GUARD_GITLEAKS_BIN="$MOCK_BIN/gitleaks" PATH="$MOCK_BIN:$ORIGINAL_PATH" \
+  "$PLUGIN_ROOT/bin/agent-guard" hook-session-start 2>"$ERR")
+if [ $? -eq 0 ] && [ -z "$vd_out" ]; then
+  ok "Codex SessionStart ignores Claude shell-integration version drift"
+else
+  not_ok "Codex SessionStart ignores Claude shell-integration drift (got: $vd_out)"
+fi
+
 vd_out=$(run_session_start 'not a version' 2>"$ERR")
 if [ $? -eq 0 ] && [ -z "$vd_out" ]; then
   ok "hook-session-start is silent when the marker cannot be parsed"
@@ -3489,11 +3514,16 @@ fi
 
 # --- setup-shell: write the shell-init line into an rc, idempotently ----------
 ss_rc="$TESTTMP/setup.rc"
-"$PLUGIN_ROOT/bin/agent-guard" setup-shell --rc "$ss_rc" >/dev/null 2>&1
+ss_output=$("$PLUGIN_ROOT/bin/agent-guard" setup-shell --rc "$ss_rc" 2>&1)
 if grep -q '>>> agent-guard shell-init >>>' "$ss_rc" 2>/dev/null; then
   ok "setup-shell writes a managed shell-init block into the rc"
 else
   not_ok "setup-shell writes a managed shell-init block into the rc"
+fi
+if printf '%s' "$ss_output" | grep -Eq 'Claude Code|Codex'; then
+  not_ok "setup-shell output stays host-neutral"
+else
+  ok "setup-shell output stays host-neutral"
 fi
 "$PLUGIN_ROOT/bin/agent-guard" setup-shell --rc "$ss_rc" >/dev/null 2>&1
 ss_markers=$(grep -c '>>> agent-guard shell-init >>>' "$ss_rc" 2>/dev/null)
@@ -3536,7 +3566,8 @@ done
 setup_shell_help=$("$PLUGIN_ROOT/bin/agent-guard" setup-shell --help 2>&1)
 if printf '%s' "$setup_shell_help" | grep -q -- '--no-command-wrapping' \
    && ! printf '%s' "$setup_shell_help" | grep -q -- '--claude-bang-guard' \
-   && ! printf '%s' "$setup_shell_help" | grep -q -- '--experimental-bang-guard'; then
+   && ! printf '%s' "$setup_shell_help" | grep -q -- '--experimental-bang-guard' \
+   && ! printf '%s' "$setup_shell_help" | grep -Eq 'Claude Code|Codex'; then
   ok "setup-shell help exposes only the 2.x command-wrapping option"
 else
   not_ok "setup-shell help exposes only the 2.x command-wrapping option"
