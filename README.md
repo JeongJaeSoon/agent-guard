@@ -333,9 +333,15 @@ To enable it, add an Actions secret named `OPENAI_API_KEY` in the GitHub reposit
 
 Patch and diff scans inspect added lines only. Removing an existing leaked value is allowed.
 
+Dependency checksums are exempt only for recognized hash-field shapes in
+`go.sum`, `package-lock.json`, `yarn.lock`, `Cargo.lock`, and `uv.lock`. The
+allowlist requires both the lockfile path and the checksum pattern; arbitrary
+content in those files, including a credential added beside normal hashes, is
+still scanned.
+
 ## What Gets Masked
 
-Beyond blocking, Agent Guard **masks** secret-like values in a matched tool's output before the model sees them. Claude uses the native `updatedToolOutput` rewrite and preserves the result shape. Codex does not expose that Claude field, so Agent Guard blocks the original sensitive result and supplies a sanitized replacement through `additionalContext`. Detection combines gitleaks with a `KEY=value` env-assignment heuristic. It is on by default; disable with `AGENT_GUARD_OUTPUT_REDACT=off`.
+Beyond blocking, Agent Guard **masks** secret-like values in a matched tool's output before the model sees them. Claude uses the native `updatedToolOutput` rewrite and preserves the result shape. Codex does not expose that Claude field, so Agent Guard blocks the original sensitive result and supplies a sanitized replacement through `additionalContext`. Detection combines gitleaks with an assignment-value heuristic. The heuristic masks only the quoted value or next unquoted value token of a complete secret-bearing key; it does not mask metadata keys merely beginning with a secret word, prose after an ambiguous colon, or adjacent status text. It is on by default; disable with `AGENT_GUARD_OUTPUT_REDACT=off`.
 
 With `AGENT_GUARD_PII_HOOK_MODE=mask`, the same `PostToolUse` redactor also masks **PII** in tool output — email, phone (including Korean mobile), IPv4, credit card, US SSN, and Korean resident registration number become `[PII:TYPE]` placeholders in place. Secret redaction and PII masking compose into a single rewrite, so a result containing both is fully sanitized at once.
 

@@ -1264,6 +1264,8 @@ fi
   git reset -q
   rm -f staged.txt untracked.txt
   printf '%s\n' "++ AGENT_GUARD_TEST_SECRET" > plusplus.txt
+  sed 's|^++ |++ b/|' plusplus.txt > plusplus.tmp
+  mv plusplus.tmp plusplus.txt
   git add plusplus.txt
   "$PLUGIN_ROOT/bin/agent-guard" scan-staged >"$OUT" 2>"$ERR"
 )
@@ -3048,6 +3050,119 @@ if [ -n "$REAL_GITLEAKS" ]; then
     not_ok "shape rule leaves x-run and AWS-docs EXAMPLE placeholders alone (expected 0, got $status)"
     sed 's/^/  stderr: /' "$ERR"
   fi
+
+  # Lockfile checksum allowlists are path + field combinations. A go.sum line
+  # whose module name ends in `api` reproduces the default generic-api-key false
+  # positive, while the identical line outside go.sum and a credential mixed
+  # into go.sum must remain findings.
+  LOCK_SUM=$(printf '%s%s%s' 'h1:QmvMAjj2aEICy' 'tGiWzmxoE0x2KZvE' '0fvmqMOfy2tjT8=')
+  LOCK_B64=${LOCK_SUM#h1:}
+  LOCK_B64_BODY=${LOCK_B64%=}
+  LOCK_SHA512="${LOCK_B64_BODY}${LOCK_B64_BODY}=="
+  LOCK_SECRET=$(printf '%s%s' 'A1b2C3d4E5f6G7h8' 'I9j0K1l2M3n4O5p6')
+  LOCK_HEX=$(printf '%s%s' '0123456789abcdef0123456789abcdef' 'fedcba9876543210fedcba9876543210')
+  LOCKFILE_FIXTURE_DIR="$TMP_ROOT/lockfile-hash-dir"
+  mkdir -p "$LOCKFILE_FIXTURE_DIR"
+  printf 'example.com/clientapi v1.2.3 %s\n' "$LOCK_SUM" >"$LOCKFILE_FIXTURE_DIR/go.sum"
+  printf '  "integrity": "sha512-%s"\n' "$LOCK_SHA512" >"$LOCKFILE_FIXTURE_DIR/package-lock.json"
+  printf '  integrity sha512-%s\n' "$LOCK_SHA512" >"$LOCKFILE_FIXTURE_DIR/yarn.lock"
+  printf 'checksum = "%s"\n' "$LOCK_HEX" >"$LOCKFILE_FIXTURE_DIR/Cargo.lock"
+  printf 'hash = "sha256:%s"\n' "$LOCK_HEX" >"$LOCKFILE_FIXTURE_DIR/uv.lock"
+  PATH="$(dirname "$REAL_GITLEAKS"):$ORIGINAL_PATH" "$PLUGIN_ROOT/bin/agent-guard" \
+    scan-path "$LOCKFILE_FIXTURE_DIR" >"$OUT" 2>"$ERR"
+  status=$?
+  if [ "$status" -eq 0 ]; then
+    ok "lockfile checksum fields are exempt only in recognized lockfile paths"
+  else
+    not_ok "recognized lockfile checksum fields stay clean (expected 0, got $status)"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+
+  cp "$LOCKFILE_FIXTURE_DIR/go.sum" "$TMP_ROOT/safe-go-sum"
+  printf 'api_token = "%s"\n' "$LOCK_SECRET" >>"$LOCKFILE_FIXTURE_DIR/go.sum"
+  PATH="$(dirname "$REAL_GITLEAKS"):$ORIGINAL_PATH" "$PLUGIN_ROOT/bin/agent-guard" \
+    scan-path "$LOCKFILE_FIXTURE_DIR/go.sum" >"$OUT" 2>"$ERR"
+  status=$?
+  if [ "$status" -eq 1 ]; then
+    ok "scan-path still detects a credential mixed into a recognized lockfile"
+  else
+    not_ok "scan-path keeps non-checksum lockfile content scannable (expected 1, got $status)"
+  fi
+  cp "$TMP_ROOT/safe-go-sum" "$LOCKFILE_FIXTURE_DIR/go.sum"
+
+  cp "$LOCKFILE_FIXTURE_DIR/go.sum" "$LOCKFILE_FIXTURE_DIR/not-a-lockfile.txt"
+  PATH="$(dirname "$REAL_GITLEAKS"):$ORIGINAL_PATH" "$PLUGIN_ROOT/bin/agent-guard" \
+    scan-path "$LOCKFILE_FIXTURE_DIR/not-a-lockfile.txt" >"$OUT" 2>"$ERR"
+  status=$?
+  if [ "$status" -eq 1 ]; then
+    ok "go.sum-shaped checksum outside go.sum remains a generic-api-key finding"
+  else
+    not_ok "lockfile checksum allowlist remains path-scoped (expected 1, got $status)"
+  fi
+
+  LOCK_GIT_DIR="$TMP_ROOT/lockfile-git-dir"
+  mkdir -p "$LOCK_GIT_DIR"
+  (
+    cd "$LOCK_GIT_DIR"
+    git init -q
+    git config user.email test@example.com
+    git config user.name "Agent Guard Tests"
+    cp "$LOCKFILE_FIXTURE_DIR/go.sum" go.sum
+    git add go.sum
+  )
+  (
+    cd "$LOCK_GIT_DIR"
+    PATH="$(dirname "$REAL_GITLEAKS"):$ORIGINAL_PATH" \
+      "$PLUGIN_ROOT/bin/agent-guard" scan-staged
+  ) >"$OUT" 2>"$ERR"
+  status=$?
+  if [ "$status" -eq 0 ]; then
+    ok "scan-staged preserves go.sum path context for checksum allowlisting"
+  else
+    not_ok "scan-staged allows a go.sum checksum (expected 0, got $status)"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+
+  printf 'api_token = "%s"\n' "$LOCK_SECRET" >>"$LOCK_GIT_DIR/go.sum"
+  (cd "$LOCK_GIT_DIR" && git add go.sum)
+  (
+    cd "$LOCK_GIT_DIR"
+    PATH="$(dirname "$REAL_GITLEAKS"):$ORIGINAL_PATH" \
+      "$PLUGIN_ROOT/bin/agent-guard" scan-staged
+  ) >"$OUT" 2>"$ERR"
+  status=$?
+  if [ "$status" -eq 1 ]; then
+    ok "scan-staged still detects a credential mixed into go.sum"
+  else
+    not_ok "credential in go.sum remains detectable (expected 1, got $status)"
+  fi
+
+  LOCK_SUM_LINE="example.com/clientapi v1.2.3 $LOCK_SUM"
+  lock_write=$(jq -nc --arg content "$LOCK_SUM_LINE" \
+    '{tool_name:"Write",tool_input:{file_path:"go.sum",content:$content}}')
+  printf '%s' "$lock_write" \
+    | AGENT_GUARD_GITLEAKS_BIN="$REAL_GITLEAKS" PATH="$(dirname "$REAL_GITLEAKS"):$ORIGINAL_PATH" \
+        "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+  status=$?
+  if [ "$status" -eq 0 ]; then
+    ok "Write scanning preserves go.sum path context for checksum allowlisting"
+  else
+    not_ok "Write allows a go.sum checksum (expected 0, got $status)"
+  fi
+
+  lock_patch=$(printf '%s\n%s\n%s\n%s\n%s\n' \
+    '*** Begin Patch' '*** Update File: go.sum' '@@' "+$LOCK_SUM_LINE" '*** End Patch')
+  lock_patch_input=$(jq -nc --arg patch "$lock_patch" \
+    '{tool_name:"apply_patch",tool_input:{patch:$patch}}')
+  printf '%s' "$lock_patch_input" \
+    | AGENT_GUARD_GITLEAKS_BIN="$REAL_GITLEAKS" PATH="$(dirname "$REAL_GITLEAKS"):$ORIGINAL_PATH" \
+        "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+  status=$?
+  if [ "$status" -eq 0 ]; then
+    ok "apply_patch scanning preserves go.sum path context for checksum allowlisting"
+  else
+    not_ok "apply_patch allows a go.sum checksum (expected 0, got $status)"
+  fi
 else
   say "real gitleaks not available; skipped real-gitleaks integration tests"
 fi
@@ -3142,6 +3257,42 @@ if printf '%s' "$post_out" | grep -q '\[REDACTED\]' \
 else
   not_ok "post-tool env-assignment heuristic masks KEY=value gitleaks misses"
   printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+# Display redaction replaces only the assignment value token. Text after it is
+# preserved, metadata keys with secret-ish prefixes are not values, and a prose
+# colon must not be interpreted as a YAML/JSON secret assignment.
+DISPLAY_SECRET=$(printf '%s%s' 'hunter2-' 'long-value')
+display_input=$(jq -nc --arg stdout "DATABASE_PASSWORD=$DISPLAY_SECRET status=ok" \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$display_input"
+post_out=$(cat "$OUT")
+display_expected=$(printf 'DATABASE_PASSWORD=[%s] status=ok' 'REDACTED')
+if printf '%s' "$post_out" \
+  | jq -e --arg expected "$display_expected" \
+      '.hookSpecificOutput.updatedToolOutput.stdout == $expected' >/dev/null 2>&1; then
+  ok "post-tool masks only the matched assignment value and preserves adjacent text"
+else
+  not_ok "post-tool value redaction preserves adjacent text"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+post_tool_out '{"tool_name":"Bash","tool_input":{"command":"x"},"tool_response":{"stdout":"password_policy=disabled\n","stderr":"","interrupted":false,"isImage":false}}'
+post_status=$?
+if [ "$post_status" -eq 0 ] && [ ! -s "$OUT" ]; then
+  ok "post-tool does not mask metadata keys that merely begin with a secret keyword"
+else
+  not_ok "post-tool leaves password_policy metadata untouched"
+  sed 's/^/  out: /' "$OUT"
+fi
+
+post_tool_out '{"tool_name":"Bash","tool_input":{"command":"x"},"tool_response":{"stdout":"error: password: authentication is disabled\n","stderr":"","interrupted":false,"isImage":false}}'
+post_status=$?
+if [ "$post_status" -eq 0 ] && [ ! -s "$OUT" ]; then
+  ok "post-tool does not treat a prose colon as a secret assignment"
+else
+  not_ok "post-tool leaves prose after a secret-like key name untouched"
+  sed 's/^/  out: /' "$OUT"
 fi
 
 post_tool_out '{"tool_name":"Read","tool_input":{"file_path":"memo.txt"},"tool_response":"API_KEY=supersecretvalue123\n"}'

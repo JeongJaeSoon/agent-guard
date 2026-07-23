@@ -19,6 +19,13 @@
   `AGENT_GUARD_INFRA_FAILURE_MODE=open|closed` (default `open`). Hooks, `agx`,
   and transparent Claude command wrapping now warn once per session and follow
   the same selected policy; actual secret detections still always block.
+- fix(detection): allow recognized checksum fields in `go.sum`,
+  `package-lock.json`, `yarn.lock`, `Cargo.lock`, and `uv.lock` only when both
+  the lockfile path and checksum-line shape match. Other lockfile content,
+  including embedded credentials, remains scannable.
+- fix(redaction): mask only the value token of a complete secret-bearing
+  assignment. Metadata keys such as `password_policy`, prose such as
+  `error: password: ...`, and text adjacent to a real value are preserved.
 - fix(hooks): report a scan that could not run distinctly from a detection
   (#137). A scanner precondition failure and a real detection previously looked
   identical — both printed and exited 2 — so an operator could not tell whether
