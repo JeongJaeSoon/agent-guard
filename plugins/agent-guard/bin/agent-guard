@@ -409,6 +409,14 @@ smoke_test() {
 }
 
 mktemp_file() {
+  # Every scan temp file lands under the per-invocation rundir (created once at
+  # dispatch) so the single EXIT/INT/TERM trap removes all of them even when a
+  # scan is interrupted mid-run. The fallback preserves the original per-file
+  # behavior when there is no rundir — sourced in tests, or its creation failed —
+  # so temp allocation never hard-fails.
+  if [ -n "${AGENT_GUARD_RUNDIR:-}" ] && [ -d "$AGENT_GUARD_RUNDIR" ]; then
+    mktemp "$AGENT_GUARD_RUNDIR/agent-guard.XXXXXX" 2>/dev/null && return 0
+  fi
   mktemp "${TMPDIR:-/tmp}/agent-guard.XXXXXX" 2>/dev/null || mktemp /tmp/agent-guard.XXXXXX
 }
 
@@ -739,7 +747,8 @@ extract_patch_added_lines() {
     /^\*\*\* Update File:/ { mode = "update"; next }
     /^\*\*\* Delete File:/ { mode = "none"; next }
     /^\*\*\* End of File/ { next }
-    /^@@/ { next }
+    /^diff --git / { in_hunk = 0; next }
+    /^@@/ { in_hunk = 1; next }
     {
       if (mode == "add") {
         line = $0
@@ -754,9 +763,12 @@ extract_patch_added_lines() {
         }
         next
       }
-      # Fallback: treat as a unified diff hunk.
-      if (/^\+\+\+ /) next
-      if (/^\+/) {
+      # Fallback: treat as a unified diff hunk. Tell a `+++ b/path` file header
+      # (before the first @@, in_hunk=0) from added CONTENT by position, not by
+      # shape — matching `+++ ` by shape dropped any added line whose own content
+      # began with `++ `, which git prefixes to `+++ SECRET`. Only `+` lines
+      # inside a hunk are additions.
+      if (in_hunk && /^\+/) {
         line = $0
         sub(/^\+/, "", line)
         print line
@@ -782,7 +794,13 @@ scan_staged() {
   need_cmd git
   need_gitleaks
   require_git_repo || return $?
-  added=$(git diff --cached --unified=0 --no-ext-diff -- . | extract_added_lines)
+  # Capture git's exit BEFORE the pipe: POSIX sh has no pipefail, so
+  # `git diff | extract_added_lines` returns awk's status and a git-diff failure
+  # would look like a clean (empty) diff — a fail-open. `-- :/` scopes the diff
+  # to the repo ROOT so a caller in a subdir still scans the whole repo.
+  diff_out=$(git diff --cached --unified=0 --no-ext-diff -- :/) \
+    || return "$SCAN_STATUS_UNAVAILABLE"
+  added=$(printf '%s\n' "$diff_out" | extract_added_lines)
   [ -n "$added" ] || return 0
   scan_text_direct "staged added lines" "$added"
 }
@@ -790,12 +808,16 @@ scan_staged() {
 scan_untracked_files() {
   need_cmd git
   need_gitleaks
+  # Resolve the repo ROOT so an untracked secret OUTSIDE the caller's subdir is
+  # still listed. --full-name emits root-relative paths regardless of cwd; the
+  # cat step below reads them from that same root.
+  root=$(git rev-parse --show-toplevel) || die "failed to resolve repository root"
   list=$(mktemp_file) || die "failed to create temp file"
   # core.quotePath=false + -z keep every filename byte-exact (non-ASCII,
   # backslash, quote, even an embedded newline). The previous newline-delimited
   # read silently skipped such names — letting a careless or adversarial agent
   # park a secret in a file the backstop never scanned.
-  git -c core.quotePath=false ls-files --others --exclude-standard -z >"$list" || {
+  git -C "$root" -c core.quotePath=false ls-files --others --exclude-standard --full-name -z >"$list" || {
     rm -f "$list"
     die "failed to list untracked files"
   }
@@ -811,12 +833,13 @@ scan_untracked_files() {
   # NUL-delimited list because POSIX `read` cannot split on NUL.
   blob=$(mktemp_file) || { rm -f "$list"; die "failed to create temp file"; }
   xargs -0 -I '{}' sh -c '
+    cd "$0" 2>/dev/null || exit 0
     f=$1
     [ -f "$f" ] || exit 0
     printf "### file: %s\n" "$f"
     cat -- "$f"
     printf "\n"
-  ' _ '{}' >>"$blob" <"$list"
+  ' "$root" '{}' >>"$blob" <"$list"
   rm -f "$list"
 
   if [ ! -s "$blob" ]; then
@@ -835,15 +858,18 @@ scan_working_tree() {
   need_gitleaks
   require_git_repo || return $?
 
+  # Capture each git-diff exit BEFORE the pipe (POSIX sh has no pipefail) and
+  # scope to the repo ROOT (`-- :/`), same rationale as scan_staged.
   if git rev-parse --verify HEAD >/dev/null 2>&1; then
-    tracked=$(git diff --unified=0 --no-ext-diff HEAD -- . | extract_added_lines)
+    diff_out=$(git diff --unified=0 --no-ext-diff HEAD -- :/) \
+      || return "$SCAN_STATUS_UNAVAILABLE"
+    tracked=$(printf '%s\n' "$diff_out" | extract_added_lines)
   else
-    tracked=$(
-      {
-        git diff --cached --unified=0 --no-ext-diff -- .
-        git diff --unified=0 --no-ext-diff -- .
-      } | extract_added_lines
-    )
+    cached_out=$(git diff --cached --unified=0 --no-ext-diff -- :/) \
+      || return "$SCAN_STATUS_UNAVAILABLE"
+    unstaged_out=$(git diff --unified=0 --no-ext-diff -- :/) \
+      || return "$SCAN_STATUS_UNAVAILABLE"
+    tracked=$(printf '%s\n%s\n' "$cached_out" "$unstaged_out" | extract_added_lines)
   fi
 
   result=0
@@ -1127,8 +1153,10 @@ deny_path_command_regex() {
   printf '%s' '(^|[^[:alnum:]_./~-])('"${converted}"'|[^[:space:]<>|;&`$()]*/'"${converted}"')([^[:alnum:]_.-]|$)'
 }
 
+# Private variable name: POSIX sh has no locals, and assigning the bare name
+# `cmd` here clobbers the caller's command in check_bash_command (see #127).
 bash_matches_deny_path_mode() {
-  cmd=$1
+  mode_cmd=$1
   mode=$2
   [ -f "$DENY_READ_PATHS" ] || return 1
   while IFS= read -r entry || [ -n "$entry" ]; do
@@ -1136,7 +1164,7 @@ bash_matches_deny_path_mode() {
       ''|\#*) continue ;;
     esac
     regex=$(deny_path_command_regex "$entry" "$mode") || continue
-    printf '%s\n' "$cmd" | grep -Eq "$regex"
+    printf '%s\n' "$mode_cmd" | grep -Eq "$regex"
     grep_status=$?
     case "$grep_status" in
       0) return 0 ;;   # command references a deny-listed path -> block
@@ -1251,9 +1279,11 @@ bash_strip_exclusion_operands() {
 # the whole-command deny regex runs, so `cat .env.example` is allowed while
 # `cat .env.example .env` still blocks on the bare `.env` token. Globbing is
 # disabled inside a subshell so a stray `*` in the command is not expanded
-# against the real filesystem during word splitting. Caveat: tokens are stripped
-# textually, without symlink resolution — a template-named symlink to a real
-# secret passes this gate (the Read path re-checks the resolved target instead).
+# against the real filesystem during word splitting. A template *name* that is
+# actually a symlink to a deny-listed secret is NOT stripped: mirroring the Read
+# path (matches_deny_path), the token is resolved and kept when its target is
+# itself deny-listed, so the whole-command deny gate still blocks it. A genuine
+# template file resolves to a same-named target and is still stripped.
 bash_strip_allowed_tokens() {
   (
     set -f
@@ -1262,7 +1292,13 @@ bash_strip_allowed_tokens() {
     set -- $words
     result=
     for token in "$@"; do
-      candidate_is_allowed "$token" && continue
+      if candidate_is_allowed "$token"; then
+        normalized=$(normalize_path "$token")
+        resolved=$(resolve_path "$normalized")
+        if [ "$resolved" = "$normalized" ] || ! candidate_matches_deny "$resolved"; then
+          continue
+        fi
+      fi
       if [ -z "$result" ]; then
         result=$token
       else
@@ -1273,14 +1309,19 @@ bash_strip_allowed_tokens() {
   )
 }
 
+# POSIX sh has no locals: this function must NOT assign the bare name `cmd`, or
+# it clobbers the caller's command in check_bash_command. The strip helpers
+# rejoin tokens with single spaces (dropping a real newline separator), so a
+# clobbered `cmd` would collapse `cd X<newline>git commit` into one word and hide
+# the commit from check_git_command's detector (#127). Use a private name.
 bash_matches_deny_path() {
-  cmd=$1
-  cmd=$(bash_strip_exclusion_operands "$cmd")
-  cmd=$(bash_strip_allowed_tokens "$cmd")
-  bash_matches_deny_path_mode "$cmd" "literal" && return 0
-  bash_matches_deny_path_mode "$cmd" "shell-expanded" && return 0
-  dequoted=$(shell_dequote_for_policy "$cmd")
-  [ "$dequoted" = "$cmd" ] && return 1
+  deny_cmd=$1
+  deny_cmd=$(bash_strip_exclusion_operands "$deny_cmd")
+  deny_cmd=$(bash_strip_allowed_tokens "$deny_cmd")
+  bash_matches_deny_path_mode "$deny_cmd" "literal" && return 0
+  bash_matches_deny_path_mode "$deny_cmd" "shell-expanded" && return 0
+  dequoted=$(shell_dequote_for_policy "$deny_cmd")
+  [ "$dequoted" = "$deny_cmd" ] && return 1
   bash_matches_deny_path_mode "$dequoted" "literal" && return 0
   bash_matches_deny_path_mode "$dequoted" "shell-expanded"
 }
@@ -1369,6 +1410,28 @@ is_git_commit_or_push() {
   cmd=$1
   (
     set -f
+    # Normalize command boundaries the shared tokenizer does not recognize --
+    # a bare `&`, a newline, or `( ) { }` grouping -- into `;` separators so the
+    # command_start walk below re-examines the token after each boundary and a
+    # `git commit`/`git push` there is still seen as a command head (#127). `&&`
+    # is preserved (shell_command_words handles it). Over-splitting can only
+    # cause MORE detection, never less -- the fail-safe direction.
+    cmd=$(printf '%s\n' "$cmd" | awk '
+      BEGIN { ORS = "" }
+      NR > 1 { print " ; " }
+      {
+        for (i = 1; i <= length($0); i++) {
+          c = substr($0, i, 1)
+          n = substr($0, i + 1, 1)
+          if (c == "&" && n == "&") { print " && "; i++; continue }
+          if (c == "&" || c == "(" || c == ")" || c == "{" || c == "}") {
+            print " ; "
+            continue
+          }
+          print c
+        }
+      }
+    ')
     words=$(shell_command_words "$cmd")
     # shellcheck disable=SC2086
     set -- $words
@@ -1488,6 +1551,12 @@ check_bash_command() {
   need_cmd jq
   cmd=$(json_value '.tool_input.command // .tool_input.cmd // empty' "$input")
   [ -n "$cmd" ] || return 0
+  # POSIX sh has no locals, so a helper that assigns the bare name `cmd` would
+  # overwrite the command mid-function. The deny-path helpers also rejoin tokens
+  # with single spaces, which destroys a real newline separator — collapsing
+  # `cd X<newline>git commit` into one word and hiding the commit from the
+  # detector (#127). Keep an untouched copy and use it for every later check.
+  raw_cmd=$cmd
   workdir=$(json_value '.tool_input.workdir // .tool_input.cwd // .cwd // empty' "$input")
 
   # A harmless, deterministic sentinel lets setup prove that the host really
@@ -1524,15 +1593,36 @@ check_bash_command() {
     rm -f "$patterns"
   fi
 
-  if bash_matches_deny_path "$cmd"; then
-    info "$PROGRAM: blocked shell command referencing a deny-listed path"
-    exit 2
-  fi
+  # Run the deny-path check inside the event workdir. bash_strip_allowed_tokens
+  # resolves a template-named token (e.g. a `.env.example` symlink) with realpath
+  # to decide whether it points at a deny-listed secret (#132); a relative token
+  # resolves against the process cwd, so if the host dispatched the hook from a
+  # different directory than the command targets, the resolution — and the
+  # symlink check that depends on it — would silently no-op and fall open. cd
+  # first, mirroring check_git_command.
+  #
+  # bash_matches_deny_path returns 0 on a deny match and 1 on none; its internal
+  # fail-closed path exits 2, which in this subshell no longer terminates the
+  # process, so re-propagate every status but 1 (no-match) as a block. `die` on
+  # an inaccessible workdir also surfaces as a non-1 status (fail closed).
+  (
+    [ -n "$workdir" ] && { CDPATH= cd -- "$workdir" 2>/dev/null \
+      || die "hook workdir is not accessible: $workdir"; }
+    bash_matches_deny_path "$raw_cmd"
+  )
+  case "$?" in
+    0)
+      info "$PROGRAM: blocked shell command referencing a deny-listed path"
+      exit 2
+      ;;
+    1) ;;
+    *) exit 2 ;;
+  esac
 
-  scan_text_direct "shell command" "$cmd"
+  scan_text_direct "shell command" "$raw_cmd"
   block_on_scan_status "$?" "shell command contains secret-like values"
 
-  check_git_command "$cmd" "$workdir"
+  check_git_command "$raw_cmd" "$workdir"
 }
 
 scan_tool_input() {
@@ -1954,8 +2044,15 @@ hook_post_tool() {
   if is_mutation_tool "$tool"; then
     if ! command -v git >/dev/null 2>&1; then
       info "$PROGRAM: git is unavailable; skipping the post-tool working-tree backstop"
-    elif inside_git_repo; then
-      scan_working_tree
+    else
+      # Honor the event workdir (the host may dispatch the hook from a different
+      # cwd than the repo the tool touched) so the backstop scans the right repo.
+      workdir=$(json_value '.tool_input.workdir // .tool_input.cwd // .cwd // empty' "$input")
+      (
+        [ -n "$workdir" ] && { CDPATH= cd -- "$workdir" 2>/dev/null || die "hook workdir is not accessible: $workdir"; }
+        inside_git_repo || exit 0
+        scan_working_tree
+      )
       block_on_scan_status "$?" "changed files contain secret-like values after tool execution"
     fi
   fi
@@ -1981,9 +2078,14 @@ hook_stop() {
     fi
   fi
 
-  inside_git_repo || return 0
-
-  scan_working_tree
+  # Honor the event workdir (Stop can fire from a different cwd than the repo the
+  # session edited) so the backstop scans the right repo, not the process cwd.
+  workdir=$(json_value '.tool_input.workdir // .tool_input.cwd // .cwd // empty' "$input")
+  (
+    [ -n "$workdir" ] && { CDPATH= cd -- "$workdir" 2>/dev/null || die "hook workdir is not accessible: $workdir"; }
+    inside_git_repo || exit 0
+    scan_working_tree
+  )
   block_on_scan_status "$?" "changed files contain secret-like values before stop"
 }
 
@@ -2544,6 +2646,21 @@ do_setup_shell() {
   info "$PROGRAM: shell integration written to $rc_real"
   info "$PROGRAM: restart your shell and any sessions launched from it to apply"
 }
+
+# Per-invocation temp workspace. Every scan temp file (gitleaks stdin captures,
+# read-loop payloads) may hold plaintext secrets, so route them all under one
+# directory (see mktemp_file) and remove it with a single trap on exit —
+# including the catchable signals the host actually sends: SIGTERM when it kills
+# the PostToolUse/Stop hook at its timeout, SIGINT on Ctrl-C. mktemp -d (not a
+# predictable $$-based name) because these files hold secrets and a guessable
+# path in a shared /tmp invites a symlink / pre-create race. Non-fatal: if the
+# dir cannot be created, mktemp_file falls back to per-file temps so no command
+# breaks. `do_setup` and `smoke_test` install their own EXIT trap and so replace
+# this one — harmless: they clean their own temp and hold no real secrets.
+# ponytail: an un-trappable SIGKILL still leaves the dir to the OS temp reaper.
+AGENT_GUARD_RUNDIR=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-run.XXXXXX" 2>/dev/null \
+  || mktemp -d /tmp/agent-guard-run.XXXXXX 2>/dev/null || printf '')
+[ -n "$AGENT_GUARD_RUNDIR" ] && trap 'rm -rf "$AGENT_GUARD_RUNDIR"' EXIT INT TERM
 
 cmd=${1:-}
 case "$cmd" in

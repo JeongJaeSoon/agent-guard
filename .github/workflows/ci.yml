@@ -9,6 +9,16 @@ on:
 permissions:
   contents: read
 
+env:
+  # Single source of truth for the pinned gitleaks scanner, shared by the
+  # secret-guard action invocation and the Test job's real-gitleaks install.
+  # Keep in lock-step with the defaults in action.yml, bin/agent-guard, and
+  # scripts/gitleaks-checksum.sh (tests/run.sh enforces that version sync).
+  GITLEAKS_VERSION: "8.30.1"
+  # sha256 of gitleaks_8.30.1_linux_x64.tar.gz. Linux/x64 runners only; a
+  # different OS/arch archive has a different digest.
+  GITLEAKS_CHECKSUM_LINUX_X64: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
+
 jobs:
   secret-guard:
     name: Agent Guard
@@ -21,14 +31,122 @@ jobs:
         uses: ./
         with:
           paths: "."
-          gitleaks-checksum: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
+          gitleaks-version: ${{ env.GITLEAKS_VERSION }}
+          gitleaks-checksum: ${{ env.GITLEAKS_CHECKSUM_LINUX_X64 }}
 
   test:
-    name: Test
-    runs-on: ubuntu-latest
+    name: Test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        # SUPPORT.md claims macOS + Linux on x64 + arm64. ubuntu-latest covers
+        # Linux/x64; macos-latest is arm64, covering macOS/arm64. Linux/arm64
+        # (ubuntu-24.04-arm) and macOS/x64 (macos-13) remain a follow-up: arm64
+        # Linux availability depends on the repo's runner plan, so it is not
+        # added blindly here to avoid a job that waits forever for a runner that
+        # may not exist.
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
+      - name: Install pinned gitleaks (Linux x64)
+        # Real gitleaks is REQUIRED on Linux so tests/run.sh exercises its
+        # real-detection block (the #124 anchored-placeholder scan-accuracy
+        # regressions) and so `make smoke-test` can run end-to-end. On macOS the
+        # suite self-skips the real-gitleaks block and uses the bundled mock,
+        # which still gives cross-OS coverage of the rest of the suite. The
+        # macOS/darwin archive has a different checksum than the pin above, so
+        # the real-gitleaks + smoke steps are scoped to Linux only.
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          archive="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          url="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${archive}"
+          tmp="$(mktemp -d)"
+          curl -fsSL "$url" -o "${tmp}/${archive}"
+          echo "${GITLEAKS_CHECKSUM_LINUX_X64}  ${tmp}/${archive}" | sha256sum -c -
+          tar -xzf "${tmp}/${archive}" -C "${tmp}"
+          mkdir -p "${RUNNER_TEMP}/agent-guard-bin"
+          mv "${tmp}/gitleaks" "${RUNNER_TEMP}/agent-guard-bin/gitleaks"
+          chmod +x "${RUNNER_TEMP}/agent-guard-bin/gitleaks"
+          echo "${RUNNER_TEMP}/agent-guard-bin" >> "${GITHUB_PATH}"
+
       - name: Run tests
-        run: tests/run.sh
+        run: tests/run.sh 2>&1 | tee "${RUNNER_TEMP}/test-output.txt"
+
+      - name: Require real gitleaks integration ran (Linux)
+        # Fail closed if the real-detection block silently self-skipped: on a
+        # runner with no gitleaks, tests/run.sh drops the #124 regressions
+        # without failing, which is exactly the green-but-untested state #134 is
+        # about. On Linux gitleaks is installed above, so a skip here is a bug.
+        if: runner.os == 'Linux'
+        run: |
+          set -eu
+          if grep -q 'real gitleaks not available; skipped real-gitleaks integration tests' "${RUNNER_TEMP}/test-output.txt"; then
+            echo "::error::real-gitleaks integration tests were skipped; gitleaks was not on PATH in CI" >&2
+            exit 1
+          fi
+          grep -q 'ok - real gitleaks detects an RSA private key through scan-path' "${RUNNER_TEMP}/test-output.txt" \
+            || { echo "::error::expected real-gitleaks detection assertions are missing from the test output" >&2; exit 1; }
+
+      - name: Smoke test (real git/jq/gitleaks E2E)
+        if: runner.os == 'Linux'
+        run: make smoke-test
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    env:
+      SHELLCHECK_VERSION: "0.10.0"
+      ACTIONLINT_VERSION: "1.7.7"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Install pinned shellcheck
+        run: |
+          set -euo pipefail
+          archive="shellcheck-v${SHELLCHECK_VERSION}.linux.x86_64.tar.xz"
+          url="https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK_VERSION}/${archive}"
+          tmp="$(mktemp -d)"
+          curl -fsSL "$url" -o "${tmp}/${archive}"
+          tar -xJf "${tmp}/${archive}" -C "${tmp}"
+          mkdir -p "${RUNNER_TEMP}/lint-bin"
+          mv "${tmp}/shellcheck-v${SHELLCHECK_VERSION}/shellcheck" "${RUNNER_TEMP}/lint-bin/shellcheck"
+          chmod +x "${RUNNER_TEMP}/lint-bin/shellcheck"
+          echo "${RUNNER_TEMP}/lint-bin" >> "${GITHUB_PATH}"
+
+      - name: Install pinned actionlint
+        run: |
+          set -euo pipefail
+          archive="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          url="https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/${archive}"
+          tmp="$(mktemp -d)"
+          curl -fsSL "$url" -o "${tmp}/${archive}"
+          tar -xzf "${tmp}/${archive}" -C "${tmp}" actionlint
+          mkdir -p "${RUNNER_TEMP}/lint-bin"
+          mv "${tmp}/actionlint" "${RUNNER_TEMP}/lint-bin/actionlint"
+          chmod +x "${RUNNER_TEMP}/lint-bin/actionlint"
+          echo "${RUNNER_TEMP}/lint-bin" >> "${GITHUB_PATH}"
+
+      - name: ShellCheck shell scripts
+        run: |
+          set -euo pipefail
+          shellcheck \
+            plugins/agent-guard/bin/agent-guard \
+            install.sh \
+            bootstrap.sh \
+            githooks/pre-commit \
+            tests/run.sh \
+            bench/run.sh \
+            scripts/build-release-tarball.sh \
+            scripts/validate-plugin-layout.sh \
+            scripts/validate-submission-readiness.sh \
+            plugins/agent-guard/scripts/gitleaks-checksum.sh
+
+      - name: actionlint workflows
+        # actionlint auto-discovers every workflow under .github/workflows and
+        # runs shellcheck (installed above) over each run: block.
+        run: actionlint -color
