@@ -58,13 +58,35 @@ install_git_hooks() {
 
   mkdir -p "$project_root/githooks"
   hook_path="$project_root/githooks/pre-commit"
+  if [ -e "$hook_path" ] && ! grep -q 'agent-guard.*scan-staged' "$hook_path"; then
+    die "githooks/pre-commit already exists; refusing to overwrite"
+  fi
+
   if [ -e "$hook_path" ]; then
-    if grep -q 'agent-guard.*scan-staged' "$hook_path"; then
-      :
+    # Refresh in place by rewriting ONLY the `exec ... scan-staged` line, so a
+    # stale or broken embedded binary path is corrected while the rest of the
+    # hook survives — notably the legacy-hook chain block written on the first
+    # install, and any local edits made since.
+    #
+    # The chain block cannot simply be regenerated: `legacy_hook` is derived only
+    # when core.hooksPath was unset, because `git rev-parse --git-path
+    # hooks/pre-commit` HONORS core.hooksPath. Once we have pointed it at
+    # githooks, re-deriving resolves to THIS hook, and chaining it would make the
+    # hook exec itself. Preserving the existing block is the only safe refresh.
+    hook_tmp="$hook_path.agent-guard.tmp"
+    if awk -v newexec="exec $(shell_quote "$agent_guard_bin") scan-staged" '
+          /^exec .*scan-staged$/ { print newexec; seen = 1; next }
+          { print }
+          END { exit seen ? 0 : 3 }
+        ' "$hook_path" >"$hook_tmp"; then
+      mv "$hook_tmp" "$hook_path" || die "failed to refresh $hook_path"
     else
-      die "githooks/pre-commit already exists; refusing to overwrite"
+      rm -f "$hook_tmp"
+      die "githooks/pre-commit carries the agent-guard marker but has no 'exec ... scan-staged' line; refusing to rewrite it"
     fi
   else
+    # Fresh install: generate the whole body, chaining a pre-existing native hook
+    # if one was found above.
     {
       printf '%s\n' '#!/usr/bin/env sh'
       printf '%s\n' 'set -u'
@@ -78,10 +100,10 @@ install_git_hooks() {
       fi
       printf 'exec %s scan-staged\n' "$(shell_quote "$agent_guard_bin")"
     } >"$hook_path" || die "failed to write $hook_path"
-    chmod +x "$hook_path" || die "failed to chmod $hook_path"
   fi
+  chmod +x "$hook_path" || die "failed to chmod $hook_path"
 
-  git config core.hooksPath githooks
+  git config core.hooksPath githooks || die "failed to set core.hooksPath"
   printf '%s\n' "install.sh: configured core.hooksPath=githooks"
   printf '%s\n' "install.sh: installed githooks/pre-commit"
 }
