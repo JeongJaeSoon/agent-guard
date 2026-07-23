@@ -17,6 +17,10 @@ fail() {
   failures=$((failures + 1))
 }
 
+warn() {
+  printf 'warn: %s\n' "$1"
+}
+
 require_file() {
   if [ -f "$1" ]; then
     ok "$1 exists"
@@ -140,6 +144,30 @@ else
       fi
       ;;
   esac
+fi
+
+# A 40-hex .source.sha is only a safety net if it still resolves to the payload
+# reviewers will actually install. Verifying the format is not enough: if the
+# pinned commit's plugins/agent-guard tree has drifted from the current payload,
+# the submission green-lights a stale snapshot. When the pinned commit is
+# present locally, require its subtree to equal HEAD's; when it is absent
+# (shallow / submission checkouts), warn and skip rather than fail-closed, since
+# we cannot compare a tree we do not have. The placeholder is handled above.
+if printf '%s\n' "$entry_sha" | grep -Eq '^[0-9a-f]{40}$'; then
+  if git -C "$ROOT" rev-parse "$entry_sha^{commit}" >/dev/null 2>&1; then
+    if git -C "$ROOT" diff --quiet "$entry_sha" HEAD -- plugins/agent-guard; then
+      ok "pinned .source.sha's plugins/agent-guard tree matches the current payload"
+    else
+      fail "pinned .source.sha's plugins/agent-guard tree differs from current payload; re-pin the SHA"
+    fi
+  else
+    # "Could not verify" is not a pass. A shallow checkout (actions/checkout
+    # defaults to fetch-depth 1) cannot resolve a pin that is more than a commit
+    # or two back, which is the ordinary case — so warning and skipping here
+    # would print "validation passed" for a run that never checked anything,
+    # exactly the stale-pin scenario this guard exists to catch.
+    fail "cannot verify the pinned .source.sha tree: commit $entry_sha is not present locally; use a full-history checkout (actions/checkout with fetch-depth: 0)"
+  fi
 fi
 
 contains "$REPORT" 'No public application or direct PR path' 'readiness report records the official submission blocker'
