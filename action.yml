@@ -7,7 +7,9 @@ branding:
 
 inputs:
   paths:
-    description: Space-separated paths to scan.
+    description: Whitespace-separated paths to scan. Because paths are split on
+      whitespace, an individual path cannot contain spaces; the default (.) scans
+      the whole repository.
     required: false
     default: "."
   gitleaks-version:

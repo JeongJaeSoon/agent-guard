@@ -112,7 +112,7 @@ make check
 make smoke-test
 ```
 
-The Claude Code and Codex plugin installs do not put `agent-guard` on your shell `PATH`. In Codex, invoke `$setup-agent-guard`: it uses the plugin-local binary even when a different standalone version is on `PATH`, presents the exact host-appropriate install plan, requests approval, runs `check` plus `smoke-test`, verifies hook trust, and runs live host probes. It never installs software merely because a session started. The same skill is available in Claude Code as `agent-guard:setup-agent-guard`; Claude Code users can also run the equivalent manual commands below.
+The Claude Code and Codex plugin installs do not put `agent-guard` on your shell `PATH`. In Codex, invoke `$setup-agent-guard`: it uses the plugin-local binary even when a different standalone version is on `PATH`, presents the exact host-appropriate install plan, requests approval, runs `check` plus `smoke-test`, verifies hook trust, and runs live host probes. It never installs software merely because a session started. Claude Code users can run the equivalent manual commands below.
 
 Manual macOS equivalent:
 
@@ -313,6 +313,8 @@ Add a workflow step:
     paths: "."
     gitleaks-checksum: "<sha256 of the gitleaks release archive>"
 ```
+
+`paths` is whitespace-separated, so an individual path cannot contain spaces; the default `.` scans the whole repository.
 
 Use `@v3` for compatible 3.x updates. The `@v2` and `@v1` moving tags remain on the 2.x and 1.x lines; pin one of them, a full tag, or a commit SHA when you intentionally stay on an older line.
 
