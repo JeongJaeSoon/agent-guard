@@ -528,6 +528,64 @@ else
   not_ok "release version drift: bin=$plugin_ver claude=$claude_ver codex=$codex_ver marketplace=$market_ver managed=$managed_claude_ref changelog=$changelog_ver"
 fi
 
+# --- submission-readiness pinned-SHA drift ---------------------------------
+# The official marketplace entry template pins .source.sha, but validating only
+# its 40-hex format lets the pin rot: reviewers approve one snapshot while the
+# payload silently moves on. Build a self-contained mirror of the current tree
+# (running THIS worktree's copy of the validator, which carries the fix) so we
+# can drive the pin to a matching, stale, and absent commit deterministically,
+# without touching the repo's real pinned value.
+SUBMIRROR="$TMP_ROOT/submission-mirror"
+SUBENTRY="$SUBMIRROR/docs/submission/claude-plugins-official/marketplace-entry.template.json"
+SUBVALIDATOR="$SUBMIRROR/scripts/validate-submission-readiness.sh"
+mkdir -p "$SUBMIRROR"
+if git -C "$ROOT" archive HEAD | tar -x -C "$SUBMIRROR" 2>/dev/null; then
+  # Run the working-tree validator (the fix under test), not HEAD's committed copy.
+  cp "$ROOT/scripts/validate-submission-readiness.sh" "$SUBVALIDATOR"
+  (
+    cd "$SUBMIRROR" || exit 2
+    git init -q
+    git config user.email test@example.com
+    git config user.name test
+    git add -A
+    git commit -q -m mirror-base
+  )
+  match_sha=$(git -C "$SUBMIRROR" rev-parse HEAD)
+  # Pin the template at the current HEAD → tree matches payload → must pass.
+  jq --arg sha "$match_sha" '.source.sha = $sha' "$SUBENTRY" >"$SUBENTRY.tmp" && mv "$SUBENTRY.tmp" "$SUBENTRY"
+  run_expect 0 "submission validator accepts a pin whose plugins/agent-guard tree matches HEAD" \
+    env -u AGENT_GUARD_SUBMISSION_SHA "$SUBVALIDATOR"
+
+  # Advance HEAD so the pinned (now-parent) commit's payload no longer matches.
+  printf 'drift\n' >"$SUBMIRROR/plugins/agent-guard/DRIFT_MARKER"
+  (cd "$SUBMIRROR" && git add -A && git commit -q -m drift)
+  run_expect 1 "submission validator rejects a stale pin whose plugins/agent-guard tree differs from HEAD" \
+    env -u AGENT_GUARD_SUBMISSION_SHA "$SUBVALIDATOR"
+  if grep -q 'differs from current payload' "$ERR"; then
+    ok "stale-pin rejection names the payload drift and tells the maintainer to re-pin"
+  else
+    not_ok "stale-pin rejection names the payload drift and tells the maintainer to re-pin"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+
+  # A syntactically valid SHA that is not a local commit (shallow / submission
+  # checkout) must FAIL closed: "could not verify" is not a pass. Warning and
+  # skipping would print "validation passed" for a run that checked nothing —
+  # exactly the stale-pin scenario this guard exists to catch.
+  absent_sha=1234567890123456789012345678901234567890
+  jq --arg sha "$absent_sha" '.source.sha = $sha' "$SUBENTRY" >"$SUBENTRY.tmp" && mv "$SUBENTRY.tmp" "$SUBENTRY"
+  run_expect 1 "submission validator fails closed when the pinned commit is not available locally" \
+    env -u AGENT_GUARD_SUBMISSION_SHA "$SUBVALIDATOR"
+  if grep -q 'is not present locally' "$OUT" "$ERR"; then
+    ok "history-unavailable pin fails with an actionable full-history message"
+  else
+    not_ok "history-unavailable pin fails with an actionable full-history message"
+    sed 's/^/  stdout: /' "$OUT"; sed 's/^/  stderr: /' "$ERR"
+  fi
+else
+  say "git archive unavailable; skipped submission-readiness drift tests"
+fi
+
 expect_json_status 2 "Claude Write secret is blocked" \
   '{"tool_name":"Write","tool_input":{"file_path":"app.txt","content":"AGENT_GUARD_TEST_SECRET"}}' \
   hook-pre-tool
@@ -682,6 +740,31 @@ expect_json_status 2 "Codex Add File payload secret is blocked" \
 
 expect_json_status 2 "Codex double-plus added secret is blocked" \
   '{"tool_name":"apply_patch","tool_input":{"patch":"*** Begin Patch\n*** Update File: x\n@@\n++AGENT_GUARD_TEST_SECRET\n*** End Patch"}}' \
+  hook-pre-tool
+
+# Issue #128: the unified-diff fallback (no *** Add/Update File: envelope) told a
+# `+++ b/path` header from added content by SHAPE, so an added line whose content
+# is `++ SECRET` — which git prefixes to `+++ SECRET` — was skipped as a header
+# and never scanned. Drive the real hook with a plain unified diff so the fallback
+# branch runs.
+expect_json_status 2 "apply_patch unified-diff double-plus added secret is blocked" \
+  '{"tool_name":"apply_patch","tool_input":{"patch":"diff --git a/secrets.txt b/secrets.txt\n--- a/secrets.txt\n+++ b/secrets.txt\n@@ -0,0 +1 @@\n+++ AGENT_GUARD_TEST_SECRET"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "apply_patch unified-diff plain added secret is blocked" \
+  '{"tool_name":"apply_patch","tool_input":{"patch":"diff --git a/secrets.txt b/secrets.txt\n--- a/secrets.txt\n+++ b/secrets.txt\n@@ -0,0 +1 @@\n+AGENT_GUARD_TEST_SECRET"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "apply_patch unified-diff clean added content is allowed" \
+  '{"tool_name":"apply_patch","tool_input":{"patch":"diff --git a/secrets.txt b/secrets.txt\n--- a/secrets.txt\n+++ b/secrets.txt\n@@ -0,0 +1 @@\n+example_token"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "apply_patch Add File double-plus secret stays blocked" \
+  '{"tool_name":"apply_patch","tool_input":{"patch":"*** Begin Patch\n*** Add File: x\n+++ AGENT_GUARD_TEST_SECRET\n*** End Patch"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "apply_patch Add File double-plus clean content stays allowed" \
+  '{"tool_name":"apply_patch","tool_input":{"patch":"*** Begin Patch\n*** Add File: x\n+++ example_token\n*** End Patch"}}' \
   hook-pre-tool
 
 expect_json_status 2 "MCP input secret is blocked" \
@@ -1262,6 +1345,38 @@ expect_json_status 2 "git hook bypass without separator spaces is blocked" \
   '{"tool_name":"Bash","tool_input":{"command":"git commit --no-verify&&echo done"}}' \
   hook-pre-tool
 
+# #127: is_git_commit_or_push reset its command_start flag only on `; && || |`,
+# so a `git commit` after a bare `&`, a newline, or inside `( )` grouping was
+# never recognized as a command head -- both the staged scan and the
+# --no-verify block were skipped. These drive the real hook end to end.
+expect_json_status 2 "git commit after bare & is detected (--no-verify blocked)" \
+  '{"tool_name":"Bash","tool_input":{"command":"echo ok & git commit --no-verify"}}' \
+  hook-pre-tool
+expect_json_status 2 "git commit inside ( ) grouping is detected (--no-verify blocked)" \
+  '{"tool_name":"Bash","tool_input":{"command":"echo ok; ( git commit --no-verify )"}}' \
+  hook-pre-tool
+# The newline form is the one #127/#138 called out as the most natural way to
+# write a two-line command. It needed a second fix beyond the detector:
+# check_bash_command's global `cmd` was clobbered by bash_matches_deny_path /
+# bash_matches_deny_path_mode (POSIX sh has no local scope), whose strip helpers
+# rejoin tokens with single spaces -- collapsing the newline to a space before
+# check_git_command ran. A bare `&` survives that rejoin as its own token, which
+# is why `&` worked while the newline silently leaked. check_bash_command now
+# keeps a pristine `raw_cmd` for every downstream check.
+expect_json_status 2 "git commit after a newline is detected (--no-verify blocked)" \
+  '{"tool_name":"Bash","tool_input":{"command":"echo ok\ngit commit --no-verify"}}' \
+  hook-pre-tool
+# Control: a newline-separated command with no git commit stays allowed, so the
+# pristine-cmd change does not turn newlines themselves into a block signal.
+expect_json_status 0 "newline-separated non-commit command stays allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"echo ok\ngit status"}}' \
+  hook-pre-tool
+# Control: boundary normalization must not over-detect. `echo commit` after
+# `git status &&` is a separate command head, not a `git commit`.
+expect_json_status 0 "git status followed by echo commit is not a git commit" \
+  '{"tool_name":"Bash","tool_input":{"command":"git status && echo commit"}}' \
+  hook-pre-tool
+
 # R2: wrapper/assignment-prefixed commits with NO --no-verify must still reach
 # the staged scan via is_git_commit_or_push (not via the hook-bypass shortcut).
 # leak.txt is still staged from the harness above.
@@ -1304,6 +1419,12 @@ else
   sed 's/^/  stderr: /' "$ERR"
 fi
 
+# NOTE (#127/#138): a plain `git commit` on its own line reaching the staged
+# scan is NOT covered here for the same reason as the newline --no-verify case
+# above -- check_bash_command clobbers `cmd` via bash_matches_deny_path and the
+# newline is collapsed to a space before check_git_command / is_git_commit_or_push
+# ever run. Belongs to the separate #138 effort (preserve pristine cmd upstream).
+
 (
   cd "$TEST_REPO" || exit 2
   printf '%s' '{"tool_name":"Bash","tool_input":{"command":"env git status"}}' \
@@ -1339,6 +1460,111 @@ if [ -L "$SYMLINK_REPO/safe-link" ]; then
   fi
 else
   say "skipping symlink test: filesystem does not support symlinks"
+fi
+
+# --- #132: a template-named symlink to a real secret must not bypass the Bash
+# path-deny gate. The Bash strip step used to drop `.env.example` by name before
+# resolving it, while the Read gate already resolves the symlink and blocks. This
+# asserts the Bash gate now mirrors the Read gate, while a genuine regular-file
+# .env.example template keeps working (no false positive). Uses the default
+# `.env*` deny policy so it exercises the shipped rule.
+TEMPLATE_SYMLINK_REPO="$TMP_ROOT/template-symlink-repo"
+mkdir -p "$TEMPLATE_SYMLINK_REPO"
+(
+  cd "$TEMPLATE_SYMLINK_REPO" || exit 2
+  # Real secret file with a runtime-generated value (never a committed literal).
+  printf 'API_TOKEN=agtest-%s-%s\n' "$$" "${RANDOM:-0}" > .env
+  # Template-named symlink pointing at the real secret -> the #132 bypass shape.
+  ln -s .env .env.example
+)
+# Genuine regular-file template in a separate dir: must stay allowed. Ordinary
+# example content, not a symlink, no real secret alongside it.
+GENUINE_TEMPLATE_REPO="$TMP_ROOT/genuine-template-repo"
+mkdir -p "$GENUINE_TEMPLATE_REPO"
+printf 'API_TOKEN=your-token-here\n' > "$GENUINE_TEMPLATE_REPO/.env.example"
+
+if [ -L "$TEMPLATE_SYMLINK_REPO/.env.example" ]; then
+  # Repro: cat of the template-named symlink must now be BLOCKED (#132).
+  payload='{"tool_name":"Bash","tool_input":{"command":"cat '"$TEMPLATE_SYMLINK_REPO"'/.env.example"}}'
+  printf '%s' "$payload" \
+    | "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+  status=$?
+  if [ "$status" -eq 2 ]; then
+    ok "Bash cat of a template-named symlink to a real secret is blocked (#132)"
+  else
+    not_ok "Bash cat of a template-named symlink to a real secret is blocked (#132) (expected 2, got $status)"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+
+  # Control (must-pass): the real name behind the symlink is blocked regardless.
+  payload='{"tool_name":"Bash","tool_input":{"command":"cat '"$TEMPLATE_SYMLINK_REPO"'/.env"}}'
+  printf '%s' "$payload" \
+    | "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+  status=$?
+  if [ "$status" -eq 2 ]; then
+    ok "Bash cat of the real .env behind the symlink is blocked"
+  else
+    not_ok "Bash cat of the real .env behind the symlink is blocked (expected 2, got $status)"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+
+  # Parity: the Read gate already blocks the same symlink (confirms the Bash gate
+  # now matches the Read gate's resolved-target behavior).
+  payload='{"tool_name":"Read","tool_input":{"file_path":"'"$TEMPLATE_SYMLINK_REPO"'/.env.example"}}'
+  printf '%s' "$payload" \
+    | "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+  status=$?
+  if [ "$status" -eq 2 ]; then
+    ok "Read of the template-named symlink is blocked (parity with Bash gate)"
+  else
+    not_ok "Read of the template-named symlink is blocked (parity with Bash gate) (expected 2, got $status)"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+
+  # #132 gap: a RELATIVE template token resolves with realpath against the cwd
+  # the deny-path check runs in. If the host dispatches the hook from a different
+  # directory than the command targets, resolving `.env.example` against the
+  # process cwd finds nothing, the symlink check no-ops, and the bypass reopens.
+  # The gate must scan in the event workdir. Drive a relative `cat .env.example`
+  # with workdir=<repo> while the hook process cwd is deliberately elsewhere.
+  payload='{"tool_name":"Bash","tool_input":{"command":"cat .env.example","workdir":"'"$TEMPLATE_SYMLINK_REPO"'"}}'
+  ( cd / && printf '%s' "$payload" \
+      | "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR" )
+  status=$?
+  if [ "$status" -eq 2 ]; then
+    ok "Bash cat of a relative template symlink is blocked when workdir differs from cwd (#132)"
+  else
+    not_ok "Bash cat of a relative template symlink is blocked when workdir differs from cwd (#132) (expected 2, got $status)"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+
+  # Control: the same relative form in a workdir with a GENUINE regular-file
+  # template must stay allowed — the workdir cd must not itself become a block.
+  payload='{"tool_name":"Bash","tool_input":{"command":"cat .env.example","workdir":"'"$GENUINE_TEMPLATE_REPO"'"}}'
+  ( cd / && printf '%s' "$payload" \
+      | "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR" )
+  status=$?
+  if [ "$status" -eq 0 ]; then
+    ok "Bash cat of a relative genuine template stays allowed across workdir cd"
+  else
+    not_ok "Bash cat of a relative genuine template stays allowed across workdir cd (expected 0, got $status)"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+else
+  say "skipping #132 template-symlink test: filesystem does not support symlinks"
+fi
+
+# Control (must-fail as a block -> must stay ALLOWED): a genuine regular-file
+# .env.example template is not a symlink to a secret and must keep working.
+payload='{"tool_name":"Bash","tool_input":{"command":"cat '"$GENUINE_TEMPLATE_REPO"'/.env.example"}}'
+printf '%s' "$payload" \
+  | "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 0 ]; then
+  ok "Bash cat of a genuine regular-file .env.example template stays allowed"
+else
+  not_ok "Bash cat of a genuine regular-file .env.example template stays allowed (expected 0, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
 fi
 
 # action.yml shell-injection regression for AGENT_GUARD_PATHS.
@@ -1783,6 +2009,291 @@ if [ "$status" -eq 0 ] && [ ! -s "$ERR" ]; then
   ok "hook-stop silently skips when cwd is not a git work tree"
 else
   not_ok "hook-stop silently skips when cwd is not a git work tree (expected 0 + empty stderr, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+# --- #125: scan_* fail CLOSED on a git-diff-specific failure ----------------
+# POSIX sh has no pipefail, so `git diff | extract_added_lines` used to take
+# awk's exit, not git's. A git-diff error therefore looked like an empty (clean)
+# diff and the scan passed OPEN. A fake `git` that fails ONLY on `diff` (repo and
+# HEAD checks still succeed) must now make the scan fail closed, not report clean.
+REAL_GIT_125=$(command -v git)
+FAIL125_GITDIR="$TMP_ROOT/fail125-fakegit"
+mkdir -p "$FAIL125_GITDIR"
+cat >"$FAIL125_GITDIR/git" <<EOF
+#!/usr/bin/env sh
+[ "\${1:-}" = "diff" ] && exit 7
+exec "$REAL_GIT_125" "\$@"
+EOF
+chmod +x "$FAIL125_GITDIR/git"
+
+FAIL125_REPO="$TMP_ROOT/fail125-repo"
+mkdir -p "$FAIL125_REPO"
+(
+  cd "$FAIL125_REPO" || exit 2
+  git init -q
+  git config user.email t@e
+  git config user.name t
+  printf '%s\n' "clean" > README.md
+  git add README.md
+  git commit -q -m init
+  printf '%s\n' "AGENT_GUARD_TEST_SECRET" > staged.txt
+  git add staged.txt
+)
+
+# MUST-PASS control: real git + staged secret is caught.
+(
+  cd "$FAIL125_REPO" || exit 2
+  "$PLUGIN_ROOT/bin/agent-guard" scan-staged >"$OUT" 2>"$ERR"
+)
+status=$?
+if [ "$status" -eq 1 ]; then
+  ok "#125 control: scan-staged catches a staged secret with real git"
+else
+  not_ok "#125 control: scan-staged catches a staged secret with real git (expected 1, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+# REGRESSION: only `git diff` fails -> must fail closed (SCAN_STATUS_UNAVAILABLE=3),
+# never report clean (0).
+(
+  cd "$FAIL125_REPO" || exit 2
+  PATH="$FAIL125_GITDIR:$PATH" "$PLUGIN_ROOT/bin/agent-guard" scan-staged >"$OUT" 2>"$ERR"
+)
+status=$?
+if [ "$status" -eq 3 ]; then
+  ok "#125 scan-staged fails closed when git diff fails"
+else
+  not_ok "#125 scan-staged fails closed when git diff fails (expected 3, got $status)"
+  sed 's/^/  stdout: /' "$OUT"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+# scan_working_tree, tracked-modification path: same targeted git-diff failure.
+(
+  cd "$FAIL125_REPO" || exit 2
+  git reset -q
+  rm -f staged.txt
+  printf '%s\n' "baseline" > tracked.txt
+  git add tracked.txt
+  git commit -q -m base
+  printf '%s\n' "baseline" "AGENT_GUARD_TEST_SECRET" > tracked.txt
+)
+# MUST-PASS control: real git catches the tracked-modification secret.
+(
+  cd "$FAIL125_REPO" || exit 2
+  "$PLUGIN_ROOT/bin/agent-guard" scan-working-tree >"$OUT" 2>"$ERR"
+)
+status=$?
+if [ "$status" -eq 1 ]; then
+  ok "#125 control: scan-working-tree catches a tracked-mod secret with real git"
+else
+  not_ok "#125 control: scan-working-tree catches a tracked-mod secret with real git (expected 1, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+# REGRESSION: git diff fails -> fail closed.
+(
+  cd "$FAIL125_REPO" || exit 2
+  PATH="$FAIL125_GITDIR:$PATH" "$PLUGIN_ROOT/bin/agent-guard" scan-working-tree >"$OUT" 2>"$ERR"
+)
+status=$?
+if [ "$status" -eq 3 ]; then
+  ok "#125 scan-working-tree fails closed when git diff fails"
+else
+  not_ok "#125 scan-working-tree fails closed when git diff fails (expected 3, got $status)"
+  sed 's/^/  stdout: /' "$OUT"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+# MUST-FAIL control: clean tree with real git is allowed.
+(
+  cd "$FAIL125_REPO" || exit 2
+  git checkout -q -- tracked.txt
+  "$PLUGIN_ROOT/bin/agent-guard" scan-working-tree >"$OUT" 2>"$ERR"
+)
+status=$?
+if [ "$status" -eq 0 ]; then
+  ok "#125 control: scan-working-tree allows a clean tree with real git"
+else
+  not_ok "#125 control: scan-working-tree allows a clean tree with real git (expected 0, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+# --- #126: scans cover the repo ROOT, not just the caller's cwd subtree -----
+# Historically the diffs used `-- .` (cwd subtree) and ls-files ran in the raw
+# cwd, so a secret staged/untracked OUTSIDE the caller's subdir was never seen,
+# and the Stop/PostToolUse backstops scanned the process cwd instead of the
+# event workdir. Both must now resolve the repo root and honor the event cwd.
+ROOT126="$TMP_ROOT/root126"
+mkdir -p "$ROOT126"
+(
+  cd "$ROOT126" || exit 2
+  git init -q
+  git config user.email t@e
+  git config user.name t
+  printf '%s\n' "clean" > README.md
+  git add README.md
+  git commit -q -m init
+  mkdir -p sub
+  printf '%s\n' "hello" > sub/other.txt
+  printf '%s\n' "AGENT_GUARD_TEST_SECRET" > root-secret.txt
+  git add root-secret.txt
+)
+
+# REGRESSION: scan-staged run from a subdir must catch a secret staged at root.
+(
+  cd "$ROOT126/sub" || exit 2
+  "$PLUGIN_ROOT/bin/agent-guard" scan-staged >"$OUT" 2>"$ERR"
+)
+status=$?
+if [ "$status" -eq 1 ]; then
+  ok "#126 scan-staged from a subdir catches a secret staged at repo root"
+else
+  not_ok "#126 scan-staged from a subdir catches a secret staged at repo root (expected 1, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+# MUST-FAIL control: same subdir, clean tree -> allowed.
+(
+  cd "$ROOT126" || exit 2
+  git reset -q
+  rm -f root-secret.txt
+)
+(
+  cd "$ROOT126/sub" || exit 2
+  "$PLUGIN_ROOT/bin/agent-guard" scan-staged >"$OUT" 2>"$ERR"
+)
+status=$?
+if [ "$status" -eq 0 ]; then
+  ok "#126 control: scan-staged from a subdir allows a clean tree"
+else
+  not_ok "#126 control: scan-staged from a subdir allows a clean tree (expected 0, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+# REGRESSION: scan-working-tree from a subdir must catch an untracked secret at root.
+(
+  cd "$ROOT126" || exit 2
+  printf '%s\n' "AGENT_GUARD_TEST_SECRET" > root-untracked.txt
+)
+(
+  cd "$ROOT126/sub" || exit 2
+  "$PLUGIN_ROOT/bin/agent-guard" scan-working-tree >"$OUT" 2>"$ERR"
+)
+status=$?
+if [ "$status" -eq 1 ]; then
+  ok "#126 scan-working-tree from a subdir catches an untracked secret at repo root"
+else
+  not_ok "#126 scan-working-tree from a subdir catches an untracked secret at repo root (expected 1, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+rm -f "$ROOT126/root-untracked.txt"
+
+# REGRESSION: commit gate driven from a subdir (no workdir in payload) must
+# block a secret staged at repo root -> proves scan_staged is repo-root-scoped.
+(
+  cd "$ROOT126" || exit 2
+  printf '%s\n' "AGENT_GUARD_TEST_SECRET" > root-secret.txt
+  git add root-secret.txt
+)
+(
+  cd "$ROOT126/sub" || exit 2
+  printf '%s' '{"tool_name":"Bash","tool_input":{"command":"git commit -m x"}}' \
+    | "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+)
+status=$?
+if [ "$status" -eq 2 ] && grep -q 'staged changes contain secret-like values' "$ERR"; then
+  ok "#126 commit gate from a subdir blocks a secret staged at repo root"
+else
+  not_ok "#126 commit gate from a subdir blocks a secret staged at repo root (expected 2 + block msg, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+(
+  cd "$ROOT126" || exit 2
+  git reset -q
+  rm -f root-secret.txt
+)
+
+# REGRESSION: hook_post_tool must honor the event workdir. Process cwd is a
+# non-repo dir; the repo (with a secret) is named only in tool_input.workdir.
+POST126="$TMP_ROOT/post126"
+POST126_OTHER="$TMP_ROOT/post126-elsewhere"
+mkdir -p "$POST126" "$POST126_OTHER"
+(
+  cd "$POST126" || exit 2
+  git init -q
+  git config user.email t@e
+  git config user.name t
+  printf '%s\n' "clean" > README.md
+  git add README.md
+  git commit -q -m init
+  printf '%s\n' "AGENT_GUARD_TEST_SECRET" > leaked.txt
+)
+(
+  cd "$POST126_OTHER" || exit 2
+  jq -nc --arg wd "$POST126" \
+    '{tool_name:"Write",tool_input:{file_path:"leaked.txt",workdir:$wd}}' \
+    | "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool >"$OUT" 2>"$ERR"
+)
+status=$?
+if [ "$status" -eq 2 ] && grep -q 'changed files contain secret-like values' "$ERR"; then
+  ok "#126 hook-post-tool scans the event workdir repo, not the process cwd"
+else
+  not_ok "#126 hook-post-tool scans the event workdir repo, not the process cwd (expected 2 + block msg, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+# MUST-FAIL control: clean event-workdir repo -> allowed (exit 0).
+(
+  cd "$POST126" || exit 2
+  rm -f leaked.txt
+)
+(
+  cd "$POST126_OTHER" || exit 2
+  jq -nc --arg wd "$POST126" \
+    '{tool_name:"Write",tool_input:{file_path:"README.md",workdir:$wd}}' \
+    | "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool >"$OUT" 2>"$ERR"
+)
+status=$?
+if [ "$status" -eq 0 ]; then
+  ok "#126 control: hook-post-tool allows a clean event-workdir repo"
+else
+  not_ok "#126 control: hook-post-tool allows a clean event-workdir repo (expected 0, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+# REGRESSION: hook_stop must honor the event workdir. Process cwd is a subdir of
+# the repo; the event cwd (top-level .cwd) is the repo root; the secret is at
+# root, outside the subdir subtree -> Stop must block.
+(
+  cd "$ROOT126" || exit 2
+  printf '%s\n' "AGENT_GUARD_TEST_SECRET" > root-untracked.txt
+)
+(
+  cd "$ROOT126/sub" || exit 2
+  jq -nc --arg cwd "$ROOT126" '{stop_hook_active:false,cwd:$cwd}' \
+    | "$PLUGIN_ROOT/bin/agent-guard" hook-stop >"$OUT" 2>"$ERR"
+)
+status=$?
+if [ "$status" -eq 2 ] && grep -q 'changed files contain secret-like values' "$ERR"; then
+  ok "#126 hook-stop scans the event workdir root, not the process cwd subdir"
+else
+  not_ok "#126 hook-stop scans the event workdir root, not the process cwd subdir (expected 2 + block msg, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+# MUST-FAIL control: clean repo via event cwd -> allowed.
+(
+  cd "$ROOT126" || exit 2
+  rm -f root-untracked.txt
+)
+(
+  cd "$ROOT126/sub" || exit 2
+  jq -nc --arg cwd "$ROOT126" '{stop_hook_active:false,cwd:$cwd}' \
+    | "$PLUGIN_ROOT/bin/agent-guard" hook-stop >"$OUT" 2>"$ERR"
+)
+status=$?
+if [ "$status" -eq 0 ]; then
+  ok "#126 control: hook-stop allows a clean event-workdir repo"
+else
+  not_ok "#126 control: hook-stop allows a clean event-workdir repo (expected 0, got $status)"
   sed 's/^/  stderr: /' "$ERR"
 fi
 
@@ -2312,6 +2823,132 @@ if [ "$status" -eq 0 ] && [ "$(cat "$PRECOMMIT_CANARY" 2>/dev/null)" = "legacy-r
   ok "installed hook runs the pre-existing pre-commit hook"
 else
   not_ok "installed hook runs the pre-existing pre-commit hook"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+# Regression: refreshing our own hook must not DROP the legacy chain. The chain
+# block is only generated when core.hooksPath was unset, and `git rev-parse
+# --git-path hooks/pre-commit` honors core.hooksPath — so a second run cannot
+# re-derive the legacy path (it would resolve to THIS hook and chain it to
+# itself). The refresh therefore has to preserve the existing block. Ground truth
+# is the canary: run install.sh again, commit for real, require the legacy hook
+# to still fire.
+rm -f "$PRECOMMIT_CANARY"
+(
+  cd "$PRECOMMIT_REPO" || exit 2
+  "$ROOT/install.sh" git-hooks >"$OUT" 2>"$ERR"
+)
+status=$?
+if [ "$status" -eq 0 ]; then
+  ok "install.sh git-hooks re-run succeeds on an already-installed repo"
+else
+  not_ok "install.sh git-hooks re-run succeeds on an already-installed repo (expected 0, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+(
+  cd "$PRECOMMIT_REPO" || exit 2
+  printf '%s\n' ok > SECOND.md
+  git add SECOND.md
+  git commit -m second >"$OUT" 2>"$ERR"
+)
+status=$?
+if [ "$status" -eq 0 ] && [ "$(cat "$PRECOMMIT_CANARY" 2>/dev/null)" = "legacy-ran" ]; then
+  ok "re-running install.sh keeps the legacy pre-commit chained"
+else
+  not_ok "re-running install.sh keeps the legacy pre-commit chained (status $status, canary '$(cat "$PRECOMMIT_CANARY" 2>/dev/null)')"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+# --- install.sh refreshes a stale hook and fails closed on a bad config write --
+# Regression for #129: a matched-but-stale hook was left byte-identical (no-op
+# `:`), and an unchecked `git config core.hooksPath` write printed success even
+# when it failed.
+
+# (1) A pre-existing hook that carries our marker but embeds a broken binary
+# path must be regenerated in place to point at the freshly-resolved binary.
+STALE_HOOK_REPO="$TMP_ROOT/stale-hook-repo"
+mkdir -p "$STALE_HOOK_REPO"
+(
+  cd "$STALE_HOOK_REPO" || exit 2
+  git init -q --template="$EMPTY_TEMPLATE"
+  git config user.email t@e
+  git config user.name t
+  mkdir -p githooks
+  {
+    printf '%s\n' '#!/usr/bin/env sh'
+    printf '%s\n' 'set -u'
+    printf '%s\n' "exec '/nonexistent/agent-guard' scan-staged"
+  } > githooks/pre-commit
+  chmod +x githooks/pre-commit
+  "$ROOT/install.sh" git-hooks >"$OUT" 2>"$ERR"
+)
+status=$?
+resolved_bin="$ROOT/plugins/agent-guard/bin/agent-guard"
+if [ "$status" -eq 0 ] \
+   && grep -Fq "$resolved_bin" "$STALE_HOOK_REPO/githooks/pre-commit" \
+   && ! grep -Fq '/nonexistent/agent-guard' "$STALE_HOOK_REPO/githooks/pre-commit" \
+   && [ -x "$STALE_HOOK_REPO/githooks/pre-commit" ]; then
+  ok "install.sh refreshes a stale matched hook to the resolved binary"
+else
+  not_ok "install.sh refreshes a stale matched hook to the resolved binary (status $status)"
+  sed 's/^/  hook: /' "$STALE_HOOK_REPO/githooks/pre-commit" 2>/dev/null
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+# (2) A failed `git config core.hooksPath` write must fail closed: non-zero exit
+# and no false "configured/installed" success line. The stub forwards every git
+# call to the real binary except the one config write, which it fails.
+CONFIG_FAIL_REPO="$TMP_ROOT/config-fail-repo"
+CONFIG_FAIL_STUB="$TMP_ROOT/config-fail-stub"
+mkdir -p "$CONFIG_FAIL_REPO" "$CONFIG_FAIL_STUB"
+real_git=$(command -v git)
+cat >"$CONFIG_FAIL_STUB/git" <<'STUB'
+#!/bin/sh
+if [ "$1" = config ] && [ "$2" = core.hooksPath ] && [ "$3" = githooks ]; then
+  echo "stub git: simulated config write failure" >&2
+  exit 1
+fi
+exec "$REAL_GIT_BIN" "$@"
+STUB
+chmod +x "$CONFIG_FAIL_STUB/git"
+(
+  cd "$CONFIG_FAIL_REPO" || exit 2
+  git init -q --template="$EMPTY_TEMPLATE"
+  git config user.email t@e
+  git config user.name t
+  REAL_GIT_BIN="$real_git" PATH="$CONFIG_FAIL_STUB:$PATH" \
+    "$ROOT/install.sh" git-hooks >"$OUT" 2>"$ERR"
+)
+status=$?
+config_fail_value=$("$real_git" -C "$CONFIG_FAIL_REPO" config --get core.hooksPath 2>/dev/null || true)
+if [ "$status" -ne 0 ] \
+   && [ -z "$config_fail_value" ] \
+   && ! grep -q 'configured core.hooksPath' "$OUT"; then
+  ok "install.sh fails closed when the core.hooksPath write fails"
+else
+  not_ok "install.sh fails closed when the core.hooksPath write fails (status $status, hooksPath '$config_fail_value')"
+  sed 's/^/  stdout: /' "$OUT"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+# (control) A clean fresh install must still succeed and wire core.hooksPath, so
+# the two guards above cannot pass by simply rejecting every install.
+CONTROL_REPO="$TMP_ROOT/control-install-repo"
+mkdir -p "$CONTROL_REPO"
+(
+  cd "$CONTROL_REPO" || exit 2
+  git init -q --template="$EMPTY_TEMPLATE"
+  git config user.email t@e
+  git config user.name t
+  "$ROOT/install.sh" git-hooks >"$OUT" 2>"$ERR"
+)
+status=$?
+control_value=$(cd "$CONTROL_REPO" && git config --get core.hooksPath || true)
+if [ "$status" -eq 0 ] && [ "$control_value" = "githooks" ] \
+   && [ -x "$CONTROL_REPO/githooks/pre-commit" ]; then
+  ok "install.sh clean fresh install still succeeds and wires core.hooksPath"
+else
+  not_ok "install.sh clean fresh install still succeeds and wires core.hooksPath (status $status, hooksPath '$control_value')"
   sed 's/^/  stderr: /' "$ERR"
 fi
 
@@ -3686,6 +4323,98 @@ if ln -s "$TESTTMP/real-rc" "$TESTTMP/link-rc" 2>/dev/null; then
 else
   say "symlinks not supported here; skipped setup-shell symlink test"
 fi
+
+# --- temp cleanup on abrupt termination (#131) -----------------------------
+# PRIVACY.md promises scan temp files are removed when the operation exits.
+# The realistic un-clean exits are catchable signals: SIGTERM when the host
+# kills the PostToolUse/Stop hook at its timeout, SIGINT on Ctrl-C (delivered to
+# the whole foreground process group). Prove a temp file whose owning scan is
+# interrupted mid-run is still removed on exit by the centralized trap, rather
+# than leaking because the per-return `rm -f` never got to run. SIGKILL is
+# un-trappable and intentionally NOT covered.
+#
+# Note: the scan runs `... | run_gitleaks_stdin`, so the temp file is created and
+# normally removed inside a *pipeline subshell*. To reproduce the leak we kill
+# the main process AND that scan subshell while it is still blocked waiting on
+# the slow gitleaks — matching a host that kills the hook's process tree / a
+# group-delivered SIGINT. We deliberately do NOT signal the gitleaks child: that
+# would let the subshell's wait return and run its own `rm -f`, masking the leak.
+SIGTMP=$(mktemp -d "${TMPDIR:-/tmp}/ag-sigtest.XXXXXX")
+SIG_READY="$SIGTMP/ready"
+SIG_RUN="$SIGTMP/run"
+mkdir -p "$SIG_RUN"
+SIG_GL="$SIGTMP/gitleaks"
+# Slow gitleaks: on the stdin scan (reached only AFTER agent-guard has created
+# its temp file) signal readiness, then block so the tree is guaranteed alive
+# and mid-scan when we kill it.
+cat >"$SIG_GL" <<EOSH
+#!/usr/bin/env sh
+case "\${1:-}" in
+  stdin) : >"$SIG_READY"; sleep 3; exit 0 ;;
+  *) exit 0 ;;
+esac
+EOSH
+chmod +x "$SIG_GL"
+
+# Fresh TMPDIR (SIG_RUN, a neutrally-named dir so the -maxdepth 1 root never
+# matches the glob) so the only agent-guard* artifacts found are this
+# invocation's. The glob matches both the old flat name (agent-guard.XXXXXX) and
+# the new rundir (agent-guard-run.XXXXXX), keeping the assertion version-agnostic.
+printf '%s' '{"tool_name":"Write","tool_input":{"file_path":"x.txt","content":"benign body"}}' \
+  | TMPDIR="$SIG_RUN" AGENT_GUARD_GITLEAKS_BIN="$SIG_GL" \
+    "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >/dev/null 2>&1 &
+sig_pid=$!
+
+sig_i=0
+while [ ! -f "$SIG_READY" ] && [ "$sig_i" -lt 100 ]; do
+  sig_i=$((sig_i + 1))
+  sleep 0.1 2>/dev/null || sleep 1
+done
+
+if find "$SIG_RUN" -maxdepth 1 -name 'agent-guard*' 2>/dev/null | grep -q .; then
+  ok "scan temp exists mid-flight (precondition for the cleanup test)"
+else
+  not_ok "scan temp exists mid-flight (precondition for the cleanup test)"
+fi
+
+# Enumerate the scan subshell (a direct child of main) BEFORE killing anything:
+# killing main reparents its children and hides them from pgrep. Requires pgrep
+# (present on macOS and Linux). Then SIGTERM main and the subshell together,
+# leaving the gitleaks child orphaned (it exits on its own via the short sleep).
+sig_children=$(pgrep -P "$sig_pid" 2>/dev/null)
+# shellcheck disable=SC2086
+kill -TERM "$sig_pid" $sig_children 2>/dev/null
+wait "$sig_pid" 2>/dev/null
+# Give the exit/term trap a bounded moment to remove the rundir.
+sig_i=0
+while find "$SIG_RUN" -maxdepth 1 -name 'agent-guard*' 2>/dev/null | grep -q . \
+  && [ "$sig_i" -lt 20 ]; do
+  sig_i=$((sig_i + 1))
+  sleep 0.1 2>/dev/null || sleep 1
+done
+
+sig_leftover=$(find "$SIG_RUN" -maxdepth 1 -name 'agent-guard*' 2>/dev/null)
+if [ -z "$sig_leftover" ]; then
+  ok "interrupted scan leaves no leftover scan temp (#131)"
+else
+  not_ok "interrupted scan leaves no leftover scan temp (#131): $sig_leftover"
+fi
+rm -rf "$SIGTMP"
+
+# Normal completion must also leave nothing behind: the EXIT trap removes the
+# rundir itself (the manual per-file rm only clears its contents).
+NORM_PARENT=$(mktemp -d "${TMPDIR:-/tmp}/ag-normtest.XXXXXX")
+NORM_RUN="$NORM_PARENT/run"
+mkdir -p "$NORM_RUN"
+printf '%s' '{"tool_name":"Write","tool_input":{"file_path":"x.txt","content":"benign body"}}' \
+  | TMPDIR="$NORM_RUN" "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >/dev/null 2>&1
+norm_leftover=$(find "$NORM_RUN" -maxdepth 1 -name 'agent-guard*' 2>/dev/null)
+if [ -z "$norm_leftover" ]; then
+  ok "normal hook completion leaves no leftover scan temp"
+else
+  not_ok "normal hook completion leaves no leftover scan temp: $norm_leftover"
+fi
+rm -rf "$NORM_PARENT"
 
 say "passed: $pass"
 say "failed: $fail"
