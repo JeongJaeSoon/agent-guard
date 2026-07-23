@@ -69,9 +69,20 @@ refresh_plugin_current_link() {
   if [ -e "$current" ] && [ ! -L "$current" ]; then
     return 1
   fi
+  latest=$(
+    for candidate in "$PLUGIN_CACHE_BASE"/*/bin/agent-guard; do
+      [ -x "$candidate" ] || continue
+      candidate_root=${candidate%/bin/agent-guard}
+      candidate_version=${candidate_root##*/}
+      is_semver_dir "$candidate_version" || continue
+      printf '%s\t%s\n' "$candidate_version" "$candidate_version"
+    done | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1 | cut -f 2-
+  )
+  [ -n "$latest" ] || return 1
   # BSD and GNU ln both support -n to replace a symlink-to-directory itself
-  # instead of following it and creating a link inside the old version.
-  ln -sfn "$PLUGIN_CACHE_VERSION" "$current" 2>/dev/null
+  # instead of following it and creating a link inside the old version. Always
+  # point at the newest installed version: a stale binary may run after upgrade.
+  ln -sfn "$latest" "$current" 2>/dev/null
 }
 
 refresh_plugin_current_link || :
@@ -168,7 +179,6 @@ need_gitleaks() {
 
 hook_dependencies_ready() {
   command -v jq >/dev/null 2>&1 || return 1
-  command -v git >/dev/null 2>&1 || return 1
   resolve_gitleaks >/dev/null 2>&1 || return 1
   [ -f "$GITLEAKS_CONFIG" ] || return 1
   [ -f "$DENY_READ_PATHS" ] || return 1
@@ -226,7 +236,23 @@ emit_degraded_hook_warning() {
   event=$1
   input=${2:-}
   handle_hook_infrastructure_failure "$event" "$input" \
-    'agent-guard: protection is DEGRADED because jq, git, gitleaks, or a policy file is unavailable. Run $setup-agent-guard (or agent-guard setup), approve any required installation, verify with agent-guard check and smoke-test, then restart the host;'
+    'agent-guard: protection is DEGRADED because jq, gitleaks, or a policy file is unavailable. Run $setup-agent-guard (or agent-guard setup), approve any required installation, verify with agent-guard check and smoke-test, then restart the host;'
+}
+
+# PostToolUse may still emit one redaction response after an open git-backstop
+# failure. Warn on stderr only here so the hook never emits two JSON responses.
+handle_git_infrastructure_failure() {
+  input=${1:-}
+  detail=$2
+  mode=$(infrastructure_failure_mode)
+  if hook_warning_once "$input"; then
+    case "$mode" in
+      closed) info "$detail Blocking because AGENT_GUARD_INFRA_FAILURE_MODE=closed." ;;
+      *) info "$detail continuing because AGENT_GUARD_INFRA_FAILURE_MODE=open (the default)." ;;
+    esac
+  fi
+  [ "$mode" = closed ] && exit 2
+  return 0
 }
 
 check_deps() {
@@ -868,11 +894,28 @@ require_git_repo() {
   return "$SCAN_STATUS_UNAVAILABLE"
 }
 
+extract_git_diff_added() {
+  diff_file=$(mktemp_file) || return "$SCAN_STATUS_UNAVAILABLE"
+  if ! git diff "$@" >"$diff_file"; then
+    rm -f "$diff_file"
+    info "$PROGRAM: git diff failed; staged or working changes were not scanned"
+    return "$SCAN_STATUS_UNAVAILABLE"
+  fi
+  extract_added_lines <"$diff_file"
+  status=$?
+  rm -f "$diff_file"
+  return "$status"
+}
+
 scan_staged() {
   need_cmd git
   need_gitleaks
   require_git_repo || return $?
-  added=$(git diff --cached --unified=0 --no-ext-diff -- . | extract_added_lines)
+  repo_root=$(git rev-parse --show-toplevel 2>/dev/null) \
+    || return "$SCAN_STATUS_UNAVAILABLE"
+  added=$(CDPATH= cd -- "$repo_root" && extract_git_diff_added --cached --unified=0 --no-ext-diff -- .)
+  status=$?
+  [ "$status" -eq 0 ] || return "$status"
   [ -n "$added" ] || return 0
   scan_text_direct "staged added lines" "$added"
 }
@@ -924,16 +967,24 @@ scan_working_tree() {
   need_cmd git
   need_gitleaks
   require_git_repo || return $?
+  repo_root=$(git rev-parse --show-toplevel 2>/dev/null) \
+    || return "$SCAN_STATUS_UNAVAILABLE"
 
-  if git rev-parse --verify HEAD >/dev/null 2>&1; then
-    tracked=$(git diff --unified=0 --no-ext-diff HEAD -- . | extract_added_lines)
+  if git -C "$repo_root" rev-parse --verify HEAD >/dev/null 2>&1; then
+    tracked=$(CDPATH= cd -- "$repo_root" && extract_git_diff_added --unified=0 --no-ext-diff HEAD -- .)
+    status=$?
+    [ "$status" -eq 0 ] || return "$status"
   else
-    tracked=$(
-      {
-        git diff --cached --unified=0 --no-ext-diff -- .
-        git diff --unified=0 --no-ext-diff -- .
-      } | extract_added_lines
-    )
+    cached=$(CDPATH= cd -- "$repo_root" && extract_git_diff_added --cached --unified=0 --no-ext-diff -- .)
+    status=$?
+    [ "$status" -eq 0 ] || return "$status"
+    unstaged=$(CDPATH= cd -- "$repo_root" && extract_git_diff_added --unified=0 --no-ext-diff -- .)
+    status=$?
+    [ "$status" -eq 0 ] || return "$status"
+    tracked=$cached
+    [ -n "$cached" ] && [ -n "$unstaged" ] && tracked="$tracked
+$unstaged"
+    [ -z "$cached" ] && tracked=$unstaged
   fi
 
   result=0
@@ -947,7 +998,7 @@ scan_working_tree() {
     esac
   fi
 
-  scan_untracked_files
+  (CDPATH= cd -- "$repo_root" && scan_untracked_files)
   status=$?
   case "$status" in
     0) ;;
@@ -1410,6 +1461,65 @@ shell_command_words() {
   '
 }
 
+# Tokenize only enough POSIX shell syntax to locate git and its cwd-changing
+# options without executing the command. Each record is prefixed with 0 for a
+# literal token or 1 when shell expansion would be required; malformed input is
+# emitted as 2. Newlines cannot be represented safely in the record stream, so
+# they make the affected token dynamic and therefore subject to infra policy.
+git_command_records() {
+  printf '%s\n' "$1" | awk '
+    function emit() {
+      if (!started) return
+      print (dynamic ? "1" : "0") word
+      word = ""; started = 0; dynamic = 0
+    }
+    NR > 1 {
+      if (quote == "") { emit(); print "0;" }
+      else { word = word " "; dynamic = 1 }
+    }
+    {
+      for (i = 1; i <= length($0); i++) {
+        c = substr($0, i, 1)
+        n = substr($0, i + 1, 1)
+        if (quote == "single") {
+          if (c == "\047") quote = ""
+          else word = word c
+          started = 1
+          continue
+        }
+        if (quote == "double") {
+          if (c == "\"") { quote = ""; started = 1; continue }
+          if (c == "\\" && n ~ /^[\"\\$`]$/) {
+            word = word n; started = 1; i++; continue
+          }
+          if (c == "$" || c == "`") dynamic = 1
+          word = word c; started = 1
+          continue
+        }
+        if (c == " " || c == "\t") { emit(); continue }
+        if (c == "\047") { quote = "single"; started = 1; continue }
+        if (c == "\"") { quote = "double"; started = 1; continue }
+        if (c == "\\") {
+          if (i == length($0)) { dynamic = 1; started = 1; continue }
+          word = word n; started = 1; i++; continue
+        }
+        if (c == ";" || c == "|" || (c == "&" && n == "&")) {
+          emit()
+          if ((c == "|" || c == "&") && n == c) { print "0" c c; i++ }
+          else print "0" c
+          continue
+        }
+        if (c == "$" || c == "`") dynamic = 1
+        word = word c; started = 1
+      }
+    }
+    END {
+      if (quote != "") print "2"
+      else emit()
+    }
+  '
+}
+
 git_option_takes_value() {
   case "$1" in
     -c|-C|--git-dir|--work-tree|--namespace|--exec-path|--config-env) return 0 ;;
@@ -1459,13 +1569,37 @@ is_git_commit_or_push() {
   cmd=$1
   (
     set -f
-    words=$(shell_command_words "$cmd")
+    words=$(git_command_records "$cmd")
+    old_ifs=$IFS
+    IFS='
+'
     # shellcheck disable=SC2086
     set -- $words
+    IFS=$old_ifs
 
     command_start=1
+    effective_c_dirs=
+    effective_c_dynamic=0
+    append_effective_c_dir() {
+      record=$1
+      case "$record" in
+        1*) effective_c_dynamic=1 ;;
+        0*)
+          dir=${record#?}
+          if [ -n "$effective_c_dirs" ]; then
+            effective_c_dirs="$effective_c_dirs
+$dir"
+          else
+            effective_c_dirs=$dir
+          fi
+          ;;
+        *) effective_c_dynamic=1 ;;
+      esac
+    }
     while [ "$#" -gt 0 ]; do
-      token=$1
+      record=$1
+      record_kind=${record%"${record#?}"}
+      token=${record#?}
 
       if [ "$command_start" -eq 1 ]; then
         # Strip leading `NAME=value` assignments and no-op wrappers so a wrapped
@@ -1477,12 +1611,35 @@ is_git_commit_or_push() {
           continue
         fi
         if is_noop_wrapper "$token"; then
+          wrapper=$token
           shift
           while [ "$#" -gt 0 ]; do
-            case "$1" in
+            record=$1
+            record_kind=${record%"${record#?}"}
+            token=${record#?}
+            case "$token" in
               --) shift; break ;;
               -*)
-                if wrapper_option_takes_value "$1"; then
+                case "$wrapper:$token" in
+                  env:-C|env:--chdir)
+                    shift
+                    [ "$#" -gt 0 ] || break
+                    append_effective_c_dir "$1"
+                    shift
+                    continue
+                    ;;
+                  env:--chdir=*)
+                    append_effective_c_dir "$record_kind${token#--chdir=}"
+                    shift
+                    continue
+                    ;;
+                  env:-C?*)
+                    append_effective_c_dir "$record_kind${token#-C}"
+                    shift
+                    continue
+                    ;;
+                esac
+                if wrapper_option_takes_value "$token"; then
                   shift
                   [ "$#" -gt 0 ] && shift
                 else
@@ -1490,7 +1647,7 @@ is_git_commit_or_push() {
                 fi
                 ;;
               *)
-                is_assignment_token "$1" && { shift; continue; }
+                is_assignment_token "${1#?}" && { shift; continue; }
                 break
                 ;;
             esac
@@ -1500,16 +1657,32 @@ is_git_commit_or_push() {
         if [ "$token" = "git" ]; then
           shift
           while [ "$#" -gt 0 ]; do
-            token=$1
+            record=$1
+            token=${record#?}
             shift
             if git_option_takes_value "$token"; then
-              [ "$#" -gt 0 ] && shift
+              if [ "$#" -gt 0 ]; then
+                if [ "$token" = -C ]; then
+                  append_effective_c_dir "$1"
+                fi
+                shift
+              fi
               continue
             fi
             is_git_global_option "$token" && continue
 
             case "$token" in
               commit|push)
+                [ "$effective_c_dynamic" -eq 1 ] && printf 'U\n'
+                if [ -n "$effective_c_dirs" ]; then
+                  old_ifs=$IFS
+                  IFS='
+'
+                  # shellcheck disable=SC2086
+                  set -- $effective_c_dirs
+                  IFS=$old_ifs
+                  for dir in "$@"; do printf 'D%s\n' "$dir"; done
+                fi
                 return 0
                 ;;
               *)
@@ -1537,12 +1710,16 @@ is_git_hook_bypass() {
   cmd=$1
   (
     set -f
-    words=$(shell_command_words "$cmd")
+    words=$(git_command_records "$cmd")
+    old_ifs=$IFS
+    IFS='
+'
     # shellcheck disable=SC2086
     set -- $words
+    IFS=$old_ifs
 
     while [ "$#" -gt 0 ]; do
-      token=$1
+      token=${1#?}
       shift
       case "$token" in
         --no-verify|--no-gpg-sign) return 0 ;;
@@ -1555,20 +1732,46 @@ is_git_hook_bypass() {
 check_git_command() {
   cmd=$1
   workdir=${2:-}
-  if is_git_commit_or_push "$cmd"; then
+  git_c_records=$(is_git_commit_or_push "$cmd")
+  git_command_status=$?
+  if [ "$git_command_status" -eq 0 ]; then
     if is_git_hook_bypass "$cmd"; then
       info "$PROGRAM: blocked git command that disables hooks/signing"
       exit 2
     fi
-    if [ -n "$workdir" ]; then
-      (
-        CDPATH= cd -- "$workdir" 2>/dev/null \
-          || die "hook workdir is not accessible: $workdir"
-        scan_staged
-      )
-    else
-      scan_staged
+    if ! command -v git >/dev/null 2>&1; then
+      handle_hook_infrastructure_failure PreToolUse "${HOOK_INPUT:-}" \
+        "$PROGRAM: git is unavailable, so staged changes could not be scanned;"
+      return $?
     fi
+    case "$git_c_records" in
+      U|U'
+'*)
+        handle_hook_infrastructure_failure PreToolUse "${HOOK_INPUT:-}" \
+          "$PROGRAM: the git command uses a dynamic working directory that could not be resolved safely;"
+        return $?
+        ;;
+    esac
+    (
+      scan_dir=${workdir:-$(pwd)}
+      CDPATH= cd -- "$scan_dir" 2>/dev/null || exit "$SCAN_STATUS_UNAVAILABLE"
+      if [ -n "$git_c_records" ]; then
+        old_ifs=$IFS
+        IFS='
+'
+        # shellcheck disable=SC2086
+        set -- $git_c_records
+        IFS=$old_ifs
+        for git_c_record in "$@"; do
+          case "$git_c_record" in
+            D*) git_c_dir=${git_c_record#D} ;;
+            *) exit "$SCAN_STATUS_UNAVAILABLE" ;;
+          esac
+          CDPATH= cd -- "$git_c_dir" 2>/dev/null || exit "$SCAN_STATUS_UNAVAILABLE"
+        done
+      fi
+      scan_staged
+    )
     block_on_scan_status "$?" "staged changes contain secret-like values; blocking git command"
   fi
 }
@@ -1578,6 +1781,7 @@ check_bash_command() {
   need_cmd jq
   cmd=$(json_value '.tool_input.command // .tool_input.cmd // empty' "$input")
   [ -n "$cmd" ] || return 0
+  git_cmd=$cmd
   workdir=$(json_value '.tool_input.workdir // .tool_input.cwd // .cwd // empty' "$input")
 
   # A harmless, deterministic sentinel lets setup prove that the host really
@@ -1622,7 +1826,9 @@ check_bash_command() {
   scan_text_direct "shell command" "$cmd"
   block_on_scan_status "$?" "shell command contains secret-like values"
 
-  check_git_command "$cmd" "$workdir"
+  # Path-policy helpers above intentionally dequote their input and use global
+  # POSIX-shell variables. Preserve the original quoting for git cwd parsing.
+  check_git_command "$git_cmd" "$workdir"
 }
 
 scan_tool_input() {
@@ -2042,13 +2248,30 @@ hook_post_tool() {
   need_cmd jq
   [ -n "$input" ] || return 0
   tool=$(json_value '.tool_name // .tool // .name // empty' "$input")
+  workdir=$(json_value '.tool_input.workdir // .tool_input.cwd // .cwd // empty' "$input")
 
   # Mutation tools keep the working-tree backstop (may exit 2). It runs first so
   # a secret written to disk is still surfaced even when redaction is enabled.
   if is_mutation_tool "$tool"; then
-    if inside_git_repo; then
-      scan_working_tree
-      block_on_scan_status "$?" "changed files contain secret-like values after tool execution"
+    if ! command -v git >/dev/null 2>&1; then
+      handle_git_infrastructure_failure "$input" \
+        "$PROGRAM: git is unavailable, so changed files could not be scanned;"
+    else
+      (
+        [ -z "$workdir" ] || CDPATH= cd -- "$workdir" 2>/dev/null \
+          || exit "$SCAN_STATUS_UNAVAILABLE"
+        inside_git_repo || exit 0
+        scan_working_tree
+      )
+      status=$?
+      case "$status" in
+        0) ;;
+        1) info "$PROGRAM: changed files contain secret-like values after tool execution"; exit 2 ;;
+        *)
+          handle_git_infrastructure_failure "$input" \
+            "$PROGRAM: changed files could not be scanned after tool execution;"
+          ;;
+      esac
     fi
   fi
 
@@ -2061,12 +2284,11 @@ hook_stop() {
   input=$(read_stdin)
   HOOK_EVENT=Stop
   HOOK_INPUT=$input
-  if ! hook_dependencies_ready || ! command -v git >/dev/null 2>&1; then
+  if ! hook_dependencies_ready; then
     emit_degraded_hook_warning Stop "$input"
     return 0
   fi
   need_cmd jq
-  need_cmd git
   if [ -n "$input" ]; then
     active=$(json_value '.stop_hook_active // false' "$input")
     if [ "$active" = "true" ]; then
@@ -2075,10 +2297,27 @@ hook_stop() {
     fi
   fi
 
-  inside_git_repo || return 0
-
-  scan_working_tree
-  block_on_scan_status "$?" "changed files contain secret-like values before stop"
+  if ! command -v git >/dev/null 2>&1; then
+    handle_git_infrastructure_failure "$input" \
+      "$PROGRAM: git is unavailable, so changed files could not be scanned before stop;"
+    return 0
+  fi
+  workdir=$(json_value '.tool_input.workdir // .tool_input.cwd // .cwd // empty' "$input")
+  (
+    [ -z "$workdir" ] || CDPATH= cd -- "$workdir" 2>/dev/null \
+      || exit "$SCAN_STATUS_UNAVAILABLE"
+    inside_git_repo || exit 0
+    scan_working_tree
+  )
+  status=$?
+  case "$status" in
+    0) return 0 ;;
+    1) info "$PROGRAM: changed files contain secret-like values before stop"; exit 2 ;;
+    *)
+      handle_git_infrastructure_failure "$input" \
+        "$PROGRAM: changed files could not be scanned before stop;"
+      ;;
+  esac
 }
 
 # --- hook-session-start: report degraded setup and shell-integration drift ----
@@ -2450,6 +2689,7 @@ __agentguard_latest_plugin_bin() {
       __ag_version=${__ag_version##*/}
       printf '%s\t%s\n' "$__ag_version" "$__ag_candidate"
     done \
+      | awk -F '\t' '$1 ~ /^[0-9]+\.[0-9]+\.[0-9]+$/' \
       | sort -t. -k1,1n -k2,2n -k3,3n \
       | tail -n 1 \
       | cut -f 2-
@@ -2461,11 +2701,17 @@ __agentguard_exe() {
   if [ -n "${AGENT_GUARD_BIN:-}" ] && [ -x "$AGENT_GUARD_BIN" ]; then
     printf '%s' "$AGENT_GUARD_BIN"; return 0
   fi
-  if [ -n "${__agentguard_bin:-}" ] && [ -x "$__agentguard_bin" ]; then
+  if [ -n "${__agentguard_bin:-}" ] && [ -x "$__agentguard_bin" ] \
+     && [ -n "${__agentguard_plugin_base:-}" ] \
+     && [ -L "$__agentguard_plugin_base/current" ]; then
     printf '%s' "$__agentguard_bin"; return 0
   fi
-  if __ag_latest=$(__agentguard_latest_plugin_bin); then
+  __ag_latest=$(__agentguard_latest_plugin_bin) || __ag_latest=
+  if [ -n "$__ag_latest" ]; then
     printf '%s' "$__ag_latest"; return 0
+  fi
+  if [ -n "${__agentguard_bin:-}" ] && [ -x "$__agentguard_bin" ]; then
+    printf '%s' "$__agentguard_bin"; return 0
   fi
   if command -v agent-guard >/dev/null 2>&1; then printf '%s' agent-guard; return 0; fi
   return 1
@@ -2608,7 +2854,12 @@ do_setup_shell() {
   # shadowing a working stable/plugin binary.
   stable=$(sh_squote "$STABLE_BIN")
   cache_base=$(sh_squote "$PLUGIN_CACHE_BASE")
-  line="eval \"\$(_agbin=$stable; _agbase=$cache_base; if [ ! -x \"\$_agbin\" ] && [ -n \"\$_agbase\" ]; then _agbin=\$(for _agc in \"\$_agbase\"/[0-9]*.[0-9]*.[0-9]*/bin/agent-guard; do [ -x \"\$_agc\" ] || continue; _agv=\${_agc%/bin/agent-guard}; printf '%s\\t%s\\n' \"\${_agv##*/}\" \"\$_agc\"; done | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1 | cut -f 2-); fi; _agi=; [ -x \"\$_agbin\" ] && _agi=\$(\"\$_agbin\" shell-init${wrapping} 2>/dev/null); if [ -z \"\$_agi\" ] && command -v agent-guard >/dev/null 2>&1; then _agi=\$(agent-guard shell-init${wrapping} 2>/dev/null); fi; [ -n \"\$_agi\" ] && printf '%s\\n' \"\$_agi\")\""
+  line="eval \"\$(_agbin=$stable; _agbase=$cache_base; if [ -n \"\$_agbase\" ]; then _aglatest=\$(for _agc in \"\$_agbase\"/[0-9]*.[0-9]*.[0-9]*/bin/agent-guard; do [ -x \"\$_agc\" ] || continue; _agv=\${_agc%/bin/agent-guard}; printf '%s\\t%s\\n' \"\${_agv##*/}\" \"\$_agc\"; done | awk -F '\\t' '\$1 ~ /^[0-9]+\\.[0-9]+\\.[0-9]+\$/' | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1 | cut -f 2-); [ -n \"\$_aglatest\" ] && _agbin=\$_aglatest; fi; _agi=; [ -x \"\$_agbin\" ] && _agi=\$(\"\$_agbin\" shell-init${wrapping} 2>/dev/null); if [ -z \"\$_agi\" ] && command -v agent-guard >/dev/null 2>&1; then _agi=\$(agent-guard shell-init${wrapping} 2>/dev/null); fi; [ -n \"\$_agi\" ] && printf '%s\\n' \"\$_agi\")\""
+  path_line=
+  if [ -n "$PLUGIN_CACHE_BASE" ]; then
+    stable_dir=$(sh_squote "$PLUGIN_CACHE_BASE/current/bin")
+    path_line="case :\$PATH: in *:$stable_dir:*) ;; *) PATH=$stable_dir\${PATH:+:\$PATH} ;; esac; export PATH"
+  fi
 
   begin='# >>> agent-guard shell-init >>>'
   end='# <<< agent-guard shell-init <<<'
@@ -2648,6 +2899,7 @@ do_setup_shell() {
   {
     printf '%s\n' "$begin"
     printf '%s\n' "# Managed by 'agent-guard setup-shell' — remove this block to disable."
+    [ -z "$path_line" ] || printf '%s\n' "$path_line"
     printf '%s\n' "$line"
     printf '%s\n' "$end"
   } >>"$tmp"

@@ -15,6 +15,7 @@ ERR="$TESTTMP/err"
 MOCK_BIN="$TMP_ROOT/bin"
 ORIGINAL_PATH=$PATH
 REAL_GITLEAKS=$(command -v gitleaks 2>/dev/null || true)
+REAL_GIT=$(command -v git)
 REAL_CURL=$(command -v curl 2>/dev/null || true)
 REAL_JQ=$(command -v jq)
 REAL_SH=$(command -v sh)
@@ -350,7 +351,7 @@ fi
 
 claude_pre_tool_command=$(jq -r '.hooks.PreToolUse[0].hooks[0].command' "$PLUGIN_ROOT/hooks/hooks.json")
 case "$claude_pre_tool_command" in
-  *'CLAUDE_PLUGIN_ROOT'*'/current/bin/agent-guard'*'[0-9]*.[0-9]*.[0-9]*/bin/agent-guard'*)
+  *'CLAUDE_PLUGIN_ROOT'*'/current/bin/agent-guard'*'awk -F'*'/^[0-9]+'*'/bin/agent-guard'*)
     ok "Claude hook command uses the stable current path with a version-glob fallback"
     ;;
   *)
@@ -368,7 +369,7 @@ esac
 
 codex_pre_tool_command=$(jq -r '.hooks.PreToolUse[0].hooks[0].command' "$PLUGIN_ROOT/hooks.json")
 case "$codex_pre_tool_command" in
-  *'PLUGIN_ROOT'*'/current/bin/agent-guard'*'[0-9]*.[0-9]*.[0-9]*/bin/agent-guard'*)
+  *'PLUGIN_ROOT'*'/current/bin/agent-guard'*'awk -F'*'/^[0-9]+'*'/bin/agent-guard'*)
     ok "Codex hook command uses the stable current path with a version-glob fallback"
     ;;
   *)
@@ -500,7 +501,7 @@ fi
 # manifest-level resolver must select the highest installed semantic version,
 # not rely on lexical glob order (where 3.0.9 sorts after 3.0.10).
 HOOK_CACHE="$TESTTMP/hook-cache"
-for hook_ver in 3.0.9 3.0.10; do
+for hook_ver in 3.0.9 3.0.10 99.0.0beta; do
   mkdir -p "$HOOK_CACHE/$hook_ver/bin"
   cat >"$HOOK_CACHE/$hook_ver/bin/agent-guard" <<EOF
 #!/usr/bin/env sh
@@ -511,13 +512,53 @@ done
 printf '%s' '{"tool_name":"Bash","tool_input":{"command":"echo clean"}}' \
   | PLUGIN_ROOT="$HOOK_CACHE/3.0.0" sh -c "$codex_pre_tool_command" >"$OUT" 2>"$ERR"
 status=$?
-if [ "$status" -eq 0 ] && grep -qx 'selected-3.0.10' "$OUT"; then
+if [ "$status" -eq 0 ] && grep -qx 'selected-3.0.10' "$OUT" \
+   && [ "$(readlink "$HOOK_CACHE/current" 2>/dev/null)" = 3.0.10 ]; then
   ok "Codex hook resolver falls back from a removed version to the latest installed version"
 else
   not_ok "Codex hook resolver falls back from a removed version to the latest installed version"
   sed 's/^/  stdout: /' "$OUT"
   sed 's/^/  stderr: /' "$ERR"
 fi
+
+# When no binary resolves, every event shares one best-effort host/session
+# marker. The warning names the selected policy, including closed mode.
+for manifest_host in codex claude; do
+  case "$manifest_host" in
+    codex) manifest_file="$PLUGIN_ROOT/hooks.json"; manifest_root=PLUGIN_ROOT ;;
+    *) manifest_file="$PLUGIN_ROOT/hooks/hooks.json"; manifest_root=CLAUDE_PLUGIN_ROOT ;;
+  esac
+  manifest_warning_dir="$TESTTMP/manifest-warning-$manifest_host"
+  : >"$ERR"
+  for manifest_event in PreToolUse PostToolUse Stop SessionStart; do
+    manifest_command=$(jq -r --arg event "$manifest_event" '.hooks[$event][0].hooks[0].command' "$manifest_file")
+    printf '%s' '{"session_id":"manifest-session"}' \
+      | env "$manifest_root=$TESTTMP/missing-plugin/0.0.0" \
+          AGENT_GUARD_WARNING_DIR="$manifest_warning_dir" \
+          sh -c "$manifest_command" >/dev/null 2>>"$ERR"
+  done
+  warning_count=$(grep -c 'no installed binary was found' "$ERR" 2>/dev/null || true)
+  if [ "$warning_count" -eq 1 ] && grep -q 'AGENT_GUARD_INFRA_FAILURE_MODE=open' "$ERR"; then
+    ok "$manifest_host manifest missing-binary warning is open-mode correct and deduplicated across events"
+  else
+    not_ok "$manifest_host manifest warning is mode-correct and deduplicated (count $warning_count)"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+
+  manifest_command=$(jq -r '.hooks.PostToolUse[0].hooks[0].command' "$manifest_file")
+  printf '%s' '{}' \
+    | env "$manifest_root=$TESTTMP/missing-plugin/0.0.0" \
+        AGENT_GUARD_WARNING_DIR="$TESTTMP/manifest-closed-$manifest_host" \
+        AGENT_GUARD_INFRA_FAILURE_MODE=closed \
+        sh -c "$manifest_command" >"$OUT" 2>"$ERR"
+  status=$?
+  if [ "$status" -eq 2 ] && grep -q 'blocking because AGENT_GUARD_INFRA_FAILURE_MODE=closed' "$ERR"; then
+    ok "$manifest_host manifest missing-binary warning reports closed mode"
+  else
+    not_ok "$manifest_host manifest missing-binary warning reports closed mode (status $status)"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+done
 
 # Pinned gitleaks default version is duplicated across three surfaces (the
 # CLI's setup --install default, the checksum helper's lookup default, and
@@ -1235,6 +1276,66 @@ else
   sed 's/^/  stderr: /' "$ERR"
 fi
 
+# `git -C` is relative to the command's execution directory, not the hook's
+# process cwd. The target repo must win over a clean hook cwd.
+(
+  cd "$TMP_ROOT" || exit 2
+  test_repo_rel=${TEST_REPO#"$TMP_ROOT"/}
+  jq -nc --arg command "git -C $test_repo_rel commit -m leak" --arg workdir "$TMP_ROOT" \
+    '{tool_name:"Bash",tool_input:{command:$command,workdir:$workdir}}' \
+    | "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+)
+status=$?
+if [ "$status" -eq 2 ] && grep -q 'staged changes contain secret-like values' "$ERR"; then
+  ok "git -C resolves relative to tool_input.workdir before staged scanning"
+else
+  not_ok "git -C resolves relative to tool_input.workdir (expected staged-secret block, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+# Quoted and backslash-escaped -C values are one shell word. Preserve that word
+# while resolving the repository instead of splitting it at the embedded space.
+ln -s "$TEST_REPO" "$TMP_ROOT/git-c target"
+jq -nc --arg command "git -C 'git-c'\\ target commit -m leak" --arg workdir "$TMP_ROOT" \
+  '{tool_name:"Bash",tool_input:{command:$command,workdir:$workdir}}' \
+  | "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "git -C preserves quoted and escaped paths while scanning staged changes"
+else
+  not_ok "git -C preserves quoted and escaped paths (expected 2, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+# env changes cwd before launching git. Apply its -C/--chdir first so a clean
+# repo at the unadjusted path cannot hide a staged secret in the real target.
+mkdir -p "$TMP_ROOT/env-c-parent/base" "$TMP_ROOT/target"
+ln -s "$TEST_REPO" "$TMP_ROOT/env-c-parent/base/target"
+(cd "$TMP_ROOT/target" && git init -q)
+jq -nc \
+  --arg command 'env -C env-c-parent env --chdir=base git -C target commit -m leak' \
+  --arg workdir "$TMP_ROOT" \
+  '{tool_name:"Bash",tool_input:{command:$command,workdir:$workdir}}' \
+  | "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "env cwd options are applied before git -C staged scanning"
+else
+  not_ok "env cwd options are applied before git -C (expected 2, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+printf '%s' '{"tool_name":"Bash","tool_input":{"command":"git -C \"$REPO\" commit -m leak"}}' \
+  | AGENT_GUARD_INFRA_FAILURE_MODE=closed \
+      "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ] && grep -q 'could not be resolved safely' "$ERR"; then
+  ok "dynamic git cwd follows the configured infrastructure failure policy"
+else
+  not_ok "dynamic git cwd follows infrastructure policy (expected 2, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
 # Codex runs hooks from the task root, which can differ from exec_command's
 # workdir. Honor the tool payload so the staged scan runs in the target repo.
 (
@@ -1346,6 +1447,10 @@ fi
 
 expect_json_status 2 "git hook bypass without separator spaces is blocked" \
   '{"tool_name":"Bash","tool_input":{"command":"git commit --no-verify&&echo done"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "quoted git hook bypass option is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"git commit '\''--no-verify'\''"}}' \
   hook-pre-tool
 
 # R2: wrapper/assignment-prefixed commits with NO --no-verify must still reach
@@ -1869,6 +1974,125 @@ if [ "$status" -eq 0 ] && [ ! -s "$ERR" ]; then
   ok "hook-stop silently skips when cwd is not a git work tree"
 else
   not_ok "hook-stop silently skips when cwd is not a git work tree (expected 0 + empty stderr, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+# PostToolUse and Stop honor the payload workdir, and scans started in a nested
+# directory cover the whole repository instead of only `-- .` below that cwd.
+mkdir -p "$POST_REPO/nested/deeper"
+printf '%s\n' "AGENT_GUARD_TEST_SECRET" >"$POST_REPO/root-leak.txt"
+(
+  cd "$TMP_ROOT" || exit 2
+  jq -nc --arg cwd "$POST_REPO/nested/deeper" \
+    '{tool_name:"Write",cwd:$cwd,tool_input:{file_path:"clean.txt"}}' \
+    | "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool >"$OUT" 2>"$ERR"
+)
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "hook-post-tool scans the repository root from payload cwd subdirectories"
+else
+  not_ok "hook-post-tool scans the repository root from payload cwd (expected 2, got $status)"
+fi
+(
+  cd "$TMP_ROOT" || exit 2
+  jq -nc --arg workdir "$POST_REPO/nested/deeper" \
+    '{stop_hook_active:false,tool_input:{workdir:$workdir}}' \
+    | "$PLUGIN_ROOT/bin/agent-guard" hook-stop >"$OUT" 2>"$ERR"
+)
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "hook-stop scans the repository root from payload workdir subdirectories"
+else
+  not_ok "hook-stop scans the repository root from payload workdir (expected 2, got $status)"
+fi
+rm -f "$POST_REPO/root-leak.txt"
+
+# A failed git diff means the scanner did not run. Direct scan commands expose
+# status 3 so hook callers can apply the configured infrastructure policy.
+DIFF_FAIL_BIN="$TESTTMP/diff-fail-bin"
+mkdir -p "$DIFF_FAIL_BIN"
+cat >"$DIFF_FAIL_BIN/git" <<'EOSH'
+#!/usr/bin/env sh
+if [ "${1:-}" = diff ]; then
+  exit 42
+fi
+exec "$AGENT_GUARD_TEST_REAL_GIT" "$@"
+EOSH
+chmod +x "$DIFF_FAIL_BIN/git"
+(
+  cd "$TEST_REPO" || exit 2
+  PATH="$DIFF_FAIL_BIN:$PATH" AGENT_GUARD_TEST_REAL_GIT="$REAL_GIT" \
+    "$PLUGIN_ROOT/bin/agent-guard" scan-staged >"$OUT" 2>"$ERR"
+)
+status=$?
+if [ "$status" -eq 3 ]; then
+  ok "scan-staged reports unavailable when git diff fails"
+else
+  not_ok "scan-staged reports unavailable on git diff failure (expected 3, got $status)"
+fi
+(
+  cd "$TEST_REPO" || exit 2
+  PATH="$DIFF_FAIL_BIN:$PATH" AGENT_GUARD_TEST_REAL_GIT="$REAL_GIT" \
+    "$PLUGIN_ROOT/bin/agent-guard" scan-working-tree >"$OUT" 2>"$ERR"
+)
+status=$?
+if [ "$status" -eq 3 ]; then
+  ok "scan-working-tree reports unavailable when git diff fails"
+else
+  not_ok "scan-working-tree reports unavailable on git diff failure (expected 3, got $status)"
+fi
+
+# Git is required only for the repository backstop. PreTool secret checks and
+# PostTool output redaction continue to work when git itself is absent.
+NO_GIT_BIN="$TESTTMP/no-git-bin"
+NO_GIT_WARN_DIR="$TESTTMP/no-git-warnings"
+mkdir -p "$NO_GIT_BIN" "$NO_GIT_WARN_DIR"
+for no_git_cmd in sh dirname pwd readlink jq sed awk grep cat mktemp mkdir chmod rm sort tail cut head; do
+  no_git_path=$(command -v "$no_git_cmd" 2>/dev/null || true)
+  [ -n "$no_git_path" ] && ln -s "$no_git_path" "$NO_GIT_BIN/$no_git_cmd"
+done
+cp "$MOCK_BIN/gitleaks" "$NO_GIT_BIN/gitleaks"
+PATH="$NO_GIT_BIN" printf '%s' \
+  '{"tool_name":"Write","tool_input":{"content":"AGENT_GUARD_TEST_SECRET"}}' \
+  | PATH="$NO_GIT_BIN" AGENT_GUARD_WARNING_DIR="$NO_GIT_WARN_DIR" \
+      "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "non-git PreTool secret checks remain active when git is unavailable"
+else
+  not_ok "non-git PreTool secret checks remain active without git (expected 2, got $status)"
+fi
+printf '%s' \
+  '{"session_id":"pre-git-missing-open","tool_name":"Bash","tool_input":{"command":"git commit -m clean"}}' \
+  | PATH="$NO_GIT_BIN" AGENT_GUARD_WARNING_DIR="$NO_GIT_WARN_DIR" \
+      "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 0 ] && grep -q 'AGENT_GUARD_INFRA_FAILURE_MODE=open' "$ERR"; then
+  ok "git-only PreTool gating follows the default open policy when git is unavailable"
+else
+  not_ok "git-only PreTool gating follows open policy without git (status $status)"
+fi
+printf '%s' \
+  '{"session_id":"pre-git-missing-closed","tool_name":"Bash","tool_input":{"command":"git push"}}' \
+  | PATH="$NO_GIT_BIN" AGENT_GUARD_WARNING_DIR="$NO_GIT_WARN_DIR" \
+      AGENT_GUARD_INFRA_FAILURE_MODE=closed \
+    "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "git-only PreTool gating supports closed policy when git is unavailable"
+else
+  not_ok "git-only PreTool gating supports closed policy without git (expected 2, got $status)"
+fi
+printf '%s' \
+  '{"session_id":"post-no-git","tool_name":"Write","tool_input":{"file_path":"note.txt"},"tool_response":"AGENT_GUARD_TEST_SECRET"}' \
+  | PATH="$NO_GIT_BIN" AGENT_GUARD_WARNING_DIR="$NO_GIT_WARN_DIR" \
+      "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 0 ] && grep -q '\[REDACTED\]' "$OUT" \
+   && grep -q 'AGENT_GUARD_INFRA_FAILURE_MODE=open' "$ERR"; then
+  ok "PostTool repository gating follows open policy and output redaction remains active without git"
+else
+  not_ok "PostTool output redaction remains active without git (status $status)"
   sed 's/^/  stderr: /' "$ERR"
 fi
 
@@ -3869,6 +4093,27 @@ if [ "$clean_snapshot_bin" = "$CLEAN_CACHE/current/bin/agent-guard" ]; then
   ok "pre-upgrade shell integration resolves through current after upgrade"
 else
   not_ok "pre-upgrade shell integration resolves through current after upgrade (got: $clean_snapshot_bin)"
+fi
+clean_path_bin=$(HOME="$CLEAN_HOME" PATH=/usr/bin:/bin sh -c '. "$1"; command -v agent-guard' _ "$CLEAN_RC" 2>/dev/null)
+if [ "$clean_path_bin" = "$CLEAN_CACHE/current/bin/agent-guard" ]; then
+  ok "setup-shell makes the stable binary discoverable without manual PATH injection"
+else
+  not_ok "setup-shell adds current/bin to PATH (got: $clean_path_bin)"
+fi
+
+# A stale version may still be executing in an old session after a newer plugin
+# is installed. It must not roll `current` backward, and non-numeric lookalike
+# directories must never win the resolver sort.
+mkdir -p "$CLEAN_CACHE/3.0.0/bin" "$CLEAN_CACHE/3.0.2/bin" "$CLEAN_CACHE/9.9.9beta/bin"
+for clean_version in 3.0.0 3.0.2 9.9.9beta; do
+  cp "$PLUGIN_ROOT/bin/agent-guard" "$CLEAN_CACHE/$clean_version/bin/agent-guard"
+  chmod +x "$CLEAN_CACHE/$clean_version/bin/agent-guard"
+done
+HOME="$CLEAN_HOME" "$CLEAN_CACHE/3.0.0/bin/agent-guard" version >/dev/null 2>&1
+if [ "$(readlink "$CLEAN_CACHE/current" 2>/dev/null)" = 3.0.2 ]; then
+  ok "stale binaries keep current on the highest strictly numeric installed version"
+else
+  not_ok "stale binary does not roll current backward (got: $(readlink "$CLEAN_CACHE/current" 2>/dev/null))"
 fi
 
 say "passed: $pass"
