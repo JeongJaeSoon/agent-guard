@@ -521,6 +521,36 @@ else
   sed 's/^/  stderr: /' "$ERR"
 fi
 
+cat >"$HOOK_CACHE/3.0.10/bin/agent-guard" <<'EOF'
+#!/usr/bin/env sh
+cat
+EOF
+chmod +x "$HOOK_CACHE/3.0.10/bin/agent-guard"
+manifest_payload='{"session_id":"manifest-input","tool_name":"Bash","tool_input":{"command":"echo clean"}}'
+for manifest_host in codex claude; do
+  case "$manifest_host" in
+    codex) manifest_file="$PLUGIN_ROOT/hooks.json"; manifest_root=PLUGIN_ROOT ;;
+    *) manifest_file="$PLUGIN_ROOT/hooks/hooks.json"; manifest_root=CLAUDE_PLUGIN_ROOT ;;
+  esac
+  manifest_command=$(jq -r '.hooks.PreToolUse[0].hooks[0].command' "$manifest_file")
+  printf '%s' "$manifest_payload" \
+    | env "$manifest_root=$HOOK_CACHE/3.0.0" sh -c "$manifest_command" >"$OUT" 2>"$ERR"
+  if [ "$(cat "$OUT")" = "$manifest_payload" ]; then
+    ok "$manifest_host manifest resolver preserves hook input when a binary exists"
+  else
+    not_ok "$manifest_host manifest resolver preserves hook input when a binary exists"
+    sed 's/^/  stdout: /' "$OUT"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+done
+
+MANIFEST_NO_JQ_PATH="$TESTTMP/manifest-no-jq-path"
+mkdir -p "$MANIFEST_NO_JQ_PATH"
+for manifest_utility in sh awk sort tail cut cksum mkdir; do
+  manifest_utility_path=$(command -v "$manifest_utility")
+  ln -s "$manifest_utility_path" "$MANIFEST_NO_JQ_PATH/$manifest_utility"
+done
+
 # When no binary resolves, every event shares one best-effort host/session
 # marker. The warning names the selected policy, including closed mode.
 for manifest_host in codex claude; do
@@ -535,13 +565,47 @@ for manifest_host in codex claude; do
     printf '%s' '{"session_id":"manifest-session"}' \
       | env "$manifest_root=$TESTTMP/missing-plugin/0.0.0" \
           AGENT_GUARD_WARNING_DIR="$manifest_warning_dir" \
-          sh -c "$manifest_command" >/dev/null 2>>"$ERR"
+          sh -c "$manifest_command; :" >/dev/null 2>>"$ERR"
   done
   warning_count=$(grep -c 'no installed binary was found' "$ERR" 2>/dev/null || true)
   if [ "$warning_count" -eq 1 ] && grep -q 'AGENT_GUARD_INFRA_FAILURE_MODE=open' "$ERR"; then
-    ok "$manifest_host manifest missing-binary warning is open-mode correct and deduplicated across events"
+    ok "$manifest_host manifest warning is deduplicated by session across Linux-like changing parents"
   else
-    not_ok "$manifest_host manifest warning is mode-correct and deduplicated (count $warning_count)"
+    not_ok "$manifest_host manifest warning is session-deduplicated across changing parents (count $warning_count)"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+
+  : >"$ERR"
+  for override_event in PreToolUse PostToolUse; do
+    manifest_command=$(jq -r --arg event "$override_event" '.hooks[$event][0].hooks[0].command' "$manifest_file")
+    printf '{"session_id":"payload-%s"}' "$override_event" \
+      | env "$manifest_root=$TESTTMP/missing-plugin/0.0.0" \
+          AGENT_GUARD_SESSION_ID=manifest-override \
+          AGENT_GUARD_WARNING_DIR="$TESTTMP/manifest-override-$manifest_host" \
+          sh -c "$manifest_command; :" >/dev/null 2>>"$ERR"
+  done
+  override_warning_count=$(grep -c 'no installed binary was found' "$ERR" 2>/dev/null || true)
+  if [ "$override_warning_count" -eq 1 ]; then
+    ok "$manifest_host manifest warning honors AGENT_GUARD_SESSION_ID override"
+  else
+    not_ok "$manifest_host manifest warning honors AGENT_GUARD_SESSION_ID override (count $override_warning_count)"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+
+  : >"$ERR"
+  for no_jq_event in PreToolUse PostToolUse Stop SessionStart; do
+    manifest_command=$(jq -r --arg event "$no_jq_event" '.hooks[$event][0].hooks[0].command' "$manifest_file")
+    printf '%s' '{"session_id":"manifest-no-jq"}' \
+      | env PATH="$MANIFEST_NO_JQ_PATH" \
+          "$manifest_root=$TESTTMP/missing-plugin/0.0.0" \
+          AGENT_GUARD_WARNING_DIR="$TESTTMP/manifest-no-jq-$manifest_host" \
+          /bin/sh -c "$manifest_command; :" >/dev/null 2>>"$ERR"
+  done
+  no_jq_warning_count=$(grep -c 'no installed binary was found' "$ERR" 2>/dev/null || true)
+  if [ "$no_jq_warning_count" -eq 1 ]; then
+    ok "$manifest_host manifest warning uses compact session_id without jq"
+  else
+    not_ok "$manifest_host manifest warning uses compact session_id without jq (count $no_jq_warning_count)"
     sed 's/^/  stderr: /' "$ERR"
   fi
 
