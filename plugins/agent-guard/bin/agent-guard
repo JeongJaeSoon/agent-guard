@@ -109,7 +109,7 @@ resolve_gitleaks() {
 
 need_gitleaks() {
   GITLEAKS_BIN=$(resolve_gitleaks) \
-    || die "required command not found: gitleaks (run \$setup-agent-guard or: $PROGRAM setup)"
+    || die "required command not found: gitleaks (run: $PROGRAM setup)"
   [ -f "$GITLEAKS_CONFIG" ] || die "gitleaks config not found: $GITLEAKS_CONFIG"
 }
 
@@ -121,9 +121,17 @@ hook_dependencies_ready() {
   [ -f "$DENY_BASH_PATTERNS" ] || return 1
 }
 
+degraded_hook_message() {
+  case "${AGENT_GUARD_HOOK_HOST:-claude}" in
+    codex) setup_ref='$setup-agent-guard' ;;
+    *) setup_ref='agent-guard:setup-agent-guard' ;;
+  esac
+  printf 'agent-guard: protection is DEGRADED because jq, git, gitleaks, or a policy file is unavailable. Run %s (or agent-guard setup), approve any required installation, verify with agent-guard check and smoke-test, then restart the host.' "$setup_ref"
+}
+
 emit_degraded_hook_warning() {
   event=$1
-  message='agent-guard: protection is DEGRADED because jq, git, gitleaks, or a policy file is unavailable. Run $setup-agent-guard (or agent-guard setup), approve any required installation, verify with agent-guard check and smoke-test, then restart the host.'
+  message=$(degraded_hook_message)
   info "$message"
   case "$event" in
     PreToolUse|PostToolUse)
@@ -1996,28 +2004,31 @@ hook_stop() {
 # Codex remains silent because it does not use this shell boundary.
 #
 # SessionStart is non-mutating: it reports missing dependencies and directs the
-# host to the approval-gated setup skill. It also reports Claude shell-wrapper
-# version drift. The Codex variant duplicates the message in additionalContext
-# so the model can act on it; both hosts receive a user-facing systemMessage.
+# host to the approval-gated setup skill. Claude also reports shell-wrapper
+# version drift; Codex ignores that unrelated shell boundary. The Codex variant
+# duplicates host-independent warnings in additionalContext so the model can act
+# on them; both hosts receive a user-facing systemMessage.
 hook_session_start() {
   message=
   if ! hook_dependencies_ready || ! command -v git >/dev/null 2>&1; then
-    message='agent-guard protection is DEGRADED because jq, git, gitleaks, or a policy file is unavailable. Run $setup-agent-guard (or agent-guard setup), approve any required installation, verify with agent-guard check and smoke-test, then restart the host.'
+    message=$(degraded_hook_message)
   fi
 
   marker=${AGENT_GUARD_SHELL_INIT_VERSION:-}
   # Accept only a digit-led version token drawn from a safe charset: an empty or
   # unparseable marker fails quiet, and the charset keeps the hand-built JSON
   # below injection-safe (no quotes/backslashes/whitespace to escape).
-  case $marker in
-    ''|[!0-9]*|*[!0-9A-Za-z.+-]*) ;;
-    *)
-      if [ "$marker" != "$VERSION" ]; then
-        drift="agent-guard plugin hooks are $VERSION but the Claude shell integration masks with $marker. Update whichever is older, then rerun agent-guard setup-shell."
-        if [ -n "$message" ]; then message="$message $drift"; else message=$drift; fi
-      fi
-      ;;
-  esac
+  if [ "${AGENT_GUARD_HOOK_HOST:-claude}" = claude ]; then
+    case $marker in
+      ''|[!0-9]*|*[!0-9A-Za-z.+-]*) ;;
+      *)
+        if [ "$marker" != "$VERSION" ]; then
+          drift="agent-guard plugin hooks are $VERSION but the Claude shell integration masks with $marker. Update whichever is older, then rerun agent-guard setup-shell."
+          if [ -n "$message" ]; then message="$message $drift"; else message=$drift; fi
+        fi
+        ;;
+    esac
+  fi
 
   # Claude plugins cannot edit the user's shell rc during installation. In 2.x
   # command wrapping is default-on, so an absent marker means the one-time
@@ -2452,7 +2463,7 @@ do_setup_shell() {
         {
           printf '%s\n' "Usage: $PROGRAM setup-shell [--bash|--zsh|--rc FILE] [--no-command-wrapping]"
           printf '%s\n' "Adds the shell-init line to your shell rc (idempotent). Restart your"
-          printf '%s\n' "shell and any Claude Code session afterwards to apply."
+          printf '%s\n' "shell and any sessions launched from it afterwards to apply."
           printf '%s\n' "Command wrapping is enabled by default. Use --no-command-wrapping for"
           printf '%s\n' "a persistent opt-out, or AGENT_GUARD_COMMAND_WRAPPING=off at runtime."
         } >&2
@@ -2531,7 +2542,7 @@ do_setup_shell() {
   mv "$tmp" "$rc_real" || { rm -f "$tmp"; die "setup-shell: failed to write $rc_real"; }
 
   info "$PROGRAM: shell integration written to $rc_real"
-  info "$PROGRAM: restart your shell (and any Claude Code session) to apply"
+  info "$PROGRAM: restart your shell and any sessions launched from it to apply"
 }
 
 cmd=${1:-}
