@@ -16,6 +16,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          # Full history: the submission-readiness check below compares the
+          # pinned .source.sha's plugins/agent-guard tree against HEAD, and a
+          # shallow (depth 1) checkout cannot resolve that commit. The check
+          # fails closed when it cannot verify, so this is required, not an
+          # optimisation.
+          fetch-depth: 0
 
       - name: Run tests
         run: make test
