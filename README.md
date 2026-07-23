@@ -197,6 +197,14 @@ agent-guard checksum
 
 Scan commands exit `0` when nothing was found, `1` when a secret was detected, and `3` when the scan could not run at all — for example `scan-staged` outside a git work tree. `3` exists so that "I looked and it was clean" is never confused with "I never got to look"; both non-zero results mean the change is not cleared. Any other non-zero status is a scanner error.
 
+At a host hook boundary, scanner-infrastructure failures (missing dependencies,
+an inaccessible/non-repository workdir, or a scanner crash) follow
+`AGENT_GUARD_INFRA_FAILURE_MODE`: `open` is the default and continues after one
+clear warning per session; `closed` blocks instead. A real secret detection is
+not an infrastructure failure and always blocks. Direct scan commands and the
+native Git hook keep their non-zero exit status so CI and Git never mistake an
+unperformed scan for a clean result.
+
 Override install defaults with `AGENT_GUARD_VERSION`, `AGENT_GUARD_HOME`, `AGENT_GUARD_BIN_DIR`, or `AGENT_GUARD_COMMAND_WRAPPING`.
 
 ## Managed deployment
@@ -368,11 +376,24 @@ export AGENT_GUARD_COMMAND_WRAPPING=off  # runtime opt-out
 agent-guard setup-shell --no-command-wrapping  # persistent opt-out
 ```
 
-The binary is resolved at call time in this order: an explicit `$AGENT_GUARD_BIN`, then `agent-guard` on your `$PATH`, then the **absolute path baked into the snippet** at `shell-init` time. Transparent command wrapping preflights dependencies too. If the binary cannot resolve or protection is degraded, it **fails open** because the user typed an ordinary `cat`/`head`/`printenv`: it runs the command but prints a loud `output is NOT masked` warning. `agx`, being an explicit mask request, instead fails closed.
+For plugin installs, every execution refreshes a sibling
+`current/bin/agent-guard` symlink and `setup-shell` records only that stable
+path. Hooks and shell snippets use `current` first, then select the newest
+installed semantic-version directory if symlinks are unavailable. This keeps an
+already-running session valid when the host removes an older cache directory.
+Standalone CLI installs continue to use their stable `~/.agent-guard` /
+`~/.local/bin` paths.
+
+The shell resolver order is an explicit `$AGENT_GUARD_BIN`, the stable baked
+path, the newest plugin-cache version fallback, then `agent-guard` on `$PATH`.
+Both transparent wrapping and `agx` preflight dependencies and use the same
+infrastructure policy: default `open` runs the original command with one clear
+`output is NOT masked` warning per shell session; set
+`AGENT_GUARD_INFRA_FAILURE_MODE=closed` to refuse execution instead.
 
 Because the plugin (auto-updated by `claude plugin update`) and the binary the integration actually resolves update independently, updating only one side can silently leave `agx` / `!`-command masking on older rules. To catch that, the `shell-init` snippet exports `AGENT_GUARD_SHELL_INIT_VERSION` — the version of the binary it resolved at rc-eval time (whichever of the three paths above won) — and a Claude Code `SessionStart` hook compares that marker against the plugin's own version, showing a **non-blocking warning** on mismatch. Because the marker records what the integration resolved at shell start (not a re-derivation the hook would have to guess), it stays silent unless the integration is genuinely loaded *and* drifting: a user who has `agent-guard` on `$PATH` but never ran `setup-shell` gets no warning, and a plugin-only install pinned to a stale baked binary is still covered. It is a start-up snapshot, so if you upgrade the resolved binary *in place* inside a long-lived shell and then launch Claude Code from it without opening a new shell, the warning reflects the version from when that shell started until you re-source your rc.
 
-> **Works without the CLI on `$PATH` — but a plugin can't edit your rc.** Direct CLI bootstrap installs the default-on shell integration automatically. For a plugin-only install, run the plugin-local `agent-guard setup-shell` once — invoke it by absolute path if `agent-guard` isn't on your `$PATH`; it bakes that same absolute path into the line it writes — then restart your shell and any Claude Code session. See [Migrating from 1.x to 2.x](docs/migration-v2.md) for old managed blocks and opt-out behavior.
+> **Works without the CLI on `$PATH` — but a plugin can't edit your rc.** Direct CLI bootstrap installs the default-on shell integration automatically. For a plugin-only install, run the plugin-local `agent-guard setup-shell` once — invoke it by absolute path if `agent-guard` isn't on your `$PATH`; it writes the stable `current` path — then restart your shell and any Claude Code session. See [Migrating from 1.x to 2.x](docs/migration-v2.md) for old managed blocks and opt-out behavior.
 
 `/agent-guard:setup-shell` invokes that binary through Claude's Bash tool so a
 sandboxed session can request approval before writing the shell rc. If the host
@@ -413,9 +434,14 @@ AGENT_GUARD_PII_PROVIDER=regex
 AGENT_GUARD_PII_REDACT_URL=http://127.0.0.1:8080/api/redact
 AGENT_GUARD_PII_HOOK_MODE=off
 AGENT_GUARD_OUTPUT_REDACT=mask
+AGENT_GUARD_INFRA_FAILURE_MODE=open
 ```
 
 Set `AGENT_GUARD_OUTPUT_REDACT=off` to disable masking secret-like values in tool output (default `mask`). Set `AGENT_GUARD_PII_HOOK_MODE` to `block` (block PII in tool inputs), `mask` (mask PII in tool outputs + hard-block Tier-2 PII inputs), or `off` (default).
+
+Set `AGENT_GUARD_INFRA_FAILURE_MODE=closed` when a host hook or shell wrapper
+must refuse execution if the scanner cannot run. The default is `open`, with a
+deduplicated warning; detections always block in either mode.
 
 Project-local `.gitleaks.toml` files are not automatically trusted.
 Gitleaks resolution is deterministic: `AGENT_GUARD_GITLEAKS_BIN`, then `PATH`, then `AGENT_GUARD_GITLEAKS_BIN_DIR/gitleaks` (default `~/.agent-guard/bin/gitleaks`). This makes the private `setup --install` destination immediately usable without editing `PATH`.

@@ -15,6 +15,7 @@ ERR="$TESTTMP/err"
 MOCK_BIN="$TMP_ROOT/bin"
 ORIGINAL_PATH=$PATH
 REAL_GITLEAKS=$(command -v gitleaks 2>/dev/null || true)
+REAL_GIT=$(command -v git)
 REAL_CURL=$(command -v curl 2>/dev/null || true)
 REAL_JQ=$(command -v jq)
 REAL_SH=$(command -v sh)
@@ -337,10 +338,10 @@ codex_ss_matcher=$(jq -r '.hooks.SessionStart[0].matcher' "$PLUGIN_ROOT/hooks.js
   && ok "Codex SessionStart matcher matches the supported lifecycle set" \
   || not_ok "Codex SessionStart matcher matches the supported lifecycle set (got: $codex_ss_matcher)"
 case "$ss_hook_command" in
-  *'CLAUDE_PLUGIN_ROOT'*'hook-session-start'*)
-    ok "SessionStart command invokes hook-session-start via CLAUDE_PLUGIN_ROOT" ;;
+  *'CLAUDE_PLUGIN_ROOT'*'/current/bin/agent-guard'*'hook-session-start'*)
+    ok "SessionStart command resolves hook-session-start through the stable current path" ;;
   *)
-    not_ok "SessionStart command invokes hook-session-start via CLAUDE_PLUGIN_ROOT (got: $ss_hook_command)" ;;
+    not_ok "SessionStart command resolves hook-session-start through the stable current path (got: $ss_hook_command)" ;;
 esac
 if [ "$ss_hook_timeout" = 5 ]; then
   ok "SessionStart timeout is 5 in hooks/hooks.json"
@@ -350,11 +351,11 @@ fi
 
 claude_pre_tool_command=$(jq -r '.hooks.PreToolUse[0].hooks[0].command' "$PLUGIN_ROOT/hooks/hooks.json")
 case "$claude_pre_tool_command" in
-  *'CLAUDE_PLUGIN_ROOT'*)
-    ok "Claude hook command uses CLAUDE_PLUGIN_ROOT"
+  *'CLAUDE_PLUGIN_ROOT'*'/current/bin/agent-guard'*'awk -F'*'/^[0-9]+'*'/bin/agent-guard'*)
+    ok "Claude hook command uses the stable current path with a version-glob fallback"
     ;;
   *)
-    not_ok "Claude hook command uses CLAUDE_PLUGIN_ROOT"
+    not_ok "Claude hook command uses the stable current path with a version-glob fallback"
     ;;
 esac
 case "$claude_pre_tool_command" in
@@ -368,11 +369,11 @@ esac
 
 codex_pre_tool_command=$(jq -r '.hooks.PreToolUse[0].hooks[0].command' "$PLUGIN_ROOT/hooks.json")
 case "$codex_pre_tool_command" in
-  *'PLUGIN_ROOT'*)
-    ok "Codex hook command uses PLUGIN_ROOT"
+  *'PLUGIN_ROOT'*'/current/bin/agent-guard'*'awk -F'*'/^[0-9]+'*'/bin/agent-guard'*)
+    ok "Codex hook command uses the stable current path with a version-glob fallback"
     ;;
   *)
-    not_ok "Codex hook command uses PLUGIN_ROOT"
+    not_ok "Codex hook command uses the stable current path with a version-glob fallback"
     ;;
 esac
 case "$codex_pre_tool_command" in
@@ -389,16 +390,27 @@ printf '%s' "$read_env_payload" \
   | (cd "$PLUGIN_ROOT" && env -u CLAUDE_PLUGIN_ROOT -u CODEX_PLUGIN_ROOT sh -c "$claude_pre_tool_command") \
   >"$OUT" 2>"$ERR"
 status=$?
-if [ "$status" -eq 2 ]; then
-  ok "Claude hook command fails closed without CLAUDE_PLUGIN_ROOT"
+if [ "$status" -eq 0 ]; then
+  ok "Claude hook command follows the default open infrastructure policy without CLAUDE_PLUGIN_ROOT"
 else
-  not_ok "Claude hook command fails closed without CLAUDE_PLUGIN_ROOT (expected 2, got $status)"
+  not_ok "Claude hook command follows the default open infrastructure policy without CLAUDE_PLUGIN_ROOT (expected 0, got $status)"
   sed 's/^/  stderr: /' "$ERR"
 fi
 if grep -q 'CLAUDE_PLUGIN_ROOT env not set' "$ERR"; then
   ok "Claude hook command explains missing CLAUDE_PLUGIN_ROOT"
 else
   not_ok "Claude hook command explains missing CLAUDE_PLUGIN_ROOT"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+printf '%s' "$read_env_payload" \
+  | (cd "$PLUGIN_ROOT" && AGENT_GUARD_INFRA_FAILURE_MODE=closed env -u CLAUDE_PLUGIN_ROOT -u CODEX_PLUGIN_ROOT sh -c "$claude_pre_tool_command") \
+  >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "Claude hook command supports opt-in closed infrastructure policy"
+else
+  not_ok "Claude hook command supports opt-in closed infrastructure policy (expected 2, got $status)"
   sed 's/^/  stderr: /' "$ERR"
 fi
 
@@ -428,16 +440,27 @@ printf '%s' "$read_env_payload" \
   | (cd "$PLUGIN_ROOT" && env -u PLUGIN_ROOT -u CODEX_PLUGIN_ROOT -u CLAUDE_PLUGIN_ROOT sh -c "$codex_pre_tool_command") \
   >"$OUT" 2>"$ERR"
 status=$?
-if [ "$status" -eq 2 ]; then
-  ok "Codex hook command fails closed without PLUGIN_ROOT"
+if [ "$status" -eq 0 ]; then
+  ok "Codex hook command follows the default open infrastructure policy without PLUGIN_ROOT"
 else
-  not_ok "Codex hook command fails closed without PLUGIN_ROOT (expected 2, got $status)"
+  not_ok "Codex hook command follows the default open infrastructure policy without PLUGIN_ROOT (expected 0, got $status)"
   sed 's/^/  stderr: /' "$ERR"
 fi
 if grep -q 'PLUGIN_ROOT env not set' "$ERR"; then
   ok "Codex hook command explains missing PLUGIN_ROOT"
 else
   not_ok "Codex hook command explains missing PLUGIN_ROOT"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+printf '%s' "$read_env_payload" \
+  | (cd "$PLUGIN_ROOT" && AGENT_GUARD_INFRA_FAILURE_MODE=closed env -u PLUGIN_ROOT -u CODEX_PLUGIN_ROOT -u CLAUDE_PLUGIN_ROOT sh -c "$codex_pre_tool_command") \
+  >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "Codex hook command supports opt-in closed infrastructure policy"
+else
+  not_ok "Codex hook command supports opt-in closed infrastructure policy (expected 2, got $status)"
   sed 's/^/  stderr: /' "$ERR"
 fi
 
@@ -473,6 +496,69 @@ else
   not_ok "Codex hook command ignores CLAUDE_PLUGIN_ROOT"
   sed 's/^/  stderr: /' "$ERR"
 fi
+
+# A stale hook can retain a removed version directory in PLUGIN_ROOT. The
+# manifest-level resolver must select the highest installed semantic version,
+# not rely on lexical glob order (where 3.0.9 sorts after 3.0.10).
+HOOK_CACHE="$TESTTMP/hook-cache"
+for hook_ver in 3.0.9 3.0.10 99.0.0beta; do
+  mkdir -p "$HOOK_CACHE/$hook_ver/bin"
+  cat >"$HOOK_CACHE/$hook_ver/bin/agent-guard" <<EOF
+#!/usr/bin/env sh
+printf '%s\n' 'selected-$hook_ver'
+EOF
+  chmod +x "$HOOK_CACHE/$hook_ver/bin/agent-guard"
+done
+printf '%s' '{"tool_name":"Bash","tool_input":{"command":"echo clean"}}' \
+  | PLUGIN_ROOT="$HOOK_CACHE/3.0.0" sh -c "$codex_pre_tool_command" >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 0 ] && grep -qx 'selected-3.0.10' "$OUT" \
+   && [ "$(readlink "$HOOK_CACHE/current" 2>/dev/null)" = 3.0.10 ]; then
+  ok "Codex hook resolver falls back from a removed version to the latest installed version"
+else
+  not_ok "Codex hook resolver falls back from a removed version to the latest installed version"
+  sed 's/^/  stdout: /' "$OUT"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+# When no binary resolves, every event shares one best-effort host/session
+# marker. The warning names the selected policy, including closed mode.
+for manifest_host in codex claude; do
+  case "$manifest_host" in
+    codex) manifest_file="$PLUGIN_ROOT/hooks.json"; manifest_root=PLUGIN_ROOT ;;
+    *) manifest_file="$PLUGIN_ROOT/hooks/hooks.json"; manifest_root=CLAUDE_PLUGIN_ROOT ;;
+  esac
+  manifest_warning_dir="$TESTTMP/manifest-warning-$manifest_host"
+  : >"$ERR"
+  for manifest_event in PreToolUse PostToolUse Stop SessionStart; do
+    manifest_command=$(jq -r --arg event "$manifest_event" '.hooks[$event][0].hooks[0].command' "$manifest_file")
+    printf '%s' '{"session_id":"manifest-session"}' \
+      | env "$manifest_root=$TESTTMP/missing-plugin/0.0.0" \
+          AGENT_GUARD_WARNING_DIR="$manifest_warning_dir" \
+          sh -c "$manifest_command" >/dev/null 2>>"$ERR"
+  done
+  warning_count=$(grep -c 'no installed binary was found' "$ERR" 2>/dev/null || true)
+  if [ "$warning_count" -eq 1 ] && grep -q 'AGENT_GUARD_INFRA_FAILURE_MODE=open' "$ERR"; then
+    ok "$manifest_host manifest missing-binary warning is open-mode correct and deduplicated across events"
+  else
+    not_ok "$manifest_host manifest warning is mode-correct and deduplicated (count $warning_count)"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+
+  manifest_command=$(jq -r '.hooks.PostToolUse[0].hooks[0].command' "$manifest_file")
+  printf '%s' '{}' \
+    | env "$manifest_root=$TESTTMP/missing-plugin/0.0.0" \
+        AGENT_GUARD_WARNING_DIR="$TESTTMP/manifest-closed-$manifest_host" \
+        AGENT_GUARD_INFRA_FAILURE_MODE=closed \
+        sh -c "$manifest_command" >"$OUT" 2>"$ERR"
+  status=$?
+  if [ "$status" -eq 2 ] && grep -q 'blocking because AGENT_GUARD_INFRA_FAILURE_MODE=closed' "$ERR"; then
+    ok "$manifest_host manifest missing-binary warning reports closed mode"
+  else
+    not_ok "$manifest_host manifest missing-binary warning reports closed mode (status $status)"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+done
 
 # Pinned gitleaks default version is duplicated across three surfaces (the
 # CLI's setup --install default, the checksum helper's lookup default, and
@@ -1190,6 +1276,66 @@ else
   sed 's/^/  stderr: /' "$ERR"
 fi
 
+# `git -C` is relative to the command's execution directory, not the hook's
+# process cwd. The target repo must win over a clean hook cwd.
+(
+  cd "$TMP_ROOT" || exit 2
+  test_repo_rel=${TEST_REPO#"$TMP_ROOT"/}
+  jq -nc --arg command "git -C $test_repo_rel commit -m leak" --arg workdir "$TMP_ROOT" \
+    '{tool_name:"Bash",tool_input:{command:$command,workdir:$workdir}}' \
+    | "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+)
+status=$?
+if [ "$status" -eq 2 ] && grep -q 'staged changes contain secret-like values' "$ERR"; then
+  ok "git -C resolves relative to tool_input.workdir before staged scanning"
+else
+  not_ok "git -C resolves relative to tool_input.workdir (expected staged-secret block, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+# Quoted and backslash-escaped -C values are one shell word. Preserve that word
+# while resolving the repository instead of splitting it at the embedded space.
+ln -s "$TEST_REPO" "$TMP_ROOT/git-c target"
+jq -nc --arg command "git -C 'git-c'\\ target commit -m leak" --arg workdir "$TMP_ROOT" \
+  '{tool_name:"Bash",tool_input:{command:$command,workdir:$workdir}}' \
+  | "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "git -C preserves quoted and escaped paths while scanning staged changes"
+else
+  not_ok "git -C preserves quoted and escaped paths (expected 2, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+# env changes cwd before launching git. Apply its -C/--chdir first so a clean
+# repo at the unadjusted path cannot hide a staged secret in the real target.
+mkdir -p "$TMP_ROOT/env-c-parent/base" "$TMP_ROOT/target"
+ln -s "$TEST_REPO" "$TMP_ROOT/env-c-parent/base/target"
+(cd "$TMP_ROOT/target" && git init -q)
+jq -nc \
+  --arg command 'env -C env-c-parent env --chdir=base git -C target commit -m leak' \
+  --arg workdir "$TMP_ROOT" \
+  '{tool_name:"Bash",tool_input:{command:$command,workdir:$workdir}}' \
+  | "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "env cwd options are applied before git -C staged scanning"
+else
+  not_ok "env cwd options are applied before git -C (expected 2, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+printf '%s' '{"tool_name":"Bash","tool_input":{"command":"git -C \"$REPO\" commit -m leak"}}' \
+  | AGENT_GUARD_INFRA_FAILURE_MODE=closed \
+      "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ] && grep -q 'could not be resolved safely' "$ERR"; then
+  ok "dynamic git cwd follows the configured infrastructure failure policy"
+else
+  not_ok "dynamic git cwd follows infrastructure policy (expected 2, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
 # Codex runs hooks from the task root, which can differ from exec_command's
 # workdir. Honor the tool payload so the staged scan runs in the target repo.
 (
@@ -1217,6 +1363,59 @@ if [ "$status" -eq 2 ] && grep -q 'staged changes contain secret-like values' "$
   ok "host hook scans staged changes from top-level cwd"
 else
   not_ok "host hook scans staged changes from top-level cwd (expected staged-secret block, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+# A linked worktree stores .git as a gitdir pointer file. Exercise the real
+# commit and push after PreToolUse runs from a non-repository sandbox cwd; a
+# clean staged change must be scanned in tool_input.workdir and allowed.
+LINKED_BASE="$TMP_ROOT/linked-base"
+LINKED_WT="$TMP_ROOT/linked-worktree"
+LINKED_REMOTE="$TMP_ROOT/linked-remote.git"
+mkdir -p "$LINKED_BASE"
+(
+  cd "$LINKED_BASE" || exit 2
+  git init -q
+  git config user.email linked@example.com
+  git config user.name linked
+  printf '%s\n' "baseline" > README.md
+  git add README.md
+  git commit -q -m init
+  git worktree add -q -b linked-clean "$LINKED_WT"
+  git init -q --bare "$LINKED_REMOTE"
+  git remote add origin "$LINKED_REMOTE"
+)
+if [ -f "$LINKED_WT/.git" ]; then
+  ok "linked worktree fixture uses a gitdir pointer file"
+else
+  not_ok "linked worktree fixture uses a gitdir pointer file"
+fi
+printf '%s\n' "clean linked change" >"$LINKED_WT/clean.txt"
+git -C "$LINKED_WT" add clean.txt
+(
+  cd "$TMP_ROOT" || exit 2
+  jq -nc --arg workdir "$LINKED_WT" \
+    '{session_id:"linked-session",tool_name:"Bash",tool_input:{command:"git commit -m clean",workdir:$workdir}}' \
+    | "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+)
+status=$?
+if [ "$status" -eq 0 ] && git -C "$LINKED_WT" commit -q -m clean; then
+  ok "commit passes after a clean linked-worktree scan from a different hook cwd"
+else
+  not_ok "commit passes after a clean linked-worktree scan from a different hook cwd (hook status $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+(
+  cd "$TMP_ROOT" || exit 2
+  jq -nc --arg workdir "$LINKED_WT" \
+    '{session_id:"linked-session",tool_name:"Bash",tool_input:{command:"git push -u origin linked-clean",workdir:$workdir}}' \
+    | "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+)
+status=$?
+if [ "$status" -eq 0 ] && git -C "$LINKED_WT" push -q -u origin linked-clean; then
+  ok "push passes after a clean linked-worktree scan from a different hook cwd"
+else
+  not_ok "push passes after a clean linked-worktree scan from a different hook cwd (hook status $status)"
   sed 's/^/  stderr: /' "$ERR"
 fi
 
@@ -1248,6 +1447,10 @@ fi
 
 expect_json_status 2 "git hook bypass without separator spaces is blocked" \
   '{"tool_name":"Bash","tool_input":{"command":"git commit --no-verify&&echo done"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "quoted git hook bypass option is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"git commit '\''--no-verify'\''"}}' \
   hook-pre-tool
 
 # R2: wrapper/assignment-prefixed commits with NO --no-verify must still reach
@@ -1774,6 +1977,125 @@ else
   sed 's/^/  stderr: /' "$ERR"
 fi
 
+# PostToolUse and Stop honor the payload workdir, and scans started in a nested
+# directory cover the whole repository instead of only `-- .` below that cwd.
+mkdir -p "$POST_REPO/nested/deeper"
+printf '%s\n' "AGENT_GUARD_TEST_SECRET" >"$POST_REPO/root-leak.txt"
+(
+  cd "$TMP_ROOT" || exit 2
+  jq -nc --arg cwd "$POST_REPO/nested/deeper" \
+    '{tool_name:"Write",cwd:$cwd,tool_input:{file_path:"clean.txt"}}' \
+    | "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool >"$OUT" 2>"$ERR"
+)
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "hook-post-tool scans the repository root from payload cwd subdirectories"
+else
+  not_ok "hook-post-tool scans the repository root from payload cwd (expected 2, got $status)"
+fi
+(
+  cd "$TMP_ROOT" || exit 2
+  jq -nc --arg workdir "$POST_REPO/nested/deeper" \
+    '{stop_hook_active:false,tool_input:{workdir:$workdir}}' \
+    | "$PLUGIN_ROOT/bin/agent-guard" hook-stop >"$OUT" 2>"$ERR"
+)
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "hook-stop scans the repository root from payload workdir subdirectories"
+else
+  not_ok "hook-stop scans the repository root from payload workdir (expected 2, got $status)"
+fi
+rm -f "$POST_REPO/root-leak.txt"
+
+# A failed git diff means the scanner did not run. Direct scan commands expose
+# status 3 so hook callers can apply the configured infrastructure policy.
+DIFF_FAIL_BIN="$TESTTMP/diff-fail-bin"
+mkdir -p "$DIFF_FAIL_BIN"
+cat >"$DIFF_FAIL_BIN/git" <<'EOSH'
+#!/usr/bin/env sh
+if [ "${1:-}" = diff ]; then
+  exit 42
+fi
+exec "$AGENT_GUARD_TEST_REAL_GIT" "$@"
+EOSH
+chmod +x "$DIFF_FAIL_BIN/git"
+(
+  cd "$TEST_REPO" || exit 2
+  PATH="$DIFF_FAIL_BIN:$PATH" AGENT_GUARD_TEST_REAL_GIT="$REAL_GIT" \
+    "$PLUGIN_ROOT/bin/agent-guard" scan-staged >"$OUT" 2>"$ERR"
+)
+status=$?
+if [ "$status" -eq 3 ]; then
+  ok "scan-staged reports unavailable when git diff fails"
+else
+  not_ok "scan-staged reports unavailable on git diff failure (expected 3, got $status)"
+fi
+(
+  cd "$TEST_REPO" || exit 2
+  PATH="$DIFF_FAIL_BIN:$PATH" AGENT_GUARD_TEST_REAL_GIT="$REAL_GIT" \
+    "$PLUGIN_ROOT/bin/agent-guard" scan-working-tree >"$OUT" 2>"$ERR"
+)
+status=$?
+if [ "$status" -eq 3 ]; then
+  ok "scan-working-tree reports unavailable when git diff fails"
+else
+  not_ok "scan-working-tree reports unavailable on git diff failure (expected 3, got $status)"
+fi
+
+# Git is required only for the repository backstop. PreTool secret checks and
+# PostTool output redaction continue to work when git itself is absent.
+NO_GIT_BIN="$TESTTMP/no-git-bin"
+NO_GIT_WARN_DIR="$TESTTMP/no-git-warnings"
+mkdir -p "$NO_GIT_BIN" "$NO_GIT_WARN_DIR"
+for no_git_cmd in sh dirname pwd readlink jq sed awk grep cat mktemp mkdir chmod rm sort tail cut head; do
+  no_git_path=$(command -v "$no_git_cmd" 2>/dev/null || true)
+  [ -n "$no_git_path" ] && ln -s "$no_git_path" "$NO_GIT_BIN/$no_git_cmd"
+done
+cp "$MOCK_BIN/gitleaks" "$NO_GIT_BIN/gitleaks"
+PATH="$NO_GIT_BIN" printf '%s' \
+  '{"tool_name":"Write","tool_input":{"content":"AGENT_GUARD_TEST_SECRET"}}' \
+  | PATH="$NO_GIT_BIN" AGENT_GUARD_WARNING_DIR="$NO_GIT_WARN_DIR" \
+      "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "non-git PreTool secret checks remain active when git is unavailable"
+else
+  not_ok "non-git PreTool secret checks remain active without git (expected 2, got $status)"
+fi
+printf '%s' \
+  '{"session_id":"pre-git-missing-open","tool_name":"Bash","tool_input":{"command":"git commit -m clean"}}' \
+  | PATH="$NO_GIT_BIN" AGENT_GUARD_WARNING_DIR="$NO_GIT_WARN_DIR" \
+      "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 0 ] && grep -q 'AGENT_GUARD_INFRA_FAILURE_MODE=open' "$ERR"; then
+  ok "git-only PreTool gating follows the default open policy when git is unavailable"
+else
+  not_ok "git-only PreTool gating follows open policy without git (status $status)"
+fi
+printf '%s' \
+  '{"session_id":"pre-git-missing-closed","tool_name":"Bash","tool_input":{"command":"git push"}}' \
+  | PATH="$NO_GIT_BIN" AGENT_GUARD_WARNING_DIR="$NO_GIT_WARN_DIR" \
+      AGENT_GUARD_INFRA_FAILURE_MODE=closed \
+    "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "git-only PreTool gating supports closed policy when git is unavailable"
+else
+  not_ok "git-only PreTool gating supports closed policy without git (expected 2, got $status)"
+fi
+printf '%s' \
+  '{"session_id":"post-no-git","tool_name":"Write","tool_input":{"file_path":"note.txt"},"tool_response":"AGENT_GUARD_TEST_SECRET"}' \
+  | PATH="$NO_GIT_BIN" AGENT_GUARD_WARNING_DIR="$NO_GIT_WARN_DIR" \
+      "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 0 ] && grep -q '\[REDACTED\]' "$OUT" \
+   && grep -q 'AGENT_GUARD_INFRA_FAILURE_MODE=open' "$ERR"; then
+  ok "PostTool repository gating follows open policy and output redaction remains active without git"
+else
+  not_ok "PostTool output redaction remains active without git (status $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
 # --- gitleaks fail-closed when scanner errors ------------------------------
 
 ERROR_BIN="$TMP_ROOT/error-bin"
@@ -1813,14 +2135,28 @@ else
 fi
 
 PATH="$ERROR_BIN:$PATH" sh -c '
-  printf "%s" "{\"tool_name\":\"Write\",\"tool_input\":{\"content\":\"x\"}}" \
-    | "'"$PLUGIN_ROOT"'/bin/agent-guard" hook-pre-tool
+  printf "%s" "{\"session_id\":\"scanner-error-open\",\"tool_name\":\"Write\",\"tool_input\":{\"content\":\"x\"}}" \
+    | AGENT_GUARD_WARNING_DIR="'"$TESTTMP"'/scanner-error-warnings" \
+      "'"$PLUGIN_ROOT"'/bin/agent-guard" hook-pre-tool
+' >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 0 ] && grep -q 'AGENT_GUARD_INFRA_FAILURE_MODE=open' "$ERR"; then
+  ok "hook-pre-tool follows the default open policy when gitleaks errors"
+else
+  not_ok "hook-pre-tool follows the default open policy when gitleaks errors (expected 0, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+PATH="$ERROR_BIN:$PATH" AGENT_GUARD_INFRA_FAILURE_MODE=closed sh -c '
+  printf "%s" "{\"session_id\":\"scanner-error-closed\",\"tool_name\":\"Write\",\"tool_input\":{\"content\":\"x\"}}" \
+    | AGENT_GUARD_WARNING_DIR="'"$TESTTMP"'/scanner-error-warnings" \
+      "'"$PLUGIN_ROOT"'/bin/agent-guard" hook-pre-tool
 ' >"$OUT" 2>"$ERR"
 status=$?
 if [ "$status" -eq 2 ]; then
-  ok "hook-pre-tool fail-closes when gitleaks errors during a Write scan"
+  ok "hook-pre-tool supports opt-in closed policy when gitleaks errors"
 else
-  not_ok "hook-pre-tool fail-closes when gitleaks errors during a Write scan (expected 2, got $status)"
+  not_ok "hook-pre-tool supports opt-in closed policy when gitleaks errors (expected 2, got $status)"
   sed 's/^/  stderr: /' "$ERR"
 fi
 
@@ -1993,15 +2329,44 @@ else
   sed 's/^/  stderr: /' "$ERR"
 fi
 
-printf '%s' '{"tool_name":"Bash","tool_input":{"command":"brew install gitleaks"}}' \
-  | AGENT_GUARD_GITLEAKS_BIN=/nonexistent/gitleaks PATH="$NO_GITLEAKS_BIN" \
+DEGRADED_WARNING_DIR="$TESTTMP/degraded-warnings"
+mkdir -p "$DEGRADED_WARNING_DIR"
+printf '%s' '{"session_id":"degraded-session","tool_name":"Bash","tool_input":{"command":"brew install gitleaks"}}' \
+  | AGENT_GUARD_WARNING_DIR="$DEGRADED_WARNING_DIR" \
+    AGENT_GUARD_GITLEAKS_BIN=/nonexistent/gitleaks PATH="$NO_GITLEAKS_BIN" \
     "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
 status=$?
-if [ "$status" -eq 0 ] && grep -q 'DEGRADED' "$ERR" && grep -q '\$setup-agent-guard' "$ERR"; then
+if [ "$status" -eq 0 ] && grep -q 'DEGRADED' "$ERR" && grep -q '\$setup-agent-guard' "$ERR" \
+   && grep -q 'AGENT_GUARD_INFRA_FAILURE_MODE=open' "$ERR"; then
   ok "hook degrades open with an actionable setup warning when dependencies are missing"
 else
   not_ok "hook degraded mode allows setup commands with a warning (status $status)"
   sed 's/^/  stdout: /' "$OUT"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+printf '%s' '{"session_id":"degraded-session","tool_name":"Bash","tool_input":{"command":"echo clean"}}' \
+  | AGENT_GUARD_WARNING_DIR="$DEGRADED_WARNING_DIR" \
+    AGENT_GUARD_GITLEAKS_BIN=/nonexistent/gitleaks PATH="$NO_GITLEAKS_BIN" \
+    "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 0 ] && [ ! -s "$ERR" ]; then
+  ok "degraded dependency warning is emitted only once per session"
+else
+  not_ok "degraded dependency warning is emitted only once per session"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+printf '%s' '{"session_id":"degraded-closed","tool_name":"Bash","tool_input":{"command":"echo clean"}}' \
+  | AGENT_GUARD_WARNING_DIR="$DEGRADED_WARNING_DIR" \
+    AGENT_GUARD_INFRA_FAILURE_MODE=closed \
+    AGENT_GUARD_GITLEAKS_BIN=/nonexistent/gitleaks PATH="$NO_GITLEAKS_BIN" \
+    "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "missing hook dependencies follow the opt-in closed infrastructure policy"
+else
+  not_ok "missing hook dependencies follow the opt-in closed infrastructure policy (expected 2, got $status)"
   sed 's/^/  stderr: /' "$ERR"
 fi
 
@@ -2054,10 +2419,9 @@ expect_json_status 2 "MCP input with secret in nested object is blocked" \
   hook-pre-tool
 
 # --- "could not scan" is distinguishable from "found a secret" -------------
-# Both fail closed, and at the hook boundary both must exit 2 because that is
-# the host's only block signal. So the MESSAGE is what has to tell an operator
-# which of the two happened: a secret in their staged changes, or a scan that
-# never ran. The assertions below pin both directions of that distinction.
+# Direct scan commands retain exit 3. At a hook boundary, infrastructure
+# failures follow AGENT_GUARD_INFRA_FAILURE_MODE (open by default, closed when
+# explicitly selected), while a real detection always blocks.
 
 mkdir -p "$TMP_ROOT/not-a-repo"
 # Canonicalize: $TMPDIR often ends in a slash, so "$TMP_ROOT/not-a-repo" can
@@ -2077,17 +2441,20 @@ else
 fi
 
 CANNOT_SCAN_ERR="$TESTTMP/cannot-scan-err"
+CANNOT_SCAN_ERR_SECOND="$TESTTMP/cannot-scan-err-second"
+CANNOT_SCAN_WARN_DIR="$TESTTMP/cannot-scan-warnings"
 (
   cd "$NON_REPO_DIR" || exit 2
   jq -nc --arg cwd "$NON_REPO_DIR" \
-    '{tool_name:"Bash",tool_input:{command:"git commit -m x"},cwd:$cwd}' \
-    | "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$CANNOT_SCAN_ERR"
+    '{session_id:"cannot-scan-session",tool_name:"Bash",tool_input:{command:"git commit -m x"},cwd:$cwd}' \
+    | AGENT_GUARD_WARNING_DIR="$CANNOT_SCAN_WARN_DIR" \
+      "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$CANNOT_SCAN_ERR"
 )
 status=$?
-if [ "$status" -eq 2 ]; then
-  ok "commit from a non-repo cwd still fails closed"
+if [ "$status" -eq 0 ]; then
+  ok "commit from a non-repo cwd follows the default open infrastructure policy"
 else
-  not_ok "commit from a non-repo cwd still fails closed (expected 2, got $status)"
+  not_ok "commit from a non-repo cwd follows the default open infrastructure policy (expected 0, got $status)"
   sed 's/^/  stderr: /' "$CANNOT_SCAN_ERR"
 fi
 
@@ -2120,6 +2487,45 @@ if grep -q 'secret-like' "$CANNOT_SCAN_ERR"; then
   sed 's/^/  stderr: /' "$CANNOT_SCAN_ERR"
 else
   ok "unscannable commit is not reported as a secret detection"
+fi
+
+if grep -q 'continuing because AGENT_GUARD_INFRA_FAILURE_MODE=open' "$CANNOT_SCAN_ERR"; then
+  ok "default open infrastructure policy is explicit in the warning"
+else
+  not_ok "default open infrastructure policy is explicit in the warning"
+  sed 's/^/  stderr: /' "$CANNOT_SCAN_ERR"
+fi
+
+(
+  cd "$NON_REPO_DIR" || exit 2
+  jq -nc --arg cwd "$NON_REPO_DIR" \
+    '{session_id:"cannot-scan-session",tool_name:"Bash",tool_input:{command:"git push origin main"},cwd:$cwd}' \
+    | AGENT_GUARD_WARNING_DIR="$CANNOT_SCAN_WARN_DIR" \
+      "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$CANNOT_SCAN_ERR_SECOND"
+)
+status=$?
+if [ "$status" -eq 0 ] \
+   && ! grep -q 'continuing because AGENT_GUARD_INFRA_FAILURE_MODE=open' "$CANNOT_SCAN_ERR_SECOND"; then
+  ok "infrastructure policy warning is deduplicated once per session"
+else
+  not_ok "infrastructure policy warning is deduplicated once per session"
+  sed 's/^/  stderr: /' "$CANNOT_SCAN_ERR_SECOND"
+fi
+
+(
+  cd "$NON_REPO_DIR" || exit 2
+  jq -nc --arg cwd "$NON_REPO_DIR" \
+    '{session_id:"cannot-scan-closed",tool_name:"Bash",tool_input:{command:"git commit -m x"},cwd:$cwd}' \
+    | AGENT_GUARD_WARNING_DIR="$CANNOT_SCAN_WARN_DIR" \
+      AGENT_GUARD_INFRA_FAILURE_MODE=closed \
+      "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+)
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "closed infrastructure policy blocks an unscannable commit"
+else
+  not_ok "closed infrastructure policy blocks an unscannable commit (expected 2, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
 fi
 
 DETECTION_REPO="$TMP_ROOT/detection-repo"
@@ -3199,7 +3605,8 @@ STUB
 chmod +x "$bg_dir/bin/agent-guard"
 printf 'hello-plain\n' >"$bg_dir/file.txt"
 printf '%s\n' "$shellinit_wrap" >"$bg_dir/guard.sh"
-bg_in_cc=$(PATH="$bg_dir/bin:$PATH" CLAUDECODE=1 sh -c '. "$1"; cat "$2"' _ "$bg_dir/guard.sh" "$bg_dir/file.txt" 2>/dev/null)
+bg_in_cc=$(PATH="$bg_dir/bin:$PATH" CLAUDECODE=1 AGENT_GUARD_BIN="$bg_dir/bin/agent-guard" \
+  sh -c '. "$1"; cat "$2"' _ "$bg_dir/guard.sh" "$bg_dir/file.txt" 2>/dev/null)
 if [ "$bg_in_cc" = ROUTED ]; then
   ok "command wrapping routes dump commands through agent-guard exec inside Claude Code"
 else
@@ -3257,7 +3664,8 @@ for bg_sh in bash zsh; do
   else
     not_ok "command wrapping preserves a pre-existing cat alias under $bg_sh (got: $bg_alias_normal)"
   fi
-  bg_alias_snapshot=$(PATH="$bg_dir/bin:$PATH" CLAUDECODE=1 "$bg_sh" -c '
+  bg_alias_snapshot=$(PATH="$bg_dir/bin:$PATH" CLAUDECODE=1 \
+    AGENT_GUARD_BIN="$bg_dir/bin/agent-guard" "$bg_sh" -c '
     [ -n "$BASH_VERSION" ] && shopt -s expand_aliases
     alias cat="printf ALIASED"
     . "$1"
@@ -3313,28 +3721,47 @@ else
 fi
 
 # When NO binary resolves (stale baked path, nothing on $PATH), the TRANSPARENT
-# command wrapping fails OPEN — it still runs the command — but warns loudly on stderr.
+# command wrapping follows the shared infrastructure policy. Default open runs
+# the command, and the warning is emitted only once in the shell session.
 bg_none="$bg_dir/guard-none.sh"
-sed "s#^__agentguard_bin=.*#__agentguard_bin='/nonexistent/agent-guard'#" "$bg_dir/guard.sh" >"$bg_none"
-bg_open=$(PATH=/usr/bin:/bin CLAUDECODE=1 sh -c '. "$1"; cat "$2"' _ "$bg_none" "$bg_dir/file.txt" 2>"$ERR")
-if [ "$bg_open" = hello-plain ]; then
+sed -e "s#^__agentguard_bin=.*#__agentguard_bin='/nonexistent/agent-guard'#" \
+    -e "s#^__agentguard_plugin_base=.*#__agentguard_plugin_base='/nonexistent/plugin-cache'#" \
+    "$bg_dir/guard.sh" >"$bg_none"
+bg_open=$(PATH=/usr/bin:/bin CLAUDECODE=1 sh -c '. "$1"; cat "$2"; cat "$2"' _ "$bg_none" "$bg_dir/file.txt" 2>"$ERR")
+if [ "$bg_open" = "hello-plain
+hello-plain" ]; then
   ok "command wrapping fails OPEN (runs the command) when no binary resolves"
 else
   not_ok "command wrapping fail-open passthrough when no binary resolves (got: $bg_open)"
 fi
-if grep -q 'NOT masked' "$ERR"; then
-  ok "command wrapping warns loudly on stderr when it cannot mask"
+if [ "$(grep -c 'NOT masked' "$ERR")" -eq 1 ]; then
+  ok "command wrapping warns only once per shell session when it cannot mask"
 else
-  not_ok "command wrapping warns loudly on stderr when it cannot mask"
+  not_ok "command wrapping warns only once per shell session when it cannot mask"
+  sed 's/^/  stderr: /' "$ERR"
 fi
 
-# agx is an EXPLICIT mask request, so it fails CLOSED — it must NOT run the
-# command unmasked when the binary is missing; it returns 127 instead.
-agx_out=$(PATH=/usr/bin:/bin sh -c '. "$1"; agx cat "$2"; printf "rc=%s" "$?"' _ "$bg_none" "$bg_dir/file.txt" 2>/dev/null)
+# agx uses the same default-open policy as transparent command wrapping.
+agx_out=$(PATH=/usr/bin:/bin sh -c '. "$1"; agx cat "$2"' _ "$bg_none" "$bg_dir/file.txt" 2>/dev/null)
 case "$agx_out" in
-  *hello-plain*) not_ok "agx fails CLOSED when no binary resolves (leaked: $agx_out)" ;;
-  *rc=127*)      ok "agx fails CLOSED (rc=127, does not run) when no binary resolves" ;;
-  *)             not_ok "agx fail-closed return code (got: $agx_out)" ;;
+  hello-plain) ok "agx follows the default open policy when no binary resolves" ;;
+  *)           not_ok "agx follows the default open policy when no binary resolves (got: $agx_out)" ;;
+esac
+
+agx_closed=$(PATH=/usr/bin:/bin AGENT_GUARD_INFRA_FAILURE_MODE=closed \
+  sh -c '. "$1"; agx cat "$2"; printf "rc=%s" "$?"' _ "$bg_none" "$bg_dir/file.txt" 2>/dev/null)
+case "$agx_closed" in
+  *hello-plain*) not_ok "agx closed policy does not run the unmasked command (leaked: $agx_closed)" ;;
+  *rc=127*)      ok "agx closed policy refuses to run when no binary resolves" ;;
+  *)             not_ok "agx closed policy return code (got: $agx_closed)" ;;
+esac
+
+wrap_closed=$(PATH=/usr/bin:/bin CLAUDECODE=1 AGENT_GUARD_INFRA_FAILURE_MODE=closed \
+  sh -c '. "$1"; cat "$2"; printf "rc=%s" "$?"' _ "$bg_none" "$bg_dir/file.txt" 2>/dev/null)
+case "$wrap_closed" in
+  *hello-plain*) not_ok "transparent wrapping closed policy does not run unmasked output (leaked: $wrap_closed)" ;;
+  *rc=127*)      ok "transparent wrapping supports the opt-in closed infrastructure policy" ;;
+  *)             not_ok "transparent wrapping closed policy return code (got: $wrap_closed)" ;;
 esac
 
 # --- hook-session-start: drift warning driven by the shell-init marker --------
@@ -3440,8 +3867,10 @@ source_marker() {  # $1 = snippet file  $2 = PATH  $3 = AGENT_GUARD_BIN ('' => u
          . "$1"; printf %s "${AGENT_GUARD_SHELL_INIT_VERSION:-UNSET}"' _ "$1" "$2" "$3" 2>/dev/null
 }
 
-# (a) resolved via $PATH
-mk_path=$(source_marker "$mk_dir/guard.sh" "$mk_dir/bin:/usr/bin:/bin" "")
+# (a) resolved via $PATH when no stable/plugin binary is available
+mk_path_guard="$mk_dir/guard-path.sh"
+sed "s#^__agentguard_bin=.*#__agentguard_bin='/nonexistent/agent-guard'#" "$mk_dir/guard.sh" >"$mk_path_guard"
+mk_path=$(source_marker "$mk_path_guard" "$mk_dir/bin:/usr/bin:/bin" "")
 if [ "$mk_path" = 9.9.9 ]; then
   ok "shell-init marker reflects the version resolved via \$PATH"
 else
@@ -3541,16 +3970,16 @@ if printf '%s' "$setup_shell_help" | grep -q -- '--no-command-wrapping' \
 else
   not_ok "setup-shell help exposes only the 2.x command-wrapping option"
 fi
-# Self-healing invocation: the rc line prefers `agent-guard` on $PATH but bakes an
-# absolute-path fallback keyed on OUTPUT (not mere presence), so it stays a valid
-# generator even if the bare name later leaves $PATH or a stale binary emits nothing.
+# Self-healing invocation: the rc line prefers the stable absolute path and
+# keeps an output-checked PATH fallback for standalone installs.
 ss_heal="$TESTTMP/setup-heal.rc"
 "$PLUGIN_ROOT/bin/agent-guard" setup-shell --rc "$ss_heal" >/dev/null 2>&1
-if grep -q '_agi=$(agent-guard shell-init' "$ss_heal" 2>/dev/null \
-   && grep -q 'if \[ -n "$_agi" \]' "$ss_heal" 2>/dev/null; then
-  ok "setup-shell bakes a self-healing invocation (output probe + absolute fallback)"
+if grep -q '_agbin=' "$ss_heal" 2>/dev/null \
+   && grep -Fq '_agi=$("$_agbin" shell-init' "$ss_heal" 2>/dev/null \
+   && grep -q 'command -v agent-guard' "$ss_heal" 2>/dev/null; then
+  ok "setup-shell bakes the stable invocation with resolver fallbacks"
 else
-  not_ok "setup-shell bakes a self-healing invocation (output probe + absolute fallback)"
+  not_ok "setup-shell bakes the stable invocation with resolver fallbacks"
 fi
 # Regression for the exact leak found in live testing: with agent-guard NOT on
 # $PATH, a bare-name invocation would fail command-not-found and install NOTHING.
@@ -3621,6 +4050,70 @@ if ln -s "$TESTTMP/real-rc" "$TESTTMP/link-rc" 2>/dev/null; then
   fi
 else
   say "symlinks not supported here; skipped setup-shell symlink test"
+fi
+
+# --- clean-home plugin install -> upgrade -> existing stable PATH -----------
+# Model the host cache layout without touching the real HOME. The first plugin
+# execution creates `current`, setup-shell writes only that stable path, and an
+# upgrade retargets it before the old version directory disappears.
+CLEAN_HOME="$TESTTMP/clean-home"
+CLEAN_CACHE="$CLEAN_HOME/.claude/plugins/cache/agent-guard/agent-guard"
+CLEAN_RC="$CLEAN_HOME/.zshrc"
+mkdir -p "$CLEAN_CACHE/3.0.0/bin"
+CLEAN_CACHE=$(CDPATH= cd -- "$CLEAN_CACHE" && pwd -P)
+cp "$PLUGIN_ROOT/bin/agent-guard" "$CLEAN_CACHE/3.0.0/bin/agent-guard"
+chmod +x "$CLEAN_CACHE/3.0.0/bin/agent-guard"
+HOME="$CLEAN_HOME" "$CLEAN_CACHE/3.0.0/bin/agent-guard" version >/dev/null 2>&1
+HOME="$CLEAN_HOME" "$CLEAN_CACHE/3.0.0/bin/agent-guard" setup-shell --rc "$CLEAN_RC" >/dev/null 2>&1
+if [ "$(readlink "$CLEAN_CACHE/current" 2>/dev/null)" = 3.0.0 ]; then
+  ok "fresh plugin execution creates the stable current symlink"
+else
+  not_ok "fresh plugin execution creates the stable current symlink"
+fi
+if grep -Fq "$CLEAN_CACHE/current/bin/agent-guard" "$CLEAN_RC" \
+   && ! grep -Fq "$CLEAN_CACHE/3.0.0/bin/agent-guard" "$CLEAN_RC"; then
+  ok "setup-shell records only the stable plugin path"
+else
+  not_ok "setup-shell records only the stable plugin path"
+fi
+
+mkdir -p "$CLEAN_CACHE/3.0.1/bin"
+cp "$PLUGIN_ROOT/bin/agent-guard" "$CLEAN_CACHE/3.0.1/bin/agent-guard"
+chmod +x "$CLEAN_CACHE/3.0.1/bin/agent-guard"
+HOME="$CLEAN_HOME" "$CLEAN_CACHE/3.0.1/bin/agent-guard" version >/dev/null 2>&1
+rm -rf "$CLEAN_CACHE/3.0.0"
+if [ "$(readlink "$CLEAN_CACHE/current" 2>/dev/null)" = 3.0.1 \
+   ] && PATH="$CLEAN_CACHE/current/bin:/usr/bin:/bin" command -v agent-guard >/dev/null 2>&1; then
+  ok "upgrade retargets the stable PATH before the old version is removed"
+else
+  not_ok "upgrade retargets the stable PATH before the old version is removed"
+fi
+clean_snapshot_bin=$(HOME="$CLEAN_HOME" PATH=/usr/bin:/bin sh -c '. "$1"; __agentguard_exe' _ "$CLEAN_RC" 2>/dev/null)
+if [ "$clean_snapshot_bin" = "$CLEAN_CACHE/current/bin/agent-guard" ]; then
+  ok "pre-upgrade shell integration resolves through current after upgrade"
+else
+  not_ok "pre-upgrade shell integration resolves through current after upgrade (got: $clean_snapshot_bin)"
+fi
+clean_path_bin=$(HOME="$CLEAN_HOME" PATH=/usr/bin:/bin sh -c '. "$1"; command -v agent-guard' _ "$CLEAN_RC" 2>/dev/null)
+if [ "$clean_path_bin" = "$CLEAN_CACHE/current/bin/agent-guard" ]; then
+  ok "setup-shell makes the stable binary discoverable without manual PATH injection"
+else
+  not_ok "setup-shell adds current/bin to PATH (got: $clean_path_bin)"
+fi
+
+# A stale version may still be executing in an old session after a newer plugin
+# is installed. It must not roll `current` backward, and non-numeric lookalike
+# directories must never win the resolver sort.
+mkdir -p "$CLEAN_CACHE/3.0.0/bin" "$CLEAN_CACHE/3.0.2/bin" "$CLEAN_CACHE/9.9.9beta/bin"
+for clean_version in 3.0.0 3.0.2 9.9.9beta; do
+  cp "$PLUGIN_ROOT/bin/agent-guard" "$CLEAN_CACHE/$clean_version/bin/agent-guard"
+  chmod +x "$CLEAN_CACHE/$clean_version/bin/agent-guard"
+done
+HOME="$CLEAN_HOME" "$CLEAN_CACHE/3.0.0/bin/agent-guard" version >/dev/null 2>&1
+if [ "$(readlink "$CLEAN_CACHE/current" 2>/dev/null)" = 3.0.2 ]; then
+  ok "stale binaries keep current on the highest strictly numeric installed version"
+else
+  not_ok "stale binary does not roll current backward (got: $(readlink "$CLEAN_CACHE/current" 2>/dev/null))"
 fi
 
 say "passed: $pass"

@@ -50,6 +50,12 @@ from a lifecycle hook. Until wrapping is loaded, SessionStart repeats the
 installing software and requires the published SHA-256 for the selected
 gitleaks archive.
 
+Plugin executions maintain a version-independent sibling path at
+`current/bin/agent-guard`; hook manifests and `setup-shell` use it and can fall
+back to the newest installed version directory after a cache upgrade. Scanner
+infrastructure failures use `AGENT_GUARD_INFRA_FAILURE_MODE=open|closed`
+(`open` by default) and warn once per session. Secret detections always block.
+
 ## Hooks and data scope
 
 The Claude plugin registers:
