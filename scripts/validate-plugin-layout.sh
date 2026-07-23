@@ -138,6 +138,7 @@ validate_setup_skill() {
 validate_shell_setup_skill() {
   skill="$PLUGIN_ROOT/skills/setup-shell/SKILL.md"
   metadata="$PLUGIN_ROOT/skills/setup-shell/agents/openai.yaml"
+  legacy_command="$PLUGIN_ROOT/commands/setup-shell.md"
 
   require_file "$skill"
   require_file "$metadata"
@@ -157,6 +158,11 @@ validate_shell_setup_skill() {
     ok "setup-shell UI metadata is complete"
   else
     fail "setup-shell UI metadata is complete"
+  fi
+  if [ ! -e "$legacy_command" ]; then
+    ok "setup-shell has a single skill implementation"
+  else
+    fail "setup-shell has a single skill implementation"
   fi
 }
 

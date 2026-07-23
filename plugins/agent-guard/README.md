@@ -76,7 +76,6 @@ gitleaks 8.30 or newer (recommended).
 
 - `/agent-guard:verify` — scan staged, unstaged, and untracked work-tree data.
 - `/agent-guard:checksum [VERSION]` — print published gitleaks checksums.
-- `/agent-guard:setup-shell` — install or refresh Claude command wrapping.
 
 ## Skills
 
