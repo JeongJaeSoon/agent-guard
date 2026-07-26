@@ -2895,6 +2895,18 @@ else
   sed 's/^/  stderr: /' "$ERR"
 fi
 
+# Regression: the refreshed hook (rewritten through a mktemp temp file, 0600)
+# must end up readable AND executable by group/other, not just the owner. `chmod
+# +x` alone would leave it at 711, and a `#!` hook needs read permission to run,
+# so in a shared repo other users would hit "Permission denied". The owner-only
+# `[ -x ]` check above cannot catch that; assert the full 755 mode here.
+hook_mode=$(ls -l "$STALE_HOOK_REPO/githooks/pre-commit" 2>/dev/null | cut -c1-10)
+if [ "$hook_mode" = "-rwxr-xr-x" ]; then
+  ok "refreshed hook is group/other readable and executable (755, not 711)"
+else
+  not_ok "refreshed hook is group/other readable and executable (755): got '$hook_mode'"
+fi
+
 # (2) A failed `git config core.hooksPath` write must fail closed: non-zero exit
 # and no false "configured/installed" success line. The stub forwards every git
 # call to the real binary except the one config write, which it fails.

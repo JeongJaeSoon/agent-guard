@@ -110,7 +110,12 @@ install_git_hooks() {
       printf 'exec %s scan-staged\n' "$(shell_quote "$agent_guard_bin")"
     } >"$hook_path" || die "failed to write $hook_path"
   fi
-  chmod +x "$hook_path" || die "failed to chmod $hook_path"
+  # Set 755 explicitly, not `chmod +x`: the refresh path creates the temp file
+  # via mktemp (0600), so `+x` alone would land it at 711 and a hook needs READ
+  # as well as execute to run — other users in a shared repo would get
+  # "Permission denied". This also makes the fresh-install mode independent of
+  # the caller's umask.
+  chmod 755 "$hook_path" || die "failed to chmod $hook_path"
 
   git config core.hooksPath githooks || die "failed to set core.hooksPath"
   printf '%s\n' "install.sh: configured core.hooksPath=githooks"
