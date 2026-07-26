@@ -4727,11 +4727,23 @@ esac
 # absolute path with a minimal PATH so nothing else leaks in.
 AG_VERSION=$(sed -n 's/^VERSION=//p' "$PLUGIN_ROOT/bin/agent-guard" | head -n1)
 
-run_session_start() {  # $1 = value for the marker env ('' => marker unset)
+# With the marker ABSENT the hook also reads the rc on disk (see #139), so $HOME
+# and $SHELL are part of its input and every case below pins them at a controlled
+# directory instead of the developer's real home. Default: a home with no rc at
+# all (nothing installed). The "setup ran" home is written by the real
+# setup-shell, so these cases stay coupled to what setup-shell actually installs.
+ss_home_bare="$TESTTMP/sstart-home-bare"
+ss_home_setup="$TESTTMP/sstart-home-setup"
+mkdir -p "$ss_home_bare" "$ss_home_setup"
+HOME="$ss_home_setup" SHELL=/bin/zsh "$PLUGIN_ROOT/bin/agent-guard" setup-shell >/dev/null 2>&1
+
+run_session_start() {  # $1 = marker ('' => unset), $2 = HOME, $3 = $SHELL
   sh -c 'unset AGENT_GUARD_SHELL_INIT_VERSION
          [ -n "$1" ] && export AGENT_GUARD_SHELL_INIT_VERSION="$1"
-         AGENT_GUARD_GITLEAKS_BIN="$3" PATH="$4" exec "$2" hook-session-start' \
-    _ "$1" "$PLUGIN_ROOT/bin/agent-guard" "$MOCK_BIN/gitleaks" "$MOCK_BIN:$ORIGINAL_PATH"
+         HOME="$5" SHELL="$6" AGENT_GUARD_GITLEAKS_BIN="$3" PATH="$4" \
+           exec "$2" hook-session-start' \
+    _ "$1" "$PLUGIN_ROOT/bin/agent-guard" "$MOCK_BIN/gitleaks" "$MOCK_BIN:$ORIGINAL_PATH" \
+    "${2:-$ss_home_bare}" "${3:-/bin/zsh}"
 }
 
 vd_out=$(run_session_start 0.0.1 2>"$ERR")
@@ -4759,6 +4771,30 @@ if [ $? -eq 0 ] \
   ok "Claude SessionStart guides default command-wrapping setup when the marker is absent"
 else
   not_ok "Claude SessionStart guides command-wrapping setup with no marker (got: $vd_out)"
+fi
+
+# #139: a fish (or any non-POSIX) login shell — and any GUI/IDE launcher — never
+# evals the rc, so the marker can NEVER reach the hook, while the agent's own
+# bash/zsh snapshot still loads the wrapping from that same rc. The setup nag was
+# a permanent false positive there that rerunning setup-shell could not clear.
+# With the managed block on disk the hook must stay quiet (only the drift check is
+# lost); without it the nag must still fire (covered above with the bare home).
+vd_out=$(run_session_start "" "$ss_home_setup" 2>"$ERR")
+if [ $? -eq 0 ] && [ -z "$vd_out" ]; then
+  ok "SessionStart stays quiet with no marker when the managed rc block is installed (#139)"
+else
+  not_ok "SessionStart quiet with no marker but block installed (got: $vd_out)"
+fi
+
+# The rc is selected from $SHELL exactly as setup-shell derives it, so a block in
+# the OTHER shell's rc must not silence the nag — that gap is real, and is why
+# setup-shell writes both rc files for a fish login shell.
+vd_out=$(run_session_start "" "$ss_home_setup" /bin/bash 2>"$ERR")
+if [ $? -eq 0 ] \
+   && printf '%s' "$vd_out" | jq -e '.systemMessage | contains("/agent-guard:setup-shell")' >/dev/null 2>&1; then
+  ok "SessionStart still nags when the block is only in the other shell's rc (#139)"
+else
+  not_ok "SessionStart nags when the snapshot shell's rc has no block (got: $vd_out)"
 fi
 
 vd_out=$(AGENT_GUARD_HOOK_HOST=codex AGENT_GUARD_GITLEAKS_BIN="$MOCK_BIN/gitleaks" \
@@ -5036,6 +5072,40 @@ if ln -s "$TESTTMP/real-rc" "$TESTTMP/link-rc" 2>/dev/null; then
   fi
 else
   say "symlinks not supported here; skipped setup-shell symlink test"
+fi
+# #139: fish cannot eval the POSIX snippet shell-init emits, so there is no fish
+# rc to install into — and the agent's `!`/Bash snapshot runs bash OR zsh without
+# telling us which. A detected fish login shell therefore gets BOTH POSIX rc
+# files, so the wrapping loads whichever one the snapshot picks.
+ss_fish_home="$TESTTMP/fish-home"
+mkdir -p "$ss_fish_home"
+ss_fish_out=$(HOME="$ss_fish_home" SHELL=/usr/bin/fish \
+  "$PLUGIN_ROOT/bin/agent-guard" setup-shell 2>&1)
+if grep -q '>>> agent-guard shell-init >>>' "$ss_fish_home/.bashrc" 2>/dev/null \
+   && grep -q '>>> agent-guard shell-init >>>' "$ss_fish_home/.zshrc" 2>/dev/null; then
+  ok "setup-shell installs both POSIX rc files for a fish login shell (#139)"
+else
+  not_ok "setup-shell installs both POSIX rc files for a fish login shell (#139)"
+fi
+# The notice must say fish itself gets no agx/nudge — claiming otherwise would
+# misreport what is protected — while staying host-neutral like the rest of the CLI.
+if printf '%s' "$ss_fish_out" | grep -q 'fish' \
+   && printf '%s' "$ss_fish_out" | grep -q 'agx' \
+   && ! printf '%s' "$ss_fish_out" | grep -Eq 'Claude Code|Codex'; then
+  ok "setup-shell reports the fish limitation host-neutrally (#139)"
+else
+  not_ok "setup-shell reports the fish limitation host-neutrally (got: $ss_fish_out)"
+fi
+# An explicit target still wins over fish detection: only the named rc is touched.
+ss_fish_zsh_home="$TESTTMP/fish-home-zsh"
+mkdir -p "$ss_fish_zsh_home"
+HOME="$ss_fish_zsh_home" SHELL=/usr/bin/fish \
+  "$PLUGIN_ROOT/bin/agent-guard" setup-shell --zsh >/dev/null 2>&1
+if grep -q '>>> agent-guard shell-init >>>' "$ss_fish_zsh_home/.zshrc" 2>/dev/null \
+   && [ ! -e "$ss_fish_zsh_home/.bashrc" ]; then
+  ok "setup-shell --zsh overrides fish detection (single rc)"
+else
+  not_ok "setup-shell --zsh overrides fish detection (single rc)"
 fi
 
 # --- clean-home plugin install -> upgrade -> existing stable PATH -----------

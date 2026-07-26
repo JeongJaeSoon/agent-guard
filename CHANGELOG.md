@@ -29,6 +29,22 @@
   Suffix-qualified credential keys (`AWS_SECRET_ACCESS_KEY_ID`,
   `API_KEY_VALUE`, `DB_PASSWORD_HASH`) and whitespace-prefixed colon
   assignments in log lines still mask.
+- fix(setup-shell): support a fish login shell and stop the permanent
+  "command wrapping is not loaded" false positive (#139). The marker
+  `AGENT_GUARD_SHELL_INIT_VERSION` only reaches `SessionStart` through the
+  environment of the shell that *launched* the agent, so a fish (or other
+  non-POSIX) login shell — and any GUI/IDE launcher — could never satisfy it,
+  even though the agent's own bash/zsh shell snapshot did load the wrapping from
+  the same rc. `SessionStart` now checks for the managed rc block on disk before
+  reporting missing setup: it stays silent when setup demonstrably ran (only the
+  version-drift comparison is lost) and still guides setup when the block is
+  absent. `setup-shell` additionally writes the managed block to **both**
+  `~/.bashrc` and `~/.zshrc` when it detects a fish login shell, since the
+  snapshot shell is one of the two and which one is not visible from the CLI, and
+  it now says plainly that `agx` and the nudge are unavailable at a fish prompt
+  (use `agent-guard exec -- <cmd>`). No fish-syntax block is written and no
+  marker is faked: claiming protection fish cannot provide would be worse than
+  the warning it replaces.
 - fix(hooks): report a scan that could not run distinctly from a detection
   (#137). A scanner precondition failure and a real detection previously looked
   identical — both printed and exited 2 — so an operator could not tell whether
