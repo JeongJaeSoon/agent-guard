@@ -29,6 +29,15 @@
   Suffix-qualified credential keys (`AWS_SECRET_ACCESS_KEY_ID`,
   `API_KEY_VALUE`, `DB_PASSWORD_HASH`) and whitespace-prefixed colon
   assignments in log lines still mask.
+- fix(hooks): prefix the Claude Code setup-skill invocation with a slash
+  (#151). The degraded-session warning told Claude Code users to run
+  `agent-guard:setup-agent-guard`; pasted verbatim that is ordinary prompt
+  text, not a skill invocation. Claude Code exposes a plugin skill on the
+  slash-command surface as `/plugin:skill`, which is how this plugin already
+  writes its sibling skill `/agent-guard:setup-shell`. The degraded message
+  and every Claude-facing doc reference now use `/agent-guard:setup-agent-guard`.
+  The Codex form `$setup-agent-guard` is unchanged.
+
 - fix(hooks): report a scan that could not run distinctly from a detection
   (#137). A scanner precondition failure and a real detection previously looked
   identical — both printed and exited 2 — so an operator could not tell whether
