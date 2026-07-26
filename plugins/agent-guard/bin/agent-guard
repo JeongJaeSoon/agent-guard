@@ -2212,15 +2212,22 @@ secretish_env_values() {
       # as password_policy or token_name; no suffix at all dropped these very
       # common real-credential names. Bare PATH/PWD remain excluded; compound
       # _pat/_pwd keys keep their intended coverage.
-      qualifier = "([_-](id|ids|value|val|hash|b64|base64|hex|enc|encrypted|encoded|raw|str|string|prod|production|dev|development|staging|stage|test|local|old|new|current|primary|secondary|backup|main|default|[0-9]+))*"
+      qualifier = "([_-](id|ids|value|val|hash|b64|base64|hex|enc|encrypted|encoded|raw|str|string|pem|cert|json|prod|production|dev|development|staging|stage|test|local|old|new|current|primary|secondary|backup|main|default|[0-9]+))*"
       key = "[a-z0-9_.-]*(" core "|[_-](pat|pwd))" qualifier
       equals_assignment = "(^|[ \t,{;])[\"'\''`]?" key "[\"'\''`]?[ \t]*="
       # A colon is ambiguous in prose. Accept it at the start of a YAML field,
       # after a JSON/map delimiter, or after plain whitespace (log lines such as
       # `10:00:00 password: hunter2`); the loop below rejects the whitespace
-      # form when the preceding token itself ends in a colon, which marks a
+      # form only when the preceding token is a known status word, which marks a
       # prose chain like `error: password: authentication is disabled`.
       colon_assignment = "(^[ \t]*|[,{][ \t]*|[ \t]+)[\"'\''`]?" key "[\"'\''`]?[ \t]*:"
+      # Skipping after ANY colon-terminated token also let real structured log
+      # lines through unmasked (`response: api_key: <secret>`), so only these
+      # status words justify the skip. Deliberately short: an unlisted label
+      # falls through to masking, and a false-positive mask of prose is far
+      # cheaper than a displayed secret. Matched against the lowercased line, so
+      # `Error:` / `ERROR:` are covered too.
+      status_label = "(^|[^a-z0-9_-])(error|warning|info|note|debug|fatal|hint)[ \t]*:$"
     }
     function emit_value(source, start, raw, quote, end, value) {
       raw = substr(source, start)
@@ -2258,13 +2265,15 @@ secretish_env_values() {
         }
         if (start == 0) break
 
-        # Whitespace-prefixed colon form: if the previous non-space character
-        # is itself a colon, this is a prose chain (`error: password: ...`),
-        # not an assignment — skip past the key without masking.
+        # Whitespace-prefixed colon form: if the text before the whitespace run
+        # is a known status label, this is a prose chain (`error: password: ...`),
+        # not an assignment — skip past the key without masking. Any other
+        # colon-terminated label (`response:`) is treated as structured output.
         skip = 0
         if (chose_colon && start > 1) {
           first = substr(rest, start, 1)
-          if ((first == " " || first == "\t") && substr(rest, start - 1, 1) == ":")
+          if ((first == " " || first == "\t") &&
+              match(substr(low, 1, start - 1), status_label))
             skip = 1
         }
 
