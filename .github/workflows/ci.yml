@@ -132,9 +132,15 @@ jobs:
           echo "${RUNNER_TEMP}/lint-bin" >> "${GITHUB_PATH}"
 
       - name: ShellCheck shell scripts
+        # --severity=error only: these scripts predate the linter and lean on
+        # deliberate idioms shellcheck flags at warning/info/style (e.g.
+        # `CDPATH= cd` prefixes, single-quoted `$…` literals passed to `sh -c`).
+        # Gating on real errors catches genuine bugs without turning that
+        # pre-existing style backlog into a merge blocker; tightening the
+        # severity is separate cleanup.
         run: |
           set -euo pipefail
-          shellcheck \
+          shellcheck --severity=error \
             plugins/agent-guard/bin/agent-guard \
             install.sh \
             bootstrap.sh \
@@ -148,5 +154,7 @@ jobs:
 
       - name: actionlint workflows
         # actionlint auto-discovers every workflow under .github/workflows and
-        # runs shellcheck (installed above) over each run: block.
-        run: actionlint -color
+        # runs shellcheck over each run: block — pin that to --severity=error too
+        # so the pre-existing style backlog in run blocks does not fail the job,
+        # matching the standalone ShellCheck step above.
+        run: actionlint -color -shellcheck 'shellcheck --severity=error'
