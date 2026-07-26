@@ -3988,6 +3988,53 @@ else
   sed 's/^/  out: /' "$OUT"
 fi
 
+# Suffix-qualified real credential keys must still mask: requiring the secret
+# term to be terminal dropped AWS_*_KEY_ID / *_VALUE / *_HASH names entirely.
+for display_case in \
+  'AWS_SECRET_ACCESS_KEY_ID=wJalrX-fake-example-key-id' \
+  'API_KEY_VALUE=supersecret-value-9876' \
+  'DB_PASSWORD_HASH=deadbeefdeadbeefcafe'; do
+  display_key=${display_case%%=*}
+  display_val=${display_case#*=}
+  display_input=$(jq -nc --arg stdout "$display_case" \
+    '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+  post_tool_out "$display_input"
+  post_out=$(cat "$OUT")
+  if printf '%s' "$post_out" | grep -q '\[REDACTED\]' \
+     && ! printf '%s' "$post_out" | grep -Fq "$display_val"; then
+    ok "post-tool masks suffix-qualified credential key $display_key"
+  else
+    not_ok "post-tool masks suffix-qualified credential key $display_key"
+    printf '%s\n' "$post_out" | sed 's/^/  out: /'
+  fi
+done
+
+# A colon assignment after plain whitespace (a timestamped log line) is a real
+# leak, not prose: only the value token is masked, the timestamp survives.
+display_input=$(jq -nc --arg stdout '2026-07-26 10:00:00 password: hunter2-timestamped-value' \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$display_input"
+post_out=$(cat "$OUT")
+if printf '%s' "$post_out" | grep -q '\[REDACTED\]' \
+   && printf '%s' "$post_out" | grep -q '2026-07-26 10:00:00' \
+   && ! printf '%s' "$post_out" | grep -q 'hunter2-timestamped-value'; then
+  ok "post-tool masks a whitespace-prefixed colon assignment in a log line"
+else
+  not_ok "post-tool masks a whitespace-prefixed colon assignment in a log line"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+# Control: a word merely containing a secret term with a non-qualifier tail
+# (tokenizer) is not an assignment key.
+post_tool_out '{"tool_name":"Bash","tool_input":{"command":"x"},"tool_response":{"stdout":"tokenizer=whitespace-mode\n","stderr":"","interrupted":false,"isImage":false}}'
+post_status=$?
+if [ "$post_status" -eq 0 ] && [ ! -s "$OUT" ]; then
+  ok "post-tool does not mask non-credential words that merely contain a secret term"
+else
+  not_ok "post-tool leaves tokenizer=... untouched"
+  sed 's/^/  out: /' "$OUT"
+fi
+
 post_tool_out '{"tool_name":"Read","tool_input":{"file_path":"memo.txt"},"tool_response":"API_KEY=supersecretvalue123\n"}'
 post_out=$(cat "$OUT")
 if printf '%s' "$post_out" | jq -e '.hookSpecificOutput.updatedToolOutput | type == "string"' >/dev/null 2>&1 \

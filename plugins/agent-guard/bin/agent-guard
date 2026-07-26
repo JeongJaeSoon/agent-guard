@@ -2206,15 +2206,21 @@ secretish_env_values() {
   awk '
     BEGIN {
       core = "password|passwd|passphrase|db[_-]?pass(word)?|secret|secret[_-]?key|token|refresh[_-]?token|auth[_-]?token|session[_-]?key|api[_-]?key|access[_-]?key|private[_-]?key|signing[_-]?key|encryption[_-]?key|credential|client[_-]?secret|bearer|webhook"
-      # Match complete assignment keys that END in a secret-bearing term.
-      # Arbitrary suffixes such as password_policy or token_name are metadata,
-      # not values to redact. Bare PATH/PWD remain excluded; compound _pat/_pwd
-      # keys keep their intended coverage.
-      key = "[a-z0-9_.-]*(" core "|[_-](pat|pwd))"
+      # Match assignment keys whose secret-bearing term is terminal or carries
+      # only a bounded qualifier suffix (AWS_ACCESS_KEY_ID, API_KEY_VALUE,
+      # DB_PASSWORD_HASH). An unbounded suffix over-masked metadata keys such
+      # as password_policy or token_name; no suffix at all dropped these very
+      # common real-credential names. Bare PATH/PWD remain excluded; compound
+      # _pat/_pwd keys keep their intended coverage.
+      qualifier = "([_-](id|ids|value|val|hash|b64|base64|hex|enc|encrypted|encoded|raw|str|string|prod|production|dev|development|staging|stage|test|local|old|new|current|primary|secondary|backup|main|default|[0-9]+))*"
+      key = "[a-z0-9_.-]*(" core "|[_-](pat|pwd))" qualifier
       equals_assignment = "(^|[ \t,{;])[\"'\''`]?" key "[\"'\''`]?[ \t]*="
-      # A colon is ambiguous in prose. Accept it only at the start of a YAML
-      # field or after a JSON/map delimiter, never after arbitrary text.
-      colon_assignment = "(^[ \t]*|[,{][ \t]*)[\"'\''`]?" key "[\"'\''`]?[ \t]*:"
+      # A colon is ambiguous in prose. Accept it at the start of a YAML field,
+      # after a JSON/map delimiter, or after plain whitespace (log lines such as
+      # `10:00:00 password: hunter2`); the loop below rejects the whitespace
+      # form when the preceding token itself ends in a colon, which marks a
+      # prose chain like `error: password: authentication is disabled`.
+      colon_assignment = "(^[ \t]*|[,{][ \t]*|[ \t]+)[\"'\''`]?" key "[\"'\''`]?[ \t]*:"
     }
     function emit_value(source, start, raw, quote, end, value) {
       raw = substr(source, start)
@@ -2244,16 +2250,28 @@ secretish_env_values() {
 
         start = eq_start
         matched_length = eq_length
+        chose_colon = 0
         if (colon_start > 0 && (start == 0 || colon_start < start)) {
           start = colon_start
           matched_length = colon_length
+          chose_colon = 1
         }
         if (start == 0) break
+
+        # Whitespace-prefixed colon form: if the previous non-space character
+        # is itself a colon, this is a prose chain (`error: password: ...`),
+        # not an assignment — skip past the key without masking.
+        skip = 0
+        if (chose_colon && start > 1) {
+          first = substr(rest, start, 1)
+          if ((first == " " || first == "\t") && substr(rest, start - 1, 1) == ":")
+            skip = 1
+        }
 
         # Emit exactly the quoted value or the next unquoted token. Continuing
         # after the delimiter finds multiple assignments on one log line while
         # leaving adjacent status text untouched.
-        emit_value(rest, start + matched_length)
+        if (!skip) emit_value(rest, start + matched_length)
         rest = substr(rest, start + matched_length)
       }
     }

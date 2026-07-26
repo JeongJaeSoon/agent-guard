@@ -26,6 +26,9 @@
 - fix(redaction): mask only the value token of a complete secret-bearing
   assignment. Metadata keys such as `password_policy`, prose such as
   `error: password: ...`, and text adjacent to a real value are preserved.
+  Suffix-qualified credential keys (`AWS_SECRET_ACCESS_KEY_ID`,
+  `API_KEY_VALUE`, `DB_PASSWORD_HASH`) and whitespace-prefixed colon
+  assignments in log lines still mask.
 - fix(hooks): report a scan that could not run distinctly from a detection
   (#137). A scanner precondition failure and a real detection previously looked
   identical — both printed and exited 2 — so an operator could not tell whether
