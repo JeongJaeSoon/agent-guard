@@ -7,18 +7,31 @@
 
 ## Unreleased
 
+- fix(runtime): keep plugin hooks and Claude shell integration on the
+  version-independent `current/bin/agent-guard` path. Each plugin execution
+  refreshes `current`, while hook and shell entrypoints fall back to the newest
+  installed semantic version when symlinks are unavailable.
+- test(hooks): lock in commit/push staged scans from the tool payload's target
+  work directory, including linked worktrees and hook processes launched from
+  a different sandbox cwd, so stale-runtime regressions cannot reintroduce the
+  Codex block.
+- fix(runtime): unify scanner-infrastructure failures behind
+  `AGENT_GUARD_INFRA_FAILURE_MODE=open|closed` (default `open`). Hooks, `agx`,
+  and transparent Claude command wrapping now warn once per session and follow
+  the same selected policy; actual secret detections still always block.
 - fix(hooks): report a scan that could not run distinctly from a detection
   (#137). A scanner precondition failure and a real detection previously looked
   identical — both printed and exited 2 — so an operator could not tell whether
   agent-guard had found something in their staged changes or had never managed
-  to look. Both still fail closed; they now say which happened, and the message
-  names the directory and the action instead of an internal subcommand.
+  to look. The message names the directory and the action instead of an internal
+  subcommand; hook handling now follows the infrastructure policy above.
 
   CLI behaviour change: `agent-guard scan-staged` and `agent-guard
   scan-working-tree` invoked outside a git work tree now exit **3** rather than
   2. Everything in this repo treats non-zero as failure (the native pre-commit
   hook, the `make` targets, the verify command), so no consumer changes — but
-  scripts that test for exactly 2 should be updated.
+  scripts that test for exactly 2 should be updated. Direct scan commands and
+  native Git hooks still treat every non-zero result as uncleared.
 
 ## v3.0.0 - 2026-07-19
 
