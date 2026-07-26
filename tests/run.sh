@@ -7814,13 +7814,13 @@ ss_home_setup="$TESTTMP/sstart-home-setup"
 mkdir -p "$ss_home_bare" "$ss_home_setup"
 HOME="$ss_home_setup" SHELL=/bin/zsh "$PLUGIN_ROOT/bin/agent-guard" setup-shell >/dev/null 2>&1
 
-run_session_start() {  # $1 = marker ('' => unset), $2 = HOME, $3 = $SHELL
+run_session_start() {  # $1 = marker ('' => unset), $2 = HOME, $3 = $SHELL, $4 = PATH
   sh -c 'unset AGENT_GUARD_SHELL_INIT_VERSION
          [ -n "$1" ] && export AGENT_GUARD_SHELL_INIT_VERSION="$1"
-         HOME="$5" SHELL="$6" AGENT_GUARD_GITLEAKS_BIN="$3" PATH="$4" \
+         HOME="$4" SHELL="$5" AGENT_GUARD_GITLEAKS_BIN="$3" PATH="$6" \
            exec "$2" hook-session-start' \
-    _ "$1" "$PLUGIN_ROOT/bin/agent-guard" "$MOCK_BIN/gitleaks" "$MOCK_BIN:$ORIGINAL_PATH" \
-    "${2:-$ss_home_bare}" "${3:-/bin/zsh}"
+    _ "$1" "$PLUGIN_ROOT/bin/agent-guard" "$MOCK_BIN/gitleaks" \
+    "${2:-$ss_home_bare}" "${3:-/bin/zsh}" "${4:-$MOCK_BIN:$ORIGINAL_PATH}"
 }
 
 vd_out=$(run_session_start 0.0.1 2>"$ERR")
@@ -7880,6 +7880,52 @@ if [ $? -eq 0 ] \
   ok "SessionStart still nags when the block is only in the other shell's rc (#139)"
 else
   not_ok "SessionStart nags when the snapshot shell's rc has no block (got: $vd_out)"
+fi
+
+# #155: the delimiters alone must NEVER be read as proof that the integration
+# loads. The block's `eval` emits nothing when the binary it resolves has
+# disappeared, so neither the wrapping nor the marker is installed — a
+# marker-only-plus-delimiter check would go silent on a session whose command
+# output is unprotected. That false negative is strictly worse than the false
+# positive #139 removed, so both shapes below must still warn, and with wording
+# that separates "never set up" from "set up but can no longer load".
+ss_clean_path="$MOCK_BIN:$(dirname "$REAL_GIT"):$(dirname "$REAL_JQ"):/usr/bin:/bin"
+if PATH="$ss_clean_path" command -v agent-guard >/dev/null 2>&1; then
+  say "agent-guard is on the minimal PATH here; skipped unresolvable-block tests"
+else
+  # A plugin-only install whose cache was updated away / uninstalled: the real
+  # setup-shell bakes the real cache paths, then the whole cache disappears.
+  ss_home_gone="$TESTTMP/sstart-home-gone"
+  ss_gone_bin="$ss_home_gone/.claude/plugins/cache/agent-guard/agent-guard/3.0.1/bin"
+  mkdir -p "$ss_gone_bin"
+  cp "$PLUGIN_ROOT/bin/agent-guard" "$ss_gone_bin/agent-guard"
+  chmod +x "$ss_gone_bin/agent-guard"
+  HOME="$ss_home_gone" SHELL=/bin/zsh "$ss_gone_bin/agent-guard" setup-shell >/dev/null 2>&1
+  rm -rf "$ss_home_gone/.claude"
+  vd_out=$(run_session_start "" "$ss_home_gone" /bin/zsh "$ss_clean_path" 2>"$ERR")
+  if [ $? -eq 0 ] \
+     && printf '%s' "$vd_out" | jq -e '.systemMessage | contains("can no longer load")' >/dev/null 2>&1 \
+     && printf '%s' "$vd_out" | jq -e '.systemMessage | contains("NOT masked")' >/dev/null 2>&1; then
+    ok "SessionStart warns when the managed block can no longer resolve its binary (#155)"
+  else
+    not_ok "SessionStart warns on an unresolvable managed block (got: $vd_out)"
+  fi
+
+  # The degenerate shape: delimiters with nothing between them. Nothing is
+  # evaluated, so nothing is protected.
+  ss_home_hollow="$TESTTMP/sstart-home-hollow"
+  mkdir -p "$ss_home_hollow"
+  {
+    sed -n 's/^SHELL_INIT_BLOCK_BEGIN=.\(.*\).$/\1/p' "$PLUGIN_ROOT/bin/agent-guard"
+    sed -n 's/^SHELL_INIT_BLOCK_END=.\(.*\).$/\1/p' "$PLUGIN_ROOT/bin/agent-guard"
+  } >"$ss_home_hollow/.zshrc"
+  vd_out=$(run_session_start "" "$ss_home_hollow" /bin/zsh "$ss_clean_path" 2>"$ERR")
+  if [ $? -eq 0 ] \
+     && printf '%s' "$vd_out" | jq -e '.systemMessage | contains("can no longer load")' >/dev/null 2>&1; then
+    ok "SessionStart warns on delimiters with no shell-init inside them (#155)"
+  else
+    not_ok "SessionStart warns on an empty managed block (got: $vd_out)"
+  fi
 fi
 
 vd_out=$(AGENT_GUARD_HOOK_HOST=codex AGENT_GUARD_GITLEAKS_BIN="$MOCK_BIN/gitleaks" \

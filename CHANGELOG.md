@@ -61,10 +61,18 @@
   environment of the shell that *launched* the agent, so a fish (or other
   non-POSIX) login shell — and any GUI/IDE launcher — could never satisfy it,
   even though the agent's own bash/zsh shell snapshot did load the wrapping from
-  the same rc. `SessionStart` now checks for the managed rc block on disk before
-  reporting missing setup: it stays silent when setup demonstrably ran (only the
-  version-drift comparison is lost) and still guides setup when the block is
-  absent. `setup-shell` additionally writes the managed block to **both**
+  the same rc. `SessionStart` now reads the managed rc block on disk before
+  reporting missing setup, and checks that it can still *load* — the delimiters
+  alone prove nothing, because the block's `eval` emits neither the wrapping nor
+  the marker once the binary it resolves is gone. It replays the block's own
+  resolution order (baked stable path, newest versioned plugin-cache binary,
+  `agent-guard` on `$PATH`) with `stat`-level checks only: silent when setup
+  demonstrably ran and still resolves (only the version-drift comparison is
+  lost), the usual setup guidance when the block is absent, and a distinct
+  `can no longer load` warning when the block is present but resolves nothing
+  (cache updated, uninstalled, hand-edited) — that state leaves command output
+  unmasked, so it must never be silent. `setup-shell` additionally writes the
+  managed block to **both**
   `~/.bashrc` and `~/.zshrc` when it detects a fish login shell, since the
   snapshot shell is one of the two and which one is not visible from the CLI, and
   it now says plainly that `agx` and the nudge are unavailable at a fish prompt
