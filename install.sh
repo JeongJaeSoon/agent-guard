@@ -73,16 +73,25 @@ install_git_hooks() {
     # hooks/pre-commit` HONORS core.hooksPath. Once we have pointed it at
     # githooks, re-deriving resolves to THIS hook, and chaining it would make the
     # hook exec itself. Preserving the existing block is the only safe refresh.
-    hook_tmp="$hook_path.agent-guard.tmp"
+    # mktemp in the hook's own directory: a predictable name (…/pre-commit.tmp)
+    # could be a pre-planted symlink that redirects the awk write onto an
+    # attacker-chosen target. The atomic mv still lands it in place afterward.
+    hook_tmp=$(mktemp "$project_root/githooks/.agent-guard-hook.XXXXXX") \
+      || die "failed to create a temporary file for the hook refresh"
+    # Rewrite ONLY a line that both invokes agent-guard AND runs scan-staged, and
+    # require exactly one such line. The line-61 marker match accepts a mere
+    # comment, so a hand-crafted hook could pair an `agent-guard` comment with an
+    # unrelated `exec /other/scanner scan-staged`; matching on `agent-guard`
+    # avoids silently rewriting that, and the count refuses an ambiguous hook.
     if awk -v newexec="exec $(shell_quote "$agent_guard_bin") scan-staged" '
-          /^exec .*scan-staged$/ { print newexec; seen = 1; next }
+          /^exec .*agent-guard.*scan-staged$/ { print newexec; seen++; next }
           { print }
-          END { exit seen ? 0 : 3 }
+          END { exit (seen == 1) ? 0 : 3 }
         ' "$hook_path" >"$hook_tmp"; then
       mv "$hook_tmp" "$hook_path" || die "failed to refresh $hook_path"
     else
       rm -f "$hook_tmp"
-      die "githooks/pre-commit carries the agent-guard marker but has no 'exec ... scan-staged' line; refusing to rewrite it"
+      die "githooks/pre-commit carries the agent-guard marker but has no unique 'exec … agent-guard … scan-staged' line; refusing to rewrite it"
     fi
   else
     # Fresh install: generate the whole body, chaining a pre-existing native hook

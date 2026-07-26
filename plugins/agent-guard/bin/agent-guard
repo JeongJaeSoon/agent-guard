@@ -2660,7 +2660,15 @@ do_setup_shell() {
 # ponytail: an un-trappable SIGKILL still leaves the dir to the OS temp reaper.
 AGENT_GUARD_RUNDIR=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-run.XXXXXX" 2>/dev/null \
   || mktemp -d /tmp/agent-guard-run.XXXXXX 2>/dev/null || printf '')
-[ -n "$AGENT_GUARD_RUNDIR" ] && trap 'rm -rf "$AGENT_GUARD_RUNDIR"' EXIT INT TERM
+if [ -n "$AGENT_GUARD_RUNDIR" ]; then
+  trap 'rm -rf "$AGENT_GUARD_RUNDIR"' EXIT
+  # INT/TERM must exit explicitly: a signal trap that only cleans up and returns
+  # resumes the interrupted script instead of terminating, so the hook could keep
+  # running past Ctrl-C or the host's timeout SIGTERM. Exiting re-fires the EXIT
+  # trap (a harmless second rm -rf) and terminates with the conventional code.
+  trap 'rm -rf "$AGENT_GUARD_RUNDIR"; exit 130' INT
+  trap 'rm -rf "$AGENT_GUARD_RUNDIR"; exit 143' TERM
+fi
 
 cmd=${1:-}
 case "$cmd" in

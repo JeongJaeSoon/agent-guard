@@ -17,6 +17,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
+          # No step after checkout authenticates to Git, so do not persist the
+          # GITHUB_TOKEN in the local git config.
+          persist-credentials: false
           # Full history: the submission-readiness check below compares the
           # pinned .source.sha's plugins/agent-guard tree against HEAD, and a
           # shallow (depth 1) checkout cannot resolve that commit. The check

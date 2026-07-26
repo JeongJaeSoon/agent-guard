@@ -50,6 +50,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          # This job runs freshly-downloaded third-party binaries and never
+          # pushes, so do not leave the GITHUB_TOKEN in the git config.
+          persist-credentials: false
 
       - name: Install pinned gitleaks (Linux x64)
         # Real gitleaks is REQUIRED on Linux so tests/run.sh exercises its
@@ -74,7 +78,12 @@ jobs:
           echo "${RUNNER_TEMP}/agent-guard-bin" >> "${GITHUB_PATH}"
 
       - name: Run tests
-        run: tests/run.sh 2>&1 | tee "${RUNNER_TEMP}/test-output.txt"
+        # pipefail so a tests/run.sh failure propagates through the tee pipe;
+        # without it the step would return tee's 0 status and a failing suite
+        # could go green — the exact fail-open class this PR closes.
+        run: |
+          set -o pipefail
+          tests/run.sh 2>&1 | tee "${RUNNER_TEMP}/test-output.txt"
 
       - name: Require real gitleaks integration ran (Linux)
         # Fail closed if the real-detection block silently self-skipped: on a
@@ -104,6 +113,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          # Runs freshly-downloaded shellcheck/actionlint and never pushes.
+          persist-credentials: false
 
       - name: Install pinned shellcheck
         run: |
@@ -154,7 +166,10 @@ jobs:
 
       - name: actionlint workflows
         # actionlint auto-discovers every workflow under .github/workflows and
-        # runs shellcheck over each run: block — pin that to --severity=error too
-        # so the pre-existing style backlog in run blocks does not fail the job,
-        # matching the standalone ShellCheck step above.
-        run: actionlint -color -shellcheck 'shellcheck --severity=error'
+        # runs shellcheck over each run: block. Its -shellcheck flag takes an
+        # executable PATH, not args, so pass the severity via SHELLCHECK_OPTS —
+        # matching the standalone ShellCheck step so the pre-existing style
+        # backlog in run blocks does not fail the job.
+        env:
+          SHELLCHECK_OPTS: --severity=error
+        run: actionlint -color

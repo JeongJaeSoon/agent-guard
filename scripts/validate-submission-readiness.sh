@@ -151,8 +151,8 @@ fi
 # pinned commit's plugins/agent-guard tree has drifted from the current payload,
 # the submission green-lights a stale snapshot. When the pinned commit is
 # present locally, require its subtree to equal HEAD's; when it is absent
-# (shallow / submission checkouts), warn and skip rather than fail-closed, since
-# we cannot compare a tree we do not have. The placeholder is handled above.
+# (shallow / submission checkouts), FAIL closed — "could not verify" is not a
+# pass, so the caller must fetch full history. The placeholder is handled above.
 if printf '%s\n' "$entry_sha" | grep -Eq '^[0-9a-f]{40}$'; then
   if git -C "$ROOT" rev-parse "$entry_sha^{commit}" >/dev/null 2>&1; then
     if git -C "$ROOT" diff --quiet "$entry_sha" HEAD -- plugins/agent-guard; then
