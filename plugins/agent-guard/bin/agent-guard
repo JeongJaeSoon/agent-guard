@@ -105,8 +105,8 @@ LIVE_PRE_TOOL_PROBE=AGENT_GUARD_LIVE_PRE_TOOL_PROBE
 LIVE_POST_TOOL_PROBE=AGENT_GUARD_LIVE_POST_TOOL_PROBE
 # Delimiters of the rc block `setup-shell` manages. `hook-session-start` reads
 # them back to tell "setup-shell was never run" apart from "setup-shell ran, but
-# the shell that launched the agent could not export the marker" — see
-# shell_init_block_installed.
+# the shell that launched the agent could not export the marker" — and from
+# "setup-shell ran but the block can no longer load" — see shell_init_block_state.
 SHELL_INIT_BLOCK_BEGIN='# >>> agent-guard shell-init >>>'
 SHELL_INIT_BLOCK_END='# <<< agent-guard shell-init <<<'
 
@@ -2579,23 +2579,58 @@ hook_stop() {
 # duplicates host-independent warnings in additionalContext so the model can act
 # on them; both hosts receive a user-facing systemMessage.
 
-# True when `setup-shell`'s managed block is present in the rc file Claude Code's
-# shell snapshot reads. The marker only reaches this hook when the shell that
-# LAUNCHED the agent evaluated that rc — which never happens for a fish (or any
-# non-POSIX) login shell, or when Claude Code is started from a GUI/IDE launcher,
-# even though Claude Code builds its `!`/Bash snapshot from bash or zsh and so
-# DOES load the wrapping. An absent marker is therefore not evidence that the
-# wrapping is missing; the block on disk is. $SHELL is read exactly as
-# do_setup_shell derives its default rc, so the two always agree about which file
-# matters (and setup-shell installs both POSIX rc files for a fish login shell,
-# because Claude Code's choice between them is not visible here).
-shell_init_block_installed() {
+# Classify `setup-shell`'s managed block in the rc file Claude Code's shell
+# snapshot reads: 0 = the block is there AND can still load, 2 = the block is
+# there but the binary it resolves is gone, 1 = no usable block at all.
+#
+# The marker only reaches this hook when the shell that LAUNCHED the agent
+# evaluated that rc — which never happens for a fish (or any non-POSIX) login
+# shell, or when Claude Code is started from a GUI/IDE launcher, even though
+# Claude Code builds its `!`/Bash snapshot from bash or zsh and so DOES load the
+# wrapping. An absent marker is therefore not evidence that the wrapping is
+# missing. But the delimiters alone are not evidence that it LOADS either: the
+# block's `eval` emits nothing when the binary it resolves has disappeared (cache
+# updated, plugin uninstalled, block hand-edited), leaving neither the wrapping
+# nor the marker — a silent, unprotected session. So re-run the block's OWN
+# resolution order against the paths it baked in: the stable/self path, then the
+# newest versioned binary under the plugin cache base, then `agent-guard` on
+# $PATH. All stat-level; nothing is executed and no subshell is forked.
+# $SHELL is read exactly as do_setup_shell derives its default rc, so the two
+# always agree about which file matters (and setup-shell installs both POSIX rc
+# files for a fish login shell, because Claude Code's choice is not visible here).
+shell_init_block_state() {
   [ -n "${HOME:-}" ] || return 1
   case "${SHELL:-}" in
     */bash) rc_probe=$HOME/.bashrc ;;
     *) rc_probe=$HOME/.zshrc ;;
   esac
-  grep -Fqx "$SHELL_INIT_BLOCK_BEGIN" "$rc_probe" 2>/dev/null
+  # Both delimiters must be present, or the block is not a block (setup-shell
+  # itself refuses to rewrite an unbalanced one).
+  block=$(awk -v b="$SHELL_INIT_BLOCK_BEGIN" -v e="$SHELL_INIT_BLOCK_END" \
+    '$0==b{inb=1;next} $0==e&&inb{found=1;inb=0;next} inb{print} END{exit !found}' \
+    "$rc_probe" 2>/dev/null) || return 1
+  # Delimiters wrapping something that never invokes shell-init protect nothing.
+  case "$block" in *shell-init*) ;; *) return 2 ;; esac
+
+  # The baked words are emitted by sh_squote, so read up to the closing quote. A
+  # path containing a quote truncates here and reads as unresolvable — the safe
+  # direction: a false "run setup" is recoverable, a false "you are protected"
+  # is not.
+  agbin= agbase=
+  case "$block" in
+    *"_agbin='"*) agbin=${block#*_agbin=\'}; agbin=${agbin%%\'*} ;;
+  esac
+  case "$block" in
+    *"_agbase='"*) agbase=${block#*_agbase=\'}; agbase=${agbase%%\'*} ;;
+  esac
+  [ -n "$agbin" ] && [ -x "$agbin" ] && return 0
+  if [ -n "$agbase" ]; then
+    for rc_cand in "$agbase"/[0-9]*.[0-9]*.[0-9]*/bin/agent-guard; do
+      [ -x "$rc_cand" ] && return 0
+    done
+  fi
+  command -v agent-guard >/dev/null 2>&1 && return 0
+  return 2
 }
 
 hook_session_start() {
@@ -2622,16 +2657,24 @@ hook_session_start() {
 
   # Claude plugins cannot edit the user's shell rc during installation. In 2.x
   # command wrapping is default-on, so an absent marker means the one-time shell
-  # setup has not run — UNLESS the managed block is already in the rc, in which
-  # case the marker is merely unable to travel (fish/other login shell, GUI or
-  # IDE launcher) while the snapshot still loads the wrapping. Nagging there is a
-  # permanent false positive that rerunning setup-shell cannot clear, so this
-  # stays quiet and only the drift check above is lost. Keep Codex silent too:
-  # Claude shell snapshots are not a Codex command boundary.
-  if [ -z "$marker" ] && [ "${AGENT_GUARD_HOOK_HOST:-claude}" = claude ] \
-    && ! shell_init_block_installed; then
-    wrapping_setup='agent-guard command wrapping is not loaded. Run /agent-guard:setup-shell, then restart the shell and Claude Code. Use setup-shell --no-command-wrapping for a persistent opt-out.'
-    if [ -n "$message" ]; then message="$message $wrapping_setup"; else message=$wrapping_setup; fi
+  # setup has not run — UNLESS the managed block is already in the rc AND can
+  # still load, in which case the marker is merely unable to travel (fish/other
+  # login shell, GUI or IDE launcher) while the snapshot still loads the
+  # wrapping. Nagging there is a permanent false positive that rerunning
+  # setup-shell cannot clear, so that case stays quiet and only the drift check
+  # above is lost. A block that can no longer resolve its binary gets its own
+  # wording: the user action is to restore the binary, not to discover setup.
+  # Keep Codex silent: Claude shell snapshots are not a Codex command boundary.
+  if [ -z "$marker" ] && [ "${AGENT_GUARD_HOOK_HOST:-claude}" = claude ]; then
+    shell_init_block_state
+    case $? in
+      0) wrapping_setup= ;;
+      2) wrapping_setup='agent-guard command wrapping is set up in your shell rc but can no longer load: the agent-guard binary that block resolves is gone (plugin cache updated, uninstalled, or the block was edited). Command output is NOT masked. Reinstall or update agent-guard, rerun /agent-guard:setup-shell, then restart the shell and Claude Code.' ;;
+      *) wrapping_setup='agent-guard command wrapping is not loaded. Run /agent-guard:setup-shell, then restart the shell and Claude Code. Use setup-shell --no-command-wrapping for a persistent opt-out.' ;;
+    esac
+    if [ -n "$wrapping_setup" ]; then
+      if [ -n "$message" ]; then message="$message $wrapping_setup"; else message=$wrapping_setup; fi
+    fi
   fi
 
   [ -n "$message" ] || return 0
