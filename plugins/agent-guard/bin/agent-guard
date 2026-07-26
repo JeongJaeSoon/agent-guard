@@ -109,6 +109,12 @@ DENY_BASH_PATTERNS=${AGENT_GUARD_DENY_BASH_PATTERNS:-"$ROOT_DIR/config/deny-bash
 GITLEAKS_PRIVATE_BIN_DIR=${AGENT_GUARD_GITLEAKS_BIN_DIR:-${AGENT_GUARD_BIN_DIR:-$HOME/.agent-guard/bin}}
 LIVE_PRE_TOOL_PROBE=AGENT_GUARD_LIVE_PRE_TOOL_PROBE
 LIVE_POST_TOOL_PROBE=AGENT_GUARD_LIVE_POST_TOOL_PROBE
+# Delimiters of the rc block `setup-shell` manages. `hook-session-start` reads
+# them back to tell "setup-shell was never run" apart from "setup-shell ran, but
+# the shell that launched the agent could not export the marker" — see
+# shell_init_block_installed.
+SHELL_INIT_BLOCK_BEGIN='# >>> agent-guard shell-init >>>'
+SHELL_INIT_BLOCK_END='# <<< agent-guard shell-init <<<'
 
 usage() {
   cat >&2 <<'EOF'
@@ -3921,6 +3927,26 @@ hook_stop() {
 # version drift; Codex ignores that unrelated shell boundary. The Codex variant
 # duplicates host-independent warnings in additionalContext so the model can act
 # on them; both hosts receive a user-facing systemMessage.
+
+# True when `setup-shell`'s managed block is present in the rc file Claude Code's
+# shell snapshot reads. The marker only reaches this hook when the shell that
+# LAUNCHED the agent evaluated that rc — which never happens for a fish (or any
+# non-POSIX) login shell, or when Claude Code is started from a GUI/IDE launcher,
+# even though Claude Code builds its `!`/Bash snapshot from bash or zsh and so
+# DOES load the wrapping. An absent marker is therefore not evidence that the
+# wrapping is missing; the block on disk is. $SHELL is read exactly as
+# do_setup_shell derives its default rc, so the two always agree about which file
+# matters (and setup-shell installs both POSIX rc files for a fish login shell,
+# because Claude Code's choice between them is not visible here).
+shell_init_block_installed() {
+  [ -n "${HOME:-}" ] || return 1
+  case "${SHELL:-}" in
+    */bash) rc_probe=$HOME/.bashrc ;;
+    *) rc_probe=$HOME/.zshrc ;;
+  esac
+  grep -Fqx "$SHELL_INIT_BLOCK_BEGIN" "$rc_probe" 2>/dev/null
+}
+
 hook_session_start() {
   message=
   if ! hook_dependencies_ready || ! command -v git >/dev/null 2>&1; then
@@ -3944,10 +3970,15 @@ hook_session_start() {
   fi
 
   # Claude plugins cannot edit the user's shell rc during installation. In 2.x
-  # command wrapping is default-on, so an absent marker means the one-time
-  # shell setup has not loaded. Keep Codex silent: Claude shell snapshots are
-  # not a Codex command boundary.
-  if [ -z "$marker" ] && [ "$(hook_host)" = claude ]; then
+  # command wrapping is default-on, so an absent marker means the one-time shell
+  # setup has not run — UNLESS the managed block is already in the rc, in which
+  # case the marker is merely unable to travel (fish/other login shell, GUI or
+  # IDE launcher) while the snapshot still loads the wrapping. Nagging there is a
+  # permanent false positive that rerunning setup-shell cannot clear, so this
+  # stays quiet and only the drift check above is lost. Keep Codex silent too:
+  # Claude shell snapshots are not a Codex command boundary.
+  if [ -z "$marker" ] && [ "$(hook_host)" = claude ] \
+    && ! shell_init_block_installed; then
     wrapping_setup='agent-guard command wrapping is not loaded. Run /agent-guard:setup-shell (or agent-guard setup-shell for a standalone install), then restart the shell and Claude Code. Use setup-shell --no-command-wrapping for a persistent opt-out.'
     if [ -n "$message" ]; then message="$message $wrapping_setup"; else message=$wrapping_setup; fi
   fi
@@ -4594,62 +4625,12 @@ EOF
   [ "$command_wrapping" = 1 ] && shell_init_command_wrapping
 }
 
-# `setup-shell` — write the `eval "$(... shell-init ...)"` line into the user's
-# shell rc so the wrappers load in every new shell (hence every Claude Code shell
-# snapshot). This is the one manual step a plugin-only install needs: a plugin
-# cannot edit your rc, so run this once (by absolute path if agent-guard is not
-# yet on $PATH). Idempotent — re-running replaces the managed block in place.
-do_setup_shell() {
-  sh_target= rc= wrapping= want_help=0
-  # Parse every argument before acting on --help, matching shell-init: a
-  # rejected option must fail even when --help precedes it, so no invocation
-  # carrying a removed/unknown flag can exit 0.
-  while [ "$#" -gt 0 ]; do
-    case "$1" in
-      --bash) sh_target=bash ;;
-      --zsh) sh_target=zsh ;;
-      --rc) shift; rc=${1:-}; [ -n "$rc" ] || die "setup-shell: --rc requires a path" ;;
-      --no-command-wrapping) wrapping=' --no-command-wrapping' ;;
-      -h|--help) want_help=1 ;;
-      *) die "setup-shell: unknown option: $1 (see: $PROGRAM setup-shell --help)" ;;
-    esac
-    shift
-  done
-  if [ "$want_help" -eq 1 ]; then
-    {
-      printf '%s\n' "Usage: $PROGRAM setup-shell [--bash|--zsh|--rc FILE] [--no-command-wrapping]"
-      printf '%s\n' "Adds the shell-init line to your shell rc (idempotent). Restart your"
-      printf '%s\n' "shell and any sessions launched from it afterwards to apply."
-      printf '%s\n' "Command wrapping is enabled by default. Use --no-command-wrapping for"
-      printf '%s\n' "a persistent opt-out, or AGENT_GUARD_COMMAND_WRAPPING=off at runtime."
-    } >&2
-    return 0
-  fi
-
-  # Pick the rc file: explicit --rc wins, else derive from the chosen/detected shell.
-  if [ -z "$rc" ]; then
-    if [ -z "$sh_target" ]; then
-      case "${SHELL:-}" in */bash) sh_target=bash ;; *) sh_target=zsh ;; esac
-    fi
-    case "$sh_target" in bash) rc=$HOME/.bashrc ;; *) rc=$HOME/.zshrc ;; esac
-  fi
-
-  # Invoke only the stable path for plugin installs. If `current` is unavailable
-  # (for example, the cache is read-only), select the newest semantic-version
-  # directory at rc-eval time; a standalone PATH install remains the last
-  # compatibility fallback. The output probe prevents a stale stub from
-  # shadowing a working stable/plugin binary.
-  stable=$(sh_squote "$STABLE_BIN")
-  cache_base=$(sh_squote "$PLUGIN_CACHE_BASE")
-  line="eval \"\$(_agbin=$stable; _agbase=$cache_base; if [ -n \"\$_agbase\" ]; then _aglatest=\$(for _agc in \"\$_agbase\"/[0-9]*.[0-9]*.[0-9]*/bin/agent-guard; do [ -x \"\$_agc\" ] || continue; _agv=\${_agc%/bin/agent-guard}; printf '%s\\t%s\\n' \"\${_agv##*/}\" \"\$_agc\"; done | awk -F '\\t' '\$1 ~ /^[0-9]+\\.[0-9]+\\.[0-9]+\$/' | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1 | cut -f 2-); [ -n \"\$_aglatest\" ] && _agbin=\$_aglatest; fi; _agi=; [ -x \"\$_agbin\" ] && _agi=\$(\"\$_agbin\" shell-init${wrapping} 2>/dev/null); if [ -z \"\$_agi\" ] && command -v agent-guard >/dev/null 2>&1; then _agi=\$(agent-guard shell-init${wrapping} 2>/dev/null); fi; [ -n \"\$_agi\" ] && printf '%s\\n' \"\$_agi\")\""
-  path_line=
-  if [ -n "$PLUGIN_CACHE_BASE" ]; then
-    stable_dir=$(sh_squote "$PLUGIN_CACHE_BASE/current/bin")
-    path_line="case :\$PATH: in *:$stable_dir:*) ;; *) PATH=$stable_dir\${PATH:+:\$PATH} ;; esac; export PATH"
-  fi
-
-  begin='# >>> agent-guard shell-init >>>'
-  end='# <<< agent-guard shell-init <<<'
+# Write (or replace in place) the managed block in ONE rc file. Split out of
+# do_setup_shell so a fish login shell can install into both POSIX rc files.
+setup_shell_write_rc() {  # $1 = rc path, $2 = the eval line to manage
+  rc=$1 line=$2
+  begin=$SHELL_INIT_BLOCK_BEGIN
+  end=$SHELL_INIT_BLOCK_END
 
   # If the rc is a symlink (e.g. into a dotfiles repo), edit the file it points
   # at rather than replacing the link with a regular file. Walk the chain by hand
@@ -4686,13 +4667,89 @@ do_setup_shell() {
   {
     printf '%s\n' "$begin"
     printf '%s\n' "# Managed by 'agent-guard setup-shell' — remove this block to disable."
-    [ -z "$path_line" ] || printf '%s\n' "$path_line"
+    [ -z "${path_line:-}" ] || printf '%s\n' "$path_line"
     printf '%s\n' "$line"
     printf '%s\n' "$end"
   } >>"$tmp"
   mv "$tmp" "$rc_real" || { rm -f "$tmp"; die "setup-shell: failed to write $rc_real"; }
 
   info "$PROGRAM: shell integration written to $rc_real"
+}
+
+# `setup-shell` — write the `eval "$(... shell-init ...)"` line into the user's
+# shell rc so the wrappers load in every new shell (hence every Claude Code shell
+# snapshot). This is the one manual step a plugin-only install needs: a plugin
+# cannot edit your rc, so run this once (by absolute path if agent-guard is not
+# yet on $PATH). Idempotent — re-running replaces the managed block in place.
+do_setup_shell() {
+  sh_target= rc= wrapping= want_help=0
+  # Parse every argument before acting on --help, matching shell-init: a
+  # rejected option must fail even when --help precedes it, so no invocation
+  # carrying a removed/unknown flag can exit 0.
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --bash) sh_target=bash ;;
+      --zsh) sh_target=zsh ;;
+      --rc) shift; rc=${1:-}; [ -n "$rc" ] || die "setup-shell: --rc requires a path" ;;
+      --no-command-wrapping) wrapping=' --no-command-wrapping' ;;
+      -h|--help) want_help=1 ;;
+      *) die "setup-shell: unknown option: $1 (see: $PROGRAM setup-shell --help)" ;;
+    esac
+    shift
+  done
+  if [ "$want_help" -eq 1 ]; then
+    {
+      printf '%s\n' "Usage: $PROGRAM setup-shell [--bash|--zsh|--rc FILE] [--no-command-wrapping]"
+      printf '%s\n' "Adds the shell-init line to your shell rc (idempotent). Restart your"
+      printf '%s\n' "shell and any sessions launched from it afterwards to apply."
+      printf '%s\n' "A detected fish login shell gets both ~/.bashrc and ~/.zshrc: fish cannot"
+      printf '%s\n' "eval the POSIX snippet, and agent shell snapshots run one of those two."
+      printf '%s\n' "Command wrapping is enabled by default. Use --no-command-wrapping for"
+      printf '%s\n' "a persistent opt-out, or AGENT_GUARD_COMMAND_WRAPPING=off at runtime."
+    } >&2
+    return 0
+  fi
+
+  # Pick the rc file: explicit --rc wins, else derive from the chosen/detected
+  # shell. A detected fish login shell is the one case with no single answer:
+  # `shell-init` emits POSIX shell code that fish cannot eval, so there is no fish
+  # rc to install into, and Claude Code builds its `!`/Bash snapshot from bash or
+  # zsh without telling us which. Install into both so the wrapping loads either
+  # way (an explicit --bash / --zsh / --rc still wins).
+  if [ -z "$rc" ]; then
+    if [ -z "$sh_target" ]; then
+      case "${SHELL:-}" in
+        */bash) sh_target=bash ;;
+        */fish) sh_target=fish ;;
+        *) sh_target=zsh ;;
+      esac
+    fi
+    case "$sh_target" in bash) rc=$HOME/.bashrc ;; fish) rc= ;; *) rc=$HOME/.zshrc ;; esac
+  fi
+
+  # Invoke only the stable path for plugin installs. If `current` is unavailable
+  # (for example, the cache is read-only), select the newest semantic-version
+  # directory at rc-eval time; a standalone PATH install remains the last
+  # compatibility fallback. The output probe prevents a stale stub from
+  # shadowing a working stable/plugin binary.
+  stable=$(sh_squote "$STABLE_BIN")
+  cache_base=$(sh_squote "$PLUGIN_CACHE_BASE")
+  line="eval \"\$(_agbin=$stable; _agbase=$cache_base; if [ -n \"\$_agbase\" ]; then _aglatest=\$(for _agc in \"\$_agbase\"/[0-9]*.[0-9]*.[0-9]*/bin/agent-guard; do [ -x \"\$_agc\" ] || continue; _agv=\${_agc%/bin/agent-guard}; printf '%s\\t%s\\n' \"\${_agv##*/}\" \"\$_agc\"; done | awk -F '\\t' '\$1 ~ /^[0-9]+\\.[0-9]+\\.[0-9]+\$/' | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1 | cut -f 2-); [ -n \"\$_aglatest\" ] && _agbin=\$_aglatest; fi; _agi=; [ -x \"\$_agbin\" ] && _agi=\$(\"\$_agbin\" shell-init${wrapping} 2>/dev/null); if [ -z \"\$_agi\" ] && command -v agent-guard >/dev/null 2>&1; then _agi=\$(agent-guard shell-init${wrapping} 2>/dev/null); fi; [ -n \"\$_agi\" ] && printf '%s\\n' \"\$_agi\")\""
+  path_line=
+  if [ -n "$PLUGIN_CACHE_BASE" ]; then
+    stable_dir=$(sh_squote "$PLUGIN_CACHE_BASE/current/bin")
+    path_line="case :\$PATH: in *:$stable_dir:*) ;; *) PATH=$stable_dir\${PATH:+:\$PATH} ;; esac; export PATH"
+  fi
+
+  if [ "$sh_target" = fish ]; then
+    setup_shell_write_rc "$HOME/.bashrc" "$line"
+    setup_shell_write_rc "$HOME/.zshrc" "$line"
+    info "$PROGRAM: fish login shell detected. The integration is POSIX shell code, so it cannot load in fish itself: no agx and no nudge at your fish prompt."
+    info "$PROGRAM: agent shell snapshots run bash or zsh, which do read the files above, so command wrapping still applies to agent-run commands."
+    info "$PROGRAM: at a fish prompt, mask a command explicitly with: agent-guard exec -- <cmd>"
+  else
+    setup_shell_write_rc "$rc" "$line"
+  fi
   info "$PROGRAM: restart your shell and any sessions launched from it to apply"
 }
 
