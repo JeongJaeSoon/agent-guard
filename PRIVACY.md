@@ -20,11 +20,15 @@ When enabled, Agent Guard registers hooks for `SessionStart`, `PreToolUse`,
 | `SessionStart` | Dependency availability and Agent Guard shell-integration version marker | Report degraded setup or version drift | None |
 | CLI and shell wrappers | Only stdin, paths, or command output explicitly passed by the user | On-demand scan or masking | None |
 
-Temporary scan reports and provider responses are created under the operating
-system temporary directory and removed when the operation exits. Agent Guard
-does not write inspected tool content to its own log or database. The host
-application may independently retain tool inputs and outputs under its own
-privacy policy.
+Temporary scan reports and provider responses are created under a single
+per-invocation directory inside the operating system temporary directory and
+removed by a cleanup trap when the operation exits — including on the
+interrupting signals a host actually sends: SIGTERM when it kills a hook at its
+timeout, and SIGINT on Ctrl-C. Only an un-trappable SIGKILL can bypass this,
+leaving those temporary files for the operating system's temporary-directory
+reaper to remove. Agent Guard does not write inspected tool content to its own
+log or database. The host application may independently retain tool inputs and
+outputs under its own privacy policy.
 
 ## Network behavior
 

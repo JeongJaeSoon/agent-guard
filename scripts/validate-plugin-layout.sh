@@ -135,6 +135,37 @@ validate_setup_skill() {
   fi
 }
 
+validate_shell_setup_skill() {
+  skill="$PLUGIN_ROOT/skills/setup-shell/SKILL.md"
+  metadata="$PLUGIN_ROOT/skills/setup-shell/agents/openai.yaml"
+  legacy_command="$PLUGIN_ROOT/commands/setup-shell.md"
+
+  require_file "$skill"
+  require_file "$metadata"
+  if [ -f "$skill" ] \
+     && [ "$(sed -n '1p' "$skill")" = "---" ] \
+     && [ "$(sed -n '2p' "$skill")" = "name: setup-shell" ] \
+     && sed -n '3p' "$skill" | grep -Eq '^description: .+' \
+     && [ "$(sed -n '4p' "$skill")" = "---" ]; then
+    ok "setup-shell skill has valid required frontmatter"
+  else
+    fail "setup-shell skill has valid required frontmatter"
+  fi
+  if [ -f "$metadata" ] \
+     && grep -Eq '^[[:space:]]*display_name:[[:space:]]+"?.+"?$' "$metadata" \
+     && grep -Eq '^[[:space:]]*short_description:[[:space:]]+"?.+"?$' "$metadata" \
+     && grep -Fq '$setup-shell' "$metadata"; then
+    ok "setup-shell UI metadata is complete"
+  else
+    fail "setup-shell UI metadata is complete"
+  fi
+  if [ ! -e "$legacy_command" ]; then
+    ok "setup-shell has a single skill implementation"
+  else
+    fail "setup-shell has a single skill implementation"
+  fi
+}
+
 validate_versions() {
   cli_version=$(sed -n 's/^VERSION=//p' "$PLUGIN_ROOT/bin/agent-guard")
   claude_version=$(jq -r '.version // ""' "$PLUGIN_ROOT/.claude-plugin/plugin.json")
@@ -162,6 +193,7 @@ validate_codex() {
   require_json "$PLUGIN_ROOT/.codex-plugin/plugin.json"
   require_json "$PLUGIN_ROOT/hooks.json"
   validate_setup_skill
+  validate_shell_setup_skill
 
   if jq -e '.hooks == "./hooks.json" and .skills == "./skills/"' "$PLUGIN_ROOT/.codex-plugin/plugin.json" >/dev/null; then
     ok "Codex plugin manifest declares hook and skill paths"
@@ -230,6 +262,8 @@ validate_archive() {
   validate_archive_contains "$archive" "THIRD_PARTY_NOTICES.md"
   validate_archive_contains "$archive" "skills/setup-agent-guard/SKILL.md"
   validate_archive_contains "$archive" "skills/setup-agent-guard/agents/openai.yaml"
+  validate_archive_contains "$archive" "skills/setup-shell/SKILL.md"
+  validate_archive_contains "$archive" "skills/setup-shell/agents/openai.yaml"
   validate_archive_contains "$archive" "deployment/claude-managed-settings.example.json"
   validate_archive_contains "$archive" "docs/managed-deployment.md"
 
