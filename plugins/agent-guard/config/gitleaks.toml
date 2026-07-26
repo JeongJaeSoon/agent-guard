@@ -43,3 +43,12 @@ regexes = [
   '''(?i)^[A-Za-z0-9]*x{12,}[A-Za-z0-9]*$''',
   '''^0{12,}$'''
 ]
+
+# Directory scans skip these exact lockfile names, then agent-guard rescans
+# their non-checksum content through stdin. This avoids checksum false positives
+# without allowing credentials elsewhere in a lockfile.
+[[allowlists]]
+description = "Lockfiles rescanned after exact checksum fields are removed"
+paths = [
+  '''(^|/)(go\.sum|package-lock\.json|yarn\.lock|Cargo\.lock|uv\.lock)$'''
+]
