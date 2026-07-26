@@ -314,6 +314,8 @@ Add a workflow step:
     gitleaks-checksum: "<sha256 of the gitleaks release archive>"
 ```
 
+`paths` is whitespace-separated, so an individual path cannot contain spaces; the default `.` scans the whole repository.
+
 Use `@v3` for compatible 3.x updates. The `@v2` and `@v1` moving tags remain on the 2.x and 1.x lines; pin one of them, a full tag, or a commit SHA when you intentionally stay on an older line.
 
 Get the checksum with:
