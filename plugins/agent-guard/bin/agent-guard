@@ -548,15 +548,26 @@ Usage:
   agent-guard pii-filter [--check]
 
 Reads text from stdin and writes masked text to stdout.
-Set AGENT_GUARD_PII_PROVIDER=regex|pleno|http to choose a provider.
+Set AGENT_GUARD_PII_PROVIDER=regex|http to choose a provider (default: regex).
+  regex  built-in local adapter; no network access.
+  http   generic compatible HTTP endpoint adapter; needs
+         AGENT_GUARD_PII_REDACT_URL.
 EOF
+}
+
+# Single source of the supported-provider wording so help, filter, and --check
+# never drift apart. `pleno` is deliberately absent: it was only ever an
+# unverified alias for the generic http adapter, so it fails closed here rather
+# than silently redacting through an unvalidated contract.
+pii_unsupported_provider() {
+  die "pii-filter: unsupported provider: $1 (expected regex or http)"
 }
 
 pii_provider() {
   provider=${AGENT_GUARD_PII_PROVIDER:-regex}
   case "$provider" in
-    regex|pleno|http) printf '%s' "$provider" ;;
-    *) die "pii-filter: unsupported provider: $provider (expected regex, pleno, or http)" ;;
+    regex|http) printf '%s' "$provider" ;;
+    *) pii_unsupported_provider "$provider" ;;
   esac
 }
 
@@ -619,11 +630,17 @@ pii_endpoint_adapter_filter() {
 }
 
 pii_adapter_filter() {
-  provider=${1:-$(pii_provider)}
+  if [ "$#" -gt 0 ]; then
+    provider=$1
+  else
+    # `die` inside $( ) only kills the subshell, so propagate its status here
+    # instead of continuing with an empty provider.
+    provider=$(pii_provider) || exit 2
+  fi
   case "$provider" in
     regex) pii_regex_adapter_filter ;;
-    pleno|http) pii_endpoint_adapter_filter "$provider" ;;
-    *) die "pii-filter: unsupported provider: $provider (expected regex, pleno, or http)" ;;
+    http) pii_endpoint_adapter_filter "$provider" ;;
+    *) pii_unsupported_provider "$provider" ;;
   esac
 }
 
@@ -634,13 +651,13 @@ pii_adapter_check() {
       need_cmd awk
       info "$PROGRAM: PII provider regex ok"
       ;;
-    pleno|http)
+    http)
       printf '%s' "agent-guard pii provider check" | pii_endpoint_adapter_filter "$provider" >/dev/null
       status=$?
       [ "$status" -eq 0 ] || exit "$status"
       info "$PROGRAM: PII provider $provider ok"
       ;;
-    *) die "pii-filter: unsupported provider: $provider (expected regex, pleno, or http)" ;;
+    *) pii_unsupported_provider "$provider" ;;
   esac
 }
 
@@ -658,7 +675,7 @@ pii_filter() {
     shift
   done
 
-  provider=$(pii_provider)
+  provider=$(pii_provider) || exit 2
   if [ "$check" -eq 1 ]; then
     pii_adapter_check "$provider"
     return 0

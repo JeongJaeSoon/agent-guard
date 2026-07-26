@@ -1931,6 +1931,9 @@ fi
 run_expect 0 "pii-filter --check passes for default regex provider" \
   "$PLUGIN_ROOT/bin/agent-guard" pii-filter --check
 
+run_expect 0 "pii-filter --check passes for explicit regex provider" \
+  env AGENT_GUARD_PII_PROVIDER=regex "$PLUGIN_ROOT/bin/agent-guard" pii-filter --check
+
 printf '%s' 'x' | AGENT_GUARD_PII_PROVIDER=bogus "$PLUGIN_ROOT/bin/agent-guard" pii-filter \
   >"$OUT" 2>"$ERR"
 status=$?
@@ -1939,6 +1942,72 @@ if [ "$status" -eq 2 ]; then
 else
   not_ok "pii-filter rejects unknown providers (expected 2, got $status)"
   sed 's/^/  stderr: /' "$ERR"
+fi
+
+if grep -q 'expected regex or http' "$ERR"; then
+  ok "pii-filter provider error lists the supported providers"
+else
+  not_ok "pii-filter provider error lists the supported providers"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+if grep -q 'pleno' "$ERR"; then
+  not_ok "pii-filter provider error does not advertise pleno"
+  sed 's/^/  stderr: /' "$ERR"
+else
+  ok "pii-filter provider error does not advertise pleno"
+fi
+
+# pleno was an unverified alias for the generic http adapter (issue #52). It must
+# fail closed rather than redact through an unvalidated contract, and it must not
+# pass the input through unmasked.
+printf '%s' 'Customer jane@example.com' \
+  | AGENT_GUARD_PII_PROVIDER=pleno "$PLUGIN_ROOT/bin/agent-guard" pii-filter \
+  >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ] && grep -q 'unsupported provider: pleno' "$ERR"; then
+  ok "pii-filter rejects the pleno provider"
+else
+  not_ok "pii-filter rejects the pleno provider (expected 2, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+if [ ! -s "$OUT" ]; then
+  ok "pii-filter pleno rejection does not fall through to pass-through output"
+else
+  not_ok "pii-filter pleno rejection does not fall through to pass-through output"
+  sed 's/^/  stdout: /' "$OUT"
+fi
+
+# `die` inside $(pii_provider) only exits the subshell, so a rejected provider
+# used to be reported three times — twice named and once with an empty name.
+count=$(grep -c 'unsupported provider' "$ERR")
+if [ "$count" -eq 1 ]; then
+  ok "pii-filter reports a rejected provider exactly once"
+else
+  not_ok "pii-filter reports a rejected provider exactly once (got $count)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+AGENT_GUARD_PII_PROVIDER=pleno "$PLUGIN_ROOT/bin/agent-guard" pii-filter --check \
+  >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ] && grep -q 'unsupported provider: pleno' "$ERR"; then
+  ok "pii-filter --check rejects the pleno provider"
+else
+  not_ok "pii-filter --check rejects the pleno provider (expected 2, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+if "$PLUGIN_ROOT/bin/agent-guard" pii-filter --help 2>&1 | grep -q 'AGENT_GUARD_PII_PROVIDER=regex|http'; then
+  ok "pii-filter help lists the supported providers"
+else
+  not_ok "pii-filter help lists the supported providers"
+fi
+
+if "$PLUGIN_ROOT/bin/agent-guard" pii-filter --help 2>&1 | grep -q 'pleno'; then
+  not_ok "pii-filter help does not advertise pleno"
+else
+  ok "pii-filter help does not advertise pleno"
 fi
 
 PII_MOCK_CURL_DIR="$TMP_ROOT/pii-curl-bin"
@@ -1976,9 +2045,26 @@ esac
 EOSH
 chmod +x "$PII_MOCK_CURL_DIR/curl"
 
-printf '%s' 'endpoint text jane@example.com' \
+# The endpoint adapter must stay unreachable via pleno even when a URL and a
+# working curl are present.
+printf '%s' 'x' \
   | PATH="$PII_MOCK_CURL_DIR:$PATH" \
     AGENT_GUARD_PII_PROVIDER=pleno \
+    AGENT_GUARD_PII_REDACT_URL='http://127.0.0.1:8080/api/redact' \
+    "$PLUGIN_ROOT/bin/agent-guard" pii-filter \
+    >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ] && [ ! -s "$OUT" ]; then
+  ok "pii-filter pleno provider does not reach the endpoint adapter"
+else
+  not_ok "pii-filter pleno provider does not reach the endpoint adapter (expected 2, got $status)"
+  sed 's/^/  stdout: /' "$OUT"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+printf '%s' 'endpoint text jane@example.com' \
+  | PATH="$PII_MOCK_CURL_DIR:$PATH" \
+    AGENT_GUARD_PII_PROVIDER=http \
     AGENT_GUARD_PII_REDACT_URL='http://127.0.0.1:8080/api/redact' \
     PII_MOCK_CURL_REQUEST="$PII_REQUEST_FILE" \
     PII_MOCK_CURL_URL="$PII_URL_FILE" \
@@ -1986,9 +2072,9 @@ printf '%s' 'endpoint text jane@example.com' \
     >"$OUT" 2>"$ERR"
 status=$?
 if [ "$status" -eq 0 ] && [ "$(cat "$OUT")" = "masked by endpoint" ]; then
-  ok "pii-filter pleno provider uses endpoint adapter response"
+  ok "pii-filter http provider uses endpoint adapter response"
 else
-  not_ok "pii-filter pleno provider uses endpoint adapter response (status $status)"
+  not_ok "pii-filter http provider uses endpoint adapter response (status $status)"
   sed 's/^/  stdout: /' "$OUT"
   sed 's/^/  stderr: /' "$ERR"
 fi
@@ -2020,7 +2106,7 @@ else
 fi
 
 printf '%s' 'x' \
-  | env -u AGENT_GUARD_PII_REDACT_URL AGENT_GUARD_PII_PROVIDER=pleno \
+  | env -u AGENT_GUARD_PII_REDACT_URL AGENT_GUARD_PII_PROVIDER=http \
     "$PLUGIN_ROOT/bin/agent-guard" pii-filter \
     >"$OUT" 2>"$ERR"
 status=$?
@@ -2033,7 +2119,7 @@ fi
 
 printf '%s' 'x' \
   | PATH="$PII_MOCK_CURL_DIR:$PATH" \
-    AGENT_GUARD_PII_PROVIDER=pleno \
+    AGENT_GUARD_PII_PROVIDER=http \
     AGENT_GUARD_PII_REDACT_URL='http://127.0.0.1:8080/api/redact' \
     PII_MOCK_CURL_REQUEST="$PII_REQUEST_FILE" \
     PII_MOCK_CURL_MODE=fail \
@@ -2049,7 +2135,7 @@ fi
 
 printf '%s' 'x' \
   | PATH="$PII_MOCK_CURL_DIR:$PATH" \
-    AGENT_GUARD_PII_PROVIDER=pleno \
+    AGENT_GUARD_PII_PROVIDER=http \
     AGENT_GUARD_PII_REDACT_URL='http://127.0.0.1:8080/api/redact' \
     PII_MOCK_CURL_REQUEST="$PII_REQUEST_FILE" \
     PII_MOCK_CURL_MODE=bad-response \
@@ -2070,7 +2156,7 @@ ln -s "$REAL_DIRNAME" "$NO_CURL_BIN/dirname"
 ln -s "$REAL_PWD" "$NO_CURL_BIN/pwd"
 ln -s "$REAL_JQ" "$NO_CURL_BIN/jq"
 PATH="$NO_CURL_BIN" \
-  AGENT_GUARD_PII_PROVIDER=pleno \
+  AGENT_GUARD_PII_PROVIDER=http \
   AGENT_GUARD_PII_REDACT_URL='http://127.0.0.1:8080/api/redact' \
   "$PLUGIN_ROOT/bin/agent-guard" pii-filter --check \
   >"$OUT" 2>"$ERR"
@@ -2090,7 +2176,7 @@ if [ -n "$REAL_CURL" ]; then
   ln -s "$REAL_PWD" "$NO_JQ_BIN/pwd"
   ln -s "$REAL_CURL" "$NO_JQ_BIN/curl"
   PATH="$NO_JQ_BIN" \
-    AGENT_GUARD_PII_PROVIDER=pleno \
+    AGENT_GUARD_PII_PROVIDER=http \
     AGENT_GUARD_PII_REDACT_URL='http://127.0.0.1:8080/api/redact' \
     "$PLUGIN_ROOT/bin/agent-guard" pii-filter --check \
     >"$OUT" 2>"$ERR"

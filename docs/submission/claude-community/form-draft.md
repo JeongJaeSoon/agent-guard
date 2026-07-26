@@ -36,7 +36,7 @@ Hooks process matched tool inputs and outputs in memory and scan changed and
 untracked files in the current Git work tree. Default processing is local, has
 no telemetry, and retains no inspected data. `agent-guard checksum` and explicit,
 approval-gated setup contact GitHub Releases without sending project content.
-If the user opts into `AGENT_GUARD_PII_PROVIDER=pleno|http`, documented text is
+If the user opts into `AGENT_GUARD_PII_PROVIDER=http`, documented text is
 sent to the exact user-configured endpoint. PII hooks default to off.
 
 ## Additional software

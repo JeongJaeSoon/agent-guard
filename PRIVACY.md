@@ -45,7 +45,7 @@ The following explicit actions use the network:
   tool content.
 - The standalone `bootstrap.sh` install path downloads Agent Guard's release
   archive and checksum from this project's GitHub Releases page.
-- If the user selects `AGENT_GUARD_PII_PROVIDER=pleno` or `http`,
+- If the user selects `AGENT_GUARD_PII_PROVIDER=http`,
   `agent-guard pii-filter` sends the complete text provided on stdin to the
   exact URL in `AGENT_GUARD_PII_REDACT_URL`. In
   `AGENT_GUARD_PII_HOOK_MODE=block`, supported tool-input text is sent to that
