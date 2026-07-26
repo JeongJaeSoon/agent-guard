@@ -481,7 +481,9 @@ agent-guard setup --install \
   --gitleaks-checksum <sha256-for-this-os-and-arch>
 ```
 
-The checksum helper prints all supported OS / arch values and paste-ready snippets for CLI setup and GitHub Actions. `$setup-agent-guard` automates the diagnosis and checksum-selection workflow, but still asks before the download or a package-manager change.
+The checksum helper prints all supported OS / arch values and paste-ready snippets for CLI setup and GitHub Actions. The guided setup skill —
+`agent-guard:setup-agent-guard` in Claude Code, `$setup-agent-guard` in Codex —
+automates the diagnosis and checksum-selection workflow, but still asks before the download or a package-manager change.
 
 ## Host Integrations
 
