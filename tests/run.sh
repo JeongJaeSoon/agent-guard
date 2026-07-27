@@ -396,6 +396,16 @@ case "$codex_pre_tool_command" in
     ok "Codex hook command does not depend on host-specific plugin root env vars"
     ;;
 esac
+for manifest_file in "$PLUGIN_ROOT/hooks.json" "$PLUGIN_ROOT/hooks/hooks.json"; do
+  if jq -e \
+    '[.hooks[][] | .hooks[].command] |
+     length == 4 and all(.[]; contains(".agent-guard-compat-shim"))' \
+    "$manifest_file" >/dev/null; then
+    ok "all hook resolvers in $manifest_file exclude marked compatibility shims"
+  else
+    not_ok "all hook resolvers in $manifest_file exclude marked compatibility shims"
+  fi
+done
 
 read_env_payload='{"tool_name":"Read","tool_input":{"file_path":".env"}}'
 printf '%s' "$read_env_payload" \
@@ -532,6 +542,53 @@ else
   sed 's/^/  stdout: /' "$OUT"
   sed 's/^/  stderr: /' "$ERR"
 fi
+
+# A later rollback can leave an older compatibility shim whose numeric name is
+# newer than the real installed release. The first hook repairs a dangling
+# `current`; after that the shim becomes executable through `current`, so a
+# second unfiltered resolver would pick the shim and create
+# current -> shim -> current. Reproduce both host manifests from that state.
+rollback_payload='{"tool_name":"Bash","tool_input":{"command":"echo clean"}}'
+for manifest_host in codex claude; do
+  case "$manifest_host" in
+    codex) manifest_file="$PLUGIN_ROOT/hooks.json"; manifest_root=PLUGIN_ROOT ;;
+    *) manifest_file="$PLUGIN_ROOT/hooks/hooks.json"; manifest_root=CLAUDE_PLUGIN_ROOT ;;
+  esac
+  rollback_cache="$TESTTMP/rollback-hook-$manifest_host"
+  mkdir -p "$rollback_cache/2.0.0/bin" "$rollback_cache/2.9.0/bin"
+  cat >"$rollback_cache/2.0.0/bin/agent-guard" <<'EOF'
+#!/usr/bin/env sh
+cat
+EOF
+  chmod +x "$rollback_cache/2.0.0/bin/agent-guard"
+  ln -s 3.0.1 "$rollback_cache/current"
+  printf '%s\n' "$rollback_cache/current/bin/agent-guard" \
+    >"$rollback_cache/2.9.0/.agent-guard-compat-shim"
+  ln -s "$rollback_cache/current/bin/agent-guard" \
+    "$rollback_cache/2.9.0/bin/agent-guard"
+  manifest_command=$(jq -r '.hooks.PreToolUse[0].hooks[0].command' "$manifest_file")
+
+  rollback_round=1
+  rollback_ok=1
+  while [ "$rollback_round" -le 2 ]; do
+    printf '%s' "$rollback_payload" \
+      | env "$manifest_root=$rollback_cache/3.0.1" sh -c "$manifest_command" \
+        >"$OUT" 2>"$ERR"
+    if [ "$(cat "$OUT")" != "$rollback_payload" ] \
+       || [ "$(readlink "$rollback_cache/current" 2>/dev/null)" != 2.0.0 ]; then
+      rollback_ok=0
+      break
+    fi
+    rollback_round=$((rollback_round + 1))
+  done
+  if [ "$rollback_ok" -eq 1 ]; then
+    ok "$manifest_host hook resolver keeps a rolled-back real release above a marked shim"
+  else
+    not_ok "$manifest_host hook resolver avoids a current-to-shim cycle after rollback"
+    sed 's/^/  stdout: /' "$OUT"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+done
 
 cat >"$HOOK_CACHE/3.0.10/bin/agent-guard" <<'EOF'
 #!/usr/bin/env sh
