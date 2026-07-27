@@ -2222,15 +2222,33 @@ secretish_env_values() {
       # prose chain like `error: password: authentication is disabled`.
       colon_assignment = "(^[ \t]*|[,{][ \t]*|[ \t]+)[\"'\''`]?" key "[\"'\''`]?[ \t]*:"
     }
+    function quoted_end(raw, quote, i, slash_count, ch) {
+      slash_count = 0
+      for (i = 1; i <= length(raw); i++) {
+        ch = substr(raw, i, 1)
+        if (ch == "\\") {
+          slash_count++
+          continue
+        }
+        if (ch == quote && slash_count % 2 == 0) return i
+        slash_count = 0
+      }
+      return 0
+    }
     function emit_value(source, start, raw, quote, end, value) {
       raw = substr(source, start)
       sub(/^[ \t]+/, "", raw)
       quote = substr(raw, 1, 1)
       if (quote == "\"" || quote == "'\''" || quote == "`") {
         raw = substr(raw, 2)
-        end = index(raw, quote)
-        if (end == 0) return
-        value = substr(raw, 1, end - 1)
+        end = quoted_end(raw, quote)
+        # Truncated log lines can omit the closing quote. In that case the
+        # entire remaining value is secret-bearing; returning here would leak
+        # it unchanged.
+        if (end == 0)
+          value = raw
+        else
+          value = substr(raw, 1, end - 1)
       } else {
         value = raw
         sub(/[ \t,;].*$/, "", value)

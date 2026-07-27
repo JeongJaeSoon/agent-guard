@@ -3970,6 +3970,77 @@ else
   printf '%s\n' "$post_out" | sed 's/^/  out: /'
 fi
 
+display_double='DATABASE_PASSWORD="alpha-long-value\"omega-secret-tail" status=ok'
+display_input=$(jq -nc --arg stdout "$display_double" \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$display_input"
+post_out=$(cat "$OUT")
+if printf '%s' "$post_out" \
+  | jq -e '.hookSpecificOutput.updatedToolOutput.stdout == "DATABASE_PASSWORD=\"[REDACTED]\" status=ok"' >/dev/null 2>&1; then
+  ok "post-tool masks through an escaped double quote without leaking a suffix"
+else
+  not_ok "post-tool handles escaped double-quoted assignment delimiters"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+display_single="DATABASE_PASSWORD='alpha-long-value\\'omega-secret-tail' status=ok"
+display_input=$(jq -nc --arg stdout "$display_single" \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$display_input"
+post_out=$(cat "$OUT")
+if printf '%s' "$post_out" \
+  | jq -e ".hookSpecificOutput.updatedToolOutput.stdout == \"DATABASE_PASSWORD='[REDACTED]' status=ok\"" >/dev/null 2>&1; then
+  ok "post-tool masks through an escaped single quote without leaking a suffix"
+else
+  not_ok "post-tool handles escaped single-quoted assignment delimiters"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+display_backtick='DATABASE_PASSWORD=`alpha-long-value\`omega-secret-tail` status=ok'
+display_input=$(jq -nc --arg stdout "$display_backtick" \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$display_input"
+post_out=$(cat "$OUT")
+if printf '%s' "$post_out" \
+  | jq -e '.hookSpecificOutput.updatedToolOutput.stdout == "DATABASE_PASSWORD=`[REDACTED]` status=ok"' >/dev/null 2>&1; then
+  ok "post-tool masks through an escaped backtick without leaking a suffix"
+else
+  not_ok "post-tool handles escaped backtick assignment delimiters"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+display_even='DATABASE_PASSWORD="alpha-long-value\\" status=ok'
+display_input=$(jq -nc --arg stdout "$display_even" \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$display_input"
+post_out=$(cat "$OUT")
+if printf '%s' "$post_out" \
+  | jq -e '.hookSpecificOutput.updatedToolOutput.stdout == "DATABASE_PASSWORD=\"[REDACTED]\" status=ok"' >/dev/null 2>&1; then
+  ok "post-tool treats a quote after an even backslash run as closing"
+else
+  not_ok "post-tool handles even backslashes before a quoted delimiter"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+# Truncated tool output may lose the closing delimiter. Fail safe by masking
+# the entire remainder for every supported quote style.
+for display_quote in '"' "'" '`'; do
+  display_unterminated="DATABASE_PASSWORD=${display_quote}alpha-long-value-secret-tail"
+  display_expected="DATABASE_PASSWORD=${display_quote}[REDACTED]"
+  display_input=$(jq -nc --arg stdout "$display_unterminated" \
+    '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+  post_tool_out "$display_input"
+  post_out=$(cat "$OUT")
+  if printf '%s' "$post_out" \
+    | jq -e --arg expected "$display_expected" \
+        '.hookSpecificOutput.updatedToolOutput.stdout == $expected' >/dev/null 2>&1; then
+    ok "post-tool masks an unterminated quoted assignment"
+  else
+    not_ok "post-tool masks the remainder of an unterminated quoted assignment"
+    printf '%s\n' "$post_out" | sed 's/^/  out: /'
+  fi
+done
+
 post_tool_out '{"tool_name":"Bash","tool_input":{"command":"x"},"tool_response":{"stdout":"password_policy=disabled\n","stderr":"","interrupted":false,"isImage":false}}'
 post_status=$?
 if [ "$post_status" -eq 0 ] && [ ! -s "$OUT" ]; then
@@ -3986,6 +4057,18 @@ if [ "$post_status" -eq 0 ] && [ ! -s "$OUT" ]; then
 else
   not_ok "post-tool leaves prose after a secret-like key name untouched"
   sed 's/^/  out: /' "$OUT"
+fi
+
+display_input=$(jq -nc --arg stdout '- password: yaml-secret-value-12345' \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$display_input"
+post_out=$(cat "$OUT")
+if printf '%s' "$post_out" \
+  | jq -e '.hookSpecificOutput.updatedToolOutput.stdout == "- password: [REDACTED]"' >/dev/null 2>&1; then
+  ok "post-tool keeps YAML sequence mapping redaction covered"
+else
+  not_ok "post-tool masks a secret value in a YAML sequence mapping"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
 fi
 
 # Suffix-qualified real credential keys must still mask: requiring the secret
