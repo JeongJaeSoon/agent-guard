@@ -3753,6 +3753,7 @@ if [ -n "$REAL_GITLEAKS" ]; then
   LOCK_B64_BODY=${LOCK_B64%=}
   LOCK_SHA512="${LOCK_B64_BODY}${LOCK_B64_BODY}=="
   LOCK_SECRET=$(printf '%s%s' 'A1b2C3d4E5f6G7h8' 'I9j0K1l2M3n4O5p6')
+  LOCK_PATH_SECRET="${LOWPAT_HEAD}${LOWPAT_BODY}"
   LOCK_HEX=$(printf '%s%s' '0123456789abcdef0123456789abcdef' 'fedcba9876543210fedcba9876543210')
   LOCKFILE_FIXTURE_DIR="$TMP_ROOT/lockfile-hash-dir"
   mkdir -p "$LOCKFILE_FIXTURE_DIR"
@@ -3770,6 +3771,129 @@ if [ -n "$REAL_GITLEAKS" ]; then
     not_ok "recognized lockfile checksum fields stay clean (expected 0, got $status)"
     sed 's/^/  stderr: /' "$ERR"
   fi
+
+  # go.sum checksums are the third field. An h1-shaped secret in the module
+  # token must not be mistaken for that checksum and erased.
+  LOCK_HARMLESS_BODY=$(awk 'BEGIN { for (i = 0; i < 43; i++) printf "A" }')
+  printf 'clientapi-h1:%s= v1.2.3 h1:%s=\n' \
+    "$LOCK_B64_BODY" "$LOCK_HARMLESS_BODY" >"$LOCKFILE_FIXTURE_DIR/go.sum"
+  go_field_filtered=$("$PLUGIN_ROOT/bin/agent-guard" filter-lockfile-hashes \
+    "$LOCKFILE_FIXTURE_DIR/go.sum" "$LOCKFILE_FIXTURE_DIR/go.sum")
+  if printf '%s' "$go_field_filtered" | grep -Fq "clientapi-h1:$LOCK_B64_BODY=" \
+     && printf '%s' "$go_field_filtered" | grep -Fq 'v1.2.3 h1:CHECKSUM'; then
+    ok "go.sum filter neutralizes only the third checksum field"
+  else
+    not_ok "go.sum filter preserves h1-shaped module text"
+  fi
+  PATH="$(dirname "$REAL_GITLEAKS"):$ORIGINAL_PATH" "$PLUGIN_ROOT/bin/agent-guard" \
+    scan-path "$LOCKFILE_FIXTURE_DIR/go.sum" >"$OUT" 2>"$ERR"
+  status=$?
+  if [ "$status" -eq 1 ]; then
+    ok "scan-path detects an h1-shaped credential in the go.sum module field"
+  else
+    not_ok "go.sum checksum filtering keeps earlier fields scannable (expected 1, got $status)"
+  fi
+  printf 'example.com/clientapi v1.2.3 %s\n' "$LOCK_SUM" >"$LOCKFILE_FIXTURE_DIR/go.sum"
+
+  # Field names must be exact. Preserve prefixed user fields byte-for-byte even
+  # when their suffix resembles an allowlisted checksum field.
+  {
+    printf 'api_integrity sha512-%s\n' "$LOCK_SHA512"
+    printf 'api checksum: %s\n' "$LOCK_HEX"
+  } >"$LOCKFILE_FIXTURE_DIR/yarn.lock"
+  printf 'api_checksum = "%s"\n' "$LOCK_HEX" >"$LOCKFILE_FIXTURE_DIR/Cargo.lock"
+  printf 'api_hash = "sha256:%s"\n' "$LOCK_HEX" >"$LOCKFILE_FIXTURE_DIR/uv.lock"
+  prefixed_yarn=$("$PLUGIN_ROOT/bin/agent-guard" filter-lockfile-hashes \
+    "$LOCKFILE_FIXTURE_DIR/yarn.lock" "$LOCKFILE_FIXTURE_DIR/yarn.lock")
+  prefixed_cargo=$("$PLUGIN_ROOT/bin/agent-guard" filter-lockfile-hashes \
+    "$LOCKFILE_FIXTURE_DIR/Cargo.lock" "$LOCKFILE_FIXTURE_DIR/Cargo.lock")
+  prefixed_uv=$("$PLUGIN_ROOT/bin/agent-guard" filter-lockfile-hashes \
+    "$LOCKFILE_FIXTURE_DIR/uv.lock" "$LOCKFILE_FIXTURE_DIR/uv.lock")
+  prefixed_yarn_expected=$(printf 'api_integrity sha512-%s\napi checksum: %s' \
+    "$LOCK_SHA512" "$LOCK_HEX")
+  if [ "$prefixed_yarn" = "$prefixed_yarn_expected" ] \
+     && [ "$prefixed_cargo" = "api_checksum = \"$LOCK_HEX\"" ] \
+     && [ "$prefixed_uv" = "api_hash = \"sha256:$LOCK_HEX\"" ]; then
+    ok "lockfile filter does not neutralize prefixed checksum-like fields"
+  else
+    not_ok "lockfile filter preserves prefixed checksum-like fields byte-for-byte"
+  fi
+
+  # Use shapes that gitleaks actually recognizes to prove the exact-boundary
+  # guard does not create a bypass in an allowlisted path.
+  for lock_negative in yarn-checksum yarn-spaced-checksum cargo-checksum; do
+    case "$lock_negative" in
+      yarn-checksum)
+        lock_negative_path="$LOCKFILE_FIXTURE_DIR/yarn.lock"
+        printf 'api_checksum: %s\n' "$LOCK_HEX" >"$lock_negative_path"
+        ;;
+      yarn-spaced-checksum)
+        lock_negative_path="$LOCKFILE_FIXTURE_DIR/yarn.lock"
+        printf 'api checksum: %s\n' "$LOCK_HEX" >"$lock_negative_path"
+        ;;
+      cargo-checksum)
+        lock_negative_path="$LOCKFILE_FIXTURE_DIR/Cargo.lock"
+        printf 'api_checksum = "%s"\n' "$LOCK_HEX" >"$lock_negative_path"
+        ;;
+    esac
+    PATH="$(dirname "$REAL_GITLEAKS"):$ORIGINAL_PATH" "$PLUGIN_ROOT/bin/agent-guard" \
+      scan-path "$lock_negative_path" >"$OUT" 2>"$ERR"
+    status=$?
+    if [ "$status" -eq 1 ]; then
+      ok "lockfile filter keeps prefixed field $lock_negative scannable"
+    else
+      not_ok "lockfile filter does not allowlist prefixed field $lock_negative (expected 1, got $status)"
+    fi
+  done
+
+  # A valid-length checksum prefix followed by another value byte is not a
+  # complete checksum field and must remain unchanged.
+  {
+    printf 'checksum: %sa\n' "$LOCK_HEX"
+    printf 'integrity sha512-%sA\n' "$LOCK_SHA512"
+  } >"$LOCKFILE_FIXTURE_DIR/yarn.lock"
+  trailing_yarn=$("$PLUGIN_ROOT/bin/agent-guard" filter-lockfile-hashes \
+    "$LOCKFILE_FIXTURE_DIR/yarn.lock" "$LOCKFILE_FIXTURE_DIR/yarn.lock")
+  trailing_yarn_expected=$(printf 'checksum: %sa\nintegrity sha512-%sA' \
+    "$LOCK_HEX" "$LOCK_SHA512")
+  if [ "$trailing_yarn" = "$trailing_yarn_expected" ]; then
+    ok "lockfile filter requires a delimiter after a checksum value"
+  else
+    not_ok "lockfile filter does not neutralize a checksum-length prefix"
+  fi
+  printf '  integrity sha512-%s\n' "$LOCK_SHA512" >"$LOCKFILE_FIXTURE_DIR/yarn.lock"
+  printf 'checksum = "%s"\n' "$LOCK_HEX" >"$LOCKFILE_FIXTURE_DIR/Cargo.lock"
+  printf 'hash = "sha256:%s"\n' "$LOCK_HEX" >"$LOCKFILE_FIXTURE_DIR/uv.lock"
+
+  # Compact lockfile records can contain more than one recognized hash field.
+  # Neutralize every field, not only the first, while preserving both URLs.
+  printf 'wheels = [{ url = "https://example.invalid/a", hash = "sha256:%s" }, { url = "https://example.invalid/b", hash = "sha256:%s" }]\n' \
+    "$LOCK_HEX" "$LOCK_HEX" >"$LOCKFILE_FIXTURE_DIR/uv.lock"
+  multi_hash_filtered=$("$PLUGIN_ROOT/bin/agent-guard" filter-lockfile-hashes \
+    "$LOCKFILE_FIXTURE_DIR/uv.lock" "$LOCKFILE_FIXTURE_DIR/uv.lock")
+  multi_hash_count=$(printf '%s' "$multi_hash_filtered" \
+    | awk -F 'sha256:CHECKSUM' '{ total += NF - 1 } END { print total + 0 }')
+  if [ "$multi_hash_count" -eq 2 ] \
+     && printf '%s' "$multi_hash_filtered" | grep -Fq 'https://example.invalid/a' \
+     && printf '%s' "$multi_hash_filtered" | grep -Fq 'https://example.invalid/b' \
+     && ! printf '%s' "$multi_hash_filtered" | grep -Fq "$LOCK_HEX"; then
+    ok "lockfile filter neutralizes every checksum field on a compact record"
+  else
+    not_ok "lockfile filter neutralizes all compact-record checksums without dropping other text"
+  fi
+  printf 'hash = "sha256:%s"\n' "$LOCK_HEX" >"$LOCKFILE_FIXTURE_DIR/uv.lock"
+
+  printf 'sdist = { url = "https://example.invalid/pkg?api_token=%s", hash = "sha256:%s", size = 1 }\n' \
+    "$LOCK_SECRET" "$LOCK_HEX" >"$LOCKFILE_FIXTURE_DIR/uv.lock"
+  PATH="$(dirname "$REAL_GITLEAKS"):$ORIGINAL_PATH" "$PLUGIN_ROOT/bin/agent-guard" \
+    scan-path "$LOCKFILE_FIXTURE_DIR/uv.lock" >"$OUT" 2>"$ERR"
+  status=$?
+  if [ "$status" -eq 1 ]; then
+    ok "scan-path rescans a credential beside an inline uv.lock checksum"
+  else
+    not_ok "scan-path preserves non-checksum text on an inline uv.lock record (expected 1, got $status)"
+  fi
+  printf 'hash = "sha256:%s"\n' "$LOCK_HEX" >"$LOCKFILE_FIXTURE_DIR/uv.lock"
 
   cp "$LOCKFILE_FIXTURE_DIR/go.sum" "$TMP_ROOT/safe-go-sum"
   printf 'api_token = "%s"\n' "$LOCK_SECRET" >>"$LOCKFILE_FIXTURE_DIR/go.sum"
@@ -3816,6 +3940,23 @@ if [ -n "$REAL_GITLEAKS" ]; then
     sed 's/^/  stderr: /' "$ERR"
   fi
 
+  printf 'example.com/%s/client v1.2.3 %s\n' "$LOCK_PATH_SECRET" "$LOCK_SUM" \
+    >"$LOCK_GIT_DIR/go.sum"
+  (cd "$LOCK_GIT_DIR" && git add go.sum)
+  (
+    cd "$LOCK_GIT_DIR"
+    PATH="$(dirname "$REAL_GITLEAKS"):$ORIGINAL_PATH" \
+      "$PLUGIN_ROOT/bin/agent-guard" scan-staged
+  ) >"$OUT" 2>"$ERR"
+  status=$?
+  if [ "$status" -eq 1 ]; then
+    ok "scan-staged rescans a credential beside a go.sum checksum"
+  else
+    not_ok "scan-staged preserves non-checksum text on a go.sum line (expected 1, got $status)"
+  fi
+  cp "$TMP_ROOT/safe-go-sum" "$LOCK_GIT_DIR/go.sum"
+  (cd "$LOCK_GIT_DIR" && git add go.sum)
+
   printf 'api_token = "%s"\n' "$LOCK_SECRET" >>"$LOCK_GIT_DIR/go.sum"
   (cd "$LOCK_GIT_DIR" && git add go.sum)
   (
@@ -3841,6 +3982,18 @@ if [ -n "$REAL_GITLEAKS" ]; then
     ok "Write scanning preserves go.sum path context for checksum allowlisting"
   else
     not_ok "Write allows a go.sum checksum (expected 0, got $status)"
+  fi
+
+  lock_write=$(jq -nc --arg content "example.com/$LOCK_PATH_SECRET/client v1.2.3 $LOCK_SUM" \
+    '{tool_name:"Write",tool_input:{file_path:"go.sum",content:$content}}')
+  printf '%s' "$lock_write" \
+    | AGENT_GUARD_GITLEAKS_BIN="$REAL_GITLEAKS" PATH="$(dirname "$REAL_GITLEAKS"):$ORIGINAL_PATH" \
+        "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+  status=$?
+  if [ "$status" -eq 2 ]; then
+    ok "Write rescans a credential beside a go.sum checksum"
+  else
+    not_ok "Write preserves non-checksum text on a go.sum line (expected 2, got $status)"
   fi
 
   lock_patch=$(printf '%s\n%s\n%s\n%s\n%s\n' \

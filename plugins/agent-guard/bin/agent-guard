@@ -817,17 +817,70 @@ run_gitleaks_stdin() {
 
 # Filter records encoded as one lockfile-kind byte, a tab, then the original
 # line. Keeping the checksum grammar in one place prevents staged diffs, host
-# writes, untracked files, and path scans from drifting apart.
+# writes, untracked files, and path scans from drifting apart. Replace only the
+# checksum field so any other same-line content is still scanned.
 filter_lockfile_records() {
   awk '
+    function replace_match(line, replacement) {
+      return substr(line, 1, RSTART - 1) replacement substr(line, RSTART + RLENGTH)
+    }
+    function replace_fields(line, field, suffix, key, replacement,
+                            result, pattern, matched, key_at, field_tail,
+                            field_length, suffix_text, full_start, full_length,
+                            first) {
+      result = ""
+      first = 1
+      while (1) {
+        pattern = (first ? field_prefix : structural_prefix) field suffix
+        if (!match(line, pattern)) break
+        full_start = RSTART
+        full_length = RLENGTH
+        matched = substr(line, RSTART, RLENGTH)
+        key_at = index(matched, key)
+        if (key_at == 0) return result line
+        field_tail = substr(matched, key_at)
+        if (!match(field_tail, "^" field)) return result line
+        field_length = RLENGTH
+        suffix_text = substr(field_tail, field_length + 1)
+        result = result substr(line, 1, full_start - 1) \
+          substr(matched, 1, key_at - 1) replacement
+        # Keep the delimiter in the remaining input. Later matches must begin
+        # at a structural comma/brace, never at arbitrary whitespace that
+        # follows an attacker-controlled key phrase.
+        line = suffix_text substr(line, full_start + full_length)
+        first = 0
+      }
+      return result line
+    }
+    BEGIN {
+      field_prefix = "(^[[:space:]]*|[,{][[:space:]]*)"
+      structural_prefix = "[,{][[:space:]]*"
+      structured_suffix = "[[:space:]]*([,}]|$)"
+      scalar_suffix = "([[:space:]]|$)"
+      sri = "(sha1-[A-Za-z0-9+\\/]{27}=|sha256-[A-Za-z0-9+\\/]{43}=|sha384-[A-Za-z0-9+\\/]{64}|sha512-[A-Za-z0-9+\\/]{86}==)"
+    }
     {
       kind = substr($0, 1, 1)
       line = substr($0, 3)
-      if (kind == "g" && line ~ /^[^[:space:]]+[[:space:]]+[^[:space:]]+[[:space:]]+h1:[A-Za-z0-9+\/]{43}=$/) next
-      if (kind == "p" && line ~ /^[[:space:]]*"integrity"[[:space:]]*:[[:space:]]*"(sha1-[A-Za-z0-9+\/]{27}=|sha256-[A-Za-z0-9+\/]{43}=|sha384-[A-Za-z0-9+\/]{64}|sha512-[A-Za-z0-9+\/]{86}==)"[,]?[[:space:]]*$/) next
-      if (kind == "y" && (line ~ /^[[:space:]]*integrity[[:space:]]+(sha1-[A-Za-z0-9+\/]{27}=|sha256-[A-Za-z0-9+\/]{43}=|sha384-[A-Za-z0-9+\/]{64}|sha512-[A-Za-z0-9+\/]{86}==)[[:space:]]*$/ || line ~ /^[[:space:]]*checksum:[[:space:]]*[0-9a-f]{64}[[:space:]]*$/)) next
-      if (kind == "c" && line ~ /^[[:space:]]*checksum[[:space:]]*=[[:space:]]*"[0-9a-f]{64}"[[:space:]]*$/) next
-      if (kind == "u" && (line ~ /^[[:space:]]*hash[[:space:]]*=[[:space:]]*"sha256:[0-9a-f]{64}"[,]?[[:space:]]*$/ || line ~ /^[[:space:]]*(sdist[[:space:]]*=[[:space:]]*)?\{[[:space:]]*url[[:space:]]*=[[:space:]]*"[^"]+"[[:space:]]*,[[:space:]]*hash[[:space:]]*=[[:space:]]*"sha256:[0-9a-f]{64}"[[:space:]]*,[[:space:]]*size[[:space:]]*=[[:space:]]*[0-9]+[[:space:]]*\}[,]?[[:space:]]*$/)) next
+      if (kind == "g") {
+        # Only the third go.sum field is a checksum. A module path may itself
+        # contain an h1-shaped secret and must remain visible to gitleaks.
+        if (match(line, /^[^[:space:]]+[[:space:]]+[^[:space:]]+[[:space:]]+/)) {
+          go_prefix = substr(line, 1, RLENGTH)
+          go_tail = substr(line, RLENGTH + 1)
+          if (go_tail ~ /^h1:[A-Za-z0-9+\/]{43}=([[:space:]]|$)/ \
+              && match(go_tail, /^h1:[A-Za-z0-9+\/]{43}=/))
+            line = go_prefix replace_match(go_tail, "h1:CHECKSUM")
+        }
+      } else if (kind == "p")
+        line = replace_fields(line, "\"integrity\"[[:space:]]*:[[:space:]]*\"" sri "\"", structured_suffix, "\"integrity\"", "\"integrity\": \"CHECKSUM\"")
+      else if (kind == "y") {
+        line = replace_fields(line, "integrity[[:space:]]+" sri, scalar_suffix, "integrity", "integrity CHECKSUM")
+        line = replace_fields(line, "checksum:[[:space:]]*[0-9a-f]{64}", scalar_suffix, "checksum", "checksum: CHECKSUM")
+      } else if (kind == "c")
+        line = replace_fields(line, "checksum[[:space:]]*=[[:space:]]*\"[0-9a-f]{64}\"", structured_suffix, "checksum", "checksum = \"CHECKSUM\"")
+      else if (kind == "u")
+        line = replace_fields(line, "hash[[:space:]]*=[[:space:]]*\"sha256:[0-9a-f]{64}\"", structured_suffix, "hash", "hash = \"sha256:CHECKSUM\"")
       print line
     }
   '
