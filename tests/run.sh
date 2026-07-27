@@ -5038,37 +5038,179 @@ else
   say "symlinks not supported here; skipped setup-shell symlink test"
 fi
 
-# --- clean-home plugin install -> upgrade -> existing stable PATH -----------
-# Model the host cache layout without touching the real HOME. The first plugin
-# execution creates `current`, setup-shell writes only that stable path, and an
-# upgrade retargets it before the old version directory disappears.
+# --- legacy live session -> removed cache -> compatibility migration ----------
+# Reproduce the pre-3.0 host state instead of copying the new resolver into the
+# old version: a shell snapshot and loaded hook command both name 1.9.0
+# directly, then that directory disappears before any new binary executes.
 CLEAN_HOME="$TESTTMP/clean-home"
 CLEAN_CACHE="$CLEAN_HOME/.claude/plugins/cache/agent-guard/agent-guard"
 CLEAN_RC="$CLEAN_HOME/.zshrc"
-mkdir -p "$CLEAN_CACHE/3.0.0/bin"
+CLEAN_SNAPSHOT_DIR="$CLEAN_HOME/.claude/shell-snapshots"
+mkdir -p "$CLEAN_CACHE/1.9.0/bin" "$CLEAN_SNAPSHOT_DIR"
 CLEAN_CACHE=$(CDPATH= cd -- "$CLEAN_CACHE" && pwd -P)
-cp "$PLUGIN_ROOT/bin/agent-guard" "$CLEAN_CACHE/3.0.0/bin/agent-guard"
-chmod +x "$CLEAN_CACHE/3.0.0/bin/agent-guard"
-HOME="$CLEAN_HOME" "$CLEAN_CACHE/3.0.0/bin/agent-guard" version >/dev/null 2>&1
-HOME="$CLEAN_HOME" "$CLEAN_CACHE/3.0.0/bin/agent-guard" setup-shell --rc "$CLEAN_RC" >/dev/null 2>&1
-if [ "$(readlink "$CLEAN_CACHE/current" 2>/dev/null)" = 3.0.0 ]; then
-  ok "fresh plugin execution creates the stable current symlink"
+LEGACY_HOOK_BIN="$CLEAN_CACHE/1.9.0/bin/agent-guard"
+LEGACY_SNAPSHOT="$CLEAN_SNAPSHOT_DIR/snapshot-zsh-legacy.sh"
+printf '#!/bin/sh\nexit 0\n' >"$LEGACY_HOOK_BIN"
+chmod +x "$LEGACY_HOOK_BIN"
+printf "export PATH='%s/bin:/usr/bin:/bin'\n" "$CLEAN_CACHE/1.9.0" >"$LEGACY_SNAPSHOT"
+rm -rf "$CLEAN_CACHE/1.9.0"
+
+legacy_snapshot_before=$(HOME="$CLEAN_HOME" PATH=/usr/bin:/bin sh -c '. "$1"; command -v agent-guard || :' _ "$LEGACY_SNAPSHOT")
+HOME="$CLEAN_HOME" sh -c 'AGENT_GUARD_HOOK_HOST=claude "$1" hook-session-start' _ \
+  "$LEGACY_HOOK_BIN" >/dev/null 2>&1
+status=$?
+if [ -z "$legacy_snapshot_before" ] && [ "$status" -eq 127 ]; then
+  ok "removed 1.9.0 breaks the actual legacy snapshot and loaded hook path before migration"
 else
-  not_ok "fresh plugin execution creates the stable current symlink"
+  not_ok "legacy 1.9.0 failure is reproduced before migration (snapshot '$legacy_snapshot_before', hook status $status)"
 fi
+
+# The first current-version SessionStart is the earliest portable lifecycle
+# point the plugin controls. It creates `current`, parses (never sources) the
+# legacy snapshot, and restores only the missing 1.9.0 executable path as a
+# marked shim. Both the still-running shell PATH and its already-loaded hook
+# command then work without pretending that 1.9.0 contained the new resolver.
+mkdir -p "$CLEAN_CACHE/3.0.1/bin"
+cp "$PLUGIN_ROOT/bin/agent-guard" "$CLEAN_CACHE/3.0.1/bin/agent-guard"
+chmod +x "$CLEAN_CACHE/3.0.1/bin/agent-guard"
+HOME="$CLEAN_HOME" AGENT_GUARD_HOOK_HOST=claude \
+  "$CLEAN_CACHE/3.0.1/bin/agent-guard" hook-session-start >/dev/null 2>&1
+if [ "$(readlink "$CLEAN_CACHE/current" 2>/dev/null)" = 3.0.1 ]; then
+  ok "first current-version SessionStart creates the stable current symlink"
+else
+  not_ok "first current-version SessionStart creates the stable current symlink"
+fi
+if [ -f "$CLEAN_CACHE/1.9.0/.agent-guard-compat-shim" ] \
+   && [ "$(readlink "$LEGACY_HOOK_BIN" 2>/dev/null)" = "$CLEAN_CACHE/current/bin/agent-guard" ]; then
+  ok "SessionStart recreates the removed legacy executable as a marked current shim"
+else
+  not_ok "SessionStart recreates the removed legacy executable as a marked current shim"
+fi
+legacy_snapshot_after=$(HOME="$CLEAN_HOME" PATH=/usr/bin:/bin sh -c '. "$1"; command -v agent-guard || :' _ "$LEGACY_SNAPSHOT")
+HOME="$CLEAN_HOME" sh -c 'AGENT_GUARD_HOOK_HOST=claude "$1" hook-session-start' _ \
+  "$LEGACY_HOOK_BIN" >/dev/null 2>&1
+status=$?
+if [ "$legacy_snapshot_after" = "$LEGACY_HOOK_BIN" ] && [ "$status" -eq 0 ]; then
+  ok "legacy snapshot PATH and loaded hook command recover after compatibility migration"
+else
+  not_ok "legacy snapshot and hook recover (snapshot '$legacy_snapshot_after', hook status $status)"
+fi
+
+# Snapshot repair accepts only bounded plain files. A FIFO must not block
+# startup, a symlink and oversized file must not be parsed, a newer version
+# must not become a cycle-capable shim, and the 32-version cap must stop within
+# one compact line rather than after the next input record.
+BOUND_HOME="$TESTTMP/bounded-legacy-home"
+BOUND_CACHE="$BOUND_HOME/.claude/plugins/cache/agent-guard/agent-guard"
+BOUND_SNAPSHOT_DIR="$BOUND_HOME/.claude/shell-snapshots"
+mkdir -p "$BOUND_CACHE/3.0.1/bin" "$BOUND_SNAPSHOT_DIR"
+BOUND_CACHE=$(CDPATH= cd -- "$BOUND_CACHE" && pwd -P)
+cp "$PLUGIN_ROOT/bin/agent-guard" "$BOUND_CACHE/3.0.1/bin/agent-guard"
+chmod +x "$BOUND_CACHE/3.0.1/bin/agent-guard"
+
+if command -v mkfifo >/dev/null 2>&1; then
+  mkfifo "$BOUND_SNAPSHOT_DIR/01-fifo"
+fi
+printf '%s\n' "$BOUND_CACHE/1.8.8/bin/agent-guard" >"$BOUND_HOME/linked-snapshot-target"
+if ! ln -s "$BOUND_HOME/linked-snapshot-target" "$BOUND_SNAPSHOT_DIR/02-symlink" 2>/dev/null; then
+  say "symlinks not supported here; skipped bounded snapshot symlink fixture"
+fi
+{
+  printf '%s\n' "$BOUND_CACHE/1.8.7/bin/agent-guard"
+  dd if=/dev/zero bs=1024 count=1025 2>/dev/null
+} >"$BOUND_SNAPSHOT_DIR/03-oversized"
+awk -v prefix="$BOUND_CACHE/not-a-version/bin " '
+  BEGIN {
+    for (i = 0; i < 3000; i++) printf "%s", prefix
+    print ""
+  }
+' >"$BOUND_SNAPSHOT_DIR/04-invalid-compact"
+{
+  printf '%s ' "$BOUND_CACHE/9.9.9/bin/agent-guard"
+  bound_version=1
+  while [ "$bound_version" -le 33 ]; do
+    printf '%s ' "$BOUND_CACHE/1.0.$bound_version/bin/agent-guard"
+    bound_version=$((bound_version + 1))
+  done
+  printf '\n'
+} >"$BOUND_SNAPSHOT_DIR/05-compact"
+
+HOME="$BOUND_HOME" CLAUDE_PLUGIN_ROOT="$BOUND_CACHE/9.9.9" \
+  "$BOUND_CACHE/3.0.1/bin/agent-guard" version >"$OUT" 2>"$ERR" &
+bound_pid=$!
+(sleep 5; kill "$bound_pid" 2>/dev/null || :) &
+bound_watchdog=$!
+wait "$bound_pid"
+bound_status=$?
+kill "$bound_watchdog" 2>/dev/null || :
+wait "$bound_watchdog" 2>/dev/null || :
+if [ "$bound_status" -eq 0 ]; then
+  ok "snapshot repair stays bounded with a FIFO and 3,000 invalid compact prefixes"
+else
+  not_ok "snapshot repair completes within the hook timeout without opening a FIFO (status $bound_status)"
+fi
+
+bound_marker_count=$(find "$BOUND_CACHE" -name .agent-guard-compat-shim -type f \
+  2>/dev/null | wc -l | awk '{ print $1 }')
+if [ "$bound_marker_count" -eq 32 ] \
+   && [ -f "$BOUND_CACHE/1.0.32/.agent-guard-compat-shim" ] \
+   && [ ! -e "$BOUND_CACHE/1.0.33" ]; then
+  ok "snapshot repair caps compact same-line legacy versions at 32"
+else
+  not_ok "snapshot repair applies the version cap within one input record (markers $bound_marker_count)"
+fi
+if [ ! -e "$BOUND_CACHE/1.8.8" ] && [ ! -e "$BOUND_CACHE/1.8.7" ]; then
+  ok "snapshot repair skips symlinked and oversized snapshot files"
+else
+  not_ok "snapshot repair accepts only bounded plain snapshot files"
+fi
+if [ ! -e "$BOUND_CACHE/9.9.9" ] \
+   && [ "$(readlink "$BOUND_CACHE/current" 2>/dev/null)" = 3.0.1 ]; then
+  ok "legacy migration rejects newer shims that could cycle through current"
+else
+  not_ok "legacy migration keeps current on a real version and skips newer shims"
+fi
+
+# Concurrent lifecycle hooks may discover the same removed version. Exactly one
+# mkdir owner may populate or clean the shim; the loser must leave it untouched.
+RACE_HOME="$TESTTMP/racing-legacy-home"
+RACE_CACHE="$RACE_HOME/.claude/plugins/cache/agent-guard/agent-guard"
+RACE_SNAPSHOT_DIR="$RACE_HOME/.claude/shell-snapshots"
+mkdir -p "$RACE_CACHE/3.0.1/bin" "$RACE_SNAPSHOT_DIR"
+RACE_CACHE=$(CDPATH= cd -- "$RACE_CACHE" && pwd -P)
+cp "$PLUGIN_ROOT/bin/agent-guard" "$RACE_CACHE/3.0.1/bin/agent-guard"
+chmod +x "$RACE_CACHE/3.0.1/bin/agent-guard"
+printf '%s\n' "$RACE_CACHE/1.9.0/bin/agent-guard" >"$RACE_SNAPSHOT_DIR/legacy"
+HOME="$RACE_HOME" "$RACE_CACHE/3.0.1/bin/agent-guard" version >/dev/null 2>&1 &
+race_pid_one=$!
+HOME="$RACE_HOME" "$RACE_CACHE/3.0.1/bin/agent-guard" version >/dev/null 2>&1 &
+race_pid_two=$!
+wait "$race_pid_one"
+race_status_one=$?
+wait "$race_pid_two"
+race_status_two=$?
+if [ "$race_status_one" -eq 0 ] && [ "$race_status_two" -eq 0 ] \
+   && [ -f "$RACE_CACHE/1.9.0/.agent-guard-compat-shim" ] \
+   && [ "$(readlink "$RACE_CACHE/1.9.0/bin/agent-guard" 2>/dev/null)" = "$RACE_CACHE/current/bin/agent-guard" ]; then
+  ok "concurrent legacy repair preserves the winning compatibility shim"
+else
+  not_ok "concurrent legacy repair does not clean another process's shim"
+fi
+
+HOME="$CLEAN_HOME" "$CLEAN_CACHE/3.0.1/bin/agent-guard" setup-shell --rc "$CLEAN_RC" >/dev/null 2>&1
 if grep -Fq "$CLEAN_CACHE/current/bin/agent-guard" "$CLEAN_RC" \
-   && ! grep -Fq "$CLEAN_CACHE/3.0.0/bin/agent-guard" "$CLEAN_RC"; then
+   && ! grep -Fq "$CLEAN_CACHE/3.0.1/bin/agent-guard" "$CLEAN_RC"; then
   ok "setup-shell records only the stable plugin path"
 else
   not_ok "setup-shell records only the stable plugin path"
 fi
 
-mkdir -p "$CLEAN_CACHE/3.0.1/bin"
-cp "$PLUGIN_ROOT/bin/agent-guard" "$CLEAN_CACHE/3.0.1/bin/agent-guard"
-chmod +x "$CLEAN_CACHE/3.0.1/bin/agent-guard"
-HOME="$CLEAN_HOME" "$CLEAN_CACHE/3.0.1/bin/agent-guard" version >/dev/null 2>&1
-rm -rf "$CLEAN_CACHE/3.0.0"
-if [ "$(readlink "$CLEAN_CACHE/current" 2>/dev/null)" = 3.0.1 \
+mkdir -p "$CLEAN_CACHE/3.0.2/bin"
+cp "$PLUGIN_ROOT/bin/agent-guard" "$CLEAN_CACHE/3.0.2/bin/agent-guard"
+chmod +x "$CLEAN_CACHE/3.0.2/bin/agent-guard"
+HOME="$CLEAN_HOME" "$CLEAN_CACHE/3.0.2/bin/agent-guard" version >/dev/null 2>&1
+rm -rf "$CLEAN_CACHE/3.0.1"
+if [ "$(readlink "$CLEAN_CACHE/current" 2>/dev/null)" = 3.0.2 \
    ] && PATH="$CLEAN_CACHE/current/bin:/usr/bin:/bin" command -v agent-guard >/dev/null 2>&1; then
   ok "upgrade retargets the stable PATH before the old version is removed"
 else

@@ -52,9 +52,19 @@ gitleaks archive.
 
 Plugin executions maintain a version-independent sibling path at
 `current/bin/agent-guard`; hook manifests and `setup-shell` use it and can fall
-back to the newest installed version directory after a cache upgrade. Scanner
-infrastructure failures use `AGENT_GUARD_INFRA_FAILURE_MODE=open|closed`
-(`open` by default) and warn once per session. Secret detections always block.
+back to the newest installed version directory after a cache upgrade. For
+pre-3.0 live sessions that still name a removed version directly, the first
+current-version `SessionStart`, `shell-init`, `setup-shell`, or `version`
+invocation performs a bounded, text-only scan of plain, non-symlink Claude
+shell snapshots (at most 32 files, 1 MiB total, 64 KiB per line, 128 cache-path
+candidates, and 32 older versions) and recreates the missing executable as a
+marked shim to `current`. Equal or newer versions are never shimmed. No plugin
+lifecycle hook runs at cache deletion time, so an old session cannot self-heal
+until a current binary executes; a read-only cache, bounded-out record, or
+missing snapshot/host-root record requires restarting that session.
+Scanner infrastructure failures use
+`AGENT_GUARD_INFRA_FAILURE_MODE=open|closed` (`open` by default) and warn once
+per session. Secret detections always block.
 
 ## Hooks and data scope
 

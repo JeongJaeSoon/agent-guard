@@ -403,8 +403,25 @@ agent-guard setup-shell --no-command-wrapping  # persistent opt-out
 For plugin installs, every execution refreshes a sibling
 `current/bin/agent-guard` symlink and `setup-shell` records only that stable
 path. Hooks and shell snippets use `current` first, then select the newest
-installed semantic-version directory if symlinks are unavailable. This keeps an
-already-running session valid when the host removes an older cache directory.
+installed semantic-version directory if symlinks are unavailable. A session
+created by an older release can still have an absolute version path in its
+Claude shell snapshot or loaded hook command. On the first current-version
+`SessionStart`, `shell-init`, `setup-shell`, or `version` invocation, Agent Guard
+parses only plain, non-symlink snapshot files as text (never sources them).
+Each invocation examines at most 32 candidate files, 1 MiB of accepted input,
+64 KiB per line, 128 cache-path candidates, and 32 older versions, then
+recreates a missing pre-current version path as a marked shim to `current`. A
+current resolver that receives an older host plugin root repairs that exact
+path immediately. Equal or newer version names are never shimmed, so they
+cannot outrank the real installation and form a `current` cycle.
+
+There is no host lifecycle callback that can run this migration at the instant
+the plugin manager deletes an old cache directory. Therefore an already-running
+legacy session cannot repair itself before any current binary executes. Start a
+new session or invoke `current/bin/agent-guard setup-shell` once to trigger the
+migration. If the cache is read-only, symlinks are unavailable, or no matching
+plain snapshot/host root remains (including records beyond the scan bounds),
+the old absolute command is not recoverable and that session must be restarted.
 Standalone CLI installs continue to use their stable `~/.agent-guard` /
 `~/.local/bin` paths.
 

@@ -55,8 +55,25 @@ is_semver_dir() (
   [ "$#" -eq 3 ] && [ -n "$1" ] && [ -n "$2" ] && [ -n "$3" ]
 )
 
+# Compare numeric semver directory names without relying on a non-POSIX
+# version-sort option. Inputs are validated by the caller.
+semver_less_than() {
+  awk -v left="$1" -v right="$2" '
+    BEGIN {
+      split(left, l, ".")
+      split(right, r, ".")
+      for (i = 1; i <= 3; i++) {
+        if (l[i] + 0 < r[i] + 0) exit 0
+        if (l[i] + 0 > r[i] + 0) exit 1
+      }
+      exit 1
+    }
+  ' </dev/null
+}
+
 PLUGIN_CACHE_VERSION=${ROOT_DIR##*/}
 PLUGIN_CACHE_BASE=
+COMPAT_SHIM_MARKER=.agent-guard-compat-shim
 if is_semver_dir "$PLUGIN_CACHE_VERSION"; then
   PLUGIN_CACHE_BASE=${ROOT_DIR%/*}
 fi
@@ -75,6 +92,7 @@ refresh_plugin_current_link() {
       candidate_root=${candidate%/bin/agent-guard}
       candidate_version=${candidate_root##*/}
       is_semver_dir "$candidate_version" || continue
+      [ -f "$candidate_root/$COMPAT_SHIM_MARKER" ] && continue
       printf '%s\t%s\n' "$candidate_version" "$candidate_version"
     done | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1 | cut -f 2-
   )
@@ -88,6 +106,138 @@ refresh_plugin_current_link() {
 refresh_plugin_current_link || :
 STABLE_BIN=$SELF_BIN
 [ -n "$PLUGIN_CACHE_BASE" ] && STABLE_BIN="$PLUGIN_CACHE_BASE/current/bin/agent-guard"
+
+# Hosts before Agent Guard 3.0 could retain absolute version-cache paths in a
+# running hook command or Claude shell snapshot. Once that version directory is
+# removed, the old process cannot enter the new resolver by itself. When a new
+# binary does run, recreate only the missing path as a marked compatibility
+# shim to `current`; never replace a real cache entry.
+create_legacy_plugin_shim() {
+  legacy_root=${1:-}
+  [ -n "$PLUGIN_CACHE_BASE" ] && [ -n "$legacy_root" ] || return 0
+  [ "${legacy_root%/*}" = "$PLUGIN_CACHE_BASE" ] || return 0
+  legacy_version=${legacy_root##*/}
+  is_semver_dir "$legacy_version" || return 0
+  # Compatibility shims are only for removed pre-current releases. A shim with
+  # a newer version could win an older manifest resolver and point back through
+  # `current`, creating a current -> shim -> current cycle.
+  semver_less_than "$legacy_version" "$PLUGIN_CACHE_VERSION" || return 0
+  [ "$legacy_root" != "$ROOT_DIR" ] || return 0
+  [ ! -e "$legacy_root" ] && [ ! -L "$legacy_root" ] || return 0
+  [ -x "$STABLE_BIN" ] || return 0
+
+  # If another process or the plugin manager wins this mkdir, it owns the path.
+  # Return immediately instead of cleaning anything beneath its directory.
+  mkdir "$legacy_root" 2>/dev/null || return 0
+  if mkdir "$legacy_root/bin" 2>/dev/null \
+     && printf '%s\n' "$STABLE_BIN" >"$legacy_root/$COMPAT_SHIM_MARKER" 2>/dev/null \
+     && ln -s "$STABLE_BIN" "$legacy_root/bin/agent-guard" 2>/dev/null; then
+    return 0
+  fi
+
+  # Clean up only paths this attempt could have created. A concurrent host
+  # install that populated the directory makes rmdir fail harmlessly.
+  rm -f "$legacy_root/$COMPAT_SHIM_MARKER" 2>/dev/null || :
+  rmdir "$legacy_root/bin" "$legacy_root" 2>/dev/null || :
+}
+
+# A current manifest resolver can enter the new binary while still passing an
+# old host root. Repair that exact root immediately so other commands already
+# loaded by the same host can use their original absolute path again.
+repair_legacy_host_roots() {
+  create_legacy_plugin_shim "${CLAUDE_PLUGIN_ROOT:-}"
+  create_legacy_plugin_shim "${PLUGIN_ROOT:-}"
+}
+
+stream_legacy_snapshot_text() {
+  stream_snapshot_dir=$1
+  stream_max_files=$2
+  stream_max_bytes=$3
+  stream_files=0
+  stream_bytes=0
+  for stream_snapshot in "$stream_snapshot_dir"/*; do
+    [ "$stream_files" -lt "$stream_max_files" ] || break
+    # -f follows symlinks, so reject links explicitly. FIFOs, devices, sockets,
+    # directories, and dangling links are never opened.
+    [ -f "$stream_snapshot" ] && [ ! -L "$stream_snapshot" ] || continue
+    stream_files=$((stream_files + 1))
+    # BSD wc pads counts with leading spaces; keep the last field.
+    stream_size=$(wc -c <"$stream_snapshot" 2>/dev/null) || continue
+    stream_size=${stream_size##* }
+    case $stream_size in
+      ''|*[!0-9]*) continue ;;
+    esac
+    [ "$stream_size" -le $((stream_max_bytes - stream_bytes)) ] || continue
+    stream_bytes=$((stream_bytes + stream_size))
+    stream_blocks=$(( (stream_size + 1023) / 1024 ))
+    dd if="$stream_snapshot" bs=1024 count="$stream_blocks" 2>/dev/null
+    printf '\n'
+  done
+}
+
+# Older Claude shell snapshots can be the only remaining record of a removed
+# cache version. Parse only plain regular files as text (never source them), and
+# bound each invocation by candidate files, total bytes, and versions.
+repair_legacy_shell_snapshots() {
+  [ -n "$PLUGIN_CACHE_BASE" ] && [ -n "${HOME:-}" ] || return 0
+  [ -x "$STABLE_BIN" ] || return 0
+  snapshot_dir=$HOME/.claude/shell-snapshots
+  [ -d "$snapshot_dir" ] || return 0
+
+  max_snapshot_files=32
+  max_snapshot_bytes=1048576
+  max_legacy_versions=32
+  max_snapshot_line_bytes=65536
+  max_prefix_candidates=128
+
+  # Stream all accepted files through one parser. This avoids launching awk per
+  # snapshot while dd still bounds a file that grows after the size check. The
+  # final block can over-read by at most 1,023 bytes per accepted file.
+  legacy_versions=$(
+    stream_legacy_snapshot_text \
+      "$snapshot_dir" "$max_snapshot_files" "$max_snapshot_bytes" |
+    awk -v prefix="$PLUGIN_CACHE_BASE/" -v current="$PLUGIN_CACHE_VERSION" \
+        -v max_versions="$max_legacy_versions" \
+        -v max_line_bytes="$max_snapshot_line_bytes" \
+        -v max_candidates="$max_prefix_candidates" '
+      function older(version, current, v, c, i) {
+        split(version, v, ".")
+        split(current, c, ".")
+        for (i = 1; i <= 3; i++) {
+          if (v[i] + 0 < c[i] + 0) return 1
+          if (v[i] + 0 > c[i] + 0) return 0
+        }
+        return 0
+      }
+      {
+        # A minified or corrupted snapshot line can contain a huge number of
+        # invalid cache prefixes. Skip oversized records and cap candidate
+        # inspections so repeated substr() calls remain strictly bounded.
+        if (length($0) > max_line_bytes) next
+        rest = $0
+        while ((at = index(rest, prefix)) > 0) {
+          candidates++
+          if (candidates > max_candidates) exit
+          rest = substr(rest, at + length(prefix))
+          if (match(rest, /^[0-9]+\.[0-9]+\.[0-9]+\/bin(\/agent-guard)?([^0-9A-Za-z._-]|$)/)) {
+            version = substr(rest, 1, index(rest, "/") - 1)
+            if (older(version, current) && !seen[version]++) {
+              print version
+              found++
+              if (found >= max_versions) exit
+            }
+          }
+          rest = substr(rest, 2)
+        }
+      }
+    ' 2>/dev/null
+  )
+  for legacy_version in $legacy_versions; do
+    create_legacy_plugin_shim "$PLUGIN_CACHE_BASE/$legacy_version"
+  done
+}
+
+repair_legacy_host_roots || :
 
 # Emit $1 as a safely single-quoted POSIX shell word, so a path with spaces (or,
 # rarely, an embedded quote) survives being baked into an emitted snippet.
@@ -2567,11 +2717,12 @@ hook_stop() {
 # triggers Claude-only setup guidance because command wrapping is default-on;
 # Codex remains silent because it does not use this shell boundary.
 #
-# SessionStart is non-mutating: it reports missing dependencies and directs the
-# host to the approval-gated setup skill. Claude also reports shell-wrapper
-# version drift; Codex ignores that unrelated shell boundary. The Codex variant
-# duplicates host-independent warnings in additionalContext so the model can act
-# on them; both hosts receive a user-facing systemMessage.
+# Aside from the bounded compatibility-shim repair performed before dispatch,
+# SessionStart reports missing dependencies and directs the host to the
+# approval-gated setup skill. Claude also reports shell-wrapper version drift;
+# Codex ignores that unrelated shell boundary. The Codex variant duplicates
+# host-independent warnings in additionalContext so the model can act on them;
+# both hosts receive a user-facing systemMessage.
 hook_session_start() {
   message=
   if ! hook_dependencies_ready || ! command -v git >/dev/null 2>&1; then
@@ -3167,6 +3318,9 @@ if [ -n "$AGENT_GUARD_RUNDIR" ]; then
 fi
 
 cmd=${1:-}
+case "$cmd" in
+  hook-session-start|shell-init|setup-shell|version) repair_legacy_shell_snapshots || : ;;
+esac
 case "$cmd" in
   hook-pre-tool) hook_pre_tool ;;
   hook-post-tool) hook_post_tool ;;
