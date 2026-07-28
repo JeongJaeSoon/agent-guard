@@ -1014,6 +1014,14 @@ filter_lockfile_records() {
     {
       kind = substr($0, 1, 1)
       line = substr($0, 3)
+      # Uppercase TOML kinds are context-free physical-record fragments. Their
+      # surrounding multiline-string state is unavailable, so leave them fully
+      # scannable instead of guessing that a checksum-looking field is
+      # structural. Full-file records use the lowercase kinds below.
+      if (kind ~ /^[CU]$/) {
+        print line
+        next
+      }
       if (kind != previous_kind) {
         toml_multiline = ""
         toml_skip_rest = 0
@@ -1104,6 +1112,15 @@ scan_file_text_direct() {
   return "$status"
 }
 
+# Edit/MultiEdit payloads contain only replacement fragments, not complete file
+# context. Structural checksum filtering is unsafe there because an unchanged
+# surrounding quote, multiline string, or earlier go.sum field is absent.
+scan_file_fragment_direct() {
+  label=$1
+  text=$3
+  scan_text_direct "$label" "$text"
+}
+
 # Scan status protocol, shared by every scan_* function and this dispatcher:
 #   0 clean, 1 a secret was found, 3 the scan could not run, other scanner error.
 # 3 exists because "I found a secret in your staged changes" and "I never got to
@@ -1139,8 +1156,8 @@ extract_added_lines() {
       if (name == "go.sum") return "g"
       if (name == "package-lock.json") return "p"
       if (name == "yarn.lock") return "y"
-      if (name == "Cargo.lock") return "c"
-      if (name == "uv.lock") return "u"
+      if (name == "Cargo.lock") return "C"
+      if (name == "uv.lock") return "U"
       return "-"
     }
     /^diff --git / { in_hunk = 0; path = ""; next }
@@ -1158,8 +1175,8 @@ extract_patch_added_lines() {
       if (name == "go.sum") return "g"
       if (name == "package-lock.json") return "p"
       if (name == "yarn.lock") return "y"
-      if (name == "Cargo.lock") return "c"
-      if (name == "uv.lock") return "u"
+      if (name == "Cargo.lock") return "C"
+      if (name == "uv.lock") return "U"
       return "-"
     }
     BEGIN { mode = "none"; in_hunk = 0 }
@@ -2249,19 +2266,19 @@ scan_proposed_write() {
     Edit)
       path=$(json_value '.tool_input.file_path // .tool_input.path // empty' "$input")
       content=$(json_value '.tool_input.new_string // empty' "$input")
-      scan_file_text_direct "proposed Edit content" "$path" "$content"
+      scan_file_fragment_direct "proposed Edit content" "$path" "$content"
       block_on_scan_status "$?" "proposed Edit contains secret-like values"
       ;;
     MultiEdit)
       path=$(json_value '.tool_input.file_path // .tool_input.path // empty' "$input")
       content=$(printf '%s' "$input" | jq -r '[.tool_input.edits[]?.new_string // empty] | join("\n")')
-      scan_file_text_direct "proposed MultiEdit content" "$path" "$content"
+      scan_file_fragment_direct "proposed MultiEdit content" "$path" "$content"
       block_on_scan_status "$?" "proposed MultiEdit contains secret-like values"
       ;;
     NotebookEdit)
       path=$(json_value '.tool_input.notebook_path // .tool_input.file_path // empty' "$input")
       content=$(json_value '.tool_input.new_source // empty' "$input")
-      scan_file_text_direct "proposed NotebookEdit content" "$path" "$content"
+      scan_file_fragment_direct "proposed NotebookEdit content" "$path" "$content"
       block_on_scan_status "$?" "proposed NotebookEdit contains secret-like values"
       ;;
     apply_patch)

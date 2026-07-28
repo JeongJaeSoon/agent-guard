@@ -3562,6 +3562,127 @@ else
   sed 's/^/  stderr: /' "$ERR"
 fi
 
+# Context-free mutation/diff fragments cannot safely inherit structural
+# lockfile checksum filtering. This scanner stub models a supported custom rule
+# that treats nested 64-hex and h1-shaped values after api_token as findings;
+# the bundled default rules do not independently flag these exact samples.
+LOCK_FRAGMENT_HEX=$(printf '%s%s' \
+  'b112c9dc389ca44de72cc0d3a732746a' \
+  '423354b9fffedbc467449a8601ea3269')
+LOCK_FRAGMENT_H1_BODY=$(awk 'BEGIN { for (i = 0; i < 43; i++) printf "A" }')
+LOCK_FRAGMENT_H1="h1:$LOCK_FRAGMENT_H1_BODY="
+LOCK_FRAGMENT_BIN="$TMP_ROOT/lockfile-fragment-bin"
+mkdir -p "$LOCK_FRAGMENT_BIN"
+cat >"$LOCK_FRAGMENT_BIN/gitleaks" <<'STUB'
+#!/bin/sh
+case "${1:-}" in
+  stdin)
+    input=$(cat)
+    if printf '%s\n' "$input" \
+      | grep -Eq 'api_token.*(checksum[[:space:]]*=[[:space:]]*"[0-9a-f]{64}"|hash[[:space:]]*=[[:space:]]*"sha256:[0-9a-f]{64}"|h1:[A-Za-z0-9+/]{43}=)'; then
+      printf '%s\n' 'Finding: REDACTED'
+      exit 1
+    fi
+    exit 0
+    ;;
+  version) printf '%s\n' '0.0.0-lock-fragment-test' ;;
+  *) exit 0 ;;
+esac
+STUB
+chmod +x "$LOCK_FRAGMENT_BIN/gitleaks"
+
+LOCK_FRAGMENT_REPO="$TMP_ROOT/lockfile-fragment-git-dir"
+mkdir -p "$LOCK_FRAGMENT_REPO"
+(
+  cd "$LOCK_FRAGMENT_REPO"
+  git init -q
+  git config user.email test@example.com
+  git config user.name "Agent Guard Tests"
+  printf '%s\n%s\n%s\n' 'note = """' baseline '"""' >Cargo.lock
+  git add Cargo.lock
+  git commit -q -m init
+  printf '%s\n%s\n%s\n%s\n' 'note = """' baseline \
+    "api_token = { checksum = \"$LOCK_FRAGMENT_HEX\" }" '"""' >Cargo.lock
+  git add Cargo.lock
+)
+(
+  cd "$LOCK_FRAGMENT_REPO"
+  AGENT_GUARD_GITLEAKS_BIN="$LOCK_FRAGMENT_BIN/gitleaks" \
+    "$PLUGIN_ROOT/bin/agent-guard" scan-staged
+) >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 1 ]; then
+  ok "scan-staged scans TOML fragments without guessing multiline-string context"
+else
+  not_ok "scan-staged blocks a checksum-shaped credential in an unchanged multiline string (expected 1, got $status)"
+fi
+
+lock_fragment="api_token = { checksum = \"$LOCK_FRAGMENT_HEX\" }"
+lock_edit_input=$(jq -nc --arg content "$lock_fragment" \
+  '{tool_name:"Edit",tool_input:{file_path:"Cargo.lock",new_string:$content}}')
+printf '%s' "$lock_edit_input" \
+  | AGENT_GUARD_GITLEAKS_BIN="$LOCK_FRAGMENT_BIN/gitleaks" \
+      "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "Edit scans a structural TOML-looking fragment conservatively"
+else
+  not_ok "Edit blocks a checksum-shaped credential without surrounding TOML context (expected 2, got $status)"
+fi
+
+lock_uv_fragment="api_token = { hash = \"sha256:$LOCK_FRAGMENT_HEX\" }"
+lock_uv_edit_input=$(jq -nc --arg content "$lock_uv_fragment" \
+  '{tool_name:"Edit",tool_input:{file_path:"uv.lock",new_string:$content}}')
+printf '%s' "$lock_uv_edit_input" \
+  | AGENT_GUARD_GITLEAKS_BIN="$LOCK_FRAGMENT_BIN/gitleaks" \
+      "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "Edit scans a structural uv.lock fragment conservatively"
+else
+  not_ok "Edit blocks a hash-shaped credential without surrounding uv.lock context (expected 2, got $status)"
+fi
+
+lock_go_fragment="api_token v1.2.3 $LOCK_FRAGMENT_H1"
+lock_go_edit_input=$(jq -nc --arg content "$lock_go_fragment" \
+  '{tool_name:"Edit",tool_input:{file_path:"go.sum",new_string:$content}}')
+printf '%s' "$lock_go_edit_input" \
+  | AGENT_GUARD_GITLEAKS_BIN="$LOCK_FRAGMENT_BIN/gitleaks" \
+      "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "Edit does not infer a complete go.sum record from a replacement fragment"
+else
+  not_ok "Edit preserves a checksum-shaped custom finding without earlier go.sum context (expected 2, got $status)"
+fi
+
+lock_multi_edit_input=$(jq -nc --arg content "$lock_fragment" \
+  '{tool_name:"MultiEdit",tool_input:{file_path:"Cargo.lock",edits:[{new_string:$content}]}}')
+printf '%s' "$lock_multi_edit_input" \
+  | AGENT_GUARD_GITLEAKS_BIN="$LOCK_FRAGMENT_BIN/gitleaks" \
+      "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "MultiEdit scans structural TOML-looking fragments conservatively"
+else
+  not_ok "MultiEdit blocks a checksum-shaped credential without surrounding TOML context (expected 2, got $status)"
+fi
+
+lock_fragment_patch=$(printf '%s\n%s\n%s\n%s\n%s\n' \
+  '*** Begin Patch' '*** Update File: Cargo.lock' '@@' \
+  "+$lock_fragment" '*** End Patch')
+lock_fragment_patch_input=$(jq -nc --arg patch "$lock_fragment_patch" \
+  '{tool_name:"apply_patch",tool_input:{patch:$patch}}')
+printf '%s' "$lock_fragment_patch_input" \
+  | AGENT_GUARD_GITLEAKS_BIN="$LOCK_FRAGMENT_BIN/gitleaks" \
+      "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "apply_patch scans structural TOML-looking fragments conservatively"
+else
+  not_ok "apply_patch blocks a checksum-shaped credential without surrounding TOML context (expected 2, got $status)"
+fi
+
 if [ -n "$REAL_GITLEAKS" ]; then
   # Synthetic PEM fixtures: gitleaks default rules match on the BEGIN/END
   # headers, so the body content is irrelevant for detection. We split the
@@ -4082,6 +4203,7 @@ if [ -n "$REAL_GITLEAKS" ]; then
   else
     not_ok "apply_patch allows a go.sum checksum (expected 0, got $status)"
   fi
+
 else
   say "real gitleaks not available; skipped real-gitleaks integration tests"
 fi
