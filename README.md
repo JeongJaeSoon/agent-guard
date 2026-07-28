@@ -403,9 +403,12 @@ agent-guard setup-shell --no-command-wrapping  # persistent opt-out
 For plugin installs, every execution refreshes a sibling
 `current/bin/agent-guard` symlink and `setup-shell` records only that stable
 path. Hooks and shell snippets use `current` first, then select the newest
-installed semantic-version directory if symlinks are unavailable. A session
-created by an older release can still have an absolute version path in its
-Claude shell snapshot or loaded hook command. On the first current-version
+installed semantic-version directory if symlinks are unavailable. That
+fallback applies only to new resolver invocations; it cannot repair an older
+session's already-loaded absolute path, which requires the symlink-backed
+compatibility shim described below. A session created by an older release can
+still have an absolute version path in its Claude shell snapshot or loaded hook
+command. On the first current-version
 `SessionStart`, `shell-init`, `setup-shell`, or `version` invocation, Agent Guard
 parses only plain, non-symlink snapshot files as text (never sources them).
 Each invocation examines at most 32 candidate files, 1 MiB of accepted input,
