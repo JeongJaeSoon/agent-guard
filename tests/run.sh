@@ -3970,6 +3970,69 @@ else
   printf '%s\n' "$post_out" | sed 's/^/  out: /'
 fi
 
+for display_closing in '}' ']' ')'; do
+  display_input=$(jq -nc \
+    --arg stdout "API_TOKEN=${DISPLAY_SECRET}${display_closing}" \
+    '{tool_name:"Bash",tool_input:{command:"x"},tool_response:
+      {stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+  post_tool_out "$display_input"
+  post_out=$(cat "$OUT")
+  display_expected="API_TOKEN=[REDACTED]${display_closing}"
+  if printf '%s' "$post_out" \
+    | jq -e --arg expected "$display_expected" \
+        '.hookSpecificOutput.updatedToolOutput.stdout == $expected' >/dev/null 2>&1; then
+    ok "post-tool preserves closing punctuation after an unquoted secret"
+  else
+    not_ok "post-tool keeps structural punctuation outside the redacted value"
+    printf '%s\n' "$post_out" | sed 's/^/  out: /'
+  fi
+done
+
+display_input=$(jq -nc \
+  --arg stdout 'PASSWORD=[REDACTED]' \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:
+    {stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$display_input"
+post_out=$(cat "$OUT")
+if [ -z "$post_out" ]; then
+  ok "post-tool keeps an existing redaction sentinel idempotent"
+else
+  not_ok "post-tool does not corrupt an existing redaction sentinel"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+display_input=$(jq -nc \
+  --arg stdout 'PASSWORD=[REDACTED]]evil-suffix' \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:
+    {stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$display_input"
+post_out=$(cat "$OUT")
+if printf '%s' "$post_out" \
+  | jq -e '.hookSpecificOutput.updatedToolOutput.stdout
+            == "PASSWORD=[REDACTED]"' >/dev/null 2>&1; then
+  ok "post-tool does not treat a redaction-prefix secret as sanitized"
+else
+  not_ok "post-tool keeps redaction-sentinel skipping narrowly scoped"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+for display_closing in '}' ']' ')'; do
+  display_input=$(jq -nc \
+    --arg stdout "API_TOKEN=${DISPLAY_SECRET}${display_closing}suffix-value" \
+    '{tool_name:"Bash",tool_input:{command:"x"},tool_response:
+      {stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+  post_tool_out "$display_input"
+  post_out=$(cat "$OUT")
+  if printf '%s' "$post_out" \
+    | jq -e '.hookSpecificOutput.updatedToolOutput.stdout
+              == "API_TOKEN=[REDACTED]"' >/dev/null 2>&1; then
+    ok "post-tool masks through punctuation inside an unquoted secret"
+  else
+    not_ok "post-tool does not expose a suffix after internal punctuation"
+    printf '%s\n' "$post_out" | sed 's/^/  out: /'
+  fi
+done
+
 DISPLAY_QUOTED_KEY=$(printf '%s%s' 'DATABASE_' 'PASSWORD')
 DISPLAY_QUOTED_HEAD=$(printf '%s%s' 'alpha-long-' 'value')
 DISPLAY_QUOTED_TAIL=$(printf '%s%s' 'omega-secret-' 'tail')
@@ -4545,6 +4608,111 @@ if [ "$exec_first_byte" = ff ] \
 else
   not_ok "exec keeps plaintext redaction byte-preserving"
   LC_ALL=C od -An -tx1 "$OUT" | sed 's/^/  hex: /'
+fi
+
+# Detection must also stay byte-exact when the invalid byte is part of the
+# assignment value rather than unrelated output.
+"$PLUGIN_ROOT/bin/agent-guard" exec -- sh -c \
+  'printf "PASSWORD=\"abc\377defghijklmnop\" status=ok\n"' >"$OUT" 2>/dev/null
+exec_out=$(LC_ALL=C sed -n '1p' "$OUT")
+if [ "$exec_out" = 'PASSWORD="[REDACTED]" status=ok' ]; then
+  ok "exec masks a secret containing a non-UTF-8 byte"
+else
+  not_ok "exec keeps secret detection byte-preserving"
+  LC_ALL=C od -An -tx1 "$OUT" | sed 's/^/  hex: /'
+fi
+
+exec_out=$("$PLUGIN_ROOT/bin/agent-guard" exec -- \
+  printf '%s\n' 'PASSWORD=[REDACTED]' 2>/dev/null)
+if [ "$exec_out" = 'PASSWORD=[REDACTED]' ]; then
+  ok "exec keeps an existing redaction sentinel idempotent"
+else
+  not_ok "exec does not corrupt an existing redaction sentinel"
+  printf '%s\n' "  out: $exec_out"
+fi
+
+"$PLUGIN_ROOT/bin/agent-guard" exec -- sh -c \
+  'printf "\377\nPASSWORD=[REDACTED]\n"' >"$OUT" 2>/dev/null
+exec_first_byte=$(LC_ALL=C od -An -tx1 "$OUT" | awk 'NR == 1 { print $1 }')
+exec_last_line=$(LC_ALL=C sed -n '2p' "$OUT")
+if [ "$exec_first_byte" = ff ] \
+   && [ "$exec_last_line" = 'PASSWORD=[REDACTED]' ]; then
+  ok "exec keeps a redaction sentinel idempotent on the raw byte path"
+else
+  not_ok "exec does not corrupt a redaction sentinel on the raw byte path"
+  LC_ALL=C od -An -tx1 "$OUT" | sed 's/^/  hex: /'
+fi
+
+INVALID_PRINTENV_VAL=$(printf 'abc\377defghijklmnop')
+DEMO_TOKEN="${INVALID_PRINTENV_VAL}" \
+  "$PLUGIN_ROOT/bin/agent-guard" exec -- printenv DEMO_TOKEN >"$OUT" 2>/dev/null
+if [ "$(cat "$OUT")" = '[REDACTED]' ]; then
+  ok "exec masks an invalid-byte printenv value by secret-bearing name"
+else
+  not_ok "exec does not leak an invalid-byte printenv value"
+  LC_ALL=C od -An -tx1 "$OUT" | sed 's/^/  hex: /'
+fi
+
+PRINTENV_PUBLIC='public-value' DEMO_TOKEN="${INVALID_PRINTENV_VAL}" \
+  "$PLUGIN_ROOT/bin/agent-guard" exec -- \
+    printenv DEMO_TOKEN PRINTENV_PUBLIC >"$OUT" 2>/dev/null
+if [ "$(cat "$OUT")" = '[REDACTED]' ]; then
+  ok "exec conservatively masks multi-name invalid-byte printenv output"
+else
+  not_ok "exec does not leak invalid bytes from multi-name printenv"
+  LC_ALL=C od -An -tx1 "$OUT" | sed 's/^/  hex: /'
+fi
+
+# One invalid byte can force the raw fallback. Bound secret-bearing assignment
+# dumps without hiding equally large benign binary-ish output.
+"$PLUGIN_ROOT/bin/agent-guard" exec -- sh -c '
+  printf "\377\n"
+  awk "BEGIN { for (i = 0; i < 5000; i++) print \"PASSWORD=value-1234567890-\" i }"
+' >"$OUT" 2>/dev/null
+if [ "$(cat "$OUT")" = '[REDACTED]' ]; then
+  ok "exec conservatively bounds oversized invalid-byte output"
+else
+  not_ok "exec bounds the invalid-byte redaction fallback"
+  LC_ALL=C wc -c "$OUT" | sed 's/^/  bytes: /'
+fi
+
+"$PLUGIN_ROOT/bin/agent-guard" exec -- sh -c '
+  printf "\377\n"
+  awk "BEGIN { for (i = 0; i < 70000; i++) printf \"x\" }"
+' >"$OUT" 2>/dev/null
+exec_first_byte=$(LC_ALL=C od -An -tx1 "$OUT" | awk 'NR == 1 { print $1 }')
+if [ "$exec_first_byte" = ff ] \
+   && [ "$(LC_ALL=C wc -c <"$OUT" | tr -d ' ')" -gt 65536 ] \
+   && ! grep -a -q '\[REDACTED\]' "$OUT"; then
+  ok "exec preserves oversized invalid-byte output without secret records"
+else
+  not_ok "exec does not over-mask oversized benign invalid-byte output"
+  LC_ALL=C wc -c "$OUT" | sed 's/^/  bytes: /'
+fi
+
+"$PLUGIN_ROOT/bin/agent-guard" exec -- sh -c '
+  printf "\377\n"
+  awk "BEGIN { for (i = 0; i < 5000; i++) print \"PASSWORD=[REDACTED]\" }"
+' >"$OUT" 2>/dev/null
+if [ "$(grep -ac '^PASSWORD=\[REDACTED\]$' "$OUT")" -eq 5000 ]; then
+  ok "exec keeps oversized invalid-byte redaction sentinels idempotent"
+else
+  not_ok "exec does not treat sanitized oversized output as a new secret"
+  LC_ALL=C wc -c "$OUT" | sed 's/^/  bytes: /'
+fi
+
+"$PLUGIN_ROOT/bin/agent-guard" exec -- sh -c '
+  printf "\377\n"
+  awk "BEGIN {
+    for (i = 0; i < 5000; i++)
+      print \"error: password: authentication is disabled\"
+  }"
+' >"$OUT" 2>/dev/null
+if [ "$(grep -ac '^error: password: authentication is disabled$' "$OUT")" -eq 5000 ]; then
+  ok "exec preserves oversized invalid-byte prose metadata"
+else
+  not_ok "exec does not over-mask oversized invalid-byte prose metadata"
+  LC_ALL=C wc -c "$OUT" | sed 's/^/  bytes: /'
 fi
 
 # `printenv NAME` emits a bare value. Preserve the variable-name context so a

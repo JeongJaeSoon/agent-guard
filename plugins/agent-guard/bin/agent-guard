@@ -2210,10 +2210,36 @@ frame_json_string_leaves() {
   '
 }
 
-# Read the RS-delimited, US-escaped leaf stream from frame_json_string_leaves.
-# Each leaf gets independent multiline quote state. Emits JSON-string records.
+# Frame one raw plaintext leaf without decoding it as UTF-8. This gives exec's
+# byte-oriented assignment pass the same collision-safe transport used for JSON
+# leaves while preserving invalid bytes inside a credential value.
+frame_plaintext_leaf() {
+  LC_ALL=C awk '
+    function emit_char(ch) {
+      if (ch == escape) printf "%s%s", escape, escape
+      else if (ch == boundary) printf "%s%s", escape, boundary
+      else printf "%s", ch
+    }
+    BEGIN {
+      boundary = sprintf("%c", 30)
+      escape = sprintf("%c", 31)
+    }
+    NR > 1 { emit_char("\n") }
+    {
+      for (i = 1; i <= length($0); i++) emit_char(substr($0, i, 1))
+    }
+    END { printf "%s", boundary }
+  '
+}
+
+# Read an RS-delimited, US-escaped leaf stream. Each leaf gets independent
+# multiline quote state. Emits JSON-string records by default, or raw framed
+# secret records for exec's byte-preserving plaintext pass. Probe mode instead
+# scans raw physical lines directly and exits on the first non-sanitized
+# assignment key, keeping oversized invalid-byte checks streaming and linear.
 secretish_env_values() {
-  awk '
+  record_mode=${1:-json}
+  LC_ALL=C awk -v record_mode="$record_mode" '
     BEGIN {
       core = "password|passwd|passphrase|db[_-]?pass(word)?|secret|secret[_-]?key|token|refresh[_-]?token|auth[_-]?token|session[_-]?key|api[_-]?key|access[_-]?key|private[_-]?key|signing[_-]?key|encryption[_-]?key|credential|client[_-]?secret|bearer|webhook"
       # Match assignment keys whose secret-bearing term is terminal or carries
@@ -2257,10 +2283,37 @@ secretish_env_values() {
       }
       return value
     }
-    function emit_secret(value) {
-      if (length(value) >= 4) print "\"" json_escape(value) "\""
+    function emit_framed(value, i, ch) {
+      for (i = 1; i <= length(value); i++) {
+        ch = substr(value, i, 1)
+        if (ch == escape) printf "%s%s", escape, escape
+        else if (ch == boundary) printf "%s%s", escape, boundary
+        else printf "%s", ch
+      }
+      printf "%s", boundary
     }
-    function emit_value(source, start, raw, quote, end, value) {
+    function already_redacted(value, marker, tail, i, ch) {
+      marker = "[REDACTED]"
+      if (substr(value, 1, length(marker)) != marker) return 0
+      tail = substr(value, length(marker) + 1)
+      for (i = 1; i <= length(tail); i++) {
+        ch = substr(tail, i, 1)
+        if (ch != "}" && ch != "]" && ch != ")") return 0
+      }
+      return 1
+    }
+    function emit_secret(value) {
+      if (already_redacted(value)) return
+      if (record_mode == "probe") {
+        if (!probe_found) print "x"
+        probe_found = 1
+        return
+      }
+      else if (length(value) < 4) return
+      else if (record_mode == "framed") emit_framed(value)
+      else print "\"" json_escape(value) "\""
+    }
+    function emit_value(source, start, raw, quote, end, value, ch) {
       raw = substr(source, start)
       sub(/^[ \t]+/, "", raw)
       quote = substr(raw, 1, 1)
@@ -2276,6 +2329,14 @@ secretish_env_values() {
       } else {
         value = raw
         sub(/[ \t,;].*$/, "", value)
+        if (already_redacted(value)) return 0
+        end = length(value)
+        while (end > 0) {
+          ch = substr(value, end, 1)
+          if (ch != "}" && ch != "]" && ch != ")") break
+          end--
+        }
+        value = substr(value, 1, end)
       }
       emit_secret(value)
       return 0
@@ -2346,6 +2407,10 @@ secretish_env_values() {
       open_value = ""
     }
     {
+      if (record_mode == "probe") {
+        if (!probe_found) scan_leaf($0)
+        next
+      }
       for (i = 1; i <= length($0); i++) {
         ch = substr($0, i, 1)
         if (escaped) {
@@ -2377,6 +2442,7 @@ secretish_env_values() {
 # state can never cross a stdout/stderr or array boundary.
 detect_output_secret_records() {
   response=$1
+  env_records=${2:-yes}
   {
     # ponytail: forks gitleaks once per matched tool output. Acceptable because
     # tool results reaching the hook are already harness-truncated; if a large
@@ -2395,9 +2461,11 @@ detect_output_secret_records() {
         rm -f "$report"
       fi
     fi
-    printf '%s' "$response" \
-      | frame_json_string_leaves 2>/dev/null \
-      | secretish_env_values
+    if [ "$env_records" = yes ]; then
+      printf '%s' "$response" \
+        | frame_json_string_leaves 2>/dev/null \
+        | secretish_env_values
+    fi
     # JWTs (three base64url segments; first two start `eyJ`). gitleaks' own JWT
     # rule is narrow; emit the whole compact token for literal redaction.
     printf '%s' "$response" \
@@ -2491,6 +2559,32 @@ detect_printenv_argument_secret_records() {
     | select(length >= 4)
     | select(. as $value | $output | contains($value))
   ' 2>/dev/null
+}
+
+# Invalid UTF-8 cannot round-trip through jq's env lookup, so its reconstructed
+# printenv value cannot be matched byte-for-byte. Detect secret-bearing requested
+# names without reading their values; exec then conservatively masks the captured
+# output instead of risking a bare credential leak.
+printenv_requests_secretish_name() {
+  [ "$#" -gt 1 ] || return 1
+  cmd_name=${1##*/}
+  [ "$cmd_name" = printenv ] || return 1
+  shift
+  [ "${1:-}" = "--" ] && shift
+  [ "$#" -gt 0 ] || return 1
+  {
+    for name do
+      case "$name" in
+        [A-Za-z_]*)
+          case "$name" in *[!A-Za-z0-9_]*) continue ;; esac
+          printf '%s=%s\n' "$name" agent_guard_printenv_probe
+          ;;
+      esac
+    done
+  } \
+    | frame_plaintext_leaf \
+    | secretish_env_values framed \
+    | grep -q .
 }
 
 # Replace every detected secret literal with a placeholder inside ANY string leaf
@@ -2788,6 +2882,65 @@ hook_session_start() {
 # Capture is BUFFERED, so this is for NON-INTERACTIVE info
 # commands (env / secret / config dumps), not TUIs or streaming programs.
 
+# Apply collision-safe framed secret records from $2 to plaintext $1,
+# de-duplicating and sorting longest-first before literal replacement.
+redact_plaintext_framed() {
+  text=$1
+  secret_file=$2
+  printf '%s' "$text" | LC_ALL=C awk -v secret_file="$secret_file" '
+    function feed_framed(line, i, ch) {
+      for (i = 1; i <= length(line); i++) {
+        ch = substr(line, i, 1)
+        if (escaped) {
+          secret = secret ch
+          escaped = 0
+        } else if (ch == escape) {
+          escaped = 1
+        } else if (ch == boundary) {
+          if (length(secret) > 0 && !seen[secret]) {
+            seen[secret] = 1
+            sec[++count] = secret
+          }
+          secret = ""
+        } else {
+          secret = secret ch
+        }
+      }
+      secret = secret "\n"
+    }
+    BEGIN {
+      boundary = sprintf("%c", 30)
+      escape = sprintf("%c", 31)
+      while ((status = getline line < secret_file) > 0) feed_framed(line)
+      close(secret_file)
+      for (i = 2; i <= count; i++) {
+        value = sec[i]
+        j = i - 1
+        while (j >= 1 && length(sec[j]) < length(value)) {
+          sec[j + 1] = sec[j]
+          j--
+        }
+        sec[j + 1] = value
+      }
+    }
+    { buf = (NR == 1 ? $0 : buf ORS $0) }
+    END {
+      for (i = 1; i <= count; i++) {
+        value = sec[i]
+        out = ""
+        at = index(buf, value)
+        while (at > 0) {
+          out = out substr(buf, 1, at - 1) "[REDACTED]"
+          buf = substr(buf, at + length(value))
+          at = index(buf, value)
+        }
+        buf = out buf
+      }
+      printf "%s", buf
+    }
+  '
+}
+
 # Literal (non-regex) replacement of every detected secret in $1 with [REDACTED],
 # processing longest-first so a shorter secret that is a prefix of a longer one
 # cannot strand the tail (mirrors the rationale in redact_tool_response_json).
@@ -2806,46 +2959,7 @@ redact_plaintext_literal() {
     return 1
   fi
 
-  printf '%s' "$text" | LC_ALL=C awk -v secret_file="$secret_file" '
-    function feed_framed(line, i, ch) {
-      for (i = 1; i <= length(line); i++) {
-        ch = substr(line, i, 1)
-        if (escaped) {
-          secret = secret ch
-          escaped = 0
-        } else if (ch == escape) {
-          escaped = 1
-        } else if (ch == boundary) {
-          if (length(secret) > 0) sec[++count] = secret
-          secret = ""
-        } else {
-          secret = secret ch
-        }
-      }
-      secret = secret "\n"
-    }
-    BEGIN {
-      boundary = sprintf("%c", 30)
-      escape = sprintf("%c", 31)
-      while ((status = getline line < secret_file) > 0) feed_framed(line)
-      close(secret_file)
-    }
-    { buf = (NR == 1 ? $0 : buf ORS $0) }
-    END {
-      for (i = 1; i <= count; i++) {
-        value = sec[i]
-        out = ""
-        at = index(buf, value)
-        while (at > 0) {
-          out = out substr(buf, 1, at - 1) "[REDACTED]"
-          buf = substr(buf, at + length(value))
-          at = index(buf, value)
-        }
-        buf = out buf
-      }
-      printf "%s", buf
-    }
-  '
+  redact_plaintext_framed "$text" "$secret_file"
   status=$?
   rm -f "$secret_file"
   return "$status"
@@ -2882,14 +2996,72 @@ do_exec() {
   # Secret-literal redaction (AGENT_GUARD_OUTPUT_REDACT, default mask). Fail-safe:
   # on any error the original output is preserved rather than swallowed.
   if output_redact_enabled; then
+    # Keep detection input tied to the original capture. The raw assignment pass
+    # below may insert [REDACTED], which must not itself become a new candidate.
     response=$(printf '%s' "$masked" | jq -Rs . 2>/dev/null) || response=''
-    secrets=$(
-      {
-        [ -z "$response" ] || detect_output_secret_records "$response"
-        detect_printenv_argument_secret_records "$response" "$@"
-      } 2>/dev/null \
-        | jq -sc 'unique | if length > 0 then . else empty end' 2>/dev/null
-    ) || secrets=''
+
+    # Scan assignment-shaped plaintext before jq-decoded records only when jq
+    # cannot round-trip the captured bytes. jq replaces invalid UTF-8 with
+    # U+FFFD, which would otherwise make that secret literal impossible to
+    # match. Valid text stays on the established single replacement path.
+    invalid_output=0
+    output_fully_masked=0
+    decoded=$(printf '%s' "$response" | jq -rj . 2>/dev/null) || decoded=''
+    if [ "$decoded" != "$masked" ]; then
+      invalid_output=1
+      if printenv_requests_secretish_name "$@"; then
+        masked='[REDACTED]'
+        output_fully_masked=1
+      else
+        raw_bytes=$(printf '%s' "$masked" | LC_ALL=C wc -c | tr -d ' ')
+        case "$raw_bytes" in
+          ''|*[!0-9]*) masked='[REDACTED]' ;;
+          *)
+            if [ "$raw_bytes" -gt 65536 ]; then
+              if printf '%s' "$masked" \
+                | secretish_env_values probe 2>/dev/null \
+                | grep -q .; then
+                masked='[REDACTED]'
+                output_fully_masked=1
+              fi
+            else
+              raw_secret_file=$(mktemp_file) || raw_secret_file=''
+              if [ -n "$raw_secret_file" ]; then
+                if printf '%s' "$masked" \
+                  | frame_plaintext_leaf \
+                  | secretish_env_values framed >"$raw_secret_file" 2>/dev/null \
+                  && [ -s "$raw_secret_file" ]; then
+                  r=$(redact_plaintext_framed \
+                    "$masked" "$raw_secret_file" 2>/dev/null)
+                  [ -n "$r" ] && masked=$r
+                fi
+                rm -f "$raw_secret_file"
+              fi
+            fi
+            ;;
+        esac
+      fi
+    fi
+
+    secrets=''
+    if [ "$output_fully_masked" -eq 0 ]; then
+      secrets=$(
+        {
+          if [ -n "$response" ]; then
+            if [ "$invalid_output" -eq 1 ]; then
+              # The raw pass already handled every assignment byte-exactly.
+              # Re-running the JSON env heuristic would only produce U+FFFD
+              # variants that cannot match the preserved plaintext.
+              detect_output_secret_records "$response" no
+            else
+              detect_output_secret_records "$response"
+            fi
+          fi
+          detect_printenv_argument_secret_records "$response" "$@"
+        } 2>/dev/null \
+          | jq -sc 'unique | if length > 0 then . else empty end' 2>/dev/null
+      ) || secrets=''
+    fi
     if [ -n "$secrets" ]; then
       r=$(redact_plaintext_literal "$masked" "$secrets" 2>/dev/null)
       [ -n "$r" ] && masked=$r
