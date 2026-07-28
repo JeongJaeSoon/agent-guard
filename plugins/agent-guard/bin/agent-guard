@@ -179,9 +179,14 @@ stream_legacy_snapshot_text() {
 # cache version. Parse only plain regular files as text (never source them), and
 # bound each invocation by candidate files, total bytes, and versions.
 repair_legacy_shell_snapshots() {
-  [ -n "$PLUGIN_CACHE_BASE" ] && [ -n "${HOME:-}" ] || return 0
+  [ -n "$PLUGIN_CACHE_BASE" ] || return 0
   [ -x "$STABLE_BIN" ] || return 0
-  snapshot_dir=$HOME/.claude/shell-snapshots
+  if [ -n "${CLAUDE_CONFIG_DIR:-}" ]; then
+    snapshot_dir=$CLAUDE_CONFIG_DIR/shell-snapshots
+  else
+    [ -n "${HOME:-}" ] || return 0
+    snapshot_dir=$HOME/.claude/shell-snapshots
+  fi
   [ -d "$snapshot_dir" ] || return 0
 
   max_snapshot_files=32
@@ -250,7 +255,10 @@ sh_squote() {
 GITLEAKS_CONFIG=${AGENT_GUARD_GITLEAKS_CONFIG:-"$ROOT_DIR/config/gitleaks.toml"}
 DENY_READ_PATHS=${AGENT_GUARD_DENY_READ_PATHS:-"$ROOT_DIR/config/deny-read-paths.txt"}
 DENY_BASH_PATTERNS=${AGENT_GUARD_DENY_BASH_PATTERNS:-"$ROOT_DIR/config/deny-bash-patterns.txt"}
-GITLEAKS_PRIVATE_BIN_DIR=${AGENT_GUARD_GITLEAKS_BIN_DIR:-${AGENT_GUARD_BIN_DIR:-$HOME/.agent-guard/bin}}
+GITLEAKS_PRIVATE_BIN_DIR=${AGENT_GUARD_GITLEAKS_BIN_DIR:-${AGENT_GUARD_BIN_DIR:-}}
+if [ -z "$GITLEAKS_PRIVATE_BIN_DIR" ] && [ -n "${HOME:-}" ]; then
+  GITLEAKS_PRIVATE_BIN_DIR=$HOME/.agent-guard/bin
+fi
 LIVE_PRE_TOOL_PROBE=AGENT_GUARD_LIVE_PRE_TOOL_PROBE
 LIVE_POST_TOOL_PROBE=AGENT_GUARD_LIVE_POST_TOOL_PROBE
 
@@ -314,7 +322,8 @@ resolve_gitleaks() {
     command -v gitleaks
     return 0
   fi
-  if [ -x "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks" ]; then
+  if [ -n "$GITLEAKS_PRIVATE_BIN_DIR" ] \
+     && [ -x "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks" ]; then
     printf '%s\n' "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks"
     return 0
   fi

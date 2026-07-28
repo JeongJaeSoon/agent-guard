@@ -5153,6 +5153,42 @@ else
   not_ok "legacy snapshot and hook recover (snapshot '$legacy_snapshot_after', hook status $status)"
 fi
 
+# Claude stores shell snapshots beneath CLAUDE_CONFIG_DIR when configured.
+# Honor that supported override even without HOME, and do not fall back to the
+# default ~/.claude tree while the override is active.
+CONFIG_HOME="$TESTTMP/config-home"
+CONFIG_DIR="$TESTTMP/custom-claude-config"
+CONFIG_CACHE="$CONFIG_DIR/plugins/cache/agent-guard/agent-guard"
+CONFIG_SNAPSHOT_DIR="$CONFIG_DIR/shell-snapshots"
+DEFAULT_SNAPSHOT_DIR="$CONFIG_HOME/.claude/shell-snapshots"
+mkdir -p "$CONFIG_CACHE/3.0.1/bin" \
+  "$CONFIG_SNAPSHOT_DIR" "$DEFAULT_SNAPSHOT_DIR"
+CONFIG_CACHE=$(CDPATH= cd -- "$CONFIG_CACHE" && pwd -P)
+cp "$PLUGIN_ROOT/bin/agent-guard" "$CONFIG_CACHE/3.0.1/bin/agent-guard"
+chmod +x "$CONFIG_CACHE/3.0.1/bin/agent-guard"
+printf '%s\n' "$CONFIG_CACHE/1.9.0/bin/agent-guard" \
+  >"$CONFIG_SNAPSHOT_DIR/custom"
+printf '%s\n' "$CONFIG_CACHE/1.8.0/bin/agent-guard" \
+  >"$DEFAULT_SNAPSHOT_DIR/default"
+
+env -u HOME CLAUDE_CONFIG_DIR="$CONFIG_DIR" \
+  "$CONFIG_CACHE/3.0.1/bin/agent-guard" version >/dev/null 2>&1
+if [ -f "$CONFIG_CACHE/1.9.0/.agent-guard-compat-shim" ] \
+   && [ "$(readlink "$CONFIG_CACHE/1.9.0/bin/agent-guard" 2>/dev/null)" = \
+     "$CONFIG_CACHE/current/bin/agent-guard" ]; then
+  ok "legacy migration honors CLAUDE_CONFIG_DIR without requiring HOME"
+else
+  not_ok "legacy migration scans the configured Claude snapshot directory"
+fi
+status=0
+HOME="$CONFIG_HOME" CLAUDE_CONFIG_DIR="$CONFIG_DIR" \
+  "$CONFIG_CACHE/3.0.1/bin/agent-guard" version >/dev/null 2>&1 || status=$?
+if [ "$status" -eq 0 ] && [ ! -e "$CONFIG_CACHE/1.8.0" ]; then
+  ok "CLAUDE_CONFIG_DIR prevents fallback scanning of ~/.claude snapshots"
+else
+  not_ok "legacy migration does not mix configured and default snapshot roots"
+fi
+
 # Snapshot repair accepts only bounded plain files. A FIFO must not block
 # startup, a symlink and oversized file must not be parsed, a newer version
 # must not become a cycle-capable shim, and the 32-version cap must stop within

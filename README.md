@@ -414,6 +414,8 @@ recreates a missing pre-current version path as a marked shim to `current`. A
 current resolver that receives an older host plugin root repairs that exact
 path immediately. Equal or newer version names are never shimmed, so they
 cannot outrank the real installation and form a `current` cycle.
+When `CLAUDE_CONFIG_DIR` is set, snapshot discovery uses its
+`shell-snapshots` directory instead of `~/.claude/shell-snapshots`.
 
 There is no host lifecycle callback that can run this migration at the instant
 the plugin manager deletes an old cache directory. Therefore an already-running

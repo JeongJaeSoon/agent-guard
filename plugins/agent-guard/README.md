@@ -59,9 +59,11 @@ invocation performs a bounded, text-only scan of plain, non-symlink Claude
 shell snapshots (at most 32 files, 1 MiB total, 64 KiB per line, 128 cache-path
 candidates, and 32 older versions) and recreates the missing executable as a
 marked shim to `current`. Equal or newer versions are never shimmed. No plugin
-lifecycle hook runs at cache deletion time, so an old session cannot self-heal
-until a current binary executes; a read-only cache, bounded-out record, or
-missing snapshot/host-root record requires restarting that session.
+lifecycle hook runs at cache deletion time. Snapshot discovery honors
+`CLAUDE_CONFIG_DIR/shell-snapshots` instead of the default
+`~/.claude/shell-snapshots`. An old session cannot self-heal until a current
+binary executes; a read-only cache, bounded-out record, or missing
+snapshot/host-root record requires restarting that session.
 Scanner infrastructure failures use
 `AGENT_GUARD_INFRA_FAILURE_MODE=open|closed` (`open` by default) and warn once
 per session. Secret detections always block.
