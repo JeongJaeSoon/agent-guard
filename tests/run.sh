@@ -3956,6 +3956,9 @@ fi
 # preserved, metadata keys with secret-ish prefixes are not values, and a prose
 # colon must not be interpreted as a YAML/JSON secret assignment.
 DISPLAY_SECRET=$(printf '%s%s' 'hunter2-' 'long-value')
+DISPLAY_SHARED_LITERAL=$(printf '%s%s' 'PASSWORD=' 'abc)')
+DISPLAY_SHARED_LINE=$(printf '%s API_TOKEN="%s" status=ok' \
+  "$DISPLAY_SHARED_LITERAL" "$DISPLAY_SHARED_LITERAL")
 display_input=$(jq -nc --arg stdout "DATABASE_PASSWORD=$DISPLAY_SECRET status=ok" \
   '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
 post_tool_out "$display_input"
@@ -4092,7 +4095,7 @@ else
 fi
 
 display_input=$(jq -nc \
-  --arg stdout 'PASSWORD=abc) API_TOKEN="PASSWORD=abc)" status=ok' \
+  --arg stdout "$DISPLAY_SHARED_LINE" \
   '{tool_name:"Bash",tool_input:{command:"x"},tool_response:
     {stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
 post_tool_out "$display_input"
@@ -4748,8 +4751,7 @@ else
 fi
 
 exec_out=$("$PLUGIN_ROOT/bin/agent-guard" exec -- \
-  printf '%s\n' \
-    'PASSWORD=abc) API_TOKEN="PASSWORD=abc)" status=ok' 2>/dev/null)
+  printf '%s\n' "$DISPLAY_SHARED_LINE" 2>/dev/null)
 if [ "$exec_out" = \
   'PASSWORD=[REDACTED]) API_TOKEN="[REDACTED]" status=ok' ]; then
   ok "exec keeps contextual and ordinary meanings for one literal"
@@ -4835,8 +4837,7 @@ else
 fi
 
 "$PLUGIN_ROOT/bin/agent-guard" exec -- sh -c \
-  'printf "\377\nPASSWORD=abc) API_TOKEN=\"PASSWORD=abc)\" status=ok\n"' \
-  >"$OUT" 2>/dev/null
+  'printf "\377\n%s\n" "$1"' _ "$DISPLAY_SHARED_LINE" >"$OUT" 2>/dev/null
 exec_first_byte=$(LC_ALL=C od -An -tx1 "$OUT" | awk 'NR == 1 { print $1 }')
 exec_last_line=$(LC_ALL=C sed -n '2p' "$OUT")
 if [ "$exec_first_byte" = ff ] \
