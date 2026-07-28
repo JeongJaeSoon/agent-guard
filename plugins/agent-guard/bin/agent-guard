@@ -2432,24 +2432,65 @@ detect_output_secrets() {
 # `printenv NAME` prints only the value, so the output loses the secret-bearing
 # variable name that secretish_env_values needs as context. Reconstruct that
 # context from simple variable-name arguments, then emit only the detected
-# values for literal redaction of the original bare output. This intentionally
-# ignores options and invalid names; the normal gitleaks scan still covers them.
+# values for literal redaction of the original bare output. GNU printenv emits
+# every present argument while BSD printenv emits only the first; compare the
+# captured output with both models before deciding which requested values were
+# actually emitted. This intentionally ignores options and invalid names; the
+# normal gitleaks scan still covers them.
 detect_printenv_argument_secret_records() {
+  response=$1
+  shift
   [ "$#" -gt 1 ] || return 0
   cmd_name=${1##*/}
   [ "$cmd_name" = printenv ] || return 0
   shift
-  for name in "$@"; do
-    case "$name" in
-      [A-Za-z_]* )
-        case "$name" in *[!A-Za-z0-9_]*) continue ;; esac
-        value=$(printenv "$name" 2>/dev/null) || continue
-        printf '%s=%s\n' "$name" "$value"
-        ;;
-    esac
-  done | jq -Rs . 2>/dev/null \
-    | frame_json_string_leaves 2>/dev/null \
-    | secretish_env_values
+  [ "${1:-}" = "--" ] && shift
+  [ "$#" -gt 0 ] || return 0
+  entries=$(jq -nc --args '
+    $ARGS.positional
+    | to_entries
+    | map(.value as $name
+          | {position: .key,
+             name: $name,
+             valid: ($name | test("^[A-Za-z_][A-Za-z0-9_]*$")),
+             present: (env[$name] != null),
+             value: (env[$name] // ""),
+             probe: ("agent_guard_printenv_probe_" + (.key | tostring))})
+  ' -- "$@" 2>/dev/null) || return 1
+  recognized=$(
+    printf '%s' "$entries" \
+      | jq -c '[.[] | select(.valid and .present) | (.name + "=" + .probe)]' \
+          2>/dev/null \
+      | frame_json_string_leaves 2>/dev/null \
+      | secretish_env_values \
+      | jq -sc 'unique' 2>/dev/null
+  ) || return 1
+  printf '%s' "$entries" \
+    | jq -c --argjson recognized "$recognized" --argjson output "$response" '
+    def trim_trailing_newlines: sub("\n+$"; "");
+    . as $entries
+    | [$entries[] | select(.valid and .present)] as $emitted
+    | ($emitted | map(.value) | join("\n") | trim_trailing_newlines) as $gnu_output
+    | (if (($entries | length) > 0
+             and $entries[0].valid and $entries[0].present)
+       then ($entries[0].value | trim_trailing_newlines)
+       else ""
+       end) as $bsd_output
+    | (($emitted[-1].position // -1)) as $gnu_last_position
+    | .[]
+    | select(.probe as $probe | $recognized | index($probe))
+    | if ($output == $gnu_output and $output != $bsd_output)
+      then (if .position == $gnu_last_position
+            then (.value | trim_trailing_newlines)
+            else .value
+            end)
+      elif ($output == $bsd_output and $output != $gnu_output)
+      then select(.position == 0) | (.value | trim_trailing_newlines)
+      else (.value, (.value | trim_trailing_newlines))
+      end
+    | select(length >= 4)
+    | select(. as $value | $output | contains($value))
+  ' 2>/dev/null
 }
 
 # Replace every detected secret literal with a placeholder inside ANY string leaf
@@ -2750,19 +2791,64 @@ hook_session_start() {
 # Literal (non-regex) replacement of every detected secret in $1 with [REDACTED],
 # processing longest-first so a shorter secret that is a prefix of a longer one
 # cannot strand the tail (mirrors the rationale in redact_tool_response_json).
-# jq string division is literal, so regex metacharacters and multiline values
-# remain exact matches. $2 is a de-duplicated JSON string array. Prints the
-# redacted text with no added trailing newline (the caller re-adds one).
+# The secret list is a de-duplicated JSON string array. jq orders and frames it;
+# byte-oriented awk applies literal index()/substr() replacement so unrelated
+# non-UTF-8 output is preserved. Prints the redacted text with no added trailing
+# newline (the caller re-adds one).
 redact_plaintext_literal() {
   text=$1
   secrets=$2
-  printf '%s' "$text" | jq -Rrsj --argjson secrets "$secrets" '
-    reduce ($secrets | sort_by(length) | reverse)[] as $secret (.;
-      if ($secret | length) > 0
-      then ((. / $secret) | join("[REDACTED]"))
-      else .
-      end)
+  secret_file=$(mktemp_file) || return 1
+  if ! printf '%s' "$secrets" \
+    | jq -c 'sort_by(length) | reverse' 2>/dev/null \
+    | frame_json_string_leaves >"$secret_file" 2>/dev/null; then
+    rm -f "$secret_file"
+    return 1
+  fi
+
+  printf '%s' "$text" | LC_ALL=C awk -v secret_file="$secret_file" '
+    function feed_framed(line, i, ch) {
+      for (i = 1; i <= length(line); i++) {
+        ch = substr(line, i, 1)
+        if (escaped) {
+          secret = secret ch
+          escaped = 0
+        } else if (ch == escape) {
+          escaped = 1
+        } else if (ch == boundary) {
+          if (length(secret) > 0) sec[++count] = secret
+          secret = ""
+        } else {
+          secret = secret ch
+        }
+      }
+      secret = secret "\n"
+    }
+    BEGIN {
+      boundary = sprintf("%c", 30)
+      escape = sprintf("%c", 31)
+      while ((status = getline line < secret_file) > 0) feed_framed(line)
+      close(secret_file)
+    }
+    { buf = (NR == 1 ? $0 : buf ORS $0) }
+    END {
+      for (i = 1; i <= count; i++) {
+        value = sec[i]
+        out = ""
+        at = index(buf, value)
+        while (at > 0) {
+          out = out substr(buf, 1, at - 1) "[REDACTED]"
+          buf = substr(buf, at + length(value))
+          at = index(buf, value)
+        }
+        buf = out buf
+      }
+      printf "%s", buf
+    }
   '
+  status=$?
+  rm -f "$secret_file"
+  return "$status"
 }
 
 do_exec() {
@@ -2800,7 +2886,7 @@ do_exec() {
     secrets=$(
       {
         [ -z "$response" ] || detect_output_secret_records "$response"
-        detect_printenv_argument_secret_records "$@"
+        detect_printenv_argument_secret_records "$response" "$@"
       } 2>/dev/null \
         | jq -sc 'unique | if length > 0 then . else empty end' 2>/dev/null
     ) || secrets=''

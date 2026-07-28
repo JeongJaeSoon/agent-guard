@@ -4533,6 +4533,20 @@ else
   printf '%s\n' "  out: $exec_out"
 fi
 
+# Plaintext replacement must not transcode unrelated non-UTF-8 bytes when a
+# later credential triggers redaction.
+"$PLUGIN_ROOT/bin/agent-guard" exec -- sh -c \
+  'printf "\377\nPASSWORD=%s\n" "$1"' _ "$EXEC_VAL" >"$OUT" 2>/dev/null
+exec_first_byte=$(LC_ALL=C od -An -tx1 "$OUT" | awk 'NR == 1 { print $1 }')
+if [ "$exec_first_byte" = ff ] \
+   && grep -a -q '\[REDACTED\]' "$OUT" \
+   && ! grep -a -Fq "$EXEC_VAL" "$OUT"; then
+  ok "exec preserves unrelated non-UTF-8 bytes while masking a secret"
+else
+  not_ok "exec keeps plaintext redaction byte-preserving"
+  LC_ALL=C od -An -tx1 "$OUT" | sed 's/^/  hex: /'
+fi
+
 # `printenv NAME` emits a bare value. Preserve the variable-name context so a
 # low-entropy or documented fake value under a secret-bearing key is still
 # masked by exec and by the Claude command wrapper.
@@ -4547,6 +4561,104 @@ if printf '%s' "$exec_printenv" | grep -q '\[REDACTED\]' \
 else
   not_ok "exec masks a bare printenv value using its variable-name context"
   printf '%s\n' "  out: $exec_printenv"
+fi
+
+exec_printenv=$(DEMO_TOKEN="${PRINTENV_VAL}" \
+  "$PLUGIN_ROOT/bin/agent-guard" exec -- printenv -- "$PRINTENV_KEY" 2>/dev/null)
+if [ "$exec_printenv" = '[REDACTED]' ]; then
+  ok "exec masks a bare printenv value after an option terminator"
+else
+  not_ok "exec preserves printenv variable context after an option terminator"
+  printf '%s\n' "  out: $exec_printenv"
+fi
+
+PRINTENV_QUOTED_KEY='TRUNCATED_PASSWORD'
+PRINTENV_QUOTED_VAL="\"${DISPLAY_QUOTED_HEAD}-${DISPLAY_QUOTED_TAIL}"
+exec_printenv=$(TRUNCATED_PASSWORD="$PRINTENV_QUOTED_VAL" \
+  "$PLUGIN_ROOT/bin/agent-guard" exec -- printenv "$PRINTENV_QUOTED_KEY" 2>/dev/null)
+if [ "$exec_printenv" = '[REDACTED]' ]; then
+  ok "exec masks a complete unterminated quoted printenv value"
+else
+  not_ok "exec matches the reconstructed printenv secret to the captured output"
+  printf '%s\n' "  out: $exec_printenv"
+fi
+
+PRINTENV_LEADING_VAL=$(printf '\n%s-%s' "$DISPLAY_QUOTED_HEAD" "$DISPLAY_QUOTED_TAIL")
+PRINTENV_INTERNAL_VAL=$(printf '%s\n%s' "$DISPLAY_QUOTED_HEAD" "$DISPLAY_QUOTED_TAIL")
+PRINTENV_TRAILING_VAL=$(printf '%s-%s\nx' "$DISPLAY_QUOTED_HEAD" "$DISPLAY_QUOTED_TAIL")
+PRINTENV_TRAILING_VAL=${PRINTENV_TRAILING_VAL%x}
+for PRINTENV_MULTILINE_VAL in \
+  "$PRINTENV_LEADING_VAL" "$PRINTENV_INTERNAL_VAL" "$PRINTENV_TRAILING_VAL"; do
+  exec_printenv=$(DEMO_TOKEN="$PRINTENV_MULTILINE_VAL" \
+    "$PLUGIN_ROOT/bin/agent-guard" exec -- printenv DEMO_TOKEN 2>/dev/null)
+  if [ "$exec_printenv" = '[REDACTED]' ]; then
+    ok "exec masks a newline-bearing printenv value as one complete secret"
+  else
+    not_ok "exec preserves the complete newline-bearing printenv value"
+    printf '%s\n' "  out: $exec_printenv"
+  fi
+done
+
+PRINTENV_SECOND_KEY='SECONDARY_PASSWORD'
+PRINTENV_SECOND_VAL="${DISPLAY_QUOTED_TAIL}-${DISPLAY_QUOTED_HEAD}"
+printenv_raw=$(DEMO_TOKEN="$PRINTENV_VAL" SECONDARY_PASSWORD="$PRINTENV_SECOND_VAL" \
+  printenv "$PRINTENV_KEY" AGENT_GUARD_TEST_UNSET_PASSWORD "$PRINTENV_SECOND_KEY" \
+  2>/dev/null)
+printenv_raw_status=$?
+exec_printenv=$(DEMO_TOKEN="$PRINTENV_VAL" SECONDARY_PASSWORD="$PRINTENV_SECOND_VAL" \
+  "$PLUGIN_ROOT/bin/agent-guard" exec -- \
+    printenv "$PRINTENV_KEY" AGENT_GUARD_TEST_UNSET_PASSWORD "$PRINTENV_SECOND_KEY" \
+    2>/dev/null)
+exec_printenv_status=$?
+printenv_gnu_output=$(printf '%s\n%s' "$PRINTENV_VAL" "$PRINTENV_SECOND_VAL")
+case "$printenv_raw" in
+  "$PRINTENV_VAL") exec_expected='[REDACTED]' ;;
+  "$printenv_gnu_output") exec_expected=$(printf '[REDACTED]\n[REDACTED]') ;;
+  *) exec_expected='unexpected-printenv-output' ;;
+esac
+if [ "$exec_printenv" = "$exec_expected" ] \
+   && [ "$exec_printenv_status" -eq "$printenv_raw_status" ]; then
+  ok "exec follows host printenv argument semantics and masks every emitted value"
+else
+  not_ok "exec preserves host printenv argument and exit-status behavior"
+  printf '%s\n' "  raw: $printenv_raw (status $printenv_raw_status)"
+  printf '%s\n' "  out: $exec_printenv (status $exec_printenv_status)"
+fi
+
+printenv_fixture_dir="$TESTTMP/gnu-printenv"
+mkdir -p "$printenv_fixture_dir"
+cat >"$printenv_fixture_dir/printenv" <<'STUB'
+#!/bin/sh
+status=0
+for name in "$@"; do
+  "$REAL_PRINTENV" "$name" || status=1
+done
+exit "$status"
+STUB
+chmod +x "$printenv_fixture_dir/printenv"
+PRINTENV_PREFIX_VAL=$(printf '%s\nx' "$DISPLAY_QUOTED_HEAD")
+PRINTENV_PREFIX_VAL=${PRINTENV_PREFIX_VAL%x}
+PRINTENV_PUBLIC_VAL=$DISPLAY_QUOTED_HEAD
+exec_printenv=$(REAL_PRINTENV=$(command -v printenv) \
+  FIRST_TOKEN="$PRINTENV_PREFIX_VAL" PUBLIC_INFO="$PRINTENV_PUBLIC_VAL" \
+  "$PLUGIN_ROOT/bin/agent-guard" exec -- \
+    "$printenv_fixture_dir/printenv" FIRST_TOKEN PUBLIC_INFO 2>/dev/null)
+exec_expected=$(printf '[REDACTED]\n%s' "$PRINTENV_PUBLIC_VAL")
+if [ "$exec_printenv" = "$exec_expected" ]; then
+  ok "exec does not over-mask a later benign printenv value with a stripped prefix"
+else
+  not_ok "exec strips trailing newlines only when the full secret was not emitted"
+  printf '%s\n' "  out: $exec_printenv"
+fi
+
+exec_printenv=$(EMPTY_PASSWORD='' \
+  "$PLUGIN_ROOT/bin/agent-guard" exec -- printenv EMPTY_PASSWORD 2>/dev/null)
+exec_printenv_status=$?
+if [ "$exec_printenv_status" -eq 0 ] && [ -z "$exec_printenv" ]; then
+  ok "exec leaves an empty requested printenv value empty"
+else
+  not_ok "exec preserves an empty printenv value and exit status"
+  printf '%s\n' "  out: $exec_printenv (status $exec_printenv_status)"
 fi
 
 # Exit-code passthrough: the wrapped command's status propagates.
