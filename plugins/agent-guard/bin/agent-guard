@@ -2202,6 +2202,16 @@ output_redact_enabled() {
 # Recall booster for the most common leak shape: `KEY=value`, `export KEY=value`
 # or `KEY: value` dumps whose key name looks secret-bearing. gitleaks misses most
 # of these (custom value formats), so emit the VALUE for literal redaction.
+frame_json_string_leaves() {
+  jq -rj '
+    .. | strings
+    | ((gsub("\u001f"; "\u001f\u001f") | gsub("\u001e"; "\u001f\u001e")),
+       "\u001e")
+  '
+}
+
+# Read the RS-delimited, US-escaped leaf stream from frame_json_string_leaves.
+# Each leaf gets independent multiline quote state. Emits JSON-string records.
 secretish_env_values() {
   awk '
     BEGIN {
@@ -2221,6 +2231,8 @@ secretish_env_values() {
       # form when the preceding token itself ends in a colon, which marks a
       # prose chain like `error: password: authentication is disabled`.
       colon_assignment = "(^[ \t]*|[,{][ \t]*|[ \t]+)[\"'\''`]?" key "[\"'\''`]?[ \t]*:"
+      boundary = sprintf("%c", 30)
+      escape = sprintf("%c", 31)
     }
     function quoted_end(raw, quote, i, slash_count, ch) {
       slash_count = 0
@@ -2235,6 +2247,19 @@ secretish_env_values() {
       }
       return 0
     }
+    function json_escape(value, i, ch, replacement) {
+      gsub(/\\/, "\\\\", value)
+      gsub(/"/, "\\\"", value)
+      for (i = 1; i < 32; i++) {
+        ch = sprintf("%c", i)
+        replacement = sprintf("\\u%04x", i)
+        gsub(ch, replacement, value)
+      }
+      return value
+    }
+    function emit_secret(value) {
+      if (length(value) >= 4) print "\"" json_escape(value) "\""
+    }
     function emit_value(source, start, raw, quote, end, value) {
       raw = substr(source, start)
       sub(/^[ \t]+/, "", raw)
@@ -2242,21 +2267,34 @@ secretish_env_values() {
       if (quote == "\"" || quote == "'\''" || quote == "`") {
         raw = substr(raw, 2)
         end = quoted_end(raw, quote)
-        # Truncated log lines can omit the closing quote. In that case the
-        # entire remaining value is secret-bearing; returning here would leak
-        # it unchanged.
-        if (end == 0)
-          value = raw
-        else
-          value = substr(raw, 1, end - 1)
+        if (end == 0) {
+          open_quote = quote
+          open_value = raw
+          return 1
+        }
+        value = substr(raw, 1, end - 1)
       } else {
         value = raw
         sub(/[ \t,;].*$/, "", value)
       }
-      if (length(value) >= 4) print value
+      emit_secret(value)
+      return 0
     }
-    {
-      rest = $0
+    function scan_line(line, rest, end, low, eq_start, eq_length, \
+                       colon_start, colon_length, start, matched_length, \
+                       chose_colon, skip, first) {
+      rest = line
+      if (open_quote != "") {
+        end = quoted_end(rest, open_quote)
+        if (end == 0) {
+          open_value = open_value "\n" rest
+          return
+        }
+        emit_secret(open_value "\n" substr(rest, 1, end - 1))
+        open_quote = ""
+        open_value = ""
+        rest = substr(rest, end + 1)
+      }
       while (length(rest) > 0) {
         low = tolower(rest)
         match(low, equals_assignment)
@@ -2289,18 +2327,56 @@ secretish_env_values() {
         # Emit exactly the quoted value or the next unquoted token. Continuing
         # after the delimiter finds multiple assignments on one log line while
         # leaving adjacent status text untouched.
-        if (!skip) emit_value(rest, start + matched_length)
+        if (!skip && emit_value(rest, start + matched_length)) break
         rest = substr(rest, start + matched_length)
       }
+    }
+    function scan_leaf(value, newline, line) {
+      open_quote = ""
+      open_value = ""
+      while ((newline = index(value, "\n")) > 0) {
+        line = substr(value, 1, newline - 1)
+        value = substr(value, newline + 1)
+        scan_line(line)
+      }
+      scan_line(value)
+      # Truncated output can omit a closing quote. Redact the leaf remainder.
+      if (open_quote != "") emit_secret(open_value)
+      open_quote = ""
+      open_value = ""
+    }
+    {
+      for (i = 1; i <= length($0); i++) {
+        ch = substr($0, i, 1)
+        if (escaped) {
+          leaf = leaf ch
+          escaped = 0
+        } else if (ch == escape) {
+          escaped = 1
+        } else if (ch == boundary) {
+          scan_leaf(leaf)
+          leaf = ""
+        } else {
+          leaf = leaf ch
+        }
+      }
+      # awk removes physical newlines. In the framed stream they are leaf data.
+      leaf = leaf "\n"
+    }
+    END {
+      # frame_json_string_leaves always terminates a leaf with RS. Ignore the
+      # one synthetic newline appended after the final record.
+      if (length(leaf) > 1) scan_leaf(leaf)
     }
   '
 }
 
-# Collect the literal secret strings present in $1 (the tool output text):
-# gitleaks findings (when gitleaks is available) plus the env-assignment
-# heuristic. Prints one secret per line; empty output means nothing to redact.
-detect_output_secrets() {
-  text=$1
+# Collect JSON-string records for the literal secrets present in the response
+# JSON ($1): gitleaks findings plus the env-assignment heuristic and compact
+# token rules. The env heuristic scans each string leaf independently so quote
+# state can never cross a stdout/stderr or array boundary.
+detect_output_secret_records() {
+  response=$1
   {
     # ponytail: forks gitleaks once per matched tool output. Acceptable because
     # tool results reaching the hook are already harness-truncated; if a large
@@ -2309,32 +2385,48 @@ detect_output_secrets() {
     if gl=$(resolve_gitleaks) && [ -f "$GITLEAKS_CONFIG" ]; then
       report=$(mktemp_file) || report=''
       if [ -n "$report" ]; then
-        printf '%s\n' "$text" \
+        printf '%s' "$response" \
+          | jq -rj 'if type == "string" then . else [.. | strings] | join("\n") end' \
           | "$gl" stdin --report-format json --report-path "$report" \
               --no-banner --config "$GITLEAKS_CONFIG" >/dev/null 2>&1
-        [ -s "$report" ] && jq -r '.[]?.Secret // empty' "$report" 2>/dev/null
+        [ -s "$report" ] \
+          && jq -c '.[]? | (.Secret // empty) | select(type == "string" and length > 0)' \
+              "$report" 2>/dev/null
         rm -f "$report"
       fi
     fi
-    printf '%s\n' "$text" | secretish_env_values
+    printf '%s' "$response" \
+      | frame_json_string_leaves 2>/dev/null \
+      | secretish_env_values
     # JWTs (three base64url segments; first two start `eyJ`). gitleaks' own JWT
     # rule is narrow; emit the whole compact token for literal redaction.
-    printf '%s\n' "$text" \
-      | grep -Eo 'eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+' 2>/dev/null || true
+    printf '%s' "$response" \
+      | jq -rj 'if type == "string" then . else [.. | strings] | join("\n") end' \
+      | grep -Eo 'eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+' 2>/dev/null \
+      | jq -Rc 'select(length > 0)' || true
     # Bearer credentials, from `Authorization: Bearer <tok>` or a bare
     # `Bearer <tok>`. Emit just the token (>=8 chars) so the redactor masks the
     # credential but leaves the `Authorization: Bearer ` label intact. The token
     # class includes base64/base64url payload chars (+ / = ~) so a value like
     # `Bearer abc+/def==` is matched whole, not truncated at the first `+`.
-    printf '%s\n' "$text" \
+    printf '%s' "$response" \
+      | jq -rj 'if type == "string" then . else [.. | strings] | join("\n") end' \
       | grep -Eio 'bearer[ \t]+[-A-Za-z0-9._~+/=]+' 2>/dev/null \
-      | awk '{ tok = $2; if (length(tok) >= 8) print tok }' || true
+      | awk '{ tok = $2; if (length(tok) >= 8) print tok }' \
+      | jq -Rc 'select(length > 0)' || true
     # The paired harmless sentinel proves that PostToolUse can rewrite a live
     # host result. It is deliberately not credential-shaped and is used only as
     # a dispatch probe; the ordinary smoke tests cover real detection rules.
-    printf '%s\n' "$text" \
-      | grep -Eo "$LIVE_POST_TOOL_PROBE" 2>/dev/null || true
-  } | awk 'NF' | sort -u
+    printf '%s' "$response" \
+      | jq -rj 'if type == "string" then . else [.. | strings] | join("\n") end' \
+      | grep -Eo "$LIVE_POST_TOOL_PROBE" 2>/dev/null \
+      | jq -Rc 'select(length > 0)' || true
+  }
+}
+
+detect_output_secrets() {
+  detect_output_secret_records "$1" \
+    | jq -sc 'unique | if length > 0 then . else empty end' 2>/dev/null
 }
 
 # `printenv NAME` prints only the value, so the output loses the secret-bearing
@@ -2342,7 +2434,7 @@ detect_output_secrets() {
 # context from simple variable-name arguments, then emit only the detected
 # values for literal redaction of the original bare output. This intentionally
 # ignores options and invalid names; the normal gitleaks scan still covers them.
-detect_printenv_argument_secrets() {
+detect_printenv_argument_secret_records() {
   [ "$#" -gt 1 ] || return 0
   cmd_name=${1##*/}
   [ "$cmd_name" = printenv ] || return 0
@@ -2355,28 +2447,43 @@ detect_printenv_argument_secrets() {
         printf '%s=%s\n' "$name" "$value"
         ;;
     esac
-  done | secretish_env_values
+  done | jq -Rs . 2>/dev/null \
+    | frame_json_string_leaves 2>/dev/null \
+    | secretish_env_values
 }
 
 # Replace every detected secret literal with a placeholder inside ANY string leaf
 # of the tool_response JSON ($1), preserving the original shape exactly
-# (updatedToolOutput must match the tool's native output shape). $2 is the
-# newline-separated secret list. Prints the redacted JSON, or nothing on failure.
+# (updatedToolOutput must match the tool's native output shape). $2 is a JSON
+# string array. Prints the redacted JSON, or nothing on failure.
 redact_tool_response_json() {
   resp=$1
   secrets=$2
-  secrets_json=$(printf '%s' "$secrets" | jq -R . 2>/dev/null | jq -s . 2>/dev/null) || return 1
-  [ -n "$secrets_json" ] || return 1
+  [ -n "$secrets" ] || return 1
   # Redacts string VALUES only; object KEYS are left untouched. Transforming keys
   # could collide two distinct keys onto one placeholder and silently drop an
   # entry; a secret appearing as a JSON key is a documented limitation (README).
-  printf '%s' "$resp" | jq -c --argjson secrets "$secrets_json" '
+  printf '%s' "$resp" | jq -c --argjson secrets "$secrets" '
     def walk(f): def w: if type == "object" then map_values(w)
                         elif type == "array" then map(w)
                         else . end | f; w;
     def redact($s): reduce ($s | sort_by(length) | reverse)[] as $x (.;
       if ($x | length) > 0 then ((. / $x) | join("[REDACTED]")) else . end);
     walk(if type == "string" then redact($secrets) else . end)
+  ' 2>/dev/null
+}
+
+# POSIX shell variables cannot preserve NUL bytes. Keep NUL-bearing JSON leaves
+# out of command substitution entirely and conservatively replace the whole leaf
+# before the ordinary literal detector runs.
+redact_nul_response_json() {
+  resp=$1
+  printf '%s' "$resp" | jq -c '
+    def walk(f): def w: if type == "object" then map_values(w)
+                        elif type == "array" then map(w)
+                        else . end | f; w;
+    walk(if type == "string" and contains("\u0000")
+         then "[REDACTED]" else . end)
   ' 2>/dev/null
 }
 
@@ -2437,14 +2544,12 @@ redact_tool_output() {
   did_secret=0; did_pii=0
 
   if [ "$secrets_on" -eq 1 ]; then
-    text=$(printf '%s' "$out" \
-      | jq -r 'if type == "string" then . else [.. | strings] | join("\n") end' 2>/dev/null)
-    if [ -n "$text" ]; then
-      secrets=$(detect_output_secrets "$text")
-      if [ -n "$secrets" ]; then
-        r=$(redact_tool_response_json "$out" "$secrets")
-        if [ -n "$r" ] && [ "$r" != "$out" ]; then out=$r; did_secret=1; fi
-      fi
+    r=$(redact_nul_response_json "$out")
+    if [ -n "$r" ] && [ "$r" != "$out" ]; then out=$r; did_secret=1; fi
+    secrets=$(detect_output_secrets "$out")
+    if [ -n "$secrets" ]; then
+      r=$(redact_tool_response_json "$out" "$secrets")
+      if [ -n "$r" ] && [ "$r" != "$out" ]; then out=$r; did_secret=1; fi
     fi
   fi
 
@@ -2645,39 +2750,18 @@ hook_session_start() {
 # Literal (non-regex) replacement of every detected secret in $1 with [REDACTED],
 # processing longest-first so a shorter secret that is a prefix of a longer one
 # cannot strand the tail (mirrors the rationale in redact_tool_response_json).
-# Uses awk index()/substr() so a secret containing regex metacharacters is matched
-# as a literal, never compiled as a pattern (sed/gsub would misfire). The secret
-# list ($2, newline-separated) is passed through the environment and read via
-# ENVIRON so awk does not process backslash escapes in the values. Prints the
+# jq string division is literal, so regex metacharacters and multiline values
+# remain exact matches. $2 is a de-duplicated JSON string array. Prints the
 # redacted text with no added trailing newline (the caller re-adds one).
 redact_plaintext_literal() {
   text=$1
   secrets=$2
-  printf '%s' "$text" | AG_SECRETS="$secrets" awk '
-    BEGIN {
-      n = split(ENVIRON["AG_SECRETS"], raw, "\n")
-      m = 0
-      for (i = 1; i <= n; i++) if (length(raw[i]) > 0) sec[++m] = raw[i]
-      # Sort secrets by descending length (longest-first).
-      for (i = 1; i <= m; i++)
-        for (j = i + 1; j <= m; j++)
-          if (length(sec[j]) > length(sec[i])) { t = sec[i]; sec[i] = sec[j]; sec[j] = t }
-    }
-    { buf = (NR == 1 ? $0 : buf ORS $0) }
-    END {
-      for (i = 1; i <= m; i++) {
-        s = sec[i]; slen = length(s)
-        if (slen == 0) continue
-        out = ""; idx = index(buf, s)
-        while (idx > 0) {
-          out = out substr(buf, 1, idx - 1) "[REDACTED]"
-          buf = substr(buf, idx + slen)
-          idx = index(buf, s)
-        }
-        buf = out buf
-      }
-      printf "%s", buf
-    }
+  printf '%s' "$text" | jq -Rrsj --argjson secrets "$secrets" '
+    reduce ($secrets | sort_by(length) | reverse)[] as $secret (.;
+      if ($secret | length) > 0
+      then ((. / $secret) | join("[REDACTED]"))
+      else .
+      end)
   '
 }
 
@@ -2712,11 +2796,13 @@ do_exec() {
   # Secret-literal redaction (AGENT_GUARD_OUTPUT_REDACT, default mask). Fail-safe:
   # on any error the original output is preserved rather than swallowed.
   if output_redact_enabled; then
+    response=$(printf '%s' "$masked" | jq -Rs . 2>/dev/null) || response=''
     secrets=$(
       {
-        detect_output_secrets "$masked"
-        detect_printenv_argument_secrets "$@"
-      } 2>/dev/null | awk 'NF' | sort -u
+        [ -z "$response" ] || detect_output_secret_records "$response"
+        detect_printenv_argument_secret_records "$@"
+      } 2>/dev/null \
+        | jq -sc 'unique | if length > 0 then . else empty end' 2>/dev/null
     ) || secrets=''
     if [ -n "$secrets" ]; then
       r=$(redact_plaintext_literal "$masked" "$secrets" 2>/dev/null)

@@ -4005,6 +4005,105 @@ else
   printf '%s\n' "$post_out" | sed 's/^/  out: /'
 fi
 
+for display_quote in '"' "'"; do
+  display_multiline=$(printf '%s=%s%s\n%s%s status=ok' \
+    "$DISPLAY_QUOTED_KEY" "$display_quote" "$DISPLAY_QUOTED_HEAD" \
+    "$DISPLAY_QUOTED_TAIL" "$display_quote")
+  display_input=$(jq -nc --arg stdout "$display_multiline" \
+    '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+  post_tool_out "$display_input"
+  post_out=$(cat "$OUT")
+  display_expected=$(printf '%s=%s[%s]%s status=ok' \
+    "$DISPLAY_QUOTED_KEY" "$display_quote" 'REDACTED' "$display_quote")
+  if printf '%s' "$post_out" \
+    | jq -e --arg expected "$display_expected" \
+        '.hookSpecificOutput.updatedToolOutput.stdout == $expected' >/dev/null 2>&1; then
+    ok "post-tool masks a multiline quoted assignment as one complete value"
+  else
+    not_ok "post-tool masks the complete multiline quoted assignment"
+    printf '%s\n' "$post_out" | sed 's/^/  out: /'
+  fi
+done
+
+display_input=$(jq -nc \
+  --arg stdout "${DISPLAY_QUOTED_KEY}=\"${DISPLAY_QUOTED_HEAD}" \
+  --arg stderr "API_TOKEN=${DISPLAY_QUOTED_TAIL}" \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:
+    {stdout:$stdout,stderr:$stderr,interrupted:false,isImage:false}}')
+post_tool_out "$display_input"
+post_out=$(cat "$OUT")
+if printf '%s' "$post_out" | jq -e \
+  --arg stdout "${DISPLAY_QUOTED_KEY}=\"[REDACTED]" \
+  '.hookSpecificOutput.updatedToolOutput.stdout == $stdout
+   and .hookSpecificOutput.updatedToolOutput.stderr == "API_TOKEN=[REDACTED]"' \
+  >/dev/null 2>&1; then
+  ok "post-tool keeps multiline quote state inside each object string leaf"
+else
+  not_ok "post-tool prevents multiline quote state from crossing object leaves"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+display_input=$(jq -nc \
+  --arg first "${DISPLAY_QUOTED_KEY}=\"${DISPLAY_QUOTED_HEAD}" \
+  --arg second "API_TOKEN=${DISPLAY_QUOTED_TAIL}" \
+  '{tool_name:"Read",tool_input:{file_path:"memo.txt"},tool_response:[$first,$second]}')
+post_tool_out "$display_input"
+post_out=$(cat "$OUT")
+if printf '%s' "$post_out" \
+  | jq -e '.hookSpecificOutput.updatedToolOutput
+            == ["DATABASE_PASSWORD=\"[REDACTED]","API_TOKEN=[REDACTED]"]' \
+      >/dev/null 2>&1; then
+  ok "post-tool keeps multiline quote state inside each array string leaf"
+else
+  not_ok "post-tool prevents multiline quote state from crossing array leaves"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+display_input=$(jq -nc --arg secret "API_TOKEN=${DISPLAY_QUOTED_TAIL}" '
+  {tool_name:"Read",tool_input:{file_path:"memo.txt"},
+   tool_response:([range(0;4000) | "x"] + [$secret])}')
+post_tool_out "$display_input"
+post_out=$(cat "$OUT")
+if printf '%s' "$post_out" \
+  | jq -e '.hookSpecificOutput.updatedToolOutput
+            | length == 4001 and .[0] == "x" and .[-1] == "API_TOKEN=[REDACTED]"' \
+      >/dev/null 2>&1; then
+  ok "post-tool scans thousands of sibling leaves in one framed stream"
+else
+  not_ok "post-tool keeps many-leaf secret scanning within the hook boundary"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+display_input=$(jq -nc --arg head "$DISPLAY_QUOTED_HEAD" --arg tail "$DISPLAY_QUOTED_TAIL" '
+  {tool_name:"Bash",tool_input:{command:"x"},tool_response:
+    {stdout:("PASSWORD=\"" + $head + "\u0000" + $tail + "\""),
+     stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$display_input"
+post_out=$(cat "$OUT")
+if printf '%s' "$post_out" \
+  | jq -e '.hookSpecificOutput.updatedToolOutput.stdout == "[REDACTED]"' \
+      >/dev/null 2>&1; then
+  ok "post-tool conservatively masks a NUL-bearing string leaf"
+else
+  not_ok "post-tool does not pass NUL-bearing string leaves through shell variables"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+display_input=$(jq -nc --arg head "$DISPLAY_QUOTED_HEAD" --arg tail "$DISPLAY_QUOTED_TAIL" '
+  {tool_name:"Bash",tool_input:{command:"x"},tool_response:
+    {stdout:("PASSWORD=\"" + $head + "\u001e" + $tail + "\" alpha status omega"),
+     stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$display_input"
+post_out=$(cat "$OUT")
+if printf '%s' "$post_out" \
+  | jq -e '.hookSpecificOutput.updatedToolOutput.stdout
+            == "PASSWORD=\"[REDACTED]\" alpha status omega"' >/dev/null 2>&1; then
+  ok "post-tool treats an ASCII RS inside a secret as data"
+else
+  not_ok "post-tool preserves benign text around an ASCII-RS-bearing secret"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
 display_backtick=$(printf '%s=`%s\\`%s` status=ok' \
   "$DISPLAY_QUOTED_KEY" "$DISPLAY_QUOTED_HEAD" "$DISPLAY_QUOTED_TAIL")
 display_input=$(jq -nc --arg stdout "$display_backtick" \
@@ -4420,6 +4519,17 @@ if printf '%s' "$exec_out" | grep -q '\[REDACTED\]' \
   ok "exec masks a secret in a command's output"
 else
   not_ok "exec masks a secret in a command's output"
+  printf '%s\n' "  out: $exec_out"
+fi
+
+EXEC_MULTILINE=$(printf 'PASSWORD="%s\n%s" status=ok' \
+  "$DISPLAY_QUOTED_HEAD" "$DISPLAY_QUOTED_TAIL")
+exec_out=$("$PLUGIN_ROOT/bin/agent-guard" exec -- printf '%s\n' "$EXEC_MULTILINE" 2>/dev/null)
+exec_expected='PASSWORD="[REDACTED]" status=ok'
+if [ "$exec_out" = "$exec_expected" ]; then
+  ok "exec masks a multiline quoted assignment as one complete value"
+else
+  not_ok "exec masks the complete multiline quoted assignment"
   printf '%s\n' "  out: $exec_out"
 fi
 
