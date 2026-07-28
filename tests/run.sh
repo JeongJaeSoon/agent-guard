@@ -3819,6 +3819,79 @@ if [ -n "$REAL_GITLEAKS" ]; then
     not_ok "lockfile filter preserves prefixed checksum-like fields byte-for-byte"
   fi
 
+  # Checksum-shaped text inside a quoted note or comment is not a structural
+  # lockfile field. It can itself be the value of a credential assignment, so
+  # neutralizing it would erase a real finding before gitleaks sees the record.
+  printf "note = 'api_token = { checksum = \"%s\" }'\n" \
+    "$LOCK_HEX" >"$LOCKFILE_FIXTURE_DIR/Cargo.lock"
+  printf "note = 'api_token = { hash = \"sha256:%s\" }'\n" \
+    "$LOCK_HEX" >"$LOCKFILE_FIXTURE_DIR/uv.lock"
+  printf 'note "api_token = { integrity sha512-%s }"\n' \
+    "$LOCK_SHA512" >"$LOCKFILE_FIXTURE_DIR/yarn.lock"
+  quoted_cargo_expected=$(cat "$LOCKFILE_FIXTURE_DIR/Cargo.lock")
+  quoted_uv_expected=$(cat "$LOCKFILE_FIXTURE_DIR/uv.lock")
+  quoted_yarn_expected=$(cat "$LOCKFILE_FIXTURE_DIR/yarn.lock")
+  quoted_cargo=$("$PLUGIN_ROOT/bin/agent-guard" filter-lockfile-hashes \
+    "$LOCKFILE_FIXTURE_DIR/Cargo.lock" "$LOCKFILE_FIXTURE_DIR/Cargo.lock")
+  quoted_uv=$("$PLUGIN_ROOT/bin/agent-guard" filter-lockfile-hashes \
+    "$LOCKFILE_FIXTURE_DIR/uv.lock" "$LOCKFILE_FIXTURE_DIR/uv.lock")
+  quoted_yarn=$("$PLUGIN_ROOT/bin/agent-guard" filter-lockfile-hashes \
+    "$LOCKFILE_FIXTURE_DIR/yarn.lock" "$LOCKFILE_FIXTURE_DIR/yarn.lock")
+  if [ "$quoted_cargo" = "$quoted_cargo_expected" ] \
+     && [ "$quoted_uv" = "$quoted_uv_expected" ] \
+     && [ "$quoted_yarn" = "$quoted_yarn_expected" ]; then
+    ok "lockfile filter preserves checksum-shaped text inside quoted values"
+  else
+    not_ok "lockfile filter does not treat quoted checksum text as structural fields"
+  fi
+
+  LOCK_CONTEXT_DIR="$TMP_ROOT/lockfile-context-dir"
+  mkdir -p "$LOCK_CONTEXT_DIR"
+  {
+    printf "note = 'api_token = { checksum = \"%s\" }', checksum = \"%s\"\n" \
+      "$LOCK_HEX" "$LOCK_HEX"
+    printf 'note = "quoted%s", checksum = "%s"\n' "\\\\" "$LOCK_HEX"
+    printf 'note = "quoted%s", checksum = "%s"\n' "\\" "$LOCK_HEX"
+  } >"$LOCK_CONTEXT_DIR/Cargo.lock"
+  context_filtered=$("$PLUGIN_ROOT/bin/agent-guard" filter-lockfile-hashes \
+    "$LOCK_CONTEXT_DIR/Cargo.lock" "$LOCK_CONTEXT_DIR/Cargo.lock")
+  context_expected=$(printf "note = 'api_token = { checksum = \"%s\" }', checksum = \"CHECKSUM\"\nnote = \"quoted%s\", checksum = \"CHECKSUM\"\nnote = \"quoted%s\", checksum = \"%s\"" \
+    "$LOCK_HEX" "\\\\" "\\" "$LOCK_HEX")
+  if [ "$context_filtered" = "$context_expected" ]; then
+    ok "lockfile filter continues after quoted text and honors backslash parity"
+  else
+    not_ok "lockfile quote context preserves odd escapes and finds later real fields"
+  fi
+
+  LOCK_MULTILINE_DIR="$TMP_ROOT/lockfile-multiline-dir"
+  mkdir -p "$LOCK_MULTILINE_DIR"
+  {
+    printf '%s\n' 'note = """'
+    printf 'api_token = { checksum = "%s" }\n' "$LOCK_HEX"
+    printf '%s\n' '"""'
+    printf 'checksum = "%s"\n' "$LOCK_HEX"
+  } >"$LOCK_MULTILINE_DIR/Cargo.lock"
+  {
+    printf "%s\n" "note = '''"
+    printf 'api_token = { hash = "sha256:%s" }\n' "$LOCK_HEX"
+    printf "%s\n" "'''"
+    printf 'hash = "sha256:%s"\n' "$LOCK_HEX"
+  } >"$LOCK_MULTILINE_DIR/uv.lock"
+  multiline_cargo=$("$PLUGIN_ROOT/bin/agent-guard" filter-lockfile-hashes \
+    "$LOCK_MULTILINE_DIR/Cargo.lock" "$LOCK_MULTILINE_DIR/Cargo.lock")
+  multiline_uv=$("$PLUGIN_ROOT/bin/agent-guard" filter-lockfile-hashes \
+    "$LOCK_MULTILINE_DIR/uv.lock" "$LOCK_MULTILINE_DIR/uv.lock")
+  multiline_cargo_expected=$(printf 'note = """\napi_token = { checksum = "%s" }\n"""\nchecksum = "CHECKSUM"' \
+    "$LOCK_HEX")
+  multiline_uv_expected=$(printf "note = '''\napi_token = { hash = \"sha256:%s\" }\n'''\nhash = \"sha256:CHECKSUM\"" \
+    "$LOCK_HEX")
+  if [ "$multiline_cargo" = "$multiline_cargo_expected" ] \
+     && [ "$multiline_uv" = "$multiline_uv_expected" ]; then
+    ok "lockfile filter preserves TOML multiline strings across physical records"
+  else
+    not_ok "lockfile filter keeps multiline basic and literal string content scannable"
+  fi
+
   # Use shapes that gitleaks actually recognizes to prove the exact-boundary
   # guard does not create a bypass in an allowlisted path.
   for lock_negative in yarn-checksum yarn-spaced-checksum cargo-checksum; do

@@ -824,44 +824,201 @@ filter_lockfile_records() {
     function replace_match(line, replacement) {
       return substr(line, 1, RSTART - 1) replacement substr(line, RSTART + RLENGTH)
     }
-    function replace_fields(line, field, suffix, key, replacement,
-                            result, pattern, matched, key_at, field_tail,
-                            field_length, suffix_text, full_start, full_length,
-                            first) {
-      result = ""
-      first = 1
-      while (1) {
-        pattern = (first ? field_prefix : structural_prefix) field suffix
-        if (!match(line, pattern)) break
-        full_start = RSTART
-        full_length = RLENGTH
-        matched = substr(line, RSTART, RLENGTH)
-        key_at = index(matched, key)
-        if (key_at == 0) return result line
-        field_tail = substr(matched, key_at)
-        if (!match(field_tail, "^" field)) return result line
-        field_length = RLENGTH
-        suffix_text = substr(field_tail, field_length + 1)
-        result = result substr(line, 1, full_start - 1) \
-          substr(matched, 1, key_at - 1) replacement
-        # Keep the delimiter in the remaining input. Later matches must begin
-        # at a structural comma/brace, never at arbitrary whitespace that
-        # follows an attacker-controlled key phrase.
-        line = suffix_text substr(line, full_start + full_length)
-        first = 0
+    function structured_delimiter(line, at, kind, n, ch) {
+      n = length(line)
+      if (kind == "y")
+        return at > n || substr(line, at, 1) ~ /[[:space:]]/
+      while (at <= n && substr(line, at, 1) ~ /[[:space:]]/) at++
+      return at > n || substr(line, at, 1) == "," || substr(line, at, 1) == "}"
+    }
+    function field_replacement(line, at, kind, probe) {
+      # All supported checksum fields are shorter than this bounded lookahead.
+      # Excessive inter-token whitespace is left untouched and scanned
+      # conservatively instead of making candidate search depend on line size.
+      probe = substr(line, at, 256)
+      replacement_length = 0
+      replacement_text = ""
+      if (kind == "p") {
+        if (match(probe, "^\"integrity\"[[:space:]]*:[[:space:]]*\"" sri "\"")) {
+          replacement_length = RLENGTH
+          replacement_text = "\"integrity\": \"CHECKSUM\""
+        }
+      } else if (kind == "y") {
+        if (match(probe, "^integrity[[:space:]]+" sri)) {
+          replacement_length = RLENGTH
+          replacement_text = "integrity CHECKSUM"
+        } else if (match(probe, "^checksum:[[:space:]]*[0-9a-f]{64}")) {
+          replacement_length = RLENGTH
+          replacement_text = "checksum: CHECKSUM"
+        }
+      } else if (kind == "c") {
+        if (match(probe, "^checksum[[:space:]]*=[[:space:]]*\"[0-9a-f]{64}\"")) {
+          replacement_length = RLENGTH
+          replacement_text = "checksum = \"CHECKSUM\""
+        }
+      } else if (kind == "u") {
+        if (match(probe, "^hash[[:space:]]*=[[:space:]]*\"sha256:[0-9a-f]{64}\"")) {
+          replacement_length = RLENGTH
+          replacement_text = "hash = \"sha256:CHECKSUM\""
+        }
       }
-      return result line
+      if (replacement_length \
+          && !structured_delimiter(line, at + replacement_length, kind)) {
+        replacement_length = 0
+        replacement_text = ""
+      }
+      return replacement_length
+    }
+    function emit_structural_fields(line, kind,
+                                    encoded, char_count, i, ch, quote, escaped,
+                                    field_allowed, ml_escaped, triple, chunk,
+                                    chars, replacements, skips) {
+      char_count = length(line)
+      if (toml_skip_rest || char_count > max_structured_line_chars \
+          || index(line, char_separator)) {
+        # Oversized/invalid records stay fully scannable. Their quote state is
+        # intentionally not guessed; after one such TOML record, conservatively
+        # skip neutralization for the rest of that file.
+        if (kind == "c" || kind == "u") toml_skip_rest = 1
+        print line
+        return
+      }
+      encoded = line
+      gsub(/./, "&" char_separator, encoded)
+      split(encoded, chars, char_separator)
+      quote = ""
+      escaped = 0
+      field_allowed = 1
+      ml_escaped = 0
+      i = 1
+      while (i <= char_count) {
+        ch = chars[i]
+
+        # TOML multiline basic/literal strings span physical records. Preserve
+        # their content verbatim until an unescaped matching triple delimiter.
+        if ((kind == "c" || kind == "u") && toml_multiline != "") {
+          field_allowed = 0
+          triple = chars[i] chars[i + 1] chars[i + 2]
+          if (toml_multiline == "\"") {
+            if (ch == "\\") {
+              ml_escaped = !ml_escaped
+              i++
+              continue
+            }
+            if (triple == triple_double && !ml_escaped) {
+              i += 3
+              toml_multiline = ""
+              ml_escaped = 0
+              continue
+            }
+            ml_escaped = 0
+          } else if (triple == triple_single) {
+            i += 3
+            toml_multiline = ""
+            continue
+          }
+          i++
+          continue
+        }
+
+        if (quote != "") {
+          if (quote == "\"" && ch == "\\") {
+            escaped = !escaped
+            i++
+            continue
+          }
+          if (ch == quote && !escaped) quote = ""
+          escaped = 0
+          i++
+          continue
+        }
+
+        # JSON has no comments or single-quoted strings. TOML/Yarn comments
+        # consume the remainder of a record and must stay fully scannable.
+        if (kind != "p" && ch == "#") {
+          break
+        }
+
+        if (field_allowed \
+            && ((kind == "p" && ch == "\"") \
+                || (kind == "y" && (ch == "i" || ch == "c")) \
+                || (kind == "c" && ch == "c") \
+                || (kind == "u" && ch == "h")) \
+            && field_replacement(line, i, kind)) {
+          replacements[i] = replacement_text
+          skips[i] = replacement_length
+          i += replacement_length
+          field_allowed = 0
+          continue
+        }
+
+        if ((kind == "c" || kind == "u") \
+            && chars[i] chars[i + 1] chars[i + 2] == triple_double) {
+          i += 3
+          toml_multiline = "\""
+          field_allowed = 0
+          continue
+        }
+        if ((kind == "c" || kind == "u") \
+            && chars[i] chars[i + 1] chars[i + 2] == triple_single) {
+          i += 3
+          toml_multiline = single_quote
+          field_allowed = 0
+          continue
+        }
+        if (ch == "\"" || (kind != "p" && ch == single_quote)) {
+          quote = ch
+          escaped = 0
+          field_allowed = 0
+          i++
+          continue
+        }
+
+        if (ch == "{" || ch == ",")
+          field_allowed = 1
+        else if (ch !~ /[[:space:]]/)
+          field_allowed = 0
+        i++
+      }
+
+      # Emit in bounded chunks. Repeatedly appending an unbounded record is
+      # quadratic in some POSIX awks, even when parsing itself is single-pass.
+      chunk = ""
+      i = 1
+      while (i <= char_count) {
+        if (i in replacements) {
+          chunk = chunk replacements[i]
+          i += skips[i]
+        } else {
+          chunk = chunk chars[i]
+          i++
+        }
+        if (length(chunk) >= 4096) {
+          printf "%s", chunk
+          chunk = ""
+        }
+      }
+      print chunk
     }
     BEGIN {
-      field_prefix = "(^[[:space:]]*|[,{][[:space:]]*)"
-      structural_prefix = "[,{][[:space:]]*"
-      structured_suffix = "[[:space:]]*([,}]|$)"
-      scalar_suffix = "([[:space:]]|$)"
       sri = "(sha1-[A-Za-z0-9+\\/]{27}=|sha256-[A-Za-z0-9+\\/]{43}=|sha384-[A-Za-z0-9+\\/]{64}|sha512-[A-Za-z0-9+\\/]{86}==)"
+      single_quote = "'\''"
+      triple_single = single_quote single_quote single_quote
+      triple_double = "\"\"\""
+      char_separator = sprintf("%c", 28)
+      max_structured_line_chars = 131072
+      previous_kind = ""
+      toml_multiline = ""
+      toml_skip_rest = 0
     }
     {
       kind = substr($0, 1, 1)
       line = substr($0, 3)
+      if (kind != previous_kind) {
+        toml_multiline = ""
+        toml_skip_rest = 0
+        previous_kind = kind
+      }
       if (kind == "g") {
         # Only the third go.sum field is a checksum. A module path may itself
         # contain an h1-shaped secret and must remain visible to gitleaks.
@@ -872,15 +1029,10 @@ filter_lockfile_records() {
               && match(go_tail, /^h1:[A-Za-z0-9+\/]{43}=/))
             line = go_prefix replace_match(go_tail, "h1:CHECKSUM")
         }
-      } else if (kind == "p")
-        line = replace_fields(line, "\"integrity\"[[:space:]]*:[[:space:]]*\"" sri "\"", structured_suffix, "\"integrity\"", "\"integrity\": \"CHECKSUM\"")
-      else if (kind == "y") {
-        line = replace_fields(line, "integrity[[:space:]]+" sri, scalar_suffix, "integrity", "integrity CHECKSUM")
-        line = replace_fields(line, "checksum:[[:space:]]*[0-9a-f]{64}", scalar_suffix, "checksum", "checksum: CHECKSUM")
-      } else if (kind == "c")
-        line = replace_fields(line, "checksum[[:space:]]*=[[:space:]]*\"[0-9a-f]{64}\"", structured_suffix, "checksum", "checksum = \"CHECKSUM\"")
-      else if (kind == "u")
-        line = replace_fields(line, "hash[[:space:]]*=[[:space:]]*\"sha256:[0-9a-f]{64}\"", structured_suffix, "hash", "hash = \"sha256:CHECKSUM\"")
+      } else {
+        emit_structural_fields(line, kind)
+        next
+      }
       print line
     }
   '
