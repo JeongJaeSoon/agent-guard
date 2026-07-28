@@ -4574,7 +4574,7 @@ fi
 
 PRINTENV_QUOTED_KEY='TRUNCATED_PASSWORD'
 PRINTENV_QUOTED_VAL="\"${DISPLAY_QUOTED_HEAD}-${DISPLAY_QUOTED_TAIL}"
-exec_printenv=$(TRUNCATED_PASSWORD="$PRINTENV_QUOTED_VAL" \
+exec_printenv=$(TRUNCATED_PASSWORD="${PRINTENV_QUOTED_VAL}" \
   "$PLUGIN_ROOT/bin/agent-guard" exec -- printenv "$PRINTENV_QUOTED_KEY" 2>/dev/null)
 if [ "$exec_printenv" = '[REDACTED]' ]; then
   ok "exec masks a complete unterminated quoted printenv value"
@@ -4589,7 +4589,7 @@ PRINTENV_TRAILING_VAL=$(printf '%s-%s\nx' "$DISPLAY_QUOTED_HEAD" "$DISPLAY_QUOTE
 PRINTENV_TRAILING_VAL=${PRINTENV_TRAILING_VAL%x}
 for PRINTENV_MULTILINE_VAL in \
   "$PRINTENV_LEADING_VAL" "$PRINTENV_INTERNAL_VAL" "$PRINTENV_TRAILING_VAL"; do
-  exec_printenv=$(DEMO_TOKEN="$PRINTENV_MULTILINE_VAL" \
+  exec_printenv=$(DEMO_TOKEN="${PRINTENV_MULTILINE_VAL}" \
     "$PLUGIN_ROOT/bin/agent-guard" exec -- printenv DEMO_TOKEN 2>/dev/null)
   if [ "$exec_printenv" = '[REDACTED]' ]; then
     ok "exec masks a newline-bearing printenv value as one complete secret"
@@ -4601,11 +4601,11 @@ done
 
 PRINTENV_SECOND_KEY='SECONDARY_PASSWORD'
 PRINTENV_SECOND_VAL="${DISPLAY_QUOTED_TAIL}-${DISPLAY_QUOTED_HEAD}"
-printenv_raw=$(DEMO_TOKEN="$PRINTENV_VAL" SECONDARY_PASSWORD="$PRINTENV_SECOND_VAL" \
+printenv_raw=$(DEMO_TOKEN="${PRINTENV_VAL}" SECONDARY_PASSWORD="${PRINTENV_SECOND_VAL}" \
   printenv "$PRINTENV_KEY" AGENT_GUARD_TEST_UNSET_PASSWORD "$PRINTENV_SECOND_KEY" \
   2>/dev/null)
 printenv_raw_status=$?
-exec_printenv=$(DEMO_TOKEN="$PRINTENV_VAL" SECONDARY_PASSWORD="$PRINTENV_SECOND_VAL" \
+exec_printenv=$(DEMO_TOKEN="${PRINTENV_VAL}" SECONDARY_PASSWORD="${PRINTENV_SECOND_VAL}" \
   "$PLUGIN_ROOT/bin/agent-guard" exec -- \
     printenv "$PRINTENV_KEY" AGENT_GUARD_TEST_UNSET_PASSWORD "$PRINTENV_SECOND_KEY" \
     2>/dev/null)
@@ -4640,7 +4640,7 @@ PRINTENV_PREFIX_VAL=$(printf '%s\nx' "$DISPLAY_QUOTED_HEAD")
 PRINTENV_PREFIX_VAL=${PRINTENV_PREFIX_VAL%x}
 PRINTENV_PUBLIC_VAL=$DISPLAY_QUOTED_HEAD
 exec_printenv=$(REAL_PRINTENV=$(command -v printenv) \
-  FIRST_TOKEN="$PRINTENV_PREFIX_VAL" PUBLIC_INFO="$PRINTENV_PUBLIC_VAL" \
+  FIRST_TOKEN="${PRINTENV_PREFIX_VAL}" PUBLIC_INFO="${PRINTENV_PUBLIC_VAL}" \
   "$PLUGIN_ROOT/bin/agent-guard" exec -- \
     "$printenv_fixture_dir/printenv" FIRST_TOKEN PUBLIC_INFO 2>/dev/null)
 exec_expected=$(printf '[REDACTED]\n%s' "$PRINTENV_PUBLIC_VAL")
