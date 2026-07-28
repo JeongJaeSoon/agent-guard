@@ -872,17 +872,72 @@ filter_lockfile_records() {
     function emit_structural_fields(line, kind,
                                     encoded, char_count, i, ch, quote, escaped,
                                     field_allowed, ml_escaped, triple, chunk,
-                                    chars, replacements, skips) {
+                                    header, brace_depth, uv_artifact_line, probe,
+                                    json_open_role,
+                                    chars, replacements, skips, uv_url_seen) {
       char_count = length(line)
-      if (toml_skip_rest || char_count > max_structured_line_chars \
+      if (toml_skip_rest || json_skip_rest \
+          || char_count > max_structured_line_chars \
           || index(line, char_separator)) {
-        # Oversized/invalid records stay fully scannable. Their quote state is
-        # intentionally not guessed; after one such TOML record, conservatively
-        # skip neutralization for the rest of that file.
+        # Oversized/invalid records stay fully scannable. Their parser state is
+        # intentionally not guessed; after one such TOML/JSON record,
+        # conservatively skip neutralization for the rest of that file.
         if (kind == "c" || kind == "u") toml_skip_rest = 1
+        if (kind == "p") json_skip_rest = 1
         print line
         return
       }
+      if (kind == "c" && toml_multiline == "") {
+        header = line
+        sub(/^[[:space:]]*/, "", header)
+        if (substr(header, 1, 1) == "[") {
+          if (header ~ /^\[\[[[:space:]]*package[[:space:]]*\]\][[:space:]]*(#.*)?$/ \
+              || header ~ /^\[[[:space:]]*root[[:space:]]*\][[:space:]]*(#.*)?$/ \
+              || header ~ /^\[\[[[:space:]]*patch[[:space:]]*\.[[:space:]]*unused[[:space:]]*\]\][[:space:]]*(#.*)?$/)
+            cargo_checksum_scope = 1
+          else
+            cargo_checksum_scope = 0
+        }
+      }
+      if (kind == "u" && toml_multiline == "") {
+        header = line
+        sub(/^[[:space:]]*/, "", header)
+        if (substr(header, 1, 1) == "[") {
+          uv_wheels_scope = 0
+          if (header ~ /^\[\[[[:space:]]*(package|distribution)[[:space:]]*\]\][[:space:]]*(#.*)?$/)
+            uv_package_scope = 1
+          else
+            uv_package_scope = 0
+        }
+        if (uv_package_scope \
+            && header ~ /^wheels[[:space:]]*=[[:space:]]*\[[[:space:]]*(#.*)?$/)
+          uv_wheels_scope = 1
+        else if (header ~ /^\][[:space:]]*(#.*)?$/)
+          uv_wheels_scope = 0
+      }
+      json_open_role = ""
+      if (kind == "p") {
+        if (json_depth == 1 \
+            && line ~ /^[[:space:]]*"packages"[[:space:]]*:[[:space:]]*\{[[:space:]]*$/)
+          json_open_role = "package_map"
+        else if (json_depth == 1 \
+            && line ~ /^[[:space:]]*"dependencies"[[:space:]]*:[[:space:]]*\{[[:space:]]*$/)
+          json_open_role = "dependency_map"
+        else if ((json_role[json_depth] == "package_map" \
+                  || json_role[json_depth] == "dependency_map") \
+                 && line ~ /^[[:space:]]*"[^"]*"[[:space:]]*:[[:space:]]*\{[[:space:]]*$/)
+          json_open_role = "entry"
+        else if (json_role[json_depth] == "entry" \
+                 && line ~ /^[[:space:]]*"dependencies"[[:space:]]*:[[:space:]]*\{[[:space:]]*$/)
+          json_open_role = "dependency_map"
+      }
+      uv_artifact_line = 0
+      if (kind == "u" && toml_multiline == "" && uv_package_scope \
+          && (line ~ /^[[:space:]]*sdist[[:space:]]*=[[:space:]]*\{/ \
+              || line ~ /^[[:space:]]*wheels[[:space:]]*=[[:space:]]*\[[[:space:]]*\{/ \
+              || (uv_wheels_scope \
+                  && line ~ /^[[:space:]]*\{/)))
+        uv_artifact_line = 1
       encoded = line
       gsub(/./, "&" char_separator, encoded)
       split(encoded, chars, char_separator)
@@ -890,6 +945,7 @@ filter_lockfile_records() {
       escaped = 0
       field_allowed = 1
       ml_escaped = 0
+      brace_depth = 0
       i = 1
       while (i <= char_count) {
         ch = chars[i]
@@ -939,11 +995,23 @@ filter_lockfile_records() {
           break
         }
 
+        if (kind == "u" && uv_artifact_line && brace_depth == 1 \
+            && field_allowed && ch == "u") {
+          probe = substr(line, i, 256)
+          if (probe ~ /^url[[:space:]]*=[[:space:]]*"/)
+            uv_url_seen[brace_depth] = 1
+        }
+
         if (field_allowed \
             && ((kind == "p" && ch == "\"") \
                 || (kind == "y" && (ch == "i" || ch == "c")) \
                 || (kind == "c" && ch == "c") \
                 || (kind == "u" && ch == "h")) \
+            && (kind != "p" || json_role[json_depth] == "entry") \
+            && (kind != "c" || cargo_checksum_scope) \
+            && (kind != "u" \
+                || (uv_artifact_line && brace_depth == 1 \
+                    && uv_url_seen[brace_depth])) \
             && field_replacement(line, i, kind)) {
           replacements[i] = replacement_text
           skips[i] = replacement_length
@@ -974,7 +1042,36 @@ filter_lockfile_records() {
           continue
         }
 
-        if (ch == "{" || ch == ",")
+        if (ch == "{") {
+          if (kind == "p") {
+            if (json_depth >= max_json_depth) {
+              json_skip_rest = 1
+              print line
+              return
+            }
+            json_depth++
+            if (json_open_role != "") {
+              json_role[json_depth] = json_open_role
+              json_open_role = ""
+            } else {
+              json_role[json_depth] = "other"
+            }
+          }
+          brace_depth++
+          uv_url_seen[brace_depth] = 0
+          if (kind != "c") field_allowed = 1
+        } else if (ch == "}") {
+          if (kind == "p") {
+            delete json_role[json_depth]
+            if (json_depth > 0) json_depth--
+          }
+          delete uv_url_seen[brace_depth]
+          if (brace_depth > 0) brace_depth--
+          field_allowed = 0
+        # Cargo.lock checksums are line-leading fields in dependency tables,
+        # never arbitrary inline-table keys. Other supported formats do use
+        # checksum fields after record delimiters.
+        } else if (kind != "c" && ch == ",")
           field_allowed = 1
         else if (ch !~ /[[:space:]]/)
           field_allowed = 0
@@ -1007,6 +1104,7 @@ filter_lockfile_records() {
       triple_double = "\"\"\""
       char_separator = sprintf("%c", 28)
       max_structured_line_chars = 131072
+      max_json_depth = 256
       previous_kind = ""
       toml_multiline = ""
       toml_skip_rest = 0
@@ -1014,17 +1112,22 @@ filter_lockfile_records() {
     {
       kind = substr($0, 1, 1)
       line = substr($0, 3)
-      # Uppercase TOML kinds are context-free physical-record fragments. Their
-      # surrounding multiline-string state is unavailable, so leave them fully
+      # Uppercase structured kinds are context-free physical-record fragments.
+      # Their surrounding parser state is unavailable, so leave them fully
       # scannable instead of guessing that a checksum-looking field is
       # structural. Full-file records use the lowercase kinds below.
-      if (kind ~ /^[CU]$/) {
+      if (kind ~ /^[CUP]$/) {
         print line
         next
       }
       if (kind != previous_kind) {
         toml_multiline = ""
         toml_skip_rest = 0
+        json_skip_rest = 0
+        json_depth = 0
+        cargo_checksum_scope = 0
+        uv_package_scope = 0
+        uv_wheels_scope = 0
         previous_kind = kind
       }
       if (kind == "g") {
@@ -1047,8 +1150,8 @@ filter_lockfile_records() {
 }
 
 # Gitleaks' bundled defaults skip common lockfiles by path. Agent Guard rescans
-# them through stdin after removing only exact checksum-field lines; this both
-# fixes checksum false positives and keeps credentials elsewhere detectable.
+# them through stdin after replacing only exact checksum fields; this both fixes
+# checksum false positives and keeps credentials elsewhere detectable.
 filter_lockfile_hashes() {
   path=$1
   source=${2:-$path}
@@ -1154,7 +1257,7 @@ extract_added_lines() {
       count = split(path, parts, "/")
       name = parts[count]
       if (name == "go.sum") return "g"
-      if (name == "package-lock.json") return "p"
+      if (name == "package-lock.json") return "P"
       if (name == "yarn.lock") return "y"
       if (name == "Cargo.lock") return "C"
       if (name == "uv.lock") return "U"
@@ -1173,7 +1276,7 @@ extract_patch_added_lines() {
       count = split(path, parts, "/")
       name = parts[count]
       if (name == "go.sum") return "g"
-      if (name == "package-lock.json") return "p"
+      if (name == "package-lock.json") return "P"
       if (name == "yarn.lock") return "y"
       if (name == "Cargo.lock") return "C"
       if (name == "uv.lock") return "U"
