@@ -16,6 +16,7 @@ MOCK_BIN="$TMP_ROOT/bin"
 ORIGINAL_PATH=$PATH
 REAL_GITLEAKS=$(command -v gitleaks 2>/dev/null || true)
 REAL_GIT=$(command -v git)
+REAL_CAT=$(command -v cat)
 REAL_CURL=$(command -v curl 2>/dev/null || true)
 REAL_JQ=$(command -v jq)
 REAL_SH=$(command -v sh)
@@ -3658,6 +3659,16 @@ lock_full_package=$(printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s' '{' \
   '      }' \
   '    }' \
   '  }' '}')
+lock_structural_package=$(printf '%s\n%s\n%s\n%s\n%s\n%s\n%s' '{' \
+  '  "packages": {' \
+  '    "node_modules/example": {' \
+  "      \"integrity\": \"sha512-$LOCK_FRAGMENT_SHA512\"" \
+  '    }' \
+  '  }' '}')
+lock_truncated_package=$(printf '%s\n%s\n%s\n%s' '{' \
+  '  "packages": {' \
+  '    "node_modules/example": {' \
+  "      \"integrity\": \"sha512-$LOCK_FRAGMENT_SHA512\"")
 lock_package_fragment=$(printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s' '{' \
   '  "api_token": {' \
   '    "packages": {' \
@@ -3823,6 +3834,58 @@ else
   not_ok "scan-path keeps non-schema package-lock integrity fields scannable (expected 1, got $status)"
 fi
 
+lock_truncated_write_input=$(jq -nc --arg content "$lock_truncated_package" \
+  '{tool_name:"Write",tool_input:{file_path:"package-lock.json",content:$content}}')
+printf '%s' "$lock_truncated_write_input" \
+  | AGENT_GUARD_GITLEAKS_BIN="$LOCK_FRAGMENT_BIN/gitleaks" \
+      "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "Write scans malformed package-lock content without early neutralization"
+else
+  not_ok "Write keeps malformed package-lock integrity scannable (expected 2, got $status)"
+fi
+
+LOCK_SNAPSHOT_FAIL_BIN="$TMP_ROOT/package-lock-snapshot-fail-bin"
+LOCK_SNAPSHOT_FAIL_MARKER="$TMP_ROOT/package-lock-snapshot-fail-marker"
+mkdir -p "$LOCK_SNAPSHOT_FAIL_BIN"
+cat >"$LOCK_SNAPSHOT_FAIL_BIN/cat" <<'STUB'
+#!/bin/sh
+if [ "${1:-}" = "--" ] && [ ! -e "$AG_TEST_CAT_FAIL_MARKER" ]; then
+  : >"$AG_TEST_CAT_FAIL_MARKER"
+  exit 1
+fi
+exec "$AG_TEST_REAL_CAT" "$@"
+STUB
+chmod +x "$LOCK_SNAPSHOT_FAIL_BIN/cat"
+lock_snapshot_fail_write_input=$(jq -nc --arg content "$lock_structural_package" \
+  '{tool_name:"Write",tool_input:{file_path:"package-lock.json",content:$content}}')
+printf '%s' "$lock_snapshot_fail_write_input" \
+  | AGENT_GUARD_INFRA_FAILURE_MODE=closed \
+      AGENT_GUARD_GITLEAKS_BIN="$LOCK_FRAGMENT_BIN/gitleaks" \
+      AG_TEST_CAT_FAIL_MARKER="$LOCK_SNAPSHOT_FAIL_MARKER" \
+      AG_TEST_REAL_CAT="$REAL_CAT" \
+      PATH="$LOCK_SNAPSHOT_FAIL_BIN:$PATH" \
+      "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ] && [ -e "$LOCK_SNAPSHOT_FAIL_MARKER" ]; then
+  ok "Write scans raw package-lock content when snapshot copying fails"
+else
+  not_ok "Write does not treat package-lock snapshot failure as clean (expected 2, got $status)"
+fi
+
+printf '%s\n' "$lock_truncated_package" \
+  >"$LOCK_FULL_CONTEXT_DIR/package-lock.json"
+AGENT_GUARD_GITLEAKS_BIN="$LOCK_FRAGMENT_BIN/gitleaks" \
+  "$PLUGIN_ROOT/bin/agent-guard" scan-path \
+    "$LOCK_FULL_CONTEXT_DIR/package-lock.json" >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 1 ]; then
+  ok "scan-path preserves malformed package-lock integrity values"
+else
+  not_ok "scan-path keeps malformed package-lock integrity scannable (expected 1, got $status)"
+fi
+
 LOCK_PACKAGE_FRAGMENT_REPO="$TMP_ROOT/package-lock-fragment-git-dir"
 mkdir -p "$LOCK_PACKAGE_FRAGMENT_REPO"
 (
@@ -3864,6 +3927,27 @@ if [ "$status" -eq 1 ]; then
   ok "untracked scanning preserves Cargo checksum values outside dependency tables"
 else
   not_ok "untracked Cargo content keeps non-schema checksum fields scannable (expected 1, got $status)"
+fi
+
+LOCK_INVALID_PACKAGE_REPO="$TMP_ROOT/package-lock-invalid-git-dir"
+mkdir -p "$LOCK_INVALID_PACKAGE_REPO"
+(
+  cd "$LOCK_INVALID_PACKAGE_REPO"
+  git init -q
+  git config user.email test@example.com
+  git config user.name "Agent Guard Tests"
+  printf '%s\n' clean >README.md
+  git add README.md
+  git commit -q -m init
+  printf '%s\n' "$lock_truncated_package" >package-lock.json
+  AGENT_GUARD_GITLEAKS_BIN="$LOCK_FRAGMENT_BIN/gitleaks" \
+    "$PLUGIN_ROOT/bin/agent-guard" scan-working-tree
+) >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 1 ]; then
+  ok "untracked scanning preserves malformed package-lock integrity values"
+else
+  not_ok "untracked malformed package-lock integrity remains scannable (expected 1, got $status)"
 fi
 
 LOCK_SCHEMA_DIR="$TMP_ROOT/lockfile-schema-dir"
@@ -3950,6 +4034,52 @@ if [ "$package_schema_filtered" = "$package_schema_expected" ]; then
   ok "package-lock filtering is limited to package dependency maps"
 else
   not_ok "package-lock filtering preserves integrity fields outside its generated schema"
+fi
+
+LOCK_JSON_TRUNCATED="$LOCK_SCHEMA_DIR/package-lock-truncated.json"
+{
+  printf '%s\n' '{'
+  printf '%s\n' '  "packages": {'
+  printf '%s\n' '    "node_modules/example": {'
+  printf '      "integrity": "sha512-%s"\n' "$LOCK_FRAGMENT_SHA512"
+} >"$LOCK_JSON_TRUNCATED"
+truncated_json_filtered=$("$PLUGIN_ROOT/bin/agent-guard" filter-lockfile-hashes \
+  package-lock.json "$LOCK_JSON_TRUNCATED")
+truncated_json_expected=$(cat "$LOCK_JSON_TRUNCATED")
+if [ "$truncated_json_filtered" = "$truncated_json_expected" ]; then
+  ok "package-lock filtering preserves malformed JSON for conservative scanning"
+else
+  not_ok "package-lock filtering does not neutralize integrity before full JSON validation"
+fi
+
+LOCK_JSON_SWAP_BIN="$LOCK_SCHEMA_DIR/package-lock-swap-bin"
+LOCK_JSON_SWAP_SOURCE="$LOCK_SCHEMA_DIR/package-lock-swap.json"
+LOCK_JSON_SWAP_REPLACEMENT="$LOCK_SCHEMA_DIR/package-lock-swap-replacement.json"
+mkdir -p "$LOCK_JSON_SWAP_BIN"
+cat >"$LOCK_JSON_SWAP_BIN/jq" <<'STUB'
+#!/bin/sh
+"$AG_TEST_REAL_JQ" "$@"
+status=$?
+if [ "$status" -eq 0 ]; then
+  mv "$AG_TEST_SWAP_REPLACEMENT" "$AG_TEST_SWAP_SOURCE"
+fi
+exit "$status"
+STUB
+chmod +x "$LOCK_JSON_SWAP_BIN/jq"
+cp "$LOCK_SCHEMA_DIR/package-lock.json" "$LOCK_JSON_SWAP_SOURCE"
+cp "$LOCK_JSON_TRUNCATED" "$LOCK_JSON_SWAP_REPLACEMENT"
+swap_json_filtered=$(AG_TEST_REAL_JQ="$REAL_JQ" \
+  AG_TEST_SWAP_SOURCE="$LOCK_JSON_SWAP_SOURCE" \
+  AG_TEST_SWAP_REPLACEMENT="$LOCK_JSON_SWAP_REPLACEMENT" \
+  PATH="$LOCK_JSON_SWAP_BIN:$PATH" \
+  "$PLUGIN_ROOT/bin/agent-guard" filter-lockfile-hashes \
+    package-lock.json "$LOCK_JSON_SWAP_SOURCE")
+swap_json_source=$(cat "$LOCK_JSON_SWAP_SOURCE")
+if [ "$swap_json_filtered" = "$package_schema_expected" ] \
+    && [ "$swap_json_source" = "$truncated_json_expected" ]; then
+  ok "package-lock validation and filtering use one immutable snapshot"
+else
+  not_ok "package-lock path replacement cannot swap bytes after validation"
 fi
 
 LOCK_JSON_DEEP="$LOCK_SCHEMA_DIR/package-lock-deep.json"

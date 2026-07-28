@@ -1155,6 +1155,7 @@ filter_lockfile_records() {
 filter_lockfile_hashes() {
   path=$1
   source=${2:-$path}
+  snapshot=
   case "${path##*/}" in
     go.sum) kind=g ;;
     package-lock.json) kind=p ;;
@@ -1163,7 +1164,68 @@ filter_lockfile_hashes() {
     uv.lock) kind=u ;;
     *) cat -- "$source"; return ;;
   esac
+  if [ "$kind" = p ]; then
+    # Validate and filter the same immutable bytes. Reopening the caller-owned
+    # path after validation would let an atomic replacement swap malformed
+    # content in before the streaming field parser runs.
+    snapshot=$(mktemp_file) || { cat -- "$source"; return; }
+    if ! cat -- "$source" >"$snapshot"; then
+      rm -f "$snapshot"
+      # A full temp filesystem must not turn the filter pipeline into empty
+      # clean input. Fall back to the original bytes without neutralization.
+      cat -- "$source"
+      return
+    fi
+    source=$snapshot
+
+    # The streaming field parser cannot know that later input is truncated.
+    # Validate the complete document first, keeping only a count/type summary
+    # so large lockfiles do not need to be slurped into memory. If jq is absent,
+    # the JSON is malformed, or multiple documents are present, preserve every
+    # byte for gitleaks instead of risking an early integrity replacement.
+    if ! command -v jq >/dev/null 2>&1 \
+        || ! jq -e -n --stream '
+          reduce inputs as $event (
+            {documents: 0, in_object: false, valid: true};
+            ($event[0] // []) as $path
+            | if (.valid | not) then
+                .
+              elif .in_object then
+                if (($event | length) == 1 and ($path | length) == 1) then
+                  .in_object = false
+                else
+                  .
+                end
+              elif ($path | length) == 0 then
+                if (($event | length) == 2 and $event[1] == {}) then
+                  .documents += 1
+                else
+                  .valid = false
+                end
+              elif (($path[0] | type) == "string") then
+                .documents += 1
+                | .in_object = true
+                | if (($event | length) == 1 and ($path | length) == 1) then
+                    .in_object = false
+                  else
+                    .
+                  end
+              else
+                .valid = false
+              end
+          )
+          | .valid and (.documents == 1) and (.in_object | not)
+        ' "$source" >/dev/null 2>&1; then
+      cat -- "$source"
+      status=$?
+      rm -f "$snapshot"
+      return "$status"
+    fi
+  fi
   awk -v kind="$kind" '{ print kind "\t" $0 }' "$source" | filter_lockfile_records
+  status=$?
+  [ -z "$snapshot" ] || rm -f "$snapshot"
+  return "$status"
 }
 
 scan_lockfiles_under() {
