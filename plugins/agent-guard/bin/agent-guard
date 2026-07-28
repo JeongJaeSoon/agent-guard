@@ -2283,7 +2283,8 @@ secretish_env_values() {
       }
       return value
     }
-    function emit_framed(value, i, ch) {
+    function emit_framed(value, tag, i, ch) {
+      printf "%s", tag
       for (i = 1; i <= length(value); i++) {
         ch = substr(value, i, 1)
         if (ch == escape) printf "%s%s", escape, escape
@@ -2302,19 +2303,37 @@ secretish_env_values() {
       }
       return 1
     }
-    function emit_secret(value) {
+    function emit_mapping(literal, replacement) {
+      if (record_mode == "probe") {
+        if (!probe_found) print "x"
+        probe_found = 1
+      } else if (record_mode == "framed") {
+        emit_framed(literal, "L")
+        emit_framed(replacement, "R")
+      } else {
+        print "{\"literal\":\"" json_escape(literal) \
+          "\",\"replacement\":\"" json_escape(replacement) \
+          "\",\"contextual\":true}"
+      }
+    }
+    function emit_secret(value, eligible_length) {
       if (already_redacted(value)) return
       if (record_mode == "probe") {
         if (!probe_found) print "x"
         probe_found = 1
         return
       }
-      else if (length(value) < 4) return
-      else if (record_mode == "framed") emit_framed(value)
+      if (eligible_length == 0) eligible_length = length(value)
+      if (eligible_length < 4) return
+      if (length(value) == 0) return
+      if (record_mode == "framed") emit_framed(value, "S")
       else print "\"" json_escape(value) "\""
     }
-    function emit_value(source, start, raw, quote, end, value, ch) {
+    function emit_value(source, start, assignment, raw, leading, quote, end, \
+                        value, token, trailing, ch) {
       raw = substr(source, start)
+      match(raw, /^[ \t]*/)
+      leading = substr(raw, 1, RLENGTH)
       sub(/^[ \t]+/, "", raw)
       quote = substr(raw, 1, 1)
       if (quote == "\"" || quote == "'\''" || quote == "`") {
@@ -2330,6 +2349,7 @@ secretish_env_values() {
         value = raw
         sub(/[ \t,;].*$/, "", value)
         if (already_redacted(value)) return 0
+        token = value
         end = length(value)
         while (end > 0) {
           ch = substr(value, end, 1)
@@ -2337,6 +2357,17 @@ secretish_env_values() {
           end--
         }
         value = substr(value, 1, end)
+        # Eligibility is based on the complete token. For short values, scope
+        # replacement to the complete assignment token so an ordinary
+        # one-character literal is not replaced throughout the response.
+        if (length(value) < 4 && length(token) >= 4) {
+          trailing = substr(token, end + 1)
+          emit_mapping(assignment leading token,
+                       assignment leading "[REDACTED]" trailing)
+          return 0
+        }
+        emit_secret(value, length(token))
+        return 0
       }
       emit_secret(value)
       return 0
@@ -2388,7 +2419,9 @@ secretish_env_values() {
         # Emit exactly the quoted value or the next unquoted token. Continuing
         # after the delimiter finds multiple assignments on one log line while
         # leaving adjacent status text untouched.
-        if (!skip && emit_value(rest, start + matched_length)) break
+        if (!skip &&
+            emit_value(rest, start + matched_length,
+                       substr(rest, start, matched_length))) break
         rest = substr(rest, start + matched_length)
       }
     }
@@ -2602,8 +2635,45 @@ redact_tool_response_json() {
     def walk(f): def w: if type == "object" then map_values(w)
                         elif type == "array" then map(w)
                         else . end | f; w;
-    def redact($s): reduce ($s | sort_by(length) | reverse)[] as $x (.;
-      if ($x | length) > 0 then ((. / $x) | join("[REDACTED]")) else . end);
+    def specs($s):
+      $s
+      | map(if type == "string"
+            then {literal: ., replacement: "[REDACTED]", contextual: false}
+            elif (type == "object"
+                  and (.literal | type) == "string"
+                  and (.replacement | type) == "string")
+            then (. + {contextual: (.contextual == true)})
+            else empty
+            end);
+    def context_replace($literal; $replacement):
+      if contains($literal)
+      then (. / $literal) as $parts
+           | reduce range(1; $parts | length) as $i ($parts[0];
+               . + (if ($parts[$i] | test("^([ \t\n,;]|$)"))
+                    then $replacement
+                    else $literal
+                    end)
+                 + $parts[$i])
+      else .
+      end;
+    def redact($s):
+      (specs($s)) as $specs
+      | reduce ($specs
+                | map(select(.contextual))
+                | sort_by(.literal | length)
+                | reverse)[] as $x (.;
+          if ($x.literal | length) > 0
+          then context_replace($x.literal; $x.replacement)
+          else .
+          end)
+      | reduce ($specs
+                | map(select(.contextual | not))
+                | sort_by(.literal | length)
+                | reverse)[] as $x (.;
+        if ($x.literal | length) > 0
+        then ((. / $x.literal) | join($x.replacement))
+        else .
+        end);
     walk(if type == "string" then redact($secrets) else . end)
   ' 2>/dev/null
 }
@@ -2883,30 +2953,47 @@ hook_session_start() {
 # commands (env / secret / config dumps), not TUIs or streaming programs.
 
 # Apply collision-safe framed secret records from $2 to plaintext $1,
-# de-duplicating and sorting longest-first before literal replacement.
+# de-duplicating context-aware mappings and sorting within each mapping class.
 redact_plaintext_framed() {
   text=$1
   secret_file=$2
   printf '%s' "$text" | LC_ALL=C awk -v secret_file="$secret_file" '
+    function add_mapping(literal, replacement, contextual, key) {
+      key = contextual ":" length(literal) ":" literal \
+        ":" length(replacement) ":" replacement
+      if (length(literal) > 0 && !seen[key]) {
+        seen[key] = 1
+        lit[++count] = literal
+        rep[count] = replacement
+        ctx[count] = contextual
+      }
+    }
+    function consume_record(value, tag, payload) {
+      tag = substr(value, 1, 1)
+      payload = substr(value, 2)
+      if (tag == "S") add_mapping(payload, "[REDACTED]", 0)
+      else if (tag == "L") pending_literal = payload
+      else if (tag == "R") {
+        add_mapping(pending_literal, payload, 1)
+        pending_literal = ""
+      }
+    }
     function feed_framed(line, i, ch) {
       for (i = 1; i <= length(line); i++) {
         ch = substr(line, i, 1)
         if (escaped) {
-          secret = secret ch
+          record = record ch
           escaped = 0
         } else if (ch == escape) {
           escaped = 1
         } else if (ch == boundary) {
-          if (length(secret) > 0 && !seen[secret]) {
-            seen[secret] = 1
-            sec[++count] = secret
-          }
-          secret = ""
+          consume_record(record)
+          record = ""
         } else {
-          secret = secret ch
+          record = record ch
         }
       }
-      secret = secret "\n"
+      record = record "\n"
     }
     BEGIN {
       boundary = sprintf("%c", 30)
@@ -2914,23 +3001,39 @@ redact_plaintext_framed() {
       while ((status = getline line < secret_file) > 0) feed_framed(line)
       close(secret_file)
       for (i = 2; i <= count; i++) {
-        value = sec[i]
+        value = lit[i]
+        replacement = rep[i]
+        contextual = ctx[i]
         j = i - 1
-        while (j >= 1 && length(sec[j]) < length(value)) {
-          sec[j + 1] = sec[j]
+        while (j >= 1 &&
+               (ctx[j] < contextual ||
+                (ctx[j] == contextual &&
+                 length(lit[j]) < length(value)))) {
+          lit[j + 1] = lit[j]
+          rep[j + 1] = rep[j]
+          ctx[j + 1] = ctx[j]
           j--
         }
-        sec[j + 1] = value
+        lit[j + 1] = value
+        rep[j + 1] = replacement
+        ctx[j + 1] = contextual
       }
     }
     { buf = (NR == 1 ? $0 : buf ORS $0) }
     END {
       for (i = 1; i <= count; i++) {
-        value = sec[i]
+        value = lit[i]
+        replacement = rep[i]
+        contextual = ctx[i]
         out = ""
         at = index(buf, value)
         while (at > 0) {
-          out = out substr(buf, 1, at - 1) "[REDACTED]"
+          after = substr(buf, at + length(value), 1)
+          if (!contextual || after == "" || after == ORS ||
+              after ~ /[ \t,;]/)
+            out = out substr(buf, 1, at - 1) replacement
+          else
+            out = out substr(buf, 1, at - 1) value
           buf = substr(buf, at + length(value))
           at = index(buf, value)
         }
@@ -2953,7 +3056,17 @@ redact_plaintext_literal() {
   secrets=$2
   secret_file=$(mktemp_file) || return 1
   if ! printf '%s' "$secrets" \
-    | jq -c 'sort_by(length) | reverse' 2>/dev/null \
+    | jq -c '
+        map(if type == "string"
+            then ["S" + .]
+            elif (type == "object"
+                  and (.literal | type) == "string"
+                  and (.replacement | type) == "string")
+            then ["L" + .literal, "R" + .replacement]
+            else []
+            end)
+        | (add // [])
+      ' 2>/dev/null \
     | frame_json_string_leaves >"$secret_file" 2>/dev/null; then
     rm -f "$secret_file"
     return 1

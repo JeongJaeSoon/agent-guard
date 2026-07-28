@@ -3988,6 +3988,126 @@ for display_closing in '}' ']' ')'; do
   fi
 done
 
+for display_short in 'abc)' '))))'; do
+  display_input=$(jq -nc \
+    --arg stdout "PASSWORD=${display_short}" \
+    '{tool_name:"Bash",tool_input:{command:"x"},tool_response:
+      {stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+  post_tool_out "$display_input"
+  post_out=$(cat "$OUT")
+  case "$display_short" in
+    'abc)') display_expected='PASSWORD=[REDACTED])' ;;
+    '))))') display_expected='PASSWORD=[REDACTED]))))' ;;
+  esac
+  if printf '%s' "$post_out" \
+    | jq -e --arg expected "$display_expected" \
+        '.hookSpecificOutput.updatedToolOutput.stdout == $expected' >/dev/null 2>&1; then
+    ok "post-tool masks short unquoted values before structural punctuation"
+  else
+    not_ok "post-tool does not leak short values beside structural punctuation"
+    printf '%s\n' "$post_out" | sed 's/^/  out: /'
+  fi
+done
+
+display_input=$(jq -nc \
+  --arg stdout 'PASSWORD=a))) status=available abc ab a ))) PASSWORD=abcdef' \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:
+    {stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$display_input"
+post_out=$(cat "$OUT")
+if printf '%s' "$post_out" \
+  | jq -e '.hookSpecificOutput.updatedToolOutput.stdout
+            == "PASSWORD=[REDACTED]))) status=available abc ab a ))) PASSWORD=[REDACTED]"' \
+      >/dev/null 2>&1; then
+  ok "post-tool scopes a short secret without stranding a longer value"
+else
+  not_ok "post-tool avoids short-literal prefix replacement"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+display_input=$(jq -nc \
+  --arg stdout 'PASSWORD=)))) benign=))) PASSWORD=off' \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:
+    {stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$display_input"
+post_out=$(cat "$OUT")
+if printf '%s' "$post_out" \
+  | jq -e '.hookSpecificOutput.updatedToolOutput.stdout
+            == "PASSWORD=[REDACTED])))) benign=))) PASSWORD=off"' \
+      >/dev/null 2>&1; then
+  ok "post-tool scopes an all-closer secret to its assignment"
+else
+  not_ok "post-tool preserves unrelated punctuation and short values"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+display_input=$(jq -nc \
+  --arg stdout 'PASSWORD=abc) PASSWORD=abc)evil status=ok' \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:
+    {stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$display_input"
+post_out=$(cat "$OUT")
+if printf '%s' "$post_out" \
+  | jq -e '.hookSpecificOutput.updatedToolOutput.stdout
+            == "PASSWORD=[REDACTED]) PASSWORD=[REDACTED] status=ok"' \
+      >/dev/null 2>&1; then
+  ok "post-tool requires a boundary after a contextual token"
+else
+  not_ok "post-tool does not strand a longer assignment suffix"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+display_input=$(jq -nc \
+  --arg stdout 'API_TOKEN="abc)" PASSWORD=abc)' \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:
+    {stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$display_input"
+post_out=$(cat "$OUT")
+if printf '%s' "$post_out" \
+  | jq -e '.hookSpecificOutput.updatedToolOutput.stdout
+            == "API_TOKEN=\"[REDACTED]\" PASSWORD=[REDACTED])"' \
+      >/dev/null 2>&1; then
+  ok "post-tool preserves a contextual closer shared with a quoted secret"
+else
+  not_ok "post-tool composes contextual and ordinary secret replacement"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+display_input=$(jq -nc \
+  --arg stdout "$(printf 'PASSWORD=abc)\nstatus=available')" \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:
+    {stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$display_input"
+post_out=$(cat "$OUT")
+display_expected=$(printf 'PASSWORD=[REDACTED])\nstatus=available')
+if printf '%s' "$post_out" \
+  | jq -e --arg expected "$display_expected" \
+      '(.hookSpecificOutput.updatedToolOutput.stdout == $expected)
+       and (.hookSpecificOutput.updatedToolOutput.stderr == "")' \
+      >/dev/null 2>&1; then
+  ok "post-tool treats a newline as a contextual token boundary"
+else
+  not_ok "post-tool masks a short secret at physical line end"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+display_input=$(jq -nc \
+  --arg stdout 'PASSWORD=abc) API_TOKEN="PASSWORD=abc)" status=ok' \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:
+    {stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$display_input"
+post_out=$(cat "$OUT")
+if printf '%s' "$post_out" \
+  | jq -e '.hookSpecificOutput.updatedToolOutput
+            == {stdout:"PASSWORD=[REDACTED]) API_TOKEN=\"[REDACTED]\" status=ok",
+                stderr:"",interrupted:false,isImage:false}' \
+      >/dev/null 2>&1; then
+  ok "post-tool keeps contextual and ordinary meanings for one literal"
+else
+  not_ok "post-tool masks a shared contextual and quoted literal"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
 display_input=$(jq -nc \
   --arg stdout 'PASSWORD=[REDACTED]' \
   '{tool_name:"Bash",tool_input:{command:"x"},tool_response:
@@ -4596,6 +4716,58 @@ else
   printf '%s\n' "  out: $exec_out"
 fi
 
+exec_out=$("$PLUGIN_ROOT/bin/agent-guard" exec -- \
+  printf '%s\n' \
+    'PASSWORD=a))) status=available abc ab a ))) PASSWORD=abcdef' 2>/dev/null)
+if [ "$exec_out" = \
+  'PASSWORD=[REDACTED]))) status=available abc ab a ))) PASSWORD=[REDACTED]' ]; then
+  ok "exec scopes a short secret without stranding a longer value"
+else
+  not_ok "exec avoids short-literal prefix replacement"
+  printf '%s\n' "  out: $exec_out"
+fi
+
+exec_out=$("$PLUGIN_ROOT/bin/agent-guard" exec -- \
+  printf '%s\n' 'PASSWORD=abc) PASSWORD=abc)evil status=ok' 2>/dev/null)
+if [ "$exec_out" = \
+  'PASSWORD=[REDACTED]) PASSWORD=[REDACTED] status=ok' ]; then
+  ok "exec requires a boundary after a contextual token"
+else
+  not_ok "exec does not strand a longer assignment suffix"
+  printf '%s\n' "  out: $exec_out"
+fi
+
+exec_out=$("$PLUGIN_ROOT/bin/agent-guard" exec -- \
+  printf 'PASSWORD=abc)\nstatus=available\n' 2>/dev/null)
+exec_expected=$(printf 'PASSWORD=[REDACTED])\nstatus=available')
+if [ "$exec_out" = "$exec_expected" ]; then
+  ok "exec treats a newline as a contextual token boundary"
+else
+  not_ok "exec masks a short secret at physical line end"
+  printf '%s\n' "  out: $exec_out"
+fi
+
+exec_out=$("$PLUGIN_ROOT/bin/agent-guard" exec -- \
+  printf '%s\n' \
+    'PASSWORD=abc) API_TOKEN="PASSWORD=abc)" status=ok' 2>/dev/null)
+if [ "$exec_out" = \
+  'PASSWORD=[REDACTED]) API_TOKEN="[REDACTED]" status=ok' ]; then
+  ok "exec keeps contextual and ordinary meanings for one literal"
+else
+  not_ok "exec masks a shared contextual and quoted literal"
+  printf '%s\n' "  out: $exec_out"
+fi
+
+EXEC_FRAMED_SECRET=$(printf 'abcd\036efgh\037tail')
+exec_out=$("$PLUGIN_ROOT/bin/agent-guard" exec -- \
+  printf 'PASSWORD=%s\n' "$EXEC_FRAMED_SECRET" 2>/dev/null)
+if [ "$exec_out" = 'PASSWORD=[REDACTED]' ]; then
+  ok "exec treats framed control bytes as secret data"
+else
+  not_ok "exec does not lose framed control bytes during masking"
+  printf '%s' "$exec_out" | LC_ALL=C od -An -tx1c | sed 's/^/  hex: /'
+fi
+
 # Plaintext replacement must not transcode unrelated non-UTF-8 bytes when a
 # later credential triggers redaction.
 "$PLUGIN_ROOT/bin/agent-guard" exec -- sh -c \
@@ -4619,6 +4791,72 @@ if [ "$exec_out" = 'PASSWORD="[REDACTED]" status=ok' ]; then
   ok "exec masks a secret containing a non-UTF-8 byte"
 else
   not_ok "exec keeps secret detection byte-preserving"
+  LC_ALL=C od -An -tx1 "$OUT" | sed 's/^/  hex: /'
+fi
+
+"$PLUGIN_ROOT/bin/agent-guard" exec -- sh -c \
+  'printf "\377\nPASSWORD=)))) benign=))) PASSWORD=off\n"' >"$OUT" 2>/dev/null
+exec_first_byte=$(LC_ALL=C od -An -tx1 "$OUT" | awk 'NR == 1 { print $1 }')
+exec_last_line=$(LC_ALL=C sed -n '2p' "$OUT")
+if [ "$exec_first_byte" = ff ] \
+   && [ "$exec_last_line" = \
+     'PASSWORD=[REDACTED])))) benign=))) PASSWORD=off' ]; then
+  ok "exec scopes an all-closer secret on the raw byte path"
+else
+  not_ok "exec preserves unrelated punctuation and values on the raw byte path"
+  LC_ALL=C od -An -tx1 "$OUT" | sed 's/^/  hex: /'
+fi
+
+"$PLUGIN_ROOT/bin/agent-guard" exec -- sh -c \
+  'printf "\377\nPASSWORD=abc) PASSWORD=abc)evil status=ok\n"' >"$OUT" 2>/dev/null
+exec_first_byte=$(LC_ALL=C od -An -tx1 "$OUT" | awk 'NR == 1 { print $1 }')
+exec_last_line=$(LC_ALL=C sed -n '2p' "$OUT")
+if [ "$exec_first_byte" = ff ] \
+   && [ "$exec_last_line" = \
+     'PASSWORD=[REDACTED]) PASSWORD=[REDACTED] status=ok' ]; then
+  ok "exec enforces a contextual boundary on the raw byte path"
+else
+  not_ok "exec raw masking does not strand a longer assignment suffix"
+  LC_ALL=C od -An -tx1 "$OUT" | sed 's/^/  hex: /'
+fi
+
+"$PLUGIN_ROOT/bin/agent-guard" exec -- sh -c \
+  'printf "\377\nPASSWORD=abc)\nstatus=available\n"' >"$OUT" 2>/dev/null
+exec_first_byte=$(LC_ALL=C od -An -tx1 "$OUT" | awk 'NR == 1 { print $1 }')
+exec_second_line=$(LC_ALL=C sed -n '2p' "$OUT")
+exec_third_line=$(LC_ALL=C sed -n '3p' "$OUT")
+if [ "$exec_first_byte" = ff ] \
+   && [ "$exec_second_line" = 'PASSWORD=[REDACTED])' ] \
+   && [ "$exec_third_line" = 'status=available' ]; then
+  ok "exec accepts a raw newline as a contextual token boundary"
+else
+  not_ok "exec raw masking catches a short secret at physical line end"
+  LC_ALL=C od -An -tx1 "$OUT" | sed 's/^/  hex: /'
+fi
+
+"$PLUGIN_ROOT/bin/agent-guard" exec -- sh -c \
+  'printf "\377\nPASSWORD=abc) API_TOKEN=\"PASSWORD=abc)\" status=ok\n"' \
+  >"$OUT" 2>/dev/null
+exec_first_byte=$(LC_ALL=C od -An -tx1 "$OUT" | awk 'NR == 1 { print $1 }')
+exec_last_line=$(LC_ALL=C sed -n '2p' "$OUT")
+if [ "$exec_first_byte" = ff ] \
+   && [ "$exec_last_line" = \
+     'PASSWORD=[REDACTED]) API_TOKEN="[REDACTED]" status=ok' ]; then
+  ok "exec raw masking keeps contextual and ordinary meanings for one literal"
+else
+  not_ok "exec raw masking preserves both shared-literal records"
+  LC_ALL=C od -An -tx1 "$OUT" | sed 's/^/  hex: /'
+fi
+
+"$PLUGIN_ROOT/bin/agent-guard" exec -- sh -c \
+  'printf "\377\nPASSWORD=abcd\036efgh\037tail\n"' >"$OUT" 2>/dev/null
+exec_first_byte=$(LC_ALL=C od -An -tx1 "$OUT" | awk 'NR == 1 { print $1 }')
+exec_last_line=$(LC_ALL=C sed -n '2p' "$OUT")
+if [ "$exec_first_byte" = ff ] \
+   && [ "$exec_last_line" = 'PASSWORD=[REDACTED]' ]; then
+  ok "exec raw masking treats framed control bytes as secret data"
+else
+  not_ok "exec raw masking preserves framed control bytes"
   LC_ALL=C od -An -tx1 "$OUT" | sed 's/^/  hex: /'
 fi
 
