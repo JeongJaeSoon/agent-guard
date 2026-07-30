@@ -6368,7 +6368,7 @@ fi
 # its much larger recognized-probe JSON through one argv entry. Both the BSD
 # and GNU printenv output models stay below the plaintext cap here.
 awk 'BEGIN { for (i = 0; i < 50000; i++) print "PASSWORD" }' \
-  | PASSWORD=abcd xargs -n 50000 \
+  | PASSWORD=abcd xargs -s 524288 -n 50000 \
       "$PLUGIN_ROOT/bin/agent-guard" exec -- printenv >"$OUT" 2>/dev/null
 if [ "$(cat "$OUT")" = '[REDACTED]' ]; then
   ok "exec streams high-cardinality printenv metadata off argv"
