@@ -6377,6 +6377,39 @@ else
   LC_ALL=C wc -c "$OUT" | sed 's/^/  bytes: /'
 fi
 
+# Repeated arguments must reference one environment value rather than copying
+# it into every metadata entry. A BSD-style printenv emits only the first value;
+# the GNU model is much larger than the bounded capture and must not be joined.
+BSD_PRINTENV_DIR="$TMP_ROOT/bsd-printenv"
+BSD_PRINTENV="$BSD_PRINTENV_DIR/printenv"
+mkdir -p "$BSD_PRINTENV_DIR"
+cat >"$BSD_PRINTENV" <<'STUB'
+#!/bin/sh
+[ "$#" -gt 0 ] || exit 1
+exec "${REAL_PRINTENV:?}" "$1"
+STUB
+chmod +x "$BSD_PRINTENV"
+PRINTENV_LARGE_REPEAT_VAL=$(awk '
+  BEGIN { for (i = 0; i < 100000; i++) printf "a" }
+')
+printenv_repeat_started=$(date +%s)
+awk 'BEGIN { for (i = 0; i < 10000; i++) print "PASSWORD" }' \
+  | REAL_PRINTENV=$(command -v printenv) \
+      PASSWORD="$PRINTENV_LARGE_REPEAT_VAL" \
+      xargs -s 262144 -n 10000 \
+        "$PLUGIN_ROOT/bin/agent-guard" exec -- "$BSD_PRINTENV" \
+        >"$OUT" 2>/dev/null
+printenv_repeat_status=$?
+printenv_repeat_elapsed=$(($(date +%s) - printenv_repeat_started))
+if [ "$printenv_repeat_status" -eq 0 ] \
+   && [ "$printenv_repeat_elapsed" -lt 15 ] \
+   && [ "$(cat "$OUT")" = '[REDACTED]' ]; then
+  ok "exec bounds repeated large printenv values under BSD semantics"
+else
+  not_ok "exec amplifies repeated printenv values (${printenv_repeat_elapsed}s)"
+  LC_ALL=C wc -c "$OUT" | sed 's/^/  bytes: /'
+fi
+
 # A special-detector failure occurs inside a producer group piped into the
 # record bundler. Preserve that failure as a whole-leaf sentinel rather than
 # allowing the successful bundler to convert an empty stream into no findings.
