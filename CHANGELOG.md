@@ -29,6 +29,32 @@
   Suffix-qualified credential keys (`AWS_SECRET_ACCESS_KEY_ID`,
   `API_KEY_VALUE`, `DB_PASSWORD_HASH`) and whitespace-prefixed colon
   assignments in log lines still mask.
+- fix(setup-shell): support a fish login shell and stop the permanent
+  "command wrapping is not loaded" false positive (#139). The marker
+  `AGENT_GUARD_SHELL_INIT_VERSION` only reaches `SessionStart` through the
+  environment of the shell that *launched* the agent, so a fish (or other
+  non-POSIX) login shell — and any GUI/IDE launcher — could never satisfy it,
+  even though the agent's own bash/zsh shell snapshot did load the wrapping from
+  the same rc. `SessionStart` now reads the managed rc block on disk before
+  reporting missing setup, and checks that it can still *load* — the delimiters
+  alone prove nothing, because the block's `eval` emits neither the wrapping nor
+  the marker once the binary it resolves is gone. It replays the block's own
+  resolution order (baked stable path, newest versioned plugin-cache binary,
+  `agent-guard` on `$PATH`) with `stat`-level checks only: silent when setup
+  demonstrably ran and still resolves (only the version-drift comparison is
+  lost), the usual setup guidance when the block is absent, and a distinct
+  `can no longer load` warning when the block is present but resolves nothing
+  (cache updated, uninstalled, hand-edited) — that state leaves command output
+  unmasked, so it must never be silent. `setup-shell` additionally writes the
+  managed block to **both** `~/.bashrc` and `~/.zshrc` when either the process
+  `$SHELL` or the account login shell is fish. Account lookup uses `getent
+  passwd` on Linux and `dscl UserShell` on macOS, with a non-fatal process-shell
+  fallback; this covers the standard skill path where Claude's Bash tool reports
+  zsh even though passwd reports fish. The CLI also says plainly that no
+  automatic `agx` or nudge exists at a fish prompt and prints an executable path
+  for plugin-only installs where bare `agent-guard` is not on `PATH`. No
+  fish-syntax marker is written or faked: claiming protection fish cannot
+  provide would be worse than the warning it replaces.
 - fix(hooks): report a scan that could not run distinctly from a detection
   (#137). A scanner precondition failure and a real detection previously looked
   identical — both printed and exited 2 — so an operator could not tell whether
