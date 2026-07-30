@@ -46,13 +46,15 @@
   `can no longer load` warning when the block is present but resolves nothing
   (cache updated, uninstalled, hand-edited) — that state leaves command output
   unmasked, so it must never be silent. `setup-shell` additionally writes the
-  managed block to **both**
-  `~/.bashrc` and `~/.zshrc` when it detects a fish login shell, since the
-  snapshot shell is one of the two and which one is not visible from the CLI, and
-  it now says plainly that `agx` and the nudge are unavailable at a fish prompt
-  (use `agent-guard exec -- <cmd>`). No fish-syntax block is written and no
-  marker is faked: claiming protection fish cannot provide would be worse than
-  the warning it replaces.
+  managed block to **both** `~/.bashrc` and `~/.zshrc` when either the process
+  `$SHELL` or the account login shell is fish. Account lookup uses `getent
+  passwd` on Linux and `dscl UserShell` on macOS, with a non-fatal process-shell
+  fallback; this covers the standard skill path where Claude's Bash tool reports
+  zsh even though passwd reports fish. The CLI also says plainly that no
+  automatic `agx` or nudge exists at a fish prompt and prints an executable path
+  for plugin-only installs where bare `agent-guard` is not on `PATH`. No
+  fish-syntax marker is written or faked: claiming protection fish cannot
+  provide would be worse than the warning it replaces.
 - fix(hooks): report a scan that could not run distinctly from a detection
   (#137). A scanner precondition failure and a real detection previously looked
   identical — both printed and exited 2 — so an operator could not tell whether

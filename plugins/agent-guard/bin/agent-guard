@@ -2595,9 +2595,10 @@ hook_stop() {
 # resolution order against the paths it baked in: the stable/self path, then the
 # newest versioned binary under the plugin cache base, then `agent-guard` on
 # $PATH. All stat-level; nothing is executed and no subshell is forked.
-# $SHELL is read exactly as do_setup_shell derives its default rc, so the two
-# always agree about which file matters (and setup-shell installs both POSIX rc
-# files for a fish login shell, because Claude Code's choice is not visible here).
+# The hook's $SHELL describes the snapshot shell whose rc matters here.
+# setup-shell also consults the account login shell; if either reading says fish,
+# it installs both POSIX rc files because the eventual snapshot choice is not
+# visible while the setup skill is running.
 shell_init_block_state() {
   [ -n "${HOME:-}" ] || return 1
   case "${SHELL:-}" in
@@ -3173,6 +3174,45 @@ setup_shell_write_rc() {  # $1 = rc path, $2 = the eval line to manage
 # snapshot). This is the one manual step a plugin-only install needs: a plugin
 # cannot edit your rc, so run this once (by absolute path if agent-guard is not
 # yet on $PATH). Idempotent — re-running replaces the managed block in place.
+#
+# The setup skill itself runs through an agent Bash tool, where $SHELL can name
+# the bash/zsh snapshot instead of the user's account login shell. Query the
+# account database as a second signal: getent covers NSS-backed Linux systems,
+# while dscl covers macOS. This lookup is best-effort and never makes setup fail.
+setup_shell_account_shell() (
+  set -f
+  account_user=$(id -un 2>/dev/null) || account_user=
+  [ -n "$account_user" ] || return 1
+
+  account_shell=
+  if command -v getent >/dev/null 2>&1; then
+    account_record=$(getent passwd "$account_user" 2>/dev/null) || account_record=
+    if [ -n "$account_record" ]; then
+      account_old_ifs=$IFS
+      IFS=:
+      # getent was queried for exactly one account. Field 7 is its login shell.
+      # shellcheck disable=SC2086
+      set -- $account_record
+      IFS=$account_old_ifs
+      [ "$#" -ge 7 ] && account_shell=$7
+    fi
+  fi
+
+  if [ -z "$account_shell" ] && command -v dscl >/dev/null 2>&1; then
+    account_record=$(dscl . -read "/Users/$account_user" UserShell 2>/dev/null) \
+      || account_record=
+    case "$account_record" in
+      UserShell:*) account_shell=${account_record#UserShell:}
+        account_shell=${account_shell#"${account_shell%%[![:space:]]*}"} ;;
+    esac
+  fi
+
+  case "$account_shell" in
+    /*) printf '%s\n' "$account_shell" ;;
+    *) return 1 ;;
+  esac
+)
+
 do_setup_shell() {
   sh_target= rc= wrapping=
   while [ "$#" -gt 0 ]; do
@@ -3189,8 +3229,10 @@ do_setup_shell() {
           printf '%s\n' "Usage: $PROGRAM setup-shell [--bash|--zsh|--rc FILE] [--no-command-wrapping]"
           printf '%s\n' "Adds the shell-init line to your shell rc (idempotent). Restart your"
           printf '%s\n' "shell and any sessions launched from it afterwards to apply."
-          printf '%s\n' "A detected fish login shell gets both ~/.bashrc and ~/.zshrc: fish cannot"
-          printf '%s\n' "eval the POSIX snippet, and agent shell snapshots run one of those two."
+          printf '%s\n' "If the process or account login shell is fish, setup writes both ~/.bashrc"
+          printf '%s\n' "and ~/.zshrc: fish cannot eval the POSIX snippet, and agent shell snapshots"
+          printf '%s\n' "run one of those two. Account lookup is best-effort (getent on Linux, dscl"
+          printf '%s\n' "on macOS); if it fails, setup falls back to the process SHELL."
           printf '%s\n' "Command wrapping is enabled by default. Use --no-command-wrapping for"
           printf '%s\n' "a persistent opt-out, or AGENT_GUARD_COMMAND_WRAPPING=off at runtime."
         } >&2
@@ -3201,16 +3243,35 @@ do_setup_shell() {
   done
 
   # Pick the rc file: explicit --rc wins, else derive from the chosen/detected
-  # shell. A detected fish login shell is the one case with no single answer:
+  # shell. Fish in either the process environment or account login record is the
+  # one case with no single answer. The setup skill runs inside an agent Bash
+  # tool, whose $SHELL may describe its bash/zsh snapshot rather than the account
+  # login shell, so relying on that variable alone misses real fish users.
   # `shell-init` emits POSIX shell code that fish cannot eval, so there is no fish
   # rc to install into, and Claude Code builds its `!`/Bash snapshot from bash or
   # zsh without telling us which. Install into both so the wrapping loads either
-  # way (an explicit --bash / --zsh / --rc still wins).
+  # way. Explicit --bash / --zsh / --rc always wins. If lookup fails, retain the
+  # old process-SHELL behavior; an unknown process and account shell falls back
+  # to zsh rather than widening the write set.
   if [ -z "$rc" ]; then
     if [ -z "$sh_target" ]; then
-      case "${SHELL:-}" in
-        */bash) sh_target=bash ;;
-        */fish) sh_target=fish ;;
+      process_shell=${SHELL:-}
+      account_shell=$(setup_shell_account_shell) || account_shell=
+      process_kind= account_kind=
+      case "${process_shell##*/}" in
+        bash) process_kind=bash ;;
+        zsh) process_kind=zsh ;;
+        fish) process_kind=fish ;;
+      esac
+      case "${account_shell##*/}" in
+        bash) account_kind=bash ;;
+        zsh) account_kind=zsh ;;
+        fish) account_kind=fish ;;
+      esac
+      case "$process_kind:$account_kind" in
+        fish:*|*:fish) sh_target=fish ;;
+        bash:*|zsh:*) sh_target=$process_kind ;;
+        *:bash|*:zsh) sh_target=$account_kind ;;
         *) sh_target=zsh ;;
       esac
     fi
@@ -3234,9 +3295,12 @@ do_setup_shell() {
   if [ "$sh_target" = fish ]; then
     setup_shell_write_rc "$HOME/.bashrc" "$line"
     setup_shell_write_rc "$HOME/.zshrc" "$line"
-    info "$PROGRAM: fish login shell detected. The integration is POSIX shell code, so it cannot load in fish itself: no agx and no nudge at your fish prompt."
+    fish_exec=$STABLE_BIN
+    [ -x "$fish_exec" ] || fish_exec=$SELF_BIN
+    info "$PROGRAM: fish shell detected. The integration is POSIX shell code, so it cannot load in fish itself: no automatic agx and no nudge at your fish prompt."
     info "$PROGRAM: agent shell snapshots run bash or zsh, which do read the files above, so command wrapping still applies to agent-run commands."
-    info "$PROGRAM: at a fish prompt, mask a command explicitly with: agent-guard exec -- <cmd>"
+    info "$PROGRAM: a plugin-only install may not put agent-guard on fish's PATH; use the PATH-safe agx function in README or this executable with 'exec -- <cmd>':"
+    info "$PROGRAM: fish executable: $fish_exec"
   else
     setup_shell_write_rc "$rc" "$line"
   fi
