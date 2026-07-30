@@ -29,20 +29,12 @@
   Suffix-qualified credential keys (`AWS_SECRET_ACCESS_KEY_ID`,
   `API_KEY_VALUE`, `DB_PASSWORD_HASH`) and whitespace-prefixed colon
   assignments in log lines still mask.
-- fix(pii): narrow supported PII providers to `regex` and `http` (#52).
+- fix(pii): make the accepted PII provider values explicit (#52).
 
-  Behaviour change: `AGENT_GUARD_PII_PROVIDER=pleno` now **fails closed** with
-  the supported-provider list instead of being accepted. `pleno` was only ever
-  an undocumented alias for the generic `http` endpoint adapter — it had no
-  pleno-specific request shape and no pleno-specific response parser, so it
-  advertised an integration that did not exist. Because this is a PII redaction
-  path, an unrecognised provider must never silently degrade to pass-through.
-
-  Migration: anyone setting `AGENT_GUARD_PII_PROVIDER=pleno` should set
-  `AGENT_GUARD_PII_PROVIDER=http` and keep the same
-  `AGENT_GUARD_PII_REDACT_URL`; the request/response handling is byte-for-byte
-  what `pleno` already did. A verified `plenoai/pleno-anonymize` integration
-  remains future work (#53).
+  `regex` remains the supported, local default. `http` is an experimental
+  bring-your-own-endpoint adapter with no service-specific compatibility
+  guarantee. Any other value fails closed instead of falling through to
+  pass-through output. Rejected values are now reported exactly once.
 
 - fix(hooks): report a scan that could not run distinctly from a detection
   (#137). A scanner precondition failure and a real detection previously looked

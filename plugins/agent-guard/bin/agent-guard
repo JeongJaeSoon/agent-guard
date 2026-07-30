@@ -550,15 +550,14 @@ Usage:
 Reads text from stdin and writes masked text to stdout.
 Set AGENT_GUARD_PII_PROVIDER=regex|http to choose a provider (default: regex).
   regex  built-in local adapter; no network access.
-  http   generic compatible HTTP endpoint adapter; needs
-         AGENT_GUARD_PII_REDACT_URL.
+  http   experimental bring-your-own-endpoint adapter; needs
+         AGENT_GUARD_PII_REDACT_URL; no service compatibility guarantee.
 EOF
 }
 
-# Single source of the supported-provider wording so help, filter, and --check
-# never drift apart. `pleno` is deliberately absent: it was only ever an
-# unverified alias for the generic http adapter, so it fails closed here rather
-# than silently redacting through an unvalidated contract.
+# Keep accepted-value validation in one place so filter and --check cannot
+# drift apart. Unknown values fail closed rather than reaching pass-through
+# output or an unvalidated endpoint contract.
 pii_unsupported_provider() {
   die "pii-filter: unsupported provider: $1 (expected regex or http)"
 }

@@ -75,8 +75,9 @@ secret detection. Output masking likewise replaces assignment values, not
 secret-like key names or surrounding prose.
 
 Default processing is local, ephemeral, and has no telemetry. PII hook handling
-is off by default. Selecting the optional `http` PII provider sends
+is off by default. Selecting the experimental `http` PII adapter sends
 the text described in [PRIVACY.md](PRIVACY.md) to the user-configured endpoint.
+Compatibility with a specific external service is not guaranteed.
 
 ## Requirements and platforms
 
