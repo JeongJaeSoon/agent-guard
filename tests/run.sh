@@ -3985,7 +3985,7 @@ cat >"$LOCK_INCOMPLETE_TOML_BIN/gitleaks" <<'STUB'
 #!/bin/sh
 case "${1:-}" in
   stdin)
-    if grep -Eq '[0-9a-f]{64}'; then
+    if grep -Eq '[0-9a-f]{64}|h1:[A-Za-z0-9+/]{43}=|sha512-[A-Za-z0-9+/]{86}=='; then
       printf '%s\n' 'Finding: REDACTED'
       exit 1
     fi
@@ -4005,6 +4005,39 @@ for incomplete_toml_name in Cargo.lock uv.lock; do
     ok "scan-path keeps incomplete $incomplete_toml_name checksum bytes scannable"
   else
     not_ok "scan-path must detect checksum bytes in incomplete $incomplete_toml_name (expected 1, got $status)"
+  fi
+done
+
+LOCK_MALFORMED_TAIL_DIR="$TMP_ROOT/lockfile-malformed-tail-dir"
+mkdir -p "$LOCK_MALFORMED_TAIL_DIR"
+printf 'example.com/module v1.0.0 %s trailing-junk\n' \
+  "$LOCK_FRAGMENT_H1" >"$LOCK_MALFORMED_TAIL_DIR/go.sum"
+printf '  integrity sha512-%s trailing-junk\n' \
+  "$LOCK_FRAGMENT_SHA512" >"$LOCK_MALFORMED_TAIL_DIR/yarn.lock"
+{
+  printf '%s\n' '[[package]]'
+  printf 'checksum = "%s", trailing-junk\n' "$LOCK_FRAGMENT_HEX"
+} >"$LOCK_MALFORMED_TAIL_DIR/Cargo.lock"
+for malformed_tail_name in go.sum yarn.lock Cargo.lock; do
+  malformed_tail_path="$LOCK_MALFORMED_TAIL_DIR/$malformed_tail_name"
+  malformed_tail_filtered="$LOCK_MALFORMED_TAIL_DIR/$malformed_tail_name.filtered"
+  "$PLUGIN_ROOT/bin/agent-guard" filter-lockfile-hashes \
+    "$malformed_tail_path" "$malformed_tail_path" >"$malformed_tail_filtered"
+  status=$?
+  if [ "$status" -eq 0 ] \
+      && cmp -s "$malformed_tail_path" "$malformed_tail_filtered"; then
+    ok "$malformed_tail_name filtering preserves malformed trailing data"
+  else
+    not_ok "$malformed_tail_name filtering must not neutralize before trailing data"
+  fi
+  AGENT_GUARD_GITLEAKS_BIN="$LOCK_INCOMPLETE_TOML_BIN/gitleaks" \
+    "$PLUGIN_ROOT/bin/agent-guard" scan-path "$malformed_tail_path" \
+      >"$OUT" 2>"$ERR"
+  status=$?
+  if [ "$status" -eq 1 ]; then
+    ok "scan-path keeps malformed $malformed_tail_name checksum bytes scannable"
+  else
+    not_ok "scan-path must detect checksum bytes before trailing data in $malformed_tail_name (expected 1, got $status)"
   fi
 done
 

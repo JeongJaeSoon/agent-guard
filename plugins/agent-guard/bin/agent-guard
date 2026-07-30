@@ -828,8 +828,11 @@ filter_lockfile_records() {
     }
     function structured_delimiter(line, at, kind, n, ch) {
       n = length(line)
-      if (kind == "y")
-        return at > n || substr(line, at, 1) ~ /[[:space:]]/
+      # Yarn integrity and Cargo checksum are whole scalar fields. Accept only
+      # end-of-record whitespace or a comment; malformed trailing data must
+      # remain raw and scannable. package-lock and uv use inline containers.
+      if (kind == "y" || kind == "c")
+        return substr(line, at) ~ /^[[:space:]]*(#.*)?$/
       while (at <= n && substr(line, at, 1) ~ /[[:space:]]/) at++
       return at > n || substr(line, at, 1) == "," || substr(line, at, 1) == "}"
     }
@@ -1149,7 +1152,7 @@ filter_lockfile_records() {
         if (match(line, /^[^[:space:]]+[[:space:]]+[^[:space:]]+[[:space:]]+/)) {
           go_prefix = substr(line, 1, RLENGTH)
           go_tail = substr(line, RLENGTH + 1)
-          if (go_tail ~ /^h1:[A-Za-z0-9+\/]{43}=([[:space:]]|$)/ \
+          if (go_tail ~ /^h1:[A-Za-z0-9+\/]{43}=[[:space:]]*$/ \
               && match(go_tail, /^h1:[A-Za-z0-9+\/]{43}=/))
             line = go_prefix replace_match(go_tail, "h1:CHECKSUM")
         }
