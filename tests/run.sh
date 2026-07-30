@@ -6410,6 +6410,38 @@ else
   LC_ALL=C wc -c "$OUT" | sed 's/^/  bytes: /'
 fi
 
+# GNU shell capture ignores trailing empty and newline-only values. Do not
+# materialize them merely because the BSD capture has the same bounded length.
+PRINTENV_SHORT_SECRET='abcd'
+PRINTENV_NEWLINE_ONLY_VAL=$(awk '
+  BEGIN {
+    for (i = 0; i < 100000; i++) printf "\n"
+    printf "x"
+  }
+')
+PRINTENV_NEWLINE_ONLY_VAL=${PRINTENV_NEWLINE_ONLY_VAL%x}
+printenv_newline_repeat_started=$(date +%s)
+{
+  printf '%s\n' PASSWORD
+  awk 'BEGIN { for (i = 0; i < 4000; i++) print "BLANK_LINES" }'
+} \
+  | REAL_PRINTENV=$(command -v printenv) \
+      PASSWORD="${PRINTENV_SHORT_SECRET}" \
+      BLANK_LINES="${PRINTENV_NEWLINE_ONLY_VAL}" \
+      xargs -s 196608 -n 4001 \
+        "$PLUGIN_ROOT/bin/agent-guard" exec -- "$BSD_PRINTENV" \
+        >"$OUT" 2>/dev/null
+printenv_newline_repeat_status=$?
+printenv_newline_repeat_elapsed=$(($(date +%s) - printenv_newline_repeat_started))
+if [ "$printenv_newline_repeat_status" -eq 0 ] \
+   && [ "$printenv_newline_repeat_elapsed" -lt 15 ] \
+   && [ "$(cat "$OUT")" = '[REDACTED]' ]; then
+  ok "exec bounds trailing newline-only GNU model values"
+else
+  not_ok "exec amplifies trailing newline-only GNU values (${printenv_newline_repeat_elapsed}s)"
+  LC_ALL=C wc -c "$OUT" | sed 's/^/  bytes: /'
+fi
+
 # A special-detector failure occurs inside a producer group piped into the
 # record bundler. Preserve that failure as a whole-leaf sentinel rather than
 # allowing the successful bundler to convert an empty stream into no findings.
@@ -6519,6 +6551,23 @@ if [ "$exec_printenv" = "$exec_expected" ]; then
   ok "exec does not over-mask a later benign printenv value with a stripped prefix"
 else
   not_ok "exec strips trailing newlines only when the full secret was not emitted"
+  printf '%s\n' "  out: $exec_printenv"
+fi
+
+# A trailing empty GNU value is removed by shell capture together with the
+# secret value's trailing newline. Match the secret's trimmed form in that
+# last content-bearing position rather than leaking the low-entropy value.
+PRINTENV_TRAILING_SECRET=$(printf 'abcd\nx')
+PRINTENV_TRAILING_SECRET=${PRINTENV_TRAILING_SECRET%x}
+exec_printenv=$(REAL_PRINTENV=$(command -v printenv) \
+  PUBLIC_INFO=x PASSWORD="${PRINTENV_TRAILING_SECRET}" EMPTY='' \
+  "$PLUGIN_ROOT/bin/agent-guard" exec -- \
+    "$printenv_fixture_dir/printenv" PUBLIC_INFO PASSWORD EMPTY 2>/dev/null)
+exec_expected=$(printf 'x\n[REDACTED]')
+if [ "$exec_printenv" = "$exec_expected" ]; then
+  ok "exec masks a GNU secret before a trailing empty value"
+else
+  not_ok "exec leaks a GNU secret whose newline precedes a trailing empty value"
   printf '%s\n' "  out: $exec_printenv"
 fi
 
