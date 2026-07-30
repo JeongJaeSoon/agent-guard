@@ -3211,7 +3211,6 @@ detect_printenv_argument_secret_records() {
   fi
 
   jq -cs '
-    def trim_trailing_newlines: sub("\n+$"; "");
     .[0] as $metadata
     | .[1] as $recognized
     | .[2] as $output
@@ -3224,26 +3223,39 @@ detect_printenv_argument_secret_records() {
        | . as $entry
        | select($names[$entry.name].present)
        | {position: .position, name: .name}] as $emitted
-    # Compute the conceptual GNU output length without concatenating repeated
-    # values. Only materialize the model when its trimmed length can equal the
-    # already-bounded capture.
-    | (reduce $emitted[] as $entry
-         ({raw_length: 0, count: 0, trimmed_length: 0};
-          ($names[$entry.name]) as $name
-          | .raw_length += ($name.value_length
-                            + (if .count > 0 then 1 else 0 end))
-          | .count += 1
-          | if $name.has_content
-            then .trimmed_length =
-              (.raw_length
-               - ($name.value_length - $name.trimmed_length))
-            else .
-            end)) as $gnu_shape
-    | (if $gnu_shape.trimmed_length == ($output | length)
-       then ($emitted
-             | map($names[.name].value)
-             | join("\n")
-             | trim_trailing_newlines)
+    # Shell capture removes every trailing newline from GNU printenv output.
+    # Therefore entries after the last content-bearing value cannot affect the
+    # capture. Exclude them from both the length gate and materialization so
+    # repeated empty/newline-only values cannot amplify the model.
+    | ([$emitted[]
+        | select($names[.name].has_content)]) as $gnu_content_entries
+    | (($gnu_content_entries[-1] // null)) as $gnu_last_entry
+    | (if $gnu_last_entry == null
+       then 0
+       else (reduce ($emitted[]
+                     | select(.position <= $gnu_last_entry.position)) as $entry
+               ({length: 0, count: 0};
+                ($names[$entry.name]) as $name
+                | .length +=
+                    ((if $entry.position == $gnu_last_entry.position
+                      then $name.trimmed_length
+                      else $name.value_length
+                      end)
+                     + (if .count > 0 then 1 else 0 end))
+                | .count += 1)
+             | .length)
+       end) as $gnu_output_length
+    | (if $gnu_output_length == ($output | length)
+       then (if $gnu_last_entry == null
+             then ""
+             else ($emitted
+                   | map(select(.position <= $gnu_last_entry.position)
+                         | if .position == $gnu_last_entry.position
+                           then $names[.name].trimmed_value
+                           else $names[.name].value
+                           end)
+                   | join("\n"))
+             end)
        else null
        end) as $gnu_output
     | (if (($entries | length) > 0
@@ -3252,7 +3264,7 @@ detect_printenv_argument_secret_records() {
        then $names[$entries[0].name].trimmed_value
        else ""
        end) as $bsd_output
-    | (($emitted[-1].position // -1)) as $gnu_last_position
+    | (($gnu_last_entry.position // -1)) as $gnu_last_position
     | $entries[]
     | . as $entry
     | select(.valid)
