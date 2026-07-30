@@ -18,8 +18,9 @@ session. They block deny-listed sensitive reads, secret-bearing writes and
 commands, mask secret-like tool output, and scan current work-tree changes.
 
 Normal hooks are local and have no telemetry. PII hook handling is off by
-default. Users who explicitly select the HTTP PII provider send documented text
-to their own configured endpoint. Lifecycle hooks never install software.
+default. Users who explicitly select the experimental HTTP PII adapter send
+documented text to their own configured endpoint; compatibility with a specific
+service is not guaranteed. Lifecycle hooks never install software.
 Approval-gated setup can download a versioned gitleaks archive only with a
 published SHA-256.
 

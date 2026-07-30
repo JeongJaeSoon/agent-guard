@@ -131,10 +131,11 @@ tree. Default hook processing is local: Agent Guard has no telemetry, developer
 service, account, or analytics endpoint, and it does not retain inspected data.
 
 PII hook handling is off by default. The built-in `regex` provider stays local.
-If you explicitly select the `pleno` or `http` provider, text passed to
+If you explicitly select the experimental `http` adapter, text passed to
 `pii-filter`—and supported tool-input text in PII `block` mode—is sent to the
 exact endpoint in `AGENT_GUARD_PII_REDACT_URL`. Review that endpoint's privacy
-and retention terms before enabling it.
+and retention terms before enabling it. Agent Guard does not guarantee
+compatibility with any specific service.
 
 Dependency downloads never happen from a lifecycle hook. The guided setup asks
 before installing anything and requires a published SHA-256 for the gitleaks
@@ -257,28 +258,31 @@ printf '%s\n' 'Email jane@example.com from 203.0.113.42' | agent-guard pii-filte
 
 The built-in regex provider masks common deterministic formats: email addresses, phone numbers, credit cards, US SSNs, and IP addresses. Clean text is passed through unchanged.
 
-Choose a provider with `AGENT_GUARD_PII_PROVIDER`:
+Choose a provider with `AGENT_GUARD_PII_PROVIDER`. Accepted values are:
+
+- `regex` — the supported built-in local adapter, and the default. No network access.
+- `http` — an experimental bring-your-own-endpoint adapter. No compatibility with a specific service is guaranteed.
+
+Any other value fails closed with the accepted-value list; PII redaction never degrades to pass-through on an unrecognised provider.
 
 ```sh
 AGENT_GUARD_PII_PROVIDER=regex agent-guard pii-filter --check
 ```
 
-Endpoint-backed providers are available for external redaction services:
+The experimental endpoint adapter can be used with a compatible service you operate or select:
 
 ```sh
-AGENT_GUARD_PII_PROVIDER=pleno \
+AGENT_GUARD_PII_PROVIDER=http \
 AGENT_GUARD_PII_REDACT_URL=http://127.0.0.1:8080/api/redact \
 agent-guard pii-filter --check
 
 printf '%s\n' 'Customer jane@example.com' \
-  | AGENT_GUARD_PII_PROVIDER=pleno \
+  | AGENT_GUARD_PII_PROVIDER=http \
     AGENT_GUARD_PII_REDACT_URL=http://127.0.0.1:8080/api/redact \
     agent-guard pii-filter
 ```
 
-`pleno` and `http` use the same HTTP adapter: POST JSON as `{"text":"..."}` and read a redacted string from `redacted_text`, `anonymized_text`, `text`, or `data.redacted_text`. They require `curl`, `jq`, and `AGENT_GUARD_PII_REDACT_URL`; missing tools, missing URL, HTTP errors, invalid JSON, or unexpected response shapes fail closed.
-
-Agent Guard does not install, import, run, or manage `pleno-anonymize`, Docker, Python, or any hosted service. If you use `pleno`, run pleno-anonymize separately or point `AGENT_GUARD_PII_REDACT_URL` at a hosted compatible endpoint.
+`http` POSTs JSON as `{"text":"..."}` and reads a redacted string from `redacted_text`, `anonymized_text`, `text`, or `data.redacted_text`. It requires `curl`, `jq`, and `AGENT_GUARD_PII_REDACT_URL`; missing tools, missing URL, HTTP errors, invalid JSON, or unexpected response shapes fail closed. This generic contract is exercised with local mock fixtures, but compatibility with a real external service is not yet part of Agent Guard's supported surface.
 
 PII handling in hooks is off by default. Two opt-in modes:
 

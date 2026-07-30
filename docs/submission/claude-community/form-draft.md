@@ -8,13 +8,14 @@
 
 - Repository: `https://github.com/JeongJaeSoon/agent-guard`
 - Plugin path: `plugins/agent-guard`
-- Commit SHA: `ff50c21e3444dec3e35bc9ff8e764966038e54ad`
+- Commit SHA: `a2583208578f9b7e7cd082b791efa59f7c43e568`
+  (replace with the final merged SHA before submission)
 
 ## Short description
 
 Local-by-default, no-telemetry hooks inspect supported Claude Code tool inputs,
 outputs, and changed files on macOS and Linux to block or mask secret leaks.
-Optional HTTP PII processing is off by default.
+Experimental HTTP PII processing is off by default.
 
 ## Category
 
@@ -36,8 +37,10 @@ Hooks process matched tool inputs and outputs in memory and scan changed and
 untracked files in the current Git work tree. Default processing is local, has
 no telemetry, and retains no inspected data. `agent-guard checksum` and explicit,
 approval-gated setup contact GitHub Releases without sending project content.
-If the user opts into `AGENT_GUARD_PII_PROVIDER=pleno|http`, documented text is
-sent to the exact user-configured endpoint. PII hooks default to off.
+If the user opts into the experimental `AGENT_GUARD_PII_PROVIDER=http`
+adapter, documented text is sent to the exact user-configured endpoint.
+Compatibility with a specific service is not guaranteed. PII hooks default to
+off.
 
 ## Additional software
 

@@ -7,13 +7,16 @@
    the Agent Guard repository, then publish a release if the manifest version
    changed.
 3. Resolve the reachable 40-character GitHub commit SHA that contains the exact
-   plugin payload under `plugins/agent-guard`. The prepared submission pins
-   `ff50c21e3444dec3e35bc9ff8e764966038e54ad`, merged through Agent Guard
-   [PR #145](https://github.com/JeongJaeSoon/agent-guard/pull/145).
-4. Re-run `make submission-check` with
-   `AGENT_GUARD_SUBMISSION_SHA=ff50c21e3444dec3e35bc9ff8e764966038e54ad`.
-   If the plugin payload changes, replace the pinned SHA in both submission
-   drafts and validate the new reachable commit before submitting.
+   plugin payload under `plugins/agent-guard`. For PR validation, the prepared
+   submission currently pins `a2583208578f9b7e7cd082b791efa59f7c43e568`
+   from Agent Guard
+   [PR #154](https://github.com/JeongJaeSoon/agent-guard/pull/154). Replace it
+   with the final merged SHA before external submission.
+4. Re-run
+   `AGENT_GUARD_SUBMISSION_SHA=<FINAL_MERGED_SHA> make submission-check`.
+   If the plugin payload changes, replace every hard-coded submission SHA in
+   the drafts and readiness notes, then validate the new reachable commit
+   before submitting.
 5. For the public community route, submit the form draft through the Console
    form (available to individual authors) or the claude.ai Team/Enterprise form.
    Do not open a PR against the community mirror.
