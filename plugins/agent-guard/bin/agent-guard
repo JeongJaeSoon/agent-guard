@@ -3306,6 +3306,19 @@ redact_nonempty_response_strings() {
   ' 2>/dev/null
 }
 
+redact_response_whole_leaf_fail_closed() {
+  whole_leaf_response=$1
+  whole_leaf_redacted=$(redact_nonempty_response_strings "$whole_leaf_response")
+  if [ -n "$whole_leaf_redacted" ] \
+    && [ "$whole_leaf_redacted" != "$whole_leaf_response" ]; then
+    printf '%s' "$whole_leaf_redacted"
+  else
+    # Shape preservation is preferable, but a failed mandatory rewrite must
+    # still replace the host-visible output with valid, shape-independent JSON.
+    printf '%s' '"[REDACTED]"'
+  fi
+}
+
 # PostToolUse output guard: scan this tool's result and, if any secret-like value
 # is present, emit updatedToolOutput with it masked, then exit 0 (a non-zero exit
 # makes Claude Code ignore the JSON). Never blocks; never corrupts on error.
@@ -3366,25 +3379,25 @@ redact_tool_output() {
     r=$(redact_nul_response_json "$out")
     if [ -n "$r" ] && [ "$r" != "$out" ]; then out=$r; did_secret=1; fi
     if output_scan_input_exceeds_cap "$out"; then
-      r=$(redact_nonempty_response_strings "$out")
-      if [ -n "$r" ] && [ "$r" != "$out" ]; then out=$r; did_secret=1; fi
+      out=$(redact_response_whole_leaf_fail_closed "$out")
+      did_secret=1
     elif large_response_has_secretish_assignment "$out"; then
-      r=$(redact_nonempty_response_strings "$out")
-      if [ -n "$r" ] && [ "$r" != "$out" ]; then out=$r; did_secret=1; fi
+      out=$(redact_response_whole_leaf_fail_closed "$out")
+      did_secret=1
     else
       secret_bundle=$(detect_output_secret_bundle "$out")
       if [ -n "$secret_bundle" ]; then
         if printf '%s' "$secret_bundle" \
           | jq -e '.whole_leaf == true' >/dev/null 2>&1; then
-          r=$(redact_nonempty_response_strings "$out")
-          if [ -n "$r" ] && [ "$r" != "$out" ]; then out=$r; did_secret=1; fi
+          out=$(redact_response_whole_leaf_fail_closed "$out")
+          did_secret=1
         else
           secrets=$(printf '%s' "$secret_bundle" \
             | jq -c '.secrets | if length > 0 then . else empty end' 2>/dev/null)
           if [ -n "$secrets" ]; then
             r=$(redact_tool_response_json "$out" "$secrets")
             if [ -z "$r" ] || [ "$r" = "$out" ]; then
-              r=$(redact_nonempty_response_strings "$out")
+              r=$(redact_response_whole_leaf_fail_closed "$out")
             fi
             if [ -n "$r" ] && [ "$r" != "$out" ]; then out=$r; did_secret=1; fi
           fi

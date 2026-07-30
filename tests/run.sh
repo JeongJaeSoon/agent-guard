@@ -5701,6 +5701,84 @@ else
   printf '%s\n' "$post_out" | sed 's/^/  out: /'
 fi
 
+# A newline-heavy leaf previously missed the escape-free single-record fast
+# path and repeatedly copied the accumulated leaf before its final boundary.
+# The shared cap must fire before that probe, including when the credential is
+# only at the very end of the response.
+newline_heavy_input=$(jq -nc '
+  {tool_name:"Read",tool_input:{file_path:"newline-dump.txt"},
+   tool_response:(([range(0; 50000) | "clean"] +
+                   ["PASSWORD=abcdefghijklmnop"]) | join("\n"))}
+')
+newline_heavy_started=$(date +%s)
+post_tool_out "$newline_heavy_input"
+newline_heavy_status=$?
+newline_heavy_elapsed=$(($(date +%s) - newline_heavy_started))
+post_out=$(cat "$OUT")
+if [ "$newline_heavy_status" -eq 0 ] \
+   && [ "$newline_heavy_elapsed" -lt 15 ] \
+   && printf '%s' "$post_out" \
+        | jq -e '.hookSpecificOutput.updatedToolOutput == "[REDACTED]"' \
+          >/dev/null 2>&1 \
+   && ! printf '%s' "$post_out" | grep -q 'abcdefghijklmnop'; then
+  ok "post-tool preflights newline-heavy leaves before assignment probing"
+else
+  not_ok "post-tool scans newline-heavy over-cap leaves quadratically (${newline_heavy_elapsed}s)"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+# If the shape-preserving whole-leaf jq transform itself fails, mandatory
+# redaction must still reach both host envelopes as a JSON string sentinel.
+FAIL_WHOLE_JQ_DIR="$TMP_ROOT/fail-whole-jq"
+FAIL_WHOLE_JQ="$FAIL_WHOLE_JQ_DIR/jq"
+mkdir -p "$FAIL_WHOLE_JQ_DIR"
+{
+  printf '%s\n' '#!/bin/sh'
+  printf '%s\n' 'case " $* " in'
+  printf '%s\n' '  *"length > 0"*) exit 2 ;;'
+  printf '%s\n' 'esac'
+  printf '%s\n' 'exec "${AGENT_GUARD_TEST_REAL_JQ:?}" "$@"'
+} >"$FAIL_WHOLE_JQ"
+chmod +x "$FAIL_WHOLE_JQ"
+
+printf '%s' "$large_gitleaks_input" \
+  | (cd "$TMP_ROOT" \
+      && PATH="$FAIL_WHOLE_JQ_DIR:$PATH" \
+         AGENT_GUARD_TEST_REAL_JQ="$REAL_JQ" \
+         "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool) >"$OUT" 2>"$ERR"
+failed_whole_claude_status=$?
+failed_whole_claude_out=$(cat "$OUT")
+if [ "$failed_whole_claude_status" -eq 0 ] \
+   && printf '%s' "$failed_whole_claude_out" \
+        | jq -e '.hookSpecificOutput.updatedToolOutput == "[REDACTED]"' \
+          >/dev/null 2>&1 \
+   && ! printf '%s' "$failed_whole_claude_out" | grep -q 'opaque-material-'; then
+  ok "post-tool fail-closes a failed whole-leaf rewrite for Claude"
+else
+  not_ok "post-tool leaks over-cap output when the Claude whole-leaf rewrite fails"
+  printf '%s\n' "$failed_whole_claude_out" | sed 's/^/  out: /'
+fi
+
+printf '%s' "$large_gitleaks_input" \
+  | (cd "$TMP_ROOT" \
+      && PATH="$FAIL_WHOLE_JQ_DIR:$PATH" \
+         AGENT_GUARD_TEST_REAL_JQ="$REAL_JQ" \
+         AGENT_GUARD_HOOK_HOST=codex \
+         "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool) >"$OUT" 2>"$ERR"
+failed_whole_codex_status=$?
+failed_whole_codex_out=$(cat "$OUT")
+if [ "$failed_whole_codex_status" -eq 0 ] \
+   && printf '%s' "$failed_whole_codex_out" \
+        | jq -e '.decision == "block"
+                 and (.hookSpecificOutput.additionalContext
+                      | contains("[REDACTED]"))' >/dev/null 2>&1 \
+   && ! printf '%s' "$failed_whole_codex_out" | grep -q 'opaque-material-'; then
+  ok "post-tool fail-closes a failed whole-leaf rewrite for Codex"
+else
+  not_ok "post-tool leaks over-cap output when the Codex whole-leaf rewrite fails"
+  printf '%s\n' "$failed_whole_codex_out" | sed 's/^/  out: /'
+fi
+
 # The large-response assignment probe consumes framed leaves. A sanitized value
 # must be checked after removing the transport boundary or `[REDACTED]` plus RS
 # is mistaken for a new secret and unrelated clean leaves are over-masked.
