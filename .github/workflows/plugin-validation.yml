@@ -43,11 +43,7 @@ jobs:
         run: scripts/validate-plugin-layout.sh --archive
 
       - name: Validate Marketplace Submission Readiness
-        # Temporary: the readiness check now resolves the pinned .source.sha
-        # (fetch-depth: 0 above) and correctly reports that the pin has drifted
-        # from the current payload — a real finding that was silently skipped
-        # before. Re-pinning is a separate decision (#130 follow-up), so keep the
-        # check running and visible in the logs without blocking this PR. Remove
-        # continue-on-error once .source.sha is re-pinned.
-        continue-on-error: true
+        # Blocking again (#149): .source.sha is re-pinned to the commit whose
+        # plugins/agent-guard tree is currently shipping, so any change to the
+        # payload that forgets to re-pin the submission drafts fails here.
         run: make submission-check
