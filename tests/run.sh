@@ -3950,6 +3950,64 @@ else
   not_ok "untracked malformed package-lock integrity remains scannable (expected 1, got $status)"
 fi
 
+LOCK_INCOMPLETE_TOML_DIR="$TMP_ROOT/lockfile-incomplete-toml-dir"
+mkdir -p "$LOCK_INCOMPLETE_TOML_DIR"
+{
+  printf '%s\n' '[[package]]'
+  printf 'checksum = "%s"\n' "$LOCK_FRAGMENT_HEX"
+  printf '%s\n' 'note = """'
+  printf '%s\n' 'unterminated'
+} >"$LOCK_INCOMPLETE_TOML_DIR/Cargo.lock"
+{
+  printf '%s\n' '[[package]]'
+  printf 'sdist = { url = "https://example.invalid/pkg", hash = "sha256:%s" }\n' \
+    "$LOCK_FRAGMENT_HEX"
+  printf "%s\n" "note = '''"
+  printf '%s\n' 'unterminated'
+} >"$LOCK_INCOMPLETE_TOML_DIR/uv.lock"
+for incomplete_toml_name in Cargo.lock uv.lock; do
+  incomplete_toml_path="$LOCK_INCOMPLETE_TOML_DIR/$incomplete_toml_name"
+  incomplete_toml_filtered="$LOCK_INCOMPLETE_TOML_DIR/$incomplete_toml_name.filtered"
+  "$PLUGIN_ROOT/bin/agent-guard" filter-lockfile-hashes \
+    "$incomplete_toml_path" "$incomplete_toml_path" >"$incomplete_toml_filtered"
+  status=$?
+  if [ "$status" -eq 0 ] \
+      && cmp -s "$incomplete_toml_path" "$incomplete_toml_filtered"; then
+    ok "$incomplete_toml_name filtering falls back to raw incomplete TOML"
+  else
+    not_ok "$incomplete_toml_name filtering must not emit neutralized incomplete TOML"
+  fi
+done
+
+LOCK_INCOMPLETE_TOML_BIN="$TMP_ROOT/lockfile-incomplete-toml-bin"
+mkdir -p "$LOCK_INCOMPLETE_TOML_BIN"
+cat >"$LOCK_INCOMPLETE_TOML_BIN/gitleaks" <<'STUB'
+#!/bin/sh
+case "${1:-}" in
+  stdin)
+    if grep -Eq '[0-9a-f]{64}'; then
+      printf '%s\n' 'Finding: REDACTED'
+      exit 1
+    fi
+    exit 0
+    ;;
+  version) printf '%s\n' '0.0.0-incomplete-toml-test' ;;
+  *) exit 0 ;;
+esac
+STUB
+chmod +x "$LOCK_INCOMPLETE_TOML_BIN/gitleaks"
+for incomplete_toml_name in Cargo.lock uv.lock; do
+  AGENT_GUARD_GITLEAKS_BIN="$LOCK_INCOMPLETE_TOML_BIN/gitleaks" \
+    "$PLUGIN_ROOT/bin/agent-guard" scan-path \
+      "$LOCK_INCOMPLETE_TOML_DIR/$incomplete_toml_name" >"$OUT" 2>"$ERR"
+  status=$?
+  if [ "$status" -eq 1 ]; then
+    ok "scan-path keeps incomplete $incomplete_toml_name checksum bytes scannable"
+  else
+    not_ok "scan-path must detect checksum bytes in incomplete $incomplete_toml_name (expected 1, got $status)"
+  fi
+done
+
 LOCK_SCHEMA_DIR="$TMP_ROOT/lockfile-schema-dir"
 mkdir -p "$LOCK_SCHEMA_DIR"
 {

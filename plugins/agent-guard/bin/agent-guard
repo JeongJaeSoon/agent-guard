@@ -1128,6 +1128,12 @@ filter_lockfile_records() {
         next
       }
       if (kind != previous_kind) {
+        # A structured TOML stream must not silently discard incomplete parser
+        # state when the record kind changes. Returning nonzero makes the
+        # caller scan the immutable raw snapshot instead.
+        if ((previous_kind == "c" || previous_kind == "u") \
+            && toml_multiline != "")
+          exit 2
         toml_multiline = ""
         toml_skip_rest = 0
         json_skip_rest = 0
@@ -1152,6 +1158,13 @@ filter_lockfile_records() {
         next
       }
       print line
+    }
+    END {
+      # Never emit checksum-neutralized output for incomplete TOML. The caller
+      # treats this parser failure as a signal to scan the full raw snapshot.
+      if ((previous_kind == "c" || previous_kind == "u") \
+          && toml_multiline != "")
+        exit 2
     }
   ' "$record_source"
 }
