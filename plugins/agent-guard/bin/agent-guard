@@ -2981,22 +2981,56 @@ detect_output_secret_records() {
   response=$1
   env_records=${2:-yes}
   {
-    # ponytail: forks gitleaks once per matched tool output. Acceptable because
-    # tool results reaching the hook are already harness-truncated; if a large
-    # WebFetch/MCP stream ever dominates latency, gate this on a size cap or an
-    # in-process pre-filter before the fork.
+    # Fork gitleaks once per matched tool output, but bound both its input and
+    # report before the downstream record cap so the host timeout cannot turn
+    # high-cardinality gitleaks-only output into a fail-open path.
     if gl=$(resolve_gitleaks) && [ -f "$GITLEAKS_CONFIG" ]; then
-      report=$(mktemp_file) || report=''
-      if [ -n "$report" ]; then
-        printf '%s' "$response" \
-          | jq -rj 'if type == "string" then . else [.. | strings] | join("\n") end' \
-          | "$gl" stdin --report-format json --report-path "$report" \
-              --no-banner --config "$GITLEAKS_CONFIG" >/dev/null 2>&1
-        [ -s "$report" ] \
-          && jq -c '.[]? | (.Secret // empty) | select(type == "string" and length > 0)' \
-              "$report" 2>/dev/null
-        rm -f "$report"
-      fi
+      response_bytes=$(printf '%s' "$response" | LC_ALL=C wc -c | tr -d '[:space:]')
+      case "$response_bytes" in
+        ''|*[!0-9]*)
+          printf '%s\n' '{"agent_guard_whole_leaf":true}'
+          ;;
+        *)
+          # Bound work before gitleaks sees the response. Assignment-shaped
+          # oversized output already takes the streaming preflight above this
+          # detector; other oversized output fails closed without waiting for
+          # an unbounded scan or report.
+          if [ "$response_bytes" -gt 327680 ]; then
+            printf '%s\n' '{"agent_guard_whole_leaf":true}'
+          else
+            report=$(mktemp_file) || report=''
+            if [ -z "$report" ]; then
+              printf '%s\n' '{"agent_guard_whole_leaf":true}'
+            else
+              printf '%s' "$response" \
+                | jq -rj 'if type == "string" then . else [.. | strings] | join("\n") end' \
+                | (
+                    # POSIX ulimit -f uses 512-byte blocks. A valid report above
+                    # 64 KiB would exceed the downstream record budget anyway,
+                    # so terminate report creation and take the whole-leaf path.
+                    ulimit -f 128 >/dev/null 2>&1 || exit 2
+                    "$gl" stdin --report-format json --report-path "$report" \
+                      --no-banner --config "$GITLEAKS_CONFIG"
+                  ) >/dev/null 2>&1
+              gl_status=$?
+              case "$gl_status" in
+                0|1)
+                  if [ -s "$report" ] \
+                    && jq -e 'type == "array"' "$report" >/dev/null 2>&1; then
+                    jq -c '.[]? | (.Secret // empty)
+                           | select(type == "string" and length > 0)' \
+                      "$report" 2>/dev/null
+                  else
+                    printf '%s\n' '{"agent_guard_whole_leaf":true}'
+                  fi
+                  ;;
+                *) printf '%s\n' '{"agent_guard_whole_leaf":true}' ;;
+              esac
+              rm -f "$report"
+            fi
+          fi
+          ;;
+      esac
     fi
     if [ "$env_records" = yes ]; then
       printf '%s' "$response" \

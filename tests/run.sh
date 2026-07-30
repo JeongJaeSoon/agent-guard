@@ -5609,6 +5609,98 @@ else
   sed 's/^/  out: /' "$OUT"
 fi
 
+# Gitleaks work must be bounded before it scans or writes a high-cardinality
+# report. The stub records stdin-mode invocation and can emit a report above the
+# 64 KiB cap without using assignment, JWT, or Bearer-shaped fixture content.
+BOUNDED_GL_DIR="$TMP_ROOT/bounded-gitleaks"
+BOUNDED_GL="$BOUNDED_GL_DIR/gitleaks"
+BOUNDED_GL_MARKER="$TMP_ROOT/bounded-gitleaks.stdin"
+mkdir -p "$BOUNDED_GL_DIR"
+{
+  printf '%s\n' '#!/bin/sh'
+  printf '%s\n' 'mode=${1:-}'
+  printf '%s\n' 'case "$mode" in'
+  printf '%s\n' '  version) printf "%s\n" "0.0.0-bounded-test"; exit 0 ;;'
+  printf '%s\n' '  stdin)'
+  printf '%s\n' '    shift; report='
+  printf '%s\n' '    while [ "$#" -gt 0 ]; do'
+  printf '%s\n' '      case "$1" in'
+  printf '%s\n' '        --report-path) shift; report=${1:-} ;;'
+  printf '%s\n' '        --report-path=*) report=${1#--report-path=} ;;'
+  printf '%s\n' '      esac'
+  printf '%s\n' '      shift'
+  printf '%s\n' '    done'
+  printf '%s\n' '    cat >/dev/null'
+  printf '%s\n' '    : >"${AGENT_GUARD_TEST_GITLEAKS_MARKER:?}"'
+  printf '%s\n' '    if [ "${AGENT_GUARD_TEST_GITLEAKS_MODE:-empty}" = huge-report ]; then'
+  printf '%s\n' '      awk '\''BEGIN {'
+  printf '%s\n' '        printf "["'
+  printf '%s\n' '        for (i = 0; i < 5000; i++) {'
+  printf '%s\n' '          if (i) printf ","'
+  printf '%s\n' '          printf "{\"Secret\":\"opaque-%06d-abcdefgh\"}", i'
+  printf '%s\n' '        }'
+  printf '%s\n' '        print "]"'
+  printf '%s\n' '      }'\'' >"$report"'
+  printf '%s\n' '    else'
+  printf '%s\n' '      printf "%s\n" "[]" >"$report"'
+  printf '%s\n' '    fi'
+  printf '%s\n' '    exit 0'
+  printf '%s\n' '    ;;'
+  printf '%s\n' 'esac'
+  printf '%s\n' 'exit 2'
+} >"$BOUNDED_GL"
+chmod +x "$BOUNDED_GL"
+
+rm -f "$BOUNDED_GL_MARKER"
+large_gitleaks_input=$(jq -nc '
+  {tool_name:"Read",tool_input:{file_path:"opaque-dump.txt"},
+   tool_response:("opaque-material-" + ("a" * 340000))}
+')
+large_gitleaks_started=$(date +%s)
+printf '%s' "$large_gitleaks_input" \
+  | (cd "$TMP_ROOT" \
+      && AGENT_GUARD_GITLEAKS_BIN="$BOUNDED_GL" \
+         AGENT_GUARD_TEST_GITLEAKS_MARKER="$BOUNDED_GL_MARKER" \
+         "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool) >"$OUT" 2>"$ERR"
+large_gitleaks_status=$?
+large_gitleaks_elapsed=$(($(date +%s) - large_gitleaks_started))
+post_out=$(cat "$OUT")
+if [ "$large_gitleaks_status" -eq 0 ] \
+   && [ "$large_gitleaks_elapsed" -lt 15 ] \
+   && [ ! -e "$BOUNDED_GL_MARKER" ] \
+   && printf '%s' "$post_out" \
+        | jq -e '.hookSpecificOutput.updatedToolOutput == "[REDACTED]"' \
+          >/dev/null 2>&1; then
+  ok "post-tool bounds oversized output before invoking gitleaks"
+else
+  not_ok "post-tool lets oversized output reach gitleaks (${large_gitleaks_elapsed}s)"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+rm -f "$BOUNDED_GL_MARKER"
+small_gitleaks_input=$(jq -nc '
+  {tool_name:"Read",tool_input:{file_path:"opaque-small.txt"},
+   tool_response:"opaque material with no heuristic token shape"}
+')
+printf '%s' "$small_gitleaks_input" \
+  | (cd "$TMP_ROOT" \
+      && AGENT_GUARD_GITLEAKS_BIN="$BOUNDED_GL" \
+         AGENT_GUARD_TEST_GITLEAKS_MARKER="$BOUNDED_GL_MARKER" \
+         AGENT_GUARD_TEST_GITLEAKS_MODE=huge-report \
+         "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool) >"$OUT" 2>"$ERR"
+small_gitleaks_status=$?
+post_out=$(cat "$OUT")
+if [ "$small_gitleaks_status" -eq 0 ] \
+   && [ -e "$BOUNDED_GL_MARKER" ] \
+   && printf '%s' "$post_out" \
+        | jq -e '.hookSpecificOutput.updatedToolOutput == "[REDACTED]"' \
+          >/dev/null 2>&1; then
+  ok "post-tool fails closed when the gitleaks report exceeds its cap"
+else
+  not_ok "post-tool trusts an oversized or truncated gitleaks report"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
 # The large-response assignment probe consumes framed leaves. A sanitized value
 # must be checked after removing the transport boundary or `[REDACTED]` plus RS
 # is mistaken for a new secret and unrelated clean leaves are over-masked.
