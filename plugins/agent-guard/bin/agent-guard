@@ -3296,20 +3296,23 @@ redact_tool_output() {
 
   case "${AGENT_GUARD_HOOK_HOST:-claude}" in
     codex)
-      printf '%s' "$input" \
-        | jq -c --argjson ut "$out" '
+      # Keep the potentially large updated output on stdin. Linux limits one
+      # exec argument to roughly 128 KiB, so `--argjson ut "$out"` can fail
+      # after a successful conservative whole-leaf rewrite.
+      printf '%s' "$out" \
+        | jq -c '
             {decision: "block",
              reason: "Agent Guard blocked the original tool output because it contained sensitive values; use the sanitized replacement in additionalContext.",
              hookSpecificOutput: {
                hookEventName: "PostToolUse",
-               additionalContext: ("Agent Guard sanitized tool output:\n" + ($ut | tojson))
+               additionalContext: ("Agent Guard sanitized tool output:\n" + (. | tojson))
              }}' 2>/dev/null \
         || return 0
       ;;
     *)
-      printf '%s' "$input" \
-        | jq -c --argjson ut "$out" \
-            '{hookSpecificOutput: {hookEventName: "PostToolUse", updatedToolOutput: $ut}}' 2>/dev/null \
+      printf '%s' "$out" \
+        | jq -c \
+            '{hookSpecificOutput: {hookEventName: "PostToolUse", updatedToolOutput: .}}' 2>/dev/null \
         || return 0
       ;;
   esac
