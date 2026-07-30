@@ -1195,6 +1195,21 @@ else
   sed 's/^/  stderr: /' "$ERR"
 fi
 
+printf '%s' '{"tool_name":"Write","tool_input":{"file_path":"note.txt","content":"clean"}}' \
+  | AGENT_GUARD_PII_HOOK_MODE=block \
+    AGENT_GUARD_PII_PROVIDER=unsupported \
+    "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool \
+    >"$OUT" 2>"$ERR"
+status=$?
+count=$(grep -c 'unsupported provider: unsupported' "$ERR")
+if [ "$status" -eq 2 ] && [ "$count" -eq 1 ] && [ ! -s "$OUT" ]; then
+  ok "PII hook block mode fails closed once for an unknown provider"
+else
+  not_ok "PII hook block mode fails closed once for an unknown provider (expected 2, got $status)"
+  sed 's/^/  stdout: /' "$OUT"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
 printf '%s' '{"tool_name":"NotebookEdit","tool_input":{"notebook_path":"nb.ipynb","new_source":"contact jane@example.com"}}' \
   | AGENT_GUARD_PII_HOOK_MODE=block "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool \
     >"$OUT" 2>"$ERR"
@@ -2028,17 +2043,49 @@ chmod +x "$PII_MOCK_CURL_DIR/curl"
 
 # Unknown providers must not reach the endpoint adapter even when a URL and a
 # working curl are present.
+rm -f "$PII_URL_FILE"
 printf '%s' 'x' \
   | PATH="$PII_MOCK_CURL_DIR:$PATH" \
     AGENT_GUARD_PII_PROVIDER=unsupported \
     AGENT_GUARD_PII_REDACT_URL='http://127.0.0.1:8080/api/redact' \
+    PII_MOCK_CURL_URL="$PII_URL_FILE" \
     "$PLUGIN_ROOT/bin/agent-guard" pii-filter \
     >"$OUT" 2>"$ERR"
 status=$?
-if [ "$status" -eq 2 ] && [ ! -s "$OUT" ]; then
+if [ "$status" -eq 2 ] && [ ! -s "$OUT" ] && [ ! -e "$PII_URL_FILE" ]; then
   ok "pii-filter unknown provider does not reach the endpoint adapter"
 else
   not_ok "pii-filter unknown provider does not reach the endpoint adapter (expected 2, got $status)"
+  sed 's/^/  stdout: /' "$OUT"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+PII_FAIL_JQ_DIR="$TMP_ROOT/pii-fail-jq-bin"
+mkdir -p "$PII_FAIL_JQ_DIR"
+cat >"$PII_FAIL_JQ_DIR/jq" <<'EOSH'
+#!/usr/bin/env sh
+if [ "${1:-}" = "-Rs" ]; then
+  exit 17
+fi
+exec "$PII_REAL_JQ" "$@"
+EOSH
+chmod +x "$PII_FAIL_JQ_DIR/jq"
+rm -f "$PII_URL_FILE"
+printf '%s' 'x' \
+  | PATH="$PII_FAIL_JQ_DIR:$PII_MOCK_CURL_DIR:$PATH" \
+    PII_REAL_JQ="$REAL_JQ" \
+    PII_MOCK_CURL_URL="$PII_URL_FILE" \
+    AGENT_GUARD_PII_PROVIDER=http \
+    AGENT_GUARD_PII_REDACT_URL='http://127.0.0.1:8080/api/redact' \
+    "$PLUGIN_ROOT/bin/agent-guard" pii-filter \
+    >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ] \
+  && grep -q 'request serialization failed' "$ERR" \
+  && [ ! -e "$PII_URL_FILE" ]; then
+  ok "pii-filter endpoint provider fails closed before curl when request serialization fails"
+else
+  not_ok "pii-filter endpoint provider fails closed before curl when request serialization fails (expected 2, got $status)"
   sed 's/^/  stdout: /' "$OUT"
   sed 's/^/  stderr: /' "$ERR"
 fi

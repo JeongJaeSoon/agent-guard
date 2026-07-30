@@ -607,8 +607,10 @@ pii_endpoint_adapter_filter() {
   url=${AGENT_GUARD_PII_REDACT_URL:-}
   [ -n "$url" ] || die "pii-filter: AGENT_GUARD_PII_REDACT_URL is required for provider: $provider"
 
+  payload=$(jq -Rs '{text: .}') \
+    || die "pii-filter: $provider provider request serialization failed"
   out=$(mktemp_file) || die "pii-filter: failed to create temp file"
-  if ! jq -Rs '{text: .}' \
+  if ! printf '%s' "$payload" \
     | curl -fsS -H 'Content-Type: application/json' -d @- "$url" >"$out"; then
     rm -f "$out"
     die "pii-filter: $provider provider request failed: $url"

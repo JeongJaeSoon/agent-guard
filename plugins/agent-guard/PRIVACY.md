@@ -1,6 +1,6 @@
 # Privacy and Data Handling
 
-Last updated: 2026-07-18
+Last updated: 2026-07-31
 
 Agent Guard is local by default. The project does not operate an Agent Guard
 service, account system, telemetry collector, crash reporter, or analytics

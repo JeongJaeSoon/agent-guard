@@ -12,10 +12,11 @@
    from Agent Guard
    [PR #154](https://github.com/JeongJaeSoon/agent-guard/pull/154). Replace it
    with the final merged SHA before external submission.
-4. Re-run `make submission-check` with
-   `AGENT_GUARD_SUBMISSION_SHA=d9b59b8ea97bb63fc291e65668a797632862ed51`.
-   If the plugin payload changes, replace the pinned SHA in both submission
-   drafts and validate the new reachable commit before submitting.
+4. Re-run
+   `AGENT_GUARD_SUBMISSION_SHA=<FINAL_MERGED_SHA> make submission-check`.
+   If the plugin payload changes, replace every hard-coded submission SHA in
+   the drafts and readiness notes, then validate the new reachable commit
+   before submitting.
 5. For the public community route, submit the form draft through the Console
    form (available to individual authors) or the claude.ai Team/Enterprise form.
    Do not open a PR against the community mirror.

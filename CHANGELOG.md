@@ -34,7 +34,10 @@
   `regex` remains the supported, local default. `http` is an experimental
   bring-your-own-endpoint adapter with no service-specific compatibility
   guarantee. Any other value fails closed instead of falling through to
-  pass-through output. Rejected values are now reported exactly once.
+  pass-through output. Existing endpoint-backed configurations that fail
+  provider validation should set `AGENT_GUARD_PII_PROVIDER=http` and keep their
+  existing `AGENT_GUARD_PII_REDACT_URL`. Rejected values are now reported
+  exactly once.
 
 - fix(hooks): report a scan that could not run distinctly from a detection
   (#137). A scanner precondition failure and a real detection previously looked
