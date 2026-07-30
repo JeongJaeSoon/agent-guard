@@ -6364,6 +6364,43 @@ else
   LC_ALL=C wc -c "$OUT" | sed 's/^/  bytes: /'
 fi
 
+# The special detector must not replay a large original argv into jq or pass
+# its much larger recognized-probe JSON through one argv entry. Both the BSD
+# and GNU printenv output models stay below the plaintext cap here.
+awk 'BEGIN { for (i = 0; i < 50000; i++) print "PASSWORD" }' \
+  | PASSWORD=abcd xargs -n 50000 \
+      "$PLUGIN_ROOT/bin/agent-guard" exec -- printenv >"$OUT" 2>/dev/null
+if [ "$(cat "$OUT")" = '[REDACTED]' ]; then
+  ok "exec streams high-cardinality printenv metadata off argv"
+else
+  not_ok "exec leaks when repeated printenv metadata exceeds one argv entry"
+  LC_ALL=C wc -c "$OUT" | sed 's/^/  bytes: /'
+fi
+
+# A special-detector failure occurs inside a producer group piped into the
+# record bundler. Preserve that failure as a whole-leaf sentinel rather than
+# allowing the successful bundler to convert an empty stream into no findings.
+FAIL_PRINTENV_JQ_DIR="$TMP_ROOT/fail-printenv-jq"
+FAIL_PRINTENV_JQ="$FAIL_PRINTENV_JQ_DIR/jq"
+mkdir -p "$FAIL_PRINTENV_JQ_DIR"
+{
+  printf '%s\n' '#!/bin/sh'
+  printf '%s\n' 'case " $* " in'
+  printf '%s\n' '  *"unterminated printenv argument stream"*) exit 2 ;;'
+  printf '%s\n' 'esac'
+  printf '%s\n' 'exec "${AGENT_GUARD_TEST_REAL_JQ:?}" "$@"'
+} >"$FAIL_PRINTENV_JQ"
+chmod +x "$FAIL_PRINTENV_JQ"
+PASSWORD=abcd PATH="$FAIL_PRINTENV_JQ_DIR:$PATH" \
+  AGENT_GUARD_TEST_REAL_JQ="$REAL_JQ" \
+  "$PLUGIN_ROOT/bin/agent-guard" exec -- printenv PASSWORD >"$OUT" 2>/dev/null
+if [ "$(cat "$OUT")" = '[REDACTED]' ]; then
+  ok "exec fail-closes a printenv detector pipeline failure"
+else
+  not_ok "exec loses a printenv detector failure behind the record bundler"
+  printf '%s\n' "  out: $(cat "$OUT")"
+fi
+
 exec_printenv=$(DEMO_TOKEN="${PRINTENV_VAL}" \
   "$PLUGIN_ROOT/bin/agent-guard" exec -- printenv -- "$PRINTENV_KEY" 2>/dev/null)
 if [ "$exec_printenv" = '[REDACTED]' ]; then

@@ -3131,8 +3131,30 @@ detect_printenv_argument_secret_records() {
   shift
   [ "${1:-}" = "--" ] && shift
   [ "$#" -gt 0 ] || return 0
-  entries=$(jq -nc --args '
-    $ARGS.positional
+  printenv_args_file=$(mktemp_file) || return 1
+  printenv_entries_file=$(mktemp_file) || {
+    rm -f "$printenv_args_file"
+    return 1
+  }
+  printenv_work_a=$(mktemp_file) || {
+    rm -f "$printenv_args_file" "$printenv_entries_file"
+    return 1
+  }
+  printenv_work_b=$(mktemp_file) || {
+    rm -f "$printenv_args_file" "$printenv_entries_file" "$printenv_work_a"
+    return 1
+  }
+
+  # Do not replay the complete printenv argument list into a second process
+  # argv: the original command can fit while jq's extra argv entries cross
+  # ARG_MAX. NUL is the only byte a process argument cannot contain, so this
+  # preserves every argument boundary without reserving another sentinel.
+  if ! printf '%s\0' "$@" >"$printenv_args_file" \
+    || ! jq -Rsc '
+    (split("\u0000")
+     | if length > 0 and .[-1] == "" then .[:-1]
+       else error("unterminated printenv argument stream")
+       end)
     | to_entries
     | map(.value as $name
           | {position: .key,
@@ -3140,24 +3162,44 @@ detect_printenv_argument_secret_records() {
              valid: ($name | test("^[A-Za-z_][A-Za-z0-9_]*$")),
              present: (env[$name] != null),
              value: (env[$name] // ""),
-             probe: ("agent_guard_printenv_probe_" + (.key | tostring))})
-  ' -- "$@" 2>/dev/null) || return 1
-  recognized=$(
-    printf '%s' "$entries" \
-      | jq -c '[.[] | select(.valid and .present) | (.name + "=" + .probe)]' \
-          2>/dev/null \
-      | frame_json_string_leaves 2>/dev/null \
-      | secretish_env_values \
-      | jq -sc 'unique' 2>/dev/null
-  ) || return 1
-  {
-    printf '%s\n' "$entries"
-    printf '%s\n' "$response"
-  } \
-    | jq -cs --argjson recognized "$recognized" '
+             probe: ("agent_guard_printenv_probe_" + $name)})
+  ' "$printenv_args_file" >"$printenv_entries_file" 2>/dev/null \
+    || ! jq -c '
+      [.[] | select(.valid and .present) | (.name + "=" + .probe)] | unique
+    ' "$printenv_entries_file" >"$printenv_work_a" 2>/dev/null \
+    || ! frame_json_string_leaves \
+      <"$printenv_work_a" >"$printenv_work_b" 2>/dev/null \
+    || ! secretish_env_values \
+      <"$printenv_work_b" >"$printenv_work_a" 2>/dev/null \
+    || ! jq -sc 'unique' \
+      "$printenv_work_a" >"$printenv_work_b" 2>/dev/null; then
+    rm -f "$printenv_args_file" "$printenv_entries_file" \
+      "$printenv_work_a" "$printenv_work_b"
+    return 1
+  fi
+
+  # Feed entries, recognized probes, and captured output as three JSON
+  # documents. Generated JSON can expand far beyond Linux MAX_ARG_STRLEN even
+  # though the original plaintext remains under the output cap.
+  : >"$printenv_work_a" || {
+    rm -f "$printenv_args_file" "$printenv_entries_file" \
+      "$printenv_work_a" "$printenv_work_b"
+    return 1
+  }
+  if ! cat "$printenv_entries_file" >>"$printenv_work_a" \
+    || ! printf '\n' >>"$printenv_work_a" \
+    || ! cat "$printenv_work_b" >>"$printenv_work_a" \
+    || ! printf '\n%s\n' "$response" >>"$printenv_work_a"; then
+    rm -f "$printenv_args_file" "$printenv_entries_file" \
+      "$printenv_work_a" "$printenv_work_b"
+    return 1
+  fi
+
+  jq -cs '
     def trim_trailing_newlines: sub("\n+$"; "");
     .[0] as $entries
-    | .[1] as $output
+    | .[1] as $recognized
+    | .[2] as $output
     | [$entries[] | select(.valid and .present)] as $emitted
     | ($emitted | map(.value) | join("\n") | trim_trailing_newlines) as $gnu_output
     | (if (($entries | length) > 0
@@ -3179,7 +3221,11 @@ detect_printenv_argument_secret_records() {
       end
     | select(length >= 4)
     | select(. as $value | $output | contains($value))
-  ' 2>/dev/null
+  ' "$printenv_work_a" 2>/dev/null
+  printenv_detect_status=$?
+  rm -f "$printenv_args_file" "$printenv_entries_file" \
+    "$printenv_work_a" "$printenv_work_b"
+  return "$printenv_detect_status"
 }
 
 # Invalid UTF-8 cannot round-trip through jq's env lookup, so its reconstructed
@@ -3854,17 +3900,27 @@ do_exec() {
     if [ "$output_fully_masked" -eq 0 ]; then
       if ! secret_bundle=$(
         {
+          detector_failed=0
           if [ -n "$response" ]; then
             if [ "$invalid_output" -eq 1 ]; then
               # The raw pass already handled every assignment byte-exactly.
               # Re-running the JSON env heuristic would only produce U+FFFD
               # variants that cannot match the preserved plaintext.
-              detect_output_secret_records "$response" no
+              detect_output_secret_records "$response" no \
+                || detector_failed=1
             else
-              detect_output_secret_records "$response"
+              detect_output_secret_records "$response" \
+                || detector_failed=1
             fi
           fi
-          detect_printenv_argument_secret_records "$response" "$@"
+          detect_printenv_argument_secret_records "$response" "$@" \
+            || detector_failed=1
+          # POSIX pipelines report only the final command. Convert any producer
+          # failure into an explicit bundle record before the successful
+          # bundler could otherwise turn an empty detector stream into a pass.
+          if [ "$detector_failed" -ne 0 ]; then
+            printf '%s\n' '{"agent_guard_whole_leaf":true}'
+          fi
         } 2>/dev/null \
           | bundle_secret_records
       ); then
