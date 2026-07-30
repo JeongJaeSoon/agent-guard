@@ -4966,6 +4966,9 @@ fi
 # preserved, metadata keys with secret-ish prefixes are not values, and a prose
 # colon must not be interpreted as a YAML/JSON secret assignment.
 DISPLAY_SECRET=$(printf '%s%s' 'hunter2-' 'long-value')
+DISPLAY_SHARED_LITERAL=$(printf '%s%s' 'PASSWORD=' 'abc)')
+DISPLAY_SHARED_LINE=$(printf '%s API_TOKEN="%s" status=ok' \
+  "$DISPLAY_SHARED_LITERAL" "$DISPLAY_SHARED_LITERAL")
 display_input=$(jq -nc --arg stdout "DATABASE_PASSWORD=$DISPLAY_SECRET status=ok" \
   '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
 post_tool_out "$display_input"
@@ -4979,6 +4982,373 @@ else
   not_ok "post-tool value redaction preserves adjacent text"
   printf '%s\n' "$post_out" | sed 's/^/  out: /'
 fi
+
+for display_closing in '}' ']' ')'; do
+  display_input=$(jq -nc \
+    --arg stdout "API_TOKEN=${DISPLAY_SECRET}${display_closing}" \
+    '{tool_name:"Bash",tool_input:{command:"x"},tool_response:
+      {stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+  post_tool_out "$display_input"
+  post_out=$(cat "$OUT")
+  display_expected="API_TOKEN=[REDACTED]${display_closing}"
+  if printf '%s' "$post_out" \
+    | jq -e --arg expected "$display_expected" \
+        '.hookSpecificOutput.updatedToolOutput.stdout == $expected' >/dev/null 2>&1; then
+    ok "post-tool preserves closing punctuation after an unquoted secret"
+  else
+    not_ok "post-tool keeps structural punctuation outside the redacted value"
+    printf '%s\n' "$post_out" | sed 's/^/  out: /'
+  fi
+done
+
+for display_short in 'abc)' '))))'; do
+  display_input=$(jq -nc \
+    --arg stdout "PASSWORD=${display_short}" \
+    '{tool_name:"Bash",tool_input:{command:"x"},tool_response:
+      {stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+  post_tool_out "$display_input"
+  post_out=$(cat "$OUT")
+  case "$display_short" in
+    'abc)') display_expected='PASSWORD=[REDACTED])' ;;
+    '))))') display_expected='PASSWORD=[REDACTED]))))' ;;
+  esac
+  if printf '%s' "$post_out" \
+    | jq -e --arg expected "$display_expected" \
+        '.hookSpecificOutput.updatedToolOutput.stdout == $expected' >/dev/null 2>&1; then
+    ok "post-tool masks short unquoted values before structural punctuation"
+  else
+    not_ok "post-tool does not leak short values beside structural punctuation"
+    printf '%s\n' "$post_out" | sed 's/^/  out: /'
+  fi
+done
+
+display_input=$(jq -nc \
+  --arg stdout 'PASSWORD=a))) status=available abc ab a ))) PASSWORD=abcdef' \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:
+    {stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$display_input"
+post_out=$(cat "$OUT")
+if printf '%s' "$post_out" \
+  | jq -e '.hookSpecificOutput.updatedToolOutput.stdout
+            == "PASSWORD=[REDACTED]))) status=available abc ab a ))) PASSWORD=[REDACTED]"' \
+      >/dev/null 2>&1; then
+  ok "post-tool scopes a short secret without stranding a longer value"
+else
+  not_ok "post-tool avoids short-literal prefix replacement"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+display_input=$(jq -nc \
+  --arg stdout 'PASSWORD=)))) benign=))) PASSWORD=off' \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:
+    {stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$display_input"
+post_out=$(cat "$OUT")
+if printf '%s' "$post_out" \
+  | jq -e '.hookSpecificOutput.updatedToolOutput.stdout
+            == "PASSWORD=[REDACTED])))) benign=))) PASSWORD=off"' \
+      >/dev/null 2>&1; then
+  ok "post-tool scopes an all-closer secret to its assignment"
+else
+  not_ok "post-tool preserves unrelated punctuation and short values"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+display_input=$(jq -nc \
+  --arg stdout 'PASSWORD=abc) PASSWORD=abc)evil status=ok' \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:
+    {stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$display_input"
+post_out=$(cat "$OUT")
+if printf '%s' "$post_out" \
+  | jq -e '.hookSpecificOutput.updatedToolOutput.stdout
+            == "PASSWORD=[REDACTED]) PASSWORD=[REDACTED] status=ok"' \
+      >/dev/null 2>&1; then
+  ok "post-tool requires a boundary after a contextual token"
+else
+  not_ok "post-tool does not strand a longer assignment suffix"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+display_input=$(jq -nc \
+  --arg stdout 'API_TOKEN="abc)" PASSWORD=abc)' \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:
+    {stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$display_input"
+post_out=$(cat "$OUT")
+if printf '%s' "$post_out" \
+  | jq -e '.hookSpecificOutput.updatedToolOutput.stdout
+            == "API_TOKEN=\"[REDACTED]\" PASSWORD=[REDACTED])"' \
+      >/dev/null 2>&1; then
+  ok "post-tool preserves a contextual closer shared with a quoted secret"
+else
+  not_ok "post-tool composes contextual and ordinary secret replacement"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+display_input=$(jq -nc \
+  --arg stdout "$(printf 'PASSWORD=abc)\nstatus=available')" \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:
+    {stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$display_input"
+post_out=$(cat "$OUT")
+display_expected=$(printf 'PASSWORD=[REDACTED])\nstatus=available')
+if printf '%s' "$post_out" \
+  | jq -e --arg expected "$display_expected" \
+      '(.hookSpecificOutput.updatedToolOutput.stdout == $expected)
+       and (.hookSpecificOutput.updatedToolOutput.stderr == "")' \
+      >/dev/null 2>&1; then
+  ok "post-tool treats a newline as a contextual token boundary"
+else
+  not_ok "post-tool masks a short secret at physical line end"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+display_input=$(jq -nc \
+  --arg stdout "$DISPLAY_SHARED_LINE" \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:
+    {stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$display_input"
+post_out=$(cat "$OUT")
+if printf '%s' "$post_out" \
+  | jq -e '.hookSpecificOutput.updatedToolOutput
+            == {stdout:"PASSWORD=[REDACTED]) API_TOKEN=\"[REDACTED]\" status=ok",
+                stderr:"",interrupted:false,isImage:false}' \
+      >/dev/null 2>&1; then
+  ok "post-tool keeps contextual and ordinary meanings for one literal"
+else
+  not_ok "post-tool masks a shared contextual and quoted literal"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+display_input=$(jq -nc \
+  --arg stdout 'PASSWORD=[REDACTED]' \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:
+    {stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$display_input"
+post_out=$(cat "$OUT")
+if [ -z "$post_out" ]; then
+  ok "post-tool keeps an existing redaction sentinel idempotent"
+else
+  not_ok "post-tool does not corrupt an existing redaction sentinel"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+display_input=$(jq -nc \
+  --arg stdout 'PASSWORD=[REDACTED]]evil-suffix' \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:
+    {stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$display_input"
+post_out=$(cat "$OUT")
+if printf '%s' "$post_out" \
+  | jq -e '.hookSpecificOutput.updatedToolOutput.stdout
+            == "PASSWORD=[REDACTED]"' >/dev/null 2>&1; then
+  ok "post-tool does not treat a redaction-prefix secret as sanitized"
+else
+  not_ok "post-tool keeps redaction-sentinel skipping narrowly scoped"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+for display_closing in '}' ']' ')'; do
+  display_input=$(jq -nc \
+    --arg stdout "API_TOKEN=${DISPLAY_SECRET}${display_closing}suffix-value" \
+    '{tool_name:"Bash",tool_input:{command:"x"},tool_response:
+      {stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+  post_tool_out "$display_input"
+  post_out=$(cat "$OUT")
+  if printf '%s' "$post_out" \
+    | jq -e '.hookSpecificOutput.updatedToolOutput.stdout
+              == "API_TOKEN=[REDACTED]"' >/dev/null 2>&1; then
+    ok "post-tool masks through punctuation inside an unquoted secret"
+  else
+    not_ok "post-tool does not expose a suffix after internal punctuation"
+    printf '%s\n' "$post_out" | sed 's/^/  out: /'
+  fi
+done
+
+DISPLAY_QUOTED_KEY=$(printf '%s%s' 'DATABASE_' 'PASSWORD')
+DISPLAY_QUOTED_HEAD=$(printf '%s%s' 'alpha-long-' 'value')
+DISPLAY_QUOTED_TAIL=$(printf '%s%s' 'omega-secret-' 'tail')
+display_double=$(printf '%s="%s\\"%s" status=ok' \
+  "$DISPLAY_QUOTED_KEY" "$DISPLAY_QUOTED_HEAD" "$DISPLAY_QUOTED_TAIL")
+display_input=$(jq -nc --arg stdout "$display_double" \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$display_input"
+post_out=$(cat "$OUT")
+display_expected=$(printf '%s="[%s]" status=ok' "$DISPLAY_QUOTED_KEY" 'REDACTED')
+if printf '%s' "$post_out" \
+  | jq -e --arg expected "$display_expected" \
+      '.hookSpecificOutput.updatedToolOutput.stdout == $expected' >/dev/null 2>&1; then
+  ok "post-tool masks through an escaped double quote without leaking a suffix"
+else
+  not_ok "post-tool handles escaped double-quoted assignment delimiters"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+display_single=$(printf "%s='%s%s%s' status=ok" \
+  "$DISPLAY_QUOTED_KEY" "$DISPLAY_QUOTED_HEAD" "\\'" "$DISPLAY_QUOTED_TAIL")
+display_input=$(jq -nc --arg stdout "$display_single" \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$display_input"
+post_out=$(cat "$OUT")
+display_expected=$(printf "%s='[%s]' status=ok" "$DISPLAY_QUOTED_KEY" 'REDACTED')
+if printf '%s' "$post_out" \
+  | jq -e --arg expected "$display_expected" \
+      '.hookSpecificOutput.updatedToolOutput.stdout == $expected' >/dev/null 2>&1; then
+  ok "post-tool masks through an escaped single quote without leaking a suffix"
+else
+  not_ok "post-tool handles escaped single-quoted assignment delimiters"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+for display_quote in '"' "'"; do
+  display_multiline=$(printf '%s=%s%s\n%s%s status=ok' \
+    "$DISPLAY_QUOTED_KEY" "$display_quote" "$DISPLAY_QUOTED_HEAD" \
+    "$DISPLAY_QUOTED_TAIL" "$display_quote")
+  display_input=$(jq -nc --arg stdout "$display_multiline" \
+    '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+  post_tool_out "$display_input"
+  post_out=$(cat "$OUT")
+  display_expected=$(printf '%s=%s[%s]%s status=ok' \
+    "$DISPLAY_QUOTED_KEY" "$display_quote" 'REDACTED' "$display_quote")
+  if printf '%s' "$post_out" \
+    | jq -e --arg expected "$display_expected" \
+        '.hookSpecificOutput.updatedToolOutput.stdout == $expected' >/dev/null 2>&1; then
+    ok "post-tool masks a multiline quoted assignment as one complete value"
+  else
+    not_ok "post-tool masks the complete multiline quoted assignment"
+    printf '%s\n' "$post_out" | sed 's/^/  out: /'
+  fi
+done
+
+display_input=$(jq -nc \
+  --arg stdout "${DISPLAY_QUOTED_KEY}=\"${DISPLAY_QUOTED_HEAD}" \
+  --arg stderr "API_TOKEN=${DISPLAY_QUOTED_TAIL}" \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:
+    {stdout:$stdout,stderr:$stderr,interrupted:false,isImage:false}}')
+post_tool_out "$display_input"
+post_out=$(cat "$OUT")
+if printf '%s' "$post_out" | jq -e \
+  --arg stdout "${DISPLAY_QUOTED_KEY}=\"[REDACTED]" \
+  '.hookSpecificOutput.updatedToolOutput.stdout == $stdout
+   and .hookSpecificOutput.updatedToolOutput.stderr == "API_TOKEN=[REDACTED]"' \
+  >/dev/null 2>&1; then
+  ok "post-tool keeps multiline quote state inside each object string leaf"
+else
+  not_ok "post-tool prevents multiline quote state from crossing object leaves"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+display_input=$(jq -nc \
+  --arg first "${DISPLAY_QUOTED_KEY}=\"${DISPLAY_QUOTED_HEAD}" \
+  --arg second "API_TOKEN=${DISPLAY_QUOTED_TAIL}" \
+  '{tool_name:"Read",tool_input:{file_path:"memo.txt"},tool_response:[$first,$second]}')
+post_tool_out "$display_input"
+post_out=$(cat "$OUT")
+if printf '%s' "$post_out" \
+  | jq -e '.hookSpecificOutput.updatedToolOutput
+            == ["DATABASE_PASSWORD=\"[REDACTED]","API_TOKEN=[REDACTED]"]' \
+      >/dev/null 2>&1; then
+  ok "post-tool keeps multiline quote state inside each array string leaf"
+else
+  not_ok "post-tool prevents multiline quote state from crossing array leaves"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+display_input=$(jq -nc --arg secret "API_TOKEN=${DISPLAY_QUOTED_TAIL}" '
+  {tool_name:"Read",tool_input:{file_path:"memo.txt"},
+   tool_response:([range(0;4000) | "x"] + [$secret])}')
+post_tool_out "$display_input"
+post_out=$(cat "$OUT")
+if printf '%s' "$post_out" \
+  | jq -e '.hookSpecificOutput.updatedToolOutput
+            | length == 4001 and .[0] == "x" and .[-1] == "API_TOKEN=[REDACTED]"' \
+      >/dev/null 2>&1; then
+  ok "post-tool scans thousands of sibling leaves in one framed stream"
+else
+  not_ok "post-tool keeps many-leaf secret scanning within the hook boundary"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+display_input=$(jq -nc --arg head "$DISPLAY_QUOTED_HEAD" --arg tail "$DISPLAY_QUOTED_TAIL" '
+  {tool_name:"Bash",tool_input:{command:"x"},tool_response:
+    {stdout:("PASSWORD=\"" + $head + "\u0000" + $tail + "\""),
+     stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$display_input"
+post_out=$(cat "$OUT")
+if printf '%s' "$post_out" \
+  | jq -e '.hookSpecificOutput.updatedToolOutput.stdout == "[REDACTED]"' \
+      >/dev/null 2>&1; then
+  ok "post-tool conservatively masks a NUL-bearing string leaf"
+else
+  not_ok "post-tool does not pass NUL-bearing string leaves through shell variables"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+display_input=$(jq -nc --arg head "$DISPLAY_QUOTED_HEAD" --arg tail "$DISPLAY_QUOTED_TAIL" '
+  {tool_name:"Bash",tool_input:{command:"x"},tool_response:
+    {stdout:("PASSWORD=\"" + $head + "\u001e" + $tail + "\" alpha status omega"),
+     stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$display_input"
+post_out=$(cat "$OUT")
+if printf '%s' "$post_out" \
+  | jq -e '.hookSpecificOutput.updatedToolOutput.stdout
+            == "PASSWORD=\"[REDACTED]\" alpha status omega"' >/dev/null 2>&1; then
+  ok "post-tool treats an ASCII RS inside a secret as data"
+else
+  not_ok "post-tool preserves benign text around an ASCII-RS-bearing secret"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+display_backtick=$(printf '%s=`%s\\`%s` status=ok' \
+  "$DISPLAY_QUOTED_KEY" "$DISPLAY_QUOTED_HEAD" "$DISPLAY_QUOTED_TAIL")
+display_input=$(jq -nc --arg stdout "$display_backtick" \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$display_input"
+post_out=$(cat "$OUT")
+display_expected=$(printf '%s=`[%s]` status=ok' "$DISPLAY_QUOTED_KEY" 'REDACTED')
+if printf '%s' "$post_out" \
+  | jq -e --arg expected "$display_expected" \
+      '.hookSpecificOutput.updatedToolOutput.stdout == $expected' >/dev/null 2>&1; then
+  ok "post-tool masks through an escaped backtick without leaking a suffix"
+else
+  not_ok "post-tool handles escaped backtick assignment delimiters"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+display_even="${DISPLAY_QUOTED_KEY}=\"${DISPLAY_QUOTED_HEAD}\\\\\" status=ok"
+display_input=$(jq -nc --arg stdout "$display_even" \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$display_input"
+post_out=$(cat "$OUT")
+display_expected=$(printf '%s="[%s]" status=ok' "$DISPLAY_QUOTED_KEY" 'REDACTED')
+if printf '%s' "$post_out" \
+  | jq -e --arg expected "$display_expected" \
+      '.hookSpecificOutput.updatedToolOutput.stdout == $expected' >/dev/null 2>&1; then
+  ok "post-tool treats a quote after an even backslash run as closing"
+else
+  not_ok "post-tool handles even backslashes before a quoted delimiter"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+# Truncated tool output may lose the closing delimiter. Fail safe by masking
+# the entire remainder for every supported quote style.
+for display_quote in '"' "'" '`'; do
+  display_unterminated="${DISPLAY_QUOTED_KEY}=${display_quote}${DISPLAY_QUOTED_HEAD}-${DISPLAY_QUOTED_TAIL}"
+  display_expected="${DISPLAY_QUOTED_KEY}=${display_quote}[REDACTED]"
+  display_input=$(jq -nc --arg stdout "$display_unterminated" \
+    '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+  post_tool_out "$display_input"
+  post_out=$(cat "$OUT")
+  if printf '%s' "$post_out" \
+    | jq -e --arg expected "$display_expected" \
+        '.hookSpecificOutput.updatedToolOutput.stdout == $expected' >/dev/null 2>&1; then
+    ok "post-tool masks an unterminated quoted assignment"
+  else
+    not_ok "post-tool masks the remainder of an unterminated quoted assignment"
+    printf '%s\n' "$post_out" | sed 's/^/  out: /'
+  fi
+done
 
 post_tool_out '{"tool_name":"Bash","tool_input":{"command":"x"},"tool_response":{"stdout":"password_policy=disabled\n","stderr":"","interrupted":false,"isImage":false}}'
 post_status=$?
@@ -4996,6 +5366,18 @@ if [ "$post_status" -eq 0 ] && [ ! -s "$OUT" ]; then
 else
   not_ok "post-tool leaves prose after a secret-like key name untouched"
   sed 's/^/  out: /' "$OUT"
+fi
+
+display_input=$(jq -nc --arg stdout "- password: $DISPLAY_SECRET" \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$display_input"
+post_out=$(cat "$OUT")
+if printf '%s' "$post_out" \
+  | jq -e '.hookSpecificOutput.updatedToolOutput.stdout == "- password: [REDACTED]"' >/dev/null 2>&1; then
+  ok "post-tool keeps YAML sequence mapping redaction covered"
+else
+  not_ok "post-tool masks a secret value in a YAML sequence mapping"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
 fi
 
 # Suffix-qualified real credential keys must still mask: requiring the secret
@@ -5088,6 +5470,328 @@ if printf '%s' "$post_out" | grep -q '\[REDACTED\]' \
 else
   not_ok "post-tool redacts overlapping secrets without leaking the longer suffix"
   printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+# Bound adversarial high-cardinality output below the 20-second PostToolUse
+# manifest timeout. Per-literal tree walks are quadratic here; once the work cap
+# is exceeded, every nonempty string leaf is conservatively masked in one walk.
+high_cardinality_input=$(jq -nc '
+  [range(0; 2500) | "PASSWORD=value-unique-\(.)-abcdefgh"] as $stdout
+  | {tool_name:"Bash",tool_input:{command:"x"},tool_response:
+      {stdout:$stdout,stderr:"",interrupted:false,isImage:false}}
+')
+high_cardinality_started=$(date +%s)
+post_tool_out "$high_cardinality_input"
+high_cardinality_status=$?
+high_cardinality_elapsed=$(($(date +%s) - high_cardinality_started))
+post_out=$(cat "$OUT")
+if [ "$high_cardinality_status" -eq 0 ] \
+   && [ "$high_cardinality_elapsed" -lt 15 ] \
+   && printf '%s' "$post_out" \
+        | jq -e '
+            .hookSpecificOutput.updatedToolOutput as $out
+            | ($out.stdout | length) == 2500
+            and ($out.stdout | all(. == "[REDACTED]"))
+            and $out.stderr == ""
+            and $out.interrupted == false
+            and $out.isImage == false
+          ' >/dev/null 2>&1 \
+   && ! printf '%s' "$post_out" | grep -q 'value-unique-'; then
+  ok "post-tool bounds high-cardinality redaction below the hook timeout"
+else
+  not_ok "post-tool fail-closes high-cardinality output in bounded time (${high_cardinality_elapsed}s)"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+# Empty leaves still incur per-spec traversal unless they are counted in the
+# work estimate and skipped in the precise path. This sparse shape previously
+# stayed below a character-only cap and exhausted the same 20-second timeout.
+sparse_cardinality_input=$(jq -nc '
+  ([range(0; 256) | "PASSWORD=value-sparse-\(.)-abcdefgh"]
+   + [range(0; 50000) | ""]) as $stdout
+  | {tool_name:"Bash",tool_input:{command:"x"},tool_response:
+      {stdout:$stdout,stderr:"",interrupted:false,isImage:false}}
+')
+sparse_cardinality_started=$(date +%s)
+post_tool_out "$sparse_cardinality_input"
+sparse_cardinality_status=$?
+sparse_cardinality_elapsed=$(($(date +%s) - sparse_cardinality_started))
+post_out=$(cat "$OUT")
+if [ "$sparse_cardinality_status" -eq 0 ] \
+   && [ "$sparse_cardinality_elapsed" -lt 15 ] \
+   && printf '%s' "$post_out" \
+        | jq -e '
+            .hookSpecificOutput.updatedToolOutput as $out
+            | ($out.stdout | length) == 50256
+            and ($out.stdout[0:256] | all(. == "[REDACTED]"))
+            and ($out.stdout[256:] | all(. == ""))
+            and $out.stderr == ""
+          ' >/dev/null 2>&1 \
+   && ! printf '%s' "$post_out" | grep -q 'value-sparse-'; then
+  ok "post-tool counts empty-leaf traversal in the redaction work cap"
+else
+  not_ok "post-tool bounds sparse high-cardinality output (${sparse_cardinality_elapsed}s)"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+# Detection itself must also stay below the hook deadline for very large
+# assignment dumps. A streaming preflight confirms the secret-bearing shape
+# before skipping unique-literal collection and masking nonempty leaves once.
+large_detection_input=$(jq -nc '
+  [range(0; 30000) | "PASSWORD=value-detection-\(.)-abcdefgh"] as $stdout
+  | {tool_name:"Read",tool_input:{file_path:"dump.json"},
+     tool_response:$stdout}
+')
+large_detection_started=$(date +%s)
+post_tool_out "$large_detection_input"
+large_detection_status=$?
+large_detection_elapsed=$(($(date +%s) - large_detection_started))
+post_out=$(cat "$OUT")
+if [ "$large_detection_status" -eq 0 ] \
+   && [ "$large_detection_elapsed" -lt 15 ] \
+   && printf '%s' "$post_out" \
+        | jq -e '
+            .hookSpecificOutput.updatedToolOutput as $out
+            | ($out | length) == 30000
+            and ($out | all(. == "[REDACTED]"))
+          ' >/dev/null 2>&1 \
+   && ! printf '%s' "$post_out" | grep -q 'value-detection-'; then
+  ok "post-tool bounds large high-cardinality secret detection"
+else
+  not_ok "post-tool bounds large secret detection (${large_detection_elapsed}s)"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+# Assignment-shaped output has a dedicated streaming preflight, but every
+# detector source must be bounded before its records are aggregated. Unique
+# Bearer tokens exercise the non-assignment path and would otherwise build a
+# secrets argv beyond Linux's per-argument limit before the whole-leaf fallback.
+large_bearer_input=$(jq -nc '
+  [range(0; 10000)
+   | "Authorization: Bearer token-unique-\(.)-abcdefgh"] as $stdout
+  | {tool_name:"Read",tool_input:{file_path:"bearer-dump.txt"},
+     tool_response:$stdout}
+')
+large_bearer_started=$(date +%s)
+post_tool_out "$large_bearer_input"
+large_bearer_status=$?
+large_bearer_elapsed=$(($(date +%s) - large_bearer_started))
+post_out=$(cat "$OUT")
+if [ "$large_bearer_status" -eq 0 ] \
+   && [ "$large_bearer_elapsed" -lt 15 ] \
+   && printf '%s' "$post_out" \
+        | jq -e '
+            .hookSpecificOutput.updatedToolOutput as $out
+            | ($out | length) == 10000
+            and ($out | all(. == "[REDACTED]"))
+          ' >/dev/null 2>&1 \
+   && ! printf '%s' "$post_out" | grep -q 'token-unique-'; then
+  ok "post-tool bounds non-assignment secret aggregation"
+else
+  not_ok "post-tool bounds non-assignment secret aggregation (${large_bearer_elapsed}s)"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+large_clean_input=$(jq -nc '
+  {tool_name:"Read",tool_input:{file_path:"clean.txt"},
+   tool_response:("a" * 300000)}
+')
+large_clean_started=$(date +%s)
+post_tool_out "$large_clean_input"
+large_clean_status=$?
+large_clean_elapsed=$(($(date +%s) - large_clean_started))
+if [ "$large_clean_status" -eq 0 ] \
+   && [ "$large_clean_elapsed" -lt 15 ] \
+   && [ ! -s "$OUT" ]; then
+  ok "post-tool leaves large clean output unchanged"
+else
+  not_ok "post-tool preserves large clean output (${large_clean_elapsed}s)"
+  sed 's/^/  out: /' "$OUT"
+fi
+
+# Gitleaks work must be bounded before it scans or writes a high-cardinality
+# report. The stub records stdin-mode invocation and can emit a report above the
+# 64 KiB cap without using assignment, JWT, or Bearer-shaped fixture content.
+BOUNDED_GL_DIR="$TMP_ROOT/bounded-gitleaks"
+BOUNDED_GL="$BOUNDED_GL_DIR/gitleaks"
+BOUNDED_GL_MARKER="$TMP_ROOT/bounded-gitleaks.stdin"
+mkdir -p "$BOUNDED_GL_DIR"
+{
+  printf '%s\n' '#!/bin/sh'
+  printf '%s\n' 'mode=${1:-}'
+  printf '%s\n' 'case "$mode" in'
+  printf '%s\n' '  version) printf "%s\n" "0.0.0-bounded-test"; exit 0 ;;'
+  printf '%s\n' '  stdin)'
+  printf '%s\n' '    shift; report='
+  printf '%s\n' '    while [ "$#" -gt 0 ]; do'
+  printf '%s\n' '      case "$1" in'
+  printf '%s\n' '        --report-path) shift; report=${1:-} ;;'
+  printf '%s\n' '        --report-path=*) report=${1#--report-path=} ;;'
+  printf '%s\n' '      esac'
+  printf '%s\n' '      shift'
+  printf '%s\n' '    done'
+  printf '%s\n' '    cat >/dev/null'
+  printf '%s\n' '    : >"${AGENT_GUARD_TEST_GITLEAKS_MARKER:?}"'
+  printf '%s\n' '    if [ "${AGENT_GUARD_TEST_GITLEAKS_MODE:-empty}" = huge-report ]; then'
+  printf '%s\n' '      awk '\''BEGIN {'
+  printf '%s\n' '        printf "["'
+  printf '%s\n' '        for (i = 0; i < 5000; i++) {'
+  printf '%s\n' '          if (i) printf ","'
+  printf '%s\n' '          printf "{\"Secret\":\"opaque-%06d-abcdefgh\"}", i'
+  printf '%s\n' '        }'
+  printf '%s\n' '        print "]"'
+  printf '%s\n' '      }'\'' >"$report"'
+  printf '%s\n' '    else'
+  printf '%s\n' '      printf "%s\n" "[]" >"$report"'
+  printf '%s\n' '    fi'
+  printf '%s\n' '    exit 0'
+  printf '%s\n' '    ;;'
+  printf '%s\n' 'esac'
+  printf '%s\n' 'exit 2'
+} >"$BOUNDED_GL"
+chmod +x "$BOUNDED_GL"
+
+rm -f "$BOUNDED_GL_MARKER"
+large_gitleaks_input=$(jq -nc '
+  {tool_name:"Read",tool_input:{file_path:"opaque-dump.txt"},
+   tool_response:("opaque-material-" + ("a" * 340000))}
+')
+large_gitleaks_started=$(date +%s)
+printf '%s' "$large_gitleaks_input" \
+  | (cd "$TMP_ROOT" \
+      && AGENT_GUARD_GITLEAKS_BIN="$BOUNDED_GL" \
+         AGENT_GUARD_TEST_GITLEAKS_MARKER="$BOUNDED_GL_MARKER" \
+         "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool) >"$OUT" 2>"$ERR"
+large_gitleaks_status=$?
+large_gitleaks_elapsed=$(($(date +%s) - large_gitleaks_started))
+post_out=$(cat "$OUT")
+if [ "$large_gitleaks_status" -eq 0 ] \
+   && [ "$large_gitleaks_elapsed" -lt 15 ] \
+   && [ ! -e "$BOUNDED_GL_MARKER" ] \
+   && printf '%s' "$post_out" \
+        | jq -e '.hookSpecificOutput.updatedToolOutput == "[REDACTED]"' \
+          >/dev/null 2>&1; then
+  ok "post-tool bounds oversized output before invoking gitleaks"
+else
+  not_ok "post-tool lets oversized output reach gitleaks (${large_gitleaks_elapsed}s)"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+rm -f "$BOUNDED_GL_MARKER"
+small_gitleaks_input=$(jq -nc '
+  {tool_name:"Read",tool_input:{file_path:"opaque-small.txt"},
+   tool_response:"opaque material with no heuristic token shape"}
+')
+printf '%s' "$small_gitleaks_input" \
+  | (cd "$TMP_ROOT" \
+      && AGENT_GUARD_GITLEAKS_BIN="$BOUNDED_GL" \
+         AGENT_GUARD_TEST_GITLEAKS_MARKER="$BOUNDED_GL_MARKER" \
+         AGENT_GUARD_TEST_GITLEAKS_MODE=huge-report \
+         "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool) >"$OUT" 2>"$ERR"
+small_gitleaks_status=$?
+post_out=$(cat "$OUT")
+if [ "$small_gitleaks_status" -eq 0 ] \
+   && [ -e "$BOUNDED_GL_MARKER" ] \
+   && printf '%s' "$post_out" \
+        | jq -e '.hookSpecificOutput.updatedToolOutput == "[REDACTED]"' \
+          >/dev/null 2>&1; then
+  ok "post-tool fails closed when the gitleaks report exceeds its cap"
+else
+  not_ok "post-tool trusts an oversized or truncated gitleaks report"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+# A newline-heavy leaf previously missed the escape-free single-record fast
+# path and repeatedly copied the accumulated leaf before its final boundary.
+# The shared cap must fire before that probe, including when the credential is
+# only at the very end of the response.
+newline_heavy_input=$(jq -nc '
+  {tool_name:"Read",tool_input:{file_path:"newline-dump.txt"},
+   tool_response:(([range(0; 50000) | "clean"] +
+                   ["PASSWORD=abcdefghijklmnop"]) | join("\n"))}
+')
+newline_heavy_started=$(date +%s)
+post_tool_out "$newline_heavy_input"
+newline_heavy_status=$?
+newline_heavy_elapsed=$(($(date +%s) - newline_heavy_started))
+post_out=$(cat "$OUT")
+if [ "$newline_heavy_status" -eq 0 ] \
+   && [ "$newline_heavy_elapsed" -lt 15 ] \
+   && printf '%s' "$post_out" \
+        | jq -e '.hookSpecificOutput.updatedToolOutput == "[REDACTED]"' \
+          >/dev/null 2>&1 \
+   && ! printf '%s' "$post_out" | grep -q 'abcdefghijklmnop'; then
+  ok "post-tool preflights newline-heavy leaves before assignment probing"
+else
+  not_ok "post-tool scans newline-heavy over-cap leaves quadratically (${newline_heavy_elapsed}s)"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+# If the shape-preserving whole-leaf jq transform itself fails, mandatory
+# redaction must still reach both host envelopes as a JSON string sentinel.
+FAIL_WHOLE_JQ_DIR="$TMP_ROOT/fail-whole-jq"
+FAIL_WHOLE_JQ="$FAIL_WHOLE_JQ_DIR/jq"
+mkdir -p "$FAIL_WHOLE_JQ_DIR"
+{
+  printf '%s\n' '#!/bin/sh'
+  printf '%s\n' 'case " $* " in'
+  printf '%s\n' '  *"length > 0"*) exit 2 ;;'
+  printf '%s\n' 'esac'
+  printf '%s\n' 'exec "${AGENT_GUARD_TEST_REAL_JQ:?}" "$@"'
+} >"$FAIL_WHOLE_JQ"
+chmod +x "$FAIL_WHOLE_JQ"
+
+printf '%s' "$large_gitleaks_input" \
+  | (cd "$TMP_ROOT" \
+      && PATH="$FAIL_WHOLE_JQ_DIR:$PATH" \
+         AGENT_GUARD_TEST_REAL_JQ="$REAL_JQ" \
+         "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool) >"$OUT" 2>"$ERR"
+failed_whole_claude_status=$?
+failed_whole_claude_out=$(cat "$OUT")
+if [ "$failed_whole_claude_status" -eq 0 ] \
+   && printf '%s' "$failed_whole_claude_out" \
+        | jq -e '.hookSpecificOutput.updatedToolOutput == "[REDACTED]"' \
+          >/dev/null 2>&1 \
+   && ! printf '%s' "$failed_whole_claude_out" | grep -q 'opaque-material-'; then
+  ok "post-tool fail-closes a failed whole-leaf rewrite for Claude"
+else
+  not_ok "post-tool leaks over-cap output when the Claude whole-leaf rewrite fails"
+  printf '%s\n' "$failed_whole_claude_out" | sed 's/^/  out: /'
+fi
+
+printf '%s' "$large_gitleaks_input" \
+  | (cd "$TMP_ROOT" \
+      && PATH="$FAIL_WHOLE_JQ_DIR:$PATH" \
+         AGENT_GUARD_TEST_REAL_JQ="$REAL_JQ" \
+         AGENT_GUARD_HOOK_HOST=codex \
+         "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool) >"$OUT" 2>"$ERR"
+failed_whole_codex_status=$?
+failed_whole_codex_out=$(cat "$OUT")
+if [ "$failed_whole_codex_status" -eq 0 ] \
+   && printf '%s' "$failed_whole_codex_out" \
+        | jq -e '.decision == "block"
+                 and (.hookSpecificOutput.additionalContext
+                      | contains("[REDACTED]"))' >/dev/null 2>&1 \
+   && ! printf '%s' "$failed_whole_codex_out" | grep -q 'opaque-material-'; then
+  ok "post-tool fail-closes a failed whole-leaf rewrite for Codex"
+else
+  not_ok "post-tool leaks over-cap output when the Codex whole-leaf rewrite fails"
+  printf '%s\n' "$failed_whole_codex_out" | sed 's/^/  out: /'
+fi
+
+# The large-response assignment probe consumes framed leaves. A sanitized value
+# must be checked after removing the transport boundary or `[REDACTED]` plus RS
+# is mistaken for a new secret and unrelated clean leaves are over-masked.
+large_sanitized_input=$(jq -nc '
+  {tool_name:"Read",tool_input:{file_path:"sanitized-dump.txt"},
+   tool_response:["PASSWORD=[REDACTED]", ("a" * 300000)]}
+')
+post_tool_out "$large_sanitized_input"
+if [ ! -s "$OUT" ]; then
+  ok "post-tool large probe preserves already-sanitized assignments"
+else
+  not_ok "post-tool large probe over-masks an already-sanitized assignment"
+  sed 's/^/  out: /' "$OUT"
 fi
 
 # Log/timestamp prefix must not hijack the env-heuristic split: the value is
@@ -5336,6 +6040,302 @@ else
   printf '%s\n' "  out: $exec_out"
 fi
 
+exec_large_started=$(date +%s)
+exec_out=$("$PLUGIN_ROOT/bin/agent-guard" exec -- \
+  awk 'BEGIN {
+    for (i = 0; i < 10000; i++)
+      printf "Authorization: Bearer token-unique-%d-abcdefgh\n", i
+  }' 2>/dev/null)
+exec_large_status=$?
+exec_large_elapsed=$(($(date +%s) - exec_large_started))
+if [ "$exec_large_status" -eq 0 ] \
+   && [ "$exec_large_elapsed" -lt 15 ] \
+   && [ "$exec_out" = "[REDACTED]" ]; then
+  ok "exec bounds high-cardinality non-assignment redaction"
+else
+  not_ok "exec bounds high-cardinality non-assignment redaction (${exec_large_elapsed}s)"
+  printf '%s\n' "  out: $exec_out"
+fi
+
+EXEC_MULTILINE=$(printf 'PASSWORD="%s\n%s" status=ok' \
+  "$DISPLAY_QUOTED_HEAD" "$DISPLAY_QUOTED_TAIL")
+exec_out=$("$PLUGIN_ROOT/bin/agent-guard" exec -- printf '%s\n' "$EXEC_MULTILINE" 2>/dev/null)
+exec_expected='PASSWORD="[REDACTED]" status=ok'
+if [ "$exec_out" = "$exec_expected" ]; then
+  ok "exec masks a multiline quoted assignment as one complete value"
+else
+  not_ok "exec masks the complete multiline quoted assignment"
+  printf '%s\n' "  out: $exec_out"
+fi
+
+exec_out=$("$PLUGIN_ROOT/bin/agent-guard" exec -- \
+  printf '%s\n' \
+    'PASSWORD=a))) status=available abc ab a ))) PASSWORD=abcdef' 2>/dev/null)
+if [ "$exec_out" = \
+  'PASSWORD=[REDACTED]))) status=available abc ab a ))) PASSWORD=[REDACTED]' ]; then
+  ok "exec scopes a short secret without stranding a longer value"
+else
+  not_ok "exec avoids short-literal prefix replacement"
+  printf '%s\n' "  out: $exec_out"
+fi
+
+exec_out=$("$PLUGIN_ROOT/bin/agent-guard" exec -- \
+  printf '%s\n' 'PASSWORD=abc) PASSWORD=abc)evil status=ok' 2>/dev/null)
+if [ "$exec_out" = \
+  'PASSWORD=[REDACTED]) PASSWORD=[REDACTED] status=ok' ]; then
+  ok "exec requires a boundary after a contextual token"
+else
+  not_ok "exec does not strand a longer assignment suffix"
+  printf '%s\n' "  out: $exec_out"
+fi
+
+exec_out=$("$PLUGIN_ROOT/bin/agent-guard" exec -- \
+  printf 'PASSWORD=abc)\nstatus=available\n' 2>/dev/null)
+exec_expected=$(printf 'PASSWORD=[REDACTED])\nstatus=available')
+if [ "$exec_out" = "$exec_expected" ]; then
+  ok "exec treats a newline as a contextual token boundary"
+else
+  not_ok "exec masks a short secret at physical line end"
+  printf '%s\n' "  out: $exec_out"
+fi
+
+exec_out=$("$PLUGIN_ROOT/bin/agent-guard" exec -- \
+  printf '%s\n' "$DISPLAY_SHARED_LINE" 2>/dev/null)
+if [ "$exec_out" = \
+  'PASSWORD=[REDACTED]) API_TOKEN="[REDACTED]" status=ok' ]; then
+  ok "exec keeps contextual and ordinary meanings for one literal"
+else
+  not_ok "exec masks a shared contextual and quoted literal"
+  printf '%s\n' "  out: $exec_out"
+fi
+
+EXEC_FRAMED_SECRET=$(printf 'abcd\036efgh\037tail')
+exec_out=$("$PLUGIN_ROOT/bin/agent-guard" exec -- \
+  printf 'PASSWORD=%s\n' "$EXEC_FRAMED_SECRET" 2>/dev/null)
+if [ "$exec_out" = 'PASSWORD=[REDACTED]' ]; then
+  ok "exec treats framed control bytes as secret data"
+else
+  not_ok "exec does not lose framed control bytes during masking"
+  printf '%s' "$exec_out" | LC_ALL=C od -An -tx1c | sed 's/^/  hex: /'
+fi
+
+# Plaintext replacement must not transcode unrelated non-UTF-8 bytes when a
+# later credential triggers redaction.
+"$PLUGIN_ROOT/bin/agent-guard" exec -- sh -c \
+  'printf "\377\nPASSWORD=%s\n" "$1"' _ "$EXEC_VAL" >"$OUT" 2>/dev/null
+exec_first_byte=$(LC_ALL=C od -An -tx1 "$OUT" | awk 'NR == 1 { print $1 }')
+if [ "$exec_first_byte" = ff ] \
+   && grep -a -q '\[REDACTED\]' "$OUT" \
+   && ! grep -a -Fq "$EXEC_VAL" "$OUT"; then
+  ok "exec preserves unrelated non-UTF-8 bytes while masking a secret"
+else
+  not_ok "exec keeps plaintext redaction byte-preserving"
+  LC_ALL=C od -An -tx1 "$OUT" | sed 's/^/  hex: /'
+fi
+
+# Detection must also stay byte-exact when the invalid byte is part of the
+# assignment value rather than unrelated output.
+"$PLUGIN_ROOT/bin/agent-guard" exec -- sh -c \
+  'printf "PASSWORD=\"abc\377defghijklmnop\" status=ok\n"' >"$OUT" 2>/dev/null
+exec_out=$(LC_ALL=C sed -n '1p' "$OUT")
+if [ "$exec_out" = 'PASSWORD="[REDACTED]" status=ok' ]; then
+  ok "exec masks a secret containing a non-UTF-8 byte"
+else
+  not_ok "exec keeps secret detection byte-preserving"
+  LC_ALL=C od -An -tx1 "$OUT" | sed 's/^/  hex: /'
+fi
+
+# Invalid UTF-8 disables the lossy JSON assignment pass. If the byte-preserving
+# path cannot allocate its secret-record file, it must mask the complete output
+# instead of silently skipping the only assignment detector that can match it.
+NO_MKTEMP_BIN="$TMP_ROOT/no-mktemp-bin"
+mkdir -p "$NO_MKTEMP_BIN"
+printf '%s\n' '#!/bin/sh' 'exit 1' >"$NO_MKTEMP_BIN/mktemp"
+chmod +x "$NO_MKTEMP_BIN/mktemp"
+PATH="$NO_MKTEMP_BIN:$PATH" \
+  "$PLUGIN_ROOT/bin/agent-guard" exec -- sh -c \
+    'printf "PASSWORD=abcdefgh\377ijklmnop\n"' >"$OUT" 2>/dev/null
+exec_out=$(LC_ALL=C sed -n '1p' "$OUT")
+if [ "$exec_out" = '[REDACTED]' ]; then
+  ok "exec fails closed when raw-byte temp allocation fails"
+else
+  not_ok "exec leaks invalid-byte assignments when temp allocation fails"
+  LC_ALL=C od -An -tx1 "$OUT" | sed 's/^/  hex: /'
+fi
+
+"$PLUGIN_ROOT/bin/agent-guard" exec -- sh -c \
+  'printf "\377\nPASSWORD=)))) benign=))) PASSWORD=off\n"' >"$OUT" 2>/dev/null
+exec_first_byte=$(LC_ALL=C od -An -tx1 "$OUT" | awk 'NR == 1 { print $1 }')
+exec_last_line=$(LC_ALL=C sed -n '2p' "$OUT")
+if [ "$exec_first_byte" = ff ] \
+   && [ "$exec_last_line" = \
+     'PASSWORD=[REDACTED])))) benign=))) PASSWORD=off' ]; then
+  ok "exec scopes an all-closer secret on the raw byte path"
+else
+  not_ok "exec preserves unrelated punctuation and values on the raw byte path"
+  LC_ALL=C od -An -tx1 "$OUT" | sed 's/^/  hex: /'
+fi
+
+"$PLUGIN_ROOT/bin/agent-guard" exec -- sh -c \
+  'printf "\377\nPASSWORD=abc) PASSWORD=abc)evil status=ok\n"' >"$OUT" 2>/dev/null
+exec_first_byte=$(LC_ALL=C od -An -tx1 "$OUT" | awk 'NR == 1 { print $1 }')
+exec_last_line=$(LC_ALL=C sed -n '2p' "$OUT")
+if [ "$exec_first_byte" = ff ] \
+   && [ "$exec_last_line" = \
+     'PASSWORD=[REDACTED]) PASSWORD=[REDACTED] status=ok' ]; then
+  ok "exec enforces a contextual boundary on the raw byte path"
+else
+  not_ok "exec raw masking does not strand a longer assignment suffix"
+  LC_ALL=C od -An -tx1 "$OUT" | sed 's/^/  hex: /'
+fi
+
+"$PLUGIN_ROOT/bin/agent-guard" exec -- sh -c \
+  'printf "\377\nPASSWORD=abc)\nstatus=available\n"' >"$OUT" 2>/dev/null
+exec_first_byte=$(LC_ALL=C od -An -tx1 "$OUT" | awk 'NR == 1 { print $1 }')
+exec_second_line=$(LC_ALL=C sed -n '2p' "$OUT")
+exec_third_line=$(LC_ALL=C sed -n '3p' "$OUT")
+if [ "$exec_first_byte" = ff ] \
+   && [ "$exec_second_line" = 'PASSWORD=[REDACTED])' ] \
+   && [ "$exec_third_line" = 'status=available' ]; then
+  ok "exec accepts a raw newline as a contextual token boundary"
+else
+  not_ok "exec raw masking catches a short secret at physical line end"
+  LC_ALL=C od -An -tx1 "$OUT" | sed 's/^/  hex: /'
+fi
+
+"$PLUGIN_ROOT/bin/agent-guard" exec -- sh -c \
+  'printf "\377\n%s\n" "$1"' _ "$DISPLAY_SHARED_LINE" >"$OUT" 2>/dev/null
+exec_first_byte=$(LC_ALL=C od -An -tx1 "$OUT" | awk 'NR == 1 { print $1 }')
+exec_last_line=$(LC_ALL=C sed -n '2p' "$OUT")
+if [ "$exec_first_byte" = ff ] \
+   && [ "$exec_last_line" = \
+     'PASSWORD=[REDACTED]) API_TOKEN="[REDACTED]" status=ok' ]; then
+  ok "exec raw masking keeps contextual and ordinary meanings for one literal"
+else
+  not_ok "exec raw masking preserves both shared-literal records"
+  LC_ALL=C od -An -tx1 "$OUT" | sed 's/^/  hex: /'
+fi
+
+"$PLUGIN_ROOT/bin/agent-guard" exec -- sh -c \
+  'printf "\377\nPASSWORD=abcd\036efgh\037tail\n"' >"$OUT" 2>/dev/null
+exec_first_byte=$(LC_ALL=C od -An -tx1 "$OUT" | awk 'NR == 1 { print $1 }')
+exec_last_line=$(LC_ALL=C sed -n '2p' "$OUT")
+if [ "$exec_first_byte" = ff ] \
+   && [ "$exec_last_line" = 'PASSWORD=[REDACTED]' ]; then
+  ok "exec raw masking treats framed control bytes as secret data"
+else
+  not_ok "exec raw masking preserves framed control bytes"
+  LC_ALL=C od -An -tx1 "$OUT" | sed 's/^/  hex: /'
+fi
+
+exec_out=$("$PLUGIN_ROOT/bin/agent-guard" exec -- \
+  printf '%s\n' 'PASSWORD=[REDACTED]' 2>/dev/null)
+if [ "$exec_out" = 'PASSWORD=[REDACTED]' ]; then
+  ok "exec keeps an existing redaction sentinel idempotent"
+else
+  not_ok "exec does not corrupt an existing redaction sentinel"
+  printf '%s\n' "  out: $exec_out"
+fi
+
+"$PLUGIN_ROOT/bin/agent-guard" exec -- sh -c \
+  'printf "\377\nPASSWORD=[REDACTED]\n"' >"$OUT" 2>/dev/null
+exec_first_byte=$(LC_ALL=C od -An -tx1 "$OUT" | awk 'NR == 1 { print $1 }')
+exec_last_line=$(LC_ALL=C sed -n '2p' "$OUT")
+if [ "$exec_first_byte" = ff ] \
+   && [ "$exec_last_line" = 'PASSWORD=[REDACTED]' ]; then
+  ok "exec keeps a redaction sentinel idempotent on the raw byte path"
+else
+  not_ok "exec does not corrupt a redaction sentinel on the raw byte path"
+  LC_ALL=C od -An -tx1 "$OUT" | sed 's/^/  hex: /'
+fi
+
+INVALID_PRINTENV_VAL=$(printf 'abc\377defghijklmnop')
+DEMO_TOKEN="${INVALID_PRINTENV_VAL}" \
+  "$PLUGIN_ROOT/bin/agent-guard" exec -- printenv DEMO_TOKEN >"$OUT" 2>/dev/null
+if [ "$(cat "$OUT")" = '[REDACTED]' ]; then
+  ok "exec masks an invalid-byte printenv value by secret-bearing name"
+else
+  not_ok "exec does not leak an invalid-byte printenv value"
+  LC_ALL=C od -An -tx1 "$OUT" | sed 's/^/  hex: /'
+fi
+
+PRINTENV_PUBLIC='public-value' DEMO_TOKEN="${INVALID_PRINTENV_VAL}" \
+  "$PLUGIN_ROOT/bin/agent-guard" exec -- \
+    printenv DEMO_TOKEN PRINTENV_PUBLIC >"$OUT" 2>/dev/null
+if [ "$(cat "$OUT")" = '[REDACTED]' ]; then
+  ok "exec conservatively masks multi-name invalid-byte printenv output"
+else
+  not_ok "exec does not leak invalid bytes from multi-name printenv"
+  LC_ALL=C od -An -tx1 "$OUT" | sed 's/^/  hex: /'
+fi
+
+# One invalid byte can force the raw fallback. Bound secret-bearing assignment
+# dumps without hiding equally large benign binary-ish output.
+"$PLUGIN_ROOT/bin/agent-guard" exec -- sh -c '
+  printf "\377\n"
+  awk "BEGIN { for (i = 0; i < 5000; i++) print \"PASSWORD=value-1234567890-\" i }"
+' >"$OUT" 2>/dev/null
+if [ "$(cat "$OUT")" = '[REDACTED]' ]; then
+  ok "exec conservatively bounds oversized invalid-byte output"
+else
+  not_ok "exec bounds the invalid-byte redaction fallback"
+  LC_ALL=C wc -c "$OUT" | sed 's/^/  bytes: /'
+fi
+
+"$PLUGIN_ROOT/bin/agent-guard" exec -- sh -c '
+  printf "\377\n"
+  awk "BEGIN { for (i = 0; i < 70000; i++) printf \"x\" }"
+' >"$OUT" 2>/dev/null
+exec_first_byte=$(LC_ALL=C od -An -tx1 "$OUT" | awk 'NR == 1 { print $1 }')
+if [ "$exec_first_byte" = ff ] \
+   && [ "$(LC_ALL=C wc -c <"$OUT" | tr -d ' ')" -gt 65536 ] \
+   && ! grep -a -q '\[REDACTED\]' "$OUT"; then
+  ok "exec preserves oversized invalid-byte output without secret records"
+else
+  not_ok "exec does not over-mask oversized benign invalid-byte output"
+  LC_ALL=C wc -c "$OUT" | sed 's/^/  bytes: /'
+fi
+
+# The oversized raw probe must keep one quote state across physical records.
+# A sanitized-looking prefix is not proof that a multiline continuation is safe.
+"$PLUGIN_ROOT/bin/agent-guard" exec -- sh -c '
+  printf "PASSWORD=\"[REDACTED]\n"
+  printf "credential-continuation-should-not-leak"
+  awk "BEGIN { for (i = 0; i < 70000; i++) printf \"x\" }"
+  printf "\377\n"
+' >"$OUT" 2>/dev/null
+if [ "$(cat "$OUT")" = '[REDACTED]' ]; then
+  ok "exec raw probe retains multiline quote state across records"
+else
+  not_ok "exec raw probe does not trust a sanitized multiline prefix"
+  LC_ALL=C wc -c "$OUT" | sed 's/^/  bytes: /'
+fi
+
+"$PLUGIN_ROOT/bin/agent-guard" exec -- sh -c '
+  printf "\377\n"
+  awk "BEGIN { for (i = 0; i < 5000; i++) print \"PASSWORD=[REDACTED]\" }"
+' >"$OUT" 2>/dev/null
+if [ "$(grep -ac '^PASSWORD=\[REDACTED\]$' "$OUT")" -eq 5000 ]; then
+  ok "exec keeps oversized invalid-byte redaction sentinels idempotent"
+else
+  not_ok "exec does not treat sanitized oversized output as a new secret"
+  LC_ALL=C wc -c "$OUT" | sed 's/^/  bytes: /'
+fi
+
+"$PLUGIN_ROOT/bin/agent-guard" exec -- sh -c '
+  printf "\377\n"
+  awk "BEGIN {
+    for (i = 0; i < 5000; i++)
+      print \"error: password: authentication is disabled\"
+  }"
+' >"$OUT" 2>/dev/null
+if [ "$(grep -ac '^error: password: authentication is disabled$' "$OUT")" -eq 5000 ]; then
+  ok "exec preserves oversized invalid-byte prose metadata"
+else
+  not_ok "exec does not over-mask oversized invalid-byte prose metadata"
+  LC_ALL=C wc -c "$OUT" | sed 's/^/  bytes: /'
+fi
+
 # `printenv NAME` emits a bare value. Preserve the variable-name context so a
 # low-entropy or documented fake value under a secret-bearing key is still
 # masked by exec and by the Claude command wrapper.
@@ -5350,6 +6350,235 @@ if printf '%s' "$exec_printenv" | grep -q '\[REDACTED\]' \
 else
   not_ok "exec masks a bare printenv value using its variable-name context"
   printf '%s\n' "  out: $exec_printenv"
+fi
+
+# Keep the captured JSON response out of argv: quote-heavy values can remain
+# below the plaintext cap while their JSON encoding exceeds Linux MAX_ARG_STRLEN.
+PRINTENV_QUOTE_VAL=$(awk 'BEGIN { for (i = 0; i < 70000; i++) printf "\"" }')
+PASSWORD="${PRINTENV_QUOTE_VAL}" \
+  "$PLUGIN_ROOT/bin/agent-guard" exec -- printenv PASSWORD >"$OUT" 2>/dev/null
+if [ "$(cat "$OUT")" = '[REDACTED]' ]; then
+  ok "exec streams a quote-heavy printenv response into jq"
+else
+  not_ok "exec does not leak printenv output whose JSON exceeds one argv entry"
+  LC_ALL=C wc -c "$OUT" | sed 's/^/  bytes: /'
+fi
+
+# The special detector must not replay a large original argv into jq or pass
+# its much larger recognized-probe JSON through one argv entry. Both the BSD
+# and GNU printenv output models stay below the plaintext cap here.
+awk 'BEGIN { for (i = 0; i < 50000; i++) print "PASSWORD" }' \
+  | PASSWORD=abcd xargs -s 524288 -n 50000 \
+      "$PLUGIN_ROOT/bin/agent-guard" exec -- printenv >"$OUT" 2>/dev/null
+if [ "$(cat "$OUT")" = '[REDACTED]' ]; then
+  ok "exec streams high-cardinality printenv metadata off argv"
+else
+  not_ok "exec leaks when repeated printenv metadata exceeds one argv entry"
+  LC_ALL=C wc -c "$OUT" | sed 's/^/  bytes: /'
+fi
+
+# Repeated arguments must reference one environment value rather than copying
+# it into every metadata entry. A BSD-style printenv emits only the first value;
+# the GNU model is much larger than the bounded capture and must not be joined.
+BSD_PRINTENV_DIR="$TMP_ROOT/bsd-printenv"
+BSD_PRINTENV="$BSD_PRINTENV_DIR/printenv"
+mkdir -p "$BSD_PRINTENV_DIR"
+cat >"$BSD_PRINTENV" <<'STUB'
+#!/bin/sh
+[ "$#" -gt 0 ] || exit 1
+exec "${REAL_PRINTENV:?}" "$1"
+STUB
+chmod +x "$BSD_PRINTENV"
+PRINTENV_LARGE_REPEAT_VAL=$(awk '
+  BEGIN { for (i = 0; i < 100000; i++) printf "a" }
+')
+printenv_repeat_started=$(date +%s)
+awk 'BEGIN { for (i = 0; i < 10000; i++) print "PASSWORD" }' \
+  | REAL_PRINTENV=$(command -v printenv) \
+      PASSWORD="${PRINTENV_LARGE_REPEAT_VAL}" \
+      xargs -s 262144 -n 10000 \
+        "$PLUGIN_ROOT/bin/agent-guard" exec -- "$BSD_PRINTENV" \
+        >"$OUT" 2>/dev/null
+printenv_repeat_status=$?
+printenv_repeat_elapsed=$(($(date +%s) - printenv_repeat_started))
+if [ "$printenv_repeat_status" -eq 0 ] \
+   && [ "$printenv_repeat_elapsed" -lt 15 ] \
+   && [ "$(cat "$OUT")" = '[REDACTED]' ]; then
+  ok "exec bounds repeated large printenv values under BSD semantics"
+else
+  not_ok "exec amplifies repeated printenv values (${printenv_repeat_elapsed}s)"
+  LC_ALL=C wc -c "$OUT" | sed 's/^/  bytes: /'
+fi
+
+# GNU shell capture ignores trailing empty and newline-only values. Do not
+# materialize them merely because the BSD capture has the same bounded length.
+PRINTENV_SHORT_SECRET='abcd'
+PRINTENV_NEWLINE_ONLY_VAL=$(awk '
+  BEGIN {
+    for (i = 0; i < 100000; i++) printf "\n"
+    printf "x"
+  }
+')
+PRINTENV_NEWLINE_ONLY_VAL=${PRINTENV_NEWLINE_ONLY_VAL%x}
+printenv_newline_repeat_started=$(date +%s)
+{
+  printf '%s\n' PASSWORD
+  awk 'BEGIN { for (i = 0; i < 4000; i++) print "BLANK_LINES" }'
+} \
+  | REAL_PRINTENV=$(command -v printenv) \
+      PASSWORD="${PRINTENV_SHORT_SECRET}" \
+      BLANK_LINES="${PRINTENV_NEWLINE_ONLY_VAL}" \
+      xargs -s 196608 -n 4001 \
+        "$PLUGIN_ROOT/bin/agent-guard" exec -- "$BSD_PRINTENV" \
+        >"$OUT" 2>/dev/null
+printenv_newline_repeat_status=$?
+printenv_newline_repeat_elapsed=$(($(date +%s) - printenv_newline_repeat_started))
+if [ "$printenv_newline_repeat_status" -eq 0 ] \
+   && [ "$printenv_newline_repeat_elapsed" -lt 15 ] \
+   && [ "$(cat "$OUT")" = '[REDACTED]' ]; then
+  ok "exec bounds trailing newline-only GNU model values"
+else
+  not_ok "exec amplifies trailing newline-only GNU values (${printenv_newline_repeat_elapsed}s)"
+  LC_ALL=C wc -c "$OUT" | sed 's/^/  bytes: /'
+fi
+
+# A special-detector failure occurs inside a producer group piped into the
+# record bundler. Preserve that failure as a whole-leaf sentinel rather than
+# allowing the successful bundler to convert an empty stream into no findings.
+FAIL_PRINTENV_JQ_DIR="$TMP_ROOT/fail-printenv-jq"
+FAIL_PRINTENV_JQ="$FAIL_PRINTENV_JQ_DIR/jq"
+mkdir -p "$FAIL_PRINTENV_JQ_DIR"
+{
+  printf '%s\n' '#!/bin/sh'
+  printf '%s\n' 'case " $* " in'
+  printf '%s\n' '  *"unterminated printenv argument stream"*) exit 2 ;;'
+  printf '%s\n' 'esac'
+  printf '%s\n' 'exec "${AGENT_GUARD_TEST_REAL_JQ:?}" "$@"'
+} >"$FAIL_PRINTENV_JQ"
+chmod +x "$FAIL_PRINTENV_JQ"
+PASSWORD=abcd PATH="$FAIL_PRINTENV_JQ_DIR:$PATH" \
+  AGENT_GUARD_TEST_REAL_JQ="$REAL_JQ" \
+  "$PLUGIN_ROOT/bin/agent-guard" exec -- printenv PASSWORD >"$OUT" 2>/dev/null
+if [ "$(cat "$OUT")" = '[REDACTED]' ]; then
+  ok "exec fail-closes a printenv detector pipeline failure"
+else
+  not_ok "exec loses a printenv detector failure behind the record bundler"
+  printf '%s\n' "  out: $(cat "$OUT")"
+fi
+
+exec_printenv=$(DEMO_TOKEN="${PRINTENV_VAL}" \
+  "$PLUGIN_ROOT/bin/agent-guard" exec -- printenv -- "$PRINTENV_KEY" 2>/dev/null)
+if [ "$exec_printenv" = '[REDACTED]' ]; then
+  ok "exec masks a bare printenv value after an option terminator"
+else
+  not_ok "exec preserves printenv variable context after an option terminator"
+  printf '%s\n' "  out: $exec_printenv"
+fi
+
+PRINTENV_QUOTED_KEY='TRUNCATED_PASSWORD'
+PRINTENV_QUOTED_VAL="\"${DISPLAY_QUOTED_HEAD}-${DISPLAY_QUOTED_TAIL}"
+exec_printenv=$(TRUNCATED_PASSWORD="${PRINTENV_QUOTED_VAL}" \
+  "$PLUGIN_ROOT/bin/agent-guard" exec -- printenv "$PRINTENV_QUOTED_KEY" 2>/dev/null)
+if [ "$exec_printenv" = '[REDACTED]' ]; then
+  ok "exec masks a complete unterminated quoted printenv value"
+else
+  not_ok "exec matches the reconstructed printenv secret to the captured output"
+  printf '%s\n' "  out: $exec_printenv"
+fi
+
+PRINTENV_LEADING_VAL=$(printf '\n%s-%s' "$DISPLAY_QUOTED_HEAD" "$DISPLAY_QUOTED_TAIL")
+PRINTENV_INTERNAL_VAL=$(printf '%s\n%s' "$DISPLAY_QUOTED_HEAD" "$DISPLAY_QUOTED_TAIL")
+PRINTENV_TRAILING_VAL=$(printf '%s-%s\nx' "$DISPLAY_QUOTED_HEAD" "$DISPLAY_QUOTED_TAIL")
+PRINTENV_TRAILING_VAL=${PRINTENV_TRAILING_VAL%x}
+for PRINTENV_MULTILINE_VAL in \
+  "$PRINTENV_LEADING_VAL" "$PRINTENV_INTERNAL_VAL" "$PRINTENV_TRAILING_VAL"; do
+  exec_printenv=$(DEMO_TOKEN="${PRINTENV_MULTILINE_VAL}" \
+    "$PLUGIN_ROOT/bin/agent-guard" exec -- printenv DEMO_TOKEN 2>/dev/null)
+  if [ "$exec_printenv" = '[REDACTED]' ]; then
+    ok "exec masks a newline-bearing printenv value as one complete secret"
+  else
+    not_ok "exec preserves the complete newline-bearing printenv value"
+    printf '%s\n' "  out: $exec_printenv"
+  fi
+done
+
+PRINTENV_SECOND_KEY='SECONDARY_PASSWORD'
+PRINTENV_SECOND_VAL="${DISPLAY_QUOTED_TAIL}-${DISPLAY_QUOTED_HEAD}"
+printenv_raw=$(DEMO_TOKEN="${PRINTENV_VAL}" SECONDARY_PASSWORD="${PRINTENV_SECOND_VAL}" \
+  printenv "$PRINTENV_KEY" AGENT_GUARD_TEST_UNSET_PASSWORD "$PRINTENV_SECOND_KEY" \
+  2>/dev/null)
+printenv_raw_status=$?
+exec_printenv=$(DEMO_TOKEN="${PRINTENV_VAL}" SECONDARY_PASSWORD="${PRINTENV_SECOND_VAL}" \
+  "$PLUGIN_ROOT/bin/agent-guard" exec -- \
+    printenv "$PRINTENV_KEY" AGENT_GUARD_TEST_UNSET_PASSWORD "$PRINTENV_SECOND_KEY" \
+    2>/dev/null)
+exec_printenv_status=$?
+printenv_gnu_output=$(printf '%s\n%s' "$PRINTENV_VAL" "$PRINTENV_SECOND_VAL")
+case "$printenv_raw" in
+  "$PRINTENV_VAL") exec_expected='[REDACTED]' ;;
+  "$printenv_gnu_output") exec_expected=$(printf '[REDACTED]\n[REDACTED]') ;;
+  *) exec_expected='unexpected-printenv-output' ;;
+esac
+if [ "$exec_printenv" = "$exec_expected" ] \
+   && [ "$exec_printenv_status" -eq "$printenv_raw_status" ]; then
+  ok "exec follows host printenv argument semantics and masks every emitted value"
+else
+  not_ok "exec preserves host printenv argument and exit-status behavior"
+  printf '%s\n' "  raw: $printenv_raw (status $printenv_raw_status)"
+  printf '%s\n' "  out: $exec_printenv (status $exec_printenv_status)"
+fi
+
+printenv_fixture_dir="$TESTTMP/gnu-printenv"
+mkdir -p "$printenv_fixture_dir"
+cat >"$printenv_fixture_dir/printenv" <<'STUB'
+#!/bin/sh
+status=0
+for name in "$@"; do
+  "$REAL_PRINTENV" "$name" || status=1
+done
+exit "$status"
+STUB
+chmod +x "$printenv_fixture_dir/printenv"
+PRINTENV_PREFIX_VAL=$(printf '%s\nx' "$DISPLAY_QUOTED_HEAD")
+PRINTENV_PREFIX_VAL=${PRINTENV_PREFIX_VAL%x}
+PRINTENV_PUBLIC_VAL=$DISPLAY_QUOTED_HEAD
+exec_printenv=$(REAL_PRINTENV=$(command -v printenv) \
+  FIRST_TOKEN="${PRINTENV_PREFIX_VAL}" PUBLIC_INFO="${PRINTENV_PUBLIC_VAL}" \
+  "$PLUGIN_ROOT/bin/agent-guard" exec -- \
+    "$printenv_fixture_dir/printenv" FIRST_TOKEN PUBLIC_INFO 2>/dev/null)
+exec_expected=$(printf '[REDACTED]\n%s' "$PRINTENV_PUBLIC_VAL")
+if [ "$exec_printenv" = "$exec_expected" ]; then
+  ok "exec does not over-mask a later benign printenv value with a stripped prefix"
+else
+  not_ok "exec strips trailing newlines only when the full secret was not emitted"
+  printf '%s\n' "  out: $exec_printenv"
+fi
+
+# A trailing empty GNU value is removed by shell capture together with the
+# secret value's trailing newline. Match the secret's trimmed form in that
+# last content-bearing position rather than leaking the low-entropy value.
+PRINTENV_TRAILING_SECRET=$(printf 'abcd\nx')
+PRINTENV_TRAILING_SECRET=${PRINTENV_TRAILING_SECRET%x}
+exec_printenv=$(REAL_PRINTENV=$(command -v printenv) \
+  PUBLIC_INFO=x PASSWORD="${PRINTENV_TRAILING_SECRET}" EMPTY='' \
+  "$PLUGIN_ROOT/bin/agent-guard" exec -- \
+    "$printenv_fixture_dir/printenv" PUBLIC_INFO PASSWORD EMPTY 2>/dev/null)
+exec_expected=$(printf 'x\n[REDACTED]')
+if [ "$exec_printenv" = "$exec_expected" ]; then
+  ok "exec masks a GNU secret before a trailing empty value"
+else
+  not_ok "exec leaks a GNU secret whose newline precedes a trailing empty value"
+  printf '%s\n' "  out: $exec_printenv"
+fi
+
+exec_printenv=$(EMPTY_PASSWORD='' \
+  "$PLUGIN_ROOT/bin/agent-guard" exec -- printenv EMPTY_PASSWORD 2>/dev/null)
+exec_printenv_status=$?
+if [ "$exec_printenv_status" -eq 0 ] && [ -z "$exec_printenv" ]; then
+  ok "exec leaves an empty requested printenv value empty"
+else
+  not_ok "exec preserves an empty printenv value and exit status"
+  printf '%s\n' "  out: $exec_printenv (status $exec_printenv_status)"
 fi
 
 # Exit-code passthrough: the wrapped command's status propagates.
