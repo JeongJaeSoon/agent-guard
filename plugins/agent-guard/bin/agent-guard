@@ -3735,7 +3735,10 @@ do_exec() {
       else
         raw_bytes=$(printf '%s' "$masked" | LC_ALL=C wc -c | tr -d ' ')
         case "$raw_bytes" in
-          ''|*[!0-9]*) masked='[REDACTED]' ;;
+          ''|*[!0-9]*)
+            masked='[REDACTED]'
+            output_fully_masked=1
+            ;;
           *)
             if [ "$raw_bytes" -gt 65536 ]; then
               if printf '%s' "$masked" \
@@ -3746,11 +3749,16 @@ do_exec() {
               fi
             else
               raw_secret_file=$(mktemp_file) || raw_secret_file=''
-              if [ -n "$raw_secret_file" ]; then
-                if printf '%s' "$masked" \
+              if [ -z "$raw_secret_file" ]; then
+                masked='[REDACTED]'
+                output_fully_masked=1
+              else
+                if ! printf '%s' "$masked" \
                   | frame_plaintext_leaf \
-                  | secretish_env_values framed >"$raw_secret_file" 2>/dev/null \
-                  && [ -s "$raw_secret_file" ]; then
+                  | secretish_env_values framed >"$raw_secret_file" 2>/dev/null; then
+                  masked='[REDACTED]'
+                  output_fully_masked=1
+                elif [ -s "$raw_secret_file" ]; then
                   if r=$(redact_plaintext_framed \
                     "$masked" "$raw_secret_file" 2>/dev/null) \
                     && [ -n "$r" ]; then

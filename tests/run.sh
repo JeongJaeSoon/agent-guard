@@ -5975,6 +5975,24 @@ else
   LC_ALL=C od -An -tx1 "$OUT" | sed 's/^/  hex: /'
 fi
 
+# Invalid UTF-8 disables the lossy JSON assignment pass. If the byte-preserving
+# path cannot allocate its secret-record file, it must mask the complete output
+# instead of silently skipping the only assignment detector that can match it.
+NO_MKTEMP_BIN="$TMP_ROOT/no-mktemp-bin"
+mkdir -p "$NO_MKTEMP_BIN"
+printf '%s\n' '#!/bin/sh' 'exit 1' >"$NO_MKTEMP_BIN/mktemp"
+chmod +x "$NO_MKTEMP_BIN/mktemp"
+PATH="$NO_MKTEMP_BIN:$PATH" \
+  "$PLUGIN_ROOT/bin/agent-guard" exec -- sh -c \
+    'printf "PASSWORD=abcdefgh\377ijklmnop\n"' >"$OUT" 2>/dev/null
+exec_out=$(LC_ALL=C sed -n '1p' "$OUT")
+if [ "$exec_out" = '[REDACTED]' ]; then
+  ok "exec fails closed when raw-byte temp allocation fails"
+else
+  not_ok "exec leaks invalid-byte assignments when temp allocation fails"
+  LC_ALL=C od -An -tx1 "$OUT" | sed 's/^/  hex: /'
+fi
+
 "$PLUGIN_ROOT/bin/agent-guard" exec -- sh -c \
   'printf "\377\nPASSWORD=)))) benign=))) PASSWORD=off\n"' >"$OUT" 2>/dev/null
 exec_first_byte=$(LC_ALL=C od -An -tx1 "$OUT" | awk 'NR == 1 { print $1 }')
