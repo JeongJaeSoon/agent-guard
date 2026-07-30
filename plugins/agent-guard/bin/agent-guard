@@ -2973,6 +2973,18 @@ secretish_env_values() {
   '
 }
 
+# Treat malformed byte counts as over-cap so callers fail closed. Keeping the
+# limit in one helper aligns PostToolUse, gitleaks, and exec preflights.
+output_scan_input_exceeds_cap() {
+  output_scan_input=$1
+  output_scan_bytes=$(printf '%s' "$output_scan_input" \
+    | LC_ALL=C wc -c | tr -d '[:space:]')
+  case "$output_scan_bytes" in
+    ''|*[!0-9]*) return 0 ;;
+  esac
+  [ "$output_scan_bytes" -gt 327680 ]
+}
+
 # Collect JSON-string records for the literal secrets present in the response
 # JSON ($1): gitleaks findings plus the env-assignment heuristic and compact
 # token rules. The env heuristic scans each string leaf independently so quote
@@ -2985,52 +2997,42 @@ detect_output_secret_records() {
     # report before the downstream record cap so the host timeout cannot turn
     # high-cardinality gitleaks-only output into a fail-open path.
     if gl=$(resolve_gitleaks) && [ -f "$GITLEAKS_CONFIG" ]; then
-      response_bytes=$(printf '%s' "$response" | LC_ALL=C wc -c | tr -d '[:space:]')
-      case "$response_bytes" in
-        ''|*[!0-9]*)
+      # Bound work before gitleaks sees the response. This is defensive for
+      # callers other than PostToolUse, which applies the same cap even earlier.
+      if output_scan_input_exceeds_cap "$response"; then
+        printf '%s\n' '{"agent_guard_whole_leaf":true}'
+      else
+        report=$(mktemp_file) || report=''
+        if [ -z "$report" ]; then
           printf '%s\n' '{"agent_guard_whole_leaf":true}'
-          ;;
-        *)
-          # Bound work before gitleaks sees the response. Assignment-shaped
-          # oversized output already takes the streaming preflight above this
-          # detector; other oversized output fails closed without waiting for
-          # an unbounded scan or report.
-          if [ "$response_bytes" -gt 327680 ]; then
-            printf '%s\n' '{"agent_guard_whole_leaf":true}'
-          else
-            report=$(mktemp_file) || report=''
-            if [ -z "$report" ]; then
-              printf '%s\n' '{"agent_guard_whole_leaf":true}'
-            else
-              printf '%s' "$response" \
-                | jq -rj 'if type == "string" then . else [.. | strings] | join("\n") end' \
-                | (
-                    # POSIX ulimit -f uses 512-byte blocks. A valid report above
-                    # 64 KiB would exceed the downstream record budget anyway,
-                    # so terminate report creation and take the whole-leaf path.
-                    ulimit -f 128 >/dev/null 2>&1 || exit 2
-                    "$gl" stdin --report-format json --report-path "$report" \
-                      --no-banner --config "$GITLEAKS_CONFIG"
-                  ) >/dev/null 2>&1
-              gl_status=$?
-              case "$gl_status" in
-                0|1)
-                  if [ -s "$report" ] \
-                    && jq -e 'type == "array"' "$report" >/dev/null 2>&1; then
-                    jq -c '.[]? | (.Secret // empty)
-                           | select(type == "string" and length > 0)' \
-                      "$report" 2>/dev/null
-                  else
-                    printf '%s\n' '{"agent_guard_whole_leaf":true}'
-                  fi
-                  ;;
-                *) printf '%s\n' '{"agent_guard_whole_leaf":true}' ;;
-              esac
-              rm -f "$report"
-            fi
-          fi
-          ;;
-      esac
+        else
+          printf '%s' "$response" \
+            | jq -rj 'if type == "string" then . else [.. | strings] | join("\n") end' \
+            | (
+                # POSIX ulimit -f uses 512-byte blocks. A valid report above
+                # 64 KiB would exceed the downstream record budget anyway,
+                # so terminate report creation and take the whole-leaf path.
+                ulimit -f 128 >/dev/null 2>&1 || exit 2
+                "$gl" stdin --report-format json --report-path "$report" \
+                  --no-banner --config "$GITLEAKS_CONFIG"
+              ) >/dev/null 2>&1
+          gl_status=$?
+          case "$gl_status" in
+            0|1)
+              if [ -s "$report" ] \
+                && jq -e 'type == "array"' "$report" >/dev/null 2>&1; then
+                jq -c '.[]? | (.Secret // empty)
+                       | select(type == "string" and length > 0)' \
+                  "$report" 2>/dev/null
+              else
+                printf '%s\n' '{"agent_guard_whole_leaf":true}'
+              fi
+              ;;
+            *) printf '%s\n' '{"agent_guard_whole_leaf":true}' ;;
+          esac
+          rm -f "$report"
+        fi
+      fi
     fi
     if [ "$env_records" = yes ]; then
       printf '%s' "$response" \
@@ -3363,7 +3365,10 @@ redact_tool_output() {
   if [ "$secrets_on" -eq 1 ]; then
     r=$(redact_nul_response_json "$out")
     if [ -n "$r" ] && [ "$r" != "$out" ]; then out=$r; did_secret=1; fi
-    if large_response_has_secretish_assignment "$out"; then
+    if output_scan_input_exceeds_cap "$out"; then
+      r=$(redact_nonempty_response_strings "$out")
+      if [ -n "$r" ] && [ "$r" != "$out" ]; then out=$r; did_secret=1; fi
+    elif large_response_has_secretish_assignment "$out"; then
       r=$(redact_nonempty_response_strings "$out")
       if [ -n "$r" ] && [ "$r" != "$out" ]; then out=$r; did_secret=1; fi
     else
@@ -3750,63 +3755,71 @@ do_exec() {
   # Secret-literal redaction (AGENT_GUARD_OUTPUT_REDACT, default mask). Fail-safe:
   # on any error the original output is preserved rather than swallowed.
   if output_redact_enabled; then
-    # Keep detection input tied to the original capture. The raw assignment pass
-    # below may insert [REDACTED], which must not itself become a new candidate.
-    response=$(printf '%s' "$masked" | jq -Rs . 2>/dev/null) || response=''
-
-    # Scan assignment-shaped plaintext before jq-decoded records only when jq
-    # cannot round-trip the captured bytes. jq replaces invalid UTF-8 with
-    # U+FFFD, which would otherwise make that secret literal impossible to
-    # match. Valid text stays on the established single replacement path.
     invalid_output=0
     output_fully_masked=0
-    decoded=$(printf '%s' "$response" | jq -rj . 2>/dev/null) || decoded=''
-    if [ "$decoded" != "$masked" ]; then
-      invalid_output=1
-      if printenv_requests_secretish_name "$@"; then
-        masked='[REDACTED]'
-        output_fully_masked=1
-      else
-        raw_bytes=$(printf '%s' "$masked" | LC_ALL=C wc -c | tr -d ' ')
-        case "$raw_bytes" in
-          ''|*[!0-9]*)
-            masked='[REDACTED]'
-            output_fully_masked=1
-            ;;
-          *)
-            if [ "$raw_bytes" -gt 65536 ]; then
-              if printf '%s' "$masked" \
-                | secretish_env_values probe_raw 2>/dev/null \
-                | grep -q .; then
-                masked='[REDACTED]'
-                output_fully_masked=1
-              fi
-            else
-              raw_secret_file=$(mktemp_file) || raw_secret_file=''
-              if [ -z "$raw_secret_file" ]; then
-                masked='[REDACTED]'
-                output_fully_masked=1
-              else
-                if ! printf '%s' "$masked" \
-                  | frame_plaintext_leaf \
-                  | secretish_env_values framed >"$raw_secret_file" 2>/dev/null; then
+    response=''
+    # Avoid materializing oversized plaintext as JSON or invoking any detector;
+    # match PostToolUse by conservatively masking it before bounded scan work.
+    if output_scan_input_exceeds_cap "$masked"; then
+      masked='[REDACTED]'
+      output_fully_masked=1
+    else
+      # Keep detection input tied to the original capture. The raw assignment
+      # pass below may insert [REDACTED], which must not become a new candidate.
+      response=$(printf '%s' "$masked" | jq -Rs . 2>/dev/null) || response=''
+
+      # Scan assignment-shaped plaintext before jq-decoded records only when jq
+      # cannot round-trip the captured bytes. jq replaces invalid UTF-8 with
+      # U+FFFD, which would otherwise make that secret literal impossible to
+      # match. Valid text stays on the established single replacement path.
+      decoded=$(printf '%s' "$response" | jq -rj . 2>/dev/null) || decoded=''
+      if [ "$decoded" != "$masked" ]; then
+        invalid_output=1
+        if printenv_requests_secretish_name "$@"; then
+          masked='[REDACTED]'
+          output_fully_masked=1
+        else
+          raw_bytes=$(printf '%s' "$masked" | LC_ALL=C wc -c | tr -d ' ')
+          case "$raw_bytes" in
+            ''|*[!0-9]*)
+              masked='[REDACTED]'
+              output_fully_masked=1
+              ;;
+            *)
+              if [ "$raw_bytes" -gt 65536 ]; then
+                if printf '%s' "$masked" \
+                  | secretish_env_values probe_raw 2>/dev/null \
+                  | grep -q .; then
                   masked='[REDACTED]'
                   output_fully_masked=1
-                elif [ -s "$raw_secret_file" ]; then
-                  if r=$(redact_plaintext_framed \
-                    "$masked" "$raw_secret_file" 2>/dev/null) \
-                    && [ -n "$r" ]; then
-                    masked=$r
-                  else
+                fi
+              else
+                raw_secret_file=$(mktemp_file) || raw_secret_file=''
+                if [ -z "$raw_secret_file" ]; then
+                  masked='[REDACTED]'
+                  output_fully_masked=1
+                else
+                  if ! printf '%s' "$masked" \
+                    | frame_plaintext_leaf \
+                    | secretish_env_values framed >"$raw_secret_file" 2>/dev/null; then
                     masked='[REDACTED]'
                     output_fully_masked=1
+                  elif [ -s "$raw_secret_file" ]; then
+                    if r=$(redact_plaintext_framed \
+                      "$masked" "$raw_secret_file" 2>/dev/null) \
+                      && [ -n "$r" ]; then
+                      masked=$r
+                    else
+                      masked='[REDACTED]'
+                      output_fully_masked=1
+                    fi
                   fi
+                  rm -f "$raw_secret_file"
                 fi
-                rm -f "$raw_secret_file"
               fi
-            fi
-            ;;
-        esac
+              ;;
+          esac
+        fi
       fi
     fi
 
