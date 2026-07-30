@@ -6395,7 +6395,7 @@ PRINTENV_LARGE_REPEAT_VAL=$(awk '
 printenv_repeat_started=$(date +%s)
 awk 'BEGIN { for (i = 0; i < 10000; i++) print "PASSWORD" }' \
   | REAL_PRINTENV=$(command -v printenv) \
-      PASSWORD="$PRINTENV_LARGE_REPEAT_VAL" \
+      PASSWORD="${PRINTENV_LARGE_REPEAT_VAL}" \
       xargs -s 262144 -n 10000 \
         "$PLUGIN_ROOT/bin/agent-guard" exec -- "$BSD_PRINTENV" \
         >"$OUT" 2>/dev/null
