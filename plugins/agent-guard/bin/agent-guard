@@ -3009,9 +3009,40 @@ detect_output_secret_records() {
   }
 }
 
-detect_output_secrets() {
-  detect_output_secret_records "$1" \
-    | jq -sc 'unique | if length > 0 then . else empty end' 2>/dev/null
+# Bound every detector source before materializing its records in a shell
+# variable or passing the resulting JSON through exec argv. The raw-record cap
+# is intentionally conservative: duplicates still count because stopping after
+# a prefix cannot prove that later records contain no new secret. Callers mask
+# every nonempty leaf when either cap is crossed.
+detect_output_secret_bundle() {
+  bundle_response=$1
+  detect_output_secret_records "$bundle_response" \
+    | LC_ALL=C awk '
+        BEGIN {
+          max_records = 256
+          max_bytes = 65536
+        }
+        {
+          record_count++
+          record_bytes += length($0) + 1
+          if (record_count > max_records || record_bytes > max_bytes) {
+            print "{\"agent_guard_whole_leaf\":true}"
+            exceeded = 1
+            exit
+          }
+          records[record_count] = $0
+        }
+        END {
+          if (!exceeded)
+            for (i = 1; i <= record_count; i++) print records[i]
+        }
+      ' \
+    | jq -sc '
+        if any(.[]; type == "object" and .agent_guard_whole_leaf == true)
+        then {whole_leaf: true, secrets: []}
+        else {whole_leaf: false, secrets: unique}
+        end
+      ' 2>/dev/null
 }
 
 # `printenv NAME` prints only the value, so the output loses the secret-bearing
@@ -3279,10 +3310,20 @@ redact_tool_output() {
       r=$(redact_nonempty_response_strings "$out")
       if [ -n "$r" ] && [ "$r" != "$out" ]; then out=$r; did_secret=1; fi
     else
-      secrets=$(detect_output_secrets "$out")
-      if [ -n "$secrets" ]; then
-        r=$(redact_tool_response_json "$out" "$secrets")
-        if [ -n "$r" ] && [ "$r" != "$out" ]; then out=$r; did_secret=1; fi
+      secret_bundle=$(detect_output_secret_bundle "$out")
+      if [ -n "$secret_bundle" ]; then
+        if printf '%s' "$secret_bundle" \
+          | jq -e '.whole_leaf == true' >/dev/null 2>&1; then
+          r=$(redact_nonempty_response_strings "$out")
+          if [ -n "$r" ] && [ "$r" != "$out" ]; then out=$r; did_secret=1; fi
+        else
+          secrets=$(printf '%s' "$secret_bundle" \
+            | jq -c '.secrets | if length > 0 then . else empty end' 2>/dev/null)
+          if [ -n "$secrets" ]; then
+            r=$(redact_tool_response_json "$out" "$secrets")
+            if [ -n "$r" ] && [ "$r" != "$out" ]; then out=$r; did_secret=1; fi
+          fi
+        fi
       fi
     fi
   fi

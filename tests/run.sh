@@ -5562,6 +5562,36 @@ else
   printf '%s\n' "$post_out" | sed 's/^/  out: /'
 fi
 
+# Assignment-shaped output has a dedicated streaming preflight, but every
+# detector source must be bounded before its records are aggregated. Unique
+# Bearer tokens exercise the non-assignment path and would otherwise build a
+# secrets argv beyond Linux's per-argument limit before the whole-leaf fallback.
+large_bearer_input=$(jq -nc '
+  [range(0; 10000)
+   | "Authorization: Bearer token-unique-\(.)-abcdefgh"] as $stdout
+  | {tool_name:"Read",tool_input:{file_path:"bearer-dump.txt"},
+     tool_response:$stdout}
+')
+large_bearer_started=$(date +%s)
+post_tool_out "$large_bearer_input"
+large_bearer_status=$?
+large_bearer_elapsed=$(($(date +%s) - large_bearer_started))
+post_out=$(cat "$OUT")
+if [ "$large_bearer_status" -eq 0 ] \
+   && [ "$large_bearer_elapsed" -lt 15 ] \
+   && printf '%s' "$post_out" \
+        | jq -e '
+            .hookSpecificOutput.updatedToolOutput as $out
+            | ($out | length) == 10000
+            and ($out | all(. == "[REDACTED]"))
+          ' >/dev/null 2>&1 \
+   && ! printf '%s' "$post_out" | grep -q 'token-unique-'; then
+  ok "post-tool bounds non-assignment secret aggregation"
+else
+  not_ok "post-tool bounds non-assignment secret aggregation (${large_bearer_elapsed}s)"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
 large_clean_input=$(jq -nc '
   {tool_name:"Read",tool_input:{file_path:"clean.txt"},
    tool_response:("a" * 300000)}
