@@ -1174,6 +1174,12 @@ filter_lockfile_records() {
         uv_wheels_scope = 0
         previous_kind = kind
       }
+      # Non-lockfile records have no structural checksum fields. Preserve the
+      # preceding state-transition check, then skip the per-character parser.
+      if (kind == "-") {
+        print line
+        next
+      }
       if (kind == "g") {
         # Only the third go.sum field is a checksum. A module path may itself
         # contain an h1-shaped secret and must remain visible to gitleaks.
@@ -2781,7 +2787,7 @@ secretish_env_values() {
       return 1
     }
     function emit_mapping(literal, replacement) {
-      if (record_mode == "probe") {
+      if (record_mode == "probe" || record_mode == "probe_raw") {
         if (!probe_found) print "x"
         probe_found = 1
       } else if (record_mode == "framed") {
@@ -2795,7 +2801,7 @@ secretish_env_values() {
     }
     function emit_secret(value, eligible_length) {
       if (already_redacted(value)) return
-      if (record_mode == "probe") {
+      if (record_mode == "probe" || record_mode == "probe_raw") {
         if (!probe_found) print "x"
         probe_found = 1
         return
@@ -2917,8 +2923,9 @@ secretish_env_values() {
       open_value = ""
     }
     {
-      if (record_mode == "probe") {
+      if (record_mode == "probe_raw") {
         if (!probe_found) scan_leaf($0)
+        if (probe_found) exit
         next
       }
       record_ended_at_boundary = 0
@@ -2932,9 +2939,10 @@ secretish_env_values() {
           escaped = 1
           record_ended_at_boundary = 0
         } else if (ch == boundary) {
-          scan_leaf(leaf)
+          if (record_mode != "probe" || !probe_found) scan_leaf(leaf)
           leaf = ""
           record_ended_at_boundary = 1
+          if (record_mode == "probe" && probe_found) exit
         } else {
           leaf = leaf ch
           record_ended_at_boundary = 0
@@ -3009,15 +3017,13 @@ detect_output_secret_records() {
   }
 }
 
-# Bound every detector source before materializing its records in a shell
-# variable or passing the resulting JSON through exec argv. The raw-record cap
-# is intentionally conservative: duplicates still count because stopping after
-# a prefix cannot prove that later records contain no new secret. Callers mask
-# every nonempty leaf when either cap is crossed.
-detect_output_secret_bundle() {
-  bundle_response=$1
-  detect_output_secret_records "$bundle_response" \
-    | LC_ALL=C awk '
+# Bound secret records before materializing them in a shell variable or passing
+# the resulting JSON through exec argv. The raw-record cap is intentionally
+# conservative: duplicates still count because stopping after a prefix cannot
+# prove that later records contain no new secret. Callers fail closed when
+# either cap is crossed.
+bundle_secret_records() {
+  LC_ALL=C awk '
         BEGIN {
           max_records = 256
           max_bytes = 65536
@@ -3043,6 +3049,11 @@ detect_output_secret_bundle() {
         else {whole_leaf: false, secrets: unique}
         end
       ' 2>/dev/null
+}
+
+detect_output_secret_bundle() {
+  bundle_response=$1
+  detect_output_secret_records "$bundle_response" | bundle_secret_records
 }
 
 # `printenv NAME` prints only the value, so the output loses the secret-bearing
@@ -3321,6 +3332,9 @@ redact_tool_output() {
             | jq -c '.secrets | if length > 0 then . else empty end' 2>/dev/null)
           if [ -n "$secrets" ]; then
             r=$(redact_tool_response_json "$out" "$secrets")
+            if [ -z "$r" ] || [ "$r" = "$out" ]; then
+              r=$(redact_nonempty_response_strings "$out")
+            fi
             if [ -n "$r" ] && [ "$r" != "$out" ]; then out=$r; did_secret=1; fi
           fi
         fi
@@ -3578,6 +3592,7 @@ redact_plaintext_framed() {
       escape = sprintf("%c", 31)
       while ((status = getline line < secret_file) > 0) feed_framed(line)
       close(secret_file)
+      if (status < 0) read_error = 1
       for (i = 2; i <= count; i++) {
         value = lit[i]
         replacement = rep[i]
@@ -3599,6 +3614,8 @@ redact_plaintext_framed() {
     }
     { buf = (NR == 1 ? $0 : buf ORS $0) }
     END {
+      if (read_error) exit 2
+      if (count > 256 || count * (length(buf) + 1) > 8000000) exit 3
       for (i = 1; i <= count; i++) {
         value = lit[i]
         replacement = rep[i]
@@ -3710,7 +3727,7 @@ do_exec() {
           *)
             if [ "$raw_bytes" -gt 65536 ]; then
               if printf '%s' "$masked" \
-                | secretish_env_values probe 2>/dev/null \
+                | secretish_env_values probe_raw 2>/dev/null \
                 | grep -q .; then
                 masked='[REDACTED]'
                 output_fully_masked=1
@@ -3722,9 +3739,14 @@ do_exec() {
                   | frame_plaintext_leaf \
                   | secretish_env_values framed >"$raw_secret_file" 2>/dev/null \
                   && [ -s "$raw_secret_file" ]; then
-                  r=$(redact_plaintext_framed \
-                    "$masked" "$raw_secret_file" 2>/dev/null)
-                  [ -n "$r" ] && masked=$r
+                  if r=$(redact_plaintext_framed \
+                    "$masked" "$raw_secret_file" 2>/dev/null) \
+                    && [ -n "$r" ]; then
+                    masked=$r
+                  else
+                    masked='[REDACTED]'
+                    output_fully_masked=1
+                  fi
                 fi
                 rm -f "$raw_secret_file"
               fi
@@ -3734,9 +3756,9 @@ do_exec() {
       fi
     fi
 
-    secrets=''
+    secret_bundle=''
     if [ "$output_fully_masked" -eq 0 ]; then
-      secrets=$(
+      if ! secret_bundle=$(
         {
           if [ -n "$response" ]; then
             if [ "$invalid_output" -eq 1 ]; then
@@ -3750,12 +3772,31 @@ do_exec() {
           fi
           detect_printenv_argument_secret_records "$response" "$@"
         } 2>/dev/null \
-          | jq -sc 'unique | if length > 0 then . else empty end' 2>/dev/null
-      ) || secrets=''
+          | bundle_secret_records
+      ); then
+        masked='[REDACTED]'
+        output_fully_masked=1
+        secret_bundle=''
+      fi
     fi
-    if [ -n "$secrets" ]; then
-      r=$(redact_plaintext_literal "$masked" "$secrets" 2>/dev/null)
-      [ -n "$r" ] && masked=$r
+    if [ -n "$secret_bundle" ]; then
+      if printf '%s' "$secret_bundle" \
+        | jq -e '.whole_leaf == true' >/dev/null 2>&1; then
+        masked='[REDACTED]'
+        output_fully_masked=1
+      else
+        secrets=$(printf '%s' "$secret_bundle" \
+          | jq -c '.secrets | if length > 0 then . else empty end' 2>/dev/null)
+        if [ -n "$secrets" ]; then
+          if r=$(redact_plaintext_literal "$masked" "$secrets" 2>/dev/null) \
+            && [ -n "$r" ]; then
+            masked=$r
+          else
+            masked='[REDACTED]'
+            output_fully_masked=1
+          fi
+        fi
+      fi
     fi
   fi
 

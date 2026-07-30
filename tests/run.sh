@@ -5609,6 +5609,21 @@ else
   sed 's/^/  out: /' "$OUT"
 fi
 
+# The large-response assignment probe consumes framed leaves. A sanitized value
+# must be checked after removing the transport boundary or `[REDACTED]` plus RS
+# is mistaken for a new secret and unrelated clean leaves are over-masked.
+large_sanitized_input=$(jq -nc '
+  {tool_name:"Read",tool_input:{file_path:"sanitized-dump.txt"},
+   tool_response:["PASSWORD=[REDACTED]", ("a" * 300000)]}
+')
+post_tool_out "$large_sanitized_input"
+if [ ! -s "$OUT" ]; then
+  ok "post-tool large probe preserves already-sanitized assignments"
+else
+  not_ok "post-tool large probe over-masks an already-sanitized assignment"
+  sed 's/^/  out: /' "$OUT"
+fi
+
 # Log/timestamp prefix must not hijack the env-heuristic split: the value is
 # anchored to the matched key's delimiter, not the first ":" (here inside the
 # "12:00:00" timestamp). A clean copy in a SEPARATE leaf (stderr) only gets
@@ -5852,6 +5867,23 @@ if printf '%s' "$exec_out" | grep -q '\[REDACTED\]' \
   ok "exec masks a secret in a command's output"
 else
   not_ok "exec masks a secret in a command's output"
+  printf '%s\n' "  out: $exec_out"
+fi
+
+exec_large_started=$(date +%s)
+exec_out=$("$PLUGIN_ROOT/bin/agent-guard" exec -- \
+  awk 'BEGIN {
+    for (i = 0; i < 10000; i++)
+      printf "Authorization: Bearer token-unique-%d-abcdefgh\n", i
+  }' 2>/dev/null)
+exec_large_status=$?
+exec_large_elapsed=$(($(date +%s) - exec_large_started))
+if [ "$exec_large_status" -eq 0 ] \
+   && [ "$exec_large_elapsed" -lt 15 ] \
+   && [ "$exec_out" = "[REDACTED]" ]; then
+  ok "exec bounds high-cardinality non-assignment redaction"
+else
+  not_ok "exec bounds high-cardinality non-assignment redaction (${exec_large_elapsed}s)"
   printf '%s\n' "  out: $exec_out"
 fi
 
