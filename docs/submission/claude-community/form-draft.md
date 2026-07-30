@@ -8,7 +8,7 @@
 
 - Repository: `https://github.com/JeongJaeSoon/agent-guard`
 - Plugin path: `plugins/agent-guard`
-- Commit SHA: `d67f9d95f348e04386bd58268e00e66f3d4febe0`
+- Commit SHA: `3c6d7d109e0e654b9f8e476829418b660707b84a`
 
 ## Short description
 
