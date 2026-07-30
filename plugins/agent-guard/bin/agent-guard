@@ -2924,7 +2924,10 @@ secretish_env_values() {
     }
     {
       if (record_mode == "probe_raw") {
-        if (!probe_found) scan_leaf($0)
+        # Raw invalid-byte output is one logical plaintext leaf even though awk
+        # presents it as physical records. Keep quote state across records so a
+        # sanitized-looking first line cannot hide a credential continuation.
+        if (!probe_found) scan_line($0)
         if (probe_found) exit
         next
       }
@@ -2966,6 +2969,13 @@ secretish_env_values() {
       if (!record_ended_at_boundary) leaf = leaf "\n"
     }
     END {
+      if (record_mode == "probe_raw") {
+        # A truncated multiline quote is evaluated only after the complete raw
+        # capture has been scanned. This mirrors scan_leaf without resetting
+        # open_quote/open_value at every physical newline.
+        if (!probe_found && open_quote != "") emit_secret(open_value)
+        exit
+      }
       # Valid framed input always terminates each leaf with RS. Preserve a final
       # partial record conservatively if a producer ever ends without one.
       if (length(leaf) > 0) scan_leaf(leaf)
@@ -3140,10 +3150,14 @@ detect_printenv_argument_secret_records() {
       | secretish_env_values \
       | jq -sc 'unique' 2>/dev/null
   ) || return 1
-  printf '%s' "$entries" \
-    | jq -c --argjson recognized "$recognized" --argjson output "$response" '
+  {
+    printf '%s\n' "$entries"
+    printf '%s\n' "$response"
+  } \
+    | jq -cs --argjson recognized "$recognized" '
     def trim_trailing_newlines: sub("\n+$"; "");
-    . as $entries
+    .[0] as $entries
+    | .[1] as $output
     | [$entries[] | select(.valid and .present)] as $emitted
     | ($emitted | map(.value) | join("\n") | trim_trailing_newlines) as $gnu_output
     | (if (($entries | length) > 0
@@ -3152,7 +3166,7 @@ detect_printenv_argument_secret_records() {
        else ""
        end) as $bsd_output
     | (($emitted[-1].position // -1)) as $gnu_last_position
-    | .[]
+    | $entries[]
     | select(.probe as $probe | $recognized | index($probe))
     | if ($output == $gnu_output and $output != $bsd_output)
       then (if .position == $gnu_last_position

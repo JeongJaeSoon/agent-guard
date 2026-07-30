@@ -6296,6 +6296,21 @@ else
   LC_ALL=C wc -c "$OUT" | sed 's/^/  bytes: /'
 fi
 
+# The oversized raw probe must keep one quote state across physical records.
+# A sanitized-looking prefix is not proof that a multiline continuation is safe.
+"$PLUGIN_ROOT/bin/agent-guard" exec -- sh -c '
+  printf "PASSWORD=\"[REDACTED]\n"
+  printf "credential-continuation-should-not-leak"
+  awk "BEGIN { for (i = 0; i < 70000; i++) printf \"x\" }"
+  printf "\377\n"
+' >"$OUT" 2>/dev/null
+if [ "$(cat "$OUT")" = '[REDACTED]' ]; then
+  ok "exec raw probe retains multiline quote state across records"
+else
+  not_ok "exec raw probe does not trust a sanitized multiline prefix"
+  LC_ALL=C wc -c "$OUT" | sed 's/^/  bytes: /'
+fi
+
 "$PLUGIN_ROOT/bin/agent-guard" exec -- sh -c '
   printf "\377\n"
   awk "BEGIN { for (i = 0; i < 5000; i++) print \"PASSWORD=[REDACTED]\" }"
@@ -6335,6 +6350,18 @@ if printf '%s' "$exec_printenv" | grep -q '\[REDACTED\]' \
 else
   not_ok "exec masks a bare printenv value using its variable-name context"
   printf '%s\n' "  out: $exec_printenv"
+fi
+
+# Keep the captured JSON response out of argv: quote-heavy values can remain
+# below the plaintext cap while their JSON encoding exceeds Linux MAX_ARG_STRLEN.
+PRINTENV_QUOTE_VAL=$(awk 'BEGIN { for (i = 0; i < 70000; i++) printf "\"" }')
+PASSWORD="${PRINTENV_QUOTE_VAL}" \
+  "$PLUGIN_ROOT/bin/agent-guard" exec -- printenv PASSWORD >"$OUT" 2>/dev/null
+if [ "$(cat "$OUT")" = '[REDACTED]' ]; then
+  ok "exec streams a quote-heavy printenv response into jq"
+else
+  not_ok "exec does not leak printenv output whose JSON exceeds one argv entry"
+  LC_ALL=C wc -c "$OUT" | sed 's/^/  bytes: /'
 fi
 
 exec_printenv=$(DEMO_TOKEN="${PRINTENV_VAL}" \
