@@ -3151,27 +3151,42 @@ detect_printenv_argument_secret_records() {
   # preserves every argument boundary without reserving another sentinel.
   if ! printf '%s\0' "$@" >"$printenv_args_file" \
     || ! jq -Rsc '
+    def trim_trailing_newlines: sub("\n+$"; "");
     (split("\u0000")
      | if length > 0 and .[-1] == "" then .[:-1]
        else error("unterminated printenv argument stream")
-       end)
-    | to_entries
-    | map(.value as $name
-          | {position: .key,
-             name: $name,
-             valid: ($name | test("^[A-Za-z_][A-Za-z0-9_]*$")),
-             present: (env[$name] != null),
-             value: (env[$name] // ""),
-             probe: ("agent_guard_printenv_probe_" + $name)})
+       end) as $args
+    | {entries:
+         ($args
+          | to_entries
+          | map(.value as $name
+                | {position: .key,
+                   name: $name,
+                   valid: ($name | test("^[A-Za-z_][A-Za-z0-9_]*$"))})),
+       names:
+         ($args
+          | map(select(test("^[A-Za-z_][A-Za-z0-9_]*$")))
+          | unique
+          | map(. as $name
+                | (env[$name] // "") as $value
+                | ($value | trim_trailing_newlines) as $trimmed_value
+                | {name: $name,
+                   present: (env[$name] != null),
+                   value: $value,
+                   value_length: ($value | length),
+                   trimmed_value: $trimmed_value,
+                   trimmed_length: ($trimmed_value | length),
+                   has_content: (($trimmed_value | length) > 0),
+                   probe: ("agent_guard_printenv_probe_" + $name)}))}
   ' "$printenv_args_file" >"$printenv_entries_file" 2>/dev/null \
     || ! jq -c '
-      [.[] | select(.valid and .present) | (.name + "=" + .probe)] | unique
+      [.names[] | select(.present) | (.name + "=" + .probe)]
     ' "$printenv_entries_file" >"$printenv_work_a" 2>/dev/null \
     || ! frame_json_string_leaves \
       <"$printenv_work_a" >"$printenv_work_b" 2>/dev/null \
     || ! secretish_env_values \
       <"$printenv_work_b" >"$printenv_work_a" 2>/dev/null \
-    || ! jq -sc 'unique' \
+    || ! jq -sc 'reduce .[] as $probe ({}; .[$probe] = true)' \
       "$printenv_work_a" >"$printenv_work_b" 2>/dev/null; then
     rm -f "$printenv_args_file" "$printenv_entries_file" \
       "$printenv_work_a" "$printenv_work_b"
@@ -3197,27 +3212,60 @@ detect_printenv_argument_secret_records() {
 
   jq -cs '
     def trim_trailing_newlines: sub("\n+$"; "");
-    .[0] as $entries
+    .[0] as $metadata
     | .[1] as $recognized
     | .[2] as $output
-    | [$entries[] | select(.valid and .present)] as $emitted
-    | ($emitted | map(.value) | join("\n") | trim_trailing_newlines) as $gnu_output
+    | $metadata.entries as $entries
+    | ($metadata.names
+       | map({key: .name, value: .})
+       | from_entries) as $names
+    | [$entries[]
+       | select(.valid)
+       | . as $entry
+       | select($names[$entry.name].present)
+       | {position: .position, name: .name}] as $emitted
+    # Compute the conceptual GNU output length without concatenating repeated
+    # values. Only materialize the model when its trimmed length can equal the
+    # already-bounded capture.
+    | (reduce $emitted[] as $entry
+         ({raw_length: 0, count: 0, trimmed_length: 0};
+          ($names[$entry.name]) as $name
+          | .raw_length += ($name.value_length
+                            + (if .count > 0 then 1 else 0 end))
+          | .count += 1
+          | if $name.has_content
+            then .trimmed_length =
+              (.raw_length
+               - ($name.value_length - $name.trimmed_length))
+            else .
+            end)) as $gnu_shape
+    | (if $gnu_shape.trimmed_length == ($output | length)
+       then ($emitted
+             | map($names[.name].value)
+             | join("\n")
+             | trim_trailing_newlines)
+       else null
+       end) as $gnu_output
     | (if (($entries | length) > 0
-             and $entries[0].valid and $entries[0].present)
-       then ($entries[0].value | trim_trailing_newlines)
+             and $entries[0].valid
+             and $names[$entries[0].name].present)
+       then $names[$entries[0].name].trimmed_value
        else ""
        end) as $bsd_output
     | (($emitted[-1].position // -1)) as $gnu_last_position
     | $entries[]
-    | select(.probe as $probe | $recognized | index($probe))
+    | . as $entry
+    | select(.valid)
+    | $names[$entry.name] as $name
+    | select($name.present and $recognized[$name.probe] == true)
     | if ($output == $gnu_output and $output != $bsd_output)
       then (if .position == $gnu_last_position
-            then (.value | trim_trailing_newlines)
-            else .value
+            then $name.trimmed_value
+            else $name.value
             end)
       elif ($output == $bsd_output and $output != $gnu_output)
-      then select(.position == 0) | (.value | trim_trailing_newlines)
-      else (.value, (.value | trim_trailing_newlines))
+      then select(.position == 0) | $name.trimmed_value
+      else ($name.value, $name.trimmed_value)
       end
     | select(length >= 4)
     | select(. as $value | $output | contains($value))
