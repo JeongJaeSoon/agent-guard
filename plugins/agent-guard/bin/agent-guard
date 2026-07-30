@@ -2717,9 +2717,9 @@ frame_plaintext_leaf() {
 
 # Read an RS-delimited, US-escaped leaf stream. Each leaf gets independent
 # multiline quote state. Emits JSON-string records by default, or raw framed
-# secret records for exec's byte-preserving plaintext pass. Probe mode instead
-# scans raw physical lines directly and exits on the first non-sanitized
-# assignment key, keeping oversized invalid-byte checks streaming and linear.
+# secret records for exec's byte-preserving plaintext pass. Probe modes exit on
+# the first non-sanitized assignment key; framed probe mode also fast-paths the
+# common escape-free leaf so large clean JSON strings remain linear.
 secretish_env_values() {
   record_mode=${1:-json}
   LC_ALL=C awk -v record_mode="$record_mode" '
@@ -2925,6 +2925,18 @@ secretish_env_values() {
     {
       if (record_mode == "probe_raw") {
         if (!probe_found) scan_leaf($0)
+        if (probe_found) exit
+        next
+      }
+      # frame_json_string_leaves emits one boundary-terminated leaf unless the
+      # value contains a physical newline. Avoid building a large clean leaf one
+      # byte at a time in awk, which is quadratic on some macOS runners.
+      if (record_mode == "probe" && index($0, escape) == 0 &&
+          substr($0, length($0), 1) == boundary) {
+        leaf = leaf substr($0, 1, length($0) - 1)
+        scan_leaf(leaf)
+        leaf = ""
+        record_ended_at_boundary = 1
         if (probe_found) exit
         next
       }
