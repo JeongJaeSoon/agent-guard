@@ -827,6 +827,7 @@ filter_lockfile_records() {
       return substr(line, 1, RSTART - 1) replacement substr(line, RSTART + RLENGTH)
     }
     function hex_digit_value(ch, position) {
+      if (length(ch) != 1) return -1
       position = index("0123456789abcdef", tolower(ch))
       return position ? position - 1 : -1
     }
@@ -849,10 +850,11 @@ filter_lockfile_records() {
       if (escaped_char == "u") return unicode_escape_valid(line, at, 4)
       if (escaped_char == "U") return unicode_escape_valid(line, at, 8)
       # A multiline basic string may fold a physical line ending after a
-      # backslash and optional spaces/tabs. awk has already removed that newline.
+      # backslash and optional spaces/tabs. awk has already removed the LF
+      # record separator, but a CRLF record still has its terminal CR.
       if (multiline) {
         remainder = substr(line, at + 1)
-        if (remainder ~ /^[ \t]*$/) return 1
+        if (remainder ~ /^[ \t]*\r?$/) return 1
       }
       return 0
     }
