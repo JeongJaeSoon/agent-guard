@@ -4011,6 +4011,109 @@ for incomplete_toml_dir in "$LOCK_INCOMPLETE_TOML_DIR" \
   done
 done
 
+LOCK_INVALID_ESCAPE_DIR="$TMP_ROOT/lockfile-invalid-escape-dir"
+mkdir -p "$LOCK_INVALID_ESCAPE_DIR"
+{
+  printf '%s\n' '[[package]]'
+  printf 'checksum = "%s"\n' "$LOCK_FRAGMENT_HEX"
+  printf '%s\n' 'note = "bad\q"'
+} >"$LOCK_INVALID_ESCAPE_DIR/Cargo.lock"
+{
+  printf '%s\n' '[[package]]'
+  printf 'sdist = { url = "https://example.invalid/pkg", hash = "sha256:%s" }\n' \
+    "$LOCK_FRAGMENT_HEX"
+  printf '%s\n' 'note = "bad\q"'
+} >"$LOCK_INVALID_ESCAPE_DIR/uv.lock"
+for invalid_escape_name in Cargo.lock uv.lock; do
+  invalid_escape_path="$LOCK_INVALID_ESCAPE_DIR/$invalid_escape_name"
+  invalid_escape_filtered="$LOCK_INVALID_ESCAPE_DIR/$invalid_escape_name.filtered"
+  "$PLUGIN_ROOT/bin/agent-guard" filter-lockfile-hashes \
+    "$invalid_escape_path" "$invalid_escape_path" >"$invalid_escape_filtered"
+  status=$?
+  if [ "$status" -eq 0 ] \
+      && cmp -s "$invalid_escape_path" "$invalid_escape_filtered"; then
+    ok "$invalid_escape_name filtering falls back for an invalid TOML basic-string escape"
+  else
+    not_ok "$invalid_escape_name filtering must preserve invalid TOML escape bytes"
+  fi
+done
+
+LOCK_INCOMPLETE_UNICODE_DIR="$TMP_ROOT/lockfile-incomplete-unicode-dir"
+mkdir -p "$LOCK_INCOMPLETE_UNICODE_DIR"
+for incomplete_unicode_escape in u u12 U0001F60; do
+  incomplete_unicode_dir="$LOCK_INCOMPLETE_UNICODE_DIR/$incomplete_unicode_escape"
+  mkdir -p "$incomplete_unicode_dir"
+  {
+    printf '%s\n' '[[package]]'
+    printf 'checksum = "%s"\n' "$LOCK_FRAGMENT_HEX"
+    printf 'note = """bad\\%s\n' "$incomplete_unicode_escape"
+    printf '%s\n' '"""'
+  } >"$incomplete_unicode_dir/Cargo.lock"
+  {
+    printf '%s\n' '[[package]]'
+    printf 'sdist = { url = "https://example.invalid/pkg", hash = "sha256:%s" }\n' \
+      "$LOCK_FRAGMENT_HEX"
+    printf 'note = """bad\\%s\n' "$incomplete_unicode_escape"
+    printf '%s\n' '"""'
+  } >"$incomplete_unicode_dir/uv.lock"
+  for incomplete_unicode_name in Cargo.lock uv.lock; do
+    incomplete_unicode_path="$incomplete_unicode_dir/$incomplete_unicode_name"
+    incomplete_unicode_filtered="$incomplete_unicode_path.filtered"
+    "$PLUGIN_ROOT/bin/agent-guard" filter-lockfile-hashes \
+      "$incomplete_unicode_path" "$incomplete_unicode_path" \
+      >"$incomplete_unicode_filtered"
+    status=$?
+    if [ "$status" -eq 0 ] \
+        && cmp -s "$incomplete_unicode_path" "$incomplete_unicode_filtered"; then
+      ok "$incomplete_unicode_name filtering falls back for incomplete \\$incomplete_unicode_escape"
+    else
+      not_ok "$incomplete_unicode_name filtering must preserve incomplete \\$incomplete_unicode_escape bytes"
+    fi
+  done
+done
+
+LOCK_CRLF_FOLD_DIR="$TMP_ROOT/lockfile-crlf-fold-dir"
+mkdir -p "$LOCK_CRLF_FOLD_DIR"
+{
+  printf '%s\r\n' '[[package]]'
+  printf 'checksum = "%s"\r\n' "$LOCK_FRAGMENT_HEX"
+  printf '%s\r\n' 'note = """abc\'
+  printf '%s\r\n' '  def"""'
+} >"$LOCK_CRLF_FOLD_DIR/Cargo.lock"
+{
+  printf '%s\r\n' '[[package]]'
+  printf 'sdist = { url = "https://example.invalid/pkg", hash = "sha256:%s" }\r\n' \
+    "$LOCK_FRAGMENT_HEX"
+  printf '%s\r\n' 'note = """abc\'
+  printf '%s\r\n' '  def"""'
+} >"$LOCK_CRLF_FOLD_DIR/uv.lock"
+{
+  printf '%s\r\n' '[[package]]'
+  printf '%s\r\n' 'checksum = "CHECKSUM"'
+  printf '%s\r\n' 'note = """abc\'
+  printf '%s\r\n' '  def"""'
+} >"$LOCK_CRLF_FOLD_DIR/Cargo.lock.expected"
+{
+  printf '%s\r\n' '[[package]]'
+  printf '%s\r\n' \
+    'sdist = { url = "https://example.invalid/pkg", hash = "sha256:CHECKSUM" }'
+  printf '%s\r\n' 'note = """abc\'
+  printf '%s\r\n' '  def"""'
+} >"$LOCK_CRLF_FOLD_DIR/uv.lock.expected"
+for crlf_fold_name in Cargo.lock uv.lock; do
+  crlf_fold_path="$LOCK_CRLF_FOLD_DIR/$crlf_fold_name"
+  crlf_fold_filtered="$LOCK_CRLF_FOLD_DIR/$crlf_fold_name.filtered"
+  "$PLUGIN_ROOT/bin/agent-guard" filter-lockfile-hashes \
+    "$crlf_fold_path" "$crlf_fold_path" >"$crlf_fold_filtered"
+  status=$?
+  if [ "$status" -eq 0 ] \
+      && cmp -s "$crlf_fold_path.expected" "$crlf_fold_filtered"; then
+    ok "$crlf_fold_name filtering neutralizes the checksum and preserves CRLF bytes"
+  else
+    not_ok "$crlf_fold_name filtering must neutralize checksums across a valid CRLF multiline fold"
+  fi
+done
+
 LOCK_INCOMPLETE_TOML_BIN="$TMP_ROOT/lockfile-incomplete-toml-bin"
 mkdir -p "$LOCK_INCOMPLETE_TOML_BIN"
 cat >"$LOCK_INCOMPLETE_TOML_BIN/gitleaks" <<'STUB'
@@ -4044,6 +4147,45 @@ for incomplete_toml_dir in "$LOCK_INCOMPLETE_TOML_DIR" \
       not_ok "scan-path must detect bytes in incomplete $incomplete_toml_case $incomplete_toml_name (expected 1, got $status)"
     fi
   done
+done
+
+for invalid_escape_name in Cargo.lock uv.lock; do
+  AGENT_GUARD_GITLEAKS_BIN="$LOCK_INCOMPLETE_TOML_BIN/gitleaks" \
+    "$PLUGIN_ROOT/bin/agent-guard" scan-path \
+      "$LOCK_INVALID_ESCAPE_DIR/$invalid_escape_name" >"$OUT" 2>"$ERR"
+  status=$?
+  if [ "$status" -eq 1 ]; then
+    ok "scan-path keeps invalid-escape $invalid_escape_name bytes scannable"
+  else
+    not_ok "scan-path must detect checksum bytes after invalid TOML in $invalid_escape_name (expected 1, got $status)"
+  fi
+done
+
+for incomplete_unicode_escape in u u12 U0001F60; do
+  incomplete_unicode_dir="$LOCK_INCOMPLETE_UNICODE_DIR/$incomplete_unicode_escape"
+  for incomplete_unicode_name in Cargo.lock uv.lock; do
+    AGENT_GUARD_GITLEAKS_BIN="$LOCK_INCOMPLETE_TOML_BIN/gitleaks" \
+      "$PLUGIN_ROOT/bin/agent-guard" scan-path \
+        "$incomplete_unicode_dir/$incomplete_unicode_name" >"$OUT" 2>"$ERR"
+    status=$?
+    if [ "$status" -eq 1 ]; then
+      ok "scan-path keeps incomplete \\$incomplete_unicode_escape $incomplete_unicode_name bytes scannable"
+    else
+      not_ok "scan-path must detect checksum bytes after incomplete \\$incomplete_unicode_escape in $incomplete_unicode_name (expected 1, got $status)"
+    fi
+  done
+done
+
+for crlf_fold_name in Cargo.lock uv.lock; do
+  AGENT_GUARD_GITLEAKS_BIN="$LOCK_INCOMPLETE_TOML_BIN/gitleaks" \
+    "$PLUGIN_ROOT/bin/agent-guard" scan-path \
+      "$LOCK_CRLF_FOLD_DIR/$crlf_fold_name" >"$OUT" 2>"$ERR"
+  status=$?
+  if [ "$status" -eq 0 ]; then
+    ok "scan-path neutralizes eligible checksums in CRLF-folded $crlf_fold_name"
+  else
+    not_ok "scan-path must not report a false positive for valid CRLF-folded $crlf_fold_name (expected 0, got $status)"
+  fi
 done
 
 LOCK_MALFORMED_TAIL_DIR="$TMP_ROOT/lockfile-malformed-tail-dir"

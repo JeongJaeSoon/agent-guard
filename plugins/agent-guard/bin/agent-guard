@@ -826,6 +826,38 @@ filter_lockfile_records() {
     function replace_match(line, replacement) {
       return substr(line, 1, RSTART - 1) replacement substr(line, RSTART + RLENGTH)
     }
+    function hex_digit_value(ch, position) {
+      if (length(ch) != 1) return -1
+      position = index("0123456789abcdef", tolower(ch))
+      return position ? position - 1 : -1
+    }
+    function unicode_escape_valid(line, at, width, i, digit, value) {
+      value = 0
+      for (i = 1; i <= width; i++) {
+        digit = hex_digit_value(substr(line, at + 1 + i, 1))
+        if (digit < 0) return 0
+        value = value * 16 + digit
+      }
+      return value <= 1114111 && !(value >= 55296 && value <= 57343)
+    }
+    function basic_escape_valid(line, at, multiline, escaped_char, remainder) {
+      escaped_char = substr(line, at + 1, 1)
+      if (escaped_char == "\"" || escaped_char == "\\" \
+          || escaped_char == "b" || escaped_char == "t" \
+          || escaped_char == "n" || escaped_char == "f" \
+          || escaped_char == "r")
+        return 1
+      if (escaped_char == "u") return unicode_escape_valid(line, at, 4)
+      if (escaped_char == "U") return unicode_escape_valid(line, at, 8)
+      # A multiline basic string may fold a physical line ending after a
+      # backslash and optional spaces/tabs. awk has already removed the LF
+      # record separator, but a CRLF record still has its terminal CR.
+      if (multiline) {
+        remainder = substr(line, at + 1)
+        if (remainder ~ /^[ \t]*\r?$/) return 1
+      }
+      return 0
+    }
     function toml_incomplete(kind) {
       return (kind == "c" || kind == "u") \
           && (toml_multiline != "" || toml_array_depth != 0 || toml_invalid)
@@ -969,6 +1001,8 @@ filter_lockfile_records() {
           triple = chars[i] chars[i + 1] chars[i + 2]
           if (toml_multiline == "\"") {
             if (ch == "\\") {
+              if (!ml_escaped && !basic_escape_valid(line, i, 1))
+                toml_invalid = 1
               ml_escaped = !ml_escaped
               i++
               continue
@@ -991,6 +1025,9 @@ filter_lockfile_records() {
 
         if (quote != "") {
           if (quote == "\"" && ch == "\\") {
+            if (!escaped && (kind == "c" || kind == "u") \
+                && !basic_escape_valid(line, i, 0))
+              toml_invalid = 1
             escaped = !escaped
             i++
             continue
