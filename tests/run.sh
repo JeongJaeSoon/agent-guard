@@ -7811,8 +7811,21 @@ AG_VERSION=$(sed -n 's/^VERSION=//p' "$PLUGIN_ROOT/bin/agent-guard" | head -n1)
 # setup-shell, so these cases stay coupled to what setup-shell actually installs.
 ss_home_bare="$TESTTMP/sstart-home-bare"
 ss_home_setup="$TESTTMP/sstart-home-setup"
-mkdir -p "$ss_home_bare" "$ss_home_setup"
+ss_home_login_fish="$TESTTMP/sstart-home-login-fish"
+ss_login_fish_bin="$TESTTMP/login-fish-bin"
+mkdir -p "$ss_home_bare" "$ss_home_setup" "$ss_home_login_fish" "$ss_login_fish_bin"
+cat >"$ss_login_fish_bin/getent" <<'STUB'
+#!/bin/sh
+[ "${1:-}" = passwd ] && [ -n "${2:-}" ] || exit 2
+printf '%s:x:1000:1000:Fixture User:/home/%s:/usr/bin/fish\n' "$2" "$2"
+STUB
+chmod +x "$ss_login_fish_bin/getent"
 HOME="$ss_home_setup" SHELL=/bin/zsh "$PLUGIN_ROOT/bin/agent-guard" setup-shell >/dev/null 2>&1
+# Reproduce the standard skill path from #139: the account database says fish,
+# while Claude's Bash tool presents zsh in $SHELL. Setup must still recognize
+# the fish host and cover either bash or zsh snapshot.
+HOME="$ss_home_login_fish" SHELL=/bin/zsh PATH="$ss_login_fish_bin:$ORIGINAL_PATH" \
+  "$PLUGIN_ROOT/bin/agent-guard" setup-shell >/dev/null 2>&1
 
 run_session_start() {  # $1 = marker ('' => unset), $2 = HOME, $3 = $SHELL, $4 = PATH
   sh -c 'unset AGENT_GUARD_SHELL_INIT_VERSION
@@ -7881,6 +7894,17 @@ if [ $? -eq 0 ] \
 else
   not_ok "SessionStart nags when the snapshot shell's rc has no block (got: $vd_out)"
 fi
+
+# A fish login shell gets both rc files even when the setup process reports zsh.
+# Consequently either actual snapshot shell must find a loadable block.
+for ss_snapshot_shell in /bin/bash /bin/zsh; do
+  vd_out=$(run_session_start "" "$ss_home_login_fish" "$ss_snapshot_shell" 2>"$ERR")
+  if [ $? -eq 0 ] && [ -z "$vd_out" ]; then
+    ok "SessionStart is quiet for ${ss_snapshot_shell##*/} snapshot after fish-login setup (#139)"
+  else
+    not_ok "SessionStart ${ss_snapshot_shell##*/} snapshot after fish-login setup (got: $vd_out)"
+  fi
+done
 
 # #155: the delimiters alone must NEVER be read as proof that the integration
 # loads. The block's `eval` emits nothing when the binary it resolves has
@@ -8224,8 +8248,9 @@ else
 fi
 # #139: fish cannot eval the POSIX snippet shell-init emits, so there is no fish
 # rc to install into — and the agent's `!`/Bash snapshot runs bash OR zsh without
-# telling us which. A detected fish login shell therefore gets BOTH POSIX rc
-# files, so the wrapping loads whichever one the snapshot picks.
+# telling us which. Fish in either the process environment or the account login
+# record therefore gets BOTH POSIX rc files, so the wrapping loads whichever one
+# the snapshot picks.
 ss_fish_home="$TESTTMP/fish-home"
 mkdir -p "$ss_fish_home"
 ss_fish_out=$(HOME="$ss_fish_home" SHELL=/usr/bin/fish \
@@ -8240,21 +8265,121 @@ fi
 # misreport what is protected — while staying host-neutral like the rest of the CLI.
 if printf '%s' "$ss_fish_out" | grep -q 'fish' \
    && printf '%s' "$ss_fish_out" | grep -q 'agx' \
+   && printf '%s' "$ss_fish_out" | grep -q 'plugin-only' \
+   && printf '%s' "$ss_fish_out" | grep -q 'fish executable:' \
+   && grep -Fq 'current/bin/agent-guard' "$ROOT/README.md" \
    && ! printf '%s' "$ss_fish_out" | grep -Eq 'Claude Code|Codex'; then
-  ok "setup-shell reports the fish limitation host-neutrally (#139)"
+  ok "setup-shell reports the fish limitation and plugin-only executable (#139)"
 else
-  not_ok "setup-shell reports the fish limitation host-neutrally (got: $ss_fish_out)"
+  not_ok "setup-shell fish limitation/plugin-only guidance (got: $ss_fish_out)"
 fi
-# An explicit target still wins over fish detection: only the named rc is touched.
-ss_fish_zsh_home="$TESTTMP/fish-home-zsh"
-mkdir -p "$ss_fish_zsh_home"
-HOME="$ss_fish_zsh_home" SHELL=/usr/bin/fish \
-  "$PLUGIN_ROOT/bin/agent-guard" setup-shell --zsh >/dev/null 2>&1
-if grep -q '>>> agent-guard shell-init >>>' "$ss_fish_zsh_home/.zshrc" 2>/dev/null \
-   && [ ! -e "$ss_fish_zsh_home/.bashrc" ]; then
-  ok "setup-shell --zsh overrides fish detection (single rc)"
+
+# The real #139 skill-path mismatch: passwd/getent reports fish while the Bash
+# tool presents zsh, or bash, through $SHELL. Both cases must dual-write and
+# explain the fish limitation.
+for ss_process_shell in zsh bash; do
+  ss_mismatch_home="$TESTTMP/fish-login-process-$ss_process_shell"
+  mkdir -p "$ss_mismatch_home"
+  ss_mismatch_out=$(HOME="$ss_mismatch_home" SHELL="/bin/$ss_process_shell" \
+    PATH="$ss_login_fish_bin:$ORIGINAL_PATH" \
+    "$PLUGIN_ROOT/bin/agent-guard" setup-shell 2>&1)
+  if grep -q '>>> agent-guard shell-init >>>' "$ss_mismatch_home/.bashrc" 2>/dev/null \
+     && grep -q '>>> agent-guard shell-init >>>' "$ss_mismatch_home/.zshrc" 2>/dev/null \
+     && printf '%s' "$ss_mismatch_out" | grep -q 'fish'; then
+    ok "setup-shell detects passwd fish with process SHELL=$ss_process_shell (#139)"
+  else
+    not_ok "setup-shell detects passwd fish with process SHELL=$ss_process_shell (got: $ss_mismatch_out)"
+  fi
+done
+
+# macOS uses dscl rather than getent for the same account-shell signal.
+ss_dscl_fish_bin="$TESTTMP/dscl-fish-bin"
+ss_dscl_fish_home="$TESTTMP/dscl-fish-home"
+mkdir -p "$ss_dscl_fish_bin" "$ss_dscl_fish_home"
+cat >"$ss_dscl_fish_bin/getent" <<'STUB'
+#!/bin/sh
+exit 1
+STUB
+cat >"$ss_dscl_fish_bin/dscl" <<'STUB'
+#!/bin/sh
+printf 'UserShell: /opt/homebrew/bin/fish\n'
+STUB
+chmod +x "$ss_dscl_fish_bin/getent" "$ss_dscl_fish_bin/dscl"
+HOME="$ss_dscl_fish_home" SHELL=/bin/zsh PATH="$ss_dscl_fish_bin:$ORIGINAL_PATH" \
+  "$PLUGIN_ROOT/bin/agent-guard" setup-shell >/dev/null 2>&1
+if [ -e "$ss_dscl_fish_home/.bashrc" ] && [ -e "$ss_dscl_fish_home/.zshrc" ]; then
+  ok "setup-shell detects a macOS dscl fish login shell"
 else
-  not_ok "setup-shell --zsh overrides fish detection (single rc)"
+  not_ok "setup-shell macOS dscl fish login-shell detection"
+fi
+
+# Dual-write remains idempotent when the standard skill is rerun.
+HOME="$ss_home_login_fish" SHELL=/bin/zsh PATH="$ss_login_fish_bin:$ORIGINAL_PATH" \
+  "$PLUGIN_ROOT/bin/agent-guard" setup-shell >/dev/null 2>&1
+ss_login_fish_bash_markers=$(grep -c '>>> agent-guard shell-init >>>' \
+  "$ss_home_login_fish/.bashrc" 2>/dev/null || :)
+ss_login_fish_zsh_markers=$(grep -c '>>> agent-guard shell-init >>>' \
+  "$ss_home_login_fish/.zshrc" 2>/dev/null || :)
+if [ "$ss_login_fish_bash_markers" = 1 ] && [ "$ss_login_fish_zsh_markers" = 1 ]; then
+  ok "setup-shell fish-login dual-write is idempotent"
+else
+  not_ok "setup-shell fish-login idempotency (bash=$ss_login_fish_bash_markers zsh=$ss_login_fish_zsh_markers)"
+fi
+
+# Every explicit selector outranks both process and account-shell detection.
+ss_explicit_bash_home="$TESTTMP/fish-explicit-bash"
+ss_explicit_zsh_home="$TESTTMP/fish-explicit-zsh"
+ss_explicit_rc_home="$TESTTMP/fish-explicit-rc"
+mkdir -p "$ss_explicit_bash_home" "$ss_explicit_zsh_home" "$ss_explicit_rc_home"
+HOME="$ss_explicit_bash_home" SHELL=/bin/zsh PATH="$ss_login_fish_bin:$ORIGINAL_PATH" \
+  "$PLUGIN_ROOT/bin/agent-guard" setup-shell --bash >/dev/null 2>&1
+HOME="$ss_explicit_zsh_home" SHELL=/bin/bash PATH="$ss_login_fish_bin:$ORIGINAL_PATH" \
+  "$PLUGIN_ROOT/bin/agent-guard" setup-shell --zsh >/dev/null 2>&1
+HOME="$ss_explicit_rc_home" SHELL=/bin/bash PATH="$ss_login_fish_bin:$ORIGINAL_PATH" \
+  "$PLUGIN_ROOT/bin/agent-guard" setup-shell --rc "$ss_explicit_rc_home/custom.rc" >/dev/null 2>&1
+if [ -e "$ss_explicit_bash_home/.bashrc" ] && [ ! -e "$ss_explicit_bash_home/.zshrc" ] \
+   && [ -e "$ss_explicit_zsh_home/.zshrc" ] && [ ! -e "$ss_explicit_zsh_home/.bashrc" ] \
+   && [ -e "$ss_explicit_rc_home/custom.rc" ] \
+   && [ ! -e "$ss_explicit_rc_home/.bashrc" ] && [ ! -e "$ss_explicit_rc_home/.zshrc" ]; then
+  ok "setup-shell explicit --bash/--zsh/--rc selectors override shell detection"
+else
+  not_ok "setup-shell explicit shell selector precedence"
+fi
+
+# Account-shell lookup is best-effort. A missing lookup tool and a lookup
+# failure must both preserve the process-$SHELL fallback instead of failing
+# setup or widening writes unexpectedly.
+ss_no_lookup_bin="$TESTTMP/no-login-shell-lookup-bin"
+mkdir -p "$ss_no_lookup_bin"
+for ss_tool in sh dirname sed mktemp mv rm id; do
+  ss_tool_path=$(command -v "$ss_tool" 2>/dev/null || :)
+  [ -n "$ss_tool_path" ] && ln -s "$ss_tool_path" "$ss_no_lookup_bin/$ss_tool"
+done
+ss_no_lookup_home="$TESTTMP/no-login-shell-lookup-home"
+mkdir -p "$ss_no_lookup_home"
+HOME="$ss_no_lookup_home" SHELL=/bin/bash PATH="$ss_no_lookup_bin" \
+  "$PLUGIN_ROOT/bin/agent-guard" setup-shell >/dev/null 2>&1
+
+ss_failed_lookup_bin="$TESTTMP/failed-login-shell-lookup-bin"
+ss_failed_lookup_home="$TESTTMP/failed-login-shell-lookup-home"
+mkdir -p "$ss_failed_lookup_bin" "$ss_failed_lookup_home"
+cat >"$ss_failed_lookup_bin/getent" <<'STUB'
+#!/bin/sh
+exit 1
+STUB
+cat >"$ss_failed_lookup_bin/dscl" <<'STUB'
+#!/bin/sh
+exit 1
+STUB
+chmod +x "$ss_failed_lookup_bin/getent" "$ss_failed_lookup_bin/dscl"
+HOME="$ss_failed_lookup_home" SHELL=/bin/zsh \
+  PATH="$ss_failed_lookup_bin:$ORIGINAL_PATH" \
+  "$PLUGIN_ROOT/bin/agent-guard" setup-shell >/dev/null 2>&1
+if [ -e "$ss_no_lookup_home/.bashrc" ] && [ ! -e "$ss_no_lookup_home/.zshrc" ] \
+   && [ -e "$ss_failed_lookup_home/.zshrc" ] && [ ! -e "$ss_failed_lookup_home/.bashrc" ]; then
+  ok "setup-shell falls back to process SHELL when login-shell lookup is absent or fails"
+else
+  not_ok "setup-shell login-shell lookup fallback"
 fi
 
 # --- clean-home plugin install -> upgrade -> existing stable PATH -----------

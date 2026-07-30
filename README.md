@@ -407,15 +407,28 @@ This defines `agx` (a thin wrapper for `agent-guard exec --`) so you can run `ag
 
 #### fish (and other non-POSIX shells)
 
-`shell-init` emits POSIX shell code, so fish cannot `eval` it — there is no fish rc to install into, and `agx` and the nudge are **not** available at a fish prompt. Mask a command there explicitly with `agent-guard exec -- <cmd>`, or define your own fish function for it:
+`shell-init` emits POSIX shell code, so fish cannot `eval` it — there is no fish rc to install into, and `agx` and the nudge are **not automatically available** at a fish prompt. A standalone install can run `agent-guard exec -- <cmd>` directly. A plugin-only install usually does not put `agent-guard` on fish's `PATH`, so use this PATH-aware function instead:
 
 ```fish
-function agx; agent-guard exec -- $argv; end
+function agx
+    if type -q agent-guard
+        command agent-guard exec -- $argv
+        return $status
+    end
+
+    set -l _ag "$HOME/.claude/plugins/cache/agent-guard/agent-guard/current/bin/agent-guard"
+    if not test -x "$_ag"
+        printf 'agent-guard: plugin binary not found; rerun /agent-guard:setup-shell and use the fish executable path it prints\n' >&2
+        return 127
+    end
+    command "$_ag" exec -- $argv
+end
 funcsave agx
 ```
 
+The `current` path above is the stable plugin-cache symlink refreshed by plugin execution. If your plugin cache is elsewhere, use the `fish executable` path printed by `setup-shell`.
 
-The part that protects the transcript still works: Claude Code runs `!` and Bash-tool commands from a **bash or zsh** shell snapshot, and those shells do read `~/.bashrc` / `~/.zshrc`. Which of the two Claude Code picks is not visible to `setup-shell`, so when it detects a fish login shell (from `$SHELL`) it writes the managed block to **both** files, and command wrapping loads either way. An explicit `--bash`, `--zsh`, or `--rc FILE` still targets a single file.
+The part that protects the transcript still works: Claude Code runs `!` and Bash-tool commands from a **bash or zsh** shell snapshot, and those shells do read `~/.bashrc` / `~/.zshrc`. Which of the two Claude Code picks is not visible to `setup-shell`, so it checks both the process `$SHELL` and the account login shell (`getent passwd` on Linux, `dscl UserShell` on macOS). If either says fish, it writes the managed block to **both** files and command wrapping loads either way. If account lookup fails, it safely falls back to the process `$SHELL` (then zsh for an unknown value). An explicit `--bash`, `--zsh`, or `--rc FILE` always targets a single file.
 
 ### Claude command wrapping (stable, default on)
 
