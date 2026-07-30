@@ -8,7 +8,7 @@
    changed.
 3. Resolve the reachable 40-character GitHub commit SHA that contains the exact
    plugin payload under `plugins/agent-guard`. For PR validation, the prepared
-   submission currently pins `d9b59b8ea97bb63fc291e65668a797632862ed51`
+   submission currently pins `a2583208578f9b7e7cd082b791efa59f7c43e568`
    from Agent Guard
    [PR #154](https://github.com/JeongJaeSoon/agent-guard/pull/154). Replace it
    with the final merged SHA before external submission.
