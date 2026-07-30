@@ -16,6 +16,7 @@ MOCK_BIN="$TMP_ROOT/bin"
 ORIGINAL_PATH=$PATH
 REAL_GITLEAKS=$(command -v gitleaks 2>/dev/null || true)
 REAL_GIT=$(command -v git)
+REAL_CAT=$(command -v cat)
 REAL_CURL=$(command -v curl 2>/dev/null || true)
 REAL_JQ=$(command -v jq)
 REAL_SH=$(command -v sh)
@@ -3562,6 +3563,716 @@ else
   sed 's/^/  stderr: /' "$ERR"
 fi
 
+# Context-free mutation/diff fragments cannot safely inherit structural
+# lockfile checksum filtering. This scanner stub models a supported custom rule
+# that treats nested 64-hex and h1-shaped values after api_token as findings;
+# the bundled default rules do not independently flag these exact samples.
+LOCK_FRAGMENT_HEX=$(printf '%s%s' \
+  'b112c9dc389ca44de72cc0d3a732746a' \
+  '423354b9fffedbc467449a8601ea3269')
+LOCK_FRAGMENT_H1_BODY=$(awk 'BEGIN { for (i = 0; i < 43; i++) printf "A" }')
+LOCK_FRAGMENT_H1="h1:$LOCK_FRAGMENT_H1_BODY="
+LOCK_FRAGMENT_SHA512="${LOCK_FRAGMENT_H1_BODY}${LOCK_FRAGMENT_H1_BODY}=="
+LOCK_FRAGMENT_BIN="$TMP_ROOT/lockfile-fragment-bin"
+mkdir -p "$LOCK_FRAGMENT_BIN"
+cat >"$LOCK_FRAGMENT_BIN/gitleaks" <<'STUB'
+#!/bin/sh
+case "${1:-}" in
+  stdin)
+    input=$(cat)
+    if printf '%s\n' "$input" \
+      | grep -Eq 'api_token.*(checksum[[:space:]]*=[[:space:]]*"[0-9a-f]{64}"|hash[[:space:]]*=[[:space:]]*"sha256:[0-9a-f]{64}"|h1:[A-Za-z0-9+/]{43}=)|integrity"[[:space:]]*:[[:space:]]*"sha512-[A-Za-z0-9+/]{86}=="' \
+      || printf '%s\n' "$input" | awk '
+        $0 == "[credentials]" {
+          inside_credentials = 1
+          next
+        }
+        /^[[:space:]]*\[/ {
+          inside_credentials = 0
+        }
+        inside_credentials \
+            && /^checksum[[:space:]]*=[[:space:]]*"[0-9a-f]+"/ {
+          value = $0
+          sub(/^checksum[[:space:]]*=[[:space:]]*"/, "", value)
+          sub(/".*$/, "", value)
+          if (length(value) == 64 && value !~ /[^0-9a-f]/)
+            found = 1
+        }
+        inside_credentials \
+            && /hash[[:space:]]*=[[:space:]]*"sha256:[0-9a-f]+"/ {
+          value = $0
+          sub(/^.*hash[[:space:]]*=[[:space:]]*"sha256:/, "", value)
+          sub(/".*$/, "", value)
+          if (length(value) == 64 && value !~ /[^0-9a-f]/)
+            found = 1
+        }
+        END { exit found ? 0 : 1 }
+      '; then
+      printf '%s\n' 'Finding: REDACTED'
+      exit 1
+    fi
+    exit 0
+    ;;
+  version) printf '%s\n' '0.0.0-lock-fragment-test' ;;
+  *) exit 0 ;;
+esac
+STUB
+chmod +x "$LOCK_FRAGMENT_BIN/gitleaks"
+
+LOCK_FRAGMENT_REPO="$TMP_ROOT/lockfile-fragment-git-dir"
+mkdir -p "$LOCK_FRAGMENT_REPO"
+(
+  cd "$LOCK_FRAGMENT_REPO"
+  git init -q
+  git config user.email test@example.com
+  git config user.name "Agent Guard Tests"
+  printf '%s\n%s\n%s\n' 'note = """' baseline '"""' >Cargo.lock
+  git add Cargo.lock
+  git commit -q -m init
+  printf '%s\n%s\n%s\n%s\n' 'note = """' baseline \
+    "api_token = { checksum = \"$LOCK_FRAGMENT_HEX\" }" '"""' >Cargo.lock
+  git add Cargo.lock
+)
+(
+  cd "$LOCK_FRAGMENT_REPO"
+  AGENT_GUARD_GITLEAKS_BIN="$LOCK_FRAGMENT_BIN/gitleaks" \
+    "$PLUGIN_ROOT/bin/agent-guard" scan-staged
+) >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 1 ]; then
+  ok "scan-staged scans TOML fragments without guessing multiline-string context"
+else
+  not_ok "scan-staged blocks a checksum-shaped credential in an unchanged multiline string (expected 1, got $status)"
+fi
+
+lock_fragment="api_token = { checksum = \"$LOCK_FRAGMENT_HEX\" }"
+lock_full_cargo=$(printf '%s\n%s\n%s' '[credentials]' \
+  'api_token = "marker"' "checksum = \"$LOCK_FRAGMENT_HEX\"")
+lock_full_uv=$(printf '%s\n%s\n%s' '[credentials]' \
+  'api_token = "marker"' \
+  "sdist = { url = \"https://example.invalid/a\", hash = \"sha256:$LOCK_FRAGMENT_HEX\" }")
+lock_full_package=$(printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s' '{' \
+  '  "packages": {' \
+  '    "node_modules/example": {' \
+  '      "api_token": {' \
+  "        \"integrity\": \"sha512-$LOCK_FRAGMENT_SHA512\"" \
+  '      }' \
+  '    }' \
+  '  }' '}')
+lock_structural_package=$(printf '%s\n%s\n%s\n%s\n%s\n%s\n%s' '{' \
+  '  "packages": {' \
+  '    "node_modules/example": {' \
+  "      \"integrity\": \"sha512-$LOCK_FRAGMENT_SHA512\"" \
+  '    }' \
+  '  }' '}')
+lock_truncated_package=$(printf '%s\n%s\n%s\n%s' '{' \
+  '  "packages": {' \
+  '    "node_modules/example": {' \
+  "      \"integrity\": \"sha512-$LOCK_FRAGMENT_SHA512\"")
+lock_package_fragment=$(printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s' '{' \
+  '  "api_token": {' \
+  '    "packages": {' \
+  '      "node_modules/example": {' \
+  "        \"integrity\": \"sha512-$LOCK_FRAGMENT_SHA512\"" \
+  '      }' \
+  '    }' \
+  '  }' '}')
+lock_edit_input=$(jq -nc --arg content "$lock_fragment" \
+  '{tool_name:"Edit",tool_input:{file_path:"Cargo.lock",new_string:$content}}')
+printf '%s' "$lock_edit_input" \
+  | AGENT_GUARD_GITLEAKS_BIN="$LOCK_FRAGMENT_BIN/gitleaks" \
+      "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "Edit scans a structural TOML-looking fragment conservatively"
+else
+  not_ok "Edit blocks a checksum-shaped credential without surrounding TOML context (expected 2, got $status)"
+fi
+
+lock_uv_fragment="api_token = { hash = \"sha256:$LOCK_FRAGMENT_HEX\" }"
+lock_uv_edit_input=$(jq -nc --arg content "$lock_uv_fragment" \
+  '{tool_name:"Edit",tool_input:{file_path:"uv.lock",new_string:$content}}')
+printf '%s' "$lock_uv_edit_input" \
+  | AGENT_GUARD_GITLEAKS_BIN="$LOCK_FRAGMENT_BIN/gitleaks" \
+      "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "Edit scans a structural uv.lock fragment conservatively"
+else
+  not_ok "Edit blocks a hash-shaped credential without surrounding uv.lock context (expected 2, got $status)"
+fi
+
+lock_go_fragment="api_token v1.2.3 $LOCK_FRAGMENT_H1"
+lock_go_edit_input=$(jq -nc --arg content "$lock_go_fragment" \
+  '{tool_name:"Edit",tool_input:{file_path:"go.sum",new_string:$content}}')
+printf '%s' "$lock_go_edit_input" \
+  | AGENT_GUARD_GITLEAKS_BIN="$LOCK_FRAGMENT_BIN/gitleaks" \
+      "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "Edit does not infer a complete go.sum record from a replacement fragment"
+else
+  not_ok "Edit preserves a checksum-shaped custom finding without earlier go.sum context (expected 2, got $status)"
+fi
+
+lock_multi_edit_input=$(jq -nc --arg content "$lock_fragment" \
+  '{tool_name:"MultiEdit",tool_input:{file_path:"Cargo.lock",edits:[{new_string:$content}]}}')
+printf '%s' "$lock_multi_edit_input" \
+  | AGENT_GUARD_GITLEAKS_BIN="$LOCK_FRAGMENT_BIN/gitleaks" \
+      "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "MultiEdit scans structural TOML-looking fragments conservatively"
+else
+  not_ok "MultiEdit blocks a checksum-shaped credential without surrounding TOML context (expected 2, got $status)"
+fi
+
+lock_fragment_patch=$(printf '%s\n%s\n%s\n%s\n%s\n' \
+  '*** Begin Patch' '*** Update File: Cargo.lock' '@@' \
+  "+$lock_fragment" '*** End Patch')
+lock_fragment_patch_input=$(jq -nc --arg patch "$lock_fragment_patch" \
+  '{tool_name:"apply_patch",tool_input:{patch:$patch}}')
+printf '%s' "$lock_fragment_patch_input" \
+  | AGENT_GUARD_GITLEAKS_BIN="$LOCK_FRAGMENT_BIN/gitleaks" \
+      "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "apply_patch scans structural TOML-looking fragments conservatively"
+else
+  not_ok "apply_patch blocks a checksum-shaped credential without surrounding TOML context (expected 2, got $status)"
+fi
+
+lock_package_fragment_patch=$(printf '%s\n' \
+  '*** Begin Patch' '*** Update File: package-lock.json' '@@' \
+  '+{' '+  "api_token": {' '+    "packages": {' \
+  '+      "node_modules/example": {' \
+  "+        \"integrity\": \"sha512-$LOCK_FRAGMENT_SHA512\"" \
+  '+      }' '+    }' '+  }' '+}' '*** End Patch')
+lock_package_fragment_patch_input=$(jq -nc \
+  --arg patch "$lock_package_fragment_patch" \
+  '{tool_name:"apply_patch",tool_input:{patch:$patch}}')
+printf '%s' "$lock_package_fragment_patch_input" \
+  | AGENT_GUARD_GITLEAKS_BIN="$LOCK_FRAGMENT_BIN/gitleaks" \
+      "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "apply_patch scans package-lock fragments without guessing JSON depth"
+else
+  not_ok "apply_patch keeps fragmentary package-lock integrity scannable (expected 2, got $status)"
+fi
+
+# Complete lockfiles have parser context, but checksum/hash neutralization must
+# still be limited to fields that the actual Cargo and uv schemas generate.
+lock_write_input=$(jq -nc --arg content "$lock_full_cargo" \
+  '{tool_name:"Write",tool_input:{file_path:"Cargo.lock",content:$content}}')
+printf '%s' "$lock_write_input" \
+  | AGENT_GUARD_GITLEAKS_BIN="$LOCK_FRAGMENT_BIN/gitleaks" \
+      "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "Write preserves Cargo checksum values outside dependency tables"
+else
+  not_ok "Write keeps non-schema Cargo checksum fields scannable (expected 2, got $status)"
+fi
+
+LOCK_FULL_CONTEXT_DIR="$TMP_ROOT/lockfile-full-context-dir"
+mkdir -p "$LOCK_FULL_CONTEXT_DIR"
+printf '%s\n' "$lock_full_cargo" >"$LOCK_FULL_CONTEXT_DIR/Cargo.lock"
+AGENT_GUARD_GITLEAKS_BIN="$LOCK_FRAGMENT_BIN/gitleaks" \
+  "$PLUGIN_ROOT/bin/agent-guard" scan-path "$LOCK_FULL_CONTEXT_DIR" \
+  >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 1 ]; then
+  ok "scan-path preserves Cargo checksum values outside dependency tables"
+else
+  not_ok "scan-path keeps non-schema Cargo checksum fields scannable (expected 1, got $status)"
+fi
+
+lock_uv_write_input=$(jq -nc --arg content "$lock_full_uv" \
+  '{tool_name:"Write",tool_input:{file_path:"uv.lock",content:$content}}')
+printf '%s' "$lock_uv_write_input" \
+  | AGENT_GUARD_GITLEAKS_BIN="$LOCK_FRAGMENT_BIN/gitleaks" \
+      "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "Write preserves uv hash values outside artifact records"
+else
+  not_ok "Write keeps non-schema uv hash fields scannable (expected 2, got $status)"
+fi
+
+printf '%s\n' "$lock_full_uv" >"$LOCK_FULL_CONTEXT_DIR/uv.lock"
+AGENT_GUARD_GITLEAKS_BIN="$LOCK_FRAGMENT_BIN/gitleaks" \
+  "$PLUGIN_ROOT/bin/agent-guard" scan-path "$LOCK_FULL_CONTEXT_DIR/uv.lock" \
+  >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 1 ]; then
+  ok "scan-path preserves uv hash values outside artifact records"
+else
+  not_ok "scan-path keeps non-schema uv hash fields scannable (expected 1, got $status)"
+fi
+
+lock_package_write_input=$(jq -nc --arg content "$lock_full_package" \
+  '{tool_name:"Write",tool_input:{file_path:"package-lock.json",content:$content}}')
+printf '%s' "$lock_package_write_input" \
+  | AGENT_GUARD_GITLEAKS_BIN="$LOCK_FRAGMENT_BIN/gitleaks" \
+      "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "Write preserves package-lock integrity values outside package maps"
+else
+  not_ok "Write keeps non-schema package-lock integrity fields scannable (expected 2, got $status)"
+fi
+
+printf '%s\n' "$lock_full_package" >"$LOCK_FULL_CONTEXT_DIR/package-lock.json"
+AGENT_GUARD_GITLEAKS_BIN="$LOCK_FRAGMENT_BIN/gitleaks" \
+  "$PLUGIN_ROOT/bin/agent-guard" scan-path \
+    "$LOCK_FULL_CONTEXT_DIR/package-lock.json" >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 1 ]; then
+  ok "scan-path preserves package-lock integrity values outside package maps"
+else
+  not_ok "scan-path keeps non-schema package-lock integrity fields scannable (expected 1, got $status)"
+fi
+
+lock_truncated_write_input=$(jq -nc --arg content "$lock_truncated_package" \
+  '{tool_name:"Write",tool_input:{file_path:"package-lock.json",content:$content}}')
+printf '%s' "$lock_truncated_write_input" \
+  | AGENT_GUARD_GITLEAKS_BIN="$LOCK_FRAGMENT_BIN/gitleaks" \
+      "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "Write scans malformed package-lock content without early neutralization"
+else
+  not_ok "Write keeps malformed package-lock integrity scannable (expected 2, got $status)"
+fi
+
+LOCK_SNAPSHOT_FAIL_BIN="$TMP_ROOT/package-lock-snapshot-fail-bin"
+LOCK_SNAPSHOT_FAIL_MARKER="$TMP_ROOT/package-lock-snapshot-fail-marker"
+mkdir -p "$LOCK_SNAPSHOT_FAIL_BIN"
+cat >"$LOCK_SNAPSHOT_FAIL_BIN/cat" <<'STUB'
+#!/bin/sh
+if [ "${1:-}" = "--" ] && [ ! -e "$AG_TEST_CAT_FAIL_MARKER" ]; then
+  : >"$AG_TEST_CAT_FAIL_MARKER"
+  exit 1
+fi
+exec "$AG_TEST_REAL_CAT" "$@"
+STUB
+chmod +x "$LOCK_SNAPSHOT_FAIL_BIN/cat"
+lock_snapshot_fail_write_input=$(jq -nc --arg content "$lock_structural_package" \
+  '{tool_name:"Write",tool_input:{file_path:"package-lock.json",content:$content}}')
+printf '%s' "$lock_snapshot_fail_write_input" \
+  | AGENT_GUARD_INFRA_FAILURE_MODE=closed \
+      AGENT_GUARD_GITLEAKS_BIN="$LOCK_FRAGMENT_BIN/gitleaks" \
+      AG_TEST_CAT_FAIL_MARKER="$LOCK_SNAPSHOT_FAIL_MARKER" \
+      AG_TEST_REAL_CAT="$REAL_CAT" \
+      PATH="$LOCK_SNAPSHOT_FAIL_BIN:$PATH" \
+      "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ] && [ -e "$LOCK_SNAPSHOT_FAIL_MARKER" ]; then
+  ok "Write scans raw package-lock content when snapshot copying fails"
+else
+  not_ok "Write does not treat package-lock snapshot failure as clean (expected 2, got $status)"
+fi
+
+printf '%s\n' "$lock_truncated_package" \
+  >"$LOCK_FULL_CONTEXT_DIR/package-lock.json"
+AGENT_GUARD_GITLEAKS_BIN="$LOCK_FRAGMENT_BIN/gitleaks" \
+  "$PLUGIN_ROOT/bin/agent-guard" scan-path \
+    "$LOCK_FULL_CONTEXT_DIR/package-lock.json" >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 1 ]; then
+  ok "scan-path preserves malformed package-lock integrity values"
+else
+  not_ok "scan-path keeps malformed package-lock integrity scannable (expected 1, got $status)"
+fi
+
+LOCK_PACKAGE_FRAGMENT_REPO="$TMP_ROOT/package-lock-fragment-git-dir"
+mkdir -p "$LOCK_PACKAGE_FRAGMENT_REPO"
+(
+  cd "$LOCK_PACKAGE_FRAGMENT_REPO"
+  git init -q
+  git config user.email test@example.com
+  git config user.name "Agent Guard Tests"
+  printf '%s\n' '{"api_token":null}' >package-lock.json
+  git add package-lock.json
+  git commit -q -m init
+  printf '%s\n' "$lock_package_fragment" >package-lock.json
+  git add package-lock.json
+  AGENT_GUARD_GITLEAKS_BIN="$LOCK_FRAGMENT_BIN/gitleaks" \
+    "$PLUGIN_ROOT/bin/agent-guard" scan-staged
+) >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 1 ]; then
+  ok "scan-staged scans package-lock fragments without guessing JSON depth"
+else
+  not_ok "scan-staged keeps fragmentary package-lock integrity scannable (expected 1, got $status)"
+fi
+
+LOCK_FULL_CONTEXT_REPO="$TMP_ROOT/lockfile-full-context-repo"
+mkdir -p "$LOCK_FULL_CONTEXT_REPO"
+(
+  cd "$LOCK_FULL_CONTEXT_REPO"
+  git init -q
+  git config user.email test@example.com
+  git config user.name "Agent Guard Tests"
+  printf '%s\n' clean >README.md
+  git add README.md
+  git commit -q -m init
+  printf '%s\n' "$lock_full_cargo" >Cargo.lock
+  AGENT_GUARD_GITLEAKS_BIN="$LOCK_FRAGMENT_BIN/gitleaks" \
+    "$PLUGIN_ROOT/bin/agent-guard" scan-working-tree
+) >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 1 ]; then
+  ok "untracked scanning preserves Cargo checksum values outside dependency tables"
+else
+  not_ok "untracked Cargo content keeps non-schema checksum fields scannable (expected 1, got $status)"
+fi
+
+LOCK_INVALID_PACKAGE_REPO="$TMP_ROOT/package-lock-invalid-git-dir"
+mkdir -p "$LOCK_INVALID_PACKAGE_REPO"
+(
+  cd "$LOCK_INVALID_PACKAGE_REPO"
+  git init -q
+  git config user.email test@example.com
+  git config user.name "Agent Guard Tests"
+  printf '%s\n' clean >README.md
+  git add README.md
+  git commit -q -m init
+  printf '%s\n' "$lock_truncated_package" >package-lock.json
+  AGENT_GUARD_GITLEAKS_BIN="$LOCK_FRAGMENT_BIN/gitleaks" \
+    "$PLUGIN_ROOT/bin/agent-guard" scan-working-tree
+) >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 1 ]; then
+  ok "untracked scanning preserves malformed package-lock integrity values"
+else
+  not_ok "untracked malformed package-lock integrity remains scannable (expected 1, got $status)"
+fi
+
+LOCK_INCOMPLETE_TOML_DIR="$TMP_ROOT/lockfile-incomplete-toml-dir"
+mkdir -p "$LOCK_INCOMPLETE_TOML_DIR"
+{
+  printf '%s\n' '[[package]]'
+  printf 'checksum = "%s"\n' "$LOCK_FRAGMENT_HEX"
+  printf '%s\n' 'note = """'
+  printf '%s\n' 'unterminated'
+} >"$LOCK_INCOMPLETE_TOML_DIR/Cargo.lock"
+{
+  printf '%s\n' '[[package]]'
+  printf 'sdist = { url = "https://example.invalid/pkg", hash = "sha256:%s" }\n' \
+    "$LOCK_FRAGMENT_HEX"
+  printf "%s\n" "note = '''"
+  printf '%s\n' 'unterminated'
+} >"$LOCK_INCOMPLETE_TOML_DIR/uv.lock"
+
+LOCK_INCOMPLETE_QUOTE_DIR="$TMP_ROOT/lockfile-incomplete-quote-dir"
+LOCK_INCOMPLETE_INLINE_DIR="$TMP_ROOT/lockfile-incomplete-inline-dir"
+LOCK_INCOMPLETE_ARRAY_DIR="$TMP_ROOT/lockfile-incomplete-array-dir"
+mkdir -p "$LOCK_INCOMPLETE_QUOTE_DIR" "$LOCK_INCOMPLETE_INLINE_DIR" \
+  "$LOCK_INCOMPLETE_ARRAY_DIR"
+for incomplete_toml_dir in "$LOCK_INCOMPLETE_QUOTE_DIR" \
+    "$LOCK_INCOMPLETE_INLINE_DIR" "$LOCK_INCOMPLETE_ARRAY_DIR"; do
+  case "$incomplete_toml_dir" in
+    "$LOCK_INCOMPLETE_QUOTE_DIR") incomplete_toml_tail='note = "unterminated' ;;
+    "$LOCK_INCOMPLETE_INLINE_DIR") incomplete_toml_tail='note = { key = "value"' ;;
+    "$LOCK_INCOMPLETE_ARRAY_DIR") incomplete_toml_tail='note = [1, 2' ;;
+  esac
+  {
+    printf '%s\n' '[[package]]'
+    printf 'checksum = "%s"\n' "$LOCK_FRAGMENT_HEX"
+    printf '%s\n' "$incomplete_toml_tail"
+  } >"$incomplete_toml_dir/Cargo.lock"
+  {
+    printf '%s\n' '[[package]]'
+    printf 'sdist = { url = "https://example.invalid/pkg", hash = "sha256:%s" }\n' \
+      "$LOCK_FRAGMENT_HEX"
+    printf '%s\n' "$incomplete_toml_tail"
+  } >"$incomplete_toml_dir/uv.lock"
+done
+
+for incomplete_toml_dir in "$LOCK_INCOMPLETE_TOML_DIR" \
+    "$LOCK_INCOMPLETE_QUOTE_DIR" "$LOCK_INCOMPLETE_INLINE_DIR" \
+    "$LOCK_INCOMPLETE_ARRAY_DIR"; do
+  incomplete_toml_case=${incomplete_toml_dir##*lockfile-incomplete-}
+  incomplete_toml_case=${incomplete_toml_case%-dir}
+  for incomplete_toml_name in Cargo.lock uv.lock; do
+    incomplete_toml_path="$incomplete_toml_dir/$incomplete_toml_name"
+    incomplete_toml_filtered="$incomplete_toml_dir/$incomplete_toml_name.filtered"
+    "$PLUGIN_ROOT/bin/agent-guard" filter-lockfile-hashes \
+      "$incomplete_toml_path" "$incomplete_toml_path" >"$incomplete_toml_filtered"
+    status=$?
+    if [ "$status" -eq 0 ] \
+        && cmp -s "$incomplete_toml_path" "$incomplete_toml_filtered"; then
+      ok "$incomplete_toml_name filtering falls back for incomplete $incomplete_toml_case TOML"
+    else
+      not_ok "$incomplete_toml_name filtering must preserve incomplete $incomplete_toml_case TOML"
+    fi
+  done
+done
+
+LOCK_INCOMPLETE_TOML_BIN="$TMP_ROOT/lockfile-incomplete-toml-bin"
+mkdir -p "$LOCK_INCOMPLETE_TOML_BIN"
+cat >"$LOCK_INCOMPLETE_TOML_BIN/gitleaks" <<'STUB'
+#!/bin/sh
+case "${1:-}" in
+  stdin)
+    if grep -Eq '[0-9a-f]{64}|h1:[A-Za-z0-9+/]{43}=|sha512-[A-Za-z0-9+/]{86}=='; then
+      printf '%s\n' 'Finding: REDACTED'
+      exit 1
+    fi
+    exit 0
+    ;;
+  version) printf '%s\n' '0.0.0-incomplete-toml-test' ;;
+  *) exit 0 ;;
+esac
+STUB
+chmod +x "$LOCK_INCOMPLETE_TOML_BIN/gitleaks"
+for incomplete_toml_dir in "$LOCK_INCOMPLETE_TOML_DIR" \
+    "$LOCK_INCOMPLETE_QUOTE_DIR" "$LOCK_INCOMPLETE_INLINE_DIR" \
+    "$LOCK_INCOMPLETE_ARRAY_DIR"; do
+  incomplete_toml_case=${incomplete_toml_dir##*lockfile-incomplete-}
+  incomplete_toml_case=${incomplete_toml_case%-dir}
+  for incomplete_toml_name in Cargo.lock uv.lock; do
+    AGENT_GUARD_GITLEAKS_BIN="$LOCK_INCOMPLETE_TOML_BIN/gitleaks" \
+      "$PLUGIN_ROOT/bin/agent-guard" scan-path \
+        "$incomplete_toml_dir/$incomplete_toml_name" >"$OUT" 2>"$ERR"
+    status=$?
+    if [ "$status" -eq 1 ]; then
+      ok "scan-path keeps incomplete $incomplete_toml_case $incomplete_toml_name scannable"
+    else
+      not_ok "scan-path must detect bytes in incomplete $incomplete_toml_case $incomplete_toml_name (expected 1, got $status)"
+    fi
+  done
+done
+
+LOCK_MALFORMED_TAIL_DIR="$TMP_ROOT/lockfile-malformed-tail-dir"
+mkdir -p "$LOCK_MALFORMED_TAIL_DIR"
+printf 'example.com/module v1.0.0 %s trailing-junk\n' \
+  "$LOCK_FRAGMENT_H1" >"$LOCK_MALFORMED_TAIL_DIR/go.sum"
+printf '  integrity sha512-%s trailing-junk\n' \
+  "$LOCK_FRAGMENT_SHA512" >"$LOCK_MALFORMED_TAIL_DIR/yarn.lock"
+{
+  printf '%s\n' '[[package]]'
+  printf 'checksum = "%s", trailing-junk\n' "$LOCK_FRAGMENT_HEX"
+} >"$LOCK_MALFORMED_TAIL_DIR/Cargo.lock"
+for malformed_tail_name in go.sum yarn.lock Cargo.lock; do
+  malformed_tail_path="$LOCK_MALFORMED_TAIL_DIR/$malformed_tail_name"
+  malformed_tail_filtered="$LOCK_MALFORMED_TAIL_DIR/$malformed_tail_name.filtered"
+  "$PLUGIN_ROOT/bin/agent-guard" filter-lockfile-hashes \
+    "$malformed_tail_path" "$malformed_tail_path" >"$malformed_tail_filtered"
+  status=$?
+  if [ "$status" -eq 0 ] \
+      && cmp -s "$malformed_tail_path" "$malformed_tail_filtered"; then
+    ok "$malformed_tail_name filtering preserves malformed trailing data"
+  else
+    not_ok "$malformed_tail_name filtering must not neutralize before trailing data"
+  fi
+  AGENT_GUARD_GITLEAKS_BIN="$LOCK_INCOMPLETE_TOML_BIN/gitleaks" \
+    "$PLUGIN_ROOT/bin/agent-guard" scan-path "$malformed_tail_path" \
+      >"$OUT" 2>"$ERR"
+  status=$?
+  if [ "$status" -eq 1 ]; then
+    ok "scan-path keeps malformed $malformed_tail_name checksum bytes scannable"
+  else
+    not_ok "scan-path must detect checksum bytes before trailing data in $malformed_tail_name (expected 1, got $status)"
+  fi
+done
+
+LOCK_SCHEMA_DIR="$TMP_ROOT/lockfile-schema-dir"
+mkdir -p "$LOCK_SCHEMA_DIR"
+{
+  printf '%s\n' '[[package]]'
+  printf 'checksum = "%s"\n' "$LOCK_FRAGMENT_HEX"
+  printf '%s\n' '[root]'
+  printf 'checksum = "%s"\n' "$LOCK_FRAGMENT_HEX"
+  printf '%s\n' '[[patch.unused]]'
+  printf 'checksum = "%s"\n' "$LOCK_FRAGMENT_HEX"
+  printf '%s\n' '[credentials]'
+  printf '%s\n' 'api_token = "marker"'
+  printf 'checksum = "%s"\n' "$LOCK_FRAGMENT_HEX"
+} >"$LOCK_SCHEMA_DIR/Cargo.lock"
+cargo_schema_filtered=$("$PLUGIN_ROOT/bin/agent-guard" filter-lockfile-hashes \
+  "$LOCK_SCHEMA_DIR/Cargo.lock" "$LOCK_SCHEMA_DIR/Cargo.lock")
+cargo_schema_expected=$(printf '[[package]]\nchecksum = "CHECKSUM"\n[root]\nchecksum = "CHECKSUM"\n[[patch.unused]]\nchecksum = "CHECKSUM"\n[credentials]\napi_token = "marker"\nchecksum = "%s"' \
+  "$LOCK_FRAGMENT_HEX")
+if [ "$cargo_schema_filtered" = "$cargo_schema_expected" ]; then
+  ok "Cargo.lock filtering is limited to dependency checksum tables"
+else
+  not_ok "Cargo.lock filtering preserves checksum fields outside its generated schema"
+fi
+
+{
+  printf '%s\n' '[[package]]'
+  printf 'sdist = { url = "https://example.invalid/sdist", hash = "sha256:%s" }\n' \
+    "$LOCK_FRAGMENT_HEX"
+  printf '%s\n' 'wheels = ['
+  printf '    { url = "https://example.invalid/a", hash = "sha256:%s" },\n' \
+    "$LOCK_FRAGMENT_HEX"
+  printf '    { url = "https://example.invalid/b", hash = "sha256:%s" },\n' \
+    "$LOCK_FRAGMENT_HEX"
+  printf '%s\n' ']'
+  printf '%s\n' '[[distribution]]'
+  printf 'sdist = { url = "https://example.invalid/legacy", hash = "sha256:%s" }\n' \
+    "$LOCK_FRAGMENT_HEX"
+  printf '%s\n' '[credentials]'
+  printf '%s\n' 'api_token = "marker"'
+  printf 'sdist = { url = "https://example.invalid/forged", hash = "sha256:%s" }\n' \
+    "$LOCK_FRAGMENT_HEX"
+} >"$LOCK_SCHEMA_DIR/uv.lock"
+uv_schema_filtered=$("$PLUGIN_ROOT/bin/agent-guard" filter-lockfile-hashes \
+  "$LOCK_SCHEMA_DIR/uv.lock" "$LOCK_SCHEMA_DIR/uv.lock")
+uv_schema_expected=$(printf '[[package]]\nsdist = { url = "https://example.invalid/sdist", hash = "sha256:CHECKSUM" }\nwheels = [\n    { url = "https://example.invalid/a", hash = "sha256:CHECKSUM" },\n    { url = "https://example.invalid/b", hash = "sha256:CHECKSUM" },\n]\n[[distribution]]\nsdist = { url = "https://example.invalid/legacy", hash = "sha256:CHECKSUM" }\n[credentials]\napi_token = "marker"\nsdist = { url = "https://example.invalid/forged", hash = "sha256:%s" }' \
+  "$LOCK_FRAGMENT_HEX")
+if [ "$uv_schema_filtered" = "$uv_schema_expected" ]; then
+  ok "uv.lock filtering is limited to URL-bearing artifact records"
+else
+  not_ok "uv.lock filtering preserves hash fields outside generated artifact records"
+fi
+
+LOCK_NUL_UV="$LOCK_SCHEMA_DIR/uv-nul.lock"
+LOCK_NUL_FILTERED="$LOCK_SCHEMA_DIR/uv-nul.filtered"
+{
+  printf '%s\n' '[[package]]'
+  printf 'sdist = { url = "https://example.invalid/nul", hash = "sha256:%s" }' \
+    "$LOCK_FRAGMENT_HEX"
+  printf '\000api_token = "%s"\n' "$LOCK_FRAGMENT_HEX"
+} >"$LOCK_NUL_UV"
+"$PLUGIN_ROOT/bin/agent-guard" filter-lockfile-hashes \
+  uv.lock "$LOCK_NUL_UV" >"$LOCK_NUL_FILTERED"
+if cmp -s "$LOCK_NUL_UV" "$LOCK_NUL_FILTERED"; then
+  ok "lockfile filtering preserves NUL-bearing input byte-for-byte"
+else
+  not_ok "lockfile filtering must not let awk discard bytes after NUL"
+fi
+
+LOCK_INVALID_UTF8_UV="$LOCK_SCHEMA_DIR/uv-invalid-utf8.lock"
+LOCK_INVALID_UTF8_FILTERED="$LOCK_SCHEMA_DIR/uv-invalid-utf8.filtered"
+LOCK_INVALID_UTF8_EXPECTED="$LOCK_SCHEMA_DIR/uv-invalid-utf8.expected"
+{
+  printf '%s\n' '[[package]]'
+  printf 'sdist = { url = "https://example.invalid/invalid", hash = "sha256:%s" }' \
+    "$LOCK_FRAGMENT_HEX"
+  printf '\377api_token = "%s"\n' "$LOCK_FRAGMENT_HEX"
+} >"$LOCK_INVALID_UTF8_UV"
+{
+  printf '%s\n' '[[package]]'
+  printf '%s' \
+    'sdist = { url = "https://example.invalid/invalid", hash = "sha256:CHECKSUM" }'
+  printf '\377api_token = "%s"\n' "$LOCK_FRAGMENT_HEX"
+} >"$LOCK_INVALID_UTF8_EXPECTED"
+"$PLUGIN_ROOT/bin/agent-guard" filter-lockfile-hashes \
+  uv.lock "$LOCK_INVALID_UTF8_UV" >"$LOCK_INVALID_UTF8_FILTERED"
+status=$?
+if [ "$status" -eq 0 ] \
+    && cmp -s "$LOCK_INVALID_UTF8_EXPECTED" "$LOCK_INVALID_UTF8_FILTERED"; then
+  ok "lockfile filtering preserves invalid UTF-8 bytes and their credential suffix"
+else
+  not_ok "lockfile filtering must parse invalid UTF-8 in the byte locale"
+fi
+
+{
+  printf '%s\n' '{'
+  printf '%s\n' '  "packages": {'
+  printf '%s\n' '    "node_modules/example": {'
+  printf '      "integrity": "sha512-%s",\n' "$LOCK_FRAGMENT_SHA512"
+  printf '%s\n' '      "api_token": {'
+  printf '        "integrity": "sha512-%s"\n' "$LOCK_FRAGMENT_SHA512"
+  printf '%s\n' '      }'
+  printf '%s\n' '    }'
+  printf '%s\n' '  },'
+  printf '%s\n' '  "dependencies": {'
+  printf '%s\n' '    "example": {'
+  printf '      "integrity": "sha512-%s",\n' "$LOCK_FRAGMENT_SHA512"
+  printf '%s\n' '      "dependencies": {'
+  printf '%s\n' '        "nested": {'
+  printf '          "integrity": "sha512-%s"\n' "$LOCK_FRAGMENT_SHA512"
+  printf '%s\n' '        }'
+  printf '%s\n' '      }'
+  printf '%s\n' '    }'
+  printf '%s\n' '  },'
+  printf '%s\n' '  "api_token": {'
+  printf '    "integrity": "sha512-%s"\n' "$LOCK_FRAGMENT_SHA512"
+  printf '%s\n' '  }'
+  printf '%s\n' '}'
+} >"$LOCK_SCHEMA_DIR/package-lock.json"
+package_schema_filtered=$("$PLUGIN_ROOT/bin/agent-guard" filter-lockfile-hashes \
+  "$LOCK_SCHEMA_DIR/package-lock.json" "$LOCK_SCHEMA_DIR/package-lock.json")
+package_schema_expected=$(printf '{\n  "packages": {\n    "node_modules/example": {\n      "integrity": "CHECKSUM",\n      "api_token": {\n        "integrity": "sha512-%s"\n      }\n    }\n  },\n  "dependencies": {\n    "example": {\n      "integrity": "CHECKSUM",\n      "dependencies": {\n        "nested": {\n          "integrity": "CHECKSUM"\n        }\n      }\n    }\n  },\n  "api_token": {\n    "integrity": "sha512-%s"\n  }\n}' \
+  "$LOCK_FRAGMENT_SHA512" "$LOCK_FRAGMENT_SHA512")
+if [ "$package_schema_filtered" = "$package_schema_expected" ]; then
+  ok "package-lock filtering is limited to package dependency maps"
+else
+  not_ok "package-lock filtering preserves integrity fields outside its generated schema"
+fi
+
+LOCK_JSON_TRUNCATED="$LOCK_SCHEMA_DIR/package-lock-truncated.json"
+{
+  printf '%s\n' '{'
+  printf '%s\n' '  "packages": {'
+  printf '%s\n' '    "node_modules/example": {'
+  printf '      "integrity": "sha512-%s"\n' "$LOCK_FRAGMENT_SHA512"
+} >"$LOCK_JSON_TRUNCATED"
+truncated_json_filtered=$("$PLUGIN_ROOT/bin/agent-guard" filter-lockfile-hashes \
+  package-lock.json "$LOCK_JSON_TRUNCATED")
+truncated_json_expected=$(cat "$LOCK_JSON_TRUNCATED")
+if [ "$truncated_json_filtered" = "$truncated_json_expected" ]; then
+  ok "package-lock filtering preserves malformed JSON for conservative scanning"
+else
+  not_ok "package-lock filtering does not neutralize integrity before full JSON validation"
+fi
+
+LOCK_JSON_SWAP_BIN="$LOCK_SCHEMA_DIR/package-lock-swap-bin"
+LOCK_JSON_SWAP_SOURCE="$LOCK_SCHEMA_DIR/package-lock-swap.json"
+LOCK_JSON_SWAP_REPLACEMENT="$LOCK_SCHEMA_DIR/package-lock-swap-replacement.json"
+mkdir -p "$LOCK_JSON_SWAP_BIN"
+cat >"$LOCK_JSON_SWAP_BIN/jq" <<'STUB'
+#!/bin/sh
+"$AG_TEST_REAL_JQ" "$@"
+status=$?
+if [ "$status" -eq 0 ]; then
+  mv "$AG_TEST_SWAP_REPLACEMENT" "$AG_TEST_SWAP_SOURCE"
+fi
+exit "$status"
+STUB
+chmod +x "$LOCK_JSON_SWAP_BIN/jq"
+cp "$LOCK_SCHEMA_DIR/package-lock.json" "$LOCK_JSON_SWAP_SOURCE"
+cp "$LOCK_JSON_TRUNCATED" "$LOCK_JSON_SWAP_REPLACEMENT"
+swap_json_filtered=$(AG_TEST_REAL_JQ="$REAL_JQ" \
+  AG_TEST_SWAP_SOURCE="$LOCK_JSON_SWAP_SOURCE" \
+  AG_TEST_SWAP_REPLACEMENT="$LOCK_JSON_SWAP_REPLACEMENT" \
+  PATH="$LOCK_JSON_SWAP_BIN:$PATH" \
+  "$PLUGIN_ROOT/bin/agent-guard" filter-lockfile-hashes \
+    package-lock.json "$LOCK_JSON_SWAP_SOURCE")
+swap_json_source=$(cat "$LOCK_JSON_SWAP_SOURCE")
+if [ "$swap_json_filtered" = "$package_schema_expected" ] \
+    && [ "$swap_json_source" = "$truncated_json_expected" ]; then
+  ok "package-lock validation and filtering use one immutable snapshot"
+else
+  not_ok "package-lock path replacement cannot swap bytes after validation"
+fi
+
+LOCK_JSON_DEEP="$LOCK_SCHEMA_DIR/package-lock-deep.json"
+{
+  json_depth_i=0
+  while [ "$json_depth_i" -lt 260 ]; do
+    printf '%s\n' '{'
+    json_depth_i=$((json_depth_i + 1))
+  done
+  printf '"integrity": "sha512-%s"\n' "$LOCK_FRAGMENT_SHA512"
+} >"$LOCK_JSON_DEEP"
+deep_json_filtered=$("$PLUGIN_ROOT/bin/agent-guard" filter-lockfile-hashes \
+  package-lock.json "$LOCK_JSON_DEEP")
+deep_json_lines=$(wc -l <"$LOCK_JSON_DEEP" | tr -d ' ')
+deep_json_filtered_lines=$(printf '%s\n' "$deep_json_filtered" | wc -l | tr -d ' ')
+if printf '%s' "$deep_json_filtered" \
+     | grep -Fq "sha512-$LOCK_FRAGMENT_SHA512" \
+   && [ "$deep_json_filtered_lines" -eq "$deep_json_lines" ]; then
+  ok "package-lock filtering fails conservative beyond bounded JSON depth"
+else
+  not_ok "package-lock filtering bounds nested parser state without dropping content"
+fi
+
 if [ -n "$REAL_GITLEAKS" ]; then
   # Synthetic PEM fixtures: gitleaks default rules match on the BEGIN/END
   # headers, so the body content is irrelevant for detection. We split the
@@ -3753,14 +4464,25 @@ if [ -n "$REAL_GITLEAKS" ]; then
   LOCK_B64_BODY=${LOCK_B64%=}
   LOCK_SHA512="${LOCK_B64_BODY}${LOCK_B64_BODY}=="
   LOCK_SECRET=$(printf '%s%s' 'A1b2C3d4E5f6G7h8' 'I9j0K1l2M3n4O5p6')
+  LOCK_PATH_SECRET="${LOWPAT_HEAD}${LOWPAT_BODY}"
   LOCK_HEX=$(printf '%s%s' '0123456789abcdef0123456789abcdef' 'fedcba9876543210fedcba9876543210')
   LOCKFILE_FIXTURE_DIR="$TMP_ROOT/lockfile-hash-dir"
   mkdir -p "$LOCKFILE_FIXTURE_DIR"
   printf 'example.com/clientapi v1.2.3 %s\n' "$LOCK_SUM" >"$LOCKFILE_FIXTURE_DIR/go.sum"
-  printf '  "integrity": "sha512-%s"\n' "$LOCK_SHA512" >"$LOCKFILE_FIXTURE_DIR/package-lock.json"
+  {
+    printf '%s\n' '{'
+    printf '%s\n' '  "packages": {'
+    printf '%s\n' '    "node_modules/example": {'
+    printf '      "integrity": "sha512-%s"\n' "$LOCK_SHA512"
+    printf '%s\n' '    }'
+    printf '%s\n' '  }'
+    printf '%s\n' '}'
+  } >"$LOCKFILE_FIXTURE_DIR/package-lock.json"
   printf '  integrity sha512-%s\n' "$LOCK_SHA512" >"$LOCKFILE_FIXTURE_DIR/yarn.lock"
-  printf 'checksum = "%s"\n' "$LOCK_HEX" >"$LOCKFILE_FIXTURE_DIR/Cargo.lock"
-  printf 'hash = "sha256:%s"\n' "$LOCK_HEX" >"$LOCKFILE_FIXTURE_DIR/uv.lock"
+  printf '[[package]]\nchecksum = "%s"\n' \
+    "$LOCK_HEX" >"$LOCKFILE_FIXTURE_DIR/Cargo.lock"
+  printf '[[package]]\nsdist = { url = "https://example.invalid/pkg", hash = "sha256:%s" }\n' \
+    "$LOCK_HEX" >"$LOCKFILE_FIXTURE_DIR/uv.lock"
   PATH="$(dirname "$REAL_GITLEAKS"):$ORIGINAL_PATH" "$PLUGIN_ROOT/bin/agent-guard" \
     scan-path "$LOCKFILE_FIXTURE_DIR" >"$OUT" 2>"$ERR"
   status=$?
@@ -3770,6 +4492,264 @@ if [ -n "$REAL_GITLEAKS" ]; then
     not_ok "recognized lockfile checksum fields stay clean (expected 0, got $status)"
     sed 's/^/  stderr: /' "$ERR"
   fi
+
+  {
+    printf '%s\n' '[[package]]'
+    printf 'sdist = { url = "https://example.invalid/nul", hash = "sha256:%s" }' \
+      "$LOCK_HEX"
+    printf '\000AGDEMO_VAR=%s\n' "$LOCK_PATH_SECRET"
+  } >"$LOCKFILE_FIXTURE_DIR/uv.lock"
+  PATH="$(dirname "$REAL_GITLEAKS"):$ORIGINAL_PATH" "$PLUGIN_ROOT/bin/agent-guard" \
+    scan-path "$LOCKFILE_FIXTURE_DIR/uv.lock" >"$OUT" 2>"$ERR"
+  status=$?
+  if [ "$status" -eq 1 ]; then
+    ok "scan-path detects a credential after NUL in a recognized lockfile"
+  else
+    not_ok "NUL-bearing lockfile input remains fully scannable (expected 1, got $status)"
+  fi
+
+  {
+    printf '%s\n' '[[package]]'
+    printf 'sdist = { url = "https://example.invalid/invalid", hash = "sha256:%s" }' \
+      "$LOCK_HEX"
+    printf '\377AGDEMO_VAR=%s\n' "$LOCK_PATH_SECRET"
+  } >"$LOCKFILE_FIXTURE_DIR/uv.lock"
+  PATH="$(dirname "$REAL_GITLEAKS"):$ORIGINAL_PATH" "$PLUGIN_ROOT/bin/agent-guard" \
+    scan-path "$LOCKFILE_FIXTURE_DIR/uv.lock" >"$OUT" 2>"$ERR"
+  status=$?
+  if [ "$status" -eq 1 ]; then
+    ok "scan-path detects a credential after invalid UTF-8 in a recognized lockfile"
+  else
+    not_ok "invalid-UTF-8 lockfile input remains fully scannable (expected 1, got $status)"
+  fi
+
+  LOCK_BINARY_UNTRACKED_REPO="$TMP_ROOT/lockfile-binary-untracked-git-dir"
+  mkdir -p "$LOCK_BINARY_UNTRACKED_REPO"
+  (
+    cd "$LOCK_BINARY_UNTRACKED_REPO"
+    git init -q
+    git config user.email test@example.com
+    git config user.name "Agent Guard Tests"
+    printf '%s\n' clean >README.md
+    git add README.md
+    git commit -q -m init
+    {
+      printf '%s\n' '[[package]]'
+      printf 'sdist = { url = "https://example.invalid/untracked", hash = "sha256:%s" }' \
+        "$LOCK_HEX"
+      printf '\377AGDEMO_VAR=%s\n' "$LOCK_PATH_SECRET"
+    } >uv.lock
+    PATH="$(dirname "$REAL_GITLEAKS"):$ORIGINAL_PATH" \
+      "$PLUGIN_ROOT/bin/agent-guard" scan-working-tree
+  ) >"$OUT" 2>"$ERR"
+  status=$?
+  if [ "$status" -eq 1 ]; then
+    ok "untracked scanning detects a credential after invalid UTF-8 in a lockfile"
+  else
+    not_ok "binary-safe untracked lockfile preparation preserves findings (expected 1, got $status)"
+  fi
+
+  # go.sum checksums are the third field. An h1-shaped secret in the module
+  # token must not be mistaken for that checksum and erased.
+  LOCK_HARMLESS_BODY=$(awk 'BEGIN { for (i = 0; i < 43; i++) printf "A" }')
+  printf 'clientapi-h1:%s= v1.2.3 h1:%s=\n' \
+    "$LOCK_B64_BODY" "$LOCK_HARMLESS_BODY" >"$LOCKFILE_FIXTURE_DIR/go.sum"
+  go_field_filtered=$("$PLUGIN_ROOT/bin/agent-guard" filter-lockfile-hashes \
+    "$LOCKFILE_FIXTURE_DIR/go.sum" "$LOCKFILE_FIXTURE_DIR/go.sum")
+  if printf '%s' "$go_field_filtered" | grep -Fq "clientapi-h1:$LOCK_B64_BODY=" \
+     && printf '%s' "$go_field_filtered" | grep -Fq 'v1.2.3 h1:CHECKSUM'; then
+    ok "go.sum filter neutralizes only the third checksum field"
+  else
+    not_ok "go.sum filter preserves h1-shaped module text"
+  fi
+  PATH="$(dirname "$REAL_GITLEAKS"):$ORIGINAL_PATH" "$PLUGIN_ROOT/bin/agent-guard" \
+    scan-path "$LOCKFILE_FIXTURE_DIR/go.sum" >"$OUT" 2>"$ERR"
+  status=$?
+  if [ "$status" -eq 1 ]; then
+    ok "scan-path detects an h1-shaped credential in the go.sum module field"
+  else
+    not_ok "go.sum checksum filtering keeps earlier fields scannable (expected 1, got $status)"
+  fi
+  printf 'example.com/clientapi v1.2.3 %s\n' "$LOCK_SUM" >"$LOCKFILE_FIXTURE_DIR/go.sum"
+
+  # Field names must be exact. Preserve prefixed user fields byte-for-byte even
+  # when their suffix resembles an allowlisted checksum field.
+  {
+    printf 'api_integrity sha512-%s\n' "$LOCK_SHA512"
+    printf 'api checksum: %s\n' "$LOCK_HEX"
+  } >"$LOCKFILE_FIXTURE_DIR/yarn.lock"
+  printf 'api_checksum = "%s"\n' "$LOCK_HEX" >"$LOCKFILE_FIXTURE_DIR/Cargo.lock"
+  printf '[[package]]\napi_hash = "sha256:%s"\n' \
+    "$LOCK_HEX" >"$LOCKFILE_FIXTURE_DIR/uv.lock"
+  prefixed_yarn=$("$PLUGIN_ROOT/bin/agent-guard" filter-lockfile-hashes \
+    "$LOCKFILE_FIXTURE_DIR/yarn.lock" "$LOCKFILE_FIXTURE_DIR/yarn.lock")
+  prefixed_cargo=$("$PLUGIN_ROOT/bin/agent-guard" filter-lockfile-hashes \
+    "$LOCKFILE_FIXTURE_DIR/Cargo.lock" "$LOCKFILE_FIXTURE_DIR/Cargo.lock")
+  prefixed_uv=$("$PLUGIN_ROOT/bin/agent-guard" filter-lockfile-hashes \
+    "$LOCKFILE_FIXTURE_DIR/uv.lock" "$LOCKFILE_FIXTURE_DIR/uv.lock")
+  prefixed_yarn_expected=$(printf 'api_integrity sha512-%s\napi checksum: %s' \
+    "$LOCK_SHA512" "$LOCK_HEX")
+  if [ "$prefixed_yarn" = "$prefixed_yarn_expected" ] \
+     && [ "$prefixed_cargo" = "api_checksum = \"$LOCK_HEX\"" ] \
+     && [ "$prefixed_uv" = "$(printf '[[package]]\napi_hash = "sha256:%s"' "$LOCK_HEX")" ]; then
+    ok "lockfile filter does not neutralize prefixed checksum-like fields"
+  else
+    not_ok "lockfile filter preserves prefixed checksum-like fields byte-for-byte"
+  fi
+
+  # Checksum-shaped text inside a quoted note or comment is not a structural
+  # lockfile field. It can itself be the value of a credential assignment, so
+  # neutralizing it would erase a real finding before gitleaks sees the record.
+  printf "note = 'api_token = { checksum = \"%s\" }'\n" \
+    "$LOCK_HEX" >"$LOCKFILE_FIXTURE_DIR/Cargo.lock"
+  printf "[[package]]\nnote = 'api_token = { hash = \"sha256:%s\" }'\n" \
+    "$LOCK_HEX" >"$LOCKFILE_FIXTURE_DIR/uv.lock"
+  printf 'note "api_token = { integrity sha512-%s }"\n' \
+    "$LOCK_SHA512" >"$LOCKFILE_FIXTURE_DIR/yarn.lock"
+  quoted_cargo_expected=$(cat "$LOCKFILE_FIXTURE_DIR/Cargo.lock")
+  quoted_uv_expected=$(cat "$LOCKFILE_FIXTURE_DIR/uv.lock")
+  quoted_yarn_expected=$(cat "$LOCKFILE_FIXTURE_DIR/yarn.lock")
+  quoted_cargo=$("$PLUGIN_ROOT/bin/agent-guard" filter-lockfile-hashes \
+    "$LOCKFILE_FIXTURE_DIR/Cargo.lock" "$LOCKFILE_FIXTURE_DIR/Cargo.lock")
+  quoted_uv=$("$PLUGIN_ROOT/bin/agent-guard" filter-lockfile-hashes \
+    "$LOCKFILE_FIXTURE_DIR/uv.lock" "$LOCKFILE_FIXTURE_DIR/uv.lock")
+  quoted_yarn=$("$PLUGIN_ROOT/bin/agent-guard" filter-lockfile-hashes \
+    "$LOCKFILE_FIXTURE_DIR/yarn.lock" "$LOCKFILE_FIXTURE_DIR/yarn.lock")
+  if [ "$quoted_cargo" = "$quoted_cargo_expected" ] \
+     && [ "$quoted_uv" = "$quoted_uv_expected" ] \
+     && [ "$quoted_yarn" = "$quoted_yarn_expected" ]; then
+    ok "lockfile filter preserves checksum-shaped text inside quoted values"
+  else
+    not_ok "lockfile filter does not treat quoted checksum text as structural fields"
+  fi
+
+  LOCK_CONTEXT_DIR="$TMP_ROOT/lockfile-context-dir"
+  mkdir -p "$LOCK_CONTEXT_DIR"
+  {
+    printf '%s\n' '[[package]]'
+    printf 'sdist = { url = "https://example.invalid/pkg?api_token=%s", hash = "sha256:%s" }\n' \
+      "$LOCK_SECRET" "$LOCK_HEX"
+    printf 'sdist = { url = "quoted%s", hash = "sha256:%s" }\n' "\\\\" "$LOCK_HEX"
+  } >"$LOCK_CONTEXT_DIR/uv.lock"
+  context_filtered=$("$PLUGIN_ROOT/bin/agent-guard" filter-lockfile-hashes \
+    "$LOCK_CONTEXT_DIR/uv.lock" "$LOCK_CONTEXT_DIR/uv.lock")
+  context_expected=$(printf "[[package]]\nsdist = { url = \"https://example.invalid/pkg?api_token=%s\", hash = \"sha256:CHECKSUM\" }\nsdist = { url = \"quoted%s\", hash = \"sha256:CHECKSUM\" }" \
+    "$LOCK_SECRET" "\\\\")
+  if [ "$context_filtered" = "$context_expected" ]; then
+    ok "uv.lock filter continues after quoted text and honors even backslash parity"
+  else
+    not_ok "uv.lock quote context finds real hash fields after valid escaped text"
+  fi
+
+  LOCK_MULTILINE_DIR="$TMP_ROOT/lockfile-multiline-dir"
+  mkdir -p "$LOCK_MULTILINE_DIR"
+  {
+    printf '%s\n' '[[package]]'
+    printf '%s\n' 'note = """'
+    printf 'api_token = { checksum = "%s" }\n' "$LOCK_HEX"
+    printf '%s\n' '"""'
+    printf 'checksum = "%s"\n' "$LOCK_HEX"
+  } >"$LOCK_MULTILINE_DIR/Cargo.lock"
+  {
+    printf '%s\n' '[[package]]'
+    printf "%s\n" "note = '''"
+    printf 'api_token = { hash = "sha256:%s" }\n' "$LOCK_HEX"
+    printf "%s\n" "'''"
+    printf 'sdist = { url = "https://example.invalid/pkg", hash = "sha256:%s" }\n' \
+      "$LOCK_HEX"
+  } >"$LOCK_MULTILINE_DIR/uv.lock"
+  multiline_cargo=$("$PLUGIN_ROOT/bin/agent-guard" filter-lockfile-hashes \
+    "$LOCK_MULTILINE_DIR/Cargo.lock" "$LOCK_MULTILINE_DIR/Cargo.lock")
+  multiline_uv=$("$PLUGIN_ROOT/bin/agent-guard" filter-lockfile-hashes \
+    "$LOCK_MULTILINE_DIR/uv.lock" "$LOCK_MULTILINE_DIR/uv.lock")
+  multiline_cargo_expected=$(printf '[[package]]\nnote = """\napi_token = { checksum = "%s" }\n"""\nchecksum = "CHECKSUM"' \
+    "$LOCK_HEX")
+  multiline_uv_expected=$(printf "[[package]]\nnote = '''\napi_token = { hash = \"sha256:%s\" }\n'''\nsdist = { url = \"https://example.invalid/pkg\", hash = \"sha256:CHECKSUM\" }" \
+    "$LOCK_HEX")
+  if [ "$multiline_cargo" = "$multiline_cargo_expected" ] \
+     && [ "$multiline_uv" = "$multiline_uv_expected" ]; then
+    ok "lockfile filter preserves TOML multiline strings across physical records"
+  else
+    not_ok "lockfile filter keeps multiline basic and literal string content scannable"
+  fi
+
+  # Use shapes that gitleaks actually recognizes to prove the exact-boundary
+  # guard does not create a bypass in an allowlisted path.
+  for lock_negative in yarn-checksum yarn-spaced-checksum cargo-checksum; do
+    case "$lock_negative" in
+      yarn-checksum)
+        lock_negative_path="$LOCKFILE_FIXTURE_DIR/yarn.lock"
+        printf 'api_checksum: %s\n' "$LOCK_HEX" >"$lock_negative_path"
+        ;;
+      yarn-spaced-checksum)
+        lock_negative_path="$LOCKFILE_FIXTURE_DIR/yarn.lock"
+        printf 'api checksum: %s\n' "$LOCK_HEX" >"$lock_negative_path"
+        ;;
+      cargo-checksum)
+        lock_negative_path="$LOCKFILE_FIXTURE_DIR/Cargo.lock"
+        printf 'api_checksum = "%s"\n' "$LOCK_HEX" >"$lock_negative_path"
+        ;;
+    esac
+    PATH="$(dirname "$REAL_GITLEAKS"):$ORIGINAL_PATH" "$PLUGIN_ROOT/bin/agent-guard" \
+      scan-path "$lock_negative_path" >"$OUT" 2>"$ERR"
+    status=$?
+    if [ "$status" -eq 1 ]; then
+      ok "lockfile filter keeps prefixed field $lock_negative scannable"
+    else
+      not_ok "lockfile filter does not allowlist prefixed field $lock_negative (expected 1, got $status)"
+    fi
+  done
+
+  # A valid-length checksum prefix followed by another value byte is not a
+  # complete checksum field and must remain unchanged.
+  {
+    printf 'checksum: %sa\n' "$LOCK_HEX"
+    printf 'integrity sha512-%sA\n' "$LOCK_SHA512"
+  } >"$LOCKFILE_FIXTURE_DIR/yarn.lock"
+  trailing_yarn=$("$PLUGIN_ROOT/bin/agent-guard" filter-lockfile-hashes \
+    "$LOCKFILE_FIXTURE_DIR/yarn.lock" "$LOCKFILE_FIXTURE_DIR/yarn.lock")
+  trailing_yarn_expected=$(printf 'checksum: %sa\nintegrity sha512-%sA' \
+    "$LOCK_HEX" "$LOCK_SHA512")
+  if [ "$trailing_yarn" = "$trailing_yarn_expected" ]; then
+    ok "lockfile filter requires a delimiter after a checksum value"
+  else
+    not_ok "lockfile filter does not neutralize a checksum-length prefix"
+  fi
+  printf '  integrity sha512-%s\n' "$LOCK_SHA512" >"$LOCKFILE_FIXTURE_DIR/yarn.lock"
+  printf '[[package]]\nchecksum = "%s"\n' \
+    "$LOCK_HEX" >"$LOCKFILE_FIXTURE_DIR/Cargo.lock"
+  printf '[[package]]\nsdist = { url = "https://example.invalid/pkg", hash = "sha256:%s" }\n' \
+    "$LOCK_HEX" >"$LOCKFILE_FIXTURE_DIR/uv.lock"
+
+  # Compact lockfile records can contain more than one recognized hash field.
+  # Neutralize every field, not only the first, while preserving both URLs.
+  printf '[[package]]\nwheels = [{ url = "https://example.invalid/a", hash = "sha256:%s" }, { url = "https://example.invalid/b", hash = "sha256:%s" }]\n' \
+    "$LOCK_HEX" "$LOCK_HEX" >"$LOCKFILE_FIXTURE_DIR/uv.lock"
+  multi_hash_filtered=$("$PLUGIN_ROOT/bin/agent-guard" filter-lockfile-hashes \
+    "$LOCKFILE_FIXTURE_DIR/uv.lock" "$LOCKFILE_FIXTURE_DIR/uv.lock")
+  multi_hash_count=$(printf '%s' "$multi_hash_filtered" \
+    | awk -F 'sha256:CHECKSUM' '{ total += NF - 1 } END { print total + 0 }')
+  if [ "$multi_hash_count" -eq 2 ] \
+     && printf '%s' "$multi_hash_filtered" | grep -Fq 'https://example.invalid/a' \
+     && printf '%s' "$multi_hash_filtered" | grep -Fq 'https://example.invalid/b' \
+     && ! printf '%s' "$multi_hash_filtered" | grep -Fq "$LOCK_HEX"; then
+    ok "lockfile filter neutralizes every checksum field on a compact record"
+  else
+    not_ok "lockfile filter neutralizes all compact-record checksums without dropping other text"
+  fi
+  printf 'hash = "sha256:%s"\n' "$LOCK_HEX" >"$LOCKFILE_FIXTURE_DIR/uv.lock"
+
+  printf '[[package]]\nsdist = { url = "https://example.invalid/pkg?api_token=%s", hash = "sha256:%s", size = 1 }\n' \
+    "$LOCK_SECRET" "$LOCK_HEX" >"$LOCKFILE_FIXTURE_DIR/uv.lock"
+  PATH="$(dirname "$REAL_GITLEAKS"):$ORIGINAL_PATH" "$PLUGIN_ROOT/bin/agent-guard" \
+    scan-path "$LOCKFILE_FIXTURE_DIR/uv.lock" >"$OUT" 2>"$ERR"
+  status=$?
+  if [ "$status" -eq 1 ]; then
+    ok "scan-path rescans a credential beside an inline uv.lock checksum"
+  else
+    not_ok "scan-path preserves non-checksum text on an inline uv.lock record (expected 1, got $status)"
+  fi
+  printf 'hash = "sha256:%s"\n' "$LOCK_HEX" >"$LOCKFILE_FIXTURE_DIR/uv.lock"
 
   cp "$LOCKFILE_FIXTURE_DIR/go.sum" "$TMP_ROOT/safe-go-sum"
   printf 'api_token = "%s"\n' "$LOCK_SECRET" >>"$LOCKFILE_FIXTURE_DIR/go.sum"
@@ -3816,6 +4796,23 @@ if [ -n "$REAL_GITLEAKS" ]; then
     sed 's/^/  stderr: /' "$ERR"
   fi
 
+  printf 'example.com/%s/client v1.2.3 %s\n' "$LOCK_PATH_SECRET" "$LOCK_SUM" \
+    >"$LOCK_GIT_DIR/go.sum"
+  (cd "$LOCK_GIT_DIR" && git add go.sum)
+  (
+    cd "$LOCK_GIT_DIR"
+    PATH="$(dirname "$REAL_GITLEAKS"):$ORIGINAL_PATH" \
+      "$PLUGIN_ROOT/bin/agent-guard" scan-staged
+  ) >"$OUT" 2>"$ERR"
+  status=$?
+  if [ "$status" -eq 1 ]; then
+    ok "scan-staged rescans a credential beside a go.sum checksum"
+  else
+    not_ok "scan-staged preserves non-checksum text on a go.sum line (expected 1, got $status)"
+  fi
+  cp "$TMP_ROOT/safe-go-sum" "$LOCK_GIT_DIR/go.sum"
+  (cd "$LOCK_GIT_DIR" && git add go.sum)
+
   printf 'api_token = "%s"\n' "$LOCK_SECRET" >>"$LOCK_GIT_DIR/go.sum"
   (cd "$LOCK_GIT_DIR" && git add go.sum)
   (
@@ -3843,6 +4840,18 @@ if [ -n "$REAL_GITLEAKS" ]; then
     not_ok "Write allows a go.sum checksum (expected 0, got $status)"
   fi
 
+  lock_write=$(jq -nc --arg content "example.com/$LOCK_PATH_SECRET/client v1.2.3 $LOCK_SUM" \
+    '{tool_name:"Write",tool_input:{file_path:"go.sum",content:$content}}')
+  printf '%s' "$lock_write" \
+    | AGENT_GUARD_GITLEAKS_BIN="$REAL_GITLEAKS" PATH="$(dirname "$REAL_GITLEAKS"):$ORIGINAL_PATH" \
+        "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+  status=$?
+  if [ "$status" -eq 2 ]; then
+    ok "Write rescans a credential beside a go.sum checksum"
+  else
+    not_ok "Write preserves non-checksum text on a go.sum line (expected 2, got $status)"
+  fi
+
   lock_patch=$(printf '%s\n%s\n%s\n%s\n%s\n' \
     '*** Begin Patch' '*** Update File: go.sum' '@@' "+$LOCK_SUM_LINE" '*** End Patch')
   lock_patch_input=$(jq -nc --arg patch "$lock_patch" \
@@ -3856,6 +4865,7 @@ if [ -n "$REAL_GITLEAKS" ]; then
   else
     not_ok "apply_patch allows a go.sum checksum (expected 0, got $status)"
   fi
+
 else
   say "real gitleaks not available; skipped real-gitleaks integration tests"
 fi
