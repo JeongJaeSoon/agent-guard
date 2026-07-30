@@ -5472,6 +5472,113 @@ else
   printf '%s\n' "$post_out" | sed 's/^/  out: /'
 fi
 
+# Bound adversarial high-cardinality output below the 20-second PostToolUse
+# manifest timeout. Per-literal tree walks are quadratic here; once the work cap
+# is exceeded, every nonempty string leaf is conservatively masked in one walk.
+high_cardinality_input=$(jq -nc '
+  [range(0; 2500) | "PASSWORD=value-unique-\(.)-abcdefgh"] as $stdout
+  | {tool_name:"Bash",tool_input:{command:"x"},tool_response:
+      {stdout:$stdout,stderr:"",interrupted:false,isImage:false}}
+')
+high_cardinality_started=$(date +%s)
+post_tool_out "$high_cardinality_input"
+high_cardinality_status=$?
+high_cardinality_elapsed=$(($(date +%s) - high_cardinality_started))
+post_out=$(cat "$OUT")
+if [ "$high_cardinality_status" -eq 0 ] \
+   && [ "$high_cardinality_elapsed" -lt 15 ] \
+   && printf '%s' "$post_out" \
+        | jq -e '
+            .hookSpecificOutput.updatedToolOutput as $out
+            | ($out.stdout | length) == 2500
+            and ($out.stdout | all(. == "[REDACTED]"))
+            and $out.stderr == ""
+            and $out.interrupted == false
+            and $out.isImage == false
+          ' >/dev/null 2>&1 \
+   && ! printf '%s' "$post_out" | grep -q 'value-unique-'; then
+  ok "post-tool bounds high-cardinality redaction below the hook timeout"
+else
+  not_ok "post-tool fail-closes high-cardinality output in bounded time (${high_cardinality_elapsed}s)"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+# Empty leaves still incur per-spec traversal unless they are counted in the
+# work estimate and skipped in the precise path. This sparse shape previously
+# stayed below a character-only cap and exhausted the same 20-second timeout.
+sparse_cardinality_input=$(jq -nc '
+  ([range(0; 256) | "PASSWORD=value-sparse-\(.)-abcdefgh"]
+   + [range(0; 50000) | ""]) as $stdout
+  | {tool_name:"Bash",tool_input:{command:"x"},tool_response:
+      {stdout:$stdout,stderr:"",interrupted:false,isImage:false}}
+')
+sparse_cardinality_started=$(date +%s)
+post_tool_out "$sparse_cardinality_input"
+sparse_cardinality_status=$?
+sparse_cardinality_elapsed=$(($(date +%s) - sparse_cardinality_started))
+post_out=$(cat "$OUT")
+if [ "$sparse_cardinality_status" -eq 0 ] \
+   && [ "$sparse_cardinality_elapsed" -lt 15 ] \
+   && printf '%s' "$post_out" \
+        | jq -e '
+            .hookSpecificOutput.updatedToolOutput as $out
+            | ($out.stdout | length) == 50256
+            and ($out.stdout[0:256] | all(. == "[REDACTED]"))
+            and ($out.stdout[256:] | all(. == ""))
+            and $out.stderr == ""
+          ' >/dev/null 2>&1 \
+   && ! printf '%s' "$post_out" | grep -q 'value-sparse-'; then
+  ok "post-tool counts empty-leaf traversal in the redaction work cap"
+else
+  not_ok "post-tool bounds sparse high-cardinality output (${sparse_cardinality_elapsed}s)"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+# Detection itself must also stay below the hook deadline for very large
+# assignment dumps. A streaming preflight confirms the secret-bearing shape
+# before skipping unique-literal collection and masking nonempty leaves once.
+large_detection_input=$(jq -nc '
+  [range(0; 30000) | "PASSWORD=value-detection-\(.)-abcdefgh"] as $stdout
+  | {tool_name:"Read",tool_input:{file_path:"dump.json"},
+     tool_response:$stdout}
+')
+large_detection_started=$(date +%s)
+post_tool_out "$large_detection_input"
+large_detection_status=$?
+large_detection_elapsed=$(($(date +%s) - large_detection_started))
+post_out=$(cat "$OUT")
+if [ "$large_detection_status" -eq 0 ] \
+   && [ "$large_detection_elapsed" -lt 15 ] \
+   && printf '%s' "$post_out" \
+        | jq -e '
+            .hookSpecificOutput.updatedToolOutput as $out
+            | ($out | length) == 30000
+            and ($out | all(. == "[REDACTED]"))
+          ' >/dev/null 2>&1 \
+   && ! printf '%s' "$post_out" | grep -q 'value-detection-'; then
+  ok "post-tool bounds large high-cardinality secret detection"
+else
+  not_ok "post-tool bounds large secret detection (${large_detection_elapsed}s)"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+large_clean_input=$(jq -nc '
+  {tool_name:"Read",tool_input:{file_path:"clean.txt"},
+   tool_response:("a" * 300000)}
+')
+large_clean_started=$(date +%s)
+post_tool_out "$large_clean_input"
+large_clean_status=$?
+large_clean_elapsed=$(($(date +%s) - large_clean_started))
+if [ "$large_clean_status" -eq 0 ] \
+   && [ "$large_clean_elapsed" -lt 15 ] \
+   && [ ! -s "$OUT" ]; then
+  ok "post-tool leaves large clean output unchanged"
+else
+  not_ok "post-tool preserves large clean output (${large_clean_elapsed}s)"
+  sed 's/^/  out: /' "$OUT"
+fi
+
 # Log/timestamp prefix must not hijack the env-heuristic split: the value is
 # anchored to the matched key's delimiter, not the first ":" (here inside the
 # "12:00:00" timestamp). A clean copy in a SEPARATE leaf (stderr) only gets

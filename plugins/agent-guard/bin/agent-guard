@@ -2682,8 +2682,8 @@ output_redact_enabled() {
 frame_json_string_leaves() {
   jq -rj '
     .. | strings
-    | ((gsub("\u001f"; "\u001f\u001f") | gsub("\u001e"; "\u001f\u001e")),
-       "\u001e")
+    | ((gsub("\u001f"; "\u001f\u001f") | gsub("\u001e"; "\u001f\u001e"))
+       + "\u001e\n")
   '
 }
 
@@ -2921,27 +2921,34 @@ secretish_env_values() {
         if (!probe_found) scan_leaf($0)
         next
       }
+      record_ended_at_boundary = 0
       for (i = 1; i <= length($0); i++) {
         ch = substr($0, i, 1)
         if (escaped) {
           leaf = leaf ch
           escaped = 0
+          record_ended_at_boundary = 0
         } else if (ch == escape) {
           escaped = 1
+          record_ended_at_boundary = 0
         } else if (ch == boundary) {
           scan_leaf(leaf)
           leaf = ""
+          record_ended_at_boundary = 1
         } else {
           leaf = leaf ch
+          record_ended_at_boundary = 0
         }
       }
-      # awk removes physical newlines. In the framed stream they are leaf data.
-      leaf = leaf "\n"
+      # awk removes physical newlines that came from a JSON leaf, so restore
+      # those as data. A record-ending boundary is followed by a synthetic
+      # transport newline; do not insert that separator into the next leaf.
+      if (!record_ended_at_boundary) leaf = leaf "\n"
     }
     END {
-      # frame_json_string_leaves always terminates a leaf with RS. Ignore the
-      # one synthetic newline appended after the final record.
-      if (length(leaf) > 1) scan_leaf(leaf)
+      # Valid framed input always terminates each leaf with RS. Preserve a final
+      # partial record conservatively if a producer ever ends without one.
+      if (length(leaf) > 0) scan_leaf(leaf)
     }
   '
 }
@@ -3133,9 +3140,8 @@ redact_tool_response_json() {
                  + $parts[$i])
       else .
       end;
-    def redact($s):
-      (specs($s)) as $specs
-      | reduce ($specs
+    def redact($specs):
+      reduce ($specs
                 | map(select(.contextual))
                 | sort_by(.literal | length)
                 | reverse)[] as $x (.;
@@ -3151,7 +3157,19 @@ redact_tool_response_json() {
         then ((. / $x.literal) | join($x.replacement))
         else .
         end);
-    walk(if type == "string" then redact($secrets) else . end)
+    (specs($secrets)) as $specs
+    | (reduce (.. | strings) as $leaf
+         (0; . + ($leaf | length) + 1)) as $string_work
+    # Literal replacement is proportional to spec-count × response size.
+    # Bound that work below the host hook timeout. High-cardinality output is
+    # still fail-closed in one tree walk by masking every nonempty string leaf.
+    | if ($specs | length) > 256
+         or (($specs | length) * $string_work) > 8000000
+      then walk(if type == "string" and length > 0
+                then "[REDACTED]" else . end)
+      else walk(if type == "string" and length > 0
+                then redact($specs) else . end)
+      end
   ' 2>/dev/null
 }
 
@@ -3165,6 +3183,35 @@ redact_nul_response_json() {
                         elif type == "array" then map(w)
                         else . end | f; w;
     walk(if type == "string" and contains("\u0000")
+         then "[REDACTED]" else . end)
+  ' 2>/dev/null
+}
+
+# Large, high-cardinality assignment dumps can exhaust the host timeout while
+# the ordinary detector collects every unique literal. Probe them in one
+# streaming pass first; only a confirmed secret-bearing assignment takes the
+# conservative whole-leaf path. Large clean output still uses normal detection.
+large_response_has_secretish_assignment() {
+  large_probe_response=$1
+  large_probe_bytes=$(printf '%s' "$large_probe_response" \
+    | wc -c | tr -d '[:space:]')
+  case "$large_probe_bytes" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+  [ "$large_probe_bytes" -gt 262144 ] || return 1
+  printf '%s' "$large_probe_response" \
+    | frame_json_string_leaves 2>/dev/null \
+    | secretish_env_values probe \
+    | grep -q .
+}
+
+redact_nonempty_response_strings() {
+  whole_leaf_response=$1
+  printf '%s' "$whole_leaf_response" | jq -c '
+    def walk(f): def w: if type == "object" then map_values(w)
+                        elif type == "array" then map(w)
+                        else . end | f; w;
+    walk(if type == "string" and length > 0
          then "[REDACTED]" else . end)
   ' 2>/dev/null
 }
@@ -3228,10 +3275,15 @@ redact_tool_output() {
   if [ "$secrets_on" -eq 1 ]; then
     r=$(redact_nul_response_json "$out")
     if [ -n "$r" ] && [ "$r" != "$out" ]; then out=$r; did_secret=1; fi
-    secrets=$(detect_output_secrets "$out")
-    if [ -n "$secrets" ]; then
-      r=$(redact_tool_response_json "$out" "$secrets")
+    if large_response_has_secretish_assignment "$out"; then
+      r=$(redact_nonempty_response_strings "$out")
       if [ -n "$r" ] && [ "$r" != "$out" ]; then out=$r; did_secret=1; fi
+    else
+      secrets=$(detect_output_secrets "$out")
+      if [ -n "$secrets" ]; then
+        r=$(redact_tool_response_json "$out" "$secrets")
+        if [ -n "$r" ] && [ "$r" != "$out" ]; then out=$r; did_secret=1; fi
+      fi
     fi
   fi
 
@@ -3456,21 +3508,26 @@ redact_plaintext_framed() {
       }
     }
     function feed_framed(line, i, ch) {
+      record_ended_at_boundary = 0
       for (i = 1; i <= length(line); i++) {
         ch = substr(line, i, 1)
         if (escaped) {
           record = record ch
           escaped = 0
+          record_ended_at_boundary = 0
         } else if (ch == escape) {
           escaped = 1
+          record_ended_at_boundary = 0
         } else if (ch == boundary) {
           consume_record(record)
           record = ""
+          record_ended_at_boundary = 1
         } else {
           record = record ch
+          record_ended_at_boundary = 0
         }
       }
-      record = record "\n"
+      if (!record_ended_at_boundary) record = record "\n"
     }
     BEGIN {
       boundary = sprintf("%c", 30)
