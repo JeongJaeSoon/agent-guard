@@ -4001,6 +4001,47 @@ else
   not_ok "uv.lock filtering preserves hash fields outside generated artifact records"
 fi
 
+LOCK_NUL_UV="$LOCK_SCHEMA_DIR/uv-nul.lock"
+LOCK_NUL_FILTERED="$LOCK_SCHEMA_DIR/uv-nul.filtered"
+{
+  printf '%s\n' '[[package]]'
+  printf 'sdist = { url = "https://example.invalid/nul", hash = "sha256:%s" }' \
+    "$LOCK_FRAGMENT_HEX"
+  printf '\000api_token = "%s"\n' "$LOCK_FRAGMENT_HEX"
+} >"$LOCK_NUL_UV"
+"$PLUGIN_ROOT/bin/agent-guard" filter-lockfile-hashes \
+  uv.lock "$LOCK_NUL_UV" >"$LOCK_NUL_FILTERED"
+if cmp -s "$LOCK_NUL_UV" "$LOCK_NUL_FILTERED"; then
+  ok "lockfile filtering preserves NUL-bearing input byte-for-byte"
+else
+  not_ok "lockfile filtering must not let awk discard bytes after NUL"
+fi
+
+LOCK_INVALID_UTF8_UV="$LOCK_SCHEMA_DIR/uv-invalid-utf8.lock"
+LOCK_INVALID_UTF8_FILTERED="$LOCK_SCHEMA_DIR/uv-invalid-utf8.filtered"
+LOCK_INVALID_UTF8_EXPECTED="$LOCK_SCHEMA_DIR/uv-invalid-utf8.expected"
+{
+  printf '%s\n' '[[package]]'
+  printf 'sdist = { url = "https://example.invalid/invalid", hash = "sha256:%s" }' \
+    "$LOCK_FRAGMENT_HEX"
+  printf '\377api_token = "%s"\n' "$LOCK_FRAGMENT_HEX"
+} >"$LOCK_INVALID_UTF8_UV"
+{
+  printf '%s\n' '[[package]]'
+  printf '%s' \
+    'sdist = { url = "https://example.invalid/invalid", hash = "sha256:CHECKSUM" }'
+  printf '\377api_token = "%s"\n' "$LOCK_FRAGMENT_HEX"
+} >"$LOCK_INVALID_UTF8_EXPECTED"
+"$PLUGIN_ROOT/bin/agent-guard" filter-lockfile-hashes \
+  uv.lock "$LOCK_INVALID_UTF8_UV" >"$LOCK_INVALID_UTF8_FILTERED"
+status=$?
+if [ "$status" -eq 0 ] \
+    && cmp -s "$LOCK_INVALID_UTF8_EXPECTED" "$LOCK_INVALID_UTF8_FILTERED"; then
+  ok "lockfile filtering preserves invalid UTF-8 bytes and their credential suffix"
+else
+  not_ok "lockfile filtering must parse invalid UTF-8 in the byte locale"
+fi
+
 {
   printf '%s\n' '{'
   printf '%s\n' '  "packages": {'
@@ -4321,6 +4362,62 @@ if [ -n "$REAL_GITLEAKS" ]; then
   else
     not_ok "recognized lockfile checksum fields stay clean (expected 0, got $status)"
     sed 's/^/  stderr: /' "$ERR"
+  fi
+
+  {
+    printf '%s\n' '[[package]]'
+    printf 'sdist = { url = "https://example.invalid/nul", hash = "sha256:%s" }' \
+      "$LOCK_HEX"
+    printf '\000AGDEMO_VAR=%s\n' "$LOCK_PATH_SECRET"
+  } >"$LOCKFILE_FIXTURE_DIR/uv.lock"
+  PATH="$(dirname "$REAL_GITLEAKS"):$ORIGINAL_PATH" "$PLUGIN_ROOT/bin/agent-guard" \
+    scan-path "$LOCKFILE_FIXTURE_DIR/uv.lock" >"$OUT" 2>"$ERR"
+  status=$?
+  if [ "$status" -eq 1 ]; then
+    ok "scan-path detects a credential after NUL in a recognized lockfile"
+  else
+    not_ok "NUL-bearing lockfile input remains fully scannable (expected 1, got $status)"
+  fi
+
+  {
+    printf '%s\n' '[[package]]'
+    printf 'sdist = { url = "https://example.invalid/invalid", hash = "sha256:%s" }' \
+      "$LOCK_HEX"
+    printf '\377AGDEMO_VAR=%s\n' "$LOCK_PATH_SECRET"
+  } >"$LOCKFILE_FIXTURE_DIR/uv.lock"
+  PATH="$(dirname "$REAL_GITLEAKS"):$ORIGINAL_PATH" "$PLUGIN_ROOT/bin/agent-guard" \
+    scan-path "$LOCKFILE_FIXTURE_DIR/uv.lock" >"$OUT" 2>"$ERR"
+  status=$?
+  if [ "$status" -eq 1 ]; then
+    ok "scan-path detects a credential after invalid UTF-8 in a recognized lockfile"
+  else
+    not_ok "invalid-UTF-8 lockfile input remains fully scannable (expected 1, got $status)"
+  fi
+
+  LOCK_BINARY_UNTRACKED_REPO="$TMP_ROOT/lockfile-binary-untracked-git-dir"
+  mkdir -p "$LOCK_BINARY_UNTRACKED_REPO"
+  (
+    cd "$LOCK_BINARY_UNTRACKED_REPO"
+    git init -q
+    git config user.email test@example.com
+    git config user.name "Agent Guard Tests"
+    printf '%s\n' clean >README.md
+    git add README.md
+    git commit -q -m init
+    {
+      printf '%s\n' '[[package]]'
+      printf 'sdist = { url = "https://example.invalid/untracked", hash = "sha256:%s" }' \
+        "$LOCK_HEX"
+      printf '\377AGDEMO_VAR=%s\n' "$LOCK_PATH_SECRET"
+    } >uv.lock
+    PATH="$(dirname "$REAL_GITLEAKS"):$ORIGINAL_PATH" \
+      "$PLUGIN_ROOT/bin/agent-guard" scan-working-tree
+  ) >"$OUT" 2>"$ERR"
+  status=$?
+  if [ "$status" -eq 1 ]; then
+    ok "untracked scanning detects a credential after invalid UTF-8 in a lockfile"
+  else
+    not_ok "binary-safe untracked lockfile preparation preserves findings (expected 1, got $status)"
   fi
 
   # go.sum checksums are the third field. An h1-shaped secret in the module

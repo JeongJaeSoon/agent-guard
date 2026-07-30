@@ -820,7 +820,9 @@ run_gitleaks_stdin() {
 # writes, untracked files, and path scans from drifting apart. Replace only the
 # checksum field so any other same-line content is still scanned.
 filter_lockfile_records() {
-  awk '
+  forced_kind=${1:-}
+  record_source=${2:--}
+  LC_ALL=C awk -v forced_kind="$forced_kind" '
     function replace_match(line, replacement) {
       return substr(line, 1, RSTART - 1) replacement substr(line, RSTART + RLENGTH)
     }
@@ -1110,8 +1112,13 @@ filter_lockfile_records() {
       toml_skip_rest = 0
     }
     {
-      kind = substr($0, 1, 1)
-      line = substr($0, 3)
+      if (forced_kind != "") {
+        kind = forced_kind
+        line = $0
+      } else {
+        kind = substr($0, 1, 1)
+        line = substr($0, 3)
+      }
       # Uppercase structured kinds are context-free physical-record fragments.
       # Their surrounding parser state is unavailable, so leave them fully
       # scannable instead of guessing that a checksum-looking field is
@@ -1146,7 +1153,7 @@ filter_lockfile_records() {
       }
       print line
     }
-  '
+  ' "$record_source"
 }
 
 # Gitleaks' bundled defaults skip common lockfiles by path. Agent Guard rescans
@@ -1154,7 +1161,7 @@ filter_lockfile_records() {
 # checksum false positives and keeps credentials elsewhere detectable.
 filter_lockfile_hashes() {
   path=$1
-  source=${2:-$path}
+  original_source=${2:-$path}
   snapshot=
   case "${path##*/}" in
     go.sum) kind=g ;;
@@ -1162,22 +1169,34 @@ filter_lockfile_hashes() {
     yarn.lock) kind=y ;;
     Cargo.lock) kind=c ;;
     uv.lock) kind=u ;;
-    *) cat -- "$source"; return ;;
+    *) cat -- "$original_source"; return ;;
   esac
-  if [ "$kind" = p ]; then
-    # Validate and filter the same immutable bytes. Reopening the caller-owned
-    # path after validation would let an atomic replacement swap malformed
-    # content in before the streaming field parser runs.
-    snapshot=$(mktemp_file) || { cat -- "$source"; return; }
-    if ! cat -- "$source" >"$snapshot"; then
-      rm -f "$snapshot"
-      # A full temp filesystem must not turn the filter pipeline into empty
-      # clean input. Fall back to the original bytes without neutralization.
-      cat -- "$source"
-      return
-    fi
-    source=$snapshot
 
+  # Filter one immutable snapshot for every supported lockfile. Besides closing
+  # path-swap races, this lets us reject NUL-bearing input before POSIX awk sees
+  # it: BSD awk truncates a record at NUL and could otherwise discard a
+  # credential suffix. NUL-bearing files stay byte-for-byte scannable.
+  snapshot=$(mktemp_file) || { cat -- "$original_source"; return; }
+  if ! cat -- "$original_source" >"$snapshot"; then
+    rm -f "$snapshot"
+    case "$original_source" in
+      -|/dev/stdin) return 2 ;;
+      *) cat -- "$original_source"; return ;;
+    esac
+  fi
+  source=$snapshot
+  nul_probe=$(mktemp_file) || nul_probe=
+  if [ -z "$nul_probe" ] \
+      || ! LC_ALL=C tr -d '\000' <"$source" >"$nul_probe" \
+      || ! cmp -s "$source" "$nul_probe"; then
+    cat -- "$source"
+    status=$?
+    rm -f "$snapshot" "$nul_probe"
+    return "$status"
+  fi
+  rm -f "$nul_probe"
+
+  if [ "$kind" = p ]; then
     # The streaming field parser cannot know that later input is truncated.
     # Validate the complete document first, keeping only a count/type summary
     # so large lockfiles do not need to be slurped into memory. If jq is absent,
@@ -1222,9 +1241,23 @@ filter_lockfile_hashes() {
       return "$status"
     fi
   fi
-  awk -v kind="$kind" '{ print kind "\t" $0 }' "$source" | filter_lockfile_records
-  status=$?
-  [ -z "$snapshot" ] || rm -f "$snapshot"
+  filtered=$(mktemp_file) || {
+    cat -- "$source"
+    status=$?
+    rm -f "$snapshot"
+    return "$status"
+  }
+  if filter_lockfile_records "$kind" "$source" >"$filtered"; then
+    cat -- "$filtered"
+    status=$?
+  else
+    # Parser failure must never turn a lockfile into empty clean input. The
+    # immutable snapshot is the authoritative byte stream for raw fallback.
+    cat -- "$source"
+    status=$?
+  fi
+  rm -f "$filtered"
+  rm -f "$snapshot"
   return "$status"
 }
 
@@ -1232,12 +1265,26 @@ scan_lockfiles_under() {
   root=$1
   label=$2
   blob=$(mktemp_file) || die "failed to create temp file"
+  list=$(mktemp_file) || { rm -f "$blob"; die "failed to create temp file"; }
   find "$root" -type f \( \
       -name go.sum -o -name package-lock.json -o -name yarn.lock -o \
       -name Cargo.lock -o -name uv.lock \
-    \) -exec "$SELF_BIN" filter-lockfile-hashes '{}' '{}' \; >"$blob"
+    \) -print0 >"$list"
   find_status=$?
   if [ "$find_status" -ne 0 ]; then
+    rm -f "$blob" "$list"
+    info "$PROGRAM: failed to prepare lockfiles in $label"
+    return 2
+  fi
+  if [ ! -s "$list" ]; then
+    rm -f "$blob" "$list"
+    return 0
+  fi
+  xargs -0 -I '{}' "$SELF_BIN" filter-lockfile-hashes '{}' '{}' \
+    >>"$blob" <"$list"
+  prepare_status=$?
+  rm -f "$list"
+  if [ "$prepare_status" -ne 0 ]; then
     rm -f "$blob"
     info "$PROGRAM: failed to prepare lockfiles in $label"
     return 2
@@ -1314,7 +1361,7 @@ block_on_scan_status() {
 # Extract only added diff lines, dropping exact checksum fields only when the
 # diff header identifies one of the supported lockfiles.
 extract_added_lines() {
-  awk '
+  LC_ALL=C awk '
     function lockfile_kind(path, parts, count, name) {
       count = split(path, parts, "/")
       name = parts[count]
@@ -1333,7 +1380,7 @@ extract_added_lines() {
 }
 # Extract lines introduced by Codex apply_patch envelopes or unified diffs.
 extract_patch_added_lines() {
-  awk '
+  LC_ALL=C awk '
     function lockfile_kind(path, parts, count, name) {
       count = split(path, parts, "/")
       name = parts[count]
@@ -1453,11 +1500,11 @@ scan_untracked_files() {
     printf "### file: %s\n" "$f"
     case "${f##*/}" in
       go.sum|package-lock.json|yarn.lock|Cargo.lock|uv.lock)
-        "$filter" filter-lockfile-hashes "$f" "$f"
+        "$filter" filter-lockfile-hashes "$f" "$f" || exit 1
         ;;
-      *) cat -- "$f" ;;
+      *) cat -- "$f" || exit 1 ;;
     esac
-    printf "\n"
+    printf "\n" || exit 1
   ' "$root" '{}' "$SELF_BIN" >>"$blob" <"$list"
   prepare_status=$?
   rm -f "$list"
