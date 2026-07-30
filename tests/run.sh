@@ -3965,18 +3965,50 @@ mkdir -p "$LOCK_INCOMPLETE_TOML_DIR"
   printf "%s\n" "note = '''"
   printf '%s\n' 'unterminated'
 } >"$LOCK_INCOMPLETE_TOML_DIR/uv.lock"
-for incomplete_toml_name in Cargo.lock uv.lock; do
-  incomplete_toml_path="$LOCK_INCOMPLETE_TOML_DIR/$incomplete_toml_name"
-  incomplete_toml_filtered="$LOCK_INCOMPLETE_TOML_DIR/$incomplete_toml_name.filtered"
-  "$PLUGIN_ROOT/bin/agent-guard" filter-lockfile-hashes \
-    "$incomplete_toml_path" "$incomplete_toml_path" >"$incomplete_toml_filtered"
-  status=$?
-  if [ "$status" -eq 0 ] \
-      && cmp -s "$incomplete_toml_path" "$incomplete_toml_filtered"; then
-    ok "$incomplete_toml_name filtering falls back to raw incomplete TOML"
-  else
-    not_ok "$incomplete_toml_name filtering must not emit neutralized incomplete TOML"
-  fi
+
+LOCK_INCOMPLETE_QUOTE_DIR="$TMP_ROOT/lockfile-incomplete-quote-dir"
+LOCK_INCOMPLETE_INLINE_DIR="$TMP_ROOT/lockfile-incomplete-inline-dir"
+LOCK_INCOMPLETE_ARRAY_DIR="$TMP_ROOT/lockfile-incomplete-array-dir"
+mkdir -p "$LOCK_INCOMPLETE_QUOTE_DIR" "$LOCK_INCOMPLETE_INLINE_DIR" \
+  "$LOCK_INCOMPLETE_ARRAY_DIR"
+for incomplete_toml_dir in "$LOCK_INCOMPLETE_QUOTE_DIR" \
+    "$LOCK_INCOMPLETE_INLINE_DIR" "$LOCK_INCOMPLETE_ARRAY_DIR"; do
+  case "$incomplete_toml_dir" in
+    "$LOCK_INCOMPLETE_QUOTE_DIR") incomplete_toml_tail='note = "unterminated' ;;
+    "$LOCK_INCOMPLETE_INLINE_DIR") incomplete_toml_tail='note = { key = "value"' ;;
+    "$LOCK_INCOMPLETE_ARRAY_DIR") incomplete_toml_tail='note = [1, 2' ;;
+  esac
+  {
+    printf '%s\n' '[[package]]'
+    printf 'checksum = "%s"\n' "$LOCK_FRAGMENT_HEX"
+    printf '%s\n' "$incomplete_toml_tail"
+  } >"$incomplete_toml_dir/Cargo.lock"
+  {
+    printf '%s\n' '[[package]]'
+    printf 'sdist = { url = "https://example.invalid/pkg", hash = "sha256:%s" }\n' \
+      "$LOCK_FRAGMENT_HEX"
+    printf '%s\n' "$incomplete_toml_tail"
+  } >"$incomplete_toml_dir/uv.lock"
+done
+
+for incomplete_toml_dir in "$LOCK_INCOMPLETE_TOML_DIR" \
+    "$LOCK_INCOMPLETE_QUOTE_DIR" "$LOCK_INCOMPLETE_INLINE_DIR" \
+    "$LOCK_INCOMPLETE_ARRAY_DIR"; do
+  incomplete_toml_case=${incomplete_toml_dir##*lockfile-incomplete-}
+  incomplete_toml_case=${incomplete_toml_case%-dir}
+  for incomplete_toml_name in Cargo.lock uv.lock; do
+    incomplete_toml_path="$incomplete_toml_dir/$incomplete_toml_name"
+    incomplete_toml_filtered="$incomplete_toml_dir/$incomplete_toml_name.filtered"
+    "$PLUGIN_ROOT/bin/agent-guard" filter-lockfile-hashes \
+      "$incomplete_toml_path" "$incomplete_toml_path" >"$incomplete_toml_filtered"
+    status=$?
+    if [ "$status" -eq 0 ] \
+        && cmp -s "$incomplete_toml_path" "$incomplete_toml_filtered"; then
+      ok "$incomplete_toml_name filtering falls back for incomplete $incomplete_toml_case TOML"
+    else
+      not_ok "$incomplete_toml_name filtering must preserve incomplete $incomplete_toml_case TOML"
+    fi
+  done
 done
 
 LOCK_INCOMPLETE_TOML_BIN="$TMP_ROOT/lockfile-incomplete-toml-bin"
@@ -3996,16 +4028,22 @@ case "${1:-}" in
 esac
 STUB
 chmod +x "$LOCK_INCOMPLETE_TOML_BIN/gitleaks"
-for incomplete_toml_name in Cargo.lock uv.lock; do
-  AGENT_GUARD_GITLEAKS_BIN="$LOCK_INCOMPLETE_TOML_BIN/gitleaks" \
-    "$PLUGIN_ROOT/bin/agent-guard" scan-path \
-      "$LOCK_INCOMPLETE_TOML_DIR/$incomplete_toml_name" >"$OUT" 2>"$ERR"
-  status=$?
-  if [ "$status" -eq 1 ]; then
-    ok "scan-path keeps incomplete $incomplete_toml_name checksum bytes scannable"
-  else
-    not_ok "scan-path must detect checksum bytes in incomplete $incomplete_toml_name (expected 1, got $status)"
-  fi
+for incomplete_toml_dir in "$LOCK_INCOMPLETE_TOML_DIR" \
+    "$LOCK_INCOMPLETE_QUOTE_DIR" "$LOCK_INCOMPLETE_INLINE_DIR" \
+    "$LOCK_INCOMPLETE_ARRAY_DIR"; do
+  incomplete_toml_case=${incomplete_toml_dir##*lockfile-incomplete-}
+  incomplete_toml_case=${incomplete_toml_case%-dir}
+  for incomplete_toml_name in Cargo.lock uv.lock; do
+    AGENT_GUARD_GITLEAKS_BIN="$LOCK_INCOMPLETE_TOML_BIN/gitleaks" \
+      "$PLUGIN_ROOT/bin/agent-guard" scan-path \
+        "$incomplete_toml_dir/$incomplete_toml_name" >"$OUT" 2>"$ERR"
+    status=$?
+    if [ "$status" -eq 1 ]; then
+      ok "scan-path keeps incomplete $incomplete_toml_case $incomplete_toml_name scannable"
+    else
+      not_ok "scan-path must detect bytes in incomplete $incomplete_toml_case $incomplete_toml_name (expected 1, got $status)"
+    fi
+  done
 done
 
 LOCK_MALFORMED_TAIL_DIR="$TMP_ROOT/lockfile-malformed-tail-dir"
@@ -4592,16 +4630,15 @@ if [ -n "$REAL_GITLEAKS" ]; then
     printf 'sdist = { url = "https://example.invalid/pkg?api_token=%s", hash = "sha256:%s" }\n' \
       "$LOCK_SECRET" "$LOCK_HEX"
     printf 'sdist = { url = "quoted%s", hash = "sha256:%s" }\n' "\\\\" "$LOCK_HEX"
-    printf 'sdist = { url = "quoted%s", hash = "sha256:%s" }\n' "\\" "$LOCK_HEX"
   } >"$LOCK_CONTEXT_DIR/uv.lock"
   context_filtered=$("$PLUGIN_ROOT/bin/agent-guard" filter-lockfile-hashes \
     "$LOCK_CONTEXT_DIR/uv.lock" "$LOCK_CONTEXT_DIR/uv.lock")
-  context_expected=$(printf "[[package]]\nsdist = { url = \"https://example.invalid/pkg?api_token=%s\", hash = \"sha256:CHECKSUM\" }\nsdist = { url = \"quoted%s\", hash = \"sha256:CHECKSUM\" }\nsdist = { url = \"quoted%s\", hash = \"sha256:%s\" }" \
-    "$LOCK_SECRET" "\\\\" "\\" "$LOCK_HEX")
+  context_expected=$(printf "[[package]]\nsdist = { url = \"https://example.invalid/pkg?api_token=%s\", hash = \"sha256:CHECKSUM\" }\nsdist = { url = \"quoted%s\", hash = \"sha256:CHECKSUM\" }" \
+    "$LOCK_SECRET" "\\\\")
   if [ "$context_filtered" = "$context_expected" ]; then
-    ok "uv.lock filter continues after quoted text and honors backslash parity"
+    ok "uv.lock filter continues after quoted text and honors even backslash parity"
   else
-    not_ok "uv.lock quote context preserves odd escapes and finds later real hash fields"
+    not_ok "uv.lock quote context finds real hash fields after valid escaped text"
   fi
 
   LOCK_MULTILINE_DIR="$TMP_ROOT/lockfile-multiline-dir"

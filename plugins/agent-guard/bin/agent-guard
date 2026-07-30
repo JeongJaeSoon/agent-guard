@@ -826,6 +826,10 @@ filter_lockfile_records() {
     function replace_match(line, replacement) {
       return substr(line, 1, RSTART - 1) replacement substr(line, RSTART + RLENGTH)
     }
+    function toml_incomplete(kind) {
+      return (kind == "c" || kind == "u") \
+          && (toml_multiline != "" || toml_array_depth != 0 || toml_invalid)
+    }
     function structured_delimiter(line, at, kind, n, ch) {
       n = length(line)
       # Yarn integrity and Cargo checksum are whole scalar fields. Accept only
@@ -887,7 +891,10 @@ filter_lockfile_records() {
         # Oversized/invalid records stay fully scannable. Their parser state is
         # intentionally not guessed; after one such TOML/JSON record,
         # conservatively skip neutralization for the rest of that file.
-        if (kind == "c" || kind == "u") toml_skip_rest = 1
+        if (kind == "c" || kind == "u") {
+          toml_skip_rest = 1
+          toml_invalid = 1
+        }
         if (kind == "p") json_skip_rest = 1
         print line
         return
@@ -1047,6 +1054,16 @@ filter_lockfile_records() {
           continue
         }
 
+        if (kind == "c" || kind == "u") {
+          if (ch == "[")
+            toml_array_depth++
+          else if (ch == "]") {
+            if (toml_array_depth > 0)
+              toml_array_depth--
+            else
+              toml_invalid = 1
+          }
+        }
         if (ch == "{") {
           if (kind == "p") {
             if (json_depth >= max_json_depth) {
@@ -1066,6 +1083,8 @@ filter_lockfile_records() {
           uv_url_seen[brace_depth] = 0
           if (kind != "c") field_allowed = 1
         } else if (ch == "}") {
+          if ((kind == "c" || kind == "u") && brace_depth == 0)
+            toml_invalid = 1
           if (kind == "p") {
             delete json_role[json_depth]
             if (json_depth > 0) json_depth--
@@ -1082,6 +1101,12 @@ filter_lockfile_records() {
           field_allowed = 0
         i++
       }
+
+      # Ordinary TOML strings and inline tables cannot cross a physical
+      # record. Preserve the whole raw snapshot if either remains open.
+      if ((kind == "c" || kind == "u") \
+          && (quote != "" || brace_depth != 0))
+        toml_invalid = 1
 
       # Emit in bounded chunks. Repeatedly appending an unbounded record is
       # quadratic in some POSIX awks, even when parsing itself is single-pass.
@@ -1112,6 +1137,8 @@ filter_lockfile_records() {
       max_json_depth = 256
       previous_kind = ""
       toml_multiline = ""
+      toml_array_depth = 0
+      toml_invalid = 0
       toml_skip_rest = 0
     }
     {
@@ -1134,10 +1161,11 @@ filter_lockfile_records() {
         # A structured TOML stream must not silently discard incomplete parser
         # state when the record kind changes. Returning nonzero makes the
         # caller scan the immutable raw snapshot instead.
-        if ((previous_kind == "c" || previous_kind == "u") \
-            && toml_multiline != "")
+        if (toml_incomplete(previous_kind))
           exit 2
         toml_multiline = ""
+        toml_array_depth = 0
+        toml_invalid = 0
         toml_skip_rest = 0
         json_skip_rest = 0
         json_depth = 0
@@ -1165,8 +1193,7 @@ filter_lockfile_records() {
     END {
       # Never emit checksum-neutralized output for incomplete TOML. The caller
       # treats this parser failure as a signal to scan the full raw snapshot.
-      if ((previous_kind == "c" || previous_kind == "u") \
-          && toml_multiline != "")
+      if (toml_incomplete(previous_kind))
         exit 2
     }
   ' "$record_source"
