@@ -112,7 +112,7 @@ make check
 make smoke-test
 ```
 
-The Claude Code and Codex plugin installs do not put `agent-guard` on your shell `PATH`. In Codex, invoke `$setup-agent-guard`: it uses the plugin-local binary even when a different standalone version is on `PATH`, presents the exact host-appropriate install plan, requests approval, runs `check` plus `smoke-test`, verifies hook trust, and runs live host probes. It never installs software merely because a session started. The same skill is available in Claude Code as `agent-guard:setup-agent-guard`; Claude Code users can also run the equivalent manual commands below.
+The Claude Code and Codex plugin installs do not put `agent-guard` on your shell `PATH`. In Codex, invoke `$setup-agent-guard`: it uses the plugin-local binary even when a different standalone version is on `PATH`, presents the exact host-appropriate install plan, requests approval, runs `check` plus `smoke-test`, verifies hook trust, and runs live host probes. It never installs software merely because a session started. The same skill is available in Claude Code as `/agent-guard:setup-agent-guard`; Claude Code users can also run the equivalent manual commands below.
 
 Manual macOS equivalent:
 
@@ -152,7 +152,7 @@ Install and verify in the [Claude Code quick start](#claude-code). Useful slash 
 ```
 
 For guided dependency diagnosis and installation, use the
-`agent-guard:setup-agent-guard` skill — the same skill Codex invokes as
+`/agent-guard:setup-agent-guard` skill — the same skill Codex invokes as
 `$setup-agent-guard`. SessionStart recommends it when it reports degraded
 protection, but never invokes it: it only emits the warning. The skill selects
 the active host's plugin-verification path and runs live probes through that
@@ -481,7 +481,9 @@ agent-guard setup --install \
   --gitleaks-checksum <sha256-for-this-os-and-arch>
 ```
 
-The checksum helper prints all supported OS / arch values and paste-ready snippets for CLI setup and GitHub Actions. `$setup-agent-guard` automates the diagnosis and checksum-selection workflow, but still asks before the download or a package-manager change.
+The checksum helper prints all supported OS / arch values and paste-ready snippets for CLI setup and GitHub Actions. The guided setup skill —
+`/agent-guard:setup-agent-guard` in Claude Code, `$setup-agent-guard` in Codex —
+automates the diagnosis and checksum-selection workflow, but still asks before the download or a package-manager change.
 
 ## Host Integrations
 

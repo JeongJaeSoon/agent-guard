@@ -2935,7 +2935,7 @@ else
 fi
 
 codex_setup_ref="\$setup-agent-guard"
-claude_setup_ref='agent-guard:setup-agent-guard'
+claude_setup_ref='/agent-guard:setup-agent-guard'
 
 printf '%s' '{"tool_name":"Bash","tool_input":{"command":"brew install gitleaks"}}' \
   | AGENT_GUARD_HOOK_HOST=codex AGENT_GUARD_GITLEAKS_BIN=/nonexistent/gitleaks PATH="$NO_GITLEAKS_BIN" \
