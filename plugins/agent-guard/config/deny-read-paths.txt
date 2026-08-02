@@ -1,28 +1,17 @@
 # Shell case patterns. Blank lines and lines starting with # are ignored.
 .env*
-# Alternate dotenv layouts. Keep `env.*` source files readable by enumerating
-# only known runtime basenames, while protecting reverse-extension forms such
-# as local.env and app.env.local. Explicit template markers are handled by the
-# shared candidate_is_allowed policy in bin/agent-guard.
+# Alternate dotenv layouts. Broad runtime families cover deployment names such
+# as local, production, preview, UAT, or future variants without a brittle
+# marker list. The shared code narrowly exempts explicit templates and common
+# source-module suffixes from these environment-only defaults.
 *.env
 *.env.*
 *.envrc
 *.envrc.*
-env.local
-env.dev
-env.development
-env.prod
-env.production
-env.stage
-env.staging
-env.test
-env.testing
-env.qa
-env.ci
-env.*.local
-envrc.local
-envrc.*.local
-.flaskenv*
+env.*
+envrc.*
+.flaskenv
+.flaskenv.*
 *.pem
 *.key
 *.pfx
@@ -63,4 +52,5 @@ gcp-sa*.json
 *.tfstate
 *.tfvars
 .vault-token
-.dev.vars*
+.dev.vars
+.dev.vars.*

@@ -98,7 +98,13 @@ sh_squote() {
 }
 
 GITLEAKS_CONFIG=${AGENT_GUARD_GITLEAKS_CONFIG:-"$ROOT_DIR/config/gitleaks.toml"}
-DENY_READ_PATHS=${AGENT_GUARD_DENY_READ_PATHS:-"$ROOT_DIR/config/deny-read-paths.txt"}
+DENY_READ_PATHS_CUSTOM=0
+if [ -n "${AGENT_GUARD_DENY_READ_PATHS:-}" ]; then
+  DENY_READ_PATHS=$AGENT_GUARD_DENY_READ_PATHS
+  DENY_READ_PATHS_CUSTOM=1
+else
+  DENY_READ_PATHS="$ROOT_DIR/config/deny-read-paths.txt"
+fi
 DENY_BASH_PATTERNS=${AGENT_GUARD_DENY_BASH_PATTERNS:-"$ROOT_DIR/config/deny-bash-patterns.txt"}
 GITLEAKS_PRIVATE_BIN_DIR=${AGENT_GUARD_GITLEAKS_BIN_DIR:-${AGENT_GUARD_BIN_DIR:-$HOME/.agent-guard/bin}}
 LIVE_PRE_TOOL_PROBE=AGENT_GUARD_LIVE_PRE_TOOL_PROBE
@@ -1739,38 +1745,55 @@ resolve_path() {
   fi
 }
 
-# A template basename never exempts a file inside a deny-listed directory: walk
-# the deny patterns against the candidate's parent path so `.env.production/x`
-# stays denied regardless of what x is called. Uses its own variable names —
-# candidate_matches_deny calls into this while holding candidate/pattern.
-candidate_parent_matches_deny() {
-  parent_path=$1
+# Match a candidate without applying any template exception. Keep this in a
+# subshell because POSIX sh has no local variables and callers also iterate the
+# deny file.
+candidate_matches_raw_deny() (
+  raw_deny_candidate=$1
   [ -f "$DENY_READ_PATHS" ] || return 1
-  while IFS= read -r parent_pattern || [ -n "$parent_pattern" ]; do
-    case "$parent_pattern" in
+  while IFS= read -r raw_deny_pattern || [ -n "$raw_deny_pattern" ]; do
+    case "$raw_deny_pattern" in
       ''|\#*) continue ;;
     esac
-    case "$parent_path" in
-      $parent_pattern|*/$parent_pattern) return 0 ;;
+    case "$raw_deny_candidate" in
+      $raw_deny_pattern|*/$raw_deny_pattern) return 0 ;;
     esac
   done <"$DENY_READ_PATHS"
   return 1
-}
+)
 
-# Allowlist short-circuit consulted before any deny-path check (both the Read and
-# Bash paths). It exempts explicitly named environment placeholder templates
-# when the basename makes the template role explicit. Accepted suffix markers are
-# `.example`, `.sample`, `.template`, and `.dist`; the marker must be final.
+# A template basename never exempts a file inside a deny-listed directory. Walk
+# every ancestor rather than only the complete parent string: `local.env/sub`
+# must be caught by `*.env` before `local.env/sub/sample.env` can be allowed.
+candidate_parent_matches_deny() (
+  deny_parent_path=$1
+  while [ -n "$deny_parent_path" ] && [ "$deny_parent_path" != / ]; do
+    candidate_matches_raw_deny "$deny_parent_path" && return 0
+    case "$deny_parent_path" in
+      */*)
+        next_deny_parent=${deny_parent_path%/*}
+        [ "$next_deny_parent" = "$deny_parent_path" ] && break
+        [ -n "$next_deny_parent" ] || next_deny_parent=/
+        deny_parent_path=$next_deny_parent
+        ;;
+      *) break ;;
+    esac
+  done
+  return 1
+)
+
+# Classify explicitly named environment placeholder templates. Accepted suffix
+# markers are `.example`, `.sample`, `.template`, and `.dist`; the marker must
+# be final.
 # `example.env`, `sample.env`, and `template.env` (plus their envrc forms) are
 # also accepted because that prefix convention is common and unambiguous.
 #
 # The name on the other side of a suffix marker must still be an environment
 # file family: env/envrc, *.env/*.envrc, .flaskenv, or .dev.vars. Consequently,
 # runtime names such as `.env.local`, `local.env`, `env.local`, and
-# `example.env.local` are never exempted. A matching basename inside a
-# deny-listed directory also stays blocked (`.env.production/sample.env`).
-# NOTE: a match here exempts the candidate from ALL deny patterns, so keep this
-# grammar deliberately narrow and require an explicit template marker.
+# `example.env.local` are not templates. This function checks the basename
+# grammar only; candidate_matches_deny retains parent, non-environment, and
+# custom-policy precedence.
 candidate_is_allowed() {
   template_base=${1##*/}
   template_stem=
@@ -1793,25 +1816,68 @@ candidate_is_allowed() {
       *) return 1 ;;
     esac
   fi
-  case "$1" in
-    */*) candidate_parent_matches_deny "${1%/*}" && return 1 ;;
-  esac
   return 0
 }
 
-candidate_matches_deny() {
-  candidate=$1
-  candidate_is_allowed "$candidate" && return 1
-  while IFS= read -r pattern || [ -n "$pattern" ]; do
-    case "$pattern" in
+# Keep ordinary source modules such as `config.env.ts` readable without opening
+# data/config suffixes such as `config.env.json`. Require a non-empty prefix for
+# reverse-extension forms so `.env.ts` remains a protected runtime variant.
+candidate_is_env_source_module() {
+  env_source_base=${1##*/}
+  case "$env_source_base" in
+    env.ts|env.tsx|env.js|env.jsx|env.mjs|env.cjs|env.py|env.rb|env.go|env.rs|\
+    env.java|env.kt|env.kts|env.swift|envrc.ts|envrc.tsx|envrc.js|envrc.jsx|\
+    envrc.mjs|envrc.cjs|envrc.py|envrc.rb|envrc.go|envrc.rs|envrc.java|envrc.kt|\
+    envrc.kts|envrc.swift|?*.env.ts|?*.env.tsx|?*.env.js|?*.env.jsx|?*.env.mjs|\
+    ?*.env.cjs|?*.env.py|?*.env.rb|?*.env.go|?*.env.rs|?*.env.java|?*.env.kt|\
+    ?*.env.kts|?*.env.swift|?*.envrc.ts|?*.envrc.tsx|?*.envrc.js|?*.envrc.jsx|\
+    ?*.envrc.mjs|?*.envrc.cjs|?*.envrc.py|?*.envrc.rb|?*.envrc.go|?*.envrc.rs|\
+    ?*.envrc.java|?*.envrc.kt|?*.envrc.kts|?*.envrc.swift) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+candidate_has_default_env_exception() {
+  candidate_is_allowed "$1" || candidate_is_env_source_module "$1"
+}
+
+# Only these shipped environment-family rules may be relaxed by a classified
+# template or source-module basename. Custom deny files are always authoritative,
+# and unrelated built-in rules such as `.ssh/id_*` must still win.
+deny_pattern_allows_env_exception() {
+  case "$1" in
+    '.env*'|'*.env'|'*.env.*'|'*.envrc'|'*.envrc.*'|'env.*'|'envrc.*'|\
+    '.flaskenv.*'|'.dev.vars.*') return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+candidate_matches_deny() (
+  deny_candidate=$1
+  case "$deny_candidate" in
+    */*) candidate_parent_matches_deny "${deny_candidate%/*}" && return 0 ;;
+  esac
+
+  deny_candidate_has_env_exception=0
+  candidate_has_default_env_exception "$deny_candidate" \
+    && deny_candidate_has_env_exception=1
+  while IFS= read -r deny_pattern || [ -n "$deny_pattern" ]; do
+    case "$deny_pattern" in
       ''|\#*) continue ;;
     esac
-    case "$candidate" in
-      $pattern|*/$pattern) return 0 ;;
+    case "$deny_candidate" in
+      $deny_pattern|*/$deny_pattern)
+        if [ "$deny_candidate_has_env_exception" -eq 1 ] \
+          && [ "$DENY_READ_PATHS_CUSTOM" -eq 0 ] \
+          && deny_pattern_allows_env_exception "$deny_pattern"; then
+          continue
+        fi
+        return 0
+        ;;
     esac
   done <"$DENY_READ_PATHS"
   return 1
-}
+)
 
 matches_deny_path() {
   raw=$1
@@ -2062,6 +2128,31 @@ bash_strip_exclusion_operands() {
   )
 }
 
+# Return a literal shell token suitable for template classification. Fully
+# quoted tokens without expansion syntax are safe to unwrap; partial quoting,
+# double-quoted expansions, and tokens split at whitespace remain conservative.
+env_exception_literal_shell_token() {
+  literal_shell_token=$1
+  case "$literal_shell_token" in
+    \'*\')
+      literal_env_value=${literal_shell_token#\'}
+      literal_env_value=${literal_env_value%\'}
+      case "$literal_env_value" in *\'*) return 1 ;; esac
+      ;;
+    \"*\")
+      literal_env_value=${literal_shell_token#\"}
+      literal_env_value=${literal_env_value%\"}
+      case "$literal_env_value" in
+        *\"*|*\\*|*'$'*|*'`'*) return 1 ;;
+      esac
+      ;;
+    *\'*|*\"*) return 1 ;;
+    *) literal_env_value=$literal_shell_token ;;
+  esac
+  case "$literal_env_value" in *[[:space:]]*) return 1 ;; esac
+  printf '%s' "$literal_env_value"
+}
+
 # Drop tokens that name an allowed `.env` template (e.g. `.env.example`) before
 # the whole-command deny regex runs, so `cat .env.example` is allowed while
 # `cat .env.example .env` still blocks on the bare `.env` token. Globbing is
@@ -2079,11 +2170,15 @@ bash_strip_allowed_tokens() {
     set -- $words
     result=
     for token in "$@"; do
-      if candidate_is_allowed "$token"; then
-        normalized=$(normalize_path "$token")
-        resolved=$(resolve_path "$normalized")
-        if [ "$resolved" = "$normalized" ] || ! candidate_matches_deny "$resolved"; then
-          continue
+      env_exception_token=$(env_exception_literal_shell_token "$token" 2>/dev/null || true)
+      if [ -n "$env_exception_token" ] \
+        && candidate_has_default_env_exception "$env_exception_token"; then
+        normalized=$(normalize_path "$env_exception_token")
+        if ! candidate_matches_deny "$normalized"; then
+          resolved=$(resolve_path "$normalized")
+          if [ "$resolved" = "$normalized" ] || ! candidate_matches_deny "$resolved"; then
+            continue
+          fi
         fi
       fi
       if [ -z "$result" ]; then

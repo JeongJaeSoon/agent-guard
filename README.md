@@ -356,9 +356,14 @@ final `.example`, `.sample`, `.template`, or `.dist` marker, or when
 `example`, `sample`, or `template` directly prefixes an `.env`/`.envrc`
 extension (for example `.env.local.example`, `sample.env`, and
 `example.envrc`). Runtime-shaped names such as `.env.local`, `local.env`,
-`env.local`, `example.env.local`, `.flaskenv`, and `.dev.vars.production` stay
-blocked. Template-named symlinks are resolved and do not bypass the runtime-file
-rule; proposed template contents are still scanned normally for real secrets.
+`env.local`, `env.preview`, `example.env.local`, `.flaskenv`, and
+`.dev.vars.production` stay blocked. Source-module forms such as `env.ts` and
+`config.env.ts` remain readable, while data/config suffixes such as
+`schema.env.json` stay protected. Template exceptions never override a
+non-environment deny rule, a deny-listed ancestor, or an operator-supplied
+`AGENT_GUARD_DENY_READ_PATHS` policy. Template-named symlinks are resolved and
+do not bypass the runtime-file rule; proposed template contents are still
+scanned normally for real secrets.
 
 Dependency checksums are exempt only for recognized hash-field shapes in
 `go.sum`, `package-lock.json`, `yarn.lock`, `Cargo.lock`, and `uv.lock`. The
@@ -469,6 +474,11 @@ AGENT_GUARD_PII_HOOK_MODE=off
 AGENT_GUARD_OUTPUT_REDACT=mask
 AGENT_GUARD_INFRA_FAILURE_MODE=open
 ```
+
+An `AGENT_GUARD_DENY_READ_PATHS` override is authoritative. Unlike the bundled
+environment-family defaults, its entries are not relaxed for template-shaped
+filenames; explicitly listing `sample.env` or `secrets/*` therefore blocks those
+paths.
 
 Set `AGENT_GUARD_OUTPUT_REDACT=off` to disable masking secret-like values in tool output (default `mask`). Set `AGENT_GUARD_PII_HOOK_MODE` to `block` (block PII in tool inputs), `mask` (mask PII in tool outputs + hard-block Tier-2 PII inputs), or `off` (default).
 

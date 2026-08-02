@@ -1099,6 +1099,18 @@ expect_json_status 0 "Bash cat template.env is allowed" \
   '{"tool_name":"Bash","tool_input":{"command":"cat template.env"}}' \
   hook-pre-tool
 
+expect_json_status 0 "Bash cat of a single-quoted sample.env is allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat \u0027sample.env\u0027"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "Bash cat of a double-quoted sample.env is allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat \"sample.env\""}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash quoted runtime env path with whitespace stays blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat \u0027sample env.env\u0027"}}' \
+  hook-pre-tool
+
 expect_json_status 2 "Write sample.env with secret-like content is still blocked" \
   '{"tool_name":"Write","tool_input":{"file_path":"sample.env","content":"AGENT_GUARD_TEST_SECRET"}}' \
   hook-pre-tool
@@ -1119,6 +1131,14 @@ expect_json_status 2 "Read env.production runtime file is blocked" \
   '{"tool_name":"Read","tool_input":{"file_path":"env.production"}}' \
   hook-pre-tool
 
+expect_json_status 2 "Read env.preview runtime file is blocked" \
+  '{"tool_name":"Read","tool_input":{"file_path":"env.preview"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Read envrc.uat runtime file is blocked" \
+  '{"tool_name":"Read","tool_input":{"file_path":"envrc.uat"}}' \
+  hook-pre-tool
+
 expect_json_status 2 "Read app.env.local runtime file is blocked" \
   '{"tool_name":"Read","tool_input":{"file_path":"app.env.local"}}' \
   hook-pre-tool
@@ -1129,6 +1149,18 @@ expect_json_status 2 "Read example.env.local (template marker not final) is bloc
 
 expect_json_status 2 "Read sample.env.bak (template marker not final) is blocked" \
   '{"tool_name":"Read","tool_input":{"file_path":"sample.env.bak"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "Read config.env.ts source module is allowed" \
+  '{"tool_name":"Read","tool_input":{"file_path":"config.env.ts"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "Bash cat config.env.ts source module is allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat config.env.ts"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Read schema.env.json data file stays blocked" \
+  '{"tool_name":"Read","tool_input":{"file_path":"schema.env.json"}}' \
   hook-pre-tool
 
 expect_json_status 2 "Bash cat local.env runtime file is blocked" \
@@ -1152,12 +1184,20 @@ expect_json_status 2 "Read bare .flaskenv is blocked" \
   '{"tool_name":"Read","tool_input":{"file_path":".flaskenv"}}' \
   hook-pre-tool
 
+expect_json_status 0 "Read .flaskenvironment near-miss is allowed" \
+  '{"tool_name":"Read","tool_input":{"file_path":".flaskenvironment"}}' \
+  hook-pre-tool
+
 expect_json_status 0 "Read .dev.vars.example template is allowed" \
   '{"tool_name":"Read","tool_input":{"file_path":".dev.vars.example"}}' \
   hook-pre-tool
 
 expect_json_status 2 "Read .dev.vars.production is blocked" \
   '{"tool_name":"Read","tool_input":{"file_path":".dev.vars.production"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "Read .dev.varsheet near-miss is allowed" \
+  '{"tool_name":"Read","tool_input":{"file_path":".dev.varsheet"}}' \
   hook-pre-tool
 
 # Suffix rule: any `.env*` basename ending with a template suffix is allowed,
@@ -1218,6 +1258,22 @@ expect_json_status 2 "Read template under a deny-listed mid-path component is bl
 
 expect_json_status 2 "Bash cat of a template inside a deny-listed directory is blocked" \
   '{"tool_name":"Bash","tool_input":{"command":"cat .env.production/.envrc.sample"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Read template below a nested reverse-env ancestor is blocked" \
+  '{"tool_name":"Read","tool_input":{"file_path":"local.env/sub/sample.env"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash template below a nested reverse-env ancestor is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat local.env/sub/sample.env"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Read env template cannot bypass a built-in SSH key deny" \
+  '{"tool_name":"Read","tool_input":{"file_path":".ssh/id_rsa.env.example"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash env template cannot bypass a built-in SSH key deny" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat .ssh/id_rsa.env.example"}}' \
   hook-pre-tool
 
 # Rank 8: shell builtins that print the whole environment.
@@ -2922,6 +2978,38 @@ if [ "$status" -eq 2 ]; then
   ok "valid deny-read file still blocks a deny-listed path in a Bash command"
 else
   not_ok "valid deny-read file still blocks a deny-listed path in a Bash command (expected 2, got $status)"
+fi
+
+# A custom deny policy is operator intent and must stay authoritative even when
+# a basename otherwise qualifies for the bundled environment-template exception.
+CUSTOM_TEMPLATE_DENY="$TMP_ROOT/custom-template-deny.txt"
+printf '%s\n' 'sample.env' 'secrets/*' >"$CUSTOM_TEMPLATE_DENY"
+printf '%s' '{"tool_name":"Read","tool_input":{"file_path":"sample.env"}}' \
+  | AGENT_GUARD_DENY_READ_PATHS="$CUSTOM_TEMPLATE_DENY" \
+    "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >/dev/null 2>&1
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "custom deny-read policy overrides a Read template exception"
+else
+  not_ok "custom deny-read policy overrides a Read template exception (expected 2, got $status)"
+fi
+printf '%s' '{"tool_name":"Bash","tool_input":{"command":"cat sample.env"}}' \
+  | AGENT_GUARD_DENY_READ_PATHS="$CUSTOM_TEMPLATE_DENY" \
+    "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >/dev/null 2>&1
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "custom deny-read policy overrides a Bash template exception"
+else
+  not_ok "custom deny-read policy overrides a Bash template exception (expected 2, got $status)"
+fi
+printf '%s' '{"tool_name":"Read","tool_input":{"file_path":"secrets/sample.env"}}' \
+  | AGENT_GUARD_DENY_READ_PATHS="$CUSTOM_TEMPLATE_DENY" \
+    "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >/dev/null 2>&1
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "custom directory deny overrides a nested template exception"
+else
+  not_ok "custom directory deny overrides a nested template exception (expected 2, got $status)"
 fi
 
 # Loop-level fail-closed: a bad-ERE entry placed AFTER a valid one must still
