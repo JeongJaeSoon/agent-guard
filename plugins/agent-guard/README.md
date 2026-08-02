@@ -74,6 +74,14 @@ hash-line shape match. Other content in those files remains subject to normal
 secret detection. Output masking likewise replaces assignment values, not
 secret-like key names or surrounding prose.
 
+Environment templates are readable only with an explicit final
+`.example`/`.sample`/`.template`/`.dist` marker, or a leading
+`example`/`sample`/`template` marker directly before `.env` or `.envrc`.
+Runtime forms such as `.env.local`, `local.env`, `env.local`, `.flaskenv`, and
+`.dev.vars.production` remain blocked, and template-named symlinks are checked
+against their resolved target. Template contents still undergo normal secret
+scanning on writes.
+
 Default processing is local, ephemeral, and has no telemetry. PII hook handling
 is off by default. Selecting the optional `pleno` or `http` PII provider sends
 the text described in [PRIVACY.md](PRIVACY.md) to the user-configured endpoint.

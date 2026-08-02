@@ -351,6 +351,15 @@ To enable it, add an Actions secret named `OPENAI_API_KEY` in the GitHub reposit
 
 Patch and diff scans inspect added lines only. Removing an existing leaked value is allowed.
 
+Environment templates remain readable when their basename has an explicit,
+final `.example`, `.sample`, `.template`, or `.dist` marker, or when
+`example`, `sample`, or `template` directly prefixes an `.env`/`.envrc`
+extension (for example `.env.local.example`, `sample.env`, and
+`example.envrc`). Runtime-shaped names such as `.env.local`, `local.env`,
+`env.local`, `example.env.local`, `.flaskenv`, and `.dev.vars.production` stay
+blocked. Template-named symlinks are resolved and do not bypass the runtime-file
+rule; proposed template contents are still scanned normally for real secrets.
+
 Dependency checksums are exempt only for recognized hash-field shapes in
 `go.sum`, `package-lock.json`, `yarn.lock`, `Cargo.lock`, and `uv.lock`. The
 allowlist requires both the lockfile path and the checksum pattern; arbitrary

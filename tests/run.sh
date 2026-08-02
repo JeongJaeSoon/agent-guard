@@ -1050,7 +1050,8 @@ expect_json_status 0 "env VAR=x cmd piped (wrapped command, not bare env) is all
   '{"tool_name":"Bash","tool_input":{"command":"env FOO=bar printf %s done | cat"}}' \
   hook-pre-tool
 
-# Rank 7: allow committed .env templates, but never a real .env.
+# Rank 7: allow explicitly named environment templates, but never a real env
+# file.
 expect_json_status 0 "Read .env.example template is allowed" \
   '{"tool_name":"Read","tool_input":{"file_path":".env.example"}}' \
   hook-pre-tool
@@ -1077,6 +1078,86 @@ expect_json_status 2 "Bash cp of a template to .env.local still blocks" \
 
 expect_json_status 2 "Bash cat of .env.local (not a template) is blocked" \
   '{"tool_name":"Bash","tool_input":{"command":"cat .env.local"}}' \
+  hook-pre-tool
+
+# Prefix-template convention and reverse-extension runtime names. A leading
+# sample/example/template marker is allowed only when `.env` or `.envrc` is the
+# final extension; a final runtime marker such as `.local` remains blocked.
+expect_json_status 0 "Read sample.env template is allowed" \
+  '{"tool_name":"Read","tool_input":{"file_path":"sample.env"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "Read example.envrc template is allowed" \
+  '{"tool_name":"Read","tool_input":{"file_path":"example.envrc"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "Read local.env.example template is allowed" \
+  '{"tool_name":"Read","tool_input":{"file_path":"local.env.example"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "Bash cat template.env is allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat template.env"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Write sample.env with secret-like content is still blocked" \
+  '{"tool_name":"Write","tool_input":{"file_path":"sample.env","content":"AGENT_GUARD_TEST_SECRET"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Read local.env runtime file is blocked" \
+  '{"tool_name":"Read","tool_input":{"file_path":"local.env"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Read local.envrc runtime file is blocked" \
+  '{"tool_name":"Read","tool_input":{"file_path":"local.envrc"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Read env.local runtime file is blocked" \
+  '{"tool_name":"Read","tool_input":{"file_path":"env.local"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Read env.production runtime file is blocked" \
+  '{"tool_name":"Read","tool_input":{"file_path":"env.production"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Read app.env.local runtime file is blocked" \
+  '{"tool_name":"Read","tool_input":{"file_path":"app.env.local"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Read example.env.local (template marker not final) is blocked" \
+  '{"tool_name":"Read","tool_input":{"file_path":"example.env.local"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Read sample.env.bak (template marker not final) is blocked" \
+  '{"tool_name":"Read","tool_input":{"file_path":"sample.env.bak"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash cat local.env runtime file is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat local.env"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash cat env.local runtime file is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat env.local"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash cat of a template plus local.env still blocks" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat sample.env local.env"}}' \
+  hook-pre-tool
+
+# Other environment-file conventions follow the same explicit-marker rule.
+expect_json_status 0 "Read .flaskenv.example template is allowed" \
+  '{"tool_name":"Read","tool_input":{"file_path":".flaskenv.example"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Read bare .flaskenv is blocked" \
+  '{"tool_name":"Read","tool_input":{"file_path":".flaskenv"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "Read .dev.vars.example template is allowed" \
+  '{"tool_name":"Read","tool_input":{"file_path":".dev.vars.example"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Read .dev.vars.production is blocked" \
+  '{"tool_name":"Read","tool_input":{"file_path":".dev.vars.production"}}' \
   hook-pre-tool
 
 # Suffix rule: any `.env*` basename ending with a template suffix is allowed,
@@ -1746,12 +1827,14 @@ mkdir -p "$TEMPLATE_SYMLINK_REPO"
   printf 'API_TOKEN=agtest-%s-%s\n' "$$" "${RANDOM:-0}" > .env
   # Template-named symlink pointing at the real secret -> the #132 bypass shape.
   ln -s .env .env.example
+  ln -s .env sample.env
 )
 # Genuine regular-file template in a separate dir: must stay allowed. Ordinary
 # example content, not a symlink, no real secret alongside it.
 GENUINE_TEMPLATE_REPO="$TMP_ROOT/genuine-template-repo"
 mkdir -p "$GENUINE_TEMPLATE_REPO"
 printf 'API_TOKEN=your-token-here\n' > "$GENUINE_TEMPLATE_REPO/.env.example"
+printf 'API_TOKEN=your-token-here\n' > "$GENUINE_TEMPLATE_REPO/sample.env"
 
 if [ -L "$TEMPLATE_SYMLINK_REPO/.env.example" ]; then
   # Repro: cat of the template-named symlink must now be BLOCKED (#132).
@@ -1788,6 +1871,30 @@ if [ -L "$TEMPLATE_SYMLINK_REPO/.env.example" ]; then
     ok "Read of the template-named symlink is blocked (parity with Bash gate)"
   else
     not_ok "Read of the template-named symlink is blocked (parity with Bash gate) (expected 2, got $status)"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+
+  # The prefix-template spelling added for reverse-extension layouts receives
+  # the same symlink treatment as `.env.example` on both hook surfaces.
+  payload='{"tool_name":"Bash","tool_input":{"command":"cat '"$TEMPLATE_SYMLINK_REPO"'/sample.env"}}'
+  printf '%s' "$payload" \
+    | "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+  status=$?
+  if [ "$status" -eq 2 ]; then
+    ok "Bash cat of sample.env symlink to a real env file is blocked"
+  else
+    not_ok "Bash cat of sample.env symlink to a real env file is blocked (expected 2, got $status)"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+
+  payload='{"tool_name":"Read","tool_input":{"file_path":"'"$TEMPLATE_SYMLINK_REPO"'/sample.env"}}'
+  printf '%s' "$payload" \
+    | "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+  status=$?
+  if [ "$status" -eq 2 ]; then
+    ok "Read of sample.env symlink to a real env file is blocked"
+  else
+    not_ok "Read of sample.env symlink to a real env file is blocked (expected 2, got $status)"
     sed 's/^/  stderr: /' "$ERR"
   fi
 
@@ -1834,6 +1941,17 @@ if [ "$status" -eq 0 ]; then
   ok "Bash cat of a genuine regular-file .env.example template stays allowed"
 else
   not_ok "Bash cat of a genuine regular-file .env.example template stays allowed (expected 0, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+payload='{"tool_name":"Bash","tool_input":{"command":"cat '"$GENUINE_TEMPLATE_REPO"'/sample.env"}}'
+printf '%s' "$payload" \
+  | "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 0 ]; then
+  ok "Bash cat of a genuine regular-file sample.env template stays allowed"
+else
+  not_ok "Bash cat of a genuine regular-file sample.env template stays allowed (expected 0, got $status)"
   sed 's/^/  stderr: /' "$ERR"
 fi
 
