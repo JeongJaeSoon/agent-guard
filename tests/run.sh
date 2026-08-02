@@ -1196,6 +1196,14 @@ expect_json_status 2 "Bash eval cannot reactivate a quoted variable expansion" \
   '{"tool_name":"Bash","tool_input":{"command":"eval cat \u0027$HOME/sample.env\u0027"}}' \
   hook-pre-tool
 
+expect_json_status 2 "Bash eval cannot reactivate double quotes inside single quotes" \
+  '{"tool_name":"Bash","tool_input":{"command":"eval cat \u0027\".env\"/sample.env\u0027"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash eval cannot reactivate single quotes inside double quotes" \
+  '{"tool_name":"Bash","tool_input":{"command":"eval cat \"\u0027.env\u0027/sample.env\""}}' \
+  hook-pre-tool
+
 expect_json_status 2 "Bash quoted runtime env path with whitespace stays blocked" \
   '{"tool_name":"Bash","tool_input":{"command":"cat \u0027sample env.env\u0027"}}' \
   hook-pre-tool
@@ -1965,7 +1973,7 @@ fi
 # .env.example template keeps working (no false positive). Uses the default
 # `.env*` deny policy so it exercises the shipped rule.
 TEMPLATE_SYMLINK_REPO="$TMP_ROOT/template-symlink-repo"
-mkdir -p "$TEMPLATE_SYMLINK_REPO"
+mkdir -p "$TEMPLATE_SYMLINK_REPO/nested"
 (
   cd "$TEMPLATE_SYMLINK_REPO" || exit 2
   # Real secret file with a runtime-generated value (never a committed literal).
@@ -1973,13 +1981,15 @@ mkdir -p "$TEMPLATE_SYMLINK_REPO"
   # Template-named symlink pointing at the real secret -> the #132 bypass shape.
   ln -s .env .env.example
   ln -s .env sample.env
+  ln -s ../.env nested/template.env
 )
 # Genuine regular-file template in a separate dir: must stay allowed. Ordinary
 # example content, not a symlink, no real secret alongside it.
 GENUINE_TEMPLATE_REPO="$TMP_ROOT/genuine-template-repo"
-mkdir -p "$GENUINE_TEMPLATE_REPO"
+mkdir -p "$GENUINE_TEMPLATE_REPO/nested"
 printf 'API_TOKEN=your-token-here\n' > "$GENUINE_TEMPLATE_REPO/.env.example"
 printf 'API_TOKEN=your-token-here\n' > "$GENUINE_TEMPLATE_REPO/sample.env"
+printf 'API_TOKEN=your-token-here\n' > "$GENUINE_TEMPLATE_REPO/nested/template.env"
 
 if [ -L "$TEMPLATE_SYMLINK_REPO/.env.example" ]; then
   # Repro: cat of the template-named symlink must now be BLOCKED (#132).
@@ -2070,6 +2080,46 @@ if [ -L "$TEMPLATE_SYMLINK_REPO/.env.example" ]; then
     ok "Bash cat of a relative genuine template stays allowed across workdir cd"
   else
     not_ok "Bash cat of a relative genuine template stays allowed across workdir cd (expected 0, got $status)"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+
+  # A command can change cwd after the hook starts. Relative template tokens
+  # must not be stripped when their eventual resolution base is ambiguous.
+  payload=$(jq -nc --arg workdir "$TEMPLATE_SYMLINK_REPO" \
+    '{tool_name:"Bash",tool_input:{command:"cd nested && cat template.env",workdir:$workdir}}')
+  printf '%s' "$payload" \
+    | "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+  status=$?
+  if [ "$status" -eq 2 ]; then
+    ok "Bash inline cwd change cannot hide a relative template symlink"
+  else
+    not_ok "Bash inline cwd change cannot hide a relative template symlink (expected 2, got $status)"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+
+  payload=$(jq -nc --arg workdir "$TEMPLATE_SYMLINK_REPO" \
+    '{tool_name:"Bash",tool_input:{command:"env -C nested cat template.env",workdir:$workdir}}')
+  printf '%s' "$payload" \
+    | "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+  status=$?
+  if [ "$status" -eq 2 ]; then
+    ok "Bash wrapper cwd change cannot hide a relative template symlink"
+  else
+    not_ok "Bash wrapper cwd change cannot hide a relative template symlink (expected 2, got $status)"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+
+  # Direct relative paths still resolve against the event workdir and remain
+  # usable when they point to a genuine template.
+  payload=$(jq -nc --arg workdir "$GENUINE_TEMPLATE_REPO" \
+    '{tool_name:"Bash",tool_input:{command:"cat nested/template.env",workdir:$workdir}}')
+  printf '%s' "$payload" \
+    | "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+  status=$?
+  if [ "$status" -eq 0 ]; then
+    ok "Bash direct relative genuine template stays allowed"
+  else
+    not_ok "Bash direct relative genuine template stays allowed (expected 0, got $status)"
     sed 's/^/  stderr: /' "$ERR"
   fi
 else

@@ -2161,7 +2161,7 @@ env_exception_literal_shell_token() {
   # a dynamic prefix can hide a denied read behind an allowed basename and the
   # whole token would be removed before the deny regex sees the protected path.
   case "$literal_env_value" in
-    *'$'*|*'`'*|*\\*|*'*'*|*'?'*|*'['*|*']'*|*'{'*|*'}'*|\
+    *\'*|*\"*|*'$'*|*'`'*|*\\*|*'*'*|*'?'*|*'['*|*']'*|*'{'*|*'}'*|\
     *'('*|*')'*|*'<'*|*'>'*) return 1 ;;
   esac
 
@@ -2188,6 +2188,9 @@ env_exception_literal_shell_token() {
 bash_strip_allowed_tokens() {
   (
     set -f
+    bash_relative_env_exception_safe=1
+    bash_command_may_rebase_relative_paths "$1" \
+      && bash_relative_env_exception_safe=0
     words=$(shell_command_words "$1")
     # shellcheck disable=SC2086
     set -- $words
@@ -2197,7 +2200,12 @@ bash_strip_allowed_tokens() {
       if [ -n "$env_exception_token" ] \
         && candidate_has_default_env_exception "$env_exception_token"; then
         normalized=$(normalize_path "$env_exception_token")
-        if ! candidate_matches_deny "$normalized"; then
+        case "$normalized" in
+          /*) bash_env_token_context_safe=1 ;;
+          *) bash_env_token_context_safe=$bash_relative_env_exception_safe ;;
+        esac
+        if [ "$bash_env_token_context_safe" -eq 1 ] \
+          && ! candidate_matches_deny "$normalized"; then
           resolved=$(resolve_path "$normalized")
           if [ "$resolved" = "$normalized" ] || ! candidate_matches_deny "$resolved"; then
             continue
@@ -2330,6 +2338,46 @@ git_command_records() {
     }
   '
 }
+
+# A relative template token can be resolved safely only when the command keeps
+# the event workdir as its path base. Refuse the exception when shell syntax is
+# dynamic or a command can rebase later relative operands (`cd`, `env -C`,
+# `find -execdir`, and common `-C`/directory forms). Absolute template paths are
+# unaffected because their resolution does not depend on command-local cwd.
+bash_command_may_rebase_relative_paths() (
+  set -f
+  cwd_records=$(git_command_records "$1")
+  old_ifs=$IFS
+  IFS='
+'
+  # shellcheck disable=SC2086
+  set -- $cwd_records
+  IFS=$old_ifs
+
+  cwd_option_owner=
+  for cwd_record in "$@"; do
+    case "$cwd_record" in
+      1*|2*) return 0 ;;
+    esac
+    cwd_token=${cwd_record#?}
+    case "$cwd_token" in
+      ';'|'&&'|'||'|'|') cwd_option_owner=; continue ;;
+      cd|pushd|popd|chroot) return 0 ;;
+      env|tar|git|make|ninja|cmake|sudo|find)
+        cwd_option_owner=$cwd_token
+        ;;
+      -execdir|-execdir=*) return 0 ;;
+      --chdir|--chdir=*|--directory|--directory=*) return 0 ;;
+      -C|-C?*)
+        case "$cwd_option_owner" in
+          env|tar|git|make|ninja|cmake) return 0 ;;
+        esac
+        ;;
+      -D|-D?*) [ "$cwd_option_owner" = sudo ] && return 0 ;;
+    esac
+  done
+  return 1
+)
 
 git_option_takes_value() {
   case "$1" in
