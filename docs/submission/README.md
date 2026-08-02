@@ -14,8 +14,8 @@ placeholder with the current branch SHA.
 
 ## Actual submission or curator handoff
 
-1. Merge the reviewed payload into `main`, then check out that exact reachable
-   commit in a clean worktree.
+1. Merge the reviewed payload into `main`, fetch `origin/main`, then check out
+   that exact remote-reachable commit in a clean worktree.
 2. Run `make test`, `make smoke-test`, `scripts/validate-plugin-layout.sh --all`,
    `make submission-check`, `claude plugin validate ./plugins/agent-guard`, and
    `claude plugin validate .`.
@@ -23,8 +23,9 @@ placeholder with the current branch SHA.
    immutable source pin and subsequent automated pin updates.
 4. If a form or an Anthropic curator explicitly requests a concrete marketplace
    JSON entry, run `make submission-artifact SHA=<merged-main-sha>`. The command
-   rejects a malformed, stale, non-HEAD, or locally modified plugin payload and
-   renders JSON to standard output. Treat it as a handoff artifact; do not commit
+   rejects a malformed, stale, non-HEAD, non-`origin/main`, or dirty worktree and
+   renders JSON to standard output. It also revalidates the stable template and
+   will not overwrite it. Treat the result as a handoff artifact; do not commit
    the generated entry back to this repository.
 5. For `claude-plugins-official`, proceed only if Anthropic explicitly invites
    the plugin or provides a curator path. Resolve the broad-hook policy question

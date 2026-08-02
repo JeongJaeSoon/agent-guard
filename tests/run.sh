@@ -688,6 +688,7 @@ SUBMIRROR="$TMP_ROOT/submission-mirror"
 SUBENTRY="$SUBMIRROR/docs/submission/marketplace-entry.template.json"
 SUBVALIDATOR="$SUBMIRROR/scripts/validate-submission-readiness.sh"
 SUBRENDERER="$SUBMIRROR/scripts/render-submission-entry.sh"
+SUBREMOTE="$TMP_ROOT/submission-remote.git"
 mkdir -p "$SUBMIRROR"
 if git -C "$ROOT" archive HEAD | tar -x -C "$SUBMIRROR" 2>/dev/null; then
   # Run the working-tree scripts and template under test, not HEAD's committed
@@ -703,6 +704,9 @@ if git -C "$ROOT" archive HEAD | tar -x -C "$SUBMIRROR" 2>/dev/null; then
     git add -A
     git commit -q -m mirror-base
     git branch -M main
+    git init -q --bare "$SUBREMOTE"
+    git remote add origin "$SUBREMOTE"
+    git push -q -u origin main
   )
   match_sha=$(git -C "$SUBMIRROR" rev-parse HEAD)
   rendered_entry="$TMP_ROOT/rendered-marketplace-entry.json"
@@ -723,6 +727,17 @@ if git -C "$ROOT" archive HEAD | tar -x -C "$SUBMIRROR" 2>/dev/null; then
   run_expect 1 "submission renderer rejects a malformed source SHA" \
     env AGENT_GUARD_SUBMISSION_SHA=not-a-commit "$SUBRENDERER"
 
+  git -C "$SUBMIRROR" update-ref -d refs/remotes/origin/main
+  run_expect 1 "submission renderer rejects a checkout without origin/main" \
+    env AGENT_GUARD_SUBMISSION_SHA="$match_sha" "$SUBRENDERER"
+  if grep -q 'cannot resolve origin/main' "$ERR"; then
+    ok "missing remote main fails with actionable fetch guidance"
+  else
+    not_ok "missing remote main fails with actionable fetch guidance"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+  git -C "$SUBMIRROR" fetch -q origin main:refs/remotes/origin/main
+
   # Advance a feature branch without changing the plugin. Its HEAD is valid and
   # present, but it has not been merged into main and must not become a catalog
   # source pin.
@@ -732,10 +747,10 @@ if git -C "$ROOT" archive HEAD | tar -x -C "$SUBMIRROR" 2>/dev/null; then
   feature_sha=$(git -C "$SUBMIRROR" rev-parse HEAD)
   run_expect 1 "submission renderer rejects an unmerged feature-branch HEAD" \
     env AGENT_GUARD_SUBMISSION_SHA="$feature_sha" "$SUBRENDERER"
-  if grep -q 'must equal merged main' "$ERR"; then
-    ok "unmerged submission SHA fails with an actionable main-branch message"
+  if grep -q 'must equal fetched remote main' "$ERR"; then
+    ok "unmerged submission SHA fails with an actionable remote-main message"
   else
-    not_ok "unmerged submission SHA fails with an actionable main-branch message"
+    not_ok "unmerged submission SHA fails with an actionable remote-main message"
     sed 's/^/  stderr: /' "$ERR"
   fi
 
@@ -749,10 +764,32 @@ if git -C "$ROOT" archive HEAD | tar -x -C "$SUBMIRROR" 2>/dev/null; then
   fi
 
   git -C "$SUBMIRROR" switch -q main
+  printf '\n' >>"$SUBENTRY"
+  run_expect 1 "submission renderer rejects uncommitted template changes" \
+    env AGENT_GUARD_SUBMISSION_SHA="$match_sha" "$SUBRENDERER"
+  if grep -q 'working tree has uncommitted changes' "$ERR"; then
+    ok "dirty submission template fails before rendering a catalog entry"
+  else
+    not_ok "dirty submission template fails before rendering a catalog entry"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+  git -C "$SUBMIRROR" checkout -q -- docs/submission/marketplace-entry.template.json
+
+  run_expect 1 "submission renderer refuses to overwrite its tracked template" \
+    env AGENT_GUARD_SUBMISSION_SHA="$match_sha" \
+      AGENT_GUARD_SUBMISSION_OUTPUT="$SUBENTRY" "$SUBRENDERER"
+  if grep -q 'must not overwrite' "$ERR" \
+     && [ "$(jq -r '.source.sha' "$SUBENTRY")" = '<40-character-commit-sha-after-merge>' ]; then
+    ok "tracked template remains unchanged when selected as the output"
+  else
+    not_ok "tracked template remains unchanged when selected as the output"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+
   printf 'dirty payload\n' >"$SUBMIRROR/plugins/agent-guard/DRIFT_MARKER"
   run_expect 1 "submission renderer rejects uncommitted plugin payload changes" \
     env AGENT_GUARD_SUBMISSION_SHA="$match_sha" "$SUBRENDERER"
-  if grep -q 'has uncommitted changes' "$ERR"; then
+  if grep -q 'working tree has uncommitted changes' "$ERR"; then
     ok "dirty submission payload fails before rendering a catalog entry"
   else
     not_ok "dirty submission payload fails before rendering a catalog entry"
