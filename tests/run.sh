@@ -5716,6 +5716,81 @@ else
   sed 's/^/  out: /' "$OUT"
 fi
 
+# Chained colon labels: only a KNOWN status word before the colon marks prose.
+# Any other label is structured output whose value must still mask, and the
+# status words themselves must keep the prose behaviour above.
+CHAINED_SECRET=$(printf '%s%s' 'A1b2C3d4' 'E5f6G7h8')
+for display_case in \
+  "response: api_key: $CHAINED_SECRET" \
+  "Response: client_secret: sk-live-$CHAINED_SECRET" \
+  "result: db_password: $CHAINED_SECRET" \
+  "response.error: api_key: $CHAINED_SECRET" \
+  "response/error: api_key: $CHAINED_SECRET"; do
+  display_input=$(jq -nc --arg stdout "$display_case" \
+    '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+  post_tool_out "$display_input"
+  post_out=$(cat "$OUT")
+  if printf '%s' "$post_out" | grep -q '\[REDACTED\]' \
+     && ! printf '%s' "$post_out" | grep -Fq "$CHAINED_SECRET"; then
+    ok "post-tool masks a secret behind a non-status colon label (${display_case%%:*})"
+  else
+    not_ok "post-tool masks a secret behind a non-status colon label (${display_case%%:*})"
+    printf '%s\n' "$post_out" | sed 's/^/  out: /'
+  fi
+done
+
+# A JWT behind a status label still masks: the status-word skip only silences the
+# key-assignment heuristic, and the JWT matcher covers the value independently.
+CHAINED_JWT=$(printf '%s.%s.%s' 'eyJhbGciOiJIUzI1NiJ9' 'eyJzdWIiOiJhZ2VudC1ndWFyZCJ9' 'c2lnbmF0dXJlLXZhbHVl')
+display_input=$(jq -nc --arg stdout "Error: token: $CHAINED_JWT" \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$display_input"
+post_out=$(cat "$OUT")
+if printf '%s' "$post_out" | grep -q '\[REDACTED\]' \
+   && ! printf '%s' "$post_out" | grep -Fq "$CHAINED_JWT"; then
+  ok "post-tool masks a JWT behind a status colon label"
+else
+  not_ok "post-tool masks a JWT behind a status colon label"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+# Must-not-mask controls for the other status words in the allowlist: the prose
+# chain stays untouched regardless of label case.
+for display_case in \
+  'WARNING: secret: not configured for this environment' \
+  'Info: token: expired and must be renewed manually' \
+  'fatal: passphrase: prompting is disabled in batch mode' \
+  '2026-08-02 10:00:00 ERROR: password: authentication is disabled'; do
+  display_input=$(jq -nc --arg stdout "$display_case" \
+    '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+  post_tool_out "$display_input"
+  post_status=$?
+  if [ "$post_status" -eq 0 ] && [ ! -s "$OUT" ]; then
+    ok "post-tool leaves a status-word prose chain untouched (${display_case%%:*})"
+  else
+    not_ok "post-tool leaves a status-word prose chain untouched (${display_case%%:*})"
+    sed 's/^/  out: /' "$OUT"
+  fi
+done
+
+# The comma branch keeps winning the leftmost match, so a status-prefixed log
+# line with a real comma-delimited assignment still masks.
+COMMA_SECRET=$(printf '%s%s' 'hunter2-' 'comma-value')
+display_input=$(jq -nc --arg stdout "ERROR: connect failed, password: $COMMA_SECRET" \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$display_input"
+post_out=$(cat "$OUT")
+if printf '%s' "$post_out" | grep -q '\[REDACTED\]' \
+   && printf '%s' "$post_out" | grep -q 'connect failed' \
+   && ! printf '%s' "$post_out" | grep -Fq "$COMMA_SECRET"; then
+  ok "post-tool masks a comma-delimited assignment after a status label"
+else
+  not_ok "post-tool masks a comma-delimited assignment after a status label"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+# Preserve the YAML sequence mapping coverage added on main while resolving the
+# PR branch: the leading dash is structural punctuation, not a prose label.
 display_input=$(jq -nc --arg stdout "- password: $DISPLAY_SECRET" \
   '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
 post_tool_out "$display_input"
@@ -5733,7 +5808,10 @@ fi
 for display_case in \
   'AWS_SECRET_ACCESS_KEY_ID=wJalrX-fake-example-key-id' \
   'API_KEY_VALUE=supersecret-value-9876' \
-  'DB_PASSWORD_HASH=deadbeefdeadbeefcafe'; do
+  'DB_PASSWORD_HASH=deadbeefdeadbeefcafe' \
+  'PRIVATE_KEY_PEM=fake-pem-body-1234' \
+  'CLIENT_SECRET_CERT=fake-cert-body-5678' \
+  'SERVICE_ACCOUNT_CREDENTIAL_JSON=fake-json-blob-9876'; do
   display_key=${display_case%%=*}
   display_val=${display_case#*=}
   display_input=$(jq -nc --arg stdout "$display_case" \
