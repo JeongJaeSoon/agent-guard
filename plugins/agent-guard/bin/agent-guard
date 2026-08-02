@@ -2133,6 +2133,7 @@ bash_strip_exclusion_operands() {
 # double-quoted expansions, and tokens split at whitespace remain conservative.
 env_exception_literal_shell_token() {
   literal_shell_token=$1
+  literal_env_unquoted=0
   case "$literal_shell_token" in
     \'*\')
       literal_env_value=${literal_shell_token#\'}
@@ -2149,21 +2150,27 @@ env_exception_literal_shell_token() {
     *\'*|*\"*) return 1 ;;
     *)
       literal_env_value=$literal_shell_token
-      # Unquoted shell tokens are only literal when the shell has nothing left
-      # to expand or reinterpret. Otherwise a dynamic prefix can hide a denied
-      # read behind an allowed basename, e.g. `$(<.env)/sample.env`, and the
-      # whole token would be removed before the deny regex sees `.env`.
-      case "$literal_env_value" in
-        *'$'*|*'`'*|*\\*|*'*'*|*'?'*|*'['*|*']'*|*'{'*|*'}'*|\
-        *'('*|*')'*|*'<'*|*'>'*) return 1 ;;
-      esac
-      # `~/...` is normalized to the same path the shell expands. Other tilde
-      # forms (such as `~other/...`) depend on account lookup and stay denied.
-      case "$literal_env_value" in
-        '~/'*) ;;
-        *'~'*) return 1 ;;
-      esac
+      literal_env_unquoted=1
       ;;
+  esac
+
+  # The exception candidate must remain literal even if a wrapper such as
+  # `eval` performs another round of shell parsing. Apply this after unquoting,
+  # not only to initially unquoted tokens: a single-quoted expansion is inert
+  # for the first parse but becomes active when eval reinterprets it. Otherwise
+  # a dynamic prefix can hide a denied read behind an allowed basename and the
+  # whole token would be removed before the deny regex sees the protected path.
+  case "$literal_env_value" in
+    *'$'*|*'`'*|*\\*|*'*'*|*'?'*|*'['*|*']'*|*'{'*|*'}'*|\
+    *'('*|*')'*|*'<'*|*'>'*) return 1 ;;
+  esac
+
+  # Only an initially unquoted `~/...` is normalized to the same path the shell
+  # expands. Quoted tildes and account-lookup forms such as `~other/...` can
+  # change meaning under another parse and therefore stay in the deny scan.
+  case "$literal_env_value" in
+    '~/'*) [ "$literal_env_unquoted" -eq 1 ] || return 1 ;;
+    *'~'*) return 1 ;;
   esac
   case "$literal_env_value" in *[[:space:]]*) return 1 ;; esac
   printf '%s' "$literal_env_value"

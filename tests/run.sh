@@ -1126,6 +1126,14 @@ expect_json_status 2 "Bash glob is not treated as a literal sample.env path" \
   '{"tool_name":"Bash","tool_input":{"command":"cat */sample.env"}}' \
   hook-pre-tool
 
+expect_json_status 2 "Bash eval cannot reactivate a quoted command substitution" \
+  '{"tool_name":"Bash","tool_input":{"command":"eval echo \u0027$(<.env)/sample.env\u0027"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash eval cannot reactivate a quoted variable expansion" \
+  '{"tool_name":"Bash","tool_input":{"command":"eval cat \u0027$HOME/sample.env\u0027"}}' \
+  hook-pre-tool
+
 expect_json_status 2 "Bash quoted runtime env path with whitespace stays blocked" \
   '{"tool_name":"Bash","tool_input":{"command":"cat \u0027sample env.env\u0027"}}' \
   hook-pre-tool
