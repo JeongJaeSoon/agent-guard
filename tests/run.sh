@@ -1107,6 +1107,25 @@ expect_json_status 0 "Bash cat of a double-quoted sample.env is allowed" \
   '{"tool_name":"Bash","tool_input":{"command":"cat \"sample.env\""}}' \
   hook-pre-tool
 
+# Dynamic unquoted tokens are not literal template paths. Keeping them in the
+# deny scan prevents expansions from reading a protected file before producing
+# an otherwise allowed template basename.
+expect_json_status 2 "Bash command substitution cannot hide .env behind sample.env" \
+  '{"tool_name":"Bash","tool_input":{"command":"echo $(<.env)/sample.env"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash command substitution cannot hide .env behind .env.example" \
+  '{"tool_name":"Bash","tool_input":{"command":"echo $(<.env)/.env.example"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash variable expansion is not treated as a literal sample.env path" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat $HOME/sample.env"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash glob is not treated as a literal sample.env path" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat */sample.env"}}' \
+  hook-pre-tool
+
 expect_json_status 2 "Bash quoted runtime env path with whitespace stays blocked" \
   '{"tool_name":"Bash","tool_input":{"command":"cat \u0027sample env.env\u0027"}}' \
   hook-pre-tool

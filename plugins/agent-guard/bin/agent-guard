@@ -2147,7 +2147,23 @@ env_exception_literal_shell_token() {
       esac
       ;;
     *\'*|*\"*) return 1 ;;
-    *) literal_env_value=$literal_shell_token ;;
+    *)
+      literal_env_value=$literal_shell_token
+      # Unquoted shell tokens are only literal when the shell has nothing left
+      # to expand or reinterpret. Otherwise a dynamic prefix can hide a denied
+      # read behind an allowed basename, e.g. `$(<.env)/sample.env`, and the
+      # whole token would be removed before the deny regex sees `.env`.
+      case "$literal_env_value" in
+        *'$'*|*'`'*|*\\*|*'*'*|*'?'*|*'['*|*']'*|*'{'*|*'}'*|\
+        *'('*|*')'*|*'<'*|*'>'*) return 1 ;;
+      esac
+      # `~/...` is normalized to the same path the shell expands. Other tilde
+      # forms (such as `~other/...`) depend on account lookup and stay denied.
+      case "$literal_env_value" in
+        '~/'*) ;;
+        *'~'*) return 1 ;;
+      esac
+      ;;
   esac
   case "$literal_env_value" in *[[:space:]]*) return 1 ;; esac
   printf '%s' "$literal_env_value"
