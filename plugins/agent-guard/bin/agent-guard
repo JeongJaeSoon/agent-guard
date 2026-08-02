@@ -98,7 +98,13 @@ sh_squote() {
 }
 
 GITLEAKS_CONFIG=${AGENT_GUARD_GITLEAKS_CONFIG:-"$ROOT_DIR/config/gitleaks.toml"}
-DENY_READ_PATHS=${AGENT_GUARD_DENY_READ_PATHS:-"$ROOT_DIR/config/deny-read-paths.txt"}
+DENY_READ_PATHS_CUSTOM=0
+if [ -n "${AGENT_GUARD_DENY_READ_PATHS:-}" ]; then
+  DENY_READ_PATHS=$AGENT_GUARD_DENY_READ_PATHS
+  DENY_READ_PATHS_CUSTOM=1
+else
+  DENY_READ_PATHS="$ROOT_DIR/config/deny-read-paths.txt"
+fi
 DENY_BASH_PATTERNS=${AGENT_GUARD_DENY_BASH_PATTERNS:-"$ROOT_DIR/config/deny-bash-patterns.txt"}
 GITLEAKS_PRIVATE_BIN_DIR=${AGENT_GUARD_GITLEAKS_BIN_DIR:-${AGENT_GUARD_BIN_DIR:-$HOME/.agent-guard/bin}}
 LIVE_PRE_TOOL_PROBE=AGENT_GUARD_LIVE_PRE_TOOL_PROBE
@@ -1739,58 +1745,139 @@ resolve_path() {
   fi
 }
 
-# A template basename never exempts a file inside a deny-listed directory: walk
-# the deny patterns against the candidate's parent path so `.env.production/x`
-# stays denied regardless of what x is called. Uses its own variable names —
-# candidate_matches_deny calls into this while holding candidate/pattern.
-candidate_parent_matches_deny() {
-  parent_path=$1
+# Match a candidate without applying any template exception. Keep this in a
+# subshell because POSIX sh has no local variables and callers also iterate the
+# deny file.
+candidate_matches_raw_deny() (
+  raw_deny_candidate=$1
   [ -f "$DENY_READ_PATHS" ] || return 1
-  while IFS= read -r parent_pattern || [ -n "$parent_pattern" ]; do
-    case "$parent_pattern" in
+  while IFS= read -r raw_deny_pattern || [ -n "$raw_deny_pattern" ]; do
+    case "$raw_deny_pattern" in
       ''|\#*) continue ;;
     esac
-    case "$parent_path" in
-      $parent_pattern|*/$parent_pattern) return 0 ;;
+    case "$raw_deny_candidate" in
+      $raw_deny_pattern|*/$raw_deny_pattern) return 0 ;;
     esac
   done <"$DENY_READ_PATHS"
   return 1
-}
+)
 
-# Allowlist short-circuit consulted before any deny-path check (both the Read and
-# Bash paths). It exempts committed dotenv-style placeholder templates that the
-# `.env*` deny glob would otherwise block: any basename starting with `.env` and
-# ending with a template suffix (`.envrc.sample`, `.env.local.example`, ...).
-# Matched on the basename only, with the suffix anchored at the end, so a real
-# secret file (`.env`, `.envrc`, `.env.production`, `.env.example.bak`) is never
-# exempted by a crafted path — and only when no parent path component is itself
-# deny-listed (`.env.production/.envrc.sample` stays blocked). NOTE: a match here
-# exempts the candidate from ALL deny patterns, so the rule must only admit
-# shapes that never hold secrets.
+# A template basename never exempts a file inside a deny-listed directory. Walk
+# every ancestor rather than only the complete parent string: `local.env/sub`
+# must be caught by `*.env` before `local.env/sub/sample.env` can be allowed.
+candidate_parent_matches_deny() (
+  deny_parent_path=$1
+  while [ -n "$deny_parent_path" ] && [ "$deny_parent_path" != / ]; do
+    candidate_matches_raw_deny "$deny_parent_path" && return 0
+    case "$deny_parent_path" in
+      */*)
+        next_deny_parent=${deny_parent_path%/*}
+        [ "$next_deny_parent" = "$deny_parent_path" ] && break
+        [ -n "$next_deny_parent" ] || next_deny_parent=/
+        deny_parent_path=$next_deny_parent
+        ;;
+      *) break ;;
+    esac
+  done
+  return 1
+)
+
+# Classify explicitly named environment placeholder templates. Accepted suffix
+# markers are `.example`, `.sample`, `.template`, and `.dist`; the marker must
+# be final.
+# `example.env`, `sample.env`, and `template.env` (plus their envrc forms) are
+# also accepted because that prefix convention is common and unambiguous.
+#
+# The name on the other side of a suffix marker must still be an environment
+# file family: env/envrc, *.env/*.envrc, .flaskenv, or .dev.vars. Consequently,
+# runtime names such as `.env.local`, `local.env`, `env.local`, and
+# `example.env.local` are not templates. This function checks the basename
+# grammar only; candidate_matches_deny retains parent, non-environment, and
+# custom-policy precedence.
 candidate_is_allowed() {
-  case "${1##*/}" in
-    .env*.example|.env*.sample|.env*.template|.env*.dist) ;;
+  template_base=${1##*/}
+  template_stem=
+
+  case "$template_base" in
+    example.env|sample.env|template.env|example.envrc|sample.envrc|template.envrc|\
+    .example.env|.sample.env|.template.env|.example.envrc|.sample.envrc|.template.envrc)
+      ;;
+    *.example) template_stem=${template_base%.example} ;;
+    *.sample) template_stem=${template_base%.sample} ;;
+    *.template) template_stem=${template_base%.template} ;;
+    *.dist) template_stem=${template_base%.dist} ;;
     *) return 1 ;;
   esac
-  case "$1" in
-    */*) candidate_parent_matches_deny "${1%/*}" && return 1 ;;
-  esac
+
+  if [ -n "$template_stem" ]; then
+    case "$template_stem" in
+      .env|.env.*|env|env.*|.envrc|.envrc.*|envrc|envrc.*|*.env|*.envrc|\
+      .flaskenv|.flaskenv.*|.dev.vars|.dev.vars.*) ;;
+      *) return 1 ;;
+    esac
+  fi
   return 0
 }
 
-candidate_matches_deny() {
-  candidate=$1
-  candidate_is_allowed "$candidate" && return 1
-  while IFS= read -r pattern || [ -n "$pattern" ]; do
-    case "$pattern" in
+# Keep ordinary source modules such as `config.env.ts` readable without opening
+# data/config suffixes such as `config.env.json`. Require a non-empty prefix for
+# reverse-extension forms so `.env.ts` remains a protected runtime variant.
+candidate_is_env_source_module() {
+  env_source_base=${1##*/}
+  case "$env_source_base" in
+    env.ts|env.tsx|env.js|env.jsx|env.mjs|env.cjs|env.py|env.rb|env.go|env.rs|\
+    env.java|env.kt|env.kts|env.swift|envrc.ts|envrc.tsx|envrc.js|envrc.jsx|\
+    envrc.mjs|envrc.cjs|envrc.py|envrc.rb|envrc.go|envrc.rs|envrc.java|envrc.kt|\
+    envrc.kts|envrc.swift|?*.env.ts|?*.env.tsx|?*.env.js|?*.env.jsx|?*.env.mjs|\
+    ?*.env.cjs|?*.env.py|?*.env.rb|?*.env.go|?*.env.rs|?*.env.java|?*.env.kt|\
+    ?*.env.kts|?*.env.swift|?*.envrc.ts|?*.envrc.tsx|?*.envrc.js|?*.envrc.jsx|\
+    ?*.envrc.mjs|?*.envrc.cjs|?*.envrc.py|?*.envrc.rb|?*.envrc.go|?*.envrc.rs|\
+    ?*.envrc.java|?*.envrc.kt|?*.envrc.kts|?*.envrc.swift) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+candidate_has_default_env_exception() {
+  candidate_is_allowed "$1" || candidate_is_env_source_module "$1"
+}
+
+# Only these shipped environment-family rules may be relaxed by a classified
+# template or source-module basename. Custom deny files are always authoritative,
+# and unrelated built-in rules such as `.ssh/id_*` must still win.
+deny_pattern_allows_env_exception() {
+  case "$1" in
+    '.env*'|'*.env'|'*.env.*'|'*.envrc'|'*.envrc.*'|'env.*'|'envrc.*'|\
+    '.flaskenv.*'|'.dev.vars.*') return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+candidate_matches_deny() (
+  deny_candidate=$1
+  case "$deny_candidate" in
+    */*) candidate_parent_matches_deny "${deny_candidate%/*}" && return 0 ;;
+  esac
+
+  deny_candidate_has_env_exception=0
+  candidate_has_default_env_exception "$deny_candidate" \
+    && deny_candidate_has_env_exception=1
+  while IFS= read -r deny_pattern || [ -n "$deny_pattern" ]; do
+    case "$deny_pattern" in
       ''|\#*) continue ;;
     esac
-    case "$candidate" in
-      $pattern|*/$pattern) return 0 ;;
+    case "$deny_candidate" in
+      $deny_pattern|*/$deny_pattern)
+        if [ "$deny_candidate_has_env_exception" -eq 1 ] \
+          && [ "$DENY_READ_PATHS_CUSTOM" -eq 0 ] \
+          && deny_pattern_allows_env_exception "$deny_pattern"; then
+          continue
+        fi
+        return 0
+        ;;
     esac
   done <"$DENY_READ_PATHS"
   return 1
-}
+)
 
 matches_deny_path() {
   raw=$1
@@ -2041,6 +2128,54 @@ bash_strip_exclusion_operands() {
   )
 }
 
+# Return a literal shell token suitable for template classification. Fully
+# quoted tokens without expansion syntax are safe to unwrap; partial quoting,
+# double-quoted expansions, and tokens split at whitespace remain conservative.
+env_exception_literal_shell_token() {
+  literal_shell_token=$1
+  literal_env_unquoted=0
+  case "$literal_shell_token" in
+    \'*\')
+      literal_env_value=${literal_shell_token#\'}
+      literal_env_value=${literal_env_value%\'}
+      case "$literal_env_value" in *\'*) return 1 ;; esac
+      ;;
+    \"*\")
+      literal_env_value=${literal_shell_token#\"}
+      literal_env_value=${literal_env_value%\"}
+      case "$literal_env_value" in
+        *\"*|*\\*|*'$'*|*'`'*) return 1 ;;
+      esac
+      ;;
+    *\'*|*\"*) return 1 ;;
+    *)
+      literal_env_value=$literal_shell_token
+      literal_env_unquoted=1
+      ;;
+  esac
+
+  # The exception candidate must remain literal even if a wrapper such as
+  # `eval` performs another round of shell parsing. Apply this after unquoting,
+  # not only to initially unquoted tokens: a single-quoted expansion is inert
+  # for the first parse but becomes active when eval reinterprets it. Otherwise
+  # a dynamic prefix can hide a denied read behind an allowed basename and the
+  # whole token would be removed before the deny regex sees the protected path.
+  case "$literal_env_value" in
+    *\'*|*\"*|*'$'*|*'`'*|*\\*|*'*'*|*'?'*|*'['*|*']'*|*'{'*|*'}'*|\
+    *'('*|*')'*|*'<'*|*'>'*) return 1 ;;
+  esac
+
+  # Only an initially unquoted `~/...` is normalized to the same path the shell
+  # expands. Quoted tildes and account-lookup forms such as `~other/...` can
+  # change meaning under another parse and therefore stay in the deny scan.
+  case "$literal_env_value" in
+    '~/'*) [ "$literal_env_unquoted" -eq 1 ] || return 1 ;;
+    *'~'*) return 1 ;;
+  esac
+  case "$literal_env_value" in *[[:space:]]*) return 1 ;; esac
+  printf '%s' "$literal_env_value"
+}
+
 # Drop tokens that name an allowed `.env` template (e.g. `.env.example`) before
 # the whole-command deny regex runs, so `cat .env.example` is allowed while
 # `cat .env.example .env` still blocks on the bare `.env` token. Globbing is
@@ -2053,16 +2188,28 @@ bash_strip_exclusion_operands() {
 bash_strip_allowed_tokens() {
   (
     set -f
+    bash_relative_env_exception_safe=1
+    bash_command_may_rebase_relative_paths "$1" \
+      && bash_relative_env_exception_safe=0
     words=$(shell_command_words "$1")
     # shellcheck disable=SC2086
     set -- $words
     result=
     for token in "$@"; do
-      if candidate_is_allowed "$token"; then
-        normalized=$(normalize_path "$token")
-        resolved=$(resolve_path "$normalized")
-        if [ "$resolved" = "$normalized" ] || ! candidate_matches_deny "$resolved"; then
-          continue
+      env_exception_token=$(env_exception_literal_shell_token "$token" 2>/dev/null || true)
+      if [ -n "$env_exception_token" ] \
+        && candidate_has_default_env_exception "$env_exception_token"; then
+        normalized=$(normalize_path "$env_exception_token")
+        case "$normalized" in
+          /*) bash_env_token_context_safe=1 ;;
+          *) bash_env_token_context_safe=$bash_relative_env_exception_safe ;;
+        esac
+        if [ "$bash_env_token_context_safe" -eq 1 ] \
+          && ! candidate_matches_deny "$normalized"; then
+          resolved=$(resolve_path "$normalized")
+          if [ "$resolved" = "$normalized" ] || ! candidate_matches_deny "$resolved"; then
+            continue
+          fi
         fi
       fi
       if [ -z "$result" ]; then
@@ -2191,6 +2338,47 @@ git_command_records() {
     }
   '
 }
+
+# A relative template token can be resolved safely only when the command keeps
+# the event workdir as its path base. Refuse the exception when shell syntax is
+# dynamic or a command can rebase later relative operands (`cd`, `env -C`,
+# `find -execdir`, and common `-C`/directory forms). Absolute template paths are
+# unaffected because their resolution does not depend on command-local cwd.
+bash_command_may_rebase_relative_paths() (
+  set -f
+  cwd_records=$(git_command_records "$1")
+  old_ifs=$IFS
+  IFS='
+'
+  # shellcheck disable=SC2086
+  set -- $cwd_records
+  IFS=$old_ifs
+
+  cwd_option_owner=
+  for cwd_record in "$@"; do
+    case "$cwd_record" in
+      1*|2*) return 0 ;;
+    esac
+    cwd_token=${cwd_record#?}
+    cwd_token_name=${cwd_token##*/}
+    case "$cwd_token_name" in
+      ';'|'&&'|'||'|'|') cwd_option_owner=; continue ;;
+      cd|pushd|popd|chroot) return 0 ;;
+      env|tar|git|make|ninja|cmake|sudo|find)
+        cwd_option_owner=$cwd_token_name
+        ;;
+      -execdir|-execdir=*) return 0 ;;
+      --chdir|--chdir=*|--directory|--directory=*) return 0 ;;
+      -C|-C?*)
+        case "$cwd_option_owner" in
+          env|tar|git|make|ninja|cmake) return 0 ;;
+        esac
+        ;;
+      -D|-D?*) [ "$cwd_option_owner" = sudo ] && return 0 ;;
+    esac
+  done
+  return 1
+)
 
 git_option_takes_value() {
   case "$1" in
