@@ -2360,11 +2360,12 @@ bash_command_may_rebase_relative_paths() (
       1*|2*) return 0 ;;
     esac
     cwd_token=${cwd_record#?}
-    case "$cwd_token" in
+    cwd_token_name=${cwd_token##*/}
+    case "$cwd_token_name" in
       ';'|'&&'|'||'|'|') cwd_option_owner=; continue ;;
       cd|pushd|popd|chroot) return 0 ;;
       env|tar|git|make|ninja|cmake|sudo|find)
-        cwd_option_owner=$cwd_token
+        cwd_option_owner=$cwd_token_name
         ;;
       -execdir|-execdir=*) return 0 ;;
       --chdir|--chdir=*|--directory|--directory=*) return 0 ;;

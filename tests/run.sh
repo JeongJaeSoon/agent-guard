@@ -2109,6 +2109,21 @@ if [ -L "$TEMPLATE_SYMLINK_REPO/.env.example" ]; then
     sed 's/^/  stderr: /' "$ERR"
   fi
 
+  # A path-qualified wrapper is the same executable and must retain the same
+  # cwd-rebasing semantics during policy classification.
+  env_command=$(command -v env)
+  payload=$(jq -nc --arg workdir "$TEMPLATE_SYMLINK_REPO" --arg env_command "$env_command" \
+    '{tool_name:"Bash",tool_input:{command:($env_command + " -C nested cat template.env"),workdir:$workdir}}')
+  printf '%s' "$payload" \
+    | "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+  status=$?
+  if [ "$status" -eq 2 ]; then
+    ok "Bash path-qualified wrapper cwd change cannot hide a relative template symlink"
+  else
+    not_ok "Bash path-qualified wrapper cwd change cannot hide a relative template symlink (expected 2, got $status)"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+
   # Direct relative paths still resolve against the event workdir and remain
   # usable when they point to a genuine template.
   payload=$(jq -nc --arg workdir "$GENUINE_TEMPLATE_REPO" \
