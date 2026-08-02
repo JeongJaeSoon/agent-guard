@@ -8,10 +8,10 @@
    changed.
 3. Resolve the reachable 40-character GitHub commit SHA that contains the exact
    plugin payload under `plugins/agent-guard`. The prepared submission pins
-   `5ee7a54661a8d0dd0e8c3ce149495dd9ccd6434b`; `make submission-check`
+   `adb6ad10ece9337ed9896dbb243920d9345a502b`; `make submission-check`
    verifies that its `plugins/agent-guard` tree matches the current payload.
 4. Re-run `make submission-check` with
-   `AGENT_GUARD_SUBMISSION_SHA=5ee7a54661a8d0dd0e8c3ce149495dd9ccd6434b`.
+   `AGENT_GUARD_SUBMISSION_SHA=adb6ad10ece9337ed9896dbb243920d9345a502b`.
    If the plugin payload changes, replace the pinned SHA in both submission
    drafts and validate the new reachable commit before submitting.
 5. For the public community route, submit the form draft through the Console
