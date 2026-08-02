@@ -8,7 +8,8 @@
 
 - Repository: `https://github.com/JeongJaeSoon/agent-guard`
 - Plugin path: `plugins/agent-guard`
-- Commit SHA: `a49fe30e071b290c25f3002ac42746ff9e50d2ea`
+- Commit SHA: resolve the reachable `main` commit only when the submission form
+  requests it; do not keep a moving SHA in this draft.
 
 ## Short description
 

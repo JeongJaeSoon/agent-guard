@@ -679,20 +679,22 @@ else
   not_ok "release version drift: bin=$plugin_ver claude=$claude_ver codex=$codex_ver marketplace=$market_ver managed=$managed_claude_ref changelog=$changelog_ver"
 fi
 
-# --- submission-readiness pinned-SHA drift ---------------------------------
-# The official marketplace entry template pins .source.sha, but validating only
-# its 40-hex format lets the pin rot: reviewers approve one snapshot while the
-# payload silently moves on. Build a self-contained mirror of the current tree
-# (running THIS worktree's copy of the validator, which carries the fix) so we
-# can drive the pin to a matching, stale, and absent commit deterministically,
-# without touching the repo's real pinned value.
+# --- submission artifact lifecycle -----------------------------------------
+# Routine PR validation keeps a placeholder rather than a moving source SHA.
+# A concrete entry is rendered only from the exact checked-out commit after
+# merge. Build a self-contained mirror so matching, stale, malformed, and dirty
+# inputs can be exercised without modifying the repository's template.
 SUBMIRROR="$TMP_ROOT/submission-mirror"
-SUBENTRY="$SUBMIRROR/docs/submission/claude-plugins-official/marketplace-entry.template.json"
+SUBENTRY="$SUBMIRROR/docs/submission/marketplace-entry.template.json"
 SUBVALIDATOR="$SUBMIRROR/scripts/validate-submission-readiness.sh"
+SUBRENDERER="$SUBMIRROR/scripts/render-submission-entry.sh"
 mkdir -p "$SUBMIRROR"
 if git -C "$ROOT" archive HEAD | tar -x -C "$SUBMIRROR" 2>/dev/null; then
-  # Run the working-tree validator (the fix under test), not HEAD's committed copy.
+  # Run the working-tree scripts and template under test, not HEAD's committed
+  # copies. The current worktree may not have been committed yet.
   cp "$ROOT/scripts/validate-submission-readiness.sh" "$SUBVALIDATOR"
+  cp "$ROOT/scripts/render-submission-entry.sh" "$SUBRENDERER"
+  cp "$ROOT/docs/submission/marketplace-entry.template.json" "$SUBENTRY"
   (
     cd "$SUBMIRROR" || exit 2
     git init -q
@@ -700,41 +702,64 @@ if git -C "$ROOT" archive HEAD | tar -x -C "$SUBMIRROR" 2>/dev/null; then
     git config user.name test
     git add -A
     git commit -q -m mirror-base
+    git branch -M main
   )
   match_sha=$(git -C "$SUBMIRROR" rev-parse HEAD)
-  # Pin the template at the current HEAD → tree matches payload → must pass.
-  jq --arg sha "$match_sha" '.source.sha = $sha' "$SUBENTRY" >"$SUBENTRY.tmp" && mv "$SUBENTRY.tmp" "$SUBENTRY"
-  run_expect 0 "submission validator accepts a pin whose plugins/agent-guard tree matches HEAD" \
+  rendered_entry="$TMP_ROOT/rendered-marketplace-entry.json"
+
+  run_expect 0 "routine submission validator accepts the stable post-merge SHA placeholder" \
     env -u AGENT_GUARD_SUBMISSION_SHA "$SUBVALIDATOR"
 
-  # Advance HEAD so the pinned (now-parent) commit's payload no longer matches.
-  printf 'drift\n' >"$SUBMIRROR/plugins/agent-guard/DRIFT_MARKER"
-  (cd "$SUBMIRROR" && git add -A && git commit -q -m drift)
-  run_expect 1 "submission validator rejects a stale pin whose plugins/agent-guard tree differs from HEAD" \
-    env -u AGENT_GUARD_SUBMISSION_SHA "$SUBVALIDATOR"
-  if grep -q 'differs from current payload' "$ERR"; then
-    ok "stale-pin rejection names the payload drift and tells the maintainer to re-pin"
+  run_expect 0 "submission renderer emits an entry for the exact checked-out commit" \
+    env AGENT_GUARD_SUBMISSION_SHA="$match_sha" \
+      AGENT_GUARD_SUBMISSION_OUTPUT="$rendered_entry" "$SUBRENDERER"
+  if [ "$(jq -r '.source.sha' "$rendered_entry")" = "$match_sha" ] \
+     && [ "$(jq -r '.source.sha' "$SUBENTRY")" = '<40-character-commit-sha-after-merge>' ]; then
+    ok "submission renderer pins only the generated artifact and leaves the template stable"
   else
-    not_ok "stale-pin rejection names the payload drift and tells the maintainer to re-pin"
+    not_ok "submission renderer pins only the generated artifact and leaves the template stable"
+  fi
+
+  run_expect 1 "submission renderer rejects a malformed source SHA" \
+    env AGENT_GUARD_SUBMISSION_SHA=not-a-commit "$SUBRENDERER"
+
+  # Advance a feature branch without changing the plugin. Its HEAD is valid and
+  # present, but it has not been merged into main and must not become a catalog
+  # source pin.
+  git -C "$SUBMIRROR" switch -q -c feature
+  printf 'next commit\n' >"$SUBMIRROR/submission-test-marker"
+  (cd "$SUBMIRROR" && git add -A && git commit -q -m drift)
+  feature_sha=$(git -C "$SUBMIRROR" rev-parse HEAD)
+  run_expect 1 "submission renderer rejects an unmerged feature-branch HEAD" \
+    env AGENT_GUARD_SUBMISSION_SHA="$feature_sha" "$SUBRENDERER"
+  if grep -q 'must equal merged main' "$ERR"; then
+    ok "unmerged submission SHA fails with an actionable main-branch message"
+  else
+    not_ok "unmerged submission SHA fails with an actionable main-branch message"
     sed 's/^/  stderr: /' "$ERR"
   fi
 
-  # A syntactically valid SHA that is not a local commit (shallow / submission
-  # checkout) must FAIL closed: "could not verify" is not a pass. Warning and
-  # skipping would print "validation passed" for a run that checked nothing —
-  # exactly the stale-pin scenario this guard exists to catch.
-  absent_sha=1234567890123456789012345678901234567890
-  jq --arg sha "$absent_sha" '.source.sha = $sha' "$SUBENTRY" >"$SUBENTRY.tmp" && mv "$SUBENTRY.tmp" "$SUBENTRY"
-  run_expect 1 "submission validator fails closed when the pinned commit is not available locally" \
-    env -u AGENT_GUARD_SUBMISSION_SHA "$SUBVALIDATOR"
-  if grep -q 'is not present locally' "$OUT" "$ERR"; then
-    ok "history-unavailable pin fails with an actionable full-history message"
+  run_expect 1 "submission renderer rejects a reachable SHA that is not checked-out HEAD" \
+    env AGENT_GUARD_SUBMISSION_SHA="$match_sha" "$SUBRENDERER"
+  if grep -q 'must match checked-out HEAD' "$ERR"; then
+    ok "stale submission SHA fails with an actionable post-merge message"
   else
-    not_ok "history-unavailable pin fails with an actionable full-history message"
-    sed 's/^/  stdout: /' "$OUT"; sed 's/^/  stderr: /' "$ERR"
+    not_ok "stale submission SHA fails with an actionable post-merge message"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+
+  git -C "$SUBMIRROR" switch -q main
+  printf 'dirty payload\n' >"$SUBMIRROR/plugins/agent-guard/DRIFT_MARKER"
+  run_expect 1 "submission renderer rejects uncommitted plugin payload changes" \
+    env AGENT_GUARD_SUBMISSION_SHA="$match_sha" "$SUBRENDERER"
+  if grep -q 'has uncommitted changes' "$ERR"; then
+    ok "dirty submission payload fails before rendering a catalog entry"
+  else
+    not_ok "dirty submission payload fails before rendering a catalog entry"
+    sed 's/^/  stderr: /' "$ERR"
   fi
 else
-  say "git archive unavailable; skipped submission-readiness drift tests"
+  say "git archive unavailable; skipped submission artifact lifecycle tests"
 fi
 
 expect_json_status 2 "Claude Write secret is blocked" \
