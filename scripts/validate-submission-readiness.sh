@@ -3,8 +3,7 @@ set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 PLUGIN="$ROOT/plugins/agent-guard"
-ENTRY="$ROOT/docs/submission/claude-plugins-official/marketplace-entry.template.json"
-REPORT="$ROOT/docs/claude-marketplace-readiness.md"
+ENTRY="$ROOT/docs/submission/marketplace-entry.template.json"
 
 failures=0
 
@@ -15,10 +14,6 @@ ok() {
 fail() {
   printf 'not ok: %s\n' "$1" >&2
   failures=$((failures + 1))
-}
-
-warn() {
-  printf 'warn: %s\n' "$1"
 }
 
 require_file() {
@@ -57,8 +52,6 @@ done
 require_json "$PLUGIN/.claude-plugin/plugin.json"
 require_json "$PLUGIN/hooks/hooks.json"
 require_json "$ENTRY"
-require_file "$REPORT"
-require_file "$ROOT/docs/submission/claude-plugins-official/curator-change-description.md"
 require_file "$ROOT/docs/submission/claude-community/form-draft.md"
 
 for file in LICENSE PRIVACY.md SUPPORT.md THIRD_PARTY_NOTICES.md; do
@@ -111,68 +104,13 @@ if jq -e '
   and .source.url == "https://github.com/JeongJaeSoon/agent-guard.git"
   and .source.path == "plugins/agent-guard"
   and .source.ref == "main"
+  and .source.sha == "<40-character-commit-sha-after-merge>"
   and .homepage == "https://github.com/JeongJaeSoon/agent-guard"
 ' "$ENTRY" >/dev/null; then
-  ok "official marketplace entry template uses the pinned git-subdir form and discloses material behavior"
+  ok "optional marketplace entry template uses stable git-subdir metadata and a post-merge SHA placeholder"
 else
-  fail "official marketplace entry template uses the pinned git-subdir form and discloses material behavior"
+  fail "optional marketplace entry template uses stable git-subdir metadata and a post-merge SHA placeholder"
 fi
-
-entry_sha=$(jq -r '.source.sha // ""' "$ENTRY")
-expected_sha=${AGENT_GUARD_SUBMISSION_SHA:-}
-if [ -n "$expected_sha" ]; then
-  if printf '%s\n' "$expected_sha" | grep -Eq '^[0-9a-f]{40}$'; then
-    ok "AGENT_GUARD_SUBMISSION_SHA is a full commit SHA"
-  else
-    fail "AGENT_GUARD_SUBMISSION_SHA is a full commit SHA"
-  fi
-  if [ "$entry_sha" = "$expected_sha" ]; then
-    ok "entry template is finalized at AGENT_GUARD_SUBMISSION_SHA"
-  else
-    fail "entry template is finalized at AGENT_GUARD_SUBMISSION_SHA"
-  fi
-else
-  case "$entry_sha" in
-    '<40-character-commit-sha-after-push>')
-      ok "entry template keeps an explicit post-push SHA placeholder"
-      ;;
-    *)
-      if printf '%s\n' "$entry_sha" | grep -Eq '^[0-9a-f]{40}$'; then
-        ok "entry template contains a full commit SHA"
-      else
-        fail "entry template contains a full commit SHA or the documented placeholder"
-      fi
-      ;;
-  esac
-fi
-
-# A 40-hex .source.sha is only a safety net if it still resolves to the payload
-# reviewers will actually install. Verifying the format is not enough: if the
-# pinned commit's plugins/agent-guard tree has drifted from the current payload,
-# the submission green-lights a stale snapshot. When the pinned commit is
-# present locally, require its subtree to equal HEAD's; when it is absent
-# (shallow / submission checkouts), FAIL closed — "could not verify" is not a
-# pass, so the caller must fetch full history. The placeholder is handled above.
-if printf '%s\n' "$entry_sha" | grep -Eq '^[0-9a-f]{40}$'; then
-  if git -C "$ROOT" rev-parse "$entry_sha^{commit}" >/dev/null 2>&1; then
-    if git -C "$ROOT" diff --quiet "$entry_sha" HEAD -- plugins/agent-guard; then
-      ok "pinned .source.sha's plugins/agent-guard tree matches the current payload"
-    else
-      fail "pinned .source.sha's plugins/agent-guard tree differs from current payload; re-pin the SHA"
-    fi
-  else
-    # "Could not verify" is not a pass. A shallow checkout (actions/checkout
-    # defaults to fetch-depth 1) cannot resolve a pin that is more than a commit
-    # or two back, which is the ordinary case — so warning and skipping here
-    # would print "validation passed" for a run that never checked anything,
-    # exactly the stale-pin scenario this guard exists to catch.
-    fail "cannot verify the pinned .source.sha tree: commit $entry_sha is not present locally; use a full-history checkout (actions/checkout with fetch-depth: 0)"
-  fi
-fi
-
-contains "$REPORT" 'No public application or direct PR path' 'readiness report records the official submission blocker'
-contains "$REPORT" 'ungated `PreToolUse` or `PostToolUse`' 'readiness report records the broad-hook blocker'
-contains "$REPORT" 'f9cb226d81172f53a1787cc3ba90dc9ab51aa169' 'readiness report pins the reviewed official snapshot'
 
 if [ "$failures" -eq 0 ]; then
   printf 'submission readiness validation passed\n'

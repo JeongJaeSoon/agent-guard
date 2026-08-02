@@ -1,26 +1,35 @@
 # Claude Marketplace Submission Sequence
 
-1. Run `make test`, `make smoke-test`, `scripts/validate-plugin-layout.sh --all`,
+## Routine development
+
+Run `make submission-check` with the normal plugin layout and test suite. It
+validates stable manifest, disclosure, policy-document parity, and template
+metadata. It deliberately does not require a concrete `.source.sha`, so normal
+payload PRs do not create documentation-only re-pin commits or need full Git
+history in CI.
+
+The community form draft and neutral marketplace-entry template keep stable
+repository and plugin-path information only. Do not replace the template's
+placeholder with the current branch SHA.
+
+## Actual submission or curator handoff
+
+1. Merge the reviewed payload into `main`, fetch `origin/main`, then check out
+   that exact remote-reachable commit in a clean worktree.
+2. Run `make test`, `make smoke-test`, `scripts/validate-plugin-layout.sh --all`,
    `make submission-check`, `claude plugin validate ./plugins/agent-guard`, and
    `claude plugin validate .`.
-2. Commit the preparation changes in Agent Guard. Push and merge them only in
-   the Agent Guard repository, then publish a release if the manifest version
-   changed.
-3. Resolve the reachable 40-character GitHub commit SHA that contains the exact
-   plugin payload under `plugins/agent-guard`. The prepared submission pins
-   `adb6ad10ece9337ed9896dbb243920d9345a502b`; `make submission-check`
-   verifies that its `plugins/agent-guard` tree matches the current payload.
-4. Re-run `make submission-check` with
-   `AGENT_GUARD_SUBMISSION_SHA=adb6ad10ece9337ed9896dbb243920d9345a502b`.
-   If the plugin payload changes, replace the pinned SHA in both submission
-   drafts and validate the new reachable commit before submitting.
-5. For the public community route, submit the form draft through the Console
-   form (available to individual authors) or the claude.ai Team/Enterprise form.
-   Do not open a PR against the community mirror.
-6. For `claude-plugins-official`, proceed only if Anthropic explicitly invites
-   the plugin or provides a curator path. Send the entry and change-description
-   drafts, and resolve the broad-hook policy question before requesting a
-   catalog change.
+3. Prefer the public community submission form. Anthropic's catalog owns the
+   immutable source pin and subsequent automated pin updates.
+4. If a form or an Anthropic curator explicitly requests a concrete marketplace
+   JSON entry, run `make submission-artifact SHA=<merged-main-sha>`. The command
+   rejects a malformed, stale, non-HEAD, non-`origin/main`, or dirty worktree and
+   renders JSON to standard output. It also revalidates the stable template and
+   will not overwrite it. Treat the result as a handoff artifact; do not commit
+   the generated entry back to this repository.
+5. For `claude-plugins-official`, proceed only if Anthropic explicitly invites
+   the plugin or provides a curator path. Resolve the broad-hook policy question
+   before requesting a catalog change.
 
 No fork, push, issue, submission, or pull request against an Anthropic
-repository is part of this preparation bundle.
+repository is performed by these repository checks.
