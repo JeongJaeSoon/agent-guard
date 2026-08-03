@@ -3036,14 +3036,13 @@ secretish_env_values() {
     }
     function emit_secret(value, eligible_length) {
       if (already_redacted(value)) return
+      if (eligible_length == 0) eligible_length = length(value)
+      if (eligible_length < 4 || length(value) == 0) return
       if (record_mode == "probe" || record_mode == "probe_raw") {
         if (!probe_found) print "x"
         probe_found = 1
         return
       }
-      if (eligible_length == 0) eligible_length = length(value)
-      if (eligible_length < 4) return
-      if (length(value) == 0) return
       if (record_mode == "framed") emit_framed(value, "S")
       else print "\"" json_escape(value) "\""
     }
