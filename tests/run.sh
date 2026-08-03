@@ -402,7 +402,12 @@ for manifest_file in "$PLUGIN_ROOT/hooks.json" "$PLUGIN_ROOT/hooks/hooks.json"; 
     '[.hooks[][] | .hooks[].command] |
      length == 4 and all(.[];
        contains(".agent-guard-compat-shim") and
-       contains("[ -L \"$c\" ] && continue"))' \
+       contains("[ -L \"$c\" ] && continue") and
+       contains("[ -d \"$v\" ] && [ ! -L \"$v\" ]") and
+       contains("[ -d \"$v/bin\" ] && [ ! -L \"$v/bin\" ]") and
+       contains("readlink \"$b/current\"") and
+       contains("[ -d \"$r/bin\" ] && [ ! -L \"$r/bin\" ]") and
+       contains("[ ! -L \"$r/bin/agent-guard\" ]"))' \
     "$manifest_file" >/dev/null; then
     ok "all hook resolvers in $manifest_file exclude marked and symlink compatibility shims"
   else
@@ -545,6 +550,67 @@ else
   sed 's/^/  stdout: /' "$OUT"
   sed 's/^/  stderr: /' "$ERR"
 fi
+
+# Both host manifests must select only real version/bin directories. A stale
+# read-only current link must not override that selection, and an exact host
+# root that is itself a symlink must not be used as the final fallback.
+manifest_symlink_payload='{"tool_name":"Bash","tool_input":{"command":"echo clean"}}'
+for manifest_host in codex claude; do
+  case "$manifest_host" in
+    codex) manifest_file="$PLUGIN_ROOT/hooks.json"; manifest_root=PLUGIN_ROOT ;;
+    *) manifest_file="$PLUGIN_ROOT/hooks/hooks.json"; manifest_root=CLAUDE_PLUGIN_ROOT ;;
+  esac
+  manifest_command=$(jq -r '.hooks.PreToolUse[0].hooks[0].command' "$manifest_file")
+  manifest_symlink_cache="$TESTTMP/manifest-symlink-$manifest_host"
+  manifest_symlink_outside_root="$TESTTMP/manifest-outside-root-$manifest_host"
+  manifest_symlink_outside_bin="$TESTTMP/manifest-outside-bin-$manifest_host"
+  mkdir -p "$manifest_symlink_cache/3.0.1/bin" \
+    "$manifest_symlink_cache/9.9.8" \
+    "$manifest_symlink_outside_root/bin" \
+    "$manifest_symlink_outside_bin"
+  cat >"$manifest_symlink_cache/3.0.1/bin/agent-guard" <<'EOF'
+#!/bin/sh
+cat
+EOF
+  cat >"$manifest_symlink_outside_root/bin/agent-guard" <<'EOF'
+#!/bin/sh
+printf '%s\n' outside-root
+EOF
+  cat >"$manifest_symlink_outside_bin/agent-guard" <<'EOF'
+#!/bin/sh
+printf '%s\n' outside-bin
+EOF
+  chmod +x "$manifest_symlink_cache/3.0.1/bin/agent-guard" \
+    "$manifest_symlink_outside_root/bin/agent-guard" \
+    "$manifest_symlink_outside_bin/agent-guard"
+  ln -s "$manifest_symlink_outside_root" "$manifest_symlink_cache/9.9.9"
+  ln -s "$manifest_symlink_outside_bin" "$manifest_symlink_cache/9.9.8/bin"
+  ln -s 9.9.9 "$manifest_symlink_cache/current"
+  chmod 555 "$manifest_symlink_cache"
+  printf '%s' "$manifest_symlink_payload" \
+    | env "$manifest_root=$manifest_symlink_cache/3.0.0" \
+      sh -c "$manifest_command" >"$OUT" 2>"$ERR"
+  manifest_candidate_status=$?
+  chmod 755 "$manifest_symlink_cache"
+  manifest_candidate_output=$(cat "$OUT")
+
+  rm -rf "$manifest_symlink_cache/3.0.1"
+  printf '%s' "$manifest_symlink_payload" \
+    | env "$manifest_root=$manifest_symlink_cache/9.9.9" \
+      AGENT_GUARD_WARNING_DIR="$TESTTMP/manifest-symlink-warning-$manifest_host" \
+      sh -c "$manifest_command" >"$OUT" 2>"$ERR"
+  manifest_fallback_status=$?
+  if [ "$manifest_candidate_status" -eq 0 ] \
+     && [ "$manifest_candidate_output" = "$manifest_symlink_payload" ] \
+     && [ "$manifest_fallback_status" -eq 0 ] && [ ! -s "$OUT" ] \
+     && grep -q 'no installed binary was found' "$ERR"; then
+    ok "$manifest_host hook resolver rejects symlinked cache parents and stale current"
+  else
+    not_ok "$manifest_host hook resolver keeps execution inside real cache directories"
+    sed 's/^/  stdout: /' "$OUT"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+done
 
 # A later rollback can leave an older compatibility shim whose numeric name is
 # newer than the real installed release. The first hook repairs a dangling
@@ -7732,10 +7798,77 @@ fi
 if printf '%s' "$shellinit_plain" \
    | grep -Fq '[ -L "$__ag_candidate" ] && continue' \
    && printf '%s' "$shellinit_plain" \
+   | grep -Fq '[ -d "$__ag_version" ] && [ ! -L "$__ag_version" ]' \
+   && printf '%s' "$shellinit_plain" \
+   | grep -Fq '[ -d "$__ag_version/bin" ] && [ ! -L "$__ag_version/bin" ]' \
+   && printf '%s' "$shellinit_plain" \
    | grep -Fq '[ -e "$__ag_version/.agent-guard-compat-shim" ] && continue'; then
   ok "shell-init fallback excludes marked and symlink compatibility shims"
 else
   not_ok "shell-init fallback excludes marked and symlink compatibility shims"
+fi
+
+# Generated shell-init and setup-shell fallbacks must not trust a stale current
+# link or a higher numeric candidate reached through a symlinked root/bin.
+SHELL_PARENT_HOME="$TESTTMP/shell-parent-home"
+SHELL_PARENT_CACHE="$SHELL_PARENT_HOME/.claude/plugins/cache/agent-guard/agent-guard"
+SHELL_PARENT_OUTSIDE_ROOT="$TESTTMP/shell-parent-outside-root"
+SHELL_PARENT_OUTSIDE_BIN="$TESTTMP/shell-parent-outside-bin"
+SHELL_PARENT_SNIPPET="$TESTTMP/shell-parent-snippet"
+SHELL_PARENT_RC="$TESTTMP/shell-parent-rc"
+mkdir -p "$SHELL_PARENT_CACHE/3.0.1/bin" \
+  "$SHELL_PARENT_CACHE/9.9.8" \
+  "$SHELL_PARENT_OUTSIDE_ROOT/bin" \
+  "$SHELL_PARENT_OUTSIDE_BIN"
+SHELL_PARENT_CACHE=$(CDPATH= cd -- "$SHELL_PARENT_CACHE" && pwd -P)
+cp "$PLUGIN_ROOT/bin/agent-guard" \
+  "$SHELL_PARENT_CACHE/3.0.1/bin/agent-guard"
+cat >"$SHELL_PARENT_OUTSIDE_ROOT/bin/agent-guard" <<'EOF'
+#!/bin/sh
+printf '%s\n' outside-shell-root
+EOF
+cat >"$SHELL_PARENT_OUTSIDE_BIN/agent-guard" <<'EOF'
+#!/bin/sh
+printf '%s\n' outside-shell-bin
+EOF
+chmod +x "$SHELL_PARENT_CACHE/3.0.1/bin/agent-guard" \
+  "$SHELL_PARENT_OUTSIDE_ROOT/bin/agent-guard" \
+  "$SHELL_PARENT_OUTSIDE_BIN/agent-guard"
+ln -s "$SHELL_PARENT_OUTSIDE_ROOT" "$SHELL_PARENT_CACHE/9.9.9"
+ln -s "$SHELL_PARENT_OUTSIDE_BIN" "$SHELL_PARENT_CACHE/9.9.8/bin"
+HOME="$SHELL_PARENT_HOME" \
+  "$SHELL_PARENT_CACHE/3.0.1/bin/agent-guard" shell-init --zsh \
+  >"$SHELL_PARENT_SNIPPET" 2>"$ERR"
+HOME="$SHELL_PARENT_HOME" \
+  "$SHELL_PARENT_CACHE/3.0.1/bin/agent-guard" setup-shell \
+  --rc "$SHELL_PARENT_RC" >/dev/null 2>"$ERR"
+ln -sfn 9.9.9 "$SHELL_PARENT_CACHE/current"
+chmod 555 "$SHELL_PARENT_CACHE"
+shell_parent_latest=$(HOME="$SHELL_PARENT_HOME" PATH=/usr/bin:/bin \
+  sh -c '. "$1"; __agentguard_latest_plugin_bin' _ \
+  "$SHELL_PARENT_SNIPPET" 2>"$ERR")
+shell_parent_exe=$(HOME="$SHELL_PARENT_HOME" PATH=/usr/bin:/bin \
+  sh -c '. "$1"; __agentguard_exe' _ "$SHELL_PARENT_SNIPPET" 2>"$ERR")
+setup_parent_exe=$(HOME="$SHELL_PARENT_HOME" PATH=/usr/bin:/bin \
+  sh -c '. "$1"; __agentguard_exe' _ "$SHELL_PARENT_RC" 2>"$ERR")
+setup_parent_path=$(HOME="$SHELL_PARENT_HOME" PATH=/usr/bin:/bin \
+  sh -c '. "$1"; command -v agent-guard || :' _ \
+  "$SHELL_PARENT_RC" 2>"$ERR")
+chmod 755 "$SHELL_PARENT_CACHE"
+if [ "$shell_parent_latest" = \
+     "$SHELL_PARENT_CACHE/3.0.1/bin/agent-guard" ] \
+   && [ "$shell_parent_exe" = \
+     "$SHELL_PARENT_CACHE/3.0.1/bin/agent-guard" ]; then
+  ok "shell-init rejects symlinked cache parents and stale current"
+else
+  not_ok "shell-init resolves only a real plugin version (latest $shell_parent_latest, exe $shell_parent_exe)"
+fi
+if [ "$setup_parent_exe" = \
+     "$SHELL_PARENT_CACHE/3.0.1/bin/agent-guard" ] \
+   && [ -z "$setup_parent_path" ]; then
+  ok "setup-shell rejects symlinked cache parents and stale current"
+else
+  not_ok "setup-shell resolves only a real plugin version (exe $setup_parent_exe, PATH $setup_parent_path)"
 fi
 
 mk_dir="$TESTTMP/marker"
@@ -8207,6 +8340,8 @@ else
   not_ok "setup-shell records only the stable plugin path"
 fi
 if grep -Fq '[ -L "$_agc" ] && continue' "$CLEAN_RC" \
+   && grep -Fq '[ -d "$_agv" ] && [ ! -L "$_agv" ]' "$CLEAN_RC" \
+   && grep -Fq '[ -d "$_agv/bin" ] && [ ! -L "$_agv/bin" ]' "$CLEAN_RC" \
    && grep -Fq '[ -e "$_agv/.agent-guard-compat-shim" ] && continue' "$CLEAN_RC"; then
   ok "setup-shell fallback excludes marked and symlink compatibility shims"
 else
@@ -8226,10 +8361,10 @@ else
   not_ok "upgrade retargets the stable PATH before the old version is removed"
 fi
 clean_snapshot_bin=$(HOME="$CLEAN_HOME" PATH=/usr/bin:/bin sh -c '. "$1"; __agentguard_exe' _ "$CLEAN_RC" 2>/dev/null)
-if [ "$clean_snapshot_bin" = "$CLEAN_CACHE/current/bin/agent-guard" ]; then
-  ok "pre-upgrade shell integration resolves through current after upgrade"
+if [ "$clean_snapshot_bin" = "$CLEAN_CACHE/3.0.2/bin/agent-guard" ]; then
+  ok "pre-upgrade shell integration resolves the newest real version after upgrade"
 else
-  not_ok "pre-upgrade shell integration resolves through current after upgrade (got: $clean_snapshot_bin)"
+  not_ok "pre-upgrade shell integration resolves the newest real version after upgrade (got: $clean_snapshot_bin)"
 fi
 clean_path_bin=$(HOME="$CLEAN_HOME" PATH=/usr/bin:/bin sh -c '. "$1"; command -v agent-guard' _ "$CLEAN_RC" 2>/dev/null)
 if [ "$clean_path_bin" = "$CLEAN_CACHE/current/bin/agent-guard" ]; then
@@ -8356,6 +8491,91 @@ else
   sed 's/^/  stderr: /' "$ERR"
 fi
 
+# The cache enumeration and host-root repair paths must not follow a symlinked
+# version root or bin directory and rewrite an agent-guard link outside the
+# plugin cache, even when the external tree imitates the managed marker shape.
+SYMLINK_PARENT_HOME="$TESTTMP/symlink-parent-home"
+SYMLINK_PARENT_CACHE="$SYMLINK_PARENT_HOME/.claude/plugins/cache/agent-guard/agent-guard"
+SYMLINK_PARENT_OUTSIDE_ROOT="$TESTTMP/symlink-parent-outside-root"
+SYMLINK_PARENT_OUTSIDE_BIN="$TESTTMP/symlink-parent-outside-bin"
+mkdir -p "$SYMLINK_PARENT_CACHE/2.8.1" \
+  "$SYMLINK_PARENT_CACHE/2.8.1/.agent-guard-compat-shim" \
+  "$SYMLINK_PARENT_CACHE/9.9.8" \
+  "$SYMLINK_PARENT_CACHE/3.0.1/bin" \
+  "$SYMLINK_PARENT_OUTSIDE_ROOT/bin" \
+  "$SYMLINK_PARENT_OUTSIDE_ROOT/.agent-guard-compat-shim" \
+  "$SYMLINK_PARENT_OUTSIDE_BIN" \
+  "$TESTTMP/symlink-candidate-root/bin" \
+  "$TESTTMP/symlink-candidate-bin"
+SYMLINK_PARENT_CACHE=$(CDPATH= cd -- "$SYMLINK_PARENT_CACHE" && pwd -P)
+cp "$PLUGIN_ROOT/bin/agent-guard" \
+  "$SYMLINK_PARENT_CACHE/3.0.1/bin/agent-guard"
+cp "$PLUGIN_ROOT/bin/agent-guard" \
+  "$TESTTMP/symlink-candidate-root/bin/agent-guard"
+cp "$PLUGIN_ROOT/bin/agent-guard" \
+  "$TESTTMP/symlink-candidate-bin/agent-guard"
+chmod +x "$SYMLINK_PARENT_CACHE/3.0.1/bin/agent-guard" \
+  "$TESTTMP/symlink-candidate-root/bin/agent-guard" \
+  "$TESTTMP/symlink-candidate-bin/agent-guard"
+ln -s 3.0.1 "$SYMLINK_PARENT_CACHE/current"
+ln -s "$SYMLINK_PARENT_CACHE/current/bin/agent-guard" \
+  "$SYMLINK_PARENT_OUTSIDE_ROOT/bin/agent-guard"
+ln -s "$SYMLINK_PARENT_CACHE/current/bin/agent-guard" \
+  "$SYMLINK_PARENT_OUTSIDE_BIN/agent-guard"
+ln -s "$SYMLINK_PARENT_OUTSIDE_ROOT" "$SYMLINK_PARENT_CACHE/2.8.0"
+ln -s "$SYMLINK_PARENT_OUTSIDE_BIN" "$SYMLINK_PARENT_CACHE/2.8.1/bin"
+ln -s "$TESTTMP/symlink-candidate-root" "$SYMLINK_PARENT_CACHE/9.9.9"
+ln -s "$TESTTMP/symlink-candidate-bin" "$SYMLINK_PARENT_CACHE/9.9.8/bin"
+CLAUDE_PLUGIN_ROOT="$SYMLINK_PARENT_CACHE/2.8.0" \
+PLUGIN_ROOT="$SYMLINK_PARENT_CACHE/2.8.1" \
+HOME="$SYMLINK_PARENT_HOME" \
+  "$SYMLINK_PARENT_CACHE/3.0.1/bin/agent-guard" version >/dev/null 2>&1
+if [ "$(readlink "$SYMLINK_PARENT_OUTSIDE_ROOT/bin/agent-guard" 2>/dev/null)" = \
+     "$SYMLINK_PARENT_CACHE/current/bin/agent-guard" ] \
+   && [ "$(readlink "$SYMLINK_PARENT_OUTSIDE_BIN/agent-guard" 2>/dev/null)" = \
+     "$SYMLINK_PARENT_CACHE/current/bin/agent-guard" ] \
+   && [ "$(readlink "$SYMLINK_PARENT_CACHE/current" 2>/dev/null)" = 3.0.1 ] \
+   && [ "$(readlink "$SYMLINK_PARENT_CACHE/.agent-guard-real-current" 2>/dev/null)" = \
+     3.0.1 ]; then
+  ok "runtime selection and migration reject symlinked cache parents"
+else
+  not_ok "runtime keeps selection and rewrites inside real cache directories"
+fi
+
+# If an old hidden link cannot be refreshed, host-root repair must independently
+# reject a symlinked version root instead of retargeting a managed shim through
+# an external executable tree.
+STALE_COMPAT_HOME="$TESTTMP/stale-compat-home"
+STALE_COMPAT_CACHE="$STALE_COMPAT_HOME/.claude/plugins/cache/agent-guard/agent-guard"
+STALE_COMPAT_OUTSIDE="$TESTTMP/stale-compat-outside"
+mkdir -p "$STALE_COMPAT_CACHE/2.8.0/bin" \
+  "$STALE_COMPAT_CACHE/2.8.0/.agent-guard-compat-shim" \
+  "$STALE_COMPAT_CACHE/3.0.1/bin" \
+  "$STALE_COMPAT_OUTSIDE/bin"
+STALE_COMPAT_CACHE=$(CDPATH= cd -- "$STALE_COMPAT_CACHE" && pwd -P)
+cp "$PLUGIN_ROOT/bin/agent-guard" \
+  "$STALE_COMPAT_CACHE/3.0.1/bin/agent-guard"
+cp "$PLUGIN_ROOT/bin/agent-guard" \
+  "$STALE_COMPAT_OUTSIDE/bin/agent-guard"
+chmod +x "$STALE_COMPAT_CACHE/3.0.1/bin/agent-guard" \
+  "$STALE_COMPAT_OUTSIDE/bin/agent-guard"
+ln -s 3.0.1 "$STALE_COMPAT_CACHE/current"
+ln -s "$STALE_COMPAT_OUTSIDE" "$STALE_COMPAT_CACHE/9.9.9"
+ln -s 9.9.9 "$STALE_COMPAT_CACHE/.agent-guard-real-current"
+ln -s "$STALE_COMPAT_CACHE/current/bin/agent-guard" \
+  "$STALE_COMPAT_CACHE/2.8.0/bin/agent-guard"
+chmod 555 "$STALE_COMPAT_CACHE"
+CLAUDE_PLUGIN_ROOT="$STALE_COMPAT_CACHE/2.8.0" \
+HOME="$STALE_COMPAT_HOME" \
+  "$STALE_COMPAT_CACHE/3.0.1/bin/agent-guard" version >/dev/null 2>&1
+chmod 755 "$STALE_COMPAT_CACHE"
+if [ "$(readlink "$STALE_COMPAT_CACHE/2.8.0/bin/agent-guard" 2>/dev/null)" = \
+     "$STALE_COMPAT_CACHE/current/bin/agent-guard" ]; then
+  ok "host-root repair rejects a stale external compatibility target"
+else
+  not_ok "host-root repair does not trust stale hidden-link parents"
+fi
+
 # A real directory named `current` predates the symlink layout in some custom
 # caches. It is never replaced or swept; its executable stays the safe shim
 # target because a pre-fix resolver cannot replace the parent directory.
@@ -8385,45 +8605,106 @@ else
   not_ok "real current directory is preserved without hidden-link migration"
 fi
 
-# Keep upgrade-time compatibility migration bounded even if the cache has many
-# marked entries. Only the first 128 installed candidates may be inspected and
-# rewritten during one startup.
-MIGRATION_CAP_HOME="$TESTTMP/migration-cap-home"
-MIGRATION_CAP_CACHE="$MIGRATION_CAP_HOME/.claude/plugins/cache/agent-guard/agent-guard"
-mkdir -p "$MIGRATION_CAP_CACHE/3.0.1/bin"
-MIGRATION_CAP_CACHE=$(CDPATH= cd -- "$MIGRATION_CAP_CACHE" && pwd -P)
-cp "$PLUGIN_ROOT/bin/agent-guard" \
-  "$MIGRATION_CAP_CACHE/3.0.1/bin/agent-guard"
-chmod +x "$MIGRATION_CAP_CACHE/3.0.1/bin/agent-guard"
-ln -s 3.0.1 "$MIGRATION_CAP_CACHE/current"
-migration_cap_version=1
-while [ "$migration_cap_version" -le 129 ]; do
-  migration_cap_root="$MIGRATION_CAP_CACHE/1.0.$migration_cap_version"
-  mkdir -p "$migration_cap_root/bin" \
-    "$migration_cap_root/.agent-guard-compat-shim"
-  ln -s "$MIGRATION_CAP_CACHE/current/bin/agent-guard" \
-    "$migration_cap_root/bin/agent-guard"
-  migration_cap_version=$((migration_cap_version + 1))
-done
-HOME="$MIGRATION_CAP_HOME" \
-  "$MIGRATION_CAP_CACHE/3.0.1/bin/agent-guard" version >/dev/null 2>&1
-migration_cap_updated=0
-migration_cap_old=0
-for migration_cap_bin in "$MIGRATION_CAP_CACHE"/*/bin/agent-guard; do
-  [ -L "$migration_cap_bin" ] || continue
-  case $(readlink "$migration_cap_bin" 2>/dev/null) in
-    "$MIGRATION_CAP_CACHE/.agent-guard-real-current/bin/agent-guard")
-      migration_cap_updated=$((migration_cap_updated + 1))
+# The real-current exception is trusted only when its bin directory and final
+# executable are real cache entries. Otherwise legacy repair would create a
+# shim that executes through a symlink into an external tree.
+unsafe_real_current_ok=1
+for unsafe_real_shape in bin final; do
+  UNSAFE_REAL_HOME="$TESTTMP/unsafe-real-current-$unsafe_real_shape-home"
+  UNSAFE_REAL_CACHE="$UNSAFE_REAL_HOME/.claude/plugins/cache/agent-guard/agent-guard"
+  UNSAFE_REAL_OUTSIDE="$TESTTMP/unsafe-real-current-$unsafe_real_shape-outside"
+  mkdir -p "$UNSAFE_REAL_CACHE/3.0.1/bin" "$UNSAFE_REAL_CACHE/current" \
+    "$UNSAFE_REAL_OUTSIDE/bin"
+  UNSAFE_REAL_CACHE=$(CDPATH= cd -- "$UNSAFE_REAL_CACHE" && pwd -P)
+  cp "$PLUGIN_ROOT/bin/agent-guard" \
+    "$UNSAFE_REAL_CACHE/3.0.1/bin/agent-guard"
+  cp "$PLUGIN_ROOT/bin/agent-guard" \
+    "$UNSAFE_REAL_OUTSIDE/bin/agent-guard"
+  chmod +x "$UNSAFE_REAL_CACHE/3.0.1/bin/agent-guard" \
+    "$UNSAFE_REAL_OUTSIDE/bin/agent-guard"
+  case "$unsafe_real_shape" in
+    bin)
+      ln -s "$UNSAFE_REAL_OUTSIDE/bin" "$UNSAFE_REAL_CACHE/current/bin"
       ;;
-    "$MIGRATION_CAP_CACHE/current/bin/agent-guard")
-      migration_cap_old=$((migration_cap_old + 1))
+    *)
+      mkdir "$UNSAFE_REAL_CACHE/current/bin"
+      ln -s "$UNSAFE_REAL_OUTSIDE/bin/agent-guard" \
+        "$UNSAFE_REAL_CACHE/current/bin/agent-guard"
+      ;;
+  esac
+  CLAUDE_PLUGIN_ROOT="$UNSAFE_REAL_CACHE/1.9.0" \
+  HOME="$UNSAFE_REAL_HOME" \
+    "$UNSAFE_REAL_CACHE/3.0.1/bin/agent-guard" version >/dev/null 2>&1
+  if [ -e "$UNSAFE_REAL_CACHE/1.9.0" ] \
+     || [ -L "$UNSAFE_REAL_CACHE/1.9.0" ]; then
+    unsafe_real_current_ok=0
+  fi
+done
+if [ "$unsafe_real_current_ok" -eq 1 ]; then
+  ok "legacy repair rejects symlinked real-current bin and executable"
+else
+  not_ok "real-current exception does not create an external compatibility path"
+fi
+
+# Every current-backed managed shim is cycle-capable after rollback. Exercise
+# more than the former 128-candidate cap, then run the pre-fix resolver twice
+# to prove that no leftover shim can become executable through `current`.
+MIGRATION_MANY_HOME="$TESTTMP/migration-many-home"
+MIGRATION_MANY_CACHE="$MIGRATION_MANY_HOME/.claude/plugins/cache/agent-guard/agent-guard"
+mkdir -p "$MIGRATION_MANY_CACHE/2.0.0/bin" \
+  "$MIGRATION_MANY_CACHE/3.0.1/bin"
+MIGRATION_MANY_CACHE=$(CDPATH= cd -- "$MIGRATION_MANY_CACHE" && pwd -P)
+cp "$PREFX_ROLLBACK_CACHE/2.0.0/bin/agent-guard" \
+  "$MIGRATION_MANY_CACHE/2.0.0/bin/agent-guard"
+cp "$PLUGIN_ROOT/bin/agent-guard" \
+  "$MIGRATION_MANY_CACHE/3.0.1/bin/agent-guard"
+chmod +x "$MIGRATION_MANY_CACHE/2.0.0/bin/agent-guard" \
+  "$MIGRATION_MANY_CACHE/3.0.1/bin/agent-guard"
+ln -s 3.0.1 "$MIGRATION_MANY_CACHE/current"
+migration_many_version=1
+while [ "$migration_many_version" -le 129 ]; do
+  migration_many_root="$MIGRATION_MANY_CACHE/2.9.$migration_many_version"
+  mkdir -p "$migration_many_root/bin" \
+    "$migration_many_root/.agent-guard-compat-shim"
+  ln -s "$MIGRATION_MANY_CACHE/current/bin/agent-guard" \
+    "$migration_many_root/bin/agent-guard"
+  migration_many_version=$((migration_many_version + 1))
+done
+HOME="$MIGRATION_MANY_HOME" \
+  "$MIGRATION_MANY_CACHE/3.0.1/bin/agent-guard" version >/dev/null 2>&1
+migration_many_updated=0
+migration_many_old=0
+for migration_many_bin in "$MIGRATION_MANY_CACHE"/*/bin/agent-guard; do
+  [ -L "$migration_many_bin" ] || continue
+  case $(readlink "$migration_many_bin" 2>/dev/null) in
+    "$MIGRATION_MANY_CACHE/.agent-guard-real-current/bin/agent-guard")
+      migration_many_updated=$((migration_many_updated + 1))
+      ;;
+    "$MIGRATION_MANY_CACHE/current/bin/agent-guard")
+      migration_many_old=$((migration_many_old + 1))
       ;;
   esac
 done
-if [ "$migration_cap_updated" -eq 128 ] && [ "$migration_cap_old" -eq 1 ]; then
-  ok "existing compatibility-shim startup migration is capped at 128 candidates"
+rm -rf "$MIGRATION_MANY_CACHE/3.0.1"
+migration_many_round=1
+migration_many_ok=1
+while [ "$migration_many_round" -le 2 ]; do
+  "$MIGRATION_MANY_CACHE/2.0.0/bin/agent-guard" version >"$OUT" 2>"$ERR"
+  if [ "$?" -ne 0 ] \
+     || [ "$(readlink "$MIGRATION_MANY_CACHE/current" 2>/dev/null)" != 2.0.0 ]; then
+    migration_many_ok=0
+    break
+  fi
+  migration_many_round=$((migration_many_round + 1))
+done
+if [ "$migration_many_updated" -eq 129 ] \
+   && [ "$migration_many_old" -eq 0 ] \
+   && [ "$migration_many_ok" -eq 1 ]; then
+  ok "startup migrates every cycle-capable shim before pre-fix rollback"
 else
-  not_ok "compatibility-shim migration cap (updated $migration_cap_updated, old $migration_cap_old)"
+  not_ok "all shim migration before rollback (updated $migration_many_updated, old $migration_many_old)"
+  sed 's/^/  stdout: /' "$OUT"
+  sed 's/^/  stderr: /' "$ERR"
 fi
 
 # --- temp cleanup on abrupt termination (#131) -----------------------------

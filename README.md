@@ -430,9 +430,9 @@ Each invocation examines at most 32 candidate files, 1 MiB of accepted input,
 recreates a missing pre-current version path as a marked shim through a hidden
 link that tracks the newest real version. The shim never points back through
 `current`; a current-backed marked shim from an earlier build is retargeted
-on the first current-binary startup (up to 128 installed cache candidates), so
-a pre-fix resolver cannot create a rollback cycle even if the originating
-snapshot has gone away. The real-`current` directory exception described below
+on the first current-binary startup, so a pre-fix resolver cannot create a
+rollback cycle even if the originating snapshot has gone away. The
+real-`current` directory exception with a real `bin` and executable described below
 keeps its existing target instead. A current resolver that receives an older
 host plugin root repairs that exact path immediately. Equal or newer version
 names are never shimmed, so they

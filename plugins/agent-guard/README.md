@@ -60,10 +60,10 @@ shell snapshots (at most 32 files, 1 MiB total, 64 KiB per line, 128 cache-path
 candidates, and 32 older versions) and recreates the missing executable as a
 marked shim through a hidden link to the newest real version. The shim never
 points back through `current`; a marked current-backed shim from an earlier
-build is retargeted on the first current-binary startup (up to 128 installed
-cache candidates), even if the originating snapshot is gone, so legacy
-rollback resolvers cannot form a cycle. Equal or newer versions are never
-shimmed. The real-`current` directory exception below keeps its existing target.
+build is retargeted on the first current-binary startup, even if the
+originating snapshot is gone, so legacy rollback resolvers cannot form a
+cycle. Equal or newer versions are never shimmed. The real-`current` directory
+exception below keeps its existing target only with a real `bin` and executable.
 No plugin lifecycle hook runs at cache deletion time. Snapshot discovery honors
 `CLAUDE_CONFIG_DIR/shell-snapshots` instead of the default
 `~/.claude/shell-snapshots`. An old session cannot self-heal until a current

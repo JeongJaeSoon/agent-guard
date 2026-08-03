@@ -95,6 +95,9 @@ refresh_plugin_current_link() {
       candidate_root=${candidate%/bin/agent-guard}
       candidate_version=${candidate_root##*/}
       is_semver_dir "$candidate_version" || continue
+      [ -d "$candidate_root" ] && [ ! -L "$candidate_root" ] || continue
+      [ -d "$candidate_root/bin" ] && [ ! -L "$candidate_root/bin" ] \
+        || continue
       [ -e "$candidate_root/$COMPAT_SHIM_MARKER" ] && continue
       printf '%s\t%s\n' "$candidate_version" "$candidate_version"
     done | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1 | cut -f 2-
@@ -115,15 +118,14 @@ refresh_plugin_current_link() {
   if [ "$(readlink "$compat_real" 2>/dev/null)" = "$latest" ]; then
     old_stable="$PLUGIN_CACHE_BASE/current/bin/agent-guard"
     compat_real_bin="$compat_real/bin/agent-guard"
-    migration_candidates=0
-    max_migration_candidates=128
     for legacy_bin in "$PLUGIN_CACHE_BASE"/*/bin/agent-guard; do
-      migration_candidates=$((migration_candidates + 1))
-      [ "$migration_candidates" -le "$max_migration_candidates" ] || break
       [ -L "$legacy_bin" ] || continue
       legacy_root=${legacy_bin%/bin/agent-guard}
       is_semver_dir "${legacy_root##*/}" || continue
-      [ -e "$legacy_root/$COMPAT_SHIM_MARKER" ] || continue
+      [ -d "$legacy_root" ] && [ ! -L "$legacy_root" ] || continue
+      [ -d "$legacy_root/bin" ] && [ ! -L "$legacy_root/bin" ] || continue
+      [ -d "$legacy_root/$COMPAT_SHIM_MARKER" ] \
+        && [ ! -L "$legacy_root/$COMPAT_SHIM_MARKER" ] || continue
       [ "$(readlink "$legacy_bin" 2>/dev/null)" = "$old_stable" ] || continue
       ln -sfn "$compat_real_bin" "$legacy_bin" 2>/dev/null || :
     done
@@ -167,7 +169,9 @@ create_legacy_plugin_shim() {
   compat_shim_bin=
   if [ -d "$PLUGIN_CACHE_BASE/current" ] \
      && [ ! -L "$PLUGIN_CACHE_BASE/current" ] \
-     && [ -x "$STABLE_BIN" ]; then
+     && [ -d "$PLUGIN_CACHE_BASE/current/bin" ] \
+     && [ ! -L "$PLUGIN_CACHE_BASE/current/bin" ] \
+     && [ -x "$STABLE_BIN" ] && [ ! -L "$STABLE_BIN" ]; then
     compat_shim_bin=$STABLE_BIN
   else
     compat_real_version=$(readlink \
@@ -175,7 +179,10 @@ create_legacy_plugin_shim() {
   fi
   if [ -z "$compat_shim_bin" ] && is_semver_dir "$compat_real_version"; then
     compat_real_root="$PLUGIN_CACHE_BASE/$compat_real_version"
-    if [ -x "$compat_real_root/bin/agent-guard" ] \
+    if [ -d "$compat_real_root" ] && [ ! -L "$compat_real_root" ] \
+       && [ -d "$compat_real_root/bin" ] \
+       && [ ! -L "$compat_real_root/bin" ] \
+       && [ -x "$compat_real_root/bin/agent-guard" ] \
        && [ ! -L "$compat_real_root/bin/agent-guard" ] \
        && [ ! -e "$compat_real_root/$COMPAT_SHIM_MARKER" ]; then
       compat_shim_bin=$COMPAT_REAL_BIN
@@ -187,7 +194,11 @@ create_legacy_plugin_shim() {
   # rediscovered through a snapshot or host root. Retarget only that exact
   # managed shape; do not modify real cache entries or unknown symlinks.
   legacy_bin="$legacy_root/bin/agent-guard"
-  if [ -e "$legacy_root/$COMPAT_SHIM_MARKER" ] && [ -L "$legacy_bin" ]; then
+  if [ -d "$legacy_root" ] && [ ! -L "$legacy_root" ] \
+     && [ -d "$legacy_root/bin" ] && [ ! -L "$legacy_root/bin" ] \
+     && [ -d "$legacy_root/$COMPAT_SHIM_MARKER" ] \
+     && [ ! -L "$legacy_root/$COMPAT_SHIM_MARKER" ] \
+     && [ -L "$legacy_bin" ]; then
     legacy_target=$(readlink "$legacy_bin" 2>/dev/null) || return 0
     if [ "$legacy_target" = "$STABLE_BIN" ] \
        && [ "$legacy_target" != "$compat_shim_bin" ]; then
@@ -4684,8 +4695,8 @@ shell_init() {
 # warn-only reminder; it never blocks or changes your command.
 #
 # Resolve the agent-guard binary at call time: an explicit $AGENT_GUARD_BIN wins,
-# then the stable baked path, then the newest installed plugin version as a
-# recovery fallback, then $PATH for standalone CLI installs.
+# then the newest real installed plugin version. Standalone CLI installs use
+# their baked path, with $PATH as the final fallback.
 __agentguard_latest_plugin_bin() {
   [ -n "${__agentguard_plugin_base:-}" ] || return 1
   __ag_latest=$(
@@ -4693,6 +4704,9 @@ __agentguard_latest_plugin_bin() {
       [ -x "$__ag_candidate" ] || continue
       __ag_version=${__ag_candidate%/bin/agent-guard}
       [ -L "$__ag_candidate" ] && continue
+      [ -d "$__ag_version" ] && [ ! -L "$__ag_version" ] || continue
+      [ -d "$__ag_version/bin" ] && [ ! -L "$__ag_version/bin" ] \
+        || continue
       [ -e "$__ag_version/.agent-guard-compat-shim" ] && continue
       __ag_version=${__ag_version##*/}
       printf '%s\t%s\n' "$__ag_version" "$__ag_candidate"
@@ -4709,16 +4723,12 @@ __agentguard_exe() {
   if [ -n "${AGENT_GUARD_BIN:-}" ] && [ -x "$AGENT_GUARD_BIN" ]; then
     printf '%s' "$AGENT_GUARD_BIN"; return 0
   fi
-  if [ -n "${__agentguard_bin:-}" ] && [ -x "$__agentguard_bin" ] \
-     && [ -n "${__agentguard_plugin_base:-}" ] \
-     && [ -L "$__agentguard_plugin_base/current" ]; then
-    printf '%s' "$__agentguard_bin"; return 0
-  fi
-  __ag_latest=$(__agentguard_latest_plugin_bin) || __ag_latest=
-  if [ -n "$__ag_latest" ]; then
-    printf '%s' "$__ag_latest"; return 0
-  fi
-  if [ -n "${__agentguard_bin:-}" ] && [ -x "$__agentguard_bin" ]; then
+  if [ -n "${__agentguard_plugin_base:-}" ]; then
+    __ag_latest=$(__agentguard_latest_plugin_bin) || __ag_latest=
+    if [ -n "$__ag_latest" ]; then
+      printf '%s' "$__ag_latest"; return 0
+    fi
+  elif [ -n "${__agentguard_bin:-}" ] && [ -x "$__agentguard_bin" ]; then
     printf '%s' "$__agentguard_bin"; return 0
   fi
   if command -v agent-guard >/dev/null 2>&1; then printf '%s' agent-guard; return 0; fi
@@ -4857,18 +4867,17 @@ do_setup_shell() {
     case "$sh_target" in bash) rc=$HOME/.bashrc ;; *) rc=$HOME/.zshrc ;; esac
   fi
 
-  # Invoke only the stable path for plugin installs. If `current` is unavailable
-  # (for example, the cache is read-only), select the newest semantic-version
-  # directory at rc-eval time; a standalone PATH install remains the last
-  # compatibility fallback. The output probe prevents a stale stub from
-  # shadowing a working stable/plugin binary.
+  # Resolve plugin installs from the newest real semantic-version directory at
+  # rc-eval time, without trusting a stale `current` link. A standalone stable
+  # path and then PATH remain the direct-install fallbacks. The output probe
+  # prevents a stale stub from shadowing a working plugin/direct binary.
   stable=$(sh_squote "$STABLE_BIN")
   cache_base=$(sh_squote "$PLUGIN_CACHE_BASE")
-  line="eval \"\$(_agbin=$stable; _agbase=$cache_base; if [ -n \"\$_agbase\" ]; then _aglatest=\$(for _agc in \"\$_agbase\"/[0-9]*.[0-9]*.[0-9]*/bin/agent-guard; do [ -x \"\$_agc\" ] || continue; _agv=\${_agc%/bin/agent-guard}; [ -L \"\$_agc\" ] && continue; [ -e \"\$_agv/.agent-guard-compat-shim\" ] && continue; printf '%s\\t%s\\n' \"\${_agv##*/}\" \"\$_agc\"; done | awk -F '\\t' '\$1 ~ /^[0-9]+\\.[0-9]+\\.[0-9]+\$/' | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1 | cut -f 2-); [ -n \"\$_aglatest\" ] && _agbin=\$_aglatest; fi; _agi=; [ -x \"\$_agbin\" ] && _agi=\$(\"\$_agbin\" shell-init${wrapping} 2>/dev/null); if [ -z \"\$_agi\" ] && command -v agent-guard >/dev/null 2>&1; then _agi=\$(agent-guard shell-init${wrapping} 2>/dev/null); fi; [ -n \"\$_agi\" ] && printf '%s\\n' \"\$_agi\")\""
+  line="eval \"\$(_agbin=$stable; _agbase=$cache_base; if [ -n \"\$_agbase\" ]; then _agbin=; _aglatest=\$(for _agc in \"\$_agbase\"/[0-9]*.[0-9]*.[0-9]*/bin/agent-guard; do [ -x \"\$_agc\" ] || continue; _agv=\${_agc%/bin/agent-guard}; [ -L \"\$_agc\" ] && continue; [ -d \"\$_agv\" ] && [ ! -L \"\$_agv\" ] || continue; [ -d \"\$_agv/bin\" ] && [ ! -L \"\$_agv/bin\" ] || continue; [ -e \"\$_agv/.agent-guard-compat-shim\" ] && continue; printf '%s\\t%s\\n' \"\${_agv##*/}\" \"\$_agc\"; done | awk -F '\\t' '\$1 ~ /^[0-9]+\\.[0-9]+\\.[0-9]+\$/' | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1 | cut -f 2-); [ -n \"\$_aglatest\" ] && _agbin=\$_aglatest; fi; _agi=; [ -x \"\$_agbin\" ] && _agi=\$(\"\$_agbin\" shell-init${wrapping} 2>/dev/null); if [ -z \"\$_agi\" ] && command -v agent-guard >/dev/null 2>&1; then _agi=\$(agent-guard shell-init${wrapping} 2>/dev/null); fi; [ -n \"\$_agi\" ] && printf '%s\\n' \"\$_agi\")\""
   path_line=
   if [ -n "$PLUGIN_CACHE_BASE" ]; then
     stable_dir=$(sh_squote "$PLUGIN_CACHE_BASE/current/bin")
-    path_line="case :\$PATH: in *:$stable_dir:*) ;; *) PATH=$stable_dir\${PATH:+:\$PATH} ;; esac; export PATH"
+    path_line="_agpath=; if command -v __agentguard_latest_plugin_bin >/dev/null 2>&1; then _agpath=\$(__agentguard_latest_plugin_bin 2>/dev/null); fi; _agpathbase=$cache_base; _agcurrent=\$(readlink \"\$_agpathbase/current\" 2>/dev/null); if [ \"\$_agpath\" = \"\$_agpathbase/\$_agcurrent/bin/agent-guard\" ]; then case :\$PATH: in *:$stable_dir:*) ;; *) PATH=$stable_dir\${PATH:+:\$PATH} ;; esac; export PATH; fi; unset _agpath _agpathbase _agcurrent"
   fi
 
   begin='# >>> agent-guard shell-init >>>'
@@ -4909,8 +4918,8 @@ do_setup_shell() {
   {
     printf '%s\n' "$begin"
     printf '%s\n' "# Managed by 'agent-guard setup-shell' — remove this block to disable."
-    [ -z "$path_line" ] || printf '%s\n' "$path_line"
     printf '%s\n' "$line"
+    [ -z "$path_line" ] || printf '%s\n' "$path_line"
     printf '%s\n' "$end"
   } >>"$tmp"
   mv "$tmp" "$rc_real" || { rm -f "$tmp"; die "setup-shell: failed to write $rc_real"; }
