@@ -74,6 +74,7 @@ semver_less_than() {
 PLUGIN_CACHE_VERSION=${ROOT_DIR##*/}
 PLUGIN_CACHE_BASE=
 COMPAT_SHIM_MARKER=.agent-guard-compat-shim
+COMPAT_REAL_LINK=.agent-guard-real-current
 if is_semver_dir "$PLUGIN_CACHE_VERSION"; then
   PLUGIN_CACHE_BASE=${ROOT_DIR%/*}
 fi
@@ -81,8 +82,9 @@ fi
 refresh_plugin_current_link() {
   [ -n "$PLUGIN_CACHE_BASE" ] || return 0
   current="$PLUGIN_CACHE_BASE/current"
-  # Never replace a real directory named current. The runtime resolvers below
-  # still fall back to the newest version directory in that environment.
+  # Never replace or migrate through a real directory named current. The
+  # runtime resolvers below still fall back to the newest version directory in
+  # that exceptional environment.
   if [ -e "$current" ] && [ ! -L "$current" ]; then
     return 1
   fi
@@ -98,6 +100,34 @@ refresh_plugin_current_link() {
     done | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1 | cut -f 2-
   )
   [ -n "$latest" ] || return 1
+  # Compatibility shims must not point back through `current`: a pre-fix
+  # resolver can select a higher numeric shim during rollback and otherwise
+  # create current -> shim -> current. Keep a separate hidden link to the
+  # newest real version. Shell globs do not match its dot-prefixed name, and
+  # the semantic-version filter rejects it independently.
+  compat_real="$PLUGIN_CACHE_BASE/$COMPAT_REAL_LINK"
+  if [ ! -e "$compat_real" ] || [ -L "$compat_real" ]; then
+    ln -sfn "$latest" "$compat_real" 2>/dev/null || :
+  fi
+  # Migrate the exact shim shape created by earlier builds at startup, even if
+  # the snapshot or host-root reference that originally created it is gone.
+  # Marker-less and non-symlink cache entries are never rewritten.
+  if [ "$(readlink "$compat_real" 2>/dev/null)" = "$latest" ]; then
+    old_stable="$PLUGIN_CACHE_BASE/current/bin/agent-guard"
+    compat_real_bin="$compat_real/bin/agent-guard"
+    migration_candidates=0
+    max_migration_candidates=128
+    for legacy_bin in "$PLUGIN_CACHE_BASE"/*/bin/agent-guard; do
+      migration_candidates=$((migration_candidates + 1))
+      [ "$migration_candidates" -le "$max_migration_candidates" ] || break
+      [ -L "$legacy_bin" ] || continue
+      legacy_root=${legacy_bin%/bin/agent-guard}
+      is_semver_dir "${legacy_root##*/}" || continue
+      [ -e "$legacy_root/$COMPAT_SHIM_MARKER" ] || continue
+      [ "$(readlink "$legacy_bin" 2>/dev/null)" = "$old_stable" ] || continue
+      ln -sfn "$compat_real_bin" "$legacy_bin" 2>/dev/null || :
+    done
+  fi
   # BSD and GNU ln both support -n to replace a symlink-to-directory itself
   # instead of following it and creating a link inside the old version. Always
   # point at the newest installed version: a stale binary may run after upgrade.
@@ -106,13 +136,18 @@ refresh_plugin_current_link() {
 
 refresh_plugin_current_link || :
 STABLE_BIN=$SELF_BIN
-[ -n "$PLUGIN_CACHE_BASE" ] && STABLE_BIN="$PLUGIN_CACHE_BASE/current/bin/agent-guard"
+COMPAT_REAL_BIN=$SELF_BIN
+if [ -n "$PLUGIN_CACHE_BASE" ]; then
+  STABLE_BIN="$PLUGIN_CACHE_BASE/current/bin/agent-guard"
+  COMPAT_REAL_BIN="$PLUGIN_CACHE_BASE/$COMPAT_REAL_LINK/bin/agent-guard"
+fi
 
 # Hosts before Agent Guard 3.0 could retain absolute version-cache paths in a
 # running hook command or Claude shell snapshot. Once that version directory is
 # removed, the old process cannot enter the new resolver by itself. When a new
 # binary does run, recreate only the missing path as a marked compatibility
-# shim to `current`; never replace a real cache entry.
+# shim through the independent real-version link; never replace a real cache
+# entry or point the shim back through `current`.
 create_legacy_plugin_shim() {
   legacy_root=${1:-}
   [ -n "$PLUGIN_CACHE_BASE" ] && [ -n "$legacy_root" ] || return 0
@@ -124,15 +159,51 @@ create_legacy_plugin_shim() {
   # `current`, creating a current -> shim -> current cycle.
   semver_less_than "$legacy_version" "$PLUGIN_CACHE_VERSION" || return 0
   [ "$legacy_root" != "$ROOT_DIR" ] || return 0
+
+  # A real `current` directory is the exceptional pre-existing layout: preserve
+  # its executable stable target because an old resolver cannot replace that
+  # directory with a symlink. Otherwise accept the hidden link only when it
+  # resolves to a real, unmarked version selected by the refresh above.
+  compat_shim_bin=
+  if [ -d "$PLUGIN_CACHE_BASE/current" ] \
+     && [ ! -L "$PLUGIN_CACHE_BASE/current" ] \
+     && [ -x "$STABLE_BIN" ]; then
+    compat_shim_bin=$STABLE_BIN
+  else
+    compat_real_version=$(readlink \
+      "$PLUGIN_CACHE_BASE/$COMPAT_REAL_LINK" 2>/dev/null || printf '')
+  fi
+  if [ -z "$compat_shim_bin" ] && is_semver_dir "$compat_real_version"; then
+    compat_real_root="$PLUGIN_CACHE_BASE/$compat_real_version"
+    if [ -x "$compat_real_root/bin/agent-guard" ] \
+       && [ ! -L "$compat_real_root/bin/agent-guard" ] \
+       && [ ! -e "$compat_real_root/$COMPAT_SHIM_MARKER" ]; then
+      compat_shim_bin=$COMPAT_REAL_BIN
+    fi
+  fi
+  [ -n "$compat_shim_bin" ] || return 0
+
+  # A current-backed shim created concurrently after the startup sweep can be
+  # rediscovered through a snapshot or host root. Retarget only that exact
+  # managed shape; do not modify real cache entries or unknown symlinks.
+  legacy_bin="$legacy_root/bin/agent-guard"
+  if [ -e "$legacy_root/$COMPAT_SHIM_MARKER" ] && [ -L "$legacy_bin" ]; then
+    legacy_target=$(readlink "$legacy_bin" 2>/dev/null) || return 0
+    if [ "$legacy_target" = "$STABLE_BIN" ] \
+       && [ "$legacy_target" != "$compat_shim_bin" ]; then
+      ln -sfn "$compat_shim_bin" "$legacy_bin" 2>/dev/null || :
+    fi
+    return 0
+  fi
+
   [ ! -e "$legacy_root" ] && [ ! -L "$legacy_root" ] || return 0
-  [ -x "$STABLE_BIN" ] || return 0
 
   # If another process or the plugin manager wins this mkdir, it owns the path.
   # Return immediately instead of cleaning anything beneath its directory.
   mkdir "$legacy_root" 2>/dev/null || return 0
   if mkdir "$legacy_root/bin" 2>/dev/null \
      && mkdir "$legacy_root/$COMPAT_SHIM_MARKER" 2>/dev/null \
-     && ln -s "$STABLE_BIN" "$legacy_root/bin/agent-guard" 2>/dev/null; then
+     && ln -s "$compat_shim_bin" "$legacy_root/bin/agent-guard" 2>/dev/null; then
     return 0
   fi
 

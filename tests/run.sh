@@ -8009,10 +8009,12 @@ else
   not_ok "first current-version SessionStart creates the stable current symlink"
 fi
 if [ -d "$CLEAN_CACHE/1.9.0/.agent-guard-compat-shim" ] \
-   && [ "$(readlink "$LEGACY_HOOK_BIN" 2>/dev/null)" = "$CLEAN_CACHE/current/bin/agent-guard" ]; then
-  ok "SessionStart recreates the removed legacy executable as a marked current shim"
+   && [ "$(readlink "$LEGACY_HOOK_BIN" 2>/dev/null)" = \
+     "$CLEAN_CACHE/.agent-guard-real-current/bin/agent-guard" ] \
+   && [ "$(readlink "$CLEAN_CACHE/.agent-guard-real-current" 2>/dev/null)" = 3.0.1 ]; then
+  ok "SessionStart recreates the removed legacy executable as a marked real-version shim"
 else
-  not_ok "SessionStart recreates the removed legacy executable as a marked current shim"
+  not_ok "SessionStart recreates the removed legacy executable without a current cycle"
 fi
 legacy_snapshot_after=$(HOME="$CLEAN_HOME" PATH=/usr/bin:/bin sh -c '. "$1"; command -v agent-guard || :' _ "$LEGACY_SNAPSHOT")
 HOME="$CLEAN_HOME" sh -c 'AGENT_GUARD_HOOK_HOST=claude "$1" hook-session-start' _ \
@@ -8081,7 +8083,7 @@ env -u HOME CLAUDE_CONFIG_DIR="$CONFIG_DIR" \
   "$CONFIG_CACHE/3.0.1/bin/agent-guard" version >/dev/null 2>&1
 if [ -d "$CONFIG_CACHE/1.9.0/.agent-guard-compat-shim" ] \
    && [ "$(readlink "$CONFIG_CACHE/1.9.0/bin/agent-guard" 2>/dev/null)" = \
-     "$CONFIG_CACHE/current/bin/agent-guard" ]; then
+     "$CONFIG_CACHE/.agent-guard-real-current/bin/agent-guard" ]; then
   ok "legacy migration honors CLAUDE_CONFIG_DIR without requiring HOME"
 else
   not_ok "legacy migration scans the configured Claude snapshot directory"
@@ -8190,7 +8192,8 @@ wait "$race_pid_two"
 race_status_two=$?
 if [ "$race_status_one" -eq 0 ] && [ "$race_status_two" -eq 0 ] \
    && [ -d "$RACE_CACHE/1.9.0/.agent-guard-compat-shim" ] \
-   && [ "$(readlink "$RACE_CACHE/1.9.0/bin/agent-guard" 2>/dev/null)" = "$RACE_CACHE/current/bin/agent-guard" ]; then
+   && [ "$(readlink "$RACE_CACHE/1.9.0/bin/agent-guard" 2>/dev/null)" = \
+     "$RACE_CACHE/.agent-guard-real-current/bin/agent-guard" ]; then
   ok "concurrent legacy repair preserves the winning compatibility shim"
 else
   not_ok "concurrent legacy repair does not clean another process's shim"
@@ -8216,7 +8219,8 @@ chmod +x "$CLEAN_CACHE/3.0.2/bin/agent-guard"
 HOME="$CLEAN_HOME" "$CLEAN_CACHE/3.0.2/bin/agent-guard" version >/dev/null 2>&1
 rm -rf "$CLEAN_CACHE/3.0.1"
 if [ "$(readlink "$CLEAN_CACHE/current" 2>/dev/null)" = 3.0.2 \
-   ] && PATH="$CLEAN_CACHE/current/bin:/usr/bin:/bin" command -v agent-guard >/dev/null 2>&1; then
+   ] && [ "$(readlink "$CLEAN_CACHE/.agent-guard-real-current" 2>/dev/null)" = 3.0.2 ] \
+   && PATH="$CLEAN_CACHE/current/bin:/usr/bin:/bin" command -v agent-guard >/dev/null 2>&1; then
   ok "upgrade retargets the stable PATH before the old version is removed"
 else
   not_ok "upgrade retargets the stable PATH before the old version is removed"
@@ -8280,6 +8284,146 @@ else
   not_ok "runtime resolver avoids a marker-loss current cycle"
   sed 's/^/  stdout: /' "$OUT"
   sed 's/^/  stderr: /' "$ERR"
+fi
+
+# Exercise the resolver shipped before compatibility-shim exclusions, rather
+# than copying the current implementation into the rolled-back release. With a
+# shim that points through `current`, the first invocation makes the shim
+# executable and the second creates current -> shim -> current. The independent
+# hidden real-version link must instead become dangling when the newer release
+# is removed, leaving the old resolver on the real rollback binary.
+PREFX_ROLLBACK_HOME="$TESTTMP/prefix-rollback-home"
+PREFX_ROLLBACK_CACHE="$PREFX_ROLLBACK_HOME/.claude/plugins/cache/agent-guard/agent-guard"
+mkdir -p "$PREFX_ROLLBACK_CACHE/2.0.0/bin" \
+  "$PREFX_ROLLBACK_CACHE/3.0.1/bin"
+PREFX_ROLLBACK_CACHE=$(CDPATH= cd -- "$PREFX_ROLLBACK_CACHE" && pwd -P)
+cp "$PLUGIN_ROOT/bin/agent-guard" \
+  "$PREFX_ROLLBACK_CACHE/3.0.1/bin/agent-guard"
+chmod +x "$PREFX_ROLLBACK_CACHE/3.0.1/bin/agent-guard"
+cat >"$PREFX_ROLLBACK_CACHE/2.0.0/bin/agent-guard" <<'EOF'
+#!/bin/sh
+set -u
+root=${0%/bin/agent-guard}
+base=${root%/*}
+latest=$(
+  for candidate in "$base"/*/bin/agent-guard; do
+    [ -x "$candidate" ] || continue
+    candidate_root=${candidate%/bin/agent-guard}
+    printf '%s\t%s\n' "${candidate_root##*/}" "${candidate_root##*/}"
+  done \
+    | awk -F '\t' '$1 ~ /^[0-9]+\.[0-9]+\.[0-9]+$/' \
+    | sort -t. -k1,1n -k2,2n -k3,3n \
+    | tail -n 1 \
+    | cut -f 2-
+)
+[ -n "$latest" ] && ln -sfn "$latest" "$base/current" 2>/dev/null
+printf 'agent-guard 2.0.0\n'
+EOF
+chmod +x "$PREFX_ROLLBACK_CACHE/2.0.0/bin/agent-guard"
+# Seed the exact compatibility state created by the previous PR build: a
+# marked, older version whose binary points through `current`.
+ln -s 3.0.1 "$PREFX_ROLLBACK_CACHE/current"
+mkdir -p "$PREFX_ROLLBACK_CACHE/2.9.0/bin" \
+  "$PREFX_ROLLBACK_CACHE/2.9.0/.agent-guard-compat-shim"
+ln -s "$PREFX_ROLLBACK_CACHE/current/bin/agent-guard" \
+  "$PREFX_ROLLBACK_CACHE/2.9.0/bin/agent-guard"
+# The original snapshot is intentionally absent: upgrade-time migration must
+# repair the already-created shim without depending on rediscovery.
+HOME="$PREFX_ROLLBACK_HOME" \
+  "$PREFX_ROLLBACK_CACHE/3.0.1/bin/agent-guard" version >/dev/null 2>&1
+prefix_shim_target=$(readlink \
+  "$PREFX_ROLLBACK_CACHE/2.9.0/bin/agent-guard" 2>/dev/null)
+rm -rf "$PREFX_ROLLBACK_CACHE/3.0.1"
+prefix_rollback_ok=1
+prefix_rollback_round=1
+while [ "$prefix_rollback_round" -le 2 ]; do
+  "$PREFX_ROLLBACK_CACHE/2.0.0/bin/agent-guard" version >"$OUT" 2>"$ERR"
+  if [ "$?" -ne 0 ] \
+     || [ "$(readlink "$PREFX_ROLLBACK_CACHE/current" 2>/dev/null)" != 2.0.0 ]; then
+    prefix_rollback_ok=0
+    break
+  fi
+  prefix_rollback_round=$((prefix_rollback_round + 1))
+done
+if [ "$prefix_shim_target" = \
+     "$PREFX_ROLLBACK_CACHE/.agent-guard-real-current/bin/agent-guard" ] \
+   && [ "$prefix_rollback_ok" -eq 1 ] \
+   && [ ! -x "$PREFX_ROLLBACK_CACHE/2.9.0/bin/agent-guard" ]; then
+  ok "existing current-backed shim migrates before a pre-fix resolver rollback"
+else
+  not_ok "existing shim migration avoids current -> shim -> current after rollback"
+  sed 's/^/  stdout: /' "$OUT"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+# A real directory named `current` predates the symlink layout in some custom
+# caches. It is never replaced or swept; its executable stays the safe shim
+# target because a pre-fix resolver cannot replace the parent directory.
+REAL_CURRENT_HOME="$TESTTMP/real-current-home"
+REAL_CURRENT_CACHE="$REAL_CURRENT_HOME/.claude/plugins/cache/agent-guard/agent-guard"
+REAL_CURRENT_SNAPSHOTS="$REAL_CURRENT_HOME/.claude/shell-snapshots"
+mkdir -p "$REAL_CURRENT_CACHE/3.0.1/bin" "$REAL_CURRENT_CACHE/current/bin" \
+  "$REAL_CURRENT_SNAPSHOTS"
+REAL_CURRENT_CACHE=$(CDPATH= cd -- "$REAL_CURRENT_CACHE" && pwd -P)
+cp "$PLUGIN_ROOT/bin/agent-guard" \
+  "$REAL_CURRENT_CACHE/3.0.1/bin/agent-guard"
+cp "$PLUGIN_ROOT/bin/agent-guard" \
+  "$REAL_CURRENT_CACHE/current/bin/agent-guard"
+chmod +x "$REAL_CURRENT_CACHE/3.0.1/bin/agent-guard" \
+  "$REAL_CURRENT_CACHE/current/bin/agent-guard"
+printf '%s\n' "$REAL_CURRENT_CACHE/1.9.0/bin/agent-guard" \
+  >"$REAL_CURRENT_SNAPSHOTS/legacy"
+HOME="$REAL_CURRENT_HOME" \
+  "$REAL_CURRENT_CACHE/3.0.1/bin/agent-guard" version >/dev/null 2>&1
+if [ -d "$REAL_CURRENT_CACHE/current" ] \
+   && [ ! -L "$REAL_CURRENT_CACHE/current" ] \
+   && [ ! -e "$REAL_CURRENT_CACHE/.agent-guard-real-current" ] \
+   && [ "$(readlink "$REAL_CURRENT_CACHE/1.9.0/bin/agent-guard" 2>/dev/null)" = \
+     "$REAL_CURRENT_CACHE/current/bin/agent-guard" ]; then
+  ok "real current directory remains the compatibility target"
+else
+  not_ok "real current directory is preserved without hidden-link migration"
+fi
+
+# Keep upgrade-time compatibility migration bounded even if the cache has many
+# marked entries. Only the first 128 installed candidates may be inspected and
+# rewritten during one startup.
+MIGRATION_CAP_HOME="$TESTTMP/migration-cap-home"
+MIGRATION_CAP_CACHE="$MIGRATION_CAP_HOME/.claude/plugins/cache/agent-guard/agent-guard"
+mkdir -p "$MIGRATION_CAP_CACHE/3.0.1/bin"
+MIGRATION_CAP_CACHE=$(CDPATH= cd -- "$MIGRATION_CAP_CACHE" && pwd -P)
+cp "$PLUGIN_ROOT/bin/agent-guard" \
+  "$MIGRATION_CAP_CACHE/3.0.1/bin/agent-guard"
+chmod +x "$MIGRATION_CAP_CACHE/3.0.1/bin/agent-guard"
+ln -s 3.0.1 "$MIGRATION_CAP_CACHE/current"
+migration_cap_version=1
+while [ "$migration_cap_version" -le 129 ]; do
+  migration_cap_root="$MIGRATION_CAP_CACHE/1.0.$migration_cap_version"
+  mkdir -p "$migration_cap_root/bin" \
+    "$migration_cap_root/.agent-guard-compat-shim"
+  ln -s "$MIGRATION_CAP_CACHE/current/bin/agent-guard" \
+    "$migration_cap_root/bin/agent-guard"
+  migration_cap_version=$((migration_cap_version + 1))
+done
+HOME="$MIGRATION_CAP_HOME" \
+  "$MIGRATION_CAP_CACHE/3.0.1/bin/agent-guard" version >/dev/null 2>&1
+migration_cap_updated=0
+migration_cap_old=0
+for migration_cap_bin in "$MIGRATION_CAP_CACHE"/*/bin/agent-guard; do
+  [ -L "$migration_cap_bin" ] || continue
+  case $(readlink "$migration_cap_bin" 2>/dev/null) in
+    "$MIGRATION_CAP_CACHE/.agent-guard-real-current/bin/agent-guard")
+      migration_cap_updated=$((migration_cap_updated + 1))
+      ;;
+    "$MIGRATION_CAP_CACHE/current/bin/agent-guard")
+      migration_cap_old=$((migration_cap_old + 1))
+      ;;
+  esac
+done
+if [ "$migration_cap_updated" -eq 128 ] && [ "$migration_cap_old" -eq 1 ]; then
+  ok "existing compatibility-shim startup migration is capped at 128 candidates"
+else
+  not_ok "compatibility-shim migration cap (updated $migration_cap_updated, old $migration_cap_old)"
 fi
 
 # --- temp cleanup on abrupt termination (#131) -----------------------------
