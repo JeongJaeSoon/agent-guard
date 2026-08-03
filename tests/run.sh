@@ -400,11 +400,13 @@ esac
 for manifest_file in "$PLUGIN_ROOT/hooks.json" "$PLUGIN_ROOT/hooks/hooks.json"; do
   if jq -e \
     '[.hooks[][] | .hooks[].command] |
-     length == 4 and all(.[]; contains(".agent-guard-compat-shim"))' \
+     length == 4 and all(.[];
+       contains(".agent-guard-compat-shim") and
+       contains("[ -L \"$c\" ] && continue"))' \
     "$manifest_file" >/dev/null; then
-    ok "all hook resolvers in $manifest_file exclude marked compatibility shims"
+    ok "all hook resolvers in $manifest_file exclude marked and symlink compatibility shims"
   else
-    not_ok "all hook resolvers in $manifest_file exclude marked compatibility shims"
+    not_ok "all hook resolvers in $manifest_file exclude marked and symlink compatibility shims"
   fi
 done
 
@@ -524,7 +526,7 @@ fi
 # manifest-level resolver must select the highest installed semantic version,
 # not rely on lexical glob order (where 3.0.9 sorts after 3.0.10).
 HOOK_CACHE="$TESTTMP/hook-cache"
-for hook_ver in 3.0.9 3.0.10 99.0.0beta; do
+for hook_ver in 3.0.9 3.0.10 99.0.0beta 99.0.0.; do
   mkdir -p "$HOOK_CACHE/$hook_ver/bin"
   cat >"$HOOK_CACHE/$hook_ver/bin/agent-guard" <<EOF
 #!/usr/bin/env sh
@@ -563,8 +565,7 @@ cat
 EOF
   chmod +x "$rollback_cache/2.0.0/bin/agent-guard"
   ln -s 3.0.1 "$rollback_cache/current"
-  printf '%s\n' "$rollback_cache/current/bin/agent-guard" \
-    >"$rollback_cache/2.9.0/.agent-guard-compat-shim"
+  mkdir "$rollback_cache/2.9.0/.agent-guard-compat-shim"
   ln -s "$rollback_cache/current/bin/agent-guard" \
     "$rollback_cache/2.9.0/bin/agent-guard"
   manifest_command=$(jq -r '.hooks.PreToolUse[0].hooks[0].command' "$manifest_file")
@@ -586,6 +587,31 @@ EOF
     ok "$manifest_host hook resolver keeps a rolled-back real release above a marked shim"
   else
     not_ok "$manifest_host hook resolver avoids a current-to-shim cycle after rollback"
+    sed 's/^/  stdout: /' "$OUT"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+
+  # A cache cleaner or partial manual recovery may remove the marker while
+  # leaving the symlink binary behind. The resolver must still reject that
+  # binary on type alone after current makes it executable.
+  rmdir "$rollback_cache/2.9.0/.agent-guard-compat-shim"
+  rollback_round=1
+  rollback_ok=1
+  while [ "$rollback_round" -le 2 ]; do
+    printf '%s' "$rollback_payload" \
+      | env "$manifest_root=$rollback_cache/3.0.1" sh -c "$manifest_command" \
+        >"$OUT" 2>"$ERR"
+    if [ "$(cat "$OUT")" != "$rollback_payload" ] \
+       || [ "$(readlink "$rollback_cache/current" 2>/dev/null)" != 2.0.0 ]; then
+      rollback_ok=0
+      break
+    fi
+    rollback_round=$((rollback_round + 1))
+  done
+  if [ "$rollback_ok" -eq 1 ]; then
+    ok "$manifest_host hook resolver rejects a marker-less compatibility symlink"
+  else
+    not_ok "$manifest_host hook resolver avoids a marker-loss current cycle"
     sed 's/^/  stdout: /' "$OUT"
     sed 's/^/  stderr: /' "$ERR"
   fi
@@ -7703,6 +7729,14 @@ if printf '%s\n' "$shellinit_plain" | sh -n - 2>"$ERR"; then
 else
   not_ok "shell-init (marker) snippet parses under sh -n"; sed 's/^/  stderr: /' "$ERR"
 fi
+if printf '%s' "$shellinit_plain" \
+   | grep -Fq '[ -L "$__ag_candidate" ] && continue' \
+   && printf '%s' "$shellinit_plain" \
+   | grep -Fq '[ -e "$__ag_version/.agent-guard-compat-shim" ] && continue'; then
+  ok "shell-init fallback excludes marked and symlink compatibility shims"
+else
+  not_ok "shell-init fallback excludes marked and symlink compatibility shims"
+fi
 
 mk_dir="$TESTTMP/marker"
 mkdir -p "$mk_dir/bin"
@@ -7732,6 +7766,24 @@ if [ "$mk_path" = 9.9.9 ]; then
 else
   not_ok "shell-init marker via \$PATH (got: $mk_path)"
 fi
+
+# The PATH fallback returns the command name, not an absolute path. Preserve the
+# `command` bypass so a same-name shell function cannot forge the version marker.
+# Hyphenated function names are a Bash/Zsh extension, so exercise the shells
+# where this shadowing is actually possible.
+for marker_shell in bash zsh; do
+  command -v "$marker_shell" >/dev/null 2>&1 || continue
+  mk_shadow=$(PATH="$mk_dir/bin:/usr/bin:/bin" "$marker_shell" -c '
+    function agent-guard { printf "agent-guard 6.6.6\n"; }
+    . "$1"
+    printf %s "${AGENT_GUARD_SHELL_INIT_VERSION:-UNSET}"
+  ' _ "$mk_path_guard" 2>/dev/null)
+  if [ "$mk_shadow" = 9.9.9 ]; then
+    ok "shell-init version probe bypasses a same-name function under $marker_shell"
+  else
+    not_ok "shell-init version probe bypasses $marker_shell function shadowing (got: $mk_shadow)"
+  fi
+done
 
 # (b) resolved via the BAKED path when agent-guard is off $PATH (plugin-only)
 mk_baked="$mk_dir/guard-baked.sh"
@@ -7956,7 +8008,7 @@ if [ "$(readlink "$CLEAN_CACHE/current" 2>/dev/null)" = 3.0.1 ]; then
 else
   not_ok "first current-version SessionStart creates the stable current symlink"
 fi
-if [ -f "$CLEAN_CACHE/1.9.0/.agent-guard-compat-shim" ] \
+if [ -d "$CLEAN_CACHE/1.9.0/.agent-guard-compat-shim" ] \
    && [ "$(readlink "$LEGACY_HOOK_BIN" 2>/dev/null)" = "$CLEAN_CACHE/current/bin/agent-guard" ]; then
   ok "SessionStart recreates the removed legacy executable as a marked current shim"
 else
@@ -7970,6 +8022,41 @@ if [ "$legacy_snapshot_after" = "$LEGACY_HOOK_BIN" ] && [ "$status" -eq 0 ]; the
   ok "legacy snapshot PATH and loaded hook command recover after compatibility migration"
 else
   not_ok "legacy snapshot and hook recover (snapshot '$legacy_snapshot_after', hook status $status)"
+fi
+
+# shell-init itself performs the bounded migration, then its emitted version
+# probe must not scan the same snapshots again when the snippet is sourced.
+SCAN_ONCE_HOME="$TESTTMP/scan-once-home"
+SCAN_ONCE_CACHE="$SCAN_ONCE_HOME/.claude/plugins/cache/agent-guard/agent-guard"
+SCAN_ONCE_SNAPSHOTS="$SCAN_ONCE_HOME/.claude/shell-snapshots"
+SCAN_ONCE_BIN="$TESTTMP/scan-once-bin"
+SCAN_ONCE_COUNTER="$TESTTMP/scan-once-counter"
+SCAN_ONCE_SNIPPET="$TESTTMP/scan-once-shell-init.sh"
+mkdir -p "$SCAN_ONCE_CACHE/3.0.1/bin" "$SCAN_ONCE_SNAPSHOTS" "$SCAN_ONCE_BIN"
+cp "$PLUGIN_ROOT/bin/agent-guard" "$SCAN_ONCE_CACHE/3.0.1/bin/agent-guard"
+chmod +x "$SCAN_ONCE_CACHE/3.0.1/bin/agent-guard"
+printf '%s\n' "$SCAN_ONCE_CACHE/1.9.0/bin/agent-guard" \
+  >"$SCAN_ONCE_SNAPSHOTS/legacy"
+cat >"$SCAN_ONCE_BIN/dd" <<'EOF'
+#!/bin/sh
+printf '%s\n' scan >>"$AGENT_GUARD_TEST_DD_COUNTER"
+exec "$AGENT_GUARD_TEST_REAL_DD" "$@"
+EOF
+chmod +x "$SCAN_ONCE_BIN/dd"
+AGENT_GUARD_TEST_DD_COUNTER="$SCAN_ONCE_COUNTER" \
+AGENT_GUARD_TEST_REAL_DD="$(command -v dd)" \
+HOME="$SCAN_ONCE_HOME" PATH="$SCAN_ONCE_BIN:$PATH" \
+  "$SCAN_ONCE_CACHE/3.0.1/bin/agent-guard" shell-init \
+  >"$SCAN_ONCE_SNIPPET" 2>"$ERR"
+AGENT_GUARD_TEST_DD_COUNTER="$SCAN_ONCE_COUNTER" \
+AGENT_GUARD_TEST_REAL_DD="$(command -v dd)" \
+HOME="$SCAN_ONCE_HOME" PATH="$SCAN_ONCE_BIN:$PATH" \
+  sh -c '. "$1"' _ "$SCAN_ONCE_SNIPPET" >/dev/null 2>"$ERR"
+scan_once_count=$(wc -l <"$SCAN_ONCE_COUNTER" | awk '{ print $1 }')
+if [ "$scan_once_count" -eq 1 ]; then
+  ok "shell-init version probe does not repeat the bounded legacy snapshot scan"
+else
+  not_ok "shell-init performs exactly one legacy snapshot scan (got $scan_once_count)"
 fi
 
 # Claude stores shell snapshots beneath CLAUDE_CONFIG_DIR when configured.
@@ -7992,7 +8079,7 @@ printf '%s\n' "$CONFIG_CACHE/1.8.0/bin/agent-guard" \
 
 env -u HOME CLAUDE_CONFIG_DIR="$CONFIG_DIR" \
   "$CONFIG_CACHE/3.0.1/bin/agent-guard" version >/dev/null 2>&1
-if [ -f "$CONFIG_CACHE/1.9.0/.agent-guard-compat-shim" ] \
+if [ -d "$CONFIG_CACHE/1.9.0/.agent-guard-compat-shim" ] \
    && [ "$(readlink "$CONFIG_CACHE/1.9.0/bin/agent-guard" 2>/dev/null)" = \
      "$CONFIG_CACHE/current/bin/agent-guard" ]; then
   ok "legacy migration honors CLAUDE_CONFIG_DIR without requiring HOME"
@@ -8062,10 +8149,10 @@ else
   not_ok "snapshot repair completes within the hook timeout without opening a FIFO (status $bound_status)"
 fi
 
-bound_marker_count=$(find "$BOUND_CACHE" -name .agent-guard-compat-shim -type f \
+bound_marker_count=$(find "$BOUND_CACHE" -name .agent-guard-compat-shim -type d \
   2>/dev/null | wc -l | awk '{ print $1 }')
 if [ "$bound_marker_count" -eq 32 ] \
-   && [ -f "$BOUND_CACHE/1.0.32/.agent-guard-compat-shim" ] \
+   && [ -d "$BOUND_CACHE/1.0.32/.agent-guard-compat-shim" ] \
    && [ ! -e "$BOUND_CACHE/1.0.33" ]; then
   ok "snapshot repair caps compact same-line legacy versions at 32"
 else
@@ -8102,7 +8189,7 @@ race_status_one=$?
 wait "$race_pid_two"
 race_status_two=$?
 if [ "$race_status_one" -eq 0 ] && [ "$race_status_two" -eq 0 ] \
-   && [ -f "$RACE_CACHE/1.9.0/.agent-guard-compat-shim" ] \
+   && [ -d "$RACE_CACHE/1.9.0/.agent-guard-compat-shim" ] \
    && [ "$(readlink "$RACE_CACHE/1.9.0/bin/agent-guard" 2>/dev/null)" = "$RACE_CACHE/current/bin/agent-guard" ]; then
   ok "concurrent legacy repair preserves the winning compatibility shim"
 else
@@ -8115,6 +8202,12 @@ if grep -Fq "$CLEAN_CACHE/current/bin/agent-guard" "$CLEAN_RC" \
   ok "setup-shell records only the stable plugin path"
 else
   not_ok "setup-shell records only the stable plugin path"
+fi
+if grep -Fq '[ -L "$_agc" ] && continue' "$CLEAN_RC" \
+   && grep -Fq '[ -e "$_agv/.agent-guard-compat-shim" ] && continue' "$CLEAN_RC"; then
+  ok "setup-shell fallback excludes marked and symlink compatibility shims"
+else
+  not_ok "setup-shell fallback excludes marked and symlink compatibility shims"
 fi
 
 mkdir -p "$CLEAN_CACHE/3.0.2/bin"
@@ -8144,8 +8237,9 @@ fi
 # A stale version may still be executing in an old session after a newer plugin
 # is installed. It must not roll `current` backward, and non-numeric lookalike
 # directories must never win the resolver sort.
-mkdir -p "$CLEAN_CACHE/3.0.0/bin" "$CLEAN_CACHE/3.0.2/bin" "$CLEAN_CACHE/9.9.9beta/bin"
-for clean_version in 3.0.0 3.0.2 9.9.9beta; do
+mkdir -p "$CLEAN_CACHE/3.0.0/bin" "$CLEAN_CACHE/3.0.2/bin" \
+  "$CLEAN_CACHE/9.9.9beta/bin" "$CLEAN_CACHE/9.9.9./bin"
+for clean_version in 3.0.0 3.0.2 9.9.9beta 9.9.9.; do
   cp "$PLUGIN_ROOT/bin/agent-guard" "$CLEAN_CACHE/$clean_version/bin/agent-guard"
   chmod +x "$CLEAN_CACHE/$clean_version/bin/agent-guard"
 done
@@ -8154,6 +8248,38 @@ if [ "$(readlink "$CLEAN_CACHE/current" 2>/dev/null)" = 3.0.2 ]; then
   ok "stale binaries keep current on the highest strictly numeric installed version"
 else
   not_ok "stale binary does not roll current backward (got: $(readlink "$CLEAN_CACHE/current" 2>/dev/null))"
+fi
+
+# Marker loss must not turn a compatibility symlink into an installed release.
+# Run the real runtime resolver twice: the first round makes the shim executable
+# through current, and the second would create current -> shim -> current unless
+# symlink candidates are rejected independently of the marker.
+RUNTIME_ROLLBACK_CACHE="$TESTTMP/runtime-rollback-cache"
+mkdir -p "$RUNTIME_ROLLBACK_CACHE/2.0.0/bin" "$RUNTIME_ROLLBACK_CACHE/2.9.0/bin"
+cp "$PLUGIN_ROOT/bin/agent-guard" \
+  "$RUNTIME_ROLLBACK_CACHE/2.0.0/bin/agent-guard"
+chmod +x "$RUNTIME_ROLLBACK_CACHE/2.0.0/bin/agent-guard"
+ln -s 3.0.1 "$RUNTIME_ROLLBACK_CACHE/current"
+ln -s "$RUNTIME_ROLLBACK_CACHE/current/bin/agent-guard" \
+  "$RUNTIME_ROLLBACK_CACHE/2.9.0/bin/agent-guard"
+runtime_rollback_round=1
+runtime_rollback_ok=1
+while [ "$runtime_rollback_round" -le 2 ]; do
+  HOME="$CLEAN_HOME" \
+    "$RUNTIME_ROLLBACK_CACHE/2.0.0/bin/agent-guard" version >"$OUT" 2>"$ERR"
+  if [ "$?" -ne 0 ] \
+     || [ "$(readlink "$RUNTIME_ROLLBACK_CACHE/current" 2>/dev/null)" != 2.0.0 ]; then
+    runtime_rollback_ok=0
+    break
+  fi
+  runtime_rollback_round=$((runtime_rollback_round + 1))
+done
+if [ "$runtime_rollback_ok" -eq 1 ]; then
+  ok "runtime resolver rejects a marker-less compatibility symlink after rollback"
+else
+  not_ok "runtime resolver avoids a marker-loss current cycle"
+  sed 's/^/  stdout: /' "$OUT"
+  sed 's/^/  stderr: /' "$ERR"
 fi
 
 # --- temp cleanup on abrupt termination (#131) -----------------------------

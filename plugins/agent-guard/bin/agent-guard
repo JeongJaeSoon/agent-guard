@@ -46,7 +46,7 @@ SELF_BIN="$BIN_DIR/agent-guard"
 # their existing stable ~/.agent-guard path.
 is_semver_dir() (
   set -f
-  case ${1:-} in ''|*[!0-9.]*) return 1 ;; esac
+  case ${1:-} in ''|*[!0-9.]*|.*|*.|*..*) return 1 ;; esac
   old_ifs=$IFS
   IFS=.
   # shellcheck disable=SC2086
@@ -89,10 +89,11 @@ refresh_plugin_current_link() {
   latest=$(
     for candidate in "$PLUGIN_CACHE_BASE"/*/bin/agent-guard; do
       [ -x "$candidate" ] || continue
+      [ -L "$candidate" ] && continue
       candidate_root=${candidate%/bin/agent-guard}
       candidate_version=${candidate_root##*/}
       is_semver_dir "$candidate_version" || continue
-      [ -f "$candidate_root/$COMPAT_SHIM_MARKER" ] && continue
+      [ -e "$candidate_root/$COMPAT_SHIM_MARKER" ] && continue
       printf '%s\t%s\n' "$candidate_version" "$candidate_version"
     done | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1 | cut -f 2-
   )
@@ -130,15 +131,14 @@ create_legacy_plugin_shim() {
   # Return immediately instead of cleaning anything beneath its directory.
   mkdir "$legacy_root" 2>/dev/null || return 0
   if mkdir "$legacy_root/bin" 2>/dev/null \
-     && printf '%s\n' "$STABLE_BIN" >"$legacy_root/$COMPAT_SHIM_MARKER" 2>/dev/null \
+     && mkdir "$legacy_root/$COMPAT_SHIM_MARKER" 2>/dev/null \
      && ln -s "$STABLE_BIN" "$legacy_root/bin/agent-guard" 2>/dev/null; then
     return 0
   fi
 
   # Clean up only paths this attempt could have created. A concurrent host
   # install that populated the directory makes rmdir fail harmlessly.
-  rm -f "$legacy_root/$COMPAT_SHIM_MARKER" 2>/dev/null || :
-  rmdir "$legacy_root/bin" "$legacy_root" 2>/dev/null || :
+  rmdir "$legacy_root/$COMPAT_SHIM_MARKER" "$legacy_root/bin" "$legacy_root" 2>/dev/null || :
 }
 
 # A current manifest resolver can enter the new binary while still passing an
@@ -4621,6 +4621,8 @@ __agentguard_latest_plugin_bin() {
     for __ag_candidate in "$__agentguard_plugin_base"/[0-9]*.[0-9]*.[0-9]*/bin/agent-guard; do
       [ -x "$__ag_candidate" ] || continue
       __ag_version=${__ag_candidate%/bin/agent-guard}
+      [ -L "$__ag_candidate" ] && continue
+      [ -e "$__ag_version/.agent-guard-compat-shim" ] && continue
       __ag_version=${__ag_version##*/}
       printf '%s\t%s\n' "$__ag_version" "$__ag_candidate"
     done \
@@ -4718,7 +4720,9 @@ __agentguard_nudge() {
 # args to clobber.
 unset AGENT_GUARD_SHELL_INIT_VERSION
 if __ag_exe=$(__agentguard_exe); then
-  __ag_v=$(command "$__ag_exe" version 2>/dev/null)
+  # `shell-init` already ran the bounded legacy migration. Do not repeat that
+  # scan in this child process solely to read its version.
+  __ag_v=$(AGENT_GUARD_LEGACY_REPAIR_DONE=1 command "$__ag_exe" version 2>/dev/null)
   __ag_v=${__ag_v#* }
   __ag_v=${__ag_v%%[!0-9A-Za-z.+-]*}
   [ -n "$__ag_v" ] && export AGENT_GUARD_SHELL_INIT_VERSION=$__ag_v
@@ -4789,7 +4793,7 @@ do_setup_shell() {
   # shadowing a working stable/plugin binary.
   stable=$(sh_squote "$STABLE_BIN")
   cache_base=$(sh_squote "$PLUGIN_CACHE_BASE")
-  line="eval \"\$(_agbin=$stable; _agbase=$cache_base; if [ -n \"\$_agbase\" ]; then _aglatest=\$(for _agc in \"\$_agbase\"/[0-9]*.[0-9]*.[0-9]*/bin/agent-guard; do [ -x \"\$_agc\" ] || continue; _agv=\${_agc%/bin/agent-guard}; printf '%s\\t%s\\n' \"\${_agv##*/}\" \"\$_agc\"; done | awk -F '\\t' '\$1 ~ /^[0-9]+\\.[0-9]+\\.[0-9]+\$/' | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1 | cut -f 2-); [ -n \"\$_aglatest\" ] && _agbin=\$_aglatest; fi; _agi=; [ -x \"\$_agbin\" ] && _agi=\$(\"\$_agbin\" shell-init${wrapping} 2>/dev/null); if [ -z \"\$_agi\" ] && command -v agent-guard >/dev/null 2>&1; then _agi=\$(agent-guard shell-init${wrapping} 2>/dev/null); fi; [ -n \"\$_agi\" ] && printf '%s\\n' \"\$_agi\")\""
+  line="eval \"\$(_agbin=$stable; _agbase=$cache_base; if [ -n \"\$_agbase\" ]; then _aglatest=\$(for _agc in \"\$_agbase\"/[0-9]*.[0-9]*.[0-9]*/bin/agent-guard; do [ -x \"\$_agc\" ] || continue; _agv=\${_agc%/bin/agent-guard}; [ -L \"\$_agc\" ] && continue; [ -e \"\$_agv/.agent-guard-compat-shim\" ] && continue; printf '%s\\t%s\\n' \"\${_agv##*/}\" \"\$_agc\"; done | awk -F '\\t' '\$1 ~ /^[0-9]+\\.[0-9]+\\.[0-9]+\$/' | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1 | cut -f 2-); [ -n \"\$_aglatest\" ] && _agbin=\$_aglatest; fi; _agi=; [ -x \"\$_agbin\" ] && _agi=\$(\"\$_agbin\" shell-init${wrapping} 2>/dev/null); if [ -z \"\$_agi\" ] && command -v agent-guard >/dev/null 2>&1; then _agi=\$(agent-guard shell-init${wrapping} 2>/dev/null); fi; [ -n \"\$_agi\" ] && printf '%s\\n' \"\$_agi\")\""
   path_line=
   if [ -n "$PLUGIN_CACHE_BASE" ]; then
     stable_dir=$(sh_squote "$PLUGIN_CACHE_BASE/current/bin")
@@ -4869,7 +4873,10 @@ fi
 
 cmd=${1:-}
 case "$cmd" in
-  hook-session-start|shell-init|setup-shell|version) repair_legacy_shell_snapshots || : ;;
+  hook-session-start|shell-init|setup-shell|version)
+    [ "${AGENT_GUARD_LEGACY_REPAIR_DONE:-}" = 1 ] \
+      || repair_legacy_shell_snapshots || :
+    ;;
 esac
 case "$cmd" in
   hook-pre-tool) hook_pre_tool ;;
