@@ -6388,6 +6388,23 @@ else
   sed 's/^/  out: /' "$OUT"
 fi
 
+# Structural closers make the complete token eligible for contextual mapping,
+# even when the value itself is short. Probe mode must retain that mapping or
+# large responses would leak a token that ordinary redaction masks.
+large_short_contextual_input=$(jq -nc '
+  {tool_name:"Read",tool_input:{file_path:"short-contextual-dump.txt"},
+   tool_response:["TOKEN=123}", ("c" * 300000)]}
+')
+post_tool_out "$large_short_contextual_input"
+if [ -s "$OUT" ] \
+   && jq -e '.hookSpecificOutput.updatedToolOutput
+              == ["[REDACTED]", "[REDACTED]"]' "$OUT" >/dev/null 2>&1; then
+  ok "post-tool large probe retains eligible contextual short mappings"
+else
+  not_ok "post-tool large probe preserves contextual short-value detection"
+  sed 's/^/  out: /' "$OUT"
+fi
+
 # Log/timestamp prefix must not hijack the env-heuristic split: the value is
 # anchored to the matched key's delimiter, not the first ":" (here inside the
 # "12:00:00" timestamp). A clean copy in a SEPARATE leaf (stderr) only gets
@@ -6904,6 +6921,19 @@ if [ "$exec_first_byte" = ff ] \
   ok "exec raw probe ignores ineligible short assignments"
 else
   not_ok "exec raw probe over-masks an ineligible short assignment"
+  LC_ALL=C wc -c "$OUT" | sed 's/^/  bytes: /'
+fi
+
+# As above, a structural closer permits an exact assignment-token mapping.
+# The raw probe must keep detecting it so invalid-byte fallback cannot leak it.
+"$PLUGIN_ROOT/bin/agent-guard" exec -- sh -c '
+  printf "\377\nTOKEN=123}\n"
+  awk "BEGIN { for (i = 0; i < 70000; i++) printf \"z\" }"
+' >"$OUT" 2>/dev/null
+if [ "$(cat "$OUT")" = '[REDACTED]' ]; then
+  ok "exec raw probe retains eligible contextual short mappings"
+else
+  not_ok "exec raw probe preserves contextual short-value detection"
   LC_ALL=C wc -c "$OUT" | sed 's/^/  bytes: /'
 fi
 
