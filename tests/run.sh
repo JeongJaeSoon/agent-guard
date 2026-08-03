@@ -6374,6 +6374,20 @@ else
   sed 's/^/  out: /' "$OUT"
 fi
 
+# Probe mode must use the same minimum-value eligibility as ordinary redaction.
+# A short assignment in a large response is not enough to mask unrelated leaves.
+large_short_assignment_input=$(jq -nc '
+  {tool_name:"Read",tool_input:{file_path:"short-assignment-dump.txt"},
+   tool_response:["TOKEN=1", ("b" * 300000)]}
+')
+post_tool_out "$large_short_assignment_input"
+if [ ! -s "$OUT" ]; then
+  ok "post-tool large probe ignores ineligible short assignments"
+else
+  not_ok "post-tool large probe over-masks an ineligible short assignment"
+  sed 's/^/  out: /' "$OUT"
+fi
+
 # Log/timestamp prefix must not hijack the env-heuristic split: the value is
 # anchored to the matched key's delimiter, not the first ":" (here inside the
 # "12:00:00" timestamp). A clean copy in a SEPARATE leaf (stderr) only gets
@@ -6873,6 +6887,23 @@ if [ "$exec_first_byte" = ff ] \
   ok "exec preserves oversized invalid-byte output without secret records"
 else
   not_ok "exec does not over-mask oversized benign invalid-byte output"
+  LC_ALL=C wc -c "$OUT" | sed 's/^/  bytes: /'
+fi
+
+# The raw-byte probe follows the same short-value eligibility rule. Preserve
+# the complete invalid-byte capture instead of replacing it with one sentinel.
+"$PLUGIN_ROOT/bin/agent-guard" exec -- sh -c '
+  printf "\377\nTOKEN=1\n"
+  awk "BEGIN { for (i = 0; i < 70000; i++) printf \"y\" }"
+' >"$OUT" 2>/dev/null
+exec_first_byte=$(LC_ALL=C od -An -tx1 "$OUT" | awk 'NR == 1 { print $1 }')
+if [ "$exec_first_byte" = ff ] \
+   && grep -a -q '^TOKEN=1$' "$OUT" \
+   && [ "$(LC_ALL=C wc -c <"$OUT" | tr -d ' ')" -gt 65536 ] \
+   && ! grep -a -q '\[REDACTED\]' "$OUT"; then
+  ok "exec raw probe ignores ineligible short assignments"
+else
+  not_ok "exec raw probe over-masks an ineligible short assignment"
   LC_ALL=C wc -c "$OUT" | sed 's/^/  bytes: /'
 fi
 
