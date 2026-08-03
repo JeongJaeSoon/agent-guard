@@ -52,9 +52,33 @@ gitleaks archive.
 
 Plugin executions maintain a version-independent sibling path at
 `current/bin/agent-guard`; hook manifests and `setup-shell` use it and can fall
-back to the newest installed version directory after a cache upgrade. Scanner
-infrastructure failures use `AGENT_GUARD_INFRA_FAILURE_MODE=open|closed`
-(`open` by default) and warn once per session. Secret detections always block.
+back to the newest installed version directory after a cache upgrade. For
+pre-3.0 live sessions that still name a removed version directly, the first
+current-version `SessionStart`, `shell-init`, `setup-shell`, or `version`
+invocation performs a bounded, text-only scan of plain, non-symlink Claude
+shell snapshots (at most 32 files, 1 MiB total, 64 KiB per line, 128 cache-path
+candidates, and 32 older versions) and recreates the missing executable as a
+marked shim through a hidden link to the newest real version. The shim never
+points back through `current`; a marked current-backed shim from an earlier
+build is retargeted on the first current-binary startup, even if the
+originating snapshot is gone, so legacy rollback resolvers cannot form a
+cycle. Equal or newer versions are never shimmed. The real-`current` directory
+exception below keeps its existing target only with a real `bin` and executable.
+No plugin lifecycle hook runs at cache deletion time. Snapshot discovery honors
+`CLAUDE_CONFIG_DIR/shell-snapshots` instead of the default
+`~/.claude/shell-snapshots`. An old session cannot self-heal until a current
+binary executes; a read-only cache, bounded-out record, or missing
+snapshot/host-root record requires restarting that session.
+A pre-existing real directory named `current` is not replaced or swept; its
+executable `current/bin/agent-guard` remains the compatibility target.
+After rollback removes a shim's real target, the dangling shim intentionally
+cannot bootstrap its own repair; invoke a real installed version or restart
+the host. Do not run cache rollback concurrently with migration because POSIX
+`ln` cannot conditionally replace the managed symlink against a cache manager
+rewriting that same entry.
+Scanner infrastructure failures use
+`AGENT_GUARD_INFRA_FAILURE_MODE=open|closed` (`open` by default) and warn once
+per session. Secret detections always block.
 
 ## Hooks and data scope
 

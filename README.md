@@ -417,8 +417,46 @@ agent-guard setup-shell --no-command-wrapping  # persistent opt-out
 For plugin installs, every execution refreshes a sibling
 `current/bin/agent-guard` symlink and `setup-shell` records only that stable
 path. Hooks and shell snippets use `current` first, then select the newest
-installed semantic-version directory if symlinks are unavailable. This keeps an
-already-running session valid when the host removes an older cache directory.
+installed semantic-version directory if symlinks are unavailable. That
+fallback applies only to new resolver invocations; it cannot repair an older
+session's already-loaded absolute path, which requires the symlink-backed
+compatibility shim described below. A session created by an older release can
+still have an absolute version path in its Claude shell snapshot or loaded hook
+command. On the first current-version
+`SessionStart`, `shell-init`, `setup-shell`, or `version` invocation, Agent Guard
+parses only plain, non-symlink snapshot files as text (never sources them).
+Each invocation examines at most 32 candidate files, 1 MiB of accepted input,
+64 KiB per line, 128 cache-path candidates, and 32 older versions, then
+recreates a missing pre-current version path as a marked shim through a hidden
+link that tracks the newest real version. The shim never points back through
+`current`; a current-backed marked shim from an earlier build is retargeted
+on the first current-binary startup, so a pre-fix resolver cannot create a
+rollback cycle even if the originating snapshot has gone away. The
+real-`current` directory exception with a real `bin` and executable described below
+keeps its existing target instead. A current resolver that receives an older
+host plugin root repairs that exact path immediately. Equal or newer version
+names are never shimmed, so they
+cannot outrank the real installation and form a `current` cycle.
+A pre-existing real directory named `current` is never replaced or swept; its
+executable `current/bin/agent-guard` remains the compatibility target because
+an old resolver cannot replace that directory with a symlink.
+When `CLAUDE_CONFIG_DIR` is set, snapshot discovery uses its
+`shell-snapshots` directory instead of `~/.claude/shell-snapshots`.
+
+There is no host lifecycle callback that can run this migration at the instant
+the plugin manager deletes an old cache directory. Therefore an already-running
+legacy session cannot repair itself before any current binary executes. Start a
+new session or invoke `current/bin/agent-guard setup-shell` once to trigger the
+migration. If the cache is read-only, symlinks are unavailable, or no matching
+plain snapshot/host root remains (including records beyond the scan bounds),
+the old absolute command is not recoverable and that session must be restarted.
+After a rollback removes the real version targeted by a compatibility shim,
+that shim intentionally stays non-executable so a pre-fix resolver cannot
+select it; invoke a real installed version or restart the host to run its
+fallback resolver. The dangling legacy shim cannot bootstrap that recovery by
+calling itself. Do not run cache rollback concurrently with this migration;
+POSIX `ln` cannot conditionally replace a symlink atomically against a cache
+manager rewriting the same entry.
 Standalone CLI installs continue to use their stable `~/.agent-guard` /
 `~/.local/bin` paths.
 
