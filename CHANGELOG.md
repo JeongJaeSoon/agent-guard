@@ -7,6 +7,13 @@
 
 ## Unreleased
 
+- fix(detection): allow explicitly named env templates such as `sample.env`,
+  `example.envrc`, `.flaskenv.example`, and `.dev.vars.example`, while blocking
+  reverse/runtime forms including `local.env`, `env.local`, `env.preview`, and
+  template-looking names whose final suffix is a runtime or backup marker;
+  preserve custom/non-environment deny precedence and deny-listed ancestors,
+  accept safely quoted Bash template paths, and keep source modules such as
+  `config.env.ts` readable without opening `schema.env.json` data files.
 - fix(runtime): keep plugin hooks and Claude shell integration on the
   version-independent `current/bin/agent-guard` path. Each plugin execution
   refreshes `current`, while hook and shell entrypoints fall back to the newest

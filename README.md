@@ -351,6 +351,20 @@ To enable it, add an Actions secret named `OPENAI_API_KEY` in the GitHub reposit
 
 Patch and diff scans inspect added lines only. Removing an existing leaked value is allowed.
 
+Environment templates remain readable when their basename has an explicit,
+final `.example`, `.sample`, `.template`, or `.dist` marker, or when
+`example`, `sample`, or `template` directly prefixes an `.env`/`.envrc`
+extension (for example `.env.local.example`, `sample.env`, and
+`example.envrc`). Runtime-shaped names such as `.env.local`, `local.env`,
+`env.local`, `env.preview`, `example.env.local`, `.flaskenv`, and
+`.dev.vars.production` stay blocked. Source-module forms such as `env.ts` and
+`config.env.ts` remain readable, while data/config suffixes such as
+`schema.env.json` stay protected. Template exceptions never override a
+non-environment deny rule, a deny-listed ancestor, or an operator-supplied
+`AGENT_GUARD_DENY_READ_PATHS` policy. Template-named symlinks are resolved and
+do not bypass the runtime-file rule; proposed template contents are still
+scanned normally for real secrets.
+
 Dependency checksums are exempt only for recognized hash-field shapes in
 `go.sum`, `package-lock.json`, `yarn.lock`, `Cargo.lock`, and `uv.lock`. The
 allowlist requires both the lockfile path and the checksum pattern; arbitrary
@@ -359,7 +373,7 @@ still scanned.
 
 ## What Gets Masked
 
-Beyond blocking, Agent Guard **masks** secret-like values in a matched tool's output before the model sees them. Claude uses the native `updatedToolOutput` rewrite and preserves the result shape. Codex does not expose that Claude field, so Agent Guard blocks the original sensitive result and supplies a sanitized replacement through `additionalContext`. Detection combines gitleaks with an assignment-value heuristic. The heuristic masks only the quoted value or next unquoted value token of a complete secret-bearing key; it does not mask metadata keys merely beginning with a secret word, prose after an ambiguous colon, or adjacent status text. It is on by default; disable with `AGENT_GUARD_OUTPUT_REDACT=off`.
+Beyond blocking, Agent Guard **masks** secret-like values in a matched tool's output before the model sees them. Claude uses the native `updatedToolOutput` rewrite and preserves the result shape. Codex does not expose that Claude field, so Agent Guard blocks the original sensitive result and supplies a sanitized replacement through `additionalContext`. Detection combines gitleaks with an assignment-value heuristic. The heuristic masks only the quoted value or next unquoted value token of a complete secret-bearing key; it does not mask metadata keys merely beginning with a secret word, prose after a known standalone status label (`error:`, `warning:`, `info:`, `note:`, `debug:`, `fatal:`, `hint:`), or adjacent status text. Any other colon-terminated label is treated as structured output, so `response: api_key: <value>`, `response.error: api_key: <value>`, and `response/error: api_key: <value>` are masked. It is on by default; disable with `AGENT_GUARD_OUTPUT_REDACT=off`.
 
 With `AGENT_GUARD_PII_HOOK_MODE=mask`, the same `PostToolUse` redactor also masks **PII** in tool output — email, phone (including Korean mobile), IPv4, credit card, US SSN, and Korean resident registration number become `[PII:TYPE]` placeholders in place. Secret redaction and PII masking compose into a single rewrite, so a result containing both is fully sanitized at once.
 
@@ -447,7 +461,7 @@ cannot grant that approval, run the displayed plugin-local command directly in
 your terminal; `!` command interpolation cannot request the required write
 permission.
 
-**This is best-effort, not a security control.** It covers only those command names and is trivially bypassed by an absolute path (`/bin/cat`), `source` / `.`, `python -c 'open(...)'`, or a redirection (`< file`). Because `agent-guard exec` buffers the whole output before masking it, **streaming / follow commands would hang** — so `tail` is deliberately *not* wrapped, and you should not `agx` a `tail -f`, a pager, or any long-running program (wrap only terminating dump commands). Output is captured via shell substitution, so wrapping is **text-only** — a binary or NUL-containing read loses embedded NULs and its trailing newline, so use `command cat` / `\cat` for faithful binary output. Each wrapped call also pays a gitleaks scan. Treat it as a convenience nudge for the common cases, not a boundary — the only channel-agnostic fix remains an egress redaction proxy or an upstream `!`-command hook.
+**This is best-effort, not a security control.** It covers only those command names and is trivially bypassed by an absolute path (`/bin/cat`), `source` / `.`, `python -c 'open(...)'`, or a redirection (`< file`). Because `agent-guard exec` buffers the whole output before masking it, **streaming / follow commands would hang** — so `tail` is deliberately *not* wrapped, and you should not `agx` a `tail -f`, a pager, or any long-running program (wrap only terminating dump commands). Output is captured via shell substitution, so wrapping is **text-only** — a binary or NUL-containing read loses embedded NULs and its trailing newline, so use `command cat` / `\cat` for faithful binary output. Invalid UTF-8 is handled byte-for-byte when possible; to keep that fallback bounded and fail closed, a secret-bearing assignment dump over 64 KiB or invalid-byte output from a secret-named `printenv` request is replaced as one `[REDACTED]` result. Oversized invalid-byte output with no secret-like assignment is preserved. Each wrapped call also pays a gitleaks scan. Treat it as a convenience nudge for the common cases, not a boundary — the only channel-agnostic fix remains an egress redaction proxy or an upstream `!`-command hook.
 
 ## Known Limitations
 
@@ -482,6 +496,11 @@ AGENT_GUARD_PII_HOOK_MODE=off
 AGENT_GUARD_OUTPUT_REDACT=mask
 AGENT_GUARD_INFRA_FAILURE_MODE=open
 ```
+
+An `AGENT_GUARD_DENY_READ_PATHS` override is authoritative. Unlike the bundled
+environment-family defaults, its entries are not relaxed for template-shaped
+filenames; explicitly listing `sample.env` or `secrets/*` therefore blocks those
+paths.
 
 Set `AGENT_GUARD_OUTPUT_REDACT=off` to disable masking secret-like values in tool output (default `mask`). Set `AGENT_GUARD_PII_HOOK_MODE` to `block` (block PII in tool inputs), `mask` (mask PII in tool outputs + hard-block Tier-2 PII inputs), or `off` (default).
 

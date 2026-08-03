@@ -25,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Scan for secrets
         uses: ./
@@ -49,7 +49,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # This job runs freshly-downloaded third-party binaries and never
           # pushes, so do not leave the GITHUB_TOKEN in the git config.
@@ -110,9 +110,18 @@ jobs:
     env:
       SHELLCHECK_VERSION: "0.10.0"
       ACTIONLINT_VERSION: "1.7.7"
+      # sha256 of shellcheck-v0.10.0.linux.x86_64.tar.xz. The shellcheck release
+      # publishes no checksums file, so this is cross-checked against
+      # pantsbuild's independently published known_versions entry
+      # ("v0.10.0|linux_x86_64|6c881ab…|2404716", digest and byte length both
+      # matching the release asset).
+      SHELLCHECK_CHECKSUM_LINUX_X64: "6c881ab0698e4e6ea235245f22832860544f17ba386442fe7e9d629f8cbedf87"
+      # sha256 of actionlint_1.7.7_linux_amd64.tar.gz, taken from the upstream
+      # actionlint_1.7.7_checksums.txt release asset.
+      ACTIONLINT_CHECKSUM_LINUX_X64: "023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757"
     steps:
       - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # Runs freshly-downloaded shellcheck/actionlint and never pushes.
           persist-credentials: false
@@ -124,6 +133,7 @@ jobs:
           url="https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK_VERSION}/${archive}"
           tmp="$(mktemp -d)"
           curl -fsSL "$url" -o "${tmp}/${archive}"
+          echo "${SHELLCHECK_CHECKSUM_LINUX_X64}  ${tmp}/${archive}" | sha256sum -c -
           tar -xJf "${tmp}/${archive}" -C "${tmp}"
           mkdir -p "${RUNNER_TEMP}/lint-bin"
           mv "${tmp}/shellcheck-v${SHELLCHECK_VERSION}/shellcheck" "${RUNNER_TEMP}/lint-bin/shellcheck"
@@ -137,6 +147,7 @@ jobs:
           url="https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/${archive}"
           tmp="$(mktemp -d)"
           curl -fsSL "$url" -o "${tmp}/${archive}"
+          echo "${ACTIONLINT_CHECKSUM_LINUX_X64}  ${tmp}/${archive}" | sha256sum -c -
           tar -xzf "${tmp}/${archive}" -C "${tmp}" actionlint
           mkdir -p "${RUNNER_TEMP}/lint-bin"
           mv "${tmp}/actionlint" "${RUNNER_TEMP}/lint-bin/actionlint"
@@ -162,6 +173,7 @@ jobs:
             scripts/build-release-tarball.sh \
             scripts/validate-plugin-layout.sh \
             scripts/validate-submission-readiness.sh \
+            scripts/render-submission-entry.sh \
             plugins/agent-guard/scripts/gitleaks-checksum.sh
 
       - name: actionlint workflows
