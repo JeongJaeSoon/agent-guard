@@ -238,8 +238,15 @@ handle_hook_infrastructure_failure() {
   return 0
 }
 
+# Which host's hook contract this invocation speaks. Every host-conditional
+# branch routes through this single default so adding a host or changing the
+# fallback is a one-line change, not a grep for scattered ':-claude' defaults.
+hook_host() {
+  printf '%s\n' "${AGENT_GUARD_HOOK_HOST:-claude}"
+}
+
 degraded_hook_message() {
-  case "${AGENT_GUARD_HOOK_HOST:-claude}" in
+  case "$(hook_host)" in
     codex) setup_ref='$setup-agent-guard' ;;
     *) setup_ref='agent-guard:setup-agent-guard' ;;
   esac
@@ -3770,7 +3777,7 @@ redact_tool_output() {
 
   [ "$out" != "$resp" ] || return 0
 
-  case "${AGENT_GUARD_HOOK_HOST:-claude}" in
+  case "$(hook_host)" in
     codex)
       # Keep the potentially large updated output on stdin. Linux limits one
       # exec argument to roughly 128 KiB, so `--argjson ut "$out"` can fail
@@ -3918,7 +3925,7 @@ hook_session_start() {
   # Accept only a digit-led version token drawn from a safe charset: an empty or
   # unparseable marker fails quiet, and the charset keeps the hand-built JSON
   # below injection-safe (no quotes/backslashes/whitespace to escape).
-  if [ "${AGENT_GUARD_HOOK_HOST:-claude}" = claude ]; then
+  if [ "$(hook_host)" = claude ]; then
     case $marker in
       ''|[!0-9]*|*[!0-9A-Za-z.+-]*) ;;
       *)
@@ -3934,13 +3941,13 @@ hook_session_start() {
   # command wrapping is default-on, so an absent marker means the one-time
   # shell setup has not loaded. Keep Codex silent: Claude shell snapshots are
   # not a Codex command boundary.
-  if [ -z "$marker" ] && [ "${AGENT_GUARD_HOOK_HOST:-claude}" = claude ]; then
-    wrapping_setup='agent-guard command wrapping is not loaded. Run /agent-guard:setup-shell, then restart the shell and Claude Code. Use setup-shell --no-command-wrapping for a persistent opt-out.'
+  if [ -z "$marker" ] && [ "$(hook_host)" = claude ]; then
+    wrapping_setup='agent-guard command wrapping is not loaded. Run /agent-guard:setup-shell (or agent-guard setup-shell for a standalone install), then restart the shell and Claude Code. Use setup-shell --no-command-wrapping for a persistent opt-out.'
     if [ -n "$message" ]; then message="$message $wrapping_setup"; else message=$wrapping_setup; fi
   fi
 
   [ -n "$message" ] || return 0
-  case "${AGENT_GUARD_HOOK_HOST:-claude}" in
+  case "$(hook_host)" in
     codex)
       printf '{"systemMessage":"%s","hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}\n' "$message" "$message"
       ;;

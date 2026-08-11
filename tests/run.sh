@@ -350,6 +350,25 @@ codex_ss_matcher=$(jq -r '.hooks.SessionStart[0].matcher' "$PLUGIN_ROOT/hooks.js
 [ "$codex_ss_matcher" = "$ss_hook_matcher" ] \
   && ok "Codex SessionStart matcher matches the supported lifecycle set" \
   || not_ok "Codex SessionStart matcher matches the supported lifecycle set (got: $codex_ss_matcher)"
+
+# Both standalone examples must carry the same SessionStart coverage as the
+# plugin manifests: the degraded-setup warning is host-neutral, so leaving it
+# out of one host's example is a per-tool coverage gap, not a host difference.
+for file in \
+  "$ROOT/examples/claude/settings.project.json" \
+  "$ROOT/examples/codex/hooks.json"; do
+  ex_ss_matcher=$(jq -r '.hooks.SessionStart[0].matcher // empty' "$file")
+  ex_ss_timeout=$(jq -r '.hooks.SessionStart[0].hooks[0].timeout // empty' "$file")
+  ex_ss_sub=$(jq -r '.hooks.SessionStart[0].hooks[0].command // empty' "$file" \
+    | grep -oE 'hook-session-start' | tail -n1)
+  if [ "$ex_ss_matcher" = "$ss_hook_matcher" ] \
+     && [ "$ex_ss_timeout" = "$ss_hook_timeout" ] \
+     && [ "$ex_ss_sub" = "hook-session-start" ]; then
+    ok "SessionStart hook in $file matches the plugin manifests"
+  else
+    not_ok "SessionStart hook in $file matches the plugin manifests (matcher: $ex_ss_matcher, timeout: $ex_ss_timeout, sub: $ex_ss_sub)"
+  fi
+done
 case "$ss_hook_command" in
   *'CLAUDE_PLUGIN_ROOT'*'/current/bin/agent-guard'*'hook-session-start'*)
     ok "SessionStart command resolves hook-session-start through the stable current path" ;;
@@ -397,6 +416,40 @@ case "$codex_pre_tool_command" in
     ok "Codex hook command does not depend on host-specific plugin root env vars"
     ;;
 esac
+
+# The inline hook commands are ONE generic resolver rendered once per host.
+# Only three host tokens may differ: the plugin-root env var, the warning
+# manifest tag, and the AGENT_GUARD_HOOK_HOST pin. Normalize those and require
+# byte-identical commands, so a fix applied to one host's resolver cannot
+# silently miss the other.
+for event in PreToolUse PostToolUse Stop SessionStart; do
+  claude_cmd=$(jq -r ".hooks.${event}[0].hooks[0].command" "$PLUGIN_ROOT/hooks/hooks.json")
+  codex_cmd=$(jq -r ".hooks.${event}[0].hooks[0].command" "$PLUGIN_ROOT/hooks.json")
+  case "$claude_cmd" in
+    *'AGENT_GUARD_HOOK_HOST=claude'*) ok "$event Claude hook command pins AGENT_GUARD_HOOK_HOST=claude" ;;
+    *) not_ok "$event Claude hook command pins AGENT_GUARD_HOOK_HOST=claude" ;;
+  esac
+  case "$codex_cmd" in
+    *'AGENT_GUARD_HOOK_HOST=codex'*) ok "$event Codex hook command pins AGENT_GUARD_HOOK_HOST=codex" ;;
+    *) not_ok "$event Codex hook command pins AGENT_GUARD_HOOK_HOST=codex" ;;
+  esac
+  claude_norm=$(printf '%s' "$claude_cmd" | sed \
+    -e 's/CLAUDE_PLUGIN_ROOT/__HOST_ROOT__/g' \
+    -e 's/manifest-claude/manifest-__HOST__/g' \
+    -e 's/AGENT_GUARD_HOOK_HOST=claude/AGENT_GUARD_HOOK_HOST=__HOST__/g')
+  codex_norm=$(printf '%s' "$codex_cmd" | sed \
+    -e 's/PLUGIN_ROOT/__HOST_ROOT__/g' \
+    -e 's/manifest-codex/manifest-__HOST__/g' \
+    -e 's/AGENT_GUARD_HOOK_HOST=codex/AGENT_GUARD_HOOK_HOST=__HOST__/g')
+  if [ "$claude_norm" = "$codex_norm" ]; then
+    ok "$event hook resolver is identical across hosts after host-token normalization"
+  else
+    not_ok "$event hook resolver is identical across hosts after host-token normalization"
+    printf '%s\n' "$claude_norm" >"$TESTTMP/claude_norm"
+    printf '%s\n' "$codex_norm" >"$TESTTMP/codex_norm"
+    diff "$TESTTMP/claude_norm" "$TESTTMP/codex_norm" | sed 's/^/  diff: /'
+  fi
+done
 
 read_env_payload='{"tool_name":"Read","tool_input":{"file_path":".env"}}'
 printf '%s' "$read_env_payload" \
@@ -7578,6 +7631,14 @@ if [ $? -eq 0 ] \
   ok "Claude SessionStart guides default command-wrapping setup when the marker is absent"
 else
   not_ok "Claude SessionStart guides command-wrapping setup with no marker (got: $vd_out)"
+fi
+# Like the degraded-dependency guidance, the wrapping nudge must offer the CLI
+# form alongside the plugin command: standalone (settings-based) installs have
+# no /agent-guard:* commands to run.
+if printf '%s' "$vd_out" | jq -e '.systemMessage | contains("or agent-guard setup-shell")' >/dev/null 2>&1; then
+  ok "command-wrapping setup guidance offers the standalone CLI form"
+else
+  not_ok "command-wrapping setup guidance offers the standalone CLI form (got: $vd_out)"
 fi
 
 vd_out=$(AGENT_GUARD_HOOK_HOST=codex AGENT_GUARD_GITLEAKS_BIN="$MOCK_BIN/gitleaks" \

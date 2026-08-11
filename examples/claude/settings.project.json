@@ -35,6 +35,18 @@
           }
         ]
       }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/absolute/path/to/agent-guard/plugins/agent-guard/bin/agent-guard hook-session-start",
+            "timeout": 5
+          }
+        ]
+      }
     ]
   }
 }
