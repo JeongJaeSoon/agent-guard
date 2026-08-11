@@ -19,6 +19,7 @@ jobs:
   codex:
     name: Review
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     if: github.event.pull_request.draft == false
     env:
       HAS_OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY != '' }}
@@ -74,6 +75,7 @@ jobs:
   post_feedback:
     name: Post feedback
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: codex
     if: needs.codex.outputs.final_message != ''
     permissions:
