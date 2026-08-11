@@ -75,8 +75,8 @@ refresh_plugin_current_link() {
       candidate_root=${candidate%/bin/agent-guard}
       candidate_version=${candidate_root##*/}
       is_semver_dir "$candidate_version" || continue
-      printf '%s\t%s\n' "$candidate_version" "$candidate_version"
-    done | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1 | cut -f 2-
+      printf '%s\n' "$candidate_version"
+    done | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1
   )
   [ -n "$latest" ] || return 1
   # BSD and GNU ln both support -n to replace a symlink-to-directory itself
@@ -280,7 +280,6 @@ check_deps() {
   need_cmd jq
   need_cmd git
   need_gitleaks
-  [ -f "$GITLEAKS_CONFIG" ] || die "gitleaks config not found: $GITLEAKS_CONFIG"
   [ -f "$DENY_READ_PATHS" ] || die "deny read policy not found: $DENY_READ_PATHS"
   [ -f "$DENY_BASH_PATTERNS" ] || die "deny bash policy not found: $DENY_BASH_PATTERNS"
   info "$PROGRAM: dependencies ok"
@@ -1457,10 +1456,9 @@ block_on_scan_status() {
   esac
 }
 
-# Extract only added diff lines, dropping exact checksum fields only when the
-# diff header identifies one of the supported lockfiles.
-extract_added_lines() {
-  LC_ALL=C awk '
+# Shared by both diff extractors below: map a diff path to the (uppercase =
+# fragment-context) lockfile kind byte filter_lockfile_records consumes.
+AWK_LOCKFILE_KIND='
     function lockfile_kind(path, parts, count, name) {
       count = split(path, parts, "/")
       name = parts[count]
@@ -1470,7 +1468,12 @@ extract_added_lines() {
       if (name == "Cargo.lock") return "C"
       if (name == "uv.lock") return "U"
       return "-"
-    }
+    }'
+
+# Extract only added diff lines, dropping exact checksum fields only when the
+# diff header identifies one of the supported lockfiles.
+extract_added_lines() {
+  LC_ALL=C awk "$AWK_LOCKFILE_KIND"'
     /^diff --git / { in_hunk = 0; path = ""; next }
     !in_hunk && /^\+\+\+ b\// { path = substr($0, 7); next }
     /^@@/ { in_hunk = 1; next }
@@ -1479,17 +1482,7 @@ extract_added_lines() {
 }
 # Extract lines introduced by Codex apply_patch envelopes or unified diffs.
 extract_patch_added_lines() {
-  LC_ALL=C awk '
-    function lockfile_kind(path, parts, count, name) {
-      count = split(path, parts, "/")
-      name = parts[count]
-      if (name == "go.sum") return "g"
-      if (name == "package-lock.json") return "P"
-      if (name == "yarn.lock") return "y"
-      if (name == "Cargo.lock") return "C"
-      if (name == "uv.lock") return "U"
-      return "-"
-    }
+  LC_ALL=C awk "$AWK_LOCKFILE_KIND"'
     BEGIN { mode = "none"; in_hunk = 0 }
     /^\*\*\* Begin Patch/ { mode = "none"; in_hunk = 0; next }
     /^\*\*\* End Patch/ { mode = "none"; in_hunk = 0; next }
@@ -2914,6 +2907,14 @@ output_redact_enabled() {
   esac
 }
 
+# One jq tree-walk definition shared by every response rewriter below (it also
+# keeps jq 1.5, which lacks the walk builtin, working). Prepend as
+# `jq -c "$JQ_WALK"'<program>'`.
+JQ_WALK='def walk(f): def w: if type == "object" then map_values(w)
+                    elif type == "array" then map(w)
+                    else . end | f; w;
+'
+
 # Recall booster for the most common leak shape: `KEY=value`, `export KEY=value`
 # or `KEY: value` dumps whose key name looks secret-bearing. gitleaks misses most
 # of these (custom value formats), so emit the VALUE for literal redaction.
@@ -3569,10 +3570,7 @@ redact_tool_response_json() {
   # Redacts string VALUES only; object KEYS are left untouched. Transforming keys
   # could collide two distinct keys onto one placeholder and silently drop an
   # entry; a secret appearing as a JSON key is a documented limitation (README).
-  printf '%s' "$resp" | jq -c --argjson secrets "$secrets" '
-    def walk(f): def w: if type == "object" then map_values(w)
-                        elif type == "array" then map(w)
-                        else . end | f; w;
+  printf '%s' "$resp" | jq -c --argjson secrets "$secrets" "$JQ_WALK"'
     def specs($s):
       $s
       | map(if type == "string"
@@ -3632,10 +3630,7 @@ redact_tool_response_json() {
 # before the ordinary literal detector runs.
 redact_nul_response_json() {
   resp=$1
-  printf '%s' "$resp" | jq -c '
-    def walk(f): def w: if type == "object" then map_values(w)
-                        elif type == "array" then map(w)
-                        else . end | f; w;
+  printf '%s' "$resp" | jq -c "$JQ_WALK"'
     walk(if type == "string" and contains("\u0000")
          then "[REDACTED]" else . end)
   ' 2>/dev/null
@@ -3661,10 +3656,7 @@ large_response_has_secretish_assignment() {
 
 redact_nonempty_response_strings() {
   whole_leaf_response=$1
-  printf '%s' "$whole_leaf_response" | jq -c '
-    def walk(f): def w: if type == "object" then map_values(w)
-                        elif type == "array" then map(w)
-                        else . end | f; w;
+  printf '%s' "$whole_leaf_response" | jq -c "$JQ_WALK"'
     walk(if type == "string" and length > 0
          then "[REDACTED]" else . end)
   ' 2>/dev/null
@@ -3697,7 +3689,7 @@ redact_response_whole_leaf_fail_closed() {
 # nothing on failure (e.g. a jq build without Oniguruma gsub).
 mask_pii_response_json() {
   resp=$1
-  printf '%s' "$resp" | jq -c '
+  printf '%s' "$resp" | jq -c "$JQ_WALK"'
     def mask_pii:
       gsub("[0-9]{4}[ -]?[0-9]{4}[ -]?[0-9]{4}[ -]?[0-9]{4}([ -]?[0-9]{3})?"; "[PII:CREDIT_CARD]")
       | gsub("3[47][0-9]{2}[ -]?[0-9]{6}[ -]?[0-9]{5}"; "[PII:CREDIT_CARD]")
@@ -3707,9 +3699,6 @@ mask_pii_response_json() {
       | gsub("[A-Za-z0-9_%+.-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}"; "[PII:EMAIL]")
       | gsub("01[0-9][ -]?[0-9]{4}[ -]?[0-9]{4}"; "[PII:PHONE]")
       | gsub("(\\+?[0-9][ .-]?)?(\\([0-9]{3}\\)|[0-9]{3})[ .-]?[0-9]{3}[ .-]?[0-9]{4}"; "[PII:PHONE]");
-    def walk(f): def w: if type == "object" then map_values(w)
-                        elif type == "array" then map(w)
-                        else . end | f; w;
     walk(if type == "string" then mask_pii else . end)
   ' 2>/dev/null
 }
