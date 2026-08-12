@@ -23,18 +23,34 @@ EOF
 )
 
 render_command() { # $1 = root env var, $2 = host tag, $3 = hook subcommand
-  printf '%s\n' "$TEMPLATE" \
-    | sed -e "s/@ROOT_VAR@/$1/g" -e "s/@HOST@/$2/g" -e "s/@SUB@/$3/g"
+  rendered=$(printf '%s\n' "$TEMPLATE" \
+    | sed -e "s/@ROOT_VAR@/$1/g" -e "s/@HOST@/$2/g" -e "s/@SUB@/$3/g") || return 1
+  # A sed that fails to substitute exits 0, so also refuse an empty result or a
+  # leftover placeholder: silently rendering a broken hook command would
+  # disable the protections these manifests install.
+  case "$rendered" in
+    ''|*@ROOT_VAR@*|*@HOST@*|*@SUB@*)
+      printf '%s\n' "render-hook-manifests: bad render for $2 $3" >&2
+      return 1
+      ;;
+  esac
+  printf '%s\n' "$rendered"
 }
 
 render_manifest() { # $1 = root env var, $2 = host tag, $3/$4 = pre/post matcher
+  # Status-checked assignments: a render_command failure inside a jq argument's
+  # command substitution would otherwise be discarded while jq still exits 0.
+  pre=$(render_command "$1" "$2" hook-pre-tool) || return 1
+  post=$(render_command "$1" "$2" hook-post-tool) || return 1
+  stop=$(render_command "$1" "$2" hook-stop) || return 1
+  session=$(render_command "$1" "$2" hook-session-start) || return 1
   jq -n \
     --arg pre_matcher "$3" \
     --arg post_matcher "$4" \
-    --arg pre "$(render_command "$1" "$2" hook-pre-tool)" \
-    --arg post "$(render_command "$1" "$2" hook-post-tool)" \
-    --arg stop "$(render_command "$1" "$2" hook-stop)" \
-    --arg session "$(render_command "$1" "$2" hook-session-start)" \
+    --arg pre "$pre" \
+    --arg post "$post" \
+    --arg stop "$stop" \
+    --arg session "$session" \
     '{hooks: {
        PreToolUse: [{matcher: $pre_matcher,
                      hooks: [{type: "command", command: $pre, timeout: 10}]}],
