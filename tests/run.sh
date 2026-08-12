@@ -7392,8 +7392,8 @@ fi
 
 # --- shell-init Claude command wrapping (stable, default-on overrides) --------
 # The default snippet overrides cat/head/printenv inside Claude Code. A durable
-# opt-out omits those functions, while both 1.x flags remain hidden compatibility
-# shims so an existing managed rc keeps working during upgrade.
+# opt-out omits those functions. The 1.x compatibility flags are removed in
+# 4.0 and rejected outright (asserted below).
 shellinit_wrap=$shellinit_auto
 if printf '%s' "$shellinit_wrap" | grep -q '__agentguard_wrap_command'; then
   ok "shell-init enables Claude command wrapping by default"
@@ -7406,13 +7406,27 @@ if printf '%s' "$shellinit_no_wrap" | grep -q '__agentguard_wrap_command'; then
 else
   ok "shell-init --no-command-wrapping omits automatic command overrides"
 fi
-shellinit_v1_stable=$("$PLUGIN_ROOT/bin/agent-guard" shell-init --claude-bang-guard 2>/dev/null)
-shellinit_v1_experimental=$("$PLUGIN_ROOT/bin/agent-guard" shell-init --experimental-bang-guard 2>/dev/null)
-if printf '%s' "$shellinit_v1_stable" | grep -q '__agentguard_wrap_command' \
-   && printf '%s' "$shellinit_v1_experimental" | grep -q '__agentguard_wrap_command'; then
-  ok "shell-init keeps hidden compatibility for 1.x command-wrapper flags"
+# The 1.x flags are removed in 4.0: shell-init must REJECT them (exit 2, no
+# snippet) so a stale 1.x rc line fails loudly at eval time instead of being
+# silently reinterpreted. --definitely-unknown pins the same fix for the
+# pre-existing swallow: die inside the target substitution used to warn but
+# still emit the snippet with exit 0. must-pass control below: a supported
+# invocation still emits the wrappers.
+for si_v1_flag in --claude-bang-guard --experimental-bang-guard --definitely-unknown; do
+  si_v1_out=$("$PLUGIN_ROOT/bin/agent-guard" shell-init "$si_v1_flag" 2>"$ERR")
+  si_v1_status=$?
+  if [ "$si_v1_status" -eq 2 ] && [ -z "$si_v1_out" ] \
+     && grep -q 'unknown argument' "$ERR"; then
+    ok "shell-init rejects unsupported flag $si_v1_flag with no snippet"
+  else
+    not_ok "shell-init rejects unsupported flag $si_v1_flag with no snippet (status $si_v1_status)"
+  fi
+done
+si_ctrl=$("$PLUGIN_ROOT/bin/agent-guard" shell-init --zsh 2>/dev/null)
+if printf '%s' "$si_ctrl" | grep -q '__agentguard_wrap_command'; then
+  ok "shell-init control: supported flags still emit the command wrappers"
 else
-  not_ok "shell-init keeps hidden compatibility for 1.x command-wrapper flags"
+  not_ok "shell-init control: supported flags still emit the command wrappers"
 fi
 shellinit_help=$("$PLUGIN_ROOT/bin/agent-guard" shell-init --help 2>&1)
 if printf '%s' "$shellinit_help" | grep -q -- '--no-command-wrapping' \
@@ -7832,17 +7846,35 @@ if grep -q 'shell-init --no-command-wrapping' "$ss_off" 2>/dev/null; then
 else
   not_ok "setup-shell persists the command-wrapping opt-out"
 fi
+# The 1.x flags are removed in 4.0: setup-shell must REJECT them and must not
+# write an rc. must-fail control below: the supported opt-out flag still works.
 for ss_v1_flag in --claude-bang-guard --experimental-bang-guard; do
   ss_v1="$TESTTMP/setup-v1-${ss_v1_flag#--}.rc"
-  "$PLUGIN_ROOT/bin/agent-guard" setup-shell --rc "$ss_v1" "$ss_v1_flag" >/dev/null 2>&1
-  if ! grep -q -- '--claude-bang-guard' "$ss_v1" 2>/dev/null \
-     && ! grep -q -- '--experimental-bang-guard' "$ss_v1" 2>/dev/null \
-     && ! grep -q -- '--no-command-wrapping' "$ss_v1" 2>/dev/null; then
-    ok "setup-shell normalizes the 1.x flag $ss_v1_flag to the 2.x default"
+  "$PLUGIN_ROOT/bin/agent-guard" setup-shell --rc "$ss_v1" "$ss_v1_flag" >/dev/null 2>"$ERR"
+  ss_v1_status=$?
+  if [ "$ss_v1_status" -eq 2 ] && [ ! -e "$ss_v1" ] \
+     && grep -q 'unknown option' "$ERR"; then
+    ok "setup-shell rejects the removed 1.x flag $ss_v1_flag"
   else
-    not_ok "setup-shell normalizes the 1.x flag $ss_v1_flag to the 2.x default"
+    not_ok "setup-shell rejects the removed 1.x flag $ss_v1_flag (status $ss_v1_status)"
   fi
 done
+# --help must not short-circuit rejection: help is deferred until every
+# argument has parsed, so a removed flag after --help still fails. must-pass
+# control: --help alone stays exit 0.
+"$PLUGIN_ROOT/bin/agent-guard" setup-shell --help --claude-bang-guard >/dev/null 2>"$ERR"
+ss_help_reject_status=$?
+if [ "$ss_help_reject_status" -eq 2 ] && grep -q 'unknown option' "$ERR"; then
+  ok "setup-shell rejects a removed flag even after --help"
+else
+  not_ok "setup-shell rejects a removed flag even after --help (status $ss_help_reject_status)"
+fi
+"$PLUGIN_ROOT/bin/agent-guard" setup-shell --help >/dev/null 2>"$ERR"
+if [ $? -eq 0 ] && grep -q 'Usage:' "$ERR"; then
+  ok "setup-shell --help alone still prints usage with exit 0"
+else
+  not_ok "setup-shell --help alone still prints usage with exit 0"
+fi
 setup_shell_help=$("$PLUGIN_ROOT/bin/agent-guard" setup-shell --help 2>&1)
 if printf '%s' "$setup_shell_help" | grep -q -- '--no-command-wrapping' \
    && ! printf '%s' "$setup_shell_help" | grep -q -- '--claude-bang-guard' \
