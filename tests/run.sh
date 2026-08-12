@@ -451,9 +451,25 @@ for event in PreToolUse PostToolUse Stop SessionStart; do
   fi
 done
 
+# Both manifests are rendered artifacts: scripts/render-hook-manifests.sh owns
+# the single resolver template and the per-host tables. A hand edit that skips
+# the renderer would reintroduce the copy-drift class the normalization checks
+# above can only partially catch.
+if sh "$ROOT/scripts/render-hook-manifests.sh" --check >/dev/null 2>&1; then
+  ok "hook manifests match scripts/render-hook-manifests.sh output"
+else
+  not_ok "hook manifests match scripts/render-hook-manifests.sh output"
+fi
+
 read_env_payload='{"tool_name":"Read","tool_input":{"file_path":".env"}}'
+# Each invocation that must WARN gets its own TMPDIR: the resolver's warn-once
+# marker would otherwise live in the persistent default
+# /tmp/agent-guard-warnings-$UID, where a marker left by a previous run (or an
+# earlier case in this run, under PID reuse) silently suppresses the warning
+# these greps assert on. TMPDIR (not AGENT_GUARD_WARNING_DIR) keeps the
+# resolver's default warning-dir derivation itself under test.
 printf '%s' "$read_env_payload" \
-  | (cd "$PLUGIN_ROOT" && env -u CLAUDE_PLUGIN_ROOT -u CODEX_PLUGIN_ROOT sh -c "$claude_pre_tool_command") \
+  | (cd "$PLUGIN_ROOT" && TMPDIR="$TESTTMP/rootvar-claude-unset" env -u CLAUDE_PLUGIN_ROOT -u CODEX_PLUGIN_ROOT sh -c "$claude_pre_tool_command") \
   >"$OUT" 2>"$ERR"
 status=$?
 if [ "$status" -eq 0 ]; then
@@ -470,7 +486,7 @@ else
 fi
 
 printf '%s' "$read_env_payload" \
-  | (cd "$PLUGIN_ROOT" && AGENT_GUARD_INFRA_FAILURE_MODE=closed env -u CLAUDE_PLUGIN_ROOT -u CODEX_PLUGIN_ROOT sh -c "$claude_pre_tool_command") \
+  | (cd "$PLUGIN_ROOT" && TMPDIR="$TESTTMP/rootvar-claude-closed" AGENT_GUARD_INFRA_FAILURE_MODE=closed env -u CLAUDE_PLUGIN_ROOT -u CODEX_PLUGIN_ROOT sh -c "$claude_pre_tool_command") \
   >"$OUT" 2>"$ERR"
 status=$?
 if [ "$status" -eq 2 ]; then
@@ -492,7 +508,7 @@ else
 fi
 
 printf '%s' "$read_env_payload" \
-  | (cd "$TMP_ROOT" && CODEX_PLUGIN_ROOT="$PLUGIN_ROOT" sh -c "$claude_pre_tool_command") \
+  | (cd "$TMP_ROOT" && TMPDIR="$TESTTMP/rootvar-claude-codexvar" CODEX_PLUGIN_ROOT="$PLUGIN_ROOT" sh -c "$claude_pre_tool_command") \
   >"$OUT" 2>"$ERR"
 status=$?
 if grep -q 'CLAUDE_PLUGIN_ROOT env not set' "$ERR"; then
@@ -503,7 +519,7 @@ else
 fi
 
 printf '%s' "$read_env_payload" \
-  | (cd "$PLUGIN_ROOT" && env -u PLUGIN_ROOT -u CODEX_PLUGIN_ROOT -u CLAUDE_PLUGIN_ROOT sh -c "$codex_pre_tool_command") \
+  | (cd "$PLUGIN_ROOT" && TMPDIR="$TESTTMP/rootvar-codex-unset" env -u PLUGIN_ROOT -u CODEX_PLUGIN_ROOT -u CLAUDE_PLUGIN_ROOT sh -c "$codex_pre_tool_command") \
   >"$OUT" 2>"$ERR"
 status=$?
 if [ "$status" -eq 0 ]; then
@@ -520,7 +536,7 @@ else
 fi
 
 printf '%s' "$read_env_payload" \
-  | (cd "$PLUGIN_ROOT" && AGENT_GUARD_INFRA_FAILURE_MODE=closed env -u PLUGIN_ROOT -u CODEX_PLUGIN_ROOT -u CLAUDE_PLUGIN_ROOT sh -c "$codex_pre_tool_command") \
+  | (cd "$PLUGIN_ROOT" && TMPDIR="$TESTTMP/rootvar-codex-closed" AGENT_GUARD_INFRA_FAILURE_MODE=closed env -u PLUGIN_ROOT -u CODEX_PLUGIN_ROOT -u CLAUDE_PLUGIN_ROOT sh -c "$codex_pre_tool_command") \
   >"$OUT" 2>"$ERR"
 status=$?
 if [ "$status" -eq 2 ]; then
@@ -542,7 +558,7 @@ else
 fi
 
 printf '%s' "$read_env_payload" \
-  | (cd "$TMP_ROOT" && CODEX_PLUGIN_ROOT="$PLUGIN_ROOT" sh -c "$codex_pre_tool_command") \
+  | (cd "$TMP_ROOT" && TMPDIR="$TESTTMP/rootvar-codex-codexvar" CODEX_PLUGIN_ROOT="$PLUGIN_ROOT" sh -c "$codex_pre_tool_command") \
   >"$OUT" 2>"$ERR"
 status=$?
 if grep -q 'PLUGIN_ROOT env not set' "$ERR"; then
@@ -553,7 +569,7 @@ else
 fi
 
 printf '%s' "$read_env_payload" \
-  | (cd "$TMP_ROOT" && CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" sh -c "$codex_pre_tool_command") \
+  | (cd "$TMP_ROOT" && TMPDIR="$TESTTMP/rootvar-codex-claudevar" CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" sh -c "$codex_pre_tool_command") \
   >"$OUT" 2>"$ERR"
 status=$?
 if grep -q 'PLUGIN_ROOT env not set' "$ERR"; then
