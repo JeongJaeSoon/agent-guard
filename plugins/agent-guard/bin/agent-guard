@@ -4281,10 +4281,7 @@ shell_init_target() {
     case "$1" in
       --bash) target=bash ;;
       --zsh) target=zsh ;;
-      # 1.x flags remain accepted as hidden compatibility shims so existing
-      # managed rc blocks keep working during an upgrade. Command wrapping is
-      # enabled by default in 2.x, so both flags are now no-ops.
-      --claude-bang-guard|--experimental-bang-guard|--no-command-wrapping) : ;;
+      --no-command-wrapping) : ;;
       -h|--help) target=help ;;
       *) die "shell-init: unknown argument: $1 (expected --bash, --zsh, or --no-command-wrapping)" ;;
     esac
@@ -4417,14 +4414,14 @@ EOF
 }
 
 shell_init() {
-  target=$(shell_init_target "$@")
+  # Propagate a die from inside the command substitution: without this an
+  # unknown argument printed its error but still emitted the full snippet with
+  # exit 0, so a stale rc line kept eval-ing a half-understood invocation.
+  target=$(shell_init_target "$@") || exit 2
   command_wrapping=1
   for __ag_arg in "$@"; do
     case "$__ag_arg" in
       --no-command-wrapping) command_wrapping=0 ;;
-      # Hidden 1.x compatibility shims. They explicitly preserve the new
-      # default and are normalized away by setup-shell.
-      --claude-bang-guard|--experimental-bang-guard) command_wrapping=1 ;;
     esac
   done
   if [ "$target" = help ]; then
@@ -4597,29 +4594,31 @@ EOF
 # cannot edit your rc, so run this once (by absolute path if agent-guard is not
 # yet on $PATH). Idempotent — re-running replaces the managed block in place.
 do_setup_shell() {
-  sh_target= rc= wrapping=
+  sh_target= rc= wrapping= want_help=0
+  # Parse every argument before acting on --help, matching shell-init: a
+  # rejected option must fail even when --help precedes it, so no invocation
+  # carrying a removed/unknown flag can exit 0.
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --bash) sh_target=bash ;;
       --zsh) sh_target=zsh ;;
       --rc) shift; rc=${1:-}; [ -n "$rc" ] || die "setup-shell: --rc requires a path" ;;
       --no-command-wrapping) wrapping=' --no-command-wrapping' ;;
-      # Hidden compatibility shims for 1.x managed blocks. The 2.x default is
-      # on, so accepting either option and writing no option normalizes the rc.
-      --claude-bang-guard|--experimental-bang-guard) wrapping= ;;
-      -h|--help)
-        {
-          printf '%s\n' "Usage: $PROGRAM setup-shell [--bash|--zsh|--rc FILE] [--no-command-wrapping]"
-          printf '%s\n' "Adds the shell-init line to your shell rc (idempotent). Restart your"
-          printf '%s\n' "shell and any sessions launched from it afterwards to apply."
-          printf '%s\n' "Command wrapping is enabled by default. Use --no-command-wrapping for"
-          printf '%s\n' "a persistent opt-out, or AGENT_GUARD_COMMAND_WRAPPING=off at runtime."
-        } >&2
-        return 0 ;;
+      -h|--help) want_help=1 ;;
       *) die "setup-shell: unknown option: $1 (see: $PROGRAM setup-shell --help)" ;;
     esac
     shift
   done
+  if [ "$want_help" -eq 1 ]; then
+    {
+      printf '%s\n' "Usage: $PROGRAM setup-shell [--bash|--zsh|--rc FILE] [--no-command-wrapping]"
+      printf '%s\n' "Adds the shell-init line to your shell rc (idempotent). Restart your"
+      printf '%s\n' "shell and any sessions launched from it afterwards to apply."
+      printf '%s\n' "Command wrapping is enabled by default. Use --no-command-wrapping for"
+      printf '%s\n' "a persistent opt-out, or AGENT_GUARD_COMMAND_WRAPPING=off at runtime."
+    } >&2
+    return 0
+  fi
 
   # Pick the rc file: explicit --rc wins, else derive from the chosen/detected shell.
   if [ -z "$rc" ]; then
