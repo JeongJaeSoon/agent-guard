@@ -15,6 +15,8 @@ and release archive layout remain compatible with 1.x.
 - The old bang-guard names are no longer documented or shown in CLI help. The
   2.0 binary still accepts the 1.x stable and experimental flags as hidden
   upgrade shims, then `setup-shell` rewrites the managed block without them.
+  **4.0 removes those shims entirely** — see
+  [Migrating from 3.x to 4.x](migration-v4.md).
 - GitHub Actions examples move from `JeongJaeSoon/agent-guard@v1` to `@v2`.
   The `v1` moving tag is retained for users who intentionally stay on 1.x.
 

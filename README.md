@@ -112,7 +112,7 @@ make check
 make smoke-test
 ```
 
-The Claude Code and Codex plugin installs do not put `agent-guard` on your shell `PATH`. In Codex, invoke `$setup-agent-guard`: it uses the plugin-local binary even when a different standalone version is on `PATH`, presents the exact host-appropriate install plan, requests approval, runs `check` plus `smoke-test`, verifies hook trust, and runs live host probes. It never installs software merely because a session started. The same skill is available in Claude Code as `agent-guard:setup-agent-guard`; Claude Code users can also run the equivalent manual commands below.
+The Claude Code and Codex plugin installs do not put `agent-guard` on your shell `PATH`. In Codex, invoke `$setup-agent-guard`: it uses the plugin-local binary even when a different standalone version is on `PATH`, presents the exact host-appropriate install plan, requests approval, runs `check` plus `smoke-test`, verifies hook trust, and runs live host probes. It never installs software merely because a session started. The same skill is available in Claude Code as `/agent-guard:setup-agent-guard`; Claude Code users can also run the equivalent manual commands below.
 
 Manual macOS equivalent:
 
@@ -153,7 +153,7 @@ Install and verify in the [Claude Code quick start](#claude-code). Useful slash 
 ```
 
 For guided dependency diagnosis and installation, use the
-`agent-guard:setup-agent-guard` skill — the same skill Codex invokes as
+`/agent-guard:setup-agent-guard` skill — the same skill Codex invokes as
 `$setup-agent-guard`. SessionStart recommends it when it reports degraded
 protection, but never invokes it: it only emits the warning. The skill selects
 the active host's plugin-verification path and runs live probes through that
@@ -355,6 +355,20 @@ To enable it, add an Actions secret named `OPENAI_API_KEY` in the GitHub reposit
 
 Patch and diff scans inspect added lines only. Removing an existing leaked value is allowed.
 
+Environment templates remain readable when their basename has an explicit,
+final `.example`, `.sample`, `.template`, or `.dist` marker, or when
+`example`, `sample`, or `template` directly prefixes an `.env`/`.envrc`
+extension (for example `.env.local.example`, `sample.env`, and
+`example.envrc`). Runtime-shaped names such as `.env.local`, `local.env`,
+`env.local`, `env.preview`, `example.env.local`, `.flaskenv`, and
+`.dev.vars.production` stay blocked. Source-module forms such as `env.ts` and
+`config.env.ts` remain readable, while data/config suffixes such as
+`schema.env.json` stay protected. Template exceptions never override a
+non-environment deny rule, a deny-listed ancestor, or an operator-supplied
+`AGENT_GUARD_DENY_READ_PATHS` policy. Template-named symlinks are resolved and
+do not bypass the runtime-file rule; proposed template contents are still
+scanned normally for real secrets.
+
 Dependency checksums are exempt only for recognized hash-field shapes in
 `go.sum`, `package-lock.json`, `yarn.lock`, `Cargo.lock`, and `uv.lock`. The
 allowlist requires both the lockfile path and the checksum pattern; arbitrary
@@ -363,7 +377,7 @@ still scanned.
 
 ## What Gets Masked
 
-Beyond blocking, Agent Guard **masks** secret-like values in a matched tool's output before the model sees them. Claude uses the native `updatedToolOutput` rewrite and preserves the result shape. Codex does not expose that Claude field, so Agent Guard blocks the original sensitive result and supplies a sanitized replacement through `additionalContext`. Detection combines gitleaks with an assignment-value heuristic. The heuristic masks only the quoted value or next unquoted value token of a complete secret-bearing key; it does not mask metadata keys merely beginning with a secret word, prose after an ambiguous colon, or adjacent status text. It is on by default; disable with `AGENT_GUARD_OUTPUT_REDACT=off`.
+Beyond blocking, Agent Guard **masks** secret-like values in a matched tool's output before the model sees them. Claude uses the native `updatedToolOutput` rewrite and preserves the result shape. Codex does not expose that Claude field, so Agent Guard blocks the original sensitive result and supplies a sanitized replacement through `additionalContext`. Detection combines gitleaks with an assignment-value heuristic. The heuristic masks only the quoted value or next unquoted value token of a complete secret-bearing key; it does not mask metadata keys merely beginning with a secret word, prose after a known standalone status label (`error:`, `warning:`, `info:`, `note:`, `debug:`, `fatal:`, `hint:`), or adjacent status text. Any other colon-terminated label is treated as structured output, so `response: api_key: <value>`, `response.error: api_key: <value>`, and `response/error: api_key: <value>` are masked. It is on by default; disable with `AGENT_GUARD_OUTPUT_REDACT=off`.
 
 With `AGENT_GUARD_PII_HOOK_MODE=mask`, the same `PostToolUse` redactor also masks **PII** in tool output — email, phone (including Korean mobile), IPv4, credit card, US SSN, and Korean resident registration number become `[PII:TYPE]` placeholders in place. Secret redaction and PII masking compose into a single rewrite, so a result containing both is fully sanitized at once.
 
@@ -421,7 +435,7 @@ infrastructure policy: default `open` runs the original command with one clear
 
 Because the plugin (auto-updated by `claude plugin update`) and the binary the integration actually resolves update independently, updating only one side can silently leave `agx` / `!`-command masking on older rules. To catch that, the `shell-init` snippet exports `AGENT_GUARD_SHELL_INIT_VERSION` — the version of the binary it resolved at rc-eval time (whichever of the three paths above won) — and a Claude Code `SessionStart` hook compares that marker against the plugin's own version, showing a **non-blocking warning** on mismatch. Because the marker records what the integration resolved at shell start (not a re-derivation the hook would have to guess), it stays silent unless the integration is genuinely loaded *and* drifting: a user who has `agent-guard` on `$PATH` but never ran `setup-shell` gets no warning, and a plugin-only install pinned to a stale baked binary is still covered. It is a start-up snapshot, so if you upgrade the resolved binary *in place* inside a long-lived shell and then launch Claude Code from it without opening a new shell, the warning reflects the version from when that shell started until you re-source your rc.
 
-> **Works without the CLI on `$PATH` — but a plugin can't edit your rc.** Direct CLI bootstrap installs the default-on shell integration automatically. For a plugin-only install, run the plugin-local `agent-guard setup-shell` once — invoke it by absolute path if `agent-guard` isn't on your `$PATH`; it writes the stable `current` path — then restart your shell and any Claude Code session. See [Migrating from 1.x to 2.x](docs/migration-v2.md) for old managed blocks and opt-out behavior.
+> **Works without the CLI on `$PATH` — but a plugin can't edit your rc.** Direct CLI bootstrap installs the default-on shell integration automatically. For a plugin-only install, run the plugin-local `agent-guard setup-shell` once — invoke it by absolute path if `agent-guard` isn't on your `$PATH`; it writes the stable `current` path — then restart your shell and any Claude Code session. See [Migrating from 3.x to 4.x](docs/migration-v4.md) for old managed blocks — 4.x rejects the 1.x flags, so stale blocks must be rewritten with one `setup-shell` run — and [Migrating from 1.x to 2.x](docs/migration-v2.md) for the historical opt-out behavior.
 
 `/agent-guard:setup-shell` invokes that binary through Claude's Bash tool so a
 sandboxed session can request approval before writing the shell rc. If the host
@@ -429,7 +443,7 @@ cannot grant that approval, run the displayed plugin-local command directly in
 your terminal; `!` command interpolation cannot request the required write
 permission.
 
-**This is best-effort, not a security control.** It covers only those command names and is trivially bypassed by an absolute path (`/bin/cat`), `source` / `.`, `python -c 'open(...)'`, or a redirection (`< file`). Because `agent-guard exec` buffers the whole output before masking it, **streaming / follow commands would hang** — so `tail` is deliberately *not* wrapped, and you should not `agx` a `tail -f`, a pager, or any long-running program (wrap only terminating dump commands). Output is captured via shell substitution, so wrapping is **text-only** — a binary or NUL-containing read loses embedded NULs and its trailing newline, so use `command cat` / `\cat` for faithful binary output. Each wrapped call also pays a gitleaks scan. Treat it as a convenience nudge for the common cases, not a boundary — the only channel-agnostic fix remains an egress redaction proxy or an upstream `!`-command hook.
+**This is best-effort, not a security control.** It covers only those command names and is trivially bypassed by an absolute path (`/bin/cat`), `source` / `.`, `python -c 'open(...)'`, or a redirection (`< file`). Because `agent-guard exec` buffers the whole output before masking it, **streaming / follow commands would hang** — so `tail` is deliberately *not* wrapped, and you should not `agx` a `tail -f`, a pager, or any long-running program (wrap only terminating dump commands). Output is captured via shell substitution, so wrapping is **text-only** — a binary or NUL-containing read loses embedded NULs and its trailing newline, so use `command cat` / `\cat` for faithful binary output. Invalid UTF-8 is handled byte-for-byte when possible; to keep that fallback bounded and fail closed, a secret-bearing assignment dump over 64 KiB or invalid-byte output from a secret-named `printenv` request is replaced as one `[REDACTED]` result. Oversized invalid-byte output with no secret-like assignment is preserved. Each wrapped call also pays a gitleaks scan. Treat it as a convenience nudge for the common cases, not a boundary — the only channel-agnostic fix remains an egress redaction proxy or an upstream `!`-command hook.
 
 ## Known Limitations
 
@@ -465,6 +479,11 @@ AGENT_GUARD_OUTPUT_REDACT=mask
 AGENT_GUARD_INFRA_FAILURE_MODE=open
 ```
 
+An `AGENT_GUARD_DENY_READ_PATHS` override is authoritative. Unlike the bundled
+environment-family defaults, its entries are not relaxed for template-shaped
+filenames; explicitly listing `sample.env` or `secrets/*` therefore blocks those
+paths.
+
 Set `AGENT_GUARD_OUTPUT_REDACT=off` to disable masking secret-like values in tool output (default `mask`). Set `AGENT_GUARD_PII_HOOK_MODE` to `block` (block PII in tool inputs), `mask` (mask PII in tool outputs + hard-block Tier-2 PII inputs), or `off` (default).
 
 Set `AGENT_GUARD_INFRA_FAILURE_MODE=closed` when a host hook or shell wrapper
@@ -485,7 +504,9 @@ agent-guard setup --install \
   --gitleaks-checksum <sha256-for-this-os-and-arch>
 ```
 
-The checksum helper prints all supported OS / arch values and paste-ready snippets for CLI setup and GitHub Actions. `$setup-agent-guard` automates the diagnosis and checksum-selection workflow, but still asks before the download or a package-manager change.
+The checksum helper prints all supported OS / arch values and paste-ready snippets for CLI setup and GitHub Actions. The guided setup skill —
+`/agent-guard:setup-agent-guard` in Claude Code, `$setup-agent-guard` in Codex —
+automates the diagnosis and checksum-selection workflow, but still asks before the download or a package-manager change.
 
 ## Host Integrations
 

@@ -27,7 +27,7 @@ plugin. Until then, install from the project's marketplace:
 After installation, SessionStart reports `DEGRADED` protection whenever `jq`,
 `git`, gitleaks, or a bundled policy is unavailable. The warning names the
 host-appropriate skill: `$setup-agent-guard` in Codex or
-`agent-guard:setup-agent-guard` in Claude Code. You can also run the
+`/agent-guard:setup-agent-guard` in Claude Code. You can also run the
 plugin-local `agent-guard setup` directly. Dependency installation always
 requires explicit approval. Then verify:
 
@@ -74,6 +74,17 @@ hash-line shape match. Other content in those files remains subject to normal
 secret detection. Output masking likewise replaces assignment values, not
 secret-like key names or surrounding prose.
 
+Environment templates are readable only with an explicit final
+`.example`/`.sample`/`.template`/`.dist` marker, or a leading
+`example`/`sample`/`template` marker directly before `.env` or `.envrc`.
+Runtime forms such as `.env.local`, `local.env`, `env.local`, `.flaskenv`, and
+`.dev.vars.production` remain blocked. Source modules such as `config.env.ts`
+stay readable, while environment data forms such as `schema.env.json` remain
+protected. A template name cannot override a non-environment deny rule, a
+deny-listed ancestor, or an operator-supplied `AGENT_GUARD_DENY_READ_PATHS`
+policy, and template-named symlinks are checked against their resolved target.
+Template contents still undergo normal secret scanning on writes.
+
 Default processing is local, ephemeral, and has no telemetry. PII hook handling
 is off by default. Selecting the experimental `http` PII adapter sends
 the text described in [PRIVACY.md](PRIVACY.md) to the user-configured endpoint.
@@ -92,11 +103,11 @@ gitleaks 8.30 or newer (recommended).
 
 ## Skills
 
-- `agent-guard:setup-agent-guard` — resolve the plugin-local binary, diagnose
+- `/agent-guard:setup-agent-guard` — resolve the plugin-local binary, diagnose
   `jq`/gitleaks, and guide approved installation. Codex invokes the same skill
   as `$setup-agent-guard`; the skill selects the correct host verification path
   and runs live probes through that host's normal command surface.
-- `agent-guard:setup-shell` — install or refresh the optional shell integration
+- `/agent-guard:setup-shell` — install or refresh the optional shell integration
   through the plugin-local binary with approval before changing the shell rc.
   Codex invokes the same skill as `$setup-shell`.
 

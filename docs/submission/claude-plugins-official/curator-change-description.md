@@ -2,6 +2,9 @@
 
 > Use only after an Anthropic maintainer provides an official-marketplace
 > inclusion path. This is not a request to bypass the submission policy.
+> This optional draft is not routine CI input and intentionally contains no
+> concrete source SHA; render one from the merged `main` checkout only if a
+> curator explicitly requests a catalog entry.
 
 ## Summary
 

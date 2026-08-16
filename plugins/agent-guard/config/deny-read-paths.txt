@@ -1,5 +1,17 @@
 # Shell case patterns. Blank lines and lines starting with # are ignored.
 .env*
+# Alternate dotenv layouts. Broad runtime families cover deployment names such
+# as local, production, preview, UAT, or future variants without a brittle
+# marker list. The shared code narrowly exempts explicit templates and common
+# source-module suffixes from these environment-only defaults.
+*.env
+*.env.*
+*.envrc
+*.envrc.*
+env.*
+envrc.*
+.flaskenv
+.flaskenv.*
 *.pem
 *.key
 *.pfx
@@ -41,3 +53,4 @@ gcp-sa*.json
 *.tfvars
 .vault-token
 .dev.vars
+.dev.vars.*

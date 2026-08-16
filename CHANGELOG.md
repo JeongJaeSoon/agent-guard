@@ -7,6 +7,13 @@
 
 ## Unreleased
 
+- fix(detection): allow explicitly named env templates such as `sample.env`,
+  `example.envrc`, `.flaskenv.example`, and `.dev.vars.example`, while blocking
+  reverse/runtime forms including `local.env`, `env.local`, `env.preview`, and
+  template-looking names whose final suffix is a runtime or backup marker;
+  preserve custom/non-environment deny precedence and deny-listed ancestors,
+  accept safely quoted Bash template paths, and keep source modules such as
+  `config.env.ts` readable without opening `schema.env.json` data files.
 - fix(runtime): keep plugin hooks and Claude shell integration on the
   version-independent `current/bin/agent-guard` path. Each plugin execution
   refreshes `current`, while hook and shell entrypoints fall back to the newest
@@ -38,6 +45,15 @@
   provider validation should set `AGENT_GUARD_PII_PROVIDER=http` and keep their
   existing `AGENT_GUARD_PII_REDACT_URL`. Rejected values are now reported
   exactly once.
+
+- fix(hooks): prefix the Claude Code setup-skill invocation with a slash
+  (#151). The degraded-session warning told Claude Code users to run
+  `agent-guard:setup-agent-guard`; pasted verbatim that is ordinary prompt
+  text, not a skill invocation. Claude Code exposes a plugin skill on the
+  slash-command surface as `/plugin:skill`, which is how this plugin already
+  writes its sibling skill `/agent-guard:setup-shell`. The degraded message
+  and every Claude-facing doc reference now use `/agent-guard:setup-agent-guard`.
+  The Codex form `$setup-agent-guard` is unchanged.
 
 - fix(hooks): report a scan that could not run distinctly from a detection
   (#137). A scanner precondition failure and a real detection previously looked

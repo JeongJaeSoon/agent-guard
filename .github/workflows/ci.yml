@@ -23,6 +23,7 @@ jobs:
   secret-guard:
     name: Agent Guard
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -47,6 +48,9 @@ jobs:
         # may not exist.
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    # Normal runs finish in ~2-3 min; the default 6h cap once left a dead
+    # macOS runner blocking the merge queue for an hour before manual cancel.
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -107,6 +111,7 @@ jobs:
   lint:
     name: Lint
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     env:
       SHELLCHECK_VERSION: "0.10.0"
       ACTIONLINT_VERSION: "1.7.7"
@@ -171,8 +176,10 @@ jobs:
             tests/run.sh \
             bench/run.sh \
             scripts/build-release-tarball.sh \
+            scripts/render-hook-manifests.sh \
             scripts/validate-plugin-layout.sh \
             scripts/validate-submission-readiness.sh \
+            scripts/render-submission-entry.sh \
             plugins/agent-guard/scripts/gitleaks-checksum.sh
 
       - name: actionlint workflows
