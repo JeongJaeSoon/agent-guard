@@ -248,7 +248,7 @@ hook_host() {
 degraded_hook_message() {
   case "$(hook_host)" in
     codex) setup_ref='$setup-agent-guard' ;;
-    *) setup_ref='agent-guard:setup-agent-guard' ;;
+    *) setup_ref='/agent-guard:setup-agent-guard' ;;
   esac
   printf 'agent-guard: protection is DEGRADED because jq, git, gitleaks, or a policy file is unavailable. Run %s (or agent-guard setup), approve any required installation, verify with agent-guard check and smoke-test, then restart the host;' "$setup_ref"
 }
