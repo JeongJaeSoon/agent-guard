@@ -12,9 +12,9 @@
   `.env.tpl`), matching the naming conventions measured on GitHub. The marker
   must still be final and the stem must stay an env family; `.env.default(s)`
   stays blocked because dotenv-defaults loads it at runtime.
-- fix(detection): allow env source modules that carry an intermediate segment
-  between the `env`/`envrc` stem and a code extension, so ordinary committed
-  files such as `env.d.ts`, `env.server.ts`, `env.config.ts`, and `env.spec.ts`
+- fix(detection): allow env source modules that carry exactly one intermediate
+  segment between the `env`/`envrc` stem and a code extension, so ordinary
+  committed files such as `env.d.ts`, `env.server.ts`, `env.config.ts`, and `env.spec.ts`
   are readable on both the Read and Bash gates. The final extension must still
   be code: data/config suffixes (`env.json`, `env.local.json`), extension-less
   names (`env.d`), the leading-dot runtime form (`.env.d.ts`), deny-listed

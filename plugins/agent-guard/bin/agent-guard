@@ -1846,9 +1846,12 @@ candidate_is_allowed() {
 # reverse-extension forms so `.env.ts` remains a protected runtime variant.
 #
 # The basename must end in a known code extension; the stem in front of it may
-# carry one intermediate segment (`env.d.ts`, `env.server.ts`, `app.env.spec.ts`)
-# because those are ordinary committed modules. A stem with no code extension
-# (`env.d`, `env.local`, `config.env.json`) is never a source module.
+# carry at most ONE intermediate segment (`env.d.ts`, `env.server.ts`,
+# `app.env.spec.ts`) because those are ordinary committed modules. Enforced by
+# stripping the final dot-free segment from the stem: what remains must itself
+# be a bare env stem, so `env.production.backup.ts` and `app.env.local.copy.js`
+# stay on the deny globs. A stem with no code extension (`env.d`, `env.local`,
+# `config.env.json`) is never a source module.
 candidate_is_env_source_module() {
   env_source_base=${1##*/}
   case "$env_source_base" in
@@ -1856,8 +1859,12 @@ candidate_is_env_source_module() {
     *.swift) ;;
     *) return 1 ;;
   esac
-  case "${env_source_base%.*}" in
-    env|envrc|env.?*|envrc.?*|?*.env|?*.envrc|?*.env.?*|?*.envrc.?*) return 0 ;;
+  env_source_stem=${env_source_base%.*}
+  case "$env_source_stem" in
+    env|envrc|?*.env|?*.envrc) return 0 ;;
+  esac
+  case "${env_source_stem%.*}" in
+    env|envrc|?*.env|?*.envrc) return 0 ;;
     *) return 1 ;;
   esac
 }

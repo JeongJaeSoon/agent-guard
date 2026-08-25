@@ -1357,6 +1357,25 @@ expect_json_status 2 "Bash cat env.d.ts plus bare .env still blocks" \
   '{"tool_name":"Bash","tool_input":{"command":"cat env.d.ts .env"}}' \
   hook-pre-tool
 
+# The intermediate wildcard is limited to exactly one segment: names with two
+# or more dot segments between the env stem and the code extension stay on the
+# deny globs.
+expect_json_status 2 "Read env.production.backup.ts (two segments) stays blocked" \
+  '{"tool_name":"Read","tool_input":{"file_path":"env.production.backup.ts"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Read app.env.local.copy.js (two segments) stays blocked" \
+  '{"tool_name":"Read","tool_input":{"file_path":"app.env.local.copy.js"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash cat env.production.backup.ts (two segments) stays blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat env.production.backup.ts"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash cat app.env.local.copy.js (two segments) stays blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat app.env.local.copy.js"}}' \
+  hook-pre-tool
+
 expect_json_status 2 "Read env.d without a code extension stays blocked" \
   '{"tool_name":"Read","tool_input":{"file_path":"env.d"}}' \
   hook-pre-tool
