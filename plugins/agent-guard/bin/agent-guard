@@ -3092,7 +3092,7 @@ secretish_env_values() {
     # Tradeoff: an unquoted credential that itself contains an opener or an
     # embedded quote is no longer masked by this heuristic. gitleaks still
     # covers every format it knows, and the block/detect path is unaffected.
-    function looks_like_reference(value) {
+    function looks_like_reference(value, assignment, leading, v, ch) {
       # An opener or an embedded quote: call, index, expansion or nested string.
       # An opener only counts past the first character, because a call, an index
       # and an expansion always follow the thing they apply to; a token that
@@ -3103,10 +3103,35 @@ secretish_env_values() {
           || index(value, "{") > 1 || index(value, "\"") \
           || index(value, "'\''") || index(value, "`"))
         return 1
-      # Dotted identifier chain (`a.b`, `process.env.API_KEY`, `config.apiKey`).
-      # Every segment must begin like an identifier, which excludes hex, base64,
-      # base64url, `sk_live_...` and dotted version-shaped credential values.
-      return value ~ /^[A-Za-z_$][A-Za-z0-9_$]*(\.[A-Za-z_$][A-Za-z0-9_$]*)+$/
+      # A trailing `:` (a def/lambda suite ending the line) blocked the outer
+      # closer strip, so `DEFAULT_PASSWORD):` still carries its closers here.
+      # Normalize a local copy for classification only; masking, when it does
+      # happen, still replaces the original extent.
+      v = value
+      sub(/:+$/, "", v)
+      while (length(v) > 0) {
+        ch = substr(v, length(v), 1)
+        if (ch != "}" && ch != "]" && ch != ")") break
+        v = substr(v, 1, length(v) - 1)
+      }
+      # Inside an argument or subscript list (`make(api_key=DEFAULT_API_KEY)`,
+      # `def connect(password=None):`) a bare digit-free identifier or
+      # identifier chain is a default or reference, not a literal. A digit
+      # pushes the token back toward masking: real identifiers named as
+      # defaults rarely carry digits, credential fragments usually do.
+      ch = substr(assignment, 1, 1)
+      if ((ch == "(" || ch == "[") && v ~ /^[A-Za-z_$]+(\.[A-Za-z_$]+)*$/)
+        return 1
+      # Dotted identifier chain (`process.env.API_KEY`, `config.apiKey`), and
+      # only in a code-shaped assignment: whitespace on both sides of `=`, a
+      # lowercase head segment (accessor roots are lowercase in the languages
+      # this bug mangled), no digit in any segment, and at least one uppercase
+      # character somewhere in the chain. Anything short of all four masks, so
+      # dot-separated passphrases (`correct.horse.battery.staple`), dotted
+      # env/YAML/INI values (`PASSWORD=a.b.c`, `password: a.b.c`) and dotted
+      # version- or token-shaped values (`v1.0.x`) keep masking.
+      return assignment ~ /[ \t]=$/ && leading != "" && v ~ /[A-Z]/ \
+        && v ~ /^[a-z_$]+(\.[A-Za-z_$]+)+$/
     }
     function emit_value(source, start, assignment, raw, leading, quote, end, \
                         value, token, trailing, ch) {
@@ -3136,7 +3161,7 @@ secretish_env_values() {
           end--
         }
         value = substr(value, 1, end)
-        if (looks_like_reference(value)) return 0
+        if (looks_like_reference(value, assignment, leading)) return 0
         # Eligibility is based on the complete token. For short values, scope
         # replacement to the complete assignment token so an ordinary
         # one-character literal is not replaced throughout the response.

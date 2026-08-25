@@ -6127,7 +6127,11 @@ for display_case in \
   'API_KEY=${API_KEY:-fallback}' \
   'const k = process.env.API_KEY' \
   'token := os.Getenv("GITHUB_TOKEN")' \
-  'if (!process.env.API_KEY) throw new Error("missing")'; do
+  'if (!process.env.API_KEY) throw new Error("missing")' \
+  'make(api_key=DEFAULT_API_KEY)' \
+  'def connect(password=DEFAULT_PASSWORD):' \
+  'def connect(password=None):' \
+  'fn(password=user_password)'; do
   display_input=$(jq -nc --arg stdout "$display_case" \
     '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
   post_tool_out "$display_input"
@@ -6144,14 +6148,26 @@ done
 # hole: a bare literal still masks, a literal nested in an argument or subscript
 # list still masks (it is now reached on its own instead of by swallowing the
 # whole call), `${NAME: value}` without a shell default operator is a map entry
-# and still masks, and a `$`-bearing bcrypt-shaped value still masks.
+# and still masks, and a `$`-bearing bcrypt-shaped value still masks. A dotted
+# value is a reference only in a code-shaped, whitespace-padded `=` assignment
+# whose chain has a lowercase head, no digits, and an uppercase character:
+# dot-separated passphrases, dotted env/YAML/INI values, and version- or
+# token-shaped dotted values all keep masking (review follow-up on #171).
+DOTTED_SECRET=$(printf '%s.%s.%s.%s' correct horse battery staple)
 for display_case in \
   "DATABASE_PASSWORD=$DISPLAY_SECRET" \
   "password = wrap(secret_key=$DISPLAY_SECRET)" \
   "config[api_key=$DISPLAY_SECRET]" \
   "x=\${password: $DISPLAY_SECRET}" \
   "PASSWORD=\$2b\$12\$$DISPLAY_SECRET" \
-  "API_TOKEN=$DISPLAY_SECRET)"; do
+  "API_TOKEN=$DISPLAY_SECRET)" \
+  "PASSWORD=$DOTTED_SECRET" \
+  "password: $DOTTED_SECRET" \
+  "password = $DOTTED_SECRET" \
+  'password = My.Secret.Phrase' \
+  'password: xxx.yyy.zzz' \
+  'api_key=v1.0.secretpart' \
+  'API_KEY=config.apiKey'; do
   display_input=$(jq -nc --arg stdout "$display_case" \
     '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
   post_tool_out "$display_input"
