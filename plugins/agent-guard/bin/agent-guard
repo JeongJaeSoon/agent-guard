@@ -2984,13 +2984,18 @@ secretish_env_values() {
       # _pat/_pwd keys keep their intended coverage.
       qualifier = "([_-](id|ids|value|val|hash|b64|base64|hex|enc|encrypted|encoded|raw|str|string|pem|cert|json|prod|production|dev|development|staging|stage|test|local|old|new|current|primary|secondary|backup|main|default|[0-9]+))*"
       key = "[a-z0-9_.-]*(" core "|[_-](pat|pwd))" qualifier
-      equals_assignment = "(^|[ \t,{;])[\"'\''`]?" key "[\"'\''`]?[ \t]*="
+      # `(` and `[` open an argument or subscript list, so an assignment can
+      # begin immediately after one (`wrap(secret_key=<secret>)`). The value gate
+      # below stops treating a whole call expression as a single literal, so a
+      # nested assignment has to be reachable on its own to stay masked.
+      equals_assignment = "(^|[ \t,{;([])[\"'\''`]?" key "[\"'\''`]?[ \t]*="
       # A colon is ambiguous in prose. Accept it at the start of a YAML field,
-      # after a JSON/map delimiter, or after plain whitespace (log lines such as
-      # `10:00:00 password: hunter2`); the loop below rejects the whitespace
-      # form only when the preceding token is a known status word, which marks a
-      # prose chain like `error: password: authentication is disabled`.
-      colon_assignment = "(^[ \t]*|[,{][ \t]*|[ \t]+)[\"'\''`]?" key "[\"'\''`]?[ \t]*:"
+      # after a JSON/map/argument delimiter, or after plain whitespace (log lines
+      # such as `10:00:00 password: hunter2`); the loop below rejects the
+      # whitespace form only when the preceding token is a known status word,
+      # which marks a prose chain like `error: password: authentication is
+      # disabled`.
+      colon_assignment = "(^[ \t]*|[,{([][ \t]*|[ \t]+)[\"'\''`]?" key "[\"'\''`]?[ \t]*:"
       # Skipping after ANY colon-terminated token also let real structured log
       # lines through unmasked (`response: api_key: <secret>`), so only these
       # status words justify the skip. Deliberately short: an unlisted label
@@ -3072,6 +3077,37 @@ secretish_env_values() {
       if (record_mode == "framed") emit_framed(value, "S")
       else print "\"" json_escape(value) "\""
     }
+    # A credential-shaped KEY only tells us the assignment is interesting; it
+    # says nothing about whether the right-hand side IS a credential. Source that
+    # merely READS one (`process.env.API_KEY`, `os.environ["DB_PASSWORD"]`,
+    # `config.apiKey`, `${API_KEY:?required}`) is a reference, so masking it
+    # hides nothing and destroys ordinary code. Decide from the token SHAPE, not
+    # from a list of known accessor spellings: an unfamiliar accessor is still
+    # rejected, and an unfamiliar credential format is still masked.
+    #
+    # Only applies to the bare/unquoted branch. A quoted value is already a
+    # literal, and trailing closers are stripped before this test so a value
+    # such as `abc)evil` is still treated as a value.
+    #
+    # Tradeoff: an unquoted credential that itself contains an opener or an
+    # embedded quote is no longer masked by this heuristic. gitleaks still
+    # covers every format it knows, and the block/detect path is unaffected.
+    function looks_like_reference(value) {
+      # An opener or an embedded quote: call, index, expansion or nested string.
+      # An opener only counts past the first character, because a call, an index
+      # and an expansion always follow the thing they apply to; a token that
+      # BEGINS with a bracket (`[REDACTED]]evil`) is not a reference, so it stays
+      # maskable. `$` alone is deliberately allowed so bcrypt-style `$2b$12$...`
+      # values stay masked; `${...}` is caught by the brace.
+      if (index(value, "(") > 1 || index(value, "[") > 1 \
+          || index(value, "{") > 1 || index(value, "\"") \
+          || index(value, "'\''") || index(value, "`"))
+        return 1
+      # Dotted identifier chain (`a.b`, `process.env.API_KEY`, `config.apiKey`).
+      # Every segment must begin like an identifier, which excludes hex, base64,
+      # base64url, `sk_live_...` and dotted version-shaped credential values.
+      return value ~ /^[A-Za-z_$][A-Za-z0-9_$]*(\.[A-Za-z_$][A-Za-z0-9_$]*)+$/
+    }
     function emit_value(source, start, assignment, raw, leading, quote, end, \
                         value, token, trailing, ch) {
       raw = substr(source, start)
@@ -3100,6 +3136,7 @@ secretish_env_values() {
           end--
         }
         value = substr(value, 1, end)
+        if (looks_like_reference(value)) return 0
         # Eligibility is based on the complete token. For short values, scope
         # replacement to the complete assignment token so an ordinary
         # one-character literal is not replaced throughout the response.
@@ -3117,7 +3154,7 @@ secretish_env_values() {
     }
     function scan_line(line, rest, end, low, eq_start, eq_length, \
                        colon_start, colon_length, start, matched_length, \
-                       chose_colon, skip, first) {
+                       chose_colon, skip, first, expansion) {
       rest = line
       if (open_quote != "") {
         end = quoted_end(rest, open_quote)
@@ -3159,6 +3196,18 @@ secretish_env_values() {
           if ((first == " " || first == "\t") &&
               match(substr(low, 1, start - 1), status_label))
             skip = 1
+          # `${NAME:-default}` / `${NAME:?message}` / `${NAME:=x}` / `${NAME:+x}`
+          # is a shell parameter expansion, not an assignment: the operator makes
+          # the trailing text a fallback, never the value of the variable. The
+          # value gate above rejects the whole `${...}` token; without this
+          # the inner `{NAME:` would still read as a JSON/map assignment.
+          # Requiring the operator keeps `${password: value}` masked.
+          else if (first == "{" && substr(rest, start - 1, 1) == "$") {
+            expansion = substr(rest, start + matched_length, 1)
+            if (expansion == "-" || expansion == "=" \
+                || expansion == "?" || expansion == "+")
+              skip = 1
+          }
         }
 
         # Emit exactly the quoted value or the next unquoted token. Continuing
