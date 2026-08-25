@@ -24,10 +24,17 @@
   print-refresh-token` joins the existing gcloud token alternation. The
   command patterns are hardened against realistic variants an agent may emit:
   tool aliases (`bundler`, `npm c`/`npm get`), version-suffixed binaries
-  (`pip3.12`), scope/global flags before the subcommand, non-listed git
-  credential helpers, and `$(...)` subshell prefixes; the `mvn` and `composer`
-  patterns are anchored so prose/filenames and value tokens like
-  `repositories.bearer` do not over-block.
+  (`pip3.12`), leading global options between a binary and its subcommand
+  (`npm --location=user config get`, `bundle config --parseable`,
+  `security -q`, `gcloud --quiet`), wrapper/PHAR invocation forms (`./mvnw`,
+  `php composer.phar`), the direct `git-credential-<helper> get` executable,
+  `pip config debug`, and `$(...)` subshell prefixes; pnpm `config list`
+  (which, unlike npm, does not mask) is blocked, and coverage extends to
+  pnpm/bun. The `mvn` and `composer` patterns are anchored so prose/filenames,
+  value tokens like `repositories.bearer`, and the `showPasswords=false` safe
+  default do not over-block. Adds deny-read for Bun's `.bunfig.toml`; uv and
+  pnpm need no new path (env/.netrc and `.npmrc` respectively already cover
+  them).
 - fix(detection): allow explicitly named env templates such as `sample.env`,
   `example.envrc`, `.flaskenv.example`, and `.dev.vars.example`, while blocking
   reverse/runtime forms including `local.env`, `env.local`, `env.preview`, and

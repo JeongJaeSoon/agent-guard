@@ -1740,6 +1740,64 @@ expect_json_status 2 "Read terraform.rc is blocked" \
   '{"tool_name":"Read","tool_input":{"file_path":"terraform.rc"}}' \
   hook-pre-tool
 
+expect_json_status 2 "pnpm config get _authToken is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"pnpm config get //npm.pkg.github.com/:_authToken"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "pnpm config list (unmasked) is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"pnpm config list"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "pnpm config get registry is allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"pnpm config get registry"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Read ~/.bunfig.toml is blocked" \
+  '{"tool_name":"Read","tool_input":{"file_path":"/home/u/.bunfig.toml"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "project-root bunfig.toml stays readable" \
+  '{"tool_name":"Read","tool_input":{"file_path":"bunfig.toml"}}' \
+  hook-pre-tool
+
+# Codex cross-validation: leading global options and alternate invocation
+# forms an agent may emit, plus the showPasswords=false safe-default control.
+expect_json_status 2 "bundle config with a leading flag before the key is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"bundle config --parseable github.com"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "npm with a global option before config get is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"npm --location=user config get //npm.pkg.github.com/:_authToken"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "direct git-credential helper executable is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"git-credential-osxkeychain get"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "pip config debug is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"pip3 config debug"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "php composer.phar config credential read is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"php composer.phar config -g github-oauth.github.com"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "mvnw wrapper effective-settings showPasswords is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"./mvnw help:effective-settings -DshowPasswords=true"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "mvn effective-settings showPasswords=false is allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"mvn help:effective-settings -DshowPasswords=false"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "security with a leading option before the subcommand is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"security -q find-internet-password -s github.com -w"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "gcloud with a global flag before auth print-token is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"gcloud --quiet auth print-refresh-token"}}' \
+  hook-pre-tool
+
 expect_json_status 2 "Read XDG gem/credentials is blocked" \
   '{"tool_name":"Read","tool_input":{"file_path":"/home/u/.local/share/gem/credentials"}}' \
   hook-pre-tool

@@ -73,6 +73,13 @@ gcp-sa*.json
 .gradle/gradle.properties
 pip.conf
 pypoetry/auth.toml
+# Bun's dot config holds registry tokens in [install.registry]. Like every
+# entry here this is a basename rule (matches `.bunfig.toml` in any directory),
+# but the dotless project-root `bunfig.toml` is the commonly committed,
+# usually-secretless form and stays readable. uv and pnpm need no path here: uv
+# authenticates via env (UV_PUBLISH_TOKEN/UV_INDEX_*) and .netrc, and pnpm
+# reads .npmrc — both already covered.
+.bunfig.toml
 # Terraform CLI credentials file: credentials "host" { token = "..." }.
 .terraformrc
 terraform.rc
