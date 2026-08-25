@@ -1168,6 +1168,38 @@ else
   sed 's/^/  stdout: /' "$OUT"; sed 's/^/  stderr: /' "$ERR"
 fi
 
+# An oversized prompt must not burn the host hook timeout in the assignment
+# probe (super-linear on one large leaf): above the shared scan cap the probe
+# is skipped and the infra-failure policy applies — open passes with the
+# gitleaks verdict, closed blocks.
+big_prompt_payload=$(LC_ALL=C awk 'BEGIN {
+  for (i = 0; i < 8000; i++)
+    printf "line %d of an innocuous log dump with nothing sensitive\n", i
+}' | jq -Rsc '{prompt: .}')
+big_prompt_start=$(date +%s)
+printf '%s' "$big_prompt_payload" \
+  | AGENT_GUARD_HOOK_HOST=claude AGENT_GUARD_WARNING_DIR="$TESTTMP/prompt-cap-dir" \
+    "$PLUGIN_ROOT/bin/agent-guard" hook-user-prompt >"$OUT" 2>"$ERR"
+big_prompt_status=$?
+big_prompt_elapsed=$(( $(date +%s) - big_prompt_start ))
+if [ "$big_prompt_status" -eq 0 ] && [ "$big_prompt_elapsed" -le 8 ]; then
+  ok "prompt guard skips the probe above the scan cap within the hook budget (${big_prompt_elapsed}s)"
+else
+  not_ok "prompt guard skips the probe above the scan cap within the hook budget (status $big_prompt_status, ${big_prompt_elapsed}s)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+printf '%s' "$big_prompt_payload" \
+  | AGENT_GUARD_HOOK_HOST=claude AGENT_GUARD_INFRA_FAILURE_MODE=closed \
+    AGENT_GUARD_WARNING_DIR="$TESTTMP/prompt-cap-dir-closed" \
+    "$PLUGIN_ROOT/bin/agent-guard" hook-user-prompt >"$OUT" 2>"$ERR"
+if [ $? -eq 2 ]; then
+  ok "closed infra policy blocks a prompt above the scan cap"
+else
+  not_ok "closed infra policy blocks a prompt above the scan cap"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
 # --- Detection calibration & robustness (PR 1) ----------------------------
 # Rank 1: reading the process environment via /proc is an env-dump bypass.
 expect_json_status 2 "Bash /proc/self/environ read is blocked" \

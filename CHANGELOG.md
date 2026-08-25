@@ -15,8 +15,10 @@
   prompt), `warn` (pass through with a host-shaped visible notice), or `off`.
   The PII input gate (`AGENT_GUARD_PII_HOOK_MODE`) applies to prompts
   independently of the secret mode, and an invalid PII mode now fails loud on
-  the prompt path too. `read_stdin` uses `cat` when available so a large
-  pasted prompt no longer risks burning the hook timeout in a shell read loop.
+  the prompt path too. `read_stdin` uses `cat` when available and prompts over
+  the shared scan cap skip the super-linear assignment probe (gitleaks still
+  applies; the skip follows `AGENT_GUARD_INFRA_FAILURE_MODE`), so a large
+  pasted prompt cannot burn the host hook timeout into a silent fail-open.
 
 - fix(detection): allow explicitly named env templates such as `sample.env`,
   `example.envrc`, `.flaskenv.example`, and `.dev.vars.example`, while blocking

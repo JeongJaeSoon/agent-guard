@@ -390,6 +390,8 @@ The tool hooks never see what **you** type: a pasted `.env` file or API key in t
 - `warn` — the prompt passes through unchanged with a visible notice. Opt-in only; it does not prevent the leak.
 - `off` — no secret scanning of prompts.
 
+Very large prompts (over the shared ~320 KB scan cap) skip the `KEY=value` assignment heuristic — it is super-linear on a single large paste and would otherwise burn the host's hook timeout, which kills the hook and fails open. Gitleaks rules still apply at any size, and the skip follows `AGENT_GUARD_INFRA_FAILURE_MODE`: `open` (default) continues with a one-time notice, `closed` blocks the oversized prompt.
+
 The PII input gate applies independently (even with the secret guard `off`): `AGENT_GUARD_PII_HOOK_MODE=block` blocks any PII in the prompt, and `mask` hard-blocks Tier-2 PII (credit card, US SSN, Korean resident registration number). Tier-1 PII (email/phone/IP) cannot be masked inside a prompt — there is no rewrite — so in `mask` mode it passes through; use `block` if that matters. The same detection limits as output masking apply — this is defense in depth, not a reason to paste credentials.
 
 ## Shell integration (masking `!` shell-escape output)
