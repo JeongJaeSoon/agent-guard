@@ -60,6 +60,8 @@ infrastructure failures use `AGENT_GUARD_INFRA_FAILURE_MODE=open|closed`
 
 The Claude plugin registers:
 
+- `UserPromptSubmit` to inspect the submitted prompt for secret-like values
+  (and opt-in PII) before it reaches the model or the transcript.
 - `PreToolUse` for supported read, search, write, shell, web, patch, and MCP
   tools. It inspects paths and proposed tool input before execution.
 - `PostToolUse` for supported tools. It scans output for secret-like values and,

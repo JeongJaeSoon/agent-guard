@@ -140,6 +140,14 @@ info() {
 # Read hook JSON without depending on external `cat`: dependency-degraded PATH
 # fixtures (and minimal hosts) still need the session_id to deduplicate warnings.
 read_stdin() {
+  # The shell loop below is O(lines x total bytes): a multi-hundred-KB paste
+  # (exactly what hook-user-prompt exists to catch) burns the whole host hook
+  # timeout inside the loop and the guard dies unrun. Prefer cat; the loop
+  # remains only for a degraded PATH with no cat at all.
+  if command -v cat >/dev/null 2>&1; then
+    cat
+    return 0
+  fi
   stdin_value=
   while IFS= read -r stdin_line || [ -n "$stdin_line" ]; do
     if [ -n "$stdin_value" ]; then
@@ -230,7 +238,7 @@ handle_hook_infrastructure_failure() {
     esac
     info "$message"
     case "$event" in
-      PreToolUse|PostToolUse)
+      PreToolUse|PostToolUse|UserPromptSubmit)
         printf '{"hookSpecificOutput":{"hookEventName":"%s","additionalContext":"%s"}}\n' "$event" "$message"
         ;;
     esac
@@ -3904,17 +3912,16 @@ hook_stop() {
 # --- hook-user-prompt: keep pasted secrets out of the model context -----------
 # The tool hooks never see the USER's own prompt, so a pasted `.env` or API key
 # reaches the model API and the on-disk transcript unscanned. UserPromptSubmit
-# fires before that happens on both hosts. Claude can additionally rewrite the
-# prompt (hookSpecificOutput.updatedPrompt); Codex documents block + context
-# only, so mask mode degrades to block there rather than silently passing the
-# secret through.
+# fires before that happens on both hosts. Neither host documents a way for a
+# hook to REWRITE the submitted prompt (Claude's UserPromptSubmit supports only
+# block/deny and added context; Codex documents block + context), so `mask` is
+# accepted as a mode but degrades to block everywhere today. It exists so a
+# configured preference survives a future host that adds prompt rewriting.
 
 prompt_guard_mode() {
-  mode=${AGENT_GUARD_PROMPT_GUARD_MODE:-block}
-  case "$mode" in
-    '') printf 'block' ;;
-    block|mask|warn|off) printf '%s' "$mode" ;;
-    *) die "unsupported prompt guard mode: $mode (expected off, block, mask, or warn)" ;;
+  case "${AGENT_GUARD_PROMPT_GUARD_MODE:-block}" in
+    block|mask|warn|off) printf '%s' "${AGENT_GUARD_PROMPT_GUARD_MODE:-block}" ;;
+    *) die "unsupported prompt guard mode: ${AGENT_GUARD_PROMPT_GUARD_MODE} (expected off, block, mask, or warn)" ;;
   esac
 }
 
@@ -3928,32 +3935,16 @@ prompt_has_secretish_assignment() {
     | grep -q .
 }
 
-# Rewrite the prompt with every detected secret literal replaced, reusing the
-# JSON-leaf redactor on the prompt wrapped as one JSON string. Prints the masked
-# prompt as a JSON string, or nothing when a faithful rewrite is not possible
-# (caller falls back to blocking — a detected secret must never pass unmasked).
-mask_prompt_json() {
-  prompt_json=$1
-  bundle=$(detect_output_secret_bundle "$prompt_json")
-  [ -n "$bundle" ] || return 1
-  printf '%s' "$bundle" | jq -e '.whole_leaf == true' >/dev/null 2>&1 && return 1
-  secrets=$(printf '%s' "$bundle" \
-    | jq -c '.secrets | if length > 0 then . else empty end' 2>/dev/null)
-  [ -n "$secrets" ] || return 1
-  masked=$(redact_tool_response_json "$prompt_json" "$secrets")
-  [ -n "$masked" ] && [ "$masked" != "$prompt_json" ] || return 1
-  printf '%s' "$masked"
-}
-
 hook_user_prompt() {
   input=$(read_stdin)
   HOOK_EVENT=UserPromptSubmit
   HOOK_INPUT=$input
-  # Validate the mode in the main shell (die inside $() would only exit the
-  # subshell and silently fail-open); same contract as AGENT_GUARD_PII_HOOK_MODE.
+  # Validate both modes in the main shell (die inside $() would only exit the
+  # subshell and silently fail-open, exactly the hazard check_pii_hook_input
+  # and redact_tool_output guard against).
   prompt_guard_mode >/dev/null
-  mode=$(prompt_guard_mode)
-  [ "$mode" != off ] || return 0
+  pii_hook_mode >/dev/null
+  prompt_mode=$(prompt_guard_mode)
   if ! hook_dependencies_ready; then
     emit_degraded_hook_warning UserPromptSubmit "$input"
     return 0
@@ -3963,9 +3954,12 @@ hook_user_prompt() {
   prompt=$(json_value '.prompt // empty' "$input")
   [ -n "$prompt" ] || return 0
 
-  # Reuse the tool-input PII gate: block mode blocks any PII; mask mode
-  # hard-blocks Tier-2 here (Tier-1 is masked by the output/tool paths).
+  # The PII input gate is governed by AGENT_GUARD_PII_HOOK_MODE alone and stays
+  # active even when the secret guard is off: block mode blocks any PII; mask
+  # mode hard-blocks Tier-2. Tier-1 PII cannot be masked in a prompt (no host
+  # rewrite exists), a documented limitation.
   block_on_pii_text "user prompt" "$prompt"
+  [ "$prompt_mode" != off ] || return 0
 
   found=0
   scan_text_direct "user prompt" "$prompt"
@@ -3986,34 +3980,29 @@ hook_user_prompt() {
   fi
   [ "$found" -eq 1 ] || return 0
 
-  case "$mode" in
+  case "$prompt_mode" in
     warn)
       msg="$PROGRAM: the submitted prompt contains secret-like values; they were passed through because AGENT_GUARD_PROMPT_GUARD_MODE=warn"
-      jq -nc --arg m "$msg" \
-        '{systemMessage: $m,
-          hookSpecificOutput: {hookEventName: "UserPromptSubmit",
-                               additionalContext: $m}}'
+      # systemMessage is a Claude field; Codex documents hookSpecificOutput
+      # additionalContext as its context channel, so emit per host.
+      case "$(hook_host)" in
+        codex)
+          jq -nc --arg m "$msg" \
+            '{hookSpecificOutput: {hookEventName: "UserPromptSubmit",
+                                   additionalContext: $m}}'
+          ;;
+        *)
+          jq -nc --arg m "$msg" \
+            '{systemMessage: $m,
+              hookSpecificOutput: {hookEventName: "UserPromptSubmit",
+                                   additionalContext: $m}}'
+          ;;
+      esac
       return 0
       ;;
     mask)
-      if [ "$(hook_host)" != claude ]; then
-        info "$PROGRAM: this host cannot rewrite prompts; blocking the prompt instead (mask degrades to block outside Claude)"
-        exit 2
-      fi
-      prompt_json=$(printf '%s' "$prompt" | jq -Rsc . 2>/dev/null)
-      masked_json=
-      [ -n "$prompt_json" ] && masked_json=$(mask_prompt_json "$prompt_json")
-      if [ -z "$masked_json" ]; then
-        # Fail closed: detected secret + failed rewrite must not pass through.
-        info "$PROGRAM: blocked user prompt: it contains secret-like values that could not be masked faithfully"
-        exit 2
-      fi
-      printf '%s' "$masked_json" | jq -c \
-        '{hookSpecificOutput: {hookEventName: "UserPromptSubmit",
-                               updatedPrompt: .}}' 2>/dev/null \
-        || { info "$PROGRAM: blocked user prompt: masked rewrite could not be emitted"; exit 2; }
-      info "$PROGRAM: masked secret-like values in the submitted prompt"
-      return 0
+      info "$PROGRAM: no host supports rewriting a submitted prompt yet, so mask degrades to block; remove the secret-like values and resubmit"
+      exit 2
       ;;
     *)
       info "$PROGRAM: blocked user prompt: it contains secret-like values; remove them and resubmit (AGENT_GUARD_PROMPT_GUARD_MODE controls this)"

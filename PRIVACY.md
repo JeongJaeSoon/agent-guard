@@ -9,11 +9,12 @@ retain it after the hook or command finishes.
 
 ## What the plugin processes
 
-When enabled, Agent Guard registers hooks for `SessionStart`, `PreToolUse`,
-`PostToolUse`, and `Stop`.
+When enabled, Agent Guard registers hooks for `SessionStart`, `UserPromptSubmit`,
+`PreToolUse`, `PostToolUse`, and `Stop`.
 
 | Surface | Data inspected | Purpose | Persistent storage |
 |---|---|---|---|
+| `UserPromptSubmit` | The full text of the prompt the user submits | Block (or, opt-in, warn about) secret-like values and opt-in PII classes before the prompt reaches the model or the transcript | None |
 | `PreToolUse` | Matched tool names and inputs, including paths, proposed content, shell commands, URLs/search queries, and MCP arguments | Block deny-listed reads, credential-dumping commands, secret-like input, and opt-in PII classes before execution | None |
 | `PostToolUse` | Matched tool outputs; after mutation tools, changed and untracked files in the current Git work tree | Mask secret-like output and opt-in PII; detect secrets written to the work tree | None |
 | `Stop` | Changed and untracked files in the current Git work tree | Final working-tree secret scan | None |
