@@ -1484,6 +1484,270 @@ expect_json_status 0 "Read a terraform module file is allowed" \
   '{"tool_name":"Read","tool_input":{"file_path":"main.tf"}}' \
   hook-pre-tool
 
+# Rank 10: package-manager credential stores (deny-read) and credential dump
+# commands (deny-bash). Each blocked case pairs with a nearby benign control.
+expect_json_status 2 "cat ~/.bundle/config is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat ~/.bundle/config"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Read project .bundle/config is blocked" \
+  '{"tool_name":"Read","tool_input":{"file_path":".bundle/config"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "cat Gemfile.lock is allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat Gemfile.lock"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Read .gem/credentials is blocked" \
+  '{"tool_name":"Read","tool_input":{"file_path":".gem/credentials"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "gem list is allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"gem list"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "cat ~/.cargo/credentials.toml is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat ~/.cargo/credentials.toml"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "cat ~/.cargo/config.toml is allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat ~/.cargo/config.toml"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "cat ~/.composer/auth.json is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat ~/.composer/auth.json"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Read ~/.config/composer/auth.json is blocked" \
+  '{"tool_name":"Read","tool_input":{"file_path":"/home/u/.config/composer/auth.json"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "cat tests/fixtures/auth.json is allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat tests/fixtures/auth.json"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Read ~/.m2/settings.xml is blocked" \
+  '{"tool_name":"Read","tool_input":{"file_path":"/home/u/.m2/settings.xml"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "cat pom.xml is allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat pom.xml"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "cat ~/.gradle/gradle.properties is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat ~/.gradle/gradle.properties"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "project-root gradle.properties stays readable" \
+  '{"tool_name":"Read","tool_input":{"file_path":"gradle.properties"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Read pip.conf is blocked" \
+  '{"tool_name":"Read","tool_input":{"file_path":"/home/u/.config/pip/pip.conf"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "cat requirements.txt is allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat requirements.txt"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Read pypoetry/auth.toml is blocked" \
+  '{"tool_name":"Read","tool_input":{"file_path":"/home/u/.config/pypoetry/auth.toml"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "cat pyproject.toml is allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat pyproject.toml"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Read ~/.terraformrc is blocked" \
+  '{"tool_name":"Read","tool_input":{"file_path":"/home/u/.terraformrc"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "bundle config list is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"bundle config list"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "bare bundle config is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"bundle config"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "bundle config get github.com is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"bundle config get github.com"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "bundle config legacy host read is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"bundle config github.com"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "bundle config set --local path is allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"bundle config set --local path vendor/bundle"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "bundle install is allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"bundle install"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "npm config get _authToken is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"npm config get //npm.pkg.github.com/:_authToken"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "npm config get registry is allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"npm config get registry"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "npm config list is allowed (npm redacts protected keys)" \
+  '{"tool_name":"Bash","tool_input":{"command":"npm config list"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "yarn config get npmAuthToken is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"yarn config get npmAuthToken"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "yarn config get nodeLinker is allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"yarn config get nodeLinker"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "git credential fill is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"printf %s url=https://github.com | git credential fill"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "git credential-store get is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"git credential-store get"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "git config credential.helper is allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"git config credential.helper"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "pip config list is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"pip config list"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "pip install -r requirements.txt is allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"pip install -r requirements.txt"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "composer config github-oauth read is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"composer config -g github-oauth.github.com"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "composer install is allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"composer install"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "composer config repositories is allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"composer config repositories.foo vcs https://example.com/repo.git"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "mvn effective-settings with showPasswords is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"mvn help:effective-settings -DshowPasswords=true"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "mvn help:effective-settings (masked default) is allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"mvn help:effective-settings"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "security find-internet-password is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"security find-internet-password -s github.com -w"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "gcloud auth print-refresh-token is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"gcloud auth print-refresh-token"}}' \
+  hook-pre-tool
+
+# Rank 10 hardening: alias/flag/version/helper bypass variants and the
+# over-block carve-outs the patterns are anchored to avoid.
+expect_json_status 2 "bundler alias config list is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"bundler config list"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "bundle config in a subshell is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"x=$(bundle config list)"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "bundle config with a trailing fd redirect is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"bundle config 2>&1"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "bundle legacy set form (dotted key with value) is allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"bundle config github.com user:sometoken"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "bundle config unset is allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"bundle config unset github.com"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "npm config get with the key placed second is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"npm config get registry //npm.pkg.github.com/:_authToken"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "npm c alias get of a token is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"npm c get //npm.pkg.github.com/:_authToken"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "npm get alias of a token is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"npm get //npm.pkg.github.com/:_authToken"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "yarn config get npmRegistries (nested tokens) is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"yarn config get npmRegistries"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "git credential-libsecret get is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"git credential-libsecret get"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "git -C dir credential fill is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"git -C /repo credential fill"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "git config credential.helper (read of a non-secret) is allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"git config --get credential.helper"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "version-suffixed pip3.12 config list is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"pip3.12 config list"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "pip config with a scope flag before list is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"pip config --user list"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "pipx config is allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"pipx config list"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "composer config --list dump is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"composer config -g --list"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "composer repository key containing bearer is allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"composer config repositories.bearer vcs https://example.com/x.git"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "mvn effective-settings with reversed flag order is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"mvn -DshowPasswords=true help:effective-settings"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "a filename mentioning effective-settings and showPasswords is allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat notes-effective-settings-showPasswords.md"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "security find-generic-password stays blocked after merge" \
+  '{"tool_name":"Bash","tool_input":{"command":"security find-generic-password -s svc -w"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Read terraform.rc is blocked" \
+  '{"tool_name":"Read","tool_input":{"file_path":"terraform.rc"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Read XDG gem/credentials is blocked" \
+  '{"tool_name":"Read","tool_input":{"file_path":"/home/u/.local/share/gem/credentials"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "a vendored gem/credentials directory stays readable" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat vendor/gem/credentials"}}' \
+  hook-pre-tool
+
 expect_json_status 0 "PII hook mode defaults off" \
   '{"tool_name":"Write","tool_input":{"file_path":"note.txt","content":"email jane@example.com"}}' \
   hook-pre-tool

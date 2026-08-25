@@ -7,6 +7,27 @@
 
 ## Unreleased
 
+- feat(detection): block package-manager credential leak vectors. Deny-read now
+  covers Bundler (`.bundle/config`), RubyGems (`.gem/credentials` and the XDG
+  `gem/credentials` location), Cargo (`.cargo/credentials*`), Composer home
+  `auth.json`, Maven `.m2/settings.xml`, Gradle `.gradle/gradle.properties`,
+  `pip.conf`, Poetry `pypoetry/auth.toml`, and Terraform CLI credentials
+  (`.terraformrc`/`terraform.rc`). Deny-bash now blocks credential dump
+  commands that print stored auth with no path or token in the command text:
+  `bundle config` reads (bare/`list`/`get`/legacy dotted-key read; `set` stays
+  allowed and is gitleaks-scanned), `npm config get` of protected keys,
+  `yarn config get` of npmAuthToken/npmAuthIdent (and the registry/scope maps
+  that nest them), `git credential fill`/any-helper `get`, `pip config
+  list|get`, `composer config` on credential keys or `--list`,
+  `mvn help:effective-settings -DshowPasswords`, and
+  `security find-(generic|internet)-password`; `gcloud auth
+  print-refresh-token` joins the existing gcloud token alternation. The
+  command patterns are hardened against realistic variants an agent may emit:
+  tool aliases (`bundler`, `npm c`/`npm get`), version-suffixed binaries
+  (`pip3.12`), scope/global flags before the subcommand, non-listed git
+  credential helpers, and `$(...)` subshell prefixes; the `mvn` and `composer`
+  patterns are anchored so prose/filenames and value tokens like
+  `repositories.bearer` do not over-block.
 - fix(detection): allow explicitly named env templates such as `sample.env`,
   `example.envrc`, `.flaskenv.example`, and `.dev.vars.example`, while blocking
   reverse/runtime forms including `local.env`, `env.local`, `env.preview`, and

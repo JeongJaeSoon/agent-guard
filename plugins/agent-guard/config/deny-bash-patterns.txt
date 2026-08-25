@@ -18,7 +18,7 @@
 # shell variable ($$, $BASHPID) the deny-read glob cannot match, so accept any
 # non-space, non-slash segment here.
 /proc/[^[:space:]/]+/environ
-security[[:space:]]+find-generic-password
+security[[:space:]]+find-(generic|internet)-password
 op[[:space:]]+read
 op[[:space:]]+item[[:space:]]+get
 vault[[:space:]]+kv[[:space:]]+get
@@ -27,7 +27,7 @@ aws[[:space:]]+secretsmanager[[:space:]]+get-secret-value
 aws[[:space:]]+ssm[[:space:]]+get-parameter
 aws[[:space:]]+configure[[:space:]]+export-credentials
 gcloud[[:space:]]+secrets[[:space:]]+versions[[:space:]]+access
-gcloud[[:space:]]+auth[[:space:]]+print-(access|identity)-token
+gcloud[[:space:]]+auth[[:space:]]+print-(access|identity|refresh)-token
 az[[:space:]]+account[[:space:]]+get-access-token
 (^|[[:space:];|&])doppler[[:space:]]+(secrets|run)
 # Reading secret material out of kubectl requires a structured output flag;
@@ -43,3 +43,39 @@ kubectl[[:space:]].*get.*[[:space:]]secrets?(/[^[:space:]]+)?[[:space:]].*(-o|--
 kubectl[[:space:]].*get.*(-o|--output)[[:space:]=]*(yaml|json|jsonpath|go-template).*[[:space:]]secrets?(/[^[:space:]]+)?([[:space:]]|$)
 (curl|wget).*(TOKEN|SECRET|PASSWORD|API[_-]?KEY|ACCESS[_-]?KEY)
 gh[[:space:]]+auth[[:space:]]+token
+# Package-manager credential dumps: these print stored auth values with no
+# path or token in the command text, so neither the deny-read scan nor the
+# command gitleaks scan can see them. Write forms (`set`/`unset`, and the
+# legacy `config <host> <value>` set) stay allowed because the secret then
+# appears in the command text and is gitleaks-scanned there. Residual, shared
+# with every entry in this file: obfuscation via `sh -c`, escaped command
+# names, or splitting a command across shell variables is out of scope for a
+# line-oriented regex guard.
+# Bundler reads: bare `config`, `list`, `get`, and the legacy single-key read
+# `config <host.key>` (a dotted key with no following value). Covers the
+# `bundler` alias, a leading `$(`/backtick subshell, and a trailing fd
+# redirect (`bundle config 2>&1`). `config set <host> <value>` stays allowed.
+(^|[^[:alnum:]_.-])bundler?[[:space:]]+config([[:space:]]+(list|get)([^[:alnum:]_-]|$)|[[:space:]]+[^[:space:]]*\.[^[:space:]]*[[:space:]]*($|[<>|;&])|[[:space:]]*($|[<>|;&]|[0-9]))
+# `npm config get` (also the `c` and bare `get` aliases) prints protected
+# values raw; `config list` redacts them and stays allowed. A protected key
+# placed anywhere in the args is matched (npm accepts multiple keys).
+npm[[:space:]]+(config[[:space:]]+get|c[[:space:]]+get|get)[[:space:]].*(_auth|[Aa]uthToken|_password)
+# `yarn config get` of an auth key, or of the registry/scope maps that nest
+# npmAuthToken/npmAuthIdent values.
+yarn[[:space:]]+config[[:space:]]+get[[:space:]]+[^[:space:]]*([Aa]uth(Token|Ident)|npmRegistries|npmScopes)
+# git credential fill / any helper's `get` print password= plaintext; global
+# `-c`/`-C`/`--flag` options before the subcommand are tolerated, and the
+# helper name is matched generically (osxkeychain, libsecret, manager, ...).
+(^|[^[:alnum:]_-])git([[:space:]]+-[^[:space:]]+([[:space:]]+[^-][^[:space:]]*)?)*[[:space:]]+credential(-[[:alnum:]_-]+)?[[:space:]]+(fill|get)
+# pip config reads print index-urls verbatim, including embedded credentials;
+# version-suffixed binaries (`pip3.12`) and scope flags before the subcommand
+# (`pip config --user list`) are covered. `python -m pip config` matches too.
+(^|[^[:alnum:]_-])pip[0-9.]*[[:space:]]+config[[:space:]]+([^[:space:]]+[[:space:]]+)*(list|get)
+# composer config reads/sets of credential keys (anchored to the key argument
+# so a value like `repositories.bearer` does not over-block), and the full
+# `--list` dump. Blocking the set form too: http-basic passwords have no
+# prefix gitleaks could anchor on.
+composer[[:space:]]+config[[:space:]]+((-[[:alnum:]-]+[[:space:]]+)*(github-oauth|gitlab-token|gitlab-oauth|http-basic|bearer)([[:space:].]|$)|.*(-l|--list)([[:space:]]|$))
+# mvn help:effective-settings masks passwords unless showPasswords is set
+# (either flag order); anchored to `mvn` so prose/filenames don't over-block.
+mvn[[:space:]].*(effective-settings.*showPasswords|showPasswords.*effective-settings)
