@@ -7,6 +7,15 @@
 
 ## Unreleased
 
+- feat(hooks): add a `UserPromptSubmit` prompt guard on both hosts. Secrets
+  pasted into the user prompt (gitleaks rules or `KEY=value` assignment
+  heuristic) are blocked before submission by default;
+  `AGENT_GUARD_PROMPT_GUARD_MODE=mask` rewrites the prompt with `[REDACTED]`
+  literals on Claude (degrades to block on Codex, which does not document
+  prompt rewriting), `warn` passes through with a visible notice, `off`
+  disables. The PII input gate (`AGENT_GUARD_PII_HOOK_MODE`) applies to
+  prompts as well.
+
 - fix(detection): allow explicitly named env templates such as `sample.env`,
   `example.envrc`, `.flaskenv.example`, and `.dev.vars.example`, while blocking
   reverse/runtime forms including `local.env`, `env.local`, `env.preview`, and

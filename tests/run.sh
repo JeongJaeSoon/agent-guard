@@ -260,7 +260,7 @@ else
   not_ok "shared setup skill selects host-specific trust and live-hook layers"
 fi
 
-for event in PreToolUse PostToolUse Stop; do
+for event in PreToolUse PostToolUse Stop UserPromptSubmit; do
   claude_canonical=$(jq -r ".hooks.${event}[0].matcher" "$PLUGIN_ROOT/hooks/hooks.json")
   codex_canonical=$(jq -r ".hooks.${event}[0].matcher" "$PLUGIN_ROOT/hooks.json")
   claude_example=$(jq -r ".hooks.${event}[0].matcher" "$ROOT/examples/claude/settings.project.json")
@@ -281,14 +281,15 @@ done
 # timeout mismatch) that the matcher-only check above misses.
 hook_subcommand() {
   jq -r ".hooks.${2}[0].hooks[0].command" "$1" \
-    | grep -oE 'hook-(pre-tool|post-tool|stop)' | tail -n1
+    | grep -oE 'hook-(pre-tool|post-tool|stop|user-prompt)' | tail -n1
 }
 
-for event in PreToolUse PostToolUse Stop; do
+for event in PreToolUse PostToolUse Stop UserPromptSubmit; do
   case "$event" in
     PreToolUse)  expected_sub=hook-pre-tool;  expected_timeout=10 ;;
     PostToolUse) expected_sub=hook-post-tool; expected_timeout=20 ;;
     Stop)        expected_sub=hook-stop;      expected_timeout=20 ;;
+    UserPromptSubmit) expected_sub=hook-user-prompt; expected_timeout=10 ;;
   esac
 
   claude_type=$(jq -r ".hooks.${event}[0].hooks[0].type" "$PLUGIN_ROOT/hooks/hooks.json")
@@ -422,7 +423,7 @@ esac
 # manifest tag, and the AGENT_GUARD_HOOK_HOST pin. Normalize those and require
 # byte-identical commands, so a fix applied to one host's resolver cannot
 # silently miss the other.
-for event in PreToolUse PostToolUse Stop SessionStart; do
+for event in PreToolUse PostToolUse Stop SessionStart UserPromptSubmit; do
   claude_cmd=$(jq -r ".hooks.${event}[0].hooks[0].command" "$PLUGIN_ROOT/hooks/hooks.json")
   codex_cmd=$(jq -r ".hooks.${event}[0].hooks[0].command" "$PLUGIN_ROOT/hooks.json")
   case "$claude_cmd" in
@@ -1064,6 +1065,101 @@ expect_json_status 2 "WebSearch query with secret is blocked" \
 expect_json_status 0 "WebSearch benign query is allowed" \
   '{"tool_name":"WebSearch","tool_input":{"query":"agent guard documentation"}}' \
   hook-pre-tool
+
+# --- Prompt guard (hook-user-prompt) ---------------------------------------
+# Ground truth: default mode must block a secret-bearing prompt on BOTH hosts
+# and must pass a benign prompt untouched. mask is Claude-only (updatedPrompt);
+# Codex degrades to block. Every mode is driven explicitly so a default change
+# fails loudly here.
+prompt_guard_case() { # $1 host, $2 mode ('' = unset), $3 json; status in $?, out/err captured
+  pg_host=$1; pg_mode=$2; pg_json=$3
+  if [ -n "$pg_mode" ]; then
+    printf '%s' "$pg_json" \
+      | AGENT_GUARD_HOOK_HOST="$pg_host" AGENT_GUARD_PROMPT_GUARD_MODE="$pg_mode" \
+        "$PLUGIN_ROOT/bin/agent-guard" hook-user-prompt >"$OUT" 2>"$ERR"
+  else
+    printf '%s' "$pg_json" \
+      | AGENT_GUARD_HOOK_HOST="$pg_host" \
+        "$PLUGIN_ROOT/bin/agent-guard" hook-user-prompt >"$OUT" 2>"$ERR"
+  fi
+}
+
+for pg_h in claude codex; do
+  prompt_guard_case "$pg_h" '' '{"prompt":"my key is AGENT_GUARD_TEST_SECRET"}'
+  if [ $? -eq 2 ]; then
+    ok "prompt guard blocks a pasted secret by default ($pg_h)"
+  else
+    not_ok "prompt guard blocks a pasted secret by default ($pg_h)"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+
+  prompt_guard_case "$pg_h" '' '{"prompt":"pasted .env:\nDB_PASSWORD=zj29dkq8s7f2mmx1"}'
+  if [ $? -eq 2 ]; then
+    ok "prompt guard blocks a pasted env-style assignment ($pg_h)"
+  else
+    not_ok "prompt guard blocks a pasted env-style assignment ($pg_h)"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+
+  prompt_guard_case "$pg_h" '' '{"prompt":"please refactor the login handler"}'
+  if [ $? -eq 0 ] && [ ! -s "$OUT" ]; then
+    ok "prompt guard passes a benign prompt silently ($pg_h)"
+  else
+    not_ok "prompt guard passes a benign prompt silently ($pg_h)"
+    sed 's/^/  stdout: /' "$OUT"; sed 's/^/  stderr: /' "$ERR"
+  fi
+
+  prompt_guard_case "$pg_h" off '{"prompt":"my key is AGENT_GUARD_TEST_SECRET"}'
+  if [ $? -eq 0 ] && [ ! -s "$OUT" ]; then
+    ok "prompt guard off mode is a no-op ($pg_h)"
+  else
+    not_ok "prompt guard off mode is a no-op ($pg_h)"
+  fi
+
+  prompt_guard_case "$pg_h" warn '{"prompt":"my key is AGENT_GUARD_TEST_SECRET"}'
+  if [ $? -eq 0 ] && grep -q 'systemMessage' "$OUT"; then
+    ok "prompt guard warn mode passes with a visible notice ($pg_h)"
+  else
+    not_ok "prompt guard warn mode passes with a visible notice ($pg_h)"
+    sed 's/^/  stdout: /' "$OUT"
+  fi
+
+  prompt_guard_case "$pg_h" nonsense '{"prompt":"hello"}'
+  if [ $? -ne 0 ]; then
+    ok "prompt guard dies loudly on an unsupported mode ($pg_h)"
+  else
+    not_ok "prompt guard dies loudly on an unsupported mode ($pg_h)"
+  fi
+done
+
+prompt_guard_case claude mask '{"prompt":"my key is AGENT_GUARD_TEST_SECRET ok"}'
+pg_status=$?
+if [ "$pg_status" -eq 0 ] \
+  && jq -e '.hookSpecificOutput.hookEventName == "UserPromptSubmit"
+            and (.hookSpecificOutput.updatedPrompt | contains("[REDACTED]"))
+            and (.hookSpecificOutput.updatedPrompt | contains("AGENT_GUARD_TEST_SECRET") | not)' \
+    "$OUT" >/dev/null 2>&1; then
+  ok "prompt guard mask mode rewrites the prompt on Claude"
+else
+  not_ok "prompt guard mask mode rewrites the prompt on Claude (status $pg_status)"
+  sed 's/^/  stdout: /' "$OUT"; sed 's/^/  stderr: /' "$ERR"
+fi
+
+prompt_guard_case claude mask '{"prompt":"benign prompt with no secrets"}'
+if [ $? -eq 0 ] && [ ! -s "$OUT" ]; then
+  ok "prompt guard mask mode leaves a benign prompt untouched"
+else
+  not_ok "prompt guard mask mode leaves a benign prompt untouched"
+  sed 's/^/  stdout: /' "$OUT"
+fi
+
+prompt_guard_case codex mask '{"prompt":"my key is AGENT_GUARD_TEST_SECRET"}'
+if [ $? -eq 2 ] && grep -qi 'block' "$ERR"; then
+  ok "prompt guard mask mode degrades to block on Codex"
+else
+  not_ok "prompt guard mask mode degrades to block on Codex"
+  sed 's/^/  stdout: /' "$OUT"; sed 's/^/  stderr: /' "$ERR"
+fi
 
 # --- Detection calibration & robustness (PR 1) ----------------------------
 # Rank 1: reading the process environment via /proc is an env-dump bypass.

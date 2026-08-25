@@ -381,6 +381,17 @@ Beyond blocking, Agent Guard **masks** secret-like values in a matched tool's ou
 
 With `AGENT_GUARD_PII_HOOK_MODE=mask`, the same `PostToolUse` redactor also masks **PII** in tool output — email, phone (including Korean mobile), IPv4, credit card, US SSN, and Korean resident registration number become `[PII:TYPE]` placeholders in place. Secret redaction and PII masking compose into a single rewrite, so a result containing both is fully sanitized at once.
 
+## Prompt guard (secrets pasted into the prompt)
+
+The tool hooks never see what **you** type: a pasted `.env` file or API key in the prompt reaches the model API and the on-disk transcript unscanned. The `UserPromptSubmit` hook closes that path on both hosts. Detection reuses gitleaks plus the `KEY=value` assignment heuristic, and `AGENT_GUARD_PROMPT_GUARD_MODE` picks the response:
+
+- `block` (default) — the prompt is rejected before submission with a visible reason; nothing reaches the model or the transcript.
+- `mask` — on Claude Code the prompt is rewritten via `updatedPrompt` with each detected literal replaced by `[REDACTED]` (PII is also masked when `AGENT_GUARD_PII_HOOK_MODE=mask`). Codex does not document prompt rewriting, so `mask` **degrades to block** there. A detected prompt whose rewrite fails is blocked, never passed through.
+- `warn` — the prompt passes through unchanged with a visible notice. Opt-in only; it does not prevent the leak.
+- `off` — no prompt scanning.
+
+The PII input gate also applies: `AGENT_GUARD_PII_HOOK_MODE=block` blocks any PII in the prompt, and `mask` hard-blocks Tier-2 PII (credit card, US SSN, Korean resident registration number). The same detection limits as output masking apply — this is defense in depth, not a reason to paste credentials.
+
 ## Shell integration (masking `!` shell-escape output)
 
 The `PostToolUse` redactor only ever sees the results of the agent's *tool calls*. When you type a `!`-prefixed command at the Claude Code prompt, it runs in the session shell and its **output is captured into the transcript and sent to the model** — but it is not a tool call, so **no** Agent Guard hook fires (a documented blind spot). If that output carries a credential, the model sees it unmasked.
@@ -476,6 +487,7 @@ AGENT_GUARD_PII_PROVIDER=regex
 AGENT_GUARD_PII_REDACT_URL=http://127.0.0.1:8080/api/redact
 AGENT_GUARD_PII_HOOK_MODE=off
 AGENT_GUARD_OUTPUT_REDACT=mask
+AGENT_GUARD_PROMPT_GUARD_MODE=block
 AGENT_GUARD_INFRA_FAILURE_MODE=open
 ```
 
@@ -484,7 +496,7 @@ environment-family defaults, its entries are not relaxed for template-shaped
 filenames; explicitly listing `sample.env` or `secrets/*` therefore blocks those
 paths.
 
-Set `AGENT_GUARD_OUTPUT_REDACT=off` to disable masking secret-like values in tool output (default `mask`). Set `AGENT_GUARD_PII_HOOK_MODE` to `block` (block PII in tool inputs), `mask` (mask PII in tool outputs + hard-block Tier-2 PII inputs), or `off` (default).
+Set `AGENT_GUARD_OUTPUT_REDACT=off` to disable masking secret-like values in tool output (default `mask`). Set `AGENT_GUARD_PII_HOOK_MODE` to `block` (block PII in tool inputs), `mask` (mask PII in tool outputs + hard-block Tier-2 PII inputs), or `off` (default). Set `AGENT_GUARD_PROMPT_GUARD_MODE` to `block` (default), `mask` (Claude only; degrades to block on Codex), `warn`, or `off` for secrets pasted into the user prompt.
 
 Set `AGENT_GUARD_INFRA_FAILURE_MODE=closed` when a host hook or shell wrapper
 must refuse execution if the scanner cannot run. The default is `open`, with a
