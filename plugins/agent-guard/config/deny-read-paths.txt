@@ -54,10 +54,10 @@ gcp-sa*.json
 .vault-token
 .dev.vars
 .dev.vars.*
-# Package-manager credential stores. These carry plaintext auth (Bundler
-# BUNDLE_<HOST> keys, RubyGems/Cargo API tokens, Composer github-oauth,
-# Maven server passwords, Gradle publish tokens, pip index-url credentials,
-# Poetry http-basic fallback). A bare `auth.json` glob is deliberately NOT
+# Package-manager credential stores. These carry plaintext auth for Bundler
+# (BUNDLE_<HOST>), RubyGems, Cargo, Composer (github-oauth), Maven server
+# passwords, Gradle publish tokens, pip index-url credentials, and the Poetry
+# http-basic fallback. A bare `auth.json` glob is deliberately NOT
 # listed: the name is too common in fixtures; only Composer's home locations
 # are covered. The explicit XDG path covers the newer RubyGems location
 # ~/.local/share/gem/credentials that the `.gem` glob cannot match, without
