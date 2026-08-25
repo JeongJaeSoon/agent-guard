@@ -7,6 +7,11 @@
 
 ## Unreleased
 
+- feat(detection): extend the env template marker vocabulary with `tpl`/`tmpl`
+  and accept `-`/`_` marker separators (`.env-example`, `.env_sample`,
+  `.env.tpl`), matching the naming conventions measured on GitHub. The marker
+  must still be final and the stem must stay an env family; `.env.default(s)`
+  stays blocked because dotenv-defaults loads it at runtime.
 - fix(detection): allow env source modules that carry an intermediate segment
   between the `env`/`envrc` stem and a code extension, so ordinary committed
   files such as `env.d.ts`, `env.server.ts`, `env.config.ts`, and `env.spec.ts`

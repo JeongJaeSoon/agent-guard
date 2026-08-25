@@ -1801,8 +1801,10 @@ candidate_parent_matches_deny() (
 )
 
 # Classify explicitly named environment placeholder templates. Accepted suffix
-# markers are `.example`, `.sample`, `.template`, and `.dist`; the marker must
-# be final.
+# markers are `example`, `sample`, `template`, `dist`, `tpl`, and `tmpl`,
+# separated by `.`, `-`, or `_` (`.env.example`, `.env-example`, `.env_sample`,
+# `.env.tpl`); the marker must be final. `.env.default(s)` is deliberately not
+# a marker: dotenv-defaults loads it at runtime, so it may hold real values.
 # `example.env`, `sample.env`, and `template.env` (plus their envrc forms) are
 # also accepted because that prefix convention is common and unambiguous.
 #
@@ -1820,10 +1822,12 @@ candidate_is_allowed() {
     example.env|sample.env|template.env|example.envrc|sample.envrc|template.envrc|\
     .example.env|.sample.env|.template.env|.example.envrc|.sample.envrc|.template.envrc)
       ;;
-    *.example) template_stem=${template_base%.example} ;;
-    *.sample) template_stem=${template_base%.sample} ;;
-    *.template) template_stem=${template_base%.template} ;;
-    *.dist) template_stem=${template_base%.dist} ;;
+    *[._-]example) template_stem=${template_base%[._-]example} ;;
+    *[._-]sample) template_stem=${template_base%[._-]sample} ;;
+    *[._-]template) template_stem=${template_base%[._-]template} ;;
+    *[._-]dist) template_stem=${template_base%[._-]dist} ;;
+    *[._-]tpl) template_stem=${template_base%[._-]tpl} ;;
+    *[._-]tmpl) template_stem=${template_base%[._-]tmpl} ;;
     *) return 1 ;;
   esac
 

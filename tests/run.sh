@@ -1444,6 +1444,66 @@ expect_json_status 2 "Bash cat .env.example.bak (suffix not final) is blocked" \
   '{"tool_name":"Bash","tool_input":{"command":"cat .env.example.bak"}}' \
   hook-pre-tool
 
+# Marker vocabulary: `tpl`/`tmpl` markers and `-`/`_` separators are template
+# grammar too (`.env-example` ~20k repos, `.env_example` ~12k, `.env.tpl` ~1.3k
+# on GitHub). The marker must still be final and the stem must stay env-family;
+# `.env.default(s)` stays blocked because dotenv-defaults loads it at runtime.
+expect_json_status 0 "Read .env-example (hyphen separator) is allowed" \
+  '{"tool_name":"Read","tool_input":{"file_path":".env-example"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "Read .env_sample (underscore separator) is allowed" \
+  '{"tool_name":"Read","tool_input":{"file_path":".env_sample"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "Read .env.tpl template marker is allowed" \
+  '{"tool_name":"Read","tool_input":{"file_path":".env.tpl"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "Read .env.tmpl template marker is allowed" \
+  '{"tool_name":"Read","tool_input":{"file_path":".env.tmpl"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "Read .envrc-example (hyphen separator) is allowed" \
+  '{"tool_name":"Read","tool_input":{"file_path":".envrc-example"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Read .env-local (separator without template marker) is blocked" \
+  '{"tool_name":"Read","tool_input":{"file_path":".env-local"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Read .env-example.bak (hyphen marker not final) is blocked" \
+  '{"tool_name":"Read","tool_input":{"file_path":".env-example.bak"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Read .env.tpl.bak (tpl marker not final) is blocked" \
+  '{"tool_name":"Read","tool_input":{"file_path":".env.tpl.bak"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Read .env.defaults (runtime-loaded, not a template) is blocked" \
+  '{"tool_name":"Read","tool_input":{"file_path":".env.defaults"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Read .env.default (runtime-loaded, not a template) is blocked" \
+  '{"tool_name":"Read","tool_input":{"file_path":".env.default"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "Bash cat .env-example is allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat .env-example"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "Bash cat .env.tpl is allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat .env.tpl"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash cat .env-example .env still blocks on the bare .env token" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat .env-example .env"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash cat .env.tpl.bak (tpl marker not final) is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat .env.tpl.bak"}}' \
+  hook-pre-tool
+
 # Path-prefixed candidates go through basename stripping before the suffix match.
 expect_json_status 0 "Read config/.env.local.example (path-prefixed template) is allowed" \
   '{"tool_name":"Read","tool_input":{"file_path":"config/.env.local.example"}}' \
