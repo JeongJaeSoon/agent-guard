@@ -1840,17 +1840,20 @@ candidate_is_allowed() {
 # Keep ordinary source modules such as `config.env.ts` readable without opening
 # data/config suffixes such as `config.env.json`. Require a non-empty prefix for
 # reverse-extension forms so `.env.ts` remains a protected runtime variant.
+#
+# The basename must end in a known code extension; the stem in front of it may
+# carry one intermediate segment (`env.d.ts`, `env.server.ts`, `app.env.spec.ts`)
+# because those are ordinary committed modules. A stem with no code extension
+# (`env.d`, `env.local`, `config.env.json`) is never a source module.
 candidate_is_env_source_module() {
   env_source_base=${1##*/}
   case "$env_source_base" in
-    env.ts|env.tsx|env.js|env.jsx|env.mjs|env.cjs|env.py|env.rb|env.go|env.rs|\
-    env.java|env.kt|env.kts|env.swift|envrc.ts|envrc.tsx|envrc.js|envrc.jsx|\
-    envrc.mjs|envrc.cjs|envrc.py|envrc.rb|envrc.go|envrc.rs|envrc.java|envrc.kt|\
-    envrc.kts|envrc.swift|?*.env.ts|?*.env.tsx|?*.env.js|?*.env.jsx|?*.env.mjs|\
-    ?*.env.cjs|?*.env.py|?*.env.rb|?*.env.go|?*.env.rs|?*.env.java|?*.env.kt|\
-    ?*.env.kts|?*.env.swift|?*.envrc.ts|?*.envrc.tsx|?*.envrc.js|?*.envrc.jsx|\
-    ?*.envrc.mjs|?*.envrc.cjs|?*.envrc.py|?*.envrc.rb|?*.envrc.go|?*.envrc.rs|\
-    ?*.envrc.java|?*.envrc.kt|?*.envrc.kts|?*.envrc.swift) return 0 ;;
+    *.ts|*.tsx|*.js|*.jsx|*.mjs|*.cjs|*.py|*.rb|*.go|*.rs|*.java|*.kt|*.kts|\
+    *.swift) ;;
+    *) return 1 ;;
+  esac
+  case "${env_source_base%.*}" in
+    env|envrc|env.?*|envrc.?*|?*.env|?*.envrc|?*.env.?*|?*.envrc.?*) return 0 ;;
     *) return 1 ;;
   esac
 }
