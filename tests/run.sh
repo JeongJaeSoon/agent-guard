@@ -1074,7 +1074,9 @@ expect_json_status 0 "WebSearch benign query is allowed" \
 # Runtime-generated fake credential value: a committed literal would trip the
 # repo's own CI secret scan. The probe keys off the DB_PASSWORD name, and the
 # mock gitleaks deliberately does not match it (these cases test the probe).
-prompt_guard_fake_value=$(LC_ALL=C tr -dc 'a-z0-9' </dev/urandom | head -c 16)
+# od -N reads a bounded amount and exits on its own; the tr|head urandom idiom
+# hangs on runners that ignore SIGPIPE (tr never learns the reader is gone).
+prompt_guard_fake_value=$(od -An -N12 -tx1 /dev/urandom | LC_ALL=C tr -d ' \n')
 prompt_guard_env_json=$(jq -nc --arg v "$prompt_guard_fake_value" \
   '{prompt: ("pasted .env:\nDB_PASSWORD=" + $v)}')
 
