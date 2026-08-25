@@ -1071,6 +1071,13 @@ expect_json_status 0 "WebSearch benign query is allowed" \
 # and must pass a benign prompt untouched. Neither host supports rewriting the
 # submitted prompt, so mask degrades to block everywhere; warn passes with a
 # host-shaped notice. The PII input gate runs independently of the secret mode.
+# Runtime-generated fake credential value: a committed literal would trip the
+# repo's own CI secret scan. The probe keys off the DB_PASSWORD name, and the
+# mock gitleaks deliberately does not match it (these cases test the probe).
+prompt_guard_fake_value=$(LC_ALL=C tr -dc 'a-z0-9' </dev/urandom | head -c 16)
+prompt_guard_env_json=$(jq -nc --arg v "$prompt_guard_fake_value" \
+  '{prompt: ("pasted .env:\nDB_PASSWORD=" + $v)}')
+
 prompt_guard_case() { # $1 host, $2 prompt mode ('' = default), $3 pii mode ('' = off), $4 json
   printf '%s' "$4" \
     | AGENT_GUARD_HOOK_HOST="$1" AGENT_GUARD_PROMPT_GUARD_MODE="$2" \
@@ -1083,7 +1090,7 @@ for pg_h in claude codex; do
     prompt_guard_case "$pg_h" '' '' '{"prompt":"my key is AGENT_GUARD_TEST_SECRET"}'
 
   run_expect 2 "prompt guard blocks a pasted env-style assignment ($pg_h)" \
-    prompt_guard_case "$pg_h" '' '' '{"prompt":"pasted .env:\nDB_PASSWORD=zj29dkq8s7f2mmx1"}'
+    prompt_guard_case "$pg_h" '' '' "$prompt_guard_env_json"
 
   prompt_guard_case "$pg_h" '' '' '{"prompt":"please refactor the login handler"}' >"$OUT" 2>"$ERR"
   if [ $? -eq 0 ] && [ ! -s "$OUT" ]; then
@@ -1156,7 +1163,7 @@ run_expect 2 "prompt guard dies loudly on an unsupported PII mode" \
 # probe still detects) instead of silently hardening into a block.
 printf '#!/bin/sh\nexit 3\n' >"$MOCK_BIN/gitleaks-broken"
 chmod +x "$MOCK_BIN/gitleaks-broken"
-printf '%s' '{"prompt":"pasted:\nDB_PASSWORD=zj29dkq8s7f2mmx1"}' \
+printf '%s' "$prompt_guard_env_json" \
   | AGENT_GUARD_HOOK_HOST=claude AGENT_GUARD_PROMPT_GUARD_MODE=warn \
     AGENT_GUARD_GITLEAKS_BIN="$MOCK_BIN/gitleaks-broken" \
     AGENT_GUARD_WARNING_DIR="$TESTTMP/prompt-warn-dir" \
