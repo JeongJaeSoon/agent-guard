@@ -3331,6 +3331,16 @@ secretish_env_values() {
         end = length(value)
         strip_quote = 0
         while (end > 0) {
+          # Re-test after every strip, because the strip can walk INTO the
+          # redaction sentinel. `password=[REDACTED]"}` loses `}` and then the
+          # quote, and the next closer taken is the `]` that belongs to the
+          # marker itself. The pre-loop test passed (the tail held a quote),
+          # and after that
+          # `[REDACTED` no longer matches, so the fragment is re-emitted as a
+          # secret and a stray `]` appended. That compounds on every pass
+          # (`[REDACTED]]`, `[REDACTED]]]`) and makes the prompt guard BLOCK
+          # text agent-guard itself redacted.
+          if (already_redacted(substr(value, 1, end))) return 0
           ch = substr(value, end, 1)
           if (ch == "}" || ch == "]" || ch == ")") { end--; continue }
           # One trailing quote closes the string the assignment SITS INSIDE; it

@@ -7415,6 +7415,35 @@ else
   printf '%s\n' "$post_out" | sed 's/^/  out: /'
 fi
 
+# The trailing-quote strip must not walk INTO the redaction sentinel. With a
+# quote after it (`password=[REDACTED]"}` — exactly the leaf shape #178 adds)
+# the loop took `}`, then the quote, then the `]` that belongs to the marker,
+# so already_redacted() stopped matching, `[REDACTED` was re-emitted as a
+# secret and a stray `]` appended. It compounded on every pass and made the
+# prompt guard BLOCK text agent-guard itself had redacted. The pre-existing
+# idempotence assertion only covers the bare form, so it did not catch this.
+for jsonleaf_sentinel in \
+  '{"log":"password=[REDACTED]"}' \
+  '{"a":{"b":"tok=[REDACTED]"}}' \
+  '{"log":"api_key=[REDACTED]"} see also [REDACTED] and [REDACTEDX]' \
+  'prefix "DB_PASSWORD=[REDACTED]" suffix'; do
+  display_input=$(jq -nc --arg stdout "$jsonleaf_sentinel" \
+    '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+  post_tool_out "$display_input"
+  post_status=$?
+  if [ "$post_status" -eq 0 ] && [ ! -s "$OUT" ]; then
+    ok "#178 a redaction sentinel inside a quoted leaf stays idempotent"
+  else
+    not_ok "#178 a redaction sentinel inside a quoted leaf stays idempotent"
+    sed 's/^/  out: /' "$OUT"
+  fi
+done
+
+expect_json_status 0 "#178 the prompt guard does not block its own sentinel in a quoted leaf" \
+  "$(jq -nc --arg prompt '{"log":"password=[REDACTED]"}' \
+    '{session_id:"t",hook_event_name:"UserPromptSubmit",prompt:$prompt}')" \
+  hook-user-prompt
+
 # Display redaction must not mangle credential-handling SOURCE CODE. A
 # credential-shaped key on the left says nothing about the right-hand side: a
 # reference (`process.env.API_KEY`, `os.environ["DB_PASSWORD"]`, `config.apiKey`,

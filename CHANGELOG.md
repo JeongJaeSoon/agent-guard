@@ -23,6 +23,10 @@
   regex. Credential-handling source code is unchanged: `os.environ["DB_PASSWORD"]`
   and `ENV.fetch("SESSION_KEY")` keep interior quotes and stay references.
   Display redaction and the prompt guard; the block/detect path is unchanged.
+  The strip stops at the redaction sentinel: `password=[REDACTED]"` would
+  otherwise lose the `]` that belongs to the marker, so `[REDACTED` was
+  re-emitted as a secret and a stray `]` appended — compounding on every pass
+  and making the prompt guard block text Agent Guard had itself redacted.
 - fix(redaction): close the status-label display-redaction leak (#156). The
   seven-word status allowlist (`error`, `warning`, `info`, `note`, `debug`,
   `fatal`, `hint`) let a secret that gitleaks does not recognise reach the model
