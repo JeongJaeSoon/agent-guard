@@ -2277,21 +2277,6 @@ bash_strip_allowed_tokens() {
   )
 }
 
-# jq options that never consume a following value. Anything outside this list
-# — `-f`, `--from-file`, `-L`, `--arg`, a combined cluster such as `-rf` — may
-# take the NEXT token as a value, and for the file-taking ones that token is a
-# path jq reads. Treating it as the filter and dropping it was a read bypass, so
-# an unrecognised option stops the filter search instead of consuming it.
-jq_option_is_valueless() {
-  case "$1" in
-    -r|-c|-n|-e|-j|-a|-s|-S|-R|-M|-C|-h|\
-    --raw-output|--join-output|--compact-output|--null-input|--exit-status|\
-    --ascii-output|--slurp|--sort-keys|--raw-input|--tab|--monochrome-output|\
-    --color-output|--help|--version|--stream|--seq) return 0 ;;
-    *) return 1 ;;
-  esac
-}
-
 # The deny-read patterns are basename globs, and matching them against every
 # word of a command makes any word that merely ends in a listed extension a
 # block: `echo foo.key`, `jq -r .key data.json`, `echo see also foo.pem` (#99).
@@ -2322,19 +2307,25 @@ jq_option_is_valueless() {
 # Within one simple command, drop only operands the command cannot read:
 #
 #   - every word operand of `echo` / `printf`, which take no file operands;
-#   - `jq`'s first non-option operand, which is the filter program
-#     (`jq -r .key data.json` reads data.json; `.key` selects a field). A
-#     leading `./` or `../` marks a path and is kept, `--` ends the search, and
-#     an option that might take a value stops it (see jq_option_is_valueless).
+# `echo` and `printf` and nothing else, and the reason is what they ARE rather
+# than what they do with their operands: both are shell builtins, so bash runs
+# the builtin whatever sits on PATH. Naming a command here is a claim about the
+# program that will actually run, and for a builtin that claim holds.
 #
-# `jq` and nothing else, on purpose. `yq` was in this list and was a read
-# bypass: Mike Farah yq autodetects its first argument, treating it as an
-# expression only when no file of that name exists, so `yq .env` in a directory
-# that has one READS it. `gojq` and `jaq` were added on the assumption that they
-# copy jq's grammar, which was never checked against either tool. An unverified
-# assumption is what produced the yq hole, so they are out too: the reported
-# false positive is about jq, and jq is what this covers. Everything else keeps
-# today's false positive, which is the safe direction.
+# It does not hold for an external binary, which is why `jq` is no longer here.
+# jq had the same exception for its first non-option operand — always its filter
+# program — and that was sound about jq itself and useless in practice: jq
+# resolves through PATH at execution time, so a wrapper or shadow earlier in
+# PATH inherits the exception meant for the real one. Reproduced: a `jq` script
+# running `cat .env` for `jq .env` was allowed here and read the file, where the
+# baseline blocked it. A text gate cannot know what PATH will resolve to, and
+# checking at hook time would not bind what runs a moment later. `yq`, `gojq`
+# and `jaq` were removed earlier for narrower reasons; this argument covers
+# them too.
+#
+# The cost is that `jq -r .key data.json` keeps the #99 false positive. That is
+# the trade, and it is the right way round: a false positive is an annoyance,
+# and this exception was a read.
 #
 # Only a clean literal is ever dropped (env_exception_literal_shell_token
 # rejects quoting that survives unquoting, expansion, globs, redirection and
@@ -2389,7 +2380,7 @@ bash_strip_non_path_tokens() {
     # not a shape worth widening the gate for.
     strip_command=$1
     case "$strip_command" in
-      echo|printf|jq) ;;
+      echo|printf) ;;
       *)
         printf '%s' "$strip_input"
         return 0
@@ -2398,32 +2389,11 @@ bash_strip_non_path_tokens() {
 
     result=$1
     shift
-    strip_seen_operand=0
 
     for token in "$@"; do
       strip_literal=$(env_exception_literal_shell_token "$token" 2>/dev/null \
         || true)
-      if [ -n "$strip_literal" ]; then
-        case "$strip_command" in
-          echo|printf)
-            continue
-            ;;
-          *)
-            if [ "$strip_seen_operand" -eq 0 ]; then
-              case "$strip_literal" in
-                --) strip_seen_operand=1 ;;
-                -*)
-                  jq_option_is_valueless "$strip_literal" \
-                    || strip_seen_operand=1
-                  ;;
-                ./*|../*) strip_seen_operand=1 ;;
-                .*) strip_seen_operand=1; continue ;;
-                *) strip_seen_operand=1 ;;
-              esac
-            fi
-            ;;
-        esac
-      fi
+      [ -n "$strip_literal" ] && continue
       result="$result $token"
     done
     printf '%s' "$result"
@@ -3285,9 +3255,13 @@ secretish_env_values() {
       scan_leaf(v)
       guard_rescan = 0
     }
+    # `\r` counts as edge whitespace: scan_leaf splits on `\n` and keeps the
+    # preceding `\r`, so CRLF output left a carriage return glued to the value.
+    # The capture then recorded `\r\n<secret>` as its literal and a bare
+    # recurrence of the credential further down matched nothing.
     function edge_trim(v) {
-      sub(/^[ \t\n]+/, "", v)
-      sub(/[ \t\n]+$/, "", v)
+      sub(/^[ \t\r\n]+/, "", v)
+      sub(/[ \t\r\n]+$/, "", v)
       return v
     }
     function emit_captured(v, trimmed) {

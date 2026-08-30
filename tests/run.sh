@@ -1721,9 +1721,7 @@ for nonpath_case in \
   "echo foo.$NONPATH_KEY" \
   "echo see also foo.$NONPATH_PEM" \
   "echo see also foo.env" \
-  "printf '%s' foo.$NONPATH_KEY" \
-  "jq -r .$NONPATH_KEY data.json" \
-  "jq .$NONPATH_KEY"; do
+  "printf '%s' foo.$NONPATH_KEY"; do
   expect_json_status 0 "#99 Bash '$nonpath_case' does not reference a read target" \
     "$(jq -nc --arg c "$nonpath_case" \
       '{tool_name:"Bash",tool_input:{command:$c}}')" \
@@ -1783,29 +1781,6 @@ for nonpath_case in \
     hook-pre-tool
 done
 
-# A jq option outside the valueless allowlist may take the NEXT token as a
-# value, and for `-f`/`--from-file`/`-L` that token is a path jq reads — so it
-# must not be mistaken for the filter and dropped. A combined cluster (`-rf`)
-# counts as unrecognised, and `--` ends the filter search outright.
-for nonpath_case in \
-  "jq -f .env data.json" \
-  "jq -rf .aws/credentials data.json" \
-  "jq --from-file .env data.json" \
-  "jq -f .env" \
-  "jq -L .ssh/id_rsa ." \
-  "jq --slurpfile d .env ." \
-  "jq --rawfile d .env ." \
-  "jq -- .env" \
-  "yq --from-file .env x.yaml"; do
-  expect_json_status 2 "#99 Bash value-taking jq option keeps its operand: '$nonpath_case'" \
-    "$(jq -nc --arg c "$nonpath_case" \
-      '{tool_name:"Bash",tool_input:{command:$c}}')" \
-    hook-pre-tool
-done
-
-# yq is NOT in the jq family: Mike Farah yq treats its first argument as an
-# expression only when no file of that name exists, so `yq .env` in a directory
-# holding one reads it. Dropping that operand was a read bypass.
 # The command word is the RAW token: no basename strip, no quote removal.
 # Stripping the directory gave the exception to any executable merely sharing
 # the name. Removing quotes was worse — shell_command_words splits on whitespace
@@ -1829,28 +1804,98 @@ for nonpath_case in \
     hook-pre-tool
 done
 
-# `gojq` and `jaq` are out for a weaker but sufficient reason: this repo has no
-# copy of either to check their argument grammar against, and assuming they copy
-# jq's is the same assumption that produced the yq hole.
+# Only shell BUILTINS get the exception. An external binary resolves through
+# PATH at execution time, so naming it here is a claim about a program the gate
+# cannot identify: a `jq` wrapper earlier in PATH inherited the exception meant
+# for the real jq and read the file. jq, yq, gojq and jaq are all external, so
+# all four keep their operands and their false positive.
 for nonpath_case in \
+  "jq .env" \
+  "jq -r .$NONPATH_KEY data.json" \
+  "jq .$NONPATH_KEY" \
   "yq .env" \
   "yq -r .env" \
   "yq .$NONPATH_KEY data.yaml" \
   "gojq .$NONPATH_KEY data.json" \
   "jaq .$NONPATH_KEY data.json"; do
-  expect_json_status 2 "#99 Bash only jq gets the filter exception: '$nonpath_case'" \
+  expect_json_status 2 "#99 Bash an external binary gets no exception: '$nonpath_case'" \
     "$(jq -nc --arg c "$nonpath_case" \
       '{tool_name:"Bash",tool_input:{command:$c}}')" \
     hook-pre-tool
 done
 
-# Valueless jq options must not stop the filter search, or the false positive
-# the narrowing exists to fix comes back for any invocation that uses a flag.
+# Dropping a word is only sound while that word cannot reach a reader, and shell
+# syntax is what carries it to one. Every case below reads the file for real
+# (verified with `bash -c` against a fixture directory) and was ALLOWED by an
+# earlier revision of this narrowing that tried to track command segments
+# itself. The newline cases are the subtle ones: the strip helpers that run
+# first rejoin their tokens with single spaces, so `echo hi<newline>cat .env`
+# arrives here as `echo hi cat .env` and reads like one `echo` — which is why
+# the syntax test runs on the untouched command, not on the stripped one.
+nonpath_newline_env=$(printf 'echo hi\ncat .env')
+nonpath_newline_ssh=$(printf 'echo one\necho two\ncat .ssh/id_rsa')
+nonpath_newline_sec=$(printf 'printf x\ncat secrets.json')
 for nonpath_case in \
-  "jq -c -r .$NONPATH_KEY f.json" \
-  "jq -n .$NONPATH_KEY" \
-  "jq --sort-keys .$NONPATH_KEY f.json"; do
-  expect_json_status 0 "#99 Bash valueless jq option keeps the filter droppable: '$nonpath_case'" \
+  "$nonpath_newline_env" \
+  "$nonpath_newline_ssh" \
+  "$nonpath_newline_sec" \
+  "echo a & cat .env" \
+  "echo a&cat .ssh/id_rsa" \
+  "echo a & cat .netrc" \
+  "echo a & cat .git-credentials" \
+  "echo a & head -c 100 secrets.json" \
+  "echo .env | xargs cat" \
+  "printf %s .env | xargs cat" \
+  "echo .ssh/id_rsa | xargs cat" \
+  "echo .env | xargs -I{} cat {}" \
+  "command echo .env | xargs cat" \
+  "sudo echo .env | xargs cat" \
+  "FOO=1 echo .env | xargs cat"; do
+  expect_json_status 2 \
+    "#99 Bash shell syntax defeats the strip: '$(printf '%s' "$nonpath_case" | tr '\n' '~')' blocks" \
+    "$(jq -nc --arg c "$nonpath_case" \
+      '{tool_name:"Bash",tool_input:{command:$c}}')" \
+    hook-pre-tool
+done
+
+# The command word is the RAW token: no basename strip, no quote removal.
+# Stripping the directory gave the exception to any executable merely sharing
+# the name. Removing quotes was worse — shell_command_words splits on whitespace
+# before quotes resolve, so a command name containing quoted whitespace arrives
+# as its first fragment and reduced to a trusted name, while the shell resolved
+# an executable literally called `echo foo` that read the file. Both verified as
+# real passes, and the second as a real read, before the fix.
+for nonpath_case in \
+  "./echo .env" \
+  "/tmp/printf .env" \
+  "./jq .env" \
+  "bin/echo .env" \
+  "/usr/bin/echo .env" \
+  "'echo foo' .env" \
+  "\"echo foo\" .env" \
+  "'echo' .env" \
+  "\"echo\" .env"; do
+  expect_json_status 2 "#99 Bash a path-qualified lookalike gets no exception: '$nonpath_case'" \
+    "$(jq -nc --arg c "$nonpath_case" \
+      '{tool_name:"Bash",tool_input:{command:$c}}')" \
+    hook-pre-tool
+done
+
+# Only shell BUILTINS get the exception. An external binary resolves through
+# PATH at execution time, so naming it here is a claim about a program the gate
+# cannot identify: a `jq` wrapper earlier in PATH inherited the exception meant
+# for the real jq and read the file. jq, yq, gojq and jaq are all external, so
+# all four keep their operands and their false positive.
+for nonpath_case in \
+  "jq .env" \
+  "jq -r .$NONPATH_KEY data.json" \
+  "jq .$NONPATH_KEY" \
+  "yq .env" \
+  "yq -r .env" \
+  "yq .$NONPATH_KEY data.yaml" \
+  "gojq .$NONPATH_KEY data.json" \
+  "jaq .$NONPATH_KEY data.json"; do
+  expect_json_status 2 "#99 Bash an external binary gets no exception: '$nonpath_case'" \
     "$(jq -nc --arg c "$nonpath_case" \
       '{tool_name:"Bash",tool_input:{command:$c}}')" \
     hook-pre-tool
