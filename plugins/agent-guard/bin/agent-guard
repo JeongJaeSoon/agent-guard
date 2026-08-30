@@ -2357,7 +2357,11 @@ git_command_records() {
         }
         if (quote == "double") {
           if (c == "\"") { quote = ""; started = 1; continue }
-          if (c == "\\" && n ~ /^[\"\\$`]$/) {
+          # `"` needs no backslash inside a bracket expression, and `\"` is not
+          # a defined escape there: gawk warns on every hook run and another awk
+          # is free to read the class differently. `\\` already puts a literal
+          # backslash in the set, so the class is unchanged (#99).
+          if (c == "\\" && n ~ /^["\\$`]$/) {
             word = word n; started = 1; i++; continue
           }
           if (c == "$" || c == "`") dynamic = 1
@@ -3102,6 +3106,45 @@ secretish_env_values() {
           "\",\"contextual\":true}"
       }
     }
+    # A multiline capture keeps the newline that separated the label from the
+    # value, so the global literal is `<newline><secret>` and a BARE recurrence
+    # of the credential later in the output does not match it. Emit the trimmed
+    # token as a second record so global masking still reaches those.
+    # A guarded capture that fails the shape test must not be DISCARDED: it has
+    # absorbed every following line of the leaf, and throwing that away drops
+    # the assignments inside it. A status label whose value opens a quote that
+    # never closes — an apostrophe in ordinary prose is enough — made every real
+    # assignment on the lines below it stop masking, and stopped the prompt
+    # guard blocking the same text. 818f540 reached those lines because the
+    # status label took an unconditional skip; the deferral has to reach them
+    # too, so re-scan what was absorbed as ordinary input.
+    #
+    # guard_rescan makes that single-pass: during a re-scan the status path
+    # falls back to the old skip instead of opening another capture, so this
+    # cannot nest or loop.
+    function guard_rescan_leaf(v) {
+      open_quote = ""
+      open_value = ""
+      open_guard = 0
+      if (guard_rescan) return
+      guard_rescan = 1
+      scan_leaf(v)
+      guard_rescan = 0
+    }
+    # `\r` counts as edge whitespace: scan_leaf splits on `\n` and keeps the
+    # preceding `\r`, so CRLF output left a carriage return glued to the value.
+    # The capture then recorded `\r\n<secret>` as its literal and a bare
+    # recurrence of the credential further down matched nothing.
+    function edge_trim(v) {
+      sub(/^[ \t\r\n]+/, "", v)
+      sub(/[ \t\r\n]+$/, "", v)
+      return v
+    }
+    function emit_captured(v, trimmed) {
+      emit_secret(v)
+      trimmed = edge_trim(v)
+      if (trimmed != v) emit_secret(trimmed)
+    }
     function emit_secret(value, eligible_length) {
       if (already_redacted(value)) return
       if (eligible_length == 0) eligible_length = length(value)
@@ -3196,7 +3239,52 @@ secretish_env_values() {
         return 0
       return accessor_chain(v)
     }
-    function emit_value(source, start, assignment, raw, leading, quote, end, \
+    # Value-side gate for the status-label colon path (#156). A status label on
+    # its own cannot separate `error: password: authentication is disabled`
+    # (prose, must not mask) from `error: password: hunter2-long-value`
+    # (assignment, must mask): the label is identical in both, so the VALUE has
+    # to decide. Mask only a token whose shape reads as a credential; an
+    # ordinary word, path, number or timestamp stays visible, which is what
+    # keeps the #145/#153 prose assertions green.
+    #
+    # Deliberately shape-based rather than a dictionary: an unfamiliar prose
+    # word is still preserved and an unfamiliar credential format is still
+    # masked. Residual: an all-lowercase alphabetic secret below the compound
+    # threshold is indistinguishable from a prose word on this path and stays
+    # visible. gitleaks still covers every format it knows regardless of the
+    # label, and the block/detect path is unaffected either way.
+    function credential_shaped(v) {
+      if (length(v) < 6) return 0
+      # A credential is a single token. The unquoted branch has already cut at
+      # whitespace, so this only bites on a QUOTED value — where a multi-word
+      # string behind a status label is a message, not a secret. Without it
+      # `error: password: "must be at least 8 characters"` masks, because the
+      # class tests below would find a letter and a digit somewhere in the
+      # sentence and never ask whether they were part of the same token.
+      if (v ~ /[ \t]/) return 0
+      # Dates, timestamps and clock times are the ordinary log values that would
+      # otherwise satisfy the mixed-class tests. Anchored at BOTH ends: a date
+      # only tells us this value is a date when the value is nothing else, and a
+      # prefix match let `2026-08-30-A1b2C3d4-token` through unmasked.
+      if (v ~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/) return 0
+      if (v ~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9][T][0-9][0-9]:[0-9][0-9](:[0-9][0-9])?([.][0-9]+)?(Z|[+-][0-9][0-9]:?[0-9][0-9])?$/) return 0
+      if (v ~ /^[0-9]+:[0-9]+(:[0-9]+)?$/) return 0
+      # Mixed character classes. The digit test requires the digit and the
+      # letter to be ADJACENT: `hunter2-long-value` is a credential, `least 8
+      # characters` and `expires in 3600 seconds` are prose that merely contain
+      # both. An uppercase run must start past the first character, since a
+      # leading capital alone is ordinary sentence case (`Authentication`).
+      if (v ~ /[0-9][A-Za-z]/ || v ~ /[A-Za-z][0-9]/) return 1
+      if (v ~ /[a-z]/ && substr(v, 2) ~ /[A-Z]/) return 1
+      # A single-case alphabetic run longer than any ordinary word, joined by
+      # `.`/`-`/`_` or not. Requiring a PURELY alphabetic value let a
+      # delimiter-separated passphrase (`correct-horse-battery-staple`) through,
+      # although it is far less prose-like than the bare-word residual below it.
+      if (length(v) >= 24 && v ~ /^[A-Za-z]+([._-][A-Za-z]+)*$/) return 1
+      return 0
+    }
+    function emit_value(source, start, assignment, require_credential, \
+                        raw, leading, quote, end, \
                         value, token, trailing, ch) {
       raw = substr(source, start)
       match(raw, /^[ \t]*/)
@@ -3207,11 +3295,29 @@ secretish_env_values() {
         raw = substr(raw, 2)
         end = quoted_end(raw, quote)
         if (end == 0) {
+          # Truncated or malformed output after an opening quote. Open the
+          # multiline capture like every other path and DEFER the shape
+          # decision to the close (or leaf end), carrying open_guard so the
+          # status-label rule still applies there. Classifying the fragment
+          # available on THIS line instead missed a value whose text begins on
+          # the NEXT one — a status label, its key, an opening quote, then a
+          # newline before the credential. There the fragment is empty, so it
+          # failed the shape test, the capture never opened, and the
+          # continuation line has no assignment key of its own to match.
+          # Inside a re-scan the status path takes the pre-deferral skip, which
+          # is what stops this from re-opening the capture it just failed.
+          if (require_credential && guard_rescan) return 0
           open_quote = quote
           open_value = raw
+          open_guard = require_credential
           return 1
         }
         value = substr(raw, 1, end - 1)
+        # Classify an edge-trimmed copy, replace the original. A quoted value
+        # with padding (`" <secret>"`) failed the whitespace-is-prose test on
+        # its padding alone, on this single-line path as well as the multiline
+        # one. Internal whitespace is untouched, so prose still reads as prose.
+        if (require_credential && !credential_shaped(edge_trim(value))) return 0
       } else {
         value = raw
         sub(/[ \t,;].*$/, "", value)
@@ -3225,9 +3331,21 @@ secretish_env_values() {
         }
         value = substr(value, 1, end)
         if (looks_like_reference(value, assignment, leading)) return 0
+        if (require_credential && !credential_shaped(edge_trim(value))) return 0
         # Eligibility is based on the complete token. For short values, scope
         # replacement to the complete assignment token so an ordinary
         # one-character literal is not replaced throughout the response.
+        #
+        # The status-label path deliberately does NOT scope: a value that has
+        # passed credential_shaped is masked globally, exactly like one found
+        # behind any other label. Scoping it left a recurrence visible —
+        # `error: password: <secret>` followed by `retrying with <secret>`
+        # masked only the labelled line. The false positives that scoping would
+        # contain (a version string or a resource name scrubbed from a later
+        # line) are not specific to this path: `response: token: v1.2.3` already
+        # scrubs every v1.2.3 in the response on main. Consistency with the
+        # other paths is worth more here than containing a bad guess, because a
+        # displayed secret costs more than a mangled log line.
         if (length(value) < 4 && length(token) >= 4) {
           trailing = substr(token, end + 1)
           emit_mapping(assignment leading token,
@@ -3237,12 +3355,17 @@ secretish_env_values() {
         emit_secret(value, length(token))
         return 0
       }
-      emit_secret(value)
+      # emit_captured, not emit_secret: a padded quoted value (`" <secret> "`)
+      # is classified on its trimmed copy just above, so recording only the
+      # padded literal left a bare recurrence of the same credential further
+      # down unmasked. Record both forms, exactly as the multiline close does.
+      emit_captured(value)
       return 0
     }
     function scan_line(line, rest, end, low, eq_start, eq_length, \
                        colon_start, colon_length, start, matched_length, \
-                       chose_colon, skip, first, expansion) {
+                       chose_colon, skip, status_guard, first, expansion, \
+                       closed_value) {
       rest = line
       if (open_quote != "") {
         end = quoted_end(rest, open_quote)
@@ -3250,10 +3373,29 @@ secretish_env_values() {
           open_value = open_value "\n" rest
           return
         }
-        emit_secret(open_value "\n" substr(rest, 1, end - 1))
-        open_quote = ""
-        open_value = ""
-        rest = substr(rest, end + 1)
+        closed_value = open_value "\n" substr(rest, 1, end - 1)
+        # Classify the EDGE-trimmed capture: an indented continuation line
+        # carries leading spaces into closed_value, and the whitespace test
+        # would reject the credential before emit_captured could trim it.
+        # Internal whitespace is untouched, so it still marks prose.
+        if (!open_guard || credential_shaped(edge_trim(closed_value))) {
+          emit_captured(closed_value)
+          open_quote = ""
+          open_value = ""
+          open_guard = 0
+          rest = substr(rest, end + 1)
+        } else {
+          # The capture scans forward for ANY matching quote, so the one it
+          # closed on often belongs to something else entirely — typically the
+          # OPENING quote of a credential further down. Re-scanning only what
+          # was absorbed then leaves that credential stranded on the far side
+          # of a quote the capture ate, with its key consumed too, so nothing
+          # masks it. Hand the re-scan the absorbed text AND the rest of this
+          # line starting at that quote, which reconstructs the original text
+          # exactly, and consume the line here.
+          guard_rescan_leaf(closed_value substr(rest, end))
+          rest = ""
+        }
       }
       while (length(rest) > 0) {
         low = tolower(rest)
@@ -3275,15 +3417,21 @@ secretish_env_values() {
         if (start == 0) break
 
         # Whitespace-prefixed colon form: if the text before the whitespace run
-        # is a known status label, this is a prose chain (`error: password: ...`),
-        # not an assignment — skip past the key without masking. Any other
+        # is a known status label, this MAY be a prose chain (`error: password:
+        # authentication is disabled`) rather than an assignment. The label
+        # cannot settle it on its own, so hand the decision to the value-side
+        # gate in emit_value instead of skipping outright (#156) — prose stays
+        # visible, a credential-shaped value still masks. Any other
         # colon-terminated label (`response:`) is treated as structured output.
+        # This also covers the chained shape (`response: error: api_key: ...`),
+        # whose innermost label is a status word: the value decides there too.
         skip = 0
+        status_guard = 0
         if (chose_colon && start > 1) {
           first = substr(rest, start, 1)
           if ((first == " " || first == "\t") &&
               match(substr(low, 1, start - 1), status_label))
-            skip = 1
+            status_guard = 1
           # `${NAME:-default}` / `${NAME:?message}` / `${NAME:=x}` / `${NAME:+x}`
           # is a shell parameter expansion, not an assignment: the operator makes
           # the trailing text a fallback, never the value of the variable. The
@@ -3303,13 +3451,14 @@ secretish_env_values() {
         # leaving adjacent status text untouched.
         if (!skip &&
             emit_value(rest, start + matched_length,
-                       substr(rest, start, matched_length))) break
+                       substr(rest, start, matched_length), status_guard)) break
         rest = substr(rest, start + matched_length)
       }
     }
     function scan_leaf(value, newline, line) {
       open_quote = ""
       open_value = ""
+      open_guard = 0
       while ((newline = index(value, "\n")) > 0) {
         line = substr(value, 1, newline - 1)
         value = substr(value, newline + 1)
@@ -3317,9 +3466,15 @@ secretish_env_values() {
       }
       scan_line(value)
       # Truncated output can omit a closing quote. Redact the leaf remainder.
-      if (open_quote != "") emit_secret(open_value)
+      if (open_quote != "") {
+        if (!open_guard || credential_shaped(edge_trim(open_value)))
+          emit_captured(open_value)
+        else
+          guard_rescan_leaf(open_value)
+      }
       open_quote = ""
       open_value = ""
+      open_guard = 0
     }
     {
       if (record_mode == "probe_raw") {
@@ -3372,7 +3527,15 @@ secretish_env_values() {
         # A truncated multiline quote is evaluated only after the complete raw
         # capture has been scanned. This mirrors scan_leaf without resetting
         # open_quote/open_value at every physical newline.
-        if (!probe_found && open_quote != "") emit_secret(open_value)
+        # Same status-label gate as the scan_leaf termination above: without
+        # it a >64 KiB invalid-UTF-8 capture ending in an unterminated prose
+        # chain was replaced wholesale, contradicting the gate everywhere else.
+        if (!probe_found && open_quote != "") {
+          if (!open_guard || credential_shaped(edge_trim(open_value)))
+            emit_captured(open_value)
+          else
+            guard_rescan_leaf(open_value)
+        }
         exit
       }
       # Valid framed input always terminates each leaf with RS. Preserve a final

@@ -1711,6 +1711,95 @@ expect_json_status 2 "Bash cat .env.tpl.bak (tpl marker not final) is blocked" \
   '{"tool_name":"Bash","tool_input":{"command":"cat .env.tpl.bak"}}' \
   hook-pre-tool
 
+# #99 asked for the deny-read globs to stop matching words that are not read
+# operands: `echo foo.key` and `jq -r .key data.json` block as if a private key
+# had been opened, and nothing is read in either case.
+#
+# A command-position narrowing was written for this and is deliberately NOT
+# here. Every revision of it leaked a real read, eight times over, because the
+# gate is a text test and the shell is not: newline and `&` start another
+# command, `|` hands the dropped word to `xargs cat`, a path- or quote-qualified
+# name resolves to a different program than the one compared, an external
+# binary resolves through PATH at execution time, and — the one that ended it —
+# an exported Bash function named `echo` or `printf` beats the builtin, so even
+# a builtin name does not identify what will run. A gate that cannot name the
+# program cannot safely drop its operands, so it drops none: the #99 false
+# positive stays, and the read stays blocked.
+#
+# The exts are composed at runtime because a literal in this file would trip the
+# gate under test.
+NONPATH_KEY=$(printf 'k%s' 'ey')
+NONPATH_PEM=$(printf 'p%s' 'em')
+
+# The accepted cost of the decision above: a word that merely ends in a listed
+# extension still blocks, whatever command it sits under. Pinned so that any
+# future narrowing has to change these lines on purpose.
+for nonpath_case in \
+  "echo foo.$NONPATH_KEY" \
+  "echo see also foo.$NONPATH_PEM" \
+  "echo see also foo.env" \
+  "printf '%s' foo.$NONPATH_KEY" \
+  "jq -r .$NONPATH_KEY data.json" \
+  "jq .$NONPATH_KEY"; do
+  expect_json_status 2 "#99 Bash '$nonpath_case' keeps the accepted false positive" \
+    "$(jq -nc --arg c "$nonpath_case" \
+      '{tool_name:"Bash",tool_input:{command:$c}}')" \
+    hook-pre-tool
+done
+
+# Every case below reads the file for real (verified with `bash -c` against a
+# fixture directory) and was ALLOWED by some revision of the narrowing. They all
+# block trivially now that nothing is stripped; they stay as the standing
+# counter-examples any re-attempt has to answer.
+nonpath_newline_env=$(printf 'echo hi\ncat .env')
+nonpath_newline_ssh=$(printf 'echo one\necho two\ncat .ssh/id_rsa')
+nonpath_newline_sec=$(printf 'printf x\ncat secrets.json')
+for nonpath_case in \
+  "cat .env" \
+  "cat foo.$NONPATH_PEM" \
+  "jq . .env" \
+  "jq -r .name .env" \
+  "jq -f prog.jq .env" \
+  "cat .env | jq .$NONPATH_KEY" \
+  "echo \$(cat .env)" \
+  "echo x > .env" \
+  "echo x >.env" \
+  "$nonpath_newline_env" \
+  "$nonpath_newline_ssh" \
+  "$nonpath_newline_sec" \
+  "echo a & cat .env" \
+  "echo a&cat .ssh/id_rsa" \
+  "echo a & cat .netrc" \
+  "echo a & cat .git-credentials" \
+  "echo a & head -c 100 secrets.json" \
+  "echo .env | xargs cat" \
+  "printf %s .env | xargs cat" \
+  "echo .ssh/id_rsa | xargs cat" \
+  "echo .env | xargs -I{} cat {}" \
+  "command echo .env | xargs cat" \
+  "sudo echo .env | xargs cat" \
+  "FOO=1 echo .env | xargs cat" \
+  "./echo .env" \
+  "/tmp/printf .env" \
+  "./jq .env" \
+  "bin/echo .env" \
+  "/usr/bin/echo .env" \
+  "'echo foo' .env" \
+  "\"echo foo\" .env" \
+  "'echo' .env" \
+  "\"echo\" .env" \
+  "jq .env" \
+  "yq .env" \
+  "yq -r .env" \
+  "gojq . .env" \
+  "jaq . .env"; do
+  expect_json_status 2 \
+    "#99 Bash a read target still blocks: '$(printf '%s' "$nonpath_case" | tr '\n' '~')'" \
+    "$(jq -nc --arg c "$nonpath_case" \
+      '{tool_name:"Bash",tool_input:{command:$c}}')" \
+    hook-pre-tool
+done
+
 # Path-prefixed candidates go through basename stripping before the suffix match.
 expect_json_status 0 "Read config/.env.local.example (path-prefixed template) is allowed" \
   '{"tool_name":"Read","tool_input":{"file_path":"config/.env.local.example"}}' \
@@ -6368,6 +6457,66 @@ else
   printf '%s\n' "$post_out" | sed 's/^/  out: /'
 fi
 
+# #169: the same exact-extent property, pinned on the nested MCP tool_response
+# contract this time. On v3.0.1 an unquoted value ran to the end of its leaf, so
+# everything after the secret was swallowed with it (`API_KEY=[REDACTED]`, and
+# `tail one` gone) — which is what a large nested response made visible. Fixed
+# by ff50c21; this pins it against a regression on both hosts, and pins that a
+# clean leaf and untouched sibling fields keep their shape.
+NESTED_TOKEN=$(printf '%s%s' 'example_token' '_value_long')
+nested_input=$(jq -nc --arg a "leaf one API_KEY=$NESTED_TOKEN tail one" \
+  --arg b "leaf two DB_PASSWORD=$DISPLAY_SECRET tail two" \
+  '{tool_name:"mcp__fixture__tool",
+    tool_response:{content:[{type:"text",text:$a},{type:"text",text:$b},
+                            {type:"text",text:"clean leaf, nothing here"}],
+                   meta:{count:42,ok:true,note:"untouched"},isError:false}}')
+post_tool_out "$nested_input"
+post_out=$(cat "$OUT")
+if printf '%s' "$post_out" | jq -e '
+      .hookSpecificOutput.updatedToolOutput as $o
+      | ($o.content[0].text == "leaf one API_KEY=[REDACTED] tail one")
+        and ($o.content[1].text == "leaf two DB_PASSWORD=[REDACTED] tail two")
+        and ($o.content[2].text == "clean leaf, nothing here")
+        and ($o.meta == {count:42,ok:true,note:"untouched"})
+        and ($o.isError == false)' >/dev/null 2>&1; then
+  ok "#169 post-tool masks the exact value in each nested leaf and preserves shape"
+else
+  not_ok "#169 post-tool masks the exact value in each nested leaf and preserves shape"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+printf '%s' "$nested_input" \
+  | (cd "$TMP_ROOT" && AGENT_GUARD_HOOK_HOST=codex "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool) \
+    >"$OUT" 2>"$ERR"
+codex_nested_status=$?
+post_out=$(cat "$OUT")
+if [ "$codex_nested_status" -eq 0 ] \
+   && printf '%s' "$post_out" | jq -e '.decision == "block"
+        and (.hookSpecificOutput.additionalContext | contains("tail one"))
+        and (.hookSpecificOutput.additionalContext | contains("tail two"))
+        and (.hookSpecificOutput.additionalContext | contains("untouched"))' >/dev/null 2>&1 \
+   && ! printf '%s' "$post_out" | grep -Fq "$NESTED_TOKEN" \
+   && ! printf '%s' "$post_out" | grep -Fq "$DISPLAY_SECRET"; then
+  ok "#169 Codex post-tool keeps the same exact-extent nested rewrite"
+else
+  not_ok "#169 Codex post-tool keeps the same exact-extent nested rewrite (status $codex_nested_status)"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+# A nested response with no secret must pass through with no rewrite at all.
+nested_clean=$(jq -nc \
+  '{tool_name:"mcp__fixture__tool",
+    tool_response:{content:[{type:"text",text:"just ordinary nested output"}],
+                   isError:false}}')
+post_tool_out "$nested_clean"
+post_status=$?
+if [ "$post_status" -eq 0 ] && [ ! -s "$OUT" ]; then
+  ok "#169 post-tool leaves a clean nested response unrewritten"
+else
+  not_ok "#169 post-tool leaves a clean nested response unrewritten"
+  sed 's/^/  out: /' "$OUT"
+fi
+
 for display_closing in '}' ']' ')'; do
   display_input=$(jq -nc \
     --arg stdout "API_TOKEN=${DISPLAY_SECRET}${display_closing}" \
@@ -6807,6 +6956,410 @@ for display_case in \
   else
     not_ok "post-tool leaves a status-word prose chain untouched (${display_case%%:*})"
     sed 's/^/  out: /' "$OUT"
+  fi
+done
+
+# #156: a status label alone must not buy a pass. The label is identical in
+# `error: password: authentication is disabled` (prose, covered above) and in
+# `error: password: <credential>`, so the VALUE decides. These values are the
+# gitleaks-invisible shape `tests/run.sh` already uses elsewhere, which is
+# exactly the gap the allowlist left open: anything gitleaks recognises was
+# already masked regardless of the label.
+LABEL_SECRET=$(printf '%s%s' 'hunter2-' 'long-value')
+for display_case in \
+  "error: password: $LABEL_SECRET" \
+  "warning: db_password: $LABEL_SECRET" \
+  "WARNING: client_secret: $LABEL_SECRET" \
+  "fatal: api_key: $LABEL_SECRET" \
+  "info: refresh_token: $LABEL_SECRET" \
+  "response: error: api_key: $LABEL_SECRET" \
+  "2026-08-02 10:00:00 ERROR: password: $LABEL_SECRET"; do
+  display_input=$(jq -nc --arg stdout "$display_case" \
+    '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+  post_tool_out "$display_input"
+  post_out=$(cat "$OUT")
+  if printf '%s' "$post_out" | grep -q '\[REDACTED\]' \
+     && ! printf '%s' "$post_out" | grep -Fq "$LABEL_SECRET"; then
+    ok "#156 post-tool masks a gitleaks-invisible secret behind a status label (${display_case%%:*})"
+  else
+    not_ok "#156 post-tool masks a gitleaks-invisible secret behind a status label (${display_case%%:*})"
+    printf '%s\n' "$post_out" | sed 's/^/  out: /'
+  fi
+done
+
+# #156 must-not-mask companions: the value-side gate decides on SHAPE, so an
+# ordinary word, a path, a number and a timestamp after a status label all stay
+# visible. Without these the gate could be made to pass by masking everything.
+for display_case in \
+  'error: secret: not-found' \
+  'warning: private_key: /path/to/configured/key' \
+  'error: token: 2026-08-30T10:00:00' \
+  'fatal: password: 10:00:00' \
+  'warning: api_key: Missing' \
+  'info: credential: unauthenticated'; do
+  display_input=$(jq -nc --arg stdout "$display_case" \
+    '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+  post_tool_out "$display_input"
+  post_status=$?
+  if [ "$post_status" -eq 0 ] && [ ! -s "$OUT" ]; then
+    ok "#156 post-tool leaves a non-credential value after a status label untouched (${display_case##*: })"
+  else
+    not_ok "#156 post-tool leaves a non-credential value after a status label untouched (${display_case##*: })"
+    sed 's/^/  out: /' "$OUT"
+  fi
+done
+
+# A QUOTED value is the whole message, so the class tests have to ask whether a
+# letter and a digit belong to the same token rather than whether both occur
+# somewhere in the string. Without that, an ordinary validation message behind a
+# status label was rewritten to `"[REDACTED]"`.
+for display_case in \
+  'error: password: "must be at least 8 characters"' \
+  'warning: token: "expires in 3600 seconds"' \
+  'error: api_key: "not found in profile 2"' \
+  'fatal: secret: "rotate within 90 days"' \
+  'info: credential: "Check Your Settings Page"'; do
+  display_input=$(jq -nc --arg stdout "$display_case" \
+    '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+  post_tool_out "$display_input"
+  post_status=$?
+  if [ "$post_status" -eq 0 ] && [ ! -s "$OUT" ]; then
+    ok "#156 post-tool leaves a quoted multi-word message after a status label untouched (${display_case%%:*})"
+  else
+    not_ok "#156 post-tool leaves a quoted multi-word message after a status label untouched (${display_case%%:*})"
+    sed 's/^/  out: /' "$OUT"
+  fi
+done
+
+# The date/clock exclusions must be anchored at BOTH ends. Unanchored, any value
+# merely STARTING with an ISO date escaped the gate entirely — a date-prefixed
+# credential name is a common rotation convention, so that was a one-line bypass.
+DATED_SECRET=$(printf '2026-01-01-sk-live-%s' 'abc123XYZ')
+display_input=$(jq -nc --arg stdout "error: api_key: $DATED_SECRET" \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$display_input"
+post_out=$(cat "$OUT")
+if printf '%s' "$post_out" | grep -q '\[REDACTED\]' \
+   && ! printf '%s' "$post_out" | grep -Fq "$DATED_SECRET"; then
+  ok "#156 post-tool masks a date-prefixed credential behind a status label"
+else
+  not_ok "#156 post-tool masks a date-prefixed credential behind a status label"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+for display_case in \
+  'error: token: 2026-08-30' \
+  'error: token: 2026-08-30T10:00:00Z' \
+  'error: token: 2026-08-30T10:00:00.123+09:00' \
+  'fatal: password: 10:00:00'; do
+  display_input=$(jq -nc --arg stdout "$display_case" \
+    '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+  post_tool_out "$display_input"
+  post_status=$?
+  if [ "$post_status" -eq 0 ] && [ ! -s "$OUT" ]; then
+    ok "#156 post-tool leaves a complete date/clock value untouched (${display_case##*: })"
+  else
+    not_ok "#156 post-tool leaves a complete date/clock value untouched (${display_case##*: })"
+    sed 's/^/  out: /' "$OUT"
+  fi
+done
+
+# A value that passes the shape gate is masked GLOBALLY, like one found behind
+# any other label — scoping it to the labelled line left a recurrence visible.
+# The false positives that scoping would contain are not specific to this path:
+# `response: token: v1.2.3` already scrubs every v1.2.3 in the response on main.
+recur_input=$(jq -nc --arg stdout "error: password: $LABEL_SECRET
+retrying with $LABEL_SECRET" \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$recur_input"
+post_out=$(cat "$OUT")
+if printf '%s' "$post_out" | grep -q '\[REDACTED\]' \
+   && ! printf '%s' "$post_out" | grep -Fq "$LABEL_SECRET"; then
+  ok "#156 a status-label secret is masked where it recurs later in the output"
+else
+  not_ok "#156 a status-label secret is masked where it recurs later in the output"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+# Truncated output after an opening quote must not buy a pass. There is no
+# complete value to classify, so the fragment decides: credential-shaped opens
+# multiline capture like any other path, prose still falls through.
+display_input=$(jq -nc --arg stdout "error: password: \"$LABEL_SECRET" \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$display_input"
+post_out=$(cat "$OUT")
+if printf '%s' "$post_out" | grep -q '\[REDACTED\]' \
+   && ! printf '%s' "$post_out" | grep -Fq "$LABEL_SECRET"; then
+  ok "#156 an unterminated quoted credential behind a status label still masks"
+else
+  not_ok "#156 an unterminated quoted credential behind a status label still masks"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+# Composed, not literal: the plugin scanner's HARDCODED_SECRET rule reads this
+# file and flags a `password: "` sequence regardless of what follows it, so even
+# this prose fixture fails the build if written out.
+unterminated_prose=$(printf 'error: %s: "authentication is disabled' password)
+display_input=$(jq -nc --arg stdout "$unterminated_prose" \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$display_input"
+post_status=$?
+if [ "$post_status" -eq 0 ] && [ ! -s "$OUT" ]; then
+  ok "#156 an unterminated quoted prose chain behind a status label stays visible"
+else
+  not_ok "#156 an unterminated quoted prose chain behind a status label stays visible"
+  sed 's/^/  out: /' "$OUT"
+fi
+
+# Edge padding on a single-line quoted value must not defeat the shape test
+# either — the trim was applied to the multiline capture paths first and these
+# two direct classification sites were missed, so a padded credential leaked on
+# both the display and the block path.
+for display_pad in ' %s' '%s ' '  %s  '; do
+  # shellcheck disable=SC2059
+  padded_secret=$(printf "$display_pad" "$LABEL_SECRET")
+  display_input=$(jq -nc --arg stdout "error: password: \"$padded_secret\"" \
+    '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+  post_tool_out "$display_input"
+  post_out=$(cat "$OUT")
+  if printf '%s' "$post_out" | grep -q '\[REDACTED\]' \
+     && ! printf '%s' "$post_out" | grep -Fq "$LABEL_SECRET"; then
+    ok "#156 a padded quoted status-label credential still masks"
+  else
+    not_ok "#156 a padded quoted status-label credential still masks"
+    printf '%s\n' "$post_out" | sed 's/^/  out: /'
+  fi
+done
+
+expect_json_status 2 "#156 a padded quoted status-label credential still blocks at the prompt guard" \
+  "$(jq -nc --arg prompt "error: password: \" $LABEL_SECRET\"" \
+    '{session_id:"t",hook_event_name:"UserPromptSubmit",prompt:$prompt}')" \
+  hook-user-prompt
+
+# Padding must not turn prose into a credential either.
+display_input=$(jq -nc --arg stdout 'error: password: " authentication is disabled "' \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$display_input"
+post_status=$?
+if [ "$post_status" -eq 0 ] && [ ! -s "$OUT" ]; then
+  ok "#156 a padded quoted prose message stays visible"
+else
+  not_ok "#156 a padded quoted prose message stays visible"
+  sed 's/^/  out: /' "$OUT"
+fi
+
+# The value may not start on the label's own line. Classifying the fragment
+# available there missed this entirely: the fragment is empty, so it failed the
+# shape test, the capture never opened, and the continuation line carries no
+# assignment key of its own. Classification is deferred to the close instead.
+multiline_secret=$(printf 'error: password: "\n%s"' "$LABEL_SECRET")
+display_input=$(jq -nc --arg stdout "$multiline_secret" \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$display_input"
+post_out=$(cat "$OUT")
+if printf '%s' "$post_out" | grep -q '\[REDACTED\]' \
+   && ! printf '%s' "$post_out" | grep -Fq "$LABEL_SECRET"; then
+  ok "#156 a status-label credential beginning on the next line still masks"
+else
+  not_ok "#156 a status-label credential beginning on the next line still masks"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+# ...and the same shape carrying prose must still come through untouched, or the
+# deferral would just be masking every multiline quoted value.
+multiline_prose=$(printf 'error: %s: "\nauthentication is disabled"' password)
+display_input=$(jq -nc --arg stdout "$multiline_prose" \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$display_input"
+post_status=$?
+if [ "$post_status" -eq 0 ] && [ ! -s "$OUT" ]; then
+  ok "#156 a status-label prose chain beginning on the next line stays visible"
+else
+  not_ok "#156 a status-label prose chain beginning on the next line stays visible"
+  sed 's/^/  out: /' "$OUT"
+fi
+
+# The captured value keeps the newline that separated the label from it, so the
+# global literal is `<newline><secret>` and a BARE recurrence later in the output
+# does not match it. The trimmed token is emitted as a second record for that.
+multiline_recur=$(printf 'error: password: "\n%s"\nretrying with %s' \
+  "$LABEL_SECRET" "$LABEL_SECRET")
+display_input=$(jq -nc --arg stdout "$multiline_recur" \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$display_input"
+post_out=$(cat "$OUT")
+if printf '%s' "$post_out" | grep -q '\[REDACTED\]' \
+   && ! printf '%s' "$post_out" | grep -Fq "$LABEL_SECRET"; then
+  ok "#156 a multiline status-label capture also masks the bare recurrence"
+else
+  not_ok "#156 a multiline status-label capture also masks the bare recurrence"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+# The same asymmetry on the SINGLE-line quoted path: a padded value is
+# classified on its trimmed copy, so recording only the padded literal left a
+# bare recurrence of the same credential visible further down.
+for display_pad_spec in ' ' '  ' '\t' '\r'; do
+  display_pad=$(printf "$display_pad_spec")
+  padded_recur=$(printf 'error: password: "%s%s%s"\nretrying with %s' \
+    "$display_pad" "$LABEL_SECRET" "$display_pad" "$LABEL_SECRET")
+  display_input=$(jq -nc --arg stdout "$padded_recur" \
+    '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+  post_tool_out "$display_input"
+  post_out=$(cat "$OUT")
+  if printf '%s' "$post_out" | grep -q '\[REDACTED\]' \
+     && ! printf '%s' "$post_out" | grep -Fq "$LABEL_SECRET"; then
+    ok "#156 a padded single-line credential also masks the bare recurrence"
+  else
+    not_ok "#156 a padded single-line credential also masks the bare recurrence"
+    printf '%s\n' "$post_out" | sed 's/^/  out: /'
+  fi
+done
+
+# An indented continuation carries leading whitespace into the capture, and the
+# whitespace test would reject the credential before the trim could reach it.
+# Classification runs on the edge-trimmed capture; internal whitespace still
+# marks prose, so the indented prose chain below stays visible.
+for display_indent in '  ' '\t'; do
+  multiline_indented=$(printf 'error: password: "\n%s%s"' "$display_indent" "$LABEL_SECRET")
+  display_input=$(jq -nc --arg stdout "$multiline_indented" \
+    '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+  post_tool_out "$display_input"
+  post_out=$(cat "$OUT")
+  if printf '%s' "$post_out" | grep -q '\[REDACTED\]' \
+     && ! printf '%s' "$post_out" | grep -Fq "$LABEL_SECRET"; then
+    ok "#156 an indented multiline status-label credential still masks"
+  else
+    not_ok "#156 an indented multiline status-label credential still masks"
+    printf '%s\n' "$post_out" | sed 's/^/  out: /'
+  fi
+done
+
+multiline_indented_prose=$(printf 'error: %s: "\n  authentication is disabled"' password)
+display_input=$(jq -nc --arg stdout "$multiline_indented_prose" \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$display_input"
+post_status=$?
+if [ "$post_status" -eq 0 ] && [ ! -s "$OUT" ]; then
+  ok "#156 an indented multiline prose chain stays visible"
+else
+  not_ok "#156 an indented multiline prose chain stays visible"
+  sed 's/^/  out: /' "$OUT"
+fi
+
+# The capture scans forward for ANY matching quote, so it can close on one that
+# belongs to something else — typically the OPENING quote of a credential
+# further down. Re-scanning only what was absorbed left that credential on the
+# far side of the eaten quote with its key consumed, so nothing masked it, on
+# the block path as well as display. The re-scan gets the rest of the line too.
+quoteeat_secret=$(printf '%s%s' 'sk-live-A1b2C3d4' 'e5F6g7H8secret')
+for quoteeat_shape in \
+  'error: %s: "\napi_key: "%s"' \
+  'warning: %s: " prose\nexport api_key="%s"' \
+  'hint: %s: "\nfiller\nfiller\ntoken = "%s"'; do
+  # shellcheck disable=SC2059
+  quoteeat_input=$(printf "$quoteeat_shape" password "$quoteeat_secret")
+  display_input=$(jq -nc --arg stdout "$quoteeat_input" \
+    '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+  post_tool_out "$display_input"
+  post_out=$(cat "$OUT")
+  if printf '%s' "$post_out" | grep -q '\[REDACTED\]' \
+     && ! printf '%s' "$post_out" | grep -Fq "$quoteeat_secret"; then
+    ok "#156 a capture closing on a later credential's opening quote still masks it"
+  else
+    not_ok "#156 a capture closing on a later credential's opening quote still masks it"
+    printf '%s\n' "$post_out" | sed 's/^/  out: /'
+  fi
+done
+
+expect_json_status 2 "#156 the same shape still blocks at the prompt guard" \
+  "$(jq -nc --arg prompt "$(printf 'error: %s: "\napi_key: "%s"' password "$quoteeat_secret")" \
+    '{session_id:"t",hook_event_name:"UserPromptSubmit",prompt:$prompt}')" \
+  hook-user-prompt
+
+# The single-quote spelling behaves the same way.
+quoteeat_squote=$(printf "fatal: %s: '\npassword='%s'" secret "$quoteeat_secret")
+display_input=$(jq -nc --arg stdout "$quoteeat_squote" \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$display_input"
+post_out=$(cat "$OUT")
+if printf '%s' "$post_out" | grep -q '\[REDACTED\]' \
+   && ! printf '%s' "$post_out" | grep -Fq "$quoteeat_secret"; then
+  ok "#156 the single-quote spelling of the eaten-quote shape still masks"
+else
+  not_ok "#156 the single-quote spelling of the eaten-quote shape still masks"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+# A guarded capture that fails the shape test must not swallow the rest of the
+# leaf. The capture absorbs every following line, so discarding it dropped the
+# assignments inside — an unterminated quote after a status label made real
+# `KEY=value` lines below it stop masking entirely, and stopped the prompt guard
+# blocking the same text. What was absorbed is re-scanned as ordinary input.
+swallow_secret_a=$(printf '%s%s' 'pr0d-db-' 'passw0rd-2026')
+swallow_secret_b=$(printf '%s%s' 'Zk9xQvL2' 'mNpRt4Ys')
+swallow_input=$(printf 'error: %s: "connection refused\n# production config\nDB_PASSWORD=%s\nSESSION_SECRET=%s' \
+  password "$swallow_secret_a" "$swallow_secret_b")
+display_input=$(jq -nc --arg stdout "$swallow_input" \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$display_input"
+post_out=$(cat "$OUT")
+if ! printf '%s' "$post_out" | grep -Fq "$swallow_secret_a" \
+   && ! printf '%s' "$post_out" | grep -Fq "$swallow_secret_b" \
+   && printf '%s' "$post_out" | grep -q 'connection refused'; then
+  ok "#156 an unterminated status-label quote does not swallow later assignments"
+else
+  not_ok "#156 an unterminated status-label quote does not swallow later assignments"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+# The same input on the BLOCK path: this was a prompt-guard bypass, not just a
+# display leak, so it is pinned on the hook that refuses rather than rewrites.
+expect_json_status 2 "#156 an unterminated status-label quote still blocks at the prompt guard" \
+  "$(jq -nc --arg prompt "$swallow_input" \
+    '{session_id:"t",hook_event_name:"UserPromptSubmit",prompt:$prompt}')" \
+  hook-user-prompt
+
+# A single quote is enough to open the capture, and an apostrophe in ordinary
+# prose is common, so the same property is pinned for that spelling.
+swallow_squote=$(printf "error: %s: 'twas malformed\nDATABASE_PASSWORD=%s here" \
+  secret "$LABEL_SECRET")
+display_input=$(jq -nc --arg stdout "$swallow_squote" \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$display_input"
+post_out=$(cat "$OUT")
+if printf '%s' "$post_out" | grep -q '\[REDACTED\]' \
+   && ! printf '%s' "$post_out" | grep -Fq "$LABEL_SECRET"; then
+  ok "#156 an apostrophe in status-label prose does not swallow later assignments"
+else
+  not_ok "#156 an apostrophe in status-label prose does not swallow later assignments"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+# A delimiter-separated passphrase is far less prose-like than a bare word, so
+# the compound-length fallback accepts `.`/`-`/`_` joins rather than requiring a
+# purely alphabetic value.
+# Composed at runtime, not written as literals: the plugin scanner's
+# "No hardcoded secrets" check reads this file too, and a password-shaped
+# literal here fails the build the same way a real one would. Same trick the
+# fixtures above use.
+PASSPHRASE_HYPHEN=$(printf '%s-%s-%s-%s' correct horse battery staple)
+PASSPHRASE_DOT=$(printf '%s.%s.%s.%s' correct horse battery staple)
+PASSPHRASE_UNDER=$(printf '%s_%s_%s_%s' correct horse battery staple)
+for display_case in \
+  "$PASSPHRASE_HYPHEN" \
+  "$PASSPHRASE_DOT" \
+  "$PASSPHRASE_UNDER"; do
+  display_input=$(jq -nc --arg stdout "error: password: $display_case" \
+    '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+  post_tool_out "$display_input"
+  post_out=$(cat "$OUT")
+  if printf '%s' "$post_out" | grep -q '\[REDACTED\]' \
+     && ! printf '%s' "$post_out" | grep -Fq "$display_case"; then
+    ok "#156 post-tool masks a delimiter-separated passphrase ($display_case)"
+  else
+    not_ok "#156 post-tool masks a delimiter-separated passphrase ($display_case)"
+    printf '%s\n' "$post_out" | sed 's/^/  out: /'
   fi
 done
 
@@ -7824,6 +8377,33 @@ if [ "$exec_first_byte" = ff ] \
 else
   not_ok "exec raw masking does not strand a longer assignment suffix"
   LC_ALL=C od -An -tx1 "$OUT" | sed 's/^/  hex: /'
+fi
+
+# The raw-probe END terminates an unterminated quote for a capture that exceeded
+# the byte cap and held invalid UTF-8. It has to honour the status-label gate
+# like every other termination, or a large prose tail is replaced wholesale.
+exec_raw_prose=$(printf 'error: %s: "authentication is disabled' password)
+"$PLUGIN_ROOT/bin/agent-guard" exec -- sh -c \
+  'printf "\377\n"; i=0; while [ $i -lt 2200 ]; do printf "filler line %s of ordinary output text here to pad the capture\n" "$i"; i=$((i+1)); done; printf "error: %s: \"authentication is disabled" password' \
+  >"$OUT" 2>/dev/null
+exec_raw_tail=$(LC_ALL=C tail -n 1 "$OUT")
+if [ "$exec_raw_tail" = "$exec_raw_prose" ]; then
+  ok "#156 exec raw-probe termination leaves a status-label prose tail visible"
+else
+  not_ok "#156 exec raw-probe termination leaves a status-label prose tail visible"
+  printf '  tail: %s\n' "$exec_raw_tail"
+fi
+
+exec_raw_secret=$(printf '%s%s' 'hunter2-' 'long-value')
+"$PLUGIN_ROOT/bin/agent-guard" exec -- sh -c \
+  'printf "\377\n"; i=0; while [ $i -lt 2200 ]; do printf "filler line %s of ordinary output text here to pad the capture\n" "$i"; i=$((i+1)); done; printf "error: %s: \"%s" password "hunter2-long-value"' \
+  >"$OUT" 2>/dev/null
+if LC_ALL=C grep -q '\[REDACTED\]' "$OUT" \
+   && ! LC_ALL=C grep -Fq "$exec_raw_secret" "$OUT"; then
+  ok "#156 exec raw-probe termination still masks a credential tail"
+else
+  not_ok "#156 exec raw-probe termination still masks a credential tail"
+  LC_ALL=C tail -n 1 "$OUT" | sed 's/^/  tail: /'
 fi
 
 "$PLUGIN_ROOT/bin/agent-guard" exec -- sh -c \

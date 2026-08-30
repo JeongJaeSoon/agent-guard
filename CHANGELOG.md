@@ -7,6 +7,44 @@
 
 ## Unreleased
 
+- fix(redaction): close the status-label display-redaction leak (#156). The
+  seven-word status allowlist (`error`, `warning`, `info`, `note`, `debug`,
+  `fatal`, `hint`) let a secret that gitleaks does not recognise reach the model
+  unmasked whenever it sat behind one of those labels — `error: password:
+  <value>` and `warning: db_password: <value>` were displayed in full. The label
+  cannot settle it, because it is identical in the prose chain the allowlist
+  exists to protect (`error: password: authentication is disabled`), so the
+  VALUE now decides: a token whose shape reads as a credential (a digit beside a
+  letter, an uppercase run starting past the first character, or a single-case
+  alphabetic run longer than any ordinary word) masks, while a word, path,
+  number, clock time or date stays visible. The chained shape
+  (`response: error: api_key: <value>`) is covered by the same gate. Display
+  redaction only; the block/detect path is unchanged. An unterminated quoted
+  value (truncated output) is captured and classified when the leaf ends rather
+  than skipped, so a credential-shaped one still masks. A captured value is recorded in
+  both its literal and its edge-trimmed form, so a bare recurrence of a
+  credential that was padded or split across a newline behind its label
+  masks as well. Residual: an
+  all-lowercase alphabetic secret shorter than 24 characters is indistinguishable
+  from a prose word on this path and stays visible.
+- docs: record why the deny-read Bash gate is NOT narrowed (#99). `echo
+  foo.key`, `echo see also foo.pem` and `jq -r .key data.json` are reported as
+  `blocked shell command referencing a deny-listed path` although nothing is
+  read and no such file exists. A command-position narrowing that dropped word
+  operands of commands which take no file operands was written, measured and
+  removed again: every revision of it let a real read through. A newline or `&`
+  starts another command, `|` hands the dropped word to `xargs cat`, a path- or
+  quote-qualified name resolves to a different program than the one compared, an
+  external binary resolves through PATH at execution time so a wrapper inherits
+  the exception, and an exported Bash function named `echo` or `printf` beats
+  the builtin — so even a builtin name does not identify what will run. A text
+  gate that cannot name the program cannot safely drop its operands. #99 stays
+  open as an accepted false positive; the counter-examples are pinned as tests
+  so any re-attempt has to answer them.
+- fix(hooks): drop the undefined `\"` escape from the shell-parser awk bracket
+  expression (#99). gawk warned `regexp escape sequence \" is not a known
+  regexp operator` on every `hook-pre-tool` run, including runs that passed. The
+  class already contains a literal backslash via `\\`, so it is unchanged.
 - ci: remove the `codex-review` workflow. It has never produced a review in
   this repository: with no `OPENAI_API_KEY` Actions secret every step is
   skipped, the job reports success in a few seconds, and the feedback job is
