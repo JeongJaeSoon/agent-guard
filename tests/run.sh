@@ -7175,6 +7175,23 @@ else
   sed 's/^/  out: /' "$OUT"
 fi
 
+# The captured value keeps the newline that separated the label from it, so the
+# global literal is `<newline><secret>` and a BARE recurrence later in the output
+# does not match it. The trimmed token is emitted as a second record for that.
+multiline_recur=$(printf 'error: password: "\n%s"\nretrying with %s' \
+  "$LABEL_SECRET" "$LABEL_SECRET")
+display_input=$(jq -nc --arg stdout "$multiline_recur" \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$display_input"
+post_out=$(cat "$OUT")
+if printf '%s' "$post_out" | grep -q '\[REDACTED\]' \
+   && ! printf '%s' "$post_out" | grep -Fq "$LABEL_SECRET"; then
+  ok "#156 a multiline status-label capture also masks the bare recurrence"
+else
+  not_ok "#156 a multiline status-label capture also masks the bare recurrence"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
 # A delimiter-separated passphrase is far less prose-like than a bare word, so
 # the compound-length fallback accepts `.`/`-`/`_` joins rather than requiring a
 # purely alphabetic value.
@@ -8216,6 +8233,33 @@ if [ "$exec_first_byte" = ff ] \
 else
   not_ok "exec raw masking does not strand a longer assignment suffix"
   LC_ALL=C od -An -tx1 "$OUT" | sed 's/^/  hex: /'
+fi
+
+# The raw-probe END terminates an unterminated quote for a capture that exceeded
+# the byte cap and held invalid UTF-8. It has to honour the status-label gate
+# like every other termination, or a large prose tail is replaced wholesale.
+exec_raw_prose=$(printf 'error: %s: "authentication is disabled' password)
+"$PLUGIN_ROOT/bin/agent-guard" exec -- sh -c \
+  'printf "\377\n"; i=0; while [ $i -lt 2200 ]; do printf "filler line %s of ordinary output text here to pad the capture\n" "$i"; i=$((i+1)); done; printf "error: %s: \"authentication is disabled" password' \
+  >"$OUT" 2>/dev/null
+exec_raw_tail=$(LC_ALL=C tail -n 1 "$OUT")
+if [ "$exec_raw_tail" = "$exec_raw_prose" ]; then
+  ok "#156 exec raw-probe termination leaves a status-label prose tail visible"
+else
+  not_ok "#156 exec raw-probe termination leaves a status-label prose tail visible"
+  printf '  tail: %s\n' "$exec_raw_tail"
+fi
+
+exec_raw_secret=$(printf '%s%s' 'hunter2-' 'long-value')
+"$PLUGIN_ROOT/bin/agent-guard" exec -- sh -c \
+  'printf "\377\n"; i=0; while [ $i -lt 2200 ]; do printf "filler line %s of ordinary output text here to pad the capture\n" "$i"; i=$((i+1)); done; printf "error: %s: \"%s" password "hunter2-long-value"' \
+  >"$OUT" 2>/dev/null
+if LC_ALL=C grep -q '\[REDACTED\]' "$OUT" \
+   && ! LC_ALL=C grep -Fq "$exec_raw_secret" "$OUT"; then
+  ok "#156 exec raw-probe termination still masks a credential tail"
+else
+  not_ok "#156 exec raw-probe termination still masks a credential tail"
+  LC_ALL=C tail -n 1 "$OUT" | sed 's/^/  tail: /'
 fi
 
 "$PLUGIN_ROOT/bin/agent-guard" exec -- sh -c \

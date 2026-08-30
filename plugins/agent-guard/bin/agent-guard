@@ -3245,6 +3245,17 @@ secretish_env_values() {
           "\",\"contextual\":true}"
       }
     }
+    # A multiline capture keeps the newline that separated the label from the
+    # value, so the global literal is `<newline><secret>` and a BARE recurrence
+    # of the credential later in the output does not match it. Emit the trimmed
+    # token as a second record so global masking still reaches those.
+    function emit_captured(v, trimmed) {
+      emit_secret(v)
+      trimmed = v
+      sub(/^[ \t\n]+/, "", trimmed)
+      sub(/[ \t\n]+$/, "", trimmed)
+      if (trimmed != v) emit_secret(trimmed)
+    }
     function emit_secret(value, eligible_length) {
       if (already_redacted(value)) return
       if (eligible_length == 0) eligible_length = length(value)
@@ -3464,7 +3475,7 @@ secretish_env_values() {
         }
         closed_value = open_value "\n" substr(rest, 1, end - 1)
         if (!open_guard || credential_shaped(closed_value))
-          emit_secret(closed_value)
+          emit_captured(closed_value)
         open_quote = ""
         open_value = ""
         open_guard = 0
@@ -3540,7 +3551,7 @@ secretish_env_values() {
       scan_line(value)
       # Truncated output can omit a closing quote. Redact the leaf remainder.
       if (open_quote != "" && (!open_guard || credential_shaped(open_value)))
-        emit_secret(open_value)
+        emit_captured(open_value)
       open_quote = ""
       open_value = ""
       open_guard = 0
@@ -3596,7 +3607,12 @@ secretish_env_values() {
         # A truncated multiline quote is evaluated only after the complete raw
         # capture has been scanned. This mirrors scan_leaf without resetting
         # open_quote/open_value at every physical newline.
-        if (!probe_found && open_quote != "") emit_secret(open_value)
+        # Same status-label gate as the scan_leaf termination above: without
+        # it a >64 KiB invalid-UTF-8 capture ending in an unterminated prose
+        # chain was replaced wholesale, contradicting the gate everywhere else.
+        if (!probe_found && open_quote != "" \
+            && (!open_guard || credential_shaped(open_value)))
+          emit_captured(open_value)
         exit
       }
       # Valid framed input always terminates each leaf with RS. Preserve a final
