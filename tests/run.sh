@@ -1711,26 +1711,49 @@ expect_json_status 2 "Bash cat .env.tpl.bak (tpl marker not final) is blocked" \
   '{"tool_name":"Bash","tool_input":{"command":"cat .env.tpl.bak"}}' \
   hook-pre-tool
 
-# #99: the deny-read globs used to match any word ending in a listed extension,
-# so an `echo` argument and a jq field selector blocked as if a private key had
-# been opened. Nothing is read in either case. The exts are composed at runtime
-# because a literal in this file would trip the gate under test.
+# #99 asked for the deny-read globs to stop matching words that are not read
+# operands: `echo foo.key` and `jq -r .key data.json` block as if a private key
+# had been opened, and nothing is read in either case.
+#
+# A command-position narrowing was written for this and is deliberately NOT
+# here. Every revision of it leaked a real read, eight times over, because the
+# gate is a text test and the shell is not: newline and `&` start another
+# command, `|` hands the dropped word to `xargs cat`, a path- or quote-qualified
+# name resolves to a different program than the one compared, an external
+# binary resolves through PATH at execution time, and — the one that ended it —
+# an exported Bash function named `echo` or `printf` beats the builtin, so even
+# a builtin name does not identify what will run. A gate that cannot name the
+# program cannot safely drop its operands, so it drops none: the #99 false
+# positive stays, and the read stays blocked.
+#
+# The exts are composed at runtime because a literal in this file would trip the
+# gate under test.
 NONPATH_KEY=$(printf 'k%s' 'ey')
 NONPATH_PEM=$(printf 'p%s' 'em')
+
+# The accepted cost of the decision above: a word that merely ends in a listed
+# extension still blocks, whatever command it sits under. Pinned so that any
+# future narrowing has to change these lines on purpose.
 for nonpath_case in \
   "echo foo.$NONPATH_KEY" \
   "echo see also foo.$NONPATH_PEM" \
   "echo see also foo.env" \
-  "printf '%s' foo.$NONPATH_KEY"; do
-  expect_json_status 0 "#99 Bash '$nonpath_case' does not reference a read target" \
+  "printf '%s' foo.$NONPATH_KEY" \
+  "jq -r .$NONPATH_KEY data.json" \
+  "jq .$NONPATH_KEY"; do
+  expect_json_status 2 "#99 Bash '$nonpath_case' keeps the accepted false positive" \
     "$(jq -nc --arg c "$nonpath_case" \
       '{tool_name:"Bash",tool_input:{command:$c}}')" \
     hook-pre-tool
 done
 
-# The narrowing is by command position only, so every real read operand — and
-# any token the literal test refuses to classify — still blocks. `cat .env` in
-# particular must keep refusing by name, with or without a file on disk.
+# Every case below reads the file for real (verified with `bash -c` against a
+# fixture directory) and was ALLOWED by some revision of the narrowing. They all
+# block trivially now that nothing is stripped; they stay as the standing
+# counter-examples any re-attempt has to answer.
+nonpath_newline_env=$(printf 'echo hi\ncat .env')
+nonpath_newline_ssh=$(printf 'echo one\necho two\ncat .ssh/id_rsa')
+nonpath_newline_sec=$(printf 'printf x\ncat secrets.json')
 for nonpath_case in \
   "cat .env" \
   "cat foo.$NONPATH_PEM" \
@@ -1740,25 +1763,7 @@ for nonpath_case in \
   "cat .env | jq .$NONPATH_KEY" \
   "echo \$(cat .env)" \
   "echo x > .env" \
-  "echo x >.env"; do
-  expect_json_status 2 "#99 Bash '$nonpath_case' still blocks" \
-    "$(jq -nc --arg c "$nonpath_case" \
-      '{tool_name:"Bash",tool_input:{command:$c}}')" \
-    hook-pre-tool
-done
-
-# Dropping a word is only sound while that word cannot reach a reader, and shell
-# syntax is what carries it to one. Every case below reads the file for real
-# (verified with `bash -c` against a fixture directory) and was ALLOWED by an
-# earlier revision of this narrowing that tried to track command segments
-# itself. The newline cases are the subtle ones: the strip helpers that run
-# first rejoin their tokens with single spaces, so `echo hi<newline>cat .env`
-# arrives here as `echo hi cat .env` and reads like one `echo` — which is why
-# the syntax test runs on the untouched command, not on the stripped one.
-nonpath_newline_env=$(printf 'echo hi\ncat .env')
-nonpath_newline_ssh=$(printf 'echo one\necho two\ncat .ssh/id_rsa')
-nonpath_newline_sec=$(printf 'printf x\ncat secrets.json')
-for nonpath_case in \
+  "echo x >.env" \
   "$nonpath_newline_env" \
   "$nonpath_newline_ssh" \
   "$nonpath_newline_sec" \
@@ -1773,22 +1778,7 @@ for nonpath_case in \
   "echo .env | xargs -I{} cat {}" \
   "command echo .env | xargs cat" \
   "sudo echo .env | xargs cat" \
-  "FOO=1 echo .env | xargs cat"; do
-  expect_json_status 2 \
-    "#99 Bash shell syntax defeats the strip: '$(printf '%s' "$nonpath_case" | tr '\n' '~')' blocks" \
-    "$(jq -nc --arg c "$nonpath_case" \
-      '{tool_name:"Bash",tool_input:{command:$c}}')" \
-    hook-pre-tool
-done
-
-# The command word is the RAW token: no basename strip, no quote removal.
-# Stripping the directory gave the exception to any executable merely sharing
-# the name. Removing quotes was worse — shell_command_words splits on whitespace
-# before quotes resolve, so a command name containing quoted whitespace arrives
-# as its first fragment and reduced to a trusted name, while the shell resolved
-# an executable literally called `echo foo` that read the file. Both verified as
-# real passes, and the second as a real read, before the fix.
-for nonpath_case in \
+  "FOO=1 echo .env | xargs cat" \
   "./echo .env" \
   "/tmp/printf .env" \
   "./jq .env" \
@@ -1797,105 +1787,14 @@ for nonpath_case in \
   "'echo foo' .env" \
   "\"echo foo\" .env" \
   "'echo' .env" \
-  "\"echo\" .env"; do
-  expect_json_status 2 "#99 Bash a path-qualified lookalike gets no exception: '$nonpath_case'" \
-    "$(jq -nc --arg c "$nonpath_case" \
-      '{tool_name:"Bash",tool_input:{command:$c}}')" \
-    hook-pre-tool
-done
-
-# Only shell BUILTINS get the exception. An external binary resolves through
-# PATH at execution time, so naming it here is a claim about a program the gate
-# cannot identify: a `jq` wrapper earlier in PATH inherited the exception meant
-# for the real jq and read the file. jq, yq, gojq and jaq are all external, so
-# all four keep their operands and their false positive.
-for nonpath_case in \
+  "\"echo\" .env" \
   "jq .env" \
-  "jq -r .$NONPATH_KEY data.json" \
-  "jq .$NONPATH_KEY" \
   "yq .env" \
   "yq -r .env" \
-  "yq .$NONPATH_KEY data.yaml" \
-  "gojq .$NONPATH_KEY data.json" \
-  "jaq .$NONPATH_KEY data.json"; do
-  expect_json_status 2 "#99 Bash an external binary gets no exception: '$nonpath_case'" \
-    "$(jq -nc --arg c "$nonpath_case" \
-      '{tool_name:"Bash",tool_input:{command:$c}}')" \
-    hook-pre-tool
-done
-
-# Dropping a word is only sound while that word cannot reach a reader, and shell
-# syntax is what carries it to one. Every case below reads the file for real
-# (verified with `bash -c` against a fixture directory) and was ALLOWED by an
-# earlier revision of this narrowing that tried to track command segments
-# itself. The newline cases are the subtle ones: the strip helpers that run
-# first rejoin their tokens with single spaces, so `echo hi<newline>cat .env`
-# arrives here as `echo hi cat .env` and reads like one `echo` — which is why
-# the syntax test runs on the untouched command, not on the stripped one.
-nonpath_newline_env=$(printf 'echo hi\ncat .env')
-nonpath_newline_ssh=$(printf 'echo one\necho two\ncat .ssh/id_rsa')
-nonpath_newline_sec=$(printf 'printf x\ncat secrets.json')
-for nonpath_case in \
-  "$nonpath_newline_env" \
-  "$nonpath_newline_ssh" \
-  "$nonpath_newline_sec" \
-  "echo a & cat .env" \
-  "echo a&cat .ssh/id_rsa" \
-  "echo a & cat .netrc" \
-  "echo a & cat .git-credentials" \
-  "echo a & head -c 100 secrets.json" \
-  "echo .env | xargs cat" \
-  "printf %s .env | xargs cat" \
-  "echo .ssh/id_rsa | xargs cat" \
-  "echo .env | xargs -I{} cat {}" \
-  "command echo .env | xargs cat" \
-  "sudo echo .env | xargs cat" \
-  "FOO=1 echo .env | xargs cat"; do
+  "gojq . .env" \
+  "jaq . .env"; do
   expect_json_status 2 \
-    "#99 Bash shell syntax defeats the strip: '$(printf '%s' "$nonpath_case" | tr '\n' '~')' blocks" \
-    "$(jq -nc --arg c "$nonpath_case" \
-      '{tool_name:"Bash",tool_input:{command:$c}}')" \
-    hook-pre-tool
-done
-
-# The command word is the RAW token: no basename strip, no quote removal.
-# Stripping the directory gave the exception to any executable merely sharing
-# the name. Removing quotes was worse — shell_command_words splits on whitespace
-# before quotes resolve, so a command name containing quoted whitespace arrives
-# as its first fragment and reduced to a trusted name, while the shell resolved
-# an executable literally called `echo foo` that read the file. Both verified as
-# real passes, and the second as a real read, before the fix.
-for nonpath_case in \
-  "./echo .env" \
-  "/tmp/printf .env" \
-  "./jq .env" \
-  "bin/echo .env" \
-  "/usr/bin/echo .env" \
-  "'echo foo' .env" \
-  "\"echo foo\" .env" \
-  "'echo' .env" \
-  "\"echo\" .env"; do
-  expect_json_status 2 "#99 Bash a path-qualified lookalike gets no exception: '$nonpath_case'" \
-    "$(jq -nc --arg c "$nonpath_case" \
-      '{tool_name:"Bash",tool_input:{command:$c}}')" \
-    hook-pre-tool
-done
-
-# Only shell BUILTINS get the exception. An external binary resolves through
-# PATH at execution time, so naming it here is a claim about a program the gate
-# cannot identify: a `jq` wrapper earlier in PATH inherited the exception meant
-# for the real jq and read the file. jq, yq, gojq and jaq are all external, so
-# all four keep their operands and their false positive.
-for nonpath_case in \
-  "jq .env" \
-  "jq -r .$NONPATH_KEY data.json" \
-  "jq .$NONPATH_KEY" \
-  "yq .env" \
-  "yq -r .env" \
-  "yq .$NONPATH_KEY data.yaml" \
-  "gojq .$NONPATH_KEY data.json" \
-  "jaq .$NONPATH_KEY data.json"; do
-  expect_json_status 2 "#99 Bash an external binary gets no exception: '$nonpath_case'" \
+    "#99 Bash a read target still blocks: '$(printf '%s' "$nonpath_case" | tr '\n' '~')'" \
     "$(jq -nc --arg c "$nonpath_case" \
       '{tool_name:"Bash",tool_input:{command:$c}}')" \
     hook-pre-tool

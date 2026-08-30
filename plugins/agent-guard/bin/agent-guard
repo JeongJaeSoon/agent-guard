@@ -2277,129 +2277,6 @@ bash_strip_allowed_tokens() {
   )
 }
 
-# The deny-read patterns are basename globs, and matching them against every
-# word of a command makes any word that merely ends in a listed extension a
-# block: `echo foo.key`, `jq -r .key data.json`, `echo see also foo.pem` (#99).
-# Nothing has to exist on disk and nothing has to be read, so the gate stops
-# deciding what is sensitive and starts inheriting whatever the glob does. It
-# surfaces as `blocked shell command referencing a deny-listed path`, which
-# reads in the transcript as if the agent had tried to open a private key.
-#
-# The narrowing is deliberately by command POSITION, not by whether the named
-# file exists. An existence test would also unblock `cat .env` in a directory
-# without one, and refusing that read by name — before anything is created — is
-# the behaviour the README quick start verifies and the deny-read tests pin.
-#
-# It is also deliberately restricted to ONE simple command with no shell
-# metacharacters at all. Dropping a word is only sound while that word cannot
-# reach a reader, and shell syntax is exactly what carries it to one:
-#
-#   echo hi<newline>cat .env     - a later line reads it
-#   echo a & cat .env            - `&` starts another command
-#   echo .env | xargs cat        - the dropped word becomes the reader's operand
-#
-# All three read the file, and all three were allowed by a version of this
-# function that tracked segments itself. Rather than re-derive shell parsing
-# here, bail out whenever the command contains any of them and strip nothing.
-# The cost is a false positive on a compound command, which is what the gate
-# already does today; the alternative cost is a silent read bypass.
-#
-# Within one simple command, drop only operands the command cannot read:
-#
-#   - every word operand of `echo` / `printf`, which take no file operands;
-# `echo` and `printf` and nothing else, and the reason is what they ARE rather
-# than what they do with their operands: both are shell builtins, so bash runs
-# the builtin whatever sits on PATH. Naming a command here is a claim about the
-# program that will actually run, and for a builtin that claim holds.
-#
-# It does not hold for an external binary, which is why `jq` is no longer here.
-# jq had the same exception for its first non-option operand — always its filter
-# program — and that was sound about jq itself and useless in practice: jq
-# resolves through PATH at execution time, so a wrapper or shadow earlier in
-# PATH inherits the exception meant for the real one. Reproduced: a `jq` script
-# running `cat .env` for `jq .env` was allowed here and read the file, where the
-# baseline blocked it. A text gate cannot know what PATH will resolve to, and
-# checking at hook time would not bind what runs a moment later. `yq`, `gojq`
-# and `jaq` were removed earlier for narrower reasons; this argument covers
-# them too.
-#
-# The cost is that `jq -r .key data.json` keeps the #99 false positive. That is
-# the trade, and it is the right way round: a false positive is an annoyance,
-# and this exception was a read.
-#
-# Only a clean literal is ever dropped (env_exception_literal_shell_token
-# rejects quoting that survives unquoting, expansion, globs, redirection and
-# whitespace). The command word is taken from the FIRST token, with no wrapper
-# skipping: `sudo echo foo.key` and `FOO=1 echo foo.key` simply keep today's
-# false positive rather than widening what may be stripped.
-bash_strip_non_path_tokens() {
-  (
-    set -f
-    strip_input=$1
-    # The syntax test MUST run on the untouched command ($2), not on $1. The
-    # strip helpers ahead of this one rejoin their tokens with single spaces and
-    # so have already destroyed a real newline separator by the time $1 arrives
-    # — `echo hi<newline>cat .env` reaches here as `echo hi cat .env`, which
-    # reads like one `echo`. That is exactly the bypass this test exists to stop.
-    strip_raw=$2
-
-    # Any shell syntax at all -> strip nothing. Newline, `&`, `|`, `;`, command
-    # grouping, redirection, substitution and expansion each give a dropped word
-    # a route to a reader.
-    case "$strip_raw" in
-      *'
-'*|*'&'*|*'|'*|*';'*|*'('*|*')'*|*'{'*|*'}'*|*'<'*|*'>'*|*'`'*|*'$'*|*'\'*)
-        printf '%s' "$strip_input"
-        return 0
-        ;;
-    esac
-
-    words=$(shell_command_words "$strip_input")
-    # shellcheck disable=SC2086
-    set -- $words
-    if [ "$#" -lt 2 ]; then
-      printf '%s' "$strip_input"
-      return 0
-    fi
-
-    # The token EXACTLY: no basename strip, and no quote removal either.
-    #
-    # Stripping the directory handed the exception to any executable that merely
-    # shares the name — `./echo .env`, `/tmp/printf .env` and `./jq .env` all
-    # passed while reading the denied file.
-    #
-    # Removing quotes was worse, because shell_command_words splits on
-    # whitespace BEFORE quotes are resolved: a command name containing quoted
-    # whitespace arrives here as its first fragment, so `'\''echo foo'\'' .env`
-    # reduced to `echo` and took the exception, while the shell resolved an
-    # executable literally named `echo foo` that read the file. Comparing the
-    # raw token is the only form that cannot be talked into a false match.
-    #
-    # `'\''echo'\'' .env` therefore keeps its false positive. That is the same
-    # trade every other narrowing here makes, and quoting a bare command name is
-    # not a shape worth widening the gate for.
-    strip_command=$1
-    case "$strip_command" in
-      echo|printf) ;;
-      *)
-        printf '%s' "$strip_input"
-        return 0
-        ;;
-    esac
-
-    result=$1
-    shift
-
-    for token in "$@"; do
-      strip_literal=$(env_exception_literal_shell_token "$token" 2>/dev/null \
-        || true)
-      [ -n "$strip_literal" ] && continue
-      result="$result $token"
-    done
-    printf '%s' "$result"
-  )
-}
-
 # POSIX sh has no locals: this function must NOT assign the bare name `cmd`, or
 # it clobbers the caller's command in check_bash_command. The strip helpers
 # rejoin tokens with single spaces (dropping a real newline separator), so a
@@ -2409,7 +2286,6 @@ bash_matches_deny_path() {
   deny_cmd=$1
   deny_cmd=$(bash_strip_exclusion_operands "$deny_cmd")
   deny_cmd=$(bash_strip_allowed_tokens "$deny_cmd")
-  deny_cmd=$(bash_strip_non_path_tokens "$deny_cmd" "$1")
   bash_matches_deny_path_mode "$deny_cmd" "literal" && return 0
   bash_matches_deny_path_mode "$deny_cmd" "shell-expanded" && return 0
   dequoted=$(shell_dequote_for_policy "$deny_cmd")

@@ -27,24 +27,20 @@
   masks as well. Residual: an
   all-lowercase alphabetic secret shorter than 24 characters is indistinguishable
   from a prose word on this path and stays visible.
-- fix(detection): stop the deny-read Bash gate from blocking words that merely
-  end in a deny-listed extension (#99). `echo foo.key`, `echo see also foo.pem`
-  and `jq -r .key data.json` were reported as `blocked shell command
-  referencing a deny-listed path` although nothing was read and no such file
-  existed. Word operands of `echo` and `printf` are now dropped before the deny
-  scan, and only those: both are shell builtins, so bash runs the builtin
-  whatever sits on PATH, which makes naming them a claim the gate can actually
-  keep. An external binary cannot be named safely — it resolves through PATH at
-  execution time, so a wrapper earlier in PATH inherits the exception — which is
-  why `jq`, `yq`, `gojq` and `jaq` get none, and `jq -r .key data.json` keeps
-  its false positive. Stripping happens only inside ONE simple command: a
-  newline, `&`, `|`, `;`, grouping, redirection, substitution or expansion
-  anywhere in the command and nothing is stripped at all. The command word must
-  be the raw token — no path, no quotes — and only clean literals are ever
-  dropped, so `echo $(cat .env)`, `./echo .env` and `'echo foo' .env` all still
-  block. Deliberately not narrowed by file existence: that would also unblock
-  `cat .env` in a directory without one, and refusing that read by name is the
-  documented behaviour.
+- docs: record why the deny-read Bash gate is NOT narrowed (#99). `echo
+  foo.key`, `echo see also foo.pem` and `jq -r .key data.json` are reported as
+  `blocked shell command referencing a deny-listed path` although nothing is
+  read and no such file exists. A command-position narrowing that dropped word
+  operands of commands which take no file operands was written, measured and
+  removed again: every revision of it let a real read through. A newline or `&`
+  starts another command, `|` hands the dropped word to `xargs cat`, a path- or
+  quote-qualified name resolves to a different program than the one compared, an
+  external binary resolves through PATH at execution time so a wrapper inherits
+  the exception, and an exported Bash function named `echo` or `printf` beats
+  the builtin — so even a builtin name does not identify what will run. A text
+  gate that cannot name the program cannot safely drop its operands. #99 stays
+  open as an accepted false positive; the counter-examples are pinned as tests
+  so any re-attempt has to answer them.
 - fix(hooks): drop the undefined `\"` escape from the shell-parser awk bracket
   expression (#99). gawk warned `regexp escape sequence \" is not a known
   regexp operator` on every `hook-pre-tool` run, including runs that passed. The
