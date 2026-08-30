@@ -26,7 +26,10 @@
   tool aliases (`bundler`, `npm c`/`npm get`), version-suffixed binaries
   (`pip3.12`), leading global options between a binary and its subcommand
   (`npm --location=user config get`, `bundle config --parseable`,
-  `security -q`, `gcloud --quiet`), wrapper/PHAR invocation forms (`./mvnw`,
+  `bundle --verbose config`, `security -q`, `gcloud --quiet`), Composer's
+  documented `global <command>` wrapper, which runs the same config read
+  against COMPOSER_HOME where the stored OAuth token lives
+  (`composer global config`), wrapper/PHAR invocation forms (`./mvnw`,
   `php composer.phar`), the direct `git-credential-<helper> get` executable,
   `pip config debug`, and `$(...)` subshell prefixes; pnpm `config list`
   (which, unlike npm, does not mask) is blocked, and coverage extends to

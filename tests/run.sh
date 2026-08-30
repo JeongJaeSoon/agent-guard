@@ -1798,6 +1798,50 @@ expect_json_status 2 "gcloud with a global flag before auth print-token is block
   '{"tool_name":"Bash","tool_input":{"command":"gcloud --quiet auth print-refresh-token"}}' \
   hook-pre-tool
 
+# Second Codex pass: the "leading global options" contract above held for npm,
+# pip, pnpm and yarn but NOT for composer and bundler, whose patterns required
+# `config` to follow the binary immediately. Composer's documented
+# `global <command>` wrapper runs against COMPOSER_HOME, which is where the
+# stored OAuth token lives, so these read the credential store with no path and
+# no secret anywhere in the command for a later scan to catch.
+expect_json_status 2 "composer global wrapper before config is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"composer global config github-oauth.github.com"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "composer global wrapper before a config dump is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"composer global config -l"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "composer with a global option before config is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"composer --no-ansi config --global github-oauth.github.com"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "composer.phar global wrapper before config is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"php composer.phar global config http-basic"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "bundle with a global option before config is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"bundle --verbose config --parseable"}}' \
+  hook-pre-tool
+
+# Over-block controls for the widened prefixes: a wrapper or option run that
+# never reaches a `config` subcommand must stay allowed.
+expect_json_status 0 "composer global require is allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"composer global require phpunit/phpunit"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "composer require of a config-named package is allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"composer require --dev config/foo"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "bundle with a global option before install is allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"bundle --verbose install"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "bundle config set is allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"bundle config set path vendor/bundle"}}' \
+  hook-pre-tool
+
 expect_json_status 2 "Read XDG gem/credentials is blocked" \
   '{"tool_name":"Read","tool_input":{"file_path":"/home/u/.local/share/gem/credentials"}}' \
   hook-pre-tool

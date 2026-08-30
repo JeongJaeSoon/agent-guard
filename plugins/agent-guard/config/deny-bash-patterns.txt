@@ -58,7 +58,9 @@ gh[[:space:]]+auth[[:space:]]+token
 # `config <host.key>` (a dotted key with no following value; `--parseable`
 # exposes it). Covers the `bundler` alias, a leading `$(`/backtick subshell,
 # and a trailing fd redirect (`bundle config 2>&1`). `config set` stays allowed.
-(^|[^[:alnum:]_.-])bundler?[[:space:]]+config([[:space:]]+-[^[:space:]]+)*([[:space:]]+(list|get)([^[:alnum:]_-]|$)|[[:space:]]+[^-[:space:]][^[:space:]]*\.[^[:space:]]*[[:space:]]*($|[<>|;&])|[[:space:]]*($|[<>|;&]|[0-9]))
+# Options are accepted on BOTH sides of the subcommand: `bundle --verbose
+# config --parseable` reads the same store as the bare form.
+(^|[^[:alnum:]_.-])bundler?([[:space:]]+-[^[:space:]]+)*[[:space:]]+config([[:space:]]+-[^[:space:]]+)*([[:space:]]+(list|get)([^[:alnum:]_-]|$)|[[:space:]]+[^-[:space:]][^[:space:]]*\.[^[:space:]]*[[:space:]]*($|[<>|;&])|[[:space:]]*($|[<>|;&]|[0-9]))
 # `npm config get` (also the `c` and bare `get` aliases) prints protected
 # values raw; `config list` redacts them and stays allowed. A protected key
 # placed anywhere in the args is matched (npm accepts multiple keys).
@@ -87,7 +89,11 @@ yarn([[:space:]]+-[^[:space:]]+)*[[:space:]]+config[[:space:]]+get[[:space:]]+[^
 # so a value like `repositories.bearer` does not over-block), and the full
 # `--list` dump. Covers the `composer.phar` invocation form. Blocking the set
 # form too: http-basic passwords have no prefix gitleaks could anchor on.
-(^|[^[:alnum:]_-])composer(\.phar)?[[:space:]]+config[[:space:]]+((-[[:alnum:]-]+[[:space:]]+)*(github-oauth|gitlab-token|gitlab-oauth|http-basic|bearer)([[:space:].]|$)|.*(-l|--list)([[:space:]]|$))
+# The `global` wrapper documented as `global <command> [...]` runs the same
+# command against COMPOSER_HOME — where the stored OAuth token actually lives —
+# so it is accepted here alongside leading global options; a wrapper run
+# without a `config` subcommand (`composer global require x`) still passes.
+(^|[^[:alnum:]_-])composer(\.phar)?([[:space:]]+(-[^[:space:]]+|global))*[[:space:]]+config[[:space:]]+((-[[:alnum:]-]+[[:space:]]+)*(github-oauth|gitlab-token|gitlab-oauth|http-basic|bearer)([[:space:].]|$)|.*(-l|--list)([[:space:]]|$))
 # mvn help:effective-settings masks passwords unless showPasswords is enabled
 # (either flag order); `showPasswords=false` is the safe default and stays
 # allowed. Covers the `./mvnw` wrapper; anchored so prose/filenames don't match.
