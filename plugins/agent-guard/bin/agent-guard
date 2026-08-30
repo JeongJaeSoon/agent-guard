@@ -3346,14 +3346,26 @@ secretish_env_values() {
     # label, and the block/detect path is unaffected either way.
     function credential_shaped(v) {
       if (length(v) < 6) return 0
+      # A credential is a single token. The unquoted branch has already cut at
+      # whitespace, so this only bites on a QUOTED value — where a multi-word
+      # string behind a status label is a message, not a secret. Without it
+      # `error: password: "must be at least 8 characters"` masks, because the
+      # class tests below would find a letter and a digit somewhere in the
+      # sentence and never ask whether they were part of the same token.
+      if (v ~ /[ \t]/) return 0
       # Dates, timestamps and clock times are the ordinary log values that would
-      # otherwise satisfy the mixed-class test below.
-      if (v ~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/) return 0
+      # otherwise satisfy the mixed-class tests. Anchored at BOTH ends: a date
+      # only tells us this value is a date when the value is nothing else, and a
+      # prefix match let `2026-08-30-A1b2C3d4-token` through unmasked.
+      if (v ~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/) return 0
+      if (v ~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9][T][0-9][0-9]:[0-9][0-9](:[0-9][0-9])?([.][0-9]+)?(Z|[+-][0-9][0-9]:?[0-9][0-9])?$/) return 0
       if (v ~ /^[0-9]+:[0-9]+(:[0-9]+)?$/) return 0
-      # Mixed character classes: a digit beside a letter, or an uppercase run
-      # starting past the first character. A leading capital alone is ordinary
-      # sentence case (`Authentication`), not a credential.
-      if (v ~ /[0-9]/ && v ~ /[A-Za-z]/) return 1
+      # Mixed character classes. The digit test requires the digit and the
+      # letter to be ADJACENT: `hunter2-long-value` is a credential, `least 8
+      # characters` and `expires in 3600 seconds` are prose that merely contain
+      # both. An uppercase run must start past the first character, since a
+      # leading capital alone is ordinary sentence case (`Authentication`).
+      if (v ~ /[0-9][A-Za-z]/ || v ~ /[A-Za-z][0-9]/) return 1
       if (v ~ /[a-z]/ && substr(v, 2) ~ /[A-Z]/) return 1
       # A single-case alphabetic run longer than any ordinary word.
       if (length(v) >= 24 && v ~ /^[A-Za-z]+$/) return 1
@@ -3398,7 +3410,16 @@ secretish_env_values() {
         # Eligibility is based on the complete token. For short values, scope
         # replacement to the complete assignment token so an ordinary
         # one-character literal is not replaced throughout the response.
-        if (length(value) < 4 && length(token) >= 4) {
+        #
+        # The status-label path scopes for a different reason: there the shape
+        # gate, not a detector, decided this is a credential, and a wrong guess
+        # is expected rather than exceptional. A global literal would erase the
+        # value from EVERY line of the response, so one bad call on
+        # `error: token: v1.2.3` also scrubs the `v1.2.3` in the release note
+        # three lines down, and `Error: secret: prod-db-secret-v2 not found`
+        # takes the name out of the `kubectl create secret` hint that follows.
+        # Scoped, a false positive costs the one label line it was found on.
+        if (require_credential || (length(value) < 4 && length(token) >= 4)) {
           trailing = substr(token, end + 1)
           emit_mapping(assignment leading token,
                        assignment leading "[REDACTED]" trailing)

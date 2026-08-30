@@ -7024,6 +7024,96 @@ for display_case in \
   fi
 done
 
+# A QUOTED value is the whole message, so the class tests have to ask whether a
+# letter and a digit belong to the same token rather than whether both occur
+# somewhere in the string. Without that, an ordinary validation message behind a
+# status label was rewritten to `"[REDACTED]"`.
+for display_case in \
+  'error: password: "must be at least 8 characters"' \
+  'warning: token: "expires in 3600 seconds"' \
+  'error: api_key: "not found in profile 2"' \
+  'fatal: secret: "rotate within 90 days"' \
+  'info: credential: "Check Your Settings Page"'; do
+  display_input=$(jq -nc --arg stdout "$display_case" \
+    '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+  post_tool_out "$display_input"
+  post_status=$?
+  if [ "$post_status" -eq 0 ] && [ ! -s "$OUT" ]; then
+    ok "#156 post-tool leaves a quoted multi-word message after a status label untouched (${display_case%%:*})"
+  else
+    not_ok "#156 post-tool leaves a quoted multi-word message after a status label untouched (${display_case%%:*})"
+    sed 's/^/  out: /' "$OUT"
+  fi
+done
+
+# The date/clock exclusions must be anchored at BOTH ends. Unanchored, any value
+# merely STARTING with an ISO date escaped the gate entirely — a date-prefixed
+# credential name is a common rotation convention, so that was a one-line bypass.
+DATED_SECRET=$(printf '2026-01-01-sk-live-%s' 'abc123XYZ')
+display_input=$(jq -nc --arg stdout "error: api_key: $DATED_SECRET" \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$display_input"
+post_out=$(cat "$OUT")
+if printf '%s' "$post_out" | grep -q '\[REDACTED\]' \
+   && ! printf '%s' "$post_out" | grep -Fq "$DATED_SECRET"; then
+  ok "#156 post-tool masks a date-prefixed credential behind a status label"
+else
+  not_ok "#156 post-tool masks a date-prefixed credential behind a status label"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+for display_case in \
+  'error: token: 2026-08-30' \
+  'error: token: 2026-08-30T10:00:00Z' \
+  'error: token: 2026-08-30T10:00:00.123+09:00' \
+  'fatal: password: 10:00:00'; do
+  display_input=$(jq -nc --arg stdout "$display_case" \
+    '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+  post_tool_out "$display_input"
+  post_status=$?
+  if [ "$post_status" -eq 0 ] && [ ! -s "$OUT" ]; then
+    ok "#156 post-tool leaves a complete date/clock value untouched (${display_case##*: })"
+  else
+    not_ok "#156 post-tool leaves a complete date/clock value untouched (${display_case##*: })"
+    sed 's/^/  out: /' "$OUT"
+  fi
+done
+
+# On the status-label path a shape gate, not a detector, decided the value is a
+# credential, so the replacement is scoped to the matched assignment token. A
+# global literal would erase the value from every other line of the response —
+# scrubbing a version string out of a release note, or a resource name out of
+# the very command the agent needs to run next.
+scoped_input=$(jq -nc --arg stdout 'error: token: v1.2.3 is not a valid tag
+Downloading release v1.2.3 from github' \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$scoped_input"
+post_out=$(cat "$OUT")
+if printf '%s' "$post_out" \
+  | jq -e '.hookSpecificOutput.updatedToolOutput.stdout
+      | (contains("Downloading release v1.2.3 from github"))
+        and (startswith("error: token: [REDACTED] is not a valid tag"))' >/dev/null 2>&1; then
+  ok "#156 status-label masking is scoped to its own line, not the whole output"
+else
+  not_ok "#156 status-label masking is scoped to its own line, not the whole output"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+# The same property with a value the agent needs to keep reading afterwards.
+scoped_input=$(jq -nc --arg stdout 'Error: secret: prod-db-secret-v2 not found
+Run: kubectl create secret generic prod-db-secret-v2 --from-literal=x=y' \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$scoped_input"
+post_out=$(cat "$OUT")
+if printf '%s' "$post_out" \
+  | jq -e '.hookSpecificOutput.updatedToolOutput.stdout
+      | contains("kubectl create secret generic prod-db-secret-v2")' >/dev/null 2>&1; then
+  ok "#156 a status-label false positive does not scrub the value from later lines"
+else
+  not_ok "#156 a status-label false positive does not scrub the value from later lines"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
 # Display redaction must not mangle credential-handling SOURCE CODE. A
 # credential-shaped key on the left says nothing about the right-hand side: a
 # reference (`process.env.API_KEY`, `os.environ["DB_PASSWORD"]`, `config.apiKey`,
