@@ -418,6 +418,31 @@ agent-guard setup-shell
 
 This defines `agx` (a thin wrapper for `agent-guard exec --`) so you can run `agx <cmd>` — in Claude Code, `!agx <cmd>` — and have the output masked before the model sees it. It also installs a **warn-only, non-blocking** nudge (a zsh `preexec` / bash `DEBUG` trap) that reminds you to use `agx` when you run a known secret-loading idiom without it. The nudge never blocks or modifies your command; pass `--bash` or `--zsh` to force a target shell.
 
+#### fish (and other non-POSIX shells)
+
+`shell-init` emits POSIX shell code, so fish cannot `eval` it — there is no fish rc to install into, and `agx` and the nudge are **not automatically available** at a fish prompt. A standalone install can run `agent-guard exec -- <cmd>` directly. A plugin-only install usually does not put `agent-guard` on fish's `PATH`, so use this PATH-aware function instead:
+
+```fish
+function agx
+    if type -q agent-guard
+        command agent-guard exec -- $argv
+        return $status
+    end
+
+    set -l _ag "$HOME/.claude/plugins/cache/agent-guard/agent-guard/current/bin/agent-guard"
+    if not test -x "$_ag"
+        printf 'agent-guard: plugin binary not found; rerun /agent-guard:setup-shell and use the fish executable path it prints\n' >&2
+        return 127
+    end
+    command "$_ag" exec -- $argv
+end
+funcsave agx
+```
+
+The `current` path above is the stable plugin-cache symlink refreshed by plugin execution. If your plugin cache is elsewhere, use the `fish executable` path printed by `setup-shell`.
+
+The part that protects the transcript still works: Claude Code runs `!` and Bash-tool commands from a **bash or zsh** shell snapshot, and those shells do read `~/.bashrc` / `~/.zshrc`. Which of the two Claude Code picks is not visible to `setup-shell`, so it checks both the process `$SHELL` and the account login shell (`getent passwd` on Linux, `dscl UserShell` on macOS). If either says fish, it writes the managed block to **both** files and command wrapping loads either way. If account lookup fails, it safely falls back to the process `$SHELL` (then zsh for an unknown value). An explicit `--bash`, `--zsh`, or `--rc FILE` always targets a single file.
+
 ### Claude command wrapping (stable, default on)
 
 The nudge above relies on a `preexec` / `DEBUG` hook — but Claude Code runs `!` commands from a **shell snapshot** that strips those hooks (and `unalias -a`s), so the nudge never fires for `!`. The snapshot *does* keep shell **functions**, so Agent Guard installs function overrides for the common dump commands by default.
@@ -447,6 +472,18 @@ infrastructure policy: default `open` runs the original command with one clear
 `AGENT_GUARD_INFRA_FAILURE_MODE=closed` to refuse execution instead.
 
 Because the plugin (auto-updated by `claude plugin update`) and the binary the integration actually resolves update independently, updating only one side can silently leave `agx` / `!`-command masking on older rules. To catch that, the `shell-init` snippet exports `AGENT_GUARD_SHELL_INIT_VERSION` — the version of the binary it resolved at rc-eval time (whichever of the three paths above won) — and a Claude Code `SessionStart` hook compares that marker against the plugin's own version, showing a **non-blocking warning** on mismatch. Because the marker records what the integration resolved at shell start (not a re-derivation the hook would have to guess), it stays silent unless the integration is genuinely loaded *and* drifting: a user who has `agent-guard` on `$PATH` but never ran `setup-shell` gets no warning, and a plugin-only install pinned to a stale baked binary is still covered. It is a start-up snapshot, so if you upgrade the resolved binary *in place* inside a long-lived shell and then launch Claude Code from it without opening a new shell, the warning reflects the version from when that shell started until you re-source your rc.
+
+The marker can only reach the hook through the environment of the shell that **launched** Claude Code, and some launches never evaluate an rc at all: a fish (or other non-POSIX) login shell, or starting Claude Code from a GUI or IDE launcher. The wrapping is still loaded in those cases — Claude Code's own bash/zsh snapshot reads the rc — so a missing marker is not evidence that setup is missing. Before reporting `command wrapping is not loaded`, `SessionStart` therefore reads the managed block out of the rc the snapshot shell uses (`~/.bashrc` when `$SHELL` ends in `bash`, otherwise `~/.zshrc`) and checks that it can still **load** ([#139](https://github.com/JeongJaeSoon/agent-guard/issues/139)).
+
+The delimiters alone are not that proof. The block's `eval` emits nothing once the binary it resolves has disappeared — a plugin cache update or uninstall, or a hand-edited block — so neither the wrapping nor the marker is installed, and treating the delimiters as sufficient would silence the warning on exactly the sessions that are unprotected. The hook instead replays the block's own resolution order against the paths baked into it: the stable/self path, then the newest versioned binary under the plugin cache base, then `agent-guard` on `$PATH`. Those are `stat`-level checks — nothing is executed, no subshell is forked — so the three outcomes are:
+
+| rc state | `SessionStart` |
+| --- | --- |
+| block absent from that rc | `command wrapping is not loaded` — run setup |
+| block present and still resolves a binary | silent; only the version-drift comparison is unavailable |
+| block present but resolves nothing | `can no longer load` — restore the binary and rerun `setup-shell` |
+
+When the two readings conflict, the hook warns: a false "you need to run setup" is recoverable, a false "you are protected" is not.
 
 > **Works without the CLI on `$PATH` — but a plugin can't edit your rc.** Direct CLI bootstrap installs the default-on shell integration automatically. For a plugin-only install, run the plugin-local `agent-guard setup-shell` once — invoke it by absolute path if `agent-guard` isn't on your `$PATH`; it writes the stable `current` path — then restart your shell and any Claude Code session. See [Migrating from 3.x to 4.x](docs/migration-v4.md) for old managed blocks — 4.x rejects the 1.x flags, so stale blocks must be rewritten with one `setup-shell` run — and [Migrating from 1.x to 2.x](docs/migration-v2.md) for the historical opt-out behavior.
 

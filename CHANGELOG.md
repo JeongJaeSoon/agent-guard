@@ -7,6 +7,49 @@
 
 ## Unreleased
 
+- feat(detection): extend the env template marker vocabulary with `tpl`/`tmpl`
+  and accept `-`/`_` marker separators (`.env-example`, `.env_sample`,
+  `.env.tpl`), matching the naming conventions measured on GitHub. The marker
+  must still be final and the stem must stay an env family; `.env.default(s)`
+  stays blocked because dotenv-defaults loads it at runtime.
+- fix(detection): allow env source modules that carry exactly one intermediate
+  segment between the `env`/`envrc` stem and a code extension, so ordinary
+  committed files such as `env.d.ts`, `env.server.ts`, `env.config.ts`, and `env.spec.ts`
+  are readable on both the Read and Bash gates. The final extension must still
+  be code: data/config suffixes (`env.json`, `env.local.json`), extension-less
+  names (`env.d`), the leading-dot runtime form (`.env.d.ts`), deny-listed
+  ancestors, and custom deny policies all stay authoritative.
+- feat(detection): block package-manager credential leak vectors. Deny-read now
+  covers Bundler (`.bundle/config`), RubyGems (`.gem/credentials` and the XDG
+  `gem/credentials` location), Cargo (`.cargo/credentials*`), Composer home
+  `auth.json`, Maven `.m2/settings.xml`, Gradle `.gradle/gradle.properties`,
+  `pip.conf`, Poetry `pypoetry/auth.toml`, and Terraform CLI credentials
+  (`.terraformrc`/`terraform.rc`). Deny-bash now blocks credential dump
+  commands that print stored auth with no path or token in the command text:
+  `bundle config` reads (bare/`list`/`get`/legacy dotted-key read; `set` stays
+  allowed and is gitleaks-scanned), `npm config get` of protected keys,
+  `yarn config get` of npmAuthToken/npmAuthIdent (and the registry/scope maps
+  that nest them), `git credential fill`/any-helper `get`, `pip config
+  list|get`, `composer config` on credential keys or `--list`,
+  `mvn help:effective-settings -DshowPasswords`, and
+  `security find-(generic|internet)-password`; `gcloud auth
+  print-refresh-token` joins the existing gcloud token alternation. The
+  command patterns are hardened against realistic variants an agent may emit:
+  tool aliases (`bundler`, `npm c`/`npm get`), version-suffixed binaries
+  (`pip3.12`), leading global options between a binary and its subcommand
+  (`npm --location=user config get`, `bundle config --parseable`,
+  `bundle --verbose config`, `security -q`, `gcloud --quiet`), Composer's
+  documented `global <command>` wrapper, which runs the same config read
+  against COMPOSER_HOME where the stored OAuth token lives
+  (`composer global config`), wrapper/PHAR invocation forms (`./mvnw`,
+  `php composer.phar`), the direct `git-credential-<helper> get` executable,
+  `pip config debug`, and `$(...)` subshell prefixes; pnpm `config list`
+  (which, unlike npm, does not mask) is blocked, and coverage extends to
+  pnpm/bun. The `mvn` and `composer` patterns are anchored so prose/filenames,
+  value tokens like `repositories.bearer`, and the `showPasswords=false` safe
+  default do not over-block. Adds deny-read for Bun's `.bunfig.toml`; uv and
+  pnpm need no new path (env/.netrc and `.npmrc` respectively already cover
+  them).
 - feat(hooks): add a `UserPromptSubmit` prompt guard on both hosts. Secrets
   pasted into the user prompt (gitleaks rules or `KEY=value` assignment
   heuristic) are blocked before submission by default.
@@ -76,6 +119,32 @@
   and every Claude-facing doc reference now use `/agent-guard:setup-agent-guard`.
   The Codex form `$setup-agent-guard` is unchanged.
 
+- fix(setup-shell): support a fish login shell and stop the permanent
+  "command wrapping is not loaded" false positive (#139). The marker
+  `AGENT_GUARD_SHELL_INIT_VERSION` only reaches `SessionStart` through the
+  environment of the shell that *launched* the agent, so a fish (or other
+  non-POSIX) login shell — and any GUI/IDE launcher — could never satisfy it,
+  even though the agent's own bash/zsh shell snapshot did load the wrapping from
+  the same rc. `SessionStart` now reads the managed rc block on disk before
+  reporting missing setup, and checks that it can still *load* — the delimiters
+  alone prove nothing, because the block's `eval` emits neither the wrapping nor
+  the marker once the binary it resolves is gone. It replays the block's own
+  resolution order (baked stable path, newest versioned plugin-cache binary,
+  `agent-guard` on `$PATH`) with `stat`-level checks only: silent when setup
+  demonstrably ran and still resolves (only the version-drift comparison is
+  lost), the usual setup guidance when the block is absent, and a distinct
+  `can no longer load` warning when the block is present but resolves nothing
+  (cache updated, uninstalled, hand-edited) — that state leaves command output
+  unmasked, so it must never be silent. `setup-shell` additionally writes the
+  managed block to **both** `~/.bashrc` and `~/.zshrc` when either the process
+  `$SHELL` or the account login shell is fish. Account lookup uses `getent
+  passwd` on Linux and `dscl UserShell` on macOS, with a non-fatal process-shell
+  fallback; this covers the standard skill path where Claude's Bash tool reports
+  zsh even though passwd reports fish. The CLI also says plainly that no
+  automatic `agx` or nudge exists at a fish prompt and prints an executable path
+  for plugin-only installs where bare `agent-guard` is not on `PATH`. No
+  fish-syntax marker is written or faked: claiming protection fish cannot
+  provide would be worse than the warning it replaces.
 - fix(hooks): report a scan that could not run distinctly from a detection
   (#137). A scanner precondition failure and a real detection previously looked
   identical — both printed and exited 2 — so an operator could not tell whether
