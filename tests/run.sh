@@ -6668,6 +6668,42 @@ else
   printf '%s\n' "$post_out" | sed 's/^/  out: /'
 fi
 
+# Idempotence as a PROPERTY, not a handful of literals. The assertion above
+# pins one bare sentinel with nothing after it, and that is exactly why the
+# quoted-leaf corruption got through: `password=[REDACTED]"}` walked the strip
+# into the marker, so the second pass re-masked a fragment and appended a `]`,
+# and it compounded on every further pass. Feed each redacted output straight
+# back in: a second pass must produce no rewrite at all.
+DISPLAY_IDEM_SECRET=$(printf '%s%s' 'hunter2-' 'long-value')
+for display_idem_case in \
+  "{\"log\":\"API_KEY=$DISPLAY_IDEM_SECRET\"}" \
+  "{\"level\":\"info\",\"log\":\"start API_KEY=$DISPLAY_IDEM_SECRET\",\"ok\":true}" \
+  "prefix \"DB_PASSWORD=$DISPLAY_IDEM_SECRET\" suffix" \
+  "{\"a\":{\"b\":\"API_KEY=$DISPLAY_IDEM_SECRET\"}}" \
+  "{\"log\":\"DB_PASSWORD=$DISPLAY_IDEM_SECRET,x\"}" \
+  "API_KEY=$DISPLAY_IDEM_SECRET" \
+  "error: password: $DISPLAY_IDEM_SECRET" \
+  "$(printf '{"log":"API_KEY=%s"}\r' "$DISPLAY_IDEM_SECRET")"; do
+  display_input=$(jq -nc --arg stdout "$display_idem_case" \
+    '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+  post_tool_out "$display_input"
+  display_idem_first=$(jq -r '.hookSpecificOutput.updatedToolOutput.stdout // empty' <"$OUT" 2>/dev/null)
+  if [ -z "$display_idem_first" ]; then
+    not_ok "#178 idempotence precondition: first pass masks '$display_idem_case'"
+    continue
+  fi
+  display_input=$(jq -nc --arg stdout "$display_idem_first" \
+    '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+  post_tool_out "$display_input"
+  if [ ! -s "$OUT" ]; then
+    ok "#178 a redacted output is unchanged when fed back through post-tool"
+  else
+    not_ok "#178 a redacted output is unchanged when fed back through post-tool"
+    printf '  in : %s\n' "$display_idem_first"
+    sed 's/^/  out: /' "$OUT"
+  fi
+done
+
 display_input=$(jq -nc \
   --arg stdout 'PASSWORD=[REDACTED]]evil-suffix' \
   '{tool_name:"Bash",tool_input:{command:"x"},tool_response:
