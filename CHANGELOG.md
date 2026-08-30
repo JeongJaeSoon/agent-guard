@@ -27,6 +27,9 @@
   otherwise lose the `]` that belongs to the marker, so `[REDACTED` was
   re-emitted as a secret and a stray `]` appended — compounding on every pass
   and making the prompt guard block text Agent Guard had itself redacted.
+  A trailing carriage return is skipped as edge whitespace, so CRLF output —
+  Windows tools, PowerShell, Docker and CI logs — masks the same shape it
+  does on LF; the carriage return itself is preserved.
 - fix(redaction): close the status-label display-redaction leak (#156). The
   seven-word status allowlist (`error`, `warning`, `info`, `note`, `debug`,
   `fatal`, `hint`) let a secret that gitleaks does not recognise reach the model

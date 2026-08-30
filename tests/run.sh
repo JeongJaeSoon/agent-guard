@@ -7444,6 +7444,45 @@ expect_json_status 0 "#178 the prompt guard does not block its own sentinel in a
     '{session_id:"t",hook_event_name:"UserPromptSubmit",prompt:$prompt}')" \
   hook-user-prompt
 
+# CRLF output (Windows tools, PowerShell, Docker and CI logs) kept a carriage
+# return glued to the value token, and the strip loop stopped on it before it
+# could reach the quote or the closers — leaving the exact shape #178 is about
+# unmasked. `\r` is edge whitespace here, as it already is in edge_trim(); the
+# replacement extent stays the value, so the CR survives in the output.
+JSONLEAF_CR_SECRET=$(printf '%s%s' 'hunter2-' 'long-value')
+for jsonleaf_cr_spec in \
+  '{"log":"API_KEY=%s"}\r' \
+  'API_KEY=%s\r' \
+  'a\r\n{"log":"API_KEY=%s"}\r\nb'; do
+  # shellcheck disable=SC2059
+  jsonleaf_cr=$(printf "$jsonleaf_cr_spec" "$JSONLEAF_CR_SECRET")
+  display_input=$(jq -nc --arg stdout "$jsonleaf_cr" \
+    '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+  post_tool_out "$display_input"
+  post_out=$(cat "$OUT")
+  if printf '%s' "$post_out" | grep -q '\[REDACTED\]' \
+     && ! printf '%s' "$post_out" | grep -Fq "$JSONLEAF_CR_SECRET"; then
+    ok "#178 a CRLF quoted leaf still masks"
+  else
+    not_ok "#178 a CRLF quoted leaf still masks"
+    printf '%s\n' "$post_out" | sed 's/^/  out: /'
+  fi
+done
+
+# The carriage return is edge whitespace, not part of the value: it must stay
+# in the rewritten text, or the extent guarantee #169 pins is broken.
+display_input=$(jq -nc --arg stdout "$(printf '{"log":"API_KEY=%s"}\r' "$JSONLEAF_CR_SECRET")" \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$display_input"
+if cat "$OUT" \
+  | jq -e '.hookSpecificOutput.updatedToolOutput.stdout
+      == "{\"log\":\"API_KEY=[REDACTED]\"}\r"' >/dev/null 2>&1; then
+  ok "#178 the carriage return survives the CRLF rewrite"
+else
+  not_ok "#178 the carriage return survives the CRLF rewrite"
+  sed 's/^/  out: /' "$OUT"
+fi
+
 # Display redaction must not mangle credential-handling SOURCE CODE. A
 # credential-shaped key on the left says nothing about the right-hand side: a
 # reference (`process.env.API_KEY`, `os.environ["DB_PASSWORD"]`, `config.apiKey`,

@@ -3342,6 +3342,13 @@ secretish_env_values() {
           # text agent-guard itself redacted.
           if (already_redacted(substr(value, 1, end))) return 0
           ch = substr(value, end, 1)
+          # `\r` is edge whitespace, not value: scan_leaf splits on `\n` and
+          # keeps the preceding carriage return, so on CRLF output the token is
+          # `…"}\r` and this loop stopped on the CR before it could reach the
+          # quote or the closers — leaving the exact shape #178 is about
+          # unmasked on Windows, PowerShell, Docker and CI logs. Stripping it
+          # keeps the replacement extent at the value: the CR stays in the text.
+          if (ch == "\r") { end--; continue }
           if (ch == "}" || ch == "]" || ch == ")") { end--; continue }
           # One trailing quote closes the string the assignment SITS INSIDE; it
           # is not part of the value. A tool returning a serialized log leaf
