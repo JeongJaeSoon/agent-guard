@@ -2371,13 +2371,23 @@ bash_strip_non_path_tokens() {
       return 0
     fi
 
-    # The token EXACTLY, with no basename strip. Reducing `./echo` to `echo`
-    # handed the exception to any executable that merely shares the name —
-    # `./echo .env`, `/tmp/printf .env` and `./jq .env` all passed the gate, and
-    # those programs can read the denied file. A path-qualified invocation keeps
-    # today false positive instead. Quotes are still removed: quoting changes
-    # nothing about which program runs.
-    strip_command=$(printf '%s' "$1" | tr -d "'\"")
+    # The token EXACTLY: no basename strip, and no quote removal either.
+    #
+    # Stripping the directory handed the exception to any executable that merely
+    # shares the name — `./echo .env`, `/tmp/printf .env` and `./jq .env` all
+    # passed while reading the denied file.
+    #
+    # Removing quotes was worse, because shell_command_words splits on
+    # whitespace BEFORE quotes are resolved: a command name containing quoted
+    # whitespace arrives here as its first fragment, so `'\''echo foo'\'' .env`
+    # reduced to `echo` and took the exception, while the shell resolved an
+    # executable literally named `echo foo` that read the file. Comparing the
+    # raw token is the only form that cannot be talked into a false match.
+    #
+    # `'\''echo'\'' .env` therefore keeps its false positive. That is the same
+    # trade every other narrowing here makes, and quoting a bare command name is
+    # not a shape worth widening the gate for.
+    strip_command=$1
     case "$strip_command" in
       echo|printf|jq) ;;
       *)

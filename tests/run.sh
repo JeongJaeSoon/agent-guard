@@ -1806,15 +1806,23 @@ done
 # yq is NOT in the jq family: Mike Farah yq treats its first argument as an
 # expression only when no file of that name exists, so `yq .env` in a directory
 # holding one reads it. Dropping that operand was a read bypass.
-# The command word is the token EXACTLY. Reducing `./echo` to its basename gave
-# the exception to any executable merely sharing the name, and those can read
-# the denied file — verified as a real pass before the fix.
+# The command word is the RAW token: no basename strip, no quote removal.
+# Stripping the directory gave the exception to any executable merely sharing
+# the name. Removing quotes was worse — shell_command_words splits on whitespace
+# before quotes resolve, so a command name containing quoted whitespace arrives
+# as its first fragment and reduced to a trusted name, while the shell resolved
+# an executable literally called `echo foo` that read the file. Both verified as
+# real passes, and the second as a real read, before the fix.
 for nonpath_case in \
   "./echo .env" \
   "/tmp/printf .env" \
   "./jq .env" \
   "bin/echo .env" \
-  "/usr/bin/echo .env"; do
+  "/usr/bin/echo .env" \
+  "'echo foo' .env" \
+  "\"echo foo\" .env" \
+  "'echo' .env" \
+  "\"echo\" .env"; do
   expect_json_status 2 "#99 Bash a path-qualified lookalike gets no exception: '$nonpath_case'" \
     "$(jq -nc --arg c "$nonpath_case" \
       '{tool_name:"Bash",tool_input:{command:$c}}')" \
