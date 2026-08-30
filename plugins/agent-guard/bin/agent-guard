@@ -226,24 +226,41 @@ hook_warning_once() {
   (umask 077; set -C; : >"$warning_marker") 2>/dev/null
 }
 
-handle_hook_infrastructure_failure() {
-  event=$1
-  input=${2:-}
-  detail=$3
+# Shared front half of every infrastructure-failure policy: warn once per
+# session on stderr, apply the closed policy, and leave the message a caller
+# may still want to publish in $INFRA_FAILURE_NOTICE (empty when this session
+# already warned). Callers differ only in WHERE that notice goes, because a
+# hook may write at most one top-level JSON response: a handler that prints its
+# own object cannot be followed by a second one.
+INFRA_FAILURE_NOTICE=
+
+begin_infrastructure_failure() {
+  input=${1:-}
+  detail=$2
+  INFRA_FAILURE_NOTICE=
   mode=$(infrastructure_failure_mode)
   if hook_warning_once "$input"; then
     case "$mode" in
-      closed) message="$detail Blocking because AGENT_GUARD_INFRA_FAILURE_MODE=closed." ;;
-      *) message="$detail continuing because AGENT_GUARD_INFRA_FAILURE_MODE=open (the default)." ;;
+      closed) INFRA_FAILURE_NOTICE="$detail Blocking because AGENT_GUARD_INFRA_FAILURE_MODE=closed." ;;
+      *) INFRA_FAILURE_NOTICE="$detail continuing because AGENT_GUARD_INFRA_FAILURE_MODE=open (the default)." ;;
     esac
-    info "$message"
-    case "$event" in
-      PreToolUse|PostToolUse|UserPromptSubmit)
-        printf '{"hookSpecificOutput":{"hookEventName":"%s","additionalContext":"%s"}}\n' "$event" "$message"
-        ;;
-    esac
+    info "$INFRA_FAILURE_NOTICE"
   fi
   [ "$mode" = closed ] && exit 2
+  return 0
+}
+
+# Emits the notice immediately. Only safe where the caller returns without
+# writing anything else to stdout; hook-user-prompt defers instead.
+handle_hook_infrastructure_failure() {
+  event=$1
+  begin_infrastructure_failure "${2:-}" "$3"
+  [ -n "$INFRA_FAILURE_NOTICE" ] || return 0
+  case "$event" in
+    PreToolUse|PostToolUse|UserPromptSubmit)
+      printf '{"hookSpecificOutput":{"hookEventName":"%s","additionalContext":"%s"}}\n' "$event" "$INFRA_FAILURE_NOTICE"
+      ;;
+  esac
   return 0
 }
 
@@ -271,16 +288,7 @@ emit_degraded_hook_warning() {
 # PostToolUse may still emit one redaction response after an open git-backstop
 # failure. Warn on stderr only here so the hook never emits two JSON responses.
 handle_git_infrastructure_failure() {
-  input=${1:-}
-  detail=$2
-  mode=$(infrastructure_failure_mode)
-  if hook_warning_once "$input"; then
-    case "$mode" in
-      closed) info "$detail Blocking because AGENT_GUARD_INFRA_FAILURE_MODE=closed." ;;
-      *) info "$detail continuing because AGENT_GUARD_INFRA_FAILURE_MODE=open (the default)." ;;
-    esac
-  fi
-  [ "$mode" = closed ] && exit 2
+  begin_infrastructure_failure "${1:-}" "$2"
   return 0
 }
 
@@ -3935,6 +3943,34 @@ prompt_has_secretish_assignment() {
     | grep -q .
 }
 
+# The single hook response, whatever combination of facts produced it. A hook
+# may write at most one top-level JSON object, so the infrastructure notice and
+# the mode-specific message share one: additionalContext (the model-facing
+# channel both hosts document) carries both, and systemMessage — a Claude-only
+# field — carries the mode-specific message, matching how the other hooks
+# report an infrastructure failure to the user on stderr rather than in the UI.
+# Prints nothing when there is nothing to say.
+emit_prompt_response() {
+  notice=$1
+  message=$2
+  if [ -n "$notice" ] && [ -n "$message" ]; then
+    context="$notice $message"
+  else
+    context="$notice$message"
+  fi
+  [ -n "$context" ] || return 0
+  if [ -n "$message" ] && [ "$(hook_host)" != codex ]; then
+    jq -nc --arg m "$message" --arg c "$context" \
+      '{systemMessage: $m,
+        hookSpecificOutput: {hookEventName: "UserPromptSubmit",
+                             additionalContext: $c}}'
+  else
+    jq -nc --arg c "$context" \
+      '{hookSpecificOutput: {hookEventName: "UserPromptSubmit",
+                             additionalContext: $c}}'
+  fi
+}
+
 hook_user_prompt() {
   input=$(read_stdin)
   HOOK_EVENT=UserPromptSubmit
@@ -3961,18 +3997,26 @@ hook_user_prompt() {
   block_on_pii_text "user prompt" "$prompt"
   [ "$prompt_mode" != off ] || return 0
 
+  # An infrastructure notice raised here is ACCUMULATED, not printed: warn mode
+  # still has its own response to write, and two concatenated top-level objects
+  # are not a valid hook response — a host that parses stdout as one document
+  # drops the warning entirely, exactly when the scanner is already degraded.
+  # emit_prompt_response folds both messages into the single allowed object.
+  notice=
   found=0
   scan_text_direct "user prompt" "$prompt"
   case $? in
     0) ;;
     1) found=1 ;;
     "$SCAN_STATUS_UNAVAILABLE")
-      handle_hook_infrastructure_failure UserPromptSubmit "$input" \
+      begin_infrastructure_failure "$input" \
         "$PROGRAM: scanner infrastructure could not verify the prompt;"
+      notice=$INFRA_FAILURE_NOTICE
       ;;
     *)
-      handle_hook_infrastructure_failure UserPromptSubmit "$input" \
+      begin_infrastructure_failure "$input" \
         "$PROGRAM: the prompt scanner failed;"
+      notice=$INFRA_FAILURE_NOTICE
       ;;
   esac
   if [ "$found" -eq 0 ]; then
@@ -3982,32 +4026,22 @@ hook_user_prompt() {
     # skip the probe and route through the infra-failure policy instead:
     # open warns once and keeps the gitleaks verdict; closed blocks.
     if output_scan_input_exceeds_cap "$prompt"; then
-      handle_hook_infrastructure_failure UserPromptSubmit "$input" \
+      begin_infrastructure_failure "$input" \
         "$PROGRAM: the prompt exceeds the assignment-probe scan cap (gitleaks rules were still applied);"
+      notice=${notice:-$INFRA_FAILURE_NOTICE}
     elif prompt_has_secretish_assignment "$prompt"; then
       found=1
     fi
   fi
-  [ "$found" -eq 1 ] || return 0
+  if [ "$found" -ne 1 ]; then
+    emit_prompt_response "$notice" ''
+    return 0
+  fi
 
   case "$prompt_mode" in
     warn)
-      msg="$PROGRAM: the submitted prompt contains secret-like values; they were passed through because AGENT_GUARD_PROMPT_GUARD_MODE=warn"
-      # systemMessage is a Claude field; Codex documents hookSpecificOutput
-      # additionalContext as its context channel, so emit per host.
-      case "$(hook_host)" in
-        codex)
-          jq -nc --arg m "$msg" \
-            '{hookSpecificOutput: {hookEventName: "UserPromptSubmit",
-                                   additionalContext: $m}}'
-          ;;
-        *)
-          jq -nc --arg m "$msg" \
-            '{systemMessage: $m,
-              hookSpecificOutput: {hookEventName: "UserPromptSubmit",
-                                   additionalContext: $m}}'
-          ;;
-      esac
+      emit_prompt_response "$notice" \
+        "$PROGRAM: the submitted prompt contains secret-like values; they were passed through because AGENT_GUARD_PROMPT_GUARD_MODE=warn"
       return 0
       ;;
     mask)

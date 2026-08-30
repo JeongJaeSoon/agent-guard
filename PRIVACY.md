@@ -50,8 +50,11 @@ The following explicit actions use the network:
   `agent-guard pii-filter` sends the complete text provided on stdin to the
   exact URL in `AGENT_GUARD_PII_REDACT_URL`. In
   `AGENT_GUARD_PII_HOOK_MODE=block`, supported tool-input text is sent to that
-  same endpoint to determine whether it contains PII. The endpoint's operator,
-  not Agent Guard, controls its collection, retention, and deletion practices.
+  same endpoint to determine whether it contains PII, and so is the complete
+  text of every prompt the user submits. A prompt is not a tool input: it
+  carries whatever the user typed or pasted, including material unrelated to
+  the project. The endpoint's operator, not Agent Guard, controls its
+  collection, retention, and deletion practices.
 
 PII hook handling defaults to `off`; the default provider is the local `regex`
 adapter. `mask` mode performs input Tier-2 detection and output masking locally,

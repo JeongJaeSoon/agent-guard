@@ -1163,17 +1163,61 @@ run_expect 2 "prompt guard dies loudly on an unsupported PII mode" \
 # A scanner-infrastructure failure must not clobber the configured mode: with a
 # broken gitleaks and the default open policy, warn stays warn (the assignment
 # probe still detects) instead of silently hardening into a block.
+#
+# The same run is the ground truth for the ONE-response rule. This path raises
+# an infrastructure notice AND a warn message, and a hook may write at most one
+# top-level JSON object: emitting the notice at the point of failure left two
+# concatenated documents on stdout, so a host parsing stdout as one document
+# dropped the promised warning entirely. Assert a single document that still
+# carries both facts — `grep systemMessage` alone passes on the broken shape.
 printf '#!/bin/sh\nexit 3\n' >"$MOCK_BIN/gitleaks-broken"
 chmod +x "$MOCK_BIN/gitleaks-broken"
-printf '%s' "$prompt_guard_env_json" \
-  | AGENT_GUARD_HOOK_HOST=claude AGENT_GUARD_PROMPT_GUARD_MODE=warn \
-    AGENT_GUARD_GITLEAKS_BIN="$MOCK_BIN/gitleaks-broken" \
-    AGENT_GUARD_WARNING_DIR="$TESTTMP/prompt-warn-dir" \
-    "$PLUGIN_ROOT/bin/agent-guard" hook-user-prompt >"$OUT" 2>"$ERR"
+prompt_infra_case() { # $1 host, $2 warning dir
+  printf '%s' "$prompt_guard_env_json" \
+    | AGENT_GUARD_HOOK_HOST="$1" AGENT_GUARD_PROMPT_GUARD_MODE=warn \
+      AGENT_GUARD_GITLEAKS_BIN="$MOCK_BIN/gitleaks-broken" \
+      AGENT_GUARD_WARNING_DIR="$2" \
+      "$PLUGIN_ROOT/bin/agent-guard" hook-user-prompt
+}
+
+prompt_infra_case claude "$TESTTMP/prompt-warn-dir" >"$OUT" 2>"$ERR"
 if [ $? -eq 0 ] && grep -q 'systemMessage' "$OUT"; then
   ok "prompt guard warn mode survives a scanner infrastructure failure"
 else
   not_ok "prompt guard warn mode survives a scanner infrastructure failure"
+  sed 's/^/  stdout: /' "$OUT"; sed 's/^/  stderr: /' "$ERR"
+fi
+if [ "$(jq -s 'length' <"$OUT" 2>/dev/null)" = 1 ] \
+   && jq -e '.systemMessage | test("PROMPT_GUARD_MODE=warn")' "$OUT" >/dev/null 2>&1 \
+   && jq -e '.hookSpecificOutput.additionalContext
+             | test("scanner failed") and test("PROMPT_GUARD_MODE=warn")' "$OUT" >/dev/null 2>&1; then
+  ok "prompt guard emits one response carrying both the infra notice and the warning (claude)"
+else
+  not_ok "prompt guard emits one response carrying both the infra notice and the warning (claude)"
+  sed 's/^/  stdout: /' "$OUT"
+fi
+
+prompt_infra_case codex "$TESTTMP/prompt-warn-dir-codex" >"$OUT" 2>"$ERR"
+if [ $? -eq 0 ] && [ "$(jq -s 'length' <"$OUT" 2>/dev/null)" = 1 ] \
+   && ! grep -q 'systemMessage' "$OUT" \
+   && jq -e '.hookSpecificOutput.additionalContext
+             | test("scanner failed") and test("PROMPT_GUARD_MODE=warn")' "$OUT" >/dev/null 2>&1; then
+  ok "prompt guard emits one response carrying both the infra notice and the warning (codex)"
+else
+  not_ok "prompt guard emits one response carrying both the infra notice and the warning (codex)"
+  sed 's/^/  stdout: /' "$OUT"
+fi
+
+# Block mode after the same infrastructure failure must not leave a stray
+# response object on stdout either: exit 2 carries the reason on stderr.
+printf '%s' "$prompt_guard_env_json" \
+  | AGENT_GUARD_HOOK_HOST=claude AGENT_GUARD_GITLEAKS_BIN="$MOCK_BIN/gitleaks-broken" \
+    AGENT_GUARD_WARNING_DIR="$TESTTMP/prompt-warn-dir-block" \
+    "$PLUGIN_ROOT/bin/agent-guard" hook-user-prompt >"$OUT" 2>"$ERR"
+if [ $? -eq 2 ] && [ ! -s "$OUT" ] && grep -q 'scanner failed' "$ERR"; then
+  ok "prompt guard block mode writes no stdout response after an infra failure"
+else
+  not_ok "prompt guard block mode writes no stdout response after an infra failure"
   sed 's/^/  stdout: /' "$OUT"; sed 's/^/  stderr: /' "$ERR"
 fi
 
