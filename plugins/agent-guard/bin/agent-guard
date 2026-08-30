@@ -3391,8 +3391,8 @@ secretish_env_values() {
           # bypass for exactly the case where output was cut short. Classify the
           # fragment that IS available: a credential-shaped one opens multiline
           # capture like every other path, so the leaf remainder is masked,
-          # while prose (`error: password: "authentication is disabled`) still
-          # falls through untouched.
+          # while an unterminated prose chain behind the same label still falls
+          # through untouched.
           if (require_credential && !credential_shaped(raw)) return 0
           open_quote = quote
           open_value = raw

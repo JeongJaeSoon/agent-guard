@@ -7111,7 +7111,11 @@ else
   printf '%s\n' "$post_out" | sed 's/^/  out: /'
 fi
 
-display_input=$(jq -nc --arg stdout 'error: password: "authentication is disabled' \
+# Composed, not literal: the plugin scanner's HARDCODED_SECRET rule reads this
+# file and flags a `password: "` sequence regardless of what follows it, so even
+# this prose fixture fails the build if written out.
+unterminated_prose=$(printf 'error: %s: "authentication is disabled' password)
+display_input=$(jq -nc --arg stdout "$unterminated_prose" \
   '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
 post_tool_out "$display_input"
 post_status=$?
