@@ -7167,6 +7167,43 @@ else
   sed 's/^/  out: /' "$OUT"
 fi
 
+# Edge padding on a single-line quoted value must not defeat the shape test
+# either — the trim was applied to the multiline capture paths first and these
+# two direct classification sites were missed, so a padded credential leaked on
+# both the display and the block path.
+for display_pad in ' %s' '%s ' '  %s  '; do
+  # shellcheck disable=SC2059
+  padded_secret=$(printf "$display_pad" "$LABEL_SECRET")
+  display_input=$(jq -nc --arg stdout "error: password: \"$padded_secret\"" \
+    '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+  post_tool_out "$display_input"
+  post_out=$(cat "$OUT")
+  if printf '%s' "$post_out" | grep -q '\[REDACTED\]' \
+     && ! printf '%s' "$post_out" | grep -Fq "$LABEL_SECRET"; then
+    ok "#156 a padded quoted status-label credential still masks"
+  else
+    not_ok "#156 a padded quoted status-label credential still masks"
+    printf '%s\n' "$post_out" | sed 's/^/  out: /'
+  fi
+done
+
+expect_json_status 2 "#156 a padded quoted status-label credential still blocks at the prompt guard" \
+  "$(jq -nc --arg prompt "error: password: \" $LABEL_SECRET\"" \
+    '{session_id:"t",hook_event_name:"UserPromptSubmit",prompt:$prompt}')" \
+  hook-user-prompt
+
+# Padding must not turn prose into a credential either.
+display_input=$(jq -nc --arg stdout 'error: password: " authentication is disabled "' \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$display_input"
+post_status=$?
+if [ "$post_status" -eq 0 ] && [ ! -s "$OUT" ]; then
+  ok "#156 a padded quoted prose message stays visible"
+else
+  not_ok "#156 a padded quoted prose message stays visible"
+  sed 's/^/  out: /' "$OUT"
+fi
+
 # The value may not start on the label's own line. Classifying the fragment
 # available there missed this entirely: the fragment is empty, so it failed the
 # shape test, the capture never opened, and the continuation line carries no

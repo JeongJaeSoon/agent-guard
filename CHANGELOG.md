@@ -28,14 +28,18 @@
   end in a deny-listed extension (#99). `echo foo.key`, `echo see also foo.pem`
   and `jq -r .key data.json` were reported as `blocked shell command
   referencing a deny-listed path` although nothing was read and no such file
-  existed. Operands are now narrowed by command position: every word operand of
-  `echo`/`printf`, which take no file operands, and the jq family's first
-  non-option operand, which is the filter program, are dropped before the deny
-  scan. Only clean literals are dropped, so `echo $(cat .env)` still blocks, and
-  a redirection stops the stripping for the rest of that segment. Deliberately
-  not narrowed by file existence: that would also unblock `cat .env` in a
-  directory without one, and refusing that read by name is the documented
-  behaviour.
+  existed. Operands are now narrowed by command position, and only inside ONE
+  simple command: if the command contains a newline, `&`, `|`, `;`, grouping,
+  redirection, substitution or expansion, nothing is stripped at all. Within
+  that, every word operand of `echo`/`printf`, which take no file operands, and
+  `jq`'s first non-option operand, which is the filter program, are dropped
+  before the deny scan. The command word must be the token exactly — no path,
+  no quotes — and only clean literals are ever dropped, so `echo $(cat .env)`,
+  `./echo .env` and `'echo foo' .env` all still block. `yq`, `gojq` and `jaq`
+  get no exception: yq treats its first argument as a file when one exists, and
+  the other two were never verified against. Deliberately not narrowed by file
+  existence: that would also unblock `cat .env` in a directory without one, and
+  refusing that read by name is the documented behaviour.
 - fix(hooks): drop the undefined `\"` escape from the shell-parser awk bracket
   expression (#99). gawk warned `regexp escape sequence \" is not a known
   regexp operator` on every `hook-pre-tool` run, including runs that passed. The

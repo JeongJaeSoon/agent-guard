@@ -3463,7 +3463,11 @@ secretish_env_values() {
           return 1
         }
         value = substr(raw, 1, end - 1)
-        if (require_credential && !credential_shaped(value)) return 0
+        # Classify an edge-trimmed copy, replace the original. A quoted value
+        # with padding (`" <secret>"`) failed the whitespace-is-prose test on
+        # its padding alone, on this single-line path as well as the multiline
+        # one. Internal whitespace is untouched, so prose still reads as prose.
+        if (require_credential && !credential_shaped(edge_trim(value))) return 0
       } else {
         value = raw
         sub(/[ \t,;].*$/, "", value)
@@ -3477,7 +3481,7 @@ secretish_env_values() {
         }
         value = substr(value, 1, end)
         if (looks_like_reference(value, assignment, leading)) return 0
-        if (require_credential && !credential_shaped(value)) return 0
+        if (require_credential && !credential_shaped(edge_trim(value))) return 0
         # Eligibility is based on the complete token. For short values, scope
         # replacement to the complete assignment token so an ordinary
         # one-character literal is not replaced throughout the response.
