@@ -7079,40 +7079,68 @@ for display_case in \
   fi
 done
 
-# On the status-label path a shape gate, not a detector, decided the value is a
-# credential, so the replacement is scoped to the matched assignment token. A
-# global literal would erase the value from every other line of the response —
-# scrubbing a version string out of a release note, or a resource name out of
-# the very command the agent needs to run next.
-scoped_input=$(jq -nc --arg stdout 'error: token: v1.2.3 is not a valid tag
-Downloading release v1.2.3 from github' \
+# A value that passes the shape gate is masked GLOBALLY, like one found behind
+# any other label — scoping it to the labelled line left a recurrence visible.
+# The false positives that scoping would contain are not specific to this path:
+# `response: token: v1.2.3` already scrubs every v1.2.3 in the response on main.
+recur_input=$(jq -nc --arg stdout "error: password: $LABEL_SECRET
+retrying with $LABEL_SECRET" \
   '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
-post_tool_out "$scoped_input"
+post_tool_out "$recur_input"
 post_out=$(cat "$OUT")
-if printf '%s' "$post_out" \
-  | jq -e '.hookSpecificOutput.updatedToolOutput.stdout
-      | (contains("Downloading release v1.2.3 from github"))
-        and (startswith("error: token: [REDACTED] is not a valid tag"))' >/dev/null 2>&1; then
-  ok "#156 status-label masking is scoped to its own line, not the whole output"
+if printf '%s' "$post_out" | grep -q '\[REDACTED\]' \
+   && ! printf '%s' "$post_out" | grep -Fq "$LABEL_SECRET"; then
+  ok "#156 a status-label secret is masked where it recurs later in the output"
 else
-  not_ok "#156 status-label masking is scoped to its own line, not the whole output"
+  not_ok "#156 a status-label secret is masked where it recurs later in the output"
   printf '%s\n' "$post_out" | sed 's/^/  out: /'
 fi
 
-# The same property with a value the agent needs to keep reading afterwards.
-scoped_input=$(jq -nc --arg stdout 'Error: secret: prod-db-secret-v2 not found
-Run: kubectl create secret generic prod-db-secret-v2 --from-literal=x=y' \
+# Truncated output after an opening quote must not buy a pass. There is no
+# complete value to classify, so the fragment decides: credential-shaped opens
+# multiline capture like any other path, prose still falls through.
+display_input=$(jq -nc --arg stdout "error: password: \"$LABEL_SECRET" \
   '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
-post_tool_out "$scoped_input"
+post_tool_out "$display_input"
 post_out=$(cat "$OUT")
-if printf '%s' "$post_out" \
-  | jq -e '.hookSpecificOutput.updatedToolOutput.stdout
-      | contains("kubectl create secret generic prod-db-secret-v2")' >/dev/null 2>&1; then
-  ok "#156 a status-label false positive does not scrub the value from later lines"
+if printf '%s' "$post_out" | grep -q '\[REDACTED\]' \
+   && ! printf '%s' "$post_out" | grep -Fq "$LABEL_SECRET"; then
+  ok "#156 an unterminated quoted credential behind a status label still masks"
 else
-  not_ok "#156 a status-label false positive does not scrub the value from later lines"
+  not_ok "#156 an unterminated quoted credential behind a status label still masks"
   printf '%s\n' "$post_out" | sed 's/^/  out: /'
 fi
+
+display_input=$(jq -nc --arg stdout 'error: password: "authentication is disabled' \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$display_input"
+post_status=$?
+if [ "$post_status" -eq 0 ] && [ ! -s "$OUT" ]; then
+  ok "#156 an unterminated quoted prose chain behind a status label stays visible"
+else
+  not_ok "#156 an unterminated quoted prose chain behind a status label stays visible"
+  sed 's/^/  out: /' "$OUT"
+fi
+
+# A delimiter-separated passphrase is far less prose-like than a bare word, so
+# the compound-length fallback accepts `.`/`-`/`_` joins rather than requiring a
+# purely alphabetic value.
+for display_case in \
+  'correct-horse-battery-staple' \
+  'correct.horse.battery.staple' \
+  'correct_horse_battery_staple'; do
+  display_input=$(jq -nc --arg stdout "error: password: $display_case" \
+    '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+  post_tool_out "$display_input"
+  post_out=$(cat "$OUT")
+  if printf '%s' "$post_out" | grep -q '\[REDACTED\]' \
+     && ! printf '%s' "$post_out" | grep -Fq "$display_case"; then
+    ok "#156 post-tool masks a delimiter-separated passphrase ($display_case)"
+  else
+    not_ok "#156 post-tool masks a delimiter-separated passphrase ($display_case)"
+    printf '%s\n' "$post_out" | sed 's/^/  out: /'
+  fi
+done
 
 # Display redaction must not mangle credential-handling SOURCE CODE. A
 # credential-shaped key on the left says nothing about the right-hand side: a

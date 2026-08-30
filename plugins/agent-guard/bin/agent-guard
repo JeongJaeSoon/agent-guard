@@ -3367,8 +3367,11 @@ secretish_env_values() {
       # leading capital alone is ordinary sentence case (`Authentication`).
       if (v ~ /[0-9][A-Za-z]/ || v ~ /[A-Za-z][0-9]/) return 1
       if (v ~ /[a-z]/ && substr(v, 2) ~ /[A-Z]/) return 1
-      # A single-case alphabetic run longer than any ordinary word.
-      if (length(v) >= 24 && v ~ /^[A-Za-z]+$/) return 1
+      # A single-case alphabetic run longer than any ordinary word, joined by
+      # `.`/`-`/`_` or not. Requiring a PURELY alphabetic value let a
+      # delimiter-separated passphrase (`correct-horse-battery-staple`) through,
+      # although it is far less prose-like than the bare-word residual below it.
+      if (length(v) >= 24 && v ~ /^[A-Za-z]+([._-][A-Za-z]+)*$/) return 1
       return 0
     }
     function emit_value(source, start, assignment, require_credential, \
@@ -3383,10 +3386,14 @@ secretish_env_values() {
         raw = substr(raw, 2)
         end = quoted_end(raw, quote)
         if (end == 0) {
-          # An unterminated quote gives no complete value to classify, so the
-          # status-label path keeps its pre-#156 behaviour and skips rather than
-          # opening multiline capture over what may be prose.
-          if (require_credential) return 0
+          # Truncated or malformed output after an opening quote. There is no
+          # complete value to classify, but skipping outright restored the #156
+          # bypass for exactly the case where output was cut short. Classify the
+          # fragment that IS available: a credential-shaped one opens multiline
+          # capture like every other path, so the leaf remainder is masked,
+          # while prose (`error: password: "authentication is disabled`) still
+          # falls through untouched.
+          if (require_credential && !credential_shaped(raw)) return 0
           open_quote = quote
           open_value = raw
           return 1
@@ -3411,15 +3418,17 @@ secretish_env_values() {
         # replacement to the complete assignment token so an ordinary
         # one-character literal is not replaced throughout the response.
         #
-        # The status-label path scopes for a different reason: there the shape
-        # gate, not a detector, decided this is a credential, and a wrong guess
-        # is expected rather than exceptional. A global literal would erase the
-        # value from EVERY line of the response, so one bad call on
-        # `error: token: v1.2.3` also scrubs the `v1.2.3` in the release note
-        # three lines down, and `Error: secret: prod-db-secret-v2 not found`
-        # takes the name out of the `kubectl create secret` hint that follows.
-        # Scoped, a false positive costs the one label line it was found on.
-        if (require_credential || (length(value) < 4 && length(token) >= 4)) {
+        # The status-label path deliberately does NOT scope: a value that has
+        # passed credential_shaped is masked globally, exactly like one found
+        # behind any other label. Scoping it left a recurrence visible —
+        # `error: password: <secret>` followed by `retrying with <secret>`
+        # masked only the labelled line. The false positives that scoping would
+        # contain (a version string or a resource name scrubbed from a later
+        # line) are not specific to this path: `response: token: v1.2.3` already
+        # scrubs every v1.2.3 in the response on main. Consistency with the
+        # other paths is worth more here than containing a bad guess, because a
+        # displayed secret costs more than a mangled log line.
+        if (length(value) < 4 && length(token) >= 4) {
           trailing = substr(token, end + 1)
           emit_mapping(assignment leading token,
                        assignment leading "[REDACTED]" trailing)
