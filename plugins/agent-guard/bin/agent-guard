@@ -2277,6 +2277,21 @@ bash_strip_allowed_tokens() {
   )
 }
 
+# jq/yq options that never consume a following value. Anything outside this list
+# — `-f`, `--from-file`, `-L`, `--arg`, a combined cluster such as `-rf` — may
+# take the NEXT token as a value, and for the file-taking ones that token is a
+# path jq reads. Treating it as the filter and dropping it was a read bypass, so
+# an unrecognised option stops the filter search instead of consuming it.
+jq_option_is_valueless() {
+  case "$1" in
+    -r|-c|-n|-e|-j|-a|-s|-S|-R|-M|-C|-h|\
+    --raw-output|--join-output|--compact-output|--null-input|--exit-status|\
+    --ascii-output|--slurp|--sort-keys|--raw-input|--tab|--monochrome-output|\
+    --color-output|--help|--version|--stream|--seq) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 # The deny-read patterns are basename globs, and matching them against every
 # word of a command makes any word that merely ends in a listed extension a
 # block: `echo foo.key`, `jq -r .key data.json`, `echo see also foo.pem` (#99).
@@ -2290,78 +2305,102 @@ bash_strip_allowed_tokens() {
 # without one, and refusing that read by name — before anything is created — is
 # the behaviour the README quick start verifies and the deny-read tests pin.
 #
-# So drop only operands that the command in front of them cannot read:
+# It is also deliberately restricted to ONE simple command with no shell
+# metacharacters at all. Dropping a word is only sound while that word cannot
+# reach a reader, and shell syntax is exactly what carries it to one:
 #
-#   - every word operand of `echo` / `printf`, which take no file operands at
-#     all (their only file contact is a redirection, and a redirection token
-#     stops the stripping for the rest of that segment);
-#   - the first non-option operand of the jq family, which is the filter
-#     program. `jq -r .key data.json` reads data.json; `.key` selects a field.
-#     A leading `./` or `../` marks a path rather than a filter and is kept.
+#   echo hi<newline>cat .env     - a later line reads it
+#   echo a & cat .env            - `&` starts another command
+#   echo .env | xargs cat        - the dropped word becomes the reader's operand
+#
+# All three read the file, and all three were allowed by a version of this
+# function that tracked segments itself. Rather than re-derive shell parsing
+# here, bail out whenever the command contains any of them and strip nothing.
+# The cost is a false positive on a compound command, which is what the gate
+# already does today; the alternative cost is a silent read bypass.
+#
+# Within one simple command, drop only operands the command cannot read:
+#
+#   - every word operand of `echo` / `printf`, which take no file operands;
+#   - the jq family's first non-option operand, which is the filter program
+#     (`jq -r .key data.json` reads data.json; `.key` selects a field). A
+#     leading `./` or `../` marks a path and is kept, `--` ends the search, and
+#     an option that might take a value stops it (see jq_option_is_valueless).
 #
 # Only a clean literal is ever dropped (env_exception_literal_shell_token
 # rejects quoting that survives unquoting, expansion, globs, redirection and
-# whitespace), so `echo $(cat .env)` keeps both substitution tokens and stays
-# blocked. The list is minimal and additive on purpose: a command missing from
-# it merely keeps today's false positive, it can never turn a real read into a
-# pass. Broader shapes — a deny-listed basename inside a commit message, a grep
-# pattern — are not covered here.
+# whitespace). The command word is taken from the FIRST token, with no wrapper
+# skipping: `sudo echo foo.key` and `FOO=1 echo foo.key` simply keep today's
+# false positive rather than widening what may be stripped.
 bash_strip_non_path_tokens() {
   (
     set -f
-    words=$(shell_command_words "$1")
+    strip_input=$1
+    # The syntax test MUST run on the untouched command ($2), not on $1. The
+    # strip helpers ahead of this one rejoin their tokens with single spaces and
+    # so have already destroyed a real newline separator by the time $1 arrives
+    # — `echo hi<newline>cat .env` reaches here as `echo hi cat .env`, which
+    # reads like one `echo`. That is exactly the bypass this test exists to stop.
+    strip_raw=$2
+
+    # Any shell syntax at all -> strip nothing. Newline, `&`, `|`, `;`, command
+    # grouping, redirection, substitution and expansion each give a dropped word
+    # a route to a reader.
+    case "$strip_raw" in
+      *'
+'*|*'&'*|*'|'*|*';'*|*'('*|*')'*|*'{'*|*'}'*|*'<'*|*'>'*|*'`'*|*'$'*|*'\'*)
+        printf '%s' "$strip_input"
+        return 0
+        ;;
+    esac
+
+    words=$(shell_command_words "$strip_input")
     # shellcheck disable=SC2086
     set -- $words
-    result= strip_command= strip_seen_operand=0 strip_redirected=0
+    if [ "$#" -lt 2 ]; then
+      printf '%s' "$strip_input"
+      return 0
+    fi
 
-    keep_policy_token() {
-      if [ -z "$result" ]; then result=$1; else result="$result $1"; fi
-    }
+    strip_command=${1##*/}
+    strip_command=$(printf '%s' "$strip_command" | tr -d "'\"")
+    case "$strip_command" in
+      echo|printf|jq|gojq|jaq|yq) ;;
+      *)
+        printf '%s' "$strip_input"
+        return 0
+        ;;
+    esac
+
+    result=$1
+    shift
+    strip_seen_operand=0
 
     for token in "$@"; do
-      if is_shell_command_separator "$token"; then
-        strip_command= strip_seen_operand=0 strip_redirected=0
-        keep_policy_token "$token"
-        continue
+      strip_literal=$(env_exception_literal_shell_token "$token" 2>/dev/null \
+        || true)
+      if [ -n "$strip_literal" ]; then
+        case "$strip_command" in
+          echo|printf)
+            continue
+            ;;
+          *)
+            if [ "$strip_seen_operand" -eq 0 ]; then
+              case "$strip_literal" in
+                --) strip_seen_operand=1 ;;
+                -*)
+                  jq_option_is_valueless "$strip_literal" \
+                    || strip_seen_operand=1
+                  ;;
+                ./*|../*) strip_seen_operand=1 ;;
+                .*) strip_seen_operand=1; continue ;;
+                *) strip_seen_operand=1 ;;
+              esac
+            fi
+            ;;
+        esac
       fi
-
-      if [ -z "$strip_command" ]; then
-        if is_assignment_token "$token" || is_noop_wrapper "${token##*/}"; then
-          keep_policy_token "$token"
-          continue
-        fi
-        strip_command=${token##*/}
-        strip_command=$(printf '%s' "$strip_command" | tr -d "'\"")
-        keep_policy_token "$token"
-        continue
-      fi
-
-      case "$token" in
-        *'<'*|*'>'*) strip_redirected=1 ;;
-      esac
-
-      if [ "$strip_redirected" -eq 0 ]; then
-        strip_literal=$(env_exception_literal_shell_token "$token" 2>/dev/null \
-          || true)
-        if [ -n "$strip_literal" ]; then
-          case "$strip_command" in
-            echo|printf)
-              continue
-              ;;
-            jq|gojq|jaq|yq)
-              if [ "$strip_seen_operand" -eq 0 ]; then
-                case "$strip_literal" in
-                  -*) ;;
-                  ./*|../*) strip_seen_operand=1 ;;
-                  .*) strip_seen_operand=1; continue ;;
-                  *) strip_seen_operand=1 ;;
-                esac
-              fi
-              ;;
-          esac
-        fi
-      fi
-      keep_policy_token "$token"
+      result="$result $token"
     done
     printf '%s' "$result"
   )
@@ -2376,7 +2415,7 @@ bash_matches_deny_path() {
   deny_cmd=$1
   deny_cmd=$(bash_strip_exclusion_operands "$deny_cmd")
   deny_cmd=$(bash_strip_allowed_tokens "$deny_cmd")
-  deny_cmd=$(bash_strip_non_path_tokens "$deny_cmd")
+  deny_cmd=$(bash_strip_non_path_tokens "$deny_cmd" "$1")
   bash_matches_deny_path_mode "$deny_cmd" "literal" && return 0
   bash_matches_deny_path_mode "$deny_cmd" "shell-expanded" && return 0
   dequoted=$(shell_dequote_for_policy "$deny_cmd")

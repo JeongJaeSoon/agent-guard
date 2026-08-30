@@ -1749,6 +1749,72 @@ for nonpath_case in \
     hook-pre-tool
 done
 
+# Dropping a word is only sound while that word cannot reach a reader, and shell
+# syntax is what carries it to one. Every case below reads the file for real
+# (verified with `bash -c` against a fixture directory) and was ALLOWED by an
+# earlier revision of this narrowing that tried to track command segments
+# itself. The newline cases are the subtle ones: the strip helpers that run
+# first rejoin their tokens with single spaces, so `echo hi<newline>cat .env`
+# arrives here as `echo hi cat .env` and reads like one `echo` — which is why
+# the syntax test runs on the untouched command, not on the stripped one.
+nonpath_newline_env=$(printf 'echo hi\ncat .env')
+nonpath_newline_ssh=$(printf 'echo one\necho two\ncat .ssh/id_rsa')
+nonpath_newline_sec=$(printf 'printf x\ncat secrets.json')
+for nonpath_case in \
+  "$nonpath_newline_env" \
+  "$nonpath_newline_ssh" \
+  "$nonpath_newline_sec" \
+  "echo a & cat .env" \
+  "echo a&cat .ssh/id_rsa" \
+  "echo a & cat .netrc" \
+  "echo a & cat .git-credentials" \
+  "echo a & head -c 100 secrets.json" \
+  "echo .env | xargs cat" \
+  "printf %s .env | xargs cat" \
+  "echo .ssh/id_rsa | xargs cat" \
+  "echo .env | xargs -I{} cat {}" \
+  "command echo .env | xargs cat" \
+  "sudo echo .env | xargs cat" \
+  "FOO=1 echo .env | xargs cat"; do
+  expect_json_status 2 \
+    "#99 Bash shell syntax defeats the strip: '$(printf '%s' "$nonpath_case" | tr '\n' '~')' blocks" \
+    "$(jq -nc --arg c "$nonpath_case" \
+      '{tool_name:"Bash",tool_input:{command:$c}}')" \
+    hook-pre-tool
+done
+
+# A jq option outside the valueless allowlist may take the NEXT token as a
+# value, and for `-f`/`--from-file`/`-L` that token is a path jq reads — so it
+# must not be mistaken for the filter and dropped. A combined cluster (`-rf`)
+# counts as unrecognised, and `--` ends the filter search outright.
+for nonpath_case in \
+  "jq -f .env data.json" \
+  "jq -rf .aws/credentials data.json" \
+  "jq --from-file .env data.json" \
+  "jq -f .env" \
+  "jq -L .ssh/id_rsa ." \
+  "jq --slurpfile d .env ." \
+  "jq --rawfile d .env ." \
+  "jq -- .env" \
+  "yq --from-file .env x.yaml"; do
+  expect_json_status 2 "#99 Bash value-taking jq option keeps its operand: '$nonpath_case'" \
+    "$(jq -nc --arg c "$nonpath_case" \
+      '{tool_name:"Bash",tool_input:{command:$c}}')" \
+    hook-pre-tool
+done
+
+# Valueless jq options must not stop the filter search, or the false positive
+# the narrowing exists to fix comes back for any invocation that uses a flag.
+for nonpath_case in \
+  "jq -c -r .$NONPATH_KEY f.json" \
+  "jq -n .$NONPATH_KEY" \
+  "jq --sort-keys .$NONPATH_KEY f.json"; do
+  expect_json_status 0 "#99 Bash valueless jq option keeps the filter droppable: '$nonpath_case'" \
+    "$(jq -nc --arg c "$nonpath_case" \
+      '{tool_name:"Bash",tool_input:{command:$c}}')" \
+    hook-pre-tool
+done
+
 # Path-prefixed candidates go through basename stripping before the suffix match.
 expect_json_status 0 "Read config/.env.local.example (path-prefixed template) is allowed" \
   '{"tool_name":"Read","tool_input":{"file_path":"config/.env.local.example"}}' \
