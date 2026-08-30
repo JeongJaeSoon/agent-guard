@@ -260,7 +260,7 @@ else
   not_ok "shared setup skill selects host-specific trust and live-hook layers"
 fi
 
-for event in PreToolUse PostToolUse Stop; do
+for event in PreToolUse PostToolUse Stop UserPromptSubmit; do
   claude_canonical=$(jq -r ".hooks.${event}[0].matcher" "$PLUGIN_ROOT/hooks/hooks.json")
   codex_canonical=$(jq -r ".hooks.${event}[0].matcher" "$PLUGIN_ROOT/hooks.json")
   claude_example=$(jq -r ".hooks.${event}[0].matcher" "$ROOT/examples/claude/settings.project.json")
@@ -281,14 +281,15 @@ done
 # timeout mismatch) that the matcher-only check above misses.
 hook_subcommand() {
   jq -r ".hooks.${2}[0].hooks[0].command" "$1" \
-    | grep -oE 'hook-(pre-tool|post-tool|stop)' | tail -n1
+    | grep -oE 'hook-(pre-tool|post-tool|stop|user-prompt)' | tail -n1
 }
 
-for event in PreToolUse PostToolUse Stop; do
+for event in PreToolUse PostToolUse Stop UserPromptSubmit; do
   case "$event" in
     PreToolUse)  expected_sub=hook-pre-tool;  expected_timeout=10 ;;
     PostToolUse) expected_sub=hook-post-tool; expected_timeout=20 ;;
     Stop)        expected_sub=hook-stop;      expected_timeout=20 ;;
+    UserPromptSubmit) expected_sub=hook-user-prompt; expected_timeout=10 ;;
   esac
 
   claude_type=$(jq -r ".hooks.${event}[0].hooks[0].type" "$PLUGIN_ROOT/hooks/hooks.json")
@@ -422,7 +423,7 @@ esac
 # manifest tag, and the AGENT_GUARD_HOOK_HOST pin. Normalize those and require
 # byte-identical commands, so a fix applied to one host's resolver cannot
 # silently miss the other.
-for event in PreToolUse PostToolUse Stop SessionStart; do
+for event in PreToolUse PostToolUse Stop SessionStart UserPromptSubmit; do
   claude_cmd=$(jq -r ".hooks.${event}[0].hooks[0].command" "$PLUGIN_ROOT/hooks/hooks.json")
   codex_cmd=$(jq -r ".hooks.${event}[0].hooks[0].command" "$PLUGIN_ROOT/hooks.json")
   case "$claude_cmd" in
@@ -1064,6 +1065,193 @@ expect_json_status 2 "WebSearch query with secret is blocked" \
 expect_json_status 0 "WebSearch benign query is allowed" \
   '{"tool_name":"WebSearch","tool_input":{"query":"agent guard documentation"}}' \
   hook-pre-tool
+
+# --- Prompt guard (hook-user-prompt) ---------------------------------------
+# Ground truth: default mode must block a secret-bearing prompt on BOTH hosts
+# and must pass a benign prompt untouched. Neither host supports rewriting the
+# submitted prompt, so mask degrades to block everywhere; warn passes with a
+# host-shaped notice. The PII input gate runs independently of the secret mode.
+# Runtime-generated fake credential value: a committed literal would trip the
+# repo's own CI secret scan. The probe keys off the DB_PASSWORD name, and the
+# mock gitleaks deliberately does not match it (these cases test the probe).
+# od -N reads a bounded amount and exits on its own; the tr|head urandom idiom
+# hangs on runners that ignore SIGPIPE (tr never learns the reader is gone).
+prompt_guard_fake_value=$(od -An -N12 -tx1 /dev/urandom | LC_ALL=C tr -d ' \n')
+prompt_guard_env_json=$(jq -nc --arg v "$prompt_guard_fake_value" \
+  '{prompt: ("pasted .env:\nDB_PASSWORD=" + $v)}')
+
+prompt_guard_case() { # $1 host, $2 prompt mode ('' = default), $3 pii mode ('' = off), $4 json
+  printf '%s' "$4" \
+    | AGENT_GUARD_HOOK_HOST="$1" AGENT_GUARD_PROMPT_GUARD_MODE="$2" \
+      AGENT_GUARD_PII_HOOK_MODE="$3" \
+      "$PLUGIN_ROOT/bin/agent-guard" hook-user-prompt
+}
+
+for pg_h in claude codex; do
+  run_expect 2 "prompt guard blocks a pasted secret by default ($pg_h)" \
+    prompt_guard_case "$pg_h" '' '' '{"prompt":"my key is AGENT_GUARD_TEST_SECRET"}'
+
+  run_expect 2 "prompt guard blocks a pasted env-style assignment ($pg_h)" \
+    prompt_guard_case "$pg_h" '' '' "$prompt_guard_env_json"
+
+  prompt_guard_case "$pg_h" '' '' '{"prompt":"please refactor the login handler"}' >"$OUT" 2>"$ERR"
+  if [ $? -eq 0 ] && [ ! -s "$OUT" ]; then
+    ok "prompt guard passes a benign prompt silently ($pg_h)"
+  else
+    not_ok "prompt guard passes a benign prompt silently ($pg_h)"
+    sed 's/^/  stdout: /' "$OUT"; sed 's/^/  stderr: /' "$ERR"
+  fi
+
+  prompt_guard_case "$pg_h" off '' '{"prompt":"my key is AGENT_GUARD_TEST_SECRET"}' >"$OUT" 2>"$ERR"
+  if [ $? -eq 0 ] && [ ! -s "$OUT" ]; then
+    ok "prompt guard off mode is a no-op ($pg_h)"
+  else
+    not_ok "prompt guard off mode is a no-op ($pg_h)"
+    sed 's/^/  stdout: /' "$OUT"; sed 's/^/  stderr: /' "$ERR"
+  fi
+
+  # No host documents prompt rewriting, so mask must degrade to a block with a
+  # message naming the degrade; emitting ignored JSON would silently fail open.
+  prompt_guard_case "$pg_h" mask '' '{"prompt":"my key is AGENT_GUARD_TEST_SECRET"}' >"$OUT" 2>"$ERR"
+  if [ $? -eq 2 ] && grep -qi 'degrades to block' "$ERR" && ! grep -q 'updatedPrompt' "$OUT"; then
+    ok "prompt guard mask mode degrades to block ($pg_h)"
+  else
+    not_ok "prompt guard mask mode degrades to block ($pg_h)"
+    sed 's/^/  stdout: /' "$OUT"; sed 's/^/  stderr: /' "$ERR"
+  fi
+
+  run_expect 0 "prompt guard mask mode leaves a benign prompt untouched ($pg_h)" \
+    prompt_guard_case "$pg_h" mask '' '{"prompt":"benign prompt with no secrets"}'
+
+  run_expect 2 "prompt guard dies loudly on an unsupported mode ($pg_h)" \
+    prompt_guard_case "$pg_h" nonsense '' '{"prompt":"hello"}'
+done
+
+# warn emits the host-appropriate notice shape: Claude renders systemMessage;
+# Codex documents hookSpecificOutput.additionalContext as its context channel.
+prompt_guard_case claude warn '' '{"prompt":"my key is AGENT_GUARD_TEST_SECRET"}' >"$OUT" 2>"$ERR"
+if [ $? -eq 0 ] && grep -q 'systemMessage' "$OUT"; then
+  ok "prompt guard warn mode passes with a systemMessage notice (claude)"
+else
+  not_ok "prompt guard warn mode passes with a systemMessage notice (claude)"
+  sed 's/^/  stdout: /' "$OUT"; sed 's/^/  stderr: /' "$ERR"
+fi
+
+prompt_guard_case codex warn '' '{"prompt":"my key is AGENT_GUARD_TEST_SECRET"}' >"$OUT" 2>"$ERR"
+if [ $? -eq 0 ] && grep -q 'additionalContext' "$OUT" && ! grep -q 'systemMessage' "$OUT"; then
+  ok "prompt guard warn mode passes with an additionalContext notice (codex)"
+else
+  not_ok "prompt guard warn mode passes with an additionalContext notice (codex)"
+  sed 's/^/  stdout: /' "$OUT"; sed 's/^/  stderr: /' "$ERR"
+fi
+
+# The PII gate is governed by AGENT_GUARD_PII_HOOK_MODE alone: it must fire even
+# when the secret guard is off, and an invalid PII mode must die loudly instead
+# of silently disabling the gate (die inside $() only kills a subshell).
+run_expect 2 "prompt PII gate blocks an SSN even with the secret guard off" \
+  prompt_guard_case claude off block '{"prompt":"my ssn is 123-45-6789"}'
+
+run_expect 2 "prompt PII mask mode hard-blocks Tier-2 PII" \
+  prompt_guard_case claude '' mask '{"prompt":"card 4111 1111 1111 1111"}'
+
+run_expect 0 "prompt PII mask mode lets Tier-1 PII through" \
+  prompt_guard_case claude '' mask '{"prompt":"mail bob@example.com about the release"}'
+
+run_expect 2 "prompt guard dies loudly on an unsupported PII mode" \
+  prompt_guard_case claude '' Bogus '{"prompt":"hello"}'
+
+# A scanner-infrastructure failure must not clobber the configured mode: with a
+# broken gitleaks and the default open policy, warn stays warn (the assignment
+# probe still detects) instead of silently hardening into a block.
+#
+# The same run is the ground truth for the ONE-response rule. This path raises
+# an infrastructure notice AND a warn message, and a hook may write at most one
+# top-level JSON object: emitting the notice at the point of failure left two
+# concatenated documents on stdout, so a host parsing stdout as one document
+# dropped the promised warning entirely. Assert a single document that still
+# carries both facts — `grep systemMessage` alone passes on the broken shape.
+printf '#!/bin/sh\nexit 3\n' >"$MOCK_BIN/gitleaks-broken"
+chmod +x "$MOCK_BIN/gitleaks-broken"
+prompt_infra_case() { # $1 host, $2 warning dir
+  printf '%s' "$prompt_guard_env_json" \
+    | AGENT_GUARD_HOOK_HOST="$1" AGENT_GUARD_PROMPT_GUARD_MODE=warn \
+      AGENT_GUARD_GITLEAKS_BIN="$MOCK_BIN/gitleaks-broken" \
+      AGENT_GUARD_WARNING_DIR="$2" \
+      "$PLUGIN_ROOT/bin/agent-guard" hook-user-prompt
+}
+
+prompt_infra_case claude "$TESTTMP/prompt-warn-dir" >"$OUT" 2>"$ERR"
+if [ $? -eq 0 ] && grep -q 'systemMessage' "$OUT"; then
+  ok "prompt guard warn mode survives a scanner infrastructure failure"
+else
+  not_ok "prompt guard warn mode survives a scanner infrastructure failure"
+  sed 's/^/  stdout: /' "$OUT"; sed 's/^/  stderr: /' "$ERR"
+fi
+if [ "$(jq -s 'length' <"$OUT" 2>/dev/null)" = 1 ] \
+   && jq -e '.systemMessage | test("PROMPT_GUARD_MODE=warn")' "$OUT" >/dev/null 2>&1 \
+   && jq -e '.hookSpecificOutput.additionalContext
+             | test("scanner failed") and test("PROMPT_GUARD_MODE=warn")' "$OUT" >/dev/null 2>&1; then
+  ok "prompt guard emits one response carrying both the infra notice and the warning (claude)"
+else
+  not_ok "prompt guard emits one response carrying both the infra notice and the warning (claude)"
+  sed 's/^/  stdout: /' "$OUT"
+fi
+
+prompt_infra_case codex "$TESTTMP/prompt-warn-dir-codex" >"$OUT" 2>"$ERR"
+if [ $? -eq 0 ] && [ "$(jq -s 'length' <"$OUT" 2>/dev/null)" = 1 ] \
+   && ! grep -q 'systemMessage' "$OUT" \
+   && jq -e '.hookSpecificOutput.additionalContext
+             | test("scanner failed") and test("PROMPT_GUARD_MODE=warn")' "$OUT" >/dev/null 2>&1; then
+  ok "prompt guard emits one response carrying both the infra notice and the warning (codex)"
+else
+  not_ok "prompt guard emits one response carrying both the infra notice and the warning (codex)"
+  sed 's/^/  stdout: /' "$OUT"
+fi
+
+# Block mode after the same infrastructure failure must not leave a stray
+# response object on stdout either: exit 2 carries the reason on stderr.
+printf '%s' "$prompt_guard_env_json" \
+  | AGENT_GUARD_HOOK_HOST=claude AGENT_GUARD_GITLEAKS_BIN="$MOCK_BIN/gitleaks-broken" \
+    AGENT_GUARD_WARNING_DIR="$TESTTMP/prompt-warn-dir-block" \
+    "$PLUGIN_ROOT/bin/agent-guard" hook-user-prompt >"$OUT" 2>"$ERR"
+if [ $? -eq 2 ] && [ ! -s "$OUT" ] && grep -q 'scanner failed' "$ERR"; then
+  ok "prompt guard block mode writes no stdout response after an infra failure"
+else
+  not_ok "prompt guard block mode writes no stdout response after an infra failure"
+  sed 's/^/  stdout: /' "$OUT"; sed 's/^/  stderr: /' "$ERR"
+fi
+
+# An oversized prompt must not burn the host hook timeout in the assignment
+# probe (super-linear on one large leaf): above the shared scan cap the probe
+# is skipped and the infra-failure policy applies — open passes with the
+# gitleaks verdict, closed blocks.
+big_prompt_payload=$(LC_ALL=C awk 'BEGIN {
+  for (i = 0; i < 8000; i++)
+    printf "line %d of an innocuous log dump with nothing sensitive\n", i
+}' | jq -Rsc '{prompt: .}')
+big_prompt_start=$(date +%s)
+printf '%s' "$big_prompt_payload" \
+  | AGENT_GUARD_HOOK_HOST=claude AGENT_GUARD_WARNING_DIR="$TESTTMP/prompt-cap-dir" \
+    "$PLUGIN_ROOT/bin/agent-guard" hook-user-prompt >"$OUT" 2>"$ERR"
+big_prompt_status=$?
+big_prompt_elapsed=$(( $(date +%s) - big_prompt_start ))
+if [ "$big_prompt_status" -eq 0 ] && [ "$big_prompt_elapsed" -le 8 ]; then
+  ok "prompt guard skips the probe above the scan cap within the hook budget (${big_prompt_elapsed}s)"
+else
+  not_ok "prompt guard skips the probe above the scan cap within the hook budget (status $big_prompt_status, ${big_prompt_elapsed}s)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+printf '%s' "$big_prompt_payload" \
+  | AGENT_GUARD_HOOK_HOST=claude AGENT_GUARD_INFRA_FAILURE_MODE=closed \
+    AGENT_GUARD_WARNING_DIR="$TESTTMP/prompt-cap-dir-closed" \
+    "$PLUGIN_ROOT/bin/agent-guard" hook-user-prompt >"$OUT" 2>"$ERR"
+if [ $? -eq 2 ]; then
+  ok "closed infra policy blocks a prompt above the scan cap"
+else
+  not_ok "closed infra policy blocks a prompt above the scan cap"
+  sed 's/^/  stderr: /' "$ERR"
+fi
 
 # --- Detection calibration & robustness (PR 1) ----------------------------
 # Rank 1: reading the process environment via /proc is an env-dump bypass.

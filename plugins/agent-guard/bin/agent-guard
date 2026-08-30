@@ -123,6 +123,7 @@ Usage:
   agent-guard hook-post-tool
   agent-guard hook-stop
   agent-guard hook-session-start
+  agent-guard hook-user-prompt
   agent-guard exec [--] <cmd> [args...]
   agent-guard shell-init [--bash|--zsh] [--no-command-wrapping]
   agent-guard setup-shell [--bash|--zsh|--rc FILE] [--no-command-wrapping]
@@ -145,6 +146,14 @@ info() {
 # Read hook JSON without depending on external `cat`: dependency-degraded PATH
 # fixtures (and minimal hosts) still need the session_id to deduplicate warnings.
 read_stdin() {
+  # The shell loop below is O(lines x total bytes): a multi-hundred-KB paste
+  # (exactly what hook-user-prompt exists to catch) burns the whole host hook
+  # timeout inside the loop and the guard dies unrun. Prefer cat; the loop
+  # remains only for a degraded PATH with no cat at all.
+  if command -v cat >/dev/null 2>&1; then
+    cat
+    return 0
+  fi
   stdin_value=
   while IFS= read -r stdin_line || [ -n "$stdin_line" ]; do
     if [ -n "$stdin_value" ]; then
@@ -223,24 +232,41 @@ hook_warning_once() {
   (umask 077; set -C; : >"$warning_marker") 2>/dev/null
 }
 
-handle_hook_infrastructure_failure() {
-  event=$1
-  input=${2:-}
-  detail=$3
+# Shared front half of every infrastructure-failure policy: warn once per
+# session on stderr, apply the closed policy, and leave the message a caller
+# may still want to publish in $INFRA_FAILURE_NOTICE (empty when this session
+# already warned). Callers differ only in WHERE that notice goes, because a
+# hook may write at most one top-level JSON response: a handler that prints its
+# own object cannot be followed by a second one.
+INFRA_FAILURE_NOTICE=
+
+begin_infrastructure_failure() {
+  input=${1:-}
+  detail=$2
+  INFRA_FAILURE_NOTICE=
   mode=$(infrastructure_failure_mode)
   if hook_warning_once "$input"; then
     case "$mode" in
-      closed) message="$detail Blocking because AGENT_GUARD_INFRA_FAILURE_MODE=closed." ;;
-      *) message="$detail continuing because AGENT_GUARD_INFRA_FAILURE_MODE=open (the default)." ;;
+      closed) INFRA_FAILURE_NOTICE="$detail Blocking because AGENT_GUARD_INFRA_FAILURE_MODE=closed." ;;
+      *) INFRA_FAILURE_NOTICE="$detail continuing because AGENT_GUARD_INFRA_FAILURE_MODE=open (the default)." ;;
     esac
-    info "$message"
-    case "$event" in
-      PreToolUse|PostToolUse)
-        printf '{"hookSpecificOutput":{"hookEventName":"%s","additionalContext":"%s"}}\n' "$event" "$message"
-        ;;
-    esac
+    info "$INFRA_FAILURE_NOTICE"
   fi
   [ "$mode" = closed ] && exit 2
+  return 0
+}
+
+# Emits the notice immediately. Only safe where the caller returns without
+# writing anything else to stdout; hook-user-prompt defers instead.
+handle_hook_infrastructure_failure() {
+  event=$1
+  begin_infrastructure_failure "${2:-}" "$3"
+  [ -n "$INFRA_FAILURE_NOTICE" ] || return 0
+  case "$event" in
+    PreToolUse|PostToolUse|UserPromptSubmit)
+      printf '{"hookSpecificOutput":{"hookEventName":"%s","additionalContext":"%s"}}\n' "$event" "$INFRA_FAILURE_NOTICE"
+      ;;
+  esac
   return 0
 }
 
@@ -268,16 +294,7 @@ emit_degraded_hook_warning() {
 # PostToolUse may still emit one redaction response after an open git-backstop
 # failure. Warn on stderr only here so the hook never emits two JSON responses.
 handle_git_infrastructure_failure() {
-  input=${1:-}
-  detail=$2
-  mode=$(infrastructure_failure_mode)
-  if hook_warning_once "$input"; then
-    case "$mode" in
-      closed) info "$detail Blocking because AGENT_GUARD_INFRA_FAILURE_MODE=closed." ;;
-      *) info "$detail continuing because AGENT_GUARD_INFRA_FAILURE_MODE=open (the default)." ;;
-    esac
-  fi
-  [ "$mode" = closed ] && exit 2
+  begin_infrastructure_failure "${1:-}" "$2"
   return 0
 }
 
@@ -4020,6 +4037,144 @@ hook_stop() {
   esac
 }
 
+# --- hook-user-prompt: keep pasted secrets out of the model context -----------
+# The tool hooks never see the USER's own prompt, so a pasted `.env` or API key
+# reaches the model API and the on-disk transcript unscanned. UserPromptSubmit
+# fires before that happens on both hosts. Neither host documents a way for a
+# hook to REWRITE the submitted prompt (Claude's UserPromptSubmit supports only
+# block/deny and added context; Codex documents block + context), so `mask` is
+# accepted as a mode but degrades to block everywhere today. It exists so a
+# configured preference survives a future host that adds prompt rewriting.
+
+prompt_guard_mode() {
+  case "${AGENT_GUARD_PROMPT_GUARD_MODE:-block}" in
+    block|mask|warn|off) printf '%s' "${AGENT_GUARD_PROMPT_GUARD_MODE:-block}" ;;
+    *) die "unsupported prompt guard mode: ${AGENT_GUARD_PROMPT_GUARD_MODE} (expected off, block, mask, or warn)" ;;
+  esac
+}
+
+# Detection = gitleaks (rule-based) OR the streaming secret-ish KEY=value
+# assignment probe. The probe is what catches a pasted .env whose custom value
+# formats gitleaks has no rule for — the single most common prompt-leak shape.
+prompt_has_secretish_assignment() {
+  printf '%s' "$1" \
+    | frame_plaintext_leaf 2>/dev/null \
+    | secretish_env_values probe \
+    | grep -q .
+}
+
+# The single hook response, whatever combination of facts produced it. A hook
+# may write at most one top-level JSON object, so the infrastructure notice and
+# the mode-specific message share one: additionalContext (the model-facing
+# channel both hosts document) carries both, and systemMessage — a Claude-only
+# field — carries the mode-specific message, matching how the other hooks
+# report an infrastructure failure to the user on stderr rather than in the UI.
+# Prints nothing when there is nothing to say.
+emit_prompt_response() {
+  notice=$1
+  message=$2
+  if [ -n "$notice" ] && [ -n "$message" ]; then
+    context="$notice $message"
+  else
+    context="$notice$message"
+  fi
+  [ -n "$context" ] || return 0
+  if [ -n "$message" ] && [ "$(hook_host)" != codex ]; then
+    jq -nc --arg m "$message" --arg c "$context" \
+      '{systemMessage: $m,
+        hookSpecificOutput: {hookEventName: "UserPromptSubmit",
+                             additionalContext: $c}}'
+  else
+    jq -nc --arg c "$context" \
+      '{hookSpecificOutput: {hookEventName: "UserPromptSubmit",
+                             additionalContext: $c}}'
+  fi
+}
+
+hook_user_prompt() {
+  input=$(read_stdin)
+  HOOK_EVENT=UserPromptSubmit
+  HOOK_INPUT=$input
+  # Validate both modes in the main shell (die inside $() would only exit the
+  # subshell and silently fail-open, exactly the hazard check_pii_hook_input
+  # and redact_tool_output guard against).
+  prompt_guard_mode >/dev/null
+  pii_hook_mode >/dev/null
+  prompt_mode=$(prompt_guard_mode)
+  if ! hook_dependencies_ready; then
+    emit_degraded_hook_warning UserPromptSubmit "$input"
+    return 0
+  fi
+  need_cmd jq
+  [ -n "$input" ] || return 0
+  prompt=$(json_value '.prompt // empty' "$input")
+  [ -n "$prompt" ] || return 0
+
+  # The PII input gate is governed by AGENT_GUARD_PII_HOOK_MODE alone and stays
+  # active even when the secret guard is off: block mode blocks any PII; mask
+  # mode hard-blocks Tier-2. Tier-1 PII cannot be masked in a prompt (no host
+  # rewrite exists), a documented limitation.
+  block_on_pii_text "user prompt" "$prompt"
+  [ "$prompt_mode" != off ] || return 0
+
+  # An infrastructure notice raised here is ACCUMULATED, not printed: warn mode
+  # still has its own response to write, and two concatenated top-level objects
+  # are not a valid hook response — a host that parses stdout as one document
+  # drops the warning entirely, exactly when the scanner is already degraded.
+  # emit_prompt_response folds both messages into the single allowed object.
+  notice=
+  found=0
+  scan_text_direct "user prompt" "$prompt"
+  case $? in
+    0) ;;
+    1) found=1 ;;
+    "$SCAN_STATUS_UNAVAILABLE")
+      begin_infrastructure_failure "$input" \
+        "$PROGRAM: scanner infrastructure could not verify the prompt;"
+      notice=$INFRA_FAILURE_NOTICE
+      ;;
+    *)
+      begin_infrastructure_failure "$input" \
+        "$PROGRAM: the prompt scanner failed;"
+      notice=$INFRA_FAILURE_NOTICE
+      ;;
+  esac
+  if [ "$found" -eq 0 ]; then
+    # The assignment probe is super-linear on one large leaf (measured ~0.6s at
+    # 128KB but ~23s at 874KB), which would burn the 10s host timeout and make
+    # the host kill the hook — a silent fail-open. Above the shared scan cap,
+    # skip the probe and route through the infra-failure policy instead:
+    # open warns once and keeps the gitleaks verdict; closed blocks.
+    if output_scan_input_exceeds_cap "$prompt"; then
+      begin_infrastructure_failure "$input" \
+        "$PROGRAM: the prompt exceeds the assignment-probe scan cap (gitleaks rules were still applied);"
+      notice=${notice:-$INFRA_FAILURE_NOTICE}
+    elif prompt_has_secretish_assignment "$prompt"; then
+      found=1
+    fi
+  fi
+  if [ "$found" -ne 1 ]; then
+    emit_prompt_response "$notice" ''
+    return 0
+  fi
+
+  case "$prompt_mode" in
+    warn)
+      emit_prompt_response "$notice" \
+        "$PROGRAM: the submitted prompt contains secret-like values; they were passed through because AGENT_GUARD_PROMPT_GUARD_MODE=warn"
+      return 0
+      ;;
+    mask)
+      info "$PROGRAM: no host supports rewriting a submitted prompt yet, so mask degrades to block; remove the secret-like values and resubmit"
+      exit 2
+      ;;
+    *)
+      info "$PROGRAM: blocked user prompt: it contains secret-like values; remove them and resubmit (AGENT_GUARD_PROMPT_GUARD_MODE controls this)"
+      exit 2
+      ;;
+  esac
+}
+
 # --- hook-session-start: report degraded setup and shell-integration drift ----
 # The plugin and the binary the shell integration (agx / command wrapping) resolves at
 # runtime update independently, so updating one side silently leaves masking on
@@ -5003,6 +5158,7 @@ case "$cmd" in
   hook-post-tool) hook_post_tool ;;
   hook-stop) hook_stop ;;
   hook-session-start) hook_session_start ;;
+  hook-user-prompt) hook_user_prompt ;;
   exec) shift; do_exec "$@" ;;
   shell-init) shift; shell_init "$@" ;;
   pii-filter) shift; pii_filter "$@" ;;

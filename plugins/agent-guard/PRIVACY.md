@@ -9,11 +9,12 @@ retain it after the hook or command finishes.
 
 ## What the plugin processes
 
-When enabled, Agent Guard registers hooks for `SessionStart`, `PreToolUse`,
-`PostToolUse`, and `Stop`.
+When enabled, Agent Guard registers hooks for `SessionStart`, `UserPromptSubmit`,
+`PreToolUse`, `PostToolUse`, and `Stop`.
 
 | Surface | Data inspected | Purpose | Persistent storage |
 |---|---|---|---|
+| `UserPromptSubmit` | The full text of the prompt the user submits | Block (or, opt-in, warn about) secret-like values and opt-in PII classes before the prompt reaches the model or the transcript | None |
 | `PreToolUse` | Matched tool names and inputs, including paths, proposed content, shell commands, URLs/search queries, and MCP arguments | Block deny-listed reads, credential-dumping commands, secret-like input, and opt-in PII classes before execution | None |
 | `PostToolUse` | Matched tool outputs; after mutation tools, changed and untracked files in the current Git work tree | Mask secret-like output and opt-in PII; detect secrets written to the work tree | None |
 | `Stop` | Changed and untracked files in the current Git work tree | Final working-tree secret scan | None |
@@ -49,8 +50,11 @@ The following explicit actions use the network:
   `agent-guard pii-filter` sends the complete text provided on stdin to the
   exact URL in `AGENT_GUARD_PII_REDACT_URL`. In
   `AGENT_GUARD_PII_HOOK_MODE=block`, supported tool-input text is sent to that
-  same endpoint to determine whether it contains PII. The endpoint's operator,
-  not Agent Guard, controls its collection, retention, and deletion practices.
+  same endpoint to determine whether it contains PII, and so is the complete
+  text of every prompt the user submits. A prompt is not a tool input: it
+  carries whatever the user typed or pasted, including material unrelated to
+  the project. The endpoint's operator, not Agent Guard, controls its
+  collection, retention, and deletion practices.
 
 PII hook handling defaults to `off`; the default provider is the local `regex`
 adapter. `mask` mode performs input Tier-2 detection and output masking locally,

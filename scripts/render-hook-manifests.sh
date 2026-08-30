@@ -44,6 +44,7 @@ render_manifest() { # $1 = root env var, $2 = host tag, $3/$4 = pre/post matcher
   post=$(render_command "$1" "$2" hook-post-tool) || return 1
   stop=$(render_command "$1" "$2" hook-stop) || return 1
   session=$(render_command "$1" "$2" hook-session-start) || return 1
+  prompt=$(render_command "$1" "$2" hook-user-prompt) || return 1
   jq -n \
     --arg pre_matcher "$3" \
     --arg post_matcher "$4" \
@@ -51,6 +52,7 @@ render_manifest() { # $1 = root env var, $2 = host tag, $3/$4 = pre/post matcher
     --arg post "$post" \
     --arg stop "$stop" \
     --arg session "$session" \
+    --arg prompt "$prompt" \
     '{hooks: {
        PreToolUse: [{matcher: $pre_matcher,
                      hooks: [{type: "command", command: $pre, timeout: 10}]}],
@@ -59,7 +61,9 @@ render_manifest() { # $1 = root env var, $2 = host tag, $3/$4 = pre/post matcher
        Stop: [{matcher: "",
                hooks: [{type: "command", command: $stop, timeout: 20}]}],
        SessionStart: [{matcher: "startup|resume|clear|compact",
-                       hooks: [{type: "command", command: $session, timeout: 5}]}]
+                       hooks: [{type: "command", command: $session, timeout: 5}]}],
+       UserPromptSubmit: [{matcher: "",
+                           hooks: [{type: "command", command: $prompt, timeout: 10}]}]
      }}'
 }
 

@@ -47,6 +47,18 @@
           }
         ]
       }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "AGENT_GUARD_HOOK_HOST=codex ./plugins/agent-guard/bin/agent-guard hook-user-prompt",
+            "timeout": 10
+          }
+        ]
+      }
     ]
   }
 }

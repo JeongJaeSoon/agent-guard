@@ -87,6 +87,7 @@ done
 contains "$PLUGIN/PRIVACY.md" 'no outbound' 'privacy policy discloses default network behavior'
 contains "$PLUGIN/PRIVACY.md" 'retain it after the hook or command finishes' 'privacy policy discloses retention'
 contains "$PLUGIN/PRIVACY.md" 'AGENT_GUARD_PII_REDACT_URL' 'privacy policy discloses the optional PII endpoint'
+contains "$PLUGIN/PRIVACY.md" 'text of every prompt the user submits' 'privacy policy discloses prompt transmission to the PII endpoint'
 contains "$PLUGIN/PRIVACY.md" 'defaults to `off`' 'privacy policy discloses PII hook default'
 contains "$PLUGIN/SECURITY.md" '/security/advisories/new' 'plugin payload provides private security reporting'
 contains "$PLUGIN/SUPPORT.md" 'GitHub Issues' 'plugin payload provides a public support channel'

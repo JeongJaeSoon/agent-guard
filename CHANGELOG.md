@@ -50,6 +50,27 @@
   default do not over-block. Adds deny-read for Bun's `.bunfig.toml`; uv and
   pnpm need no new path (env/.netrc and `.npmrc` respectively already cover
   them).
+- feat(hooks): add a `UserPromptSubmit` prompt guard on both hosts. Secrets
+  pasted into the user prompt (gitleaks rules or `KEY=value` assignment
+  heuristic) are blocked before submission by default.
+  `AGENT_GUARD_PROMPT_GUARD_MODE` selects `block` (default), `mask` (reserved;
+  degrades to block because neither host lets a hook rewrite the submitted
+  prompt), `warn` (pass through with a host-shaped visible notice), or `off`.
+  The PII input gate (`AGENT_GUARD_PII_HOOK_MODE`) applies to prompts
+  independently of the secret mode, and an invalid PII mode now fails loud on
+  the prompt path too. `read_stdin` uses `cat` when available and prompts over
+  the shared scan cap skip the super-linear assignment probe (gitleaks still
+  applies; the skip follows `AGENT_GUARD_INFRA_FAILURE_MODE`), so a large
+  pasted prompt cannot burn the host hook timeout into a silent fail-open.
+  A prompt-path infrastructure notice is folded into the same response object
+  as the mode-specific message: a hook may write only one top-level JSON
+  document, and emitting the notice separately left two concatenated objects
+  that a host parsing stdout as one document rejects, dropping the warning.
+  The privacy policy now discloses that with the experimental
+  `AGENT_GUARD_PII_PROVIDER=http` adapter in `AGENT_GUARD_PII_HOOK_MODE=block`,
+  the complete text of every submitted prompt — not just tool-input text —
+  is sent to `AGENT_GUARD_PII_REDACT_URL`.
+
 - fix(detection): allow explicitly named env templates such as `sample.env`,
   `example.envrc`, `.flaskenv.example`, and `.dev.vars.example`, while blocking
   reverse/runtime forms including `local.env`, `env.local`, `env.preview`, and
