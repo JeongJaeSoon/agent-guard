@@ -7283,6 +7283,50 @@ else
   sed 's/^/  out: /' "$OUT"
 fi
 
+# The capture scans forward for ANY matching quote, so it can close on one that
+# belongs to something else — typically the OPENING quote of a credential
+# further down. Re-scanning only what was absorbed left that credential on the
+# far side of the eaten quote with its key consumed, so nothing masked it, on
+# the block path as well as display. The re-scan gets the rest of the line too.
+quoteeat_secret=$(printf '%s%s' 'sk-live-A1b2C3d4' 'e5F6g7H8secret')
+for quoteeat_shape in \
+  'error: %s: "\napi_key: "%s"' \
+  'warning: %s: " prose\nexport api_key="%s"' \
+  'hint: %s: "\nfiller\nfiller\ntoken = "%s"'; do
+  # shellcheck disable=SC2059
+  quoteeat_input=$(printf "$quoteeat_shape" password "$quoteeat_secret")
+  display_input=$(jq -nc --arg stdout "$quoteeat_input" \
+    '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+  post_tool_out "$display_input"
+  post_out=$(cat "$OUT")
+  if printf '%s' "$post_out" | grep -q '\[REDACTED\]' \
+     && ! printf '%s' "$post_out" | grep -Fq "$quoteeat_secret"; then
+    ok "#156 a capture closing on a later credential's opening quote still masks it"
+  else
+    not_ok "#156 a capture closing on a later credential's opening quote still masks it"
+    printf '%s\n' "$post_out" | sed 's/^/  out: /'
+  fi
+done
+
+expect_json_status 2 "#156 the same shape still blocks at the prompt guard" \
+  "$(jq -nc --arg prompt "$(printf 'error: %s: "\napi_key: "%s"' password "$quoteeat_secret")" \
+    '{session_id:"t",hook_event_name:"UserPromptSubmit",prompt:$prompt}')" \
+  hook-user-prompt
+
+# The single-quote spelling behaves the same way.
+quoteeat_squote=$(printf "fatal: %s: '\npassword='%s'" secret "$quoteeat_secret")
+display_input=$(jq -nc --arg stdout "$quoteeat_squote" \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$display_input"
+post_out=$(cat "$OUT")
+if printf '%s' "$post_out" | grep -q '\[REDACTED\]' \
+   && ! printf '%s' "$post_out" | grep -Fq "$quoteeat_secret"; then
+  ok "#156 the single-quote spelling of the eaten-quote shape still masks"
+else
+  not_ok "#156 the single-quote spelling of the eaten-quote shape still masks"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
 # A guarded capture that fails the shape test must not swallow the rest of the
 # leaf. The capture absorbs every following line, so discarding it dropped the
 # assignments inside — an unterminated quote after a status label made real

@@ -3529,10 +3529,19 @@ secretish_env_values() {
           open_quote = ""
           open_value = ""
           open_guard = 0
+          rest = substr(rest, end + 1)
         } else {
-          guard_rescan_leaf(closed_value)
+          # The capture scans forward for ANY matching quote, so the one it
+          # closed on often belongs to something else entirely — typically the
+          # OPENING quote of a credential further down. Re-scanning only what
+          # was absorbed then leaves that credential stranded on the far side
+          # of a quote the capture ate, with its key consumed too, so nothing
+          # masks it. Hand the re-scan the absorbed text AND the rest of this
+          # line starting at that quote, which reconstructs the original text
+          # exactly, and consume the line here.
+          guard_rescan_leaf(closed_value substr(rest, end))
+          rest = ""
         }
-        rest = substr(rest, end + 1)
       }
       while (length(rest) > 0) {
         low = tolower(rest)
