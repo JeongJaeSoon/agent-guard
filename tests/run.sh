@@ -6131,7 +6131,10 @@ for display_case in \
   'make(api_key=DEFAULT_API_KEY)' \
   'def connect(password=DEFAULT_PASSWORD):' \
   'def connect(password=None):' \
-  'fn(password=user_password)'; do
+  'fn(password=user_password)' \
+  'password = cfg.Token' \
+  'password = settings.API_KEY' \
+  'password = app.config.apiKey'; do
   display_input=$(jq -nc --arg stdout "$display_case" \
     '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
   post_tool_out "$display_input"
@@ -6153,6 +6156,13 @@ done
 # whose chain has a lowercase head, no digits, and an uppercase character:
 # dot-separated passphrases, dotted env/YAML/INI values, and version- or
 # token-shaped dotted values all keep masking (review follow-up on #171).
+# Those four conditions still admitted a CAPITALIZED passphrase, so where the
+# uppercase sits decides as well: every non-leaf segment must be lowercase, and
+# past two segments the leaf must be SCREAMING_SNAKE, camelCase, or
+# underscore-bearing rather than a plain Capitalized word. `cfg.Token` (the
+# Go/C# exported-field access) stays a reference while `my.Secret.phrase` and
+# `my.secret.Phrase` mask again. A two-segment `head.Word` stays a documented
+# residual: it is the same shape as the field access it mimics.
 DOTTED_SECRET=$(printf '%s.%s.%s.%s' correct horse battery staple)
 for display_case in \
   "DATABASE_PASSWORD=$DISPLAY_SECRET" \
@@ -6167,7 +6177,12 @@ for display_case in \
   'password = My.Secret.Phrase' \
   'password: xxx.yyy.zzz' \
   'api_key=v1.0.secretpart' \
-  'API_KEY=config.apiKey'; do
+  'API_KEY=config.apiKey' \
+  'password = my.Secret.phrase' \
+  'password = correct.Horse.battery' \
+  'password = my.secret.Phrase' \
+  'password = correct.horse.Battery' \
+  'token = my.Secret.value.phrase'; do
   display_input=$(jq -nc --arg stdout "$display_case" \
     '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
   post_tool_out "$display_input"

@@ -3092,6 +3092,28 @@ secretish_env_values() {
     # Tradeoff: an unquoted credential that itself contains an opener or an
     # embedded quote is no longer masked by this heuristic. gitleaks still
     # covers every format it knows, and the block/detect path is unaffected.
+    # Where the uppercase sits separates an accessor from a passphrase that
+    # happens to be dot-separated. An accessor reads a value OUT of lowercase
+    # roots (`process.env`, `config`, `cfg`), so only its LEAF carries case; a
+    # passphrase capitalizes whole words anywhere in the chain. Past two
+    # segments a real chain ends in a constant or property — SCREAMING_SNAKE,
+    # camelCase, or underscore-bearing — never a plain Capitalized word, which
+    # is what separates `my.secret.Phrase` from `process.env.API_KEY`.
+    #
+    # Residual: a two-segment `head.Word` (`my.Secret`) is the same shape as the
+    # Go/C# exported-field access it mimics (`cfg.Token`), so it still reads as
+    # a reference. Narrowing that too would re-break the source code #169 is
+    # about; gitleaks still covers every format it knows either way.
+    function accessor_chain(v, parts, n, i, leaf) {
+      n = split(v, parts, ".")
+      for (i = 1; i < n; i++)
+        if (parts[i] ~ /[A-Z]/) return 0
+      leaf = parts[n]
+      if (n > 2 && leaf !~ /_/ && leaf !~ /^[A-Z$]+$/ \
+          && leaf !~ /^[a-z_$][A-Za-z_$]*[A-Z]/)
+        return 0
+      return 1
+    }
     function looks_like_reference(value, assignment, leading, v, ch) {
       # An opener or an embedded quote: call, index, expansion or nested string.
       # An opener only counts past the first character, because a call, an index
@@ -3129,9 +3151,13 @@ secretish_env_values() {
       # character somewhere in the chain. Anything short of all four masks, so
       # dot-separated passphrases (`correct.horse.battery.staple`), dotted
       # env/YAML/INI values (`PASSWORD=a.b.c`, `password: a.b.c`) and dotted
-      # version- or token-shaped values (`v1.0.x`) keep masking.
-      return assignment ~ /[ \t]=$/ && leading != "" && v ~ /[A-Z]/ \
-        && v ~ /^[a-z_$]+(\.[A-Za-z_$]+)+$/
+      # version- or token-shaped values (`v1.0.x`) keep masking. Those four
+      # still admit a capitalized passphrase (`my.Secret.phrase`), so where the
+      # uppercase SITS has to decide as well; see accessor_chain.
+      if (!(assignment ~ /[ \t]=$/ && leading != "" && v ~ /[A-Z]/ \
+            && v ~ /^[a-z_$]+(\.[A-Za-z_$]+)+$/))
+        return 0
+      return accessor_chain(v)
     }
     function emit_value(source, start, assignment, raw, leading, quote, end, \
                         value, token, trailing, ch) {
