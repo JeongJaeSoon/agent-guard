@@ -7238,6 +7238,51 @@ else
   sed 's/^/  out: /' "$OUT"
 fi
 
+# A guarded capture that fails the shape test must not swallow the rest of the
+# leaf. The capture absorbs every following line, so discarding it dropped the
+# assignments inside — an unterminated quote after a status label made real
+# `KEY=value` lines below it stop masking entirely, and stopped the prompt guard
+# blocking the same text. What was absorbed is re-scanned as ordinary input.
+swallow_secret_a=$(printf '%s%s' 'pr0d-db-' 'passw0rd-2026')
+swallow_secret_b=$(printf '%s%s' 'Zk9xQvL2' 'mNpRt4Ys')
+swallow_input=$(printf 'error: %s: "connection refused\n# production config\nDB_PASSWORD=%s\nSESSION_SECRET=%s' \
+  password "$swallow_secret_a" "$swallow_secret_b")
+display_input=$(jq -nc --arg stdout "$swallow_input" \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$display_input"
+post_out=$(cat "$OUT")
+if ! printf '%s' "$post_out" | grep -Fq "$swallow_secret_a" \
+   && ! printf '%s' "$post_out" | grep -Fq "$swallow_secret_b" \
+   && printf '%s' "$post_out" | grep -q 'connection refused'; then
+  ok "#156 an unterminated status-label quote does not swallow later assignments"
+else
+  not_ok "#156 an unterminated status-label quote does not swallow later assignments"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+# The same input on the BLOCK path: this was a prompt-guard bypass, not just a
+# display leak, so it is pinned on the hook that refuses rather than rewrites.
+expect_json_status 2 "#156 an unterminated status-label quote still blocks at the prompt guard" \
+  "$(jq -nc --arg prompt "$swallow_input" \
+    '{session_id:"t",hook_event_name:"UserPromptSubmit",prompt:$prompt}')" \
+  hook-user-prompt
+
+# A single quote is enough to open the capture, and an apostrophe in ordinary
+# prose is common, so the same property is pinned for that spelling.
+swallow_squote=$(printf "error: %s: 'twas malformed\nDATABASE_PASSWORD=%s here" \
+  secret "$LABEL_SECRET")
+display_input=$(jq -nc --arg stdout "$swallow_squote" \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$display_input"
+post_out=$(cat "$OUT")
+if printf '%s' "$post_out" | grep -q '\[REDACTED\]' \
+   && ! printf '%s' "$post_out" | grep -Fq "$LABEL_SECRET"; then
+  ok "#156 an apostrophe in status-label prose does not swallow later assignments"
+else
+  not_ok "#156 an apostrophe in status-label prose does not swallow later assignments"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
 # A delimiter-separated passphrase is far less prose-like than a bare word, so
 # the compound-length fallback accepts `.`/`-`/`_` joins rather than requiring a
 # purely alphabetic value.

@@ -3254,6 +3254,27 @@ secretish_env_values() {
     # value, so the global literal is `<newline><secret>` and a BARE recurrence
     # of the credential later in the output does not match it. Emit the trimmed
     # token as a second record so global masking still reaches those.
+    # A guarded capture that fails the shape test must not be DISCARDED: it has
+    # absorbed every following line of the leaf, and throwing that away drops
+    # the assignments inside it. A status label whose value opens a quote that
+    # never closes — an apostrophe in ordinary prose is enough — made every real
+    # assignment on the lines below it stop masking, and stopped the prompt
+    # guard blocking the same text. 818f540 reached those lines because the
+    # status label took an unconditional skip; the deferral has to reach them
+    # too, so re-scan what was absorbed as ordinary input.
+    #
+    # guard_rescan makes that single-pass: during a re-scan the status path
+    # falls back to the old skip instead of opening another capture, so this
+    # cannot nest or loop.
+    function guard_rescan_leaf(v) {
+      open_quote = ""
+      open_value = ""
+      open_guard = 0
+      if (guard_rescan) return
+      guard_rescan = 1
+      scan_leaf(v)
+      guard_rescan = 0
+    }
     function edge_trim(v) {
       sub(/^[ \t\n]+/, "", v)
       sub(/[ \t\n]+$/, "", v)
@@ -3423,6 +3444,9 @@ secretish_env_values() {
           # newline before the credential. There the fragment is empty, so it
           # failed the shape test, the capture never opened, and the
           # continuation line has no assignment key of its own to match.
+          # Inside a re-scan the status path takes the pre-deferral skip, which
+          # is what stops this from re-opening the capture it just failed.
+          if (require_credential && guard_rescan) return 0
           open_quote = quote
           open_value = raw
           open_guard = require_credential
@@ -3486,11 +3510,14 @@ secretish_env_values() {
         # carries leading spaces into closed_value, and the whitespace test
         # would reject the credential before emit_captured could trim it.
         # Internal whitespace is untouched, so it still marks prose.
-        if (!open_guard || credential_shaped(edge_trim(closed_value)))
+        if (!open_guard || credential_shaped(edge_trim(closed_value))) {
           emit_captured(closed_value)
-        open_quote = ""
-        open_value = ""
-        open_guard = 0
+          open_quote = ""
+          open_value = ""
+          open_guard = 0
+        } else {
+          guard_rescan_leaf(closed_value)
+        }
         rest = substr(rest, end + 1)
       }
       while (length(rest) > 0) {
@@ -3562,9 +3589,12 @@ secretish_env_values() {
       }
       scan_line(value)
       # Truncated output can omit a closing quote. Redact the leaf remainder.
-      if (open_quote != "" \
-          && (!open_guard || credential_shaped(edge_trim(open_value))))
-        emit_captured(open_value)
+      if (open_quote != "") {
+        if (!open_guard || credential_shaped(edge_trim(open_value)))
+          emit_captured(open_value)
+        else
+          guard_rescan_leaf(open_value)
+      }
       open_quote = ""
       open_value = ""
       open_guard = 0
@@ -3623,9 +3653,12 @@ secretish_env_values() {
         # Same status-label gate as the scan_leaf termination above: without
         # it a >64 KiB invalid-UTF-8 capture ending in an unterminated prose
         # chain was replaced wholesale, contradicting the gate everywhere else.
-        if (!probe_found && open_quote != "" \
-            && (!open_guard || credential_shaped(edge_trim(open_value))))
-          emit_captured(open_value)
+        if (!probe_found && open_quote != "") {
+          if (!open_guard || credential_shaped(edge_trim(open_value)))
+            emit_captured(open_value)
+          else
+            guard_rescan_leaf(open_value)
+        }
         exit
       }
       # Valid framed input always terminates each leaf with RS. Preserve a final
