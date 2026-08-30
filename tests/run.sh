@@ -7297,6 +7297,26 @@ else
   printf '%s\n' "$post_out" | sed 's/^/  out: /'
 fi
 
+# The same asymmetry on the SINGLE-line quoted path: a padded value is
+# classified on its trimmed copy, so recording only the padded literal left a
+# bare recurrence of the same credential visible further down.
+for display_pad_spec in ' ' '  ' '\t' '\r'; do
+  display_pad=$(printf "$display_pad_spec")
+  padded_recur=$(printf 'error: password: "%s%s%s"\nretrying with %s' \
+    "$display_pad" "$LABEL_SECRET" "$display_pad" "$LABEL_SECRET")
+  display_input=$(jq -nc --arg stdout "$padded_recur" \
+    '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+  post_tool_out "$display_input"
+  post_out=$(cat "$OUT")
+  if printf '%s' "$post_out" | grep -q '\[REDACTED\]' \
+     && ! printf '%s' "$post_out" | grep -Fq "$LABEL_SECRET"; then
+    ok "#156 a padded single-line credential also masks the bare recurrence"
+  else
+    not_ok "#156 a padded single-line credential also masks the bare recurrence"
+    printf '%s\n' "$post_out" | sed 's/^/  out: /'
+  fi
+done
+
 # An indented continuation carries leading whitespace into the capture, and the
 # whitespace test would reject the credential before the trim could reach it.
 # Classification runs on the edge-trimmed capture; internal whitespace still

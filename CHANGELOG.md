@@ -21,7 +21,10 @@
   (`response: error: api_key: <value>`) is covered by the same gate. Display
   redaction only; the block/detect path is unchanged. An unterminated quoted
   value (truncated output) is captured and classified when the leaf ends rather
-  than skipped, so a credential-shaped one still masks. Residual: an
+  than skipped, so a credential-shaped one still masks. A captured value is recorded in
+  both its literal and its edge-trimmed form, so a bare recurrence of a
+  credential that was padded or split across a newline behind its label
+  masks as well. Residual: an
   all-lowercase alphabetic secret shorter than 24 characters is indistinguishable
   from a prose word on this path and stays visible.
 - fix(detection): stop the deny-read Bash gate from blocking words that merely

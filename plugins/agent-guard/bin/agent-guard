@@ -3479,7 +3479,11 @@ secretish_env_values() {
         emit_secret(value, length(token))
         return 0
       }
-      emit_secret(value)
+      # emit_captured, not emit_secret: a padded quoted value (`" <secret> "`)
+      # is classified on its trimmed copy just above, so recording only the
+      # padded literal left a bare recurrence of the same credential further
+      # down unmasked. Record both forms, exactly as the multiline close does.
+      emit_captured(value)
       return 0
     }
     function scan_line(line, rest, end, low, eq_start, eq_length, \
