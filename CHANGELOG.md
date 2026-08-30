@@ -19,9 +19,11 @@
   alphabetic run longer than any ordinary word) masks, while a word, path,
   number, clock time or date stays visible. The chained shape
   (`response: error: api_key: <value>`) is covered by the same gate. Display
-  redaction only; the block/detect path is unchanged. Residual: an all-lowercase
-  alphabetic secret below the compound threshold is indistinguishable from prose
-  on this path, and an unterminated quoted value keeps the previous skip.
+  redaction only; the block/detect path is unchanged. An unterminated quoted
+  value (truncated output) is captured and classified when the leaf ends rather
+  than skipped, so a credential-shaped one still masks. Residual: an
+  all-lowercase alphabetic secret shorter than 24 characters is indistinguishable
+  from a prose word on this path and stays visible.
 - fix(detection): stop the deny-read Bash gate from blocking words that merely
   end in a deny-listed extension (#99). `echo foo.key`, `echo see also foo.pem`
   and `jq -r .key data.json` were reported as `blocked shell command

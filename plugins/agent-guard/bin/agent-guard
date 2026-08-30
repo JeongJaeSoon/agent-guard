@@ -2277,7 +2277,7 @@ bash_strip_allowed_tokens() {
   )
 }
 
-# jq/yq options that never consume a following value. Anything outside this list
+# jq options that never consume a following value. Anything outside this list
 # — `-f`, `--from-file`, `-L`, `--arg`, a combined cluster such as `-rf` — may
 # take the NEXT token as a value, and for the file-taking ones that token is a
 # path jq reads. Treating it as the filter and dropping it was a read bypass, so
@@ -2327,6 +2327,11 @@ jq_option_is_valueless() {
 #     leading `./` or `../` marks a path and is kept, `--` ends the search, and
 #     an option that might take a value stops it (see jq_option_is_valueless).
 #
+# `yq` is deliberately NOT in that family. Mike Farah yq autodetects its first
+# argument: it is an expression only when no file of that name exists, so
+# `yq .env` in a directory that has one READS it. jq has no such ambiguity.
+# That leaves `yq .key f.yaml` a false positive, which is the safe direction.
+#
 # Only a clean literal is ever dropped (env_exception_literal_shell_token
 # rejects quoting that survives unquoting, expansion, globs, redirection and
 # whitespace). The command word is taken from the FIRST token, with no wrapper
@@ -2365,7 +2370,7 @@ bash_strip_non_path_tokens() {
     strip_command=${1##*/}
     strip_command=$(printf '%s' "$strip_command" | tr -d "'\"")
     case "$strip_command" in
-      echo|printf|jq|gojq|jaq|yq) ;;
+      echo|printf|jq|gojq|jaq) ;;
       *)
         printf '%s' "$strip_input"
         return 0
@@ -3386,16 +3391,18 @@ secretish_env_values() {
         raw = substr(raw, 2)
         end = quoted_end(raw, quote)
         if (end == 0) {
-          # Truncated or malformed output after an opening quote. There is no
-          # complete value to classify, but skipping outright restored the #156
-          # bypass for exactly the case where output was cut short. Classify the
-          # fragment that IS available: a credential-shaped one opens multiline
-          # capture like every other path, so the leaf remainder is masked,
-          # while an unterminated prose chain behind the same label still falls
-          # through untouched.
-          if (require_credential && !credential_shaped(raw)) return 0
+          # Truncated or malformed output after an opening quote. Open the
+          # multiline capture like every other path and DEFER the shape
+          # decision to the close (or leaf end), carrying open_guard so the
+          # status-label rule still applies there. Classifying the fragment
+          # available on THIS line instead missed a value whose text begins on
+          # the NEXT one — a status label, its key, an opening quote, then a
+          # newline before the credential. There the fragment is empty, so it
+          # failed the shape test, the capture never opened, and the
+          # continuation line has no assignment key of its own to match.
           open_quote = quote
           open_value = raw
+          open_guard = require_credential
           return 1
         }
         value = substr(raw, 1, end - 1)
@@ -3442,7 +3449,8 @@ secretish_env_values() {
     }
     function scan_line(line, rest, end, low, eq_start, eq_length, \
                        colon_start, colon_length, start, matched_length, \
-                       chose_colon, skip, status_guard, first, expansion) {
+                       chose_colon, skip, status_guard, first, expansion, \
+                       closed_value) {
       rest = line
       if (open_quote != "") {
         end = quoted_end(rest, open_quote)
@@ -3450,9 +3458,12 @@ secretish_env_values() {
           open_value = open_value "\n" rest
           return
         }
-        emit_secret(open_value "\n" substr(rest, 1, end - 1))
+        closed_value = open_value "\n" substr(rest, 1, end - 1)
+        if (!open_guard || credential_shaped(closed_value))
+          emit_secret(closed_value)
         open_quote = ""
         open_value = ""
+        open_guard = 0
         rest = substr(rest, end + 1)
       }
       while (length(rest) > 0) {
@@ -3516,6 +3527,7 @@ secretish_env_values() {
     function scan_leaf(value, newline, line) {
       open_quote = ""
       open_value = ""
+      open_guard = 0
       while ((newline = index(value, "\n")) > 0) {
         line = substr(value, 1, newline - 1)
         value = substr(value, newline + 1)
@@ -3523,9 +3535,11 @@ secretish_env_values() {
       }
       scan_line(value)
       # Truncated output can omit a closing quote. Redact the leaf remainder.
-      if (open_quote != "") emit_secret(open_value)
+      if (open_quote != "" && (!open_guard || credential_shaped(open_value)))
+        emit_secret(open_value)
       open_quote = ""
       open_value = ""
+      open_guard = 0
     }
     {
       if (record_mode == "probe_raw") {

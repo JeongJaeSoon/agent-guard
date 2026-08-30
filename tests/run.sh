@@ -1803,6 +1803,19 @@ for nonpath_case in \
     hook-pre-tool
 done
 
+# yq is NOT in the jq family: Mike Farah yq treats its first argument as an
+# expression only when no file of that name exists, so `yq .env` in a directory
+# holding one reads it. Dropping that operand was a read bypass.
+for nonpath_case in \
+  "yq .env" \
+  "yq -r .env" \
+  "yq .$NONPATH_KEY data.yaml"; do
+  expect_json_status 2 "#99 Bash yq keeps its first operand: '$nonpath_case'" \
+    "$(jq -nc --arg c "$nonpath_case" \
+      '{tool_name:"Bash",tool_input:{command:$c}}')" \
+    hook-pre-tool
+done
+
 # Valueless jq options must not stop the filter search, or the false positive
 # the narrowing exists to fix comes back for any invocation that uses a flag.
 for nonpath_case in \
@@ -7123,6 +7136,37 @@ if [ "$post_status" -eq 0 ] && [ ! -s "$OUT" ]; then
   ok "#156 an unterminated quoted prose chain behind a status label stays visible"
 else
   not_ok "#156 an unterminated quoted prose chain behind a status label stays visible"
+  sed 's/^/  out: /' "$OUT"
+fi
+
+# The value may not start on the label's own line. Classifying the fragment
+# available there missed this entirely: the fragment is empty, so it failed the
+# shape test, the capture never opened, and the continuation line carries no
+# assignment key of its own. Classification is deferred to the close instead.
+multiline_secret=$(printf 'error: password: "\n%s"' "$LABEL_SECRET")
+display_input=$(jq -nc --arg stdout "$multiline_secret" \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$display_input"
+post_out=$(cat "$OUT")
+if printf '%s' "$post_out" | grep -q '\[REDACTED\]' \
+   && ! printf '%s' "$post_out" | grep -Fq "$LABEL_SECRET"; then
+  ok "#156 a status-label credential beginning on the next line still masks"
+else
+  not_ok "#156 a status-label credential beginning on the next line still masks"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+# ...and the same shape carrying prose must still come through untouched, or the
+# deferral would just be masking every multiline quoted value.
+multiline_prose=$(printf 'error: %s: "\nauthentication is disabled"' password)
+display_input=$(jq -nc --arg stdout "$multiline_prose" \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$display_input"
+post_status=$?
+if [ "$post_status" -eq 0 ] && [ ! -s "$OUT" ]; then
+  ok "#156 a status-label prose chain beginning on the next line stays visible"
+else
+  not_ok "#156 a status-label prose chain beginning on the next line stays visible"
   sed 's/^/  out: /' "$OUT"
 fi
 
