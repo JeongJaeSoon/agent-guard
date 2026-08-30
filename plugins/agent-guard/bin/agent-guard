@@ -2371,8 +2371,13 @@ bash_strip_non_path_tokens() {
       return 0
     fi
 
-    strip_command=${1##*/}
-    strip_command=$(printf '%s' "$strip_command" | tr -d "'\"")
+    # The token EXACTLY, with no basename strip. Reducing `./echo` to `echo`
+    # handed the exception to any executable that merely shares the name —
+    # `./echo .env`, `/tmp/printf .env` and `./jq .env` all passed the gate, and
+    # those programs can read the denied file. A path-qualified invocation keeps
+    # today false positive instead. Quotes are still removed: quoting changes
+    # nothing about which program runs.
+    strip_command=$(printf '%s' "$1" | tr -d "'\"")
     case "$strip_command" in
       echo|printf|jq) ;;
       *)
@@ -3249,11 +3254,14 @@ secretish_env_values() {
     # value, so the global literal is `<newline><secret>` and a BARE recurrence
     # of the credential later in the output does not match it. Emit the trimmed
     # token as a second record so global masking still reaches those.
+    function edge_trim(v) {
+      sub(/^[ \t\n]+/, "", v)
+      sub(/[ \t\n]+$/, "", v)
+      return v
+    }
     function emit_captured(v, trimmed) {
       emit_secret(v)
-      trimmed = v
-      sub(/^[ \t\n]+/, "", trimmed)
-      sub(/[ \t\n]+$/, "", trimmed)
+      trimmed = edge_trim(v)
       if (trimmed != v) emit_secret(trimmed)
     }
     function emit_secret(value, eligible_length) {
@@ -3474,7 +3482,11 @@ secretish_env_values() {
           return
         }
         closed_value = open_value "\n" substr(rest, 1, end - 1)
-        if (!open_guard || credential_shaped(closed_value))
+        # Classify the EDGE-trimmed capture: an indented continuation line
+        # carries leading spaces into closed_value, and the whitespace test
+        # would reject the credential before emit_captured could trim it.
+        # Internal whitespace is untouched, so it still marks prose.
+        if (!open_guard || credential_shaped(edge_trim(closed_value)))
           emit_captured(closed_value)
         open_quote = ""
         open_value = ""
@@ -3550,7 +3562,8 @@ secretish_env_values() {
       }
       scan_line(value)
       # Truncated output can omit a closing quote. Redact the leaf remainder.
-      if (open_quote != "" && (!open_guard || credential_shaped(open_value)))
+      if (open_quote != "" \
+          && (!open_guard || credential_shaped(edge_trim(open_value))))
         emit_captured(open_value)
       open_quote = ""
       open_value = ""
@@ -3611,7 +3624,7 @@ secretish_env_values() {
         # it a >64 KiB invalid-UTF-8 capture ending in an unterminated prose
         # chain was replaced wholesale, contradicting the gate everywhere else.
         if (!probe_found && open_quote != "" \
-            && (!open_guard || credential_shaped(open_value)))
+            && (!open_guard || credential_shaped(edge_trim(open_value))))
           emit_captured(open_value)
         exit
       }

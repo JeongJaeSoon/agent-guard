@@ -1806,6 +1806,21 @@ done
 # yq is NOT in the jq family: Mike Farah yq treats its first argument as an
 # expression only when no file of that name exists, so `yq .env` in a directory
 # holding one reads it. Dropping that operand was a read bypass.
+# The command word is the token EXACTLY. Reducing `./echo` to its basename gave
+# the exception to any executable merely sharing the name, and those can read
+# the denied file — verified as a real pass before the fix.
+for nonpath_case in \
+  "./echo .env" \
+  "/tmp/printf .env" \
+  "./jq .env" \
+  "bin/echo .env" \
+  "/usr/bin/echo .env"; do
+  expect_json_status 2 "#99 Bash a path-qualified lookalike gets no exception: '$nonpath_case'" \
+    "$(jq -nc --arg c "$nonpath_case" \
+      '{tool_name:"Bash",tool_input:{command:$c}}')" \
+    hook-pre-tool
+done
+
 # `gojq` and `jaq` are out for a weaker but sufficient reason: this repo has no
 # copy of either to check their argument grammar against, and assuming they copy
 # jq's is the same assumption that produced the yq hole.
@@ -7190,6 +7205,37 @@ if printf '%s' "$post_out" | grep -q '\[REDACTED\]' \
 else
   not_ok "#156 a multiline status-label capture also masks the bare recurrence"
   printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+# An indented continuation carries leading whitespace into the capture, and the
+# whitespace test would reject the credential before the trim could reach it.
+# Classification runs on the edge-trimmed capture; internal whitespace still
+# marks prose, so the indented prose chain below stays visible.
+for display_indent in '  ' '\t'; do
+  multiline_indented=$(printf 'error: password: "\n%s%s"' "$display_indent" "$LABEL_SECRET")
+  display_input=$(jq -nc --arg stdout "$multiline_indented" \
+    '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+  post_tool_out "$display_input"
+  post_out=$(cat "$OUT")
+  if printf '%s' "$post_out" | grep -q '\[REDACTED\]' \
+     && ! printf '%s' "$post_out" | grep -Fq "$LABEL_SECRET"; then
+    ok "#156 an indented multiline status-label credential still masks"
+  else
+    not_ok "#156 an indented multiline status-label credential still masks"
+    printf '%s\n' "$post_out" | sed 's/^/  out: /'
+  fi
+done
+
+multiline_indented_prose=$(printf 'error: %s: "\n  authentication is disabled"' password)
+display_input=$(jq -nc --arg stdout "$multiline_indented_prose" \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$display_input"
+post_status=$?
+if [ "$post_status" -eq 0 ] && [ ! -s "$OUT" ]; then
+  ok "#156 an indented multiline prose chain stays visible"
+else
+  not_ok "#156 an indented multiline prose chain stays visible"
+  sed 's/^/  out: /' "$OUT"
 fi
 
 # A delimiter-separated passphrase is far less prose-like than a bare word, so
