@@ -7363,6 +7363,58 @@ for display_case in \
   fi
 done
 
+# #178: a KEY=value assignment INSIDE a quoted JSON string leaf — the ordinary
+# shape of a tool that returns a serialized log — was skipped entirely. Two
+# causes, both needed: the string's own closing quote rode along on the value
+# token and looks_like_reference() read it as a nested string, and `:` was not
+# accepted as the delimiter before a quoted key, so the JSON form never matched
+# at all. gitleaks-detectable content was masked in the same shape throughout,
+# which is what pins this to the heuristic path.
+JSONLEAF_SECRET=$(printf '%s%s' 'hunter2-' 'long-value')
+for display_case in \
+  "{\"log\":\"DB_PASSWORD=$JSONLEAF_SECRET\"}" \
+  "{\"level\":\"info\",\"log\":\"starting with API_KEY=$JSONLEAF_SECRET\",\"ok\":true}" \
+  "prefix \"DB_PASSWORD=$JSONLEAF_SECRET\" suffix" \
+  "{\"a\":{\"b\":\"API_KEY=$JSONLEAF_SECRET\"}}" \
+  "{\"log\":\"DB_PASSWORD=$JSONLEAF_SECRET,x\"}"; do
+  display_input=$(jq -nc --arg stdout "$display_case" \
+    '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+  post_tool_out "$display_input"
+  post_out=$(cat "$OUT")
+  if printf '%s' "$post_out" | grep -q '\[REDACTED\]' \
+     && ! printf '%s' "$post_out" | grep -Fq "$JSONLEAF_SECRET"; then
+    ok "#178 post-tool masks an assignment inside a quoted JSON string leaf"
+  else
+    not_ok "#178 post-tool masks an assignment inside a quoted JSON string leaf"
+    printf '%s\n' "$post_out" | sed 's/^/  out: /'
+  fi
+done
+
+# The same shape on the BLOCK path, since a serialized log is exactly what an
+# agent pastes back into a prompt.
+jsonleaf_prompt="{\"log\":\"DB_PASSWORD=$JSONLEAF_SECRET\"}"
+expect_json_status 2 "#178 an assignment inside a quoted JSON string leaf still blocks at the prompt guard" \
+  "$(jq -nc --arg prompt "$jsonleaf_prompt" \
+    '{session_id:"t",hook_event_name:"UserPromptSubmit",prompt:$prompt}')" \
+  hook-user-prompt
+
+# The trailing-quote strip must NOT fire on the line-start rescan of a value an
+# outer quoted assignment already claimed, or it emits a second, narrower
+# mapping that beats the outer one and strands the key prefix on display.
+JSONLEAF_SHARED=$(printf '%s%s' 'PASSWORD=' 'abc)')
+display_input=$(jq -nc --arg stdout "$JSONLEAF_SHARED API_TOKEN=\"$JSONLEAF_SHARED\" status=ok" \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$display_input"
+post_out=$(cat "$OUT")
+if printf '%s' "$post_out" \
+  | jq -e '.hookSpecificOutput.updatedToolOutput.stdout
+      | contains("API_TOKEN=\"[REDACTED]\"")' >/dev/null 2>&1; then
+  ok "#178 the outer quoted assignment still wins over its own rescan"
+else
+  not_ok "#178 the outer quoted assignment still wins over its own rescan"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
 # Display redaction must not mangle credential-handling SOURCE CODE. A
 # credential-shaped key on the left says nothing about the right-hand side: a
 # reference (`process.env.API_KEY`, `os.environ["DB_PASSWORD"]`, `config.apiKey`,
