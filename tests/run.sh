@@ -1806,11 +1806,16 @@ done
 # yq is NOT in the jq family: Mike Farah yq treats its first argument as an
 # expression only when no file of that name exists, so `yq .env` in a directory
 # holding one reads it. Dropping that operand was a read bypass.
+# `gojq` and `jaq` are out for a weaker but sufficient reason: this repo has no
+# copy of either to check their argument grammar against, and assuming they copy
+# jq's is the same assumption that produced the yq hole.
 for nonpath_case in \
   "yq .env" \
   "yq -r .env" \
-  "yq .$NONPATH_KEY data.yaml"; do
-  expect_json_status 2 "#99 Bash yq keeps its first operand: '$nonpath_case'" \
+  "yq .$NONPATH_KEY data.yaml" \
+  "gojq .$NONPATH_KEY data.json" \
+  "jaq .$NONPATH_KEY data.json"; do
+  expect_json_status 2 "#99 Bash only jq gets the filter exception: '$nonpath_case'" \
     "$(jq -nc --arg c "$nonpath_case" \
       '{tool_name:"Bash",tool_input:{command:$c}}')" \
     hook-pre-tool

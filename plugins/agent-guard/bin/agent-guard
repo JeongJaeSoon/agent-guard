@@ -2322,15 +2322,19 @@ jq_option_is_valueless() {
 # Within one simple command, drop only operands the command cannot read:
 #
 #   - every word operand of `echo` / `printf`, which take no file operands;
-#   - the jq family's first non-option operand, which is the filter program
+#   - `jq`'s first non-option operand, which is the filter program
 #     (`jq -r .key data.json` reads data.json; `.key` selects a field). A
 #     leading `./` or `../` marks a path and is kept, `--` ends the search, and
 #     an option that might take a value stops it (see jq_option_is_valueless).
 #
-# `yq` is deliberately NOT in that family. Mike Farah yq autodetects its first
-# argument: it is an expression only when no file of that name exists, so
-# `yq .env` in a directory that has one READS it. jq has no such ambiguity.
-# That leaves `yq .key f.yaml` a false positive, which is the safe direction.
+# `jq` and nothing else, on purpose. `yq` was in this list and was a read
+# bypass: Mike Farah yq autodetects its first argument, treating it as an
+# expression only when no file of that name exists, so `yq .env` in a directory
+# that has one READS it. `gojq` and `jaq` were added on the assumption that they
+# copy jq's grammar, which was never checked against either tool. An unverified
+# assumption is what produced the yq hole, so they are out too: the reported
+# false positive is about jq, and jq is what this covers. Everything else keeps
+# today's false positive, which is the safe direction.
 #
 # Only a clean literal is ever dropped (env_exception_literal_shell_token
 # rejects quoting that survives unquoting, expansion, globs, redirection and
@@ -2370,7 +2374,7 @@ bash_strip_non_path_tokens() {
     strip_command=${1##*/}
     strip_command=$(printf '%s' "$strip_command" | tr -d "'\"")
     case "$strip_command" in
-      echo|printf|jq|gojq|jaq) ;;
+      echo|printf|jq) ;;
       *)
         printf '%s' "$strip_input"
         return 0
