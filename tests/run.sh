@@ -6256,6 +6256,149 @@ for display_case in \
   fi
 done
 
+# Display redaction must not mangle credential-handling SOURCE CODE. A
+# credential-shaped key on the left says nothing about the right-hand side: a
+# reference (`process.env.API_KEY`, `os.environ["DB_PASSWORD"]`, `config.apiKey`,
+# `${API_KEY:?required}`) is not a credential literal, so it must pass through
+# untouched instead of becoming a sentinel that also swallowed the closing
+# bracket (`[REDACTED]]`, `[REDACTED])`, `[REDACTED]}`). Refs #169.
+for display_case in \
+  'const apiKey = process.env.API_KEY;' \
+  'password = os.environ["DB_PASSWORD"]' \
+  'password = os.environ.get("DB_PASSWORD")' \
+  'export const API_KEY = config.apiKey;' \
+  'secret = ENV.fetch("SESSION_KEY")' \
+  'String token = config.getToken();' \
+  'API_KEY=${API_KEY:?required}' \
+  'API_KEY=${API_KEY:-fallback}' \
+  'const k = process.env.API_KEY' \
+  'token := os.Getenv("GITHUB_TOKEN")' \
+  'if (!process.env.API_KEY) throw new Error("missing")' \
+  'make(api_key=DEFAULT_API_KEY)' \
+  'def connect(password=DEFAULT_PASSWORD):' \
+  'def connect(password=None):' \
+  'fn(password=user_password)' \
+  'password = cfg.Token' \
+  'password = settings.API_KEY' \
+  'password = app.config.apiKey'; do
+  display_input=$(jq -nc --arg stdout "$display_case" \
+    '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+  post_tool_out "$display_input"
+  post_status=$?
+  if [ "$post_status" -eq 0 ] && [ ! -s "$OUT" ]; then
+    ok "post-tool leaves a credential reference untouched ($display_case)"
+  else
+    not_ok "post-tool leaves a credential reference untouched ($display_case)"
+    sed 's/^/  out: /' "$OUT"
+  fi
+done
+
+# Must-mask controls for the same gate. Narrowing the value side must not open a
+# hole: a bare literal still masks, a literal nested in an argument or subscript
+# list still masks (it is now reached on its own instead of by swallowing the
+# whole call), `${NAME: value}` without a shell default operator is a map entry
+# and still masks, and a `$`-bearing bcrypt-shaped value still masks. A dotted
+# value is a reference only in a code-shaped, whitespace-padded `=` assignment
+# whose chain has a lowercase head, no digits, and an uppercase character:
+# dot-separated passphrases, dotted env/YAML/INI values, and version- or
+# token-shaped dotted values all keep masking (review follow-up on #171).
+# Those four conditions still admitted a CAPITALIZED passphrase, so where the
+# uppercase sits decides as well: every non-leaf segment must be lowercase, and
+# past two segments the leaf must be SCREAMING_SNAKE, camelCase, or
+# underscore-bearing rather than a plain Capitalized word. `cfg.Token` (the
+# Go/C# exported-field access) stays a reference while `my.Secret.phrase` and
+# `my.secret.Phrase` mask again. A two-segment `head.Word` stays a documented
+# residual: it is the same shape as the field access it mimics.
+DOTTED_SECRET=$(printf '%s.%s.%s.%s' correct horse battery staple)
+for display_case in \
+  "DATABASE_PASSWORD=$DISPLAY_SECRET" \
+  "password = wrap(secret_key=$DISPLAY_SECRET)" \
+  "config[api_key=$DISPLAY_SECRET]" \
+  "x=\${password: $DISPLAY_SECRET}" \
+  "PASSWORD=\$2b\$12\$$DISPLAY_SECRET" \
+  "API_TOKEN=$DISPLAY_SECRET)" \
+  "PASSWORD=$DOTTED_SECRET" \
+  "password: $DOTTED_SECRET" \
+  "password = $DOTTED_SECRET" \
+  'password = My.Secret.Phrase' \
+  'password: xxx.yyy.zzz' \
+  'api_key=v1.0.secretpart' \
+  'API_KEY=config.apiKey' \
+  'password = my.Secret.phrase' \
+  'password = correct.Horse.battery' \
+  'password = my.secret.Phrase' \
+  'password = correct.horse.Battery' \
+  'token = my.Secret.value.phrase'; do
+  display_input=$(jq -nc --arg stdout "$display_case" \
+    '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+  post_tool_out "$display_input"
+  post_out=$(cat "$OUT")
+  if printf '%s' "$post_out" | grep -q '\[REDACTED\]' \
+     && ! printf '%s' "$post_out" | grep -Fq "$DISPLAY_SECRET"; then
+    ok "post-tool still masks a credential literal ($display_case)"
+  else
+    not_ok "post-tool still masks a credential literal ($display_case)"
+    printf '%s\n' "$post_out" | sed 's/^/  out: /'
+  fi
+done
+
+# #169: a nested tool response keeps its JSON shape and every non-detected field
+# byte-identical; only the detected leaf changes, and the reference expression
+# sharing that leaf survives.
+nested_input=$(jq -nc --arg secret "$DISPLAY_SECRET" \
+  '{tool_name:"mcp__fixture__tool",tool_input:{query:"x"},
+    tool_response:{content:[{type:"text",
+      text:("const apiKey = process.env.API_KEY;\ndb_password=" + $secret)}],
+      isError:false,
+      meta:{requestId:"req-1",durationMs:12,tags:["a","b"]}}}')
+post_tool_out "$nested_input"
+post_out=$(cat "$OUT")
+nested_expected=$(printf 'const apiKey = process.env.API_KEY;\ndb_password=[%s]' 'REDACTED')
+if printf '%s' "$post_out" | jq -e --arg expected "$nested_expected" \
+     '.hookSpecificOutput.updatedToolOutput
+      == {content:[{type:"text",text:$expected}],
+          isError:false,
+          meta:{requestId:"req-1",durationMs:12,tags:["a","b"]}}' >/dev/null 2>&1; then
+  ok "post-tool preserves nested response shape and masks only the detected leaf"
+else
+  not_ok "post-tool preserves nested response shape and masks only the detected leaf"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+# The same boundary on the Codex contract: a reference expression produces no
+# block at all, a nested literal produces a block whose additionalContext is
+# sanitized.
+codex_ref_input=$(jq -nc \
+  --arg stdout 'password = os.environ["DB_PASSWORD"]' \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+printf '%s' "$codex_ref_input" \
+  | (cd "$TMP_ROOT" && AGENT_GUARD_HOOK_HOST=codex "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool) \
+    >"$OUT" 2>"$ERR"
+codex_ref_status=$?
+if [ "$codex_ref_status" -eq 0 ] && [ ! -s "$OUT" ]; then
+  ok "Codex post-tool leaves a credential reference untouched"
+else
+  not_ok "Codex post-tool leaves a credential reference untouched (status $codex_ref_status)"
+  sed 's/^/  out: /' "$OUT"
+fi
+
+codex_nested_input=$(jq -nc --arg secret "$DISPLAY_SECRET" \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:("password = wrap(secret_key=" + $secret + ")"),stderr:"",interrupted:false,isImage:false}}')
+printf '%s' "$codex_nested_input" \
+  | (cd "$TMP_ROOT" && AGENT_GUARD_HOOK_HOST=codex "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool) \
+    >"$OUT" 2>"$ERR"
+codex_nested_status=$?
+codex_nested_out=$(cat "$OUT")
+if [ "$codex_nested_status" -eq 0 ] \
+   && printf '%s' "$codex_nested_out" \
+     | jq -e '.decision == "block" and (.hookSpecificOutput.additionalContext | contains("[REDACTED]"))' >/dev/null 2>&1 \
+   && ! printf '%s' "$codex_nested_out" | grep -Fq "$DISPLAY_SECRET"; then
+  ok "Codex post-tool still masks a literal nested in an argument list"
+else
+  not_ok "Codex post-tool still masks a literal nested in an argument list (status $codex_nested_status)"
+  printf '%s\n' "$codex_nested_out" | sed 's/^/  out: /'
+fi
+
 # The comma branch keeps winning the leftmost match, so a status-prefixed log
 # line with a real comma-delimited assignment still masks.
 COMMA_SECRET=$(printf '%s%s' 'hunter2-' 'comma-value')
