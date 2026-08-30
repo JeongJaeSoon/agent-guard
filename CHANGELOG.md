@@ -7,6 +7,14 @@
 
 ## Unreleased
 
+- ci: remove the `codex-review` workflow. It has never produced a review in
+  this repository: with no `OPENAI_API_KEY` Actions secret every step is
+  skipped, the job reports success in a few seconds, and the feedback job is
+  skipped for an empty message — so it read as a passing check while doing
+  nothing. Codex review on pull requests comes from the ChatGPT Codex GitHub
+  app and is unaffected. Dropping the workflow also stops Dependabot raising
+  version bumps for an action that never runs; the README section documenting
+  it is removed with it.
 - feat(detection): extend the env template marker vocabulary with `tpl`/`tmpl`
   and accept `-`/`_` marker separators (`.env-example`, `.env_sample`,
   `.env.tpl`), matching the naming conventions measured on GitHub. The marker
