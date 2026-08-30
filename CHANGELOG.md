@@ -7,6 +7,37 @@
 
 ## Unreleased
 
+- fix(redaction): close the status-label display-redaction leak (#156). The
+  seven-word status allowlist (`error`, `warning`, `info`, `note`, `debug`,
+  `fatal`, `hint`) let a secret that gitleaks does not recognise reach the model
+  unmasked whenever it sat behind one of those labels — `error: password:
+  <value>` and `warning: db_password: <value>` were displayed in full. The label
+  cannot settle it, because it is identical in the prose chain the allowlist
+  exists to protect (`error: password: authentication is disabled`), so the
+  VALUE now decides: a token whose shape reads as a credential (a digit beside a
+  letter, an uppercase run starting past the first character, or a single-case
+  alphabetic run longer than any ordinary word) masks, while a word, path,
+  number, clock time or date stays visible. The chained shape
+  (`response: error: api_key: <value>`) is covered by the same gate. Display
+  redaction only; the block/detect path is unchanged. Residual: an all-lowercase
+  alphabetic secret below the compound threshold is indistinguishable from prose
+  on this path, and an unterminated quoted value keeps the previous skip.
+- fix(detection): stop the deny-read Bash gate from blocking words that merely
+  end in a deny-listed extension (#99). `echo foo.key`, `echo see also foo.pem`
+  and `jq -r .key data.json` were reported as `blocked shell command
+  referencing a deny-listed path` although nothing was read and no such file
+  existed. Operands are now narrowed by command position: every word operand of
+  `echo`/`printf`, which take no file operands, and the jq family's first
+  non-option operand, which is the filter program, are dropped before the deny
+  scan. Only clean literals are dropped, so `echo $(cat .env)` still blocks, and
+  a redirection stops the stripping for the rest of that segment. Deliberately
+  not narrowed by file existence: that would also unblock `cat .env` in a
+  directory without one, and refusing that read by name is the documented
+  behaviour.
+- fix(hooks): drop the undefined `\"` escape from the shell-parser awk bracket
+  expression (#99). gawk warned `regexp escape sequence \" is not a known
+  regexp operator` on every `hook-pre-tool` run, including runs that passed. The
+  class already contains a literal backslash via `\\`, so it is unchanged.
 - ci: remove the `codex-review` workflow. It has never produced a review in
   this repository: with no `OPENAI_API_KEY` Actions secret every step is
   skipped, the job reports success in a few seconds, and the feedback job is

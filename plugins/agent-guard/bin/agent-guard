@@ -2277,6 +2277,96 @@ bash_strip_allowed_tokens() {
   )
 }
 
+# The deny-read patterns are basename globs, and matching them against every
+# word of a command makes any word that merely ends in a listed extension a
+# block: `echo foo.key`, `jq -r .key data.json`, `echo see also foo.pem` (#99).
+# Nothing has to exist on disk and nothing has to be read, so the gate stops
+# deciding what is sensitive and starts inheriting whatever the glob does. It
+# surfaces as `blocked shell command referencing a deny-listed path`, which
+# reads in the transcript as if the agent had tried to open a private key.
+#
+# The narrowing is deliberately by command POSITION, not by whether the named
+# file exists. An existence test would also unblock `cat .env` in a directory
+# without one, and refusing that read by name — before anything is created — is
+# the behaviour the README quick start verifies and the deny-read tests pin.
+#
+# So drop only operands that the command in front of them cannot read:
+#
+#   - every word operand of `echo` / `printf`, which take no file operands at
+#     all (their only file contact is a redirection, and a redirection token
+#     stops the stripping for the rest of that segment);
+#   - the first non-option operand of the jq family, which is the filter
+#     program. `jq -r .key data.json` reads data.json; `.key` selects a field.
+#     A leading `./` or `../` marks a path rather than a filter and is kept.
+#
+# Only a clean literal is ever dropped (env_exception_literal_shell_token
+# rejects quoting that survives unquoting, expansion, globs, redirection and
+# whitespace), so `echo $(cat .env)` keeps both substitution tokens and stays
+# blocked. The list is minimal and additive on purpose: a command missing from
+# it merely keeps today's false positive, it can never turn a real read into a
+# pass. Broader shapes — a deny-listed basename inside a commit message, a grep
+# pattern — are not covered here.
+bash_strip_non_path_tokens() {
+  (
+    set -f
+    words=$(shell_command_words "$1")
+    # shellcheck disable=SC2086
+    set -- $words
+    result= strip_command= strip_seen_operand=0 strip_redirected=0
+
+    keep_policy_token() {
+      if [ -z "$result" ]; then result=$1; else result="$result $1"; fi
+    }
+
+    for token in "$@"; do
+      if is_shell_command_separator "$token"; then
+        strip_command= strip_seen_operand=0 strip_redirected=0
+        keep_policy_token "$token"
+        continue
+      fi
+
+      if [ -z "$strip_command" ]; then
+        if is_assignment_token "$token" || is_noop_wrapper "${token##*/}"; then
+          keep_policy_token "$token"
+          continue
+        fi
+        strip_command=${token##*/}
+        strip_command=$(printf '%s' "$strip_command" | tr -d "'\"")
+        keep_policy_token "$token"
+        continue
+      fi
+
+      case "$token" in
+        *'<'*|*'>'*) strip_redirected=1 ;;
+      esac
+
+      if [ "$strip_redirected" -eq 0 ]; then
+        strip_literal=$(env_exception_literal_shell_token "$token" 2>/dev/null \
+          || true)
+        if [ -n "$strip_literal" ]; then
+          case "$strip_command" in
+            echo|printf)
+              continue
+              ;;
+            jq|gojq|jaq|yq)
+              if [ "$strip_seen_operand" -eq 0 ]; then
+                case "$strip_literal" in
+                  -*) ;;
+                  ./*|../*) strip_seen_operand=1 ;;
+                  .*) strip_seen_operand=1; continue ;;
+                  *) strip_seen_operand=1 ;;
+                esac
+              fi
+              ;;
+          esac
+        fi
+      fi
+      keep_policy_token "$token"
+    done
+    printf '%s' "$result"
+  )
+}
+
 # POSIX sh has no locals: this function must NOT assign the bare name `cmd`, or
 # it clobbers the caller's command in check_bash_command. The strip helpers
 # rejoin tokens with single spaces (dropping a real newline separator), so a
@@ -2286,6 +2376,7 @@ bash_matches_deny_path() {
   deny_cmd=$1
   deny_cmd=$(bash_strip_exclusion_operands "$deny_cmd")
   deny_cmd=$(bash_strip_allowed_tokens "$deny_cmd")
+  deny_cmd=$(bash_strip_non_path_tokens "$deny_cmd")
   bash_matches_deny_path_mode "$deny_cmd" "literal" && return 0
   bash_matches_deny_path_mode "$deny_cmd" "shell-expanded" && return 0
   dequoted=$(shell_dequote_for_policy "$deny_cmd")
@@ -2357,7 +2448,11 @@ git_command_records() {
         }
         if (quote == "double") {
           if (c == "\"") { quote = ""; started = 1; continue }
-          if (c == "\\" && n ~ /^[\"\\$`]$/) {
+          # `"` needs no backslash inside a bracket expression, and `\"` is not
+          # a defined escape there: gawk warns on every hook run and another awk
+          # is free to read the class differently. `\\` already puts a literal
+          # backslash in the set, so the class is unchanged (#99).
+          if (c == "\\" && n ~ /^["\\$`]$/) {
             word = word n; started = 1; i++; continue
           }
           if (c == "$" || c == "`") dynamic = 1
@@ -3196,7 +3291,37 @@ secretish_env_values() {
         return 0
       return accessor_chain(v)
     }
-    function emit_value(source, start, assignment, raw, leading, quote, end, \
+    # Value-side gate for the status-label colon path (#156). A status label on
+    # its own cannot separate `error: password: authentication is disabled`
+    # (prose, must not mask) from `error: password: hunter2-long-value`
+    # (assignment, must mask): the label is identical in both, so the VALUE has
+    # to decide. Mask only a token whose shape reads as a credential; an
+    # ordinary word, path, number or timestamp stays visible, which is what
+    # keeps the #145/#153 prose assertions green.
+    #
+    # Deliberately shape-based rather than a dictionary: an unfamiliar prose
+    # word is still preserved and an unfamiliar credential format is still
+    # masked. Residual: an all-lowercase alphabetic secret below the compound
+    # threshold is indistinguishable from a prose word on this path and stays
+    # visible. gitleaks still covers every format it knows regardless of the
+    # label, and the block/detect path is unaffected either way.
+    function credential_shaped(v) {
+      if (length(v) < 6) return 0
+      # Dates, timestamps and clock times are the ordinary log values that would
+      # otherwise satisfy the mixed-class test below.
+      if (v ~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/) return 0
+      if (v ~ /^[0-9]+:[0-9]+(:[0-9]+)?$/) return 0
+      # Mixed character classes: a digit beside a letter, or an uppercase run
+      # starting past the first character. A leading capital alone is ordinary
+      # sentence case (`Authentication`), not a credential.
+      if (v ~ /[0-9]/ && v ~ /[A-Za-z]/) return 1
+      if (v ~ /[a-z]/ && substr(v, 2) ~ /[A-Z]/) return 1
+      # A single-case alphabetic run longer than any ordinary word.
+      if (length(v) >= 24 && v ~ /^[A-Za-z]+$/) return 1
+      return 0
+    }
+    function emit_value(source, start, assignment, require_credential, \
+                        raw, leading, quote, end, \
                         value, token, trailing, ch) {
       raw = substr(source, start)
       match(raw, /^[ \t]*/)
@@ -3207,11 +3332,16 @@ secretish_env_values() {
         raw = substr(raw, 2)
         end = quoted_end(raw, quote)
         if (end == 0) {
+          # An unterminated quote gives no complete value to classify, so the
+          # status-label path keeps its pre-#156 behaviour and skips rather than
+          # opening multiline capture over what may be prose.
+          if (require_credential) return 0
           open_quote = quote
           open_value = raw
           return 1
         }
         value = substr(raw, 1, end - 1)
+        if (require_credential && !credential_shaped(value)) return 0
       } else {
         value = raw
         sub(/[ \t,;].*$/, "", value)
@@ -3225,6 +3355,7 @@ secretish_env_values() {
         }
         value = substr(value, 1, end)
         if (looks_like_reference(value, assignment, leading)) return 0
+        if (require_credential && !credential_shaped(value)) return 0
         # Eligibility is based on the complete token. For short values, scope
         # replacement to the complete assignment token so an ordinary
         # one-character literal is not replaced throughout the response.
@@ -3242,7 +3373,7 @@ secretish_env_values() {
     }
     function scan_line(line, rest, end, low, eq_start, eq_length, \
                        colon_start, colon_length, start, matched_length, \
-                       chose_colon, skip, first, expansion) {
+                       chose_colon, skip, status_guard, first, expansion) {
       rest = line
       if (open_quote != "") {
         end = quoted_end(rest, open_quote)
@@ -3275,15 +3406,21 @@ secretish_env_values() {
         if (start == 0) break
 
         # Whitespace-prefixed colon form: if the text before the whitespace run
-        # is a known status label, this is a prose chain (`error: password: ...`),
-        # not an assignment — skip past the key without masking. Any other
+        # is a known status label, this MAY be a prose chain (`error: password:
+        # authentication is disabled`) rather than an assignment. The label
+        # cannot settle it on its own, so hand the decision to the value-side
+        # gate in emit_value instead of skipping outright (#156) — prose stays
+        # visible, a credential-shaped value still masks. Any other
         # colon-terminated label (`response:`) is treated as structured output.
+        # This also covers the chained shape (`response: error: api_key: ...`),
+        # whose innermost label is a status word: the value decides there too.
         skip = 0
+        status_guard = 0
         if (chose_colon && start > 1) {
           first = substr(rest, start, 1)
           if ((first == " " || first == "\t") &&
               match(substr(low, 1, start - 1), status_label))
-            skip = 1
+            status_guard = 1
           # `${NAME:-default}` / `${NAME:?message}` / `${NAME:=x}` / `${NAME:+x}`
           # is a shell parameter expansion, not an assignment: the operator makes
           # the trailing text a fallback, never the value of the variable. The
@@ -3303,7 +3440,7 @@ secretish_env_values() {
         # leaving adjacent status text untouched.
         if (!skip &&
             emit_value(rest, start + matched_length,
-                       substr(rest, start, matched_length))) break
+                       substr(rest, start, matched_length), status_guard)) break
         rest = substr(rest, start + matched_length)
       }
     }

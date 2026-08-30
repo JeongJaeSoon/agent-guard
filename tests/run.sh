@@ -1711,6 +1711,44 @@ expect_json_status 2 "Bash cat .env.tpl.bak (tpl marker not final) is blocked" \
   '{"tool_name":"Bash","tool_input":{"command":"cat .env.tpl.bak"}}' \
   hook-pre-tool
 
+# #99: the deny-read globs used to match any word ending in a listed extension,
+# so an `echo` argument and a jq field selector blocked as if a private key had
+# been opened. Nothing is read in either case. The exts are composed at runtime
+# because a literal in this file would trip the gate under test.
+NONPATH_KEY=$(printf 'k%s' 'ey')
+NONPATH_PEM=$(printf 'p%s' 'em')
+for nonpath_case in \
+  "echo foo.$NONPATH_KEY" \
+  "echo see also foo.$NONPATH_PEM" \
+  "echo see also foo.env" \
+  "printf '%s' foo.$NONPATH_KEY" \
+  "jq -r .$NONPATH_KEY data.json" \
+  "jq .$NONPATH_KEY"; do
+  expect_json_status 0 "#99 Bash '$nonpath_case' does not reference a read target" \
+    "$(jq -nc --arg c "$nonpath_case" \
+      '{tool_name:"Bash",tool_input:{command:$c}}')" \
+    hook-pre-tool
+done
+
+# The narrowing is by command position only, so every real read operand — and
+# any token the literal test refuses to classify — still blocks. `cat .env` in
+# particular must keep refusing by name, with or without a file on disk.
+for nonpath_case in \
+  "cat .env" \
+  "cat foo.$NONPATH_PEM" \
+  "jq . .env" \
+  "jq -r .name .env" \
+  "jq -f prog.jq .env" \
+  "cat .env | jq .$NONPATH_KEY" \
+  "echo \$(cat .env)" \
+  "echo x > .env" \
+  "echo x >.env"; do
+  expect_json_status 2 "#99 Bash '$nonpath_case' still blocks" \
+    "$(jq -nc --arg c "$nonpath_case" \
+      '{tool_name:"Bash",tool_input:{command:$c}}')" \
+    hook-pre-tool
+done
+
 # Path-prefixed candidates go through basename stripping before the suffix match.
 expect_json_status 0 "Read config/.env.local.example (path-prefixed template) is allowed" \
   '{"tool_name":"Read","tool_input":{"file_path":"config/.env.local.example"}}' \
@@ -6368,6 +6406,66 @@ else
   printf '%s\n' "$post_out" | sed 's/^/  out: /'
 fi
 
+# #169: the same exact-extent property, pinned on the nested MCP tool_response
+# contract this time. On v3.0.1 an unquoted value ran to the end of its leaf, so
+# everything after the secret was swallowed with it (`API_KEY=[REDACTED]`, and
+# `tail one` gone) — which is what a large nested response made visible. Fixed
+# by ff50c21; this pins it against a regression on both hosts, and pins that a
+# clean leaf and untouched sibling fields keep their shape.
+NESTED_TOKEN=$(printf '%s%s' 'example_token' '_value_long')
+nested_input=$(jq -nc --arg a "leaf one API_KEY=$NESTED_TOKEN tail one" \
+  --arg b "leaf two DB_PASSWORD=$DISPLAY_SECRET tail two" \
+  '{tool_name:"mcp__fixture__tool",
+    tool_response:{content:[{type:"text",text:$a},{type:"text",text:$b},
+                            {type:"text",text:"clean leaf, nothing here"}],
+                   meta:{count:42,ok:true,note:"untouched"},isError:false}}')
+post_tool_out "$nested_input"
+post_out=$(cat "$OUT")
+if printf '%s' "$post_out" | jq -e '
+      .hookSpecificOutput.updatedToolOutput as $o
+      | ($o.content[0].text == "leaf one API_KEY=[REDACTED] tail one")
+        and ($o.content[1].text == "leaf two DB_PASSWORD=[REDACTED] tail two")
+        and ($o.content[2].text == "clean leaf, nothing here")
+        and ($o.meta == {count:42,ok:true,note:"untouched"})
+        and ($o.isError == false)' >/dev/null 2>&1; then
+  ok "#169 post-tool masks the exact value in each nested leaf and preserves shape"
+else
+  not_ok "#169 post-tool masks the exact value in each nested leaf and preserves shape"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+printf '%s' "$nested_input" \
+  | (cd "$TMP_ROOT" && AGENT_GUARD_HOOK_HOST=codex "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool) \
+    >"$OUT" 2>"$ERR"
+codex_nested_status=$?
+post_out=$(cat "$OUT")
+if [ "$codex_nested_status" -eq 0 ] \
+   && printf '%s' "$post_out" | jq -e '.decision == "block"
+        and (.hookSpecificOutput.additionalContext | contains("tail one"))
+        and (.hookSpecificOutput.additionalContext | contains("tail two"))
+        and (.hookSpecificOutput.additionalContext | contains("untouched"))' >/dev/null 2>&1 \
+   && ! printf '%s' "$post_out" | grep -Fq "$NESTED_TOKEN" \
+   && ! printf '%s' "$post_out" | grep -Fq "$DISPLAY_SECRET"; then
+  ok "#169 Codex post-tool keeps the same exact-extent nested rewrite"
+else
+  not_ok "#169 Codex post-tool keeps the same exact-extent nested rewrite (status $codex_nested_status)"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+# A nested response with no secret must pass through with no rewrite at all.
+nested_clean=$(jq -nc \
+  '{tool_name:"mcp__fixture__tool",
+    tool_response:{content:[{type:"text",text:"just ordinary nested output"}],
+                   isError:false}}')
+post_tool_out "$nested_clean"
+post_status=$?
+if [ "$post_status" -eq 0 ] && [ ! -s "$OUT" ]; then
+  ok "#169 post-tool leaves a clean nested response unrewritten"
+else
+  not_ok "#169 post-tool leaves a clean nested response unrewritten"
+  sed 's/^/  out: /' "$OUT"
+fi
+
 for display_closing in '}' ']' ')'; do
   display_input=$(jq -nc \
     --arg stdout "API_TOKEN=${DISPLAY_SECRET}${display_closing}" \
@@ -6806,6 +6904,56 @@ for display_case in \
     ok "post-tool leaves a status-word prose chain untouched (${display_case%%:*})"
   else
     not_ok "post-tool leaves a status-word prose chain untouched (${display_case%%:*})"
+    sed 's/^/  out: /' "$OUT"
+  fi
+done
+
+# #156: a status label alone must not buy a pass. The label is identical in
+# `error: password: authentication is disabled` (prose, covered above) and in
+# `error: password: <credential>`, so the VALUE decides. These values are the
+# gitleaks-invisible shape `tests/run.sh` already uses elsewhere, which is
+# exactly the gap the allowlist left open: anything gitleaks recognises was
+# already masked regardless of the label.
+LABEL_SECRET=$(printf '%s%s' 'hunter2-' 'long-value')
+for display_case in \
+  "error: password: $LABEL_SECRET" \
+  "warning: db_password: $LABEL_SECRET" \
+  "WARNING: client_secret: $LABEL_SECRET" \
+  "fatal: api_key: $LABEL_SECRET" \
+  "info: refresh_token: $LABEL_SECRET" \
+  "response: error: api_key: $LABEL_SECRET" \
+  "2026-08-02 10:00:00 ERROR: password: $LABEL_SECRET"; do
+  display_input=$(jq -nc --arg stdout "$display_case" \
+    '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+  post_tool_out "$display_input"
+  post_out=$(cat "$OUT")
+  if printf '%s' "$post_out" | grep -q '\[REDACTED\]' \
+     && ! printf '%s' "$post_out" | grep -Fq "$LABEL_SECRET"; then
+    ok "#156 post-tool masks a gitleaks-invisible secret behind a status label (${display_case%%:*})"
+  else
+    not_ok "#156 post-tool masks a gitleaks-invisible secret behind a status label (${display_case%%:*})"
+    printf '%s\n' "$post_out" | sed 's/^/  out: /'
+  fi
+done
+
+# #156 must-not-mask companions: the value-side gate decides on SHAPE, so an
+# ordinary word, a path, a number and a timestamp after a status label all stay
+# visible. Without these the gate could be made to pass by masking everything.
+for display_case in \
+  'error: secret: not-found' \
+  'warning: private_key: /path/to/configured/key' \
+  'error: token: 2026-08-30T10:00:00' \
+  'fatal: password: 10:00:00' \
+  'warning: api_key: Missing' \
+  'info: credential: unauthenticated'; do
+  display_input=$(jq -nc --arg stdout "$display_case" \
+    '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+  post_tool_out "$display_input"
+  post_status=$?
+  if [ "$post_status" -eq 0 ] && [ ! -s "$OUT" ]; then
+    ok "#156 post-tool leaves a non-credential value after a status label untouched (${display_case##*: })"
+  else
+    not_ok "#156 post-tool leaves a non-credential value after a status label untouched (${display_case##*: })"
     sed 's/^/  out: /' "$OUT"
   fi
 done
