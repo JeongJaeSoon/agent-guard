@@ -1329,6 +1329,69 @@ expect_json_status 2 "Read schema.env.json data file stays blocked" \
   '{"tool_name":"Read","tool_input":{"file_path":"schema.env.json"}}' \
   hook-pre-tool
 
+# A source module may carry one intermediate segment between the env stem and
+# the code extension: `env.d.ts` (Vite/Next), `env.server.ts`, `env.spec.ts`.
+# The final extension must still be code, so data/config suffixes and a bare
+# `env.d` stay blocked, and `.env.d.ts` keeps the protected leading-dot form.
+expect_json_status 0 "Read env.d.ts source module is allowed" \
+  '{"tool_name":"Read","tool_input":{"file_path":"env.d.ts"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "Read env.server.ts source module is allowed" \
+  '{"tool_name":"Read","tool_input":{"file_path":"env.server.ts"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "Read env.spec.ts source module is allowed" \
+  '{"tool_name":"Read","tool_input":{"file_path":"env.spec.ts"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "Read app.env.config.ts source module is allowed" \
+  '{"tool_name":"Read","tool_input":{"file_path":"app.env.config.ts"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "Bash cat env.d.ts source module is allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat env.d.ts"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash cat env.d.ts plus bare .env still blocks" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat env.d.ts .env"}}' \
+  hook-pre-tool
+
+# The intermediate wildcard is limited to exactly one segment: names with two
+# or more dot segments between the env stem and the code extension stay on the
+# deny globs.
+expect_json_status 2 "Read env.production.backup.ts (two segments) stays blocked" \
+  '{"tool_name":"Read","tool_input":{"file_path":"env.production.backup.ts"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Read app.env.local.copy.js (two segments) stays blocked" \
+  '{"tool_name":"Read","tool_input":{"file_path":"app.env.local.copy.js"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash cat env.production.backup.ts (two segments) stays blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat env.production.backup.ts"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash cat app.env.local.copy.js (two segments) stays blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat app.env.local.copy.js"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Read env.d without a code extension stays blocked" \
+  '{"tool_name":"Read","tool_input":{"file_path":"env.d"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Read .env.d.ts runtime variant stays blocked" \
+  '{"tool_name":"Read","tool_input":{"file_path":".env.d.ts"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Read env.local.json data file stays blocked" \
+  '{"tool_name":"Read","tool_input":{"file_path":"env.local.json"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash cat env.d without a code extension stays blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat env.d"}}' \
+  hook-pre-tool
+
 expect_json_status 2 "Bash cat local.env runtime file is blocked" \
   '{"tool_name":"Bash","tool_input":{"command":"cat local.env"}}' \
   hook-pre-tool
@@ -1398,6 +1461,66 @@ expect_json_status 2 "Bash cat .envrc is blocked" \
 
 expect_json_status 2 "Bash cat .env.example.bak (suffix not final) is blocked" \
   '{"tool_name":"Bash","tool_input":{"command":"cat .env.example.bak"}}' \
+  hook-pre-tool
+
+# Marker vocabulary: `tpl`/`tmpl` markers and `-`/`_` separators are template
+# grammar too (`.env-example` ~20k repos, `.env_example` ~12k, `.env.tpl` ~1.3k
+# on GitHub). The marker must still be final and the stem must stay env-family;
+# `.env.default(s)` stays blocked because dotenv-defaults loads it at runtime.
+expect_json_status 0 "Read .env-example (hyphen separator) is allowed" \
+  '{"tool_name":"Read","tool_input":{"file_path":".env-example"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "Read .env_sample (underscore separator) is allowed" \
+  '{"tool_name":"Read","tool_input":{"file_path":".env_sample"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "Read .env.tpl template marker is allowed" \
+  '{"tool_name":"Read","tool_input":{"file_path":".env.tpl"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "Read .env.tmpl template marker is allowed" \
+  '{"tool_name":"Read","tool_input":{"file_path":".env.tmpl"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "Read .envrc-example (hyphen separator) is allowed" \
+  '{"tool_name":"Read","tool_input":{"file_path":".envrc-example"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Read .env-local (separator without template marker) is blocked" \
+  '{"tool_name":"Read","tool_input":{"file_path":".env-local"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Read .env-example.bak (hyphen marker not final) is blocked" \
+  '{"tool_name":"Read","tool_input":{"file_path":".env-example.bak"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Read .env.tpl.bak (tpl marker not final) is blocked" \
+  '{"tool_name":"Read","tool_input":{"file_path":".env.tpl.bak"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Read .env.defaults (runtime-loaded, not a template) is blocked" \
+  '{"tool_name":"Read","tool_input":{"file_path":".env.defaults"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Read .env.default (runtime-loaded, not a template) is blocked" \
+  '{"tool_name":"Read","tool_input":{"file_path":".env.default"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "Bash cat .env-example is allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat .env-example"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "Bash cat .env.tpl is allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat .env.tpl"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash cat .env-example .env still blocks on the bare .env token" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat .env-example .env"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash cat .env.tpl.bak (tpl marker not final) is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat .env.tpl.bak"}}' \
   hook-pre-tool
 
 # Path-prefixed candidates go through basename stripping before the suffix match.
@@ -3713,6 +3836,29 @@ if [ "$status" -eq 2 ]; then
   ok "custom directory deny overrides a nested template exception"
 else
   not_ok "custom directory deny overrides a nested template exception (expected 2, got $status)"
+fi
+
+# The same authority holds for the source-module exception: an operator who
+# deny-lists `env.d.ts` keeps it blocked on both hook surfaces.
+CUSTOM_MODULE_DENY="$TMP_ROOT/custom-module-deny.txt"
+printf '%s\n' 'env.d.ts' >"$CUSTOM_MODULE_DENY"
+printf '%s' '{"tool_name":"Read","tool_input":{"file_path":"env.d.ts"}}' \
+  | AGENT_GUARD_DENY_READ_PATHS="$CUSTOM_MODULE_DENY" \
+    "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >/dev/null 2>&1
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "custom deny-read policy overrides a Read source-module exception"
+else
+  not_ok "custom deny-read policy overrides a Read source-module exception (expected 2, got $status)"
+fi
+printf '%s' '{"tool_name":"Bash","tool_input":{"command":"cat env.d.ts"}}' \
+  | AGENT_GUARD_DENY_READ_PATHS="$CUSTOM_MODULE_DENY" \
+    "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >/dev/null 2>&1
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "custom deny-read policy overrides a Bash source-module exception"
+else
+  not_ok "custom deny-read policy overrides a Bash source-module exception (expected 2, got $status)"
 fi
 
 # Loop-level fail-closed: a bad-ERE entry placed AFTER a valid one must still
@@ -6476,6 +6622,149 @@ for display_case in \
   fi
 done
 
+# Display redaction must not mangle credential-handling SOURCE CODE. A
+# credential-shaped key on the left says nothing about the right-hand side: a
+# reference (`process.env.API_KEY`, `os.environ["DB_PASSWORD"]`, `config.apiKey`,
+# `${API_KEY:?required}`) is not a credential literal, so it must pass through
+# untouched instead of becoming a sentinel that also swallowed the closing
+# bracket (`[REDACTED]]`, `[REDACTED])`, `[REDACTED]}`). Refs #169.
+for display_case in \
+  'const apiKey = process.env.API_KEY;' \
+  'password = os.environ["DB_PASSWORD"]' \
+  'password = os.environ.get("DB_PASSWORD")' \
+  'export const API_KEY = config.apiKey;' \
+  'secret = ENV.fetch("SESSION_KEY")' \
+  'String token = config.getToken();' \
+  'API_KEY=${API_KEY:?required}' \
+  'API_KEY=${API_KEY:-fallback}' \
+  'const k = process.env.API_KEY' \
+  'token := os.Getenv("GITHUB_TOKEN")' \
+  'if (!process.env.API_KEY) throw new Error("missing")' \
+  'make(api_key=DEFAULT_API_KEY)' \
+  'def connect(password=DEFAULT_PASSWORD):' \
+  'def connect(password=None):' \
+  'fn(password=user_password)' \
+  'password = cfg.Token' \
+  'password = settings.API_KEY' \
+  'password = app.config.apiKey'; do
+  display_input=$(jq -nc --arg stdout "$display_case" \
+    '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+  post_tool_out "$display_input"
+  post_status=$?
+  if [ "$post_status" -eq 0 ] && [ ! -s "$OUT" ]; then
+    ok "post-tool leaves a credential reference untouched ($display_case)"
+  else
+    not_ok "post-tool leaves a credential reference untouched ($display_case)"
+    sed 's/^/  out: /' "$OUT"
+  fi
+done
+
+# Must-mask controls for the same gate. Narrowing the value side must not open a
+# hole: a bare literal still masks, a literal nested in an argument or subscript
+# list still masks (it is now reached on its own instead of by swallowing the
+# whole call), `${NAME: value}` without a shell default operator is a map entry
+# and still masks, and a `$`-bearing bcrypt-shaped value still masks. A dotted
+# value is a reference only in a code-shaped, whitespace-padded `=` assignment
+# whose chain has a lowercase head, no digits, and an uppercase character:
+# dot-separated passphrases, dotted env/YAML/INI values, and version- or
+# token-shaped dotted values all keep masking (review follow-up on #171).
+# Those four conditions still admitted a CAPITALIZED passphrase, so where the
+# uppercase sits decides as well: every non-leaf segment must be lowercase, and
+# past two segments the leaf must be SCREAMING_SNAKE, camelCase, or
+# underscore-bearing rather than a plain Capitalized word. `cfg.Token` (the
+# Go/C# exported-field access) stays a reference while `my.Secret.phrase` and
+# `my.secret.Phrase` mask again. A two-segment `head.Word` stays a documented
+# residual: it is the same shape as the field access it mimics.
+DOTTED_SECRET=$(printf '%s.%s.%s.%s' correct horse battery staple)
+for display_case in \
+  "DATABASE_PASSWORD=$DISPLAY_SECRET" \
+  "password = wrap(secret_key=$DISPLAY_SECRET)" \
+  "config[api_key=$DISPLAY_SECRET]" \
+  "x=\${password: $DISPLAY_SECRET}" \
+  "PASSWORD=\$2b\$12\$$DISPLAY_SECRET" \
+  "API_TOKEN=$DISPLAY_SECRET)" \
+  "PASSWORD=$DOTTED_SECRET" \
+  "password: $DOTTED_SECRET" \
+  "password = $DOTTED_SECRET" \
+  'password = My.Secret.Phrase' \
+  'password: xxx.yyy.zzz' \
+  'api_key=v1.0.secretpart' \
+  'API_KEY=config.apiKey' \
+  'password = my.Secret.phrase' \
+  'password = correct.Horse.battery' \
+  'password = my.secret.Phrase' \
+  'password = correct.horse.Battery' \
+  'token = my.Secret.value.phrase'; do
+  display_input=$(jq -nc --arg stdout "$display_case" \
+    '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+  post_tool_out "$display_input"
+  post_out=$(cat "$OUT")
+  if printf '%s' "$post_out" | grep -q '\[REDACTED\]' \
+     && ! printf '%s' "$post_out" | grep -Fq "$DISPLAY_SECRET"; then
+    ok "post-tool still masks a credential literal ($display_case)"
+  else
+    not_ok "post-tool still masks a credential literal ($display_case)"
+    printf '%s\n' "$post_out" | sed 's/^/  out: /'
+  fi
+done
+
+# #169: a nested tool response keeps its JSON shape and every non-detected field
+# byte-identical; only the detected leaf changes, and the reference expression
+# sharing that leaf survives.
+nested_input=$(jq -nc --arg secret "$DISPLAY_SECRET" \
+  '{tool_name:"mcp__fixture__tool",tool_input:{query:"x"},
+    tool_response:{content:[{type:"text",
+      text:("const apiKey = process.env.API_KEY;\ndb_password=" + $secret)}],
+      isError:false,
+      meta:{requestId:"req-1",durationMs:12,tags:["a","b"]}}}')
+post_tool_out "$nested_input"
+post_out=$(cat "$OUT")
+nested_expected=$(printf 'const apiKey = process.env.API_KEY;\ndb_password=[%s]' 'REDACTED')
+if printf '%s' "$post_out" | jq -e --arg expected "$nested_expected" \
+     '.hookSpecificOutput.updatedToolOutput
+      == {content:[{type:"text",text:$expected}],
+          isError:false,
+          meta:{requestId:"req-1",durationMs:12,tags:["a","b"]}}' >/dev/null 2>&1; then
+  ok "post-tool preserves nested response shape and masks only the detected leaf"
+else
+  not_ok "post-tool preserves nested response shape and masks only the detected leaf"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+# The same boundary on the Codex contract: a reference expression produces no
+# block at all, a nested literal produces a block whose additionalContext is
+# sanitized.
+codex_ref_input=$(jq -nc \
+  --arg stdout 'password = os.environ["DB_PASSWORD"]' \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+printf '%s' "$codex_ref_input" \
+  | (cd "$TMP_ROOT" && AGENT_GUARD_HOOK_HOST=codex "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool) \
+    >"$OUT" 2>"$ERR"
+codex_ref_status=$?
+if [ "$codex_ref_status" -eq 0 ] && [ ! -s "$OUT" ]; then
+  ok "Codex post-tool leaves a credential reference untouched"
+else
+  not_ok "Codex post-tool leaves a credential reference untouched (status $codex_ref_status)"
+  sed 's/^/  out: /' "$OUT"
+fi
+
+codex_nested_input=$(jq -nc --arg secret "$DISPLAY_SECRET" \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:("password = wrap(secret_key=" + $secret + ")"),stderr:"",interrupted:false,isImage:false}}')
+printf '%s' "$codex_nested_input" \
+  | (cd "$TMP_ROOT" && AGENT_GUARD_HOOK_HOST=codex "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool) \
+    >"$OUT" 2>"$ERR"
+codex_nested_status=$?
+codex_nested_out=$(cat "$OUT")
+if [ "$codex_nested_status" -eq 0 ] \
+   && printf '%s' "$codex_nested_out" \
+     | jq -e '.decision == "block" and (.hookSpecificOutput.additionalContext | contains("[REDACTED]"))' >/dev/null 2>&1 \
+   && ! printf '%s' "$codex_nested_out" | grep -Fq "$DISPLAY_SECRET"; then
+  ok "Codex post-tool still masks a literal nested in an argument list"
+else
+  not_ok "Codex post-tool still masks a literal nested in an argument list (status $codex_nested_status)"
+  printf '%s\n' "$codex_nested_out" | sed 's/^/  out: /'
+fi
+
 # The comma branch keeps winning the leftmost match, so a status-prefixed log
 # line with a real comma-delimited assignment still masks.
 COMMA_SECRET=$(printf '%s%s' 'hunter2-' 'comma-value')
@@ -8170,11 +8459,36 @@ esac
 # absolute path with a minimal PATH so nothing else leaks in.
 AG_VERSION=$(sed -n 's/^VERSION=//p' "$PLUGIN_ROOT/bin/agent-guard" | head -n1)
 
-run_session_start() {  # $1 = value for the marker env ('' => marker unset)
+# With the marker ABSENT the hook also reads the rc on disk (see #139), so $HOME
+# and $SHELL are part of its input and every case below pins them at a controlled
+# directory instead of the developer's real home. Default: a home with no rc at
+# all (nothing installed). The "setup ran" home is written by the real
+# setup-shell, so these cases stay coupled to what setup-shell actually installs.
+ss_home_bare="$TESTTMP/sstart-home-bare"
+ss_home_setup="$TESTTMP/sstart-home-setup"
+ss_home_login_fish="$TESTTMP/sstart-home-login-fish"
+ss_login_fish_bin="$TESTTMP/login-fish-bin"
+mkdir -p "$ss_home_bare" "$ss_home_setup" "$ss_home_login_fish" "$ss_login_fish_bin"
+cat >"$ss_login_fish_bin/getent" <<'STUB'
+#!/bin/sh
+[ "${1:-}" = passwd ] && [ -n "${2:-}" ] || exit 2
+printf '%s:x:1000:1000:Fixture User:/home/%s:/usr/bin/fish\n' "$2" "$2"
+STUB
+chmod +x "$ss_login_fish_bin/getent"
+HOME="$ss_home_setup" SHELL=/bin/zsh "$PLUGIN_ROOT/bin/agent-guard" setup-shell >/dev/null 2>&1
+# Reproduce the standard skill path from #139: the account database says fish,
+# while Claude's Bash tool presents zsh in $SHELL. Setup must still recognize
+# the fish host and cover either bash or zsh snapshot.
+HOME="$ss_home_login_fish" SHELL=/bin/zsh PATH="$ss_login_fish_bin:$ORIGINAL_PATH" \
+  "$PLUGIN_ROOT/bin/agent-guard" setup-shell >/dev/null 2>&1
+
+run_session_start() {  # $1 = marker ('' => unset), $2 = HOME, $3 = $SHELL, $4 = PATH
   sh -c 'unset AGENT_GUARD_SHELL_INIT_VERSION
          [ -n "$1" ] && export AGENT_GUARD_SHELL_INIT_VERSION="$1"
-         AGENT_GUARD_GITLEAKS_BIN="$3" PATH="$4" exec "$2" hook-session-start' \
-    _ "$1" "$PLUGIN_ROOT/bin/agent-guard" "$MOCK_BIN/gitleaks" "$MOCK_BIN:$ORIGINAL_PATH"
+         HOME="$4" SHELL="$5" AGENT_GUARD_GITLEAKS_BIN="$3" PATH="$6" \
+           exec "$2" hook-session-start' \
+    _ "$1" "$PLUGIN_ROOT/bin/agent-guard" "$MOCK_BIN/gitleaks" \
+    "${2:-$ss_home_bare}" "${3:-/bin/zsh}" "${4:-$MOCK_BIN:$ORIGINAL_PATH}"
 }
 
 vd_out=$(run_session_start 0.0.1 2>"$ERR")
@@ -8210,6 +8524,87 @@ if printf '%s' "$vd_out" | jq -e '.systemMessage | contains("or agent-guard setu
   ok "command-wrapping setup guidance offers the standalone CLI form"
 else
   not_ok "command-wrapping setup guidance offers the standalone CLI form (got: $vd_out)"
+fi
+
+# #139: a fish (or any non-POSIX) login shell — and any GUI/IDE launcher — never
+# evals the rc, so the marker can NEVER reach the hook, while the agent's own
+# bash/zsh snapshot still loads the wrapping from that same rc. The setup nag was
+# a permanent false positive there that rerunning setup-shell could not clear.
+# With the managed block on disk the hook must stay quiet (only the drift check is
+# lost); without it the nag must still fire (covered above with the bare home).
+vd_out=$(run_session_start "" "$ss_home_setup" 2>"$ERR")
+if [ $? -eq 0 ] && [ -z "$vd_out" ]; then
+  ok "SessionStart stays quiet with no marker when the managed rc block is installed (#139)"
+else
+  not_ok "SessionStart quiet with no marker but block installed (got: $vd_out)"
+fi
+
+# The rc is selected from $SHELL exactly as setup-shell derives it, so a block in
+# the OTHER shell's rc must not silence the nag — that gap is real, and is why
+# setup-shell writes both rc files for a fish login shell.
+vd_out=$(run_session_start "" "$ss_home_setup" /bin/bash 2>"$ERR")
+if [ $? -eq 0 ] \
+   && printf '%s' "$vd_out" | jq -e '.systemMessage | contains("/agent-guard:setup-shell")' >/dev/null 2>&1; then
+  ok "SessionStart still nags when the block is only in the other shell's rc (#139)"
+else
+  not_ok "SessionStart nags when the snapshot shell's rc has no block (got: $vd_out)"
+fi
+
+# A fish login shell gets both rc files even when the setup process reports zsh.
+# Consequently either actual snapshot shell must find a loadable block.
+for ss_snapshot_shell in /bin/bash /bin/zsh; do
+  vd_out=$(run_session_start "" "$ss_home_login_fish" "$ss_snapshot_shell" 2>"$ERR")
+  if [ $? -eq 0 ] && [ -z "$vd_out" ]; then
+    ok "SessionStart is quiet for ${ss_snapshot_shell##*/} snapshot after fish-login setup (#139)"
+  else
+    not_ok "SessionStart ${ss_snapshot_shell##*/} snapshot after fish-login setup (got: $vd_out)"
+  fi
+done
+
+# #155: the delimiters alone must NEVER be read as proof that the integration
+# loads. The block's `eval` emits nothing when the binary it resolves has
+# disappeared, so neither the wrapping nor the marker is installed — a
+# marker-only-plus-delimiter check would go silent on a session whose command
+# output is unprotected. That false negative is strictly worse than the false
+# positive #139 removed, so both shapes below must still warn, and with wording
+# that separates "never set up" from "set up but can no longer load".
+ss_clean_path="$MOCK_BIN:$(dirname "$REAL_GIT"):$(dirname "$REAL_JQ"):/usr/bin:/bin"
+if PATH="$ss_clean_path" command -v agent-guard >/dev/null 2>&1; then
+  say "agent-guard is on the minimal PATH here; skipped unresolvable-block tests"
+else
+  # A plugin-only install whose cache was updated away / uninstalled: the real
+  # setup-shell bakes the real cache paths, then the whole cache disappears.
+  ss_home_gone="$TESTTMP/sstart-home-gone"
+  ss_gone_bin="$ss_home_gone/.claude/plugins/cache/agent-guard/agent-guard/3.0.1/bin"
+  mkdir -p "$ss_gone_bin"
+  cp "$PLUGIN_ROOT/bin/agent-guard" "$ss_gone_bin/agent-guard"
+  chmod +x "$ss_gone_bin/agent-guard"
+  HOME="$ss_home_gone" SHELL=/bin/zsh "$ss_gone_bin/agent-guard" setup-shell >/dev/null 2>&1
+  rm -rf "$ss_home_gone/.claude"
+  vd_out=$(run_session_start "" "$ss_home_gone" /bin/zsh "$ss_clean_path" 2>"$ERR")
+  if [ $? -eq 0 ] \
+     && printf '%s' "$vd_out" | jq -e '.systemMessage | contains("can no longer load")' >/dev/null 2>&1 \
+     && printf '%s' "$vd_out" | jq -e '.systemMessage | contains("NOT masked")' >/dev/null 2>&1; then
+    ok "SessionStart warns when the managed block can no longer resolve its binary (#155)"
+  else
+    not_ok "SessionStart warns on an unresolvable managed block (got: $vd_out)"
+  fi
+
+  # The degenerate shape: delimiters with nothing between them. Nothing is
+  # evaluated, so nothing is protected.
+  ss_home_hollow="$TESTTMP/sstart-home-hollow"
+  mkdir -p "$ss_home_hollow"
+  {
+    sed -n 's/^SHELL_INIT_BLOCK_BEGIN=.\(.*\).$/\1/p' "$PLUGIN_ROOT/bin/agent-guard"
+    sed -n 's/^SHELL_INIT_BLOCK_END=.\(.*\).$/\1/p' "$PLUGIN_ROOT/bin/agent-guard"
+  } >"$ss_home_hollow/.zshrc"
+  vd_out=$(run_session_start "" "$ss_home_hollow" /bin/zsh "$ss_clean_path" 2>"$ERR")
+  if [ $? -eq 0 ] \
+     && printf '%s' "$vd_out" | jq -e '.systemMessage | contains("can no longer load")' >/dev/null 2>&1; then
+    ok "SessionStart warns on delimiters with no shell-init inside them (#155)"
+  else
+    not_ok "SessionStart warns on an empty managed block (got: $vd_out)"
+  fi
 fi
 
 vd_out=$(AGENT_GUARD_HOOK_HOST=codex AGENT_GUARD_GITLEAKS_BIN="$MOCK_BIN/gitleaks" \
@@ -8505,6 +8900,141 @@ if ln -s "$TESTTMP/real-rc" "$TESTTMP/link-rc" 2>/dev/null; then
   fi
 else
   say "symlinks not supported here; skipped setup-shell symlink test"
+fi
+# #139: fish cannot eval the POSIX snippet shell-init emits, so there is no fish
+# rc to install into — and the agent's `!`/Bash snapshot runs bash OR zsh without
+# telling us which. Fish in either the process environment or the account login
+# record therefore gets BOTH POSIX rc files, so the wrapping loads whichever one
+# the snapshot picks.
+ss_fish_home="$TESTTMP/fish-home"
+mkdir -p "$ss_fish_home"
+ss_fish_out=$(HOME="$ss_fish_home" SHELL=/usr/bin/fish \
+  "$PLUGIN_ROOT/bin/agent-guard" setup-shell 2>&1)
+if grep -q '>>> agent-guard shell-init >>>' "$ss_fish_home/.bashrc" 2>/dev/null \
+   && grep -q '>>> agent-guard shell-init >>>' "$ss_fish_home/.zshrc" 2>/dev/null; then
+  ok "setup-shell installs both POSIX rc files for a fish login shell (#139)"
+else
+  not_ok "setup-shell installs both POSIX rc files for a fish login shell (#139)"
+fi
+# The notice must say fish itself gets no agx/nudge — claiming otherwise would
+# misreport what is protected — while staying host-neutral like the rest of the CLI.
+if printf '%s' "$ss_fish_out" | grep -q 'fish' \
+   && printf '%s' "$ss_fish_out" | grep -q 'agx' \
+   && printf '%s' "$ss_fish_out" | grep -q 'plugin-only' \
+   && printf '%s' "$ss_fish_out" | grep -q 'fish executable:' \
+   && grep -Fq 'current/bin/agent-guard' "$ROOT/README.md" \
+   && ! printf '%s' "$ss_fish_out" | grep -Eq 'Claude Code|Codex'; then
+  ok "setup-shell reports the fish limitation and plugin-only executable (#139)"
+else
+  not_ok "setup-shell fish limitation/plugin-only guidance (got: $ss_fish_out)"
+fi
+
+# The real #139 skill-path mismatch: passwd/getent reports fish while the Bash
+# tool presents zsh, or bash, through $SHELL. Both cases must dual-write and
+# explain the fish limitation.
+for ss_process_shell in zsh bash; do
+  ss_mismatch_home="$TESTTMP/fish-login-process-$ss_process_shell"
+  mkdir -p "$ss_mismatch_home"
+  ss_mismatch_out=$(HOME="$ss_mismatch_home" SHELL="/bin/$ss_process_shell" \
+    PATH="$ss_login_fish_bin:$ORIGINAL_PATH" \
+    "$PLUGIN_ROOT/bin/agent-guard" setup-shell 2>&1)
+  if grep -q '>>> agent-guard shell-init >>>' "$ss_mismatch_home/.bashrc" 2>/dev/null \
+     && grep -q '>>> agent-guard shell-init >>>' "$ss_mismatch_home/.zshrc" 2>/dev/null \
+     && printf '%s' "$ss_mismatch_out" | grep -q 'fish'; then
+    ok "setup-shell detects passwd fish with process SHELL=$ss_process_shell (#139)"
+  else
+    not_ok "setup-shell detects passwd fish with process SHELL=$ss_process_shell (got: $ss_mismatch_out)"
+  fi
+done
+
+# macOS uses dscl rather than getent for the same account-shell signal.
+ss_dscl_fish_bin="$TESTTMP/dscl-fish-bin"
+ss_dscl_fish_home="$TESTTMP/dscl-fish-home"
+mkdir -p "$ss_dscl_fish_bin" "$ss_dscl_fish_home"
+cat >"$ss_dscl_fish_bin/getent" <<'STUB'
+#!/bin/sh
+exit 1
+STUB
+cat >"$ss_dscl_fish_bin/dscl" <<'STUB'
+#!/bin/sh
+printf 'UserShell: /opt/homebrew/bin/fish\n'
+STUB
+chmod +x "$ss_dscl_fish_bin/getent" "$ss_dscl_fish_bin/dscl"
+HOME="$ss_dscl_fish_home" SHELL=/bin/zsh PATH="$ss_dscl_fish_bin:$ORIGINAL_PATH" \
+  "$PLUGIN_ROOT/bin/agent-guard" setup-shell >/dev/null 2>&1
+if [ -e "$ss_dscl_fish_home/.bashrc" ] && [ -e "$ss_dscl_fish_home/.zshrc" ]; then
+  ok "setup-shell detects a macOS dscl fish login shell"
+else
+  not_ok "setup-shell macOS dscl fish login-shell detection"
+fi
+
+# Dual-write remains idempotent when the standard skill is rerun.
+HOME="$ss_home_login_fish" SHELL=/bin/zsh PATH="$ss_login_fish_bin:$ORIGINAL_PATH" \
+  "$PLUGIN_ROOT/bin/agent-guard" setup-shell >/dev/null 2>&1
+ss_login_fish_bash_markers=$(grep -c '>>> agent-guard shell-init >>>' \
+  "$ss_home_login_fish/.bashrc" 2>/dev/null || :)
+ss_login_fish_zsh_markers=$(grep -c '>>> agent-guard shell-init >>>' \
+  "$ss_home_login_fish/.zshrc" 2>/dev/null || :)
+if [ "$ss_login_fish_bash_markers" = 1 ] && [ "$ss_login_fish_zsh_markers" = 1 ]; then
+  ok "setup-shell fish-login dual-write is idempotent"
+else
+  not_ok "setup-shell fish-login idempotency (bash=$ss_login_fish_bash_markers zsh=$ss_login_fish_zsh_markers)"
+fi
+
+# Every explicit selector outranks both process and account-shell detection.
+ss_explicit_bash_home="$TESTTMP/fish-explicit-bash"
+ss_explicit_zsh_home="$TESTTMP/fish-explicit-zsh"
+ss_explicit_rc_home="$TESTTMP/fish-explicit-rc"
+mkdir -p "$ss_explicit_bash_home" "$ss_explicit_zsh_home" "$ss_explicit_rc_home"
+HOME="$ss_explicit_bash_home" SHELL=/bin/zsh PATH="$ss_login_fish_bin:$ORIGINAL_PATH" \
+  "$PLUGIN_ROOT/bin/agent-guard" setup-shell --bash >/dev/null 2>&1
+HOME="$ss_explicit_zsh_home" SHELL=/bin/bash PATH="$ss_login_fish_bin:$ORIGINAL_PATH" \
+  "$PLUGIN_ROOT/bin/agent-guard" setup-shell --zsh >/dev/null 2>&1
+HOME="$ss_explicit_rc_home" SHELL=/bin/bash PATH="$ss_login_fish_bin:$ORIGINAL_PATH" \
+  "$PLUGIN_ROOT/bin/agent-guard" setup-shell --rc "$ss_explicit_rc_home/custom.rc" >/dev/null 2>&1
+if [ -e "$ss_explicit_bash_home/.bashrc" ] && [ ! -e "$ss_explicit_bash_home/.zshrc" ] \
+   && [ -e "$ss_explicit_zsh_home/.zshrc" ] && [ ! -e "$ss_explicit_zsh_home/.bashrc" ] \
+   && [ -e "$ss_explicit_rc_home/custom.rc" ] \
+   && [ ! -e "$ss_explicit_rc_home/.bashrc" ] && [ ! -e "$ss_explicit_rc_home/.zshrc" ]; then
+  ok "setup-shell explicit --bash/--zsh/--rc selectors override shell detection"
+else
+  not_ok "setup-shell explicit shell selector precedence"
+fi
+
+# Account-shell lookup is best-effort. A missing lookup tool and a lookup
+# failure must both preserve the process-$SHELL fallback instead of failing
+# setup or widening writes unexpectedly.
+ss_no_lookup_bin="$TESTTMP/no-login-shell-lookup-bin"
+mkdir -p "$ss_no_lookup_bin"
+for ss_tool in sh dirname sed mktemp mv rm id; do
+  ss_tool_path=$(command -v "$ss_tool" 2>/dev/null || :)
+  [ -n "$ss_tool_path" ] && ln -s "$ss_tool_path" "$ss_no_lookup_bin/$ss_tool"
+done
+ss_no_lookup_home="$TESTTMP/no-login-shell-lookup-home"
+mkdir -p "$ss_no_lookup_home"
+HOME="$ss_no_lookup_home" SHELL=/bin/bash PATH="$ss_no_lookup_bin" \
+  "$PLUGIN_ROOT/bin/agent-guard" setup-shell >/dev/null 2>&1
+
+ss_failed_lookup_bin="$TESTTMP/failed-login-shell-lookup-bin"
+ss_failed_lookup_home="$TESTTMP/failed-login-shell-lookup-home"
+mkdir -p "$ss_failed_lookup_bin" "$ss_failed_lookup_home"
+cat >"$ss_failed_lookup_bin/getent" <<'STUB'
+#!/bin/sh
+exit 1
+STUB
+cat >"$ss_failed_lookup_bin/dscl" <<'STUB'
+#!/bin/sh
+exit 1
+STUB
+chmod +x "$ss_failed_lookup_bin/getent" "$ss_failed_lookup_bin/dscl"
+HOME="$ss_failed_lookup_home" SHELL=/bin/zsh \
+  PATH="$ss_failed_lookup_bin:$ORIGINAL_PATH" \
+  "$PLUGIN_ROOT/bin/agent-guard" setup-shell >/dev/null 2>&1
+if [ -e "$ss_no_lookup_home/.bashrc" ] && [ ! -e "$ss_no_lookup_home/.zshrc" ] \
+   && [ -e "$ss_failed_lookup_home/.zshrc" ] && [ ! -e "$ss_failed_lookup_home/.bashrc" ]; then
+  ok "setup-shell falls back to process SHELL when login-shell lookup is absent or fails"
+else
+  not_ok "setup-shell login-shell lookup fallback"
 fi
 
 # --- clean-home plugin install -> upgrade -> existing stable PATH -----------
