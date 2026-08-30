@@ -1807,8 +1807,10 @@ candidate_parent_matches_deny() (
 )
 
 # Classify explicitly named environment placeholder templates. Accepted suffix
-# markers are `.example`, `.sample`, `.template`, and `.dist`; the marker must
-# be final.
+# markers are `example`, `sample`, `template`, `dist`, `tpl`, and `tmpl`,
+# separated by `.`, `-`, or `_` (`.env.example`, `.env-example`, `.env_sample`,
+# `.env.tpl`); the marker must be final. `.env.default(s)` is deliberately not
+# a marker: dotenv-defaults loads it at runtime, so it may hold real values.
 # `example.env`, `sample.env`, and `template.env` (plus their envrc forms) are
 # also accepted because that prefix convention is common and unambiguous.
 #
@@ -1826,10 +1828,12 @@ candidate_is_allowed() {
     example.env|sample.env|template.env|example.envrc|sample.envrc|template.envrc|\
     .example.env|.sample.env|.template.env|.example.envrc|.sample.envrc|.template.envrc)
       ;;
-    *.example) template_stem=${template_base%.example} ;;
-    *.sample) template_stem=${template_base%.sample} ;;
-    *.template) template_stem=${template_base%.template} ;;
-    *.dist) template_stem=${template_base%.dist} ;;
+    *[._-]example) template_stem=${template_base%[._-]example} ;;
+    *[._-]sample) template_stem=${template_base%[._-]sample} ;;
+    *[._-]template) template_stem=${template_base%[._-]template} ;;
+    *[._-]dist) template_stem=${template_base%[._-]dist} ;;
+    *[._-]tpl) template_stem=${template_base%[._-]tpl} ;;
+    *[._-]tmpl) template_stem=${template_base%[._-]tmpl} ;;
     *) return 1 ;;
   esac
 
@@ -1846,17 +1850,27 @@ candidate_is_allowed() {
 # Keep ordinary source modules such as `config.env.ts` readable without opening
 # data/config suffixes such as `config.env.json`. Require a non-empty prefix for
 # reverse-extension forms so `.env.ts` remains a protected runtime variant.
+#
+# The basename must end in a known code extension; the stem in front of it may
+# carry at most ONE intermediate segment (`env.d.ts`, `env.server.ts`,
+# `app.env.spec.ts`) because those are ordinary committed modules. Enforced by
+# stripping the final dot-free segment from the stem: what remains must itself
+# be a bare env stem, so `env.production.backup.ts` and `app.env.local.copy.js`
+# stay on the deny globs. A stem with no code extension (`env.d`, `env.local`,
+# `config.env.json`) is never a source module.
 candidate_is_env_source_module() {
   env_source_base=${1##*/}
   case "$env_source_base" in
-    env.ts|env.tsx|env.js|env.jsx|env.mjs|env.cjs|env.py|env.rb|env.go|env.rs|\
-    env.java|env.kt|env.kts|env.swift|envrc.ts|envrc.tsx|envrc.js|envrc.jsx|\
-    envrc.mjs|envrc.cjs|envrc.py|envrc.rb|envrc.go|envrc.rs|envrc.java|envrc.kt|\
-    envrc.kts|envrc.swift|?*.env.ts|?*.env.tsx|?*.env.js|?*.env.jsx|?*.env.mjs|\
-    ?*.env.cjs|?*.env.py|?*.env.rb|?*.env.go|?*.env.rs|?*.env.java|?*.env.kt|\
-    ?*.env.kts|?*.env.swift|?*.envrc.ts|?*.envrc.tsx|?*.envrc.js|?*.envrc.jsx|\
-    ?*.envrc.mjs|?*.envrc.cjs|?*.envrc.py|?*.envrc.rb|?*.envrc.go|?*.envrc.rs|\
-    ?*.envrc.java|?*.envrc.kt|?*.envrc.kts|?*.envrc.swift) return 0 ;;
+    *.ts|*.tsx|*.js|*.jsx|*.mjs|*.cjs|*.py|*.rb|*.go|*.rs|*.java|*.kt|*.kts|\
+    *.swift) ;;
+    *) return 1 ;;
+  esac
+  env_source_stem=${env_source_base%.*}
+  case "$env_source_stem" in
+    env|envrc|?*.env|?*.envrc) return 0 ;;
+  esac
+  case "${env_source_stem%.*}" in
+    env|envrc|?*.env|?*.envrc) return 0 ;;
     *) return 1 ;;
   esac
 }

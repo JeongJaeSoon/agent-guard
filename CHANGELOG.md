@@ -7,6 +7,18 @@
 
 ## Unreleased
 
+- feat(detection): extend the env template marker vocabulary with `tpl`/`tmpl`
+  and accept `-`/`_` marker separators (`.env-example`, `.env_sample`,
+  `.env.tpl`), matching the naming conventions measured on GitHub. The marker
+  must still be final and the stem must stay an env family; `.env.default(s)`
+  stays blocked because dotenv-defaults loads it at runtime.
+- fix(detection): allow env source modules that carry exactly one intermediate
+  segment between the `env`/`envrc` stem and a code extension, so ordinary
+  committed files such as `env.d.ts`, `env.server.ts`, `env.config.ts`, and `env.spec.ts`
+  are readable on both the Read and Bash gates. The final extension must still
+  be code: data/config suffixes (`env.json`, `env.local.json`), extension-less
+  names (`env.d`), the leading-dot runtime form (`.env.d.ts`), deny-listed
+  ancestors, and custom deny policies all stay authoritative.
 - fix(detection): allow explicitly named env templates such as `sample.env`,
   `example.envrc`, `.flaskenv.example`, and `.dev.vars.example`, while blocking
   reverse/runtime forms including `local.env`, `env.local`, `env.preview`, and

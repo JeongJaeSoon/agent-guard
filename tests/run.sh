@@ -1329,6 +1329,69 @@ expect_json_status 2 "Read schema.env.json data file stays blocked" \
   '{"tool_name":"Read","tool_input":{"file_path":"schema.env.json"}}' \
   hook-pre-tool
 
+# A source module may carry one intermediate segment between the env stem and
+# the code extension: `env.d.ts` (Vite/Next), `env.server.ts`, `env.spec.ts`.
+# The final extension must still be code, so data/config suffixes and a bare
+# `env.d` stay blocked, and `.env.d.ts` keeps the protected leading-dot form.
+expect_json_status 0 "Read env.d.ts source module is allowed" \
+  '{"tool_name":"Read","tool_input":{"file_path":"env.d.ts"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "Read env.server.ts source module is allowed" \
+  '{"tool_name":"Read","tool_input":{"file_path":"env.server.ts"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "Read env.spec.ts source module is allowed" \
+  '{"tool_name":"Read","tool_input":{"file_path":"env.spec.ts"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "Read app.env.config.ts source module is allowed" \
+  '{"tool_name":"Read","tool_input":{"file_path":"app.env.config.ts"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "Bash cat env.d.ts source module is allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat env.d.ts"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash cat env.d.ts plus bare .env still blocks" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat env.d.ts .env"}}' \
+  hook-pre-tool
+
+# The intermediate wildcard is limited to exactly one segment: names with two
+# or more dot segments between the env stem and the code extension stay on the
+# deny globs.
+expect_json_status 2 "Read env.production.backup.ts (two segments) stays blocked" \
+  '{"tool_name":"Read","tool_input":{"file_path":"env.production.backup.ts"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Read app.env.local.copy.js (two segments) stays blocked" \
+  '{"tool_name":"Read","tool_input":{"file_path":"app.env.local.copy.js"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash cat env.production.backup.ts (two segments) stays blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat env.production.backup.ts"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash cat app.env.local.copy.js (two segments) stays blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat app.env.local.copy.js"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Read env.d without a code extension stays blocked" \
+  '{"tool_name":"Read","tool_input":{"file_path":"env.d"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Read .env.d.ts runtime variant stays blocked" \
+  '{"tool_name":"Read","tool_input":{"file_path":".env.d.ts"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Read env.local.json data file stays blocked" \
+  '{"tool_name":"Read","tool_input":{"file_path":"env.local.json"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash cat env.d without a code extension stays blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat env.d"}}' \
+  hook-pre-tool
+
 expect_json_status 2 "Bash cat local.env runtime file is blocked" \
   '{"tool_name":"Bash","tool_input":{"command":"cat local.env"}}' \
   hook-pre-tool
@@ -1398,6 +1461,66 @@ expect_json_status 2 "Bash cat .envrc is blocked" \
 
 expect_json_status 2 "Bash cat .env.example.bak (suffix not final) is blocked" \
   '{"tool_name":"Bash","tool_input":{"command":"cat .env.example.bak"}}' \
+  hook-pre-tool
+
+# Marker vocabulary: `tpl`/`tmpl` markers and `-`/`_` separators are template
+# grammar too (`.env-example` ~20k repos, `.env_example` ~12k, `.env.tpl` ~1.3k
+# on GitHub). The marker must still be final and the stem must stay env-family;
+# `.env.default(s)` stays blocked because dotenv-defaults loads it at runtime.
+expect_json_status 0 "Read .env-example (hyphen separator) is allowed" \
+  '{"tool_name":"Read","tool_input":{"file_path":".env-example"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "Read .env_sample (underscore separator) is allowed" \
+  '{"tool_name":"Read","tool_input":{"file_path":".env_sample"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "Read .env.tpl template marker is allowed" \
+  '{"tool_name":"Read","tool_input":{"file_path":".env.tpl"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "Read .env.tmpl template marker is allowed" \
+  '{"tool_name":"Read","tool_input":{"file_path":".env.tmpl"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "Read .envrc-example (hyphen separator) is allowed" \
+  '{"tool_name":"Read","tool_input":{"file_path":".envrc-example"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Read .env-local (separator without template marker) is blocked" \
+  '{"tool_name":"Read","tool_input":{"file_path":".env-local"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Read .env-example.bak (hyphen marker not final) is blocked" \
+  '{"tool_name":"Read","tool_input":{"file_path":".env-example.bak"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Read .env.tpl.bak (tpl marker not final) is blocked" \
+  '{"tool_name":"Read","tool_input":{"file_path":".env.tpl.bak"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Read .env.defaults (runtime-loaded, not a template) is blocked" \
+  '{"tool_name":"Read","tool_input":{"file_path":".env.defaults"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Read .env.default (runtime-loaded, not a template) is blocked" \
+  '{"tool_name":"Read","tool_input":{"file_path":".env.default"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "Bash cat .env-example is allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat .env-example"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "Bash cat .env.tpl is allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat .env.tpl"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash cat .env-example .env still blocks on the bare .env token" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat .env-example .env"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash cat .env.tpl.bak (tpl marker not final) is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat .env.tpl.bak"}}' \
   hook-pre-tool
 
 # Path-prefixed candidates go through basename stripping before the suffix match.
@@ -3347,6 +3470,29 @@ if [ "$status" -eq 2 ]; then
   ok "custom directory deny overrides a nested template exception"
 else
   not_ok "custom directory deny overrides a nested template exception (expected 2, got $status)"
+fi
+
+# The same authority holds for the source-module exception: an operator who
+# deny-lists `env.d.ts` keeps it blocked on both hook surfaces.
+CUSTOM_MODULE_DENY="$TMP_ROOT/custom-module-deny.txt"
+printf '%s\n' 'env.d.ts' >"$CUSTOM_MODULE_DENY"
+printf '%s' '{"tool_name":"Read","tool_input":{"file_path":"env.d.ts"}}' \
+  | AGENT_GUARD_DENY_READ_PATHS="$CUSTOM_MODULE_DENY" \
+    "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >/dev/null 2>&1
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "custom deny-read policy overrides a Read source-module exception"
+else
+  not_ok "custom deny-read policy overrides a Read source-module exception (expected 2, got $status)"
+fi
+printf '%s' '{"tool_name":"Bash","tool_input":{"command":"cat env.d.ts"}}' \
+  | AGENT_GUARD_DENY_READ_PATHS="$CUSTOM_MODULE_DENY" \
+    "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >/dev/null 2>&1
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "custom deny-read policy overrides a Bash source-module exception"
+else
+  not_ok "custom deny-read policy overrides a Bash source-module exception (expected 2, got $status)"
 fi
 
 # Loop-level fail-closed: a bad-ERE entry placed AFTER a valid one must still
