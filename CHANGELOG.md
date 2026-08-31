@@ -7,6 +7,19 @@
 
 ## Unreleased
 
+- fix(hooks): treat malformed `UserPromptSubmit` JSON as an infrastructure
+  failure instead of collapsing a failed `jq` extraction into an empty prompt.
+  The opt-in closed policy now blocks; the default open policy emits one
+  host-shaped degradation notice.
+- fix(shell): when SessionStart still receives a fish `$SHELL`, require both
+  `.bashrc` and `.zshrc` managed blocks to remain loadable. The host snapshot may
+  choose either shell, so one surviving rc can no longer silence the warning
+  while the other snapshot path is unprotected.
+- fix(redaction): limit the `:` equals-assignment delimiter to the quoted string
+  leaf it was added for. Serialized output such as
+  `{"log":"API_KEY=<value>"}` still masks, while valid compact source such as
+  the JavaScript labelled statement `label:API_KEY=config.apiKey;` is preserved
+  on display and accepted by the prompt guard.
 - fix(redaction): accept a carriage return as an assignment delimiter. A `\r`
   before the key hid the assignment completely, on display and at the prompt
   guard, so a secret printed after a progress meter, a spinner, or on
