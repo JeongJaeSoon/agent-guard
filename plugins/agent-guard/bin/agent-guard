@@ -3105,10 +3105,20 @@ secretish_env_values() {
       }
       return 1
     }
-    function emit_mapping(literal, replacement) {
+    # scan_line deliberately re-scans inside a quoted value after emit_secret
+    # records that wider literal. A short inner assignment can then produce a
+    # contextual mapping whose value span is the SAME occurrence already
+    # covered by the outer secret. Applying it first strands the inner key
+    # prefix. Suppress only that scanner occurrence; an identical short value
+    # elsewhere still needs its own contextual mapping and must remain emitted.
+    function emit_mapping(literal, replacement, value_start, value_length) {
       if (record_mode == "probe" || record_mode == "probe_raw") {
         if (!probe_found) print "x"
         probe_found = 1
+      } else if (rescan_cover_end > 0 \
+                 && value_start >= rescan_cover_start \
+                 && value_start + value_length - 1 <= rescan_cover_end) {
+        return
       } else if (record_mode == "framed") {
         emit_framed(literal, "L")
         emit_framed(replacement, "R")
@@ -3298,6 +3308,8 @@ secretish_env_values() {
     function emit_value(source, start, assignment, require_credential, \
                         raw, leading, quote, end, \
                         value, token, trailing, ch) {
+      next_rescan_cover_start = 0
+      next_rescan_cover_end = 0
       raw = substr(source, start)
       match(raw, /^[ \t]*/)
       leading = substr(raw, 1, RLENGTH)
@@ -3366,14 +3378,11 @@ secretish_env_values() {
           # interior quote still marks a reference and the accessor forms in
           # the #169 assertions stay preserved.
           #
-          # Not when the ASSIGNMENT ITSELF begins with a quote. That marks the
-          # line-start rescan of a value an OUTER quoted assignment already
-          # claimed: scan_line advances past the matched key only, so the inner
-          # text is examined a second time and matches via the `^` alternative.
-          # The outer match has already emitted the whole quoted value as the
-          # secret; stripping here produced a second, narrower mapping that beat
-          # it and left the inner key prefix on display.
-          if (strip_quote == 0 && assignment !~ /^["'\''`]/ \
+          # A line-start quoted assignment needs the same strip. The re-scan of
+          # an outer quoted value can then rediscover a narrower short token;
+          # emit_mapping suppresses that record only when an already-emitted
+          # secret literal covers its exact value span (#180).
+          if (strip_quote == 0 \
               && (ch == "\"" || ch == "'\''" || ch == "`")) {
             strip_quote = 1
             end--
@@ -3401,7 +3410,9 @@ secretish_env_values() {
         if (length(value) < 4 && length(token) >= 4) {
           trailing = substr(token, end + 1)
           emit_mapping(assignment leading token,
-                       assignment leading "[REDACTED]" trailing)
+                       assignment leading "[REDACTED]" trailing,
+                       start + length(leading),
+                       length(value))
           return 0
         }
         emit_secret(value, length(token))
@@ -3412,13 +3423,21 @@ secretish_env_values() {
       # padded literal left a bare recurrence of the same credential further
       # down unmasked. Record both forms, exactly as the multiline close does.
       emit_captured(value)
+      # Coordinates are relative to this scan_line source. Once scan_line
+      # advances past the assignment delimiter it translates them to the new
+      # `rest`, allowing only mappings from this exact emitted value occurrence
+      # to be suppressed. Mixed quotes elsewhere in the span stay scannable.
+      next_rescan_cover_start = start + length(leading) + 1
+      next_rescan_cover_end = start + length(leading) + length(value)
       return 0
     }
     function scan_line(line, rest, end, low, eq_start, eq_length, \
                        colon_start, colon_length, start, matched_length, \
                        chose_colon, skip, status_guard, first, expansion, \
-                       closed_value, key_opener) {
+                       closed_value, key_opener, advance) {
       rest = line
+      rescan_cover_start = 0
+      rescan_cover_end = 0
       if (open_quote != "") {
         end = quoted_end(rest, open_quote)
         if (end == 0) {
@@ -3519,10 +3538,24 @@ secretish_env_values() {
         # Emit exactly the quoted value or the next unquoted token. Continuing
         # after the delimiter finds multiple assignments on one log line while
         # leaving adjacent status text untouched.
+        next_rescan_cover_start = 0
+        next_rescan_cover_end = 0
         if (!skip &&
             emit_value(rest, start + matched_length,
                        substr(rest, start, matched_length), status_guard)) break
-        rest = substr(rest, start + matched_length)
+        advance = start + matched_length - 1
+        if (next_rescan_cover_end > 0) {
+          rescan_cover_start = next_rescan_cover_start - advance
+          rescan_cover_end = next_rescan_cover_end - advance
+        } else if (rescan_cover_end > 0) {
+          rescan_cover_start -= advance
+          rescan_cover_end -= advance
+          if (rescan_cover_end < 1) {
+            rescan_cover_start = 0
+            rescan_cover_end = 0
+          }
+        }
+        rest = substr(rest, advance + 1)
       }
     }
     function scan_leaf(value, newline, line) {
