@@ -1127,6 +1127,40 @@ for pg_h in claude codex; do
     prompt_guard_case "$pg_h" nonsense '' '{"prompt":"hello"}'
 done
 
+# A malformed host payload is an infrastructure failure, not a benign empty
+# prompt. In particular, the opt-in closed policy must not collapse a jq parse
+# error inside command substitution into prompt="" and return success.
+malformed_prompt_json=$(printf '{"prompt":"pasted DB_PASSWORD=%s"' "$prompt_guard_fake_value")
+printf '%s' "$malformed_prompt_json" \
+  | AGENT_GUARD_HOOK_HOST=claude AGENT_GUARD_INFRA_FAILURE_MODE=closed \
+    AGENT_GUARD_WARNING_DIR="$TESTTMP/prompt-malformed-closed" \
+    "$PLUGIN_ROOT/bin/agent-guard" hook-user-prompt >"$OUT" 2>"$ERR"
+malformed_prompt_status=$?
+if [ "$malformed_prompt_status" -eq 2 ] && [ ! -s "$OUT" ] \
+   && grep -q 'prompt hook input could not be parsed' "$ERR"; then
+  ok "prompt guard closed policy blocks a malformed host payload"
+else
+  not_ok "prompt guard closed policy blocks malformed input (status $malformed_prompt_status)"
+  sed 's/^/  stdout: /' "$OUT"; sed 's/^/  stderr: /' "$ERR"
+fi
+
+# The default open policy may continue, but it must emit one valid host-shaped
+# notice instead of treating the parse failure as a clean prompt.
+printf '%s' "$malformed_prompt_json" \
+  | AGENT_GUARD_HOOK_HOST=codex AGENT_GUARD_INFRA_FAILURE_MODE=open \
+    AGENT_GUARD_WARNING_DIR="$TESTTMP/prompt-malformed-open" \
+    "$PLUGIN_ROOT/bin/agent-guard" hook-user-prompt >"$OUT" 2>"$ERR"
+malformed_prompt_status=$?
+if [ "$malformed_prompt_status" -eq 0 ] \
+   && [ "$(jq -s 'length' <"$OUT" 2>/dev/null)" = 1 ] \
+   && jq -e '.hookSpecificOutput.additionalContext
+             | contains("prompt hook input could not be parsed")' "$OUT" >/dev/null 2>&1; then
+  ok "prompt guard open policy reports a malformed host payload once"
+else
+  not_ok "prompt guard open policy reports malformed input (status $malformed_prompt_status)"
+  sed 's/^/  stdout: /' "$OUT"; sed 's/^/  stderr: /' "$ERR"
+fi
+
 # warn emits the host-appropriate notice shape: Claude renders systemMessage;
 # Codex documents hookSpecificOutput.additionalContext as its context channel.
 prompt_guard_case claude warn '' '{"prompt":"my key is AGENT_GUARD_TEST_SECRET"}' >"$OUT" 2>"$ERR"
@@ -7434,6 +7468,27 @@ expect_json_status 2 "#178 an assignment inside a quoted JSON string leaf still 
     '{session_id:"t",hook_event_name:"UserPromptSubmit",prompt:$prompt}')" \
   hook-user-prompt
 
+# The colon delimiter added for a serialized string leaf must require the quote
+# that opens that leaf. Otherwise valid compact source such as a JavaScript
+# labelled statement becomes newly reachable and its reference is mistaken for
+# a credential literal. The quoted JSON controls above must remain masked.
+label_reference='label:API_KEY=config.apiKey;'
+display_input=$(jq -nc --arg stdout "$label_reference" \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$display_input"
+label_reference_status=$?
+if [ "$label_reference_status" -eq 0 ] && [ ! -s "$OUT" ]; then
+  ok "#178 colon widening preserves a compact JavaScript labelled reference"
+else
+  not_ok "#178 colon widening preserves labelled source (status $label_reference_status)"
+  sed 's/^/  out: /' "$OUT"
+fi
+
+expect_json_status 0 "#178 prompt guard allows a compact JavaScript labelled reference" \
+  "$(jq -nc --arg prompt "$label_reference" \
+    '{session_id:"t",hook_event_name:"UserPromptSubmit",prompt:$prompt}')" \
+  hook-user-prompt
+
 # The trailing-quote strip must NOT fire on the line-start rescan of a value an
 # outer quoted assignment already claimed, or it emits a second, narrower
 # mapping that beats the outer one and strands the key prefix on display.
@@ -9558,6 +9613,32 @@ for ss_snapshot_shell in /bin/bash /bin/zsh; do
     ok "SessionStart is quiet for ${ss_snapshot_shell##*/} snapshot after fish-login setup (#139)"
   else
     not_ok "SessionStart ${ss_snapshot_shell##*/} snapshot after fish-login setup (got: $vd_out)"
+  fi
+done
+
+# If the hook still sees the fish login shell, it cannot know whether the host
+# snapshot chose bash or zsh. One surviving rc must therefore not validate the
+# other missing half: that would make SessionStart stay silent while the actual
+# snapshot may be unwrapped. setup-shell writes both, so partial coverage means
+# rerunning setup is required.
+vd_out=$(run_session_start "" "$ss_home_login_fish" /usr/bin/fish 2>"$ERR")
+if [ $? -eq 0 ] && [ -z "$vd_out" ]; then
+  ok "SessionStart is quiet when fish snapshot coverage includes both rc files"
+else
+  not_ok "SessionStart fish snapshot with complete rc coverage (got: $vd_out)"
+fi
+
+for ss_missing_rc in .bashrc .zshrc; do
+  mv "$ss_home_login_fish/$ss_missing_rc" "$ss_home_login_fish/$ss_missing_rc.removed"
+  vd_out=$(run_session_start "" "$ss_home_login_fish" /usr/bin/fish 2>"$ERR")
+  vd_status=$?
+  mv "$ss_home_login_fish/$ss_missing_rc.removed" "$ss_home_login_fish/$ss_missing_rc"
+  if [ "$vd_status" -eq 0 ] \
+     && printf '%s' "$vd_out" \
+       | jq -e '.systemMessage | contains("does not cover both .bashrc and .zshrc")' >/dev/null 2>&1; then
+    ok "SessionStart warns when fish snapshot coverage is missing $ss_missing_rc"
+  else
+    not_ok "SessionStart fish partial rc coverage for $ss_missing_rc (status $vd_status, got: $vd_out)"
   fi
 done
 

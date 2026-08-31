@@ -3417,7 +3417,7 @@ secretish_env_values() {
     function scan_line(line, rest, end, low, eq_start, eq_length, \
                        colon_start, colon_length, start, matched_length, \
                        chose_colon, skip, status_guard, first, expansion, \
-                       closed_value) {
+                       closed_value, key_opener) {
       rest = line
       if (open_quote != "") {
         end = quoted_end(rest, open_quote)
@@ -3479,8 +3479,20 @@ secretish_env_values() {
         # whose innermost label is a status word: the value decides there too.
         skip = 0
         status_guard = 0
+        first = substr(rest, start, 1)
+        # `:` joined the equals delimiter class only for a serialized string
+        # leaf (`{"log":"API_KEY=<secret>"}`), where it is immediately followed
+        # by the quote that opens the leaf. Without requiring that quote, valid
+        # compact source such as the JavaScript labelled statement
+        # `label:API_KEY=config.apiKey;` becomes newly reachable and the shared
+        # prompt guard blocks it. Preserve the pre-widening behavior for an
+        # unquoted key after a colon while keeping the quoted JSON form.
+        if (!chose_colon && first == ":") {
+          key_opener = substr(rest, start + 1, 1)
+          if (key_opener != "\"" && key_opener != "'\''" && key_opener != "`")
+            skip = 1
+        }
         if (chose_colon && start > 1) {
-          first = substr(rest, start, 1)
           # `\r` belongs with space and tab here, or the guard misses the shape
           # the delimiter widening just made reachable: with a carriage return
           # between the label and the key (`error:\rpassword: <prose>`) the
@@ -4328,7 +4340,16 @@ hook_user_prompt() {
   fi
   need_cmd jq
   [ -n "$input" ] || return 0
-  prompt=$(json_value '.prompt // empty' "$input")
+  # A jq failure is an infrastructure failure, not an empty benign prompt.
+  # Check the substitution in the parent shell so the closed policy can block;
+  # the default open policy emits one host-shaped notice and returns.
+  if ! prompt=$(json_value '.prompt // empty' "$input" 2>/dev/null); then
+    begin_infrastructure_failure "$input" \
+      "$PROGRAM: the prompt hook input could not be parsed;"
+    notice=$INFRA_FAILURE_NOTICE
+    emit_prompt_response "$notice" ''
+    return 0
+  fi
   [ -n "$prompt" ] || return 0
 
   # The PII input gate is governed by AGENT_GUARD_PII_HOOK_MODE alone and stays
@@ -4418,9 +4439,9 @@ hook_user_prompt() {
 # duplicates host-independent warnings in additionalContext so the model can act
 # on them; both hosts receive a user-facing systemMessage.
 
-# Classify `setup-shell`'s managed block in the rc file Claude Code's shell
-# snapshot reads: 0 = the block is there AND can still load, 2 = the block is
-# there but the binary it resolves is gone, 1 = no usable block at all.
+# Classify `setup-shell`'s managed block in one rc file: 0 = the block is there
+# AND can still load, 2 = the block is there but the binary it resolves is gone,
+# 1 = no usable block at all.
 #
 # The marker only reaches this hook when the shell that LAUNCHED the agent
 # evaluated that rc — which never happens for a fish (or any non-POSIX) login
@@ -4434,16 +4455,8 @@ hook_user_prompt() {
 # resolution order against the paths it baked in: the stable/self path, then the
 # newest versioned binary under the plugin cache base, then `agent-guard` on
 # $PATH. All stat-level; nothing is executed and no subshell is forked.
-# The hook's $SHELL describes the snapshot shell whose rc matters here.
-# setup-shell also consults the account login shell; if either reading says fish,
-# it installs both POSIX rc files because the eventual snapshot choice is not
-# visible while the setup skill is running.
-shell_init_block_state() {
-  [ -n "${HOME:-}" ] || return 1
-  case "${SHELL:-}" in
-    */bash) rc_probe=$HOME/.bashrc ;;
-    *) rc_probe=$HOME/.zshrc ;;
-  esac
+shell_init_rc_block_state() {
+  rc_probe=$1
   # Both delimiters must be present, or the block is not a block (setup-shell
   # itself refuses to rewrite an unbalanced one).
   block=$(awk -v b="$SHELL_INIT_BLOCK_BEGIN" -v e="$SHELL_INIT_BLOCK_END" \
@@ -4471,6 +4484,33 @@ shell_init_block_state() {
   fi
   command -v agent-guard >/dev/null 2>&1 && return 0
   return 2
+}
+
+# Choose the rc whose snapshot matters. setup-shell also consults the account
+# login shell; if either reading says fish, it installs both POSIX rc files
+# because the eventual bash/zsh snapshot choice is not visible while setup is
+# running. The hook can likewise still receive a fish $SHELL. In that case one
+# healthy rc cannot prove the unknown snapshot is protected, so require both.
+# State 3 means exactly that partial fish coverage: rerunning setup-shell must
+# restore both files before SessionStart can stay quiet.
+shell_init_block_state() {
+  [ -n "${HOME:-}" ] || return 1
+  case "${SHELL:-}" in
+    */bash) shell_init_rc_block_state "$HOME/.bashrc" ;;
+    */fish)
+      shell_init_rc_block_state "$HOME/.bashrc"
+      bash_rc_state=$?
+      shell_init_rc_block_state "$HOME/.zshrc"
+      zsh_rc_state=$?
+      [ "$bash_rc_state" -eq 0 ] && [ "$zsh_rc_state" -eq 0 ] && return 0
+      [ "$bash_rc_state" -eq 1 ] && [ "$zsh_rc_state" -eq 1 ] && return 1
+      if [ "$bash_rc_state" -eq 0 ] || [ "$zsh_rc_state" -eq 0 ]; then
+        return 3
+      fi
+      return 2
+      ;;
+    *) shell_init_rc_block_state "$HOME/.zshrc" ;;
+  esac
 }
 
 hook_session_start() {
@@ -4510,6 +4550,7 @@ hook_session_start() {
     case $? in
       0) wrapping_setup= ;;
       2) wrapping_setup='agent-guard command wrapping is set up in your shell rc but can no longer load: the agent-guard binary that block resolves is gone (plugin cache updated, uninstalled, or the block was edited). Command output is NOT masked. Reinstall or update agent-guard, rerun /agent-guard:setup-shell (or agent-guard setup-shell for a standalone install), then restart the shell and Claude Code.' ;;
+      3) wrapping_setup='agent-guard command wrapping for a fish shell does not cover both .bashrc and .zshrc, so the host snapshot may be unprotected. Command output is NOT masked unless the snapshot chose the surviving rc. Rerun /agent-guard:setup-shell (or agent-guard setup-shell for a standalone install), then restart the shell and Claude Code.' ;;
       *) wrapping_setup='agent-guard command wrapping is not loaded. Run /agent-guard:setup-shell (or agent-guard setup-shell for a standalone install), then restart the shell and Claude Code. Use setup-shell --no-command-wrapping for a persistent opt-out.' ;;
     esac
     if [ -n "$wrapping_setup" ]; then
