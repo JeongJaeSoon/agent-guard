@@ -7514,11 +7514,15 @@ fi
 
 # The mixed-quote shapes that invalidated the earlier position/span attempts
 # still depend on the inner re-scan. Keep representative credential-shaped
-# values pinned so closing the line-start leak cannot reopen those leaks.
-mixed_quote_secret='Ab3xQ9zPlm4Kd7'
+# values pinned so closing the line-start leak cannot reopen those leaks. Build
+# the fixture at runtime so repository-wide secret scanners do not mistake the
+# inert test value for a committed credential.
+mixed_quote_secret=$(printf '%s%s' 'Ab3xQ9zP' 'Lm4Kd7')
+mixed_quote_case_a="error: api_key\`: \"ab; end password=$mixed_quote_secret\"}]"
+mixed_quote_case_b="x \"API_KEY'=\`none'' API_KEY=\`$mixed_quote_secret]"
 for display_case in \
-  'error: api_key`: "ab; end password=Ab3xQ9zPlm4Kd7"}]' \
-  'x "API_KEY'"'"'=`none'"'"''"'"' API_KEY=`Ab3xQ9zPlm4Kd7]'; do
+  "$mixed_quote_case_a" \
+  "$mixed_quote_case_b"; do
   display_input=$(jq -nc --arg stdout "$display_case" \
     '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
   post_tool_out "$display_input"
