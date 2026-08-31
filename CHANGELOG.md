@@ -7,6 +7,29 @@
 
 ## Unreleased
 
+- fix(redaction): mask a `KEY=value` assignment inside a quoted string leaf
+  (#178). The ordinary shape of a tool that returns a serialized log —
+  `{"log":"starting with API_KEY=<value>"}` — reached the model in full on the
+  heuristic path. Two causes, both needed. The enclosing string's own closing
+  quote rode along on the value token, and `looks_like_reference()` tests for an
+  embedded quote without position, so a terminator at the very end marked the
+  token a nested reference and skipped it; a single trailing quote is now
+  stripped the way trailing `}`/`]`/`)` already were, and only when the
+  assignment does not itself begin with a quote, so the line-start re-scan of a
+  value an outer quoted assignment already claimed cannot emit a narrower
+  mapping that beats it. And `:` was not accepted as the delimiter before a
+  quoted key, so the JSON form never matched at all — it joins the class away
+  from `[`, since `[:` opens a POSIX character class and invalidates the whole
+  regex. Credential-handling source code is unchanged: `os.environ["DB_PASSWORD"]`
+  and `ENV.fetch("SESSION_KEY")` keep interior quotes and stay references.
+  Display redaction and the prompt guard; the block/detect path is unchanged.
+  The strip stops at the redaction sentinel: `password=[REDACTED]"` would
+  otherwise lose the `]` that belongs to the marker, so `[REDACTED` was
+  re-emitted as a secret and a stray `]` appended — compounding on every pass
+  and making the prompt guard block text Agent Guard had itself redacted.
+  A trailing carriage return is skipped as edge whitespace, so CRLF output —
+  Windows tools, PowerShell, Docker and CI logs — masks the same shape it
+  does on LF; the carriage return itself is preserved.
 - fix(redaction): close the status-label display-redaction leak (#156). The
   seven-word status allowlist (`error`, `warning`, `info`, `note`, `debug`,
   `fatal`, `hint`) let a secret that gitleaks does not recognise reach the model

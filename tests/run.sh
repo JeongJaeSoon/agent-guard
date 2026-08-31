@@ -6668,6 +6668,42 @@ else
   printf '%s\n' "$post_out" | sed 's/^/  out: /'
 fi
 
+# Idempotence as a PROPERTY, not a handful of literals. The assertion above
+# pins one bare sentinel with nothing after it, and that is exactly why the
+# quoted-leaf corruption got through: `password=[REDACTED]"}` walked the strip
+# into the marker, so the second pass re-masked a fragment and appended a `]`,
+# and it compounded on every further pass. Feed each redacted output straight
+# back in: a second pass must produce no rewrite at all.
+DISPLAY_IDEM_SECRET=$(printf '%s%s' 'hunter2-' 'long-value')
+for display_idem_case in \
+  "{\"log\":\"API_KEY=$DISPLAY_IDEM_SECRET\"}" \
+  "{\"level\":\"info\",\"log\":\"start API_KEY=$DISPLAY_IDEM_SECRET\",\"ok\":true}" \
+  "prefix \"DB_PASSWORD=$DISPLAY_IDEM_SECRET\" suffix" \
+  "{\"a\":{\"b\":\"API_KEY=$DISPLAY_IDEM_SECRET\"}}" \
+  "{\"log\":\"DB_PASSWORD=$DISPLAY_IDEM_SECRET,x\"}" \
+  "API_KEY=$DISPLAY_IDEM_SECRET" \
+  "error: password: $DISPLAY_IDEM_SECRET" \
+  "$(printf '{"log":"API_KEY=%s"}\r' "$DISPLAY_IDEM_SECRET")"; do
+  display_input=$(jq -nc --arg stdout "$display_idem_case" \
+    '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+  post_tool_out "$display_input"
+  display_idem_first=$(jq -r '.hookSpecificOutput.updatedToolOutput.stdout // empty' <"$OUT" 2>/dev/null)
+  if [ -z "$display_idem_first" ]; then
+    not_ok "#178 idempotence precondition: first pass masks '$display_idem_case'"
+    continue
+  fi
+  display_input=$(jq -nc --arg stdout "$display_idem_first" \
+    '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+  post_tool_out "$display_input"
+  if [ ! -s "$OUT" ]; then
+    ok "#178 a redacted output is unchanged when fed back through post-tool"
+  else
+    not_ok "#178 a redacted output is unchanged when fed back through post-tool"
+    printf '  in : %s\n' "$display_idem_first"
+    sed 's/^/  out: /' "$OUT"
+  fi
+done
+
 display_input=$(jq -nc \
   --arg stdout 'PASSWORD=[REDACTED]]evil-suffix' \
   '{tool_name:"Bash",tool_input:{command:"x"},tool_response:
@@ -7362,6 +7398,126 @@ for display_case in \
     printf '%s\n' "$post_out" | sed 's/^/  out: /'
   fi
 done
+
+# #178: a KEY=value assignment INSIDE a quoted JSON string leaf — the ordinary
+# shape of a tool that returns a serialized log — was skipped entirely. Two
+# causes, both needed: the string's own closing quote rode along on the value
+# token and looks_like_reference() read it as a nested string, and `:` was not
+# accepted as the delimiter before a quoted key, so the JSON form never matched
+# at all. gitleaks-detectable content was masked in the same shape throughout,
+# which is what pins this to the heuristic path.
+JSONLEAF_SECRET=$(printf '%s%s' 'hunter2-' 'long-value')
+for display_case in \
+  "{\"log\":\"DB_PASSWORD=$JSONLEAF_SECRET\"}" \
+  "{\"level\":\"info\",\"log\":\"starting with API_KEY=$JSONLEAF_SECRET\",\"ok\":true}" \
+  "prefix \"DB_PASSWORD=$JSONLEAF_SECRET\" suffix" \
+  "{\"a\":{\"b\":\"API_KEY=$JSONLEAF_SECRET\"}}" \
+  "{\"log\":\"DB_PASSWORD=$JSONLEAF_SECRET,x\"}"; do
+  display_input=$(jq -nc --arg stdout "$display_case" \
+    '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+  post_tool_out "$display_input"
+  post_out=$(cat "$OUT")
+  if printf '%s' "$post_out" | grep -q '\[REDACTED\]' \
+     && ! printf '%s' "$post_out" | grep -Fq "$JSONLEAF_SECRET"; then
+    ok "#178 post-tool masks an assignment inside a quoted JSON string leaf"
+  else
+    not_ok "#178 post-tool masks an assignment inside a quoted JSON string leaf"
+    printf '%s\n' "$post_out" | sed 's/^/  out: /'
+  fi
+done
+
+# The same shape on the BLOCK path, since a serialized log is exactly what an
+# agent pastes back into a prompt.
+jsonleaf_prompt="{\"log\":\"DB_PASSWORD=$JSONLEAF_SECRET\"}"
+expect_json_status 2 "#178 an assignment inside a quoted JSON string leaf still blocks at the prompt guard" \
+  "$(jq -nc --arg prompt "$jsonleaf_prompt" \
+    '{session_id:"t",hook_event_name:"UserPromptSubmit",prompt:$prompt}')" \
+  hook-user-prompt
+
+# The trailing-quote strip must NOT fire on the line-start rescan of a value an
+# outer quoted assignment already claimed, or it emits a second, narrower
+# mapping that beats the outer one and strands the key prefix on display.
+JSONLEAF_SHARED=$(printf '%s%s' 'PASSWORD=' 'abc)')
+display_input=$(jq -nc --arg stdout "$JSONLEAF_SHARED API_TOKEN=\"$JSONLEAF_SHARED\" status=ok" \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$display_input"
+post_out=$(cat "$OUT")
+if printf '%s' "$post_out" \
+  | jq -e '.hookSpecificOutput.updatedToolOutput.stdout
+      | contains("API_TOKEN=\"[REDACTED]\"")' >/dev/null 2>&1; then
+  ok "#178 the outer quoted assignment still wins over its own rescan"
+else
+  not_ok "#178 the outer quoted assignment still wins over its own rescan"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+# The trailing-quote strip must not walk INTO the redaction sentinel. With a
+# quote after it (`password=[REDACTED]"}` — exactly the leaf shape #178 adds)
+# the loop took `}`, then the quote, then the `]` that belongs to the marker,
+# so already_redacted() stopped matching, `[REDACTED` was re-emitted as a
+# secret and a stray `]` appended. It compounded on every pass and made the
+# prompt guard BLOCK text agent-guard itself had redacted. The pre-existing
+# idempotence assertion only covers the bare form, so it did not catch this.
+for jsonleaf_sentinel in \
+  '{"log":"password=[REDACTED]"}' \
+  '{"a":{"b":"tok=[REDACTED]"}}' \
+  '{"log":"api_key=[REDACTED]"} see also [REDACTED] and [REDACTEDX]' \
+  'prefix "DB_PASSWORD=[REDACTED]" suffix'; do
+  display_input=$(jq -nc --arg stdout "$jsonleaf_sentinel" \
+    '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+  post_tool_out "$display_input"
+  post_status=$?
+  if [ "$post_status" -eq 0 ] && [ ! -s "$OUT" ]; then
+    ok "#178 a redaction sentinel inside a quoted leaf stays idempotent"
+  else
+    not_ok "#178 a redaction sentinel inside a quoted leaf stays idempotent"
+    sed 's/^/  out: /' "$OUT"
+  fi
+done
+
+expect_json_status 0 "#178 the prompt guard does not block its own sentinel in a quoted leaf" \
+  "$(jq -nc --arg prompt '{"log":"password=[REDACTED]"}' \
+    '{session_id:"t",hook_event_name:"UserPromptSubmit",prompt:$prompt}')" \
+  hook-user-prompt
+
+# CRLF output (Windows tools, PowerShell, Docker and CI logs) kept a carriage
+# return glued to the value token, and the strip loop stopped on it before it
+# could reach the quote or the closers — leaving the exact shape #178 is about
+# unmasked. `\r` is edge whitespace here, as it already is in edge_trim(); the
+# replacement extent stays the value, so the CR survives in the output.
+JSONLEAF_CR_SECRET=$(printf '%s%s' 'hunter2-' 'long-value')
+for jsonleaf_cr_spec in \
+  '{"log":"API_KEY=%s"}\r' \
+  'API_KEY=%s\r' \
+  'a\r\n{"log":"API_KEY=%s"}\r\nb'; do
+  # shellcheck disable=SC2059
+  jsonleaf_cr=$(printf "$jsonleaf_cr_spec" "$JSONLEAF_CR_SECRET")
+  display_input=$(jq -nc --arg stdout "$jsonleaf_cr" \
+    '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+  post_tool_out "$display_input"
+  post_out=$(cat "$OUT")
+  if printf '%s' "$post_out" | grep -q '\[REDACTED\]' \
+     && ! printf '%s' "$post_out" | grep -Fq "$JSONLEAF_CR_SECRET"; then
+    ok "#178 a CRLF quoted leaf still masks"
+  else
+    not_ok "#178 a CRLF quoted leaf still masks"
+    printf '%s\n' "$post_out" | sed 's/^/  out: /'
+  fi
+done
+
+# The carriage return is edge whitespace, not part of the value: it must stay
+# in the rewritten text, or the extent guarantee #169 pins is broken.
+display_input=$(jq -nc --arg stdout "$(printf '{"log":"API_KEY=%s"}\r' "$JSONLEAF_CR_SECRET")" \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$display_input"
+if cat "$OUT" \
+  | jq -e '.hookSpecificOutput.updatedToolOutput.stdout
+      == "{\"log\":\"API_KEY=[REDACTED]\"}\r"' >/dev/null 2>&1; then
+  ok "#178 the carriage return survives the CRLF rewrite"
+else
+  not_ok "#178 the carriage return survives the CRLF rewrite"
+  sed 's/^/  out: /' "$OUT"
+fi
 
 # Display redaction must not mangle credential-handling SOURCE CODE. A
 # credential-shaped key on the left says nothing about the right-hand side: a

@@ -3026,10 +3026,15 @@ secretish_env_values() {
       qualifier = "([_-](id|ids|value|val|hash|b64|base64|hex|enc|encrypted|encoded|raw|str|string|pem|cert|json|prod|production|dev|development|staging|stage|test|local|old|new|current|primary|secondary|backup|main|default|[0-9]+))*"
       key = "[a-z0-9_.-]*(" core "|[_-](pat|pwd))" qualifier
       # `(` and `[` open an argument or subscript list, so an assignment can
-      # begin immediately after one (`wrap(secret_key=<secret>)`). The value gate
+      # begin immediately after one (`wrap(secret_key=<secret>)`). `:` is here
+      # for the serialized-log leaf a tool returns as JSON: in a
+      # `{"log":"KEY=<value>"}` shape the only thing between the structure and
+      # the key is `:`, so without it the whole class went unmatched (#178).
+      # It must sit away from `[` in the class — `[:` opens a POSIX character
+      # class and makes the whole regex invalid. The value gate
       # below stops treating a whole call expression as a single literal, so a
       # nested assignment has to be reachable on its own to stay masked.
-      equals_assignment = "(^|[ \t,{;([])[\"'\''`]?" key "[\"'\''`]?[ \t]*="
+      equals_assignment = "(^|[ \t,:{;([])[\"'\''`]?" key "[\"'\''`]?[ \t]*="
       # A colon is ambiguous in prose. Accept it at the start of a YAML field,
       # after a JSON/map/argument delimiter, or after plain whitespace (log lines
       # such as `10:00:00 password: hunter2`); the loop below rejects the
@@ -3324,10 +3329,50 @@ secretish_env_values() {
         if (already_redacted(value)) return 0
         token = value
         end = length(value)
+        strip_quote = 0
         while (end > 0) {
+          # Re-test after every strip, because the strip can walk INTO the
+          # redaction sentinel. `password=[REDACTED]"}` loses `}` and then the
+          # quote, and the next closer taken is the `]` that belongs to the
+          # marker itself. The pre-loop test passed (the tail held a quote),
+          # and after that
+          # `[REDACTED` no longer matches, so the fragment is re-emitted as a
+          # secret and a stray `]` appended. That compounds on every pass
+          # (`[REDACTED]]`, `[REDACTED]]]`) and makes the prompt guard BLOCK
+          # text agent-guard itself redacted.
+          if (already_redacted(substr(value, 1, end))) return 0
           ch = substr(value, end, 1)
-          if (ch != "}" && ch != "]" && ch != ")") break
-          end--
+          # `\r` is edge whitespace, not value: scan_leaf splits on `\n` and
+          # keeps the preceding carriage return, so on CRLF output the token is
+          # `…"}\r` and this loop stopped on the CR before it could reach the
+          # quote or the closers — leaving the exact shape #178 is about
+          # unmasked on Windows, PowerShell, Docker and CI logs. Stripping it
+          # keeps the replacement extent at the value: the CR stays in the text.
+          if (ch == "\r") { end--; continue }
+          if (ch == "}" || ch == "]" || ch == ")") { end--; continue }
+          # One trailing quote closes the string the assignment SITS INSIDE; it
+          # is not part of the value. A tool returning a serialized log leaf
+          # puts the JSON string terminator right after the credential, and
+          # leaving it attached made the token carry a quote, which
+          # looks_like_reference() reads as a nested string — so the whole class
+          # went unmasked (#178). Exactly one, only at the very end, so an
+          # interior quote still marks a reference and the accessor forms in
+          # the #169 assertions stay preserved.
+          #
+          # Not when the ASSIGNMENT ITSELF begins with a quote. That marks the
+          # line-start rescan of a value an OUTER quoted assignment already
+          # claimed: scan_line advances past the matched key only, so the inner
+          # text is examined a second time and matches via the `^` alternative.
+          # The outer match has already emitted the whole quoted value as the
+          # secret; stripping here produced a second, narrower mapping that beat
+          # it and left the inner key prefix on display.
+          if (strip_quote == 0 && assignment !~ /^["'\''`]/ \
+              && (ch == "\"" || ch == "'\''" || ch == "`")) {
+            strip_quote = 1
+            end--
+            continue
+          }
+          break
         }
         value = substr(value, 1, end)
         if (looks_like_reference(value, assignment, leading)) return 0
