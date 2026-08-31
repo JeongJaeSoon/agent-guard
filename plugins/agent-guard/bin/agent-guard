@@ -3481,7 +3481,13 @@ secretish_env_values() {
         status_guard = 0
         if (chose_colon && start > 1) {
           first = substr(rest, start, 1)
-          if ((first == " " || first == "\t") &&
+          # `\r` belongs with space and tab here, or the guard misses the shape
+          # the delimiter widening just made reachable: with a carriage return
+          # between the label and the key (`error:\rpassword: <prose>`) the
+          # colon assignment now matches AT the CR, this test saw a character
+          # that was not space or tab, the status label went unrecognised, and
+          # the prose chain the allowlist exists to protect was masked.
+          if ((first == " " || first == "\t" || first == "\r") &&
               match(substr(low, 1, start - 1), status_label))
             status_guard = 1
           # `${NAME:-default}` / `${NAME:?message}` / `${NAME:=x}` / `${NAME:+x}`

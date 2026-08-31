@@ -26,7 +26,11 @@
   previous release commit over 2,518 carriage-return shapes: 357 real leaks
   closed, 6 false-positive prose masks removed, and every other newly masked
   case byte-identical to what that commit already produced with a space in the
-  same position.
+  same position. The status guard in `scan_line` tests the delimiter character
+  directly and had to agree: with the carriage return between the label and the
+  key (`error:\rpassword: <prose>`) the colon assignment matches at the CR, and
+  while that check accepted only space and tab the label went unrecognised and
+  the prose was masked.
 - fix(redaction): mask a `KEY=value` assignment inside a quoted string leaf
   (#178). The ordinary shape of a tool that returns a serialized log —
   `{"log":"starting with API_KEY=<value>"}` — reached the model in full on the

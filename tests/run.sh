@@ -7536,6 +7536,38 @@ expect_json_status 2 "#178 an assignment after a carriage return still blocks at
     '{session_id:"t",hook_event_name:"UserPromptSubmit",prompt:$prompt}')" \
   hook-user-prompt
 
+# The status guard in scan_line tests the delimiter character imperatively, and
+# it has to agree with the regexes: with a carriage return BETWEEN the label and
+# the key (`error:\rpassword: <prose>`) the colon assignment now matches at the
+# CR, and while that check accepted only space and tab the label went
+# unrecognised and the prose chain was masked. Every status word, both ways
+# round: prose stays visible, a credential-shaped value still masks.
+CRGUARD_SECRET=$(printf '%s%s' 'hunter2-' 'long-value')
+for crguard_label in error warning info note debug fatal hint; do
+  display_input=$(jq -nc --arg stdout "$(printf '%s:\rpassword: authentication is disabled' "$crguard_label")" \
+    '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+  post_tool_out "$display_input"
+  post_status=$?
+  if [ "$post_status" -eq 0 ] && [ ! -s "$OUT" ]; then
+    ok "#156 a status-label prose chain split by a carriage return stays visible"
+  else
+    not_ok "#156 a status-label prose chain split by a carriage return stays visible"
+    sed 's/^/  out: /' "$OUT"
+  fi
+
+  display_input=$(jq -nc --arg stdout "$(printf '%s:\rpassword: %s' "$crguard_label" "$CRGUARD_SECRET")" \
+    '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+  post_tool_out "$display_input"
+  post_out=$(cat "$OUT")
+  if printf '%s' "$post_out" | grep -q '\[REDACTED\]' \
+     && ! printf '%s' "$post_out" | grep -Fq "$CRGUARD_SECRET"; then
+    ok "#156 a credential behind a carriage-return-split status label still masks"
+  else
+    not_ok "#156 a credential behind a carriage-return-split status label still masks"
+    printf '%s\n' "$post_out" | sed 's/^/  out: /'
+  fi
+done
+
 # The status-label value gate still decides after a carriage return: the prose
 # chain the allowlist exists to protect stays visible.
 display_input=$(jq -nc --arg stdout "$(printf 'x\rerror: password: authentication is disabled')" \
