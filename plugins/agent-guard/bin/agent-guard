@@ -3034,14 +3034,21 @@ secretish_env_values() {
       # class and makes the whole regex invalid. The value gate
       # below stops treating a whole call expression as a single literal, so a
       # nested assignment has to be reachable on its own to stay masked.
-      equals_assignment = "(^|[ \t,:{;([])[\"'\''`]?" key "[\"'\''`]?[ \t]*="
+      #
+      # `\r` is a delimiter for the same reason it is edge whitespace on the
+      # value side: a carriage return separates fields on screen but is not
+      # part of either. Without it a CR before the key hid the assignment
+      # completely — a curl or pip progress meter, a spinner, or classic-Mac
+      # line endings all put one there, and `<meter>\rAPI_KEY=<secret>` leaked
+      # in full and did not block at the prompt guard.
+      equals_assignment = "(^|[ \t\r,:{;([])[\"'\''`]?" key "[\"'\''`]?[ \t]*="
       # A colon is ambiguous in prose. Accept it at the start of a YAML field,
       # after a JSON/map/argument delimiter, or after plain whitespace (log lines
       # such as `10:00:00 password: hunter2`); the loop below rejects the
       # whitespace form only when the preceding token is a known status word,
       # which marks a prose chain like `error: password: authentication is
       # disabled`.
-      colon_assignment = "(^[ \t]*|[,{([][ \t]*|[ \t]+)[\"'\''`]?" key "[\"'\''`]?[ \t]*:"
+      colon_assignment = "(^[ \t\r]*|[,{([][ \t\r]*|[ \t\r]+)[\"'\''`]?" key "[\"'\''`]?[ \t]*:"
       # Skipping after ANY colon-terminated token also let real structured log
       # lines through unmasked (`response: api_key: <secret>`), so only these
       # status words justify the skip. Deliberately short: an unlisted label
@@ -3051,7 +3058,7 @@ secretish_env_values() {
       # `response.error:` / `response/error:` are structured labels and must
       # not suppress masking. Matched against the lowercased line, so `Error:` /
       # `ERROR:` are covered too, including after a timestamp/log prefix.
-      status_label = "(^|[ \t])(error|warning|info|note|debug|fatal|hint)[ \t]*:$"
+      status_label = "(^|[ \t\r])(error|warning|info|note|debug|fatal|hint)[ \t]*:$"
       boundary = sprintf("%c", 30)
       escape = sprintf("%c", 31)
     }
