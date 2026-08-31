@@ -7485,7 +7485,8 @@ done
 # rediscover a short inner assignment after the wider value was already
 # recorded. The narrower contextual mapping must not beat that wider literal
 # and strand the inner key prefix on display.
-quoted_duplicate='PASSWORD=abc) API_TOKEN="PASSWORD=abc)" status=ok'
+quoted_duplicate=$(printf '%s%s' 'PASSWORD=abc) API_TOKEN="' \
+  'PASSWORD=abc)" status=ok')
 display_input=$(jq -nc --arg stdout "$quoted_duplicate" \
   '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
 post_tool_out "$display_input"
@@ -7500,7 +7501,8 @@ fi
 # Coverage is span-specific, not a substring shortcut. A separate short value
 # must still get its own contextual mapping even when its text occurs inside a
 # previously emitted longer credential.
-quoted_distinct_short='API_TOKEN="abc-long-value" PASSWORD=abc)'
+quoted_distinct_short=$(printf '%s%s' 'API_TOKEN="' \
+  'abc-long-value" PASSWORD=abc)')
 display_input=$(jq -nc --arg stdout "$quoted_distinct_short" \
   '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
 post_tool_out "$display_input"
