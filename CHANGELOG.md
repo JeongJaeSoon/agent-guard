@@ -1,3 +1,113 @@
+## v3.1.0 - 2026-08-31
+
+- fix: address post-merge hook regressions (#182)
+- fix(redaction): accept a carriage return as an assignment delimiter (#181)
+- fix(redaction): mask a KEY=value assignment inside a quoted string leaf (#179)
+- fix(redaction): close the status-label display leak (#177)
+- ci: remove the codex-review workflow (#176)
+- feat(hooks): UserPromptSubmit prompt guard — block pasted secrets on both hosts (#173)
+- feat(detection): block package-manager credential leak vectors (#172)
+- fix(redaction): gate display masking on the value shape (#171)
+- fix(detection): allow env source modules with an intermediate segment (#170)
+- fix(setup-shell): support a fish login shell in setup and detection (#155)
+- ci: bump openai/codex-action from 1.11 to 1.12 (#174)
+- ci: bump hashgraph-online/ai-plugin-scanner-action from 1.2.514 to 1.2.533 (#175)
+- fix(redaction): enforce short-value probe eligibility (#163)
+- fix(pii): validate regex and experimental http adapters (#154)
+- fix(hooks): prefix the Claude setup-skill invocation with a slash (#151)
+- feat(shell)!: remove 1.x bang-guard compat flags; fail loud on unknown args (#167)
+- refactor(hooks): render hook manifests from one template; dedup inline helpers (#166)
+- chore(ci): cap job runtime on merge-gating workflows (#165)
+- refactor(hosts): keep host-specific surfaces in sync with generic logic (#164)
+- Merge pull request #161 from JeongJaeSoon/codex/env-template-filename-policy
+- fix(detection): detect path-qualified cwd wrappers
+- fix(detection): guard reevaluated template paths
+- Merge remote-tracking branch 'origin/main' into codex/env-template-filename-policy
+- Merge pull request #162 from JeongJaeSoon/codex/submission-artifact-lifecycle
+- docs(submission): repin shell re-evaluation guard
+- fix(detection): keep re-evaluated tokens guarded
+- docs(submission): repin env template fix
+- fix(detection): reject dynamic env template tokens
+- fix(submission): require reviewed remote inputs
+- chore(submission): repin merged env template payload
+- Merge remote-tracking branch 'origin/main' into codex/env-template-filename-policy
+- chore(submission): repin hardened env template payload
+- fix(detection): preserve env template deny boundaries
+- refactor(submission): render catalog pin after merge
+- Merge pull request #153 from JeongJaeSoon/fix/display-redaction-chained-colon-labels
+- chore(submission): repin env template payload
+- fix(detection): handle env template filenames safely
+- chore(submission): re-pin reviewed plugin payload
+- Merge remote-tracking branch 'origin/main' into fix/display-redaction-chained-colon-labels
+- Merge pull request #160 from JeongJaeSoon/codex/p1-invalid-toml-escape
+- chore(submission): re-pin reviewed plugin payload
+- fix(lockfiles): handle TOML escape boundaries
+- chore(submission): re-pin reviewed plugin payload
+- fix(lockfiles): reject invalid TOML escapes
+- Merge pull request #157 from JeongJaeSoon/codex/p2-escaped-quote-redaction
+- chore(submission): re-pin reviewed plugin payload
+- test(exec): cover trailing printenv values
+- fix(redaction): bound trailing printenv values
+- test(exec): clarify large fixture indirection
+- chore(submission): re-pin reviewed plugin payload
+- test(exec): cover repeated large printenv values
+- fix(redaction): bound printenv output modeling
+- test(exec): keep high-cardinality probe single-shot
+- chore(submission): re-pin reviewed plugin payload
+- fix(redaction): fail closed on printenv metadata
+- chore(submission): re-pin reviewed plugin payload
+- fix(redaction): preserve bounded exec masking
+- chore(submission): re-pin reviewed plugin payload
+- fix(redaction): guarantee whole-output fallback
+- chore(submission): re-pin reviewed plugin payload
+- perf(redaction): preflight oversized output
+- chore(submission): re-pin reviewed plugin payload
+- fix(redaction): bound gitleaks output scanning
+- chore(submission): re-pin reviewed plugin payload
+- fix(redaction): fail closed on raw temp errors
+- chore(submission): re-pin reviewed plugin payload
+- perf(redaction): fast-path framed assignment probes
+- chore(submission): re-pin reviewed plugin payload
+- fix(redaction): fail closed across bounded output paths
+- chore(submission): re-pin reviewed plugin payload
+- fix(redaction): bound all detector records
+- chore(submission): re-pin reviewed plugin payload
+- fix(redaction): stream large hook output into jq
+- chore(submission): re-pin reviewed plugin payload
+- fix(redaction): bound high-cardinality output work
+- Merge origin/main into codex/p2-escaped-quote-redaction
+- Merge pull request #159 from JeongJaeSoon/codex/p1-lockfile-same-line-secrets
+- chore(submission): re-pin reviewed plugin payload
+- fix(detection): reject incomplete TOML state
+- chore(submission): re-pin reviewed plugin payload
+- fix(detection): reject malformed checksum tails
+- chore(submission): re-pin reviewed plugin payload
+- fix(detection): reject incomplete TOML filtering
+- chore(submission): re-pin reviewed plugin payload
+- fix(detection): preserve binary lockfile bytes
+- Merge remote-tracking branch 'origin/main' into codex/p1-lockfile-same-line-secrets
+- ci: bump hashgraph-online/ai-plugin-scanner-action (#147)
+- ci: bump actions/checkout from 7.0.0 to 7.0.1 (#146)
+- chore(ci): re-pin marketplace .source.sha and verify linter download checksums (#152)
+- fix(detection): validate package-lock snapshots
+- fix(detection): scope structural lockfile hashes
+- test: assemble shared redaction fixture safely
+- fix(detection): scan context-free lockfile fragments
+- fix: redact short punctuated secrets safely
+- fix: preserve byte-exact output redaction
+- test: clarify printenv fixture indirection
+- fix: preserve exact exec redaction output
+- fix: redact multiline secrets per output leaf
+- fix(detection): parse structural lockfile fields
+- test(redact): construct secret fixtures at runtime
+- fix(detection): scan beside lockfile checksums
+- fix(redact): mask through escaped quotes
+- fix(redact): mask secrets behind non-status colon labels
+- fix(detection): narrow lockfile checksums and output redaction (#145)
+- fix(runtime): keep Agent Guard stable across plugin upgrades (#143)
+- fix(security): scan-accuracy + shell-parsing hardening batch (#125-#134)
+- Add a host-neutral setup-shell workflow for Codex (#144)
+
 ## v3.0.1 - 2026-07-22
 
 - fix: handle sandboxed Agent Guard setup (#141)
