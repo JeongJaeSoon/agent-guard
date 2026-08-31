@@ -7,6 +7,30 @@
 
 ## Unreleased
 
+- fix(redaction): accept a carriage return as an assignment delimiter. A `\r`
+  before the key hid the assignment completely, on display and at the prompt
+  guard, so a secret printed after a progress meter, a spinner, or on
+  classic-Mac line endings reached the model in full and was not blocked when
+  pasted back:
+
+  ```
+    0 12.3M    0 16384    0     0  50000      0\rAPI_KEY=<secret>   ->  no rewrite
+  ```
+
+  `\r` is a delimiter for the same reason it is edge whitespace on the value
+  side: it separates fields on screen and belongs to neither. It joins the
+  leading class of both assignment forms and of the status-label test, so the
+  prose chain the status allowlist protects (`error: password: authentication
+  is disabled`) is now recognised after a carriage return too — previously the
+  label went unseen there and the prose was masked. Measured against the
+  previous release commit over 2,518 carriage-return shapes: 357 real leaks
+  closed, 6 false-positive prose masks removed, and every other newly masked
+  case byte-identical to what that commit already produced with a space in the
+  same position. The status guard in `scan_line` tests the delimiter character
+  directly and had to agree: with the carriage return between the label and the
+  key (`error:\rpassword: <prose>`) the colon assignment matches at the CR, and
+  while that check accepted only space and tab the label went unrecognised and
+  the prose was masked.
 - fix(redaction): mask a `KEY=value` assignment inside a quoted string leaf
   (#178). The ordinary shape of a tool that returns a serialized log —
   `{"log":"starting with API_KEY=<value>"}` — reached the model in full on the

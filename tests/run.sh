@@ -7505,6 +7505,82 @@ for jsonleaf_cr_spec in \
   fi
 done
 
+# `\r` is a leading DELIMITER for the same reason it is edge whitespace on the
+# value side. Without it a carriage return before the key hid the assignment
+# entirely, on display and at the prompt guard — and a CR before a field is
+# what curl and pip progress meters, spinners and classic-Mac line endings all
+# produce, so `<meter>\rAPI_KEY=<secret>` leaked in full.
+JSONLEAF_CRKEY_SECRET=$(printf '%s%s' 'hunter2-' 'long-value')
+crkey_meter=$(printf '  0 12.3M    0 16384    0     0  50000      0\rAPI_KEY=%s\r\n' \
+  "$JSONLEAF_CRKEY_SECRET")
+for crkey_case in \
+  "$(printf 'x\rAPI_KEY=%s' "$JSONLEAF_CRKEY_SECRET")" \
+  "$(printf 'x\rpassword: %s' "$JSONLEAF_CRKEY_SECRET")" \
+  "$(printf 'x\rerror: password: %s' "$JSONLEAF_CRKEY_SECRET")" \
+  "$crkey_meter"; do
+  display_input=$(jq -nc --arg stdout "$crkey_case" \
+    '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+  post_tool_out "$display_input"
+  post_out=$(cat "$OUT")
+  if printf '%s' "$post_out" | grep -q '\[REDACTED\]' \
+     && ! printf '%s' "$post_out" | grep -Fq "$JSONLEAF_CRKEY_SECRET"; then
+    ok "#178 an assignment after a carriage return still masks"
+  else
+    not_ok "#178 an assignment after a carriage return still masks"
+    printf '%s\n' "$post_out" | sed 's/^/  out: /'
+  fi
+done
+
+expect_json_status 2 "#178 an assignment after a carriage return still blocks at the prompt guard" \
+  "$(jq -nc --arg prompt "$crkey_meter" \
+    '{session_id:"t",hook_event_name:"UserPromptSubmit",prompt:$prompt}')" \
+  hook-user-prompt
+
+# The status guard in scan_line tests the delimiter character imperatively, and
+# it has to agree with the regexes: with a carriage return BETWEEN the label and
+# the key (`error:\rpassword: <prose>`) the colon assignment now matches at the
+# CR, and while that check accepted only space and tab the label went
+# unrecognised and the prose chain was masked. Every status word, both ways
+# round: prose stays visible, a credential-shaped value still masks.
+CRGUARD_SECRET=$(printf '%s%s' 'hunter2-' 'long-value')
+for crguard_label in error warning info note debug fatal hint; do
+  display_input=$(jq -nc --arg stdout "$(printf '%s:\rpassword: authentication is disabled' "$crguard_label")" \
+    '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+  post_tool_out "$display_input"
+  post_status=$?
+  if [ "$post_status" -eq 0 ] && [ ! -s "$OUT" ]; then
+    ok "#156 a status-label prose chain split by a carriage return stays visible"
+  else
+    not_ok "#156 a status-label prose chain split by a carriage return stays visible"
+    sed 's/^/  out: /' "$OUT"
+  fi
+
+  display_input=$(jq -nc --arg stdout "$(printf '%s:\rpassword: %s' "$crguard_label" "$CRGUARD_SECRET")" \
+    '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+  post_tool_out "$display_input"
+  post_out=$(cat "$OUT")
+  if printf '%s' "$post_out" | grep -q '\[REDACTED\]' \
+     && ! printf '%s' "$post_out" | grep -Fq "$CRGUARD_SECRET"; then
+    ok "#156 a credential behind a carriage-return-split status label still masks"
+  else
+    not_ok "#156 a credential behind a carriage-return-split status label still masks"
+    printf '%s\n' "$post_out" | sed 's/^/  out: /'
+  fi
+done
+
+# The status-label value gate still decides after a carriage return: the prose
+# chain the allowlist exists to protect stays visible.
+display_input=$(jq -nc --arg stdout "$(printf 'x\rerror: password: authentication is disabled')" \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$display_input"
+post_status=$?
+if [ "$post_status" -eq 0 ] && [ ! -s "$OUT" ]; then
+  ok "#156 a status-label prose chain after a carriage return stays visible"
+else
+  not_ok "#156 a status-label prose chain after a carriage return stays visible"
+  sed 's/^/  out: /' "$OUT"
+fi
+
 # The carriage return is edge whitespace, not part of the value: it must stay
 # in the rewritten text, or the extent guarantee #169 pins is broken.
 display_input=$(jq -nc --arg stdout "$(printf '{"log":"API_KEY=%s"}\r' "$JSONLEAF_CR_SECRET")" \
