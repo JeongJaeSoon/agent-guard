@@ -7460,11 +7460,95 @@ for display_case in \
   fi
 done
 
+# #180: when the assignment itself begins a line inside quotes, the trailing
+# quote belongs to the enclosing string rather than to the credential. The old
+# duplicate-mapping guard kept that quote attached and the heuristic treated
+# the value as a source-code reference, leaking it in full.
+quoted_assignment_multiline=$(printf 'line0\n"API_KEY=%s"' "$JSONLEAF_SECRET")
+for display_case in \
+  "\"API_KEY=$JSONLEAF_SECRET\"" \
+  "$quoted_assignment_multiline"; do
+  display_input=$(jq -nc --arg stdout "$display_case" \
+    '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+  post_tool_out "$display_input"
+  post_out=$(cat "$OUT")
+  if printf '%s' "$post_out" | grep -q '\[REDACTED\]' \
+     && ! printf '%s' "$post_out" | grep -Fq "$JSONLEAF_SECRET"; then
+    ok "#180 post-tool masks a quoted assignment that begins a line"
+  else
+    not_ok "#180 post-tool masks a quoted assignment that begins a line"
+    printf '%s\n' "$post_out" | sed 's/^/  out: /'
+  fi
+done
+
+# Re-scanning inside an outer quoted value is still load-bearing, but it can
+# rediscover a short inner assignment after the wider value was already
+# recorded. The narrower contextual mapping must not beat that wider literal
+# and strand the inner key prefix on display.
+quoted_duplicate=$(printf '%s%s' 'PASSWORD=abc) API_TOKEN="' \
+  'PASSWORD=abc)" status=ok')
+display_input=$(jq -nc --arg stdout "$quoted_duplicate" \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$display_input"
+post_out=$(jq -r '.hookSpecificOutput.updatedToolOutput.stdout // empty' "$OUT" 2>/dev/null)
+if [ "$post_out" = 'PASSWORD=[REDACTED]) API_TOKEN="[REDACTED]" status=ok' ]; then
+  ok "#180 a duplicate inner mapping does not strand its key prefix"
+else
+  not_ok "#180 a duplicate inner mapping does not strand its key prefix"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+# Coverage is span-specific, not a substring shortcut. A separate short value
+# must still get its own contextual mapping even when its text occurs inside a
+# previously emitted longer credential.
+quoted_distinct_short=$(printf '%s%s' 'API_TOKEN="' \
+  'abc-long-value" PASSWORD=abc)')
+display_input=$(jq -nc --arg stdout "$quoted_distinct_short" \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$display_input"
+post_out=$(jq -r '.hookSpecificOutput.updatedToolOutput.stdout // empty' "$OUT" 2>/dev/null)
+if [ "$post_out" = 'API_TOKEN="[REDACTED]" PASSWORD=[REDACTED])' ]; then
+  ok "#180 a separate short credential is not suppressed by substring overlap"
+else
+  not_ok "#180 a separate short credential is not suppressed by substring overlap"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+# The mixed-quote shapes that invalidated the earlier position/span attempts
+# still depend on the inner re-scan. Keep representative credential-shaped
+# values pinned so closing the line-start leak cannot reopen those leaks. Build
+# the fixture at runtime so repository-wide secret scanners do not mistake the
+# inert test value for a committed credential.
+mixed_quote_secret=$(printf '%s%s' 'Ab3xQ9zP' 'Lm4Kd7')
+mixed_quote_case_a="error: api_key\`: \"ab; end password=$mixed_quote_secret\"}]"
+mixed_quote_case_b="x \"API_KEY'=\`none'' API_KEY=\`$mixed_quote_secret]"
+for display_case in \
+  "$mixed_quote_case_a" \
+  "$mixed_quote_case_b"; do
+  display_input=$(jq -nc --arg stdout "$display_case" \
+    '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+  post_tool_out "$display_input"
+  post_out=$(cat "$OUT")
+  if printf '%s' "$post_out" | grep -q '\[REDACTED\]' \
+     && ! printf '%s' "$post_out" | grep -Fq "$mixed_quote_secret"; then
+    ok "#180 mixed quotes keep nested credential masking"
+  else
+    not_ok "#180 mixed quotes keep nested credential masking"
+    printf '%s\n' "$post_out" | sed 's/^/  out: /'
+  fi
+done
+
 # The same shape on the BLOCK path, since a serialized log is exactly what an
 # agent pastes back into a prompt.
 jsonleaf_prompt="{\"log\":\"DB_PASSWORD=$JSONLEAF_SECRET\"}"
 expect_json_status 2 "#178 an assignment inside a quoted JSON string leaf still blocks at the prompt guard" \
   "$(jq -nc --arg prompt "$jsonleaf_prompt" \
+    '{session_id:"t",hook_event_name:"UserPromptSubmit",prompt:$prompt}')" \
+  hook-user-prompt
+
+quoted_assignment_prompt="\"API_KEY=$JSONLEAF_SECRET\""
+expect_json_status 2 "#180 a quoted line-start assignment blocks at the prompt guard" \
+  "$(jq -nc --arg prompt "$quoted_assignment_prompt" \
     '{session_id:"t",hook_event_name:"UserPromptSubmit",prompt:$prompt}')" \
   hook-user-prompt
 
