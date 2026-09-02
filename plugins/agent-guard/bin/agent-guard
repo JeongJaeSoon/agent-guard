@@ -1950,10 +1950,24 @@ matches_deny_path() {
 
 check_sensitive_reads() {
   input=$1
+  # POSIX sh has no locals: do not reuse the caller's `tool` here, it is still
+  # needed by later checks in the same hook run.
+  reads_tool=${2:-}
   need_cmd jq
   [ -f "$DENY_READ_PATHS" ] || die "deny read policy not found: $DENY_READ_PATHS"
 
-  values=$(printf '%s' "$input" | jq -r '.tool_input // {} | .. | strings')
+  # Every string leaf of tool_input is a deny-path candidate: the gate does not
+  # know which fields a host treats as paths, so unknown fields fail closed.
+  # The one exception is Grep's `pattern`. It is the content regex the host
+  # hands to ripgrep, structurally separate from `path` / `glob`, and nothing
+  # resolves it into a filesystem path later - so a search for the literal text
+  # `.key` is not a read of a `*.key` file (#187). Glob's `pattern` is a path
+  # glob and stays checked. Secret-shaped Grep patterns are still handled by
+  # check_broad_grep_content.
+  values=$(printf '%s' "$input" | jq -r --arg tool "$reads_tool" '
+    .tool_input // {}
+    | if $tool == "Grep" and type == "object" then del(.pattern) else . end
+    | .. | strings')
   [ -n "$values" ] || return 0
 
   # Drive the loop from a temp file so it runs in this shell, not a pipeline
@@ -2920,7 +2934,7 @@ hook_pre_tool() {
       scan_proposed_write "$input" "$tool"
       ;;
     Read|NotebookRead|Grep|Glob)
-      check_sensitive_reads "$input"
+      check_sensitive_reads "$input" "$tool"
       if [ "$tool" = "Grep" ]; then
         check_broad_grep_content "$input"
       fi
