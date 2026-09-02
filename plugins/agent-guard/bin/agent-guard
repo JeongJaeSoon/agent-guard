@@ -1961,12 +1961,19 @@ check_sensitive_reads() {
   # The one exception is Grep's `pattern`. It is the content regex the host
   # hands to ripgrep, structurally separate from `path` / `glob`, and nothing
   # resolves it into a filesystem path later - so a search for the literal text
-  # `.key` is not a read of a `*.key` file (#187). Glob's `pattern` is a path
-  # glob and stays checked. Secret-shaped Grep patterns are still handled by
+  # `.key` is not a read of a `*.key` file (#187). The exemption is limited to
+  # a string that does not start with `-`: a host that passed the pattern
+  # positionally would let `--file=.env` / `-f.env` make ripgrep read patterns
+  # FROM that file, and a non-string `pattern` is not a regex at all, so both
+  # keep the every-leaf gate. Glob's `pattern` is a path glob and stays
+  # checked. Secret-shaped Grep patterns are still handled by
   # check_broad_grep_content.
   values=$(printf '%s' "$input" | jq -r --arg tool "$reads_tool" '
     .tool_input // {}
-    | if $tool == "Grep" and type == "object" then del(.pattern) else . end
+    | if $tool == "Grep" and type == "object"
+         and (.pattern | type) == "string"
+         and (.pattern | startswith("-") | not)
+      then del(.pattern) else . end
     | .. | strings')
   [ -n "$values" ] || return 0
 

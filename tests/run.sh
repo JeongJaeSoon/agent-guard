@@ -1063,6 +1063,29 @@ expect_json_status 0 "#187 Grep with a JSON-encoded tool_input still exempts pat
   '{"tool_name":"Grep","tool_input":"{\"pattern\":\".key\",\"path\":\".\"}"}' \
   hook-pre-tool
 
+# The exemption covers a content regex only: an option-shaped pattern could make
+# ripgrep read patterns FROM a file on a host that passes it positionally, and a
+# non-string pattern is not a regex. Both stay under the every-leaf gate.
+expect_json_status 2 "#187 Grep option-shaped pattern naming a deny-listed file still blocks" \
+  '{"tool_name":"Grep","tool_input":{"pattern":"--file=.env","path":"."}}' \
+  hook-pre-tool
+
+expect_json_status 2 "#187 Grep short-option pattern naming a deny-listed file still blocks" \
+  '{"tool_name":"Grep","tool_input":{"pattern":"-f.env","path":"."}}' \
+  hook-pre-tool
+
+expect_json_status 2 "#187 Grep object-valued pattern naming a deny-listed path still blocks" \
+  '{"tool_name":"Grep","tool_input":{"pattern":{"path":".env"}}}' \
+  hook-pre-tool
+
+expect_json_status 2 "#187 Grep array-valued pattern naming a deny-listed path still blocks" \
+  '{"tool_name":"Grep","tool_input":{"pattern":[".env"]}}' \
+  hook-pre-tool
+
+expect_json_status 2 "#187 Grep secret-shaped pattern in broad content mode still blocks" \
+  '{"tool_name":"Grep","tool_input":{"pattern":"private.key","path":".","output_mode":"content"}}' \
+  hook-pre-tool
+
 expect_json_status 2 "Codex Add File payload secret is blocked" \
   '{"tool_name":"apply_patch","tool_input":{"patch":"*** Begin Patch\n*** Add File: x\nAGENT_GUARD_TEST_SECRET\n*** End Patch"}}' \
   hook-pre-tool
