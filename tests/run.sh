@@ -1017,6 +1017,75 @@ expect_json_status 0 "broad Grep content search for benign text is allowed" \
   '{"tool_name":"Grep","tool_input":{"pattern":"TODO","path":".","output_mode":"content"}}' \
   hook-pre-tool
 
+# #187: a Grep content pattern is a regex, not a read target; only path-shaped
+# fields (path, glob) and unknown fields go through the deny-path gate.
+expect_json_status 0 "#187 Grep pattern that looks like a deny-listed name is allowed" \
+  '{"tool_name":"Grep","tool_input":{"pattern":".key","path":"."}}' \
+  hook-pre-tool
+
+expect_json_status 0 "#187 Grep pattern ending in a deny-listed extension is allowed" \
+  '{"tool_name":"Grep","tool_input":{"pattern":"foo.key"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "#187 Grep pattern naming a deny-listed basename is allowed" \
+  '{"tool_name":"Grep","tool_input":{"pattern":".env","path":".","output_mode":"files_with_matches"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "#187 Grep pattern naming a deny-listed key file is allowed" \
+  '{"tool_name":"Grep","tool_input":{"pattern":"id_rsa","path":"."}}' \
+  hook-pre-tool
+
+expect_json_status 2 "#187 Grep path on a deny-listed file still blocks with a benign pattern" \
+  '{"tool_name":"Grep","tool_input":{"pattern":"TODO","path":".env"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "#187 Grep glob selecting deny-listed files still blocks" \
+  '{"tool_name":"Grep","tool_input":{"pattern":"TODO","path":".","glob":"*.pem"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "#187 Grep unknown string field naming a deny-listed path still blocks" \
+  '{"tool_name":"Grep","tool_input":{"pattern":"TODO","path":".","extra":"id_rsa"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "#187 Glob pattern is a path glob and still blocks" \
+  '{"tool_name":"Glob","tool_input":{"pattern":"*.pem","path":"."}}' \
+  hook-pre-tool
+
+expect_json_status 2 "#187 Glob pattern naming dotenv files still blocks" \
+  '{"tool_name":"Glob","tool_input":{"pattern":".env*"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "#187 Grep with a JSON-encoded tool_input still blocks on path" \
+  '{"tool_name":"Grep","tool_input":"{\"pattern\":\"TODO\",\"path\":\".env\"}"}' \
+  hook-pre-tool
+
+expect_json_status 0 "#187 Grep with a JSON-encoded tool_input still exempts pattern" \
+  '{"tool_name":"Grep","tool_input":"{\"pattern\":\".key\",\"path\":\".\"}"}' \
+  hook-pre-tool
+
+# The exemption covers a content regex only: an option-shaped pattern could make
+# ripgrep read patterns FROM a file on a host that passes it positionally, and a
+# non-string pattern is not a regex. Both stay under the every-leaf gate.
+expect_json_status 2 "#187 Grep option-shaped pattern naming a deny-listed file still blocks" \
+  '{"tool_name":"Grep","tool_input":{"pattern":"--file=.env","path":"."}}' \
+  hook-pre-tool
+
+expect_json_status 2 "#187 Grep short-option pattern naming a deny-listed file still blocks" \
+  '{"tool_name":"Grep","tool_input":{"pattern":"-f.env","path":"."}}' \
+  hook-pre-tool
+
+expect_json_status 2 "#187 Grep object-valued pattern naming a deny-listed path still blocks" \
+  '{"tool_name":"Grep","tool_input":{"pattern":{"path":".env"}}}' \
+  hook-pre-tool
+
+expect_json_status 2 "#187 Grep array-valued pattern naming a deny-listed path still blocks" \
+  '{"tool_name":"Grep","tool_input":{"pattern":[".env"]}}' \
+  hook-pre-tool
+
+expect_json_status 2 "#187 Grep secret-shaped pattern in broad content mode still blocks" \
+  '{"tool_name":"Grep","tool_input":{"pattern":"private.key","path":".","output_mode":"content"}}' \
+  hook-pre-tool
+
 expect_json_status 2 "Codex Add File payload secret is blocked" \
   '{"tool_name":"apply_patch","tool_input":{"patch":"*** Begin Patch\n*** Add File: x\nAGENT_GUARD_TEST_SECRET\n*** End Patch"}}' \
   hook-pre-tool
