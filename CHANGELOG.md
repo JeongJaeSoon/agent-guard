@@ -1,3 +1,11 @@
+## v3.1.1 - 2026-09-04
+
+- feat: harden multi-host installation and release flow
+- fix(detection): exempt the Grep content pattern from the deny-path gate (#188)
+- ci: bump hashgraph-online/ai-plugin-scanner-action (#189)
+- docs: document strict Bash path matching (#185)
+- fix(redaction): mask quoted line-start assignments (#184)
+
 ## v3.1.0 - 2026-08-31
 
 - fix: address post-merge hook regressions (#182)
