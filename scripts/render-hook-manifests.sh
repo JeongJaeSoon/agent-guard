@@ -18,7 +18,7 @@ PLUGIN_ROOT="$ROOT/plugins/agent-guard"
 # @ROOT_VAR@ = plugin-root env var the host exports, @HOST@ = hook-contract
 # host tag, @SUB@ = agent-guard hook subcommand for the event.
 TEMPLATE=$(cat <<'EOF'
-sh -c 'r=${@ROOT_VAR@:-}; b=${r%/*}; s="$b/current/bin/agent-guard"; x=; if [ -n "$r" ]; then x=$(for c in "$b"/*/bin/agent-guard; do [ -x "$c" ] || continue; v=${c%/bin/agent-guard}; printf "%s\\t%s\\n" "${v##*/}" "$c"; done | awk -F "\\t" "\$1 ~ /^[0-9]+\\.[0-9]+\\.[0-9]+$/" | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1 | cut -f 2-); fi; if [ -x "$x" ]; then v=${x%/bin/agent-guard}; v=${v##*/}; if [ ! -e "$b/current" ] || [ -L "$b/current" ]; then ln -sfn "$v" "$b/current" 2>/dev/null || :; fi; [ -L "$b/current" ] && [ -x "$s" ] && x="$s"; fi; if [ ! -x "$x" ] && [ -x "$r/bin/agent-guard" ]; then x="$r/bin/agent-guard"; fi; if [ ! -x "$x" ]; then mode=${AGENT_GUARD_INFRA_FAILURE_MODE:-open}; case "$mode" in closed) action=blocking ;; *) mode=open; action=continuing ;; esac; d=${AGENT_GUARD_WARNING_DIR:-${TMPDIR:-/tmp}/agent-guard-warnings-${UID:-user}}; p=; while IFS= read -r line || [ -n "$line" ]; do p=$p$line; done; i=${AGENT_GUARD_SESSION_ID:-}; if [ -z "$i" ] && command -v jq >/dev/null 2>&1; then i=$(printf %s "$p" | jq -r ".session_id // empty" 2>/dev/null); fi; if [ -z "$i" ]; then case "$p" in *\"session_id\":\"*) i=${p#*\"session_id\":\"}; i=${i%%\"*}; case "$i" in ""|*[!A-Za-z0-9._:-]*) i= ;; esac ;; esac; fi; if [ -n "$i" ]; then i=$(printf %s "$i" | cksum); else i=ppid-${PPID:-0}; fi; k="$d/manifest-@HOST@-$i-$mode"; warn=1; if mkdir -p "$d" 2>/dev/null; then (umask 077; set -C; : >"$k") 2>/dev/null || warn=0; fi; [ "$warn" -eq 0 ] || echo "agent-guard: @ROOT_VAR@ env not set or no installed binary was found; $action because AGENT_GUARD_INFRA_FAILURE_MODE=$mode" >&2; [ "$mode" = closed ] && exit 2; exit 0; fi; AGENT_GUARD_HOOK_HOST=@HOST@ "$x" @SUB@'
+sh -c 'r=${@ROOT_VAR@:-}; b=${r%/*}; x=; semver() { case ${1:-} in ""|*[!0-9.]*) return 1 ;; esac; o=$IFS; IFS=.; set -- $1; IFS=$o; [ "$#" -eq 3 ] && [ -n "$1" ] && [ -n "$2" ] && [ -n "$3" ]; }; root_ok() { q=$1; e=${2:-}; z="$q/bin/agent-guard"; [ -x "$z" ] && [ -r "$q/config/gitleaks.toml" ] && [ -r "$q/config/deny-read-paths.txt" ] && [ -r "$q/config/deny-bash-patterns.txt" ] || return 1; u=; while IFS= read -r l; do case "$l" in VERSION=*) u=${l#VERSION=}; break ;; esac; done <"$z"; [ -n "$u" ] && { [ -z "$e" ] || [ "$u" = "$e" ]; }; }; if [ -n "$r" ]; then v=${r##*/}; semver "$v" || v=; if root_ok "$r" "$v"; then x="$r/bin/agent-guard"; elif [ ! -e "$r" ]; then c="$b/current"; t=; [ -L "$c" ] && t=$(readlink "$c" 2>/dev/null) || :; if semver "$t" && root_ok "$c" "$t"; then x="$c/bin/agent-guard"; else x=$(for z in "$b"/*/bin/agent-guard; do [ -x "$z" ] || continue; q=${z%/bin/agent-guard}; v=${q##*/}; semver "$v" || continue; root_ok "$q" "$v" || continue; printf "%s\\t%s\\n" "$v" "$z"; done | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1 | cut -f 2-); fi; fi; fi; if [ ! -x "$x" ]; then mode=${AGENT_GUARD_INFRA_FAILURE_MODE:-open}; case "$mode" in closed) action=blocking ;; *) mode=open; action=continuing ;; esac; d=${AGENT_GUARD_WARNING_DIR:-${TMPDIR:-/tmp}/agent-guard-warnings-${UID:-user}}; p=; while IFS= read -r line || [ -n "$line" ]; do p=$p$line; done; i=${AGENT_GUARD_SESSION_ID:-}; if [ -z "$i" ] && command -v jq >/dev/null 2>&1; then i=$(printf %s "$p" | jq -r ".session_id // empty" 2>/dev/null); fi; if [ -z "$i" ]; then case "$p" in *\"session_id\":\"*) i=${p#*\"session_id\":\"}; i=${i%%\"*}; case "$i" in ""|*[!A-Za-z0-9._:-]*) i= ;; esac ;; esac; fi; if [ -n "$i" ]; then i=$(printf %s "$i" | cksum); else i=ppid-${PPID:-0}; fi; k="$d/manifest-@HOST@-$i-$mode"; warn=1; if mkdir -p "$d" 2>/dev/null; then (umask 077; set -C; : >"$k") 2>/dev/null || warn=0; fi; [ "$warn" -eq 0 ] || echo "agent-guard: @ROOT_VAR@ env not set, selected root was incomplete, or no installed binary was found; $action because AGENT_GUARD_INFRA_FAILURE_MODE=$mode" >&2; [ "$mode" = closed ] && exit 2; exit 0; fi; AGENT_GUARD_HOOK_HOST=@HOST@ "$x" @SUB@'
 EOF
 )
 
@@ -69,14 +69,14 @@ render_manifest() { # $1 = root env var, $2 = host tag, $3/$4 = pre/post matcher
 
 render_codex() {
   render_manifest PLUGIN_ROOT codex \
-    'Bash|apply_patch|mcp__.*' \
-    'Bash|apply_patch|mcp__.*'
+    'Bash|apply_patch|Agent|Task|mcp__.*' \
+    'Bash|apply_patch|Agent|Task|mcp__.*'
 }
 
 render_claude() {
   render_manifest CLAUDE_PLUGIN_ROOT claude \
-    'Write|Edit|MultiEdit|NotebookEdit|Read|NotebookRead|Grep|Glob|Bash|WebFetch|WebSearch|apply_patch|mcp__.*' \
-    'Write|Edit|MultiEdit|NotebookEdit|Bash|apply_patch|Read|NotebookRead|Grep|Glob|WebFetch|WebSearch|mcp__.*'
+    'Write|Edit|MultiEdit|NotebookEdit|Read|NotebookRead|Grep|Glob|Bash|WebFetch|WebSearch|apply_patch|Agent|Task|mcp__.*' \
+    'Write|Edit|MultiEdit|NotebookEdit|Bash|apply_patch|Read|NotebookRead|Grep|Glob|WebFetch|WebSearch|Agent|Task|mcp__.*'
 }
 
 case "${1:-write}" in

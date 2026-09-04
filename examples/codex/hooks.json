@@ -2,7 +2,7 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Bash|apply_patch|mcp__.*",
+        "matcher": "Bash|apply_patch|Agent|Task|mcp__.*",
         "hooks": [
           {
             "type": "command",
@@ -14,7 +14,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "Bash|apply_patch|mcp__.*",
+        "matcher": "Bash|apply_patch|Agent|Task|mcp__.*",
         "hooks": [
           {
             "type": "command",

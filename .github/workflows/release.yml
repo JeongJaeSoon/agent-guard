@@ -299,6 +299,8 @@ jobs:
           scripts/build-release-tarball.sh "$v" "$tarball_tmp"
           mv "$tarball_tmp" "agent-guard-${v}.tar.gz"
           sha256sum "agent-guard-${v}.tar.gz" > "agent-guard-${v}.tar.gz.sha256"
+          tarball_sha=$(awk '{print $1}' "agent-guard-${v}.tar.gz.sha256")
+          scripts/render-homebrew-formula.sh "$v" "$tarball_sha" > agent-guard.rb
 
           # Idempotent release publish: if a release object already exists
           # (recovery path from a previous half-finished dispatch), upload the
@@ -310,6 +312,7 @@ jobs:
             gh release upload "v${v}" \
               "agent-guard-${v}.tar.gz" \
               "agent-guard-${v}.tar.gz.sha256" \
+              agent-guard.rb \
               install.sh \
               bootstrap.sh \
               --clobber
@@ -319,6 +322,7 @@ jobs:
               --generate-notes \
               "agent-guard-${v}.tar.gz" \
               "agent-guard-${v}.tar.gz.sha256" \
+              agent-guard.rb \
               install.sh \
               bootstrap.sh
           fi

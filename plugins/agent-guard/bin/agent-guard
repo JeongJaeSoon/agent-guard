@@ -61,6 +61,29 @@ if is_semver_dir "$PLUGIN_CACHE_VERSION"; then
   PLUGIN_CACHE_BASE=${ROOT_DIR%/*}
 fi
 
+# A cache directory is selectable only when its executable, policy payload,
+# and embedded version agree. An interrupted plugin update can leave a
+# higher-looking directory with only bin/agent-guard; selecting it would turn a
+# healthy installation into a default-open DEGRADED hook.
+plugin_cache_root_usable() (
+  candidate_root=$1
+  expected_version=${2:-}
+  candidate_bin="$candidate_root/bin/agent-guard"
+  [ -x "$candidate_bin" ] \
+    && [ -r "$candidate_root/config/gitleaks.toml" ] \
+    && [ -r "$candidate_root/config/deny-read-paths.txt" ] \
+    && [ -r "$candidate_root/config/deny-bash-patterns.txt" ] \
+    || return 1
+  embedded_version=
+  while IFS= read -r candidate_line; do
+    case "$candidate_line" in
+      VERSION=*) embedded_version=${candidate_line#VERSION=}; break ;;
+    esac
+  done <"$candidate_bin"
+  [ -n "$embedded_version" ] || return 1
+  [ -z "$expected_version" ] || [ "$embedded_version" = "$expected_version" ]
+)
+
 refresh_plugin_current_link() {
   [ -n "$PLUGIN_CACHE_BASE" ] || return 0
   current="$PLUGIN_CACHE_BASE/current"
@@ -69,20 +92,23 @@ refresh_plugin_current_link() {
   if [ -e "$current" ] && [ ! -L "$current" ]; then
     return 1
   fi
-  latest=$(
-    for candidate in "$PLUGIN_CACHE_BASE"/*/bin/agent-guard; do
-      [ -x "$candidate" ] || continue
-      candidate_root=${candidate%/bin/agent-guard}
-      candidate_version=${candidate_root##*/}
-      is_semver_dir "$candidate_version" || continue
-      printf '%s\n' "$candidate_version"
-    done | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1
-  )
-  [ -n "$latest" ] || return 1
+  plugin_cache_root_usable "$ROOT_DIR" "$PLUGIN_CACHE_VERSION" || return 1
+
+  # A stale older process must not roll a current link backward. Conversely, a
+  # merely cached higher sibling must not become active before that version's
+  # host-selected binary actually runs.
+  if [ -L "$current" ]; then
+    current_target=$(readlink "$current" 2>/dev/null) || current_target=
+    if is_semver_dir "$current_target" \
+       && plugin_cache_root_usable "$PLUGIN_CACHE_BASE/$current_target" "$current_target"; then
+      newest=$(printf '%s\n%s\n' "$current_target" "$PLUGIN_CACHE_VERSION" \
+        | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1)
+      [ "$newest" = "$current_target" ] && return 0
+    fi
+  fi
   # BSD and GNU ln both support -n to replace a symlink-to-directory itself
-  # instead of following it and creating a link inside the old version. Always
-  # point at the newest installed version: a stale binary may run after upgrade.
-  ln -sfn "$latest" "$current" 2>/dev/null
+  # instead of following it and creating a link inside the old version.
+  ln -sfn "$PLUGIN_CACHE_VERSION" "$current" 2>/dev/null
 }
 
 refresh_plugin_current_link || :
@@ -133,6 +159,8 @@ Usage:
   agent-guard scan-path PATH...
   agent-guard check
   agent-guard setup [--install --gitleaks-checksum SHA [--gitleaks-version X.Y.Z]]
+  agent-guard doctor
+  agent-guard update
   agent-guard smoke-test
   agent-guard checksum [VERSION]
   agent-guard version
@@ -270,6 +298,21 @@ handle_hook_infrastructure_failure() {
   return 0
 }
 
+# A malformed hook envelope is scanner infrastructure failure, not an empty,
+# benign event. Keep the product's explicit open/closed policy, but never let a
+# jq parse error accidentally decide the policy for us. Callers return after a
+# false result so the invalid payload cannot reach any later field extractor.
+validate_hook_object() {
+  event=$1
+  input=${2:-}
+  if printf '%s' "$input" | jq -e 'type == "object"' >/dev/null 2>&1; then
+    return 0
+  fi
+  handle_hook_infrastructure_failure "$event" "$input" \
+    "$PROGRAM: the $event hook input was not a JSON object;"
+  return 1
+}
+
 # Which host's hook contract this invocation speaks. Every host-conditional
 # branch routes through this single default so adding a host or changing the
 # fallback is a one-line change, not a grep for scattered ':-claude' defaults.
@@ -298,21 +341,60 @@ handle_git_infrastructure_failure() {
   return 0
 }
 
+GITLEAKS_MIN_VERSION=8.30.0
+GITLEAKS_DEFAULT_VERSION=8.30.1
+
+gitleaks_version() {
+  "$1" version 2>/dev/null \
+    | awk '
+        {
+          line = $0
+          if (match(line, /[vV]?[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*/)) {
+            version = substr(line, RSTART, RLENGTH)
+            sub(/^[vV]/, "", version)
+            print version
+            exit
+          }
+        }
+      '
+}
+
+semver_at_least() (
+  actual=$1
+  required=$2
+  old_ifs=$IFS
+  IFS=.
+  # shellcheck disable=SC2086
+  set -- $actual
+  actual_major=${1:-0}; actual_minor=${2:-0}; actual_patch=${3:-0}
+  # shellcheck disable=SC2086
+  set -- $required
+  required_major=${1:-0}; required_minor=${2:-0}; required_patch=${3:-0}
+  IFS=$old_ifs
+  [ "$actual_major" -gt "$required_major" ] && return 0
+  [ "$actual_major" -lt "$required_major" ] && return 1
+  [ "$actual_minor" -gt "$required_minor" ] && return 0
+  [ "$actual_minor" -lt "$required_minor" ] && return 1
+  [ "$actual_patch" -ge "$required_patch" ]
+)
+
 check_deps() {
   need_cmd sh
   need_cmd jq
   need_cmd git
+  need_cmd awk
   need_gitleaks
   [ -f "$DENY_READ_PATHS" ] || die "deny read policy not found: $DENY_READ_PATHS"
   [ -f "$DENY_BASH_PATTERNS" ] || die "deny bash policy not found: $DENY_BASH_PATTERNS"
+  gl_version=$(gitleaks_version "$GITLEAKS_BIN")
+  [ -n "$gl_version" ] \
+    || die "could not parse gitleaks version from $GITLEAKS_BIN (required >= $GITLEAKS_MIN_VERSION)"
+  semver_at_least "$gl_version" "$GITLEAKS_MIN_VERSION" \
+    || die "gitleaks $gl_version is incompatible; required >= $GITLEAKS_MIN_VERSION ($GITLEAKS_BIN)"
   info "$PROGRAM: dependencies ok"
-  gl_version=$("$GITLEAKS_BIN" version 2>/dev/null | head -1)
-  if [ -n "$gl_version" ]; then
-    info "$PROGRAM: gitleaks $gl_version (>= 8.30 recommended)"
-  fi
+  info "$PROGRAM: gitleaks $gl_version (required >= $GITLEAKS_MIN_VERSION)"
 }
 
-GITLEAKS_DEFAULT_VERSION=8.30.1
 SETUP_INSTALL_DIR=$GITLEAKS_PRIVATE_BIN_DIR
 
 setup_status_line() {
@@ -331,9 +413,13 @@ setup_status_line() {
 
 setup_gitleaks_status_line() {
   if gl=$(resolve_gitleaks); then
-    ver=$("$gl" version 2>/dev/null | head -1)
-    info "$PROGRAM: gitleaks  ok  (${ver:-installed}; $gl)"
-    return 0
+    ver=$(gitleaks_version "$gl")
+    if [ -n "$ver" ] && semver_at_least "$ver" "$GITLEAKS_MIN_VERSION"; then
+      info "$PROGRAM: gitleaks  ok  ($ver; $gl)"
+      return 0
+    fi
+    info "$PROGRAM: gitleaks  incompatible  (${ver:-unparseable}; required >= $GITLEAKS_MIN_VERSION; $gl)"
+    return 1
   fi
   if [ -n "${AGENT_GUARD_GITLEAKS_BIN:-}" ]; then
     info "$PROGRAM: gitleaks  missing (AGENT_GUARD_GITLEAKS_BIN is not executable: $AGENT_GUARD_GITLEAKS_BIN)"
@@ -352,6 +438,18 @@ setup_suggest_jq_install() {
     info "  sudo dnf install -y jq"
   else
     info "  https://stedolan.github.io/jq/download/"
+  fi
+}
+
+setup_suggest_git_install() {
+  if command -v brew >/dev/null 2>&1; then
+    info "  brew install git"
+  elif command -v apt-get >/dev/null 2>&1; then
+    info "  sudo apt-get install -y git"
+  elif command -v dnf >/dev/null 2>&1; then
+    info "  sudo dnf install -y git"
+  else
+    info "  https://git-scm.com/downloads"
   fi
 }
 
@@ -446,9 +544,9 @@ EOF
     shift
   done
 
-  jq_ok=1; gitleaks_ok=1
+  jq_ok=1; git_ok=1; gitleaks_ok=1
   setup_status_line jq       || jq_ok=0
-  setup_status_line git      || :
+  setup_status_line git      || git_ok=0
   setup_gitleaks_status_line || gitleaks_ok=0
 
   if [ "$install" -eq 1 ]; then
@@ -461,14 +559,23 @@ EOF
       info "$PROGRAM: jq is not auto-installed; use your system package manager:"
       setup_suggest_jq_install
     fi
-    return 0
+    if [ "$git_ok" -eq 0 ]; then
+      info "$PROGRAM: git is not auto-installed; use your system package manager:"
+      setup_suggest_git_install
+    fi
+    [ "$jq_ok" -eq 1 ] && [ "$git_ok" -eq 1 ]
+    return $?
   fi
 
-  if [ "$jq_ok" -eq 0 ] || [ "$gitleaks_ok" -eq 0 ]; then
+  if [ "$jq_ok" -eq 0 ] || [ "$git_ok" -eq 0 ] || [ "$gitleaks_ok" -eq 0 ]; then
     info ""
     if [ "$jq_ok" -eq 0 ]; then
       info "$PROGRAM: install jq with your package manager:"
       setup_suggest_jq_install
+    fi
+    if [ "$git_ok" -eq 0 ]; then
+      info "$PROGRAM: install git with your package manager:"
+      setup_suggest_git_install
     fi
     if [ "$gitleaks_ok" -eq 0 ]; then
       info "$PROGRAM: install gitleaks (rerun with --install to opt in):"
@@ -831,6 +938,10 @@ check_pii_hook_input() {
     WebFetch|WebSearch)
       content=$(printf '%s' "$input" | jq -r '.tool_input // {} | .. | strings')
       block_on_pii_text "$tool input" "$content"
+      ;;
+    Agent|Task)
+      content=$(printf '%s' "$input" | jq -r '.tool_input // {} | .. | strings')
+      block_on_pii_text "subagent delegation input" "$content"
       ;;
     mcp__*)
       content=$(printf '%s' "$input" | jq -r '.tool_input // {} | .. | strings')
@@ -2913,6 +3024,7 @@ hook_pre_tool() {
   fi
   need_cmd jq
   [ -n "$input" ] || return 0
+  validate_hook_object PreToolUse "$input" || return 0
 
   # A host may serialize tool_input as a JSON-encoded string instead of an
   # object. When that string decodes to an *object*, the precise-field extractors
@@ -2951,6 +3063,13 @@ hook_pre_tool() {
       ;;
     WebFetch|WebSearch)
       scan_network_input "$input"
+      ;;
+    Agent|Task)
+      # Delegation is a trust boundary too: the task prompt leaves the parent
+      # context and the returned result re-enters it. `Agent` is the current
+      # tool name on Claude and Codex; `Task` keeps coverage for older Claude
+      # releases that still emit the legacy alias.
+      scan_tool_input "$input" "subagent delegation input"
       ;;
     mcp__*)
       scan_mcp_input "$input"
@@ -4251,6 +4370,7 @@ hook_post_tool() {
   fi
   need_cmd jq
   [ -n "$input" ] || return 0
+  validate_hook_object PostToolUse "$input" || return 0
   tool=$(json_value '.tool_name // .tool // .name // empty' "$input")
   workdir=$(json_value '.tool_input.workdir // .tool_input.cwd // .cwd // empty' "$input")
 
@@ -4294,6 +4414,7 @@ hook_stop() {
   fi
   need_cmd jq
   if [ -n "$input" ]; then
+    validate_hook_object Stop "$input" || return 0
     active=$(json_value '.stop_hook_active // false' "$input")
     if [ "$active" = "true" ]; then
       info "$PROGRAM: stop hook already active; skipping repeat scan to avoid a loop"
@@ -5125,6 +5246,24 @@ shell_init() {
 # Resolve the agent-guard binary at call time: an explicit $AGENT_GUARD_BIN wins,
 # then the stable baked path, then the newest installed plugin version as a
 # recovery fallback, then $PATH for standalone CLI installs.
+__agentguard_cache_bin_usable() {
+  __ag_candidate=$1
+  __ag_expected=${2:-}
+  __ag_root=${__ag_candidate%/bin/agent-guard}
+  [ -x "$__ag_candidate" ] \
+    && [ -r "$__ag_root/config/gitleaks.toml" ] \
+    && [ -r "$__ag_root/config/deny-read-paths.txt" ] \
+    && [ -r "$__ag_root/config/deny-bash-patterns.txt" ] \
+    || return 1
+  __ag_embedded=
+  while IFS= read -r __ag_line; do
+    case "$__ag_line" in
+      VERSION=*) __ag_embedded=${__ag_line#VERSION=}; break ;;
+    esac
+  done <"$__ag_candidate"
+  [ -n "$__ag_embedded" ] \
+    && { [ -z "$__ag_expected" ] || [ "$__ag_embedded" = "$__ag_expected" ]; }
+}
 __agentguard_latest_plugin_bin() {
   [ -n "${__agentguard_plugin_base:-}" ] || return 1
   __ag_latest=$(
@@ -5132,6 +5271,7 @@ __agentguard_latest_plugin_bin() {
       [ -x "$__ag_candidate" ] || continue
       __ag_version=${__ag_candidate%/bin/agent-guard}
       __ag_version=${__ag_version##*/}
+      __agentguard_cache_bin_usable "$__ag_candidate" "$__ag_version" || continue
       printf '%s\t%s\n' "$__ag_version" "$__ag_candidate"
     done \
       | awk -F '\t' '$1 ~ /^[0-9]+\.[0-9]+\.[0-9]+$/' \
@@ -5146,9 +5286,16 @@ __agentguard_exe() {
   if [ -n "${AGENT_GUARD_BIN:-}" ] && [ -x "$AGENT_GUARD_BIN" ]; then
     printf '%s' "$AGENT_GUARD_BIN"; return 0
   fi
+  __ag_current_target=
+  if [ -n "${__agentguard_plugin_base:-}" ] \
+     && [ -L "$__agentguard_plugin_base/current" ]; then
+    __ag_current_target=$(readlink "$__agentguard_plugin_base/current" 2>/dev/null) \
+      || __ag_current_target=
+  fi
   if [ -n "${__agentguard_bin:-}" ] && [ -x "$__agentguard_bin" ] \
      && [ -n "${__agentguard_plugin_base:-}" ] \
-     && [ -L "$__agentguard_plugin_base/current" ]; then
+     && [ -n "$__ag_current_target" ] \
+     && __agentguard_cache_bin_usable "$__agentguard_bin" "$__ag_current_target"; then
     printf '%s' "$__agentguard_bin"; return 0
   fi
   __ag_latest=$(__agentguard_latest_plugin_bin) || __ag_latest=
@@ -5445,6 +5592,28 @@ do_setup_shell() {
   info "$PROGRAM: restart your shell and any sessions launched from it to apply"
 }
 
+# Update only the standalone distribution. Plugin caches are owned by the host
+# plugin manager; mutating them here would recreate the stale-path problem this
+# command is intended to avoid. The bootstrap script remains the single
+# checksum-verified installer/update implementation.
+do_update() {
+  [ "$#" -eq 0 ] || die "update: no arguments are accepted"
+  if [ -n "$PLUGIN_CACHE_BASE" ]; then
+    die "update is unavailable for plugin installs; update Agent Guard through the host plugin manager, then rerun setup-shell"
+  fi
+  need_cmd curl
+  info "$PROGRAM: downloading the checksum-verified standalone updater"
+  [ -n "$AGENT_GUARD_RUNDIR" ] \
+    || die "update: cannot create a private temporary workspace"
+  update_script="$AGENT_GUARD_RUNDIR/bootstrap.sh"
+  curl -fsSL "https://github.com/JeongJaeSoon/agent-guard/releases/latest/download/bootstrap.sh" \
+    -o "$update_script" || die "update: failed to download bootstrap.sh"
+  sh -n "$update_script" || die "update: downloaded bootstrap.sh failed syntax validation"
+  AGENT_GUARD_HOME="$ROOT_DIR" \
+    AGENT_GUARD_BIN_DIR="$(CDPATH= cd -- "$BIN_DIR/../bin" 2>/dev/null && pwd -P || printf '%s' "$HOME/.local/bin")" \
+    sh "$update_script"
+}
+
 # Per-invocation temp workspace. Every scan temp file (gitleaks stdin captures,
 # read-loop payloads) may hold plaintext secrets, so route them all under one
 # directory (see mktemp_file) and remove it with a single trap on exit —
@@ -5483,6 +5652,8 @@ case "$cmd" in
   scan-path) shift; scan_path "$@" ;;
   filter-lockfile-hashes) shift; filter_lockfile_hashes "$@" ;;
   check) check_deps ;;
+  doctor) shift; do_setup "$@" ;;
+  update) shift; do_update "$@" ;;
   setup) shift; do_setup "$@" ;;
   setup-shell) shift; do_setup_shell "$@" ;;
   smoke-test) smoke_test ;;

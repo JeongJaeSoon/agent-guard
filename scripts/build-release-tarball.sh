@@ -13,4 +13,5 @@ cp "$ROOT/install.sh" "$stage/install.sh"
 cp -R "$ROOT/deployment" "$stage/deployment"
 mkdir -p "$stage/docs"
 cp "$ROOT/docs/managed-deployment.md" "$stage/docs/managed-deployment.md"
+cp "$ROOT/docs/release-checklist.md" "$stage/docs/release-checklist.md"
 tar -C "$stage" -czf "$output" .

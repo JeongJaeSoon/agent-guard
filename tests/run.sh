@@ -273,6 +273,28 @@ for event in PreToolUse PostToolUse Stop UserPromptSubmit; do
     || not_ok "$event matcher in Codex example matches Codex plugin hooks (got: $codex_example)"
 done
 
+# Delegating work is a parent-context boundary. Both current `Agent` calls and
+# Claude's legacy `Task` alias must enter the pre/post pipeline on both hosts;
+# otherwise a secret can leave in the delegation prompt or return unredacted in
+# the subagent result even though the subagent's own tool calls are protected.
+for manifest_file in \
+  "$PLUGIN_ROOT/hooks.json" \
+  "$PLUGIN_ROOT/hooks/hooks.json"; do
+  for event in PreToolUse PostToolUse; do
+    matcher=$(jq -r ".hooks.${event}[0].matcher" "$manifest_file")
+    case "|$matcher|" in
+      *'|Agent|'*|*'|Agent|Task|'*)
+        case "|$matcher|" in
+          *'|Task|'*|*'|Task|mcp__.*|'*)
+            ok "$event matcher covers Agent and legacy Task in $manifest_file" ;;
+          *) not_ok "$event matcher covers legacy Task in $manifest_file (got: $matcher)" ;;
+        esac
+        ;;
+      *) not_ok "$event matcher covers Agent in $manifest_file (got: $matcher)" ;;
+    esac
+  done
+done
+
 # Full hook-object parity: type, timeout, and the trailing hook-* subcommand
 # must agree across all four manifests. Command STRINGS legitimately differ by
 # host (CLAUDE_PLUGIN_ROOT vs PLUGIN_ROOT vs relative/absolute paths), so only
@@ -371,10 +393,10 @@ for file in \
   fi
 done
 case "$ss_hook_command" in
-  *'CLAUDE_PLUGIN_ROOT'*'/current/bin/agent-guard'*'hook-session-start'*)
-    ok "SessionStart command resolves hook-session-start through the stable current path" ;;
+  *'CLAUDE_PLUGIN_ROOT'*'root_ok'*'r/bin/agent-guard'*'hook-session-start'*)
+    ok "SessionStart command prefers the host-selected complete plugin root" ;;
   *)
-    not_ok "SessionStart command resolves hook-session-start through the stable current path (got: $ss_hook_command)" ;;
+    not_ok "SessionStart command prefers the host-selected complete plugin root (got: $ss_hook_command)" ;;
 esac
 if [ "$ss_hook_timeout" = 5 ]; then
   ok "SessionStart timeout is 5 in hooks/hooks.json"
@@ -383,14 +405,15 @@ else
 fi
 
 claude_pre_tool_command=$(jq -r '.hooks.PreToolUse[0].hooks[0].command' "$PLUGIN_ROOT/hooks/hooks.json")
-case "$claude_pre_tool_command" in
-  *'CLAUDE_PLUGIN_ROOT'*'/current/bin/agent-guard'*'awk -F'*'/^[0-9]+'*'/bin/agent-guard'*)
-    ok "Claude hook command uses the stable current path with a version-glob fallback"
-    ;;
-  *)
-    not_ok "Claude hook command uses the stable current path with a version-glob fallback"
-    ;;
-esac
+if printf '%s' "$claude_pre_tool_command" | grep -Fq 'CLAUDE_PLUGIN_ROOT' \
+   && printf '%s' "$claude_pre_tool_command" | grep -Fq 'root_ok "$r" "$v"' \
+   && printf '%s' "$claude_pre_tool_command" | grep -Fq 'x="$r/bin/agent-guard"' \
+   && printf '%s' "$claude_pre_tool_command" | grep -Fq 'root_ok "$q" "$v"' \
+   && printf '%s' "$claude_pre_tool_command" | grep -Fq 'sort -t.'; then
+  ok "Claude hook command prefers the selected root with a complete-cache recovery fallback"
+else
+  not_ok "Claude hook command prefers the selected root with a complete-cache recovery fallback"
+fi
 case "$claude_pre_tool_command" in
   *'CODEX_PLUGIN_ROOT'*|*'${PLUGIN_ROOT'*)
     not_ok "Claude hook command does not depend on Codex or generic plugin root env vars"
@@ -401,14 +424,15 @@ case "$claude_pre_tool_command" in
 esac
 
 codex_pre_tool_command=$(jq -r '.hooks.PreToolUse[0].hooks[0].command' "$PLUGIN_ROOT/hooks.json")
-case "$codex_pre_tool_command" in
-  *'PLUGIN_ROOT'*'/current/bin/agent-guard'*'awk -F'*'/^[0-9]+'*'/bin/agent-guard'*)
-    ok "Codex hook command uses the stable current path with a version-glob fallback"
-    ;;
-  *)
-    not_ok "Codex hook command uses the stable current path with a version-glob fallback"
-    ;;
-esac
+if printf '%s' "$codex_pre_tool_command" | grep -Fq 'PLUGIN_ROOT' \
+   && printf '%s' "$codex_pre_tool_command" | grep -Fq 'root_ok "$r" "$v"' \
+   && printf '%s' "$codex_pre_tool_command" | grep -Fq 'x="$r/bin/agent-guard"' \
+   && printf '%s' "$codex_pre_tool_command" | grep -Fq 'root_ok "$q" "$v"' \
+   && printf '%s' "$codex_pre_tool_command" | grep -Fq 'sort -t.'; then
+  ok "Codex hook command prefers the selected root with a complete-cache recovery fallback"
+else
+  not_ok "Codex hook command prefers the selected root with a complete-cache recovery fallback"
+fi
 case "$codex_pre_tool_command" in
   *'CLAUDE_PLUGIN_ROOT'*|*'CODEX_PLUGIN_ROOT'*)
     not_ok "Codex hook command does not depend on host-specific plugin root env vars"
@@ -580,32 +604,76 @@ else
   sed 's/^/  stderr: /' "$ERR"
 fi
 
-# A stale hook can retain a removed version directory in PLUGIN_ROOT. The
-# manifest-level resolver must select the highest installed semantic version,
-# not rely on lexical glob order (where 3.0.9 sorts after 3.0.10).
+# A stale hook can retain a removed version directory in PLUGIN_ROOT. Recovery
+# may select the highest complete semantic version, but an existing complete
+# host-selected root remains authoritative.
 HOOK_CACHE="$TESTTMP/hook-cache"
 for hook_ver in 3.0.9 3.0.10 99.0.0beta; do
   mkdir -p "$HOOK_CACHE/$hook_ver/bin"
   cat >"$HOOK_CACHE/$hook_ver/bin/agent-guard" <<EOF
 #!/usr/bin/env sh
+VERSION=$hook_ver
 printf '%s\n' 'selected-$hook_ver'
 EOF
   chmod +x "$HOOK_CACHE/$hook_ver/bin/agent-guard"
+  case "$hook_ver" in
+    3.0.9|3.0.10)
+      mkdir -p "$HOOK_CACHE/$hook_ver/config"
+      : >"$HOOK_CACHE/$hook_ver/config/gitleaks.toml"
+      : >"$HOOK_CACHE/$hook_ver/config/deny-read-paths.txt"
+      : >"$HOOK_CACHE/$hook_ver/config/deny-bash-patterns.txt"
+      ;;
+  esac
 done
+
+printf '%s' '{"tool_name":"Bash","tool_input":{"command":"echo clean"}}' \
+  | PLUGIN_ROOT="$HOOK_CACHE/3.0.9" sh -c "$codex_pre_tool_command" >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 0 ] && grep -qx 'selected-3.0.9' "$OUT" \
+   && [ ! -e "$HOOK_CACHE/current" ]; then
+  ok "Codex hook resolver keeps the complete host-selected plugin authoritative"
+else
+  not_ok "Codex hook resolver keeps the complete host-selected plugin authoritative"
+  sed 's/^/  stdout: /' "$OUT"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
 printf '%s' '{"tool_name":"Bash","tool_input":{"command":"echo clean"}}' \
   | PLUGIN_ROOT="$HOOK_CACHE/3.0.0" sh -c "$codex_pre_tool_command" >"$OUT" 2>"$ERR"
 status=$?
 if [ "$status" -eq 0 ] && grep -qx 'selected-3.0.10' "$OUT" \
-   && [ "$(readlink "$HOOK_CACHE/current" 2>/dev/null)" = 3.0.10 ]; then
-  ok "Codex hook resolver falls back from a removed version to the latest installed version"
+   && [ ! -e "$HOOK_CACHE/current" ]; then
+  ok "Codex hook resolver recovers from a removed root with the latest complete version"
 else
-  not_ok "Codex hook resolver falls back from a removed version to the latest installed version"
+  not_ok "Codex hook resolver recovers from a removed root with the latest complete version"
+  sed 's/^/  stdout: /' "$OUT"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+mkdir -p "$HOOK_CACHE/4.0.0/bin"
+cat >"$HOOK_CACHE/4.0.0/bin/agent-guard" <<'EOF'
+#!/usr/bin/env sh
+VERSION=4.0.0
+printf '%s\n' selected-incomplete
+EOF
+chmod +x "$HOOK_CACHE/4.0.0/bin/agent-guard"
+printf '%s' '{"session_id":"incomplete-root","tool_name":"Bash","tool_input":{"command":"cat .env"}}' \
+  | PLUGIN_ROOT="$HOOK_CACHE/4.0.0" \
+    AGENT_GUARD_WARNING_DIR="$TESTTMP/incomplete-root-warning" \
+    sh -c "$codex_pre_tool_command" >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 0 ] && [ ! -s "$OUT" ] \
+   && grep -q 'selected root was incomplete' "$ERR"; then
+  ok "Codex hook resolver refuses an incomplete selected root without sibling substitution"
+else
+  not_ok "Codex hook resolver refuses an incomplete selected root without sibling substitution"
   sed 's/^/  stdout: /' "$OUT"
   sed 's/^/  stderr: /' "$ERR"
 fi
 
 cat >"$HOOK_CACHE/3.0.10/bin/agent-guard" <<'EOF'
 #!/usr/bin/env sh
+VERSION=3.0.10
 cat
 EOF
 chmod +x "$HOOK_CACHE/3.0.10/bin/agent-guard"
@@ -1123,6 +1191,18 @@ expect_json_status 2 "MCP input secret is blocked" \
   '{"tool_name":"mcp__server__tool","tool_input":{"token":"AGENT_GUARD_TEST_SECRET"}}' \
   hook-pre-tool
 
+expect_json_status 2 "Agent delegation input secret is blocked" \
+  '{"tool_name":"Agent","tool_input":{"subagent_type":"Explore","prompt":"inspect AGENT_GUARD_TEST_SECRET"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "legacy Task delegation input secret is blocked" \
+  '{"tool_name":"Task","tool_input":{"subagent_type":"Explore","prompt":"inspect AGENT_GUARD_TEST_SECRET"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "benign Agent delegation input is allowed" \
+  '{"tool_name":"Agent","tool_input":{"subagent_type":"Explore","prompt":"map the public API"}}' \
+  hook-pre-tool
+
 expect_json_status 2 "WebFetch file URL to sensitive path is blocked" \
   '{"tool_name":"WebFetch","tool_input":{"url":"file:///.env","prompt":"summarize"}}' \
   hook-pre-tool
@@ -1344,6 +1424,44 @@ else
   not_ok "prompt guard skips the probe above the scan cap within the hook budget (status $big_prompt_status, ${big_prompt_elapsed}s)"
   sed 's/^/  stderr: /' "$ERR"
 fi
+
+# Every tool/stop hook must make the infrastructure policy decision itself
+# when the host sends malformed JSON. A jq parse failure must never become an
+# accidental exit-0 under the explicitly closed policy.
+for malformed_case in \
+  'hook-pre-tool:PreToolUse' \
+  'hook-post-tool:PostToolUse' \
+  'hook-stop:Stop'; do
+  malformed_cmd=${malformed_case%%:*}
+  malformed_event=${malformed_case#*:}
+  printf '%s' '{not-json' \
+    | AGENT_GUARD_INFRA_FAILURE_MODE=closed \
+      AGENT_GUARD_WARNING_DIR="$TESTTMP/malformed-$malformed_cmd-closed" \
+      "$PLUGIN_ROOT/bin/agent-guard" "$malformed_cmd" >"$OUT" 2>"$ERR"
+  malformed_status=$?
+  if [ "$malformed_status" -eq 2 ] \
+     && grep -q "$malformed_event hook input was not a JSON object" "$ERR"; then
+    ok "$malformed_cmd closed policy blocks malformed JSON"
+  else
+    not_ok "$malformed_cmd closed policy blocks malformed JSON (status $malformed_status)"
+    sed 's/^/  stdout: /' "$OUT"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+
+  printf '%s' '[]' \
+    | AGENT_GUARD_INFRA_FAILURE_MODE=open \
+      AGENT_GUARD_WARNING_DIR="$TESTTMP/malformed-$malformed_cmd-open" \
+      "$PLUGIN_ROOT/bin/agent-guard" "$malformed_cmd" >"$OUT" 2>"$ERR"
+  malformed_status=$?
+  if [ "$malformed_status" -eq 0 ] \
+     && grep -q "$malformed_event hook input was not a JSON object" "$ERR"; then
+    ok "$malformed_cmd open policy reports a non-object JSON payload"
+  else
+    not_ok "$malformed_cmd open policy reports a non-object JSON payload (status $malformed_status)"
+    sed 's/^/  stdout: /' "$OUT"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+done
 
 printf '%s' "$big_prompt_payload" \
   | AGENT_GUARD_HOOK_HOST=claude AGENT_GUARD_INFRA_FAILURE_MODE=closed \
@@ -3161,6 +3279,25 @@ fi
 
 run_expect 0 "check passes when deps and configs exist" "$PLUGIN_ROOT/bin/agent-guard" check
 
+OLD_GITLEAKS="$TESTTMP/gitleaks-old"
+cat >"$OLD_GITLEAKS" <<'STUB'
+#!/usr/bin/env sh
+case "${1:-}" in
+  version) printf '%s\n' 'gitleaks version 7.6.1' ;;
+  *) exit 2 ;;
+esac
+STUB
+chmod +x "$OLD_GITLEAKS"
+run_expect 2 "check rejects an incompatible gitleaks version" \
+  env AGENT_GUARD_GITLEAKS_BIN="$OLD_GITLEAKS" \
+  "$PLUGIN_ROOT/bin/agent-guard" check
+if grep -q 'required >= 8.30.0' "$ERR"; then
+  ok "incompatible gitleaks error reports the required version"
+else
+  not_ok "incompatible gitleaks error reports the required version"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
 # --- pii-filter -----------------------------------------------------------
 
 PII_SAMPLE='Contact jane@example.com at +1 (415) 555-0199, card 4111 1111 1111 1111, ssn 123-45-6789, ip 203.0.113.42.'
@@ -4316,6 +4453,7 @@ mkdir -p "$NO_GITLEAKS_BIN"
 ln -s "$REAL_SH" "$NO_GITLEAKS_BIN/sh"
 ln -s "$REAL_DIRNAME" "$NO_GITLEAKS_BIN/dirname"
 ln -s "$REAL_PWD" "$NO_GITLEAKS_BIN/pwd"
+ln -s "$(command -v awk)" "$NO_GITLEAKS_BIN/awk"
 AGENT_GUARD_GITLEAKS_BIN=/nonexistent/gitleaks PATH="$NO_GITLEAKS_BIN" \
   "$PLUGIN_ROOT/bin/agent-guard" scan-path "$CLEAN_DIR" >"$OUT" 2>"$ERR"
 status=$?
@@ -4352,6 +4490,23 @@ else
   not_ok "setup --install without --gitleaks-checksum exits 2 (expected 2, got $status)"
   sed 's/^/  stderr: /' "$ERR"
 fi
+
+# setup is a readiness command, so a missing git executable must affect its
+# status even when jq and a compatible gitleaks are already present. The
+# --install path must not report success merely because no gitleaks download is
+# needed.
+NO_GIT_BIN="$TMP_ROOT/no-git-bin"
+mkdir -p "$NO_GIT_BIN"
+for no_git_tool in sh dirname pwd jq head awk; do
+  no_git_tool_path=$(command -v "$no_git_tool" 2>/dev/null || :)
+  [ -n "$no_git_tool_path" ] && ln -s "$no_git_tool_path" "$NO_GIT_BIN/$no_git_tool"
+done
+run_expect 1 "setup exits 1 when git is missing" \
+  env PATH="$NO_GIT_BIN" AGENT_GUARD_GITLEAKS_BIN="$MOCK_BIN/gitleaks" \
+  "$PLUGIN_ROOT/bin/agent-guard" setup
+run_expect 1 "setup --install still exits 1 when git is missing" \
+  env PATH="$NO_GIT_BIN" AGENT_GUARD_GITLEAKS_BIN="$MOCK_BIN/gitleaks" \
+  "$PLUGIN_ROOT/bin/agent-guard" setup --install
 
 DEGRADED_WARNING_DIR="$TESTTMP/degraded-warnings"
 mkdir -p "$DEGRADED_WARNING_DIR"
@@ -4444,7 +4599,7 @@ chmod +x "$PRIVATE_GL_DIR/gitleaks"
 AGENT_GUARD_GITLEAKS_BIN_DIR="$PRIVATE_GL_DIR" PATH="$NO_GITLEAKS_BIN" \
   "$PLUGIN_ROOT/bin/agent-guard" check >"$OUT" 2>"$ERR"
 status=$?
-if [ "$status" -eq 0 ] && grep -q 'gitleaks 0.0.0-mock' "$ERR"; then
+if [ "$status" -eq 0 ] && grep -q 'gitleaks 8.30.1' "$ERR"; then
   ok "check discovers gitleaks in Agent Guard's private install directory"
 else
   not_ok "check discovers privately installed gitleaks (status $status)"
@@ -4893,10 +5048,37 @@ run_expect 0 "release tarball builder succeeds" \
 tar -xzf "$RELEASE_TARBALL_DIR/agent-guard-test.tar.gz" -C "$RELEASE_TARBALL_DIR/out"
 if [ -x "$RELEASE_TARBALL_DIR/out/bin/agent-guard" ] \
    && [ -x "$RELEASE_TARBALL_DIR/out/install.sh" ] \
-   && [ -f "$RELEASE_TARBALL_DIR/out/deployment/claude-managed-settings.example.json" ]; then
+   && [ -f "$RELEASE_TARBALL_DIR/out/deployment/claude-managed-settings.example.json" ] \
+   && [ -f "$RELEASE_TARBALL_DIR/out/docs/release-checklist.md" ]; then
   ok "release tarball contains the CLI, installer, and managed settings example"
 else
   not_ok "release tarball contains the CLI, installer, and managed settings example"
+fi
+run_expect 0 "extracted release installer check resolves the archive layout" \
+  sh -c 'cd "$1" && ./install.sh check' _ "$RELEASE_TARBALL_DIR/out"
+
+FORMULA_SHA=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+run_expect 0 "Homebrew formula renderer emits a pinned release" \
+  "$ROOT/scripts/render-homebrew-formula.sh" 3.1.0 "$FORMULA_SHA"
+formula_output=$(
+  "$ROOT/scripts/render-homebrew-formula.sh" 3.1.0 "$FORMULA_SHA"
+)
+if printf '%s\n' "$formula_output" | grep -q 'libexec.install Dir' \
+   && printf '%s\n' "$formula_output" | grep -q 'agent-guard-3.1.0.tar.gz' \
+   && printf '%s\n' "$formula_output" | grep -q 'sha256 "'$FORMULA_SHA'"'; then
+  ok "Homebrew formula pins URL, checksum, and non-recursive libexec wrapper"
+else
+  not_ok "Homebrew formula pins URL, checksum, and non-recursive libexec wrapper"
+fi
+run_expect 2 "Homebrew formula renderer rejects a malformed checksum" \
+  "$ROOT/scripts/render-homebrew-formula.sh" 3.1.0 bad
+run_expect 2 "Homebrew formula renderer rejects a malformed version" \
+  "$ROOT/scripts/render-homebrew-formula.sh" 3.bad.0 "$FORMULA_SHA"
+if grep -q 'render-homebrew-formula.sh.*> agent-guard.rb' "$ROOT/.github/workflows/release.yml" \
+   && [ "$(grep -c 'agent-guard.rb' "$ROOT/.github/workflows/release.yml")" -ge 2 ]; then
+  ok "release workflow generates and uploads the Homebrew formula"
+else
+  not_ok "release workflow generates and uploads the Homebrew formula"
 fi
 
 # --- githooks/pre-commit invokes scan-staged ------------------------------
@@ -6502,6 +6684,16 @@ if [ "$post_status" -eq 0 ] \
   ok "post-tool masks a gitleaks-detected secret in Bash stdout (shape preserved)"
 else
   not_ok "post-tool masks a gitleaks-detected secret in Bash stdout (status $post_status)"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
+post_tool_out '{"tool_name":"Agent","tool_input":{"subagent_type":"Explore","prompt":"audit"},"tool_response":{"stdout":"found AGENT_GUARD_TEST_SECRET\n","stderr":"","interrupted":false,"isImage":false}}'
+post_out=$(cat "$OUT")
+if printf '%s' "$post_out" | grep -q '\[REDACTED\]' \
+   && ! printf '%s' "$post_out" | grep -q 'AGENT_GUARD_TEST_SECRET'; then
+  ok "post-tool masks a secret returned by an Agent subagent"
+else
+  not_ok "post-tool masks a secret returned by an Agent subagent"
   printf '%s\n' "$post_out" | sed 's/^/  out: /'
 fi
 
@@ -10275,13 +10467,23 @@ fi
 # Model the host cache layout without touching the real HOME. The first plugin
 # execution creates `current`, setup-shell writes only that stable path, and an
 # upgrade retargets it before the old version directory disappears.
+install_cache_payload() {
+  cache_base=$1
+  cache_version=$2
+  cache_root="$cache_base/$cache_version"
+  mkdir -p "$cache_root/bin"
+  sed "s/^VERSION=.*/VERSION=$cache_version/" \
+    "$PLUGIN_ROOT/bin/agent-guard" >"$cache_root/bin/agent-guard"
+  chmod +x "$cache_root/bin/agent-guard"
+  cp -R "$PLUGIN_ROOT/config" "$cache_root/config"
+}
+
 CLEAN_HOME="$TESTTMP/clean-home"
 CLEAN_CACHE="$CLEAN_HOME/.claude/plugins/cache/agent-guard/agent-guard"
 CLEAN_RC="$CLEAN_HOME/.zshrc"
-mkdir -p "$CLEAN_CACHE/3.0.0/bin"
+mkdir -p "$CLEAN_CACHE"
 CLEAN_CACHE=$(CDPATH= cd -- "$CLEAN_CACHE" && pwd -P)
-cp "$PLUGIN_ROOT/bin/agent-guard" "$CLEAN_CACHE/3.0.0/bin/agent-guard"
-chmod +x "$CLEAN_CACHE/3.0.0/bin/agent-guard"
+install_cache_payload "$CLEAN_CACHE" 3.0.0
 HOME="$CLEAN_HOME" "$CLEAN_CACHE/3.0.0/bin/agent-guard" version >/dev/null 2>&1
 HOME="$CLEAN_HOME" "$CLEAN_CACHE/3.0.0/bin/agent-guard" setup-shell --rc "$CLEAN_RC" >/dev/null 2>&1
 if [ "$(readlink "$CLEAN_CACHE/current" 2>/dev/null)" = 3.0.0 ]; then
@@ -10296,9 +10498,7 @@ else
   not_ok "setup-shell records only the stable plugin path"
 fi
 
-mkdir -p "$CLEAN_CACHE/3.0.1/bin"
-cp "$PLUGIN_ROOT/bin/agent-guard" "$CLEAN_CACHE/3.0.1/bin/agent-guard"
-chmod +x "$CLEAN_CACHE/3.0.1/bin/agent-guard"
+install_cache_payload "$CLEAN_CACHE" 3.0.1
 HOME="$CLEAN_HOME" "$CLEAN_CACHE/3.0.1/bin/agent-guard" version >/dev/null 2>&1
 rm -rf "$CLEAN_CACHE/3.0.0"
 if [ "$(readlink "$CLEAN_CACHE/current" 2>/dev/null)" = 3.0.1 \
@@ -10321,18 +10521,24 @@ else
 fi
 
 # A stale version may still be executing in an old session after a newer plugin
-# is installed. It must not roll `current` backward, and non-numeric lookalike
-# directories must never win the resolver sort.
-mkdir -p "$CLEAN_CACHE/3.0.0/bin" "$CLEAN_CACHE/3.0.2/bin" "$CLEAN_CACHE/9.9.9beta/bin"
-for clean_version in 3.0.0 3.0.2 9.9.9beta; do
-  cp "$PLUGIN_ROOT/bin/agent-guard" "$CLEAN_CACHE/$clean_version/bin/agent-guard"
-  chmod +x "$CLEAN_CACHE/$clean_version/bin/agent-guard"
-done
+# is merely cached. It must not roll `current` backward, but the unselected
+# higher sibling must not activate until its own host-selected binary runs.
+install_cache_payload "$CLEAN_CACHE" 3.0.0
+install_cache_payload "$CLEAN_CACHE" 3.0.2
+mkdir -p "$CLEAN_CACHE/9.9.9beta/bin"
+cp "$PLUGIN_ROOT/bin/agent-guard" "$CLEAN_CACHE/9.9.9beta/bin/agent-guard"
+chmod +x "$CLEAN_CACHE/9.9.9beta/bin/agent-guard"
 HOME="$CLEAN_HOME" "$CLEAN_CACHE/3.0.0/bin/agent-guard" version >/dev/null 2>&1
-if [ "$(readlink "$CLEAN_CACHE/current" 2>/dev/null)" = 3.0.2 ]; then
-  ok "stale binaries keep current on the highest strictly numeric installed version"
+if [ "$(readlink "$CLEAN_CACHE/current" 2>/dev/null)" = 3.0.1 ]; then
+  ok "stale binaries preserve the newer active current without activating cached siblings"
 else
-  not_ok "stale binary does not roll current backward (got: $(readlink "$CLEAN_CACHE/current" 2>/dev/null))"
+  not_ok "stale binary preserves the newer active current (got: $(readlink "$CLEAN_CACHE/current" 2>/dev/null))"
+fi
+HOME="$CLEAN_HOME" "$CLEAN_CACHE/3.0.2/bin/agent-guard" version >/dev/null 2>&1
+if [ "$(readlink "$CLEAN_CACHE/current" 2>/dev/null)" = 3.0.2 ]; then
+  ok "running the host-selected newer plugin advances the stable current link"
+else
+  not_ok "host-selected newer plugin advances current (got: $(readlink "$CLEAN_CACHE/current" 2>/dev/null))"
 fi
 
 # --- temp cleanup on abrupt termination (#131) -----------------------------

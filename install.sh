@@ -22,8 +22,20 @@ shell_quote() {
   printf "'"
 }
 
+resolve_agent_guard_bin() {
+  if [ -x "$SCRIPT_DIR/plugins/agent-guard/bin/agent-guard" ]; then
+    printf '%s\n' "$SCRIPT_DIR/plugins/agent-guard/bin/agent-guard"
+  elif [ -x "$SCRIPT_DIR/bin/agent-guard" ]; then
+    printf '%s\n' "$SCRIPT_DIR/bin/agent-guard"
+  else
+    return 1
+  fi
+}
+
 check() {
-  "$SCRIPT_DIR/plugins/agent-guard/bin/agent-guard" check
+  agent_guard_bin=$(resolve_agent_guard_bin) \
+    || die "agent-guard binary not found under $SCRIPT_DIR"
+  "$agent_guard_bin" check
 }
 
 install_git_hooks() {
@@ -36,13 +48,8 @@ install_git_hooks() {
     die "core.hooksPath is already set to '$existing'; refusing to overwrite"
   fi
 
-  if [ -x "$SCRIPT_DIR/plugins/agent-guard/bin/agent-guard" ]; then
-    agent_guard_bin="$SCRIPT_DIR/plugins/agent-guard/bin/agent-guard"
-  elif [ -x "$SCRIPT_DIR/bin/agent-guard" ]; then
-    agent_guard_bin="$SCRIPT_DIR/bin/agent-guard"
-  else
-    die "agent-guard binary not found under $SCRIPT_DIR"
-  fi
+  agent_guard_bin=$(resolve_agent_guard_bin) \
+    || die "agent-guard binary not found under $SCRIPT_DIR"
 
   legacy_hook=""
   if [ -z "$existing" ]; then

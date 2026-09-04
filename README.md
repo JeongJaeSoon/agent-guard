@@ -100,6 +100,8 @@ With a direct CLI install:
 
 ```sh
 agent-guard setup   # prints dependency status and install hints
+agent-guard doctor  # equivalent explicit health check for scripts and CI
+agent-guard update  # refresh a standalone install from the latest release
 agent-guard check   # strict pass/fail dependency check
 agent-guard smoke-test
 ```
@@ -223,6 +225,16 @@ native Git hook keep their non-zero exit status so CI and Git never mistake an
 unperformed scan for a clean result.
 
 Override install defaults with `AGENT_GUARD_VERSION`, `AGENT_GUARD_HOME`, `AGENT_GUARD_BIN_DIR`, or `AGENT_GUARD_COMMAND_WRAPPING`.
+
+`agent-guard update` is intentionally limited to standalone installs and
+delegates to the same checksum-verified `bootstrap.sh` used for first install.
+Plugin installations must be updated by Claude Code or Codex; after a plugin
+update, rerun `agent-guard setup-shell` if the shell integration reports drift.
+
+For Homebrew taps, generate a formula from the published release checksum with
+`make formula VERSION=X.Y.Z SHA=<agent-guard-tarball-sha256>`. The checksum is
+deliberately required rather than discovered dynamically, so a tap cannot
+silently install a changed release asset.
 
 ## Managed deployment
 
