@@ -231,9 +231,17 @@ delegates to the same checksum-verified `bootstrap.sh` used for first install.
 Plugin installations must be updated by Claude Code or Codex; after a plugin
 update, rerun `agent-guard setup-shell` if the shell integration reports drift.
 
-For Homebrew taps, generate a formula from the published release checksum with
-`make formula VERSION=X.Y.Z SHA=<agent-guard-tarball-sha256>`. The checksum is
-deliberately required rather than discovered dynamically, so a tap cannot
+Homebrew requires formulas to live in a tap. After adding the generated
+`agent-guard.rb` to a tap, install it with:
+
+```sh
+brew tap <org>/<tap>
+brew install <org>/<tap>/agent-guard
+```
+
+For tap maintainers, generate the formula from the published release checksum
+with `make formula VERSION=X.Y.Z SHA=<agent-guard-tarball-sha256>`. The checksum
+is deliberately required rather than discovered dynamically, so a tap cannot
 silently install a changed release asset.
 
 ## Managed deployment

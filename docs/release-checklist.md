@@ -36,8 +36,9 @@ and its policy files are complete.
   inputs plus the current shell execution route.
 - GitHub Actions: run the pinned scanner job and confirm the real-gitleaks
   integration assertions are present in the log.
-- Homebrew: install the generated formula and confirm `agent-guard version`
-  reports the release version without wrapper recursion.
+- Homebrew: add the generated formula to a tap, install it through the tap, and
+  confirm `agent-guard version` reports the release version without wrapper
+  recursion.
 
 If any host check is unavailable, report it as unverified rather than inferring
 success from plugin layout or unit tests.
