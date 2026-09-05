@@ -1,0 +1,629 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Agent Guard 설치·업데이트·동작 확인 가이드</title>
+  <style>
+    :root {
+      --bg: #f4f7f4;
+      --surface: #ffffff;
+      --surface-2: #edf4ef;
+      --ink: #17251c;
+      --muted: #56655b;
+      --line: #cad8ce;
+      --brand: #176b3a;
+      --brand-2: #0f4f2b;
+      --ok: #157347;
+      --warn: #9a6700;
+      --danger: #b42318;
+      --code: #102318;
+      --code-ink: #effbf3;
+      --shadow: 0 14px 35px rgba(19, 55, 32, 0.08);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0e1611;
+        --surface: #152019;
+        --surface-2: #1b2b21;
+        --ink: #ecf4ee;
+        --muted: #afbeb3;
+        --line: #35483b;
+        --brand: #68d391;
+        --brand-2: #9ae6b4;
+        --ok: #71d99b;
+        --warn: #f2c66d;
+        --danger: #ff8f88;
+        --code: #07100a;
+        --code-ink: #e8f8ed;
+        --shadow: none;
+      }
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.68;
+    }
+    a { color: var(--brand); text-underline-offset: 3px; }
+    code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    code {
+      padding: .12rem .32rem;
+      border-radius: .3rem;
+      background: var(--surface-2);
+      font-size: .92em;
+    }
+    pre {
+      position: relative;
+      overflow-x: auto;
+      margin: .9rem 0 1.2rem;
+      padding: 1rem 1.1rem;
+      border: 1px solid #294432;
+      border-radius: .75rem;
+      background: var(--code);
+      color: var(--code-ink);
+      line-height: 1.55;
+      tab-size: 2;
+    }
+    pre code { padding: 0; background: transparent; color: inherit; font-size: .88rem; }
+    header {
+      background: linear-gradient(135deg, #0c3d22 0%, #176b3a 65%, #23874d 100%);
+      color: #fff;
+      padding: 3.5rem 1.25rem 3rem;
+    }
+    header .inner, main, footer { width: min(1120px, calc(100% - 2rem)); margin: 0 auto; }
+    header h1 { margin: .3rem 0 .7rem; font-size: clamp(2rem, 5vw, 3.35rem); line-height: 1.14; }
+    header p { max-width: 780px; margin: 0; color: #d9f4e3; font-size: 1.08rem; }
+    .eyebrow { letter-spacing: .11em; text-transform: uppercase; font-weight: 800; font-size: .78rem; }
+    .meta { display: flex; flex-wrap: wrap; gap: .55rem; margin-top: 1.35rem; }
+    .pill { border: 1px solid rgba(255,255,255,.38); border-radius: 999px; padding: .32rem .72rem; font-size: .84rem; }
+    main { padding: 2rem 0 4rem; }
+    nav {
+      position: sticky;
+      top: .7rem;
+      z-index: 10;
+      display: flex;
+      gap: .45rem;
+      overflow-x: auto;
+      margin: 0 0 1.5rem;
+      padding: .65rem;
+      border: 1px solid var(--line);
+      border-radius: .9rem;
+      background: color-mix(in srgb, var(--surface) 92%, transparent);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(12px);
+    }
+    nav a { flex: none; padding: .38rem .62rem; border-radius: .5rem; text-decoration: none; font-weight: 700; font-size: .86rem; }
+    nav a:hover { background: var(--surface-2); }
+    section {
+      scroll-margin-top: 5rem;
+      margin: 0 0 1.35rem;
+      padding: clamp(1.15rem, 3vw, 2rem);
+      border: 1px solid var(--line);
+      border-radius: 1rem;
+      background: var(--surface);
+      box-shadow: var(--shadow);
+    }
+    h2 { margin: 0 0 .85rem; color: var(--brand-2); font-size: 1.58rem; }
+    h3 { margin: 1.55rem 0 .55rem; font-size: 1.14rem; }
+    h4 { margin: 1.2rem 0 .4rem; }
+    p { margin: .55rem 0 1rem; }
+    ul, ol { padding-left: 1.4rem; }
+    li + li { margin-top: .35rem; }
+    table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: .94rem; }
+    th, td { padding: .7rem .75rem; border: 1px solid var(--line); text-align: left; vertical-align: top; }
+    th { background: var(--surface-2); }
+    .table-wrap { overflow-x: auto; }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+    .card { padding: 1rem; border: 1px solid var(--line); border-radius: .8rem; background: var(--surface-2); }
+    .card h3, .card h4 { margin-top: 0; }
+    .callout { margin: 1rem 0; padding: .9rem 1rem; border-left: .32rem solid var(--brand); border-radius: .45rem; background: var(--surface-2); }
+    .callout.ok { border-color: var(--ok); }
+    .callout.warn { border-color: var(--warn); }
+    .callout.danger { border-color: var(--danger); }
+    .status { display: inline-block; min-width: 4.2rem; font-weight: 800; }
+    .ok-text { color: var(--ok); }
+    .warn-text { color: var(--warn); }
+    .danger-text { color: var(--danger); }
+    .step { display: grid; grid-template-columns: 2.1rem 1fr; gap: .65rem; margin: 1.1rem 0; }
+    .step-number { display: grid; place-items: center; width: 2rem; height: 2rem; border-radius: 50%; background: var(--brand); color: #fff; font-weight: 900; }
+    .step-body > :first-child { margin-top: .1rem; }
+    .step-body > :last-child { margin-bottom: 0; }
+    details { margin: .8rem 0; padding: .75rem .9rem; border: 1px solid var(--line); border-radius: .65rem; background: var(--surface-2); }
+    summary { cursor: pointer; font-weight: 800; }
+    .checklist { list-style: none; padding-left: 0; }
+    .checklist li { position: relative; padding-left: 1.65rem; }
+    .checklist li::before { content: "□"; position: absolute; left: 0; color: var(--brand); font-weight: 900; }
+    .small { color: var(--muted); font-size: .87rem; }
+    footer { padding: 0 0 3rem; color: var(--muted); font-size: .88rem; }
+    @media (max-width: 760px) {
+      .grid { grid-template-columns: 1fr; }
+      section { border-radius: .75rem; }
+      th, td { min-width: 9.5rem; }
+    }
+    @media print {
+      :root { --bg: #fff; --surface: #fff; --surface-2: #f4f6f4; --ink: #111; --muted: #444; --line: #bbb; --brand: #14532d; --brand-2: #14532d; }
+      body { font-size: 10.5pt; }
+      header { padding: 1.2rem 0; background: none; color: #111; border-bottom: 3px solid #14532d; }
+      header p { color: #333; }
+      .pill { border-color: #777; }
+      nav { display: none; }
+      main { padding-top: 1rem; }
+      section { box-shadow: none; break-inside: avoid; }
+      pre { white-space: pre-wrap; word-break: break-word; background: #f5f5f5; color: #111; border-color: #bbb; }
+      a { color: #111; text-decoration: none; }
+      a::after { content: " (" attr(href) ")"; font-size: .78em; color: #555; }
+      a[href^="#"]::after { content: ""; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="inner">
+      <div class="eyebrow">Agent Guard operations guide</div>
+      <h1>설치·업데이트·동작 확인 가이드</h1>
+      <p>Agent Guard 3.1.1을 standalone CLI, Homebrew, Claude Code, Codex, Git hook, GitHub Actions에 설치하고 “설치됨”이 아니라 “실제로 보호됨”까지 확인하는 운영 절차서입니다.</p>
+      <div class="meta">
+        <span class="pill">기준 버전 v3.1.1</span>
+        <span class="pill">핵심 기능 b38b4ab</span>
+        <span class="pill">macOS · Linux</span>
+        <span class="pill">2026-09-05 확인</span>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <nav aria-label="문서 목차">
+      <a href="#status">현재 상태</a>
+      <a href="#choose">설치 경로</a>
+      <a href="#baseline">공통 기준</a>
+      <a href="#standalone">Standalone</a>
+      <a href="#homebrew">Homebrew</a>
+      <a href="#claude">Claude</a>
+      <a href="#codex">Codex</a>
+      <a href="#git-hook">Git hook</a>
+      <a href="#github-actions">Actions</a>
+      <a href="#subagent">Sub-agent</a>
+      <a href="#troubleshooting">문제 해결</a>
+      <a href="#release">릴리즈</a>
+    </nav>
+
+    <section id="status">
+      <h2>1. 현재 구현·릴리즈 상태</h2>
+      <div class="callout ok"><strong>결론:</strong> 요청한 핵심 코드는 <code>main</code>에 반영됐고 v3.1.1로 공개됐습니다. 다만 host plugin은 바이너리 검증만으로 활성화됐다고 판단하지 않습니다. Claude와 Codex 각각에서 설치·reload/restart와 live hook probe를 통과해야 해당 host의 설치가 완료됩니다.</div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>항목</th><th>상태</th><th>확인 기준</th></tr></thead>
+          <tbody>
+            <tr><td>저장소 반영</td><td class="ok-text"><strong>완료</strong></td><td>핵심 기능 <code>b38b4ab</code>과 v3.1.1 release commit <code>b1d168e</code>가 <code>main</code>에 포함</td></tr>
+            <tr><td>CLI·manifest 버전</td><td class="ok-text"><strong>완료</strong></td><td>CLI, Claude manifest, Codex manifest, marketplace가 모두 <code>3.1.1</code></td></tr>
+            <tr><td>GitHub Release</td><td class="ok-text"><strong>완료</strong></td><td><a href="https://github.com/JeongJaeSoon/agent-guard/releases/tag/v3.1.1">v3.1.1 release</a>에 tarball, SHA-256, formula, bootstrap, installer 게시</td></tr>
+            <tr><td>로컬 바이너리</td><td class="ok-text"><strong>통과</strong></td><td><code>doctor</code>와 <code>smoke-test</code> 성공, gitleaks 8.30.1 확인</td></tr>
+            <tr><td>CI</td><td class="ok-text"><strong>통과</strong></td><td>Ubuntu·macOS·ShellCheck·actionlint·plugin validation·scanner workflow 성공</td></tr>
+            <tr><td>Homebrew formula</td><td class="ok-text"><strong>공개·실설치 검증</strong></td><td><code>jeongjaesoon/tap</code> 게시, 공개 tap 설치와 <code>brew test</code>, wrapper recursion 방지 확인</td></tr>
+            <tr><td>Claude/Codex live hook</td><td class="warn-text"><strong>host별 확인 필요</strong></td><td>각 머신에서 plugin 설치 후 이 문서의 live probe를 실행</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="small">이 표의 “바이너리 통과”는 host가 hook을 실제 호출한다는 뜻이 아닙니다. Agent Guard는 보호 대상 경계마다 별도 증거를 요구합니다.</p>
+    </section>
+
+    <section id="choose">
+      <h2>2. 어떤 설치 경로를 선택할까</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>사용처</th><th>권장 설치</th><th>업데이트 주체</th><th>완료 판정</th></tr></thead>
+          <tbody>
+            <tr><td>일반 터미널·로컬 스캔</td><td>Homebrew 또는 standalone</td><td><code>brew upgrade</code> 또는 <code>agent-guard update</code></td><td>version + doctor + smoke</td></tr>
+            <tr><td>Claude Code</td><td>Claude marketplace plugin</td><td>Claude plugin manager</td><td>plugin-local smoke + Bash live probes</td></tr>
+            <tr><td>Codex</td><td>Codex marketplace plugin</td><td>Codex marketplace snapshot</td><td>plugin-local smoke + hook trust + 실제 tool route probes</td></tr>
+            <tr><td>로컬 commit 차단</td><td>CLI + native Git hook</td><td>CLI 경로 갱신 후 hook refresh</td><td>임시 저장소에서 synthetic secret commit 차단</td></tr>
+            <tr><td>PR·CI</td><td>GitHub Action <code>@v3</code></td><td>moving major tag 또는 고정 SHA</td><td>clean PR 성공 + synthetic leak PR 실패</td></tr>
+            <tr><td>조직 관리 Claude</td><td>managed settings + 사용자별 setup</td><td>관리자 pin 갱신</td><td>각 머신의 live probes까지 통과</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout"><strong>권장 조합:</strong> 개발자 머신은 host plugin + Homebrew CLI + Git hook, 저장소는 GitHub Action을 함께 사용합니다. Plugin은 실시간 경계, Git hook과 CI는 누락·우회에 대한 backstop입니다.</div>
+    </section>
+
+    <section id="baseline">
+      <h2>3. 공통 사전 조건과 검증 레벨</h2>
+      <div class="grid">
+        <div class="card">
+          <h3>필수 런타임</h3>
+          <ul>
+            <li><code>sh</code>, <code>awk</code>, <code>git</code></li>
+            <li><code>jq</code></li>
+            <li><code>gitleaks</code> 8.30.0 이상, 8.30.1 권장</li>
+            <li>release 다운로드 설치에는 <code>curl</code>, <code>tar</code>, <code>shasum</code>, <code>ln</code></li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>검증 4단계</h3>
+          <ol>
+            <li><strong>Identity:</strong> 예상한 binary와 version인가</li>
+            <li><strong>Health:</strong> dependency·policy가 준비됐는가</li>
+            <li><strong>Behavior:</strong> clean allow와 synthetic leak block이 모두 되는가</li>
+            <li><strong>Dispatch:</strong> 현재 host/tool route가 hook을 실제 호출하는가</li>
+          </ol>
+        </div>
+      </div>
+      <h3>공통 진단 명령</h3>
+      <pre><code>command -v agent-guard
+agent-guard version
+agent-guard doctor
+agent-guard check
+agent-guard smoke-test</code></pre>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>명령/scan 종료 코드</th><th>의미</th><th>판정</th></tr></thead>
+          <tbody>
+            <tr><td><code>0</code></td><td>검사 실행 및 clean</td><td class="ok-text">통과</td></tr>
+            <tr><td><code>1</code></td><td>secret 발견</td><td class="danger-text">의도한 negative probe면 통과, 실제 작업이면 차단</td></tr>
+            <tr><td><code>3</code></td><td>검사를 실행하지 못함</td><td class="danger-text">clean으로 취급 금지</td></tr>
+            <tr><td>기타 non-zero</td><td>scanner 또는 사용법 오류</td><td class="danger-text">원인 해결 후 재검증</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>Hook 경계의 인프라 오류는 <code>AGENT_GUARD_INFRA_FAILURE_MODE</code>로 제어합니다. 기본 <code>open</code>은 세션당 한 번 경고 후 계속하며, <code>closed</code>는 차단합니다. 실제 secret 탐지는 설정과 무관하게 항상 차단됩니다.</p>
+    </section>
+
+    <section id="standalone">
+      <h2>4. Standalone CLI</h2>
+      <p>clone 없이 설치하거나 Homebrew를 쓰지 않는 Linux 환경에 적합합니다. 설치본은 기본적으로 <code>~/.agent-guard</code>, 실행 링크는 <code>~/.local/bin/agent-guard</code>에 둡니다.</p>
+
+      <div class="step"><div class="step-number">1</div><div class="step-body">
+        <h3>bootstrap을 파일로 받은 뒤 실행</h3>
+        <p>짧은 설치가 필요하면 README의 pipe 방식도 지원하지만, 운영 환경에서는 다운로드·문법 확인·실행을 분리하면 실패 지점을 보기 쉽습니다.</p>
+        <pre><code>ag_tmp="$(mktemp -d)"
+curl -fsSL \
+  https://github.com/JeongJaeSoon/agent-guard/releases/latest/download/bootstrap.sh \
+  -o "$ag_tmp/bootstrap.sh"
+sh -n "$ag_tmp/bootstrap.sh"
+AGENT_GUARD_VERSION=3.1.1 sh "$ag_tmp/bootstrap.sh"</code></pre>
+      </div></div>
+
+      <div class="step"><div class="step-number">2</div><div class="step-body">
+        <h3>PATH와 기본 동작 확인</h3>
+        <pre><code>export PATH="$HOME/.local/bin:$PATH"
+agent-guard version
+agent-guard doctor
+agent-guard smoke-test</code></pre>
+        <p>예상 version은 <code>agent-guard 3.1.1</code>입니다. <code>doctor</code>는 jq·git·gitleaks를 모두 <code>ok</code>로 표시해야 합니다.</p>
+      </div></div>
+
+      <div class="step"><div class="step-number">3</div><div class="step-body">
+        <h3>업데이트</h3>
+        <pre><code>agent-guard update
+agent-guard version
+agent-guard doctor
+agent-guard smoke-test</code></pre>
+        <p><code>update</code>는 standalone 설치 전용입니다. Plugin cache에서 실행하면 host plugin manager로 업데이트하라는 오류가 정상입니다.</p>
+      </div></div>
+
+      <details><summary>설치 위치나 shell wrapping을 바꾸고 싶을 때</summary>
+        <pre><code>AGENT_GUARD_HOME="$HOME/.local/share/agent-guard" \
+AGENT_GUARD_BIN_DIR="$HOME/.local/bin" \
+AGENT_GUARD_COMMAND_WRAPPING=off \
+AGENT_GUARD_VERSION=3.1.1 \
+sh "$ag_tmp/bootstrap.sh"</code></pre>
+        <p><code>AGENT_GUARD_COMMAND_WRAPPING=off</code>는 shell integration을 설치하되 command wrapping은 끕니다.</p>
+      </details>
+    </section>
+
+    <section id="homebrew">
+      <h2>5. Homebrew</h2>
+      <p>macOS에서 CLI version과 업데이트를 Homebrew가 소유하게 하는 권장 경로입니다. Formula는 release tarball의 고정 SHA-256을 사용하고, <code>libexec</code> 안의 실제 binary를 호출하는 얇은 wrapper만 <code>bin</code>에 둡니다.</p>
+
+      <div class="step"><div class="step-number">1</div><div class="step-body">
+        <h3>tap 및 설치</h3>
+        <pre><code>brew tap JeongJaeSoon/tap
+brew trust --formula jeongjaesoon/tap/agent-guard
+brew install JeongJaeSoon/tap/agent-guard</code></pre>
+        <div class="callout"><strong>Homebrew 6:</strong> <a href="https://docs.brew.sh/Tap-Trust">third-party tap trust</a>가 필수이므로 전체 tap보다 범위가 좁은 formula 단위 trust를 권장합니다. Release asset의 <code>agent-guard.rb</code>만 내려받아 <code>brew install /tmp/agent-guard.rb</code>로 설치하는 방식은 지원되지 않습니다.</div>
+      </div></div>
+
+      <div class="step"><div class="step-number">2</div><div class="step-body">
+        <h3>Formula와 실제 binary 확인</h3>
+        <pre><code>brew info JeongJaeSoon/tap/agent-guard
+brew test JeongJaeSoon/tap/agent-guard
+command -v agent-guard
+agent-guard version
+agent-guard doctor
+agent-guard smoke-test</code></pre>
+        <p><code>brew test</code>가 version 문자열을 확인합니다. <code>agent-guard version</code>이 즉시 끝나지 않고 반복 호출되면 wrapper recursion 결함이므로 설치 성공으로 보지 않습니다.</p>
+      </div></div>
+
+      <div class="step"><div class="step-number">3</div><div class="step-body">
+        <h3>업데이트와 rollback</h3>
+        <pre><code>brew update
+brew upgrade JeongJaeSoon/tap/agent-guard
+agent-guard version
+agent-guard smoke-test</code></pre>
+        <p>업데이트 문제가 있으면 먼저 <code>brew info</code>에서 설치/최신 version을 비교합니다. Formula를 임의로 고치기보다 tap의 이전 정상 commit 또는 이전 formula version으로 되돌리는 PR을 사용합니다.</p>
+      </div></div>
+    </section>
+
+    <section id="claude">
+      <h2>6. Claude Code plugin</h2>
+      <div class="callout"><strong>경계:</strong> Claude plugin 설치본은 보통 <code>agent-guard</code>를 shell <code>PATH</code>에 추가하지 않습니다. 진단은 plugin-local binary 또는 <code>/agent-guard:setup-agent-guard</code>를 사용합니다.</div>
+
+      <div class="step"><div class="step-number">1</div><div class="step-body">
+        <h3>Marketplace와 plugin 설치</h3>
+        <p>Claude Code 안에서:</p>
+        <pre><code>/plugin marketplace add JeongJaeSoon/agent-guard
+/plugin install agent-guard@agent-guard
+/reload-plugins</code></pre>
+        <p>또는 터미널에서:</p>
+        <pre><code>claude plugin marketplace add JeongJaeSoon/agent-guard
+claude plugin install agent-guard@agent-guard --scope user
+claude plugin list</code></pre>
+      </div></div>
+
+      <div class="step"><div class="step-number">2</div><div class="step-body">
+        <h3>Dependency 및 plugin-local smoke</h3>
+        <pre><code>/agent-guard:setup-agent-guard</code></pre>
+        <p>Skill이 안내한 plugin-local 실행 파일로 <code>check</code>와 <code>smoke-test</code>가 모두 통과해야 합니다. macOS에서 dependency가 없다면 승인 후 <code>brew install jq gitleaks</code>를 사용할 수 있습니다.</p>
+      </div></div>
+
+      <div class="step"><div class="step-number">3</div><div class="step-body">
+        <h3>Bash tool의 live hook dispatch 확인</h3>
+        <p>Claude에게 다음 명령을 <strong>일반 Bash tool</strong>로 실행하라고 요청합니다.</p>
+        <pre><code>printf '%s\n' 'AGENT_GUARD_LIVE_PRE_TOOL_PROBE'</code></pre>
+        <p><strong>성공 신호:</strong> marker가 출력되기 전에 Agent Guard가 차단합니다.</p>
+        <pre><code>printf '%s\n' 'AGENT_GUARD_LIVE_POST_TOOL_PROBE'</code></pre>
+        <p><strong>성공 신호:</strong> raw marker가 모델에 도달하지 않고 <code>[REDACTED]</code> 또는 sanitized replacement로 보입니다.</p>
+      </div></div>
+
+      <div class="step"><div class="step-number">4</div><div class="step-body">
+        <h3>선택: <code>!</code> shell escape 보호</h3>
+        <pre><code>/agent-guard:setup-shell</code></pre>
+        <p>shell rc가 갱신되므로 새 shell과 Claude Code를 다시 시작합니다. 이후 비대화형 출력 명령은 <code>!agx &lt;command&gt;</code>로 실행합니다. Fish에서는 자동 function 설치가 되지 않으므로 setup 출력의 고정 executable 경로를 사용합니다.</p>
+      </div></div>
+
+      <div class="step"><div class="step-number">5</div><div class="step-body">
+        <h3>업데이트</h3>
+        <pre><code>claude plugin marketplace update agent-guard
+claude plugin update agent-guard@agent-guard --scope user
+claude plugin list</code></pre>
+        <p>Claude Code에서 <code>/reload-plugins</code>를 실행하고 새 세션에서 setup과 두 live probe를 반복합니다. Shell integration version drift 경고가 있으면 <code>/agent-guard:setup-shell</code>을 다시 실행합니다.</p>
+      </div></div>
+    </section>
+
+    <section id="codex">
+      <h2>7. Codex plugin</h2>
+      <p>공식 OpenAI 문서 기준으로 Codex CLI에서는 <code>/plugins</code>에서 plugin을 설치하고, 설치 후 새 세션을 시작해야 bundled skill/tool을 사용할 수 있습니다. IDE extension은 plugin을 지원하지 않으므로 Codex CLI 또는 ChatGPT desktop의 Codex surface를 사용합니다.</p>
+
+      <div class="step"><div class="step-number">1</div><div class="step-body">
+        <h3>Marketplace 등록과 plugin 설치</h3>
+        <pre><code>codex plugin marketplace add JeongJaeSoon/agent-guard
+codex plugin list --marketplace agent-guard
+codex plugin add agent-guard@agent-guard</code></pre>
+        <p>대화형 Codex에서는 <code>/plugins</code>를 열고 <strong>Agent Guard</strong>를 선택해도 됩니다. 설치 후 반드시 새 Codex 세션을 시작합니다.</p>
+      </div></div>
+
+      <div class="step"><div class="step-number">2</div><div class="step-body">
+        <h3>Hook trust 검토</h3>
+        <p><strong>Settings &gt; Hooks</strong>에서 Agent Guard의 다음 hook을 각각 검토하고 trust/enable 합니다.</p>
+        <ul>
+          <li><code>SessionStart</code></li>
+          <li><code>UserPromptSubmit</code></li>
+          <li><code>PreToolUse</code></li>
+          <li><code>PostToolUse</code></li>
+          <li><code>Stop</code></li>
+        </ul>
+        <p><code>Untrusted</code> 또는 <code>Modified</code>는 비활성으로 취급합니다. <code>hooks.state</code>나 trust hash를 직접 편집하지 않습니다.</p>
+      </div></div>
+
+      <div class="step"><div class="step-number">3</div><div class="step-body">
+        <h3>Plugin-local setup</h3>
+        <pre><code>$setup-agent-guard</code></pre>
+        <p>Skill이 선택한 plugin-local binary의 <code>check</code>, <code>smoke-test</code>가 모두 성공해야 합니다. <code>PATH</code>에 있는 standalone binary가 다른 version이어도 plugin 검증에는 대체 사용하지 않습니다.</p>
+      </div></div>
+
+      <div class="step"><div class="step-number">4</div><div class="step-body">
+        <h3>현재 task의 실제 tool route 확인</h3>
+        <p>Claude 절의 두 sentinel을 현재 task가 실제로 사용하는 shell tool route로 실행합니다. Codex가 <code>functions.exec</code> 같은 orchestration wrapper만 노출하면 바로 그 경로를 시험합니다.</p>
+        <div class="callout danger"><strong>실패 판정:</strong> pre marker가 출력되거나 post raw marker가 모델에 보이면, 현재 Codex release의 해당 route는 보호되지 않습니다. Plugin-local smoke가 통과해도 host setup 완료로 보고하지 말고 Git hook과 CI를 필수 backstop으로 유지합니다.</div>
+      </div></div>
+
+      <div class="step"><div class="step-number">5</div><div class="step-body">
+        <h3>업데이트</h3>
+        <pre><code>codex plugin marketplace upgrade agent-guard
+codex plugin list --marketplace agent-guard</code></pre>
+        <p>Codex CLI 0.144.5에는 별도 <code>plugin update</code> 명령이 없고 marketplace snapshot을 갱신합니다. 갱신 후 새 세션을 시작하고, <strong>Settings &gt; Hooks</strong>에서 <code>Modified</code> hook을 다시 검토·trust한 뒤 setup과 live probes를 반복합니다.</p>
+      </div></div>
+
+      <details><summary>Marketplace 이름 충돌이 날 때</summary>
+        <pre><code>codex plugin marketplace list --json
+codex plugin list --available --json</code></pre>
+        <p>먼저 이름, source, root를 확인합니다. 출력에 없는 marketplace를 추측으로 삭제하거나 다른 marketplace를 지우지 않습니다. 실제로 잘못된 <code>agent-guard</code> source가 확인된 경우에만 config를 백업한 뒤 <code>codex plugin marketplace remove agent-guard</code>하고 올바른 source를 다시 추가합니다.</p>
+      </details>
+    </section>
+
+    <section id="git-hook">
+      <h2>8. Native Git pre-commit hook</h2>
+      <p>Agent/host hook이 닿지 않는 경로를 commit 직전에 차단합니다. 기존 <code>core.hooksPath</code>를 임의로 덮어쓰지 않으며, 충돌하면 설치가 중단됩니다.</p>
+
+      <div class="step"><div class="step-number">1</div><div class="step-body">
+        <h3>프로젝트에 설치</h3>
+        <pre><code>cd &lt;your-project&gt;
+~/.agent-guard/install.sh git-hooks
+git config --get core.hooksPath
+test -x githooks/pre-commit</code></pre>
+        <p>Clone에서 작업한다면 <code>./install.sh git-hooks</code>를 사용합니다. 예상 설정은 <code>core.hooksPath=githooks</code>입니다.</p>
+      </div></div>
+
+      <div class="step"><div class="step-number">2</div><div class="step-body">
+        <h3>격리된 임시 저장소에서 실제 차단 확인</h3>
+        <p>실제 credential 대신 gitleaks가 인식하는 명백한 synthetic fixture를 사용합니다.</p>
+        <pre><code>ag_probe="$(mktemp -d)"
+git init "$ag_probe"
+cd "$ag_probe"
+~/.agent-guard/install.sh git-hooks
+{
+  printf '%s%s\n' '-----BEGIN RSA ' 'PRIVATE KEY-----'
+  printf '%s\n' 'AGENT-GUARD-FIXTURE-NEVER-A-REAL-KEY'
+  printf '%s%s\n' '-----END RSA ' 'PRIVATE KEY-----'
+} &gt; synthetic-private-key.txt
+git add synthetic-private-key.txt
+git -c user.name='Agent Guard Probe' \
+    -c user.email='probe@example.invalid' \
+    commit -m 'agent guard negative probe'</code></pre>
+        <p><strong>성공 신호:</strong> commit이 non-zero로 실패하고 secret detection 메시지가 나옵니다. Probe 파일은 임시 저장소 밖으로 복사하거나 push하지 않습니다.</p>
+      </div></div>
+
+      <div class="step"><div class="step-number">3</div><div class="step-body">
+        <h3>CLI 업데이트 후 hook 경로 refresh</h3>
+        <pre><code>cd &lt;your-project&gt;
+~/.agent-guard/install.sh git-hooks
+grep 'agent-guard.*scan-staged' githooks/pre-commit</code></pre>
+        <p>재실행은 Agent Guard 실행 경로만 안전하게 갱신하고 기존 legacy hook chain과 로컬 편집을 보존합니다.</p>
+      </div></div>
+    </section>
+
+    <section id="github-actions">
+      <h2>9. GitHub Actions</h2>
+      <p>CI에서는 action이 runner의 기존 gitleaks를 사용하거나, 없으면 고정 version과 SHA-256으로 설치합니다. <code>require-checksum</code> 기본값은 <code>true</code>입니다.</p>
+
+      <div class="step"><div class="step-number">1</div><div class="step-body">
+        <h3>Runner에 맞는 checksum 조회</h3>
+        <pre><code>agent-guard checksum 8.30.1</code></pre>
+        <p>GitHub-hosted Ubuntu runner는 보통 <code>linux/x64</code> 값을 사용합니다. 출력된 archive 이름과 workflow의 runner OS/architecture가 일치하는지 확인합니다.</p>
+      </div></div>
+
+      <div class="step"><div class="step-number">2</div><div class="step-body">
+        <h3>Workflow 추가</h3>
+        <pre><code>name: agent-guard
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: JeongJaeSoon/agent-guard@v3
+        with:
+          paths: "."
+          gitleaks-version: "8.30.1"
+          gitleaks-checksum: "&lt;linux/x64 archive sha256&gt;"</code></pre>
+        <p><code>paths</code>는 whitespace로 나뉘므로 공백이 포함된 개별 경로는 지원하지 않습니다. 전체 저장소를 뜻하는 <code>.</code>가 가장 안전한 기본값입니다.</p>
+      </div></div>
+
+      <div class="step"><div class="step-number">3</div><div class="step-body">
+        <h3>Positive와 negative 경로 모두 검증</h3>
+        <ol>
+          <li>Clean branch/PR에서 workflow가 성공하는지 확인합니다.</li>
+          <li>격리된 test branch에 Git hook 절의 synthetic fixture를 추가합니다.</li>
+          <li>Workflow가 gitleaks finding과 함께 실패하는지 확인합니다.</li>
+          <li>Fixture commit/branch를 제거하고 실제 credential이 전혀 사용되지 않았는지 재확인합니다.</li>
+        </ol>
+        <p><code>3</code> 또는 dependency 오류를 “탐지 없음”으로 해석하면 안 됩니다. Action step은 non-zero 상태를 그대로 실패로 남겨야 합니다.</p>
+      </div></div>
+
+      <div class="step"><div class="step-number">4</div><div class="step-body">
+        <h3>Version pin 전략</h3>
+        <ul>
+          <li><code>@v3</code>: 호환되는 3.x 보안·버그 수정 자동 수용</li>
+          <li><code>@v3.1.1</code>: 특정 release 고정</li>
+          <li><code>@&lt;full-commit-sha&gt;</code>: 공급망 변경을 가장 엄격히 통제</li>
+        </ul>
+        <p>조직 정책에 따라 선택하되, 업데이트 후 positive/negative 두 경로를 다시 실행합니다.</p>
+      </div></div>
+    </section>
+
+    <section id="subagent">
+      <h2>10. Sub-agent 경계 확인</h2>
+      <p>Agent Guard는 sub-agent를 생성·스케줄·감독하는 orchestrator가 아닙니다. Parent가 sub-agent에 전달하는 <code>Agent</code>와 legacy <code>Task</code> 입력, 그리고 반환 결과가 기존 Pre/Post 경계로 다시 들어올 때 검사합니다.</p>
+      <div class="grid">
+        <div class="card">
+          <h3>입력 경계</h3>
+          <p>Parent가 delegation prompt에 secret-like 값을 넣으면 sub-agent가 시작되기 전에 차단돼야 합니다. 실제 secret을 넣지 말고 setup skill의 pre sentinel 또는 저장소 test fixture를 사용합니다.</p>
+        </div>
+        <div class="card">
+          <h3>출력 경계</h3>
+          <p>Sub-agent 결과에 secret-like 값이나 post sentinel이 있으면 parent 모델에 raw 값이 도달하지 않고 redaction/sanitized replacement가 전달돼야 합니다.</p>
+        </div>
+      </div>
+      <h3>Host별 수동 probe</h3>
+      <ol>
+        <li>새 세션에서 plugin-local <code>check</code>와 <code>smoke-test</code>를 먼저 통과시킵니다.</li>
+        <li>Parent에게 “sub-agent를 사용해 public API 구조를 요약”하도록 요청하고 정상 delegation이 허용되는지 확인합니다.</li>
+        <li>Setup skill이 제공하는 harmless pre/post sentinel을 sub-agent 경계에 사용합니다.</li>
+        <li>차단/redaction 메시지에 <code>subagent delegation input</code> 또는 sanitized output 신호가 있는지 확인합니다.</li>
+        <li>Host가 <code>Agent</code>/<code>Task</code> call을 plugin hook에 전달하지 않는 release라면 해당 범위를 <strong>미지원</strong>으로 기록하고 Git/CI backstop을 유지합니다.</li>
+      </ol>
+      <div class="callout warn"><strong>중요:</strong> Parent boundary 검증과 sub-agent 내부 tool-call 검증은 서로 다른 증거입니다. 둘 중 하나만 통과했다고 전체 sub-agent 경로가 보호된다고 결론 내리지 않습니다.</div>
+    </section>
+
+    <section id="troubleshooting">
+      <h2>11. 문제 해결과 실패 판정</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>증상</th><th>가능한 원인</th><th>확인·조치</th></tr></thead>
+          <tbody>
+            <tr><td><code>agent-guard: command not found</code></td><td>Standalone/Homebrew 미설치 또는 PATH 누락</td><td><code>command -v</code>, <code>brew --prefix</code>, <code>~/.local/bin</code> 확인. Plugin-only 설치라면 plugin-local binary 사용</td></tr>
+            <tr><td>CLI와 plugin version이 다름</td><td>서로 다른 설치 소유자</td><td>각 설치를 해당 manager로 업데이트. Standalone binary를 plugin 검증에 대신 사용하지 않음</td></tr>
+            <tr><td><code>doctor</code> 성공, live probe 실패</td><td>hook disabled/untrusted 또는 host route 미지원</td><td>reload/restart, Codex hook trust, 정확한 tool route 재시험. 계속 실패하면 미지원으로 기록</td></tr>
+            <tr><td>업데이트 후 Codex hook 비활성</td><td>변경된 hook이 <code>Modified</code></td><td>Settings &gt; Hooks에서 다시 검토·trust 후 새 세션</td></tr>
+            <tr><td>Plugin <code>update</code>가 standalone 오류</td><td>Plugin cache에서 CLI updater 실행</td><td>Claude/Codex plugin manager로 업데이트</td></tr>
+            <tr><td><code>core.hooksPath</code> 충돌</td><td>기존 hook manager 사용 중</td><td>자동 덮어쓰기 금지. 기존 manager 설정에 <code>agent-guard scan-staged</code>를 명시적으로 chain</td></tr>
+            <tr><td>GitHub Action checksum 오류</td><td>OS/architecture/version 불일치</td><td><code>agent-guard checksum &lt;version&gt;</code> 출력의 exact archive와 비교</td></tr>
+            <tr><td>scan 종료 <code>3</code></td><td>repo/workdir/dependency 문제로 검사 미수행</td><td>clean으로 간주하지 말고 stderr 원인을 해결</td></tr>
+            <tr><td>Homebrew direct Ruby 파일 설치 거부</td><td>Formula가 tap 밖에 있음</td><td><code>brew tap JeongJaeSoon/tap</code> 후 tap-qualified formula 설치</td></tr>
+            <tr><td><code>UntrustedTapError</code></td><td>Homebrew 6의 third-party tap trust 정책</td><td><code>brew trust --formula jeongjaesoon/tap/agent-guard</code> 후 재실행. 전체 tap trust는 필요할 때만 사용</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <h3>완료 보고에 필요한 최소 증거</h3>
+      <ul class="checklist">
+        <li>실행한 binary의 절대 경로와 version</li>
+        <li><code>doctor</code>/<code>check</code> 결과</li>
+        <li><code>smoke-test</code> 성공</li>
+        <li>host plugin enable/trust 상태</li>
+        <li>PreToolUse 차단과 PostToolUse redaction 각각의 live 결과</li>
+        <li>Git hook 또는 CI의 synthetic leak 차단 결과</li>
+        <li>실패한 route와 backstop을 명시한 범위 제한</li>
+      </ul>
+    </section>
+
+    <section id="release">
+      <h2>12. 릴리즈·배포 담당자 절차</h2>
+      <ol>
+        <li>Clean checkout에서 <code>make check</code>, <code>tests/run.sh</code>, plugin layout/submission validation을 실행합니다.</li>
+        <li>CLI, Claude/Codex manifest, marketplace, managed settings, changelog version이 일치하는지 확인합니다.</li>
+        <li>Release workflow로 PR → CI → merge → tag → assets 게시 순서를 완료합니다.</li>
+        <li>Release에 tarball, <code>.sha256</code>, <code>agent-guard.rb</code>, <code>bootstrap.sh</code>, <code>install.sh</code>가 있는지 확인합니다.</li>
+        <li>게시된 tarball SHA로 생성된 formula를 <code>JeongJaeSoon/homebrew-tap</code>의 <code>Formula/agent-guard.rb</code>에 반영하고 tap PR/CI를 통과시킵니다.</li>
+        <li>Disposable 환경에서 standalone과 Homebrew를 설치하고 version·doctor·smoke를 확인합니다.</li>
+        <li>Claude와 Codex에서 plugin update, reload/restart, hook trust, live probes, Agent/Task 경계를 확인합니다.</li>
+        <li>GitHub Action을 실제 PR에서 실행하고 real gitleaks assertion이 log에 있는지 확인합니다.</li>
+      </ol>
+      <div class="callout danger"><strong>릴리즈 완료 기준:</strong> asset이 존재하는 것, test가 green인 것, host에서 보호가 활성화된 것은 서로 다른 상태입니다. 확인하지 못한 host는 “미검증”으로 남깁니다.</div>
+      <h3>참조</h3>
+      <ul>
+        <li><a href="https://github.com/JeongJaeSoon/agent-guard">Agent Guard 저장소</a></li>
+        <li><a href="https://github.com/JeongJaeSoon/agent-guard/releases/tag/v3.1.1">Agent Guard v3.1.1</a></li>
+        <li><a href="https://learn.chatgpt.com/docs/plugins">OpenAI 공식 Plugins 문서</a></li>
+        <li><a href="https://github.com/JeongJaeSoon/homebrew-tap">JeongJaeSoon Homebrew tap</a></li>
+      </ul>
+    </section>
+  </main>
+
+  <footer>
+    <p>이 문서는 Agent Guard v3.1.1과 2026-09-05에 확인한 Codex CLI 0.144.5 / Claude Code 2.1.259 명령을 기준으로 작성됐습니다. Host CLI가 바뀌면 각 <code>--help</code>와 공식 문서를 먼저 확인하세요.</p>
+  </footer>
+</body>
+</html>

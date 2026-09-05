@@ -73,6 +73,10 @@ Both plugins need `jq` and `gitleaks` on your machine (`brew install jq gitleaks
 
 ## Pick an install path
 
+For a detailed Korean runbook covering installation, updates, live host probes,
+sub-agent boundaries, Git hooks, CI, rollback, and release operations, see
+[Agent Guard 설치·업데이트·동작 확인 가이드](docs/installation-verification-guide.html).
+
 | Use case | Install path | Best first check |
 |---|---|---|
 | Claude Code agent guardrails | [Claude Code quick start](#claude-code) | Ask the agent to read `.env`; it should be blocked. |
@@ -231,13 +235,16 @@ delegates to the same checksum-verified `bootstrap.sh` used for first install.
 Plugin installations must be updated by Claude Code or Codex; after a plugin
 update, rerun `agent-guard setup-shell` if the shell integration reports drift.
 
-Homebrew requires formulas to live in a tap. After adding the generated
-`agent-guard.rb` to a tap, install it with:
+Homebrew requires formulas to live in a tap. Install the published formula with:
 
 ```sh
-brew tap <org>/<tap>
-brew install <org>/<tap>/agent-guard
+brew tap JeongJaeSoon/tap
+brew trust --formula jeongjaesoon/tap/agent-guard
+brew install JeongJaeSoon/tap/agent-guard
 ```
+
+Homebrew 6 requires trust for third-party taps. Formula-scoped trust is narrower
+than trusting the entire tap and is therefore the recommended default.
 
 For tap maintainers, generate the formula from the published release checksum
 with `make formula VERSION=X.Y.Z SHA=<agent-guard-tarball-sha256>`. The checksum
