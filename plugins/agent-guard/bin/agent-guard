@@ -195,12 +195,19 @@ $stdin_line"
 }
 
 die() {
+  die_with_status 2 "$@"
+}
+
+die_with_status() {
+  failure_status=$1
+  shift
   info "$PROGRAM: $*"
-  exit 2
+  exit "$failure_status"
 }
 
 need_cmd() {
-  command -v "$1" >/dev/null 2>&1 || die "required command not found: $1"
+  command -v "$1" >/dev/null 2>&1 \
+    || die_with_status "${2:-2}" "required command not found: $1"
 }
 
 resolve_gitleaks() {
@@ -222,8 +229,9 @@ resolve_gitleaks() {
 
 need_gitleaks() {
   GITLEAKS_BIN=$(resolve_gitleaks) \
-    || die "required command not found: gitleaks (run: $PROGRAM setup)"
-  [ -f "$GITLEAKS_CONFIG" ] || die "gitleaks config not found: $GITLEAKS_CONFIG"
+    || die_with_status "${1:-2}" "required command not found: gitleaks (run: $PROGRAM setup)"
+  [ -f "$GITLEAKS_CONFIG" ] \
+    || die_with_status "${1:-2}" "gitleaks config not found: $GITLEAKS_CONFIG"
 }
 
 hook_dependencies_ready() {
@@ -1698,8 +1706,8 @@ extract_git_diff_added() {
 }
 
 scan_staged() {
-  need_cmd git
-  need_gitleaks
+  need_cmd git "$SCAN_STATUS_UNAVAILABLE"
+  need_gitleaks "$SCAN_STATUS_UNAVAILABLE"
   require_git_repo || return $?
   repo_root=$(git rev-parse --show-toplevel 2>/dev/null) \
     || return "$SCAN_STATUS_UNAVAILABLE"
@@ -1770,8 +1778,8 @@ scan_untracked_files() {
 }
 
 scan_working_tree() {
-  need_cmd git
-  need_gitleaks
+  need_cmd git "$SCAN_STATUS_UNAVAILABLE"
+  need_gitleaks "$SCAN_STATUS_UNAVAILABLE"
   require_git_repo || return $?
   repo_root=$(git rev-parse --show-toplevel 2>/dev/null) \
     || return "$SCAN_STATUS_UNAVAILABLE"
@@ -1816,7 +1824,7 @@ $unstaged"
 }
 
 scan_path() {
-  need_gitleaks
+  need_gitleaks "$SCAN_STATUS_UNAVAILABLE"
   if [ "${1:-}" = "--" ]; then
     shift
   fi
