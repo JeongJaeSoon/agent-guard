@@ -1,3 +1,18 @@
+## v3.2.0 - 2026-09-06
+
+- fix(setup): distinguish dependency and hook outcomes (#214)
+- fix(skills): setup skill을 명시 호출로 제한 (#206)
+- fix(shell): keep selected plugin cache authoritative (#213)
+- fix: explain ambiguous Bash path matches (#209)
+- fix(bootstrap): relink replaced payload bin aliases (#212)
+- fix(action): scanner 설치 임시 자료의 성공·실패·중단 정리 (#211)
+- feat(pii): pleno 연동과 endpoint 응답·오류 출력 보호 (#208)
+- fix(scan): distinguish unavailable dependencies (#210)
+- fix(update): preserve standalone executable path (#207)
+- docs: consolidate user guides in README and remove internal runbooks (#203)
+- docs: add installation and verification runbook (#193)
+- docs: document Homebrew tap installation
+
 ## v3.1.1 - 2026-09-04
 
 - feat: harden multi-host installation and release flow
