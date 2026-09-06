@@ -74,17 +74,41 @@ main() {
   ( cd "$tmp" && shasum -a 256 -c "$archive.sha256" ) >&2 \
     || die "checksum verification failed for $archive"
 
+  # Validate the downloaded payload before touching a working installation.
+  stage="$tmp/payload"
+  mkdir "$stage"
+  tar -xzf "$tmp/$archive" -C "$stage" || die "archive extraction failed"
+  [ -f "$stage/bin/agent-guard" ] && [ ! -L "$stage/bin/agent-guard" ] \
+    && [ -x "$stage/bin/agent-guard" ] || die "expected regular executable not found in archive"
+  [ -f "$stage/install.sh" ] && [ ! -L "$stage/install.sh" ] \
+    && [ -x "$stage/install.sh" ] || die "expected regular installer not found in archive"
+  sh -n "$stage/bin/agent-guard" && sh -n "$stage/install.sh" \
+    || die "archive contains invalid shell scripts"
+  for policy in gitleaks.toml deny-read-paths.txt deny-bash-patterns.txt; do
+    [ -f "$stage/config/$policy" ] && [ ! -L "$stage/config/$policy" ] \
+      && [ -r "$stage/config/$policy" ] || die "archive has no regular policy file: $policy"
+  done
+
   info "$prog: extracting to $HOME_DIR"
-  mkdir -p "$HOME_DIR"
-  tar -xzf "$tmp/$archive" -C "$HOME_DIR"
-
-  bin_path="$HOME_DIR/bin/agent-guard"
-  [ -x "$bin_path" ] || die "expected executable not found after extraction: $bin_path"
-  [ -x "$HOME_DIR/install.sh" ] || die "expected installer not found after extraction: $HOME_DIR/install.sh"
-
+  mkdir -p "$HOME_DIR/bin"
   mkdir -p "$BIN_DIR"
-  ln -sf "$bin_path" "$BIN_DIR/agent-guard"
-  info "$prog: linked $BIN_DIR/agent-guard -> $bin_path"
+  HOME_DIR=$(CDPATH= cd -- "$HOME_DIR" && pwd -P)
+  BIN_DIR=$(CDPATH= cd -- "$BIN_DIR" && pwd -P)
+  payload_bin_dir=$(CDPATH= cd -- "$HOME_DIR/bin" && pwd -P)
+  # Refuse directory targets rather than copying into them or deleting data.
+  [ ! -d "$HOME_DIR/bin/agent-guard" ] || die "executable destination is a directory"
+  [ ! -L "$HOME_DIR/bin/agent-guard" ] || die "executable destination must not be a symlink"
+  [ ! -d "$BIN_DIR/agent-guard" ] || die "link destination is a directory"
+  # Retain tar's replacement semantics: an existing installer symlink must be
+  # replaced, not followed (or rejected partway through by BSD cp -R).
+  tar -xzf "$tmp/$archive" -C "$HOME_DIR" || die "installation extraction failed"
+  bin_path="$HOME_DIR/bin/agent-guard"
+  if [ "$BIN_DIR" = "$payload_bin_dir" ]; then
+    info "$prog: executable already lives in $BIN_DIR; no symlink needed"
+  else
+    ln -sf "$bin_path" "$BIN_DIR/agent-guard"
+    info "$prog: linked $BIN_DIR/agent-guard -> $bin_path"
+  fi
 
   case ":$PATH:" in
     *":$BIN_DIR:"*) ;;

@@ -5609,8 +5609,16 @@ do_update() {
   curl -fsSL "https://github.com/JeongJaeSoon/agent-guard/releases/latest/download/bootstrap.sh" \
     -o "$update_script" || die "update: failed to download bootstrap.sh"
   sh -n "$update_script" || die "update: downloaded bootstrap.sh failed syntax validation"
+  # BIN_DIR is the resolved payload directory, not the public symlink's
+  # directory. Preserve the invocation location (including custom installs)
+  # unless the caller explicitly requests a different link directory.
+  update_bin_dir=${AGENT_GUARD_BIN_DIR:-}
+  if [ -z "$update_bin_dir" ]; then
+    update_bin_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P) \
+      || die "update: cannot resolve the invocation directory"
+  fi
   AGENT_GUARD_HOME="$ROOT_DIR" \
-    AGENT_GUARD_BIN_DIR="$(CDPATH= cd -- "$BIN_DIR/../bin" 2>/dev/null && pwd -P || printf '%s' "$HOME/.local/bin")" \
+    AGENT_GUARD_BIN_DIR="$update_bin_dir" \
     sh "$update_script"
 }
 
