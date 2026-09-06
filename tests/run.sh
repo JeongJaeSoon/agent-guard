@@ -236,6 +236,41 @@ else
   not_ok "Codex plugin manifest explicitly declares hook and skill paths"
 fi
 
+if "$ROOT/scripts/validate-plugin-layout.sh" --codex >"$OUT" 2>"$ERR"; then
+  ok "Codex plugin layout accepts documented setup-skill invocation metadata"
+else
+  not_ok "Codex plugin layout accepts documented setup-skill invocation metadata"
+  sed 's/^/  stdout: /' "$OUT"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+layout_fixture_root="$TESTTMP/layout-frontmatter"
+mkdir -p "$layout_fixture_root/scripts" "$layout_fixture_root/plugins"
+cp "$ROOT/scripts/validate-plugin-layout.sh" "$layout_fixture_root/scripts/"
+cp -R "$PLUGIN_ROOT" "$layout_fixture_root/plugins/agent-guard"
+layout_fixture_skill="$layout_fixture_root/plugins/agent-guard/skills/setup-agent-guard/SKILL.md"
+sed '4a\
+unexpected: value' "$layout_fixture_skill" >"$layout_fixture_skill.tmp"
+mv "$layout_fixture_skill.tmp" "$layout_fixture_skill"
+if "$layout_fixture_root/scripts/validate-plugin-layout.sh" --codex >"$OUT" 2>"$ERR"; then
+  not_ok "Codex plugin layout rejects arbitrary setup-skill frontmatter"
+else
+  ok "Codex plugin layout rejects arbitrary setup-skill frontmatter"
+fi
+
+cp -R "$PLUGIN_ROOT" "$layout_fixture_root/plugins/agent-guard-false"
+mv "$layout_fixture_root/plugins/agent-guard-false" "$layout_fixture_root/plugins/agent-guard-replacement"
+mv "$layout_fixture_root/plugins/agent-guard" "$layout_fixture_root/plugins/agent-guard-original"
+mv "$layout_fixture_root/plugins/agent-guard-replacement" "$layout_fixture_root/plugins/agent-guard"
+layout_fixture_skill="$layout_fixture_root/plugins/agent-guard/skills/setup-agent-guard/SKILL.md"
+sed 's/^disable-model-invocation: true$/disable-model-invocation: false/' "$layout_fixture_skill" >"$layout_fixture_skill.tmp"
+mv "$layout_fixture_skill.tmp" "$layout_fixture_skill"
+if "$layout_fixture_root/scripts/validate-plugin-layout.sh" --codex >"$OUT" 2>"$ERR"; then
+  not_ok "Codex plugin layout rejects a non-documentation invocation value"
+else
+  ok "Codex plugin layout rejects a non-documentation invocation value"
+fi
+
 # Guided setup must verify the installed plugin itself and select the active
 # host's live hook boundary. A standalone PATH binary or a passing binary smoke
 # test is not proof that plugin hooks are trusted or dispatched by either host.

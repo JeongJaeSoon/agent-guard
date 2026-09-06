@@ -116,11 +116,17 @@ validate_setup_skill() {
 
   require_file "$skill"
   require_file "$metadata"
+  # Claude Code supports this one explicit-invocation field for task skills.
+  # Keep the layout check strict: it accepts the original three required lines
+  # or exactly this documented fourth line, not arbitrary frontmatter keys.
+  setup_frontmatter_end=$(awk 'NR > 1 && $0 == "---" { print NR; exit }' "$skill" 2>/dev/null || :)
   if [ -f "$skill" ] \
      && [ "$(sed -n '1p' "$skill")" = "---" ] \
      && [ "$(sed -n '2p' "$skill")" = "name: setup-agent-guard" ] \
      && sed -n '3p' "$skill" | grep -Eq '^description: .+' \
-     && [ "$(sed -n '4p' "$skill")" = "---" ]; then
+     && { [ "$setup_frontmatter_end" = 4 ] \
+          || { [ "$setup_frontmatter_end" = 5 ] \
+               && [ "$(sed -n '4p' "$skill")" = "disable-model-invocation: true" ]; }; }; then
     ok "setup-agent-guard skill has valid required frontmatter"
   else
     fail "setup-agent-guard skill has valid required frontmatter"
