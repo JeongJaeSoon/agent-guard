@@ -110,9 +110,9 @@ validate_archive_contains() {
   fi
 }
 
-validate_setup_skill() {
-  skill="$PLUGIN_ROOT/skills/setup-agent-guard/SKILL.md"
-  metadata="$PLUGIN_ROOT/skills/setup-agent-guard/agents/openai.yaml"
+validate_codex_setup_skill() {
+  skill="$PLUGIN_ROOT/codex-skills/setup-agent-guard/SKILL.md"
+  metadata="$PLUGIN_ROOT/codex-skills/setup-agent-guard/agents/openai.yaml"
 
   require_file "$skill"
   require_file "$metadata"
@@ -120,24 +120,26 @@ validate_setup_skill() {
      && [ "$(sed -n '1p' "$skill")" = "---" ] \
      && [ "$(sed -n '2p' "$skill")" = "name: setup-agent-guard" ] \
      && sed -n '3p' "$skill" | grep -Eq '^description: .+' \
-     && [ "$(sed -n '4p' "$skill")" = "---" ]; then
-    ok "setup-agent-guard skill has valid required frontmatter"
+     && [ "$(sed -n '4p' "$skill")" = "---" ] \
+     && grep -Fq '../../skills/setup-agent-guard/SKILL.md' "$skill"; then
+    ok "Codex setup-agent-guard wrapper has valid frontmatter and canonical reference"
   else
-    fail "setup-agent-guard skill has valid required frontmatter"
+    fail "Codex setup-agent-guard wrapper has valid frontmatter and canonical reference"
   fi
   if [ -f "$metadata" ] \
      && grep -Eq '^[[:space:]]*display_name:[[:space:]]+"?.+"?$' "$metadata" \
      && grep -Eq '^[[:space:]]*short_description:[[:space:]]+"?.+"?$' "$metadata" \
-     && grep -Fq '$setup-agent-guard' "$metadata"; then
-    ok "setup-agent-guard UI metadata is complete"
+     && grep -Fq '$setup-agent-guard' "$metadata" \
+     && grep -Fxq '  allow_implicit_invocation: false' "$metadata"; then
+    ok "Codex setup-agent-guard UI metadata is explicit-only"
   else
-    fail "setup-agent-guard UI metadata is complete"
+    fail "Codex setup-agent-guard UI metadata is explicit-only"
   fi
 }
 
-validate_shell_setup_skill() {
-  skill="$PLUGIN_ROOT/skills/setup-shell/SKILL.md"
-  metadata="$PLUGIN_ROOT/skills/setup-shell/agents/openai.yaml"
+validate_codex_shell_setup_skill() {
+  skill="$PLUGIN_ROOT/codex-skills/setup-shell/SKILL.md"
+  metadata="$PLUGIN_ROOT/codex-skills/setup-shell/agents/openai.yaml"
   legacy_command="$PLUGIN_ROOT/commands/setup-shell.md"
 
   require_file "$skill"
@@ -146,23 +148,55 @@ validate_shell_setup_skill() {
      && [ "$(sed -n '1p' "$skill")" = "---" ] \
      && [ "$(sed -n '2p' "$skill")" = "name: setup-shell" ] \
      && sed -n '3p' "$skill" | grep -Eq '^description: .+' \
-     && [ "$(sed -n '4p' "$skill")" = "---" ]; then
-    ok "setup-shell skill has valid required frontmatter"
+     && [ "$(sed -n '4p' "$skill")" = "---" ] \
+     && grep -Fq '../../skills/setup-shell/SKILL.md' "$skill"; then
+    ok "Codex setup-shell wrapper has valid frontmatter and canonical reference"
   else
-    fail "setup-shell skill has valid required frontmatter"
+    fail "Codex setup-shell wrapper has valid frontmatter and canonical reference"
   fi
   if [ -f "$metadata" ] \
      && grep -Eq '^[[:space:]]*display_name:[[:space:]]+"?.+"?$' "$metadata" \
      && grep -Eq '^[[:space:]]*short_description:[[:space:]]+"?.+"?$' "$metadata" \
      && grep -Fq '$setup-shell' "$metadata"; then
-    ok "setup-shell UI metadata is complete"
+    ok "Codex setup-shell UI metadata is complete"
   else
-    fail "setup-shell UI metadata is complete"
+    fail "Codex setup-shell UI metadata is complete"
   fi
   if [ ! -e "$legacy_command" ]; then
     ok "setup-shell has a single skill implementation"
   else
     fail "setup-shell has a single skill implementation"
+  fi
+}
+
+validate_claude_setup_skill() {
+  skill="$PLUGIN_ROOT/skills/setup-agent-guard/SKILL.md"
+
+  require_file "$skill"
+  if [ -f "$skill" ] \
+     && [ "$(sed -n '1p' "$skill")" = "---" ] \
+     && [ "$(sed -n '2p' "$skill")" = "name: setup-agent-guard" ] \
+     && sed -n '3p' "$skill" | grep -Eq '^description: .+' \
+     && [ "$(sed -n '4p' "$skill")" = "disable-model-invocation: true" ] \
+     && [ "$(sed -n '5p' "$skill")" = "---" ]; then
+    ok "Claude setup-agent-guard skill is explicit-only"
+  else
+    fail "Claude setup-agent-guard skill is explicit-only"
+  fi
+}
+
+validate_claude_shell_setup_skill() {
+  skill="$PLUGIN_ROOT/skills/setup-shell/SKILL.md"
+
+  require_file "$skill"
+  if [ -f "$skill" ] \
+     && [ "$(sed -n '1p' "$skill")" = "---" ] \
+     && [ "$(sed -n '2p' "$skill")" = "name: setup-shell" ] \
+     && sed -n '3p' "$skill" | grep -Eq '^description: .+' \
+     && [ "$(sed -n '4p' "$skill")" = "---" ]; then
+    ok "Claude setup-shell skill has valid required frontmatter"
+  else
+    fail "Claude setup-shell skill has valid required frontmatter"
   fi
 }
 
@@ -192,10 +226,10 @@ validate_versions() {
 validate_codex() {
   require_json "$PLUGIN_ROOT/.codex-plugin/plugin.json"
   require_json "$PLUGIN_ROOT/hooks.json"
-  validate_setup_skill
-  validate_shell_setup_skill
+  validate_codex_setup_skill
+  validate_codex_shell_setup_skill
 
-  if jq -e '.hooks == "./hooks.json" and .skills == "./skills/"' "$PLUGIN_ROOT/.codex-plugin/plugin.json" >/dev/null; then
+  if jq -e '.hooks == "./hooks.json" and .skills == "./codex-skills/"' "$PLUGIN_ROOT/.codex-plugin/plugin.json" >/dev/null; then
     ok "Codex plugin manifest declares hook and skill paths"
   else
     fail "Codex plugin manifest declares hook and skill paths"
@@ -205,7 +239,15 @@ validate_codex() {
 }
 
 validate_claude() {
+  require_json "$PLUGIN_ROOT/.claude-plugin/plugin.json"
   require_json "$PLUGIN_ROOT/hooks/hooks.json"
+  validate_claude_setup_skill
+  validate_claude_shell_setup_skill
+  if jq -e 'has("skills") | not' "$PLUGIN_ROOT/.claude-plugin/plugin.json" >/dev/null; then
+    ok "Claude manifest uses the additive default skills directory"
+  else
+    fail "Claude manifest uses the additive default skills directory"
+  fi
   validate_hook_commands "$PLUGIN_ROOT/hooks/hooks.json" "Claude" "CLAUDE_PLUGIN_ROOT"
 
   command_count=0
@@ -260,10 +302,12 @@ validate_archive() {
   validate_archive_contains "$archive" "SECURITY.md"
   validate_archive_contains "$archive" "SUPPORT.md"
   validate_archive_contains "$archive" "THIRD_PARTY_NOTICES.md"
+  validate_archive_contains "$archive" "codex-skills/setup-agent-guard/SKILL.md"
+  validate_archive_contains "$archive" "codex-skills/setup-agent-guard/agents/openai.yaml"
+  validate_archive_contains "$archive" "codex-skills/setup-shell/SKILL.md"
+  validate_archive_contains "$archive" "codex-skills/setup-shell/agents/openai.yaml"
   validate_archive_contains "$archive" "skills/setup-agent-guard/SKILL.md"
-  validate_archive_contains "$archive" "skills/setup-agent-guard/agents/openai.yaml"
   validate_archive_contains "$archive" "skills/setup-shell/SKILL.md"
-  validate_archive_contains "$archive" "skills/setup-shell/agents/openai.yaml"
   validate_archive_contains "$archive" "deployment/claude-managed-settings.example.json"
 
   if [ -d "$PLUGIN_ROOT/commands" ]; then

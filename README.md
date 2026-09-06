@@ -696,8 +696,14 @@ automates the diagnosis and checksum-selection workflow, but still asks before t
 Agent Guard shares its scanner implementation across Claude Code and Codex, but keeps host wiring explicit:
 
 - `plugins/agent-guard/bin/agent-guard`, `config/`, and `scripts/` are shared.
-- Claude Code uses `.claude-plugin/plugin.json`, `commands/`, and `hooks/hooks.json`.
-- Codex uses `.codex-plugin/plugin.json`, which explicitly declares `hooks.json` and `skills/`; hook commands set `AGENT_GUARD_HOOK_HOST=codex` so output follows the Codex contract.
+- Claude Code uses `.claude-plugin/plugin.json`, the default `skills/` directory,
+  `commands/`, and `hooks/hooks.json`. The setup skill uses Claude's
+  `disable-model-invocation: true` frontmatter.
+- Codex uses `.codex-plugin/plugin.json`, which explicitly declares `hooks.json`
+  and `codex-skills/`. Its setup wrappers carry Codex UI policy and read the
+  canonical instructions from `skills/`, keeping Claude-only frontmatter out of
+  Codex ingestion. Hook commands set `AGENT_GUARD_HOOK_HOST=codex` so output
+  follows the Codex contract.
 - Codex uses `$setup-agent-guard` for guided dependency setup and `$setup-shell`
   for the optional shell integration. Claude `commands/` remain Claude-specific;
   other Codex workflows use the binary directly.

@@ -98,8 +98,10 @@ else
 fi
 
 setup_shell_skill="$PLUGIN_ROOT/skills/setup-shell/SKILL.md"
-setup_shell_metadata="$PLUGIN_ROOT/skills/setup-shell/agents/openai.yaml"
+codex_setup_shell_skill="$PLUGIN_ROOT/codex-skills/setup-shell/SKILL.md"
+setup_shell_metadata="$PLUGIN_ROOT/codex-skills/setup-shell/agents/openai.yaml"
 if grep -Fq '../../bin/agent-guard' "$setup_shell_skill" \
+  && grep -Fq '../../skills/setup-shell/SKILL.md' "$codex_setup_shell_skill" \
   && grep -Fq 'Obtain host approval' "$setup_shell_skill" \
   && grep -Fq 'is separate from plugin' "$setup_shell_skill" \
   && grep -Fq 'Do not retry the same blocked write' "$setup_shell_skill" \
@@ -230,17 +232,62 @@ else
   not_ok "release automation preserves the v1 moving tag when publishing v2+"
 fi
 
-if jq -e '.hooks == "./hooks.json" and .skills == "./skills/"' "$PLUGIN_ROOT/.codex-plugin/plugin.json" >/dev/null; then
+if jq -e '.hooks == "./hooks.json" and .skills == "./codex-skills/"' "$PLUGIN_ROOT/.codex-plugin/plugin.json" >/dev/null; then
   ok "Codex plugin manifest explicitly declares hook and skill paths"
 else
   not_ok "Codex plugin manifest explicitly declares hook and skill paths"
+fi
+
+if "$ROOT/scripts/validate-plugin-layout.sh" --codex >"$OUT" 2>"$ERR" \
+   && "$ROOT/scripts/validate-plugin-layout.sh" --claude >"$OUT" 2>"$ERR"; then
+  ok "host-specific setup-skill metadata passes both plugin layouts"
+else
+  not_ok "host-specific setup-skill metadata passes both plugin layouts"
+  sed 's/^/  stdout: /' "$OUT"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+layout_fixture_root="$TESTTMP/layout-frontmatter"
+mkdir -p "$layout_fixture_root/scripts" "$layout_fixture_root/plugins"
+cp "$ROOT/scripts/validate-plugin-layout.sh" "$layout_fixture_root/scripts/"
+cp -R "$PLUGIN_ROOT" "$layout_fixture_root/plugins/agent-guard"
+layout_fixture_skill="$layout_fixture_root/plugins/agent-guard/codex-skills/setup-agent-guard/SKILL.md"
+sed '3a\
+unexpected: value' "$layout_fixture_skill" >"$layout_fixture_skill.tmp"
+mv "$layout_fixture_skill.tmp" "$layout_fixture_skill"
+if "$layout_fixture_root/scripts/validate-plugin-layout.sh" --codex >"$OUT" 2>"$ERR"; then
+  not_ok "Codex plugin layout rejects arbitrary setup-skill frontmatter"
+else
+  ok "Codex plugin layout rejects arbitrary setup-skill frontmatter"
+fi
+
+cp -R "$PLUGIN_ROOT" "$layout_fixture_root/plugins/agent-guard-false"
+mv "$layout_fixture_root/plugins/agent-guard-false" "$layout_fixture_root/plugins/agent-guard-replacement"
+mv "$layout_fixture_root/plugins/agent-guard" "$layout_fixture_root/plugins/agent-guard-original"
+mv "$layout_fixture_root/plugins/agent-guard-replacement" "$layout_fixture_root/plugins/agent-guard"
+layout_fixture_skill="$layout_fixture_root/plugins/agent-guard/codex-skills/setup-agent-guard/SKILL.md"
+sed '3a\
+disable-model-invocation: true' "$layout_fixture_skill" >"$layout_fixture_skill.tmp"
+mv "$layout_fixture_skill.tmp" "$layout_fixture_skill"
+if "$layout_fixture_root/scripts/validate-plugin-layout.sh" --codex >"$OUT" 2>"$ERR"; then
+  not_ok "Codex plugin layout rejects Claude-only invocation metadata"
+else
+  ok "Codex plugin layout rejects Claude-only invocation metadata"
 fi
 
 # Guided setup must verify the installed plugin itself and select the active
 # host's live hook boundary. A standalone PATH binary or a passing binary smoke
 # test is not proof that plugin hooks are trusted or dispatched by either host.
 setup_skill="$PLUGIN_ROOT/skills/setup-agent-guard/SKILL.md"
-if grep -Fq '../../bin/agent-guard' "$setup_skill" \
+codex_setup_skill="$PLUGIN_ROOT/codex-skills/setup-agent-guard/SKILL.md"
+setup_skill_openai_metadata="$PLUGIN_ROOT/codex-skills/setup-agent-guard/agents/openai.yaml"
+if grep -Fxq 'disable-model-invocation: true' "$setup_skill" \
+   && ! grep -Fq 'disable-model-invocation:' "$codex_setup_skill" \
+   && grep -Fq '../../skills/setup-agent-guard/SKILL.md' "$codex_setup_skill" \
+   && jq -e 'has("skills") | not' "$PLUGIN_ROOT/.claude-plugin/plugin.json" >/dev/null \
+   && grep -Fxq '  allow_implicit_invocation: false' "$setup_skill_openai_metadata" \
+   && grep -Fq 'default_prompt: "Use $setup-agent-guard' "$setup_skill_openai_metadata" \
+   && grep -Fq '../../bin/agent-guard' "$setup_skill" \
    && grep -Fq 'Compare its `version` with the plugin binary' "$setup_skill" \
    && grep -Fq 'Identify the active host' "$setup_skill" \
    && grep -Fq 'Settings > Hooks' "$setup_skill" \
@@ -257,9 +304,9 @@ if grep -Fq '../../bin/agent-guard' "$setup_skill" \
    && grep -Fq 'run in a separate terminal' "$setup_skill" \
    && grep -Fq 'rerun the read-only' "$setup_skill" \
    && grep -Fq 'They do not prove that the host is dispatching plugin hooks' "$setup_skill"; then
-  ok "shared setup skill selects host-specific trust and live-hook layers"
+  ok "Claude explicit-only and Codex explicit-policy setup entries share canonical host guidance"
 else
-  not_ok "shared setup skill selects host-specific trust and live-hook layers"
+  not_ok "Claude explicit-only and Codex explicit-policy setup entries share canonical host guidance"
 fi
 
 for event in PreToolUse PostToolUse Stop UserPromptSubmit; do
