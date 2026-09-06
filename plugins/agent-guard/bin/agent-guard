@@ -65,14 +65,26 @@ fi
 # and embedded version agree. An interrupted plugin update can leave a
 # higher-looking directory with only bin/agent-guard; selecting it would turn a
 # healthy installation into a default-open DEGRADED hook.
+policy_file_has_active_rule() {
+  [ -r "$1" ] && [ -s "$1" ] \
+    && awk '$0 !~ /^[[:space:]]*(#|$)/ { found = 1; exit } END { exit !found }' "$1"
+}
+
+cache_policy_file_usable() {
+  [ -f "$1" ] && [ ! -L "$1" ] && policy_file_has_active_rule "$1"
+}
+
 plugin_cache_root_usable() (
   candidate_root=$1
   expected_version=${2:-}
   candidate_bin="$candidate_root/bin/agent-guard"
-  [ -x "$candidate_bin" ] \
-    && [ -r "$candidate_root/config/gitleaks.toml" ] \
-    && [ -r "$candidate_root/config/deny-read-paths.txt" ] \
-    && [ -r "$candidate_root/config/deny-bash-patterns.txt" ] \
+  [ -d "$candidate_root" ] && [ ! -L "$candidate_root" ] \
+    && [ -d "$candidate_root/bin" ] && [ ! -L "$candidate_root/bin" ] \
+    && [ -d "$candidate_root/config" ] && [ ! -L "$candidate_root/config" ] \
+    && [ -f "$candidate_bin" ] && [ ! -L "$candidate_bin" ] && [ -x "$candidate_bin" ] \
+    && cache_policy_file_usable "$candidate_root/config/gitleaks.toml" \
+    && cache_policy_file_usable "$candidate_root/config/deny-read-paths.txt" \
+    && cache_policy_file_usable "$candidate_root/config/deny-bash-patterns.txt" \
     || return 1
   embedded_version=
   while IFS= read -r candidate_line; do
@@ -237,9 +249,9 @@ need_gitleaks() {
 hook_dependencies_ready() {
   command -v jq >/dev/null 2>&1 || return 1
   resolve_gitleaks >/dev/null 2>&1 || return 1
-  [ -f "$GITLEAKS_CONFIG" ] || return 1
-  [ -f "$DENY_READ_PATHS" ] || return 1
-  [ -f "$DENY_BASH_PATTERNS" ] || return 1
+  [ -f "$GITLEAKS_CONFIG" ] && policy_file_has_active_rule "$GITLEAKS_CONFIG" || return 1
+  [ -f "$DENY_READ_PATHS" ] && policy_file_has_active_rule "$DENY_READ_PATHS" || return 1
+  [ -f "$DENY_BASH_PATTERNS" ] && policy_file_has_active_rule "$DENY_BASH_PATTERNS" || return 1
 }
 
 infrastructure_failure_mode() {
@@ -5258,6 +5270,147 @@ unset __ag_name __ag_alias
 EOF
 }
 
+# The rc bootstrap and a loaded shell use the same cache authority and recovery
+# rules. Emit functions so a managed rc can still resolve after its original
+# version directory disappears, without executing unvalidated cached binaries.
+shell_init_resolver() {
+  cat <<'EOF'
+__agentguard_policy_file_usable() {
+  [ -f "$1" ] && [ ! -L "$1" ] && [ -r "$1" ] && [ -s "$1" ] \
+    && awk '$0 !~ /^[[:space:]]*(#|$)/ { found = 1; exit } END { exit !found }' "$1"
+}
+__agentguard_cache_bin_usable() {
+  __ag_candidate=$1
+  __ag_expected=${2:-}
+  __ag_root=${__ag_candidate%/bin/agent-guard}
+  [ -d "$__ag_root" ] && [ ! -L "$__ag_root" ] \
+    && [ -d "$__ag_root/bin" ] && [ ! -L "$__ag_root/bin" ] \
+    && [ -d "$__ag_root/config" ] && [ ! -L "$__ag_root/config" ] \
+    && [ -f "$__ag_candidate" ] && [ ! -L "$__ag_candidate" ] && [ -x "$__ag_candidate" ] \
+    && __agentguard_policy_file_usable "$__ag_root/config/gitleaks.toml" \
+    && __agentguard_policy_file_usable "$__ag_root/config/deny-read-paths.txt" \
+    && __agentguard_policy_file_usable "$__ag_root/config/deny-bash-patterns.txt" \
+    || return 1
+  __ag_embedded=
+  while IFS= read -r __ag_line; do
+    case "$__ag_line" in
+      VERSION=*) __ag_embedded=${__ag_line#VERSION=}; break ;;
+    esac
+  done <"$__ag_candidate"
+  [ -n "$__ag_embedded" ] \
+    && { [ -z "$__ag_expected" ] || [ "$__ag_embedded" = "$__ag_expected" ]; }
+}
+__agentguard_latest_plugin_bin() {
+  [ -n "${__agentguard_plugin_base:-}" ] || return 1
+  __ag_latest=$(
+    for __ag_candidate in "$__agentguard_plugin_base"/[0-9]*.[0-9]*.[0-9]*/bin/agent-guard; do
+      [ -x "$__ag_candidate" ] || continue
+      __ag_root=${__ag_candidate%/bin/agent-guard}
+      [ -d "$__ag_root" ] && [ ! -L "$__ag_root" ] || continue
+      __ag_version=${__ag_candidate%/bin/agent-guard}
+      __ag_version=${__ag_version##*/}
+      __agentguard_cache_bin_usable "$__ag_candidate" "$__ag_version" || continue
+      printf '%s\t%s\n' "$__ag_version" "$__ag_candidate"
+    done \
+      | awk -F '\t' '$1 ~ /^[0-9]+\.[0-9]+\.[0-9]+$/' \
+      | sort -t. -k1,1n -k2,2n -k3,3n \
+      | tail -n 1 \
+      | cut -f 2-
+  )
+  [ -n "$__ag_latest" ] && [ -x "$__ag_latest" ] || return 1
+  printf '%s' "$__ag_latest"
+}
+__agentguard_semver() {
+  __ag_version=$1
+  __ag_major=${__ag_version%%.*}
+  __ag_rest=${__ag_version#*.}
+  [ "$__ag_rest" != "$__ag_version" ] || return 1
+  __ag_minor=${__ag_rest%%.*}
+  __ag_patch=${__ag_rest#*.}
+  [ "$__ag_patch" != "$__ag_rest" ] || return 1
+  case "$__ag_major" in ''|*[!0-9]*) return 1 ;; esac
+  case "$__ag_minor" in ''|*[!0-9]*) return 1 ;; esac
+  case "$__ag_patch" in ''|*[!0-9]*) return 1 ;; esac
+  return 0
+}
+__agentguard_physical_path() (
+  __ag_physical=$1
+  case "$__ag_physical" in
+    /*) ;;
+    *)
+      __ag_pwd=$(pwd -P 2>/dev/null) || return 1
+      __ag_physical=$__ag_pwd/$__ag_physical
+      ;;
+  esac
+  __ag_hops=0
+  while [ -L "$__ag_physical" ]; do
+    __ag_hops=$((__ag_hops + 1))
+    [ "$__ag_hops" -le 40 ] || return 1
+    __ag_target=$(readlink -- "$__ag_physical" 2>/dev/null) || return 1
+    case "$__ag_target" in
+      /*) __ag_physical=$__ag_target ;;
+      *) __ag_physical=${__ag_physical%/*}/$__ag_target ;;
+    esac
+  done
+  __ag_name=${__ag_physical##*/}
+  __ag_parent=${__ag_physical%/*}
+  [ "$__ag_parent" != "$__ag_physical" ] || __ag_parent=.
+  __ag_parent=$(CDPATH= cd -- "$__ag_parent" 2>/dev/null && pwd -P) || return 1
+  printf '%s/%s' "$__ag_parent" "$__ag_name"
+)
+__agentguard_path_bin() {
+  __ag_path=$(command -v agent-guard 2>/dev/null) || __ag_path=
+  if [ -n "$__ag_path" ]; then
+    # setup-shell adds current/bin to PATH. Do not re-admit an invalid cache
+    # through a relative entry or an external symlink alias after rejecting its
+    # payload above. Canonicalize only in plugin mode; standalone PATH fallback
+    # retains support for command wrappers that are not payload-shaped paths.
+    if [ -n "${__agentguard_plugin_base:-}" ]; then
+      __ag_path=$(__agentguard_physical_path "$__ag_path") || return 1
+      __ag_base=$(CDPATH= cd -- "$__agentguard_plugin_base" 2>/dev/null && pwd -P) \
+        || __ag_base=
+      if [ -n "$__ag_base" ]; then
+        case "$__ag_path" in "$__ag_base"|"$__ag_base"/*) return 1 ;; esac
+      fi
+    fi
+    printf '%s' "$__ag_path"; return 0
+  fi
+  return 1
+}
+__agentguard_exe() {
+  if [ -n "${AGENT_GUARD_BIN:-}" ] && [ -x "$AGENT_GUARD_BIN" ]; then
+    printf '%s' "$AGENT_GUARD_BIN"; return 0
+  fi
+  __ag_current_target=
+  if [ -n "${__agentguard_plugin_base:-}" ] \
+     && [ -L "$__agentguard_plugin_base/current" ]; then
+    __ag_current_target=$(readlink "$__agentguard_plugin_base/current" 2>/dev/null) \
+      || __ag_current_target=
+    __agentguard_semver "$__ag_current_target" || __ag_current_target=
+  fi
+  if [ -n "${__agentguard_bin:-}" ] && [ -x "$__agentguard_bin" ] \
+     && [ -n "${__agentguard_plugin_base:-}" ] \
+     && [ -n "$__ag_current_target" ] \
+     && [ -d "$__agentguard_plugin_base/$__ag_current_target" ] \
+     && [ ! -L "$__agentguard_plugin_base/$__ag_current_target" ] \
+     && __agentguard_cache_bin_usable \
+          "$__agentguard_plugin_base/$__ag_current_target/bin/agent-guard" \
+          "$__ag_current_target"; then
+    printf '%s' "$__agentguard_bin"; return 0
+  fi
+  __ag_latest=$(__agentguard_latest_plugin_bin) || __ag_latest=
+  if [ -n "$__ag_latest" ]; then
+    printf '%s' "$__ag_latest"; return 0
+  fi
+  if [ -z "${__agentguard_plugin_base:-}" ] \
+     && [ -n "${__agentguard_bin:-}" ] && [ -x "$__agentguard_bin" ]; then
+    printf '%s' "$__agentguard_bin"; return 0
+  fi
+  __agentguard_path_bin
+}
+EOF
+}
+
 shell_init() {
   # Propagate a die from inside the command substitution: without this an
   # unknown argument printed its error but still emitted the full snippet with
@@ -5304,68 +5457,9 @@ shell_init() {
 # Resolve the agent-guard binary at call time: an explicit $AGENT_GUARD_BIN wins,
 # then the stable baked path, then the newest installed plugin version as a
 # recovery fallback, then $PATH for standalone CLI installs.
-__agentguard_cache_bin_usable() {
-  __ag_candidate=$1
-  __ag_expected=${2:-}
-  __ag_root=${__ag_candidate%/bin/agent-guard}
-  [ -x "$__ag_candidate" ] \
-    && [ -r "$__ag_root/config/gitleaks.toml" ] \
-    && [ -r "$__ag_root/config/deny-read-paths.txt" ] \
-    && [ -r "$__ag_root/config/deny-bash-patterns.txt" ] \
-    || return 1
-  __ag_embedded=
-  while IFS= read -r __ag_line; do
-    case "$__ag_line" in
-      VERSION=*) __ag_embedded=${__ag_line#VERSION=}; break ;;
-    esac
-  done <"$__ag_candidate"
-  [ -n "$__ag_embedded" ] \
-    && { [ -z "$__ag_expected" ] || [ "$__ag_embedded" = "$__ag_expected" ]; }
-}
-__agentguard_latest_plugin_bin() {
-  [ -n "${__agentguard_plugin_base:-}" ] || return 1
-  __ag_latest=$(
-    for __ag_candidate in "$__agentguard_plugin_base"/[0-9]*.[0-9]*.[0-9]*/bin/agent-guard; do
-      [ -x "$__ag_candidate" ] || continue
-      __ag_version=${__ag_candidate%/bin/agent-guard}
-      __ag_version=${__ag_version##*/}
-      __agentguard_cache_bin_usable "$__ag_candidate" "$__ag_version" || continue
-      printf '%s\t%s\n' "$__ag_version" "$__ag_candidate"
-    done \
-      | awk -F '\t' '$1 ~ /^[0-9]+\.[0-9]+\.[0-9]+$/' \
-      | sort -t. -k1,1n -k2,2n -k3,3n \
-      | tail -n 1 \
-      | cut -f 2-
-  )
-  [ -n "$__ag_latest" ] && [ -x "$__ag_latest" ] || return 1
-  printf '%s' "$__ag_latest"
-}
-__agentguard_exe() {
-  if [ -n "${AGENT_GUARD_BIN:-}" ] && [ -x "$AGENT_GUARD_BIN" ]; then
-    printf '%s' "$AGENT_GUARD_BIN"; return 0
-  fi
-  __ag_current_target=
-  if [ -n "${__agentguard_plugin_base:-}" ] \
-     && [ -L "$__agentguard_plugin_base/current" ]; then
-    __ag_current_target=$(readlink "$__agentguard_plugin_base/current" 2>/dev/null) \
-      || __ag_current_target=
-  fi
-  if [ -n "${__agentguard_bin:-}" ] && [ -x "$__agentguard_bin" ] \
-     && [ -n "${__agentguard_plugin_base:-}" ] \
-     && [ -n "$__ag_current_target" ] \
-     && __agentguard_cache_bin_usable "$__agentguard_bin" "$__ag_current_target"; then
-    printf '%s' "$__agentguard_bin"; return 0
-  fi
-  __ag_latest=$(__agentguard_latest_plugin_bin) || __ag_latest=
-  if [ -n "$__ag_latest" ]; then
-    printf '%s' "$__ag_latest"; return 0
-  fi
-  if [ -n "${__agentguard_bin:-}" ] && [ -x "$__agentguard_bin" ]; then
-    printf '%s' "$__agentguard_bin"; return 0
-  fi
-  if command -v agent-guard >/dev/null 2>&1; then printf '%s' agent-guard; return 0; fi
-  return 1
-}
+EOF
+  shell_init_resolver
+  cat <<'EOF'
 
 __agentguard_infra_closed() {
   [ "${AGENT_GUARD_INFRA_FAILURE_MODE:-open}" = closed ]
@@ -5621,14 +5715,30 @@ do_setup_shell() {
     case "$sh_target" in bash) rc=$HOME/.bashrc ;; fish) rc= ;; *) rc=$HOME/.zshrc ;; esac
   fi
 
-  # Invoke only the stable path for plugin installs. If `current` is unavailable
-  # (for example, the cache is read-only), select the newest semantic-version
-  # directory at rc-eval time; a standalone PATH install remains the last
-  # compatibility fallback. The output probe prevents a stale stub from
-  # shadowing a working stable/plugin binary.
+  # Bootstrap through the same validated resolver as a loaded shell. A healthy
+  # current wins; only an unavailable current permits complete-cache recovery.
   stable=$(sh_squote "$STABLE_BIN")
   cache_base=$(sh_squote "$PLUGIN_CACHE_BASE")
-  line="eval \"\$(_agbin=$stable; _agbase=$cache_base; if [ -n \"\$_agbase\" ]; then _aglatest=\$(for _agc in \"\$_agbase\"/[0-9]*.[0-9]*.[0-9]*/bin/agent-guard; do [ -x \"\$_agc\" ] || continue; _agv=\${_agc%/bin/agent-guard}; printf '%s\\t%s\\n' \"\${_agv##*/}\" \"\$_agc\"; done | awk -F '\\t' '\$1 ~ /^[0-9]+\\.[0-9]+\\.[0-9]+\$/' | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1 | cut -f 2-); [ -n \"\$_aglatest\" ] && _agbin=\$_aglatest; fi; _agi=; [ -x \"\$_agbin\" ] && _agi=\$(\"\$_agbin\" shell-init${wrapping} 2>/dev/null); if [ -z \"\$_agi\" ] && command -v agent-guard >/dev/null 2>&1; then _agi=\$(agent-guard shell-init${wrapping} 2>/dev/null); fi; [ -n \"\$_agi\" ] && printf '%s\\n' \"\$_agi\")\""
+  resolver=$(sh_squote "$(shell_init_resolver)")
+  line="eval \"\$(
+_agbin=$stable
+_agbase=$cache_base
+__agentguard_bin=\$_agbin
+__agentguard_plugin_base=\$_agbase
+eval $resolver
+_agi=
+_agresolved=\$(__agentguard_exe) || _agresolved=
+if [ -n \"\$_agresolved\" ]; then
+  _agi=\$(\"\$_agresolved\" shell-init${wrapping} 2>/dev/null) || _agi=
+fi
+if [ -z \"\$_agi\" ]; then
+  _agfallback=\$(__agentguard_path_bin) || _agfallback=
+  if [ -n \"\$_agfallback\" ] && [ \"\$_agfallback\" != \"\$_agresolved\" ]; then
+    _agi=\$(\"\$_agfallback\" shell-init${wrapping} 2>/dev/null) || _agi=
+  fi
+fi
+[ -n \"\$_agi\" ] && printf '%s\\n' \"\$_agi\"
+)\""
   path_line=
   if [ -n "$PLUGIN_CACHE_BASE" ]; then
     stable_dir=$(sh_squote "$PLUGIN_CACHE_BASE/current/bin")

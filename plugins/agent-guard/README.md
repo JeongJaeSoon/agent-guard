@@ -43,8 +43,14 @@ installing software and requires the published SHA-256 for the selected
 gitleaks archive.
 
 Plugin executions maintain a version-independent sibling path at
-`current/bin/agent-guard`; hook manifests and `setup-shell` use it and can fall
-back to the newest installed version directory after a cache upgrade. Scanner
+`current/bin/agent-guard`; hook manifests and `setup-shell` use it. A healthy
+`current` remains authoritative over merely cached higher versions. If it is
+missing or invalid, the shell resolver can recover only through the newest
+complete semantic-version sibling whose embedded version agrees; it does not
+infer host plugin-registry selection. Existing managed rc blocks embed the
+resolver, so rerun the plugin-local `agent-guard setup-shell` after a resolver
+upgrade (preserving `--no-command-wrapping` when selected), then start a new
+shell and restart Claude Code. Scanner
 infrastructure failures use `AGENT_GUARD_INFRA_FAILURE_MODE=open|closed`
 (`open` by default) and warn once per session. Secret detections always block.
 

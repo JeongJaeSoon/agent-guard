@@ -4930,6 +4930,21 @@ else
   sed 's/^/  stderr: /' "$ERR"
 fi
 
+INACTIVE_POLICY="$TESTTMP/inactive-deny-read-policy.txt"
+printf ' \r\n\t# interrupted policy extraction\r\n' >"$INACTIVE_POLICY"
+printf '%s' '{"session_id":"inactive-policy","tool_name":"Bash","tool_input":{"command":"echo clean"}}' \
+  | AGENT_GUARD_INFRA_FAILURE_MODE=closed \
+    AGENT_GUARD_DENY_READ_PATHS="$INACTIVE_POLICY" \
+    AGENT_GUARD_GITLEAKS_BIN="$MOCK_BIN/gitleaks" \
+    "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "hook dependencies reject a policy file with no active rules"
+else
+  not_ok "inactive hook policy follows the closed infrastructure policy (expected 2, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
 EXEC_NOT_RUN="$TESTTMP/exec-not-run.txt"
 AGENT_GUARD_GITLEAKS_BIN=/nonexistent/gitleaks PATH="$NO_GITLEAKS_BIN" \
   "$PLUGIN_ROOT/bin/agent-guard" exec -- sh -c 'printf ran >"$1"' _ "$EXEC_NOT_RUN" >"$OUT" 2>"$ERR"
@@ -10597,10 +10612,12 @@ else
 fi
 # Self-healing invocation: the rc line prefers the stable absolute path and
 # keeps an output-checked PATH fallback for standalone installs.
+run_expect 0 "shell startup respects selected current before cached versions" \
+  sh "$ROOT/tests/shell-cache-authority.sh"
 ss_heal="$TESTTMP/setup-heal.rc"
 "$PLUGIN_ROOT/bin/agent-guard" setup-shell --rc "$ss_heal" >/dev/null 2>&1
 if grep -q '_agbin=' "$ss_heal" 2>/dev/null \
-   && grep -Fq '_agi=$("$_agbin" shell-init' "$ss_heal" 2>/dev/null \
+   && grep -Fq '_agi=$("$_agresolved" shell-init' "$ss_heal" 2>/dev/null \
    && grep -q 'command -v agent-guard' "$ss_heal" 2>/dev/null; then
   ok "setup-shell bakes the stable invocation with resolver fallbacks"
 else
