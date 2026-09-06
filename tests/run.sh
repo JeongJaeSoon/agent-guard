@@ -829,8 +829,16 @@ SUBRENDERER="$SUBMIRROR/scripts/render-submission-entry.sh"
 SUBREMOTE="$TMP_ROOT/submission-remote.git"
 mkdir -p "$SUBMIRROR"
 if git -C "$ROOT" archive HEAD | tar -x -C "$SUBMIRROR" 2>/dev/null; then
-  # Run the working-tree scripts and template under test, not HEAD's committed
-  # copies. The current worktree may not have been committed yet.
+  # Run the working-tree plugin payload, public policy mirrors, scripts, and
+  # template under test, not HEAD's committed copies. The current worktree may
+  # not have been committed yet; using only `git archive HEAD` here previously
+  # hid root/plugin policy drift until CI tested the resulting commit.
+  rm -rf "$SUBMIRROR/plugins/agent-guard"
+  mkdir -p "$SUBMIRROR/plugins/agent-guard"
+  cp -R "$PLUGIN_ROOT/." "$SUBMIRROR/plugins/agent-guard/"
+  for policy_file in README.md LICENSE PRIVACY.md SECURITY.md SUPPORT.md THIRD_PARTY_NOTICES.md; do
+    cp "$ROOT/$policy_file" "$SUBMIRROR/$policy_file"
+  done
   cp "$ROOT/scripts/validate-submission-readiness.sh" "$SUBVALIDATOR"
   cp "$ROOT/scripts/render-submission-entry.sh" "$SUBRENDERER"
   cp "$ROOT/scripts/marketplace-entry.template.json" "$SUBENTRY"
