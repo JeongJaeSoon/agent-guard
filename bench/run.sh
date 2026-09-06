@@ -11,7 +11,7 @@
 # headline metrics (per-channel leak-prevention rate, channel coverage,
 # false-positive rate). The `!` bang channel is recorded as structurally
 # UNCOVERED — Claude Code fires no hook for shell-escapes, so no hook-based
-# guardrail (agent-guard included) can intercept it; see docs/benchmark.md.
+# guardrail (agent-guard included) can intercept it; see README.md (Coverage benchmark).
 #
 # The interceptor under test is $AGENT_GUARD_BIN, so a peer tool could later be
 # dropped in behind the same channel drivers.

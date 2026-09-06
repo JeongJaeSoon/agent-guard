@@ -265,7 +265,6 @@ validate_archive() {
   validate_archive_contains "$archive" "skills/setup-shell/SKILL.md"
   validate_archive_contains "$archive" "skills/setup-shell/agents/openai.yaml"
   validate_archive_contains "$archive" "deployment/claude-managed-settings.example.json"
-  validate_archive_contains "$archive" "docs/managed-deployment.md"
 
   if [ -d "$PLUGIN_ROOT/commands" ]; then
     archive_command_count=$(find "$PLUGIN_ROOT/commands" -type f -name '*.md' | wc -l | tr -d ' ')

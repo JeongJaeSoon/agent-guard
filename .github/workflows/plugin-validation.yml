@@ -37,7 +37,7 @@ jobs:
       - name: Validate Release Archive Layout
         run: scripts/validate-plugin-layout.sh --archive
 
-      - name: Validate Marketplace Submission Readiness
+      - name: Validate Plugin Disclosures and Marketplace Metadata
         # Routine PR validation covers stable manifests, disclosure, and the
         # placeholder template. A concrete catalog SHA is rendered only from
         # the merged main checkout when an actual submission requests it.

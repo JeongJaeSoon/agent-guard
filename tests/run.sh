@@ -823,7 +823,7 @@ fi
 # merge. Build a self-contained mirror so matching, stale, malformed, and dirty
 # inputs can be exercised without modifying the repository's template.
 SUBMIRROR="$TMP_ROOT/submission-mirror"
-SUBENTRY="$SUBMIRROR/docs/submission/marketplace-entry.template.json"
+SUBENTRY="$SUBMIRROR/scripts/marketplace-entry.template.json"
 SUBVALIDATOR="$SUBMIRROR/scripts/validate-submission-readiness.sh"
 SUBRENDERER="$SUBMIRROR/scripts/render-submission-entry.sh"
 SUBREMOTE="$TMP_ROOT/submission-remote.git"
@@ -833,7 +833,7 @@ if git -C "$ROOT" archive HEAD | tar -x -C "$SUBMIRROR" 2>/dev/null; then
   # copies. The current worktree may not have been committed yet.
   cp "$ROOT/scripts/validate-submission-readiness.sh" "$SUBVALIDATOR"
   cp "$ROOT/scripts/render-submission-entry.sh" "$SUBRENDERER"
-  cp "$ROOT/docs/submission/marketplace-entry.template.json" "$SUBENTRY"
+  cp "$ROOT/scripts/marketplace-entry.template.json" "$SUBENTRY"
   (
     cd "$SUBMIRROR" || exit 2
     git init -q
@@ -911,7 +911,7 @@ if git -C "$ROOT" archive HEAD | tar -x -C "$SUBMIRROR" 2>/dev/null; then
     not_ok "dirty submission template fails before rendering a catalog entry"
     sed 's/^/  stderr: /' "$ERR"
   fi
-  git -C "$SUBMIRROR" checkout -q -- docs/submission/marketplace-entry.template.json
+  git -C "$SUBMIRROR" checkout -q -- scripts/marketplace-entry.template.json
 
   run_expect 1 "submission renderer refuses to overwrite its tracked template" \
     env AGENT_GUARD_SUBMISSION_SHA="$match_sha" \
@@ -5049,11 +5049,10 @@ tar -xzf "$RELEASE_TARBALL_DIR/agent-guard-test.tar.gz" -C "$RELEASE_TARBALL_DIR
 if [ -x "$RELEASE_TARBALL_DIR/out/bin/agent-guard" ] \
    && [ -x "$RELEASE_TARBALL_DIR/out/install.sh" ] \
    && [ -f "$RELEASE_TARBALL_DIR/out/deployment/claude-managed-settings.example.json" ] \
-   && [ -f "$RELEASE_TARBALL_DIR/out/docs/release-checklist.md" ] \
-   && [ -f "$RELEASE_TARBALL_DIR/out/docs/installation-verification-guide.html" ]; then
-  ok "release tarball contains the CLI, installer, managed settings, and operations guide"
+   && [ -f "$RELEASE_TARBALL_DIR/out/README.md" ]; then
+  ok "release tarball contains the CLI, installer, managed settings, and user README"
 else
-  not_ok "release tarball contains the CLI, installer, managed settings, and operations guide"
+  not_ok "release tarball contains the CLI, installer, managed settings, and user README"
 fi
 run_expect 0 "extracted release installer check resolves the archive layout" \
   sh -c 'cd "$1" && ./install.sh check' _ "$RELEASE_TARBALL_DIR/out"

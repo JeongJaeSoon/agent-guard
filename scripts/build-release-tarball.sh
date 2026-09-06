@@ -11,8 +11,4 @@ trap 'rm -rf "$stage"' EXIT INT TERM
 cp -R "$ROOT/plugins/agent-guard/." "$stage/"
 cp "$ROOT/install.sh" "$stage/install.sh"
 cp -R "$ROOT/deployment" "$stage/deployment"
-mkdir -p "$stage/docs"
-cp "$ROOT/docs/managed-deployment.md" "$stage/docs/managed-deployment.md"
-cp "$ROOT/docs/release-checklist.md" "$stage/docs/release-checklist.md"
-cp "$ROOT/docs/installation-verification-guide.html" "$stage/docs/installation-verification-guide.html"
 tar -C "$stage" -czf "$output" .
