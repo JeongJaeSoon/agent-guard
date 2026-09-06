@@ -3238,6 +3238,9 @@ else
   sed 's/^/  stderr: /' "$ERR"
 fi
 
+run_expect 0 "Action installer preserves status and cleans temporary downloads" \
+  sh "$ROOT/tests/action-temp-cleanup.sh"
+
 # action.yml shell-injection regression for AGENT_GUARD_PATHS.
 INJECTION_CANARY="$TMP_ROOT/inject-canary"
 rm -f "$INJECTION_CANARY"
