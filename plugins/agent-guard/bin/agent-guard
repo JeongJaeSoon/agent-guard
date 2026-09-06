@@ -568,6 +568,11 @@ EOF
   setup_status_line jq       || jq_ok=0
   setup_status_line git      || git_ok=0
   setup_gitleaks_status_line || gitleaks_ok=0
+  # setup and doctor can establish only local dependencies.
+  # A host must still dispatch one of its hook commands before runtime
+  # protection can be observed; never imply that this CLI has inspected that
+  # boundary or authenticated a host decision.
+  info "$PROGRAM: host hook protection: unverified (dependency checks do not observe tool dispatch)"
 
   if [ "$install" -eq 1 ]; then
     if [ "$gitleaks_ok" -eq 1 ]; then
@@ -609,7 +614,7 @@ EOF
     return 1
   fi
 
-  info "$PROGRAM: setup ok"
+  info "$PROGRAM: setup ok (dependencies only)"
   return 0
 }
 
