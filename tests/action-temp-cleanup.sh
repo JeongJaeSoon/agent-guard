@@ -9,7 +9,9 @@ trap 'rm -rf "$CASE_ROOT"' EXIT HUP INT TERM
 BASH_BIN=$(command -v bash) || exit 1
 
 mkdir "$CASE_ROOT/bin" "$CASE_ROOT/payload"
-for dep in uname tr mktemp shasum tar mkdir mv chmod rm cp; do
+# GNU tar resolves the gzip program through PATH for -z; keep this isolated
+# fixture faithful on Linux as well as on BSD tar hosts.
+for dep in uname tr mktemp shasum tar gzip mkdir mv chmod rm cp; do
   dep_path=$(command -v "$dep") || exit 1
   ln -s "$dep_path" "$CASE_ROOT/bin/$dep"
 done
