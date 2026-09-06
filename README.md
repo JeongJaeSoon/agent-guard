@@ -571,24 +571,37 @@ agent-guard setup-shell --no-command-wrapping  # persistent opt-out
 
 For plugin installs, every execution refreshes a sibling
 `current/bin/agent-guard` symlink and `setup-shell` records only that stable
-path. Hooks and shell snippets use `current` first, then select the newest
-installed semantic-version directory if symlinks are unavailable. This keeps an
-already-running session valid when the host removes an older cache directory.
+path. Shell snippets treat a healthy `current` as authoritative even when a
+higher version directory is already cached. Only when `current` is missing or
+invalid do they recover through the newest complete cache payload whose
+directory and embedded versions agree. Relative PATH entries and symlink
+aliases cannot re-admit a rejected cache payload. This is recovery based on the
+existing `current` contract; it does not read the host plugin registry or infer
+which cached version the user selected. A newly host-selected plugin becomes
+authoritative after that plugin binary runs and safely advances `current`.
 Standalone CLI installs continue to use their stable `~/.agent-guard` /
-`~/.local/bin` paths.
+`~/.local/bin` paths and retain an independent PATH fallback.
 
-The shell resolver order is an explicit `$AGENT_GUARD_BIN`, the stable baked
-path, the newest plugin-cache version fallback, then `agent-guard` on `$PATH`.
+The managed rc block embeds this resolver. After installing a plugin version
+that changes shell resolution, rerun the plugin-local `agent-guard setup-shell`
+(preserving `--no-command-wrapping` if that is your choice), then start a new
+shell and restart Claude Code. Updating plugin files alone does not rewrite an
+older rc block. Confirm the new shell's `AGENT_GUARD_SHELL_INIT_VERSION`; do not
+assume an already-running shell changed in place.
+
+The shell resolver order is an explicit `$AGENT_GUARD_BIN`, a healthy stable
+`current` path, the newest validated plugin-cache fallback only when `current`
+is unavailable, then an independent `agent-guard` on `$PATH`.
 Both transparent wrapping and `agx` preflight dependencies and use the same
 infrastructure policy: default `open` runs the original command with one clear
 `output is NOT masked` warning per shell session; set
 `AGENT_GUARD_INFRA_FAILURE_MODE=closed` to refuse execution instead.
 
-Because the plugin (auto-updated by `claude plugin update`) and the binary the integration actually resolves update independently, updating only one side can silently leave `agx` / `!`-command masking on older rules. To catch that, the `shell-init` snippet exports `AGENT_GUARD_SHELL_INIT_VERSION` — the version of the binary it resolved at rc-eval time (whichever of the three paths above won) — and a Claude Code `SessionStart` hook compares that marker against the plugin's own version, showing a **non-blocking warning** on mismatch. Because the marker records what the integration resolved at shell start (not a re-derivation the hook would have to guess), it stays silent unless the integration is genuinely loaded *and* drifting: a user who has `agent-guard` on `$PATH` but never ran `setup-shell` gets no warning, and a plugin-only install pinned to a stale baked binary is still covered. It is a start-up snapshot, so if you upgrade the resolved binary *in place* inside a long-lived shell and then launch Claude Code from it without opening a new shell, the warning reflects the version from when that shell started until you re-source your rc.
+Because the plugin (auto-updated by `claude plugin update`) and the binary the integration actually resolves update independently, updating only one side can silently leave `agx` / `!`-command masking on older rules. To catch that, the `shell-init` snippet exports `AGENT_GUARD_SHELL_INIT_VERSION` — the version of the binary selected by the resolver at rc-eval time — and a Claude Code `SessionStart` hook compares that marker against the plugin's own version, showing a **non-blocking warning** on mismatch. Because the marker records what the integration resolved at shell start (not a re-derivation the hook would have to guess), it stays silent unless the integration is genuinely loaded *and* drifting: a user who has `agent-guard` on `$PATH` but never ran `setup-shell` gets no warning, and a plugin-only install pinned to a stale baked binary is still covered. It is a start-up snapshot, so if you upgrade the resolved binary *in place* inside a long-lived shell and then launch Claude Code from it without opening a new shell, the warning reflects the version from when that shell started until you re-source your rc.
 
 The marker can only reach the hook through the environment of the shell that **launched** Claude Code, and some launches never evaluate an rc at all: a fish (or other non-POSIX) login shell, or starting Claude Code from a GUI or IDE launcher. The wrapping is still loaded in those cases — Claude Code's own bash/zsh snapshot reads the rc — so a missing marker is not evidence that setup is missing. Before reporting `command wrapping is not loaded`, `SessionStart` therefore reads the managed block out of the rc the snapshot shell uses (`~/.bashrc` when `$SHELL` ends in `bash`, otherwise `~/.zshrc`) and checks that it can still **load** ([#139](https://github.com/JeongJaeSoon/agent-guard/issues/139)).
 
-The delimiters alone are not that proof. The block's `eval` emits nothing once the binary it resolves has disappeared — a plugin cache update or uninstall, or a hand-edited block — so neither the wrapping nor the marker is installed, and treating the delimiters as sufficient would silence the warning on exactly the sessions that are unprotected. The hook instead replays the block's own resolution order against the paths baked into it: the stable/self path, then the newest versioned binary under the plugin cache base, then `agent-guard` on `$PATH`. Those are `stat`-level checks — nothing is executed, no subshell is forked — so the three outcomes are:
+The delimiters alone are not that proof. The block's `eval` emits nothing once the binary it resolves has disappeared — a plugin cache update or uninstall, or a hand-edited block — so neither the wrapping nor the marker is installed, and treating the delimiters as sufficient would silence the warning on exactly the sessions that are unprotected. The hook instead replays the block's own resolution order against the paths baked into it: the stable/self path, then a versioned binary under the plugin cache base, then `agent-guard` on `$PATH`. Those are `stat`-level checks — nothing is executed, no subshell is forked — so they remain a diagnostic heuristic rather than proof of the runtime choice. They do not validate payload completeness and embedded-version agreement as deeply as the shell resolver or prove which binary a new shell executed. The three outcomes are:
 
 | rc state | `SessionStart` |
 | --- | --- |
