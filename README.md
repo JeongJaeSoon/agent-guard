@@ -237,13 +237,29 @@ Override install defaults with `AGENT_GUARD_VERSION`, `AGENT_GUARD_HOME`, `AGENT
 delegates to the same checksum-verified `bootstrap.sh` used for first install.
 Plugin installations must be updated by Claude Code or Codex; after a plugin
 update, rerun `agent-guard setup-shell` if the shell integration reports drift.
-The current standalone updater has a known symlink failure ([#194](https://github.com/JeongJaeSoon/agent-guard/issues/194));
-do not use it to repair an already broken installation. Preserve the existing
-installation. Test the checksum-verified bootstrap in a disposable account
-with separate `AGENT_GUARD_HOME` and `AGENT_GUARD_BIN_DIR`, then run `version`,
-`check`, and `smoke-test` there before repairing the active installation.
-The bootstrap also refreshes shell startup files; changing only its two install
-directories does not isolate that side effect.
+Standalone v3.1.1 introduced `update` with a symlink failure
+([#194](https://github.com/JeongJaeSoon/agent-guard/issues/194)). Do not use that
+version's `update` command to repair an already broken installation. A fixed
+updater preserves the public bin directory used to invoke it, validates the
+downloaded payload before extraction, and does not create a link when the
+public bin directory is the payload's own physical directory. This reduces the
+failure surface but does not make the whole installation transaction atomic.
+
+If `version` or `doctor` now fails with `Too many levels of symbolic links`,
+preserve the installation and inspect `$AGENT_GUARD_HOME/bin/agent-guard`
+(default: `$HOME/.agent-guard/bin/agent-guard`). If, and only if, that payload
+path is a symlink, move just the symlink to a backup name; do not delete the
+install directory or the public bin entry. Then rerun `bootstrap.sh` from a
+release whose notes say #194 is fixed, using the same `AGENT_GUARD_HOME` and
+`AGENT_GUARD_BIN_DIR` as the original install. Keep the backup until the public
+path passes `version`, `check`, and `smoke-test`. If the payload path is a
+regular file or directory, stop instead of moving it and report the layout in
+[#194](https://github.com/JeongJaeSoon/agent-guard/issues/194).
+
+Test recovery first with a separate temporary home, install directory, and
+public bin directory. The bootstrap also refreshes shell startup files, so
+changing only `AGENT_GUARD_HOME` and `AGENT_GUARD_BIN_DIR` does not isolate that
+side effect.
 
 Homebrew requires formulas to live in a tap. Install the published formula with:
 
