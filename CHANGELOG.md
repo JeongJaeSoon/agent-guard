@@ -1,3 +1,16 @@
+## v3.2.0 - 2026-09-06
+
+- Add an experimental, explicitly enabled pleno-anonymize PII provider with strict response validation. Remote processing remains off by default.
+- Preserve standalone executable links during updates, including legacy payload directory aliases.
+- Prefer the selected healthy shell cache and reject incomplete or redirected cache payloads. Existing shell integrations should rerun setup-shell after updating.
+- Report unavailable direct scans with exit code 3 while preserving fail-closed execution behavior.
+- Explain ambiguous Bash protected-path matches without weakening protection. Inline source expressions can still match the conservative path gate.
+- Limit the setup skill to explicit invocation and clarify what host dispatch, policy denial, dependency failures, and unobserved execution can establish.
+- Clean up GitHub Action scanner downloads after success, failure, and interruption.
+- Reject malformed or multiple remote PII response objects and avoid echoing endpoint details in provider failures.
+
+Use the README for installation, optional PII configuration, shell integration, and troubleshooting.
+
 ## v3.1.1 - 2026-09-04
 
 - feat: harden multi-host installation and release flow
