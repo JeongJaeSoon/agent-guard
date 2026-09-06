@@ -9,6 +9,9 @@ stage=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-release.XXXXXX")
 trap 'rm -rf "$stage"' EXIT INT TERM
 
 cp -R "$ROOT/plugins/agent-guard/." "$stage/"
+cp "$ROOT/README.md" "$stage/README.md"
+mkdir -p "$stage/docs"
+cp "$ROOT/docs/demo.gif" "$stage/docs/demo.gif"
 cp "$ROOT/install.sh" "$stage/install.sh"
 cp -R "$ROOT/deployment" "$stage/deployment"
 tar -C "$stage" -czf "$output" .

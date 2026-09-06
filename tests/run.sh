@@ -5049,10 +5049,11 @@ tar -xzf "$RELEASE_TARBALL_DIR/agent-guard-test.tar.gz" -C "$RELEASE_TARBALL_DIR
 if [ -x "$RELEASE_TARBALL_DIR/out/bin/agent-guard" ] \
    && [ -x "$RELEASE_TARBALL_DIR/out/install.sh" ] \
    && [ -f "$RELEASE_TARBALL_DIR/out/deployment/claude-managed-settings.example.json" ] \
-   && [ -f "$RELEASE_TARBALL_DIR/out/README.md" ]; then
-  ok "release tarball contains the CLI, installer, managed settings, and user README"
+   && cmp -s "$ROOT/README.md" "$RELEASE_TARBALL_DIR/out/README.md" \
+   && cmp -s "$ROOT/docs/demo.gif" "$RELEASE_TARBALL_DIR/out/docs/demo.gif"; then
+  ok "release tarball contains the CLI, installer, managed settings, and exact consolidated README with demo"
 else
-  not_ok "release tarball contains the CLI, installer, managed settings, and user README"
+  not_ok "release tarball contains the CLI, installer, managed settings, and exact consolidated README with demo"
 fi
 run_expect 0 "extracted release installer check resolves the archive layout" \
   sh -c 'cd "$1" && ./install.sh check' _ "$RELEASE_TARBALL_DIR/out"
