@@ -1592,6 +1592,43 @@ expect_json_status 0 "env VAR=x cmd piped (wrapped command, not bare env) is all
   '{"tool_name":"Bash","tool_input":{"command":"env FOO=bar printf %s done | cat"}}' \
   hook-pre-tool
 
+# Bash provides one opaque command string, so source/search operands that look
+# like protected paths stay blocked. These policy-only fixtures verify both the
+# actionable diagnosis and the supported structured/script alternatives; none
+# of the embedded commands is executed.
+ambiguous_bash_fixtures="$ROOT/tests/fixtures/ambiguous-bash-protected-path.json"
+ambiguous_bash_cases="$TESTTMP/ambiguous-bash-protected-path.cases"
+if jq -e 'type == "array" and length > 0' "$ambiguous_bash_fixtures" >/dev/null \
+  && jq -c '.[]' "$ambiguous_bash_fixtures" >"$ambiguous_bash_cases"; then
+  ok "ambiguous Bash protected-path fixture corpus is valid and non-empty"
+else
+  not_ok "ambiguous Bash protected-path fixture corpus is valid and non-empty"
+fi
+while IFS= read -r ambiguous_bash_fixture; do
+  ambiguous_bash_description=$(printf '%s' "$ambiguous_bash_fixture" \
+    | jq -r '.classification + ": " + .description')
+  expect_json_status "$(printf '%s' "$ambiguous_bash_fixture" | jq -r '.expected_status')" \
+    "$ambiguous_bash_description" \
+    "$(printf '%s' "$ambiguous_bash_fixture" | jq -c '.event')" \
+    hook-pre-tool
+
+  ambiguous_bash_reason=$(printf '%s' "$ambiguous_bash_fixture" \
+    | jq -r '.expected_reason // empty')
+  if [ -n "$ambiguous_bash_reason" ]; then
+    if grep -Fq "reason=$ambiguous_bash_reason" "$ERR"; then
+      ok "$ambiguous_bash_description emits a stable reason"
+    else
+      not_ok "$ambiguous_bash_description emits a stable reason"
+      sed 's/^/  stderr: /' "$ERR"
+    fi
+  elif grep -Fq 'reason=bash_protected_path_text_match' "$ERR"; then
+    not_ok "$ambiguous_bash_description does not emit the Bash path-text reason"
+    sed 's/^/  stderr: /' "$ERR"
+  else
+    ok "$ambiguous_bash_description does not emit the Bash path-text reason"
+  fi
+done <"$ambiguous_bash_cases"
+
 # Rank 7: allow explicitly named environment templates, but never a real env
 # file.
 expect_json_status 0 "Read .env.example template is allowed" \
