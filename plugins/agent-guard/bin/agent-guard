@@ -195,12 +195,19 @@ $stdin_line"
 }
 
 die() {
+  die_with_status 2 "$@"
+}
+
+die_with_status() {
+  failure_status=$1
+  shift
   info "$PROGRAM: $*"
-  exit 2
+  exit "$failure_status"
 }
 
 need_cmd() {
-  command -v "$1" >/dev/null 2>&1 || die "required command not found: $1"
+  command -v "$1" >/dev/null 2>&1 \
+    || die_with_status "${2:-2}" "required command not found: $1"
 }
 
 resolve_gitleaks() {
@@ -222,8 +229,9 @@ resolve_gitleaks() {
 
 need_gitleaks() {
   GITLEAKS_BIN=$(resolve_gitleaks) \
-    || die "required command not found: gitleaks (run: $PROGRAM setup)"
-  [ -f "$GITLEAKS_CONFIG" ] || die "gitleaks config not found: $GITLEAKS_CONFIG"
+    || die_with_status "${1:-2}" "required command not found: gitleaks (run: $PROGRAM setup)"
+  [ -f "$GITLEAKS_CONFIG" ] \
+    || die_with_status "${1:-2}" "gitleaks config not found: $GITLEAKS_CONFIG"
 }
 
 hook_dependencies_ready() {
@@ -690,10 +698,12 @@ Usage:
   agent-guard pii-filter [--check]
 
 Reads text from stdin and writes masked text to stdout.
-Set AGENT_GUARD_PII_PROVIDER=regex|http to choose a provider (default: regex).
+Set AGENT_GUARD_PII_PROVIDER=regex|http|pleno to choose a provider (default: regex).
   regex  built-in local adapter; no network access.
   http   experimental bring-your-own-endpoint adapter; needs
          AGENT_GUARD_PII_REDACT_URL; no service compatibility guarantee.
+  pleno  verified pleno-anonymize /api/redact adapter; needs
+         AGENT_GUARD_PII_REDACT_URL. AGENT_GUARD_PII_LANGUAGE defaults to en.
 EOF
 }
 
@@ -701,13 +711,13 @@ EOF
 # drift apart. Unknown values fail closed rather than reaching pass-through
 # output or an unvalidated endpoint contract.
 pii_unsupported_provider() {
-  die "pii-filter: unsupported provider: $1 (expected regex or http)"
+  die "pii-filter: unsupported provider: $1 (expected regex, http, or pleno)"
 }
 
 pii_provider() {
   provider=${AGENT_GUARD_PII_PROVIDER:-regex}
   case "$provider" in
-    regex|http) printf '%s' "$provider" ;;
+    regex|http|pleno) printf '%s' "$provider" ;;
     *) pii_unsupported_provider "$provider" ;;
   esac
 }
@@ -749,26 +759,73 @@ pii_endpoint_adapter_filter() {
   url=${AGENT_GUARD_PII_REDACT_URL:-}
   [ -n "$url" ] || die "pii-filter: AGENT_GUARD_PII_REDACT_URL is required for provider: $provider"
 
-  payload=$(jq -Rs '{text: .}') \
-    || die "pii-filter: $provider provider request serialization failed"
-  out=$(mktemp_file) || die "pii-filter: failed to create temp file"
-  if ! printf '%s' "$payload" \
-    | curl -fsS -H 'Content-Type: application/json' -d @- "$url" >"$out"; then
-    rm -f "$out"
-    die "pii-filter: $provider provider request failed: $url"
+  timeout=${AGENT_GUARD_PII_TIMEOUT_SECONDS:-30}
+  case "$timeout" in
+    ''|*[!0-9]*) die "pii-filter: AGENT_GUARD_PII_TIMEOUT_SECONDS must be a positive integer" ;;
+  esac
+  [ "$timeout" -gt 0 ] 2>/dev/null \
+    || die "pii-filter: AGENT_GUARD_PII_TIMEOUT_SECONDS must be a positive integer"
+  if [ "${AGENT_GUARD_PII_HOOK_REQUEST:-}" = 1 ] && [ "$timeout" -gt 5 ]; then
+    timeout=5
   fi
 
-  if ! jq -er '
-    if type == "object" and (.redacted_text | type == "string") then .redacted_text
-    elif type == "object" and (.anonymized_text | type == "string") then .anonymized_text
-    elif type == "object" and (.text | type == "string") then .text
-    elif type == "object" and (.data.redacted_text | type == "string") then .data.redacted_text
-    else error("missing redacted text")
-    end
-  ' "$out"; then
+  case "$provider" in
+    http)
+      payload=$(jq -Rs '{text: .}') \
+        || die "pii-filter: $provider provider request serialization failed"
+      ;;
+    pleno)
+      language=${AGENT_GUARD_PII_LANGUAGE:-en}
+      case "$language" in
+        en|ja) ;;
+        *) die "pii-filter: AGENT_GUARD_PII_LANGUAGE must be en or ja for provider: pleno" ;;
+      esac
+      payload=$(jq -Rs --arg language "$language" '{text: ., language: $language}') \
+        || die "pii-filter: $provider provider request serialization failed"
+      ;;
+    *) pii_unsupported_provider "$provider" ;;
+  esac
+  out=$(mktemp_file) || die "pii-filter: failed to create temp file"
+  if ! printf '%s' "$payload" \
+    | curl -fsS --max-time "$timeout" -H 'Content-Type: application/json' -d @- "$url" \
+      >"$out" 2>/dev/null; then
     rm -f "$out"
-    die "pii-filter: $provider provider returned invalid response; expected JSON with redacted_text, anonymized_text, text, or data.redacted_text"
+    die "pii-filter: $provider provider request failed"
   fi
+
+  case "$provider" in
+    http)
+      if ! jq -e -r -s -j '
+        if length != 1 or (.[0] | type != "object") then
+          error("expected exactly one JSON object")
+        else .[0]
+        end
+        | if (.redacted_text | type == "string") then .redacted_text
+        elif (.anonymized_text | type == "string") then .anonymized_text
+        elif (.text | type == "string") then .text
+        elif (.data.redacted_text | type == "string") then .data.redacted_text
+        else error("missing redacted text")
+        end
+      ' "$out"; then
+        rm -f "$out"
+        die "pii-filter: $provider provider returned invalid response; expected JSON with redacted_text, anonymized_text, text, or data.redacted_text"
+      fi
+      ;;
+    pleno)
+      if ! jq -e -r -s -j '
+        if length != 1 or (.[0] | type != "object") then
+          error("expected exactly one JSON object")
+        else .[0]
+        end
+        | if (.text | type == "string") then .text
+        else error("missing redacted text")
+        end
+      ' "$out"; then
+        rm -f "$out"
+        die "pii-filter: pleno provider returned invalid response; expected JSON with string text"
+      fi
+      ;;
+  esac
   rm -f "$out"
 }
 
@@ -782,7 +839,7 @@ pii_adapter_filter() {
   fi
   case "$provider" in
     regex) pii_regex_adapter_filter ;;
-    http) pii_endpoint_adapter_filter "$provider" ;;
+    http|pleno) pii_endpoint_adapter_filter "$provider" ;;
     *) pii_unsupported_provider "$provider" ;;
   esac
 }
@@ -794,7 +851,7 @@ pii_adapter_check() {
       need_cmd awk
       info "$PROGRAM: PII provider regex ok"
       ;;
-    http)
+    http|pleno)
       printf '%s' "agent-guard pii provider check" | pii_endpoint_adapter_filter "$provider" >/dev/null
       status=$?
       [ "$status" -eq 0 ] || exit "$status"
@@ -829,7 +886,7 @@ pii_filter() {
 pii_text_has_match() {
   text=$1
   [ -n "$text" ] || return 1
-  masked=$(printf '%s' "$text" | pii_adapter_filter)
+  masked=$(printf '%s' "$text" | AGENT_GUARD_PII_HOOK_REQUEST=1 pii_adapter_filter)
   status=$?
   [ "$status" -eq 0 ] || exit "$status"
   [ "$masked" != "$text" ]
@@ -1698,8 +1755,8 @@ extract_git_diff_added() {
 }
 
 scan_staged() {
-  need_cmd git
-  need_gitleaks
+  need_cmd git "$SCAN_STATUS_UNAVAILABLE"
+  need_gitleaks "$SCAN_STATUS_UNAVAILABLE"
   require_git_repo || return $?
   repo_root=$(git rev-parse --show-toplevel 2>/dev/null) \
     || return "$SCAN_STATUS_UNAVAILABLE"
@@ -1770,8 +1827,8 @@ scan_untracked_files() {
 }
 
 scan_working_tree() {
-  need_cmd git
-  need_gitleaks
+  need_cmd git "$SCAN_STATUS_UNAVAILABLE"
+  need_gitleaks "$SCAN_STATUS_UNAVAILABLE"
   require_git_repo || return $?
   repo_root=$(git rev-parse --show-toplevel 2>/dev/null) \
     || return "$SCAN_STATUS_UNAVAILABLE"
@@ -1816,7 +1873,7 @@ $unstaged"
 }
 
 scan_path() {
-  need_gitleaks
+  need_gitleaks "$SCAN_STATUS_UNAVAILABLE"
   if [ "${1:-}" = "--" ]; then
     shift
   fi

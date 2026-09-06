@@ -831,8 +831,16 @@ SUBRENDERER="$SUBMIRROR/scripts/render-submission-entry.sh"
 SUBREMOTE="$TMP_ROOT/submission-remote.git"
 mkdir -p "$SUBMIRROR"
 if git -C "$ROOT" archive HEAD | tar -x -C "$SUBMIRROR" 2>/dev/null; then
-  # Run the working-tree scripts and template under test, not HEAD's committed
-  # copies. The current worktree may not have been committed yet.
+  # Run the working-tree plugin payload, public policy mirrors, scripts, and
+  # template under test, not HEAD's committed copies. The current worktree may
+  # not have been committed yet; using only `git archive HEAD` here previously
+  # hid root/plugin policy drift until CI tested the resulting commit.
+  rm -rf "$SUBMIRROR/plugins/agent-guard"
+  mkdir -p "$SUBMIRROR/plugins/agent-guard"
+  cp -R "$PLUGIN_ROOT/." "$SUBMIRROR/plugins/agent-guard/"
+  for policy_file in README.md LICENSE PRIVACY.md SECURITY.md SUPPORT.md THIRD_PARTY_NOTICES.md; do
+    cp "$ROOT/$policy_file" "$SUBMIRROR/$policy_file"
+  done
   cp "$ROOT/scripts/validate-submission-readiness.sh" "$SUBVALIDATOR"
   cp "$ROOT/scripts/render-submission-entry.sh" "$SUBRENDERER"
   cp "$ROOT/scripts/marketplace-entry.template.json" "$SUBENTRY"
@@ -3275,6 +3283,9 @@ else
   sed 's/^/  stderr: /' "$ERR"
 fi
 
+run_expect 0 "Action installer preserves status and cleans temporary downloads" \
+  sh "$ROOT/tests/action-temp-cleanup.sh"
+
 # action.yml shell-injection regression for AGENT_GUARD_PATHS.
 INJECTION_CANARY="$TMP_ROOT/inject-canary"
 rm -f "$INJECTION_CANARY"
@@ -3403,7 +3414,7 @@ else
   sed 's/^/  stderr: /' "$ERR"
 fi
 
-if grep -q 'expected regex or http' "$ERR"; then
+if grep -q 'expected regex, http, or pleno' "$ERR"; then
   ok "pii-filter provider error lists the accepted values"
 else
   not_ok "pii-filter provider error lists the accepted values"
@@ -3437,7 +3448,7 @@ else
   sed 's/^/  stderr: /' "$ERR"
 fi
 
-if "$PLUGIN_ROOT/bin/agent-guard" pii-filter --help 2>&1 | grep -q 'AGENT_GUARD_PII_PROVIDER=regex|http'; then
+if "$PLUGIN_ROOT/bin/agent-guard" pii-filter --help 2>&1 | grep -q 'AGENT_GUARD_PII_PROVIDER=regex|http|pleno'; then
   ok "pii-filter help lists the accepted values"
 else
   not_ok "pii-filter help lists the accepted values"
@@ -3452,6 +3463,7 @@ fi
 PII_MOCK_CURL_DIR="$TMP_ROOT/pii-curl-bin"
 PII_REQUEST_FILE="$TMP_ROOT/pii-request.json"
 PII_URL_FILE="$TMP_ROOT/pii-url.txt"
+PII_TIMEOUT_FILE="$TMP_ROOT/pii-timeout.txt"
 mkdir -p "$PII_MOCK_CURL_DIR"
 cat > "$PII_MOCK_CURL_DIR/curl" <<'EOSH'
 #!/usr/bin/env sh
@@ -3464,6 +3476,12 @@ if [ -n "${PII_MOCK_CURL_URL:-}" ]; then
 fi
 while [ "$#" -gt 0 ]; do
   case "$1" in
+    --max-time)
+      shift
+      if [ -n "${PII_MOCK_CURL_TIMEOUT:-}" ]; then
+        printf '%s\n' "${1:-}" >"$PII_MOCK_CURL_TIMEOUT"
+      fi
+      ;;
     -d|--data|--data-raw|--data-binary)
       shift
       if [ "${1:-}" = "@-" ]; then
@@ -3477,9 +3495,19 @@ done
 case "${PII_MOCK_CURL_MODE:-ok}" in
   ok) printf '%s\n' '{"redacted_text":"masked by endpoint"}' ;;
   data) printf '%s\n' '{"data":{"redacted_text":"masked by nested endpoint"}}' ;;
+  pleno) printf '%s\n' '{"text":"masked by pleno","items":["replace"]}' ;;
+  empty) printf '%s\n' '{"text":""}' ;;
+  empty-response) : ;;
+  multi) printf '%s\n' '{"text":"first"}' '{"text":"second"}' ;;
+  valid-bad-json) printf '%s\n' '{"text":"first"}' 'not json' ;;
+  wrong-type) printf '%s\n' '[]' ;;
+  exact) printf '%s\n' '{"text":"exact"}' ;;
+  exact-newline) printf '%s\n' '{"text":"exact\n"}' ;;
   bad-json) printf '%s\n' 'not json' ;;
   bad-response) printf '%s\n' '{"unexpected":"value"}' ;;
   fail) printf '%s\n' 'synthetic curl failure' >&2; exit 7 ;;
+  leak-fail) printf '%s\n' 'remote error contains SYNTHETIC_REMOTE_QA_SENTINEL' >&2; exit 22 ;;
+  timeout) printf '%s\n' 'synthetic timeout' >&2; exit 28 ;;
 esac
 EOSH
 chmod +x "$PII_MOCK_CURL_DIR/curl"
@@ -3559,6 +3587,284 @@ if [ "$(cat "$PII_URL_FILE")" = "http://127.0.0.1:8080/api/redact" ]; then
   ok "pii-filter endpoint adapter uses AGENT_GUARD_PII_REDACT_URL"
 else
   not_ok "pii-filter endpoint adapter uses AGENT_GUARD_PII_REDACT_URL"
+fi
+
+rm -f "$PII_REQUEST_FILE" "$PII_TIMEOUT_FILE"
+printf '%s' 'Contact Alice at alice@example.com' \
+  | PATH="$PII_MOCK_CURL_DIR:$PATH" \
+    AGENT_GUARD_PII_PROVIDER=pleno \
+    AGENT_GUARD_PII_REDACT_URL='http://127.0.0.1:8080/api/redact' \
+    PII_MOCK_CURL_REQUEST="$PII_REQUEST_FILE" \
+    PII_MOCK_CURL_TIMEOUT="$PII_TIMEOUT_FILE" \
+    PII_MOCK_CURL_MODE=pleno \
+    "$PLUGIN_ROOT/bin/agent-guard" pii-filter \
+    >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 0 ] && [ "$(cat "$OUT")" = 'masked by pleno' ]; then
+  ok "pii-filter pleno provider uses the verified text response"
+else
+  not_ok "pii-filter pleno provider uses the verified text response (status $status)"
+  sed 's/^/  stdout: /' "$OUT"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+if jq -e \
+  '.text == "Contact Alice at alice@example.com" and .language == "en" and (keys | sort) == ["language", "text"]' \
+  "$PII_REQUEST_FILE" >/dev/null 2>&1; then
+  ok "pii-filter pleno provider sends text and explicit default language"
+else
+  not_ok "pii-filter pleno provider sends the verified request shape"
+  sed 's/^/  request: /' "$PII_REQUEST_FILE"
+fi
+if [ "$(cat "$PII_TIMEOUT_FILE")" = '30' ]; then
+  ok "pii-filter endpoint adapter applies a bounded default timeout"
+else
+  not_ok "pii-filter endpoint adapter applies a bounded default timeout"
+fi
+
+printf '%s' '山田太郎のメールはtaro@example.jpです' \
+  | PATH="$PII_MOCK_CURL_DIR:$PATH" \
+    AGENT_GUARD_PII_PROVIDER=pleno \
+    AGENT_GUARD_PII_LANGUAGE=ja \
+    AGENT_GUARD_PII_REDACT_URL='http://127.0.0.1:8080/api/redact' \
+    PII_MOCK_CURL_REQUEST="$PII_REQUEST_FILE" \
+    PII_MOCK_CURL_MODE=pleno \
+    "$PLUGIN_ROOT/bin/agent-guard" pii-filter \
+    >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 0 ] && jq -e '.language == "ja"' "$PII_REQUEST_FILE" >/dev/null 2>&1; then
+  ok "pii-filter pleno provider accepts explicit Japanese language"
+else
+  not_ok "pii-filter pleno provider accepts explicit Japanese language (status $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+rm -f "$PII_URL_FILE"
+printf '%s' 'x' \
+  | PATH="$PII_MOCK_CURL_DIR:$PATH" \
+    AGENT_GUARD_PII_PROVIDER=pleno \
+    AGENT_GUARD_PII_LANGUAGE=ko \
+    AGENT_GUARD_PII_REDACT_URL='http://127.0.0.1:8080/api/redact' \
+    PII_MOCK_CURL_URL="$PII_URL_FILE" \
+    "$PLUGIN_ROOT/bin/agent-guard" pii-filter \
+    >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ] && [ ! -s "$OUT" ] && [ ! -e "$PII_URL_FILE" ]; then
+  ok "pii-filter pleno provider rejects invalid language before network access"
+else
+  not_ok "pii-filter pleno provider rejects invalid language before network access (expected 2, got $status)"
+fi
+
+printf '%s' 'x' \
+  | PATH="$PII_MOCK_CURL_DIR:$PATH" \
+    AGENT_GUARD_PII_PROVIDER=pleno \
+    AGENT_GUARD_PII_REDACT_URL='http://127.0.0.1:8080/api/redact' \
+    PII_MOCK_CURL_MODE=empty \
+    "$PLUGIN_ROOT/bin/agent-guard" pii-filter \
+    >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 0 ] && [ "$(cat "$OUT")" = '' ]; then
+  ok "pii-filter pleno provider accepts an empty string response"
+else
+  not_ok "pii-filter pleno provider accepts an empty string response (status $status)"
+fi
+
+printf '%s' 'x' \
+  | PATH="$PII_MOCK_CURL_DIR:$PATH" \
+    AGENT_GUARD_PII_PROVIDER=pleno \
+    AGENT_GUARD_PII_REDACT_URL='http://127.0.0.1:8080/api/redact' \
+    PII_MOCK_CURL_MODE=ok \
+    "$PLUGIN_ROOT/bin/agent-guard" pii-filter \
+    >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ] && [ ! -s "$OUT" ]; then
+  ok "pii-filter pleno provider rejects generic http response aliases"
+else
+  not_ok "pii-filter pleno provider rejects generic http response aliases (expected 2, got $status)"
+fi
+
+printf '%s' 'x' \
+  | PATH="$PII_MOCK_CURL_DIR:$PATH" \
+    AGENT_GUARD_PII_PROVIDER=pleno \
+    AGENT_GUARD_PII_REDACT_URL='http://127.0.0.1:8080/api/redact' \
+    PII_MOCK_CURL_MODE=bad-json \
+    "$PLUGIN_ROOT/bin/agent-guard" pii-filter \
+    >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ] && [ ! -s "$OUT" ]; then
+  ok "pii-filter pleno provider fails closed on malformed JSON"
+else
+  not_ok "pii-filter pleno provider fails closed on malformed JSON (expected 2, got $status)"
+fi
+
+for provider in http pleno; do
+  for mode in empty-response multi valid-bad-json wrong-type; do
+    printf '%s' 'x' \
+      | PATH="$PII_MOCK_CURL_DIR:$PATH" \
+        AGENT_GUARD_PII_PROVIDER="$provider" \
+        AGENT_GUARD_PII_REDACT_URL='http://127.0.0.1:8080/api/redact' \
+        PII_MOCK_CURL_MODE="$mode" \
+        "$PLUGIN_ROOT/bin/agent-guard" pii-filter \
+        >"$OUT" 2>"$ERR"
+    status=$?
+    if [ "$status" -eq 2 ] && [ ! -s "$OUT" ]; then
+      ok "pii-filter $provider provider fails closed without partial output on $mode response"
+    else
+      not_ok "pii-filter $provider provider fails closed without partial output on $mode response (expected 2, got $status)"
+      sed 's/^/  stdout: /' "$OUT"
+      sed 's/^/  stderr: /' "$ERR"
+    fi
+  done
+done
+
+printf '%s' 'x' \
+  | PATH="$PII_MOCK_CURL_DIR:$PATH" \
+    AGENT_GUARD_PII_PROVIDER=http \
+    AGENT_GUARD_PII_REDACT_URL='http://127.0.0.1:8080/api/redact' \
+    PII_MOCK_CURL_MODE=empty \
+    "$PLUGIN_ROOT/bin/agent-guard" pii-filter \
+    >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 0 ] && [ "$(cat "$OUT")" = '' ]; then
+  ok "pii-filter http provider accepts an empty string response"
+else
+  not_ok "pii-filter http provider accepts an empty string response (status $status)"
+fi
+
+PII_EXACT_FILE="$TMP_ROOT/pii-exact.txt"
+for provider in http pleno; do
+  for mode in exact exact-newline; do
+    if [ "$mode" = exact ]; then
+      printf '%s' 'exact' >"$PII_EXACT_FILE"
+    else
+      printf 'exact\n' >"$PII_EXACT_FILE"
+    fi
+    printf '%s' 'x' \
+      | PATH="$PII_MOCK_CURL_DIR:$PATH" \
+        AGENT_GUARD_PII_PROVIDER="$provider" \
+        AGENT_GUARD_PII_REDACT_URL='http://127.0.0.1:8080/api/redact' \
+        PII_MOCK_CURL_MODE="$mode" \
+        "$PLUGIN_ROOT/bin/agent-guard" pii-filter \
+        >"$OUT" 2>"$ERR"
+    status=$?
+    if [ "$status" -eq 0 ] && cmp -s "$OUT" "$PII_EXACT_FILE"; then
+      ok "pii-filter $provider provider preserves exact response bytes for $mode text"
+    else
+      not_ok "pii-filter $provider provider preserves exact response bytes for $mode text (status $status)"
+    fi
+  done
+done
+
+PATH="$PII_MOCK_CURL_DIR:$PATH" \
+  AGENT_GUARD_PII_PROVIDER=pleno \
+  AGENT_GUARD_PII_REDACT_URL='http://127.0.0.1:8080/api/redact' \
+  PII_MOCK_CURL_MODE=pleno \
+  "$PLUGIN_ROOT/bin/agent-guard" pii-filter --check \
+  >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 0 ]; then
+  ok "pii-filter pleno provider passes endpoint check"
+else
+  not_ok "pii-filter pleno provider passes endpoint check (expected 0, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+printf '%s' '{"tool_name":"Write","tool_input":{"file_path":"note.txt","content":"Contact Alice"}}' \
+  | PATH="$PII_MOCK_CURL_DIR:$PATH" \
+    AGENT_GUARD_PII_HOOK_MODE=block \
+    AGENT_GUARD_PII_PROVIDER=pleno \
+    AGENT_GUARD_PII_TIMEOUT_SECONDS=30 \
+    AGENT_GUARD_PII_REDACT_URL='http://127.0.0.1:8080/api/redact' \
+    PII_MOCK_CURL_TIMEOUT="$PII_TIMEOUT_FILE" \
+    PII_MOCK_CURL_MODE=pleno \
+    "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool \
+    >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ] && grep -q 'blocked PII' "$ERR"; then
+  ok "PII hook block mode uses the pleno provider"
+else
+  not_ok "PII hook block mode uses the pleno provider (expected 2, got $status)"
+  sed 's/^/  stdout: /' "$OUT"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+if [ "$(cat "$PII_TIMEOUT_FILE")" = 5 ]; then
+  ok "PII hook endpoint request is capped below the host timeout"
+else
+  not_ok "PII hook endpoint request is capped below the host timeout"
+fi
+
+printf '%s' 'x' \
+  | PATH="$PII_MOCK_CURL_DIR:$PATH" \
+    AGENT_GUARD_PII_PROVIDER=pleno \
+    AGENT_GUARD_PII_TIMEOUT_SECONDS=1 \
+    AGENT_GUARD_PII_REDACT_URL='http://127.0.0.1:8080/api/redact' \
+    PII_MOCK_CURL_MODE=timeout \
+    "$PLUGIN_ROOT/bin/agent-guard" pii-filter \
+    >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ] && [ ! -s "$OUT" ]; then
+  ok "pii-filter pleno provider fails closed on timeout"
+else
+  not_ok "pii-filter pleno provider fails closed on timeout (expected 2, got $status)"
+fi
+
+printf '%s' 'x' \
+  | PATH="$PII_MOCK_CURL_DIR:$PATH" \
+    AGENT_GUARD_PII_PROVIDER=pleno \
+    AGENT_GUARD_PII_REDACT_URL='http://127.0.0.1:8080/api/redact' \
+    PII_MOCK_CURL_MODE=fail \
+    "$PLUGIN_ROOT/bin/agent-guard" pii-filter \
+    >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ] && [ ! -s "$OUT" ]; then
+  ok "pii-filter pleno provider fails closed on HTTP failure"
+else
+  not_ok "pii-filter pleno provider fails closed on HTTP failure (expected 2, got $status)"
+fi
+
+printf '%s' 'x' \
+  | PATH="$PII_MOCK_CURL_DIR:$PATH" \
+    AGENT_GUARD_PII_PROVIDER=pleno \
+    AGENT_GUARD_PII_REDACT_URL='https://user:SYNTHETIC_URL_QA_SENTINEL@example.invalid/api/redact?key=SYNTHETIC_URL_QA_SENTINEL' \
+    PII_MOCK_CURL_MODE=leak-fail \
+    "$PLUGIN_ROOT/bin/agent-guard" pii-filter \
+    >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ] \
+  && [ ! -s "$OUT" ] \
+  && grep -q 'pleno provider request failed' "$ERR" \
+  && ! grep -q 'SYNTHETIC_.*_QA_SENTINEL' "$ERR"; then
+  ok "pii-filter endpoint failure hides URL credentials and remote stderr"
+else
+  not_ok "pii-filter endpoint failure hides URL credentials and remote stderr (expected 2, got $status)"
+  sed 's/^/  stdout: /' "$OUT"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+printf '%s' 'x' \
+  | env -u AGENT_GUARD_PII_REDACT_URL AGENT_GUARD_PII_PROVIDER=pleno \
+    "$PLUGIN_ROOT/bin/agent-guard" pii-filter \
+    >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ] && [ ! -s "$OUT" ]; then
+  ok "pii-filter pleno provider fails closed when URL is missing"
+else
+  not_ok "pii-filter pleno provider fails closed when URL is missing (expected 2, got $status)"
+fi
+
+rm -f "$PII_URL_FILE"
+printf '%s' 'x' \
+  | PATH="$PII_MOCK_CURL_DIR:$PATH" \
+    AGENT_GUARD_PII_PROVIDER=pleno \
+    AGENT_GUARD_PII_TIMEOUT_SECONDS=0 \
+    AGENT_GUARD_PII_REDACT_URL='http://127.0.0.1:8080/api/redact' \
+    PII_MOCK_CURL_URL="$PII_URL_FILE" \
+    "$PLUGIN_ROOT/bin/agent-guard" pii-filter \
+    >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ] && [ ! -s "$OUT" ] && [ ! -e "$PII_URL_FILE" ]; then
+  ok "pii-filter pleno provider rejects invalid timeout before network access"
+else
+  not_ok "pii-filter pleno provider rejects invalid timeout before network access (expected 2, got $status)"
 fi
 
 PATH="$PII_MOCK_CURL_DIR:$PATH" \
@@ -4496,11 +4802,14 @@ ln -s "$(command -v awk)" "$NO_GITLEAKS_BIN/awk"
 AGENT_GUARD_GITLEAKS_BIN=/nonexistent/gitleaks PATH="$NO_GITLEAKS_BIN" \
   "$PLUGIN_ROOT/bin/agent-guard" scan-path "$CLEAN_DIR" >"$OUT" 2>"$ERR"
 status=$?
-if [ "$status" -eq 2 ]; then
-  ok "scan-path dies when gitleaks is unavailable"
+if [ "$status" -eq 3 ]; then
+  ok "scan-path reports unavailable when gitleaks is missing"
 else
-  not_ok "scan-path dies when gitleaks is unavailable (expected 2, got $status)"
+  not_ok "scan-path reports unavailable when gitleaks is missing (expected 3, got $status)"
 fi
+
+run_expect 0 "direct scan dependency statuses and recovery" \
+  "$REAL_SH" "$ROOT/tests/direct-scan-status.sh"
 
 # Reuse NO_GITLEAKS_BIN: jq must remain reachable so setup can report jq ok
 # while gitleaks is missing.

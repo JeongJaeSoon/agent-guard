@@ -80,9 +80,12 @@ policy, and template-named symlinks are checked against their resolved target.
 Template contents still undergo normal secret scanning on writes.
 
 Default processing is local, ephemeral, and has no telemetry. PII hook handling
-is off by default. Selecting the experimental `http` PII adapter sends
-the text described in [PRIVACY.md](PRIVACY.md) to the user-configured endpoint.
-Compatibility with a specific external service is not guaranteed.
+is off by default. Explicitly selecting the experimental `http` adapter or the
+`pleno` provider sends the text described in [PRIVACY.md](PRIVACY.md) to the
+user-configured endpoint. The generic `http` adapter does not guarantee
+compatibility with any specific service; `pleno` is verified only against the
+pleno-anonymize `/api/redact` contract at upstream commit
+`ba3a14bc125fd6c6eb80aa5b24c22f6b99801126`.
 
 ## Requirements and platforms
 

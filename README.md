@@ -135,11 +135,12 @@ tree. Default hook processing is local: Agent Guard has no telemetry, developer
 service, account, or analytics endpoint, and it does not retain inspected data.
 
 PII hook handling is off by default. The built-in `regex` provider stays local.
-If you explicitly select the experimental `http` adapter, text passed to
+If you explicitly select the experimental `http` adapter or the `pleno`
+provider, text passed to
 `pii-filter`—and supported tool-input text in PII `block` mode—is sent to the
 exact endpoint in `AGENT_GUARD_PII_REDACT_URL`. Review that endpoint's privacy
-and retention terms before enabling it. Agent Guard does not guarantee
-compatibility with any specific service.
+and retention terms before enabling it. The generic `http` adapter does not
+guarantee compatibility with any specific service.
 
 Dependency downloads never happen from a lifecycle hook. The guided setup asks
 before installing anything and requires a published SHA-256 for the gitleaks
@@ -217,10 +218,9 @@ agent-guard checksum
 ```
 
 Scan commands return `0` for a clean scan and `1` for a detection. Non-zero
-errors do not clear the input: `2` covers invalid arguments, scanner execution
-errors, and currently missing dependencies; `3` covers unavailable repository
-or diff access, such as `scan-staged` outside a Git work tree. Missing
-dependencies are not yet consistently classified as `3` ([#196](https://github.com/JeongJaeSoon/agent-guard/issues/196)).
+errors do not clear the input: `2` covers invalid arguments and scanner
+execution errors; `3` means the direct scan could not run because its scanner,
+scanner configuration, Git dependency, or repository state is unavailable.
 Check the error message and treat every non-zero result as uncleared.
 
 At a host hook boundary, scanner-infrastructure failures (missing dependencies,
@@ -346,6 +346,7 @@ Choose a provider with `AGENT_GUARD_PII_PROVIDER`. Accepted values are:
 
 - `regex` — the supported built-in local adapter, and the default. No network access.
 - `http` — an experimental bring-your-own-endpoint adapter. No compatibility with a specific service is guaranteed.
+- `pleno` — an opt-in adapter verified against pleno-anonymize `/api/redact`.
 
 Any other value fails closed with the accepted-value list; PII redaction never degrades to pass-through on an unrecognised provider.
 
@@ -367,6 +368,38 @@ printf '%s\n' 'Customer jane@example.com' \
 ```
 
 `http` POSTs JSON as `{"text":"..."}` and reads a redacted string from `redacted_text`, `anonymized_text`, `text`, or `data.redacted_text`. It requires `curl`, `jq`, and `AGENT_GUARD_PII_REDACT_URL`; missing tools, missing URL, HTTP errors, invalid JSON, or unexpected response shapes fail closed. This generic contract is exercised with local mock fixtures, but compatibility with a real external service is not yet part of Agent Guard's supported surface.
+
+For pleno-anonymize, run the service separately and point Agent Guard at its
+`/api/redact` endpoint:
+
+```sh
+printf '%s\n' 'Contact Alice at alice@example.com' \
+  | AGENT_GUARD_PII_PROVIDER=pleno \
+    AGENT_GUARD_PII_REDACT_URL=http://127.0.0.1:8080/api/redact \
+    AGENT_GUARD_PII_LANGUAGE=en \
+    agent-guard pii-filter
+```
+
+The `pleno` adapter was verified against upstream commit
+`ba3a14bc125fd6c6eb80aa5b24c22f6b99801126`. It sends exactly `text` and an
+explicit `language`, then accepts only a JSON object with a string `text`.
+`AGENT_GUARD_PII_LANGUAGE` accepts `en` or `ja` and defaults to `en`; this is an
+Agent Guard default, while upstream defaults to `ja`. Upstream's server default
+engine is `default`; Agent Guard does not override it. Endpoint requests have a
+30-second default timeout, configurable with a positive integer
+`AGENT_GUARD_PII_TIMEOUT_SECONDS`. Endpoint calls made by the 10-second input
+hooks are capped at 5 seconds so the CLI can fail closed before the host's hook
+deadline; a smaller configured timeout remains in effect.
+
+Agent Guard does not install, import, start, or manage pleno-anonymize, Python,
+Docker, models, or a hosted service. To test an endpoint you operate with
+synthetic English, Japanese, and clean text, run:
+
+```sh
+AGENT_GUARD_PII_INTEGRATION_PLENO=1 \
+AGENT_GUARD_PII_REDACT_URL=http://127.0.0.1:8080/api/redact \
+make test-pleno-integration
+```
 
 PII handling in hooks is off by default. Two opt-in modes:
 

@@ -46,9 +46,10 @@ The following explicit actions use the network:
   tool content.
 - The standalone `bootstrap.sh` install path downloads Agent Guard's release
   archive and checksum from this project's GitHub Releases page.
-- If the user selects the experimental `AGENT_GUARD_PII_PROVIDER=http` adapter,
-  `agent-guard pii-filter` sends the complete text provided on stdin to the
-  exact URL in `AGENT_GUARD_PII_REDACT_URL`. In
+- If the user selects the experimental `AGENT_GUARD_PII_PROVIDER=http` adapter
+  or the `AGENT_GUARD_PII_PROVIDER=pleno` adapter, `agent-guard pii-filter`
+  sends the complete text provided on stdin to the exact URL in
+  `AGENT_GUARD_PII_REDACT_URL`. In
   `AGENT_GUARD_PII_HOOK_MODE=block`, supported tool-input text is sent to that
   same endpoint to determine whether it contains PII, and so is the complete
   text of every prompt the user submits. A prompt is not a tool input: it
@@ -58,8 +59,8 @@ The following explicit actions use the network:
 
 PII hook handling defaults to `off`; the default provider is the local `regex`
 adapter. `mask` mode performs input Tier-2 detection and output masking locally,
-even if the HTTP adapter is configured. Agent Guard never chooses or enables a
-remote PII endpoint on the user's behalf.
+even if an endpoint-backed adapter is configured. Agent Guard never chooses or
+enables a remote PII endpoint on the user's behalf.
 
 ## User controls
 
