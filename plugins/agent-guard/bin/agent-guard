@@ -2951,6 +2951,7 @@ check_bash_command() {
   case "$?" in
     0)
       info "$PROGRAM: blocked shell command referencing a deny-listed path"
+      info "$PROGRAM: reason=bash_protected_path_text_match; raw Bash command text matched a protected-path pattern and may be a file operand or source/search text; command was not executed"
       exit 2
       ;;
     1) ;;
