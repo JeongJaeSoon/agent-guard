@@ -185,8 +185,8 @@ These sentinels test only whether the host dispatched PreToolUse and PostToolUse
 
 Codex may expose shell execution through a wrapping or orchestration tool such as `functions.exec`. Agent Guard cannot replace or wrap Codex's host executor; it protects only nested operations that the current Codex release dispatches to plugin hooks. Test the exact route used in the current task. If the pre-tool marker or raw fake token appears, protection is not active on that route even when the binary smoke test passes. Use a native Git hook or CI as the backstop and do not treat the plugin setup as complete for that host route.
 
-Codex loads the plugin's `skills/` directory but does not use the Claude
-`commands/` directory. Use `$setup-agent-guard` for dependency and hook setup,
+Codex loads the plugin's declared `codex-skills/` directory but does not use
+the Claude `commands/` directory. Use `$setup-agent-guard` for dependency and hook setup,
 and `$setup-shell` to install or refresh the optional shell integration. Ask
 Codex to run the binary directly for other workflows:
 
