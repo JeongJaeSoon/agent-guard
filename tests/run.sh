@@ -122,6 +122,7 @@ for file in \
   "$ROOT/scripts/build-release-tarball.sh" \
   "$ROOT/githooks/pre-commit" \
   "$PLUGIN_ROOT/scripts/gitleaks-checksum.sh" \
+  "$ROOT/tests/hook-outcome-contract.sh" \
   "$ROOT/tests/run.sh"; do
   run_expect 0 "shell syntax: $file" sh -n "$file"
 done
@@ -4773,6 +4774,8 @@ fi
 
 run_expect 0 "direct scan dependency statuses and recovery" \
   "$REAL_SH" "$ROOT/tests/direct-scan-status.sh"
+run_expect 0 "setup and manifest hook outcome contracts" \
+  "$REAL_SH" "$ROOT/tests/hook-outcome-contract.sh"
 
 # Reuse NO_GITLEAKS_BIN: jq must remain reachable so setup can report jq ok
 # while gitleaks is missing.

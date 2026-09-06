@@ -22,6 +22,10 @@ Make Agent Guard operational without silently changing the machine. Diagnose fir
    "<agent-guard-bin>" setup
    ```
 
+   `setup` and `doctor` report only local dependencies. Their
+   `host hook protection: unverified` notice is expected even when they exit
+   `0`; do not call that result runtime protection.
+
 3. If `jq` is missing, identify the available system package manager and show the exact install command. Ask for explicit user approval before running it. Do not use `sudo` unless the user explicitly approves elevated installation.
 
 4. If `gitleaks` is missing, prefer Agent Guard's private, checksum-pinned installer:
@@ -84,6 +88,30 @@ Make Agent Guard operational without silently changing the machine. Diagnose fir
    - If either probe bypasses the hook, report that route as unsupported in the current host instead of claiming successful setup.
 
 9. After dependency, enablement, or trust changes, restart the active host and run both live probes again in a new task. In Codex, plugin hooks provide the supported command boundary; do not configure Claude-specific command wrapping as a Codex setup step. In Claude Code, restart the shell and Claude Code only when the optional shell integration changed.
+
+10. Classify each exact host route from the visible host result and Agent Guard
+    hook output. Do not invent a CLI subcommand, collect settings or traces, or
+    ask the CLI to attest who made a host decision.
+    - **Host pre-hook denial:** classify this only when the host itself identifies
+      a refusal before dispatch and there is no Agent Guard hook response. This
+      is a host-reported observation; Agent Guard cannot independently verify it.
+      A generic `PreToolUse blocked` message is not enough to identify the
+      source.
+    - **Observed Guard denial:** an Agent Guard policy message and blocked probe
+      show that this hook route dispatched and denied that probe. It does not
+      prove a clean command would complete.
+    - **DEGRADED:** an Agent Guard `DEGRADED` response shows a dispatched hook
+      whose dependency or policy check could not run. It is neither a clean scan
+      nor proof of protection.
+    - **Dispatch only:** a visible response to a harmless sentinel shows only
+      that exact hook route was reached. It is not normal command completion.
+    - **Normal completion:** report this only when the hook response is observed
+      and a separate harmless command on that same route actually exits `0`.
+      Keep those two observations distinct in the report.
+    - **Unobserved/unknown:** if no Agent Guard response is visible, dispatch was
+      not observed, or the source of a generic host message is unclear, report
+      the route as unobserved/unknown. Do not count a local fixture that bypasses
+      host dispatch as a successful live probe.
 
 ## Safety And Host Boundaries
 

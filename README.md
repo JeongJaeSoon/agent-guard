@@ -708,6 +708,12 @@ plugins/agent-guard/bin/agent-guard check
 plugins/agent-guard/bin/agent-guard smoke-test
 ```
 
+`setup` and `doctor` check only local dependencies. Their
+`host hook protection: unverified (dependency checks do not observe tool
+dispatch)` notice is expected whether those checks pass or fail. A `setup ok
+(dependencies only)` result does not establish that Claude Code or Codex is
+dispatching plugin hooks.
+
 The whole `smoke-test` command must exit `0`. Its output should include
 `scan-path blocks a private-key fixture`,
 `native pre-commit hook blocks staged fixture`, and `smoke-test ok`.
@@ -744,10 +750,12 @@ forwarding their events; success at one boundary does not prove the other.
 | Symptom | Next step |
 |---|---|
 | `agent-guard` not found | Plugin-only installs do not add it to `PATH`; use the setup skill or the plugin-local executable. |
-| CLI works, host probe does not | Check plugin enablement and hook trust, reload/restart, and retry the actual tool route. Report unobserved dispatch as unverified. |
-| A host denies a read that the direct guard permits | Check the host's permission settings. A host denial before dispatch is not an Agent Guard block. If the source is unavailable, report it as unknown. Do not automatically remove deny rules. |
-| `DEGRADED` or scanner error | Run `doctor` and `check` on that installation. Repair the named dependency or policy; this is not a clean scan. |
-| Different CLI, plugin, or shell versions | Update each with its owning manager. Refresh shell setup and restart sessions. Known cache-selection behavior is tracked in [#195](https://github.com/JeongJaeSoon/agent-guard/issues/195). |
+| CLI works, host probe does not | Check plugin enablement and hook trust, reload/restart, and retry the exact tool route. Report it as unobserved/unknown; passing CLI checks are not dispatch evidence. |
+| A host denies a read that the direct guard permits | Treat a host-identified pre-dispatch refusal as host-owned, not an Agent Guard block. A generic `PreToolUse blocked` message has unknown source unless Agent Guard hook output is also visible. Do not automatically remove deny rules. |
+| An Agent Guard hook rejects the harmless probe | This is an observed Guard denial for that route. Review the reported policy match without weakening unrelated protection; it does not prove clean command completion. |
+| `DEGRADED` or scanner error | A visible Agent Guard `DEGRADED` response means the hook reached an unavailable dependency or policy. Run `doctor` and `check`; this is not a clean scan. |
+| A harmless probe receives a hook response | This is dispatch-only evidence for that route. Call it normal completion only after a separate harmless command on the same route actually exits `0`. |
+| Different CLI, plugin, or shell versions | Update each with its owning manager. If optional shell integration is used, rerun `agent-guard setup-shell` and restart the shell and host sessions. |
 | Standalone update reports a symlink loop | Follow the separate-install recovery guidance in [Direct CLI](#direct-cli); do not delete the old installation blindly. |
 | Action checksum mismatch | Match the exact gitleaks version, OS, and architecture printed by `agent-guard checksum`. |
 
