@@ -73,17 +73,16 @@ Both plugins need `jq` and `gitleaks` on your machine (`brew install jq gitleaks
 
 ## Pick an install path
 
-For a detailed Korean runbook covering installation, updates, live host probes,
-sub-agent boundaries, Git hooks, CI, rollback, and release operations, see
-[Agent Guard 설치·업데이트·동작 확인 가이드](docs/installation-verification-guide.html).
+Installation, updates, and troubleshooting are documented below. Start with
+[Verification and troubleshooting](#verification-and-troubleshooting) after setup.
 
 | Use case | Install path | Best first check |
 |---|---|---|
 | Claude Code agent guardrails | [Claude Code quick start](#claude-code) | Ask the agent to read `.env`; it should be blocked. |
 | Codex plugin guardrails | [Codex quick start](#codex) | Run `$setup-agent-guard` and require both live hook probes to pass. |
-| Codex CLI + Git backstop | [Direct CLI](#direct-cli) + [Native Git hook](#native-git-hook) | Run `agent-guard smoke-test`; commit a staged fixture secret, and it should fail. |
+| Codex CLI + Git backstop | [Direct CLI](#direct-cli) + [Native Git hook](#native-git-hook) | Run `agent-guard smoke-test`, then check the project hook installation below. |
 | Centrally managed machines | [Managed deployment](#managed-deployment) | Merge the managed settings example, have each developer run the setup commands, then ask the agent to read `.env`. |
-| Local commits | [Native Git hook](#native-git-hook) | Commit a staged fixture secret; commit should fail. |
+| Local commits | [Native Git hook](#native-git-hook) | Run `agent-guard smoke-test`, then check the project hook installation below. |
 | CI / PRs | [GitHub Actions](#github-actions) | Push a test PR with a gitleaks-detectable fixture; workflow should fail. |
 | Manual scans | [Direct CLI](#direct-cli) | Run `agent-guard smoke-test`. |
 
@@ -105,7 +104,6 @@ With a direct CLI install:
 ```sh
 agent-guard setup   # prints dependency status and install hints
 agent-guard doctor  # equivalent explicit health check for scripts and CI
-agent-guard update  # refresh a standalone install from the latest release
 agent-guard check   # strict pass/fail dependency check
 agent-guard smoke-test
 ```
@@ -218,7 +216,12 @@ agent-guard smoke-test
 agent-guard checksum
 ```
 
-Scan commands exit `0` when nothing was found, `1` when a secret was detected, and `3` when the scan could not run at all — for example `scan-staged` outside a git work tree. `3` exists so that "I looked and it was clean" is never confused with "I never got to look"; both non-zero results mean the change is not cleared. Any other non-zero status is a scanner error.
+Scan commands return `0` for a clean scan and `1` for a detection. Non-zero
+errors do not clear the input: `2` covers invalid arguments, scanner execution
+errors, and currently missing dependencies; `3` covers unavailable repository
+or diff access, such as `scan-staged` outside a Git work tree. Missing
+dependencies are not yet consistently classified as `3` ([#196](https://github.com/JeongJaeSoon/agent-guard/issues/196)).
+Check the error message and treat every non-zero result as uncleared.
 
 At a host hook boundary, scanner-infrastructure failures (missing dependencies,
 an inaccessible/non-repository workdir, or a scanner crash) follow
@@ -234,6 +237,13 @@ Override install defaults with `AGENT_GUARD_VERSION`, `AGENT_GUARD_HOME`, `AGENT
 delegates to the same checksum-verified `bootstrap.sh` used for first install.
 Plugin installations must be updated by Claude Code or Codex; after a plugin
 update, rerun `agent-guard setup-shell` if the shell integration reports drift.
+The current standalone updater has a known symlink failure ([#194](https://github.com/JeongJaeSoon/agent-guard/issues/194));
+do not use it to repair an already broken installation. Preserve the existing
+installation. Test the checksum-verified bootstrap in a disposable account
+with separate `AGENT_GUARD_HOME` and `AGENT_GUARD_BIN_DIR`, then run `version`,
+`check`, and `smoke-test` there before repairing the active installation.
+The bootstrap also refreshes shell startup files; changing only its two install
+directories does not isolate that side effect.
 
 Homebrew requires formulas to live in a tap. Install the published formula with:
 
@@ -246,33 +256,64 @@ brew install JeongJaeSoon/tap/agent-guard
 Homebrew 6 requires trust for third-party taps. Formula-scoped trust is narrower
 than trusting the entire tap and is therefore the recommended default.
 
-For tap maintainers, generate the formula from the published release checksum
-with `make formula VERSION=X.Y.Z SHA=<agent-guard-tarball-sha256>`. The checksum
-is deliberately required rather than discovered dynamically, so a tap cannot
-silently install a changed release asset.
-
 ## Managed deployment
 
-Rolling Agent Guard out to an organization takes two steps:
+Rolling Agent Guard out to an organization takes two steps: the administrator
+adds the marketplace and plugin to Claude Code's managed settings, and each
+developer runs the one-time setup commands. Developers who skip setup are
+reminded automatically at session start.
 
-1. **Administrator, once**: merge
-   [`deployment/claude-managed-settings.example.json`](deployment/claude-managed-settings.example.json)
-   into the organization's Claude Code managed settings. It registers the
-   Agent Guard marketplace pinned to a release tag and force-enables the
-   plugin for every developer.
-2. **Each developer, once per machine**: run the setup commands —
-   `agent-guard setup --install ...` for the `jq`/`gitleaks` dependencies
-   (`/agent-guard:checksum` prints the paste-ready command),
-   `/agent-guard:setup-shell` for the shell integration, then
-   `agent-guard smoke-test` to verify.
+### 1. Add the marketplace and plugin to managed settings (administrator, once)
 
-Developers who have not finished setup are reminded automatically: the
-plugin's `SessionStart` hook detects missing dependencies or a missing shell
-integration and suggests the exact setup command at session start.
+Merge the keys from
+[`deployment/claude-managed-settings.example.json`](deployment/claude-managed-settings.example.json)
+into the organization's existing managed settings instead of replacing
+unrelated settings:
 
-See [Managed deployment for Claude Code](docs/managed-deployment.md) for the
-managed settings locations, per-command details, and the automatic reminder
-behavior.
+- macOS: `/Library/Application Support/ClaudeCode/managed-settings.json`
+- Linux and WSL: `/etc/claude-code/managed-settings.json`
+
+The example registers the Agent Guard marketplace pinned to a release tag,
+force-enables the plugin for every developer, restricts the marketplace
+source, and disables automatic marketplace refreshes so version bumps stay
+intentional. The release workflow re-pins the example's `ref` on every
+release, so copy it from the matching release or tag.
+
+Marketplace sources accept a branch or tag in `ref` but not an exact commit;
+do not add `sha` beside `ref` and describe the result as commit-pinned.
+
+### 2. Run the setup commands (each developer, once per machine)
+
+Once the managed settings land, Claude Code loads the plugin automatically.
+Each developer then completes setup in a Claude Code session:
+
+1. **Dependencies** (`jq`, `gitleaks`): run `agent-guard setup` to diagnose,
+   then `agent-guard setup --install --gitleaks-version <version>
+   --gitleaks-checksum <published-sha256>` — `/agent-guard:checksum` prints
+   the paste-ready version/checksum pair. The plugin does not put
+   `agent-guard` on `PATH`; ask Claude to run the plugin-local binary.
+2. **Shell integration** (covers the unhooked `!cat`/`!head`/`!printenv`
+   path): run `/agent-guard:setup-shell`, then restart the shell and Claude
+   Code.
+3. **Verify**: `agent-guard check` and `agent-guard smoke-test`, or
+   `/agent-guard:verify` for a working-tree scan.
+
+### 3. Missing setup is suggested automatically
+
+The plugin's `SessionStart` hook checks every session start and posts a
+session message with the exact command to run:
+
+- when `jq`, `git`, `gitleaks`, or a policy file is unavailable, it reports
+  degraded protection and points at the `setup-agent-guard` skill /
+  `agent-guard setup`;
+- when the shell integration is not loaded (or its version drifted from the
+  plugin), it suggests `/agent-guard:setup-shell`.
+
+No fleet-side enforcement is required for these reminders; they ship with the
+force-enabled plugin.
+
+Codex has no separate managed path: Codex users install the plugin through
+the standard install described in the README.
 
 ## PII Filtering
 
@@ -508,7 +549,7 @@ The delimiters alone are not that proof. The block's `eval` emits nothing once t
 
 When the two readings conflict, the hook warns: a false "you need to run setup" is recoverable, a false "you are protected" is not.
 
-> **Works without the CLI on `$PATH` — but a plugin can't edit your rc.** Direct CLI bootstrap installs the default-on shell integration automatically. For a plugin-only install, run the plugin-local `agent-guard setup-shell` once — invoke it by absolute path if `agent-guard` isn't on your `$PATH`; it writes the stable `current` path — then restart your shell and any Claude Code session. See [Migrating from 3.x to 4.x](docs/migration-v4.md) for old managed blocks — 4.x rejects the 1.x flags, so stale blocks must be rewritten with one `setup-shell` run — and [Migrating from 1.x to 2.x](docs/migration-v2.md) for the historical opt-out behavior.
+> **Works without the CLI on `$PATH` — but a plugin can't edit your rc.** Direct CLI bootstrap installs the default-on shell integration automatically. For a plugin-only install, run the plugin-local `agent-guard setup-shell` once — invoke it by absolute path if `agent-guard` isn't on your `$PATH`; it writes the stable `current` path — then restart your shell and any Claude Code session. See [Upgrading older installations](#upgrading-older-installations) for removed flags and managed deployment changes.
 
 `/agent-guard:setup-shell` invokes that binary through Claude's Bash tool so a
 sandboxed session can request approval before writing the shell rc. If the host
@@ -534,7 +575,10 @@ For defense in depth, pair Agent Guard with GitHub Secret Scanning / Push Protec
 
 ## Coverage benchmark
 
-`make bench` runs a deterministic, per-channel leak-prevention benchmark against the **real** gitleaks engine, classifying each case as `blocked` / `masked` / `leaked` (plus `false-positive` for benign controls) across the read-tool, bash-read, bash-cmd, bash-output, read-output, mcp-output, and `!` bang channels. It honestly records the raw `!` channel as structurally uncovered by hooks; default command wrapping and explicit `agx` are reported as best-effort shell mitigations, not counted as hook coverage. See [`docs/benchmark.md`](docs/benchmark.md) for the channel model, latest results, and findings.
+`make bench` runs a deterministic, per-channel leak-prevention benchmark against the **real** gitleaks engine, classifying each case as `blocked` / `masked` / `leaked` (plus `false-positive` for benign controls) across the read-tool, bash-read, bash-cmd, bash-output, read-output, mcp-output, and `!` bang channels. It honestly records the raw `!` channel as structurally uncovered by hooks; default command wrapping and explicit `agx` are reported as best-effort shell mitigations, not counted as hook coverage. Results are written to `bench/results.tsv`. This is a measurement, not a
+pass/fail security gate: a completed measurement exits `0` even when a case
+leaks; failed health checks abort with `3`. Inspect the matrix. Encoding,
+chunking across calls, and native host dispatch are not proven by these cases.
 
 ## Configuration
 
@@ -594,15 +638,101 @@ Agent Guard shares its scanner implementation across Claude Code and Codex, but 
   for the optional shell integration. Claude `commands/` remain Claude-specific;
   other Codex workflows use the binary directly.
 
-## Development
+## Verification and troubleshooting
+
+Use the binary belonging to the installation you are checking. For a standalone
+install, run:
 
 ```sh
-make help
-make test
-make smoke-test
-make scan
-make scan-staged
-make checksum
+agent-guard version
+agent-guard doctor
+agent-guard check
+agent-guard smoke-test
 ```
 
-`make smoke-test` uses real `git`, `jq`, and `gitleaks` in temporary projects. `make test` is the faster deterministic routing suite and uses a mock scanner for some cases.
+From a repository clone, the equivalent commands are:
+
+```sh
+plugins/agent-guard/bin/agent-guard version
+plugins/agent-guard/bin/agent-guard doctor
+plugins/agent-guard/bin/agent-guard check
+plugins/agent-guard/bin/agent-guard smoke-test
+```
+
+The whole `smoke-test` command must exit `0`. Its output should include
+`scan-path blocks a private-key fixture`,
+`native pre-commit hook blocks staged fixture`, and `smoke-test ok`.
+Internally, the dirty scan and fixture commit must fail for the smoke test to
+pass. It creates synthetic data in a temporary repository and cleans it on
+exit; do not substitute real keys or copy hand-written key-shaped examples.
+
+Smoke exercises the CLI and a temporary hook. It does not prove that your
+project's installer ran, that an existing Git hook chain is intact, or that a
+host dispatches plugin hooks. After installing the [project hook](#native-git-hook),
+check it from that project:
+
+```sh
+git config --get core.hooksPath
+test -x githooks/pre-commit
+```
+
+The expected setting is `githooks`. Before changing an existing hook setup,
+keep a local copy of the hook; afterward compare it locally and inspect that
+the generated hook still invokes it. Confirm the next intended clean commit
+runs successfully through the chain. Do not dump provider settings or enable
+full command tracing to prove that a hook ran. Conflicting hook managers need
+an explicit integration that invokes `agent-guard scan-staged` and propagates
+failure; the installer refuses to overwrite them.
+
+For Claude Code, reload the plugin and run `/agent-guard:setup-agent-guard`;
+for Codex, start a new session and run `$setup-agent-guard`. The bundled skill
+checks the plugin-local binary and runs harmless live pre/post probes through
+the host's actual tool route. In Codex, review modified hooks in Settings > Hooks.
+A standalone binary on `PATH` is not a substitute for the installed plugin.
+Parent `Agent`/legacy `Task` calls and child tool calls depend on the host
+forwarding their events; success at one boundary does not prove the other.
+
+| Symptom | Next step |
+|---|---|
+| `agent-guard` not found | Plugin-only installs do not add it to `PATH`; use the setup skill or the plugin-local executable. |
+| CLI works, host probe does not | Check plugin enablement and hook trust, reload/restart, and retry the actual tool route. Report unobserved dispatch as unverified. |
+| A host denies a read that the direct guard permits | Check the host's permission settings. A host denial before dispatch is not an Agent Guard block. If the source is unavailable, report it as unknown. Do not automatically remove deny rules. |
+| `DEGRADED` or scanner error | Run `doctor` and `check` on that installation. Repair the named dependency or policy; this is not a clean scan. |
+| Different CLI, plugin, or shell versions | Update each with its owning manager. Refresh shell setup and restart sessions. Known cache-selection behavior is tracked in [#195](https://github.com/JeongJaeSoon/agent-guard/issues/195). |
+| Standalone update reports a symlink loop | Follow the separate-install recovery guidance in [Direct CLI](#direct-cli); do not delete the old installation blindly. |
+| Action checksum mismatch | Match the exact gitleaks version, OS, and architecture printed by `agent-guard checksum`. |
+
+Homebrew installations use `brew upgrade JeongJaeSoon/tap/agent-guard`.
+Claude plugins update through `/plugin update agent-guard@agent-guard`, followed
+by `/reload-plugins`; Codex plugins update through the host's plugin manager.
+Restart sessions, refresh shell setup where used, and repeat the relevant
+checks. Preserve a known-good version before an upgrade; host plugin versions
+must be restored through the same manager, not by editing its cache manually.
+
+When requesting support, share versions, host/tool family, event, exit status,
+and a minimal synthetic reproduction. Do not attach full settings, environment
+dumps, provider patterns, or raw traces. Tool-output masking does not sanitize
+files or reports saved separately, and a passing scan does not prove a report
+contains no sensitive data. Use [private security reporting](SECURITY.md) for
+sensitive findings.
+
+## Upgrading older installations
+
+- **1.x to 2.x:** Claude command wrapping became default-on. To opt out, run
+  `agent-guard setup-shell --no-command-wrapping`; the runtime option is
+  `AGENT_GUARD_COMMAND_WRAPPING=off`. Run setup through the plugin-local binary
+  for plugin installs, then restart the shell and Claude Code.
+- **2.x to 3.x:** `managed-install.sh`, `managed-bootstrap.sh` and its checksum
+  asset, the separate Codex managed-hook deployment, and
+  `setup-shell --prepend-path` were removed. Fleet tooling must stop fetching
+  those assets. Use [Managed deployment](#managed-deployment) for Claude and
+  the normal plugin installation for Codex. Private gitleaks installs already
+  resolve without prepending `PATH`.
+- **Legacy shell flags:** current source rejects `--claude-bang-guard`,
+  `--experimental-bang-guard`, and unknown `shell-init` arguments with exit `2`
+  and no shell snippet. Refresh old managed blocks with
+  `agent-guard setup-shell` (or `--no-command-wrapping`). Until refreshed, an
+  old invocation may load no `agx`, nudge, or command wrappers. Tool-call hooks
+  are separate. This source behavior does not imply a 4.x release was published.
+- **GitHub Actions:** update the major tag deliberately (`@v1` → `@v2` → `@v3`),
+  or pin an exact release/commit. Scanner checksum requirements remain in place.

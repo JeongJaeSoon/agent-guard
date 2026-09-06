@@ -2,7 +2,7 @@
 set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
-ENTRY="$ROOT/docs/submission/marketplace-entry.template.json"
+ENTRY="$ROOT/scripts/marketplace-entry.template.json"
 submission_sha=${AGENT_GUARD_SUBMISSION_SHA:-}
 output=${AGENT_GUARD_SUBMISSION_OUTPUT:-}
 

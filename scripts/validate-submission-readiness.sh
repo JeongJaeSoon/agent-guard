@@ -3,7 +3,7 @@ set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 PLUGIN="$ROOT/plugins/agent-guard"
-ENTRY="$ROOT/docs/submission/marketplace-entry.template.json"
+ENTRY="$ROOT/scripts/marketplace-entry.template.json"
 
 failures=0
 
@@ -52,7 +52,6 @@ done
 require_json "$PLUGIN/.claude-plugin/plugin.json"
 require_json "$PLUGIN/hooks/hooks.json"
 require_json "$ENTRY"
-require_file "$ROOT/docs/submission/claude-community/form-draft.md"
 
 for file in LICENSE PRIVACY.md SUPPORT.md THIRD_PARTY_NOTICES.md; do
   if cmp -s "$ROOT/$file" "$PLUGIN/$file"; then

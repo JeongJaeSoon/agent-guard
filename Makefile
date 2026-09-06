@@ -16,7 +16,7 @@ help:
 	@printf '  make scan-staged   Scan staged changes only.\n'
 	@printf '  make checksum [VERSION=X.Y.Z]   Fetch gitleaks-checksum for every supported OS/arch (CI typically picks linux/x64).\n'
 	@printf '  make formula VERSION=X.Y.Z SHA=<tarball-sha256>  Render a Homebrew formula for a tap.\n'
-	@printf '  make submission-check  Validate stable marketplace submission documentation and metadata.\n'
+	@printf '  make submission-check  Validate plugin disclosures and marketplace metadata.\n'
 	@printf '  make submission-artifact SHA=<merged-main-sha>  Render an optional SHA-pinned marketplace entry.\n'
 
 check:

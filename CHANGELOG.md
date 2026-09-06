@@ -387,7 +387,7 @@
 
 - feat!: simplify managed deployment to settings merge plus developer setup (#122)
 
-Breaking changes (see the [2.x to 3.x migration guide](docs/migration-v3.md)):
+Breaking changes (see the [upgrade guidance](README.md#upgrading-older-installations)):
 
 - Removed the `managed-install.sh` entrypoint and the self-contained
   `managed-bootstrap.sh`, including the `managed-bootstrap.sh` /

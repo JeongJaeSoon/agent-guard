@@ -11,14 +11,6 @@ or replacement for GitHub Secret Scanning and Push Protection.
 ## Install in Claude Code
 
 ```text
-/plugin install agent-guard@claude-plugins-official
-/reload-plugins
-```
-
-The official-marketplace command above applies only after Anthropic lists the
-plugin. Until then, install from the project's marketplace:
-
-```text
 /plugin marketplace add JeongJaeSoon/agent-guard
 /plugin install agent-guard@agent-guard
 /reload-plugins
@@ -121,5 +113,7 @@ gitleaks 8.30 or newer (recommended).
 - [License](LICENSE)
 - [Third-party notices](THIRD_PARTY_NOTICES.md)
 - [Full documentation](https://github.com/JeongJaeSoon/agent-guard#readme)
-- [Korean installation and verification guide](https://github.com/JeongJaeSoon/agent-guard/blob/main/docs/installation-verification-guide.html)
+- [Verification and troubleshooting](https://github.com/JeongJaeSoon/agent-guard#verification-and-troubleshooting)
+- [Managed deployment](https://github.com/JeongJaeSoon/agent-guard#managed-deployment)
+- [Upgrading older installations](https://github.com/JeongJaeSoon/agent-guard#upgrading-older-installations)
 - [Known limitations](https://github.com/JeongJaeSoon/agent-guard#known-limitations)
