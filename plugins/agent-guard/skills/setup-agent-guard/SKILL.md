@@ -1,6 +1,7 @@
 ---
 name: setup-agent-guard
 description: Diagnose, install, and verify Agent Guard's plugin-local binary, jq and gitleaks dependencies, the active host integration, and live hook protection. Use when Agent Guard reports degraded protection, a SessionStart warning asks for setup, plugin hooks fail or appear bypassed, or a user asks to finish or repair Agent Guard installation.
+disable-model-invocation: true
 ---
 
 # Setup Agent Guard

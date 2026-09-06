@@ -240,7 +240,11 @@ fi
 # host's live hook boundary. A standalone PATH binary or a passing binary smoke
 # test is not proof that plugin hooks are trusted or dispatched by either host.
 setup_skill="$PLUGIN_ROOT/skills/setup-agent-guard/SKILL.md"
-if grep -Fq '../../bin/agent-guard' "$setup_skill" \
+setup_skill_openai_metadata="$PLUGIN_ROOT/skills/setup-agent-guard/agents/openai.yaml"
+if grep -Fxq 'disable-model-invocation: true' "$setup_skill" \
+   && grep -Fxq '  allow_implicit_invocation: false' "$setup_skill_openai_metadata" \
+   && grep -Fq 'default_prompt: "Use $setup-agent-guard' "$setup_skill_openai_metadata" \
+   && grep -Fq '../../bin/agent-guard' "$setup_skill" \
    && grep -Fq 'Compare its `version` with the plugin binary' "$setup_skill" \
    && grep -Fq 'Identify the active host' "$setup_skill" \
    && grep -Fq 'Settings > Hooks' "$setup_skill" \
@@ -257,9 +261,9 @@ if grep -Fq '../../bin/agent-guard' "$setup_skill" \
    && grep -Fq 'run in a separate terminal' "$setup_skill" \
    && grep -Fq 'rerun the read-only' "$setup_skill" \
    && grep -Fq 'They do not prove that the host is dispatching plugin hooks' "$setup_skill"; then
-  ok "shared setup skill selects host-specific trust and live-hook layers"
+  ok "shared setup skill is explicit-only and selects host-specific trust and live-hook layers"
 else
-  not_ok "shared setup skill selects host-specific trust and live-hook layers"
+  not_ok "shared setup skill is explicit-only and selects host-specific trust and live-hook layers"
 fi
 
 for event in PreToolUse PostToolUse Stop UserPromptSubmit; do
