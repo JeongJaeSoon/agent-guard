@@ -73,6 +73,9 @@ runs:
         archive="gitleaks_${version}_${os}_${arch}.tar.gz"
         url="https://github.com/gitleaks/gitleaks/releases/download/v${version}/${archive}"
         tmp="$(mktemp -d)"
+        trap 'rm -rf -- "$tmp" || :' EXIT
+        trap 'exit 130' INT
+        trap 'exit 143' TERM
         curl -fsSL "$url" -o "$tmp/$archive"
 
         if [ -n "$checksum" ]; then
