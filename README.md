@@ -217,10 +217,9 @@ agent-guard checksum
 ```
 
 Scan commands return `0` for a clean scan and `1` for a detection. Non-zero
-errors do not clear the input: `2` covers invalid arguments, scanner execution
-errors, and currently missing dependencies; `3` covers unavailable repository
-or diff access, such as `scan-staged` outside a Git work tree. Missing
-dependencies are not yet consistently classified as `3` ([#196](https://github.com/JeongJaeSoon/agent-guard/issues/196)).
+errors do not clear the input: `2` covers invalid arguments and scanner
+execution errors; `3` means the direct scan could not run because its scanner,
+scanner configuration, Git dependency, or repository state is unavailable.
 Check the error message and treat every non-zero result as uncleared.
 
 At a host hook boundary, scanner-infrastructure failures (missing dependencies,

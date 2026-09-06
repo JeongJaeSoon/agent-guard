@@ -4459,11 +4459,14 @@ ln -s "$(command -v awk)" "$NO_GITLEAKS_BIN/awk"
 AGENT_GUARD_GITLEAKS_BIN=/nonexistent/gitleaks PATH="$NO_GITLEAKS_BIN" \
   "$PLUGIN_ROOT/bin/agent-guard" scan-path "$CLEAN_DIR" >"$OUT" 2>"$ERR"
 status=$?
-if [ "$status" -eq 2 ]; then
-  ok "scan-path dies when gitleaks is unavailable"
+if [ "$status" -eq 3 ]; then
+  ok "scan-path reports unavailable when gitleaks is missing"
 else
-  not_ok "scan-path dies when gitleaks is unavailable (expected 2, got $status)"
+  not_ok "scan-path reports unavailable when gitleaks is missing (expected 3, got $status)"
 fi
+
+run_expect 0 "direct scan dependency statuses and recovery" \
+  "$REAL_SH" "$ROOT/tests/direct-scan-status.sh"
 
 # Reuse NO_GITLEAKS_BIN: jq must remain reachable so setup can report jq ok
 # while gitleaks is missing.
