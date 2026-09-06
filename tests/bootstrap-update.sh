@@ -94,6 +94,41 @@ AGENT_GUARD_BIN_DIR="$CASE_ROOT/bin-alias" run sh "$ROOT/bootstrap.sh"
 healthy "$CASE_ROOT/bin-alias/agent-guard"
 check 'physical directory aliases cannot create executable self-links'
 
+# A legacy layout may have made the payload bin itself a symlink to the public
+# bin directory. macOS tar replaces that symlink with the archive's real bin
+# directory, so the post-extraction paths must control whether a public link is
+# needed.
+legacy_empty_home="$CASE_ROOT/legacy-empty-home"
+legacy_empty_public="$CASE_ROOT/legacy-empty-public"
+mkdir -p "$legacy_empty_home" "$legacy_empty_public"
+printf 'preserve empty public data\n' >"$legacy_empty_public/user-note"
+ln -s "$legacy_empty_public" "$legacy_empty_home/bin"
+(AGENT_GUARD_HOME="$legacy_empty_home" AGENT_GUARD_BIN_DIR="$legacy_empty_public" \
+  run sh "$ROOT/bootstrap.sh")
+[ -d "$legacy_empty_home/bin" ] && [ ! -L "$legacy_empty_home/bin" ]
+[ -f "$legacy_empty_home/bin/agent-guard" ] && [ ! -L "$legacy_empty_home/bin/agent-guard" ]
+run "$legacy_empty_public/agent-guard" version
+[ "$(readlink "$legacy_empty_public/agent-guard")" = "$legacy_empty_home/bin/agent-guard" ]
+grep -q 'preserve empty public data' "$legacy_empty_public/user-note"
+check 'replaced payload-bin alias creates the missing public executable link'
+
+legacy_stale_home="$CASE_ROOT/legacy-stale-home"
+legacy_stale_public="$CASE_ROOT/legacy-stale-public"
+legacy_external="$CASE_ROOT/legacy-external-agent-guard"
+mkdir -p "$legacy_stale_home" "$legacy_stale_public"
+printf '#!/bin/sh\nprintf stale-external\\n\n' >"$legacy_external"
+chmod +x "$legacy_external"
+legacy_external_before=$(shasum -a 256 "$legacy_external")
+ln -s "$legacy_external" "$legacy_stale_public/agent-guard"
+ln -s "$legacy_stale_public" "$legacy_stale_home/bin"
+if AGENT_GUARD_HOME="$legacy_stale_home" AGENT_GUARD_BIN_DIR="$legacy_stale_public" \
+  sh "$ROOT/bootstrap.sh" >"$CASE_ROOT/out" 2>"$CASE_ROOT/err"; then exit 1; fi
+[ -L "$legacy_stale_home/bin" ]
+[ "$(readlink "$legacy_stale_home/bin")" = "$legacy_stale_public" ]
+[ "$(readlink "$legacy_stale_public/agent-guard")" = "$legacy_external" ]
+[ "$legacy_external_before" = "$(shasum -a 256 "$legacy_external")" ]
+check 'stale public link is rejected without touching its external target or payload alias'
+
 mv "$AGENT_GUARD_HOME/install.sh" "$CASE_ROOT/external-installer"
 external_before=$(shasum -a 256 "$CASE_ROOT/external-installer")
 ln -s "$CASE_ROOT/external-installer" "$AGENT_GUARD_HOME/install.sh"

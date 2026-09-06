@@ -94,7 +94,6 @@ main() {
   mkdir -p "$BIN_DIR"
   HOME_DIR=$(CDPATH= cd -- "$HOME_DIR" && pwd -P)
   BIN_DIR=$(CDPATH= cd -- "$BIN_DIR" && pwd -P)
-  payload_bin_dir=$(CDPATH= cd -- "$HOME_DIR/bin" && pwd -P)
   # Refuse directory targets rather than copying into them or deleting data.
   [ ! -d "$HOME_DIR/bin/agent-guard" ] || die "executable destination is a directory"
   [ ! -L "$HOME_DIR/bin/agent-guard" ] || die "executable destination must not be a symlink"
@@ -102,6 +101,10 @@ main() {
   # Retain tar's replacement semantics: an existing installer symlink must be
   # replaced, not followed (or rejected partway through by BSD cp -R).
   tar -xzf "$tmp/$archive" -C "$HOME_DIR" || die "installation extraction failed"
+  # tar may replace a pre-existing HOME_DIR/bin symlink with the archive's real
+  # bin directory. Resolve it after extraction so a former alias of BIN_DIR does
+  # not make us skip creation of the public executable link.
+  payload_bin_dir=$(CDPATH= cd -- "$HOME_DIR/bin" && pwd -P)
   bin_path="$HOME_DIR/bin/agent-guard"
   if [ "$BIN_DIR" = "$payload_bin_dir" ]; then
     info "$prog: executable already lives in $BIN_DIR; no symlink needed"
