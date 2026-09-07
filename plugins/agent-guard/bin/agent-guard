@@ -739,13 +739,11 @@ pii_provider() {
   esac
 }
 
-# Tier-2 PII shapes (credit card, Amex, US SSN, Korean resident registration
-# number). Held here so the CLI masker and the hook input gate below read the
-# SAME patterns instead of two hand-kept copies that drifted apart silently.
-# They contain no backslashes, so `awk -v` passes them through unchanged.
-# mask_pii_response_json is a jq transcription of these same shapes and still
-# has to be changed alongside them; tests/run.sh drives one sample of each
-# through all three.
+# Held here so the CLI masker and the hook input gate below read the SAME
+# Tier-2 patterns instead of two hand-kept copies. They contain no backslashes,
+# so `awk -v` passes them through unchanged. mask_pii_response_json is a jq
+# transcription of the same shapes and still has to change alongside them;
+# tests/run.sh drives one sample of each through all three.
 PII_CREDIT_CARD_RE='[0-9][0-9][0-9][0-9][ -]?[0-9][0-9][0-9][0-9][ -]?[0-9][0-9][0-9][0-9][ -]?[0-9][0-9][0-9][0-9]([ -]?[0-9][0-9][0-9])?'
 PII_AMEX_RE='3[47][0-9][0-9][ -]?[0-9][0-9][0-9][0-9][0-9][0-9][ -]?[0-9][0-9][0-9][0-9][0-9]'
 PII_SSN_RE='[0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9][0-9][0-9]'
@@ -795,11 +793,10 @@ pii_endpoint_adapter_filter() {
     timeout=5
   fi
 
-  # Everything provider-specific is decided here: the request body, the response
-  # fields to accept (in priority order), and the wording of the failure. The
-  # request and the reader below are then common, so a change to the response
-  # contract — "exactly one JSON object", the string-typed requirement, the
-  # fail-closed die — cannot land for one provider and silently miss the other.
+  # Provider differences end here, so the request and reader below stay common:
+  # a change to the response contract — "exactly one JSON object", the
+  # string-typed requirement, the fail-closed die — cannot land for one provider
+  # and silently miss the other.
   case "$provider" in
     http)
       payload=$(jq -Rs '{text: .}') \

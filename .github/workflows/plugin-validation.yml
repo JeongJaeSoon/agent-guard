@@ -22,9 +22,8 @@ jobs:
           # GITHUB_TOKEN in the local git config.
           persist-credentials: false
 
-      # The test suite is NOT run here: ci.yml runs tests/run.sh on the same
-      # triggers across ubuntu and macos. This job owns the layout, marketplace,
-      # and disclosure checks that run nowhere else.
+      # No test suite here: ci.yml already runs tests/run.sh on the same
+      # triggers across ubuntu and macos. This job owns what runs nowhere else.
       - name: Validate Codex Plugin Layout
         run: scripts/validate-plugin-layout.sh --codex
 

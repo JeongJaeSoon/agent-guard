@@ -512,9 +512,9 @@ else
 fi
 
 # Must-fail control for the check above: a passing --check is only evidence if
-# --check can fail. Perturb one field per manifest in a throwaway copy of the
-# tree (never the working tree) and require a non-zero exit each time, so a
-# renderer that silently stopped covering a file cannot report success.
+# --check can fail. A renderer that silently stopped covering one of the four
+# files would otherwise report success. Perturbation happens in a throwaway
+# copy, never the working tree.
 render_check_tree="$TESTTMP/render-check"
 for target in \
   plugins/agent-guard/hooks.json \
@@ -543,14 +543,11 @@ for target in \
 done
 rm -rf "$render_check_tree"
 
-# The supported-lockfile set is spelled out in four places that have to agree:
-# the kind table in filter_lockfile_hashes, the awk lockfile_kind() used for diff
-# fragments, the find in scan_lockfiles_under, and the gitleaks allowlist path
-# regex. They are deliberately NOT deduplicated — the awk kind letters also
-# encode whether a format needs whole-file context (go.sum -> g, package-lock ->
-# P), so a shared table would be more machinery than the duplication costs, in a
-# security parser. Assert the sets match instead: adding a sixth lockfile to
-# three of the four lists fails here.
+# The four places below are deliberately NOT deduplicated: the awk kind letters
+# also encode whether a format needs whole-file context (go.sum -> g,
+# package-lock -> P), so a shared table would be more machinery than the
+# duplication costs, in a security parser. Assert the sets match instead —
+# adding a sixth lockfile to three of the four lists fails here.
 lockfile_kind_table=$(sed -n '/^filter_lockfile_hashes()/,/^}/p' "$PLUGIN_ROOT/bin/agent-guard" \
   | sed -n 's/^  *\([A-Za-z0-9.-]*\)) kind=[a-z] ;;$/\1/p' | sort)
 lockfile_awk_kind=$(sed -n "/^AWK_LOCKFILE_KIND=/,/^'\$/p" "$PLUGIN_ROOT/bin/agent-guard" \
@@ -10078,8 +10075,8 @@ fi
 
 # --- shell-init Claude command wrapping (stable, default-on overrides) --------
 # The default snippet overrides cat/head/printenv inside Claude Code. A durable
-# opt-out omits those functions. The 1.x compatibility flags are removed in
-# 4.0 and rejected outright (asserted below).
+# opt-out omits those functions. The 1.x compatibility flags were removed in
+# v3.1.0 (#167) and are rejected outright (asserted below).
 shellinit_wrap=$shellinit_auto
 if printf '%s' "$shellinit_wrap" | grep -q '__agentguard_wrap_command'; then
   ok "shell-init enables Claude command wrapping by default"
@@ -10092,7 +10089,7 @@ if printf '%s' "$shellinit_no_wrap" | grep -q '__agentguard_wrap_command'; then
 else
   ok "shell-init --no-command-wrapping omits automatic command overrides"
 fi
-# The 1.x flags are removed in 4.0: shell-init must REJECT them (exit 2, no
+# The 1.x flags were removed in v3.1.0 (#167): shell-init must REJECT them (exit 2, no
 # snippet) so a stale 1.x rc line fails loudly at eval time instead of being
 # silently reinterpreted. --definitely-unknown pins the same fix for the
 # pre-existing swallow: die inside the target substitution used to warn but
@@ -10664,7 +10661,7 @@ if grep -q 'shell-init --no-command-wrapping' "$ss_off" 2>/dev/null; then
 else
   not_ok "setup-shell persists the command-wrapping opt-out"
 fi
-# The 1.x flags are removed in 4.0: setup-shell must REJECT them and must not
+# The 1.x flags were removed in v3.1.0 (#167): setup-shell must REJECT them and must not
 # write an rc. must-fail control below: the supported opt-out flag still works.
 for ss_v1_flag in --claude-bang-guard --experimental-bang-guard; do
   ss_v1="$TESTTMP/setup-v1-${ss_v1_flag#--}.rc"

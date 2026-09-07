@@ -1,18 +1,10 @@
 #!/usr/bin/env sh
 # Render every committed hook manifest from ONE set of tables.
 #
-# Four files carry the same hook wiring and differ only in how they name the
-# binary:
-#
-#   plugins/agent-guard/hooks.json         Codex plugin  (resolver one-liner)
-#   plugins/agent-guard/hooks/hooks.json   Claude plugin (resolver one-liner)
-#   examples/codex/hooks.json              standalone Codex example
-#   examples/claude/settings.project.json  standalone Claude example
-#
-# Every event's matcher, timeout, and hook subcommand must agree across all
-# four; only the command string legitimately differs. Editing them by hand meant
-# twenty copies kept in lockstep, so this script is the single source of truth:
-# edit the tables below, run it, and commit the result.
+# Every event's matcher, timeout, and hook subcommand must agree across all four
+# manifests; only the command string legitimately differs. Editing them by hand
+# meant twenty copies kept in lockstep, so this script is the single source of
+# truth: edit the tables below, run it, and commit the result.
 #
 #   scripts/render-hook-manifests.sh          # rewrite all four manifests
 #   scripts/render-hook-manifests.sh --check  # fail if committed files drift
@@ -26,8 +18,8 @@ CLAUDE_HOOKS="$PLUGIN_ROOT/hooks/hooks.json"
 CODEX_EXAMPLE="$ROOT/examples/codex/hooks.json"
 CLAUDE_EXAMPLE="$ROOT/examples/claude/settings.project.json"
 
-# Tool matchers, per host. Shared by that host's plugin manifest and example so
-# a coverage change cannot land in one and miss the other.
+# Shared by each host's plugin manifest and its example, so a coverage change
+# cannot land in one and miss the other.
 CODEX_PRE_MATCHER='Bash|apply_patch|Agent|Task|mcp__.*'
 CODEX_POST_MATCHER='Bash|apply_patch|Agent|Task|mcp__.*'
 CLAUDE_PRE_MATCHER='Write|Edit|MultiEdit|NotebookEdit|Read|NotebookRead|Grep|Glob|Bash|WebFetch|WebSearch|apply_patch|Agent|Task|mcp__.*'
