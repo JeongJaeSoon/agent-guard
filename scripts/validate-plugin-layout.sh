@@ -286,7 +286,26 @@ validate_marketplace() {
   fi
 }
 
+# The repo root and the shipped plugin each carry their own copy of these
+# disclosures: GitHub reads the root ones, the plugin ships its own so a
+# standalone install is self-contained. They must stay byte-identical — an edit
+# to one and not the other publishes two different policies under one name.
+# SECURITY.md is deliberately NOT in this list: the plugin copy uses absolute
+# GitHub URLs because its relative README anchors do not resolve once the plugin
+# is installed outside the repo.
+validate_shared_disclosures() {
+  for doc in LICENSE PRIVACY.md SUPPORT.md THIRD_PARTY_NOTICES.md; do
+    if cmp -s "$ROOT/$doc" "$PLUGIN_ROOT/$doc"; then
+      ok "$doc is identical at the repo root and in the plugin"
+    else
+      fail "$doc is identical at the repo root and in the plugin"
+    fi
+  done
+}
+
 validate_archive() {
+  validate_shared_disclosures
+
   archive="$tmpdir/agent-guard-validation.tar.gz"
 
   "$ROOT/scripts/build-release-tarball.sh" 0.0.0 "$archive"

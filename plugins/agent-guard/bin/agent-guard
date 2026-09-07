@@ -739,14 +739,21 @@ pii_provider() {
   esac
 }
 
+# Held here so the CLI masker and the hook input gate below read the SAME
+# Tier-2 patterns instead of two hand-kept copies. They contain no backslashes,
+# so `awk -v` passes them through unchanged. mask_pii_response_json is a jq
+# transcription of the same shapes and still has to change alongside them;
+# tests/run.sh drives one sample of each through all three.
+PII_CREDIT_CARD_RE='[0-9][0-9][0-9][0-9][ -]?[0-9][0-9][0-9][0-9][ -]?[0-9][0-9][0-9][0-9][ -]?[0-9][0-9][0-9][0-9]([ -]?[0-9][0-9][0-9])?'
+PII_AMEX_RE='3[47][0-9][0-9][ -]?[0-9][0-9][0-9][0-9][0-9][0-9][ -]?[0-9][0-9][0-9][0-9][0-9]'
+PII_SSN_RE='[0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9][0-9][0-9]'
+PII_KR_RRN_RE='[0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9][0-9]'
+
 pii_regex_adapter_filter() {
   need_cmd awk
-  awk '
+  awk -v credit_card="$PII_CREDIT_CARD_RE" -v amex="$PII_AMEX_RE" \
+      -v ssn="$PII_SSN_RE" -v kr_rrn="$PII_KR_RRN_RE" '
     BEGIN {
-      credit_card = "[0-9][0-9][0-9][0-9][ -]?[0-9][0-9][0-9][0-9][ -]?[0-9][0-9][0-9][0-9][ -]?[0-9][0-9][0-9][0-9]([ -]?[0-9][0-9][0-9])?"
-      amex = "3[47][0-9][0-9][ -]?[0-9][0-9][0-9][0-9][0-9][0-9][ -]?[0-9][0-9][0-9][0-9][0-9]"
-      kr_rrn = "[0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9][0-9]"
-      ssn = "[0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9][0-9][0-9]"
       ip_addr = "[0-9][0-9]?[0-9]?[.][0-9][0-9]?[0-9]?[.][0-9][0-9]?[0-9]?[.][0-9][0-9]?[0-9]?"
       email = "[[:alnum:]_%+.-]+@[[:alnum:].-]+[.][[:alpha:]][[:alpha:]][[:alpha:]]*"
       kr_mobile = "01[0-9][ -]?[0-9][0-9][0-9][0-9][ -]?[0-9][0-9][0-9][0-9]"
@@ -786,10 +793,16 @@ pii_endpoint_adapter_filter() {
     timeout=5
   fi
 
+  # Provider differences end here, so the request and reader below stay common:
+  # a change to the response contract — "exactly one JSON object", the
+  # string-typed requirement, the fail-closed die — cannot land for one provider
+  # and silently miss the other.
   case "$provider" in
     http)
       payload=$(jq -Rs '{text: .}') \
         || die "pii-filter: $provider provider request serialization failed"
+      response_paths='[["redacted_text"],["anonymized_text"],["text"],["data","redacted_text"]]'
+      response_shape='redacted_text, anonymized_text, text, or data.redacted_text'
       ;;
     pleno)
       language=${AGENT_GUARD_PII_LANGUAGE:-en}
@@ -799,6 +812,8 @@ pii_endpoint_adapter_filter() {
       esac
       payload=$(jq -Rs --arg language "$language" '{text: ., language: $language}') \
         || die "pii-filter: $provider provider request serialization failed"
+      response_paths='[["text"]]'
+      response_shape='string text'
       ;;
     *) pii_unsupported_provider "$provider" ;;
   esac
@@ -810,39 +825,22 @@ pii_endpoint_adapter_filter() {
     die "pii-filter: $provider provider request failed"
   fi
 
-  case "$provider" in
-    http)
-      if ! jq -e -r -s -j '
-        if length != 1 or (.[0] | type != "object") then
-          error("expected exactly one JSON object")
-        else .[0]
-        end
-        | if (.redacted_text | type == "string") then .redacted_text
-        elif (.anonymized_text | type == "string") then .anonymized_text
-        elif (.text | type == "string") then .text
-        elif (.data.redacted_text | type == "string") then .data.redacted_text
-        else error("missing redacted text")
-        end
-      ' "$out"; then
-        rm -f "$out"
-        die "pii-filter: $provider provider returned invalid response; expected JSON with redacted_text, anonymized_text, text, or data.redacted_text"
-      fi
-      ;;
-    pleno)
-      if ! jq -e -r -s -j '
-        if length != 1 or (.[0] | type != "object") then
-          error("expected exactly one JSON object")
-        else .[0]
-        end
-        | if (.text | type == "string") then .text
-        else error("missing redacted text")
-        end
-      ' "$out"; then
-        rm -f "$out"
-        die "pii-filter: pleno provider returned invalid response; expected JSON with string text"
-      fi
-      ;;
-  esac
+  # `first` stops at the earliest string-typed field, so a later path is never
+  # evaluated once an earlier one matched — a response carrying both
+  # `redacted_text` and a non-object `data` still resolves instead of erroring.
+  # No match at all produces no output, which `-e` reports as a failure and the
+  # die below turns into a fail-closed refusal rather than empty "masked" text.
+  if ! jq -e -r -s -j --argjson paths "$response_paths" '
+    if length != 1 or (.[0] | type != "object") then
+      error("expected exactly one JSON object")
+    else .[0]
+    end
+    | . as $body
+    | first($paths[] as $path | $body | getpath($path) | select(type == "string"))
+  ' "$out"; then
+    rm -f "$out"
+    die "pii-filter: $provider provider returned invalid response; expected JSON with $response_shape"
+  fi
   rm -f "$out"
 }
 
@@ -922,21 +920,16 @@ pii_hook_mode() {
 # High-sensitivity ("Tier 2") PII that must never reach a tool input even in
 # mask mode: SSN, credit card, and Korean resident registration number. Detected
 # directly (provider-independent) so the input gate works for any provider, since
-# only the regex adapter exposes typed markers. These patterns mirror the Tier-2
-# rules in pii_regex_adapter_filter (CLI) and mask_pii_response_json (output); if
-# you change one, change all three. tests/run.sh drives a credit card, SSN, and
-# resident reg. no. through this gate (expect exit 2) and through the masker.
+# only the regex adapter exposes typed markers. Reads the same PII_*_RE patterns
+# the CLI masker uses; mask_pii_response_json is the jq transcription and must
+# change with them. tests/run.sh drives a credit card, SSN, and resident reg. no.
+# through this gate (expect exit 2) and through the masker.
 pii_tier2_present() {
   text=$1
   [ -n "$text" ] || return 1
   need_cmd awk
-  printf '%s' "$text" | awk '
-    BEGIN {
-      cc = "[0-9][0-9][0-9][0-9][ -]?[0-9][0-9][0-9][0-9][ -]?[0-9][0-9][0-9][0-9][ -]?[0-9][0-9][0-9][0-9]([ -]?[0-9][0-9][0-9])?"
-      amex = "3[47][0-9][0-9][ -]?[0-9][0-9][0-9][0-9][0-9][0-9][ -]?[0-9][0-9][0-9][0-9][0-9]"
-      ssn = "[0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9][0-9][0-9]"
-      rrn = "[0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9][0-9]"
-    }
+  printf '%s' "$text" | awk -v cc="$PII_CREDIT_CARD_RE" -v amex="$PII_AMEX_RE" \
+      -v ssn="$PII_SSN_RE" -v rrn="$PII_KR_RRN_RE" '
     $0 ~ cc || $0 ~ amex || $0 ~ ssn || $0 ~ rrn { found = 1 }
     END { exit (found ? 0 : 1) }
   '
