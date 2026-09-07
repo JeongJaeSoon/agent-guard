@@ -310,18 +310,10 @@ else
   not_ok "Claude explicit-only and Codex explicit-policy setup entries share canonical host guidance"
 fi
 
-for event in PreToolUse PostToolUse Stop UserPromptSubmit; do
-  claude_canonical=$(jq -r ".hooks.${event}[0].matcher" "$PLUGIN_ROOT/hooks/hooks.json")
-  codex_canonical=$(jq -r ".hooks.${event}[0].matcher" "$PLUGIN_ROOT/hooks.json")
-  claude_example=$(jq -r ".hooks.${event}[0].matcher" "$ROOT/examples/claude/settings.project.json")
-  codex_example=$(jq -r ".hooks.${event}[0].matcher" "$ROOT/examples/codex/hooks.json")
-  [ "$claude_example" = "$claude_canonical" ] \
-    && ok "$event matcher in Claude example matches Claude plugin hooks" \
-    || not_ok "$event matcher in Claude example matches Claude plugin hooks (got: $claude_example)"
-  [ "$codex_example" = "$codex_canonical" ] \
-    && ok "$event matcher in Codex example matches Codex plugin hooks" \
-    || not_ok "$event matcher in Codex example matches Codex plugin hooks (got: $codex_example)"
-done
+# The standalone examples no longer need per-field parity assertions here: they
+# are rendered from the same matcher tables as the plugin manifests, and the
+# render-hook-manifests.sh --check assertion below fails on any drift in all
+# four files at once.
 
 # Delegating work is a parent-context boundary. Both current `Agent` calls and
 # Claude's legacy `Task` alias must enter the pre/post pipeline on both hosts;
@@ -346,11 +338,12 @@ for manifest_file in \
 done
 
 # Full hook-object parity: type, timeout, and the trailing hook-* subcommand
-# must agree across all four manifests. Command STRINGS legitimately differ by
-# host (CLAUDE_PLUGIN_ROOT vs PLUGIN_ROOT vs relative/absolute paths), so only
-# the stable trailing subcommand token is compared, not the whole command. This
-# catches a copy-paste swap (e.g. Stop wired to hook-post-tool, or a 10/20
-# timeout mismatch) that the matcher-only check above misses.
+# must agree across both shipped plugin manifests. Command STRINGS legitimately
+# differ by host (CLAUDE_PLUGIN_ROOT vs PLUGIN_ROOT), so only the stable
+# trailing subcommand token is compared, not the whole command. This catches a
+# copy-paste swap (e.g. Stop wired to hook-post-tool, or a 10/20 timeout
+# mismatch) that the matcher-only check above misses, and it holds the renderer
+# itself to the contract rather than only checking the files against each other.
 hook_subcommand() {
   jq -r ".hooks.${2}[0].hooks[0].command" "$1" \
     | grep -oE 'hook-(pre-tool|post-tool|stop|user-prompt)' | tail -n1
@@ -384,29 +377,25 @@ for event in PreToolUse PostToolUse Stop UserPromptSubmit; do
     not_ok "$event command invokes $expected_sub in hooks/hooks.json (got: $claude_sub)"
   fi
 
-  for file in \
-    "$PLUGIN_ROOT/hooks.json" \
-    "$ROOT/examples/claude/settings.project.json" \
-    "$ROOT/examples/codex/hooks.json"; do
-    actual_type=$(jq -r ".hooks.${event}[0].hooks[0].type" "$file")
-    actual_timeout=$(jq -r ".hooks.${event}[0].hooks[0].timeout" "$file")
-    actual_sub=$(hook_subcommand "$file" "$event")
-    if [ "$actual_type" = "$claude_type" ]; then
-      ok "$event hook type in $file matches hooks/hooks.json"
-    else
-      not_ok "$event hook type in $file matches hooks/hooks.json (got: $actual_type)"
-    fi
-    if [ "$actual_timeout" = "$claude_timeout" ]; then
-      ok "$event timeout in $file matches hooks/hooks.json"
-    else
-      not_ok "$event timeout in $file matches hooks/hooks.json (got: $actual_timeout)"
-    fi
-    if [ "$actual_sub" = "$claude_sub" ]; then
-      ok "$event command subcommand in $file matches hooks/hooks.json"
-    else
-      not_ok "$event command subcommand in $file matches hooks/hooks.json (got: $actual_sub)"
-    fi
-  done
+  file="$PLUGIN_ROOT/hooks.json"
+  actual_type=$(jq -r ".hooks.${event}[0].hooks[0].type" "$file")
+  actual_timeout=$(jq -r ".hooks.${event}[0].hooks[0].timeout" "$file")
+  actual_sub=$(hook_subcommand "$file" "$event")
+  if [ "$actual_type" = "$claude_type" ]; then
+    ok "$event hook type in $file matches hooks/hooks.json"
+  else
+    not_ok "$event hook type in $file matches hooks/hooks.json (got: $actual_type)"
+  fi
+  if [ "$actual_timeout" = "$claude_timeout" ]; then
+    ok "$event timeout in $file matches hooks/hooks.json"
+  else
+    not_ok "$event timeout in $file matches hooks/hooks.json (got: $actual_timeout)"
+  fi
+  if [ "$actual_sub" = "$claude_sub" ]; then
+    ok "$event command subcommand in $file matches hooks/hooks.json"
+  else
+    not_ok "$event command subcommand in $file matches hooks/hooks.json (got: $actual_sub)"
+  fi
 done
 
 # SessionStart reports dependency readiness on both hosts and version drift for
@@ -424,24 +413,10 @@ codex_ss_matcher=$(jq -r '.hooks.SessionStart[0].matcher' "$PLUGIN_ROOT/hooks.js
   && ok "Codex SessionStart matcher matches the supported lifecycle set" \
   || not_ok "Codex SessionStart matcher matches the supported lifecycle set (got: $codex_ss_matcher)"
 
-# Both standalone examples must carry the same SessionStart coverage as the
-# plugin manifests: the degraded-setup warning is host-neutral, so leaving it
-# out of one host's example is a per-tool coverage gap, not a host difference.
-for file in \
-  "$ROOT/examples/claude/settings.project.json" \
-  "$ROOT/examples/codex/hooks.json"; do
-  ex_ss_matcher=$(jq -r '.hooks.SessionStart[0].matcher // empty' "$file")
-  ex_ss_timeout=$(jq -r '.hooks.SessionStart[0].hooks[0].timeout // empty' "$file")
-  ex_ss_sub=$(jq -r '.hooks.SessionStart[0].hooks[0].command // empty' "$file" \
-    | grep -oE 'hook-session-start' | tail -n1)
-  if [ "$ex_ss_matcher" = "$ss_hook_matcher" ] \
-     && [ "$ex_ss_timeout" = "$ss_hook_timeout" ] \
-     && [ "$ex_ss_sub" = "hook-session-start" ]; then
-    ok "SessionStart hook in $file matches the plugin manifests"
-  else
-    not_ok "SessionStart hook in $file matches the plugin manifests (matcher: $ex_ss_matcher, timeout: $ex_ss_timeout, sub: $ex_ss_sub)"
-  fi
-done
+# SessionStart coverage in the standalone examples is enforced by the renderer
+# --check assertion below: the degraded-setup warning is host-neutral, and both
+# examples are rendered from the same table as the plugin manifests, so an
+# example cannot lose the event without the check failing.
 case "$ss_hook_command" in
   *'CLAUDE_PLUGIN_ROOT'*'root_ok'*'r/bin/agent-guard'*'hook-session-start'*)
     ok "SessionStart command prefers the host-selected complete plugin root" ;;
@@ -535,6 +510,73 @@ if sh "$ROOT/scripts/render-hook-manifests.sh" --check >/dev/null 2>&1; then
 else
   not_ok "hook manifests match scripts/render-hook-manifests.sh output"
 fi
+
+# Must-fail control for the check above: a passing --check is only evidence if
+# --check can fail. Perturb one field per manifest in a throwaway copy of the
+# tree (never the working tree) and require a non-zero exit each time, so a
+# renderer that silently stopped covering a file cannot report success.
+render_check_tree="$TESTTMP/render-check"
+for target in \
+  plugins/agent-guard/hooks.json \
+  plugins/agent-guard/hooks/hooks.json \
+  examples/codex/hooks.json \
+  examples/claude/settings.project.json; do
+  rm -rf "$render_check_tree"
+  mkdir -p "$render_check_tree/scripts"
+  cp "$ROOT/scripts/render-hook-manifests.sh" "$render_check_tree/scripts/"
+  for copy in \
+    plugins/agent-guard/hooks.json \
+    plugins/agent-guard/hooks/hooks.json \
+    examples/codex/hooks.json \
+    examples/claude/settings.project.json; do
+    mkdir -p "$render_check_tree/$(dirname "$copy")"
+    cp "$ROOT/$copy" "$render_check_tree/$copy"
+  done
+  jq '.hooks.Stop[0].hooks[0].timeout = 99' "$ROOT/$target" \
+    >"$render_check_tree/$target.tmp" \
+    && mv "$render_check_tree/$target.tmp" "$render_check_tree/$target"
+  if sh "$render_check_tree/scripts/render-hook-manifests.sh" --check >/dev/null 2>&1; then
+    not_ok "render-hook-manifests.sh --check rejects a drifted $target"
+  else
+    ok "render-hook-manifests.sh --check rejects a drifted $target"
+  fi
+done
+rm -rf "$render_check_tree"
+
+# The supported-lockfile set is spelled out in four places that have to agree:
+# the kind table in filter_lockfile_hashes, the awk lockfile_kind() used for diff
+# fragments, the find in scan_lockfiles_under, and the gitleaks allowlist path
+# regex. They are deliberately NOT deduplicated — the awk kind letters also
+# encode whether a format needs whole-file context (go.sum -> g, package-lock ->
+# P), so a shared table would be more machinery than the duplication costs, in a
+# security parser. Assert the sets match instead: adding a sixth lockfile to
+# three of the four lists fails here.
+lockfile_kind_table=$(sed -n '/^filter_lockfile_hashes()/,/^}/p' "$PLUGIN_ROOT/bin/agent-guard" \
+  | sed -n 's/^  *\([A-Za-z0-9.-]*\)) kind=[a-z] ;;$/\1/p' | sort)
+lockfile_awk_kind=$(sed -n "/^AWK_LOCKFILE_KIND=/,/^'\$/p" "$PLUGIN_ROOT/bin/agent-guard" \
+  | sed -n 's/.*name == "\([^"]*\)".*/\1/p' | sort)
+lockfile_find_names=$(sed -n '/^scan_lockfiles_under()/,/^}/p' "$PLUGIN_ROOT/bin/agent-guard" \
+  | grep -oE '\-name [A-Za-z0-9.-]+' | sed 's/^-name //' | sort)
+lockfile_allowlist=$(awk -F'[()]' '/\(\^\|\/\)\(/ {print $4}' "$PLUGIN_ROOT/config/gitleaks.toml" \
+  | tr '|' '\n' | sed 's/\\//g' | sort)
+
+if [ -n "$lockfile_kind_table" ]; then
+  ok "lockfile kind table is non-empty (extraction still matches the source)"
+else
+  not_ok "lockfile kind table is non-empty (extraction still matches the source)"
+fi
+for other in awk_kind find_names allowlist; do
+  case "$other" in
+    awk_kind) other_set=$lockfile_awk_kind; other_label="awk lockfile_kind()" ;;
+    find_names) other_set=$lockfile_find_names; other_label="scan_lockfiles_under find" ;;
+    allowlist) other_set=$lockfile_allowlist; other_label="gitleaks.toml allowlist" ;;
+  esac
+  if [ "$other_set" = "$lockfile_kind_table" ]; then
+    ok "$other_label covers the same lockfiles as filter_lockfile_hashes"
+  else
+    not_ok "$other_label covers the same lockfiles as filter_lockfile_hashes (got: $(printf '%s' "$other_set" | tr '\n' ' '))"
+  fi
+done
 
 read_env_payload='{"tool_name":"Read","tool_input":{"file_path":".env"}}'
 # Each invocation that must WARN gets its own TMPDIR: the resolver's warn-once
