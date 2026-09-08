@@ -9382,6 +9382,9 @@ pii_expect_clean "a Luhn-invalid 16-digit order number" 'order 1234567812345678 
 pii_expect_clean "out-of-range dotted numbers" 'build 999.888.777.666'
 pii_expect_clean "a 5-part dotted version" 'ver 1.2.3.4.5'
 pii_expect_clean "an SSN shape inside a longer digit run" 'id 5123-45-67890'
+# The generic phone shape is 10-11 digits, so an unseparated numeric id longer
+# than that used to be mangled into [PII:PHONE] plus its leftover digits.
+pii_expect_clean "a 12-digit numeric id" 'id 123456789012'
 pii_expect_clean "an RRN shape inside a longer digit run" 'id 5900101-12345670'
 
 # Card numbers assembled at runtime so this test file holds no contiguous PAN.
