@@ -4634,6 +4634,106 @@ redact_tool_output() {
   exit 0
 }
 
+# --- PostToolUse: scan the path this tool call actually wrote ----------------
+# The working-tree backstop is git-shaped. `git diff` and `git ls-files --others
+# --exclude-standard` both skip ignored paths, and neither reaches past the
+# repository boundary, so a write to an ignored path, into another repository,
+# or with no repository at all landed with no backstop behind it.
+#
+# PostToolUse knows the path the tool just wrote, so that ONE file is scanned
+# directly when git would not have reached it. The scope is deliberately this
+# tool call's target and nothing else: sweeping every ignored file would report
+# the operator's own local credential files on every write, and an alert nobody
+# can act on is how a scanner gets turned off.
+
+# 10 MiB. PostToolUse gets ~20s from the host and a killed hook fails OPEN, so
+# an unbounded file is a timeout, not a scan. Over-cap follows the same
+# infrastructure policy as any other scan that could not run.
+POST_TOOL_PATH_SCAN_MAX_BYTES=10485760
+
+post_tool_write_target() {
+  case "$2" in
+    Write|Edit|MultiEdit)
+      json_value '.tool_input.file_path // .tool_input.path // empty' "$1" ;;
+    NotebookEdit)
+      json_value '.tool_input.notebook_path // .tool_input.file_path // empty' "$1" ;;
+  esac
+}
+
+# 0 = the working-tree backstop already covered this path, 1 = it did not.
+# Anything that cannot be established (no repository, a different repository, a
+# failed check) counts as NOT covered, so the direct scan runs rather than being
+# skipped on a guess.
+git_backstop_covers_path() {
+  covers_path=$1
+  covers_root=$2
+  [ -n "$covers_root" ] || return 1
+  covers_dir=$(dirname -- "$covers_path")
+  [ -d "$covers_dir" ] || return 1
+  covers_file_root=$(git -C "$covers_dir" rev-parse --show-toplevel 2>/dev/null) || return 1
+  [ "$covers_file_root" = "$covers_root" ] || return 1
+  git -C "$covers_dir" check-ignore -q -- "$covers_path" 2>/dev/null
+  [ "$?" -eq 1 ]
+}
+
+scan_write_target_path() {
+  target=$1
+  scanned_root=$2
+  [ -n "$target" ] || return 0
+  # Resolve first: a symlink parked in an ignored directory must not launder
+  # its target, and a link to a device or fifo must not become a blocking read.
+  target=$(resolve_path "$(normalize_path "$target")")
+  [ -f "$target" ] || return 0
+  git_backstop_covers_path "$target" "$scanned_root" && return 0
+
+  # An unreadable file makes `wc -c` fail and yields no count. Treating a
+  # missing count as over-cap keeps both cases on the infrastructure policy
+  # instead of silently reporting a clean scan that never happened.
+  target_bytes=$(LC_ALL=C wc -c <"$target" 2>/dev/null | tr -d '[:space:]')
+  case "$target_bytes" in
+    ''|*[!0-9]*) return "$SCAN_STATUS_UNAVAILABLE" ;;
+  esac
+  if [ "$target_bytes" -gt "$POST_TOOL_PATH_SCAN_MAX_BYTES" ]; then
+    info "$PROGRAM: $target is too large to scan within the hook timeout"
+    return "$SCAN_STATUS_UNAVAILABLE"
+  fi
+
+  target_snapshot=$(mktemp_file) || return "$SCAN_STATUS_UNAVAILABLE"
+  if cat -- "$target" >"$target_snapshot"; then
+    filter_lockfile_hashes "$target" "$target_snapshot" \
+      | run_gitleaks_stdin "file written by the tool: $target"
+    target_status=$?
+  else
+    target_status=$SCAN_STATUS_UNAVAILABLE
+  fi
+  rm -f "$target_snapshot"
+  return "$target_status"
+}
+
+scan_post_tool_write_target() {
+  input=$1
+  target=$(post_tool_write_target "$input" "$2")
+  [ -n "$target" ] || return 0
+  workdir=$3
+  (
+    [ -z "$workdir" ] || CDPATH= cd -- "$workdir" 2>/dev/null \
+      || exit "$SCAN_STATUS_UNAVAILABLE"
+    scanned_root=$(git rev-parse --show-toplevel 2>/dev/null) || scanned_root=
+    scan_write_target_path "$target" "$scanned_root"
+  )
+  case "$?" in
+    0) return 0 ;;
+    1)
+      info "$PROGRAM: the file this tool call wrote contains secret-like values"
+      exit 2
+      ;;
+    *)
+      handle_git_infrastructure_failure "$input" \
+        "$PROGRAM: the file this tool call wrote could not be scanned;"
+      ;;
+  esac
+}
+
 hook_post_tool() {
   input=$(read_stdin)
   HOOK_EVENT=PostToolUse
@@ -4671,6 +4771,8 @@ hook_post_tool() {
           ;;
       esac
     fi
+    # Second backstop for what the git-shaped one structurally cannot see.
+    scan_post_tool_write_target "$input" "$tool" "$workdir"
   fi
 
   # All matched tools: mask secret-like values (and PII, when

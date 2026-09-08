@@ -4391,6 +4391,162 @@ else
 fi
 rm -f "$POST_REPO/root-leak.txt"
 
+# --- PostToolUse scans the path this tool call actually wrote --------------
+# `git diff` and `git ls-files --others --exclude-standard` both skip ignored
+# paths, and neither reaches past the repository boundary, so the working-tree
+# backstop never looked at either write. PostToolUse knows the path the tool
+# just wrote, so exactly that one file is scanned directly.
+
+IGN_REPO="$TMP_ROOT/vcs-skipped-repo"
+OUTSIDE_DIR="$TMP_ROOT/outside-any-repo"
+mkdir -p "$IGN_REPO/vault" "$OUTSIDE_DIR"
+(
+  cd "$IGN_REPO" || exit 2
+  git init -q
+  git config user.email t@e
+  git config user.name t
+  printf '%s\n' "vault/" > .gitignore
+  printf '%s\n' "ok" > README.md
+  git add .gitignore README.md
+  git commit -q -m init
+)
+
+post_target_status() {  # $1 = session id, $2 = tool JSON, $3 = cwd
+  printf '%s' "$2" \
+    | jq -c --arg s "$1" --arg d "$3" '. + {session_id:$s, cwd:$d}' \
+    | AGENT_GUARD_HOOK_HOST=claude AGENT_GUARD_WARNING_DIR="$TESTTMP/post-target-warn" \
+        "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool >"$OUT" 2>"$ERR"
+}
+
+expect_post_target() {  # $1 = expected status, $2 = name, $3 = session, $4 = JSON, $5 = cwd
+  post_target_status "$3" "$4" "$5"
+  status=$?
+  if [ "$status" -eq "$1" ]; then
+    ok "$2"
+  else
+    not_ok "$2 (expected $1, got $status)"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+}
+
+printf '%s\n' "AGENT_GUARD_TEST_SECRET" >"$IGN_REPO/vault/creds.txt"
+expect_post_target 2 "hook-post-tool blocks a Write to a path git skips" \
+  vcs-skipped-secret \
+  '{"tool_name":"Write","tool_input":{"file_path":"vault/creds.txt"}}' "$IGN_REPO"
+
+printf '%s\n' "port = 8080" >"$IGN_REPO/vault/settings.txt"
+expect_post_target 0 "hook-post-tool allows a clean Write to a path git skips" \
+  vcs-skipped-clean \
+  '{"tool_name":"Write","tool_input":{"file_path":"vault/settings.txt"}}' "$IGN_REPO"
+
+# The marginal case the working-tree backstop cannot reach at all: the Edit
+# fragment itself was clean, but the file it landed in is not.
+expect_post_target 2 "hook-post-tool blocks an Edit whose skipped target file holds a secret" \
+  vcs-skipped-edit \
+  '{"tool_name":"Edit","tool_input":{"file_path":"vault/creds.txt","new_string":"port = 8080"}}' \
+  "$IGN_REPO"
+
+# A tracked, non-ignored file stays on the existing working-tree path: the
+# whole file is not re-scanned, so committed content is not re-reported.
+printf '%s\n' "AGENT_GUARD_TEST_SECRET" >"$IGN_REPO/legacy.txt"
+(
+  cd "$IGN_REPO" || exit 2
+  git add legacy.txt
+  git commit -q -m legacy
+)
+expect_post_target 0 "hook-post-tool leaves committed tracked content to the working-tree backstop" \
+  vcs-tracked-committed \
+  '{"tool_name":"Write","tool_input":{"file_path":"legacy.txt"}}' "$IGN_REPO"
+
+# A symlink inside a skipped directory must not launder the target.
+printf '%s\n' "AGENT_GUARD_TEST_SECRET" >"$OUTSIDE_DIR/linked-secret.txt"
+ln -sf "$OUTSIDE_DIR/linked-secret.txt" "$IGN_REPO/vault/link.txt"
+expect_post_target 2 "hook-post-tool follows a symlink out of a skipped directory" \
+  vcs-skipped-symlink \
+  '{"tool_name":"Write","tool_input":{"file_path":"vault/link.txt"}}' "$IGN_REPO"
+
+printf '%s\n' "AGENT_GUARD_TEST_SECRET" >"$OUTSIDE_DIR/leak.txt"
+expect_post_target 2 "hook-post-tool blocks a Write outside any git repository" \
+  outside-repo-secret \
+  "$(jq -nc --arg p "$OUTSIDE_DIR/leak.txt" \
+      '{tool_name:"Write",tool_input:{file_path:$p}}')" "$OUTSIDE_DIR"
+
+printf '%s\n' "port = 8080" >"$OUTSIDE_DIR/clean.txt"
+expect_post_target 0 "hook-post-tool allows a clean Write outside any git repository" \
+  outside-repo-clean \
+  "$(jq -nc --arg p "$OUTSIDE_DIR/clean.txt" \
+      '{tool_name:"Write",tool_input:{file_path:$p}}')" "$OUTSIDE_DIR"
+
+# A write into a *different* repository is outside the scanned work tree too.
+OTHER_REPO="$TMP_ROOT/other-repo"
+mkdir -p "$OTHER_REPO"
+(
+  cd "$OTHER_REPO" || exit 2
+  git init -q
+  git config user.email t@e
+  git config user.name t
+)
+printf '%s\n' "AGENT_GUARD_TEST_SECRET" >"$OTHER_REPO/leak.txt"
+expect_post_target 2 "hook-post-tool blocks a Write into a different repository" \
+  other-repo-secret \
+  "$(jq -nc --arg p "$OTHER_REPO/leak.txt" \
+      '{tool_name:"Write",tool_input:{file_path:$p}}')" "$IGN_REPO"
+
+# A path the tool never created, and a non-regular target, stay silent.
+(
+  cd "$OUTSIDE_DIR" || exit 2
+  printf '%s' '{"tool_name":"Write","tool_input":{"file_path":"never-written.txt"}}' \
+    | "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool >"$OUT" 2>"$ERR"
+)
+status=$?
+if [ "$status" -eq 0 ] && [ ! -s "$ERR" ]; then
+  ok "hook-post-tool stays silent when the written path does not exist"
+else
+  not_ok "hook-post-tool stays silent for a missing written path (expected 0 + empty stderr, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+ln -sf /dev/null "$OUTSIDE_DIR/device-link.txt"
+expect_post_target 0 "hook-post-tool skips a written path that is not a regular file" \
+  outside-repo-device \
+  "$(jq -nc --arg p "$OUTSIDE_DIR/device-link.txt" \
+      '{tool_name:"Write",tool_input:{file_path:$p}}')" "$OUTSIDE_DIR"
+
+# An unscannable target is an infrastructure failure, not a pass: it follows
+# AGENT_GUARD_INFRA_FAILURE_MODE like every other scanner outage.
+printf '%s\n' "AGENT_GUARD_TEST_SECRET" >"$OUTSIDE_DIR/unreadable.txt"
+chmod 000 "$OUTSIDE_DIR/unreadable.txt"
+if [ -r "$OUTSIDE_DIR/unreadable.txt" ]; then
+  say "# skipping unreadable written-path policy checks (file stayed readable)"
+else
+  unreadable_json=$(jq -nc --arg p "$OUTSIDE_DIR/unreadable.txt" --arg d "$OUTSIDE_DIR" \
+    '{session_id:"unreadable-open",tool_name:"Write",tool_input:{file_path:$p},cwd:$d}')
+  printf '%s' "$unreadable_json" \
+    | AGENT_GUARD_HOOK_HOST=claude AGENT_GUARD_INFRA_FAILURE_MODE=open \
+        AGENT_GUARD_WARNING_DIR="$TESTTMP/post-target-warn" \
+        "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool >"$OUT" 2>"$ERR"
+  status=$?
+  if [ "$status" -eq 0 ] && grep -q 'AGENT_GUARD_INFRA_FAILURE_MODE=open' "$ERR"; then
+    ok "hook-post-tool continues on an unscannable written path when the policy is open"
+  else
+    not_ok "hook-post-tool open policy on an unscannable written path (expected 0 + notice, got $status)"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+  printf '%s' "$unreadable_json" \
+    | jq -c '.session_id = "unreadable-closed"' \
+    | AGENT_GUARD_HOOK_HOST=claude AGENT_GUARD_INFRA_FAILURE_MODE=closed \
+        AGENT_GUARD_WARNING_DIR="$TESTTMP/post-target-warn" \
+        "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool >"$OUT" 2>"$ERR"
+  status=$?
+  if [ "$status" -eq 2 ]; then
+    ok "hook-post-tool blocks an unscannable written path when the policy is closed"
+  else
+    not_ok "hook-post-tool closed policy on an unscannable written path (expected 2, got $status)"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+  chmod 644 "$OUTSIDE_DIR/unreadable.txt"
+fi
+
 # A failed git diff means the scanner did not run. Direct scan commands expose
 # status 3 so hook callers can apply the configured infrastructure policy.
 DIFF_FAIL_BIN="$TESTTMP/diff-fail-bin"
