@@ -744,17 +744,79 @@ pii_provider() {
 # so `awk -v` passes them through unchanged. mask_pii_response_json is a jq
 # transcription of the same shapes and still has to change alongside them;
 # tests/run.sh drives one sample of each through all three.
-PII_CREDIT_CARD_RE='[0-9][0-9][0-9][0-9][ -]?[0-9][0-9][0-9][0-9][ -]?[0-9][0-9][0-9][0-9][ -]?[0-9][0-9][0-9][0-9]([ -]?[0-9][0-9][0-9])?'
+# The 19-digit PAN is a separate pattern rather than an optional tail group:
+# greedy matching would otherwise swallow a following 3-digit number, fail Luhn
+# on the 19 digits, and lose the valid 16-digit card inside it. Longest first.
+PII_CREDIT_CARD_RE='[0-9][0-9][0-9][0-9][ -]?[0-9][0-9][0-9][0-9][ -]?[0-9][0-9][0-9][0-9][ -]?[0-9][0-9][0-9][0-9]'
+PII_CREDIT_CARD19_RE="$PII_CREDIT_CARD_RE"'[ -]?[0-9][0-9][0-9]'
 PII_AMEX_RE='3[47][0-9][0-9][ -]?[0-9][0-9][0-9][0-9][0-9][0-9][ -]?[0-9][0-9][0-9][0-9][0-9]'
 PII_SSN_RE='[0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9][0-9][0-9]'
 PII_KR_RRN_RE='[0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9][0-9]'
+PII_IPV4_RE='(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])([.](25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9]))([.](25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9]))([.](25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9]))'
+
+# awk has no \b and its gsub() cannot veto an individual match, so every
+# validated pattern goes through mask_re(): it walks matches left to right,
+# requires non-digit boundaries, and lets a validator reject a candidate. That
+# is what keeps epoch-nanosecond timestamps and Snowflake ids — card-shaped but
+# unbounded and Luhn-invalid — out of the Tier-2 verdict. Shared verbatim by
+# pii_regex_adapter_filter and pii_tier2_present; mask_pii_response_json is the
+# jq transcription (Oniguruma lookaround in place of the boundary checks) and
+# must change alongside it. tests/run.sh drives every case through all three.
+PII_AWK_LIB='
+function tail2(s) { return (length(s) > 2) ? substr(s, length(s) - 1) : s }
+function luhn(s,   i, d, sum, alt) {
+  gsub(/[^0-9]/, "", s)
+  sum = 0; alt = 0
+  for (i = length(s); i >= 1; i--) {
+    d = substr(s, i, 1) + 0
+    if (alt) { d *= 2; if (d > 9) { d -= 9 } }
+    sum += d
+    alt = !alt
+  }
+  return (length(s) > 0 && sum % 10 == 0)
+}
+function pii_bounded(kind, before, after) {
+  if (kind == "ipv4") { return (before !~ /[0-9][.]?$/ && after !~ /^[.]?[0-9]/) }
+  return (before !~ /[0-9]$/ && after !~ /^[0-9]/)
+}
+function mask_re(s, re, repl, kind,   out, pre, m, after, skip) {
+  out = ""
+  while (match(s, re)) {
+    pre = substr(s, 1, RSTART - 1)
+    m = substr(s, RSTART, RLENGTH)
+    after = substr(s, RSTART + RLENGTH)
+    if (pii_bounded(kind, tail2(tail2(out) pre), after) \
+        && (kind != "luhn" || luhn(m))) {
+      out = out pre repl
+      s = after
+    } else {
+      # A rejected candidate cannot start again inside its own leading digit
+      # run: every position in there has a digit in front of it, which the
+      # boundary rule refuses. Skip the whole run, not one character.
+      skip = match(m, /^[0-9]+/) ? RLENGTH : 1
+      out = out pre substr(m, 1, skip)
+      s = substr(m, skip + 1) after
+    }
+  }
+  return out s
+}
+function mask_tier2(s) {
+  s = mask_re(s, CC19_RE, "[PII:CREDIT_CARD]", "luhn")
+  s = mask_re(s, CC16_RE, "[PII:CREDIT_CARD]", "luhn")
+  s = mask_re(s, AMEX_RE, "[PII:CREDIT_CARD]", "luhn")
+  s = mask_re(s, KR_RRN_RE, "[PII:KR_RRN]", "digits")
+  s = mask_re(s, SSN_RE, "[PII:SSN]", "digits")
+  return s
+}
+'
 
 pii_regex_adapter_filter() {
   need_cmd awk
-  awk -v credit_card="$PII_CREDIT_CARD_RE" -v amex="$PII_AMEX_RE" \
-      -v ssn="$PII_SSN_RE" -v kr_rrn="$PII_KR_RRN_RE" '
+  awk -v CC16_RE="$PII_CREDIT_CARD_RE" -v CC19_RE="$PII_CREDIT_CARD19_RE" \
+      -v AMEX_RE="$PII_AMEX_RE" -v SSN_RE="$PII_SSN_RE" \
+      -v KR_RRN_RE="$PII_KR_RRN_RE" -v IPV4_RE="$PII_IPV4_RE" \
+      "$PII_AWK_LIB"'
     BEGIN {
-      ip_addr = "[0-9][0-9]?[0-9]?[.][0-9][0-9]?[0-9]?[.][0-9][0-9]?[0-9]?[.][0-9][0-9]?[0-9]?"
       email = "[[:alnum:]_%+.-]+@[[:alnum:].-]+[.][[:alpha:]][[:alpha:]][[:alpha:]]*"
       kr_mobile = "01[0-9][ -]?[0-9][0-9][0-9][0-9][ -]?[0-9][0-9][0-9][0-9]"
       phone = "([+]?[0-9][ .-]?)?([(][0-9][0-9][0-9][)]|[0-9][0-9][0-9])[ .-]?[0-9][0-9][0-9][ .-]?[0-9][0-9][0-9][0-9]"
@@ -763,15 +825,15 @@ pii_regex_adapter_filter() {
       if (NR > 1) {
         printf "%s", ORS
       }
-      gsub(credit_card, "[PII:CREDIT_CARD]")
-      gsub(amex, "[PII:CREDIT_CARD]")
-      gsub(kr_rrn, "[PII:KR_RRN]")
-      gsub(ssn, "[PII:SSN]")
-      gsub(ip_addr, "[PII:IP_ADDRESS]")
-      gsub(email, "[PII:EMAIL]")
-      gsub(kr_mobile, "[PII:PHONE]")
-      gsub(phone, "[PII:PHONE]")
-      printf "%s", $0
+      line = mask_tier2($0)
+      line = mask_re(line, IPV4_RE, "[PII:IP_ADDRESS]", "ipv4")
+      gsub(email, "[PII:EMAIL]", line)
+      # Phone needs the same digit boundary: without it the generic 3-3-4 shape
+      # matches the first 10 digits of any long numeric id, which the credit
+      # card false positive used to hide.
+      line = mask_re(line, kr_mobile, "[PII:PHONE]", "digits")
+      line = mask_re(line, phone, "[PII:PHONE]", "digits")
+      printf "%s", line
     }
   '
 }
@@ -928,9 +990,11 @@ pii_tier2_present() {
   text=$1
   [ -n "$text" ] || return 1
   need_cmd awk
-  printf '%s' "$text" | awk -v cc="$PII_CREDIT_CARD_RE" -v amex="$PII_AMEX_RE" \
-      -v ssn="$PII_SSN_RE" -v rrn="$PII_KR_RRN_RE" '
-    $0 ~ cc || $0 ~ amex || $0 ~ ssn || $0 ~ rrn { found = 1 }
+  printf '%s' "$text" | awk -v CC16_RE="$PII_CREDIT_CARD_RE" \
+      -v CC19_RE="$PII_CREDIT_CARD19_RE" -v AMEX_RE="$PII_AMEX_RE" \
+      -v SSN_RE="$PII_SSN_RE" -v KR_RRN_RE="$PII_KR_RRN_RE" \
+      "$PII_AWK_LIB"'
+    mask_tier2($0) != $0 { found = 1 }
     END { exit (found ? 0 : 1) }
   '
 }
@@ -4310,23 +4374,40 @@ redact_response_whole_leaf_fail_closed() {
 # original shape. The regex patterns mirror pii_regex_adapter_filter (the CLI
 # adapter) so the hook and `agent-guard pii-filter` mask the same things; Tier-2
 # (credit card / KR resident reg. no. / SSN) is masked first so a Tier-1 pattern
-# can't shadow it, and KR mobile before the generic phone pattern. Like the
+# can't shadow it, and KR mobile before the generic phone pattern. Oniguruma
+# lookaround stands in for the digit boundaries mask_re() checks by hand in awk,
+# and the Luhn filter for cards is the same rule expressed as a conditional
+# gsub replacement — both must change with PII_AWK_LIB. Like the
 # secret redactor, this masks string VALUES only — object KEYS are left as-is
 # (masking keys risks collapsing distinct keys onto one placeholder); PII in a
 # JSON key is a documented limitation (README). Prints the masked JSON, or
-# nothing on failure (e.g. a jq build without Oniguruma gsub).
+# nothing on failure (e.g. a jq build without Oniguruma gsub, or one whose
+# Oniguruma lacks the lookbehind the boundaries need) — the caller then leaves
+# the response unmasked. Only masking degrades that way: the input hard-block
+# gate is the awk path, which needs no regex features beyond POSIX ERE.
 mask_pii_response_json() {
   resp=$1
   printf '%s' "$resp" | jq -c "$JQ_WALK"'
+    def luhn:
+      ([gsub("[^0-9]"; "") | explode | .[] | . - 48] | reverse
+       | to_entries
+       | map(if .key % 2 == 1
+             then (.value * 2 | if . > 9 then . - 9 else . end)
+             else .value end)
+       | add) as $sum
+      | $sum != null and $sum % 10 == 0;
+    def mask_card($re): gsub($re;
+      if (.pan | luhn) then "[PII:CREDIT_CARD]" else .pan end);
     def mask_pii:
-      gsub("[0-9]{4}[ -]?[0-9]{4}[ -]?[0-9]{4}[ -]?[0-9]{4}([ -]?[0-9]{3})?"; "[PII:CREDIT_CARD]")
-      | gsub("3[47][0-9]{2}[ -]?[0-9]{6}[ -]?[0-9]{5}"; "[PII:CREDIT_CARD]")
-      | gsub("[0-9]{6}-[0-9]{7}"; "[PII:KR_RRN]")
-      | gsub("[0-9]{3}-[0-9]{2}-[0-9]{4}"; "[PII:SSN]")
-      | gsub("[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}"; "[PII:IP_ADDRESS]")
+      mask_card("(?<![0-9])(?<pan>[0-9]{4}[ -]?[0-9]{4}[ -]?[0-9]{4}[ -]?[0-9]{4}[ -]?[0-9]{3})(?![0-9])")
+      | mask_card("(?<![0-9])(?<pan>[0-9]{4}[ -]?[0-9]{4}[ -]?[0-9]{4}[ -]?[0-9]{4})(?![0-9])")
+      | mask_card("(?<![0-9])(?<pan>3[47][0-9]{2}[ -]?[0-9]{6}[ -]?[0-9]{5})(?![0-9])")
+      | gsub("(?<![0-9])[0-9]{6}-[0-9]{7}(?![0-9])"; "[PII:KR_RRN]")
+      | gsub("(?<![0-9])[0-9]{3}-[0-9]{2}-[0-9]{4}(?![0-9])"; "[PII:SSN]")
+      | gsub("(?<![0-9])(?<![0-9]\\.)(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])(\\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])){3}(?![0-9])(?!\\.[0-9])"; "[PII:IP_ADDRESS]")
       | gsub("[A-Za-z0-9_%+.-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}"; "[PII:EMAIL]")
-      | gsub("01[0-9][ -]?[0-9]{4}[ -]?[0-9]{4}"; "[PII:PHONE]")
-      | gsub("(\\+?[0-9][ .-]?)?(\\([0-9]{3}\\)|[0-9]{3})[ .-]?[0-9]{3}[ .-]?[0-9]{4}"; "[PII:PHONE]");
+      | gsub("(?<![0-9])01[0-9][ -]?[0-9]{4}[ -]?[0-9]{4}(?![0-9])"; "[PII:PHONE]")
+      | gsub("(?<![0-9])(\\+?[0-9][ .-]?)?(\\([0-9]{3}\\)|[0-9]{3})[ .-]?[0-9]{3}[ .-]?[0-9]{4}(?![0-9])"; "[PII:PHONE]");
     walk(if type == "string" then mask_pii else . end)
   ' 2>/dev/null
 }
