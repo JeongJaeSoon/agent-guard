@@ -402,6 +402,18 @@ In **mask** mode, PII is masked in a tool's *output* (`PostToolUse`, the same pa
 
 The regex provider recognizes email, phone (including Korean mobile), IPv4, credit card, US SSN, and Korean resident registration number.
 
+`AGENT_GUARD_PII_SKIP` turns individual **Tier-1** types off, so masking stops hiding what you actually need to read — an IPv4 during network debugging, or the 10-digit runs inside hashes and hex tokens that the generic phone shape matches. It takes a comma- (or space-) separated list of the names that appear in the placeholders, so what to write is readable straight off the masked output:
+
+```sh
+AGENT_GUARD_PII_SKIP=IP_ADDRESS          # keep IPv4 addresses in tool output
+AGENT_GUARD_PII_SKIP=IP_ADDRESS,PHONE    # …and stop masking phone-shaped digits
+```
+
+Only `EMAIL`, `PHONE`, and `IP_ADDRESS` are accepted. A Tier-2 name (`CREDIT_CARD`, `SSN`, `KR_RRN`) or an unknown name is **refused with exit 2** rather than ignored: the mask-mode input hard-block is derived from Tier-2 masking, and a fail-closed gate must not be switchable from the environment. Two consequences worth knowing:
+
+- A skipped type is no longer treated as PII **at all**, so `AGENT_GUARD_PII_HOOK_MODE=block` also stops blocking inputs that contain it. That is the point of the switch, not a leak — but it does mean the setting is not "output-only" in `block` mode.
+- Skipping never affects Tier-2. Credit card, US SSN, and Korean resident registration number stay masked on output and hard-blocked on input in `mask` mode regardless of what is skipped.
+
 ## Native Git Hook
 
 Install from a clone or direct CLI install:
@@ -654,7 +666,7 @@ environment-family defaults, its entries are not relaxed for template-shaped
 filenames; explicitly listing `sample.env` or `secrets/*` therefore blocks those
 paths.
 
-Output masking is on unless `AGENT_GUARD_OUTPUT_REDACT` is set to `off`; the variable is a switch, not a mode name, so any other value leaves masking enabled. Set `AGENT_GUARD_PII_HOOK_MODE` to `block` (block PII in tool inputs), `mask` (mask PII in tool outputs + hard-block Tier-2 PII inputs), or `off` (default). Set `AGENT_GUARD_PROMPT_GUARD_MODE` to `block` (default), `mask` (reserved; degrades to block — no host supports prompt rewriting yet), `warn`, or `off` for secrets pasted into the user prompt.
+Output masking is on unless `AGENT_GUARD_OUTPUT_REDACT` is set to `off`; the variable is a switch, not a mode name, so any other value leaves masking enabled. Set `AGENT_GUARD_PII_HOOK_MODE` to `block` (block PII in tool inputs), `mask` (mask PII in tool outputs + hard-block Tier-2 PII inputs), or `off` (default); `AGENT_GUARD_PII_SKIP` turns individual Tier-1 types (`EMAIL`, `PHONE`, `IP_ADDRESS`) off and refuses Tier-2 names. Set `AGENT_GUARD_PROMPT_GUARD_MODE` to `block` (default), `mask` (reserved; degrades to block — no host supports prompt rewriting yet), `warn`, or `off` for secrets pasted into the user prompt.
 
 Set `AGENT_GUARD_INFRA_FAILURE_MODE=closed` when a host hook or shell wrapper
 must refuse execution if the scanner cannot run. The default is `open`, with a

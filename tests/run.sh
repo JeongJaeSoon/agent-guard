@@ -9431,6 +9431,185 @@ else
   sed 's/^/  stderr: /' "$ERR"
 fi
 
+# --- AGENT_GUARD_PII_SKIP (per-type Tier-1 opt-out) --------------------------
+# Tier-1 masking is output-only and never hard-blocks an input, so switching a
+# type off cannot weaken the input gate. Tier-2 names are refused outright: that
+# gate is fail-closed and must not be turned off from the environment.
+pii_skip_cli() { # $1 skip set, $2 text
+  printf '%s' "$2" \
+    | env AGENT_GUARD_PII_SKIP="$1" "$PLUGIN_ROOT/bin/agent-guard" pii-filter 2>/dev/null
+}
+
+pii_skip_hook() { # $1 skip set, $2 text
+  printf '{"tool_name":"Read","tool_input":{"file_path":"m"},"tool_response":%s}' \
+    "$(printf '%s' "$2" | jq -Rs .)" \
+    | (cd "$TMP_ROOT" && env AGENT_GUARD_PII_SKIP="$1" AGENT_GUARD_PII_HOOK_MODE=mask \
+        "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool 2>/dev/null) \
+    | jq -r '.hookSpecificOutput.updatedToolOutput // empty'
+}
+
+pii_skip_gate() { # $1 skip set, $2 hook mode, $3 content
+  printf '{"tool_name":"Write","tool_input":{"file_path":"a.ts","content":%s}}' \
+    "$(printf '%s' "$3" | jq -Rs .)" \
+    | env AGENT_GUARD_PII_SKIP="$1" AGENT_GUARD_PII_HOOK_MODE="$2" \
+      "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >/dev/null 2>"$ERR"
+}
+
+SKIP_SAMPLE='mail x@y.io ip 8.8.8.8 mob 010-1234-5678'
+
+# One type off: that type survives, the other Tier-1 types still mask, and the
+# CLI adapter and the hook output masker still agree character for character.
+skip_cli=$(pii_skip_cli IP_ADDRESS "$SKIP_SAMPLE")
+skip_hook=$(pii_skip_hook IP_ADDRESS "$SKIP_SAMPLE")
+if [ "$skip_cli" = 'mail [PII:EMAIL] ip 8.8.8.8 mob [PII:PHONE]' ] \
+   && [ "$skip_cli" = "$skip_hook" ]; then
+  ok "PII skip IP_ADDRESS keeps IPv4 and both maskers stay in sync"
+else
+  not_ok "PII skip IP_ADDRESS keeps IPv4 and both maskers stay in sync"
+  printf '%s\n' "  cli : $skip_cli" "  hook: $skip_hook"
+fi
+
+skip_cli=$(pii_skip_cli 'IP_ADDRESS,PHONE' "$SKIP_SAMPLE")
+skip_hook=$(pii_skip_hook 'IP_ADDRESS,PHONE' "$SKIP_SAMPLE")
+if [ "$skip_cli" = 'mail [PII:EMAIL] ip 8.8.8.8 mob 010-1234-5678' ] \
+   && [ "$skip_cli" = "$skip_hook" ]; then
+  ok "PII skip accepts a comma-separated list"
+else
+  not_ok "PII skip accepts a comma-separated list"
+  printf '%s\n' "  cli : $skip_cli" "  hook: $skip_hook"
+fi
+
+# Unset and empty are the same thing: mask everything.
+skip_cli=$(pii_skip_cli '' "$SKIP_SAMPLE")
+if [ "$skip_cli" = 'mail [PII:EMAIL] ip [PII:IP_ADDRESS] mob [PII:PHONE]' ]; then
+  ok "PII skip empty masks every type"
+else
+  not_ok "PII skip empty masks every type"
+  printf '%s\n' "  cli : $skip_cli"
+fi
+
+# Skipping a Tier-1 type must not touch Tier-2 masking or the input gate.
+skip_cli=$(pii_skip_cli 'IP_ADDRESS,PHONE,EMAIL' 'ssn 123-45-6789 rrn 900101-1234567')
+if [ "$skip_cli" = 'ssn [PII:SSN] rrn [PII:KR_RRN]' ]; then
+  ok "PII skip leaves Tier-2 masking untouched"
+else
+  not_ok "PII skip leaves Tier-2 masking untouched"
+  printf '%s\n' "  cli : $skip_cli"
+fi
+
+pii_skip_gate 'IP_ADDRESS,PHONE,EMAIL' mask 'ssn 123-45-6789'
+status=$?
+if [ "$status" -eq 2 ] && grep -q 'high-sensitivity PII' "$ERR"; then
+  ok "PII skip cannot disable the Tier-2 input hard-block"
+else
+  not_ok "PII skip cannot disable the Tier-2 input hard-block (expected 2, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+# block mode blocks ANY PII, and it derives that from the masker — so a skipped
+# type stops blocking there too. That is the documented consequence, not a leak:
+# the type is no longer treated as PII at all.
+pii_skip_gate IP_ADDRESS block 'ip 8.8.8.8'
+status=$?
+if [ "$status" -eq 0 ]; then
+  ok "PII skip IP_ADDRESS also stops block mode from blocking an IPv4 input"
+else
+  not_ok "PII skip IP_ADDRESS also stops block mode from blocking an IPv4 input (expected 0, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+pii_skip_gate IP_ADDRESS block 'mail x@y.io'
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "PII skip IP_ADDRESS leaves block mode blocking other Tier-1 PII"
+else
+  not_ok "PII skip IP_ADDRESS leaves block mode blocking other Tier-1 PII (expected 2, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+# A Tier-2 name is refused loudly rather than silently ignored: a user who wrote
+# it is expecting cards to pass, and must be told the knob does not do that.
+for skip_bad in CREDIT_CARD SSN KR_RRN BOGUS ip_address; do
+  printf '%s' 'x' \
+    | env AGENT_GUARD_PII_SKIP="$skip_bad" "$PLUGIN_ROOT/bin/agent-guard" pii-filter \
+      >/dev/null 2>"$ERR"
+  status=$?
+  if [ "$status" -eq 2 ] && grep -q 'AGENT_GUARD_PII_SKIP' "$ERR"; then
+    ok "PII skip rejects $skip_bad"
+  else
+    not_ok "PII skip rejects $skip_bad (expected 2, got $status)"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+done
+
+# The same refusal must reach every hook, not just the CLI — a hook that
+# swallowed it would silently mask (or not mask) against the user's intent.
+pii_skip_gate CREDIT_CARD mask 'const n = 42;'
+status=$?
+if [ "$status" -eq 2 ] && grep -q 'AGENT_GUARD_PII_SKIP' "$ERR"; then
+  ok "PII skip rejection reaches hook-pre-tool"
+else
+  not_ok "PII skip rejection reaches hook-pre-tool (expected 2, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+printf '%s' '{"tool_name":"Read","tool_input":{"file_path":"m"},"tool_response":"x"}' \
+  | env AGENT_GUARD_PII_SKIP=CREDIT_CARD AGENT_GUARD_PII_HOOK_MODE=mask \
+    "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool >/dev/null 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ] && grep -q 'AGENT_GUARD_PII_SKIP' "$ERR"; then
+  ok "PII skip rejection reaches hook-post-tool"
+else
+  not_ok "PII skip rejection reaches hook-post-tool (expected 2, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+printf '{"session_id":"t","prompt":"hello"}' \
+  | env AGENT_GUARD_PII_SKIP=CREDIT_CARD AGENT_GUARD_PII_HOOK_MODE=mask \
+    "$PLUGIN_ROOT/bin/agent-guard" hook-user-prompt >/dev/null 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ] && grep -q 'AGENT_GUARD_PII_SKIP' "$ERR"; then
+  ok "PII skip rejection reaches hook-user-prompt"
+else
+  not_ok "PII skip rejection reaches hook-user-prompt (expected 2, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+# --check is the health check people run to validate their configuration, so it
+# must refuse a skip set that every real run would refuse.
+env AGENT_GUARD_PII_SKIP=CREDIT_CARD "$PLUGIN_ROOT/bin/agent-guard" pii-filter --check \
+  >/dev/null 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ] && grep -q 'AGENT_GUARD_PII_SKIP' "$ERR"; then
+  ok "PII skip rejection reaches pii-filter --check"
+else
+  not_ok "PII skip rejection reaches pii-filter --check (expected 2, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+# exec pipes the masker with stderr suppressed, so only the up-front validation
+# in its main shell can surface a bad skip set — without it the run would just
+# quietly leave the output unmasked.
+env AGENT_GUARD_PII_SKIP=CREDIT_CARD AGENT_GUARD_PII_HOOK_MODE=mask \
+  "$PLUGIN_ROOT/bin/agent-guard" exec -- printf 'x\n' >/dev/null 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ] && grep -q 'AGENT_GUARD_PII_SKIP' "$ERR"; then
+  ok "PII skip rejection reaches agent-guard exec"
+else
+  not_ok "PII skip rejection reaches agent-guard exec (expected 2, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+# exec masks through the same adapter, so a skipped type must survive there too.
+skip_exec=$(env AGENT_GUARD_PII_SKIP=IP_ADDRESS AGENT_GUARD_PII_HOOK_MODE=mask \
+  "$PLUGIN_ROOT/bin/agent-guard" exec -- printf 'ip 8.8.8.8 mail x@y.io\n' 2>/dev/null)
+if [ "$skip_exec" = 'ip 8.8.8.8 mail [PII:EMAIL]' ]; then
+  ok "PII skip applies to agent-guard exec output"
+else
+  not_ok "PII skip applies to agent-guard exec output"
+  printf '%s\n' "  out : $skip_exec"
+fi
+
 # --- agent-guard exec (shell-escape output masking) --------------------------
 # `agent-guard exec` runs a command and masks secret-like values in its captured
 # output before printing. Secret VALUE assembled at runtime from fragments so this
