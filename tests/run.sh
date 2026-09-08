@@ -1130,6 +1130,89 @@ expect_json_status 2 "negative glob does not hide a chained denied read" \
   '{"tool_name":"Bash","tool_input":{"command":"rg --files -g '\''!*.pem'\'' && cat secret.pem"}}' \
   hook-pre-tool
 
+# The Bash path gate stays fail-closed on path-shaped text (#99). What it must
+# not stay is opaque: a block has to name the deny-read entry that matched, the
+# text that matched it, and the fact that a non-path-shaped rewrite is the fix,
+# so a false positive is self-serviceable without weakening the deny list.
+expect_stderr_contains() {
+  expected_fragment=$1
+  name=$2
+  if grep -Fq "$expected_fragment" "$ERR"; then
+    ok "$name"
+  else
+    not_ok "$name"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+}
+
+expect_stderr_missing() {
+  unexpected_fragment=$1
+  name=$2
+  if grep -Fq "$unexpected_fragment" "$ERR"; then
+    not_ok "$name"
+    sed 's/^/  stderr: /' "$ERR"
+  else
+    ok "$name"
+  fi
+}
+
+expect_json_status 2 "path-shaped echo operand stays blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"echo foo.key"}}' \
+  hook-pre-tool
+expect_stderr_contains "matched deny-read-paths entry '*.key'" \
+  "Bash path block names the deny-read entry that matched"
+expect_stderr_contains "foo.key" \
+  "Bash path block names the scanned text that matched"
+expect_stderr_contains "rewrite" \
+  "Bash path block suggests a non-path-shaped rewrite"
+
+expect_json_status 2 "jq selector false positive reports its deny-read entry" \
+  '{"tool_name":"Bash","tool_input":{"command":"jq '\''.key'\'' d.json"}}' \
+  hook-pre-tool
+expect_stderr_contains "matched deny-read-paths entry '*.key'" \
+  "jq selector block names the deny-read entry that matched"
+
+expect_json_status 2 "URL path false positive reports its deny-read entry" \
+  '{"tool_name":"Bash","tool_input":{"command":"curl https://example.com/a.pem"}}' \
+  hook-pre-tool
+expect_stderr_contains "matched deny-read-paths entry '*.pem'" \
+  "URL block names the deny-read entry that matched"
+
+expect_json_status 0 "allowed Bash command emits no deny-read diagnosis" \
+  '{"tool_name":"Bash","tool_input":{"command":"ls *.md"}}' \
+  hook-pre-tool
+expect_stderr_missing "matched deny-read-paths entry" \
+  "allowed Bash command emits no deny-read diagnosis"
+
+# The diagnosis is the whole fix: no command-name exemption was added, so every
+# shape that merely looks safe must still block. `git commit -m` in particular
+# is NOT exempt -- a shadowed `git` (alias, function, PATH shim) could hand that
+# operand to a reader, which is exactly the case README's Known Limitations
+# refuses to exempt by apparent command name.
+expect_json_status 2 "git commit message operand is not exempt" \
+  '{"tool_name":"Bash","tool_input":{"command":"git commit -m '\''fix foo.key parse'\''"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "double-quoted git commit message operand is not exempt" \
+  '{"tool_name":"Bash","tool_input":{"command":"git commit -m \"fix foo.key parse\""}}' \
+  hook-pre-tool
+
+expect_json_status 2 "attached git commit message operand is not exempt" \
+  '{"tool_name":"Bash","tool_input":{"command":"git commit --message='\''drop secret.pem'\''"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "git commit -F still treats its operand as a file" \
+  '{"tool_name":"Bash","tool_input":{"command":"git commit -F secret.pem"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "a shadowed git before a commit-shaped read stays blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"git() { cat \"$3\"; }; git commit -m id_rsa"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "a commit-shaped operand chained to a real read stays blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"git commit -m ok && cat secret.pem"}}' \
+  hook-pre-tool
+
 expect_json_status 2 "Bash command literal secret is blocked" \
   '{"tool_name":"Bash","tool_input":{"command":"printf AGENT_GUARD_TEST_SECRET > leaked.txt"}}' \
   hook-pre-tool
