@@ -739,6 +739,57 @@ pii_provider() {
   esac
 }
 
+# Tier-1 types AGENT_GUARD_PII_SKIP may turn off. Tier-2 (credit card, US SSN,
+# KR resident reg. no.) is deliberately absent: masking those is what the
+# mask-mode input hard-block is derived from, and a fail-closed gate must not be
+# switchable from the environment. The names are the output placeholders
+# (`[PII:IP_ADDRESS]`), so what to write is readable off the masked output.
+PII_SKIPPABLE=',EMAIL,PHONE,IP_ADDRESS,'
+
+# Prints the skip set normalized to `,A,B,` so a substring test is an exact name
+# test. Separators are commas and/or spaces. An unknown or Tier-2 name dies
+# rather than being ignored: someone who wrote AGENT_GUARD_PII_SKIP=CREDIT_CARD
+# expects cards to pass and has to be told the knob cannot do that. Callers that
+# read it through $( ) validate it once in the main shell first — otherwise the
+# subshell swallows the die and the misconfiguration runs on silently.
+pii_skip_set() {
+  # skip_-prefixed names throughout: sh has no locals, and this runs in the main
+  # shell of callers that hold their own `out` / `name` / `raw`.
+  skip_raw=${AGENT_GUARD_PII_SKIP:-}
+  [ -n "$skip_raw" ] || { printf ','; return 0; }
+  case $- in *f*) skip_had_noglob=1 ;; *) skip_had_noglob=0 ;; esac
+  skip_oifs=$IFS
+  IFS=', '
+  set -f
+  # Intentional word splitting: this is the list parse.
+  set -- $skip_raw
+  IFS=$skip_oifs
+  [ "$skip_had_noglob" -eq 1 ] || set +f
+  skip_out=,
+  for skip_name in "$@"; do
+    case "$PII_SKIPPABLE" in
+      *",$skip_name,"*) ;;
+      *) die "AGENT_GUARD_PII_SKIP: unsupported type: $skip_name (expected EMAIL, PHONE, or IP_ADDRESS)" ;;
+    esac
+    case $skip_out in
+      *",$skip_name,"*) continue ;;
+    esac
+    skip_out="$skip_out$skip_name,"
+  done
+  # An endpoint provider redacts server-side and never receives the skip set, so
+  # accepting one would leave a switch that silently does nothing on every path
+  # that goes through the provider. An unknown provider value is left alone here
+  # so pii_provider still reports it as the provider error it is.
+  if [ "$skip_out" != , ]; then
+    case "${AGENT_GUARD_PII_PROVIDER:-regex}" in
+      http|pleno)
+        die "AGENT_GUARD_PII_SKIP is only supported with AGENT_GUARD_PII_PROVIDER=regex (got ${AGENT_GUARD_PII_PROVIDER})"
+        ;;
+    esac
+  fi
+  printf '%s' "$skip_out"
+}
+
 # Held here so the CLI masker and the hook input gate below read the SAME
 # Tier-2 patterns instead of two hand-kept copies. They contain no backslashes,
 # so `awk -v` passes them through unchanged. mask_pii_response_json is a jq
@@ -845,9 +896,10 @@ function mask_tier2(s) {
 
 pii_regex_adapter_filter() {
   need_cmd awk
+  skip=$(pii_skip_set) || exit 2
   awk -v CC16_RE="$PII_CREDIT_CARD_RE" -v CC19_RE="$PII_CREDIT_CARD19_RE" \
       -v AMEX_RE="$PII_AMEX_RE" -v SSN_RE="$PII_SSN_RE" \
-      -v KR_RRN_RE="$PII_KR_RRN_RE" -v IPV4_RE="$PII_IPV4_RE" \
+      -v KR_RRN_RE="$PII_KR_RRN_RE" -v IPV4_RE="$PII_IPV4_RE" -v SKIP="$skip" \
       "$PII_AWK_LIB"'
     BEGIN {
       email = "[[:alnum:]_%+.-]+@[[:alnum:].-]+[.][[:alpha:]][[:alpha:]][[:alpha:]]*"
@@ -858,14 +910,22 @@ pii_regex_adapter_filter() {
       if (NR > 1) {
         printf "%s", ORS
       }
+      # Tier-2 first so a Tier-1 pattern cannot shadow it, and it is never
+      # skippable — that ordering premise holds whatever SKIP contains.
       line = mask_tier2($0)
-      line = mask_re(line, IPV4_RE, "[PII:IP_ADDRESS]", "ipv4")
-      gsub(email, "[PII:EMAIL]", line)
+      if (!index(SKIP, ",IP_ADDRESS,")) {
+        line = mask_re(line, IPV4_RE, "[PII:IP_ADDRESS]", "ipv4")
+      }
+      if (!index(SKIP, ",EMAIL,")) {
+        gsub(email, "[PII:EMAIL]", line)
+      }
       # Phone needs the same digit boundary: without it the generic 3-3-4 shape
       # matches the first 10 digits of any long numeric id, which the credit
       # card false positive used to hide.
-      line = mask_re(line, kr_mobile, "[PII:PHONE]", "digits")
-      line = mask_re(line, phone, "[PII:PHONE]", "digits")
+      if (!index(SKIP, ",PHONE,")) {
+        line = mask_re(line, kr_mobile, "[PII:PHONE]", "digits")
+        line = mask_re(line, phone, "[PII:PHONE]", "digits")
+      }
       printf "%s", line
     }
   '
@@ -986,6 +1046,9 @@ pii_filter() {
   done
 
   provider=$(pii_provider) || exit 2
+  # Validate here, not only inside the adapter: --check never reaches the adapter
+  # and would otherwise report "ok" for a skip set every real run refuses.
+  pii_skip_set >/dev/null
   if [ "$check" -eq 1 ]; then
     pii_adapter_check "$provider"
     return 0
@@ -1067,6 +1130,7 @@ check_pii_hook_input() {
   # unsupported value, but the $(...) reads below would swallow that exit and
   # silently disable the gate. Running it here (no subshell) fails closed.
   pii_hook_mode >/dev/null
+  pii_skip_set >/dev/null
   [ "$(pii_hook_mode)" = off ] && return 0
   need_cmd jq
 
@@ -4420,7 +4484,9 @@ redact_response_whole_leaf_fail_closed() {
 # gate is the awk path, which needs no regex features beyond POSIX ERE.
 mask_pii_response_json() {
   resp=$1
-  printf '%s' "$resp" | jq -c "$JQ_WALK"'
+  skip=$(pii_skip_set) || exit 2
+  printf '%s' "$resp" | jq -c --arg pii_skip "$skip" "$JQ_WALK"'
+    def keep($type): ($pii_skip | contains(",\($type),")) | not;
     def luhn:
       ([gsub("[^0-9]"; "") | explode | .[] | . - 48] | reverse
        | to_entries
@@ -4437,10 +4503,16 @@ mask_pii_response_json() {
       | mask_card("(?<![0-9])(?<pan>3[47][0-9]{2}[ -]?[0-9]{6}[ -]?[0-9]{5})(?![0-9])")
       | gsub("(?<![0-9])[0-9]{6}-[0-9]{7}(?![0-9])"; "[PII:KR_RRN]")
       | gsub("(?<![0-9])[0-9]{3}-[0-9]{2}-[0-9]{4}(?![0-9])"; "[PII:SSN]")
-      | gsub("(?<![0-9])(?<![0-9]\\.)(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])(\\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])){3}(?![0-9])(?!\\.[0-9])"; "[PII:IP_ADDRESS]")
-      | gsub("[A-Za-z0-9_%+.-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}"; "[PII:EMAIL]")
-      | gsub("(?<![0-9])01[0-9][ -]?[0-9]{4}[ -]?[0-9]{4}(?![0-9])"; "[PII:PHONE]")
-      | gsub("(?<![0-9])(\\+?[0-9][ .-]?)?(\\([0-9]{3}\\)|[0-9]{3})[ .-]?[0-9]{3}[ .-]?[0-9]{4}(?![0-9])"; "[PII:PHONE]");
+      | (if keep("IP_ADDRESS")
+         then gsub("(?<![0-9])(?<![0-9]\\.)(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])(\\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])){3}(?![0-9])(?!\\.[0-9])"; "[PII:IP_ADDRESS]")
+         else . end)
+      | (if keep("EMAIL")
+         then gsub("[A-Za-z0-9_%+.-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}"; "[PII:EMAIL]")
+         else . end)
+      | (if keep("PHONE")
+         then gsub("(?<![0-9])01[0-9][ -]?[0-9]{4}[ -]?[0-9]{4}(?![0-9])"; "[PII:PHONE]")
+           | gsub("(?<![0-9])(\\+?[0-9][ .-]?)?(\\([0-9]{3}\\)|[0-9]{3})[ .-]?[0-9]{3}[ .-]?[0-9]{4}(?![0-9])"; "[PII:PHONE]")
+         else . end);
     walk(if type == "string" then mask_pii else . end)
   ' 2>/dev/null
 }
@@ -4457,6 +4529,7 @@ redact_tool_output() {
   # value; the $(...) read below would otherwise swallow the exit and silently
   # leave PII unmasked). A misconfigured mode fails loud instead of fail-open.
   pii_hook_mode >/dev/null
+  pii_skip_set >/dev/null
   secrets_on=0; pii_on=0
   output_redact_enabled && secrets_on=1
   [ "$(pii_hook_mode)" = mask ] && pii_on=1
@@ -4690,6 +4763,7 @@ hook_user_prompt() {
   # and redact_tool_output guard against).
   prompt_guard_mode >/dev/null
   pii_hook_mode >/dev/null
+  pii_skip_set >/dev/null
   prompt_mode=$(prompt_guard_mode)
   if ! hook_dependencies_ready; then
     emit_degraded_hook_warning UserPromptSubmit "$input"
@@ -5085,6 +5159,7 @@ do_exec() {
   # Validate the PII mode up front so a misconfiguration fails loud (pii_hook_mode
   # dies on an unsupported value) instead of silently leaving PII unmasked.
   pii_hook_mode >/dev/null
+  pii_skip_set >/dev/null
   if output_redact_enabled; then
     need_cmd jq
     need_gitleaks
