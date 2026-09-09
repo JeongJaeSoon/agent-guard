@@ -7422,6 +7422,128 @@ if [ -n "$REAL_GITLEAKS" ]; then
     not_ok "apply_patch allows a go.sum checksum (expected 0, got $status)"
   fi
 
+  # --- #224: scan-working-tree must cover the index, not just the worktree ---
+  # Tracked input used to come from `git diff HEAD` alone, so content that lived
+  # only in the index was never scanned: stage a secret, restore the file on
+  # disk to its HEAD contents, and the scan reported clean while the next commit
+  # still carried the secret. Tokens are generated at runtime, so this file
+  # never holds a credential; the bundled vendor-token-shape rule matches on
+  # shape alone, which keeps the verdicts deterministic.
+  INDEX224_REPO="$TMP_ROOT/index-224-repo"
+  INDEX224_TOKEN="ghp_$(od -An -N18 -tx1 /dev/urandom | LC_ALL=C tr -d ' \n')"
+  mkdir -p "$INDEX224_REPO"
+  (
+    cd "$INDEX224_REPO" || exit 2
+    git init -q
+    git config user.email test@example.com
+    git config user.name "Agent Guard Tests"
+    printf '%s\n' clean >app.txt
+    git add app.txt
+    git commit -q -m init
+  ) >/dev/null 2>&1
+
+  # MUST-FAIL: index-only secret, worktree restored to its HEAD contents.
+  (
+    cd "$INDEX224_REPO" || exit 2
+    printf 'AGDEMO_VAR=%s\n' "$INDEX224_TOKEN" >app.txt
+    git add app.txt
+    printf '%s\n' clean >app.txt
+    PATH="$(dirname "$REAL_GITLEAKS"):$ORIGINAL_PATH" \
+      "$PLUGIN_ROOT/bin/agent-guard" scan-working-tree
+  ) >"$OUT" 2>"$ERR"
+  status=$?
+  if [ "$status" -eq 1 ]; then
+    ok "#224 scan-working-tree detects a secret that exists only in the index"
+  else
+    not_ok "#224 scan-working-tree detects an index-only secret (expected 1, got $status)"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+
+  # MUST-PASS control: the same repo with nothing staged and nothing on disk.
+  (
+    cd "$INDEX224_REPO" || exit 2
+    git reset -q --hard
+    PATH="$(dirname "$REAL_GITLEAKS"):$ORIGINAL_PATH" \
+      "$PLUGIN_ROOT/bin/agent-guard" scan-working-tree
+  ) >"$OUT" 2>"$ERR"
+  status=$?
+  if [ "$status" -eq 0 ]; then
+    ok "#224 control: scan-working-tree allows a repo with a clean index and tree"
+  else
+    not_ok "#224 control: clean index and tree stay clean (expected 0, got $status)"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+
+  # MUST-FAIL control: the pre-existing worktree-only path keeps its verdict.
+  (
+    cd "$INDEX224_REPO" || exit 2
+    printf 'AGDEMO_VAR=%s\n' "$INDEX224_TOKEN" >app.txt
+    PATH="$(dirname "$REAL_GITLEAKS"):$ORIGINAL_PATH" \
+      "$PLUGIN_ROOT/bin/agent-guard" scan-working-tree
+  ) >"$OUT" 2>"$ERR"
+  status=$?
+  if [ "$status" -eq 1 ]; then
+    ok "#224 control: scan-working-tree still detects an unstaged worktree secret"
+  else
+    not_ok "#224 control: unstaged worktree secret stays detected (expected 1, got $status)"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+
+  # A repo before its first commit has no HEAD to diff against. That branch
+  # already combined the index and the worktree; its verdicts must not move.
+  NOHEAD224_REPO="$TMP_ROOT/nohead-224-repo"
+  mkdir -p "$NOHEAD224_REPO"
+  (
+    cd "$NOHEAD224_REPO" || exit 2
+    git init -q
+    git config user.email test@example.com
+    git config user.name "Agent Guard Tests"
+    printf '%s\n' clean >app.txt
+    git add app.txt
+    PATH="$(dirname "$REAL_GITLEAKS"):$ORIGINAL_PATH" \
+      "$PLUGIN_ROOT/bin/agent-guard" scan-working-tree
+  ) >"$OUT" 2>"$ERR"
+  status=$?
+  if [ "$status" -eq 0 ]; then
+    ok "#224 control: pre-first-commit repo with clean staged content stays clean"
+  else
+    not_ok "#224 control: pre-first-commit clean repo (expected 0, got $status)"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+
+  (
+    cd "$NOHEAD224_REPO" || exit 2
+    printf 'AGDEMO_VAR=%s\n' "$INDEX224_TOKEN" >app.txt
+    git add app.txt
+    printf '%s\n' clean >app.txt
+    PATH="$(dirname "$REAL_GITLEAKS"):$ORIGINAL_PATH" \
+      "$PLUGIN_ROOT/bin/agent-guard" scan-working-tree
+  ) >"$OUT" 2>"$ERR"
+  status=$?
+  if [ "$status" -eq 1 ]; then
+    ok "#224 control: pre-first-commit repo still detects an index-only secret"
+  else
+    not_ok "#224 control: pre-first-commit index-only secret (expected 1, got $status)"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+
+  (
+    cd "$NOHEAD224_REPO" || exit 2
+    git rm -q --cached app.txt
+    printf '%s\n' clean >app.txt
+    git add app.txt
+    printf 'AGDEMO_VAR=%s\n' "$INDEX224_TOKEN" >app.txt
+    PATH="$(dirname "$REAL_GITLEAKS"):$ORIGINAL_PATH" \
+      "$PLUGIN_ROOT/bin/agent-guard" scan-working-tree
+  ) >"$OUT" 2>"$ERR"
+  status=$?
+  if [ "$status" -eq 1 ]; then
+    ok "#224 control: pre-first-commit repo still detects an unstaged secret"
+  else
+    not_ok "#224 control: pre-first-commit unstaged secret (expected 1, got $status)"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+
 else
   say "real gitleaks not available; skipped real-gitleaks integration tests"
 fi
