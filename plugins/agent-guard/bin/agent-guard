@@ -2437,7 +2437,9 @@ deny_path_match_report() {
     }
   ')
   printf "matched deny-read-paths entry '%s'" "$1"
-  [ -n "$report_excerpt" ] && printf " in scanned text '%s'" "$report_excerpt"
+  # Bracketed rather than quoted: the excerpt is raw command text and often
+  # carries its own quotes, which would double up (jq '.key' read as ''.key'').
+  [ -n "$report_excerpt" ] && printf ' in scanned text [%s]' "$report_excerpt"
   printf '\n'
 }
 
