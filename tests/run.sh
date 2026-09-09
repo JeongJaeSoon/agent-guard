@@ -9410,6 +9410,27 @@ else
   printf '%s\n' "  cli : $pii_ip_cli" "  hook: $pii_ip_hook"
 fi
 
+# The Tier-2 gate scans one awk record at a time, so a single long line packed
+# with card-shaped rejects is the worst case: every candidate re-examines the
+# rest of the record. It has to clear the PreToolUse timeout in
+# plugins/agent-guard/hooks/hooks.json (10s) — past that the host kills the hook
+# and the input is neither cleared nor reported as a detector failure.
+PII_BIG="$TMP_ROOT/pii-big-line.txt"
+awk 'BEGIN { for (i = 0; i < 14700; i++) printf "1234567812345678 " }' > "$PII_BIG"
+printf '{"session_id":"t","tool_name":"Write","tool_input":{"file_path":"a.ts","content":%s}}' \
+  "$(jq -Rs . < "$PII_BIG")" > "$TMP_ROOT/pii-big-payload.json"
+pii_big_start=$(date +%s)
+AGENT_GUARD_PII_HOOK_MODE=mask "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool \
+  < "$TMP_ROOT/pii-big-payload.json" >/dev/null 2>"$ERR"
+status=$?
+pii_big_elapsed=$(( $(date +%s) - pii_big_start ))
+if [ "$status" -eq 0 ] && [ "$pii_big_elapsed" -lt 10 ]; then
+  ok "PII gate clears a 250 KB single-line record within the PreToolUse timeout (${pii_big_elapsed}s)"
+else
+  not_ok "PII gate clears a 250 KB single-line record within the PreToolUse timeout (exit $status, ${pii_big_elapsed}s)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
 # --- agent-guard exec (shell-escape output masking) --------------------------
 # `agent-guard exec` runs a command and masks secret-like values in its captured
 # output before printing. Secret VALUE assembled at runtime from fragments so this

@@ -779,26 +779,59 @@ function pii_bounded(kind, before, after) {
   if (kind == "ipv4") { return (before !~ /[0-9][.]?$/ && after !~ /^[.]?[0-9]/) }
   return (before !~ /[0-9]$/ && after !~ /^[0-9]/)
 }
-function mask_re(s, re, repl, kind,   out, pre, m, after, skip) {
+BEGIN {
+  # awk cannot start match() at an offset, so mask_re walks a sliding window
+  # rather than re-slicing the whole remainder after every candidate — that
+  # copy is per-candidate and turns one long line of card-shaped rejects
+  # quadratic, past the 10s PreToolUse timeout in hooks/hooks.json.
+  # PII_MARGIN must exceed the longest text any pattern can match (19 digits
+  # plus three separators), so a match landing clear of the margin is whole.
+  PII_WIN = 512
+  PII_MARGIN = 64
+}
+function mask_re(s, re, repl, kind,   out, n, pos, win, wlen, mstart, mlen, mend, pre, m, after, skip) {
+  n = length(s)
   out = ""
-  while (match(s, re)) {
-    pre = substr(s, 1, RSTART - 1)
-    m = substr(s, RSTART, RLENGTH)
-    after = substr(s, RSTART + RLENGTH)
+  pos = 1
+  while (pos <= n) {
+    win = substr(s, pos, PII_WIN)
+    wlen = length(win)
+    if (!match(win, re)) {
+      # Nothing here. The tail margin may hold the start of a match that runs
+      # past this window, so emit everything before it and slide.
+      if (pos + wlen > n) { break }
+      out = out substr(win, 1, wlen - PII_MARGIN)
+      pos = pos + wlen - PII_MARGIN
+      continue
+    }
+    mstart = RSTART
+    mlen = RLENGTH
+    mend = mstart + mlen - 1
+    if (mstart > 1 && mend > wlen - PII_MARGIN && pos + wlen <= n) {
+      # The match reaches into the margin with more input behind it, so it may
+      # be truncated. Re-window from its start and look again.
+      out = out substr(win, 1, mstart - 1)
+      pos = pos + mstart - 1
+      continue
+    }
+    pre = substr(win, 1, mstart - 1)
+    m = substr(win, mstart, mlen)
+    after = substr(win, mend + 1, 2)
     if (pii_bounded(kind, tail2(tail2(out) pre), after) \
         && (kind != "luhn" || luhn(m))) {
       out = out pre repl
-      s = after
+      pos = pos + mend
     } else {
       # A rejected candidate cannot start again inside its own leading digit
       # run: every position in there has a digit in front of it, which the
       # boundary rule refuses. Skip the whole run, not one character.
       skip = match(m, /^[0-9]+/) ? RLENGTH : 1
       out = out pre substr(m, 1, skip)
-      s = substr(m, skip + 1) after
+      pos = pos + mstart - 1 + skip
     }
   }
-  return out s
+  if (pos <= n) { out = out substr(s, pos) }
+  return out
 }
 function mask_tier2(s) {
   s = mask_re(s, CC19_RE, "[PII:CREDIT_CARD]", "luhn")
