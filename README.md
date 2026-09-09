@@ -285,6 +285,46 @@ release, so copy it from the matching release or tag.
 Marketplace sources accept a branch or tag in `ref` but not an exact commit;
 do not add `sha` beside `ref` and describe the result as commit-pinned.
 
+Agent Guard reads no configuration file — every setting in
+[Configuration](#configuration) is an environment variable. To apply one
+fleet-wide, add it to the managed settings `env` key, which Claude Code
+applies to the session and its subprocesses:
+
+```json
+{ "env": { "AGENT_GUARD_INFRA_FAILURE_MODE": "open" } }
+```
+
+The example file deliberately ships without an `env` block: every default is
+already the recommended value, so an organization that keeps the defaults needs
+none. Add only the keys you are deliberately choosing, and do not force an
+opt-in feature such as `AGENT_GUARD_PII_HOOK_MODE` on developers who did not
+ask for it.
+
+Verify on one machine before the fleet rollout, and verify by behavior rather
+than by source. `/status`'s `Setting sources` line names the managed sources
+Claude Code read — not which source supplied a key, what value took effect, or
+whether the developer has approved it yet — and `claude doctor` reports the
+fetch outcome, not the value. On the claude.ai console path a delivered `env`
+change can wait for each developer to accept an approval dialog while the
+managed source keeps showing as active, so the source line can certify a policy
+that has not landed.
+
+Agent Guard's infrastructure diagnostic names the mode it actually read, so
+induce a failure on the pilot machine and read it back. In a Claude Code
+session there, run the plugin-local binary with the scanner pointed at nothing:
+
+```sh
+printf '%s' '{"tool_name":"Write","tool_input":{"content":"x"}}' \
+  | AGENT_GUARD_GITLEAKS_BIN=/nonexistent agent-guard hook-pre-tool
+echo "exit=$?"
+```
+
+`closed` has landed when the hook exits `2` and says `Blocking because
+AGENT_GUARD_INFRA_FAILURE_MODE=closed`; an exit of `0` with `continuing because
+AGENT_GUARD_INFRA_FAILURE_MODE=open (the default)` means the delivered value is
+not in effect there, whatever `/status` shows. For any other policy variable,
+exercise the behavior it controls the same way.
+
 ### 2. Run the setup commands (each developer, once per machine)
 
 Once the managed settings land, Claude Code loads the plugin automatically.
@@ -315,8 +355,18 @@ session message with the exact command to run:
 No fleet-side enforcement is required for these reminders; they ship with the
 force-enabled plugin.
 
-Codex has no separate managed path: Codex users install the plugin through
-the standard install described in the README.
+Codex has enterprise managed configuration of its own — `requirements.toml`
+for enforced constraints, `managed_config.toml` for defaults, delivered by
+file or macOS MDM — and an administrator can restrict which marketplace
+sources are allowed. It offers neither of the two things this Claude path
+relies on: there is no equivalent of `enabledPlugins` that force-enables a
+specific plugin, and managed configuration does not distribute environment
+variables. So Codex users install the plugin through the standard install
+described above, trust its hooks themselves, and set any policy variable in
+their own environment. Codex `requirements.toml` can also declare managed
+hooks against a `managed_dir` that your MDM populates; Agent Guard does not
+ship or support that integration, so treat it as a custom one you re-verify
+on every upgrade.
 
 ## PII Filtering
 
