@@ -7459,6 +7459,32 @@ if [ -n "$REAL_GITLEAKS" ]; then
     sed 's/^/  stderr: /' "$ERR"
   fi
 
+  # MUST-PASS control: a committed secret whose removal is staged and then undone
+  # on disk. Nothing differs from HEAD, so nothing may be reported — that is what
+  # "added lines only" means. Diffing the worktree against the INDEX instead of
+  # against HEAD reads the restored line as an addition and re-reports a secret
+  # that is already committed, so this pins the diff bases, not just the verdict.
+  (
+    cd "$INDEX224_REPO" || exit 2
+    git reset -q --hard
+    printf 'AGDEMO_VAR=%s\nkeep\n' "$INDEX224_TOKEN" >app.txt
+    git add app.txt
+    git commit -q -m "commit the secret"
+    printf 'keep\n' >app.txt
+    git add app.txt
+    printf 'AGDEMO_VAR=%s\nkeep\n' "$INDEX224_TOKEN" >app.txt
+    PATH="$(dirname "$REAL_GITLEAKS"):$ORIGINAL_PATH" \
+      "$PLUGIN_ROOT/bin/agent-guard" scan-working-tree
+  ) >"$OUT" 2>"$ERR"
+  status=$?
+  if [ "$status" -eq 0 ]; then
+    ok "#224 control: a staged removal undone on disk re-reports nothing"
+  else
+    not_ok "#224 control: staged removal undone on disk stays clean (expected 0, got $status)"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+  ( cd "$INDEX224_REPO" && git reset -q --hard HEAD~1 ) >/dev/null 2>&1
+
   # MUST-PASS control: the same repo with nothing staged and nothing on disk.
   (
     cd "$INDEX224_REPO" || exit 2

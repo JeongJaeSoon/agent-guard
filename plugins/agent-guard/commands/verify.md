@@ -5,9 +5,9 @@ description: Run a deterministic one-shot secret scan over the repository's pend
 
 # /agent-guard:verify
 
-One-shot secret scan over everything the repository has pending: staged content (`git diff --cached`, index vs `HEAD`), unstaged worktree edits (`git diff`, worktree vs index), and untracked files. Backed by the bundled gitleaks rule set the agent-guard hooks already use.
+One-shot secret scan over everything the repository has pending: the worktree (`git diff HEAD`) and the index (`git diff --cached`), **both compared against `HEAD`**, plus untracked files. Backed by the bundled gitleaks rule set the agent-guard hooks already use.
 
-The index is covered. Stage a secret and then restore the file on disk to its `HEAD` contents and the staged copy is still flagged, so the tracked input is a superset of what `agent-guard scan-staged` sees. It remains a snapshot of the moment it ran, not a gate: the pre-commit hook runs `scan-staged` at commit time and is what actually blocks a commit.
+The index is covered. Stage a secret and then restore the file on disk to its `HEAD` contents and the staged copy is still flagged, so the tracked input is a superset of what `agent-guard scan-staged` sees. Keeping `HEAD` as the base for both diffs is what makes that safe in the other direction too: stage the *removal* of a committed secret and then undo it on disk and nothing is reported, because relative to `HEAD` nothing was added. It remains a snapshot of the moment it ran, not a gate: the pre-commit hook runs `scan-staged` at commit time and is what actually blocks a commit.
 
 What it does **not** cover:
 

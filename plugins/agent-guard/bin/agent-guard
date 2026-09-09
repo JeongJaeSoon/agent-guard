@@ -2004,22 +2004,39 @@ scan_working_tree() {
   repo_root=$(git rev-parse --show-toplevel 2>/dev/null) \
     || return "$SCAN_STATUS_UNAVAILABLE"
 
-  # Index (#224) + worktree, never `git diff HEAD`. That single diff compares
-  # the worktree to HEAD, so content staged and then reverted on disk vanished
-  # from the scan while the next commit still carried it. `--cached` (index vs
-  # HEAD) plus the plain diff (worktree vs index) covers both, works the same
-  # before the first commit, and reports unmerged paths through the combined
-  # diff the plain form emits.
-  cached=$(CDPATH= cd -- "$repo_root" && extract_git_diff_added --cached --unified=0 --no-ext-diff -- .)
-  status=$?
-  [ "$status" -eq 0 ] || return "$status"
-  unstaged=$(CDPATH= cd -- "$repo_root" && extract_git_diff_added --unified=0 --no-ext-diff -- .)
-  status=$?
-  [ "$status" -eq 0 ] || return "$status"
-  tracked=$cached
-  [ -n "$cached" ] && [ -n "$unstaged" ] && tracked="$tracked
-$unstaged"
-  [ -z "$cached" ] && tracked=$unstaged
+  # Two diffs, and with a HEAD both are taken AGAINST HEAD (#224). `git diff
+  # HEAD` alone compares only the worktree, so a secret staged and then reverted
+  # on disk left the scan while the next commit still carried it; `--cached`
+  # (index vs HEAD) closes that. Diffing the worktree against the INDEX instead
+  # would look symmetric but is not: a committed line whose removal is staged and
+  # then undone on disk reads as an addition there, re-reporting history that
+  # `git diff HEAD` correctly calls unchanged. Added lines only is the contract,
+  # so HEAD stays the base for both.
+  if git -C "$repo_root" rev-parse --verify HEAD >/dev/null 2>&1; then
+    first=$(CDPATH= cd -- "$repo_root" && extract_git_diff_added --unified=0 --no-ext-diff HEAD -- .)
+    status=$?
+    [ "$status" -eq 0 ] || return "$status"
+    second=$(CDPATH= cd -- "$repo_root" && extract_git_diff_added --cached --unified=0 --no-ext-diff -- .)
+    status=$?
+    [ "$status" -eq 0 ] || return "$status"
+  else
+    # No HEAD: `--cached` compares against the empty tree and the plain diff
+    # carries unstaged edits. Nothing is committed yet, so neither can re-report
+    # history and there is no HEAD to diff against.
+    first=$(CDPATH= cd -- "$repo_root" && extract_git_diff_added --cached --unified=0 --no-ext-diff -- .)
+    status=$?
+    [ "$status" -eq 0 ] || return "$status"
+    second=$(CDPATH= cd -- "$repo_root" && extract_git_diff_added --unified=0 --no-ext-diff -- .)
+    status=$?
+    [ "$status" -eq 0 ] || return "$status"
+  fi
+  # Content staged and left alone on disk appears in both. gitleaks reports the
+  # same finding either way and agent-guard emits one generic line, so the cost
+  # is duplicate scanner input, not duplicate output.
+  tracked=$first
+  [ -n "$first" ] && [ -n "$second" ] && tracked="$tracked
+$second"
+  [ -z "$first" ] && tracked=$second
 
   result=0
   if [ -n "$tracked" ]; then
