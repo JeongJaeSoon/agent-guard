@@ -2755,6 +2755,28 @@ else
   sed 's/^/  stderr: /' "$ERR"
 fi
 
+# mask mode fails closed: a Tier-2 detector that errors blocks even clean input.
+# The stub fails only the gate's own awk program, so the dependency checks stay
+# green and this isolates block_on_pii_text from an infra-degraded exit.
+if [ -x /usr/bin/awk ]; then
+  PII_STUB_BIN="$TMP_ROOT/pii-stub-bin"
+  mkdir -p "$PII_STUB_BIN"
+  printf '%s\n' '#!/bin/sh' 'for a in "$@"; do' \
+    '  case $a in *mask_tier2*) exit 3 ;; esac' 'done' \
+    'exec /usr/bin/awk "$@"' > "$PII_STUB_BIN/awk"
+  chmod +x "$PII_STUB_BIN/awk"
+  printf '%s' '{"tool_name":"Write","tool_input":{"file_path":"note.txt","content":"clean"}}' \
+    | PATH="$PII_STUB_BIN:$PATH" AGENT_GUARD_PII_HOOK_MODE=mask \
+      "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+  status=$?
+  if [ "$status" -eq 2 ] && grep -q 'Tier-2 PII detector failed' "$ERR"; then
+    ok "PII mask mode fails closed when the Tier-2 detector errors"
+  else
+    not_ok "PII mask mode fails closed when the Tier-2 detector errors (expected 2, got $status)"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+fi
+
 TEST_REPO="$TMP_ROOT/repo"
 mkdir -p "$TEST_REPO"
 (
@@ -9296,6 +9318,117 @@ if [ -n "$sync_hook" ] && [ "$sync_cli" = "$sync_hook" ] \
 else
   not_ok "CLI pii-filter and hook output masker mask identically"
   printf '%s\n' "  cli : $sync_cli" "  hook: $sync_hook"
+fi
+
+# --- PII false positives: digit boundaries, Luhn, octet range -----------------
+# awk has no \b and its gsub cannot veto a match, so Tier-2 detection anchors on
+# non-digit boundaries and validates (Luhn for cards, 0-255 octets for IPv4).
+# Every case runs through all three mirrored sites — the CLI masker
+# (pii_regex_adapter_filter), the hook output masker (mask_pii_response_json)
+# and the mask-mode input gate (pii_tier2_present) — so a drift in one fails.
+pii_cli_mask() { printf '%s' "$1" | "$PLUGIN_ROOT/bin/agent-guard" pii-filter 2>/dev/null; }
+
+pii_hook_mask() { # empty output means the masker left the response unchanged
+  printf '{"tool_name":"Read","tool_input":{"file_path":"m"},"tool_response":%s}' \
+    "$(printf '%s' "$1" | jq -Rs .)" \
+    | (cd "$TMP_ROOT" && AGENT_GUARD_PII_HOOK_MODE=mask "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool 2>/dev/null) \
+    | jq -r '.hookSpecificOutput.updatedToolOutput // empty'
+}
+
+pii_gate_status() { # stderr lands in $ERR so a block can be attributed to the gate
+  printf '{"tool_name":"Write","tool_input":{"file_path":"a.ts","content":%s}}' \
+    "$(printf '%s' "$1" | jq -Rs .)" \
+    | AGENT_GUARD_PII_HOOK_MODE=mask "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool \
+      >/dev/null 2>"$ERR"
+}
+
+# must-pass: ordinary code reaches tools untouched and is not masked on the way out.
+pii_expect_clean() { # $1 label, $2 text
+  fp_cli=$(pii_cli_mask "$2")
+  fp_hook=$(pii_hook_mask "$2")
+  pii_gate_status "$2"
+  fp_gate=$?
+  if [ "$fp_cli" = "$2" ] && [ -z "$fp_hook" ] && [ "$fp_gate" -eq 0 ]; then
+    ok "PII leaves $1 alone (CLI, output masker, input gate)"
+  else
+    not_ok "PII leaves $1 alone (expected unchanged, empty rewrite, exit 0)"
+    printf '%s\n' "  cli : $fp_cli" "  hook: $fp_hook" "  gate: $fp_gate"
+  fi
+}
+
+# must-fail: real Tier-2 PII stays masked on both output paths and blocked on input.
+pii_expect_tier2() { # $1 label, $2 text, $3 expected marker
+  t2_cli=$(pii_cli_mask "$2")
+  t2_hook=$(pii_hook_mask "$2")
+  pii_gate_status "$2"
+  t2_gate=$?
+  # The gate's own message is checked, not just exit 2: another guard blocking
+  # for an unrelated reason would otherwise let this control pass while the
+  # Tier-2 rule is broken.
+  if printf '%s' "$t2_cli" | grep -q "$3" \
+     && printf '%s' "$t2_hook" | grep -q "$3" \
+     && [ "$t2_gate" -eq 2 ] && grep -q 'high-sensitivity PII' "$ERR"; then
+    ok "PII still catches $1 (CLI, output masker, input gate)"
+  else
+    not_ok "PII still catches $1 (expected $3 on both maskers and a Tier-2 gate block)"
+    printf '%s\n' "  cli : $t2_cli" "  hook: $t2_hook" "  gate: $t2_gate"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+}
+
+pii_expect_clean "an epoch-nanosecond timestamp" 'const ts = 1757347200123456789;'
+pii_expect_clean "a Snowflake-style 18-digit id" 'user_id 123456789012345678'
+pii_expect_clean "a Luhn-invalid 16-digit order number" 'order 1234567812345678 shipped'
+pii_expect_clean "out-of-range dotted numbers" 'build 999.888.777.666'
+pii_expect_clean "a 5-part dotted version" 'ver 1.2.3.4.5'
+pii_expect_clean "an SSN shape inside a longer digit run" 'id 5123-45-67890'
+# The generic phone shape is 10-11 digits, so an unseparated numeric id longer
+# than that used to be mangled into [PII:PHONE] plus its leftover digits.
+pii_expect_clean "a 12-digit numeric id" 'id 123456789012'
+pii_expect_clean "an RRN shape inside a longer digit run" 'id 5900101-12345670'
+
+# Card numbers assembled at runtime so this test file holds no contiguous PAN.
+t2_pan16="4111""1111""1111""1111"
+t2_pan19="4111""1111""1111""1111""003"
+t2_amex="3782""822463""10005"
+pii_expect_tier2 "an unseparated 16-digit PAN" "pan $t2_pan16 end" '\[PII:CREDIT_CARD\]'
+pii_expect_tier2 "a 19-digit PAN" "pan $t2_pan19 end" '\[PII:CREDIT_CARD\]'
+pii_expect_tier2 "an unseparated 15-digit Amex" "amex $t2_amex end" '\[PII:CREDIT_CARD\]'
+pii_expect_tier2 "a PAN trailed by a 3-digit number" "pan $t2_pan16 123" '\[PII:CREDIT_CARD\]'
+pii_expect_tier2 "a US SSN" 'ssn 123-45-6789' '\[PII:SSN\]'
+pii_expect_tier2 "a KR resident reg. no." 'rrn 900101-1234567' '\[PII:KR_RRN\]'
+
+# A syntactically valid dotted quad stays masked even when it reads like a build
+# version: 1.2.3.4 is a real IPv4, and no context-free rule separates the two.
+pii_ip_cli=$(pii_cli_mask 'app version 1.2.3.4')
+pii_ip_hook=$(pii_hook_mask 'app version 1.2.3.4')
+if [ "$pii_ip_cli" = 'app version [PII:IP_ADDRESS]' ] \
+   && printf '%s' "$pii_ip_hook" | grep -q '\[PII:IP_ADDRESS\]'; then
+  ok "PII masks a valid dotted quad even in version-like context"
+else
+  not_ok "PII masks a valid dotted quad even in version-like context"
+  printf '%s\n' "  cli : $pii_ip_cli" "  hook: $pii_ip_hook"
+fi
+
+# The Tier-2 gate scans one awk record at a time, so a single long line packed
+# with card-shaped rejects is the worst case: every candidate re-examines the
+# rest of the record. It has to clear the PreToolUse timeout in
+# plugins/agent-guard/hooks/hooks.json (10s) — past that the host kills the hook
+# and the input is neither cleared nor reported as a detector failure.
+PII_BIG="$TMP_ROOT/pii-big-line.txt"
+awk 'BEGIN { for (i = 0; i < 14700; i++) printf "1234567812345678 " }' > "$PII_BIG"
+printf '{"session_id":"t","tool_name":"Write","tool_input":{"file_path":"a.ts","content":%s}}' \
+  "$(jq -Rs . < "$PII_BIG")" > "$TMP_ROOT/pii-big-payload.json"
+pii_big_start=$(date +%s)
+AGENT_GUARD_PII_HOOK_MODE=mask "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool \
+  < "$TMP_ROOT/pii-big-payload.json" >/dev/null 2>"$ERR"
+status=$?
+pii_big_elapsed=$(( $(date +%s) - pii_big_start ))
+if [ "$status" -eq 0 ] && [ "$pii_big_elapsed" -lt 10 ]; then
+  ok "PII gate clears a 250 KB single-line record within the PreToolUse timeout (${pii_big_elapsed}s)"
+else
+  not_ok "PII gate clears a 250 KB single-line record within the PreToolUse timeout (exit $status, ${pii_big_elapsed}s)"
+  sed 's/^/  stderr: /' "$ERR"
 fi
 
 # --- agent-guard exec (shell-escape output masking) --------------------------
