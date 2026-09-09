@@ -2435,7 +2435,20 @@ bash_matches_deny_path_mode() {
     printf '%s\n' "$mode_cmd" | grep -Eq "$regex"
     grep_status=$?
     case "$grep_status" in
-      0) return 0 ;;   # command references a deny-listed path -> block
+      0)                 # command references a deny-listed path -> block
+        # Name what tripped the gate on stdout, so a block can be diagnosed
+        # without guessing (#99): the value of this line is that a false
+        # positive can be rewritten instead of answered by weakening the deny
+        # list. Report the entry only -- it is public policy text. An excerpt of
+        # the matched text is NOT safe to emit: both wildcards in the regex
+        # swallow whatever else shares the shell word (an entry's own trailing
+        # `*` eats a URL query string, the `<prefix>/` alternative eats a
+        # userinfo field or a directory component), so the excerpt can carry a
+        # credential, and this branch blocks before any scanner runs, leaving
+        # nothing downstream to redact it.
+        printf "matched deny-read-paths entry '%s'\n" "$entry"
+        return 0
+        ;;
       1) ;;            # no match -> keep scanning
       *)
         # grep failed (e.g. a custom deny-read entry produced an invalid ERE).
@@ -3114,7 +3127,11 @@ check_bash_command() {
   # fail-closed path exits 2, which in this subshell no longer terminates the
   # process, so re-propagate every status but 1 (no-match) as a block. `die` on
   # an inaccessible workdir also surfaces as a non-1 status (fail closed).
-  (
+  #
+  # The subshell's stdout carries only the match report (every helper it calls
+  # captures its own output), so it is safe to collect here and replay as a
+  # diagnosis. A non-match produces no output.
+  deny_report=$(
     [ -n "$workdir" ] && { CDPATH= cd -- "$workdir" 2>/dev/null \
       || die "hook workdir is not accessible: $workdir"; }
     bash_matches_deny_path "$raw_cmd"
@@ -3123,6 +3140,8 @@ check_bash_command() {
     0)
       info "$PROGRAM: blocked shell command referencing a deny-listed path"
       info "$PROGRAM: reason=bash_protected_path_text_match; raw Bash command text matched a protected-path pattern and may be a file operand or source/search text; command was not executed"
+      [ -n "$deny_report" ] && info "$PROGRAM: $deny_report"
+      info "$PROGRAM: if the command reads no protected file, rewrite the matched text so it is not path-shaped and retry; do not weaken the deny list. Examples: jq '.[\"key\"]' instead of jq '.key'; a commit message that omits the path; a structured Grep pattern instead of an inline shell search."
       exit 2
       ;;
     1) ;;
