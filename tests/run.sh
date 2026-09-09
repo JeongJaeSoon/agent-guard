@@ -9575,6 +9575,37 @@ else
   sed 's/^/  stderr: /' "$ERR"
 fi
 
+# An endpoint provider redacts server-side and never receives the skip set, so
+# accepting one would leave a switch that silently does nothing on every path
+# that goes through the provider (CLI, exec, and block-mode input gating).
+for skip_prov in http pleno; do
+  printf '%s' 'x' \
+    | env AGENT_GUARD_PII_SKIP=IP_ADDRESS AGENT_GUARD_PII_PROVIDER="$skip_prov" \
+      AGENT_GUARD_PII_REDACT_URL=http://127.0.0.1:1 \
+      "$PLUGIN_ROOT/bin/agent-guard" pii-filter >/dev/null 2>"$ERR"
+  status=$?
+  if [ "$status" -eq 2 ] && grep -q 'AGENT_GUARD_PII_SKIP' "$ERR"; then
+    ok "PII skip is refused with the $skip_prov provider"
+  else
+    not_ok "PII skip is refused with the $skip_prov provider (want exit 2 naming AGENT_GUARD_PII_SKIP, got $status)"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+done
+
+# …and an empty skip set must leave endpoint providers exactly as they were:
+# reaching the request (and failing on the unreachable URL) proves the new
+# validation did not start rejecting a configuration that used to work.
+printf '%s' 'x' \
+  | env AGENT_GUARD_PII_PROVIDER=http AGENT_GUARD_PII_REDACT_URL=http://127.0.0.1:1 \
+    "$PLUGIN_ROOT/bin/agent-guard" pii-filter >/dev/null 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ] && grep -q 'provider request failed' "$ERR"; then
+  ok "an empty PII skip set leaves endpoint providers untouched"
+else
+  not_ok "an empty PII skip set leaves endpoint providers untouched (expected 2, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
 # --check is the health check people run to validate their configuration, so it
 # must refuse a skip set that every real run would refuse.
 env AGENT_GUARD_PII_SKIP=CREDIT_CARD "$PLUGIN_ROOT/bin/agent-guard" pii-filter --check \

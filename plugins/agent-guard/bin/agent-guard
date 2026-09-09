@@ -776,6 +776,17 @@ pii_skip_set() {
     esac
     skip_out="$skip_out$skip_name,"
   done
+  # An endpoint provider redacts server-side and never receives the skip set, so
+  # accepting one would leave a switch that silently does nothing on every path
+  # that goes through the provider. An unknown provider value is left alone here
+  # so pii_provider still reports it as the provider error it is.
+  if [ "$skip_out" != , ]; then
+    case "${AGENT_GUARD_PII_PROVIDER:-regex}" in
+      http|pleno)
+        die "AGENT_GUARD_PII_SKIP is only supported with AGENT_GUARD_PII_PROVIDER=regex (got ${AGENT_GUARD_PII_PROVIDER})"
+        ;;
+    esac
+  fi
   printf '%s' "$skip_out"
 }
 

@@ -413,6 +413,7 @@ Only `EMAIL`, `PHONE`, and `IP_ADDRESS` are accepted. A Tier-2 name (`CREDIT_CAR
 
 - A skipped type is no longer treated as PII **at all**, so `AGENT_GUARD_PII_HOOK_MODE=block` also stops blocking inputs that contain it. That is the point of the switch, not a leak — but it does mean the setting is not "output-only" in `block` mode.
 - Skipping never affects Tier-2. Credit card, US SSN, and Korean resident registration number stay masked on output and hard-blocked on input in `mask` mode regardless of what is skipped.
+- It requires the built-in `regex` provider. An endpoint provider (`http`, `pleno`) redacts server-side and never receives the skip set, so combining the two is **refused with exit 2** rather than left as a switch that silently does nothing.
 
 ## Native Git Hook
 
