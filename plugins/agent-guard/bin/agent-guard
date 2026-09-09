@@ -4672,8 +4672,22 @@ git_backstop_covers_path() {
   [ -d "$covers_dir" ] || return 1
   covers_file_root=$(git -C "$covers_dir" rev-parse --show-toplevel 2>/dev/null) || return 1
   [ "$covers_file_root" = "$covers_root" ] || return 1
-  git -C "$covers_dir" check-ignore -q -- "$covers_path" 2>/dev/null
-  [ "$?" -eq 1 ]
+  # Ignore status alone is not coverage: `git update-index --skip-worktree` and
+  # `--assume-unchanged` leave a tracked file un-ignored while `git diff HEAD`
+  # stops reporting it, so both scanners missed it. One `ls-files -v` answers
+  # tracking, index state, and ignore status together, in place of the
+  # check-ignore call rather than in addition to it.
+  #   'H ' tracked and honored     -> `git diff HEAD` reports it, ignored or not
+  #   '? ' untracked, not ignored  -> `ls-files --others` reports it
+  # Everything else is uncovered and falls through to the direct scan: no line
+  # at all (ignored and untracked, or a failed call), 'S ' (skip-worktree), a
+  # lowercase letter (assume-unchanged), or any other index state.
+  covers_state=$(git -C "$covers_dir" ls-files -v --cached --others \
+    --exclude-standard -- "$covers_path" 2>/dev/null) || return 1
+  case "$covers_state" in
+    'H '*|'? '*) return 0 ;;
+  esac
+  return 1
 }
 
 scan_write_target_path() {

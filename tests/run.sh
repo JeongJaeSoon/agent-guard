@@ -4458,6 +4458,64 @@ expect_post_target 0 "hook-post-tool leaves committed tracked content to the wor
   vcs-tracked-committed \
   '{"tool_name":"Write","tool_input":{"file_path":"legacy.txt"}}' "$IGN_REPO"
 
+# `git update-index --skip-worktree` / `--assume-unchanged` make `git diff HEAD`
+# report nothing for the path while `check-ignore` still calls it not-ignored.
+# Judging coverage by ignore status alone left these tracked-but-index-excluded
+# files scanned by neither backstop.
+(
+  cd "$IGN_REPO" || exit 2
+  printf '%s\n' "port = 8080" > skipped-conf.txt
+  printf '%s\n' "port = 8080" > assumed-conf.txt
+  printf '%s\n' "port = 8080" > skipped-clean.txt
+  printf '%s\n' "port = 8080" > assumed-clean.txt
+  git add skipped-conf.txt assumed-conf.txt skipped-clean.txt assumed-clean.txt
+  git commit -q -m index-excluded
+  git update-index --skip-worktree skipped-conf.txt skipped-clean.txt
+  git update-index --assume-unchanged assumed-conf.txt assumed-clean.txt
+)
+printf '%s\n' "AGENT_GUARD_TEST_SECRET" >"$IGN_REPO/skipped-conf.txt"
+expect_post_target 2 "hook-post-tool blocks an Edit to a skip-worktree tracked file" \
+  vcs-skip-worktree-secret \
+  '{"tool_name":"Edit","tool_input":{"file_path":"skipped-conf.txt"}}' "$IGN_REPO"
+
+printf '%s\n' "AGENT_GUARD_TEST_SECRET" >"$IGN_REPO/assumed-conf.txt"
+expect_post_target 2 "hook-post-tool blocks an Edit to an assume-unchanged tracked file" \
+  vcs-assume-unchanged-secret \
+  '{"tool_name":"Edit","tool_input":{"file_path":"assumed-conf.txt"}}' "$IGN_REPO"
+
+printf '%s\n' "timeout = 30" >"$IGN_REPO/skipped-clean.txt"
+expect_post_target 0 "hook-post-tool allows a clean Edit to a skip-worktree tracked file" \
+  vcs-skip-worktree-clean \
+  '{"tool_name":"Edit","tool_input":{"file_path":"skipped-clean.txt"}}' "$IGN_REPO"
+
+printf '%s\n' "timeout = 30" >"$IGN_REPO/assumed-clean.txt"
+expect_post_target 0 "hook-post-tool allows a clean Edit to an assume-unchanged tracked file" \
+  vcs-assume-unchanged-clean \
+  '{"tool_name":"Edit","tool_input":{"file_path":"assumed-clean.txt"}}' "$IGN_REPO"
+
+# A tracked file that also matches .gitignore stays on the working-tree path:
+# `git diff HEAD` reports tracked paths whatever the ignore rules say, so the
+# direct scan must not duplicate it — and the secret must not be lost either.
+(
+  cd "$IGN_REPO" || exit 2
+  printf '%s\n' "port = 8080" > vault/tracked.txt
+  git add -f vault/tracked.txt
+  git commit -q -m tracked-ignored
+)
+printf '%s\n' "AGENT_GUARD_TEST_SECRET" >"$IGN_REPO/vault/tracked.txt"
+expect_post_target 2 "hook-post-tool still catches a tracked file that matches .gitignore" \
+  vcs-tracked-ignored-secret \
+  '{"tool_name":"Edit","tool_input":{"file_path":"vault/tracked.txt"}}' "$IGN_REPO"
+# The two backstops report under different names and the working-tree one exits
+# first, so its message is proof the tracked path was not rescanned directly.
+if grep -q 'changed files contain secret-like values' "$ERR"; then
+  ok "hook-post-tool leaves a tracked ignored file to the working-tree backstop"
+else
+  not_ok "hook-post-tool leaves a tracked ignored file to the working-tree backstop"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+printf '%s\n' "port = 8080" >"$IGN_REPO/vault/tracked.txt"
+
 # A symlink inside a skipped directory must not launder the target.
 printf '%s\n' "AGENT_GUARD_TEST_SECRET" >"$OUTSIDE_DIR/linked-secret.txt"
 ln -sf "$OUTSIDE_DIR/linked-secret.txt" "$IGN_REPO/vault/link.txt"
