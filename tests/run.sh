@@ -1161,8 +1161,8 @@ expect_json_status 2 "path-shaped echo operand stays blocked" \
   hook-pre-tool
 expect_stderr_contains "matched deny-read-paths entry '*.key'" \
   "Bash path block names the deny-read entry that matched"
-expect_stderr_contains "foo.key" \
-  "Bash path block names the scanned text that matched"
+expect_stderr_missing "in scanned text" \
+  "Bash path block quotes no raw command text"
 expect_stderr_contains "rewrite" \
   "Bash path block suggests a non-path-shaped rewrite"
 
@@ -1183,6 +1183,31 @@ expect_json_status 0 "allowed Bash command emits no deny-read diagnosis" \
   hook-pre-tool
 expect_stderr_missing "matched deny-read-paths entry" \
   "allowed Bash command emits no deny-read diagnosis"
+
+# The diagnosis must not become a leak channel. Both wildcards in the match
+# regex swallow whatever else shares the shell word: a deny entry's own trailing
+# `*` (`.env*`) eats a URL query string, and the `<prefix>/` alternative eats a
+# userinfo field or a directory component. An excerpt of the matched text can
+# therefore carry a credential, and this branch exits before any scanner runs,
+# so nothing downstream would redact it. The deny entry is public policy text
+# and is the whole report. Token is runtime-generated: a committed literal would
+# trip the repo's own scan-path CI. od -N is bounded and exits on its own; the
+# tr|head urandom idiom hangs on runners that ignore SIGPIPE.
+bash_diag_token=$(od -An -N18 -tx1 /dev/urandom | LC_ALL=C tr -d ' \n')
+
+bash_diag_no_leak() { # $1 name, $2 command carrying the token
+  expect_json_status 2 "$1 stays blocked" \
+    "$(jq -nc --arg c "$2" '{tool_name:"Bash",tool_input:{command:$c}}')" \
+    hook-pre-tool
+  expect_stderr_missing "$bash_diag_token" "$1 leaks no credential to stderr"
+}
+
+bash_diag_no_leak "deny-entry wildcard eating a URL query" \
+  "curl https://example.com/.env?token=$bash_diag_token"
+bash_diag_no_leak "prefix wildcard eating a URL userinfo field" \
+  "curl https://user:$bash_diag_token@example.com/.env"
+bash_diag_no_leak "prefix wildcard eating a directory component" \
+  "cat /home/$bash_diag_token/id_rsa"
 
 # The diagnosis is the whole fix: no command-name exemption was added, so every
 # shape that merely looks safe must still block. `git commit -m` in particular

@@ -2421,28 +2421,6 @@ deny_path_command_regex() {
   printf '%s' '(^|[^[:alnum:]_./~-])('"${converted}"'|[^[:space:]<>|;&`$()]*/'"${converted}"')([^[:alnum:]_.-]|$)'
 }
 
-# Name what tripped the gate on stdout, so a block can be diagnosed without
-# guessing. The gate stays fail-closed either way (#99): the whole value of this
-# line is that a false positive can be rewritten instead of answered by
-# weakening the deny list. The entry is public policy text; the match excerpt
-# comes from the command the host already recorded, and is trimmed and capped so
-# an oversized command cannot flood the hook's stderr.
-deny_path_match_report() {
-  report_excerpt=$(printf '%s\n' "$2" | grep -Eo "$3" 2>/dev/null | awk '
-    NR == 1 {
-      sub(/^[[:space:]]+/, "")
-      sub(/[[:space:]]+$/, "")
-      if (length($0) > 80) $0 = substr($0, 1, 80) "..."
-      print
-    }
-  ')
-  printf "matched deny-read-paths entry '%s'" "$1"
-  # Bracketed rather than quoted: the excerpt is raw command text and often
-  # carries its own quotes, which would double up (jq '.key' read as ''.key'').
-  [ -n "$report_excerpt" ] && printf ' in scanned text [%s]' "$report_excerpt"
-  printf '\n'
-}
-
 # Private variable name: POSIX sh has no locals, and assigning the bare name
 # `cmd` here clobbers the caller's command in check_bash_command (see #127).
 bash_matches_deny_path_mode() {
@@ -2458,7 +2436,17 @@ bash_matches_deny_path_mode() {
     grep_status=$?
     case "$grep_status" in
       0)                 # command references a deny-listed path -> block
-        deny_path_match_report "$entry" "$mode_cmd" "$regex"
+        # Name what tripped the gate on stdout, so a block can be diagnosed
+        # without guessing (#99): the value of this line is that a false
+        # positive can be rewritten instead of answered by weakening the deny
+        # list. Report the entry only -- it is public policy text. An excerpt of
+        # the matched text is NOT safe to emit: both wildcards in the regex
+        # swallow whatever else shares the shell word (an entry's own trailing
+        # `*` eats a URL query string, the `<prefix>/` alternative eats a
+        # userinfo field or a directory component), so the excerpt can carry a
+        # credential, and this branch blocks before any scanner runs, leaving
+        # nothing downstream to redact it.
+        printf "matched deny-read-paths entry '%s'\n" "$entry"
         return 0
         ;;
       1) ;;            # no match -> keep scanning
