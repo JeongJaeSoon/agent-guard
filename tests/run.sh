@@ -12193,6 +12193,21 @@ else
   sed 's/^/  stderr: /' "$ERR"
 fi
 
+printf '%s\n' clean >"$PILOT_REPO/ignored dir/normal.txt"
+normal_payload=$(jq -nc --arg d "$PILOT_REPO" \
+  '{session_id:"pilot-normal-target",tool_name:"Write",cwd:$d,tool_input:{file_path:"ignored dir/normal.txt"}}')
+printf '%s' "$normal_payload" \
+  | AGENT_GUARD_HOOK_HOST=claude AGENT_GUARD_INFRA_FAILURE_MODE=closed \
+      AGENT_GUARD_WARNING_DIR="$TESTTMP/post-target-warn" \
+      "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 0 ]; then
+  ok "structured Write normal target passes under closed infrastructure policy"
+else
+  not_ok "structured Write normal target is not a control-character false positive (expected 0, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
 say "passed: $pass"
 say "failed: $fail"
 

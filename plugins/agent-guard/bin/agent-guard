@@ -4983,7 +4983,7 @@ scan_post_tool_write_target() {
       if printf '%s' "$input" | jq -e '
         (.tool_input.file_path // .tool_input.path //
          .tool_input.notebook_path // "") as $p |
-        ($p | type) == "string" and ($p | test("[\\u0000-\\u001f]"))
+        ($p | type) == "string" and ($p | explode | any(. < 32))
       ' >/dev/null 2>&1; then
         handle_git_infrastructure_failure "$input" \
           "$PROGRAM: the file path written by this tool call contains unsupported control characters;"
@@ -5007,8 +5007,11 @@ scan_post_tool_write_target() {
       case "$?" in
         0) return 0 ;;
         1) info "$PROGRAM: the file this tool call wrote contains secret-like values"; exit 2 ;;
-        *) handle_git_infrastructure_failure "$input" \
-             "$PROGRAM: the file this tool call wrote could not be scanned;" ;;
+        *)
+          handle_git_infrastructure_failure "$input" \
+            "$PROGRAM: the file this tool call wrote could not be scanned;"
+          return 0
+          ;;
       esac
       ;;
   esac
