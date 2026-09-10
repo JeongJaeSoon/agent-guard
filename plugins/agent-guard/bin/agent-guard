@@ -4776,6 +4776,21 @@ hook_post_tool() {
   need_cmd jq
   [ -n "$input" ] || return 0
   validate_hook_object PostToolUse "$input" || return 0
+
+  # Same recovery PreToolUse does (#227). A host may serialize tool_input as a
+  # JSON-encoded string; the precise-field extractors then find nothing, so
+  # `post_tool_write_target` yielded an empty path and the direct file scan was
+  # skipped without a word — a gitignored or out-of-repo write got neither the
+  # git backstop nor the direct scan. Only an object is substituted, matching
+  # PreToolUse: a string that decodes to an array/scalar, or to nothing, is left
+  # alone so the generic string-leaf scanners still see it.
+  if [ "$(json_value '.tool_input | type' "$input")" = "string" ]; then
+    input=$(printf '%s' "$input" \
+      | jq -c '(.tool_input | try fromjson catch null) as $decoded
+               | if ($decoded | type) == "object" then .tool_input = $decoded else . end')
+    HOOK_INPUT=$input
+  fi
+
   tool=$(json_value '.tool_name // .tool // .name // empty' "$input")
   workdir=$(json_value '.tool_input.workdir // .tool_input.cwd // .cwd // empty' "$input")
 
