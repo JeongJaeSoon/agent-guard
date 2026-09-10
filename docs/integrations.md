@@ -39,7 +39,7 @@ cd <your-project>
 ~/.agent-guard/install.sh git-hooks
 
 # From an Agent Guard source checkout instead:
-./install.sh git-hooks
+/absolute/path/to/agent-guard/install.sh git-hooks
 ```
 
 The installer sets `core.hooksPath=githooks` only when it will not overwrite an
@@ -70,17 +70,19 @@ jobs:
   secret-guard:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: JeongJaeSoon/agent-guard@v3
         with:
           paths: "."
-          gitleaks-checksum: "<sha256 of the gitleaks release archive>"
+          gitleaks-version: "8.30.1"
+          gitleaks-checksum: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
 ```
 
-Get the matching checksum with `agent-guard checksum`; CI is usually
-`linux/x64`, so use that printed value. `require-checksum` is `true` by default.
-Set it to `false` only for local experimentation. `paths` is whitespace
-separated, so an individual path cannot contain spaces.
+The shown checksum is for gitleaks 8.30.1 on `linux/x64`; refresh the version
+and checksum together when changing either one. Generate a matching value with
+`agent-guard checksum`. `require-checksum` is `true` by default. Set it to
+`false` only for local experimentation. `paths` is whitespace separated, so an
+individual path cannot contain spaces.
 
 ## Limits and backstops
 
@@ -88,8 +90,10 @@ separated, so an individual path cannot contain spaces.
   They do not sweep ignored files or arbitrary content outside the repository.
 - A structured write target is scanned even when it is ignored or outside the
   work tree. Codex `apply_patch` paths are also directly scanned when the patch
-  names them. Direct targets and each working-tree scan component have a 10 MiB
-  byte budget; it is a bounded-input policy, not a measured wall-clock timeout.
+  names them. The tracked diff, index diff, and untracked-content components
+  each receive one third of the 10 MiB working-tree input budget, keeping their
+  total below 10 MiB. Direct write targets have a separate 10 MiB aggregate
+  budget. These are bounded-input policies, not measured wall-clock timeouts.
   An oversized or unreadable target is an infrastructure failure, not a clean
   scan.
 - Bash and MCP mutations may lack a usable named target. Their working-tree
