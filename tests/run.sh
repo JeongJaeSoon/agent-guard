@@ -5869,10 +5869,15 @@ formula_output=$(
 )
 if printf '%s\n' "$formula_output" | grep -q 'libexec.install Dir' \
    && printf '%s\n' "$formula_output" | grep -q 'agent-guard-3.1.0.tar.gz' \
-   && printf '%s\n' "$formula_output" | grep -q 'sha256 "'$FORMULA_SHA'"'; then
-  ok "Homebrew formula pins URL, checksum, and non-recursive libexec wrapper"
+   && printf '%s\n' "$formula_output" | grep -q 'sha256 "'$FORMULA_SHA'"' \
+   && printf '%s\n' "$formula_output" | grep -q 'depends_on "git"' \
+   && printf '%s\n' "$formula_output" | grep -q 'depends_on "gitleaks"' \
+   && printf '%s\n' "$formula_output" | grep -q 'depends_on "jq"' \
+   && printf '%s\n' "$formula_output" | grep -q 'system "#{bin}/agent-guard", "check"' \
+   && printf '%s\n' "$formula_output" | grep -q 'system "#{bin}/agent-guard", "smoke-test"'; then
+  ok "Homebrew formula pins release, installs CLI dependencies, and checks the guard"
 else
-  not_ok "Homebrew formula pins URL, checksum, and non-recursive libexec wrapper"
+  not_ok "Homebrew formula pins release, installs CLI dependencies, and checks the guard"
 fi
 run_expect 2 "Homebrew formula renderer rejects a malformed checksum" \
   "$ROOT/scripts/render-homebrew-formula.sh" 3.1.0 bad

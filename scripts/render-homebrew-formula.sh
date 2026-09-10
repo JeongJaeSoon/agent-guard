@@ -19,6 +19,10 @@ class AgentGuard < Formula
   sha256 "${sha256}"
   license "MIT"
 
+  depends_on "git"
+  depends_on "gitleaks"
+  depends_on "jq"
+
   def install
     libexec.install Dir["*"]
     (bin/"agent-guard").write <<~SH
@@ -29,6 +33,8 @@ class AgentGuard < Formula
 
   test do
     assert_match "agent-guard ${version}", shell_output("#{bin}/agent-guard version")
+    system "#{bin}/agent-guard", "check"
+    system "#{bin}/agent-guard", "smoke-test"
   end
 end
 EOF
