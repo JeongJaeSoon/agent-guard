@@ -24,6 +24,9 @@ REAL_DIRNAME=$(command -v dirname)
 REAL_PWD=$(command -v pwd)
 PATH="$MOCK_BIN:$PATH"
 export PATH
+# Keep the large deterministic suite out of the developer's support logs.
+# Dedicated audit tests explicitly turn logging on in private temp storage.
+export AGENT_GUARD_LOG_MODE=off
 export AGENT_GUARD_GITLEAKS_CONFIG="$PLUGIN_ROOT/config/gitleaks.toml"
 
 # Isolate git from the developer's global config so inherited values like
@@ -150,6 +153,8 @@ fi
 # while AGENT_GUARD_COMMAND_WRAPPING=off is a persistent install-time opt-out.
 # Stub only the release downloads; archive verification, extraction, linking,
 # setup-shell, and rc generation all run through the real implementation.
+run_expect 0 "private metadata-only audit logging contract" sh "$ROOT/tests/audit-log.sh"
+
 run_expect 0 "standalone update preserves executable and link destinations" \
   sh "$ROOT/tests/bootstrap-update.sh"
 bootstrap_fixture="$TESTTMP/bootstrap-fixture"
