@@ -1,3 +1,15 @@
+## v3.3.0 - 2026-09-10
+
+- fix(hooks): 문자열로 인코딩된 tool_input 을 PostToolUse 에서도 복구한다 (#228)
+- fix(scan): 인덱스도 HEAD 기준으로 함께 스캔한다 (#225)
+- feat(hooks): PostToolUse가 방금 쓴 파일 경로를 직접 스캔한다 (#221)
+- docs(deploy): 정책값 배포 수단과 Codex 관리 경로를 정확히 쓴다 (#222)
+- fix(bash): 보호 경로 차단에 진단과 재작성 안내를 붙인다 (#220)
+- docs(verify): 스캔 범위를 정확히 기술한다 (#218)
+- feat(pii): Tier-1 PII 타입을 개별로 끌 수 있게 한다 (#219)
+- fix(pii): Tier-2 정규식에 숫자 경계와 Luhn 검증을 추가한다 (#217)
+- refactor: 복제된 출전을 단일화하고 드리프트를 CI로 검출한다 (#216)
+
 ## v3.2.0 - 2026-09-06
 
 - Add an experimental, explicitly enabled pleno-anonymize PII provider with strict response validation. Remote processing remains off by default.
