@@ -60,7 +60,7 @@ validate_payload_layout() {
   for entry in "$stage"/.[!.]* "$stage"/..?* "$stage"/*; do
     [ -e "$entry" ] || continue
     case ${entry##*/} in
-      .claude-plugin|.codex-plugin|LICENSE|PRIVACY.md|README.md|SECURITY.md|SUPPORT.md|THIRD_PARTY_NOTICES.md|assets|bin|codex-skills|commands|config|deployment|docs|hooks|hooks.json|install.sh|scripts|skills) ;;
+      .claude-plugin|.codex-plugin|CHANGELOG.md|LICENSE|PRIVACY.md|README.md|SECURITY.md|SUPPORT.md|THIRD_PARTY_NOTICES.md|assets|bin|codex-skills|commands|config|deployment|docs|hooks|hooks.json|install.sh|scripts|skills) ;;
       *) die "archive contains an unexpected top-level entry: ${entry##*/}" ;;
     esac
   done

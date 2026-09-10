@@ -15,6 +15,8 @@ tar -xzf "$archive" -C "$stage"
 
 [ -f "$stage/docs/installation.md" ] \
   || { printf '%s\n' 'release archive is missing docs/installation.md' >&2; exit 1; }
+[ -f "$stage/CHANGELOG.md" ] \
+  || { printf '%s\n' 'release archive is missing CHANGELOG.md' >&2; exit 1; }
 
 # Only relative Markdown links are archive members. Fragment-only links are
 # internal to README, and remote/absolute links intentionally resolve elsewhere.

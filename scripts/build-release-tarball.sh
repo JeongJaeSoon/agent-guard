@@ -10,6 +10,7 @@ trap 'rm -rf "$stage"' EXIT INT TERM
 
 cp -R "$ROOT/plugins/agent-guard/." "$stage/"
 cp "$ROOT/README.md" "$stage/README.md"
+cp "$ROOT/CHANGELOG.md" "$stage/CHANGELOG.md"
 mkdir -p "$stage/docs"
 cp "$ROOT/docs/demo.gif" "$stage/docs/demo.gif"
 # The standalone archive replaces the plugin README with the repository README.
