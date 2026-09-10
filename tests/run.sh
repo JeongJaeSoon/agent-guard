@@ -11987,6 +11987,212 @@ else
 fi
 rm -rf "$NORM_PARENT"
 
+# --- pilot security: bounded tree scans and Codex write targets ------------
+# Assemble the test-only sentinel so source scans never see the matched value.
+PILOT_TOKEN="AGENT_GUARD_TEST_""SECRET"
+PILOT_REPO="$TMP_ROOT/pilot-security-repo"
+mkdir -p "$PILOT_REPO/ignored dir"
+(
+  cd "$PILOT_REPO" || exit 2
+  git init -q
+  git config user.email test@example.com
+  git config user.name "Agent Guard Tests"
+  printf '%s\n' '*.bin -diff' >.gitattributes
+  printf '%s\n' clean >payload.bin
+  printf '%s\n' 'ignored dir/' >.gitignore
+  git add .gitattributes .gitignore payload.bin
+  git commit -q -m init
+  printf 'TOKEN=%s\n' "$PILOT_TOKEN" >payload.bin
+  "$PLUGIN_ROOT/bin/agent-guard" scan-working-tree
+) >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 1 ]; then
+  ok "scan-working-tree scans tracked files marked binary and -diff"
+else
+  not_ok "scan-working-tree scans tracked -diff content (expected 1, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+# Preserve a confirmed tracked finding even when the later untracked listing
+# is unavailable. The fake delegates every Git operation except ls-files.
+PILOT_FAIL_BIN="$TMP_ROOT/pilot-fail-ls-files"
+mkdir -p "$PILOT_FAIL_BIN"
+cat >"$PILOT_FAIL_BIN/git" <<'EOSH'
+#!/usr/bin/env sh
+for arg do
+  [ "$arg" = ls-files ] && exit 71
+done
+exec "$AGENT_GUARD_TEST_REAL_GIT" "$@"
+EOSH
+chmod +x "$PILOT_FAIL_BIN/git"
+(
+  cd "$PILOT_REPO" || exit 2
+  PATH="$PILOT_FAIL_BIN:$PATH" AGENT_GUARD_TEST_REAL_GIT="$REAL_GIT" \
+    "$PLUGIN_ROOT/bin/agent-guard" scan-working-tree
+) >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 1 ]; then
+  ok "scan-working-tree keeps a finding when a later scan is unavailable"
+else
+  not_ok "scan-working-tree finding outranks unavailable (expected 1, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+(cd "$PILOT_REPO" && git checkout -q -- payload.bin)
+
+# The precedence is symmetric: a later confirmed untracked finding must replace
+# an earlier unavailable tracked-diff result.
+printf '%s\n' "$PILOT_TOKEN" >"$PILOT_REPO/untracked-finding.txt"
+PILOT_FAIL_DIFF_BIN="$TMP_ROOT/pilot-fail-diff"
+mkdir -p "$PILOT_FAIL_DIFF_BIN"
+cat >"$PILOT_FAIL_DIFF_BIN/git" <<'EOSH'
+#!/usr/bin/env sh
+for arg do
+  [ "$arg" = diff ] && exit 72
+done
+exec "$AGENT_GUARD_TEST_REAL_GIT" "$@"
+EOSH
+chmod +x "$PILOT_FAIL_DIFF_BIN/git"
+(
+  cd "$PILOT_REPO" || exit 2
+  PATH="$PILOT_FAIL_DIFF_BIN:$PATH" AGENT_GUARD_TEST_REAL_GIT="$REAL_GIT" \
+    "$PLUGIN_ROOT/bin/agent-guard" scan-working-tree
+) >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 1 ]; then
+  ok "scan-working-tree keeps an untracked finding after an earlier unavailable diff"
+else
+  not_ok "scan-working-tree later finding outranks unavailable (expected 1, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+rm -f "$PILOT_REPO/untracked-finding.txt"
+
+# A failed repository scan cannot be used as proof that Git covered the path;
+# PostToolUse must directly inspect the named tracked target instead.
+printf '%s\n' "$PILOT_TOKEN" >"$PILOT_REPO/payload.bin"
+failed_backstop_payload=$(jq -nc --arg d "$PILOT_REPO" \
+  '{session_id:"pilot-failed-backstop",tool_name:"Write",cwd:$d,tool_input:{file_path:"payload.bin"}}')
+printf '%s' "$failed_backstop_payload" \
+  | PATH="$PILOT_FAIL_DIFF_BIN:$PATH" AGENT_GUARD_TEST_REAL_GIT="$REAL_GIT" \
+      AGENT_GUARD_HOOK_HOST=claude AGENT_GUARD_WARNING_DIR="$TESTTMP/post-target-warn" \
+      "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "hook-post-tool directly scans a tracked target after Git backstop failure"
+else
+  not_ok "failed Git backstop does not claim target coverage (expected 2, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+(cd "$PILOT_REPO" && git checkout -q -- payload.bin)
+
+# A producer that exceeds its third of the aggregate tree-scan budget is an
+# infrastructure result, never an empty clean diff.
+PILOT_BIG_BIN="$TMP_ROOT/pilot-big-diff"
+mkdir -p "$PILOT_BIG_BIN"
+cat >"$PILOT_BIG_BIN/git" <<'EOSH'
+#!/usr/bin/env sh
+for arg do
+  if [ "$arg" = diff ]; then
+    printf '%s\n' 'diff --git a/x b/x' '--- a/x' '+++ b/x' '@@ -0,0 +1 @@'
+    yes '+012345678901234567890123456789012345678901234567890123456789'
+    exit 0
+  fi
+done
+exec "$AGENT_GUARD_TEST_REAL_GIT" "$@"
+EOSH
+chmod +x "$PILOT_BIG_BIN/git"
+(
+  cd "$PILOT_REPO" || exit 2
+  PATH="$PILOT_BIG_BIN:$PATH" AGENT_GUARD_TEST_REAL_GIT="$REAL_GIT" \
+    "$PLUGIN_ROOT/bin/agent-guard" scan-working-tree
+) >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 3 ]; then
+  ok "scan-working-tree reports an over-budget diff as unavailable"
+else
+  not_ok "scan-working-tree over-budget diff is unavailable (expected 3, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+# Codex apply_patch may write several files, uses the event cwd for relative
+# names, and permits spaces and shell metacharacters in its line-based paths.
+printf 'TOKEN=%s\n' "$PILOT_TOKEN" >"$PILOT_REPO/ignored dir/clean name.txt"
+printf 'TOKEN=%s\n' "$PILOT_TOKEN" >"$PILOT_REPO/ignored dir/semi;name.txt"
+pilot_patch=$(printf '%s\n' \
+  '*** Begin Patch' \
+  '*** Add File: ignored dir/clean name.txt' \
+  '+clean' \
+  '*** Add File: ignored dir/semi;name.txt' \
+  '+clean' \
+  '*** End Patch')
+pilot_payload=$(jq -nc --arg p "$pilot_patch" --arg d "$PILOT_REPO" \
+  '{session_id:"pilot-apply-multi",tool_name:"apply_patch",cwd:$d,tool_input:{input:$p}}')
+printf '%s' "$pilot_payload" \
+  | AGENT_GUARD_HOOK_HOST=claude AGENT_GUARD_WARNING_DIR="$TESTTMP/post-target-warn" \
+      "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "Codex apply_patch directly scans multiple safe relative targets from payload cwd"
+else
+  not_ok "Codex apply_patch scans every target (expected 2, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+malformed_patch='*** Begin Patch
+*** Add File:
++clean
+*** End Patch'
+malformed_payload=$(jq -nc --arg p "$malformed_patch" --arg d "$PILOT_REPO" \
+  '{session_id:"pilot-apply-malformed",tool_name:"apply_patch",cwd:$d,tool_input:{patch:$p}}')
+printf '%s' "$malformed_payload" \
+  | AGENT_GUARD_HOOK_HOST=claude AGENT_GUARD_INFRA_FAILURE_MODE=closed \
+      AGENT_GUARD_WARNING_DIR="$TESTTMP/post-target-warn" \
+      "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "Codex apply_patch malformed write target follows closed infrastructure policy"
+else
+  not_ok "Codex apply_patch malformed target is not silently clean (expected 2, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+many_patch='*** Begin Patch'
+many_i=0
+while [ "$many_i" -lt 129 ]; do
+  many_i=$((many_i + 1))
+  many_patch="$many_patch
+*** Add File: ignored dir/empty-$many_i
++clean"
+done
+many_patch="$many_patch
+*** End Patch"
+many_payload=$(jq -nc --arg p "$many_patch" --arg d "$PILOT_REPO" \
+  '{session_id:"pilot-apply-count",tool_name:"apply_patch",cwd:$d,tool_input:{diff:$p}}')
+printf '%s' "$many_payload" \
+  | AGENT_GUARD_HOOK_HOST=claude AGENT_GUARD_INFRA_FAILURE_MODE=closed \
+      AGENT_GUARD_WARNING_DIR="$TESTTMP/post-target-warn" \
+      "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "Codex apply_patch target count limit follows closed infrastructure policy"
+else
+  not_ok "Codex apply_patch bounds empty target count (expected 2, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+newline_payload=$(jq -nc --arg d "$PILOT_REPO" --arg p "ignored dir/trailing
+" '{session_id:"pilot-newline-target",tool_name:"Write",cwd:$d,tool_input:{file_path:$p}}')
+printf '%s' "$newline_payload" \
+  | AGENT_GUARD_HOOK_HOST=claude AGENT_GUARD_INFRA_FAILURE_MODE=closed \
+      AGENT_GUARD_WARNING_DIR="$TESTTMP/post-target-warn" \
+      "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "structured Write target with a trailing newline is not silently treated as another path"
+else
+  not_ok "structured Write control-character target follows infrastructure policy (expected 2, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
 say "passed: $pass"
 say "failed: $fail"
 

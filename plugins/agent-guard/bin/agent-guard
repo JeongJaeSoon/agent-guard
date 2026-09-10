@@ -1989,6 +1989,10 @@ scan_file_fragment_direct() {
 # one. Hook callers apply AGENT_GUARD_INFRA_FAILURE_MODE to infrastructure
 # failures; direct scan commands preserve the status for their caller.
 SCAN_STATUS_UNAVAILABLE=3
+SCAN_INPUT_MAX_BYTES=10485760
+# scan-working-tree has at most three producers: worktree diff, index diff, and
+# untracked content. Giving each one third keeps their aggregate under 10 MiB.
+SCAN_COMPONENT_MAX_BYTES=$((SCAN_INPUT_MAX_BYTES / 3))
 
 block_on_scan_status() {
   status=$1
@@ -2085,9 +2089,28 @@ require_git_repo() {
 
 extract_git_diff_added() {
   diff_file=$(mktemp_file) || return "$SCAN_STATUS_UNAVAILABLE"
-  if ! git diff "$@" >"$diff_file"; then
+  diff_status_file=$(mktemp_file) || { rm -f "$diff_file"; return "$SCAN_STATUS_UNAVAILABLE"; }
+  # Read at most one byte beyond the shared scan budget. Closing the pipe there
+  # stops a large diff from being fully materialized before the host timeout.
+  # This bounds scan work and storage; it is not a portable wall-clock timeout
+  # for a git process that stalls before producing output.
+  (git diff --text "$@"; printf '%s\n' "$?" >"$diff_status_file") \
+    | head -c $((SCAN_COMPONENT_MAX_BYTES + 1)) >"$diff_file"
+  pipe_status=$?
+  diff_status=$(sed -n '1p' "$diff_status_file" 2>/dev/null)
+  rm -f "$diff_status_file"
+  diff_bytes=$(LC_ALL=C wc -c <"$diff_file" 2>/dev/null | tr -d '[:space:]')
+  if [ "$pipe_status" -ne 0 ] || [ "$diff_status" != 0 ]; then
     rm -f "$diff_file"
     info "$PROGRAM: git diff failed; staged or working changes were not scanned"
+    return "$SCAN_STATUS_UNAVAILABLE"
+  fi
+  case "$diff_bytes" in
+    ''|*[!0-9]*) rm -f "$diff_file"; return "$SCAN_STATUS_UNAVAILABLE" ;;
+  esac
+  if [ "$diff_bytes" -gt "$SCAN_COMPONENT_MAX_BYTES" ]; then
+    rm -f "$diff_file"
+    info "$PROGRAM: git diff exceeded the scan input limit"
     return "$SCAN_STATUS_UNAVAILABLE"
   fi
   extract_added_lines <"$diff_file"
@@ -2135,7 +2158,8 @@ scan_untracked_files() {
   # fields are removed only for supported lockfile basenames; all other content
   # from those files, including credentials, remains in the stream.
   blob=$(mktemp_file) || { rm -f "$list"; die "failed to create temp file"; }
-  xargs -0 -I '{}' sh -c '
+  prepare_status_file=$(mktemp_file) || { rm -f "$list" "$blob"; die "failed to create temp file"; }
+  (xargs -0 -I '{}' sh -c '
     cd "$0" 2>/dev/null || exit 0
     f=$1
     filter=$2
@@ -2148,13 +2172,25 @@ scan_untracked_files() {
       *) cat -- "$f" || exit 1 ;;
     esac
     printf "\n" || exit 1
-  ' "$root" '{}' "$SELF_BIN" >>"$blob" <"$list"
-  prepare_status=$?
+  ' "$root" '{}' "$SELF_BIN" <"$list"; printf '%s\n' "$?" >"$prepare_status_file") \
+    | head -c $((SCAN_COMPONENT_MAX_BYTES + 1)) >"$blob"
+  pipe_status=$?
+  prepare_status=$(sed -n '1p' "$prepare_status_file" 2>/dev/null)
+  rm -f "$prepare_status_file"
   rm -f "$list"
-  if [ "$prepare_status" -ne 0 ]; then
+  blob_bytes=$(LC_ALL=C wc -c <"$blob" 2>/dev/null | tr -d '[:space:]')
+  if [ "$pipe_status" -ne 0 ] || [ "$prepare_status" != 0 ]; then
     rm -f "$blob"
     info "$PROGRAM: failed to prepare untracked files for scanning"
-    return 2
+    return "$SCAN_STATUS_UNAVAILABLE"
+  fi
+  case "$blob_bytes" in
+    ''|*[!0-9]*) rm -f "$blob"; return "$SCAN_STATUS_UNAVAILABLE" ;;
+  esac
+  if [ "$blob_bytes" -gt "$SCAN_COMPONENT_MAX_BYTES" ]; then
+    rm -f "$blob"
+    info "$PROGRAM: untracked files exceeded the scan input limit"
+    return "$SCAN_STATUS_UNAVAILABLE"
   fi
 
   if [ ! -s "$blob" ]; then
@@ -2183,23 +2219,26 @@ scan_working_tree() {
   # then undone on disk reads as an addition there, re-reporting history that
   # `git diff HEAD` correctly calls unchanged. Added lines only is the contract,
   # so HEAD stays the base for both.
+  result=0
+  first=
+  second=
   if git -C "$repo_root" rev-parse --verify HEAD >/dev/null 2>&1; then
     first=$(CDPATH= cd -- "$repo_root" && extract_git_diff_added --unified=0 --no-ext-diff HEAD -- .)
     status=$?
-    [ "$status" -eq 0 ] || return "$status"
+    [ "$status" -eq 0 ] || result="$SCAN_STATUS_UNAVAILABLE"
     second=$(CDPATH= cd -- "$repo_root" && extract_git_diff_added --cached --unified=0 --no-ext-diff -- .)
     status=$?
-    [ "$status" -eq 0 ] || return "$status"
+    [ "$status" -eq 0 ] || result="$SCAN_STATUS_UNAVAILABLE"
   else
     # No HEAD: `--cached` compares against the empty tree and the plain diff
     # carries unstaged edits. Nothing is committed yet, so neither can re-report
     # history and there is no HEAD to diff against.
     first=$(CDPATH= cd -- "$repo_root" && extract_git_diff_added --cached --unified=0 --no-ext-diff -- .)
     status=$?
-    [ "$status" -eq 0 ] || return "$status"
+    [ "$status" -eq 0 ] || result="$SCAN_STATUS_UNAVAILABLE"
     second=$(CDPATH= cd -- "$repo_root" && extract_git_diff_added --unified=0 --no-ext-diff -- .)
     status=$?
-    [ "$status" -eq 0 ] || return "$status"
+    [ "$status" -eq 0 ] || result="$SCAN_STATUS_UNAVAILABLE"
   fi
   # Content staged and left alone on disk appears in both. gitleaks reports the
   # same finding either way and agent-guard emits one generic line, so the cost
@@ -2209,14 +2248,13 @@ scan_working_tree() {
 $second"
   [ -z "$first" ] && tracked=$second
 
-  result=0
   if [ -n "$tracked" ]; then
     scan_text_direct "working tree added lines" "$tracked"
     status=$?
     case "$status" in
       0) ;;
       1) result=1 ;;
-      *) result=2 ;;
+      *) [ "$result" -eq 0 ] && result="$SCAN_STATUS_UNAVAILABLE" ;;
     esac
   fi
 
@@ -2224,8 +2262,8 @@ $second"
   status=$?
   case "$status" in
     0) ;;
-    1) [ "$result" -eq 0 ] && result=1 ;;
-    *) result=2 ;;
+    1) result=1 ;;
+    *) [ "$result" -eq 0 ] && result="$SCAN_STATUS_UNAVAILABLE" ;;
   esac
 
   return "$result"
@@ -4838,7 +4876,7 @@ redact_tool_output() {
 # 10 MiB. PostToolUse gets ~20s from the host and a killed hook fails OPEN, so
 # an unbounded file is a timeout, not a scan. Over-cap follows the same
 # infrastructure policy as any other scan that could not run.
-POST_TOOL_PATH_SCAN_MAX_BYTES=10485760
+POST_TOOL_PATH_SCAN_MAX_BYTES=$SCAN_INPUT_MAX_BYTES
 
 post_tool_write_target() {
   case "$2" in
@@ -4846,6 +4884,28 @@ post_tool_write_target() {
       json_value '.tool_input.file_path // .tool_input.path // empty' "$1" ;;
     NotebookEdit)
       json_value '.tool_input.notebook_path // .tool_input.file_path // empty' "$1" ;;
+    apply_patch)
+      patch=$(printf '%s' "$1" | jq -r '
+        .tool_input.command // .tool_input.patch // .tool_input.input //
+        .tool_input.diff // .tool_input.content // empty |
+        if type == "string" then . else tojson end
+      ' 2>/dev/null) || return "$SCAN_STATUS_UNAVAILABLE"
+      [ -n "$patch" ] || return "$SCAN_STATUS_UNAVAILABLE"
+      printf '%s\n' "$patch" | LC_ALL=C awk '
+        /^\*\*\* Delete File:/ { valid=1; next }
+        /^\*\*\* (Add|Update) File:/ {
+          path=$0; sub(/^\*\*\* (Add|Update) File:[ \t]*/, "", path)
+          if (path == "") bad=1; else { count++; if (count > 128) exit 3; print path; valid=1 }
+          next
+        }
+        /^\*\*\* Move to:/ {
+          path=$0; sub(/^\*\*\* Move to:[ \t]*/, "", path)
+          if (path == "") bad=1; else { count++; if (count > 128) exit 3; print path; valid=1 }
+          next
+        }
+        END { if (bad || !valid) exit 3 }
+      '
+      ;;
   esac
 }
 
@@ -4915,16 +4975,108 @@ scan_write_target_path() {
 
 scan_post_tool_write_target() {
   input=$1
-  target=$(post_tool_write_target "$input" "$2")
-  [ -n "$target" ] || return 0
+  tool=$2
   workdir=$3
-  (
-    [ -z "$workdir" ] || CDPATH= cd -- "$workdir" 2>/dev/null \
-      || exit "$SCAN_STATUS_UNAVAILABLE"
-    scanned_root=$(git rev-parse --show-toplevel 2>/dev/null) || scanned_root=
-    scan_write_target_path "$target" "$scanned_root"
-  )
-  case "$?" in
+  trust_git_backstop=${4:-0}
+  case "$tool" in
+    Write|Edit|MultiEdit|NotebookEdit)
+      if printf '%s' "$input" | jq -e '
+        (.tool_input.file_path // .tool_input.path //
+         .tool_input.notebook_path // "") as $p |
+        ($p | type) == "string" and ($p | test("[\\u0000-\\u001f]"))
+      ' >/dev/null 2>&1; then
+        handle_git_infrastructure_failure "$input" \
+          "$PROGRAM: the file path written by this tool call contains unsupported control characters;"
+        return 0
+      fi
+      target=$(post_tool_write_target "$input" "$tool")
+      target_extract_status=$?
+      if [ "$target_extract_status" -ne 0 ]; then
+        handle_git_infrastructure_failure "$input" \
+          "$PROGRAM: the file path written by this tool call could not be determined;"
+        return 0
+      fi
+      [ -n "$target" ] || return 0
+      (
+        [ -z "$workdir" ] || CDPATH= cd -- "$workdir" 2>/dev/null \
+          || exit "$SCAN_STATUS_UNAVAILABLE"
+        scanned_root=
+        [ "$trust_git_backstop" -eq 1 ] && scanned_root=$(git rev-parse --show-toplevel 2>/dev/null) || scanned_root=
+        scan_write_target_path "$target" "$scanned_root"
+      )
+      case "$?" in
+        0) return 0 ;;
+        1) info "$PROGRAM: the file this tool call wrote contains secret-like values"; exit 2 ;;
+        *) handle_git_infrastructure_failure "$input" \
+             "$PROGRAM: the file this tool call wrote could not be scanned;" ;;
+      esac
+      ;;
+  esac
+  targets=$(post_tool_write_target "$input" "$2")
+  target_extract_status=$?
+  [ "$target_extract_status" -eq 0 ] || {
+    handle_git_infrastructure_failure "$input" \
+      "$PROGRAM: the file paths written by this tool call could not be determined;"
+    return 0
+  }
+  [ -n "$targets" ] || return 0
+  targets_file=$(mktemp_file) || {
+    handle_git_infrastructure_failure "$input" \
+      "$PROGRAM: the file paths written by this tool call could not be scanned;"
+    return 0
+  }
+  printf '%s\n' "$targets" >"$targets_file" || {
+    rm -f "$targets_file"
+    handle_git_infrastructure_failure "$input" \
+      "$PROGRAM: the file paths written by this tool call could not be scanned;"
+    return 0
+  }
+  target_result=0
+  target_total_bytes=0
+  target_count=0
+  while IFS= read -r target || [ -n "$target" ]; do
+    [ -n "$target" ] || continue
+    target_count=$((target_count + 1))
+    if [ "$target_count" -gt 128 ]; then
+      [ "$target_result" -eq 0 ] && target_result="$SCAN_STATUS_UNAVAILABLE"
+      continue
+    fi
+    one_bytes=$(
+      [ -z "$workdir" ] || CDPATH= cd -- "$workdir" 2>/dev/null || exit 3
+      resolved_target=$(resolve_path "$(normalize_path "$target")")
+      if [ -f "$resolved_target" ]; then
+        LC_ALL=C wc -c <"$resolved_target" 2>/dev/null | tr -d '[:space:]'
+      else
+        printf 0
+      fi
+    )
+    size_status=$?
+    case "$one_bytes" in ''|*[!0-9]*) size_status=3 ;; esac
+    if [ "$size_status" -ne 0 ]; then
+      [ "$target_result" -eq 0 ] && target_result="$SCAN_STATUS_UNAVAILABLE"
+      continue
+    fi
+    [ -n "$one_bytes" ] && target_total_bytes=$((target_total_bytes + one_bytes))
+    if [ "$target_total_bytes" -gt "$POST_TOOL_PATH_SCAN_MAX_BYTES" ]; then
+      [ "$target_result" -eq 0 ] && target_result="$SCAN_STATUS_UNAVAILABLE"
+      continue
+    fi
+    (
+      [ -z "$workdir" ] || CDPATH= cd -- "$workdir" 2>/dev/null \
+        || exit "$SCAN_STATUS_UNAVAILABLE"
+      scanned_root=
+      [ "$trust_git_backstop" -eq 1 ] && scanned_root=$(git rev-parse --show-toplevel 2>/dev/null) || scanned_root=
+      scan_write_target_path "$target" "$scanned_root"
+    )
+    target_status=$?
+    case "$target_status" in
+      0) ;;
+      1) target_result=1 ;;
+      *) [ "$target_result" -eq 0 ] && target_result="$SCAN_STATUS_UNAVAILABLE" ;;
+    esac
+  done <"$targets_file"
+  rm -f "$targets_file"
+  case "$target_result" in
     0) return 0 ;;
     1)
       info "$PROGRAM: the file this tool call wrote contains secret-like values"
@@ -4969,6 +5121,7 @@ hook_post_tool() {
   # Mutation tools keep the working-tree backstop (may exit 2). It runs first so
   # a secret written to disk is still surfaced even when redaction is enabled.
   if is_mutation_tool "$tool"; then
+    git_backstop_ok=0
     if ! command -v git >/dev/null 2>&1; then
       handle_git_infrastructure_failure "$input" \
         "$PROGRAM: git is unavailable, so changed files could not be scanned;"
@@ -4981,7 +5134,7 @@ hook_post_tool() {
       )
       status=$?
       case "$status" in
-        0) ;;
+        0) git_backstop_ok=1 ;;
         1) info "$PROGRAM: changed files contain secret-like values after tool execution"; exit 2 ;;
         *)
           handle_git_infrastructure_failure "$input" \
@@ -4990,7 +5143,7 @@ hook_post_tool() {
       esac
     fi
     # Second backstop for what the git-shaped one structurally cannot see.
-    scan_post_tool_write_target "$input" "$tool" "$workdir"
+    scan_post_tool_write_target "$input" "$tool" "$workdir" "$git_backstop_ok"
   fi
 
   # All matched tools: mask secret-like values (and PII, when
