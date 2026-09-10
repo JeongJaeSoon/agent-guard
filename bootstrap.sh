@@ -45,6 +45,27 @@ resolve_latest_version() {
   printf '%s' "$v"
 }
 
+validate_payload_layout() {
+  # The archive is extracted once into a private staging directory before it
+  # reaches the installation. Do not allow special files or links to be carried
+  # from a release asset into ~/.agent-guard: a link can turn a later update
+  # into a write outside the owned payload directory.
+  if find "$stage" -mindepth 1 ! -type f ! -type d -print | grep -q .; then
+    die "archive contains a symlink or special file"
+  fi
+
+  # A release archive is the plugin payload plus the standalone installer and
+  # deployment examples. Reject unexpected top-level entries rather than
+  # extracting a checksum-valid but malformed asset into an existing install.
+  for entry in "$stage"/.[!.]* "$stage"/..?* "$stage"/*; do
+    [ -e "$entry" ] || continue
+    case ${entry##*/} in
+      .claude-plugin|.codex-plugin|LICENSE|PRIVACY.md|README.md|SECURITY.md|SUPPORT.md|THIRD_PARTY_NOTICES.md|assets|bin|codex-skills|commands|config|deployment|docs|hooks|hooks.json|install.sh|scripts|skills) ;;
+      *) die "archive contains an unexpected top-level entry: ${entry##*/}" ;;
+    esac
+  done
+}
+
 main() {
   require curl
   require shasum
@@ -78,6 +99,7 @@ main() {
   stage="$tmp/payload"
   mkdir "$stage"
   tar -xzf "$tmp/$archive" -C "$stage" || die "archive extraction failed"
+  validate_payload_layout
   [ -f "$stage/bin/agent-guard" ] && [ ! -L "$stage/bin/agent-guard" ] \
     && [ -x "$stage/bin/agent-guard" ] || die "expected regular executable not found in archive"
   [ -f "$stage/install.sh" ] && [ ! -L "$stage/install.sh" ] \

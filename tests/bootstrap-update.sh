@@ -161,6 +161,29 @@ if AGENT_GUARD_BIN_DIR="$CASE_ROOT/custom bin" sh "$ROOT/bootstrap.sh" >"$CASE_R
 installed_state_unchanged
 check 'checksum-valid non-regular policy leaves working installation untouched'
 
+# A valid checksum alone must not authorize an archive to carry links or
+# unknown top-level entries into an existing installation. Both cases are
+# rejected while still in the private staging directory.
+rm -rf "$CASE_ROOT/invalid-policy"
+mkdir "$CASE_ROOT/invalid-policy"
+tar -xzf "$CASE_ROOT/valid.tar.gz" -C "$CASE_ROOT/invalid-policy"
+ln -s "$CASE_ROOT/legacy-external-agent-guard" "$CASE_ROOT/invalid-policy/unexpected-link"
+tar -C "$CASE_ROOT/invalid-policy" -czf "$CASE_ROOT/download/agent-guard-2.0.0.tar.gz" .
+(cd "$CASE_ROOT/download" && shasum -a 256 agent-guard-2.0.0.tar.gz >agent-guard-2.0.0.tar.gz.sha256)
+if AGENT_GUARD_BIN_DIR="$CASE_ROOT/custom bin" sh "$ROOT/bootstrap.sh" >"$CASE_ROOT/out" 2>"$CASE_ROOT/err"; then exit 1; fi
+installed_state_unchanged
+grep -q 'symlink or special file' "$CASE_ROOT/err"
+check 'checksum-valid archive link leaves working installation untouched'
+
+rm -f "$CASE_ROOT/invalid-policy/unexpected-link"
+printf 'unexpected\n' >"$CASE_ROOT/invalid-policy/unexpected-file"
+tar -C "$CASE_ROOT/invalid-policy" -czf "$CASE_ROOT/download/agent-guard-2.0.0.tar.gz" .
+(cd "$CASE_ROOT/download" && shasum -a 256 agent-guard-2.0.0.tar.gz >agent-guard-2.0.0.tar.gz.sha256)
+if AGENT_GUARD_BIN_DIR="$CASE_ROOT/custom bin" sh "$ROOT/bootstrap.sh" >"$CASE_ROOT/out" 2>"$CASE_ROOT/err"; then exit 1; fi
+installed_state_unchanged
+grep -q 'unexpected top-level entry' "$CASE_ROOT/err"
+check 'checksum-valid unexpected archive entry leaves working installation untouched'
+
 cp "$CASE_ROOT/valid.tar.gz" "$CASE_ROOT/download/agent-guard-2.0.0.tar.gz"
 if AGENT_GUARD_BIN_DIR="$CASE_ROOT/custom bin" sh "$ROOT/bootstrap.sh" >"$CASE_ROOT/out" 2>"$CASE_ROOT/err"; then exit 1; fi
 installed_state_unchanged
