@@ -18,12 +18,12 @@ unredacted personal data.
 
 If your installed version provides it, attach the output of
 `agent-guard logs export` instead of raw diagnostic output. The local support
-log is metadata only: it records version, command/event category, host, start
-and finish time, exit status, and one of `pass`, `blocked`, `masked`,
+log is metadata only: it records a random local `run_id`, version, command/event
+category, host, start and finish time, exit status, and one of `pass`, `blocked`, `masked`,
 `degraded`, `error`, or `interrupted`. `pass` means the invocation returned
 without blocking; it does not establish a clean scan or coverage of another
 host route. The log does not record inspected content, paths, environment
-variables, session IDs, or arbitrary tool names.
+variables, host session IDs, or arbitrary tool names.
 
 ## Supported environments
 
