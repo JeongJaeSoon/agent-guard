@@ -32,27 +32,68 @@ an orchestration wrapper can bypass the route a probe tested.
 
 ## Native Git hook
 
-Install the supplied pre-commit hook when a repository needs a local commit
-backstop. It scans staged added lines. A hook can be bypassed by a user who can
-alter local Git configuration, so it complements rather than replaces CI.
+Install the supplied pre-commit hook from a standalone installation or a clone:
+
+```sh
+cd <your-project>
+~/.agent-guard/install.sh git-hooks
+
+# From an Agent Guard source checkout instead:
+./install.sh git-hooks
+```
+
+The installer sets `core.hooksPath=githooks` only when it will not overwrite an
+existing hook setup. It scans staged added lines. Check the result with:
+
+```sh
+git config --get core.hooksPath
+test -x githooks/pre-commit
+```
+
+The expected hooks path is `githooks`. A hook can be bypassed by someone who
+can alter local Git configuration, so it complements rather than replaces CI.
 
 ## GitHub Actions
 
 Use the Action on pull requests and pushes to scan a checkout in CI. It is the
 repository backstop for paths and host routes that an interactive plugin does
-not observe. Pin the supported major tag and provide the published gitleaks
-checksum as described in [Installation](installation.md).
+not observe.
+
+```yaml
+name: Agent Guard
+
+on:
+  pull_request:
+  push:
+
+jobs:
+  secret-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: JeongJaeSoon/agent-guard@v3
+        with:
+          paths: "."
+          gitleaks-checksum: "<sha256 of the gitleaks release archive>"
+```
+
+Get the matching checksum with `agent-guard checksum`; CI is usually
+`linux/x64`, so use that printed value. `require-checksum` is `true` by default.
+Set it to `false` only for local experimentation. `paths` is whitespace
+separated, so an individual path cannot contain spaces.
 
 ## Limits and backstops
 
 - Working-tree scans cover tracked additions and non-ignored untracked files.
   They do not sweep ignored files or arbitrary content outside the repository.
 - A structured write target is scanned even when it is ignored or outside the
-  work tree. The direct target scan is limited to 10 MiB to stay inside hook
-  timing; an oversized or unreadable target is an infrastructure failure, not a
-  clean scan.
-- `apply_patch`, Bash, and MCP mutations may lack a usable named target. Their
-  working-tree backstop remains useful but cannot discover every ignored or
+  work tree. Codex `apply_patch` paths are also directly scanned when the patch
+  names them. Direct targets and each working-tree scan component have a 10 MiB
+  byte budget; it is a bounded-input policy, not a measured wall-clock timeout.
+  An oversized or unreadable target is an infrastructure failure, not a clean
+  scan.
+- Bash and MCP mutations may lack a usable named target. Their working-tree
+  backstop remains useful but cannot discover every ignored or
   outside-repository write.
 - Shell blocking is pattern-based. It can block benign path-shaped text and an
   actively evasive command can avoid a fixed pattern list.

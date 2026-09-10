@@ -11702,7 +11702,7 @@ if printf '%s' "$ss_fish_out" | grep -q 'fish' \
    && printf '%s' "$ss_fish_out" | grep -q 'agx' \
    && printf '%s' "$ss_fish_out" | grep -q 'plugin-only' \
    && printf '%s' "$ss_fish_out" | grep -q 'fish executable:' \
-   && grep -Fq 'current/bin/agent-guard' "$ROOT/README.md" \
+   && grep -Fq 'current/bin/agent-guard' "$ROOT/docs/operations.md" \
    && ! printf '%s' "$ss_fish_out" | grep -Eq 'Claude Code|Codex'; then
   ok "setup-shell reports the fish limitation and plugin-only executable (#139)"
 else

@@ -92,6 +92,34 @@ installs command wrapping; `--no-command-wrapping` is the persistent opt-out and
 text-only and does not make interactive shell escapes a complete security
 boundary.
 
+### fish
+
+`shell-init` emits POSIX shell code, so fish cannot evaluate it. A standalone
+install can use `agent-guard exec -- <command>` directly. For a plugin-only
+installation, use the stable plugin-cache resolver path printed by
+`/agent-guard:setup-shell`; its normal shape is
+`$HOME/.claude/plugins/cache/agent-guard/agent-guard/current/bin/agent-guard`.
+
+```fish
+function agx
+    if type -q agent-guard
+        command agent-guard exec -- $argv
+        return $status
+    end
+
+    set -l _ag "$HOME/.claude/plugins/cache/agent-guard/agent-guard/current/bin/agent-guard"
+    if not test -x "$_ag"
+        printf 'agent-guard: plugin binary not found; rerun /agent-guard:setup-shell and use the fish executable path it prints\n' >&2
+        return 127
+    end
+    command "$_ag" exec -- $argv
+end
+funcsave agx
+```
+
+The `current/bin/agent-guard` path is refreshed by plugin execution. If the
+plugin cache is elsewhere, use the executable path printed by setup instead.
+
 ## Support evidence
 
 Do not attach transcripts, raw stderr, `.env` files, private keys, or full hook
