@@ -16,10 +16,11 @@
    branch/tag만 지원하므로 commit SHA를 넣지 않습니다. 자동 업데이트는 끄고,
    다음 tag 변경은 별도 변경으로 검토합니다.
 4. 기본 env 정책은 `AGENT_GUARD_INFRA_FAILURE_MODE=open`,
-   `AGENT_GUARD_PII_HOOK_MODE=off`, metadata log on입니다. 엄격한 파일럿은
+   `AGENT_GUARD_PII_HOOK_MODE=off`입니다. metadata log는 v3.3.0 이후 release에
+   도입되며, 포함된 release에서만 default-on입니다. 엄격한 파일럿은
    `AGENT_GUARD_INFRA_FAILURE_MODE=closed`를 명시합니다. PII endpoint는 별도
-   개인정보 검토와 동의 없이 켜지 않습니다. 로그를 금지해야 하는 조직만
-   `AGENT_GUARD_LOG_MODE=off`를 설정합니다.
+   개인정보 검토와 동의 없이 켜지 않습니다. log가 포함된 release에서 로그를
+   금지해야 하는 조직만 `AGENT_GUARD_LOG_MODE=off`를 설정합니다.
 5. 각 기기에 `sh`, `awk`, `git`, `jq`, gitleaks가 있는지 확인합니다.
 6. Codex를 함께 시험하는 경우 변경된 훅을 정의별로 검토하고 신뢰 처리합니다.
    플러그인 설치만으로 훅이 실행되는 것은 아닙니다.

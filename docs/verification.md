@@ -22,17 +22,10 @@ dispatch. A passing earlier layer does not prove a later one.
 
    The guard should block it before the sentinel appears.
 
-4. Run the post-tool probe through that route using the harmless command printed
-   by the setup skill. The probe emits a synthetic raw test token. The expected
-   result is a sanitized replacement containing `[REDACTED]`; the test is not
-   about hiding a literal `[REDACTED]` string.
-
-   ```sh
-   printf '%s\n' '[REDACTED]'
-   ```
-
-   Confirm the synthetic raw marker is not delivered to the model as ordinary
-   tool output.
+4. Run the post-tool probe that the setup skill performs through that route. It
+   emits a synthetic raw test token. Confirm that the model receives a sanitized
+   replacement containing `[REDACTED]`, not the raw token. Do not substitute a
+   literal `[REDACTED]` string; that would not test redaction or dispatch.
 
 The sentinels contain no credentials. They test dispatch only; `smoke-test`
 tests deterministic policy behavior separately.

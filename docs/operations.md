@@ -34,12 +34,13 @@ commit SHA. Change the tag only through an intentional, reviewed rollout.
 ```
 
 The example intentionally has no `env` block. Keep the default local policy:
-`AGENT_GUARD_INFRA_FAILURE_MODE=open`, `AGENT_GUARD_PII_HOOK_MODE=off`, and
-metadata logging enabled. For a stricter pilot, set
+`AGENT_GUARD_INFRA_FAILURE_MODE=open` and `AGENT_GUARD_PII_HOOK_MODE=off`. The
+metadata log is introduced after v3.3.0 and is default-on only in releases that
+contain it. For a stricter pilot, set
 `AGENT_GUARD_INFRA_FAILURE_MODE=closed`. PII is opt-in; do not force an
 endpoint-backed provider without a separate privacy review. Set
-`AGENT_GUARD_LOG_MODE=off` only where the metadata-only local support log is
-not permitted.
+`AGENT_GUARD_LOG_MODE=off` only in a release that contains the log and where
+the metadata-only local support log is not permitted.
 
 After policy delivery, each developer runs the host setup skill, approves any
 dependency installation, restarts the host/session when asked, and completes
