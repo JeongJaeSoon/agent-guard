@@ -11,8 +11,19 @@
 
 When reporting a problem, include the Agent Guard version, host (Claude Code,
 Codex, CLI, Git hook, or GitHub Actions), operating system and architecture,
-the command or hook event involved, and sanitized output. Never include live
-credentials, private keys, or unredacted personal data.
+the command or hook-event category, outcome, and a manually sanitized error
+summary. Never include live credentials, private keys, prompts, transcripts,
+raw stderr, full hook payloads, paths, environment variables, session IDs, or
+unredacted personal data.
+
+If your installed version provides it, attach the output of
+`agent-guard logs export` instead of raw diagnostic output. The local support
+log is metadata only: it records version, command/event category, host, start
+and finish time, exit status, and one of `pass`, `blocked`, `masked`,
+`degraded`, `error`, or `interrupted`. `pass` means the invocation returned
+without blocking; it does not establish a clean scan or coverage of another
+host route. The log does not record inspected content, paths, environment
+variables, session IDs, or arbitrary tool names.
 
 ## Supported environments
 
