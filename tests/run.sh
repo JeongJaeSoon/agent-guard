@@ -7428,7 +7428,10 @@ if [ -n "$REAL_GITLEAKS" ]; then
   # found no path, the direct scan was skipped, and a gitignored or out-of-repo
   # write went unscanned by both backstops. Tokens are generated at runtime.
   STR227_REPO="$TMP_ROOT/string-input-227"
-  STR227_TOKEN="ghp_$(od -An -N18 -tx1 /dev/urandom | LC_ALL=C tr -d ' \n')"
+  # Vendor prefix split so this file holds no literal token-shaped string:
+  # plugin scanners flag `<prefix>$(...)` as a hardcoded secret even though the
+  # value is generated at runtime. Same reason the card fixtures are split.
+  STR227_TOKEN="gh""p_$(od -An -N18 -tx1 /dev/urandom | LC_ALL=C tr -d ' \n')"
   mkdir -p "$STR227_REPO"
   (
     cd "$STR227_REPO" || exit 2
@@ -7498,7 +7501,10 @@ if [ -n "$REAL_GITLEAKS" ]; then
   # never holds a credential; the bundled vendor-token-shape rule matches on
   # shape alone, which keeps the verdicts deterministic.
   INDEX224_REPO="$TMP_ROOT/index-224-repo"
-  INDEX224_TOKEN="ghp_$(od -An -N18 -tx1 /dev/urandom | LC_ALL=C tr -d ' \n')"
+  # Vendor prefix split so this file holds no literal token-shaped string:
+  # plugin scanners flag `<prefix>$(...)` as a hardcoded secret even though the
+  # value is generated at runtime. Same reason the card fixtures are split.
+  INDEX224_TOKEN="gh""p_$(od -An -N18 -tx1 /dev/urandom | LC_ALL=C tr -d ' \n')"
   mkdir -p "$INDEX224_REPO"
   (
     cd "$INDEX224_REPO" || exit 2
