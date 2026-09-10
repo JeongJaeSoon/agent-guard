@@ -157,6 +157,8 @@ run_expect 0 "private metadata-only audit logging contract" sh "$ROOT/tests/audi
 
 run_expect 0 "standalone update preserves executable and link destinations" \
   sh "$ROOT/tests/bootstrap-update.sh"
+run_expect 0 "release archive carries README-linked Markdown guides" \
+  sh "$ROOT/tests/release-docs.sh"
 bootstrap_fixture="$TESTTMP/bootstrap-fixture"
 mkdir -p "$bootstrap_fixture/bin"
 "$ROOT/scripts/build-release-tarball.sh" 2.0.0 "$bootstrap_fixture/agent-guard-2.0.0.tar.gz"
