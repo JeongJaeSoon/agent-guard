@@ -7422,6 +7422,77 @@ if [ -n "$REAL_GITLEAKS" ]; then
     not_ok "apply_patch allows a go.sum checksum (expected 0, got $status)"
   fi
 
+  # --- #227: a JSON-string tool_input must not bypass the direct path scan ---
+  # A host may serialize tool_input as a JSON-encoded string. PreToolUse decodes
+  # it back into an object; PostToolUse did not, so `post_tool_write_target`
+  # found no path, the direct scan was skipped, and a gitignored or out-of-repo
+  # write went unscanned by both backstops. Tokens are generated at runtime.
+  STR227_REPO="$TMP_ROOT/string-input-227"
+  # Vendor prefix split so this file holds no literal token-shaped string:
+  # plugin scanners flag `<prefix>$(...)` as a hardcoded secret even though the
+  # value is generated at runtime. Same reason the card fixtures are split.
+  STR227_TOKEN="gh""p_$(od -An -N18 -tx1 /dev/urandom | LC_ALL=C tr -d ' \n')"
+  mkdir -p "$STR227_REPO"
+  (
+    cd "$STR227_REPO" || exit 2
+    git init -q . && git config user.email t@t && git config user.name t
+    printf 'ignored/\n' >.gitignore
+    mkdir -p ignored
+    git add .gitignore && git commit -q -m init
+  ) >/dev/null 2>&1
+
+  str227_post() { # $1 = tool_input as object|string
+    printf 'token %s\n' "$STR227_TOKEN" >"$STR227_REPO/ignored/leak.txt"
+    if [ "$1" = object ]; then
+      payload=$(jq -nc --arg p "$STR227_REPO/ignored/leak.txt" --arg d "$STR227_REPO" \
+        '{tool_name:"Write",tool_input:{file_path:$p},cwd:$d}')
+    else
+      payload=$(jq -nc --arg p "$STR227_REPO/ignored/leak.txt" --arg d "$STR227_REPO" \
+        '{tool_name:"Write",tool_input:({file_path:$p}|tostring),cwd:$d}')
+    fi
+    printf '%s' "$payload" \
+      | PATH="$(dirname "$REAL_GITLEAKS"):$ORIGINAL_PATH" AGENT_GUARD_HOOK_HOST=claude \
+        "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool
+  }
+
+  # MUST-FAIL: the string form must reach the same verdict as the object form.
+  str227_post string >"$OUT" 2>"$ERR"
+  status=$?
+  if [ "$status" -eq 2 ]; then
+    ok "#227 a JSON-string tool_input still reaches the direct path scan"
+  else
+    not_ok "#227 JSON-string tool_input reaches the direct scan (expected 2, got $status)"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+
+  # MUST-FAIL control: the object form, which already worked.
+  str227_post object >"$OUT" 2>"$ERR"
+  status=$?
+  if [ "$status" -eq 2 ]; then
+    ok "#227 control: an object tool_input keeps its verdict"
+  else
+    not_ok "#227 control: object tool_input keeps its verdict (expected 2, got $status)"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+
+  # MUST-PASS: clean content through the string form stays clean, so the fix
+  # cannot be "block every string-encoded event".
+  printf 'nothing here\n' >"$STR227_REPO/ignored/leak.txt"
+  (
+    payload=$(jq -nc --arg p "$STR227_REPO/ignored/leak.txt" --arg d "$STR227_REPO" \
+      '{tool_name:"Write",tool_input:({file_path:$p}|tostring),cwd:$d}')
+    printf '%s' "$payload" \
+      | PATH="$(dirname "$REAL_GITLEAKS"):$ORIGINAL_PATH" AGENT_GUARD_HOOK_HOST=claude \
+        "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool
+  ) >"$OUT" 2>"$ERR"
+  status=$?
+  if [ "$status" -eq 0 ]; then
+    ok "#227 control: clean content through a JSON-string tool_input passes"
+  else
+    not_ok "#227 control: clean string-encoded write passes (expected 0, got $status)"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+
   # --- #224: scan-working-tree must cover the index, not just the worktree ---
   # Tracked input used to come from `git diff HEAD` alone, so content that lived
   # only in the index was never scanned: stage a secret, restore the file on
@@ -7430,7 +7501,10 @@ if [ -n "$REAL_GITLEAKS" ]; then
   # never holds a credential; the bundled vendor-token-shape rule matches on
   # shape alone, which keeps the verdicts deterministic.
   INDEX224_REPO="$TMP_ROOT/index-224-repo"
-  INDEX224_TOKEN="ghp_$(od -An -N18 -tx1 /dev/urandom | LC_ALL=C tr -d ' \n')"
+  # Vendor prefix split so this file holds no literal token-shaped string:
+  # plugin scanners flag `<prefix>$(...)` as a hardcoded secret even though the
+  # value is generated at runtime. Same reason the card fixtures are split.
+  INDEX224_TOKEN="gh""p_$(od -An -N18 -tx1 /dev/urandom | LC_ALL=C tr -d ' \n')"
   mkdir -p "$INDEX224_REPO"
   (
     cd "$INDEX224_REPO" || exit 2
