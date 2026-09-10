@@ -66,3 +66,4 @@ responsible disclosure and [Support](SUPPORT.md) for safe reports.
 - [Third-party notices](THIRD_PARTY_NOTICES.md)
 - [Changelog](CHANGELOG.md)
 - [Known limitations](docs/integrations.md#limits-and-backstops)
+- [Maintainer release handoff](docs/releases.md)
