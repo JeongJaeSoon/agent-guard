@@ -38,11 +38,15 @@ agent-guard check
 a host hook was dispatched. Verify a host adapter separately with a harmless
 command on the route you plan to use.
 
-Pin a release or use a non-default isolated destination when needed:
+To pin a release, enter the reviewed published version (without the `v`
+prefix). Choose a version containing the capabilities your rollout requires.
+Change the destinations below only when you want an isolated installation:
 
 ```sh
-curl -fsSL https://github.com/JeongJaeSoon/agent-guard/releases/download/v3.3.0/bootstrap.sh | \
-  AGENT_GUARD_VERSION=3.3.0 \
+printf 'Reviewed release version (X.Y.Z): '
+IFS= read -r guard_version
+curl -fsSL "https://github.com/JeongJaeSoon/agent-guard/releases/download/v${guard_version}/bootstrap.sh" | \
+  AGENT_GUARD_VERSION="$guard_version" \
   AGENT_GUARD_HOME="$HOME/.agent-guard" \
   AGENT_GUARD_BIN_DIR="$HOME/.local/bin" sh
 ```

@@ -12,7 +12,7 @@
    Linux/WSL은 `/etc/claude-code/managed-settings.json`에
    [`deployment/claude-managed-settings.example.json`](../deployment/claude-managed-settings.example.json)의
    키를 기존 JSON과 병합합니다.
-3. marketplace `ref`는 검토한 release tag(예: `v3.3.0`)로 고정합니다. `ref`는
+3. marketplace `ref`는 위 배포 예제 JSON에 기록된 검토한 release tag로 고정합니다. `ref`는
    branch/tag만 지원하므로 commit SHA를 넣지 않습니다. 자동 업데이트는 끄고,
    다음 tag 변경은 별도 변경으로 검토합니다.
 4. 비밀값 보호를 우선하는 파일럿은 managed settings의 `env`에

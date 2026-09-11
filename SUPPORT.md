@@ -18,9 +18,14 @@ unredacted personal data.
 
 If your installed version provides it, attach the output of
 `agent-guard logs export` instead of raw diagnostic output. The local support
-log is metadata only: it records a random local `run_id`, version, command/event
+log is metadata only. Plugin-only installations may not have `agent-guard` on
+PATH: use the absolute plugin-local executable printed by the host setup skill
+in place of `agent-guard`, followed by `logs export`. This also avoids exporting
+logs through an unrelated standalone version.
+
+The log records a random local `run_id`, version, command/event
 category, host, start and finish time, exit status, and one of `pass`, `blocked`, `masked`,
-`degraded`, `error`, or `interrupted`. `pass` means the invocation returned
+`warned`, `degraded`, `error`, or `interrupted`. `pass` means the invocation returned
 without blocking; it does not establish a clean scan or coverage of another
 host route. The log does not record inspected content, paths, environment
 variables, host session IDs, or arbitrary tool names.

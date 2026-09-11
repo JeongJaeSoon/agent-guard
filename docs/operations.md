@@ -9,29 +9,10 @@ on macOS and `/etc/claude-code/managed-settings.json` on Linux/WSL.
 Start from [`deployment/claude-managed-settings.example.json`](../deployment/claude-managed-settings.example.json).
 It pins the marketplace source to a release tag, force-enables the plugin,
 restricts marketplace sources, and disables automatic refreshes. Pin a reviewed
-release tag such as `v3.3.0`; marketplace `ref` accepts a branch or tag, not a
-commit SHA. Change the tag only through an intentional, reviewed rollout.
-
-```json
-{
-  "extraKnownMarketplaces": {
-    "agent-guard": {
-      "source": {
-        "source": "github",
-        "repo": "JeongJaeSoon/agent-guard",
-        "ref": "v3.3.0"
-      },
-      "autoUpdate": false
-    }
-  },
-  "enabledPlugins": { "agent-guard@agent-guard": true },
-  "strictKnownMarketplaces": [{
-    "source": "github",
-    "repo": "JeongJaeSoon/agent-guard",
-    "ref": "v3.3.0"
-  }]
-}
-```
+release tag; marketplace `ref` accepts a branch or tag, not a commit SHA. The
+release workflow updates the canonical JSON example linked above. Merge that
+file from the release you reviewed, then add the pilot's environment settings.
+Change the tag only through an intentional, reviewed rollout.
 
 The example intentionally has no `env` block. The product defaults are
 `AGENT_GUARD_INFRA_FAILURE_MODE=open` and `AGENT_GUARD_PII_HOOK_MODE=off`. The
