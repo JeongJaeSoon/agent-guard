@@ -4,7 +4,7 @@ This is the manual handoff from a published Agent Guard GitHub release to the
 separate Homebrew tap. It does not publish a release, modify the tap, or merge a
 pull request by itself.
 
-Run it from an Agent Guard source checkout, only after the release workflow has published the versioned tarball,
+Run it only after the release workflow has published the versioned tarball,
 SHA-256 file, and generated `agent-guard.rb` asset. The tap is a separate
 repository, so the release workflow intentionally has no cross-repository write
 credential.
@@ -16,7 +16,8 @@ Use a clean temporary directory and the exact version being handed off:
 ```sh
 version=3.3.0
 release_dir=$(mktemp -d)
-trap 'rm -rf "$release_dir"' EXIT INT TERM
+source_dir=$(mktemp -d)
+trap 'rm -rf "$release_dir" "$source_dir"' EXIT INT TERM
 
 gh release download "v$version" --repo JeongJaeSoon/agent-guard \
   --dir "$release_dir" \
@@ -37,7 +38,12 @@ esac
 [ "${#archive_sha}" -eq 64 ] \
   || { printf '%s\n' 'release checksum was not 64 hexadecimal characters' >&2; exit 1; }
 
-./scripts/render-homebrew-formula.sh "$version" "$archive_sha" \
+# Render from the exact released source tag. Do not render from an arbitrary
+# newer checkout: its formula template may differ from the published asset.
+git clone --depth 1 --branch "v$version" \
+  https://github.com/JeongJaeSoon/agent-guard.git "$source_dir"
+git -C "$source_dir" rev-parse --verify "refs/tags/v$version" >/dev/null
+"$source_dir/scripts/render-homebrew-formula.sh" "$version" "$archive_sha" \
   >"$release_dir/agent-guard.generated.rb"
 cmp "$release_dir/agent-guard.generated.rb" "$release_dir/agent-guard.rb"
 ```
@@ -63,15 +69,20 @@ git -C "$tap_dir" diff --check
 git -C "$tap_dir" diff -- Formula/agent-guard.rb
 ```
 
-Run the formula checks from that clone. The formula declares its runtime
-dependencies and its Homebrew test runs `agent-guard check` plus the local,
+Run the formula checks through a local development tap. These commands change
+the maintainer's local Homebrew state only; they do not change GitHub. The
+fully-qualified formula name prevents an unrelated formula with the same name
+from being selected. The formula test runs `agent-guard check` plus the local,
 deterministic `smoke-test`:
 
 ```sh
-HOMEBREW_NO_INSTALL_FROM_API=1 brew audit --formula "$tap_dir/Formula/agent-guard.rb"
+check_tap=JeongJaeSoon/agent-guard-release-check
+brew tap "$check_tap" "$tap_dir"
+HOMEBREW_NO_INSTALL_FROM_API=1 brew audit --formula "$check_tap/agent-guard"
 HOMEBREW_NO_INSTALL_FROM_API=1 brew install --build-from-source \
-  "$tap_dir/Formula/agent-guard.rb"
-brew test "$tap_dir/Formula/agent-guard.rb"
+  "$check_tap/agent-guard"
+brew test "$check_tap/agent-guard"
+brew untap "$check_tap"
 ```
 
 If these checks pass, create a normal pull request using the maintainer's
@@ -82,6 +93,8 @@ git -C "$tap_dir" add Formula/agent-guard.rb
 git -C "$tap_dir" commit -m "agent-guard $version"
 git -C "$tap_dir" push -u origin "release/agent-guard-v$version"
 gh pr create --repo JeongJaeSoon/homebrew-tap \
+  --head "JeongJaeSoon:release/agent-guard-v$version" \
+  --base main \
   --title "agent-guard $version" \
   --body "Updates the formula from the published Agent Guard v$version release. The archive SHA-256 and generated formula asset were verified before this pull request."
 ```
