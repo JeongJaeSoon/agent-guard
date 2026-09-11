@@ -11989,7 +11989,9 @@ rm -rf "$NORM_PARENT"
 
 # --- pilot security: bounded tree scans and Codex write targets ------------
 # Assemble the test-only sentinel so source scans never see the matched value.
-PILOT_TOKEN="AGENT_GUARD_TEST_""SECRET"
+PILOT_TOKEN_PART_1="AGENT_GUARD_TEST_"
+PILOT_TOKEN_PART_2="SECRET"
+PILOT_TOKEN=$(printf '%s%s' "$PILOT_TOKEN_PART_1" "$PILOT_TOKEN_PART_2")
 PILOT_REPO="$TMP_ROOT/pilot-security-repo"
 mkdir -p "$PILOT_REPO/ignored dir"
 (
