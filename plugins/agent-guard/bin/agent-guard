@@ -6454,14 +6454,36 @@ fi
   info "$PROGRAM: restart your shell and any sessions launched from it to apply"
 }
 
-# Update only the standalone distribution. Plugin caches are owned by the host
-# plugin manager; mutating them here would recreate the stale-path problem this
-# command is intended to avoid. The bootstrap script remains the single
-# checksum-verified installer/update implementation.
+# Homebrew owns the libexec payload through its formula. New formulas place a
+# regular marker in that payload. Older releases did not, so recognize only the
+# exact Cellar layout plus Homebrew's recorded canonical tap; a generic receipt
+# elsewhere must never change standalone update behavior.
+homebrew_managed_install() {
+  marker="$ROOT_DIR/.agent-guard-homebrew"
+  if [ -f "$marker" ] && [ ! -L "$marker" ]; then
+    return 0
+  fi
+
+  case "$ROOT_DIR" in
+    */Cellar/agent-guard/*/libexec) ;;
+    *) return 1 ;;
+  esac
+  receipt="$ROOT_DIR/../INSTALL_RECEIPT.json"
+  [ -f "$receipt" ] && [ ! -L "$receipt" ] || return 1
+  grep -Eq '"tap"[[:space:]]*:[[:space:]]*"jeongjaesoon/tap"' "$receipt"
+}
+
+# Update only the standalone distribution. Plugin caches and Homebrew formula
+# payloads are owned by their respective managers; mutating either here would
+# recreate the stale-path problem this command is intended to avoid. The
+# bootstrap script remains the single checksum-verified standalone installer.
 do_update() {
   [ "$#" -eq 0 ] || die "update: no arguments are accepted"
   if [ -n "$PLUGIN_CACHE_BASE" ]; then
     die "update is unavailable for plugin installs; update Agent Guard through the host plugin manager, then rerun setup-shell"
+  fi
+  if homebrew_managed_install; then
+    die "update is unavailable for Homebrew installs; run: brew upgrade JeongJaeSoon/tap/agent-guard"
   fi
   need_cmd curl
   info "$PROGRAM: downloading the checksum-verified standalone updater"

@@ -5868,6 +5868,7 @@ formula_output=$(
   "$ROOT/scripts/render-homebrew-formula.sh" 3.1.0 "$FORMULA_SHA"
 )
 if printf '%s\n' "$formula_output" | grep -q 'libexec.install Dir' \
+   && printf '%s\n' "$formula_output" | grep -q 'libexec/".agent-guard-homebrew"' \
    && printf '%s\n' "$formula_output" | grep -q 'agent-guard-3.1.0.tar.gz' \
    && printf '%s\n' "$formula_output" | grep -q 'sha256 "'$FORMULA_SHA'"' \
    && printf '%s\n' "$formula_output" | grep -q 'depends_on "git"' \

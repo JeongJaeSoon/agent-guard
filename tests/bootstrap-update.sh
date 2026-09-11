@@ -89,6 +89,43 @@ AGENT_GUARD_BIN_DIR="$CASE_ROOT/override" run "$CASE_ROOT/custom bin/agent-guard
 healthy "$CASE_ROOT/override/agent-guard"
 check 'explicit update link-directory override is honored'
 
+# Formula-owned payloads must not invoke the standalone updater. Shadow curl
+# so these checks prove refusal happens before a download or any install write.
+mkdir -p "$CASE_ROOT/no-curl-bin"
+cat >"$CASE_ROOT/no-curl-bin/curl" <<EOF
+#!/bin/sh
+: >"$CASE_ROOT/curl-called"
+exit 99
+EOF
+chmod +x "$CASE_ROOT/no-curl-bin/curl"
+printf 'homebrew\n' >"$AGENT_GUARD_HOME/.agent-guard-homebrew"
+if PATH="$CASE_ROOT/no-curl-bin:$PATH" "$CASE_ROOT/custom bin/agent-guard" update >"$CASE_ROOT/out" 2>"$CASE_ROOT/err"; then exit 1; fi
+grep -q 'update is unavailable for Homebrew installs' "$CASE_ROOT/err"
+[ ! -e "$CASE_ROOT/curl-called" ]
+rm "$AGENT_GUARD_HOME/.agent-guard-homebrew"
+check 'Homebrew ownership marker refuses standalone updater before download'
+
+legacy_cellar="$CASE_ROOT/homebrew/Cellar/agent-guard/3.1.1"
+legacy_libexec="$legacy_cellar/libexec"
+mkdir -p "$legacy_libexec"
+cp -R "$AGENT_GUARD_HOME/." "$legacy_libexec/"
+cat >"$legacy_cellar/INSTALL_RECEIPT.json" <<'EOF'
+{"source":{"tap":"jeongjaesoon/tap"}}
+EOF
+if PATH="$CASE_ROOT/no-curl-bin:$PATH" "$legacy_libexec/bin/agent-guard" update >"$CASE_ROOT/out" 2>"$CASE_ROOT/err"; then exit 1; fi
+grep -q 'update is unavailable for Homebrew installs' "$CASE_ROOT/err"
+[ ! -e "$CASE_ROOT/curl-called" ]
+check 'legacy Homebrew Cellar receipt refuses standalone updater before download'
+
+plugin_root="$CASE_ROOT/plugin-cache/2.0.0"
+mkdir -p "$plugin_root/bin"
+cp "$AGENT_GUARD_HOME/bin/agent-guard" "$plugin_root/bin/agent-guard"
+chmod +x "$plugin_root/bin/agent-guard"
+if PATH="$CASE_ROOT/no-curl-bin:$PATH" "$plugin_root/bin/agent-guard" update >"$CASE_ROOT/out" 2>"$CASE_ROOT/err"; then exit 1; fi
+grep -q 'update is unavailable for plugin installs' "$CASE_ROOT/err"
+[ ! -e "$CASE_ROOT/curl-called" ]
+check 'plugin cache still refuses standalone updater before download'
+
 ln -s "$AGENT_GUARD_HOME/bin" "$CASE_ROOT/bin-alias"
 AGENT_GUARD_BIN_DIR="$CASE_ROOT/bin-alias" run sh "$ROOT/bootstrap.sh"
 healthy "$CASE_ROOT/bin-alias/agent-guard"

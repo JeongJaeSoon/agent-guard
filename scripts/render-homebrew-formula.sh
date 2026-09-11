@@ -25,6 +25,7 @@ class AgentGuard < Formula
 
   def install
     libexec.install Dir["*"]
+    (libexec/".agent-guard-homebrew").write "homebrew\n"
     (bin/"agent-guard").write <<~SH
       #!/bin/sh
       exec "#{libexec}/bin/agent-guard" "\$@"
