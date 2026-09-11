@@ -19,6 +19,12 @@ export_logs() { "$GUARD" logs export >"$CASE/export" 2>"$CASE/export.err"; }
 has_outcome() { jq -es --arg o "$1" 'any(.[]; .phase == "finished" and .outcome == $o)' "$CASE/export" >/dev/null; }
 new_case() { rm -rf "$XDG_STATE_HOME"; }
 no_export_temps() { ! find "$1" -maxdepth 1 -name '.agent-guard-support.*' -print | grep -q .; }
+file_mode() {
+  case "$(uname -s)" in
+    Darwin) stat -f '%Lp' "$1" ;;
+    *) stat -c '%a' "$1" ;;
+  esac
+}
 
 printf '%s' '{"tool_name":"FutureTool","tool_input":{}}' | "$GUARD" hook-pre-tool >"$CASE/out" 2>"$CASE/err"
 check 'clean passthrough status and stdout unchanged' test ! -s "$CASE/out"
@@ -44,7 +50,7 @@ check 'output-file export succeeds' test -f "$output_file"
 check 'output-file export preserves stdout export records' cmp "$CASE/export" "$output_file"
 check 'output-file export leaves stdout empty' test ! -s "$CASE/output-file.out"
 check 'output-file export reports its location on stderr' grep -Fq "$output_file" "$CASE/output-file.err"
-case "$(stat -f '%Lp' "$output_file" 2>/dev/null || stat -c '%a' "$output_file" 2>/dev/null)" in
+case "$(file_mode "$output_file" 2>/dev/null)" in
   600) ok 'output-file export is mode 0600' ;;
   *) bad 'output-file export is mode 0600' ;;
 esac
