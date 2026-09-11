@@ -97,10 +97,13 @@ pid=$!
 i=0
 while [ ! -d "$XDG_STATE_HOME/agent-guard" ] && [ "$i" -lt 30 ]; do sleep 0.1; i=$((i + 1)); done
 sleep 0.1
+exit_marker="$XDG_STATE_HOME/agent-guard/event-1000000000-exit00"
+printf 'preserve through exit\n' >"$exit_marker"
 kill -TERM "$pid"
 wait "$pid" 2>/dev/null
 status=$?
 check 'SIGTERM preserves conventional status' test "$status" -eq 143
+check 'SIGTERM exit does not run retention cleanup' test -f "$exit_marker"
 export_logs
 check 'SIGTERM records interruption' has_outcome interrupted
 
@@ -108,12 +111,28 @@ new_case
 printf '%s' '{"tool_name":"FutureTool"}' | "$GUARD" hook-pre-tool >/dev/null 2>&1
 event=$(find "$XDG_STATE_HOME/agent-guard" -type f -name 'event-*' | head -1)
 i=0
-while [ "$i" -lt 1005 ]; do cp "$event" "$XDG_STATE_HOME/agent-guard/event-1000000000-$i"; i=$((i + 1)); done
-touch -t 200001010000 "$event"
+now=$(date +%s)
+while [ "$i" -lt 1005 ]; do
+  suffix=$(printf '%06d' "$i")
+  cp "$event" "$XDG_STATE_HOME/agent-guard/event-$now-$suffix"
+  i=$((i + 1))
+done
+old_event="$XDG_STATE_HOME/agent-guard/event-1000000000-old123"
+cp "$event" "$old_event"
 printf '%s' '{"tool_name":"FutureTool"}' | "$GUARD" hook-pre-tool >/dev/null 2>&1
 count=$(find "$XDG_STATE_HOME/agent-guard" -type f -name 'event-*' | wc -l | tr -d ' ')
 check 'retention bounds completed invocation files' test "$count" -le 1000
-check 'old records removed on next invocation' test ! -f "$event"
+check 'old records removed on next invocation' test ! -f "$old_event"
+
+# Retention never recurses, accepts only generated names, and performs at most
+# one bounded listing per invocation (none on EXIT, including signal exit).
+mkdir "$XDG_STATE_HOME/agent-guard/nested"
+printf 'keep\n' >"$XDG_STATE_HOME/agent-guard/nested/event-1000000000-old123"
+foreign="$XDG_STATE_HOME/agent-guard/event-1000000000-foreign"
+printf 'keep\n' >"$foreign"
+printf '%s' '{"tool_name":"FutureTool"}' | "$GUARD" hook-pre-tool >/dev/null 2>&1
+check 'retention ignores foreign names' test -f "$foreign"
+check 'retention never recurses into foreign directories' test -f "$XDG_STATE_HOME/agent-guard/nested/event-1000000000-old123"
 
 printf '%s audit log checks passed, %s failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

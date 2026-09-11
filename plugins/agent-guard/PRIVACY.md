@@ -40,15 +40,17 @@ The metadata log is introduced after v3.3.0; do not expect its commands in that
 release. When available, Agent Guard writes metadata-only JSONL records under
 `$XDG_STATE_HOME/agent-guard` or, when that variable is unset,
 `~/.local/state/agent-guard`. It creates a start record and completes it with
-one of `pass`, `blocked`, `masked`, `degraded`, `error`, or `interrupted`.
+one of `pass`, `blocked`, `masked`, `warned`, `degraded`, `error`, or `interrupted`.
 The `run_id` is a random local invocation-correlation value, not a host session
 identifier.
 `pass` only means the invocation returned without a block; it is not evidence
 that every scanner or host route was clean.
 
-The default retention target is at most 1,000 completed invocations and seven
-days. More than 1,000 records can exist transiently while concurrent runs are
-active; pruning occurs after a run finishes.
+The default retention target is 1,000 invocations and seven days. Cleanup runs
+once at invocation start, examines at most 2,000 top-level entries, and only
+removes generated event names. Concurrent runs or externally populated storage
+can exceed that target; cleanup remains bounded. No cleanup runs
+on the signal/exit path. Logging is best-effort and never changes a guard decision.
 Set `AGENT_GUARD_LOG_MODE=off` to opt out. `agent-guard logs status` reports
 local log state and `agent-guard logs export` writes the safe metadata JSONL to
 standard output. Neither command exports inspected content, file paths,
