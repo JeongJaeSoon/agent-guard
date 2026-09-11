@@ -1,4 +1,4 @@
-# Agent Guard 내부 파일럿 운영 매뉴얼
+# Agent Guard 소규모 조직 배포 매뉴얼
 
 이 문서는 Claude Code 중심의 macOS/Linux 소규모 내부 파일럿 절차입니다. 공개
 설치 안내는 [Installation](installation.md), 보장 범위는
@@ -15,16 +15,28 @@
 3. marketplace `ref`는 검토한 release tag(예: `v3.3.0`)로 고정합니다. `ref`는
    branch/tag만 지원하므로 commit SHA를 넣지 않습니다. 자동 업데이트는 끄고,
    다음 tag 변경은 별도 변경으로 검토합니다.
-4. 기본 env 정책은 `AGENT_GUARD_INFRA_FAILURE_MODE=open`,
-   `AGENT_GUARD_PII_HOOK_MODE=off`입니다. metadata log는 v3.3.0 이후 release에
-   도입되며, 포함된 release에서만 default-on입니다. 엄격한 파일럿은
-   `AGENT_GUARD_INFRA_FAILURE_MODE=closed`를 명시합니다. PII endpoint는 별도
+4. 비밀값 보호를 우선하는 파일럿은 managed settings의 `env`에
+   `AGENT_GUARD_INFRA_FAILURE_MODE=closed`를 명시합니다. 제품 기본값은
+   `open`이므로 설정을 생략하면 검사 인프라가 실패해도 계속 진행할 수 있습니다.
+   `AGENT_GUARD_PII_HOOK_MODE=off`는 유지합니다. metadata log는 v3.3.0 이후
+   release에 도입되며, 포함된 release에서만 default-on입니다. PII endpoint는 별도
    개인정보 검토와 동의 없이 켜지 않습니다. log가 포함된 release에서 로그를
    금지해야 하는 조직만 `AGENT_GUARD_LOG_MODE=off`를 설정합니다.
 5. 각 기기에 `sh`, `awk`, `git`, `jq`, gitleaks가 있는지 확인합니다.
 6. Codex를 함께 시험하는 경우 변경된 훅을 정의별로 검토하고 신뢰 처리합니다.
    플러그인 설치만으로 훅이 실행되는 것은 아닙니다.
 7. 파일럿 기간에도 Git hook 또는 GitHub Actions를 저장소 backstop으로 유지합니다.
+
+기존 managed settings에 병합할 파일럿 환경 설정은 다음과 같습니다.
+
+```json
+{
+  "env": {
+    "AGENT_GUARD_INFRA_FAILURE_MODE": "closed",
+    "AGENT_GUARD_PII_HOOK_MODE": "off"
+  }
+}
+```
 
 ## 2. 사용자 설정
 
@@ -56,9 +68,9 @@ raw test token을 출력하고, 모델에는 `[REDACTED]`가 포함된 sanitized
 자세한 명령은 [Verification](verification.md)를 사용합니다.
 
 `DEGRADED`, scanner error, timeout, trust 미완료는 통과가 아닙니다. 원인을
-수정하거나 `AGENT_GUARD_INFRA_FAILURE_MODE=closed` 정책으로 명시적으로
-차단할지 결정합니다. 기본 `open`은 경고 후 계속하지만 clean scan 증거가
-아닙니다.
+수정한 뒤 다시 검증합니다. 이 파일럿의 `closed` 정책을 `open`으로 낮춰 수용
+검사를 통과 처리하지 않습니다. 호스트가 hook을 timeout으로 종료하는 경우에는
+`closed` 설정만으로 실행을 통제할 수 없으므로 확대를 중단합니다.
 
 ## 4. 파일럿 지원 요청
 
@@ -101,12 +113,3 @@ invocation correlation용 run_id가 있지만 host session ID는 없습니다. �
    `agent-guard setup-shell --no-command-wrapping`으로 wrapping을 끄거나,
    plugin update를 owning host manager로 되돌린 후 setup-shell을 다시 실행합니다.
    Git/CI backstop은 rollback 중에도 유지합니다.
-
-## 현재 파일럿 증거
-
-2026-09-11에 macOS Claude Code 2.1.268 isolated candidate plugin route에서
-synthetic protected-file Read block, ordinary fixture Read masking, synthetic
-raw-token replacement, 그리고 metadata log의 session/prompt/pre/post/stop dispatch
-및 block/pass/mask outcome을 관찰했습니다. 이 증거는 그 macOS route에만
-해당합니다. Linux LIVE 검증은 아직 수행하지 않았으므로, Linux rollout 전에 위
-수용 기준을 별도로 완료해야 합니다.
