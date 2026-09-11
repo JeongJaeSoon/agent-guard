@@ -73,6 +73,22 @@ EOF
   export AG_PLUGIN_TEST_SUMMARY_SNAPSHOT="$case_dir/summary-snapshot"
 }
 
+signal_during_managed_summary() {
+  rm -f "$case_bin/jq"
+  cat >"$case_bin/jq" <<'EOF'
+#!/usr/bin/env sh
+case "$*" in
+  *managed-settings.json)
+    kill "-$AG_PLUGIN_TEST_SUMMARY_SIGNAL" "$PPID"
+    exit 1
+    ;;
+esac
+exec "$AG_PLUGIN_TEST_REAL_JQ" "$@"
+EOF
+  chmod +x "$case_bin/jq"
+  export AG_PLUGIN_TEST_REAL_JQ="$REAL_JQ"
+}
+
 add_host() {
   host=$1
   cp "$ROOT/tests/fixtures/mock-plugin-manager" "$case_bin/$host"
@@ -358,6 +374,27 @@ elif [ "$?" -eq 2 ] \
 else
   not_ok 'managed settings summary stores only non-sensitive ownership classifications'
 fi
+
+for summary_signal in HUP INT TERM; do
+  new_case "claude_summary_cleanup_${summary_signal}"
+  add_host claude
+  force_rundir_fallback
+  signal_during_managed_summary
+  export AG_PLUGIN_TEST_SUMMARY_SIGNAL="$summary_signal"
+  write_managed_base '{"enabledPlugins":{"agent-guard@agent-guard":true}}'
+  if TMPDIR="$case_tmp" run_guard plugin install --host claude; then
+    not_ok "managed settings summary fallback is removed after $summary_signal"
+  else
+    find "$case_tmp" -mindepth 1 -print -quit >"$case_dir/residue"
+    if grep -Fq "$case_tmp/agent-guard.XXXXXX" "$case_dir/mktemp-calls" \
+       && [ ! -s "$case_dir/residue" ] \
+       && ! grep -Eq 'marketplace (add|update)|plugin (install|update|uninstall)' "$case_log"; then
+      ok "managed settings summary fallback is removed after $summary_signal"
+    else
+      not_ok "managed settings summary fallback is removed after $summary_signal"
+    fi
+  fi
+done
 
 new_case claude_marketplace_override_unrelated
 add_host claude

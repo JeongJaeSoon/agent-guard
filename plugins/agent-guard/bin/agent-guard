@@ -294,12 +294,15 @@ claude_managed_settings_state() (
       || return 2
   fi
 
-  # Keep only merge keys and Agent Guard source classifications in this file;
-  # raw marketplace URLs, policy-helper paths, and unrelated settings never
-  # enter it. The subshell trap also removes a mktemp_file fallback outside the
-  # invocation rundir on every normal return, including parse failures.
+  # Marketplace names remain as merge keys. Raw marketplace values,
+  # policy-helper paths, and unrelated settings never enter this file; only
+  # Agent Guard ownership classifications do. The subshell traps also remove a
+  # mktemp_file fallback outside the invocation rundir on returns and signals.
   managed_summary=$(mktemp_file) || return 2
   trap 'rm -f "$managed_summary"' 0
+  trap 'exit 129' HUP
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
   for managed_file in \
     "$managed_root/managed-settings.json" \
     "$managed_fragments"/*.json; do
@@ -472,6 +475,11 @@ plugin_for_host() {
     fi
     rm -rf "$plugin_tmp"
     printf '%s\n' "$PROGRAM: Claude Agent Guard is managed by Jamf/managed settings; ask the administrator to change the pinned marketplace ref instead of using '$PROGRAM plugin $plugin_action'" >&2
+    return 2
+  fi
+  if [ "$plugin_managed_state" -ne 1 ]; then
+    rm -rf "$plugin_tmp"
+    printf '%s\n' "$PROGRAM: Claude managed settings inspection was interrupted; refusing plugin lifecycle changes" >&2
     return 2
   fi
 
