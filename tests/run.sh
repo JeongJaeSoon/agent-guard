@@ -7602,6 +7602,59 @@ if [ -n "$REAL_GITLEAKS" ]; then
     sed 's/^/  stderr: /' "$ERR"
   fi
 
+  # A repository-controlled textconv driver must not replace the bytes being
+  # scanned. --no-ext-diff does not disable textconv, so exercise both shared
+  # extractor callers and prove the configured helper is never executed.
+  TEXTCONV224_REPO="$TMP_ROOT/textconv-224-repo"
+  TEXTCONV224_CALLED="$TMP_ROOT/textconv-224-called"
+  TEXTCONV224_HELPER="$TMP_ROOT/textconv-224-helper"
+  cat >"$TEXTCONV224_HELPER" <<EOSH
+#!/usr/bin/env sh
+: >"$TEXTCONV224_CALLED"
+printf '%s\n' clean
+EOSH
+  chmod +x "$TEXTCONV224_HELPER"
+  mkdir -p "$TEXTCONV224_REPO"
+  (
+    cd "$TEXTCONV224_REPO" || exit 2
+    git init -q
+    git config user.email test@example.com
+    git config user.name "Agent Guard Tests"
+    git config diff.fixture.textconv "$TEXTCONV224_HELPER"
+    printf '%s\n' 'payload.txt diff=fixture' >.gitattributes
+    printf '%s\n' clean >payload.txt
+    git add .gitattributes payload.txt
+    git commit -q -m init
+  )
+  TEXTCONV224_TOKEN="AGENT_GUARD_TEST_""SECRET"
+
+  printf '%s\n' "$TEXTCONV224_TOKEN" >"$TEXTCONV224_REPO/payload.txt"
+  (
+    cd "$TEXTCONV224_REPO" || exit 2
+    "$PLUGIN_ROOT/bin/agent-guard" scan-working-tree
+  ) >"$OUT" 2>"$ERR"
+  status=$?
+  if [ "$status" -eq 1 ] && [ ! -e "$TEXTCONV224_CALLED" ]; then
+    ok "scan-working-tree ignores repository textconv and scans raw additions"
+  else
+    not_ok "scan-working-tree disables textconv (expected finding 1 and no helper call, got $status)"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+
+  rm -f "$TEXTCONV224_CALLED"
+  (
+    cd "$TEXTCONV224_REPO" || exit 2
+    git add payload.txt
+    "$PLUGIN_ROOT/bin/agent-guard" scan-staged
+  ) >"$OUT" 2>"$ERR"
+  status=$?
+  if [ "$status" -eq 1 ] && [ ! -e "$TEXTCONV224_CALLED" ]; then
+    ok "scan-staged ignores repository textconv and scans raw additions"
+  else
+    not_ok "scan-staged disables textconv (expected finding 1 and no helper call, got $status)"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+
   # A repo before its first commit has no HEAD to diff against. That branch
   # already combined the index and the worktree; its verdicts must not move.
   NOHEAD224_REPO="$TMP_ROOT/nohead-224-repo"
