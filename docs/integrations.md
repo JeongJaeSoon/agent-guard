@@ -92,8 +92,9 @@ individual path cannot contain spaces.
   work tree. Codex `apply_patch` paths are also directly scanned when the patch
   names them. The tracked diff, index diff, and untracked-content components
   each receive one third of the 10 MiB working-tree input budget, keeping their
-  total below 10 MiB. Direct write targets have a separate 10 MiB aggregate
-  budget. These are bounded-input policies, not measured wall-clock timeouts.
+  total below 10 MiB. Files requiring a direct scan have a separate 10 MiB
+  aggregate budget; files covered by a successful working-tree backstop do not
+  consume it. These are bounded-input policies, not measured wall-clock timeouts.
   An oversized or unreadable target is an infrastructure failure, not a clean
   scan.
 - Bash and MCP mutations may lack a usable named target. Their working-tree
