@@ -585,7 +585,11 @@ plugin_for_host() {
 
 do_plugin() {
   plugin_action=${1:-}
-  case "$plugin_action" in status|install|update|uninstall) shift ;; *) plugin_usage; return 2 ;; esac
+  case "$plugin_action" in
+    status|install|update|uninstall) shift ;;
+    -h|--help|help) plugin_usage; return 0 ;;
+    *) plugin_usage; return 2 ;;
+  esac
   plugin_host=
   plugin_scope=user
   while [ "$#" -gt 0 ]; do

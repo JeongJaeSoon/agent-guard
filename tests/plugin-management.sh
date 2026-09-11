@@ -99,6 +99,15 @@ run_guard() {
   PATH="$case_bin:/usr/bin:/bin" "$GUARD" "$@" >"$case_dir/out" 2>"$case_dir/err"
 }
 
+new_case plugin_help
+if run_guard plugin --help \
+   && grep -Fq 'agent-guard plugin status|install|update|uninstall' "$case_dir/err" \
+   && [ ! -s "$case_log" ]; then
+  ok 'plugin help exits successfully without calling a host manager'
+else
+  not_ok 'plugin help exits successfully without calling a host manager'
+fi
+
 new_case no_host
 if run_guard plugin status; then
   not_ok 'plugin host auto-detection rejects no host'
