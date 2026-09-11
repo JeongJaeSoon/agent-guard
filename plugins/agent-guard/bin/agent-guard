@@ -294,7 +294,12 @@ claude_managed_settings_state() (
       || return 2
   fi
 
+  # Keep only merge keys and Agent Guard source classifications in this file;
+  # raw marketplace URLs, policy-helper paths, and unrelated settings never
+  # enter it. The subshell trap also removes a mktemp_file fallback outside the
+  # invocation rundir on every normal return, including parse failures.
   managed_summary=$(mktemp_file) || return 2
+  trap 'rm -f "$managed_summary"' 0
   for managed_file in \
     "$managed_root/managed-settings.json" \
     "$managed_fragments"/*.json; do
@@ -307,6 +312,28 @@ claude_managed_settings_state() (
         ((has("timeoutMs") | not) or (.timeoutMs | type == "number")) and
         ((has("refreshIntervalMs") | not) or
          (.refreshIntervalMs | type == "number"));
+      def compact_source:
+        {} +
+        (if has("source") then
+           {source: (if .source == "github" or .source == "git"
+                     then .source else "other" end)}
+         else {} end) +
+        (if has("repo") then
+           {repo: (if .repo == "JeongJaeSoon/agent-guard"
+                   then "agent-guard" else "other" end)}
+         else {} end) +
+        (if has("url") then
+           {url: (if .url == "https://github.com/JeongJaeSoon/agent-guard" or
+                       .url == "https://github.com/JeongJaeSoon/agent-guard.git"
+                  then "agent-guard" else "other" end)}
+         else {} end);
+      def compact_marketplace:
+        if type != "object" then "other"
+        elif has("source") and (.source | type) != "object" then
+          {source: "other"}
+        elif has("source") then {source: (.source | compact_source)}
+        else {}
+        end;
       if length == 0 then {}
       elif length == 1 and (.[0] | type == "object") then .[0]
       else error("managed settings must contain one object")
@@ -320,10 +347,16 @@ claude_managed_settings_state() (
             ((.policyHelper | valid_policy_helper) | not)) then
         error("policyHelper must name an absolute executable path")
       else
-        with_entries(select(
-          .key == "extraKnownMarketplaces" or
-          .key == "enabledPlugins" or
-          .key == "policyHelper"))
+        ({
+          extraKnownMarketplaces:
+            ((.extraKnownMarketplaces // {})
+             | with_entries(.value |= compact_marketplace)),
+          enabledPlugins:
+            (if ((.enabledPlugins // {}) | has("agent-guard@agent-guard"))
+             then {"agent-guard@agent-guard": true}
+             else {}
+             end)
+        } + if has("policyHelper") then {policyHelper: true} else {} end)
       end
     ' "$managed_file" >>"$managed_summary" 2>/dev/null || return 2
   done
@@ -331,10 +364,9 @@ claude_managed_settings_state() (
   managed_state=$(jq -r -s '
       def agent_guard_source:
         type == "object" and
-        ((.source == "github" and .repo == "JeongJaeSoon/agent-guard") or
+        ((.source == "github" and .repo == "agent-guard") or
          (.source == "git" and
-          (.url == "https://github.com/JeongJaeSoon/agent-guard" or
-           .url == "https://github.com/JeongJaeSoon/agent-guard.git")));
+          .url == "agent-guard"));
       reduce .[] as $document ({}; . * $document)
       | if has("policyHelper") then "dynamic"
         elif (((.extraKnownMarketplaces // {})

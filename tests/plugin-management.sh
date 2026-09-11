@@ -6,6 +6,8 @@ GUARD="$ROOT/plugins/agent-guard/bin/agent-guard"
 CASE_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-plugin-test.XXXXXX")
 trap 'rm -rf "$CASE_ROOT"' EXIT INT TERM
 REAL_JQ=$(command -v jq)
+REAL_MKTEMP=$(command -v mktemp)
+REAL_RM=$(command -v rm)
 pass=0
 fail=0
 
@@ -38,6 +40,37 @@ write_managed_base() {
 write_managed_fragment() {
   mkdir -p "$case_managed/managed-settings.d"
   printf '%s\n' "$2" >"$case_managed/managed-settings.d/$1.json"
+}
+
+force_rundir_fallback() {
+  case_tmp="$case_dir/tmp"
+  mkdir -p "$case_tmp"
+  cat >"$case_bin/mktemp" <<'EOF'
+#!/usr/bin/env sh
+printf '%s\n' "$*" >>"$AG_PLUGIN_TEST_MKTEMP_LOG"
+case "$*" in
+  *agent-guard-run.*) exit 1 ;;
+esac
+exec "$AG_PLUGIN_TEST_REAL_MKTEMP" "$@"
+EOF
+  chmod +x "$case_bin/mktemp"
+  export AG_PLUGIN_TEST_REAL_MKTEMP="$REAL_MKTEMP"
+  export AG_PLUGIN_TEST_MKTEMP_LOG="$case_dir/mktemp-calls"
+}
+
+capture_summary_on_cleanup() {
+  cat >"$case_bin/rm" <<'EOF'
+#!/usr/bin/env sh
+if [ "${1:-}" = -f ] && [ "$#" -eq 2 ] && [ -f "$2" ]; then
+  case "$2" in
+    */agent-guard.*) cp "$2" "$AG_PLUGIN_TEST_SUMMARY_SNAPSHOT" ;;
+  esac
+fi
+exec "$AG_PLUGIN_TEST_REAL_RM" "$@"
+EOF
+  chmod +x "$case_bin/rm"
+  export AG_PLUGIN_TEST_REAL_RM="$REAL_RM"
+  export AG_PLUGIN_TEST_SUMMARY_SNAPSHOT="$case_dir/summary-snapshot"
 }
 
 add_host() {
@@ -273,6 +306,57 @@ if run_guard plugin install --host claude \
   ok 'an empty managed settings file is treated as an unrelated empty object'
 else
   not_ok 'an empty managed settings file is treated as an unrelated empty object'
+fi
+
+new_case claude_summary_fallback_cleanup_success
+add_host claude
+force_rundir_fallback
+: >"$case_managed/managed-settings.json"
+if TMPDIR="$case_tmp" run_guard plugin status --host claude; then
+  find "$case_tmp" -mindepth 1 -print -quit >"$case_dir/residue"
+  if grep -Fq "$case_tmp/agent-guard.XXXXXX" "$case_dir/mktemp-calls" \
+     && [ ! -s "$case_dir/residue" ]; then
+    ok 'managed settings summary fallback is removed after success'
+  else
+    not_ok 'managed settings summary fallback is removed after success'
+  fi
+else
+  not_ok 'managed settings summary fallback is removed after success'
+fi
+
+new_case claude_summary_fallback_cleanup_failure
+add_host claude
+force_rundir_fallback
+write_managed_base '{not-json'
+if TMPDIR="$case_tmp" run_guard plugin status --host claude; then
+  not_ok 'managed settings summary fallback is removed after parse failure'
+elif [ "$?" -eq 2 ]; then
+  find "$case_tmp" -mindepth 1 -print -quit >"$case_dir/residue"
+  if grep -Fq "$case_tmp/agent-guard.XXXXXX" "$case_dir/mktemp-calls" \
+     && [ ! -s "$case_dir/residue" ]; then
+    ok 'managed settings summary fallback is removed after parse failure'
+  else
+    not_ok 'managed settings summary fallback is removed after parse failure'
+  fi
+else
+  not_ok 'managed settings summary fallback is removed after parse failure'
+fi
+
+new_case claude_summary_excludes_raw_managed_values
+add_host claude
+capture_summary_on_cleanup
+write_managed_base '{"policyHelper":{"path":"/private/super-secret-helper"},"extraKnownMarketplaces":{"internal":{"source":{"source":"git","url":"https://token:super-secret@example.invalid/private.git","headers":{"Authorization":"Bearer super-secret"}}},"official":{"source":{"source":"github","repo":"JeongJaeSoon/agent-guard"}}},"enabledPlugins":{"agent-guard@agent-guard":true,"private@internal":true},"env":{"AGENT_GUARD_PRIVATE_VALUE":"super-secret-env"}}'
+if run_guard plugin status --host claude; then
+  not_ok 'managed settings summary excludes raw managed values'
+elif [ "$?" -eq 2 ] \
+   && [ -s "$AG_PLUGIN_TEST_SUMMARY_SNAPSHOT" ] \
+   && grep -Fq '"repo":"agent-guard"' "$AG_PLUGIN_TEST_SUMMARY_SNAPSHOT" \
+   && grep -Fq '"policyHelper":true' "$AG_PLUGIN_TEST_SUMMARY_SNAPSHOT" \
+   && ! grep -Eq 'super-secret|Authorization|private@internal|AGENT_GUARD_PRIVATE_VALUE' \
+        "$AG_PLUGIN_TEST_SUMMARY_SNAPSHOT"; then
+  ok 'managed settings summary stores only non-sensitive ownership classifications'
+else
+  not_ok 'managed settings summary stores only non-sensitive ownership classifications'
 fi
 
 new_case claude_marketplace_override_unrelated
