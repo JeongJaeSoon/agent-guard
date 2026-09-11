@@ -16,12 +16,20 @@ summary. Never include live credentials, private keys, prompts, transcripts,
 raw stderr, full hook payloads, paths, environment variables, session IDs, or
 unredacted personal data.
 
-If your installed version provides it, attach the output of
-`agent-guard logs export` instead of raw diagnostic output. The local support
-log is metadata only. Plugin-only installations may not have `agent-guard` on
-PATH: use the absolute plugin-local executable printed by the host setup skill
-in place of `agent-guard`, followed by `logs export`. This also avoids exporting
-logs through an unrelated standalone version.
+When the installed version provides `--output`, create one private support file
+instead of attaching raw diagnostic output:
+
+```sh
+agent-guard logs export --output agent-guard-support.jsonl
+```
+
+The parent directory must already exist. This creates a new mode-0600 file and
+refuses to replace an existing file or symlink. The local support log is metadata
+only. Plugin-only installations may not have `agent-guard` on PATH: use the
+absolute plugin-local executable printed by the host setup skill in place of
+`agent-guard`. This also avoids exporting logs through an unrelated standalone
+version. If export cannot run, send only the listed metadata and a manually
+sanitized error summary; never substitute raw stderr or a host transcript.
 
 The log records a random local `run_id`, version, command/event
 category, host, start and finish time, exit status, and one of `pass`, `blocked`, `masked`,

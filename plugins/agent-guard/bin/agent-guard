@@ -173,7 +173,7 @@ Usage:
   agent-guard check
   agent-guard setup [--install --gitleaks-checksum SHA [--gitleaks-version X.Y.Z]]
   agent-guard doctor
-  agent-guard logs [status|export]
+  agent-guard logs [status|export [--output FILE]]
   agent-guard update
   agent-guard smoke-test
   agent-guard checksum [VERSION]
@@ -325,40 +325,88 @@ audit_finish() {
   return 0
 }
 
+audit_export() {
+  command -v jq >/dev/null 2>&1 || { printf '%s\n' 'agent-guard: log export requires jq.' >&2; return 2; }
+  ag_dir=$(audit_directory) || { printf '%s\n' 'agent-guard: no private diagnostic log directory is available.' >&2; return 2; }
+  for ag_file in "$ag_dir"/event-*; do
+    [ -f "$ag_file" ] && [ ! -L "$ag_file" ] || continue
+    [ "$(audit_stat "$ag_file")" = "$(id -u):600" ] || continue
+    ag_bytes=$(wc -c <"$ag_file" | tr -d ' ')
+    case "$ag_bytes" in ''|*[!0-9]*) continue ;; esac
+    [ "$ag_bytes" -le 2048 ] || continue
+    # Rebuild the schema, dropping unknown keys. Validate every field so a
+    # manually edited/corrupt log cannot smuggle source data into an export.
+    jq -c '
+      select(type == "object" and .schema == 1)
+      | select(.run_id | type == "string" and test("^[0-9]{1,12}-[A-Za-z0-9]{6}$"))
+      | select(.time | type == "number" and . >= 0 and . <= 9999999999 and floor == .)
+      | select(.version | type == "string" and test("^[0-9]{1,5}\\.[0-9]{1,5}\\.[0-9]{1,5}$"))
+      | select(.command | IN("hook-pre-tool", "hook-post-tool", "hook-stop", "hook-user-prompt", "hook-session-start", "scan-staged", "scan-working-tree", "scan-path", "exec", "pii-filter"))
+      | select(.host | IN("claude", "codex", "cli"))
+      | select(.phase | IN("started", "finished"))
+      | select(.outcome | IN("pending", "pass", "blocked", "masked", "degraded", "error", "interrupted", "warned"))
+      | select(.exit_code == null or (.exit_code | type == "number" and . >= 0 and . <= 255 and floor == .))
+      | select(.duration_seconds | type == "number" and . >= 0 and . <= 9999999999 and floor == .)
+      | {schema,run_id,time,version,command,host,phase,outcome,exit_code,duration_seconds}
+    ' "$ag_file" 2>/dev/null || :
+  done
+}
+
+# Write a complete export into a private temporary file in the requested parent,
+# then publish it with link(2). A hard-link creation fails if FILE already exists,
+# unlike mv, so an existing regular file, directory, FIFO, or symlink is never
+# overwritten. The temporary file and its final name are in one filesystem.
+audit_export_to_file() (
+  ag_output=$1
+  case "$ag_output" in '') printf '%s\n' 'agent-guard: log export output path is required.' >&2; return 2 ;; esac
+  ag_parent=$(dirname -- "$ag_output") || return 2
+  [ -d "$ag_parent" ] && [ ! -L "$ag_parent" ] || {
+    printf '%s\n' 'agent-guard: log export parent directory must already exist and not be a symlink.' >&2
+    return 2
+  }
+  [ ! -e "$ag_output" ] && [ ! -L "$ag_output" ] || {
+    printf '%s\n' 'agent-guard: refusing to overwrite an existing log export target.' >&2
+    return 2
+  }
+  ag_tmp=
+  trap '[ -z "$ag_tmp" ] || rm -f -- "$ag_tmp"' 0
+  ag_tmp=$(umask 077; mktemp "$ag_parent/.agent-guard-support.XXXXXX" 2>/dev/null) || {
+    printf '%s\n' 'agent-guard: could not create a private temporary log export file.' >&2
+    return 2
+  }
+  if [ ! -f "$ag_tmp" ] || [ -L "$ag_tmp" ] || [ "$(audit_stat "$ag_tmp")" != "$(id -u):600" ]; then
+    printf '%s\n' 'agent-guard: temporary log export file was not private.' >&2
+    return 2
+  fi
+  audit_export >"$ag_tmp" || return $?
+  ln "$ag_tmp" "$ag_output" 2>/dev/null || {
+    printf '%s\n' 'agent-guard: refusing to overwrite an existing or invalid log export target.' >&2
+    return 2
+  }
+  [ -f "$ag_output" ] && [ ! -L "$ag_output" ] && [ "$(audit_stat "$ag_output")" = "$(id -u):600" ] || {
+    printf '%s\n' 'agent-guard: log export target was not a private regular file.' >&2
+    return 2
+  }
+  printf 'agent-guard: exported metadata-only support log to %s\n' "$ag_output" >&2
+)
+
 audit_logs() {
   case "${1:-status}" in
     status)
+      case "$#:${1:-}" in 0:|1:status) ;; *) printf '%s\n' 'Usage: agent-guard logs [status|export [--output FILE]]' >&2; return 2 ;; esac
       case "${AGENT_GUARD_LOG_MODE:-on}" in on|off) ag_mode=${AGENT_GUARD_LOG_MODE:-on} ;; *) ag_mode=invalid ;; esac
       printf 'Local diagnostic logging: %s\nDirectory: ${XDG_STATE_HOME:-~/.local/state}/agent-guard\nRetention target: 7 days, 1000 invocations; bounded cleanup runs at start, so concurrency or externally added files can exceed this.\n' "$ag_mode"
       if audit_directory >/dev/null; then printf 'Storage: private directory ready\n'; else printf 'Storage: not created or unavailable\n'; fi
       ;;
     export)
-      command -v jq >/dev/null 2>&1 || { printf '%s\n' 'agent-guard: log export requires jq.' >&2; return 2; }
-      ag_dir=$(audit_directory) || { printf '%s\n' 'agent-guard: no private diagnostic log directory is available.' >&2; return 2; }
-      for ag_file in "$ag_dir"/event-*; do
-        [ -f "$ag_file" ] && [ ! -L "$ag_file" ] || continue
-        [ "$(audit_stat "$ag_file")" = "$(id -u):600" ] || continue
-        ag_bytes=$(wc -c <"$ag_file" | tr -d ' ')
-        case "$ag_bytes" in ''|*[!0-9]*) continue ;; esac
-        [ "$ag_bytes" -le 2048 ] || continue
-        # Rebuild the schema, dropping unknown keys. Validate every field so a
-        # manually edited/corrupt log cannot smuggle source data into an export.
-        jq -c '
-          select(type == "object" and .schema == 1)
-          | select(.run_id | type == "string" and test("^[0-9]{1,12}-[A-Za-z0-9]{6}$"))
-          | select(.time | type == "number" and . >= 0 and . <= 9999999999 and floor == .)
-          | select(.version | type == "string" and test("^[0-9]{1,5}\\.[0-9]{1,5}\\.[0-9]{1,5}$"))
-          | select(.command | IN("hook-pre-tool", "hook-post-tool", "hook-stop", "hook-user-prompt", "hook-session-start", "scan-staged", "scan-working-tree", "scan-path", "exec", "pii-filter"))
-          | select(.host | IN("claude", "codex", "cli"))
-          | select(.phase | IN("started", "finished"))
-          | select(.outcome | IN("pending", "pass", "blocked", "masked", "degraded", "error", "interrupted", "warned"))
-          | select(.exit_code == null or (.exit_code | type == "number" and . >= 0 and . <= 255 and floor == .))
-          | select(.duration_seconds | type == "number" and . >= 0 and . <= 9999999999 and floor == .)
-          | {schema,run_id,time,version,command,host,phase,outcome,exit_code,duration_seconds}
-        ' "$ag_file" 2>/dev/null || :
-      done
+      shift
+      case "$#" in
+        0) audit_export ;;
+        2) [ "$1" = --output ] || { printf '%s\n' 'Usage: agent-guard logs [status|export [--output FILE]]' >&2; return 2; }; audit_export_to_file "$2" ;;
+        *) printf '%s\n' 'Usage: agent-guard logs [status|export [--output FILE]]' >&2; return 2 ;;
+      esac
       ;;
-    *) printf '%s\n' 'Usage: agent-guard logs [status|export]' >&2; return 2 ;;
+    *) printf '%s\n' 'Usage: agent-guard logs [status|export [--output FILE]]' >&2; return 2 ;;
   esac
 }
 

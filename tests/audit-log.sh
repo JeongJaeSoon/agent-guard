@@ -18,12 +18,130 @@ check() { label=$1; shift; if "$@"; then ok "$label"; else bad "$label"; fi; }
 export_logs() { "$GUARD" logs export >"$CASE/export" 2>"$CASE/export.err"; }
 has_outcome() { jq -es --arg o "$1" 'any(.[]; .phase == "finished" and .outcome == $o)' "$CASE/export" >/dev/null; }
 new_case() { rm -rf "$XDG_STATE_HOME"; }
+no_export_temps() { ! find "$1" -maxdepth 1 -name '.agent-guard-support.*' -print | grep -q .; }
 
 printf '%s' '{"tool_name":"FutureTool","tool_input":{}}' | "$GUARD" hook-pre-tool >"$CASE/out" 2>"$CASE/err"
 check 'clean passthrough status and stdout unchanged' test ! -s "$CASE/out"
 check 'export succeeds' export_logs
 check 'successful invocation has start and finish linked by run ID' jq -es 'length == 2 and .[0].phase == "started" and .[1].phase == "finished" and .[0].run_id == .[1].run_id' "$CASE/export"
 check 'pass does not imply a clean scan' has_outcome pass
+if "$GUARD" logs >"$CASE/default-status.out" 2>"$CASE/default-status.err" \
+   && grep -q 'Local diagnostic logging:' "$CASE/default-status.out"; then
+  ok 'logs without a subcommand keeps the status default'
+else
+  bad 'logs without a subcommand keeps the status default'
+fi
+
+output_file="$CASE/agent-guard-support.jsonl"
+"$GUARD" logs export --output "$output_file" >"$CASE/output-file.out" 2>"$CASE/output-file.err"
+check 'output-file export succeeds' test -f "$output_file"
+check 'output-file export preserves stdout export records' cmp "$CASE/export" "$output_file"
+check 'output-file export leaves stdout empty' test ! -s "$CASE/output-file.out"
+check 'output-file export reports its location on stderr' grep -Fq "$output_file" "$CASE/output-file.err"
+case "$(stat -f '%Lp' "$output_file" 2>/dev/null || stat -c '%a' "$output_file" 2>/dev/null)" in
+  600) ok 'output-file export is mode 0600' ;;
+  *) bad 'output-file export is mode 0600' ;;
+esac
+check 'output-file export removes its temporary file' no_export_temps "$CASE"
+
+printf 'keep\n' >"$CASE/existing-output"
+if "$GUARD" logs export --output "$CASE/existing-output" >"$CASE/existing.out" 2>"$CASE/existing.err"; then
+  bad 'output-file export refuses an existing target'
+else
+  ok 'output-file export refuses an existing target'
+fi
+check 'existing output target remains unchanged' sh -c 'test "$(cat "$1")" = keep' _ "$CASE/existing-output"
+check 'existing output refusal leaves no temporary file' no_export_temps "$CASE"
+
+mkdir "$CASE/directory-output"
+if "$GUARD" logs export --output "$CASE/directory-output" >"$CASE/directory.out" 2>"$CASE/directory.err"; then
+  bad 'output-file export refuses a directory target'
+else
+  ok 'output-file export refuses a directory target'
+fi
+check 'directory target remains a directory' test -d "$CASE/directory-output"
+check 'directory target refusal leaves no temporary file' no_export_temps "$CASE"
+
+if command -v mkfifo >/dev/null 2>&1 && mkfifo "$CASE/fifo-output" 2>/dev/null; then
+  if "$GUARD" logs export --output "$CASE/fifo-output" >"$CASE/fifo.out" 2>"$CASE/fifo.err"; then
+    bad 'output-file export refuses a FIFO target'
+  else
+    ok 'output-file export refuses a FIFO target'
+  fi
+  check 'FIFO target remains a FIFO' test -p "$CASE/fifo-output"
+  check 'FIFO target refusal leaves no temporary file' no_export_temps "$CASE"
+else
+  printf '%s\n' 'skipping FIFO output test: mkfifo is unavailable'
+fi
+
+if ln -s "$CASE/existing-output" "$CASE/symlink-output" 2>/dev/null; then
+  if "$GUARD" logs export --output "$CASE/symlink-output" >"$CASE/symlink.out" 2>"$CASE/symlink.err"; then
+    bad 'output-file export refuses a symlink target'
+  else
+    ok 'output-file export refuses a symlink target'
+  fi
+else
+  printf '%s\n' 'skipping output symlink test: filesystem does not support symlinks'
+fi
+check 'symlink target refusal leaves no temporary file' no_export_temps "$CASE"
+
+if ln -s "$CASE/not-created" "$CASE/dangling-output" 2>/dev/null; then
+  if "$GUARD" logs export --output "$CASE/dangling-output" >"$CASE/dangling.out" 2>"$CASE/dangling.err"; then
+    bad 'output-file export refuses a dangling symlink target'
+  else
+    ok 'output-file export refuses a dangling symlink target'
+  fi
+  check 'dangling symlink target remains a symlink' test -L "$CASE/dangling-output"
+  check 'dangling symlink refusal leaves no temporary file' no_export_temps "$CASE"
+else
+  printf '%s\n' 'skipping dangling output symlink test: filesystem does not support symlinks'
+fi
+
+mkdir "$CASE/real-parent"
+if ln -s "$CASE/real-parent" "$CASE/symlink-parent" 2>/dev/null; then
+  if "$GUARD" logs export --output "$CASE/symlink-parent/support.jsonl" >"$CASE/parent-symlink.out" 2>"$CASE/parent-symlink.err"; then
+    bad 'output-file export refuses an immediate symlink parent'
+  else
+    ok 'output-file export refuses an immediate symlink parent'
+  fi
+  check 'symlink parent receives no completed export' test ! -e "$CASE/real-parent/support.jsonl"
+  check 'symlink parent refusal leaves no temporary file' no_export_temps "$CASE/real-parent"
+else
+  printf '%s\n' 'skipping symlink parent test: filesystem does not support symlinks'
+fi
+
+if "$GUARD" logs export --output "$CASE/missing-parent/support.jsonl" >"$CASE/missing.out" 2>"$CASE/missing.err"; then
+  bad 'output-file export requires an existing parent'
+else
+  ok 'output-file export requires an existing parent'
+fi
+check 'missing parent receives no completed export' test ! -e "$CASE/missing-parent/support.jsonl"
+
+mkdir "$CASE/no-jq-bin"
+for tool in dirname readlink mktemp id stat rm uname; do
+  tool_path=$(command -v "$tool") || exit 1
+  ln -s "$tool_path" "$CASE/no-jq-bin/$tool"
+done
+if PATH="$CASE/no-jq-bin" /bin/sh "$GUARD" logs export --output "$CASE/jq-missing.jsonl" >"$CASE/jq-missing.out" 2>"$CASE/jq-missing.err"; then
+  bad 'output-file export fails when jq is unavailable'
+else
+  ok 'output-file export fails when jq is unavailable'
+fi
+check 'jq failure leaves no completed export' test ! -e "$CASE/jq-missing.jsonl"
+check 'jq failure leaves no temporary file' no_export_temps "$CASE"
+
+mkdir "$CASE/storage-real"
+if ln -s "$CASE/storage-real" "$CASE/storage-symlink" 2>/dev/null; then
+  if XDG_STATE_HOME="$CASE/storage-symlink" "$GUARD" logs export --output "$CASE/storage-unavailable.jsonl" >"$CASE/storage-unavailable.out" 2>"$CASE/storage-unavailable.err"; then
+    bad 'output-file export fails when audit storage is unavailable'
+  else
+    ok 'output-file export fails when audit storage is unavailable'
+  fi
+  check 'storage failure leaves no completed export' test ! -e "$CASE/storage-unavailable.jsonl"
+  check 'storage failure leaves no temporary file' no_export_temps "$CASE"
+else
+  printf '%s\n' 'skipping unavailable storage test: filesystem does not support symlinks'
+fi
 
 new_case
 sentinel="private-path-$(od -An -N12 -tx1 /dev/urandom | tr -d ' \n')"
