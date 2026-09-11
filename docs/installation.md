@@ -14,6 +14,33 @@ The plugins are not replaceable by a PATH CLI: they translate Claude Code and
 Codex events into the same CLI contract. A standalone installation adds the
 CLI and optional shell integration; it does not register host hooks.
 
+If `agent-guard` is already installed as a standalone or Homebrew command, it
+can delegate plugin installation to the official host managers:
+
+```sh
+agent-guard plugin status --host all
+agent-guard plugin install --host claude
+agent-guard plugin install --host codex
+```
+
+Use `--host all` to install both in one command. If `--host` is omitted,
+exactly one of `claude` or `codex` must be available. Claude Code supports
+`--scope user|project|local` and defaults to `user`; Codex supports user scope
+only. Repeating `install` is a no-op when the plugin is already installed and
+enabled, and never updates it implicitly. If an installed plugin is disabled,
+`status` reports that state and `install` asks you to enable it through the
+host manager. Updates and removals remain explicit:
+
+```sh
+agent-guard plugin update --host all
+agent-guard plugin uninstall --host claude
+```
+
+These commands use the remote `JeongJaeSoon/agent-guard` marketplace and call
+the host CLIs directly. They do not write plugin caches or host configuration
+files themselves, do not invoke `sudo`, and do not bypass host confirmation
+prompts. Restart each changed host before verifying its hooks.
+
 ## Standalone CLI
 
 Install the current release:

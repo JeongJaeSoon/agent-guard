@@ -174,11 +174,298 @@ Usage:
   agent-guard setup [--install --gitleaks-checksum SHA [--gitleaks-version X.Y.Z]]
   agent-guard doctor
   agent-guard logs [status|export]
+  agent-guard plugin status|install|update|uninstall [--host claude|codex|all] [--scope user|project|local]
   agent-guard update
   agent-guard smoke-test
   agent-guard checksum [VERSION]
   agent-guard version
 EOF
+}
+
+plugin_usage() {
+  cat >&2 <<'EOF'
+Usage:
+  agent-guard plugin status|install|update|uninstall [--host claude|codex|all] [--scope user|project|local]
+
+If --host is omitted, exactly one of claude or codex must be available. Claude
+Code defaults to user scope. Codex supports user scope only.
+EOF
+}
+
+plugin_marketplace_source_ok() {
+  plugin_host=$1
+  plugin_json=$2
+  case "$plugin_host" in
+    claude)
+      jq -e '.[] | select(.name == "agent-guard")
+        | ((.repo // "") == "JeongJaeSoon/agent-guard")' "$plugin_json" >/dev/null 2>&1
+      ;;
+    codex)
+      jq -e '.marketplaces[] | select(.name == "agent-guard")
+        | (.marketplaceSource.source // "") as $source
+        | ($source == "JeongJaeSoon/agent-guard"
+           or $source == "https://github.com/JeongJaeSoon/agent-guard"
+           or $source == "https://github.com/JeongJaeSoon/agent-guard.git")' "$plugin_json" >/dev/null 2>&1
+      ;;
+  esac
+}
+
+plugin_marketplace_present() {
+  plugin_host=$1
+  plugin_json=$2
+  case "$plugin_host" in
+    claude) jq -e '.[] | select(.name == "agent-guard")' "$plugin_json" >/dev/null 2>&1 ;;
+    codex) jq -e '.marketplaces[] | select(.name == "agent-guard")' "$plugin_json" >/dev/null 2>&1 ;;
+  esac
+}
+
+plugin_installed() {
+  plugin_host=$1
+  plugin_json=$2
+  plugin_scope=$3
+  case "$plugin_host" in
+    claude) jq -e --arg scope "$plugin_scope" '.[]
+      | select((.id // .pluginId // "") == "agent-guard@agent-guard" and (.scope // "user") == $scope)' "$plugin_json" >/dev/null 2>&1 ;;
+    codex) jq -e '.installed[] | select(.pluginId == "agent-guard@agent-guard" and .installed == true)' "$plugin_json" >/dev/null 2>&1 ;;
+  esac
+}
+
+plugin_version() {
+  plugin_host=$1
+  plugin_json=$2
+  plugin_scope=$3
+  case "$plugin_host" in
+    claude) jq -r --arg scope "$plugin_scope" '.[]
+      | select((.id // .pluginId // "") == "agent-guard@agent-guard" and (.scope // "user") == $scope)
+      | .version // "unknown"' "$plugin_json" | head -n 1 ;;
+    codex) jq -r '.installed[] | select(.pluginId == "agent-guard@agent-guard") | .version // "unknown"' "$plugin_json" | head -n 1 ;;
+  esac
+}
+
+plugin_enabled() {
+  plugin_host=$1
+  plugin_json=$2
+  plugin_scope=$3
+  case "$plugin_host" in
+    claude) jq -e --arg scope "$plugin_scope" '.[]
+      | select((.id // .pluginId // "") == "agent-guard@agent-guard" and (.scope // "user") == $scope)
+      | .enabled == true' "$plugin_json" >/dev/null 2>&1 ;;
+    codex) jq -e '.installed[]
+      | select(.pluginId == "agent-guard@agent-guard" and .installed == true)
+      | .enabled == true' "$plugin_json" >/dev/null 2>&1 ;;
+  esac
+}
+
+plugin_read_state() {
+  plugin_host=$1
+  plugin_marketplaces=$2
+  plugin_plugins=$3
+  case "$plugin_host" in
+    claude)
+      claude plugin marketplace list --json >"$plugin_marketplaces" \
+        && claude plugin list --json >"$plugin_plugins" \
+        && jq -e 'type == "array"' "$plugin_marketplaces" >/dev/null 2>&1 \
+        && jq -e 'type == "array"' "$plugin_plugins" >/dev/null 2>&1
+      ;;
+    codex)
+      codex plugin marketplace list --json >"$plugin_marketplaces" \
+        && codex plugin list --json >"$plugin_plugins" \
+        && jq -e 'type == "object" and (.marketplaces | type == "array")' "$plugin_marketplaces" >/dev/null 2>&1 \
+        && jq -e 'type == "object" and (.installed | type == "array")' "$plugin_plugins" >/dev/null 2>&1
+      ;;
+  esac
+}
+
+plugin_for_host() {
+  plugin_action=$1
+  plugin_host=$2
+  plugin_scope=$3
+  plugin_tmp=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-plugin.XXXXXX") || {
+    printf '%s\n' "$PROGRAM: could not create plugin status directory" >&2
+    return 2
+  }
+  plugin_marketplaces="$plugin_tmp/marketplaces.json"
+  plugin_plugins="$plugin_tmp/plugins.json"
+
+  if ! plugin_read_state "$plugin_host" "$plugin_marketplaces" "$plugin_plugins"; then
+    rm -rf "$plugin_tmp"
+    printf '%s\n' "$PROGRAM: $plugin_host plugin manager could not report its state" >&2
+    return 1
+  fi
+
+  if plugin_marketplace_present "$plugin_host" "$plugin_marketplaces"; then
+    if ! plugin_marketplace_source_ok "$plugin_host" "$plugin_marketplaces"; then
+      rm -rf "$plugin_tmp"
+      printf '%s\n' "$PROGRAM: $plugin_host marketplace 'agent-guard' has a different source; refusing to replace it" >&2
+      return 2
+    fi
+    plugin_has_marketplace=1
+  else
+    plugin_has_marketplace=0
+  fi
+  if plugin_installed "$plugin_host" "$plugin_plugins" "$plugin_scope"; then
+    plugin_has_install=1
+    if plugin_enabled "$plugin_host" "$plugin_plugins" "$plugin_scope"; then
+      plugin_is_enabled=1
+    else
+      plugin_is_enabled=0
+    fi
+  else
+    plugin_has_install=0
+    plugin_is_enabled=0
+  fi
+
+  case "$plugin_action" in
+    status)
+      if [ "$plugin_has_install" -eq 1 ]; then
+        printf '%s: installed, %s (version %s, marketplace %s)\n' \
+          "$plugin_host" "$([ "$plugin_is_enabled" -eq 1 ] && printf enabled || printf disabled)" \
+          "$(plugin_version "$plugin_host" "$plugin_plugins" "$plugin_scope")" \
+          "$([ "$plugin_has_marketplace" -eq 1 ] && printf configured || printf missing)"
+      else
+        printf '%s: not installed (marketplace %s)\n' \
+          "$plugin_host" "$([ "$plugin_has_marketplace" -eq 1 ] && printf configured || printf missing)"
+      fi
+      ;;
+    install)
+      if [ "$plugin_has_install" -eq 1 ]; then
+        if [ "$plugin_is_enabled" -eq 0 ]; then
+          printf '%s\n' "$PROGRAM: $plugin_host agent-guard plugin is installed but disabled; enable it with the $plugin_host plugin manager" >&2
+          rm -rf "$plugin_tmp"
+          return 1
+        fi
+        printf '%s: agent-guard plugin is already installed and enabled (version %s)\n' \
+          "$plugin_host" "$(plugin_version "$plugin_host" "$plugin_plugins" "$plugin_scope")"
+      else
+        plugin_marketplace_added=0
+        if [ "$plugin_has_marketplace" -eq 0 ]; then
+          case "$plugin_host" in
+            claude) claude plugin marketplace add JeongJaeSoon/agent-guard --scope "$plugin_scope" || { rm -rf "$plugin_tmp"; return 1; } ;;
+            codex) codex plugin marketplace add JeongJaeSoon/agent-guard || { rm -rf "$plugin_tmp"; return 1; } ;;
+          esac
+          plugin_marketplace_added=1
+        fi
+        case "$plugin_host" in
+          claude) claude plugin install agent-guard@agent-guard --scope "$plugin_scope" ;;
+          codex) codex plugin add agent-guard@agent-guard ;;
+        esac
+        plugin_install_status=$?
+        if [ "$plugin_install_status" -ne 0 ] && [ "$plugin_marketplace_added" -eq 1 ]; then
+          plugin_retry="$PROGRAM plugin install --host $plugin_host"
+          if [ "$plugin_host" = claude ] && [ "$plugin_scope" != user ]; then
+            plugin_retry="$plugin_retry --scope $plugin_scope"
+          fi
+          printf '%s\n' "$PROGRAM: $plugin_host marketplace 'agent-guard' was added, but plugin installation failed; the marketplace remains configured and it is safe to retry '$plugin_retry'" >&2
+        fi
+        [ "$plugin_install_status" -eq 0 ]
+      fi
+      ;;
+    update)
+      if [ "$plugin_has_marketplace" -eq 0 ] || [ "$plugin_has_install" -eq 0 ]; then
+        printf '%s\n' "$PROGRAM: $plugin_host plugin is not installed; run '$PROGRAM plugin install --host $plugin_host' first" >&2
+        rm -rf "$plugin_tmp"
+        return 1
+      fi
+      if [ "$plugin_is_enabled" -eq 0 ]; then
+        printf '%s\n' "$PROGRAM: $plugin_host agent-guard plugin is installed but disabled; update will keep it disabled" >&2
+      fi
+      case "$plugin_host" in
+        claude)
+          claude plugin marketplace update agent-guard \
+            && claude plugin update agent-guard@agent-guard --scope "$plugin_scope"
+          ;;
+        codex) codex plugin marketplace upgrade agent-guard ;;
+      esac
+      ;;
+    uninstall)
+      if [ "$plugin_has_install" -eq 0 ]; then
+        printf '%s\n' "$plugin_host: agent-guard plugin is not installed"
+      else
+        case "$plugin_host" in
+          claude) claude plugin uninstall agent-guard@agent-guard --scope "$plugin_scope" ;;
+          codex) codex plugin remove agent-guard@agent-guard ;;
+        esac
+      fi
+      ;;
+  esac
+  plugin_status=$?
+  rm -rf "$plugin_tmp"
+  return "$plugin_status"
+}
+
+do_plugin() {
+  plugin_action=${1:-}
+  case "$plugin_action" in status|install|update|uninstall) shift ;; *) plugin_usage; return 2 ;; esac
+  plugin_host=
+  plugin_scope=user
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --host)
+        [ "$#" -ge 2 ] || { plugin_usage; return 2; }
+        plugin_host=$2
+        shift 2
+        ;;
+      --scope)
+        [ "$#" -ge 2 ] || { plugin_usage; return 2; }
+        plugin_scope=$2
+        shift 2
+        ;;
+      -h|--help) plugin_usage; return 0 ;;
+      *) plugin_usage; return 2 ;;
+    esac
+  done
+  case "$plugin_host" in ''|claude|codex|all) ;; *) plugin_usage; return 2 ;; esac
+  case "$plugin_scope" in user|project|local) ;; *) plugin_usage; return 2 ;; esac
+  command -v jq >/dev/null 2>&1 || {
+    printf '%s\n' "$PROGRAM: jq is required to inspect plugin-manager state" >&2
+    return 1
+  }
+
+  plugin_has_claude=0
+  plugin_has_codex=0
+  command -v claude >/dev/null 2>&1 && plugin_has_claude=1
+  command -v codex >/dev/null 2>&1 && plugin_has_codex=1
+  if [ -z "$plugin_host" ]; then
+    if [ "$plugin_has_claude" -eq 1 ] && [ "$plugin_has_codex" -eq 0 ]; then
+      plugin_host=claude
+    elif [ "$plugin_has_codex" -eq 1 ] && [ "$plugin_has_claude" -eq 0 ]; then
+      plugin_host=codex
+    else
+      printf '%s\n' "$PROGRAM: omit --host only when exactly one of claude or codex is available" >&2
+      return 2
+    fi
+  fi
+  if { [ "$plugin_host" = codex ] || [ "$plugin_host" = all ]; } && [ "$plugin_scope" != user ]; then
+    printf '%s\n' "$PROGRAM: Codex plugin management supports user scope only" >&2
+    return 2
+  fi
+
+  plugin_result=0
+  case "$plugin_host" in
+    claude)
+      [ "$plugin_has_claude" -eq 1 ] || { printf '%s\n' "$PROGRAM: claude command not found" >&2; return 1; }
+      plugin_for_host "$plugin_action" claude "$plugin_scope"
+      ;;
+    codex)
+      [ "$plugin_has_codex" -eq 1 ] || { printf '%s\n' "$PROGRAM: codex command not found" >&2; return 1; }
+      plugin_for_host "$plugin_action" codex "$plugin_scope"
+      ;;
+    all)
+      if [ "$plugin_has_claude" -eq 1 ]; then
+        plugin_for_host "$plugin_action" claude "$plugin_scope" || plugin_result=1
+      else
+        printf '%s\n' "$PROGRAM: claude command not found" >&2
+        plugin_result=1
+      fi
+      if [ "$plugin_has_codex" -eq 1 ]; then
+        plugin_for_host "$plugin_action" codex "$plugin_scope" || plugin_result=1
+      else
+        printf '%s\n' "$PROGRAM: codex command not found" >&2
+        plugin_result=1
+      fi
+      return "$plugin_result"
+      ;;
+  esac
 }
 
 info() {
@@ -6549,6 +6836,7 @@ case "$cmd" in
   scan-path) shift; scan_path "$@" ;;
   filter-lockfile-hashes) shift; filter_lockfile_hashes "$@" ;;
   logs) shift; audit_logs "$@" ;;
+  plugin) shift; do_plugin "$@" ;;
   check) check_deps ;;
   doctor) shift; do_setup "$@" ;;
   update) shift; do_update "$@" ;;

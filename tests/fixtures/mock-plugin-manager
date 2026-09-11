@@ -1,0 +1,48 @@
+#!/usr/bin/env sh
+set -u
+
+host=${0##*/}
+printf '%s %s\n' "$host" "$*" >>"$AG_PLUGIN_TEST_LOG"
+
+case "$host:$*" in
+  "${AG_PLUGIN_TEST_FAIL:-__never__}"*) exit 1 ;;
+esac
+
+if [ "${AG_PLUGIN_TEST_SCHEMA:-normal}" = malformed ]; then
+  printf '%s\n' '{not-json'
+  exit 0
+fi
+
+if [ "${AG_PLUGIN_TEST_SCHEMA:-normal}" = drift ]; then
+  case "$1 $2 $3" in
+    'plugin marketplace list') printf '%s\n' '{"sources":[]}' ;;
+    *) printf '%s\n' '{"plugins":[]}' ;;
+  esac
+  exit 0
+fi
+
+if [ "$1 $2 $3" = 'plugin marketplace list' ]; then
+  case "$host:${AG_PLUGIN_TEST_MARKETPLACE:-absent}" in
+    claude:absent) printf '%s\n' '[]' ;;
+    claude:ok) printf '%s\n' '[{"name":"agent-guard","repo":"JeongJaeSoon/agent-guard"}]' ;;
+    claude:conflict) printf '%s\n' '[{"name":"agent-guard","repo":"someone/else"}]' ;;
+    codex:absent) printf '%s\n' '{"marketplaces":[]}' ;;
+    codex:ok) printf '%s\n' '{"marketplaces":[{"name":"agent-guard","marketplaceSource":{"sourceType":"git","source":"https://github.com/JeongJaeSoon/agent-guard.git"}}]}' ;;
+    codex:conflict) printf '%s\n' '{"marketplaces":[{"name":"agent-guard","marketplaceSource":{"sourceType":"local","source":"/another/source"}}]}' ;;
+  esac
+  exit 0
+fi
+
+if [ "$1 $2" = 'plugin list' ]; then
+  case "$host:${AG_PLUGIN_TEST_INSTALLED:-0}" in
+    claude:0) printf '%s\n' '[]' ;;
+    claude:1) printf '%s\n' '[{"id":"agent-guard@agent-guard","version":"3.4.0","scope":"user","enabled":true}]' ;;
+    claude:project) printf '%s\n' '[{"id":"agent-guard@agent-guard","version":"3.4.0","scope":"project","enabled":true}]' ;;
+    claude:disabled) printf '%s\n' '[{"id":"agent-guard@agent-guard","version":"3.4.0","scope":"user","enabled":false}]' ;;
+    codex:0) printf '%s\n' '{"installed":[]}' ;;
+    codex:1) printf '%s\n' '{"installed":[{"pluginId":"agent-guard@agent-guard","version":"3.4.0","installed":true,"enabled":true}]}' ;;
+    codex:disabled) printf '%s\n' '{"installed":[{"pluginId":"agent-guard@agent-guard","version":"3.4.0","installed":true,"enabled":false}]}' ;;
+  esac
+fi
+
+exit 0
