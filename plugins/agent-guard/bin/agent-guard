@@ -265,7 +265,8 @@ claude_managed_plugin_present() {
 # so a first-sync/download failure cannot make a managed declaration look like a
 # self-managed marketplace. Return 0 for an Agent Guard declaration, 1 when all
 # available files are valid but unrelated, and 2 when their state is unsafe to
-# determine. Mutations fail closed on 2; status reports the configuration error.
+# determine. Return 3 when policyHelper replaces their values dynamically.
+# Mutations fail closed on 2 or 3; status reports the configuration limitation.
 claude_managed_settings_state() (
   # Path injection exists only for isolated tests. It is deliberately gated and
   # does not turn this user-run helper into an OS policy enforcement boundary.
@@ -293,40 +294,62 @@ claude_managed_settings_state() (
       || return 2
   fi
 
-  managed_found=1
+  managed_summary=$(mktemp_file) || return 2
   for managed_file in \
     "$managed_root/managed-settings.json" \
     "$managed_fragments"/*.json; do
     [ -e "$managed_file" ] || [ -L "$managed_file" ] || continue
     [ -f "$managed_file" ] && [ -r "$managed_file" ] || return 2
-    jq -e '
+    jq -c -s '
+      def valid_policy_helper:
+        type == "object" and
+        (.path | type == "string" and startswith("/")) and
+        ((has("timeoutMs") | not) or (.timeoutMs | type == "number")) and
+        ((has("refreshIntervalMs") | not) or
+         (.refreshIntervalMs | type == "number"));
+      if length == 0 then {}
+      elif length == 1 and (.[0] | type == "object") then .[0]
+      else error("managed settings must contain one object")
+      end
+      | if (has("extraKnownMarketplaces") and
+            (.extraKnownMarketplaces | type) != "object") then
+        error("extraKnownMarketplaces must be an object")
+      elif (has("enabledPlugins") and (.enabledPlugins | type) != "object") then
+        error("enabledPlugins must be an object")
+      elif (has("policyHelper") and
+            ((.policyHelper | valid_policy_helper) | not)) then
+        error("policyHelper must name an absolute executable path")
+      else
+        with_entries(select(
+          .key == "extraKnownMarketplaces" or
+          .key == "enabledPlugins" or
+          .key == "policyHelper"))
+      end
+    ' "$managed_file" >>"$managed_summary" 2>/dev/null || return 2
+  done
+
+  managed_state=$(jq -r -s '
       def agent_guard_source:
         type == "object" and
         ((.source == "github" and .repo == "JeongJaeSoon/agent-guard") or
          (.source == "git" and
           (.url == "https://github.com/JeongJaeSoon/agent-guard" or
            .url == "https://github.com/JeongJaeSoon/agent-guard.git")));
-      if type != "object" then error("managed settings must be an object")
-      elif (has("extraKnownMarketplaces") and
-            (.extraKnownMarketplaces | type) != "object") then
-        error("extraKnownMarketplaces must be an object")
-      elif (has("enabledPlugins") and (.enabledPlugins | type) != "object") then
-        error("enabledPlugins must be an object")
-      else
-        ((.extraKnownMarketplaces // {}) as $marketplaces
-         | ($marketplaces | has("agent-guard")) or
-           ($marketplaces | any(.[]; (.source? | agent_guard_source)))) or
-        ((.enabledPlugins // {}) | has("agent-guard@agent-guard"))
-      end
-    ' "$managed_file" >/dev/null 2>&1
-    managed_status=$?
-    case "$managed_status" in
-      0) managed_found=0 ;;
-      1) ;;
-      *) return 2 ;;
-    esac
-  done
-  return "$managed_found"
+      reduce .[] as $document ({}; . * $document)
+      | if has("policyHelper") then "dynamic"
+        elif (((.extraKnownMarketplaces // {})
+               | any(.[]; (.source? | agent_guard_source))) or
+              ((.enabledPlugins // {}) | has("agent-guard@agent-guard"))) then
+          "managed"
+        else "unrelated"
+        end
+    ' "$managed_summary" 2>/dev/null) || return 2
+  case "$managed_state" in
+    managed) return 0 ;;
+    unrelated) return 1 ;;
+    dynamic) return 3 ;;
+    *) return 2 ;;
+  esac
 )
 
 claude_managed_status() {
@@ -402,6 +425,11 @@ plugin_for_host() {
     else
       printf '%s\n' "$PROGRAM: Claude managed settings could not be read or safely parsed; refusing plugin lifecycle changes" >&2
     fi
+    return 2
+  fi
+  if [ "$plugin_managed_state" -eq 3 ]; then
+    rm -rf "$plugin_tmp"
+    printf '%s\n' "$PROGRAM: Claude policyHelper replaces file-based managed settings; plugin ownership cannot be determined, so lifecycle changes are refused" >&2
     return 2
   fi
   if [ "$plugin_managed_state" -eq 0 ]; then

@@ -251,6 +251,67 @@ else
   not_ok 'unrelated managed settings do not block self-managed installation'
 fi
 
+new_case claude_unarmed_test_root_override
+add_host claude
+export AG_PLUGIN_TEST_MODE=0
+if run_guard plugin install --host claude; then
+  not_ok 'a managed-settings test root requires explicit test mode'
+elif [ "$?" -eq 2 ] \
+   && grep -q 'could not be read or safely parsed' "$case_dir/err" \
+   && ! grep -Eq 'marketplace (add|update)|plugin (install|update|uninstall)' "$case_log"; then
+  ok 'a managed-settings test root is rejected outside explicit test mode'
+else
+  not_ok 'a managed-settings test root is rejected outside explicit test mode'
+fi
+
+new_case claude_empty_managed_settings
+add_host claude
+: >"$case_managed/managed-settings.json"
+if run_guard plugin install --host claude \
+   && grep -Fxq 'claude plugin marketplace add JeongJaeSoon/agent-guard --scope user' "$case_log" \
+   && grep -Fxq 'claude plugin install agent-guard@agent-guard --scope user' "$case_log"; then
+  ok 'an empty managed settings file is treated as an unrelated empty object'
+else
+  not_ok 'an empty managed settings file is treated as an unrelated empty object'
+fi
+
+new_case claude_marketplace_override_unrelated
+add_host claude
+write_managed_base '{"extraKnownMarketplaces":{"agent-guard":{"source":{"source":"github","repo":"JeongJaeSoon/agent-guard"}}}}'
+write_managed_fragment override '{"extraKnownMarketplaces":{"agent-guard":{"source":{"repo":"example/other"}}}}'
+if run_guard plugin status --host claude \
+   && grep -q '^claude: not installed (marketplace missing)$' "$case_dir/out"; then
+  ok 'a later drop-in marketplace override determines the final managed state'
+else
+  not_ok 'a later drop-in marketplace override determines the final managed state'
+fi
+
+new_case claude_marketplace_override_managed
+add_host claude
+write_managed_base '{"extraKnownMarketplaces":{"security":{"source":{"source":"github","repo":"example/other"}}}}'
+write_managed_fragment override '{"extraKnownMarketplaces":{"security":{"source":{"repo":"JeongJaeSoon/agent-guard"}}}}'
+if run_guard plugin status --host claude \
+   && grep -q 'managed by Jamf/managed settings (Agent Guard configured, plugin not installed)' "$case_dir/out"; then
+  ok 'a later drop-in can make the final merged marketplace managed'
+else
+  not_ok 'a later drop-in can make the final merged marketplace managed'
+fi
+
+for policy_helper_action in status install; do
+  new_case "claude_policy_helper_${policy_helper_action}"
+  add_host claude
+  write_managed_base '{"policyHelper":{"path":"/usr/local/bin/claude-policy","timeoutMs":5000},"extraKnownMarketplaces":{"agent-guard":{"source":{"source":"github","repo":"JeongJaeSoon/agent-guard"}}}}'
+  if run_guard plugin "$policy_helper_action" --host claude; then
+    not_ok "Claude $policy_helper_action rejects dynamic managed settings ownership"
+  elif [ "$?" -eq 2 ] \
+     && grep -q 'policyHelper replaces file-based managed settings' "$case_dir/err" \
+     && ! grep -Eq 'marketplace (add|update)|plugin (install|update|uninstall)' "$case_log"; then
+    ok "Claude $policy_helper_action fails closed when policyHelper replaces file settings"
+  else
+    not_ok "Claude $policy_helper_action fails closed when policyHelper replaces file settings"
+  fi
+done
+
 new_case claude_malformed_managed_settings
 add_host claude
 export AG_PLUGIN_TEST_MARKETPLACE=ok AG_PLUGIN_TEST_INSTALLED=0

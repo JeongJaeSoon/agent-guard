@@ -47,10 +47,14 @@ from the administrator-owned `managed-settings.json` and
 `managed-settings.d/*.json` files on macOS and Linux. This covers the initial
 state where the managed marketplace is declared but its plugin has not yet been
 downloaded. `status` identifies that state as managed; `install`, `update`, and
-`uninstall` refuse to change it. An unreadable, non-regular, or malformed managed
-settings file makes these commands fail closed because ownership cannot be
-determined safely. Valid files that contain only unrelated settings do not block
-self-managed use. This CLI check helps prevent accidental lifecycle changes; the
+`uninstall` refuse to change it. Files are merged in Claude's base-then-sorted-
+drop-in order before the Agent Guard keys are evaluated. An unreadable or
+malformed file, or a path that does not resolve to a regular file, makes these
+commands fail closed because ownership cannot be determined safely. Empty files
+and valid files that contain only unrelated settings do not block self-managed
+use. If a valid `policyHelper` is declared, its result replaces the file-based
+settings at runtime; the CLI does not execute the helper and therefore also
+fails closed. This CLI check helps prevent accidental lifecycle changes; the
 Claude managed-settings deployment remains the administrative enforcement
 boundary. On Jamf or another managed deployment, change the reviewed release tag
 in managed settings instead; do not add a user or project installation over the
