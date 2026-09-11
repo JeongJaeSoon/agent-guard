@@ -108,7 +108,22 @@ Do not attach transcripts, raw stderr, `.env` files, private keys, or full hook
 payloads. Include only the host, OS/architecture, Agent Guard version, command
 or event category, outcome, and a manually sanitized error summary.
 
-The metadata log is introduced after v3.3.0. When available,
-`agent-guard logs export` provides a metadata-only JSONL report.
-It excludes content, paths, environment variables, session IDs, and arbitrary
-tool names. [Support](../SUPPORT.md) has the current submission checklist.
+When the installed version provides `agent-guard logs export --output FILE`, it
+writes a metadata-only JSONL report to a new private mode-0600 file. It excludes
+content, paths, environment variables, session IDs, and arbitrary tool names.
+The parent directory must already exist; Agent Guard refuses to replace an
+existing file or symlink. [Support](../SUPPORT.md) has the current submission
+checklist.
+
+For a standalone installation, run:
+
+```sh
+agent-guard logs status
+agent-guard logs export --output agent-guard-support.jsonl
+```
+
+For a plugin-only installation, replace `agent-guard` with the exact
+plugin-local executable path printed by the setup skill. If export cannot run,
+report only the version, host, OS/architecture, command/event category, outcome,
+and a manually sanitized error summary. Do not attach raw stderr, a transcript,
+or a hook payload.
