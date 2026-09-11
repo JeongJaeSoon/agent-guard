@@ -80,7 +80,7 @@ jobs:
 
 `@v3` is a moving major-version tag and receives compatible updates. For a
 managed rollout, replace it with the exact reviewed release tag, such as
-`@v3.4.0`, and advance that pin through a reviewed pull request. A commit SHA
+`@v3.4.1`, and advance that pin through a reviewed pull request. A commit SHA
 provides an even tighter immutable pin when your organization requires it.
 
 The shown checksum is for gitleaks 8.30.1 on `linux/x64`; refresh the version
