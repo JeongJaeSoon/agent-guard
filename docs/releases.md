@@ -71,26 +71,48 @@ git -C "$tap_dir" add Formula/agent-guard.rb
 git -C "$tap_dir" commit -m "agent-guard $version"
 ```
 
-Run the formula checks through a local development tap. These commands change
-the maintainer's local Homebrew state only; they do not change GitHub. The
-fully-qualified formula name prevents an unrelated formula with the same name
-from being selected. Use a disposable test machine with no existing Agent Guard
-formula installation. `brew test` runs the test block embedded in the candidate
-formula; older releases can legitimately have a smaller test block than newer
-ones.
+Run the formula checks through a formula-only local development tap. Keeping
+the check tap separate avoids asking Homebrew to trust the unrelated formulae
+that may exist in the real tap. These commands change the maintainer's local
+Homebrew state only; they do not change GitHub. The fully-qualified formula name
+prevents an unrelated formula with the same name from being selected. Use a
+disposable test machine with no existing Agent Guard formula installation.
+`brew test` runs the test block embedded in the candidate formula; older
+releases can legitimately have a smaller test block than newer ones.
 
 ```sh
 check_tap=JeongJaeSoon/agent-guard-release-check
-brew tap "$check_tap" "$tap_dir"
-cmp "$tap_dir/Formula/agent-guard.rb" \
+check_dir=$(mktemp -d)
+mkdir -p "$check_dir/Formula"
+cp "$release_dir/agent-guard.generated.rb" "$check_dir/Formula/agent-guard.rb"
+git -C "$check_dir" init -b main
+git -C "$check_dir" add Formula/agent-guard.rb
+git -C "$check_dir" \
+  -c user.name='Agent Guard Release Check' \
+  -c user.email='release-check@localhost' \
+  commit -m "agent-guard $version release check"
+
+# Homebrew 6 refuses to load a formula from an untrusted non-official tap.
+# Trust only this one disposable formula, then remove that trust after testing.
+brew trust --formula "$check_tap/agent-guard"
+brew tap "$check_tap" "$check_dir"
+cmp "$check_dir/Formula/agent-guard.rb" \
   "$(brew --repository "$check_tap")/Formula/agent-guard.rb"
-HOMEBREW_NO_INSTALL_FROM_API=1 brew audit --formula "$check_tap/agent-guard"
+HOMEBREW_NO_INSTALL_FROM_API=1 brew audit --formula --strict --online \
+  "$check_tap/agent-guard"
 HOMEBREW_NO_INSTALL_FROM_API=1 brew install --build-from-source \
   "$check_tap/agent-guard"
 brew test "$check_tap/agent-guard"
 brew uninstall --force "$check_tap/agent-guard"
 brew untap "$check_tap"
+brew untrust --formula "$check_tap/agent-guard"
+rm -rf "$check_dir"
 ```
+
+If a check fails after trust or tap registration, uninstall the candidate if it
+was installed, then run the final three cleanup commands before retrying.
+Confirm that both `brew tap` and `brew trust --json v1` no longer list the check
+tap.
 
 If these checks pass, create a normal pull request using the maintainer's
 existing GitHub authentication:
