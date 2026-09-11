@@ -23,6 +23,6 @@ What it does **not** cover:
 - **Exit 0, no output beyond the gitleaks summary** → no secrets detected in what was scanned. Say that, not "the directory is clean" or "safe to commit" — gitignored paths and committed history were not covered, and the result goes stale with the next edit. Then stop.
 - **Non-zero exit with `agent-guard:` lines** → leaks were flagged. Report the exact file paths and rule names gitleaks emitted, verbatim. Do not propose fixes unless the user asks.
 - **`required command not found: gitleaks`** → suggest `agent-guard setup --install --gitleaks-checksum <SHA>` and stop.
-- **`gitleaks config not found`** → the plugin install is incomplete; suggest reinstalling via `curl -fsSL https://github.com/JeongJaeSoon/agent-guard/releases/latest/download/bootstrap.sh | sh`.
+- **`gitleaks config not found`** → the plugin install is incomplete; suggest reinstalling or updating Agent Guard through the owning host plugin manager, then reload the host and stop. A standalone bootstrap install does not repair a plugin cache.
 
 Stay terse: the scan output is the answer. Avoid restating what gitleaks already printed.

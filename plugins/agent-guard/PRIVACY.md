@@ -5,8 +5,8 @@ Last updated: 2026-09-11
 Agent Guard is local by default. The project does not operate an Agent Guard
 service, account system, telemetry collector, crash reporter, or analytics
 endpoint. Default hook processing does not transmit inspected data. It does not
-retain it after the hook or command finishes. The next release
-adds a default-on, metadata-only local support log; it records no inspected
+retain it after the hook or command finishes. Since v3.4.0 it maintains a
+default-on, metadata-only local support log; the log records no inspected
 content.
 
 ## What the plugin processes
@@ -36,8 +36,8 @@ outputs under its own privacy policy.
 
 ## Local support log
 
-The metadata log is introduced after v3.3.0; do not expect its commands in that
-release. When available, Agent Guard writes metadata-only JSONL records under
+The metadata log is available in v3.4.0 and later; it is not present in v3.3.0.
+Agent Guard writes metadata-only JSONL records under
 `$XDG_STATE_HOME/agent-guard` or, when that variable is unset,
 `~/.local/state/agent-guard`. It creates a start record and completes it with
 one of `pass`, `blocked`, `masked`, `warned`, `degraded`, `error`, or `interrupted`.
