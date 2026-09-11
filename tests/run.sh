@@ -1441,6 +1441,14 @@ expect_json_status 0 "WebSearch benign query is allowed" \
 prompt_guard_fake_value=$(od -An -N12 -tx1 /dev/urandom | LC_ALL=C tr -d ' \n')
 prompt_guard_env_json=$(jq -nc --arg v "$prompt_guard_fake_value" \
   '{prompt: ("pasted .env:\nDB_PASSWORD=" + $v)}')
+prompt_guard_placeholders_json=$(jq -nc --arg prompt \
+  'API_KEY=example_token
+TOKEN="Example-Key"
+CLIENT_SECRET=DUMMY_SECRET
+PASSWORD=not-a-real-password' \
+  '{prompt:$prompt}')
+prompt_guard_placeholder_lookalike_json=$(jq -nc \
+  --arg prompt 'API_KEY=example_token_value_long' '{prompt:$prompt}')
 
 prompt_guard_case() { # $1 host, $2 prompt mode ('' = default), $3 pii mode ('' = off), $4 json
   printf '%s' "$4" \
@@ -1455,6 +1463,12 @@ for pg_h in claude codex; do
 
   run_expect 2 "prompt guard blocks a pasted env-style assignment ($pg_h)" \
     prompt_guard_case "$pg_h" '' '' "$prompt_guard_env_json"
+
+  run_expect 0 "prompt guard allows exact documentation placeholders ($pg_h)" \
+    prompt_guard_case "$pg_h" '' '' "$prompt_guard_placeholders_json"
+
+  run_expect 2 "prompt guard blocks a decorated placeholder lookalike ($pg_h)" \
+    prompt_guard_case "$pg_h" '' '' "$prompt_guard_placeholder_lookalike_json"
 
   prompt_guard_case "$pg_h" '' '' '{"prompt":"please refactor the login handler"}' >"$OUT" 2>"$ERR"
   if [ $? -eq 0 ] && [ ! -s "$OUT" ]; then
@@ -7851,6 +7865,63 @@ else
   printf '%s\n' "$post_out" | sed 's/^/  out: /'
 fi
 
+# Exact documentation placeholders are not credentials. Keep the exception at
+# the complete assignment value: quoted/case/separator forms pass, while values
+# that merely contain a placeholder word retain the independent env heuristic.
+placeholder_output=$(printf '%s\n%s\n%s\n%s' \
+  'API_KEY=example_token' 'TOKEN="Example-Key"' \
+  'CLIENT_SECRET=DUMMY_SECRET' 'PASSWORD=not-a-real-password')
+placeholder_input=$(jq -nc --arg output "$placeholder_output" \
+  '{tool_name:"Read",tool_response:$output}')
+post_tool_out "$placeholder_input"
+placeholder_status=$?
+if [ "$placeholder_status" -eq 0 ] && [ ! -s "$OUT" ]; then
+  ok "post-tool leaves exact documentation placeholders visible (Claude)"
+else
+  not_ok "post-tool leaves exact documentation placeholders visible (Claude)"
+  sed 's/^/  out: /' "$OUT"
+fi
+
+printf '%s' "$placeholder_input" \
+  | (cd "$TMP_ROOT" && AGENT_GUARD_HOOK_HOST=codex \
+      "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool) >"$OUT" 2>"$ERR"
+placeholder_status=$?
+if [ "$placeholder_status" -eq 0 ] && [ ! -s "$OUT" ]; then
+  ok "post-tool leaves exact documentation placeholders visible (Codex)"
+else
+  not_ok "post-tool leaves exact documentation placeholders visible (Codex)"
+  sed 's/^/  out: /' "$OUT"
+fi
+
+for placeholder_lookalike in \
+  example_token_value_long prefixexampletokensuffix xxxxxxxxxxxx 000000000000; do
+  placeholder_lookalike_input=$(jq -nc --arg output \
+    "API_KEY=$placeholder_lookalike" '{tool_name:"Read",tool_response:$output}')
+  post_tool_out "$placeholder_lookalike_input"
+  post_out=$(cat "$OUT")
+  if printf '%s' "$post_out" | grep -q '\[REDACTED\]' \
+     && ! printf '%s' "$post_out" | grep -Fq "$placeholder_lookalike"; then
+    ok "post-tool still masks non-exact placeholder lookalike ($placeholder_lookalike)"
+  else
+    not_ok "post-tool still masks non-exact placeholder lookalike ($placeholder_lookalike)"
+    printf '%s\n' "$post_out" | sed 's/^/  out: /'
+  fi
+done
+
+placeholder_vendor=$(printf '%s%s%s' 'sk-proj-' \
+  'AAAAAAAexample_token' 'BBBBBBBBCCCCCC')
+placeholder_vendor_input=$(jq -nc --arg output "API_KEY=$placeholder_vendor" \
+  '{tool_name:"Read",tool_response:$output}')
+post_tool_out "$placeholder_vendor_input"
+post_out=$(cat "$OUT")
+if printf '%s' "$post_out" | grep -q '\[REDACTED\]' \
+   && ! printf '%s' "$post_out" | grep -Fq "$placeholder_vendor"; then
+  ok "post-tool masks a vendor-shaped value embedding a placeholder word"
+else
+  not_ok "post-tool masks a vendor-shaped value embedding a placeholder word"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
+
 # Display redaction replaces only the assignment value token. Text after it is
 # preserved, metadata keys with secret-ish prefixes are not values, and a prose
 # colon must not be interpreted as a YAML/JSON secret assignment.
@@ -10293,6 +10364,28 @@ fi
 EXEC_KEY='to''ken='
 EXEC_VAL='abcd1234efgh5678ijkl9012mnop3456'
 EXEC_LINE="${EXEC_KEY}${EXEC_VAL}"
+
+EXEC_PLACEHOLDERS=$(printf '%s\n%s\n%s\n%s' \
+  'API_KEY=example_token' 'TOKEN="Example-Key"' \
+  'CLIENT_SECRET=DUMMY_SECRET' 'PASSWORD=not-a-real-password')
+exec_out=$("$PLUGIN_ROOT/bin/agent-guard" exec -- \
+  printf '%s' "$EXEC_PLACEHOLDERS" 2>/dev/null)
+if [ "$exec_out" = "$EXEC_PLACEHOLDERS" ]; then
+  ok "exec leaves exact documentation placeholders visible"
+else
+  not_ok "exec leaves exact documentation placeholders visible"
+  printf '%s\n' "$exec_out" | sed 's/^/  out: /'
+fi
+
+EXEC_PLACEHOLDER_LOOKALIKE='API_KEY=example_token_value_long'
+exec_out=$("$PLUGIN_ROOT/bin/agent-guard" exec -- \
+  printf '%s' "$EXEC_PLACEHOLDER_LOOKALIKE" 2>/dev/null)
+if [ "$exec_out" = 'API_KEY=[REDACTED]' ]; then
+  ok "exec still masks a decorated placeholder lookalike"
+else
+  not_ok "exec still masks a decorated placeholder lookalike"
+  printf '%s\n' "$exec_out" | sed 's/^/  out: /'
+fi
 
 exec_out=$("$PLUGIN_ROOT/bin/agent-guard" exec -- printf '%s\n' "$EXEC_LINE" 2>/dev/null)
 if printf '%s' "$exec_out" | grep -q '\[REDACTED\]' \

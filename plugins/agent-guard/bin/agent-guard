@@ -4479,6 +4479,15 @@ secretish_env_values() {
       sub(/[ \t\r\n]+$/, "", v)
       return v
     }
+    # Keep the assignment heuristic aligned with the narrow, human-readable
+    # documentation placeholders in gitleaks.toml. Match the complete trimmed
+    # value only: decorated values and secrets that merely contain one of these
+    # words must retain independent protection from the heuristic.
+    function obvious_word_placeholder(value, v) {
+      v = tolower(edge_trim(value))
+      return v ~ /^(example|dummy)[_-]?(token|key|secret|password)$/ \
+          || v ~ /^not[-_ ]?a[-_ ]?real[-_ ]?(token|key|secret|password)$/
+    }
     function emit_captured(v, trimmed) {
       emit_secret(v)
       trimmed = edge_trim(v)
@@ -4486,6 +4495,7 @@ secretish_env_values() {
     }
     function emit_secret(value, eligible_length) {
       if (already_redacted(value)) return
+      if (obvious_word_placeholder(value)) return
       if (eligible_length == 0) eligible_length = length(value)
       if (eligible_length < 4 || length(value) == 0) return
       if (record_mode == "probe" || record_mode == "probe_raw") {
