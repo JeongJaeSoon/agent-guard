@@ -118,24 +118,25 @@ Do not attach transcripts, raw stderr, `.env` files, private keys, or full hook
 payloads. Include only the host, OS/architecture, Agent Guard version, command
 or event category, outcome, and a manually sanitized error summary.
 
-In v3.4.0 and later, `agent-guard logs export` provides a metadata-only JSONL
-report.
-It excludes content, paths, environment variables, session IDs, and arbitrary
-tool names. [Support](../SUPPORT.md) has the current submission checklist.
+In v3.4.1 and later, `agent-guard logs export --output FILE` writes a
+metadata-only JSONL report to a new private mode-0600 file. It excludes
+content, paths, environment variables, session IDs, and arbitrary tool names.
+The parent directory must already exist; Agent Guard refuses to replace an
+existing file or symlink. [Support](../SUPPORT.md) has the current submission
+checklist.
 
-From a restarted bash/zsh terminal after `setup-shell`, or from a standalone
-installation, run:
+For a standalone installation, or from a restarted bash/zsh terminal after
+`setup-shell`, run:
 
 ```sh
 agent-guard logs status
-(umask 077; agent-guard logs export > agent-guard-support.jsonl)
+agent-guard logs export --output agent-guard-support.jsonl
 ```
 
-From fish, before restart, or after failed shell setup, do not run that bare
-command. Rerun the host setup skill and copy the complete plugin-local log
-command it prints; this avoids selecting an unrelated standalone version. If
-the path is still unavailable, report the failure without creating a substitute
-diagnostic dump.
+For a plugin-only installation, replace `agent-guard` with the exact
+plugin-local executable path printed by the setup skill. From fish, before
+restart, or after failed shell setup, rerun the host setup skill and copy that
+complete path; this avoids selecting an unrelated standalone version.
 
 If `logs status` reports logging off, enable the approved rollout setting and
 reproduce with synthetic data. If export reports that `jq` is missing, approve
@@ -143,7 +144,7 @@ the dependency repair proposed by the setup skill and retry. If storage is
 unavailable, export is empty after a reproduced event, or only a start record
 exists, report that state with the version, host, OS/architecture, time and time
 zone, and a manually sanitized error summary. Do not replace the safe export
-with a raw transcript, stderr dump, environment dump, or original
+with a raw transcript, stderr dump, environment dump, hook payload, or original
 secret-bearing input.
 
 ## Staged expansion
