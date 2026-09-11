@@ -293,6 +293,7 @@ claude_managed_settings_state() (
       || return 2
   fi
 
+  managed_found=1
   for managed_file in \
     "$managed_root/managed-settings.json" \
     "$managed_fragments"/*.json; do
@@ -320,12 +321,12 @@ claude_managed_settings_state() (
     ' "$managed_file" >/dev/null 2>&1
     managed_status=$?
     case "$managed_status" in
-      0) return 0 ;;
+      0) managed_found=0 ;;
       1) ;;
       *) return 2 ;;
     esac
   done
-  return 1
+  return "$managed_found"
 )
 
 claude_managed_status() {

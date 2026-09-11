@@ -279,6 +279,23 @@ else
   not_ok 'unreadable or non-regular managed fragments block before mutation'
 fi
 
+for invalid_trailing_action in status install; do
+  new_case "claude_managed_base_trailing_malformed_${invalid_trailing_action}"
+  add_host claude
+  export AG_PLUGIN_TEST_MARKETPLACE=ok AG_PLUGIN_TEST_INSTALLED=0
+  write_managed_base '{"enabledPlugins":{"agent-guard@agent-guard":true}}'
+  write_managed_fragment trailing '{not-json'
+  if run_guard plugin "$invalid_trailing_action" --host claude; then
+    not_ok "Claude $invalid_trailing_action validates fragments after a managed base match"
+  elif [ "$?" -eq 2 ] \
+     && grep -q 'could not be read or safely parsed' "$case_dir/err" \
+     && ! grep -Eq 'marketplace (add|update)|plugin (install|update|uninstall)' "$case_log"; then
+    ok "Claude $invalid_trailing_action fails closed on a malformed trailing managed fragment"
+  else
+    not_ok "Claude $invalid_trailing_action fails closed on a malformed trailing managed fragment"
+  fi
+done
+
 new_case claude_update
 add_host claude
 export AG_PLUGIN_TEST_MARKETPLACE=ok AG_PLUGIN_TEST_INSTALLED=project
