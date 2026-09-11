@@ -24,9 +24,8 @@ fi
 if [ "$1 $2 $3" = 'plugin marketplace list' ]; then
   case "$host:${AG_PLUGIN_TEST_MARKETPLACE:-absent}" in
     claude:absent) printf '%s\n' '[]' ;;
-    claude:ok) printf '%s\n' '[{"name":"agent-guard","repo":"JeongJaeSoon/agent-guard"}]' ;;
+    claude:ok) printf '%s\n' '[{"name":"agent-guard","source":"github","repo":"JeongJaeSoon/agent-guard","ref":"v3.4.0","installLocation":"/fixture/agent-guard"}]' ;;
     claude:conflict) printf '%s\n' '[{"name":"agent-guard","repo":"someone/else"}]' ;;
-    claude:managed) printf '%s\n' '[{"name":"agent-guard","repo":"JeongJaeSoon/agent-guard","scope":"managed"}]' ;;
     codex:absent) printf '%s\n' '{"marketplaces":[]}' ;;
     codex:ok) printf '%s\n' '{"marketplaces":[{"name":"agent-guard","marketplaceSource":{"sourceType":"git","source":"https://github.com/JeongJaeSoon/agent-guard.git"}}]}' ;;
     codex:conflict) printf '%s\n' '{"marketplaces":[{"name":"agent-guard","marketplaceSource":{"sourceType":"local","source":"/another/source"}}]}' ;;

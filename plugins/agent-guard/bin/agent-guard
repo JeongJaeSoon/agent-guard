@@ -260,14 +260,76 @@ claude_managed_plugin_present() {
   jq -e '.[] | select((.id // .pluginId // "") == "agent-guard@agent-guard" and .scope == "managed")' "$1" >/dev/null 2>&1
 }
 
-claude_managed_marketplace_present() {
-  jq -e '.[] | select(.name == "agent-guard"
-    and (.scope == "managed" or .managed == true or .isManaged == true))' "$1" >/dev/null 2>&1
-}
+# Claude's marketplace-list JSON intentionally omits settings provenance for
+# ordinary Git/GitHub marketplaces. Read the administrator-owned source instead
+# so a first-sync/download failure cannot make a managed declaration look like a
+# self-managed marketplace. Return 0 for an Agent Guard declaration, 1 when all
+# available files are valid but unrelated, and 2 when their state is unsafe to
+# determine. Mutations fail closed on 2; status reports the configuration error.
+claude_managed_settings_state() (
+  # Path injection exists only for isolated tests. It is deliberately gated and
+  # does not turn this user-run helper into an OS policy enforcement boundary.
+  if [ "${AG_PLUGIN_TEST_MODE:-0}" = 1 ] \
+      && [ -n "${AG_PLUGIN_TEST_CLAUDE_MANAGED_SETTINGS_ROOT:-}" ]; then
+    managed_root=$AG_PLUGIN_TEST_CLAUDE_MANAGED_SETTINGS_ROOT
+  elif [ -n "${AG_PLUGIN_TEST_CLAUDE_MANAGED_SETTINGS_ROOT:-}" ]; then
+    return 2
+  else
+    case "$(uname -s)" in
+      Darwin) managed_root='/Library/Application Support/ClaudeCode' ;;
+      Linux) managed_root='/etc/claude-code' ;;
+      *) return 1 ;;
+    esac
+  fi
+  case "$managed_root" in /*) ;; *) return 2 ;; esac
+
+  if [ -e "$managed_root" ] || [ -L "$managed_root" ]; then
+    [ -d "$managed_root" ] && [ -r "$managed_root" ] && [ -x "$managed_root" ] \
+      || return 2
+  fi
+  managed_fragments="$managed_root/managed-settings.d"
+  if [ -e "$managed_fragments" ] || [ -L "$managed_fragments" ]; then
+    [ -d "$managed_fragments" ] && [ -r "$managed_fragments" ] && [ -x "$managed_fragments" ] \
+      || return 2
+  fi
+
+  for managed_file in \
+    "$managed_root/managed-settings.json" \
+    "$managed_fragments"/*.json; do
+    [ -e "$managed_file" ] || [ -L "$managed_file" ] || continue
+    [ -f "$managed_file" ] && [ -r "$managed_file" ] || return 2
+    jq -e '
+      def agent_guard_source:
+        type == "object" and
+        ((.source == "github" and .repo == "JeongJaeSoon/agent-guard") or
+         (.source == "git" and
+          (.url == "https://github.com/JeongJaeSoon/agent-guard" or
+           .url == "https://github.com/JeongJaeSoon/agent-guard.git")));
+      if type != "object" then error("managed settings must be an object")
+      elif (has("extraKnownMarketplaces") and
+            (.extraKnownMarketplaces | type) != "object") then
+        error("extraKnownMarketplaces must be an object")
+      elif (has("enabledPlugins") and (.enabledPlugins | type) != "object") then
+        error("enabledPlugins must be an object")
+      else
+        ((.extraKnownMarketplaces // {}) as $marketplaces
+         | ($marketplaces | has("agent-guard")) or
+           ($marketplaces | any(.[]; (.source? | agent_guard_source)))) or
+        ((.enabledPlugins // {}) | has("agent-guard@agent-guard"))
+      end
+    ' "$managed_file" >/dev/null 2>&1
+    managed_status=$?
+    case "$managed_status" in
+      0) return 0 ;;
+      1) ;;
+      *) return 2 ;;
+    esac
+  done
+  return 1
+)
 
 claude_managed_status() {
-  plugin_marketplaces=$1
-  plugin_plugins=$2
+  plugin_plugins=$1
   if claude_managed_plugin_present "$plugin_plugins"; then
     managed_version=$(jq -r '.[]
       | select((.id // .pluginId // "") == "agent-guard@agent-guard" and .scope == "managed")
@@ -282,7 +344,7 @@ claude_managed_status() {
     printf 'claude: managed by Jamf/managed settings (plugin installed, %s, version %s)\n' \
       "$managed_enabled" "$managed_version"
   else
-    printf '%s\n' 'claude: managed by Jamf/managed settings (marketplace configured, plugin not installed)'
+    printf '%s\n' 'claude: managed by Jamf/managed settings (Agent Guard configured, plugin not installed)'
   fi
 }
 
@@ -323,11 +385,27 @@ plugin_for_host() {
     return 1
   fi
 
-  if [ "$plugin_host" = claude ] \
-      && { claude_managed_plugin_present "$plugin_plugins" \
-           || claude_managed_marketplace_present "$plugin_marketplaces"; }; then
+  plugin_managed_state=1
+  if [ "$plugin_host" = claude ]; then
+    if claude_managed_plugin_present "$plugin_plugins"; then
+      plugin_managed_state=0
+    else
+      claude_managed_settings_state
+      plugin_managed_state=$?
+    fi
+  fi
+  if [ "$plugin_managed_state" -eq 2 ]; then
+    rm -rf "$plugin_tmp"
     if [ "$plugin_action" = status ]; then
-      claude_managed_status "$plugin_marketplaces" "$plugin_plugins"
+      printf '%s\n' "$PROGRAM: Claude managed settings could not be read or safely parsed; plugin ownership cannot be determined" >&2
+    else
+      printf '%s\n' "$PROGRAM: Claude managed settings could not be read or safely parsed; refusing plugin lifecycle changes" >&2
+    fi
+    return 2
+  fi
+  if [ "$plugin_managed_state" -eq 0 ]; then
+    if [ "$plugin_action" = status ]; then
+      claude_managed_status "$plugin_plugins"
       rm -rf "$plugin_tmp"
       return 0
     fi

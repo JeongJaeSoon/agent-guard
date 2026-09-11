@@ -41,12 +41,20 @@ the host CLIs directly. They do not write plugin caches or host configuration
 files themselves, do not invoke `sudo`, and do not bypass host confirmation
 prompts. Restart each changed host before verifying its hooks.
 
-The CLI plugin lifecycle is for self-managed installations. If Claude Code
-reports an Agent Guard plugin or marketplace with `managed` scope, `status`
-identifies it as managed and `install`, `update`, and `uninstall` refuse to
-change it. On Jamf or another managed deployment, change the reviewed release
-tag in the administrator-owned managed settings instead; do not add a user or
-project installation over the managed policy. See [Operations](operations.md#managed-claude-code-rollout).
+The CLI plugin lifecycle is for self-managed installations. It detects an
+installed Claude plugin with `managed` scope and also reads Agent Guard entries
+from the administrator-owned `managed-settings.json` and
+`managed-settings.d/*.json` files on macOS and Linux. This covers the initial
+state where the managed marketplace is declared but its plugin has not yet been
+downloaded. `status` identifies that state as managed; `install`, `update`, and
+`uninstall` refuse to change it. An unreadable, non-regular, or malformed managed
+settings file makes these commands fail closed because ownership cannot be
+determined safely. Valid files that contain only unrelated settings do not block
+self-managed use. This CLI check helps prevent accidental lifecycle changes; the
+Claude managed-settings deployment remains the administrative enforcement
+boundary. On Jamf or another managed deployment, change the reviewed release tag
+in managed settings instead; do not add a user or project installation over the
+managed policy. See [Operations](operations.md#managed-claude-code-rollout).
 
 ## Standalone CLI
 

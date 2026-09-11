@@ -17,7 +17,9 @@ new_case() {
   case_dir="$CASE_ROOT/$case_name"
   case_bin="$case_dir/bin"
   case_log="$case_dir/calls"
+  case_managed="$case_dir/managed-settings-root"
   mkdir -p "$case_bin"
+  mkdir -p "$case_managed"
   : >"$case_log"
   ln -s "$REAL_JQ" "$case_bin/jq"
   export AG_PLUGIN_TEST_LOG="$case_log"
@@ -25,6 +27,17 @@ new_case() {
   export AG_PLUGIN_TEST_INSTALLED=0
   export AG_PLUGIN_TEST_FAIL=
   export AG_PLUGIN_TEST_SCHEMA=normal
+  export AG_PLUGIN_TEST_MODE=1
+  export AG_PLUGIN_TEST_CLAUDE_MANAGED_SETTINGS_ROOT="$case_managed"
+}
+
+write_managed_base() {
+  printf '%s\n' "$1" >"$case_managed/managed-settings.json"
+}
+
+write_managed_fragment() {
+  mkdir -p "$case_managed/managed-settings.d"
+  printf '%s\n' "$2" >"$case_managed/managed-settings.d/$1.json"
 }
 
 add_host() {
@@ -179,21 +192,40 @@ fi
 
 new_case claude_managed_marketplace_status
 add_host claude
-export AG_PLUGIN_TEST_MARKETPLACE=managed AG_PLUGIN_TEST_INSTALLED=0
+export AG_PLUGIN_TEST_MARKETPLACE=ok AG_PLUGIN_TEST_INSTALLED=0
+write_managed_base '{"extraKnownMarketplaces":{"agent-guard":{"source":{"source":"github","repo":"JeongJaeSoon/agent-guard","ref":"v3.4.0"}}}}'
 if run_guard plugin status --host claude \
-   && grep -q 'managed by Jamf/managed settings (marketplace configured, plugin not installed)' "$case_dir/out"; then
-  ok 'Claude status identifies a managed marketplace without a plugin'
+   && grep -q 'managed by Jamf/managed settings (Agent Guard configured, plugin not installed)' "$case_dir/out"; then
+  ok 'Claude status identifies a managed settings marketplace without a plugin'
 else
-  not_ok 'Claude status identifies a managed marketplace without a plugin'
+  not_ok 'Claude status identifies a managed settings marketplace without a plugin'
 fi
 
-for managed_state in plugin marketplace; do
+new_case claude_managed_fragment_status
+add_host claude
+export AG_PLUGIN_TEST_MARKETPLACE=ok AG_PLUGIN_TEST_INSTALLED=0
+write_managed_fragment guard '{"enabledPlugins":{"agent-guard@agent-guard":false}}'
+if run_guard plugin status --host claude \
+   && grep -q 'managed by Jamf/managed settings (Agent Guard configured, plugin not installed)' "$case_dir/out"; then
+  ok 'Claude status reads an Agent Guard declaration from managed-settings.d'
+else
+  not_ok 'Claude status reads an Agent Guard declaration from managed-settings.d'
+fi
+
+for managed_state in plugin base fragment; do
   for managed_action in install update uninstall; do
     new_case "claude_managed_${managed_state}_${managed_action}"
     add_host claude
     case "$managed_state" in
       plugin) export AG_PLUGIN_TEST_MARKETPLACE=ok AG_PLUGIN_TEST_INSTALLED=managed ;;
-      marketplace) export AG_PLUGIN_TEST_MARKETPLACE=managed AG_PLUGIN_TEST_INSTALLED=0 ;;
+      base)
+        export AG_PLUGIN_TEST_MARKETPLACE=ok AG_PLUGIN_TEST_INSTALLED=0
+        write_managed_base '{"enabledPlugins":{"agent-guard@agent-guard":true}}'
+        ;;
+      fragment)
+        export AG_PLUGIN_TEST_MARKETPLACE=ok AG_PLUGIN_TEST_INSTALLED=0
+        write_managed_fragment guard '{"extraKnownMarketplaces":{"security":{"source":{"source":"github","repo":"JeongJaeSoon/agent-guard"}}}}'
+        ;;
     esac
     if run_guard plugin "$managed_action" --host claude; then
       not_ok "Claude $managed_action refuses a managed $managed_state"
@@ -206,6 +238,46 @@ for managed_state in plugin marketplace; do
     fi
   done
 done
+
+new_case claude_unrelated_managed_settings
+add_host claude
+export AG_PLUGIN_TEST_MARKETPLACE=ok AG_PLUGIN_TEST_INSTALLED=0
+write_managed_base '{"extraKnownMarketplaces":{"other":{"source":{"source":"github","repo":"example/other"}}},"enabledPlugins":{"other@other":true}}'
+write_managed_fragment other '{"permissions":{"deny":["Read(example)"]}}'
+if run_guard plugin install --host claude \
+   && grep -Fxq 'claude plugin install agent-guard@agent-guard --scope user' "$case_log"; then
+  ok 'unrelated managed settings do not block self-managed installation'
+else
+  not_ok 'unrelated managed settings do not block self-managed installation'
+fi
+
+new_case claude_malformed_managed_settings
+add_host claude
+export AG_PLUGIN_TEST_MARKETPLACE=ok AG_PLUGIN_TEST_INSTALLED=0
+write_managed_base '{not-json'
+if run_guard plugin status --host claude; then
+  not_ok 'malformed managed settings make status fail closed'
+elif [ "$?" -eq 2 ] \
+   && grep -q 'could not be read or safely parsed' "$case_dir/err" \
+   && ! grep -Eq 'marketplace (add|update)|plugin (install|update|uninstall)' "$case_log"; then
+  ok 'malformed managed settings make status fail closed before mutation'
+else
+  not_ok 'malformed managed settings make status fail closed before mutation'
+fi
+
+new_case claude_unreadable_managed_fragment
+add_host claude
+export AG_PLUGIN_TEST_MARKETPLACE=ok AG_PLUGIN_TEST_INSTALLED=0
+mkdir -p "$case_managed/managed-settings.d/unreadable.json"
+if run_guard plugin install --host claude; then
+  not_ok 'unreadable or non-regular managed fragments block mutation'
+elif [ "$?" -eq 2 ] \
+   && grep -q 'could not be read or safely parsed' "$case_dir/err" \
+   && ! grep -Eq 'marketplace (add|update)|plugin (install|update|uninstall)' "$case_log"; then
+  ok 'unreadable or non-regular managed fragments block before mutation'
+else
+  not_ok 'unreadable or non-regular managed fragments block before mutation'
+fi
 
 new_case claude_update
 add_host claude
