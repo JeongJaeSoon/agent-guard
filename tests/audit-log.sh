@@ -31,6 +31,12 @@ if "$GUARD" logs >"$CASE/default-status.out" 2>"$CASE/default-status.err" \
 else
   bad 'logs without a subcommand keeps the status default'
 fi
+if "$GUARD" logs --help >"$CASE/logs-help.out" 2>"$CASE/logs-help.err" \
+   && grep -Fq 'Usage: agent-guard logs' "$CASE/logs-help.err"; then
+  ok 'logs help exits successfully'
+else
+  bad 'logs help exits successfully'
+fi
 
 output_file="$CASE/agent-guard-support.jsonl"
 "$GUARD" logs export --output "$output_file" >"$CASE/output-file.out" 2>"$CASE/output-file.err"

@@ -392,6 +392,11 @@ audit_export_to_file() (
 
 audit_logs() {
   case "${1:-status}" in
+    -h|--help|help)
+      [ "$#" -eq 1 ] || { printf '%s\n' 'Usage: agent-guard logs [status|export [--output FILE]]' >&2; return 2; }
+      printf '%s\n' 'Usage: agent-guard logs [status|export [--output FILE]]' >&2
+      return 0
+      ;;
     status)
       case "$#:${1:-}" in 0:|1:status) ;; *) printf '%s\n' 'Usage: agent-guard logs [status|export [--output FILE]]' >&2; return 2 ;; esac
       case "${AGENT_GUARD_LOG_MODE:-on}" in on|off) ag_mode=${AGENT_GUARD_LOG_MODE:-on} ;; *) ag_mode=invalid ;; esac
