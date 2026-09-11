@@ -3,6 +3,16 @@ set -u
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 GUARD="$ROOT/plugins/agent-guard/bin/agent-guard"
+CLI_VERSION=$("$GUARD" version | awk 'NR == 1 { print $2 }')
+[ -n "$CLI_VERSION" ] || { printf '%s\n' 'could not read CLI version' >&2; exit 2; }
+CLI_TAG="v$CLI_VERSION"
+OLD_VERSION=0.0.0
+[ "$CLI_VERSION" = "$OLD_VERSION" ] && OLD_VERSION=0.0.1
+OLD_TAG="v$OLD_VERSION"
+export AG_PLUGIN_TEST_EXPECTED_VERSION="$CLI_VERSION"
+export AG_PLUGIN_TEST_EXPECTED_TAG="$CLI_TAG"
+export AG_PLUGIN_TEST_OLD_VERSION="$OLD_VERSION"
+export AG_PLUGIN_TEST_OLD_TAG="$OLD_TAG"
 CASE_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-plugin-test.XXXXXX")
 trap 'rm -rf "$CASE_ROOT"' EXIT INT TERM
 REAL_JQ=$(command -v jq)
@@ -131,7 +141,7 @@ fi
 new_case claude_install
 add_host claude
 if run_guard plugin install \
-   && grep -Fxq 'claude plugin marketplace add JeongJaeSoon/agent-guard@v3.4.0 --scope user' "$case_log" \
+   && grep -Fxq "claude plugin marketplace add JeongJaeSoon/agent-guard@$CLI_TAG --scope user" "$case_log" \
    && grep -Fxq 'claude plugin install agent-guard@agent-guard --scope user' "$case_log" \
    && ! grep -Eq '(^| )(sudo|-y)( |$)' "$case_log"; then
   ok 'Claude install auto-detects, registers the remote marketplace, and retains prompts'
@@ -155,7 +165,7 @@ add_host codex
 export AG_PLUGIN_TEST_MARKETPLACE=ok AG_PLUGIN_TEST_INSTALLED=1
 if run_guard plugin install --host codex \
    && grep -q 'already installed' "$case_dir/out" \
-   && grep -Fxq 'codex plugin marketplace add JeongJaeSoon/agent-guard@v3.4.0' "$case_log" \
+   && grep -Fxq "codex plugin marketplace add JeongJaeSoon/agent-guard@$CLI_TAG" "$case_log" \
    && ! grep -Eq 'plugin add agent-guard@agent-guard|marketplace (upgrade|remove)' "$case_log"; then
   ok 'Codex install uses the manager same-ref probe and remains idempotent'
 else
@@ -202,7 +212,7 @@ for failed_host in claude codex; do
   export AG_PLUGIN_TEST_FAIL="$failed_host:plugin marketplace add"
   if run_guard plugin install --host "$failed_host"; then
     not_ok "$failed_host install reports marketplace registration failure"
-  elif grep -q "pinned to v3.4.0" "$case_dir/err" \
+  elif grep -q "pinned to $CLI_TAG" "$case_dir/err" \
      && grep -q "safe to retry 'agent-guard plugin install --host $failed_host'" "$case_dir/err" \
      && ! grep -Eq 'plugin (install|add) agent-guard@agent-guard' "$case_log"; then
     ok "$failed_host install stops before plugin installation when marketplace registration fails"
@@ -271,9 +281,9 @@ for drift_host in claude codex; do
     add_host "$drift_host"
     export AG_PLUGIN_TEST_MARKETPLACE="$drift_marketplace" AG_PLUGIN_TEST_INSTALLED=old
     if run_guard plugin status --host "$drift_host" \
-       && grep -q 'version 3.3.0, expected 3.4.0' "$case_dir/out"; then
+       && grep -q "version $OLD_VERSION, expected $CLI_VERSION" "$case_dir/out"; then
       case "$drift_host" in
-        claude) grep -q 'marketplace drift:.*expected v3.4.0' "$case_dir/out" ;;
+        claude) grep -q "marketplace drift:.*expected $CLI_TAG" "$case_dir/out" ;;
         codex) grep -q 'marketplace configured, pin unverified by Codex' "$case_dir/out" ;;
       esac
       if [ "$?" -eq 0 ]; then
@@ -306,7 +316,7 @@ new_case claude_managed_plugin_status
 add_host claude
 export AG_PLUGIN_TEST_MARKETPLACE=ok AG_PLUGIN_TEST_INSTALLED=managed_disabled
 if run_guard plugin status --host claude \
-   && grep -q 'managed by Jamf/managed settings (plugin installed, disabled, version 3.4.0)' "$case_dir/out"; then
+   && grep -q "managed by Jamf/managed settings (plugin installed, disabled, version $CLI_VERSION)" "$case_dir/out"; then
   ok 'Claude status identifies a managed disabled plugin and its version'
 else
   not_ok 'Claude status identifies a managed disabled plugin and its version'
@@ -315,7 +325,7 @@ fi
 new_case claude_managed_marketplace_status
 add_host claude
 export AG_PLUGIN_TEST_MARKETPLACE=ok AG_PLUGIN_TEST_INSTALLED=0
-write_managed_base '{"extraKnownMarketplaces":{"agent-guard":{"source":{"source":"github","repo":"JeongJaeSoon/agent-guard","ref":"v3.4.0"}}}}'
+write_managed_base "{\"extraKnownMarketplaces\":{\"agent-guard\":{\"source\":{\"source\":\"github\",\"repo\":\"JeongJaeSoon/agent-guard\",\"ref\":\"$CLI_TAG\"}}}}"
 if run_guard plugin status --host claude \
    && grep -q 'managed by Jamf/managed settings (Agent Guard configured, plugin not installed)' "$case_dir/out"; then
   ok 'Claude status identifies a managed settings marketplace without a plugin'
@@ -390,7 +400,7 @@ new_case claude_empty_managed_settings
 add_host claude
 : >"$case_managed/managed-settings.json"
 if run_guard plugin install --host claude \
-   && grep -Fxq 'claude plugin marketplace add JeongJaeSoon/agent-guard@v3.4.0 --scope user' "$case_log" \
+   && grep -Fxq "claude plugin marketplace add JeongJaeSoon/agent-guard@$CLI_TAG --scope user" "$case_log" \
    && grep -Fxq 'claude plugin install agent-guard@agent-guard --scope user' "$case_log"; then
   ok 'an empty managed settings file is treated as an unrelated empty object'
 else
@@ -613,7 +623,7 @@ add_host codex
 export AG_PLUGIN_TEST_MARKETPLACE=ok AG_PLUGIN_TEST_INSTALLED=old
 if run_guard plugin update --host codex \
    && tail -n 2 "$case_log" | sed 's/^codex //' >"$case_dir/tail" \
-   && printf '%s\n' 'plugin marketplace add JeongJaeSoon/agent-guard@v3.4.0' \
+   && printf '%s\n' "plugin marketplace add JeongJaeSoon/agent-guard@$CLI_TAG" \
       'plugin marketplace upgrade agent-guard' >"$case_dir/expected" \
    && cmp -s "$case_dir/expected" "$case_dir/tail"; then
   ok 'Codex update delegates to marketplace upgrade'
@@ -631,7 +641,7 @@ for update_host in claude codex; do
   esac
   if run_guard plugin update --host "$update_host"; then
     not_ok "$update_host update reports a partial manager failure"
-  elif grep -q "marketplace remains pinned to v3.4.0" "$case_dir/err" \
+  elif grep -q "marketplace remains pinned to $CLI_TAG" "$case_dir/err" \
      && grep -q "safe to retry 'agent-guard plugin update --host $update_host'" "$case_dir/err"; then
     ok "$update_host update reports retained pin and a safe retry"
   else

@@ -2,6 +2,10 @@
 set -u
 
 host=${0##*/}
+expected_version=${AG_PLUGIN_TEST_EXPECTED_VERSION:?}
+expected_tag=${AG_PLUGIN_TEST_EXPECTED_TAG:?}
+old_version=${AG_PLUGIN_TEST_OLD_VERSION:?}
+old_tag=${AG_PLUGIN_TEST_OLD_TAG:?}
 printf '%s %s\n' "$host" "$*" >>"$AG_PLUGIN_TEST_LOG"
 
 case "$host:$*" in
@@ -11,7 +15,7 @@ esac
 # Codex 0.153.4 omits Git refs from marketplace-list JSON. Its add command is
 # the read-safe identity probe: the same ref succeeds idempotently, while an
 # existing unpinned or different ref fails without changing manager state.
-if [ "$host:$*" = "codex:plugin marketplace add JeongJaeSoon/agent-guard@v3.4.0" ]; then
+if [ "$host:$*" = "codex:plugin marketplace add JeongJaeSoon/agent-guard@$expected_tag" ]; then
   case "${AG_PLUGIN_TEST_MARKETPLACE:-absent}" in
     unpinned|old) exit 1 ;;
   esac
@@ -33,9 +37,9 @@ fi
 if [ "$1 $2 $3" = 'plugin marketplace list' ]; then
   case "$host:${AG_PLUGIN_TEST_MARKETPLACE:-absent}" in
     claude:absent) printf '%s\n' '[]' ;;
-    claude:ok) printf '%s\n' '[{"name":"agent-guard","source":"github","repo":"JeongJaeSoon/agent-guard","ref":"v3.4.0","installLocation":"/fixture/agent-guard"}]' ;;
+    claude:ok) printf '[{"name":"agent-guard","source":"github","repo":"JeongJaeSoon/agent-guard","ref":"%s","installLocation":"/fixture/agent-guard"}]\n' "$expected_tag" ;;
     claude:unpinned) printf '%s\n' '[{"name":"agent-guard","source":"github","repo":"JeongJaeSoon/agent-guard","installLocation":"/fixture/agent-guard"}]' ;;
-    claude:old) printf '%s\n' '[{"name":"agent-guard","source":"github","repo":"JeongJaeSoon/agent-guard","ref":"v3.3.0","installLocation":"/fixture/agent-guard"}]' ;;
+    claude:old) printf '[{"name":"agent-guard","source":"github","repo":"JeongJaeSoon/agent-guard","ref":"%s","installLocation":"/fixture/agent-guard"}]\n' "$old_tag" ;;
     claude:conflict) printf '%s\n' '[{"name":"agent-guard","repo":"someone/else"}]' ;;
     codex:absent) printf '%s\n' '{"marketplaces":[]}' ;;
     codex:ok) printf '%s\n' '{"marketplaces":[{"name":"agent-guard","marketplaceSource":{"sourceType":"git","source":"https://github.com/JeongJaeSoon/agent-guard.git"}}]}' ;;
@@ -49,17 +53,17 @@ fi
 if [ "$1 $2" = 'plugin list' ]; then
   case "$host:${AG_PLUGIN_TEST_INSTALLED:-0}" in
     claude:0) printf '%s\n' '[]' ;;
-    claude:1) printf '%s\n' '[{"id":"agent-guard@agent-guard","version":"3.4.0","scope":"user","enabled":true}]' ;;
-    claude:project) printf '%s\n' '[{"id":"agent-guard@agent-guard","version":"3.4.0","scope":"project","enabled":true}]' ;;
-    claude:project_old) printf '%s\n' '[{"id":"agent-guard@agent-guard","version":"3.3.0","scope":"project","enabled":true}]' ;;
-    claude:disabled) printf '%s\n' '[{"id":"agent-guard@agent-guard","version":"3.4.0","scope":"user","enabled":false}]' ;;
-    claude:old) printf '%s\n' '[{"id":"agent-guard@agent-guard","version":"3.3.0","scope":"user","enabled":true}]' ;;
-    claude:managed) printf '%s\n' '[{"id":"agent-guard@agent-guard","version":"3.4.0","scope":"managed","enabled":true}]' ;;
-    claude:managed_disabled) printf '%s\n' '[{"id":"agent-guard@agent-guard","version":"3.4.0","scope":"managed","enabled":false}]' ;;
+    claude:1) printf '[{"id":"agent-guard@agent-guard","version":"%s","scope":"user","enabled":true}]\n' "$expected_version" ;;
+    claude:project) printf '[{"id":"agent-guard@agent-guard","version":"%s","scope":"project","enabled":true}]\n' "$expected_version" ;;
+    claude:project_old) printf '[{"id":"agent-guard@agent-guard","version":"%s","scope":"project","enabled":true}]\n' "$old_version" ;;
+    claude:disabled) printf '[{"id":"agent-guard@agent-guard","version":"%s","scope":"user","enabled":false}]\n' "$expected_version" ;;
+    claude:old) printf '[{"id":"agent-guard@agent-guard","version":"%s","scope":"user","enabled":true}]\n' "$old_version" ;;
+    claude:managed) printf '[{"id":"agent-guard@agent-guard","version":"%s","scope":"managed","enabled":true}]\n' "$expected_version" ;;
+    claude:managed_disabled) printf '[{"id":"agent-guard@agent-guard","version":"%s","scope":"managed","enabled":false}]\n' "$expected_version" ;;
     codex:0) printf '%s\n' '{"installed":[]}' ;;
-    codex:1) printf '%s\n' '{"installed":[{"pluginId":"agent-guard@agent-guard","version":"3.4.0","installed":true,"enabled":true}]}' ;;
-    codex:disabled) printf '%s\n' '{"installed":[{"pluginId":"agent-guard@agent-guard","version":"3.4.0","installed":true,"enabled":false}]}' ;;
-    codex:old) printf '%s\n' '{"installed":[{"pluginId":"agent-guard@agent-guard","version":"3.3.0","installed":true,"enabled":true}]}' ;;
+    codex:1) printf '{"installed":[{"pluginId":"agent-guard@agent-guard","version":"%s","installed":true,"enabled":true}]}\n' "$expected_version" ;;
+    codex:disabled) printf '{"installed":[{"pluginId":"agent-guard@agent-guard","version":"%s","installed":true,"enabled":false}]}\n' "$expected_version" ;;
+    codex:old) printf '{"installed":[{"pluginId":"agent-guard@agent-guard","version":"%s","installed":true,"enabled":true}]}\n' "$old_version" ;;
   esac
 fi
 
