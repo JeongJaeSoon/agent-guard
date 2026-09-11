@@ -1,3 +1,10 @@
+## v3.4.1 - 2026-09-11
+
+- fix: preserve exact documentation placeholders (#235)
+- Separate public and internal rollout documentation (#234)
+- Add safe support log file export (#233)
+- Add CLI-managed Claude and Codex plugin lifecycle (#232)
+
 ## v3.4.0 - 2026-09-11
 
 - Prepare safe internal rollout, support logs, and portable installs (#230)
