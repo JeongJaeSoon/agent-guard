@@ -78,6 +78,11 @@ jobs:
           gitleaks-checksum: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
 ```
 
+`@v3` is a moving major-version tag and receives compatible updates. For a
+managed rollout, replace it with the exact reviewed release tag, such as
+`@v3.4.1`, and advance that pin through a reviewed pull request. A commit SHA
+provides an even tighter immutable pin when your organization requires it.
+
 The shown checksum is for gitleaks 8.30.1 on `linux/x64`; refresh the version
 and checksum together when changing either one. Generate a matching value with
 `agent-guard checksum`. `require-checksum` is `true` by default. Set it to

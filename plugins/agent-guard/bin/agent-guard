@@ -173,12 +173,652 @@ Usage:
   agent-guard check
   agent-guard setup [--install --gitleaks-checksum SHA [--gitleaks-version X.Y.Z]]
   agent-guard doctor
-  agent-guard logs [status|export]
+  agent-guard logs [status|export [--output FILE]]
+  agent-guard plugin status|install|update|uninstall [--host claude|codex|all] [--scope user|project|local]
   agent-guard update
   agent-guard smoke-test
   agent-guard checksum [VERSION]
   agent-guard version
 EOF
+}
+
+plugin_usage() {
+  cat >&2 <<'EOF'
+Usage:
+  agent-guard plugin status|install|update|uninstall [--host claude|codex|all] [--scope user|project|local]
+
+If --host is omitted, exactly one of claude or codex must be available. Claude
+Code defaults to user scope. Codex supports user scope only.
+
+Marketplaces are pinned to the release tag matching this CLI. If status reports
+marketplace drift, remove that marketplace with the host manager and run install
+again. Host marketplace removal also removes plugins installed from it.
+EOF
+}
+
+plugin_marketplace_source_is_agent_guard() {
+  plugin_host=$1
+  plugin_json=$2
+  case "$plugin_host" in
+    claude)
+      jq -e '.[] | select(.name == "agent-guard")
+        | (((.source // "") == "github" and
+            (.repo // "") == "JeongJaeSoon/agent-guard") or
+           ((.source // "") == "git" and
+            ((.url // "") == "https://github.com/JeongJaeSoon/agent-guard" or
+             (.url // "") == "https://github.com/JeongJaeSoon/agent-guard.git")))' \
+        "$plugin_json" >/dev/null 2>&1
+      ;;
+    codex)
+      jq -e '.marketplaces[] | select(.name == "agent-guard")
+        | (.marketplaceSource.source // "") as $source
+        | ((.marketplaceSource.sourceType // "") == "git") and
+          ($source == "JeongJaeSoon/agent-guard" or
+           $source == "https://github.com/JeongJaeSoon/agent-guard" or
+           $source == "https://github.com/JeongJaeSoon/agent-guard.git")' \
+        "$plugin_json" >/dev/null 2>&1
+      ;;
+  esac
+}
+
+# Claude exposes the configured Git ref in marketplace-list JSON. Codex 0.153.4
+# does not; for mutating actions we use `marketplace add owner/repo@ref` as the
+# official manager's idempotence probe. It succeeds for the same ref and rejects
+# an existing unpinned or different ref without changing host state.
+claude_marketplace_matches_release() {
+  jq -e --arg ref "v$VERSION" '.[] | select(.name == "agent-guard")
+    | (.ref // "") == $ref' "$1" >/dev/null 2>&1
+}
+
+claude_marketplace_ref() {
+  jq -r '.[] | select(.name == "agent-guard") | .ref // "unpinned"' "$1" | head -n 1
+}
+
+plugin_marketplace_present() {
+  plugin_host=$1
+  plugin_json=$2
+  case "$plugin_host" in
+    claude) jq -e '.[] | select(.name == "agent-guard")' "$plugin_json" >/dev/null 2>&1 ;;
+    codex) jq -e '.marketplaces[] | select(.name == "agent-guard")' "$plugin_json" >/dev/null 2>&1 ;;
+  esac
+}
+
+plugin_installed() {
+  plugin_host=$1
+  plugin_json=$2
+  plugin_scope=$3
+  case "$plugin_host" in
+    claude) jq -e --arg scope "$plugin_scope" '.[]
+      | select((.id // .pluginId // "") == "agent-guard@agent-guard" and (.scope // "user") == $scope)' "$plugin_json" >/dev/null 2>&1 ;;
+    codex) jq -e '.installed[] | select(.pluginId == "agent-guard@agent-guard" and .installed == true)' "$plugin_json" >/dev/null 2>&1 ;;
+  esac
+}
+
+plugin_version() {
+  plugin_host=$1
+  plugin_json=$2
+  plugin_scope=$3
+  case "$plugin_host" in
+    claude) jq -r --arg scope "$plugin_scope" '.[]
+      | select((.id // .pluginId // "") == "agent-guard@agent-guard" and (.scope // "user") == $scope)
+      | .version // "unknown"' "$plugin_json" | head -n 1 ;;
+    codex) jq -r '.installed[] | select(.pluginId == "agent-guard@agent-guard") | .version // "unknown"' "$plugin_json" | head -n 1 ;;
+  esac
+}
+
+plugin_enabled() {
+  plugin_host=$1
+  plugin_json=$2
+  plugin_scope=$3
+  case "$plugin_host" in
+    claude) jq -e --arg scope "$plugin_scope" '.[]
+      | select((.id // .pluginId // "") == "agent-guard@agent-guard" and (.scope // "user") == $scope)
+      | .enabled == true' "$plugin_json" >/dev/null 2>&1 ;;
+    codex) jq -e '.installed[]
+      | select(.pluginId == "agent-guard@agent-guard" and .installed == true)
+      | .enabled == true' "$plugin_json" >/dev/null 2>&1 ;;
+  esac
+}
+
+claude_managed_plugin_present() {
+  jq -e '.[] | select((.id // .pluginId // "") == "agent-guard@agent-guard" and .scope == "managed")' "$1" >/dev/null 2>&1
+}
+
+# Claude's marketplace-list JSON intentionally omits settings provenance for
+# ordinary Git/GitHub marketplaces. Read the administrator-owned source instead
+# so a first-sync/download failure cannot make a managed declaration look like a
+# self-managed marketplace. Return 0 for an Agent Guard declaration, 1 when all
+# available files are valid but unrelated, and 2 when their state is unsafe to
+# determine. Return 3 when policyHelper replaces their values dynamically.
+# Mutations fail closed on 2 or 3; status reports the configuration limitation.
+claude_managed_settings_state() (
+  # Path injection exists only for isolated tests. It is deliberately gated and
+  # does not turn this user-run helper into an OS policy enforcement boundary.
+  if [ "${AG_PLUGIN_TEST_MODE:-0}" = 1 ] \
+      && [ -n "${AG_PLUGIN_TEST_CLAUDE_MANAGED_SETTINGS_ROOT:-}" ]; then
+    managed_root=$AG_PLUGIN_TEST_CLAUDE_MANAGED_SETTINGS_ROOT
+  elif [ -n "${AG_PLUGIN_TEST_CLAUDE_MANAGED_SETTINGS_ROOT:-}" ]; then
+    return 2
+  else
+    case "$(uname -s)" in
+      Darwin) managed_root='/Library/Application Support/ClaudeCode' ;;
+      Linux) managed_root='/etc/claude-code' ;;
+      *) return 1 ;;
+    esac
+  fi
+  case "$managed_root" in /*) ;; *) return 2 ;; esac
+
+  if [ -e "$managed_root" ] || [ -L "$managed_root" ]; then
+    [ -d "$managed_root" ] && [ -r "$managed_root" ] && [ -x "$managed_root" ] \
+      || return 2
+  fi
+  managed_fragments="$managed_root/managed-settings.d"
+  if [ -e "$managed_fragments" ] || [ -L "$managed_fragments" ]; then
+    [ -d "$managed_fragments" ] && [ -r "$managed_fragments" ] && [ -x "$managed_fragments" ] \
+      || return 2
+  fi
+
+  # Marketplace names remain as merge keys. Raw marketplace values,
+  # policy-helper paths, and unrelated settings never enter this file; only
+  # Agent Guard ownership classifications do. The subshell traps also remove a
+  # mktemp_file fallback outside the invocation rundir on returns and signals.
+  managed_summary=$(mktemp_file) || return 2
+  trap 'rm -f "$managed_summary"' 0
+  trap 'exit 129' HUP
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  for managed_file in \
+    "$managed_root/managed-settings.json" \
+    "$managed_fragments"/*.json; do
+    [ -e "$managed_file" ] || [ -L "$managed_file" ] || continue
+    [ -f "$managed_file" ] && [ -r "$managed_file" ] || return 2
+    jq -c -s '
+      def valid_policy_helper:
+        type == "object" and
+        (.path | type == "string" and startswith("/")) and
+        ((has("timeoutMs") | not) or (.timeoutMs | type == "number")) and
+        ((has("refreshIntervalMs") | not) or
+         (.refreshIntervalMs | type == "number"));
+      def compact_source:
+        {} +
+        (if has("source") then
+           {source: (if .source == "github" or .source == "git"
+                     then .source else "other" end)}
+         else {} end) +
+        (if has("repo") then
+           {repo: (if .repo == "JeongJaeSoon/agent-guard"
+                   then "agent-guard" else "other" end)}
+         else {} end) +
+        (if has("url") then
+           {url: (if .url == "https://github.com/JeongJaeSoon/agent-guard" or
+                       .url == "https://github.com/JeongJaeSoon/agent-guard.git"
+                  then "agent-guard" else "other" end)}
+         else {} end);
+      def compact_marketplace:
+        if type != "object" then "other"
+        elif has("source") and (.source | type) != "object" then
+          {source: "other"}
+        elif has("source") then {source: (.source | compact_source)}
+        else {}
+        end;
+      if length == 0 then {}
+      elif length == 1 and (.[0] | type == "object") then .[0]
+      else error("managed settings must contain one object")
+      end
+      | if (has("extraKnownMarketplaces") and
+            (.extraKnownMarketplaces | type) != "object") then
+        error("extraKnownMarketplaces must be an object")
+      elif (has("enabledPlugins") and (.enabledPlugins | type) != "object") then
+        error("enabledPlugins must be an object")
+      elif (has("policyHelper") and
+            ((.policyHelper | valid_policy_helper) | not)) then
+        error("policyHelper must name an absolute executable path")
+      else
+        ({
+          extraKnownMarketplaces:
+            ((.extraKnownMarketplaces // {})
+             | with_entries(.value |= compact_marketplace)),
+          enabledPlugins:
+            (if ((.enabledPlugins // {}) | has("agent-guard@agent-guard"))
+             then {"agent-guard@agent-guard": true}
+             else {}
+             end)
+        } + if has("policyHelper") then {policyHelper: true} else {} end)
+      end
+    ' "$managed_file" >>"$managed_summary" 2>/dev/null || return 2
+  done
+
+  managed_state=$(jq -r -s '
+      def agent_guard_source:
+        type == "object" and
+        ((.source == "github" and .repo == "agent-guard") or
+         (.source == "git" and
+          .url == "agent-guard"));
+      reduce .[] as $document ({}; . * $document)
+      | if has("policyHelper") then "dynamic"
+        elif (((.extraKnownMarketplaces // {})
+               | any(.[]; (.source? | agent_guard_source))) or
+              ((.enabledPlugins // {}) | has("agent-guard@agent-guard"))) then
+          "managed"
+        else "unrelated"
+        end
+    ' "$managed_summary" 2>/dev/null) || return 2
+  case "$managed_state" in
+    managed) return 0 ;;
+    unrelated) return 1 ;;
+    dynamic) return 3 ;;
+    *) return 2 ;;
+  esac
+)
+
+claude_managed_status() {
+  plugin_plugins=$1
+  if claude_managed_plugin_present "$plugin_plugins"; then
+    managed_version=$(jq -r '.[]
+      | select((.id // .pluginId // "") == "agent-guard@agent-guard" and .scope == "managed")
+      | .version // "unknown"' "$plugin_plugins" | head -n 1)
+    if jq -e '.[]
+      | select((.id // .pluginId // "") == "agent-guard@agent-guard" and .scope == "managed")
+      | .enabled == true' "$plugin_plugins" >/dev/null 2>&1; then
+      managed_enabled=enabled
+    else
+      managed_enabled=disabled
+    fi
+    if [ "$managed_version" = "$VERSION" ]; then
+      managed_version_status="version $managed_version"
+    else
+      managed_version_status="version $managed_version, expected $VERSION"
+    fi
+    printf 'claude: managed by Jamf/managed settings (plugin installed, %s, %s)\n' \
+      "$managed_enabled" "$managed_version_status"
+  else
+    printf '%s\n' 'claude: managed by Jamf/managed settings (Agent Guard configured, plugin not installed)'
+  fi
+}
+
+plugin_read_state() {
+  plugin_host=$1
+  plugin_marketplaces=$2
+  plugin_plugins=$3
+  case "$plugin_host" in
+    claude)
+      claude plugin marketplace list --json >"$plugin_marketplaces" \
+        && claude plugin list --json >"$plugin_plugins" \
+        && jq -e 'type == "array"' "$plugin_marketplaces" >/dev/null 2>&1 \
+        && jq -e 'type == "array"' "$plugin_plugins" >/dev/null 2>&1
+      ;;
+    codex)
+      codex plugin marketplace list --json >"$plugin_marketplaces" \
+        && codex plugin list --json >"$plugin_plugins" \
+        && jq -e 'type == "object" and (.marketplaces | type == "array")' "$plugin_marketplaces" >/dev/null 2>&1 \
+        && jq -e 'type == "object" and (.installed | type == "array")' "$plugin_plugins" >/dev/null 2>&1
+      ;;
+  esac
+}
+
+plugin_for_host() {
+  plugin_action=$1
+  plugin_host=$2
+  plugin_scope=$3
+  plugin_tmp=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-plugin.XXXXXX") || {
+    printf '%s\n' "$PROGRAM: could not create plugin status directory" >&2
+    return 2
+  }
+  plugin_marketplaces="$plugin_tmp/marketplaces.json"
+  plugin_plugins="$plugin_tmp/plugins.json"
+
+  if ! plugin_read_state "$plugin_host" "$plugin_marketplaces" "$plugin_plugins"; then
+    rm -rf "$plugin_tmp"
+    printf '%s\n' "$PROGRAM: $plugin_host plugin manager could not report its state" >&2
+    return 1
+  fi
+
+  plugin_managed_state=1
+  if [ "$plugin_host" = claude ]; then
+    if claude_managed_plugin_present "$plugin_plugins"; then
+      plugin_managed_state=0
+    else
+      claude_managed_settings_state
+      plugin_managed_state=$?
+    fi
+  fi
+  if [ "$plugin_managed_state" -eq 2 ]; then
+    rm -rf "$plugin_tmp"
+    if [ "$plugin_action" = status ]; then
+      printf '%s\n' "$PROGRAM: Claude managed settings could not be read or safely parsed; plugin ownership cannot be determined" >&2
+    else
+      printf '%s\n' "$PROGRAM: Claude managed settings could not be read or safely parsed; refusing plugin lifecycle changes" >&2
+    fi
+    return 2
+  fi
+  if [ "$plugin_managed_state" -eq 3 ]; then
+    rm -rf "$plugin_tmp"
+    printf '%s\n' "$PROGRAM: Claude policyHelper replaces file-based managed settings; plugin ownership cannot be determined, so lifecycle changes are refused" >&2
+    return 2
+  fi
+  if [ "$plugin_managed_state" -eq 0 ]; then
+    if [ "$plugin_action" = status ]; then
+      claude_managed_status "$plugin_plugins"
+      rm -rf "$plugin_tmp"
+      return 0
+    fi
+    rm -rf "$plugin_tmp"
+    printf '%s\n' "$PROGRAM: Claude Agent Guard is managed by Jamf/managed settings; ask the administrator to change the pinned marketplace ref instead of using '$PROGRAM plugin $plugin_action'" >&2
+    return 2
+  fi
+  if [ "$plugin_managed_state" -ne 1 ]; then
+    rm -rf "$plugin_tmp"
+    printf '%s\n' "$PROGRAM: Claude managed settings inspection was interrupted; refusing plugin lifecycle changes" >&2
+    return 2
+  fi
+
+  if plugin_marketplace_present "$plugin_host" "$plugin_marketplaces"; then
+    plugin_has_marketplace=1
+    if plugin_marketplace_source_is_agent_guard "$plugin_host" "$plugin_marketplaces"; then
+      plugin_marketplace_source=agent-guard
+    else
+      plugin_marketplace_source=conflict
+    fi
+  else
+    plugin_has_marketplace=0
+    plugin_marketplace_source=missing
+  fi
+  if plugin_installed "$plugin_host" "$plugin_plugins" "$plugin_scope"; then
+    plugin_has_install=1
+    if plugin_enabled "$plugin_host" "$plugin_plugins" "$plugin_scope"; then
+      plugin_is_enabled=1
+    else
+      plugin_is_enabled=0
+    fi
+  else
+    plugin_has_install=0
+    plugin_is_enabled=0
+  fi
+
+  case "$plugin_action" in
+    status)
+      case "$plugin_marketplace_source" in
+        agent-guard)
+          if [ "$plugin_host" = claude ]; then
+            if claude_marketplace_matches_release "$plugin_marketplaces"; then
+              plugin_marketplace_status="configured at v$VERSION"
+            else
+              plugin_marketplace_status="drift: $(claude_marketplace_ref "$plugin_marketplaces"), expected v$VERSION"
+            fi
+          else
+            plugin_marketplace_status='configured, pin unverified by Codex'
+          fi
+          ;;
+        conflict) plugin_marketplace_status='conflict: different source' ;;
+        missing) plugin_marketplace_status=missing ;;
+      esac
+      if [ "$plugin_has_install" -eq 1 ]; then
+        plugin_installed_version=$(plugin_version "$plugin_host" "$plugin_plugins" "$plugin_scope")
+        if [ "$plugin_installed_version" = "$VERSION" ]; then
+          plugin_version_status="version $plugin_installed_version"
+        else
+          plugin_version_status="version $plugin_installed_version, expected $VERSION"
+        fi
+        printf '%s: installed, %s (%s, marketplace %s)\n' \
+          "$plugin_host" "$([ "$plugin_is_enabled" -eq 1 ] && printf enabled || printf disabled)" \
+          "$plugin_version_status" "$plugin_marketplace_status"
+      else
+        printf '%s: not installed (marketplace %s)\n' \
+          "$plugin_host" "$plugin_marketplace_status"
+      fi
+      ;;
+    install)
+      if [ "$plugin_marketplace_source" = conflict ]; then
+        rm -rf "$plugin_tmp"
+        printf '%s\n' "$PROGRAM: $plugin_host marketplace 'agent-guard' has a different source; refusing to replace it" >&2
+        return 2
+      fi
+      if [ "$plugin_marketplace_source" = agent-guard ]; then
+        plugin_marketplace_matches=0
+        case "$plugin_host" in
+          claude)
+            claude_marketplace_matches_release "$plugin_marketplaces" \
+              && plugin_marketplace_matches=1
+            ;;
+          codex)
+            codex plugin marketplace add "JeongJaeSoon/agent-guard@v$VERSION" \
+              && plugin_marketplace_matches=1
+            ;;
+        esac
+        if [ "$plugin_marketplace_matches" -eq 0 ]; then
+          if [ "$plugin_host" = claude ]; then
+            plugin_actual_ref=$(claude_marketplace_ref "$plugin_marketplaces")
+            plugin_remove="claude plugin marketplace remove agent-guard --scope $plugin_scope"
+          else
+            plugin_actual_ref='unverified or different ref'
+            plugin_remove='codex plugin marketplace remove agent-guard'
+          fi
+          plugin_retry="$PROGRAM plugin install --host $plugin_host"
+          if [ "$plugin_host" = claude ] && [ "$plugin_scope" != user ]; then
+            plugin_retry="$plugin_retry --scope $plugin_scope"
+          fi
+          rm -rf "$plugin_tmp"
+          printf '%s\n' "$PROGRAM: $plugin_host marketplace 'agent-guard' is '$plugin_actual_ref', expected 'v$VERSION'; refusing to reuse it" >&2
+          printf '%s\n' "$PROGRAM: run '$plugin_remove', then '$plugin_retry'; marketplace removal also removes its installed plugin" >&2
+          return 2
+        fi
+      fi
+      if [ "$plugin_has_install" -eq 1 ]; then
+        if [ "$plugin_is_enabled" -eq 0 ]; then
+          printf '%s\n' "$PROGRAM: $plugin_host agent-guard plugin is installed but disabled; enable it with the $plugin_host plugin manager" >&2
+          rm -rf "$plugin_tmp"
+          return 1
+        fi
+        plugin_installed_version=$(plugin_version "$plugin_host" "$plugin_plugins" "$plugin_scope")
+        if [ "$plugin_installed_version" != "$VERSION" ]; then
+          plugin_retry="$PROGRAM plugin update --host $plugin_host"
+          if [ "$plugin_host" = claude ] && [ "$plugin_scope" != user ]; then
+            plugin_retry="$plugin_retry --scope $plugin_scope"
+          fi
+          rm -rf "$plugin_tmp"
+          printf '%s\n' "$PROGRAM: $plugin_host agent-guard plugin version is $plugin_installed_version, expected $VERSION; run '$plugin_retry'" >&2
+          return 1
+        fi
+        printf '%s: agent-guard plugin is already installed and enabled (version %s, marketplace v%s)\n' \
+          "$plugin_host" "$plugin_installed_version" "$VERSION"
+      else
+        plugin_marketplace_added=0
+        if [ "$plugin_has_marketplace" -eq 0 ]; then
+          case "$plugin_host" in
+            claude) claude plugin marketplace add "JeongJaeSoon/agent-guard@v$VERSION" --scope "$plugin_scope" ;;
+            codex) codex plugin marketplace add "JeongJaeSoon/agent-guard@v$VERSION" ;;
+          esac
+          plugin_add_status=$?
+          if [ "$plugin_add_status" -ne 0 ]; then
+            plugin_retry="$PROGRAM plugin install --host $plugin_host"
+            if [ "$plugin_host" = claude ] && [ "$plugin_scope" != user ]; then
+              plugin_retry="$plugin_retry --scope $plugin_scope"
+            fi
+            rm -rf "$plugin_tmp"
+            printf '%s\n' "$PROGRAM: $plugin_host could not add marketplace 'agent-guard' pinned to v$VERSION; no plugin installation was attempted and it is safe to retry '$plugin_retry'" >&2
+            return 1
+          fi
+          plugin_marketplace_added=1
+        fi
+        case "$plugin_host" in
+          claude) claude plugin install agent-guard@agent-guard --scope "$plugin_scope" ;;
+          codex) codex plugin add agent-guard@agent-guard ;;
+        esac
+        plugin_install_status=$?
+        if [ "$plugin_install_status" -ne 0 ] && [ "$plugin_marketplace_added" -eq 1 ]; then
+          plugin_retry="$PROGRAM plugin install --host $plugin_host"
+          if [ "$plugin_host" = claude ] && [ "$plugin_scope" != user ]; then
+            plugin_retry="$plugin_retry --scope $plugin_scope"
+          fi
+          printf '%s\n' "$PROGRAM: $plugin_host marketplace 'agent-guard' was added, but plugin installation failed; the marketplace remains configured and it is safe to retry '$plugin_retry'" >&2
+        fi
+        [ "$plugin_install_status" -eq 0 ]
+      fi
+      ;;
+    update)
+      if [ "$plugin_marketplace_source" = conflict ]; then
+        rm -rf "$plugin_tmp"
+        printf '%s\n' "$PROGRAM: $plugin_host marketplace 'agent-guard' has a different source; refusing to replace it" >&2
+        return 2
+      fi
+      if [ "$plugin_has_marketplace" -eq 0 ] || [ "$plugin_has_install" -eq 0 ]; then
+        printf '%s\n' "$PROGRAM: $plugin_host plugin is not installed; run '$PROGRAM plugin install --host $plugin_host' first" >&2
+        rm -rf "$plugin_tmp"
+        return 1
+      fi
+      plugin_marketplace_matches=0
+      case "$plugin_host" in
+        claude)
+          claude_marketplace_matches_release "$plugin_marketplaces" \
+            && plugin_marketplace_matches=1
+          ;;
+        codex)
+          codex plugin marketplace add "JeongJaeSoon/agent-guard@v$VERSION" \
+            && plugin_marketplace_matches=1
+          ;;
+      esac
+      if [ "$plugin_marketplace_matches" -eq 0 ]; then
+        if [ "$plugin_host" = claude ]; then
+          plugin_actual_ref=$(claude_marketplace_ref "$plugin_marketplaces")
+          plugin_remove="claude plugin marketplace remove agent-guard --scope $plugin_scope"
+        else
+          plugin_actual_ref='unverified or different ref'
+          plugin_remove='codex plugin marketplace remove agent-guard'
+        fi
+        plugin_retry="$PROGRAM plugin install --host $plugin_host"
+        if [ "$plugin_host" = claude ] && [ "$plugin_scope" != user ]; then
+          plugin_retry="$plugin_retry --scope $plugin_scope"
+        fi
+        rm -rf "$plugin_tmp"
+        printf '%s\n' "$PROGRAM: $plugin_host marketplace 'agent-guard' is '$plugin_actual_ref', expected 'v$VERSION'; refusing to update through it" >&2
+        printf '%s\n' "$PROGRAM: run '$plugin_remove', then '$plugin_retry'; marketplace removal also removes its installed plugin" >&2
+        return 2
+      fi
+      if [ "$plugin_is_enabled" -eq 0 ]; then
+        printf '%s\n' "$PROGRAM: $plugin_host agent-guard plugin is installed but disabled; update will keep it disabled" >&2
+      fi
+      plugin_installed_version=$(plugin_version "$plugin_host" "$plugin_plugins" "$plugin_scope")
+      if [ "$plugin_installed_version" = "$VERSION" ]; then
+        printf '%s: agent-guard plugin already matches this CLI (version %s, marketplace v%s)\n' \
+          "$plugin_host" "$VERSION" "$VERSION"
+        rm -rf "$plugin_tmp"
+        return 0
+      fi
+      case "$plugin_host" in
+        claude)
+          claude plugin marketplace update agent-guard \
+            && claude plugin update agent-guard@agent-guard --scope "$plugin_scope"
+          ;;
+        codex) codex plugin marketplace upgrade agent-guard ;;
+      esac
+      plugin_update_status=$?
+      if [ "$plugin_update_status" -ne 0 ]; then
+        plugin_retry="$PROGRAM plugin update --host $plugin_host"
+        if [ "$plugin_host" = claude ] && [ "$plugin_scope" != user ]; then
+          plugin_retry="$plugin_retry --scope $plugin_scope"
+        fi
+        printf '%s\n' "$PROGRAM: $plugin_host update did not complete; the marketplace remains pinned to v$VERSION and it is safe to retry '$plugin_retry'" >&2
+      fi
+      [ "$plugin_update_status" -eq 0 ]
+      ;;
+    uninstall)
+      if [ "$plugin_marketplace_source" = conflict ]; then
+        rm -rf "$plugin_tmp"
+        printf '%s\n' "$PROGRAM: $plugin_host marketplace 'agent-guard' has a different source; refusing plugin lifecycle changes" >&2
+        return 2
+      fi
+      if [ "$plugin_has_install" -eq 0 ]; then
+        printf '%s\n' "$plugin_host: agent-guard plugin is not installed"
+      else
+        case "$plugin_host" in
+          claude) claude plugin uninstall agent-guard@agent-guard --scope "$plugin_scope" ;;
+          codex) codex plugin remove agent-guard@agent-guard ;;
+        esac
+      fi
+      ;;
+  esac
+  plugin_status=$?
+  rm -rf "$plugin_tmp"
+  return "$plugin_status"
+}
+
+do_plugin() {
+  plugin_action=${1:-}
+  case "$plugin_action" in
+    status|install|update|uninstall) shift ;;
+    -h|--help|help) plugin_usage; return 0 ;;
+    *) plugin_usage; return 2 ;;
+  esac
+  plugin_host=
+  plugin_scope=user
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --host)
+        [ "$#" -ge 2 ] || { plugin_usage; return 2; }
+        plugin_host=$2
+        shift 2
+        ;;
+      --scope)
+        [ "$#" -ge 2 ] || { plugin_usage; return 2; }
+        plugin_scope=$2
+        shift 2
+        ;;
+      -h|--help) plugin_usage; return 0 ;;
+      *) plugin_usage; return 2 ;;
+    esac
+  done
+  case "$plugin_host" in ''|claude|codex|all) ;; *) plugin_usage; return 2 ;; esac
+  case "$plugin_scope" in user|project|local) ;; *) plugin_usage; return 2 ;; esac
+  command -v jq >/dev/null 2>&1 || {
+    printf '%s\n' "$PROGRAM: jq is required to inspect plugin-manager state" >&2
+    return 1
+  }
+
+  plugin_has_claude=0
+  plugin_has_codex=0
+  command -v claude >/dev/null 2>&1 && plugin_has_claude=1
+  command -v codex >/dev/null 2>&1 && plugin_has_codex=1
+  if [ -z "$plugin_host" ]; then
+    if [ "$plugin_has_claude" -eq 1 ] && [ "$plugin_has_codex" -eq 0 ]; then
+      plugin_host=claude
+    elif [ "$plugin_has_codex" -eq 1 ] && [ "$plugin_has_claude" -eq 0 ]; then
+      plugin_host=codex
+    else
+      printf '%s\n' "$PROGRAM: omit --host only when exactly one of claude or codex is available" >&2
+      return 2
+    fi
+  fi
+  if { [ "$plugin_host" = codex ] || [ "$plugin_host" = all ]; } && [ "$plugin_scope" != user ]; then
+    printf '%s\n' "$PROGRAM: Codex plugin management supports user scope only" >&2
+    return 2
+  fi
+
+  plugin_result=0
+  case "$plugin_host" in
+    claude)
+      [ "$plugin_has_claude" -eq 1 ] || { printf '%s\n' "$PROGRAM: claude command not found" >&2; return 1; }
+      plugin_for_host "$plugin_action" claude "$plugin_scope"
+      ;;
+    codex)
+      [ "$plugin_has_codex" -eq 1 ] || { printf '%s\n' "$PROGRAM: codex command not found" >&2; return 1; }
+      plugin_for_host "$plugin_action" codex "$plugin_scope"
+      ;;
+    all)
+      if [ "$plugin_has_claude" -eq 1 ]; then
+        plugin_for_host "$plugin_action" claude "$plugin_scope" || plugin_result=1
+      else
+        printf '%s\n' "$PROGRAM: claude command not found" >&2
+        plugin_result=1
+      fi
+      if [ "$plugin_has_codex" -eq 1 ]; then
+        plugin_for_host "$plugin_action" codex "$plugin_scope" || plugin_result=1
+      else
+        printf '%s\n' "$PROGRAM: codex command not found" >&2
+        plugin_result=1
+      fi
+      return "$plugin_result"
+      ;;
+  esac
 }
 
 info() {
@@ -325,40 +965,93 @@ audit_finish() {
   return 0
 }
 
+audit_export() {
+  command -v jq >/dev/null 2>&1 || { printf '%s\n' 'agent-guard: log export requires jq.' >&2; return 2; }
+  ag_dir=$(audit_directory) || { printf '%s\n' 'agent-guard: no private diagnostic log directory is available.' >&2; return 2; }
+  for ag_file in "$ag_dir"/event-*; do
+    [ -f "$ag_file" ] && [ ! -L "$ag_file" ] || continue
+    [ "$(audit_stat "$ag_file")" = "$(id -u):600" ] || continue
+    ag_bytes=$(wc -c <"$ag_file" | tr -d ' ')
+    case "$ag_bytes" in ''|*[!0-9]*) continue ;; esac
+    [ "$ag_bytes" -le 2048 ] || continue
+    # Rebuild the schema, dropping unknown keys. Validate every field so a
+    # manually edited/corrupt log cannot smuggle source data into an export.
+    jq -c '
+      select(type == "object" and .schema == 1)
+      | select(.run_id | type == "string" and test("^[0-9]{1,12}-[A-Za-z0-9]{6}$"))
+      | select(.time | type == "number" and . >= 0 and . <= 9999999999 and floor == .)
+      | select(.version | type == "string" and test("^[0-9]{1,5}\\.[0-9]{1,5}\\.[0-9]{1,5}$"))
+      | select(.command | IN("hook-pre-tool", "hook-post-tool", "hook-stop", "hook-user-prompt", "hook-session-start", "scan-staged", "scan-working-tree", "scan-path", "exec", "pii-filter"))
+      | select(.host | IN("claude", "codex", "cli"))
+      | select(.phase | IN("started", "finished"))
+      | select(.outcome | IN("pending", "pass", "blocked", "masked", "degraded", "error", "interrupted", "warned"))
+      | select(.exit_code == null or (.exit_code | type == "number" and . >= 0 and . <= 255 and floor == .))
+      | select(.duration_seconds | type == "number" and . >= 0 and . <= 9999999999 and floor == .)
+      | {schema,run_id,time,version,command,host,phase,outcome,exit_code,duration_seconds}
+    ' "$ag_file" 2>/dev/null || :
+  done
+}
+
+# Write a complete export into a private temporary file in the requested parent,
+# then publish it with link(2). A hard-link creation fails if FILE already exists,
+# unlike mv, so an existing regular file, directory, FIFO, or symlink is never
+# overwritten. The temporary file and its final name are in one filesystem.
+audit_export_to_file() (
+  ag_output=$1
+  case "$ag_output" in '') printf '%s\n' 'agent-guard: log export output path is required.' >&2; return 2 ;; esac
+  ag_parent=$(dirname -- "$ag_output") || return 2
+  [ -d "$ag_parent" ] && [ ! -L "$ag_parent" ] || {
+    printf '%s\n' 'agent-guard: log export parent directory must already exist and not be a symlink.' >&2
+    return 2
+  }
+  [ ! -e "$ag_output" ] && [ ! -L "$ag_output" ] || {
+    printf '%s\n' 'agent-guard: refusing to overwrite an existing log export target.' >&2
+    return 2
+  }
+  ag_tmp=
+  trap '[ -z "$ag_tmp" ] || rm -f -- "$ag_tmp"' 0
+  ag_tmp=$(umask 077; mktemp "$ag_parent/.agent-guard-support.XXXXXX" 2>/dev/null) || {
+    printf '%s\n' 'agent-guard: could not create a private temporary log export file.' >&2
+    return 2
+  }
+  if [ ! -f "$ag_tmp" ] || [ -L "$ag_tmp" ] || [ "$(audit_stat "$ag_tmp")" != "$(id -u):600" ]; then
+    printf '%s\n' 'agent-guard: temporary log export file was not private.' >&2
+    return 2
+  fi
+  audit_export >"$ag_tmp" || return $?
+  ln "$ag_tmp" "$ag_output" 2>/dev/null || {
+    printf '%s\n' 'agent-guard: refusing to overwrite an existing or invalid log export target.' >&2
+    return 2
+  }
+  [ -f "$ag_output" ] && [ ! -L "$ag_output" ] && [ "$(audit_stat "$ag_output")" = "$(id -u):600" ] || {
+    printf '%s\n' 'agent-guard: log export target was not a private regular file.' >&2
+    return 2
+  }
+  printf 'agent-guard: exported metadata-only support log to %s\n' "$ag_output" >&2
+)
+
 audit_logs() {
   case "${1:-status}" in
+    -h|--help|help)
+      [ "$#" -eq 1 ] || { printf '%s\n' 'Usage: agent-guard logs [status|export [--output FILE]]' >&2; return 2; }
+      printf '%s\n' 'Usage: agent-guard logs [status|export [--output FILE]]' >&2
+      return 0
+      ;;
     status)
+      case "$#:${1:-}" in 0:|1:status) ;; *) printf '%s\n' 'Usage: agent-guard logs [status|export [--output FILE]]' >&2; return 2 ;; esac
       case "${AGENT_GUARD_LOG_MODE:-on}" in on|off) ag_mode=${AGENT_GUARD_LOG_MODE:-on} ;; *) ag_mode=invalid ;; esac
       printf 'Local diagnostic logging: %s\nDirectory: ${XDG_STATE_HOME:-~/.local/state}/agent-guard\nRetention target: 7 days, 1000 invocations; bounded cleanup runs at start, so concurrency or externally added files can exceed this.\n' "$ag_mode"
       if audit_directory >/dev/null; then printf 'Storage: private directory ready\n'; else printf 'Storage: not created or unavailable\n'; fi
       ;;
     export)
-      command -v jq >/dev/null 2>&1 || { printf '%s\n' 'agent-guard: log export requires jq.' >&2; return 2; }
-      ag_dir=$(audit_directory) || { printf '%s\n' 'agent-guard: no private diagnostic log directory is available.' >&2; return 2; }
-      for ag_file in "$ag_dir"/event-*; do
-        [ -f "$ag_file" ] && [ ! -L "$ag_file" ] || continue
-        [ "$(audit_stat "$ag_file")" = "$(id -u):600" ] || continue
-        ag_bytes=$(wc -c <"$ag_file" | tr -d ' ')
-        case "$ag_bytes" in ''|*[!0-9]*) continue ;; esac
-        [ "$ag_bytes" -le 2048 ] || continue
-        # Rebuild the schema, dropping unknown keys. Validate every field so a
-        # manually edited/corrupt log cannot smuggle source data into an export.
-        jq -c '
-          select(type == "object" and .schema == 1)
-          | select(.run_id | type == "string" and test("^[0-9]{1,12}-[A-Za-z0-9]{6}$"))
-          | select(.time | type == "number" and . >= 0 and . <= 9999999999 and floor == .)
-          | select(.version | type == "string" and test("^[0-9]{1,5}\\.[0-9]{1,5}\\.[0-9]{1,5}$"))
-          | select(.command | IN("hook-pre-tool", "hook-post-tool", "hook-stop", "hook-user-prompt", "hook-session-start", "scan-staged", "scan-working-tree", "scan-path", "exec", "pii-filter"))
-          | select(.host | IN("claude", "codex", "cli"))
-          | select(.phase | IN("started", "finished"))
-          | select(.outcome | IN("pending", "pass", "blocked", "masked", "degraded", "error", "interrupted", "warned"))
-          | select(.exit_code == null or (.exit_code | type == "number" and . >= 0 and . <= 255 and floor == .))
-          | select(.duration_seconds | type == "number" and . >= 0 and . <= 9999999999 and floor == .)
-          | {schema,run_id,time,version,command,host,phase,outcome,exit_code,duration_seconds}
-        ' "$ag_file" 2>/dev/null || :
-      done
+      shift
+      case "$#" in
+        0) audit_export ;;
+        2) [ "$1" = --output ] || { printf '%s\n' 'Usage: agent-guard logs [status|export [--output FILE]]' >&2; return 2; }; audit_export_to_file "$2" ;;
+        *) printf '%s\n' 'Usage: agent-guard logs [status|export [--output FILE]]' >&2; return 2 ;;
+      esac
       ;;
-    *) printf '%s\n' 'Usage: agent-guard logs [status|export]' >&2; return 2 ;;
+    *) printf '%s\n' 'Usage: agent-guard logs [status|export [--output FILE]]' >&2; return 2 ;;
   esac
 }
 
@@ -6559,6 +7252,7 @@ case "$cmd" in
   scan-path) shift; scan_path "$@" ;;
   filter-lockfile-hashes) shift; filter_lockfile_hashes "$@" ;;
   logs) shift; audit_logs "$@" ;;
+  plugin) shift; do_plugin "$@" ;;
   check) check_deps ;;
   doctor) shift; do_setup "$@" ;;
   update) shift; do_update "$@" ;;

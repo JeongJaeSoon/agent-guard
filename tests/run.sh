@@ -154,6 +154,7 @@ fi
 # Stub only the release downloads; archive verification, extraction, linking,
 # setup-shell, and rc generation all run through the real implementation.
 run_expect 0 "private metadata-only audit logging contract" sh "$ROOT/tests/audit-log.sh"
+run_expect 0 "host plugin lifecycle delegates safely" sh "$ROOT/tests/plugin-management.sh"
 
 run_expect 0 "standalone update preserves executable and link destinations" \
   sh "$ROOT/tests/bootstrap-update.sh"

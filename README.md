@@ -20,8 +20,7 @@ not a vault, DLP system, EDR, or credential rotator.
 | Understand host coverage and configure an integration | [Integrations](docs/integrations.md) |
 | Verify a setup and understand what the result proves | [Verification](docs/verification.md) |
 | Configure policy, PII, redaction, or infrastructure behavior | [Configuration](docs/configuration.md) |
-| Run a small internal pilot | [Pilot manual (Korean)](docs/pilot.md) |
-| Deploy for a managed team or troubleshoot an environment | [Operations](docs/operations.md) |
+| Deploy for a managed team or troubleshoot an environment | [Operations](docs/operations.md); the [Korean/Japanese deployment guide](https://agent-guard-guide.jaesoon.chatgpt.site/) is a supplementary, currently published walkthrough |
 
 ## Quick use
 
@@ -47,6 +46,19 @@ agent-guard scan-working-tree
 agent-guard scan-staged
 agent-guard scan-path .
 ```
+
+## Support log
+
+Save the metadata-only local support log with one command:
+
+```sh
+agent-guard logs export --output agent-guard-support.jsonl
+```
+
+The parent directory must already exist. Agent Guard creates a new mode-0600
+file and refuses to replace an existing file or symlink. Use the plugin-local
+executable printed by the setup skill when a plugin-only installation does not
+provide `agent-guard` on `PATH`. See [Support](SUPPORT.md) for what to submit.
 
 ## Requirements and scope
 
