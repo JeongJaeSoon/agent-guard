@@ -7626,7 +7626,9 @@ EOSH
     git add .gitattributes payload.txt
     git commit -q -m init
   )
-  TEXTCONV224_TOKEN="AGENT_GUARD_TEST_""SECRET"
+  TEXTCONV224_TOKEN_PART_1="AGENT_GUARD_TEST_"
+  TEXTCONV224_TOKEN_PART_2="SECRET"
+  TEXTCONV224_TOKEN=$(printf '%s%s' "$TEXTCONV224_TOKEN_PART_1" "$TEXTCONV224_TOKEN_PART_2")
 
   printf '%s\n' "$TEXTCONV224_TOKEN" >"$TEXTCONV224_REPO/payload.txt"
   (
