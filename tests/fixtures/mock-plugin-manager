@@ -26,6 +26,7 @@ if [ "$1 $2 $3" = 'plugin marketplace list' ]; then
     claude:absent) printf '%s\n' '[]' ;;
     claude:ok) printf '%s\n' '[{"name":"agent-guard","repo":"JeongJaeSoon/agent-guard"}]' ;;
     claude:conflict) printf '%s\n' '[{"name":"agent-guard","repo":"someone/else"}]' ;;
+    claude:managed) printf '%s\n' '[{"name":"agent-guard","repo":"JeongJaeSoon/agent-guard","scope":"managed"}]' ;;
     codex:absent) printf '%s\n' '{"marketplaces":[]}' ;;
     codex:ok) printf '%s\n' '{"marketplaces":[{"name":"agent-guard","marketplaceSource":{"sourceType":"git","source":"https://github.com/JeongJaeSoon/agent-guard.git"}}]}' ;;
     codex:conflict) printf '%s\n' '{"marketplaces":[{"name":"agent-guard","marketplaceSource":{"sourceType":"local","source":"/another/source"}}]}' ;;
@@ -39,6 +40,8 @@ if [ "$1 $2" = 'plugin list' ]; then
     claude:1) printf '%s\n' '[{"id":"agent-guard@agent-guard","version":"3.4.0","scope":"user","enabled":true}]' ;;
     claude:project) printf '%s\n' '[{"id":"agent-guard@agent-guard","version":"3.4.0","scope":"project","enabled":true}]' ;;
     claude:disabled) printf '%s\n' '[{"id":"agent-guard@agent-guard","version":"3.4.0","scope":"user","enabled":false}]' ;;
+    claude:managed) printf '%s\n' '[{"id":"agent-guard@agent-guard","version":"3.4.0","scope":"managed","enabled":true}]' ;;
+    claude:managed_disabled) printf '%s\n' '[{"id":"agent-guard@agent-guard","version":"3.4.0","scope":"managed","enabled":false}]' ;;
     codex:0) printf '%s\n' '{"installed":[]}' ;;
     codex:1) printf '%s\n' '{"installed":[{"pluginId":"agent-guard@agent-guard","version":"3.4.0","installed":true,"enabled":true}]}' ;;
     codex:disabled) printf '%s\n' '{"installed":[{"pluginId":"agent-guard@agent-guard","version":"3.4.0","installed":true,"enabled":false}]}' ;;

@@ -167,6 +167,46 @@ else
   not_ok 'install refuses a same-name marketplace from another source'
 fi
 
+new_case claude_managed_plugin_status
+add_host claude
+export AG_PLUGIN_TEST_MARKETPLACE=ok AG_PLUGIN_TEST_INSTALLED=managed_disabled
+if run_guard plugin status --host claude \
+   && grep -q 'managed by Jamf/managed settings (plugin installed, disabled, version 3.4.0)' "$case_dir/out"; then
+  ok 'Claude status identifies a managed disabled plugin and its version'
+else
+  not_ok 'Claude status identifies a managed disabled plugin and its version'
+fi
+
+new_case claude_managed_marketplace_status
+add_host claude
+export AG_PLUGIN_TEST_MARKETPLACE=managed AG_PLUGIN_TEST_INSTALLED=0
+if run_guard plugin status --host claude \
+   && grep -q 'managed by Jamf/managed settings (marketplace configured, plugin not installed)' "$case_dir/out"; then
+  ok 'Claude status identifies a managed marketplace without a plugin'
+else
+  not_ok 'Claude status identifies a managed marketplace without a plugin'
+fi
+
+for managed_state in plugin marketplace; do
+  for managed_action in install update uninstall; do
+    new_case "claude_managed_${managed_state}_${managed_action}"
+    add_host claude
+    case "$managed_state" in
+      plugin) export AG_PLUGIN_TEST_MARKETPLACE=ok AG_PLUGIN_TEST_INSTALLED=managed ;;
+      marketplace) export AG_PLUGIN_TEST_MARKETPLACE=managed AG_PLUGIN_TEST_INSTALLED=0 ;;
+    esac
+    if run_guard plugin "$managed_action" --host claude; then
+      not_ok "Claude $managed_action refuses a managed $managed_state"
+    elif [ "$?" -eq 2 ] \
+       && grep -q 'ask the administrator to change the pinned marketplace ref' "$case_dir/err" \
+       && ! grep -Eq 'marketplace (add|update)|plugin (install|update|uninstall)' "$case_log"; then
+      ok "Claude $managed_action refuses a managed $managed_state before mutation"
+    else
+      not_ok "Claude $managed_action refuses a managed $managed_state before mutation"
+    fi
+  done
+done
+
 new_case claude_update
 add_host claude
 export AG_PLUGIN_TEST_MARKETPLACE=ok AG_PLUGIN_TEST_INSTALLED=project

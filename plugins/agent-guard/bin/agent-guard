@@ -256,6 +256,36 @@ plugin_enabled() {
   esac
 }
 
+claude_managed_plugin_present() {
+  jq -e '.[] | select((.id // .pluginId // "") == "agent-guard@agent-guard" and .scope == "managed")' "$1" >/dev/null 2>&1
+}
+
+claude_managed_marketplace_present() {
+  jq -e '.[] | select(.name == "agent-guard"
+    and (.scope == "managed" or .managed == true or .isManaged == true))' "$1" >/dev/null 2>&1
+}
+
+claude_managed_status() {
+  plugin_marketplaces=$1
+  plugin_plugins=$2
+  if claude_managed_plugin_present "$plugin_plugins"; then
+    managed_version=$(jq -r '.[]
+      | select((.id // .pluginId // "") == "agent-guard@agent-guard" and .scope == "managed")
+      | .version // "unknown"' "$plugin_plugins" | head -n 1)
+    if jq -e '.[]
+      | select((.id // .pluginId // "") == "agent-guard@agent-guard" and .scope == "managed")
+      | .enabled == true' "$plugin_plugins" >/dev/null 2>&1; then
+      managed_enabled=enabled
+    else
+      managed_enabled=disabled
+    fi
+    printf 'claude: managed by Jamf/managed settings (plugin installed, %s, version %s)\n' \
+      "$managed_enabled" "$managed_version"
+  else
+    printf '%s\n' 'claude: managed by Jamf/managed settings (marketplace configured, plugin not installed)'
+  fi
+}
+
 plugin_read_state() {
   plugin_host=$1
   plugin_marketplaces=$2
@@ -291,6 +321,19 @@ plugin_for_host() {
     rm -rf "$plugin_tmp"
     printf '%s\n' "$PROGRAM: $plugin_host plugin manager could not report its state" >&2
     return 1
+  fi
+
+  if [ "$plugin_host" = claude ] \
+      && { claude_managed_plugin_present "$plugin_plugins" \
+           || claude_managed_marketplace_present "$plugin_marketplaces"; }; then
+    if [ "$plugin_action" = status ]; then
+      claude_managed_status "$plugin_marketplaces" "$plugin_plugins"
+      rm -rf "$plugin_tmp"
+      return 0
+    fi
+    rm -rf "$plugin_tmp"
+    printf '%s\n' "$PROGRAM: Claude Agent Guard is managed by Jamf/managed settings; ask the administrator to change the pinned marketplace ref instead of using '$PROGRAM plugin $plugin_action'" >&2
+    return 2
   fi
 
   if plugin_marketplace_present "$plugin_host" "$plugin_marketplaces"; then
