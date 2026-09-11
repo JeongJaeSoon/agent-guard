@@ -1,3 +1,7 @@
+## v3.4.0 - 2026-09-11
+
+- Prepare safe internal rollout, support logs, and portable installs (#230)
+
 ## v3.3.0 - 2026-09-10
 
 - `PostToolUse` now scans the file a write tool just targeted, so a secret written to a gitignored path, outside the repository, into a *different* repository, or into a `skip-worktree` / `assume-unchanged` file is caught. Those were blind spots before: the working-tree backstop skips all of them (#221, #228).
