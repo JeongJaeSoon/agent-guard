@@ -5057,6 +5057,12 @@ scan_post_tool_write_target() {
     one_bytes=$(
       [ -z "$workdir" ] || CDPATH= cd -- "$workdir" 2>/dev/null || exit 3
       resolved_target=$(resolve_path "$(normalize_path "$target")")
+      scanned_root=
+      [ "$trust_git_backstop" -eq 1 ] && scanned_root=$(git rev-parse --show-toplevel 2>/dev/null) || scanned_root=
+      if git_backstop_covers_path "$resolved_target" "$scanned_root"; then
+        printf covered
+        exit 0
+      fi
       if [ -f "$resolved_target" ]; then
         LC_ALL=C wc -c <"$resolved_target" 2>/dev/null | tr -d '[:space:]'
       else
@@ -5064,6 +5070,7 @@ scan_post_tool_write_target() {
       fi
     )
     size_status=$?
+    [ "$one_bytes" != covered ] || continue
     case "$one_bytes" in ''|*[!0-9]*) size_status=3 ;; esac
     if [ "$size_status" -ne 0 ]; then
       [ "$target_result" -eq 0 ] && target_result="$SCAN_STATUS_UNAVAILABLE"
@@ -5071,6 +5078,7 @@ scan_post_tool_write_target() {
     fi
     [ -n "$one_bytes" ] && target_total_bytes=$((target_total_bytes + one_bytes))
     if [ "$target_total_bytes" -gt "$POST_TOOL_PATH_SCAN_MAX_BYTES" ]; then
+      info "$PROGRAM: apply_patch direct-scan targets exceed the scan input limit"
       [ "$target_result" -eq 0 ] && target_result="$SCAN_STATUS_UNAVAILABLE"
       continue
     fi

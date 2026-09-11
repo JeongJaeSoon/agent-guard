@@ -12140,6 +12140,94 @@ else
   sed 's/^/  stderr: /' "$ERR"
 fi
 
+# Large tracked files whose tiny changes were successfully covered by the Git
+# diff do not consume the separate direct-scan budget. Their full sizes exceed
+# 10 MiB together, while the actual added-line diff stays small.
+LARGE_PATCH_REPO="$TMP_ROOT/large-patch-targets"
+mkdir -p "$LARGE_PATCH_REPO"
+(
+  cd "$LARGE_PATCH_REPO" || exit 2
+  git init -q
+  git config user.email test@example.com
+  git config user.name "Agent Guard Tests"
+  yes 'clean line' | head -c 5767168 >large-a.txt
+  yes 'clean line' | head -c 5767168 >large-b.txt
+  git add large-a.txt large-b.txt
+  git commit -q -m large-base
+  printf '\nsmall clean edit\n' >>large-a.txt
+  printf '\nsmall clean edit\n' >>large-b.txt
+)
+large_patch=$(printf '%s\n' \
+  '*** Begin Patch' \
+  '*** Update File: large-a.txt' \
+  '@@' \
+  '+small clean edit' \
+  '*** Update File: large-b.txt' \
+  '@@' \
+  '+small clean edit' \
+  '*** End Patch')
+large_payload=$(jq -nc --arg p "$large_patch" --arg d "$LARGE_PATCH_REPO" \
+  '{session_id:"large-tracked-patch",tool_name:"apply_patch",cwd:$d,tool_input:{patch:$p}}')
+printf '%s' "$large_payload" \
+  | AGENT_GUARD_HOOK_HOST=claude AGENT_GUARD_INFRA_FAILURE_MODE=closed \
+      AGENT_GUARD_WARNING_DIR="$TESTTMP/post-target-warn" \
+      "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 0 ]; then
+  ok "apply_patch excludes successfully Git-covered tracked files from direct-scan budget"
+else
+  not_ok "large tracked files with tiny covered diffs pass closed policy (expected 0, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+# Once those paths are ignored and untracked, Git no longer covers them; their
+# aggregate full size must still take the direct-scan infrastructure path.
+(
+  cd "$LARGE_PATCH_REPO" || exit 2
+  git checkout -q -- large-a.txt large-b.txt
+  printf '%s\n' 'large-*.txt' >.gitignore
+  git rm -q --cached large-a.txt large-b.txt
+  git add .gitignore
+  git commit -q -m ignored-large
+  printf '\nsmall clean edit\n' >>large-a.txt
+  printf '\nsmall clean edit\n' >>large-b.txt
+)
+large_ignored_payload=$(printf '%s' "$large_payload" | jq -c '.session_id="large-ignored-patch"')
+printf '%s' "$large_ignored_payload" \
+  | AGENT_GUARD_HOOK_HOST=claude AGENT_GUARD_INFRA_FAILURE_MODE=closed \
+      AGENT_GUARD_WARNING_DIR="$TESTTMP/post-target-warn" \
+      "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ] && grep -q 'direct-scan targets exceed the scan input limit' "$ERR"; then
+  ok "apply_patch still caps ignored targets that require direct scanning"
+else
+  not_ok "large ignored apply_patch targets follow closed direct-scan budget policy (expected 2, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+# A failed Git scan cannot claim coverage either. Open policy continues to the
+# direct path, where the same aggregate cap is still applied and reported.
+(
+  cd "$LARGE_PATCH_REPO" || exit 2
+  git add -f large-a.txt large-b.txt
+  git commit -q -m retrack-large
+  printf '\nsmall clean edit two\n' >>large-a.txt
+  printf '\nsmall clean edit two\n' >>large-b.txt
+)
+large_failed_payload=$(printf '%s' "$large_payload" | jq -c '.session_id="large-failed-backstop"')
+printf '%s' "$large_failed_payload" \
+  | PATH="$PILOT_FAIL_DIFF_BIN:$PATH" AGENT_GUARD_TEST_REAL_GIT="$REAL_GIT" \
+      AGENT_GUARD_HOOK_HOST=claude AGENT_GUARD_INFRA_FAILURE_MODE=open \
+      AGENT_GUARD_WARNING_DIR="$TESTTMP/large-failed-warn" \
+      "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 0 ] && grep -q 'direct-scan targets exceed the scan input limit' "$ERR"; then
+  ok "apply_patch still caps tracked targets after the Git backstop fails"
+else
+  not_ok "failed Git backstop cannot exempt large direct targets (expected open status 0 plus cap, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
 malformed_patch='*** Begin Patch
 *** Add File:
 +clean
