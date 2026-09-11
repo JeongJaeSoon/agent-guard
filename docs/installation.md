@@ -26,20 +26,39 @@ agent-guard plugin install --host codex
 Use `--host all` to install both in one command. If `--host` is omitted,
 exactly one of `claude` or `codex` must be available. Claude Code supports
 `--scope user|project|local` and defaults to `user`; Codex supports user scope
-only. Repeating `install` is a no-op when the plugin is already installed and
-enabled, and never updates it implicitly. If an installed plugin is disabled,
-`status` reports that state and `install` asks you to enable it through the
-host manager. Updates and removals remain explicit:
+only. Each marketplace is pinned to the release tag matching the CLI that
+performs the installation (`v<CLI version>`). Repeating `install` is a
+no-op when the pinned marketplace and installed plugin already match that CLI,
+and never updates them implicitly. If an installed plugin is disabled, `status`
+reports that state and `install` asks you to enable it through the host manager.
+Updates and removals remain explicit:
 
 ```sh
 agent-guard plugin update --host all
 agent-guard plugin uninstall --host claude
 ```
 
-These commands use the remote `JeongJaeSoon/agent-guard` marketplace and call
-the host CLIs directly. They do not write plugin caches or host configuration
-files themselves, do not invoke `sudo`, and do not bypass host confirmation
-prompts. Restart each changed host before verifying its hooks.
+These commands use the remote `JeongJaeSoon/agent-guard@v<CLI version>` marketplace
+and call the host CLIs directly. They do not write plugin caches or host
+configuration files themselves, do not invoke `sudo`, and do not bypass host
+confirmation prompts. Restart each changed host before verifying its hooks.
+
+`status` reports installed plugin version drift separately from marketplace
+state. Claude Code exposes the configured marketplace ref in its JSON status;
+Codex 0.153.4 does not, so Codex status conservatively labels the pin
+unverified. Before `install` or `update` reuses an existing Codex marketplace,
+the CLI asks Codex to add the same pinned source again. Codex treats that as an
+idempotent no-op only for the same ref and rejects an unpinned or different ref
+without changing state.
+
+The CLI will not silently replace an unpinned marketplace, a marketplace pinned
+to another release, or a same-name marketplace from another source. Remove the
+marketplace with the official host manager, then rerun `agent-guard plugin
+install --host HOST`. Marketplace removal also removes plugins installed from
+that marketplace, so treat those two commands as one recovery operation. If
+marketplace registration or plugin installation fails partway through, the CLI
+reports which host-managed state remains and the exact command that is safe to
+retry.
 
 The CLI plugin lifecycle is for self-managed installations. It detects an
 installed Claude plugin with `managed` scope and also reads Agent Guard entries

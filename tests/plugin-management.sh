@@ -131,7 +131,7 @@ fi
 new_case claude_install
 add_host claude
 if run_guard plugin install \
-   && grep -Fxq 'claude plugin marketplace add JeongJaeSoon/agent-guard --scope user' "$case_log" \
+   && grep -Fxq 'claude plugin marketplace add JeongJaeSoon/agent-guard@v3.4.0 --scope user' "$case_log" \
    && grep -Fxq 'claude plugin install agent-guard@agent-guard --scope user' "$case_log" \
    && ! grep -Eq '(^| )(sudo|-y)( |$)' "$case_log"; then
   ok 'Claude install auto-detects, registers the remote marketplace, and retains prompts'
@@ -148,6 +148,18 @@ if run_guard plugin install --host claude \
   ok 'install is idempotent and never updates an installed plugin'
 else
   not_ok 'install is idempotent and never updates an installed plugin'
+fi
+
+new_case codex_installed_noop
+add_host codex
+export AG_PLUGIN_TEST_MARKETPLACE=ok AG_PLUGIN_TEST_INSTALLED=1
+if run_guard plugin install --host codex \
+   && grep -q 'already installed' "$case_dir/out" \
+   && grep -Fxq 'codex plugin marketplace add JeongJaeSoon/agent-guard@v3.4.0' "$case_log" \
+   && ! grep -Eq 'plugin add agent-guard@agent-guard|marketplace (upgrade|remove)' "$case_log"; then
+  ok 'Codex install uses the manager same-ref probe and remains idempotent'
+else
+  not_ok 'Codex install uses the manager same-ref probe and remains idempotent'
 fi
 
 for disabled_host in claude codex; do
@@ -181,6 +193,21 @@ for disabled_host in claude codex; do
     ok "$disabled_host update preserves installed status without implying activation"
   else
     not_ok "$disabled_host update preserves installed status without implying activation"
+  fi
+done
+
+for failed_host in claude codex; do
+  new_case "${failed_host}_marketplace_add_failure"
+  add_host "$failed_host"
+  export AG_PLUGIN_TEST_FAIL="$failed_host:plugin marketplace add"
+  if run_guard plugin install --host "$failed_host"; then
+    not_ok "$failed_host install reports marketplace registration failure"
+  elif grep -q "pinned to v3.4.0" "$case_dir/err" \
+     && grep -q "safe to retry 'agent-guard plugin install --host $failed_host'" "$case_dir/err" \
+     && ! grep -Eq 'plugin (install|add) agent-guard@agent-guard' "$case_log"; then
+    ok "$failed_host install stops before plugin installation when marketplace registration fails"
+  else
+    not_ok "$failed_host install reports marketplace registration failure"
   fi
 done
 
@@ -237,6 +264,43 @@ elif [ "$?" -eq 2 ] \
 else
   not_ok 'install refuses a same-name marketplace from another source'
 fi
+
+for drift_host in claude codex; do
+  for drift_marketplace in unpinned old; do
+    new_case "${drift_host}_${drift_marketplace}_marketplace_status"
+    add_host "$drift_host"
+    export AG_PLUGIN_TEST_MARKETPLACE="$drift_marketplace" AG_PLUGIN_TEST_INSTALLED=old
+    if run_guard plugin status --host "$drift_host" \
+       && grep -q 'version 3.3.0, expected 3.4.0' "$case_dir/out"; then
+      case "$drift_host" in
+        claude) grep -q 'marketplace drift:.*expected v3.4.0' "$case_dir/out" ;;
+        codex) grep -q 'marketplace configured, pin unverified by Codex' "$case_dir/out" ;;
+      esac
+      if [ "$?" -eq 0 ]; then
+        ok "$drift_host status reports plugin and marketplace verification state"
+      else
+        not_ok "$drift_host status reports plugin and marketplace verification state"
+      fi
+    else
+      not_ok "$drift_host status reports plugin and marketplace verification state"
+    fi
+
+    for drift_action in install update; do
+      new_case "${drift_host}_${drift_marketplace}_${drift_action}"
+      add_host "$drift_host"
+      export AG_PLUGIN_TEST_MARKETPLACE="$drift_marketplace" AG_PLUGIN_TEST_INSTALLED=old
+      if run_guard plugin "$drift_action" --host "$drift_host"; then
+        not_ok "$drift_host $drift_action refuses a $drift_marketplace marketplace"
+      elif [ "$?" -eq 2 ] \
+         && grep -q 'marketplace removal also removes its installed plugin' "$case_dir/err" \
+         && ! grep -Eq 'plugin (install|update|add) agent-guard@agent-guard|marketplace (update|upgrade|remove)' "$case_log"; then
+        ok "$drift_host $drift_action refuses a $drift_marketplace marketplace with recovery guidance"
+      else
+        not_ok "$drift_host $drift_action refuses a $drift_marketplace marketplace"
+      fi
+    done
+  done
+done
 
 new_case claude_managed_plugin_status
 add_host claude
@@ -326,7 +390,7 @@ new_case claude_empty_managed_settings
 add_host claude
 : >"$case_managed/managed-settings.json"
 if run_guard plugin install --host claude \
-   && grep -Fxq 'claude plugin marketplace add JeongJaeSoon/agent-guard --scope user' "$case_log" \
+   && grep -Fxq 'claude plugin marketplace add JeongJaeSoon/agent-guard@v3.4.0 --scope user' "$case_log" \
    && grep -Fxq 'claude plugin install agent-guard@agent-guard --scope user' "$case_log"; then
   ok 'an empty managed settings file is treated as an unrelated empty object'
 else
@@ -489,7 +553,7 @@ done
 
 new_case claude_update
 add_host claude
-export AG_PLUGIN_TEST_MARKETPLACE=ok AG_PLUGIN_TEST_INSTALLED=project
+export AG_PLUGIN_TEST_MARKETPLACE=ok AG_PLUGIN_TEST_INSTALLED=project_old
 if run_guard plugin update --host claude --scope project \
    && tail -n 2 "$case_log" | sed 's/^claude //' >"$case_dir/tail" \
    && printf '%s\n' 'plugin marketplace update agent-guard' \
@@ -502,7 +566,7 @@ fi
 
 new_case claude_project_status_absent
 add_host claude
-export AG_PLUGIN_TEST_MARKETPLACE=ok AG_PLUGIN_TEST_INSTALLED=1
+export AG_PLUGIN_TEST_MARKETPLACE=ok AG_PLUGIN_TEST_INSTALLED=old
 if run_guard plugin status --host claude --scope project \
    && grep -q '^claude: not installed' "$case_dir/out"; then
   ok 'Claude status reports the requested project scope absent when only user scope is installed'
@@ -546,13 +610,34 @@ fi
 
 new_case codex_update
 add_host codex
-export AG_PLUGIN_TEST_MARKETPLACE=ok AG_PLUGIN_TEST_INSTALLED=1
+export AG_PLUGIN_TEST_MARKETPLACE=ok AG_PLUGIN_TEST_INSTALLED=old
 if run_guard plugin update --host codex \
-   && grep -Fxq 'codex plugin marketplace upgrade agent-guard' "$case_log"; then
+   && tail -n 2 "$case_log" | sed 's/^codex //' >"$case_dir/tail" \
+   && printf '%s\n' 'plugin marketplace add JeongJaeSoon/agent-guard@v3.4.0' \
+      'plugin marketplace upgrade agent-guard' >"$case_dir/expected" \
+   && cmp -s "$case_dir/expected" "$case_dir/tail"; then
   ok 'Codex update delegates to marketplace upgrade'
 else
   not_ok 'Codex update delegates to marketplace upgrade'
 fi
+
+for update_host in claude codex; do
+  new_case "${update_host}_update_partial_failure"
+  add_host "$update_host"
+  export AG_PLUGIN_TEST_MARKETPLACE=ok AG_PLUGIN_TEST_INSTALLED=old
+  case "$update_host" in
+    claude) export AG_PLUGIN_TEST_FAIL='claude:plugin update' ;;
+    codex) export AG_PLUGIN_TEST_FAIL='codex:plugin marketplace upgrade' ;;
+  esac
+  if run_guard plugin update --host "$update_host"; then
+    not_ok "$update_host update reports a partial manager failure"
+  elif grep -q "marketplace remains pinned to v3.4.0" "$case_dir/err" \
+     && grep -q "safe to retry 'agent-guard plugin update --host $update_host'" "$case_dir/err"; then
+    ok "$update_host update reports retained pin and a safe retry"
+  else
+    not_ok "$update_host update reports a partial manager failure"
+  fi
+done
 
 new_case codex_scope
 add_host codex
