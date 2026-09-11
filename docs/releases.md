@@ -14,7 +14,7 @@ credential.
 Use a clean temporary directory and the exact version being handed off:
 
 ```sh
-version=3.3.0
+version=${AGENT_GUARD_RELEASE_VERSION:?Set AGENT_GUARD_RELEASE_VERSION to X.Y.Z}
 release_dir=$(mktemp -d)
 source_dir=$(mktemp -d)
 trap 'rm -rf "$release_dir" "$source_dir"' EXIT INT TERM

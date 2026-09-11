@@ -16,8 +16,8 @@ summary. Never include live credentials, private keys, prompts, transcripts,
 raw stderr, full hook payloads, paths, environment variables, session IDs, or
 unredacted personal data.
 
-When the installed version provides `--output`, create one private support file
-instead of attaching raw diagnostic output:
+In v3.4.1 and later, create one private support file instead of attaching raw
+diagnostic output:
 
 ```sh
 agent-guard logs export --output agent-guard-support.jsonl
@@ -25,11 +25,18 @@ agent-guard logs export --output agent-guard-support.jsonl
 
 The parent directory must already exist. This creates a new mode-0600 file and
 refuses to replace an existing file or symlink. The local support log is metadata
-only. Plugin-only installations may not have `agent-guard` on PATH: use the
-absolute plugin-local executable printed by the host setup skill in place of
-`agent-guard`. This also avoids exporting logs through an unrelated standalone
-version. If export cannot run, send only the listed metadata and a manually
-sanitized error summary; never substitute raw stderr or a host transcript.
+only. After Claude's `/agent-guard:setup-shell` completes and a bash or zsh
+terminal is restarted, the plugin-local CLI is available as `agent-guard`.
+Before that restart, when shell setup failed, or from fish, use the plugin-local
+executable path printed by the setup skill in place of `agent-guard`. This also
+avoids exporting logs through an unrelated standalone version.
+
+If export reports that `jq` is missing, storage is unavailable, the file is
+empty after reproducing the event, or only a start record exists, rerun the host
+setup skill and approve the dependency or storage repair it proposes. Until a
+safe export succeeds, report only the listed metadata and a manually sanitized
+error summary. Do not send raw stderr, a transcript, environment output, or the
+original input as a substitute.
 
 The log records a random local `run_id`, version, command/event
 category, host, start and finish time, exit status, and one of `pass`, `blocked`, `masked`,

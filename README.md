@@ -20,8 +20,7 @@ not a vault, DLP system, EDR, or credential rotator.
 | Understand host coverage and configure an integration | [Integrations](docs/integrations.md) |
 | Verify a setup and understand what the result proves | [Verification](docs/verification.md) |
 | Configure policy, PII, redaction, or infrastructure behavior | [Configuration](docs/configuration.md) |
-| Run a small internal pilot | [Pilot manual (Korean)](docs/pilot.md) |
-| Deploy for a managed team or troubleshoot an environment | [Operations](docs/operations.md) |
+| Deploy for a managed team or troubleshoot an environment | [Operations](docs/operations.md); the [Korean/Japanese deployment guide](https://agent-guard-guide.jaesoon.chatgpt.site/) is a supplementary, currently published walkthrough |
 
 ## Quick use
 
