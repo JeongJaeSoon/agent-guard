@@ -24,6 +24,9 @@ REAL_DIRNAME=$(command -v dirname)
 REAL_PWD=$(command -v pwd)
 PATH="$MOCK_BIN:$PATH"
 export PATH
+# Keep the large deterministic suite out of the developer's support logs.
+# Dedicated audit tests explicitly turn logging on in private temp storage.
+export AGENT_GUARD_LOG_MODE=off
 export AGENT_GUARD_GITLEAKS_CONFIG="$PLUGIN_ROOT/config/gitleaks.toml"
 
 # Isolate git from the developer's global config so inherited values like
@@ -150,8 +153,12 @@ fi
 # while AGENT_GUARD_COMMAND_WRAPPING=off is a persistent install-time opt-out.
 # Stub only the release downloads; archive verification, extraction, linking,
 # setup-shell, and rc generation all run through the real implementation.
+run_expect 0 "private metadata-only audit logging contract" sh "$ROOT/tests/audit-log.sh"
+
 run_expect 0 "standalone update preserves executable and link destinations" \
   sh "$ROOT/tests/bootstrap-update.sh"
+run_expect 0 "release archive carries README-linked Markdown guides" \
+  sh "$ROOT/tests/release-docs.sh"
 bootstrap_fixture="$TESTTMP/bootstrap-fixture"
 mkdir -p "$bootstrap_fixture/bin"
 "$ROOT/scripts/build-release-tarball.sh" 2.0.0 "$bootstrap_fixture/agent-guard-2.0.0.tar.gz"
@@ -5861,11 +5868,17 @@ formula_output=$(
   "$ROOT/scripts/render-homebrew-formula.sh" 3.1.0 "$FORMULA_SHA"
 )
 if printf '%s\n' "$formula_output" | grep -q 'libexec.install Dir' \
+   && printf '%s\n' "$formula_output" | grep -q 'libexec/".agent-guard-homebrew"' \
    && printf '%s\n' "$formula_output" | grep -q 'agent-guard-3.1.0.tar.gz' \
-   && printf '%s\n' "$formula_output" | grep -q 'sha256 "'$FORMULA_SHA'"'; then
-  ok "Homebrew formula pins URL, checksum, and non-recursive libexec wrapper"
+   && printf '%s\n' "$formula_output" | grep -q 'sha256 "'$FORMULA_SHA'"' \
+   && printf '%s\n' "$formula_output" | grep -q 'depends_on "git"' \
+   && printf '%s\n' "$formula_output" | grep -q 'depends_on "gitleaks"' \
+   && printf '%s\n' "$formula_output" | grep -q 'depends_on "jq"' \
+   && printf '%s\n' "$formula_output" | grep -q 'system "#{bin}/agent-guard", "check"' \
+   && printf '%s\n' "$formula_output" | grep -q 'system "#{bin}/agent-guard", "smoke-test"'; then
+  ok "Homebrew formula pins release, installs CLI dependencies, and checks the guard"
 else
-  not_ok "Homebrew formula pins URL, checksum, and non-recursive libexec wrapper"
+  not_ok "Homebrew formula pins release, installs CLI dependencies, and checks the guard"
 fi
 run_expect 2 "Homebrew formula renderer rejects a malformed checksum" \
   "$ROOT/scripts/render-homebrew-formula.sh" 3.1.0 bad
@@ -7586,6 +7599,93 @@ if [ -n "$REAL_GITLEAKS" ]; then
     ok "#224 control: scan-working-tree still detects an unstaged worktree secret"
   else
     not_ok "#224 control: unstaged worktree secret stays detected (expected 1, got $status)"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+
+  # A repository-controlled textconv driver must not replace the bytes being
+  # scanned. --no-ext-diff does not disable textconv, so exercise both shared
+  # extractor callers and prove the configured helper is never executed.
+  TEXTCONV224_REPO="$TMP_ROOT/textconv-224-repo"
+  TEXTCONV224_CALLED="$TMP_ROOT/textconv-224-called"
+  TEXTCONV224_HELPER="$TMP_ROOT/textconv-224-helper"
+  cat >"$TEXTCONV224_HELPER" <<EOSH
+#!/usr/bin/env sh
+: >"$TEXTCONV224_CALLED"
+printf '%s\n' clean
+EOSH
+  chmod +x "$TEXTCONV224_HELPER"
+  mkdir -p "$TEXTCONV224_REPO"
+  (
+    cd "$TEXTCONV224_REPO" || exit 2
+    git init -q
+    git config user.email test@example.com
+    git config user.name "Agent Guard Tests"
+    git config diff.fixture.textconv "$TEXTCONV224_HELPER"
+    printf '%s\n' 'payload.txt diff=fixture' >.gitattributes
+    printf '%s\n' clean >payload.txt
+    git add .gitattributes payload.txt
+    git commit -q -m init
+  )
+  TEXTCONV224_TOKEN_PART_1="AGENT_GUARD_TEST_"
+  TEXTCONV224_TOKEN_PART_2="SECRET"
+  TEXTCONV224_TOKEN=$(printf '%s%s' "$TEXTCONV224_TOKEN_PART_1" "$TEXTCONV224_TOKEN_PART_2")
+
+  printf '%s\n' "$TEXTCONV224_TOKEN" >"$TEXTCONV224_REPO/payload.txt"
+  (
+    cd "$TEXTCONV224_REPO" || exit 2
+    "$PLUGIN_ROOT/bin/agent-guard" scan-working-tree
+  ) >"$OUT" 2>"$ERR"
+  status=$?
+  if [ "$status" -eq 1 ] && [ ! -e "$TEXTCONV224_CALLED" ]; then
+    ok "scan-working-tree ignores repository textconv and scans raw additions"
+  else
+    not_ok "scan-working-tree disables textconv (expected finding 1 and no helper call, got $status)"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+
+  rm -f "$TEXTCONV224_CALLED"
+  (
+    cd "$TEXTCONV224_REPO" || exit 2
+    git add payload.txt
+    "$PLUGIN_ROOT/bin/agent-guard" scan-staged
+  ) >"$OUT" 2>"$ERR"
+  status=$?
+  if [ "$status" -eq 1 ] && [ ! -e "$TEXTCONV224_CALLED" ]; then
+    ok "scan-staged ignores repository textconv and scans raw additions"
+  else
+    not_ok "scan-staged disables textconv (expected finding 1 and no helper call, got $status)"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+
+  # Presentation configuration is another repository-controlled override of
+  # the diff protocol. ANSI prefixes prevent the header/hunk parser from seeing
+  # its anchors, so force color off for both shared extractor callers.
+  (
+    cd "$TEXTCONV224_REPO" || exit 2
+    git reset -q --hard HEAD
+    git config --unset diff.fixture.textconv
+    git config color.ui always
+    printf '%s\n' "$TEXTCONV224_TOKEN" >payload.txt
+    "$PLUGIN_ROOT/bin/agent-guard" scan-working-tree
+  ) >"$OUT" 2>"$ERR"
+  status=$?
+  if [ "$status" -eq 1 ]; then
+    ok "scan-working-tree ignores color.ui=always and parses raw diff protocol"
+  else
+    not_ok "scan-working-tree disables configured diff color (expected finding 1, got $status)"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+
+  (
+    cd "$TEXTCONV224_REPO" || exit 2
+    git add payload.txt
+    "$PLUGIN_ROOT/bin/agent-guard" scan-staged
+  ) >"$OUT" 2>"$ERR"
+  status=$?
+  if [ "$status" -eq 1 ]; then
+    ok "scan-staged ignores color.ui=always and parses raw diff protocol"
+  else
+    not_ok "scan-staged disables configured diff color (expected finding 1, got $status)"
     sed 's/^/  stderr: /' "$ERR"
   fi
 
@@ -11690,7 +11790,7 @@ if printf '%s' "$ss_fish_out" | grep -q 'fish' \
    && printf '%s' "$ss_fish_out" | grep -q 'agx' \
    && printf '%s' "$ss_fish_out" | grep -q 'plugin-only' \
    && printf '%s' "$ss_fish_out" | grep -q 'fish executable:' \
-   && grep -Fq 'current/bin/agent-guard' "$ROOT/README.md" \
+   && grep -Fq 'current/bin/agent-guard' "$ROOT/docs/operations.md" \
    && ! printf '%s' "$ss_fish_out" | grep -Eq 'Claude Code|Codex'; then
   ok "setup-shell reports the fish limitation and plugin-only executable (#139)"
 else
@@ -11974,6 +12074,317 @@ else
   not_ok "normal hook completion leaves no leftover scan temp: $norm_leftover"
 fi
 rm -rf "$NORM_PARENT"
+
+# --- pilot security: bounded tree scans and Codex write targets ------------
+# Assemble the test-only sentinel so source scans never see the matched value.
+PILOT_TOKEN_PART_1="AGENT_GUARD_TEST_"
+PILOT_TOKEN_PART_2="SECRET"
+PILOT_TOKEN=$(printf '%s%s' "$PILOT_TOKEN_PART_1" "$PILOT_TOKEN_PART_2")
+PILOT_REPO="$TMP_ROOT/pilot-security-repo"
+mkdir -p "$PILOT_REPO/ignored dir"
+(
+  cd "$PILOT_REPO" || exit 2
+  git init -q
+  git config user.email test@example.com
+  git config user.name "Agent Guard Tests"
+  printf '%s\n' '*.bin -diff' >.gitattributes
+  printf '%s\n' clean >payload.bin
+  printf '%s\n' 'ignored dir/' >.gitignore
+  git add .gitattributes .gitignore payload.bin
+  git commit -q -m init
+  printf 'TOKEN=%s\n' "$PILOT_TOKEN" >payload.bin
+  "$PLUGIN_ROOT/bin/agent-guard" scan-working-tree
+) >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 1 ]; then
+  ok "scan-working-tree scans tracked files marked binary and -diff"
+else
+  not_ok "scan-working-tree scans tracked -diff content (expected 1, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+# Preserve a confirmed tracked finding even when the later untracked listing
+# is unavailable. The fake delegates every Git operation except ls-files.
+PILOT_FAIL_BIN="$TMP_ROOT/pilot-fail-ls-files"
+mkdir -p "$PILOT_FAIL_BIN"
+cat >"$PILOT_FAIL_BIN/git" <<'EOSH'
+#!/usr/bin/env sh
+for arg do
+  [ "$arg" = ls-files ] && exit 71
+done
+exec "$AGENT_GUARD_TEST_REAL_GIT" "$@"
+EOSH
+chmod +x "$PILOT_FAIL_BIN/git"
+(
+  cd "$PILOT_REPO" || exit 2
+  PATH="$PILOT_FAIL_BIN:$PATH" AGENT_GUARD_TEST_REAL_GIT="$REAL_GIT" \
+    "$PLUGIN_ROOT/bin/agent-guard" scan-working-tree
+) >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 1 ]; then
+  ok "scan-working-tree keeps a finding when a later scan is unavailable"
+else
+  not_ok "scan-working-tree finding outranks unavailable (expected 1, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+(cd "$PILOT_REPO" && git checkout -q -- payload.bin)
+
+# The precedence is symmetric: a later confirmed untracked finding must replace
+# an earlier unavailable tracked-diff result.
+printf '%s\n' "$PILOT_TOKEN" >"$PILOT_REPO/untracked-finding.txt"
+PILOT_FAIL_DIFF_BIN="$TMP_ROOT/pilot-fail-diff"
+mkdir -p "$PILOT_FAIL_DIFF_BIN"
+cat >"$PILOT_FAIL_DIFF_BIN/git" <<'EOSH'
+#!/usr/bin/env sh
+for arg do
+  [ "$arg" = diff ] && exit 72
+done
+exec "$AGENT_GUARD_TEST_REAL_GIT" "$@"
+EOSH
+chmod +x "$PILOT_FAIL_DIFF_BIN/git"
+(
+  cd "$PILOT_REPO" || exit 2
+  PATH="$PILOT_FAIL_DIFF_BIN:$PATH" AGENT_GUARD_TEST_REAL_GIT="$REAL_GIT" \
+    "$PLUGIN_ROOT/bin/agent-guard" scan-working-tree
+) >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 1 ]; then
+  ok "scan-working-tree keeps an untracked finding after an earlier unavailable diff"
+else
+  not_ok "scan-working-tree later finding outranks unavailable (expected 1, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+rm -f "$PILOT_REPO/untracked-finding.txt"
+
+# A failed repository scan cannot be used as proof that Git covered the path;
+# PostToolUse must directly inspect the named tracked target instead.
+printf '%s\n' "$PILOT_TOKEN" >"$PILOT_REPO/payload.bin"
+failed_backstop_payload=$(jq -nc --arg d "$PILOT_REPO" \
+  '{session_id:"pilot-failed-backstop",tool_name:"Write",cwd:$d,tool_input:{file_path:"payload.bin"}}')
+printf '%s' "$failed_backstop_payload" \
+  | PATH="$PILOT_FAIL_DIFF_BIN:$PATH" AGENT_GUARD_TEST_REAL_GIT="$REAL_GIT" \
+      AGENT_GUARD_HOOK_HOST=claude AGENT_GUARD_WARNING_DIR="$TESTTMP/post-target-warn" \
+      "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "hook-post-tool directly scans a tracked target after Git backstop failure"
+else
+  not_ok "failed Git backstop does not claim target coverage (expected 2, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+(cd "$PILOT_REPO" && git checkout -q -- payload.bin)
+
+# A producer that exceeds its third of the aggregate tree-scan budget is an
+# infrastructure result, never an empty clean diff.
+PILOT_BIG_BIN="$TMP_ROOT/pilot-big-diff"
+mkdir -p "$PILOT_BIG_BIN"
+cat >"$PILOT_BIG_BIN/git" <<'EOSH'
+#!/usr/bin/env sh
+for arg do
+  if [ "$arg" = diff ]; then
+    printf '%s\n' 'diff --git a/x b/x' '--- a/x' '+++ b/x' '@@ -0,0 +1 @@'
+    yes '+012345678901234567890123456789012345678901234567890123456789'
+    exit 0
+  fi
+done
+exec "$AGENT_GUARD_TEST_REAL_GIT" "$@"
+EOSH
+chmod +x "$PILOT_BIG_BIN/git"
+(
+  cd "$PILOT_REPO" || exit 2
+  PATH="$PILOT_BIG_BIN:$PATH" AGENT_GUARD_TEST_REAL_GIT="$REAL_GIT" \
+    "$PLUGIN_ROOT/bin/agent-guard" scan-working-tree
+) >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 3 ]; then
+  ok "scan-working-tree reports an over-budget diff as unavailable"
+else
+  not_ok "scan-working-tree over-budget diff is unavailable (expected 3, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+# Codex apply_patch may write several files, uses the event cwd for relative
+# names, and permits spaces and shell metacharacters in its line-based paths.
+printf 'TOKEN=%s\n' "$PILOT_TOKEN" >"$PILOT_REPO/ignored dir/clean name.txt"
+printf 'TOKEN=%s\n' "$PILOT_TOKEN" >"$PILOT_REPO/ignored dir/semi;name.txt"
+pilot_patch=$(printf '%s\n' \
+  '*** Begin Patch' \
+  '*** Add File: ignored dir/clean name.txt' \
+  '+clean' \
+  '*** Add File: ignored dir/semi;name.txt' \
+  '+clean' \
+  '*** End Patch')
+pilot_payload=$(jq -nc --arg p "$pilot_patch" --arg d "$PILOT_REPO" \
+  '{session_id:"pilot-apply-multi",tool_name:"apply_patch",cwd:$d,tool_input:{input:$p}}')
+printf '%s' "$pilot_payload" \
+  | AGENT_GUARD_HOOK_HOST=claude AGENT_GUARD_WARNING_DIR="$TESTTMP/post-target-warn" \
+      "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "Codex apply_patch directly scans multiple safe relative targets from payload cwd"
+else
+  not_ok "Codex apply_patch scans every target (expected 2, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+# Large tracked files whose tiny changes were successfully covered by the Git
+# diff do not consume the separate direct-scan budget. Their full sizes exceed
+# 10 MiB together, while the actual added-line diff stays small.
+LARGE_PATCH_REPO="$TMP_ROOT/large-patch-targets"
+mkdir -p "$LARGE_PATCH_REPO"
+(
+  cd "$LARGE_PATCH_REPO" || exit 2
+  git init -q
+  git config user.email test@example.com
+  git config user.name "Agent Guard Tests"
+  yes 'clean line' | head -c 5767168 >large-a.txt
+  yes 'clean line' | head -c 5767168 >large-b.txt
+  git add large-a.txt large-b.txt
+  git commit -q -m large-base
+  printf '\nsmall clean edit\n' >>large-a.txt
+  printf '\nsmall clean edit\n' >>large-b.txt
+)
+large_patch=$(printf '%s\n' \
+  '*** Begin Patch' \
+  '*** Update File: large-a.txt' \
+  '@@' \
+  '+small clean edit' \
+  '*** Update File: large-b.txt' \
+  '@@' \
+  '+small clean edit' \
+  '*** End Patch')
+large_payload=$(jq -nc --arg p "$large_patch" --arg d "$LARGE_PATCH_REPO" \
+  '{session_id:"large-tracked-patch",tool_name:"apply_patch",cwd:$d,tool_input:{patch:$p}}')
+printf '%s' "$large_payload" \
+  | AGENT_GUARD_HOOK_HOST=claude AGENT_GUARD_INFRA_FAILURE_MODE=closed \
+      AGENT_GUARD_WARNING_DIR="$TESTTMP/post-target-warn" \
+      "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 0 ]; then
+  ok "apply_patch excludes successfully Git-covered tracked files from direct-scan budget"
+else
+  not_ok "large tracked files with tiny covered diffs pass closed policy (expected 0, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+# Once those paths are ignored and untracked, Git no longer covers them; their
+# aggregate full size must still take the direct-scan infrastructure path.
+(
+  cd "$LARGE_PATCH_REPO" || exit 2
+  git checkout -q -- large-a.txt large-b.txt
+  printf '%s\n' 'large-*.txt' >.gitignore
+  git rm -q --cached large-a.txt large-b.txt
+  git add .gitignore
+  git commit -q -m ignored-large
+  printf '\nsmall clean edit\n' >>large-a.txt
+  printf '\nsmall clean edit\n' >>large-b.txt
+)
+large_ignored_payload=$(printf '%s' "$large_payload" | jq -c '.session_id="large-ignored-patch"')
+printf '%s' "$large_ignored_payload" \
+  | AGENT_GUARD_HOOK_HOST=claude AGENT_GUARD_INFRA_FAILURE_MODE=closed \
+      AGENT_GUARD_WARNING_DIR="$TESTTMP/post-target-warn" \
+      "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ] && grep -q 'direct-scan targets exceed the scan input limit' "$ERR"; then
+  ok "apply_patch still caps ignored targets that require direct scanning"
+else
+  not_ok "large ignored apply_patch targets follow closed direct-scan budget policy (expected 2, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+# A failed Git scan cannot claim coverage either. Open policy continues to the
+# direct path, where the same aggregate cap is still applied and reported.
+(
+  cd "$LARGE_PATCH_REPO" || exit 2
+  git add -f large-a.txt large-b.txt
+  git commit -q -m retrack-large
+  printf '\nsmall clean edit two\n' >>large-a.txt
+  printf '\nsmall clean edit two\n' >>large-b.txt
+)
+large_failed_payload=$(printf '%s' "$large_payload" | jq -c '.session_id="large-failed-backstop"')
+printf '%s' "$large_failed_payload" \
+  | PATH="$PILOT_FAIL_DIFF_BIN:$PATH" AGENT_GUARD_TEST_REAL_GIT="$REAL_GIT" \
+      AGENT_GUARD_HOOK_HOST=claude AGENT_GUARD_INFRA_FAILURE_MODE=open \
+      AGENT_GUARD_WARNING_DIR="$TESTTMP/large-failed-warn" \
+      "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 0 ] && grep -q 'direct-scan targets exceed the scan input limit' "$ERR"; then
+  ok "apply_patch still caps tracked targets after the Git backstop fails"
+else
+  not_ok "failed Git backstop cannot exempt large direct targets (expected open status 0 plus cap, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+malformed_patch='*** Begin Patch
+*** Add File:
++clean
+*** End Patch'
+malformed_payload=$(jq -nc --arg p "$malformed_patch" --arg d "$PILOT_REPO" \
+  '{session_id:"pilot-apply-malformed",tool_name:"apply_patch",cwd:$d,tool_input:{patch:$p}}')
+printf '%s' "$malformed_payload" \
+  | AGENT_GUARD_HOOK_HOST=claude AGENT_GUARD_INFRA_FAILURE_MODE=closed \
+      AGENT_GUARD_WARNING_DIR="$TESTTMP/post-target-warn" \
+      "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "Codex apply_patch malformed write target follows closed infrastructure policy"
+else
+  not_ok "Codex apply_patch malformed target is not silently clean (expected 2, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+many_patch='*** Begin Patch'
+many_i=0
+while [ "$many_i" -lt 129 ]; do
+  many_i=$((many_i + 1))
+  many_patch="$many_patch
+*** Add File: ignored dir/empty-$many_i
++clean"
+done
+many_patch="$many_patch
+*** End Patch"
+many_payload=$(jq -nc --arg p "$many_patch" --arg d "$PILOT_REPO" \
+  '{session_id:"pilot-apply-count",tool_name:"apply_patch",cwd:$d,tool_input:{diff:$p}}')
+printf '%s' "$many_payload" \
+  | AGENT_GUARD_HOOK_HOST=claude AGENT_GUARD_INFRA_FAILURE_MODE=closed \
+      AGENT_GUARD_WARNING_DIR="$TESTTMP/post-target-warn" \
+      "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "Codex apply_patch target count limit follows closed infrastructure policy"
+else
+  not_ok "Codex apply_patch bounds empty target count (expected 2, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+newline_payload=$(jq -nc --arg d "$PILOT_REPO" --arg p "ignored dir/trailing
+" '{session_id:"pilot-newline-target",tool_name:"Write",cwd:$d,tool_input:{file_path:$p}}')
+printf '%s' "$newline_payload" \
+  | AGENT_GUARD_HOOK_HOST=claude AGENT_GUARD_INFRA_FAILURE_MODE=closed \
+      AGENT_GUARD_WARNING_DIR="$TESTTMP/post-target-warn" \
+      "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "structured Write target with a trailing newline is not silently treated as another path"
+else
+  not_ok "structured Write control-character target follows infrastructure policy (expected 2, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+printf '%s\n' clean >"$PILOT_REPO/ignored dir/normal.txt"
+normal_payload=$(jq -nc --arg d "$PILOT_REPO" \
+  '{session_id:"pilot-normal-target",tool_name:"Write",cwd:$d,tool_input:{file_path:"ignored dir/normal.txt"}}')
+printf '%s' "$normal_payload" \
+  | AGENT_GUARD_HOOK_HOST=claude AGENT_GUARD_INFRA_FAILURE_MODE=closed \
+      AGENT_GUARD_WARNING_DIR="$TESTTMP/post-target-warn" \
+      "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 0 ]; then
+  ok "structured Write normal target passes under closed infrastructure policy"
+else
+  not_ok "structured Write normal target is not a control-character false positive (expected 0, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
 
 say "passed: $pass"
 say "failed: $fail"

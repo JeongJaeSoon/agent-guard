@@ -1,11 +1,13 @@
 # Privacy and Data Handling
 
-Last updated: 2026-07-31
+Last updated: 2026-09-11
 
 Agent Guard is local by default. The project does not operate an Agent Guard
 service, account system, telemetry collector, crash reporter, or analytics
-endpoint. Default hook processing does not transmit inspected data and does not
-retain it after the hook or command finishes.
+endpoint. Default hook processing does not transmit inspected data. It does not
+retain it after the hook or command finishes. The next release
+adds a default-on, metadata-only local support log; it records no inspected
+content.
 
 ## What the plugin processes
 
@@ -20,6 +22,7 @@ When enabled, Agent Guard registers hooks for `SessionStart`, `UserPromptSubmit`
 | `Stop` | Changed and untracked files in the current Git work tree | Final working-tree secret scan | None |
 | `SessionStart` | Dependency availability and Agent Guard shell-integration version marker | Report degraded setup or version drift | None |
 | CLI and shell wrappers | Only stdin, paths, or command output explicitly passed by the user | On-demand scan or masking | None |
+| Local support log | Random local `run_id`, version, command/event category, host, start/finish time, exit status, and coarse outcome | Diagnose a local installation without retaining inspected data | Local metadata only; no content, paths, environment variables, host session IDs, or arbitrary tool names |
 
 Temporary scan reports and provider responses are created under a single
 per-invocation directory inside the operating system temporary directory and
@@ -30,6 +33,28 @@ leaving those temporary files for the operating system's temporary-directory
 reaper to remove. Agent Guard does not write inspected tool content to its own
 log or database. The host application may independently retain tool inputs and
 outputs under its own privacy policy.
+
+## Local support log
+
+The metadata log is introduced after v3.3.0; do not expect its commands in that
+release. When available, Agent Guard writes metadata-only JSONL records under
+`$XDG_STATE_HOME/agent-guard` or, when that variable is unset,
+`~/.local/state/agent-guard`. It creates a start record and completes it with
+one of `pass`, `blocked`, `masked`, `warned`, `degraded`, `error`, or `interrupted`.
+The `run_id` is a random local invocation-correlation value, not a host session
+identifier.
+`pass` only means the invocation returned without a block; it is not evidence
+that every scanner or host route was clean.
+
+The default retention target is 1,000 invocations and seven days. Cleanup runs
+once at invocation start, examines at most 2,000 top-level entries, and only
+removes generated event names. Concurrent runs or externally populated storage
+can exceed that target; cleanup remains bounded. No cleanup runs
+on the signal/exit path. Logging is best-effort and never changes a guard decision.
+Set `AGENT_GUARD_LOG_MODE=off` to opt out. `agent-guard logs status` reports
+local log state and `agent-guard logs export` writes the safe metadata JSONL to
+standard output. Neither command exports inspected content, file paths,
+environment values, host session identifiers, or arbitrary tool names.
 
 ## Network behavior
 

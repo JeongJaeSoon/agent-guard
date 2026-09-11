@@ -40,6 +40,7 @@ ROOT_DIR=$(CDPATH= cd -- "$BIN_DIR/.." && pwd -P)
 # where the binary lives in the plugin cache and is never symlinked onto PATH).
 SELF_BIN="$BIN_DIR/agent-guard"
 
+
 # Plugin managers install each release under a version directory. Keep one
 # sibling `current` symlink so shell snapshots and hook manifests never bake a
 # disposable version path. Direct CLI installs (ROOT_DIR is not a semver) keep
@@ -172,6 +173,7 @@ Usage:
   agent-guard check
   agent-guard setup [--install --gitleaks-checksum SHA [--gitleaks-version X.Y.Z]]
   agent-guard doctor
+  agent-guard logs [status|export]
   agent-guard update
   agent-guard smoke-test
   agent-guard checksum [VERSION]
@@ -181,6 +183,183 @@ EOF
 
 info() {
   printf '%s\n' "$*" >&2
+}
+
+# Local support log. Only fixed vocabulary and numeric metadata reach disk.
+# Never pass hook JSON, diagnostics, arguments, paths or environment values here.
+AG_AUDIT_FILE=
+AG_AUDIT_START=0
+
+audit_location() {
+  printf '%s/agent-guard' "${XDG_STATE_HOME:-${HOME:-}/.local/state}"
+}
+
+audit_stat() {
+  case "$(uname -s)" in
+    Darwin) stat -f '%u:%Lp' "$1" 2>/dev/null ;;
+    *) stat -c '%u:%a' "$1" 2>/dev/null ;;
+  esac
+}
+
+# Refuse symlink components and ambiguous relative paths. Existing private
+# directories are never chmodded: an unexpected directory is an error.
+audit_directory() (
+  ag_dir=$(audit_location)
+  case "$ag_dir" in /*) ;; *) return 1 ;; esac
+  if printf '%s' "$ag_dir" | LC_ALL=C grep -q '[[:cntrl:]]'; then return 1; fi
+  ag_prefix=
+  ag_rest=${ag_dir#/}
+  while [ -n "$ag_rest" ]; do
+    ag_part=${ag_rest%%/*}
+    case "$ag_part" in ''|.|..) return 1 ;; esac
+    ag_prefix="$ag_prefix/$ag_part"
+    [ ! -L "$ag_prefix" ] || return 1
+    if [ "$ag_part" = "$ag_rest" ]; then break; fi
+    ag_rest=${ag_rest#*/}
+  done
+  if [ "${1:-}" = create ]; then
+    (umask 077; mkdir -p "$ag_dir") 2>/dev/null || return 1
+  fi
+  [ -d "$ag_dir" ] && [ ! -L "$ag_dir" ] || return 1
+  [ "$(audit_stat "$ag_dir")" = "$(id -u):700" ] || return 1
+  printf '%s' "$ag_dir"
+)
+
+audit_note() {
+  [ -n "$AG_AUDIT_FILE" ] && [ -n "${AGENT_GUARD_RUNDIR:-}" ] || return 0
+  case "$1" in degraded|masked|error|warned)
+    (umask 077; : >"$AGENT_GUARD_RUNDIR/audit-$1") 2>/dev/null || : ;;
+  esac
+  return 0
+}
+
+audit_record() {
+  # Every interpolated string is selected internally, never supplied by a host.
+  printf '{"schema":1,"run_id":"%s","time":%s,"version":"%s","command":"%s","host":"%s","phase":"%s","outcome":"%s","exit_code":%s,"duration_seconds":%s}\n' \
+    "$AG_AUDIT_ID" "$1" "$VERSION" "$AG_AUDIT_COMMAND" "$AG_AUDIT_HOST" "$2" "$3" "$4" "$5"
+}
+
+audit_prune() (
+  # Keep housekeeping off the EXIT/signal path. Bound the directory listing
+  # before filtering, so unrelated files cannot force an unbounded traversal.
+  # Retention is incremental if the private directory was externally populated.
+  ag_dir=$1
+  ag_cutoff=$((AG_AUDIT_START - 604800))
+  find "$ag_dir" -mindepth 1 -maxdepth 1 -print 2>/dev/null \
+    | head -n 2000 \
+    | AG_AUDIT_PRUNE_DIR="$ag_dir" LC_ALL=C awk '
+        BEGIN { prefix=ENVIRON["AG_AUDIT_PRUNE_DIR"] "/" }
+        index($0, prefix) == 1 {
+          name=substr($0, length(prefix)+1)
+          if (name ~ /^event-[0-9]{1,12}-[A-Za-z0-9]{6}$/) print
+        }
+      ' \
+    | LC_ALL=C sort -r \
+    | awk -v cutoff="$ag_cutoff" '
+        { n=split($0, parts, "/"); split(parts[n], event, "-")
+          if (event[2]+0 < cutoff || ++kept > 999) print }
+      ' \
+    | while IFS= read -r ag_old; do printf '%s\0' "$ag_old"; done \
+    | xargs -0 rm -f -- 2>/dev/null
+)
+
+audit_begin() {
+  case "${AGENT_GUARD_LOG_MODE:-on}" in off) return 0 ;; on) ;; *)
+    printf '%s\n' 'agent-guard: local diagnostic logging unavailable (invalid log mode).' >&2
+    return 0 ;;
+  esac
+  case "$1" in
+    hook-pre-tool|hook-post-tool|hook-stop|hook-user-prompt|hook-session-start|scan-staged|scan-working-tree|scan-path|exec|pii-filter) AG_AUDIT_COMMAND=$1 ;;
+    *) return 0 ;;
+  esac
+  case "${AGENT_GUARD_HOOK_HOST:-claude}" in codex) AG_AUDIT_HOST=codex ;; *) AG_AUDIT_HOST=claude ;; esac
+  case "$AG_AUDIT_COMMAND" in hook-*) ;; *) AG_AUDIT_HOST=cli ;; esac
+  AG_AUDIT_START=$(date +%s 2>/dev/null) || AG_AUDIT_START=0
+  case "$AG_AUDIT_START" in ''|*[!0-9]*) AG_AUDIT_START=0 ;; esac
+  ag_candidate=
+  ag_dir=$(audit_directory create) || ag_dir=
+  if [ -n "$ag_dir" ]; then
+    audit_prune "$ag_dir"
+    ag_candidate=$(umask 077; mktemp "$ag_dir/event-$AG_AUDIT_START-XXXXXX" 2>/dev/null) || ag_candidate=
+  fi
+  AG_AUDIT_ID=${ag_candidate##*/event-}
+  if [ -n "$ag_candidate" ] && [ ! -L "$ag_candidate" ] && [ -f "$ag_candidate" ] \
+      && [ "$(audit_stat "$ag_candidate")" = "$(id -u):600" ] \
+      && audit_record "$AG_AUDIT_START" started pending null 0 >>"$ag_candidate"; then
+    # A caught signal before this assignment leaves no finish-only event.
+    AG_AUDIT_FILE=$ag_candidate
+  else
+    printf '%s\n' 'agent-guard: local diagnostic logging unavailable; protection continues.' >&2
+  fi
+  return 0
+}
+
+audit_finish() {
+  [ -n "$AG_AUDIT_FILE" ] || return 0
+  ag_exit=$1
+  ag_end=$(date +%s 2>/dev/null) || ag_end=$AG_AUDIT_START
+  case "$ag_end" in ''|*[!0-9]*) ag_end=$AG_AUDIT_START ;; esac
+  ag_duration=$((ag_end - AG_AUDIT_START))
+  [ "$ag_duration" -ge 0 ] || ag_duration=0
+  ag_outcome=pass
+  case "$ag_exit" in
+    0) ;;
+    130|143) ag_outcome=interrupted ;;
+    *)
+      case "$AG_AUDIT_COMMAND:$ag_exit" in
+        hook-*:2|scan-*:1|pii-filter:1) ag_outcome=blocked ;;
+        *) ag_outcome=error ;;
+      esac ;;
+  esac
+  if [ -n "${AGENT_GUARD_RUNDIR:-}" ]; then
+    for ag_flag in warned masked error degraded; do
+      [ ! -f "$AGENT_GUARD_RUNDIR/audit-$ag_flag" ] || ag_outcome=$ag_flag
+    done
+  fi
+  case "$ag_exit" in 130|143) ag_outcome=interrupted ;; esac
+  if [ ! -L "$AG_AUDIT_FILE" ] && [ -f "$AG_AUDIT_FILE" ] \
+      && [ "$(audit_stat "$AG_AUDIT_FILE")" = "$(id -u):600" ]; then
+    audit_record "$ag_end" finished "$ag_outcome" "$ag_exit" "$ag_duration" >>"$AG_AUDIT_FILE" 2>/dev/null \
+      || printf '%s\n' 'agent-guard: local diagnostic log could not be completed.' >&2
+  fi
+  return 0
+}
+
+audit_logs() {
+  case "${1:-status}" in
+    status)
+      case "${AGENT_GUARD_LOG_MODE:-on}" in on|off) ag_mode=${AGENT_GUARD_LOG_MODE:-on} ;; *) ag_mode=invalid ;; esac
+      printf 'Local diagnostic logging: %s\nDirectory: ${XDG_STATE_HOME:-~/.local/state}/agent-guard\nRetention target: 7 days, 1000 invocations; bounded cleanup runs at start, so concurrency or externally added files can exceed this.\n' "$ag_mode"
+      if audit_directory >/dev/null; then printf 'Storage: private directory ready\n'; else printf 'Storage: not created or unavailable\n'; fi
+      ;;
+    export)
+      command -v jq >/dev/null 2>&1 || { printf '%s\n' 'agent-guard: log export requires jq.' >&2; return 2; }
+      ag_dir=$(audit_directory) || { printf '%s\n' 'agent-guard: no private diagnostic log directory is available.' >&2; return 2; }
+      for ag_file in "$ag_dir"/event-*; do
+        [ -f "$ag_file" ] && [ ! -L "$ag_file" ] || continue
+        [ "$(audit_stat "$ag_file")" = "$(id -u):600" ] || continue
+        ag_bytes=$(wc -c <"$ag_file" | tr -d ' ')
+        case "$ag_bytes" in ''|*[!0-9]*) continue ;; esac
+        [ "$ag_bytes" -le 2048 ] || continue
+        # Rebuild the schema, dropping unknown keys. Validate every field so a
+        # manually edited/corrupt log cannot smuggle source data into an export.
+        jq -c '
+          select(type == "object" and .schema == 1)
+          | select(.run_id | type == "string" and test("^[0-9]{1,12}-[A-Za-z0-9]{6}$"))
+          | select(.time | type == "number" and . >= 0 and . <= 9999999999 and floor == .)
+          | select(.version | type == "string" and test("^[0-9]{1,5}\\.[0-9]{1,5}\\.[0-9]{1,5}$"))
+          | select(.command | IN("hook-pre-tool", "hook-post-tool", "hook-stop", "hook-user-prompt", "hook-session-start", "scan-staged", "scan-working-tree", "scan-path", "exec", "pii-filter"))
+          | select(.host | IN("claude", "codex", "cli"))
+          | select(.phase | IN("started", "finished"))
+          | select(.outcome | IN("pending", "pass", "blocked", "masked", "degraded", "error", "interrupted", "warned"))
+          | select(.exit_code == null or (.exit_code | type == "number" and . >= 0 and . <= 255 and floor == .))
+          | select(.duration_seconds | type == "number" and . >= 0 and . <= 9999999999 and floor == .)
+          | {schema,run_id,time,version,command,host,phase,outcome,exit_code,duration_seconds}
+        ' "$ag_file" 2>/dev/null || :
+      done
+      ;;
+    *) printf '%s\n' 'Usage: agent-guard logs [status|export]' >&2; return 2 ;;
+  esac
 }
 
 # Read hook JSON without depending on external `cat`: dependency-degraded PATH
@@ -211,6 +390,7 @@ die() {
 }
 
 die_with_status() {
+  audit_note error
   failure_status=$1
   shift
   info "$PROGRAM: $*"
@@ -289,6 +469,7 @@ hook_warning_once() {
 INFRA_FAILURE_NOTICE=
 
 begin_infrastructure_failure() {
+  audit_note degraded
   input=${1:-}
   detail=$2
   INFRA_FAILURE_NOTICE=
@@ -1818,6 +1999,10 @@ scan_file_fragment_direct() {
 # one. Hook callers apply AGENT_GUARD_INFRA_FAILURE_MODE to infrastructure
 # failures; direct scan commands preserve the status for their caller.
 SCAN_STATUS_UNAVAILABLE=3
+SCAN_INPUT_MAX_BYTES=10485760
+# scan-working-tree has at most three producers: worktree diff, index diff, and
+# untracked content. Giving each one third keeps their aggregate under 10 MiB.
+SCAN_COMPONENT_MAX_BYTES=$((SCAN_INPUT_MAX_BYTES / 3))
 
 block_on_scan_status() {
   status=$1
@@ -1914,9 +2099,28 @@ require_git_repo() {
 
 extract_git_diff_added() {
   diff_file=$(mktemp_file) || return "$SCAN_STATUS_UNAVAILABLE"
-  if ! git diff "$@" >"$diff_file"; then
+  diff_status_file=$(mktemp_file) || { rm -f "$diff_file"; return "$SCAN_STATUS_UNAVAILABLE"; }
+  # Read at most one byte beyond the shared scan budget. Closing the pipe there
+  # stops a large diff from being fully materialized before the host timeout.
+  # This bounds scan work and storage; it is not a portable wall-clock timeout
+  # for a git process that stalls before producing output.
+  (git diff --text --no-textconv --no-color "$@"; printf '%s\n' "$?" >"$diff_status_file") \
+    | head -c $((SCAN_COMPONENT_MAX_BYTES + 1)) >"$diff_file"
+  pipe_status=$?
+  diff_status=$(sed -n '1p' "$diff_status_file" 2>/dev/null)
+  rm -f "$diff_status_file"
+  diff_bytes=$(LC_ALL=C wc -c <"$diff_file" 2>/dev/null | tr -d '[:space:]')
+  if [ "$pipe_status" -ne 0 ] || [ "$diff_status" != 0 ]; then
     rm -f "$diff_file"
     info "$PROGRAM: git diff failed; staged or working changes were not scanned"
+    return "$SCAN_STATUS_UNAVAILABLE"
+  fi
+  case "$diff_bytes" in
+    ''|*[!0-9]*) rm -f "$diff_file"; return "$SCAN_STATUS_UNAVAILABLE" ;;
+  esac
+  if [ "$diff_bytes" -gt "$SCAN_COMPONENT_MAX_BYTES" ]; then
+    rm -f "$diff_file"
+    info "$PROGRAM: git diff exceeded the scan input limit"
     return "$SCAN_STATUS_UNAVAILABLE"
   fi
   extract_added_lines <"$diff_file"
@@ -1964,7 +2168,8 @@ scan_untracked_files() {
   # fields are removed only for supported lockfile basenames; all other content
   # from those files, including credentials, remains in the stream.
   blob=$(mktemp_file) || { rm -f "$list"; die "failed to create temp file"; }
-  xargs -0 -I '{}' sh -c '
+  prepare_status_file=$(mktemp_file) || { rm -f "$list" "$blob"; die "failed to create temp file"; }
+  (xargs -0 -I '{}' sh -c '
     cd "$0" 2>/dev/null || exit 0
     f=$1
     filter=$2
@@ -1977,13 +2182,25 @@ scan_untracked_files() {
       *) cat -- "$f" || exit 1 ;;
     esac
     printf "\n" || exit 1
-  ' "$root" '{}' "$SELF_BIN" >>"$blob" <"$list"
-  prepare_status=$?
+  ' "$root" '{}' "$SELF_BIN" <"$list"; printf '%s\n' "$?" >"$prepare_status_file") \
+    | head -c $((SCAN_COMPONENT_MAX_BYTES + 1)) >"$blob"
+  pipe_status=$?
+  prepare_status=$(sed -n '1p' "$prepare_status_file" 2>/dev/null)
+  rm -f "$prepare_status_file"
   rm -f "$list"
-  if [ "$prepare_status" -ne 0 ]; then
+  blob_bytes=$(LC_ALL=C wc -c <"$blob" 2>/dev/null | tr -d '[:space:]')
+  if [ "$pipe_status" -ne 0 ] || [ "$prepare_status" != 0 ]; then
     rm -f "$blob"
     info "$PROGRAM: failed to prepare untracked files for scanning"
-    return 2
+    return "$SCAN_STATUS_UNAVAILABLE"
+  fi
+  case "$blob_bytes" in
+    ''|*[!0-9]*) rm -f "$blob"; return "$SCAN_STATUS_UNAVAILABLE" ;;
+  esac
+  if [ "$blob_bytes" -gt "$SCAN_COMPONENT_MAX_BYTES" ]; then
+    rm -f "$blob"
+    info "$PROGRAM: untracked files exceeded the scan input limit"
+    return "$SCAN_STATUS_UNAVAILABLE"
   fi
 
   if [ ! -s "$blob" ]; then
@@ -2012,23 +2229,26 @@ scan_working_tree() {
   # then undone on disk reads as an addition there, re-reporting history that
   # `git diff HEAD` correctly calls unchanged. Added lines only is the contract,
   # so HEAD stays the base for both.
+  result=0
+  first=
+  second=
   if git -C "$repo_root" rev-parse --verify HEAD >/dev/null 2>&1; then
     first=$(CDPATH= cd -- "$repo_root" && extract_git_diff_added --unified=0 --no-ext-diff HEAD -- .)
     status=$?
-    [ "$status" -eq 0 ] || return "$status"
+    [ "$status" -eq 0 ] || result="$SCAN_STATUS_UNAVAILABLE"
     second=$(CDPATH= cd -- "$repo_root" && extract_git_diff_added --cached --unified=0 --no-ext-diff -- .)
     status=$?
-    [ "$status" -eq 0 ] || return "$status"
+    [ "$status" -eq 0 ] || result="$SCAN_STATUS_UNAVAILABLE"
   else
     # No HEAD: `--cached` compares against the empty tree and the plain diff
     # carries unstaged edits. Nothing is committed yet, so neither can re-report
     # history and there is no HEAD to diff against.
     first=$(CDPATH= cd -- "$repo_root" && extract_git_diff_added --cached --unified=0 --no-ext-diff -- .)
     status=$?
-    [ "$status" -eq 0 ] || return "$status"
+    [ "$status" -eq 0 ] || result="$SCAN_STATUS_UNAVAILABLE"
     second=$(CDPATH= cd -- "$repo_root" && extract_git_diff_added --unified=0 --no-ext-diff -- .)
     status=$?
-    [ "$status" -eq 0 ] || return "$status"
+    [ "$status" -eq 0 ] || result="$SCAN_STATUS_UNAVAILABLE"
   fi
   # Content staged and left alone on disk appears in both. gitleaks reports the
   # same finding either way and agent-guard emits one generic line, so the cost
@@ -2038,14 +2258,13 @@ scan_working_tree() {
 $second"
   [ -z "$first" ] && tracked=$second
 
-  result=0
   if [ -n "$tracked" ]; then
     scan_text_direct "working tree added lines" "$tracked"
     status=$?
     case "$status" in
       0) ;;
       1) result=1 ;;
-      *) result=2 ;;
+      *) [ "$result" -eq 0 ] && result="$SCAN_STATUS_UNAVAILABLE" ;;
     esac
   fi
 
@@ -2053,8 +2272,8 @@ $second"
   status=$?
   case "$status" in
     0) ;;
-    1) [ "$result" -eq 0 ] && result=1 ;;
-    *) result=2 ;;
+    1) result=1 ;;
+    *) [ "$result" -eq 0 ] && result="$SCAN_STATUS_UNAVAILABLE" ;;
   esac
 
   return "$result"
@@ -4616,6 +4835,7 @@ redact_tool_output() {
   fi
 
   [ "$out" != "$resp" ] || return 0
+  audit_note masked
 
   case "$(hook_host)" in
     codex)
@@ -4666,7 +4886,7 @@ redact_tool_output() {
 # 10 MiB. PostToolUse gets ~20s from the host and a killed hook fails OPEN, so
 # an unbounded file is a timeout, not a scan. Over-cap follows the same
 # infrastructure policy as any other scan that could not run.
-POST_TOOL_PATH_SCAN_MAX_BYTES=10485760
+POST_TOOL_PATH_SCAN_MAX_BYTES=$SCAN_INPUT_MAX_BYTES
 
 post_tool_write_target() {
   case "$2" in
@@ -4674,6 +4894,28 @@ post_tool_write_target() {
       json_value '.tool_input.file_path // .tool_input.path // empty' "$1" ;;
     NotebookEdit)
       json_value '.tool_input.notebook_path // .tool_input.file_path // empty' "$1" ;;
+    apply_patch)
+      patch=$(printf '%s' "$1" | jq -r '
+        .tool_input.command // .tool_input.patch // .tool_input.input //
+        .tool_input.diff // .tool_input.content // empty |
+        if type == "string" then . else tojson end
+      ' 2>/dev/null) || return "$SCAN_STATUS_UNAVAILABLE"
+      [ -n "$patch" ] || return "$SCAN_STATUS_UNAVAILABLE"
+      printf '%s\n' "$patch" | LC_ALL=C awk '
+        /^\*\*\* Delete File:/ { valid=1; next }
+        /^\*\*\* (Add|Update) File:/ {
+          path=$0; sub(/^\*\*\* (Add|Update) File:[ \t]*/, "", path)
+          if (path == "") bad=1; else { count++; if (count > 128) exit 3; print path; valid=1 }
+          next
+        }
+        /^\*\*\* Move to:/ {
+          path=$0; sub(/^\*\*\* Move to:[ \t]*/, "", path)
+          if (path == "") bad=1; else { count++; if (count > 128) exit 3; print path; valid=1 }
+          next
+        }
+        END { if (bad || !valid) exit 3 }
+      '
+      ;;
   esac
 }
 
@@ -4743,16 +4985,119 @@ scan_write_target_path() {
 
 scan_post_tool_write_target() {
   input=$1
-  target=$(post_tool_write_target "$input" "$2")
-  [ -n "$target" ] || return 0
+  tool=$2
   workdir=$3
-  (
-    [ -z "$workdir" ] || CDPATH= cd -- "$workdir" 2>/dev/null \
-      || exit "$SCAN_STATUS_UNAVAILABLE"
-    scanned_root=$(git rev-parse --show-toplevel 2>/dev/null) || scanned_root=
-    scan_write_target_path "$target" "$scanned_root"
-  )
-  case "$?" in
+  trust_git_backstop=${4:-0}
+  case "$tool" in
+    Write|Edit|MultiEdit|NotebookEdit)
+      if printf '%s' "$input" | jq -e '
+        (.tool_input.file_path // .tool_input.path //
+         .tool_input.notebook_path // "") as $p |
+        ($p | type) == "string" and ($p | explode | any(. < 32))
+      ' >/dev/null 2>&1; then
+        handle_git_infrastructure_failure "$input" \
+          "$PROGRAM: the file path written by this tool call contains unsupported control characters;"
+        return 0
+      fi
+      target=$(post_tool_write_target "$input" "$tool")
+      target_extract_status=$?
+      if [ "$target_extract_status" -ne 0 ]; then
+        handle_git_infrastructure_failure "$input" \
+          "$PROGRAM: the file path written by this tool call could not be determined;"
+        return 0
+      fi
+      [ -n "$target" ] || return 0
+      (
+        [ -z "$workdir" ] || CDPATH= cd -- "$workdir" 2>/dev/null \
+          || exit "$SCAN_STATUS_UNAVAILABLE"
+        scanned_root=
+        [ "$trust_git_backstop" -eq 1 ] && scanned_root=$(git rev-parse --show-toplevel 2>/dev/null) || scanned_root=
+        scan_write_target_path "$target" "$scanned_root"
+      )
+      case "$?" in
+        0) return 0 ;;
+        1) info "$PROGRAM: the file this tool call wrote contains secret-like values"; exit 2 ;;
+        *)
+          handle_git_infrastructure_failure "$input" \
+            "$PROGRAM: the file this tool call wrote could not be scanned;"
+          return 0
+          ;;
+      esac
+      ;;
+  esac
+  targets=$(post_tool_write_target "$input" "$2")
+  target_extract_status=$?
+  [ "$target_extract_status" -eq 0 ] || {
+    handle_git_infrastructure_failure "$input" \
+      "$PROGRAM: the file paths written by this tool call could not be determined;"
+    return 0
+  }
+  [ -n "$targets" ] || return 0
+  targets_file=$(mktemp_file) || {
+    handle_git_infrastructure_failure "$input" \
+      "$PROGRAM: the file paths written by this tool call could not be scanned;"
+    return 0
+  }
+  printf '%s\n' "$targets" >"$targets_file" || {
+    rm -f "$targets_file"
+    handle_git_infrastructure_failure "$input" \
+      "$PROGRAM: the file paths written by this tool call could not be scanned;"
+    return 0
+  }
+  target_result=0
+  target_total_bytes=0
+  target_count=0
+  while IFS= read -r target || [ -n "$target" ]; do
+    [ -n "$target" ] || continue
+    target_count=$((target_count + 1))
+    if [ "$target_count" -gt 128 ]; then
+      [ "$target_result" -eq 0 ] && target_result="$SCAN_STATUS_UNAVAILABLE"
+      continue
+    fi
+    one_bytes=$(
+      [ -z "$workdir" ] || CDPATH= cd -- "$workdir" 2>/dev/null || exit 3
+      resolved_target=$(resolve_path "$(normalize_path "$target")")
+      scanned_root=
+      [ "$trust_git_backstop" -eq 1 ] && scanned_root=$(git rev-parse --show-toplevel 2>/dev/null) || scanned_root=
+      if git_backstop_covers_path "$resolved_target" "$scanned_root"; then
+        printf covered
+        exit 0
+      fi
+      if [ -f "$resolved_target" ]; then
+        LC_ALL=C wc -c <"$resolved_target" 2>/dev/null | tr -d '[:space:]'
+      else
+        printf 0
+      fi
+    )
+    size_status=$?
+    [ "$one_bytes" != covered ] || continue
+    case "$one_bytes" in ''|*[!0-9]*) size_status=3 ;; esac
+    if [ "$size_status" -ne 0 ]; then
+      [ "$target_result" -eq 0 ] && target_result="$SCAN_STATUS_UNAVAILABLE"
+      continue
+    fi
+    [ -n "$one_bytes" ] && target_total_bytes=$((target_total_bytes + one_bytes))
+    if [ "$target_total_bytes" -gt "$POST_TOOL_PATH_SCAN_MAX_BYTES" ]; then
+      info "$PROGRAM: apply_patch direct-scan targets exceed the scan input limit"
+      [ "$target_result" -eq 0 ] && target_result="$SCAN_STATUS_UNAVAILABLE"
+      continue
+    fi
+    (
+      [ -z "$workdir" ] || CDPATH= cd -- "$workdir" 2>/dev/null \
+        || exit "$SCAN_STATUS_UNAVAILABLE"
+      scanned_root=
+      [ "$trust_git_backstop" -eq 1 ] && scanned_root=$(git rev-parse --show-toplevel 2>/dev/null) || scanned_root=
+      scan_write_target_path "$target" "$scanned_root"
+    )
+    target_status=$?
+    case "$target_status" in
+      0) ;;
+      1) target_result=1 ;;
+      *) [ "$target_result" -eq 0 ] && target_result="$SCAN_STATUS_UNAVAILABLE" ;;
+    esac
+  done <"$targets_file"
+  rm -f "$targets_file"
+  case "$target_result" in
     0) return 0 ;;
     1)
       info "$PROGRAM: the file this tool call wrote contains secret-like values"
@@ -4797,6 +5142,7 @@ hook_post_tool() {
   # Mutation tools keep the working-tree backstop (may exit 2). It runs first so
   # a secret written to disk is still surfaced even when redaction is enabled.
   if is_mutation_tool "$tool"; then
+    git_backstop_ok=0
     if ! command -v git >/dev/null 2>&1; then
       handle_git_infrastructure_failure "$input" \
         "$PROGRAM: git is unavailable, so changed files could not be scanned;"
@@ -4809,7 +5155,7 @@ hook_post_tool() {
       )
       status=$?
       case "$status" in
-        0) ;;
+        0) git_backstop_ok=1 ;;
         1) info "$PROGRAM: changed files contain secret-like values after tool execution"; exit 2 ;;
         *)
           handle_git_infrastructure_failure "$input" \
@@ -4818,7 +5164,7 @@ hook_post_tool() {
       esac
     fi
     # Second backstop for what the git-shaped one structurally cannot see.
-    scan_post_tool_write_target "$input" "$tool" "$workdir"
+    scan_post_tool_write_target "$input" "$tool" "$workdir" "$git_backstop_ok"
   fi
 
   # All matched tools: mask secret-like values (and PII, when
@@ -5000,6 +5346,7 @@ hook_user_prompt() {
 
   case "$prompt_mode" in
     warn)
+      audit_note warned
       emit_prompt_response "$notice" \
         "$PROGRAM: the submitted prompt contains secret-like values; they were passed through because AGENT_GUARD_PROMPT_GUARD_MODE=warn"
       return 0
@@ -5472,6 +5819,7 @@ do_exec() {
     [ -n "$r" ] && masked=$r
   fi
 
+  [ "$masked" = "$out" ] || audit_note masked
   printf '%s\n' "$masked"
   exit "$status"
 }
@@ -6106,7 +6454,7 @@ fi
     [ -x "$fish_exec" ] || fish_exec=$SELF_BIN
     info "$PROGRAM: fish shell detected. The integration is POSIX shell code, so it cannot load in fish itself: no automatic agx and no nudge at your fish prompt."
     info "$PROGRAM: agent shell snapshots run bash or zsh, which do read the files above, so command wrapping still applies to agent-run commands."
-    info "$PROGRAM: a plugin-only install may not put agent-guard on fish's PATH; use the PATH-safe agx function in README or this executable with 'exec -- <cmd>':"
+    info "$PROGRAM: a plugin-only install may not put agent-guard on fish's PATH; use the PATH-safe agx function in docs/operations.md (fish), or this executable with 'exec -- <cmd>':"
     info "$PROGRAM: fish executable: $fish_exec"
   else
     setup_shell_write_rc "$rc" "$line"
@@ -6114,14 +6462,36 @@ fi
   info "$PROGRAM: restart your shell and any sessions launched from it to apply"
 }
 
-# Update only the standalone distribution. Plugin caches are owned by the host
-# plugin manager; mutating them here would recreate the stale-path problem this
-# command is intended to avoid. The bootstrap script remains the single
-# checksum-verified installer/update implementation.
+# Homebrew owns the libexec payload through its formula. New formulas place a
+# regular marker in that payload. Older releases did not, so recognize only the
+# exact Cellar layout plus Homebrew's recorded canonical tap; a generic receipt
+# elsewhere must never change standalone update behavior.
+homebrew_managed_install() {
+  marker="$ROOT_DIR/.agent-guard-homebrew"
+  if [ -f "$marker" ] && [ ! -L "$marker" ]; then
+    return 0
+  fi
+
+  case "$ROOT_DIR" in
+    */Cellar/agent-guard/*/libexec) ;;
+    *) return 1 ;;
+  esac
+  receipt="$ROOT_DIR/../INSTALL_RECEIPT.json"
+  [ -f "$receipt" ] && [ ! -L "$receipt" ] || return 1
+  grep -Eq '"tap"[[:space:]]*:[[:space:]]*"jeongjaesoon/tap"' "$receipt"
+}
+
+# Update only the standalone distribution. Plugin caches and Homebrew formula
+# payloads are owned by their respective managers; mutating either here would
+# recreate the stale-path problem this command is intended to avoid. The
+# bootstrap script remains the single checksum-verified standalone installer.
 do_update() {
   [ "$#" -eq 0 ] || die "update: no arguments are accepted"
   if [ -n "$PLUGIN_CACHE_BASE" ]; then
     die "update is unavailable for plugin installs; update Agent Guard through the host plugin manager, then rerun setup-shell"
+  fi
+  if homebrew_managed_install; then
+    die "update is unavailable for Homebrew installs; run: brew upgrade JeongJaeSoon/tap/agent-guard"
   fi
   need_cmd curl
   info "$PROGRAM: downloading the checksum-verified standalone updater"
@@ -6157,17 +6527,14 @@ do_update() {
 # ponytail: an un-trappable SIGKILL still leaves the dir to the OS temp reaper.
 AGENT_GUARD_RUNDIR=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-run.XXXXXX" 2>/dev/null \
   || mktemp -d /tmp/agent-guard-run.XXXXXX 2>/dev/null || printf '')
-if [ -n "$AGENT_GUARD_RUNDIR" ]; then
-  trap 'rm -rf "$AGENT_GUARD_RUNDIR"' EXIT
-  # INT/TERM must exit explicitly: a signal trap that only cleans up and returns
-  # resumes the interrupted script instead of terminating, so the hook could keep
-  # running past Ctrl-C or the host's timeout SIGTERM. Exiting re-fires the EXIT
-  # trap (a harmless second rm -rf) and terminates with the conventional code.
-  trap 'rm -rf "$AGENT_GUARD_RUNDIR"; exit 130' INT
-  trap 'rm -rf "$AGENT_GUARD_RUNDIR"; exit 143' TERM
-fi
+# Logging is independent of stdout and never changes the guard's exit status.
+# SIGKILL cannot be trapped; a started-only record remains useful evidence.
+trap 'ag_final_status=$?; audit_finish "$ag_final_status"; [ -z "$AGENT_GUARD_RUNDIR" ] || rm -rf "$AGENT_GUARD_RUNDIR"; exit "$ag_final_status"' 0
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 cmd=${1:-}
+audit_begin "$cmd"
 case "$cmd" in
   hook-pre-tool) hook_pre_tool ;;
   hook-post-tool) hook_post_tool ;;
@@ -6181,6 +6548,7 @@ case "$cmd" in
   scan-working-tree) shift; scan_working_tree "$@" ;;
   scan-path) shift; scan_path "$@" ;;
   filter-lockfile-hashes) shift; filter_lockfile_hashes "$@" ;;
+  logs) shift; audit_logs "$@" ;;
   check) check_deps ;;
   doctor) shift; do_setup "$@" ;;
   update) shift; do_update "$@" ;;
