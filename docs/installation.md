@@ -152,6 +152,22 @@ agent-guard version
 The formula pins the release tarball’s SHA-256. Homebrew owns this installation;
 do not run `agent-guard update` over it.
 
+If this CLI also installed a Claude Code or Codex plugin, upgrading the CLI does
+not silently move that host marketplace to a new release. After `agent-guard
+update` or `brew upgrade`, synchronize each self-managed host explicitly:
+
+```sh
+agent-guard plugin status --host all
+agent-guard plugin update --host all
+```
+
+When the existing marketplace is pinned to the previous release, `plugin
+update` stops before mutation and prints the exact official host-manager remove
+and reinstall commands. Follow that recovery sequence, restart the host, rerun
+the plugin-local setup and acceptance checks, and re-trust changed Codex hooks.
+Use only the hosts installed on that machine. For Jamf-managed Claude Code,
+advance the managed marketplace tag through the administrator rollout instead.
+
 ## Removing an installation
 
 Remove each route through the manager that owns it: use the Claude Code or
