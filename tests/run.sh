@@ -7655,6 +7655,38 @@ EOSH
     sed 's/^/  stderr: /' "$ERR"
   fi
 
+  # Presentation configuration is another repository-controlled override of
+  # the diff protocol. ANSI prefixes prevent the header/hunk parser from seeing
+  # its anchors, so force color off for both shared extractor callers.
+  (
+    cd "$TEXTCONV224_REPO" || exit 2
+    git reset -q --hard HEAD
+    git config --unset diff.fixture.textconv
+    git config color.ui always
+    printf '%s\n' "$TEXTCONV224_TOKEN" >payload.txt
+    "$PLUGIN_ROOT/bin/agent-guard" scan-working-tree
+  ) >"$OUT" 2>"$ERR"
+  status=$?
+  if [ "$status" -eq 1 ]; then
+    ok "scan-working-tree ignores color.ui=always and parses raw diff protocol"
+  else
+    not_ok "scan-working-tree disables configured diff color (expected finding 1, got $status)"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+
+  (
+    cd "$TEXTCONV224_REPO" || exit 2
+    git add payload.txt
+    "$PLUGIN_ROOT/bin/agent-guard" scan-staged
+  ) >"$OUT" 2>"$ERR"
+  status=$?
+  if [ "$status" -eq 1 ]; then
+    ok "scan-staged ignores color.ui=always and parses raw diff protocol"
+  else
+    not_ok "scan-staged disables configured diff color (expected finding 1, got $status)"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+
   # A repo before its first commit has no HEAD to diff against. That branch
   # already combined the index and the worktree; its verdicts must not move.
   NOHEAD224_REPO="$TMP_ROOT/nohead-224-repo"
