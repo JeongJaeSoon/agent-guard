@@ -9591,10 +9591,8 @@ else
   sed 's/^/  out: /' "$OUT"
 fi
 
-# A base64 image block is never inspected (a text scanner cannot read pixels),
-# so its payload is lifted out before the size cap is measured and put back
-# untouched. A screenshot alone crosses the cap; masking it protected nothing
-# and replaced every large image with a payload the API cannot decode.
+# Image and PDF payloads are exempt from the size cap and the rewrite: a text
+# scanner cannot read pixels, and a screenshot alone crosses the cap.
 oversize_image_input=$(jq -nc '
   {tool_name:"Read",tool_input:{file_path:"logo.png"},
    tool_response:{type:"image",
@@ -9610,8 +9608,6 @@ else
   cut -c1-200 "$OUT" | sed 's/^/  out: /'
 fi
 
-# The same exemption covers the content-block ARRAY shape MCP tools return,
-# with the payload one level deeper under source.data, and a PDF document.
 oversize_block_input=$(jq -nc '
   {tool_name:"mcp__example__screenshot",tool_input:{},
    tool_response:[{type:"text",text:"captured"},
@@ -9643,8 +9639,24 @@ else
   cut -c1-200 "$OUT" | sed 's/^/  out: /'
 fi
 
+# MCP's own image block carries the payload at the top level as `data` and
+# spells the media type `mimeType`.
+oversize_mcp_native_input=$(jq -nc '
+  {tool_name:"mcp__example__screenshot",tool_input:{},
+   tool_response:[{type:"text",text:"captured"},
+                  {type:"image",data:("A" * 400000),mimeType:"image/png"}]}
+')
+post_tool_out "$oversize_mcp_native_input"
+oversize_mcp_native_status=$?
+if [ "$oversize_mcp_native_status" -eq 0 ] && [ ! -s "$OUT" ]; then
+  ok "post-tool passes an over-cap MCP-native image block through untouched"
+else
+  not_ok "post-tool passes an over-cap MCP-native image block through untouched"
+  cut -c1-200 "$OUT" | sed 's/^/  out: /'
+fi
+
 # Claude Code's Read tags a PDF `{"type":"pdf","file":{...}}` with no media
-# type anywhere; the tag itself is the declaration.
+# type anywhere.
 oversize_read_pdf_input=$(jq -nc '
   {tool_name:"Read",tool_input:{file_path:"spec.pdf"},
    tool_response:{type:"pdf",
@@ -9660,9 +9672,7 @@ else
   cut -c1-200 "$OUT" | sed 's/^/  out: /'
 fi
 
-# Only the binary payload is exempt. Text siblings in the same response are
-# still scanned at their own size, and a detected literal is masked while the
-# image comes back byte-for-byte.
+# Only the payload is exempt: a text sibling is scanned at its own size.
 mixed_block_input=$(jq -nc '
   {tool_name:"mcp__example__screenshot",tool_input:{},
    tool_response:[{type:"text",text:"token AGENT_GUARD_TEST_SECRET here"},
@@ -9691,9 +9701,8 @@ else
   printf '%s\n' "$post_out" | cut -c1-200 | sed 's/^/  out: /'
 fi
 
-# The payload of an exempt block is opaque to the scanner by design: the host
-# forwards it to the API as bytes of the declared media type, never as text
-# the model reads. A secret-shaped string parked there is not inspected.
+# The payload is opaque by design: the host forwards it as bytes of the
+# declared media type, never as text the model reads.
 payload_secret_input=$(jq -nc '
   {tool_name:"mcp__example__screenshot",tool_input:{},
    tool_response:[{type:"image",
@@ -9709,14 +9718,11 @@ else
   cut -c1-200 "$OUT" | sed 's/^/  out: /'
 fi
 
-# The exemption is keyed on the declared media type being one whose bytes the
-# scanner cannot read. base64 text (SVG is XML, text/plain is text) is still a
-# text leaf and takes the fail-closed path over the cap. That path hands the
-# rewritten block back to the host as updatedToolOutput, and Anthropic content
-# blocks are a discriminated union: masking `type`, `source.type` or
-# `media_type` yields a block tagged `[REDACTED]` that every later request
-# rejects with a 400 — permanently, because the host persists it in the session
-# transcript. The discriminators must survive the rewrite; the payload must not.
+# base64 of a text media type (text/plain, SVG) is still text and takes the
+# fail-closed path over the cap. Anthropic content blocks are a discriminated
+# union, so `type`, `source.type` and `media_type` must survive that rewrite:
+# a block tagged `[REDACTED]` is rejected by every later request, permanently,
+# because the host persists it in the session transcript.
 oversize_text_document_input=$(jq -nc '
   {tool_name:"mcp__example__export",tool_input:{},
    tool_response:[{type:"text",text:"exported"},
