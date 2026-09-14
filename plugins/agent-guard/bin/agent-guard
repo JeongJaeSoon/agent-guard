@@ -4291,6 +4291,41 @@ JQ_WALK='def walk(f): def w: if type == "object" then map_values(w)
                     else . end | f; w;
 '
 
+# Key-aware companion to the walk above, for the redactors that rewrite a
+# tool_response the host feeds straight back into the conversation as
+# `updatedToolOutput`. Anthropic content blocks are a discriminated union: the
+# `type`, `source.type` and `media_type` strings select which block shape the
+# API expects. Masking one produces a block tagged `[REDACTED]`, every later
+# request is rejected with `Input tag '[REDACTED]' ... does not match any of
+# the expected tags`, and because the host persists the rewritten block in the
+# session transcript the failure is permanent — a retry replays it. So the leaf
+# filter is skipped for a discriminator, but ONLY when the value is exactly one
+# of the protocol tokens below. Allowlisting whole values rather than key names
+# is what keeps this from becoming a hole: no secret is equal to `image/png`,
+# so nothing that needs masking can reach the skip, and a `type` carrying
+# anything else is still replaced. The tokens are one flat list instead of one
+# set per key because hosts are not consistent about which key carries which
+# token — Claude Code's Read returns `{"type":"image","file":{"type":
+# "image/png",...}}`, a media type under a plain `type`. Prepend as
+# `jq -c "$JQ_SHAPE_SAFE_WALK"'<program>'`.
+JQ_SHAPE_SAFE_WALK='def protocol_discriminator($key): . as $v
+    | ($key == "type" or $key == "media_type" or $key == "encoding")
+      and (["text","image","document","search_result","browser_state",
+            "tool_reference","tool_use","tool_result","thinking",
+            "redacted_thinking","base64","url","file","content",
+            "image/png","image/jpeg","image/gif","image/webp",
+            "application/pdf","text/plain"]
+           | map(. == $v) | any);
+def shape_safe_walk(f): def w($key):
+      if type == "object"
+      then with_entries(. as $e | .value = ($e.value | w($e.key)))
+      elif type == "array" then map(w(null))
+      elif type == "string" and protocol_discriminator($key) then .
+      else f
+      end;
+    w(null);
+'
+
 # Recall booster for the most common leak shape: `KEY=value`, `export KEY=value`
 # or `KEY: value` dumps whose key name looks secret-bearing. gitleaks misses most
 # of these (custom value formats), so emit the VALUE for literal redaction.
@@ -5317,7 +5352,8 @@ redact_tool_response_json() {
   # Redacts string VALUES only; object KEYS are left untouched. Transforming keys
   # could collide two distinct keys onto one placeholder and silently drop an
   # entry; a secret appearing as a JSON key is a documented limitation (README).
-  printf '%s' "$resp" | jq -c --argjson secrets "$secrets" "$JQ_WALK"'
+  printf '%s' "$resp" | jq -c --argjson secrets "$secrets" \
+    "$JQ_SHAPE_SAFE_WALK"'
     def specs($s):
       $s
       | map(if type == "string"
@@ -5362,12 +5398,15 @@ redact_tool_response_json() {
     # Literal replacement is proportional to spec-count × response size.
     # Bound that work below the host hook timeout. High-cardinality output is
     # still fail-closed in one tree walk by masking every nonempty string leaf.
+    # Both walks are key-aware: a detected literal that happens to equal a
+    # protocol token would otherwise break the response shape here for exactly
+    # the reason JQ_SHAPE_SAFE_WALK describes, on the precise path too.
     | if ($specs | length) > 256
          or (($specs | length) * $string_work) > 8000000
-      then walk(if type == "string" and length > 0
-                then "[REDACTED]" else . end)
-      else walk(if type == "string" and length > 0
-                then redact($specs) else . end)
+      then shape_safe_walk(if type == "string" and length > 0
+                           then "[REDACTED]" else . end)
+      else shape_safe_walk(if type == "string" and length > 0
+                           then redact($specs) else . end)
       end
   ' 2>/dev/null
 }
@@ -5403,9 +5442,9 @@ large_response_has_secretish_assignment() {
 
 redact_nonempty_response_strings() {
   whole_leaf_response=$1
-  printf '%s' "$whole_leaf_response" | jq -c "$JQ_WALK"'
-    walk(if type == "string" and length > 0
-         then "[REDACTED]" else . end)
+  printf '%s' "$whole_leaf_response" | jq -c "$JQ_SHAPE_SAFE_WALK"'
+    shape_safe_walk(if type == "string" and length > 0
+                    then "[REDACTED]" else . end)
   ' 2>/dev/null
 }
 
@@ -5418,6 +5457,8 @@ redact_response_whole_leaf_fail_closed() {
   else
     # Shape preservation is preferable, but a failed mandatory rewrite must
     # still replace the host-visible output with valid, shape-independent JSON.
+    # A bare string carries no discriminator, so unlike a mangled content block
+    # it cannot forge one; the host coerces it into its own text shape.
     printf '%s' '"[REDACTED]"'
   fi
 }

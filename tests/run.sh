@@ -9591,6 +9591,93 @@ else
   sed 's/^/  out: /' "$OUT"
 fi
 
+# An over-cap response takes the whole-leaf fail-closed path without scanning,
+# and the result is handed back to the host as updatedToolOutput. Anthropic
+# content blocks are a discriminated union, so masking `type`, `source.type` or
+# `media_type` yields a block tagged `[REDACTED]` that every later request
+# rejects with a 400 — permanently, because the host persists it in the session
+# transcript. The discriminators must survive the rewrite; the payload must not.
+oversize_image_input=$(jq -nc '
+  {tool_name:"Read",tool_input:{file_path:"logo.png"},
+   tool_response:{type:"image",
+                  file:{base64:("A" * 400000),type:"image/png",
+                        originalSize:400000}}}
+')
+post_tool_out "$oversize_image_input"
+oversize_image_status=$?
+post_out=$(cat "$OUT")
+if [ "$oversize_image_status" -eq 0 ] \
+   && printf '%s' "$post_out" \
+        | jq -e '
+            .hookSpecificOutput.updatedToolOutput as $out
+            | $out.type == "image"
+            and $out.file.type == "image/png"
+            and $out.file.base64 == "[REDACTED]"
+            and $out.file.originalSize == 400000
+          ' >/dev/null 2>&1; then
+  ok "post-tool keeps image discriminators in the over-cap whole-leaf mask"
+else
+  not_ok "post-tool keeps image discriminators in the over-cap whole-leaf mask"
+  printf '%s\n' "$post_out" | cut -c1-200 | sed 's/^/  out: /'
+fi
+
+# The same union reaches the hook as a content-block ARRAY from MCP tools, where
+# the host reflects updatedToolOutput into tool_result verbatim. Nested
+# source.type and media_type sit one level deeper than the block's own type.
+oversize_block_input=$(jq -nc '
+  {tool_name:"mcp__example__screenshot",tool_input:{},
+   tool_response:[{type:"text",text:"captured"},
+                  {type:"image",
+                   source:{type:"base64",media_type:"image/png",
+                           data:("A" * 400000)}}]}
+')
+post_tool_out "$oversize_block_input"
+oversize_block_status=$?
+post_out=$(cat "$OUT")
+if [ "$oversize_block_status" -eq 0 ] \
+   && printf '%s' "$post_out" \
+        | jq -e '
+            .hookSpecificOutput.updatedToolOutput as $out
+            | ($out | type) == "array"
+            and $out[0].type == "text"
+            and $out[0].text == "[REDACTED]"
+            and $out[1].type == "image"
+            and $out[1].source.type == "base64"
+            and $out[1].source.media_type == "image/png"
+            and $out[1].source.data == "[REDACTED]"
+          ' >/dev/null 2>&1; then
+  ok "post-tool keeps MCP content-block discriminators over the scan cap"
+else
+  not_ok "post-tool keeps MCP content-block discriminators over the scan cap"
+  printf '%s\n' "$post_out" | cut -c1-200 | sed 's/^/  out: /'
+fi
+
+# The exemption is an allowlist of VALUES, not of key names. A `type` holding
+# anything other than a known protocol token is still masked, so a secret
+# parked under that key cannot ride the shape exemption out to the model.
+oversize_foreign_type_input=$(jq -nc '
+  {tool_name:"Read",tool_input:{file_path:"dump.json"},
+   tool_response:{type:"not-a-protocol-token",
+                  media_type:"application/x-made-up",
+                  payload:("A" * 400000)}}
+')
+post_tool_out "$oversize_foreign_type_input"
+oversize_foreign_type_status=$?
+post_out=$(cat "$OUT")
+if [ "$oversize_foreign_type_status" -eq 0 ] \
+   && printf '%s' "$post_out" \
+        | jq -e '
+            .hookSpecificOutput.updatedToolOutput as $out
+            | $out.type == "[REDACTED]"
+            and $out.media_type == "[REDACTED]"
+            and $out.payload == "[REDACTED]"
+          ' >/dev/null 2>&1; then
+  ok "post-tool masks a non-protocol type value in the whole-leaf path"
+else
+  not_ok "post-tool masks a non-protocol type value in the whole-leaf path"
+  printf '%s\n' "$post_out" | cut -c1-200 | sed 's/^/  out: /'
+fi
+
 # Gitleaks work must be bounded before it scans or writes a high-cardinality
 # report. The stub records stdin-mode invocation and can emit a report above the
 # 64 KiB cap without using assignment, JWT, or Bearer-shaped fixture content.

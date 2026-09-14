@@ -1,3 +1,7 @@
+## Unreleased
+
+- fix(redaction): keep content-block discriminators in the fail-closed whole-leaf mask
+
 ## v3.4.1 - 2026-09-11
 
 - fix: preserve exact documentation placeholders (#235)
