@@ -1,6 +1,7 @@
 ## Unreleased
 
 - fix(redaction): keep content-block discriminators in the fail-closed whole-leaf mask
+- fix(redaction): pass base64 image and PDF blocks through the output guard uninspected
 
 ## v3.4.1 - 2026-09-11
 

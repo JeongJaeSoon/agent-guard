@@ -4306,13 +4306,17 @@ JQ_WALK='def walk(f): def w: if type == "object" then map_values(w)
 # anything else is still replaced. The tokens are one flat list instead of one
 # set per key because hosts are not consistent about which key carries which
 # token — Claude Code's Read returns `{"type":"image","file":{"type":
-# "image/png",...}}`, a media type under a plain `type`. Prepend as
+# "image/png",...}}`, a media type under a plain `type`, and tags a PDF read
+# `{"type":"pdf","file":{"base64":...}}` with no media type at all.
+#
+# The binary_* helpers below identify the base64 image and PDF blocks whose
+# payload the output guard never inspects (see redact_tool_output). Prepend as
 # `jq -c "$JQ_SHAPE_SAFE_WALK"'<program>'`.
 JQ_SHAPE_SAFE_WALK='def protocol_discriminator($key): . as $v
     | ($key == "type" or $key == "media_type" or $key == "encoding")
       and (["text","image","document","search_result","browser_state",
             "tool_reference","tool_use","tool_result","thinking",
-            "redacted_thinking","base64","url","file","content",
+            "redacted_thinking","base64","url","file","content","pdf",
             "image/png","image/jpeg","image/gif","image/webp",
             "application/pdf","text/plain"]
            | map(. == $v) | any);
@@ -4324,6 +4328,36 @@ def shape_safe_walk(f): def w($key):
       else f
       end;
     w(null);
+def binary_media_type: . as $v
+    | (["image/png","image/jpeg","image/gif","image/webp","application/pdf"]
+       | map(. == $v) | any);
+def binary_block:
+      type == "object"
+      and (((.type == "image" or .type == "document")
+            and (.source | type) == "object"
+            and .source.type == "base64"
+            and (.source.data | type) == "string"
+            and (.source.media_type | binary_media_type))
+           or (.type == "image"
+               and (.file | type) == "object"
+               and (.file.base64 | type) == "string"
+               and (.file.type | binary_media_type))
+           or (.type == "pdf"
+               and (.file | type) == "object"
+               and (.file.base64 | type) == "string"));
+def binary_payload_paths: . as $root
+    | [[], paths]
+    | map(select(. as $p | $root | getpath($p) | binary_block))
+    | map(. as $p
+          | $p + (if ($root | getpath($p) | has("source"))
+                  then ["source", "data"]
+                  else ["file", "base64"]
+                  end));
+def strip_binary_payloads:
+      reduce binary_payload_paths[] as $p (.; setpath($p; ""));
+def restore_binary_payloads($orig):
+      reduce ($orig | binary_payload_paths[]) as $p
+        (.; setpath($p; $orig | getpath($p)));
 '
 
 # Recall booster for the most common leak shape: `KEY=value`, `export KEY=value`
@@ -5539,6 +5573,28 @@ redact_tool_output() {
     ''|null) return 0 ;;
   esac
 
+  # A base64 image or PDF block is never inspected: a text scanner cannot read
+  # pixels, and the host hands that payload to the API as bytes, never as text
+  # the model reads. Masking it therefore protects nothing and only costs the
+  # block — one screenshot alone crosses the scan cap, so until now the
+  # fail-closed path replaced every screenshot with an unrenderable
+  # `[REDACTED]` payload. Lift the payloads out before any pass below (the cap
+  # measures the response without them), then put them back into the rewritten
+  # result; every pass preserves structure, so the collected paths stay valid.
+  # The literal-token gate keeps path collection off responses that cannot
+  # contain such a block, which matters for large high-cardinality output.
+  resp_full=''
+  case "$resp" in
+    *base64*)
+      r=$(printf '%s' "$resp" \
+        | jq -c "$JQ_SHAPE_SAFE_WALK"'strip_binary_payloads' 2>/dev/null)
+      if [ -n "$r" ] && [ "$r" != "$resp" ]; then
+        resp_full=$resp
+        resp=$r
+      fi
+      ;;
+  esac
+
   out=$resp
   did_secret=0; did_pii=0
 
@@ -5580,6 +5636,18 @@ redact_tool_output() {
 
   [ "$out" != "$resp" ] || return 0
   audit_note masked
+
+  if [ -n "$resp_full" ]; then
+    # Both documents ride stdin: Linux caps one exec argument near 128 KiB and
+    # the payloads being restored are exactly the strings that exceed it. When
+    # the rewrite fell back to a bare "[REDACTED]" string there is no block to
+    # restore into; the masked output stands as-is.
+    r=$(printf '%s\n%s\n' "$resp_full" "$out" \
+      | jq -sc "$JQ_SHAPE_SAFE_WALK"'
+          .[0] as $orig | .[1] | restore_binary_payloads($orig)
+        ' 2>/dev/null)
+    [ -n "$r" ] && out=$r
+  fi
 
   case "$(hook_host)" in
     codex)

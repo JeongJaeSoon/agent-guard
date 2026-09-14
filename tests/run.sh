@@ -9591,12 +9591,10 @@ else
   sed 's/^/  out: /' "$OUT"
 fi
 
-# An over-cap response takes the whole-leaf fail-closed path without scanning,
-# and the result is handed back to the host as updatedToolOutput. Anthropic
-# content blocks are a discriminated union, so masking `type`, `source.type` or
-# `media_type` yields a block tagged `[REDACTED]` that every later request
-# rejects with a 400 — permanently, because the host persists it in the session
-# transcript. The discriminators must survive the rewrite; the payload must not.
+# A base64 image block is never inspected (a text scanner cannot read pixels),
+# so its payload is lifted out before the size cap is measured and put back
+# untouched. A screenshot alone crosses the cap; masking it protected nothing
+# and replaced every large image with a payload the API cannot decode.
 oversize_image_input=$(jq -nc '
   {tool_name:"Read",tool_input:{file_path:"logo.png"},
    tool_response:{type:"image",
@@ -9605,25 +9603,15 @@ oversize_image_input=$(jq -nc '
 ')
 post_tool_out "$oversize_image_input"
 oversize_image_status=$?
-post_out=$(cat "$OUT")
-if [ "$oversize_image_status" -eq 0 ] \
-   && printf '%s' "$post_out" \
-        | jq -e '
-            .hookSpecificOutput.updatedToolOutput as $out
-            | $out.type == "image"
-            and $out.file.type == "image/png"
-            and $out.file.base64 == "[REDACTED]"
-            and $out.file.originalSize == 400000
-          ' >/dev/null 2>&1; then
-  ok "post-tool keeps image discriminators in the over-cap whole-leaf mask"
+if [ "$oversize_image_status" -eq 0 ] && [ ! -s "$OUT" ]; then
+  ok "post-tool passes an over-cap Read image block through untouched"
 else
-  not_ok "post-tool keeps image discriminators in the over-cap whole-leaf mask"
-  printf '%s\n' "$post_out" | cut -c1-200 | sed 's/^/  out: /'
+  not_ok "post-tool passes an over-cap Read image block through untouched"
+  cut -c1-200 "$OUT" | sed 's/^/  out: /'
 fi
 
-# The same union reaches the hook as a content-block ARRAY from MCP tools, where
-# the host reflects updatedToolOutput into tool_result verbatim. Nested
-# source.type and media_type sit one level deeper than the block's own type.
+# The same exemption covers the content-block ARRAY shape MCP tools return,
+# with the payload one level deeper under source.data, and a PDF document.
 oversize_block_input=$(jq -nc '
   {tool_name:"mcp__example__screenshot",tool_input:{},
    tool_response:[{type:"text",text:"captured"},
@@ -9633,22 +9621,150 @@ oversize_block_input=$(jq -nc '
 ')
 post_tool_out "$oversize_block_input"
 oversize_block_status=$?
+if [ "$oversize_block_status" -eq 0 ] && [ ! -s "$OUT" ]; then
+  ok "post-tool passes an over-cap MCP image block through untouched"
+else
+  not_ok "post-tool passes an over-cap MCP image block through untouched"
+  cut -c1-200 "$OUT" | sed 's/^/  out: /'
+fi
+
+oversize_pdf_input=$(jq -nc '
+  {tool_name:"mcp__example__export",tool_input:{},
+   tool_response:[{type:"document",
+                   source:{type:"base64",media_type:"application/pdf",
+                           data:("A" * 400000)}}]}
+')
+post_tool_out "$oversize_pdf_input"
+oversize_pdf_status=$?
+if [ "$oversize_pdf_status" -eq 0 ] && [ ! -s "$OUT" ]; then
+  ok "post-tool passes an over-cap PDF document block through untouched"
+else
+  not_ok "post-tool passes an over-cap PDF document block through untouched"
+  cut -c1-200 "$OUT" | sed 's/^/  out: /'
+fi
+
+# Claude Code's Read tags a PDF `{"type":"pdf","file":{...}}` with no media
+# type anywhere; the tag itself is the declaration.
+oversize_read_pdf_input=$(jq -nc '
+  {tool_name:"Read",tool_input:{file_path:"spec.pdf"},
+   tool_response:{type:"pdf",
+                  file:{filePath:"spec.pdf",base64:("A" * 400000),
+                        originalSize:300000}}}
+')
+post_tool_out "$oversize_read_pdf_input"
+oversize_read_pdf_status=$?
+if [ "$oversize_read_pdf_status" -eq 0 ] && [ ! -s "$OUT" ]; then
+  ok "post-tool passes an over-cap Read PDF block through untouched"
+else
+  not_ok "post-tool passes an over-cap Read PDF block through untouched"
+  cut -c1-200 "$OUT" | sed 's/^/  out: /'
+fi
+
+# Only the binary payload is exempt. Text siblings in the same response are
+# still scanned at their own size, and a detected literal is masked while the
+# image comes back byte-for-byte.
+mixed_block_input=$(jq -nc '
+  {tool_name:"mcp__example__screenshot",tool_input:{},
+   tool_response:[{type:"text",text:"token AGENT_GUARD_TEST_SECRET here"},
+                  {type:"image",
+                   source:{type:"base64",media_type:"image/png",
+                           data:("A" * 400000)}}]}
+')
+post_tool_out "$mixed_block_input"
+mixed_block_status=$?
 post_out=$(cat "$OUT")
-if [ "$oversize_block_status" -eq 0 ] \
+if [ "$mixed_block_status" -eq 0 ] \
+   && ! printf '%s' "$post_out" | grep -q 'AGENT_GUARD_TEST_SECRET' \
+   && printf '%s' "$post_out" \
+        | jq -e '
+            .hookSpecificOutput.updatedToolOutput as $out
+            | $out[0].type == "text"
+            and ($out[0].text | contains("[REDACTED]"))
+            and $out[1].type == "image"
+            and $out[1].source.type == "base64"
+            and $out[1].source.media_type == "image/png"
+            and $out[1].source.data == ("A" * 400000)
+          ' >/dev/null 2>&1; then
+  ok "post-tool masks the text sibling and restores the image payload intact"
+else
+  not_ok "post-tool masks the text sibling and restores the image payload intact"
+  printf '%s\n' "$post_out" | cut -c1-200 | sed 's/^/  out: /'
+fi
+
+# The payload of an exempt block is opaque to the scanner by design: the host
+# forwards it to the API as bytes of the declared media type, never as text
+# the model reads. A secret-shaped string parked there is not inspected.
+payload_secret_input=$(jq -nc '
+  {tool_name:"mcp__example__screenshot",tool_input:{},
+   tool_response:[{type:"image",
+                   source:{type:"base64",media_type:"image/png",
+                           data:"token AGENT_GUARD_TEST_SECRET here"}}]}
+')
+post_tool_out "$payload_secret_input"
+payload_secret_status=$?
+if [ "$payload_secret_status" -eq 0 ] && [ ! -s "$OUT" ]; then
+  ok "post-tool does not inspect the payload of a binary content block"
+else
+  not_ok "post-tool does not inspect the payload of a binary content block"
+  cut -c1-200 "$OUT" | sed 's/^/  out: /'
+fi
+
+# The exemption is keyed on the declared media type being one whose bytes the
+# scanner cannot read. base64 text (SVG is XML, text/plain is text) is still a
+# text leaf and takes the fail-closed path over the cap. That path hands the
+# rewritten block back to the host as updatedToolOutput, and Anthropic content
+# blocks are a discriminated union: masking `type`, `source.type` or
+# `media_type` yields a block tagged `[REDACTED]` that every later request
+# rejects with a 400 — permanently, because the host persists it in the session
+# transcript. The discriminators must survive the rewrite; the payload must not.
+oversize_text_document_input=$(jq -nc '
+  {tool_name:"mcp__example__export",tool_input:{},
+   tool_response:[{type:"text",text:"exported"},
+                  {type:"document",
+                   source:{type:"base64",media_type:"text/plain",
+                           data:("A" * 400000)}}]}
+')
+post_tool_out "$oversize_text_document_input"
+oversize_text_document_status=$?
+post_out=$(cat "$OUT")
+if [ "$oversize_text_document_status" -eq 0 ] \
    && printf '%s' "$post_out" \
         | jq -e '
             .hookSpecificOutput.updatedToolOutput as $out
             | ($out | type) == "array"
             and $out[0].type == "text"
             and $out[0].text == "[REDACTED]"
-            and $out[1].type == "image"
+            and $out[1].type == "document"
             and $out[1].source.type == "base64"
-            and $out[1].source.media_type == "image/png"
+            and $out[1].source.media_type == "text/plain"
             and $out[1].source.data == "[REDACTED]"
           ' >/dev/null 2>&1; then
-  ok "post-tool keeps MCP content-block discriminators over the scan cap"
+  ok "post-tool keeps content-block discriminators in the over-cap whole-leaf mask"
 else
-  not_ok "post-tool keeps MCP content-block discriminators over the scan cap"
+  not_ok "post-tool keeps content-block discriminators in the over-cap whole-leaf mask"
+  printf '%s\n' "$post_out" | cut -c1-200 | sed 's/^/  out: /'
+fi
+
+oversize_svg_input=$(jq -nc '
+  {tool_name:"Read",tool_input:{file_path:"logo.svg"},
+   tool_response:{type:"image",
+                  file:{base64:("A" * 400000),type:"image/svg+xml",
+                        originalSize:400000}}}
+')
+post_tool_out "$oversize_svg_input"
+oversize_svg_status=$?
+post_out=$(cat "$OUT")
+if [ "$oversize_svg_status" -eq 0 ] \
+   && printf '%s' "$post_out" \
+        | jq -e '
+            .hookSpecificOutput.updatedToolOutput as $out
+            | $out.type == "image"
+            and $out.file.type == "[REDACTED]"
+            and $out.file.base64 == "[REDACTED]"
+          ' >/dev/null 2>&1; then
+  ok "post-tool still masks an over-cap image block of a text media type"
+else
+  not_ok "post-tool still masks an over-cap image block of a text media type"
   printf '%s\n' "$post_out" | cut -c1-200 | sed 's/^/  out: /'
 fi
 

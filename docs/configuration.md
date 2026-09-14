@@ -26,6 +26,13 @@ as `open`; set an explicit valid value in managed environments.
   `source.type`, `media_type`) survive that rewrite when the value is exactly a
   known protocol token, so the sanitized result still parses as the block shape
   the host sent. Any other value is masked, including under those keys.
+- Base64 image and PDF blocks (`media_type` of `image/png`, `image/jpeg`,
+  `image/gif`, `image/webp` or `application/pdf`, in either the Anthropic
+  `source` shape or Claude Code's `Read` `file` shape) are not inspected: the
+  scanner cannot read pixels, and the host forwards the payload as bytes. Their
+  payload is excluded from the size cap and passed through unchanged; text
+  siblings in the same result are still scanned and masked. A base64 block of
+  a text media type (`text/plain`, `image/svg+xml`) is treated as text.
 - `AGENT_GUARD_PROMPT_GUARD_MODE=block` is the default. `warn` passes a prompt
   with a notice and `off` disables secret prompt scanning. Hosts currently do
   not provide safe prompt rewriting, so `mask` degrades to block.
