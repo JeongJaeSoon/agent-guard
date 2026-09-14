@@ -1,3 +1,8 @@
+## v3.4.2 - 2026-09-14
+
+- fix(redaction): keep content-block discriminators and pass image/PDF blocks through the output guard (#239)
+- docs: support Homebrew 6 release checks (#237)
+
 ## v3.4.1 - 2026-09-11
 
 - fix: preserve exact documentation placeholders (#235)
