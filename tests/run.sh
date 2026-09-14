@@ -9591,6 +9591,215 @@ else
   sed 's/^/  out: /' "$OUT"
 fi
 
+# Image and PDF payloads are exempt from the size cap and the rewrite: a text
+# scanner cannot read pixels, and a screenshot alone crosses the cap.
+oversize_image_input=$(jq -nc '
+  {tool_name:"Read",tool_input:{file_path:"logo.png"},
+   tool_response:{type:"image",
+                  file:{base64:("A" * 400000),type:"image/png",
+                        originalSize:400000}}}
+')
+post_tool_out "$oversize_image_input"
+oversize_image_status=$?
+if [ "$oversize_image_status" -eq 0 ] && [ ! -s "$OUT" ]; then
+  ok "post-tool passes an over-cap Read image block through untouched"
+else
+  not_ok "post-tool passes an over-cap Read image block through untouched"
+  cut -c1-200 "$OUT" | sed 's/^/  out: /'
+fi
+
+oversize_block_input=$(jq -nc '
+  {tool_name:"mcp__example__screenshot",tool_input:{},
+   tool_response:[{type:"text",text:"captured"},
+                  {type:"image",
+                   source:{type:"base64",media_type:"image/png",
+                           data:("A" * 400000)}}]}
+')
+post_tool_out "$oversize_block_input"
+oversize_block_status=$?
+if [ "$oversize_block_status" -eq 0 ] && [ ! -s "$OUT" ]; then
+  ok "post-tool passes an over-cap MCP image block through untouched"
+else
+  not_ok "post-tool passes an over-cap MCP image block through untouched"
+  cut -c1-200 "$OUT" | sed 's/^/  out: /'
+fi
+
+oversize_pdf_input=$(jq -nc '
+  {tool_name:"mcp__example__export",tool_input:{},
+   tool_response:[{type:"document",
+                   source:{type:"base64",media_type:"application/pdf",
+                           data:("A" * 400000)}}]}
+')
+post_tool_out "$oversize_pdf_input"
+oversize_pdf_status=$?
+if [ "$oversize_pdf_status" -eq 0 ] && [ ! -s "$OUT" ]; then
+  ok "post-tool passes an over-cap PDF document block through untouched"
+else
+  not_ok "post-tool passes an over-cap PDF document block through untouched"
+  cut -c1-200 "$OUT" | sed 's/^/  out: /'
+fi
+
+# MCP's own image block carries the payload at the top level as `data` and
+# spells the media type `mimeType`.
+oversize_mcp_native_input=$(jq -nc '
+  {tool_name:"mcp__example__screenshot",tool_input:{},
+   tool_response:[{type:"text",text:"captured"},
+                  {type:"image",data:("A" * 400000),mimeType:"image/png"}]}
+')
+post_tool_out "$oversize_mcp_native_input"
+oversize_mcp_native_status=$?
+if [ "$oversize_mcp_native_status" -eq 0 ] && [ ! -s "$OUT" ]; then
+  ok "post-tool passes an over-cap MCP-native image block through untouched"
+else
+  not_ok "post-tool passes an over-cap MCP-native image block through untouched"
+  cut -c1-200 "$OUT" | sed 's/^/  out: /'
+fi
+
+# Claude Code's Read tags a PDF `{"type":"pdf","file":{...}}` with no media
+# type anywhere.
+oversize_read_pdf_input=$(jq -nc '
+  {tool_name:"Read",tool_input:{file_path:"spec.pdf"},
+   tool_response:{type:"pdf",
+                  file:{filePath:"spec.pdf",base64:("A" * 400000),
+                        originalSize:300000}}}
+')
+post_tool_out "$oversize_read_pdf_input"
+oversize_read_pdf_status=$?
+if [ "$oversize_read_pdf_status" -eq 0 ] && [ ! -s "$OUT" ]; then
+  ok "post-tool passes an over-cap Read PDF block through untouched"
+else
+  not_ok "post-tool passes an over-cap Read PDF block through untouched"
+  cut -c1-200 "$OUT" | sed 's/^/  out: /'
+fi
+
+# Only the payload is exempt: a text sibling is scanned at its own size.
+mixed_block_input=$(jq -nc '
+  {tool_name:"mcp__example__screenshot",tool_input:{},
+   tool_response:[{type:"text",text:"token AGENT_GUARD_TEST_SECRET here"},
+                  {type:"image",
+                   source:{type:"base64",media_type:"image/png",
+                           data:("A" * 400000)}}]}
+')
+post_tool_out "$mixed_block_input"
+mixed_block_status=$?
+post_out=$(cat "$OUT")
+if [ "$mixed_block_status" -eq 0 ] \
+   && ! printf '%s' "$post_out" | grep -q 'AGENT_GUARD_TEST_SECRET' \
+   && printf '%s' "$post_out" \
+        | jq -e '
+            .hookSpecificOutput.updatedToolOutput as $out
+            | $out[0].type == "text"
+            and ($out[0].text | contains("[REDACTED]"))
+            and $out[1].type == "image"
+            and $out[1].source.type == "base64"
+            and $out[1].source.media_type == "image/png"
+            and $out[1].source.data == ("A" * 400000)
+          ' >/dev/null 2>&1; then
+  ok "post-tool masks the text sibling and restores the image payload intact"
+else
+  not_ok "post-tool masks the text sibling and restores the image payload intact"
+  printf '%s\n' "$post_out" | cut -c1-200 | sed 's/^/  out: /'
+fi
+
+# The payload is opaque by design: the host forwards it as bytes of the
+# declared media type, never as text the model reads.
+payload_secret_input=$(jq -nc '
+  {tool_name:"mcp__example__screenshot",tool_input:{},
+   tool_response:[{type:"image",
+                   source:{type:"base64",media_type:"image/png",
+                           data:"token AGENT_GUARD_TEST_SECRET here"}}]}
+')
+post_tool_out "$payload_secret_input"
+payload_secret_status=$?
+if [ "$payload_secret_status" -eq 0 ] && [ ! -s "$OUT" ]; then
+  ok "post-tool does not inspect the payload of a binary content block"
+else
+  not_ok "post-tool does not inspect the payload of a binary content block"
+  cut -c1-200 "$OUT" | sed 's/^/  out: /'
+fi
+
+# base64 of a text media type (text/plain, SVG) is still text and takes the
+# fail-closed path over the cap. Anthropic content blocks are a discriminated
+# union, so `type`, `source.type` and `media_type` must survive that rewrite:
+# a block tagged `[REDACTED]` is rejected by every later request, permanently,
+# because the host persists it in the session transcript.
+oversize_text_document_input=$(jq -nc '
+  {tool_name:"mcp__example__export",tool_input:{},
+   tool_response:[{type:"text",text:"exported"},
+                  {type:"document",
+                   source:{type:"base64",media_type:"text/plain",
+                           data:("A" * 400000)}}]}
+')
+post_tool_out "$oversize_text_document_input"
+oversize_text_document_status=$?
+post_out=$(cat "$OUT")
+if [ "$oversize_text_document_status" -eq 0 ] \
+   && printf '%s' "$post_out" \
+        | jq -e '
+            .hookSpecificOutput.updatedToolOutput as $out
+            | ($out | type) == "array"
+            and $out[0].type == "text"
+            and $out[0].text == "[REDACTED]"
+            and $out[1].type == "document"
+            and $out[1].source.type == "base64"
+            and $out[1].source.media_type == "text/plain"
+            and $out[1].source.data == "[REDACTED]"
+          ' >/dev/null 2>&1; then
+  ok "post-tool keeps content-block discriminators in the over-cap whole-leaf mask"
+else
+  not_ok "post-tool keeps content-block discriminators in the over-cap whole-leaf mask"
+  printf '%s\n' "$post_out" | cut -c1-200 | sed 's/^/  out: /'
+fi
+
+oversize_svg_input=$(jq -nc '
+  {tool_name:"Read",tool_input:{file_path:"logo.svg"},
+   tool_response:{type:"image",
+                  file:{base64:("A" * 400000),type:"image/svg+xml",
+                        originalSize:400000}}}
+')
+post_tool_out "$oversize_svg_input"
+oversize_svg_status=$?
+post_out=$(cat "$OUT")
+if [ "$oversize_svg_status" -eq 0 ] \
+   && printf '%s' "$post_out" \
+        | jq -e '
+            .hookSpecificOutput.updatedToolOutput as $out
+            | $out.type == "image"
+            and $out.file.type == "[REDACTED]"
+            and $out.file.base64 == "[REDACTED]"
+          ' >/dev/null 2>&1; then
+  ok "post-tool still masks an over-cap image block of a text media type"
+else
+  not_ok "post-tool still masks an over-cap image block of a text media type"
+  printf '%s\n' "$post_out" | cut -c1-200 | sed 's/^/  out: /'
+fi
+
+# The exemption is an allowlist of VALUES, not of key names. A `type` holding
+# anything other than a known protocol token is still masked, so a secret
+# parked under that key cannot ride the shape exemption out to the model.
+oversize_foreign_type_input=$(jq -nc '
+  {tool_name:"Read",tool_input:{file_path:"dump.json"},
+   tool_response:{type:"not-a-protocol-token",
+                  media_type:"application/x-made-up",
+                  payload:("A" * 400000)}}
+')
+post_tool_out "$oversize_foreign_type_input"
+oversize_foreign_type_status=$?
+post_out=$(cat "$OUT")
+if [ "$oversize_foreign_type_status" -eq 0 ] \
+   && printf '%s' "$post_out" \
+        | jq -e '
+            .hookSpecificOutput.updatedToolOutput as $out
+            | $out.type == "[REDACTED]"
+            and $out.media_type == "[REDACTED]"
+            and $out.payload == "[REDACTED]"
+          ' >/dev/null 2>&1; then
+  ok "post-tool masks a non-protocol type value in the whole-leaf path"
+else
+  not_ok "post-tool masks a non-protocol type value in the whole-leaf path"
+  printf '%s\n' "$post_out" | cut -c1-200 | sed 's/^/  out: /'
+fi
+
 # Gitleaks work must be bounded before it scans or writes a high-cardinality
 # report. The stub records stdin-mode invocation and can emit a report above the
 # 64 KiB cap without using assignment, JWT, or Bearer-shaped fixture content.
