@@ -264,5 +264,63 @@ printf '%s' '{"tool_name":"FutureTool"}' | "$GUARD" hook-pre-tool >/dev/null 2>&
 check 'retention ignores foreign names' test -f "$foreign"
 check 'retention never recurses into foreign directories' test -f "$XDG_STATE_HOME/agent-guard/nested/event-1000000000-old123"
 
+
+# The live post-tool probe is the only masked value whose replacement names the
+# invocation that produced it. Without that binding the expected output is a
+# constant, so "the probe came back masked" cannot be told apart from a report
+# that was written without running anything. Read the sentinel out of the binary
+# so this file never carries a second copy of it.
+new_case
+probe_marker=$(sed -n 's/^LIVE_POST_TOOL_PROBE=//p' "$GUARD" | head -1)
+check 'the live post-tool sentinel is readable from the binary' test -n "$probe_marker"
+printf '{"session_id":"probe","hook_event_name":"PostToolUse","tool_name":"Bash","tool_input":{},"tool_response":{"stdout":"%s"}}' \
+  "$probe_marker" \
+  | AGENT_GUARD_HOOK_HOST=claude "$GUARD" hook-post-tool >"$CASE/probe.out" 2>"$CASE/probe.err"
+probe_masked=$(jq -r '.hookSpecificOutput.updatedToolOutput.stdout' "$CASE/probe.out" 2>/dev/null)
+probe_id=$(printf '%s' "$probe_masked" | sed -n 's/.*run_id=\([0-9A-Za-z-]*\).*/\1/p')
+case "$probe_masked" in
+  *"$probe_marker"*) bad 'live probe replacement drops the raw sentinel' ;;
+  *) ok 'live probe replacement drops the raw sentinel' ;;
+esac
+case "$probe_masked" in
+  *'[REDACTED]'*) ok 'live probe replacement keeps the documented placeholder' ;;
+  *) bad 'live probe replacement keeps the documented placeholder' ;;
+esac
+probe_id_shape=$(expr "$probe_id" : '[0-9][0-9]*-[0-9A-Za-z][0-9A-Za-z]*$') || probe_id_shape=0
+check 'live probe replacement names a well-formed run id' test "$probe_id_shape" -gt 0
+export_logs
+if jq -es --arg id "$probe_id" \
+     'any(.[]; .run_id == $id and .phase == "finished" and .command == "hook-post-tool" and .outcome == "masked")' \
+     "$CASE/export" >/dev/null; then
+  ok 'live probe run id resolves to a masked post-tool record'
+else
+  bad 'live probe run id resolves to a masked post-tool record'
+fi
+
+# With logging off there is no record to point at, so the replacement must fall
+# back to the bare placeholder rather than name an id nobody can look up.
+printf '{"session_id":"probe","hook_event_name":"PostToolUse","tool_name":"Bash","tool_input":{},"tool_response":{"stdout":"%s"}}' \
+  "$probe_marker" \
+  | AGENT_GUARD_LOG_MODE=off AGENT_GUARD_HOOK_HOST=claude "$GUARD" hook-post-tool \
+    >"$CASE/probe-off.out" 2>"$CASE/probe-off.err"
+probe_off=$(jq -r '.hookSpecificOutput.updatedToolOutput.stdout' "$CASE/probe-off.out" 2>/dev/null)
+check 'live probe falls back to the bare placeholder without logging' \
+  test "$probe_off" = '[REDACTED]'
+
+# The replacement travels back through the guard as ordinary text: once in the
+# next tool result the agent quotes, and once if a user pastes it into a prompt.
+# Neither may block or mask, or the probe would poison every session that ran it.
+printf '{"session_id":"probe","hook_event_name":"PostToolUse","tool_name":"Bash","tool_input":{},"tool_response":{"stdout":"%s"}}' \
+  "$probe_masked" \
+  | AGENT_GUARD_HOOK_HOST=claude "$GUARD" hook-post-tool >"$CASE/probe-echo.out" 2>/dev/null
+check 'the replacement itself is not re-masked' test ! -s "$CASE/probe-echo.out"
+printf '{"session_id":"probe","hook_event_name":"UserPromptSubmit","prompt":"%s"}' "$probe_masked" \
+  >"$CASE/probe-prompt.json"
+if "$GUARD" hook-user-prompt <"$CASE/probe-prompt.json" >"$CASE/probe-prompt.out" 2>/dev/null; then
+  check 'the replacement is not blocked at the prompt guard' test ! -s "$CASE/probe-prompt.out"
+else
+  bad 'the replacement is not blocked at the prompt guard'
+fi
+
 printf '%s audit log checks passed, %s failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

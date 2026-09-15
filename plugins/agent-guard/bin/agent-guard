@@ -828,6 +828,7 @@ info() {
 # Local support log. Only fixed vocabulary and numeric metadata reach disk.
 # Never pass hook JSON, diagnostics, arguments, paths or environment values here.
 AG_AUDIT_FILE=
+AG_AUDIT_ID=
 AG_AUDIT_START=0
 
 audit_location() {
@@ -5059,6 +5060,22 @@ output_scan_input_exceeds_cap() {
   [ "$output_scan_bytes" -gt 327680 ]
 }
 
+# Bind the live post-tool probe's replacement to this invocation's diagnostic
+# log record. A report of "the sentinel came back masked" is otherwise a
+# constant that can be produced without running anything; with the run id the
+# reader can look the same invocation up in `agent-guard logs export` and see
+# `hook-post-tool` finish as `masked`. The id proves that a PostToolUse rewrite
+# happened here, not which tool route carried it - the log schema is metadata
+# only and records no tool name. Empty whenever no verifiable record exists, and
+# the sentinel then masks to the bare placeholder.
+live_probe_run_id() {
+  [ -n "$AG_AUDIT_FILE" ] || return 0
+  case "$AG_AUDIT_ID" in
+    ''|*[!0-9A-Za-z-]*) return 0 ;;
+  esac
+  printf '%s' "$AG_AUDIT_ID"
+}
+
 # Collect JSON-string records for the literal secrets present in the response
 # JSON ($1): gitleaks findings plus the env-assignment heuristic and compact
 # token rules. The env heuristic scans each string leaf independently so quote
@@ -5135,7 +5152,13 @@ detect_output_secret_records() {
     printf '%s' "$response" \
       | jq -rj 'if type == "string" then . else [.. | strings] | join("\n") end' \
       | grep -Eo "$LIVE_POST_TOOL_PROBE" 2>/dev/null \
-      | jq -Rc 'select(length > 0)' || true
+      | jq -Rc --arg run_id "$(live_probe_run_id)" '
+          select(length > 0)
+          | if $run_id == "" then .
+            else {literal: .,
+                  replacement: ("[REDACTED] agent-guard live probe run_id=" + $run_id),
+                  contextual: false}
+            end' || true
   }
 }
 
