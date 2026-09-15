@@ -5068,6 +5068,11 @@ output_scan_input_exceeds_cap() {
 # happened here, not which tool route carried it - the log schema is metadata
 # only and records no tool name. Empty whenever no verifiable record exists, and
 # the sentinel then masks to the bare placeholder.
+#
+# This is the one place in the redaction path whose output differs between two
+# otherwise identical runs, and the unpredictability is the point: a constant
+# expected value can be reported without running anything. Nothing about WHICH
+# values get masked varies - only this one sentinel's replacement text.
 live_probe_run_id() {
   [ -n "$AG_AUDIT_FILE" ] || return 0
   case "$AG_AUDIT_ID" in
