@@ -58,6 +58,7 @@ must be reviewed/trusted again before it runs. See official [Codex Hooks](https:
 | `DEGRADED` | A dependency or policy could not be verified. Run `doctor`, then setup; it is not a clean scan. |
 | `setup ok (dependencies only)` | Local dependencies are available. Run the live route probes. |
 | Probe prints its raw marker | The tested route did not dispatch the expected hook. Check trust, restart, and retain Git/CI backstops. |
+| Post-tool probe reports `[REDACTED]` with a `run_id` | A PostToolUse rewrite produced that replacement. Resolve the same `run_id` in `agent-guard logs export` before accepting the report; an id with no record is a failed probe. |
 | A benign command is blocked as a protected path | The shell matcher saw path-shaped text. Use a clearly non-path-shaped expression after reviewing the command. |
 | Post-write scan is unavailable | Treat it as infrastructure failure under the configured policy; do not claim the file was clean. |
 
@@ -163,7 +164,8 @@ Every device in a cohort must report the approved plugin version and managed
 setting source, successful setup and smoke checks, both live hook probes, a
 normal command with exit 0, and a safe log export. The export must contain the
 corresponding coarse outcomes: `blocked` for the pre-tool probe, `masked` for
-the post-tool probe, and `pass` for the normal command. Stop expansion on any
+the post-tool probe, and `pass` for the normal command. Match the post-tool
+probe to its record by the `run_id` the replacement names, not by timestamp. Stop expansion on any
 raw synthetic marker, `DEGRADED` result, unexpected block, missing log evidence,
 or version/source drift. Record the rollback owner and previous reviewed tag
 before the first cohort.
