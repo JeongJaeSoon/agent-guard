@@ -4,6 +4,11 @@ Agent Guard reads policy from its bundled configuration and selected environment
 variables. Keep custom policy files reviewable and test them with
 `agent-guard smoke-test` plus an appropriate live probe.
 
+`AGENT_GUARD_INFRA_FAILURE_MODE=closed`와 output redaction의 event별 실효 범위는
+[도구 출력 마스킹의 범위와 검증 경계](output-masking-boundaries.md)를 함께
+확인하세요. 특히 `PostToolUse`의 exit 2는 이미 실행된 tool effect를 되돌리지
+않고, timeout 전에 응답하지 못하면 `closed` 결정 자체가 host에 도달하지 않습니다.
+
 ## Infrastructure policy
 
 `AGENT_GUARD_INFRA_FAILURE_MODE` controls an unavailable dependency, policy, or
