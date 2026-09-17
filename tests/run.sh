@@ -6483,6 +6483,158 @@ else
   sed 's/^/  stderr: /' "$ERR"
 fi
 
+# --- Untracked scan input limit keeps truncation distinct from failures -----
+# `head` closes its input once it captures the sentinel byte. Large producers
+# commonly observe that as SIGPIPE, but the bounded byte count — not that
+# expected producer status — defines the scan result.
+UNTRACKED_LIMIT_REPO="$TMP_ROOT/untracked-limit-repo"
+UNTRACKED_LIMIT_TOKEN_PART_1=AGENT_GUARD_TEST_
+UNTRACKED_LIMIT_TOKEN_PART_2=SECRET
+UNTRACKED_LIMIT_TOKEN="${UNTRACKED_LIMIT_TOKEN_PART_1}${UNTRACKED_LIMIT_TOKEN_PART_2}"
+mkdir -p "$UNTRACKED_LIMIT_REPO"
+(
+  cd "$UNTRACKED_LIMIT_REPO" || exit 2
+  git init -q
+  git config user.email t@e
+  git config user.name t
+  printf 'clean\n' >README.md
+  git add README.md
+  git commit -q -m init
+  limit_i=0
+  while [ "$limit_i" -lt 100 ]; do
+    limit_i=$((limit_i + 1))
+    awk 'BEGIN { for (i = 0; i < 40000; i++) printf "x" }' \
+      >"oversized-input-$limit_i.txt"
+  done
+  printf '\n%s\n' "$UNTRACKED_LIMIT_TOKEN" >>oversized-input-100.txt
+  "$PLUGIN_ROOT/bin/agent-guard" scan-working-tree >"$OUT" 2>"$ERR"
+)
+status=$?
+if [ "$status" -eq 3 ] \
+   && grep -Fq 'untracked files exceeded the scan input limit' "$ERR" \
+   && ! grep -Fq 'failed to prepare untracked files for scanning' "$ERR" \
+   && ! grep -Eq 'SIGPIPE|signal 13|status 13' "$ERR" \
+   && ! grep -Fq 'oversized-input-' "$ERR"; then
+  ok "over-limit untracked input reports the intended secret-safe size diagnostic"
+else
+  not_ok "over-limit untracked input is unavailable without exposing SIGPIPE or paths (expected 3, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+# A newline, quote, space, and semicolon in one name lock in the NUL-delimited
+# filename transport. A finding proves the producer did not merely skip the
+# unusual path; replacing it with clean content then covers the below-limit
+# clean result separately.
+limit_i=0
+while [ "$limit_i" -lt 100 ]; do
+  limit_i=$((limit_i + 1))
+  rm -f "$UNTRACKED_LIMIT_REPO/oversized-input-$limit_i.txt"
+done
+UNTRACKED_SPECIAL_NAME=$(printf "line\\nbreak; 'quoted name'.txt")
+printf '%s\n' "$UNTRACKED_LIMIT_TOKEN" >"$UNTRACKED_LIMIT_REPO/$UNTRACKED_SPECIAL_NAME"
+(
+  cd "$UNTRACKED_LIMIT_REPO" || exit 2
+  "$PLUGIN_ROOT/bin/agent-guard" scan-working-tree >"$OUT" 2>"$ERR"
+)
+status=$?
+if [ "$status" -eq 1 ]; then
+  ok "untracked scanning preserves a special filename and detects its finding"
+else
+  not_ok "special-filename untracked input is not skipped (expected 1, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+printf 'clean special file\n' >"$UNTRACKED_LIMIT_REPO/$UNTRACKED_SPECIAL_NAME"
+# Include the per-file separator overhead while staying comfortably below the
+# one-third component cap (3,495,253 bytes).
+awk 'BEGIN { for (i = 0; i < 3200000; i++) printf "x" }' \
+  >"$UNTRACKED_LIMIT_REPO/near-limit-clean.txt"
+(
+  cd "$UNTRACKED_LIMIT_REPO" || exit 2
+  "$PLUGIN_ROOT/bin/agent-guard" scan-working-tree >"$OUT" 2>"$ERR"
+)
+status=$?
+if [ "$status" -eq 0 ]; then
+  ok "below-limit untracked input scans clean"
+else
+  not_ok "below-limit untracked input scans clean (expected 0, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+# A real file-read failure inside the producer must remain distinguishable from
+# the intentional truncation above. Delegate every unrelated cat invocation so
+# this fixture exercises only the designated untracked path.
+UNTRACKED_FAIL_BIN="$TMP_ROOT/untracked-fail-bin"
+mkdir -p "$UNTRACKED_FAIL_BIN"
+cat >"$UNTRACKED_FAIL_BIN/cat" <<'STUB'
+#!/bin/sh
+if [ "${1:-}" = -- ] && [ "${2:-}" = producer-failure.txt ]; then
+  printf '%s\n' 'synthetic untracked cat failure' >&2
+  exit 71
+fi
+exec "${AGENT_GUARD_TEST_REAL_CAT:?}" "$@"
+STUB
+chmod +x "$UNTRACKED_FAIL_BIN/cat"
+printf 'clean producer fixture\n' >"$UNTRACKED_LIMIT_REPO/producer-failure.txt"
+(
+  cd "$UNTRACKED_LIMIT_REPO" || exit 2
+  PATH="$UNTRACKED_FAIL_BIN:$PATH" AGENT_GUARD_TEST_REAL_CAT="$REAL_CAT" \
+    "$PLUGIN_ROOT/bin/agent-guard" scan-working-tree >"$OUT" 2>"$ERR"
+)
+status=$?
+if [ "$status" -eq 3 ] \
+   && grep -Fq 'failed to prepare untracked files for scanning' "$ERR" \
+   && ! grep -Fq 'synthetic untracked cat failure' "$ERR" \
+   && ! grep -Fq 'untracked files exceeded the scan input limit' "$ERR"; then
+  ok "genuine untracked file-read failure uses a bounded generic preparation diagnostic"
+else
+  not_ok "genuine untracked file-read failure stays generic and distinct from the size limit (expected 3, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+# Hook policy still decides what an unavailable scan means. The corrected
+# classification must not change the established open/closed behavior.
+rm -f "$UNTRACKED_LIMIT_REPO/$UNTRACKED_SPECIAL_NAME" \
+  "$UNTRACKED_LIMIT_REPO/near-limit-clean.txt" \
+  "$UNTRACKED_LIMIT_REPO/producer-failure.txt"
+limit_i=0
+while [ "$limit_i" -lt 100 ]; do
+  limit_i=$((limit_i + 1))
+  awk 'BEGIN { for (i = 0; i < 40000; i++) printf "x" }' \
+    >"$UNTRACKED_LIMIT_REPO/oversized-policy-input-$limit_i.txt"
+done
+(
+  cd "$UNTRACKED_LIMIT_REPO" || exit 2
+  printf '%s' '{"session_id":"untracked-limit-open","stop_hook_active":false}' \
+    | AGENT_GUARD_INFRA_FAILURE_MODE=open \
+        AGENT_GUARD_WARNING_DIR="$TESTTMP/untracked-limit-open-warn" \
+        "$PLUGIN_ROOT/bin/agent-guard" hook-stop >"$OUT" 2>"$ERR"
+)
+status=$?
+if [ "$status" -eq 0 ] \
+   && grep -Fq 'untracked files exceeded the scan input limit' "$ERR" \
+   && grep -Fq 'AGENT_GUARD_INFRA_FAILURE_MODE=open' "$ERR"; then
+  ok "over-limit untracked input preserves open hook policy"
+else
+  not_ok "over-limit untracked input follows open hook policy (expected 0, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+(
+  cd "$UNTRACKED_LIMIT_REPO" || exit 2
+  printf '%s' '{"session_id":"untracked-limit-closed","stop_hook_active":false}' \
+    | AGENT_GUARD_INFRA_FAILURE_MODE=closed \
+        AGENT_GUARD_WARNING_DIR="$TESTTMP/untracked-limit-closed-warn" \
+        "$PLUGIN_ROOT/bin/agent-guard" hook-stop >"$OUT" 2>"$ERR"
+)
+status=$?
+if [ "$status" -eq 2 ] \
+   && grep -Fq 'untracked files exceeded the scan input limit' "$ERR" \
+   && grep -Fq 'AGENT_GUARD_INFRA_FAILURE_MODE=closed' "$ERR"; then
+  ok "over-limit untracked input preserves closed hook policy"
+else
+  not_ok "over-limit untracked input follows closed hook policy (expected 2, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
 # --- agent-guard check announces gitleaks version ------------------------
 "$PLUGIN_ROOT/bin/agent-guard" check >"$OUT" 2>"$ERR"
 if grep -q 'gitleaks' "$ERR"; then

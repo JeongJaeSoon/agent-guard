@@ -3295,6 +3295,8 @@ scan_untracked_files() {
   # Stream every untracked file through one gitleaks stdin call. Exact checksum
   # fields are removed only for supported lockfile basenames; all other content
   # from those files, including credentials, remains in the stream.
+  # Producer stderr is untrusted and unbounded; discard it here and emit only
+  # the fixed, secret-safe preparation diagnostic below when its status fails.
   blob=$(mktemp_file) || { rm -f "$list"; die "failed to create temp file"; }
   prepare_status_file=$(mktemp_file) || { rm -f "$list" "$blob"; die "failed to create temp file"; }
   (xargs -0 -I '{}' sh -c '
@@ -3311,23 +3313,29 @@ scan_untracked_files() {
     esac
     printf "\n" || exit 1
   ' "$root" '{}' "$SELF_BIN" <"$list"; printf '%s\n' "$?" >"$prepare_status_file") \
+    2>/dev/null \
     | head -c $((SCAN_COMPONENT_MAX_BYTES + 1)) >"$blob"
   pipe_status=$?
   prepare_status=$(sed -n '1p' "$prepare_status_file" 2>/dev/null)
   rm -f "$prepare_status_file"
   rm -f "$list"
   blob_bytes=$(LC_ALL=C wc -c <"$blob" 2>/dev/null | tr -d '[:space:]')
-  if [ "$pipe_status" -ne 0 ] || [ "$prepare_status" != 0 ]; then
-    rm -f "$blob"
-    info "$PROGRAM: failed to prepare untracked files for scanning"
-    return "$SCAN_STATUS_UNAVAILABLE"
-  fi
   case "$blob_bytes" in
     ''|*[!0-9]*) rm -f "$blob"; return "$SCAN_STATUS_UNAVAILABLE" ;;
   esac
+  # `head` deliberately closes the pipe after the sentinel byte. The producer
+  # may therefore report SIGPIPE (or never reach its status write) for an
+  # over-budget stream; the byte count is the authoritative outcome in that
+  # case. Preserve real preparation failures while the stream is still within
+  # budget, where `head` did not truncate it.
   if [ "$blob_bytes" -gt "$SCAN_COMPONENT_MAX_BYTES" ]; then
     rm -f "$blob"
-    info "$PROGRAM: untracked files exceeded the scan input limit"
+    info "$PROGRAM: untracked files exceeded the scan input limit; reduce untracked input or add intentional exclusions to .gitignore"
+    return "$SCAN_STATUS_UNAVAILABLE"
+  fi
+  if [ "$pipe_status" -ne 0 ] || [ "$prepare_status" != 0 ]; then
+    rm -f "$blob"
+    info "$PROGRAM: failed to prepare untracked files for scanning"
     return "$SCAN_STATUS_UNAVAILABLE"
   fi
 
