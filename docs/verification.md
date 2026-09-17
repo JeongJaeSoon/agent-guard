@@ -77,11 +77,13 @@ byte length with the placeholder's if you need to confirm it.
   dependency or choose the documented infrastructure policy.
 - `open` infrastructure mode continues after a visible one-time warning;
   `closed` blocks. This policy applies to infrastructure failures, while a
-  secret detection blocks. Malformed PreToolUse and Stop input blocks
-  independently of infrastructure mode. PostToolUse first recovers a valid
-  host envelope with its independent parser and emits a conservative
-  replacement; exit status 2 for a truly malformed PostToolUse envelope is a
-  visible diagnostic and cannot retract the completed tool result. Every
+  secret detection blocks. Non-empty malformed or non-object PreToolUse and
+  Stop input blocks independently of infrastructure mode. PostToolUse first
+  recovers a valid host envelope with its independent parser and emits a
+  conservative replacement; exit status 2 for a non-empty malformed or
+  non-object PostToolUse envelope is a visible diagnostic and cannot retract
+  the completed tool result. Empty stdin is the documented exception:
+  PreToolUse, PostToolUse, and Stop return status 0 with no response. Every
   rejected event is reported.
 - A host that kills a hook at its timeout can prevent that hook from deciding.
   Keep Git and CI backstops enabled.

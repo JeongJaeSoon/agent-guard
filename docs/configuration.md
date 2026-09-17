@@ -22,16 +22,18 @@ scanner error in a lifecycle hook:
 This is distinct from a secret finding, which blocks. An invalid value is read
 as `open`; set an explicit valid value in managed environments.
 
-Malformed PreToolUse, PostToolUse, and Stop input is also distinct from
-unavailable infrastructure. Agent Guard rejects one of those events when it
-cannot parse the input as a JSON object even if infrastructure mode is `open`.
+Non-empty malformed or non-object PreToolUse, PostToolUse, and Stop input is
+also distinct from unavailable infrastructure. Agent Guard rejects one of
+those events even if infrastructure mode is `open`.
 PreToolUse and Stop can block their boundary action with exit status 2. Because
 PostToolUse runs after the tool, Agent Guard first uses an independent portable
 parser to recover and conservatively replace `tool_response` from a valid host
-envelope that the primary validator could not handle. A truly malformed
-PostToolUse envelope is reported with exit status 2, but that diagnostic cannot
-retract a result the host already received. Malformed-input diagnostics are not
-deduplicated with degraded-infrastructure notices.
+envelope that the primary validator could not handle. A non-empty malformed or
+non-object PostToolUse envelope is reported with exit status 2, but that
+diagnostic cannot retract a result the host already received. Malformed-input
+diagnostics are not deduplicated with degraded-infrastructure notices.
+Empty stdin is the documented exception: PreToolUse, PostToolUse, and Stop
+return status 0 with no response. See [output masking boundaries](output-masking-boundaries.md#malformed-envelope%EB%8A%94-infrastructure-failure%EC%99%80-%EB%8B%A4%EB%A5%B4%EB%8B%A4).
 
 ## Output and prompt handling
 
