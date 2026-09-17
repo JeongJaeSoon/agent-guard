@@ -93,6 +93,12 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 mkdir -p "$MOCK_BIN"
+# The runtime intentionally prefers its private install over PATH. Keep the
+# suite hermetic so a developer's real private gitleaks cannot shadow the PATH
+# fixture used by tests that do not set an explicit scanner.
+DEFAULT_PRIVATE_GITLEAKS_DIR="$TMP_ROOT/private-gitleaks-empty"
+mkdir -p "$DEFAULT_PRIVATE_GITLEAKS_DIR"
+export AGENT_GUARD_GITLEAKS_BIN_DIR="$DEFAULT_PRIVATE_GITLEAKS_DIR"
 
 if [ ! -e "$PLUGIN_ROOT/commands/setup-shell.md" ]; then
   ok "setup-shell has a single skill implementation"
@@ -128,6 +134,7 @@ for file in \
   "$ROOT/githooks/pre-commit" \
   "$PLUGIN_ROOT/scripts/gitleaks-checksum.sh" \
   "$ROOT/tests/hook-outcome-contract.sh" \
+  "$ROOT/tests/gitleaks-resolution.sh" \
   "$ROOT/tests/run.sh"; do
   run_expect 0 "shell syntax: $file" sh -n "$file"
 done
@@ -311,6 +318,9 @@ if grep -Fxq 'disable-model-invocation: true' "$setup_skill" \
    && grep -Fq 'blocked by the host sandbox' "$setup_skill" \
    && grep -Fq 'Do not retry the same blocked write' "$setup_skill" \
    && grep -Fq 'run in a separate terminal' "$setup_skill" \
+   && grep -Fq 'gitleaks version isolation requires' "$setup_skill" \
+   && grep -Fq '`util-linux`' "$setup_skill" \
+   && grep -Fq 'gitleaks를 다시 설치하지 마세요' "$setup_skill" \
    && grep -Fq 'rerun the read-only' "$setup_skill" \
    && grep -Fq 'They do not prove that the host is dispatching plugin hooks' "$setup_skill"; then
   ok "Claude explicit-only and Codex explicit-policy setup entries share canonical host guidance"
@@ -1580,7 +1590,12 @@ run_expect 2 "prompt guard dies loudly on an unsupported PII mode" \
 # concatenated documents on stdout, so a host parsing stdout as one document
 # dropped the promised warning entirely. Assert a single document that still
 # carries both facts — `grep systemMessage` alone passes on the broken shape.
-printf '#!/bin/sh\nexit 3\n' >"$MOCK_BIN/gitleaks-broken"
+printf '%s\n' \
+  '#!/bin/sh' \
+  'case "${1:-}" in' \
+  '  version) printf "%s\\n" "8.30.1"; exit 0 ;;' \
+  '  *) exit 3 ;;' \
+  'esac' >"$MOCK_BIN/gitleaks-broken"
 chmod +x "$MOCK_BIN/gitleaks-broken"
 prompt_infra_case() { # $1 host, $2 warning dir
   printf '%s' "$prompt_guard_env_json" \
@@ -4933,7 +4948,7 @@ fi
 NO_GIT_BIN="$TESTTMP/no-git-bin"
 NO_GIT_WARN_DIR="$TESTTMP/no-git-warnings"
 mkdir -p "$NO_GIT_BIN" "$NO_GIT_WARN_DIR"
-for no_git_cmd in sh dirname pwd readlink jq sed awk grep cat mktemp mkdir chmod rm sort tail cut head; do
+for no_git_cmd in sh dirname pwd readlink jq sed awk grep cat mktemp mkdir rmdir chmod rm sort tail cut head sleep wc tr setsid perl; do
   no_git_path=$(command -v "$no_git_cmd" 2>/dev/null || true)
   [ -n "$no_git_path" ] && ln -s "$no_git_path" "$NO_GIT_BIN/$no_git_cmd"
 done
@@ -5272,6 +5287,10 @@ ERROR_BIN="$TMP_ROOT/error-bin"
 mkdir -p "$ERROR_BIN"
 cat > "$ERROR_BIN/gitleaks" <<'EOSH'
 #!/usr/bin/env sh
+if [ "${1:-}" = version ]; then
+  printf '%s\n' '8.30.1-error-fixture'
+  exit 0
+fi
 echo "synthetic gitleaks failure" >&2
 exit 3
 EOSH
@@ -5290,6 +5309,10 @@ ERROR_ZERO_BIN="$TMP_ROOT/error-zero-bin"
 mkdir -p "$ERROR_ZERO_BIN"
 cat > "$ERROR_ZERO_BIN/gitleaks" <<'EOSH'
 #!/usr/bin/env sh
+if [ "${1:-}" = version ]; then
+  printf '%s\n' '8.30.1-error-zero-fixture'
+  exit 0
+fi
 echo "ERR skipping file: synthetic unreadable fixture" >&2
 exit 0
 EOSH
@@ -5518,6 +5541,11 @@ ln -s "$REAL_SH" "$NO_GITLEAKS_BIN/sh"
 ln -s "$REAL_DIRNAME" "$NO_GITLEAKS_BIN/dirname"
 ln -s "$REAL_PWD" "$NO_GITLEAKS_BIN/pwd"
 ln -s "$(command -v awk)" "$NO_GITLEAKS_BIN/awk"
+for no_gitleaks_tool in sleep wc tr rm mkdir rmdir setsid perl; do
+  no_gitleaks_tool_path=$(command -v "$no_gitleaks_tool" 2>/dev/null || :)
+  [ -n "$no_gitleaks_tool_path" ] \
+    && ln -s "$no_gitleaks_tool_path" "$NO_GITLEAKS_BIN/$no_gitleaks_tool"
+done
 AGENT_GUARD_GITLEAKS_BIN=/nonexistent/gitleaks PATH="$NO_GITLEAKS_BIN" \
   "$PLUGIN_ROOT/bin/agent-guard" scan-path "$CLEAN_DIR" >"$OUT" 2>"$ERR"
 status=$?
@@ -5529,6 +5557,8 @@ fi
 
 run_expect 0 "direct scan dependency statuses and recovery" \
   "$REAL_SH" "$ROOT/tests/direct-scan-status.sh"
+run_expect 0 "deterministic gitleaks resolution and capability diagnostics" \
+  "$REAL_SH" "$ROOT/tests/gitleaks-resolution.sh"
 run_expect 0 "setup and manifest hook outcome contracts" \
   "$REAL_SH" "$ROOT/tests/hook-outcome-contract.sh"
 
@@ -5566,7 +5596,7 @@ fi
 # needed.
 NO_GIT_BIN="$TMP_ROOT/no-git-bin"
 mkdir -p "$NO_GIT_BIN"
-for no_git_tool in sh dirname pwd jq head awk; do
+for no_git_tool in sh dirname pwd jq head awk mktemp sleep wc tr rm mkdir rmdir setsid perl; do
   no_git_tool_path=$(command -v "$no_git_tool" 2>/dev/null || :)
   [ -n "$no_git_tool_path" ] && ln -s "$no_git_tool_path" "$NO_GIT_BIN/$no_git_tool"
 done
@@ -6272,6 +6302,7 @@ if printf '%s\n' "$formula_output" | grep -q 'libexec.install Dir' \
    && printf '%s\n' "$formula_output" | grep -q 'depends_on "git"' \
    && printf '%s\n' "$formula_output" | grep -q 'depends_on "gitleaks"' \
    && printf '%s\n' "$formula_output" | grep -q 'depends_on "jq"' \
+   && printf '%s\n' "$formula_output" | grep -q 'depends_on "perl"' \
    && printf '%s\n' "$formula_output" | grep -q 'system "#{bin}/agent-guard", "check"' \
    && printf '%s\n' "$formula_output" | grep -q 'system "#{bin}/agent-guard", "smoke-test"'; then
   ok "Homebrew formula pins release, installs CLI dependencies, and checks the guard"
@@ -6438,7 +6469,7 @@ case "${1:-}" in
     fi
     exit 0
     ;;
-  version) printf '%s\n' '0.0.0-lock-fragment-test' ;;
+  version) printf '%s\n' '8.30.1-lock-fragment-test' ;;
   *) exit 0 ;;
 esac
 STUB
@@ -6951,7 +6982,7 @@ case "${1:-}" in
     fi
     exit 0
     ;;
-  version) printf '%s\n' '0.0.0-incomplete-toml-test' ;;
+  version) printf '%s\n' '8.30.1-incomplete-toml-test' ;;
   *) exit 0 ;;
 esac
 STUB
@@ -10287,7 +10318,7 @@ mkdir -p "$BOUNDED_GL_DIR"
   printf '%s\n' '#!/bin/sh'
   printf '%s\n' 'mode=${1:-}'
   printf '%s\n' 'case "$mode" in'
-  printf '%s\n' '  version) printf "%s\n" "0.0.0-bounded-test"; exit 0 ;;'
+  printf '%s\n' '  version) printf "%s\n" "8.30.1-bounded-test"; exit 0 ;;'
   printf '%s\n' '  stdin)'
   printf '%s\n' '    shift; report='
   printf '%s\n' '    while [ "$#" -gt 0 ]; do'
@@ -13257,6 +13288,7 @@ SIG_GL="$SIGTMP/gitleaks"
 cat >"$SIG_GL" <<EOSH
 #!/usr/bin/env sh
 case "\${1:-}" in
+  version) printf '%s\n' '8.30.1-signal-fixture'; exit 0 ;;
   stdin) : >"$SIG_READY"; sleep 3; exit 0 ;;
   *) exit 0 ;;
 esac

@@ -1108,25 +1108,386 @@ need_cmd() {
 }
 
 resolve_gitleaks() {
+  # A configured or private candidate is authoritative even when broken. A
+  # silent fallback would make the active default rules depend on PATH again.
   if [ -n "${AGENT_GUARD_GITLEAKS_BIN:-}" ]; then
-    [ -x "$AGENT_GUARD_GITLEAKS_BIN" ] || return 1
-    printf '%s\n' "$AGENT_GUARD_GITLEAKS_BIN"
+    ag_gl_candidate=$AGENT_GUARD_GITLEAKS_BIN
+  elif [ -e "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks" ] \
+       || [ -L "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks" ]; then
+    ag_gl_candidate=$GITLEAKS_PRIVATE_BIN_DIR/gitleaks
+  elif command -v gitleaks >/dev/null 2>&1; then
+    ag_gl_candidate=$(command -v gitleaks) || return 1
+  else
+    return 1
+  fi
+  if [ -x "$ag_gl_candidate" ]; then
+    ag_gl_dir=${ag_gl_candidate%/*}
+    ag_gl_name=${ag_gl_candidate##*/}
+    if [ "$ag_gl_dir" = "$ag_gl_candidate" ]; then
+      ag_gl_dir=.
+    elif [ -z "$ag_gl_dir" ]; then
+      ag_gl_dir=/
+    fi
+    ag_gl_dir=$(CDPATH= cd -- "$ag_gl_dir" 2>/dev/null && pwd -P) \
+      || return 1
+    printf '%s/%s\n' "$ag_gl_dir" "$ag_gl_name"
     return 0
   fi
-  if command -v gitleaks >/dev/null 2>&1; then
-    command -v gitleaks
+  printf '%s\n' "$ag_gl_candidate"
+}
+
+GITLEAKS_MIN_VERSION=8.30.0
+GITLEAKS_DEFAULT_VERSION=8.30.1
+GITLEAKS_PROBE_TIMEOUT_SECONDS=2
+GITLEAKS_PROBE_MAX_BYTES=8192
+GITLEAKS_PROBE_STATE=
+GITLEAKS_PROBE_VERSION=
+GITLEAKS_PROBE_DETAIL=
+GITLEAKS_READY_BIN=
+AG_GITLEAKS_PROBE_PID=
+AG_GITLEAKS_PROBE_GROUP=
+AG_GITLEAKS_WATCHDOG_PID=
+GITLEAKS_PROBE_FALLBACK_DIR=
+GITLEAKS_PROBE_FALLBACK_BASE=
+GITLEAKS_PROBE_FALLBACK_OUTPUT=
+GITLEAKS_PROBE_FALLBACK_TIMEOUT=
+GITLEAKS_PROBE_FILE=
+GITLEAKS_PROBE_MKDIR_BIN=
+GITLEAKS_PROBE_RMDIR_BIN=
+GITLEAKS_PROBE_LAUNCHER=
+GITLEAKS_PROBE_LAUNCHER_BIN=
+
+kill_gitleaks_probe_group() {
+  ag_gl_signal=$1
+  case "$AG_GITLEAKS_PROBE_GROUP" in
+    ''|*[!0-9]*) return 0 ;;
+  esac
+  kill -"$ag_gl_signal" -"$AG_GITLEAKS_PROBE_GROUP" 2>/dev/null || :
+}
+
+clear_gitleaks_probe_processes() {
+  if [ -n "$AG_GITLEAKS_WATCHDOG_PID" ]; then
+    kill -TERM "$AG_GITLEAKS_WATCHDOG_PID" 2>/dev/null || :
+    wait "$AG_GITLEAKS_WATCHDOG_PID" 2>/dev/null || :
+    AG_GITLEAKS_WATCHDOG_PID=
+  fi
+  if [ -n "$AG_GITLEAKS_PROBE_PID" ]; then
+    kill_gitleaks_probe_group TERM
+    kill -TERM "$AG_GITLEAKS_PROBE_PID" 2>/dev/null || :
+    kill_gitleaks_probe_group KILL
+    kill -KILL "$AG_GITLEAKS_PROBE_PID" 2>/dev/null || :
+    wait "$AG_GITLEAKS_PROBE_PID" 2>/dev/null || :
+    AG_GITLEAKS_PROBE_PID=
+    AG_GITLEAKS_PROBE_GROUP=
+  fi
+  for ag_gl_temp_path in \
+    "$GITLEAKS_PROBE_FALLBACK_OUTPUT" "$GITLEAKS_PROBE_FALLBACK_TIMEOUT"; do
+    [ -n "$ag_gl_temp_path" ] || continue
+    if [ -f "$ag_gl_temp_path" ] && [ ! -L "$ag_gl_temp_path" ]; then
+      rm -f "$ag_gl_temp_path" 2>/dev/null || :
+    fi
+  done
+  GITLEAKS_PROBE_FALLBACK_OUTPUT=
+  GITLEAKS_PROBE_FALLBACK_TIMEOUT=
+  if [ -n "$GITLEAKS_PROBE_FALLBACK_DIR" ] \
+      && [ -d "$GITLEAKS_PROBE_FALLBACK_DIR" ] \
+      && [ ! -L "$GITLEAKS_PROBE_FALLBACK_DIR" ]; then
+    "${GITLEAKS_PROBE_RMDIR_BIN:-rmdir}" \
+      "$GITLEAKS_PROBE_FALLBACK_DIR" 2>/dev/null || :
+  fi
+  GITLEAKS_PROBE_FALLBACK_DIR=
+}
+
+mktemp_gitleaks_probe_file() {
+  ag_gl_temp_kind=$1
+  GITLEAKS_PROBE_FILE=$(mktemp_file 2>/dev/null) && return 0
+
+  # Version output is not secret-bearing hook data. Keep the readiness probe
+  # available when mktemp itself is unavailable. Atomically acquire a private
+  # directory first, so a pre-existing FIFO or symlink can only occupy one
+  # candidate directory name and is never opened as a file.
+  if [ -z "$GITLEAKS_PROBE_FALLBACK_DIR" ]; then
+    GITLEAKS_PROBE_MKDIR_BIN=$(command -v mkdir 2>/dev/null) || {
+      GITLEAKS_PROBE_DETAIL=temp-helper-unavailable
+      return 1
+    }
+    GITLEAKS_PROBE_RMDIR_BIN=$(command -v rmdir 2>/dev/null) || {
+      GITLEAKS_PROBE_DETAIL=temp-helper-unavailable
+      return 1
+    }
+    ag_gl_temp_attempt=0
+    while [ "$ag_gl_temp_attempt" -lt 10 ]; do
+      ag_gl_temp_dir="$GITLEAKS_PROBE_FALLBACK_BASE/agent-guard-version-$$-$ag_gl_temp_attempt.d"
+      if (umask 077; "$GITLEAKS_PROBE_MKDIR_BIN" "$ag_gl_temp_dir") 2>/dev/null; then
+        GITLEAKS_PROBE_FALLBACK_DIR=$ag_gl_temp_dir
+        break
+      fi
+      ag_gl_temp_attempt=$((ag_gl_temp_attempt + 1))
+    done
+    [ -n "$GITLEAKS_PROBE_FALLBACK_DIR" ] || return 1
+  fi
+  GITLEAKS_PROBE_FILE="$GITLEAKS_PROBE_FALLBACK_DIR/$ag_gl_temp_kind"
+  (umask 077; : >"$GITLEAKS_PROBE_FILE") 2>/dev/null || return 1
+  case "$ag_gl_temp_kind" in
+    output) GITLEAKS_PROBE_FALLBACK_OUTPUT=$GITLEAKS_PROBE_FILE ;;
+    timeout) GITLEAKS_PROBE_FALLBACK_TIMEOUT=$GITLEAKS_PROBE_FILE ;;
+  esac
+  return 0
+}
+
+release_gitleaks_probe_fallback_dir() {
+  [ -z "$GITLEAKS_PROBE_FALLBACK_OUTPUT" ] || return 0
+  [ -z "$GITLEAKS_PROBE_FALLBACK_TIMEOUT" ] || return 0
+  [ -n "$GITLEAKS_PROBE_FALLBACK_DIR" ] || return 0
+  if [ -d "$GITLEAKS_PROBE_FALLBACK_DIR" ] \
+      && [ ! -L "$GITLEAKS_PROBE_FALLBACK_DIR" ] \
+      && "$GITLEAKS_PROBE_RMDIR_BIN" \
+        "$GITLEAKS_PROBE_FALLBACK_DIR" 2>/dev/null; then
+    GITLEAKS_PROBE_FALLBACK_DIR=
+  fi
+  return 0
+}
+
+remove_gitleaks_probe_file() {
+  ag_gl_remove_kind=$1
+  ag_gl_remove_path=$2
+  rm -f "$ag_gl_remove_path" || return 1
+  case "$ag_gl_remove_kind" in
+    output)
+      if [ "$GITLEAKS_PROBE_FALLBACK_OUTPUT" = "$ag_gl_remove_path" ]; then
+        GITLEAKS_PROBE_FALLBACK_OUTPUT=
+      fi
+      ;;
+    timeout)
+      if [ "$GITLEAKS_PROBE_FALLBACK_TIMEOUT" = "$ag_gl_remove_path" ]; then
+        GITLEAKS_PROBE_FALLBACK_TIMEOUT=
+      fi
+      ;;
+  esac
+  release_gitleaks_probe_fallback_dir
+  return 0
+}
+
+select_gitleaks_probe_launcher() {
+  if ag_gl_launcher=$(command -v setsid 2>/dev/null) \
+      && [ -n "$ag_gl_launcher" ]; then
+    GITLEAKS_PROBE_LAUNCHER=setsid
+    GITLEAKS_PROBE_LAUNCHER_BIN=$ag_gl_launcher
     return 0
   fi
-  if [ -x "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks" ]; then
-    printf '%s\n' "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks"
+  if ag_gl_launcher=$(command -v perl 2>/dev/null) \
+      && [ -n "$ag_gl_launcher" ]; then
+    GITLEAKS_PROBE_LAUNCHER=perl
+    GITLEAKS_PROBE_LAUNCHER_BIN=$ag_gl_launcher
     return 0
   fi
+  GITLEAKS_PROBE_LAUNCHER=
+  GITLEAKS_PROBE_LAUNCHER_BIN=
   return 1
 }
 
+probe_gitleaks() {
+  ag_gl_probe_bin=$1
+  GITLEAKS_PROBE_STATE=missing
+  GITLEAKS_PROBE_VERSION=
+  GITLEAKS_PROBE_DETAIL=
+  [ -x "$ag_gl_probe_bin" ] || return 1
+  GITLEAKS_PROBE_STATE=runtime-failure
+  command -v sleep >/dev/null 2>&1 || {
+    GITLEAKS_PROBE_DETAIL=timer-unavailable
+    return 1
+  }
+  select_gitleaks_probe_launcher || {
+    GITLEAKS_PROBE_DETAIL=launcher-unavailable
+    return 1
+  }
+  GITLEAKS_PROBE_FALLBACK_BASE=${TMPDIR:-/tmp}
+  case "$GITLEAKS_PROBE_FALLBACK_BASE" in
+    /*) ;;
+    *) GITLEAKS_PROBE_FALLBACK_BASE=/tmp ;;
+  esac
+  [ -d "$GITLEAKS_PROBE_FALLBACK_BASE" ] \
+    && [ ! -L "$GITLEAKS_PROBE_FALLBACK_BASE" ] \
+    || GITLEAKS_PROBE_FALLBACK_BASE=/tmp
+  mktemp_gitleaks_probe_file output || {
+    [ -n "$GITLEAKS_PROBE_DETAIL" ] \
+      || GITLEAKS_PROBE_DETAIL=temp-unavailable
+    return 1
+  }
+  ag_gl_probe_output=$GITLEAKS_PROBE_FILE
+  mktemp_gitleaks_probe_file timeout || {
+    remove_gitleaks_probe_file output "$ag_gl_probe_output" || :
+    [ -n "$GITLEAKS_PROBE_DETAIL" ] \
+      || GITLEAKS_PROBE_DETAIL=temp-unavailable
+    return 1
+  }
+  ag_gl_probe_timeout=$GITLEAKS_PROBE_FILE
+  (
+    # POSIX ulimit -f uses 512-byte blocks. Bounding the regular output file
+    # prevents a broken version command from filling memory before parsing.
+    ulimit -f 16 >/dev/null 2>&1 || exit 125
+    case "$GITLEAKS_PROBE_LAUNCHER" in
+      setsid) exec "$GITLEAKS_PROBE_LAUNCHER_BIN" "$ag_gl_probe_bin" version ;;
+      perl)
+        exec "$GITLEAKS_PROBE_LAUNCHER_BIN" -MPOSIX \
+          -e 'POSIX::setsid() >= 0 or exit 125; exec @ARGV; exit 126' \
+          "$ag_gl_probe_bin" version
+        ;;
+      *) exit 125 ;;
+    esac
+  ) >"$ag_gl_probe_output" 2>&1 &
+  AG_GITLEAKS_PROBE_PID=$!
+  AG_GITLEAKS_PROBE_GROUP=$AG_GITLEAKS_PROBE_PID
+  (
+    ag_gl_watch_sleep_pid=
+    trap '[ -z "$ag_gl_watch_sleep_pid" ] || kill -TERM "$ag_gl_watch_sleep_pid" 2>/dev/null; exit 0' TERM INT
+    sleep "$GITLEAKS_PROBE_TIMEOUT_SECONDS" &
+    ag_gl_watch_sleep_pid=$!
+    wait "$ag_gl_watch_sleep_pid" 2>/dev/null || exit 0
+    ag_gl_watch_sleep_pid=
+    printf 'timeout\n' >"$ag_gl_probe_timeout"
+    kill_gitleaks_probe_group TERM
+    kill -TERM "$AG_GITLEAKS_PROBE_PID" 2>/dev/null || :
+    sleep 1 &
+    ag_gl_watch_sleep_pid=$!
+    wait "$ag_gl_watch_sleep_pid" 2>/dev/null || exit 0
+    ag_gl_watch_sleep_pid=
+    kill_gitleaks_probe_group KILL
+    kill -KILL "$AG_GITLEAKS_PROBE_PID" 2>/dev/null || :
+  ) &
+  AG_GITLEAKS_WATCHDOG_PID=$!
+  wait "$AG_GITLEAKS_PROBE_PID" 2>/dev/null
+  ag_gl_probe_status=$?
+  AG_GITLEAKS_PROBE_PID=
+  # A version wrapper may fork and exit before its child. The isolated group is
+  # probe-private, so always clear any remaining descendants before returning.
+  kill_gitleaks_probe_group TERM
+  kill_gitleaks_probe_group KILL
+  kill -TERM "$AG_GITLEAKS_WATCHDOG_PID" 2>/dev/null || :
+  wait "$AG_GITLEAKS_WATCHDOG_PID" 2>/dev/null || :
+  AG_GITLEAKS_WATCHDOG_PID=
+  AG_GITLEAKS_PROBE_GROUP=
+  ag_gl_probe_bytes=$(LC_ALL=C wc -c <"$ag_gl_probe_output" 2>/dev/null \
+    | tr -d '[:space:]')
+  if [ -s "$ag_gl_probe_timeout" ]; then
+    GITLEAKS_PROBE_DETAIL=timeout
+  else
+    case "$ag_gl_probe_bytes" in
+      ''|*[!0-9]*) GITLEAKS_PROBE_DETAIL=output-unavailable ;;
+      *)
+        if [ "$ag_gl_probe_bytes" -ge "$GITLEAKS_PROBE_MAX_BYTES" ]; then
+          GITLEAKS_PROBE_DETAIL=output-limit
+        fi
+        ;;
+    esac
+  fi
+  remove_gitleaks_probe_file timeout "$ag_gl_probe_timeout" || :
+  if [ "$ag_gl_probe_status" -ne 0 ]; then
+    [ -n "$GITLEAKS_PROBE_DETAIL" ] \
+      || GITLEAKS_PROBE_DETAIL=command-failed
+    remove_gitleaks_probe_file output "$ag_gl_probe_output" || :
+    return 1
+  fi
+  if [ -n "$GITLEAKS_PROBE_DETAIL" ]; then
+    remove_gitleaks_probe_file output "$ag_gl_probe_output" || :
+    return 1
+  fi
+  GITLEAKS_PROBE_VERSION=$(awk '
+      {
+        line = $0
+        if (match(line, /[vV]?[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*/)) {
+          version = substr(line, RSTART, RLENGTH)
+          sub(/^[vV]/, "", version)
+          print version
+          exit
+        }
+      }
+    ' "$ag_gl_probe_output")
+  ag_gl_probe_status=$?
+  remove_gitleaks_probe_file output "$ag_gl_probe_output" || :
+  if [ "$ag_gl_probe_status" -ne 0 ] || [ -z "$GITLEAKS_PROBE_VERSION" ]; then
+    GITLEAKS_PROBE_STATE=unparseable
+    return 1
+  fi
+  if ! semver_at_least "$GITLEAKS_PROBE_VERSION" "$GITLEAKS_MIN_VERSION"; then
+    GITLEAKS_PROBE_STATE=unsupported
+    return 1
+  fi
+  GITLEAKS_PROBE_STATE=ready
+  return 0
+}
+
+gitleaks_probe_error() {
+  ag_gl_error_bin=$1
+  case "$GITLEAKS_PROBE_STATE" in
+    missing)
+      printf 'selected gitleaks is not executable: %s' "$ag_gl_error_bin"
+      ;;
+    runtime-failure)
+      case "$GITLEAKS_PROBE_DETAIL" in
+        timeout)
+          printf 'gitleaks version command timed out after %ss: %s' \
+            "$GITLEAKS_PROBE_TIMEOUT_SECONDS" "$ag_gl_error_bin"
+          ;;
+        output-limit)
+          printf 'gitleaks version output exceeded %s bytes: %s' \
+            "$GITLEAKS_PROBE_MAX_BYTES" "$ag_gl_error_bin"
+          ;;
+        timer-unavailable)
+          printf 'gitleaks version timeout helper is unavailable: sleep'
+          ;;
+        launcher-unavailable)
+          printf 'gitleaks version isolation requires setsid or perl'
+          ;;
+        temp-helper-unavailable)
+          printf 'gitleaks version temp fallback requires mkdir and rmdir'
+          ;;
+        *) printf 'gitleaks version command failed: %s' "$ag_gl_error_bin" ;;
+      esac
+      ;;
+    unparseable)
+      printf 'could not parse gitleaks version from %s (required >= %s)' \
+        "$ag_gl_error_bin" "$GITLEAKS_MIN_VERSION"
+      ;;
+    unsupported)
+      printf 'gitleaks %s is incompatible; required >= %s (%s)' \
+        "$GITLEAKS_PROBE_VERSION" "$GITLEAKS_MIN_VERSION" "$ag_gl_error_bin"
+      ;;
+    *)
+      printf 'gitleaks readiness probe failed: %s' "$ag_gl_error_bin"
+      ;;
+  esac
+}
+
+prepare_gitleaks() {
+  if [ -n "$GITLEAKS_READY_BIN" ]; then
+    GITLEAKS_BIN=$GITLEAKS_READY_BIN
+    if [ ! -x "$GITLEAKS_BIN" ]; then
+      GITLEAKS_PROBE_STATE=missing
+      GITLEAKS_PROBE_DETAIL=
+      return 1
+    fi
+    return 0
+  fi
+  GITLEAKS_BIN=$(resolve_gitleaks) || {
+    GITLEAKS_PROBE_STATE=missing
+    GITLEAKS_PROBE_DETAIL=no-candidate
+    return 1
+  }
+  probe_gitleaks "$GITLEAKS_BIN" || return 1
+  GITLEAKS_READY_BIN=$GITLEAKS_BIN
+  return 0
+}
+
 need_gitleaks() {
-  GITLEAKS_BIN=$(resolve_gitleaks) \
-    || die_with_status "${1:-2}" "required command not found: gitleaks (run: $PROGRAM setup)"
+  if ! prepare_gitleaks; then
+    if [ -z "${GITLEAKS_BIN:-}" ]; then
+      die_with_status "${1:-2}" \
+        "required command not found: gitleaks (run: $PROGRAM setup)"
+    fi
+    probe_detail=$(gitleaks_probe_error "$GITLEAKS_BIN")
+    die_with_status "${1:-2}" "$probe_detail"
+  fi
   [ -f "$GITLEAKS_CONFIG" ] \
     || die_with_status "${1:-2}" "gitleaks config not found: $GITLEAKS_CONFIG"
 }
@@ -1134,7 +1495,7 @@ need_gitleaks() {
 hook_dependencies_ready() {
   command -v jq >/dev/null 2>&1 || return 1
   command -v awk >/dev/null 2>&1 || return 1
-  resolve_gitleaks >/dev/null 2>&1 || return 1
+  prepare_gitleaks || return 1
   [ -f "$GITLEAKS_CONFIG" ] && policy_file_has_active_rule "$GITLEAKS_CONFIG" || return 1
   [ -f "$DENY_READ_PATHS" ] && policy_file_has_active_rule "$DENY_READ_PATHS" || return 1
   [ -f "$DENY_BASH_PATTERNS" ] && policy_file_has_active_rule "$DENY_BASH_PATTERNS" || return 1
@@ -1240,7 +1601,7 @@ degraded_hook_message() {
     codex) setup_ref='$setup-agent-guard' ;;
     *) setup_ref='/agent-guard:setup-agent-guard' ;;
   esac
-  printf 'agent-guard: protection is DEGRADED because jq, awk, git, gitleaks, or a policy file is unavailable. Run %s (or agent-guard setup), approve any required installation, verify with agent-guard check and smoke-test, then restart the host;' "$setup_ref"
+  printf 'agent-guard: protection is DEGRADED because jq, awk, git, gitleaks (including its setsid or Perl process-isolation helper), or a policy file is unavailable. Run %s (or agent-guard setup), approve any required installation, verify with agent-guard check and smoke-test, then restart the host;' "$setup_ref"
 }
 
 emit_degraded_hook_warning() {
@@ -1256,22 +1617,9 @@ handle_git_infrastructure_failure() {
   return 0
 }
 
-GITLEAKS_MIN_VERSION=8.30.0
-GITLEAKS_DEFAULT_VERSION=8.30.1
-
-gitleaks_version() {
-  "$1" version 2>/dev/null \
-    | awk '
-        {
-          line = $0
-          if (match(line, /[vV]?[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*/)) {
-            version = substr(line, RSTART, RLENGTH)
-            sub(/^[vV]/, "", version)
-            print version
-            exit
-          }
-        }
-      '
+jq_lookbehind_supported() {
+  printf '%s\n' '"x1"' \
+    | jq -e 'test("(?<![0-9])1")' >/dev/null 2>&1
 }
 
 semver_at_least() (
@@ -1301,13 +1649,13 @@ check_deps() {
   need_gitleaks
   [ -f "$DENY_READ_PATHS" ] || die "deny read policy not found: $DENY_READ_PATHS"
   [ -f "$DENY_BASH_PATTERNS" ] || die "deny bash policy not found: $DENY_BASH_PATTERNS"
-  gl_version=$(gitleaks_version "$GITLEAKS_BIN")
-  [ -n "$gl_version" ] \
-    || die "could not parse gitleaks version from $GITLEAKS_BIN (required >= $GITLEAKS_MIN_VERSION)"
-  semver_at_least "$gl_version" "$GITLEAKS_MIN_VERSION" \
-    || die "gitleaks $gl_version is incompatible; required >= $GITLEAKS_MIN_VERSION ($GITLEAKS_BIN)"
   info "$PROGRAM: dependencies ok"
-  info "$PROGRAM: gitleaks $gl_version (required >= $GITLEAKS_MIN_VERSION)"
+  if jq_lookbehind_supported; then
+    info "$PROGRAM: jq regex lookbehind supported"
+  else
+    info "$PROGRAM: jq regex lookbehind unavailable (PostToolUse uses the conservative shape-preserving fallback)"
+  fi
+  info "$PROGRAM: gitleaks $GITLEAKS_PROBE_VERSION (required >= $GITLEAKS_MIN_VERSION; $GITLEAKS_BIN)"
 }
 
 SETUP_INSTALL_DIR=$GITLEAKS_PRIVATE_BIN_DIR
@@ -1328,12 +1676,26 @@ setup_status_line() {
 
 setup_gitleaks_status_line() {
   if gl=$(resolve_gitleaks); then
-    ver=$(gitleaks_version "$gl")
-    if [ -n "$ver" ] && semver_at_least "$ver" "$GITLEAKS_MIN_VERSION"; then
-      info "$PROGRAM: gitleaks  ok  ($ver; $gl)"
+    if probe_gitleaks "$gl"; then
+      info "$PROGRAM: gitleaks  ok  ($GITLEAKS_PROBE_VERSION; $gl)"
       return 0
     fi
-    info "$PROGRAM: gitleaks  incompatible  (${ver:-unparseable}; required >= $GITLEAKS_MIN_VERSION; $gl)"
+    case "$GITLEAKS_PROBE_STATE" in
+      missing)
+        info "$PROGRAM: gitleaks  missing  (selected path is not executable: $gl)"
+        ;;
+      runtime-failure)
+        probe_detail=$(gitleaks_probe_error "$gl")
+        info "$PROGRAM: gitleaks  runtime failure  ($probe_detail)"
+        ;;
+      unparseable)
+        info "$PROGRAM: gitleaks  unparseable  (required >= $GITLEAKS_MIN_VERSION; $gl)"
+        ;;
+      unsupported)
+        info "$PROGRAM: gitleaks  unsupported  ($GITLEAKS_PROBE_VERSION; required >= $GITLEAKS_MIN_VERSION; $gl)"
+        ;;
+      *) info "$PROGRAM: gitleaks  unavailable  ($gl)" ;;
+    esac
     return 1
   fi
   if [ -n "${AGENT_GUARD_GITLEAKS_BIN:-}" ]; then
@@ -1342,6 +1704,15 @@ setup_gitleaks_status_line() {
     info "$PROGRAM: gitleaks  missing"
   fi
   return 1
+}
+
+setup_jq_lookbehind_status_line() {
+  if jq_lookbehind_supported; then
+    info "$PROGRAM: jq regex lookbehind  supported"
+  else
+    info "$PROGRAM: jq regex lookbehind  unavailable (PostToolUse uses the conservative shape-preserving fallback)"
+  fi
+  return 0
 }
 
 setup_suggest_jq_install() {
@@ -1366,6 +1737,33 @@ setup_suggest_git_install() {
   else
     info "  https://git-scm.com/downloads"
   fi
+}
+
+setup_suggest_gitleaks_runtime_repair() {
+  case "$GITLEAKS_PROBE_DETAIL" in
+    launcher-unavailable)
+      info "$PROGRAM: install a gitleaks process-isolation helper:"
+      if command -v brew >/dev/null 2>&1; then
+        info "  brew install perl"
+      elif command -v apt-get >/dev/null 2>&1; then
+        info "  sudo apt-get install -y util-linux"
+      elif command -v dnf >/dev/null 2>&1; then
+        info "  sudo dnf install -y util-linux"
+      else
+        info "  install setsid (util-linux) or Perl, then rerun $PROGRAM doctor"
+      fi
+      return 0
+      ;;
+    timer-unavailable)
+      info "$PROGRAM: install the POSIX sleep utility, then rerun $PROGRAM doctor"
+      return 0
+      ;;
+    temp-helper-unavailable)
+      info "$PROGRAM: install the POSIX mkdir and rmdir utilities, then rerun $PROGRAM doctor"
+      return 0
+      ;;
+  esac
+  return 1
 }
 
 setup_install_gitleaks() {
@@ -1461,6 +1859,7 @@ EOF
 
   jq_ok=1; git_ok=1; gitleaks_ok=1
   setup_status_line jq       || jq_ok=0
+  [ "$jq_ok" -eq 0 ] || setup_jq_lookbehind_status_line
   setup_status_line git      || git_ok=0
   setup_gitleaks_status_line || gitleaks_ok=0
   # setup and doctor can establish only local dependencies.
@@ -1470,10 +1869,22 @@ EOF
   info "$PROGRAM: host hook protection: unverified (dependency checks do not observe tool dispatch)"
 
   if [ "$install" -eq 1 ]; then
+    gitleaks_runtime_ok=1
     if [ "$gitleaks_ok" -eq 1 ]; then
       info "$PROGRAM: gitleaks already available; skipping --install"
+    elif setup_suggest_gitleaks_runtime_repair; then
+      gitleaks_runtime_ok=0
+    elif ! select_gitleaks_probe_launcher; then
+      GITLEAKS_PROBE_DETAIL=launcher-unavailable
+      setup_suggest_gitleaks_runtime_repair
+      gitleaks_runtime_ok=0
     else
       setup_install_gitleaks "$version" "$checksum"
+      GITLEAKS_READY_BIN=
+      if ! setup_gitleaks_status_line; then
+        gitleaks_runtime_ok=0
+        setup_suggest_gitleaks_runtime_repair || :
+      fi
     fi
     if [ "$jq_ok" -eq 0 ]; then
       info "$PROGRAM: jq is not auto-installed; use your system package manager:"
@@ -1483,7 +1894,8 @@ EOF
       info "$PROGRAM: git is not auto-installed; use your system package manager:"
       setup_suggest_git_install
     fi
-    [ "$jq_ok" -eq 1 ] && [ "$git_ok" -eq 1 ]
+    [ "$jq_ok" -eq 1 ] && [ "$git_ok" -eq 1 ] \
+      && [ "$gitleaks_runtime_ok" -eq 1 ]
     return $?
   fi
 
@@ -1498,13 +1910,15 @@ EOF
       setup_suggest_git_install
     fi
     if [ "$gitleaks_ok" -eq 0 ]; then
-      info "$PROGRAM: install gitleaks (rerun with --install to opt in):"
-      info "  agent-guard setup --install \\"
-      info "    --gitleaks-version $GITLEAKS_DEFAULT_VERSION \\"
-      info "    --gitleaks-checksum <sha256-from-published-checksums.txt>"
-      info ""
-      info "$PROGRAM: get the checksum from"
-      info "  https://github.com/gitleaks/gitleaks/releases/download/v$GITLEAKS_DEFAULT_VERSION/gitleaks_${GITLEAKS_DEFAULT_VERSION}_checksums.txt"
+      if ! setup_suggest_gitleaks_runtime_repair; then
+        info "$PROGRAM: install gitleaks (rerun with --install to opt in):"
+        info "  agent-guard setup --install \\"
+        info "    --gitleaks-version $GITLEAKS_DEFAULT_VERSION \\"
+        info "    --gitleaks-checksum <sha256-from-published-checksums.txt>"
+        info ""
+        info "$PROGRAM: get the checksum from"
+        info "  https://github.com/gitleaks/gitleaks/releases/download/v$GITLEAKS_DEFAULT_VERSION/gitleaks_${GITLEAKS_DEFAULT_VERSION}_checksums.txt"
+      fi
     fi
     return 1
   fi
@@ -5260,11 +5674,8 @@ detect_output_secret_records() (
   jq -rj 'if type == "string" then . else [.. | strings] | join("\n") end' \
     <"$detector_input" >"$detector_strings" 2>/dev/null || detector_fail
 
-  gl=
-  if ! gl=$(resolve_gitleaks); then
-    gl=
-    detector_fail
-  fi
+  gl=${GITLEAKS_READY_BIN:-}
+  [ -n "$gl" ] && [ -x "$gl" ] || detector_fail
   [ -f "$GITLEAKS_CONFIG" ] || detector_fail
   if output_scan_input_exceeds_cap "$response"; then
       printf '%s\n' '{"agent_guard_whole_leaf":true}' \
@@ -8409,7 +8820,7 @@ AGENT_GUARD_RUNDIR=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-run.XXXXXX" 2>/dev/n
   || mktemp -d /tmp/agent-guard-run.XXXXXX 2>/dev/null || printf '')
 # Logging is independent of stdout and never changes the guard's exit status.
 # SIGKILL cannot be trapped; a started-only record remains useful evidence.
-trap 'ag_final_status=$?; audit_finish "$ag_final_status"; [ -z "$AGENT_GUARD_RUNDIR" ] || rm -rf "$AGENT_GUARD_RUNDIR"; exit "$ag_final_status"' 0
+trap 'ag_final_status=$?; clear_gitleaks_probe_processes; audit_finish "$ag_final_status"; [ -z "$AGENT_GUARD_RUNDIR" ] || rm -rf "$AGENT_GUARD_RUNDIR"; exit "$ag_final_status"' 0
 trap 'exit 130' INT
 trap 'exit 143' TERM
 

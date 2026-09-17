@@ -64,7 +64,9 @@ provide `agent-guard` on `PATH`. See [Support](SUPPORT.md) for what to submit.
 
 Supported platforms are macOS and Linux on x64 and arm64. Runtime dependencies
 are `sh`, `awk`, `git`, `jq`, and gitleaks 8.30 or newer. Windows is not
-currently supported.
+currently supported. gitleaks 버전 프로브를 별도 프로세스 그룹으로 격리하기
+위해 `setsid`(Linux의 `util-linux`) 또는 Perl 중 하나가 추가로 필요합니다.
+`agent-guard doctor`는 누락된 격리 도구와 플랫폼별 설치 명령을 진단합니다.
 
 Default processing is local and ephemeral. Read [Privacy](PRIVACY.md) before
 enabling an endpoint-backed PII provider. Read [Security](SECURITY.md) for
