@@ -23,7 +23,11 @@ CLAUDE_EXAMPLE="$ROOT/examples/claude/settings.project.json"
 CODEX_PRE_MATCHER='Bash|apply_patch|Agent|Task|mcp__.*'
 CODEX_POST_MATCHER='Bash|apply_patch|Agent|Task|mcp__.*'
 CLAUDE_PRE_MATCHER='Write|Edit|MultiEdit|NotebookEdit|Read|NotebookRead|Grep|Glob|Bash|WebFetch|WebSearch|apply_patch|Agent|Task|mcp__.*'
-CLAUDE_POST_MATCHER='Write|Edit|MultiEdit|NotebookEdit|Bash|apply_patch|Read|NotebookRead|Grep|Glob|WebFetch|WebSearch|Agent|Task|mcp__.*'
+# Claude treats this as an unanchored JavaScript regex because mcp__.* contains
+# regex metacharacters. ReadMcpResourceTool is intentionally covered by the
+# existing Read substring. Removing or escaping mcp__.* would switch the host
+# to exact-list mode and silently remove that incidental but relied-on coverage.
+CLAUDE_POST_MATCHER='Write|Edit|MultiEdit|NotebookEdit|Bash|PowerShell|apply_patch|Read|NotebookRead|Grep|Glob|WebFetch|WebSearch|Agent|Task|Skill|Monitor|LSP|ListMcpResourcesTool|mcp__.*'
 
 # Plugin command: the host exports a versioned plugin-cache root, so the hook has
 # to resolve a complete, executable payload itself before dispatching.
