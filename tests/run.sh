@@ -6488,9 +6488,10 @@ fi
 # commonly observe that as SIGPIPE, but the bounded byte count — not that
 # expected producer status — defines the scan result.
 UNTRACKED_LIMIT_REPO="$TMP_ROOT/untracked-limit-repo"
-UNTRACKED_LIMIT_TOKEN_PART_1=AGENT_GUARD_TEST_
-UNTRACKED_LIMIT_TOKEN_PART_2=SECRET
-UNTRACKED_LIMIT_TOKEN="${UNTRACKED_LIMIT_TOKEN_PART_1}${UNTRACKED_LIMIT_TOKEN_PART_2}"
+UNTRACKED_LIMIT_MARKER_PART_1=AGENT_GUARD_TEST_
+UNTRACKED_LIMIT_MARKER_PART_2=SECRET
+UNTRACKED_LIMIT_MARKER=$(printf '%s%s' \
+  "$UNTRACKED_LIMIT_MARKER_PART_1" "$UNTRACKED_LIMIT_MARKER_PART_2")
 mkdir -p "$UNTRACKED_LIMIT_REPO"
 (
   cd "$UNTRACKED_LIMIT_REPO" || exit 2
@@ -6506,7 +6507,7 @@ mkdir -p "$UNTRACKED_LIMIT_REPO"
     awk 'BEGIN { for (i = 0; i < 40000; i++) printf "x" }' \
       >"oversized-input-$limit_i.txt"
   done
-  printf '\n%s\n' "$UNTRACKED_LIMIT_TOKEN" >>oversized-input-100.txt
+  printf '\n%s\n' "$UNTRACKED_LIMIT_MARKER" >>oversized-input-100.txt
   "$PLUGIN_ROOT/bin/agent-guard" scan-working-tree >"$OUT" 2>"$ERR"
 )
 status=$?
@@ -6531,7 +6532,7 @@ while [ "$limit_i" -lt 100 ]; do
   rm -f "$UNTRACKED_LIMIT_REPO/oversized-input-$limit_i.txt"
 done
 UNTRACKED_SPECIAL_NAME=$(printf "line\\nbreak; 'quoted name'.txt")
-printf '%s\n' "$UNTRACKED_LIMIT_TOKEN" >"$UNTRACKED_LIMIT_REPO/$UNTRACKED_SPECIAL_NAME"
+printf '%s\n' "$UNTRACKED_LIMIT_MARKER" >"$UNTRACKED_LIMIT_REPO/$UNTRACKED_SPECIAL_NAME"
 (
   cd "$UNTRACKED_LIMIT_REPO" || exit 2
   "$PLUGIN_ROOT/bin/agent-guard" scan-working-tree >"$OUT" 2>"$ERR"
@@ -7687,7 +7688,7 @@ if [ -n "$REAL_GITLEAKS" ]; then
   LOCK_B64_BODY=${LOCK_B64%=}
   LOCK_SHA512="${LOCK_B64_BODY}${LOCK_B64_BODY}=="
   LOCK_SECRET=$(printf '%s%s' 'A1b2C3d4E5f6G7h8' 'I9j0K1l2M3n4O5p6')
-  LOCK_PATH_SECRET="${LOWPAT_HEAD}${LOWPAT_BODY}"
+  LOCK_PATH_VALUE=$(printf '%s%s' "$LOWPAT_HEAD" "$LOWPAT_BODY")
   LOCK_HEX=$(printf '%s%s' '0123456789abcdef0123456789abcdef' 'fedcba9876543210fedcba9876543210')
   LOCKFILE_FIXTURE_DIR="$TMP_ROOT/lockfile-hash-dir"
   mkdir -p "$LOCKFILE_FIXTURE_DIR"
@@ -7720,7 +7721,7 @@ if [ -n "$REAL_GITLEAKS" ]; then
     printf '%s\n' '[[package]]'
     printf 'sdist = { url = "https://example.invalid/nul", hash = "sha256:%s" }' \
       "$LOCK_HEX"
-    printf '\000AGDEMO_VAR=%s\n' "$LOCK_PATH_SECRET"
+    printf '\000AGDEMO_VAR=%s\n' "$LOCK_PATH_VALUE"
   } >"$LOCKFILE_FIXTURE_DIR/uv.lock"
   PATH="$(dirname "$REAL_GITLEAKS"):$ORIGINAL_PATH" "$PLUGIN_ROOT/bin/agent-guard" \
     scan-path "$LOCKFILE_FIXTURE_DIR/uv.lock" >"$OUT" 2>"$ERR"
@@ -7735,7 +7736,7 @@ if [ -n "$REAL_GITLEAKS" ]; then
     printf '%s\n' '[[package]]'
     printf 'sdist = { url = "https://example.invalid/invalid", hash = "sha256:%s" }' \
       "$LOCK_HEX"
-    printf '\377AGDEMO_VAR=%s\n' "$LOCK_PATH_SECRET"
+    printf '\377AGDEMO_VAR=%s\n' "$LOCK_PATH_VALUE"
   } >"$LOCKFILE_FIXTURE_DIR/uv.lock"
   PATH="$(dirname "$REAL_GITLEAKS"):$ORIGINAL_PATH" "$PLUGIN_ROOT/bin/agent-guard" \
     scan-path "$LOCKFILE_FIXTURE_DIR/uv.lock" >"$OUT" 2>"$ERR"
@@ -7760,7 +7761,7 @@ if [ -n "$REAL_GITLEAKS" ]; then
       printf '%s\n' '[[package]]'
       printf 'sdist = { url = "https://example.invalid/untracked", hash = "sha256:%s" }' \
         "$LOCK_HEX"
-      printf '\377AGDEMO_VAR=%s\n' "$LOCK_PATH_SECRET"
+      printf '\377AGDEMO_VAR=%s\n' "$LOCK_PATH_VALUE"
     } >uv.lock
     PATH="$(dirname "$REAL_GITLEAKS"):$ORIGINAL_PATH" \
       "$PLUGIN_ROOT/bin/agent-guard" scan-working-tree
@@ -8019,7 +8020,7 @@ if [ -n "$REAL_GITLEAKS" ]; then
     sed 's/^/  stderr: /' "$ERR"
   fi
 
-  printf 'example.com/%s/client v1.2.3 %s\n' "$LOCK_PATH_SECRET" "$LOCK_SUM" \
+  printf 'example.com/%s/client v1.2.3 %s\n' "$LOCK_PATH_VALUE" "$LOCK_SUM" \
     >"$LOCK_GIT_DIR/go.sum"
   (cd "$LOCK_GIT_DIR" && git add go.sum)
   (
@@ -8063,7 +8064,7 @@ if [ -n "$REAL_GITLEAKS" ]; then
     not_ok "Write allows a go.sum checksum (expected 0, got $status)"
   fi
 
-  lock_write=$(jq -nc --arg content "example.com/$LOCK_PATH_SECRET/client v1.2.3 $LOCK_SUM" \
+  lock_write=$(jq -nc --arg content "example.com/$LOCK_PATH_VALUE/client v1.2.3 $LOCK_SUM" \
     '{tool_name:"Write",tool_input:{file_path:"go.sum",content:$content}}')
   printf '%s' "$lock_write" \
     | AGENT_GUARD_GITLEAKS_BIN="$REAL_GITLEAKS" PATH="$(dirname "$REAL_GITLEAKS"):$ORIGINAL_PATH" \
