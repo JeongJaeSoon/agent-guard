@@ -1,3 +1,7 @@
+## v3.4.4 - 2026-09-17
+
+- fix(release): require reviewed two-phase publishing (#257)
+
 ## v3.4.3 - 2026-09-17
 
 - ci: HOL plugin scanner action을 v1.2.678로 업데이트 (#250)
