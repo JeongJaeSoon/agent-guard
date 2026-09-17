@@ -2,6 +2,10 @@
 set -u
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 GUARD="$ROOT/plugins/agent-guard/bin/agent-guard"
+# Capture these before fault-injection wrappers alter PATH. dash may apply
+# preceding environment assignments before expanding later assignments.
+REAL_MKDIR=$(command -v mkdir)
+REAL_JQ=$(command -v jq)
 CASE=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-audit.XXXXXX")
 CASE=$(CDPATH= cd -- "$CASE" && pwd -P)
 trap 'rm -rf "$CASE"' 0
@@ -18,6 +22,19 @@ check() { label=$1; shift; if "$@"; then ok "$label"; else bad "$label"; fi; }
 export_logs() { "$GUARD" logs export >"$CASE/export" 2>"$CASE/export.err"; }
 has_outcome() { jq -es --arg o "$1" 'any(.[]; .phase == "finished" and .outcome == $o)' "$CASE/export" >/dev/null; }
 new_case() { rm -rf "$XDG_STATE_HOME"; }
+probe_output_value() {
+  probe_host=$1
+  probe_file=$2
+  case "$probe_host" in
+    claude) jq -r '.hookSpecificOutput.updatedToolOutput.stdout' "$probe_file" 2>/dev/null ;;
+    codex) jq -r '
+        .hookSpecificOutput.additionalContext
+        | sub("^Agent Guard sanitized tool output:\\n"; "")
+        | fromjson
+        | .stdout
+      ' "$probe_file" 2>/dev/null ;;
+  esac
+}
 no_export_temps() { ! find "$1" -maxdepth 1 -name '.agent-guard-support.*' -print | grep -q .; }
 file_mode() {
   case "$(uname -s)" in
@@ -249,10 +266,25 @@ while [ "$i" -lt 1005 ]; do
 done
 old_event="$XDG_STATE_HOME/agent-guard/event-1000000000-old123"
 cp "$event" "$old_event"
+old_probe_marker="$XDG_STATE_HOME/agent-guard/live-probe-1000000000-old123"
+(umask 077; mkdir "$old_probe_marker")
+tampered_event="$XDG_STATE_HOME/agent-guard/event-1000000000-bad123"
+cp "$event" "$tampered_event"
+tampered_probe_marker="$XDG_STATE_HOME/agent-guard/live-probe-1000000000-bad123"
+(umask 077; mkdir "$tampered_probe_marker")
+printf 'keep\n' >"$tampered_probe_marker/unexpected"
 printf '%s' '{"tool_name":"FutureTool"}' | "$GUARD" hook-pre-tool >/dev/null 2>&1
 count=$(find "$XDG_STATE_HOME/agent-guard" -type f -name 'event-*' | wc -l | tr -d ' ')
 check 'retention bounds completed invocation files' test "$count" -le 1000
 check 'old records removed on next invocation' test ! -f "$old_event"
+check 'retention removes the empty live-probe sidecar for a pruned event' \
+  test ! -e "$old_probe_marker"
+check 'retention still removes an event with a nonempty sidecar' \
+  test ! -e "$tampered_event"
+check 'retention does not recurse into a nonempty live-probe sidecar' \
+  test -f "$tampered_probe_marker/unexpected"
+rm -f "$tampered_probe_marker/unexpected"
+rmdir "$tampered_probe_marker"
 
 # Retention never recurses, accepts only generated names, and performs at most
 # one bounded listing per invocation (none on EXIT, including signal exit).
@@ -260,8 +292,12 @@ mkdir "$XDG_STATE_HOME/agent-guard/nested"
 printf 'keep\n' >"$XDG_STATE_HOME/agent-guard/nested/event-1000000000-old123"
 foreign="$XDG_STATE_HOME/agent-guard/event-1000000000-foreign"
 printf 'keep\n' >"$foreign"
+foreign_probe_marker="$XDG_STATE_HOME/agent-guard/live-probe-1000000000-foreign"
+(umask 077; mkdir "$foreign_probe_marker")
 printf '%s' '{"tool_name":"FutureTool"}' | "$GUARD" hook-pre-tool >/dev/null 2>&1
 check 'retention ignores foreign names' test -f "$foreign"
+check 'retention ignores a sidecar without a strictly valid event id' \
+  test -d "$foreign_probe_marker"
 check 'retention never recurses into foreign directories' test -f "$XDG_STATE_HOME/agent-guard/nested/event-1000000000-old123"
 
 
@@ -270,51 +306,313 @@ check 'retention never recurses into foreign directories' test -f "$XDG_STATE_HO
 # constant, so "the probe came back masked" cannot be told apart from a report
 # that was written without running anything. Read the sentinel out of the binary
 # so this file never carries a second copy of it.
-new_case
 probe_marker=$(sed -n 's/^LIVE_POST_TOOL_PROBE=//p' "$GUARD" | head -1)
 check 'the live post-tool sentinel is readable from the binary' test -n "$probe_marker"
-printf '{"session_id":"probe","hook_event_name":"PostToolUse","tool_name":"Bash","tool_input":{},"tool_response":{"stdout":"%s"}}' \
-  "$probe_marker" \
-  | AGENT_GUARD_HOOK_HOST=claude "$GUARD" hook-post-tool >"$CASE/probe.out" 2>"$CASE/probe.err"
-probe_masked=$(jq -r '.hookSpecificOutput.updatedToolOutput.stdout' "$CASE/probe.out" 2>/dev/null)
-probe_id=$(printf '%s' "$probe_masked" | sed -n 's/.*run_id=\([0-9A-Za-z-]*\).*/\1/p')
-case "$probe_masked" in
-  *"$probe_marker"*) bad 'live probe replacement drops the raw sentinel' ;;
-  *) ok 'live probe replacement drops the raw sentinel' ;;
-esac
-case "$probe_masked" in
-  *'[REDACTED]'*) ok 'live probe replacement keeps the documented placeholder' ;;
-  *) bad 'live probe replacement keeps the documented placeholder' ;;
-esac
-probe_id_shape=$(expr "$probe_id" : '[0-9][0-9]*-[0-9A-Za-z][0-9A-Za-z]*$') || probe_id_shape=0
-check 'live probe replacement names a well-formed run id' test "$probe_id_shape" -gt 0
-export_logs
-if jq -es --arg id "$probe_id" \
-     'any(.[]; .run_id == $id and .phase == "finished" and .command == "hook-post-tool" and .outcome == "masked")' \
-     "$CASE/export" >/dev/null; then
-  ok 'live probe run id resolves to a masked post-tool record'
-else
-  bad 'live probe run id resolves to a masked post-tool record'
-fi
+probe_secret=supersecretvalue123
+for host in claude codex; do
+  new_case
+  jq -nc --arg marker "$probe_marker" --arg secret "$probe_secret" \
+    '{session_id:"probe",hook_event_name:"PostToolUse",tool_name:"Bash",tool_input:{},tool_response:{stdout:("API_KEY=" + $secret + "\n" + $marker)}}' \
+    | AGENT_GUARD_HOOK_HOST="$host" AGENT_GUARD_PII_HOOK_MODE=mask \
+        "$GUARD" hook-post-tool >"$CASE/probe-$host.out" 2>"$CASE/probe-$host.err"
+  probe_status=$?
+  check "$host live probe keeps the host status" test "$probe_status" -eq 0
+  check "$host live probe emits top-level JSON" \
+    jq -e 'type == "object" and .hookSpecificOutput.hookEventName == "PostToolUse"' \
+      "$CASE/probe-$host.out"
+  probe_masked=$(probe_output_value "$host" "$CASE/probe-$host.out")
+  export_logs
+  probe_audit_id=$(jq -r '
+      select(.phase == "finished"
+             and .command == "hook-post-tool"
+             and .host == $host
+             and .outcome == "masked")
+      | .run_id
+    ' --arg host "$host" "$CASE/export" | tail -1)
+  probe_id=$(printf '%s' "$probe_masked" | sed -n 's/.*run_id=\([0-9A-Za-z-]*\).*/\1/p')
+  case "$probe_masked" in
+    *"$probe_marker"*|*"$probe_secret"*) bad "$host live probe drops the raw sentinel and secret" ;;
+    *) ok "$host live probe drops the raw sentinel and secret" ;;
+  esac
+  case "$probe_masked" in
+    *'API_KEY=[REDACTED]'*) ok "$host normal secret keeps the bare placeholder" ;;
+    *) bad "$host normal secret keeps the bare placeholder" ;;
+  esac
+  case "$probe_masked" in
+    *"[REDACTED] agent-guard live probe run_id=$probe_audit_id"*)
+      ok "$host live probe names the exact audit run id" ;;
+    *) bad "$host live probe names the exact audit run id" ;;
+  esac
+  case "$probe_masked" in
+    *'[PII:PHONE]'*) bad "$host live probe run id is not masked as a phone number" ;;
+    *) ok "$host live probe run id is not masked as a phone number" ;;
+  esac
+  probe_id_shape=$(expr "$probe_id" : '[0-9][0-9]*-[0-9A-Za-z][0-9A-Za-z]*$') || probe_id_shape=0
+  check "$host live probe replacement names a well-formed run id" test "$probe_id_shape" -gt 0
+  if jq -es --arg id "$probe_id" --arg host "$host" \
+       'any(.[]; .run_id == $id and .host == $host and .phase == "finished" and .command == "hook-post-tool" and .outcome == "masked")' \
+       "$CASE/export" >/dev/null; then
+    ok "$host live probe run id resolves to its masked post-tool record"
+  else
+    bad "$host live probe run id resolves to its masked post-tool record"
+  fi
+  if grep -Fq "$probe_secret" "$CASE/export"; then
+    bad "$host live probe audit remains metadata-only"
+  else
+    ok "$host live probe audit remains metadata-only"
+  fi
+done
+probe_replacement=$(printf '%s\n' "$probe_masked" | tail -1)
+probe_sidecar="$XDG_STATE_HOME/agent-guard/live-probe-$probe_audit_id"
+check 'live probe records a private directory sidecar' \
+  sh -c 'test -d "$1" && test ! -L "$1" && test "$(find "$1" -mindepth 1 -maxdepth 1 -print)" = ""' \
+    _ "$probe_sidecar"
+check 'live probe sidecar is mode 0700' test "$(file_mode "$probe_sidecar")" = 700
 
 # With logging off there is no record to point at, so the replacement must fall
 # back to the bare placeholder rather than name an id nobody can look up.
-printf '{"session_id":"probe","hook_event_name":"PostToolUse","tool_name":"Bash","tool_input":{},"tool_response":{"stdout":"%s"}}' \
-  "$probe_marker" \
-  | AGENT_GUARD_LOG_MODE=off AGENT_GUARD_HOOK_HOST=claude "$GUARD" hook-post-tool \
-    >"$CASE/probe-off.out" 2>"$CASE/probe-off.err"
-probe_off=$(jq -r '.hookSpecificOutput.updatedToolOutput.stdout' "$CASE/probe-off.out" 2>/dev/null)
-check 'live probe falls back to the bare placeholder without logging' \
-  test "$probe_off" = '[REDACTED]'
+for host in claude codex; do
+  jq -nc --arg marker "$probe_marker" \
+    '{session_id:"probe",hook_event_name:"PostToolUse",tool_name:"Bash",tool_input:{},tool_response:{stdout:$marker}}' \
+    | AGENT_GUARD_LOG_MODE=off AGENT_GUARD_PII_HOOK_MODE=mask \
+        AGENT_GUARD_HOOK_HOST="$host" "$GUARD" hook-post-tool \
+        >"$CASE/probe-off-$host.out" 2>"$CASE/probe-off-$host.err"
+  probe_off=$(probe_output_value "$host" "$CASE/probe-off-$host.out")
+  check "$host live probe falls back to the bare placeholder without logging" \
+    test "$probe_off" = '[REDACTED]'
 
-# The replacement travels back through the guard as ordinary text: once in the
-# next tool result the agent quotes, and once if a user pastes it into a prompt.
-# Neither may block or mask, or the probe would poison every session that ran it.
-printf '{"session_id":"probe","hook_event_name":"PostToolUse","tool_name":"Bash","tool_input":{},"tool_response":{"stdout":"%s"}}' \
-  "$probe_masked" \
-  | AGENT_GUARD_HOOK_HOST=claude "$GUARD" hook-post-tool >"$CASE/probe-echo.out" 2>/dev/null
-check 'the replacement itself is not re-masked' test ! -s "$CASE/probe-echo.out"
-printf '{"session_id":"probe","hook_event_name":"UserPromptSubmit","prompt":"%s"}' "$probe_masked" \
+  jq -nc --arg marker "$probe_marker" \
+    '{session_id:"probe",hook_event_name:"PostToolUse",tool_name:"Bash",tool_input:{},tool_response:{stdout:$marker}}' \
+    | XDG_STATE_HOME=relative AGENT_GUARD_LOG_MODE=on AGENT_GUARD_PII_HOOK_MODE=mask \
+        AGENT_GUARD_HOOK_HOST="$host" "$GUARD" hook-post-tool \
+        >"$CASE/probe-failed-$host.out" 2>"$CASE/probe-failed-$host.err"
+  probe_failed=$(probe_output_value "$host" "$CASE/probe-failed-$host.out")
+  check "$host live probe falls back to the bare placeholder when logging fails" \
+    test "$probe_failed" = '[REDACTED]'
+done
+
+# A failed atomic sidecar creation must downgrade the first replacement to the
+# bare placeholder rather than expose an id that cannot be trusted on re-entry.
+fail_marker_dir="$CASE/fail-live-marker"
+mkdir "$fail_marker_dir"
+cat >"$fail_marker_dir/mkdir" <<'EOSH'
+#!/bin/sh
+case "$*" in
+  *'/live-probe-'*) exit 1 ;;
+esac
+exec "${AGENT_GUARD_TEST_REAL_MKDIR:?}" "$@"
+EOSH
+chmod +x "$fail_marker_dir/mkdir"
+jq -nc --arg marker "$probe_marker" \
+  '{session_id:"probe-marker-failure",hook_event_name:"PostToolUse",tool_name:"Bash",tool_input:{},tool_response:{stdout:$marker}}' \
+  | PATH="$fail_marker_dir:$PATH" AGENT_GUARD_TEST_REAL_MKDIR="$REAL_MKDIR" \
+      AGENT_GUARD_PII_HOOK_MODE=mask AGENT_GUARD_HOOK_HOST=claude \
+      "$GUARD" hook-post-tool >"$CASE/probe-marker-failure.out" \
+        2>"$CASE/probe-marker-failure.err"
+probe_marker_failure=$(probe_output_value claude "$CASE/probe-marker-failure.out")
+check 'live probe falls back to the bare placeholder when sidecar creation fails' \
+  test "$probe_marker_failure" = '[REDACTED]'
+
+# If the sentinel redactor fails after unrelated PII masking succeeds, the
+# invocation may still finish masked but must not leave live-probe provenance.
+fail_live_jq_dir="$CASE/fail-live-jq"
+mkdir "$fail_live_jq_dir"
+cat >"$fail_live_jq_dir/jq" <<'EOSH'
+#!/bin/sh
+case "$*" in
+  *'def specs($s)'*) exit 1 ;;
+esac
+exec "${AGENT_GUARD_TEST_REAL_JQ:?}" "$@"
+EOSH
+chmod +x "$fail_live_jq_dir/jq"
+jq -nc --arg marker "$probe_marker" \
+  '{session_id:"probe-redactor-failure",hook_event_name:"PostToolUse",tool_name:"Bash",tool_input:{},tool_response:{stdout:$marker,email:"reader@example.test"}}' \
+  | PATH="$fail_live_jq_dir:$PATH" AGENT_GUARD_TEST_REAL_JQ="$REAL_JQ" \
+      AGENT_GUARD_PII_HOOK_MODE=mask AGENT_GUARD_HOOK_HOST=claude \
+      "$GUARD" hook-post-tool >"$CASE/probe-redactor-failure.out" \
+        2>"$CASE/probe-redactor-failure.err"
+check 'unrelated PII masking still rewrites when the live-probe redactor fails' \
+  jq -e --arg marker "$probe_marker" '
+      .hookSpecificOutput.updatedToolOutput.stdout == $marker
+      and .hookSpecificOutput.updatedToolOutput.email == "[PII:EMAIL]"
+    ' "$CASE/probe-redactor-failure.out"
+export_logs
+failed_redactor_id=$(jq -r --arg probe_id "$probe_audit_id" '
+    select(.phase == "finished"
+           and .command == "hook-post-tool"
+           and .host == "claude"
+           and .outcome == "masked"
+           and .run_id != $probe_id)
+    | .run_id
+  ' "$CASE/export" | tail -1)
+check 'failed live-probe redaction leaves no provenance sidecar' \
+  test ! -e "$XDG_STATE_HOME/agent-guard/live-probe-$failed_redactor_id"
+
+# If the final host envelope cannot be serialized, no replacement reached the
+# host. Remove only the sidecar created by that invocation before it finishes.
+fail_envelope_jq_dir="$CASE/fail-envelope-jq"
+mkdir "$fail_envelope_jq_dir"
+cat >"$fail_envelope_jq_dir/jq" <<'EOSH'
+#!/bin/sh
+case "$*" in
+  *'additionalContext:'*|*'updatedToolOutput:'*) exit 1 ;;
+esac
+exec "${AGENT_GUARD_TEST_REAL_JQ:?}" "$@"
+EOSH
+chmod +x "$fail_envelope_jq_dir/jq"
+for host in claude codex; do
+  envelope_state="$CASE/envelope-state-$host"
+  jq -nc --arg marker "$probe_marker" \
+    '{session_id:"probe-envelope-failure",hook_event_name:"PostToolUse",tool_name:"Bash",tool_input:{},tool_response:{stdout:$marker}}' \
+    | XDG_STATE_HOME="$envelope_state" PATH="$fail_envelope_jq_dir:$PATH" \
+        AGENT_GUARD_TEST_REAL_JQ="$REAL_JQ" \
+        AGENT_GUARD_PII_HOOK_MODE=mask AGENT_GUARD_HOOK_HOST="$host" \
+        "$GUARD" hook-post-tool >"$CASE/probe-envelope-$host.out" \
+          2>"$CASE/probe-envelope-$host.err"
+  check "$host envelope serialization failure emits no replacement" \
+    test ! -s "$CASE/probe-envelope-$host.out"
+  XDG_STATE_HOME="$envelope_state" "$GUARD" logs export \
+    >"$CASE/probe-envelope-$host.export" 2>"$CASE/probe-envelope-$host.export.err"
+  envelope_id=$(jq -r --arg host "$host" '
+      select(.phase == "finished"
+             and .command == "hook-post-tool"
+             and .host == $host
+             and .outcome == "masked")
+      | .run_id
+    ' "$CASE/probe-envelope-$host.export" | tail -1)
+  check "$host envelope failure removes its live-probe sidecar" \
+    test ! -e "$envelope_state/agent-guard/live-probe-$envelope_id"
+  envelope_forgery="[REDACTED] agent-guard live probe run_id=$envelope_id"
+  jq -nc --arg replacement "$envelope_forgery" \
+    '{session_id:"probe-envelope-forgery",hook_event_name:"PostToolUse",tool_name:"Bash",tool_input:{},tool_response:{stdout:$replacement}}' \
+    | XDG_STATE_HOME="$envelope_state" AGENT_GUARD_PII_HOOK_MODE=mask \
+        AGENT_GUARD_HOOK_HOST="$host" "$GUARD" hook-post-tool \
+        >"$CASE/probe-envelope-forgery-$host.out" \
+        2>"$CASE/probe-envelope-forgery-$host.err"
+  envelope_forgery_masked=$(probe_output_value "$host" "$CASE/probe-envelope-forgery-$host.out")
+  case "$envelope_forgery_masked" in
+    *'[PII:PHONE]-'*) ok "$host envelope failure id does not forge provenance" ;;
+    *) bad "$host envelope failure id does not forge provenance" ;;
+  esac
+done
+
+# A generated replacement travels back through PostToolUse as ordinary text.
+# PII masking may preserve it only after the exact prior run id resolves to a
+# finished/masked audit record; a prefix and plausible-looking id are not enough.
+for host in claude codex; do
+  jq -nc --arg replacement "$probe_replacement" \
+    '{session_id:"probe-reentry",hook_event_name:"PostToolUse",tool_name:"Bash",tool_input:{},tool_response:{stdout:$replacement}}' \
+    | AGENT_GUARD_PII_HOOK_MODE=mask AGENT_GUARD_HOOK_HOST="$host" \
+        "$GUARD" hook-post-tool >"$CASE/probe-reentry-$host.out" 2>"$CASE/probe-reentry-$host.err"
+  if [ ! -s "$CASE/probe-reentry-$host.out" ]; then
+    probe_reentry=$probe_replacement
+  else
+    probe_reentry=$(probe_output_value "$host" "$CASE/probe-reentry-$host.out")
+  fi
+  check "$host preserves a provenance-verified live probe replacement under PII masking" \
+    test "$probe_reentry" = "$probe_replacement"
+  case "$probe_reentry" in
+    *'[PII:PHONE]'*) bad "$host verified live probe id is not masked as a phone number on re-entry" ;;
+    *) ok "$host verified live probe id is not masked as a phone number on re-entry" ;;
+  esac
+done
+
+failed_redactor_forgery="[REDACTED] agent-guard live probe run_id=$failed_redactor_id"
+jq -nc --arg replacement "$failed_redactor_forgery" \
+  '{session_id:"probe-failed-forgery",hook_event_name:"PostToolUse",tool_name:"Bash",tool_input:{},tool_response:{stdout:$replacement}}' \
+  | AGENT_GUARD_PII_HOOK_MODE=mask AGENT_GUARD_HOOK_HOST=claude \
+      "$GUARD" hook-post-tool >"$CASE/probe-failed-forgery.out" \
+        2>"$CASE/probe-failed-forgery.err"
+failed_redactor_forgery_masked=$(probe_output_value claude "$CASE/probe-failed-forgery.out")
+case "$failed_redactor_forgery_masked" in
+  *'[PII:PHONE]-'*) ok 'masked outcome after redactor failure does not forge provenance' ;;
+  *) bad 'masked outcome after redactor failure does not forge provenance' ;;
+esac
+
+# A real masked audit record is still not live-probe provenance. Produce one
+# with ordinary phone PII, then forge the live-probe prefix around that exact id.
+jq -nc '{session_id:"ordinary-mask",hook_event_name:"PostToolUse",tool_name:"Bash",tool_input:{},tool_response:{stdout:"1234567890"}}' \
+  | AGENT_GUARD_PII_HOOK_MODE=mask AGENT_GUARD_HOOK_HOST=claude \
+      "$GUARD" hook-post-tool >"$CASE/ordinary-mask.out" 2>"$CASE/ordinary-mask.err"
+export_logs
+ordinary_mask_id=$(jq -r --arg probe_id "$probe_audit_id" '
+    select(.phase == "finished"
+           and .command == "hook-post-tool"
+           and .host == "claude"
+           and .outcome == "masked"
+           and .run_id != $probe_id)
+    | .run_id
+  ' "$CASE/export" | tail -1)
+ordinary_id_shape=$(expr "$ordinary_mask_id" : '[0-9][0-9]*-[0-9A-Za-z][0-9A-Za-z]*$') || ordinary_id_shape=0
+check 'ordinary PII masking produces a plausible audit run id' test "$ordinary_id_shape" -gt 0
+check 'ordinary PII masking does not create live-probe provenance' \
+  test ! -e "$XDG_STATE_HOME/agent-guard/live-probe-$ordinary_mask_id"
+forged_probe="[REDACTED] agent-guard live probe run_id=$ordinary_mask_id"
+for host in claude codex; do
+  jq -nc --arg replacement "$forged_probe" \
+    '{session_id:"probe-forged",hook_event_name:"PostToolUse",tool_name:"Bash",tool_input:{},tool_response:{stdout:$replacement}}' \
+    | AGENT_GUARD_PII_HOOK_MODE=mask AGENT_GUARD_HOOK_HOST="$host" \
+        "$GUARD" hook-post-tool >"$CASE/probe-forged-$host.out" 2>"$CASE/probe-forged-$host.err"
+  check "$host rewrites a forged live probe replacement" test -s "$CASE/probe-forged-$host.out"
+  probe_forged_masked=$(probe_output_value "$host" "$CASE/probe-forged-$host.out")
+  case "$probe_forged_masked" in
+    *"$ordinary_mask_id"*) bad "$host ordinary masked event id does not forge live-probe provenance" ;;
+    *'[PII:PHONE]-'*) ok "$host ordinary masked event id does not forge live-probe provenance" ;;
+    *) bad "$host forged live probe id does not bypass PII masking" ;;
+  esac
+done
+
+# Marker provenance fails closed on mode, type, and symlink tampering.
+chmod 755 "$probe_sidecar"
+jq -nc --arg replacement "$probe_replacement" \
+  '{session_id:"probe-mode",hook_event_name:"PostToolUse",tool_name:"Bash",tool_input:{},tool_response:{stdout:$replacement}}' \
+  | AGENT_GUARD_PII_HOOK_MODE=mask AGENT_GUARD_HOOK_HOST=claude \
+      "$GUARD" hook-post-tool >"$CASE/probe-mode.out" 2>"$CASE/probe-mode.err"
+probe_mode_masked=$(probe_output_value claude "$CASE/probe-mode.out")
+case "$probe_mode_masked" in
+  *'[PII:PHONE]-'*) ok 'live probe rejects a sidecar with unsafe mode' ;;
+  *) bad 'live probe rejects a sidecar with unsafe mode' ;;
+esac
+chmod 700 "$probe_sidecar"
+
+rmdir "$probe_sidecar"
+printf 'not a marker\n' >"$probe_sidecar"
+chmod 600 "$probe_sidecar"
+jq -nc --arg replacement "$probe_replacement" \
+  '{session_id:"probe-type",hook_event_name:"PostToolUse",tool_name:"Bash",tool_input:{},tool_response:{stdout:$replacement}}' \
+  | AGENT_GUARD_PII_HOOK_MODE=mask AGENT_GUARD_HOOK_HOST=codex \
+      "$GUARD" hook-post-tool >"$CASE/probe-type.out" 2>"$CASE/probe-type.err"
+probe_type_masked=$(probe_output_value codex "$CASE/probe-type.out")
+case "$probe_type_masked" in
+  *'[PII:PHONE]-'*) ok 'live probe rejects a non-directory sidecar' ;;
+  *) bad 'live probe rejects a non-directory sidecar' ;;
+esac
+rm -f "$probe_sidecar"
+(umask 077; mkdir "$probe_sidecar")
+
+probe_sidecar_target="$CASE/probe-sidecar-target"
+(umask 077; mkdir "$probe_sidecar_target")
+rmdir "$probe_sidecar"
+if ln -s "$probe_sidecar_target" "$probe_sidecar" 2>/dev/null; then
+  jq -nc --arg replacement "$probe_replacement" \
+    '{session_id:"probe-symlink",hook_event_name:"PostToolUse",tool_name:"Bash",tool_input:{},tool_response:{stdout:$replacement}}' \
+    | AGENT_GUARD_PII_HOOK_MODE=mask AGENT_GUARD_HOOK_HOST=claude \
+        "$GUARD" hook-post-tool >"$CASE/probe-symlink.out" 2>"$CASE/probe-symlink.err"
+  probe_symlink_masked=$(probe_output_value claude "$CASE/probe-symlink.out")
+  case "$probe_symlink_masked" in
+    *'[PII:PHONE]-'*) ok 'live probe rejects a symlink sidecar' ;;
+    *) bad 'live probe rejects a symlink sidecar' ;;
+  esac
+  rm -f "$probe_sidecar"
+else
+  printf '%s\n' 'skipping live-probe sidecar symlink test: filesystem does not support symlinks'
+fi
+(umask 077; mkdir "$probe_sidecar")
+rmdir "$probe_sidecar_target"
+
+# The same verified replacement may be pasted into a prompt without poisoning
+# the session; the prompt guard's ordinary placeholder exemption still applies.
+printf '{"session_id":"probe","hook_event_name":"UserPromptSubmit","prompt":"%s"}' "$probe_replacement" \
   >"$CASE/probe-prompt.json"
 if "$GUARD" hook-user-prompt <"$CASE/probe-prompt.json" >"$CASE/probe-prompt.out" 2>/dev/null; then
   check 'the replacement is not blocked at the prompt guard' test ! -s "$CASE/probe-prompt.out"
