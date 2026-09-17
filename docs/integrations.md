@@ -4,6 +4,11 @@ Agent Guard keeps policy and scanning in its portable CLI. Host adapters pass
 their native event to that CLI; they do not implement a second policy engine.
 Use more than one layer for important repositories.
 
+도구별 matcher, Claude/Codex의 서로 다른 출력 교체 계약, failed route와
+session/timeout 경계는 [도구 출력 마스킹의 범위와 검증 경계](output-masking-boundaries.md)를
+기준으로 판단하세요. 저장소 matcher가 존재한다는 사실은 현재 설치본의 dispatch나
+host acceptance를 증명하지 않습니다.
+
 ## Claude Code
 
 The plugin hooks inspect supported reads, writes, shell commands, web/MCP input,

@@ -3,6 +3,11 @@
 Use separate evidence for dependencies, deterministic behavior, and live host
 dispatch. A passing earlier layer does not prove a later one.
 
+출력 마스킹의 정확한 matcher, host별 replacement 계약, session/compaction/timeout
+경계는 [도구 출력 마스킹의 범위와 검증 경계](output-masking-boundaries.md)에
+정리되어 있습니다. 플러그인 업데이트나 trust 변경 뒤에는 이 문서의 live probe를
+정확한 route마다 다시 실행하세요.
+
 | Evidence | Command or action | What it establishes | What it does not establish |
 | --- | --- | --- | --- |
 | Dependency check | `agent-guard check` or `agent-guard doctor` | Required local commands and policy files are available | That a host dispatches hooks |
@@ -72,11 +77,13 @@ byte length with the placeholder's if you need to confirm it.
   dependency or choose the documented infrastructure policy.
 - `open` infrastructure mode continues after a visible one-time warning;
   `closed` blocks. This policy applies to infrastructure failures, while a
-  secret detection blocks. Malformed PreToolUse and Stop input blocks
-  independently of infrastructure mode. PostToolUse first recovers a valid
-  host envelope with its independent parser and emits a conservative
-  replacement; exit status 2 for a truly malformed PostToolUse envelope is a
-  visible diagnostic and cannot retract the completed tool result. Every
+  secret detection blocks. Non-empty malformed or non-object PreToolUse and
+  Stop input blocks independently of infrastructure mode. PostToolUse first
+  recovers a valid host envelope with its independent parser and emits a
+  conservative replacement; exit status 2 for a non-empty malformed or
+  non-object PostToolUse envelope is a visible diagnostic and cannot retract
+  the completed tool result. Empty stdin is the documented exception:
+  PreToolUse, PostToolUse, and Stop return status 0 with no response. Every
   rejected event is reported.
 - A host that kills a hook at its timeout can prevent that hook from deciding.
   Keep Git and CI backstops enabled.

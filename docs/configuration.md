@@ -4,6 +4,11 @@ Agent Guard reads policy from its bundled configuration and selected environment
 variables. Keep custom policy files reviewable and test them with
 `agent-guard smoke-test` plus an appropriate live probe.
 
+`AGENT_GUARD_INFRA_FAILURE_MODE=closed`와 output redaction의 event별 실효 범위는
+[도구 출력 마스킹의 범위와 검증 경계](output-masking-boundaries.md)를 함께
+확인하세요. 특히 `PostToolUse`의 exit 2는 이미 실행된 tool effect를 되돌리지
+않고, timeout 전에 응답하지 못하면 `closed` 결정 자체가 host에 도달하지 않습니다.
+
 ## Infrastructure policy
 
 `AGENT_GUARD_INFRA_FAILURE_MODE` controls an unavailable dependency, policy, or
@@ -17,16 +22,18 @@ scanner error in a lifecycle hook:
 This is distinct from a secret finding, which blocks. An invalid value is read
 as `open`; set an explicit valid value in managed environments.
 
-Malformed PreToolUse, PostToolUse, and Stop input is also distinct from
-unavailable infrastructure. Agent Guard rejects one of those events when it
-cannot parse the input as a JSON object even if infrastructure mode is `open`.
+Non-empty malformed or non-object PreToolUse, PostToolUse, and Stop input is
+also distinct from unavailable infrastructure. Agent Guard rejects one of
+those events even if infrastructure mode is `open`.
 PreToolUse and Stop can block their boundary action with exit status 2. Because
 PostToolUse runs after the tool, Agent Guard first uses an independent portable
 parser to recover and conservatively replace `tool_response` from a valid host
-envelope that the primary validator could not handle. A truly malformed
-PostToolUse envelope is reported with exit status 2, but that diagnostic cannot
-retract a result the host already received. Malformed-input diagnostics are not
-deduplicated with degraded-infrastructure notices.
+envelope that the primary validator could not handle. A non-empty malformed or
+non-object PostToolUse envelope is reported with exit status 2, but that
+diagnostic cannot retract a result the host already received. Malformed-input
+diagnostics are not deduplicated with degraded-infrastructure notices.
+Empty stdin is the documented exception: PreToolUse, PostToolUse, and Stop
+return status 0 with no response. See [output masking boundaries](output-masking-boundaries.md#malformed-envelope%EB%8A%94-infrastructure-failure%EC%99%80-%EB%8B%A4%EB%A5%B4%EB%8B%A4).
 
 ## Output and prompt handling
 
@@ -45,11 +52,14 @@ deduplicated with degraded-infrastructure notices.
 - Base64 image and PDF blocks (`media_type` of `image/png`, `image/jpeg`,
   `image/gif`, `image/webp` or `application/pdf`, in the Anthropic `source`
   shape, MCP's native `data`/`mimeType` shape or Claude Code's `Read` `file`
-  shape) are not inspected: the
-  scanner cannot read pixels, and the host forwards the payload as bytes. Their
-  payload is excluded from the size cap and passed through unchanged; text
-  siblings in the same result are still scanned and masked. A base64 block of
-  a text media type (`text/plain`, `image/svg+xml`) is treated as text.
+  shape) are not inspected: the scanner cannot read pixels. Their payload is
+  excluded from the size cap while text siblings in the same result are still
+  scanned and masked. A normal rewrite restores the original binary bytes
+  unchanged after scanning. If the final restore serializer fails, Agent Guard
+  instead emits the stripped block with an empty `data`/`base64` payload; this
+  is secret-safe but lossy and does not re-enter the whole-leaf or fixed-string
+  fallback. A base64 block of a text media type (`text/plain`, `image/svg+xml`)
+  is treated as text. See [output masking boundaries](output-masking-boundaries.md).
 - `AGENT_GUARD_PROMPT_GUARD_MODE=block` is the default. `warn` passes a prompt
   with a notice and `off` disables secret prompt scanning. Hosts currently do
   not provide safe prompt rewriting, so `mask` degrades to block.

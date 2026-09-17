@@ -18,6 +18,7 @@ not a vault, DLP system, EDR, or credential rotator.
 | --- | --- |
 | Install a Claude Code or Codex plugin, CLI, Git hook, or Action | [Installation](docs/installation.md) |
 | Understand host coverage and configure an integration | [Integrations](docs/integrations.md) |
+| 출력 마스킹의 도달 범위와 host별 계약 차이를 확인 | [Output masking boundaries](docs/output-masking-boundaries.md) |
 | Verify a setup and understand what the result proves | [Verification](docs/verification.md) |
 | Configure policy, PII, redaction, or infrastructure behavior | [Configuration](docs/configuration.md) |
 | Deploy for a managed team or troubleshoot an environment | [Operations](docs/operations.md); the [Korean/Japanese deployment guide](https://agent-guard-guide.jaesoon.chatgpt.site/) is a supplementary, currently published walkthrough |
