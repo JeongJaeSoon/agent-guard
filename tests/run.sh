@@ -248,6 +248,111 @@ else
   not_ok "release automation preserves the v1 moving tag when publishing v2+"
 fi
 
+if grep -Fq 'publish_ready=true' "$ROOT/.github/workflows/release.yml" \
+   && grep -Fq 'publishing v${v} requires a second dispatch with version=${v} explicitly set' "$ROOT/.github/workflows/release.yml" \
+   && grep -Fq "if: \${{ steps.state.outputs.publish_ready == 'true' && !inputs.dry_run }}" "$ROOT/.github/workflows/release.yml" \
+   && ! grep -Fq 'gh pr merge' "$ROOT/.github/workflows/release.yml" \
+   && ! grep -Fq 'Wait for PR to merge' "$ROOT/.github/workflows/release.yml"; then
+  ok "release automation separates reviewed PR merge from explicit publish dispatch"
+else
+  not_ok "release automation separates reviewed PR merge from explicit publish dispatch"
+fi
+
+main_gate_line=$(grep -n 'name: Require an exact main dispatch' "$ROOT/.github/workflows/release.yml" | cut -d: -f1)
+version_compute_line=$(grep -n 'name: Compute next version' "$ROOT/.github/workflows/release.yml" | cut -d: -f1)
+if [ -n "$main_gate_line" ] \
+   && [ -n "$version_compute_line" ] \
+   && [ "$main_gate_line" -lt "$version_compute_line" ] \
+   && grep -Fq 'if [ "$DISPATCH_REF" != "refs/heads/main" ]' "$ROOT/.github/workflows/release.yml" \
+   && grep -Fq 'if [ "$checkout_sha" != "$main_sha" ]' "$ROOT/.github/workflows/release.yml"; then
+  ok "release workflow refuses feature refs and stale main checkouts before writes"
+else
+  not_ok "release workflow refuses feature refs and stale main checkouts before writes"
+fi
+
+if grep -Fq "grep -E '^v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$'" "$ROOT/.github/workflows/release.yml" \
+   && grep -Fq "grep -qE '^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$'" "$ROOT/.github/workflows/release.yml" \
+   && grep -Fq 'must be greater than latest strict semver tag' "$ROOT/.github/workflows/release.yml" \
+   && ! grep -Fq 'v="${{ steps.ver.outputs.version }}"' "$ROOT/.github/workflows/release.yml" \
+   && ! grep -Fq 'br="${{ steps.ver.outputs.branch }}"' "$ROOT/.github/workflows/release.yml" \
+   && ! grep -Fq 'maj="${{ steps.ver.outputs.major }}"' "$ROOT/.github/workflows/release.yml" \
+   && ! grep -Fq '"${{ steps.ver.outputs.previous }}" \' "$ROOT/.github/workflows/release.yml"; then
+  ok "release version derivation rejects non-semver tags and keeps outputs out of run scripts"
+else
+  not_ok "release version derivation rejects non-semver tags and keeps outputs out of run scripts"
+fi
+
+if grep -Fq 'gh pr list \' "$ROOT/.github/workflows/release.yml" \
+   && grep -Fq -- '--state merged \' "$ROOT/.github/workflows/release.yml" \
+   && grep -Fq -- '--head "$release_branch" \' "$ROOT/.github/workflows/release.yml" \
+   && grep -Fq 'if [ "$release_sha" != "$main_sha" ]' "$ROOT/.github/workflows/release.yml" \
+   && grep -Fq 'if [ -z "$expected_release_sha" ] || [ "$head_sha" != "$expected_release_sha" ]' "$ROOT/.github/workflows/release.yml"; then
+  ok "release publish stays pinned to the reviewed release PR merge commit"
+else
+  not_ok "release publish stays pinned to the reviewed release PR merge commit"
+fi
+
+if grep -Fq -- '--json headRefOid,mergeCommit' "$ROOT/.github/workflows/release.yml" \
+   && grep -Fq 'checks: read' "$ROOT/.github/workflows/release.yml" \
+   && grep -Fq "required_checks=\$'Agent Guard\\nTest (ubuntu-latest)\\nTest (macos-latest)\\nLint\\nPlugin Layout\\nHOL Plugin Scanner'" "$ROOT/.github/workflows/release.yml" \
+   && grep -Fq 'commits/${release_head_sha}/check-runs?filter=latest&per_page=100' "$ROOT/.github/workflows/release.yml" \
+   && grep -Fq 'if [ "$check_result" != "success" ]' "$ROOT/.github/workflows/release.yml" \
+   && grep -Fq 'release_head_sha=$release_head_sha' "$ROOT/.github/workflows/release.yml"; then
+  ok "release publish requires every mandatory check on the exact reviewed PR head"
+else
+  not_ok "release publish requires every mandatory check on the exact reviewed PR head"
+fi
+
+if grep -Fq 'commits/${release_sha}/check-runs?filter=latest&per_page=100' "$ROOT/.github/workflows/release.yml" \
+   && grep -Fq 'sort_by(.id)' "$ROOT/.github/workflows/release.yml" \
+   && grep -Fq 'required main check' "$ROOT/.github/workflows/release.yml" \
+   && grep -Fq 'if [ "$check_result" != "success" ]' "$ROOT/.github/workflows/release.yml"; then
+  ok "release publish requires mandatory main checks on the exact merge commit"
+else
+  not_ok "release publish requires mandatory main checks on the exact merge commit"
+fi
+
+if grep -Fq 'remote_tree=$(git rev-parse' "$ROOT/.github/workflows/release.yml" \
+   && grep -Fq 'if [ "$remote_tree" != "$local_tree" ]' "$ROOT/.github/workflows/release.yml" \
+   && grep -Fq 'gh pr list --state open --base main --head "$br" --json url' "$ROOT/.github/workflows/release.yml" \
+   && grep -Fq 'gh pr edit "$url"' "$ROOT/.github/workflows/release.yml"; then
+  ok "release PR creation safely reuses only an identical remote release tree"
+else
+  not_ok "release PR creation safely reuses only an identical remote release tree"
+fi
+
+release_validation_line=$(grep -n 'name: Validate release candidate before opening PR' "$ROOT/.github/workflows/release.yml" | cut -d: -f1)
+release_pr_line=$(grep -n 'name: Open release PR' "$ROOT/.github/workflows/release.yml" | cut -d: -f1)
+if [ -n "$release_validation_line" ] \
+   && [ -n "$release_pr_line" ] \
+   && [ "$release_validation_line" -lt "$release_pr_line" ] \
+   && grep -Fq '/bin/dash tests/run.sh' "$ROOT/.github/workflows/release.yml" \
+   && grep -Fq 'scripts/validate-plugin-layout.sh --all' "$ROOT/.github/workflows/release.yml" \
+   && grep -Fq 'scripts/validate-submission-readiness.sh' "$ROOT/.github/workflows/release.yml" \
+   && grep -Fq 'plugins/agent-guard/bin/agent-guard smoke-test' "$ROOT/.github/workflows/release.yml"; then
+  ok "release candidate is verified before the bot opens its PR"
+else
+  not_ok "release candidate is verified before the bot opens its PR"
+fi
+
+if grep -Fq 'cli_version=$(sed -n' "$ROOT/.github/workflows/release.yml" \
+   && grep -Fq 'claude_version=$(jq -r' "$ROOT/.github/workflows/release.yml" \
+   && grep -Fq 'codex_version=$(jq -r' "$ROOT/.github/workflows/release.yml" \
+   && grep -Fq 'catalog_version=$(jq -r' "$ROOT/.github/workflows/release.yml" \
+   && grep -Fq 'scripts/validate-plugin-layout.sh --marketplace' "$ROOT/.github/workflows/release.yml"; then
+  ok "release publish rechecks CLI, manifest, and catalog version alignment"
+else
+  not_ok "release publish rechecks CLI, manifest, and catalog version alignment"
+fi
+
+if grep -Fq '이 PR은 자동 병합되지 않으며' "$ROOT/.github/workflows/release.yml" \
+   && grep -Fq 'git commit --allow-empty -m "ci: trigger release verification"' "$ROOT/.github/workflows/release.yml" \
+   && grep -Fq 'Agent Guard, Test (ubuntu-latest), Test (macos-latest), Lint, Plugin Layout, HOL Plugin Scanner' "$ROOT/.github/workflows/release.yml"; then
+  ok "release PR explains the manual review and second-dispatch handoff"
+else
+  not_ok "release PR explains the manual review and second-dispatch handoff"
+fi
+
 if jq -e '.hooks == "./hooks.json" and .skills == "./codex-skills/"' "$PLUGIN_ROOT/.codex-plugin/plugin.json" >/dev/null; then
   ok "Codex plugin manifest explicitly declares hook and skill paths"
 else
@@ -6376,8 +6481,9 @@ if printf '%s\n' "$formula_output" | grep -q 'libexec.install Dir' \
    && printf '%s\n' "$formula_output" | grep -q 'depends_on "gitleaks"' \
    && printf '%s\n' "$formula_output" | grep -q 'depends_on "jq"' \
    && printf '%s\n' "$formula_output" | grep -q 'depends_on "perl"' \
-   && printf '%s\n' "$formula_output" | grep -q 'system "#{bin}/agent-guard", "check"' \
-   && printf '%s\n' "$formula_output" | grep -q 'system "#{bin}/agent-guard", "smoke-test"'; then
+   && printf '%s\n' "$formula_output" | grep -q 'system bin/"agent-guard", "check"' \
+   && printf '%s\n' "$formula_output" | grep -q 'system bin/"agent-guard", "smoke-test"' \
+   && ! printf '%s\n' "$formula_output" | grep -q 'system "#{bin}/agent-guard"'; then
   ok "Homebrew formula pins release, installs CLI dependencies, and checks the guard"
 else
   not_ok "Homebrew formula pins release, installs CLI dependencies, and checks the guard"
