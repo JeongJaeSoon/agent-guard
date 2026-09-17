@@ -336,7 +336,7 @@ fi
 expected_codex_pre='Bash|apply_patch|Agent|Task|mcp__.*'
 expected_codex_post='Bash|apply_patch|Agent|Task|mcp__.*'
 expected_claude_pre='Write|Edit|MultiEdit|NotebookEdit|Read|NotebookRead|Grep|Glob|Bash|WebFetch|WebSearch|apply_patch|Agent|Task|mcp__.*'
-expected_claude_post='Write|Edit|MultiEdit|NotebookEdit|Bash|PowerShell|apply_patch|Read|NotebookRead|Grep|Glob|WebFetch|WebSearch|Agent|Task|Skill|Monitor|LSP|ListMcpResourcesTool|mcp__.*'
+expected_claude_post='^(Write|Edit|MultiEdit|NotebookEdit|Bash|PowerShell|apply_patch|Read|NotebookRead|Grep|Glob|WebFetch|WebSearch|Agent|Task|Skill|Monitor|LSP|ListMcpResourcesTool|ReadMcpResourceTool|mcp__.*)$'
 
 assert_manifest_matchers() {
   matcher_file=$1
@@ -377,11 +377,33 @@ for structural_tool in \
     not_ok "Claude PostToolUse matcher structural approximation misses $structural_tool"
   fi
 done
-if jq -n -e --arg matcher "$claude_post_matcher" \
-    '"FutureTool" | test($matcher) | not' >/dev/null; then
-  ok "Claude PostToolUse matcher structural approximation passes through unrelated FutureTool"
+for structural_unknown in \
+  FutureTool SkillManager MonitorStatus MyLSPClient TodoWrite \
+  NotASkill xReadMcpResourceTool Bashful; do
+  if jq -n -e --arg matcher "$claude_post_matcher" --arg tool "$structural_unknown" \
+      '$tool | test($matcher) | not' >/dev/null; then
+    ok "Claude PostToolUse matcher structural approximation passes through unrelated $structural_unknown"
+  else
+    not_ok "Claude PostToolUse matcher structural approximation overmatches unrelated $structural_unknown"
+  fi
+done
+
+if command -v node >/dev/null 2>&1; then
+  if node -e '
+      const pattern = new RegExp(process.argv[1]);
+      const positives = process.argv[2].split(",");
+      const negatives = process.argv[3].split(",");
+      if (!positives.every((name) => pattern.test(name))) process.exit(1);
+      if (!negatives.every((name) => !pattern.test(name))) process.exit(1);
+    ' "$claude_post_matcher" \
+      'PowerShell,Skill,Monitor,LSP,ListMcpResourcesTool,ReadMcpResourceTool,mcp__server__tool' \
+      'FutureTool,SkillManager,MonitorStatus,MyLSPClient,TodoWrite,NotASkill,xReadMcpResourceTool,Bashful'; then
+    ok "Claude PostToolUse matcher passes the actual JavaScript RegExp contract"
+  else
+    not_ok "Claude PostToolUse matcher failed the JavaScript RegExp contract"
+  fi
 else
-  not_ok "Claude PostToolUse matcher structural approximation overmatches unrelated FutureTool"
+  ok "Claude PostToolUse JavaScript RegExp check skipped without Node; structural checks remain active"
 fi
 
 # Delegating work is a parent-context boundary. Both current `Agent` calls and
