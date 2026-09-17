@@ -17,6 +17,17 @@ scanner error in a lifecycle hook:
 This is distinct from a secret finding, which blocks. An invalid value is read
 as `open`; set an explicit valid value in managed environments.
 
+Malformed PreToolUse, PostToolUse, and Stop input is also distinct from
+unavailable infrastructure. Agent Guard rejects one of those events when it
+cannot parse the input as a JSON object even if infrastructure mode is `open`.
+PreToolUse and Stop can block their boundary action with exit status 2. Because
+PostToolUse runs after the tool, Agent Guard first uses an independent portable
+parser to recover and conservatively replace `tool_response` from a valid host
+envelope that the primary validator could not handle. A truly malformed
+PostToolUse envelope is reported with exit status 2, but that diagnostic cannot
+retract a result the host already received. Malformed-input diagnostics are not
+deduplicated with degraded-infrastructure notices.
+
 ## Output and prompt handling
 
 - `AGENT_GUARD_OUTPUT_REDACT=off` disables secret-like output masking. The
@@ -25,7 +36,12 @@ as `open`; set an explicit valid value in managed environments.
   in it is replaced. Anthropic content-block discriminators (`type`,
   `source.type`, `media_type`) survive that rewrite when the value is exactly a
   known protocol token, so the sanitized result still parses as the block shape
-  the host sent. Any other value is masked, including under those keys.
+  the host sent. Any other string is masked, including under those keys. A
+  portable secondary serializer preserves object keys, order, containers, and
+  scalar types if the primary JSON rewrite cannot run; it neutralizes numeric
+  and true-valued leaves while producing one host-valid replacement. This
+  replacement is required because PostToolUse runs after the tool and exit
+  status alone cannot retract the original result.
 - Base64 image and PDF blocks (`media_type` of `image/png`, `image/jpeg`,
   `image/gif`, `image/webp` or `application/pdf`, in the Anthropic `source`
   shape, MCP's native `data`/`mimeType` shape or Claude Code's `Read` `file`

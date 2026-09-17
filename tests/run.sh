@@ -1652,9 +1652,9 @@ else
   sed 's/^/  stderr: /' "$ERR"
 fi
 
-# Every tool/stop hook must make the infrastructure policy decision itself
-# when the host sends malformed JSON. A jq parse failure must never become an
-# accidental exit-0 under the explicitly closed policy.
+# Every tool/stop hook must reject malformed JSON independently of the scanner
+# infrastructure policy. The input cannot be inspected safely, so default-open
+# must not forward it and repeated failures must each remain visible.
 for malformed_case in \
   'hook-pre-tool:PreToolUse' \
   'hook-post-tool:PostToolUse' \
@@ -1680,15 +1680,281 @@ for malformed_case in \
       AGENT_GUARD_WARNING_DIR="$TESTTMP/malformed-$malformed_cmd-open" \
       "$PLUGIN_ROOT/bin/agent-guard" "$malformed_cmd" >"$OUT" 2>"$ERR"
   malformed_status=$?
-  if [ "$malformed_status" -eq 0 ] \
+  if [ "$malformed_status" -eq 2 ] \
      && grep -q "$malformed_event hook input was not a JSON object" "$ERR"; then
-    ok "$malformed_cmd open policy reports a non-object JSON payload"
+    ok "$malformed_cmd blocks a non-object JSON payload under open infrastructure policy"
   else
-    not_ok "$malformed_cmd open policy reports a non-object JSON payload (status $malformed_status)"
+    not_ok "$malformed_cmd blocks a non-object JSON payload under open infrastructure policy (status $malformed_status)"
     sed 's/^/  stdout: /' "$OUT"
     sed 's/^/  stderr: /' "$ERR"
   fi
 done
+
+make_deep_post_tool_input() {
+  deep_count=$1
+  printf '%s' '{"session_id":"deep-repeat","tool_name":"Read","tool_input":{},"tool_response":'
+  awk -v count="$deep_count" 'BEGIN { for (i = 0; i < count; i++) printf "[" }'
+  printf '"%s%s%s%s"' 'PASS' 'WORD=' 'K7mQ2vN9xR4c' 'T8pL6sW3'
+  awk -v count="$deep_count" 'BEGIN { for (i = 0; i < count; i++) printf "]" }'
+  printf '%s' '}'
+}
+
+make_deep_post_tool_expected() {
+  deep_count=$1
+  deep_leaf=${2:-'PASSWORD=[REDACTED]'}
+  printf '%s' '{"hookSpecificOutput":{"hookEventName":"PostToolUse","updatedToolOutput":'
+  awk -v count="$deep_count" 'BEGIN { for (i = 0; i < count; i++) printf "[" }'
+  printf '"%s"' "$deep_leaf"
+  awk -v count="$deep_count" 'BEGIN { for (i = 0; i < count; i++) printf "]" }'
+  printf '%s\n' '}}'
+}
+
+deep_expected_200="$TESTTMP/deep-expected-200"
+make_deep_post_tool_expected 200 >"$deep_expected_200"
+make_deep_post_tool_input 200 \
+  | AGENT_GUARD_INFRA_FAILURE_MODE=open \
+    "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool >"$OUT" 2>"$ERR"
+deep_status=$?
+if [ "$deep_status" -eq 0 ] \
+   && cmp -s "$deep_expected_200" "$OUT"; then
+  ok "post-tool masks output nested to depth 200"
+else
+  not_ok "post-tool masks output nested to depth 200 (status $deep_status)"
+  sed 's/^/  stdout: /' "$OUT"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+for deep_count in 2000 20000; do
+  deep_expected="$TESTTMP/deep-expected-$deep_count"
+  deep_conservative_expected="$TESTTMP/deep-conservative-expected-$deep_count"
+  make_deep_post_tool_expected "$deep_count" >"$deep_expected"
+  make_deep_post_tool_expected "$deep_count" '[REDACTED]' >"$deep_conservative_expected"
+  make_deep_post_tool_input "$deep_count" \
+    | AGENT_GUARD_INFRA_FAILURE_MODE=open \
+      AGENT_GUARD_SESSION_ID=deep-repeat \
+      AGENT_GUARD_WARNING_DIR="$TESTTMP/deep-repeat-warning" \
+      "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool >"$OUT" 2>"$ERR"
+  deep_status=$?
+  deep_out_bytes=$(wc -c <"$OUT" | tr -d '[:space:]')
+  deep_expected_bytes=$(wc -c <"$deep_expected" | tr -d '[:space:]')
+  deep_conservative_expected_bytes=$(wc -c <"$deep_conservative_expected" | tr -d '[:space:]')
+  # Exact length and byte equality prove both native nested-array shape and one
+  # top-level document without asking the runner's jq to parse this depth. A
+  # bare string or any appended JSON document necessarily fails. jq-capable
+  # runners preserve the assignment label; the independent recovery parser
+  # conservatively replaces the complete leaf when jq rejects the envelope.
+  if [ "$deep_status" -eq 0 ] \
+     && { { [ "$deep_out_bytes" = "$deep_expected_bytes" ] \
+            && cmp -s "$deep_expected" "$OUT"; } \
+          || { [ "$deep_out_bytes" = "$deep_conservative_expected_bytes" ] \
+               && cmp -s "$deep_conservative_expected" "$OUT"; }; }; then
+    ok "post-tool safely handles output nested to depth $deep_count"
+  else
+    not_ok "post-tool safely handles output nested to depth $deep_count (status $deep_status)"
+    sed 's/^/  stdout: /' "$OUT"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+done
+
+# jq nesting limits vary by build, so force validation failure independently of
+# depth. Both invocations use one session and warning directory: each must emit
+# a complete replacement, independent of infrastructure-warning deduplication.
+FAIL_VALIDATE_JQ_DIR="$TMP_ROOT/fail-validate-jq"
+FAIL_VALIDATE_JQ="$FAIL_VALIDATE_JQ_DIR/jq"
+mkdir -p "$FAIL_VALIDATE_JQ_DIR"
+{
+  printf '%s\n' '#!/bin/sh'
+  printf '%s\n' 'case "$*" in'
+  printf '%s\n' '  *"type == \"object\""*) exit 2 ;;'
+  printf '%s\n' 'esac'
+  printf '%s\n' 'exec "${AGENT_GUARD_TEST_REAL_JQ:?}" "$@"'
+} >"$FAIL_VALIDATE_JQ"
+chmod +x "$FAIL_VALIDATE_JQ"
+
+forced_validation_expected="$TESTTMP/forced-validation-expected"
+make_deep_post_tool_expected 0 '[REDACTED]' >"$forced_validation_expected"
+for validate_failure_attempt in 1 2; do
+  make_deep_post_tool_input 0 \
+    | PATH="$FAIL_VALIDATE_JQ_DIR:$PATH" \
+      AGENT_GUARD_TEST_REAL_JQ="$REAL_JQ" \
+      AGENT_GUARD_INFRA_FAILURE_MODE=open \
+      AGENT_GUARD_SESSION_ID=forced-validation-repeat \
+      AGENT_GUARD_WARNING_DIR="$TESTTMP/forced-validation-repeat" \
+      "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool >"$OUT" 2>"$ERR"
+  forced_validation_status=$?
+  if [ "$forced_validation_status" -eq 0 ] \
+     && cmp -s "$forced_validation_expected" "$OUT" \
+     && ! grep -q 'K7mQ2vN9xR4cT8pL6sW3' "$OUT"; then
+    ok "post-tool replaces output after forced validation failure attempt $validate_failure_attempt"
+  else
+    not_ok "post-tool fails to replace output after forced validation failure attempt $validate_failure_attempt (status $forced_validation_status)"
+    sed 's/^/  stdout: /' "$OUT"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+done
+
+make_formatted_deep_post_tool_input() {
+  formatted_count=$1
+  printf '%s\n' '{'
+  printf '%s\n' '  "session_id" : "formatted-deep",'
+  printf '%s\n' '  "tool_name" : "Read",'
+  printf '%s\n' '  "tool_input" : {},'
+  printf '%s\n' '  "tool_response" :'
+  awk -v count="$formatted_count" 'BEGIN { for (i = 0; i < count; i++) print "[" }'
+  printf '"%s%s%s%s"\n' 'PASS' 'WORD=' 'K7mQ2vN9xR4c' 'T8pL6sW3'
+  awk -v count="$formatted_count" 'BEGIN { for (i = 0; i < count; i++) print "]" }'
+  printf '%s\n' '}'
+}
+
+formatted_deep_expected="$TESTTMP/formatted-deep-expected"
+make_deep_post_tool_expected 2000 '[REDACTED]' >"$formatted_deep_expected"
+make_formatted_deep_post_tool_input 2000 \
+  | PATH="$FAIL_VALIDATE_JQ_DIR:$PATH" \
+    AGENT_GUARD_TEST_REAL_JQ="$REAL_JQ" \
+    "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool >"$OUT" 2>"$ERR"
+formatted_deep_status=$?
+if [ "$formatted_deep_status" -eq 0 ] \
+   && cmp -s "$formatted_deep_expected" "$OUT"; then
+  ok "post-tool validation recovery preserves a formatted depth-2000 array shape"
+else
+  not_ok "post-tool validation recovery loses a formatted depth-2000 array shape (status $formatted_deep_status)"
+  cut -c1-400 "$OUT" | sed 's/^/  stdout: /'
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+formatted_quote_free_expected="$TESTTMP/formatted-quote-free-expected"
+{
+  printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PostToolUse","updatedToolOutput":['
+  printf '%s\n' '  0,'
+  printf '%s\n' '  false,'
+  printf '%s\n' '  null'
+  printf '%s\n' '  ]}}'
+} >"$formatted_quote_free_expected"
+{
+  printf '%s\n' '{'
+  printf '%s\n' '  "tool_name" : "Read",'
+  printf '%s\n' '  "tool_input" : {},'
+  printf '%s\n' '  "tool_response" : ['
+  printf '%s\n' '  9876543210123456,'
+  printf '%s\n' '  true,'
+  printf '%s\n' '  null'
+  printf '%s\n' '  ]'
+  printf '%s\n' '}'
+} | PATH="$FAIL_VALIDATE_JQ_DIR:$PATH" \
+    AGENT_GUARD_TEST_REAL_JQ="$REAL_JQ" \
+    "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool >"$OUT" 2>"$ERR"
+formatted_quote_free_status=$?
+if [ "$formatted_quote_free_status" -eq 0 ] \
+   && cmp -s "$formatted_quote_free_expected" "$OUT" \
+   && ! grep -q '9876543210123456' "$OUT"; then
+  ok "post-tool validation recovery accepts formatted quote-free JSON values"
+else
+  not_ok "post-tool validation recovery collapses formatted quote-free JSON values (status $formatted_quote_free_status)"
+  sed 's/^/  stdout: /' "$OUT"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+{
+  printf '%s\n' '{'
+  printf '%s\n' '  "tool_name" : "Read",'
+  printf '%s\n' '  "tool_input" : {},'
+  printf '%s\n' '  "tool_response" : 9876543210123456'
+  printf '%s\n' '}'
+} | PATH="$FAIL_VALIDATE_JQ_DIR:$PATH" \
+    AGENT_GUARD_TEST_REAL_JQ="$REAL_JQ" \
+    "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool >"$OUT" 2>"$ERR"
+formatted_scalar_status=$?
+if [ "$formatted_scalar_status" -eq 0 ] \
+   && jq -e '.hookSpecificOutput.updatedToolOutput == 0' "$OUT" >/dev/null 2>&1 \
+   && ! grep -q '9876543210123456' "$OUT"; then
+  ok "post-tool validation recovery accepts a formatted top-level scalar response"
+else
+  not_ok "post-tool validation recovery rejects a formatted top-level scalar response (status $formatted_scalar_status)"
+  sed 's/^/  stdout: /' "$OUT"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+make_deep_post_tool_input 0 \
+  | PATH="$FAIL_VALIDATE_JQ_DIR:$PATH" \
+    AGENT_GUARD_TEST_REAL_JQ="$REAL_JQ" \
+    AGENT_GUARD_HOOK_HOST=codex \
+    "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool >"$OUT" 2>"$ERR"
+forced_validation_codex_status=$?
+if [ "$forced_validation_codex_status" -eq 0 ] \
+   && [ "$(jq -s 'length' <"$OUT" 2>/dev/null)" = 1 ] \
+   && jq -e '
+        .decision == "block"
+        and (.hookSpecificOutput.additionalContext | contains("\"[REDACTED]\""))
+      ' "$OUT" >/dev/null 2>&1; then
+  ok "Codex post-tool emits one host-valid replacement after forced validation failure"
+else
+  not_ok "Codex post-tool fails to replace output after forced validation failure (status $forced_validation_codex_status)"
+  sed 's/^/  stdout: /' "$OUT"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+{
+  printf '%s' '{"session_id":"escaped-response-key","tool_name":"Read","tool_input":{},"tool\u005fresponse":"'
+  printf '%s%s%s%s' 'PASS' 'WORD=' 'K7mQ2vN9xR4c' 'T8pL6sW3'
+  printf '%s' '"}'
+} | PATH="$FAIL_VALIDATE_JQ_DIR:$PATH" \
+    AGENT_GUARD_TEST_REAL_JQ="$REAL_JQ" \
+    "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool >"$OUT" 2>"$ERR"
+forced_validation_escaped_key_status=$?
+if [ "$forced_validation_escaped_key_status" -eq 0 ] \
+   && cmp -s "$forced_validation_expected" "$OUT"; then
+  ok "post-tool validation recovery decodes an escaped top-level tool_response key"
+else
+  not_ok "post-tool validation recovery misses an escaped top-level tool_response key (status $forced_validation_escaped_key_status)"
+  sed 's/^/  stdout: /' "$OUT"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+printf '%s' '{broken-json' \
+  | PATH="$FAIL_VALIDATE_JQ_DIR:$PATH" \
+    AGENT_GUARD_TEST_REAL_JQ="$REAL_JQ" \
+    "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool >"$OUT" 2>"$ERR"
+forced_validation_malformed_status=$?
+if [ "$forced_validation_malformed_status" -eq 2 ] && [ ! -s "$OUT" ] \
+   && grep -q 'PostToolUse hook input was not a JSON object' "$ERR"; then
+  ok "post-tool keeps an explicit diagnostic for a truly malformed envelope"
+else
+  not_ok "post-tool treats a truly malformed envelope as recovered (status $forced_validation_malformed_status)"
+  sed 's/^/  stdout: /' "$OUT"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+make_deep_post_tool_input 0 \
+  | PATH="$FAIL_VALIDATE_JQ_DIR:$PATH" \
+    AGENT_GUARD_TEST_REAL_JQ="$REAL_JQ" \
+    AGENT_GUARD_GITLEAKS_BIN=/nonexistent/gitleaks \
+    AGENT_GUARD_INFRA_FAILURE_MODE=open \
+    "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool >"$OUT" 2>"$ERR"
+forced_validation_missing_gitleaks_status=$?
+if [ "$forced_validation_missing_gitleaks_status" -eq 0 ] \
+   && cmp -s "$forced_validation_expected" "$OUT"; then
+  ok "post-tool validation recovery precedes a missing scanner dependency"
+else
+  not_ok "post-tool validation recovery passes through with a missing scanner dependency (status $forced_validation_missing_gitleaks_status)"
+  sed 's/^/  stdout: /' "$OUT"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+make_deep_post_tool_input 0 \
+  | PATH="$FAIL_VALIDATE_JQ_DIR:$PATH" \
+    AGENT_GUARD_TEST_REAL_JQ="$REAL_JQ" \
+    AGENT_GUARD_DENY_READ_PATHS="$TESTTMP/missing-validation-policy" \
+    AGENT_GUARD_INFRA_FAILURE_MODE=open \
+    "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool >"$OUT" 2>"$ERR"
+forced_validation_missing_policy_status=$?
+if [ "$forced_validation_missing_policy_status" -eq 0 ] \
+   && cmp -s "$forced_validation_expected" "$OUT"; then
+  ok "post-tool validation recovery precedes a missing policy dependency"
+else
+  not_ok "post-tool validation recovery passes through with a missing policy dependency (status $forced_validation_missing_policy_status)"
+  sed 's/^/  stdout: /' "$OUT"
+  sed 's/^/  stderr: /' "$ERR"
+fi
 
 printf '%s' "$big_prompt_payload" \
   | AGENT_GUARD_HOOK_HOST=claude AGENT_GUARD_INFRA_FAILURE_MODE=closed \
@@ -5385,6 +5651,123 @@ else
   sed 's/^/  stderr: /' "$ERR"
 fi
 
+# Malformed hook input is hostile input, not a scanner outage. jq can still
+# reject it before an unrelated missing scanner or policy takes the default
+# open path, and that rejection must remain visible on every event.
+for malformed_missing_case in \
+  'hook-pre-tool:PreToolUse' \
+  'hook-post-tool:PostToolUse' \
+  'hook-stop:Stop'; do
+  malformed_missing_cmd=${malformed_missing_case%%:*}
+  malformed_missing_event=${malformed_missing_case#*:}
+  for malformed_missing_attempt in 1 2; do
+    printf '%s' '{broken-json' \
+      | AGENT_GUARD_GITLEAKS_BIN=/nonexistent/gitleaks \
+        AGENT_GUARD_INFRA_FAILURE_MODE=open \
+        AGENT_GUARD_SESSION_ID=malformed-missing-repeat \
+        AGENT_GUARD_WARNING_DIR="$TESTTMP/malformed-missing-repeat" \
+        PATH="$NO_GITLEAKS_BIN" \
+        "$PLUGIN_ROOT/bin/agent-guard" "$malformed_missing_cmd" >"$OUT" 2>"$ERR"
+    malformed_missing_status=$?
+    if [ "$malformed_missing_status" -eq 2 ] && [ ! -s "$OUT" ] \
+       && grep -q "$malformed_missing_event hook input was not a JSON object" "$ERR"; then
+      ok "$malformed_missing_cmd validates before missing gitleaks attempt $malformed_missing_attempt"
+    else
+      not_ok "$malformed_missing_cmd passes malformed input through missing gitleaks attempt $malformed_missing_attempt (status $malformed_missing_status)"
+      sed 's/^/  stdout: /' "$OUT"
+      sed 's/^/  stderr: /' "$ERR"
+    fi
+  done
+done
+
+printf '%s' '[]' \
+  | AGENT_GUARD_DENY_READ_PATHS="$TESTTMP/missing-deny-read-policy" \
+    AGENT_GUARD_INFRA_FAILURE_MODE=open \
+    "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool >"$OUT" 2>"$ERR"
+missing_policy_malformed_status=$?
+if [ "$missing_policy_malformed_status" -eq 2 ] && [ ! -s "$OUT" ] \
+   && grep -q 'PostToolUse hook input was not a JSON object' "$ERR"; then
+  ok "post-tool validates malformed input before a missing policy file"
+else
+  not_ok "post-tool passes malformed input through a missing policy file (status $missing_policy_malformed_status)"
+  sed 's/^/  stdout: /' "$OUT"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+printf '%s' '{"session_id":"valid-missing-policy","tool_name":"Read","tool_input":{}}' \
+  | AGENT_GUARD_DENY_READ_PATHS="$TESTTMP/missing-deny-read-policy" \
+    AGENT_GUARD_INFRA_FAILURE_MODE=open \
+    AGENT_GUARD_WARNING_DIR="$TESTTMP/valid-missing-policy-warning" \
+    "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool >"$OUT" 2>"$ERR"
+valid_missing_policy_status=$?
+if [ "$valid_missing_policy_status" -eq 0 ] \
+   && grep -q 'AGENT_GUARD_INFRA_FAILURE_MODE=open' "$ERR"; then
+  ok "valid hook input with a missing policy still follows degraded-open semantics"
+else
+  not_ok "valid hook input with a missing policy changes degraded-open semantics (status $valid_missing_policy_status)"
+  sed 's/^/  stdout: /' "$OUT"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+HOOK_NO_JQ_BIN="$TMP_ROOT/hook-no-jq-bin"
+mkdir -p "$HOOK_NO_JQ_BIN"
+for hook_no_jq_tool in sh awk dirname pwd; do
+  ln -s "$(command -v "$hook_no_jq_tool")" "$HOOK_NO_JQ_BIN/$hook_no_jq_tool"
+done
+mkdir -p "$TESTTMP/hook-no-jq-open" "$TESTTMP/hook-no-jq-closed"
+printf '%s' '{broken-json' \
+  | PATH="$HOOK_NO_JQ_BIN" \
+    AGENT_GUARD_INFRA_FAILURE_MODE=open \
+    AGENT_GUARD_SESSION_ID=hook-no-jq-open \
+    AGENT_GUARD_WARNING_DIR="$TESTTMP/hook-no-jq-open" \
+    "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool >"$OUT" 2>"$ERR"
+hook_no_jq_open_status=$?
+if [ "$hook_no_jq_open_status" -eq 0 ] \
+   && grep -q 'AGENT_GUARD_INFRA_FAILURE_MODE=open' "$ERR"; then
+  ok "jq-missing hook input retains the default degraded-open policy"
+else
+  not_ok "jq-missing hook input changes the default degraded-open policy (status $hook_no_jq_open_status)"
+  sed 's/^/  stdout: /' "$OUT"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+printf '%s' '{broken-json' \
+  | PATH="$HOOK_NO_JQ_BIN" \
+    AGENT_GUARD_INFRA_FAILURE_MODE=closed \
+    AGENT_GUARD_SESSION_ID=hook-no-jq-closed \
+    AGENT_GUARD_WARNING_DIR="$TESTTMP/hook-no-jq-closed" \
+    "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool >"$OUT" 2>"$ERR"
+hook_no_jq_closed_status=$?
+if [ "$hook_no_jq_closed_status" -eq 2 ] \
+   && grep -q 'AGENT_GUARD_INFRA_FAILURE_MODE=closed' "$ERR"; then
+  ok "jq-missing hook input retains the opt-in degraded-closed policy"
+else
+  not_ok "jq-missing hook input changes the opt-in degraded-closed policy (status $hook_no_jq_closed_status)"
+  sed 's/^/  stdout: /' "$OUT"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+HOOK_NO_AWK_BIN="$TMP_ROOT/hook-no-awk-bin"
+mkdir -p "$HOOK_NO_AWK_BIN" "$TESTTMP/hook-no-awk-open"
+for hook_no_awk_tool in sh jq dirname pwd; do
+  ln -s "$(command -v "$hook_no_awk_tool")" "$HOOK_NO_AWK_BIN/$hook_no_awk_tool"
+done
+printf '%s' '{"session_id":"hook-no-awk","tool_name":"Read","tool_input":{}}' \
+  | PATH="$HOOK_NO_AWK_BIN" \
+    AGENT_GUARD_GITLEAKS_BIN="$MOCK_BIN/gitleaks" \
+    AGENT_GUARD_INFRA_FAILURE_MODE=open \
+    AGENT_GUARD_WARNING_DIR="$TESTTMP/hook-no-awk-open" \
+    "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool >"$OUT" 2>"$ERR"
+hook_no_awk_status=$?
+if [ "$hook_no_awk_status" -eq 0 ] \
+   && grep -q 'jq, awk, git, gitleaks' "$ERR"; then
+  ok "hook readiness treats the portable fallback awk as a required dependency"
+else
+  not_ok "hook readiness ignores a missing portable fallback awk (status $hook_no_awk_status)"
+  sed 's/^/  stdout: /' "$OUT"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
 INACTIVE_POLICY="$TESTTMP/inactive-deny-read-policy.txt"
 printf ' \r\n\t# interrupted policy extraction\r\n' >"$INACTIVE_POLICY"
 printf '%s' '{"session_id":"inactive-policy","tool_name":"Bash","tool_input":{"command":"echo clean"}}' \
@@ -7808,6 +8191,99 @@ post_tool_out() {
     >"$OUT" 2>"$ERR"
 }
 
+# A disk finding and a result finding compete for the hook's single stdout JSON
+# slot. Keep the host-valid masking response on stdout, surface the disk finding
+# on stderr, and record the combined event as blocked in the metadata-only log.
+COMBINED_REPO="$TMP_ROOT/post-tool-combined"
+mkdir -p "$COMBINED_REPO"
+(
+  cd "$COMBINED_REPO" || exit 2
+  git init -q
+  git config user.email t@e
+  git config user.name t
+  printf '%s\n' clean > README.md
+  git add README.md
+  git commit -q -m init
+)
+combined_value=$(printf '%s%s%s%s%s%s' 'AGENT_' 'GUARD_' 'TEST_' 'SE' 'CRET=' 'K7mQ2vN9xR4cT8pL6sW3')
+printf '%s\n' "$combined_value" >"$COMBINED_REPO/staged.txt"
+git -C "$COMBINED_REPO" add staged.txt
+
+for combined_host in claude codex; do
+  combined_state="$TESTTMP/combined-state-$combined_host"
+  mkdir -p "$combined_state"
+  chmod 700 "$combined_state"
+  combined_state=$(CDPATH= cd -- "$combined_state" && pwd -P)
+  jq -nc --arg wd "$COMBINED_REPO" --arg stdout "$combined_value" \
+    '{tool_name:"Bash",tool_input:{command:"printf",workdir:$wd},
+      tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}' \
+    | AGENT_GUARD_HOOK_HOST="$combined_host" \
+      AGENT_GUARD_LOG_MODE=on XDG_STATE_HOME="$combined_state" \
+      "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool >"$OUT" 2>"$ERR"
+  combined_status=$?
+  combined_docs=$(jq -s 'length' <"$OUT" 2>/dev/null)
+  if [ "$combined_host" = claude ]; then
+    combined_shape=$(jq -e '
+      .hookSpecificOutput.updatedToolOutput
+      | type == "object" and has("stdout") and has("stderr")
+        and has("interrupted") and has("isImage")
+    ' "$OUT" >/dev/null 2>&1; printf '%s' "$?")
+  else
+    combined_shape=$(jq -e '
+      .decision == "block"
+      and (.hookSpecificOutput.hookEventName == "PostToolUse")
+      and (.hookSpecificOutput.additionalContext | type == "string")
+    ' "$OUT" >/dev/null 2>&1; printf '%s' "$?")
+  fi
+  combined_audit=$(jq -s -e '
+    any(.[]; .phase == "finished" and .command == "hook-post-tool"
+            and .outcome == "blocked" and .exit_code == 0)
+  ' "$combined_state"/agent-guard/event-* >/dev/null 2>&1; printf '%s' "$?")
+  if [ "$combined_status" -eq 0 ] && [ "$combined_docs" -eq 1 ] \
+     && [ "$combined_shape" -eq 0 ] && [ "$combined_audit" -eq 0 ] \
+     && grep -q 'changed files contain secret-like values' "$ERR" \
+     && ! grep -Fq "$combined_value" "$OUT"; then
+    ok "post-tool preserves disk and output findings in one $combined_host response"
+  else
+    not_ok "post-tool preserves disk and output findings in one $combined_host response (status $combined_status, docs $combined_docs)"
+    sed 's/^/  stdout: /' "$OUT"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+done
+
+# Exercise the second mutation backstop too: an ignored target is absent from
+# git's candidate set, so the direct named-path scan owns the disk finding.
+printf '%s\n' ignored.txt >"$COMBINED_REPO/.gitignore"
+git -C "$COMBINED_REPO" add .gitignore
+git -C "$COMBINED_REPO" commit -q -m ignore
+printf '%s\n' "$combined_value" >"$COMBINED_REPO/ignored.txt"
+direct_combined_state="$TESTTMP/direct-combined-state"
+mkdir -p "$direct_combined_state"
+chmod 700 "$direct_combined_state"
+direct_combined_state=$(CDPATH= cd -- "$direct_combined_state" && pwd -P)
+jq -nc --arg wd "$COMBINED_REPO" --arg stdout "$combined_value" \
+  '{tool_name:"Write",tool_input:{file_path:"ignored.txt",workdir:$wd},
+    tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}' \
+  | AGENT_GUARD_LOG_MODE=on XDG_STATE_HOME="$direct_combined_state" \
+    "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool >"$OUT" 2>"$ERR"
+direct_combined_status=$?
+direct_combined_audit=$(jq -s -e '
+  any(.[]; .phase == "finished" and .command == "hook-post-tool"
+          and .outcome == "blocked" and .exit_code == 0)
+' "$direct_combined_state"/agent-guard/event-* >/dev/null 2>&1; printf '%s' "$?")
+if [ "$direct_combined_status" -eq 0 ] \
+   && [ "$(jq -s 'length' <"$OUT" 2>/dev/null)" -eq 1 ] \
+   && [ "$direct_combined_audit" -eq 0 ] \
+   && jq -e '.hookSpecificOutput.updatedToolOutput | type == "object"' "$OUT" >/dev/null 2>&1 \
+   && grep -q 'file this tool call wrote contains secret-like values' "$ERR" \
+   && ! grep -Fq "$combined_value" "$OUT"; then
+  ok "post-tool direct target finding does not skip output masking"
+else
+  not_ok "post-tool direct target finding does not skip output masking (status $direct_combined_status)"
+  sed 's/^/  stdout: /' "$OUT"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
 post_tool_out '{"tool_name":"Bash","tool_input":{"command":"loadsecrets"},"tool_response":{"stdout":"token AGENT_GUARD_TEST_SECRET here\n","stderr":"","interrupted":false,"isImage":false}}'
 post_status=$?
 post_out=$(cat "$OUT")
@@ -9918,19 +10394,273 @@ else
   printf '%s\n' "$post_out" | sed 's/^/  out: /'
 fi
 
-# If the shape-preserving whole-leaf jq transform itself fails, mandatory
-# redaction must still reach both host envelopes as a JSON string sentinel.
+# If the primary shape-preserving jq transform fails, the portable lexer must
+# still emit one replacement with the native tool-response shape. PostToolUse
+# exit status cannot retract the result Claude already produced.
 FAIL_WHOLE_JQ_DIR="$TMP_ROOT/fail-whole-jq"
 FAIL_WHOLE_JQ="$FAIL_WHOLE_JQ_DIR/jq"
 mkdir -p "$FAIL_WHOLE_JQ_DIR"
 {
   printf '%s\n' '#!/bin/sh'
+  printf '%s\n' 'case "$*" in'
+  printf '%s\n' '  *".tool_response // empty"*)'
+  printf '%s\n' '    if [ -n "${AGENT_GUARD_TEST_RESPONSE_FILE:-}" ]; then cat "$AGENT_GUARD_TEST_RESPONSE_FILE"; exit 0; fi'
+  printf '%s\n' '    ;;'
+  printf '%s\n' 'esac'
+  printf '%s\n' 'if [ "${AGENT_GUARD_TEST_PARTIAL_ENVELOPE:-0}" = 1 ]; then'
+  printf '%s\n' '  case "$*" in *"additionalContext:"*) printf "{\"partial\":"; exit 2 ;; esac'
+  printf '%s\n' 'fi'
+  printf '%s\n' 'if [ "${AGENT_GUARD_TEST_FAIL_RESTORE:-0}" = 1 ]; then'
+  printf '%s\n' '  case "$*" in *'\''.[0] as $orig'\''*) printf "{\"partial\":"; exit 2 ;; esac'
+  printf '%s\n' 'fi'
+  printf '%s\n' 'case "$*" in *'\''contains("\u0000")'\''*) exit 2 ;; esac'
   printf '%s\n' 'case " $* " in'
-  printf '%s\n' '  *"length > 0"*) exit 2 ;;'
+  printf '%s\n' '  *"length > 0"*)'
+  printf '%s\n' '    if [ "${AGENT_GUARD_TEST_PARTIAL_PRIMARY:-0}" = 1 ]; then printf "{\"partial\":"; fi'
+  printf '%s\n' '    exit 2'
+  printf '%s\n' '    ;;'
   printf '%s\n' 'esac'
   printf '%s\n' 'exec "${AGENT_GUARD_TEST_REAL_JQ:?}" "$@"'
 } >"$FAIL_WHOLE_JQ"
 chmod +x "$FAIL_WHOLE_JQ"
+
+FAIL_STAGE_JQ_DIR="$TMP_ROOT/fail-stage-jq"
+FAIL_STAGE_JQ="$FAIL_STAGE_JQ_DIR/jq"
+mkdir -p "$FAIL_STAGE_JQ_DIR"
+{
+  printf '%s\n' '#!/bin/sh'
+  printf '%s\n' 'partial_fail() { printf "{\"partial\":"; exit 2; }'
+  printf '%s\n' 'case "${AGENT_GUARD_TEST_PARTIAL_STAGE:-}:$*" in'
+  printf '%s\n' '  extract:*".tool_response // empty"*) partial_fail ;;'
+  printf '%s\n' '  precise:*"def context_replace"*) partial_fail ;;'
+  printf '%s\n' '  strip:*"strip_binary_payloads") partial_fail ;;'
+  printf '%s\n' '  nul:*'\''contains("\u0000")'\''*) partial_fail ;;'
+  printf '%s\n' '  restore:*'\''.[0] as $orig'\''*) partial_fail ;;'
+  printf '%s\n' '  detector_leaf:*"join(\"\\n\") end"*) partial_fail ;;'
+  printf '%s\n' '  detector_frame:*"gsub(\"\\u001f\""*) partial_fail ;;'
+  printf '%s\n' '  detector_report:*".Secret // empty"*) partial_fail ;;'
+  printf '%s\n' '  detector_bundle:*"secrets: unique"*) partial_fail ;;'
+  printf '%s\n' '  bundle_classify_true:*"invalid secret bundle"*) printf "true"; exit 2 ;;'
+  printf '%s\n' '  bundle_extract_secrets:*"invalid secret bundle"*) printf "[]"; exit 2 ;;'
+  printf '%s\n' 'esac'
+  printf '%s\n' 'exec "${AGENT_GUARD_TEST_REAL_JQ:?}" "$@"'
+} >"$FAIL_STAGE_JQ"
+chmod +x "$FAIL_STAGE_JQ"
+
+partial_stage_input=$(jq -nc '
+  {tool_name:"Read",tool_input:{},
+   tool_response:{stdout:("PASS" + "WORD=" + "R7qM3vN9xK2pT8cL"),clean:"visible"}}
+')
+partial_stage_expected="$TESTTMP/partial-stage-expected"
+jq -nc '
+  {hookSpecificOutput:{hookEventName:"PostToolUse",
+    updatedToolOutput:{stdout:"[REDACTED]",clean:"[REDACTED]"}}}
+' >"$partial_stage_expected"
+for partial_stage in extract precise nul; do
+  printf '%s' "$partial_stage_input" \
+    | PATH="$FAIL_STAGE_JQ_DIR:$PATH" \
+      AGENT_GUARD_TEST_REAL_JQ="$REAL_JQ" \
+      AGENT_GUARD_TEST_PARTIAL_STAGE="$partial_stage" \
+      "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool >"$OUT" 2>"$ERR"
+  partial_stage_status=$?
+  if [ "$partial_stage_status" -eq 0 ] \
+     && cmp -s "$partial_stage_expected" "$OUT" \
+     && ! grep -q 'R7qM3vN9xK2pT8cL' "$OUT"; then
+    ok "post-tool discards partial $partial_stage transform output before conservative replacement"
+  else
+    not_ok "post-tool accepts partial $partial_stage transform output (status $partial_stage_status)"
+    cut -c1-400 "$OUT" | sed 's/^/  stdout: /'
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+done
+
+detector_partial_expected="$TESTTMP/detector-partial-expected"
+jq -nc '
+  {hookSpecificOutput:{hookEventName:"PostToolUse",
+    updatedToolOutput:{stdout:"[REDACTED]",clean:"[REDACTED]"}}}
+' >"$detector_partial_expected"
+detector_pat=$(printf '%s%s' 'github_pat_11AA22BB33CC' '44DD55EE66FF77GG88HH')
+detector_jwt=$(printf '%s%s' 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0' 'NTY3ODkwIn0.S4fN8qK2vM7xT3pL')
+detector_bearer=$(printf '%s%s' 'Authorization: Bearer R7qM3vN9xK2p' 'T8cL5sW4')
+for detector_value in "$detector_pat" "$detector_jwt" "$detector_bearer"; do
+  detector_partial_input=$(jq -nc --arg value "$detector_value" '
+    {tool_name:"Read",tool_input:{},tool_response:{stdout:$value,clean:"visible"}}
+  ')
+  printf '%s' "$detector_partial_input" \
+    | PATH="$FAIL_STAGE_JQ_DIR:$PATH" \
+      AGENT_GUARD_TEST_REAL_JQ="$REAL_JQ" \
+      AGENT_GUARD_TEST_PARTIAL_STAGE=detector_leaf \
+      "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool >"$OUT" 2>"$ERR"
+  detector_partial_status=$?
+  if [ "$detector_partial_status" -eq 0 ] \
+     && cmp -s "$detector_partial_expected" "$OUT" \
+     && ! grep -Fq "$detector_value" "$OUT"; then
+    ok "post-tool discards partial detector leaf extraction for a compact token"
+  else
+    not_ok "post-tool accepts partial detector leaf extraction (status $detector_partial_status)"
+    cut -c1-400 "$OUT" | sed 's/^/  stdout: /'
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+done
+
+detector_pat_input=$(jq -nc --arg value "$detector_pat" '
+  {tool_name:"Read",tool_input:{},tool_response:{stdout:$value,clean:"visible"}}
+')
+for detector_stage in detector_report detector_bundle; do
+  printf '%s' "$detector_pat_input" \
+    | PATH="$FAIL_STAGE_JQ_DIR:$PATH" \
+      AGENT_GUARD_TEST_REAL_JQ="$REAL_JQ" \
+      AGENT_GUARD_TEST_PARTIAL_STAGE="$detector_stage" \
+      "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool >"$OUT" 2>"$ERR"
+  detector_stage_status=$?
+  if [ "$detector_stage_status" -eq 0 ] \
+     && cmp -s "$detector_partial_expected" "$OUT" \
+     && ! grep -Fq "$detector_pat" "$OUT"; then
+    ok "post-tool discards partial $detector_stage output before conservative replacement"
+  else
+    not_ok "post-tool accepts partial $detector_stage output (status $detector_stage_status)"
+    cut -c1-400 "$OUT" | sed 's/^/  stdout: /'
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+done
+
+detector_env_value=$(printf '%s%s' 'PASS' 'WORD=smallopaquevalue')
+detector_env_input=$(jq -nc --arg value "$detector_env_value" '
+  {tool_name:"Read",tool_input:{},tool_response:{stdout:$value,clean:"visible"}}
+')
+printf '%s' "$detector_env_input" \
+  | PATH="$FAIL_STAGE_JQ_DIR:$PATH" \
+    AGENT_GUARD_TEST_REAL_JQ="$REAL_JQ" \
+    AGENT_GUARD_TEST_PARTIAL_STAGE=detector_frame \
+    "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool >"$OUT" 2>"$ERR"
+detector_env_status=$?
+if [ "$detector_env_status" -eq 0 ] \
+   && cmp -s "$detector_partial_expected" "$OUT" \
+   && ! grep -Fq 'smallopaquevalue' "$OUT"; then
+  ok "post-tool discards partial env framing before conservative replacement"
+else
+  not_ok "post-tool accepts partial env framing (status $detector_env_status)"
+  cut -c1-400 "$OUT" | sed 's/^/  stdout: /'
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+bundle_whole_input=$(jq -nc '
+  {tool_name:"Read",tool_input:{},
+   tool_response:[range(0; 300) | "Bearer compact-token-\(.)-abcdefgh"]}
+')
+bundle_whole_expected="$TESTTMP/bundle-whole-expected"
+jq -nc '
+  {hookSpecificOutput:{hookEventName:"PostToolUse",
+    updatedToolOutput:[range(0; 300) | "[REDACTED]"]}}
+' >"$bundle_whole_expected"
+printf '%s' "$bundle_whole_input" \
+  | "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool >"$OUT" 2>"$ERR"
+bundle_whole_control_status=$?
+if [ "$bundle_whole_control_status" -eq 0 ] \
+   && cmp -s "$bundle_whole_expected" "$OUT"; then
+  ok "post-tool classifies a complete whole-leaf bundle"
+else
+  not_ok "post-tool misclassifies a complete whole-leaf bundle (status $bundle_whole_control_status)"
+  cut -c1-400 "$OUT" | sed 's/^/  stdout: /'
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+printf '%s' "$bundle_whole_input" \
+  | PATH="$FAIL_STAGE_JQ_DIR:$PATH" \
+    AGENT_GUARD_TEST_REAL_JQ="$REAL_JQ" \
+    AGENT_GUARD_TEST_PARTIAL_STAGE=bundle_classify_true \
+    "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool >"$OUT" 2>"$ERR"
+bundle_whole_partial_status=$?
+if [ "$bundle_whole_partial_status" -eq 0 ] \
+   && cmp -s "$bundle_whole_expected" "$OUT" \
+   && [ "$(jq -s 'length' "$OUT" 2>/dev/null)" = 1 ] \
+   && ! grep -Fq 'compact-token-' "$OUT"; then
+  ok "post-tool discards partial whole-leaf bundle classification"
+else
+  not_ok "post-tool accepts partial whole-leaf bundle classification (status $bundle_whole_partial_status)"
+  cut -c1-400 "$OUT" | sed 's/^/  stdout: /'
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+bundle_secrets_value=$(printf '%s%s' 'PASS' 'WORD=smallopaquevalue')
+bundle_secrets_input=$(jq -nc --arg value "prefix $bundle_secrets_value suffix" '
+  {tool_name:"Read",tool_input:{},tool_response:{stdout:$value,clean:"visible"}}
+')
+bundle_secrets_expected="$TESTTMP/bundle-secrets-expected"
+jq -nc '
+  {hookSpecificOutput:{hookEventName:"PostToolUse",
+    updatedToolOutput:{stdout:"prefix PASSWORD=[REDACTED] suffix",clean:"visible"}}}
+' >"$bundle_secrets_expected"
+printf '%s' "$bundle_secrets_input" \
+  | "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool >"$OUT" 2>"$ERR"
+bundle_secrets_status=$?
+if [ "$bundle_secrets_status" -eq 0 ] \
+   && cmp -s "$bundle_secrets_expected" "$OUT"; then
+  ok "post-tool classifies and applies a complete secrets bundle"
+else
+  not_ok "post-tool misclassifies a complete secrets bundle (status $bundle_secrets_status)"
+  cut -c1-400 "$OUT" | sed 's/^/  stdout: /'
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+exec_bundle_value=$(printf '%s%s' 'PASS' 'WORD=smallopaquevalue')
+PATH="$FAIL_STAGE_JQ_DIR:$PATH" \
+  AGENT_GUARD_TEST_REAL_JQ="$REAL_JQ" \
+  AGENT_GUARD_TEST_PARTIAL_STAGE=bundle_extract_secrets \
+  "$PLUGIN_ROOT/bin/agent-guard" exec -- \
+    sh -c 'printf "%s\n" "$1"' sh "$exec_bundle_value" >"$OUT" 2>"$ERR"
+exec_bundle_partial_status=$?
+if [ "$exec_bundle_partial_status" -eq 0 ] \
+   && [ "$(cat "$OUT")" = '[REDACTED]' ] \
+   && ! grep -Fq 'smallopaquevalue' "$OUT"; then
+  ok "exec discards partial secrets extraction and masks the complete output"
+else
+  not_ok "exec accepts partial secrets extraction (status $exec_bundle_partial_status)"
+  sed 's/^/  stdout: /' "$OUT"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+"$PLUGIN_ROOT/bin/agent-guard" exec -- \
+  sh -c 'printf "%s\n" "$1"' sh "$exec_bundle_value" >"$OUT" 2>"$ERR"
+exec_bundle_control_status=$?
+if [ "$exec_bundle_control_status" -eq 0 ] \
+   && [ "$(cat "$OUT")" = 'PASSWORD=[REDACTED]' ]; then
+  ok "exec classifies and applies a complete secrets bundle"
+else
+  not_ok "exec misclassifies a complete secrets bundle (status $exec_bundle_control_status)"
+  sed 's/^/  stdout: /' "$OUT"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+partial_strip_binary=$(printf '%s%s' 'R7qM3vN9xK2p' 'T8cL5sW4')
+partial_strip_input=$(jq -nc --arg binary "$partial_strip_binary" '
+  {tool_name:"Read",tool_input:{file_path:"image.png"},
+   tool_response:{content:[
+     {type:"image",source:{type:"base64",media_type:"image/png",data:$binary}},
+     {type:"text",text:("PASS" + "WORD=" + "S4fN8qK2vM7xT3pL")}]}}
+')
+partial_strip_expected="$TESTTMP/partial-strip-expected"
+jq -nc '
+  {hookSpecificOutput:{hookEventName:"PostToolUse",
+    updatedToolOutput:{content:[
+      {type:"image",source:{type:"base64",media_type:"image/png",data:"[REDACTED]"}},
+      {type:"text",text:"[REDACTED]"}]}}}
+' >"$partial_strip_expected"
+printf '%s' "$partial_strip_input" \
+  | PATH="$FAIL_STAGE_JQ_DIR:$PATH" \
+    AGENT_GUARD_TEST_REAL_JQ="$REAL_JQ" \
+    AGENT_GUARD_TEST_PARTIAL_STAGE=strip \
+    "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool >"$OUT" 2>"$ERR"
+partial_strip_status=$?
+if [ "$partial_strip_status" -eq 0 ] \
+   && cmp -s "$partial_strip_expected" "$OUT" \
+   && ! grep -Fq "$partial_strip_binary" "$OUT"; then
+  ok "post-tool discards partial binary-strip output and masks the original native shape"
+else
+  not_ok "post-tool accepts partial binary-strip output (status $partial_strip_status)"
+  cut -c1-400 "$OUT" | sed 's/^/  stdout: /'
+  sed 's/^/  stderr: /' "$ERR"
+fi
 
 printf '%s' "$large_gitleaks_input" \
   | (cd "$TMP_ROOT" \
@@ -9940,14 +10670,81 @@ printf '%s' "$large_gitleaks_input" \
 failed_whole_claude_status=$?
 failed_whole_claude_out=$(cat "$OUT")
 if [ "$failed_whole_claude_status" -eq 0 ] \
+   && [ "$(printf '%s' "$failed_whole_claude_out" | jq -s 'length' 2>/dev/null)" = 1 ] \
    && printf '%s' "$failed_whole_claude_out" \
-        | jq -e '.hookSpecificOutput.updatedToolOutput == "[REDACTED]"' \
-          >/dev/null 2>&1 \
-   && ! printf '%s' "$failed_whole_claude_out" | grep -q 'opaque-material-'; then
-  ok "post-tool fail-closes a failed whole-leaf rewrite for Claude"
+        | jq -e '.hookSpecificOutput.updatedToolOutput == "[REDACTED]"' >/dev/null 2>&1; then
+  ok "post-tool uses the portable whole-leaf fallback for Claude"
 else
-  not_ok "post-tool leaks over-cap output when the Claude whole-leaf rewrite fails"
+  not_ok "post-tool emits an invalid Claude fallback when the primary whole-leaf rewrite fails"
   printf '%s\n' "$failed_whole_claude_out" | sed 's/^/  out: /'
+  sed 's/^/  err: /' "$ERR"
+fi
+
+partial_primary_expected="$TESTTMP/partial-primary-expected"
+printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PostToolUse","updatedToolOutput":"[REDACTED]"}}' \
+  >"$partial_primary_expected"
+printf '%s' "$large_gitleaks_input" \
+  | (cd "$TMP_ROOT" \
+      && PATH="$FAIL_WHOLE_JQ_DIR:$PATH" \
+         AGENT_GUARD_TEST_REAL_JQ="$REAL_JQ" \
+         AGENT_GUARD_TEST_PARTIAL_PRIMARY=1 \
+         "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool) >"$OUT" 2>"$ERR"
+partial_primary_status=$?
+if [ "$partial_primary_status" -eq 0 ] \
+   && cmp -s "$partial_primary_expected" "$OUT"; then
+  ok "whole-leaf rewrite discards partial primary jq output before the awk fallback"
+else
+  not_ok "whole-leaf rewrite accepts partial primary jq output (status $partial_primary_status)"
+  cut -c1-400 "$OUT" | sed 's/^/  stdout: /'
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+FAIL_FALLBACK_CAT_DIR="$TMP_ROOT/fail-fallback-cat"
+FAIL_FALLBACK_CAT="$FAIL_FALLBACK_CAT_DIR/cat"
+mkdir -p "$FAIL_FALLBACK_CAT_DIR"
+{
+  printf '%s\n' '#!/bin/sh'
+  printf '%s\n' 'if [ "$#" -eq 1 ]; then'
+  printf '%s\n' '  case "$1" in */agent-guard.*) printf "{\"partial\":"; exit 2 ;; esac'
+  printf '%s\n' 'fi'
+  printf '%s\n' 'exec "${AGENT_GUARD_TEST_REAL_CAT:?}" "$@"'
+} >"$FAIL_FALLBACK_CAT"
+chmod +x "$FAIL_FALLBACK_CAT"
+printf '%s' "$large_gitleaks_input" \
+  | (cd "$TMP_ROOT" \
+      && PATH="$FAIL_FALLBACK_CAT_DIR:$FAIL_WHOLE_JQ_DIR:$PATH" \
+         AGENT_GUARD_TEST_REAL_CAT="$REAL_CAT" \
+         AGENT_GUARD_TEST_REAL_JQ="$REAL_JQ" \
+         AGENT_GUARD_TEST_PARTIAL_PRIMARY=1 \
+         "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool) >"$OUT" 2>"$ERR"
+partial_fallback_status=$?
+if [ "$partial_fallback_status" -eq 0 ] \
+   && cmp -s "$partial_primary_expected" "$OUT"; then
+  ok "whole-leaf rewrite discards a partial nonzero fallback and emits one fixed response"
+else
+  not_ok "whole-leaf rewrite exposes partial nonzero fallback output (status $partial_fallback_status)"
+  cut -c1-400 "$OUT" | sed 's/^/  stdout: /'
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+partial_codex_expected="$TESTTMP/partial-codex-expected"
+printf '%s\n' '{"decision":"block","reason":"Agent Guard blocked the original tool output because a sanitized replacement could not be serialized.","hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"Agent Guard blocked a sensitive tool output; the sanitized replacement could not be serialized safely."}}' \
+  >"$partial_codex_expected"
+printf '%s' "$large_gitleaks_input" \
+  | (cd "$TMP_ROOT" \
+      && PATH="$FAIL_WHOLE_JQ_DIR:$PATH" \
+         AGENT_GUARD_TEST_REAL_JQ="$REAL_JQ" \
+         AGENT_GUARD_TEST_PARTIAL_ENVELOPE=1 \
+         AGENT_GUARD_HOOK_HOST=codex \
+         "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool) >"$OUT" 2>"$ERR"
+partial_codex_status=$?
+if [ "$partial_codex_status" -eq 0 ] \
+   && cmp -s "$partial_codex_expected" "$OUT"; then
+  ok "Codex envelope serialization discards partial jq output before its fixed response"
+else
+  not_ok "Codex envelope serialization concatenates partial and fixed responses (status $partial_codex_status)"
+  cut -c1-400 "$OUT" | sed 's/^/  stdout: /'
+  sed 's/^/  stderr: /' "$ERR"
 fi
 
 printf '%s' "$large_gitleaks_input" \
@@ -9959,15 +10756,163 @@ printf '%s' "$large_gitleaks_input" \
 failed_whole_codex_status=$?
 failed_whole_codex_out=$(cat "$OUT")
 if [ "$failed_whole_codex_status" -eq 0 ] \
+   && [ "$(printf '%s' "$failed_whole_codex_out" | jq -s 'length' 2>/dev/null)" = 1 ] \
    && printf '%s' "$failed_whole_codex_out" \
         | jq -e '.decision == "block"
-                 and (.hookSpecificOutput.additionalContext
-                      | contains("[REDACTED]"))' >/dev/null 2>&1 \
-   && ! printf '%s' "$failed_whole_codex_out" | grep -q 'opaque-material-'; then
-  ok "post-tool fail-closes a failed whole-leaf rewrite for Codex"
+                 and (.hookSpecificOutput.additionalContext | contains("\"[REDACTED]\""))' >/dev/null 2>&1; then
+  ok "post-tool uses the portable whole-leaf fallback for Codex"
 else
-  not_ok "post-tool leaks over-cap output when the Codex whole-leaf rewrite fails"
+  not_ok "post-tool emits an invalid Codex fallback when the primary whole-leaf rewrite fails"
   printf '%s\n' "$failed_whole_codex_out" | sed 's/^/  out: /'
+  sed 's/^/  err: /' "$ERR"
+fi
+
+fallback_native_input=$(jq -nc '
+  {tool_name:"Bash",tool_input:{command:"fixture"},
+   tool_response:{type:"text",foreign_type:"image",arbitrary_type:"opaque",
+                  stdout:("PASSWORD=" + "S7vQ2mN9xK4pT8cL" + ("z" * 270000)),
+                  stderr:"",interrupted:false,isImage:false,count:7,nothing:null,
+                  nested:[{media_type:"text/plain",value:"visible"},true,3.5]}}
+')
+printf '%s' "$fallback_native_input" \
+  | (cd "$TMP_ROOT" \
+      && PATH="$FAIL_WHOLE_JQ_DIR:$PATH" \
+         AGENT_GUARD_TEST_REAL_JQ="$REAL_JQ" \
+         "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool) >"$OUT" 2>"$ERR"
+fallback_native_status=$?
+if [ "$fallback_native_status" -eq 0 ] \
+   && [ "$(jq -s 'length' <"$OUT" 2>/dev/null)" = 1 ] \
+   && jq -e '
+        .hookSpecificOutput.updatedToolOutput as $out
+        | $out.type == "text"
+          and $out.foreign_type == "[REDACTED]"
+          and $out.arbitrary_type == "[REDACTED]"
+          and $out.stdout == "[REDACTED]"
+          and $out.stderr == ""
+          and $out.interrupted == false
+          and $out.isImage == false
+          and $out.count == 0
+          and $out.nothing == null
+          and $out.nested == [{media_type:"text/plain",value:"[REDACTED]"},false,0]
+      ' "$OUT" >/dev/null 2>&1 \
+   && ! grep -q 'S7vQ2mN9xK4pT8cL' "$OUT"; then
+  ok "portable whole-leaf fallback preserves native nested shape and only allowlisted discriminators"
+else
+  not_ok "portable whole-leaf fallback changes native nested shape or leaks a value (status $fallback_native_status)"
+  sed 's/^/  stdout: /' "$OUT"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+fallback_escaped_response="$TESTTMP/fallback-escaped-response.json"
+{
+  printf '%s%s%s' '{"t\u0079pe":"im\u0061ge","media\u005ftype":"text\/plain","nested":{"type":"opaque","value":"' 'PASS' 'WORD=S3cQ8vN2mK7pL5xT'
+  awk 'BEGIN { for (i = 0; i < 270000; i++) printf "z" }'
+  printf '%s' '"}}'
+} >"$fallback_escaped_response"
+printf '%s' '{"tool_name":"Read","tool_input":{},"tool_response":[]}' \
+  | (cd "$TMP_ROOT" \
+      && PATH="$FAIL_WHOLE_JQ_DIR:$PATH" \
+         AGENT_GUARD_TEST_REAL_JQ="$REAL_JQ" \
+         AGENT_GUARD_TEST_RESPONSE_FILE="$fallback_escaped_response" \
+         "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool) >"$OUT" 2>"$ERR"
+fallback_escaped_status=$?
+if [ "$fallback_escaped_status" -eq 0 ] \
+   && [ "$(jq -s 'length' <"$OUT" 2>/dev/null)" = 1 ] \
+   && grep -Fq '"t\u0079pe":"im\u0061ge"' "$OUT" \
+   && grep -Fq '"media\u005ftype":"text\/plain"' "$OUT" \
+   && jq -e '
+        .hookSpecificOutput.updatedToolOutput
+        == {type:"image",media_type:"text/plain",
+            nested:{type:"[REDACTED]",value:"[REDACTED]"}}
+      ' "$OUT" >/dev/null 2>&1 \
+   && ! grep -q 'S3cQ8vN2mK7pL5xT' "$OUT"; then
+  ok "portable whole-leaf fallback decodes escaped discriminator semantics while preserving key lexemes"
+else
+  not_ok "portable whole-leaf fallback mishandles escaped discriminator semantics (status $fallback_escaped_status)"
+  cut -c1-400 "$OUT" | sed 's/^/  stdout: /'
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+fallback_binary_value=$(printf '%s%s' 'R7qM3vN9xK2p' 'T8cL5sW4')
+fallback_binary_input=$(jq -nc --arg binary "$fallback_binary_value" '
+  {tool_name:"Read",tool_input:{file_path:"image.png"},
+   tool_response:{content:[
+     {type:"image",source:{type:"base64",media_type:"image/png",data:$binary}},
+     {type:"text",text:("PASS" + "WORD=" + "S4fN8qK2vM7xT3pL" + ("z" * 270000))}]}}
+')
+printf '%s' "$fallback_binary_input" \
+  | (cd "$TMP_ROOT" \
+      && PATH="$FAIL_WHOLE_JQ_DIR:$PATH" \
+         AGENT_GUARD_TEST_REAL_JQ="$REAL_JQ" \
+         "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool) >"$OUT" 2>"$ERR"
+fallback_binary_status=$?
+if [ "$fallback_binary_status" -eq 0 ] \
+   && jq -e --arg binary "$fallback_binary_value" '
+        .hookSpecificOutput.updatedToolOutput.content
+        == [{type:"image",source:{type:"base64",media_type:"image/png",data:$binary}},
+            {type:"text",text:"[REDACTED]"}]
+      ' "$OUT" >/dev/null 2>&1; then
+  ok "portable whole-leaf fallback restores a stripped binary payload exactly"
+else
+  not_ok "portable whole-leaf fallback fails to restore a stripped binary payload (status $fallback_binary_status)"
+  cut -c1-400 "$OUT" | sed 's/^/  stdout: /'
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+printf '%s' "$fallback_binary_input" \
+  | (cd "$TMP_ROOT" \
+      && PATH="$FAIL_WHOLE_JQ_DIR:$PATH" \
+         AGENT_GUARD_TEST_REAL_JQ="$REAL_JQ" \
+         AGENT_GUARD_TEST_FAIL_RESTORE=1 \
+         "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool) >"$OUT" 2>"$ERR"
+fallback_restore_failure_status=$?
+if [ "$fallback_restore_failure_status" -eq 0 ] \
+   && jq -e '
+        .hookSpecificOutput.updatedToolOutput.content
+        == [{type:"image",source:{type:"base64",media_type:"image/png",data:""}},
+            {type:"text",text:"[REDACTED]"}]
+      ' "$OUT" >/dev/null 2>&1 \
+   && ! grep -Fq "$fallback_binary_value" "$OUT"; then
+  ok "binary restore failure keeps the stripped payload instead of guessing raw bytes"
+else
+  not_ok "binary restore failure reintroduces or corrupts the stripped payload (status $fallback_restore_failure_status)"
+  cut -c1-400 "$OUT" | sed 's/^/  stdout: /'
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+fallback_numeric_response="$TESTTMP/fallback-numeric-response.json"
+awk 'BEGIN {
+  printf "["
+  for (i = 0; i < 480000; i++) {
+    if (i) printf ","
+    printf "9876543210123456,true"
+  }
+  printf "]"
+}' >"$fallback_numeric_response"
+fallback_numeric_started=$(date +%s)
+printf '%s' '{"tool_name":"Read","tool_input":{},"tool_response":[]}' \
+  | (cd "$TMP_ROOT" \
+      && PATH="$FAIL_WHOLE_JQ_DIR:$PATH" \
+         AGENT_GUARD_TEST_REAL_JQ="$REAL_JQ" \
+         AGENT_GUARD_TEST_RESPONSE_FILE="$fallback_numeric_response" \
+         "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool) >"$OUT" 2>"$ERR"
+fallback_numeric_status=$?
+fallback_numeric_elapsed=$(( $(date +%s) - fallback_numeric_started ))
+if [ "$fallback_numeric_status" -eq 0 ] \
+   && [ "$fallback_numeric_elapsed" -lt 20 ] \
+   && [ "$(jq -s 'length' <"$OUT" 2>/dev/null)" = 1 ] \
+   && jq -e '
+        .hookSpecificOutput.updatedToolOutput as $out
+        | ($out | length) == 960000
+          and $out[0] == 0 and $out[1] == false
+          and $out[959998] == 0 and $out[959999] == false
+      ' "$OUT" >/dev/null 2>&1 \
+   && ! grep -Fq '9876543210123456' "$OUT"; then
+  ok "portable whole-leaf fallback neutralizes an over-cap numeric/boolean response within the hook timeout"
+else
+  not_ok "portable whole-leaf fallback mishandles an over-cap numeric/boolean response (status $fallback_numeric_status, ${fallback_numeric_elapsed}s)"
+  cut -c1-400 "$OUT" | sed 's/^/  stdout: /'
+  sed 's/^/  stderr: /' "$ERR"
 fi
 
 # The large-response assignment probe consumes framed leaves. A sanitized value
