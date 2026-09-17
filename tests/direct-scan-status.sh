@@ -21,7 +21,12 @@ for dep in sh dirname pwd readlink awk; do
   ln -s "$dep_path" "$CASE_ROOT/no-git/$dep"
 done
 
-printf '#!/bin/sh\nexit 42\n' >"$CASE_ROOT/scanner-crash"
+printf '%s\n' \
+  '#!/bin/sh' \
+  'case "${1:-}" in' \
+  '  version) printf "%s\\n" "8.30.1"; exit 0 ;;' \
+  '  *) exit 42 ;;' \
+  'esac' >"$CASE_ROOT/scanner-crash"
 chmod +x "$CASE_ROOT/scanner-crash"
 cd "$CASE_ROOT/repo" || exit 1
 

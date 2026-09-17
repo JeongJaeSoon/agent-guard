@@ -3,6 +3,11 @@
 Use separate evidence for dependencies, deterministic behavior, and live host
 dispatch. A passing earlier layer does not prove a later one.
 
+출력 마스킹의 정확한 matcher, host별 replacement 계약, session/compaction/timeout
+경계는 [도구 출력 마스킹의 범위와 검증 경계](output-masking-boundaries.md)에
+정리되어 있습니다. 플러그인 업데이트나 trust 변경 뒤에는 이 문서의 live probe를
+정확한 route마다 다시 실행하세요.
+
 | Evidence | Command or action | What it establishes | What it does not establish |
 | --- | --- | --- | --- |
 | Dependency check | `agent-guard check` or `agent-guard doctor` | Required local commands and policy files are available | That a host dispatches hooks |
@@ -22,13 +27,48 @@ dispatch. A passing earlier layer does not prove a later one.
 
    The guard should block it before the sentinel appears.
 
-4. Run the post-tool probe that the setup skill performs through that route. It
-   emits a synthetic raw test token. Confirm that the model receives a sanitized
-   replacement containing `[REDACTED]`, not the raw token. Do not substitute a
-   literal `[REDACTED]` string; that would not test redaction or dispatch.
+4. Run the post-tool probe through that same route. The command reads the
+   sentinel out of the binary under test, so it is self-contained and this file
+   carries no second copy of the sentinel to fall out of step:
+
+   ```sh
+   GUARD=$(command -v agent-guard)   # or the plugin-local bin/agent-guard path
+   printf '%s\n' "$(sed -n 's/^LIVE_POST_TOOL_PROBE=//p' "$GUARD" | head -1)"
+   ```
+
+   The raw sentinel must not reach the model. Expect a replacement that keeps
+   `[REDACTED]` and, while local diagnostic logging is on, names the hook
+   invocation that produced it:
+
+   ```text
+   [REDACTED] agent-guard live probe run_id=<run id>
+   ```
+
+   Never type a literal `[REDACTED]` into the command. That tests neither
+   redaction nor dispatch.
+
+5. Look the reported run id up in the diagnostic log yourself, in a terminal:
+
+   ```sh
+   agent-guard logs export \
+     | jq -c 'select(.run_id == "<run id>" and .command == "hook-post-tool")'
+   ```
+
+   A `finished` record with `"outcome":"masked"` shows that this install rewrote
+   the sentinel at that moment. It is the only part of the probe that does not
+   rest on what the agent reported, so treat a run id that resolves to no record
+   as a failed probe. The log is metadata only and names no tool, so the record
+   establishes the PostToolUse rewrite, not which tool route carried it; read it
+   together with the route you actually ran. Under `AGENT_GUARD_LOG_MODE=off`
+   there is no record to cite and the replacement stays the bare `[REDACTED]`.
 
 The sentinels contain no credentials. They test dispatch only; `smoke-test`
 tests deterministic policy behavior separately.
+
+Reading a file that contains a sentinel is itself a tool call the guard covers,
+so the setup skill's own probe line comes back already replaced. That is the
+hook working, not a placeholder committed to the repository. Compare the line's
+byte length with the placeholder's if you need to confirm it.
 
 ## Read results correctly
 
@@ -37,7 +77,14 @@ tests deterministic policy behavior separately.
   dependency or choose the documented infrastructure policy.
 - `open` infrastructure mode continues after a visible one-time warning;
   `closed` blocks. This policy applies to infrastructure failures, while a
-  secret detection blocks.
+  secret detection blocks. Non-empty malformed or non-object PreToolUse and
+  Stop input blocks independently of infrastructure mode. PostToolUse first
+  recovers a valid host envelope with its independent parser and emits a
+  conservative replacement; exit status 2 for a non-empty malformed or
+  non-object PostToolUse envelope is a visible diagnostic and cannot retract
+  the completed tool result. Empty stdin is the documented exception:
+  PreToolUse, PostToolUse, and Stop return status 0 with no response. Every
+  rejected event is reported.
 - A host that kills a hook at its timeout can prevent that hook from deciding.
   Keep Git and CI backstops enabled.
 

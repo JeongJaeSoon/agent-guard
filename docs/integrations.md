@@ -4,6 +4,11 @@ Agent Guard keeps policy and scanning in its portable CLI. Host adapters pass
 their native event to that CLI; they do not implement a second policy engine.
 Use more than one layer for important repositories.
 
+도구별 matcher, Claude/Codex의 서로 다른 출력 교체 계약, failed route와
+session/timeout 경계는 [도구 출력 마스킹의 범위와 검증 경계](output-masking-boundaries.md)를
+기준으로 판단하세요. 저장소 matcher가 존재한다는 사실은 현재 설치본의 dispatch나
+host acceptance를 증명하지 않습니다.
+
 ## Claude Code
 
 The plugin hooks inspect supported reads, writes, shell commands, web/MCP input,
@@ -105,6 +110,11 @@ individual path cannot contain spaces.
 - Bash and MCP mutations may lack a usable named target. Their working-tree
   backstop remains useful but cannot discover every ignored or
   outside-repository write.
+- When one mutation produces both a working-tree finding and sensitive tool
+  output, the PostToolUse hook reserves its single stdout JSON value for the
+  host-valid sanitized output. It reports the disk finding on stderr and marks
+  the audit outcome `blocked`. A disk finding with no output rewrite still exits
+  with status 2.
 - Shell blocking is pattern-based. It can block benign path-shaped text and an
   actively evasive command can avoid a fixed pattern list.
 - A user-typed host shell escape is outside the tool-hook boundary. Do not print

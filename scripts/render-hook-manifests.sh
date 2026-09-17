@@ -23,7 +23,10 @@ CLAUDE_EXAMPLE="$ROOT/examples/claude/settings.project.json"
 CODEX_PRE_MATCHER='Bash|apply_patch|Agent|Task|mcp__.*'
 CODEX_POST_MATCHER='Bash|apply_patch|Agent|Task|mcp__.*'
 CLAUDE_PRE_MATCHER='Write|Edit|MultiEdit|NotebookEdit|Read|NotebookRead|Grep|Glob|Bash|WebFetch|WebSearch|apply_patch|Agent|Task|mcp__.*'
-CLAUDE_POST_MATCHER='Write|Edit|MultiEdit|NotebookEdit|Bash|apply_patch|Read|NotebookRead|Grep|Glob|WebFetch|WebSearch|Agent|Task|mcp__.*'
+# Anchors keep Claude in JavaScript-regex mode while restricting coverage to
+# exact built-in names plus the MCP namespace. Every relied-on built-in is
+# explicit; no tool is covered only because its name contains a listed token.
+CLAUDE_POST_MATCHER='^(Write|Edit|MultiEdit|NotebookEdit|Bash|PowerShell|apply_patch|Read|NotebookRead|Grep|Glob|WebFetch|WebSearch|Agent|Task|Skill|Monitor|LSP|ListMcpResourcesTool|ReadMcpResourceTool|mcp__.*)$'
 
 # Plugin command: the host exports a versioned plugin-cache root, so the hook has
 # to resolve a complete, executable payload itself before dispatching.
