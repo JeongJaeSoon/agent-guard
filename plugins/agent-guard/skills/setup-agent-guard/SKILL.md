@@ -29,7 +29,14 @@ Make Agent Guard operational without silently changing the machine. Diagnose fir
 
 3. If `jq` is missing, identify the available system package manager and show the exact install command. Ask for explicit user approval before running it. Do not use `sudo` unless the user explicitly approves elevated installation.
 
-4. If `gitleaks` is missing, prefer Agent Guard's private, checksum-pinned installer:
+4. `setup`이 gitleaks 자체의 누락이 아니라 `gitleaks version isolation requires
+   setsid or perl`을 보고하면 gitleaks를 다시 설치하지 마세요. Linux에서는
+   `setsid`를 제공하는 `util-linux`를, Homebrew 환경에서는 Perl을 설치하는
+   정확한 명령을 보여 주고 실행 전 명시적 승인을 받으세요. `setup --install`도
+   이 보조 도구를 자동 설치하지 않으며, 보조 도구가 없으면 gitleaks 다운로드
+   전에 중단하고 복구 전까지 nonzero 상태를 유지합니다.
+
+5. If `gitleaks` is missing, prefer Agent Guard's private, checksum-pinned installer:
    - Determine the target OS and architecture.
    - Fetch the official checksum list for the version reported by `agent-guard setup`.
    - Select the checksum for the exact archive name and show the version, archive, source URL, checksum, and destination.
@@ -44,7 +51,7 @@ Make Agent Guard operational without silently changing the machine. Diagnose fir
 
    Never substitute an unverified checksum and never bypass TLS verification.
 
-5. If an approved dependency installation is blocked by the host sandbox:
+6. If an approved dependency installation is blocked by the host sandbox:
    - Relay the exact error. Do not retry the same blocked write, change the
      install destination, or bypass the sandbox silently.
    - Show the exact command for the user to run in a separate terminal. For the
@@ -54,7 +61,7 @@ Make Agent Guard operational without silently changing the machine. Diagnose fir
      `"<agent-guard-bin>" setup` diagnosis, and continue only when the dependency
      reports `ok`.
 
-6. Verify the plugin-local installation:
+7. Verify the plugin-local installation:
 
    ```sh
    "<agent-guard-bin>" check
@@ -63,13 +70,13 @@ Make Agent Guard operational without silently changing the machine. Diagnose fir
 
    Treat `check` as dependency/config validation and `smoke-test` as proof of the binary's own behavior. They do not prove that the host is dispatching plugin hooks.
 
-7. Identify the active host and verify its plugin boundary before claiming that protection is active.
+8. Identify the active host and verify its plugin boundary before claiming that protection is active.
    - In Codex, confirm that the Agent Guard plugin is installed and enabled. In **Settings > Hooks**, inspect Agent Guard's `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, and `Stop` hooks. Every hook must be enabled and trusted. Treat `Untrusted` and `Modified` as inactive; an updated hook must be reviewed and trusted again.
    - In Codex, do not edit `hooks.state` or copy trust hashes into `config.toml`. Hook trust is a user security decision and must go through the Codex trust UI. If `SessionStart` itself is untrusted, explain that it cannot emit the setup warning or invoke this skill automatically.
    - In Claude Code, confirm that the Agent Guard plugin is installed and enabled, then reload plugins after an install or update. Do not direct Claude Code users to Codex **Settings > Hooks**; Claude Code does not use that trust workflow. `/agent-guard:verify` can check the working tree, but it does not prove live hook dispatch.
    - If the active host is unclear, infer it from the current product and invocation (`$setup-agent-guard` in Codex or `/agent-guard:setup-agent-guard` in Claude Code). Do not apply one host's setup steps to the other.
 
-8. Run live host probes through the normal command tool selected by the active host for the current task. Do not read a real sensitive file.
+9. Run live host probes through the normal command tool selected by the active host for the current task. Do not read a real sensitive file.
    - Pre-tool probe:
 
      ```sh
@@ -89,9 +96,9 @@ Make Agent Guard operational without silently changing the machine. Diagnose fir
    - In Claude Code, run the probes through the normal `Bash` tool so the plugin's `PreToolUse` and `PostToolUse` hooks are exercised.
    - If either probe bypasses the hook, report that route as unsupported in the current host instead of claiming successful setup.
 
-9. After dependency, enablement, or trust changes, restart the active host and run both live probes again in a new task. In Codex, plugin hooks provide the supported command boundary; do not configure Claude-specific command wrapping as a Codex setup step. In Claude Code, restart the shell and Claude Code only when the optional shell integration changed.
+10. After dependency, enablement, or trust changes, restart the active host and run both live probes again in a new task. In Codex, plugin hooks provide the supported command boundary; do not configure Claude-specific command wrapping as a Codex setup step. In Claude Code, restart the shell and Claude Code only when the optional shell integration changed.
 
-10. Classify each exact host route from the visible host result and Agent Guard
+11. Classify each exact host route from the visible host result and Agent Guard
     hook output. Do not invent a CLI subcommand, collect settings or traces, or
     ask the CLI to attest who made a host decision.
     - **Host pre-hook denial:** classify this only when the host itself identifies

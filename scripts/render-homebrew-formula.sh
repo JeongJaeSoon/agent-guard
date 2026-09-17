@@ -22,6 +22,7 @@ class AgentGuard < Formula
   depends_on "git"
   depends_on "gitleaks"
   depends_on "jq"
+  depends_on "perl"
 
   def install
     libexec.install Dir["*"]
