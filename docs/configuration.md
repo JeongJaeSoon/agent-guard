@@ -50,11 +50,14 @@ deduplicated with degraded-infrastructure notices.
 - Base64 image and PDF blocks (`media_type` of `image/png`, `image/jpeg`,
   `image/gif`, `image/webp` or `application/pdf`, in the Anthropic `source`
   shape, MCP's native `data`/`mimeType` shape or Claude Code's `Read` `file`
-  shape) are not inspected: the
-  scanner cannot read pixels, and the host forwards the payload as bytes. Their
-  payload is excluded from the size cap and passed through unchanged; text
-  siblings in the same result are still scanned and masked. A base64 block of
-  a text media type (`text/plain`, `image/svg+xml`) is treated as text.
+  shape) are not inspected: the scanner cannot read pixels. Their payload is
+  excluded from the size cap while text siblings in the same result are still
+  scanned and masked. A normal rewrite restores the original binary bytes
+  unchanged after scanning. If the final restore serializer fails, Agent Guard
+  instead emits the stripped block with an empty `data`/`base64` payload; this
+  is secret-safe but lossy and does not re-enter the whole-leaf or fixed-string
+  fallback. A base64 block of a text media type (`text/plain`, `image/svg+xml`)
+  is treated as text. See [output masking boundaries](output-masking-boundaries.md).
 - `AGENT_GUARD_PROMPT_GUARD_MODE=block` is the default. `warn` passes a prompt
   with a notice and `off` disables secret prompt scanning. Hosts currently do
   not provide safe prompt rewriting, so `mask` degrades to block.

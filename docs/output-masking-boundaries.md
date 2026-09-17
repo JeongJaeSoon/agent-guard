@@ -19,6 +19,30 @@
 
 ## 현재 도달 범위
 
+### 빠른 route 판별표
+
+아래 표의 “적용 후보”는 matcher와 저장소 구현이 해당 event를 처리하도록
+구성되었다는 뜻이다. `AGENT_GUARD_OUTPUT_REDACT=off`이면 secret output masking은
+꺼지고, 설치본의 enable/trust, 실제 dispatch와 host의 replacement 수용은 여전히
+live probe가 필요한 별도 경계다.
+
+| Host | Route | Output masking 도달 여부 | 주의점 |
+| --- | --- | --- | --- |
+| Claude | anchored `PostToolUse`의 exact built-in success route: `Write`, `Edit`, `MultiEdit`, `NotebookEdit`, `Bash`, `PowerShell`, `apply_patch`, `Read`, `NotebookRead`, `Grep`, `Glob`, `WebFetch`, `WebSearch`, `Agent`, `Task`, `Skill`, `Monitor`, `LSP`, `ListMcpResourcesTool`, `ReadMcpResourceTool` | 적용 후보 | matcher가 선택되고 훅이 끝까지 실행되며 host가 replacement를 수용해야 함 |
+| Claude | `mcp__.*` success route | 적용 후보 | MCP namespace match. built-in과 schema validation 계약이 다름 |
+| Claude | failed route / `PostToolUseFailure` | 미적용 | 별도 event이며 Agent Guard manifest에 등록되지 않음 |
+| Claude | `PostToolUse` matcher 밖 tool | 미적용 | host가 event를 지원해도 이 manifest가 handler를 시작하지 않음 |
+| Claude | 사용자가 직접 입력한 `!` shell escape | 미적용 | tool-hook 경계 밖. 선택적 shell integration 또는 [`agent-guard exec` / `agx`](integrations.md#limits-and-backstops)를 사용 |
+| Claude | image/PDF binary block | event는 도달, payload bytes는 text-scan 제외 | 정상 restore는 원 bytes를 재삽입. 최종 restore serializer 실패는 raw bytes 대신 empty payload를 유지하는 lossy replacement |
+| Codex | `Bash` / `exec_command` | 명시적 적용 의도 | non-zero command도 공식 `PostToolUse` 대상 |
+| Codex | `apply_patch` | 명시적 적용 의도 | output redaction과 별도로 mutation/disk backstop 경계가 있음 |
+| Codex | `Agent`, `Task` | 명시적 적용 의도 | delegation result가 generic output redaction 후보 |
+| Codex | `mcp__.*` namespace | 명시적 적용 의도 | MCP result가 generic output redaction 후보 |
+| Codex | `write_stdin` | 새 event가 아님 | 원 unified-exec command가 끝날 때 그 호출의 `PostToolUse`가 올 수 있음 |
+| Codex | 그 밖의 local function tool | 명시적 coverage 아님 | host는 관찰할 수 있어도 manifest가 의존하지 않음. unanchored incidental overmatch는 coverage로 세지 않음 |
+| Codex | hosted `WebSearch` | 미적용 | 공식 local function-tool hook path에 도달하지 않음 |
+| Codex | specialized opt-out path | 보장 안 함 | host가 default hook path에서 제외할 수 있으므로 exact-route live probe 필요 |
+
 ### Claude Code
 
 **REPOSITORY-VERIFIED.** `PreToolUse` matcher는 다음 값이다.
@@ -168,8 +192,9 @@ exit 2/결정 계약을 적용하지만, trust되지 않았거나 match되지 �
 
 ### Malformed envelope는 infrastructure failure와 다르다
 
-**REPOSITORY-VERIFIED / IMPLEMENTATION-GUARANTEED.** JSON object로 해석할 수 없는
-host envelope는 `open`으로 낮추지 않는다.
+**REPOSITORY-VERIFIED / IMPLEMENTATION-GUARANTEED.** non-empty이면서 JSON
+object로 해석할 수 없는 malformed/non-object host payload는 `open`으로 낮추지
+않는다.
 
 - `PreToolUse`와 `Stop`: exit 2로 거부한다.
 - `PostToolUse`: primary validator 실패 뒤 독립 parser로 `tool_response`를 복구하고
@@ -179,12 +204,19 @@ host envelope는 `open`으로 낮추지 않는다.
   도구의 effect를 되돌릴 수 없고, Agent Guard가 sanitized replacement를 보장할
   수 없다. 모델-visible 원본에 대한 exit 2의 효과는 위 Claude/Codex 계약처럼
   host별로 다르다.
+- empty stdin은 검증된 예외다. `hook-pre-tool`, `hook-post-tool`, `hook-stop` 모두
+  status 0과 빈 response로 통과한다. “malformed payload는 exit 2”라는 설명에 empty
+  input을 포함하면 현재 구현과 테스트 계약보다 넓은 주장이다.
 
 ## 출력 마스킹의 명시적 한계
 
 - `AGENT_GUARD_OUTPUT_REDACT=off`이면 secret-like output masking을 끈다.
-- image/PDF binary payload는 text scanner가 검사하지 않으며 원 bytes를 유지한다.
-  같은 결과의 text sibling은 계속 검사한다.
+- image/PDF binary payload는 text scanner가 검사하지 않는다. 정상 rewrite에서는
+  payload를 임시로 strip한 뒤 원 image/PDF bytes를 정확히 재삽입하고, 같은 결과의
+  text sibling은 계속 검사한다. 다만 마지막 binary restore serializer가 실패하면
+  구현은 raw bytes를 추측해 재도입하지 않고 stripped `data`/`base64`의 empty 값을
+  유지한 secret-safe but lossy replacement를 출력한다. 이 경로는 whole-leaf 또는
+  fixed-string fallback으로 다시 들어가지 않는다.
 - Claude built-in replacement의 native shape가 host schema와 맞지 않으면 공식 계약상
   원본 fallback 위험이 있다. 보통의 whole-leaf fallback은 shape를 보존하지만,
   모든 serializer가 실패한 뒤의 fixed-string fallback은 structured shape와 맞지
