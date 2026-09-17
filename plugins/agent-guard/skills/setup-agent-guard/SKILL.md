@@ -83,7 +83,8 @@ Make Agent Guard operational without silently changing the machine. Diagnose fir
      printf '%s\n' 'AGENT_GUARD_LIVE_POST_TOOL_PROBE'
      ```
 
-     The raw marker must not reach the model; expect `[REDACTED]` in a masked or sanitized replacement. These sentinels prove host dispatch without reading a sensitive file or printing a credential-shaped value; the plugin-local smoke test separately proves the real detection rules.
+     The raw marker must not reach the model; expect `[REDACTED]` in a masked or sanitized replacement. While local diagnostic logging is on the replacement also names the hook invocation that produced it, as `[REDACTED] agent-guard live probe run_id=<run id>`; report that id so the user can resolve it with `agent-guard logs export` instead of taking the probe result on trust.
+     - Reading this file is itself a covered tool call, so the marker on the line above comes back already replaced. That is the hook working. Do not conclude that the expected value is a literal committed here, and do not substitute a typed `[REDACTED]` for running the probe. These sentinels prove host dispatch without reading a sensitive file or printing a credential-shaped value; the plugin-local smoke test separately proves the real detection rules.
    - In Codex, if only a wrapping/orchestration tool such as `functions.exec` is exposed, test that exact route. Agent Guard cannot replace or wrap Codex's host executor; it can protect only nested calls that Codex exposes to plugin hooks.
    - In Claude Code, run the probes through the normal `Bash` tool so the plugin's `PreToolUse` and `PostToolUse` hooks are exercised.
    - If either probe bypasses the hook, report that route as unsupported in the current host instead of claiming successful setup.

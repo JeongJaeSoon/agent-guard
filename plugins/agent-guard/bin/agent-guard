@@ -148,6 +148,7 @@ DENY_BASH_PATTERNS=${AGENT_GUARD_DENY_BASH_PATTERNS:-"$ROOT_DIR/config/deny-bash
 GITLEAKS_PRIVATE_BIN_DIR=${AGENT_GUARD_GITLEAKS_BIN_DIR:-${AGENT_GUARD_BIN_DIR:-$HOME/.agent-guard/bin}}
 LIVE_PRE_TOOL_PROBE=AGENT_GUARD_LIVE_PRE_TOOL_PROBE
 LIVE_POST_TOOL_PROBE=AGENT_GUARD_LIVE_POST_TOOL_PROBE
+LIVE_POST_TOOL_REPLACEMENT_PREFIX='[REDACTED] agent-guard live probe run_id='
 # Delimiters of the rc block `setup-shell` manages. `hook-session-start` reads
 # them back to tell "setup-shell was never run" apart from "setup-shell ran, but
 # the shell that launched the agent could not export the marker" — and from
@@ -828,7 +829,9 @@ info() {
 # Local support log. Only fixed vocabulary and numeric metadata reach disk.
 # Never pass hook JSON, diagnostics, arguments, paths or environment values here.
 AG_AUDIT_FILE=
+AG_AUDIT_ID=
 AG_AUDIT_START=0
+AG_LIVE_PROBE_MARKER=
 
 audit_location() {
   printf '%s/agent-guard' "${XDG_STATE_HOME:-${HOME:-}/.local/state}"
@@ -899,7 +902,16 @@ audit_prune() (
         { n=split($0, parts, "/"); split(parts[n], event, "-")
           if (event[2]+0 < cutoff || ++kept > 999) print }
       ' \
-    | while IFS= read -r ag_old; do printf '%s\0' "$ag_old"; done \
+    | while IFS= read -r ag_old; do
+        ag_old_id=${ag_old##*/event-}
+        if printf '%s' "$ag_old_id" \
+          | LC_ALL=C grep -Eq '^[0-9]{1,12}-[A-Za-z0-9]{6}$'; then
+          # A live-probe sidecar is an empty directory by construction. Never
+          # recurse or remove a nonempty/tampered marker during retention.
+          rmdir "$ag_dir/live-probe-$ag_old_id" 2>/dev/null || :
+          printf '%s\0' "$ag_old"
+        fi
+      done \
     | xargs -0 rm -f -- 2>/dev/null
 )
 
@@ -5059,6 +5071,142 @@ output_scan_input_exceeds_cap() {
   [ "$output_scan_bytes" -gt 327680 ]
 }
 
+# Bind the live post-tool probe's replacement to this invocation's diagnostic
+# log record. A report of "the sentinel came back masked" is otherwise a
+# constant that can be produced without running anything; with the run id the
+# reader can look the same invocation up in `agent-guard logs export` and see
+# `hook-post-tool` finish as `masked`. The id proves that a PostToolUse rewrite
+# happened here, not which tool route carried it - the log schema is metadata
+# only and records no tool name. Empty whenever no verifiable record exists, and
+# the sentinel then masks to the bare placeholder.
+#
+# This is the one place in the redaction path whose output differs between two
+# otherwise identical runs, and the unpredictability is the point: a constant
+# expected value can be reported without running anything. Nothing about WHICH
+# values get masked varies - only this one sentinel's replacement text.
+live_probe_run_id() {
+  [ -n "$AG_AUDIT_FILE" ] || return 0
+  case "$AG_AUDIT_ID" in
+    ''|*[!0-9A-Za-z-]*) return 0 ;;
+  esac
+  printf '%s' "$AG_AUDIT_ID"
+}
+
+live_probe_marker_valid() {
+  live_probe_id=$1
+  live_probe_dir=$2
+  live_probe_marker="$live_probe_dir/live-probe-$live_probe_id"
+  [ -d "$live_probe_marker" ] && [ ! -L "$live_probe_marker" ] || return 1
+  [ "$(audit_stat "$live_probe_marker")" = "$(id -u):700" ] || return 1
+  ! find "$live_probe_marker" -mindepth 1 -maxdepth 1 -print 2>/dev/null \
+    | grep -q .
+}
+
+# Record only that this audit invocation handled the public harmless sentinel.
+# The empty private directory carries no tool output or other user content, and
+# mkdir is atomic: a pre-existing file, directory, or symlink makes the marker
+# fail closed and the replacement stays the bare placeholder.
+audit_mark_live_probe() {
+  [ -n "$AG_AUDIT_FILE" ] || return 1
+  case "$AG_AUDIT_ID" in
+    ''|*[!0-9A-Za-z-]*) return 1 ;;
+  esac
+  live_probe_dir=$(audit_directory) || return 1
+  [ "$AG_AUDIT_FILE" = "$live_probe_dir/event-$AG_AUDIT_ID" ] || return 1
+  live_probe_marker="$live_probe_dir/live-probe-$AG_AUDIT_ID"
+  (umask 077; mkdir "$live_probe_marker") 2>/dev/null || return 1
+  if live_probe_marker_valid "$AG_AUDIT_ID" "$live_probe_dir"; then
+    AG_LIVE_PROBE_MARKER=$live_probe_marker
+    return 0
+  fi
+  rmdir "$live_probe_marker" 2>/dev/null || :
+  return 1
+}
+
+audit_clear_live_probe_marker() {
+  [ -n "$AG_LIVE_PROBE_MARKER" ] || return 0
+  live_probe_marker=$AG_LIVE_PROBE_MARKER
+  AG_LIVE_PROBE_MARKER=
+  live_probe_dir=$(audit_directory) || return 0
+  [ "$live_probe_marker" = "$live_probe_dir/live-probe-$AG_AUDIT_ID" ] || return 0
+  live_probe_marker_valid "$AG_AUDIT_ID" "$live_probe_dir" || return 0
+  rmdir "$live_probe_marker" 2>/dev/null || :
+}
+
+response_drops_live_probe() {
+  printf '%s' "$1" | jq -e --arg probe "$LIVE_POST_TOOL_PROBE" \
+    'any(.. | strings; contains($probe)) | not' >/dev/null 2>&1
+}
+
+# A prior live-probe replacement may pass through another PostToolUse event. It
+# is trusted only when its exact generated id resolves to both the private
+# sentinel sidecar and a bounded metadata record proving that a post-tool
+# invocation finished masked. Prefixes, id shape, and an ordinary masked record
+# are not provenance: forged lookalikes stay subject to PII.
+live_probe_audit_record_exists() {
+  live_probe_id=$1
+  live_probe_dir=$2
+  printf '%s' "$live_probe_id" \
+    | LC_ALL=C grep -Eq '^[0-9]{1,12}-[A-Za-z0-9]{6}$' || return 1
+  live_probe_file="$live_probe_dir/event-$live_probe_id"
+  [ -f "$live_probe_file" ] && [ ! -L "$live_probe_file" ] || return 1
+  [ "$(audit_stat "$live_probe_file")" = "$(id -u):600" ] || return 1
+  live_probe_marker_valid "$live_probe_id" "$live_probe_dir" || return 1
+  live_probe_bytes=$(wc -c <"$live_probe_file" | tr -d '[:space:]')
+  case "$live_probe_bytes" in ''|*[!0-9]*) return 1 ;; esac
+  [ "$live_probe_bytes" -le 2048 ] || return 1
+  jq -e --arg id "$live_probe_id" '
+      select(type == "object"
+             and .schema == 1
+             and .run_id == $id
+             and .command == "hook-post-tool"
+             and (.host == "claude" or .host == "codex")
+             and .phase == "finished"
+             and .outcome == "masked")
+      | true
+    ' "$live_probe_file" >/dev/null 2>&1
+}
+
+# Return at most sixteen provenance-verified, whole-leaf replacements. The
+# response itself is already capped before this path; the tighter candidate cap
+# bounds filesystem work even for adversarial output containing many lookalikes.
+trusted_live_probe_replacements() {
+  live_probe_response=$1
+  case "$live_probe_response" in
+    *"$LIVE_POST_TOOL_REPLACEMENT_PREFIX"*) ;;
+    *) printf '%s' '[]'; return 0 ;;
+  esac
+  live_probe_dir=$(audit_directory) || {
+    printf '%s' '[]'
+    return 0
+  }
+  live_probe_candidates=$(printf '%s' "$live_probe_response" \
+    | jq -c --arg prefix "$LIVE_POST_TOOL_REPLACEMENT_PREFIX" '
+        [.. | strings
+         | select(startswith($prefix))
+         | .[($prefix | length):] as $id
+         | select($id | test("^[0-9]{1,12}-[A-Za-z0-9]{6}$"))]
+        | unique | .[:16][]
+      ' 2>/dev/null) || {
+    printf '%s' '[]'
+    return 0
+  }
+  [ -n "$live_probe_candidates" ] || {
+    printf '%s' '[]'
+    return 0
+  }
+  printf '%s\n' "$live_probe_candidates" \
+    | while IFS= read -r live_probe_candidate; do
+        live_probe_id=$(printf '%s' "$live_probe_candidate" \
+          | jq -r --arg prefix "$LIVE_POST_TOOL_REPLACEMENT_PREFIX" \
+              '.[($prefix | length):]' 2>/dev/null) || continue
+        if live_probe_audit_record_exists "$live_probe_id" "$live_probe_dir"; then
+          printf '%s\n' "$live_probe_candidate"
+        fi
+      done \
+    | jq -sc 'unique' 2>/dev/null
+}
+
 # Collect JSON-string records for the literal secrets present in the response
 # JSON ($1): gitleaks findings plus the env-assignment heuristic and compact
 # token rules. The env heuristic scans each string leaf independently so quote
@@ -5128,13 +5276,6 @@ detect_output_secret_records() {
       | jq -rj 'if type == "string" then . else [.. | strings] | join("\n") end' \
       | grep -Eio 'bearer[ \t]+[-A-Za-z0-9._~+/=]+' 2>/dev/null \
       | awk '{ tok = $2; if (length(tok) >= 8) print tok }' \
-      | jq -Rc 'select(length > 0)' || true
-    # The paired harmless sentinel proves that PostToolUse can rewrite a live
-    # host result. It is deliberately not credential-shaped and is used only as
-    # a dispatch probe; the ordinary smoke tests cover real detection rules.
-    printf '%s' "$response" \
-      | jq -rj 'if type == "string" then . else [.. | strings] | join("\n") end' \
-      | grep -Eo "$LIVE_POST_TOOL_PROBE" 2>/dev/null \
       | jq -Rc 'select(length > 0)' || true
   }
 }
@@ -5448,6 +5589,29 @@ redact_tool_response_json() {
   ' 2>/dev/null
 }
 
+# Replace only the harmless live sentinel after ordinary secret and PII masking.
+# The audit id is generated by this hook invocation, not taken from tool output,
+# and is introduced only after the generic PII pass so its timestamp cannot be
+# mistaken for a phone number. Attacker-controlled text receives no exemption.
+redact_live_probe_response_json() {
+  resp=$1
+  run_id=${2:-}
+  case "$resp" in
+    *"$LIVE_POST_TOOL_PROBE"*) ;;
+    *) printf '%s' "$resp"; return 0 ;;
+  esac
+  replacement='[REDACTED]'
+  if [ -n "$run_id" ]; then
+    replacement="$LIVE_POST_TOOL_REPLACEMENT_PREFIX$run_id"
+  fi
+  specs=$(jq -nc \
+    --arg literal "$LIVE_POST_TOOL_PROBE" \
+    --arg replacement "$replacement" \
+    '[{literal: $literal, replacement: $replacement, contextual: false}]') \
+    || return 1
+  redact_tool_response_json "$resp" "$specs"
+}
+
 # POSIX shell variables cannot preserve NUL bytes. Keep NUL-bearing JSON leaves
 # out of command substitution entirely and conservatively replace the whole leaf
 # before the ordinary literal detector runs.
@@ -5520,8 +5684,10 @@ redact_response_whole_leaf_fail_closed() {
 # gate is the awk path, which needs no regex features beyond POSIX ERE.
 mask_pii_response_json() {
   resp=$1
+  trusted=${2:-[]}
   skip=$(pii_skip_set) || exit 2
-  printf '%s' "$resp" | jq -c --arg pii_skip "$skip" "$JQ_WALK"'
+  printf '%s' "$resp" \
+    | jq -c --arg pii_skip "$skip" --argjson trusted "$trusted" "$JQ_WALK"'
     def keep($type): ($pii_skip | contains(",\($type),")) | not;
     def luhn:
       ([gsub("[^0-9]"; "") | explode | .[] | . - 48] | reverse
@@ -5549,7 +5715,10 @@ mask_pii_response_json() {
          then gsub("(?<![0-9])01[0-9][ -]?[0-9]{4}[ -]?[0-9]{4}(?![0-9])"; "[PII:PHONE]")
            | gsub("(?<![0-9])(\\+?[0-9][ .-]?)?(\\([0-9]{3}\\)|[0-9]{3})[ .-]?[0-9]{3}[ .-]?[0-9]{4}(?![0-9])"; "[PII:PHONE]")
          else . end);
-    walk(if type == "string" then mask_pii else . end)
+    walk(if type == "string"
+         then . as $value
+              | if ($trusted | index($value)) == null then mask_pii else . end
+         else . end)
   ' 2>/dev/null
 }
 
@@ -5629,8 +5798,29 @@ redact_tool_output() {
   fi
 
   if [ "$pii_on" -eq 1 ]; then
-    r=$(mask_pii_response_json "$out")
+    trusted=$(trusted_live_probe_replacements "$out")
+    case "$trusted" in ''|null) trusted='[]' ;; esac
+    r=$(mask_pii_response_json "$out" "$trusted")
     if [ -n "$r" ] && [ "$r" != "$out" ]; then out=$r; did_pii=1; fi
+  fi
+
+  if [ "$secrets_on" -eq 1 ]; then
+    live_probe_id=$(live_probe_run_id)
+    r=$(redact_live_probe_response_json "$out" "$live_probe_id")
+    if [ -n "$r" ] && [ "$r" != "$out" ]; then
+      if ! response_drops_live_probe "$r"; then
+        r=''
+      elif [ -n "$live_probe_id" ] && ! audit_mark_live_probe; then
+        # Provenance could not be persisted. Recompute without an id so a failed
+        # marker cannot produce a replacement that later appears trustworthy.
+        r=$(redact_live_probe_response_json "$out" '')
+        if [ -z "$r" ] || [ "$r" = "$out" ] \
+            || ! response_drops_live_probe "$r"; then
+          r=''
+        fi
+      fi
+    fi
+    if [ -n "$r" ] && [ "$r" != "$out" ]; then out=$r; did_secret=1; fi
   fi
 
   [ "$out" != "$resp" ] || return 0
@@ -5652,21 +5842,25 @@ redact_tool_output() {
       # Keep the potentially large updated output on stdin. Linux limits one
       # exec argument to roughly 128 KiB, so `--argjson ut "$out"` can fail
       # after a successful conservative whole-leaf rewrite.
-      printf '%s' "$out" \
+      if ! printf '%s' "$out" \
         | jq -c '
             {decision: "block",
              reason: "Agent Guard blocked the original tool output because it contained sensitive values; use the sanitized replacement in additionalContext.",
              hookSpecificOutput: {
                hookEventName: "PostToolUse",
                additionalContext: ("Agent Guard sanitized tool output:\n" + (. | tojson))
-             }}' 2>/dev/null \
-        || return 0
+             }}' 2>/dev/null; then
+        audit_clear_live_probe_marker
+        return 0
+      fi
       ;;
     *)
-      printf '%s' "$out" \
+      if ! printf '%s' "$out" \
         | jq -c \
-            '{hookSpecificOutput: {hookEventName: "PostToolUse", updatedToolOutput: .}}' 2>/dev/null \
-        || return 0
+            '{hookSpecificOutput: {hookEventName: "PostToolUse", updatedToolOutput: .}}' 2>/dev/null; then
+        audit_clear_live_probe_marker
+        return 0
+      fi
       ;;
   esac
 
