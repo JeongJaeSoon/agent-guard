@@ -1,3 +1,13 @@
+## v3.4.3 - 2026-09-17
+
+- ci: HOL plugin scanner action을 v1.2.678로 업데이트 (#250)
+- fix: untracked 입력 상한의 SIGPIPE 오분류 수정 (#255)
+- docs: 출력 마스킹 범위와 host 가정 명시 (#254)
+- fix: expand Claude post-tool matchers (#253)
+- fix: make gitleaks resolution deterministic (#252)
+- fix: close post-tool masking fail-open paths (#251)
+- fix(verification): Tie the live post-tool probe to an audit run ID and make the verification procedure self-contained (#244)
+
 ## v3.4.2 - 2026-09-14
 
 - fix(redaction): keep content-block discriminators and pass image/PDF blocks through the output guard (#239)
