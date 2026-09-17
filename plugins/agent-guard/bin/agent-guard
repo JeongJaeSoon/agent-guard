@@ -870,7 +870,7 @@ audit_directory() (
 
 audit_note() {
   [ -n "$AG_AUDIT_FILE" ] && [ -n "${AGENT_GUARD_RUNDIR:-}" ] || return 0
-  case "$1" in degraded|masked|error|warned)
+  case "$1" in blocked|degraded|masked|error|warned)
     (umask 077; : >"$AGENT_GUARD_RUNDIR/audit-$1") 2>/dev/null || : ;;
   esac
   return 0
@@ -964,7 +964,7 @@ audit_finish() {
       esac ;;
   esac
   if [ -n "${AGENT_GUARD_RUNDIR:-}" ]; then
-    for ag_flag in warned masked error degraded; do
+    for ag_flag in warned masked error degraded blocked; do
       [ ! -f "$AGENT_GUARD_RUNDIR/audit-$ag_flag" ] || ag_outcome=$ag_flag
     done
   fi
@@ -1133,6 +1133,7 @@ need_gitleaks() {
 
 hook_dependencies_ready() {
   command -v jq >/dev/null 2>&1 || return 1
+  command -v awk >/dev/null 2>&1 || return 1
   resolve_gitleaks >/dev/null 2>&1 || return 1
   [ -f "$GITLEAKS_CONFIG" ] && policy_file_has_active_rule "$GITLEAKS_CONFIG" || return 1
   [ -f "$DENY_READ_PATHS" ] && policy_file_has_active_rule "$DENY_READ_PATHS" || return 1
@@ -1204,19 +1205,27 @@ handle_hook_infrastructure_failure() {
   return 0
 }
 
-# A malformed hook envelope is scanner infrastructure failure, not an empty,
-# benign event. Keep the product's explicit open/closed policy, but never let a
-# jq parse error accidentally decide the policy for us. Callers return after a
-# false result so the invalid payload cannot reach any later field extractor.
+# A malformed hook envelope is attacker-controlled input, not unavailable
+# scanner infrastructure. It must never inherit the default open policy. A
+# PreToolUse or Stop exit can prevent the unsafe boundary action; PostToolUse
+# runs after the tool, so its exit is only an explicit diagnostic after the
+# valid-envelope recovery path has failed. Do not deduplicate the diagnostic.
 validate_hook_object() {
   event=$1
   input=${2:-}
   if printf '%s' "$input" | jq -e 'type == "object"' >/dev/null 2>&1; then
     return 0
   fi
-  handle_hook_infrastructure_failure "$event" "$input" \
-    "$PROGRAM: the $event hook input was not a JSON object;"
-  return 1
+  audit_note blocked
+  case "$event" in
+    PostToolUse)
+      info "$PROGRAM: the $event hook input was not a JSON object; rejecting malformed input, but the host may retain an already-completed tool result"
+      ;;
+    *)
+      info "$PROGRAM: the $event hook input was not a JSON object; blocking because malformed hook input cannot be inspected safely"
+      ;;
+  esac
+  exit 2
 }
 
 # Which host's hook contract this invocation speaks. Every host-conditional
@@ -1231,7 +1240,7 @@ degraded_hook_message() {
     codex) setup_ref='$setup-agent-guard' ;;
     *) setup_ref='/agent-guard:setup-agent-guard' ;;
   esac
-  printf 'agent-guard: protection is DEGRADED because jq, git, gitleaks, or a policy file is unavailable. Run %s (or agent-guard setup), approve any required installation, verify with agent-guard check and smoke-test, then restart the host;' "$setup_ref"
+  printf 'agent-guard: protection is DEGRADED because jq, awk, git, gitleaks, or a policy file is unavailable. Run %s (or agent-guard setup), approve any required installation, verify with agent-guard check and smoke-test, then restart the host;' "$setup_ref"
 }
 
 emit_degraded_hook_warning() {
@@ -4207,13 +4216,15 @@ hook_pre_tool() {
   input=$(read_stdin)
   HOOK_EVENT=PreToolUse
   HOOK_INPUT=$input
+  if command -v jq >/dev/null 2>&1 && [ -n "$input" ]; then
+    validate_hook_object PreToolUse "$input" || return 0
+  fi
   if ! hook_dependencies_ready; then
     emit_degraded_hook_warning PreToolUse "$input"
     return 0
   fi
   need_cmd jq
   [ -n "$input" ] || return 0
-  validate_hook_object PreToolUse "$input" || return 0
 
   # A host may serialize tool_input as a JSON-encoded string instead of an
   # object. When that string decodes to an *object*, the precise-field extractors
@@ -5211,82 +5222,122 @@ trusted_live_probe_replacements() {
 # JSON ($1): gitleaks findings plus the env-assignment heuristic and compact
 # token rules. The env heuristic scans each string leaf independently so quote
 # state can never cross a stdout/stderr or array boundary.
-detect_output_secret_records() {
+# Materialize every detector stage before consuming its output. POSIX pipelines
+# expose only their final command status, so a producer that writes a prefix and
+# then fails must never be indistinguishable from a successful empty detector.
+detect_output_secret_records() (
   response=$1
   env_records=${2:-yes}
-  {
-    # Fork gitleaks once per matched tool output, but bound both its input and
-    # report before the downstream record cap so the host timeout cannot turn
-    # high-cardinality gitleaks-only output into a fail-open path.
-    if gl=$(resolve_gitleaks) && [ -f "$GITLEAKS_CONFIG" ]; then
-      # Bound work before gitleaks sees the response. This is defensive for
-      # callers other than PostToolUse, which applies the same cap even earlier.
-      if output_scan_input_exceeds_cap "$response"; then
-        printf '%s\n' '{"agent_guard_whole_leaf":true}'
-      else
-        report=$(mktemp_file) || report=''
-        if [ -z "$report" ]; then
-          printf '%s\n' '{"agent_guard_whole_leaf":true}'
-        else
-          printf '%s' "$response" \
-            | jq -rj 'if type == "string" then . else [.. | strings] | join("\n") end' \
-            | (
-                # POSIX ulimit -f uses 512-byte blocks. A valid report above
-                # 64 KiB would exceed the downstream record budget anyway,
-                # so terminate report creation and take the whole-leaf path.
-                ulimit -f 128 >/dev/null 2>&1 || exit 2
-                "$gl" stdin --report-format json --report-path "$report" \
-                  --no-banner --config "$GITLEAKS_CONFIG"
-              ) >/dev/null 2>&1
-          gl_status=$?
-          case "$gl_status" in
-            0|1)
-              if [ -s "$report" ] \
-                && jq -e 'type == "array"' "$report" >/dev/null 2>&1; then
-                jq -c '.[]? | (.Secret // empty)
-                       | select(type == "string" and length > 0)' \
-                  "$report" 2>/dev/null
-              else
-                printf '%s\n' '{"agent_guard_whole_leaf":true}'
-              fi
-              ;;
-            *) printf '%s\n' '{"agent_guard_whole_leaf":true}' ;;
-          esac
-          rm -f "$report"
-        fi
-      fi
-    fi
-    if [ "$env_records" = yes ]; then
-      printf '%s' "$response" \
-        | frame_json_string_leaves 2>/dev/null \
-        | secretish_env_values
-    fi
-    # JWTs (three base64url segments; first two start `eyJ`). gitleaks' own JWT
-    # rule is narrow; emit the whole compact token for literal redaction.
-    printf '%s' "$response" \
-      | jq -rj 'if type == "string" then . else [.. | strings] | join("\n") end' \
-      | grep -Eo 'eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+' 2>/dev/null \
-      | jq -Rc 'select(length > 0)' || true
-    # Bearer credentials, from `Authorization: Bearer <tok>` or a bare
-    # `Bearer <tok>`. Emit just the token (>=8 chars) so the redactor masks the
-    # credential but leaves the `Authorization: Bearer ` label intact. The token
-    # class includes base64/base64url payload chars (+ / = ~) so a value like
-    # `Bearer abc+/def==` is matched whole, not truncated at the first `+`.
-    printf '%s' "$response" \
-      | jq -rj 'if type == "string" then . else [.. | strings] | join("\n") end' \
-      | grep -Eio 'bearer[ \t]+[-A-Za-z0-9._~+/=]+' 2>/dev/null \
-      | awk '{ tok = $2; if (length(tok) >= 8) print tok }' \
-      | jq -Rc 'select(length > 0)' || true
+  detector_input=$(mktemp_file) || exit 1
+  detector_strings=$(mktemp_file) || {
+    rm -f "$detector_input"
+    exit 1
   }
-}
+  detector_records=$(mktemp_file) || {
+    rm -f "$detector_input" "$detector_strings"
+    exit 1
+  }
+  detector_work_a=$(mktemp_file) || {
+    rm -f "$detector_input" "$detector_strings" "$detector_records"
+    exit 1
+  }
+  detector_work_b=$(mktemp_file) || {
+    rm -f "$detector_input" "$detector_strings" "$detector_records" \
+      "$detector_work_a"
+    exit 1
+  }
+  detector_cleanup() {
+    rm -f "$detector_input" "$detector_strings" "$detector_records" \
+      "$detector_work_a" "$detector_work_b" ${detector_report:+"$detector_report"}
+  }
+  detector_fail() {
+    detector_cleanup
+    exit 1
+  }
+
+  : >"$detector_records" || detector_fail
+  printf '%s' "$response" >"$detector_input" || detector_fail
+  jq -rj 'if type == "string" then . else [.. | strings] | join("\n") end' \
+    <"$detector_input" >"$detector_strings" 2>/dev/null || detector_fail
+
+  gl=
+  if ! gl=$(resolve_gitleaks); then
+    gl=
+    detector_fail
+  fi
+  [ -f "$GITLEAKS_CONFIG" ] || detector_fail
+  if output_scan_input_exceeds_cap "$response"; then
+      printf '%s\n' '{"agent_guard_whole_leaf":true}' \
+        >>"$detector_records" || detector_fail
+  else
+      detector_report=$(mktemp_file) || detector_fail
+      (
+        ulimit -f 128 >/dev/null 2>&1 || exit 2
+        "$gl" stdin --report-format json --report-path "$detector_report" \
+          --no-banner --config "$GITLEAKS_CONFIG" <"$detector_strings"
+      ) >/dev/null 2>&1
+      detector_status=$?
+      case "$detector_status" in 0|1) ;; *) detector_fail ;; esac
+      [ -s "$detector_report" ] || detector_fail
+      jq -e 'type == "array"' "$detector_report" >/dev/null 2>&1 \
+        || detector_fail
+      jq -c '.[]? | (.Secret // empty)
+             | select(type == "string" and length > 0)' \
+        "$detector_report" >"$detector_work_a" 2>/dev/null || detector_fail
+      cat "$detector_work_a" >>"$detector_records" || detector_fail
+      rm -f "$detector_report"
+      detector_report=
+  fi
+
+  if [ "$env_records" = yes ]; then
+    frame_json_string_leaves <"$detector_input" \
+      >"$detector_work_a" 2>/dev/null || detector_fail
+    secretish_env_values <"$detector_work_a" \
+      >"$detector_work_b" 2>/dev/null || detector_fail
+    cat "$detector_work_b" >>"$detector_records" || detector_fail
+  fi
+
+  grep -Eo 'eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+' \
+    <"$detector_strings" >"$detector_work_a" 2>/dev/null
+  detector_status=$?
+  case "$detector_status" in 0|1) ;; *) detector_fail ;; esac
+  jq -Rc 'select(length > 0)' <"$detector_work_a" \
+    >"$detector_work_b" 2>/dev/null || detector_fail
+  cat "$detector_work_b" >>"$detector_records" || detector_fail
+
+  grep -Eio 'bearer[ \t]+[-A-Za-z0-9._~+/=]+' \
+    <"$detector_strings" >"$detector_work_a" 2>/dev/null
+  detector_status=$?
+  case "$detector_status" in 0|1) ;; *) detector_fail ;; esac
+  awk '{ tok = $2; if (length(tok) >= 8) print tok }' \
+    <"$detector_work_a" >"$detector_work_b" 2>/dev/null || detector_fail
+  jq -Rc 'select(length > 0)' <"$detector_work_b" \
+    >"$detector_work_a" 2>/dev/null || detector_fail
+  cat "$detector_work_a" >>"$detector_records" || detector_fail
+
+  cat "$detector_records"
+  detector_status=$?
+  detector_cleanup
+  exit "$detector_status"
+)
 
 # Bound secret records before materializing them in a shell variable or passing
 # the resulting JSON through exec argv. The raw-record cap is intentionally
 # conservative: duplicates still count because stopping after a prefix cannot
 # prove that later records contain no new secret. Callers fail closed when
 # either cap is crossed.
-bundle_secret_records() {
-  LC_ALL=C awk '
+bundle_secret_records() (
+  bundle_input=$(mktemp_file) || exit 1
+  bundle_records=$(mktemp_file) || {
+    rm -f "$bundle_input"
+    exit 1
+  }
+  bundle_output=$(mktemp_file) || {
+    rm -f "$bundle_input" "$bundle_records"
+    exit 1
+  }
+  if ! cat >"$bundle_input" \
+    || ! LC_ALL=C awk '
         BEGIN {
           max_records = 256
           max_bytes = 65536
@@ -5305,18 +5356,95 @@ bundle_secret_records() {
           if (!exceeded)
             for (i = 1; i <= record_count; i++) print records[i]
         }
-      ' \
-    | jq -sc '
+      ' <"$bundle_input" >"$bundle_records" \
+    || ! jq -sc '
         if any(.[]; type == "object" and .agent_guard_whole_leaf == true)
         then {whole_leaf: true, secrets: []}
         else {whole_leaf: false, secrets: unique}
         end
-      ' 2>/dev/null
-}
+      ' <"$bundle_records" >"$bundle_output" 2>/dev/null; then
+    rm -f "$bundle_input" "$bundle_records" "$bundle_output"
+    exit 1
+  fi
+  cat "$bundle_output"
+  bundle_status=$?
+  rm -f "$bundle_input" "$bundle_records" "$bundle_output"
+  exit "$bundle_status"
+)
 
-detect_output_secret_bundle() {
+detect_output_secret_bundle() (
   bundle_response=$1
-  detect_output_secret_records "$bundle_response" | bundle_secret_records
+  bundle_raw=$(mktemp_file) || exit 1
+  bundle_json=$(mktemp_file) || {
+    rm -f "$bundle_raw"
+    exit 1
+  }
+  if ! detect_output_secret_records "$bundle_response" >"$bundle_raw" \
+    || ! bundle_secret_records <"$bundle_raw" >"$bundle_json"; then
+    rm -f "$bundle_raw" "$bundle_json"
+    exit 1
+  fi
+  cat "$bundle_json"
+  bundle_status=$?
+  rm -f "$bundle_raw" "$bundle_json"
+  exit "$bundle_status"
+)
+
+# Parse a completed detector bundle once. The jq output is staged privately and
+# accepted only after successful completion, then decoded as two newline-bounded
+# fields without invoking another parser that could fail after partial output.
+classify_secret_bundle() {
+  classify_bundle_value=$1
+  BUNDLE_MODE=
+  BUNDLE_SECRETS=
+  classify_bundle_input=$(mktemp_file) || return 1
+  classify_bundle_output=$(mktemp_file) || {
+    rm -f "$classify_bundle_input"
+    return 1
+  }
+  if ! printf '%s' "$classify_bundle_value" >"$classify_bundle_input" \
+    || ! jq -jr '
+      if type != "object"
+         or (.whole_leaf | type) != "boolean"
+         or (.secrets | type) != "array"
+         or any(.secrets[];
+                ((type == "string")
+                 or (type == "object"
+                     and (.literal | type) == "string"
+                     and (.replacement | type) == "string"
+                     and ((.contextual // false) | type) == "boolean"))
+                | not)
+      then error("invalid secret bundle")
+      elif .whole_leaf
+      then "whole_leaf\n[]\n"
+      else "secrets\n\(.secrets | tojson)\n"
+      end
+    ' <"$classify_bundle_input" >"$classify_bundle_output" 2>/dev/null; then
+    rm -f "$classify_bundle_input" "$classify_bundle_output"
+    return 1
+  fi
+  classify_bundle_lines=0
+  while IFS= read -r classify_bundle_line; do
+    classify_bundle_lines=$((classify_bundle_lines + 1))
+    case "$classify_bundle_lines" in
+      1) BUNDLE_MODE=$classify_bundle_line ;;
+      2) BUNDLE_SECRETS=$classify_bundle_line ;;
+      *)
+        rm -f "$classify_bundle_input" "$classify_bundle_output"
+        BUNDLE_MODE=
+        BUNDLE_SECRETS=
+        return 1
+        ;;
+    esac
+  done <"$classify_bundle_output"
+  rm -f "$classify_bundle_input" "$classify_bundle_output"
+  [ "$classify_bundle_lines" -eq 2 ] || return 1
+  case "$BUNDLE_MODE:$BUNDLE_SECRETS" in
+    whole_leaf:'[]'|secrets:'['*']') return 0 ;;
+  esac
+  BUNDLE_MODE=
+  BUNDLE_SECRETS=
+  return 1
 }
 
 # `printenv NAME` prints only the value, so the output loses the secret-bearing
@@ -5493,6 +5621,48 @@ detect_printenv_argument_secret_records() {
   return "$printenv_detect_status"
 }
 
+detect_exec_secret_bundle() (
+  exec_bundle_response=$1
+  exec_bundle_invalid=$2
+  shift 2
+  exec_bundle_records=$(mktemp_file) || exit 1
+  exec_bundle_json=$(mktemp_file) || {
+    rm -f "$exec_bundle_records"
+    exit 1
+  }
+  : >"$exec_bundle_records" || {
+    rm -f "$exec_bundle_records" "$exec_bundle_json"
+    exit 1
+  }
+  exec_detector_failed=0
+  if [ -n "$exec_bundle_response" ]; then
+    if [ "$exec_bundle_invalid" -eq 1 ]; then
+      detect_output_secret_records "$exec_bundle_response" no \
+        >>"$exec_bundle_records" 2>/dev/null || exec_detector_failed=1
+    else
+      detect_output_secret_records "$exec_bundle_response" \
+        >>"$exec_bundle_records" 2>/dev/null || exec_detector_failed=1
+    fi
+  fi
+  detect_printenv_argument_secret_records "$exec_bundle_response" "$@" \
+    >>"$exec_bundle_records" 2>/dev/null || exec_detector_failed=1
+  if [ "$exec_detector_failed" -ne 0 ]; then
+    printf '%s\n' '{"agent_guard_whole_leaf":true}' \
+      >"$exec_bundle_records" || {
+        rm -f "$exec_bundle_records" "$exec_bundle_json"
+        exit 1
+      }
+  fi
+  if ! bundle_secret_records <"$exec_bundle_records" >"$exec_bundle_json"; then
+    rm -f "$exec_bundle_records" "$exec_bundle_json"
+    exit 1
+  fi
+  cat "$exec_bundle_json"
+  exec_bundle_status=$?
+  rm -f "$exec_bundle_records" "$exec_bundle_json"
+  exit "$exec_bundle_status"
+)
+
 # Invalid UTF-8 cannot round-trip through jq's env lookup, so its reconstructed
 # printenv value cannot be matched byte-for-byte. Detect secret-bearing requested
 # names without reading their values; exec then conservatively masks the captured
@@ -5617,7 +5787,7 @@ redact_live_probe_response_json() {
 # before the ordinary literal detector runs.
 redact_nul_response_json() {
   resp=$1
-  printf '%s' "$resp" | jq -c "$JQ_WALK"'
+  { printf '%s' "$resp"; } 2>/dev/null | jq -c "$JQ_WALK"'
     walk(if type == "string" and contains("\u0000")
          then "[REDACTED]" else . end)
   ' 2>/dev/null
@@ -5643,30 +5813,672 @@ large_response_has_secretish_assignment() {
 
 redact_nonempty_response_strings() {
   whole_leaf_response=$1
-  printf '%s' "$whole_leaf_response" | jq -c "$JQ_SHAPE_SAFE_WALK"'
+  { printf '%s' "$whole_leaf_response"; } 2>/dev/null \
+    | jq -c "$JQ_SHAPE_SAFE_WALK"'
     shape_safe_walk(if type == "string" and length > 0
                     then "[REDACTED]" else . end)
   ' 2>/dev/null
 }
 
+# jq has implementation-dependent nesting limits, so a valid response can pass
+# hook validation and still fail the recursive whole-leaf walk. Parse its
+# compact jq serialization iteratively with POSIX awk. Output stays in a
+# private temporary file until the complete single document is validated, so a
+# malformed or interrupted transform can never expose a partial replacement.
+redact_response_values_awk() {
+  whole_leaf_response=$1
+  whole_leaf_tmp=$(mktemp_file) || return 1
+  case "$whole_leaf_response" in
+    *'"'*) ;;
+    *)
+      if printf '%s' "$whole_leaf_response" | LC_ALL=C awk '
+        BEGIN { RS = ","; ORS = "" }
+        function json_fail() { failed = 1; exit 1 }
+        function scan_structure(value,    clean, skeleton, residue, i, ch) {
+          clean = value
+          gsub(/[ \t\r\n]/, "", clean)
+          if (clean == "") json_fail()
+          residue = clean
+          gsub(/-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?/, "", residue)
+          gsub(/true|false|null/, "", residue)
+          gsub(/[\[\]{}]/, "", residue)
+          if (residue != "") json_fail()
+          skeleton = clean
+          gsub(/[^][{}]+/, "", skeleton)
+          if (skeleton == "" && depth == 0) {
+            if (NR != 1 || root_seen \
+                || clean !~ /^(-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?|true|false|null)$/) json_fail()
+            root_seen = 1
+            root_closed = 1
+            return
+          }
+          for (i = 1; i <= length(skeleton); i++) {
+            ch = substr(skeleton, i, 1)
+            if (ch == "[" || ch == "{") {
+              if (depth == 0 && root_seen) json_fail()
+              root_seen = 1
+              depth++
+              container[depth] = ch
+            } else {
+              if (depth == 0) json_fail()
+              if ((ch == "]" && container[depth] != "[") \
+                  || (ch == "}" && container[depth] != "{")) json_fail()
+              delete container[depth]
+              depth--
+              if (depth == 0) root_closed = 1
+            }
+          }
+          if (root_closed && depth == 0 \
+              && clean !~ /[}\]]$/ && NR > 1) json_fail()
+        }
+        {
+          scan_structure($0)
+          if (NR > 1) printf ","
+          transformed = $0
+          gsub(/-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?/, "0", transformed)
+          gsub(/true/, "false", transformed)
+          printf "%s", transformed
+        }
+        END {
+          if (NR == 0 || failed || depth != 0 || !root_seen) exit 1
+        }
+      ' >"$whole_leaf_tmp" 2>/dev/null; then
+        cat "$whole_leaf_tmp"
+        whole_leaf_status=$?
+      else
+        whole_leaf_status=$?
+      fi
+      rm -f "$whole_leaf_tmp"
+      return "$whole_leaf_status"
+      ;;
+  esac
+  if printf '%s' "$whole_leaf_response" | LC_ALL=C awk '
+    function json_fail() {
+      failed = 1
+      exit 1
+    }
+    function emit(value) {
+      printf "%s", value
+    }
+    function append_candidate(value) {
+      if (!candidate_valid) return
+      candidate = candidate value
+      if (length(candidate) > 32) candidate_valid = 0
+    }
+    function hex_value(ch) {
+      if (ch >= "0" && ch <= "9") return ch + 0
+      if (ch >= "a" && ch <= "f") return 10 + index("abcdef", ch) - 1
+      if (ch >= "A" && ch <= "F") return 10 + index("ABCDEF", ch) - 1
+      return -1
+    }
+    function read_string(pos,    i, ch, esc, j, digit, code) {
+      candidate = ""
+      candidate_valid = 1
+      i = pos + 1
+      while (i <= document_length) {
+        ch = substr(document, i, 1)
+        if (ch == "\"") {
+          token_end = i
+          token_raw = substr(document, pos, i - pos + 1)
+          return
+        }
+        if (ch == "\\") {
+          i++
+          if (i > document_length) json_fail()
+          esc = substr(document, i, 1)
+          if (esc == "u") {
+            if (i + 4 > document_length) json_fail()
+            code = 0
+            for (j = 1; j <= 4; j++) {
+              digit = hex_value(substr(document, i + j, 1))
+              if (digit < 0) json_fail()
+              code = code * 16 + digit
+            }
+            if (code >= 32 && code <= 126) append_candidate(sprintf("%c", code))
+            else candidate_valid = 0
+            i += 5
+            continue
+          }
+          if (index("\"\\/bfnrt", esc) == 0) json_fail()
+          if (esc == "/") append_candidate("/")
+          else if (esc == "\"") append_candidate("\"")
+          else if (esc == "\\") append_candidate("\\")
+          else candidate_valid = 0
+          i++
+          continue
+        }
+        if (ch ~ /[[:cntrl:]]/) json_fail()
+        if (ch ~ /^[ -~]$/) append_candidate(ch)
+        else candidate_valid = 0
+        i++
+      }
+      json_fail()
+    }
+    function protocol_discriminator(key, value) {
+      if (!(key == "type" || key == "media_type" || key == "mimeType" || key == "encoding")) return 0
+      return value == "text" || value == "image" || value == "document" \
+        || value == "search_result" || value == "browser_state" \
+        || value == "tool_reference" || value == "tool_use" \
+        || value == "tool_result" || value == "thinking" \
+        || value == "redacted_thinking" || value == "base64" \
+        || value == "url" || value == "file" || value == "content" \
+        || value == "pdf" || value == "image/png" \
+        || value == "image/jpeg" || value == "image/gif" \
+        || value == "image/webp" || value == "application/pdf" \
+        || value == "text/plain"
+    }
+    function accept_value() {
+      if (depth == 0) {
+        if (root_done) json_fail()
+        root_done = 1
+      } else if (container[depth] == "object") {
+        if (state[depth] != "value") json_fail()
+        state[depth] = "comma_or_end"
+      } else {
+        if (!(state[depth] == "value_or_end" || state[depth] == "value")) json_fail()
+        state[depth] = "comma_or_end"
+      }
+    }
+    function read_number(pos,    i, ch, window, next_ch) {
+      window = substr(document, pos, 128)
+      if (match(window, /^-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?/)) {
+        next_ch = substr(document, pos + RLENGTH, 1)
+        if (RLENGTH < 128 || next_ch !~ /^[0-9.eE+-]$/) {
+          token_end = pos + RLENGTH - 1
+          return
+        }
+      }
+      i = pos
+      if (substr(document, i, 1) == "-") i++
+      if (i > document_length) json_fail()
+      ch = substr(document, i, 1)
+      if (ch == "0") {
+        i++
+        if (i <= document_length && substr(document, i, 1) ~ /^[0-9]$/) json_fail()
+      } else if (ch ~ /^[1-9]$/) {
+        do { i++ } while (i <= document_length && substr(document, i, 1) ~ /^[0-9]$/)
+      } else json_fail()
+      if (i <= document_length && substr(document, i, 1) == ".") {
+        i++
+        if (i > document_length || substr(document, i, 1) !~ /^[0-9]$/) json_fail()
+        do { i++ } while (i <= document_length && substr(document, i, 1) ~ /^[0-9]$/)
+      }
+      if (i <= document_length && substr(document, i, 1) ~ /^[eE]$/) {
+        i++
+        if (i <= document_length && substr(document, i, 1) ~ /^[+-]$/) i++
+        if (i > document_length || substr(document, i, 1) !~ /^[0-9]$/) json_fail()
+        do { i++ } while (i <= document_length && substr(document, i, 1) ~ /^[0-9]$/)
+      }
+      token_end = i - 1
+    }
+    function parse_document(    i, ch, direct_key, literal) {
+      document_length = length(document)
+      if (document_length == 0) json_fail()
+      i = 1
+      while (i <= document_length) {
+        ch = substr(document, i, 1)
+        if (ch == " " || ch == "\t" || ch == "\r" || ch == "\n") {
+          i++
+          continue
+        }
+        if (ch == "{") {
+          accept_value()
+          emit(ch)
+          depth++
+          container[depth] = "object"
+          state[depth] = "key_or_end"
+          i++
+          continue
+        }
+        if (ch == "[") {
+          accept_value()
+          emit(ch)
+          depth++
+          container[depth] = "array"
+          state[depth] = "value_or_end"
+          i++
+          continue
+        }
+        if (ch == "}") {
+          if (depth == 0 || container[depth] != "object" || !(state[depth] == "key_or_end" || state[depth] == "comma_or_end")) json_fail()
+          emit(ch)
+          delete container[depth]
+          delete state[depth]
+          delete object_key[depth]
+          depth--
+          i++
+          continue
+        }
+        if (ch == "]") {
+          if (depth == 0 || container[depth] != "array" || !(state[depth] == "value_or_end" || state[depth] == "comma_or_end")) json_fail()
+          emit(ch)
+          delete container[depth]
+          delete state[depth]
+          depth--
+          i++
+          continue
+        }
+        if (ch == ":") {
+          if (depth == 0 || container[depth] != "object" || state[depth] != "colon") json_fail()
+          emit(ch)
+          state[depth] = "value"
+          i++
+          continue
+        }
+        if (ch == ",") {
+          if (depth == 0 || state[depth] != "comma_or_end") json_fail()
+          emit(ch)
+          if (container[depth] == "object") state[depth] = "key"
+          else state[depth] = "value"
+          i++
+          continue
+        }
+        if (ch == "\"") {
+          read_string(i)
+          if (depth > 0 && container[depth] == "object" && (state[depth] == "key_or_end" || state[depth] == "key")) {
+            emit(token_raw)
+            if (candidate_valid) object_key[depth] = candidate
+            else object_key[depth] = ""
+            state[depth] = "colon"
+          } else {
+            direct_key = ""
+            if (depth > 0 && container[depth] == "object" && state[depth] == "value") direct_key = object_key[depth]
+            accept_value()
+            if (token_raw == "\"\"" || (candidate_valid && protocol_discriminator(direct_key, candidate))) emit(token_raw)
+            else emit("\"[REDACTED]\"")
+          }
+          i = token_end + 1
+          continue
+        }
+        if (ch == "t" && substr(document, i, 4) == "true") {
+          literal = "true"
+        } else if (ch == "f" && substr(document, i, 5) == "false") {
+          literal = "false"
+        } else if (ch == "n" && substr(document, i, 4) == "null") {
+          literal = "null"
+        } else literal = ""
+        if (literal != "") {
+          accept_value()
+          if (literal == "true") emit("false")
+          else emit(literal)
+          i += length(literal)
+          continue
+        }
+        if (ch == "-" || ch ~ /^[0-9]$/) {
+          read_number(i)
+          accept_value()
+          emit("0")
+          i = token_end + 1
+          continue
+        }
+        json_fail()
+      }
+      if (depth != 0 || !root_done) json_fail()
+    }
+    {
+      if (NR > 1) document = document "\n"
+      document = document $0
+    }
+    END {
+      if (failed) exit 1
+      parse_document()
+    }
+  ' >"$whole_leaf_tmp" 2>/dev/null; then
+    cat "$whole_leaf_tmp"
+    whole_leaf_status=$?
+  else
+    whole_leaf_status=$?
+  fi
+  rm -f "$whole_leaf_tmp"
+  return "$whole_leaf_status"
+}
+
+# jq can reject a valid host envelope at implementation-specific nesting
+# limits. Independently validate one complete top-level object and extract its
+# unique tool_response value without recursion. Nothing reaches stdout until
+# the full envelope has been accepted.
+extract_post_tool_response_awk() {
+  envelope=$1
+  response_tmp=$(mktemp_file) || return 1
+  if printf '%s' "$envelope" | LC_ALL=C awk '
+    function json_fail() {
+      failed = 1
+      exit 1
+    }
+    function append_candidate(value) {
+      if (!candidate_valid) return
+      candidate = candidate value
+      if (length(candidate) > 64) candidate_valid = 0
+    }
+    function hex_value(ch) {
+      if (ch >= "0" && ch <= "9") return ch + 0
+      if (ch >= "a" && ch <= "f") return 10 + index("abcdef", ch) - 1
+      if (ch >= "A" && ch <= "F") return 10 + index("ABCDEF", ch) - 1
+      return -1
+    }
+    function read_string(pos,    i, ch, esc, j, digit, code) {
+      candidate = ""
+      candidate_valid = 1
+      i = pos + 1
+      while (i <= document_length) {
+        ch = substr(document, i, 1)
+        if (ch == "\"") {
+          token_end = i
+          return
+        }
+        if (ch == "\\") {
+          i++
+          if (i > document_length) json_fail()
+          esc = substr(document, i, 1)
+          if (esc == "u") {
+            if (i + 4 > document_length) json_fail()
+            code = 0
+            for (j = 1; j <= 4; j++) {
+              digit = hex_value(substr(document, i + j, 1))
+              if (digit < 0) json_fail()
+              code = code * 16 + digit
+            }
+            if (code >= 32 && code <= 126) append_candidate(sprintf("%c", code))
+            else candidate_valid = 0
+            i += 5
+            continue
+          }
+          if (index("\"\\/bfnrt", esc) == 0) json_fail()
+          if (esc == "/") append_candidate("/")
+          else if (esc == "\"") append_candidate("\"")
+          else if (esc == "\\") append_candidate("\\")
+          else candidate_valid = 0
+          i++
+          continue
+        }
+        if (ch ~ /[[:cntrl:]]/) json_fail()
+        if (ch ~ /^[ -~]$/) append_candidate(ch)
+        else candidate_valid = 0
+        i++
+      }
+      json_fail()
+    }
+    function read_number(pos,    i, ch) {
+      i = pos
+      if (substr(document, i, 1) == "-") i++
+      if (i > document_length) json_fail()
+      ch = substr(document, i, 1)
+      if (ch == "0") {
+        i++
+        if (i <= document_length && substr(document, i, 1) ~ /^[0-9]$/) json_fail()
+      } else if (ch ~ /^[1-9]$/) {
+        do { i++ } while (i <= document_length && substr(document, i, 1) ~ /^[0-9]$/)
+      } else json_fail()
+      if (i <= document_length && substr(document, i, 1) == ".") {
+        i++
+        if (i > document_length || substr(document, i, 1) !~ /^[0-9]$/) json_fail()
+        do { i++ } while (i <= document_length && substr(document, i, 1) ~ /^[0-9]$/)
+      }
+      if (i <= document_length && substr(document, i, 1) ~ /^[eE]$/) {
+        i++
+        if (i <= document_length && substr(document, i, 1) ~ /^[+-]$/) i++
+        if (i > document_length || substr(document, i, 1) !~ /^[0-9]$/) json_fail()
+        do { i++ } while (i <= document_length && substr(document, i, 1) ~ /^[0-9]$/)
+      }
+      token_end = i - 1
+    }
+    function is_response_value() {
+      return depth == 1 && container[depth] == "object" \
+        && state[depth] == "value" && object_key[depth] == "tool_response"
+    }
+    function begin_value(pos, is_container,    target) {
+      target = is_response_value()
+      if (depth == 0) {
+        if (root_done) json_fail()
+        root_done = 1
+      } else if (container[depth] == "object") {
+        if (state[depth] != "value") json_fail()
+        state[depth] = "comma_or_end"
+      } else {
+        if (!(state[depth] == "value_or_end" || state[depth] == "value")) json_fail()
+        state[depth] = "comma_or_end"
+      }
+      if (target) {
+        if (response_found) json_fail()
+        response_found = 1
+        response_start = pos
+        if (is_container) response_depth = depth + 1
+      }
+      return target
+    }
+    function parse_document(    i, ch, literal, target) {
+      document_length = length(document)
+      if (document_length == 0) json_fail()
+      i = 1
+      while (i <= document_length) {
+        ch = substr(document, i, 1)
+        if (ch == " " || ch == "\t" || ch == "\r" || ch == "\n") {
+          i++
+          continue
+        }
+        if (ch == "{") {
+          if (depth == 0) root_kind = "object"
+          begin_value(i, 1)
+          depth++
+          container[depth] = "object"
+          state[depth] = "key_or_end"
+          i++
+          continue
+        }
+        if (ch == "[") {
+          if (depth == 0) root_kind = "array"
+          begin_value(i, 1)
+          depth++
+          container[depth] = "array"
+          state[depth] = "value_or_end"
+          i++
+          continue
+        }
+        if (ch == "}") {
+          if (depth == 0 || container[depth] != "object" \
+              || !(state[depth] == "key_or_end" || state[depth] == "comma_or_end")) json_fail()
+          if (response_depth == depth) {
+            response_end = i
+            response_depth = 0
+          }
+          delete container[depth]
+          delete state[depth]
+          delete object_key[depth]
+          depth--
+          i++
+          continue
+        }
+        if (ch == "]") {
+          if (depth == 0 || container[depth] != "array" \
+              || !(state[depth] == "value_or_end" || state[depth] == "comma_or_end")) json_fail()
+          if (response_depth == depth) {
+            response_end = i
+            response_depth = 0
+          }
+          delete container[depth]
+          delete state[depth]
+          depth--
+          i++
+          continue
+        }
+        if (ch == ":") {
+          if (depth == 0 || container[depth] != "object" || state[depth] != "colon") json_fail()
+          state[depth] = "value"
+          i++
+          continue
+        }
+        if (ch == ",") {
+          if (depth == 0 || state[depth] != "comma_or_end") json_fail()
+          if (container[depth] == "object") state[depth] = "key"
+          else state[depth] = "value"
+          i++
+          continue
+        }
+        if (ch == "\"") {
+          read_string(i)
+          if (depth > 0 && container[depth] == "object" \
+              && (state[depth] == "key_or_end" || state[depth] == "key")) {
+            if (candidate_valid) object_key[depth] = candidate
+            else object_key[depth] = ""
+            state[depth] = "colon"
+          } else {
+            target = begin_value(i, 0)
+            if (target) response_end = token_end
+            if (depth == 0) root_kind = "scalar"
+          }
+          i = token_end + 1
+          continue
+        }
+        if (ch == "t" && substr(document, i, 4) == "true") {
+          literal = "true"
+        } else if (ch == "f" && substr(document, i, 5) == "false") {
+          literal = "false"
+        } else if (ch == "n" && substr(document, i, 4) == "null") {
+          literal = "null"
+        } else literal = ""
+        if (literal != "") {
+          target = begin_value(i, 0)
+          if (target) response_end = i + length(literal) - 1
+          if (depth == 0) root_kind = "scalar"
+          i += length(literal)
+          continue
+        }
+        if (ch == "-" || ch ~ /^[0-9]$/) {
+          read_number(i)
+          target = begin_value(i, 0)
+          if (target) response_end = token_end
+          if (depth == 0) root_kind = "scalar"
+          i = token_end + 1
+          continue
+        }
+        json_fail()
+      }
+      if (depth != 0 || !root_done || root_kind != "object" \
+          || !response_found || response_depth != 0 || response_end < response_start) json_fail()
+      printf "%s", substr(document, response_start, response_end - response_start + 1)
+    }
+    {
+      if (NR > 1) document = document "\n"
+      document = document $0
+    }
+    END {
+      if (failed) exit 1
+      parse_document()
+    }
+  ' >"$response_tmp" 2>/dev/null; then
+    cat "$response_tmp"
+    response_status=$?
+  else
+    response_status=$?
+  fi
+  rm -f "$response_tmp"
+  return "$response_status"
+}
+
 redact_response_whole_leaf_fail_closed() {
   whole_leaf_response=$1
-  whole_leaf_redacted=$(redact_nonempty_response_strings "$whole_leaf_response")
+  whole_leaf_redacted=
+  if ! whole_leaf_redacted=$(redact_nonempty_response_strings "$whole_leaf_response"); then
+    whole_leaf_redacted=
+  fi
+  if [ -z "$whole_leaf_redacted" ] \
+      || [ "$whole_leaf_redacted" = "$whole_leaf_response" ]; then
+    whole_leaf_redacted=
+    if ! whole_leaf_redacted=$(redact_response_values_awk "$whole_leaf_response"); then
+      whole_leaf_redacted=
+    fi
+  fi
   if [ -n "$whole_leaf_redacted" ] \
     && [ "$whole_leaf_redacted" != "$whole_leaf_response" ]; then
     printf '%s' "$whole_leaf_redacted"
-  else
-    # Shape preservation is preferable, but a failed mandatory rewrite must
-    # still replace the host-visible output with valid, shape-independent JSON.
-    # A bare string carries no discriminator, so unlike a mangled content block
-    # it cannot forge one; the host coerces it into its own text shape.
-    printf '%s' '"[REDACTED]"'
+    return 0
   fi
+  return 1
 }
 
-# PostToolUse output guard: scan this tool's result and, if any secret-like value
-# is present, emit updatedToolOutput with it masked, then exit 0 (a non-zero exit
-# makes Claude Code ignore the JSON). Never blocks; never corrupts on error.
+rewrite_response_conservatively() {
+  conservative_input=$1
+  SAFE_REWRITE=
+  if ! SAFE_REWRITE=$(redact_response_whole_leaf_fail_closed "$conservative_input"); then
+    SAFE_REWRITE=
+  fi
+  [ -n "$SAFE_REWRITE" ] || block_failed_output_rewrite
+}
+
+emit_secret_free_post_tool_replacement() {
+  audit_clear_live_probe_marker
+  case "$(hook_host)" in
+    codex)
+      printf '%s\n' '{"decision":"block","reason":"Agent Guard blocked the original tool output because a sanitized replacement could not be serialized.","hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"Agent Guard blocked a sensitive tool output; the sanitized replacement could not be serialized safely."}}'
+      ;;
+    *)
+      printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PostToolUse","updatedToolOutput":"[REDACTED]"}}'
+      ;;
+  esac
+}
+
+block_failed_output_rewrite() {
+  audit_note error
+  info "$PROGRAM: the tool output could not be serialized into a safe host replacement even with the conservative fallback"
+  emit_secret_free_post_tool_replacement
+  exit 0
+}
+
+emit_post_tool_replacement() {
+  replacement=$1
+  case "$(hook_host)" in
+    codex)
+      # Keep the potentially large updated output on stdin. Linux limits one
+      # exec argument to roughly 128 KiB, so `--argjson ut "$replacement"`
+      # can fail after a successful conservative whole-leaf rewrite. Capture
+      # the complete envelope before printing so a jq failure cannot append a
+      # fixed response after a partial JSON document.
+      codex_envelope=
+      if codex_envelope=$(printf '%s' "$replacement" \
+        | jq -c '
+            {decision: "block",
+             reason: "Agent Guard blocked the original tool output because it contained sensitive values; use the sanitized replacement in additionalContext.",
+             hookSpecificOutput: {
+               hookEventName: "PostToolUse",
+               additionalContext: ("Agent Guard sanitized tool output:\n" + (. | tojson))
+             }}' 2>/dev/null); then
+        printf '%s\n' "$codex_envelope"
+      else
+        emit_secret_free_post_tool_replacement
+      fi
+      ;;
+    *)
+      printf '%s' '{"hookSpecificOutput":{"hookEventName":"PostToolUse","updatedToolOutput":'
+      printf '%s' "$replacement"
+      printf '%s\n' '}}'
+      ;;
+  esac
+}
+
+recover_post_tool_validation_failure() {
+  recovery_input=$1
+  recovery_response=
+  if ! recovery_response=$(extract_post_tool_response_awk "$recovery_input"); then
+    recovery_response=
+    return 1
+  fi
+
+  # The jq validator failed, so no scanner-dependent verdict is trustworthy.
+  # Conservatively sanitize the entire response with the independent parser.
+  recovery_output=
+  if ! recovery_output=$(redact_response_values_awk "$recovery_response"); then
+    recovery_output=
+  fi
+  if [ -z "$recovery_output" ]; then
+    block_failed_output_rewrite
+  fi
+
+  audit_note masked
+  emit_post_tool_replacement "$recovery_output"
+  info "$PROGRAM: replaced the complete tool output after the primary PostToolUse JSON validator failed"
+  return 0
+}
+
 # Mask PII inside ANY string leaf of the tool_response JSON ($1), preserving the
 # original shape. The regex patterns mirror pii_regex_adapter_filter (the CLI
 # adapter) so the hook and `agent-guard pii-filter` mask the same things; Tier-2
@@ -5726,10 +6538,12 @@ mask_pii_response_json() {
 # (AGENT_GUARD_OUTPUT_REDACT, on by default) and PII masking
 # (AGENT_GUARD_PII_HOOK_MODE=mask). Both transform the same tool_response and are
 # emitted as a single updatedToolOutput, so they compose instead of racing for
-# the one rewrite slot. Never blocks; never corrupts on error (fail-safe: any
-# step that fails leaves the value unchanged and the original passes through).
+# the one rewrite slot. PostToolUse cannot retract a completed tool result with
+# exit status alone, so mandatory masking has a dependency-independent,
+# shape-preserving fallback and emits one host-valid replacement.
 redact_tool_output() {
   input=$1
+  REDACT_OUTPUT_EMITTED=0
   # Validate the mode in the main shell (pii_hook_mode dies on an unsupported
   # value; the $(...) read below would otherwise swallow the exit and silently
   # leave PII unmasked). A misconfigured mode fails loud instead of fail-open.
@@ -5740,7 +6554,15 @@ redact_tool_output() {
   [ "$(pii_hook_mode)" = mask ] && pii_on=1
   [ "$secrets_on" -eq 1 ] || [ "$pii_on" -eq 1 ] || return 0
 
-  resp=$(printf '%s' "$input" | jq -c '.tool_response // empty' 2>/dev/null) || return 0
+  resp=
+  if ! resp=$(printf '%s' "$input" | jq -c '.tool_response // empty' 2>/dev/null); then
+    resp=
+    if recover_post_tool_validation_failure "$input"; then
+      REDACT_OUTPUT_EMITTED=1
+      return 0
+    fi
+    block_failed_output_rewrite
+  fi
   case "$resp" in
     ''|null) return 0 ;;
   esac
@@ -5752,13 +6574,21 @@ redact_tool_output() {
   # are still valid on the rewritten result. The token gate spares large
   # high-cardinality output the path collection.
   resp_full=''
+  conservative_done=0
   case "$resp" in
     *base64*|*mimeType*)
-      r=$(printf '%s' "$resp" \
-        | jq -c "$JQ_SHAPE_SAFE_WALK"'strip_binary_payloads' 2>/dev/null)
-      if [ -n "$r" ] && [ "$r" != "$resp" ]; then
-        resp_full=$resp
-        resp=$r
+      r=
+      if r=$(printf '%s' "$resp" \
+        | jq -c "$JQ_SHAPE_SAFE_WALK"'strip_binary_payloads' 2>/dev/null); then
+        if [ -n "$r" ] && [ "$r" != "$resp" ]; then
+          resp_full=$resp
+          resp=$r
+        fi
+      else
+        r=
+        rewrite_response_conservatively "$resp"
+        resp=$SAFE_REWRITE
+        conservative_done=1
       fi
       ;;
   esac
@@ -5766,105 +6596,148 @@ redact_tool_output() {
   out=$resp
   did_secret=0; did_pii=0
 
-  if [ "$secrets_on" -eq 1 ]; then
-    r=$(redact_nul_response_json "$out")
-    if [ -n "$r" ] && [ "$r" != "$out" ]; then out=$r; did_secret=1; fi
-    if output_scan_input_exceeds_cap "$out"; then
-      out=$(redact_response_whole_leaf_fail_closed "$out")
+  [ "$conservative_done" -eq 1 ] && did_secret=1
+
+  if [ "$secrets_on" -eq 1 ] && [ "$conservative_done" -eq 0 ]; then
+    r=
+    if ! r=$(redact_nul_response_json "$out"); then
+      r=
+      rewrite_response_conservatively "$out"
+      out=$SAFE_REWRITE
+      conservative_done=1
       did_secret=1
-    elif large_response_has_secretish_assignment "$out"; then
-      out=$(redact_response_whole_leaf_fail_closed "$out")
+    elif [ -n "$r" ] && [ "$r" != "$out" ]; then
+      out=$r
       did_secret=1
-    else
-      secret_bundle=$(detect_output_secret_bundle "$out")
-      if [ -n "$secret_bundle" ]; then
-        if printf '%s' "$secret_bundle" \
-          | jq -e '.whole_leaf == true' >/dev/null 2>&1; then
-          out=$(redact_response_whole_leaf_fail_closed "$out")
+    fi
+    if [ "$conservative_done" -eq 0 ] && output_scan_input_exceeds_cap "$out"; then
+      rewrite_response_conservatively "$out"
+      out=$SAFE_REWRITE
+      conservative_done=1
+      did_secret=1
+    elif [ "$conservative_done" -eq 0 ] && large_response_has_secretish_assignment "$out"; then
+      rewrite_response_conservatively "$out"
+      out=$SAFE_REWRITE
+      conservative_done=1
+      did_secret=1
+    elif [ "$conservative_done" -eq 0 ]; then
+      secret_bundle=
+      if ! secret_bundle=$(detect_output_secret_bundle "$out"); then
+        secret_bundle=
+        rewrite_response_conservatively "$out"
+        out=$SAFE_REWRITE
+        conservative_done=1
+        did_secret=1
+      elif [ -n "$secret_bundle" ]; then
+        if ! classify_secret_bundle "$secret_bundle"; then
+          rewrite_response_conservatively "$out"
+          out=$SAFE_REWRITE
+          conservative_done=1
           did_secret=1
-        else
-          secrets=$(printf '%s' "$secret_bundle" \
-            | jq -c '.secrets | if length > 0 then . else empty end' 2>/dev/null)
-          if [ -n "$secrets" ]; then
-            r=$(redact_tool_response_json "$out" "$secrets")
-            if [ -z "$r" ] || [ "$r" = "$out" ]; then
-              r=$(redact_response_whole_leaf_fail_closed "$out")
-            fi
-            if [ -n "$r" ] && [ "$r" != "$out" ]; then out=$r; did_secret=1; fi
+        elif [ "$BUNDLE_MODE" = whole_leaf ]; then
+          rewrite_response_conservatively "$out"
+          out=$SAFE_REWRITE
+          conservative_done=1
+          did_secret=1
+        elif [ "$BUNDLE_SECRETS" != '[]' ]; then
+          secrets=$BUNDLE_SECRETS
+          r=
+          if ! r=$(redact_tool_response_json "$out" "$secrets"); then
+            r=
           fi
+          if [ -z "$r" ] || [ "$r" = "$out" ]; then
+            rewrite_response_conservatively "$out"
+            r=$SAFE_REWRITE
+            conservative_done=1
+          fi
+          if [ -n "$r" ] && [ "$r" != "$out" ]; then out=$r; did_secret=1; fi
         fi
       fi
     fi
   fi
 
-  if [ "$pii_on" -eq 1 ]; then
-    trusted=$(trusted_live_probe_replacements "$out")
+  if [ "$pii_on" -eq 1 ] && [ "$conservative_done" -eq 0 ]; then
+    trusted=
+    if ! trusted=$(trusted_live_probe_replacements "$out"); then
+      trusted='[]'
+    fi
     case "$trusted" in ''|null) trusted='[]' ;; esac
-    r=$(mask_pii_response_json "$out" "$trusted")
-    if [ -n "$r" ] && [ "$r" != "$out" ]; then out=$r; did_pii=1; fi
+    r=
+    if ! r=$(mask_pii_response_json "$out" "$trusted"); then
+      r=
+      rewrite_response_conservatively "$out"
+      out=$SAFE_REWRITE
+      conservative_done=1
+      did_pii=1
+    elif [ -n "$r" ] && [ "$r" != "$out" ]; then
+      out=$r
+      did_pii=1
+    fi
   fi
 
-  if [ "$secrets_on" -eq 1 ]; then
-    live_probe_id=$(live_probe_run_id)
-    r=$(redact_live_probe_response_json "$out" "$live_probe_id")
-    if [ -n "$r" ] && [ "$r" != "$out" ]; then
+  if [ "$secrets_on" -eq 1 ] && [ "$conservative_done" -eq 0 ]; then
+    live_probe_id=
+    if ! live_probe_id=$(live_probe_run_id); then
+      live_probe_id=
+    fi
+    live_failed=0
+    r=
+    if ! r=$(redact_live_probe_response_json "$out" "$live_probe_id"); then
+      r=
+      live_failed=1
+    elif [ -n "$r" ] && [ "$r" != "$out" ]; then
       if ! response_drops_live_probe "$r"; then
         r=''
+        live_failed=1
       elif [ -n "$live_probe_id" ] && ! audit_mark_live_probe; then
         # Provenance could not be persisted. Recompute without an id so a failed
         # marker cannot produce a replacement that later appears trustworthy.
-        r=$(redact_live_probe_response_json "$out" '')
-        if [ -z "$r" ] || [ "$r" = "$out" ] \
+        r=
+        if ! r=$(redact_live_probe_response_json "$out" ''); then
+          r=
+          live_failed=1
+        elif [ -z "$r" ] || [ "$r" = "$out" ] \
             || ! response_drops_live_probe "$r"; then
           r=''
+          live_failed=1
         fi
       fi
     fi
-    if [ -n "$r" ] && [ "$r" != "$out" ]; then out=$r; did_secret=1; fi
+    if [ "$live_failed" -eq 1 ]; then
+      rewrite_response_conservatively "$out"
+      out=$SAFE_REWRITE
+      conservative_done=1
+      did_secret=1
+    elif [ -n "$r" ] && [ "$r" != "$out" ]; then
+      out=$r
+      did_secret=1
+    fi
   fi
 
-  [ "$out" != "$resp" ] || return 0
+  [ "$did_secret" -eq 1 ] || [ "$did_pii" -eq 1 ] || return 0
   audit_note masked
 
   if [ -n "$resp_full" ]; then
     # Both documents ride stdin because the payloads are exactly the strings
     # that exceed Linux's ~128 KiB exec-argument limit. A bare "[REDACTED]"
     # fallback has no block to restore into and stands as-is.
-    r=$(printf '%s\n%s\n' "$resp_full" "$out" \
+    r=
+    if r=$({ printf '%s\n%s\n' "$resp_full" "$out"; } 2>/dev/null \
       | jq -sc "$JQ_SHAPE_SAFE_WALK"'
           .[0] as $orig | .[1] | restore_binary_payloads($orig)
-        ' 2>/dev/null)
-    [ -n "$r" ] && out=$r
+        ' 2>/dev/null); then
+      [ -n "$r" ] && out=$r
+    else
+      r=
+    fi
   fi
 
-  case "$(hook_host)" in
-    codex)
-      # Keep the potentially large updated output on stdin. Linux limits one
-      # exec argument to roughly 128 KiB, so `--argjson ut "$out"` can fail
-      # after a successful conservative whole-leaf rewrite.
-      if ! printf '%s' "$out" \
-        | jq -c '
-            {decision: "block",
-             reason: "Agent Guard blocked the original tool output because it contained sensitive values; use the sanitized replacement in additionalContext.",
-             hookSpecificOutput: {
-               hookEventName: "PostToolUse",
-               additionalContext: ("Agent Guard sanitized tool output:\n" + (. | tojson))
-             }}' 2>/dev/null; then
-        audit_clear_live_probe_marker
-        return 0
-      fi
-      ;;
-    *)
-      if ! printf '%s' "$out" \
-        | jq -c \
-            '{hookSpecificOutput: {hookEventName: "PostToolUse", updatedToolOutput: .}}' 2>/dev/null; then
-        audit_clear_live_probe_marker
-        return 0
-      fi
-      ;;
-  esac
+  emit_post_tool_replacement "$out"
 
-  tool=$(json_value '.tool_name // "tool"' "$input")
+  tool=
+  if ! tool=$(json_value '.tool_name // "tool"' "$input"); then
+    tool=tool
+  fi
   if [ "$did_secret" -eq 1 ] && [ "$did_pii" -eq 1 ]; then
     info "$PROGRAM: masked secret-like values and PII in $tool output"
   elif [ "$did_pii" -eq 1 ]; then
@@ -5872,7 +6745,8 @@ redact_tool_output() {
   else
     info "$PROGRAM: masked secret-like values in $tool output"
   fi
-  exit 0
+  REDACT_OUTPUT_EMITTED=1
+  return 0
 }
 
 # --- PostToolUse: scan the path this tool call actually wrote ----------------
@@ -6020,7 +6894,7 @@ scan_post_tool_write_target() {
       )
       case "$?" in
         0) return 0 ;;
-        1) info "$PROGRAM: the file this tool call wrote contains secret-like values"; exit 2 ;;
+        1) info "$PROGRAM: the file this tool call wrote contains secret-like values"; return 1 ;;
         *)
           handle_git_infrastructure_failure "$input" \
             "$PROGRAM: the file this tool call wrote could not be scanned;"
@@ -6105,7 +6979,7 @@ scan_post_tool_write_target() {
     0) return 0 ;;
     1)
       info "$PROGRAM: the file this tool call wrote contains secret-like values"
-      exit 2
+      return 1
       ;;
     *)
       handle_git_infrastructure_failure "$input" \
@@ -6118,13 +6992,20 @@ hook_post_tool() {
   input=$(read_stdin)
   HOOK_EVENT=PostToolUse
   HOOK_INPUT=$input
+  if command -v jq >/dev/null 2>&1 && [ -n "$input" ]; then
+    if ! printf '%s' "$input" | jq -e 'type == "object"' >/dev/null 2>&1; then
+      if recover_post_tool_validation_failure "$input"; then
+        return 0
+      fi
+      validate_hook_object PostToolUse "$input" || return 0
+    fi
+  fi
   if ! hook_dependencies_ready; then
     emit_degraded_hook_warning PostToolUse "$input"
     return 0
   fi
   need_cmd jq
   [ -n "$input" ] || return 0
-  validate_hook_object PostToolUse "$input" || return 0
 
   # Same recovery PreToolUse does (#227). A host may serialize tool_input as a
   # JSON-encoded string; the precise-field extractors then find nothing, so
@@ -6143,8 +7024,10 @@ hook_post_tool() {
   tool=$(json_value '.tool_name // .tool // .name // empty' "$input")
   workdir=$(json_value '.tool_input.workdir // .tool_input.cwd // .cwd // empty' "$input")
 
-  # Mutation tools keep the working-tree backstop (may exit 2). It runs first so
-  # a secret written to disk is still surfaced even when redaction is enabled.
+  # Mutation tools keep the working-tree backstop. It runs first so a secret
+  # written to disk is recorded even when the same event also needs an output
+  # rewrite; a disk-only finding still exits 2 below.
+  post_tool_disk_finding=0
   if is_mutation_tool "$tool"; then
     git_backstop_ok=0
     if ! command -v git >/dev/null 2>&1; then
@@ -6160,7 +7043,11 @@ hook_post_tool() {
       status=$?
       case "$status" in
         0) git_backstop_ok=1 ;;
-        1) info "$PROGRAM: changed files contain secret-like values after tool execution"; exit 2 ;;
+        1)
+          info "$PROGRAM: changed files contain secret-like values after tool execution"
+          audit_note blocked
+          post_tool_disk_finding=1
+          ;;
         *)
           handle_git_infrastructure_failure "$input" \
             "$PROGRAM: changed files could not be scanned after tool execution;"
@@ -6169,24 +7056,35 @@ hook_post_tool() {
     fi
     # Second backstop for what the git-shaped one structurally cannot see.
     scan_post_tool_write_target "$input" "$tool" "$workdir" "$git_backstop_ok"
+    post_target_status=$?
+    if [ "$post_target_status" -eq 1 ]; then
+      audit_note blocked
+      post_tool_disk_finding=1
+    fi
   fi
 
   # All matched tools: mask secret-like values (and PII, when
   # AGENT_GUARD_PII_HOOK_MODE=mask) using the selected host's output contract.
   redact_tool_output "$input"
+  if [ "$post_tool_disk_finding" -eq 1 ] \
+    && [ "$REDACT_OUTPUT_EMITTED" -eq 0 ]; then
+    exit 2
+  fi
 }
 
 hook_stop() {
   input=$(read_stdin)
   HOOK_EVENT=Stop
   HOOK_INPUT=$input
+  if command -v jq >/dev/null 2>&1 && [ -n "$input" ]; then
+    validate_hook_object Stop "$input" || return 0
+  fi
   if ! hook_dependencies_ready; then
     emit_degraded_hook_warning Stop "$input"
     return 0
   fi
   need_cmd jq
   if [ -n "$input" ]; then
-    validate_hook_object Stop "$input" || return 0
     active=$(json_value '.stop_hook_active // false' "$input")
     if [ "$active" = "true" ]; then
       info "$PROGRAM: stop hook already active; skipping repeat scan to avoid a loop"
@@ -6764,53 +7662,31 @@ do_exec() {
 
     secret_bundle=''
     if [ "$output_fully_masked" -eq 0 ]; then
-      if ! secret_bundle=$(
-        {
-          detector_failed=0
-          if [ -n "$response" ]; then
-            if [ "$invalid_output" -eq 1 ]; then
-              # The raw pass already handled every assignment byte-exactly.
-              # Re-running the JSON env heuristic would only produce U+FFFD
-              # variants that cannot match the preserved plaintext.
-              detect_output_secret_records "$response" no \
-                || detector_failed=1
-            else
-              detect_output_secret_records "$response" \
-                || detector_failed=1
-            fi
-          fi
-          detect_printenv_argument_secret_records "$response" "$@" \
-            || detector_failed=1
-          # POSIX pipelines report only the final command. Convert any producer
-          # failure into an explicit bundle record before the successful
-          # bundler could otherwise turn an empty detector stream into a pass.
-          if [ "$detector_failed" -ne 0 ]; then
-            printf '%s\n' '{"agent_guard_whole_leaf":true}'
-          fi
-        } 2>/dev/null \
-          | bundle_secret_records
-      ); then
+      # The raw pass already handled invalid-byte assignments exactly. The
+      # bundle helper skips only that JSON env heuristic while keeping every
+      # detector and bundler stage atomic.
+      if ! secret_bundle=$(detect_exec_secret_bundle \
+        "$response" "$invalid_output" "$@"); then
         masked='[REDACTED]'
         output_fully_masked=1
         secret_bundle=''
       fi
     fi
     if [ -n "$secret_bundle" ]; then
-      if printf '%s' "$secret_bundle" \
-        | jq -e '.whole_leaf == true' >/dev/null 2>&1; then
+      if ! classify_secret_bundle "$secret_bundle"; then
         masked='[REDACTED]'
         output_fully_masked=1
-      else
-        secrets=$(printf '%s' "$secret_bundle" \
-          | jq -c '.secrets | if length > 0 then . else empty end' 2>/dev/null)
-        if [ -n "$secrets" ]; then
-          if r=$(redact_plaintext_literal "$masked" "$secrets" 2>/dev/null) \
-            && [ -n "$r" ]; then
-            masked=$r
-          else
-            masked='[REDACTED]'
-            output_fully_masked=1
-          fi
+      elif [ "$BUNDLE_MODE" = whole_leaf ]; then
+        masked='[REDACTED]'
+        output_fully_masked=1
+      elif [ "$BUNDLE_SECRETS" != '[]' ]; then
+        secrets=$BUNDLE_SECRETS
+        if r=$(redact_plaintext_literal "$masked" "$secrets" 2>/dev/null) \
+          && [ -n "$r" ]; then
+          masked=$r
+        else
+          masked='[REDACTED]'
+          output_fully_masked=1
         fi
       fi
     fi

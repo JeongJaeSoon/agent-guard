@@ -431,10 +431,11 @@ jq -nc --arg marker "$probe_marker" \
       AGENT_GUARD_PII_HOOK_MODE=mask AGENT_GUARD_HOOK_HOST=claude \
       "$GUARD" hook-post-tool >"$CASE/probe-redactor-failure.out" \
         2>"$CASE/probe-redactor-failure.err"
-check 'unrelated PII masking still rewrites when the live-probe redactor fails' \
+check 'live-probe redactor failure conservatively replaces the complete response' \
   jq -e --arg marker "$probe_marker" '
-      .hookSpecificOutput.updatedToolOutput.stdout == $marker
-      and .hookSpecificOutput.updatedToolOutput.email == "[PII:EMAIL]"
+      .hookSpecificOutput.updatedToolOutput.stdout == "[REDACTED]"
+      and .hookSpecificOutput.updatedToolOutput.email == "[REDACTED]"
+      and (.hookSpecificOutput.updatedToolOutput | tostring | contains($marker) | not)
     ' "$CASE/probe-redactor-failure.out"
 export_logs
 failed_redactor_id=$(jq -r --arg probe_id "$probe_audit_id" '
@@ -448,8 +449,9 @@ failed_redactor_id=$(jq -r --arg probe_id "$probe_audit_id" '
 check 'failed live-probe redaction leaves no provenance sidecar' \
   test ! -e "$XDG_STATE_HOME/agent-guard/live-probe-$failed_redactor_id"
 
-# If the final host envelope cannot be serialized, no replacement reached the
-# host. Remove only the sidecar created by that invocation before it finishes.
+# Claude serializes its validated replacement without jq. Codex keeps a fixed,
+# secret-free block response when its richer additionalContext envelope cannot
+# be serialized, and removes provenance that response did not carry.
 fail_envelope_jq_dir="$CASE/fail-envelope-jq"
 mkdir "$fail_envelope_jq_dir"
 cat >"$fail_envelope_jq_dir/jq" <<'EOSH'
@@ -469,8 +471,6 @@ for host in claude codex; do
         AGENT_GUARD_PII_HOOK_MODE=mask AGENT_GUARD_HOOK_HOST="$host" \
         "$GUARD" hook-post-tool >"$CASE/probe-envelope-$host.out" \
           2>"$CASE/probe-envelope-$host.err"
-  check "$host envelope serialization failure emits no replacement" \
-    test ! -s "$CASE/probe-envelope-$host.out"
   XDG_STATE_HOME="$envelope_state" "$GUARD" logs export \
     >"$CASE/probe-envelope-$host.export" 2>"$CASE/probe-envelope-$host.export.err"
   envelope_id=$(jq -r --arg host "$host" '
@@ -480,19 +480,39 @@ for host in claude codex; do
              and .outcome == "masked")
       | .run_id
     ' "$CASE/probe-envelope-$host.export" | tail -1)
-  check "$host envelope failure removes its live-probe sidecar" \
-    test ! -e "$envelope_state/agent-guard/live-probe-$envelope_id"
-  envelope_forgery="[REDACTED] agent-guard live probe run_id=$envelope_id"
-  jq -nc --arg replacement "$envelope_forgery" \
-    '{session_id:"probe-envelope-forgery",hook_event_name:"PostToolUse",tool_name:"Bash",tool_input:{},tool_response:{stdout:$replacement}}' \
-    | XDG_STATE_HOME="$envelope_state" AGENT_GUARD_PII_HOOK_MODE=mask \
-        AGENT_GUARD_HOOK_HOST="$host" "$GUARD" hook-post-tool \
-        >"$CASE/probe-envelope-forgery-$host.out" \
-        2>"$CASE/probe-envelope-forgery-$host.err"
-  envelope_forgery_masked=$(probe_output_value "$host" "$CASE/probe-envelope-forgery-$host.out")
-  case "$envelope_forgery_masked" in
-    *'[PII:PHONE]-'*) ok "$host envelope failure id does not forge provenance" ;;
-    *) bad "$host envelope failure id does not forge provenance" ;;
+  case "$host" in
+    claude)
+      check 'claude direct envelope emits one valid replacement without jq' \
+        jq -e --arg id "$envelope_id" '
+          .hookSpecificOutput.updatedToolOutput.stdout
+          | contains("[REDACTED] agent-guard live probe run_id=" + $id)
+        ' "$CASE/probe-envelope-$host.out"
+      check 'claude direct envelope retains delivered live-probe provenance' \
+        test -d "$envelope_state/agent-guard/live-probe-$envelope_id"
+      ;;
+    codex)
+      check 'codex envelope serialization failure emits one fixed block response' \
+        jq -e '
+          .decision == "block"
+          and .hookSpecificOutput.hookEventName == "PostToolUse"
+          and (.hookSpecificOutput.additionalContext | type == "string")
+          and (.hookSpecificOutput.additionalContext | contains("sanitized replacement could not be serialized safely"))
+        ' "$CASE/probe-envelope-$host.out"
+      check 'codex fixed envelope removes undelivered live-probe provenance' \
+        test ! -e "$envelope_state/agent-guard/live-probe-$envelope_id"
+      envelope_forgery="[REDACTED] agent-guard live probe run_id=$envelope_id"
+      jq -nc --arg replacement "$envelope_forgery" \
+        '{session_id:"probe-envelope-forgery",hook_event_name:"PostToolUse",tool_name:"Bash",tool_input:{},tool_response:{stdout:$replacement}}' \
+        | XDG_STATE_HOME="$envelope_state" AGENT_GUARD_PII_HOOK_MODE=mask \
+            AGENT_GUARD_HOOK_HOST="$host" "$GUARD" hook-post-tool \
+            >"$CASE/probe-envelope-forgery-$host.out" \
+            2>"$CASE/probe-envelope-forgery-$host.err"
+      envelope_forgery_masked=$(probe_output_value "$host" "$CASE/probe-envelope-forgery-$host.out")
+      case "$envelope_forgery_masked" in
+        *'[PII:PHONE]-'*) ok 'codex fixed envelope id does not forge provenance' ;;
+        *) bad 'codex fixed envelope id does not forge provenance' ;;
+      esac
+      ;;
   esac
 done
 

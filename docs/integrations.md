@@ -105,6 +105,11 @@ individual path cannot contain spaces.
 - Bash and MCP mutations may lack a usable named target. Their working-tree
   backstop remains useful but cannot discover every ignored or
   outside-repository write.
+- When one mutation produces both a working-tree finding and sensitive tool
+  output, the PostToolUse hook reserves its single stdout JSON value for the
+  host-valid sanitized output. It reports the disk finding on stderr and marks
+  the audit outcome `blocked`. A disk finding with no output rewrite still exits
+  with status 2.
 - Shell blocking is pattern-based. It can block benign path-shaped text and an
   actively evasive command can avoid a fixed pattern list.
 - A user-typed host shell escape is outside the tool-hook boundary. Do not print
