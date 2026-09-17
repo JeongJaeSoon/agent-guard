@@ -6583,11 +6583,11 @@ printf 'clean producer fixture\n' >"$UNTRACKED_LIMIT_REPO/producer-failure.txt"
 status=$?
 if [ "$status" -eq 3 ] \
    && grep -Fq 'failed to prepare untracked files for scanning' "$ERR" \
-   && grep -Fq 'synthetic untracked cat failure' "$ERR" \
+   && ! grep -Fq 'synthetic untracked cat failure' "$ERR" \
    && ! grep -Fq 'untracked files exceeded the scan input limit' "$ERR"; then
-  ok "genuine untracked file-read failure remains a preparation failure"
+  ok "genuine untracked file-read failure uses a bounded generic preparation diagnostic"
 else
-  not_ok "genuine untracked file-read failure stays distinct from the size limit (expected 3, got $status)"
+  not_ok "genuine untracked file-read failure stays generic and distinct from the size limit (expected 3, got $status)"
   sed 's/^/  stderr: /' "$ERR"
 fi
 
