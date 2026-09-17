@@ -333,6 +333,79 @@ fi
 # render-hook-manifests.sh --check assertion below fails on any drift in all
 # four files at once.
 
+expected_codex_pre='Bash|apply_patch|Agent|Task|mcp__.*'
+expected_codex_post='Bash|apply_patch|Agent|Task|mcp__.*'
+expected_claude_pre='Write|Edit|MultiEdit|NotebookEdit|Read|NotebookRead|Grep|Glob|Bash|WebFetch|WebSearch|apply_patch|Agent|Task|mcp__.*'
+expected_claude_post='^(Write|Edit|MultiEdit|NotebookEdit|Bash|PowerShell|apply_patch|Read|NotebookRead|Grep|Glob|WebFetch|WebSearch|Agent|Task|Skill|Monitor|LSP|ListMcpResourcesTool|ReadMcpResourceTool|mcp__.*)$'
+
+assert_manifest_matchers() {
+  matcher_file=$1
+  matcher_label=$2
+  expected_pre=$3
+  expected_post=$4
+  actual_pre=$(jq -r '.hooks.PreToolUse[0].matcher' "$matcher_file")
+  actual_post=$(jq -r '.hooks.PostToolUse[0].matcher' "$matcher_file")
+  if [ "$actual_pre" = "$expected_pre" ]; then
+    ok "$matcher_label PreToolUse matcher equals the renderer contract"
+  else
+    not_ok "$matcher_label PreToolUse matcher drifted (got: $actual_pre)"
+  fi
+  if [ "$actual_post" = "$expected_post" ]; then
+    ok "$matcher_label PostToolUse matcher equals the renderer contract"
+  else
+    not_ok "$matcher_label PostToolUse matcher drifted (got: $actual_post)"
+  fi
+}
+
+assert_manifest_matchers "$PLUGIN_ROOT/hooks.json" "Codex plugin" \
+  "$expected_codex_pre" "$expected_codex_post"
+assert_manifest_matchers "$ROOT/examples/codex/hooks.json" "Codex example" \
+  "$expected_codex_pre" "$expected_codex_post"
+assert_manifest_matchers "$PLUGIN_ROOT/hooks/hooks.json" "Claude plugin" \
+  "$expected_claude_pre" "$expected_claude_post"
+assert_manifest_matchers "$ROOT/examples/claude/settings.project.json" "Claude example" \
+  "$expected_claude_pre" "$expected_claude_post"
+
+claude_post_matcher=$(jq -r '.hooks.PostToolUse[0].matcher' "$PLUGIN_ROOT/hooks/hooks.json")
+for structural_tool in \
+  PowerShell Skill Monitor LSP ListMcpResourcesTool \
+  ReadMcpResourceTool mcp__server__tool; do
+  if jq -n -e --arg matcher "$claude_post_matcher" --arg tool "$structural_tool" \
+      '$tool | test($matcher)' >/dev/null; then
+    ok "Claude PostToolUse matcher structurally covers $structural_tool"
+  else
+    not_ok "Claude PostToolUse matcher structural approximation misses $structural_tool"
+  fi
+done
+for structural_unknown in \
+  FutureTool SkillManager MonitorStatus MyLSPClient TodoWrite \
+  NotASkill xReadMcpResourceTool Bashful; do
+  if jq -n -e --arg matcher "$claude_post_matcher" --arg tool "$structural_unknown" \
+      '$tool | test($matcher) | not' >/dev/null; then
+    ok "Claude PostToolUse matcher structural approximation passes through unrelated $structural_unknown"
+  else
+    not_ok "Claude PostToolUse matcher structural approximation overmatches unrelated $structural_unknown"
+  fi
+done
+
+if command -v node >/dev/null 2>&1; then
+  if node -e '
+      const pattern = new RegExp(process.argv[1]);
+      const positives = process.argv[2].split(",");
+      const negatives = process.argv[3].split(",");
+      if (!positives.every((name) => pattern.test(name))) process.exit(1);
+      if (!negatives.every((name) => !pattern.test(name))) process.exit(1);
+    ' "$claude_post_matcher" \
+      'PowerShell,Skill,Monitor,LSP,ListMcpResourcesTool,ReadMcpResourceTool,mcp__server__tool' \
+      'FutureTool,SkillManager,MonitorStatus,MyLSPClient,TodoWrite,NotASkill,xReadMcpResourceTool,Bashful'; then
+    ok "Claude PostToolUse matcher passes the actual JavaScript RegExp contract"
+  else
+    not_ok "Claude PostToolUse matcher failed the JavaScript RegExp contract"
+  fi
+else
+  ok "Claude PostToolUse JavaScript RegExp check skipped without Node; structural checks remain active"
+fi
+
 # Delegating work is a parent-context boundary. Both current `Agent` calls and
 # Claude's legacy `Task` alias must enter the pre/post pipeline on both hosts;
 # otherwise a secret can leave in the delegation prompt or return unredacted in
@@ -8221,6 +8294,30 @@ post_tool_out() {
   printf '%s' "$1" | (cd "$TMP_ROOT" && "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool) \
     >"$OUT" 2>"$ERR"
 }
+
+# Execute the generated Claude command with synthetic events to prove the
+# manifest-command/handler contract. This does not prove Claude runtime
+# dispatch; the matcher checks above are a structural approximation of that
+# host-owned boundary.
+claude_generated_post_command=$(jq -r \
+  '.hooks.PostToolUse[0].hooks[0].command' "$PLUGIN_ROOT/hooks/hooks.json")
+for generated_post_tool in PowerShell Skill Monitor LSP ListMcpResourcesTool; do
+  jq -nc --arg tool "$generated_post_tool" \
+    '{tool_name:$tool,tool_input:{},
+      tool_response:{stdout:"AGENT_GUARD_TEST_SECRET",stderr:""}}' \
+    | (cd "$TMP_ROOT" && CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" \
+        sh -c "$claude_generated_post_command") >"$OUT" 2>"$ERR"
+  generated_post_status=$?
+  if [ "$generated_post_status" -eq 0 ] \
+     && grep -Fq '[REDACTED]' "$OUT" \
+     && ! grep -Fq 'AGENT_GUARD_TEST_SECRET' "$OUT"; then
+    ok "generated Claude PostToolUse command routes $generated_post_tool to the redaction handler contract"
+  else
+    not_ok "generated Claude PostToolUse command/handler contract failed for $generated_post_tool (status $generated_post_status)"
+    sed 's/^/  stdout: /' "$OUT"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+done
 
 # A disk finding and a result finding compete for the hook's single stdout JSON
 # slot. Keep the host-valid masking response on stdout, surface the disk finding
