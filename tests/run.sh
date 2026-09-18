@@ -6742,6 +6742,102 @@ else
   sed 's/^/  stderr: /' "$ERR"
 fi
 
+# --- git diff scan input limit keeps truncation distinct from failures -----
+# The diff producer is bounded by the same sentinel-byte `head`, so git reports
+# SIGPIPE once the budget is reached. The byte count, not that expected producer
+# status, defines the scan result, and the diagnostic names the budget so the
+# operator can act on it.
+DIFF_LIMIT_REPO="$TMP_ROOT/diff-limit-repo"
+mkdir -p "$DIFF_LIMIT_REPO"
+(
+  cd "$DIFF_LIMIT_REPO" || exit 2
+  git init -q
+  git config user.email t@e
+  git config user.name t
+  printf 'clean\n' >README.md
+  git add README.md
+  git commit -q -m init
+  awk 'BEGIN { for (i = 0; i < 130000; i++) print "oversized-diff-line-payload" }' \
+    >oversized.txt
+  git add oversized.txt
+  "$PLUGIN_ROOT/bin/agent-guard" scan-staged >"$OUT" 2>"$ERR"
+)
+status=$?
+if [ "$status" -eq 3 ] \
+   && grep -Eq 'git diff exceeded the scan input limit \([0-9]+ bytes\)' "$ERR" \
+   && ! grep -Fq 'git diff failed' "$ERR" \
+   && ! grep -Eq 'SIGPIPE|signal 13|Broken pipe' "$ERR"; then
+  ok "over-limit staged diff reports the scan input limit with its byte budget"
+else
+  not_ok "over-limit staged diff names the size limit instead of a git failure (expected 3, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+(
+  cd "$DIFF_LIMIT_REPO" || exit 2
+  "$PLUGIN_ROOT/bin/agent-guard" scan-working-tree >"$OUT" 2>"$ERR"
+)
+status=$?
+if [ "$status" -eq 3 ] \
+   && grep -Fq 'git diff exceeded the scan input limit' "$ERR" \
+   && ! grep -Fq 'git diff failed' "$ERR"; then
+  ok "over-limit working-tree diff reports the scan input limit"
+else
+  not_ok "over-limit working-tree diff names the size limit instead of a git failure (expected 3, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+# A git diff that genuinely fails produces no output at all, so the reordered
+# byte check must fall through to the failure diagnostic rather than absorb it.
+(
+  cd "$DIFF_LIMIT_REPO" || exit 2
+  PATH="$DIFF_FAIL_BIN:$PATH" AGENT_GUARD_TEST_REAL_GIT="$REAL_GIT" \
+    "$PLUGIN_ROOT/bin/agent-guard" scan-staged >"$OUT" 2>"$ERR"
+)
+status=$?
+if [ "$status" -eq 3 ] \
+   && grep -Fq 'git diff failed' "$ERR" \
+   && ! grep -Fq 'exceeded the scan input limit' "$ERR"; then
+  ok "genuine git diff failure stays distinct from the scan input limit"
+else
+  not_ok "genuine git diff failure keeps its own diagnostic (expected 3, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+# Hook policy still decides what an unavailable scan means; the corrected
+# classification must not change the established open/closed behavior.
+(
+  cd "$DIFF_LIMIT_REPO" || exit 2
+  printf '%s' '{"session_id":"diff-limit-open","stop_hook_active":false}' \
+    | AGENT_GUARD_INFRA_FAILURE_MODE=open \
+        AGENT_GUARD_WARNING_DIR="$TESTTMP/diff-limit-open-warn" \
+        "$PLUGIN_ROOT/bin/agent-guard" hook-stop >"$OUT" 2>"$ERR"
+)
+status=$?
+if [ "$status" -eq 0 ] \
+   && grep -Fq 'git diff exceeded the scan input limit' "$ERR" \
+   && grep -Fq 'AGENT_GUARD_INFRA_FAILURE_MODE=open' "$ERR"; then
+  ok "over-limit diff preserves open hook policy"
+else
+  not_ok "over-limit diff follows open hook policy (expected 0, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+(
+  cd "$DIFF_LIMIT_REPO" || exit 2
+  printf '%s' '{"session_id":"diff-limit-closed","stop_hook_active":false}' \
+    | AGENT_GUARD_INFRA_FAILURE_MODE=closed \
+        AGENT_GUARD_WARNING_DIR="$TESTTMP/diff-limit-closed-warn" \
+        "$PLUGIN_ROOT/bin/agent-guard" hook-stop >"$OUT" 2>"$ERR"
+)
+status=$?
+if [ "$status" -eq 2 ] \
+   && grep -Fq 'git diff exceeded the scan input limit' "$ERR" \
+   && grep -Fq 'AGENT_GUARD_INFRA_FAILURE_MODE=closed' "$ERR"; then
+  ok "over-limit diff preserves closed hook policy"
+else
+  not_ok "over-limit diff follows closed hook policy (expected 2, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
 # --- agent-guard check announces gitleaks version ------------------------
 "$PLUGIN_ROOT/bin/agent-guard" check >"$OUT" 2>"$ERR"
 if grep -q 'gitleaks' "$ERR"; then
