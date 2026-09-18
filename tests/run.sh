@@ -6764,7 +6764,7 @@ mkdir -p "$DIFF_LIMIT_REPO"
 )
 status=$?
 if [ "$status" -eq 3 ] \
-   && grep -Eq 'git diff exceeded the scan input limit \([0-9]+ bytes\)' "$ERR" \
+   && grep -Eq 'git diff exceeded the scan input limit of [0-9]+ bytes' "$ERR" \
    && ! grep -Fq 'git diff failed' "$ERR" \
    && ! grep -Eq 'SIGPIPE|signal 13|Broken pipe' "$ERR"; then
   ok "over-limit staged diff reports the scan input limit with its byte budget"
@@ -6786,8 +6786,11 @@ else
   sed 's/^/  stderr: /' "$ERR"
 fi
 
-# A git diff that genuinely fails produces no output at all, so the reordered
-# byte check must fall through to the failure diagnostic rather than absorb it.
+# A git diff that genuinely fails leaves at most the budget in the stream, so
+# the reordered byte check falls through to the failure diagnostic rather than
+# absorbing it. A failure that arrives only after the budget is already exceeded
+# is reported as a size limit instead; the status is 3 either way, so what the
+# ordering trades is the diagnostic wording, not the outcome.
 (
   cd "$DIFF_LIMIT_REPO" || exit 2
   PATH="$DIFF_FAIL_BIN:$PATH" AGENT_GUARD_TEST_REAL_GIT="$REAL_GIT" \
