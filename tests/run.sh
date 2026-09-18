@@ -6618,7 +6618,7 @@ mkdir -p "$UNTRACKED_LIMIT_REPO"
 )
 status=$?
 if [ "$status" -eq 3 ] \
-   && grep -Fq 'untracked files exceeded the scan input limit' "$ERR" \
+   && grep -Eq 'untracked files exceeded the scan input limit of [0-9]+ bytes' "$ERR" \
    && ! grep -Fq 'failed to prepare untracked files for scanning' "$ERR" \
    && ! grep -Eq 'SIGPIPE|signal 13|status 13' "$ERR" \
    && ! grep -Fq 'oversized-input-' "$ERR"; then
