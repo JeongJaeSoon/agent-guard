@@ -3238,17 +3238,21 @@ extract_git_diff_added() {
   diff_status=$(sed -n '1p' "$diff_status_file" 2>/dev/null)
   rm -f "$diff_status_file"
   diff_bytes=$(LC_ALL=C wc -c <"$diff_file" 2>/dev/null | tr -d '[:space:]')
-  if [ "$pipe_status" -ne 0 ] || [ "$diff_status" != 0 ]; then
-    rm -f "$diff_file"
-    info "$PROGRAM: git diff failed; staged or working changes were not scanned"
-    return "$SCAN_STATUS_UNAVAILABLE"
-  fi
   case "$diff_bytes" in
     ''|*[!0-9]*) rm -f "$diff_file"; return "$SCAN_STATUS_UNAVAILABLE" ;;
   esac
+  # `head` closes the pipe at the sentinel byte, so git may report SIGPIPE (or
+  # never reach its status write) for an over-budget diff; the byte count, not
+  # that status, is authoritative here. `scan_untracked_files` bounds its own
+  # producer the same way.
   if [ "$diff_bytes" -gt "$SCAN_COMPONENT_MAX_BYTES" ]; then
     rm -f "$diff_file"
-    info "$PROGRAM: git diff exceeded the scan input limit"
+    info "$PROGRAM: git diff exceeded the scan input limit of $SCAN_COMPONENT_MAX_BYTES bytes; reduce the pending change or split it into smaller commits"
+    return "$SCAN_STATUS_UNAVAILABLE"
+  fi
+  if [ "$pipe_status" -ne 0 ] || [ "$diff_status" != 0 ]; then
+    rm -f "$diff_file"
+    info "$PROGRAM: git diff failed; staged or working changes were not scanned"
     return "$SCAN_STATUS_UNAVAILABLE"
   fi
   extract_added_lines <"$diff_file"
@@ -3330,7 +3334,7 @@ scan_untracked_files() {
   # budget, where `head` did not truncate it.
   if [ "$blob_bytes" -gt "$SCAN_COMPONENT_MAX_BYTES" ]; then
     rm -f "$blob"
-    info "$PROGRAM: untracked files exceeded the scan input limit; reduce untracked input or add intentional exclusions to .gitignore"
+    info "$PROGRAM: untracked files exceeded the scan input limit of $SCAN_COMPONENT_MAX_BYTES bytes; reduce untracked input or add intentional exclusions to .gitignore"
     return "$SCAN_STATUS_UNAVAILABLE"
   fi
   if [ "$pipe_status" -ne 0 ] || [ "$prepare_status" != 0 ]; then
