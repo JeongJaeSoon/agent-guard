@@ -4712,10 +4712,45 @@ else
 fi
 
 run_release_doctor "$RELEASE_TAG_URL$INSTALLED_VERSION"
-if grep -Fxq "agent-guard: release: $INSTALLED_VERSION installed; latest" "$ERR"; then
-  ok "doctor reports latest when the release tag matches the installed version"
+if grep -Fxq "agent-guard: release: $INSTALLED_VERSION installed; latest release is $INSTALLED_VERSION" "$ERR" \
+   && grep -q -- '--max-time 5' "$RELEASE_CURL_LOG"; then
+  ok "doctor reports the latest release when it matches the installed version, with a bounded lookup"
 else
-  not_ok "doctor reports latest when the release tag matches the installed version"
+  not_ok "doctor reports the latest release when it matches the installed version, with a bounded lookup"
+  sed 's/^/  stderr: /' "$ERR"
+  sed 's/^/  curl: /' "$RELEASE_CURL_LOG"
+fi
+
+# A dev build ahead of the published release must not be called "latest".
+run_release_doctor "${RELEASE_TAG_URL}0.0.1"
+if grep -Fxq "agent-guard: release: $INSTALLED_VERSION installed; latest release is 0.0.1" "$ERR" \
+   && ! grep -Fq 'is available' "$ERR"; then
+  ok "doctor prints an older published release verbatim instead of claiming latest"
+else
+  not_ok "doctor prints an older published release verbatim instead of claiming latest"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+NO_CURL_BIN="$TMP_ROOT/no-curl-bin"
+mkdir -p "$NO_CURL_BIN"
+# Same PATH minus curl for both runs, so the status comparison isolates the
+# release lookup from whatever else do_setup finds on PATH.
+for tool in sh awk grep sed jq mktemp rm cat dirname pwd printf uname tr head wc ls mkdir chmod cp mv ln readlink date od git; do
+  real=$(command -v "$tool" 2>/dev/null) && ln -sf "$real" "$NO_CURL_BIN/$tool"
+done
+for mock in "$MOCK_BIN"/*; do
+  [ -e "$mock" ] && [ "${mock##*/}" != curl ] && ln -sf "$mock" "$NO_CURL_BIN/${mock##*/}"
+done
+AGENT_GUARD_RELEASE_CHECK=off PATH="$NO_CURL_BIN" "$PLUGIN_ROOT/bin/agent-guard" doctor >"$OUT" 2>"$ERR"
+no_curl_baseline_status=$?
+AGENT_GUARD_RELEASE_CHECK=on PATH="$NO_CURL_BIN" "$PLUGIN_ROOT/bin/agent-guard" doctor >"$OUT" 2>"$ERR"
+status=$?
+if ! PATH="$NO_CURL_BIN" command -v curl >/dev/null 2>&1 \
+   && [ "$status" -eq "$no_curl_baseline_status" ] \
+   && grep -Fq "installed; latest unknown" "$ERR"; then
+  ok "doctor reports latest unknown when curl is absent from PATH"
+else
+  not_ok "doctor reports latest unknown when curl is absent from PATH (status $status vs $no_curl_baseline_status)"
   sed 's/^/  stderr: /' "$ERR"
 fi
 
@@ -4732,6 +4767,8 @@ fi
 for bad_url in 'https://evil.example/releases/tag/v9.9.9' \
                "${RELEASE_TAG_URL}1.2.3.4" \
                "${RELEASE_TAG_URL}9.9.9/../../evil" \
+               "${RELEASE_TAG_URL}9.9.9/extra" \
+               "${RELEASE_TAG_URL}9.9.9 " \
                'https://github.com/JeongJaeSoon/agent-guard/releases/tag/9.9.9'; do
   run_release_doctor "$bad_url"
   if grep -Fq 'installed; latest unknown' "$ERR" \

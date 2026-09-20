@@ -146,7 +146,7 @@ agent-guard check
 
 The updater is intentionally unavailable from a plugin cache: the binary lives
 in the cache that a marketplace removal deletes, so it cannot re-pin the
-marketplace itself. Run `agent-guard plugin update --host claude|codex` instead.
+marketplace itself. Run `agent-guard plugin update --host claude` (or `--host codex`) instead.
 When the installed plugin already matches the CLI, it looks up the latest
 GitHub release and prints the exact host-manager `marketplace remove`,
 `marketplace add ...@vX.Y.Z`, and plugin install commands that move forward;

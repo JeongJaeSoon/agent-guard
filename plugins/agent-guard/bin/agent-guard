@@ -195,9 +195,10 @@ Marketplaces are pinned to the release tag matching this CLI. If status reports
 marketplace drift, remove that marketplace with the host manager and run install
 again. Host marketplace removal also removes plugins installed from it.
 
-status and update look up the latest GitHub release (AGENT_GUARD_RELEASE_CHECK=off
-skips it). When a newer release exists, update prints the host-manager commands
-that move the marketplace pin forward; it never re-pins on its own.
+status looks up the latest GitHub release, and update does so only when the
+installed plugin already matches this CLI (AGENT_GUARD_RELEASE_CHECK=off skips
+it). When a newer release exists, update prints the host-manager commands that
+move the marketplace pin forward; it never re-pins on its own.
 EOF
 }
 
@@ -633,10 +634,10 @@ plugin_for_host() {
       if [ "$plugin_marketplace_source" = agent-guard ]; then
         if latest_release_version; then
           if version_newer "$LATEST_RELEASE_VERSION" "$VERSION"; then
-            printf '%s: latest release v%s; marketplace pinned to v%s\n' \
+            printf '%s: latest release v%s; this CLI is %s\n' \
               "$plugin_host" "$LATEST_RELEASE_VERSION" "$VERSION"
           else
-            printf '%s: latest release v%s (current)\n' "$plugin_host" "$VERSION"
+            printf '%s: latest release v%s\n' "$plugin_host" "$LATEST_RELEASE_VERSION"
           fi
         else
           printf '%s: latest release unknown\n' "$plugin_host"
@@ -784,8 +785,10 @@ plugin_for_host() {
           if version_newer "$LATEST_RELEASE_VERSION" "$VERSION"; then
             printf '%s\n' "$PROGRAM: this CLI is $VERSION and can only pin the marketplace to v$VERSION; to move to v$LATEST_RELEASE_VERSION, run:" >&2
             print_release_forward_commands "$plugin_host" "v$LATEST_RELEASE_VERSION" "$plugin_scope"
+          elif [ "$LATEST_RELEASE_VERSION" = "$VERSION" ]; then
+            printf '%s\n' "$PROGRAM: v$VERSION matches the latest release v$LATEST_RELEASE_VERSION" >&2
           else
-            printf '%s\n' "$PROGRAM: v$VERSION is the latest release" >&2
+            printf '%s\n' "$PROGRAM: latest release is v$LATEST_RELEASE_VERSION" >&2
           fi
         else
           printf '%s\n' "$PROGRAM: this CLI is $VERSION and can only pin the marketplace to v$VERSION; the latest release could not be looked up. To move to a newer release v<X.Y.Z> from https://github.com/JeongJaeSoon/agent-guard/releases, run:" >&2
@@ -8881,7 +8884,7 @@ do_doctor() {
     if version_newer "$LATEST_RELEASE_VERSION" "$VERSION"; then
       info "$PROGRAM: release: $VERSION installed; $LATEST_RELEASE_VERSION is available"
     else
-      info "$PROGRAM: release: $VERSION installed; latest"
+      info "$PROGRAM: release: $VERSION installed; latest release is $LATEST_RELEASE_VERSION"
     fi
   else
     info "$PROGRAM: release: $VERSION installed; latest unknown (release lookup unavailable or AGENT_GUARD_RELEASE_CHECK=off)"
@@ -8896,7 +8899,7 @@ do_doctor() {
 do_update() {
   [ "$#" -eq 0 ] || die "update: no arguments are accepted"
   if [ -n "$PLUGIN_CACHE_BASE" ]; then
-    die "update is unavailable for plugin installs; run '$PROGRAM plugin update --host claude|codex' to see the host-manager commands that move to a newer release"
+    die "update is unavailable for plugin installs; run '$PROGRAM plugin update --host claude' (or --host codex) to see the host-manager commands that move to a newer release"
   fi
   if homebrew_managed_install; then
     die "update is unavailable for Homebrew installs; run: brew upgrade JeongJaeSoon/tap/agent-guard"
