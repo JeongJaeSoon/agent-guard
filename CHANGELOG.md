@@ -1,3 +1,7 @@
+## v3.4.5 - 2026-09-20
+
+- fix: classify git diff scan-limit truncation as a size limit, not a git failure (#263)
+
 ## v3.4.4 - 2026-09-17
 
 - fix(release): require reviewed two-phase publishing (#257)
