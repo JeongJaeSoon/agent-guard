@@ -5,8 +5,8 @@ adapters. Choose the route that matches the boundary you want to protect:
 
 | Route | Install | Update | Verify |
 | --- | --- | --- | --- |
-| Claude Code plugin | Add the Agent Guard marketplace and plugin through Claude Code | Use Claude Code’s plugin update command, then reload plugins | Run the plugin-local `bin/agent-guard version` and a harmless host route |
-| Codex plugin | Add the Agent Guard marketplace and plugin through Codex | Use Codex’s plugin manager | Run the plugin-local `bin/agent-guard version` and a harmless host route |
+| Claude Code plugin | Add the Agent Guard marketplace and plugin through Claude Code | Run `agent-guard plugin update --host claude`; it prints the Claude Code marketplace commands that move to a newer release | Run the plugin-local `bin/agent-guard version` and a harmless host route |
+| Codex plugin | Add the Agent Guard marketplace and plugin through Codex | Run `agent-guard plugin update --host codex`; it prints the Codex marketplace commands that move to a newer release | Run the plugin-local `bin/agent-guard version` and a harmless host route |
 | Standalone CLI | Use the checksum-verified bootstrap command below | `agent-guard update` | `agent-guard version`, `agent-guard doctor`, and `agent-guard check` |
 | Homebrew | Install the published tap formula | `brew upgrade JeongJaeSoon/tap/agent-guard` | `agent-guard version` |
 
@@ -144,9 +144,16 @@ agent-guard doctor
 agent-guard check
 ```
 
-The updater is intentionally unavailable from a plugin cache. Update plugins
-through their host manager, then rerun the plugin-local `setup-shell` if shell
-integration reports drift.
+The updater is intentionally unavailable from a plugin cache: the binary lives
+in the cache that a marketplace removal deletes, so it cannot re-pin the
+marketplace itself. Run `agent-guard plugin update --host claude|codex` instead.
+When the installed plugin already matches the CLI, it looks up the latest
+GitHub release and prints the exact host-manager `marketplace remove`,
+`marketplace add ...@vX.Y.Z`, and plugin install commands that move forward;
+`agent-guard doctor` and `agent-guard plugin status` report the same release
+staleness. Set `AGENT_GUARD_RELEASE_CHECK=off` to skip the lookup. The shell
+block resolves through the cache's `current` link, so `setup-shell` does not
+need to be rerun after a plugin update.
 
 ## Homebrew
 

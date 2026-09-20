@@ -27,6 +27,9 @@ export PATH
 # Keep the large deterministic suite out of the developer's support logs.
 # Dedicated audit tests explicitly turn logging on in private temp storage.
 export AGENT_GUARD_LOG_MODE=off
+# doctor/plugin status look up the latest GitHub release; keep the suite
+# offline and let the release-staleness block opt in with a mock curl.
+export AGENT_GUARD_RELEASE_CHECK=off
 export AGENT_GUARD_GITLEAKS_CONFIG="$PLUGIN_ROOT/config/gitleaks.toml"
 
 # Isolate git from the developer's global config so inherited values like
@@ -4671,6 +4674,92 @@ fi
 run_expect 0 "setup --help exits 0" "$PLUGIN_ROOT/bin/agent-guard" setup --help
 run_expect 2 "setup unknown flag exits 2" "$PLUGIN_ROOT/bin/agent-guard" setup --bogus
 run_expect 0 "setup with all deps present exits 0" "$PLUGIN_ROOT/bin/agent-guard" setup
+
+# --- doctor reports release staleness --------------------------------------
+
+RELEASE_BIN="$TMP_ROOT/release-bin"
+mkdir -p "$RELEASE_BIN"
+RELEASE_CURL_LOG="$TMP_ROOT/release-curl.log"
+cat >"$RELEASE_BIN/curl" <<'EOF'
+#!/bin/sh
+printf '%s\n' "$*" >>"$MOCK_RELEASE_LOG"
+printf '%s' "$MOCK_RELEASE_URL"
+exit "${MOCK_RELEASE_STATUS:-0}"
+EOF
+chmod +x "$RELEASE_BIN/curl"
+export MOCK_RELEASE_LOG="$RELEASE_CURL_LOG"
+INSTALLED_VERSION=$("$PLUGIN_ROOT/bin/agent-guard" version | awk 'NR == 1 { print $2 }')
+NEWER_VERSION=$(printf '%s\n' "$INSTALLED_VERSION" | awk -F. '{ printf "%s.%s.%s", $1, $2, $3 + 1 }')
+RELEASE_TAG_URL='https://github.com/JeongJaeSoon/agent-guard/releases/tag/v'
+
+run_release_doctor() {
+  : >"$RELEASE_CURL_LOG"
+  MOCK_RELEASE_URL=$1 MOCK_RELEASE_STATUS=${2:-0} AGENT_GUARD_RELEASE_CHECK=${3:-on} \
+    PATH="$RELEASE_BIN:$PATH" "$PLUGIN_ROOT/bin/agent-guard" doctor >"$OUT" 2>"$ERR"
+}
+
+AGENT_GUARD_RELEASE_CHECK=off "$PLUGIN_ROOT/bin/agent-guard" doctor >"$OUT" 2>"$ERR"
+doctor_baseline_status=$?
+
+run_release_doctor "$RELEASE_TAG_URL$NEWER_VERSION"
+status=$?
+if [ "$status" -eq "$doctor_baseline_status" ] \
+   && grep -Fxq "agent-guard: release: $INSTALLED_VERSION installed; $NEWER_VERSION is available" "$ERR"; then
+  ok "doctor reports a newer release without changing its exit status"
+else
+  not_ok "doctor reports a newer release without changing its exit status (status $status vs $doctor_baseline_status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+run_release_doctor "$RELEASE_TAG_URL$INSTALLED_VERSION"
+if grep -Fxq "agent-guard: release: $INSTALLED_VERSION installed; latest" "$ERR"; then
+  ok "doctor reports latest when the release tag matches the installed version"
+else
+  not_ok "doctor reports latest when the release tag matches the installed version"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+run_release_doctor '' 1
+status=$?
+if [ "$status" -eq "$doctor_baseline_status" ] \
+   && grep -Fxq "agent-guard: release: $INSTALLED_VERSION installed; latest unknown (release lookup unavailable or AGENT_GUARD_RELEASE_CHECK=off)" "$ERR"; then
+  ok "doctor reports latest unknown when the release lookup fails"
+else
+  not_ok "doctor reports latest unknown when the release lookup fails (status $status vs $doctor_baseline_status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+for bad_url in 'https://evil.example/releases/tag/v9.9.9' \
+               "${RELEASE_TAG_URL}1.2.3.4" \
+               "${RELEASE_TAG_URL}9.9.9/../../evil" \
+               'https://github.com/JeongJaeSoon/agent-guard/releases/tag/9.9.9'; do
+  run_release_doctor "$bad_url"
+  if grep -Fq 'installed; latest unknown' "$ERR" \
+     && ! grep -Fq "$bad_url" "$ERR" && ! grep -Fq 'is available' "$ERR"; then
+    ok "doctor rejects unexpected redirect target and never echoes it"
+  else
+    not_ok "doctor rejects unexpected redirect target and never echoes it ($bad_url)"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+done
+
+run_release_doctor "$RELEASE_TAG_URL$NEWER_VERSION" 0 off
+if [ ! -s "$RELEASE_CURL_LOG" ] \
+   && grep -Fq 'installed; latest unknown' "$ERR"; then
+  ok "AGENT_GUARD_RELEASE_CHECK=off skips the release lookup entirely"
+else
+  not_ok "AGENT_GUARD_RELEASE_CHECK=off skips the release lookup entirely"
+  sed 's/^/  curl: /' "$RELEASE_CURL_LOG"
+fi
+
+run_release_doctor "$RELEASE_TAG_URL$NEWER_VERSION"
+if grep -q -- '-fsSI' "$RELEASE_CURL_LOG" && grep -q 'releases/latest' "$RELEASE_CURL_LOG" \
+   && [ "$(wc -l <"$RELEASE_CURL_LOG" | tr -d ' ')" -eq 1 ]; then
+  ok "doctor performs exactly one HEAD lookup against releases/latest"
+else
+  not_ok "doctor performs exactly one HEAD lookup against releases/latest"
+  sed 's/^/  curl: /' "$RELEASE_CURL_LOG"
+fi
 
 # --- scan-path -------------------------------------------------------------
 

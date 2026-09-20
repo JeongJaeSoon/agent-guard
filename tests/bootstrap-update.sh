@@ -123,6 +123,8 @@ cp "$AGENT_GUARD_HOME/bin/agent-guard" "$plugin_root/bin/agent-guard"
 chmod +x "$plugin_root/bin/agent-guard"
 if PATH="$CASE_ROOT/no-curl-bin:$PATH" "$plugin_root/bin/agent-guard" update >"$CASE_ROOT/out" 2>"$CASE_ROOT/err"; then exit 1; fi
 grep -q 'update is unavailable for plugin installs' "$CASE_ROOT/err"
+grep -q 'plugin update' "$CASE_ROOT/err"
+! grep -q setup-shell "$CASE_ROOT/err"
 [ ! -e "$CASE_ROOT/curl-called" ]
 check 'plugin cache still refuses standalone updater before download'
 
