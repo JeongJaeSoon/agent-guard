@@ -61,6 +61,8 @@ must be reviewed/trusted again before it runs. See official [Codex Hooks](https:
 | Post-tool probe reports `[REDACTED]` with a `run_id` | A PostToolUse rewrite produced that replacement. Resolve the same `run_id` in `agent-guard logs export` before accepting the report; an id with no record is a failed probe. |
 | A benign command is blocked as a protected path | The shell matcher saw path-shaped text. Use a clearly non-path-shaped expression after reviewing the command. |
 | Post-write scan is unavailable | Treat it as infrastructure failure under the configured policy; do not claim the file was clean. |
+| `exceeded the scan input limit of N bytes` | One pending change (often a regenerated lockfile) is larger than the scan budget. Split it, or set `AGENT_GUARD_SCAN_INPUT_MAX_BYTES` higher; a larger budget scans more, it never skips input. |
+| `git diff failed` followed by `git: <line>` | git itself failed before the scan ran. The second line is git's first stderr line, truncated; act on it (bad revision, corrupt index) rather than on the scanner. |
 
 ## Claude shell integration
 

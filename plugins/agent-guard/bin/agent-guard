@@ -3128,8 +3128,19 @@ scan_file_fragment_direct() {
 # failures; direct scan commands preserve the status for their caller.
 SCAN_STATUS_UNAVAILABLE=3
 SCAN_INPUT_MAX_BYTES=10485760
+# Operators raise the budget when one legitimate file (a regenerated lockfile)
+# exceeds it; a larger budget scans more, never less, so it cannot bypass the
+# fail-closed contract. Invalid or zero values keep the default.
+case ${AGENT_GUARD_SCAN_INPUT_MAX_BYTES:-} in
+  ''|*[!0-9]*) ;;
+  *)
+    # Strip leading zeros before arithmetic so `007` is not read as octal.
+    scan_limit_override=${AGENT_GUARD_SCAN_INPUT_MAX_BYTES#"${AGENT_GUARD_SCAN_INPUT_MAX_BYTES%%[!0]*}"}
+    [ -n "$scan_limit_override" ] && SCAN_INPUT_MAX_BYTES=$scan_limit_override
+    ;;
+esac
 # scan-working-tree has at most three producers: worktree diff, index diff, and
-# untracked content. Giving each one third keeps their aggregate under 10 MiB.
+# untracked content. Giving each one third keeps their aggregate under the budget.
 SCAN_COMPONENT_MAX_BYTES=$((SCAN_INPUT_MAX_BYTES / 3))
 
 block_on_scan_status() {
@@ -3228,36 +3239,42 @@ require_git_repo() {
 extract_git_diff_added() {
   diff_file=$(mktemp_file) || return "$SCAN_STATUS_UNAVAILABLE"
   diff_status_file=$(mktemp_file) || { rm -f "$diff_file"; return "$SCAN_STATUS_UNAVAILABLE"; }
+  # Unlike the untracked producer, git's stderr is bounded rather than
+  # discarded: `fatal: bad revision` is the one detail an operator needs, so the
+  # failure path relays its first line after sanitizing and truncating it.
+  diff_err_file=$(mktemp_file) || { rm -f "$diff_file" "$diff_status_file"; return "$SCAN_STATUS_UNAVAILABLE"; }
   # Read at most one byte beyond the shared scan budget. Closing the pipe there
   # stops a large diff from being fully materialized before the host timeout.
   # This bounds scan work and storage; it is not a portable wall-clock timeout
   # for a git process that stalls before producing output.
-  (git diff --text --no-textconv --no-color "$@"; printf '%s\n' "$?" >"$diff_status_file") \
+  (git diff --text --no-textconv --no-color "$@" 2>"$diff_err_file"; printf '%s\n' "$?" >"$diff_status_file") \
     | head -c $((SCAN_COMPONENT_MAX_BYTES + 1)) >"$diff_file"
   pipe_status=$?
   diff_status=$(sed -n '1p' "$diff_status_file" 2>/dev/null)
   rm -f "$diff_status_file"
   diff_bytes=$(LC_ALL=C wc -c <"$diff_file" 2>/dev/null | tr -d '[:space:]')
   case "$diff_bytes" in
-    ''|*[!0-9]*) rm -f "$diff_file"; return "$SCAN_STATUS_UNAVAILABLE" ;;
+    ''|*[!0-9]*) rm -f "$diff_file" "$diff_err_file"; return "$SCAN_STATUS_UNAVAILABLE" ;;
   esac
   # `head` closes the pipe at the sentinel byte, so git may report SIGPIPE (or
   # never reach its status write) for an over-budget diff; the byte count, not
   # that status, is authoritative here. `scan_untracked_files` bounds its own
   # producer the same way.
   if [ "$diff_bytes" -gt "$SCAN_COMPONENT_MAX_BYTES" ]; then
-    rm -f "$diff_file"
-    info "$PROGRAM: git diff exceeded the scan input limit of $SCAN_COMPONENT_MAX_BYTES bytes; reduce the pending change or split it into smaller commits"
+    rm -f "$diff_file" "$diff_err_file"
+    info "$PROGRAM: git diff exceeded the scan input limit of $SCAN_COMPONENT_MAX_BYTES bytes; reduce the pending change, split it into smaller commits, or raise AGENT_GUARD_SCAN_INPUT_MAX_BYTES"
     return "$SCAN_STATUS_UNAVAILABLE"
   fi
   if [ "$pipe_status" -ne 0 ] || [ "$diff_status" != 0 ]; then
-    rm -f "$diff_file"
+    git_line=$(head -c 200 "$diff_err_file" 2>/dev/null | sed -n '1p' | tr -d '[:cntrl:]')
+    rm -f "$diff_file" "$diff_err_file"
     info "$PROGRAM: git diff failed; staged or working changes were not scanned"
+    [ -z "$git_line" ] || info "$PROGRAM: git: $git_line"
     return "$SCAN_STATUS_UNAVAILABLE"
   fi
   extract_added_lines <"$diff_file"
   status=$?
-  rm -f "$diff_file"
+  rm -f "$diff_file" "$diff_err_file"
   return "$status"
 }
 
@@ -3334,7 +3351,7 @@ scan_untracked_files() {
   # budget, where `head` did not truncate it.
   if [ "$blob_bytes" -gt "$SCAN_COMPONENT_MAX_BYTES" ]; then
     rm -f "$blob"
-    info "$PROGRAM: untracked files exceeded the scan input limit of $SCAN_COMPONENT_MAX_BYTES bytes; reduce untracked input or add intentional exclusions to .gitignore"
+    info "$PROGRAM: untracked files exceeded the scan input limit of $SCAN_COMPONENT_MAX_BYTES bytes; reduce untracked input, add intentional exclusions to .gitignore, or raise AGENT_GUARD_SCAN_INPUT_MAX_BYTES"
     return "$SCAN_STATUS_UNAVAILABLE"
   fi
   if [ "$pipe_status" -ne 0 ] || [ "$prepare_status" != 0 ]; then
@@ -7268,7 +7285,7 @@ scan_write_target_path() {
     ''|*[!0-9]*) return "$SCAN_STATUS_UNAVAILABLE" ;;
   esac
   if [ "$target_bytes" -gt "$POST_TOOL_PATH_SCAN_MAX_BYTES" ]; then
-    info "$PROGRAM: $target is too large to scan within the hook timeout"
+    info "$PROGRAM: $target is too large to scan within the hook timeout (limit $POST_TOOL_PATH_SCAN_MAX_BYTES bytes; AGENT_GUARD_SCAN_INPUT_MAX_BYTES raises it)"
     return "$SCAN_STATUS_UNAVAILABLE"
   fi
 
@@ -7379,7 +7396,7 @@ scan_post_tool_write_target() {
     fi
     [ -n "$one_bytes" ] && target_total_bytes=$((target_total_bytes + one_bytes))
     if [ "$target_total_bytes" -gt "$POST_TOOL_PATH_SCAN_MAX_BYTES" ]; then
-      info "$PROGRAM: apply_patch direct-scan targets exceed the scan input limit"
+      info "$PROGRAM: apply_patch direct-scan targets exceed the scan input limit of $POST_TOOL_PATH_SCAN_MAX_BYTES bytes; raise AGENT_GUARD_SCAN_INPUT_MAX_BYTES only within the host hook timeout"
       [ "$target_result" -eq 0 ] && target_result="$SCAN_STATUS_UNAVAILABLE"
       continue
     fi

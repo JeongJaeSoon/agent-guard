@@ -98,6 +98,7 @@ be a positive integer for endpoint-backed providers.
 | `AGENT_GUARD_GITLEAKS_BIN` | Select a gitleaks executable. |
 | `AGENT_GUARD_GITLEAKS_BIN_DIR` or `AGENT_GUARD_BIN_DIR` | Select the private gitleaks install directory. |
 | `AGENT_GUARD_INFRA_FAILURE_MODE` | `open` (default) or `closed` for hook infrastructure failures. |
+| `AGENT_GUARD_SCAN_INPUT_MAX_BYTES` | Positive integer; default `10485760` (10 MiB, split three ways for `scan-working-tree`). Raising it scans more input; it never excludes anything from scanning. Invalid values keep the default. |
 | `AGENT_GUARD_OUTPUT_REDACT` | Output secret masking; set `off` only with deliberate acceptance of the reduced protection. |
 | `AGENT_GUARD_PROMPT_GUARD_MODE` | `block` (default), `warn`, `off`, or the currently blocking `mask` fallback. |
 | `AGENT_GUARD_PII_HOOK_MODE` | `off` (default), `block`, or `mask`. |
