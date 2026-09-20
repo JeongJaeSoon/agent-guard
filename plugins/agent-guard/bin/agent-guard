@@ -3130,13 +3130,20 @@ SCAN_STATUS_UNAVAILABLE=3
 SCAN_INPUT_MAX_BYTES=10485760
 # Operators raise the budget when one legitimate file (a regenerated lockfile)
 # exceeds it; a larger budget scans more, never less, so it cannot bypass the
-# fail-closed contract. Invalid or zero values keep the default.
+# fail-closed contract. It is raise-only: a value below the default would
+# shrink the budget until every diff is "unavailable", which under the open
+# policy lets unscanned input through. Non-numeric, smaller, or overlong
+# (beyond 18 digits, where dash arithmetic aborts) values keep the default.
 case ${AGENT_GUARD_SCAN_INPUT_MAX_BYTES:-} in
   ''|*[!0-9]*) ;;
   *)
     # Strip leading zeros before arithmetic so `007` is not read as octal.
     scan_limit_override=${AGENT_GUARD_SCAN_INPUT_MAX_BYTES#"${AGENT_GUARD_SCAN_INPUT_MAX_BYTES%%[!0]*}"}
-    [ -n "$scan_limit_override" ] && SCAN_INPUT_MAX_BYTES=$scan_limit_override
+    case "$scan_limit_override" in
+      ???????????????????*) ;;
+      ?*) [ "$scan_limit_override" -ge "$SCAN_INPUT_MAX_BYTES" ] \
+            && SCAN_INPUT_MAX_BYTES=$scan_limit_override ;;
+    esac
     ;;
 esac
 # scan-working-tree has at most three producers: worktree diff, index diff, and

@@ -6940,7 +6940,10 @@ else
   not_ok "AGENT_GUARD_SCAN_INPUT_MAX_BYTES lifts the staged diff limit (expected 0, got $status)"
   sed 's/^/  stderr: /' "$ERR"
 fi
-for bad_limit in abc 0 000 -1 ''; do
+# Raise-only: a value below the default would shrink the budget until every
+# diff is unavailable and the open policy waves unscanned input through. A
+# 19+ digit value would abort dash arithmetic, so it is rejected before use.
+for bad_limit in abc 0 000 -1 '' 1 10485759 9223372036854775808 1000000000000000000000; do
   (
     cd "$DIFF_LIMIT_REPO" || exit 2
     AGENT_GUARD_SCAN_INPUT_MAX_BYTES="$bad_limit" \
@@ -6965,6 +6968,40 @@ if [ "$status" -eq 0 ] && ! grep -Fq 'scan input limit' "$ERR"; then
   ok "AGENT_GUARD_SCAN_INPUT_MAX_BYTES accepts a leading-zero positive value"
 else
   not_ok "AGENT_GUARD_SCAN_INPUT_MAX_BYTES accepts a leading-zero positive value (expected 0, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+# Exactly the default is accepted (the boundary of raise-only) and leaves the
+# budget unchanged, so the 3.6 MB fixture is still over the per-producer third.
+(
+  cd "$DIFF_LIMIT_REPO" || exit 2
+  AGENT_GUARD_SCAN_INPUT_MAX_BYTES=10485760 \
+    "$PLUGIN_ROOT/bin/agent-guard" scan-staged >"$OUT" 2>"$ERR"
+)
+status=$?
+if [ "$status" -eq 3 ] \
+   && grep -Fq 'git diff exceeded the scan input limit of 3495253 bytes' "$ERR"; then
+  ok "AGENT_GUARD_SCAN_INPUT_MAX_BYTES equal to the default keeps the default budget"
+else
+  not_ok "AGENT_GUARD_SCAN_INPUT_MAX_BYTES equal to the default keeps the default budget (expected 3, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+# A below-default value must not turn a small clean diff into "unavailable",
+# which is the open-policy bypass the raise-only rule exists to prevent.
+(
+  cd "$UNTRACKED_LIMIT_REPO" || exit 2
+  printf 'small clean staged edit\n' >>README.md
+  git add README.md
+  AGENT_GUARD_SCAN_INPUT_MAX_BYTES=1 \
+    "$PLUGIN_ROOT/bin/agent-guard" scan-staged >"$OUT" 2>"$ERR"
+  status=$?
+  git reset -q --hard
+  exit "$status"
+)
+status=$?
+if [ "$status" -eq 0 ] && ! grep -Fq 'scan input limit' "$ERR"; then
+  ok "AGENT_GUARD_SCAN_INPUT_MAX_BYTES=1 cannot shrink the budget below a small clean diff"
+else
+  not_ok "AGENT_GUARD_SCAN_INPUT_MAX_BYTES=1 cannot shrink the budget (expected 0, got $status)"
   sed 's/^/  stderr: /' "$ERR"
 fi
 (
