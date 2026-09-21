@@ -33,6 +33,7 @@ live probe가 필요한 별도 경계다.
 | Claude | failed route / `PostToolUseFailure` | 미적용 | 별도 event이며 Agent Guard manifest에 등록되지 않음 |
 | Claude | `PostToolUse` matcher 밖 tool | 미적용 | host가 event를 지원해도 이 manifest가 handler를 시작하지 않음 |
 | Claude | 사용자가 직접 입력한 `!` shell escape | 미적용 | tool-hook 경계 밖. 선택적 shell integration 또는 [`agent-guard exec` / `agx`](integrations.md#limits-and-backstops)를 사용 |
+| Claude | function hooks(Claude Mods) 활성 세션의 `classic.*` route | 적용 후보 | command hooks는 `classic.*` event로 계속 실행됨. 함수 훅 mod는 이 manifest에 없음. [상세](#function-hooks-claude-mods-활성-시) |
 | Claude | image/PDF binary block | event는 도달, payload bytes는 text-scan 제외 | 정상 restore는 원 bytes를 재삽입. 최종 restore serializer 실패는 raw bytes 대신 empty payload를 유지하는 lossy replacement |
 | Codex | `Bash` / `exec_command` | 명시적 적용 의도 | non-zero command도 공식 `PostToolUse` 대상 |
 | Codex | `apply_patch` | 명시적 적용 의도 | output redaction과 별도로 mutation/disk backstop 경계가 있음 |
@@ -113,6 +114,38 @@ built-in의 native shape를 보존하지 않는다. 공식 계약상 호스트�
 **LIVE-UNVERIFIED.** 현재 설치본의 matcher dispatch, 플러그인 enable 상태,
 정확한 `updatedToolOutput` schema 수용, host version별 transcript 저장 표현과
 compaction 이후 표현은 live probe 없이는 확정하지 않는다.
+
+#### function hooks (Claude Mods) 활성 시
+
+Claude Code는 TypeScript 함수 훅 기반 플러그인(Claude Mods)을 준비 중이며, early
+access는 `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1`로 켠다. Agent Guard의 Claude
+manifest는 command hooks만 등록하고 함수 훅 모듈은 포함하지 않는다.
+
+**OFFICIAL-CONTRACT.** 2026-09-21에 확인한
+[anthropics/claude-code `mods/`](https://github.com/anthropics/claude-code/tree/main/mods)
+문서와 타입 선언에 따르면, 기존 settings/plugin command hooks는 함수 훅이 활성된
+세션에서도 `classic.*` event로 계속 실행된다. 함수 훅이 throw하거나 시간 예산을
+넘기거나 잘못된 shape을 돌려주면 엔진은 그 훅을 건너뛰고 아래 훅과 core를 실행한다.
+즉 함수 훅 자체의 기본 실패 동작은 fail-open이다.
+
+**LIVE-UNVERIFIED → 2026-09-21 headless probe로 확인한 사실.** Claude Code
+2.1.278, `--plugin-dir`로 로드한 저장소 plugin, `claude -p --allowedTools Bash`
+route에서 다음을 관찰했다. 대화형 세션, 설치본, 다른 route, 이후 버전에는 그대로
+적용되지 않으므로 [검증 절차](#검증-절차)를 그 환경에서 다시 수행한다.
+
+| 조건 | pre-tool sentinel | post-tool sentinel |
+| --- | --- | --- |
+| 플래그 없음(대조군) | 차단 | `[REDACTED] agent-guard live probe run_id=…`, 로그에 `outcome: masked` |
+| `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1` | 차단 | 동일하게 교체, 로그에 같은 run id의 `outcome: masked` |
+| 플래그 + `hooks.json`에 `"modules": []` 키 추가 | 차단 | 확인 안 함 |
+| 플래그 + `tool.call`에서 `{ deny }`를 돌려주는 별도 mod | mod가 거부(플래그가 모듈을 실제로 로드함을 증명) | 해당 없음 |
+| 플래그 + `tool.call`에서 throw하는 별도 mod | 도구가 정상 실행됨(fail-open 재현) | 해당 없음 |
+
+이 결과가 뜻하는 것: 함수 훅을 켜도 이 manifest의 deny와 output 교체는 그대로
+동작한다. 뜻하지 않는 것: 사용자가 설치한 다른 mod가 `$.fs.read`나 `$.http.fetch`로
+파일과 네트워크에 접근하는 경로는 이 manifest가 보지 못한다. 그 경로는 함수 훅
+어댑터가 있어야 닫히며, 현재 Claude 2.1.278에는 mods 문서가 말하는
+`claude plugin test` 서브커맨드가 없다.
 
 ### Codex
 
