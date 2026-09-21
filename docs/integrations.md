@@ -149,7 +149,7 @@ as covered is a candidate: prove it on your install with the live probes in
 | Claude | Sessions with function hooks (Claude Mods) enabled | Covered | Command hooks keep running as `classic.*` events. Probed on 2.1.278. Other mods' own file and network access is not seen. |
 | Codex | `Bash` / `exec_command`, `apply_patch`, `Agent`, `Task`, `mcp__*` | Covered | Codex replaces the result with hook feedback (`decision: "block"` plus `additionalContext`), not with `updatedToolOutput`. |
 | Codex | `write_stdin` | No new event | The original command's `PostToolUse` may arrive when it ends. |
-| Codex | Other local tools, hosted `WebSearch` | Not covered | Not matched, or not on the hook path at all. |
+| Codex | Other local tools, hosted `WebSearch` | Not covered | Not a coverage claim. The Codex matcher is unanchored, so a custom tool whose name merely contains `Bash`, `Agent`, or `Task` (for example `MyTaskRunner`) may still trigger generic redaction; that incidental match is not treated as coverage. Hosted `WebSearch` is not on the hook path at all. |
 
 What masking cannot do on either host:
 
