@@ -7006,6 +7006,76 @@ else
   sed 's/^/  stderr: /' "$ERR"
 fi
 
+# The stderr capture is bounded at the source: a git wrapper that floods stderr
+# (~2 MiB here) must not fill TMPDIR or burn the hook timeout before the
+# failure path truncates. The side file proves the flood was really produced;
+# the marker file proves git's stderr was a bounded reader, not a plain file
+# (an unbounded `2>file` capture is what the guard's read-side truncation hid).
+DIFF_FLOOD_BIN="$TESTTMP/diff-flood-bin"
+DIFF_FLOOD_SIDE="$TESTTMP/diff-flood-side.txt"
+DIFF_FLOOD_UNBOUNDED="$TESTTMP/diff-flood-unbounded.marker"
+mkdir -p "$DIFF_FLOOD_BIN"
+cat >"$DIFF_FLOOD_BIN/git" <<EOSH
+#!/usr/bin/env sh
+if [ "\${1:-}" = diff ]; then
+  [ -f /dev/fd/2 ] && : >"$DIFF_FLOOD_UNBOUNDED"
+  awk 'BEGIN { for (i = 0; i < 100000; i++) print "noise-line-payload-" i }' | tee "$DIFF_FLOOD_SIDE" >&2
+  exit 42
+fi
+exec "\$AGENT_GUARD_TEST_REAL_GIT" "\$@"
+EOSH
+chmod +x "$DIFF_FLOOD_BIN/git"
+rm -f "$DIFF_FLOOD_SIDE" "$DIFF_FLOOD_UNBOUNDED"
+flood_start=$(date +%s)
+(
+  cd "$DIFF_LIMIT_REPO" || exit 2
+  PATH="$DIFF_FLOOD_BIN:$PATH" AGENT_GUARD_TEST_REAL_GIT="$REAL_GIT" \
+    "$PLUGIN_ROOT/bin/agent-guard" scan-staged >"$OUT" 2>"$ERR"
+)
+status=$?
+flood_seconds=$(( $(date +%s) - flood_start ))
+flood_side_bytes=$(LC_ALL=C wc -c <"$DIFF_FLOOD_SIDE" 2>/dev/null | tr -d '[:space:]')
+git_line_count=$(grep -c 'agent-guard: git: ' "$ERR")
+if [ "$status" -eq 3 ] \
+   && grep -Fq 'git diff failed' "$ERR" \
+   && [ "$git_line_count" -eq 1 ] \
+   && grep -Fq 'agent-guard: git: noise-line-payload-0' "$ERR" \
+   && [ "${flood_side_bytes:-0}" -gt 2000000 ] \
+   && [ ! -e "$DIFF_FLOOD_UNBOUNDED" ] \
+   && [ "$flood_seconds" -lt 20 ]; then
+  ok "flooded git diff stderr is bounded at capture and still relays one line"
+else
+  not_ok "flooded git diff stderr is bounded at capture (expected 3, got $status; git lines $git_line_count; side bytes ${flood_side_bytes:-0}; unbounded marker $([ -e "$DIFF_FLOOD_UNBOUNDED" ] && echo present || echo absent); ${flood_seconds}s)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+# Must-pass control: the bounded reader drains rather than closes git's stderr,
+# so a git that warns past the capture cap and then succeeds is not killed by
+# SIGPIPE and its clean diff still yields a clean scan.
+DIFF_WARN_BIN="$TESTTMP/diff-warn-bin"
+mkdir -p "$DIFF_WARN_BIN"
+cat >"$DIFF_WARN_BIN/git" <<'EOSH'
+#!/usr/bin/env sh
+if [ "${1:-}" = diff ]; then
+  awk 'BEGIN { for (i = 0; i < 2000; i++) print "warning: noisy-but-successful-line " i }' >&2
+  exit 0
+fi
+exec "$AGENT_GUARD_TEST_REAL_GIT" "$@"
+EOSH
+chmod +x "$DIFF_WARN_BIN/git"
+(
+  cd "$DIFF_LIMIT_REPO" || exit 2
+  PATH="$DIFF_WARN_BIN:$PATH" AGENT_GUARD_TEST_REAL_GIT="$REAL_GIT" \
+    "$PLUGIN_ROOT/bin/agent-guard" scan-staged >"$OUT" 2>"$ERR"
+)
+status=$?
+if [ "$status" -eq 0 ] && ! grep -Fq 'agent-guard: git: ' "$ERR"; then
+  ok "noisy-but-successful git diff is not killed by SIGPIPE on stderr"
+else
+  not_ok "noisy-but-successful git diff scans clean (expected 0, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
 # Hook policy still decides what an unavailable scan means; the corrected
 # classification must not change the established open/closed behavior.
 (

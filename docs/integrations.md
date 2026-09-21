@@ -106,7 +106,9 @@ individual path cannot contain spaces.
   aggregate budget; files covered by a successful working-tree backstop do not
   consume it. These are bounded-input policies, not measured wall-clock timeouts.
   An oversized or unreadable target is an infrastructure failure, not a clean
-  scan.
+  scan. The 10 MiB default can only be raised, with
+  `AGENT_GUARD_SCAN_INPUT_MAX_BYTES` (see [configuration](configuration.md));
+  both budgets derive from it.
 - Bash and MCP mutations may lack a usable named target. Their working-tree
   backstop remains useful but cannot discover every ignored or
   outside-repository write.
