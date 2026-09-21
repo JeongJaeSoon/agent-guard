@@ -26,13 +26,14 @@ once a fix or mitigation is available.
 
 Agent Guard is a deterministic, thin guardrail — not a DLP system, EDR, or
 vault. It has documented blind spots by design (see
-[Known Limitations](docs/integrations.md#limits-and-backstops)): gitignored files are not
-scanned, only the git work tree is covered, path/command blocking uses fixed
-lists, tool-output masking is best-effort, Bash detection is pattern-based, and
-commands a user runs through the host's interactive shell escape (e.g. a
-`!`-prefixed command) never reach a tool hook and so are not scanned or masked.
+[Known Limitations](https://github.com/JeongJaeSoon/agent-guard/blob/main/docs/integrations.md#limits-and-backstops)):
+gitignored files are not scanned, only the git work tree is covered,
+path/command blocking uses fixed lists, tool-output masking is best-effort,
+Bash detection is pattern-based, and commands a user runs through the host's
+interactive shell escape (for example, a `!`-prefixed command) never reach a
+tool hook and so are not scanned or masked.
 
 Behavior that falls within those documented limitations is expected, not a
-vulnerability. Suggestions to narrow a blind spot are welcome as regular issues
-or pull requests. Reports of a bypass that defeats a control the project claims
-to enforce are in scope — please report those privately as above.
+vulnerability. Suggestions to narrow a blind spot are welcome as regular
+issues or pull requests. Reports of a bypass that defeats a control the project
+claims to enforce are in scope — please report those privately as above.

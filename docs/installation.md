@@ -14,21 +14,22 @@ The plugins are not replaceable by a PATH CLI: they translate Claude Code and
 Codex events into the same CLI contract. A standalone installation adds the
 CLI and optional shell integration; it does not register host hooks.
 
-## 런타임 의존성
+## Runtime dependencies
 
-macOS와 Linux의 런타임에는 `sh`, `awk`, `git`, `jq`, gitleaks 8.30 이상이
-필요합니다. gitleaks 버전 프로브의 제한 시간과 하위 프로세스 정리를 보장하려면
-별도 프로세스 그룹을 만드는 `setsid` 또는 Perl 중 하나도 필요합니다. Linux에서는
-`sudo apt-get install -y util-linux` 또는 `sudo dnf install -y util-linux`로
-`setsid`를 설치하고, Homebrew 설치에서는 formula가 Perl을 함께 설치합니다.
-수동 macOS 설치에서 둘 다 없다면 `brew install perl`을 사용합니다.
+The runtime on macOS and Linux needs `sh`, `awk`, `git`, `jq`, and gitleaks
+8.30 or newer. It also needs one of `setsid` or Perl to run the gitleaks version
+probe in its own process group, which is what bounds the probe's time limit and
+cleans up its child processes. On Linux install `setsid` with
+`sudo apt-get install -y util-linux` or `sudo dnf install -y util-linux`. The
+Homebrew formula installs Perl alongside the CLI. A manual macOS install that
+has neither can use `brew install perl`.
 
-`agent-guard setup`, `doctor`, `check`는 격리 도구가 없으면 nonzero로 종료합니다.
-`setup --install`은 격리 도구를 다운로드 전에 확인합니다. 격리 도구가 없으면
-gitleaks 자체도 내려받거나 덮어쓰지 않고 해당 도구의 설치 명령만 안내하며,
-설치 후에도 전체 gitleaks readiness를 다시 검증합니다. 런타임 훅은 이 상태를
-clean scan으로 간주하지 않고 `AGENT_GUARD_INFRA_FAILURE_MODE`의 `open` 또는
-`closed` 정책을 적용합니다.
+`agent-guard setup`, `doctor`, and `check` exit non-zero when no isolation tool
+is present. `setup --install` checks for one before downloading anything: with
+no isolation tool it does not download or overwrite gitleaks, prints the install
+command for the missing tool, and re-checks full gitleaks readiness after the
+install. Runtime hooks do not treat this state as a clean scan; they apply the
+`open` or `closed` policy of `AGENT_GUARD_INFRA_FAILURE_MODE`.
 
 If `agent-guard` is already installed as a standalone or Homebrew command, it
 can delegate plugin installation to the official host managers:

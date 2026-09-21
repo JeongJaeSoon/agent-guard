@@ -48,10 +48,11 @@ variables, host session IDs, or arbitrary tool names.
 ## Supported environments
 
 Agent Guard supports macOS and Linux on x64 and arm64. Runtime hooks require
-`sh`, `awk`, `git`, `jq`, gitleaks, 그리고 gitleaks 버전 프로브를 별도 프로세스
-그룹으로 격리할 `setsid`(Linux의 `util-linux`) 또는 Perl 중 하나가 필요합니다.
-Windows is not currently supported. 격리 도구가 없으면 `agent-guard doctor`가
-운영체제별 복구 명령을 출력하며, gitleaks 재설치만으로는 해결되지 않습니다.
+`sh`, `awk`, `git`, `jq`, gitleaks, and one of `setsid` (from `util-linux` on
+Linux) or Perl to run the gitleaks version probe in its own process group.
+Windows is not currently supported. When no isolation tool is present,
+`agent-guard doctor` prints the repair command for your operating system;
+reinstalling gitleaks alone does not fix it.
 Host support and known coverage boundaries are documented in the main README.
 
 The latest 3.x release is the actively supported line. The 2.x moving tag
