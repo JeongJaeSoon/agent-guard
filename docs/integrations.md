@@ -4,10 +4,12 @@ Agent Guard keeps policy and scanning in its portable CLI. Host adapters pass
 their native event to that CLI; they do not implement a second policy engine.
 Use more than one layer for important repositories.
 
-도구별 matcher, Claude/Codex의 서로 다른 출력 교체 계약, failed route와
-session/timeout 경계는 [도구 출력 마스킹의 범위와 검증 경계](output-masking-boundaries.md)를
-기준으로 판단하세요. 저장소 matcher가 존재한다는 사실은 현재 설치본의 dispatch나
-host acceptance를 증명하지 않습니다.
+Per-tool matchers, the different output-replacement contracts of Claude and
+Codex, and the timeout budgets are summarized in
+[Output masking coverage](#output-masking-coverage). A matcher in this
+repository does not prove that your installed copy dispatches it or that the
+host accepts the replacement; run the live probes in
+[Verification](verification.md).
 
 ## Claude Code
 
@@ -127,3 +129,50 @@ individual path cannot contain spaces.
 These are coverage boundaries, not proof that every failure mode is permissive.
 Scanner infrastructure follows the explicit `AGENT_GUARD_INFRA_FAILURE_MODE`
 policy described in [Configuration](configuration.md).
+
+## Output masking coverage
+
+Output masking rewrites a tool result before the model reads it. It runs only
+on the routes below, only when the host dispatches the hook and accepts the
+replacement, and `AGENT_GUARD_OUTPUT_REDACT=off` turns it off. A route listed
+as covered is a candidate: prove it on your install with the live probes in
+[Verification](verification.md).
+
+| Host | Route | Masking | Note |
+| --- | --- | --- | --- |
+| Claude | Successful `PostToolUse` of `Write`, `Edit`, `MultiEdit`, `NotebookEdit`, `Bash`, `PowerShell`, `apply_patch`, `Read`, `NotebookRead`, `Grep`, `Glob`, `WebFetch`, `WebSearch`, `Agent`, `Task`, `Skill`, `Monitor`, `LSP`, `ListMcpResourcesTool`, `ReadMcpResourceTool` | Covered | The matcher is anchored to these exact names. |
+| Claude | `mcp__*` tools | Covered | MCP results skip the built-in output schema check. |
+| Claude | Failed tool calls (`PostToolUseFailure`) | Not covered | Separate event; not in the manifest. |
+| Claude | Any other tool name | Not covered | The hook never starts. |
+| Claude | A `!` shell escape you type yourself | Not covered | Outside the tool-hook boundary; use `agent-guard exec` / `agx`. |
+| Claude | Image or PDF blocks | Text parts only | Binary bytes are restored unchanged; if that restore fails the payload is emptied rather than leaked. |
+| Claude | Sessions with function hooks (Claude Mods) enabled | Covered | Command hooks keep running as `classic.*` events. Probed on 2.1.278. Other mods' own file and network access is not seen. |
+| Codex | `Bash` / `exec_command`, `apply_patch`, `Agent`, `Task`, `mcp__*` | Covered | Codex replaces the result with hook feedback (`decision: "block"` plus `additionalContext`), not with `updatedToolOutput`. |
+| Codex | `write_stdin` | No new event | The original command's `PostToolUse` may arrive when it ends. |
+| Codex | Other local tools, hosted `WebSearch` | Not covered | Not matched, or not on the hook path at all. |
+
+What masking cannot do on either host:
+
+- Undo the tool effect. Files, commands, and network requests already happened
+  when `PostToolUse` runs; masking is a model-input boundary, not a rollback.
+- Survive a timeout. A hook killed at the host budget produces no replacement,
+  and a timed-out Claude `PreToolUse` does not block the call. Keep the Git
+  hook and CI backstops.
+- Force acceptance. If a Claude built-in replacement does not match the tool's
+  output schema, the host may keep the original. Agent Guard preserves the
+  original JSON shape whenever it can; the last-resort fixed `[REDACTED]` string
+  is the known exception.
+
+Hook timeouts in every shipped manifest:
+
+| Event | Timeout |
+| --- | --- |
+| `PreToolUse` | 10 s |
+| `PostToolUse` | 20 s |
+| `Stop` | 20 s |
+| `SessionStart` | 5 s |
+| `UserPromptSubmit` | 10 s |
+
+`AGENT_GUARD_INFRA_FAILURE_MODE=closed` applies when Agent Guard itself can
+decide and return exit status 2 in time. A non-empty payload that is not a JSON
+object is rejected regardless of that mode; empty stdin passes with status 0.

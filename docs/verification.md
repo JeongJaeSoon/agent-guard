@@ -3,10 +3,10 @@
 Use separate evidence for dependencies, deterministic behavior, and live host
 dispatch. A passing earlier layer does not prove a later one.
 
-출력 마스킹의 정확한 matcher, host별 replacement 계약, session/compaction/timeout
-경계는 [도구 출력 마스킹의 범위와 검증 경계](output-masking-boundaries.md)에
-정리되어 있습니다. 플러그인 업데이트나 trust 변경 뒤에는 이 문서의 live probe를
-정확한 route마다 다시 실행하세요.
+The exact matchers, per-host replacement contracts, and timeout budgets are
+summarized in [Output masking coverage](integrations.md#output-masking-coverage).
+After a plugin update, a hook trust change, or a host upgrade, rerun the live
+probes below on every route you rely on.
 
 | Evidence | Command or action | What it establishes | What it does not establish |
 | --- | --- | --- | --- |

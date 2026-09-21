@@ -4,10 +4,11 @@ Agent Guard reads policy from its bundled configuration and selected environment
 variables. Keep custom policy files reviewable and test them with
 `agent-guard smoke-test` plus an appropriate live probe.
 
-`AGENT_GUARD_INFRA_FAILURE_MODE=closed`와 output redaction의 event별 실효 범위는
-[도구 출력 마스킹의 범위와 검증 경계](output-masking-boundaries.md)를 함께
-확인하세요. 특히 `PostToolUse`의 exit 2는 이미 실행된 tool effect를 되돌리지
-않고, timeout 전에 응답하지 못하면 `closed` 결정 자체가 host에 도달하지 않습니다.
+Read [Output masking coverage](integrations.md#output-masking-coverage) for
+what `AGENT_GUARD_INFRA_FAILURE_MODE=closed` and output redaction reach per
+event. In particular, exit status 2 from `PostToolUse` cannot undo a tool effect
+that already happened, and a `closed` decision that misses the host timeout
+never reaches the host.
 
 ## Infrastructure policy
 
@@ -33,7 +34,7 @@ non-object PostToolUse envelope is reported with exit status 2, but that
 diagnostic cannot retract a result the host already received. Malformed-input
 diagnostics are not deduplicated with degraded-infrastructure notices.
 Empty stdin is the documented exception: PreToolUse, PostToolUse, and Stop
-return status 0 with no response. See [output masking boundaries](output-masking-boundaries.md#malformed-envelope%EB%8A%94-infrastructure-failure%EC%99%80-%EB%8B%A4%EB%A5%B4%EB%8B%A4).
+return status 0 with no response. See [Output masking coverage](integrations.md#output-masking-coverage).
 
 ## Output and prompt handling
 
@@ -59,7 +60,7 @@ return status 0 with no response. See [output masking boundaries](output-masking
   instead emits the stripped block with an empty `data`/`base64` payload; this
   is secret-safe but lossy and does not re-enter the whole-leaf or fixed-string
   fallback. A base64 block of a text media type (`text/plain`, `image/svg+xml`)
-  is treated as text. See [output masking boundaries](output-masking-boundaries.md).
+  is treated as text. See [Output masking coverage](integrations.md#output-masking-coverage).
 - `AGENT_GUARD_PROMPT_GUARD_MODE=block` is the default. `warn` passes a prompt
   with a notice and `off` disables secret prompt scanning. Hosts currently do
   not provide safe prompt rewriting, so `mask` degrades to block.

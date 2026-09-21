@@ -18,7 +18,7 @@ not a vault, DLP system, EDR, or credential rotator.
 | --- | --- |
 | Install a Claude Code or Codex plugin, CLI, Git hook, or Action | [Installation](docs/installation.md) |
 | Understand host coverage and configure an integration | [Integrations](docs/integrations.md) |
-| 출력 마스킹의 도달 범위와 host별 계약 차이를 확인 | [Output masking boundaries](docs/output-masking-boundaries.md) |
+| Know which tool routes output masking reaches and how hosts differ | [Output masking coverage](docs/integrations.md#output-masking-coverage) |
 | Verify a setup and understand what the result proves | [Verification](docs/verification.md) |
 | Configure policy, PII, redaction, or infrastructure behavior | [Configuration](docs/configuration.md) |
 | Deploy for a managed team or troubleshoot an environment | [Operations](docs/operations.md); the [Korean/Japanese deployment guide](https://agent-guard-guide.jaesoon.chatgpt.site/) is a supplementary, currently published walkthrough |
@@ -65,9 +65,10 @@ provide `agent-guard` on `PATH`. See [Support](SUPPORT.md) for what to submit.
 
 Supported platforms are macOS and Linux on x64 and arm64. Runtime dependencies
 are `sh`, `awk`, `git`, `jq`, and gitleaks 8.30 or newer. Windows is not
-currently supported. gitleaks 버전 프로브를 별도 프로세스 그룹으로 격리하기
-위해 `setsid`(Linux의 `util-linux`) 또는 Perl 중 하나가 추가로 필요합니다.
-`agent-guard doctor`는 누락된 격리 도구와 플랫폼별 설치 명령을 진단합니다.
+currently supported. One of `setsid` (from `util-linux` on Linux) or Perl is
+also required to run the gitleaks version probe in its own process group.
+`agent-guard doctor` reports a missing isolation tool with the install command
+for your platform.
 
 Default processing is local and ephemeral. Read [Privacy](PRIVACY.md) before
 enabling an endpoint-backed PII provider. Read [Security](SECURITY.md) for
@@ -81,4 +82,3 @@ responsible disclosure and [Support](SUPPORT.md) for safe reports.
 - [Third-party notices](THIRD_PARTY_NOTICES.md)
 - [Changelog](CHANGELOG.md)
 - [Known limitations](docs/integrations.md#limits-and-backstops)
-- [Maintainer release handoff](docs/releases.md)
