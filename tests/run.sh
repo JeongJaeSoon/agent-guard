@@ -6868,6 +6868,21 @@ else
   sed 's/^/  stderr: /' "$ERR"
 fi
 
+# The env override is the escape hatch for the closed policy above: raising
+# the budget scans the same input in full instead of skipping it.
+(
+  cd "$UNTRACKED_LIMIT_REPO" || exit 2
+  AGENT_GUARD_SCAN_INPUT_MAX_BYTES=33554432 \
+    "$PLUGIN_ROOT/bin/agent-guard" scan-working-tree >"$OUT" 2>"$ERR"
+)
+status=$?
+if [ "$status" -eq 0 ] && ! grep -Fq 'scan input limit' "$ERR"; then
+  ok "AGENT_GUARD_SCAN_INPUT_MAX_BYTES lifts the untracked scan input limit"
+else
+  not_ok "AGENT_GUARD_SCAN_INPUT_MAX_BYTES lifts the untracked limit (expected 0, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
 # --- git diff scan input limit keeps truncation distinct from failures -----
 # The diff producer is bounded by the same sentinel-byte `head`, so git reports
 # SIGPIPE once the budget is reached. The byte count, not that expected producer
@@ -6932,6 +6947,65 @@ else
   sed 's/^/  stderr: /' "$ERR"
 fi
 
+# git's own stderr is the only detail that separates `fatal: bad revision`
+# from a missing binary, so the failure path relays its first line — bounded,
+# control characters stripped — and nothing else.
+DIFF_NOISY_BIN="$TESTTMP/diff-noisy-bin"
+mkdir -p "$DIFF_NOISY_BIN"
+DIFF_NOISY_LINE_1=$(awk 'BEGIN { printf "fatal: \r\tbad "; for (i = 0; i < 260; i++) printf "e" }')
+cat >"$DIFF_NOISY_BIN/git" <<EOSH
+#!/usr/bin/env sh
+if [ "\${1:-}" = diff ]; then
+  printf '%s\\n' "$DIFF_NOISY_LINE_1" >&2
+  printf 'second-line-must-not-leak\\n' >&2
+  exit 42
+fi
+exec "\$AGENT_GUARD_TEST_REAL_GIT" "\$@"
+EOSH
+chmod +x "$DIFF_NOISY_BIN/git"
+(
+  cd "$DIFF_LIMIT_REPO" || exit 2
+  PATH="$DIFF_NOISY_BIN:$PATH" AGENT_GUARD_TEST_REAL_GIT="$REAL_GIT" \
+    "$PLUGIN_ROOT/bin/agent-guard" scan-staged >"$OUT" 2>"$ERR"
+)
+status=$?
+git_line=$(grep -F 'agent-guard: git: ' "$ERR")
+git_line_bytes=$(printf '%s' "$git_line" | LC_ALL=C wc -c | tr -d '[:space:]')
+expected_git_line="agent-guard: git: $(printf '%s' "$DIFF_NOISY_LINE_1" | head -c 200 | tr -d '[:cntrl:]')"
+if [ "$status" -eq 3 ] \
+   && grep -Fq 'git diff failed' "$ERR" \
+   && [ "$git_line" = "$expected_git_line" ] \
+   && [ "$git_line_bytes" -le 218 ] \
+   && ! grep -Fq 'second-line-must-not-leak' "$ERR" \
+   && ! grep -q "$(printf '\r')" "$ERR"; then
+  ok "genuine git diff failure relays one bounded, sanitized git stderr line"
+else
+  not_ok "git diff stderr is bounded to one 200-byte line (expected 3, got $status; line bytes $git_line_bytes)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+(
+  cd "$DIFF_LIMIT_REPO" || exit 2
+  PATH="$DIFF_FAIL_BIN:$PATH" AGENT_GUARD_TEST_REAL_GIT="$REAL_GIT" \
+    "$PLUGIN_ROOT/bin/agent-guard" scan-staged >"$OUT" 2>"$ERR"
+)
+if ! grep -Fq 'agent-guard: git: ' "$ERR"; then
+  ok "silent git diff failure emits no empty git stderr line"
+else
+  not_ok "silent git diff failure emits no empty git stderr line"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+(
+  cd "$UNTRACKED_LIMIT_REPO" || exit 2
+  "$PLUGIN_ROOT/bin/agent-guard" scan-staged >"$OUT" 2>"$ERR"
+)
+status=$?
+if [ "$status" -eq 0 ] && ! grep -Fq 'agent-guard: git: ' "$ERR"; then
+  ok "clean scan-staged emits no git stderr line"
+else
+  not_ok "clean scan-staged emits no git stderr line (expected 0, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
 # Hook policy still decides what an unavailable scan means; the corrected
 # classification must not change the established open/closed behavior.
 (
@@ -6964,6 +7038,111 @@ if [ "$status" -eq 2 ] \
   ok "over-limit diff preserves closed hook policy"
 else
   not_ok "over-limit diff follows closed hook policy (expected 2, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+# --- AGENT_GUARD_SCAN_INPUT_MAX_BYTES raises the budget, never lowers it ---
+# The diagnostic names the override so a closed-policy block is actionable;
+# invalid values keep the default rather than silently changing the budget.
+(
+  cd "$DIFF_LIMIT_REPO" || exit 2
+  "$PLUGIN_ROOT/bin/agent-guard" scan-staged >"$OUT" 2>"$ERR"
+)
+if grep -Fq 'or raise AGENT_GUARD_SCAN_INPUT_MAX_BYTES' "$ERR"; then
+  ok "over-limit diff diagnostic names AGENT_GUARD_SCAN_INPUT_MAX_BYTES"
+else
+  not_ok "over-limit diff diagnostic names AGENT_GUARD_SCAN_INPUT_MAX_BYTES"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+(
+  cd "$DIFF_LIMIT_REPO" || exit 2
+  AGENT_GUARD_SCAN_INPUT_MAX_BYTES=33554432 \
+    "$PLUGIN_ROOT/bin/agent-guard" scan-staged >"$OUT" 2>"$ERR"
+)
+status=$?
+if [ "$status" -eq 0 ] && ! grep -Fq 'scan input limit' "$ERR"; then
+  ok "AGENT_GUARD_SCAN_INPUT_MAX_BYTES lifts the staged diff scan input limit"
+else
+  not_ok "AGENT_GUARD_SCAN_INPUT_MAX_BYTES lifts the staged diff limit (expected 0, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+# Raise-only: a value below the default would shrink the budget until every
+# diff is unavailable and the open policy waves unscanned input through. A
+# 19+ digit value would abort dash arithmetic, so it is rejected before use.
+for bad_limit in abc 0 000 -1 '' 1 10485759 9223372036854775808 1000000000000000000000; do
+  (
+    cd "$DIFF_LIMIT_REPO" || exit 2
+    AGENT_GUARD_SCAN_INPUT_MAX_BYTES="$bad_limit" \
+      "$PLUGIN_ROOT/bin/agent-guard" scan-staged >"$OUT" 2>"$ERR"
+  )
+  status=$?
+  if [ "$status" -eq 3 ] \
+     && grep -Fq 'git diff exceeded the scan input limit of 3495253 bytes' "$ERR"; then
+    ok "AGENT_GUARD_SCAN_INPUT_MAX_BYTES='$bad_limit' keeps the default budget"
+  else
+    not_ok "AGENT_GUARD_SCAN_INPUT_MAX_BYTES='$bad_limit' keeps the default budget (expected 3, got $status)"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+done
+(
+  cd "$DIFF_LIMIT_REPO" || exit 2
+  AGENT_GUARD_SCAN_INPUT_MAX_BYTES=0033554432 \
+    "$PLUGIN_ROOT/bin/agent-guard" scan-staged >"$OUT" 2>"$ERR"
+)
+status=$?
+if [ "$status" -eq 0 ] && ! grep -Fq 'scan input limit' "$ERR"; then
+  ok "AGENT_GUARD_SCAN_INPUT_MAX_BYTES accepts a leading-zero positive value"
+else
+  not_ok "AGENT_GUARD_SCAN_INPUT_MAX_BYTES accepts a leading-zero positive value (expected 0, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+# Exactly the default is accepted (the boundary of raise-only) and leaves the
+# budget unchanged, so the 3.6 MB fixture is still over the per-producer third.
+(
+  cd "$DIFF_LIMIT_REPO" || exit 2
+  AGENT_GUARD_SCAN_INPUT_MAX_BYTES=10485760 \
+    "$PLUGIN_ROOT/bin/agent-guard" scan-staged >"$OUT" 2>"$ERR"
+)
+status=$?
+if [ "$status" -eq 3 ] \
+   && grep -Fq 'git diff exceeded the scan input limit of 3495253 bytes' "$ERR"; then
+  ok "AGENT_GUARD_SCAN_INPUT_MAX_BYTES equal to the default keeps the default budget"
+else
+  not_ok "AGENT_GUARD_SCAN_INPUT_MAX_BYTES equal to the default keeps the default budget (expected 3, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+# A below-default value must not turn a small clean diff into "unavailable",
+# which is the open-policy bypass the raise-only rule exists to prevent.
+(
+  cd "$UNTRACKED_LIMIT_REPO" || exit 2
+  printf 'small clean staged edit\n' >>README.md
+  git add README.md
+  AGENT_GUARD_SCAN_INPUT_MAX_BYTES=1 \
+    "$PLUGIN_ROOT/bin/agent-guard" scan-staged >"$OUT" 2>"$ERR"
+  status=$?
+  git reset -q --hard
+  exit "$status"
+)
+status=$?
+if [ "$status" -eq 0 ] && ! grep -Fq 'scan input limit' "$ERR"; then
+  ok "AGENT_GUARD_SCAN_INPUT_MAX_BYTES=1 cannot shrink the budget below a small clean diff"
+else
+  not_ok "AGENT_GUARD_SCAN_INPUT_MAX_BYTES=1 cannot shrink the budget (expected 0, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+(
+  cd "$DIFF_LIMIT_REPO" || exit 2
+  printf '%s' '{"session_id":"diff-limit-closed-raised","stop_hook_active":false}' \
+    | AGENT_GUARD_INFRA_FAILURE_MODE=closed \
+        AGENT_GUARD_SCAN_INPUT_MAX_BYTES=33554432 \
+        AGENT_GUARD_WARNING_DIR="$TESTTMP/diff-limit-closed-raised-warn" \
+        "$PLUGIN_ROOT/bin/agent-guard" hook-stop >"$OUT" 2>"$ERR"
+)
+status=$?
+if [ "$status" -eq 0 ] && ! grep -Fq 'scan input limit' "$ERR"; then
+  ok "raised budget unblocks the closed-policy stop hook end to end"
+else
+  not_ok "raised budget unblocks the closed-policy stop hook (expected 0, got $status)"
   sed 's/^/  stderr: /' "$ERR"
 fi
 
