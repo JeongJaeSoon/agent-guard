@@ -194,7 +194,71 @@ Code defaults to user scope. Codex supports user scope only.
 Marketplaces are pinned to the release tag matching this CLI. If status reports
 marketplace drift, remove that marketplace with the host manager and run install
 again. Host marketplace removal also removes plugins installed from it.
+
+status looks up the latest GitHub release, and update does so only when the
+installed plugin already matches this CLI (AGENT_GUARD_RELEASE_CHECK=off skips
+it). When a newer release exists, update prints the host-manager commands that
+move the marketplace pin forward; it never re-pins on its own.
 EOF
+}
+
+# Resolve the latest release from the releases/latest HEAD redirect: no API
+# token, no rate limit, no JSON. The redirect target is untrusted input, so only
+# an exact tag URL with a three-field version is accepted and the raw URL is
+# never printed. Sets LATEST_RELEASE_VERSION (not echoed, so the cache survives
+# without a subshell) and succeeds when a version is known; `--host all` and
+# doctor therefore look up once.
+LATEST_RELEASE_VERSION=
+LATEST_RELEASE_LOOKED_UP=0
+latest_release_version() {
+  if [ "$LATEST_RELEASE_LOOKED_UP" -eq 0 ]; then
+    LATEST_RELEASE_LOOKED_UP=1
+    if [ "${AGENT_GUARD_RELEASE_CHECK:-on}" != off ] && command -v curl >/dev/null 2>&1; then
+      release_url=$(curl -fsSI --max-time 5 -o /dev/null -w '%{redirect_url}' \
+        https://github.com/JeongJaeSoon/agent-guard/releases/latest 2>/dev/null) || release_url=
+      release_prefix='https://github.com/JeongJaeSoon/agent-guard/releases/tag/v'
+      case "$release_url" in
+        "$release_prefix"*)
+          release_tag=${release_url#"$release_prefix"}
+          is_semver_dir "$release_tag" && LATEST_RELEASE_VERSION=$release_tag
+          ;;
+      esac
+    fi
+  fi
+  [ -n "$LATEST_RELEASE_VERSION" ]
+}
+
+# version_newer A B: succeeds when semver A is strictly greater than B.
+version_newer() {
+  awk -v a="$1" -v b="$2" 'BEGIN {
+    split(a, x, "."); split(b, y, ".")
+    for (i = 1; i <= 3; i++) {
+      if (x[i] + 0 > y[i] + 0) exit 0
+      if (x[i] + 0 < y[i] + 0) exit 1
+    }
+    exit 1
+  }'
+}
+
+# Host-manager commands that move a pinned marketplace to $2 (a tag, or a
+# placeholder when the latest release is unknown). Printed to stderr, never run.
+print_release_forward_commands() {
+  forward_host=$1
+  forward_tag=$2
+  forward_scope=$3
+  case "$forward_host" in
+    claude)
+      printf '  claude plugin marketplace remove agent-guard --scope %s\n' "$forward_scope" >&2
+      printf '  claude plugin marketplace add JeongJaeSoon/agent-guard@%s --scope %s\n' "$forward_tag" "$forward_scope" >&2
+      printf '  claude plugin install agent-guard@agent-guard --scope %s\n' "$forward_scope" >&2
+      ;;
+    codex)
+      printf '  codex plugin marketplace remove agent-guard\n' >&2
+      printf '  codex plugin marketplace add JeongJaeSoon/agent-guard@%s\n' "$forward_tag" >&2
+      printf '  codex plugin add agent-guard@agent-guard\n' >&2
+      ;;
+  esac
+  printf '%s\n' "$PROGRAM: marketplace removal also removes its installed plugin; restart the host afterwards" >&2
 }
 
 plugin_marketplace_source_is_agent_guard() {
@@ -567,6 +631,18 @@ plugin_for_host() {
         printf '%s: not installed (marketplace %s)\n' \
           "$plugin_host" "$plugin_marketplace_status"
       fi
+      if [ "$plugin_marketplace_source" = agent-guard ]; then
+        if latest_release_version; then
+          if version_newer "$LATEST_RELEASE_VERSION" "$VERSION"; then
+            printf '%s: latest release v%s; this CLI is %s\n' \
+              "$plugin_host" "$LATEST_RELEASE_VERSION" "$VERSION"
+          else
+            printf '%s: latest release v%s\n' "$plugin_host" "$LATEST_RELEASE_VERSION"
+          fi
+        else
+          printf '%s: latest release unknown\n' "$plugin_host"
+        fi
+      fi
       ;;
     install)
       if [ "$plugin_marketplace_source" = conflict ]; then
@@ -703,6 +779,21 @@ plugin_for_host() {
         printf '%s: agent-guard plugin already matches this CLI (version %s, marketplace v%s)\n' \
           "$plugin_host" "$VERSION" "$VERSION"
         rm -rf "$plugin_tmp"
+        # This binary lives in the cache that marketplace removal deletes, so
+        # moving to a newer release is printed for the user, never performed.
+        if latest_release_version; then
+          if version_newer "$LATEST_RELEASE_VERSION" "$VERSION"; then
+            printf '%s\n' "$PROGRAM: this CLI is $VERSION and can only pin the marketplace to v$VERSION; to move to v$LATEST_RELEASE_VERSION, run:" >&2
+            print_release_forward_commands "$plugin_host" "v$LATEST_RELEASE_VERSION" "$plugin_scope"
+          elif [ "$LATEST_RELEASE_VERSION" = "$VERSION" ]; then
+            printf '%s\n' "$PROGRAM: v$VERSION matches the latest release v$LATEST_RELEASE_VERSION" >&2
+          else
+            printf '%s\n' "$PROGRAM: latest release is v$LATEST_RELEASE_VERSION" >&2
+          fi
+        else
+          printf '%s\n' "$PROGRAM: this CLI is $VERSION and can only pin the marketplace to v$VERSION; the latest release could not be looked up. To move to a newer release v<X.Y.Z> from https://github.com/JeongJaeSoon/agent-guard/releases, run:" >&2
+          print_release_forward_commands "$plugin_host" 'v<X.Y.Z>' "$plugin_scope"
+        fi
         return 0
       fi
       case "$plugin_host" in
@@ -8784,6 +8875,23 @@ homebrew_managed_install() {
   grep -Eq '"tap"[[:space:]]*:[[:space:]]*"jeongjaesoon/tap"' "$receipt"
 }
 
+# doctor is setup plus a release-staleness line; the setup status is returned
+# unchanged so a failed lookup never turns a healthy doctor red.
+do_doctor() {
+  do_setup "$@"
+  doctor_status=$?
+  if latest_release_version; then
+    if version_newer "$LATEST_RELEASE_VERSION" "$VERSION"; then
+      info "$PROGRAM: release: $VERSION installed; $LATEST_RELEASE_VERSION is available"
+    else
+      info "$PROGRAM: release: $VERSION installed; latest release is $LATEST_RELEASE_VERSION"
+    fi
+  else
+    info "$PROGRAM: release: $VERSION installed; latest unknown (release lookup unavailable or AGENT_GUARD_RELEASE_CHECK=off)"
+  fi
+  return "$doctor_status"
+}
+
 # Update only the standalone distribution. Plugin caches and Homebrew formula
 # payloads are owned by their respective managers; mutating either here would
 # recreate the stale-path problem this command is intended to avoid. The
@@ -8791,7 +8899,7 @@ homebrew_managed_install() {
 do_update() {
   [ "$#" -eq 0 ] || die "update: no arguments are accepted"
   if [ -n "$PLUGIN_CACHE_BASE" ]; then
-    die "update is unavailable for plugin installs; update Agent Guard through the host plugin manager, then rerun setup-shell"
+    die "update is unavailable for plugin installs; run '$PROGRAM plugin update --host claude' (or --host codex) to see the host-manager commands that move to a newer release"
   fi
   if homebrew_managed_install; then
     die "update is unavailable for Homebrew installs; run: brew upgrade JeongJaeSoon/tap/agent-guard"
@@ -8854,7 +8962,7 @@ case "$cmd" in
   logs) shift; audit_logs "$@" ;;
   plugin) shift; do_plugin "$@" ;;
   check) check_deps ;;
-  doctor) shift; do_setup "$@" ;;
+  doctor) shift; do_doctor "$@" ;;
   update) shift; do_update "$@" ;;
   setup) shift; do_setup "$@" ;;
   setup-shell) shift; do_setup_shell "$@" ;;

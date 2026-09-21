@@ -9,6 +9,8 @@ CLI_TAG="v$CLI_VERSION"
 OLD_VERSION=0.0.0
 [ "$CLI_VERSION" = "$OLD_VERSION" ] && OLD_VERSION=0.0.1
 OLD_TAG="v$OLD_VERSION"
+NEWER_VERSION=$(printf '%s\n' "$CLI_VERSION" | awk -F. '{ printf "%s.%s.%s", $1, $2, $3 + 1 }')
+NEWER_TAG="v$NEWER_VERSION"
 export AG_PLUGIN_TEST_EXPECTED_VERSION="$CLI_VERSION"
 export AG_PLUGIN_TEST_EXPECTED_TAG="$CLI_TAG"
 export AG_PLUGIN_TEST_OLD_VERSION="$OLD_VERSION"
@@ -41,6 +43,23 @@ new_case() {
   export AG_PLUGIN_TEST_SCHEMA=normal
   export AG_PLUGIN_TEST_MODE=1
   export AG_PLUGIN_TEST_CLAUDE_MANAGED_SETTINGS_ROOT="$case_managed"
+  # run_guard keeps the real curl reachable; stay offline unless a case
+  # installs mock_release_curl.
+  export AGENT_GUARD_RELEASE_CHECK=off
+}
+
+# Mock the GitHub releases/latest HEAD redirect. $1 is the tag the redirect
+# points at (empty = curl failure).
+mock_release_curl() {
+  cat >"$case_bin/curl" <<'EOF'
+#!/usr/bin/env sh
+printf 'curl %s\n' "$*" >>"$AG_PLUGIN_TEST_LOG"
+[ -n "${AG_PLUGIN_TEST_RELEASE_TAG:-}" ] || exit 1
+printf '%s' "https://github.com/JeongJaeSoon/agent-guard/releases/tag/$AG_PLUGIN_TEST_RELEASE_TAG"
+EOF
+  chmod +x "$case_bin/curl"
+  export AG_PLUGIN_TEST_RELEASE_TAG="$1"
+  export AGENT_GUARD_RELEASE_CHECK=on
 }
 
 write_managed_base() {
@@ -679,6 +698,169 @@ if run_guard plugin uninstall --host codex \
   ok 'uninstall is idempotent when the plugin is absent'
 else
   not_ok 'uninstall is idempotent when the plugin is absent'
+fi
+
+# --- release staleness: status and the update no-op only print, never mutate ---
+
+new_case status_newer_release
+add_host claude
+mock_release_curl "$NEWER_TAG"
+export AG_PLUGIN_TEST_MARKETPLACE=ok AG_PLUGIN_TEST_INSTALLED=1
+if run_guard plugin status --host claude \
+   && grep -Fxq "claude: installed, enabled (version $CLI_VERSION, marketplace configured at $CLI_TAG)" "$case_dir/out" \
+   && grep -Fxq "claude: latest release $NEWER_TAG; this CLI is $CLI_VERSION" "$case_dir/out"; then
+  ok 'status reports a newer release behind the pinned marketplace'
+else
+  not_ok 'status reports a newer release behind the pinned marketplace'
+fi
+
+new_case status_current_release
+add_host codex
+mock_release_curl "$CLI_TAG"
+export AG_PLUGIN_TEST_MARKETPLACE=ok AG_PLUGIN_TEST_INSTALLED=1
+if run_guard plugin status --host codex \
+   && grep -Fxq "codex: latest release $CLI_TAG" "$case_dir/out" \
+   && ! grep -q 'this CLI is' "$case_dir/out"; then
+  ok 'status reports the latest release without a staleness claim when it matches the CLI'
+else
+  not_ok 'status reports the latest release without a staleness claim when it matches the CLI'
+fi
+
+new_case status_older_release
+add_host claude
+mock_release_curl "$OLD_TAG"
+export AG_PLUGIN_TEST_MARKETPLACE=ok AG_PLUGIN_TEST_INSTALLED=1
+if run_guard plugin status --host claude \
+   && grep -Fxq "claude: latest release $OLD_TAG" "$case_dir/out" \
+   && ! grep -q 'this CLI is' "$case_dir/out"; then
+  ok 'status prints an older published release verbatim for a build ahead of it'
+else
+  not_ok 'status prints an older published release verbatim for a build ahead of it'
+fi
+
+new_case status_release_unknown
+add_host claude
+mock_release_curl ''
+export AG_PLUGIN_TEST_MARKETPLACE=ok AG_PLUGIN_TEST_INSTALLED=1
+if run_guard plugin status --host claude \
+   && grep -Fxq 'claude: latest release unknown' "$case_dir/out" \
+   && ! grep -q 'releases/tag' "$case_dir/out" "$case_dir/err"; then
+  ok 'status reports an unknown latest release when the lookup fails'
+else
+  not_ok 'status reports an unknown latest release when the lookup fails'
+fi
+
+new_case status_release_check_off
+add_host claude
+mock_release_curl "$NEWER_TAG"
+export AGENT_GUARD_RELEASE_CHECK=off
+export AG_PLUGIN_TEST_MARKETPLACE=ok AG_PLUGIN_TEST_INSTALLED=1
+if run_guard plugin status --host claude \
+   && grep -Fxq 'claude: latest release unknown' "$case_dir/out" \
+   && ! grep -q '^curl ' "$case_log"; then
+  ok 'status skips the release lookup when AGENT_GUARD_RELEASE_CHECK=off'
+else
+  not_ok 'status skips the release lookup when AGENT_GUARD_RELEASE_CHECK=off'
+fi
+
+new_case status_all_hosts_single_lookup
+add_host claude
+add_host codex
+mock_release_curl "$NEWER_TAG"
+export AG_PLUGIN_TEST_MARKETPLACE=ok AG_PLUGIN_TEST_INSTALLED=1
+if run_guard plugin status --host all \
+   && grep -Fxq "claude: latest release $NEWER_TAG; this CLI is $CLI_VERSION" "$case_dir/out" \
+   && grep -Fxq "codex: latest release $NEWER_TAG; this CLI is $CLI_VERSION" "$case_dir/out" \
+   && [ "$(grep -c '^curl ' "$case_log")" -eq 1 ]; then
+  ok 'all-host status reports both hosts from a single release lookup'
+else
+  not_ok 'all-host status reports both hosts from a single release lookup'
+fi
+
+new_case status_release_missing_marketplace
+add_host claude
+mock_release_curl "$NEWER_TAG"
+if run_guard plugin status --host claude \
+   && ! grep -q 'latest release' "$case_dir/out" \
+   && ! grep -q '^curl ' "$case_log"; then
+  ok 'status does not look up releases without an agent-guard marketplace'
+else
+  not_ok 'status does not look up releases without an agent-guard marketplace'
+fi
+
+new_case update_noop_newer_project
+add_host claude
+mock_release_curl "$NEWER_TAG"
+export AG_PLUGIN_TEST_MARKETPLACE=ok AG_PLUGIN_TEST_INSTALLED=project
+if run_guard plugin update --host claude --scope project \
+   && grep -q 'already matches this CLI' "$case_dir/out" \
+   && grep -Fxq "agent-guard: this CLI is $CLI_VERSION and can only pin the marketplace to $CLI_TAG; to move to $NEWER_TAG, run:" "$case_dir/err" \
+   && grep -Fxq '  claude plugin marketplace remove agent-guard --scope project' "$case_dir/err" \
+   && grep -Fxq "  claude plugin marketplace add JeongJaeSoon/agent-guard@$NEWER_TAG --scope project" "$case_dir/err" \
+   && grep -Fxq '  claude plugin install agent-guard@agent-guard --scope project' "$case_dir/err" \
+   && grep -q 'marketplace removal also removes its installed plugin; restart the host afterwards' "$case_dir/err" \
+   && ! grep -Eq 'marketplace remove|marketplace update|plugin install|plugin update' "$case_log"; then
+  ok 'update no-op prints the Claude forward commands for the scope without mutating'
+else
+  not_ok 'update no-op prints the Claude forward commands for the scope without mutating'
+fi
+
+new_case update_noop_newer_codex
+add_host codex
+mock_release_curl "$NEWER_TAG"
+export AG_PLUGIN_TEST_MARKETPLACE=ok AG_PLUGIN_TEST_INSTALLED=1
+if run_guard plugin update --host codex \
+   && grep -q 'already matches this CLI' "$case_dir/out" \
+   && grep -Fxq '  codex plugin marketplace remove agent-guard' "$case_dir/err" \
+   && grep -Fxq "  codex plugin marketplace add JeongJaeSoon/agent-guard@$NEWER_TAG" "$case_dir/err" \
+   && grep -Fxq '  codex plugin add agent-guard@agent-guard' "$case_dir/err" \
+   && ! grep -q -- '--scope' "$case_dir/err" \
+   && ! grep -Eq 'marketplace remove|marketplace upgrade|plugin add agent-guard' "$case_log"; then
+  ok 'update no-op prints the Codex forward commands without mutating'
+else
+  not_ok 'update no-op prints the Codex forward commands without mutating'
+fi
+
+new_case update_noop_release_unknown
+add_host claude
+mock_release_curl ''
+export AG_PLUGIN_TEST_MARKETPLACE=ok AG_PLUGIN_TEST_INSTALLED=1
+if run_guard plugin update --host claude \
+   && grep -q 'already matches this CLI' "$case_dir/out" \
+   && grep -Fxq '  claude plugin marketplace add JeongJaeSoon/agent-guard@v<X.Y.Z> --scope user' "$case_dir/err" \
+   && grep -Fq 'https://github.com/JeongJaeSoon/agent-guard/releases' "$case_dir/err" \
+   && ! grep -Eq 'marketplace remove|plugin install' "$case_log"; then
+  ok 'update no-op prints a placeholder forward block when the release lookup fails'
+else
+  not_ok 'update no-op prints a placeholder forward block when the release lookup fails'
+fi
+
+new_case update_noop_current_release
+add_host claude
+mock_release_curl "$CLI_TAG"
+export AG_PLUGIN_TEST_MARKETPLACE=ok AG_PLUGIN_TEST_INSTALLED=1
+if run_guard plugin update --host claude \
+   && grep -q 'already matches this CLI' "$case_dir/out" \
+   && grep -Fxq "agent-guard: $CLI_TAG matches the latest release $CLI_TAG" "$case_dir/err" \
+   && ! grep -q 'marketplace remove' "$case_dir/err" \
+   && ! grep -Eq 'marketplace remove|plugin install' "$case_log"; then
+  ok 'update no-op reports the pinned release as latest'
+else
+  not_ok 'update no-op reports the pinned release as latest'
+fi
+
+new_case update_noop_older_release
+add_host claude
+mock_release_curl "$OLD_TAG"
+export AG_PLUGIN_TEST_MARKETPLACE=ok AG_PLUGIN_TEST_INSTALLED=1
+if run_guard plugin update --host claude \
+   && grep -q 'already matches this CLI' "$case_dir/out" \
+   && grep -Fxq "agent-guard: latest release is $OLD_TAG" "$case_dir/err" \
+   && ! grep -Eq 'matches the latest|marketplace remove' "$case_dir/err" \
+   && ! grep -Eq 'marketplace remove|plugin install' "$case_log"; then
+  ok 'update no-op prints an older published release verbatim without a forward block'
+else
+  not_ok 'update no-op prints an older published release verbatim without a forward block'
 fi
 
 printf 'plugin management: %s passed, %s failed\n' "$pass" "$fail"
