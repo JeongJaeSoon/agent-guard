@@ -1,3 +1,11 @@
+## v3.5.0 - 2026-09-21
+
+- docs: remove maintainer-only documents and keep user-facing docs in English (#271)
+- docs(boundaries): record function hooks (Claude Mods) compatibility probe (#270)
+- fix(scan): bound git diff stderr capture at the source (#269)
+- feat(scan): add AGENT_GUARD_SCAN_INPUT_MAX_BYTES and bound git diff stderr (#268)
+- fix(plugin): make plugin update legible and report release staleness (#267)
+
 ## v3.4.5 - 2026-09-20
 
 - fix: classify git diff scan-limit truncation as a size limit, not a git failure (#263)
