@@ -22,7 +22,7 @@ with CI behind it as a backstop:
 | Who commits | What stops the leak |
 | --- | --- |
 | An agent in Claude Code or Codex | Before the agent's `git commit` or `git push` runs, the plugin scans the staged added lines and blocks the command on a secret-like value. It also refuses `--no-verify` and `--no-gpg-sign` on those commands, so the agent cannot switch the check off with a flag. |
-| Any local commit, yours or an agent's | Once installed, the [native pre-commit hook](docs/integrations.md#native-git-hook) scans the staged added lines after Git has staged everything the commit will include, and aborts the commit on a finding or when the scan cannot run. |
+| Any local commit, yours or an agent's | Once installed, the [native pre-commit hook](docs/integrations.md#native-git-hook) scans the staged added lines after Git has staged everything the commit will include, and aborts the commit on a finding or when the scan cannot run. Git skips it for `git commit --no-verify`; the plugin refuses that flag for agents, and CI covers the rest. |
 | Anyone, after a push | The [GitHub Action](docs/integrations.md#github-actions) scans the checked-out files of each push or pull request it runs on, as the repository backstop. |
 
 The plugin checks the index as it stands when the command starts. A
