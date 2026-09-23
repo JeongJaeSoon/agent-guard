@@ -22,15 +22,21 @@ with CI behind it as a backstop:
 | Who commits | What stops the leak |
 | --- | --- |
 | An agent in Claude Code or Codex | Before the agent's `git commit` or `git push` runs, the plugin scans the staged added lines and blocks the command on a secret-like value. It also refuses `--no-verify` and `--no-gpg-sign` on those commands, so the agent cannot switch the check off with a flag. |
-| You, from a terminal or IDE | Once installed, the [native pre-commit hook](docs/integrations.md#native-git-hook) runs the same staged scan before each local commit. |
+| Any local commit, yours or an agent's | Once installed, the [native pre-commit hook](docs/integrations.md#native-git-hook) scans the staged added lines after Git has staged everything the commit will include, and aborts the commit on a finding or when the scan cannot run. |
 | Anyone, after a push | The [GitHub Action](docs/integrations.md#github-actions) scans the checked-out files of each push or pull request it runs on, as the repository backstop. |
 
-A scan that could not run is not treated as clean. By default the hook warns
-that protection is degraded and lets the command continue;
-`AGENT_GUARD_INFRA_FAILURE_MODE=closed` blocks it instead (see
-[Configuration](docs/configuration.md)). The push gate checks what is staged,
-not commits that already exist; a secret committed outside these hooks is
-caught by CI while it is still in the checked-out tree.
+The plugin checks the index as it stands when the command starts. A
+`git commit -a` or `git commit <path>` stages tracked changes afterwards, so
+install the native hook as well: it runs after that staging and sees what the
+commit really contains. Likewise the push gate checks what is staged, not
+commits that already exist; a secret committed outside these hooks is caught by
+CI while it is still in the checked-out tree.
+
+A scan that could not run is not treated as clean. In the Claude Code and Codex
+plugins, the default warns that protection is degraded and lets the command
+continue, and `AGENT_GUARD_INFRA_FAILURE_MODE=closed` blocks it instead (see
+[Configuration](docs/configuration.md)). The native hook and the Action fail on
+an unavailable scan regardless of that setting.
 
 ## Choose your path
 
