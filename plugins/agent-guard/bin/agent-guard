@@ -4487,10 +4487,11 @@ git_commit_stage_records() {
       '>'|'>>'|'<'|'<<'|'<<<'|'<>'|'>|') printf 'P%s\n' "$stage_word"; stage_skip_next=2; continue ;;
       '>'*|'<'*) printf 'P%s\n' "$stage_word"; continue ;;
     esac
-    # An unquoted glob can expand to any file name, including `-a` or
-    # `--interactive`; the tokenizer cannot tell it from a quoted one.
+    # An unquoted glob that starts with `-` or with a glob character can
+    # expand to a file named `-a` or `--interactive`; the tokenizer cannot
+    # tell it from a quoted one. A glob under a directory is a pathspec.
     case "$stage_word" in
-      *[*?[]*) printf 'I\n'; continue ;;
+      -*[*?[]*|[*?[]*) printf 'I\n'; continue ;;
     esac
     if [ "$stage_options_done" -eq 0 ]; then
       case "$stage_word" in
@@ -4542,7 +4543,8 @@ git_commit_stage_records() {
 
 # Given the records after `git add`, succeed when it may add ignored files:
 # -f/--force (or a prefix of it, which Git accepts), or a word only known at
-# run time — a variable, a brace expansion, or a glob that may match `-f`.
+# run time — a variable, a brace expansion, or a glob that may match `-f`
+# (one that starts with `-` or with a glob character; `src/*.js` cannot).
 git_add_is_forced() {
   for add_record in "$@"; do
     add_kind=${add_record%"${add_record#?}"}
@@ -4554,7 +4556,7 @@ git_add_is_forced() {
       *) return 0 ;;
     esac
     case "$add_word" in
-      *[*?[]*) return 0 ;;
+      -*[*?[]*|[*?[]*) return 0 ;;
       --) return 1 ;;
       --*) long_option_abbreviates "${add_word#--}" force && return 0 ;;
       -*f*) return 0 ;;

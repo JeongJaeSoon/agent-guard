@@ -3903,6 +3903,10 @@ autostage_case codex clean 0 'git add --force ignored.conf && git commit -m x' i
 (cd "$AUTOSTAGE_REPO" && : > ./-f && printf '/-f\n' >> .git/info/exclude)
 autostage_case claude secret 2 'git add -[f] ignored.conf && git commit -m x' ignored.conf
 (cd "$AUTOSTAGE_REPO" && rm -f ./-f)
+# A glob under a directory cannot expand to an option, so it stays a
+# pathspec and adds no ignored-file scan.
+autostage_case codex secret 2 'git commit -m x sub/*.conf' sub/nested.conf
+autostage_case claude secret 0 'git add sub/*.conf && git commit -m x' ignored.conf
 # A redirection target is not a pathspec (closed policy: no false failure).
 autostage_case claude clean 0 'git commit -am x >/dev/null 2>&1'
 # Pathspecs resolve against the command cwd, not the repository root.
