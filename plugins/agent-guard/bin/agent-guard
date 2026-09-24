@@ -4481,6 +4481,11 @@ git_commit_stage_records() {
       '>'|'>>'|'<'|'<<'|'<<<'|'<>'|'>|') printf 'P%s\n' "$stage_word"; stage_skip_next=2; continue ;;
       '>'*|'<'*) printf 'P%s\n' "$stage_word"; continue ;;
     esac
+    # An unquoted glob can expand to any file name, including `-a` or
+    # `--interactive`; the tokenizer cannot tell it from a quoted one.
+    case "$stage_word" in
+      *[*?[]*) printf 'I\n'; continue ;;
+    esac
     if [ "$stage_options_done" -eq 0 ]; then
       case "$stage_word" in
         --)

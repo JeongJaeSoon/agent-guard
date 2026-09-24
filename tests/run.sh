@@ -3782,6 +3782,9 @@ mkdir -p "$AUTOSTAGE_REPO/sub"
   printf 'g=1\n' > '>'
   git add .
   git commit -q -m init
+  # An ignored file named like an option, for the glob case below.
+  : > ./-a
+  printf '/-a\n' >> .git/info/exclude
 )
 AUTOSTAGE_BASE=$(git -C "$AUTOSTAGE_REPO" rev-parse HEAD)
 
@@ -3880,6 +3883,9 @@ autostage_case claude secret 2 'cd sub && git commit -m x nested.conf' sub/neste
 # --interactive can add untracked files, which no diff shows.
 autostage_case claude secret 2 "printf '4\\n1\\n\\n7\\n' | git commit --interactive -m x" untracked.conf
 autostage_case codex clean 0 "printf '4\\n1\\n\\n7\\n' | git commit --interactive -m x" untracked.conf
+# A glob can expand to an option-named file: here `-?` becomes `-a`.
+autostage_case claude secret 2 'git commit -m x -?'
+autostage_case codex clean 0 'git commit -m x -?'
 # A quoted pathspec that looks like a redirection is still a pathspec.
 autostage_case codex secret 2 "git commit -m x -- '>'" '>'
 # The pathspec file lies outside the repository (closed policy: no false failure).
