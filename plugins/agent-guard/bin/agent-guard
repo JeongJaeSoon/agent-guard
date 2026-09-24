@@ -3344,13 +3344,16 @@ extract_git_diff_added() {
   # a git wrapper spewing stderr must neither fill TMPDIR nor stall the hook,
   # and the trailing drain keeps a noisy-but-successful git from seeing SIGPIPE.
   diff_err_file=$(mktemp_file) || { rm -f "$diff_file" "$diff_status_file"; return "$SCAN_STATUS_UNAVAILABLE"; }
+  # autoRefreshIndex=false: a work-tree diff otherwise rewrites the index to
+  # refresh stale stat data, and a scan must leave the repository as it was.
+  #
   # Read at most one byte beyond the shared scan budget. Closing the pipe there
   # stops a large diff from being fully materialized before the host timeout.
   # This bounds scan work and storage; it is not a portable wall-clock timeout
   # for a git process that stalls before producing output.
   (
     exec 3>&1
-    { git diff --text --no-textconv --no-color "$@" 2>&1 >&3; printf '%s\n' "$?" >"$diff_status_file"; } 2>/dev/null \
+    { git -c diff.autoRefreshIndex=false diff --text --no-textconv --no-color "$@" 2>&1 >&3; printf '%s\n' "$?" >"$diff_status_file"; } 2>/dev/null \
       | { head -c 512 >"$diff_err_file"; cat >/dev/null; }
   ) | head -c $((SCAN_COMPONENT_MAX_BYTES + 1)) >"$diff_file"
   pipe_status=$?
@@ -3393,6 +3396,43 @@ scan_staged() {
   [ "$status" -eq 0 ] || return "$status"
   [ -n "$added" ] || return 0
   scan_text_direct "staged added lines" "$added"
+}
+
+# What a `git commit` records: the index, plus tracked work-tree changes that
+# Git stages itself after PreToolUse has run — all of them for -a, --patch and
+# --interactive ($1 = 1), or those under the pathspecs in $2... (relative to
+# the command cwd, as Git reads them). A diff against HEAD is used instead of
+# staging into a scratch index so the scan writes neither the index nor the
+# object store.
+scan_commit_candidate() {
+  stage_all=$1
+  shift
+  need_cmd git "$SCAN_STATUS_UNAVAILABLE"
+  need_gitleaks "$SCAN_STATUS_UNAVAILABLE"
+  require_git_repo || return $?
+  repo_root=$(git rev-parse --show-toplevel 2>/dev/null) \
+    || return "$SCAN_STATUS_UNAVAILABLE"
+  added=$(CDPATH= cd -- "$repo_root" && extract_git_diff_added --cached --unified=0 --no-ext-diff -- .)
+  status=$?
+  [ "$status" -eq 0 ] || return "$status"
+  if [ "$stage_all" -eq 1 ] || [ "$#" -gt 0 ]; then
+    # Without a HEAD, the work tree is diffed against the index; the --cached
+    # diff above already holds every index line, so together they cover it.
+    stage_base=
+    git rev-parse --verify --quiet HEAD >/dev/null 2>&1 && stage_base=HEAD
+    if [ "$stage_all" -eq 1 ]; then
+      staged_by_git=$(CDPATH= cd -- "$repo_root" \
+        && extract_git_diff_added --unified=0 --no-ext-diff ${stage_base:+"$stage_base"} -- .)
+    else
+      staged_by_git=$(extract_git_diff_added --unified=0 --no-ext-diff ${stage_base:+"$stage_base"} -- "$@")
+    fi
+    status=$?
+    [ "$status" -eq 0 ] || return "$status"
+    [ -n "$staged_by_git" ] && added=${added:+"$added
+"}$staged_by_git
+  fi
+  [ -n "$added" ] || return 0
+  scan_text_direct "commit candidate added lines" "$added"
 }
 
 scan_untracked_files() {
@@ -4354,6 +4394,100 @@ wrapper_option_takes_value() {
   esac
 }
 
+long_option_abbreviates() {
+  [ -n "$1" ] || return 1
+  case "$2" in
+    "$1"*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# `git commit -a`, --patch, --interactive, --pathspec-from-file, and a
+# pathspec (with or without --only/--include) make Git stage tracked work-tree
+# changes itself, after PreToolUse has run. Given the git_command_records after
+# `commit`, print W when any tracked change may be staged and P<pathspec> for
+# each literal pathspec. Every misreading must widen the scan, never narrow it:
+# a dynamic word becomes W, and an unrecognised option is a flag, so the word
+# after it stays a pathspec. Git accepts unambiguous long-option prefixes, and
+# an ambiguous one fails the commit, so any prefix of a staging option is W.
+git_commit_stage_records() {
+  stage_skip_next=0
+  stage_options_done=0
+  while [ "$#" -gt 0 ]; do
+    stage_kind=${1%"${1#?}"}
+    stage_word=${1#?}
+    shift
+    if [ "$stage_kind" = 0 ] && is_shell_command_separator "$stage_word"; then
+      # The tokenizer turns a bare `&` into `;`, so `2>&1` and `&>log` arrive
+      # split around one. Treat them as redirections so a later pathspec is not
+      # mistaken for the start of a new command.
+      if [ "$stage_word" = ';' ]; then
+        [ "$stage_skip_next" -eq 1 ] && continue
+        case "${1-}" in
+          0'>'*|0'<'*) continue ;;
+        esac
+      fi
+      return 0
+    fi
+    if [ "$stage_skip_next" -eq 1 ]; then
+      stage_skip_next=0
+      continue
+    fi
+    if [ "$stage_kind" != 0 ]; then
+      printf 'W\n'
+      continue
+    fi
+    stage_redirect=${stage_word#"${stage_word%%[!0-9]*}"}
+    case "$stage_redirect" in
+      '>'|'>>'|'<'|'<<'|'<<<'|'<>'|'>|') stage_skip_next=1; continue ;;
+      # An attached target is also a harmless relative pathspec, and keeping
+      # it covers a quoted pathspec that merely starts with `<` or `>`.
+      '>'*|'<'*) printf 'P%s\n' "$stage_word"; continue ;;
+    esac
+    if [ "$stage_options_done" -eq 0 ]; then
+      case "$stage_word" in
+        --)
+          stage_options_done=1
+          continue
+          ;;
+        --*)
+          stage_long=${stage_word#--}
+          stage_long=${stage_long%%=*}
+          for stage_option in all interactive patch pathspec-from-file; do
+            if long_option_abbreviates "$stage_long" "$stage_option"; then
+              printf 'W\n'
+              break
+            fi
+          done
+          case "$stage_word" in
+            *=*) ;;
+            --file|--author|--date|--message|--reedit-message|--reuse-message|--fixup|--squash|--trailer|--template|--cleanup|--unified|--inter-hunk-context)
+              stage_skip_next=1
+              ;;
+          esac
+          continue
+          ;;
+        -?*)
+          stage_short=${stage_word#-}
+          while [ -n "$stage_short" ]; do
+            stage_flag=${stage_short%"${stage_short#?}"}
+            stage_short=${stage_short#?}
+            case "$stage_flag" in
+              a|p) printf 'W\n' ;;
+              F|m|c|C|t|U) [ -n "$stage_short" ] || stage_skip_next=1; break ;;
+              # -S and -u take only an attached optional value.
+              S|u) break ;;
+            esac
+          done
+          continue
+          ;;
+      esac
+    fi
+    printf 'P%s\n' "$stage_word"
+  done
+  return 0
+}
+
 is_git_commit_or_push() {
   cmd=$1
   (
@@ -4369,6 +4503,8 @@ is_git_commit_or_push() {
     command_start=1
     effective_c_dirs=
     effective_c_dynamic=0
+    xargs_wrapped=0
+    matched=1
     append_effective_c_dir() {
       record=$1
       case "$record" in
@@ -4401,6 +4537,8 @@ $dir"
         fi
         if is_noop_wrapper "$token"; then
           wrapper=$token
+          # xargs appends words read from stdin, which may be pathspecs.
+          [ "$wrapper" = xargs ] && xargs_wrapped=1
           shift
           while [ "$#" -gt 0 ]; do
             record=$1
@@ -4462,17 +4600,18 @@ $dir"
 
             case "$token" in
               commit|push)
+                # One G-led group per git command: a later `git commit -a`
+                # in the same command line must not hide behind an earlier
+                # plain commit or push.
+                printf 'G\n'
                 [ "$effective_c_dynamic" -eq 1 ] && printf 'U\n'
-                if [ -n "$effective_c_dirs" ]; then
-                  old_ifs=$IFS
-                  IFS='
-'
-                  # shellcheck disable=SC2086
-                  set -- $effective_c_dirs
-                  IFS=$old_ifs
-                  for dir in "$@"; do printf 'D%s\n' "$dir"; done
+                [ -n "$effective_c_dirs" ] && printf '%s\n' "$effective_c_dirs" | sed 's/^/D/'
+                if [ "$token" = commit ]; then
+                  [ "$xargs_wrapped" -eq 1 ] && printf 'W\n'
+                  git_commit_stage_records "$@"
                 fi
-                return 0
+                matched=0
+                break
                 ;;
               *)
                 break
@@ -4487,11 +4626,14 @@ $dir"
       shift
       if is_shell_command_separator "$token"; then
         command_start=1
+        effective_c_dirs=
+        effective_c_dynamic=0
+        xargs_wrapped=0
       else
         command_start=0
       fi
     done
-    return 1
+    return "$matched"
   )
 }
 
@@ -4533,37 +4675,76 @@ check_git_command() {
         "$PROGRAM: git is unavailable, so staged changes could not be scanned;"
       return $?
     fi
-    case "$git_c_records" in
-      U|U'
-'*)
-        handle_hook_infrastructure_failure PreToolUse "${HOOK_INPUT:-}" \
-          "$PROGRAM: the git command uses a dynamic working directory that could not be resolved safely;"
-        return $?
-        ;;
-    esac
+    if printf '%s\n' "$git_c_records" | grep -qx U; then
+      handle_hook_infrastructure_failure PreToolUse "${HOOK_INPUT:-}" \
+        "$PROGRAM: the git command uses a dynamic working directory that could not be resolved safely;"
+      return $?
+    fi
     (
-      scan_dir=${workdir:-$(pwd)}
-      CDPATH= cd -- "$scan_dir" 2>/dev/null || exit "$SCAN_STATUS_UNAVAILABLE"
-      if [ -n "$git_c_records" ]; then
-        old_ifs=$IFS
-        IFS='
+      set -f
+      git_scan_status=0
+      git_group=
+      git_in_group=0
+      git_ifs=$IFS
+      IFS='
 '
-        # shellcheck disable=SC2086
-        set -- $git_c_records
-        IFS=$old_ifs
-        for git_c_record in "$@"; do
-          case "$git_c_record" in
-            D*) git_c_dir=${git_c_record#D} ;;
-            *) exit "$SCAN_STATUS_UNAVAILABLE" ;;
-          esac
-          CDPATH= cd -- "$git_c_dir" 2>/dev/null || exit "$SCAN_STATUS_UNAVAILABLE"
-        done
-      fi
-      scan_staged
+      # The trailing G flushes the last group.
+      # shellcheck disable=SC2086
+      for git_c_record in $git_c_records G; do
+        if [ "$git_c_record" != G ]; then
+          git_group="$git_group$git_c_record
+"
+          continue
+        fi
+        if [ "$git_in_group" -eq 1 ]; then
+          IFS=$git_ifs
+          scan_git_command_group "${workdir:-$(pwd)}" "$git_group"
+          git_group_status=$?
+          if [ "$git_group_status" -eq 1 ] || [ "$git_scan_status" -eq 0 ]; then
+            git_scan_status=$git_group_status
+          fi
+        fi
+        git_in_group=1
+        git_group=
+      done
+      exit "$git_scan_status"
     )
-    block_on_scan_status "$?" "staged changes contain secret-like values; blocking git command"
+    git_scan_status=$?
+    case "$git_c_records" in
+      *'
+'[WP]*) git_scan_message="changes this git commit would stage contain secret-like values; blocking git command" ;;
+      *) git_scan_message="staged changes contain secret-like values; blocking git command" ;;
+    esac
+    block_on_scan_status "$git_scan_status" "$git_scan_message"
   fi
 }
+
+# Scan one git commit/push command: apply its D<dir> cwd changes in order, then
+# scan the index plus whatever its W/P records say Git will stage itself.
+scan_git_command_group() (
+  set -f
+  CDPATH= cd -- "$1" 2>/dev/null || exit "$SCAN_STATUS_UNAVAILABLE"
+  group_stage_all=0
+  group_pathspecs=
+  group_ifs=$IFS
+  IFS='
+'
+  # shellcheck disable=SC2086
+  for group_record in $2; do
+    case "$group_record" in
+      D*) CDPATH= cd -- "${group_record#D}" 2>/dev/null || exit "$SCAN_STATUS_UNAVAILABLE" ;;
+      W) group_stage_all=1 ;;
+      P*) group_pathspecs="$group_pathspecs${group_record#P}
+" ;;
+      *) exit "$SCAN_STATUS_UNAVAILABLE" ;;
+    esac
+  done
+  # shellcheck disable=SC2086
+  set -- $group_pathspecs
+  IFS=$group_ifs
+  set +f
+  scan_commit_candidate "$group_stage_all" "$@"
+)
 
 check_bash_command() {
   input=$1
