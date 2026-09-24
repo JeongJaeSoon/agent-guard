@@ -4242,7 +4242,9 @@ shell_command_words() {
 # Tokenize only enough POSIX shell syntax to locate git and its cwd-changing
 # options without executing the command. Each record is prefixed with 0 for a
 # literal token or 1 when shell expansion would be required; malformed input is
-# emitted as 2. Newlines cannot be represented safely in the record stream, so
+# emitted as 2. A bare `&` or a `( ) { }` character is emitted on its own with
+# prefix 3: a command boundary for most callers, but the commit argument parser
+# must tell `2>&1` and brace expansion apart from the end of the command. Newlines cannot be represented safely in the record stream, so
 # they make the affected token dynamic and therefore subject to infra policy.
 git_command_records() {
   printf '%s\n' "$1" | awk '
@@ -4295,7 +4297,7 @@ git_command_records() {
         # a git commit/push after one is still seen as a command head (#127).
         # Over-splitting can only cause MORE detection, never less.
         if (c == "&" || c == "(" || c == ")" || c == "{" || c == "}") {
-          emit(); print "0;"; continue
+          emit(); print "3" c; continue
         }
         if (c == "$" || c == "`") dynamic = 1
         word = word c; started = 1
@@ -4327,6 +4329,7 @@ bash_command_may_rebase_relative_paths() (
   for cwd_record in "$@"; do
     case "$cwd_record" in
       1*|2*) return 0 ;;
+      3*) cwd_option_owner=; continue ;;
     esac
     cwd_token=${cwd_record#?}
     cwd_token_name=${cwd_token##*/}
@@ -4417,16 +4420,25 @@ git_commit_stage_records() {
     stage_kind=${1%"${1#?}"}
     stage_word=${1#?}
     shift
+    if [ "$stage_kind" = 3 ]; then
+      case "$stage_word" in
+        '&')
+          # `2>&1` and `&>log` are redirections, not a background `&`; the
+          # pathspec that may follow them still belongs to this commit.
+          [ "$stage_skip_next" -eq 1 ] && continue
+          case "${1-}" in
+            0'>'*|0'<'*) continue ;;
+          esac
+          return 0
+          ;;
+        # Brace expansion can yield any pathspec, and `(` here is extglob or
+        # a syntax error.
+        '{'|'}') printf 'W\n'; continue ;;
+        '(') printf 'W\n'; return 0 ;;
+        *) return 0 ;;
+      esac
+    fi
     if [ "$stage_kind" = 0 ] && is_shell_command_separator "$stage_word"; then
-      # The tokenizer turns a bare `&` into `;`, so `2>&1` and `&>log` arrive
-      # split around one. Treat them as redirections so a later pathspec is not
-      # mistaken for the start of a new command.
-      if [ "$stage_word" = ';' ]; then
-        [ "$stage_skip_next" -eq 1 ] && continue
-        case "${1-}" in
-          0'>'*|0'<'*) continue ;;
-        esac
-      fi
       return 0
     fi
     if [ "$stage_skip_next" -eq 1 ]; then
@@ -4624,7 +4636,7 @@ $dir"
       fi
 
       shift
-      if is_shell_command_separator "$token"; then
+      if [ "$record_kind" = 3 ] || is_shell_command_separator "$token"; then
         command_start=1
         effective_c_dirs=
         effective_c_dynamic=0

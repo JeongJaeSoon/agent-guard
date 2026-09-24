@@ -3822,7 +3822,8 @@ autostage_case() {
   esac
   as_status=$?
   as_after=$(cd "$AUTOSTAGE_REPO" && cat .git/index settings.conf other.conf sub/nested.conf | cksum)
-  (cd "$as_dir" && sh -c "$as_command") >/dev/null 2>&1
+  # bash, as the agent's shell tool uses: brace expansion is part of the case.
+  (cd "$as_dir" && bash -c "$as_command") >/dev/null 2>&1
   if git -C "$AUTOSTAGE_REPO" log -p "$AUTOSTAGE_BASE..HEAD" | grep -q AGENT_GUARD_TEST_SECRET; then
     as_leaks=2
   else
@@ -3868,6 +3869,10 @@ autostage_case claude secret 0 'git commit -m x'
 autostage_case claude secret 2 'git commit -m ok && git commit -am x'
 # The tokenizer splits `2>&1` at `&`; the pathspec after it is still seen.
 autostage_case claude secret 2 'git commit -m x 2>&1 settings.conf'
+# Brace expansion can name any tracked file.
+autostage_case claude secret 2 'git commit -m x {settings,other}.conf'
+# A subshell's closing parenthesis ends the arguments without hiding them.
+autostage_case codex secret 2 '(git commit -m x settings.conf)'
 # A redirection target is not a pathspec (closed policy: no false failure).
 autostage_case claude clean 0 'git commit -am x >/dev/null 2>&1'
 # Pathspecs resolve against the command cwd, not the repository root.
