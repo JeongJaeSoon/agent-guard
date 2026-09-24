@@ -3784,7 +3784,7 @@ mkdir -p "$AUTOSTAGE_REPO/sub"
   git commit -q -m init
   # An ignored file named like an option, for the glob case below.
   : > ./-a
-  printf '/-a\n' >> .git/info/exclude
+  printf '/-a\n/ignored.conf\n' >> .git/info/exclude
 )
 AUTOSTAGE_BASE=$(git -C "$AUTOSTAGE_REPO" rev-parse HEAD)
 
@@ -3802,6 +3802,7 @@ autostage_case() {
     cd "$AUTOSTAGE_REPO" || exit 2
     git reset -q --hard "$AUTOSTAGE_BASE"
     git clean -q -f
+    rm -f ignored.conf
     printf 'b=2\n' >> settings.conf
     git add settings.conf
     case "$as_mode" in
@@ -3895,6 +3896,9 @@ autostage_case claude clean 0 "git commit -m x --pathspec-from-file $TMP_ROOT/au
 # A git add earlier in the same command stages after PreToolUse too.
 autostage_case claude secret 2 'git add untracked.conf && git commit -m x' untracked.conf
 autostage_case codex clean 0 'git add untracked.conf && git commit -m x' untracked.conf
+# `git add -f` can stage an ignored file, which the untracked scan skips.
+autostage_case claude secret 2 'git add -f ignored.conf && git commit -m x' ignored.conf
+autostage_case codex clean 0 'git add --force ignored.conf && git commit -m x' ignored.conf
 # A redirection target is not a pathspec (closed policy: no false failure).
 autostage_case claude clean 0 'git commit -am x >/dev/null 2>&1'
 # Pathspecs resolve against the command cwd, not the repository root.

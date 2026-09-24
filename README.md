@@ -30,7 +30,8 @@ the tracked changes Git stages by itself for `git commit -a`, `--patch`, or a
 pathspec such as `git commit <path>`, `--include`, or `--only`, and the
 untracked files that `--interactive` can add. When an argument is only known at
 run time, such as `git commit $FLAGS`, or the same command runs `git add` first,
-the plugin scans every tracked change and untracked file.
+the plugin scans every tracked change and untracked file, including ignored
+files after `git add -f`.
 
 The plugin scans the files as they are when the command starts. If an earlier
 part of the same command writes a file, or changes into another repository,

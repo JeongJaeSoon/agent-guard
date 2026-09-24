@@ -3402,7 +3402,8 @@ scan_staged() {
 # Git stages itself after PreToolUse has run — all of them for -a, --patch and
 # --interactive ($1 = 1), or those under the pathspecs in $3... (relative to
 # the command cwd, as Git reads them). --interactive can also add untracked
-# files ($2 = 1). A diff against HEAD is used instead of staging into a scratch
+# files ($2 = 1), and a same-command `git add -f` even ignored ones ($2 = 2),
+# which may exceed the scan budget and then reports unavailable. A diff against HEAD is used instead of staging into a scratch
 # index so the scan writes neither the index nor the object store.
 scan_commit_candidate() {
   stage_all=$1
@@ -3434,8 +3435,10 @@ scan_commit_candidate() {
   fi
   # A finding in either part outranks the other part failing to scan.
   untracked_status=0
-  if [ "$stage_untracked" -eq 1 ]; then
-    (CDPATH= cd -- "$repo_root" && scan_untracked_files)
+  if [ "$stage_untracked" -ne 0 ]; then
+    untracked_mode=
+    [ "$stage_untracked" -eq 2 ] && untracked_mode=ignored
+    (CDPATH= cd -- "$repo_root" && scan_untracked_files ${untracked_mode:+"$untracked_mode"})
     untracked_status=$?
     [ "$untracked_status" -eq 1 ] && return 1
   fi
@@ -3448,7 +3451,10 @@ scan_commit_candidate() {
   return 0
 }
 
+# $1 = ignored also lists gitignored files, for a same-command `git add -f`.
 scan_untracked_files() {
+  untracked_filter=--exclude-standard
+  [ "${1:-}" = ignored ] && untracked_filter=
   need_cmd git
   need_gitleaks
   # Resolve the repo ROOT so an untracked secret OUTSIDE the caller's subdir is
@@ -3460,7 +3466,7 @@ scan_untracked_files() {
   # backslash, quote, even an embedded newline). The previous newline-delimited
   # read silently skipped such names — letting a careless or adversarial agent
   # park a secret in a file the backstop never scanned.
-  git -C "$root" -c core.quotePath=false ls-files --others --exclude-standard --full-name -z >"$list" || {
+  git -C "$root" -c core.quotePath=false ls-files --others ${untracked_filter:+"$untracked_filter"} --full-name -z >"$list" || {
     rm -f "$list"
     die "failed to list untracked files"
   }
@@ -4534,6 +4540,27 @@ git_commit_stage_records() {
   return 0
 }
 
+# Given the records after `git add`, succeed when it may add ignored files:
+# -f/--force (or a prefix of it, which Git accepts) or a word only known at run
+# time.
+git_add_is_forced() {
+  for add_record in "$@"; do
+    add_kind=${add_record%"${add_record#?}"}
+    add_word=${add_record#?}
+    case "$add_kind" in
+      0) is_shell_command_separator "$add_word" && return 1 ;;
+      3) return 1 ;;
+      *) return 0 ;;
+    esac
+    case "$add_word" in
+      --) return 1 ;;
+      --*) long_option_abbreviates "${add_word#--}" force && return 0 ;;
+      -*f*) return 0 ;;
+    esac
+  done
+  return 1
+}
+
 is_git_commit_or_push() {
   cmd=$1
   (
@@ -4552,6 +4579,7 @@ is_git_commit_or_push() {
     xargs_wrapped=0
     shell_cd_seen=0
     git_index_changed=0
+    git_index_forced=0
     matched=1
     append_effective_c_dir() {
       record=$1
@@ -4662,6 +4690,7 @@ $dir"
                 if [ "$token" = commit ]; then
                   [ "$xargs_wrapped" -eq 1 ] && printf 'I\n'
                   [ "$git_index_changed" -eq 1 ] && printf 'I\n'
+                  [ "$git_index_forced" -eq 1 ] && printf 'X\n'
                   stage_records=$(git_commit_stage_records "$@")
                   if [ -n "$stage_records" ]; then
                     printf '%s\n' "$stage_records"
@@ -4678,6 +4707,9 @@ P'*) printf 'W\n' ;;
               # tell which paths, so a later commit scans all of them.
               add|stage|rm|mv)
                 git_index_changed=1
+                case "$token" in
+                  add|stage) git_add_is_forced "$@" && git_index_forced=1 ;;
+                esac
                 break
                 ;;
               *)
@@ -4779,7 +4811,7 @@ check_git_command() {
     git_scan_status=$?
     case "$git_c_records" in
       *'
-'[WIP]*) git_scan_message="changes this git commit would stage contain secret-like values; blocking git command" ;;
+'[WIPX]*) git_scan_message="changes this git commit would stage contain secret-like values; blocking git command" ;;
       *) git_scan_message="staged changes contain secret-like values; blocking git command" ;;
     esac
     block_on_scan_status "$git_scan_status" "$git_scan_message"
@@ -4802,7 +4834,8 @@ scan_git_command_group() (
     case "$group_record" in
       D*) CDPATH= cd -- "${group_record#D}" 2>/dev/null || exit "$SCAN_STATUS_UNAVAILABLE" ;;
       W) group_stage_all=1 ;;
-      I) group_stage_all=1; group_untracked=1 ;;
+      I) group_stage_all=1; [ "$group_untracked" -eq 2 ] || group_untracked=1 ;;
+      X) group_stage_all=1; group_untracked=2 ;;
       P*) group_pathspecs="$group_pathspecs${group_record#P}
 " ;;
       *) exit "$SCAN_STATUS_UNAVAILABLE" ;;
