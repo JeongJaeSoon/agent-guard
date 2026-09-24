@@ -4602,6 +4602,8 @@ git_command_records() {
         }
       }
       print (dynamic ? "1" : "0") word
+      if (word == "[[") in_test = 1
+      if (word == "]]") in_test = 0
       word = ""; started = 0; dynamic = 0
     }
     NR > 1 {
@@ -4678,8 +4680,9 @@ git_command_records() {
         # a git commit/push after one is still seen as a command head (#127).
         # Over-splitting can only cause MORE detection, never less.
         if (c == "&" || c == "(" || c == ")" || c == "{" || c == "}") {
-          # A `(` that starts a word opens a subshell; `$(`, `<(` and `@(` do not.
-          if (c == "(") parens = parens (started ? "w" : "s")
+          # A `(` that starts a word opens a subshell; `$(`, `<(`, `@(` and a
+          # group in a `[[ =~ ]]` pattern do not.
+          if (c == "(") parens = parens (started || in_test ? "w" : "s")
           if (c == ")") { closed = substr(parens, length(parens)); parens = substr(parens, 1, length(parens) - 1) }
           emit(); print "3" c; continue
         }
@@ -5355,6 +5358,8 @@ $shell_cd_dir"
         case "$record_kind$token" in
           3*|0';'|0'&&'|0'||'|0'|') ;;
           0echo|0printf|0pwd|0ls|0cat|0head|0tail|0wc|0true|0false|0:|0test|0'['|0'[['|0which|0type|0date|0whoami|0id|0uname|0grep|0rg|0sleep|0wait|0jq|0sort|0uniq|0diff|0stat|0basename|0dirname|0realpath|0readlink) ;;
+          # Shell state only; `set -P` is caught when the scan resolves `..`.
+          0set|0export|0read|0local|0declare|0typeset|0readonly|0shift|0printenv) ;;
           *) shell_cd_mutable=1 ;;
         esac
       fi

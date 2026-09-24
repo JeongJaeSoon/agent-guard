@@ -4230,6 +4230,10 @@ shellcd_case codex secret 2 "cat >/dev/null <<''
 x; cd ../b
 
 git commit -m x" a
+# In a `[[ =~ ]]` pattern, `(x)#` is regex, not a subshell and a comment.
+shellcd_case claude secret 2 '[[ x =~ (x)#y ]]; git commit -m x' a
+# Shell options do not move the cd target.
+shellcd_case codex secret 2 'set -e; cd ../b && git commit -m x'
 # A descriptor closed by exec makes the cd's `2>&1` fail, so the cd is skipped.
 shellcd_case claude secret U2 'exec 1>&-; cd ../b 2>&1; git commit -m x' a
 # An earlier command may relink the cd target after the scan resolved it.
