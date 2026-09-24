@@ -4090,6 +4090,7 @@ for sc_repo in a b; do
 done
 SHELLCD_BASE_A=$(git -C "$SHELLCD_ROOT/a" rev-parse HEAD)
 SHELLCD_BASE_B=$(git -C "$SHELLCD_ROOT/b" rev-parse HEAD)
+sc_session=0
 ln -s ../b/sub "$SHELLCD_ROOT/a/link"
 printf '/link\n' >> "$SHELLCD_ROOT/a/.git/info/exclude"
 
@@ -4097,7 +4098,8 @@ printf '/link\n' >> "$SHELLCD_ROOT/a/.git/info/exclude"
 # MODE secret stages the marker in REPO (default b); clean stages a benign
 # line. EXPECTED is 0, 2 (blocked on the finding), or U0/U2: blocked because
 # the working directory is unknown, allowed under the open policy, and the
-# digit is the ground truth under bash (HOME is b, so `cd` alone moves there).
+# digit is the ground truth under bash (HOME is b, so `cd` alone moves there),
+# or x where it differs between bash versions.
 shellcd_case() {
   sc_host=$1
   sc_mode=$2
@@ -4117,12 +4119,15 @@ shellcd_case() {
     esac
     git add settings.conf
   ) || { not_ok "$sc_name (setup failed)"; return; }
+  # A fresh session per call: the infrastructure notice is printed once per
+  # session, and the default session key is shared with later tests.
   case "$sc_host" in
-    codex) sc_filter='{tool_name:"Bash",tool_input:{command:$c,workdir:$d}}' ;;
-    *) sc_filter='{tool_name:"Bash",tool_input:{command:$c},cwd:$d}' ;;
+    codex) sc_filter='{session_id:$s,tool_name:"Bash",tool_input:{command:$c,workdir:$d}}' ;;
+    *) sc_filter='{session_id:$s,tool_name:"Bash",tool_input:{command:$c},cwd:$d}' ;;
   esac
   for sc_policy in open closed; do
-    jq -nc --arg c "$sc_command" --arg d "$SHELLCD_ROOT/a" "$sc_filter" \
+    sc_session=$((sc_session + 1))
+    jq -nc --arg c "$sc_command" --arg d "$SHELLCD_ROOT/a" --arg s "shellcd-$$-$sc_session" "$sc_filter" \
       | (cd "$TMP_ROOT" && AGENT_GUARD_HOOK_HOST=$sc_host AGENT_GUARD_INFRA_FAILURE_MODE=$sc_policy \
           "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool) >"$OUT" 2>"$ERR"
     sc_status=$?
@@ -4146,7 +4151,7 @@ shellcd_case() {
       elif [ "$sc_open_status" -ne 0 ] || ! grep -q 'could not' "$ERR.open"; then
         not_ok "$sc_name (expected the open policy to allow it with a notice, got $sc_open_status)"
         sed 's/^/  stderr: /' "$ERR.open"
-      elif [ "$sc_leaks" -ne "${sc_expected#U}" ]; then
+      elif [ "${sc_expected#U}" != x ] && [ "$sc_leaks" -ne "${sc_expected#U}" ]; then
         not_ok "$sc_name (ground truth disagrees: the command leaks=$sc_leaks)"
       else
         ok "$sc_name"
@@ -4211,7 +4216,8 @@ shellcd_case claude secret U0 'cd link/.. && git commit -m x'
 # A failed redirection or a brace-expanded extra operand skips the cd, so
 # following it would scan b while the commit stays in a.
 shellcd_case codex secret U2 'cd ../b <missing; git commit -m x' a
-shellcd_case claude secret U2 'cd ../b {x,y}; git commit -m x' a
+# bash 3.2 ignores the extra operands; bash 5 and zsh refuse the cd (x: either).
+shellcd_case claude secret Ux 'cd ../b {x,y}; git commit -m x' a
 # A commit that runs because its cd failed: the scan's cd fails the same way.
 shellcd_case claude secret U2 'cd missing || git commit -m x' a
 # A redirection before the command name does not hide the commit.
