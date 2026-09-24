@@ -5366,7 +5366,7 @@ DIFF_FAIL_BIN="$TESTTMP/diff-fail-bin"
 mkdir -p "$DIFF_FAIL_BIN"
 cat >"$DIFF_FAIL_BIN/git" <<'EOSH'
 #!/usr/bin/env sh
-if [ "${1:-}" = diff ]; then
+if [ "${1:-}" = diff ] || [ "${3:-}" = diff ]; then
   exit 42
 fi
 exec "$AGENT_GUARD_TEST_REAL_GIT" "$@"
@@ -5458,7 +5458,7 @@ FAIL125_GITDIR="$TMP_ROOT/fail125-fakegit"
 mkdir -p "$FAIL125_GITDIR"
 cat >"$FAIL125_GITDIR/git" <<EOF
 #!/usr/bin/env sh
-[ "\${1:-}" = "diff" ] && exit 7
+{ [ "\${1:-}" = diff ] || [ "\${3:-}" = diff ]; } && exit 7
 exec "$REAL_GIT_125" "\$@"
 EOF
 chmod +x "$FAIL125_GITDIR/git"
@@ -7103,7 +7103,7 @@ mkdir -p "$DIFF_NOISY_BIN"
 DIFF_NOISY_LINE_1=$(awk 'BEGIN { printf "fatal: \r\tbad "; for (i = 0; i < 260; i++) printf "e" }')
 cat >"$DIFF_NOISY_BIN/git" <<EOSH
 #!/usr/bin/env sh
-if [ "\${1:-}" = diff ]; then
+if [ "\${1:-}" = diff ] || [ "\${3:-}" = diff ]; then
   printf '%s\\n' "$DIFF_NOISY_LINE_1" >&2
   printf 'second-line-must-not-leak\\n' >&2
   exit 42
@@ -7165,7 +7165,7 @@ DIFF_FLOOD_UNBOUNDED="$TESTTMP/diff-flood-unbounded.marker"
 mkdir -p "$DIFF_FLOOD_BIN"
 cat >"$DIFF_FLOOD_BIN/git" <<EOSH
 #!/usr/bin/env sh
-if [ "\${1:-}" = diff ]; then
+if [ "\${1:-}" = diff ] || [ "\${3:-}" = diff ]; then
   [ -f /dev/fd/2 ] && : >"$DIFF_FLOOD_UNBOUNDED"
   awk 'BEGIN { for (i = 0; i < 100000; i++) print "noise-line-payload-" i }' | tee "$DIFF_FLOOD_SIDE" >&2
   exit 42
@@ -7204,7 +7204,7 @@ DIFF_WARN_BIN="$TESTTMP/diff-warn-bin"
 mkdir -p "$DIFF_WARN_BIN"
 cat >"$DIFF_WARN_BIN/git" <<'EOSH'
 #!/usr/bin/env sh
-if [ "${1:-}" = diff ]; then
+if [ "${1:-}" = diff ] || [ "${3:-}" = diff ]; then
   awk 'BEGIN { for (i = 0; i < 2000; i++) print "warning: noisy-but-successful-line " i }' >&2
   exit 0
 fi
