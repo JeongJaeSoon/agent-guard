@@ -3797,6 +3797,7 @@ autostage_case() {
   (
     cd "$AUTOSTAGE_REPO" || exit 2
     git reset -q --hard "$AUTOSTAGE_BASE"
+    git clean -q -f
     printf 'b=2\n' >> settings.conf
     git add settings.conf
     case "$as_mode" in
@@ -3873,6 +3874,11 @@ autostage_case claude secret 2 'git commit -m x 2>&1 settings.conf'
 autostage_case claude secret 2 'git commit -m x {settings,other}.conf'
 # A subshell's closing parenthesis ends the arguments without hiding them.
 autostage_case codex secret 2 '(git commit -m x settings.conf)'
+# The scan cannot follow a shell cd, so a pathspec after one widens the scan.
+autostage_case claude secret 2 'cd sub && git commit -m x nested.conf' sub/nested.conf
+# --interactive can add untracked files, which no diff shows.
+autostage_case claude secret 2 "printf '4\\n1\\n\\n7\\n' | git commit --interactive -m x" untracked.conf
+autostage_case codex clean 0 "printf '4\\n1\\n\\n7\\n' | git commit --interactive -m x" untracked.conf
 # A redirection target is not a pathspec (closed policy: no false failure).
 autostage_case claude clean 0 'git commit -am x >/dev/null 2>&1'
 # Pathspecs resolve against the command cwd, not the repository root.

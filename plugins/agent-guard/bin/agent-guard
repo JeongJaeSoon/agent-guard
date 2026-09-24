@@ -3400,13 +3400,14 @@ scan_staged() {
 
 # What a `git commit` records: the index, plus tracked work-tree changes that
 # Git stages itself after PreToolUse has run — all of them for -a, --patch and
-# --interactive ($1 = 1), or those under the pathspecs in $2... (relative to
-# the command cwd, as Git reads them). A diff against HEAD is used instead of
-# staging into a scratch index so the scan writes neither the index nor the
-# object store.
+# --interactive ($1 = 1), or those under the pathspecs in $3... (relative to
+# the command cwd, as Git reads them). --interactive can also add untracked
+# files ($2 = 1). A diff against HEAD is used instead of staging into a scratch
+# index so the scan writes neither the index nor the object store.
 scan_commit_candidate() {
   stage_all=$1
-  shift
+  stage_untracked=$2
+  shift 2
   need_cmd git "$SCAN_STATUS_UNAVAILABLE"
   need_gitleaks "$SCAN_STATUS_UNAVAILABLE"
   require_git_repo || return $?
@@ -3430,6 +3431,14 @@ scan_commit_candidate() {
     [ "$status" -eq 0 ] || return "$status"
     [ -n "$staged_by_git" ] && added=${added:+"$added
 "}$staged_by_git
+  fi
+  if [ "$stage_untracked" -eq 1 ]; then
+    (CDPATH= cd -- "$repo_root" && scan_untracked_files)
+    case "$?" in
+      0) ;;
+      1) return 1 ;;
+      *) return "$SCAN_STATUS_UNAVAILABLE" ;;
+    esac
   fi
   [ -n "$added" ] || return 0
   scan_text_direct "commit candidate added lines" "$added"
@@ -4408,8 +4417,8 @@ long_option_abbreviates() {
 # `git commit -a`, --patch, --interactive, --pathspec-from-file, and a
 # pathspec (with or without --only/--include) make Git stage tracked work-tree
 # changes itself, after PreToolUse has run. Given the git_command_records after
-# `commit`, print W when any tracked change may be staged and P<pathspec> for
-# each literal pathspec. Every misreading must widen the scan, never narrow it:
+# `commit`, print W when any tracked change may be staged, I when untracked
+# files may be too (--interactive), and P<pathspec> for each literal pathspec. Every misreading must widen the scan, never narrow it:
 # a dynamic word becomes W, and an unrecognised option is a flag, so the word
 # after it stays a pathspec. Git accepts unambiguous long-option prefixes, and
 # an ambiguous one fails the commit, so any prefix of a staging option is W.
@@ -4471,6 +4480,7 @@ git_commit_stage_records() {
               break
             fi
           done
+          long_option_abbreviates "$stage_long" interactive && printf 'I\n'
           case "$stage_word" in
             *=*) ;;
             --file|--author|--date|--message|--reedit-message|--reuse-message|--fixup|--squash|--trailer|--template|--cleanup|--unified|--inter-hunk-context)
@@ -4516,6 +4526,7 @@ is_git_commit_or_push() {
     effective_c_dirs=
     effective_c_dynamic=0
     xargs_wrapped=0
+    shell_cd_seen=0
     matched=1
     append_effective_c_dir() {
       record=$1
@@ -4547,6 +4558,11 @@ $dir"
           shift
           continue
         fi
+        # The scan cannot follow a shell cd (94S-352); a pathspec after one may
+        # be relative to another directory, so such commits scan all of it.
+        case "$token" in
+          cd|pushd|popd) shell_cd_seen=1 ;;
+        esac
         if is_noop_wrapper "$token"; then
           wrapper=$token
           # xargs appends words read from stdin, which may be pathspecs.
@@ -4620,7 +4636,14 @@ $dir"
                 [ -n "$effective_c_dirs" ] && printf '%s\n' "$effective_c_dirs" | sed 's/^/D/'
                 if [ "$token" = commit ]; then
                   [ "$xargs_wrapped" -eq 1 ] && printf 'W\n'
-                  git_commit_stage_records "$@"
+                  stage_records=$(git_commit_stage_records "$@")
+                  if [ -n "$stage_records" ]; then
+                    printf '%s\n' "$stage_records"
+                    case "$shell_cd_seen:$stage_records" in
+                      1:P*|1:*'
+P'*) printf 'W\n' ;;
+                    esac
+                  fi
                 fi
                 matched=0
                 break
@@ -4724,7 +4747,7 @@ check_git_command() {
     git_scan_status=$?
     case "$git_c_records" in
       *'
-'[WP]*) git_scan_message="changes this git commit would stage contain secret-like values; blocking git command" ;;
+'[WIP]*) git_scan_message="changes this git commit would stage contain secret-like values; blocking git command" ;;
       *) git_scan_message="staged changes contain secret-like values; blocking git command" ;;
     esac
     block_on_scan_status "$git_scan_status" "$git_scan_message"
@@ -4737,6 +4760,7 @@ scan_git_command_group() (
   set -f
   CDPATH= cd -- "$1" 2>/dev/null || exit "$SCAN_STATUS_UNAVAILABLE"
   group_stage_all=0
+  group_untracked=0
   group_pathspecs=
   group_ifs=$IFS
   IFS='
@@ -4746,6 +4770,7 @@ scan_git_command_group() (
     case "$group_record" in
       D*) CDPATH= cd -- "${group_record#D}" 2>/dev/null || exit "$SCAN_STATUS_UNAVAILABLE" ;;
       W) group_stage_all=1 ;;
+      I) group_stage_all=1; group_untracked=1 ;;
       P*) group_pathspecs="$group_pathspecs${group_record#P}
 " ;;
       *) exit "$SCAN_STATUS_UNAVAILABLE" ;;
@@ -4755,7 +4780,7 @@ scan_git_command_group() (
   set -- $group_pathspecs
   IFS=$group_ifs
   set +f
-  scan_commit_candidate "$group_stage_all" "$@"
+  scan_commit_candidate "$group_stage_all" "$group_untracked" "$@"
 )
 
 check_bash_command() {
