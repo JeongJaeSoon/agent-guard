@@ -1297,6 +1297,28 @@ expect_json_status 2 "Bash ANSI-C quoted path bypass is blocked" \
   '{"tool_name":"Bash","tool_input":{"command":"cat $'\''.e\\x6ev'\''"}}' \
   hook-pre-tool
 
+# Bash decodes $'...' before the word reaches the command, including when the
+# escape is spliced with unquoted text or followed by a glob.
+expect_json_status 2 "Bash ANSI-C hex escape spliced with unquoted text is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat $'\''.e\\x6e'\''v"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash ANSI-C octal escape is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat $'\''.e\\156v'\''"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash unquoted prefix before an ANSI-C escape is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat .e$'\''\\x6e'\''v"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash ANSI-C escape followed by a spanning star is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat ~/$'\''.\\x6e'\''*"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "Bash ANSI-C escapes that name no protected path remain allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"printf $'\''a\\tb\\n'\'' && grep $'\''\\t'\'' notes.txt"}}' \
+  hook-pre-tool
+
 expect_json_status 2 "Bash glob bracket path bypass is blocked" \
   '{"tool_name":"Bash","tool_input":{"command":"cat .e[n]v"}}' \
   hook-pre-tool
