@@ -4594,7 +4594,8 @@ git_command_records() {
       if (heredoc_expect) {
         delim = substr(word, heredoc_mark + 1)
         heredoc_mark = 0
-        if (delim != "") {
+        if (delim != "" || heredoc_quoted) {
+          heredoc_quoted = 0
           heredoc_delim[++heredoc_count] = delim
           heredoc_strip[heredoc_count] = heredoc_dash
           heredoc_expect = 0
@@ -4606,7 +4607,7 @@ git_command_records() {
     NR > 1 {
       if (quote == "") { emit(); print "0;" }
       else { word = word " "; dynamic = 1 }
-      heredoc_expect = 0
+      heredoc_expect = 0; heredoc_quoted = 0
     }
     heredoc_next <= heredoc_count && NR > heredoc_line {
       line = $0
@@ -4646,10 +4647,15 @@ git_command_records() {
           continue
         }
         if (c == " " || c == "\t") { emit(); continue }
-        # `#` opens a comment only where a word starts; `${#x}` and `a#b` do not.
-        if (c == "#" && !started && (i == 1 || substr($0, i - 1, 1) ~ /[ \t;&|(]/)) break
-        if (c == "\047") { quote = "single"; started = 1; continue }
-        if (c == "\"") { quote = "double"; started = 1; continue }
+        # `#` opens a comment only where a word starts; `${#x}` and `a#b` do not,
+        # nor does `$(x)#y`, but `(x)#y` does.
+        if (c == "#" && !started && (i == 1 || substr($0, i - 1, 1) ~ /[ \t;&|(]/ \
+            || (substr($0, i - 1, 1) == ")" && closed == "s"))) break
+        if (c == "\047" || c == "\"") {
+          # An empty quoted word after << is a valid delimiter.
+          if (heredoc_expect) heredoc_quoted = 1
+          quote = c == "\047" ? "single" : "double"; started = 1; continue
+        }
         if (c == "\\") {
           if (i == length($0)) { dynamic = 1; started = 1; continue }
           word = word n; started = 1; i++; continue
@@ -4672,6 +4678,9 @@ git_command_records() {
         # a git commit/push after one is still seen as a command head (#127).
         # Over-splitting can only cause MORE detection, never less.
         if (c == "&" || c == "(" || c == ")" || c == "{" || c == "}") {
+          # A `(` that starts a word opens a subshell; `$(`, `<(` and `@(` do not.
+          if (c == "(") parens = parens (started ? "w" : "s")
+          if (c == ")") { closed = substr(parens, length(parens)); parens = substr(parens, 1, length(parens) - 1) }
           emit(); print "3" c; continue
         }
         if (c == "$" || c == "`") dynamic = 1
@@ -5040,9 +5049,10 @@ is_git_commit_or_push() {
     # follows a literal cd whose effect is certain (D records). Any other cd
     # leaves the working directory of every later git command unknown (U):
     # one behind a wrapper, in a pipeline, in a backgrounded list, in braces,
-    # after control flow or anything that can redefine cd, or one reached
-    # through && or || once its and-or list ends, since the commands after
-    # that run whether or not it did.
+    # after control flow or anything that can redefine cd, after a command
+    # that may relink its target, or one reached through && or || once its
+    # and-or list ends, since the commands after that run whether or not it
+    # did.
     shell_cd_dirs=
     shell_cd_count=0
     shell_cd_unknown=0
@@ -5055,6 +5065,7 @@ is_git_commit_or_push() {
     shell_cd_wrapped=0
     shell_cd_braces=0
     shell_cd_untrusted=0
+    shell_cd_mutable=0
     shell_cd_function=0
     shell_cd_stack=
     shell_cd_prev=
@@ -5192,6 +5203,7 @@ $dir"
             if [ "$token" != popd ] \
               && [ "$shell_cd_untrusted$shell_cd_piped$shell_cd_wrapped" = 000 ] \
               && [ "$shell_cd_cond" -ne 2 ] \
+              && [ "$shell_cd_mutable" -eq 0 ] \
               && [ "$shell_cd_braces" -eq 0 ] \
               && shell_cd_dir=$(shell_cd_target "$@"); then
               if [ -n "$shell_cd_dirs" ]; then
@@ -5222,7 +5234,8 @@ $shell_cd_dir"
             continue
             ;;
           # These can redefine or disable cd, or run code that does.
-          alias|unalias|enable|disable|unset|unfunction|autoload|source|.|eval|trap|shopt|setopt|unsetopt|emulate|*'['*']='*)
+          # exec can also close a descriptor a later `2>&1` duplicates.
+          alias|unalias|enable|disable|unset|unfunction|autoload|source|.|eval|exec|trap|shopt|setopt|unsetopt|emulate|*'['*']='*)
             shell_cd_untrusted=1
             ;;
         esac
@@ -5295,6 +5308,11 @@ $shell_cd_dir"
             is_git_global_option "$token" && continue
 
             case "$token" in
+              status|log|diff|show|add|stage|rev-parse|config|remote|branch|tag|ls-files|describe|shortlog|blame|grep|fetch) ;;
+              # Checkout, hooks and the rest may move a path a later cd follows.
+              *) shell_cd_mutable=1 ;;
+            esac
+            case "$token" in
               commit|push)
                 # One G-led group per git command: a later `git commit -a`
                 # in the same command line must not hide behind an earlier
@@ -5331,6 +5349,14 @@ $shell_cd_dir"
           command_start=0
           continue
         fi
+        # The scan resolves every cd before the command runs, so any earlier
+        # command that may create, remove or relink a path leaves a later cd
+        # unknown. These cannot; redirections write regular files only.
+        case "$record_kind$token" in
+          3*|0';'|0'&&'|0'||'|0'|') ;;
+          0echo|0printf|0pwd|0ls|0cat|0head|0tail|0wc|0true|0false|0:|0test|0'['|0'[['|0which|0type|0date|0whoami|0id|0uname|0grep|0rg|0sleep|0wait|0jq|0sort|0uniq|0diff|0stat|0basename|0dirname|0realpath|0readlink) ;;
+          *) shell_cd_mutable=1 ;;
+        esac
       fi
 
       shift

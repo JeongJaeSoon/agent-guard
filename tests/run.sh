@@ -4125,7 +4125,12 @@ shellcd_case() {
     codex) sc_filter='{session_id:$s,tool_name:"Bash",tool_input:{command:$c,workdir:$d}}' ;;
     *) sc_filter='{session_id:$s,tool_name:"Bash",tool_input:{command:$c},cwd:$d}' ;;
   esac
-  for sc_policy in open closed; do
+  # Only an unknown cwd differs between the policies.
+  case "$sc_expected" in
+    U*) sc_policies='open closed' ;;
+    *) sc_policies=closed ;;
+  esac
+  for sc_policy in $sc_policies; do
     sc_session=$((sc_session + 1))
     jq -nc --arg c "$sc_command" --arg d "$SHELLCD_ROOT/a" --arg s "shellcd-$$-$sc_session" "$sc_filter" \
       | (cd "$TMP_ROOT" && AGENT_GUARD_HOOK_HOST=$sc_host AGENT_GUARD_INFRA_FAILURE_MODE=$sc_policy \
@@ -4218,6 +4223,19 @@ shellcd_case claude secret U0 'cd link/.. && git commit -m x'
 shellcd_case codex secret U2 'cd ../b <missing; git commit -m x' a
 # bash 3.2 ignores the extra operands; bash 5 and zsh refuse the cd (x: either).
 shellcd_case claude secret Ux 'cd ../b {x,y}; git commit -m x' a
+# A comment may follow a subshell's `)`, and `<<''` ends at the first empty line.
+shellcd_case claude secret 2 '(true)# ; cd ../b
+git commit -m x' a
+shellcd_case codex secret 2 "cat >/dev/null <<''
+x; cd ../b
+
+git commit -m x" a
+# A descriptor closed by exec makes the cd's `2>&1` fail, so the cd is skipped.
+shellcd_case claude secret U2 'exec 1>&-; cd ../b 2>&1; git commit -m x' a
+# An earlier command may relink the cd target after the scan resolved it.
+ln -s ../b "$SHELLCD_ROOT/a/relink"
+printf '/relink\n' >> "$SHELLCD_ROOT/a/.git/info/exclude"
+shellcd_case codex secret U2 'ln -sfn . relink && cd relink && git commit -m x' a
 # A commit that runs because its cd failed: the scan's cd fails the same way.
 shellcd_case claude secret U2 'cd missing || git commit -m x' a
 # A redirection before the command name does not hide the commit.
