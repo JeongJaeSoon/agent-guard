@@ -80,6 +80,68 @@
     "event": {"tool_name": "Bash", "tool_input": {"command": "env NODE_ENV=test node -e 'console.log(process.env.PORT)'; command cat .env.local"}}
   },
   {
+    "id": "grep-regex-class-and-star-fill-protected-name",
+    "expected_status": 2,
+    "expected_reason": "bash_protected_path_text_match",
+    "classification": "known-limitation",
+    "description": "a grep regex whose class and star fill a protected name's last characters is conservatively blocked",
+    "event": {"tool_name": "Bash", "tool_input": {"command": "grep -oE 'example\\.net[a-z]*' notes.txt"}}
+  },
+  {
+    "id": "ripgrep-url-regex-fills-protected-name",
+    "expected_status": 2,
+    "expected_reason": "bash_protected_path_text_match",
+    "classification": "known-limitation",
+    "description": "a ripgrep URL regex that spells a protected dotfile shape is conservatively blocked",
+    "event": {"tool_name": "Bash", "tool_input": {"command": "rg -o 'https://[^ ]+\\.net[^ )]*' docs"}}
+  },
+  {
+    "id": "grep-regex-star-after-protected-prefix",
+    "expected_status": 2,
+    "expected_reason": "bash_protected_path_text_match",
+    "classification": "known-limitation",
+    "description": "a grep regex with a star after a protected name's prefix is conservatively blocked",
+    "event": {"tool_name": "Bash", "tool_input": {"command": "grep -oE 'example\\.net*' notes.txt"}}
+  },
+  {
+    "id": "grep-extension-regex",
+    "expected_status": 2,
+    "expected_reason": "bash_protected_path_text_match",
+    "classification": "known-limitation",
+    "description": "a grep regex for a protected file extension is conservatively blocked",
+    "event": {"tool_name": "Bash", "tool_input": {"command": "grep -E '\\.pem$' list.txt"}}
+  },
+  {
+    "id": "echoed-prose-names-protected-file",
+    "expected_status": 2,
+    "expected_reason": "bash_protected_path_text_match",
+    "classification": "known-limitation",
+    "description": "prose that names a protected dotfile in an echo argument is conservatively blocked",
+    "event": {"tool_name": "Bash", "tool_input": {"command": "echo \"see .netrc docs\""}}
+  },
+  {
+    "id": "star-after-prefix-shared-with-protected-dotfile",
+    "expected_status": 2,
+    "expected_reason": "bash_protected_path_text_match",
+    "classification": "known-limitation",
+    "description": "a star after a prefix shared with a protected dotfile is conservatively blocked",
+    "event": {"tool_name": "Bash", "tool_input": {"command": "ls -d .git*"}}
+  },
+  {
+    "id": "grep-word-containing-protected-stem",
+    "expected_status": 0,
+    "classification": "safe-control",
+    "description": "a search word that only contains a protected stem remains allowed",
+    "event": {"tool_name": "Bash", "tool_input": {"command": "grep -rn 'dotenv' src"}}
+  },
+  {
+    "id": "grep-regex-rewritten-off-path-shape",
+    "expected_status": 0,
+    "classification": "safe-control",
+    "description": "a regex rewritten so it no longer spells a protected path remains allowed",
+    "event": {"tool_name": "Bash", "tool_input": {"command": "grep -oE 'example\\.n[e]t/[a-z]+' notes.txt"}}
+  },
+  {
     "id": "ordinary-node-member",
     "expected_status": 0,
     "classification": "safe-control",

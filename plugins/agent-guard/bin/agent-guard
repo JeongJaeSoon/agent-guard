@@ -3894,26 +3894,78 @@ deny_path_regex_fragment() {
   # into a deny-listed path, such as .e[n]v, .e?v, .e*v, or $'.e\x6ev'.
   pattern=$1
   mode=${2:-literal}
+  if [ "$mode" = "shell-expanded" ]; then
+    deny_path_shell_expanded_fragment "$pattern"
+    return
+  fi
   py=
   remaining=$pattern
   while [ -n "$remaining" ]; do
     ch=${remaining%"${remaining#?}"}
     remaining=${remaining#?}
-    if [ "$mode" = "shell-expanded" ]; then
-      case "$ch" in
-        '*') py=${py}'[^[:space:]<>|;&`$()]*' ;;
-        *) py=${py}$(deny_path_shell_expansion_char_pattern "$ch") ;;
-      esac
-    else
-      case "$ch" in
-        '*') py=${py}'[^[:space:]<>|;&`$()]*' ;;
-        '.'|'^'|'$'|'+'|'?'|'('|')'|'['|']'|'{'|'}'|'|'|'\\') py=${py}'\'${ch} ;;
-        '/') py=${py}'/' ;;
-        *) py=${py}${ch} ;;
-      esac
-    fi
+    case "$ch" in
+      '*') py=${py}'[^[:space:]<>|;&`$()]*' ;;
+      '.'|'^'|'$'|'+'|'?'|'('|')'|'['|']'|'{'|'}'|'|'|'\\') py=${py}'\'${ch} ;;
+      '/') py=${py}'/' ;;
+      *) py=${py}${ch} ;;
+    esac
   done
   printf '%s' "$py"
+}
+
+# A shell word reaches an entry in two ways. Position by position, each entry
+# character may be itself, a \xHH escape, or one glob character (.e[n]v, .e?v,
+# .e*v, $'.e\x6ev'). A `*` can also stand for a whole run of characters (.e*,
+# ~/.n*, .n*c), so the second alternative takes an entry prefix, a `*` (more
+# stars may follow), and an optional entry suffix. Prefix and suffix are nested
+# optionals instead of one alternative per split point, which keeps the ERE
+# linear in the entry length; the price is that they may overlap (.n*netrc),
+# which can only over-block. The prefix must be at least two characters and
+# must pin the entry's first alphanumeric character with that character, its
+# hex escape, or a bracket listing it: accepting a bare star, `?`, or a generic
+# class there would turn `.*`, `\s*`, and `\.[^.]*$` in ordinary sed/grep
+# regexes into protected-path matches.
+deny_path_shell_expanded_fragment() {
+  sx_remaining=$1
+  sx_any='[^[:space:]<>|;&`$()]*'
+  sx_full= sx_head= sx_tail= sx_tail_close= sx_suffix=
+  sx_pinned=0 sx_head_done=0 sx_count=0
+  while [ -n "$sx_remaining" ]; do
+    ch=${sx_remaining%"${sx_remaining#?}"}
+    sx_remaining=${sx_remaining#?}
+    sx_count=$((sx_count + 1))
+    case "$ch" in
+      '*') sx_char=$sx_any ;;
+      *) sx_char=$(deny_path_shell_expansion_char_pattern "$ch") ;;
+    esac
+    sx_full=${sx_full}${sx_char}
+    sx_suffix="(${sx_suffix}${sx_char})?"
+    if [ "$sx_head_done" -eq 1 ]; then
+      sx_tail="${sx_tail}(${sx_char}"
+      sx_tail_close="${sx_tail_close})?"
+      continue
+    fi
+    case "$ch" in
+      [[:alnum:]])
+        if [ "$sx_pinned" -eq 0 ]; then
+          sx_pinned=1
+          sx_char=$(printf '(%s|\\[[^]]*%s[^]]*\\])' "$ch" "$ch")
+          # A non-ASCII letter has no \xHH spelling here; only add one we have.
+          if sx_hex=$(deny_path_char_hex_pattern "$ch" 2>/dev/null); then
+            sx_char="${sx_char%')'}|\\\\x${sx_hex})"
+          fi
+        fi
+        ;;
+    esac
+    sx_head=${sx_head}${sx_char}
+    [ "$sx_pinned" -eq 1 ] && [ "$sx_count" -ge 2 ] && sx_head_done=1
+  done
+  if [ "$sx_head_done" -eq 1 ]; then
+    printf '(%s|%s%s%s\\*(%s\\*)?%s)' "$sx_full" "$sx_head" "$sx_tail" \
+      "$sx_tail_close" "$sx_any" "$sx_suffix"
+  else
+    printf '%s' "$sx_full"
+  fi
 }
 
 deny_path_char_hex_pattern() {

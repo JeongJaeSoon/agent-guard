@@ -1305,8 +1305,60 @@ expect_json_status 2 "Bash glob wildcard path bypass is blocked" \
   '{"tool_name":"Bash","tool_input":{"command":"cat .e?v"}}' \
   hook-pre-tool
 
+# One `*` can expand over several characters of a deny entry, so a star after
+# any pinned prefix still names the protected file.
+expect_json_status 2 "Bash trailing star over a protected dotfile is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat .e*"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash trailing star after a longer home-dotfile prefix is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat ~/.net*"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash trailing star after a one-letter home-dotfile prefix is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat ~/.n*"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash mid-word star spanning several characters is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat ~/.n*c"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash word with several spanning stars is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat ~/.n*t*"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash star after a single-position glob prefix is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat ~/.?e*"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash star over a protected directory's files is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat ~/.aws/*"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash star over a protected directory component is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat ~/.config/*/hosts.yml"}}' \
+  hook-pre-tool
+
 expect_json_status 0 "Bash benign glob remains allowed" \
   '{"tool_name":"Bash","tool_input":{"command":"ls *.md"}}' \
+  hook-pre-tool
+
+# The spanning-star prefix must pin the entry's first name character, so a star
+# in an ordinary regex or a bare wildcard does not read as a protected path.
+expect_json_status 0 "Bash bare wildcard remains allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"ls *"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "Bash any-character regex remains allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"sed '\''s/.*//'\'' notes.txt"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "Bash whitespace-class regex remains allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"sed -E '\''s/\\s*$//'\'' notes.txt"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "Bash star after an unrelated dot-directory prefix remains allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"ls .github/*"}}' \
   hook-pre-tool
 
 expect_json_status 0 "ripgrep negative glob over a denied extension is allowed" \
