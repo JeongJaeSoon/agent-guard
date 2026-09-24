@@ -3899,6 +3899,10 @@ autostage_case codex clean 0 'git add untracked.conf && git commit -m x' untrack
 # `git add -f` can stage an ignored file, which the untracked scan skips.
 autostage_case claude secret 2 'git add -f ignored.conf && git commit -m x' ignored.conf
 autostage_case codex clean 0 'git add --force ignored.conf && git commit -m x' ignored.conf
+# A glob can expand to an option-named file: here `-[f]` becomes `-f`.
+(cd "$AUTOSTAGE_REPO" && : > ./-f && printf '/-f\n' >> .git/info/exclude)
+autostage_case claude secret 2 'git add -[f] ignored.conf && git commit -m x' ignored.conf
+(cd "$AUTOSTAGE_REPO" && rm -f ./-f)
 # A redirection target is not a pathspec (closed policy: no false failure).
 autostage_case claude clean 0 'git commit -am x >/dev/null 2>&1'
 # Pathspecs resolve against the command cwd, not the repository root.
