@@ -51,9 +51,12 @@ jobs:
         # shard fails if a gate in the suite has no entry in this list.
         shard: [1, 2, 3, 4, 5]
     runs-on: ${{ matrix.os }}
-    # The default 6h cap once left a dead macOS runner blocking the merge
-    # queue for an hour before manual cancel.
-    timeout-minutes: 10
+    # Shard jobs measured 2.4-3.9 min on macOS and 0.7-1.8 min on ubuntu
+    # (PR #277), down from 11-15 min for the unsharded macOS job. 12 min is 3x
+    # the slowest shard, room for macOS runner variance and suite growth,
+    # while still bounding a dead runner: the default 6h cap once blocked the
+    # merge queue for an hour before manual cancel.
+    timeout-minutes: 12
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
