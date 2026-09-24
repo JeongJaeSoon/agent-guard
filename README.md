@@ -27,11 +27,17 @@ with CI behind it as a backstop:
 
 The plugin scans what the commit would contain. That covers the index and also
 the tracked changes Git stages by itself for `git commit -a`, `--patch`, or a
-pathspec such as `git commit <path>`, `--include`, or `--only`. When an
-argument is only known at run time, such as `git commit $FLAGS`, the plugin
-scans every tracked change. The push gate checks what is staged, not commits
-that already exist. A secret committed outside these hooks is caught by CI
-while it is still in the checked-out tree.
+pathspec such as `git commit <path>`, `--include`, or `--only`, and the
+untracked files that `--interactive` can add. When an argument is only known at
+run time, such as `git commit $FLAGS`, or the same command runs `git add` first,
+the plugin scans every tracked change and untracked file.
+
+The plugin scans the files as they are when the command starts. If an earlier
+part of the same command writes a file, or changes into another repository,
+the plugin does not see the result, so install the native hook as well. The
+push gate checks what is staged, not commits that already exist. A secret
+committed outside these hooks is caught by CI while it is still in the
+checked-out tree.
 
 A scan that could not run is not treated as clean. In the Claude Code and Codex
 plugins, the default warns that protection is degraded and lets the command

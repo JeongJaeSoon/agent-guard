@@ -3432,16 +3432,20 @@ scan_commit_candidate() {
     [ -n "$staged_by_git" ] && added=${added:+"$added
 "}$staged_by_git
   fi
+  # A finding in either part outranks the other part failing to scan.
+  untracked_status=0
   if [ "$stage_untracked" -eq 1 ]; then
     (CDPATH= cd -- "$repo_root" && scan_untracked_files)
-    case "$?" in
-      0) ;;
-      1) return 1 ;;
-      *) return "$SCAN_STATUS_UNAVAILABLE" ;;
-    esac
+    untracked_status=$?
+    [ "$untracked_status" -eq 1 ] && return 1
   fi
-  [ -n "$added" ] || return 0
-  scan_text_direct "commit candidate added lines" "$added"
+  if [ -n "$added" ]; then
+    scan_text_direct "commit candidate added lines" "$added"
+    status=$?
+    [ "$status" -eq 0 ] || return "$status"
+  fi
+  [ "$untracked_status" -eq 0 ] || return "$SCAN_STATUS_UNAVAILABLE"
+  return 0
 }
 
 scan_untracked_files() {
@@ -4436,7 +4440,7 @@ git_commit_stage_records() {
         '&')
           # `2>&1` and `&>log` are redirections, not a background `&`; the
           # pathspec that may follow them still belongs to this commit.
-          [ "$stage_skip_next" -eq 1 ] && continue
+          [ "$stage_skip_next" -ne 0 ] && continue
           case "${1-}" in
             0'>'*|0'<'*) continue ;;
           esac
@@ -4456,15 +4460,25 @@ git_commit_stage_records() {
       stage_skip_next=0
       continue
     fi
+    if [ "$stage_skip_next" -eq 2 ]; then
+      stage_skip_next=0
+      # A redirection target, unless the shell saw a quoted `>` pathspec: keep
+      # every word that can name a file inside the repository.
+      case "$stage_word" in
+        /*|..|../*|-) ;;
+        *[!0-9]*) [ "$stage_kind" = 0 ] && printf 'P%s\n' "$stage_word" ;;
+      esac
+      continue
+    fi
     if [ "$stage_kind" != 0 ]; then
       printf 'I\n'
       continue
     fi
     stage_redirect=${stage_word#"${stage_word%%[!0-9]*}"}
+    # A redirection word is also a harmless relative pathspec, and keeping it
+    # covers a quoted pathspec that merely looks like one.
     case "$stage_redirect" in
-      '>'|'>>'|'<'|'<<'|'<<<'|'<>'|'>|') stage_skip_next=1; continue ;;
-      # An attached target is also a harmless relative pathspec, and keeping
-      # it covers a quoted pathspec that merely starts with `<` or `>`.
+      '>'|'>>'|'<'|'<<'|'<<<'|'<>'|'>|') printf 'P%s\n' "$stage_word"; stage_skip_next=2; continue ;;
       '>'*|'<'*) printf 'P%s\n' "$stage_word"; continue ;;
     esac
     if [ "$stage_options_done" -eq 0 ]; then
@@ -4488,6 +4502,9 @@ git_commit_stage_records() {
             --file|--author|--date|--message|--reedit-message|--reuse-message|--fixup|--squash|--trailer|--template|--cleanup|--unified|--inter-hunk-context)
               stage_skip_next=1
               ;;
+            # Its file lies outside the repository as often as not; the scan
+            # is already whole-tree, so dropping the word loses nothing.
+            *) long_option_abbreviates "$stage_long" pathspec-from-file && stage_skip_next=1 ;;
           esac
           continue
           ;;
@@ -4529,6 +4546,7 @@ is_git_commit_or_push() {
     effective_c_dynamic=0
     xargs_wrapped=0
     shell_cd_seen=0
+    git_index_changed=0
     matched=1
     append_effective_c_dir() {
       record=$1
@@ -4638,6 +4656,7 @@ $dir"
                 [ -n "$effective_c_dirs" ] && printf '%s\n' "$effective_c_dirs" | sed 's/^/D/'
                 if [ "$token" = commit ]; then
                   [ "$xargs_wrapped" -eq 1 ] && printf 'I\n'
+                  [ "$git_index_changed" -eq 1 ] && printf 'I\n'
                   stage_records=$(git_commit_stage_records "$@")
                   if [ -n "$stage_records" ]; then
                     printf '%s\n' "$stage_records"
@@ -4648,6 +4667,12 @@ P'*) printf 'W\n' ;;
                   fi
                 fi
                 matched=0
+                break
+                ;;
+              # Stages after PreToolUse, like `git commit -a`; the scan cannot
+              # tell which paths, so a later commit scans all of them.
+              add|stage|rm|mv)
+                git_index_changed=1
                 break
                 ;;
               *)

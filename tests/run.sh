@@ -3779,6 +3779,7 @@ mkdir -p "$AUTOSTAGE_REPO/sub"
   printf 'a=1\n' > settings.conf
   printf 'n=1\n' > other.conf
   printf 's=1\n' > sub/nested.conf
+  printf 'g=1\n' > '>'
   git add .
   git commit -q -m init
 )
@@ -3879,6 +3880,15 @@ autostage_case claude secret 2 'cd sub && git commit -m x nested.conf' sub/neste
 # --interactive can add untracked files, which no diff shows.
 autostage_case claude secret 2 "printf '4\\n1\\n\\n7\\n' | git commit --interactive -m x" untracked.conf
 autostage_case codex clean 0 "printf '4\\n1\\n\\n7\\n' | git commit --interactive -m x" untracked.conf
+# A quoted pathspec that looks like a redirection is still a pathspec.
+autostage_case codex secret 2 "git commit -m x -- '>'" '>'
+# The pathspec file lies outside the repository (closed policy: no false failure).
+printf 'settings.conf\n' >"$TMP_ROOT/autostage-pathspecs"
+autostage_case claude secret 2 "git commit -m x --pathspec-from-file $TMP_ROOT/autostage-pathspecs"
+autostage_case claude clean 0 "git commit -m x --pathspec-from-file $TMP_ROOT/autostage-pathspecs"
+# A git add earlier in the same command stages after PreToolUse too.
+autostage_case claude secret 2 'git add untracked.conf && git commit -m x' untracked.conf
+autostage_case codex clean 0 'git add untracked.conf && git commit -m x' untracked.conf
 # A redirection target is not a pathspec (closed policy: no false failure).
 autostage_case claude clean 0 'git commit -am x >/dev/null 2>&1'
 # Pathspecs resolve against the command cwd, not the repository root.
@@ -3916,6 +3926,24 @@ for as_command in 'git commit $FLAGS -m x' 'git commit --{interactive,} -m x' 'p
     sed 's/^/  stderr: /' "$ERR"
   fi
 done
+
+# An untracked input over the scan budget must not mask a tracked finding.
+(
+  cd "$AUTOSTAGE_REPO" || exit 2
+  git clean -q -f
+  git reset -q --hard "$AUTOSTAGE_BASE"
+  printf '%s\n' "AGENT_GUARD_TEST_SECRET" >> settings.conf
+  awk 'BEGIN { for (i = 0; i < 130000; i++) print "oversized-untracked-line-payload" }' >oversized.log
+)
+jq -nc --arg d "$AUTOSTAGE_REPO" '{tool_name:"Bash",tool_input:{command:"git commit --interactive -m x"},cwd:$d}' \
+  | AGENT_GUARD_INFRA_FAILURE_MODE=open "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ] && grep -q 'would stage contain secret-like values' "$ERR"; then
+  ok "auto-stage: an untracked scan failure does not mask a tracked secret"
+else
+  not_ok "auto-stage: an untracked scan failure does not mask a tracked secret (expected 2, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
 (cd "$AUTOSTAGE_REPO" && git clean -q -f)
 
 # Before the first commit there is no HEAD to diff against.
