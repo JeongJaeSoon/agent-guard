@@ -3761,6 +3761,234 @@ else
   sed 's/^/  stderr: /' "$ERR"
 fi
 
+# `git commit -a`, a pathspec, --include and --only make Git stage tracked
+# work-tree changes after PreToolUse has run. The gate must scan what the
+# commit would record (must-fail), allow the same shapes when the unstaged
+# change is clean (must-pass), and leave the index and work tree byte-identical.
+# Each verdict is checked against ground truth: the command is then really run
+# and the new commits are searched for the marker. other.conf is stat-dirty
+# throughout, so a work-tree diff that refreshed the index would show up.
+AUTOSTAGE_REPO="$TMP_ROOT/autostage-repo"
+mkdir -p "$AUTOSTAGE_REPO/sub"
+(
+  cd "$AUTOSTAGE_REPO" || exit 2
+  git init -q
+  git config user.email test@example.com
+  git config user.name test
+  git config core.hooksPath "$TMP_ROOT/autostage-no-hooks"
+  printf 'a=1\n' > settings.conf
+  printf 'n=1\n' > other.conf
+  printf 's=1\n' > sub/nested.conf
+  printf 'g=1\n' > '>'
+  git add .
+  git commit -q -m init
+  # An ignored file named like an option, for the glob case below.
+  : > ./-a
+  printf '/-a\n/ignored.conf\n' >> .git/info/exclude
+)
+AUTOSTAGE_BASE=$(git -C "$AUTOSTAGE_REPO" rev-parse HEAD)
+
+# autostage_case HOST MODE EXPECTED COMMAND [FILE] [SUBDIR]
+# MODE secret appends the marker to FILE unstaged; clean appends a benign line.
+autostage_case() {
+  as_host=$1
+  as_mode=$2
+  as_expected=$3
+  as_command=$4
+  as_file=${5:-settings.conf}
+  as_dir=$AUTOSTAGE_REPO${6:+/$6}
+  as_name="auto-stage [$as_host] $as_mode: $as_command"
+  (
+    cd "$AUTOSTAGE_REPO" || exit 2
+    git reset -q --hard "$AUTOSTAGE_BASE"
+    git clean -q -f
+    rm -f ignored.conf
+    printf 'b=2\n' >> settings.conf
+    git add settings.conf
+    case "$as_mode" in
+      secret) printf '%s\n' "AGENT_GUARD_TEST_SECRET" >> "$as_file" ;;
+      *) printf 'c=3\n' >> "$as_file" ;;
+    esac
+    touch -t 200001010000 other.conf
+  ) || { not_ok "$as_name (setup failed)"; return; }
+  as_before=$(cd "$AUTOSTAGE_REPO" && cat .git/index settings.conf other.conf sub/nested.conf | cksum)
+  case "$as_host" in
+    codex)
+      jq -nc --arg c "$as_command" --arg d "$as_dir" \
+        '{tool_name:"Bash",tool_input:{command:$c,workdir:$d}}' \
+        | (cd "$TMP_ROOT" && AGENT_GUARD_HOOK_HOST=codex AGENT_GUARD_INFRA_FAILURE_MODE=closed \
+            "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool) >"$OUT" 2>"$ERR"
+      ;;
+    *)
+      jq -nc --arg c "$as_command" --arg d "$as_dir" \
+        '{tool_name:"Bash",tool_input:{command:$c},cwd:$d}' \
+        | (cd "$TMP_ROOT" && AGENT_GUARD_HOOK_HOST=claude AGENT_GUARD_INFRA_FAILURE_MODE=closed \
+            "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool) >"$OUT" 2>"$ERR"
+      ;;
+  esac
+  as_status=$?
+  as_after=$(cd "$AUTOSTAGE_REPO" && cat .git/index settings.conf other.conf sub/nested.conf | cksum)
+  # bash, as the agent's shell tool uses: brace expansion is part of the case.
+  (cd "$as_dir" && bash -c "$as_command") >/dev/null 2>&1
+  if git -C "$AUTOSTAGE_REPO" log -p "$AUTOSTAGE_BASE..HEAD" | grep -q AGENT_GUARD_TEST_SECRET; then
+    as_leaks=2
+  else
+    as_leaks=0
+  fi
+  if [ "$as_status" -ne "$as_expected" ]; then
+    not_ok "$as_name (expected $as_expected, got $as_status)"
+    sed 's/^/  stderr: /' "$ERR"
+  elif [ "$as_status" -eq 2 ] && ! grep -q 'contain secret-like values' "$ERR"; then
+    not_ok "$as_name (blocked, but not on a secret finding)"
+    sed 's/^/  stderr: /' "$ERR"
+  elif [ "$as_before" != "$as_after" ]; then
+    not_ok "$as_name (the scan changed the index or work tree)"
+  elif [ "$as_leaks" -ne "$as_expected" ]; then
+    not_ok "$as_name (ground truth disagrees: the command leaks=$as_leaks)"
+  else
+    ok "$as_name"
+  fi
+}
+
+for as_host in claude codex; do
+  for as_command in \
+    'git commit -a -m x' \
+    'git commit -am x' \
+    'git commit --all -m x' \
+    'git commit -m x settings.conf' \
+    'git commit -m x -- settings.conf' \
+    'git commit -i -m x settings.conf' \
+    'git commit --include -m x settings.conf' \
+    'git commit -o -m x settings.conf' \
+    'git commit --only -m x settings.conf'
+  do
+    autostage_case "$as_host" secret 2 "$as_command"
+    autostage_case "$as_host" clean 0 "$as_command"
+  done
+done
+# A pathspec commit is scanned by its pathspec: an unrelated unstaged secret
+# stays out of both the commit and the verdict.
+autostage_case claude secret 0 'git commit -m x settings.conf' other.conf
+# Without auto-staging, an unstaged secret is not committed and not blocked.
+autostage_case claude secret 0 'git commit -m x'
+# A later auto-staging commit must not hide behind an earlier plain one.
+autostage_case claude secret 2 'git commit -m ok && git commit -am x'
+# The tokenizer splits `2>&1` at `&`; the pathspec after it is still seen.
+autostage_case claude secret 2 'git commit -m x 2>&1 settings.conf'
+# Brace expansion can name any tracked file.
+autostage_case claude secret 2 'git commit -m x {settings,other}.conf'
+# A subshell's closing parenthesis ends the arguments without hiding them.
+autostage_case codex secret 2 '(git commit -m x settings.conf)'
+# The scan cannot follow a shell cd, so a pathspec after one widens the scan.
+autostage_case claude secret 2 'cd sub && git commit -m x nested.conf' sub/nested.conf
+# --interactive can add untracked files, which no diff shows.
+autostage_case claude secret 2 "printf '4\\n1\\n\\n7\\n' | git commit --interactive -m x" untracked.conf
+autostage_case codex clean 0 "printf '4\\n1\\n\\n7\\n' | git commit --interactive -m x" untracked.conf
+# A glob can expand to an option-named file: here `-?` becomes `-a`.
+autostage_case claude secret 2 'git commit -m x -?'
+autostage_case codex clean 0 'git commit -m x -?'
+# A quoted pathspec that looks like a redirection is still a pathspec.
+autostage_case codex secret 2 "git commit -m x -- '>'" '>'
+# The pathspec file lies outside the repository (closed policy: no false failure).
+printf 'settings.conf\n' >"$TMP_ROOT/autostage-pathspecs"
+autostage_case claude secret 2 "git commit -m x --pathspec-from-file $TMP_ROOT/autostage-pathspecs"
+autostage_case claude clean 0 "git commit -m x --pathspec-from-file $TMP_ROOT/autostage-pathspecs"
+# A git add earlier in the same command stages after PreToolUse too.
+autostage_case claude secret 2 'git add untracked.conf && git commit -m x' untracked.conf
+autostage_case codex clean 0 'git add untracked.conf && git commit -m x' untracked.conf
+# `git add -f` can stage an ignored file, which the untracked scan skips.
+autostage_case claude secret 2 'git add -f ignored.conf && git commit -m x' ignored.conf
+autostage_case codex clean 0 'git add --force ignored.conf && git commit -m x' ignored.conf
+autostage_case claude secret 2 'git add 2>&1 -f ignored.conf && git commit -m x' ignored.conf
+autostage_case codex secret 2 'git add -f> /dev/null ignored.conf && git commit -m x' ignored.conf
+# `settings.conf>/dev/null` is the pathspec settings.conf plus a redirection.
+autostage_case claude secret 2 'git commit -m x settings.conf>/dev/null'
+autostage_case codex secret 2 'git commit -a>/dev/null -m x'
+# A glob can expand to an option-named file: here `-[f]` becomes `-f`.
+(cd "$AUTOSTAGE_REPO" && : > ./-f && printf '/-f\n' >> .git/info/exclude)
+autostage_case claude secret 2 'git add -[f] ignored.conf && git commit -m x' ignored.conf
+(cd "$AUTOSTAGE_REPO" && rm -f ./-f)
+# A glob under a directory cannot expand to an option, so it stays a
+# pathspec and adds no ignored-file scan.
+autostage_case codex secret 2 'git commit -m x sub/*.conf' sub/nested.conf
+autostage_case claude secret 0 'git add sub/*.conf && git commit -m x' ignored.conf
+# A redirection target is not a pathspec (closed policy: no false failure).
+autostage_case claude clean 0 'git commit -am x >/dev/null 2>&1'
+# Pathspecs resolve against the command cwd, not the repository root.
+autostage_case codex secret 2 'git commit -m x nested.conf' sub/nested.conf sub
+
+# A dynamic word may expand to -a, --interactive or a pathspec, so it widens
+# the scan to every tracked change and to untracked files.
+(
+  cd "$AUTOSTAGE_REPO" || exit 2
+  git reset -q --hard "$AUTOSTAGE_BASE"
+  printf '%s\n' "AGENT_GUARD_TEST_SECRET" >> settings.conf
+)
+jq -nc --arg d "$AUTOSTAGE_REPO" '{tool_name:"Bash",tool_input:{command:"git commit $FLAGS -m x"},cwd:$d}' \
+  | "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ] && grep -q 'would stage contain secret-like values' "$ERR"; then
+  ok "auto-stage: a dynamic git commit argument scans every tracked change"
+else
+  not_ok "auto-stage: a dynamic git commit argument scans every tracked change (expected 2, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+(
+  cd "$AUTOSTAGE_REPO" || exit 2
+  git reset -q --hard "$AUTOSTAGE_BASE"
+  printf '%s\n' "AGENT_GUARD_TEST_SECRET" > untracked.conf
+)
+for as_command in 'git commit $FLAGS -m x' 'git commit --{interactive,} -m x' 'printf x | xargs git commit -m x'; do
+  jq -nc --arg c "$as_command" --arg d "$AUTOSTAGE_REPO" '{tool_name:"Bash",tool_input:{command:$c},cwd:$d}' \
+    | "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+  status=$?
+  if [ "$status" -eq 2 ] && grep -q 'would stage contain secret-like values' "$ERR"; then
+    ok "auto-stage: $as_command may be --interactive, so untracked files are scanned"
+  else
+    not_ok "auto-stage: $as_command may be --interactive, so untracked files are scanned (expected 2, got $status)"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+done
+
+# An untracked input over the scan budget must not mask a tracked finding.
+(
+  cd "$AUTOSTAGE_REPO" || exit 2
+  git clean -q -f
+  git reset -q --hard "$AUTOSTAGE_BASE"
+  printf '%s\n' "AGENT_GUARD_TEST_SECRET" >> settings.conf
+  awk 'BEGIN { for (i = 0; i < 130000; i++) print "oversized-untracked-line-payload" }' >oversized.log
+)
+jq -nc --arg d "$AUTOSTAGE_REPO" '{tool_name:"Bash",tool_input:{command:"git commit --interactive -m x"},cwd:$d}' \
+  | AGENT_GUARD_INFRA_FAILURE_MODE=open "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ] && grep -q 'would stage contain secret-like values' "$ERR"; then
+  ok "auto-stage: an untracked scan failure does not mask a tracked secret"
+else
+  not_ok "auto-stage: an untracked scan failure does not mask a tracked secret (expected 2, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+(cd "$AUTOSTAGE_REPO" && git clean -q -f)
+
+# Before the first commit there is no HEAD to diff against.
+AUTOSTAGE_UNBORN="$TMP_ROOT/autostage-unborn"
+mkdir -p "$AUTOSTAGE_UNBORN"
+(
+  cd "$AUTOSTAGE_UNBORN" || exit 2
+  git init -q
+  printf 'a=1\n' > settings.conf
+  git add settings.conf
+  printf '%s\n' "AGENT_GUARD_TEST_SECRET" >> settings.conf
+)
+jq -nc --arg d "$AUTOSTAGE_UNBORN" '{tool_name:"Bash",tool_input:{command:"git commit -am x"},cwd:$d}' \
+  | "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ] && grep -q 'would stage contain secret-like values' "$ERR"; then
+  ok "auto-stage: git commit -a before the first commit scans unstaged changes"
+else
+  not_ok "auto-stage: git commit -a before the first commit scans unstaged changes (expected 2, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
 SYMLINK_REPO="$TMP_ROOT/symlink-repo"
 mkdir -p "$SYMLINK_REPO"
 (
@@ -5218,7 +5446,7 @@ DIFF_FAIL_BIN="$TESTTMP/diff-fail-bin"
 mkdir -p "$DIFF_FAIL_BIN"
 cat >"$DIFF_FAIL_BIN/git" <<'EOSH'
 #!/usr/bin/env sh
-if [ "${1:-}" = diff ]; then
+if [ "${1:-}" = diff ] || [ "${3:-}" = diff ]; then
   exit 42
 fi
 exec "$AGENT_GUARD_TEST_REAL_GIT" "$@"
@@ -5310,7 +5538,7 @@ FAIL125_GITDIR="$TMP_ROOT/fail125-fakegit"
 mkdir -p "$FAIL125_GITDIR"
 cat >"$FAIL125_GITDIR/git" <<EOF
 #!/usr/bin/env sh
-[ "\${1:-}" = "diff" ] && exit 7
+{ [ "\${1:-}" = diff ] || [ "\${3:-}" = diff ]; } && exit 7
 exec "$REAL_GIT_125" "\$@"
 EOF
 chmod +x "$FAIL125_GITDIR/git"
@@ -6955,7 +7183,7 @@ mkdir -p "$DIFF_NOISY_BIN"
 DIFF_NOISY_LINE_1=$(awk 'BEGIN { printf "fatal: \r\tbad "; for (i = 0; i < 260; i++) printf "e" }')
 cat >"$DIFF_NOISY_BIN/git" <<EOSH
 #!/usr/bin/env sh
-if [ "\${1:-}" = diff ]; then
+if [ "\${1:-}" = diff ] || [ "\${3:-}" = diff ]; then
   printf '%s\\n' "$DIFF_NOISY_LINE_1" >&2
   printf 'second-line-must-not-leak\\n' >&2
   exit 42
@@ -7017,7 +7245,7 @@ DIFF_FLOOD_UNBOUNDED="$TESTTMP/diff-flood-unbounded.marker"
 mkdir -p "$DIFF_FLOOD_BIN"
 cat >"$DIFF_FLOOD_BIN/git" <<EOSH
 #!/usr/bin/env sh
-if [ "\${1:-}" = diff ]; then
+if [ "\${1:-}" = diff ] || [ "\${3:-}" = diff ]; then
   [ -f /dev/fd/2 ] && : >"$DIFF_FLOOD_UNBOUNDED"
   awk 'BEGIN { for (i = 0; i < 100000; i++) print "noise-line-payload-" i }' | tee "$DIFF_FLOOD_SIDE" >&2
   exit 42
@@ -7056,7 +7284,7 @@ DIFF_WARN_BIN="$TESTTMP/diff-warn-bin"
 mkdir -p "$DIFF_WARN_BIN"
 cat >"$DIFF_WARN_BIN/git" <<'EOSH'
 #!/usr/bin/env sh
-if [ "${1:-}" = diff ]; then
+if [ "${1:-}" = diff ] || [ "${3:-}" = diff ]; then
   awk 'BEGIN { for (i = 0; i < 2000; i++) print "warning: noisy-but-successful-line " i }' >&2
   exit 0
 fi

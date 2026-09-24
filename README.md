@@ -25,12 +25,20 @@ with CI behind it as a backstop:
 | Any local commit, yours or an agent's | Once installed, the [native pre-commit hook](docs/integrations.md#native-git-hook) scans the staged added lines after Git has staged everything the commit will include, and aborts the commit on a finding or when the scan cannot run. Git skips it for `git commit --no-verify`; the plugin refuses that flag for agents, and CI covers the rest. |
 | Anyone, after a push | The [GitHub Action](docs/integrations.md#github-actions) scans the checked-out files of each push or pull request it runs on, as the repository backstop. |
 
-The plugin checks the index as it stands when the command starts. A
-`git commit -a` or `git commit <path>` stages tracked changes afterwards, so
-install the native hook as well: it runs after that staging and sees what the
-commit really contains. Likewise the push gate checks what is staged, not
-commits that already exist; a secret committed outside these hooks is caught by
-CI while it is still in the checked-out tree.
+The plugin scans what the commit would contain. That covers the index and also
+the tracked changes Git stages by itself for `git commit -a`, `--patch`, or a
+pathspec such as `git commit <path>`, `--include`, or `--only`, and the
+untracked files that `--interactive` can add. When an argument is only known at
+run time, such as `git commit $FLAGS`, or the same command runs `git add` first,
+the plugin scans every tracked change and untracked file, including ignored
+files after `git add -f`.
+
+The plugin scans the files as they are when the command starts. If an earlier
+part of the same command writes a file, or changes into another repository,
+the plugin does not see the result, so install the native hook as well. The
+push gate checks what is staged, not commits that already exist. A secret
+committed outside these hooks is caught by CI while it is still in the
+checked-out tree.
 
 A scan that could not run is not treated as clean. In the Claude Code and Codex
 plugins, the default warns that protection is degraded and lets the command
