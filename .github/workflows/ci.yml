@@ -51,10 +51,10 @@ jobs:
         # shard fails if a gate in the suite has no entry in this list.
         shard: [1, 2, 3, 4, 5]
     runs-on: ${{ matrix.os }}
-    # Over three PR #277 runs, shard jobs usually took 2.0-3.9 min on macOS and
-    # 0.6-1.8 min on ubuntu, down from 11-15 min for the unsharded macOS job.
-    # Slow macOS runners twice ran a shard at about half speed (5.0, 5.9 min),
-    # so 15 min covers that on a shard that also grows by half, while still
+    # Over four PR #277 runs, macOS shard jobs took 1.9-5.9 min (shard 5 is the
+    # longest at 3.0-5.9) and ubuntu ones 0.6-1.8 min, down from 11-15 min for
+    # the unsharded macOS job. macOS runner speed varies up to ~2x, so 15 min
+    # (2.5x the slowest) leaves room for that and for suite growth while still
     # bounding a dead runner: the default 6h cap once blocked the merge queue
     # for an hour.
     timeout-minutes: 15
