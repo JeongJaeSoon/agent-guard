@@ -4480,6 +4480,20 @@ git_commit_stage_records() {
       printf 'I\n'
       continue
     fi
+    # The tokenizer keeps `x>log` whole; the shell passes `x` to Git. Keep the
+    # whole word too, in case it was a quoted pathspec.
+    stage_prefix=${stage_word%%[<>]*}
+    case "$stage_prefix" in
+      *[!0-9]*)
+        if [ "$stage_prefix" != "$stage_word" ]; then
+          printf 'P%s\n' "$stage_word"
+          case "$stage_word" in
+            *'>'|*'<') stage_skip_next=2 ;;
+          esac
+          stage_word=$stage_prefix
+        fi
+        ;;
+    esac
     stage_redirect=${stage_word#"${stage_word%%[!0-9]*}"}
     # A redirection word is also a harmless relative pathspec, and keeping it
     # covers a quoted pathspec that merely looks like one.
@@ -4569,6 +4583,13 @@ git_add_is_forced() {
     add_after_redirect=0
     case "$add_word" in
       *'>'|*'<') add_after_redirect=1 ;;
+    esac
+    # The tokenizer keeps `-f>log` whole; the shell passes `-f` to Git.
+    add_prefix=${add_word%%[<>]*}
+    case "$add_prefix" in
+      *[!0-9]*) add_word=$add_prefix ;;
+    esac
+    case "$add_word" in
       -*[*?[]*|[*?[]*) return 0 ;;
       --) return 1 ;;
       --*) long_option_abbreviates "${add_word#--}" force && return 0 ;;

@@ -3900,6 +3900,10 @@ autostage_case codex clean 0 'git add untracked.conf && git commit -m x' untrack
 autostage_case claude secret 2 'git add -f ignored.conf && git commit -m x' ignored.conf
 autostage_case codex clean 0 'git add --force ignored.conf && git commit -m x' ignored.conf
 autostage_case claude secret 2 'git add 2>&1 -f ignored.conf && git commit -m x' ignored.conf
+autostage_case codex secret 2 'git add -f> /dev/null ignored.conf && git commit -m x' ignored.conf
+# `settings.conf>/dev/null` is the pathspec settings.conf plus a redirection.
+autostage_case claude secret 2 'git commit -m x settings.conf>/dev/null'
+autostage_case codex secret 2 'git commit -a>/dev/null -m x'
 # A glob can expand to an option-named file: here `-[f]` becomes `-f`.
 (cd "$AUTOSTAGE_REPO" && : > ./-f && printf '/-f\n' >> .git/info/exclude)
 autostage_case claude secret 2 'git add -[f] ignored.conf && git commit -m x' ignored.conf
