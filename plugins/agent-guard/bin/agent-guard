@@ -4546,16 +4546,29 @@ git_commit_stage_records() {
 # run time — a variable, a brace expansion, or a glob that may match `-f`
 # (one that starts with `-` or with a glob character; `src/*.js` cannot).
 git_add_is_forced() {
-  for add_record in "$@"; do
-    add_kind=${add_record%"${add_record#?}"}
-    add_word=${add_record#?}
+  add_after_redirect=0
+  while [ "$#" -gt 0 ]; do
+    add_kind=${1%"${1#?}"}
+    add_word=${1#?}
+    shift
     case "$add_kind:$add_word" in
+      # `2>&1` and `&>log` arrive split around a bare `&`; the arguments after
+      # them still belong to this `git add`.
+      3:'&')
+        [ "$add_after_redirect" -eq 1 ] && continue
+        case "${1-}" in
+          0'>'*|0'<'*) continue ;;
+        esac
+        return 1
+        ;;
       3:'{'|3:'}') return 0 ;;
       3:*) return 1 ;;
       0:*) is_shell_command_separator "$add_word" && return 1 ;;
       *) return 0 ;;
     esac
+    add_after_redirect=0
     case "$add_word" in
+      *'>'|*'<') add_after_redirect=1 ;;
       -*[*?[]*|[*?[]*) return 0 ;;
       --) return 1 ;;
       --*) long_option_abbreviates "${add_word#--}" force && return 0 ;;

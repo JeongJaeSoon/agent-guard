@@ -3899,6 +3899,7 @@ autostage_case codex clean 0 'git add untracked.conf && git commit -m x' untrack
 # `git add -f` can stage an ignored file, which the untracked scan skips.
 autostage_case claude secret 2 'git add -f ignored.conf && git commit -m x' ignored.conf
 autostage_case codex clean 0 'git add --force ignored.conf && git commit -m x' ignored.conf
+autostage_case claude secret 2 'git add 2>&1 -f ignored.conf && git commit -m x' ignored.conf
 # A glob can expand to an option-named file: here `-[f]` becomes `-f`.
 (cd "$AUTOSTAGE_REPO" && : > ./-f && printf '/-f\n' >> .git/info/exclude)
 autostage_case claude secret 2 'git add -[f] ignored.conf && git commit -m x' ignored.conf
