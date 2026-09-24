@@ -4418,10 +4418,12 @@ long_option_abbreviates() {
 # pathspec (with or without --only/--include) make Git stage tracked work-tree
 # changes itself, after PreToolUse has run. Given the git_command_records after
 # `commit`, print W when any tracked change may be staged, I when untracked
-# files may be too (--interactive), and P<pathspec> for each literal pathspec. Every misreading must widen the scan, never narrow it:
-# a dynamic word becomes W, and an unrecognised option is a flag, so the word
-# after it stays a pathspec. Git accepts unambiguous long-option prefixes, and
-# an ambiguous one fails the commit, so any prefix of a staging option is W.
+# files may be too (--interactive), and P<pathspec> for each literal pathspec.
+# Every misreading must widen the scan, never narrow it: a word only known at
+# run time may be --interactive, so it becomes I, and an unrecognised option is
+# a flag, so the word after it stays a pathspec. Git accepts unambiguous
+# long-option prefixes, and an ambiguous one fails the commit, so any prefix of
+# a staging option widens the scan.
 git_commit_stage_records() {
   stage_skip_next=0
   stage_options_done=0
@@ -4440,9 +4442,9 @@ git_commit_stage_records() {
           esac
           return 0
           ;;
-        # Brace expansion can yield any pathspec, and `(` here is extglob or
-        # a syntax error.
-        '{'|'}') printf 'W\n'; continue ;;
+        # Brace expansion can yield any option or pathspec, and `(` here is
+        # extglob or a syntax error.
+        '{'|'}') printf 'I\n'; continue ;;
         '(') printf 'W\n'; return 0 ;;
         *) return 0 ;;
       esac
@@ -4455,7 +4457,7 @@ git_commit_stage_records() {
       continue
     fi
     if [ "$stage_kind" != 0 ]; then
-      printf 'W\n'
+      printf 'I\n'
       continue
     fi
     stage_redirect=${stage_word#"${stage_word%%[!0-9]*}"}
@@ -4565,7 +4567,7 @@ $dir"
         esac
         if is_noop_wrapper "$token"; then
           wrapper=$token
-          # xargs appends words read from stdin, which may be pathspecs.
+          # xargs appends words read from stdin, which may be any argument.
           [ "$wrapper" = xargs ] && xargs_wrapped=1
           shift
           while [ "$#" -gt 0 ]; do
@@ -4635,7 +4637,7 @@ $dir"
                 [ "$effective_c_dynamic" -eq 1 ] && printf 'U\n'
                 [ -n "$effective_c_dirs" ] && printf '%s\n' "$effective_c_dirs" | sed 's/^/D/'
                 if [ "$token" = commit ]; then
-                  [ "$xargs_wrapped" -eq 1 ] && printf 'W\n'
+                  [ "$xargs_wrapped" -eq 1 ] && printf 'I\n'
                   stage_records=$(git_commit_stage_records "$@")
                   if [ -n "$stage_records" ]; then
                     printf '%s\n' "$stage_records"

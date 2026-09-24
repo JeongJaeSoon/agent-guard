@@ -3884,7 +3884,8 @@ autostage_case claude clean 0 'git commit -am x >/dev/null 2>&1'
 # Pathspecs resolve against the command cwd, not the repository root.
 autostage_case codex secret 2 'git commit -m x nested.conf' sub/nested.conf sub
 
-# A dynamic word may expand to -a or a pathspec; it widens the scan.
+# A dynamic word may expand to -a, --interactive or a pathspec, so it widens
+# the scan to every tracked change and to untracked files.
 (
   cd "$AUTOSTAGE_REPO" || exit 2
   git reset -q --hard "$AUTOSTAGE_BASE"
@@ -3899,6 +3900,23 @@ else
   not_ok "auto-stage: a dynamic git commit argument scans every tracked change (expected 2, got $status)"
   sed 's/^/  stderr: /' "$ERR"
 fi
+(
+  cd "$AUTOSTAGE_REPO" || exit 2
+  git reset -q --hard "$AUTOSTAGE_BASE"
+  printf '%s\n' "AGENT_GUARD_TEST_SECRET" > untracked.conf
+)
+for as_command in 'git commit $FLAGS -m x' 'git commit --{interactive,} -m x' 'printf x | xargs git commit -m x'; do
+  jq -nc --arg c "$as_command" --arg d "$AUTOSTAGE_REPO" '{tool_name:"Bash",tool_input:{command:$c},cwd:$d}' \
+    | "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+  status=$?
+  if [ "$status" -eq 2 ] && grep -q 'would stage contain secret-like values' "$ERR"; then
+    ok "auto-stage: $as_command may be --interactive, so untracked files are scanned"
+  else
+    not_ok "auto-stage: $as_command may be --interactive, so untracked files are scanned (expected 2, got $status)"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+done
+(cd "$AUTOSTAGE_REPO" && git clean -q -f)
 
 # Before the first commit there is no HEAD to diff against.
 AUTOSTAGE_UNBORN="$TMP_ROOT/autostage-unborn"
