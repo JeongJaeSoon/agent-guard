@@ -4206,6 +4206,9 @@ git commit -m x' a
 # A cd whose target or effect only run time knows fails per the policy.
 shellcd_case claude secret U2 'cd $SC_UNSET_DIR && git commit -m x'
 shellcd_case codex secret U2 'cd ~ && git commit -m x'
+shellcd_case claude secret U2 "cd \$'../b' && git commit -m x"
+shellcd_case codex secret U2 'cd ../\
+b && git commit -m x'
 shellcd_case claude secret U2 'cd ../b && cd /tmp && cd - && git commit -m x'
 shellcd_case codex secret U2 'true && cd ../b; git commit -m x'
 shellcd_case claude secret U2 'false || cd ../b && git commit -m x'
