@@ -4323,6 +4323,7 @@ shellcd_case claude secret U2 "C='git commit -m x'; eval \"\$C\"" a
 shellcd_case codex secret 2 "eval true ';' 'git commit -m x'" a
 shellcd_case claude secret 2 "eval >/dev/null -- 'git commit -m x'" a
 shellcd_case codex secret U2 "C='git commit -m x'; env -S \"\$C\"" a
+shellcd_case claude secret U2 "env -S 'git\\_commit\\_-m\\_x'" a
 shellcd_case claude secret U2 "echo 'git commit -m x' | xargs -I{} sh -c '{}'" a
 shellcd_case codex secret U2 "X='commit -m x'; git \$X" a
 shellcd_case claude secret U2 "X='core.x=1 commit'; git -c \$X -m x" a

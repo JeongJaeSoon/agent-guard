@@ -5494,6 +5494,12 @@ $shell_cd_dir"
                 esac
                 if [ -n "$env_split" ]; then
                   shift
+                  # env -S splits only at whitespace and has escapes of its
+                  # own (`\_` separates words); read it as shell words only
+                  # where the two syntaxes agree.
+                  case "$env_split" in
+                    0*[\\\;\|\&\(\)\{\}\<\>\`\$\#]*) env_split=1 ;;
+                  esac
                   if [ "${env_split%"${env_split#?}"}" != 0 ]; then
                     printf 'G\nU\n'
                     matched=0
