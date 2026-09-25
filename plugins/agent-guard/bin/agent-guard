@@ -4220,6 +4220,137 @@ shell_dequote_for_policy() {
   '
 }
 
+# Unquote the command the way bash would, decoding $'...' escapes. The coarse
+# pass above turns $'.e\x6e'v into $.ex6ev, so an ANSI-C escape spliced with
+# unquoted text slipped past both it and the raw \xHH alternatives. A byte that
+# no deny-read path contains (a control character, a backslash, or anything
+# above ASCII) becomes \001; a NUL ends the $'...' string, as in bash. Every
+# backslash left in the output is literal text, such as the \x6e in '\x6e' or
+# \$'\x6e', so it must not reach the shell-expanded pass, which would read it
+# as an escape again. Expansions and globs are left as text for the literal and
+# shell-expanded passes.
+shell_decode_ansi_c_for_policy() {
+  printf '%s\n' "$1" | awk '
+    function hexval(ch) { return index("0123456789abcdef", tolower(ch)) - 1 }
+    function emit(v) {
+      if (nul) return
+      if (v == 0) { nul = 1; return }
+      if (v < 32 || v > 126) v = 1
+      out = out sprintf("%c", v)
+    }
+    { s = (NR == 1) ? $0 : s "\n" $0 }
+    END {
+      q = "\047"; out = ""; state = ""; n = length(s)
+      for (i = 1; i <= n; i++) {
+        c = substr(s, i, 1)
+        if (state == "single") {
+          if (c == q) state = ""; else out = out c
+          continue
+        }
+        if (state == "double") {
+          if (c == "\"") { state = ""; continue }
+          if (c == "\\" && i < n && index("$`\"\\\n", substr(s, i + 1, 1))) {
+            i++
+            if (substr(s, i, 1) != "\n") out = out substr(s, i, 1)
+            continue
+          }
+          out = out c
+          continue
+        }
+        if (state == "ansi") {
+          if (c == q) { state = ""; continue }
+          if (c != "\\" || i == n) { if (!nul) out = out c; continue }
+          i++
+          e = substr(s, i, 1)
+          if (e == "x" || e == "u" || e == "U") {
+            max = (e == "x") ? 2 : ((e == "u") ? 4 : 8)
+            v = 0; k = 0
+            while (k < max && i < n && hexval(substr(s, i + 1, 1)) >= 0) {
+              i++; v = v * 16 + hexval(substr(s, i, 1)); k++
+            }
+            if (k > 0) emit(v); else if (!nul) out = out "\\" e
+          } else if (e ~ /[0-7]/) {
+            v = e + 0; k = 1
+            while (k < 3 && i < n && substr(s, i + 1, 1) ~ /[0-7]/) {
+              i++; v = v * 8 + substr(s, i, 1); k++
+            }
+            emit(v)
+          } else if (e == "c") {
+            if (i < n) i++
+            emit(1)
+          } else if (index("abefnrtvE", e)) {
+            emit(1)
+          } else if (index("\\\047\"?", e)) {
+            if (!nul) out = out e
+          } else if (!nul) {
+            out = out "\\" e
+          }
+          continue
+        }
+        if (c == "\\") {
+          if (i < n) { i++; if (substr(s, i, 1) != "\n") out = out substr(s, i, 1) }
+          continue
+        }
+        if (c == q) { state = "single"; continue }
+        if (c == "\"") { state = "double"; continue }
+        if (c == "$" && i < n && substr(s, i + 1, 1) == q) {
+          state = "ansi"; nul = 0; i++
+          continue
+        }
+        if (c == "$" && i < n && substr(s, i + 1, 1) == "\"") {
+          state = "double"; i++
+          continue
+        }
+        out = out c
+      }
+      gsub(/\\/, "\001", out)
+      print out
+    }
+  '
+}
+
+# Drop the backslash-newline pairs bash removes before it splits words: those
+# outside quotes and inside "...", but not inside '...' or $'...'. The later
+# passes split the command into words and rejoin them with spaces, which would
+# turn $\<newline>'...' into `$\ '...'` and hide the $'...' string bash reads.
+shell_join_line_continuations() {
+  printf '%s\n' "$1" | awk '
+    { s = (NR == 1) ? $0 : s "\n" $0 }
+    END {
+      q = "\047"; out = ""; state = ""; dollar = 0; n = length(s)
+      for (i = 1; i <= n; i++) {
+        c = substr(s, i, 1)
+        if (state == "single") {
+          if (c == q) state = ""
+          out = out c
+          continue
+        }
+        if (state == "ansi") {
+          out = out c
+          if (c == "\\" && i < n) { i++; out = out substr(s, i, 1) }
+          else if (c == q) state = ""
+          continue
+        }
+        if (c == "\\" && i < n) {
+          i++
+          if (substr(s, i, 1) != "\n") { out = out c substr(s, i, 1); dollar = 0 }
+          continue
+        }
+        if (state == "double") {
+          if (c == "\"") state = ""
+          out = out c
+          continue
+        }
+        if (c == q) state = dollar ? "ansi" : "single"
+        else if (c == "\"") state = "double"
+        dollar = (c == "$" && !dollar)
+        out = out c
+      }
+      print out
+    }
+  '
+}
+
 # Remove only exclusion operands whose command context proves they do not name a
 # file to read. This is intentionally narrow: globally dropping `!*.pem` would
 # turn a literal path such as `cat '!secret.pem'` into a policy bypass. Ripgrep's
@@ -4392,6 +4523,10 @@ bash_strip_allowed_tokens() {
 # the commit from check_git_command's detector (#127). Use a private name.
 bash_matches_deny_path() {
   deny_cmd=$1
+  case "$deny_cmd" in
+    *"\\
+"*) deny_cmd=$(shell_join_line_continuations "$deny_cmd") ;;
+  esac
   deny_cmd=$(bash_strip_exclusion_operands "$deny_cmd")
   deny_cmd=$(bash_strip_allowed_tokens "$deny_cmd")
   bash_matches_deny_path_mode "$deny_cmd" "literal" && return 0
@@ -4399,7 +4534,11 @@ bash_matches_deny_path() {
   dequoted=$(shell_dequote_for_policy "$deny_cmd")
   [ "$dequoted" = "$deny_cmd" ] && return 1
   bash_matches_deny_path_mode "$dequoted" "literal" && return 0
-  bash_matches_deny_path_mode "$dequoted" "shell-expanded"
+  bash_matches_deny_path_mode "$dequoted" "shell-expanded" && return 0
+  case "$deny_cmd" in *"\$'"*) ;; *) return 1 ;; esac
+  decoded=$(shell_decode_ansi_c_for_policy "$deny_cmd")
+  bash_matches_deny_path_mode "$decoded" "literal" && return 0
+  bash_matches_deny_path_mode "$decoded" "shell-expanded"
 }
 
 is_shell_command_separator() {
