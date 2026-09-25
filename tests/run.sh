@@ -102,6 +102,32 @@ mkdir -p "$MOCK_BIN"
 DEFAULT_PRIVATE_GITLEAKS_DIR="$TMP_ROOT/private-gitleaks-empty"
 mkdir -p "$DEFAULT_PRIVATE_GITLEAKS_DIR"
 export AGENT_GUARD_GITLEAKS_BIN_DIR="$DEFAULT_PRIVATE_GITLEAKS_DIR"
+cp "$ROOT/tests/fixtures/mock-gitleaks" "$MOCK_BIN/gitleaks"
+chmod +x "$MOCK_BIN/gitleaks"
+
+# CI runs the suite as parallel jobs, one per AGENT_GUARD_TEST_SHARD value;
+# unset runs every shard in order. A shard skips the other shards' blocks, so it
+# must build its own fixtures rather than reuse one an earlier shard created.
+case ${AGENT_GUARD_TEST_SHARD:-} in
+  ''|1|2|3|4|5) ;;
+  *)
+    say "AGENT_GUARD_TEST_SHARD must be unset or 1-5, got: $AGENT_GUARD_TEST_SHARD" >&2
+    exit 2
+    ;;
+esac
+
+in_shard() {
+  [ -z "${AGENT_GUARD_TEST_SHARD:-}" ] || [ "$AGENT_GUARD_TEST_SHARD" = "$1" ]
+}
+
+if in_shard 1; then
+suite_shards=$(sed -n 's/^if in_shard \([0-9]*\); then$/\1/p' "$ROOT/tests/run.sh" | sort -u | tr '\n' ' ')
+ci_shards=$(sed -n 's/^ *shard: \[\([0-9, ]*\)\]$/\1/p' "$ROOT/.github/workflows/ci.yml" | tr -d ' ' | tr ',' '\n' | sort -u | tr '\n' ' ')
+if [ -n "$suite_shards" ] && [ "$suite_shards" = "$ci_shards" ]; then
+  ok "every test shard runs in the CI matrix"
+else
+  not_ok "every test shard runs in the CI matrix (suite: $suite_shards; ci.yml: $ci_shards)"
+fi
 
 if [ ! -e "$PLUGIN_ROOT/commands/setup-shell.md" ]; then
   ok "setup-shell has a single skill implementation"
@@ -126,8 +152,6 @@ if grep -Fq '../../bin/agent-guard' "$setup_shell_skill" \
 else
   not_ok "setup-shell skill stays host-neutral with approval and fallback guidance"
 fi
-cp "$ROOT/tests/fixtures/mock-gitleaks" "$MOCK_BIN/gitleaks"
-chmod +x "$MOCK_BIN/gitleaks"
 
 for file in \
   "$PLUGIN_ROOT/bin/agent-guard" \
@@ -2789,6 +2813,9 @@ expect_json_status 2 "Bash env template cannot bypass a built-in SSH key deny" \
   '{"tool_name":"Bash","tool_input":{"command":"cat .ssh/id_rsa.env.example"}}' \
   hook-pre-tool
 
+fi # end of shard 1
+
+if in_shard 2; then
 # Rank 8: shell builtins that print the whole environment.
 expect_json_status 2 "export -p is blocked" \
   '{"tool_name":"Bash","tool_input":{"command":"export -p"}}' \
@@ -3761,6 +3788,9 @@ else
   sed 's/^/  stderr: /' "$ERR"
 fi
 
+fi # end of shard 2
+
+if in_shard 3; then
 # `git commit -a`, a pathspec, --include and --only make Git stage tracked
 # work-tree changes after PreToolUse has run. The gate must scan what the
 # commit would record (must-fail), allow the same shapes when the unstaged
@@ -3989,6 +4019,9 @@ else
   sed 's/^/  stderr: /' "$ERR"
 fi
 
+fi # end of shard 3
+
+if in_shard 4; then
 SYMLINK_REPO="$TMP_ROOT/symlink-repo"
 mkdir -p "$SYMLINK_REPO"
 (
@@ -5452,8 +5485,22 @@ fi
 exec "$AGENT_GUARD_TEST_REAL_GIT" "$@"
 EOSH
 chmod +x "$DIFF_FAIL_BIN/git"
+# A staged secret, so status 3 means the diff failed rather than a finding.
+DIFF_FAIL_REPO="$TMP_ROOT/diff-fail-repo"
+mkdir -p "$DIFF_FAIL_REPO"
 (
-  cd "$TEST_REPO" || exit 2
+  cd "$DIFF_FAIL_REPO" || exit 2
+  git init -q
+  git config user.email test@example.com
+  git config user.name test
+  printf '%s\n' "clean" > README.md
+  git add README.md
+  git commit -q -m init
+  printf '%s\n' "AGENT_GUARD_TEST_SECRET" > staged.txt
+  git add staged.txt
+)
+(
+  cd "$DIFF_FAIL_REPO" || exit 2
   PATH="$DIFF_FAIL_BIN:$PATH" AGENT_GUARD_TEST_REAL_GIT="$REAL_GIT" \
     "$PLUGIN_ROOT/bin/agent-guard" scan-staged >"$OUT" 2>"$ERR"
 )
@@ -5464,7 +5511,7 @@ else
   not_ok "scan-staged reports unavailable on git diff failure (expected 3, got $status)"
 fi
 (
-  cd "$TEST_REPO" || exit 2
+  cd "$DIFF_FAIL_REPO" || exit 2
   PATH="$DIFF_FAIL_BIN:$PATH" AGENT_GUARD_TEST_REAL_GIT="$REAL_GIT" \
     "$PLUGIN_ROOT/bin/agent-guard" scan-working-tree >"$OUT" 2>"$ERR"
 )
@@ -9246,6 +9293,9 @@ else
   sed 's/^/  /' "$ERR"
 fi
 
+fi # end of shard 4
+
+if in_shard 5; then
 # --- Tool-output secret redaction (PostToolUse updatedToolOutput) ----------
 # Masks secret-like values in a tool's RESULT before the model sees it. Run from
 # a non-git dir so the mutation-tool working-tree backstop stays inert and these
@@ -13834,8 +13884,20 @@ else
   not_ok "hook-session-start silent on unparseable marker (got: $vd_out)"
 fi
 
+# NO_GITLEAKS_BIN belongs to shard 4, so build the same tool set here: these
+# probes need jq and git on PATH but no gitleaks.
+SESSION_NO_GITLEAKS_BIN="$TMP_ROOT/session-no-gitleaks-bin"
+mkdir -p "$SESSION_NO_GITLEAKS_BIN"
+for session_tool in sh dirname pwd awk sleep wc tr rm mkdir rmdir setsid perl jq git head uname; do
+  session_tool_path=$(command -v "$session_tool" 2>/dev/null || :)
+  [ -n "$session_tool_path" ] \
+    && ln -s "$session_tool_path" "$SESSION_NO_GITLEAKS_BIN/$session_tool"
+done
+codex_setup_ref="\$setup-agent-guard"
+claude_setup_ref='/agent-guard:setup-agent-guard'
+
 vd_out=$(AGENT_GUARD_HOOK_HOST=codex AGENT_GUARD_GITLEAKS_BIN=/nonexistent/gitleaks \
-  PATH="$NO_GITLEAKS_BIN" "$PLUGIN_ROOT/bin/agent-guard" hook-session-start 2>"$ERR")
+  PATH="$SESSION_NO_GITLEAKS_BIN" "$PLUGIN_ROOT/bin/agent-guard" hook-session-start 2>"$ERR")
 if [ $? -eq 0 ] \
    && printf '%s' "$vd_out" | jq -e \
         --arg expected "$codex_setup_ref" \
@@ -13848,7 +13910,7 @@ else
 fi
 
 vd_out=$(AGENT_GUARD_HOOK_HOST=claude AGENT_GUARD_GITLEAKS_BIN=/nonexistent/gitleaks \
-  PATH="$NO_GITLEAKS_BIN" "$PLUGIN_ROOT/bin/agent-guard" hook-session-start 2>"$ERR")
+  PATH="$SESSION_NO_GITLEAKS_BIN" "$PLUGIN_ROOT/bin/agent-guard" hook-session-start 2>"$ERR")
 if [ $? -eq 0 ] \
    && printf '%s' "$vd_out" | jq -e \
         --arg expected "$claude_setup_ref" \
@@ -14723,6 +14785,8 @@ else
   not_ok "structured Write normal target is not a control-character false positive (expected 0, got $status)"
   sed 's/^/  stderr: /' "$ERR"
 fi
+
+fi # end of shard 5
 
 say "passed: $pass"
 say "failed: $fail"

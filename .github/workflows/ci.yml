@@ -35,8 +35,8 @@ jobs:
           gitleaks-version: ${{ env.GITLEAKS_VERSION }}
           gitleaks-checksum: ${{ env.GITLEAKS_CHECKSUM_LINUX_X64 }}
 
-  test:
-    name: Test (${{ matrix.os }})
+  test-shard:
+    name: Test (${{ matrix.os }}, shard ${{ matrix.shard }})
     strategy:
       fail-fast: false
       matrix:
@@ -47,10 +47,17 @@ jobs:
         # added blindly here to avoid a job that waits forever for a runner that
         # may not exist.
         os: [ubuntu-latest, macos-latest]
+        # tests/run.sh gates its blocks by AGENT_GUARD_TEST_SHARD; its first
+        # shard fails if a gate in the suite has no entry in this list.
+        shard: [1, 2, 3, 4, 5]
     runs-on: ${{ matrix.os }}
-    # Normal runs finish in ~2-3 min; the default 6h cap once left a dead
-    # macOS runner blocking the merge queue for an hour before manual cancel.
-    timeout-minutes: 20
+    # Over four PR #277 runs, macOS shard jobs took 1.9-5.9 min (shard 5 is the
+    # longest at 3.0-5.9) and ubuntu ones 0.6-1.8 min, down from 11-15 min for
+    # the unsharded macOS job. macOS runner speed varies up to ~2x, so 15 min
+    # (2.5x the slowest) leaves room for that and for suite growth while still
+    # bounding a dead runner: the default 6h cap once blocked the merge queue
+    # for an hour.
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -85,6 +92,8 @@ jobs:
         # pipefail so a tests/run.sh failure propagates through the tee pipe;
         # without it the step would return tee's 0 status and a failing suite
         # could go green — the exact fail-open class this PR closes.
+        env:
+          AGENT_GUARD_TEST_SHARD: ${{ matrix.shard }}
         run: |
           set -o pipefail
           tests/run.sh 2>&1 | tee "${RUNNER_TEMP}/test-output.txt"
@@ -94,7 +103,9 @@ jobs:
         # runner with no gitleaks, tests/run.sh drops the #124 regressions
         # without failing, which is exactly the green-but-untested state #134 is
         # about. On Linux gitleaks is installed above, so a skip here is a bug.
-        if: runner.os == 'Linux'
+        # The block lives in shard 4; moving it without updating this condition
+        # fails the grep below instead of passing silently.
+        if: runner.os == 'Linux' && matrix.shard == 4
         run: |
           set -eu
           if grep -q 'real gitleaks not available; skipped real-gitleaks integration tests' "${RUNNER_TEMP}/test-output.txt"; then
@@ -105,8 +116,29 @@ jobs:
             || { echo "::error::expected real-gitleaks detection assertions are missing from the test output" >&2; exit 1; }
 
       - name: Smoke test (real git/jq/gitleaks E2E)
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && matrix.shard == 4
         run: make smoke-test
+
+  test:
+    # Keeps the check names release.yml requires. needs sees the shard matrix
+    # as one result, so either OS reports a failed shard on both OSes.
+    name: Test (${{ matrix.os }})
+    needs: test-shard
+    if: always()
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every test shard to pass
+        env:
+          SHARDS_RESULT: ${{ needs.test-shard.result }}
+        run: |
+          if [ "$SHARDS_RESULT" != success ]; then
+            echo "::error::test shards finished with: $SHARDS_RESULT" >&2
+            exit 1
+          fi
 
   lint:
     name: Lint
