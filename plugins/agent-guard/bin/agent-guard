@@ -4581,7 +4581,8 @@ shell_command_words() {
 # literal token, 4 for one that shell expansion yields as exactly one word
 # (every expansion is double-quoted and cannot split, like "$x" or "$(cmd)"),
 # or 1 for one whose expansion may split into several words, or into none;
-# malformed input is emitted as 2. A bare `&` or a `( ) { }` character is emitted on its own with
+# malformed input is emitted as 2. A quoted or escaped `;`, `&&`, `||` or `|`
+# is a 4 too, so that no caller mistakes it for the operator. A bare `&` or a `( ) { }` character is emitted on its own with
 # prefix 3: a command boundary for most callers, but the commit argument parser
 # must tell `2>&1` and brace expansion apart from the end of the command. Newlines cannot be represented safely in the record stream, so
 # they make the affected token dynamic and therefore subject to infra policy.
@@ -4603,7 +4604,7 @@ git_command_records() {
           heredoc_expect = 0
         }
       }
-      print (splits ? "1" : dynamic ? "4" : "0") word
+      print (splits ? "1" : dynamic || word ~ /^(;|&&|\|\||\|)$/ ? "4" : "0") word
       if (word == "[[") in_test = 1
       if (word == "]]") in_test = 0
       word = ""; started = 0; dynamic = 0; splits = 0
@@ -4720,6 +4721,7 @@ bash_command_may_rebase_relative_paths() (
   cwd_option_owner=
   for cwd_record in "$@"; do
     case "$cwd_record" in
+      4';'|4'&&'|4'||'|4'|') cwd_option_owner=; continue ;;
       1*|2*|4*) return 0 ;;
       3*) cwd_option_owner=; continue ;;
     esac

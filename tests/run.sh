@@ -4078,7 +4078,8 @@ for as_host in claude codex; do
     'eval git commit -am x' \
     "bash -e -c 'true && git commit -am x' _" \
     "bash <<< 'git commit -am x'" \
-    "env -S 'git commit -am x'"
+    "env -S 'git commit -am x'" \
+    "git commit -m ';' -a"
   do
     autostage_case "$as_host" secret 2 "$as_command"
     autostage_case "$as_host" clean 0 "$as_command"
@@ -4297,6 +4298,7 @@ shellcd_case claude secret U2 'G=git; $G commit -m x' a
 shellcd_case codex secret U2 '"$(command -v git)" commit -m x' a
 shellcd_case codex secret U2 "C='git commit -m x'; bash -c \"\$C\"" a
 shellcd_case claude secret U2 "C='git commit -m x'; eval \"\$C\"" a
+shellcd_case codex secret U2 "eval true ';' 'git commit -m x'" a
 shellcd_case codex secret U2 "C='git commit -m x'; env -S \"\$C\"" a
 shellcd_case claude secret U2 "echo 'git commit -m x' | xargs -I{} sh -c '{}'" a
 shellcd_case codex secret U2 "X='commit -m x'; git \$X" a
