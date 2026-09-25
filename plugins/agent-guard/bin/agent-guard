@@ -5075,10 +5075,25 @@ shell_command_code() {
     code_prev=$code_word
     if [ "$code_shell" = eval ]; then
       case "$code_kind" in
-        0|3) ;;
+        0|3|4)
+          # A quoted operator is not one to eval, but eval parses it as one.
+          case "$code_kind$code_word" in
+            4';'|4'&&'|4'||'|4'|') ;;
+            4*) return 1 ;;
+          esac
+          ;;
         *) return 1 ;;
       esac
-      [ "$code_taken$code_word" = 1-- ] && continue
+      # eval's `--` may follow redirections, which apply to eval itself.
+      if [ "$code_kind" = 0 ] && [ "$code_state" != script ]; then
+        case "$code_state:${code_word#"${code_word%%[!0-9]*}"}" in
+          redirect:*) code_state=options ;;
+          *:'>'|*:'>>'|*:'<'|*:'<>'|*:'>|'|*:'<<<') code_state=redirect ;;
+          *:'>'*|*:'<'*) ;;
+          *:--) code_state=script; continue ;;
+          *) code_state=script ;;
+        esac
+      fi
       code_text="$code_text${code_text:+ }$code_word"
       continue
     fi
@@ -5297,6 +5312,18 @@ $dir"
           shift
           continue
         fi
+        # `git>/dev/null` and `bash<<<code` are a command name and a
+        # redirection; the name alone is matched below.
+        head_name=${token%%[<>]*}
+        if [ "$record_kind" = 0 ] && [ -n "$head_name" ] && [ "$head_name" != "$token" ]; then
+          case "$head_name" in
+            *[!0-9]*)
+              shift
+              set -- "0$head_name" "0${token#"$head_name"}" "$@"
+              continue
+              ;;
+          esac
+        fi
         # A redirection may precede the command name: `>/dev/null git commit`.
         # One that fails skips the command, so a cd after it is unknown.
         case "${token#"${token%%[!0-9]*}"}" in
@@ -5509,6 +5536,15 @@ $shell_cd_dir"
               3*|0';'|0'&&'|0'||'|0'|') break ;;
             esac
             shift
+            # A redirection is not a git argument: `git 2>&1 commit`.
+            case "$record_kind${token#"${token%%[!0-9]*}"}" in
+              0'>'|0'>>'|0'<'|0'<>'|0'>|')
+                [ "${1-}" = '3&' ] && shift
+                [ "$#" -gt 0 ] && shift
+                continue
+                ;;
+              0'>'*|0'<'*) continue ;;
+            esac
             # A word only run time knows may be an option that moves the
             # repository, or the subcommand itself: scan it as a commit in an
             # unknown directory. A long option's quoted value is one word.
@@ -5553,6 +5589,14 @@ $shell_cd_dir"
                 [ "$shell_cd_unknown$shell_cd_lost" = 00 ] || printf 'U\n'
                 [ -n "$shell_cd_dirs" ] && printf '%s\n' "$shell_cd_dirs" | sed 's/^/D/'
                 [ -n "$effective_c_dirs" ] && printf '%s\n' "$effective_c_dirs" | sed 's/^/D/'
+                # N: a flag that disables hooks or signing, also from code
+                # that is_git_hook_bypass cannot see in the command line.
+                for git_arg in "$@"; do
+                  case "$git_arg" in
+                    3*|0';'|0'&&'|0'||'|0'|') break ;;
+                    0--no-verify|0--no-gpg-sign) printf 'N\n' ;;
+                  esac
+                done
                 if [ "$token" = commit ]; then
                   [ "$xargs_wrapped" -eq 1 ] && printf 'I\n'
                   [ "$git_index_changed" -eq 1 ] && printf 'I\n'
@@ -5641,7 +5685,7 @@ check_git_command() {
   git_c_records=$(is_git_commit_or_push "$cmd")
   git_command_status=$?
   if [ "$git_command_status" -eq 0 ]; then
-    if is_git_hook_bypass "$cmd"; then
+    if is_git_hook_bypass "$cmd" || printf '%s\n' "$git_c_records" | grep -qx N; then
       info "$PROGRAM: blocked git command that disables hooks/signing"
       exit 2
     fi

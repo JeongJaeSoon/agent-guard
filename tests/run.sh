@@ -2336,6 +2336,21 @@ expect_json_status 2 "assignment-prefixed git --no-verify is blocked" \
   '{"tool_name":"Bash","tool_input":{"command":"FOO=bar git commit --no-verify -m x"}}' \
   hook-pre-tool
 
+# The flag inside code another shell or env -S runs is still the flag.
+for nv_command in "bash -c 'git commit --no-verify -m x'" "env -S 'git push --no-verify'"; do
+  for nv_host in claude codex; do
+    jq -nc --arg c "$nv_command" '{tool_name:"Bash",tool_input:{command:$c}}' \
+      | AGENT_GUARD_HOOK_HOST=$nv_host "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+    nv_status=$?
+    if [ "$nv_status" -eq 2 ] && grep -q 'disables hooks/signing' "$ERR"; then
+      ok "[$nv_host] $nv_command is blocked"
+    else
+      not_ok "[$nv_host] $nv_command is blocked (got $nv_status)"
+      sed 's/^/  stderr: /' "$ERR"
+    fi
+  done
+done
+
 # Rank 3: cloud / secrets-manager credential-dump siblings.
 expect_json_status 2 "gcloud auth print-access-token is blocked" \
   '{"tool_name":"Bash","tool_input":{"command":"gcloud auth print-access-token"}}' \
@@ -4079,6 +4094,9 @@ for as_host in claude codex; do
     "bash -e -c 'true && git commit -am x' _" \
     "bash <<< 'git commit -am x'" \
     "env -S 'git commit -am x'" \
+    "bash<<<'git commit -am x'" \
+    'git>/dev/null commit -am x' \
+    'git 2>&1 commit -am x' \
     "git commit -m ';' -a"
   do
     autostage_case "$as_host" secret 2 "$as_command"
@@ -4298,7 +4316,9 @@ shellcd_case claude secret U2 'G=git; $G commit -m x' a
 shellcd_case codex secret U2 '"$(command -v git)" commit -m x' a
 shellcd_case codex secret U2 "C='git commit -m x'; bash -c \"\$C\"" a
 shellcd_case claude secret U2 "C='git commit -m x'; eval \"\$C\"" a
-shellcd_case codex secret U2 "eval true ';' 'git commit -m x'" a
+# eval parses a quoted operator among its arguments as one.
+shellcd_case codex secret 2 "eval true ';' 'git commit -m x'" a
+shellcd_case claude secret 2 "eval >/dev/null -- 'git commit -m x'" a
 shellcd_case codex secret U2 "C='git commit -m x'; env -S \"\$C\"" a
 shellcd_case claude secret U2 "echo 'git commit -m x' | xargs -I{} sh -c '{}'" a
 shellcd_case codex secret U2 "X='commit -m x'; git \$X" a
