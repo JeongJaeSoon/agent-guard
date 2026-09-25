@@ -4127,7 +4127,8 @@ printf '/link\n' >> "$SHELLCD_ROOT/a/.git/info/exclude"
 # line. EXPECTED is 0, 2 (blocked on the finding), or U0/U2: blocked because
 # the working directory is unknown, allowed under the open policy, and the
 # digit is the ground truth under bash (HOME is b, so `cd` alone moves there),
-# or x where it differs between bash versions.
+# or x where it differs between bash versions. UF is U2, except that the open
+# policy still blocks on the finding in another git command of the line.
 shellcd_case() {
   sc_host=$1
   sc_mode=$2
@@ -4181,10 +4182,14 @@ shellcd_case() {
       if [ "$sc_status" -ne 2 ] || ! grep -q 'could not' "$ERR"; then
         not_ok "$sc_name (expected an unknown-cwd block under the closed policy, got $sc_status)"
         sed 's/^/  stderr: /' "$ERR"
-      elif [ "$sc_open_status" -ne 0 ] || ! grep -q 'could not' "$ERR.open"; then
+      elif [ "$sc_expected" = UF ] && { [ "$sc_open_status" -ne 2 ] \
+          || ! grep -q 'contain secret-like values' "$ERR.open" || ! grep -q 'could not' "$ERR.open"; }; then
+        not_ok "$sc_name (expected the open policy to block on the finding with a notice, got $sc_open_status)"
+        sed 's/^/  stderr: /' "$ERR.open"
+      elif [ "$sc_expected" != UF ] && { [ "$sc_open_status" -ne 0 ] || ! grep -q 'could not' "$ERR.open"; }; then
         not_ok "$sc_name (expected the open policy to allow it with a notice, got $sc_open_status)"
         sed 's/^/  stderr: /' "$ERR.open"
-      elif [ "${sc_expected#U}" != x ] && [ "$sc_leaks" -ne "${sc_expected#U}" ]; then
+      elif [ "${sc_expected#U}" != x ] && [ "$sc_leaks" -ne "$(printf '%s' "${sc_expected#U}" | tr F 2)" ]; then
         not_ok "$sc_name (ground truth disagrees: the command leaks=$sc_leaks)"
       else
         ok "$sc_name"
@@ -4285,7 +4290,10 @@ shellcd_case claude secret 0 "bash -c 'cd ../b'; git commit -m x"
 shellcd_case codex secret U2 "eval 'cd ../b'; git commit -m x"
 # A stray parenthesis in the script must not restore the outer subshell's cd.
 shellcd_case claude secret U2 "(cd ../b; bash -c ')'; git commit -m x)"
-# Code, or a git word, only run time knows fails per the policy.
+# Code, a command name, or a git word only run time knows fails per the policy.
+shellcd_case codex secret U2 "bash -c '\$1' _ 'git commit -m x'" a
+shellcd_case claude secret U2 'G=git; $G commit -m x' a
+shellcd_case codex secret U2 '"$(command -v git)" commit -m x' a
 shellcd_case codex secret U2 "C='git commit -m x'; bash -c \"\$C\"" a
 shellcd_case claude secret U2 "C='git commit -m x'; eval \"\$C\"" a
 shellcd_case codex secret U2 "C='git commit -m x'; env -S \"\$C\"" a
@@ -4293,6 +4301,12 @@ shellcd_case claude secret U2 "echo 'git commit -m x' | xargs -I{} sh -c '{}'" a
 shellcd_case codex secret U2 "X='commit -m x'; git \$X" a
 shellcd_case claude secret U2 "X='core.x=1 commit'; git -c \$X -m x" a
 shellcd_case codex secret U2 "X='V -C ../b'; env -u \$X git commit -m x"
+# A command name with a literal last component is that command.
+shellcd_case claude secret 2 'D=$(dirname "$(command -v git)"); "$D/git" commit -m x' a
+shellcd_case codex secret 2 "/usr/bin/env git commit -m x" a
+# The open policy still scans the git commands whose directory is known.
+shellcd_case claude secret UF 'git commit -m x; cd $SC_UNSET_DIR && git commit -m y' a
+shellcd_case codex secret UF 'eval "$(true)"; git commit -m x' a
 
 # The push gate follows the cd too. Nothing is committed, so the verdict is
 # checked against the same command with git -C, which the gate already follows.
