@@ -4578,8 +4578,10 @@ shell_command_words() {
 
 # Tokenize only enough POSIX shell syntax to locate git and its cwd-changing
 # options without executing the command. Each record is prefixed with 0 for a
-# literal token or 1 when shell expansion would be required; malformed input is
-# emitted as 2. A bare `&` or a `( ) { }` character is emitted on its own with
+# literal token, 4 for one that shell expansion yields as exactly one word
+# (every expansion is double-quoted and cannot split, like "$x" or "$(cmd)"),
+# or 1 for one whose expansion may split into several words, or into none;
+# malformed input is emitted as 2. A bare `&` or a `( ) { }` character is emitted on its own with
 # prefix 3: a command boundary for most callers, but the commit argument parser
 # must tell `2>&1` and brace expansion apart from the end of the command. Newlines cannot be represented safely in the record stream, so
 # they make the affected token dynamic and therefore subject to infra policy.
@@ -4601,10 +4603,10 @@ git_command_records() {
           heredoc_expect = 0
         }
       }
-      print (dynamic ? "1" : "0") word
+      print (splits ? "1" : dynamic ? "4" : "0") word
       if (word == "[[") in_test = 1
       if (word == "]]") in_test = 0
-      word = ""; started = 0; dynamic = 0
+      word = ""; started = 0; dynamic = 0; splits = 0
     }
     NR > 1 {
       if (quote == "") { emit(); print "0;" }
@@ -4617,7 +4619,7 @@ git_command_records() {
       if (line != heredoc_delim[heredoc_next]) {
         if (!heredoc_open) { print "3("; heredoc_open = 1 }
       } else {
-        if (quote != "") { quote = ""; dynamic = 1 }
+        if (quote != "") { quote = ""; dynamic = 1; splits = 1 }
         emit()
         if (heredoc_open) { print "3)"; heredoc_open = 0 }
         heredoc_next++
@@ -4645,6 +4647,8 @@ git_command_records() {
             word = word n; started = 1; i++; continue
           }
           if (c == "$" || c == "`") dynamic = 1
+          # "$@", "${a[@]}", zsh "$a[@]" and "${(f)a}" still split.
+          if (c == "$" && substr($0, i) !~ /^\$([A-Za-z_][A-Za-z0-9_]*([^A-Za-z0-9_[]|$)|[0-9*#?$!-]|\{[A-Za-z_][A-Za-z0-9_]*\}|\()/) splits = 1
           word = word c; started = 1
           continue
         }
@@ -4659,7 +4663,7 @@ git_command_records() {
           quote = c == "\047" ? "single" : "double"; started = 1; continue
         }
         if (c == "\\") {
-          if (i == length($0)) { dynamic = 1; started = 1; continue }
+          if (i == length($0)) { dynamic = 1; splits = 1; started = 1; continue }
           word = word n; started = 1; i++; continue
         }
         if (c == "<" && n == "<" && !in_heredoc) {
@@ -4686,7 +4690,7 @@ git_command_records() {
           if (c == ")") { closed = substr(parens, length(parens)); parens = substr(parens, 1, length(parens) - 1) }
           emit(); print "3" c; continue
         }
-        if (c == "$" || c == "`") dynamic = 1
+        if (c == "$" || c == "`") { dynamic = 1; splits = 1 }
         word = word c; started = 1
       }
     }
@@ -4715,7 +4719,7 @@ bash_command_may_rebase_relative_paths() (
   cwd_option_owner=
   for cwd_record in "$@"; do
     case "$cwd_record" in
-      1*|2*) return 0 ;;
+      1*|2*|4*) return 0 ;;
       3*) cwd_option_owner=; continue ;;
     esac
     cwd_token=${cwd_record#?}
@@ -4832,6 +4836,11 @@ git_commit_stage_records() {
     fi
     if [ "$stage_skip_next" -eq 1 ]; then
       stage_skip_next=0
+      # An option value that may split, like `-m $F`, may also be --interactive.
+      case "$stage_kind" in
+        0|4) ;;
+        *) printf 'I\n' ;;
+      esac
       continue
     fi
     if [ "$stage_skip_next" -eq 2 ]; then
@@ -5026,6 +5035,107 @@ shell_cd_target() {
     *) [ "$shell_cd_cdpath" -eq 0 ] || return 1 ;;
   esac
   printf '%s\n' "$cd_target"
+}
+
+# Given `eval` or a shell name and the records after it, print how many of
+# them the command takes, a colon, and the code it runs: eval's arguments
+# joined by spaces, the script after -c, or a here-string. Fail with 1 when
+# only run time knows that code, and with 2 when the command line holds none
+# (a script file, or stdin from a pipe, a file or a here-document, whose body
+# is tokenized in place).
+shell_command_code() {
+  code_shell=$1
+  shift
+  code_taken=0
+  code_text=
+  code_state=options
+  code_c=0
+  code_here=
+  code_prev=
+  while [ "$#" -gt 0 ]; do
+    code_kind=${1%"${1#?}"}
+    code_word=${1#?}
+    case "$code_kind$code_word" in
+      0';'|0'&&'|0'||'|0'|'|3'('|3')'|3'}') break ;;
+      # `2>&1` arrives as `2>`, `&`, `1`.
+      3'&')
+        case "$code_prev" in
+          *'>'|*'<') ;;
+          *) break ;;
+        esac
+        ;;
+      # Brace expansion.
+      3*) return 1 ;;
+    esac
+    shift
+    code_taken=$((code_taken + 1))
+    code_prev=$code_word
+    if [ "$code_shell" = eval ]; then
+      case "$code_kind" in
+        0|3) ;;
+        *) return 1 ;;
+      esac
+      [ "$code_taken$code_word" = 1-- ] && continue
+      code_text="$code_text${code_text:+ }$code_word"
+      continue
+    fi
+    [ "$code_kind" = 3 ] && continue
+    case "$code_state" in
+      # The words after a -c script are its $0, $1, ...: data.
+      script) continue ;;
+      redirect) code_state=options; continue ;;
+      here)
+        code_state=options
+        code_here=$code_kind$code_word
+        continue
+        ;;
+      # An option value that splits may add -c.
+      value)
+        code_state=options
+        case "$code_kind" in
+          0|4) continue ;;
+          *) return 1 ;;
+        esac
+        ;;
+    esac
+    [ "$code_kind" = 0 ] || return 1
+    case "${code_word#"${code_word%%[!0-9]*}"}" in
+      '<<<') code_state=here; continue ;;
+      '<<<'*) code_here=0${code_word#*'<<<'}; continue ;;
+      '>'|'>>'|'<'|'<>'|'>|') code_state=redirect; continue ;;
+      '>'*|'<'*) continue ;;
+    esac
+    if [ "$code_state" = options ]; then
+      case "$code_word" in
+        --|-) code_state=operands; continue ;;
+        --rcfile|--init-file) code_state=value; continue ;;
+        --*) continue ;;
+        [-+]*)
+          case "$code_word" in
+            -*c*) code_c=1 ;;
+          esac
+          # -o and -O take an option name.
+          case "$code_word" in
+            [-+]*[oO]*) code_state=value ;;
+          esac
+          continue
+          ;;
+      esac
+    fi
+    [ "$code_c" -eq 1 ] || return 2
+    code_text=$code_word
+    code_state=script
+  done
+  # A shell with no -c and no script file operand reads stdin.
+  if [ "$code_shell" != eval ] && [ "$code_state" != script ]; then
+    [ "$code_c" -eq 0 ] || return 2
+    case "$code_here" in
+      '') return 2 ;;
+      0*) code_text=${code_here#0} ;;
+      *) return 1 ;;
+    esac
+  fi
+  printf '%s:%s\n' "$code_taken" "$code_text"
 }
 
 is_git_commit_or_push() {
@@ -5242,6 +5352,59 @@ $shell_cd_dir"
             shell_cd_untrusted=1
             ;;
         esac
+        # The code a shell or eval runs from its arguments goes through the
+        # same checks, in place: a shell's in a ( ) subshell, since its cds
+        # do not leave it; eval's in this shell, whose later cds it already
+        # made unknown. Code only run time knows may commit or push anywhere.
+        case "${token##*/}" in
+          eval|sh|bash|dash|zsh|ksh|mksh|ash|yash|posh|csh|tcsh)
+            shift
+            shell_code=$(shell_command_code "${token##*/}" "$@")
+            shell_code_status=$?
+            # xargs may append -c and a script, or replace text in one.
+            [ "$xargs_wrapped" -eq 0 ] || shell_code_status=1
+            case "$shell_code_status" in
+              0)
+                shift "${shell_code%%:*}"
+                shell_code_records=$(git_command_records "${shell_code#*:}")
+                # An unbalanced ( or ) would restore the cd state of a
+                # subshell around this command.
+                printf '%s\n' "$shell_code_records" \
+                  | awk '$0 == "3(" { d++ } $0 == "3)" && --d < 0 { exit 1 } END { if (d) exit 1 }' \
+                  || shell_cd_untrusted=1
+                # env -C and --chdir start the shell in their directory.
+                shell_code_chdir=
+                if [ -n "$effective_c_dirs" ]; then
+                  shell_code_chdir=$(printf '%s\n' "$effective_c_dirs" \
+                    | awk '{ print "0cd"; print "0--"; print "0" $0; print "0;" }')
+                fi
+                [ "$effective_c_dynamic" -eq 0 ] || shell_code_chdir="$shell_code_chdir
+0cd
+1\$
+0;"
+                IFS='
+'
+                if [ "${token##*/}" = eval ]; then
+                  # shellcheck disable=SC2086
+                  set -- $shell_code_records "$@"
+                elif [ -n "$shell_code_records" ]; then
+                  # shellcheck disable=SC2086
+                  set -- '3(' $shell_code_chdir $shell_code_records '3)' "$@"
+                fi
+                IFS=$old_ifs
+                continue
+                ;;
+              1)
+                printf 'G\nU\n'
+                matched=0
+                [ "${token##*/}" = eval ] && shell_cd_unknown=1
+                ;;
+            esac
+            shell_cd_mutable=1
+            command_start=0
+            continue
+            ;;
+        esac
         if is_noop_wrapper "$token"; then
           wrapper=$token
           shell_cd_wrapped=1
@@ -5273,9 +5436,37 @@ $shell_cd_dir"
                     shift
                     continue
                     ;;
+                  # env -S splits its string into more options and the command.
+                  env:-S|env:--split-string)
+                    shift
+                    [ "$#" -gt 0 ] || break
+                    env_split=$1
+                    ;;
+                  env:-S?*) env_split=$record_kind${token#-S} ;;
+                  env:--split-string=*) env_split=$record_kind${token#--split-string=} ;;
+                  *) env_split= ;;
                 esac
+                if [ -n "$env_split" ]; then
+                  shift
+                  if [ "${env_split%"${env_split#?}"}" != 0 ]; then
+                    printf 'G\nU\n'
+                    matched=0
+                    break
+                  fi
+                  IFS='
+'
+                  # shellcheck disable=SC2086
+                  set -- $(git_command_records "${env_split#?}") "$@"
+                  IFS=$old_ifs
+                  continue
+                fi
+                # A word that may split, or be -C, may move the command.
+                [ "$record_kind" = 0 ] || effective_c_dynamic=1
                 if wrapper_option_takes_value "$token"; then
                   shift
+                  case "${1-}" in
+                    1*|2*) effective_c_dynamic=1 ;;
+                  esac
                   [ "$#" -gt 0 ] && shift
                 else
                   shift
@@ -5283,6 +5474,14 @@ $shell_cd_dir"
                 ;;
               *)
                 is_assignment_token "${1#?}" && { shift; continue; }
+                # `{}`, as in `xargs -I{}`, is a word, not a group.
+                case "$record" in
+                  3'{'|3'}') shift; continue ;;
+                esac
+                # Or it may be options, and the command comes after it.
+                case "$record_kind" in
+                  1|4) effective_c_dynamic=1; shift; continue ;;
+                esac
                 break
                 ;;
             esac
@@ -5299,16 +5498,34 @@ $shell_cd_dir"
               3*|0';'|0'&&'|0'||'|0'|') break ;;
             esac
             shift
+            # A word only run time knows may be an option that moves the
+            # repository, or the subcommand itself: scan it as a commit in an
+            # unknown directory. A long option's quoted value is one word.
             if git_option_takes_value "$token"; then
-              if [ "$#" -gt 0 ]; then
-                if [ "$token" = -C ]; then
-                  append_effective_c_dir "$1"
-                fi
-                shift
+              [ "$#" -gt 0 ] || continue
+              [ "$token" = -C ] && append_effective_c_dir "$1"
+              git_value=$1
+              shift
+              case "$git_value" in
+                0*|4*) continue ;;
+              esac
+              token=commit
+              effective_c_dynamic=1
+            else
+              case "$record" in
+                0*) is_git_global_option "$token" && continue ;;
+                4--*=*)
+                  case "${token%%=*}" in
+                    *[!A-Za-z-]*) ;;
+                    *) continue ;;
+                  esac
+                  ;;
+              esac
+              if [ "${record%"$token"}" != 0 ]; then
+                token=commit
+                effective_c_dynamic=1
               fi
-              continue
             fi
-            is_git_global_option "$token" && continue
 
             case "$token" in
               status|log|diff|show|add|stage|rev-parse|config|remote|branch|tag|ls-files|describe|shortlog|blame|grep|fetch) ;;
@@ -5424,7 +5641,7 @@ check_git_command() {
     fi
     if printf '%s\n' "$git_c_records" | grep -qx U; then
       handle_hook_infrastructure_failure PreToolUse "${HOOK_INPUT:-}" \
-        "$PROGRAM: the git command uses a dynamic working directory that could not be resolved safely;"
+        "$PROGRAM: a git commit or push may run in a working directory, or with arguments or shell code, that could not be resolved safely;"
       return $?
     fi
     (

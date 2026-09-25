@@ -4068,6 +4068,34 @@ autostage_case claude secret 0 'git add sub/*.conf && git commit -m x' ignored.c
 autostage_case claude clean 0 'git commit -am x >/dev/null 2>&1'
 # Pathspecs resolve against the command cwd, not the repository root.
 autostage_case codex secret 2 'git commit -m x nested.conf' sub/nested.conf sub
+# The code a shell runs from -c or a here-string, and eval's arguments, go
+# through the same checks.
+for as_host in claude codex; do
+  for as_command in \
+    'bash -c "git commit -am x"' \
+    "sh -c 'git commit -am x'" \
+    "eval 'git commit -am x'" \
+    'eval git commit -am x' \
+    "bash -e -c 'true && git commit -am x' _" \
+    "bash <<< 'git commit -am x'" \
+    "env -S 'git commit -am x'"
+  do
+    autostage_case "$as_host" secret 2 "$as_command"
+    autostage_case "$as_host" clean 0 "$as_command"
+  done
+done
+# An option value that may split may yield --interactive; a quoted one,
+# including the usual here-document message, is one word and adds no scan of
+# untracked files.
+autostage_case claude secret 2 "F='x --interactive'; printf '4\\n1\\n\\n7\\n' | git commit -m \$F" untracked.conf
+autostage_case codex clean 0 "F='x --interactive'; printf '4\\n1\\n\\n7\\n' | git commit -m \$F" untracked.conf
+autostage_case codex secret 2 "printf '4\\n1\\n\\n7\\n' | bash -c 'git commit -m \$1' _ 'x --interactive'" untracked.conf
+autostage_case claude secret 0 "F='x --interactive'; printf '4\\n1\\n\\n7\\n' | git commit -m \"\$F\"" untracked.conf
+autostage_case codex secret 0 "printf '4\\n1\\n\\n7\\n' | bash -c 'git commit -m \"\$1\"' _ 'x --interactive'" untracked.conf
+autostage_case claude secret 0 "git commit -m \"\$(cat <<'EOF'
+x --interactive
+EOF
+)\"" untracked.conf
 
 # A shell cd moves the commit to another repository: the scan must follow a
 # literal cd and fail per the infrastructure policy (closed here) on one it
@@ -4247,6 +4275,24 @@ shellcd_case codex secret U2 'ln -sfn . relink && cd relink && git commit -m x' 
 shellcd_case claude secret U2 'cd missing || git commit -m x' a
 # A redirection before the command name does not hide the commit.
 shellcd_case codex secret 2 '>/dev/null git commit -m x' a
+# A shell's cd does not leave it, but an earlier cd, or env -C, applies to it;
+# eval runs in this shell, so its cd does move a later commit.
+shellcd_case claude secret 2 "bash -c 'cd ../b && git commit -m x'"
+shellcd_case codex secret 2 "cd ../b && bash -c 'git commit -m x'"
+shellcd_case claude secret 2 "env -C ../b sh -c 'git commit -m x'"
+shellcd_case codex secret 2 "bash -c 'cd ../b'; git commit -m x" a
+shellcd_case claude secret 0 "bash -c 'cd ../b'; git commit -m x"
+shellcd_case codex secret U2 "eval 'cd ../b'; git commit -m x"
+# A stray parenthesis in the script must not restore the outer subshell's cd.
+shellcd_case claude secret U2 "(cd ../b; bash -c ')'; git commit -m x)"
+# Code, or a git word, only run time knows fails per the policy.
+shellcd_case codex secret U2 "C='git commit -m x'; bash -c \"\$C\"" a
+shellcd_case claude secret U2 "C='git commit -m x'; eval \"\$C\"" a
+shellcd_case codex secret U2 "C='git commit -m x'; env -S \"\$C\"" a
+shellcd_case claude secret U2 "echo 'git commit -m x' | xargs -I{} sh -c '{}'" a
+shellcd_case codex secret U2 "X='commit -m x'; git \$X" a
+shellcd_case claude secret U2 "X='core.x=1 commit'; git -c \$X -m x" a
+shellcd_case codex secret U2 "X='V -C ../b'; env -u \$X git commit -m x"
 
 # The push gate follows the cd too. Nothing is committed, so the verdict is
 # checked against the same command with git -C, which the gate already follows.
