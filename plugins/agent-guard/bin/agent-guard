@@ -3916,56 +3916,183 @@ deny_path_regex_fragment() {
 # A shell word reaches an entry in two ways. Position by position, each entry
 # character may be itself, a \xHH escape, or one glob character (.e[n]v, .e?v,
 # .e*v, $'.e\x6ev'). A `*` can also stand for a whole run of characters (.e*,
-# ~/.n*, .n*c), so the second alternative takes an entry prefix, a `*` (more
-# stars may follow), and an optional entry suffix. Prefix and suffix are nested
-# optionals instead of one alternative per split point, which keeps the ERE
-# linear in the entry length; the price is that they may overlap (.n*netrc),
-# which can only over-block. The prefix must be at least two characters and
-# must pin the entry's first alphanumeric character with that character, its
-# hex escape, or a bracket listing it: accepting a bare star, `?`, or a generic
-# class there would turn `.*`, `\s*`, and `\.[^.]*$` in ordinary sed/grep
-# regexes into protected-path matches.
+# ~/.n*, .n*c, .*v), but only inside one `/` component: bash never lets a star
+# match a slash, so ~/.config* does not reach .config/gh/hosts.yml. The second
+# kind of alternative therefore picks the component that holds the stars and
+# spells every other component position by position. Inside that component
+# the word is an entry prefix, a `*` (more stars may follow), and an entry
+# suffix; prefix and suffix are nested optionals instead of one alternative
+# per split point, which keeps the ERE linear in the entry length, at the
+# price of letting them overlap (.n*netrc), which can only over-block. A dot
+# that starts a component must be spelled out, because bash globs never match
+# a leading dot.
+#
+# The match must also pin at least one of the entry's letters or digits with
+# that character, its hex escape, or a bracket listing it: accepting a bare
+# star, `?`, or a generic class instead would turn `.*`, `\s*`, and
+# `\.[^.]*$` in ordinary sed/grep regexes into protected-path matches. Another
+# component spelled out with its first letter pinned is enough. Otherwise the
+# prefix pins the component's first letter and is at least two characters long
+# (.e*), or, for a component that starts with a dot, the suffix pins its last
+# letter (.*v). A suffix pin needs that leading dot: without it, *.json would
+# name credentials.json. An entry `*` after the pinned last letter matches only
+# stars there, so .*version stays a regex rather than a way to name .env*.
 deny_path_shell_expanded_fragment() {
-  sx_remaining=$1
+  sx_rest=$1
   sx_any='[^[:space:]<>|;&`$()]*'
-  sx_full= sx_head= sx_tail= sx_tail_close= sx_suffix=
-  sx_pinned=0 sx_head_done=0 sx_count=0
-  while [ -n "$sx_remaining" ]; do
-    ch=${sx_remaining%"${sx_remaining#?}"}
-    sx_remaining=${sx_remaining#?}
-    sx_count=$((sx_count + 1))
+  sx_gap='\*([^[:space:]<>|;&`$()/]*\*)?'
+  sx_n=0 sx_full= sx_alnum_segs=0 sx_seg_pinned=0
+  # sx_c_<i>: the entry character at i; sx_t_<i>: the same, but an entry `*`
+  # matches only stars; sx_p_<i>: the same as sx_c_<i>, except that each
+  # component's first letter is pinned.
+  while [ -n "$sx_rest" ]; do
+    ch=${sx_rest%"${sx_rest#?}"}
+    sx_rest=${sx_rest#?}
+    sx_n=$((sx_n + 1))
     case "$ch" in
-      '*') sx_char=$sx_any ;;
-      *) sx_char=$(deny_path_shell_expansion_char_pattern "$ch") ;;
+      '*')
+        sx_c=$sx_any
+        sx_t='\**'
+        ;;
+      *)
+        sx_c=$(deny_path_shell_expansion_char_pattern "$ch")
+        sx_t=$sx_c
+        ;;
     esac
-    sx_full=${sx_full}${sx_char}
-    sx_suffix="(${sx_suffix}${sx_char})?"
-    if [ "$sx_head_done" -eq 1 ]; then
-      sx_tail="${sx_tail}(${sx_char}"
-      sx_tail_close="${sx_tail_close})?"
-      continue
-    fi
+    sx_p=$sx_c
     case "$ch" in
+      /) sx_seg_pinned=0 ;;
       [[:alnum:]])
-        if [ "$sx_pinned" -eq 0 ]; then
-          sx_pinned=1
-          sx_char=$(printf '(%s|\\[[^]]*%s[^]]*\\])' "$ch" "$ch")
-          # A non-ASCII letter has no \xHH spelling here; only add one we have.
-          if sx_hex=$(deny_path_char_hex_pattern "$ch" 2>/dev/null); then
-            sx_char="${sx_char%')'}|\\\\x${sx_hex})"
-          fi
+        if [ "$sx_seg_pinned" -eq 0 ]; then
+          sx_seg_pinned=1
+          sx_alnum_segs=$((sx_alnum_segs + 1))
+          deny_path_pin_char_pattern "$ch"
+          sx_p=$sx_pin
         fi
         ;;
     esac
-    sx_head=${sx_head}${sx_char}
-    [ "$sx_pinned" -eq 1 ] && [ "$sx_count" -ge 2 ] && sx_head_done=1
+    eval "sx_r_$sx_n=\$ch sx_c_$sx_n=\$sx_c sx_t_$sx_n=\$sx_t sx_p_$sx_n=\$sx_p"
+    sx_full=${sx_full}${sx_c}
   done
-  if [ "$sx_head_done" -eq 1 ]; then
-    printf '(%s|%s%s%s\\*(%s\\*)?%s)' "$sx_full" "$sx_head" "$sx_tail" \
-      "$sx_tail_close" "$sx_any" "$sx_suffix"
+
+  sx_alts=
+  sx_a=1
+  sx_i=1
+  while [ "$sx_i" -le $((sx_n + 1)) ]; do
+    sx_ch=/
+    [ "$sx_i" -le "$sx_n" ] && eval "sx_ch=\$sx_r_$sx_i"
+    if [ "$sx_ch" = / ]; then
+      [ "$sx_i" -gt "$sx_a" ] \
+        && deny_path_spanning_component_alternatives "$sx_a" $((sx_i - 1))
+      sx_a=$((sx_i + 1))
+    fi
+    sx_i=$((sx_i + 1))
+  done
+  if [ -n "$sx_alts" ]; then
+    printf '(%s%s)' "$sx_full" "$sx_alts"
   else
     printf '%s' "$sx_full"
   fi
+}
+
+# Append to sx_alts the alternatives whose stars fall in component $1..$2.
+deny_path_spanning_component_alternatives() {
+  sca_a=$1
+  sca_b=$2
+  sca_first= sca_last= sca_j=$sca_a
+  while [ "$sca_j" -le "$sca_b" ]; do
+    eval "sca_ch=\$sx_r_$sca_j"
+    case "$sca_ch" in
+      [[:alnum:]])
+        [ -n "$sca_first" ] || sca_first=$sca_j
+        sca_last=$sca_j
+        ;;
+    esac
+    sca_j=$((sca_j + 1))
+  done
+  eval "sca_lead=\$sx_r_$sca_a"
+  deny_path_sx_concat p 1 $((sca_a - 1))
+  sca_before=$sx_out
+  deny_path_sx_concat p $((sca_b + 1)) "$sx_n"
+  sca_after=$sx_out
+  deny_path_sx_suffixes c "$sca_a" "$sca_b"
+  sca_suffixes=$sx_out
+  # The leading dot of a component is mandatory in every prefix.
+  sca_pre_from=$sca_a
+  [ "$sca_lead" = . ] && sca_pre_from=$((sca_a + 1))
+  deny_path_sx_concat c "$sca_a" $((sca_pre_from - 1))
+  sca_prefixes=$sx_out
+  deny_path_sx_prefixes c "$sca_pre_from" "$sca_b"
+  sca_prefixes=$sca_prefixes$sx_out
+
+  sca_others=$sx_alnum_segs
+  [ -n "$sca_first" ] && sca_others=$((sca_others - 1))
+  if [ "$sca_others" -ge 1 ]; then
+    sx_alts="$sx_alts|$sca_before$sca_prefixes$sx_gap$sca_suffixes$sca_after"
+    return 0
+  fi
+  [ -n "$sca_first" ] || return 0
+
+  sca_head_end=$sca_first
+  [ "$sca_head_end" -gt "$sca_a" ] || sca_head_end=$((sca_a + 1))
+  if [ "$sca_head_end" -le "$sca_b" ]; then
+    deny_path_sx_concat p "$sca_a" "$sca_head_end"
+    sca_head=$sx_out
+    deny_path_sx_prefixes c $((sca_head_end + 1)) "$sca_b"
+    sx_alts="$sx_alts|$sca_before$sca_head$sx_out$sx_gap$sca_suffixes$sca_after"
+  fi
+
+  [ "$sca_lead" = . ] || return 0
+  eval "sca_ch=\$sx_r_$sca_last"
+  deny_path_pin_char_pattern "$sca_ch"
+  deny_path_sx_suffixes t "$sca_a" $((sca_last - 1))
+  sca_tail=$sx_out$sx_pin
+  deny_path_sx_concat t $((sca_last + 1)) "$sca_b"
+  sca_tail=$sca_tail$sx_out
+  sx_alts="$sx_alts|$sca_before$sca_prefixes$sx_gap$sca_tail$sca_after"
+}
+
+# Set sx_pin to the pattern for $1 as a pinning character: itself, a bracket
+# listing it, or its \xHH escape when it has an ASCII one.
+deny_path_pin_char_pattern() {
+  if sx_pin_hex=$(deny_path_char_hex_pattern "$1" 2>/dev/null); then
+    sx_pin=$(printf '(%s|\\[[^]]*%s[^]]*\\]|\\\\x%s)' "$1" "$1" "$sx_pin_hex")
+  else
+    sx_pin=$(printf '(%s|\\[[^]]*%s[^]]*\\])' "$1" "$1")
+  fi
+}
+
+# Set sx_out to the concatenation of sx_<$1>_<i> for i in $2..$3.
+deny_path_sx_concat() {
+  sx_out=
+  sx_j=$2
+  while [ "$sx_j" -le "$3" ]; do
+    eval "sx_out=\"\${sx_out}\${sx_$1_$sx_j}\""
+    sx_j=$((sx_j + 1))
+  done
+}
+
+# Set sx_out to an ERE for any prefix, possibly empty, of sx_<$1>_<$2..$3>.
+deny_path_sx_prefixes() {
+  sx_out=
+  sx_close=
+  sx_j=$2
+  while [ "$sx_j" -le "$3" ]; do
+    eval "sx_out=\"\${sx_out}(\${sx_$1_$sx_j}\""
+    sx_close="${sx_close})?"
+    sx_j=$((sx_j + 1))
+  done
+  sx_out=$sx_out$sx_close
+}
+
+# Set sx_out to an ERE for any suffix, possibly empty, of sx_<$1>_<$2..$3>.
+deny_path_sx_suffixes() {
+  sx_out=
+  sx_j=$2
+  while [ "$sx_j" -le "$3" ]; do
+    eval "sx_out=\"(\${sx_out}\${sx_$1_$sx_j})?\""
+    sx_j=$((sx_j + 1))
+  done
 }
 
 deny_path_char_hex_pattern() {

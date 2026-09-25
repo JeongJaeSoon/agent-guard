@@ -1339,6 +1339,19 @@ expect_json_status 2 "Bash star over a protected directory component is blocked"
   '{"tool_name":"Bash","tool_input":{"command":"cat ~/.config/*/hosts.yml"}}' \
   hook-pre-tool
 
+expect_json_status 2 "Bash star inside the first of several protected components is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat ~/.c*/gh/hosts.yml"}}' \
+  hook-pre-tool
+
+# A dot-led word can also pin the entry's last letter after the star.
+expect_json_status 2 "Bash leading star before a protected dotfile's last letter is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat .*v"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash leading star before a protected dotfile's last letters is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat ~/.*rc"}}' \
+  hook-pre-tool
+
 expect_json_status 0 "Bash benign glob remains allowed" \
   '{"tool_name":"Bash","tool_input":{"command":"ls *.md"}}' \
   hook-pre-tool
@@ -1359,6 +1372,25 @@ expect_json_status 0 "Bash whitespace-class regex remains allowed" \
 
 expect_json_status 0 "Bash star after an unrelated dot-directory prefix remains allowed" \
   '{"tool_name":"Bash","tool_input":{"command":"ls .github/*"}}' \
+  hook-pre-tool
+
+# A shell star never matches `/`, so it cannot reach a file inside the
+# protected directory it names.
+expect_json_status 0 "Bash star after a protected directory prefix remains allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"ls -d ~/.config*"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "Bash star after a protected directory name remains allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"ls -d ~/.aws*"}}' \
+  hook-pre-tool
+
+# Pinning a suffix needs a leading dot; without it a star names ordinary files.
+expect_json_status 0 "Bash extension glob shared with a protected file name remains allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"ls *.json"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "Bash any-character regex before a word remains allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"sed -n '\''s/.*version: //p'\'' notes.txt"}}' \
   hook-pre-tool
 
 expect_json_status 0 "ripgrep negative glob over a denied extension is allowed" \
