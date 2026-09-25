@@ -1,3 +1,12 @@
+## v3.5.1 - 2026-09-25
+
+- fix(hooks): decode ANSI-C quoted words before the Bash path check (#279)
+- fix(hooks): let one star span several characters of a deny-read entry (#278)
+- ci(test): shard tests/run.sh across a five-way CI matrix (#277)
+- ci: bump hashgraph-online/ai-plugin-scanner-action (#274)
+- fix(hooks): scan changes git commit -a and pathspecs stage themselves (#275)
+- docs(readme): highlight commit and push secret blocking (#273)
+
 ## v3.5.0 - 2026-09-21
 
 - docs: remove maintainer-only documents and keep user-facing docs in English (#271)
