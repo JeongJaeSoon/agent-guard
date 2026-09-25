@@ -1,3 +1,7 @@
+## v3.5.2 - 2026-09-25
+
+- fix(hooks): scan the repository a shell cd moves git commit and push into (#276)
+
 ## v3.5.1 - 2026-09-25
 
 - fix(hooks): decode ANSI-C quoted words before the Bash path check (#279)
