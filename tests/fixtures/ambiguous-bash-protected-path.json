@@ -128,6 +128,14 @@
     "event": {"tool_name": "Bash", "tool_input": {"command": "ls -d .git*"}}
   },
   {
+    "id": "regex-star-before-protected-dotfile-suffix",
+    "expected_status": 2,
+    "expected_reason": "bash_protected_path_text_match",
+    "classification": "known-limitation",
+    "description": "a regex whose dot and star precede a protected dotfile's last letters is conservatively blocked",
+    "event": {"tool_name": "Bash", "tool_input": {"command": "sed 's/.*rc$//' list.txt"}}
+  },
+  {
     "id": "grep-word-containing-protected-stem",
     "expected_status": 0,
     "classification": "safe-control",
