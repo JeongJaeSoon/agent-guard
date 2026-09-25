@@ -4091,6 +4091,7 @@ autostage_case claude secret 2 "F='x --interactive'; printf '4\\n1\\n\\n7\\n' | 
 autostage_case codex clean 0 "F='x --interactive'; printf '4\\n1\\n\\n7\\n' | git commit -m \$F" untracked.conf
 autostage_case codex secret 2 "printf '4\\n1\\n\\n7\\n' | bash -c 'git commit -m \$1' _ 'x --interactive'" untracked.conf
 autostage_case claude secret 0 "F='x --interactive'; printf '4\\n1\\n\\n7\\n' | git commit -m \"\$F\"" untracked.conf
+autostage_case codex secret 0 "F='x --interactive'; printf '4\\n1\\n\\n7\\n' | git commit -m \"\${F:-x y}\"" untracked.conf
 autostage_case codex secret 0 "printf '4\\n1\\n\\n7\\n' | bash -c 'git commit -m \"\$1\"' _ 'x --interactive'" untracked.conf
 autostage_case claude secret 0 "git commit -m \"\$(cat <<'EOF'
 x --interactive

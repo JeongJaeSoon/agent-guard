@@ -4647,8 +4647,9 @@ git_command_records() {
             word = word n; started = 1; i++; continue
           }
           if (c == "$" || c == "`") dynamic = 1
-          # "$@", "${a[@]}", zsh "$a[@]" and "${(f)a}" still split.
-          if (c == "$" && substr($0, i) !~ /^\$([A-Za-z_][A-Za-z0-9_]*([^A-Za-z0-9_[]|$)|[0-9*#?$!-]|\{[A-Za-z_][A-Za-z0-9_]*\}|\()/) splits = 1
+          # "$@", "${a[@]}", "${!a@}", zsh "$a[@]" and "${(f)a}" still split;
+          # "${a:-b c}" does not.
+          if (c == "$" && substr($0, i) !~ /^\$([A-Za-z_][A-Za-z0-9_]*([^A-Za-z0-9_[]|$)|[0-9*#?$!-]|\{#?([A-Za-z_][A-Za-z0-9_]*|[0-9]+)[^}@[]*\}|\()/) splits = 1
           word = word c; started = 1
           continue
         }
