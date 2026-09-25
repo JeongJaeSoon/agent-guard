@@ -4120,6 +4120,81 @@ x --interactive
 EOF
 )\"" untracked.conf
 
+# A dynamic word may expand to -a, --interactive or a pathspec, so it widens
+# the scan to every tracked change and to untracked files.
+(
+  cd "$AUTOSTAGE_REPO" || exit 2
+  git reset -q --hard "$AUTOSTAGE_BASE"
+  printf '%s\n' "AGENT_GUARD_TEST_SECRET" >> settings.conf
+)
+jq -nc --arg d "$AUTOSTAGE_REPO" '{tool_name:"Bash",tool_input:{command:"git commit $FLAGS -m x"},cwd:$d}' \
+  | "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ] && grep -q 'would stage contain secret-like values' "$ERR"; then
+  ok "auto-stage: a dynamic git commit argument scans every tracked change"
+else
+  not_ok "auto-stage: a dynamic git commit argument scans every tracked change (expected 2, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+(
+  cd "$AUTOSTAGE_REPO" || exit 2
+  git reset -q --hard "$AUTOSTAGE_BASE"
+  printf '%s\n' "AGENT_GUARD_TEST_SECRET" > untracked.conf
+)
+for as_command in 'git commit $FLAGS -m x' 'git commit --{interactive,} -m x' 'printf x | xargs git commit -m x'; do
+  jq -nc --arg c "$as_command" --arg d "$AUTOSTAGE_REPO" '{tool_name:"Bash",tool_input:{command:$c},cwd:$d}' \
+    | "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+  status=$?
+  if [ "$status" -eq 2 ] && grep -q 'would stage contain secret-like values' "$ERR"; then
+    ok "auto-stage: $as_command may be --interactive, so untracked files are scanned"
+  else
+    not_ok "auto-stage: $as_command may be --interactive, so untracked files are scanned (expected 2, got $status)"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+done
+
+# An untracked input over the scan budget must not mask a tracked finding.
+(
+  cd "$AUTOSTAGE_REPO" || exit 2
+  git clean -q -f
+  git reset -q --hard "$AUTOSTAGE_BASE"
+  printf '%s\n' "AGENT_GUARD_TEST_SECRET" >> settings.conf
+  awk 'BEGIN { for (i = 0; i < 130000; i++) print "oversized-untracked-line-payload" }' >oversized.log
+)
+jq -nc --arg d "$AUTOSTAGE_REPO" '{tool_name:"Bash",tool_input:{command:"git commit --interactive -m x"},cwd:$d}' \
+  | AGENT_GUARD_INFRA_FAILURE_MODE=open "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ] && grep -q 'would stage contain secret-like values' "$ERR"; then
+  ok "auto-stage: an untracked scan failure does not mask a tracked secret"
+else
+  not_ok "auto-stage: an untracked scan failure does not mask a tracked secret (expected 2, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+(cd "$AUTOSTAGE_REPO" && git clean -q -f)
+
+# Before the first commit there is no HEAD to diff against.
+AUTOSTAGE_UNBORN="$TMP_ROOT/autostage-unborn"
+mkdir -p "$AUTOSTAGE_UNBORN"
+(
+  cd "$AUTOSTAGE_UNBORN" || exit 2
+  git init -q
+  printf 'a=1\n' > settings.conf
+  git add settings.conf
+  printf '%s\n' "AGENT_GUARD_TEST_SECRET" >> settings.conf
+)
+jq -nc --arg d "$AUTOSTAGE_UNBORN" '{tool_name:"Bash",tool_input:{command:"git commit -am x"},cwd:$d}' \
+  | "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ] && grep -q 'would stage contain secret-like values' "$ERR"; then
+  ok "auto-stage: git commit -a before the first commit scans unstaged changes"
+else
+  not_ok "auto-stage: git commit -a before the first commit scans unstaged changes (expected 2, got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
+fi # end of shard 3
+
+if in_shard 4; then
 # A shell cd moves the commit to another repository: the scan must follow a
 # literal cd and fail per the infrastructure policy (closed here) on one it
 # cannot resolve. The hook runs with cwd=a; the command is then really run
@@ -4362,81 +4437,6 @@ for sc_command in 'cd ../b; git push' 'git -C ../b push'; do
   done
 done
 
-# A dynamic word may expand to -a, --interactive or a pathspec, so it widens
-# the scan to every tracked change and to untracked files.
-(
-  cd "$AUTOSTAGE_REPO" || exit 2
-  git reset -q --hard "$AUTOSTAGE_BASE"
-  printf '%s\n' "AGENT_GUARD_TEST_SECRET" >> settings.conf
-)
-jq -nc --arg d "$AUTOSTAGE_REPO" '{tool_name:"Bash",tool_input:{command:"git commit $FLAGS -m x"},cwd:$d}' \
-  | "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
-status=$?
-if [ "$status" -eq 2 ] && grep -q 'would stage contain secret-like values' "$ERR"; then
-  ok "auto-stage: a dynamic git commit argument scans every tracked change"
-else
-  not_ok "auto-stage: a dynamic git commit argument scans every tracked change (expected 2, got $status)"
-  sed 's/^/  stderr: /' "$ERR"
-fi
-(
-  cd "$AUTOSTAGE_REPO" || exit 2
-  git reset -q --hard "$AUTOSTAGE_BASE"
-  printf '%s\n' "AGENT_GUARD_TEST_SECRET" > untracked.conf
-)
-for as_command in 'git commit $FLAGS -m x' 'git commit --{interactive,} -m x' 'printf x | xargs git commit -m x'; do
-  jq -nc --arg c "$as_command" --arg d "$AUTOSTAGE_REPO" '{tool_name:"Bash",tool_input:{command:$c},cwd:$d}' \
-    | "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
-  status=$?
-  if [ "$status" -eq 2 ] && grep -q 'would stage contain secret-like values' "$ERR"; then
-    ok "auto-stage: $as_command may be --interactive, so untracked files are scanned"
-  else
-    not_ok "auto-stage: $as_command may be --interactive, so untracked files are scanned (expected 2, got $status)"
-    sed 's/^/  stderr: /' "$ERR"
-  fi
-done
-
-# An untracked input over the scan budget must not mask a tracked finding.
-(
-  cd "$AUTOSTAGE_REPO" || exit 2
-  git clean -q -f
-  git reset -q --hard "$AUTOSTAGE_BASE"
-  printf '%s\n' "AGENT_GUARD_TEST_SECRET" >> settings.conf
-  awk 'BEGIN { for (i = 0; i < 130000; i++) print "oversized-untracked-line-payload" }' >oversized.log
-)
-jq -nc --arg d "$AUTOSTAGE_REPO" '{tool_name:"Bash",tool_input:{command:"git commit --interactive -m x"},cwd:$d}' \
-  | AGENT_GUARD_INFRA_FAILURE_MODE=open "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
-status=$?
-if [ "$status" -eq 2 ] && grep -q 'would stage contain secret-like values' "$ERR"; then
-  ok "auto-stage: an untracked scan failure does not mask a tracked secret"
-else
-  not_ok "auto-stage: an untracked scan failure does not mask a tracked secret (expected 2, got $status)"
-  sed 's/^/  stderr: /' "$ERR"
-fi
-(cd "$AUTOSTAGE_REPO" && git clean -q -f)
-
-# Before the first commit there is no HEAD to diff against.
-AUTOSTAGE_UNBORN="$TMP_ROOT/autostage-unborn"
-mkdir -p "$AUTOSTAGE_UNBORN"
-(
-  cd "$AUTOSTAGE_UNBORN" || exit 2
-  git init -q
-  printf 'a=1\n' > settings.conf
-  git add settings.conf
-  printf '%s\n' "AGENT_GUARD_TEST_SECRET" >> settings.conf
-)
-jq -nc --arg d "$AUTOSTAGE_UNBORN" '{tool_name:"Bash",tool_input:{command:"git commit -am x"},cwd:$d}' \
-  | "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
-status=$?
-if [ "$status" -eq 2 ] && grep -q 'would stage contain secret-like values' "$ERR"; then
-  ok "auto-stage: git commit -a before the first commit scans unstaged changes"
-else
-  not_ok "auto-stage: git commit -a before the first commit scans unstaged changes (expected 2, got $status)"
-  sed 's/^/  stderr: /' "$ERR"
-fi
-
-fi # end of shard 3
-
-if in_shard 4; then
 SYMLINK_REPO="$TMP_ROOT/symlink-repo"
 mkdir -p "$SYMLINK_REPO"
 (
