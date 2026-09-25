@@ -4030,8 +4030,9 @@ autostage_case claude secret 2 'git commit -m x 2>&1 settings.conf'
 autostage_case claude secret 2 'git commit -m x {settings,other}.conf'
 # A subshell's closing parenthesis ends the arguments without hiding them.
 autostage_case codex secret 2 '(git commit -m x settings.conf)'
-# The scan cannot follow a shell cd, so a pathspec after one widens the scan.
+# The scan follows a shell cd, so a pathspec after one resolves against it.
 autostage_case claude secret 2 'cd sub && git commit -m x nested.conf' sub/nested.conf
+autostage_case codex clean 0 'cd sub && git commit -m x nested.conf' sub/nested.conf
 # --interactive can add untracked files, which no diff shows.
 autostage_case claude secret 2 "printf '4\\n1\\n\\n7\\n' | git commit --interactive -m x" untracked.conf
 autostage_case codex clean 0 "printf '4\\n1\\n\\n7\\n' | git commit --interactive -m x" untracked.conf
@@ -4067,6 +4068,211 @@ autostage_case claude secret 0 'git add sub/*.conf && git commit -m x' ignored.c
 autostage_case claude clean 0 'git commit -am x >/dev/null 2>&1'
 # Pathspecs resolve against the command cwd, not the repository root.
 autostage_case codex secret 2 'git commit -m x nested.conf' sub/nested.conf sub
+
+# A shell cd moves the commit to another repository: the scan must follow a
+# literal cd and fail per the infrastructure policy (closed here) on one it
+# cannot resolve. The hook runs with cwd=a; the command is then really run
+# there and both repositories' new commits are searched for the marker.
+SHELLCD_ROOT="$TMP_ROOT/shellcd"
+for sc_repo in a b; do
+  mkdir -p "$SHELLCD_ROOT/$sc_repo/sub"
+  (
+    cd "$SHELLCD_ROOT/$sc_repo" || exit 2
+    git init -q
+    git config user.email test@example.com
+    git config user.name test
+    git config core.hooksPath "$TMP_ROOT/autostage-no-hooks"
+    printf 'a=1\n' > settings.conf
+    printf 's=1\n' > sub/nested.conf
+    git add .
+    git commit -q -m init
+  )
+done
+SHELLCD_BASE_A=$(git -C "$SHELLCD_ROOT/a" rev-parse HEAD)
+SHELLCD_BASE_B=$(git -C "$SHELLCD_ROOT/b" rev-parse HEAD)
+sc_session=0
+ln -s ../b/sub "$SHELLCD_ROOT/a/link"
+printf '/link\n' >> "$SHELLCD_ROOT/a/.git/info/exclude"
+
+# shellcd_case HOST MODE EXPECTED COMMAND [REPO]
+# MODE secret stages the marker in REPO (default b); clean stages a benign
+# line. EXPECTED is 0, 2 (blocked on the finding), or U0/U2: blocked because
+# the working directory is unknown, allowed under the open policy, and the
+# digit is the ground truth under bash (HOME is b, so `cd` alone moves there),
+# or x where it differs between bash versions.
+shellcd_case() {
+  sc_host=$1
+  sc_mode=$2
+  sc_expected=$3
+  sc_command=$4
+  sc_repo=$SHELLCD_ROOT/${5:-b}
+  sc_name="shell cd [$sc_host] $sc_mode: $sc_command"
+  (
+    for sc_reset in a:"$SHELLCD_BASE_A" b:"$SHELLCD_BASE_B"; do
+      cd "$SHELLCD_ROOT/${sc_reset%%:*}" || exit 2
+      git reset -q --hard "${sc_reset#*:}" || exit 2
+    done
+    cd "$sc_repo" || exit 2
+    case "$sc_mode" in
+      secret) printf '%s\n' "AGENT_GUARD_TEST_SECRET" >> settings.conf ;;
+      *) printf 'c=3\n' >> settings.conf ;;
+    esac
+    git add settings.conf
+  ) || { not_ok "$sc_name (setup failed)"; return; }
+  # A fresh session per call: the infrastructure notice is printed once per
+  # session, and the default session key is shared with later tests.
+  case "$sc_host" in
+    codex) sc_filter='{session_id:$s,tool_name:"Bash",tool_input:{command:$c,workdir:$d}}' ;;
+    *) sc_filter='{session_id:$s,tool_name:"Bash",tool_input:{command:$c},cwd:$d}' ;;
+  esac
+  # Only an unknown cwd differs between the policies.
+  case "$sc_expected" in
+    U*) sc_policies='open closed' ;;
+    *) sc_policies=closed ;;
+  esac
+  for sc_policy in $sc_policies; do
+    sc_session=$((sc_session + 1))
+    jq -nc --arg c "$sc_command" --arg d "$SHELLCD_ROOT/a" --arg s "shellcd-$$-$sc_session" "$sc_filter" \
+      | (cd "$TMP_ROOT" && AGENT_GUARD_HOOK_HOST=$sc_host AGENT_GUARD_INFRA_FAILURE_MODE=$sc_policy \
+          "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool) >"$OUT" 2>"$ERR"
+    sc_status=$?
+    if [ "$sc_policy" = open ]; then
+      sc_open_status=$sc_status
+      cp "$ERR" "$ERR.open"
+    fi
+  done
+  (cd "$SHELLCD_ROOT/a" && HOME=$SHELLCD_ROOT/b bash -c "$sc_command") >/dev/null 2>&1
+  sc_leaks=0
+  for sc_check in a:"$SHELLCD_BASE_A" b:"$SHELLCD_BASE_B"; do
+    if git -C "$SHELLCD_ROOT/${sc_check%%:*}" log -p "${sc_check#*:}..HEAD" | grep -q AGENT_GUARD_TEST_SECRET; then
+      sc_leaks=2
+    fi
+  done
+  case "$sc_expected" in
+    U*)
+      if [ "$sc_status" -ne 2 ] || ! grep -q 'could not' "$ERR"; then
+        not_ok "$sc_name (expected an unknown-cwd block under the closed policy, got $sc_status)"
+        sed 's/^/  stderr: /' "$ERR"
+      elif [ "$sc_open_status" -ne 0 ] || ! grep -q 'could not' "$ERR.open"; then
+        not_ok "$sc_name (expected the open policy to allow it with a notice, got $sc_open_status)"
+        sed 's/^/  stderr: /' "$ERR.open"
+      elif [ "${sc_expected#U}" != x ] && [ "$sc_leaks" -ne "${sc_expected#U}" ]; then
+        not_ok "$sc_name (ground truth disagrees: the command leaks=$sc_leaks)"
+      else
+        ok "$sc_name"
+      fi
+      ;;
+    *)
+      if [ "$sc_status" -ne "$sc_expected" ]; then
+        not_ok "$sc_name (expected $sc_expected, got $sc_status)"
+        sed 's/^/  stderr: /' "$ERR"
+      elif [ "$sc_status" -eq 2 ] && ! grep -q 'contain secret-like values' "$ERR"; then
+        not_ok "$sc_name (blocked, but not on a secret finding)"
+        sed 's/^/  stderr: /' "$ERR"
+      elif [ "$sc_leaks" -ne "$sc_expected" ]; then
+        not_ok "$sc_name (ground truth disagrees: the command leaks=$sc_leaks)"
+      else
+        ok "$sc_name"
+      fi
+      ;;
+  esac
+}
+
+for sc_host in claude codex; do
+  for sc_command in \
+    'cd ../b && git commit -m x' \
+    'cd ../b; git commit -m x' \
+    'git status && cd ../b && git commit -m x' \
+    'cd ../b 2>/dev/null && git commit -m x' \
+    '(cd ../b && git commit -m x)'
+  do
+    shellcd_case "$sc_host" secret 2 "$sc_command"
+    shellcd_case "$sc_host" clean 0 "$sc_command"
+  done
+done
+# A pathspec after the cd resolves against the new directory.
+shellcd_case claude secret 2 'cd ../b/sub && git commit -m x ../settings.conf'
+# A cd holds across separators, and a second one moves on from the first.
+shellcd_case codex secret 2 'cd .. && cd b && git commit -m x'
+# A subshell, a here-document and a comment do not move later commands.
+shellcd_case claude secret 0 '(cd ../b); git commit -m x'
+shellcd_case codex secret 2 '(cd ../b); git commit -m x' a
+shellcd_case claude secret 2 "cat >/dev/null <<'EOF'
+cd ../b
+EOF
+git commit -m x" a
+shellcd_case codex secret 2 'true # ; cd ../b
+git commit -m x' a
+# A cd whose target or effect only run time knows fails per the policy.
+shellcd_case claude secret U2 'cd $SC_UNSET_DIR && git commit -m x'
+shellcd_case codex secret U2 'cd ~ && git commit -m x'
+shellcd_case claude secret U2 "cd \$'../b' && git commit -m x"
+shellcd_case codex secret U2 'cd ../\
+b && git commit -m x'
+shellcd_case claude secret U2 'cd ../b && cd /tmp && cd - && git commit -m x'
+shellcd_case codex secret U2 'true && cd ../b; git commit -m x'
+shellcd_case claude secret U2 'false || cd ../b && git commit -m x'
+shellcd_case codex secret U2 '{ cd ../b; }; git commit -m x'
+shellcd_case claude secret U2 'if true; then cd ../b; fi; git commit -m x'
+shellcd_case codex secret U2 'builtin cd ../b && git commit -m x'
+# zsh runs the last pipeline element in the current shell; bash does not.
+shellcd_case claude secret U0 'true | cd ../b; git commit -m x'
+# A backgrounded cd runs in a subshell, so this commit stays in a.
+shellcd_case codex secret U2 'cd ../b & wait; git commit -m x' a
+# `..` after a symlink: logical under bash's default, physical under set -P.
+shellcd_case claude secret U0 'cd link/.. && git commit -m x'
+# A failed redirection or a brace-expanded extra operand skips the cd, so
+# following it would scan b while the commit stays in a.
+shellcd_case codex secret U2 'cd ../b <missing; git commit -m x' a
+# bash 3.2 ignores the extra operands; bash 5 and zsh refuse the cd (x: either).
+shellcd_case claude secret Ux 'cd ../b {x,y}; git commit -m x' a
+# A comment may follow a subshell's `)`, and `<<''` ends at the first empty line.
+shellcd_case claude secret 2 '(true)# ; cd ../b
+git commit -m x' a
+shellcd_case codex secret 2 "cat >/dev/null <<''
+x; cd ../b
+
+git commit -m x" a
+# In a `[[ =~ ]]` pattern, `(x)#` is regex, not a subshell and a comment.
+shellcd_case claude secret 2 '[[ x =~ (x)#y ]]; git commit -m x' a
+# Shell options do not move the cd target.
+shellcd_case codex secret 2 'set -e; cd ../b && git commit -m x'
+# A descriptor closed by exec makes the cd's `2>&1` fail, so the cd is skipped.
+shellcd_case claude secret U2 'exec 1>&-; cd ../b 2>&1; git commit -m x' a
+# An earlier command may relink the cd target after the scan resolved it.
+ln -s ../b "$SHELLCD_ROOT/a/relink"
+printf '/relink\n' >> "$SHELLCD_ROOT/a/.git/info/exclude"
+shellcd_case codex secret U2 'ln -sfn . relink && cd relink && git commit -m x' a
+# A commit that runs because its cd failed: the scan's cd fails the same way.
+shellcd_case claude secret U2 'cd missing || git commit -m x' a
+# A redirection before the command name does not hide the commit.
+shellcd_case codex secret 2 '>/dev/null git commit -m x' a
+
+# The push gate follows the cd too. Nothing is committed, so the verdict is
+# checked against the same command with git -C, which the gate already follows.
+for sc_command in 'cd ../b; git push' 'git -C ../b push'; do
+  for sc_mode in secret clean; do
+    (
+      cd "$SHELLCD_ROOT/b" || exit 2
+      git reset -q --hard "$SHELLCD_BASE_B"
+      case "$sc_mode" in
+        secret) printf '%s\n' "AGENT_GUARD_TEST_SECRET" >> settings.conf ;;
+        *) printf 'c=3\n' >> settings.conf ;;
+      esac
+      git add settings.conf
+    )
+    jq -nc --arg c "$sc_command" --arg d "$SHELLCD_ROOT/a" '{tool_name:"Bash",tool_input:{command:$c},cwd:$d}' \
+      | (cd "$TMP_ROOT" && AGENT_GUARD_INFRA_FAILURE_MODE=closed "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool) >"$OUT" 2>"$ERR"
+    status=$?
+    case "$sc_mode" in secret) sc_expected=2 ;; *) sc_expected=0 ;; esac
+    if [ "$status" -eq "$sc_expected" ]; then
+      ok "shell cd push $sc_mode: $sc_command"
+    else
+      not_ok "shell cd push $sc_mode: $sc_command (expected $sc_expected, got $status)"
+      sed 's/^/  stderr: /' "$ERR"
+    fi
+  done
+done
 
 # A dynamic word may expand to -a, --interactive or a pathspec, so it widens
 # the scan to every tracked change and to untracked files.

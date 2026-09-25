@@ -4583,18 +4583,49 @@ shell_command_words() {
 # prefix 3: a command boundary for most callers, but the commit argument parser
 # must tell `2>&1` and brace expansion apart from the end of the command. Newlines cannot be represented safely in the record stream, so
 # they make the affected token dynamic and therefore subject to infra policy.
+# Comments are dropped. A here-document body is still tokenized, since it may
+# be code for another shell, but is wrapped in `3(` and `3)`: nothing in it
+# runs in this shell.
 git_command_records() {
   printf '%s\n' "$1" | awk '
+    BEGIN { heredoc_next = 1 }
     function emit() {
       if (!started) return
+      if (heredoc_expect) {
+        delim = substr(word, heredoc_mark + 1)
+        heredoc_mark = 0
+        if (delim != "" || heredoc_quoted) {
+          heredoc_quoted = 0
+          heredoc_delim[++heredoc_count] = delim
+          heredoc_strip[heredoc_count] = heredoc_dash
+          heredoc_expect = 0
+        }
+      }
       print (dynamic ? "1" : "0") word
+      if (word == "[[") in_test = 1
+      if (word == "]]") in_test = 0
       word = ""; started = 0; dynamic = 0
     }
     NR > 1 {
       if (quote == "") { emit(); print "0;" }
       else { word = word " "; dynamic = 1 }
+      heredoc_expect = 0; heredoc_quoted = 0
+    }
+    heredoc_next <= heredoc_count && NR > heredoc_line {
+      line = $0
+      if (heredoc_strip[heredoc_next]) sub(/^\t+/, "", line)
+      if (line != heredoc_delim[heredoc_next]) {
+        if (!heredoc_open) { print "3("; heredoc_open = 1 }
+      } else {
+        if (quote != "") { quote = ""; dynamic = 1 }
+        emit()
+        if (heredoc_open) { print "3)"; heredoc_open = 0 }
+        heredoc_next++
+        next
+      }
     }
     {
+      in_heredoc = heredoc_next <= heredoc_count && NR > heredoc_line
       for (i = 1; i <= length($0); i++) {
         c = substr($0, i, 1)
         n = substr($0, i + 1, 1)
@@ -4618,11 +4649,26 @@ git_command_records() {
           continue
         }
         if (c == " " || c == "\t") { emit(); continue }
-        if (c == "\047") { quote = "single"; started = 1; continue }
-        if (c == "\"") { quote = "double"; started = 1; continue }
+        # `#` opens a comment only where a word starts; `${#x}` and `a#b` do not,
+        # nor does `$(x)#y`, but `(x)#y` does.
+        if (c == "#" && !started && (i == 1 || substr($0, i - 1, 1) ~ /[ \t;&|(]/ \
+            || (substr($0, i - 1, 1) == ")" && closed == "s"))) break
+        if (c == "\047" || c == "\"") {
+          # An empty quoted word after << is a valid delimiter.
+          if (heredoc_expect) heredoc_quoted = 1
+          quote = c == "\047" ? "single" : "double"; started = 1; continue
+        }
         if (c == "\\") {
           if (i == length($0)) { dynamic = 1; started = 1; continue }
           word = word n; started = 1; i++; continue
+        }
+        if (c == "<" && n == "<" && !in_heredoc) {
+          if (substr($0, i + 2, 1) == "<") { word = word "<<<"; started = 1; i += 2; continue }
+          word = word "<<"; started = 1; i++
+          heredoc_dash = substr($0, i + 1, 1) == "-"
+          if (heredoc_dash) { word = word "-"; i++ }
+          heredoc_expect = 1; heredoc_mark = length(word); heredoc_line = NR
+          continue
         }
         if (c == ";" || c == "|" || (c == "&" && n == "&")) {
           emit()
@@ -4634,6 +4680,10 @@ git_command_records() {
         # a git commit/push after one is still seen as a command head (#127).
         # Over-splitting can only cause MORE detection, never less.
         if (c == "&" || c == "(" || c == ")" || c == "{" || c == "}") {
+          # A `(` that starts a word opens a subshell; `$(`, `<(`, `@(` and a
+          # group in a `[[ =~ ]]` pattern do not.
+          if (c == "(") parens = parens (started || in_test ? "w" : "s")
+          if (c == ")") { closed = substr(parens, length(parens)); parens = substr(parens, 1, length(parens) - 1) }
           emit(); print "3" c; continue
         }
         if (c == "$" || c == "`") dynamic = 1
@@ -4917,6 +4967,67 @@ git_add_is_forced() {
   return 1
 }
 
+# Given the records after `cd` or `pushd`, print the one literal directory it
+# changes to. Fail when only run time knows it: no operand ($HOME), `-`
+# ($OLDPWD), an option or directory-stack entry, several operands (zsh
+# substitutes), a dynamic, tilde or glob word, a relative one that CDPATH may
+# redirect ($shell_cd_cdpath), or a redirection that may fail and skip the cd.
+shell_cd_target() {
+  cd_target=
+  cd_operands=0
+  cd_dashdash=0
+  cd_skip=0
+  cd_dup=0
+  while [ "$#" -gt 0 ]; do
+    cd_kind=${1%"${1#?}"}
+    cd_word=${1#?}
+    shift
+    if [ "$cd_skip" -eq 1 ]; then
+      # `2>&1` arrives as `2>`, `&`, `1`.
+      if [ "$cd_kind$cd_word" = '3&' ]; then
+        cd_dup=1
+        continue
+      fi
+      cd_skip=0
+      # A redirection that fails skips the cd; these cannot fail.
+      case "$cd_dup$cd_kind$cd_word" in
+        101|102|00/dev/null) continue ;;
+        *) return 1 ;;
+      esac
+    fi
+    case "$cd_kind$cd_word" in
+      0';'|0'&&'|0'||'|0'|'|3'&'|3')'|3'}') break ;;
+      # Brace expansion adds operands; `(` is a syntax error.
+      *) [ "$cd_kind" != 3 ] && [ "$cd_kind" != 2 ] || return 1 ;;
+    esac
+    cd_redirect=${cd_word#"${cd_word%%[!0-9]*}"}
+    case "$cd_redirect" in
+      '>'|'>>'|'<')
+        cd_skip=1
+        cd_dup=0
+        continue
+        ;;
+      '>/dev/null'|'>>/dev/null'|'</dev/null') continue ;;
+      *'>'*|*'<'*) return 1 ;;
+    esac
+    [ "$cd_kind" = 0 ] || return 1
+    if [ "$cd_word$cd_dashdash$cd_operands" = --00 ]; then
+      cd_dashdash=1
+      continue
+    fi
+    cd_operands=$((cd_operands + 1))
+    cd_target=$cd_word
+  done
+  [ "$cd_operands" -eq 1 ] || return 1
+  case "$cd_target" in
+    # zsh expands a leading `=` to a command path.
+    ''|[-+=]*|'~'*|*[*?[]*) return 1 ;;
+    /*|.|..|./*|../*) ;;
+    *) [ "$shell_cd_cdpath" -eq 0 ] || return 1 ;;
+  esac
+  printf '%s\n' "$cd_target"
+}
+
 is_git_commit_or_push() {
   cmd=$1
   (
@@ -4933,10 +5044,116 @@ is_git_commit_or_push() {
     effective_c_dirs=
     effective_c_dynamic=0
     xargs_wrapped=0
-    shell_cd_seen=0
     git_index_changed=0
     git_index_forced=0
     matched=1
+    # A shell cd moves every later git command, across ; && || and out of a
+    # { } group, but not out of a ( ) subshell or a here-document. The scan
+    # follows a literal cd whose effect is certain (D records). Any other cd
+    # leaves the working directory of every later git command unknown (U):
+    # one behind a wrapper, in a pipeline, in a backgrounded list, in braces,
+    # after control flow or anything that can redefine cd, after a command
+    # that may relink its target, or one reached through && or || once its
+    # and-or list ends, since the commands after that run whether or not it
+    # did.
+    shell_cd_dirs=
+    shell_cd_count=0
+    shell_cd_unknown=0
+    shell_cd_lost=0
+    shell_cd_cond=0
+    shell_cd_pending=0
+    shell_cd_in_list=0
+    shell_cd_last=0
+    shell_cd_piped=0
+    shell_cd_wrapped=0
+    shell_cd_braces=0
+    shell_cd_untrusted=0
+    shell_cd_mutable=0
+    shell_cd_function=0
+    shell_cd_stack=
+    shell_cd_prev=
+    shell_cd_cdpath=0
+    [ -n "${CDPATH:-}" ] && shell_cd_cdpath=1
+    case "$cmd" in
+      *[Cc][Dd][Pp][Aa][Tt][Hh]*) shell_cd_cdpath=1 ;;
+    esac
+    # $1 is a separator or a kind-3 token, $2 the record after it, and $3
+    # is 1 when $1 stands where a command starts.
+    shell_cd_boundary() {
+      shell_cd_last_was=$shell_cd_last
+      shell_cd_last=0
+      shell_cd_wrapped=0
+      shell_cd_piped=0
+      case "$1" in
+        # cond 1: only && led here, so a cd holds for the rest of the chain;
+        # cond 2: an || did, so what follows may run without the cd. A command
+        # that runs only because a cd failed keeps its D: the cd fails the
+        # same way in the scan, which then reports it could not run.
+        '&&') [ "$shell_cd_cond" -eq 2 ] || shell_cd_cond=1 ;;
+        '||')
+          shell_cd_cond=2
+          [ "$shell_cd_pending" -eq 0 ] || shell_cd_unknown=1
+          ;;
+        '|')
+          shell_cd_piped=1
+          [ "$shell_cd_last_was" -eq 0 ] || shell_cd_unknown=1
+          ;;
+        ';'|'&')
+          [ "$shell_cd_pending" -eq 0 ] || shell_cd_unknown=1
+          # A backgrounded list runs its cds in a subshell.
+          [ "$1:$shell_cd_in_list" != '&:1' ] || shell_cd_unknown=1
+          shell_cd_cond=0
+          shell_cd_pending=0
+          shell_cd_in_list=0
+          ;;
+        '{') [ "$3" -eq 0 ] || shell_cd_braces=$((shell_cd_braces + 1)) ;;
+        '}')
+          if [ "$3" -eq 1 ] && [ "$shell_cd_braces" -gt 0 ]; then
+            shell_cd_braces=$((shell_cd_braces - 1))
+          fi
+          ;;
+        '(')
+          if [ "$2" = '3)' ]; then
+            # `name()` defines a function, which may be cd itself.
+            shell_cd_untrusted=1
+            shell_cd_function=1
+          else
+            shell_cd_stack="$shell_cd_stack $shell_cd_count:$shell_cd_unknown:$shell_cd_cond:$shell_cd_pending:$shell_cd_in_list:$shell_cd_braces"
+            shell_cd_cond=0
+            shell_cd_pending=0
+            shell_cd_in_list=0
+          fi
+          ;;
+        ')')
+          if [ "$shell_cd_function" -eq 1 ]; then
+            shell_cd_function=0
+          elif [ -z "$shell_cd_stack" ]; then
+            :
+          elif [ "$shell_cd_untrusted" -eq 1 ]; then
+            # A case pattern also ends in `)`; the subshell it closes is unknown.
+            [ "$shell_cd_count" -eq 0 ] || shell_cd_lost=1
+          else
+            shell_cd_saved=${shell_cd_stack##* }
+            shell_cd_stack=${shell_cd_stack% *}
+            shell_cd_count=${shell_cd_saved%%:*}
+            shell_cd_saved=${shell_cd_saved#*:}
+            shell_cd_unknown=${shell_cd_saved%%:*}
+            shell_cd_saved=${shell_cd_saved#*:}
+            shell_cd_cond=${shell_cd_saved%%:*}
+            shell_cd_saved=${shell_cd_saved#*:}
+            shell_cd_pending=${shell_cd_saved%%:*}
+            shell_cd_saved=${shell_cd_saved#*:}
+            shell_cd_in_list=${shell_cd_saved%%:*}
+            shell_cd_braces=${shell_cd_saved#*:}
+            if [ "$shell_cd_count" -eq 0 ]; then
+              shell_cd_dirs=
+            else
+              shell_cd_dirs=$(printf '%s\n' "$shell_cd_dirs" | sed -n "1,${shell_cd_count}p")
+            fi
+          fi
+          ;;
+      esac
+    }
     append_effective_c_dir() {
       record=$1
       case "$record" in
@@ -4967,13 +5184,67 @@ $dir"
           shift
           continue
         fi
-        # The scan cannot follow a shell cd (94S-352); a pathspec after one may
-        # be relative to another directory, so such commits scan all of it.
+        # A redirection may precede the command name: `>/dev/null git commit`.
+        # One that fails skips the command, so a cd after it is unknown.
+        case "${token#"${token%%[!0-9]*}"}" in
+          '>'|'>>'|'<'|'<>'|'>|')
+            shell_cd_wrapped=1
+            shift
+            [ "${1-}" = '3&' ] && shift
+            [ "$#" -gt 0 ] && shift
+            continue
+            ;;
+          '>'*|'<'*)
+            shell_cd_wrapped=1
+            shift
+            continue
+            ;;
+        esac
         case "$token" in
-          cd|pushd|popd) shell_cd_seen=1 ;;
+          cd|pushd|popd)
+            shift
+            if [ "$token" != popd ] \
+              && [ "$shell_cd_untrusted$shell_cd_piped$shell_cd_wrapped" = 000 ] \
+              && [ "$shell_cd_cond" -ne 2 ] \
+              && [ "$shell_cd_mutable" -eq 0 ] \
+              && [ "$shell_cd_braces" -eq 0 ] \
+              && shell_cd_dir=$(shell_cd_target "$@"); then
+              if [ -n "$shell_cd_dirs" ]; then
+                shell_cd_dirs="$shell_cd_dirs
+$shell_cd_dir"
+              else
+                shell_cd_dirs=$shell_cd_dir
+              fi
+              shell_cd_count=$((shell_cd_count + 1))
+              shell_cd_in_list=1
+              [ "$shell_cd_cond" -eq 0 ] || shell_cd_pending=1
+            else
+              shell_cd_unknown=1
+            fi
+            shell_cd_last=1
+            command_start=0
+            continue
+            ;;
+          # Reserved words start a command of their own, under control flow.
+          if|then|else|elif|fi|do|done|while|until|for|case|esac|select|function|coproc|'!')
+            shell_cd_untrusted=1
+            shift
+            continue
+            ;;
+          builtin)
+            shell_cd_wrapped=1
+            shift
+            continue
+            ;;
+          # These can redefine or disable cd, or run code that does.
+          # exec can also close a descriptor a later `2>&1` duplicates.
+          alias|unalias|enable|disable|unset|unfunction|autoload|source|.|eval|exec|trap|shopt|setopt|unsetopt|emulate|*'['*']='*)
+            shell_cd_untrusted=1
+            ;;
         esac
         if is_noop_wrapper "$token"; then
           wrapper=$token
+          shell_cd_wrapped=1
           # xargs appends words read from stdin, which may be any argument.
           [ "$wrapper" = xargs ] && xargs_wrapped=1
           shift
@@ -5023,6 +5294,10 @@ $dir"
           while [ "$#" -gt 0 ]; do
             record=$1
             token=${record#?}
+            # `git --version && cd x` still reaches the cd.
+            case "$record" in
+              3*|0';'|0'&&'|0'||'|0'|') break ;;
+            esac
             shift
             if git_option_takes_value "$token"; then
               if [ "$#" -gt 0 ]; then
@@ -5036,25 +5311,26 @@ $dir"
             is_git_global_option "$token" && continue
 
             case "$token" in
+              status|log|diff|show|add|stage|rev-parse|config|remote|branch|tag|ls-files|describe|shortlog|blame|grep|fetch) ;;
+              # Checkout, hooks and the rest may move a path a later cd follows.
+              *) shell_cd_mutable=1 ;;
+            esac
+            case "$token" in
               commit|push)
                 # One G-led group per git command: a later `git commit -a`
                 # in the same command line must not hide behind an earlier
                 # plain commit or push.
                 printf 'G\n'
                 [ "$effective_c_dynamic" -eq 1 ] && printf 'U\n'
+                [ "$shell_cd_unknown$shell_cd_lost" = 00 ] || printf 'U\n'
+                [ -n "$shell_cd_dirs" ] && printf '%s\n' "$shell_cd_dirs" | sed 's/^/D/'
                 [ -n "$effective_c_dirs" ] && printf '%s\n' "$effective_c_dirs" | sed 's/^/D/'
                 if [ "$token" = commit ]; then
                   [ "$xargs_wrapped" -eq 1 ] && printf 'I\n'
                   [ "$git_index_changed" -eq 1 ] && printf 'I\n'
                   [ "$git_index_forced" -eq 1 ] && printf 'X\n'
                   stage_records=$(git_commit_stage_records "$@")
-                  if [ -n "$stage_records" ]; then
-                    printf '%s\n' "$stage_records"
-                    case "$shell_cd_seen:$stage_records" in
-                      1:P*|1:*'
-P'*) printf 'W\n' ;;
-                    esac
-                  fi
+                  [ -n "$stage_records" ] && printf '%s\n' "$stage_records"
                 fi
                 matched=0
                 break
@@ -5076,10 +5352,25 @@ P'*) printf 'W\n' ;;
           command_start=0
           continue
         fi
+        # The scan resolves every cd before the command runs, so any earlier
+        # command that may create, remove or relink a path leaves a later cd
+        # unknown. These cannot; redirections write regular files only.
+        case "$record_kind$token" in
+          3*|0';'|0'&&'|0'||'|0'|') ;;
+          0echo|0printf|0pwd|0ls|0cat|0head|0tail|0wc|0true|0false|0:|0test|0'['|0'[['|0which|0type|0date|0whoami|0id|0uname|0grep|0rg|0sleep|0wait|0jq|0sort|0uniq|0diff|0stat|0basename|0dirname|0realpath|0readlink) ;;
+          # Shell state only; `set -P` is caught when the scan resolves `..`.
+          0set|0export|0read|0local|0declare|0typeset|0readonly|0shift|0printenv) ;;
+          *) shell_cd_mutable=1 ;;
+        esac
       fi
 
       shift
       if [ "$record_kind" = 3 ] || is_shell_command_separator "$token"; then
+        # `>&2` and `2>&1` redirect; they do not background anything.
+        case "$record_kind$token:$shell_cd_prev" in
+          '3&:'*'>'|'3&:'*'<') ;;
+          *) shell_cd_boundary "$token" "${1-}" "$command_start" ;;
+        esac
         command_start=1
         effective_c_dirs=
         effective_c_dynamic=0
@@ -5087,6 +5378,7 @@ P'*) printf 'W\n' ;;
       else
         command_start=0
       fi
+      shell_cd_prev=$token
     done
     return "$matched"
   )
@@ -5188,7 +5480,14 @@ scan_git_command_group() (
   # shellcheck disable=SC2086
   for group_record in $2; do
     case "$group_record" in
-      D*) CDPATH= cd -- "${group_record#D}" 2>/dev/null || exit "$SCAN_STATUS_UNAVAILABLE" ;;
+      D*)
+        # A shell cd resolves `..` logically unless `set -P` is on; git -C and
+        # env -C resolve it physically. Refuse to guess when they disagree.
+        group_physical=$(CDPATH= cd -P -- "${group_record#D}" 2>/dev/null && pwd -P) \
+          || exit "$SCAN_STATUS_UNAVAILABLE"
+        CDPATH= cd -- "${group_record#D}" 2>/dev/null || exit "$SCAN_STATUS_UNAVAILABLE"
+        [ "$(pwd -P)" = "$group_physical" ] || exit "$SCAN_STATUS_UNAVAILABLE"
+        ;;
       W) group_stage_all=1 ;;
       I) group_stage_all=1; [ "$group_untracked" -eq 2 ] || group_untracked=1 ;;
       X) group_stage_all=1; group_untracked=2 ;;
