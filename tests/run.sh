@@ -1319,6 +1319,21 @@ expect_json_status 0 "Bash ANSI-C escapes that name no protected path remain all
   '{"tool_name":"Bash","tool_input":{"command":"printf $'\''a\\tb\\n'\'' && grep $'\''\\t'\'' notes.txt"}}' \
   hook-pre-tool
 
+# Bash drops an unquoted line continuation before it reads quotes, so `$`, a
+# continuation, and a quote still open a $'...' string.
+expect_json_status 2 "Bash line continuation inside an ANSI-C quote opener is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat $\\\n'\''.e\\156'\''v"}}' \
+  hook-pre-tool
+
+# Only a real $'...' string decodes escapes; the same text elsewhere is literal.
+expect_json_status 0 "Bash escaped dollar before a quoted hex escape remains allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat \\$'\''.e\\x6e'\''v"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "Bash single-quoted hex escape text spliced with unquoted text remains allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat '\''.e\\x6e'\''v"}}' \
+  hook-pre-tool
+
 expect_json_status 2 "Bash glob bracket path bypass is blocked" \
   '{"tool_name":"Bash","tool_input":{"command":"cat .e[n]v"}}' \
   hook-pre-tool
