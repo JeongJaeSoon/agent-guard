@@ -4837,6 +4837,10 @@ git_commit_stage_records() {
     if [ "$stage_kind" = 0 ] && is_shell_command_separator "$stage_word"; then
       return 0
     fi
+    # A quoted operator, like the pathspec in `-- ';'`, is a literal word.
+    case "$stage_kind$stage_word" in
+      4';'|4'&&'|4'||'|4'|') stage_kind=0 ;;
+    esac
     if [ "$stage_skip_next" -eq 1 ]; then
       stage_skip_next=0
       # An option value that may split, like `-m $F`, may also be --interactive.

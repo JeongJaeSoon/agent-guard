@@ -3946,6 +3946,7 @@ mkdir -p "$AUTOSTAGE_REPO/sub"
   printf 'n=1\n' > other.conf
   printf 's=1\n' > sub/nested.conf
   printf 'g=1\n' > '>'
+  printf 'h=1\n' > ';'
   git add .
   git commit -q -m init
   # An ignored file named like an option, for the glob case below.
@@ -4056,6 +4057,8 @@ autostage_case claude secret 2 'git commit -m x -?'
 autostage_case codex clean 0 'git commit -m x -?'
 # A quoted pathspec that looks like a redirection is still a pathspec.
 autostage_case codex secret 2 "git commit -m x -- '>'" '>'
+autostage_case claude secret 2 "git commit -m x -- ';'" ';'
+autostage_case codex secret 0 "git commit -m x -- ';'" untracked.conf
 # The pathspec file lies outside the repository (closed policy: no false failure).
 printf 'settings.conf\n' >"$TMP_ROOT/autostage-pathspecs"
 autostage_case claude secret 2 "git commit -m x --pathspec-from-file $TMP_ROOT/autostage-pathspecs"
