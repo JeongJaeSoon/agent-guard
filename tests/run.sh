@@ -2336,6 +2336,21 @@ expect_json_status 2 "assignment-prefixed git --no-verify is blocked" \
   '{"tool_name":"Bash","tool_input":{"command":"FOO=bar git commit --no-verify -m x"}}' \
   hook-pre-tool
 
+# The flag inside code another shell or env -S runs is still the flag.
+for nv_command in "bash -c 'git commit --no-verify -m x'" "env -S 'git push --no-verify'"; do
+  for nv_host in claude codex; do
+    jq -nc --arg c "$nv_command" '{tool_name:"Bash",tool_input:{command:$c}}' \
+      | AGENT_GUARD_HOOK_HOST=$nv_host "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+    nv_status=$?
+    if [ "$nv_status" -eq 2 ] && grep -q 'disables hooks/signing' "$ERR"; then
+      ok "[$nv_host] $nv_command is blocked"
+    else
+      not_ok "[$nv_host] $nv_command is blocked (got $nv_status)"
+      sed 's/^/  stderr: /' "$ERR"
+    fi
+  done
+done
+
 # Rank 3: cloud / secrets-manager credential-dump siblings.
 expect_json_status 2 "gcloud auth print-access-token is blocked" \
   '{"tool_name":"Bash","tool_input":{"command":"gcloud auth print-access-token"}}' \
@@ -3931,6 +3946,7 @@ mkdir -p "$AUTOSTAGE_REPO/sub"
   printf 'n=1\n' > other.conf
   printf 's=1\n' > sub/nested.conf
   printf 'g=1\n' > '>'
+  printf 'h=1\n' > ';'
   git add .
   git commit -q -m init
   # An ignored file named like an option, for the glob case below.
@@ -4041,6 +4057,8 @@ autostage_case claude secret 2 'git commit -m x -?'
 autostage_case codex clean 0 'git commit -m x -?'
 # A quoted pathspec that looks like a redirection is still a pathspec.
 autostage_case codex secret 2 "git commit -m x -- '>'" '>'
+autostage_case claude secret 2 "git commit -m x -- ';'" ';'
+autostage_case codex secret 0 "git commit -m x -- ';'" untracked.conf
 # The pathspec file lies outside the repository (closed policy: no false failure).
 printf 'settings.conf\n' >"$TMP_ROOT/autostage-pathspecs"
 autostage_case claude secret 2 "git commit -m x --pathspec-from-file $TMP_ROOT/autostage-pathspecs"
@@ -4068,6 +4086,39 @@ autostage_case claude secret 0 'git add sub/*.conf && git commit -m x' ignored.c
 autostage_case claude clean 0 'git commit -am x >/dev/null 2>&1'
 # Pathspecs resolve against the command cwd, not the repository root.
 autostage_case codex secret 2 'git commit -m x nested.conf' sub/nested.conf sub
+# The code a shell runs from -c or a here-string, and eval's arguments, go
+# through the same checks.
+for as_host in claude codex; do
+  for as_command in \
+    'bash -c "git commit -am x"' \
+    "sh -c 'git commit -am x'" \
+    "eval 'git commit -am x'" \
+    'eval git commit -am x' \
+    "bash -e -c 'true && git commit -am x' _" \
+    "bash <<< 'git commit -am x'" \
+    "env -S 'git commit -am x'" \
+    "bash<<<'git commit -am x'" \
+    'git>/dev/null commit -am x' \
+    'git 2>&1 commit -am x' \
+    "git commit -m ';' -a"
+  do
+    autostage_case "$as_host" secret 2 "$as_command"
+    autostage_case "$as_host" clean 0 "$as_command"
+  done
+done
+# An option value that may split may yield --interactive; a quoted one,
+# including the usual here-document message, is one word and adds no scan of
+# untracked files.
+autostage_case claude secret 2 "F='x --interactive'; printf '4\\n1\\n\\n7\\n' | git commit -m \$F" untracked.conf
+autostage_case codex clean 0 "F='x --interactive'; printf '4\\n1\\n\\n7\\n' | git commit -m \$F" untracked.conf
+autostage_case codex secret 2 "printf '4\\n1\\n\\n7\\n' | bash -c 'git commit -m \$1' _ 'x --interactive'" untracked.conf
+autostage_case claude secret 0 "F='x --interactive'; printf '4\\n1\\n\\n7\\n' | git commit -m \"\$F\"" untracked.conf
+autostage_case codex secret 0 "F='x --interactive'; printf '4\\n1\\n\\n7\\n' | git commit -m \"\${F:-x y}\"" untracked.conf
+autostage_case codex secret 0 "printf '4\\n1\\n\\n7\\n' | bash -c 'git commit -m \"\$1\"' _ 'x --interactive'" untracked.conf
+autostage_case claude secret 0 "git commit -m \"\$(cat <<'EOF'
+x --interactive
+EOF
+)\"" untracked.conf
 
 # A shell cd moves the commit to another repository: the scan must follow a
 # literal cd and fail per the infrastructure policy (closed here) on one it
@@ -4099,7 +4150,8 @@ printf '/link\n' >> "$SHELLCD_ROOT/a/.git/info/exclude"
 # line. EXPECTED is 0, 2 (blocked on the finding), or U0/U2: blocked because
 # the working directory is unknown, allowed under the open policy, and the
 # digit is the ground truth under bash (HOME is b, so `cd` alone moves there),
-# or x where it differs between bash versions.
+# or x where it differs between bash versions. UF is U2, except that the open
+# policy still blocks on the finding in another git command of the line.
 shellcd_case() {
   sc_host=$1
   sc_mode=$2
@@ -4153,10 +4205,14 @@ shellcd_case() {
       if [ "$sc_status" -ne 2 ] || ! grep -q 'could not' "$ERR"; then
         not_ok "$sc_name (expected an unknown-cwd block under the closed policy, got $sc_status)"
         sed 's/^/  stderr: /' "$ERR"
-      elif [ "$sc_open_status" -ne 0 ] || ! grep -q 'could not' "$ERR.open"; then
+      elif [ "$sc_expected" = UF ] && { [ "$sc_open_status" -ne 2 ] \
+          || ! grep -q 'contain secret-like values' "$ERR.open" || ! grep -q 'could not' "$ERR.open"; }; then
+        not_ok "$sc_name (expected the open policy to block on the finding with a notice, got $sc_open_status)"
+        sed 's/^/  stderr: /' "$ERR.open"
+      elif [ "$sc_expected" != UF ] && { [ "$sc_open_status" -ne 0 ] || ! grep -q 'could not' "$ERR.open"; }; then
         not_ok "$sc_name (expected the open policy to allow it with a notice, got $sc_open_status)"
         sed 's/^/  stderr: /' "$ERR.open"
-      elif [ "${sc_expected#U}" != x ] && [ "$sc_leaks" -ne "${sc_expected#U}" ]; then
+      elif [ "${sc_expected#U}" != x ] && [ "$sc_leaks" -ne "$(printf '%s' "${sc_expected#U}" | tr F 2)" ]; then
         not_ok "$sc_name (ground truth disagrees: the command leaks=$sc_leaks)"
       else
         ok "$sc_name"
@@ -4247,6 +4303,38 @@ shellcd_case codex secret U2 'ln -sfn . relink && cd relink && git commit -m x' 
 shellcd_case claude secret U2 'cd missing || git commit -m x' a
 # A redirection before the command name does not hide the commit.
 shellcd_case codex secret 2 '>/dev/null git commit -m x' a
+# A shell's cd does not leave it, but an earlier cd, or env -C, applies to it;
+# eval runs in this shell, so its cd does move a later commit.
+shellcd_case claude secret 2 "bash -c 'cd ../b && git commit -m x'"
+shellcd_case codex secret 2 "cd ../b && bash -c 'git commit -m x'"
+shellcd_case claude secret 2 "env -C ../b sh -c 'git commit -m x'"
+shellcd_case codex secret 2 "bash -c 'cd ../b'; git commit -m x" a
+shellcd_case claude secret 0 "bash -c 'cd ../b'; git commit -m x"
+shellcd_case codex secret U2 "eval 'cd ../b'; git commit -m x"
+# A stray parenthesis in the script must not restore the outer subshell's cd.
+shellcd_case claude secret U2 "(cd ../b; bash -c ')'; git commit -m x)"
+# Code, a command name, or a git word only run time knows fails per the policy.
+shellcd_case codex secret U2 "bash -c '\$1' _ 'git commit -m x'" a
+shellcd_case claude secret U2 'G=git; $G commit -m x' a
+shellcd_case codex secret U2 '"$(command -v git)" commit -m x' a
+shellcd_case codex secret U2 "C='git commit -m x'; bash -c \"\$C\"" a
+shellcd_case claude secret U2 "C='git commit -m x'; eval \"\$C\"" a
+# eval parses a quoted operator among its arguments as one.
+shellcd_case codex secret 2 "eval true ';' 'git commit -m x'" a
+shellcd_case claude secret 2 "eval >/dev/null -- 'git commit -m x'" a
+shellcd_case codex secret U2 "C='git commit -m x'; env -S \"\$C\"" a
+shellcd_case claude secret U2 "env -S 'git\\_commit\\_-m\\_x'" a
+shellcd_case codex secret U2 "env -S 'git$(printf '\013')commit -m x'" a
+shellcd_case claude secret U2 "echo 'git commit -m x' | xargs -I{} sh -c '{}'" a
+shellcd_case codex secret U2 "X='commit -m x'; git \$X" a
+shellcd_case claude secret U2 "X='core.x=1 commit'; git -c \$X -m x" a
+shellcd_case codex secret U2 "X='V -C ../b'; env -u \$X git commit -m x"
+# A command name with a literal last component is that command.
+shellcd_case claude secret 2 'D=$(dirname "$(command -v git)"); "$D/git" commit -m x' a
+shellcd_case codex secret 2 "/usr/bin/env git commit -m x" a
+# The open policy still scans the git commands whose directory is known.
+shellcd_case claude secret UF 'git commit -m x; cd $SC_UNSET_DIR && git commit -m y' a
+shellcd_case codex secret UF 'eval "$(true)"; git commit -m x' a
 
 # The push gate follows the cd too. Nothing is committed, so the verdict is
 # checked against the same command with git -C, which the gate already follows.
