@@ -1,3 +1,7 @@
+## v3.5.3 - 2026-09-25
+
+- fix(hooks): check shell -c, eval and split words that hide a git commit (#283)
+
 ## v3.5.2 - 2026-09-25
 
 - fix(hooks): scan the repository a shell cd moves git commit and push into (#276)
