@@ -4840,6 +4840,7 @@ git_alias_lookup() (
   CDPATH= cd -- "$2" 2>/dev/null || exit 2
   IFS='
 '
+  # shellcheck disable=SC2086
   for alias_dir in $3; do
     # A shell cd resolves `..` logically, git -C and env -C physically.
     alias_physical=$(CDPATH= cd -P -- "$alias_dir" 2>/dev/null && pwd -P) || exit 2
