@@ -4268,18 +4268,24 @@ alias_case() {
     U*) al_policies='open closed' ;;
     *) al_policies=closed ;;
   esac
+  # An inherited GIT_CONFIG_COUNT, _KEY_0 or _VALUE_0 would keep
+  # `${GIT_CONFIG_COUNT:=1}` and the like from assigning. GIT_CONFIG_GLOBAL
+  # points at the file with alias.gci.
   for al_policy in $al_policies; do
     al_session=$((al_session + 1))
     jq -nc --arg c "$al_command" --arg d "$ALIAS_ROOT/a" --arg s "alias-$$-$al_session" "$al_filter" \
       | (cd "$TMP_ROOT" && GIT_CONFIG_GLOBAL=$ALIAS_GLOBAL AGENT_GUARD_HOOK_HOST=$al_host \
-          AGENT_GUARD_INFRA_FAILURE_MODE=$al_policy "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool) >"$OUT" 2>"$ERR"
+          AGENT_GUARD_INFRA_FAILURE_MODE=$al_policy \
+          env -u GIT_CONFIG_COUNT -u GIT_CONFIG_KEY_0 -u GIT_CONFIG_VALUE_0 \
+          "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool) >"$OUT" 2>"$ERR"
     al_status=$?
     if [ "$al_policy" = open ]; then
       al_open_status=$al_status
       cp "$ERR" "$ERR.open"
     fi
   done
-  (cd "$ALIAS_ROOT/a" && GIT_CONFIG_GLOBAL=$ALIAS_GLOBAL bash -c "$al_command") >/dev/null 2>&1
+  (cd "$ALIAS_ROOT/a" && GIT_CONFIG_GLOBAL=$ALIAS_GLOBAL \
+    env -u GIT_CONFIG_COUNT -u GIT_CONFIG_KEY_0 -u GIT_CONFIG_VALUE_0 bash -c "$al_command") >/dev/null 2>&1
   al_leaks=0
   for al_check in a:"$ALIAS_BASE_A" b:"$ALIAS_BASE_B"; do
     if git -C "$ALIAS_ROOT/${al_check%%:*}" log -p "${al_check#*:}..HEAD" | grep -q AGENT_GUARD_TEST_SECRET; then
@@ -4353,6 +4359,7 @@ alias_case codex clean N 'git nv -m x'
 alias_case claude secret U2 'git sc'
 alias_case codex secret U2 'git -c help.autocorrect=immediate comit -m x'
 alias_case codex secret U2 'export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=alias.k GIT_CONFIG_VALUE_0=commit; git k -m x'
+alias_case claude secret U2 'set -a; : "${GIT_CONFIG_COUNT:=1}" "${GIT_CONFIG_KEY_0:=alias.k}" "${GIT_CONFIG_VALUE_0:=commit}"; git k -m x'
 alias_case claude secret U2 'git config alias.k commit && git k -m x'
 git -C "$ALIAS_ROOT/a" config --unset-all alias.k
 alias_case claude secret U2 "printf '[alias]\\n\\tk = commit\\n' >> .git/config && git k -m x"

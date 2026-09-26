@@ -4781,14 +4781,16 @@ is_git_config_env_name() {
   esac
 }
 
-# Succeed when a word names one of those variables other than in a `$NAME`
-# expansion, as `export HOME=x`, `unset GIT_DIR` or `read HOME` do.
+# Succeed when a word names one of those variables other than in an expansion
+# that only reads it, as `export HOME=x`, `unset GIT_DIR`, `read HOME` and
+# `${HOME:=x}` do.
 mentions_git_config_env() {
   case "$1" in
     *HOME*|*GIT_*) ;;
     *) return 1 ;;
   esac
-  printf '%s\n' "$1" | sed 's/\$[{]*[A-Za-z_][A-Za-z0-9_]*//g' \
+  printf '%s\n' "$1" \
+    | sed -E 's/\$[A-Za-z_][A-Za-z0-9_]*//g; s/\$\{#?[A-Za-z_][A-Za-z0-9_]*([}#%\/^,?+-]|:[^=])//g' \
     | grep -Eq '(^|[^A-Za-z0-9_])(HOME|XDG_CONFIG_HOME|GIT_CONFIG_[A-Za-z0-9_]*|GIT_DIR|GIT_COMMON_DIR|GIT_CEILING_DIRECTORIES|GIT_DISCOVERY_ACROSS_FILESYSTEM)([^A-Za-z0-9_]|$)'
 }
 
