@@ -4772,6 +4772,121 @@ is_assignment_token() {
   esac
 }
 
+# The variables that decide which configuration files git reads, and so what a
+# git alias expands to. GIT_CONFIG itself redirects `git config` alone.
+is_git_config_env_name() {
+  case "$1" in
+    HOME|XDG_CONFIG_HOME|GIT_CONFIG_*|GIT_DIR|GIT_COMMON_DIR|GIT_CEILING_DIRECTORIES|GIT_DISCOVERY_ACROSS_FILESYSTEM) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# Succeed when a word names one of those variables other than in an expansion
+# that only reads it, as `export HOME=x`, `unset GIT_DIR`, `read HOME` and
+# `${HOME:=x}` do.
+mentions_git_config_env() {
+  case "$1" in
+    *HOME*|*GIT_*) ;;
+    *) return 1 ;;
+  esac
+  printf '%s\n' "$1" \
+    | sed -E 's/\$[A-Za-z_][A-Za-z0-9_]*//g; s/\$\{#?[A-Za-z_][A-Za-z0-9_]*([}#%\/^,?+-]|:[^=])//g' \
+    | grep -Eq '(^|[^A-Za-z0-9_])(HOME|XDG_CONFIG_HOME|GIT_CONFIG_[A-Za-z0-9_]*|GIT_DIR|GIT_COMMON_DIR|GIT_CEILING_DIRECTORIES|GIT_DISCOVERY_ACROSS_FILESYSTEM)([^A-Za-z0-9_]|$)'
+}
+
+# Git runs a subcommand that has no built-in as an external git-<name>
+# program, else as an alias; an alias cannot hide a built-in, except a
+# deprecated one. The common built-ins skip spawning git to list them.
+git_is_builtin() {
+  case "$1" in
+    status|log|diff|show|add|stage|rm|mv|rev-parse|config|remote|branch|tag|ls-files|describe|shortlog|blame|grep|fetch|pull|checkout|switch|restore|reset|stash|merge|rebase|cherry-pick|revert|init|clone|worktree|submodule|apply|am|format-patch|ls-tree|ls-remote|cat-file|rev-list|for-each-ref|show-ref|symbolic-ref|reflog|clean|bisect|notes|gc|fsck|version|help|var|merge-base|update-index) return 0 ;;
+  esac
+  if [ -z "${git_builtin_names+x}" ]; then
+    git_builtin_names=$(git --list-cmds=builtins 2>/dev/null) || git_builtin_names=
+    git_deprecated_names=$(git --list-cmds=deprecated 2>/dev/null) || git_deprecated_names=
+  fi
+  case "
+$git_deprecated_names
+" in
+    *"
+$1
+"*) return 1 ;;
+  esac
+  case "
+$git_builtin_names
+" in
+    *"
+$1
+"*) return 0 ;;
+  esac
+  return 1
+}
+
+git_has_external() {
+  command -v "git-$1" >/dev/null 2>&1 && return 0
+  git_exec_path=$(git --exec-path 2>/dev/null) && [ -x "$git_exec_path/git-$1" ]
+}
+
+# Print the alias git expands subcommand $1 to when it runs in directory $2,
+# then in each directory on a line of $3, with the git options in $4 (-c,
+# --git-dir, --bare) and the variable assignments in $5, one word per line.
+# Fail with 1 when $1 names no alias and help.autocorrect runs no guess, with 3
+# when autocorrect may run one, and with 2 when the configuration cannot be
+# read or the alias is not a plain git command line, one that the tokenizer
+# splits the way git does: `!` shell aliases included.
+git_alias_lookup() (
+  set -f
+  alias_name=$1
+  CDPATH= cd -- "$2" 2>/dev/null || exit 2
+  IFS='
+'
+  # shellcheck disable=SC2086
+  for alias_dir in $3; do
+    # A shell cd resolves `..` logically, git -C and env -C physically.
+    alias_physical=$(CDPATH= cd -P -- "$alias_dir" 2>/dev/null && pwd -P) || exit 2
+    CDPATH= cd -- "$alias_dir" 2>/dev/null || exit 2
+    [ "$(pwd -P)" = "$alias_physical" ] || exit 2
+  done
+  unset GIT_CONFIG
+  # shellcheck disable=SC2086
+  set -- $5 git $4 config -z --list
+  # Each entry is `key<LF>value<NUL>`, or `key<NUL>` for a bare boolean: one
+  # line per entry, with \001 after the key and for a newline in the value.
+  alias_value=$(
+    { env "$@" 2>/dev/null || printf '\001failed\0'; } \
+      | tr '\0\n' '\n\001' \
+      | awk -v name="$alias_name" '
+        BEGIN { FS = "\001"; name = tolower(name) }
+        $0 == "\001failed" { failed = 1; next }
+        {
+          key = tolower($1)
+          sep = index($0, FS)
+          # Git matches `alias.<name>` case-insensitively and the subsection
+          # form `alias.<name>.command` case-sensitively; match both loosely.
+          if (key == "alias." name || key == "alias." name ".command") {
+            found = 1
+            bare = !sep
+            value = substr($0, sep + 1)
+          } else if (key == "help.autocorrect") {
+            autocorrect = sep ? tolower(substr($0, sep + 1)) : "true"
+          }
+        }
+        END {
+          if (failed || (found && bare)) exit 2
+          if (found) { print value; exit 0 }
+          if (autocorrect == "" || autocorrect ~ /^(0|false|off|no|show|never)$/) exit 1
+          exit 3
+        }
+      '
+  )
+  alias_status=$?
+  case "$alias_status:$alias_value" in
+    0:|0:!*|0:*[!A-Za-z0-9_./=:,+@%^~?*\'\"\ \	-]*) exit 2 ;;
+  esac
+  [ "$alias_status" -ne 0 ] || printf '%s\n' "$alias_value"
+  exit "$alias_status"
+)
+
 # Transparent wrappers that run the command following them; a git commit/push
 # behind one of these still stages/commits, so the gate must see through it.
 is_noop_wrapper() {
@@ -5162,6 +5277,8 @@ shell_command_code() {
 
 is_git_commit_or_push() {
   cmd=$1
+  git_alias_workdir=${2:-}
+  [ -n "$git_alias_workdir" ] || git_alias_workdir=$(pwd)
   (
     set -f
     words=$(git_command_records "$cmd")
@@ -5171,6 +5288,33 @@ is_git_commit_or_push() {
     # shellcheck disable=SC2086
     set -- $words
     IFS=$old_ifs
+
+    unset git_builtin_names
+    # A git alias expands per the configuration its command reads. That is
+    # unknown once an earlier part of the line may write a config file
+    # (git_config_mutable) or change the variables that locate one
+    # (git_env_changed), or when the command's own assignments or options
+    # that do so are dynamic. Literal ones are applied to the lookup.
+    git_config_mutable=0
+    git_env_changed=0
+    git_env_args=
+    git_env_dynamic=0
+    git_config_args=
+    git_config_dynamic=0
+    git_alias_depth=0
+    # Only a redirection to a descriptor or /dev/null writes no file.
+    case "$cmd" in
+      *'>'*)
+        printf '%s\n' "$cmd" \
+          | sed -E 's/[0-9]*>&([0-9]+|-)([[:space:];&|)]|$)/\2/g; s/(&|[0-9]*)>>?[|]? *\/dev\/null([[:space:];&|)]|$)/\2/g' \
+          | grep -q '>' && git_config_mutable=1
+        ;;
+    esac
+    # PATH decides which external git-<name> programs exist.
+    git_external_known=1
+    case "$cmd" in
+      *PATH*|*--exec-path*) git_external_known=0 ;;
+    esac
 
     command_start=1
     effective_c_dirs=
@@ -5302,6 +5446,39 @@ $dir"
         *) effective_c_dynamic=1 ;;
       esac
     }
+    # $1 is a NAME=value record before a command name. A tilde in it expands.
+    git_env_assignment() {
+      git_env_name=${1#?}
+      is_git_config_env_name "${git_env_name%%=*}" || return 0
+      case "$1" in
+        0*'~'*|[!0]*) git_env_dynamic=1 ;;
+        *) git_env_args="$git_env_args${1#?}
+" ;;
+      esac
+    }
+    # $1 is an option that changes the configuration git reads, $2 the record
+    # of its value.
+    git_config_option() {
+      case "$2" in
+        0*) git_config_args="$git_config_args$1
+${2#?}
+" ;;
+        *) git_config_dynamic=1 ;;
+      esac
+    }
+    # Print what git expands subcommand $1 to, with the status of
+    # git_alias_lookup; one that only run time knows fails with 2, unless git
+    # runs an external command by that name instead.
+    git_subcommand_alias() (
+      if [ "$git_config_mutable$git_env_changed$git_env_dynamic$git_config_dynamic$effective_c_dynamic$shell_cd_unknown$shell_cd_lost" = 0000000 ]; then
+        git_alias_lookup "$1" "$git_alias_workdir" "$shell_cd_dirs
+$effective_c_dirs" "$git_config_args" "$git_env_args"
+        git_alias_status=$?
+        [ "$git_alias_status" -eq 3 ] || exit "$git_alias_status"
+      fi
+      [ "$git_external_known" -eq 1 ] && git_has_external "$1" && exit 1
+      exit 2
+    )
     while [ "$#" -gt 0 ]; do
       record=$1
       record_kind=${record%"${record#?}"}
@@ -5313,6 +5490,7 @@ $dir"
         # git check below. command_start stays 1 so the next token is re-examined
         # as the command head.
         if is_assignment_token "$token"; then
+          git_env_assignment "$record"
           shift
           continue
         fi
@@ -5429,6 +5607,8 @@ $shell_cd_dir"
 0cd
 1\$
 0;"
+                # An assignment before eval may outlast it.
+                [ -z "$git_env_args" ] && [ "$git_env_dynamic" -eq 0 ] || git_env_changed=1
                 IFS='
 '
                 if [ "${token##*/}" = eval ]; then
@@ -5456,6 +5636,8 @@ $shell_cd_dir"
           shell_cd_wrapped=1
           # xargs appends words read from stdin, which may be any argument.
           [ "$wrapper" = xargs ] && xargs_wrapped=1
+          # sudo may run git with another HOME.
+          [ "$wrapper" = sudo ] && git_env_dynamic=1
           shift
           while [ "$#" -gt 0 ]; do
             record=$1
@@ -5490,6 +5672,11 @@ $shell_cd_dir"
                     ;;
                   env:-S?*) env_split=$record_kind${token#-S} ;;
                   env:--split-string=*) env_split=$record_kind${token#--split-string=} ;;
+                  # -i and -u remove variables that locate git configuration.
+                  env:-|env:--ignore-environment|env:--unset|env:--unset=*|env:-[!-]*[iu]*|env:-[iu]*)
+                    git_env_dynamic=1
+                    env_split=
+                    ;;
                   *) env_split= ;;
                 esac
                 if [ -n "$env_split" ]; then
@@ -5525,7 +5712,7 @@ $shell_cd_dir"
                 fi
                 ;;
               *)
-                is_assignment_token "${1#?}" && { shift; continue; }
+                is_assignment_token "${1#?}" && { git_env_assignment "$1"; shift; continue; }
                 # `{}`, as in `xargs -I{}`, is a word, not a group.
                 case "$record" in
                   3'{'|3'}') shift; continue ;;
@@ -5538,6 +5725,8 @@ $shell_cd_dir"
         fi
         if [ "${token##*/}" = git ]; then
           shift
+          git_alias_depth=0
+          [ "$shell_cd_mutable" -eq 0 ] || git_config_mutable=1
           while [ "$#" -gt 0 ]; do
             record=$1
             token=${record#?}
@@ -5563,12 +5752,21 @@ $shell_cd_dir"
               [ "$token" = -C ] && append_effective_c_dir "$1"
               git_value=$1
               shift
+              case "$token" in
+                -c|--git-dir) git_config_option "$token" "$git_value" ;;
+                --config-env) git_config_dynamic=1 ;;
+              esac
               case "$git_value" in
                 0*|4*) continue ;;
               esac
               token=commit
               effective_c_dynamic=1
             else
+              case "$record" in
+                0--git-dir=*|0--bare) git_config_args="$git_config_args$token
+" ;;
+                0--config-env=*|4--git-dir=*|4--config-env=*) git_config_dynamic=1 ;;
+              esac
               case "$record" in
                 0*) is_git_global_option "$token" && continue ;;
                 4--*=*)
@@ -5626,11 +5824,38 @@ $shell_cd_dir"
                 esac
                 break
                 ;;
+              # It may define an alias a later git command runs.
+              config)
+                git_config_mutable=1
+                break
+                ;;
               *)
+                git_is_builtin "$token" && break
+                # Expand an alias in place, so that the checks above see the
+                # git command it runs. Git refuses an alias loop.
+                git_alias=$(git_subcommand_alias "$token")
+                case "$?" in
+                  0)
+                    if [ "$git_alias_depth" -lt 10 ]; then
+                      git_alias_depth=$((git_alias_depth + 1))
+                      IFS='
+'
+                      # shellcheck disable=SC2086
+                      set -- $(git_command_records "$git_alias") "$@"
+                      IFS=$old_ifs
+                      continue
+                    fi
+                    ;;
+                  1) break ;;
+                esac
+                printf 'G\nU\n'
+                matched=0
                 break
                 ;;
             esac
           done
+          git_env_args=
+          git_env_dynamic=0
           command_start=0
           continue
         fi
@@ -5646,6 +5871,7 @@ $shell_cd_dir"
         esac
       fi
 
+      mentions_git_config_env "$token" && git_env_changed=1
       shift
       if [ "$record_kind" = 3 ] || is_shell_command_separator "$token"; then
         # `>&2` and `2>&1` redirect; they do not background anything.
@@ -5657,6 +5883,12 @@ $shell_cd_dir"
         effective_c_dirs=
         effective_c_dynamic=0
         xargs_wrapped=0
+        # An assignment no git command took may stay in the environment.
+        [ -z "$git_env_args" ] && [ "$git_env_dynamic" -eq 0 ] || git_env_changed=1
+        git_env_args=
+        git_env_dynamic=0
+        git_config_args=
+        git_config_dynamic=0
       else
         command_start=0
       fi
@@ -5692,7 +5924,7 @@ is_git_hook_bypass() {
 check_git_command() {
   cmd=$1
   workdir=${2:-}
-  git_c_records=$(is_git_commit_or_push "$cmd")
+  git_c_records=$(is_git_commit_or_push "$cmd" "$workdir")
   git_command_status=$?
   if [ "$git_command_status" -eq 0 ]; then
     if is_git_hook_bypass "$cmd" || printf '%s\n' "$git_c_records" | grep -qx N; then
@@ -5708,7 +5940,7 @@ check_git_command() {
     # command; the open policy still scans every other group.
     if printf '%s\n' "$git_c_records" | grep -qx U; then
       handle_hook_infrastructure_failure PreToolUse "${HOOK_INPUT:-}" \
-        "$PROGRAM: a git commit or push may run in a working directory, or with arguments or shell code, that could not be resolved safely;"
+        "$PROGRAM: a git commit or push may run in a working directory, or with arguments, a git alias or shell code, that could not be resolved safely;"
     fi
     (
       set -f

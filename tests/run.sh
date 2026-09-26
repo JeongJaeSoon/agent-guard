@@ -4192,6 +4192,183 @@ else
   sed 's/^/  stderr: /' "$ERR"
 fi
 
+# A git alias runs the git command it expands to, read from the configuration
+# that command reads: its -c options and GIT_CONFIG_* variables, the repository
+# it runs in, include files and the global file. The hook runs with cwd=a and
+# the command is then really run there; both repositories' new commits are
+# searched for the marker.
+ALIAS_ROOT="$TMP_ROOT/alias"
+ALIAS_GLOBAL="$ALIAS_ROOT/global.gitconfig"
+mkdir -p "$ALIAS_ROOT"
+printf '[alias]\n\tgci = commit\n' >"$ALIAS_GLOBAL"
+for al_repo in a b; do
+  mkdir -p "$ALIAS_ROOT/$al_repo"
+  (
+    cd "$ALIAS_ROOT/$al_repo" || exit 2
+    git init -q
+    git config user.email test@example.com
+    git config user.name test
+    git config core.hooksPath "$TMP_ROOT/alias-no-hooks"
+    printf 'a=1\n' > settings.conf
+    printf 'n=1\n' > other.conf
+    git add .
+    git commit -q -m init
+  )
+done
+(
+  cd "$ALIAS_ROOT/a" || exit 2
+  git config alias.ci commit
+  git config alias.ca 'commit -a'
+  git config alias.c2 ci
+  git config alias.nv 'commit --no-verify'
+  git config alias.st 'status -s'
+  git config alias.sc '!git commit -m x'
+  # Git ignores an alias that hides a built-in command.
+  git config alias.status commit
+  printf '[alias]\n\tinc-ci = commit\n' > .git/alias.inc
+  git config include.path alias.inc
+)
+git -C "$ALIAS_ROOT/b" config alias.bci commit
+ALIAS_BASE_A=$(git -C "$ALIAS_ROOT/a" rev-parse HEAD)
+ALIAS_BASE_B=$(git -C "$ALIAS_ROOT/b" rev-parse HEAD)
+al_session=0
+
+# alias_case HOST MODE EXPECTED COMMAND [REPO]
+# MODE secret stages the marker in REPO (default a); autostage stages a benign
+# line and leaves the marker unstaged in a tracked file; clean stages a benign
+# line. EXPECTED is 0, 2 (blocked on the finding), N (blocked for disabling
+# hooks), or U0/U2: blocked under the closed policy because the alias cannot be
+# resolved, allowed with a notice under the open one, and the digit is the
+# ground truth.
+alias_case() {
+  al_host=$1
+  al_mode=$2
+  al_expected=$3
+  al_command=$4
+  al_repo=$ALIAS_ROOT/${5:-a}
+  al_name="git alias [$al_host] $al_mode: $al_command"
+  (
+    for al_reset in a:"$ALIAS_BASE_A" b:"$ALIAS_BASE_B"; do
+      cd "$ALIAS_ROOT/${al_reset%%:*}" || exit 2
+      git reset -q --hard "${al_reset#*:}" || exit 2
+    done
+    cd "$al_repo" || exit 2
+    case "$al_mode" in
+      secret) printf '%s\n' "AGENT_GUARD_TEST_SECRET" >> settings.conf ;;
+      *) printf 'c=3\n' >> settings.conf ;;
+    esac
+    git add settings.conf
+    [ "$al_mode" != autostage ] || printf '%s\n' "AGENT_GUARD_TEST_SECRET" >> other.conf
+  ) || { not_ok "$al_name (setup failed)"; return; }
+  case "$al_host" in
+    codex) al_filter='{session_id:$s,tool_name:"Bash",tool_input:{command:$c,workdir:$d}}' ;;
+    *) al_filter='{session_id:$s,tool_name:"Bash",tool_input:{command:$c},cwd:$d}' ;;
+  esac
+  case "$al_expected" in
+    U*) al_policies='open closed' ;;
+    *) al_policies=closed ;;
+  esac
+  # An inherited GIT_CONFIG_COUNT, _KEY_0 or _VALUE_0 would keep
+  # `${GIT_CONFIG_COUNT:=1}` and the like from assigning. GIT_CONFIG_GLOBAL
+  # points at the file with alias.gci.
+  for al_policy in $al_policies; do
+    al_session=$((al_session + 1))
+    jq -nc --arg c "$al_command" --arg d "$ALIAS_ROOT/a" --arg s "alias-$$-$al_session" "$al_filter" \
+      | (cd "$TMP_ROOT" && GIT_CONFIG_GLOBAL=$ALIAS_GLOBAL AGENT_GUARD_HOOK_HOST=$al_host \
+          AGENT_GUARD_INFRA_FAILURE_MODE=$al_policy \
+          env -u GIT_CONFIG_COUNT -u GIT_CONFIG_KEY_0 -u GIT_CONFIG_VALUE_0 \
+          "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool) >"$OUT" 2>"$ERR"
+    al_status=$?
+    if [ "$al_policy" = open ]; then
+      al_open_status=$al_status
+      cp "$ERR" "$ERR.open"
+    fi
+  done
+  (cd "$ALIAS_ROOT/a" && GIT_CONFIG_GLOBAL=$ALIAS_GLOBAL \
+    env -u GIT_CONFIG_COUNT -u GIT_CONFIG_KEY_0 -u GIT_CONFIG_VALUE_0 bash -c "$al_command") >/dev/null 2>&1
+  al_leaks=0
+  for al_check in a:"$ALIAS_BASE_A" b:"$ALIAS_BASE_B"; do
+    if git -C "$ALIAS_ROOT/${al_check%%:*}" log -p "${al_check#*:}..HEAD" | grep -q AGENT_GUARD_TEST_SECRET; then
+      al_leaks=2
+    fi
+  done
+  case "$al_expected" in
+    U*)
+      if [ "$al_status" -ne 2 ] || ! grep -q 'could not' "$ERR"; then
+        not_ok "$al_name (expected an unresolved-alias block under the closed policy, got $al_status)"
+        sed 's/^/  stderr: /' "$ERR"
+      elif [ "$al_open_status" -ne 0 ] || ! grep -q 'could not' "$ERR.open"; then
+        not_ok "$al_name (expected the open policy to allow it with a notice, got $al_open_status)"
+        sed 's/^/  stderr: /' "$ERR.open"
+      elif [ "$al_leaks" -ne "${al_expected#U}" ]; then
+        not_ok "$al_name (ground truth disagrees: the command leaks=$al_leaks)"
+      else
+        ok "$al_name"
+      fi
+      ;;
+    N)
+      if [ "$al_status" -ne 2 ] || ! grep -q 'disables hooks' "$ERR"; then
+        not_ok "$al_name (expected a block for disabling hooks, got $al_status)"
+        sed 's/^/  stderr: /' "$ERR"
+      else
+        ok "$al_name"
+      fi
+      ;;
+    *)
+      if [ "$al_status" -ne "$al_expected" ]; then
+        not_ok "$al_name (expected $al_expected, got $al_status)"
+        sed 's/^/  stderr: /' "$ERR"
+      elif [ "$al_status" -eq 2 ] && ! grep -q 'contain secret-like values' "$ERR"; then
+        not_ok "$al_name (blocked, but not on a secret finding)"
+        sed 's/^/  stderr: /' "$ERR"
+      elif [ "$al_leaks" -ne "$al_expected" ]; then
+        not_ok "$al_name (ground truth disagrees: the command leaks=$al_leaks)"
+      else
+        ok "$al_name"
+      fi
+      ;;
+  esac
+}
+
+for al_host in claude codex; do
+  for al_command in \
+    'git -c alias.k=commit k -m x' \
+    'git ci -m x' \
+    'git gci -m x' \
+    'GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=alias.k GIT_CONFIG_VALUE_0=commit git k -m x'
+  do
+    alias_case "$al_host" secret 2 "$al_command"
+    alias_case "$al_host" clean 0 "$al_command"
+  done
+  alias_case "$al_host" autostage 2 'git ca -m x'
+  alias_case "$al_host" clean 0 'git ca -m x'
+done
+alias_case claude autostage 2 "git -c 'alias.k=commit -m x' k other.conf"
+# An alias may name another alias, match in any case, or come from an include.
+alias_case codex secret 2 'git c2 -m x'
+alias_case claude secret 2 'git CI -m x'
+alias_case codex secret 2 'git inc-ci -m x'
+# The alias is read where the command runs, and in shell code it passes on.
+alias_case claude secret 2 'cd ../b && git bci -m x' b
+alias_case codex secret 2 'git -C ../b bci -m x' b
+alias_case claude secret 2 "bash -c 'git ci -m x'"
+# An alias that adds --no-verify is refused like the flag itself.
+alias_case codex clean N 'git nv -m x'
+# A shell alias, an autocorrected typo, and an alias the same line may change
+# or define in the environment cannot be resolved before the command runs.
+alias_case claude secret U2 'git sc'
+alias_case codex secret U2 'git -c help.autocorrect=immediate comit -m x'
+alias_case codex secret U2 'export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=alias.k GIT_CONFIG_VALUE_0=commit; git k -m x'
+alias_case claude secret U2 'set -a; : "${GIT_CONFIG_COUNT:=1}" "${GIT_CONFIG_KEY_0:=alias.k}" "${GIT_CONFIG_VALUE_0:=commit}"; git k -m x'
+alias_case claude secret U2 'git config alias.k commit && git k -m x'
+git -C "$ALIAS_ROOT/a" config --unset-all alias.k
+alias_case claude secret U2 "printf '[alias]\\n\\tk = commit\\n' >> .git/config && git k -m x"
+git -C "$ALIAS_ROOT/a" config --unset-all alias.k
+# Built-ins, plain aliases and unknown commands commit nothing: no notice.
+alias_case codex secret 0 'git status'
+alias_case claude secret 0 'git st'
+alias_case codex secret 0 'git nosuch'
+
 fi # end of shard 3
 
 if in_shard 4; then

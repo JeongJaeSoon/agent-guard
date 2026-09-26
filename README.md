@@ -33,9 +33,12 @@ run time, such as `git commit $FLAGS`, or the same command runs `git add` first,
 the plugin scans every tracked change and untracked file, including ignored
 files after `git add -f`. Shell code the command line passes to `bash -c`,
 `sh -c`, a here-string, `env -S`, or `eval` is checked like the command
-itself. When that code, the git subcommand, or the working directory is only
-known at run time, the plugin cannot tell what the command commits, and the
-infrastructure policy below decides.
+itself, and so is the git command a git alias expands to, read from the
+configuration that command would read. When that code, the git subcommand, the
+alias, or the working directory is only known at run time, the plugin cannot
+tell what the command commits, and the infrastructure policy below decides.
+That includes a `!` shell alias, a guess `help.autoCorrect` may run, and an
+alias that an earlier part of the same command line may have changed.
 
 The plugin scans the files as they are when the command starts. If an earlier
 part of the same command writes a file, or changes into another repository,
