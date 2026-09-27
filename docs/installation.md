@@ -14,6 +14,24 @@ The plugins are not replaceable by a PATH CLI: they translate Claude Code and
 Codex events into the same CLI contract. A standalone installation adds the
 CLI and optional shell integration; it does not register host hooks.
 
+Without a standalone CLI, add the marketplace pinned to a release tag and
+install the plugin with the host's own commands. Replace `vX.Y.Z` with the
+release you reviewed:
+
+```sh
+claude plugin marketplace add JeongJaeSoon/agent-guard@vX.Y.Z --scope user
+claude plugin install agent-guard@agent-guard --scope user
+
+codex plugin marketplace add JeongJaeSoon/agent-guard@vX.Y.Z
+codex plugin add agent-guard@agent-guard
+```
+
+A plugin install does not put `agent-guard` on your `PATH`, so the
+`agent-guard plugin update` route in the table needs a standalone or Homebrew
+CLI. Without one, move to a newer release by removing the marketplace and
+repeating the commands above with the new tag; removing the marketplace also
+removes its installed plugin. Restart the host afterwards.
+
 ## Runtime dependencies
 
 The runtime on macOS and Linux needs `sh`, `awk`, `git`, `jq`, and gitleaks

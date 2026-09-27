@@ -88,6 +88,19 @@ byte length with the placeholder's if you need to confirm it.
 - A host that kills a hook at its timeout can prevent that hook from deciding.
   Keep Git and CI backstops enabled.
 
+The direct scan commands (`scan-staged`, `scan-working-tree`, `scan-path`)
+return their status to the caller instead of applying the infrastructure
+policy:
+
+| Exit | Meaning |
+| --- | --- |
+| `0` | Nothing was detected in the scanned input. |
+| `1` | A secret-like value was detected. Findings are redacted, so the message names the scanned input, not the value. |
+| `2` | Usage error, such as a missing `scan-path` argument or path, or a gitleaks error during `scan-staged` or `scan-path`. |
+| `3` | The scan could not run: no gitleaks, no gitleaks config, not a Git repository, a failed `git diff`, or input over the scan budget. |
+
+Treat `2` and `3` as "not scanned", never as clean.
+
 ## Routine checks
 
 ```sh

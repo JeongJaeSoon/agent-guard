@@ -20,9 +20,10 @@ What it does **not** cover:
 
 ## Interpretation
 
-- **Exit 0, no output beyond the gitleaks summary** → no secrets detected in what was scanned. Say that, not "the directory is clean" or "safe to commit" — gitignored paths and committed history were not covered, and the result goes stale with the next edit. Then stop.
-- **Non-zero exit with `agent-guard:` lines** → leaks were flagged. Report the exact file paths and rule names gitleaks emitted, verbatim. Do not propose fixes unless the user asks.
-- **`required command not found: gitleaks`** → suggest `agent-guard setup --install --gitleaks-checksum <SHA>` and stop.
-- **`gitleaks config not found`** → the plugin install is incomplete; suggest reinstalling or updating Agent Guard through the owning host plugin manager, then reload the host and stop. A standalone bootstrap install does not repair a plugin cache.
+- **Exit 0, no output** → no secrets detected in what was scanned. Say that, not "the directory is clean" or "safe to commit" — gitignored paths and committed history were not covered, and the result goes stale with the next edit. Then stop.
+- **Exit 1** → a secret-like value was detected. The output names only the input that matched (`working tree added lines` or `untracked files`), not a file path or rule, because findings are redacted. Report that line verbatim; to locate the value, suggest `agent-guard scan-path <path>` or a gitleaks run the user controls. Do not propose fixes unless the user asks.
+- **Exit 3** → the scan could not run. This is neither clean nor a detection; report the `agent-guard:` message verbatim. Two common causes:
+  - **`required command not found: gitleaks`** → suggest `agent-guard setup --install --gitleaks-checksum <SHA>` and stop.
+  - **`gitleaks config not found`** → the plugin install is incomplete; suggest reinstalling or updating Agent Guard through the owning host plugin manager, then reload the host and stop. A standalone bootstrap install does not repair a plugin cache.
 
-Stay terse: the scan output is the answer. Avoid restating what gitleaks already printed.
+Stay terse: the scan output is the answer.

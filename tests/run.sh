@@ -183,10 +183,6 @@ else
   not_ok "managed Claude settings do not claim unsupported marketplace SHA pinning"
 fi
 
-# The direct installer must leave command wrapping active on a fresh install,
-# while AGENT_GUARD_COMMAND_WRAPPING=off is a persistent install-time opt-out.
-# Stub only the release downloads; archive verification, extraction, linking,
-# setup-shell, and rc generation all run through the real implementation.
 run_expect 0 "private metadata-only audit logging contract" sh "$ROOT/tests/audit-log.sh"
 run_expect 0 "host plugin lifecycle delegates safely" sh "$ROOT/tests/plugin-management.sh"
 
@@ -194,6 +190,10 @@ run_expect 0 "standalone update preserves executable and link destinations" \
   sh "$ROOT/tests/bootstrap-update.sh"
 run_expect 0 "release archive carries README-linked Markdown guides" \
   sh "$ROOT/tests/release-docs.sh"
+# The direct installer must leave command wrapping active on a fresh install,
+# while AGENT_GUARD_COMMAND_WRAPPING=off is a persistent install-time opt-out.
+# Stub only the release downloads; archive verification, extraction, linking,
+# setup-shell, and rc generation all run through the real implementation.
 bootstrap_fixture="$TESTTMP/bootstrap-fixture"
 mkdir -p "$bootstrap_fixture/bin"
 "$ROOT/scripts/build-release-tarball.sh" 2.0.0 "$bootstrap_fixture/agent-guard-2.0.0.tar.gz"
@@ -221,16 +221,11 @@ chmod +x "$bootstrap_fixture/bin/curl"
 for bootstrap_mode in on off; do
   bootstrap_home="$TESTTMP/bootstrap-$bootstrap_mode"
   mkdir -p "$bootstrap_home"
-  if [ "$bootstrap_mode" = off ]; then
-    bootstrap_toggle=off
-  else
-    bootstrap_toggle=on
-  fi
   BOOTSTRAP_FIXTURE="$bootstrap_fixture" \
   AGENT_GUARD_VERSION=2.0.0 \
   AGENT_GUARD_HOME="$bootstrap_home/agent-guard" \
   AGENT_GUARD_BIN_DIR="$bootstrap_home/bin" \
-  AGENT_GUARD_COMMAND_WRAPPING="$bootstrap_toggle" \
+  AGENT_GUARD_COMMAND_WRAPPING="$bootstrap_mode" \
   HOME="$bootstrap_home" SHELL=/bin/zsh \
   PATH="$bootstrap_fixture/bin:/usr/bin:/bin" \
     sh "$ROOT/bootstrap.sh" >"$OUT" 2>"$ERR"
@@ -724,8 +719,8 @@ for event in PreToolUse PostToolUse Stop SessionStart UserPromptSubmit; do
   fi
 done
 
-# Both manifests are rendered artifacts: scripts/render-hook-manifests.sh owns
-# the single resolver template and the per-host tables. A hand edit that skips
+# All four manifests (two plugin, two example) are rendered artifacts:
+# scripts/render-hook-manifests.sh owns the single resolver template and the per-host tables. A hand edit that skips
 # the renderer would reintroduce the copy-drift class the normalization checks
 # above can only partially catch.
 if sh "$ROOT/scripts/render-hook-manifests.sh" --check >/dev/null 2>&1; then
@@ -1105,10 +1100,13 @@ action_ver=$(awk '
     exit
   }
 ' "$ROOT/action.yml")
-if [ -n "$bin_ver" ] && [ "$bin_ver" = "$script_ver" ] && [ "$bin_ver" = "$action_ver" ]; then
-  ok "gitleaks default version in sync across bin/agent-guard, gitleaks-checksum.sh, and action.yml ($bin_ver)"
+ci_ver=$(awk '/^  GITLEAKS_VERSION:/ { gsub(/"/, "", $2); print $2; exit }' "$ROOT/.github/workflows/ci.yml")
+release_ver=$(awk '/^  GITLEAKS_VERSION:/ { gsub(/"/, "", $2); print $2; exit }' "$ROOT/.github/workflows/release.yml")
+if [ -n "$bin_ver" ] && [ "$bin_ver" = "$script_ver" ] && [ "$bin_ver" = "$action_ver" ] \
+  && [ "$bin_ver" = "$ci_ver" ] && [ "$bin_ver" = "$release_ver" ]; then
+  ok "gitleaks default version in sync across bin/agent-guard, gitleaks-checksum.sh, action.yml, and the CI and release workflows ($bin_ver)"
 else
-  not_ok "gitleaks default version drift: bin=$bin_ver script=$script_ver action=$action_ver"
+  not_ok "gitleaks default version drift: bin=$bin_ver script=$script_ver action=$action_ver ci=$ci_ver release=$release_ver"
 fi
 
 # Release version is consumed independently by both plugin hosts and the Claude
