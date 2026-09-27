@@ -1,3 +1,8 @@
+## v3.5.4 - 2026-09-27
+
+- fix(hooks): scan the git commit or push a git alias expands to (#286)
+- test: move the shell cd tests from shard 3 to shard 4 (#285)
+
 ## v3.5.3 - 2026-09-25
 
 - fix(hooks): check shell -c, eval and split words that hide a git commit (#283)
