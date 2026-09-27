@@ -86,7 +86,7 @@ install_git_hooks() {
     hook_tmp=$(mktemp "$project_root/githooks/.agent-guard-hook.XXXXXX") \
       || die "failed to create a temporary file for the hook refresh"
     # Rewrite ONLY a line that both invokes agent-guard AND runs scan-staged, and
-    # require exactly one such line. The line-61 marker match accepts a mere
+    # require exactly one such line. The marker grep above accepts a mere
     # comment, so a hand-crafted hook could pair an `agent-guard` comment with an
     # unrelated `exec /other/scanner scan-staged`; matching on `agent-guard`
     # avoids silently rewriting that, and the count refuses an ambiguous hook.

@@ -1015,7 +1015,7 @@ audit_begin() {
     hook-pre-tool|hook-post-tool|hook-stop|hook-user-prompt|hook-session-start|scan-staged|scan-working-tree|scan-path|exec|pii-filter) AG_AUDIT_COMMAND=$1 ;;
     *) return 0 ;;
   esac
-  case "${AGENT_GUARD_HOOK_HOST:-claude}" in codex) AG_AUDIT_HOST=codex ;; *) AG_AUDIT_HOST=claude ;; esac
+  case "$(hook_host)" in codex) AG_AUDIT_HOST=codex ;; *) AG_AUDIT_HOST=claude ;; esac
   case "$AG_AUDIT_COMMAND" in hook-*) ;; *) AG_AUDIT_HOST=cli ;; esac
   AG_AUDIT_START=$(date +%s 2>/dev/null) || AG_AUDIT_START=0
   case "$AG_AUDIT_START" in ''|*[!0-9]*) AG_AUDIT_START=0 ;; esac
@@ -1884,7 +1884,6 @@ setup_install_gitleaks() {
   url="https://github.com/gitleaks/gitleaks/releases/download/v${version}/${archive}"
 
   tmp=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-setup.XXXXXX") || die "setup: failed to create temp dir"
-  # POSIX trap chain so caller's traps still run.
   trap 'rm -rf "$tmp"' EXIT
 
   info "$PROGRAM: downloading $archive"
@@ -2468,7 +2467,7 @@ pii_text_has_match() {
 pii_hook_mode() {
   mode=${AGENT_GUARD_PII_HOOK_MODE:-off}
   case "$mode" in
-    off|'') printf 'off' ;;
+    off) printf 'off' ;;
     block) printf 'block' ;;
     mask) printf 'mask' ;;
     *) die "unsupported PII hook mode: $mode (expected off, block, or mask)" ;;
@@ -3463,9 +3462,8 @@ scan_untracked_files() {
   root=$(git rev-parse --show-toplevel) || die "failed to resolve repository root"
   list=$(mktemp_file) || die "failed to create temp file"
   # core.quotePath=false + -z keep every filename byte-exact (non-ASCII,
-  # backslash, quote, even an embedded newline). The previous newline-delimited
-  # read silently skipped such names — letting a careless or adversarial agent
-  # park a secret in a file the backstop never scanned.
+  # backslash, quote, even an embedded newline). A newline-delimited read would
+  # skip such names and let a secret sit in a file the backstop never scans.
   git -C "$root" -c core.quotePath=false ls-files --others ${untracked_filter:+"$untracked_filter"} --full-name -z >"$list" || {
     rm -f "$list"
     die "failed to list untracked files"
@@ -4156,8 +4154,7 @@ deny_path_command_regex() {
   printf '%s' '(^|[^[:alnum:]_./~-])('"${converted}"'|[^[:space:]<>|;&`$()]*/'"${converted}"')([^[:alnum:]_.-]|$)'
 }
 
-# Private variable name: POSIX sh has no locals, and assigning the bare name
-# `cmd` here clobbers the caller's command in check_bash_command (see #127).
+# Private variable name; see check_bash_command (#127).
 bash_matches_deny_path_mode() {
   mode_cmd=$1
   mode=$2
@@ -4170,7 +4167,7 @@ bash_matches_deny_path_mode() {
     printf '%s\n' "$mode_cmd" | grep -Eq "$regex"
     grep_status=$?
     case "$grep_status" in
-      0)                 # command references a deny-listed path -> block
+      0)
         # Name what tripped the gate on stdout, so a block can be diagnosed
         # without guessing (#99): the value of this line is that a false
         # positive can be rewritten instead of answered by weakening the deny
@@ -4184,7 +4181,7 @@ bash_matches_deny_path_mode() {
         printf "matched deny-read-paths entry '%s'\n" "$entry"
         return 0
         ;;
-      1) ;;            # no match -> keep scanning
+      1) ;;
       *)
         # grep failed (e.g. a custom deny-read entry produced an invalid ERE).
         # Fail closed, mirroring check_bash_command: silently allowing here
@@ -4516,11 +4513,7 @@ bash_strip_allowed_tokens() {
   )
 }
 
-# POSIX sh has no locals: this function must NOT assign the bare name `cmd`, or
-# it clobbers the caller's command in check_bash_command. The strip helpers
-# rejoin tokens with single spaces (dropping a real newline separator), so a
-# clobbered `cmd` would collapse `cd X<newline>git commit` into one word and hide
-# the commit from check_git_command's detector (#127). Use a private name.
+# Private variable name; see check_bash_command (#127).
 bash_matches_deny_path() {
   deny_cmd=$1
   case "$deny_cmd" in
@@ -6307,7 +6300,7 @@ is_mutation_tool() {
 
 output_redact_enabled() {
   case "${AGENT_GUARD_OUTPUT_REDACT:-mask}" in
-    off|'') return 1 ;;
+    off) return 1 ;;
     *) return 0 ;;
   esac
 }
@@ -6392,9 +6385,6 @@ def restore_binary_payloads($orig):
         (.; setpath($p; $orig | getpath($p)));
 '
 
-# Recall booster for the most common leak shape: `KEY=value`, `export KEY=value`
-# or `KEY: value` dumps whose key name looks secret-bearing. gitleaks misses most
-# of these (custom value formats), so emit the VALUE for literal redaction.
 frame_json_string_leaves() {
   jq -rj '
     .. | strings
@@ -6425,6 +6415,10 @@ frame_plaintext_leaf() {
   '
 }
 
+# Recall booster for the most common leak shape: `KEY=value`, `export KEY=value`
+# or `KEY: value` dumps whose key name looks secret-bearing. gitleaks misses most
+# of these (custom value formats), so emit the VALUE for literal redaction.
+#
 # Read an RS-delimited, US-escaped leaf stream. Each leaf gets independent
 # multiline quote state. Emits JSON-string records by default, or raw framed
 # secret records for exec's byte-preserving plaintext pass. Probe modes exit on
@@ -6555,9 +6549,9 @@ secretish_env_values() {
     # the assignments inside it. A status label whose value opens a quote that
     # never closes — an apostrophe in ordinary prose is enough — made every real
     # assignment on the lines below it stop masking, and stopped the prompt
-    # guard blocking the same text. 818f540 reached those lines because the
-    # status label took an unconditional skip; the deferral has to reach them
-    # too, so re-scan what was absorbed as ordinary input.
+    # guard blocking the same text. An earlier fix reached those lines because
+    # the status label took an unconditional skip; the deferral has to reach
+    # them too, so re-scan what was absorbed as ordinary input.
     #
     # guard_rescan makes that single-pass: during a re-scan the status path
     # falls back to the old skip instead of opening another capture, so this
@@ -8764,9 +8758,10 @@ redact_tool_output() {
 # the operator's own local credential files on every write, and an alert nobody
 # can act on is how a scanner gets turned off.
 
-# 10 MiB. PostToolUse gets ~20s from the host and a killed hook fails OPEN, so
-# an unbounded file is a timeout, not a scan. Over-cap follows the same
-# infrastructure policy as any other scan that could not run.
+# SCAN_INPUT_MAX_BYTES (10 MiB by default). PostToolUse gets ~20s from the host
+# and a killed hook fails OPEN, so an unbounded file is a timeout, not a scan.
+# Over-cap follows the same infrastructure policy as any other scan that could
+# not run.
 POST_TOOL_PATH_SCAN_MAX_BYTES=$SCAN_INPUT_MAX_BYTES
 
 post_tool_write_target() {
@@ -9279,7 +9274,7 @@ hook_user_prompt() {
 #
 # Env inheritance (verified against the Claude Code hooks docs): a command hook
 # inherits the `claude` process env, which inherits the launching shell's
-# exported vars — so the rc-set marker reaches this hook. In 2.x an absent marker
+# exported vars — so the rc-set marker reaches this hook. Since 2.x an absent marker
 # triggers Claude-only setup guidance because command wrapping is default-on;
 # Codex remains silent because it does not use this shell boundary.
 #
@@ -9385,7 +9380,7 @@ hook_session_start() {
     esac
   fi
 
-  # Claude plugins cannot edit the user's shell rc during installation. In 2.x
+  # Claude plugins cannot edit the user's shell rc during installation. Since 2.x
   # command wrapping is default-on, so an absent marker means the one-time shell
   # setup has not run — UNLESS the managed block is already in the rc AND can
   # still load, in which case the marker is merely unable to travel (fish/other
@@ -9592,8 +9587,8 @@ do_exec() {
 
   masked=$out
 
-  # Secret-literal redaction (AGENT_GUARD_OUTPUT_REDACT, default mask). Fail-safe:
-  # on any error the original output is preserved rather than swallowed.
+  # Secret-literal redaction (AGENT_GUARD_OUTPUT_REDACT, default mask). Fails
+  # closed: on any detector error the whole output is replaced with [REDACTED].
   if output_redact_enabled; then
     invalid_output=0
     output_fully_masked=0
@@ -9756,7 +9751,7 @@ shell_init_bash_hook() {
 # bash: install the nudge as a DEBUG trap that fires before each interactive
 # command ($BASH_COMMAND). Deferred to the first prompt so we can read and CHAIN
 # onto any pre-existing DEBUG trap instead of clobbering it; runs exactly once.
-# ponytail: assumes PROMPT_COMMAND is a string, not a bash 5.1+ array.
+# Limitation: assumes PROMPT_COMMAND is a string, not a bash 5.1+ array.
 __agentguard_sq=\'
 __agentguard_boot='__agentguard_prev=$(trap -p DEBUG);
 case "$__agentguard_prev" in
@@ -10422,9 +10417,9 @@ do_update() {
 # predictable $$-based name) because these files hold secrets and a guessable
 # path in a shared /tmp invites a symlink / pre-create race. Non-fatal: if the
 # dir cannot be created, mktemp_file falls back to per-file temps so no command
-# breaks. `do_setup` and `smoke_test` install their own EXIT trap and so replace
-# this one — harmless: they clean their own temp and hold no real secrets.
-# ponytail: an un-trappable SIGKILL still leaves the dir to the OS temp reaper.
+# breaks. `setup_install_gitleaks` and `smoke_test` install their own EXIT trap
+# and so replace this one, which skips its cleanup and leaves this dir behind;
+# they hold no real secrets. An un-trappable SIGKILL also leaves the dir to the OS temp reaper.
 AGENT_GUARD_RUNDIR=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-run.XXXXXX" 2>/dev/null \
   || mktemp -d /tmp/agent-guard-run.XXXXXX 2>/dev/null || printf '')
 # Logging is independent of stdout and never changes the guard's exit status.

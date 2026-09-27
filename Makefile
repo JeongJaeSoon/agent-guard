@@ -1,5 +1,5 @@
 # Agent Guard — discoverability layer for the existing scripts.
-# Each target is a thin pass-through to install.sh or plugins/agent-guard/bin/agent-guard.
+# Each target is a thin pass-through to an existing script or the CLI.
 
 .PHONY: help check install test test-pleno-integration smoke-test bench scan scan-staged checksum formula submission-check submission-artifact
 

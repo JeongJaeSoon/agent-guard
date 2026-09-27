@@ -12,8 +12,9 @@ permissions:
 env:
   # Single source of truth for the pinned gitleaks scanner, shared by the
   # secret-guard action invocation and the Test job's real-gitleaks install.
-  # Keep in lock-step with the defaults in action.yml, bin/agent-guard, and
-  # scripts/gitleaks-checksum.sh (tests/run.sh enforces that version sync).
+  # Keep in lock-step with release.yml and the defaults in action.yml,
+  # bin/agent-guard, and plugins/agent-guard/scripts/gitleaks-checksum.sh
+  # (tests/run.sh enforces that version sync).
   GITLEAKS_VERSION: "8.30.1"
   # sha256 of gitleaks_8.30.1_linux_x64.tar.gz. Linux/x64 runners only; a
   # different OS/arch archive has a different digest.
