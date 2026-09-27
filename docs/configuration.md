@@ -90,10 +90,12 @@ provider language where supported (default `en`; `pleno` accepts `en` or `ja`),
 and `AGENT_GUARD_PII_TIMEOUT_SECONDS` must be a positive integer for
 endpoint-backed providers (default `30`).
 
-Mode and provider values are checked. An unrecognized
-`AGENT_GUARD_PROMPT_GUARD_MODE` or `AGENT_GUARD_PII_HOOK_MODE`, or an
-unrecognized `AGENT_GUARD_PII_PROVIDER` while PII hooks are on, is an error:
-the affected hook exits with status 2 and blocks until the value is fixed.
+Mode values are checked. An unrecognized `AGENT_GUARD_PROMPT_GUARD_MODE` or
+`AGENT_GUARD_PII_HOOK_MODE` is an error: the affected hook exits with status 2
+and blocks until the value is fixed. An unrecognized `AGENT_GUARD_PII_PROVIDER`
+is an error only where the provider is called: `pii-filter` and
+`AGENT_GUARD_PII_HOOK_MODE=block`. `mask` mode does not call the provider, so
+it ignores the value.
 `AGENT_GUARD_INFRA_FAILURE_MODE` is the exception: an unrecognized value falls
 back to `open`.
 

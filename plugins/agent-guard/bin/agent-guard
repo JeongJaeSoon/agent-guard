@@ -1015,7 +1015,7 @@ audit_begin() {
     hook-pre-tool|hook-post-tool|hook-stop|hook-user-prompt|hook-session-start|scan-staged|scan-working-tree|scan-path|exec|pii-filter) AG_AUDIT_COMMAND=$1 ;;
     *) return 0 ;;
   esac
-  case "$(hook_host)" in codex) AG_AUDIT_HOST=codex ;; *) AG_AUDIT_HOST=claude ;; esac
+  case "${AGENT_GUARD_HOOK_HOST:-claude}" in codex) AG_AUDIT_HOST=codex ;; *) AG_AUDIT_HOST=claude ;; esac
   case "$AG_AUDIT_COMMAND" in hook-*) ;; *) AG_AUDIT_HOST=cli ;; esac
   AG_AUDIT_START=$(date +%s 2>/dev/null) || AG_AUDIT_START=0
   case "$AG_AUDIT_START" in ''|*[!0-9]*) AG_AUDIT_START=0 ;; esac
@@ -1680,8 +1680,8 @@ validate_hook_object() {
   exit 2
 }
 
-# Which host's hook contract this invocation speaks. Every host-conditional
-# branch routes through this single default so adding a host or changing the
+# Which host's hook contract this invocation speaks. Host-conditional hook
+# branches route through this single default so adding a host or changing the
 # fallback is a one-line change, not a grep for scattered ':-claude' defaults.
 hook_host() {
   printf '%s\n' "${AGENT_GUARD_HOOK_HOST:-claude}"
@@ -9751,7 +9751,7 @@ shell_init_bash_hook() {
 # bash: install the nudge as a DEBUG trap that fires before each interactive
 # command ($BASH_COMMAND). Deferred to the first prompt so we can read and CHAIN
 # onto any pre-existing DEBUG trap instead of clobbering it; runs exactly once.
-# Limitation: assumes PROMPT_COMMAND is a string, not a bash 5.1+ array.
+# ponytail: assumes PROMPT_COMMAND is a string, not a bash 5.1+ array.
 __agentguard_sq=\'
 __agentguard_boot='__agentguard_prev=$(trap -p DEBUG);
 case "$__agentguard_prev" in
