@@ -86,8 +86,16 @@ user-configured endpoint. Review its privacy/retention terms before use. See
 accepts comma- or space-separated `EMAIL`, `PHONE`, and `IP_ADDRESS`. It cannot
 skip Tier-2 values such as payment cards, US SSNs, or Korean resident numbers;
 an unknown or Tier-2 type is an error. `AGENT_GUARD_PII_LANGUAGE` selects the
-provider language where supported, and `AGENT_GUARD_PII_TIMEOUT_SECONDS` must
-be a positive integer for endpoint-backed providers.
+provider language where supported (default `en`; `pleno` accepts `en` or `ja`),
+and `AGENT_GUARD_PII_TIMEOUT_SECONDS` must be a positive integer for
+endpoint-backed providers (default `30`).
+
+Mode and provider values are checked. An unrecognized
+`AGENT_GUARD_PROMPT_GUARD_MODE` or `AGENT_GUARD_PII_HOOK_MODE`, or an
+unrecognized `AGENT_GUARD_PII_PROVIDER` while PII hooks are on, is an error:
+the affected hook exits with status 2 and blocks until the value is fixed.
+`AGENT_GUARD_INFRA_FAILURE_MODE` is the exception: an unrecognized value falls
+back to `open`.
 
 ## Environment reference
 

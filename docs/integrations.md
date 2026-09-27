@@ -11,6 +11,13 @@ repository does not prove that your installed copy dispatches it or that the
 host accepts the replacement; run the live probes in
 [Verification](verification.md).
 
+To wire the hooks without installing a plugin, start from the manifests in
+[`examples/claude/settings.project.json`](https://github.com/JeongJaeSoon/agent-guard/blob/main/examples/claude/settings.project.json)
+and
+[`examples/codex/hooks.json`](https://github.com/JeongJaeSoon/agent-guard/blob/main/examples/codex/hooks.json),
+and point each hook command at `plugins/agent-guard/bin/agent-guard` in your
+checkout. They are rendered from the same source as the plugin manifests.
+
 ## Claude Code
 
 The plugin hooks inspect supported reads, writes, shell commands, web/MCP input,
@@ -86,15 +93,16 @@ jobs:
 ```
 
 `@v3` is a moving major-version tag and receives compatible updates. For a
-managed rollout, replace it with the exact reviewed release tag, such as
-`@v3.4.1`, and advance that pin through a reviewed pull request. A commit SHA
+managed rollout, replace it with the exact release tag you reviewed, written as
+`@vX.Y.Z`, and advance that pin through a reviewed pull request. A commit SHA
 provides an even tighter immutable pin when your organization requires it.
 
 The shown checksum is for gitleaks 8.30.1 on `linux/x64`; refresh the version
 and checksum together when changing either one. Generate a matching value with
 `agent-guard checksum`. `require-checksum` is `true` by default. Set it to
 `false` only for local experimentation. `paths` is whitespace separated, so an
-individual path cannot contain spaces.
+individual path cannot contain spaces. `config-path` points the scan at your own
+gitleaks config instead of the bundled one.
 
 ## Limits and backstops
 

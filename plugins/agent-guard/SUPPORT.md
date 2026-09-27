@@ -53,7 +53,8 @@ Linux) or Perl to run the gitleaks version probe in its own process group.
 Windows is not currently supported. When no isolation tool is present,
 `agent-guard doctor` prints the repair command for your operating system;
 reinstalling gitleaks alone does not fix it.
-Host support and known coverage boundaries are documented in the main README.
+Host support and known coverage boundaries are documented in
+[docs/integrations.md](https://github.com/JeongJaeSoon/agent-guard/blob/main/docs/integrations.md).
 
 The latest 3.x release is the actively supported line. The 2.x moving tag
 receives security fixes only. General support is best effort; security reports
