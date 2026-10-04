@@ -1,29 +1,33 @@
-# Agent Guard demo tape — record with:  vhs docs/demo.tape
+# Agent Guard demo tape — record from the repository root with:  vhs docs/demo.tape
 # Produces docs/demo.gif (embedded in the README hero).
 #
 # Prerequisites:
-#   - vhs:          brew install vhs            (https://github.com/charmbracelet/vhs)
-#   - agent-guard:  curl -fsSL https://github.com/JeongJaeSoon/agent-guard/releases/latest/download/bootstrap.sh | sh
+#   - vhs:       brew install vhs            (https://github.com/charmbracelet/vhs)
+#   - gitleaks:  brew install gitleaks
 #
-# The demo generates a throwaway private key INTO a .env at record time (in an
-# isolated temp dir), then shows the agent's read being blocked and a scan
-# flagging the leak. No real secret is stored in this tape or the repo.
+# The tape records this checkout's plugins/agent-guard/bin/agent-guard, so the
+# GIF matches the version in the tree. It generates a throwaway private key
+# INTO a .env at record time (in an isolated temp repo), then shows the agent's
+# read and its commit being blocked. No real secret is stored in this tape or
+# the repo.
 
 Output docs/demo.gif
 
-Require agent-guard
+Require git
+Require gitleaks
+Require ssh-keygen
 
 Set Shell "bash"
-Set FontSize 20
-Set Width 1200
-Set Height 720
+Set FontSize 18
+Set Width 1280
+Set Height 420
 Set Padding 28
 Set Theme "Dracula"
-Set TypingSpeed 45ms
+Set TypingSpeed 40ms
 
-# Hidden setup: isolated temp dir + a clean prompt
+# Hidden setup: this checkout's CLI on PATH, an isolated temp repo, a clean prompt
 Hide
-Type "cd $(mktemp -d) && export PS1='$ ' && clear"
+Type `export PATH="$PWD/plugins/agent-guard/bin:$PATH" && cd "$(mktemp -d)" && git init -q && export PS1='$ ' && clear`
 Enter
 Show
 Sleep 800ms
@@ -34,11 +38,10 @@ Enter
 Type "ssh-keygen -t rsa -b 2048 -N '' -f .env -q"
 Sleep 300ms
 Enter
-Sleep 1800ms
+Sleep 1500ms
 
-# ── blank line: separate setup from step 1 ──
 Enter
-Sleep 1000ms
+Sleep 800ms
 
 Type "# 1) The agent asks to read .env — blocked at the tool boundary, before the read"
 Sleep 600ms
@@ -48,21 +51,23 @@ Sleep 300ms
 Enter
 Sleep 2600ms
 
-# ── blank line: separate step 1 from step 2 ──
 Enter
-Sleep 1000ms
+Sleep 800ms
 
-Type "# 2) And if a secret reaches the tree, a scan flags it deterministically"
+Type "# 2) The agent stages it and runs git commit — the commit is blocked before git runs"
 Sleep 600ms
 Enter
-Type "agent-guard scan-path .env"
+Type "git add .env"
 Sleep 300ms
 Enter
-Sleep 3000ms
-
-# ── blank line: separate step 2 from the closing line ──
+Sleep 600ms
+Type `echo '{"tool_name":"Bash","tool_input":{"command":"git commit -m wip"}}' | agent-guard hook-pre-tool`
+Sleep 300ms
 Enter
-Sleep 1000ms
+Sleep 3200ms
+
+Enter
+Sleep 800ms
 
 Type "# Real-time. No model in the loop. The leak is stopped before it lands."
 Sleep 600ms
