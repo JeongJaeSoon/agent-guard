@@ -3064,6 +3064,17 @@ else
   not_ok "Claude block reason capture passes an unknown tool through"
   sed 's/^/  stdout: /' "$cbr_dir/v.out"; sed 's/^/  stderr: /' "$cbr_dir/v.err"
 fi
+# A non-blocking exit that only writes stderr must not gain a JSON reason:
+# decision "block" on exit 0 would itself block.
+cbr_run claude "$cbr_new" hook-stop \
+  '{"session_id":"cbr-active","hook_event_name":"Stop","stop_hook_active":true}' "$cbr_dir/v"
+if [ $? -eq 0 ] && [ ! -s "$cbr_dir/v.out" ] && [ -s "$cbr_dir/v.err" ]; then
+  ok "Claude block reason capture adds no JSON to a stderr-only exit 0"
+else
+  not_ok "Claude block reason capture adds no JSON to a stderr-only exit 0"
+  sed 's/^/  stdout: /' "$cbr_dir/v.out"; sed 's/^/  stderr: /' "$cbr_dir/v.err"
+fi
+
 # An allowed PreToolUse that writes its own JSON (here the infra-policy notice
 # for a commit whose target cannot be resolved) must be byte-for-byte the same
 # with and without the capture.
