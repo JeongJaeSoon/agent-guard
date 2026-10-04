@@ -7450,10 +7450,11 @@ if [ -x "$RELEASE_TARBALL_DIR/out/bin/agent-guard" ] \
    && [ -x "$RELEASE_TARBALL_DIR/out/install.sh" ] \
    && [ -f "$RELEASE_TARBALL_DIR/out/deployment/claude-managed-settings.example.json" ] \
    && cmp -s "$ROOT/README.md" "$RELEASE_TARBALL_DIR/out/README.md" \
-   && cmp -s "$ROOT/docs/demo.gif" "$RELEASE_TARBALL_DIR/out/docs/demo.gif"; then
-  ok "release tarball contains the CLI, installer, managed settings, and exact consolidated README with demo"
+   && cmp -s "$ROOT/docs/demo.gif" "$RELEASE_TARBALL_DIR/out/docs/demo.gif" \
+   && cmp -s "$ROOT/docs/assets/icon.png" "$RELEASE_TARBALL_DIR/out/docs/assets/icon.png"; then
+  ok "release tarball contains the CLI, installer, managed settings, and exact consolidated README with demo and icon"
 else
-  not_ok "release tarball contains the CLI, installer, managed settings, and exact consolidated README with demo"
+  not_ok "release tarball contains the CLI, installer, managed settings, and exact consolidated README with demo and icon"
 fi
 run_expect 0 "extracted release installer check resolves the archive layout" \
   sh -c 'cd "$1" && ./install.sh check' _ "$RELEASE_TARBALL_DIR/out"

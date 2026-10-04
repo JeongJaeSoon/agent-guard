@@ -13,6 +13,8 @@ cp "$ROOT/README.md" "$stage/README.md"
 cp "$ROOT/CHANGELOG.md" "$stage/CHANGELOG.md"
 mkdir -p "$stage/docs"
 cp "$ROOT/docs/demo.gif" "$stage/docs/demo.gif"
+mkdir -p "$stage/docs/assets"
+cp "$ROOT/docs/assets/icon.png" "$stage/docs/assets/icon.png"
 # The standalone archive replaces the plugin README with the repository README.
 # Ship every repository Markdown guide it links to so that README navigation is
 # useful without cloning the repository.
