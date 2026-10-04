@@ -1,4 +1,20 @@
-# Agent Guard
+<p align="center">
+  <a href="https://github.com/JeongJaeSoon/agent-guard/releases"><img src="docs/assets/icon.png" alt="Agent Guard icon" width="128" height="128"></a>
+</p>
+
+<h1 align="center">Agent Guard</h1>
+
+<p align="center">
+  <a href="https://github.com/JeongJaeSoon/agent-guard/actions/workflows/ci.yml"><img src="https://github.com/JeongJaeSoon/agent-guard/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/JeongJaeSoon/agent-guard/releases/latest"><img src="https://img.shields.io/github/v/release/JeongJaeSoon/agent-guard" alt="Latest release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/JeongJaeSoon/agent-guard" alt="MIT license"></a>
+</p>
+
+**A local-first guardrail that keeps AI coding agents from leaking your secrets.**
+
+> Blocks risky `.env` reads, masks secret-like output, and scans changes before they reach Git. No hosted account, no telemetry.
+
+---
 
 Agent Guard is a local-first guardrail for Claude Code, Codex, Git hooks,
 GitHub Actions, and direct shell use. It blocks common secret-exposure paths
