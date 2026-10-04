@@ -1,3 +1,14 @@
+## v3.5.5 - 2026-10-04
+
+- chore: match the Action branding color to the new icon (#296)
+- docs: record the demo GIF inside Claude Code (#295)
+- chore(plugin): match the Codex brand color to the new icon (#293)
+- docs: add the Agent Guard icon and a centered README header (#292)
+- docs: re-record the demo GIF against the current CLI (#291)
+- chore: add GitHub Sponsors funding link (#290)
+- ci: bump hashgraph-online/ai-plugin-scanner-action (#289)
+- refactor: clean up stale comments, dead branches and drifted docs (#288)
+
 ## v3.5.4 - 2026-09-27
 
 - fix(hooks): scan the git commit or push a git alias expands to (#286)
