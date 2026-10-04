@@ -38,6 +38,12 @@ export AGENT_GUARD_GITLEAKS_CONFIG="$PLUGIN_ROOT/config/gitleaks.toml"
 export GIT_CONFIG_GLOBAL=/dev/null
 export GIT_CONFIG_SYSTEM=/dev/null
 
+# Claude Code exports AI_AGENT to every subprocess, and its version decides
+# whether a blocking hook adds a JSON reason. Run the suite as an unknown host
+# version so results do not depend on where it runs; the block-reason tests
+# set it explicitly.
+unset AI_AGENT
+
 pass=0
 fail=0
 
@@ -2946,6 +2952,153 @@ expect_json_status 2 "Read env template cannot bypass a built-in SSH key deny" \
 expect_json_status 2 "Bash env template cannot bypass a built-in SSH key deny" \
   '{"tool_name":"Bash","tool_input":{"command":"cat .ssh/id_rsa.env.example"}}' \
   hook-pre-tool
+
+# --- Claude block reason JSON (#294, #297) -----------------------------------
+# On Claude Code >= 2.1.214 (read from AI_AGENT) a blocking hook keeps exit 2
+# and its stderr and adds a JSON reason on stdout, so the host shows the reason
+# instead of "[<hooks.json command>]: <stderr>", and a blocked prompt is not
+# echoed back. Every other host, version or unknown version must stay
+# byte-for-byte stderr-only: before 2.1.214 an exit-2 hook with JSON that failed
+# schema validation could stop blocking.
+cbr_new=claude-code_2-1-289_harness
+cbr_dir="$TESTTMP/claude-block-reason"
+mkdir -p "$cbr_dir/stop-repo"
+git -C "$cbr_dir/stop-repo" init -q
+printf 'token = AGENT_GUARD_TEST_SECRET\n' >"$cbr_dir/stop-repo/untracked.txt"
+cbr_pre_json='{"session_id":"cbr-pre","hook_event_name":"PreToolUse","tool_name":"Read","tool_input":{"file_path":"config/.env.local"}}'
+cbr_ups_json='{"session_id":"cbr-ups","hook_event_name":"UserPromptSubmit","prompt":"my key is AGENT_GUARD_TEST_SECRET"}'
+cbr_stop_json=$(jq -nc --arg d "$cbr_dir/stop-repo" \
+  '{session_id:"cbr-stop",hook_event_name:"Stop",stop_hook_active:false,cwd:$d}')
+
+cbr_run() { # $1 host, $2 AI_AGENT ('' = unset), $3 subcommand, $4 json, $5 output prefix
+  if [ -n "$2" ]; then
+    printf '%s' "$4" | AI_AGENT="$2" AGENT_GUARD_HOOK_HOST="$1" \
+      "$PLUGIN_ROOT/bin/agent-guard" "$3" >"$5.out" 2>"$5.err"
+  else
+    printf '%s' "$4" | env -u AI_AGENT AGENT_GUARD_HOOK_HOST="$1" \
+      "$PLUGIN_ROOT/bin/agent-guard" "$3" >"$5.out" 2>"$5.err"
+  fi
+}
+
+cbr_check_json() { # $1 name, $2 subcommand, $3 json, $4 jq shape test
+  cbr_run claude '' "$2" "$3" "$cbr_dir/base"
+  cbr_base_status=$?
+  cbr_run claude "$cbr_new" "$2" "$3" "$cbr_dir/new"
+  cbr_status=$?
+  if [ "$cbr_base_status" -eq 2 ] && [ "$cbr_status" -eq 2 ] \
+     && [ ! -s "$cbr_dir/base.out" ] && [ -s "$cbr_dir/base.err" ] \
+     && cmp -s "$cbr_dir/base.err" "$cbr_dir/new.err" \
+     && [ "$(jq -s 'length' <"$cbr_dir/new.out" 2>/dev/null)" = 1 ] \
+     && jq -e --rawfile e "$cbr_dir/new.err" "$4" "$cbr_dir/new.out" >/dev/null 2>&1 \
+     && ! grep -q 'my key is' "$cbr_dir/new.out"; then
+    ok "$1"
+  else
+    not_ok "$1 (status $cbr_base_status/$cbr_status)"
+    sed 's/^/  stdout: /' "$cbr_dir/new.out"; sed 's/^/  stderr: /' "$cbr_dir/new.err"
+  fi
+}
+
+cbr_check_json "Claude >= 2.1.214 PreToolUse block adds a deny reason equal to stderr" \
+  hook-pre-tool "$cbr_pre_json" \
+  '.hookSpecificOutput == {hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: ($e | rtrimstr("\n"))}'
+cbr_check_json "Claude >= 2.1.214 prompt block adds a reason and suppressOriginalPrompt" \
+  hook-user-prompt "$cbr_ups_json" \
+  '. == {decision: "block", reason: ($e | rtrimstr("\n")), hookSpecificOutput: {hookEventName: "UserPromptSubmit", suppressOriginalPrompt: true}}'
+cbr_check_json "Claude >= 2.1.214 Stop block adds a block reason equal to stderr" \
+  hook-stop "$cbr_stop_json" \
+  '. == {decision: "block", reason: ($e | rtrimstr("\n"))}'
+
+# Boundary and newer versions get the JSON (must-pass).
+for cbr_agent in claude-code_2-1-214_harness claude-code_2-2-0_harness claude-code_3-0-0_agent; do
+  cbr_run claude "$cbr_agent" hook-pre-tool "$cbr_pre_json" "$cbr_dir/v"
+  if [ $? -eq 2 ] && jq -e '.hookSpecificOutput.permissionDecision == "deny"' "$cbr_dir/v.out" >/dev/null 2>&1; then
+    ok "Claude block reason JSON is added for AI_AGENT=$cbr_agent"
+  else
+    not_ok "Claude block reason JSON is added for AI_AGENT=$cbr_agent"
+    sed 's/^/  stdout: /' "$cbr_dir/v.out"; sed 's/^/  stderr: /' "$cbr_dir/v.err"
+  fi
+done
+
+# Older, unknown or malformed versions and other hosts stay stderr-only
+# (must-fail: any stdout here could turn a block into a pass on an old host).
+for cbr_case in \
+  "claude|claude-code_2-1-213_harness" "claude|claude-code_1-9-999_harness" \
+  "claude|" "claude|garbage" "claude|claude-code_2-1-x_harness" \
+  "claude|claude-code_2-1-9999999_harness" "claude|claude-code_2-1_harness" \
+  "codex|$cbr_new"; do
+  cbr_host=${cbr_case%%|*}
+  cbr_agent=${cbr_case#*|}
+  for cbr_sub in hook-pre-tool hook-user-prompt hook-stop; do
+    case "$cbr_sub" in
+      hook-pre-tool) cbr_json=$cbr_pre_json ;;
+      hook-user-prompt) cbr_json=$cbr_ups_json ;;
+      *) cbr_json=$cbr_stop_json ;;
+    esac
+    cbr_run claude '' "$cbr_sub" "$cbr_json" "$cbr_dir/base"
+    cbr_run "$cbr_host" "$cbr_agent" "$cbr_sub" "$cbr_json" "$cbr_dir/v"
+    cbr_status=$?
+    if [ "$cbr_status" -eq 2 ] && [ ! -s "$cbr_dir/v.out" ] \
+       && cmp -s "$cbr_dir/base.err" "$cbr_dir/v.err"; then
+      ok "$cbr_sub stays stderr-only for host=$cbr_host AI_AGENT='$cbr_agent'"
+    else
+      not_ok "$cbr_sub stays stderr-only for host=$cbr_host AI_AGENT='$cbr_agent' (status $cbr_status)"
+      sed 's/^/  stdout: /' "$cbr_dir/v.out"; sed 's/^/  stderr: /' "$cbr_dir/v.err"
+    fi
+  done
+done
+
+# Pass-through: allowed calls, unknown tools and a handler's own stdout are untouched.
+cbr_run claude "$cbr_new" hook-pre-tool \
+  '{"session_id":"cbr-ok","hook_event_name":"PreToolUse","tool_name":"Read","tool_input":{"file_path":"README.md"}}' "$cbr_dir/v"
+if [ $? -eq 0 ] && [ ! -s "$cbr_dir/v.out" ]; then
+  ok "Claude block reason capture passes an allowed tool call silently"
+else
+  not_ok "Claude block reason capture passes an allowed tool call silently"
+  sed 's/^/  stdout: /' "$cbr_dir/v.out"; sed 's/^/  stderr: /' "$cbr_dir/v.err"
+fi
+cbr_run claude "$cbr_new" hook-pre-tool \
+  '{"session_id":"cbr-unknown","hook_event_name":"PreToolUse","tool_name":"FutureTool","tool_input":{"anything":1}}' "$cbr_dir/v"
+if [ $? -eq 0 ] && [ ! -s "$cbr_dir/v.out" ]; then
+  ok "Claude block reason capture passes an unknown tool through"
+else
+  not_ok "Claude block reason capture passes an unknown tool through"
+  sed 's/^/  stdout: /' "$cbr_dir/v.out"; sed 's/^/  stderr: /' "$cbr_dir/v.err"
+fi
+printf '%s' "$cbr_ups_json" | AI_AGENT="$cbr_new" AGENT_GUARD_HOOK_HOST=claude \
+  AGENT_GUARD_PROMPT_GUARD_MODE=warn "$PLUGIN_ROOT/bin/agent-guard" hook-user-prompt \
+  >"$cbr_dir/v.out" 2>"$cbr_dir/v.err"
+if [ $? -eq 0 ] && [ "$(jq -s 'length' <"$cbr_dir/v.out" 2>/dev/null)" = 1 ] \
+   && jq -e '.systemMessage and (has("decision") | not)' "$cbr_dir/v.out" >/dev/null 2>&1; then
+  ok "Claude block reason capture keeps a non-blocking hook's own JSON unchanged"
+else
+  not_ok "Claude block reason capture keeps a non-blocking hook's own JSON unchanged"
+  sed 's/^/  stdout: /' "$cbr_dir/v.out"; sed 's/^/  stderr: /' "$cbr_dir/v.err"
+fi
+
+# Fail-closed paths keep exit 2: malformed host input still blocks, now with a reason.
+cbr_run claude "$cbr_new" hook-pre-tool '"not an object"' "$cbr_dir/v"
+if [ $? -eq 2 ] && jq -e '.hookSpecificOutput.permissionDecisionReason | contains("not a JSON object")' \
+     "$cbr_dir/v.out" >/dev/null 2>&1; then
+  ok "Claude block reason capture keeps a malformed-input block at exit 2"
+else
+  not_ok "Claude block reason capture keeps a malformed-input block at exit 2"
+  sed 's/^/  stdout: /' "$cbr_dir/v.out"; sed 's/^/  stderr: /' "$cbr_dir/v.err"
+fi
+
+# The Git hook entry point (scan-staged) is not a host hook and is unaffected.
+mkdir -p "$cbr_dir/git-repo"
+git -C "$cbr_dir/git-repo" init -q
+printf 'token = AGENT_GUARD_TEST_SECRET\n' >"$cbr_dir/git-repo/staged.txt"
+git -C "$cbr_dir/git-repo" add staged.txt
+(cd "$cbr_dir/git-repo" && AI_AGENT="$cbr_new" "$PLUGIN_ROOT/bin/agent-guard" scan-staged) \
+  >"$cbr_dir/v.out" 2>"$cbr_dir/v.err"
+cbr_status=$?
+if [ "$cbr_status" -ne 0 ] && ! grep -q 'permissionDecision\|"decision"' "$cbr_dir/v.out"; then
+  ok "Git hook scan-staged output is unaffected by AI_AGENT"
+else
+  not_ok "Git hook scan-staged output is unaffected by AI_AGENT (status $cbr_status)"
+  sed 's/^/  stdout: /' "$cbr_dir/v.out"; sed 's/^/  stderr: /' "$cbr_dir/v.err"
+fi
 
 fi # end of shard 1
 
