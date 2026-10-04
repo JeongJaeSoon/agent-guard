@@ -1687,6 +1687,80 @@ hook_host() {
   printf '%s\n' "${AGENT_GUARD_HOOK_HOST:-claude}"
 }
 
+# Claude Code renders an exit-2 block as "[<hooks.json command>]: <stderr>"
+# unless stdout carries a JSON reason, which buries the reason under the ~2 KB
+# inline resolver (#294), and it echoes a blocked prompt back as "Original
+# prompt:" unless suppressOriginalPrompt is set (#297). Exit 2 stays the block
+# signal; the JSON only reshapes the message. Before Claude Code 2.1.214 an
+# exit-2 hook whose JSON failed schema validation could stop blocking, so the
+# JSON is added only when the host version is known to be newer. AI_AGENT
+# (claude-code_2-1-289_harness, set by Claude Code since 2.1.120) is the only
+# version signal a hook receives; without it the block stays stderr-only.
+claude_block_json_supported() {
+  [ "$(hook_host)" = claude ] || return 1
+  case "${AI_AGENT:-}" in
+    claude-code_*) ;;
+    *) return 1 ;;
+  esac
+  cb_version=${AI_AGENT#claude-code_}
+  cb_version=${cb_version%%_*}
+  case "$cb_version" in
+    ''|*[!0-9-]*|*[0-9][0-9][0-9][0-9][0-9][0-9]*) return 1 ;;
+  esac
+  cb_ifs=$IFS
+  IFS=-
+  # shellcheck disable=SC2086 # split on IFS=- into major, minor, patch
+  set -- $cb_version
+  IFS=$cb_ifs
+  [ "$#" -eq 3 ] && [ -n "$1" ] && [ -n "$2" ] && [ -n "$3" ] || return 1
+  [ "$1" -ne 2 ] && { [ "$1" -gt 2 ]; return; }
+  [ "$2" -ne 1 ] && { [ "$2" -gt 1 ]; return; }
+  [ "$3" -ge 214 ]
+}
+
+CLAUDE_BLOCK_EVENT=
+CLAUDE_BLOCK_OUT=
+CLAUDE_BLOCK_ERR=
+
+# Handlers exit from deep inside, so the response is finished by the EXIT trap
+# rather than a subshell (which would drop the trap's probe cleanup). If the
+# buffers cannot be created, the streams stay untouched.
+claude_block_capture_begin() {
+  claude_block_json_supported || return 0
+  CLAUDE_BLOCK_OUT=$(mktemp_file) || { CLAUDE_BLOCK_OUT=; return 0; }
+  CLAUDE_BLOCK_ERR=$(mktemp_file) || {
+    rm -f "$CLAUDE_BLOCK_OUT"
+    CLAUDE_BLOCK_OUT=
+    CLAUDE_BLOCK_ERR=
+    return 0
+  }
+  CLAUDE_BLOCK_EVENT=$1
+  exec 8>&1 9>&2 >"$CLAUDE_BLOCK_OUT" 2>"$CLAUDE_BLOCK_ERR"
+}
+
+# The reason is the handler's own stderr, which is already the masked text
+# printed today. A handler that wrote its own stdout keeps it unchanged: a hook
+# may emit only one top-level JSON object.
+claude_block_capture_finish() {
+  [ -n "$CLAUDE_BLOCK_EVENT" ] || return 0
+  exec 1>&8 2>&9 8>&- 9>&-
+  cat "$CLAUDE_BLOCK_ERR" >&2
+  if [ "$1" -eq 2 ] && [ ! -s "$CLAUDE_BLOCK_OUT" ] && [ -s "$CLAUDE_BLOCK_ERR" ]; then
+    case "$CLAUDE_BLOCK_EVENT" in
+      PreToolUse)
+        jq -Rsc '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: rtrimstr("\n")}}' ;;
+      UserPromptSubmit)
+        jq -Rsc '{decision: "block", reason: rtrimstr("\n"), hookSpecificOutput: {hookEventName: "UserPromptSubmit", suppressOriginalPrompt: true}}' ;;
+      Stop)
+        jq -Rsc '{decision: "block", reason: rtrimstr("\n")}' ;;
+    esac <"$CLAUDE_BLOCK_ERR" 2>/dev/null || :
+  else
+    cat "$CLAUDE_BLOCK_OUT"
+  fi
+  rm -f "$CLAUDE_BLOCK_OUT" "$CLAUDE_BLOCK_ERR"
+  CLAUDE_BLOCK_EVENT=
+}
+
 degraded_hook_message() {
   case "$(hook_host)" in
     codex) setup_ref='$setup-agent-guard' ;;
@@ -10424,18 +10498,18 @@ AGENT_GUARD_RUNDIR=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-run.XXXXXX" 2>/dev/n
   || mktemp -d /tmp/agent-guard-run.XXXXXX 2>/dev/null || printf '')
 # Logging is independent of stdout and never changes the guard's exit status.
 # SIGKILL cannot be trapped; a started-only record remains useful evidence.
-trap 'ag_final_status=$?; clear_gitleaks_probe_processes; audit_finish "$ag_final_status"; [ -z "$AGENT_GUARD_RUNDIR" ] || rm -rf "$AGENT_GUARD_RUNDIR"; exit "$ag_final_status"' 0
+trap 'ag_final_status=$?; clear_gitleaks_probe_processes; claude_block_capture_finish "$ag_final_status"; audit_finish "$ag_final_status"; [ -z "$AGENT_GUARD_RUNDIR" ] || rm -rf "$AGENT_GUARD_RUNDIR"; exit "$ag_final_status"' 0
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
 cmd=${1:-}
 audit_begin "$cmd"
 case "$cmd" in
-  hook-pre-tool) hook_pre_tool ;;
+  hook-pre-tool) claude_block_capture_begin PreToolUse; hook_pre_tool ;;
   hook-post-tool) hook_post_tool ;;
-  hook-stop) hook_stop ;;
+  hook-stop) claude_block_capture_begin Stop; hook_stop ;;
   hook-session-start) hook_session_start ;;
-  hook-user-prompt) hook_user_prompt ;;
+  hook-user-prompt) claude_block_capture_begin UserPromptSubmit; hook_user_prompt ;;
   exec) shift; do_exec "$@" ;;
   shell-init) shift; shell_init "$@" ;;
   pii-filter) shift; pii_filter "$@" ;;

@@ -127,6 +127,15 @@ gitleaks config instead of the bundled one.
   host-valid sanitized output. It reports the disk finding on stderr and marks
   the audit outcome `blocked`. A disk finding with no output rewrite still exits
   with status 2.
+- A blocking Claude `PreToolUse`, `UserPromptSubmit` or `Stop` hook exits 2
+  with the reason on stderr. On Claude Code 2.1.214 or newer, read from the
+  `AI_AGENT` variable Claude Code exports, it also prints that reason as JSON.
+  Claude Code then shows the reason without the hook command and leaves a
+  blocked prompt out of the block message. Older or unrecognized versions get
+  stderr only: before 2.1.214, an exit-2 hook whose JSON failed validation
+  could stop blocking. Claude Code still lists the hook command in the ctrl+o
+  view of a `Stop` hook, passes it to the model with a `Stop` block, and keeps
+  blocked prompts in its local prompt history.
 - Shell blocking is pattern-based. It can block benign path-shaped text and an
   actively evasive command can avoid a fixed pattern list.
 - A user-typed host shell escape is outside the tool-hook boundary. Do not print
