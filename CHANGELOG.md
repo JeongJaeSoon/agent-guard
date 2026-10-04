@@ -1,3 +1,7 @@
+## v3.5.6 - 2026-10-04
+
+- fix(hooks): give Claude Code the block reason as JSON and stop echoing blocked prompts (#299)
+
 ## v3.5.5 - 2026-10-04
 
 - chore: match the Action branding color to the new icon (#296)
