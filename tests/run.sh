@@ -3064,6 +3064,32 @@ else
   not_ok "Claude block reason capture passes an unknown tool through"
   sed 's/^/  stdout: /' "$cbr_dir/v.out"; sed 's/^/  stderr: /' "$cbr_dir/v.err"
 fi
+# An allowed PreToolUse that writes its own JSON (here the infra-policy notice
+# for a commit whose target cannot be resolved) must be byte-for-byte the same
+# with and without the capture.
+mkdir -p "$cbr_dir/ctx-repo"
+git -C "$cbr_dir/ctx-repo" init -q
+for cbr_agent in '' "$cbr_new"; do
+  cbr_tag=${cbr_agent:+new}
+  # The notice is shown once per session, so each run needs fresh session ids.
+  jq -nc --arg d "$cbr_dir/ctx-repo" --arg s "cbr-ctx-${cbr_tag:-base}-${TESTTMP##*.}" \
+    --arg c 'git -C "$(pwd)" commit -m x' \
+    '{session_id:$s,hook_event_name:"PreToolUse",tool_name:"Bash",tool_input:{command:$c},cwd:$d}' \
+    >"$cbr_dir/ctx.json"
+  cbr_run claude "$cbr_agent" hook-pre-tool "$(cat "$cbr_dir/ctx.json")" "$cbr_dir/ctx-${cbr_tag:-base}"
+  printf '%s\n' "$?" >"$cbr_dir/ctx-${cbr_tag:-base}.status"
+done
+if [ "$(cat "$cbr_dir/ctx-base.status")" = 0 ] && [ "$(cat "$cbr_dir/ctx-new.status")" = 0 ] \
+   && jq -e '.hookSpecificOutput.additionalContext' "$cbr_dir/ctx-base.out" >/dev/null 2>&1 \
+   && cmp -s "$cbr_dir/ctx-base.out" "$cbr_dir/ctx-new.out" \
+   && cmp -s "$cbr_dir/ctx-base.err" "$cbr_dir/ctx-new.err"; then
+  ok "Claude block reason capture keeps an allowed PreToolUse's own stdout byte-for-byte"
+else
+  not_ok "Claude block reason capture keeps an allowed PreToolUse's own stdout byte-for-byte"
+  sed 's/^/  base stdout: /' "$cbr_dir/ctx-base.out"; sed 's/^/  new stdout: /' "$cbr_dir/ctx-new.out"
+  sed 's/^/  new stderr: /' "$cbr_dir/ctx-new.err"
+fi
+
 printf '%s' "$cbr_ups_json" | AI_AGENT="$cbr_new" AGENT_GUARD_HOOK_HOST=claude \
   AGENT_GUARD_PROMPT_GUARD_MODE=warn "$PLUGIN_ROOT/bin/agent-guard" hook-user-prompt \
   >"$cbr_dir/v.out" 2>"$cbr_dir/v.err"
