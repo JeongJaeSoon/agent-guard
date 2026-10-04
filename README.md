@@ -26,7 +26,7 @@ It is a defense-in-depth boundary. Keep GitHub Secret Scanning, Push
 Protection, review, and normal credential management in place. Agent Guard is
 not a vault, DLP system, EDR, or credential rotator.
 
-![Agent Guard blocking an agent's read of a .env that holds a private key, then blocking its git commit of that file](docs/demo.gif)
+![Agent Guard in Claude Code: the agent's Bash `cat` and Read of a .env holding a private key are blocked, and the user's own `! cat .env` prints the key as [REDACTED] (shell integration enabled)](docs/demo.gif)
 
 ## Keep secrets out of Git
 
