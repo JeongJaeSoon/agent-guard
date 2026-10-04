@@ -1730,7 +1730,8 @@ claude_block_capture_begin() {
   CLAUDE_BLOCK_OUT=$(mktemp_file) || { CLAUDE_BLOCK_OUT=; return 0; }
   CLAUDE_BLOCK_ERR=$(mktemp_file) || {
     rm -f "$CLAUDE_BLOCK_OUT"
-    CLAUDE_BLOCK_OUT= CLAUDE_BLOCK_ERR=
+    CLAUDE_BLOCK_OUT=
+    CLAUDE_BLOCK_ERR=
     return 0
   }
   CLAUDE_BLOCK_EVENT=$1
