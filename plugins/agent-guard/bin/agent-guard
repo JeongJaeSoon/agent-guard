@@ -8629,7 +8629,7 @@ MASK_FILE_AWK_LIB='
 function emit_line(s) { if (mode != "paths") print s }
 function emit_masked(prefix, path) {
   if (mode == "paths") print path
-  else print prefix "[MASKED]"
+  else print prefix marker
 }
 # Index of the quote closing the one that opens s, or 0. Double quotes take
 # backslash escapes; with dbl set a doubled single quote is an escape (yaml).
@@ -8829,7 +8829,7 @@ if length != 1 then error("not one document") else .[0] end
     | if (explode | map(select(. < 32 or . == 127)) | length) > 0
       then error("control character in key") else . end
   else
-    walk(if type == "object" or type == "array" then . else "[MASKED]" end)
+    walk(if type == "object" or type == "array" then . else $marker end)
   end
 '
 
@@ -8856,20 +8856,20 @@ mask_file_format() {
   esac
 }
 
-# $1 = format, $2 = text|paths; reads the file on stdin.
+# $1 = format, $2 = text|paths, $3 = the value marker; reads the file on stdin.
 mask_file_render() {
   case $1 in
     json)
       if [ "$2" = paths ]; then
-        jq -rs --arg mode paths "$JQ_WALK$MASK_FILE_JQ"
+        jq -rs --arg mode paths --arg marker "$3" "$JQ_WALK$MASK_FILE_JQ"
       else
-        jq -s --arg mode text "$JQ_WALK$MASK_FILE_JQ"
+        jq -s --arg mode text --arg marker "$3" "$JQ_WALK$MASK_FILE_JQ"
       fi
       ;;
-    dotenv) LC_ALL=C awk -v mode="$2" "$MASK_FILE_AWK_LIB$MASK_FILE_AWK_DOTENV" ;;
-    ini) LC_ALL=C awk -v mode="$2" -v colon_keys=0 "$MASK_FILE_AWK_LIB$MASK_FILE_AWK_INI" ;;
-    npmrc) LC_ALL=C awk -v mode="$2" -v colon_keys=1 "$MASK_FILE_AWK_LIB$MASK_FILE_AWK_INI" ;;
-    yaml) LC_ALL=C awk -v mode="$2" "$MASK_FILE_AWK_LIB$MASK_FILE_AWK_YAML" ;;
+    dotenv) LC_ALL=C awk -v mode="$2" -v marker="$3" "$MASK_FILE_AWK_LIB$MASK_FILE_AWK_DOTENV" ;;
+    ini) LC_ALL=C awk -v mode="$2" -v marker="$3" -v colon_keys=0 "$MASK_FILE_AWK_LIB$MASK_FILE_AWK_INI" ;;
+    npmrc) LC_ALL=C awk -v mode="$2" -v marker="$3" -v colon_keys=1 "$MASK_FILE_AWK_LIB$MASK_FILE_AWK_INI" ;;
+    yaml) LC_ALL=C awk -v mode="$2" -v marker="$3" "$MASK_FILE_AWK_LIB$MASK_FILE_AWK_YAML" ;;
     *) return 2 ;;
   esac
 }
@@ -8878,10 +8878,12 @@ mask_file_render() {
 # masked value, one per line: dotenv KEY, ini section.key (key outside a
 # section), json and yaml keys joined by `.` with array indexes as numbers.
 # Every failure exits non-zero with empty stdout and a fixed stderr line that
-# names neither the path nor any content. A subshell, so its names and those
+# names neither the path nor any content. $3 replaces the [MASKED] marker; it
+# must not contain a backslash. A subshell, so its names and those
 # resolve_path sets never reach the caller.
 mask_file() (
   mf_mode=${2:-text}
+  mf_marker=${3:-[MASKED]}
   case $mf_mode in text|paths) ;; *) die "mask-file: unsupported mode" ;; esac
   need_cmd awk
   need_cmd jq
@@ -8902,7 +8904,7 @@ mask_file() (
   # Buffered so a failure partway through prints nothing; the trailing x keeps
   # $( ) from dropping final newlines. Parser stderr is dropped because jq and
   # awk may quote the input in their errors.
-  mf_out=$(mask_file_render "$mf_format" "$mf_mode" 2>/dev/null <"$mf_path"
+  mf_out=$(mask_file_render "$mf_format" "$mf_mode" "$mf_marker" 2>/dev/null <"$mf_path"
     mf_status=$?
     printf x
     exit "$mf_status") \
@@ -8953,17 +8955,353 @@ masked_view_scan() {
   ( scan_text_direct "masked view" "$1" ) >/dev/null 2>&1
 }
 
+masked_view_fits() {
+  mv_size=$(printf '%s' "$1" | wc -c | tr -d ' \t')
+  case $mv_size in ''|*[!0-9]*) return 2 ;; esac
+  [ "$mv_size" -le "$MASKED_VIEW_MAX_BYTES" ]
+}
+
+# Mask rule files hold one ERE per line, skipping `#` and blank lines. The
+# rules are user input: only awk matches them (jq and GNU grep regexes can
+# backtrack), their text never reaches a message, and a refusal names a rule
+# by its file label and line. Shapes that backtracking awks (mawk) take
+# exponential time on are refused; the timer catches what a shape check
+# cannot, like mawk on a long run of `a?`.
+MASK_RULES_MAX=64
+MASK_RULES_MAX_BYTES=256
+MASK_RULES_TIMEOUT_SECONDS=2
+
+# Every program reads rules as "label<TAB>line<TAB>rule".
+MASK_RULES_AWK_LIB='
+function parse_rule(s,   t) {
+  t = index(s, "\t"); label = substr(s, 1, t - 1); s = substr(s, t + 1)
+  t = index(s, "\t"); line = substr(s, 1, t - 1); rule = substr(s, t + 1)
+}
+'
+
+# Prints "label line N: reason" for the first refused rule. Dynamic regexes
+# are not used here, so a rule cannot make this pass fail or slow down.
+MASK_RULES_AWK_SHAPE='
+function refuse(why) { printf "%s line %s: the rule %s", label, line, why; exit 0 }
+# A repetition operator at i: *, +, ? or an interval; sets W to its width.
+function repetition(r, i,   c, b, lo, hi, k) {
+  c = substr(r, i, 1)
+  W = 1
+  if (c == "*" || c == "+" || c == "?") return 1
+  if (c != "{" || !match(substr(r, i), /^\{[0-9]*(,[0-9]*)?\}/) || RLENGTH < 3) return 0
+  W = RLENGTH
+  b = substr(r, i + 1, RLENGTH - 2)
+  k = index(b, ",")
+  lo = k ? substr(b, 1, k - 1) : b
+  hi = k ? substr(b, k + 1) : b
+  if (length(lo) > 3 || length(hi) > 3 || lo + 0 > 255 || hi + 0 > 255) refuse("repeats more than 255 times")
+  return 1
+}
+# Skips the bracket expression opening at i; returns the index of its "]".
+function bracket_end(r, i, n,   s, e) {
+  i++
+  if (substr(r, i, 1) == "^") i++
+  if (substr(r, i, 1) == "]") i++
+  while (i <= n) {
+    s = substr(r, i, 2)
+    if (s == "[:" || s == "[." || s == "[=") {
+      e = index(substr(r, i + 2), substr(s, 2, 1) "]")
+      if (!e) return n
+      i += e + 3
+    } else if (substr(r, i, 1) == "\\") i += 2
+    else if (substr(r, i, 1) == "]") return i
+    else i++
+  }
+  return n
+}
+# q[d] and alt[d]: the open group at depth d holds a repetition or a |.
+# gq and galt carry those for a group that just closed, so a repetition right
+# after it can tell `(a+)+` and `(a|aa)*` from `(ab)+`.
+function shape(r,   n, i, c, d, atom, lastq, gq, galt) {
+  n = length(r); d = 0; q[0] = 0; alt[0] = 0
+  atom = lastq = gq = galt = 0
+  for (i = 1; i <= n; i++) {
+    c = substr(r, i, 1)
+    if (repetition(r, i)) {
+      if (lastq || (atom && gq)) refuse("repeats an expression that already repeats")
+      if (atom && galt) refuse("repeats a group that contains |")
+      q[d] = 1; lastq = 1; i += W - 1
+      continue
+    }
+    lastq = 0
+    if (c == "\\") {
+      i++
+      if (substr(r, i, 1) ~ /[1-9]/) refuse("uses a back-reference")
+      atom = 1; gq = galt = 0
+    } else if (c == "[") {
+      i = bracket_end(r, i, n); atom = 1; gq = galt = 0
+    } else if (c == "(") {
+      d++; q[d] = alt[d] = 0; atom = 0
+    } else if (c == ")" && d > 0) {
+      gq = q[d]; galt = alt[d]; d--
+      if (gq) q[d] = 1
+      if (galt) alt[d] = 1
+      atom = 1
+    } else if (c == "|") {
+      alt[d] = 1; atom = 0
+    } else if (c == "^" || c == "$") {
+      atom = 0
+    } else {
+      atom = 1; gq = galt = 0
+    }
+  }
+}
+{
+  parse_rule($0)
+  if (NR > max) refuse("is past the limit of " max " rules")
+  if (length(rule) > max_bytes) refuse("is longer than " max_bytes " bytes")
+  shape(rule)
+}
+'
+
+# awk exits on an invalid ERE, so the rule about to compile is announced
+# first and the last one announced is the culprit.
+MASK_RULES_AWK_COMPILE='
+{
+  parse_rule($0)
+  print label "\t" line
+  fflush()
+  if ("" ~ rule) { print "empty"; empty = 1; exit 0 }
+}
+END { if (!empty) print "ok" }
+'
+
+# The view comes with a one-time `marker` in place of each value, so file
+# text that reads "[MASKED]" is never taken for a value. Comment lines get
+# every span any rule matches replaced by one [MASKED]. Other lines hold keys
+# and structure around the markers; a rule that matches any piece between
+# markers exits 3, since masking it would rewrite a key. Rules run one at a
+# time and are announced to `progress`, so a timeout or a key match names
+# the rule.
+MASK_RULES_AWK_APPLY='
+function outside(s, r,   p) {
+  while ((p = index(s, marker)) > 0) {
+    if (p > 1 && match(substr(s, 1, p - 1), r)) return 1
+    s = substr(s, p + length(marker))
+  }
+  return s != "" && match(s, r)
+}
+function unmark(s,   p, out) {
+  out = ""
+  while ((p = index(s, marker)) > 0) {
+    out = out substr(s, 1, p - 1) "[MASKED]"
+    s = substr(s, p + length(marker))
+  }
+  return out s
+}
+function mark(i, r,   s, off, st, ones) {
+  s = lines[i]
+  if (!(i in marks)) marks[i] = sprintf("%" length(s) "s", "")
+  off = 0
+  while (off < length(s) && match(substr(s, off + 1), r)) {
+    st = off + RSTART
+    if (RLENGTH > 0) {
+      ones = sprintf("%" RLENGTH "s", "")
+      gsub(/ /, "1", ones)
+      marks[i] = substr(marks[i], 1, st - 1) ones substr(marks[i], st + RLENGTH)
+    }
+    off = st + (RLENGTH > 0 ? RLENGTH : 1) - 1
+  }
+}
+function masked(i,   s, m, j, n, out) {
+  s = lines[i]; m = marks[i]; n = length(s); out = ""
+  for (j = 1; j <= n; j++) {
+    if (substr(m, j, 1) != "1") { out = out substr(s, j, 1); continue }
+    out = out "[MASKED]"
+    while (j < n && substr(m, j + 1, 1) == "1") j++
+  }
+  return out
+}
+BEGIN {
+  if (format == "dotenv" || format == "yaml") comment = "^[ \t]*#"
+  else if (format == "ini" || format == "npmrc") comment = "^[;#]"
+  else comment = ""
+}
+FNR == NR { parse_rule($0); nr++; rl[nr] = label; rn[nr] = line; re[nr] = rule; next }
+{ lines[++n] = $0; com[n] = comment != "" && $0 ~ comment }
+END {
+  for (k = 1; k <= nr; k++) {
+    print rl[k] "\t" rn[k] > progress
+    fflush(progress)
+    for (i = 1; i <= n; i++) {
+      if (com[i]) mark(i, re[k])
+      else if (outside(lines[i], re[k])) exit 3
+    }
+  }
+  for (i = 1; i <= n; i++) print (i in marks) ? masked(i) : com[i] ? lines[i] : unmark(lines[i])
+}
+'
+
+# Prints the rules of file $2 labelled $1. With $3 = optional a missing file
+# has no rules; any other file that cannot be read returns 1. Stops after one
+# rule past the limit, which is enough for the check to refuse.
+mask_rules_collect() {
+  if [ "$3" = optional ] && [ ! -e "$2" ] && [ ! -L "$2" ]; then
+    return 0
+  fi
+  [ -f "$2" ] && [ -r "$2" ] || return 1
+  LC_ALL=C awk -v label="$1" -v max="$MASK_RULES_MAX" '
+    { sub(/\r$/, "") }
+    /^[ \t]*(#|$)/ { next }
+    { print label "\t" FNR "\t" $0; if (++count > max) exit }
+  ' "$2" 2>/dev/null
+}
+
+# Runs awk with stdout in file $1 under the rule timer. Returns awk's status,
+# 137 when the timer killed it, or 125 when there is no timer.
+mask_rules_awk() (
+  mr_out=$1
+  shift
+  command -v sleep >/dev/null 2>&1 || exit 125
+  LC_ALL=C awk "$@" >"$mr_out" 2>/dev/null &
+  mr_pid=$!
+  (
+    mr_sleep=
+    trap '[ -z "$mr_sleep" ] || kill -TERM "$mr_sleep" 2>/dev/null; exit 0' TERM
+    sleep "$MASK_RULES_TIMEOUT_SECONDS" &
+    mr_sleep=$!
+    wait "$mr_sleep" 2>/dev/null || exit 0
+    kill -KILL "$mr_pid" 2>/dev/null
+  ) </dev/null >/dev/null 2>&1 &
+  mr_dog=$!
+  wait "$mr_pid"
+  mr_status=$?
+  kill -TERM "$mr_dog" 2>/dev/null
+  wait "$mr_dog" 2>/dev/null
+  exit "$mr_status"
+)
+
+# The last "label<TAB>line" announced in file $1, as "label line N".
+mask_rules_culprit() {
+  awk -F '\t' 'NF == 2 { c = $1 " line " $2 } END { if (c == "") exit 1; printf "%s", c }' "$1" 2>/dev/null
+}
+
+# Judges the rules in file $1 (mask_rules_collect output). Returns 0 when all
+# are accepted, 1 with "label line N: reason" on stdout for the first refused
+# one, or 2 when they could not be checked. Deciding what a refusal means is
+# left to the caller.
+mask_rules_check() (
+  mc_out=$(LC_ALL=C awk -v max="$MASK_RULES_MAX" -v max_bytes="$MASK_RULES_MAX_BYTES" \
+    "$MASK_RULES_AWK_LIB$MASK_RULES_AWK_SHAPE" "$1" 2>/dev/null) || exit 2
+  [ -z "$mc_out" ] || { printf '%s' "$mc_out"; exit 1; }
+  mc_log=$(mktemp_file) || exit 2
+  mask_rules_awk "$mc_log" "$MASK_RULES_AWK_LIB$MASK_RULES_AWK_COMPILE" "$1"
+  mc_status=$?
+  mc_last=$(tail -n 1 "$mc_log" 2>/dev/null)
+  mc_rule=$(mask_rules_culprit "$mc_log")
+  rm -f "$mc_log"
+  [ "$mc_status" -eq 0 ] && [ "$mc_last" = ok ] && exit 0
+  [ -n "$mc_rule" ] || exit 2
+  case $mc_status:$mc_last in
+    0:empty) printf '%s: the rule matches empty text' "$mc_rule" ;;
+    137:*) printf '%s: the rule took too long to check' "$mc_rule" ;;
+    125:*) exit 2 ;;
+    *) printf '%s: the rule is not a valid extended regular expression' "$mc_rule" ;;
+  esac
+  exit 1
+)
+
+# Applies checked rules in file $1 to the view in file $3 of format $2,
+# rendered with marker $4 for each value. Prints the view with [MASKED], or
+# returns 1 with "label line N: reason" when a rule matches outside values
+# and comments or runs out of time, or 2.
+mask_rules_apply() (
+  ma_out=$(mktemp_file) || exit 2
+  ma_log=$(mktemp_file) || { rm -f "$ma_out"; exit 2; }
+  mask_rules_awk "$ma_out" -v format="$2" -v marker="$4" -v progress="$ma_log" \
+    "$MASK_RULES_AWK_LIB$MASK_RULES_AWK_APPLY" "$1" "$3"
+  ma_status=$?
+  [ "$ma_status" -eq 0 ] && cat "$ma_out"
+  ma_rule=$(mask_rules_culprit "$ma_log")
+  rm -f "$ma_out" "$ma_log"
+  [ "$ma_status" -eq 0 ] && exit 0
+  [ -n "$ma_rule" ] || exit 2
+  case $ma_status in
+    3) printf '%s: the rule matches a key or other text outside values and comments' "$ma_rule" ;;
+    137) printf '%s: the rule took too long to apply' "$ma_rule" ;;
+    *) exit 2 ;;
+  esac
+  exit 1
+)
+
+# Applies the deny-value rules to masked view $2 of file $1: the user file
+# and the file AGENT_GUARD_MASK_DENY_VALUES names, together, so a repository
+# setting can add rules but never empty the user's list. With rules, the
+# file is masked again with a random marker so text in it that reads
+# "[MASKED]" cannot pass for a value. Prints the view, or a reason with no
+# rule text and returns 1; the caller blocks on either.
+mask_deny_values() (
+  md_list=
+  if [ -n "${HOME:-}" ]; then
+    md_list=$(mask_rules_collect mask-deny-values.txt \
+      "$HOME/.config/agent-guard/mask-deny-values.txt" optional) \
+      || { printf 'mask-deny-values.txt could not be read'; exit 1; }
+  fi
+  if [ -n "${AGENT_GUARD_MASK_DENY_VALUES:-}" ]; then
+    md_env=$(mask_rules_collect AGENT_GUARD_MASK_DENY_VALUES \
+      "$AGENT_GUARD_MASK_DENY_VALUES" required) \
+      || { printf 'the file AGENT_GUARD_MASK_DENY_VALUES names could not be read'; exit 1; }
+    [ -z "$md_env" ] || md_list=${md_list:+$md_list
+}$md_env
+  fi
+  [ -n "$md_list" ] || { printf '%s' "$2"; exit 0; }
+  md_failed='the mask-deny-values rules could not be checked'
+  md_rules=$(mktemp_file) || { printf '%s' "$md_failed"; exit 1; }
+  md_view=$(mktemp_file) || { rm -f "$md_rules"; printf '%s' "$md_failed"; exit 1; }
+  printf '%s\n' "$md_list" >"$md_rules"
+  md_out=$(mask_rules_check "$md_rules")
+  md_status=$?
+  if [ "$md_status" -eq 0 ]; then
+    md_marker=$(od -An -N12 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')
+    case $md_marker in
+      ????????????????????????) md_marker="[MASKED:$md_marker]" ;;
+      *) md_status=2 ;;
+    esac
+  fi
+  if [ "$md_status" -eq 0 ]; then
+    mask_file "$1" text "$md_marker" >"$md_view" 2>/dev/null || md_status=2
+  fi
+  if [ "$md_status" -eq 0 ]; then
+    md_out=$(mask_rules_apply "$md_rules" "$(mask_file_format "$1")" "$md_view" "$md_marker"
+      md_status=$?
+      printf x
+      exit "$md_status")
+    md_status=$?
+    md_out=${md_out%x}
+  fi
+  rm -f "$md_rules" "$md_view"
+  case $md_status in
+    0) printf '%s' "$md_out" ;;
+    1) printf '%s' "$md_out"; exit 1 ;;
+    *) printf '%s' "$md_failed"; exit 1 ;;
+  esac
+)
+
 # Rules that rewrite the view belong between the engine and the size cap, so
-# the cap and the rescan always see the view that is returned.
+# the cap and the rescan always see the view that is returned. The cap also
+# runs first: awk time on user rules grows with the view.
 masked_view() (
   mv_view=$(mask_file "$1" text 2>/dev/null
     mv_status=$?
     printf x
     exit "$mv_status") || exit 10
   mv_view=${mv_view%x}
-  mv_size=$(printf '%s' "$mv_view" | wc -c | tr -d ' \t')
-  case $mv_size in ''|*[!0-9]*) exit 10 ;; esac
-  [ "$mv_size" -le "$MASKED_VIEW_MAX_BYTES" ] || exit 11
+  masked_view_fits "$mv_view"
+  case $? in 0) ;; 1) exit 11 ;; *) exit 10 ;; esac
+  mv_view=$(mask_deny_values "$1" "$mv_view"
+    mv_status=$?
+    printf x
+    exit "$mv_status")
+  mv_status=$?
+  mv_view=${mv_view%x}
+  [ "$mv_status" -eq 0 ] || { printf '%s' "$mv_view"; exit 14; }
+  masked_view_fits "$mv_view"
+  case $? in 0) ;; 1) exit 11 ;; *) exit 10 ;; esac
   masked_view_scan "$mv_view"
   case $? in
     0) ;;
@@ -8987,6 +9325,7 @@ deny_read_masked_block() {
     11) info "$PROGRAM: no masked view: the file is too large for a masked view" ;;
     12) info "$PROGRAM: no masked view: the masked view still contains secret-like text" ;;
     13) info "$PROGRAM: no masked view: the secret scanner could not check the masked view" ;;
+    14) info "$PROGRAM: no masked view: ${dr_view%x}" ;;
     *) info "$PROGRAM: no masked view: the file is not a readable json, yaml, ini or dotenv file within the supported subset and 64 KiB" ;;
   esac
   exit 2

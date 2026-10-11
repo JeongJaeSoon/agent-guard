@@ -204,12 +204,62 @@ Keys and comments are shown as written. If key names are sensitive too, keep
 `block`. The view covers the whole file; `Read`'s `offset` and `limit` are
 ignored.
 
+### Deny-value rules
+
+Text that must never show, such as your organization's token format, can be
+added as rules. In `mask` mode every match is replaced with `[MASKED]`, in
+comments too. Rules are read from both of these, together:
+
+- `$HOME/.config/agent-guard/mask-deny-values.txt`
+- the file named by `AGENT_GUARD_MASK_DENY_VALUES`
+
+Neither replaces the other, so a repository that sets the variable to an empty
+file still gets your rules. A missing user file means no rules from it.
+
+Each line is one POSIX extended regular expression, matched by `awk` in the C
+locale; lines whose first non-blank character is `#` and blank lines are
+skipped (write `[#]` for a rule that starts with `#`). Interval support
+(`{n,m}`) follows the system `awk`.
+
+```text
+# organization tokens
+ORGTOK-[0-9a-f]{24}
+```
+
+The read stays blocked with no view when:
+
+- a rule file that exists, or the file the variable names, cannot be read;
+- any rule is refused: more than 64 rules across both files, a rule over 256
+  bytes, a back-reference (`\1` to `\9`), a repetition of something that
+  already repeats (`(a+)+`, `(.*)*`, `a**`), a repeated group that contains
+  `|` (`(a|aa)*`), a repetition count over 255, an invalid expression, or a
+  rule that matches empty text;
+- a rule matches on a line that is not a comment, outside the `[MASKED]`
+  values: in a key, a section name or other structure. Rewriting that text
+  would change the key, so the view is refused instead;
+- `awk` takes more than 2 seconds to check the rules or 2 seconds to apply
+  them, which stops shapes that only some `awk` builds take exponential time
+  on (`mawk` with a long run of `a?`).
+
+The reason names the file (`mask-deny-values.txt` or
+`AGENT_GUARD_MASK_DENY_VALUES`), the line and why, never the rule text:
+
+```text
+agent-guard: no masked view: mask-deny-values.txt line 4: the rule uses a back-reference
+```
+
+Rules apply before the 6,144-byte limit and the rescan, so both see the view
+that is returned; a view over the limit is refused before the rules run.
+`block` mode never reads the rules. A future list of values to show will not
+override these rules: text a deny-value rule matches stays masked.
+
 ## Environment reference
 
 | Variable | Default / use |
 | --- | --- |
 | `AGENT_GUARD_DENY_READ_PATHS` | Override the deny-read policy file. |
 | `AGENT_GUARD_DENY_READ_MODE` | `block` (default) or `mask`; `mask` adds a masked view to the reason of a blocked `Read` or `cat` of a protected file. |
+| `AGENT_GUARD_MASK_DENY_VALUES` | A file of extra deny-value rules for `mask` mode, used together with `$HOME/.config/agent-guard/mask-deny-values.txt`. |
 | `AGENT_GUARD_DENY_BASH_PATTERNS` | Override the risky-shell-command policy file. |
 | `AGENT_GUARD_GITLEAKS_CONFIG` | Override the gitleaks configuration file. |
 | `AGENT_GUARD_GITLEAKS_BIN` | Select a gitleaks executable. |

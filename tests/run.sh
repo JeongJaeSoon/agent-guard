@@ -168,6 +168,7 @@ for file in \
   "$PLUGIN_ROOT/scripts/gitleaks-checksum.sh" \
   "$ROOT/tests/hook-outcome-contract.sh" \
   "$ROOT/tests/deny-read-mask.sh" \
+  "$ROOT/tests/deny-read-mask-rules.sh" \
   "$ROOT/tests/gitleaks-resolution.sh" \
   "$ROOT/tests/run.sh"; do
   run_expect 0 "shell syntax: $file" sh -n "$file"
@@ -4560,6 +4561,7 @@ alias_case codex secret 0 'git nosuch'
 
 run_expect 0 "mask-file masks values per format and fails closed" sh "$ROOT/tests/mask-file.sh"
 run_expect 0 "deny-read mask mode returns a masked view or blocks without content" sh "$ROOT/tests/deny-read-mask.sh"
+run_expect 0 "deny-read mask rules mask matches or block without content" sh "$ROOT/tests/deny-read-mask-rules.sh"
 
 fi # end of shard 3
 
