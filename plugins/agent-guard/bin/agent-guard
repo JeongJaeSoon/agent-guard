@@ -8807,10 +8807,12 @@ function check_scalar(v,   c, e, t, i) {
 }
 '
 
-# Needs "$JQ_WALK" in front. Exactly one document; a key with a control
-# character would forge extra lines in the key path list, so it fails.
+# Needs "$JQ_WALK" in front. Exactly one object or array document, so every
+# masked value has a key path; a key with a control character would forge
+# extra lines in the key path list, so it fails.
 MASK_FILE_JQ='
 if length != 1 then error("not one document") else .[0] end
+| if type == "object" or type == "array" then . else error("scalar document") end
 | if $mode == "paths" then
     paths(type != "object" and type != "array")
     | map(tostring) | join(".")

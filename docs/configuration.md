@@ -133,7 +133,7 @@ Each format accepts only a subset:
   ini readers also split at `:`. Lines without `=`, indented lines and values
   ending in a backslash fail. Key path:
   `section.key`, or `key` before the first section.
-- json: one document parsed by `jq`; every string, number, boolean and null
+- json: one object or array document parsed by `jq`; every string, number, boolean and null
   becomes `"[MASKED]"`, printed with `jq`'s default indentation. Key path: keys
   joined by `.`, array elements by index (`servers.0.host`).
 - yaml: space-indented block mappings and sequences, one-line plain or quoted
