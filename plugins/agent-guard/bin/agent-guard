@@ -8647,18 +8647,22 @@ MASK_FILE_AWK_DOTENV='
   value = substr($0, RLENGTH + 1)
   if (value == "") { emit_line($0); next }
   # A shell (.envrc) can pull the following lines into this value, even ones
-  # that look like comments: a trailing backslash, or a quote, backtick or
-  # parenthesis opened outside a comment. Those lines would print unmasked.
+  # that look like comments, which would then print unmasked: a trailing
+  # backslash, or a quote, backtick, $( ${ $[ or ( left open. In an unquoted
+  # value a blank-# starts a comment only when no backslash precedes it, so
+  # the part before it is checked whole.
   if (value ~ /\\$/) exit 1
   c = substr(value, 1, 1)
   if (c == "\"" || c == sq) {
     e = quoted_end(value, c)
     if (!e || substr(value, e + 1) !~ /^([ \t]*|[ \t]+#.*)$/) exit 1
+    word = c == sq ? "" : substr(value, 1, e)
   } else {
     word = value
     if (match(word, /[ \t]#/)) word = substr(word, 1, RSTART - 1)
-    if (word ~ /["`(]/ || index(word, sq)) exit 1
+    if (word ~ /["\\(]/ || index(word, sq)) exit 1
   }
+  if (index(word, "`") || index(word, "$(") || index(word, "${") || index(word, "$[")) exit 1
   key = prefix
   sub(/^[ \t]*/, "", key)
   sub(/^export[ \t]+/, "", key)

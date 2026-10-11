@@ -124,8 +124,9 @@ Each format accepts only a subset:
   double-quoted values that close on the same line, empty values, comment lines
   and blank lines. A comment after a value is masked with the value. Shapes a
   shell reading `.envrc` would continue onto the next line fail: a value ending
-  in a backslash, and a quote, backtick or `(` in an unquoted value. Key path:
-  `KEY`.
+  in a backslash, a quote, backslash, backtick or `(` in an unquoted value
+  before its comment, and a backtick, `$(`, `${` or `$[` in a double-quoted
+  value. Key path: `KEY`.
 - ini: `[section]` headers, `key = value` split at the first `=` (keys may
   contain `/` and `:`, as in `.npmrc` registry tokens), `;` and `#` comment lines
   and blank lines. Lines without `=`, indented lines and values ending in a

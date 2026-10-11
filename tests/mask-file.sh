@@ -149,7 +149,7 @@ gen d1 d2 d3 d4 d5 d6 d7 d8
   printf 'EMPTY=\n'
   printf '  INDENTED=%s\n' "$d5"
   printf 'dotted.key=%s # inline %s\n' "$d6" "$d7"
-  printf "URL=https://x.example/?a=1&b=%s # it's fine\n" "$d8"
+  printf "URL=https://x.example/?a=1&b=%s # it's fine (really)\n" "$d8"
 } >"$F/app.env"
 expect_output "dotenv view keeps keys, comments and blank lines" '# comment line
 
@@ -200,6 +200,12 @@ dotenv_fail array "A=($(rand)
 #$(rand))"
 dotenv_fail comment-glued-to-quote "A=\"$(rand)\"#'
 #$(rand)'"
+dotenv_fail escaped-blank-before-hash "A=$(rand)\\ #'
+#$(rand)'"
+dotenv_fail expansion-in-double-quotes "A=\"\${B:-\"
+#$(rand)\"}\""
+dotenv_fail substitution-in-double-quotes "A=\"\$(printf %s $(rand))\""
+dotenv_fail backtick-in-double-quotes "A=\"\`printf $(rand)\`\""
 
 # --- ini -----------------------------------------------------------------
 VALUES=
