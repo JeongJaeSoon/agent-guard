@@ -205,6 +205,9 @@ dotenv_fail escaped-blank-before-hash "A=$(rand)\\ #'
 dotenv_fail expansion-in-double-quotes "A=\"\${B:-\"
 #$(rand)\"}\""
 dotenv_fail substitution-in-double-quotes "A=\"\$(printf %s $(rand))\""
+dotenv_fail heredoc "A=x <<B=y
+#$(rand)
+B=y"
 dotenv_fail backtick-in-double-quotes "A=\"\`printf $(rand)\`\""
 
 # --- ini -----------------------------------------------------------------
