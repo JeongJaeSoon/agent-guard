@@ -39,6 +39,9 @@ target, so it does not receive the direct named-file scan used by structured
 write tools.
 
 Codex does not promise interception of arbitrary `Read`, `Grep`, or web tools.
+With `AGENT_GUARD_DENY_READ_MODE=mask`, a Codex shell command that is exactly
+`cat PATH` for a protected file gets the same masked view in its block reason as
+a Claude `Read` (see [configuration](configuration.md#masked-view-on-a-blocked-read)).
 Its hooks also run only after their current definitions have been reviewed and
 trusted. Official documentation covers plugin-hook trust and `PLUGIN_ROOT`:
 [Codex Hooks](https://learn.chatgpt.com/docs/hooks). Test the exact tool route;
@@ -136,6 +139,11 @@ gitleaks config instead of the bundled one.
   could stop blocking. Claude Code still lists the hook command in the ctrl+o
   view of a `Stop` hook, passes it to the model with a `Stop` block, and keeps
   blocked prompts in its local prompt history.
+- A masked view of a protected file travels in that same block reason, so
+  every host gets it from the same stderr and Claude Code 2.1.214+ also as
+  JSON. Agent Guard does not swap a tool's output after the read instead: that
+  path lets the original output through on an error, and the file has already
+  been read by then.
 - Shell blocking is pattern-based. It can block benign path-shaped text and an
   actively evasive command can avoid a fixed pattern list.
 - A user-typed host shell escape is outside the tool-hook boundary. Do not print

@@ -104,8 +104,8 @@ back to `open`.
 `agent-guard mask-file [--key-paths] FILE` prints a copy of a configuration file
 with every value replaced by `[MASKED]`. Keys, section headers, comments, blank
 lines and nesting stay as written. `--key-paths` prints the key path of each
-masked value instead, one per line. Hooks do not call it yet; reading a
-deny-listed file is still blocked.
+masked value instead, one per line. With `AGENT_GUARD_DENY_READ_MODE=mask` the
+hooks put this view in the reason of a blocked read (see below).
 
 The format comes from the file name after symlinks are resolved, never from the
 content. The first matching row wins:
@@ -115,7 +115,7 @@ content. The first matching row wins:
 | json | `*.json` |
 | yaml | `*.yaml`, `*.yml` |
 | ini | `*.ini`, `*.cfg`, `*.cnf`, `*.conf`, `.npmrc`, `.pypirc`, and `credentials` or `config` directly inside a `.aws` directory |
-| dotenv | `.env`, `.env.*`, `*.env`, `.envrc`, `*.envrc`, `.flaskenv`, `.flaskenv.*`, `.dev.vars`, `.dev.vars.*` |
+| dotenv | `.env`, `.env.*`, `*.env`, `.flaskenv`, `.flaskenv.*`, `.dev.vars`, `.dev.vars.*`, except a name ending in `.envrc` |
 
 Each format accepts only a subset:
 
@@ -123,7 +123,7 @@ Each format accepts only a subset:
   `=`, keys matching `[A-Za-z_][A-Za-z0-9_.]*`, unquoted values, single- or
   double-quoted values that close on the same line, empty values, comment lines
   and blank lines. A comment after a value is masked with the value. Shapes a
-  shell reading `.envrc` would continue onto the next line fail: a value ending
+  shell sourcing the file would continue onto the next line fail: a value ending
   in a backslash, a quote, backslash, backtick, `(` or `<` (a heredoc) in an
   unquoted value before its comment, and a backtick, `$(`, `${` or `$[` in a double-quoted
   value. Key path: `KEY`.
@@ -147,18 +147,69 @@ Each format accepts only a subset:
 
 In dotenv, ini and yaml an empty value stays empty and has no key path. Every
 other case fails: a name
-outside the table (`*.pem`, `*.key`, `.netrc`, `*.toml`, `*.tfvars`, an
+outside the table (`.envrc` and `*.envrc`, which only a shell reads, `*.pem`,
+`*.key`, `.netrc`, `*.toml`, `*.tfvars`, an
 extensionless `.kube/config`, and so on), content outside the format's subset, a
 file over 64 KiB, or anything that is not a readable regular file. A failure
 exits non-zero, prints nothing on stdout, and writes one fixed line to stderr
 that quotes neither the path nor the content. A caller must treat any non-zero
 status as "no masked view" and keep blocking.
 
+### Masked view on a blocked read
+
+`AGENT_GUARD_DENY_READ_MODE` is `block` (the default) or `mask`. In both modes
+a read of a deny-listed file is blocked and the tool never reads it. In `mask`
+mode the block reason also carries the masked view, so an agent can see the
+keys and structure without the values:
+
+```text
+agent-guard: blocked sensitive file access: /home/me/project/.env
+agent-guard: masked view follows (values replaced with [MASKED]; the file itself was not read by the tool)
+DB_HOST=[MASKED]
+DB_PASSWORD=[MASKED]
+```
+
+The path is the resolved file, so a `Read` and a `cat` of the same file give
+the same reason byte for byte. The mode is checked only when a read is
+blocked: any value other than `block` or `mask` blocks without a view, and the
+reason names the variable, not its value.
+
+Only two reads get a view:
+
+- `Read` whose `file_path` is absolute and is the only deny-listed string in
+  its input. `Grep`, `Glob`, `NotebookRead`, a relative `file_path` and a
+  deny-listed path in another field block as in `block` mode.
+- A shell command that is exactly `cat PATH` or `cat -- PATH` after leading and
+  trailing spaces and tabs are trimmed, where `PATH` is one word made only of
+  `A-Z a-z 0-9 . _ / ~ + @ -`, starts with `~` only as `~` or `~/`, and is not
+  `-`. A relative path is resolved against the event's `workdir` or `cwd`. Any
+  other command that names a deny-listed path (quotes, `$`, globs, several
+  paths, pipes, redirections, `;`, `&&`, a newline, an environment prefix,
+  `head`, `sed -n` and so on) blocks as in `block` mode, with one more line:
+  "for a masked view, read the protected file alone with the read tool or
+  `cat <path>`".
+
+Before the view is returned, the whole view is scanned again with gitleaks.
+The read stays blocked with no view, whatever `AGENT_GUARD_INFRA_FAILURE_MODE`
+says, when:
+
+- the file cannot be masked (see the failures above);
+- the view is over 6,144 bytes ("too large for a masked view"). It is never
+  cut, and the limit keeps it below the size at which hosts move hook output
+  to a file;
+- the rescan finds something, such as a token left in a comment, or cannot
+  run.
+
+Keys and comments are shown as written. If key names are sensitive too, keep
+`block`. The view covers the whole file; `Read`'s `offset` and `limit` are
+ignored.
+
 ## Environment reference
 
 | Variable | Default / use |
 | --- | --- |
 | `AGENT_GUARD_DENY_READ_PATHS` | Override the deny-read policy file. |
+| `AGENT_GUARD_DENY_READ_MODE` | `block` (default) or `mask`; `mask` adds a masked view to the reason of a blocked `Read` or `cat` of a protected file. |
 | `AGENT_GUARD_DENY_BASH_PATTERNS` | Override the risky-shell-command policy file. |
 | `AGENT_GUARD_GITLEAKS_CONFIG` | Override the gitleaks configuration file. |
 | `AGENT_GUARD_GITLEAKS_BIN` | Select a gitleaks executable. |

@@ -3726,7 +3726,7 @@ normalize_path() {
   esac
   case "$candidate" in
     '~') candidate=${HOME:-/} ;;
-    '~/'*) candidate=${HOME:-/}/${candidate#~/} ;;
+    '~/'*) candidate=${HOME:-/}/${candidate#"~/"} ;;
   esac
   while :; do
     case "$candidate" in
@@ -3953,8 +3953,13 @@ check_sensitive_reads() {
   while IFS= read -r value; do
     [ -n "$value" ] || continue
     if matches_deny_path "$value"; then
-      info "$PROGRAM: blocked sensitive file access: $value"
       rm -f "$tmp"
+      dr_mode=$(deny_read_mode) || dr_mode=invalid
+      if [ "$dr_mode" = mask ] && dr_target=$(read_mask_target "$input" "$reads_tool"); then
+        deny_read_masked_block "$dr_target"
+      fi
+      info "$PROGRAM: blocked sensitive file access: $value"
+      [ "$dr_mode" = invalid ] && deny_read_mode_notice invalid
       exit 2
     fi
   done <"$tmp"
@@ -6162,10 +6167,15 @@ check_bash_command() {
   )
   case "$?" in
     0)
+      dr_mode=$(deny_read_mode) || dr_mode=invalid
+      if [ "$dr_mode" = mask ] && dr_target=$(cat_mask_target "$raw_cmd" "$workdir"); then
+        deny_read_masked_block "$dr_target"
+      fi
       info "$PROGRAM: blocked shell command referencing a deny-listed path"
       info "$PROGRAM: reason=bash_protected_path_text_match; raw Bash command text matched a protected-path pattern and may be a file operand or source/search text; command was not executed"
       [ -n "$deny_report" ] && info "$PROGRAM: $deny_report"
       info "$PROGRAM: if the command reads no protected file, rewrite the matched text so it is not path-shaped and retry; do not weaken the deny list. Examples: jq '.[\"key\"]' instead of jq '.key'; a commit message that omits the path; a structured Grep pattern instead of an inline shell search."
+      deny_read_mode_notice "$dr_mode"
       exit 2
       ;;
     1) ;;
@@ -8646,7 +8656,7 @@ MASK_FILE_AWK_DOTENV='
   prefix = substr($0, 1, RLENGTH)
   value = substr($0, RLENGTH + 1)
   if (value == "") { emit_line($0); next }
-  # A shell (.envrc) can read the following lines as data, even ones that
+  # A sourcing shell can read the following lines as data, even ones that
   # look like comments and would print unmasked: after a trailing backslash,
   # a heredoc, or a quote, backtick, $( ${ $[ or ( left open. Inside any other
   # construct a blank-# line is a comment to the shell too. In an unquoted
@@ -8838,7 +8848,10 @@ mask_file_format() {
       [ "$mf_parent" = .aws ] || return 1
       printf ini
       ;;
-    .env|.env.*|*.env|.envrc|*.envrc|.flaskenv|.flaskenv.*|.dev.vars|.dev.vars.*) printf dotenv ;;
+    # Only a shell reads these, and shell grammar is wider than the dotenv
+    # subset in ways a line-wise check keeps missing.
+    .envrc|*.envrc) return 1 ;;
+    .env|.env.*|*.env|.flaskenv|.flaskenv.*|.dev.vars|.dev.vars.*) printf dotenv ;;
     *) return 1 ;;
   esac
 }
@@ -8923,6 +8936,129 @@ do_mask_file() {
   [ $# -eq 1 ] || { mask_file_usage; exit 2; }
   mask_file "$1" "$mf_cli_mode"
 }
+
+deny_read_mode() {
+  case ${AGENT_GUARD_DENY_READ_MODE:-block} in
+    block) printf block ;;
+    mask) printf mask ;;
+    *) return 1 ;;
+  esac
+}
+
+# Below the hosts' inline hook-output limits, so a view is never moved to a
+# file on disk or cut to a preview the agent could take for the whole file.
+MASKED_VIEW_MAX_BYTES=6144
+
+masked_view_scan() {
+  ( scan_text_direct "masked view" "$1" ) >/dev/null 2>&1
+}
+
+# Rules that rewrite the view belong between the engine and the size cap, so
+# the cap and the rescan always see the view that is returned.
+masked_view() (
+  mv_view=$(mask_file "$1" text 2>/dev/null
+    mv_status=$?
+    printf x
+    exit "$mv_status") || exit 10
+  mv_view=${mv_view%x}
+  mv_size=$(printf '%s' "$mv_view" | wc -c | tr -d ' \t')
+  case $mv_size in ''|*[!0-9]*) exit 10 ;; esac
+  [ "$mv_size" -le "$MASKED_VIEW_MAX_BYTES" ] || exit 11
+  masked_view_scan "$mv_view"
+  case $? in
+    0) ;;
+    1) exit 12 ;;
+    *) exit 13 ;;
+  esac
+  printf '%s' "$mv_view"
+)
+
+deny_read_masked_block() {
+  info "$PROGRAM: blocked sensitive file access: $1"
+  dr_view=$(masked_view "$1"
+    dr_status=$?
+    printf x
+    exit "$dr_status")
+  case $? in
+    0)
+      info "$PROGRAM: masked view follows (values replaced with [MASKED]; the file itself was not read by the tool)"
+      printf '%s' "${dr_view%x}" >&2
+      ;;
+    11) info "$PROGRAM: no masked view: the file is too large for a masked view" ;;
+    12) info "$PROGRAM: no masked view: the masked view still contains secret-like text" ;;
+    13) info "$PROGRAM: no masked view: the secret scanner could not check the masked view" ;;
+    *) info "$PROGRAM: no masked view: the file is not a readable json, yaml, ini or dotenv file within the supported subset and 64 KiB" ;;
+  esac
+  exit 2
+}
+
+deny_read_mode_notice() {
+  case $1 in
+    mask) info "$PROGRAM: for a masked view, read the protected file alone with the read tool or \`cat <path>\`" ;;
+    invalid) info "$PROGRAM: AGENT_GUARD_DENY_READ_MODE must be block or mask; no masked view" ;;
+  esac
+}
+
+# A relative file_path would resolve against the hook's cwd, which need not be
+# the host's.
+read_mask_target() (
+  [ "$2" = Read ] || exit 1
+  rt_path=$(json_value '.tool_input.file_path | strings' "$1")
+  [ -n "$rt_path" ] || exit 1
+  rt_path=$(normalize_path "$rt_path")
+  case $rt_path in /*) ;; *) exit 1 ;; esac
+  matches_deny_path "$rt_path" || exit 1
+  rt_other=$(printf '%s' "$1" | jq -r '.tool_input | del(.file_path) | .. | strings') || exit 1
+  printf '%s\n' "$rt_other" | {
+    while IFS= read -r rt_value; do
+      [ -n "$rt_value" ] || continue
+      matches_deny_path "$rt_value" && exit 1
+    done
+    exit 0
+  } || exit 1
+  resolve_path "$rt_path"
+)
+
+CAT_MASK_PATH_CHARS='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._/~+@-'
+cat_mask_target() (
+  ct_blank=$(printf ' \t')
+  ct_cmd=$1
+  case $ct_cmd in *'
+'*) exit 1 ;; esac
+  ct_cmd=${ct_cmd#"${ct_cmd%%[!$ct_blank]*}"}
+  ct_cmd=${ct_cmd%"${ct_cmd##*[!$ct_blank]}"}
+  case $ct_cmd in cat[$ct_blank]*) ;; *) exit 1 ;; esac
+  ct_path=${ct_cmd#cat}
+  ct_path=${ct_path#"${ct_path%%[!$ct_blank]*}"}
+  ct_dashdash=0
+  case $ct_path in
+    --[$ct_blank]*)
+      ct_dashdash=1
+      ct_path=${ct_path#--}
+      ct_path=${ct_path#"${ct_path%%[!$ct_blank]*}"}
+      ;;
+  esac
+  case $ct_path in ''|*[!$CAT_MASK_PATH_CHARS]*) exit 1 ;; esac
+  case $ct_path in
+    -) exit 1 ;;
+    -*) [ "$ct_dashdash" -eq 1 ] || exit 1 ;;
+  esac
+  # `~user`, `~+` and `~-` name other directories than HOME.
+  case $ct_path in
+    '~'|'~/'*) ;;
+    '~'*) exit 1 ;;
+  esac
+  if [ -n "$2" ]; then
+    CDPATH= cd -- "$2" 2>/dev/null || exit 1
+  fi
+  ct_path=$(normalize_path "$ct_path")
+  matches_deny_path "$ct_path" || exit 1
+  case $ct_path in
+    /*) ;;
+    *) ct_path=$(pwd -P)/$ct_path || exit 1 ;;
+  esac
+  resolve_path "$ct_path"
+)
 
 # PostToolUse output guard. Applies, in one rewrite: secret-literal redaction
 # (AGENT_GUARD_OUTPUT_REDACT, on by default) and PII masking

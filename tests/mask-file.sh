@@ -115,7 +115,7 @@ for spec in \
   yaml:x.yaml yaml:x.yml yaml:.env.yaml \
   ini:x.ini ini:x.cfg ini:x.cnf ini:x.conf ini:.npmrc ini:.pypirc \
   ini:.aws/credentials ini:.aws/config \
-  dotenv:.env dotenv:.env.local dotenv:x.env dotenv:.envrc dotenv:x.envrc \
+  dotenv:.env dotenv:.env.local dotenv:x.env \
   dotenv:.flaskenv dotenv:.flaskenv.dev dotenv:.dev.vars dotenv:.dev.vars.prod; do
   format=${spec%%:*}
   name=${spec#*:}
@@ -124,7 +124,8 @@ for spec in \
   expect_output "name $name is read as $format" "$view" "$F/names/$name"
 done
 
-for name in x.pem .netrc x.toml x.tfvars x.txt x.key id_rsa .envx config credentials; do
+for name in x.pem .netrc x.toml x.tfvars x.txt x.key id_rsa .envx config credentials \
+  .envrc x.envrc .env.envrc; do
   printf '%s' "$dotenv_body" >"$F/names/plain/$name"
   expect_fail "name $name is an unsupported format" "$F/names/plain/$name"
 done
@@ -184,7 +185,7 @@ continued\""
 dotenv_fail text-after-quote "A=\"$(rand)\"tail"
 dotenv_fail bad-key-name "A-B=$(rand)"
 dotenv_fail no-equals "JUST_A_WORD"
-# Shapes where a shell (.envrc) reads the next, comment-looking line as part
+# Shapes where a shell sourcing the file reads the next, comment-looking line as part
 # of the value; printing that line verbatim would leak it.
 dotenv_fail line-continuation "A=$(rand)\\
 #$(rand)"
