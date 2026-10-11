@@ -122,11 +122,14 @@ Each format accepts only a subset:
 - dotenv: `KEY=value` and `export KEY=value` lines with optional spaces around
   `=`, keys matching `[A-Za-z_][A-Za-z0-9_.]*`, unquoted values, single- or
   double-quoted values that close on the same line, empty values, comment lines
-  and blank lines. A comment after a value is masked with the value. Key path:
+  and blank lines. A comment after a value is masked with the value. Shapes a
+  shell reading `.envrc` would continue onto the next line fail: a value ending
+  in a backslash, and a quote, backtick or `(` in an unquoted value. Key path:
   `KEY`.
 - ini: `[section]` headers, `key = value` split at the first `=` (keys may
   contain `/` and `:`, as in `.npmrc` registry tokens), `;` and `#` comment lines
-  and blank lines. Lines without `=` and indented lines fail. Key path:
+  and blank lines. Lines without `=`, indented lines and values ending in a
+  backslash fail. Key path:
   `section.key`, or `key` before the first section.
 - json: one document parsed by `jq`; every string, number, boolean and null
   becomes `"[MASKED]"`, printed with `jq`'s default indentation. Key path: keys

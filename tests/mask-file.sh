@@ -139,7 +139,7 @@ expect_output "symlink to a dotenv file is read as dotenv" "$dotenv_view" "$F/na
 
 # --- dotenv --------------------------------------------------------------
 VALUES=
-gen d1 d2 d3 d4 d5 d6 d7
+gen d1 d2 d3 d4 d5 d6 d7 d8
 {
   printf '# comment line\n\n'
   printf 'export API_KEY=%s\n' "$d1"
@@ -149,6 +149,7 @@ gen d1 d2 d3 d4 d5 d6 d7
   printf 'EMPTY=\n'
   printf '  INDENTED=%s\n' "$d5"
   printf 'dotted.key=%s # inline %s\n' "$d6" "$d7"
+  printf "URL=https://x.example/?a=1&b=%s # it's fine\n" "$d8"
 } >"$F/app.env"
 expect_output "dotenv view keeps keys, comments and blank lines" '# comment line
 
@@ -159,6 +160,7 @@ SQ=[MASKED]
 EMPTY=
   INDENTED=[MASKED]
 dotted.key=[MASKED]
+URL=[MASKED]
 ' "$F/app.env"
 expect_output "dotenv key paths" 'API_KEY
 SPACED
@@ -166,6 +168,7 @@ DQ
 SQ
 INDENTED
 dotted.key
+URL
 ' --key-paths "$F/app.env"
 expect_no_values "dotenv output carries no original value" "$F/app.env"
 
@@ -181,6 +184,22 @@ continued\""
 dotenv_fail text-after-quote "A=\"$(rand)\"tail"
 dotenv_fail bad-key-name "A-B=$(rand)"
 dotenv_fail no-equals "JUST_A_WORD"
+# Shapes where a shell (.envrc) reads the next, comment-looking line as part
+# of the value; printing that line verbatim would leak it.
+dotenv_fail line-continuation "A=$(rand)\\
+#$(rand)"
+dotenv_fail quote-in-unquoted "A=abc'$(rand)
+#$(rand)'"
+dotenv_fail ansi-c-quote "A=\$'$(rand)
+#$(rand)'"
+dotenv_fail command-substitution "A=\$($(rand)
+#$(rand))"
+dotenv_fail backtick "A=\`$(rand)
+#$(rand)\`"
+dotenv_fail array "A=($(rand)
+#$(rand))"
+dotenv_fail comment-glued-to-quote "A=\"$(rand)\"#'
+#$(rand)'"
 
 # --- ini -----------------------------------------------------------------
 VALUES=
@@ -226,6 +245,8 @@ printf '[s]\nk = %s\n  continued\n' "$(rand)" >"$F/ini-bad/continuation.ini"
 expect_fail "ini rejects an indented continuation line" "$F/ini-bad/continuation.ini"
 printf '[s\nk = %s\n' "$(rand)" >"$F/ini-bad/header.ini"
 expect_fail "ini rejects an unclosed section header" "$F/ini-bad/header.ini"
+printf '[s]\nk = %s\\\n#%s\n' "$(rand)" "$(rand)" >"$F/ini-bad/backslash.ini"
+expect_fail "ini rejects a value continued by a backslash" "$F/ini-bad/backslash.ini"
 
 # --- json ----------------------------------------------------------------
 VALUES=

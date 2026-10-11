@@ -8646,10 +8646,18 @@ MASK_FILE_AWK_DOTENV='
   prefix = substr($0, 1, RLENGTH)
   value = substr($0, RLENGTH + 1)
   if (value == "") { emit_line($0); next }
+  # A shell (.envrc) can pull the following lines into this value, even ones
+  # that look like comments: a trailing backslash, or a quote, backtick or
+  # parenthesis opened outside a comment. Those lines would print unmasked.
+  if (value ~ /\\$/) exit 1
   c = substr(value, 1, 1)
   if (c == "\"" || c == sq) {
     e = quoted_end(value, c)
-    if (!e || substr(value, e + 1) !~ /^[ \t]*(#.*)?$/) exit 1
+    if (!e || substr(value, e + 1) !~ /^([ \t]*|[ \t]+#.*)$/) exit 1
+  } else {
+    word = value
+    if (match(word, /[ \t]#/)) word = substr(word, 1, RSTART - 1)
+    if (word ~ /["`(]/ || index(word, sq)) exit 1
   }
   key = prefix
   sub(/^[ \t]*/, "", key)
@@ -8681,6 +8689,8 @@ MASK_FILE_AWK_INI='
   rest = substr($0, eq + 1)
   match(rest, /^[ \t]*/)
   if (substr(rest, RLENGTH + 1) == "") { emit_line($0); next }
+  # Some ini readers continue a value ending in a backslash.
+  if (rest ~ /\\$/) exit 1
   emit_masked(substr($0, 1, eq + RLENGTH), section == "" ? key : section "." key)
 }
 '
