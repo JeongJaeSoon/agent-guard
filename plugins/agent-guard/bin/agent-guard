@@ -8646,7 +8646,7 @@ MASK_FILE_AWK_DOTENV='
   prefix = substr($0, 1, RLENGTH)
   value = substr($0, RLENGTH + 1)
   if (value == "") { emit_line($0); next }
-  # A shell (.envrc) can read the following lines as data, even ones that
+  # A sourcing shell can read the following lines as data, even ones that
   # look like comments and would print unmasked: after a trailing backslash,
   # a heredoc, or a quote, backtick, $( ${ $[ or ( left open. Inside any other
   # construct a blank-# line is a comment to the shell too. In an unquoted
@@ -8838,7 +8838,10 @@ mask_file_format() {
       [ "$mf_parent" = .aws ] || return 1
       printf ini
       ;;
-    .env|.env.*|*.env|.envrc|*.envrc|.flaskenv|.flaskenv.*|.dev.vars|.dev.vars.*) printf dotenv ;;
+    # Only a shell reads these, and shell grammar is wider than the dotenv
+    # subset in ways a line-wise check keeps missing.
+    .envrc|*.envrc) return 1 ;;
+    .env|.env.*|*.env|.flaskenv|.flaskenv.*|.dev.vars|.dev.vars.*) printf dotenv ;;
     *) return 1 ;;
   esac
 }
