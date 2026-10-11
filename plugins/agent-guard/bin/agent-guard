@@ -3956,7 +3956,8 @@ check_sensitive_reads() {
       rm -f "$tmp"
       dr_mode=$(deny_read_mode) || dr_mode=invalid
       if [ "$dr_mode" = mask ] && dr_target=$(read_mask_target "$input" "$reads_tool"); then
-        deny_read_masked_block "$dr_target"
+        deny_read_masked_block "$dr_target" \
+          "$(json_value '.tool_input.workdir // .tool_input.cwd // .cwd // empty' "$input")"
       fi
       info "$PROGRAM: blocked sensitive file access: $value"
       [ "$dr_mode" = invalid ] && deny_read_mode_notice invalid
@@ -6169,7 +6170,7 @@ check_bash_command() {
     0)
       dr_mode=$(deny_read_mode) || dr_mode=invalid
       if [ "$dr_mode" = mask ] && dr_target=$(cat_mask_target "$raw_cmd" "$workdir"); then
-        deny_read_masked_block "$dr_target"
+        deny_read_masked_block "$dr_target" "$workdir"
       fi
       info "$PROGRAM: blocked shell command referencing a deny-listed path"
       info "$PROGRAM: reason=bash_protected_path_text_match; raw Bash command text matched a protected-path pattern and may be a file operand or source/search text; command was not executed"
@@ -8624,11 +8625,16 @@ mask_pii_response_json() {
 MASK_FILE_MAX_BYTES=65536
 
 # Shared by the line-oriented formats. mode=paths prints the key path of each
-# masked value instead of the view.
+# masked value instead of the view. mode=reveal shows the value numbered N
+# between show_open and show_close when want_file lists "N<TAB>path" with this
+# read's key path and that path is unambiguous (`amb` unset).
 MASK_FILE_AWK_LIB='
 function emit_line(s) { if (mode != "paths") print s }
-function emit_masked(prefix, path) {
+function emit_masked(prefix, path, amb) {
+  nv++
   if (mode == "paths") print path
+  else if (mode == "reveal" && !amb && (nv in want) && want[nv] == path)
+    print prefix show_open substr($0, length(prefix) + 1) show_close
   else print prefix marker
 }
 # Index of the quote closing the one that opens s, or 0. Double quotes take
@@ -8644,7 +8650,11 @@ function quoted_end(s, q,   i, n, c) {
   }
   return 0
 }
-BEGIN { sq = sprintf("%c", 39) }
+BEGIN {
+  sq = sprintf("%c", 39)
+  if (mode == "reveal")
+    while ((getline w < want_file) > 0) want[substr(w, 1, index(w, "\t") - 1)] = substr(w, index(w, "\t") + 1)
+}
 '
 
 # An inline comment after a value is masked with it: telling a `#` inside an
@@ -8678,7 +8688,7 @@ MASK_FILE_AWK_DOTENV='
   sub(/^[ \t]*/, "", key)
   sub(/^export[ \t]+/, "", key)
   sub(/[ \t]*=[ \t]*$/, "", key)
-  emit_masked(prefix, key)
+  emit_masked(prefix, key, index(key, "."))
 }
 '
 
@@ -8709,7 +8719,7 @@ MASK_FILE_AWK_INI='
   if (substr(rest, RLENGTH + 1) == "") { emit_line($0); next }
   # Some ini readers continue a value ending in a backslash.
   if (rest ~ /\\$/) exit 1
-  emit_masked(substr($0, 1, eq + RLENGTH), section == "" ? key : section "." key)
+  emit_masked(substr($0, 1, eq + RLENGTH), section == "" ? key : section "." key, index(section key, "."))
 }
 '
 
@@ -8721,8 +8731,11 @@ MASK_FILE_AWK_INI='
 MASK_FILE_AWK_YAML='
 BEGIN { dbl = 1 }
 function join(a, b) { return a == "" ? b : a "." b }
-function push(col, kind, path) {
-  d++; scol[d] = col; skind[d] = kind; spath[d] = path; sidx[d] = 0; seen = 1
+# A key path is ambiguous when a map key could read as more than one step or
+# as a sequence index.
+function amb_key(k) { return k == "" || index(k, ".") || k ~ /^[0-9]+$/ }
+function push(col, kind, path, amb) {
+  d++; scol[d] = col; skind[d] = kind; spath[d] = path; samb[d] = amb; sidx[d] = 0; seen = 1
 }
 # Places an entry of kind at col. A sequence may sit at the column of the key
 # that owns it; a deeper column is only allowed under a key with no value.
@@ -8732,11 +8745,11 @@ function enter(col, kind) {
   }
   if (d > 0 && scol[d] == col) {
     if (skind[d] == kind) { if (kind == "seq") sidx[d]++; pending = 0; return }
-    if (kind == "seq" && pending) { push(col, kind, ppath); pending = 0; return }
+    if (kind == "seq" && pending) { push(col, kind, ppath, pamb); pending = 0; return }
     exit 1
   }
   if (seen && !pending) exit 1
-  push(col, kind, d == 0 ? "" : ppath)
+  push(col, kind, d == 0 ? "" : ppath, d == 0 ? 0 : pamb)
   pending = 0
 }
 # Sets K and returns the index of the colon when r is "key:" or "key: value",
@@ -8792,28 +8805,31 @@ function check_scalar(v,   c, e, t, i) {
   if (r ~ /^-( |$)/) {
     enter(n, "seq")
     path = join(spath[d], sidx[d])
+    amb = samb[d]
     if (!match(r, /^- +/)) exit 1
     base = n + RLENGTH
     r = substr(r, RLENGTH + 1)
     c = substr(r, 1, 1)
     if (r == "" || c == "#" || r ~ /^-( |$)/) exit 1
     p = map_key(r)
-    if (!p) { check_scalar(r); emit_masked(substr(line, 1, base), path); next }
+    if (!p) { check_scalar(r); emit_masked(substr(line, 1, base), path, amb); next }
     pending = 1
     ppath = path
+    pamb = amb
   } else {
     p = map_key(r)
     if (!p) exit 1
   }
   enter(base, "map")
   path = join(spath[d], K)
+  amb = samb[d] || amb_key(K)
   v = substr(r, p + 1)
   match(v, /^ */)
   s = RLENGTH
   v = substr(v, s + 1)
-  if (v == "" || substr(v, 1, 1) == "#") { pending = 1; ppath = path; emit_line(line); next }
+  if (v == "" || substr(v, 1, 1) == "#") { pending = 1; ppath = path; pamb = amb; emit_line(line); next }
   check_scalar(v)
-  emit_masked(substr(line, 1, base + p + s), path)
+  emit_masked(substr(line, 1, base + p + s), path, amb)
 }
 '
 
@@ -8828,6 +8844,20 @@ if length != 1 then error("not one document") else .[0] end
     | map(tostring) | join(".")
     | if (explode | map(select(. < 32 or . == 127)) | length) > 0
       then error("control character in key") else . end
+  elif $mode == "reveal" then
+    ($reveal | split("\n") | map(select(. != "") | split("\t")
+      | {key: .[0], value: (.[1:] | join("\t"))}) | from_entries) as $want
+    | . as $doc
+    | [paths(type != "object" and type != "array")] as $ps
+    | reduce range(0; $ps | length) as $i
+        ($doc | walk(if type == "object" or type == "array" then . else $marker end);
+         $ps[$i] as $p
+         | if $want[($i + 1 | tostring)] == ($p | map(tostring) | join("."))
+              and ($p | all(type == "number"
+                or (. != "" and (contains(".") | not)
+                    and (explode | all(. >= 48 and . <= 57) | not))))
+           then setpath($p; $open + ($doc | getpath($p) | tojson) + $close)
+           else . end)
   else
     walk(if type == "object" or type == "array" then . else $marker end)
   end
@@ -8856,20 +8886,33 @@ mask_file_format() {
   esac
 }
 
-# $1 = format, $2 = text|paths, $3 = the value marker; reads the file on stdin.
+# $1 = format, $2 = text|paths|reveal, $3 = the value marker, and for reveal
+# $4 = the want file, $5 and $6 = the text around a shown value; reads the
+# file on stdin.
 mask_file_render() {
   case $1 in
     json)
+      mr_want=
+      [ "$2" != reveal ] || mr_want=$(cat "$4") || return 2
       if [ "$2" = paths ]; then
-        jq -rs --arg mode paths --arg marker "$3" "$JQ_WALK$MASK_FILE_JQ"
+        jq -rs --arg mode paths --arg marker "$3" --arg reveal '' --arg open '' --arg close '' \
+          "$JQ_WALK$MASK_FILE_JQ"
       else
-        jq -s --arg mode text --arg marker "$3" "$JQ_WALK$MASK_FILE_JQ"
+        jq -s --arg mode "$2" --arg marker "$3" --arg reveal "$mr_want" --arg open "${5:-}" \
+          --arg close "${6:-}" "$JQ_WALK$MASK_FILE_JQ"
       fi
       ;;
-    dotenv) LC_ALL=C awk -v mode="$2" -v marker="$3" "$MASK_FILE_AWK_LIB$MASK_FILE_AWK_DOTENV" ;;
-    ini) LC_ALL=C awk -v mode="$2" -v marker="$3" -v colon_keys=0 "$MASK_FILE_AWK_LIB$MASK_FILE_AWK_INI" ;;
-    npmrc) LC_ALL=C awk -v mode="$2" -v marker="$3" -v colon_keys=1 "$MASK_FILE_AWK_LIB$MASK_FILE_AWK_INI" ;;
-    yaml) LC_ALL=C awk -v mode="$2" -v marker="$3" "$MASK_FILE_AWK_LIB$MASK_FILE_AWK_YAML" ;;
+    dotenv|ini|npmrc|yaml)
+      mr_colon=0
+      [ "$1" != npmrc ] || mr_colon=1
+      mr_prog=$MASK_FILE_AWK_INI
+      case $1 in
+        dotenv) mr_prog=$MASK_FILE_AWK_DOTENV ;;
+        yaml) mr_prog=$MASK_FILE_AWK_YAML ;;
+      esac
+      LC_ALL=C awk -v mode="$2" -v marker="$3" -v colon_keys="$mr_colon" \
+        -v want_file="${4:-}" -v show_open="${5:-}" -v show_close="${6:-}" "$MASK_FILE_AWK_LIB$mr_prog"
+      ;;
     *) return 2 ;;
   esac
 }
@@ -8879,12 +8922,13 @@ mask_file_render() {
 # section), json and yaml keys joined by `.` with array indexes as numbers.
 # Every failure exits non-zero with empty stdout and a fixed stderr line that
 # names neither the path nor any content. $3 replaces the [MASKED] marker; it
-# must not contain a backslash. A subshell, so its names and those
-# resolve_path sets never reach the caller.
+# must not contain a backslash. $2 = reveal takes the arguments
+# mask_file_render documents and is for masked_view only. A subshell, so its
+# names and those resolve_path sets never reach the caller.
 mask_file() (
   mf_mode=${2:-text}
   mf_marker=${3:-[MASKED]}
-  case $mf_mode in text|paths) ;; *) die "mask-file: unsupported mode" ;; esac
+  case $mf_mode in text|paths|reveal) ;; *) die "mask-file: unsupported mode" ;; esac
   need_cmd awk
   need_cmd jq
   mf_path=$(resolve_path "$1")
@@ -8904,7 +8948,8 @@ mask_file() (
   # Buffered so a failure partway through prints nothing; the trailing x keeps
   # $( ) from dropping final newlines. Parser stderr is dropped because jq and
   # awk may quote the input in their errors.
-  mf_out=$(mask_file_render "$mf_format" "$mf_mode" "$mf_marker" 2>/dev/null <"$mf_path"
+  mf_out=$(mask_file_render "$mf_format" "$mf_mode" "$mf_marker" "${4:-}" "${5:-}" "${6:-}" \
+    2>/dev/null <"$mf_path"
     mf_status=$?
     printf x
     exit "$mf_status") \
@@ -9229,13 +9274,11 @@ mask_rules_apply() (
   exit 1
 )
 
-# Applies the deny-value rules to masked view $2 of file $1: the user file
-# and the file AGENT_GUARD_MASK_DENY_VALUES names, together, so a repository
-# setting can add rules but never empty the user's list. With rules, the
-# file is masked again with a random marker so text in it that reads
-# "[MASKED]" cannot pass for a value. Prints the view, or a reason with no
-# rule text and returns 1; the caller blocks on either.
-mask_deny_values() (
+# Prints the deny-value rules: the user file and the file
+# AGENT_GUARD_MASK_DENY_VALUES names, together, so a repository setting can
+# add rules but never empty the user's list. Returns 1 with a reason when one
+# cannot be read.
+mask_deny_rules() (
   md_list=
   if [ -n "${HOME:-}" ]; then
     md_list=$(mask_rules_collect mask-deny-values.txt \
@@ -9249,6 +9292,15 @@ mask_deny_values() (
     [ -z "$md_env" ] || md_list=${md_list:+$md_list
 }$md_env
   fi
+  printf '%s' "$md_list"
+)
+
+# Applies the deny-value rules to masked view $2 of file $1. With rules, the
+# file is masked again with a random marker so text in it that reads
+# "[MASKED]" cannot pass for a value. Prints the view, or a reason with no
+# rule text and returns 1; the caller blocks on either.
+mask_deny_values() (
+  md_list=$(mask_deny_rules) || { printf '%s' "$md_list"; exit 1; }
   [ -n "$md_list" ] || { printf '%s' "$2"; exit 0; }
   md_failed='the mask-deny-values rules could not be checked'
   md_rules=$(mktemp_file) || { printf '%s' "$md_failed"; exit 1; }
@@ -9282,6 +9334,236 @@ mask_deny_values() (
   esac
 )
 
+# The allow list shows the values of the keys it names. It widens what the
+# agent sees, so it is read only from the user's own file, never from an
+# environment variable: a host project setting committed to a repository can
+# set those for the hook. Every refusal warns without rule text and falls back
+# to the view with every value masked; none blocks.
+MASK_ALLOW_PROBE_KEY=AGENT_GUARD_PROBE_KEY_7F3A
+
+mask_allow_warn() {
+  info "$PROGRAM: $1; every value stays masked"
+}
+
+# Prints "line<TAB>path" for each key path (one per line of the second file)
+# that a rule matches whole. Refuses, with exit 3, a rule that is not anchored
+# at both ends or that matches the probe key, which no rule naming real keys
+# does.
+MASK_ALLOW_AWK_SELECT='
+function refuse(why) { printf "%s line %s: the rule %s", label, line, why; exit 3 }
+FILENAME == rules_file {
+  parse_rule($0)
+  body = rule
+  sub(/[$]$/, "", body)
+  esc = body
+  sub(/[\\]+$/, "", esc)
+  if (substr(rule, 1, 1) != "^" || body == rule || (length(body) - length(esc)) % 2)
+    refuse("does not start with ^ and end with $")
+  if (match(probe, rule)) refuse("matches a probe key, so it would match almost any key")
+  re[++nr] = rule
+  next
+}
+{
+  for (k = 1; k <= nr; k++)
+    if (match($0, re[k]) && RSTART == 1 && RLENGTH == length($0)) { print FNR "\t" $0; next }
+}
+'
+
+# Merges the view with values shown (the third file, other values under
+# `marker`) into the masked view (the second file), line by line. A line takes
+# its shown value only when hiding that value again gives the line of the
+# masked view, and no deny-value rule (the first file) matches the line with it.
+# json shows a value as a json string holding its json text. Exits 4 when the
+# two views do not line up.
+MASK_ALLOW_AWK_MERGE='
+function unmark(s,   p, out) {
+  out = ""
+  while ((p = index(s, marker)) > 0) {
+    out = out substr(s, 1, p - 1) "[MASKED]"
+    s = substr(s, p + length(marker))
+  }
+  return out s
+}
+# Undoes the json string escaping of json text, which only escapes " and \.
+function unquote(s,   i, c, out) {
+  out = ""
+  for (i = 1; i <= length(s); i++) {
+    c = substr(s, i, 1)
+    if (c == "\\") {
+      c = substr(s, ++i, 1)
+      if (c != "\\" && c != "\"") return ""
+    }
+    out = out c
+  }
+  return out
+}
+function shown(i,   s, p, lead, rest, val, tail, hole, line, k) {
+  s = shows[i]
+  if (!(p = index(s, show_open))) return ""
+  lead = substr(s, 1, p - 1)
+  rest = substr(s, p + length(show_open))
+  if (!(p = index(rest, show_close))) return ""
+  val = substr(rest, 1, p - 1)
+  tail = substr(rest, p + length(show_close))
+  if (index(tail, show_open)) return ""
+  hole = "[MASKED]"
+  if (json) {
+    if (lead !~ /"$/ || tail !~ /^"/) return ""
+    lead = substr(lead, 1, length(lead) - 1)
+    tail = substr(tail, 2)
+    if ((val = unquote(val)) == "") return ""
+    hole = "\"[MASKED]\""
+  }
+  lead = unmark(lead)
+  tail = unmark(tail)
+  if (lead hole tail != masked[i]) return ""
+  line = lead val tail
+  for (k = 1; k <= nr; k++) if (line ~ re[k]) return ""
+  return line
+}
+FILENAME == rules_file { parse_rule($0); re[++nr] = rule; next }
+FILENAME == view_file { masked[++nm] = $0; next }
+{ shows[++ns] = $0 }
+END {
+  if (ns != nm) exit 4
+  for (i = 1; i <= nm; i++) {
+    line = shown(i)
+    print (line != "" ? line : masked[i])
+  }
+}
+'
+
+# Prints the resolved path of allow file $1 when it may be used: outside the
+# git work tree of workdir $2 (or the current directory) and outside that
+# directory itself, with the file and its directory owned by the current user
+# and writable by no one else. Otherwise prints the reason and returns 1.
+mask_allow_source() (
+  ma_unchecked='mask-allow-keys.txt could not be checked'
+  ma_real=$(resolve_path "$1")
+  # resolve_path falls back to the name it was given; check that the path is
+  # the physical one.
+  ma_dir=${ma_real%/*}
+  case $ma_real in /*) ;; *) printf '%s' "$ma_unchecked"; exit 1 ;; esac
+  ma_dir=$(CDPATH= cd -P -- "${ma_dir:-/}" 2>/dev/null && pwd -P) \
+    || { printf '%s' "$ma_unchecked"; exit 1; }
+  if [ "${ma_dir%/}/${ma_real##*/}" != "$ma_real" ] || [ -L "$ma_real" ] || [ ! -f "$ma_real" ]; then
+    printf '%s' "$ma_unchecked"
+    exit 1
+  fi
+  ma_work=${2:-.}
+  ma_work=$(CDPATH= cd -P -- "$ma_work" 2>/dev/null && pwd -P) \
+    || { printf '%s' "$ma_unchecked"; exit 1; }
+  # Git variables are dropped so the work tree is the one on disk. When git
+  # cannot answer inside what looks like a work tree, it is not guessed.
+  ma_top=$(cd -- "$ma_work" && unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_CEILING_DIRECTORIES \
+    GIT_DISCOVERY_ACROSS_FILESYSTEM && git rev-parse --show-toplevel 2>/dev/null) || ma_top=
+  if [ -n "$ma_top" ]; then
+    ma_top=$(CDPATH= cd -P -- "$ma_top" 2>/dev/null && pwd -P) \
+      || { printf '%s' "$ma_unchecked"; exit 1; }
+  else
+    ma_up=$ma_work
+    while :; do
+      if [ -e "$ma_up/.git" ] || [ -L "$ma_up/.git" ]; then
+        printf '%s' "$ma_unchecked"
+        exit 1
+      fi
+      [ -n "$ma_up" ] && [ "$ma_up" != / ] || break
+      ma_up=${ma_up%/*}
+    done
+  fi
+  for ma_root in "$ma_work" ${ma_top:+"$ma_top"}; do
+    case $ma_real in
+      "${ma_root%/}"/*)
+        printf 'mask-allow-keys.txt is inside the repository or the working directory'
+        exit 1
+        ;;
+    esac
+  done
+  ma_uid=$(id -u 2>/dev/null) || { printf '%s' "$ma_unchecked"; exit 1; }
+  for ma_node in "$ma_real" "$ma_dir"; do
+    ma_stat=$(audit_stat "$ma_node")
+    ma_owner=${ma_stat%%:*}
+    ma_mode=${ma_stat#*:}
+    case $ma_owner:$ma_mode in
+      :*|*:|*[!0-9:]*|*:*:*) printf '%s' "$ma_unchecked"; exit 1 ;;
+    esac
+    [ "$ma_owner" = "$ma_uid" ] || {
+      printf 'mask-allow-keys.txt or its directory is not owned by the current user'
+      exit 1
+    }
+    case $ma_mode in
+      ''|*[!0-7]*) printf '%s' "$ma_unchecked"; exit 1 ;;
+      *[2367]|*[2367]?)
+        printf 'mask-allow-keys.txt or its directory is writable by group or others'
+        exit 1
+        ;;
+    esac
+  done
+  printf '%s' "$ma_real"
+)
+
+# Prints masked view $2 of file $1 with the values the allow list names shown,
+# or returns 1 when it shows none. $3 is the hook workdir. Values are chosen
+# by the key paths of one read and shown from another only where both agree,
+# and a value whose key path is ambiguous is never shown.
+mask_allow_keys() (
+  [ -n "${HOME:-}" ] || exit 1
+  ma_file="$HOME/.config/agent-guard/mask-allow-keys.txt"
+  [ -e "$ma_file" ] || [ -L "$ma_file" ] || exit 1
+  ma_src=$(mask_allow_source "$ma_file" "$3") || { mask_allow_warn "$ma_src"; exit 1; }
+  ma_list=$(mask_rules_collect mask-allow-keys.txt "$ma_src" required) \
+    || { mask_allow_warn 'mask-allow-keys.txt could not be read'; exit 1; }
+  [ -n "$ma_list" ] || exit 1
+  ma_failed='the mask-allow-keys.txt rules could not be applied'
+  ma_deny_list=$(mask_deny_rules) || { mask_allow_warn "$ma_failed"; exit 1; }
+  ma_tmp=
+  trap 'rm -f $ma_tmp' 0
+  for ma_name in rules paths want deny masked shows out; do
+    ma_f=$(mktemp_file) || { mask_allow_warn "$ma_failed"; exit 1; }
+    ma_tmp="$ma_tmp $ma_f"
+    eval "ma_$ma_name=\$ma_f"
+  done
+  printf '%s\n' "$ma_list" >"$ma_rules"
+  ma_why=$(mask_rules_check "$ma_rules")
+  case $? in
+    0) ;;
+    1) mask_allow_warn "$ma_why"; exit 1 ;;
+    *) mask_allow_warn 'the mask-allow-keys.txt rules could not be checked'; exit 1 ;;
+  esac
+  mask_file "$1" paths >"$ma_paths" 2>/dev/null || { mask_allow_warn "$ma_failed"; exit 1; }
+  mask_rules_awk "$ma_want" -v rules_file="$ma_rules" -v probe="$MASK_ALLOW_PROBE_KEY" \
+    "$MASK_RULES_AWK_LIB$MASK_ALLOW_AWK_SELECT" "$ma_rules" "$ma_paths"
+  case $? in
+    0) ;;
+    3) mask_allow_warn "$(cat "$ma_want")"; exit 1 ;;
+    *) mask_allow_warn "$ma_failed"; exit 1 ;;
+  esac
+  [ -s "$ma_want" ] || exit 1
+  if [ -n "$ma_deny_list" ]; then
+    printf '%s\n' "$ma_deny_list" >"$ma_deny"
+    mask_rules_check "$ma_deny" >/dev/null || { mask_allow_warn "$ma_failed"; exit 1; }
+  fi
+  ma_token=$(od -An -N12 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')
+  case $ma_token in
+    ????????????????????????) ;;
+    *) mask_allow_warn "$ma_failed"; exit 1 ;;
+  esac
+  ma_marker="[MASKED:$ma_token]"
+  ma_open="[SHOW:$ma_token:"
+  ma_close=":$ma_token:SHOW]"
+  mask_file "$1" reveal "$ma_marker" "$ma_want" "$ma_open" "$ma_close" >"$ma_shows" 2>/dev/null \
+    || { mask_allow_warn "$ma_failed"; exit 1; }
+  printf '%s' "$2" >"$ma_masked"
+  ma_json=0
+  [ "$(mask_file_format "$1")" != json ] || ma_json=1
+  mask_rules_awk "$ma_out" -v rules_file="$ma_deny" -v view_file="$ma_masked" \
+    -v marker="$ma_marker" -v show_open="$ma_open" -v show_close="$ma_close" -v json="$ma_json" \
+    "$MASK_RULES_AWK_LIB$MASK_ALLOW_AWK_MERGE" "$ma_deny" "$ma_masked" "$ma_shows" \
+    || { mask_allow_warn "$ma_failed"; exit 1; }
+  ! cmp -s "$ma_out" "$ma_masked" || exit 1
+  cat "$ma_out"
+)
+
 # Rules that rewrite the view belong between the engine and the size cap, so
 # the cap and the rescan always see the view that is returned. The cap also
 # runs first: awk time on user rules grows with the view.
@@ -9302,6 +9584,22 @@ masked_view() (
   [ "$mv_status" -eq 0 ] || { printf '%s' "$mv_view"; exit 14; }
   masked_view_fits "$mv_view"
   case $? in 0) ;; 1) exit 11 ;; *) exit 10 ;; esac
+  # The view with allowed values shown gets the first of at most two scans;
+  # the view with every value masked gets the second.
+  if mv_shown=$(mask_allow_keys "$1" "$mv_view" "${2:-}"
+    mv_status=$?
+    printf x
+    exit "$mv_status"); then
+    mv_shown=${mv_shown%x}
+    if ! masked_view_fits "$mv_shown"; then
+      mask_allow_warn 'the view showing the mask-allow-keys.txt values is too large'
+    elif ! masked_view_scan "$mv_shown"; then
+      mask_allow_warn 'the view showing the mask-allow-keys.txt values contains secret-like text or could not be scanned'
+    else
+      printf '%s' "$mv_shown"
+      exit 0
+    fi
+  fi
   masked_view_scan "$mv_view"
   case $? in
     0) ;;
@@ -9311,9 +9609,10 @@ masked_view() (
   printf '%s' "$mv_view"
 )
 
+# $2 is the hook workdir; empty means the current directory.
 deny_read_masked_block() {
   info "$PROGRAM: blocked sensitive file access: $1"
-  dr_view=$(masked_view "$1"
+  dr_view=$(masked_view "$1" "${2:-}"
     dr_status=$?
     printf x
     exit "$dr_status")
