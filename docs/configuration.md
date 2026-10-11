@@ -250,8 +250,84 @@ agent-guard: no masked view: mask-deny-values.txt line 4: the rule uses a back-r
 
 Rules apply before the 6,144-byte limit and the rescan, so both see the view
 that is returned; a view over the limit is refused before the rules run.
-`block` mode never reads the rules. A future list of values to show will not
-override these rules: text a deny-value rule matches stays masked.
+`block` mode never reads the rules. The allow list below never overrides
+them: text a deny-value rule matches stays masked.
+
+### Values to show (allow list)
+
+Values that are not secret, such as `LOG_LEVEL` or a port, can be shown in the
+view. Each line of `$HOME/.config/agent-guard/mask-allow-keys.txt` is one
+POSIX extended regular expression matched against key paths, with the same
+`#` and blank-line rules as above. A value is shown when a rule matches its
+whole key path; every other value stays `[MASKED]`.
+
+```text
+# values safe to show
+^LOG_LEVEL$
+^server\.port$
+```
+
+Key paths are the ones `mask-file --key-paths` prints: `KEY` for dotenv,
+`section.key` for ini (`key` outside a section), and keys joined by `.` with
+array indexes as numbers for json and yaml (`server.port`, `hosts.1`).
+
+A `.` inside a key reads the same as the `.` between keys: `{"a.b": 1}` and
+`{"a": {"b": 1}}` both have the key path `a.b`. So a value is never shown when
+a key on its path contains `.`, is empty, or is a json or yaml key made only of
+digits (it reads like an array index). Such a value stays masked whatever the
+rules say.
+
+This list widens what an agent sees, so where it comes from is checked:
+
+- It is read only from that one file. `XDG_CONFIG_HOME` and every other
+  variable are ignored, and there is no variable that names another file: a
+  host's project settings, which a repository can commit, can set the
+  variables the hook runs with, and the hook cannot tell who set them.
+- The file is used only when its resolved path is inside no git work tree
+  (no directory above it holds a `.git`), outside the hook's working
+  directory (or the current directory when the host sends none) and that
+  directory's work tree, and when the file and its directory belong to the
+  current user and neither is writable by group or others. Every directory
+  above them must belong to the current user or root, and one that group or
+  others can write must be sticky (as `/tmp` is), so no other user can swap
+  the file after the check. An access control list that may let others in
+  also refuses the file: on macOS any `allow` entry on the file or a directory
+  above it (the `deny` entries a home directory carries are fine), elsewhere
+  any POSIX ACL. A symlink is
+  followed before the check, so a file kept in a dotfiles repository and
+  linked into `~/.config` is not used. When git fails in a working directory
+  that has a `.git` above it, the file is not used. The first check does not
+  depend on the working directory, which the agent chooses: a `HOME` moved
+  into a repository is refused from anywhere. A `HOME` moved into a directory
+  that is not a git work tree is caught only from inside that directory; a
+  setting that can change the hook's environment can already point
+  `AGENT_GUARD_DENY_READ_PATHS` at an empty file, so keep host settings you
+  did not write out of the hook's environment either way.
+
+The view with every value masked is used instead, with a warning, when:
+
+- the file does not pass the checks above, or cannot be read;
+- any rule is refused for the reasons deny-value rules are refused, or does
+  not start with `^` and end with an unescaped `$`, or matches the fixed probe
+  key `AGENT_GUARD_PROBE_KEY_7F3A` (as `^.+$` or `^[A-Z0-9_]+$` do), or
+  matches empty text (as `.*`, `^.*$` and `^` do);
+- `awk` takes more than 2 seconds to check or apply the rules.
+
+Unlike deny-value rules, none of these blocks the read: the list is dropped
+and every value stays masked. The warning names the line and why, never the
+rule text or a value:
+
+```text
+agent-guard: mask-allow-keys.txt line 2: the rule matches empty text; every value stays masked
+```
+
+Deny-value rules and the secret scanner win over the list. A shown value that
+a deny-value rule matches (on its line) stays masked. The view with shown
+values is scanned first; if the scan finds something or cannot run, or that
+view is over 6,144 bytes, the view with every value masked is scanned instead,
+and a finding there blocks as before. The view is never scanned more than
+twice. A missing file means no list and no warning, and `block` mode never
+reads it.
 
 ## Environment reference
 
