@@ -10094,8 +10094,8 @@ EOSH
   chmod 600 "$MASK_ALLOW_HOME/.config/agent-guard/mask-allow-keys.txt"
   mask_allow_prefix=gh
   mask_allow_prefix="${mask_allow_prefix}p_"
-  mask_allow_token="$mask_allow_prefix$(mask_real_value)$(mask_real_value | cut -c1-12)"
-  printf 'GITHUB_TOKEN=%s\nPORT=8080\n' "$mask_allow_token" >"$MASK_REAL_DIR/allow/.env"
+  mask_allow_value="$mask_allow_prefix$(mask_real_value)$(mask_real_value | cut -c1-12)"
+  printf 'GITHUB_TOKEN=%s\nPORT=8080\n' "$mask_allow_value" >"$MASK_REAL_DIR/allow/.env"
   printf 'PORT=8080\n' >"$MASK_REAL_DIR/allow/plain.env"
   for mask_allow_case in token plain; do
     case $mask_allow_case in
@@ -10117,7 +10117,7 @@ EOSH
         AGENT_GUARD_HOOK_HOST=codex "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
     status=$?
     if [ "$status" -eq 2 ] && printf '%s\n' "$mask_allow_want" | cmp -s - "$ERR" \
-       && ! grep -Fq "$mask_allow_token" "$OUT" "$ERR"; then
+       && ! grep -Fq "$mask_allow_value" "$OUT" "$ERR"; then
       ok "real gitleaks rescans the allow-list view ($mask_allow_case)"
     else
       not_ok "real gitleaks rescans the allow-list view ($mask_allow_case) (status $status)"

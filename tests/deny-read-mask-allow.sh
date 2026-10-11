@@ -35,7 +35,7 @@ mkdir -p "$W"
 DOT=".en""v"
 printf 'LOG_LEVEL=debug\nAPI_KEY=%s\n' "$API" >"$W/$DOT"
 printf 'server:\n  port: 8080\n  token: %s\n' "$TOKEN" >"$W/secrets.yaml"
-printf '{"db":{"port":5432,"password":"%s"},"hosts":["a","b"]}\n' "$API" >"$W/secrets.json"
+printf '{"db":{"port":5432,"dsn":"%s"},"hosts":["a","b"]}\n' "$API" >"$W/secrets.json"
 printf '[server]\nport=80\nkey=%s\n' "$TOKEN" >"$W/.npmrc"
 
 ALLOW_DIR="$HOME/.config/agent-guard"
@@ -156,7 +156,7 @@ allow '^db\.port$' '^hosts\.1$'
 expect "json key paths and array indexes the allow list names are shown" "$(view "$W/secrets.json" '{
   "db": {
     "port": 5432,
-    "password": "[MASKED]"
+    "dsn": "[MASKED]"
   },
   "hosts": [
     "[MASKED]",
