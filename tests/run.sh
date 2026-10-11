@@ -4116,6 +4116,8 @@ else
 fi
 
 run_expect 0 "deny-read mask allow list shows only allowed values from a private user file" sh "$ROOT/tests/deny-read-mask-allow.sh"
+# The owner and permission checks differ by platform; keep their lines in the log.
+grep -E 'mode [0-9]|owned|owner|access control|directory above|work tree|HOME inside' "$OUT" | sed 's/^/  /'
 
 fi # end of shard 2
 
