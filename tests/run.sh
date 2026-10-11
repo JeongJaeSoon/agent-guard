@@ -169,6 +169,7 @@ for file in \
   "$ROOT/tests/hook-outcome-contract.sh" \
   "$ROOT/tests/deny-read-mask.sh" \
   "$ROOT/tests/deny-read-mask-rules.sh" \
+  "$ROOT/tests/deny-read-mask-allow.sh" \
   "$ROOT/tests/gitleaks-resolution.sh" \
   "$ROOT/tests/run.sh"; do
   run_expect 0 "shell syntax: $file" sh -n "$file"
@@ -4113,6 +4114,8 @@ else
   not_ok "env-wrapped git status (not commit/push) is allowed (expected 0, got $status)"
   sed 's/^/  stderr: /' "$ERR"
 fi
+
+run_expect 0 "deny-read mask allow list shows only allowed values from a private user file" sh "$ROOT/tests/deny-read-mask-allow.sh"
 
 fi # end of shard 2
 
@@ -10081,6 +10084,46 @@ EOSH
     not_ok "real gitleaks refuses a masked view with a token left in a comment (status $status)"
     sed 's/^/  stderr: /' "$ERR"
   fi
+
+  # A value the allow list shows is rescanned: the real scanner flags a token
+  # under an allowed key, and the view falls back to every value masked.
+  MASK_ALLOW_HOME="$MASK_REAL_DIR/allow-home"
+  mkdir -p "$MASK_ALLOW_HOME/.config/agent-guard" "$MASK_REAL_DIR/allow"
+  chmod 700 "$MASK_ALLOW_HOME" "$MASK_ALLOW_HOME/.config" "$MASK_ALLOW_HOME/.config/agent-guard"
+  printf '%s\n' '^GITHUB_TOKEN$' '^PORT$' >"$MASK_ALLOW_HOME/.config/agent-guard/mask-allow-keys.txt"
+  chmod 600 "$MASK_ALLOW_HOME/.config/agent-guard/mask-allow-keys.txt"
+  mask_allow_prefix=gh
+  mask_allow_prefix="${mask_allow_prefix}p_"
+  mask_allow_token="$mask_allow_prefix$(mask_real_value)$(mask_real_value | cut -c1-12)"
+  printf 'GITHUB_TOKEN=%s\nPORT=8080\n' "$mask_allow_token" >"$MASK_REAL_DIR/allow/.env"
+  printf 'PORT=8080\n' >"$MASK_REAL_DIR/allow/plain.env"
+  for mask_allow_case in token plain; do
+    case $mask_allow_case in
+      token) mask_allow_file="$MASK_REAL_DIR/allow/.env"
+        mask_allow_want=$(printf '%s\n' \
+          "agent-guard: blocked sensitive file access: $mask_allow_file" \
+          'agent-guard: the view showing the mask-allow-keys.txt values contains secret-like text or could not be scanned; every value stays masked' \
+          'agent-guard: masked view follows (values replaced with [MASKED]; the file itself was not read by the tool)' \
+          'GITHUB_TOKEN=[MASKED]' 'PORT=[MASKED]') ;;
+      plain) mask_allow_file="$MASK_REAL_DIR/allow/plain.env"
+        mask_allow_want=$(printf '%s\n' \
+          "agent-guard: blocked sensitive file access: $mask_allow_file" \
+          'agent-guard: masked view follows (values replaced with [MASKED]; the file itself was not read by the tool)' \
+          'PORT=8080') ;;
+    esac
+    jq -nc --arg p "$mask_allow_file" --arg d "$MASK_REAL_DIR/allow" \
+      '{tool_name:"Read",tool_input:{file_path:$p},cwd:$d}' \
+      | HOME="$MASK_ALLOW_HOME" AGENT_GUARD_DENY_READ_MODE=mask AGENT_GUARD_GITLEAKS_BIN="$REAL_GITLEAKS" \
+        AGENT_GUARD_HOOK_HOST=codex "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+    status=$?
+    if [ "$status" -eq 2 ] && printf '%s\n' "$mask_allow_want" | cmp -s - "$ERR" \
+       && ! grep -Fq "$mask_allow_token" "$OUT" "$ERR"; then
+      ok "real gitleaks rescans the allow-list view ($mask_allow_case)"
+    else
+      not_ok "real gitleaks rescans the allow-list view ($mask_allow_case) (status $status)"
+      sed 's/^/  stderr: /' "$ERR"
+    fi
+  done
 
 else
   say "real gitleaks not available; skipped real-gitleaks integration tests"
