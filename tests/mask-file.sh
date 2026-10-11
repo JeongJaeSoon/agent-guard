@@ -212,12 +212,11 @@ dotenv_fail backtick-in-double-quotes "A=\"\`printf $(rand)\`\""
 
 # --- ini -----------------------------------------------------------------
 VALUES=
-gen i1 i2 i3 i4
+gen i1 i2 i3
 {
   printf '; comment\n# another\ntop = %s\n\n' "$i1"
   printf '[profile dev]\naws_access_key_id = %s\n' "$i2"
   printf 'region=%s ; inline\nempty =\n' "$i3"
-  printf '//registry.example/:_authToken=%s\n' "$i4"
 } >"$F/app.ini"
 expect_output "ini view keeps sections, keys and comments" '; comment
 # another
@@ -227,12 +226,10 @@ top = [MASKED]
 aws_access_key_id = [MASKED]
 region=[MASKED]
 empty =
-//registry.example/:_authToken=[MASKED]
 ' "$F/app.ini"
 expect_output "ini key paths are section.key" 'top
 profile dev.aws_access_key_id
 profile dev.region
-profile dev.//registry.example/:_authToken
 ' --key-paths "$F/app.ini"
 expect_no_values "ini output carries no original value" "$F/app.ini"
 
@@ -256,6 +253,12 @@ printf '[s\nk = %s\n' "$(rand)" >"$F/ini-bad/header.ini"
 expect_fail "ini rejects an unclosed section header" "$F/ini-bad/header.ini"
 printf '[s]\nk = %s\\\n#%s\n' "$(rand)" "$(rand)" >"$F/ini-bad/backslash.ini"
 expect_fail "ini rejects a value continued by a backslash" "$F/ini-bad/backslash.ini"
+# configparser reads `password: a=b` as password = "a=b"; splitting at "="
+# would print "a" as part of the key.
+mkdir "$F/pypi"
+printf '[pypi]\npassword: %s=%s\n' "$(rand)" "$(rand)" >"$F/pypi/.pypirc"
+expect_fail "ini outside .npmrc rejects a key containing a colon" "$F/pypi/.pypirc"
+expect_fail "ini key paths reject a key containing a colon" --key-paths "$F/pypi/.pypirc"
 
 # --- json ----------------------------------------------------------------
 VALUES=

@@ -127,10 +127,11 @@ Each format accepts only a subset:
   in a backslash, a quote, backslash, backtick, `(` or `<` (a heredoc) in an
   unquoted value before its comment, and a backtick, `$(`, `${` or `$[` in a double-quoted
   value. Key path: `KEY`.
-- ini: `[section]` headers, `key = value` split at the first `=` (keys may
-  contain `/` and `:`, as in `.npmrc` registry tokens), `;` and `#` comment lines
-  and blank lines. Lines without `=`, indented lines and values ending in a
-  backslash fail. Key path:
+- ini: `[section]` headers, `key = value` split at the first `=`, `;` and `#`
+  comment lines and blank lines. Keys may contain `/`; only in `.npmrc` may
+  they contain `:` (as in `//registry.example/:_authToken`), because most other
+  ini readers also split at `:`. Lines without `=`, indented lines and values
+  ending in a backslash fail. Key path:
   `section.key`, or `key` before the first section.
 - json: one document parsed by `jq`; every string, number, boolean and null
   becomes `"[MASKED]"`, printed with `jq`'s default indentation. Key path: keys

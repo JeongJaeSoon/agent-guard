@@ -8691,6 +8691,9 @@ MASK_FILE_AWK_INI='
   if (eq < 2) exit 1
   key = substr($0, 1, eq - 1)
   sub(/[ \t]+$/, "", key)
+  # configparser (.pypirc, .aws, most *.cfg) also splits at ":", so there a
+  # key with ":" means part of it is really the value. npm splits at "=" only.
+  if (!colon_keys && index(key, ":")) exit 1
   rest = substr($0, eq + 1)
   match(rest, /^[ \t]*/)
   if (substr(rest, RLENGTH + 1) == "") { emit_line($0); next }
@@ -8818,7 +8821,8 @@ if length != 1 then error("not one document") else .[0] end
   end
 '
 
-# First match wins, so `.env.json` is json.
+# First match wins, so `.env.json` is json. npmrc is the ini dialect whose
+# keys may contain ":".
 mask_file_format() {
   mf_name=${1##*/}
   mf_parent=${1%/*}
@@ -8826,7 +8830,8 @@ mask_file_format() {
   case $mf_name in
     *.json) printf json ;;
     *.yaml|*.yml) printf yaml ;;
-    *.ini|*.cfg|*.cnf|*.conf|.npmrc|.pypirc) printf ini ;;
+    .npmrc) printf npmrc ;;
+    *.ini|*.cfg|*.cnf|*.conf|.pypirc) printf ini ;;
     credentials|config)
       [ "$mf_parent" = .aws ] || return 1
       printf ini
@@ -8847,7 +8852,8 @@ mask_file_render() {
       fi
       ;;
     dotenv) LC_ALL=C awk -v mode="$2" "$MASK_FILE_AWK_LIB$MASK_FILE_AWK_DOTENV" ;;
-    ini) LC_ALL=C awk -v mode="$2" "$MASK_FILE_AWK_LIB$MASK_FILE_AWK_INI" ;;
+    ini) LC_ALL=C awk -v mode="$2" -v colon_keys=0 "$MASK_FILE_AWK_LIB$MASK_FILE_AWK_INI" ;;
+    npmrc) LC_ALL=C awk -v mode="$2" -v colon_keys=1 "$MASK_FILE_AWK_LIB$MASK_FILE_AWK_INI" ;;
     yaml) LC_ALL=C awk -v mode="$2" "$MASK_FILE_AWK_LIB$MASK_FILE_AWK_YAML" ;;
     *) return 2 ;;
   esac
