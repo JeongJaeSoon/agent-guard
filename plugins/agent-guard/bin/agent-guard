@@ -9433,10 +9433,10 @@ END {
 }
 '
 
-# Prints the resolved path of allow file $1 when it may be used: outside the
-# git work tree of workdir $2 (or the current directory) and outside that
-# directory itself, with the file and its directory owned by the current user
-# and writable by no one else. Otherwise prints the reason and returns 1.
+# Prints the resolved path of allow file $1 when it may be used: outside every
+# git work tree, outside workdir $2 (or the current directory) and its work
+# tree, with the file and its directory owned by the current user and
+# writable by no one else. Otherwise prints the reason and returns 1.
 mask_allow_source() (
   ma_unchecked='mask-allow-keys.txt could not be checked'
   ma_real=$(resolve_path "$1")
@@ -9450,6 +9450,18 @@ mask_allow_source() (
     printf '%s' "$ma_unchecked"
     exit 1
   fi
+  ma_inside='mask-allow-keys.txt is inside the repository or the working directory'
+  # The agent can run a tool from any directory, so the workdir alone cannot
+  # tell a HOME that a project setting moved into a repository.
+  ma_up=$ma_dir
+  while :; do
+    if [ -e "$ma_up/.git" ] || [ -L "$ma_up/.git" ]; then
+      printf '%s' "$ma_inside"
+      exit 1
+    fi
+    [ -n "$ma_up" ] && [ "$ma_up" != / ] || break
+    ma_up=${ma_up%/*}
+  done
   ma_work=${2:-.}
   ma_work=$(CDPATH= cd -P -- "$ma_work" 2>/dev/null && pwd -P) \
     || { printf '%s' "$ma_unchecked"; exit 1; }
@@ -9474,7 +9486,7 @@ mask_allow_source() (
   for ma_root in "$ma_work" ${ma_top:+"$ma_top"}; do
     case $ma_real in
       "${ma_root%/}"/*)
-        printf 'mask-allow-keys.txt is inside the repository or the working directory'
+        printf '%s' "$ma_inside"
         exit 1
         ;;
     esac

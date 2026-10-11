@@ -201,6 +201,15 @@ NO_CWD=1; RUN_DIR="$R/sub"
 expect "HOME inside the work tree of the current directory" \
   "$(warned "$R/sub/$DOT" "$INSIDE" "$ENV_MASKED")" "$R/sub/$DOT" HOME="$R/home"
 unset NO_CWD RUN_DIR
+# The agent picks the directory a tool runs in, so a HOME moved into a work
+# tree is refused from anywhere else too, for a file inside or outside it.
+mkdir -p "$CASE/elsewhere"
+WORK="$CASE/elsewhere"
+expect "HOME inside a work tree, run from outside it" \
+  "$(warned "$R/sub/$DOT" "$INSIDE" "$ENV_MASKED")" "$R/sub/$DOT" HOME="$R/home"
+expect "HOME inside a work tree, reading a file outside it" \
+  "$(warned "$W/$DOT" "$INSIDE" "$ENV_MASKED")" "$W/$DOT" HOME="$R/home"
+unset WORK
 mkdir -p "$W/home/.config/agent-guard"
 chmod 700 "$W/home" "$W/home/.config" "$W/home/.config/agent-guard"
 cp "$R/home/.config/agent-guard/mask-allow-keys.txt" "$W/home/.config/agent-guard/"
@@ -215,6 +224,8 @@ WORK="$R/sub"
 expect "a symlink to a file in the work tree" \
   "$(warned "$R/sub/$DOT" "$INSIDE" "$ENV_MASKED")" "$R/sub/$DOT"
 unset WORK
+expect "a symlink to a file in another work tree" \
+  "$(warned "$W/$DOT" "$INSIDE" "$ENV_MASKED")" "$W/$DOT"
 rm -f "$ALLOW"
 mv "$ALLOW_DIR" "$CASE/allow-dir-away"
 mkdir -p "$R/cfg"

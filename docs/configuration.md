@@ -283,12 +283,17 @@ This list widens what an agent sees, so where it comes from is checked:
   variable are ignored, and there is no variable that names another file: a
   host's project settings, which a repository can commit, can set the
   variables the hook runs with, and the hook cannot tell who set them.
-- The file is used only when its resolved path is outside the git work tree
-  of the hook's working directory (or the current directory when the host
-  sends none) and outside that directory itself, and when the file and its
-  directory belong to the current user and neither is writable by group or
-  others. A symlink is followed before the check. When git fails in a
-  directory that has a `.git` above it, the file is not used.
+- The file is used only when its resolved path is inside no git work tree
+  (no directory above it holds a `.git`), outside the hook's working
+  directory (or the current directory when the host sends none) and that
+  directory's work tree, and when the file and its directory belong to the
+  current user and neither is writable by group or others. A symlink is
+  followed before the check, so a file kept in a dotfiles repository and
+  linked into `~/.config` is not used. When git fails in a working directory
+  that has a `.git` above it, the file is not used. The first check does not
+  depend on the working directory, which the agent chooses: a `HOME` moved
+  into a repository is refused from anywhere. A `HOME` moved into a directory
+  that is not a git work tree is caught only from inside that directory.
 
 The view with every value masked is used instead, with a warning, when:
 
