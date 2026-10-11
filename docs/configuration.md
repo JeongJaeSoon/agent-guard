@@ -299,7 +299,10 @@ This list widens what an agent sees, so where it comes from is checked:
   that has a `.git` above it, the file is not used. The first check does not
   depend on the working directory, which the agent chooses: a `HOME` moved
   into a repository is refused from anywhere. A `HOME` moved into a directory
-  that is not a git work tree is caught only from inside that directory.
+  that is not a git work tree is caught only from inside that directory; a
+  setting that can change the hook's environment can already point
+  `AGENT_GUARD_DENY_READ_PATHS` at an empty file, so keep host settings you
+  did not write out of the hook's environment either way.
 
 The view with every value masked is used instead, with a warning, when:
 
