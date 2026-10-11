@@ -4557,6 +4557,8 @@ alias_case codex secret 0 'git status'
 alias_case claude secret 0 'git st'
 alias_case codex secret 0 'git nosuch'
 
+run_expect 0 "mask-file masks values per format and fails closed" sh "$ROOT/tests/mask-file.sh"
+
 fi # end of shard 3
 
 if in_shard 4; then

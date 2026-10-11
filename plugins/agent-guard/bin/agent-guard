@@ -168,6 +168,7 @@ Usage:
   agent-guard shell-init [--bash|--zsh] [--no-command-wrapping]
   agent-guard setup-shell [--bash|--zsh|--rc FILE] [--no-command-wrapping]
   agent-guard pii-filter [--check]
+  agent-guard mask-file [--key-paths] [--] FILE
   agent-guard scan-staged
   agent-guard scan-working-tree
   agent-guard scan-path PATH...
@@ -8605,6 +8606,324 @@ mask_pii_response_json() {
   ' 2>/dev/null
 }
 
+# Masked view of a protected file: keys, comments and structure stay, every
+# value becomes [MASKED]. The format comes from the resolved file name alone
+# (content sniffing cannot tell `K: v` yaml from `K=v` dotenv apart), and the
+# content must then parse as that format's supported subset or there is no
+# view at all. The engine never decides to block; callers do on non-zero.
+MASK_FILE_MAX_BYTES=65536
+
+# Shared by the line-oriented formats. mode=paths prints the key path of each
+# masked value instead of the view.
+MASK_FILE_AWK_LIB='
+function emit_line(s) { if (mode != "paths") print s }
+function emit_masked(prefix, path) {
+  if (mode == "paths") print path
+  else print prefix "[MASKED]"
+}
+# Index of the quote closing the one that opens s, or 0. Double quotes take
+# backslash escapes; with dbl set a doubled single quote is an escape (yaml).
+function quoted_end(s, q,   i, n, c) {
+  n = length(s)
+  for (i = 2; i <= n; i++) {
+    c = substr(s, i, 1)
+    if (q == "\"" && c == "\\") { i++; continue }
+    if (c != q) continue
+    if (dbl && q == sq && substr(s, i + 1, 1) == sq) { i++; continue }
+    return i
+  }
+  return 0
+}
+BEGIN { sq = sprintf("%c", 39) }
+'
+
+# An inline comment after a value is masked with it: telling a `#` inside an
+# unquoted value from a comment is exactly the guess this must not make.
+MASK_FILE_AWK_DOTENV='
+/^[ \t]*$/ || /^[ \t]*#/ { emit_line($0); next }
+{
+  if (!match($0, /^[ \t]*(export[ \t]+)?[A-Za-z_][A-Za-z0-9_.]*[ \t]*=[ \t]*/)) exit 1
+  prefix = substr($0, 1, RLENGTH)
+  value = substr($0, RLENGTH + 1)
+  if (value == "") { emit_line($0); next }
+  # A shell (.envrc) can read the following lines as data, even ones that
+  # look like comments and would print unmasked: after a trailing backslash,
+  # a heredoc, or a quote, backtick, $( ${ $[ or ( left open. Inside any other
+  # construct a blank-# line is a comment to the shell too. In an unquoted
+  # value a blank-# starts a comment only when no backslash precedes it, so
+  # the part before it is checked whole.
+  if (value ~ /\\$/) exit 1
+  c = substr(value, 1, 1)
+  if (c == "\"" || c == sq) {
+    e = quoted_end(value, c)
+    if (!e || substr(value, e + 1) !~ /^([ \t]*|[ \t]+#.*)$/) exit 1
+    word = c == sq ? "" : substr(value, 1, e)
+  } else {
+    word = value
+    if (match(word, /[ \t]#/)) word = substr(word, 1, RSTART - 1)
+    if (word ~ /["\\(<]/ || index(word, sq)) exit 1
+  }
+  if (index(word, "`") || index(word, "$(") || index(word, "${") || index(word, "$[")) exit 1
+  key = prefix
+  sub(/^[ \t]*/, "", key)
+  sub(/^export[ \t]+/, "", key)
+  sub(/[ \t]*=[ \t]*$/, "", key)
+  emit_masked(prefix, key)
+}
+'
+
+# Any indented line fails: in configparser it continues the previous value.
+MASK_FILE_AWK_INI='
+/^[ \t]*$/ { emit_line($0); next }
+/^[ \t]/ { exit 1 }
+/^[;#]/ { emit_line($0); next }
+/^\[/ {
+  h = $0
+  sub(/[ \t]+$/, "", h)
+  if (substr(h, length(h), 1) != "]") exit 1
+  section = substr(h, 2, length(h) - 2)
+  if (section == "" || index(section, "[") || index(section, "]")) exit 1
+  emit_line($0)
+  next
+}
+{
+  eq = index($0, "=")
+  if (eq < 2) exit 1
+  key = substr($0, 1, eq - 1)
+  sub(/[ \t]+$/, "", key)
+  # configparser (.pypirc, .aws, most *.cfg) also splits at ":", so there a
+  # key with ":" means part of it is really the value. npm splits at "=" only.
+  if (!colon_keys && index(key, ":")) exit 1
+  rest = substr($0, eq + 1)
+  match(rest, /^[ \t]*/)
+  if (substr(rest, RLENGTH + 1) == "") { emit_line($0); next }
+  # Some ini readers continue a value ending in a backslash.
+  if (rest ~ /\\$/) exit 1
+  emit_masked(substr($0, 1, eq + RLENGTH), section == "" ? key : section "." key)
+}
+'
+
+# Block-style yaml only, judged line by line against a stack of open
+# containers (column, map or seq, key path). Anything that can pull a value in
+# from elsewhere or spread one over several lines (anchors, aliases, tags,
+# block and flow collections, multi-line scalars, more than one document) exits,
+# because a line-wise rewrite cannot then vouch that every value was masked.
+MASK_FILE_AWK_YAML='
+BEGIN { dbl = 1 }
+function join(a, b) { return a == "" ? b : a "." b }
+function push(col, kind, path) {
+  d++; scol[d] = col; skind[d] = kind; spath[d] = path; sidx[d] = 0; seen = 1
+}
+# Places an entry of kind at col. A sequence may sit at the column of the key
+# that owns it; a deeper column is only allowed under a key with no value.
+function enter(col, kind) {
+  while (d > 0 && (scol[d] > col || (scol[d] == col && skind[d] == "seq" && kind == "map" && d > 1 && scol[d - 1] == col))) {
+    d--; pending = 0
+  }
+  if (d > 0 && scol[d] == col) {
+    if (skind[d] == kind) { if (kind == "seq") sidx[d]++; pending = 0; return }
+    if (kind == "seq" && pending) { push(col, kind, ppath); pending = 0; return }
+    exit 1
+  }
+  if (seen && !pending) exit 1
+  push(col, kind, d == 0 ? "" : ppath)
+  pending = 0
+}
+# Sets K and returns the index of the colon when r is "key:" or "key: value",
+# else 0.
+function map_key(r,   c, e, p) {
+  c = substr(r, 1, 1)
+  if (c == "\"" || c == sq) {
+    e = quoted_end(r, c)
+    if (!e || substr(r, e + 1, 1) != ":") return 0
+    K = substr(r, 2, e - 2)
+    # The key path must be the key itself, and decoding double-quoted
+    # escapes is beyond this parser.
+    if (c == "\"" && index(K, "\\")) exit 1
+    if (c == sq) gsub(sq sq, sq, K)
+    p = e + 1
+  } else {
+    p = index(r, ": ")
+    if (!p && substr(r, length(r)) == ":") p = length(r)
+    if (!p) return 0
+    K = substr(r, 1, p - 1)
+    sub(/ +$/, "", K)
+    if (index(K, " #")) return 0
+    if (K == "" || K == "<<" || index("?:,[]{}#&*!|>%@`", c)) exit 1
+  }
+  if (p < length(r) && substr(r, p + 1, 1) != " ") exit 1
+  return p
+}
+function check_scalar(v,   c, e, t, i) {
+  c = substr(v, 1, 1)
+  if (c == "\"" || c == sq) {
+    e = quoted_end(v, c)
+    if (!e || substr(v, e + 1) !~ /^( *| +#.*)$/) exit 1
+    return
+  }
+  if (index("|>{}[]&*!%@`,", c) || v ~ /^[-?:]( |$)/) exit 1
+  t = v
+  i = index(t, " #")
+  if (i) t = substr(t, 1, i - 1)
+  if (index(t, ": ") || t ~ /:$/) exit 1
+}
+{
+  line = $0
+  if (line ~ /^ *$/) { emit_line(line); next }
+  match(line, /^ */)
+  n = RLENGTH
+  r = substr(line, n + 1)
+  c = substr(r, 1, 1)
+  if (c == "\t") exit 1
+  if (c == "#") { emit_line(line); next }
+  if (n == 0 && r ~ /^--- *$/ && !seen && !docstart) { docstart = 1; emit_line(line); next }
+  if (n == 0 && (r ~ /^(---|\.\.\.)( |$)/ || c == "%")) exit 1
+  base = n
+  if (r ~ /^-( |$)/) {
+    enter(n, "seq")
+    path = join(spath[d], sidx[d])
+    if (!match(r, /^- +/)) exit 1
+    base = n + RLENGTH
+    r = substr(r, RLENGTH + 1)
+    c = substr(r, 1, 1)
+    if (r == "" || c == "#" || r ~ /^-( |$)/) exit 1
+    p = map_key(r)
+    if (!p) { check_scalar(r); emit_masked(substr(line, 1, base), path); next }
+    pending = 1
+    ppath = path
+  } else {
+    p = map_key(r)
+    if (!p) exit 1
+  }
+  enter(base, "map")
+  path = join(spath[d], K)
+  v = substr(r, p + 1)
+  match(v, /^ */)
+  s = RLENGTH
+  v = substr(v, s + 1)
+  if (v == "" || substr(v, 1, 1) == "#") { pending = 1; ppath = path; emit_line(line); next }
+  check_scalar(v)
+  emit_masked(substr(line, 1, base + p + s), path)
+}
+'
+
+# Needs "$JQ_WALK" in front. Exactly one object or array document, so every
+# masked value has a key path; a key with a control character would forge
+# extra lines in the key path list, so it fails.
+MASK_FILE_JQ='
+if length != 1 then error("not one document") else .[0] end
+| if type == "object" or type == "array" then . else error("scalar document") end
+| if $mode == "paths" then
+    paths(type != "object" and type != "array")
+    | map(tostring) | join(".")
+    | if (explode | map(select(. < 32 or . == 127)) | length) > 0
+      then error("control character in key") else . end
+  else
+    walk(if type == "object" or type == "array" then . else "[MASKED]" end)
+  end
+'
+
+# First match wins, so `.env.json` is json. npmrc is the ini dialect whose
+# keys may contain ":".
+mask_file_format() {
+  mf_name=${1##*/}
+  mf_parent=${1%/*}
+  mf_parent=${mf_parent##*/}
+  case $mf_name in
+    *.json) printf json ;;
+    *.yaml|*.yml) printf yaml ;;
+    .npmrc) printf npmrc ;;
+    *.ini|*.cfg|*.cnf|*.conf|.pypirc) printf ini ;;
+    credentials|config)
+      [ "$mf_parent" = .aws ] || return 1
+      printf ini
+      ;;
+    .env|.env.*|*.env|.envrc|*.envrc|.flaskenv|.flaskenv.*|.dev.vars|.dev.vars.*) printf dotenv ;;
+    *) return 1 ;;
+  esac
+}
+
+# $1 = format, $2 = text|paths; reads the file on stdin.
+mask_file_render() {
+  case $1 in
+    json)
+      if [ "$2" = paths ]; then
+        jq -rs --arg mode paths "$JQ_WALK$MASK_FILE_JQ"
+      else
+        jq -s --arg mode text "$JQ_WALK$MASK_FILE_JQ"
+      fi
+      ;;
+    dotenv) LC_ALL=C awk -v mode="$2" "$MASK_FILE_AWK_LIB$MASK_FILE_AWK_DOTENV" ;;
+    ini) LC_ALL=C awk -v mode="$2" -v colon_keys=0 "$MASK_FILE_AWK_LIB$MASK_FILE_AWK_INI" ;;
+    npmrc) LC_ALL=C awk -v mode="$2" -v colon_keys=1 "$MASK_FILE_AWK_LIB$MASK_FILE_AWK_INI" ;;
+    yaml) LC_ALL=C awk -v mode="$2" "$MASK_FILE_AWK_LIB$MASK_FILE_AWK_YAML" ;;
+    *) return 2 ;;
+  esac
+}
+
+# Prints the masked view of file $1, or with $2 = paths the key path of every
+# masked value, one per line: dotenv KEY, ini section.key (key outside a
+# section), json and yaml keys joined by `.` with array indexes as numbers.
+# Every failure exits non-zero with empty stdout and a fixed stderr line that
+# names neither the path nor any content. A subshell, so its names and those
+# resolve_path sets never reach the caller.
+mask_file() (
+  mf_mode=${2:-text}
+  case $mf_mode in text|paths) ;; *) die "mask-file: unsupported mode" ;; esac
+  need_cmd awk
+  need_cmd jq
+  mf_path=$(resolve_path "$1")
+  # resolve_path falls back to the name it was given; a symlink left over
+  # means the name the format comes from is not the file's own.
+  if [ -L "$mf_path" ] || [ ! -f "$mf_path" ] || [ ! -r "$mf_path" ]; then
+    die_with_status 1 "mask-file: not a readable regular file"
+  fi
+  mf_format=$(mask_file_format "$mf_path") \
+    || die_with_status 1 "mask-file: unsupported file format"
+  mf_size=$(wc -c <"$mf_path" 2>/dev/null | tr -d ' \t')
+  case $mf_size in
+    ''|*[!0-9]*) die_with_status 1 "mask-file: cannot read the file size" ;;
+  esac
+  [ "$mf_size" -le "$MASK_FILE_MAX_BYTES" ] \
+    || die_with_status 1 "mask-file: file is larger than 64 KiB"
+  # Buffered so a failure partway through prints nothing; the trailing x keeps
+  # $( ) from dropping final newlines. Parser stderr is dropped because jq and
+  # awk may quote the input in their errors.
+  mf_out=$(mask_file_render "$mf_format" "$mf_mode" 2>/dev/null <"$mf_path"
+    mf_status=$?
+    printf x
+    exit "$mf_status") \
+    || die_with_status 1 "mask-file: content is outside the supported $mf_format subset"
+  printf '%s' "${mf_out%x}"
+)
+
+mask_file_usage() {
+  cat >&2 <<'EOF'
+Usage:
+  agent-guard mask-file [--key-paths] [--] FILE
+
+Prints FILE with every value replaced by [MASKED], keeping keys, comments and
+structure. --key-paths prints the key path of each masked value instead.
+Supported: json, yaml (block subset), ini and dotenv, chosen by file name.
+Exits non-zero with no output when the file cannot be masked.
+EOF
+}
+
+do_mask_file() {
+  mf_cli_mode=text
+  while [ $# -gt 0 ]; do
+    case $1 in
+      --key-paths) mf_cli_mode=paths; shift ;;
+      -h|--help) mask_file_usage; exit 0 ;;
+      --) shift; break ;;
+      -*) mask_file_usage; exit 2 ;;
+      *) break ;;
+    esac
+  done
+  [ $# -eq 1 ] || { mask_file_usage; exit 2; }
+  mask_file "$1" "$mf_cli_mode"
+}
+
 # PostToolUse output guard. Applies, in one rewrite: secret-literal redaction
 # (AGENT_GUARD_OUTPUT_REDACT, on by default) and PII masking
 # (AGENT_GUARD_PII_HOOK_MODE=mask). Both transform the same tool_response and are
@@ -10513,6 +10832,7 @@ case "$cmd" in
   exec) shift; do_exec "$@" ;;
   shell-init) shift; shell_init "$@" ;;
   pii-filter) shift; pii_filter "$@" ;;
+  mask-file) shift; do_mask_file "$@" ;;
   scan-staged) shift; scan_staged "$@" ;;
   scan-working-tree) shift; scan_working_tree "$@" ;;
   scan-path) shift; scan_path "$@" ;;

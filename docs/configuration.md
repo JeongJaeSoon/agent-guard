@@ -99,6 +99,61 @@ it ignores the value.
 `AGENT_GUARD_INFRA_FAILURE_MODE` is the exception: an unrecognized value falls
 back to `open`.
 
+## Masked file views
+
+`agent-guard mask-file [--key-paths] FILE` prints a copy of a configuration file
+with every value replaced by `[MASKED]`. Keys, section headers, comments, blank
+lines and nesting stay as written. `--key-paths` prints the key path of each
+masked value instead, one per line. Hooks do not call it yet; reading a
+deny-listed file is still blocked.
+
+The format comes from the file name after symlinks are resolved, never from the
+content. The first matching row wins:
+
+| Format | File names |
+| --- | --- |
+| json | `*.json` |
+| yaml | `*.yaml`, `*.yml` |
+| ini | `*.ini`, `*.cfg`, `*.cnf`, `*.conf`, `.npmrc`, `.pypirc`, and `credentials` or `config` directly inside a `.aws` directory |
+| dotenv | `.env`, `.env.*`, `*.env`, `.envrc`, `*.envrc`, `.flaskenv`, `.flaskenv.*`, `.dev.vars`, `.dev.vars.*` |
+
+Each format accepts only a subset:
+
+- dotenv: `KEY=value` and `export KEY=value` lines with optional spaces around
+  `=`, keys matching `[A-Za-z_][A-Za-z0-9_.]*`, unquoted values, single- or
+  double-quoted values that close on the same line, empty values, comment lines
+  and blank lines. A comment after a value is masked with the value. Shapes a
+  shell reading `.envrc` would continue onto the next line fail: a value ending
+  in a backslash, a quote, backslash, backtick, `(` or `<` (a heredoc) in an
+  unquoted value before its comment, and a backtick, `$(`, `${` or `$[` in a double-quoted
+  value. Key path: `KEY`.
+- ini: `[section]` headers, `key = value` split at the first `=`, `;` and `#`
+  comment lines and blank lines. Keys may contain `/`; only in `.npmrc` may
+  they contain `:` (as in `//registry.example/:_authToken`), because most other
+  ini readers also split at `:`. Lines without `=`, indented lines and values
+  ending in a backslash fail. Key path:
+  `section.key`, or `key` before the first section.
+- json: one object or array document parsed by `jq`; every string, number, boolean and null
+  becomes `"[MASKED]"`, printed with `jq`'s default indentation. Key path: keys
+  joined by `.`, array elements by index (`servers.0.host`).
+- yaml: space-indented block mappings and sequences, one-line plain or quoted
+  scalars, quoted keys, comments, blank lines and one leading `---`. A
+  double-quoted key with a backslash escape fails, so a key path is always the
+  key itself. Tabs in
+  indentation, block scalars (`|`, `>`), flow collections (`{`, `[`), anchors,
+  aliases, tags, merge keys (`<<`), complex keys (`?`), a second document
+  (`---`, `...`), directives (`%`) and multi-line scalars fail. Key paths as for
+  json.
+
+In dotenv, ini and yaml an empty value stays empty and has no key path. Every
+other case fails: a name
+outside the table (`*.pem`, `*.key`, `.netrc`, `*.toml`, `*.tfvars`, an
+extensionless `.kube/config`, and so on), content outside the format's subset, a
+file over 64 KiB, or anything that is not a readable regular file. A failure
+exits non-zero, prints nothing on stdout, and writes one fixed line to stderr
+that quotes neither the path nor the content. A caller must treat any non-zero
+status as "no masked view" and keep blocking.
+
 ## Environment reference
 
 | Variable | Default / use |
