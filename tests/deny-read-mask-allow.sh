@@ -273,7 +273,7 @@ ACL='an access control list on mask-allow-keys.txt or a directory above it lets 
 if [ "$(uname -s)" = Darwin ]; then
   for node in "$ALLOW" "$HOME/.config"; do
     chmod +a "everyone allow write" "$node"
-    expect "an access control list on $node" "$(warned "$W/$DOT" "$ACL" "$ENV_MASKED")" "$W/$DOT"
+    expect "an access control list on ${node#"$HOME"/}" "$(warned "$W/$DOT" "$ACL" "$ENV_MASKED")" "$W/$DOT"
     chmod -N "$node"
   done
   chmod +a "everyone deny delete" "$HOME/.config"
