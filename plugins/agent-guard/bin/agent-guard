@@ -8629,7 +8629,7 @@ MASK_FILE_AWK_LIB='
 function emit_line(s) { if (mode != "paths") print s }
 function emit_masked(prefix, path) {
   if (mode == "paths") print path
-  else print prefix "[MASKED]"
+  else print prefix marker
 }
 # Index of the quote closing the one that opens s, or 0. Double quotes take
 # backslash escapes; with dbl set a doubled single quote is an escape (yaml).
@@ -8829,7 +8829,7 @@ if length != 1 then error("not one document") else .[0] end
     | if (explode | map(select(. < 32 or . == 127)) | length) > 0
       then error("control character in key") else . end
   else
-    walk(if type == "object" or type == "array" then . else "[MASKED]" end)
+    walk(if type == "object" or type == "array" then . else $marker end)
   end
 '
 
@@ -8856,20 +8856,20 @@ mask_file_format() {
   esac
 }
 
-# $1 = format, $2 = text|paths; reads the file on stdin.
+# $1 = format, $2 = text|paths, $3 = the value marker; reads the file on stdin.
 mask_file_render() {
   case $1 in
     json)
       if [ "$2" = paths ]; then
-        jq -rs --arg mode paths "$JQ_WALK$MASK_FILE_JQ"
+        jq -rs --arg mode paths --arg marker "$3" "$JQ_WALK$MASK_FILE_JQ"
       else
-        jq -s --arg mode text "$JQ_WALK$MASK_FILE_JQ"
+        jq -s --arg mode text --arg marker "$3" "$JQ_WALK$MASK_FILE_JQ"
       fi
       ;;
-    dotenv) LC_ALL=C awk -v mode="$2" "$MASK_FILE_AWK_LIB$MASK_FILE_AWK_DOTENV" ;;
-    ini) LC_ALL=C awk -v mode="$2" -v colon_keys=0 "$MASK_FILE_AWK_LIB$MASK_FILE_AWK_INI" ;;
-    npmrc) LC_ALL=C awk -v mode="$2" -v colon_keys=1 "$MASK_FILE_AWK_LIB$MASK_FILE_AWK_INI" ;;
-    yaml) LC_ALL=C awk -v mode="$2" "$MASK_FILE_AWK_LIB$MASK_FILE_AWK_YAML" ;;
+    dotenv) LC_ALL=C awk -v mode="$2" -v marker="$3" "$MASK_FILE_AWK_LIB$MASK_FILE_AWK_DOTENV" ;;
+    ini) LC_ALL=C awk -v mode="$2" -v marker="$3" -v colon_keys=0 "$MASK_FILE_AWK_LIB$MASK_FILE_AWK_INI" ;;
+    npmrc) LC_ALL=C awk -v mode="$2" -v marker="$3" -v colon_keys=1 "$MASK_FILE_AWK_LIB$MASK_FILE_AWK_INI" ;;
+    yaml) LC_ALL=C awk -v mode="$2" -v marker="$3" "$MASK_FILE_AWK_LIB$MASK_FILE_AWK_YAML" ;;
     *) return 2 ;;
   esac
 }
@@ -8878,10 +8878,12 @@ mask_file_render() {
 # masked value, one per line: dotenv KEY, ini section.key (key outside a
 # section), json and yaml keys joined by `.` with array indexes as numbers.
 # Every failure exits non-zero with empty stdout and a fixed stderr line that
-# names neither the path nor any content. A subshell, so its names and those
+# names neither the path nor any content. $3 replaces the [MASKED] marker; it
+# must not contain a backslash. A subshell, so its names and those
 # resolve_path sets never reach the caller.
 mask_file() (
   mf_mode=${2:-text}
+  mf_marker=${3:-[MASKED]}
   case $mf_mode in text|paths) ;; *) die "mask-file: unsupported mode" ;; esac
   need_cmd awk
   need_cmd jq
@@ -8902,7 +8904,7 @@ mask_file() (
   # Buffered so a failure partway through prints nothing; the trailing x keeps
   # $( ) from dropping final newlines. Parser stderr is dropped because jq and
   # awk may quote the input in their errors.
-  mf_out=$(mask_file_render "$mf_format" "$mf_mode" 2>/dev/null <"$mf_path"
+  mf_out=$(mask_file_render "$mf_format" "$mf_mode" "$mf_marker" 2>/dev/null <"$mf_path"
     mf_status=$?
     printf x
     exit "$mf_status") \
@@ -9069,19 +9071,28 @@ MASK_RULES_AWK_COMPILE='
 END { if (!empty) print "ok" }
 '
 
-# Comment lines get every span any rule matches replaced by one [MASKED].
-# Other lines hold keys and structure in front of the masked value; a rule
-# that matches there exits 3, since masking it would rewrite a key. The
-# engine writes a value marker only at the end of a line ("[MASKED]", or
-# "[MASKED]" with an optional comma in json), so only that marker is cut:
-# "[MASKED]" anywhere else is key text and is matched with the rest. Rules
-# run one at a time and are announced to `progress`, so a timeout or a key
-# match names the rule.
+# The view comes with a one-time `marker` in place of each value, so file
+# text that reads "[MASKED]" is never taken for a value. Comment lines get
+# every span any rule matches replaced by one [MASKED]. Other lines hold keys
+# and structure around the markers; a rule that matches any piece between
+# markers exits 3, since masking it would rewrite a key. Rules run one at a
+# time and are announced to `progress`, so a timeout or a key match names
+# the rule.
 MASK_RULES_AWK_APPLY='
-function outside(s, r) {
-  if (format == "json") sub(/"\[MASKED\]",?$/, "", s)
-  else sub(/\[MASKED\]$/, "", s)
+function outside(s, r,   p) {
+  while ((p = index(s, marker)) > 0) {
+    if (p > 1 && match(substr(s, 1, p - 1), r)) return 1
+    s = substr(s, p + length(marker))
+  }
   return s != "" && match(s, r)
+}
+function unmark(s,   p, out) {
+  out = ""
+  while ((p = index(s, marker)) > 0) {
+    out = out substr(s, 1, p - 1) "[MASKED]"
+    s = substr(s, p + length(marker))
+  }
+  return out s
 }
 function mark(i, r,   s, off, st, ones) {
   s = lines[i]
@@ -9122,7 +9133,7 @@ END {
       else if (outside(lines[i], re[k])) exit 3
     }
   }
-  for (i = 1; i <= n; i++) print (i in marks) ? masked(i) : lines[i]
+  for (i = 1; i <= n; i++) print (i in marks) ? masked(i) : com[i] ? lines[i] : unmark(lines[i])
 }
 '
 
@@ -9195,13 +9206,14 @@ mask_rules_check() (
   exit 1
 )
 
-# Applies checked rules in file $1 to the masked view in file $3 of format
-# $2. Prints the new view, or returns 1 with "label line N: reason" when a
-# rule matches outside values and comments or runs out of time, or 2.
+# Applies checked rules in file $1 to the view in file $3 of format $2,
+# rendered with marker $4 for each value. Prints the view with [MASKED], or
+# returns 1 with "label line N: reason" when a rule matches outside values
+# and comments or runs out of time, or 2.
 mask_rules_apply() (
   ma_out=$(mktemp_file) || exit 2
   ma_log=$(mktemp_file) || { rm -f "$ma_out"; exit 2; }
-  mask_rules_awk "$ma_out" -v format="$2" -v progress="$ma_log" \
+  mask_rules_awk "$ma_out" -v format="$2" -v marker="$4" -v progress="$ma_log" \
     "$MASK_RULES_AWK_LIB$MASK_RULES_AWK_APPLY" "$1" "$3"
   ma_status=$?
   [ "$ma_status" -eq 0 ] && cat "$ma_out"
@@ -9219,8 +9231,10 @@ mask_rules_apply() (
 
 # Applies the deny-value rules to masked view $2 of file $1: the user file
 # and the file AGENT_GUARD_MASK_DENY_VALUES names, together, so a repository
-# setting can add rules but never empty the user's list. Prints the view, or
-# a reason with no rule text and returns 1; the caller blocks on either.
+# setting can add rules but never empty the user's list. With rules, the
+# file is masked again with a random marker so text in it that reads
+# "[MASKED]" cannot pass for a value. Prints the view, or a reason with no
+# rule text and returns 1; the caller blocks on either.
 mask_deny_values() (
   md_list=
   if [ -n "${HOME:-}" ]; then
@@ -9240,11 +9254,20 @@ mask_deny_values() (
   md_rules=$(mktemp_file) || { printf '%s' "$md_failed"; exit 1; }
   md_view=$(mktemp_file) || { rm -f "$md_rules"; printf '%s' "$md_failed"; exit 1; }
   printf '%s\n' "$md_list" >"$md_rules"
-  printf '%s' "$2" >"$md_view"
   md_out=$(mask_rules_check "$md_rules")
   md_status=$?
   if [ "$md_status" -eq 0 ]; then
-    md_out=$(mask_rules_apply "$md_rules" "$(mask_file_format "$1")" "$md_view"
+    md_marker=$(od -An -N12 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')
+    case $md_marker in
+      ????????????????????????) md_marker="[MASKED:$md_marker]" ;;
+      *) md_status=2 ;;
+    esac
+  fi
+  if [ "$md_status" -eq 0 ]; then
+    mask_file "$1" text "$md_marker" >"$md_view" 2>/dev/null || md_status=2
+  fi
+  if [ "$md_status" -eq 0 ]; then
+    md_out=$(mask_rules_apply "$md_rules" "$(mask_file_format "$1")" "$md_view" "$md_marker"
       md_status=$?
       printf x
       exit "$md_status")

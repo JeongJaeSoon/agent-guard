@@ -166,8 +166,19 @@ expect "a key holding literal [MASKED] text is still checked whole" "$(refused "
 printf 'SECRET_[MASKED]_TOKEN: x\n' >"$CASE/fmt/secrets.yaml"
 expect "a yaml key holding literal [MASKED] text is still checked whole" "$(refused "$CASE/fmt/secrets.yaml" \
   "mask-deny-values.txt line 3: the rule matches a key or other text outside values and comments")" "$CASE/fmt/secrets.yaml"
-user_rules "$USER_RULE"
+user_rules 'MASKED'
 RULES=
+printf '[MASKED]\nkey=x\n' >"$CASE/fmt/.pypirc"
+expect "an ini section named [MASKED] is checked as a section" "$(refused "$CASE/fmt/.pypirc" \
+  "mask-deny-values.txt line 3: the rule matches a key or other text outside values and comments")" "$CASE/fmt/.pypirc"
+printf 'db: # was [MASKED]\n  password: x\n' >"$CASE/fmt/secrets.yaml"
+expect "a yaml key comment ending in [MASKED] is checked with its key" "$(refused "$CASE/fmt/secrets.yaml" \
+  "mask-deny-values.txt line 3: the rule matches a key or other text outside values and comments")" "$CASE/fmt/secrets.yaml"
+printf 'K=%s\nJ=[MASKED]\n' "$V1" >"$CASE/fmt/values.env"
+expect "a rule matching only the value marker leaves masked values alone" "$(view "$CASE/fmt/values.env" "K=[MASKED]
+J=[MASKED]
+")" "$CASE/fmt/values.env"
+user_rules "$USER_RULE"
 printf '%s:\n  password: x\n' "$ORG1" >"$CASE/fmt/secrets.yaml"
 expect "a rule matching a yaml key blocks" "$(refused "$CASE/fmt/secrets.yaml" \
   "mask-deny-values.txt line 3: the rule matches a key or other text outside values and comments")" "$CASE/fmt/secrets.yaml"
