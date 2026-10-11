@@ -290,7 +290,10 @@ This list widens what an agent sees, so where it comes from is checked:
   current user and neither is writable by group or others. Every directory
   above them must belong to the current user or root, and one that group or
   others can write must be sticky (as `/tmp` is), so no other user can swap
-  the file after the check. A symlink is
+  the file after the check. An access control list that may let others in
+  also refuses the file: on macOS any `allow` entry on the file or a directory
+  above it (the `deny` entries a home directory carries are fine), elsewhere
+  any POSIX ACL. A symlink is
   followed before the check, so a file kept in a dotfiles repository and
   linked into `~/.config` is not used. When git fails in a working directory
   that has a `.git` above it, the file is not used. The first check does not

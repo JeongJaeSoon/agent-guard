@@ -268,6 +268,25 @@ expect "a sticky directory above the allow file that others can write" \
   "$(view "$W/$DOT" "$ENV_SHOWN")" "$W/$DOT"
 chmod 700 "$HOME/.config"
 
+# An access control list can let others write whatever the mode says.
+ACL='an access control list on mask-allow-keys.txt or a directory above it lets others write'
+if [ "$(uname -s)" = Darwin ]; then
+  for node in "$ALLOW" "$HOME/.config"; do
+    chmod +a "everyone allow write" "$node"
+    expect "an access control list on $node" "$(warned "$W/$DOT" "$ACL" "$ENV_MASKED")" "$W/$DOT"
+    chmod -N "$node"
+  done
+  chmod +a "everyone deny delete" "$HOME/.config"
+  expect "a deny-only access control list, as on a macOS home" "$(view "$W/$DOT" "$ENV_SHOWN")" "$W/$DOT"
+  chmod -N "$HOME/.config"
+elif command -v setfacl >/dev/null 2>&1 && setfacl -m "u:$(id -u):rw" "$ALLOW" 2>/dev/null; then
+  expect "an access control list on the allow file" "$(warned "$W/$DOT" "$ACL" "$ENV_MASKED")" "$W/$DOT"
+  setfacl -b "$ALLOW"
+  chmod 600 "$ALLOW"
+else
+  ok "# skip access control lists: no chmod +a or working setfacl"
+fi
+
 # Another owner cannot be made without root, so stat answers for one.
 mkdir -p "$CASE/stat-other" "$CASE/stat-fail"
 printf '#!/bin/sh\necho 4242:600\n' >"$CASE/stat-other/stat"

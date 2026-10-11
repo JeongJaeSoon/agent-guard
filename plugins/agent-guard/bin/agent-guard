@@ -9433,6 +9433,24 @@ END {
 }
 '
 
+# Returns 1 when an access control list on $1 may let someone other than the
+# owner in: on macOS any allow entry (a home directory carries deny entries),
+# elsewhere any POSIX ACL, which ls marks with "+". Returns 2 when ls fails.
+mask_allow_acl() (
+  case "$(uname -s)" in
+    Darwin)
+      ma_ls=$(LC_ALL=C ls -lde -- "$1" 2>/dev/null) || exit 2
+      case $ma_ls in *'
+'*' allow '*) exit 1 ;; esac
+      ;;
+    *)
+      ma_ls=$(LC_ALL=C ls -ld -- "$1" 2>/dev/null) || exit 2
+      case ${ma_ls%% *} in ??????????+*) exit 1 ;; esac
+      ;;
+  esac
+  exit 0
+)
+
 # Prints the resolved path of allow file $1 when it may be used: outside every
 # git work tree, outside workdir $2 (or the current directory) and its work
 # tree, with the file and its directory owned by the current user and
@@ -9492,7 +9510,14 @@ mask_allow_source() (
     esac
   done
   ma_uid=$(id -u 2>/dev/null) || { printf '%s' "$ma_unchecked"; exit 1; }
+  ma_acl='an access control list on mask-allow-keys.txt or a directory above it lets others write'
   for ma_node in "$ma_real" "$ma_dir"; do
+    mask_allow_acl "$ma_node"
+    case $? in
+      0) ;;
+      1) printf '%s' "$ma_acl"; exit 1 ;;
+      *) printf '%s' "$ma_unchecked"; exit 1 ;;
+    esac
     ma_stat=$(audit_stat "$ma_node")
     ma_owner=${ma_stat%%:*}
     ma_mode=${ma_stat#*:}
@@ -9518,6 +9543,12 @@ mask_allow_source() (
   while [ -n "$ma_up" ] && [ "$ma_up" != / ]; do
     ma_up=${ma_up%/*}
     ma_node=${ma_up:-/}
+    mask_allow_acl "$ma_node"
+    case $? in
+      0) ;;
+      1) printf '%s' "$ma_acl"; exit 1 ;;
+      *) printf '%s' "$ma_unchecked"; exit 1 ;;
+    esac
     ma_stat=$(audit_stat "$ma_node")
     ma_owner=${ma_stat%%:*}
     ma_mode=${ma_stat#*:}
