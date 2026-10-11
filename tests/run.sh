@@ -167,6 +167,7 @@ for file in \
   "$ROOT/githooks/pre-commit" \
   "$PLUGIN_ROOT/scripts/gitleaks-checksum.sh" \
   "$ROOT/tests/hook-outcome-contract.sh" \
+  "$ROOT/tests/deny-read-mask.sh" \
   "$ROOT/tests/gitleaks-resolution.sh" \
   "$ROOT/tests/run.sh"; do
   run_expect 0 "shell syntax: $file" sh -n "$file"
@@ -4558,6 +4559,7 @@ alias_case claude secret 0 'git st'
 alias_case codex secret 0 'git nosuch'
 
 run_expect 0 "mask-file masks values per format and fails closed" sh "$ROOT/tests/mask-file.sh"
+run_expect 0 "deny-read mask mode returns a masked view or blocks without content" sh "$ROOT/tests/deny-read-mask.sh"
 
 fi # end of shard 3
 
@@ -10034,6 +10036,47 @@ EOSH
     ok "#224 control: pre-first-commit repo still detects an unstaged secret"
   else
     not_ok "#224 control: pre-first-commit unstaged secret (expected 1, got $status)"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+
+  # The real scanner must pass [MASKED] under secret-named keys in every
+  # format, and still catch a token someone left in a comment.
+  MASK_REAL_DIR="$TMP_ROOT/mask-real"
+  mkdir -p "$MASK_REAL_DIR"
+  mask_real_value() { od -An -N12 -tx1 /dev/urandom | tr -d ' \n'; }
+  printf 'AWS_ACCESS_KEY_ID=%s\nAWS_SECRET_ACCESS_KEY=%s\nGITHUB_TOKEN=%s\nexport API_KEY="%s"\npassword=%s\nDATABASE_URL=%s\n' \
+    "$(mask_real_value)" "$(mask_real_value)" "$(mask_real_value)" \
+    "$(mask_real_value)" "$(mask_real_value)" "$(mask_real_value)" >"$MASK_REAL_DIR/.env"
+  printf '{"api_key":"%s","client_secret":"%s","private_key":"%s","nested":{"token":"%s"}}\n' \
+    "$(mask_real_value)" "$(mask_real_value)" "$(mask_real_value)" "$(mask_real_value)" \
+    >"$MASK_REAL_DIR/secrets.json"
+  printf 'db:\n  password: %s\n  api_token: "%s"\n' "$(mask_real_value)" "$(mask_real_value)" \
+    >"$MASK_REAL_DIR/secrets.yaml"
+  printf '//registry.npmjs.org/:_authToken=%s\n' "$(mask_real_value)" >"$MASK_REAL_DIR/.npmrc"
+  for mask_real_name in .env secrets.json secrets.yaml .npmrc; do
+    jq -nc --arg p "$MASK_REAL_DIR/$mask_real_name" '{tool_name:"Read",tool_input:{file_path:$p}}' \
+      | AGENT_GUARD_DENY_READ_MODE=mask AGENT_GUARD_GITLEAKS_BIN="$REAL_GITLEAKS" \
+        "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+    status=$?
+    if [ "$status" -eq 2 ] && grep -Fq 'agent-guard: masked view follows' "$ERR"; then
+      ok "real gitleaks passes the masked view of $mask_real_name"
+    else
+      not_ok "real gitleaks passes the masked view of $mask_real_name (status $status)"
+      sed 's/^/  stderr: /' "$ERR"
+    fi
+  done
+  mkdir -p "$MASK_REAL_DIR/comment"
+  printf '# old: ghp_%s%s\nK=%s\n' "$(mask_real_value)" "$(mask_real_value | cut -c1-12)" \
+    "$(mask_real_value)" >"$MASK_REAL_DIR/comment/.env"
+  jq -nc --arg p "$MASK_REAL_DIR/comment/.env" '{tool_name:"Read",tool_input:{file_path:$p}}' \
+    | AGENT_GUARD_DENY_READ_MODE=mask AGENT_GUARD_GITLEAKS_BIN="$REAL_GITLEAKS" \
+      "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+  status=$?
+  if [ "$status" -eq 2 ] && grep -Fqx 'agent-guard: no masked view: the masked view still contains secret-like text' "$ERR" \
+     && ! grep -Fq 'ghp_' "$ERR"; then
+    ok "real gitleaks refuses a masked view with a token left in a comment"
+  else
+    not_ok "real gitleaks refuses a masked view with a token left in a comment (status $status)"
     sed 's/^/  stderr: /' "$ERR"
   fi
 
