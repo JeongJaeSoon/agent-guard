@@ -9070,17 +9070,18 @@ END { if (!empty) print "ok" }
 '
 
 # Comment lines get every span any rule matches replaced by one [MASKED].
-# Other lines hold keys and structure around the masked values; a rule that
-# matches any piece between [MASKED] marks there exits 3, since masking it
-# would rewrite a key. Rules run one at a time and are announced to
-# `progress`, so a timeout or a key match names the rule.
+# Other lines hold keys and structure in front of the masked value; a rule
+# that matches there exits 3, since masking it would rewrite a key. The
+# engine writes a value marker only at the end of a line ("[MASKED]", or
+# "[MASKED]" with an optional comma in json), so only that marker is cut:
+# "[MASKED]" anywhere else is key text and is matched with the rest. Rules
+# run one at a time and are announced to `progress`, so a timeout or a key
+# match names the rule.
 MASK_RULES_AWK_APPLY='
-function outside(s, r,   p) {
-  while ((p = index(s, "[MASKED]")) > 0) {
-    if (match(substr(s, 1, p - 1), r)) return 1
-    s = substr(s, p + 8)
-  }
-  return match(s, r)
+function outside(s, r) {
+  if (format == "json") sub(/"\[MASKED\]",?$/, "", s)
+  else sub(/\[MASKED\]$/, "", s)
+  return s != "" && match(s, r)
 }
 function mark(i, r,   s, off, st, ones) {
   s = lines[i]

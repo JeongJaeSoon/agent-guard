@@ -158,6 +158,16 @@ printf '{"%s": "x"}\n' "$ORG1" >"$CASE/fmt/secrets.json"
 RULES=
 expect "a rule matching a json key blocks" "$(refused "$CASE/fmt/secrets.json" \
   "mask-deny-values.txt line 3: the rule matches a key or other text outside values and comments")" "$CASE/fmt/secrets.json"
+user_rules 'SECRET.*TOKEN'
+RULES='SECRET.*TOKEN'
+printf '{"SECRET[MASKED]TOKEN": "x"}\n' >"$CASE/fmt/secrets.json"
+expect "a key holding literal [MASKED] text is still checked whole" "$(refused "$CASE/fmt/secrets.json" \
+  "mask-deny-values.txt line 3: the rule matches a key or other text outside values and comments")" "$CASE/fmt/secrets.json"
+printf 'SECRET_[MASKED]_TOKEN: x\n' >"$CASE/fmt/secrets.yaml"
+expect "a yaml key holding literal [MASKED] text is still checked whole" "$(refused "$CASE/fmt/secrets.yaml" \
+  "mask-deny-values.txt line 3: the rule matches a key or other text outside values and comments")" "$CASE/fmt/secrets.yaml"
+user_rules "$USER_RULE"
+RULES=
 printf '%s:\n  password: x\n' "$ORG1" >"$CASE/fmt/secrets.yaml"
 expect "a rule matching a yaml key blocks" "$(refused "$CASE/fmt/secrets.yaml" \
   "mask-deny-values.txt line 3: the rule matches a key or other text outside values and comments")" "$CASE/fmt/secrets.yaml"
