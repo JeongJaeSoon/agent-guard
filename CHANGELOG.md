@@ -1,3 +1,7 @@
+## Unreleased
+
+- feat(cli): add `mask-file`, which prints a json, yaml, ini or dotenv file with its values replaced by `[MASKED]` and fails closed on anything else (hooks do not use it yet)
+
 ## v3.5.6 - 2026-10-04
 
 - fix(hooks): give Claude Code the block reason as JSON and stop echoing blocked prompts (#299)
