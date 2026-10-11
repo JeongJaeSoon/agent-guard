@@ -1,5 +1,6 @@
 ## Unreleased
 
+- feat(hooks): in `AGENT_GUARD_DENY_READ_MODE=mask`, deny-value rules from `~/.config/agent-guard/mask-deny-values.txt` and the file `AGENT_GUARD_MASK_DENY_VALUES` names, together, replace every match with `[MASKED]`, comments included; a refused or unreadable rule, a match in a key, or a rule that runs out of time blocks with no view
 - feat(hooks): `AGENT_GUARD_DENY_READ_MODE=mask` keeps blocking reads of protected files and puts a masked view of the file in the block reason for a `Read` or a plain `cat PATH`; the view is rescanned, capped at 6,144 bytes, and any failure blocks with no view
 - fix(hooks): a `~/` path no longer normalizes to `$HOME/~/...`
 - feat(cli): add `mask-file`, which prints a json, yaml, ini or dotenv file with its values replaced by `[MASKED]` and fails closed on anything else; `.envrc` and `*.envrc` are not supported because a shell, not a dotenv reader, reads them
