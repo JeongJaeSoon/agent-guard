@@ -9511,6 +9511,32 @@ mask_allow_source() (
         ;;
     esac
   done
+  # Whoever can rename a directory above could swap the file after this
+  # check, so each one belongs to the user or root, and one that others can
+  # write is sticky.
+  ma_up=$ma_dir
+  while [ -n "$ma_up" ] && [ "$ma_up" != / ]; do
+    ma_up=${ma_up%/*}
+    ma_node=${ma_up:-/}
+    ma_stat=$(audit_stat "$ma_node")
+    ma_owner=${ma_stat%%:*}
+    ma_mode=${ma_stat#*:}
+    case $ma_owner:$ma_mode in
+      :*|*:|*[!0-9:]*|*:*:*) printf '%s' "$ma_unchecked"; exit 1 ;;
+    esac
+    if [ "$ma_owner" != "$ma_uid" ] && [ "$ma_owner" != 0 ]; then
+      printf 'a directory above mask-allow-keys.txt belongs to another user'
+      exit 1
+    fi
+    case $ma_mode in
+      *[2367]|*[2367]?)
+        if [ ! -k "$ma_node" ]; then
+          printf 'a directory above mask-allow-keys.txt is writable by group or others'
+          exit 1
+        fi
+        ;;
+    esac
+  done
   printf '%s' "$ma_real"
 )
 

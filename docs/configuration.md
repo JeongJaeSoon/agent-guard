@@ -287,7 +287,10 @@ This list widens what an agent sees, so where it comes from is checked:
   (no directory above it holds a `.git`), outside the hook's working
   directory (or the current directory when the host sends none) and that
   directory's work tree, and when the file and its directory belong to the
-  current user and neither is writable by group or others. A symlink is
+  current user and neither is writable by group or others. Every directory
+  above them must belong to the current user or root, and one that group or
+  others can write must be sticky (as `/tmp` is), so no other user can swap
+  the file after the check. A symlink is
   followed before the check, so a file kept in a dotfiles repository and
   linked into `~/.config` is not used. When git fails in a working directory
   that has a `.git` above it, the file is not used. The first check does not

@@ -260,6 +260,13 @@ chmod 600 "$ALLOW"
 chmod 770 "$ALLOW_DIR"
 expect "an allow file directory with mode 770" "$(warned "$W/$DOT" "$WRITABLE" "$ENV_MASKED")" "$W/$DOT"
 chmod 700 "$ALLOW_DIR"
+chmod 770 "$HOME/.config"
+expect "a directory above the allow file with mode 770" "$(warned "$W/$DOT" \
+  'a directory above mask-allow-keys.txt is writable by group or others' "$ENV_MASKED")" "$W/$DOT"
+chmod 1777 "$HOME/.config"
+expect "a sticky directory above the allow file that others can write" \
+  "$(view "$W/$DOT" "$ENV_SHOWN")" "$W/$DOT"
+chmod 700 "$HOME/.config"
 
 # Another owner cannot be made without root, so stat answers for one.
 mkdir -p "$CASE/stat-other" "$CASE/stat-fail"
