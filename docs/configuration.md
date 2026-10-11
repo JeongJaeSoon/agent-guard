@@ -132,7 +132,9 @@ Each format accepts only a subset:
   becomes `"[MASKED]"`, printed with `jq`'s default indentation. Key path: keys
   joined by `.`, array elements by index (`servers.0.host`).
 - yaml: space-indented block mappings and sequences, one-line plain or quoted
-  scalars, quoted keys, comments, blank lines and one leading `---`. Tabs in
+  scalars, quoted keys, comments, blank lines and one leading `---`. A
+  double-quoted key with a backslash escape fails, so a key path is always the
+  key itself. Tabs in
   indentation, block scalars (`|`, `>`), flow collections (`{`, `[`), anchors,
   aliases, tags, merge keys (`<<`), complex keys (`?`), a second document
   (`---`, `...`), directives (`%`) and multi-line scalars fail. Key paths as for

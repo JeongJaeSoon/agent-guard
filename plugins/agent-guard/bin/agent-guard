@@ -8719,6 +8719,10 @@ function map_key(r,   c, e, p) {
     e = quoted_end(r, c)
     if (!e || substr(r, e + 1, 1) != ":") return 0
     K = substr(r, 2, e - 2)
+    # The key path must be the key itself, and decoding double-quoted
+    # escapes is beyond this parser.
+    if (c == "\"" && index(K, "\\")) exit 1
+    if (c == sq) gsub(sq sq, sq, K)
     p = e + 1
   } else {
     p = index(r, ": ")

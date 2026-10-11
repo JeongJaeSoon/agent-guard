@@ -279,12 +279,13 @@ expect_fail "json key paths reject a key with a newline" --key-paths "$F/json-ba
 
 # --- yaml ----------------------------------------------------------------
 VALUES=
-gen y1 y2 y3 y4 y5 y6 y7 y8 y9 y10
+gen y1 y2 y3 y4 y5 y6 y7 y8 y9 y10 y11
 {
   printf -- '---\n# top comment\ndb:\n'
   printf '  host: %s   # inline\n' "$y1"
   printf '  "quoted key": '"'"'%s it'"''"'s'"'"'\n' "$y2"
-  printf '  dq: "%s \\" quote"\n\n' "$y3"
+  printf '  dq: "%s \\" quote"\n' "$y3"
+  printf "  'it''s': %s\n\n" "$y11"
   printf 'servers:\n- name: %s\n  tags:\n    - %s\n    - "%s"\n' "$y4" "$y5" "$y6"
   printf -- '- name: %s\nempty:\nlist:\n  - %s\n  - k: %s\n    k2: %s\n' "$y7" "$y8" "$y9" "$y10"
   printf 'url: https://example.test:8443/x\n'
@@ -295,6 +296,7 @@ db:
   host: [MASKED]
   "quoted key": [MASKED]
   dq: [MASKED]
+  '"'it''s'"': [MASKED]
 
 servers:
 - name: [MASKED]
@@ -312,6 +314,7 @@ url: [MASKED]
 expect_output "yaml key paths" 'db.host
 db.quoted key
 db.dq
+db.it'"'"'s
 servers.0.name
 servers.0.tags.0
 servers.0.tags.1
@@ -356,6 +359,7 @@ yaml_fail multi-line-quoted "a: \"$(rand)
 yaml_fail deeper-after-value "a: $(rand)
   b: c"
 yaml_fail top-level-scalar "$(rand)"
+yaml_fail escaped-quoted-key "\"a\\u005fb\": $(rand)"
 
 # --- size and file type --------------------------------------------------
 mkdir "$F/size"
