@@ -485,3 +485,19 @@ jobs:
               install.sh \
               bootstrap.sh
           fi
+
+      # The tap lives in another repository, so GITHUB_TOKEN cannot write to
+      # it. The release is already public when this runs; a failure here leaves
+      # only the tap behind, and the error says how to catch it up by hand.
+      - name: Open Homebrew tap PR
+        if: ${{ steps.state.outputs.publish_ready == 'true' && !inputs.dry_run }}
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+          RELEASE_VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::HOMEBREW_TAP_GITHUB_TOKEN is not set; v${RELEASE_VERSION} is published but JeongJaeSoon/homebrew-tap was not updated. Register the secret, then run scripts/publish-homebrew-tap.sh ${RELEASE_VERSION} agent-guard.rb with gh signed in to an account that can write the tap (agent-guard.rb is the release asset)"
+            exit 1
+          fi
+          scripts/publish-homebrew-tap.sh "$RELEASE_VERSION" agent-guard.rb
