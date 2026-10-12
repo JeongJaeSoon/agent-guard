@@ -1,3 +1,11 @@
+## v3.6.0 - 2026-10-11
+
+- feat(hooks): show values the mask allow list names in the masked view (#307)
+- feat(hooks): mask deny-value rule matches in the masked view (#306)
+- feat(hooks): return a masked view in the block reason of a protected read (#305)
+- feat(cli): add mask-file, a masked view of json, yaml, ini and dotenv files (#304)
+- docs: add a sponsor line to the README (#301)
+
 ## Unreleased
 
 - feat(hooks): in `AGENT_GUARD_DENY_READ_MODE=mask`, values whose key path matches a rule in `~/.config/agent-guard/mask-allow-keys.txt` are shown; the file must sit outside the work tree and the working directory and be private to the user, no variable can supply rules, deny-value rules and the secret scanner still win, and any refused rule or failed check keeps every value masked with a warning
