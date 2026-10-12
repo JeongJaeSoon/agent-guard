@@ -10410,6 +10410,79 @@ else
   printf '%s\n' "$post_out" | sed 's/^/  out: /'
 fi
 
+# #303: an MCP page read returns `"snapshotToken": "v:<version>"` for
+# optimistic concurrency, and masking it from version 10 on made every update
+# fail as stale. That exact shape under a token key stays visible on both
+# hosts; the same key with any other shape, and the same shape under other
+# secret keys, still masks. Keys are assembled at runtime so the repository's
+# own scan does not read these fixtures as assignments.
+VREF_SECRET=$(od -An -N12 -tx1 /dev/urandom | tr -d ' \n')
+VREF_PW=$(printf '%s%s' pass word)
+VREF_AK=$(printf '%s%s' api _key)
+VREF_ST=$(printf '%s%s' snapshot Token)
+for vref_shown in 'v:10' 'v:123' 'v:999999999'; do
+  vref_input=$(jq -nc --arg t "{\"id\":\"1\",\"$VREF_ST\":\"$vref_shown\"}" \
+    '{tool_name:"mcp__example__readPage",tool_input:{},tool_response:{content:[{type:"text",text:$t}]}}')
+  for vref_host in claude codex; do
+    printf '%s' "$vref_input" \
+      | (cd "$TMP_ROOT" && AGENT_GUARD_HOOK_HOST=$vref_host \
+          "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool) >"$OUT" 2>"$ERR"
+    vref_status=$?
+    if [ "$vref_status" -eq 0 ] && [ ! -s "$OUT" ]; then
+      ok "#303 post-tool leaves a $vref_shown version handle visible ($vref_host)"
+    else
+      not_ok "#303 post-tool leaves a $vref_shown version handle visible ($vref_host)"
+      sed 's/^/  out: /' "$OUT"
+    fi
+  done
+done
+
+vref_input=$(jq -nc --arg t "SNAPSHOT_TOKEN=v:10" \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$t,stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$vref_input"
+if [ "$?" -eq 0 ] && [ ! -s "$OUT" ]; then
+  ok "#303 post-tool leaves an unquoted token-key version handle visible"
+else
+  not_ok "#303 post-tool leaves an unquoted token-key version handle visible"
+  sed 's/^/  out: /' "$OUT"
+fi
+
+vref_case=0
+for vref_text in \
+  "{\"$VREF_ST\":\"$VREF_SECRET\"}" \
+  "{\"$VREF_ST\":\"v:$VREF_SECRET\"}" \
+  "{\"$VREF_ST\":\"v:123456789012\"}" \
+  "{\"$VREF_ST\":\"v:10x\"}" \
+  "{\"${VREF_ST}_id\":\"v:10\"}" \
+  "{\"$VREF_PW\":\"v:10\"}" \
+  "$VREF_AK=v:123" \
+  "GH_TOKEN=$VREF_SECRET"; do
+  vref_case=$((vref_case + 1))
+  vref_input=$(jq -nc --arg t "$vref_text" \
+    '{tool_name:"mcp__example__readPage",tool_input:{},tool_response:{content:[{type:"text",text:$t}]}}')
+  post_tool_out "$vref_input"
+  if grep -q '\[REDACTED\]' "$OUT" && ! grep -Fq "$VREF_SECRET" "$OUT"; then
+    ok "#303 post-tool still masks a non-handle token or other secret key (case $vref_case)"
+  else
+    not_ok "#303 post-tool still masks a non-handle token or other secret key (case $vref_case)"
+    sed 's/^/  out: /' "$OUT"
+  fi
+done
+
+vref_input=$(jq -nc \
+  --arg t "{\"$VREF_ST\":\"v:10\",\"$VREF_PW\":\"$VREF_SECRET\"}" \
+  '{tool_name:"mcp__example__readPage",tool_input:{},tool_response:{content:[{type:"text",text:$t}]}}')
+vref_expected=$(printf '{"%s":"v:10","%s":"[%s]"}' "$VREF_ST" "$VREF_PW" REDACTED)
+post_tool_out "$vref_input"
+if jq -e --arg expected "$vref_expected" \
+     '.hookSpecificOutput.updatedToolOutput.content[0].text == $expected' \
+     "$OUT" >/dev/null 2>&1; then
+  ok "#303 post-tool keeps the version handle and masks a secret in the same response"
+else
+  not_ok "#303 post-tool keeps the version handle and masks a secret in the same response"
+  sed 's/^/  out: /' "$OUT"
+fi
+
 # Display redaction replaces only the assignment value token. Text after it is
 # preserved, metadata keys with secret-ish prefixes are not values, and a prose
 # colon must not be interpreted as a YAML/JSON secret assignment.
