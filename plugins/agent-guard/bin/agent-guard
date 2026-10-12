@@ -6769,6 +6769,17 @@ secretish_env_values() {
         return 0
       return accessor_chain(v)
     }
+    # A key ending in `token` also names opaque version handles: an MCP page
+    # read returns `"snapshotToken": "v:10"` for optimistic concurrency, and
+    # masking it makes every update past version 9 fail as stale (#303). Only
+    # that exact shape under a token key is exempt; any other value, and the
+    # same value under password, secret or api_key keys, still masks. The
+    # length cap keeps a long digit run, which can be a numeric credential,
+    # masked.
+    function version_reference(assignment, value) {
+      if (value !~ /^v:[0-9]+$/ || length(value) > 11) return 0
+      return tolower(assignment) ~ /token["'\''`]?[ \t]*[:=]$/
+    }
     # Value-side gate for the status-label colon path (#156). A status label on
     # its own cannot separate `error: password: authentication is disabled`
     # (prose, must not mask) from `error: password: hunter2-long-value`
@@ -6850,6 +6861,7 @@ secretish_env_values() {
         # its padding alone, on this single-line path as well as the multiline
         # one. Internal whitespace is untouched, so prose still reads as prose.
         if (require_credential && !credential_shaped(edge_trim(value))) return 0
+        if (version_reference(assignment, value)) return 0
       } else {
         value = raw
         sub(/[ \t,;].*$/, "", value)
@@ -6900,6 +6912,7 @@ secretish_env_values() {
         }
         value = substr(value, 1, end)
         if (looks_like_reference(value, assignment, leading)) return 0
+        if (version_reference(assignment, value)) return 0
         if (require_credential && !credential_shaped(edge_trim(value))) return 0
         # Eligibility is based on the complete token. For short values, scope
         # replacement to the complete assignment token so an ordinary
