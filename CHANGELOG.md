@@ -1,3 +1,9 @@
+## v3.6.1 - 2026-10-12
+
+- MCP token 키의 `v:<n>` 버전 핸들을 불필요하게 마스킹하지 않도록 수정했습니다 (#309).
+- 릴리스 발행 후 Homebrew tap 갱신 PR을 자동 생성하며, 같은 formula와 열린 PR은 재사용합니다 (#310).
+- HOL 플러그인 스캐너 Action을 업데이트했습니다 (#302).
+
 ## v3.6.0 - 2026-10-11
 
 - feat(hooks): show values the mask allow list names in the masked view (#307)
