@@ -164,6 +164,8 @@ for file in \
   "$ROOT/install.sh" \
   "$ROOT/bootstrap.sh" \
   "$ROOT/scripts/build-release-tarball.sh" \
+  "$ROOT/scripts/publish-homebrew-tap.sh" \
+  "$ROOT/tests/homebrew-tap.sh" \
   "$ROOT/githooks/pre-commit" \
   "$PLUGIN_ROOT/scripts/gitleaks-checksum.sh" \
   "$ROOT/tests/hook-outcome-contract.sh" \
@@ -199,6 +201,8 @@ run_expect 0 "standalone update preserves executable and link destinations" \
   sh "$ROOT/tests/bootstrap-update.sh"
 run_expect 0 "release archive carries README-linked Markdown guides" \
   sh "$ROOT/tests/release-docs.sh"
+run_expect 0 "release opens a Homebrew tap PR without touching tap main" \
+  sh "$ROOT/tests/homebrew-tap.sh"
 # The direct installer must leave command wrapping active on a fresh install,
 # while AGENT_GUARD_COMMAND_WRAPPING=off is a persistent install-time opt-out.
 # Stub only the release downloads; archive verification, extraction, linking,
