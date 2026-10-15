@@ -5050,23 +5050,25 @@ if [ -L "$TEMPLATE_SYMLINK_REPO/.env.example" ]; then
   # `cd <repo> &&` / `git -C <repo>` prefixes, while a symlink behind the same
   # name is still caught, and ambiguous bases stay conservative.
   for env_cwd_case in \
-    "2|$TEMPLATE_SYMLINK_REPO|cd nested && cat env.py|inline cd cannot hide a source-module symlink" \
+    "2|$TEMPLATE_SYMLINK_REPO|cd ./nested && cat env.py|inline cd cannot hide a source-module symlink" \
     "2|$TEMPLATE_SYMLINK_REPO|git -C nested add env.py|git -C cannot hide a source-module symlink" \
     "2|$TMP_ROOT|cd $TEMPLATE_SYMLINK_REPO/nested && cat env.py|absolute cd cannot hide a source-module symlink" \
     "2|$TEMPLATE_SYMLINK_REPO|env -C nested cat env.py|env -C cannot hide a source-module symlink" \
     "2|$TEMPLATE_SYMLINK_REPO|cd hop/../other && cat env.py|logical cd through a symlink stays conservative" \
-    "2|$TEMPLATE_SYMLINK_REPO|cd >cd.log nested && cat env.py|redirection before the cd operand stays conservative" \
+    "2|$TEMPLATE_SYMLINK_REPO|cd >cd.log ./nested && cat env.py|redirection before the cd operand stays conservative" \
     "2|$TEMPLATE_SYMLINK_REPO|git -C 2>/dev/null nested add env.py|redirection before the -C operand stays conservative" \
-    "2|$TEMPLATE_SYMLINK_REPO|:; CDPATH=/tmp cd nested && cat env.py|command-local CDPATH after another record stays conservative" \
+    "2|$GENUINE_TEMPLATE_REPO|export C'D'PATH=/tmp; cd nested && cat env.py|bare cd target stays conservative (CDPATH, cdable_vars)" \
+    "2|$GENUINE_TEMPLATE_REPO|. ./switch.sh; cd ./nested && cat env.py|sourced script stays conservative" \
+    "2|$GENUINE_TEMPLATE_REPO|command source ./switch.sh && cat nested/env.py|sourced script without cd stays conservative" \
     "2|$TEMPLATE_SYMLINK_REPO|eval \"cd nested && cat env.py >/dev/null\"|eval-quoted cd cannot hide a source-module symlink" \
     "2|$TEMPLATE_SYMLINK_REPO|bash -c \"cd nested && cat template.env\"|sh -c quoted cd cannot hide a template symlink" \
     "0|$TEMPLATE_SYMLINK_REPO|echo \"rename the env.py module later\"|prose naming a source module stays allowed" \
-    "0|$GENUINE_TEMPLATE_REPO|cd nested && cat env.py|inline cd keeps a genuine source module readable" \
+    "0|$GENUINE_TEMPLATE_REPO|cd ./nested && cat env.py|inline cd keeps a genuine source module readable" \
     "0|$TMP_ROOT|cd $GENUINE_TEMPLATE_REPO && git add pkg/app/settings/env.py|absolute cd keeps git add of a source module allowed" \
     "0|$TMP_ROOT|git -C $GENUINE_TEMPLATE_REPO add pkg/app/settings/env.py|git -C keeps git add of a source module allowed" \
-    "0|$GENUINE_TEMPLATE_REPO|cd nested && cat template.env|inline cd keeps a genuine template readable" \
+    "0|$GENUINE_TEMPLATE_REPO|cd ./nested && cat template.env|inline cd keeps a genuine template readable" \
     "2|$GENUINE_TEMPLATE_REPO|cd \$DIR && cat env.py|dynamic cd target stays conservative" \
-    "2|$GENUINE_TEMPLATE_REPO|cd nested && cd .. && cat env.py|two cwd changes stay conservative" \
+    "2|$GENUINE_TEMPLATE_REPO|cd ./nested && cd /tmp && cat env.py|two cwd changes stay conservative" \
     "2|$GENUINE_TEMPLATE_REPO|cd ~/nested && cat env.py|tilde cd target stays conservative" \
     "2|$GENUINE_TEMPLATE_REPO|cd nested && git add env.py .env.local|cd does not unblock a runtime dotenv"; do
     env_cwd_expect=${env_cwd_case%%|*}

@@ -4792,6 +4792,34 @@ git_command_records() {
   '
 }
 
+# A sourced script runs in this shell and may change cwd where no command text
+# shows it (`. ./switch.sh; cat env.py`). Look for `.`/`source` where a command
+# starts, past assignments and the builtin/command/eval/time/! prefixes.
+bash_command_sources_script() (
+  set -f
+  source_records=$(git_command_records "$1")
+  old_ifs=$IFS
+  IFS='
+'
+  # shellcheck disable=SC2086
+  set -- $source_records
+  IFS=$old_ifs
+
+  source_command_start=1
+  for source_record in "$@"; do
+    case "$source_record" in
+      3*) source_command_start=1; continue ;;
+    esac
+    case "${source_record#?}" in
+      ';'|'&&'|'||'|'|') source_command_start=1 ;;
+      .|source) [ "$source_command_start" -eq 1 ] && return 0 ;;
+      [A-Za-z_]*=*|builtin|command|eval|time|'!') ;;
+      *) source_command_start=0 ;;
+    esac
+  done
+  return 1
+)
+
 # A relative template token can be resolved safely only when the command keeps
 # the event workdir as its path base. Refuse the exception when shell syntax is
 # dynamic or a command can rebase later relative operands (`cd`, `env -C`,
@@ -4801,6 +4829,7 @@ git_command_records() {
 # cwd.
 bash_command_may_rebase_relative_paths() (
   set -f
+  bash_command_sources_script "$1" && return 0
   cwd_records=$(git_command_records "$1")
   old_ifs=$IFS
   IFS='
@@ -4850,8 +4879,8 @@ bash_command_may_rebase_relative_paths() (
 # (`git commit -C <rev>`) only adds a base that must also be safe.
 bash_command_rebase_target() (
   set -f
-  rebase_command=$1
-  rebase_records=$(git_command_records "$rebase_command")
+  bash_command_sources_script "$1" && return 1
+  rebase_records=$(git_command_records "$1")
   old_ifs=$IFS
   IFS='
 '
@@ -4911,25 +4940,18 @@ bash_command_rebase_target() (
     esac
   done
   [ -z "$rebase_expect" ] && [ "$rebase_count" -eq 1 ] || return 1
-  # Mirror shell_cd_target: options, tilde and zsh `=` expansion, globs and
-  # brace lists are not static, and CDPATH may redirect a bare relative cd.
+  # Options, tilde and zsh `=` expansion, globs and brace lists are not static.
   case "$rebase_target" in
     ''|[-+=]*|'~'*|*[*?[{]*|*'<'*|*'>'*) return 1 ;;
   esac
-  # cd resolves `..` logically (`link/..` is the directory holding `link`),
-  # but realpath resolves the joined token physically; the two may differ.
+  # A bare cd operand may be redirected by CDPATH or cdable_vars, however they
+  # were set, and cd resolves `..` logically while realpath resolves the joined
+  # token physically. Accept only `/...` or `./...` cd targets without `..`;
+  # directory options use chdir() and need neither restriction.
   if [ "$rebase_target_kind" = cd ]; then
+    case "$rebase_target" in /*|./*) ;; *) return 1 ;; esac
     case "/$rebase_target/" in */../*) return 1 ;; esac
   fi
-  case "$rebase_target" in
-    /*|.|./*) ;;
-    *)
-      if [ "$rebase_target_kind" = cd ]; then
-        [ -z "${CDPATH:-}" ] || return 1
-        case "$rebase_command" in *[Cc][Dd][Pp][Aa][Tt][Hh]*) return 1 ;; esac
-      fi
-      ;;
-  esac
   printf '%s' "$rebase_target"
 )
 
