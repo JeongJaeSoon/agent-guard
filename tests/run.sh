@@ -2705,6 +2705,14 @@ expect_json_status 0 "Read a file under an env directory is allowed" \
   '{"tool_name":"Read","tool_input":{"file_path":"pkg/env/settings.py"}}' \
   hook-pre-tool
 
+# CR, VT and FF inside a quoted word split nothing; re-parsing such a word for
+# hidden cwd changes must terminate instead of recursing on the same token.
+for env_blankless_ws in '\r' '\u000b' '\f'; do
+  expect_json_status 0 "Bash quoted word with $env_blankless_ws terminates the cwd re-parse" \
+    "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"echo \\\"a${env_blankless_ws}b\\\" && cat pkg/app/settings/env.py\"}}" \
+    hook-pre-tool
+done
+
 expect_json_status 2 "Read env.py inside a .env directory stays blocked" \
   '{"tool_name":"Read","tool_input":{"file_path":"config/.env/env.py"}}' \
   hook-pre-tool

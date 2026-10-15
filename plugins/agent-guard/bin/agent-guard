@@ -4847,9 +4847,15 @@ bash_command_may_rebase_relative_paths() (
     esac
     cwd_token=${cwd_record#?}
     # A quoted word with whitespace may be code that eval or `sh -c` runs
-    # later (`eval "cd sub && cat env.py"`); its cwd changes count too.
+    # later (`eval "cd sub && cat env.py"`); its cwd changes count too. Only
+    # blanks split shell words: a blank in a token was quoted in $1, so the
+    # token is shorter and the recursion ends. CR, VT and FF split nothing and
+    # would re-parse to the same token forever.
     case "$cwd_token" in
-      *[[:space:]]*) bash_command_may_rebase_relative_paths "$cwd_token" && return 0 ;;
+      *[' 	']*)
+        [ "$cwd_token" != "$1" ] \
+          && bash_command_may_rebase_relative_paths "$cwd_token" && return 0
+        ;;
     esac
     cwd_token_name=${cwd_token##*/}
     case "$cwd_token_name" in
@@ -4895,7 +4901,10 @@ bash_command_rebase_target() (
   for rebase_record in "$@"; do
     rebase_token=${rebase_record#?}
     case "$rebase_token" in
-      *[[:space:]]*) bash_command_may_rebase_relative_paths "$rebase_token" && return 1 ;;
+      *[' 	']*)
+        [ "$rebase_token" != "$1" ] \
+          && bash_command_may_rebase_relative_paths "$rebase_token" && return 1
+        ;;
     esac
     if [ -n "$rebase_expect" ]; then
       case "$rebase_record" in 0*) ;; *) return 1 ;; esac
