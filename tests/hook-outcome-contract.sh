@@ -135,6 +135,30 @@ for host in claude codex; do
   else
     not_ok "$host manifest path applies closed infrastructure policy (status $status)"
   fi
+
+  # The open warning is once per session; a closed block is not. The second
+  # unresolvable command in a session must still say why it was denied.
+  for attempt in first second; do
+    run_manifest "$host" closed "$MOCK_GITLEAKS" \
+      '{"session_id":"outcome-repeat","tool_name":"Bash","tool_input":{"command":"V=/tmp/x/tool.sh; bash $V doctor"}}'
+    status=$?
+    if [ "$status" -eq 2 ] && grep -Fq 'could not be resolved safely' "$CASE_ROOT/err"; then
+      ok "$host manifest path explains the $attempt closed block in a session"
+    else
+      not_ok "$host manifest path explains the $attempt closed block in a session (status $status)"
+    fi
+  done
+
+
+  # A dotenv operand behind a variable stays a text-match deny.
+  run_manifest "$host" closed "$MOCK_GITLEAKS" \
+    '{"session_id":"outcome-shell","tool_name":"Bash","tool_input":{"command":"f=.env.local; cat $f"}}'
+  status=$?
+  if [ "$status" -eq 2 ] && grep -Fq 'agent-guard: blocked' "$CASE_ROOT/err"; then
+    ok "$host manifest path keeps a dotenv operand behind a variable denied"
+  else
+    not_ok "$host manifest path keeps a dotenv operand behind a variable denied (status $status)"
+  fi
 done
 
 printf '%s hook outcome contract checks, %s failed\n' "$checked" "$failed"
