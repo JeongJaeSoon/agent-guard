@@ -4913,7 +4913,14 @@ bash_command_rebase_target() (
   # brace lists are not static, and CDPATH may redirect a bare relative cd.
   case "$rebase_target" in
     ''|[-+=]*|'~'*|*[*?[{]*) return 1 ;;
-    /*|.|..|./*|../*) ;;
+  esac
+  # cd resolves `..` logically (`link/..` is the directory holding `link`),
+  # but realpath resolves the joined token physically; the two may differ.
+  if [ "$rebase_target_kind" = cd ]; then
+    case "/$rebase_target/" in */../*) return 1 ;; esac
+  fi
+  case "$rebase_target" in
+    /*|.|./*) ;;
     *)
       if [ "$rebase_target_kind" = cd ]; then
         [ -z "${CDPATH:-}" ] || return 1

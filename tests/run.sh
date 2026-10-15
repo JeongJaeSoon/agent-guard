@@ -4881,6 +4881,10 @@ mkdir -p "$TEMPLATE_SYMLINK_REPO/nested"
   ln -s .env sample.env
   ln -s ../.env nested/template.env
   ln -s ../.env nested/env.py
+  # `cd hop/../other` enters ./other logically; realpath would see deep/other.
+  mkdir -p deep/inner other
+  ln -s deep/inner hop
+  ln -s ../.env other/env.py
 )
 # Genuine regular-file template in a separate dir: must stay allowed. Ordinary
 # example content, not a symlink, no real secret alongside it.
@@ -5050,6 +5054,7 @@ if [ -L "$TEMPLATE_SYMLINK_REPO/.env.example" ]; then
     "2|$TEMPLATE_SYMLINK_REPO|git -C nested add env.py|git -C cannot hide a source-module symlink" \
     "2|$TMP_ROOT|cd $TEMPLATE_SYMLINK_REPO/nested && cat env.py|absolute cd cannot hide a source-module symlink" \
     "2|$TEMPLATE_SYMLINK_REPO|env -C nested cat env.py|env -C cannot hide a source-module symlink" \
+    "2|$TEMPLATE_SYMLINK_REPO|cd hop/../other && cat env.py|logical cd through a symlink stays conservative" \
     "2|$TEMPLATE_SYMLINK_REPO|eval \"cd nested && cat env.py >/dev/null\"|eval-quoted cd cannot hide a source-module symlink" \
     "2|$TEMPLATE_SYMLINK_REPO|bash -c \"cd nested && cat template.env\"|sh -c quoted cd cannot hide a template symlink" \
     "0|$TEMPLATE_SYMLINK_REPO|echo \"rename the env.py module later\"|prose naming a source module stays allowed" \
