@@ -4556,13 +4556,24 @@ env_exception_literal_shell_token() {
 # actually a symlink to a deny-listed secret is NOT stripped: mirroring the Read
 # path (matches_deny_path), the token is resolved and kept when its target is
 # itself deny-listed, so the whole-command deny gate still blocks it. A genuine
-# template file resolves to a same-named target and is still stripped.
+# template file resolves to a same-named target and is still stripped. When the
+# command changes cwd once to a static directory, a relative token must pass
+# this check from both the event workdir and that directory.
+bash_env_exception_path_is_safe() {
+  candidate_matches_deny "$1" && return 1
+  env_exception_resolved=$(resolve_path "$1")
+  [ "$env_exception_resolved" = "$1" ] || ! candidate_matches_deny "$env_exception_resolved"
+}
+
 bash_strip_allowed_tokens() {
   (
     set -f
     bash_relative_env_exception_safe=1
-    bash_command_may_rebase_relative_paths "$1" \
-      && bash_relative_env_exception_safe=0
+    bash_rebase_target=
+    if bash_command_may_rebase_relative_paths "$1"; then
+      bash_rebase_target=$(bash_command_rebase_target "$1") \
+        || bash_relative_env_exception_safe=0
+    fi
     words=$(shell_command_words "$1")
     # shellcheck disable=SC2086
     set -- $words
@@ -4572,16 +4583,20 @@ bash_strip_allowed_tokens() {
       if [ -n "$env_exception_token" ] \
         && candidate_has_default_env_exception "$env_exception_token"; then
         normalized=$(normalize_path "$env_exception_token")
+        bash_rebased_token=
         case "$normalized" in
           /*) bash_env_token_context_safe=1 ;;
-          *) bash_env_token_context_safe=$bash_relative_env_exception_safe ;;
+          *)
+            bash_env_token_context_safe=$bash_relative_env_exception_safe
+            [ -z "$bash_rebase_target" ] \
+              || bash_rebased_token=$(normalize_path "$bash_rebase_target/$normalized")
+            ;;
         esac
         if [ "$bash_env_token_context_safe" -eq 1 ] \
-          && ! candidate_matches_deny "$normalized"; then
-          resolved=$(resolve_path "$normalized")
-          if [ "$resolved" = "$normalized" ] || ! candidate_matches_deny "$resolved"; then
-            continue
-          fi
+          && bash_env_exception_path_is_safe "$normalized" \
+          && { [ -z "$bash_rebased_token" ] \
+            || bash_env_exception_path_is_safe "$bash_rebased_token"; }; then
+          continue
         fi
       fi
       if [ -z "$result" ]; then
@@ -4777,13 +4792,44 @@ git_command_records() {
   '
 }
 
+# A sourced script runs in this shell and may change cwd where no command text
+# shows it (`. ./switch.sh; cat env.py`). Look for `.`/`source` where a command
+# starts, past assignments and the builtin/command/eval/time/! prefixes.
+bash_command_sources_script() (
+  set -f
+  source_records=$(git_command_records "$1")
+  old_ifs=$IFS
+  IFS='
+'
+  # shellcheck disable=SC2086
+  set -- $source_records
+  IFS=$old_ifs
+
+  source_command_start=1
+  for source_record in "$@"; do
+    case "$source_record" in
+      3*) source_command_start=1; continue ;;
+    esac
+    case "${source_record#?}" in
+      ';'|'&&'|'||'|'|') source_command_start=1 ;;
+      .|source) [ "$source_command_start" -eq 1 ] && return 0 ;;
+      [A-Za-z_]*=*|builtin|command|eval|time|'!') ;;
+      *) source_command_start=0 ;;
+    esac
+  done
+  return 1
+)
+
 # A relative template token can be resolved safely only when the command keeps
 # the event workdir as its path base. Refuse the exception when shell syntax is
 # dynamic or a command can rebase later relative operands (`cd`, `env -C`,
-# `find -execdir`, and common `-C`/directory forms). Absolute template paths are
-# unaffected because their resolution does not depend on command-local cwd.
+# `find -execdir`, and common `-C`/directory forms), unless
+# bash_command_rebase_target can name the single static base. Absolute template
+# paths are unaffected because their resolution does not depend on command-local
+# cwd.
 bash_command_may_rebase_relative_paths() (
   set -f
+  bash_command_sources_script "$1" && return 0
   cwd_records=$(git_command_records "$1")
   old_ifs=$IFS
   IFS='
@@ -4800,6 +4846,11 @@ bash_command_may_rebase_relative_paths() (
       3*) cwd_option_owner=; continue ;;
     esac
     cwd_token=${cwd_record#?}
+    # A quoted word with whitespace may be code that eval or `sh -c` runs
+    # later (`eval "cd sub && cat env.py"`); its cwd changes count too.
+    case "$cwd_token" in
+      *[[:space:]]*) bash_command_may_rebase_relative_paths "$cwd_token" && return 0 ;;
+    esac
     cwd_token_name=${cwd_token##*/}
     case "$cwd_token_name" in
       ';'|'&&'|'||'|'|') cwd_option_owner=; continue ;;
@@ -4818,6 +4869,90 @@ bash_command_may_rebase_relative_paths() (
     esac
   done
   return 1
+)
+
+# Print the one directory a command may rebase relative operands to, for the
+# common `cd /repo && git add pkg/env.py` and `git -C /repo add ...` shapes.
+# Fail, leaving the caller conservative, unless exactly one cwd change names a
+# static target. Callers check a token against the event workdir AND this
+# target, so position within the command does not matter, and a wrong guess
+# (`git commit -C <rev>`) only adds a base that must also be safe.
+bash_command_rebase_target() (
+  set -f
+  bash_command_sources_script "$1" && return 1
+  rebase_records=$(git_command_records "$1")
+  old_ifs=$IFS
+  IFS='
+'
+  # shellcheck disable=SC2086
+  set -- $rebase_records
+  IFS=$old_ifs
+
+  rebase_owner=
+  rebase_target=
+  rebase_count=0
+  rebase_expect=
+  for rebase_record in "$@"; do
+    rebase_token=${rebase_record#?}
+    case "$rebase_token" in
+      *[[:space:]]*) bash_command_may_rebase_relative_paths "$rebase_token" && return 1 ;;
+    esac
+    if [ -n "$rebase_expect" ]; then
+      case "$rebase_record" in 0*) ;; *) return 1 ;; esac
+      # A redirection may sit between the word and its operand (`cd >log sub`).
+      case "$rebase_token" in ';'|'&&'|'||'|'|'|*'<'*|*'>'*) return 1 ;; esac
+      [ "$rebase_expect" = cd ] && rebase_target_kind=cd || rebase_target_kind=option
+      rebase_expect=
+      rebase_target=$rebase_token
+      rebase_count=$((rebase_count + 1))
+      continue
+    fi
+    case "$rebase_record" in
+      4';'|4'&&'|4'||'|4'|') rebase_owner=; continue ;;
+      1*|2*|4*) return 1 ;;
+      3*) rebase_owner=; continue ;;
+    esac
+    case "${rebase_token##*/}" in
+      ';'|'&&'|'||'|'|') rebase_owner=; continue ;;
+      cd|pushd) rebase_expect=cd ;;
+      popd|chroot|-execdir|-execdir=*) return 1 ;;
+      env|tar|git|make|ninja|cmake|sudo|find) rebase_owner=${rebase_token##*/} ;;
+      --chdir|--directory) rebase_expect=option ;;
+      --chdir=*|--directory=*)
+        rebase_target=${rebase_token#*=}
+        rebase_target_kind=option
+        rebase_count=$((rebase_count + 1))
+        ;;
+      -C|-C?*|-D|-D?*)
+        case "${rebase_token%"${rebase_token#-?}"}:$rebase_owner" in
+          -C:env|-C:tar|-C:git|-C:make|-C:ninja|-C:cmake|-D:sudo) ;;
+          *) continue ;;
+        esac
+        case "$rebase_token" in
+          -?) rebase_expect=option ;;
+          *)
+            rebase_target=${rebase_token#-?}
+            rebase_target_kind=option
+            rebase_count=$((rebase_count + 1))
+            ;;
+        esac
+        ;;
+    esac
+  done
+  [ -z "$rebase_expect" ] && [ "$rebase_count" -eq 1 ] || return 1
+  # Options, tilde and zsh `=` expansion, globs and brace lists are not static.
+  case "$rebase_target" in
+    ''|[-+=]*|'~'*|*[*?[{]*|*'<'*|*'>'*) return 1 ;;
+  esac
+  # A bare cd operand may be redirected by CDPATH or cdable_vars, however they
+  # were set, and cd resolves `..` logically while realpath resolves the joined
+  # token physically. Accept only `/...` or `./...` cd targets without `..`;
+  # directory options use chdir() and need neither restriction.
+  if [ "$rebase_target_kind" = cd ]; then
+    case "$rebase_target" in /*|./*) ;; *) return 1 ;; esac
+    case "/$rebase_target/" in */../*) return 1 ;; esac
+  fi
+  printf '%s' "$rebase_target"
 )
 
 git_option_takes_value() {
