@@ -1,3 +1,8 @@
+## v3.6.2 - 2026-10-15
+
+- fix(detection): stop the cwd re-parse from recursing on blankless words (#316)
+- fix(detection): keep env source modules readable after one static cwd change (#313)
+
 ## v3.6.1 - 2026-10-12
 
 - MCP token 키의 `v:<n>` 버전 핸들을 불필요하게 마스킹하지 않도록 수정했습니다 (#309).
