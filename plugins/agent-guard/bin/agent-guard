@@ -5783,6 +5783,14 @@ $shell_cd_dir"
           if|then|else|elif|fi|do|done|while|until|for|case|esac|select|function|coproc|'!')
             shell_cd_untrusted=1
             shift
+            # `case WORD in` matches WORD; it does not run it. A word holding
+            # a command substitution still goes through as a command.
+            if [ "$token" = case ] && [ "${2-}" = 0in ]; then
+              case "${1-}" in
+                [014]*'$('*|[014]*'`'*) ;;
+                [014]?*) shift 2 ;;
+              esac
+            fi
             continue
             ;;
           builtin)

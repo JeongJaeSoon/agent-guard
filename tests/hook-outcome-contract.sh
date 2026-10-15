@@ -149,6 +149,21 @@ for host in claude codex; do
     fi
   done
 
+  # Shell structure that runs no git command needs no unresolvable verdict:
+  # a case subject, a heredoc with conflict markers, awk's $0.
+  for shell_cmd in \
+    'for n in 1 2; do st=$(printf %s "$n"); case $st in 1|2) ;; *) break;; esac; done' \
+    "$(printf 'python3 - <<%s\nprint(%s)\nPY' "'PY'" '"<<<<<<< HEAD"')" \
+    "awk '{print \$0}' /tmp/x/a.txt"; do
+    run_manifest "$host" closed "$MOCK_GITLEAKS" \
+      "$(jq -nc --arg c "$shell_cmd" '{session_id:"outcome-shell",tool_name:"Bash",tool_input:{command:$c}}')"
+    status=$?
+    if [ "$status" -eq 0 ] && [ ! -s "$CASE_ROOT/err" ]; then
+      ok "$host manifest path allows shell structure without git: ${shell_cmd%%[ ;]*}"
+    else
+      not_ok "$host manifest path allows shell structure without git: ${shell_cmd%%[ ;]*} (status $status)"
+    fi
+  done
 
   # A dotenv operand behind a variable stays a text-match deny.
   run_manifest "$host" closed "$MOCK_GITLEAKS" \
