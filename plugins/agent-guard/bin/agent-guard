@@ -4850,7 +4850,8 @@ bash_command_may_rebase_relative_paths() (
 # (`git commit -C <rev>`) only adds a base that must also be safe.
 bash_command_rebase_target() (
   set -f
-  rebase_records=$(git_command_records "$1")
+  rebase_command=$1
+  rebase_records=$(git_command_records "$rebase_command")
   old_ifs=$IFS
   IFS='
 '
@@ -4869,7 +4870,8 @@ bash_command_rebase_target() (
     esac
     if [ -n "$rebase_expect" ]; then
       case "$rebase_record" in 0*) ;; *) return 1 ;; esac
-      case "$rebase_token" in ';'|'&&'|'||'|'|') return 1 ;; esac
+      # A redirection may sit between the word and its operand (`cd >log sub`).
+      case "$rebase_token" in ';'|'&&'|'||'|'|'|*'<'*|*'>'*) return 1 ;; esac
       [ "$rebase_expect" = cd ] && rebase_target_kind=cd || rebase_target_kind=option
       rebase_expect=
       rebase_target=$rebase_token
@@ -4912,7 +4914,7 @@ bash_command_rebase_target() (
   # Mirror shell_cd_target: options, tilde and zsh `=` expansion, globs and
   # brace lists are not static, and CDPATH may redirect a bare relative cd.
   case "$rebase_target" in
-    ''|[-+=]*|'~'*|*[*?[{]*) return 1 ;;
+    ''|[-+=]*|'~'*|*[*?[{]*|*'<'*|*'>'*) return 1 ;;
   esac
   # cd resolves `..` logically (`link/..` is the directory holding `link`),
   # but realpath resolves the joined token physically; the two may differ.
@@ -4924,7 +4926,7 @@ bash_command_rebase_target() (
     *)
       if [ "$rebase_target_kind" = cd ]; then
         [ -z "${CDPATH:-}" ] || return 1
-        case "$1" in *[Cc][Dd][Pp][Aa][Tt][Hh]*) return 1 ;; esac
+        case "$rebase_command" in *[Cc][Dd][Pp][Aa][Tt][Hh]*) return 1 ;; esac
       fi
       ;;
   esac

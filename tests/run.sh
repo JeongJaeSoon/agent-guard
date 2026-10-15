@@ -5055,6 +5055,9 @@ if [ -L "$TEMPLATE_SYMLINK_REPO/.env.example" ]; then
     "2|$TMP_ROOT|cd $TEMPLATE_SYMLINK_REPO/nested && cat env.py|absolute cd cannot hide a source-module symlink" \
     "2|$TEMPLATE_SYMLINK_REPO|env -C nested cat env.py|env -C cannot hide a source-module symlink" \
     "2|$TEMPLATE_SYMLINK_REPO|cd hop/../other && cat env.py|logical cd through a symlink stays conservative" \
+    "2|$TEMPLATE_SYMLINK_REPO|cd >cd.log nested && cat env.py|redirection before the cd operand stays conservative" \
+    "2|$TEMPLATE_SYMLINK_REPO|git -C 2>/dev/null nested add env.py|redirection before the -C operand stays conservative" \
+    "2|$TEMPLATE_SYMLINK_REPO|:; CDPATH=/tmp cd nested && cat env.py|command-local CDPATH after another record stays conservative" \
     "2|$TEMPLATE_SYMLINK_REPO|eval \"cd nested && cat env.py >/dev/null\"|eval-quoted cd cannot hide a source-module symlink" \
     "2|$TEMPLATE_SYMLINK_REPO|bash -c \"cd nested && cat template.env\"|sh -c quoted cd cannot hide a template symlink" \
     "0|$TEMPLATE_SYMLINK_REPO|echo \"rename the env.py module later\"|prose naming a source module stays allowed" \
