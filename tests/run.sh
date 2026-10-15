@@ -2690,6 +2690,29 @@ expect_json_status 2 "Read .env.d.ts runtime variant stays blocked" \
   '{"tool_name":"Read","tool_input":{"file_path":".env.d.ts"}}' \
   hook-pre-tool
 
+# A settings module named env.py is source code on every surface, and a
+# directory named `env` does not make its children protected. A directory
+# matching a dotenv rule still protects a source-module name inside it.
+expect_json_status 0 "Read nested settings env.py source module is allowed" \
+  '{"tool_name":"Read","tool_input":{"file_path":"pkg/app/settings/env.py"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "Bash git add of a nested settings env.py is allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"git add pkg/app/settings/env.py"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "Read a file under an env directory is allowed" \
+  '{"tool_name":"Read","tool_input":{"file_path":"pkg/env/settings.py"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Read env.py inside a .env directory stays blocked" \
+  '{"tool_name":"Read","tool_input":{"file_path":"config/.env/env.py"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash git add of a runtime .env.local stays blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"git add pkg/app/.env.local"}}' \
+  hook-pre-tool
+
 expect_json_status 2 "Read env.local.json data file stays blocked" \
   '{"tool_name":"Read","tool_input":{"file_path":"env.local.json"}}' \
   hook-pre-tool
@@ -4857,6 +4880,7 @@ mkdir -p "$TEMPLATE_SYMLINK_REPO/nested"
   ln -s .env .env.example
   ln -s .env sample.env
   ln -s ../.env nested/template.env
+  ln -s ../.env nested/env.py
 )
 # Genuine regular-file template in a separate dir: must stay allowed. Ordinary
 # example content, not a symlink, no real secret alongside it.
@@ -4865,6 +4889,9 @@ mkdir -p "$GENUINE_TEMPLATE_REPO/nested"
 printf 'API_TOKEN=your-token-here\n' > "$GENUINE_TEMPLATE_REPO/.env.example"
 printf 'API_TOKEN=your-token-here\n' > "$GENUINE_TEMPLATE_REPO/sample.env"
 printf 'API_TOKEN=your-token-here\n' > "$GENUINE_TEMPLATE_REPO/nested/template.env"
+mkdir -p "$GENUINE_TEMPLATE_REPO/pkg/app/settings"
+printf 'API_TOKEN_KEY = "API_TOKEN"\n' > "$GENUINE_TEMPLATE_REPO/nested/env.py"
+printf 'API_TOKEN_KEY = "API_TOKEN"\n' > "$GENUINE_TEMPLATE_REPO/pkg/app/settings/env.py"
 
 if [ -L "$TEMPLATE_SYMLINK_REPO/.env.example" ]; then
   # Repro: cat of the template-named symlink must now be BLOCKED (#132).
@@ -5012,6 +5039,35 @@ if [ -L "$TEMPLATE_SYMLINK_REPO/.env.example" ]; then
     not_ok "Bash direct relative genuine template stays allowed (expected 0, got $status)"
     sed 's/^/  stderr: /' "$ERR"
   fi
+
+  # One cwd change to a static directory is resolvable: a relative exception
+  # token must be safe from both the event workdir and that directory. Source
+  # modules such as a settings `env.py` then stay usable after the common
+  # `cd <repo> &&` / `git -C <repo>` prefixes, while a symlink behind the same
+  # name is still caught, and ambiguous bases stay conservative.
+  for env_cwd_case in \
+    "2|$TEMPLATE_SYMLINK_REPO|cd nested && cat env.py|inline cd cannot hide a source-module symlink" \
+    "2|$TEMPLATE_SYMLINK_REPO|git -C nested add env.py|git -C cannot hide a source-module symlink" \
+    "2|$TMP_ROOT|cd $TEMPLATE_SYMLINK_REPO/nested && cat env.py|absolute cd cannot hide a source-module symlink" \
+    "2|$TEMPLATE_SYMLINK_REPO|env -C nested cat env.py|env -C cannot hide a source-module symlink" \
+    "0|$GENUINE_TEMPLATE_REPO|cd nested && cat env.py|inline cd keeps a genuine source module readable" \
+    "0|$TMP_ROOT|cd $GENUINE_TEMPLATE_REPO && git add pkg/app/settings/env.py|absolute cd keeps git add of a source module allowed" \
+    "0|$TMP_ROOT|git -C $GENUINE_TEMPLATE_REPO add pkg/app/settings/env.py|git -C keeps git add of a source module allowed" \
+    "0|$GENUINE_TEMPLATE_REPO|cd nested && cat template.env|inline cd keeps a genuine template readable" \
+    "2|$GENUINE_TEMPLATE_REPO|cd \$DIR && cat env.py|dynamic cd target stays conservative" \
+    "2|$GENUINE_TEMPLATE_REPO|cd nested && cd .. && cat env.py|two cwd changes stay conservative" \
+    "2|$GENUINE_TEMPLATE_REPO|cd ~/nested && cat env.py|tilde cd target stays conservative" \
+    "2|$GENUINE_TEMPLATE_REPO|cd nested && git add env.py .env.local|cd does not unblock a runtime dotenv"; do
+    env_cwd_expect=${env_cwd_case%%|*}
+    env_cwd_rest=${env_cwd_case#*|}
+    env_cwd_workdir=${env_cwd_rest%%|*}
+    env_cwd_rest=${env_cwd_rest#*|}
+    env_cwd_command=${env_cwd_rest%%|*}
+    expect_json_status "$env_cwd_expect" "Bash ${env_cwd_rest#*|}" \
+      "$(jq -nc --arg workdir "$env_cwd_workdir" --arg command "$env_cwd_command" \
+        '{tool_name:"Bash",tool_input:{command:$command,workdir:$workdir}}')" \
+      hook-pre-tool
+  done
 else
   say "skipping #132 template-symlink test: filesystem does not support symlinks"
 fi
