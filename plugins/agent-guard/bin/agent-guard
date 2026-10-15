@@ -4817,6 +4817,11 @@ bash_command_may_rebase_relative_paths() (
       3*) cwd_option_owner=; continue ;;
     esac
     cwd_token=${cwd_record#?}
+    # A quoted word with whitespace may be code that eval or `sh -c` runs
+    # later (`eval "cd sub && cat env.py"`); its cwd changes count too.
+    case "$cwd_token" in
+      *[[:space:]]*) bash_command_may_rebase_relative_paths "$cwd_token" && return 0 ;;
+    esac
     cwd_token_name=${cwd_token##*/}
     case "$cwd_token_name" in
       ';'|'&&'|'||'|'|') cwd_option_owner=; continue ;;
@@ -4859,6 +4864,9 @@ bash_command_rebase_target() (
   rebase_expect=
   for rebase_record in "$@"; do
     rebase_token=${rebase_record#?}
+    case "$rebase_token" in
+      *[[:space:]]*) bash_command_may_rebase_relative_paths "$rebase_token" && return 1 ;;
+    esac
     if [ -n "$rebase_expect" ]; then
       case "$rebase_record" in 0*) ;; *) return 1 ;; esac
       case "$rebase_token" in ';'|'&&'|'||'|'|') return 1 ;; esac

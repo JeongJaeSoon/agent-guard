@@ -5050,6 +5050,9 @@ if [ -L "$TEMPLATE_SYMLINK_REPO/.env.example" ]; then
     "2|$TEMPLATE_SYMLINK_REPO|git -C nested add env.py|git -C cannot hide a source-module symlink" \
     "2|$TMP_ROOT|cd $TEMPLATE_SYMLINK_REPO/nested && cat env.py|absolute cd cannot hide a source-module symlink" \
     "2|$TEMPLATE_SYMLINK_REPO|env -C nested cat env.py|env -C cannot hide a source-module symlink" \
+    "2|$TEMPLATE_SYMLINK_REPO|eval \"cd nested && cat env.py >/dev/null\"|eval-quoted cd cannot hide a source-module symlink" \
+    "2|$TEMPLATE_SYMLINK_REPO|bash -c \"cd nested && cat template.env\"|sh -c quoted cd cannot hide a template symlink" \
+    "0|$TEMPLATE_SYMLINK_REPO|echo \"rename the env.py module later\"|prose naming a source module stays allowed" \
     "0|$GENUINE_TEMPLATE_REPO|cd nested && cat env.py|inline cd keeps a genuine source module readable" \
     "0|$TMP_ROOT|cd $GENUINE_TEMPLATE_REPO && git add pkg/app/settings/env.py|absolute cd keeps git add of a source module allowed" \
     "0|$TMP_ROOT|git -C $GENUINE_TEMPLATE_REPO add pkg/app/settings/env.py|git -C keeps git add of a source module allowed" \
