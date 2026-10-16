@@ -135,6 +135,64 @@ for host in claude codex; do
   else
     not_ok "$host manifest path applies closed infrastructure policy (status $status)"
   fi
+
+  # The open warning is once per session; a closed block is not. The second
+  # unresolvable command in a session must still say why it was denied.
+  for attempt in first second; do
+    run_manifest "$host" closed "$MOCK_GITLEAKS" \
+      '{"session_id":"outcome-repeat","tool_name":"Bash","tool_input":{"command":"V=/tmp/x/tool.sh; bash $V doctor"}}'
+    status=$?
+    if [ "$status" -eq 2 ] && grep -Fq 'could not be resolved safely' "$CASE_ROOT/err"; then
+      ok "$host manifest path explains the $attempt closed block in a session"
+    else
+      not_ok "$host manifest path explains the $attempt closed block in a session (status $status)"
+    fi
+  done
+
+  # Shell structure that runs no git command needs no unresolvable verdict:
+  # a case subject, a heredoc with conflict markers, awk's $0.
+  for shell_cmd in \
+    'for n in 1 2; do st=$(printf %s "$n"); case $st in 1|2) ;; *) break;; esac; done' \
+    "$(printf 'python3 - <<%s\nprint(%s)\nPY' "'PY'" '"<<<<<<< HEAD"')" \
+    "awk '{print \$0}' /tmp/x/a.txt"; do
+    run_manifest "$host" closed "$MOCK_GITLEAKS" \
+      "$(jq -nc --arg c "$shell_cmd" '{session_id:"outcome-shell",tool_name:"Bash",tool_input:{command:$c}}')"
+    status=$?
+    if [ "$status" -eq 0 ] && [ ! -s "$CASE_ROOT/err" ]; then
+      ok "$host manifest path allows shell structure without git: ${shell_cmd%%[ ;]*}"
+    else
+      not_ok "$host manifest path allows shell structure without git: ${shell_cmd%%[ ;]*} (status $status)"
+    fi
+  done
+
+  # Subjects are expanded before matching. Do not execute these inputs: the
+  # synthetic hook must classify re-evaluating forms as unresolved in closed
+  # mode even without a lexical command substitution in the subject itself.
+  for shell_cmd in \
+    "g=git; X='\$(eval \"\$g commit -m x\")'; case \"\${X@P}\" in *) :;; esac" \
+    'case "${X@P}" in *) :;; esac' \
+    'case "${a[index]}" in *) :;; esac' \
+    'case "$[index]" in *) :;; esac' \
+    'case "$a[index]" in *) :;; esac'; do
+    run_manifest "$host" closed "$MOCK_GITLEAKS" \
+      "$(jq -nc --arg c "$shell_cmd" '{session_id:"outcome-case-expansion",tool_name:"Bash",tool_input:{command:$c}}')"
+    status=$?
+    if [ "$status" -eq 2 ] && grep -Fq 'could not be resolved safely' "$CASE_ROOT/err"; then
+      ok "$host manifest path keeps executable case expansion unresolved"
+    else
+      not_ok "$host manifest path keeps executable case expansion unresolved (status $status)"
+    fi
+  done
+
+  # A dotenv operand behind a variable stays a text-match deny.
+  run_manifest "$host" closed "$MOCK_GITLEAKS" \
+    '{"session_id":"outcome-shell","tool_name":"Bash","tool_input":{"command":"f=.env.local; cat $f"}}'
+  status=$?
+  if [ "$status" -eq 2 ] && grep -Fq 'agent-guard: blocked' "$CASE_ROOT/err"; then
+    ok "$host manifest path keeps a dotenv operand behind a variable denied"
+  else
+    not_ok "$host manifest path keeps a dotenv operand behind a variable denied (status $status)"
+  fi
 done
 
 printf '%s hook outcome contract checks, %s failed\n' "$checked" "$failed"
