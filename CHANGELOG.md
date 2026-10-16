@@ -1,3 +1,11 @@
+## v3.6.3 - 2026-10-16
+
+- ci: remove unused scanner setup and simplify validation output (#320)
+- fix(pii): keep UTF-8 text out of byte-window regex matching (#322)
+- fix(detection): allow source-module mentions in static prose (#321)
+- fix(hooks): closed モードの遮断で毎回理由を返し、case の subject をコマンド扱いしない (#318)
+- perf(redaction): avoid quadratic assembly of complete framed leaves (#323)
+
 ## v3.6.2 - 2026-10-15
 
 - fix(detection): stop the cwd re-parse from recursing on blankless words (#316)
