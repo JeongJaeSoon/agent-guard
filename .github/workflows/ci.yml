@@ -68,14 +68,16 @@ jobs:
           persist-credentials: false
 
       - name: Install pinned gitleaks (Linux x64)
-        # Real gitleaks is REQUIRED on Linux so tests/run.sh exercises its
+        # Only shard 4 consumes real gitleaks. Other shards use the bundled
+        # mock; installing the same archive there adds four unused downloads.
+        # Real gitleaks is REQUIRED on Linux shard 4 so tests/run.sh exercises its
         # real-detection block (the #124 anchored-placeholder scan-accuracy
         # regressions) and so `make smoke-test` can run end-to-end. On macOS the
         # suite self-skips the real-gitleaks block and uses the bundled mock,
         # which still gives cross-OS coverage of the rest of the suite. The
         # macOS/darwin archive has a different checksum than the pin above, so
         # the real-gitleaks + smoke steps are scoped to Linux only.
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && matrix.shard == 4
         run: |
           set -euo pipefail
           archive="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
@@ -97,7 +99,18 @@ jobs:
           AGENT_GUARD_TEST_SHARD: ${{ matrix.shard }}
         run: |
           set -o pipefail
-          tests/run.sh 2>&1 | tee "${RUNNER_TEMP}/test-output.txt"
+          echo '::group::Full test assertions'
+          status=0
+          tests/run.sh 2>&1 | tee "${RUNNER_TEMP}/test-output.txt" || status=$?
+          echo '::endgroup::'
+          # Keep failures visible outside the collapsed assertion log, and
+          # preserve the pipeline status even when the summary succeeds.
+          grep -E '^(not ok - |passed: |failed: )' "${RUNNER_TEMP}/test-output.txt" || true
+          {
+            printf '### Test (%s, shard %s)\n\n' "$RUNNER_OS" "$AGENT_GUARD_TEST_SHARD"
+            grep -E '^(passed: |failed: )' "${RUNNER_TEMP}/test-output.txt" || true
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
 
       - name: Require real gitleaks integration ran (Linux)
         # Fail closed if the real-detection block silently self-skipped: on a
