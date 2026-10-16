@@ -2371,42 +2371,61 @@ function mask_tier2(s) {
 }
 '
 
-pii_regex_adapter_filter() {
-  need_cmd awk
-  skip=$(pii_skip_set) || exit 2
-  awk -v CC16_RE="$PII_CREDIT_CARD_RE" -v CC19_RE="$PII_CREDIT_CARD19_RE" \
+pii_regex_byte_stage() {
+  # Byte windows can split UTF-8 characters. Numeric patterns use C locale;
+  # email classification stays in the caller's locale in the middle pass.
+  LC_ALL=C awk -v STAGE="$1" -v SKIP="$2" \
+      -v CC16_RE="$PII_CREDIT_CARD_RE" -v CC19_RE="$PII_CREDIT_CARD19_RE" \
       -v AMEX_RE="$PII_AMEX_RE" -v SSN_RE="$PII_SSN_RE" \
-      -v KR_RRN_RE="$PII_KR_RRN_RE" -v IPV4_RE="$PII_IPV4_RE" -v SKIP="$skip" \
+      -v KR_RRN_RE="$PII_KR_RRN_RE" -v IPV4_RE="$PII_IPV4_RE" \
       "$PII_AWK_LIB"'
     BEGIN {
-      email = "[[:alnum:]_%+.-]+@[[:alnum:].-]+[.][[:alpha:]][[:alpha:]][[:alpha:]]*"
       kr_mobile = "01[0-9][ -]?[0-9][0-9][0-9][0-9][ -]?[0-9][0-9][0-9][0-9]"
       phone = "([+]?[0-9][ .-]?)?([(][0-9][0-9][0-9][)]|[0-9][0-9][0-9])[ .-]?[0-9][0-9][0-9][ .-]?[0-9][0-9][0-9][0-9]"
     }
     {
-      if (NR > 1) {
-        printf "%s", ORS
+      line = $0
+      if (STAGE == "first") {
+        line = mask_tier2(line)
+        if (!index(SKIP, ",IP_ADDRESS,")) {
+          line = mask_re(line, IPV4_RE, "[PII:IP_ADDRESS]", "ipv4")
+        }
+        # Preserve record framing between passes; only the last pass applies
+        # the existing filter behavior of omitting the final newline.
+        printf "%s\n", line
+      } else {
+        if (!index(SKIP, ",PHONE,")) {
+          line = mask_re(line, kr_mobile, "[PII:PHONE]", "digits")
+          line = mask_re(line, phone, "[PII:PHONE]", "digits")
+        }
+        if (NR > 1) { printf "%s", ORS }
+        printf "%s", line
       }
-      # Tier-2 first so a Tier-1 pattern cannot shadow it, and it is never
-      # skippable — that ordering premise holds whatever SKIP contains.
-      line = mask_tier2($0)
-      if (!index(SKIP, ",IP_ADDRESS,")) {
-        line = mask_re(line, IPV4_RE, "[PII:IP_ADDRESS]", "ipv4")
-      }
-      if (!index(SKIP, ",EMAIL,")) {
-        gsub(email, "[PII:EMAIL]", line)
-      }
-      # Phone needs the same digit boundary: without it the generic 3-3-4 shape
-      # matches the first 10 digits of any long numeric id, which the credit
-      # card false positive used to hide.
-      if (!index(SKIP, ",PHONE,")) {
-        line = mask_re(line, kr_mobile, "[PII:PHONE]", "digits")
-        line = mask_re(line, phone, "[PII:PHONE]", "digits")
-      }
-      printf "%s", line
     }
   '
 }
+
+pii_regex_adapter_filter() (
+  need_cmd awk
+  pii_skip=$(pii_skip_set) || exit 2
+  umask 077
+  pii_work=$(mktemp -d "${AGENT_GUARD_RUNDIR:-${TMPDIR:-/tmp}}/pii.XXXXXX") || exit 2
+  trap 'rm -rf "$pii_work"' 0
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  trap 'exit 129' HUP
+  # Buffer each stage and check its status before exposing any final output.
+  pii_regex_byte_stage first "$pii_skip" >"$pii_work/first" || exit "$?"
+  awk -v SKIP="$pii_skip" '
+    BEGIN { email = "[[:alnum:]_%+.-]+@[[:alnum:].-]+[.][[:alpha:]][[:alpha:]][[:alpha:]]*" }
+    {
+      if (!index(SKIP, ",EMAIL,")) { gsub(email, "[PII:EMAIL]") }
+      printf "%s\n", $0
+    }
+  ' <"$pii_work/first" >"$pii_work/email" || exit "$?"
+  pii_regex_byte_stage last "$pii_skip" <"$pii_work/email" >"$pii_work/last" || exit "$?"
+  cat "$pii_work/last"
+)
 
 pii_endpoint_adapter_filter() {
   provider=$1
@@ -2563,7 +2582,7 @@ pii_tier2_present() {
   text=$1
   [ -n "$text" ] || return 1
   need_cmd awk
-  printf '%s' "$text" | awk -v CC16_RE="$PII_CREDIT_CARD_RE" \
+  printf '%s' "$text" | LC_ALL=C awk -v CC16_RE="$PII_CREDIT_CARD_RE" \
       -v CC19_RE="$PII_CREDIT_CARD19_RE" -v AMEX_RE="$PII_AMEX_RE" \
       -v SSN_RE="$PII_SSN_RE" -v KR_RRN_RE="$PII_KR_RRN_RE" \
       "$PII_AWK_LIB"'
