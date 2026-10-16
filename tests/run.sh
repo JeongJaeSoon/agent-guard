@@ -5052,6 +5052,9 @@ if [ -L "$TEMPLATE_SYMLINK_REPO/.env.example" ]; then
     sed 's/^/  stderr: /' "$ERR"
   fi
 
+  run_expect 0 "static source-module prose keeps executable inputs protected" \
+    "$REAL_SH" "$ROOT/tests/source-module-prose.sh"
+
   # One cwd change to a static directory is resolvable: a relative exception
   # token must be safe from both the event workdir and that directory. Source
   # modules such as a settings `env.py` then stay usable after the common

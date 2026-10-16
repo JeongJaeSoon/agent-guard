@@ -4609,6 +4609,64 @@ bash_strip_allowed_tokens() {
   )
 }
 
+# Recognize only complete, static prose sinks. Do not trim punctuation on
+# arbitrary shell fragments: they may be filenames or code re-read by eval,
+# sh -c, or a pipeline. The normal path check still sees every other command.
+bash_strip_source_module_prose() (
+  set -f
+  prose_original=$1
+  if [ "$DENY_READ_PATHS_CUSTOM" -eq 1 ]; then
+    printf '%s' "$prose_original"
+    exit
+  fi
+  prose_records=$(git_command_records "$1")
+  IFS='
+'
+  # shellcheck disable=SC2086
+  set -- $prose_records
+  prose_message=
+  case "$#:${1-}:${2-}" in
+    2:0echo:0*) prose_message=${2#0} ;;
+    3:0printf:0%s|3:0printf:0%s\\n)
+      case "$3" in 0*) prose_message=${3#0} ;; esac
+      ;;
+    4:0git:0commit)
+      case "$3:$4" in
+        0-m:0*|0--message:0*) prose_message=${4#0} ;;
+      esac
+      ;;
+  esac
+  # Require prose, not an option or a one-word path; dynamic/malformed records,
+  # additional arguments and shell operators never match the shapes above.
+  case "$prose_message" in
+    -*) printf '%s' "$prose_original"; exit ;;
+    *[' 	']*) ;;
+    *) printf '%s' "$prose_original"; exit ;;
+  esac
+  # The sinks do not evaluate these, but later policy dequoting/ANSI-C decoding
+  # does. Keep that existing conservative treatment rather than changing it.
+  case "$prose_message" in
+    *'$'*|*'\'*) printf '%s' "$prose_original"; exit ;;
+  esac
+  prose_words=$(printf '%s\n' "$prose_message" | awk '{
+    for (i = 1; i <= NF; i++) print $i
+  }')
+  # shellcheck disable=SC2086
+  set -- $prose_words
+  prose_result=
+  for prose_word in "$@"; do
+    prose_candidate=$(printf '%s' "$prose_word" | awk '
+      { sub(/^["\047`<(]+/, ""); sub(/["\047`>,;:)]+$/, ""); print }
+    ')
+    if candidate_is_env_source_module "$prose_candidate" \
+      && bash_env_exception_path_is_safe "$(normalize_path "$prose_candidate")"; then
+      continue
+    fi
+    prose_result="$prose_result $prose_word"
+  done
+  printf '%s' "$prose_result"
+)
+
 # Private variable name; see check_bash_command (#127).
 bash_matches_deny_path() {
   deny_cmd=$1
@@ -4616,6 +4674,7 @@ bash_matches_deny_path() {
     *"\\
 "*) deny_cmd=$(shell_join_line_continuations "$deny_cmd") ;;
   esac
+  deny_cmd=$(bash_strip_source_module_prose "$deny_cmd")
   deny_cmd=$(bash_strip_exclusion_operands "$deny_cmd")
   deny_cmd=$(bash_strip_allowed_tokens "$deny_cmd")
   bash_matches_deny_path_mode "$deny_cmd" "literal" && return 0
