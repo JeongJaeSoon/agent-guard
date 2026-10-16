@@ -1619,8 +1619,8 @@ hook_warning_once() {
   (umask 077; set -C; : >"$warning_marker") 2>/dev/null
 }
 
-# Shared front half of every infrastructure-failure policy: warn once per
-# session on stderr, apply the closed policy, and leave the message a caller
+# Shared front half of every infrastructure-failure policy: apply the closed
+# policy, warn once per session on stderr, and leave the message a caller
 # may still want to publish in $INFRA_FAILURE_NOTICE (empty when this session
 # already warned). Callers differ only in WHERE that notice goes, because a
 # hook may write at most one top-level JSON response: a handler that prints its
@@ -1633,14 +1633,17 @@ begin_infrastructure_failure() {
   detail=$2
   INFRA_FAILURE_NOTICE=
   mode=$(infrastructure_failure_mode)
+  # The once-per-session limit applies only to the open warning. Each closed
+  # block carries its own reason: a bare exit 2 reaches the host as a denial
+  # with no verdict or explanation.
+  if [ "$mode" = closed ]; then
+    info "$detail Blocking because AGENT_GUARD_INFRA_FAILURE_MODE=closed."
+    exit 2
+  fi
   if hook_warning_once "$input"; then
-    case "$mode" in
-      closed) INFRA_FAILURE_NOTICE="$detail Blocking because AGENT_GUARD_INFRA_FAILURE_MODE=closed." ;;
-      *) INFRA_FAILURE_NOTICE="$detail continuing because AGENT_GUARD_INFRA_FAILURE_MODE=open (the default)." ;;
-    esac
+    INFRA_FAILURE_NOTICE="$detail continuing because AGENT_GUARD_INFRA_FAILURE_MODE=open (the default)."
     info "$INFRA_FAILURE_NOTICE"
   fi
-  [ "$mode" = closed ] && exit 2
   return 0
 }
 
@@ -5780,6 +5783,16 @@ $shell_cd_dir"
           if|then|else|elif|fi|do|done|while|until|for|case|esac|select|function|coproc|'!')
             shell_cd_untrusted=1
             shift
+            # `case WORD in` matches WORD, but expands it first. Parameter
+            # transformations (e.g. Bash ${X@P}) and arithmetic can execute
+            # stored code without a lexical command substitution. Keep those
+            # subjects unresolved along with explicit command substitutions.
+            if [ "$token" = case ] && [ "${2-}" = 0in ]; then
+              case "${1-}" in
+                [014]*'$('*|[014]*'`'*|[014]*'${'*|[014]*'$'*'['*) ;;
+                [014]?*) shift 2 ;;
+              esac
+            fi
             continue
             ;;
           builtin)
