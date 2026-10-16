@@ -24,17 +24,10 @@ jobs:
 
       # No test suite here: ci.yml already runs tests/run.sh on the same
       # triggers across ubuntu and macos. This job owns what runs nowhere else.
-      - name: Validate Codex Plugin Layout
-        run: scripts/validate-plugin-layout.sh --codex
-
-      - name: Validate Claude Plugin Layout
-        run: scripts/validate-plugin-layout.sh --claude
-
-      - name: Validate Plugin Marketplaces
-        run: scripts/validate-plugin-layout.sh --marketplace
-
-      - name: Validate Release Archive Layout
-        run: scripts/validate-plugin-layout.sh --archive
+      - name: Validate Plugin Layouts and Release Archive
+        # --all runs the same Codex, Claude, marketplace, and archive checks
+        # in one invocation, with one shared temporary directory.
+        run: scripts/validate-plugin-layout.sh --all
 
       - name: Validate Plugin Disclosures and Marketplace Metadata
         # Routine PR validation covers stable manifests, disclosure, and the
