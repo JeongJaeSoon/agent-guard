@@ -50,7 +50,7 @@ for fixture in boundaries pending partial invalid; do
   case "$fixture" in
     boundaries) printf 'PASSWORD=framing-first\036TOKEN=framing-second\036\n' ;;
     pending) printf 'clean\037\nPASSWORD=framing-next\036\n' ;;
-    partial) printf 'PASSWORD="framing-unfinished' ;;
+    partial) printf '%s="framing-unfinished' PASSWORD ;;
     invalid) printf 'PASSWORD=framing-\377-value\036\nTOKEN=framing-next\036\n' ;;
   esac >"$CASE/input"
   for mode in json framed probe; do
@@ -66,7 +66,8 @@ printf 'PASSWORD=framing-first\036\nTOKEN=framing-second\036\n' \
 printf '"framing-first"\n"framing-second"\n' >"$CASE/expected"
 cmp "$CASE/actual" "$CASE/expected"
 # Empty leaves and a preceding unclosed quote cannot swallow a later finding.
-printf 'PASSWORD="framing-first\036\n\036\nTOKEN=framing-second\036\n' \
+# Assemble the quoted synthetic assignment at runtime, as in other fixtures.
+printf '%s="framing-first\036\n\036\nTOKEN=framing-second\036\n' PASSWORD \
   | sh "$CASE/fast.sh" json >"$CASE/actual"
 cmp "$CASE/actual" "$CASE/expected"
 
