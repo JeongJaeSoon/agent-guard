@@ -13467,6 +13467,9 @@ else
   sed 's/^/  stderr: /' "$ERR"
 fi
 
+run_expect 0 "PII byte windows preserve UTF-8, caller-locale emails, and failure isolation" \
+  sh "$ROOT/tests/pii-utf8.sh"
+
 # --- AGENT_GUARD_PII_SKIP (per-type Tier-1 opt-out) --------------------------
 # Tier-1 masking is output-only and never hard-blocks an input, so switching a
 # type off cannot weaken the input gate. Tier-2 names are refused outright: that
