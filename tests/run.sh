@@ -10250,6 +10250,7 @@ fi
 fi # end of shard 4
 
 if in_shard 5; then
+run_expect 0 "framed leaf fast path preserves detector records and errors" sh "$ROOT/tests/framed-leaves.sh"
 # --- Tool-output secret redaction (PostToolUse updatedToolOutput) ----------
 # Masks secret-like values in a tool's RESULT before the model sees it. Run from
 # a non-git dir so the mutation-tool working-tree backstop stays inert and these
