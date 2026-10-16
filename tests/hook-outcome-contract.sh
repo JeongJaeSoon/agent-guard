@@ -149,6 +149,46 @@ for host in claude codex; do
     fi
   done
 
+  # Compound commands an agent sends while inspecting several worktrees. Each
+  # closed block must carry its reason, however many came before it.
+  for shell_cmd in \
+    'for p in a b; do d=/tmp/x/$p; b=$(git -C $d branch --show-current 2>/dev/null); pr=$(cd $d && gh pr list --head "$b" --json number --jq "map(.number)|join(\",\")"); echo "$p $b $pr"; done' \
+    "cut -d' ' -f1 /tmp/x/list | grep -v x | xargs bash /tmp/x/run.sh > /tmp/x/out 2>&1; grep -v -E 'a|b' /tmp/x/out | cut -c1-140"; do
+    for attempt in first second; do
+      run_manifest "$host" closed "$MOCK_GITLEAKS" \
+        "$(jq -nc --arg c "$shell_cmd" '{session_id:"outcome-compound",tool_name:"Bash",tool_input:{command:$c}}')"
+      status=$?
+      if [ "$status" -eq 2 ] && grep -Fq 'could not be resolved safely' "$CASE_ROOT/err"; then
+        ok "$host manifest path explains the $attempt closed block of compound ${shell_cmd%%[ ;]*}"
+      else
+        not_ok "$host manifest path explains the $attempt closed block of compound ${shell_cmd%%[ ;]*} (status $status)"
+      fi
+    done
+  done
+
+  # A warning marker that cannot be written (full disk, read-only dir) is not
+  # proof this session already warned.
+  if [ "$(id -u)" -ne 0 ]; then
+    readonly_dir="$CASE_ROOT/readonly-warnings-$host"
+    mkdir -p "$readonly_dir"
+    chmod 0500 "$readonly_dir"
+    for attempt in first second; do
+      AGENT_GUARD_WARNING_DIR="$readonly_dir" AGENT_GUARD_HOOK_HOST="$host" \
+        AGENT_GUARD_INFRA_FAILURE_MODE=open \
+        AGENT_GUARD_GITLEAKS_BIN="$CASE_ROOT/no-gitleaks" "$GUARD" hook-pre-tool \
+        >"$CASE_ROOT/out" 2>"$CASE_ROOT/err" <<'JSON'
+{"session_id":"outcome-readonly","tool_name":"Bash","tool_input":{"command":"printf clean"}}
+JSON
+      status=$?
+      if [ "$status" -eq 0 ] && grep -Fq 'AGENT_GUARD_INFRA_FAILURE_MODE=open' "$CASE_ROOT/err"; then
+        ok "$host open warning survives an unwritable marker ($attempt)"
+      else
+        not_ok "$host open warning survives an unwritable marker ($attempt, status $status)"
+      fi
+    done
+    chmod 0700 "$readonly_dir"
+  fi
+
   # Shell structure that runs no git command needs no unresolvable verdict:
   # a case subject, a heredoc with conflict markers, awk's $0.
   for shell_cmd in \
