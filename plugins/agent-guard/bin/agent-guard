@@ -5783,11 +5783,13 @@ $shell_cd_dir"
           if|then|else|elif|fi|do|done|while|until|for|case|esac|select|function|coproc|'!')
             shell_cd_untrusted=1
             shift
-            # `case WORD in` matches WORD; it does not run it. A word holding
-            # a command substitution still goes through as a command.
+            # `case WORD in` matches WORD, but expands it first. Parameter
+            # transformations (e.g. Bash ${X@P}) and arithmetic can execute
+            # stored code without a lexical command substitution. Keep those
+            # subjects unresolved along with explicit command substitutions.
             if [ "$token" = case ] && [ "${2-}" = 0in ]; then
               case "${1-}" in
-                [014]*'$('*|[014]*'`'*) ;;
+                [014]*'$('*|[014]*'`'*|[014]*'${'*|[014]*'$'*'['*) ;;
                 [014]?*) shift 2 ;;
               esac
             fi

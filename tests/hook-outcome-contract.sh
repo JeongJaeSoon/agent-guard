@@ -165,6 +165,25 @@ for host in claude codex; do
     fi
   done
 
+  # Subjects are expanded before matching. Do not execute these inputs: the
+  # synthetic hook must classify re-evaluating forms as unresolved in closed
+  # mode even without a lexical command substitution in the subject itself.
+  for shell_cmd in \
+    "g=git; X='\$(eval \"\$g commit -m x\")'; case \"\${X@P}\" in *) :;; esac" \
+    'case "${X@P}" in *) :;; esac' \
+    'case "${a[index]}" in *) :;; esac' \
+    'case "$[index]" in *) :;; esac' \
+    'case "$a[index]" in *) :;; esac'; do
+    run_manifest "$host" closed "$MOCK_GITLEAKS" \
+      "$(jq -nc --arg c "$shell_cmd" '{session_id:"outcome-case-expansion",tool_name:"Bash",tool_input:{command:$c}}')"
+    status=$?
+    if [ "$status" -eq 2 ] && grep -Fq 'could not be resolved safely' "$CASE_ROOT/err"; then
+      ok "$host manifest path keeps executable case expansion unresolved"
+    else
+      not_ok "$host manifest path keeps executable case expansion unresolved (status $status)"
+    fi
+  done
+
   # A dotenv operand behind a variable stays a text-match deny.
   run_manifest "$host" closed "$MOCK_GITLEAKS" \
     '{"session_id":"outcome-shell","tool_name":"Bash","tool_input":{"command":"f=.env.local; cat $f"}}'
