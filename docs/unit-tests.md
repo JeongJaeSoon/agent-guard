@@ -1,9 +1,11 @@
 # Fast core contracts
 
-Run `make test-unit` for 35 assertions against the production `version_newer`
+Run `sh tests/unit-core.sh` for 35 assertions against the production `version_newer`
 and `sh_squote` function bodies. This component test needs only POSIX shell,
 awk, sed, cmp and ordinary system utilities; it does not initialize the CLI,
 create a Git repository, install a scanner or invoke a host adapter.
+
+`make test-unit` also runs the 18 [framing producer contracts](unit-framing.md).
 
 The suite isolates the two named functions using their existing source layout,
 rejects missing/duplicate definitions and invalid shell syntax, and sources
