@@ -17,8 +17,10 @@ times=()
 shards=("$@")
 directories=()
 # Allocate before starting any child, so allocation failure cannot orphan work.
+# Preserve the suite's OS temp root: RUNNER_TEMP ancestors may have writable
+# ACLs, which the allow-list security regressions intentionally reject.
 for shard in "$@"; do
-  directories+=("$(mktemp -d "$RUNNER_TEMP/partition-$shard.XXXXXX")") || exit 1
+  directories+=("$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-partition-$shard.XXXXXX")") || exit 1
 done
 index=0
 for shard in "$@"; do
