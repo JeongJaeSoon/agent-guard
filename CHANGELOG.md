@@ -1,3 +1,8 @@
+## v3.6.4 - 2026-10-17
+
+- ci: bump hashgraph-online/ai-plugin-scanner-action (#312)
+- fix(hooks): explain every closed block from the manifest resolver (#325)
+
 ## v3.6.3 - 2026-10-16
 
 - ci: remove unused scanner setup and simplify validation output (#320)
