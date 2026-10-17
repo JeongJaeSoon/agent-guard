@@ -1,7 +1,7 @@
 # Agent Guard — discoverability layer for the existing scripts.
 # Each target is a thin pass-through to an existing script or the CLI.
 
-.PHONY: help check install test test-pleno-integration smoke-test bench scan scan-staged checksum formula submission-check submission-artifact
+.PHONY: help check install test test-unit test-pleno-integration smoke-test bench scan scan-staged checksum formula submission-check submission-artifact
 
 help:
 	@printf 'Agent Guard — make targets\n'
@@ -10,6 +10,7 @@ help:
 	@printf '  make check         Verify deps and print installed gitleaks version.\n'
 	@printf '  make install       Configure the native git pre-commit hook.\n'
 	@printf '  make test          Run the test suite (uses a mock gitleaks).\n'
+	@printf '  make test-unit     Run fast version and shell-quoting component contracts.\n'
 	@printf '  make test-pleno-integration  Run opt-in tests against a real pleno endpoint.\n'
 	@printf '  make smoke-test    Run real git/jq/gitleaks end-to-end checks.\n'
 	@printf '  make bench         Run the leak-prevention channel-coverage benchmark (real gitleaks).\n'
@@ -28,6 +29,9 @@ install:
 
 test:
 	@tests/run.sh
+
+test-unit:
+	@sh tests/unit-core.sh
 
 test-pleno-integration:
 	@tests/run-pleno-integration.sh
