@@ -40,13 +40,8 @@ of six tried is not a general mutation score. The elapsed time is one local
 observation, not evidence of faster full CI: the new checks add work and give a
 fast developer feedback path.
 
-There is no line/branch coverage collector in this repository. The table is
-measured contract coverage, not a source-coverage percentage. No collector was
-added: shell tracing alone cannot measure the awk branches or scanner/host
-behavior, and Bash instrumentation would not establish POSIX-shell or Apple
-awk compatibility. The existing integration suites remain necessary for Git,
-filesystem permissions, signal cleanup, fail-closed policy, redaction, scanners
-and host adapters. Authenticated host dispatch and unrepresented OS/CPU targets
-remain separate validation gaps. Next small candidates are similarly isolated
-framing/encoding contracts; environment-dependent path and Git policy logic
-must retain real-process integration tests.
+The table describes contracts, not a source-coverage percentage. The separate
+[scoped Bash measurement](coverage-core.md) records four command-start lines;
+AWK branches and scanner/host behavior remain unmeasured. See the shared
+[test-layer guide](testing.md) for integration boundaries and remaining gaps.
+Framing producer contracts are implemented in [the framing suite](unit-framing.md).
