@@ -1093,6 +1093,44 @@ for manifest_host in codex claude; do
     not_ok "$manifest_host manifest missing-binary warning reports closed mode (status $status)"
     sed 's/^/  stderr: /' "$ERR"
   fi
+
+  # The once-per-session marker is for the open warning only: every closed
+  # block must say why, or the host shows a denial with empty stderr.
+  manifest_command=$(jq -r '.hooks.PreToolUse[0].hooks[0].command' "$manifest_file")
+  for attempt in first second; do
+    printf '%s' '{"session_id":"manifest-closed-repeat"}' \
+      | env "$manifest_root=$TESTTMP/missing-plugin/0.0.0" \
+          AGENT_GUARD_WARNING_DIR="$TESTTMP/manifest-closed-repeat-$manifest_host" \
+          AGENT_GUARD_INFRA_FAILURE_MODE=closed \
+          sh -c "$manifest_command" >"$OUT" 2>"$ERR"
+    status=$?
+    if [ "$status" -eq 2 ] && grep -q 'blocking because AGENT_GUARD_INFRA_FAILURE_MODE=closed' "$ERR"; then
+      ok "$manifest_host manifest explains the $attempt closed missing-binary block in a session"
+    else
+      not_ok "$manifest_host manifest explains the $attempt closed missing-binary block in a session (status $status)"
+      sed 's/^/  stderr: /' "$ERR"
+    fi
+  done
+
+  # A marker that cannot be written (full disk, read-only dir) is not proof
+  # this session already warned.
+  if [ "$(id -u)" -ne 0 ]; then
+    manifest_ro_dir="$TESTTMP/manifest-readonly-$manifest_host"
+    mkdir -p "$manifest_ro_dir"
+    chmod 0500 "$manifest_ro_dir"
+    printf '%s' '{"session_id":"manifest-readonly"}' \
+      | env "$manifest_root=$TESTTMP/missing-plugin/0.0.0" \
+          AGENT_GUARD_WARNING_DIR="$manifest_ro_dir" \
+          sh -c "$manifest_command" >"$OUT" 2>"$ERR"
+    status=$?
+    chmod 0700 "$manifest_ro_dir"
+    if [ "$status" -eq 0 ] && grep -q 'continuing because AGENT_GUARD_INFRA_FAILURE_MODE=open' "$ERR"; then
+      ok "$manifest_host manifest warns when the warning marker cannot be written"
+    else
+      not_ok "$manifest_host manifest warns when the warning marker cannot be written (status $status)"
+      sed 's/^/  stderr: /' "$ERR"
+    fi
+  fi
 done
 
 # Pinned gitleaks default version is duplicated across three surfaces (the

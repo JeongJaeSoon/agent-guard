@@ -1616,7 +1616,9 @@ hook_warning_once() {
     chmod 700 "$warning_dir" 2>/dev/null || :
   fi
   warning_marker="$warning_dir/infrastructure-$warning_session"
-  (umask 077; set -C; : >"$warning_marker") 2>/dev/null
+  # Only an existing marker means this session already warned. A create that
+  # fails for another reason (full disk, read-only dir) must still warn.
+  (umask 077; set -C; : >"$warning_marker") 2>/dev/null || [ ! -e "$warning_marker" ]
 }
 
 # Shared front half of every infrastructure-failure policy: apply the closed
