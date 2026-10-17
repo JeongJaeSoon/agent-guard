@@ -128,7 +128,7 @@ in_shard() {
 
 if in_shard 1; then
 suite_shards=$(sed -n 's/^if in_shard \([0-9]*\); then$/\1/p' "$ROOT/tests/run.sh" | sort -u | tr '\n' ' ')
-ci_shards=$(sed -n 's/^ *shard: \[\([0-9, ]*\)\]$/\1/p' "$ROOT/.github/workflows/ci.yml" | tr -d ' ' | tr ',' '\n' | sort -u | tr '\n' ' ')
+ci_shards=$(sed -n "s/^ *shards: '\([0-9 ][0-9 ]*\)'$/\1/p" "$ROOT/.github/workflows/ci.yml" | tr ' ' '\n' | sort | tr '\n' ' ')
 if [ -n "$suite_shards" ] && [ "$suite_shards" = "$ci_shards" ]; then
   ok "every test shard runs in the CI matrix"
 else
@@ -4460,6 +4460,9 @@ else
   sed 's/^/  stderr: /' "$ERR"
 fi
 
+fi # end of shard 3
+
+if in_shard 2; then
 # A git alias runs the git command it expands to, read from the configuration
 # that command reads: its -c options and GIT_CONFIG_* variables, the repository
 # it runs in, include files and the global file. The hook runs with cwd=a and
@@ -4641,9 +4644,9 @@ run_expect 0 "mask-file masks values per format and fails closed" sh "$ROOT/test
 run_expect 0 "deny-read mask mode returns a masked view or blocks without content" sh "$ROOT/tests/deny-read-mask.sh"
 run_expect 0 "deny-read mask rules mask matches or block without content" sh "$ROOT/tests/deny-read-mask-rules.sh"
 
-fi # end of shard 3
+fi # end of shard 2
 
-if in_shard 4; then
+if in_shard 5; then
 # A shell cd moves the commit to another repository: the scan must follow a
 # literal cd and fail per the infrastructure policy (closed here) on one it
 # cannot resolve. The hook runs with cwd=a; the command is then really run
@@ -4886,6 +4889,9 @@ for sc_command in 'cd ../b; git push' 'git -C ../b push'; do
   done
 done
 
+fi # end of shard 5
+
+if in_shard 4; then
 SYMLINK_REPO="$TMP_ROOT/symlink-repo"
 mkdir -p "$SYMLINK_REPO"
 (
@@ -10288,9 +10294,6 @@ else
   sed 's/^/  /' "$ERR"
 fi
 
-fi # end of shard 4
-
-if in_shard 5; then
 run_expect 0 "framed leaf fast path preserves detector records and errors" sh "$ROOT/tests/framed-leaves.sh"
 # --- Tool-output secret redaction (PostToolUse updatedToolOutput) ----------
 # Masks secret-like values in a tool's RESULT before the model sees it. Run from
@@ -15858,7 +15861,7 @@ else
   sed 's/^/  stderr: /' "$ERR"
 fi
 
-fi # end of shard 5
+fi # end of shard 4
 
 say "passed: $pass"
 say "failed: $fail"
