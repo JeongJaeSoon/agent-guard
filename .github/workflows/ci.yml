@@ -60,9 +60,9 @@ jobs:
           - shard: 3
             suite: Git auto-staging
           - shard: 4
-            suite: CLI and scanner integration
+            suite: CLI, scanner and output
           - shard: 5
-            suite: Shell navigation and output
+            suite: Shell navigation
     runs-on: ${{ matrix.os }}
     # Keep a bounded runner lifetime. Partitions are balanced by measured
     # test time, not assertion count; see docs/ci.md for mapping and evidence.

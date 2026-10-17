@@ -10294,9 +10294,6 @@ else
   sed 's/^/  /' "$ERR"
 fi
 
-fi # end of shard 4
-
-if in_shard 5; then
 run_expect 0 "framed leaf fast path preserves detector records and errors" sh "$ROOT/tests/framed-leaves.sh"
 # --- Tool-output secret redaction (PostToolUse updatedToolOutput) ----------
 # Masks secret-like values in a tool's RESULT before the model sees it. Run from
@@ -15864,7 +15861,7 @@ else
   sed 's/^/  stderr: /' "$ERR"
 fi
 
-fi # end of shard 5
+fi # end of shard 4
 
 say "passed: $pass"
 say "failed: $fail"

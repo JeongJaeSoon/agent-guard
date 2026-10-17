@@ -26,8 +26,8 @@ The internal IDs select execution partitions; Actions displays descriptive names
 | 1 | Core and host adapters | Unchanged |
 | 2 | Command policies and aliases | Adds git aliases and three mask suites previously in 3 |
 | 3 | Git auto-staging | Retains auto-staging regression cases |
-| 4 | CLI and scanner integration | Moves shell-navigation cases to 5; retains real scanner integration |
-| 5 | Shell navigation and output | Adds shell-navigation cases previously in 4 |
+| 4 | CLI, scanner and output | Retains scanner integration; adds original 5 output, PII and shell-setup cases |
+| 5 | Shell navigation | Runs shell-navigation cases previously in 4 |
 
 Only gates move: assertion bodies and their unpartitioned execution order stay
 identical. Moved groups initialize their own repositories, configuration and
@@ -84,14 +84,21 @@ These historical counts are not the baseline for the subsequent rebalance.
 
 ## Runtime rebalance and measurement
 
-The rebalance uses [run 38986270841](https://github.com/JeongJaeSoon/agent-guard/actions/runs/38986270841)
-at `95d795a` to identify uneven work: macOS test steps took 392, 356, 650,
-745 and 223 seconds in partitions 1–5. Assertion timestamps put shell-navigation
-cases at approximately 404 seconds and aliases plus the three mask suites at
-approximately 150 seconds. Moving these self-contained groups to 5 and 2 reduces
-the estimated longest partition to about 627 seconds **on those same timings**.
-This estimate is not an observed speedup. All ten OS/partition combinations stay;
-redistribution aims to shorten the critical path, not reduce total test work.
+Two recent baseline runs show the uneven work:
+
+| Main CI run | macOS test seconds, internal partitions 1–5 |
+| --- | --- |
+| [38986270841](https://github.com/JeongJaeSoon/agent-guard/actions/runs/38986270841), `95d795a` | 392, 356, 650, 745, 223 |
+| [38991770310](https://github.com/JeongJaeSoon/agent-guard/actions/runs/38991770310), exact base `3207298` | 394, 320, 486, 615, 253 |
+
+In the exact base, assertion timestamps put shell-navigation cases at about
+391 seconds (including initial setup) and aliases plus three mask suites at
+about 151 seconds. Move those groups to 5 and 2, and combine the original 5
+with the remaining 4. Applying these group times gives estimated macOS loads
+of 394, 471, 335, 477 and 391 seconds. This is **a redistribution estimate, not
+an observed speedup**. All ten OS/partition combinations stay; redistribution
+aims to shorten the critical path, not reduce total test work. See the PR's
+validation evidence for actual candidate measurements and assertion comparison.
 
 Compare the exact base and candidate runs using creation-to-last-job completion
 (wall time), creation-to-job-start (queue/start delay), test-step duration, and
