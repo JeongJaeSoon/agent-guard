@@ -27,7 +27,7 @@ Before wiring the tests into CI, six deliberately faulty source copies failed:
 accepting equal versions as newer, reversing the version comparison, returning
 raw unquoted text, failing to escape apostrophes, removing a function and
 duplicating a function. The unchanged production source then passed all 35
-assertions in about 0.16 seconds locally on macOS. To repeat a negative control,
+assertions in about 0.16–0.18 seconds locally on macOS. To repeat a negative control,
 copy the CLI to a temporary file, change one of those behaviors and run
 `AGENT_GUARD_UNIT_SOURCE=/absolute/path/to/copy sh tests/unit-core.sh`.
 This override affects the test harness only. Do not point it at untrusted code.
