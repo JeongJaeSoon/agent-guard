@@ -29,8 +29,8 @@ The internal IDs select execution partitions; Actions displays descriptive names
 | 4 | CLI, scanner and output | Retains scanner integration; adds original 5 output, PII and shell-setup cases |
 | 5 | Command policies and shell navigation (with 2) | Runs shell-navigation cases previously in 4 |
 
-Only gates move: assertion bodies and their unpartitioned execution order stay
-identical. Moved groups initialize their own repositories, configuration and
+Regression assertion bodies and their unpartitioned execution order stay
+identical; the matrix-coverage assertion is updated for the bundle format. Moved groups initialize their own repositories, configuration and
 sessions. The aggregate check names and their fail-closed dependencies remain
 unchanged; the release workflow consumes those aggregates, not the child names.
 
