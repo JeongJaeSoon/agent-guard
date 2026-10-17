@@ -118,3 +118,6 @@ so they do not interleave. Hosted-runner teardown handles job cancellation.
 No internal timeout is relaxed. This uses the existing runner CPUs; contention
 can offset the reduction in runner lifetimes. Actual timing comparisons are
 required before claiming a saving; job count alone is not a cost measurement.
+
+See [Test layers and coverage](testing.md) for the distinction between execution
+partitions, test-pyramid layers, assertion inventories and code coverage.
