@@ -71,11 +71,16 @@ clean() {
 expect() {
   ex_name=$1 ex_err=$2 ex_file=$3
   shift 3
+  # Host selection is outside JSON; both hosts receive the same payload.
+  ex_read=$(read_json "$ex_file") && ex_cat=$(bash_json "$ex_file") || {
+    bad "$ex_name (could not generate hook JSON)"
+    return
+  }
   for host in claude codex; do
     for form in read cat; do
       case $form in
-        read) hook "$host" "$(read_json "$ex_file")" "$@" ;;
-        cat) hook "$host" "$(bash_json "$ex_file")" "$@" ;;
+        read) hook "$host" "$ex_read" "$@" ;;
+        cat) hook "$host" "$ex_cat" "$@" ;;
       esac
       if [ "$status" -eq 2 ] && [ ! -s "$CASE/out" ] \
          && printf '%s\n' "$ex_err" | cmp -s - "$CASE/err" && clean $RULES; then
