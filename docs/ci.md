@@ -17,17 +17,17 @@ runs. The release workflow also relies on the existing check names.
 
 The numbers are execution partitions, not security tiers or sequential stages.
 `tests/run.sh` without `AGENT_GUARD_TEST_SHARD` runs them all in order. CI runs
-them independently on both operating systems, and shard 1 checks that every
+them on both operating systems, and shard 1 checks that every
 partition is present in the matrix. Fixtures remain local to each partition.
 The internal IDs select execution partitions; Actions displays descriptive names:
 
 | Internal ID | Actions suite | Change from the previous layout |
 | --- | --- | --- |
-| 1 | Core and host adapters | Unchanged |
-| 2 | Command policies and aliases | Adds git aliases and three mask suites previously in 3 |
-| 3 | Git auto-staging | Retains auto-staging regression cases |
+| 1 | Core, host adapters and Git (with 3) | Unchanged |
+| 2 | Command policies and shell navigation (with 5) | Adds git aliases and three mask suites previously in 3 |
+| 3 | Core, host adapters and Git (with 1) | Retains auto-staging regression cases |
 | 4 | CLI, scanner and output | Retains scanner integration; adds original 5 output, PII and shell-setup cases |
-| 5 | Shell navigation | Runs shell-navigation cases previously in 4 |
+| 5 | Command policies and shell navigation (with 2) | Runs shell-navigation cases previously in 4 |
 
 Only gates move: assertion bodies and their unpartitioned execution order stay
 identical. Moved groups initialize their own repositories, configuration and
@@ -36,11 +36,11 @@ unchanged; the release workflow consumes those aggregates, not the child names.
 
 ## Reading test results
 
-Each suite prints execution seconds and passed/failed counts in the Actions job summary. The Run tests
+Each partition prints execution seconds and passed/failed counts in the Actions job summary. The Run tests
 step groups the full assertion stream, with failures and final counts repeated
 outside the group. Expand the **full test assertions** group for all diagnostics. The
 original output also remains in the runner's `test-output.txt` for the Linux
-real-scanner presence gate. The test/tee pipeline's nonzero exit is preserved;
+real-scanner presence gate. Every child exit status is collected, including after another child fails;
 printing a summary cannot make a failing suite pass.
 
 ## Small setup and layout simplification
@@ -105,3 +105,16 @@ Compare the exact base and candidate runs using creation-to-last-job completion
 summed job durations (runner time). Hosted-runner variability can overwhelm a
 single comparison; a lower wall time alone does not establish lower billed cost.
 The per-suite summary reports only test execution, excluding queue and setup.
+
+## Bounded concurrency within each OS
+
+The core runner executes partitions 1 and 3 concurrently; the policies runner
+executes 2 and 5 concurrently. The scanner runner executes 4 alone, retaining
+its real-scanner installation, no-skip gate and smoke test. This keeps all ten
+OS/partition combinations on six runners instead of ten. Each child gets a
+separate TMPDIR and output file; the parent waits for every child and fails if
+any child or output collection fails. Full logs are printed after completion,
+so they do not interleave. Hosted-runner teardown handles job cancellation.
+No internal timeout is relaxed. This uses the existing runner CPUs; contention
+can offset the reduction in runner lifetimes. Actual timing comparisons are
+required before claiming a saving; job count alone is not a cost measurement.

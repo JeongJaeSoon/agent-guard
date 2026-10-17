@@ -128,7 +128,7 @@ in_shard() {
 
 if in_shard 1; then
 suite_shards=$(sed -n 's/^if in_shard \([0-9]*\); then$/\1/p' "$ROOT/tests/run.sh" | sort -u | tr '\n' ' ')
-ci_shards=$(sed -n 's/^ *shard: \[\([0-9, ]*\)\]$/\1/p' "$ROOT/.github/workflows/ci.yml" | tr -d ' ' | tr ',' '\n' | sort -u | tr '\n' ' ')
+ci_shards=$(sed -n "s/^ *shards: '\([0-9 ][0-9 ]*\)'$/\1/p" "$ROOT/.github/workflows/ci.yml" | tr ' ' '\n' | sort | tr '\n' ' ')
 if [ -n "$suite_shards" ] && [ "$suite_shards" = "$ci_shards" ]; then
   ok "every test shard runs in the CI matrix"
 else
