@@ -4460,6 +4460,9 @@ else
   sed 's/^/  stderr: /' "$ERR"
 fi
 
+fi # end of shard 3
+
+if in_shard 2; then
 # A git alias runs the git command it expands to, read from the configuration
 # that command reads: its -c options and GIT_CONFIG_* variables, the repository
 # it runs in, include files and the global file. The hook runs with cwd=a and
@@ -4641,9 +4644,9 @@ run_expect 0 "mask-file masks values per format and fails closed" sh "$ROOT/test
 run_expect 0 "deny-read mask mode returns a masked view or blocks without content" sh "$ROOT/tests/deny-read-mask.sh"
 run_expect 0 "deny-read mask rules mask matches or block without content" sh "$ROOT/tests/deny-read-mask-rules.sh"
 
-fi # end of shard 3
+fi # end of shard 2
 
-if in_shard 4; then
+if in_shard 5; then
 # A shell cd moves the commit to another repository: the scan must follow a
 # literal cd and fail per the infrastructure policy (closed here) on one it
 # cannot resolve. The hook runs with cwd=a; the command is then really run
@@ -4886,6 +4889,9 @@ for sc_command in 'cd ../b; git push' 'git -C ../b push'; do
   done
 done
 
+fi # end of shard 5
+
+if in_shard 4; then
 SYMLINK_REPO="$TMP_ROOT/symlink-repo"
 mkdir -p "$SYMLINK_REPO"
 (

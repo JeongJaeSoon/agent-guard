@@ -37,7 +37,7 @@ jobs:
           gitleaks-checksum: ${{ env.GITLEAKS_CHECKSUM_LINUX_X64 }}
 
   test-shard:
-    name: Test (${{ matrix.os }}, shard ${{ matrix.shard }})
+    name: ${{ matrix.suite }} (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
@@ -51,13 +51,21 @@ jobs:
         # tests/run.sh gates its blocks by AGENT_GUARD_TEST_SHARD; its first
         # shard fails if a gate in the suite has no entry in this list.
         shard: [1, 2, 3, 4, 5]
+        # Internal partition IDs stay stable; show coverage instead of numbers.
+        include:
+          - shard: 1
+            suite: Core and host adapters
+          - shard: 2
+            suite: Command policies and aliases
+          - shard: 3
+            suite: Git auto-staging
+          - shard: 4
+            suite: CLI and scanner integration
+          - shard: 5
+            suite: Shell navigation and output
     runs-on: ${{ matrix.os }}
-    # Over four PR #277 runs, macOS shard jobs took 1.9-5.9 min (shard 5 is the
-    # longest at 3.0-5.9) and ubuntu ones 0.6-1.8 min, down from 11-15 min for
-    # the unsharded macOS job. macOS runner speed varies up to ~2x, so 15 min
-    # (2.5x the slowest) leaves room for that and for suite growth while still
-    # bounding a dead runner: the default 6h cap once blocked the merge queue
-    # for an hour.
+    # Keep a bounded runner lifetime. Partitions are balanced by measured
+    # test time, not assertion count; see docs/ci.md for mapping and evidence.
     timeout-minutes: 15
     steps:
       - name: Checkout
@@ -97,17 +105,21 @@ jobs:
         # could go green — the exact fail-open class this PR closes.
         env:
           AGENT_GUARD_TEST_SHARD: ${{ matrix.shard }}
+          TEST_SUITE: ${{ matrix.suite }}
         run: |
           set -o pipefail
-          echo '::group::Full test assertions'
+          echo "::group::$TEST_SUITE — full test assertions"
+          started=$SECONDS
           status=0
           tests/run.sh 2>&1 | tee "${RUNNER_TEMP}/test-output.txt" || status=$?
+          elapsed=$((SECONDS - started))
           echo '::endgroup::'
           # Keep failures visible outside the collapsed assertion log, and
           # preserve the pipeline status even when the summary succeeds.
           grep -E '^(not ok - |passed: |failed: )' "${RUNNER_TEMP}/test-output.txt" || true
           {
-            printf '### Test (%s, shard %s)\n\n' "$RUNNER_OS" "$AGENT_GUARD_TEST_SHARD"
+            printf '### %s (%s)\n\n' "$TEST_SUITE" "$RUNNER_OS"
+            printf 'Test execution: %s seconds (excludes queue and setup).\n\n' "$elapsed"
             grep -E '^(passed: |failed: )' "${RUNNER_TEMP}/test-output.txt" || true
           } >> "$GITHUB_STEP_SUMMARY"
           exit "$status"
