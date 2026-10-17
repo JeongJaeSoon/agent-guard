@@ -10,7 +10,7 @@ units, not security tiers or test-pyramid layers.
 | Layer | Existing entry points | What they establish |
 | --- | --- | --- |
 | Static and packaging | ShellCheck, actionlint, plugin/layout and submission validators | Shell/workflow errors and packaging contracts |
-| Fast core contracts | `make test-unit` / `tests/unit-core.sh` | Production version comparison and shell quoting: 35 assertions; see [scope and negative controls](unit-tests.md) |
+| Fast core contracts | `make test-unit` / `tests/unit-core.sh`, `tests/unit-framing.sh` | Version comparison and shell quoting: 35 assertions; framing producers: 18 assertions; see [scope and negative controls](unit-tests.md) |
 | Narrow component comparisons | `tests/framed-leaves.sh` | Framing fast path versus byte-decoder reference, escaping, byte boundaries and explicit detector expectations |
 | CLI contracts | `tests/deny-read-mask*.sh`, `source-module-prose.sh`, `hook-outcome-contract.sh`, `gitleaks-resolution.sh`, `audit-log.sh` | Exit status, host payloads, diagnostics, masking and infrastructure policy through the CLI |
 | OS/tool integration | Git fixtures in `tests/run.sh`, permission/ACL/symlink/signal cases, `pii-utf8.sh`, Linux real-gitleaks block | Actual filesystem, Git and process behavior; Apple awk and scanner differences |
@@ -84,8 +84,10 @@ For a bug or behavior change:
    the PR. If no pre-fix failure was observed, call it added regression coverage,
    not completed TDD.
 
-Next, prioritize a narrowly scoped framing/encoding test improvement, then
-evaluate a standard Bash collector in an isolated Linux environment. Keep AWK
+Direct framing producer contracts now supplement the decoder comparison: see
+[the measured blind spot and limits](unit-framing.md). Next evaluate a standard
+Bash collector in an isolated Linux environment only when broader source-level
+measurement will guide a concrete change. Keep AWK
 branch profiling separate and label its interpreter; GNU awk results would not
 prove Apple awk behavior. Authenticated host E2E and currently unrepresented
 OS/CPU targets remain distinct gaps. Do not convert OS-dependent integration
