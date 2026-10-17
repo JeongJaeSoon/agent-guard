@@ -5,18 +5,7 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 SOURCE=${AGENT_GUARD_UNIT_SOURCE:-"$ROOT/plugins/agent-guard/bin/agent-guard"}
 CASE=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-unit-framing.XXXXXX")
 trap 'rm -rf "$CASE"' 0
-for function in frame_json_string_leaves frame_plaintext_leaf; do
-  awk -v name="$function" '
-    $0 == name "() {" { starts++; copying=1 }
-    copying { print }
-    copying && $0 == "}" { ends++; copying=0 }
-    END { if (starts != 1 || ends != 1 || copying) exit 1 }
-  ' "$SOURCE" >"$CASE/$function.sh" || {
-    printf 'not ok - cannot isolate %s exactly once\n' "$function" >&2
-    exit 1
-  }
-  sh -n "$CASE/$function.sh"
-done
+sh "$ROOT/tests/helpers/extract-functions.sh" "$SOURCE" "$CASE" frame_json_string_leaves frame_plaintext_leaf
 . "$CASE/frame_json_string_leaves.sh"
 . "$CASE/frame_plaintext_leaf.sh"
 pass=0 fail=0

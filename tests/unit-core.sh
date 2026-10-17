@@ -9,18 +9,7 @@ trap 'rm -rf "$CASE"' 0
 
 # Fail on missing/duplicate definitions or a changed extraction boundary.
 # Only these named bodies are sourced: the CLI has initialization side effects.
-for function in sh_squote version_newer; do
-  awk -v name="$function" '
-    $0 == name "() {" { starts++; copying=1 }
-    copying { print }
-    copying && $0 == "}" { ends++; copying=0 }
-    END { if (starts != 1 || ends != 1 || copying) exit 1 }
-  ' "$SOURCE" >"$CASE/$function.sh" || {
-    printf 'not ok - cannot isolate %s exactly once\n' "$function" >&2
-    exit 1
-  }
-  sh -n "$CASE/$function.sh"
-done
+sh "$ROOT/tests/helpers/extract-functions.sh" "$SOURCE" "$CASE" sh_squote version_newer
 . "$CASE/sh_squote.sh"
 . "$CASE/version_newer.sh"
 pass=0

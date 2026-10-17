@@ -5,11 +5,10 @@ set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 CASE=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-framing.XXXXXX")
 trap 'rm -rf "$CASE"' 0
-awk '
-  /^frame_json_string_leaves\(\)/ { copying=1 }
-  /^# Treat malformed byte counts/ { exit }
-  copying { print }
-' "$ROOT/plugins/agent-guard/bin/agent-guard" >"$CASE/fast.sh"
+# Only the detector is called here; producer contracts live in unit-framing.sh.
+sh "$ROOT/tests/helpers/extract-functions.sh" \
+  "$ROOT/plugins/agent-guard/bin/agent-guard" "$CASE" secretish_env_values
+mv "$CASE/secretish_env_values.sh" "$CASE/fast.sh"
 # Force only the bulk framing path off: the existing byte decoder is the
 # reference for escaping, physical newlines, leaf boundaries and output modes.
 [ "$(grep -c 'if (!escaped && index' "$CASE/fast.sh")" -eq 1 ]
