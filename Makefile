@@ -10,7 +10,7 @@ help:
 	@printf '  make check         Verify deps and print installed gitleaks version.\n'
 	@printf '  make install       Configure the native git pre-commit hook.\n'
 	@printf '  make test          Run the test suite (uses a mock gitleaks).\n'
-	@printf '  make test-unit     Run fast core and framing producer contracts.\n'
+	@printf '  make test-unit     Run fast core, framing and deny-path contracts.\n'
 	@printf '  make test-pleno-integration  Run opt-in tests against a real pleno endpoint.\n'
 	@printf '  make smoke-test    Run real git/jq/gitleaks end-to-end checks.\n'
 	@printf '  make bench         Run the leak-prevention channel-coverage benchmark (real gitleaks).\n'
@@ -33,6 +33,7 @@ test:
 test-unit:
 	@sh tests/unit-core.sh
 	@sh tests/unit-framing.sh
+	@sh tests/unit-deny-path.sh
 
 test-pleno-integration:
 	@tests/run-pleno-integration.sh
