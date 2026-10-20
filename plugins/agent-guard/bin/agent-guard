@@ -11123,9 +11123,12 @@ do_exec() {
               ;;
             *)
               if [ "$raw_bytes" -gt 65536 ]; then
-                if printf '%s' "$masked" \
-                  | secretish_env_values probe_raw 2>/dev/null \
-                  | grep -q .; then
+                # Preserve detector failure before interpreting its marker; grep
+                # would turn an empty failed probe into an ordinary no-match.
+                raw_probe_status=0
+                raw_probe_result=$(printf '%s' "$masked" \
+                  | secretish_env_values probe_raw 2>/dev/null) || raw_probe_status=$?
+                if [ "$raw_probe_status" -ne 0 ] || [ -n "$raw_probe_result" ]; then
                   masked='[REDACTED]'
                   output_fully_masked=1
                 fi
