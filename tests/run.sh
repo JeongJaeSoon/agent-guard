@@ -14032,6 +14032,8 @@ fi
 # dumps without hiding equally large benign binary-ish output.
 run_expect 0 "exec raw probe failures preserve fail-closed output and command status" \
   sh "$ROOT/tests/exec-raw-probe-failure.sh"
+run_expect 0 "exec framing boundary failures preserve fail-closed output and command status" \
+  sh "$ROOT/tests/exec-framing-boundary.sh"
 "$PLUGIN_ROOT/bin/agent-guard" exec -- sh -c '
   printf "\377\n"
   awk "BEGIN { for (i = 0; i < 5000; i++) print \"PASSWORD=value-1234567890-\" i }"

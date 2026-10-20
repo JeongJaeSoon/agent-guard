@@ -1,6 +1,6 @@
 # Direct framing producer contracts
 
-`make test-unit` runs 35 core assertions and 18 framing assertions.
+`make test-unit` runs 140 direct assertions: core 35, framing 18, deny-path 83 and probe 4.
 `sh tests/unit-framing.sh` runs only the framing producer contracts, directly
 against extracted production function bodies without CLI startup.
 
@@ -42,10 +42,16 @@ all security/OS integration assertions and real-scanner gates remain. No runtime
 public API, workflow permission or required-check change is made. Adding tests
 is not evidence of a full-CI speedup.
 
-No source-line or branch percentage was measured for these producers. The
-[previous four-line Bash measurement](coverage-core.md) applies only to the
-version/quoting functions; it must not be extended to this suite. Assertions and
-selected mutations are behavior evidence, not a source-coverage percentage.
+The [scoped Bash observation](coverage-core.md) retains the previous four-line
+measurement as historical evidence and now separately observes the shell
+invocation locations of both framing producers. It does not measure the jq/awk
+programs inside them or establish producer branch coverage. Assertions and
+selected mutations remain behavior evidence.
+
+The separate [exec boundary regression](exec-framing-boundary.md) tests caller
+failure handling at exactly 65536 captured bytes, with 65535/65537-byte routing
+controls. Direct producer tests alone cannot prove that an enclosing pipeline
+preserves the producer's failure status.
 
 The current local Apple awk is 20200816; GNU awk and kcov are absent, and the
 installed Apple awk manual exposes no profiler. GNU awk's official
