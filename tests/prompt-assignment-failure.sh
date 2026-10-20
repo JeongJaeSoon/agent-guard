@@ -47,16 +47,16 @@ export PATH
 pass=0 fail=0
 ok() { pass=$((pass + 1)); printf 'ok - %s\n' "$*"; }
 bad() { fail=$((fail + 1)); printf 'not ok - %s\n' "$*"; }
-secret='DB_PASSWORD=assignment-probe-synthetic-value'
+assignment='DB_PASSWORD=assignment-probe-synthetic-value'
 clean='ordinary benign prompt'
 for kind in clean secret clean-lines secret-lines clean-controls secret-controls; do
   case $kind in
     clean) value=$clean expected=1 ;;
-    secret) value=$secret expected=0 ;;
+    secret) value=$assignment expected=0 ;;
     clean-lines) value=$(printf 'ordinary\nbenign\n\n.'); value=${value%.}; expected=1 ;;
-    secret-lines) value=$(printf '%s\n\n.' "$secret"); value=${value%.}; expected=0 ;;
+    secret-lines) value=$(printf '%s\n\n.' "$assignment"); value=${value%.}; expected=0 ;;
     clean-controls) value=$(printf 'ordinary\036\037benign'); expected=1 ;;
-    secret-controls) value=$(printf '%s\036\037suffix' "$secret"); expected=0 ;;
+    secret-controls) value=$(printf '%s\036\037suffix' "$assignment"); expected=0 ;;
   esac
   : >"$INJECT_LOG"
   status=0
@@ -68,7 +68,7 @@ done
 for stage in producer detector producer-partial detector-partial; do
   : >"$INJECT_LOG"
   status=0
-  INJECT_STAGE=$stage sh "$CASE/probe.sh" "$secret" >"$CASE/out" 2>"$CASE/err" || status=$?
+  INJECT_STAGE=$stage sh "$CASE/probe.sh" "$assignment" >"$CASE/out" 2>"$CASE/err" || status=$?
   if [ "$(cat "$INJECT_LOG")" != "$stage" ]; then
     bad "direct $stage injection did not hit exactly once"
   elif [ "$status" -gt 1 ]; then
@@ -79,7 +79,7 @@ for host in claude codex; do
   for policy in open closed; do
     for kind in clean secret producer detector producer-partial detector-partial; do
       stage=
-      case $kind in clean) value=$clean expected=0 ;; secret) value=$secret expected=2 ;; *) value=$secret stage=$kind; case $policy in open) expected=0 ;; closed) expected=2 ;; esac ;; esac
+      case $kind in clean) value=$clean expected=0 ;; secret) value=$assignment expected=2 ;; *) value=$assignment stage=$kind; case $policy in open) expected=0 ;; closed) expected=2 ;; esac ;; esac
       : >"$INJECT_LOG"
       jq -nc --arg p "$value" --arg s "$host-$policy-$kind" '{prompt:$p,session_id:$s}' >"$CASE/input"
       status=0
