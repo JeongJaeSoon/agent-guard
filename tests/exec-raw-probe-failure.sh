@@ -62,6 +62,7 @@ for mode in normal fail partial; do
     want_injected=$mode
     [ "$mode" != normal ] || want_injected=
     if [ "$status" -eq 7 ] && cmp -s "$expected" "$CASE/out" \
+       && ! LC_ALL=C grep -Fq "raw-probe-synthetic-value" "$CASE/err" \
        && [ "$(cat "$RAW_PROBE_CALLS")" = "$mode" ] \
        && [ "$injected" = "$want_injected" ]; then
       pass=$((pass+1))

@@ -61,7 +61,8 @@ for kind in clean secret clean-lines secret-lines clean-controls secret-controls
   : >"$INJECT_LOG"
   status=0
   INJECT_STAGE= sh "$CASE/probe.sh" "$value" >"$CASE/out" 2>"$CASE/err" || status=$?
-  if [ "$status" -eq "$expected" ] && [ ! -s "$INJECT_LOG" ]; then
+  if [ "$status" -eq "$expected" ] && [ ! -s "$INJECT_LOG" ] \
+    && ! LC_ALL=C grep -Fq "assignment-probe-synthetic-value" "$CASE/out" "$CASE/err"; then
     ok "direct $kind control status=$status"
   else bad "direct $kind control expected=$expected actual=$status"; fi
 done
@@ -71,7 +72,8 @@ for stage in producer detector producer-partial detector-partial; do
   INJECT_STAGE=$stage sh "$CASE/probe.sh" "$assignment" >"$CASE/out" 2>"$CASE/err" || status=$?
   if [ "$(cat "$INJECT_LOG")" != "$stage" ]; then
     bad "direct $stage injection did not hit exactly once"
-  elif [ "$status" -gt 1 ]; then
+  elif [ "$status" -gt 1 ] \
+    && ! LC_ALL=C grep -Fq "assignment-probe-synthetic-value" "$CASE/out" "$CASE/err"; then
     ok "direct $stage error remains distinguishable from clean status=$status"
   else bad "direct $stage error collapsed to status=$status (injected exit=23)"; fi
 done
@@ -98,6 +100,21 @@ for host in claude codex; do
       else
         [ ! -s "$INJECT_LOG" ] || matched=no
         case $kind in clean) [ ! -s "$CASE/out" ] && [ ! -s "$CASE/err" ] || matched=no ;; secret) grep -q 'contains secret-like values' "$CASE/err" || matched=no ;; esac
+      fi
+      # With AI_AGENT unset, both hosts block via exit 2 and stderr only.
+      # Only an open-policy infrastructure failure emits a JSON notice here.
+      # Slurping rejects multiple top-level responses as well as invalid JSON.
+      if [ -n "$stage" ] && [ "$policy" = open ]; then
+        jq -se 'length == 1 and (.[0] | type == "object" and
+          (.hookSpecificOutput | type == "object" and
+            .hookEventName == "UserPromptSubmit" and
+            (.additionalContext | type == "string" and length > 0)))' \
+          "$CASE/out" >/dev/null 2>&1 || matched=no
+      else
+        [ ! -s "$CASE/out" ] || matched=no
+      fi
+      if LC_ALL=C grep -Fq 'assignment-probe-synthetic-value' "$CASE/out" "$CASE/err"; then
+        matched=no
       fi
       if [ "$status" -eq "$expected" ] && [ "$matched" = yes ]; then
         ok "$host $policy $kind status=$status"
