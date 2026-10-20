@@ -111,6 +111,12 @@ export AGENT_GUARD_GITLEAKS_BIN_DIR="$DEFAULT_PRIVATE_GITLEAKS_DIR"
 cp "$ROOT/tests/fixtures/mock-gitleaks" "$MOCK_BIN/gitleaks"
 chmod +x "$MOCK_BIN/gitleaks"
 
+# Shared by the secret-output and PII-output groups in separate partitions.
+post_tool_out() {
+  printf '%s' "$1" | (cd "$TMP_ROOT" && "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool) \
+    >"$OUT" 2>"$ERR"
+}
+
 # CI runs the suite as parallel jobs, one per AGENT_GUARD_TEST_SHARD value;
 # unset runs every shard in order. A shard skips the other shards' blocks, so it
 # must build its own fixtures rather than reuse one an earlier shard created.
@@ -10308,11 +10314,6 @@ run_expect 0 "framed leaf fast path preserves detector records and errors" sh "$
 # a non-git dir so the mutation-tool working-tree backstop stays inert and these
 # assertions isolate the redaction path. The harness mock gitleaks flags
 # AGENT_GUARD_TEST_SECRET; the env-assignment heuristic catches KEY=value dumps.
-post_tool_out() {
-  printf '%s' "$1" | (cd "$TMP_ROOT" && "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool) \
-    >"$OUT" 2>"$ERR"
-}
-
 # Execute the generated Claude command with synthetic events to prove the
 # manifest-command/handler contract. This does not prove Claude runtime
 # dispatch; the matcher checks above are a structural approximation of that
@@ -13333,6 +13334,10 @@ else
   printf '%s\n' "$post_out" | sed 's/^/  out: /'
 fi
 
+fi # end of shard 4
+
+if in_shard 3; then
+# This group owns its fixtures and shares only the common harness helpers.
 # --- PII output masking (PostToolUse, AGENT_GUARD_PII_HOOK_MODE=mask) ---------
 # Masks PII in a tool's RESULT (parallel to secret redaction). Run from the
 # non-git TMP_ROOT so the mutation backstop stays inert.
@@ -13733,6 +13738,9 @@ else
   printf '%s\n' "  out : $skip_exec"
 fi
 
+fi # end of shard 3
+
+if in_shard 4; then
 # --- agent-guard exec (shell-escape output masking) --------------------------
 # `agent-guard exec` runs a command and masks secret-like values in its captured
 # output before printing. Secret VALUE assembled at runtime from fragments so this

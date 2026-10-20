@@ -25,8 +25,8 @@ The internal IDs select execution partitions; Actions displays descriptive names
 | --- | --- | --- |
 | 1 | Core, host adapters and Git (with 3) | Unchanged |
 | 2 | Command policies and shell navigation (with 5) | Adds git aliases and three mask suites previously in 3 |
-| 3 | Core, host adapters and Git (with 1) | Retains auto-staging regression cases |
-| 4 | CLI, scanner and output | Retains scanner integration; adds original 5 output, PII and shell-setup cases |
+| 3 | Core, host adapters and Git (with 1) | Auto-staging and the independent PII output, false-positive and opt-out contracts |
+| 4 | CLI, scanner and output | Scanner integration, secret output, exec and shell-setup cases; PII output contracts run in 3 |
 | 5 | Command policies and shell navigation (with 2) | Runs shell-navigation cases previously in 4 |
 
 Regression assertion bodies and their unpartitioned execution order stay
@@ -118,6 +118,24 @@ so they do not interleave. Hosted-runner teardown handles job cancellation.
 No internal timeout is relaxed. This uses the existing runner CPUs; contention
 can offset the reduction in runner lifetimes. Actual timing comparisons are
 required before claiming a saving; job count alone is not a cost measurement.
+
+## PII output group placement
+
+The 43 top-level assertions from PII output masking through the PII opt-out
+contracts run in partition 3, inside the existing core bundle. Their assertion
+bodies and unpartitioned execution order are unchanged. The output-hook helper
+is shared through the common harness; the group creates its own temporary
+fixtures and does not rely on partition 4 having executed.
+
+This moves work off the macOS scanner critical path without adding runners or
+workers. At head `2c1fe967`, complete CI attempts 1–3 took 420, 543 and 495
+seconds (median 495); the macOS scanner test step in attempts 2–3 took 515 and
+470 seconds, while the core jobs took 268 and 255 seconds. The unchanged PII
+group alone passed 43 assertions in 15.93 seconds on a local macOS host.
+That isolated measurement is not a hosted-runner speedup estimate. Compare
+three complete candidate runs before claiming the eight-minute median target
+is met. The runner labels remain unchanged, so hosted image and hardware
+variability remain part of that measurement.
 
 See [Test layers and coverage](testing.md) for the distinction between execution
 partitions, test-pyramid layers, assertion inventories and code coverage.
