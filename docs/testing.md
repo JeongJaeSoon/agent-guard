@@ -10,7 +10,7 @@ units, not security tiers or test-pyramid layers.
 | Layer | Existing entry points | What they establish |
 | --- | --- | --- |
 | Static and packaging | ShellCheck, actionlint, plugin/layout and submission validators | Shell/workflow errors and packaging contracts |
-| Direct function contracts | `make test-unit`: `unit-core.sh`, `unit-framing.sh`, `unit-deny-path.sh`, `unit-probe.sh` | **140 assertions**: core 35, framing 18, deny-path producers 83, probe eligibility 4; extracted production bodies without CLI startup |
+| Direct function contracts | `make test-unit`: `unit-core.sh`, `unit-framing.sh`, `unit-deny-path.sh`, `unit-probe.sh`, `unit-status-label.sh` | **162 assertions**: core 35, framing 18, deny-path producers 83, probe eligibility 4, status-label classification 22; extracted production bodies without CLI startup |
 | Focused failure regressions | `prompt-assignment-failure.sh`, `exec-raw-probe-failure.sh`, `exec-framing-boundary.sh` | Prompt direct/host-policy regressions 34; raw exec regressions 7; bounded exec framing regressions 24. These are separate from the 140 direct assertions |
 | Narrow component comparisons | `tests/framed-leaves.sh` | Framing fast path versus byte-decoder reference, escaping, byte boundaries and explicit detector expectations |
 | CLI contracts | `tests/deny-read-mask*.sh`, `source-module-prose.sh`, `hook-outcome-contract.sh`, `gitleaks-resolution.sh`, `audit-log.sh` | Exit status, host payloads, diagnostics, masking and infrastructure policy through the CLI |
@@ -18,7 +18,7 @@ units, not security tiers or test-pyramid layers.
 | Deployment and service integration | `make smoke-test`, archive/Homebrew validation, opt-in `make test-pleno-integration` | Real scanner/tool dependencies, installation and configured service boundaries |
 | Authenticated host E2E | Separate Claude/Codex host-dispatch verification | Host loads and invokes the installed adapter; direct CLI calls or selecting a host environment variable do not establish this |
 
-`make test-unit` runs all four direct suites; `make test` includes them once
+`make test-unit` runs all five direct suites; `make test` includes them once
 in partition 1 and retains the full integration suite. To investigate one partition, use
 `AGENT_GUARD_TEST_SHARD=2 tests/run.sh`; this is a local diagnostic selection,
 not a substitute for the complete CI gates. Narrow scripts can also run with
@@ -32,7 +32,7 @@ Keep HOME, warning/session state, Git repositories and output files isolated.
 Do not cache a passing result, share mutable repositories across cases, or
 replace a real OS boundary with a mock merely to shorten the suite.
 
-## Current local cost inventory (2026-10-20)
+## Prior four-suite cost inventory (2026-10-20)
 
 These sequential, uninstrumented macOS arm64 observations use the repository
 CLI and synthetic test fixtures; they are not budgets, guarantees or CI speedup
@@ -126,3 +126,8 @@ tests to unit tests just to improve the pyramid shape.
 This document introduces no framework, coverage service, credentials, new
 required check or reduction in the existing suite. CI performance changes own
 their test helpers; future unit/module changes should use separate small PRs.
+
+The [status-label family mapping](status-label-tests.md) records the subsequent
+move of pure classification variants to 22 direct assertions, five retained CLI
+representatives, equivalence and selected mutation controls. It does not change
+the historical four-suite timing or scoped Bash observation above.

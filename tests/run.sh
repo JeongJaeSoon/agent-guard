@@ -131,6 +131,7 @@ run_expect 0 "core function contracts" sh "$ROOT/tests/unit-core.sh"
 run_expect 0 "framing producer contracts" sh "$ROOT/tests/unit-framing.sh"
 run_expect 0 "deny-path character producer contracts" sh "$ROOT/tests/unit-deny-path.sh"
 run_expect 0 "probe eligibility contracts" sh "$ROOT/tests/unit-probe.sh"
+run_expect 0 "status-label classification contracts" sh "$ROOT/tests/unit-status-label.sh"
 suite_shards=$(sed -n 's/^if in_shard \([0-9]*\); then$/\1/p' "$ROOT/tests/run.sh" | sort -u | tr '\n' ' ')
 ci_shards=$(sed -n "s/^ *shards: '\([0-9 ][0-9 ]*\)'$/\1/p" "$ROOT/.github/workflows/ci.yml" | tr ' ' '\n' | sort | tr '\n' ' ')
 if [ -n "$suite_shards" ] && [ "$suite_shards" = "$ci_shards" ]; then
@@ -11176,6 +11177,8 @@ for display_case in \
   fi
 done
 
+# Pure classification variants are table-driven in unit-status-label.sh.
+# Keep five CLI representatives here; see docs/status-label-tests.md for mapping.
 # #156: a status label alone must not buy a pass. The label is identical in
 # `error: password: authentication is disabled` (prose, covered above) and in
 # `error: password: <credential>`, so the VALUE decides. These values are the
@@ -11183,70 +11186,49 @@ done
 # exactly the gap the allowlist left open: anything gitleaks recognises was
 # already masked regardless of the label.
 LABEL_SECRET=$(printf '%s%s' 'hunter2-' 'long-value')
-for display_case in \
-  "error: password: $LABEL_SECRET" \
-  "warning: db_password: $LABEL_SECRET" \
-  "WARNING: client_secret: $LABEL_SECRET" \
-  "fatal: api_key: $LABEL_SECRET" \
-  "info: refresh_token: $LABEL_SECRET" \
-  "response: error: api_key: $LABEL_SECRET" \
-  "2026-08-02 10:00:00 ERROR: password: $LABEL_SECRET"; do
-  display_input=$(jq -nc --arg stdout "$display_case" \
-    '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
-  post_tool_out "$display_input"
-  post_out=$(cat "$OUT")
-  if printf '%s' "$post_out" | grep -q '\[REDACTED\]' \
-     && ! printf '%s' "$post_out" | grep -Fq "$LABEL_SECRET"; then
-    ok "#156 post-tool masks a gitleaks-invisible secret behind a status label (${display_case%%:*})"
-  else
-    not_ok "#156 post-tool masks a gitleaks-invisible secret behind a status label (${display_case%%:*})"
-    printf '%s\n' "$post_out" | sed 's/^/  out: /'
-  fi
-done
+display_case="error: password: $LABEL_SECRET"
+display_input=$(jq -nc --arg stdout "$display_case" \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$display_input"
+post_out=$(cat "$OUT")
+if printf '%s' "$post_out" | grep -q '\[REDACTED\]' \
+   && ! printf '%s' "$post_out" | grep -Fq "$LABEL_SECRET"; then
+  ok "#156 post-tool masks a gitleaks-invisible secret behind a status label (${display_case%%:*})"
+else
+  not_ok "#156 post-tool masks a gitleaks-invisible secret behind a status label (${display_case%%:*})"
+  printf '%s\n' "$post_out" | sed 's/^/  out: /'
+fi
 
 # #156 must-not-mask companions: the value-side gate decides on SHAPE, so an
 # ordinary word, a path, a number and a timestamp after a status label all stay
 # visible. Without these the gate could be made to pass by masking everything.
-for display_case in \
-  'error: secret: not-found' \
-  'warning: private_key: /path/to/configured/key' \
-  'error: token: 2026-08-30T10:00:00' \
-  'fatal: password: 10:00:00' \
-  'warning: api_key: Missing' \
-  'info: credential: unauthenticated'; do
-  display_input=$(jq -nc --arg stdout "$display_case" \
-    '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
-  post_tool_out "$display_input"
-  post_status=$?
-  if [ "$post_status" -eq 0 ] && [ ! -s "$OUT" ]; then
-    ok "#156 post-tool leaves a non-credential value after a status label untouched (${display_case##*: })"
-  else
-    not_ok "#156 post-tool leaves a non-credential value after a status label untouched (${display_case##*: })"
-    sed 's/^/  out: /' "$OUT"
-  fi
-done
+display_case='error: secret: not-found'
+display_input=$(jq -nc --arg stdout "$display_case" \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$display_input"
+post_status=$?
+if [ "$post_status" -eq 0 ] && [ ! -s "$OUT" ]; then
+  ok "#156 post-tool leaves a non-credential value after a status label untouched (${display_case##*: })"
+else
+  not_ok "#156 post-tool leaves a non-credential value after a status label untouched (${display_case##*: })"
+  sed 's/^/  out: /' "$OUT"
+fi
 
 # A QUOTED value is the whole message, so the class tests have to ask whether a
 # letter and a digit belong to the same token rather than whether both occur
 # somewhere in the string. Without that, an ordinary validation message behind a
 # status label was rewritten to `"[REDACTED]"`.
-for display_case in \
-  'error: password: "must be at least 8 characters"' \
-  'warning: token: "expires in 3600 seconds"' \
-  'error: api_key: "not found in profile 2"' \
-  'fatal: secret: "rotate within 90 days"' \
-  'info: credential: "Check Your Settings Page"'; do
-  display_input=$(jq -nc --arg stdout "$display_case" \
-    '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
-  post_tool_out "$display_input"
-  post_status=$?
-  if [ "$post_status" -eq 0 ] && [ ! -s "$OUT" ]; then
-    ok "#156 post-tool leaves a quoted multi-word message after a status label untouched (${display_case%%:*})"
-  else
-    not_ok "#156 post-tool leaves a quoted multi-word message after a status label untouched (${display_case%%:*})"
-    sed 's/^/  out: /' "$OUT"
-  fi
-done
+display_case='error: password: "must be at least 8 characters"'
+display_input=$(jq -nc --arg stdout "$display_case" \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$display_input"
+post_status=$?
+if [ "$post_status" -eq 0 ] && [ ! -s "$OUT" ]; then
+  ok "#156 post-tool leaves a quoted multi-word message after a status label untouched (${display_case%%:*})"
+else
+  not_ok "#156 post-tool leaves a quoted multi-word message after a status label untouched (${display_case%%:*})"
+  sed 's/^/  out: /' "$OUT"
+fi
 
 # The date/clock exclusions must be anchored at BOTH ends. Unanchored, any value
 # merely STARTING with an ISO date escaped the gate entirely — a date-prefixed
@@ -11264,22 +11246,17 @@ else
   printf '%s\n' "$post_out" | sed 's/^/  out: /'
 fi
 
-for display_case in \
-  'error: token: 2026-08-30' \
-  'error: token: 2026-08-30T10:00:00Z' \
-  'error: token: 2026-08-30T10:00:00.123+09:00' \
-  'fatal: password: 10:00:00'; do
-  display_input=$(jq -nc --arg stdout "$display_case" \
-    '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
-  post_tool_out "$display_input"
-  post_status=$?
-  if [ "$post_status" -eq 0 ] && [ ! -s "$OUT" ]; then
-    ok "#156 post-tool leaves a complete date/clock value untouched (${display_case##*: })"
-  else
-    not_ok "#156 post-tool leaves a complete date/clock value untouched (${display_case##*: })"
-    sed 's/^/  out: /' "$OUT"
-  fi
-done
+display_case='error: token: 2026-08-30T10:00:00Z'
+display_input=$(jq -nc --arg stdout "$display_case" \
+  '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
+post_tool_out "$display_input"
+post_status=$?
+if [ "$post_status" -eq 0 ] && [ ! -s "$OUT" ]; then
+  ok "#156 post-tool leaves a complete date/clock value untouched (${display_case##*: })"
+else
+  not_ok "#156 post-tool leaves a complete date/clock value untouched (${display_case##*: })"
+  sed 's/^/  out: /' "$OUT"
+fi
 
 # A value that passes the shape gate is masked GLOBALLY, like one found behind
 # any other label — scoping it to the labelled line left a recurrence visible.

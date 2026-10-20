@@ -1,6 +1,6 @@
 # Direct framing producer contracts
 
-`make test-unit` runs 140 direct assertions: core 35, framing 18, deny-path 83 and probe 4.
+`make test-unit` runs 162 direct assertions: core 35, framing 18, deny-path 83, probe 4 and status-label 22.
 `sh tests/unit-framing.sh` runs only the framing producer contracts, directly
 against extracted production function bodies without CLI startup.
 
