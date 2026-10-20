@@ -10622,10 +10622,12 @@ prompt_guard_mode() {
 # assignment probe. The probe is what catches a pasted .env whose custom value
 # formats gitleaks has no rule for — the single most common prompt-leak shape.
 prompt_has_secretish_assignment() {
-  printf '%s' "$1" \
-    | frame_plaintext_leaf 2>/dev/null \
-    | secretish_env_values probe \
-    | grep -q .
+  # Check each stage before consuming its output: a POSIX pipeline otherwise
+  # turns producer/detector failure into grep's ordinary no-match status.
+  # Framing ends with RS, so command substitution preserves its trailing LFs.
+  prompt_assignment_framed=$(printf '%s' "$1" | frame_plaintext_leaf 2>/dev/null) || return 2
+  prompt_assignment_result=$(printf '%s' "$prompt_assignment_framed" | secretish_env_values probe) || return 2
+  [ -n "$prompt_assignment_result" ]
 }
 
 # The single hook response, whatever combination of facts produced it. A hook
@@ -10724,8 +10726,18 @@ hook_user_prompt() {
       begin_infrastructure_failure "$input" \
         "$PROGRAM: the prompt exceeds the assignment-probe scan cap (gitleaks rules were still applied);"
       notice=${notice:-$INFRA_FAILURE_NOTICE}
-    elif prompt_has_secretish_assignment "$prompt"; then
-      found=1
+    else
+      prompt_probe_status=0
+      prompt_has_secretish_assignment "$prompt" || prompt_probe_status=$?
+      case "$prompt_probe_status" in
+        0) found=1 ;;
+        1) ;;
+        *)
+          begin_infrastructure_failure "$input" \
+            "$PROGRAM: the prompt assignment probe failed;"
+          notice=${notice:-$INFRA_FAILURE_NOTICE}
+          ;;
+      esac
     fi
   fi
   if [ "$found" -ne 1 ]; then
