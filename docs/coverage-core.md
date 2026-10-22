@@ -95,7 +95,7 @@ service, token or runtime change. It is a reproducible observation, not a
 replacement for the existing cross-platform integration suite.
 
 
-## Current eight-function observation (2026-10-20)
+## Recorded eight-function observation (2026-10-20)
 
 The historical 4/4 above is unchanged. This separate observation runs the four
 current direct suites (35 + 18 + 83 + 4 = **140 assertions**) using installed

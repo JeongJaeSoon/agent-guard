@@ -63,7 +63,7 @@ runner capacity and OS differences and requires its own exact-head evidence.
 
 There is no automatic line/branch coverage collector or percentage gate in
 these workflows. A local [scoped source-line measurement](coverage-core.md)
-retains the historical 4/4 result and adds a current eight-function observation:
+retains the historical 4/4 result and records an eight-function observation from 2026-10-20:
 **39/40 predetermined physical Bash source locations**, with a definition-only
 control at **0/40**. This excludes embedded programs and is not whole-file,
 repository or branch coverage. `bench/run.sh` reports behavior on synthetic leak-prevention
