@@ -4884,6 +4884,13 @@ shellcd_case claude secret Ux 'cd ~1 && git commit -m x' a
 shellcd_case codex secret Ux 'HOME=. cd ~ && git commit -m x' a
 # Any earlier command may change HOME; this one does not, but stays unknown.
 shellcd_case claude secret U2 'true; cd ~ && git commit -m x'
+# A command in a subshell cannot change this shell's HOME; one in the same
+# subshell as the cd can.
+for sc_host in claude codex; do
+  shellcd_case "$sc_host" secret 2 '(true); cd ~ && git commit -m x'
+  shellcd_case "$sc_host" clean 0 '(true); cd ~ && git commit -m x'
+  shellcd_case "$sc_host" secret U2 '(HOME=. ; cd ~ && git commit -m x)' a
+done
 # A HOME that is empty, unset or relative is not followed.
 SC_HOME=.
 shellcd_case codex secret U2 'cd ~ && git commit -m x' a
@@ -4899,6 +4906,7 @@ printf '%s\n' "AGENT_GUARD_TEST_SECRET" > "$SHELLCD_ROOT/a/untracked.conf"
 for sc_host in claude codex; do
   shellcd_case "$sc_host" clean 0 'git commit -m x -- "~nofile"' a
   shellcd_case "$sc_host" clean 0 'git commit -m x -- \~nofile' a
+  shellcd_case "$sc_host" clean 0 "git commit -m x -- '~no file'" a
 done
 rm "$SHELLCD_ROOT/a/untracked.conf"
 # Absolute and relative -C operands are still followed.
