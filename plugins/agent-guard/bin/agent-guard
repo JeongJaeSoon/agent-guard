@@ -6186,7 +6186,10 @@ $shell_cd_dir"
           # xargs appends words read from stdin, which may be any argument.
           [ "$wrapper" = xargs ] && xargs_wrapped=1
           # sudo may run git with another HOME, and without GIT_DIR.
-          [ "$wrapper" = sudo ] && git_env_dynamic=1 && git_target_dynamic=1
+          if [ "$wrapper" = sudo ]; then
+            git_env_dynamic=1
+            [ -z "$git_target_args" ] || git_target_dynamic=1
+          fi
           shift
           while [ "$#" -gt 0 ]; do
             record=$1
@@ -6224,7 +6227,7 @@ $shell_cd_dir"
                   # -i and -u remove variables that locate git configuration.
                   env:-|env:--ignore-environment|env:--unset|env:--unset=*|env:-[!-]*[iu]*|env:-[iu]*)
                     git_env_dynamic=1
-                    git_target_dynamic=1
+                    [ -z "$git_target_args" ] || git_target_dynamic=1
                     env_split=
                     ;;
                   *) env_split= ;;

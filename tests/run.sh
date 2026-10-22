@@ -5115,6 +5115,7 @@ for sc_host in claude codex; do
   shellcd_case "$sc_host" secret U2 'GIT_DIR="$PWD/../b/.git" GIT_WORK_TREE=../b git commit -m x'
   shellcd_case "$sc_host" secret U2 'export GIT_DIR=../b/.git GIT_WORK_TREE=../b; git commit -m x'
   shellcd_case "$sc_host" secret U2 'GIT_DIR=~/.git git commit -m x'
+  shellcd_case "$sc_host" secret U0 'GIT_DIR=../b/.git env -u GIT_DIR git commit -m x'
 done
 
 # The push gate follows the cd too. Nothing is committed, so the verdict is
