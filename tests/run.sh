@@ -4846,6 +4846,8 @@ for sc_host in claude codex; do
     'cd ~/"my dir" && git commit -m x' \
     'cd ~/s"u"b && git commit -m x ../settings.conf' \
     'cd /tmp && cd ~ && git commit -m x' \
+    'SC_X=1 cd ~ && git commit -m x' \
+    'SC_X=1; cd ~ && git commit -m x' \
     'cd ~ && git commit -m x && git push --dry-run origin main'
   do
     shellcd_case "$sc_host" secret 2 "$sc_command"
@@ -4867,6 +4869,7 @@ for sc_command in \
   'cd "~/sub" && git commit -m x' \
   'cd ~"/sub" && git commit -m x' \
   'cd ~+ && git commit -m x' \
+  'SC_X=1 cd "~" && git commit -m x' \
   'HOME=. ; cd ~ && git commit -m x' \
   'export HOME=.; cd ~ && git commit -m x'
 do
@@ -4907,6 +4910,7 @@ for sc_host in claude codex; do
   shellcd_case "$sc_host" clean 0 'git commit -m x -- "~nofile"' a
   shellcd_case "$sc_host" clean 0 'git commit -m x -- \~nofile' a
   shellcd_case "$sc_host" clean 0 "git commit -m x -- '~no file'" a
+  shellcd_case "$sc_host" clean 0 'git commit -m cd -- "~nofile"' a
 done
 rm "$SHELLCD_ROOT/a/untracked.conf"
 # Absolute and relative -C operands are still followed.

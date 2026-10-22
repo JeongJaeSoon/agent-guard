@@ -4808,7 +4808,8 @@ shell_command_words() {
 # or 1 for one whose expansion may split into several words, or into none;
 # malformed input is emitted as 2. A quoted or escaped `;`, `&&`, `||` or `|`
 # is a 4 too, so that no caller mistakes it for the operator. With $2 set to
-# tilde, so is a word after `cd` or `pushd` that starts with `~` and has a
+# tilde, so is a word after a `cd` or `pushd` command name (past any
+# assignment-shaped words, quoted or not) that starts with `~` and has a
 # quoted or escaped part before its first unquoted `/`: only an unquoted tilde
 # prefix expands to $HOME alike in every shell (zsh expands `~"/x"`). A bare `&` or a `( ) { }` character is emitted on its own with
 # prefix 3: a command boundary for most callers, but the commit argument parser
@@ -4833,13 +4834,14 @@ git_command_records() {
         }
       }
       print (splits ? "1" : dynamic || word ~ /^(;|&&|\|\||\|)$/ || tilde != "" && cd_args && quoted && word ~ /^~/ ? "4" : "0") word
-      if (word == "cd" || word == "pushd") cd_args = 1
+      if (!at_word && (word == "cd" || word == "pushd")) cd_args = 1
+      if (word !~ /^[A-Za-z_][A-Za-z0-9_]*=/) at_word = 1
       if (word == "[[") in_test = 1
       if (word == "]]") in_test = 0
       word = ""; started = 0; dynamic = 0; splits = 0; quoted = 0; slashed = 0
     }
     NR > 1 {
-      if (quote == "") { emit(); print "0;"; cd_args = 0 }
+      if (quote == "") { emit(); print "0;"; cd_args = 0; at_word = 0 }
       else { word = word " "; dynamic = 1 }
       heredoc_expect = 0; heredoc_quoted = 0
     }
@@ -4909,7 +4911,7 @@ git_command_records() {
           emit()
           if ((c == "|" || c == "&") && n == c) { print "0" c c; i++ }
           else print "0" c
-          cd_args = 0
+          cd_args = 0; at_word = 0
           continue
         }
         # Bare &, newline-free ( ) { } grouping: treat as a command boundary so
@@ -4920,7 +4922,7 @@ git_command_records() {
           # group in a `[[ =~ ]]` pattern do not.
           if (c == "(") parens = parens (started || in_test ? "w" : "s")
           if (c == ")") { closed = substr(parens, length(parens)); parens = substr(parens, 1, length(parens) - 1) }
-          emit(); print "3" c; cd_args = 0; continue
+          emit(); print "3" c; cd_args = 0; at_word = 0; continue
         }
         if (c == "$" || c == "`") { dynamic = 1; splits = 1 }
         if (c == "/") slashed = 1
@@ -5867,6 +5869,8 @@ $effective_c_dirs" "$git_config_args" "$git_env_args"
       if [ "$command_start" -eq 1 ]; then
         case "$record_kind$token" in
           0cd|0pushd|3*|0';'|0'&&'|0'||'|0'|') ;;
+          0HOME=*) shell_cd_home_known=0 ;;
+          0*=*) is_assignment_token "$token" || shell_cd_home_known=0 ;;
           *) shell_cd_home_known=0 ;;
         esac
         # Strip leading `NAME=value` assignments and no-op wrappers so a wrapped
