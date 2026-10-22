@@ -5,9 +5,9 @@ and `sh_squote` function bodies. This component test needs only POSIX shell,
 awk, sed, cmp and ordinary system utilities; it does not initialize the CLI,
 create a Git repository, install a scanner or invoke a host adapter.
 
-`make test-unit` runs **140 direct assertions**: core 35, [framing](unit-framing.md)
-18, [deny-path character producers](deny-path-regex.md) 83 and probe eligibility 4.
-These four isolated suites are separate from the 34 prompt failure-policy and
+`make test-unit` runs **162 direct assertions**: core 35, [framing](unit-framing.md)
+18, [deny-path character producers](deny-path-regex.md) 83, probe eligibility 4 and [status-label classification](status-label-tests.md) 22.
+These five isolated suites are separate from the 34 prompt failure-policy and
 7 raw exec failure regressions, which exercise additional integration boundaries.
 See [the layer and cost inventory](testing.md) for entry points and current costs.
 
