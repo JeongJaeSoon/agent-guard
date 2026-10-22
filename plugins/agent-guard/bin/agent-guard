@@ -5916,11 +5916,12 @@ $effective_c_dirs" "$git_config_args" "$git_env_args"
             continue
             ;;
         esac
-        # A glob may expand a quoted assignment-shaped name to no word at all
-        # (nullglob), leaving the next word as the command name; whether a cd
-        # after it runs is then unknown.
+        # A glob, literal or from an expansion, may expand a quoted
+        # assignment-shaped name to no word at all (nullglob), leaving the
+        # next word as the command name; whether a cd after it runs is then
+        # unknown.
         case "$record_kind$token" in
-          5*[*?[]*)
+          5*[*?[\$\`]*)
             shell_cd_mutable=1
             shift
             continue
