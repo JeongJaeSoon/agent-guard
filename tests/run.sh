@@ -1519,6 +1519,43 @@ expect_json_status 2 "ripgrep positive glob over a denied extension remains bloc
   '{"tool_name":"Bash","tool_input":{"command":"rg --files -g '\''*.pem'\''"}}' \
   hook-pre-tool
 
+# A star that stands for one entry character must come with a pinned letter.
+# Each case runs through both hosts' native event shapes.
+star_stand_in_fixtures="$ROOT/tests/fixtures/bash-star-stand-in.json"
+star_stand_in_cases="$TESTTMP/bash-star-stand-in.cases"
+star_stand_in_dir="$TESTTMP/bash-star-stand-in"
+mkdir -p "$star_stand_in_dir"
+if jq -e 'type == "array" and length > 0' "$star_stand_in_fixtures" >/dev/null \
+  && jq -c '.[]' "$star_stand_in_fixtures" >"$star_stand_in_cases"; then
+  ok "star stand-in fixture corpus is valid and non-empty"
+else
+  not_ok "star stand-in fixture corpus is valid and non-empty"
+fi
+while IFS= read -r star_stand_in_fixture; do
+  star_stand_in_expected=$(printf '%s' "$star_stand_in_fixture" | jq -r '.expected_status')
+  star_stand_in_name=$(printf '%s' "$star_stand_in_fixture" \
+    | jq -r '.classification + ": " + .description')
+  for star_stand_in_host in claude codex; do
+    case "$star_stand_in_host" in
+      codex) star_stand_in_shape='{tool_name:"Bash",tool_input:{command:$c,workdir:$d}}' ;;
+      *) star_stand_in_shape='{tool_name:"Bash",tool_input:{command:$c},cwd:$d}' ;;
+    esac
+    printf '%s' "$star_stand_in_fixture" \
+      | jq -c --arg d "$star_stand_in_dir" ".command as \$c | $star_stand_in_shape" \
+      | AGENT_GUARD_HOOK_HOST=$star_stand_in_host "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool \
+        >"$OUT" 2>"$ERR"
+    star_stand_in_status=$?
+    if [ "$star_stand_in_status" -eq "$star_stand_in_expected" ] \
+      && { [ "$star_stand_in_expected" -eq 0 ] \
+        || grep -Fq 'reason=bash_protected_path_text_match' "$ERR"; }; then
+      ok "[$star_stand_in_host] $star_stand_in_name"
+    else
+      not_ok "[$star_stand_in_host] $star_stand_in_name (expected $star_stand_in_expected, got $star_stand_in_status)"
+      sed 's/^/  stderr: /' "$ERR"
+    fi
+  done
+done <"$star_stand_in_cases"
+
 expect_json_status 2 "literal bang-prefixed denied path remains blocked" \
   '{"tool_name":"Bash","tool_input":{"command":"cat '\''!secret.pem'\''"}}' \
   hook-pre-tool
