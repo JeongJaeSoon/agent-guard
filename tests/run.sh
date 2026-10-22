@@ -14214,6 +14214,8 @@ fi
 
 # One invalid byte can force the raw fallback. Bound secret-bearing assignment
 # dumps without hiding equally large benign binary-ish output.
+run_expect 0 "exec raw probe failures preserve fail-closed output and command status" \
+  sh "$ROOT/tests/exec-raw-probe-failure.sh"
 "$PLUGIN_ROOT/bin/agent-guard" exec -- sh -c '
   printf "\377\n"
   awk "BEGIN { for (i = 0; i < 5000; i++) print \"PASSWORD=value-1234567890-\" i }"
