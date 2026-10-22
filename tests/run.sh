@@ -4895,9 +4895,9 @@ unset SC_HOME
 rm "$SHELLCD_ROOT/a/~"
 # Absolute and relative -C operands are still followed.
 for sc_host in claude codex; do
-  for sc_mode in secret:2 clean:0; do
-    shellcd_case "$sc_host" "${sc_mode%:*}" "${sc_mode#*:}" "git -C $SHELLCD_ROOT/b commit -m x"
-    shellcd_case "$sc_host" "${sc_mode%:*}" "${sc_mode#*:}" 'git -C sub commit -m x' a
+  for sc_pair in secret:2 clean:0; do
+    shellcd_case "$sc_host" "${sc_pair%:*}" "${sc_pair#*:}" "git -C $SHELLCD_ROOT/b commit -m x"
+    shellcd_case "$sc_host" "${sc_pair%:*}" "${sc_pair#*:}" 'git -C sub commit -m x' a
   done
 done
 shellcd_case claude secret U2 "cd \$'../b' && git commit -m x"
