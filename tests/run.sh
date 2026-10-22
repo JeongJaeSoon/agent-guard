@@ -4994,6 +4994,46 @@ shellcd_case codex secret 2 "/usr/bin/env git commit -m x" a
 shellcd_case claude secret UF 'git commit -m x; cd $SC_UNSET_DIR && git commit -m y' a
 shellcd_case codex secret UF 'eval "$(true)"; git commit -m x' a
 
+# A word whose name part is quoted or escaped is a command name, not an
+# assignment, so the cd after it is one of its arguments and git commits in a.
+for sc_host in claude codex; do
+  for sc_command in \
+    '"SC_X=1" cd ../b; git commit -m x' \
+    "'SC_X=1' cd ../b; git commit -m x" \
+    'SC_X\=1 cd ../b; git commit -m x' \
+    '\SC_X=1 cd ../b; git commit -m x' \
+    'SC_"X"=1 cd ../b; git commit -m x' \
+    "\"SC_X\"=1 cd $SHELLCD_ROOT/b; git commit -m x" \
+    'true; "SC_X=1" cd ../b; git commit -m x' \
+    "bash -c '\"SC_X=1\" cd ../b; git commit -m x'"
+  do
+    shellcd_case "$sc_host" secret 2 "$sc_command" a
+    shellcd_case "$sc_host" clean 0 "$sc_command" a
+  done
+  # The unknown command may change the tree before the cd that follows it.
+  shellcd_case "$sc_host" secret U2 '"SC_X=1" true; cd ../b && git commit -m x'
+done
+# Unquoted names stay assignments, whatever the value's quoting.
+for sc_host in claude codex; do
+  for sc_command in \
+    "SC_X=1 cd $SHELLCD_ROOT/b; git commit -m x" \
+    'SC_X="1 2" cd ../b; git commit -m x' \
+    'SC_X="$PWD" cd ../b; git commit -m x' \
+    'SC_X=$PWD cd ../b; git commit -m x'
+  do
+    shellcd_case "$sc_host" secret 2 "$sc_command"
+    shellcd_case "$sc_host" clean 0 "$sc_command"
+  done
+  for sc_command in \
+    'GIT_CONFIG_NOSYSTEM=1 git commit -m x' \
+    'GIT_DIR=.git git commit -m x' \
+    '"GIT_DIR=.git" git commit -m x; git commit -m y'
+  do
+    shellcd_case "$sc_host" secret 2 "$sc_command" a
+    shellcd_case "$sc_host" clean 0 "$sc_command" a
+  done
+done
+
 # The push gate follows the cd too. Nothing is committed, so the verdict is
 # checked against the same command with git -C, which the gate already follows.
 for sc_command in 'cd ../b; git push' 'git -C ../b push'; do

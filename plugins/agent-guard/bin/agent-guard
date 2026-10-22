@@ -4811,7 +4811,10 @@ shell_command_words() {
 # tilde, so is a word after a `cd` or `pushd` command name (past any
 # assignment-shaped words, quoted or not) that starts with `~` and has a
 # quoted or escaped part before its first unquoted `/`: only an unquoted tilde
-# prefix expands to $HOME alike in every shell (zsh expands `~"/x"`). A bare `&` or a `( ) { }` character is emitted on its own with
+# prefix expands to $HOME alike in every shell (zsh expands `~"/x"`). Also with
+# tilde, a command-position word shaped like `NAME=value` with a quoted or
+# escaped part before its first unquoted `=` is emitted as 5: the shell runs
+# it as a command name, not an assignment. A bare `&` or a `( ) { }` character is emitted on its own with
 # prefix 3: a command boundary for most callers, but the commit argument parser
 # must tell `2>&1` and brace expansion apart from the end of the command. Newlines cannot be represented safely in the record stream, so
 # they make the affected token dynamic and therefore subject to infra policy.
@@ -4833,12 +4836,13 @@ git_command_records() {
           heredoc_expect = 0
         }
       }
-      print (splits ? "1" : dynamic || word ~ /^(;|&&|\|\||\|)$/ || tilde != "" && cd_args && quoted && word ~ /^~/ ? "4" : "0") word
+      if (tilde != "" && !at_word && name_quoted && word ~ /^[A-Za-z_][A-Za-z0-9_]*=/) print "5" word
+      else print (splits ? "1" : dynamic || word ~ /^(;|&&|\|\||\|)$/ || tilde != "" && cd_args && quoted && word ~ /^~/ ? "4" : "0") word
       if (!at_word && (word == "cd" || word == "pushd")) cd_args = 1
-      if (word !~ /^[A-Za-z_][A-Za-z0-9_]*=/) at_word = 1
+      if (word !~ /^[A-Za-z_][A-Za-z0-9_]*=/ || name_quoted) at_word = 1
       if (word == "[[") in_test = 1
       if (word == "]]") in_test = 0
-      word = ""; started = 0; dynamic = 0; splits = 0; quoted = 0; slashed = 0
+      word = ""; started = 0; dynamic = 0; splits = 0; quoted = 0; slashed = 0; name_quoted = 0; equaled = 0
     }
     NR > 1 {
       if (quote == "") { emit(); print "0;"; cd_args = 0; at_word = 0 }
@@ -4893,11 +4897,11 @@ git_command_records() {
         if (c == "\047" || c == "\"") {
           # An empty quoted word after << is a valid delimiter.
           if (heredoc_expect) heredoc_quoted = 1
-          quote = c == "\047" ? "single" : "double"; started = 1; if (!slashed) quoted = 1; continue
+          quote = c == "\047" ? "single" : "double"; started = 1; if (!slashed) quoted = 1; if (!equaled) name_quoted = 1; continue
         }
         if (c == "\\") {
           if (i == length($0)) { dynamic = 1; splits = 1; started = 1; continue }
-          word = word n; started = 1; if (!slashed) quoted = 1; i++; continue
+          word = word n; started = 1; if (!slashed) quoted = 1; if (!equaled) name_quoted = 1; i++; continue
         }
         if (c == "<" && n == "<" && !in_heredoc) {
           if (substr($0, i + 2, 1) == "<") { word = word "<<<"; started = 1; i += 2; continue }
@@ -4926,6 +4930,7 @@ git_command_records() {
         }
         if (c == "$" || c == "`") { dynamic = 1; splits = 1 }
         if (c == "/") slashed = 1
+        if (c == "=") equaled = 1
         word = word c; started = 1
       }
     }
@@ -5877,7 +5882,10 @@ $effective_c_dirs" "$git_config_args" "$git_env_args"
         # invocation like `FOO=1 env git commit --no-verify` still reaches the
         # git check below. command_start stays 1 so the next token is re-examined
         # as the command head.
-        if is_assignment_token "$token"; then
+        if [ "$record_kind" = 5 ]; then
+          record_kind=4
+          record=4$token
+        elif is_assignment_token "$token"; then
           git_env_assignment "$record"
           shift
           continue
