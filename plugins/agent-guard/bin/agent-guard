@@ -4814,7 +4814,8 @@ shell_command_words() {
 # prefix expands to $HOME alike in every shell (zsh expands `~"/x"`). Also with
 # tilde, a command-position word shaped like `NAME=value` with a quoted or
 # escaped part before its first unquoted `=` is emitted as 5: the shell runs
-# it as a command name, not an assignment. A bare `&` or a `( ) { }` character is emitted on its own with
+# it as a command name, not an assignment, and whatever it expands to still
+# starts with that literal `NAME=`. A bare `&` or a `( ) { }` character is emitted on its own with
 # prefix 3: a command boundary for most callers, but the commit argument parser
 # must tell `2>&1` and brace expansion apart from the end of the command. Newlines cannot be represented safely in the record stream, so
 # they make the affected token dynamic and therefore subject to infra policy.
@@ -5882,10 +5883,7 @@ $effective_c_dirs" "$git_config_args" "$git_env_args"
         # invocation like `FOO=1 env git commit --no-verify` still reaches the
         # git check below. command_start stays 1 so the next token is re-examined
         # as the command head.
-        if [ "$record_kind" = 5 ]; then
-          record_kind=4
-          record=4$token
-        elif is_assignment_token "$token"; then
+        if [ "$record_kind" != 5 ] && is_assignment_token "$token"; then
           git_env_assignment "$record"
           shift
           continue

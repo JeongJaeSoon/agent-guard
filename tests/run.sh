@@ -5005,6 +5005,9 @@ for sc_host in claude codex; do
     'SC_"X"=1 cd ../b; git commit -m x' \
     "\"SC_X\"=1 cd $SHELLCD_ROOT/b; git commit -m x" \
     'true; "SC_X=1" cd ../b; git commit -m x' \
+    '"SC_X=$PWD" cd ../b; git commit -m x' \
+    '"SC_X=1">/dev/null cd ../b; git commit -m x' \
+    "'SC_X=\$X' true; git commit -m x" \
     "bash -c '\"SC_X=1\" cd ../b; git commit -m x'"
   do
     shellcd_case "$sc_host" secret 2 "$sc_command" a
