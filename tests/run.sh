@@ -1854,6 +1854,8 @@ expect_json_status 0 "WebSearch benign query is allowed" \
   '{"tool_name":"WebSearch","tool_input":{"query":"agent guard documentation"}}' \
   hook-pre-tool
 
+run_expect 0 "prompt assignment errors follow infrastructure policy" sh "$ROOT/tests/prompt-assignment-failure.sh"
+
 # --- Prompt guard (hook-user-prompt) ---------------------------------------
 # Ground truth: default mode must block a secret-bearing prompt on BOTH hosts
 # and must pass a benign prompt untouched. Neither host supports rewriting the
@@ -10366,6 +10368,8 @@ EOSH
   # format, and still catch a token someone left in a comment.
   MASK_REAL_DIR="$TMP_ROOT/mask-real"
   mkdir -p "$MASK_REAL_DIR"
+  # Match the CLI's physical paths (macOS /var alias and trailing TMPDIR slash).
+  MASK_REAL_DIR=$(CDPATH= cd -- "$MASK_REAL_DIR" && pwd -P)
   mask_real_value() { od -An -N12 -tx1 /dev/urandom | tr -d ' \n'; }
   printf 'AWS_ACCESS_KEY_ID=%s\nAWS_SECRET_ACCESS_KEY=%s\nGITHUB_TOKEN=%s\nexport API_KEY="%s"\npassword=%s\nDATABASE_URL=%s\n' \
     "$(mask_real_value)" "$(mask_real_value)" "$(mask_real_value)" \
@@ -15448,12 +15452,17 @@ else
 fi
 # The notice must say fish itself gets no agx/nudge — claiming otherwise would
 # misreport what is protected — while staying host-neutral like the rest of the CLI.
-if printf '%s' "$ss_fish_out" | grep -q 'fish' \
+# Substitute only literal fixture paths: a checkout named Codex is not host prose.
+ss_fish_notice=$(printf '%s' "$ss_fish_out" | jq -Rrs \
+  --arg home "$ss_fish_home" --arg executable "$PLUGIN_ROOT/bin/agent-guard" \
+  'split($home) | join("<fixture-home>") | split($executable) | join("<fixture-executable>")')
+if [ -n "$ss_fish_notice" ] \
+   && printf '%s' "$ss_fish_out" | grep -q 'fish' \
    && printf '%s' "$ss_fish_out" | grep -q 'agx' \
    && printf '%s' "$ss_fish_out" | grep -q 'plugin-only' \
    && printf '%s' "$ss_fish_out" | grep -q 'fish executable:' \
    && grep -Fq 'current/bin/agent-guard' "$ROOT/docs/operations.md" \
-   && ! printf '%s' "$ss_fish_out" | grep -Eq 'Claude Code|Codex'; then
+   && ! printf '%s' "$ss_fish_notice" | grep -Eq 'Claude Code|Codex'; then
   ok "setup-shell reports the fish limitation and plugin-only executable (#139)"
 else
   not_ok "setup-shell fish limitation/plugin-only guidance (got: $ss_fish_out)"
