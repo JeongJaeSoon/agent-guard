@@ -1,0 +1,149 @@
+[
+  {
+    "id": "python-lazy-regex",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a lazy .*? regex names no letter of a protected extension",
+    "command": "python3 -c \"import re; print(re.sub(r'<!-- a -->(.*?)<!-- b -->', '', s))\""
+  },
+  {
+    "id": "pnpm-scope-glob",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a package-scope glob is not a protected path",
+    "command": "pnpm --filter '@werft-ai/*' build"
+  },
+  {
+    "id": "grep-include-star",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a bare include star is not a protected path",
+    "command": "grep -r --include='*' foo ."
+  },
+  {
+    "id": "star-then-star-stand-in",
+    "expected_status": 0,
+    "classification": "accepted-trade-off",
+    "description": "a word that pins no letter stays allowed, as cat key.* already is",
+    "command": "cat key.*?"
+  },
+  {
+    "id": "plain-protected-file",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a protected extension operand is blocked",
+    "command": "cat key.p8"
+  },
+  {
+    "id": "relative-protected-file",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a dot-slash protected operand is blocked",
+    "command": "cat ./AuthKey_ABC.p8"
+  },
+  {
+    "id": "copy-protected-file",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "copying a protected file is blocked",
+    "command": "cp secrets/x.p8 /tmp/"
+  },
+  {
+    "id": "star-extension-glob",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a star glob over a protected extension is blocked",
+    "command": "cat *.p8"
+  },
+  {
+    "id": "quoted-star-extension",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a quoted protected-extension glob is blocked",
+    "command": "cat '*.p8'"
+  },
+  {
+    "id": "dot-slash-star-extension",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a dot-slash protected-extension glob is blocked",
+    "command": "cat ./*.p8"
+  },
+  {
+    "id": "directory-star-extension",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a directory protected-extension glob is blocked",
+    "command": "cat secrets/*.p8"
+  },
+  {
+    "id": "nested-shell-star-extension",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a protected-extension glob run by a nested shell is blocked",
+    "command": "sh -c 'cat *.p8'"
+  },
+  {
+    "id": "find-name-star-extension",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "find -name over a protected extension is blocked",
+    "command": "find . -name '*.p8' -exec cat {} +"
+  },
+  {
+    "id": "grep-include-extension",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "grep --include over a protected extension is blocked",
+    "command": "grep -r --include='*.p8' BEGIN ."
+  },
+  {
+    "id": "question-mark-positions",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "one-character wildcards over a protected extension are blocked",
+    "command": "cat key.??"
+  },
+  {
+    "id": "bracket-positions",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "bracket classes over a protected extension are blocked",
+    "command": "cat key.[a-z][0-9]"
+  },
+  {
+    "id": "star-stand-in-pinned-last",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a one-character star with a pinned letter is blocked",
+    "command": "cat key.*8"
+  },
+  {
+    "id": "star-stand-in-pinned-middle",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a one-character star with a pinned middle letter is blocked",
+    "command": "cat .?n*"
+  },
+  {
+    "id": "star-stand-in-after-pinned-prefix",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a one-character star after a pinned dotfile prefix is blocked",
+    "command": "cat .e*?"
+  },
+  {
+    "id": "regex-with-pinned-letter",
+    "expected_status": 2,
+    "classification": "known-limitation",
+    "description": "regex text that pins a protected letter is conservatively blocked",
+    "command": "sed -E 's/x.*?y//' README.md"
+  },
+  {
+    "id": "pattern-text-in-quoted-argument",
+    "expected_status": 2,
+    "classification": "known-limitation",
+    "description": "a protected pattern spelled in a quoted argument is conservatively blocked",
+    "command": "orch init demo --final-check \"deny list still has *.p8 entry\""
+  }
+]
