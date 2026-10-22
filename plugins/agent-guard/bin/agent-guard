@@ -4817,8 +4817,10 @@ shell_command_words() {
 # it as a command name, not an assignment, and whatever it expands to still
 # starts with that literal `NAME=`. It is a 6 instead when an unquoted
 # expansion or glob character may make it no word at all (nullglob). With
-# tilde, a newline inside double quotes is kept as \034, so that the code of a
-# command substitution there can be read back (git_gate_records). A bare `&` or a `( ) { }` character is emitted on its own with
+# tilde, the code of each command substitution inside double quotes in a word
+# follows that word as one record with prefix 7, each substitution's code
+# wrapped as `( code` and `)` lines and every newline written as \034; only
+# git_gate_records reads it. A bare `&` or a `( ) { }` character is emitted on its own with
 # prefix 3: a command boundary for most callers, but the commit argument parser
 # must tell `2>&1` and brace expansion apart from the end of the command. Newlines cannot be represented safely in the record stream, so
 # they make the affected token dynamic and therefore subject to infra policy.
@@ -4842,6 +4844,7 @@ git_command_records() {
       }
       if (tilde != "" && !at_word && name_quoted && word ~ /^[A-Za-z_][A-Za-z0-9_]*=/) print (splits || globbed ? "6" : "5") word
       else print (splits ? "1" : dynamic || word ~ /^(;|&&|\|\||\|)$/ || tilde != "" && cd_args && quoted && word ~ /^~/ ? "4" : "0") word
+      if (code != "") { print "7" code; code = "" }
       if (!at_word && (word == "cd" || word == "pushd")) cd_args = 1
       if (word !~ /^[A-Za-z_][A-Za-z0-9_]*=/ || name_quoted) at_word = 1
       if (word == "[[") in_test = 1
@@ -4852,6 +4855,13 @@ git_command_records() {
       if (quote == "") { emit(); print "0;"; cd_args = 0; at_word = 0 }
       else { word = word (tilde != "" && quote == "double" ? "\034" : " "); dynamic = 1 }
       heredoc_expect = 0; heredoc_quoted = 0
+    }
+    nest_hd != "" && NR > nest_hd_line {
+      line = $0
+      if (nest_hd_strip) sub(/^\t+/, "", line)
+      if (line == nest_hd) nest_hd = ""
+      word = word $0
+      next
     }
     heredoc_next <= heredoc_count && NR > heredoc_line {
       line = $0
@@ -4877,6 +4887,41 @@ git_command_records() {
           started = 1
           continue
         }
+        # Inside a command substitution in double quotes: quoting, nesting,
+        # a case pattern and a here-document follow shell rules, so that the
+        # substitution ends where the shell ends it.
+        if (quote == "double" && nest != "") {
+          top = substr(nest, length(nest))
+          word = word c
+          if (top == "s") { if (c == "\047") nest = substr(nest, 1, length(nest) - 1) }
+          else if (c == "\\") { word = word n; i++ }
+          else if (top == "b") { if (c == "`") nest = substr(nest, 1, length(nest) - 1) }
+          else if (top == "d" && c == "\"") nest = substr(nest, 1, length(nest) - 1)
+          else if (c == "$" && n == "(") { word = word n; i++; nest = nest "p" }
+          else if (c == "`") nest = nest "b"
+          else if (top == "d") ;
+          else if (c == "\047") nest = nest "s"
+          else if (c == "\"") nest = nest "d"
+          else if (c == "(") nest = nest "p"
+          else if (c == ")" && top == "p") nest = substr(nest, 1, length(nest) - 1)
+          else if (substr($0, i, 4) ~ /^(case|esac)$/ && (i == 1 || substr($0, i - 1, 1) ~ /[ \t;&|(]/) \
+              && substr($0, i + 4, 1) ~ /^[ \t;)]?$/) {
+            word = word substr($0, i + 1, 3)
+            if (c == "c") nest = nest "c"
+            else if (top == "c") nest = substr(nest, 1, length(nest) - 1)
+            i += 3
+          } else if (c == "<" && n == "<" && substr($0, i + 2, 1) != "<") {
+            rest = substr($0, i + 2)
+            nest_hd_strip = rest ~ /^-/
+            sub(/^-?[ \t]*/, "", rest)
+            match(rest, /^[^ \t;&|()<>]*/)
+            nest_hd = substr(rest, 1, RLENGTH)
+            gsub(/["\047\\]/, "", nest_hd)
+            nest_hd_line = NR
+          }
+          if (nest == "") code = code "( " substr(word, body_start, length(word) - body_start) "\034)\034"
+          continue
+        }
         if (quote == "double") {
           if (c == "\"") { quote = ""; started = 1; continue }
           # `"` needs no backslash inside a bracket expression, and `\"` is not
@@ -4885,6 +4930,14 @@ git_command_records() {
           # backslash in the set, so the class is unchanged (#99).
           if (c == "\\" && n ~ /^["\\$`]$/) {
             word = word n; started = 1; i++; continue
+          }
+          if (tilde != "" && (c == "`" || c == "$" && n == "(")) {
+            word = word c
+            if (c == "$") { word = word n; i++ }
+            nest = c == "`" ? "b" : "p"
+            body_start = length(word) + 1
+            dynamic = 1; started = 1
+            continue
           }
           if (c == "$" || c == "`") dynamic = 1
           # "$@", "${a[@]}", "${!a@}", zsh "$a[@]" and "${(f)a}" still split;
@@ -4949,21 +5002,19 @@ git_command_records() {
 # The records of $1 for the commit/push gate: git_command_records in tilde
 # mode, where the code of each command substitution inside a quoted word, as
 # in `echo "$(git commit)"`, runs in a ( ) subshell placed before the command
-# that word belongs to. That code is placed only when it may itself commit or
-# push (git alias lookups read $2), so that other code, such as the
-# here-document of a commit message, does not change how the rest is read.
-# Code that cannot be read back runs as a command only run time knows.
+# that word belongs to. Code that cannot be read back runs as a command only
+# run time knows.
 git_gate_records() (
   set -f
   gate_records=$(git_command_records "$1" tilde)
   case "$gate_records" in
-    *'$('*|*'`'*) ;;
+    7*|*'
+7'*) ;;
     *)
       printf '%s\n' "$gate_records"
       exit 0
       ;;
   esac
-  gate_workdir=${2:-}
   gate_ifs=$IFS
   IFS='
 '
@@ -4975,11 +5026,10 @@ git_gate_records() (
   gate_prev=
   gate_flush() {
     if [ -n "$gate_code" ]; then
-      gate_sub=$(git_gate_records "$gate_code" "$gate_workdir")
+      gate_sub=$(git_gate_records "$gate_code")
       if printf '%s\n' "$gate_sub" \
         | awk '$0 == "2" { exit 1 } $0 == "3(" { d++ } $0 == "3)" && --d < 0 { exit 1 } END { if (d) exit 1 }'; then
-        is_git_commit_or_push "$gate_code" "$gate_workdir" "$gate_sub" >/dev/null \
-          && printf '%s\n' "$gate_sub"
+        printf '%s\n' "$gate_sub"
       else
         printf '3(\n1$\n3)\n'
       fi
@@ -4993,6 +5043,11 @@ git_gate_records() (
     shift
     gate_end=0
     case "$gate_record" in
+      7*)
+        gate_code="$gate_code$(printf '%s' "${gate_record#7}" | tr '\034' '\n')
+"
+        continue
+        ;;
       0';'|0'&&'|0'||'|0'|'|3'('|3')') gate_end=1 ;;
       # Not the `&` of `2>&1` or `&>log`.
       3'&')
@@ -5000,35 +5055,6 @@ git_gate_records() (
           *'>:'*|*'<:'*|*:0'>'*|*:0'<'*) ;;
           *) gate_end=1 ;;
         esac
-        ;;
-      # A literal (0) word has no expansion; a kind 1 word may join a quoted
-      # part to an unquoted one.
-      [1456]*'$('*|[1456]*'`'*)
-        gate_code="$gate_code$(printf '%s\n' "${gate_record#?}" | awk '
-          {
-            s = $0
-            gsub("\034", "\n", s)
-            n = length(s)
-            i = 1
-            while (i <= n) {
-              c = substr(s, i, 1)
-              if (c == "$" && substr(s, i + 1, 1) == "(") {
-                d = 1
-                for (j = i + 2; j <= n && d > 0; j++) {
-                  if (substr(s, j, 1) == "(") d++
-                  else if (substr(s, j, 1) == ")") d--
-                }
-                print "( " substr(s, i + 2, j - i - 2 - (d == 0)) "\n)"
-                i = j
-              } else if (c == "`") {
-                j = index(substr(s, i + 1), "`")
-                if (j == 0) j = n - i + 1
-                print "( " substr(s, i + 1, j - 1) "\n)"
-                i += j + 1
-              } else i++
-            }
-          }')
-"
         ;;
     esac
     if [ "$gate_end" -eq 1 ]; then
@@ -5771,12 +5797,7 @@ is_git_commit_or_push() {
   [ -n "$git_alias_workdir" ] || git_alias_workdir=$(pwd)
   (
     set -f
-    # $3, when given, holds the records of $1 already.
-    if [ "$#" -ge 3 ]; then
-      words=$3
-    else
-      words=$(git_gate_records "$cmd" "$git_alias_workdir")
-    fi
+    words=$(git_gate_records "$cmd")
     old_ifs=$IFS
     IFS='
 '
@@ -5799,6 +5820,7 @@ is_git_commit_or_push() {
     git_target_changed=0
     git_target_args=
     git_target_dynamic=0
+    shell_head=
     git_config_args=
     git_config_dynamic=0
     git_alias_depth=0
@@ -6139,7 +6161,7 @@ $shell_cd_dir"
             case "$shell_code_status" in
               0)
                 shift "${shell_code%%:*}"
-                shell_code_records=$(git_gate_records "${shell_code#*:}" "$git_alias_workdir")
+                shell_code_records=$(git_gate_records "${shell_code#*:}")
                 # An unbalanced ( or ) would restore the cd state of a
                 # subshell around this command.
                 printf '%s\n' "$shell_code_records" \
@@ -6188,7 +6210,7 @@ $shell_cd_dir"
           # sudo may run git with another HOME, and without GIT_DIR.
           if [ "$wrapper" = sudo ]; then
             git_env_dynamic=1
-            [ -z "$git_target_args" ] || git_target_dynamic=1
+            [ -z "$git_target_args${GIT_DIR:-}${GIT_WORK_TREE:-}" ] || git_target_dynamic=1
           fi
           shift
           while [ "$#" -gt 0 ]; do
@@ -6227,7 +6249,7 @@ $shell_cd_dir"
                   # -i and -u remove variables that locate git configuration.
                   env:-|env:--ignore-environment|env:--unset|env:--unset=*|env:-[!-]*[iu]*|env:-[iu]*)
                     git_env_dynamic=1
-                    [ -z "$git_target_args" ] || git_target_dynamic=1
+                    [ -z "$git_target_args${GIT_DIR:-}${GIT_WORK_TREE:-}" ] || git_target_dynamic=1
                     env_split=
                     ;;
                   *) env_split= ;;
@@ -6248,7 +6270,7 @@ $shell_cd_dir"
                   IFS='
 '
                   # shellcheck disable=SC2086
-                  set -- $(git_gate_records "${env_split#?}" "$git_alias_workdir") "$@"
+                  set -- $(git_gate_records "${env_split#?}") "$@"
                   IFS=$old_ifs
                   continue
                 fi
@@ -6404,7 +6426,7 @@ $shell_cd_dir"
                       IFS='
 '
                       # shellcheck disable=SC2086
-                      set -- $(git_gate_records "$git_alias" "$git_alias_workdir") "$@"
+                      set -- $(git_gate_records "$git_alias") "$@"
                       IFS=$old_ifs
                       continue
                     fi
@@ -6437,10 +6459,13 @@ $shell_cd_dir"
       fi
 
       mentions_git_config_env "$token" && git_env_changed=1
-      # A quoted NAME=value word (5, 6) is a command name; it sets nothing.
-      case "$record_kind" in
-        5|6) ;;
-        *) mentions_git_target_env "$token" && git_target_changed=1 ;;
+      # Only these builtins set or remove a variable named in an argument;
+      # any other command, such as cat for a commit message, does not.
+      [ "$command_start" -eq 1 ] && shell_head=$record_kind$token
+      case "$shell_head" in
+        0export|0unset|0declare|0typeset|0readonly|0local|0read)
+          mentions_git_target_env "$token" && git_target_changed=1
+          ;;
       esac
       shift
       if [ "$record_kind" = 3 ] || is_shell_command_separator "$token"; then
