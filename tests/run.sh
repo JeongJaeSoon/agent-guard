@@ -4836,11 +4836,15 @@ shellcd_case codex secret 2 'true # ; cd ../b
 git commit -m x' a
 # A cd whose target or effect only run time knows fails per the policy.
 shellcd_case claude secret U2 'cd $SC_UNSET_DIR && git commit -m x'
-# An unquoted `~` or `~/...` is HOME (b) before any other command (#341).
+# An unquoted `~` or `~/...` is HOME (b) before any other command (#341);
+# quoting after the first `/` does not stop the expansion.
+mkdir "$SHELLCD_ROOT/b/my dir"
 for sc_host in claude codex; do
   for sc_command in \
     'cd ~ && git commit -m x' \
     'cd ~/sub && git commit -m x ../settings.conf' \
+    'cd ~/"my dir" && git commit -m x' \
+    'cd ~/s"u"b && git commit -m x ../settings.conf' \
     'cd /tmp && cd ~ && git commit -m x' \
     'cd ~ && git commit -m x && git push --dry-run origin main'
   do
@@ -4849,6 +4853,7 @@ for sc_host in claude codex; do
   done
   shellcd_case "$sc_host" clean 0 'cd ~/sub && git push --dry-run origin main'
 done
+rmdir "$SHELLCD_ROOT/b/my dir"
 # A quoted or escaped tilde is a literal directory in a, here a link back to
 # a, so following HOME instead would scan b while the commit lands in a.
 # bash keeps `~""` and `~"/sub"` literal; zsh expands them.
@@ -4868,6 +4873,11 @@ do
   shellcd_case claude secret U2 "$sc_command" a
   shellcd_case codex secret U2 "$sc_command" a
 done
+# A tilde -C operand is left unresolved.
+for sc_host in claude codex; do
+  shellcd_case "$sc_host" secret U2 'git -C ~/sub commit -m x'
+  shellcd_case "$sc_host" secret U2 'git -C ~ commit -m x'
+done
 shellcd_case claude secret U0 'cd ~agent-guard-no-such-user && git commit -m x' a
 shellcd_case codex secret Ux 'cd ~- && git commit -m x' a
 shellcd_case claude secret Ux 'cd ~1 && git commit -m x' a
@@ -4883,6 +4893,13 @@ SC_HOME=-
 shellcd_case codex secret Ux 'cd ~ && git commit -m x' a
 unset SC_HOME
 rm "$SHELLCD_ROOT/a/~"
+# Absolute and relative -C operands are still followed.
+for sc_host in claude codex; do
+  for sc_mode in secret:2 clean:0; do
+    shellcd_case "$sc_host" "${sc_mode%:*}" "${sc_mode#*:}" "git -C $SHELLCD_ROOT/b commit -m x"
+    shellcd_case "$sc_host" "${sc_mode%:*}" "${sc_mode#*:}" 'git -C sub commit -m x' a
+  done
+done
 shellcd_case claude secret U2 "cd \$'../b' && git commit -m x"
 shellcd_case codex secret U2 'cd ../\
 b && git commit -m x'
