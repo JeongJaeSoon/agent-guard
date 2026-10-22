@@ -5053,6 +5053,120 @@ for sc_host in claude codex; do
   done
 done
 
+# A command substitution inside double quotes runs too, where its command runs.
+# Each command runs under one host, alternating, to bound the shard's time.
+sc_nl='
+'
+sc_alt=codex
+sc_next_host() {
+  case "$sc_alt" in
+    claude) sc_alt=codex ;;
+    *) sc_alt=claude ;;
+  esac
+}
+for sc_command in \
+  'echo "$(git commit -m x)"' \
+  'SC_X="$(git commit -m x)"' \
+  'true "$(git commit -m x)"' \
+  '"SC_X=$(git commit -m x)" true' \
+  'echo "`git commit -m x`"' \
+  'echo "$(printf ")"; git commit -m x)"' \
+  "bash -c 'echo \"\$(git commit -m x)\"'" \
+  "echo \"\$(${sc_nl}git commit -m x${sc_nl})\"" \
+  'echo $(git commit -m x)'
+do
+  sc_next_host
+  shellcd_case "$sc_alt" secret 2 "$sc_command" a
+done
+for sc_alt in claude codex; do
+  shellcd_case "$sc_alt" clean 0 'echo "$(git commit -m x)"' a
+done
+for sc_command in \
+  'cd ../b && echo "$(git commit -m x)"' \
+  'echo "$(cd ../b && git commit -m x)"' \
+  "echo \"\$(cd ../b${sc_nl}git commit -m x)\""
+do
+  sc_next_host
+  shellcd_case "$sc_alt" secret 2 "$sc_command"
+done
+shellcd_case claude clean 0 'cd ../b && echo "$(git commit -m x)"'
+shellcd_case codex secret 0 'cd ../b && echo "$(git commit -m x)"' a
+# Text that only looks like one, and code that commits nothing, change nothing.
+for sc_command in \
+  'echo "$(date)"' \
+  "echo '\$(git commit -m x)'" \
+  'echo "\$(git commit -m x)"'
+do
+  sc_next_host
+  shellcd_case "$sc_alt" secret 0 "$sc_command" a
+done
+for sc_command in \
+  'git commit -m "$(git log -1 --format="%h %s")"' \
+  "git commit -m \"\$(cat <<'EOF'${sc_nl}fix: a thing${sc_nl}${sc_nl}More text (with parens) and \"quotes\".${sc_nl}EOF${sc_nl})\""
+do
+  for sc_alt in claude codex; do
+    shellcd_case "$sc_alt" secret 2 "$sc_command" a
+    shellcd_case "$sc_alt" clean 0 "$sc_command" a
+  done
+done
+
+# Code in a quoted substitution may stage what a later commit takes.
+for sc_alt in claude codex; do
+  for sc_mode in secret clean; do
+    (
+      cd "$SHELLCD_ROOT/a" || exit 2
+      git reset -q --hard "$SHELLCD_BASE_A"
+      case "$sc_mode" in
+        secret) printf '%s\n' "AGENT_GUARD_TEST_SECRET" >> settings.conf ;;
+        *) printf 'c=3\n' >> settings.conf ;;
+      esac
+    )
+    sc_command='echo "$(git add settings.conf)"; git commit -m x'
+    sc_session=$((sc_session + 1))
+    jq -nc --arg c "$sc_command" --arg d "$SHELLCD_ROOT/a" --arg s "shellcd-$$-$sc_session" \
+      '{session_id:$s,tool_name:"Bash",tool_input:{command:$c},cwd:$d}' \
+      | (cd "$TMP_ROOT" && AGENT_GUARD_HOOK_HOST=$sc_alt AGENT_GUARD_INFRA_FAILURE_MODE=closed \
+          "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool) >"$OUT" 2>"$ERR"
+    sc_status=$?
+    (cd "$SHELLCD_ROOT/a" && bash -c "$sc_command") >/dev/null 2>&1
+    sc_leaks=0
+    git -C "$SHELLCD_ROOT/a" log -p "$SHELLCD_BASE_A..HEAD" | grep -q AGENT_GUARD_TEST_SECRET && sc_leaks=2
+    sc_name="shell cd [$sc_alt] $sc_mode: $sc_command"
+    case "$sc_mode" in
+      secret) sc_want=2 ;;
+      *) sc_want=0 ;;
+    esac
+    if [ "$sc_status" -ne "$sc_want" ] || [ "$sc_leaks" -ne "$sc_want" ]; then
+      not_ok "$sc_name (expected $sc_want, got $sc_status; the command leaks=$sc_leaks)"
+      sed 's/^/  stderr: /' "$ERR"
+    else
+      ok "$sc_name"
+    fi
+  done
+done
+
+# GIT_DIR and GIT_WORK_TREE, or --git-dir and --work-tree, choose the
+# repository a commit uses; one only run time knows fails per the policy.
+for sc_command in \
+  'GIT_DIR=../b/.git GIT_WORK_TREE=../b git commit -m x' \
+  'GIT_DIR=../b/.git git commit -m x' \
+  'env GIT_DIR=../b/.git GIT_WORK_TREE=../b git commit -m x' \
+  'git --git-dir=../b/.git --work-tree=../b commit -m x' \
+  'git --git-dir ../b/.git --work-tree ../b commit -m x'
+do
+  sc_next_host
+  shellcd_case "$sc_alt" secret 2 "$sc_command"
+done
+for sc_alt in claude codex; do
+  shellcd_case "$sc_alt" clean 0 'GIT_DIR=../b/.git GIT_WORK_TREE=../b git commit -m x'
+done
+shellcd_case claude secret 0 'GIT_DIR=../b/.git GIT_WORK_TREE=../b git commit -m x' a
+shellcd_case codex secret 2 'GIT_WORK_TREE=../b git commit -m x' a
+shellcd_case claude secret U2 'GIT_DIR="$PWD/../b/.git" GIT_WORK_TREE=../b git commit -m x'
+shellcd_case codex secret U2 'export GIT_DIR=../b/.git GIT_WORK_TREE=../b; git commit -m x'
+shellcd_case claude secret U2 'GIT_DIR=~/.git git commit -m x'
+shellcd_case codex secret U0 'GIT_DIR=../b/.git env -u GIT_DIR git commit -m x'
+
 # The push gate follows the cd too. Nothing is committed, so the verdict is
 # checked against the same command with git -C, which the gate already follows.
 for sc_command in 'cd ../b; git push' 'git -C ../b push'; do
