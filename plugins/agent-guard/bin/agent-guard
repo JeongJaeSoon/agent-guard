@@ -2,7 +2,7 @@
 set -u
 
 PROGRAM=agent-guard
-VERSION=3.6.4
+VERSION=3.6.5
 
 # Resolve the script's own path, following symlinks. The bootstrap installer
 # drops a symlink at ~/.local/bin/agent-guard that points into ~/.agent-guard/
@@ -10934,10 +10934,12 @@ prompt_guard_mode() {
 # assignment probe. The probe is what catches a pasted .env whose custom value
 # formats gitleaks has no rule for — the single most common prompt-leak shape.
 prompt_has_secretish_assignment() {
-  printf '%s' "$1" \
-    | frame_plaintext_leaf 2>/dev/null \
-    | secretish_env_values probe \
-    | grep -q .
+  # Check each stage before consuming its output: a POSIX pipeline otherwise
+  # turns producer/detector failure into grep's ordinary no-match status.
+  # Framing ends with RS, so command substitution preserves its trailing LFs.
+  prompt_assignment_framed=$(printf '%s' "$1" | frame_plaintext_leaf 2>/dev/null) || return 2
+  prompt_assignment_result=$(printf '%s' "$prompt_assignment_framed" | secretish_env_values probe) || return 2
+  [ -n "$prompt_assignment_result" ]
 }
 
 # The single hook response, whatever combination of facts produced it. A hook
@@ -11036,8 +11038,18 @@ hook_user_prompt() {
       begin_infrastructure_failure "$input" \
         "$PROGRAM: the prompt exceeds the assignment-probe scan cap (gitleaks rules were still applied);"
       notice=${notice:-$INFRA_FAILURE_NOTICE}
-    elif prompt_has_secretish_assignment "$prompt"; then
-      found=1
+    else
+      prompt_probe_status=0
+      prompt_has_secretish_assignment "$prompt" || prompt_probe_status=$?
+      case "$prompt_probe_status" in
+        0) found=1 ;;
+        1) ;;
+        *)
+          begin_infrastructure_failure "$input" \
+            "$PROGRAM: the prompt assignment probe failed;"
+          notice=${notice:-$INFRA_FAILURE_NOTICE}
+          ;;
+      esac
     fi
   fi
   if [ "$found" -ne 1 ]; then
@@ -11423,9 +11435,12 @@ do_exec() {
               ;;
             *)
               if [ "$raw_bytes" -gt 65536 ]; then
-                if printf '%s' "$masked" \
-                  | secretish_env_values probe_raw 2>/dev/null \
-                  | grep -q .; then
+                # Preserve detector failure before interpreting its marker; grep
+                # would turn an empty failed probe into an ordinary no-match.
+                raw_probe_status=0
+                raw_probe_result=$(printf '%s' "$masked" \
+                  | secretish_env_values probe_raw 2>/dev/null) || raw_probe_status=$?
+                if [ "$raw_probe_status" -ne 0 ] || [ -n "$raw_probe_result" ]; then
                   masked='[REDACTED]'
                   output_fully_masked=1
                 fi
