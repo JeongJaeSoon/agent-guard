@@ -5015,6 +5015,10 @@ for sc_host in claude codex; do
   done
   # The unknown command may change the tree before the cd that follows it.
   shellcd_case "$sc_host" secret U2 '"SC_X=1" true; cd ../b && git commit -m x'
+  # A glob may leave no word, so the next word may be the command name.
+  shellcd_case "$sc_host" secret 2 'shopt -s nullglob; "SC_X="agent-guard-no-such-* git commit -m x' a
+  shellcd_case "$sc_host" clean 0 'shopt -s nullglob; "SC_X="agent-guard-no-such-* git commit -m x' a
+  shellcd_case "$sc_host" secret U2 '"SC_X="agent-guard-no-such-* cd ../b; git commit -m x' a
 done
 # Unquoted names stay assignments, whatever the value's quoting.
 for sc_host in claude codex; do
