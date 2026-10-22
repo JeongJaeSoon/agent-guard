@@ -4807,7 +4807,10 @@ shell_command_words() {
 # (every expansion is double-quoted and cannot split, like "$x" or "$(cmd)"),
 # or 1 for one whose expansion may split into several words, or into none;
 # malformed input is emitted as 2. A quoted or escaped `;`, `&&`, `||` or `|`
-# is a 4 too, so that no caller mistakes it for the operator. A bare `&` or a `( ) { }` character is emitted on its own with
+# is a 4 too, so that no caller mistakes it for the operator. With $2 set to
+# tilde, so is a word that starts with `~` and has any quoted or escaped part:
+# only a wholly unquoted one expands to $HOME alike in every shell (zsh expands
+# `~"/x"`). A bare `&` or a `( ) { }` character is emitted on its own with
 # prefix 3: a command boundary for most callers, but the commit argument parser
 # must tell `2>&1` and brace expansion apart from the end of the command. Newlines cannot be represented safely in the record stream, so
 # they make the affected token dynamic and therefore subject to infra policy.
@@ -4815,7 +4818,7 @@ shell_command_words() {
 # be code for another shell, but is wrapped in `3(` and `3)`: nothing in it
 # runs in this shell.
 git_command_records() {
-  printf '%s\n' "$1" | awk '
+  printf '%s\n' "$1" | awk -v tilde="${2:-}" '
     BEGIN { heredoc_next = 1 }
     function emit() {
       if (!started) return
@@ -4829,10 +4832,10 @@ git_command_records() {
           heredoc_expect = 0
         }
       }
-      print (splits ? "1" : dynamic || word ~ /^(;|&&|\|\||\|)$/ ? "4" : "0") word
+      print (splits ? "1" : dynamic || word ~ /^(;|&&|\|\||\|)$/ || tilde != "" && quoted && word ~ /^~/ ? "4" : "0") word
       if (word == "[[") in_test = 1
       if (word == "]]") in_test = 0
-      word = ""; started = 0; dynamic = 0; splits = 0
+      word = ""; started = 0; dynamic = 0; splits = 0; quoted = 0
     }
     NR > 1 {
       if (quote == "") { emit(); print "0;" }
@@ -4887,11 +4890,11 @@ git_command_records() {
         if (c == "\047" || c == "\"") {
           # An empty quoted word after << is a valid delimiter.
           if (heredoc_expect) heredoc_quoted = 1
-          quote = c == "\047" ? "single" : "double"; started = 1; continue
+          quote = c == "\047" ? "single" : "double"; started = 1; quoted = 1; continue
         }
         if (c == "\\") {
           if (i == length($0)) { dynamic = 1; splits = 1; started = 1; continue }
-          word = word n; started = 1; i++; continue
+          word = word n; started = 1; quoted = 1; i++; continue
         }
         if (c == "<" && n == "<" && !in_heredoc) {
           if (substr($0, i + 2, 1) == "<") { word = word "<<<"; started = 1; i += 2; continue }
@@ -5455,7 +5458,8 @@ git_add_is_forced() {
 # Given the records after `cd` or `pushd`, print the one literal directory it
 # changes to. Fail when only run time knows it: no operand ($HOME), `-`
 # ($OLDPWD), an option or directory-stack entry, several operands (zsh
-# substitutes), a dynamic, tilde or glob word, a relative one that CDPATH may
+# substitutes), a dynamic or glob word, a tilde word other than an unquoted `~`
+# or `~/...` while $shell_cd_home holds $HOME, a relative one that CDPATH may
 # redirect ($shell_cd_cdpath), or a redirection that may fail and skip the cd.
 shell_cd_target() {
   cd_target=
@@ -5504,6 +5508,12 @@ shell_cd_target() {
     cd_target=$cd_word
   done
   [ "$cd_operands" -eq 1 ] || return 1
+  case "$cd_target" in
+    '~'|'~/'*)
+      [ -n "$shell_cd_home" ] || return 1
+      cd_target=$shell_cd_home${cd_target#'~'}
+      ;;
+  esac
   case "$cd_target" in
     # zsh expands a leading `=` to a command path.
     ''|[-+=]*|'~'*|*[*?[]*) return 1 ;;
@@ -5635,7 +5645,7 @@ is_git_commit_or_push() {
   [ -n "$git_alias_workdir" ] || git_alias_workdir=$(pwd)
   (
     set -f
-    words=$(git_command_records "$cmd")
+    words=$(git_command_records "$cmd" tilde)
     old_ifs=$IFS
     IFS='
 '
@@ -5702,6 +5712,15 @@ is_git_commit_or_push() {
     shell_cd_function=0
     shell_cd_stack=
     shell_cd_prev=
+    # An earlier command may change HOME without naming it, as arithmetic on a
+    # variable read from a file does, so a tilde cd counts only before any
+    # command other than cd.
+    shell_cd_home=
+    case "${HOME:-}" in
+      *'
+'*) ;;
+      /*) shell_cd_home=$HOME ;;
+    esac
     shell_cd_cdpath=0
     [ -n "${CDPATH:-}" ] && shell_cd_cdpath=1
     case "$cmd" in
@@ -5839,6 +5858,10 @@ $effective_c_dirs" "$git_config_args" "$git_env_args"
       token=${record#?}
 
       if [ "$command_start" -eq 1 ]; then
+        case "$record_kind$token" in
+          0cd|0pushd|3*|0';'|0'&&'|0'||'|0'|') ;;
+          *) shell_cd_home= ;;
+        esac
         # Strip leading `NAME=value` assignments and no-op wrappers so a wrapped
         # invocation like `FOO=1 env git commit --no-verify` still reaches the
         # git check below. command_start stays 1 so the next token is re-examined
@@ -5955,7 +5978,7 @@ $shell_cd_dir"
             case "$shell_code_status" in
               0)
                 shift "${shell_code%%:*}"
-                shell_code_records=$(git_command_records "${shell_code#*:}")
+                shell_code_records=$(git_command_records "${shell_code#*:}" tilde)
                 # An unbalanced ( or ) would restore the cd state of a
                 # subshell around this command.
                 printf '%s\n' "$shell_code_records" \
@@ -6059,7 +6082,7 @@ $shell_cd_dir"
                   IFS='
 '
                   # shellcheck disable=SC2086
-                  set -- $(git_command_records "${env_split#?}") "$@"
+                  set -- $(git_command_records "${env_split#?}" tilde) "$@"
                   IFS=$old_ifs
                   continue
                 fi
@@ -6205,7 +6228,7 @@ $shell_cd_dir"
                       IFS='
 '
                       # shellcheck disable=SC2086
-                      set -- $(git_command_records "$git_alias") "$@"
+                      set -- $(git_command_records "$git_alias" tilde) "$@"
                       IFS=$old_ifs
                       continue
                     fi

@@ -4720,6 +4720,13 @@ printf '/link\n' >> "$SHELLCD_ROOT/a/.git/info/exclude"
 # digit is the ground truth under bash (HOME is b, so `cd` alone moves there),
 # or x where it differs between bash versions. UF is U2, except that the open
 # policy still blocks on the finding in another git command of the line.
+# SC_HOME replaces that HOME for both the hook and bash; `-` unsets it.
+sc_with_home() {
+  case "${SC_HOME-$SHELLCD_ROOT/b}" in
+    -) env -u HOME "$@" ;;
+    *) HOME=${SC_HOME-$SHELLCD_ROOT/b} "$@" ;;
+  esac
+}
 shellcd_case() {
   sc_host=$1
   sc_mode=$2
@@ -4753,7 +4760,7 @@ shellcd_case() {
   for sc_policy in $sc_policies; do
     sc_session=$((sc_session + 1))
     jq -nc --arg c "$sc_command" --arg d "$SHELLCD_ROOT/a" --arg s "shellcd-$$-$sc_session" "$sc_filter" \
-      | (cd "$TMP_ROOT" && AGENT_GUARD_HOOK_HOST=$sc_host AGENT_GUARD_INFRA_FAILURE_MODE=$sc_policy \
+      | (cd "$TMP_ROOT" && sc_with_home env AGENT_GUARD_HOOK_HOST=$sc_host AGENT_GUARD_INFRA_FAILURE_MODE=$sc_policy \
           "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool) >"$OUT" 2>"$ERR"
     sc_status=$?
     if [ "$sc_policy" = open ]; then
@@ -4761,7 +4768,7 @@ shellcd_case() {
       cp "$ERR" "$ERR.open"
     fi
   done
-  (cd "$SHELLCD_ROOT/a" && HOME=$SHELLCD_ROOT/b bash -c "$sc_command") >/dev/null 2>&1
+  (cd "$SHELLCD_ROOT/a" && sc_with_home bash -c "$sc_command") >/dev/null 2>&1
   sc_leaks=0
   for sc_check in a:"$SHELLCD_BASE_A" b:"$SHELLCD_BASE_B"; do
     if git -C "$SHELLCD_ROOT/${sc_check%%:*}" log -p "${sc_check#*:}..HEAD" | grep -q AGENT_GUARD_TEST_SECRET; then
@@ -4829,7 +4836,53 @@ shellcd_case codex secret 2 'true # ; cd ../b
 git commit -m x' a
 # A cd whose target or effect only run time knows fails per the policy.
 shellcd_case claude secret U2 'cd $SC_UNSET_DIR && git commit -m x'
-shellcd_case codex secret U2 'cd ~ && git commit -m x'
+# An unquoted `~` or `~/...` is HOME (b) before any other command (#341).
+for sc_host in claude codex; do
+  for sc_command in \
+    'cd ~ && git commit -m x' \
+    'cd ~/sub && git commit -m x ../settings.conf' \
+    'cd /tmp && cd ~ && git commit -m x' \
+    'cd ~ && git commit -m x && git push --dry-run origin main'
+  do
+    shellcd_case "$sc_host" secret 2 "$sc_command"
+    shellcd_case "$sc_host" clean 0 "$sc_command"
+  done
+  shellcd_case "$sc_host" clean 0 'cd ~/sub && git push --dry-run origin main'
+done
+# A quoted or escaped tilde is a literal directory in a, here a link back to
+# a, so following HOME instead would scan b while the commit lands in a.
+# bash keeps `~""` and `~"/sub"` literal; zsh expands them.
+ln -s . "$SHELLCD_ROOT/a/~"
+printf '/~\n' >> "$SHELLCD_ROOT/a/.git/info/exclude"
+for sc_command in \
+  'cd "~" && git commit -m x' \
+  "cd '~' && git commit -m x" \
+  'cd \~ && git commit -m x' \
+  'cd ~"" && git commit -m x' \
+  'cd "~/sub" && git commit -m x' \
+  'cd ~"/sub" && git commit -m x' \
+  'cd ~+ && git commit -m x' \
+  'HOME=. ; cd ~ && git commit -m x' \
+  'export HOME=.; cd ~ && git commit -m x'
+do
+  shellcd_case claude secret U2 "$sc_command" a
+  shellcd_case codex secret U2 "$sc_command" a
+done
+shellcd_case claude secret U0 'cd ~agent-guard-no-such-user && git commit -m x' a
+shellcd_case codex secret Ux 'cd ~- && git commit -m x' a
+shellcd_case claude secret Ux 'cd ~1 && git commit -m x' a
+shellcd_case codex secret Ux 'HOME=. cd ~ && git commit -m x' a
+# Any earlier command may change HOME; this one does not, but stays unknown.
+shellcd_case claude secret U2 'true; cd ~ && git commit -m x'
+# A HOME that is empty, unset or relative is not followed.
+SC_HOME=.
+shellcd_case codex secret U2 'cd ~ && git commit -m x' a
+SC_HOME=
+shellcd_case claude secret Ux 'cd ~ && git commit -m x' a
+SC_HOME=-
+shellcd_case codex secret Ux 'cd ~ && git commit -m x' a
+unset SC_HOME
+rm "$SHELLCD_ROOT/a/~"
 shellcd_case claude secret U2 "cd \$'../b' && git commit -m x"
 shellcd_case codex secret U2 'cd ../\
 b && git commit -m x'
