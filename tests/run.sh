@@ -4893,6 +4893,14 @@ SC_HOME=-
 shellcd_case codex secret Ux 'cd ~ && git commit -m x' a
 unset SC_HOME
 rm "$SHELLCD_ROOT/a/~"
+# A quoted tilde pathspec stays one literal path, so an untracked file outside
+# it is not scanned.
+printf '%s\n' "AGENT_GUARD_TEST_SECRET" > "$SHELLCD_ROOT/a/untracked.conf"
+for sc_host in claude codex; do
+  shellcd_case "$sc_host" clean 0 'git commit -m x -- "~nofile"' a
+  shellcd_case "$sc_host" clean 0 'git commit -m x -- \~nofile' a
+done
+rm "$SHELLCD_ROOT/a/untracked.conf"
 # Absolute and relative -C operands are still followed.
 for sc_host in claude codex; do
   for sc_pair in secret:2 clean:0; do
