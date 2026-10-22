@@ -103,9 +103,10 @@ for host in claude codex; do
       fi
       # With AI_AGENT unset, both hosts block via exit 2 and stderr only.
       # Only an open-policy infrastructure failure emits a JSON notice here.
+      # An open-policy notice must not carry a blocking decision.
       # Slurping rejects multiple top-level responses as well as invalid JSON.
       if [ -n "$stage" ] && [ "$policy" = open ]; then
-        jq -se 'length == 1 and (.[0] | type == "object" and
+        jq -se 'length == 1 and (.[0] | type == "object" and (has("decision") | not) and
           (.hookSpecificOutput | type == "object" and
             .hookEventName == "UserPromptSubmit" and
             (.additionalContext | type == "string" and length > 0)))' \
