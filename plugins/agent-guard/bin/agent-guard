@@ -2,7 +2,7 @@
 set -u
 
 PROGRAM=agent-guard
-VERSION=3.6.4
+VERSION=3.6.5
 
 # Resolve the script's own path, following symlinks. The bootstrap installer
 # drops a symlink at ~/.local/bin/agent-guard that points into ~/.agent-guard/
@@ -3997,10 +3997,12 @@ deny_path_regex_fragment() {
   # into a deny-listed path, such as .e[n]v, .e?v, .e*v, or $'.e\x6ev'.
   pattern=$1
   mode=${2:-literal}
-  if [ "$mode" = "shell-expanded" ]; then
-    deny_path_shell_expanded_fragment "$pattern"
-    return
-  fi
+  case "$mode" in
+    shell-expanded|shell-expanded-starless-positions)
+      deny_path_shell_expanded_fragment "$pattern" "$mode"
+      return
+      ;;
+  esac
   py=
   remaining=$pattern
   while [ -n "$remaining" ]; do
@@ -4040,8 +4042,14 @@ deny_path_regex_fragment() {
 # letter (.*v). A suffix pin needs that leading dot: without it, *.json would
 # name credentials.json. An entry `*` after the pinned last letter matches only
 # stars there, so .*version stays a regex rather than a way to name .env*.
+#
+# The position-by-position spelling has no pin requirement, so a `*` standing
+# for a single entry character lets regex text such as `(.*?)` read as `*.p8`.
+# Mode shell-expanded-starless-positions drops that one-character star; the
+# caller blocks a word that needs it only when the word also pins a letter.
 deny_path_shell_expanded_fragment() {
   sx_rest=$1
+  sx_mode=${2:-shell-expanded}
   sx_any='[^[:space:]<>|;&`$()]*'
   sx_gap='\*([^[:space:]<>|;&`$()/]*\*)?'
   sx_n=0 sx_full= sx_alnum_segs=0 sx_seg_pinned=0
@@ -4076,6 +4084,11 @@ deny_path_shell_expanded_fragment() {
         ;;
     esac
     eval "sx_r_$sx_n=\$ch sx_c_$sx_n=\$sx_c sx_t_$sx_n=\$sx_t sx_p_$sx_n=\$sx_p"
+    case "$sx_mode:$sx_c" in
+      shell-expanded-starless-positions:*'|\*|'*)
+        sx_c=${sx_c%%'|\*|'*}'|'${sx_c#*'|\*|'}
+        ;;
+    esac
     sx_full=${sx_full}${sx_c}
   done
 
@@ -4259,6 +4272,42 @@ deny_path_command_regex() {
   printf '%s' '(^|[^[:alnum:]_./~-])('"${converted}"'|[^[:space:]<>|;&`$()]*/'"${converted}"')([^[:alnum:]_.-]|$)'
 }
 
+# Set sx_out to an ERE matching any pin of the entry's letters and digits.
+deny_path_entry_pin_regex() {
+  pr_rest=$1
+  sx_out=
+  while [ -n "$pr_rest" ]; do
+    pr_ch=${pr_rest%"${pr_rest#?}"}
+    pr_rest=${pr_rest#?}
+    case "$pr_ch" in
+      [[:alnum:]])
+        deny_path_pin_char_pattern "$pr_ch"
+        sx_out=${sx_out:+$sx_out|}$sx_pin
+        ;;
+    esac
+  done
+}
+
+# $1 already matched the shell-expanded regex $3 for entry $2. Return 0 when
+# the match holds without a one-character star, or when a word that matches
+# also pins a letter of the entry; return 1 for a match that relies on a star
+# alone, such as `(.*?)` for `*.p8`. A word that pins a letter elsewhere only
+# over-blocks. Any other status is a failed scan.
+bash_shell_expanded_match_is_pinned() {
+  sp_regex=$(deny_path_command_regex "$2" shell-expanded-starless-positions) || return 0
+  printf '%s\n' "$1" | grep -Eq "$sp_regex"
+  sp_status=$?
+  [ "$sp_status" -eq 1 ] || return "$sp_status"
+  deny_path_entry_pin_regex "$2"
+  [ -n "$sx_out" ] || return 0
+  sp_words=$(printf '%s\n' "$1" | tr -s '[:space:]<>|;&`$()' '[\n*]' | grep -E "$3")
+  sp_status=$?
+  # A bracket can hold a separator, so a split can lose the line's match.
+  [ "$sp_status" -eq 1 ] && return 0
+  [ "$sp_status" -eq 0 ] || return "$sp_status"
+  printf '%s\n' "$sp_words" | grep -Eq "$sx_out"
+}
+
 # Private variable name; see check_bash_command (#127).
 bash_matches_deny_path_mode() {
   mode_cmd=$1
@@ -4271,6 +4320,10 @@ bash_matches_deny_path_mode() {
     regex=$(deny_path_command_regex "$entry" "$mode") || continue
     printf '%s\n' "$mode_cmd" | grep -Eq "$regex"
     grep_status=$?
+    if [ "$grep_status" -eq 0 ] && [ "$mode" = shell-expanded ]; then
+      bash_shell_expanded_match_is_pinned "$mode_cmd" "$entry" "$regex"
+      grep_status=$?
+    fi
     case "$grep_status" in
       0)
         # Name what tripped the gate on stdout, so a block can be diagnosed
@@ -4754,7 +4807,16 @@ shell_command_words() {
 # (every expansion is double-quoted and cannot split, like "$x" or "$(cmd)"),
 # or 1 for one whose expansion may split into several words, or into none;
 # malformed input is emitted as 2. A quoted or escaped `;`, `&&`, `||` or `|`
-# is a 4 too, so that no caller mistakes it for the operator. A bare `&` or a `( ) { }` character is emitted on its own with
+# is a 4 too, so that no caller mistakes it for the operator. With $2 set to
+# tilde, so is a word after a `cd` or `pushd` command name (past any
+# assignment-shaped words, quoted or not) that starts with `~` and has a
+# quoted or escaped part before its first unquoted `/`: only an unquoted tilde
+# prefix expands to $HOME alike in every shell (zsh expands `~"/x"`). Also with
+# tilde, a command-position word shaped like `NAME=value` with a quoted or
+# escaped part before its first unquoted `=` is emitted as 5: the shell runs
+# it as a command name, not an assignment, and whatever it expands to still
+# starts with that literal `NAME=`. It is a 6 instead when an unquoted
+# expansion or glob character may make it no word at all (nullglob). A bare `&` or a `( ) { }` character is emitted on its own with
 # prefix 3: a command boundary for most callers, but the commit argument parser
 # must tell `2>&1` and brace expansion apart from the end of the command. Newlines cannot be represented safely in the record stream, so
 # they make the affected token dynamic and therefore subject to infra policy.
@@ -4762,7 +4824,7 @@ shell_command_words() {
 # be code for another shell, but is wrapped in `3(` and `3)`: nothing in it
 # runs in this shell.
 git_command_records() {
-  printf '%s\n' "$1" | awk '
+  printf '%s\n' "$1" | awk -v tilde="${2:-}" '
     BEGIN { heredoc_next = 1 }
     function emit() {
       if (!started) return
@@ -4776,13 +4838,16 @@ git_command_records() {
           heredoc_expect = 0
         }
       }
-      print (splits ? "1" : dynamic || word ~ /^(;|&&|\|\||\|)$/ ? "4" : "0") word
+      if (tilde != "" && !at_word && name_quoted && word ~ /^[A-Za-z_][A-Za-z0-9_]*=/) print (splits || globbed ? "6" : "5") word
+      else print (splits ? "1" : dynamic || word ~ /^(;|&&|\|\||\|)$/ || tilde != "" && cd_args && quoted && word ~ /^~/ ? "4" : "0") word
+      if (!at_word && (word == "cd" || word == "pushd")) cd_args = 1
+      if (word !~ /^[A-Za-z_][A-Za-z0-9_]*=/ || name_quoted) at_word = 1
       if (word == "[[") in_test = 1
       if (word == "]]") in_test = 0
-      word = ""; started = 0; dynamic = 0; splits = 0
+      word = ""; started = 0; dynamic = 0; splits = 0; quoted = 0; slashed = 0; name_quoted = 0; equaled = 0; globbed = 0
     }
     NR > 1 {
-      if (quote == "") { emit(); print "0;" }
+      if (quote == "") { emit(); print "0;"; cd_args = 0; at_word = 0 }
       else { word = word " "; dynamic = 1 }
       heredoc_expect = 0; heredoc_quoted = 0
     }
@@ -4834,11 +4899,11 @@ git_command_records() {
         if (c == "\047" || c == "\"") {
           # An empty quoted word after << is a valid delimiter.
           if (heredoc_expect) heredoc_quoted = 1
-          quote = c == "\047" ? "single" : "double"; started = 1; continue
+          quote = c == "\047" ? "single" : "double"; started = 1; if (!slashed) quoted = 1; if (!equaled) name_quoted = 1; continue
         }
         if (c == "\\") {
           if (i == length($0)) { dynamic = 1; splits = 1; started = 1; continue }
-          word = word n; started = 1; i++; continue
+          word = word n; started = 1; if (!slashed) quoted = 1; if (!equaled) name_quoted = 1; i++; continue
         }
         if (c == "<" && n == "<" && !in_heredoc) {
           if (substr($0, i + 2, 1) == "<") { word = word "<<<"; started = 1; i += 2; continue }
@@ -4852,6 +4917,7 @@ git_command_records() {
           emit()
           if ((c == "|" || c == "&") && n == c) { print "0" c c; i++ }
           else print "0" c
+          cd_args = 0; at_word = 0
           continue
         }
         # Bare &, newline-free ( ) { } grouping: treat as a command boundary so
@@ -4862,9 +4928,12 @@ git_command_records() {
           # group in a `[[ =~ ]]` pattern do not.
           if (c == "(") parens = parens (started || in_test ? "w" : "s")
           if (c == ")") { closed = substr(parens, length(parens)); parens = substr(parens, 1, length(parens) - 1) }
-          emit(); print "3" c; continue
+          emit(); print "3" c; cd_args = 0; at_word = 0; continue
         }
         if (c == "$" || c == "`") { dynamic = 1; splits = 1 }
+        if (c == "/") slashed = 1
+        if (c == "=") equaled = 1
+        if (index("*?[", c)) globbed = 1
         word = word c; started = 1
       }
     }
@@ -5402,7 +5471,8 @@ git_add_is_forced() {
 # Given the records after `cd` or `pushd`, print the one literal directory it
 # changes to. Fail when only run time knows it: no operand ($HOME), `-`
 # ($OLDPWD), an option or directory-stack entry, several operands (zsh
-# substitutes), a dynamic, tilde or glob word, a relative one that CDPATH may
+# substitutes), a dynamic or glob word, a tilde word other than an unquoted `~`
+# or `~/...` while $shell_cd_home holds a known $HOME, a relative one that CDPATH may
 # redirect ($shell_cd_cdpath), or a redirection that may fail and skip the cd.
 shell_cd_target() {
   cd_target=
@@ -5451,6 +5521,12 @@ shell_cd_target() {
     cd_target=$cd_word
   done
   [ "$cd_operands" -eq 1 ] || return 1
+  case "$cd_target" in
+    '~'|'~/'*)
+      [ -n "$shell_cd_home" ] && [ "$shell_cd_home_known" -eq 1 ] || return 1
+      cd_target=$shell_cd_home${cd_target#'~'}
+      ;;
+  esac
   case "$cd_target" in
     # zsh expands a leading `=` to a command path.
     ''|[-+=]*|'~'*|*[*?[]*) return 1 ;;
@@ -5582,7 +5658,7 @@ is_git_commit_or_push() {
   [ -n "$git_alias_workdir" ] || git_alias_workdir=$(pwd)
   (
     set -f
-    words=$(git_command_records "$cmd")
+    words=$(git_command_records "$cmd" tilde)
     old_ifs=$IFS
     IFS='
 '
@@ -5649,6 +5725,16 @@ is_git_commit_or_push() {
     shell_cd_function=0
     shell_cd_stack=
     shell_cd_prev=
+    # An earlier command may change HOME without naming it, as arithmetic on a
+    # variable read from a file does, so a tilde cd counts only before any
+    # command other than cd in this shell (shell_cd_home_known).
+    shell_cd_home_known=1
+    shell_cd_home=
+    case "${HOME:-}" in
+      *'
+'*) ;;
+      /*) shell_cd_home=$HOME ;;
+    esac
     shell_cd_cdpath=0
     [ -n "${CDPATH:-}" ] && shell_cd_cdpath=1
     case "$cmd" in
@@ -5695,7 +5781,7 @@ is_git_commit_or_push() {
             shell_cd_untrusted=1
             shell_cd_function=1
           else
-            shell_cd_stack="$shell_cd_stack $shell_cd_count:$shell_cd_unknown:$shell_cd_cond:$shell_cd_pending:$shell_cd_in_list:$shell_cd_braces"
+            shell_cd_stack="$shell_cd_stack $shell_cd_count:$shell_cd_unknown:$shell_cd_cond:$shell_cd_pending:$shell_cd_in_list:$shell_cd_braces:$shell_cd_home_known"
             shell_cd_cond=0
             shell_cd_pending=0
             shell_cd_in_list=0
@@ -5721,7 +5807,9 @@ is_git_commit_or_push() {
             shell_cd_pending=${shell_cd_saved%%:*}
             shell_cd_saved=${shell_cd_saved#*:}
             shell_cd_in_list=${shell_cd_saved%%:*}
-            shell_cd_braces=${shell_cd_saved#*:}
+            shell_cd_saved=${shell_cd_saved#*:}
+            shell_cd_braces=${shell_cd_saved%%:*}
+            shell_cd_home_known=${shell_cd_saved#*:}
             if [ "$shell_cd_count" -eq 0 ]; then
               shell_cd_dirs=
             else
@@ -5734,7 +5822,8 @@ is_git_commit_or_push() {
     append_effective_c_dir() {
       record=$1
       case "$record" in
-        1*) effective_c_dynamic=1 ;;
+        # Tilde expansion is not modeled for a directory option.
+        1*|0'~'*) effective_c_dynamic=1 ;;
         0*)
           dir=${record#?}
           if [ -n "$effective_c_dirs" ]; then
@@ -5786,11 +5875,17 @@ $effective_c_dirs" "$git_config_args" "$git_env_args"
       token=${record#?}
 
       if [ "$command_start" -eq 1 ]; then
+        case "$record_kind$token" in
+          0cd|0pushd|3*|0';'|0'&&'|0'||'|0'|') ;;
+          0HOME=*) shell_cd_home_known=0 ;;
+          0*=*) is_assignment_token "$token" || shell_cd_home_known=0 ;;
+          *) shell_cd_home_known=0 ;;
+        esac
         # Strip leading `NAME=value` assignments and no-op wrappers so a wrapped
         # invocation like `FOO=1 env git commit --no-verify` still reaches the
         # git check below. command_start stays 1 so the next token is re-examined
         # as the command head.
-        if is_assignment_token "$token"; then
+        if [ "$record_kind" != 5 ] && [ "$record_kind" != 6 ] && is_assignment_token "$token"; then
           git_env_assignment "$record"
           shift
           continue
@@ -5823,6 +5918,13 @@ $effective_c_dirs" "$git_config_args" "$git_env_args"
             continue
             ;;
         esac
+        # The next word may be the command name; whether a cd after it runs is
+        # then unknown.
+        if [ "$record_kind" = 6 ]; then
+          shell_cd_mutable=1
+          shift
+          continue
+        fi
         # A command name only run time knows may be git, a shell or eval.
         case "$record_kind:${token##*/}" in
           1:*|4:*[\$\`]*)
@@ -5902,7 +6004,7 @@ $shell_cd_dir"
             case "$shell_code_status" in
               0)
                 shift "${shell_code%%:*}"
-                shell_code_records=$(git_command_records "${shell_code#*:}")
+                shell_code_records=$(git_command_records "${shell_code#*:}" tilde)
                 # An unbalanced ( or ) would restore the cd state of a
                 # subshell around this command.
                 printf '%s\n' "$shell_code_records" \
@@ -6006,7 +6108,7 @@ $shell_cd_dir"
                   IFS='
 '
                   # shellcheck disable=SC2086
-                  set -- $(git_command_records "${env_split#?}") "$@"
+                  set -- $(git_command_records "${env_split#?}" tilde) "$@"
                   IFS=$old_ifs
                   continue
                 fi
@@ -6152,7 +6254,7 @@ $shell_cd_dir"
                       IFS='
 '
                       # shellcheck disable=SC2086
-                      set -- $(git_command_records "$git_alias") "$@"
+                      set -- $(git_command_records "$git_alias" tilde) "$@"
                       IFS=$old_ifs
                       continue
                     fi
