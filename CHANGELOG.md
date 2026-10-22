@@ -1,3 +1,22 @@
+## v3.6.5 - 2026-10-22
+
+- fix: only treat unquoted names as assignments in the git gate (#345)
+- fix: follow an unquoted tilde cd target to HOME in the git gate (#344)
+- fix: require a pinned letter for one-character star stand-ins in Bash path text (#343)
+- test: add direct probe eligibility contracts (#335)
+- perf: avoid per-character subshells in deny-path regex construction (#334)
+- test: consolidate duplicated function extraction setup (#333)
+- test: cover framing producer byte and failure contracts (#332)
+- docs: document test layers and scoped source coverage (#329)
+- test: add fast version and shell quoting contracts (#331)
+- Merge pull request #327 from JeongJaeSoon/codex/ci-runtime-balance
+- ci: preserve OS temporary root for permission regression fixtures
+- docs: clarify preserved regression assertions and matrix check
+- ci: run isolated test partitions on bounded worker bundles
+- Merge remote-tracking branch 'origin/main' into codex/ci-runtime-balance
+- ci: balance output coverage against latest baseline
+- ci: balance test work and name suites by coverage
+
 ## v3.6.4 - 2026-10-17
 
 - ci: bump hashgraph-online/ai-plugin-scanner-action (#312)

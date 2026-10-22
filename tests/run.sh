@@ -1519,6 +1519,43 @@ expect_json_status 2 "ripgrep positive glob over a denied extension remains bloc
   '{"tool_name":"Bash","tool_input":{"command":"rg --files -g '\''*.pem'\''"}}' \
   hook-pre-tool
 
+# A star that stands for one entry character must come with a pinned letter.
+# Each case runs through both hosts' native event shapes.
+star_stand_in_fixtures="$ROOT/tests/fixtures/bash-star-stand-in.json"
+star_stand_in_cases="$TESTTMP/bash-star-stand-in.cases"
+star_stand_in_dir="$TESTTMP/bash-star-stand-in"
+mkdir -p "$star_stand_in_dir"
+if jq -e 'type == "array" and length > 0' "$star_stand_in_fixtures" >/dev/null \
+  && jq -c '.[]' "$star_stand_in_fixtures" >"$star_stand_in_cases"; then
+  ok "star stand-in fixture corpus is valid and non-empty"
+else
+  not_ok "star stand-in fixture corpus is valid and non-empty"
+fi
+while IFS= read -r star_stand_in_fixture; do
+  star_stand_in_expected=$(printf '%s' "$star_stand_in_fixture" | jq -r '.expected_status')
+  star_stand_in_name=$(printf '%s' "$star_stand_in_fixture" \
+    | jq -r '.classification + ": " + .description')
+  for star_stand_in_host in claude codex; do
+    case "$star_stand_in_host" in
+      codex) star_stand_in_shape='{tool_name:"Bash",tool_input:{command:$c,workdir:$d}}' ;;
+      *) star_stand_in_shape='{tool_name:"Bash",tool_input:{command:$c},cwd:$d}' ;;
+    esac
+    printf '%s' "$star_stand_in_fixture" \
+      | jq -c --arg d "$star_stand_in_dir" ".command as \$c | $star_stand_in_shape" \
+      | AGENT_GUARD_HOOK_HOST=$star_stand_in_host "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool \
+        >"$OUT" 2>"$ERR"
+    star_stand_in_status=$?
+    if [ "$star_stand_in_status" -eq "$star_stand_in_expected" ] \
+      && { [ "$star_stand_in_expected" -eq 0 ] \
+        || grep -Fq 'reason=bash_protected_path_text_match' "$ERR"; }; then
+      ok "[$star_stand_in_host] $star_stand_in_name"
+    else
+      not_ok "[$star_stand_in_host] $star_stand_in_name (expected $star_stand_in_expected, got $star_stand_in_status)"
+      sed 's/^/  stderr: /' "$ERR"
+    fi
+  done
+done <"$star_stand_in_cases"
+
 expect_json_status 2 "literal bang-prefixed denied path remains blocked" \
   '{"tool_name":"Bash","tool_input":{"command":"cat '\''!secret.pem'\''"}}' \
   hook-pre-tool
@@ -4685,6 +4722,13 @@ printf '/link\n' >> "$SHELLCD_ROOT/a/.git/info/exclude"
 # digit is the ground truth under bash (HOME is b, so `cd` alone moves there),
 # or x where it differs between bash versions. UF is U2, except that the open
 # policy still blocks on the finding in another git command of the line.
+# SC_HOME replaces that HOME for both the hook and bash; `-` unsets it.
+sc_with_home() {
+  case "${SC_HOME-$SHELLCD_ROOT/b}" in
+    -) env -u HOME "$@" ;;
+    *) HOME=${SC_HOME-$SHELLCD_ROOT/b} "$@" ;;
+  esac
+}
 shellcd_case() {
   sc_host=$1
   sc_mode=$2
@@ -4718,7 +4762,7 @@ shellcd_case() {
   for sc_policy in $sc_policies; do
     sc_session=$((sc_session + 1))
     jq -nc --arg c "$sc_command" --arg d "$SHELLCD_ROOT/a" --arg s "shellcd-$$-$sc_session" "$sc_filter" \
-      | (cd "$TMP_ROOT" && AGENT_GUARD_HOOK_HOST=$sc_host AGENT_GUARD_INFRA_FAILURE_MODE=$sc_policy \
+      | (cd "$TMP_ROOT" && sc_with_home env AGENT_GUARD_HOOK_HOST=$sc_host AGENT_GUARD_INFRA_FAILURE_MODE=$sc_policy \
           "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool) >"$OUT" 2>"$ERR"
     sc_status=$?
     if [ "$sc_policy" = open ]; then
@@ -4726,7 +4770,7 @@ shellcd_case() {
       cp "$ERR" "$ERR.open"
     fi
   done
-  (cd "$SHELLCD_ROOT/a" && HOME=$SHELLCD_ROOT/b bash -c "$sc_command") >/dev/null 2>&1
+  (cd "$SHELLCD_ROOT/a" && sc_with_home bash -c "$sc_command") >/dev/null 2>&1
   sc_leaks=0
   for sc_check in a:"$SHELLCD_BASE_A" b:"$SHELLCD_BASE_B"; do
     if git -C "$SHELLCD_ROOT/${sc_check%%:*}" log -p "${sc_check#*:}..HEAD" | grep -q AGENT_GUARD_TEST_SECRET; then
@@ -4794,7 +4838,90 @@ shellcd_case codex secret 2 'true # ; cd ../b
 git commit -m x' a
 # A cd whose target or effect only run time knows fails per the policy.
 shellcd_case claude secret U2 'cd $SC_UNSET_DIR && git commit -m x'
-shellcd_case codex secret U2 'cd ~ && git commit -m x'
+# An unquoted `~` or `~/...` is HOME (b) before any other command (#341);
+# quoting after the first `/` does not stop the expansion.
+mkdir "$SHELLCD_ROOT/b/my dir"
+for sc_host in claude codex; do
+  for sc_command in \
+    'cd ~ && git commit -m x' \
+    'cd ~/sub && git commit -m x ../settings.conf' \
+    'cd ~/"my dir" && git commit -m x' \
+    'cd ~/s"u"b && git commit -m x ../settings.conf' \
+    'cd /tmp && cd ~ && git commit -m x' \
+    'SC_X=1 cd ~ && git commit -m x' \
+    'SC_X=1; cd ~ && git commit -m x' \
+    'cd ~ && git commit -m x && git push --dry-run origin main'
+  do
+    shellcd_case "$sc_host" secret 2 "$sc_command"
+    shellcd_case "$sc_host" clean 0 "$sc_command"
+  done
+  shellcd_case "$sc_host" clean 0 'cd ~/sub && git push --dry-run origin main'
+done
+rmdir "$SHELLCD_ROOT/b/my dir"
+# A quoted or escaped tilde is a literal directory in a, here a link back to
+# a, so following HOME instead would scan b while the commit lands in a.
+# bash keeps `~""` and `~"/sub"` literal; zsh expands them.
+ln -s . "$SHELLCD_ROOT/a/~"
+printf '/~\n' >> "$SHELLCD_ROOT/a/.git/info/exclude"
+for sc_command in \
+  'cd "~" && git commit -m x' \
+  "cd '~' && git commit -m x" \
+  'cd \~ && git commit -m x' \
+  'cd ~"" && git commit -m x' \
+  'cd "~/sub" && git commit -m x' \
+  'cd ~"/sub" && git commit -m x' \
+  'cd ~+ && git commit -m x' \
+  'SC_X=1 cd "~" && git commit -m x' \
+  'HOME=. ; cd ~ && git commit -m x' \
+  'export HOME=.; cd ~ && git commit -m x'
+do
+  shellcd_case claude secret U2 "$sc_command" a
+  shellcd_case codex secret U2 "$sc_command" a
+done
+# A tilde -C operand is left unresolved.
+for sc_host in claude codex; do
+  shellcd_case "$sc_host" secret U2 'git -C ~/sub commit -m x'
+  shellcd_case "$sc_host" secret U2 'git -C ~ commit -m x'
+done
+shellcd_case claude secret U0 'cd ~agent-guard-no-such-user && git commit -m x' a
+shellcd_case codex secret Ux 'cd ~- && git commit -m x' a
+shellcd_case claude secret Ux 'cd ~1 && git commit -m x' a
+shellcd_case codex secret Ux 'HOME=. cd ~ && git commit -m x' a
+# Any earlier command may change HOME; this one does not, but stays unknown.
+shellcd_case claude secret U2 'true; cd ~ && git commit -m x'
+# A command in a subshell cannot change this shell's HOME; one in the same
+# subshell as the cd can.
+for sc_host in claude codex; do
+  shellcd_case "$sc_host" secret 2 '(true); cd ~ && git commit -m x'
+  shellcd_case "$sc_host" clean 0 '(true); cd ~ && git commit -m x'
+  shellcd_case "$sc_host" secret U2 '(HOME=. ; cd ~ && git commit -m x)' a
+done
+# A HOME that is empty, unset or relative is not followed.
+SC_HOME=.
+shellcd_case codex secret U2 'cd ~ && git commit -m x' a
+SC_HOME=
+shellcd_case claude secret Ux 'cd ~ && git commit -m x' a
+SC_HOME=-
+shellcd_case codex secret Ux 'cd ~ && git commit -m x' a
+unset SC_HOME
+rm "$SHELLCD_ROOT/a/~"
+# A quoted tilde pathspec stays one literal path, so an untracked file outside
+# it is not scanned.
+printf '%s\n' "AGENT_GUARD_TEST_SECRET" > "$SHELLCD_ROOT/a/untracked.conf"
+for sc_host in claude codex; do
+  shellcd_case "$sc_host" clean 0 'git commit -m x -- "~nofile"' a
+  shellcd_case "$sc_host" clean 0 'git commit -m x -- \~nofile' a
+  shellcd_case "$sc_host" clean 0 "git commit -m x -- '~no file'" a
+  shellcd_case "$sc_host" clean 0 'git commit -m cd -- "~nofile"' a
+done
+rm "$SHELLCD_ROOT/a/untracked.conf"
+# Absolute and relative -C operands are still followed.
+for sc_host in claude codex; do
+  for sc_pair in secret:2 clean:0; do
+    shellcd_case "$sc_host" "${sc_pair%:*}" "${sc_pair#*:}" "git -C $SHELLCD_ROOT/b commit -m x"
+    shellcd_case "$sc_host" "${sc_pair%:*}" "${sc_pair#*:}" 'git -C sub commit -m x' a
+  done
+done
 shellcd_case claude secret U2 "cd \$'../b' && git commit -m x"
 shellcd_case codex secret U2 'cd ../\
 b && git commit -m x'
@@ -4868,6 +4995,63 @@ shellcd_case codex secret 2 "/usr/bin/env git commit -m x" a
 # The open policy still scans the git commands whose directory is known.
 shellcd_case claude secret UF 'git commit -m x; cd $SC_UNSET_DIR && git commit -m y' a
 shellcd_case codex secret UF 'eval "$(true)"; git commit -m x' a
+
+# A word whose name part is quoted or escaped is a command name, not an
+# assignment, so the cd after it is one of its arguments and git commits in a.
+for sc_host in claude codex; do
+  for sc_command in \
+    '"SC_X=1" cd ../b; git commit -m x' \
+    "'SC_X=1' cd ../b; git commit -m x" \
+    'SC_X\=1 cd ../b; git commit -m x' \
+    '\SC_X=1 cd ../b; git commit -m x' \
+    'SC_"X"=1 cd ../b; git commit -m x' \
+    "\"SC_X\"=1 cd $SHELLCD_ROOT/b; git commit -m x" \
+    'true; "SC_X=1" cd ../b; git commit -m x' \
+    '"SC_X=1">/dev/null cd ../b; git commit -m x' \
+    "'SC_X=\$X' true; git commit -m x" \
+    "bash -c '\"SC_X=1\" cd ../b; git commit -m x'"
+  do
+    shellcd_case "$sc_host" secret 2 "$sc_command" a
+    shellcd_case "$sc_host" clean 0 "$sc_command" a
+  done
+  # The unknown command may change the tree before the cd that follows it.
+  shellcd_case "$sc_host" secret U2 '"SC_X=1" true; cd ../b && git commit -m x'
+  # A glob may leave no word, so the next word may be the command name.
+  shellcd_case "$sc_host" secret 2 'shopt -s nullglob; "SC_X="agent-guard-no-such-* git commit -m x' a
+  shellcd_case "$sc_host" clean 0 'shopt -s nullglob; "SC_X="agent-guard-no-such-* git commit -m x' a
+  shellcd_case "$sc_host" secret U2 '"SC_X="agent-guard-no-such-* cd ../b; git commit -m x' a
+  # A quoted or escaped `$` or glob character cannot remove the word.
+  for sc_command in \
+    '"SC_X=$PWD" cd ../b; git commit -m x' \
+    '"SC_X="\* cd ../b; git commit -m x'
+  do
+    shellcd_case "$sc_host" secret 2 "$sc_command" a
+    shellcd_case "$sc_host" clean 0 "$sc_command" a
+  done
+  shellcd_case "$sc_host" secret 0 "shopt -s nullglob; 'SC_X=\$X' git commit -m x" a
+  shellcd_case "$sc_host" secret 2 "shopt -s nullglob; X='agent-guard-no-such-*'; \"SC_X=\"\$X git commit -m x" a
+  shellcd_case "$sc_host" clean 0 "shopt -s nullglob; X='agent-guard-no-such-*'; \"SC_X=\"\$X git commit -m x" a
+done
+# Unquoted names stay assignments, whatever the value's quoting.
+for sc_host in claude codex; do
+  for sc_command in \
+    "SC_X=1 cd $SHELLCD_ROOT/b; git commit -m x" \
+    'SC_X="1 2" cd ../b; git commit -m x' \
+    'SC_X="$PWD" cd ../b; git commit -m x' \
+    'SC_X=$PWD cd ../b; git commit -m x'
+  do
+    shellcd_case "$sc_host" secret 2 "$sc_command"
+    shellcd_case "$sc_host" clean 0 "$sc_command"
+  done
+  for sc_command in \
+    'GIT_CONFIG_NOSYSTEM=1 git commit -m x' \
+    'GIT_DIR=.git git commit -m x' \
+    '"GIT_DIR=.git" git commit -m x; git commit -m y'
+  do
+    shellcd_case "$sc_host" secret 2 "$sc_command" a
+    shellcd_case "$sc_host" clean 0 "$sc_command" a
+  done
+done
 
 # The push gate follows the cd too. Nothing is committed, so the verdict is
 # checked against the same command with git -C, which the gate already follows.
