@@ -5051,6 +5051,72 @@ for sc_host in claude codex; do
   done
 done
 
+# A command substitution inside double quotes runs too, where its command runs.
+sc_nl='
+'
+for sc_host in claude codex; do
+  for sc_command in \
+    'echo "$(git commit -m x)"' \
+    'SC_X="$(git commit -m x)"' \
+    'true "$(git commit -m x)"' \
+    '"SC_X=$(git commit -m x)" true' \
+    'echo "`git commit -m x`"' \
+    'echo "a $(git commit -m "x y") b"' \
+    'echo "$(echo "$(git commit -m x)")"' \
+    "bash -c 'echo \"\$(git commit -m x)\"'" \
+    "echo \"\$(${sc_nl}git commit -m x${sc_nl})\"" \
+    'echo $(git commit -m x)'
+  do
+    shellcd_case "$sc_host" secret 2 "$sc_command" a
+    shellcd_case "$sc_host" clean 0 "$sc_command" a
+  done
+  for sc_command in \
+    'cd ../b && echo "$(git commit -m x)"' \
+    'echo "$(cd ../b && git commit -m x)"' \
+    '(cd ../b; echo "$(git commit -m x)")' \
+    "echo \"\$(cd ../b${sc_nl}git commit -m x)\""
+  do
+    shellcd_case "$sc_host" secret 2 "$sc_command"
+    shellcd_case "$sc_host" clean 0 "$sc_command"
+  done
+  shellcd_case "$sc_host" secret 0 'cd ../b && echo "$(git commit -m x)"' a
+  # Text that only looks like one, and code that commits nothing, change nothing.
+  for sc_command in \
+    'echo "$(date)"' \
+    "echo '\$(git commit -m x)'" \
+    'echo "\$(git commit -m x)"'
+  do
+    shellcd_case "$sc_host" secret 0 "$sc_command" a
+  done
+  for sc_command in \
+    'git commit -m "$(date)"' \
+    "git commit -m \"\$(cat <<'EOF'${sc_nl}fix: a thing${sc_nl}${sc_nl}More text (with parens).${sc_nl}EOF${sc_nl})\""
+  do
+    shellcd_case "$sc_host" secret 2 "$sc_command" a
+    shellcd_case "$sc_host" clean 0 "$sc_command" a
+  done
+done
+
+# GIT_DIR and GIT_WORK_TREE, or --git-dir and --work-tree, choose the
+# repository a commit uses; one only run time knows fails per the policy.
+for sc_host in claude codex; do
+  for sc_command in \
+    'GIT_DIR=../b/.git GIT_WORK_TREE=../b git commit -m x' \
+    'GIT_DIR=../b/.git git commit -m x' \
+    'env GIT_DIR=../b/.git GIT_WORK_TREE=../b git commit -m x' \
+    'git --git-dir=../b/.git --work-tree=../b commit -m x' \
+    'git --git-dir ../b/.git --work-tree ../b commit -m x'
+  do
+    shellcd_case "$sc_host" secret 2 "$sc_command"
+    shellcd_case "$sc_host" clean 0 "$sc_command"
+  done
+  shellcd_case "$sc_host" secret 0 'GIT_DIR=../b/.git GIT_WORK_TREE=../b git commit -m x' a
+  shellcd_case "$sc_host" secret 2 'GIT_WORK_TREE=../b git commit -m x' a
+  shellcd_case "$sc_host" secret U2 'GIT_DIR="$PWD/../b/.git" GIT_WORK_TREE=../b git commit -m x'
+  shellcd_case "$sc_host" secret U2 'export GIT_DIR=../b/.git GIT_WORK_TREE=../b; git commit -m x'
+  shellcd_case "$sc_host" secret U2 'GIT_DIR=~/.git git commit -m x'
+done
+
 # The push gate follows the cd too. Nothing is committed, so the verdict is
 # checked against the same command with git -C, which the gate already follows.
 for sc_command in 'cd ../b; git push' 'git -C ../b push'; do

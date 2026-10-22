@@ -4816,7 +4816,9 @@ shell_command_words() {
 # escaped part before its first unquoted `=` is emitted as 5: the shell runs
 # it as a command name, not an assignment, and whatever it expands to still
 # starts with that literal `NAME=`. It is a 6 instead when an unquoted
-# expansion or glob character may make it no word at all (nullglob). A bare `&` or a `( ) { }` character is emitted on its own with
+# expansion or glob character may make it no word at all (nullglob). With
+# tilde, a newline inside double quotes is kept as \034, so that the code of a
+# command substitution there can be read back (git_gate_records). A bare `&` or a `( ) { }` character is emitted on its own with
 # prefix 3: a command boundary for most callers, but the commit argument parser
 # must tell `2>&1` and brace expansion apart from the end of the command. Newlines cannot be represented safely in the record stream, so
 # they make the affected token dynamic and therefore subject to infra policy.
@@ -4848,7 +4850,7 @@ git_command_records() {
     }
     NR > 1 {
       if (quote == "") { emit(); print "0;"; cd_args = 0; at_word = 0 }
-      else { word = word " "; dynamic = 1 }
+      else { word = word (tilde != "" && quote == "double" ? "\034" : " "); dynamic = 1 }
       heredoc_expect = 0; heredoc_quoted = 0
     }
     heredoc_next <= heredoc_count && NR > heredoc_line {
@@ -4943,6 +4945,103 @@ git_command_records() {
     }
   '
 }
+
+# The records of $1 for the commit/push gate: git_command_records in tilde
+# mode, where the code of each command substitution inside a quoted word, as
+# in `echo "$(git commit)"`, runs in a ( ) subshell placed before the command
+# that word belongs to. That code is placed only when it may itself commit or
+# push (git alias lookups read $2), so that other code, such as the
+# here-document of a commit message, does not change how the rest is read.
+# Code that cannot be read back runs as a command only run time knows.
+git_gate_records() (
+  set -f
+  gate_records=$(git_command_records "$1" tilde)
+  case "$gate_records" in
+    *'$('*|*'`'*) ;;
+    *)
+      printf '%s\n' "$gate_records"
+      exit 0
+      ;;
+  esac
+  gate_workdir=${2:-}
+  gate_ifs=$IFS
+  IFS='
+'
+  # shellcheck disable=SC2086
+  set -- $gate_records
+  IFS=$gate_ifs
+  gate_segment=
+  gate_code=
+  gate_prev=
+  gate_flush() {
+    if [ -n "$gate_code" ]; then
+      gate_sub=$(git_gate_records "$gate_code" "$gate_workdir")
+      if printf '%s\n' "$gate_sub" \
+        | awk '$0 == "2" { exit 1 } $0 == "3(" { d++ } $0 == "3)" && --d < 0 { exit 1 } END { if (d) exit 1 }'; then
+        is_git_commit_or_push "$gate_code" "$gate_workdir" "$gate_sub" >/dev/null \
+          && printf '%s\n' "$gate_sub"
+      else
+        printf '3(\n1$\n3)\n'
+      fi
+    fi
+    printf '%s' "$gate_segment"
+    gate_segment=
+    gate_code=
+  }
+  while [ "$#" -gt 0 ]; do
+    gate_record=$1
+    shift
+    gate_end=0
+    case "$gate_record" in
+      0';'|0'&&'|0'||'|0'|'|3'('|3')') gate_end=1 ;;
+      # Not the `&` of `2>&1` or `&>log`.
+      3'&')
+        case "$gate_prev:${1-}" in
+          *'>:'*|*'<:'*|*:0'>'*|*:0'<'*) ;;
+          *) gate_end=1 ;;
+        esac
+        ;;
+      # A literal (0) word has no expansion; a kind 1 word may join a quoted
+      # part to an unquoted one.
+      [1456]*'$('*|[1456]*'`'*)
+        gate_code="$gate_code$(printf '%s\n' "${gate_record#?}" | awk '
+          {
+            s = $0
+            gsub("\034", "\n", s)
+            n = length(s)
+            i = 1
+            while (i <= n) {
+              c = substr(s, i, 1)
+              if (c == "$" && substr(s, i + 1, 1) == "(") {
+                d = 1
+                for (j = i + 2; j <= n && d > 0; j++) {
+                  if (substr(s, j, 1) == "(") d++
+                  else if (substr(s, j, 1) == ")") d--
+                }
+                print "( " substr(s, i + 2, j - i - 2 - (d == 0)) "\n)"
+                i = j
+              } else if (c == "`") {
+                j = index(substr(s, i + 1), "`")
+                if (j == 0) j = n - i + 1
+                print "( " substr(s, i + 1, j - 1) "\n)"
+                i += j + 1
+              } else i++
+            }
+          }')
+"
+        ;;
+    esac
+    if [ "$gate_end" -eq 1 ]; then
+      gate_flush
+      printf '%s\n' "$gate_record"
+    else
+      gate_segment="$gate_segment$gate_record
+"
+    fi
+    gate_prev=$gate_record
+  done
+  gate_flush
+)
 
 # A sourced script runs in this shell and may change cwd where no command text
 # shows it (`. ./switch.sh; cat env.py`). Look for `.`/`source` where a command
@@ -5159,9 +5258,23 @@ mentions_git_config_env() {
     *HOME*|*GIT_*) ;;
     *) return 1 ;;
   esac
-  printf '%s\n' "$1" \
+  mentions_env_name 'HOME|XDG_CONFIG_HOME|GIT_CONFIG_[A-Za-z0-9_]*|GIT_DIR|GIT_COMMON_DIR|GIT_CEILING_DIRECTORIES|GIT_DISCOVERY_ACROSS_FILESYSTEM' "$1"
+}
+
+mentions_git_target_env() {
+  case "$1" in
+    *GIT_DIR*|*GIT_WORK_TREE*) ;;
+    *) return 1 ;;
+  esac
+  mentions_env_name 'GIT_DIR|GIT_WORK_TREE' "$1"
+}
+
+# Succeed when word $2 names a variable matching ERE $1 other than in an
+# expansion that only reads it.
+mentions_env_name() {
+  printf '%s\n' "$2" \
     | sed -E 's/\$[A-Za-z_][A-Za-z0-9_]*//g; s/\$\{#?[A-Za-z_][A-Za-z0-9_]*([}#%\/^,?+-]|:[^=])//g' \
-    | grep -Eq '(^|[^A-Za-z0-9_])(HOME|XDG_CONFIG_HOME|GIT_CONFIG_[A-Za-z0-9_]*|GIT_DIR|GIT_COMMON_DIR|GIT_CEILING_DIRECTORIES|GIT_DISCOVERY_ACROSS_FILESYSTEM)([^A-Za-z0-9_]|$)'
+    | grep -Eq "(^|[^A-Za-z0-9_])($1)([^A-Za-z0-9_]|\$)"
 }
 
 # Git runs a subcommand that has no built-in as an external git-<name>
@@ -5658,7 +5771,12 @@ is_git_commit_or_push() {
   [ -n "$git_alias_workdir" ] || git_alias_workdir=$(pwd)
   (
     set -f
-    words=$(git_command_records "$cmd" tilde)
+    # $3, when given, holds the records of $1 already.
+    if [ "$#" -ge 3 ]; then
+      words=$3
+    else
+      words=$(git_gate_records "$cmd" "$git_alias_workdir")
+    fi
     old_ifs=$IFS
     IFS='
 '
@@ -5676,6 +5794,11 @@ is_git_commit_or_push() {
     git_env_changed=0
     git_env_args=
     git_env_dynamic=0
+    # The same for GIT_DIR and GIT_WORK_TREE, which choose the repository a
+    # commit or push uses.
+    git_target_changed=0
+    git_target_args=
+    git_target_dynamic=0
     git_config_args=
     git_config_dynamic=0
     git_alias_depth=0
@@ -5836,9 +5959,21 @@ $dir"
         *) effective_c_dynamic=1 ;;
       esac
     }
+    # $1 is GIT_DIR or GIT_WORK_TREE, $2 the record of the path git takes for
+    # it. A commit or push is scanned with them, or fails per the policy.
+    git_target_value() {
+      case "$2" in
+        0|0*'~'*|[!0]*) git_target_dynamic=1 ;;
+        *) git_target_args="$git_target_args$1=${2#?}
+" ;;
+      esac
+    }
     # $1 is a NAME=value record before a command name. A tilde in it expands.
     git_env_assignment() {
       git_env_name=${1#?}
+      case "$git_env_name" in
+        GIT_DIR=*|GIT_WORK_TREE=*) git_target_value "${git_env_name%%=*}" "${1%"$git_env_name"}${1#*=}" ;;
+      esac
       is_git_config_env_name "${git_env_name%%=*}" || return 0
       case "$1" in
         0*'~'*|[!0]*) git_env_dynamic=1 ;;
@@ -6004,7 +6139,7 @@ $shell_cd_dir"
             case "$shell_code_status" in
               0)
                 shift "${shell_code%%:*}"
-                shell_code_records=$(git_command_records "${shell_code#*:}" tilde)
+                shell_code_records=$(git_gate_records "${shell_code#*:}" "$git_alias_workdir")
                 # An unbalanced ( or ) would restore the cd state of a
                 # subshell around this command.
                 printf '%s\n' "$shell_code_records" \
@@ -6022,6 +6157,7 @@ $shell_cd_dir"
 0;"
                 # An assignment before eval may outlast it.
                 [ -z "$git_env_args" ] && [ "$git_env_dynamic" -eq 0 ] || git_env_changed=1
+                [ -z "$git_target_args" ] && [ "$git_target_dynamic" -eq 0 ] || git_target_changed=1
                 IFS='
 '
                 if [ "${token##*/}" = eval ]; then
@@ -6049,8 +6185,8 @@ $shell_cd_dir"
           shell_cd_wrapped=1
           # xargs appends words read from stdin, which may be any argument.
           [ "$wrapper" = xargs ] && xargs_wrapped=1
-          # sudo may run git with another HOME.
-          [ "$wrapper" = sudo ] && git_env_dynamic=1
+          # sudo may run git with another HOME, and without GIT_DIR.
+          [ "$wrapper" = sudo ] && git_env_dynamic=1 && git_target_dynamic=1
           shift
           while [ "$#" -gt 0 ]; do
             record=$1
@@ -6088,6 +6224,7 @@ $shell_cd_dir"
                   # -i and -u remove variables that locate git configuration.
                   env:-|env:--ignore-environment|env:--unset|env:--unset=*|env:-[!-]*[iu]*|env:-[iu]*)
                     git_env_dynamic=1
+                    git_target_dynamic=1
                     env_split=
                     ;;
                   *) env_split= ;;
@@ -6108,7 +6245,7 @@ $shell_cd_dir"
                   IFS='
 '
                   # shellcheck disable=SC2086
-                  set -- $(git_command_records "${env_split#?}" tilde) "$@"
+                  set -- $(git_gate_records "${env_split#?}" "$git_alias_workdir") "$@"
                   IFS=$old_ifs
                   continue
                 fi
@@ -6169,6 +6306,10 @@ $shell_cd_dir"
                 -c|--git-dir) git_config_option "$token" "$git_value" ;;
                 --config-env) git_config_dynamic=1 ;;
               esac
+              case "$token" in
+                --git-dir) git_target_value GIT_DIR "$git_value" ;;
+                --work-tree) git_target_value GIT_WORK_TREE "$git_value" ;;
+              esac
               case "$git_value" in
                 0*|4*) continue ;;
               esac
@@ -6179,6 +6320,10 @@ $shell_cd_dir"
                 0--git-dir=*|0--bare) git_config_args="$git_config_args$token
 " ;;
                 0--config-env=*|4--git-dir=*|4--config-env=*) git_config_dynamic=1 ;;
+              esac
+              case "$token" in
+                --git-dir=*) git_target_value GIT_DIR "${record%"$token"}${token#*=}" ;;
+                --work-tree=*) git_target_value GIT_WORK_TREE "${record%"$token"}${token#*=}" ;;
               esac
               case "$record" in
                 0*) is_git_global_option "$token" && continue ;;
@@ -6210,6 +6355,8 @@ $shell_cd_dir"
                 [ "$shell_cd_unknown$shell_cd_lost" = 00 ] || printf 'U\n'
                 [ -n "$shell_cd_dirs" ] && printf '%s\n' "$shell_cd_dirs" | sed 's/^/D/'
                 [ -n "$effective_c_dirs" ] && printf '%s\n' "$effective_c_dirs" | sed 's/^/D/'
+                [ "$git_target_changed$git_target_dynamic" = 00 ] || printf 'U\n'
+                [ -n "$git_target_args" ] && printf '%s' "$git_target_args" | sed 's/^/E/'
                 # N: a flag that disables hooks or signing, also from code
                 # that is_git_hook_bypass cannot see in the command line.
                 for git_arg in "$@"; do
@@ -6254,7 +6401,7 @@ $shell_cd_dir"
                       IFS='
 '
                       # shellcheck disable=SC2086
-                      set -- $(git_command_records "$git_alias" tilde) "$@"
+                      set -- $(git_gate_records "$git_alias" "$git_alias_workdir") "$@"
                       IFS=$old_ifs
                       continue
                     fi
@@ -6269,6 +6416,8 @@ $shell_cd_dir"
           done
           git_env_args=
           git_env_dynamic=0
+          git_target_args=
+          git_target_dynamic=0
           command_start=0
           continue
         fi
@@ -6285,6 +6434,11 @@ $shell_cd_dir"
       fi
 
       mentions_git_config_env "$token" && git_env_changed=1
+      # A quoted NAME=value word (5, 6) is a command name; it sets nothing.
+      case "$record_kind" in
+        5|6) ;;
+        *) mentions_git_target_env "$token" && git_target_changed=1 ;;
+      esac
       shift
       if [ "$record_kind" = 3 ] || is_shell_command_separator "$token"; then
         # `>&2` and `2>&1` redirect; they do not background anything.
@@ -6300,6 +6454,9 @@ $shell_cd_dir"
         [ -z "$git_env_args" ] && [ "$git_env_dynamic" -eq 0 ] || git_env_changed=1
         git_env_args=
         git_env_dynamic=0
+        [ -z "$git_target_args" ] && [ "$git_target_dynamic" -eq 0 ] || git_target_changed=1
+        git_target_args=
+        git_target_dynamic=0
         git_config_args=
         git_config_dynamic=0
       else
@@ -6408,6 +6565,7 @@ scan_git_command_group() (
   group_stage_all=0
   group_untracked=0
   group_pathspecs=
+  group_env=
   group_ifs=$IFS
   IFS='
 '
@@ -6422,6 +6580,8 @@ scan_git_command_group() (
         CDPATH= cd -- "${group_record#D}" 2>/dev/null || exit "$SCAN_STATUS_UNAVAILABLE"
         [ "$(pwd -P)" = "$group_physical" ] || exit "$SCAN_STATUS_UNAVAILABLE"
         ;;
+      E*) group_env="$group_env${group_record#E}
+" ;;
       W) group_stage_all=1 ;;
       I) group_stage_all=1; [ "$group_untracked" -eq 2 ] || group_untracked=1 ;;
       X) group_stage_all=1; group_untracked=2 ;;
@@ -6430,6 +6590,28 @@ scan_git_command_group() (
       *) exit "$SCAN_STATUS_UNAVAILABLE" ;;
     esac
   done
+  # Git reads a relative GIT_DIR or GIT_WORK_TREE from where it starts; the
+  # scan changes directory after that.
+  for group_assignment in $group_env; do
+    group_value=${group_assignment#*=}
+    case "$group_value" in
+      /*) ;;
+      *) group_value=$(pwd -P)/$group_value ;;
+    esac
+    export "${group_assignment%%=*}=$group_value"
+  done
+  # The scan runs Git from the work tree root, where it would find another
+  # repository than the one GIT_WORK_TREE was given with.
+  case "
+$group_env" in
+    *'
+GIT_DIR='*|'
+') ;;
+    *)
+      GIT_DIR=$(git rev-parse --absolute-git-dir 2>/dev/null) || exit "$SCAN_STATUS_UNAVAILABLE"
+      export GIT_DIR
+      ;;
+  esac
   # shellcheck disable=SC2086
   set -- $group_pathspecs
   IFS=$group_ifs
