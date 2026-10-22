@@ -5018,7 +5018,15 @@ for sc_host in claude codex; do
   shellcd_case "$sc_host" secret 2 'shopt -s nullglob; "SC_X="agent-guard-no-such-* git commit -m x' a
   shellcd_case "$sc_host" clean 0 'shopt -s nullglob; "SC_X="agent-guard-no-such-* git commit -m x' a
   shellcd_case "$sc_host" secret U2 '"SC_X="agent-guard-no-such-* cd ../b; git commit -m x' a
-  shellcd_case "$sc_host" secret U2 '"SC_X=$PWD" cd ../b; git commit -m x' a
+  # A quoted or escaped `$` or glob character cannot remove the word.
+  for sc_command in \
+    '"SC_X=$PWD" cd ../b; git commit -m x' \
+    '"SC_X="\* cd ../b; git commit -m x'
+  do
+    shellcd_case "$sc_host" secret 2 "$sc_command" a
+    shellcd_case "$sc_host" clean 0 "$sc_command" a
+  done
+  shellcd_case "$sc_host" secret 0 "shopt -s nullglob; 'SC_X=\$X' git commit -m x" a
   shellcd_case "$sc_host" secret 2 "shopt -s nullglob; X='agent-guard-no-such-*'; \"SC_X=\"\$X git commit -m x" a
   shellcd_case "$sc_host" clean 0 "shopt -s nullglob; X='agent-guard-no-such-*'; \"SC_X=\"\$X git commit -m x" a
 done

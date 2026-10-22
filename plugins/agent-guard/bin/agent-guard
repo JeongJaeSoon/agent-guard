@@ -4815,7 +4815,8 @@ shell_command_words() {
 # tilde, a command-position word shaped like `NAME=value` with a quoted or
 # escaped part before its first unquoted `=` is emitted as 5: the shell runs
 # it as a command name, not an assignment, and whatever it expands to still
-# starts with that literal `NAME=`. A bare `&` or a `( ) { }` character is emitted on its own with
+# starts with that literal `NAME=`. It is a 6 instead when an unquoted
+# expansion or glob character may make it no word at all (nullglob). A bare `&` or a `( ) { }` character is emitted on its own with
 # prefix 3: a command boundary for most callers, but the commit argument parser
 # must tell `2>&1` and brace expansion apart from the end of the command. Newlines cannot be represented safely in the record stream, so
 # they make the affected token dynamic and therefore subject to infra policy.
@@ -4837,13 +4838,13 @@ git_command_records() {
           heredoc_expect = 0
         }
       }
-      if (tilde != "" && !at_word && name_quoted && word ~ /^[A-Za-z_][A-Za-z0-9_]*=/) print "5" word
+      if (tilde != "" && !at_word && name_quoted && word ~ /^[A-Za-z_][A-Za-z0-9_]*=/) print (splits || globbed ? "6" : "5") word
       else print (splits ? "1" : dynamic || word ~ /^(;|&&|\|\||\|)$/ || tilde != "" && cd_args && quoted && word ~ /^~/ ? "4" : "0") word
       if (!at_word && (word == "cd" || word == "pushd")) cd_args = 1
       if (word !~ /^[A-Za-z_][A-Za-z0-9_]*=/ || name_quoted) at_word = 1
       if (word == "[[") in_test = 1
       if (word == "]]") in_test = 0
-      word = ""; started = 0; dynamic = 0; splits = 0; quoted = 0; slashed = 0; name_quoted = 0; equaled = 0
+      word = ""; started = 0; dynamic = 0; splits = 0; quoted = 0; slashed = 0; name_quoted = 0; equaled = 0; globbed = 0
     }
     NR > 1 {
       if (quote == "") { emit(); print "0;"; cd_args = 0; at_word = 0 }
@@ -4932,6 +4933,7 @@ git_command_records() {
         if (c == "$" || c == "`") { dynamic = 1; splits = 1 }
         if (c == "/") slashed = 1
         if (c == "=") equaled = 1
+        if (index("*?[", c)) globbed = 1
         word = word c; started = 1
       }
     }
@@ -5883,7 +5885,7 @@ $effective_c_dirs" "$git_config_args" "$git_env_args"
         # invocation like `FOO=1 env git commit --no-verify` still reaches the
         # git check below. command_start stays 1 so the next token is re-examined
         # as the command head.
-        if [ "$record_kind" != 5 ] && is_assignment_token "$token"; then
+        if [ "$record_kind" != 5 ] && [ "$record_kind" != 6 ] && is_assignment_token "$token"; then
           git_env_assignment "$record"
           shift
           continue
@@ -5916,17 +5918,13 @@ $effective_c_dirs" "$git_config_args" "$git_env_args"
             continue
             ;;
         esac
-        # A glob, literal or from an expansion, may expand a quoted
-        # assignment-shaped name to no word at all (nullglob), leaving the
-        # next word as the command name; whether a cd after it runs is then
-        # unknown.
-        case "$record_kind$token" in
-          5*[*?[\$\`]*)
-            shell_cd_mutable=1
-            shift
-            continue
-            ;;
-        esac
+        # The next word may be the command name; whether a cd after it runs is
+        # then unknown.
+        if [ "$record_kind" = 6 ]; then
+          shell_cd_mutable=1
+          shift
+          continue
+        fi
         # A command name only run time knows may be git, a shell or eval.
         case "$record_kind:${token##*/}" in
           1:*|4:*[\$\`]*)
