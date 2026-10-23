@@ -5025,7 +5025,6 @@ for sc_command in \
   'G=git; "$G" commit -m x' \
   'G=git; "$G" -c alias.ci=commit ci -m x' \
   'G=git; "$G" -C ../a commit -m x' \
-  'G=git; "$G" commit --no-verify -m x' \
   'G=env; "$G" git commit -m x' \
   "S=sh; printf 'git commit -m x\\n' | \"\$S\"" \
   "S=sh; \"\$S\" <<<'git commit -m x'" \
@@ -5036,6 +5035,10 @@ for sc_command in \
 do
   shellcd_case codex secret U2 "$sc_command" a
 done
+# A hook-skipping flag is blocked outright, whatever the command name.
+expect_json_status 2 "quoted unknown command word with a hook-skipping flag is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"G=git; \"$G\" commit --no-verify -m x"}}' \
+  hook-pre-tool
 # Anything else about the variable leaves the command name unknown.
 for sc_command in \
   'X=$(echo git); $X commit -m x' \
@@ -5055,7 +5058,6 @@ for sc_command in \
   '$SC_UNSET git commit -m x' \
   '_=echo; true "$(command -v git)"; $_ commit -m x' \
   'REPLY=echo; read <<<git; $REPLY commit -m x' \
-  'MAPFILE=echo; mapfile -t <<<git; $MAPFILE commit -m x' \
   'OPTARG=echo; getopts a: o -agit; $OPTARG commit -m x'
 do
   shellcd_case claude secret U2 "$sc_command" a
@@ -5068,6 +5070,7 @@ for sc_command in \
   '$SC_UNSET -c alias.ci=commit ci' \
   '"$SC_UNSET" commit -m x' \
   'X="g?t"; $X commit -m x' \
+  'MAPFILE=echo; mapfile -t <<<git; $MAPFILE commit -m x' \
   'X=GIT; $X commit -m x' \
   'X==git; $X commit -m x' \
   "X=echo; alias e=eval; e \"\$(printf '\\\\x58')=git\"; \$X commit -m x" \
