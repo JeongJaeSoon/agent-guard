@@ -5089,6 +5089,11 @@ export SC_SESSION=\"\$(basename \"\$PWD\")_\$\$\"
 do
   shellcd_case claude secret 0 "$sc_command" a
 done
+fi # end of shard 5
+
+# The rest of the shell cd cases run in shard 3 to keep shard 5 within the
+# CI job timeout; each case resets both repositories, so the split is free.
+if in_shard 3; then
 # A quoted command word whose value is unknown is one word, git at worst: it
 # fails per the policy only when its arguments could commit or push.
 shellcd_case codex secret 0 '"$SC_UNSET" deploy --env prod' a
@@ -5153,11 +5158,7 @@ done
 # The open policy still scans the git commands whose directory is known.
 shellcd_case claude secret UF 'git commit -m x; cd $SC_UNSET_DIR && git commit -m y' a
 shellcd_case codex secret UF 'eval "$(true)"; git commit -m x' a
-fi # end of shard 5
 
-# The rest of the shell cd cases run in shard 3 to keep shard 5 within the
-# CI job timeout; each case resets both repositories, so the split is free.
-if in_shard 3; then
 # A word whose name part is quoted or escaped is a command name, not an
 # assignment, so the cd after it is one of its arguments and git commits in a.
 for sc_host in claude codex; do

@@ -25,9 +25,9 @@ The internal IDs select execution partitions; Actions displays descriptive names
 | --- | --- | --- |
 | 1 | Core, host adapters and Git (with 3) | Unchanged |
 | 2 | Command policies and shell navigation (with 5) | Adds git aliases and three mask suites previously in 3 |
-| 3 | Core, host adapters and Git (with 1) | Retains auto-staging regression cases; runs the later shell cd cases (quoted names onward) |
+| 3 | Core, host adapters and Git (with 1) | Retains auto-staging regression cases; runs the later shell cd cases (unknown command words onward) |
 | 4 | CLI, scanner and output | Retains scanner integration; adds original 5 output, PII and shell-setup cases |
-| 5 | Command policies and shell navigation (with 2) | Runs shell-navigation cases previously in 4, up to the quoted-name shell cd cases |
+| 5 | Command policies and shell navigation (with 2) | Runs shell-navigation cases previously in 4, up to the shell cd cases for unknown command words |
 
 Regression assertion bodies and their unpartitioned execution order stay
 identical; the matrix-coverage assertion is updated for the bundle format. Moved groups initialize their own repositories, configuration and
