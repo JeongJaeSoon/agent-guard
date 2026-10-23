@@ -44,6 +44,20 @@ regexes = [
   '''^0{12,}$'''
 ]
 
+# A pagination cursor (`nextPageToken`, `next_page_token`) is opaque by design
+# and has to be sent back verbatim, but generic-api-key reads it as a
+# keyword-labelled high-entropy secret. Matched against the full finding, which
+# starts at the key for keyword-labelled rules, so the anchor is the key
+# boundary: `FB_PAGE_TOKEN`, `homepage_token` and the env form `PAGE_TOKEN=`
+# (a real page access token) keep their findings. A vendor-shaped token under
+# a cursor key is matched without its key and keeps its finding too.
+[[allowlists]]
+description = "Pagination cursors under an exact cursor key"
+regexTarget = "match"
+regexes = [
+  '''^(?:(?:next|prev|previous)(?:PageToken|_page_token)|pageToken|page_token)["'`]?\s*:'''
+]
+
 # Directory scans skip these exact lockfile names, then agent-guard rescans
 # their non-checksum content through stdin. This avoids checksum false positives
 # without allowing credentials elsewhere in a lockfile.

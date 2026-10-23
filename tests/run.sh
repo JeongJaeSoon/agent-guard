@@ -96,6 +96,13 @@ expect_json_status() {
   fi
 }
 
+prompt_guard_case() { # $1 host, $2 prompt mode ('' = default), $3 pii mode ('' = off), $4 json
+  printf '%s' "$4" \
+    | AGENT_GUARD_HOOK_HOST="$1" AGENT_GUARD_PROMPT_GUARD_MODE="$2" \
+      AGENT_GUARD_PII_HOOK_MODE="$3" \
+      "$PLUGIN_ROOT/bin/agent-guard" hook-user-prompt
+}
+
 cleanup() {
   rm -rf "$TMP_ROOT" "$TESTTMP"
 }
@@ -1948,13 +1955,6 @@ PASSWORD=not-a-real-password' \
   '{prompt:$prompt}')
 prompt_guard_placeholder_lookalike_json=$(jq -nc \
   --arg prompt 'API_KEY=example_token_value_long' '{prompt:$prompt}')
-
-prompt_guard_case() { # $1 host, $2 prompt mode ('' = default), $3 pii mode ('' = off), $4 json
-  printf '%s' "$4" \
-    | AGENT_GUARD_HOOK_HOST="$1" AGENT_GUARD_PROMPT_GUARD_MODE="$2" \
-      AGENT_GUARD_PII_HOOK_MODE="$3" \
-      "$PLUGIN_ROOT/bin/agent-guard" hook-user-prompt
-}
 
 for pg_h in claude codex; do
   run_expect 2 "prompt guard blocks a pasted secret by default ($pg_h)" \
@@ -11204,6 +11204,154 @@ else
   not_ok "#303 post-tool keeps the version handle and masks a secret in the same response"
   sed 's/^/  out: /' "$OUT"
 fi
+
+# A secret-bearing key with a boolean or null value is a config flag, not a
+# credential. Masking `true`/`false` also made the literal global, so the same
+# word vanished from unrelated prose in the response, and the prompt guard
+# blocked a prompt that merely described such a config. A pagination cursor
+# under a page-token key is opaque by design and has to be echoed back
+# verbatim; masking it broke every page after the first. Keys are assembled at
+# runtime so the repository's own scan does not read these as assignments.
+BOOL_AT=$(printf '%s%s' api _token)
+BOOL_PW=$(printf '%s%s' pass word)
+BOOL_NPT=$(printf '%s%s' nextPage Token)
+BOOL_SNAKE_NPT=$(printf '%s%s' next_page _token)
+BOOL_PT=$(printf '%s%s' page Token)
+BOOL_PAGE_SNAKE=$(printf '%s%s' page _token)
+BOOL_PAGE_ENV=$(printf '%s%s' PAGE _TOKEN)
+BOOL_FB_PAGE=$(printf '%s%s' FB_PAGE _TOKEN)
+BOOL_FB_CAMEL=$(printf '%s%s' fbPage Token)
+BOOL_SECRET=$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')
+BOOL_CURSOR=$(printf 'Ci%sQAhgB' "$BOOL_SECRET")
+BOOL_GHP=$(printf '%s%s' ghp_ "$BOOL_SECRET")
+BOOL_JWT=$(printf '%s.%s.%s' eyJhbGciOiJIUzI1NiJ9 eyJzdWIiOiIxMjM0NTY3ODkwIn0 "$BOOL_SECRET")
+bool_yaml=$(printf '%s: true\nfail_open: false\npii_filter: true\n%s: false\n' \
+  "$BOOL_AT" "$BOOL_PW")
+for bool_host in claude codex; do
+  bool_input=$(jq -nc --arg t "$bool_yaml" \
+    '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$t,stderr:"",interrupted:false,isImage:false}}')
+  printf '%s' "$bool_input" \
+    | (cd "$TMP_ROOT" && AGENT_GUARD_HOOK_HOST=$bool_host \
+        "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool) >"$OUT" 2>"$ERR"
+  if [ "$?" -eq 0 ] && [ ! -s "$OUT" ]; then
+    ok "post-tool leaves boolean values under secret keys visible ($bool_host)"
+  else
+    not_ok "post-tool leaves boolean values under secret keys visible ($bool_host)"
+    sed 's/^/  out: /' "$OUT"
+  fi
+
+  bool_input=$(jq -nc --arg t "$BOOL_AT: false
+
+Likely false, because the flag is off." \
+    '{tool_name:"Agent",tool_input:{},tool_response:{content:[{type:"text",text:$t}]}}')
+  printf '%s' "$bool_input" \
+    | (cd "$TMP_ROOT" && AGENT_GUARD_HOOK_HOST=$bool_host \
+        "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool) >"$OUT" 2>"$ERR"
+  if [ "$?" -eq 0 ] && [ ! -s "$OUT" ]; then
+    ok "post-tool keeps a boolean word in prose next to a boolean flag ($bool_host)"
+  else
+    not_ok "post-tool keeps a boolean word in prose next to a boolean flag ($bool_host)"
+    sed 's/^/  out: /' "$OUT"
+  fi
+
+  for bool_page in "{\"issues\":[],\"$BOOL_NPT\":\"$BOOL_CURSOR\",\"isLast\":false}" \
+                   "{\"$BOOL_SNAKE_NPT\": \"$BOOL_CURSOR\"}" \
+                   "$BOOL_SNAKE_NPT: $BOOL_CURSOR" \
+                   "{\"$BOOL_PT\":\"$BOOL_CURSOR\"}" \
+                   "$BOOL_PAGE_SNAKE: $BOOL_CURSOR"; do
+    bool_input=$(jq -nc --arg t "$bool_page" \
+      '{tool_name:"mcp__example__search",tool_input:{},tool_response:{content:[{type:"text",text:$t}]}}')
+    printf '%s' "$bool_input" \
+      | (cd "$TMP_ROOT" && AGENT_GUARD_HOOK_HOST=$bool_host \
+          "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool) >"$OUT" 2>"$ERR"
+    if [ "$?" -eq 0 ] && [ ! -s "$OUT" ]; then
+      ok "post-tool leaves a pagination cursor visible ($bool_host)"
+    else
+      not_ok "post-tool leaves a pagination cursor visible ($bool_host)"
+      sed 's/^/  out: /' "$OUT"
+    fi
+  done
+
+  # The short-value floor counts characters: a two-character word in a
+  # multibyte script is six bytes, so it used to clear the floor and become a
+  # global literal that masked the same word across a whole document.
+  bool_input=$(jq -nc --arg t "# notes
+API token = 認証 は一つにする
+次の 認証 フローも同じ" \
+    '{tool_name:"Read",tool_input:{file_path:"/tmp/notes.md"},tool_response:{type:"text",file:{filePath:"/tmp/notes.md",content:$t}}}')
+  printf '%s' "$bool_input" \
+    | (cd "$TMP_ROOT" && AGENT_GUARD_HOOK_HOST=$bool_host \
+        "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool) >"$OUT" 2>"$ERR"
+  if [ "$?" -eq 0 ] && [ ! -s "$OUT" ]; then
+    ok "post-tool leaves a short multibyte word after a secret key visible ($bool_host)"
+  else
+    not_ok "post-tool leaves a short multibyte word after a secret key visible ($bool_host)"
+    sed 's/^/  out: /' "$OUT"
+  fi
+
+  run_expect 0 "prompt guard allows a prompt describing boolean config keys ($bool_host)" \
+    prompt_guard_case "$bool_host" '' '' "$(jq -nc --arg p \
+      "keys like '$BOOL_AT: true' and 'fail_open: false' showed the marker; the $BOOL_NPT: [REDACTED] field too" \
+      '{prompt:$p}')"
+done
+
+if [ -n "$REAL_GITLEAKS" ]; then
+  BOOL_GL_DIR="$TESTTMP/page-cursor-gitleaks"
+  mkdir -p "$BOOL_GL_DIR"
+  bool_gl_case() { # $1 expected status, $2 label, $3 file content
+    printf '%s\n' "$3" >"$BOOL_GL_DIR/response.json"
+    PATH="$(dirname "$REAL_GITLEAKS"):$ORIGINAL_PATH" "$PLUGIN_ROOT/bin/agent-guard" \
+      scan-path "$BOOL_GL_DIR" >"$OUT" 2>"$ERR"
+    bool_gl_status=$?
+    if [ "$bool_gl_status" -eq "$1" ]; then
+      ok "real gitleaks: $2"
+    else
+      not_ok "real gitleaks: $2 (expected $1, got $bool_gl_status)"
+      sed 's/^/  stderr: /' "$ERR"
+    fi
+  }
+  bool_gl_case 0 "a pagination cursor under a page-token key is clean" \
+    "{\"$BOOL_NPT\":\"$BOOL_CURSOR\",\"isLast\":false}"
+  bool_gl_case 1 "the same value under a secret key is still found" \
+    "{\"$BOOL_AT\":\"$BOOL_CURSOR\"}"
+  bool_gl_case 1 "a vendor-shaped token under a page-token key is still found" \
+    "{\"$BOOL_NPT\":\"$(printf '%s' "$BOOL_GHP$BOOL_SECRET" | cut -c1-40)\"}"
+  bool_gl_case 1 "a page access token key is still found (env form)" \
+    "$BOOL_PAGE_ENV=$BOOL_CURSOR"
+  bool_gl_case 1 "a prefixed page access token key is still found" \
+    "{\"$BOOL_FB_PAGE\":\"$BOOL_CURSOR\"}"
+fi
+
+bool_case=0
+for bool_text in \
+  "$BOOL_AT: $BOOL_SECRET" \
+  "$BOOL_AT: trueX1$BOOL_SECRET" \
+  "$BOOL_AT: $BOOL_CURSOR" \
+  "{\"${BOOL_NPT}_id\":\"$BOOL_SECRET\"}" \
+  "$BOOL_PW: \"$BOOL_SECRET\"" \
+  "$BOOL_AT=$BOOL_GHP" \
+  "$BOOL_AT: $BOOL_JWT" \
+  "$BOOL_PW = 合言葉は$BOOL_SECRET" \
+  "$BOOL_PAGE_ENV=$BOOL_SECRET" \
+  "$BOOL_PAGE_ENV: $BOOL_SECRET" \
+  "$BOOL_FB_PAGE=$BOOL_SECRET" \
+  "{\"$BOOL_FB_PAGE\":\"$BOOL_SECRET\"}" \
+  "{\"$BOOL_FB_CAMEL\":\"$BOOL_SECRET\"}" \
+  "home$BOOL_PAGE_SNAKE: $BOOL_SECRET" \
+  "$BOOL_PAGE_SNAKE=$BOOL_SECRET"; do
+  bool_case=$((bool_case + 1))
+  bool_input=$(jq -nc --arg t "$bool_text" \
+    '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$t,stderr:"",interrupted:false,isImage:false}}')
+  post_tool_out "$bool_input"
+  if grep -q '\[REDACTED\]' "$OUT" && ! grep -Fq "$BOOL_SECRET" "$OUT"; then
+    ok "post-tool still masks a real value under a secret key (case $bool_case)"
+  else
+    not_ok "post-tool still masks a real value under a secret key (case $bool_case)"
+    sed 's/^/  out: /' "$OUT"
+  fi
+  run_expect 2 "prompt guard still blocks a real value under a secret key (case $bool_case)" \
+    prompt_guard_case claude '' '' "$(jq -nc --arg p "$bool_text" '{prompt:$p}')"
+done
 
 # Display redaction replaces only the assignment value token. Text after it is
 # preserved, metadata keys with secret-ish prefixes are not values, and a prose

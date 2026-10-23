@@ -7485,6 +7485,23 @@ secretish_env_values() {
       return v ~ /^(example|dummy)[_-]?(token|key|secret|password)$/ \
           || v ~ /^not[-_ ]?a[-_ ]?real[-_ ]?(token|key|secret|password)$/
     }
+    # A boolean or null under a secret-bearing key (`api_token: true`) is a
+    # config flag, not a credential. Emitting it made the word a global
+    # literal, so every `true`/`false` in the same response was masked, and
+    # the prompt guard blocked a prompt that only described such a config.
+    # Whole trimmed value only, so `trueX1...` still masks.
+    function config_literal(value, v) {
+      v = tolower(edge_trim(value))
+      return v ~ /^(true|false|yes|no|on|off|null|nil|none)$/
+    }
+    # The short-value floor is about characters, but awk runs under LC_ALL=C
+    # and length() counts bytes: a two-character word in a multibyte script
+    # (six UTF-8 bytes) cleared the floor and became a global literal that
+    # masked the same word across a whole document. Skip continuation bytes.
+    function char_length(s, c) {
+      c = s
+      return length(s) - gsub(/[\200-\277]/, "", c)
+    }
     function emit_captured(v, trimmed) {
       emit_secret(v)
       trimmed = edge_trim(v)
@@ -7493,7 +7510,8 @@ secretish_env_values() {
     function emit_secret(value, eligible_length) {
       if (already_redacted(value)) return
       if (obvious_word_placeholder(value)) return
-      if (eligible_length == 0) eligible_length = length(value)
+      if (config_literal(value)) return
+      if (eligible_length == 0) eligible_length = char_length(value)
       if (eligible_length < 4 || length(value) == 0) return
       if (record_mode == "probe" || record_mode == "probe_raw") {
         if (!probe_found) print "x"
@@ -7596,6 +7614,15 @@ secretish_env_values() {
       if (value !~ /^v:[0-9]+$/ || length(value) > 11) return 0
       return tolower(assignment) ~ /token["'\''`]?[ \t]*[:=]$/
     }
+    # A pagination cursor key (`nextPageToken`, `next_page_token`) carries an
+    # opaque value the client has to send back verbatim, so masking it broke
+    # every search result past the first page. Only the exact camel/snake
+    # cursor names in a JSON/YAML `:` field are exempt, matched with case and
+    # a key boundary: `PAGE_TOKEN=` and `FB_PAGE_TOKEN` name a real page
+    # access token, and `homepage_token` or `next_page_token_id` are other keys.
+    function page_cursor(assignment) {
+      return assignment ~ /(^|[^A-Za-z0-9_.-])["'\''`]?((next|prev|previous)(PageToken|_page_token)|pageToken|page_token)["'\''`]?[ \t]*:$/
+    }
     # Value-side gate for the status-label colon path (#156). A status label on
     # its own cannot separate `error: password: authentication is disabled`
     # (prose, must not mask) from `error: password: hunter2-long-value`
@@ -7678,6 +7705,7 @@ secretish_env_values() {
         # one. Internal whitespace is untouched, so prose still reads as prose.
         if (require_credential && !credential_shaped(edge_trim(value))) return 0
         if (version_reference(assignment, value)) return 0
+        if (page_cursor(assignment)) return 0
       } else {
         value = raw
         sub(/[ \t,;].*$/, "", value)
@@ -7729,6 +7757,8 @@ secretish_env_values() {
         value = substr(value, 1, end)
         if (looks_like_reference(value, assignment, leading)) return 0
         if (version_reference(assignment, value)) return 0
+        if (page_cursor(assignment)) return 0
+        if (config_literal(value)) return 0
         if (require_credential && !credential_shaped(edge_trim(value))) return 0
         # Eligibility is based on the complete token. For short values, scope
         # replacement to the complete assignment token so an ordinary
@@ -7744,7 +7774,7 @@ secretish_env_values() {
         # scrubs every v1.2.3 in the response on main. Consistency with the
         # other paths is worth more here than containing a bad guess, because a
         # displayed secret costs more than a mangled log line.
-        if (length(value) < 4 && length(token) >= 4) {
+        if (char_length(value) < 4 && char_length(token) >= 4) {
           trailing = substr(token, end + 1)
           emit_mapping(assignment leading token,
                        assignment leading "[REDACTED]" trailing,
@@ -7752,7 +7782,7 @@ secretish_env_values() {
                        length(value))
           return 0
         }
-        emit_secret(value, length(token))
+        emit_secret(value, char_length(token))
         return 0
       }
       # emit_captured, not emit_secret: a padded quoted value (`" <secret> "`)
