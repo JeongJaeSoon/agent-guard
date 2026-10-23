@@ -10,14 +10,15 @@ units, not security tiers or test-pyramid layers.
 | Layer | Existing entry points | What they establish |
 | --- | --- | --- |
 | Static and packaging | ShellCheck, actionlint, plugin/layout and submission validators | Shell/workflow errors and packaging contracts |
-| Fast core contracts | `make test-unit` / `tests/unit-core.sh`, `tests/unit-framing.sh` | Version comparison and shell quoting: 35 assertions; framing producers: 18 assertions; see [scope and negative controls](unit-tests.md) |
+| Direct function contracts | `make test-unit`: `unit-core.sh`, `unit-framing.sh`, `unit-deny-path.sh`, `unit-probe.sh` | **140 assertions**: core 35, framing 18, deny-path producers 83, probe eligibility 4; extracted production bodies without CLI startup |
+| Focused failure regressions | `prompt-assignment-failure.sh`, `exec-raw-probe-failure.sh`, `exec-framing-boundary.sh` | Prompt direct/host-policy regressions 34; raw exec regressions 7; bounded exec framing regressions 24. These are separate from the 140 direct assertions |
 | Narrow component comparisons | `tests/framed-leaves.sh` | Framing fast path versus byte-decoder reference, escaping, byte boundaries and explicit detector expectations |
 | CLI contracts | `tests/deny-read-mask*.sh`, `source-module-prose.sh`, `hook-outcome-contract.sh`, `gitleaks-resolution.sh`, `audit-log.sh` | Exit status, host payloads, diagnostics, masking and infrastructure policy through the CLI |
 | OS/tool integration | Git fixtures in `tests/run.sh`, permission/ACL/symlink/signal cases, `pii-utf8.sh`, Linux real-gitleaks block | Actual filesystem, Git and process behavior; Apple awk and scanner differences |
 | Deployment and service integration | `make smoke-test`, archive/Homebrew validation, opt-in `make test-pleno-integration` | Real scanner/tool dependencies, installation and configured service boundaries |
 | Authenticated host E2E | Separate Claude/Codex host-dispatch verification | Host loads and invokes the installed adapter; direct CLI calls or selecting a host environment variable do not establish this |
 
-`make test-unit` runs the fast core contracts; `make test` includes them once
+`make test-unit` runs all four direct suites; `make test` includes them once
 in partition 1 and retains the full integration suite. To investigate one partition, use
 `AGENT_GUARD_TEST_SHARD=2 tests/run.sh`; this is a local diagnostic selection,
 not a substitute for the complete CI gates. Narrow scripts can also run with
@@ -31,12 +32,41 @@ Keep HOME, warning/session state, Git repositories and output files isolated.
 Do not cache a passing result, share mutable repositories across cases, or
 replace a real OS boundary with a mock merely to shorten the suite.
 
+## Current local cost inventory (2026-10-20)
+
+These sequential, uninstrumented macOS arm64 observations use the repository
+CLI and synthetic test fixtures; they are not budgets, guarantees or CI speedup
+evidence. The installed real scanner was gitleaks 8.30.1. The four direct suites
+total 140 assertions and about 0.479 seconds in this sample.
+
+| Entry point (`sh tests/…` unless shown) | Inner assertions | Seconds | Main boundary/cost |
+| --- | ---: | ---: | --- |
+| `unit-core.sh` | 35 | 0.184 | Shell quoting and awk version comparison |
+| `unit-framing.sh` | 18 | 0.186 | jq/awk producer byte contracts and partial failure |
+| `unit-deny-path.sh` | 83 | 0.062 | Shell character/regex producer contracts |
+| `unit-probe.sh` | 4 | 0.047 | awk eligibility marker contracts |
+| `prompt-assignment-failure.sh` | 34 | 3.280 | Direct probe plus Claude/Codex CLI payload/policy combinations |
+| `exec-raw-probe-failure.sh` | 7 | 1.210 | >64 KiB invalid-byte exec route; mock scanner |
+| `exec-framing-boundary.sh` | 24 | 5.355 | Exact 64 KiB framing errors and adjacent routes; mock scanner |
+| Same boundary suite with `BOUNDARY_TEST_GITLEAKS=/path/to/gitleaks` | 24 | 10.192 | Same contracts with real scanner |
+| `make smoke-test` with real scanner | separate E2E checks | 1.519 | Real git/jq/gitleaks, temporary repository |
+
+Each direct suite contributes one outer assertion in partition 1. Prompt
+regressions also run in partition 1; both exec regressions run in partition 4.
+Do not add their inner counts to `tests/run.sh`'s outer count as if they were a
+single coverage denominator. Existing OS/integration suites remain in place.
+For scale, PR337's local full suite passed 1958 outer assertions in 840.18 seconds;
+that historical result is not the new head's validation. Full CI depends on
+runner capacity and OS differences and requires its own exact-head evidence.
+
 ## Coverage we do and do not measure
 
 There is no automatic line/branch coverage collector or percentage gate in
 these workflows. A local [scoped source-line measurement](coverage-core.md)
-observed 4/4 selected Bash command-start lines, with a definition-only control at 0/4.
-This excludes AWK and is not whole-file or repository coverage. `bench/run.sh` reports behavior on synthetic leak-prevention
+retains the historical 4/4 result and records an eight-function observation from 2026-10-20:
+**39/40 predetermined physical Bash source locations**, with a definition-only
+control at **0/40**. This excludes embedded programs and is not whole-file,
+repository or branch coverage. `bench/run.sh` reports behavior on synthetic leak-prevention
 channels; its detection and false-positive metrics are not source coverage.
 Assertion inventory comparisons detect omitted or duplicated cases, but do not
 prove every branch was executed or every security behavior was asserted.

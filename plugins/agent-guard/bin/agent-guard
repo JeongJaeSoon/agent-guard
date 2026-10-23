@@ -11690,9 +11690,13 @@ do_exec() {
                   masked='[REDACTED]'
                   output_fully_masked=1
                 else
-                  if ! printf '%s' "$masked" \
-                    | frame_plaintext_leaf \
-                    | secretish_env_values framed >"$raw_secret_file" 2>/dev/null; then
+                  # Check the producer before invoking the detector: POSIX
+                  # pipelines otherwise hide an empty or partial framing error.
+                  # Successful framing ends in RS, preserving trailing LFs.
+                  if ! raw_framed=$(printf '%s' "$masked" \
+                    | frame_plaintext_leaf 2>/dev/null) \
+                    || ! printf '%s' "$raw_framed" \
+                      | secretish_env_values framed >"$raw_secret_file" 2>/dev/null; then
                     masked='[REDACTED]'
                     output_fully_masked=1
                   elif [ -s "$raw_secret_file" ]; then
