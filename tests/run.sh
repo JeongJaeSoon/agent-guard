@@ -11132,6 +11132,23 @@ Likely false, because the flag is off." \
     fi
   done
 
+  # The short-value floor counts characters: a two-character word in a
+  # multibyte script is six bytes, so it used to clear the floor and become a
+  # global literal that masked the same word across a whole document.
+  bool_input=$(jq -nc --arg t "# notes
+API token = 認証 は一つにする
+次の 認証 フローも同じ" \
+    '{tool_name:"Read",tool_input:{file_path:"/tmp/notes.md"},tool_response:{type:"text",file:{filePath:"/tmp/notes.md",content:$t}}}')
+  printf '%s' "$bool_input" \
+    | (cd "$TMP_ROOT" && AGENT_GUARD_HOOK_HOST=$bool_host \
+        "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool) >"$OUT" 2>"$ERR"
+  if [ "$?" -eq 0 ] && [ ! -s "$OUT" ]; then
+    ok "post-tool leaves a short multibyte word after a secret key visible ($bool_host)"
+  else
+    not_ok "post-tool leaves a short multibyte word after a secret key visible ($bool_host)"
+    sed 's/^/  out: /' "$OUT"
+  fi
+
   run_expect 0 "prompt guard allows a prompt describing boolean config keys ($bool_host)" \
     prompt_guard_case "$bool_host" '' '' "$(jq -nc --arg p \
       "keys like '$BOOL_AT: true' and 'fail_open: false' showed the marker; the $BOOL_NPT: [REDACTED] field too" \
@@ -11169,7 +11186,8 @@ for bool_text in \
   "{\"${BOOL_NPT}_id\":\"$BOOL_SECRET\"}" \
   "$BOOL_PW: \"$BOOL_SECRET\"" \
   "$BOOL_AT=$BOOL_GHP" \
-  "$BOOL_AT: $BOOL_JWT"; do
+  "$BOOL_AT: $BOOL_JWT" \
+  "$BOOL_PW = 合言葉は$BOOL_SECRET"; do
   bool_case=$((bool_case + 1))
   bool_input=$(jq -nc --arg t "$bool_text" \
     '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$t,stderr:"",interrupted:false,isImage:false}}')

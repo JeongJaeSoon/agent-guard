@@ -7467,6 +7467,14 @@ secretish_env_values() {
       v = tolower(edge_trim(value))
       return v ~ /^(true|false|yes|no|on|off|null|nil|none)$/
     }
+    # The short-value floor is about characters, but awk runs under LC_ALL=C
+    # and length() counts bytes: a two-character word in a multibyte script
+    # (six UTF-8 bytes) cleared the floor and became a global literal that
+    # masked the same word across a whole document. Skip continuation bytes.
+    function char_length(s, c) {
+      c = s
+      return length(s) - gsub(/[\200-\277]/, "", c)
+    }
     function emit_captured(v, trimmed) {
       emit_secret(v)
       trimmed = edge_trim(v)
@@ -7476,7 +7484,7 @@ secretish_env_values() {
       if (already_redacted(value)) return
       if (obvious_word_placeholder(value)) return
       if (config_literal(value)) return
-      if (eligible_length == 0) eligible_length = length(value)
+      if (eligible_length == 0) eligible_length = char_length(value)
       if (eligible_length < 4 || length(value) == 0) return
       if (record_mode == "probe" || record_mode == "probe_raw") {
         if (!probe_found) print "x"
@@ -7739,7 +7747,7 @@ secretish_env_values() {
         # scrubs every v1.2.3 in the response on main. Consistency with the
         # other paths is worth more here than containing a bad guess, because a
         # displayed secret costs more than a mangled log line.
-        if (length(value) < 4 && length(token) >= 4) {
+        if (char_length(value) < 4 && char_length(token) >= 4) {
           trailing = substr(token, end + 1)
           emit_mapping(assignment leading token,
                        assignment leading "[REDACTED]" trailing,
@@ -7747,7 +7755,7 @@ secretish_env_values() {
                        length(value))
           return 0
         }
-        emit_secret(value, length(token))
+        emit_secret(value, char_length(token))
         return 0
       }
       # emit_captured, not emit_secret: a padded quoted value (`" <secret> "`)
