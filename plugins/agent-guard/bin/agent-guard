@@ -5791,6 +5791,157 @@ shell_command_code() {
   printf '%s:%s\n' "$code_taken" "$code_text"
 }
 
+# Print, for command $1 and its gate records $2, the variables whose $NAME
+# command word the commit/push gate may read without running it. "S<TAB>NAME":
+# every $NAME and ${NAME} in $1 stands apart as a whole word, so a quoted
+# "$NAME" command word is that one word. "R<TAB>NAME<TAB>VALUE": moreover an
+# unquoted $NAME command word expands to the literal VALUE, whose words are
+# plain and whose first word is an ordinary command, not git, a shell or a
+# wrapper. That holds when NAME is assigned once, by a bare top-level
+# `NAME=VALUE` that nothing before it makes conditional or moves into a
+# subshell, and nothing in the line can set it another way: another
+# assignment, a mention outside $NAME (read, unset, ${NAME:=x}), a dynamic
+# name given to declare, read or printf, or a command name only run time
+# knows; eval, source, trap and IFS, which can do any of that unseen; or git
+# and the shells, whose code may read NAME in a child that lacks it.
+git_gate_command_vars() {
+  printf '%s\n' "$2" | GGCV_CMD=$1 awk '
+    function base(t) { sub(/.*\//, "", t); return t }
+    function delim(c) { return c == "" || c ~ /[ \t\n;&|()<>]/ }
+    # The word from s to e - 1 is not glued to a neighbour, also across a
+    # double quote: "$X"{a,} and {a,}$X expand to other words.
+    function apart(s, e,   b, a) {
+      b = s > 1 ? substr(cmd, s - 1, 1) : ""
+      if (b == "\"") b = s > 2 ? substr(cmd, s - 2, 1) : ""
+      a = substr(cmd, e, 1)
+      if (a == "\"") a = substr(cmd, e + 1, 1)
+      return delim(b) && delim(a)
+    }
+    { rec[++n] = $0 }
+    END {
+      cmd = ENVIRON["GGCV_CMD"]
+      special = "^(git|eval|source|\\.|trap|enable|alias|unalias|exec|command|builtin|env|sudo|nice|nohup|time|xargs|cd|pushd|popd|set|shopt|declare|typeset|local|export|readonly|read|unset|mapfile|readarray|getopts|let|printf|wait|compgen|sh|bash|dash|zsh|ksh|mksh|ash|yash|posh|csh|tcsh|fish)$"
+      unseen = "^(git|eval|source|\\.|trap|enable|alias|setopt|unsetopt|emulate|zmodload|autoload|exec|read|mapfile|readarray|getopts|select|coproc|=~|sh|bash|dash|zsh|ksh|mksh|ash|yash|posh|csh|tcsh|fish)$"
+      # Variables the shell itself sets or ties to another one.
+      shellset = "^(_|REPLY|MAPFILE|OPTARG|OPTIND|OPTERR|COPROC.*|BASH.*|PWD|OLDPWD|MATCH|MBEGIN|MEND|LINENO|RANDOM|SRANDOM|SECONDS|EPOCH.*|PPID|UID|EUID|GID|EGID|GROUPS|HOSTNAME|HOSTTYPE|OSTYPE|MACHTYPE|SHLVL|HISTCMD|FUNCNAME|PIPESTATUS|COLUMNS|LINES|ARGV|ARGC|STATUS|ERRNO|PATH|CDPATH|FPATH|MANPATH|MODULE_PATH|PSVAR|HOME|IFS|ZSH.*|TRY_BLOCK_.*|TTYIDLE|SIGNALS|COMP_.*|READLINE_.*|HISTFILE|PS[0-4])$"
+      namers = "^(declare|typeset|local|export|readonly|read|unset|mapfile|readarray|getopts|let|printf|wait|compgen)$"
+      # These may run a builtin of this shell; env, sudo and the like cannot.
+      wrappers = "^(command|builtin)$"
+      reserved = "^(if|then|else|elif|fi|do|done|while|until|for|case|esac|select|function|coproc|!|in)$"
+      abort = cmd ~ /IFS/ || index(cmd, "${!") || index(cmd, "\\\n")
+
+      for (i = 1; i <= length(cmd); ) {
+        if (substr(cmd, i, 1) !~ /[A-Za-z0-9_]/) { i++; continue }
+        for (j = i; substr(cmd, j, 1) ~ /[A-Za-z0-9_]/; j++) ;
+        name = substr(cmd, i, j - i)
+        p1 = i > 1 ? substr(cmd, i - 1, 1) : ""
+        if (name ~ /^[A-Za-z_]/) {
+          if (p1 == "$") {
+            used[name] = 1
+            if (!apart(i - 1, j)) glued[name] = 1
+          } else if (p1 == "{" && i > 2 && substr(cmd, i - 2, 1) == "$") {
+            used[name] = 1
+            if (substr(cmd, j, 1) != "}") tainted[name] = 1
+            else if (!apart(i - 2, j + 1)) glued[name] = 1
+          } else if (substr(cmd, j, 1) == "=" && (i == 1 || p1 ~ /[ \t\n;]/)) assigned[name]++
+          else tainted[name] = 1
+        }
+        i = j
+      }
+
+      head = 1; wrapped = 0; namer = ""; blocked = 0
+      for (k = 1; k <= n; k++) {
+        r = rec[k]; kind = substr(r, 1, 1); t = substr(r, 2)
+        if (r == "3&" && rec[k - 1] ~ />$/) continue
+        if (r == "0;" || r == "0&&" || r == "0||" || r == "0|" || kind == "3") {
+          if (kind == "3") blocked = 1
+          head = 1; wrapped = 0; namer = ""
+          continue
+        }
+        if (kind == "2" || kind == "5" || kind == "6") abort = 1
+        if (kind == "0" && tolower(base(t)) ~ unseen) abort = 1
+        if (namer != "") {
+          if (kind != "0") {
+            if (!(namer ~ /^(declare|typeset|local|export|readonly)$/ && t ~ /^[A-Za-z_][A-Za-z0-9_]*=/) \
+                && !(namer == "printf" && nargs > 0 && printf_ok)) abort = 1
+          } else {
+            if (namer ~ /^(declare|typeset|local|export|readonly)$/ && t ~ /^-[A-Za-z]*n/) abort = 1
+            if (namer == "printf" && nargs == 0) printf_ok = t !~ /^-/
+          }
+          nargs++
+        } else if (kind == "0" && base(t) ~ namers) {
+          namer = base(t); nargs = 0; printf_ok = 0
+        }
+        if (head && t ~ /^[A-Za-z_][A-Za-z0-9_]*=/) {
+          nm = t; sub(/=.*/, "", nm)
+          arec[nm]++
+          for (m = k - 1; m >= 1 && rec[m] == "0;"; m--) ;
+          if (kind == "0" && !blocked && (k == 1 || rec[k - 1] == "0;") \
+              && (m < 1 || rec[m] != "0&&" && rec[m] != "0||" && rec[m] != "0|") \
+              && (k == n || rec[k + 1] == "0;"))
+            cand[nm] = substr(t, length(nm) + 2)
+          continue
+        }
+        if (head && kind == "0" && t ~ reserved) { blocked = 1; continue }
+        if (wrapped && kind == "0" && t ~ /^-/) continue
+        if (head || wrapped) {
+          wrapped = head && kind == "0" && base(t) ~ wrappers
+          if (kind == "1" && t == "$" && rec[k + 1] == "3{" && rec[k + 3] == "3}") {
+            heads[substr(rec[k + 2], 2)] = 1
+            k += 3
+          } else if (t ~ /^\$[A-Za-z_][A-Za-z0-9_]*$/) heads[substr(t, 2)] = 1
+          else if (kind == "4" && t ~ /^\$\{[A-Za-z_][A-Za-z0-9_]*\}$/) heads[substr(t, 3, length(t) - 3)] = 1
+          else if (kind != "0") abort = 1
+          head = 0
+        }
+      }
+
+      for (nm in cand) {
+        if (arec[nm] != 1 || assigned[nm] != 1 || tainted[nm] || glued[nm] || toupper(nm) ~ shellset) continue
+        nw = split(cand[nm], w, /[ \t]+/)
+        # A case-insensitive file system runs GIT as git; zsh expands =git.
+        ok = nw > 0 && tolower(base(w[1])) !~ special
+        for (m = 1; m <= nw; m++)
+          if (w[m] !~ /^[A-Za-z0-9_.\/:,@%+-][A-Za-z0-9_.\/:=,@%+-]*$/ || tolower(base(w[m])) == "git") ok = 0
+        if (ok) resolved[nm] = cand[nm]
+      }
+      # A command name that resolves to nothing known may be declare or read.
+      for (nm in heads) if (!(nm in resolved)) abort = 1
+      for (nm in used) if (!glued[nm]) printf "S\t%s\n", nm
+      if (!abort) for (nm in resolved) printf "R\t%s\t%s\n", nm, resolved[nm]
+    }
+  '
+}
+
+# Succeed when the records in "$@", the arguments of a one-word command name
+# that may be git, cannot make it commit or push: each is a plain literal that
+# is not git, commit, push, or an option that moves the repository or sets
+# config, and the command reads no input a shell could run. An alias or an
+# external git-<name> is left to the git checks.
+git_unknown_head_args_safe() {
+  gua_prev=
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      0';'|0'&&'|0'||'|0'|'|3')'|3'}') return 0 ;;
+      3'&')
+        case "$gua_prev:${2-}" in
+          *'>:'*) shift; [ "$#" -gt 0 ] && shift; continue ;;
+          *:0'>'*) shift; continue ;;
+          *) return 0 ;;
+        esac
+        ;;
+      0?*) ;;
+      *) return 1 ;;
+    esac
+    gua_prev=${1#?}
+    case "$gua_prev" in
+      *[!A-Za-z0-9_./:=,@%+\>-]*) return 1 ;;
+      [Gg][Ii][Tt]|*/[Gg][Ii][Tt]|commit|push|-c*|-C*|--git-dir*|--work-tree*|--exec-path*|--config-env*|--namespace*|--no-verify|--no-gpg-sign) return 1 ;;
+    esac
+    shift
+  done
+}
+
 is_git_commit_or_push() {
   cmd=$1
   git_alias_workdir=${2:-}
@@ -5804,6 +5955,20 @@ is_git_commit_or_push() {
     # shellcheck disable=SC2086
     set -- $words
     IFS=$old_ifs
+
+    git_command_vars=
+    case "$cmd" in
+      *'$'*) git_command_vars=$(git_gate_command_vars "$cmd" "$words") ;;
+    esac
+    # The resolvable variables whose assignment the scan has passed.
+    git_vars_set=' '
+    # The git command at hand stands for a command name only run time knows.
+    git_head_unknown=0
+    git_head_stdin=0
+    git_cmd_reads_input=0
+    case "$cmd" in
+      *'|'*|*'<'*) git_cmd_reads_input=1 ;;
+    esac
 
     unset git_builtin_names
     # A git alias expands per the configuration its command reads. That is
@@ -6043,6 +6208,9 @@ $effective_c_dirs" "$git_config_args" "$git_env_args"
         # git check below. command_start stays 1 so the next token is re-examined
         # as the command head.
         if [ "$record_kind" != 5 ] && [ "$record_kind" != 6 ] && is_assignment_token "$token"; then
+          case "$record_kind$git_command_vars" in
+            0*"R	${token%%=*}	"*) git_vars_set="$git_vars_set${token%%=*} " ;;
+          esac
           git_env_assignment "$record"
           shift
           continue
@@ -6064,6 +6232,7 @@ $effective_c_dirs" "$git_config_args" "$git_env_args"
         case "${token#"${token%%[!0-9]*}"}" in
           '>'|'>>'|'<'|'<>'|'>|')
             shell_cd_wrapped=1
+            case "$token" in *'<'*) git_head_stdin=1 ;; esac
             shift
             [ "${1-}" = '3&' ] && shift
             [ "$#" -gt 0 ] && shift
@@ -6071,6 +6240,7 @@ $effective_c_dirs" "$git_config_args" "$git_env_args"
             ;;
           '>'*|'<'*)
             shell_cd_wrapped=1
+            case "$token" in *'<'*) git_head_stdin=1 ;; esac
             shift
             continue
             ;;
@@ -6082,7 +6252,58 @@ $effective_c_dirs" "$git_config_args" "$git_env_args"
           shift
           continue
         fi
-        # A command name only run time knows may be git, a shell or eval.
+        # A command name only run time knows may be git, a shell or eval;
+        # git_gate_command_vars names the variables whose value is known
+        # anyway. A quoted one whose value is not stands for one word, which
+        # is git at worst: the git checks then read its arguments.
+        git_var=
+        case "$record_kind:$token:${2-}:${4-}" in
+          '1:$:3{:3}') git_var=${3#?} ;;
+          [14]:'$'*) git_var=${token#?} ;;
+        esac
+        case "$record_kind:$git_var" in
+          4:'{'*'}') git_var=${git_var#?}; git_var=${git_var%?} ;;
+        esac
+        case "$git_var" in
+          ''|[0-9]*|*[!A-Za-z0-9_]*) git_var= ;;
+        esac
+        if [ -n "$git_var" ]; then
+          git_var_skip=1
+          [ "$token" = '$' ] && git_var_skip=4
+          git_var_value=
+          case "$git_vars_set" in
+            *" $git_var "*)
+              git_var_value=$(printf '%s\n' "$git_command_vars" | sed -n "s/^R	$git_var	//p")
+              ;;
+          esac
+          if [ -n "$git_var_value" ]; then
+            shift "$git_var_skip"
+            if [ "$record_kind" = 1 ]; then
+              # shellcheck disable=SC2086
+              git_var_records=$(printf '0%s\n' $git_var_value)
+            else
+              git_var_records=0$git_var_value
+            fi
+            IFS='
+'
+            # shellcheck disable=SC2086
+            set -- $git_var_records "$@"
+            IFS=$old_ifs
+            continue
+          fi
+          if [ "$record_kind$git_var_skip$xargs_wrapped$git_head_stdin" = 4100 ] \
+            && [ "$shell_cd_untrusted$shell_cd_braces" = 00 ] && [ -z "$shell_cd_stack" ] \
+            && [ "$git_cmd_reads_input" -eq 0 ] \
+            && printf '%s\n' "$git_command_vars" | grep -qxF "S	$git_var"; then
+            shift
+            if git_unknown_head_args_safe "$@"; then
+              git_head_unknown=1
+              set -- 0git "$@"
+              continue
+            fi
+            set -- "$record" "$@"
+          fi
+        fi
         case "$record_kind:${token##*/}" in
           1:*|4:*[\$\`]*)
             printf 'G\nU\n'
@@ -6376,6 +6597,7 @@ $shell_cd_dir"
                 # in the same command line must not hide behind an earlier
                 # plain commit or push.
                 printf 'G\n'
+                [ "$git_head_unknown" -eq 1 ] && printf 'U\n'
                 [ "$effective_c_dynamic" -eq 1 ] && printf 'U\n'
                 [ "$shell_cd_unknown$shell_cd_lost" = 00 ] || printf 'U\n'
                 [ -n "$shell_cd_dirs" ] && printf '%s\n' "$shell_cd_dirs" | sed 's/^/D/'
@@ -6440,6 +6662,9 @@ $shell_cd_dir"
             esac
           done
           git_env_args=
+          # A command other than git may also relink a path a later cd uses.
+          [ "$git_head_unknown" -eq 0 ] || shell_cd_mutable=1
+          git_head_unknown=0
           git_env_dynamic=0
           git_target_args=
           git_target_dynamic=0
@@ -6478,6 +6703,7 @@ $shell_cd_dir"
         effective_c_dirs=
         effective_c_dynamic=0
         xargs_wrapped=0
+        git_head_stdin=0
         # An assignment no git command took may stay in the environment.
         [ -z "$git_env_args" ] && [ "$git_env_dynamic" -eq 0 ] || git_env_changed=1
         git_env_args=

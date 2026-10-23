@@ -4992,6 +4992,89 @@ shellcd_case codex secret U2 "X='V -C ../b'; env -u \$X git commit -m x"
 # A command name with a literal last component is that command.
 shellcd_case claude secret 2 'D=$(dirname "$(command -v git)"); "$D/git" commit -m x' a
 shellcd_case codex secret 2 "/usr/bin/env git commit -m x" a
+# A variable assigned once, earlier in the line, a plain literal that names an
+# ordinary command, is that command wherever it is the command name: a
+# user-built CLI held in a variable, in a function, behind a launcher.
+for sc_command in \
+  'CLI="echo"; $CLI sub arg' \
+  "CLI=\"echo --port 9223\"
+\$CLI pages x load" \
+  'CLI="echo"; run() { $CLI "$@"; }; run sub "$PWD"' \
+  'TOOL=./bin/mytool; $TOOL deploy' \
+  'CLI=echo; ${CLI} sub' \
+  'CLI=echo; "$CLI" sub "$PWD"' \
+  'CLI=echo; command $CLI sub "$PWD"' \
+  'CLI=echo; env $CLI sub "$PWD"' \
+  'CLI=echo; nice $CLI sub' \
+  'CLI=echo; time $CLI sub' \
+  'CLI=echo; xargs $CLI sub </dev/null' \
+  'RUNNER=npx; $RUNNER mytool sub' \
+  'CLI=echo; $CLI sub "$PWD" 2>&1 | tail -1' \
+  "set -e
+CLI=\"echo --port 9223\"
+export SC_SESSION=\"\$(basename \"\$PWD\")_\$\$\"
+\$CLI pages \"\$PWD\" load >/dev/null"
+do
+  shellcd_case claude secret 0 "$sc_command" a
+done
+# A quoted command word whose value is unknown is one word, git at worst: it
+# fails per the policy only when its arguments could commit or push.
+shellcd_case codex secret 0 '"$SC_UNSET" deploy --env prod' a
+shellcd_case claude secret 0 '"${SC_UNSET}" deploy' a
+for sc_command in \
+  'G=git; "$G" commit -m x' \
+  'G=git; "$G" -c alias.ci=commit ci -m x' \
+  'G=git; "$G" -C ../a commit -m x' \
+  'G=git; "$G" commit --no-verify -m x' \
+  'G=env; "$G" git commit -m x' \
+  "S=sh; printf 'git commit -m x\\n' | \"\$S\"" \
+  "S=sh; \"\$S\" <<<'git commit -m x'" \
+  "S=bash; \"\$S\" -c 'git commit -m x'" \
+  "S=sh; printf 'git commit -m x\\n' | { \"\$S\"; }" \
+  "S=sh; printf 'git commit -m x\\n' | ( \"\$S\" )" \
+  "S=sh; f() { \"\$S\"; }; printf 'git commit -m x\\n' | f"
+do
+  shellcd_case codex secret U2 "$sc_command" a
+done
+# Anything else about the variable leaves the command name unknown.
+for sc_command in \
+  'X=$(echo git); $X commit -m x' \
+  'X=${SC_UNSET:-git}; $X commit -m x' \
+  'X=echo; X=git; $X commit -m x' \
+  "X=git; export X; bash -c '\$X commit -m x'" \
+  "X=echo; bash -c '\$X git commit -m x'" \
+  'X=echo; read X <<<git; $X commit -m x' \
+  'X=echo; unset X; $X git commit -m x' \
+  'X=echo; declare "$(printf X)=git"; $X commit -m x' \
+  'X=echo; f() { X=git; }; f; $X commit -m x' \
+  'false && X=echo; $X git commit -m x' \
+  '(X=echo); $X git commit -m x' \
+  '$X git commit -m x; X=echo' \
+  "X='env git'; \$X commit -m x" \
+  'IFS=_; X=git_commit; $X -m x' \
+  '$SC_UNSET git commit -m x' \
+  '_=echo; true "$(command -v git)"; $_ commit -m x' \
+  'REPLY=echo; read <<<git; $REPLY commit -m x' \
+  'MAPFILE=echo; mapfile -t <<<git; $MAPFILE commit -m x' \
+  'OPTARG=echo; getopts a: o -agit; $OPTARG commit -m x'
+do
+  shellcd_case claude secret U2 "$sc_command" a
+done
+for sc_command in \
+  'X=$(true); $X commit -m x' \
+  'eval "$X commit -m x"' \
+  '$SC_UNSET commit -m x' \
+  '$SC_UNSET -C ../b push' \
+  '$SC_UNSET -c alias.ci=commit ci' \
+  '"$SC_UNSET" commit -m x' \
+  'X="g?t"; $X commit -m x' \
+  'X=GIT; $X commit -m x' \
+  'X==git; $X commit -m x' \
+  "X=echo; alias e=eval; e \"\$(printf '\\\\x58')=git\"; \$X commit -m x" \
+  'exec <sc-no-such-input; "$SC_UNSET"'
+do
+  shellcd_case codex secret Ux "$sc_command" a
+done
 # The open policy still scans the git commands whose directory is known.
 shellcd_case claude secret UF 'git commit -m x; cd $SC_UNSET_DIR && git commit -m y' a
 shellcd_case codex secret UF 'eval "$(true)"; git commit -m x' a
