@@ -7587,14 +7587,14 @@ secretish_env_values() {
       if (value !~ /^v:[0-9]+$/ || length(value) > 11) return 0
       return tolower(assignment) ~ /token["'\''`]?[ \t]*[:=]$/
     }
-    # A page-token key (`nextPageToken`, `next_page_token`) carries a
-    # pagination cursor: opaque by design, and the client has to send it back
-    # verbatim, so masking it broke every search result past the first page.
-    # Only a terminal page-token key is exempt; a qualified key such as
-    # `next_page_token_id` still masks. Residual: a real credential stored
-    # under a page-token key stays visible unless gitleaks knows its format.
+    # A pagination cursor key (`nextPageToken`, `next_page_token`) carries an
+    # opaque value the client has to send back verbatim, so masking it broke
+    # every search result past the first page. Only the exact camel/snake
+    # cursor names in a JSON/YAML `:` field are exempt, matched with case and
+    # a key boundary: `PAGE_TOKEN=` and `FB_PAGE_TOKEN` name a real page
+    # access token, and `homepage_token` or `next_page_token_id` are other keys.
     function page_cursor(assignment) {
-      return tolower(assignment) ~ /page[_-]?token["'\''`]?[ \t]*[:=]$/
+      return assignment ~ /(^|[^A-Za-z0-9_.-])["'\''`]?((next|prev|previous)(PageToken|_page_token)|pageToken|page_token)["'\''`]?[ \t]*:$/
     }
     # Value-side gate for the status-label colon path (#156). A status label on
     # its own cannot separate `error: password: authentication is disabled`

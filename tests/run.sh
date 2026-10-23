@@ -11083,6 +11083,11 @@ BOOL_AT=$(printf '%s%s' api _token)
 BOOL_PW=$(printf '%s%s' pass word)
 BOOL_NPT=$(printf '%s%s' nextPage Token)
 BOOL_SNAKE_NPT=$(printf '%s%s' next_page _token)
+BOOL_PT=$(printf '%s%s' page Token)
+BOOL_PAGE_SNAKE=$(printf '%s%s' page _token)
+BOOL_PAGE_ENV=$(printf '%s%s' PAGE _TOKEN)
+BOOL_FB_PAGE=$(printf '%s%s' FB_PAGE _TOKEN)
+BOOL_FB_CAMEL=$(printf '%s%s' fbPage Token)
 BOOL_SECRET=$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')
 BOOL_CURSOR=$(printf 'Ci%sQAhgB' "$BOOL_SECRET")
 BOOL_GHP=$(printf '%s%s' ghp_ "$BOOL_SECRET")
@@ -11118,7 +11123,9 @@ Likely false, because the flag is off." \
 
   for bool_page in "{\"issues\":[],\"$BOOL_NPT\":\"$BOOL_CURSOR\",\"isLast\":false}" \
                    "{\"$BOOL_SNAKE_NPT\": \"$BOOL_CURSOR\"}" \
-                   "$BOOL_SNAKE_NPT: $BOOL_CURSOR"; do
+                   "$BOOL_SNAKE_NPT: $BOOL_CURSOR" \
+                   "{\"$BOOL_PT\":\"$BOOL_CURSOR\"}" \
+                   "$BOOL_PAGE_SNAKE: $BOOL_CURSOR"; do
     bool_input=$(jq -nc --arg t "$bool_page" \
       '{tool_name:"mcp__example__search",tool_input:{},tool_response:{content:[{type:"text",text:$t}]}}')
     printf '%s' "$bool_input" \
@@ -11176,6 +11183,10 @@ if [ -n "$REAL_GITLEAKS" ]; then
     "{\"$BOOL_AT\":\"$BOOL_CURSOR\"}"
   bool_gl_case 1 "a vendor-shaped token under a page-token key is still found" \
     "{\"$BOOL_NPT\":\"$(printf '%s' "$BOOL_GHP$BOOL_SECRET" | cut -c1-40)\"}"
+  bool_gl_case 1 "a page access token key is still found (env form)" \
+    "$BOOL_PAGE_ENV=$BOOL_CURSOR"
+  bool_gl_case 1 "a prefixed page access token key is still found" \
+    "{\"$BOOL_FB_PAGE\":\"$BOOL_CURSOR\"}"
 fi
 
 bool_case=0
@@ -11187,7 +11198,14 @@ for bool_text in \
   "$BOOL_PW: \"$BOOL_SECRET\"" \
   "$BOOL_AT=$BOOL_GHP" \
   "$BOOL_AT: $BOOL_JWT" \
-  "$BOOL_PW = 合言葉は$BOOL_SECRET"; do
+  "$BOOL_PW = 合言葉は$BOOL_SECRET" \
+  "$BOOL_PAGE_ENV=$BOOL_SECRET" \
+  "$BOOL_PAGE_ENV: $BOOL_SECRET" \
+  "$BOOL_FB_PAGE=$BOOL_SECRET" \
+  "{\"$BOOL_FB_PAGE\":\"$BOOL_SECRET\"}" \
+  "{\"$BOOL_FB_CAMEL\":\"$BOOL_SECRET\"}" \
+  "home$BOOL_PAGE_SNAKE: $BOOL_SECRET" \
+  "$BOOL_PAGE_SNAKE=$BOOL_SECRET"; do
   bool_case=$((bool_case + 1))
   bool_input=$(jq -nc --arg t "$bool_text" \
     '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$t,stderr:"",interrupted:false,isImage:false}}')
