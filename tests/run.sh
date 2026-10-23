@@ -11116,11 +11116,50 @@ Likely false, because the flag is off." \
     sed 's/^/  out: /' "$OUT"
   fi
 
+  for bool_page in "{\"issues\":[],\"$BOOL_NPT\":\"$BOOL_CURSOR\",\"isLast\":false}" \
+                   "{\"$BOOL_SNAKE_NPT\": \"$BOOL_CURSOR\"}" \
+                   "$BOOL_SNAKE_NPT: $BOOL_CURSOR"; do
+    bool_input=$(jq -nc --arg t "$bool_page" \
+      '{tool_name:"mcp__example__search",tool_input:{},tool_response:{content:[{type:"text",text:$t}]}}')
+    printf '%s' "$bool_input" \
+      | (cd "$TMP_ROOT" && AGENT_GUARD_HOOK_HOST=$bool_host \
+          "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool) >"$OUT" 2>"$ERR"
+    if [ "$?" -eq 0 ] && [ ! -s "$OUT" ]; then
+      ok "post-tool leaves a pagination cursor visible ($bool_host)"
+    else
+      not_ok "post-tool leaves a pagination cursor visible ($bool_host)"
+      sed 's/^/  out: /' "$OUT"
+    fi
+  done
+
   run_expect 0 "prompt guard allows a prompt describing boolean config keys ($bool_host)" \
     prompt_guard_case "$bool_host" '' '' "$(jq -nc --arg p \
       "keys like '$BOOL_AT: true' and 'fail_open: false' showed the marker; the $BOOL_NPT: [REDACTED] field too" \
       '{prompt:$p}')"
 done
+
+if [ -n "$REAL_GITLEAKS" ]; then
+  BOOL_GL_DIR="$TESTTMP/page-cursor-gitleaks"
+  mkdir -p "$BOOL_GL_DIR"
+  bool_gl_case() { # $1 expected status, $2 label, $3 file content
+    printf '%s\n' "$3" >"$BOOL_GL_DIR/response.json"
+    PATH="$(dirname "$REAL_GITLEAKS"):$ORIGINAL_PATH" "$PLUGIN_ROOT/bin/agent-guard" \
+      scan-path "$BOOL_GL_DIR" >"$OUT" 2>"$ERR"
+    bool_gl_status=$?
+    if [ "$bool_gl_status" -eq "$1" ]; then
+      ok "real gitleaks: $2"
+    else
+      not_ok "real gitleaks: $2 (expected $1, got $bool_gl_status)"
+      sed 's/^/  stderr: /' "$ERR"
+    fi
+  }
+  bool_gl_case 0 "a pagination cursor under a page-token key is clean" \
+    "{\"$BOOL_NPT\":\"$BOOL_CURSOR\",\"isLast\":false}"
+  bool_gl_case 1 "the same value under a secret key is still found" \
+    "{\"$BOOL_AT\":\"$BOOL_CURSOR\"}"
+  bool_gl_case 1 "a vendor-shaped token under a page-token key is still found" \
+    "{\"$BOOL_NPT\":\"$(printf '%s' "$BOOL_GHP$BOOL_SECRET" | cut -c1-40)\"}"
+fi
 
 bool_case=0
 for bool_text in \

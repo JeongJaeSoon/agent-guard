@@ -7579,6 +7579,15 @@ secretish_env_values() {
       if (value !~ /^v:[0-9]+$/ || length(value) > 11) return 0
       return tolower(assignment) ~ /token["'\''`]?[ \t]*[:=]$/
     }
+    # A page-token key (`nextPageToken`, `next_page_token`) carries a
+    # pagination cursor: opaque by design, and the client has to send it back
+    # verbatim, so masking it broke every search result past the first page.
+    # Only a terminal page-token key is exempt; a qualified key such as
+    # `next_page_token_id` still masks. Residual: a real credential stored
+    # under a page-token key stays visible unless gitleaks knows its format.
+    function page_cursor(assignment) {
+      return tolower(assignment) ~ /page[_-]?token["'\''`]?[ \t]*[:=]$/
+    }
     # Value-side gate for the status-label colon path (#156). A status label on
     # its own cannot separate `error: password: authentication is disabled`
     # (prose, must not mask) from `error: password: hunter2-long-value`
@@ -7661,6 +7670,7 @@ secretish_env_values() {
         # one. Internal whitespace is untouched, so prose still reads as prose.
         if (require_credential && !credential_shaped(edge_trim(value))) return 0
         if (version_reference(assignment, value)) return 0
+        if (page_cursor(assignment)) return 0
       } else {
         value = raw
         sub(/[ \t,;].*$/, "", value)
@@ -7712,6 +7722,7 @@ secretish_env_values() {
         value = substr(value, 1, end)
         if (looks_like_reference(value, assignment, leading)) return 0
         if (version_reference(assignment, value)) return 0
+        if (page_cursor(assignment)) return 0
         if (config_literal(value)) return 0
         if (require_credential && !credential_shaped(edge_trim(value))) return 0
         # Eligibility is based on the complete token. For short values, scope
