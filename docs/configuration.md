@@ -8,7 +8,8 @@ Read [Output masking coverage](integrations.md#output-masking-coverage) for
 what `AGENT_GUARD_INFRA_FAILURE_MODE=closed` and output redaction reach per
 event. In particular, exit status 2 from `PostToolUse` cannot undo a tool effect
 that already happened, and a `closed` decision that misses the host timeout
-never reaches the host.
+never reaches the host. A Claude `PreToolUse` hook that times out or crashes
+blocks the tool call in either mode (Claude Code 2.1.295 and later).
 
 ## Infrastructure policy
 

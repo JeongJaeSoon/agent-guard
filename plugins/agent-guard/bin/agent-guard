@@ -1651,13 +1651,20 @@ begin_infrastructure_failure() {
 
 # Emits the notice immediately. Only safe where the caller returns without
 # writing anything else to stdout; hook-user-prompt defers instead.
+# hook_warning_once repeats when its marker cannot be written, and a second
+# JSON object makes the stdout unparseable, which Claude's PreToolUse
+# onFailure "block" turns into a block. So write at most one per process.
+INFRA_FAILURE_NOTICE_EMITTED=0
+
 handle_hook_infrastructure_failure() {
   event=$1
   begin_infrastructure_failure "${2:-}" "$3"
   [ -n "$INFRA_FAILURE_NOTICE" ] || return 0
+  [ "$INFRA_FAILURE_NOTICE_EMITTED" = 0 ] || return 0
   case "$event" in
     PreToolUse|PostToolUse|UserPromptSubmit)
       printf '{"hookSpecificOutput":{"hookEventName":"%s","additionalContext":"%s"}}\n' "$event" "$INFRA_FAILURE_NOTICE"
+      INFRA_FAILURE_NOTICE_EMITTED=1
       ;;
   esac
   return 0
