@@ -25,9 +25,9 @@ The internal IDs select execution partitions; Actions displays descriptive names
 | --- | --- | --- |
 | 1 | Core, host adapters and Git (with 3) | Unchanged |
 | 2 | Command policies and shell navigation (with 5) | Adds git aliases and three mask suites previously in 3 |
-| 3 | Core, host adapters and Git (with 1) | Retains auto-staging regression cases; runs the later shell cd cases (unknown command words onward) |
+| 3 | Core, host adapters and Git (with 1) | Retains auto-staging regression cases |
 | 4 | CLI, scanner and output | Retains scanner integration; adds original 5 output, PII and shell-setup cases |
-| 5 | Command policies and shell navigation (with 2) | Runs shell-navigation cases previously in 4, up to the shell cd cases for unknown command words |
+| 5 | Command policies and shell navigation (with 2) | Runs shell-navigation cases previously in 4 |
 
 Regression assertion bodies and their unpartitioned execution order stay
 identical; the matrix-coverage assertion is updated for the bundle format. Moved groups initialize their own repositories, configuration and
@@ -118,6 +118,12 @@ so they do not interleave. Hosted-runner teardown handles job cancellation.
 No internal timeout is relaxed. This uses the existing runner CPUs; contention
 can offset the reduction in runner lifetimes. Actual timing comparisons are
 required before claiming a saving; job count alone is not a cost measurement.
+
+The suite jobs time out after 25 minutes. On macOS, partition 5 alone took
+about 14 minutes in [main run 39933464643](https://github.com/JeongJaeSoon/agent-guard/actions/runs/39933464643);
+moving its slowest shell cd cases to partition 3 only moved the bottleneck to
+the core runner, because the case cost is uneven and runner time varies by a
+quarter between runs.
 
 See [Test layers and coverage](testing.md) for the distinction between execution
 partitions, test-pyramid layers, assertion inventories and code coverage.
