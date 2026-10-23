@@ -5873,10 +5873,12 @@ git_gate_command_vars() {
         r = rec[k]; kind = substr(r, 1, 1); t = substr(r, 2)
         if (r == "3&" && rec[k - 1] ~ />$/) continue
         if (r == "0;" || r == "0&&" || r == "0||" || r == "0|" || kind == "3") {
-          # A subshell, substitution or group that has closed leaves the
-          # assignments after it unconditional and in this shell.
-          if (t == "(" || t == "{") depth++
-          else if ((t == ")" || t == "}") && depth > 0) depth--
+          # A subshell or substitution that has closed leaves the assignments
+          # after it unconditional and in this shell. Braces are not counted:
+          # an argument } is emitted as 3} too, so it would close a group
+          # that bash still holds open.
+          if (t == "(") depth++
+          else if (t == ")" && depth > 0) depth--
           else if (kind == "3") blocked = 1
           head = 1; wrapped = 0; namer = ""; varhead = 0
           continue

@@ -4647,8 +4647,9 @@ done
 # git or a shell behind the variable, or a word that hides git, stays unknown
 # in every locale. A builtin-named word is only safe as an argument of an
 # ordinary command; a paren closed before the assignment says nothing about
-# it, and one still open, or a condition, does. git anywhere in the line, a
-# forwarding function and a trap keep the variable unknown.
+# it, and one still open, or a condition, does. A brace group never counts as
+# closed: an argument } looks the same as the one that ends it. git anywhere
+# in the line, a forwarding function and a trap keep the variable unknown.
 for varcmd_locale in C ja_JP.UTF-8; do
   for varcmd_command in \
     'G="git"; $G commit -m "日本語のメッセージ"' \
@@ -4661,6 +4662,11 @@ for varcmd_locale in C ja_JP.UTF-8; do
     'X=$(T=git); $T commit' \
     '( T="mytool" ); $T commit' \
     '{ T="mytool"; }; $T commit' \
+    'false && { echo }; T=mytool; }; $T commit' \
+    'false && { echo }; T=mytool; }; $T --version' \
+    'f() { echo }; T=mytool; }; $T commit' \
+    'false && { printf "%s\n" a }; T=mytool; }; $T commit' \
+    'false && { echo ${X}}; T=mytool; }; $T commit' \
     'true && T="mytool"; $T run' \
     'X=$(case a in a) echo ;; esac; T=mytool); $T commit' \
     'X=$( (T=mytool) ); $T commit' \
