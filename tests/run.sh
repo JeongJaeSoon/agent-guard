@@ -96,6 +96,13 @@ expect_json_status() {
   fi
 }
 
+prompt_guard_case() { # $1 host, $2 prompt mode ('' = default), $3 pii mode ('' = off), $4 json
+  printf '%s' "$4" \
+    | AGENT_GUARD_HOOK_HOST="$1" AGENT_GUARD_PROMPT_GUARD_MODE="$2" \
+      AGENT_GUARD_PII_HOOK_MODE="$3" \
+      "$PLUGIN_ROOT/bin/agent-guard" hook-user-prompt
+}
+
 cleanup() {
   rm -rf "$TMP_ROOT" "$TESTTMP"
 }
@@ -1948,13 +1955,6 @@ PASSWORD=not-a-real-password' \
   '{prompt:$prompt}')
 prompt_guard_placeholder_lookalike_json=$(jq -nc \
   --arg prompt 'API_KEY=example_token_value_long' '{prompt:$prompt}')
-
-prompt_guard_case() { # $1 host, $2 prompt mode ('' = default), $3 pii mode ('' = off), $4 json
-  printf '%s' "$4" \
-    | AGENT_GUARD_HOOK_HOST="$1" AGENT_GUARD_PROMPT_GUARD_MODE="$2" \
-      AGENT_GUARD_PII_HOOK_MODE="$3" \
-      "$PLUGIN_ROOT/bin/agent-guard" hook-user-prompt
-}
 
 for pg_h in claude codex; do
   run_expect 2 "prompt guard blocks a pasted secret by default ($pg_h)" \
