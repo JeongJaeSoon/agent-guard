@@ -4574,6 +4574,124 @@ else
   sed 's/^/  stderr: /' "$ERR"
 fi
 
+# A resolvable command variable stays resolvable whatever the locale and
+# whatever text its arguments carry: BSD awk fails on multibyte text under a
+# UTF-8 locale, and the gate read that failure as an unknown command name.
+# The cwd has a staged secret, so 0 means no commit was assumed; U means a
+# closed-policy block on an unknown command.
+VARCMD_REPO="$TMP_ROOT/varcmd"
+(
+  mkdir -p "$VARCMD_REPO" && cd "$VARCMD_REPO" || exit 2
+  git init -q
+  printf '%s\n' "AGENT_GUARD_TEST_SECRET" > settings.conf
+  git add settings.conf
+) || not_ok "varcmd: setup failed"
+varcmd_session=0
+# varcmd_case EXPECTED LOCALE COMMAND; C sets LC_ALL, others set LANG alone.
+varcmd_case() {
+  varcmd_session=$((varcmd_session + 1))
+  case "$2" in
+    C) set -- "$1" "$2" "$3" env LC_ALL=C ;;
+    *) set -- "$1" "$2" "$3" env -u LC_ALL -u LC_CTYPE LANG="$2" ;;
+  esac
+  case "$2" in
+    C.UTF-8|en_US.UTF-8) varcmd_filter='{session_id:$s,tool_name:"Bash",tool_input:{command:$c,workdir:$d}}'; varcmd_host=codex ;;
+    *) varcmd_filter='{session_id:$s,tool_name:"Bash",tool_input:{command:$c},cwd:$d}'; varcmd_host=claude ;;
+  esac
+  varcmd_name="var command [$varcmd_host $2]: $3"
+  varcmd_expected=$1
+  varcmd_command=$3
+  shift 3
+  jq -nc --arg c "$varcmd_command" --arg d "$VARCMD_REPO" --arg s "varcmd-$$-$varcmd_session" "$varcmd_filter" \
+    | (cd "$TMP_ROOT" && "$@" AGENT_GUARD_HOOK_HOST=$varcmd_host AGENT_GUARD_INFRA_FAILURE_MODE=closed \
+        "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool) >"$OUT" 2>"$ERR"
+  varcmd_status=$?
+  case "$varcmd_expected:$varcmd_status" in
+    0:0) ok "$varcmd_name" ;;
+    U:2) if grep -q 'could not' "$ERR"; then ok "$varcmd_name"; else
+           not_ok "$varcmd_name (blocked, but not as unresolved)"; sed 's/^/  stderr: /' "$ERR"; fi ;;
+    *) not_ok "$varcmd_name (expected $varcmd_expected, got $varcmd_status)"; sed 's/^/  stderr: /' "$ERR" ;;
+  esac
+}
+varcmd_nfd=$(printf 'cafe\314\201')
+for varcmd_locale in C C.UTF-8 en_US.UTF-8 ja_JP.UTF-8; do
+  for varcmd_command in \
+    'T="mytool"; $T run "テスト"' \
+    'T="mytool"; "$T" run "テスト"' \
+    'T="mytool --profile dev"; $T run "δοκιμή"' \
+    "T=\"mytool\"; \$T call --data '{\"title\":\"확인 항목\"}'" \
+    'T="mytool"; $T log "■ step（1）「check」"' \
+    'T="mytool"; $T fill "café"' \
+    "T=\"mytool\"; \$T fill \"$varcmd_nfd\"" \
+    'T="mytool"; $T fill "ﾃｽﾄ 🎉"' \
+    'T="mytool"; V=$($T get --selector ".x" 2>&1 | tail -1); [ "$V" = "保存" ] || echo "失敗"' \
+    'T="mytool"; for i in 1 2; do $T call --data "{\"name\":\"項目${i}\"}"; done' \
+    "T=\"mytool\"; \$T click --selector \"[data-test='group-a'] [aria-label='メニューを開く']\"" \
+    "T=\"mytool\"; \$T click \":text('新規') >> nth=1\"" \
+    'T="mytool"; $T eval "document.title"' \
+    'T="mytool"; $T read x' \
+    'T="mytool"; $T source list' \
+    'T="mytool"; $T wait idle' \
+    'X=$(date +%s); T="mytool"; $T run' \
+    'X="$(date)"; T="mytool"; $T run' \
+    'X=$((1+2)); T="mytool"; $T run' \
+    'diff <(echo a) <(echo b); T="mytool"; $T run' \
+    "T=\"mytool\"; \$T click --selector '.card >> nth=0 >> img[src*=\"icon_v2\"]'" \
+    'T="mytool"; $T call --data "{\"email\":\"${EMAIL}\",\"password\":\"${PASS}\"}"' \
+    "T=\"mytool\"; \$T fill 'input[autocomplete=\"cc-number\"]' \"4242424242424242\"" \
+    "mytool eval \"document.querySelector('#popup')?.remove()\""
+  do
+    varcmd_case 0 "$varcmd_locale" "$varcmd_command"
+  done
+done
+# git or a shell behind the variable, or a word that hides git, stays unknown
+# in every locale. A builtin-named word is only safe as an argument of an
+# ordinary command; a paren closed before the assignment says nothing about
+# it, and one still open, or a condition, does. git anywhere in the line, a
+# forwarding function and a trap keep the variable unknown.
+for varcmd_locale in C ja_JP.UTF-8; do
+  for varcmd_command in \
+    'G="git"; $G commit -m "日本語のメッセージ"' \
+    'G="git"; $G push origin HEAD' \
+    'S="bash"; $S -c "git commit -m x"' \
+    'G="gi""t"; $G commit -m "テスト"' \
+    'T="mytool"; eval "$T commit"' \
+    'T="git"; $T eval' \
+    'T=noglob; $T eval "X=git"; $X commit -m x' \
+    'X=$(T=git); $T commit' \
+    '( T="mytool" ); $T commit' \
+    '{ T="mytool"; }; $T commit' \
+    'true && T="mytool"; $T run' \
+    'X=$(case a in a) echo ;; esac; T=mytool); $T commit' \
+    'X=$( (T=mytool) ); $T commit' \
+    'T="mytool"; f() { "$@" 2>&1 | tail -1; }; V=$(f $T get --selector ".y")' \
+    'T="mytool"; on_exit() { "$T" summary || true; }; trap on_exit EXIT; $T run' \
+    "trap 'git commit -am x' EXIT; T=\"mytool\"; \$T run" \
+    'f() { git "$@"; }; f commit -m x' \
+    'T="mytool"; $T run; git commit -m "x"'
+  do
+    varcmd_case U "$varcmd_locale" "$varcmd_command"
+  done
+done
+expect_json_status 2 "a secret in an argument of a resolved command variable is still caught" \
+  '{"tool_name":"Bash","tool_input":{"command":"T=\"mytool\"; $T call --data \"{\\\"password\\\":\\\"AGENT_GUARD_TEST_SECRET\\\"}\""}}' \
+  hook-pre-tool
+# A resolver that cannot run is reported as such, not as an unknown name.
+varcmd_awk_dir="$TMP_ROOT/varcmd-awk-fail"
+mkdir -p "$varcmd_awk_dir"
+printf '#!/bin/sh\n[ -z "${GGCV_CMD+x}" ] || exit 2\nexec %s "$@"\n' "$(command -v awk)" > "$varcmd_awk_dir/awk"
+chmod +x "$varcmd_awk_dir/awk"
+jq -nc --arg d "$VARCMD_REPO" '{session_id:"varcmd-awk-fail",tool_name:"Bash",tool_input:{command:"T=mytool; $T run"},cwd:$d}' \
+  | (cd "$TMP_ROOT" && PATH="$varcmd_awk_dir:$PATH" AGENT_GUARD_INFRA_FAILURE_MODE=closed \
+      "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool) >"$OUT" 2>"$ERR"
+varcmd_status=$?
+if [ "$varcmd_status" -eq 2 ] && grep -q 'awk failed' "$ERR"; then
+  ok "a failing command-variable resolver is reported as an awk failure"
+else
+  not_ok "a failing command-variable resolver is reported as an awk failure (got $varcmd_status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
 fi # end of shard 3
 
 if in_shard 2; then
@@ -4794,13 +4912,7 @@ printf '/link\n' >> "$SHELLCD_ROOT/a/.git/info/exclude"
 # or x where it differs between bash versions. UF is U2, except that the open
 # policy still blocks on the finding in another git command of the line.
 # SC_HOME replaces that HOME for both the hook and bash; `-` unsets it.
-# SC_LOCALE runs both in that locale; C sets LC_ALL, others set LANG alone.
 sc_with_home() {
-  case "${SC_LOCALE-}" in
-    '') ;;
-    C) set -- env LC_ALL=C "$@" ;;
-    *) set -- env -u LC_ALL -u LC_CTYPE LANG="$SC_LOCALE" "$@" ;;
-  esac
   case "${SC_HOME-$SHELLCD_ROOT/b}" in
     -) env -u HOME "$@" ;;
     *) HOME=${SC_HOME-$SHELLCD_ROOT/b} "$@" ;;
@@ -5155,97 +5267,6 @@ for sc_command in \
 do
   shellcd_case codex secret Ux "$sc_command" a
 done
-# A resolvable command variable stays resolvable whatever the locale and
-# whatever text its arguments carry: BSD awk fails on multibyte text under a
-# UTF-8 locale, and the gate read that failure as an unknown command name.
-sc_nfd=$(printf 'cafe\314\201')
-for SC_LOCALE in C C.UTF-8 en_US.UTF-8 ja_JP.UTF-8; do
-  case "$SC_LOCALE" in
-    C.UTF-8|en_US.UTF-8) sc_host=codex ;;
-    *) sc_host=claude ;;
-  esac
-  for sc_command in \
-    'T="mytool"; $T run "テスト"' \
-    'T="mytool"; "$T" run "テスト"' \
-    'T="mytool --profile dev"; $T run "δοκιμή"' \
-    "T=\"mytool\"; \$T call --data '{\"title\":\"확인 항목\"}'" \
-    'T="mytool"; $T log "■ step（1）「check」"' \
-    'T="mytool"; $T fill "café"' \
-    "T=\"mytool\"; \$T fill \"$sc_nfd\"" \
-    'T="mytool"; $T fill "ﾃｽﾄ 🎉"' \
-    'T="mytool"; V=$($T get --selector ".x" 2>&1 | tail -1); [ "$V" = "保存" ] || echo "失敗"' \
-    'T="mytool"; for i in 1 2; do $T call --data "{\"name\":\"項目${i}\"}"; done' \
-    "T=\"mytool\"; \$T click --selector \"[data-test='group-a'] [aria-label='メニューを開く']\"" \
-    "T=\"mytool\"; \$T click \":text('新規') >> nth=1\"" \
-    'T="mytool"; $T eval "document.title"' \
-    'T="mytool"; $T read x' \
-    'T="mytool"; $T source list' \
-    'T="mytool"; $T wait idle' \
-    'X=$(date +%s); T="mytool"; $T run' \
-    'X="$(date)"; T="mytool"; $T run' \
-    'X=$((1+2)); T="mytool"; $T run' \
-    'diff <(echo a) <(echo b); T="mytool"; $T run' \
-    "T=\"mytool\"; \$T click --selector '.card >> nth=0 >> img[src*=\"icon_v2\"]'" \
-    'T="mytool"; $T call --data "{\"email\":\"${EMAIL}\",\"password\":\"${PASS}\"}"' \
-    "T=\"mytool\"; \$T fill 'input[autocomplete=\"cc-number\"]' \"4242424242424242\"" \
-    "mytool eval \"document.querySelector('#popup')?.remove()\""
-  do
-    shellcd_case "$sc_host" secret 0 "$sc_command" a
-  done
-  case "$SC_LOCALE" in C.UTF-8|en_US.UTF-8) continue ;; esac
-  # git or a shell behind the variable, or a word that hides git, stays
-  # unknown in every locale.
-  for sc_command in \
-    'G="git"; $G commit -m "日本語のメッセージ"' \
-    'S="bash"; $S -c "git commit -m x"' \
-    'G="gi""t"; $G commit -m "テスト"' \
-    "trap 'git commit -am x' EXIT; T=\"mytool\"; \$T run"
-  do
-    shellcd_case "$sc_host" secret U2 "$sc_command" a
-  done
-  # A builtin-named word is only safe as an argument of an ordinary command;
-  # a paren closed before the assignment says nothing about it, and one still
-  # open, or a condition, does.
-  for sc_command in \
-    'G="git"; $G push origin HEAD' \
-    'T="mytool"; eval "$T commit"' \
-    'T="git"; $T eval' \
-    'T=noglob; $T eval "X=git"; $X commit -m x' \
-    'X=$(T=git); $T commit' \
-    '( T="mytool" ); $T commit' \
-    '{ T="mytool"; }; $T commit' \
-    'true && T="mytool"; $T run' \
-    'X=$(case a in a) echo ;; esac; T=mytool); $T commit' \
-    'X=$( (T=mytool) ); $T commit' \
-    'T="mytool"; f() { "$@" 2>&1 | tail -1; }; V=$(f $T get --selector ".y")' \
-    'T="mytool"; on_exit() { "$T" summary || true; }; trap on_exit EXIT; $T run'
-  do
-    shellcd_case "$sc_host" secret U0 "$sc_command" a
-  done
-  shellcd_case "$sc_host" secret U2 'f() { git "$@"; }; f commit -m x' a
-  # git anywhere in the line may read the variable in a child, so the
-  # variable stays unknown; the open policy still scans the plain commit.
-  shellcd_case "$sc_host" secret UF 'T="mytool"; $T run; git commit -m "x"' a
-done
-unset SC_LOCALE
-expect_json_status 2 "a secret in an argument of a resolved command variable is still caught" \
-  '{"tool_name":"Bash","tool_input":{"command":"T=\"mytool\"; $T call --data \"{\\\"password\\\":\\\"AGENT_GUARD_TEST_SECRET\\\"}\""}}' \
-  hook-pre-tool
-# A resolver that cannot run is reported as such, not as an unknown name.
-sc_awk_dir="$TMP_ROOT/ggcv-awk-fail"
-mkdir -p "$sc_awk_dir"
-printf '#!/bin/sh\n[ -z "${GGCV_CMD+x}" ] || exit 2\nexec %s "$@"\n' "$(command -v awk)" > "$sc_awk_dir/awk"
-chmod +x "$sc_awk_dir/awk"
-jq -nc --arg d "$SHELLCD_ROOT/a" '{session_id:"ggcv-awk-fail",tool_name:"Bash",tool_input:{command:"T=mytool; $T run"},cwd:$d}' \
-  | (cd "$TMP_ROOT" && PATH="$sc_awk_dir:$PATH" AGENT_GUARD_INFRA_FAILURE_MODE=closed \
-      "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool) >"$OUT" 2>"$ERR"
-sc_status=$?
-if [ "$sc_status" -eq 2 ] && grep -q 'awk failed' "$ERR"; then
-  ok "a failing command-variable resolver is reported as an awk failure"
-else
-  not_ok "a failing command-variable resolver is reported as an awk failure (got $sc_status)"
-  sed 's/^/  stderr: /' "$ERR"
-fi
 # The open policy still scans the git commands whose directory is known.
 shellcd_case claude secret UF 'git commit -m x; cd $SC_UNSET_DIR && git commit -m y' a
 shellcd_case codex secret UF 'eval "$(true)"; git commit -m x' a
