@@ -4760,7 +4760,7 @@ run_expect 0 "deny-read mask rules mask matches or block without content" sh "$R
 
 fi # end of shard 2
 
-if in_shard 5; then
+if in_shard 3 || in_shard 5; then
 # A shell cd moves the commit to another repository: the scan must follow a
 # literal cd and fail per the infrastructure policy (closed here) on one it
 # cannot resolve. The hook runs with cwd=a; the command is then really run
@@ -4881,7 +4881,8 @@ shellcd_case() {
       ;;
   esac
 }
-
+fi
+if in_shard 5; then
 for sc_host in claude codex; do
   for sc_command in \
     'cd ../b && git commit -m x' \
@@ -5152,7 +5153,11 @@ done
 # The open policy still scans the git commands whose directory is known.
 shellcd_case claude secret UF 'git commit -m x; cd $SC_UNSET_DIR && git commit -m y' a
 shellcd_case codex secret UF 'eval "$(true)"; git commit -m x' a
+fi # end of shard 5
 
+# The rest of the shell cd cases run in shard 3 to keep shard 5 within the
+# CI job timeout; each case resets both repositories, so the split is free.
+if in_shard 3; then
 # A word whose name part is quoted or escaped is a command name, not an
 # assignment, so the cd after it is one of its arguments and git commits in a.
 for sc_host in claude codex; do
@@ -5350,7 +5355,7 @@ for sc_command in 'cd ../b; git push' 'git -C ../b push'; do
   done
 done
 
-fi # end of shard 5
+fi # end of shard 3
 
 if in_shard 4; then
 SYMLINK_REPO="$TMP_ROOT/symlink-repo"
