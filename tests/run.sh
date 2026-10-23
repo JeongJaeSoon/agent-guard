@@ -586,7 +586,7 @@ hook_subcommand() {
 
 for event in PreToolUse PostToolUse Stop UserPromptSubmit; do
   case "$event" in
-    PreToolUse)  expected_sub=hook-pre-tool;  expected_timeout=10 ;;
+    PreToolUse)  expected_sub=hook-pre-tool;  expected_timeout=60 ;;
     PostToolUse) expected_sub=hook-post-tool; expected_timeout=20 ;;
     Stop)        expected_sub=hook-stop;      expected_timeout=20 ;;
     UserPromptSubmit) expected_sub=hook-user-prompt; expected_timeout=10 ;;
@@ -630,6 +630,30 @@ for event in PreToolUse PostToolUse Stop UserPromptSubmit; do
     ok "$event command subcommand in $file matches hooks/hooks.json"
   else
     not_ok "$event command subcommand in $file matches hooks/hooks.json (got: $actual_sub)"
+  fi
+done
+
+# Claude runs the tool when a PreToolUse hook times out or crashes unless the
+# hook sets onFailure "block". Only PreToolUse needs it, and Codex has no such
+# key, so every other hook object must leave it unset.
+for file in "$PLUGIN_ROOT/hooks/hooks.json" "$ROOT/examples/claude/settings.project.json" \
+  "$PLUGIN_ROOT/hooks.json" "$ROOT/examples/codex/hooks.json"; do
+  case "$file" in
+    "$PLUGIN_ROOT/hooks/hooks.json"|*/examples/claude/*) expected_pre=block ;;
+    *) expected_pre=null ;;
+  esac
+  actual_pre=$(jq -r '.hooks.PreToolUse[0].hooks[0].onFailure' "$file")
+  if [ "$actual_pre" = "$expected_pre" ]; then
+    ok "PreToolUse onFailure is $expected_pre in $file"
+  else
+    not_ok "PreToolUse onFailure is $expected_pre in $file (got: $actual_pre)"
+  fi
+  others=$(jq -r '[.hooks | to_entries[] | select(.key != "PreToolUse")
+                   | .value[].hooks[] | select(has("onFailure"))] | length' "$file")
+  if [ "$others" = 0 ]; then
+    ok "no non-PreToolUse hook sets onFailure in $file"
+  else
+    not_ok "no non-PreToolUse hook sets onFailure in $file (got: $others)"
   fi
 done
 

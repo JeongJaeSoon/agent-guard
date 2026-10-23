@@ -2,7 +2,8 @@
 # Render every committed hook manifest from ONE set of tables.
 #
 # Every event's matcher, timeout, and hook subcommand must agree across all four
-# manifests; only the command string legitimately differs. Editing them by hand
+# manifests; only the command string and the Claude-only PreToolUse onFailure
+# key legitimately differ. Editing them by hand
 # meant twenty copies kept in lockstep, so this script is the single source of
 # truth: edit the tables below, run it, and commit the result.
 #
@@ -68,6 +69,13 @@ render_command() { # $1 = root env var, $2 = host tag, $3 = hook subcommand, $4 
 }
 
 render_manifest() { # $1 = root env var, $2 = host tag, $3/$4 = pre/post matcher, $5 = style
+  # Claude lets a PreToolUse hook that times out, crashes, or exits other than
+  # 0/2 through unchecked unless onFailure is "block" (Claude Code 2.1.295+).
+  # Codex has no such key, so its manifests leave it out.
+  case "$2" in
+    claude) pre_on_failure=block ;;
+    *) pre_on_failure= ;;
+  esac
   # Status-checked assignments: a render_command failure inside a jq argument's
   # command substitution would otherwise be discarded while jq still exits 0.
   pre=$(render_command "$1" "$2" hook-pre-tool "$5") || return 1
@@ -79,13 +87,16 @@ render_manifest() { # $1 = root env var, $2 = host tag, $3/$4 = pre/post matcher
     --arg pre_matcher "$3" \
     --arg post_matcher "$4" \
     --arg pre "$pre" \
+    --arg pre_on_failure "$pre_on_failure" \
     --arg post "$post" \
     --arg stop "$stop" \
     --arg session "$session" \
     --arg prompt "$prompt" \
     '{hooks: {
        PreToolUse: [{matcher: $pre_matcher,
-                     hooks: [{type: "command", command: $pre, timeout: 10}]}],
+                     hooks: [{type: "command", command: $pre, timeout: 60}
+                             + (if $pre_on_failure == "" then {}
+                                else {onFailure: $pre_on_failure} end)]}],
        PostToolUse: [{matcher: $post_matcher,
                       hooks: [{type: "command", command: $post, timeout: 20}]}],
        Stop: [{matcher: "",
