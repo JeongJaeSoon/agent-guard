@@ -4650,6 +4650,9 @@ done
 # it, and one still open, or a condition, does. A brace group never counts as
 # closed: an argument } looks the same as the one that ends it. git anywhere
 # in the line, a forwarding function and a trap keep the variable unknown.
+# A ) in a here-document body closes nothing.
+varcmd_nl='
+'
 for varcmd_locale in C ja_JP.UTF-8; do
   for varcmd_command in \
     'G="git"; $G commit -m "日本語のメッセージ"' \
@@ -4674,11 +4677,17 @@ for varcmd_locale in C ja_JP.UTF-8; do
     'T="mytool"; on_exit() { "$T" summary || true; }; trap on_exit EXIT; $T run' \
     "trap 'git commit -am x' EXIT; T=\"mytool\"; \$T run" \
     'f() { git "$@"; }; f commit -m x' \
-    'T="mytool"; $T run; git commit -m "x"'
+    'T="mytool"; $T run; git commit -m "x"' \
+    "( cat <<E${varcmd_nl})${varcmd_nl}E${varcmd_nl}T=mytool${varcmd_nl}); \$T commit" \
+    "X=\$(cat <<E${varcmd_nl})${varcmd_nl}E${varcmd_nl}T=mytool${varcmd_nl}); \$T commit" \
+    "( cat <<'E'${varcmd_nl})${varcmd_nl}E${varcmd_nl}T=mytool${varcmd_nl}); \$T commit" \
+    "( cat <<-E${varcmd_nl}	)${varcmd_nl}	E${varcmd_nl}T=mytool${varcmd_nl}); \$T commit" \
+    "false && ( cat <<E${varcmd_nl})${varcmd_nl}E${varcmd_nl}T=mytool${varcmd_nl}); \$T commit"
   do
     varcmd_case U "$varcmd_locale" "$varcmd_command"
   done
 done
+varcmd_case 0 C "T=mytool; cat <<E${varcmd_nl})${varcmd_nl}E${varcmd_nl}\$T run"
 expect_json_status 2 "a secret in an argument of a resolved command variable is still caught" \
   '{"tool_name":"Bash","tool_input":{"command":"T=\"mytool\"; $T call --data \"{\\\"password\\\":\\\"AGENT_GUARD_TEST_SECRET\\\"}\""}}' \
   hook-pre-tool
