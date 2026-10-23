@@ -7458,6 +7458,15 @@ secretish_env_values() {
       return v ~ /^(example|dummy)[_-]?(token|key|secret|password)$/ \
           || v ~ /^not[-_ ]?a[-_ ]?real[-_ ]?(token|key|secret|password)$/
     }
+    # A boolean or null under a secret-bearing key (`api_token: true`) is a
+    # config flag, not a credential. Emitting it made the word a global
+    # literal, so every `true`/`false` in the same response was masked, and
+    # the prompt guard blocked a prompt that only described such a config.
+    # Whole trimmed value only, so `trueX1...` still masks.
+    function config_literal(value, v) {
+      v = tolower(edge_trim(value))
+      return v ~ /^(true|false|yes|no|on|off|null|nil|none)$/
+    }
     function emit_captured(v, trimmed) {
       emit_secret(v)
       trimmed = edge_trim(v)
@@ -7466,6 +7475,7 @@ secretish_env_values() {
     function emit_secret(value, eligible_length) {
       if (already_redacted(value)) return
       if (obvious_word_placeholder(value)) return
+      if (config_literal(value)) return
       if (eligible_length == 0) eligible_length = length(value)
       if (eligible_length < 4 || length(value) == 0) return
       if (record_mode == "probe" || record_mode == "probe_raw") {
@@ -7702,6 +7712,7 @@ secretish_env_values() {
         value = substr(value, 1, end)
         if (looks_like_reference(value, assignment, leading)) return 0
         if (version_reference(assignment, value)) return 0
+        if (config_literal(value)) return 0
         if (require_credential && !credential_shaped(edge_trim(value))) return 0
         # Eligibility is based on the complete token. For short values, scope
         # replacement to the complete assignment token so an ordinary

@@ -11072,6 +11072,79 @@ else
   sed 's/^/  out: /' "$OUT"
 fi
 
+# A secret-bearing key with a boolean or null value is a config flag, not a
+# credential. Masking `true`/`false` also made the literal global, so the same
+# word vanished from unrelated prose in the response, and the prompt guard
+# blocked a prompt that merely described such a config. A pagination cursor
+# under a page-token key is opaque by design and has to be echoed back
+# verbatim; masking it broke every page after the first. Keys are assembled at
+# runtime so the repository's own scan does not read these as assignments.
+BOOL_AT=$(printf '%s%s' api _token)
+BOOL_PW=$(printf '%s%s' pass word)
+BOOL_NPT=$(printf '%s%s' nextPage Token)
+BOOL_SNAKE_NPT=$(printf '%s%s' next_page _token)
+BOOL_SECRET=$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')
+BOOL_CURSOR=$(printf 'Ci%sQAhgB' "$BOOL_SECRET")
+BOOL_GHP=$(printf '%s%s' ghp_ "$BOOL_SECRET")
+BOOL_JWT=$(printf '%s.%s.%s' eyJhbGciOiJIUzI1NiJ9 eyJzdWIiOiIxMjM0NTY3ODkwIn0 "$BOOL_SECRET")
+bool_yaml=$(printf '%s: true\nfail_open: false\npii_filter: true\n%s: false\n' \
+  "$BOOL_AT" "$BOOL_PW")
+for bool_host in claude codex; do
+  bool_input=$(jq -nc --arg t "$bool_yaml" \
+    '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$t,stderr:"",interrupted:false,isImage:false}}')
+  printf '%s' "$bool_input" \
+    | (cd "$TMP_ROOT" && AGENT_GUARD_HOOK_HOST=$bool_host \
+        "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool) >"$OUT" 2>"$ERR"
+  if [ "$?" -eq 0 ] && [ ! -s "$OUT" ]; then
+    ok "post-tool leaves boolean values under secret keys visible ($bool_host)"
+  else
+    not_ok "post-tool leaves boolean values under secret keys visible ($bool_host)"
+    sed 's/^/  out: /' "$OUT"
+  fi
+
+  bool_input=$(jq -nc --arg t "$BOOL_AT: false
+
+Likely false, because the flag is off." \
+    '{tool_name:"Agent",tool_input:{},tool_response:{content:[{type:"text",text:$t}]}}')
+  printf '%s' "$bool_input" \
+    | (cd "$TMP_ROOT" && AGENT_GUARD_HOOK_HOST=$bool_host \
+        "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool) >"$OUT" 2>"$ERR"
+  if [ "$?" -eq 0 ] && [ ! -s "$OUT" ]; then
+    ok "post-tool keeps a boolean word in prose next to a boolean flag ($bool_host)"
+  else
+    not_ok "post-tool keeps a boolean word in prose next to a boolean flag ($bool_host)"
+    sed 's/^/  out: /' "$OUT"
+  fi
+
+  run_expect 0 "prompt guard allows a prompt describing boolean config keys ($bool_host)" \
+    prompt_guard_case "$bool_host" '' '' "$(jq -nc --arg p \
+      "keys like '$BOOL_AT: true' and 'fail_open: false' showed the marker; the $BOOL_NPT: [REDACTED] field too" \
+      '{prompt:$p}')"
+done
+
+bool_case=0
+for bool_text in \
+  "$BOOL_AT: $BOOL_SECRET" \
+  "$BOOL_AT: trueX1$BOOL_SECRET" \
+  "$BOOL_AT: $BOOL_CURSOR" \
+  "{\"${BOOL_NPT}_id\":\"$BOOL_SECRET\"}" \
+  "$BOOL_PW: \"$BOOL_SECRET\"" \
+  "$BOOL_AT=$BOOL_GHP" \
+  "$BOOL_AT: $BOOL_JWT"; do
+  bool_case=$((bool_case + 1))
+  bool_input=$(jq -nc --arg t "$bool_text" \
+    '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$t,stderr:"",interrupted:false,isImage:false}}')
+  post_tool_out "$bool_input"
+  if grep -q '\[REDACTED\]' "$OUT" && ! grep -Fq "$BOOL_SECRET" "$OUT"; then
+    ok "post-tool still masks a real value under a secret key (case $bool_case)"
+  else
+    not_ok "post-tool still masks a real value under a secret key (case $bool_case)"
+    sed 's/^/  out: /' "$OUT"
+  fi
+  run_expect 2 "prompt guard still blocks a real value under a secret key (case $bool_case)" \
+    prompt_guard_case claude '' '' "$(jq -nc --arg p "$bool_text" '{prompt:$p}')"
+done
+
 # Display redaction replaces only the assignment value token. Text after it is
 # preserved, metadata keys with secret-ish prefixes are not values, and a prose
 # colon must not be interpreted as a YAML/JSON secret assignment.
