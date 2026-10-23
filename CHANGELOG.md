@@ -1,3 +1,9 @@
+## v3.6.7 - 2026-10-23
+
+- fix(hooks): stop over-masking booleans, page cursors and short multibyte words (#353)
+- ci: suite job の timeout を 25 分に上げる (#355)
+- fix(hooks): resolve command variables in any locale, after closed parens and before builtin-named arguments (#354)
+
 ## v3.6.6 - 2026-10-23
 
 - fix(hooks): resolve a literal command variable in the git gate (#351)
