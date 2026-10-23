@@ -201,8 +201,9 @@ Hook timeouts in every shipped manifest:
 decide and return exit status 2 in time. A non-empty payload that is not a JSON
 object is rejected regardless of that mode; empty stdin passes with status 0.
 
-A Claude `PreToolUse` hook that the host kills at its timeout, or that cannot
-start or exits with a status other than 0 or 2, blocks the tool call: the
+A Claude `PreToolUse` hook that the host kills at its timeout, cannot start,
+exits with a status other than 0 or 2, or prints stdout that is not one valid
+JSON object, blocks the tool call: the
 Claude manifests set `"onFailure": "block"` on that hook, whatever
 `AGENT_GUARD_INFRA_FAILURE_MODE` says. The infrastructure mode covers failures
 Agent Guard detects and reports itself; a hook that never returns cannot apply

@@ -69,8 +69,9 @@ render_command() { # $1 = root env var, $2 = host tag, $3 = hook subcommand, $4 
 }
 
 render_manifest() { # $1 = root env var, $2 = host tag, $3/$4 = pre/post matcher, $5 = style
-  # Claude lets a PreToolUse hook that times out, crashes, or exits other than
-  # 0/2 through unchecked unless onFailure is "block" (Claude Code 2.1.295+).
+  # Claude lets a PreToolUse hook that times out, crashes, exits other than
+  # 0/2, or prints invalid JSON through unchecked unless onFailure is "block"
+  # (Claude Code 2.1.295+).
   # Codex has no such key, so its manifests leave it out.
   case "$2" in
     claude) pre_on_failure=block ;;
