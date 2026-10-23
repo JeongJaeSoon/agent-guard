@@ -1531,6 +1531,53 @@ expect_json_status 0 "Bash any-character regex before a word remains allowed" \
   '{"tool_name":"Bash","tool_input":{"command":"sed -n '\''s/.*version: //p'\'' notes.txt"}}' \
   hook-pre-tool
 
+# A `[` opens a bracket expression that matches one character, so the word
+# after it does not start a file name: a CSS attribute substring selector is
+# not a star over an SSH key entry, quoted or not.
+expect_json_status 0 "Bash single-quoted CSS attribute substring selector remains allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"tool query --selector '\''div[id*=\"amount\"] >> nth=0'\''"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "Bash double-quoted CSS attribute substring selector remains allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"tool query --selector \"div[id*='\''amount'\'']\""}}' \
+  hook-pre-tool
+
+expect_json_status 0 "Bash piped CSS attribute substring selector remains allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"tool query --selector '\''td[id*=\"x\"]'\'' 2>&1 | tail -1"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "Bash chained CSS attribute substring selectors remain allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"tool query --selector '\''div[id*=\"a\"][id*=\"b\"]'\''"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "Bash unquoted CSS attribute substring selector remains allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"tool query --selector div[id*=x]"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "Bash CSS attribute prefix selector remains allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"tool query --selector '\''div[id^=\"x\"]'\''"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "Bash CSS class substring selector remains allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"tool query --selector '\''div[class*=\"x\"]'\''"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash star after an SSH key prefix is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat id*"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash star after an SSH key prefix in the SSH directory is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat ~/.ssh/id*"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash bracket glob that pins an SSH key prefix is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat ~/.ssh/[i]d*"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash bracket glob inside an SSH key prefix is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat ~/.ssh/i[d]*"}}' \
+  hook-pre-tool
+
 expect_json_status 0 "ripgrep negative glob over a denied extension is allowed" \
   '{"tool_name":"Bash","tool_input":{"command":"rg --files -g '\''!*.pem'\''"}}' \
   hook-pre-tool

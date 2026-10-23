@@ -4276,7 +4276,14 @@ deny_path_command_regex() {
   converted=$(deny_path_regex_fragment "$pattern" "$mode")
   [ -n "$converted" ] || return 1
   # Catch path arguments and shell words without matching substrings like myenv.
-  printf '%s' '(^|[^[:alnum:]_./~-])('"${converted}"'|[^[:space:]<>|;&`$()]*/'"${converted}"')([^[:alnum:]_.-]|$)'
+  # A `[` just before an expanded word opens a bracket expression that matches
+  # one character, so the word after it is not where a file name starts: CSS
+  # selectors such as div[id*="x"] stay allowed.
+  dcr_lead='[^[:alnum:]_./~-]'
+  case "$mode" in
+    shell-expanded*) dcr_lead='[^[:alnum:][_./~-]' ;;
+  esac
+  printf '%s' '(^|'"$dcr_lead"')('"${converted}"'|[^[:space:]<>|;&`$()]*/'"${converted}"')([^[:alnum:]_.-]|$)'
 }
 
 # Set sx_out to an ERE matching any pin of the entry's letters and digits.
