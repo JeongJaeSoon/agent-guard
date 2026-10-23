@@ -4367,7 +4367,7 @@ bash_matches_deny_path_mode() {
 }
 
 shell_dequote_for_policy() {
-  printf '%s\n' "$1" | awk '
+  printf '%s\n' "$1" | LC_ALL=C awk '
     {
       out = ""
       for (i = 1; i <= length($0); i++) {
@@ -4399,7 +4399,7 @@ shell_dequote_for_policy() {
 # as an escape again. Expansions and globs are left as text for the literal and
 # shell-expanded passes.
 shell_decode_ansi_c_for_policy() {
-  printf '%s\n' "$1" | awk '
+  printf '%s\n' "$1" | LC_ALL=C awk '
     function hexval(ch) { return index("0123456789abcdef", tolower(ch)) - 1 }
     function emit(v) {
       if (nul) return
@@ -4483,7 +4483,7 @@ shell_decode_ansi_c_for_policy() {
 # passes split the command into words and rejoin them with spaces, which would
 # turn $\<newline>'...' into `$\ '...'` and hide the $'...' string bash reads.
 shell_join_line_continuations() {
-  printf '%s\n' "$1" | awk '
+  printf '%s\n' "$1" | LC_ALL=C awk '
     { s = (NR == 1) ? $0 : s "\n" $0 }
     END {
       q = "\047"; out = ""; state = ""; dollar = 0; n = length(s)
@@ -4739,14 +4739,14 @@ bash_strip_source_module_prose() (
   case "$prose_message" in
     *'$'*|*'\'*) printf '%s' "$prose_original"; exit ;;
   esac
-  prose_words=$(printf '%s\n' "$prose_message" | awk '{
+  prose_words=$(printf '%s\n' "$prose_message" | LC_ALL=C awk '{
     for (i = 1; i <= NF; i++) print $i
   }')
   # shellcheck disable=SC2086
   set -- $prose_words
   prose_result=
   for prose_word in "$@"; do
-    prose_candidate=$(printf '%s' "$prose_word" | awk '
+    prose_candidate=$(printf '%s' "$prose_word" | LC_ALL=C awk '
       { sub(/^["\047`<(]+/, ""); sub(/["\047`>,;:)]+$/, ""); print }
     ')
     if candidate_is_env_source_module "$prose_candidate" \
@@ -4788,7 +4788,7 @@ is_shell_command_separator() {
 }
 
 shell_command_words() {
-  printf '%s\n' "$1" | awk '
+  printf '%s\n' "$1" | LC_ALL=C awk '
     {
       out = ""
       for (i = 1; i <= length($0); i++) {
@@ -4842,7 +4842,7 @@ shell_command_words() {
 # be code for another shell, but is wrapped in `3(` and `3)`: nothing in it
 # runs in this shell.
 git_command_records() {
-  printf '%s\n' "$1" | awk -v tilde="${2:-}" '
+  printf '%s\n' "$1" | LC_ALL=C awk -v tilde="${2:-}" '
     BEGIN { heredoc_next = 1 }
     function emit() {
       if (!started) return
@@ -5042,7 +5042,7 @@ git_gate_records() (
     if [ -n "$gate_code" ]; then
       gate_sub=$(git_gate_records "$gate_code")
       if printf '%s\n' "$gate_sub" \
-        | awk '$0 == "2" { exit 1 } $0 == "3(" { d++ } $0 == "3)" && --d < 0 { exit 1 } END { if (d) exit 1 }'; then
+        | LC_ALL=C awk '$0 == "2" { exit 1 } $0 == "3(" { d++ } $0 == "3)" && --d < 0 { exit 1 } END { if (d) exit 1 }'; then
         printf '%s\n' "$gate_sub"
       else
         printf '3(\n1$\n3)\n'
@@ -5378,7 +5378,7 @@ git_alias_lookup() (
   alias_value=$(
     { env "$@" 2>/dev/null || printf '\001failed\0'; } \
       | tr '\0\n' '\n\001' \
-      | awk -v name="$alias_name" '
+      | LC_ALL=C awk -v name="$alias_name" '
         BEGIN { FS = "\001"; name = tolower(name) }
         $0 == "\001failed" { failed = 1; next }
         {
@@ -5819,7 +5819,7 @@ shell_command_code() {
 # knows; eval, source, trap and IFS, which can do any of that unseen; or git
 # and the shells, whose code may read NAME in a child that lacks it.
 git_gate_command_vars() {
-  printf '%s\n' "$2" | GGCV_CMD=$1 awk '
+  printf '%s\n' "$2" | GGCV_CMD=$1 LC_ALL=C awk '
     function base(t) { sub(/.*\//, "", t); return t }
     function delim(c) { return c == "" || c ~ /[ \t\n;&|()<>]/ }
     # The word from s to e - 1 is not glued to a neighbour, also across a
@@ -5834,8 +5834,13 @@ git_gate_command_vars() {
     { rec[++n] = $0 }
     END {
       cmd = ENVIRON["GGCV_CMD"]
-      special = "^(git|eval|source|\\.|trap|enable|alias|unalias|exec|command|builtin|env|sudo|nice|nohup|time|xargs|cd|pushd|popd|set|shopt|declare|typeset|local|export|readonly|read|unset|mapfile|readarray|getopts|let|printf|wait|compgen|sh|bash|dash|zsh|ksh|mksh|ash|yash|posh|csh|tcsh|fish)$"
+      # zsh runs `$X eval ...` as eval when X is noglob or -.
+      special = "^(git|eval|source|\\.|trap|enable|alias|unalias|exec|command|builtin|noglob|nocorrect|-|env|sudo|nice|nohup|time|xargs|cd|pushd|popd|set|shopt|declare|typeset|local|export|readonly|read|unset|mapfile|readarray|getopts|let|printf|wait|compgen|sh|bash|dash|zsh|ksh|mksh|ash|yash|posh|csh|tcsh|fish)$"
       unseen = "^(git|eval|source|\\.|trap|enable|alias|setopt|unsetopt|emulate|zmodload|autoload|exec|read|mapfile|readarray|getopts|select|coproc|=~|sh|bash|dash|zsh|ksh|mksh|ash|yash|posh|csh|tcsh|fish)$"
+      # Of those, the words that matter as an argument too: a resolved $NAME
+      # names an ordinary command, which runs no builtin its arguments name,
+      # the same as that command written out.
+      external = "^(git|=~|sh|bash|dash|zsh|ksh|mksh|ash|yash|posh|csh|tcsh|fish)$"
       # Variables the shell itself sets or ties to another one.
       shellset = "^(_|REPLY|MAPFILE|OPTARG|OPTIND|OPTERR|COPROC.*|BASH.*|PWD|OLDPWD|MATCH|MBEGIN|MEND|LINENO|RANDOM|SRANDOM|SECONDS|EPOCH.*|PPID|UID|EUID|GID|EGID|GROUPS|HOSTNAME|HOSTTYPE|OSTYPE|MACHTYPE|SHLVL|HISTCMD|FUNCNAME|PIPESTATUS|COLUMNS|LINES|ARGV|ARGC|STATUS|ERRNO|PATH|CDPATH|FPATH|MANPATH|MODULE_PATH|PSVAR|HOME|IFS|ZSH.*|TRY_BLOCK_.*|TTYIDLE|SIGNALS|COMP_.*|READLINE_.*|HISTFILE|PS[0-4])$"
       namers = "^(declare|typeset|local|export|readonly|read|unset|mapfile|readarray|getopts|let|printf|wait|compgen)$"
@@ -5863,17 +5868,21 @@ git_gate_command_vars() {
         i = j
       }
 
-      head = 1; wrapped = 0; namer = ""; blocked = 0
+      head = 1; wrapped = 0; namer = ""; blocked = 0; depth = 0; varhead = 0
       for (k = 1; k <= n; k++) {
         r = rec[k]; kind = substr(r, 1, 1); t = substr(r, 2)
         if (r == "3&" && rec[k - 1] ~ />$/) continue
         if (r == "0;" || r == "0&&" || r == "0||" || r == "0|" || kind == "3") {
-          if (kind == "3") blocked = 1
-          head = 1; wrapped = 0; namer = ""
+          # A subshell, substitution or group that has closed leaves the
+          # assignments after it unconditional and in this shell.
+          if (t == "(" || t == "{") depth++
+          else if ((t == ")" || t == "}") && depth > 0) depth--
+          else if (kind == "3") blocked = 1
+          head = 1; wrapped = 0; namer = ""; varhead = 0
           continue
         }
         if (kind == "2" || kind == "5" || kind == "6") abort = 1
-        if (kind == "0" && tolower(base(t)) ~ unseen) abort = 1
+        if (kind == "0" && tolower(base(t)) ~ (varhead ? external : unseen)) abort = 1
         if (namer != "") {
           if (kind != "0") {
             if (!(namer ~ /^(declare|typeset|local|export|readonly)$/ && t ~ /^[A-Za-z_][A-Za-z0-9_]*=/) \
@@ -5883,14 +5892,14 @@ git_gate_command_vars() {
             if (namer == "printf" && nargs == 0) printf_ok = t !~ /^-/
           }
           nargs++
-        } else if (kind == "0" && base(t) ~ namers) {
+        } else if (kind == "0" && !varhead && base(t) ~ namers) {
           namer = base(t); nargs = 0; printf_ok = 0
         }
         if (head && t ~ /^[A-Za-z_][A-Za-z0-9_]*=/) {
           nm = t; sub(/=.*/, "", nm)
           arec[nm]++
           for (m = k - 1; m >= 1 && rec[m] == "0;"; m--) ;
-          if (kind == "0" && !blocked && (k == 1 || rec[k - 1] == "0;") \
+          if (kind == "0" && !blocked && !depth && (k == 1 || rec[k - 1] == "0;") \
               && (m < 1 || rec[m] != "0&&" && rec[m] != "0||" && rec[m] != "0|") \
               && (k == n || rec[k + 1] == "0;"))
             cand[nm] = substr(t, length(nm) + 2)
@@ -5900,12 +5909,16 @@ git_gate_command_vars() {
         if (wrapped && kind == "0" && t ~ /^-/) continue
         if (head || wrapped) {
           wrapped = head && kind == "0" && base(t) ~ wrappers
+          varhead = 1
           if (kind == "1" && t == "$" && rec[k + 1] == "3{" && rec[k + 3] == "3}") {
             heads[substr(rec[k + 2], 2)] = 1
             k += 3
           } else if (t ~ /^\$[A-Za-z_][A-Za-z0-9_]*$/) heads[substr(t, 2)] = 1
           else if (kind == "4" && t ~ /^\$\{[A-Za-z_][A-Za-z0-9_]*\}$/) heads[substr(t, 3, length(t) - 3)] = 1
-          else if (kind != "0") abort = 1
+          else {
+            varhead = 0
+            if (kind != "0") abort = 1
+          }
           head = 0
         }
       }
@@ -5971,8 +5984,12 @@ is_git_commit_or_push() {
     IFS=$old_ifs
 
     git_command_vars=
+    git_vars_failed=0
     case "$cmd" in
-      *'$'*) git_command_vars=$(git_gate_command_vars "$cmd" "$words") ;;
+      *'$'*)
+        git_command_vars=$(git_gate_command_vars "$cmd" "$words") \
+          || { git_command_vars=; git_vars_failed=1; }
+        ;;
     esac
     # The resolvable variables whose assignment the scan has passed.
     git_vars_set=' '
@@ -6321,6 +6338,8 @@ $effective_c_dirs" "$git_config_args" "$git_env_args"
         case "$record_kind:${token##*/}" in
           1:*|4:*[\$\`]*)
             printf 'G\nU\n'
+            # The variable may be resolvable; the resolver itself failed.
+            if [ -n "$git_var" ] && [ "$git_vars_failed" -eq 1 ]; then printf 'F\n'; fi
             matched=0
             shell_cd_mutable=1
             shift
@@ -6400,13 +6419,13 @@ $shell_cd_dir"
                 # An unbalanced ( or ) would restore the cd state of a
                 # subshell around this command.
                 printf '%s\n' "$shell_code_records" \
-                  | awk '$0 == "3(" { d++ } $0 == "3)" && --d < 0 { exit 1 } END { if (d) exit 1 }' \
+                  | LC_ALL=C awk '$0 == "3(" { d++ } $0 == "3)" && --d < 0 { exit 1 } END { if (d) exit 1 }' \
                   || shell_cd_untrusted=1
                 # env -C and --chdir start the shell in their directory.
                 shell_code_chdir=
                 if [ -n "$effective_c_dirs" ]; then
                   shell_code_chdir=$(printf '%s\n' "$effective_c_dirs" \
-                    | awk '{ print "0cd"; print "0--"; print "0" $0; print "0;" }')
+                    | LC_ALL=C awk '{ print "0cd"; print "0--"; print "0" $0; print "0;" }')
                 fi
                 [ "$effective_c_dynamic" -eq 0 ] || shell_code_chdir="$shell_code_chdir
 0cd
@@ -6776,7 +6795,10 @@ check_git_command() {
     fi
     # A group with U cannot be scanned. The closed policy blocks the whole
     # command; the open policy still scans every other group.
-    if printf '%s\n' "$git_c_records" | grep -qx U; then
+    if printf '%s\n' "$git_c_records" | grep -qx F; then
+      handle_hook_infrastructure_failure PreToolUse "${HOOK_INPUT:-}" \
+        "$PROGRAM: awk failed while reading the command variables of this command, so a git commit or push it may run could not be resolved;"
+    elif printf '%s\n' "$git_c_records" | grep -qx U; then
       handle_hook_infrastructure_failure PreToolUse "${HOOK_INPUT:-}" \
         "$PROGRAM: a git commit or push may run in a working directory, or with arguments, a git alias or shell code, that could not be resolved safely;"
     fi
