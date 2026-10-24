@@ -157,3 +157,22 @@ branch/condition coverage**. Normal POSIX-sh tests and Linux/macOS integration
 remain separate. This is neither whole-function semantic coverage nor a claim
 of 100% whole-file or repository coverage; instrumented runtime is not a cost
 baseline.
+
+## Revalidated observation after main integration (2026-10-24)
+
+After integrating main `2a076dc`, the `secretish_env_values` body hash
+changed because #353 added detector rules. The manifest correctly rejected
+the changed body before observation. Its two selected relative locations
+remain the `record_mode` assignment and the `LC_ALL=C awk` invocation
+(lines 2 and 3); no embedded AWK lines enter the denominator. After reviewing
+these locations, only that function hash was refreshed. The other seven
+function hashes and all 40 selected relative locations are unchanged.
+
+The new production source SHA256 is
+`225966dc9f2bcddd6056c2e923b9868c65071a8cceacee4bfd963c15e92315a8`.
+The same four suites passed 140/0 under Bash 3.2.57 on macOS arm64:
+**39/40** selected locations were observed and the definition-only control
+observed **0/40**. The missing location is now line **4260**, the same dot
+fallback assignment previously recorded at 4240. The detector invocation
+locations are now 7330 and 7331. This is a separate observation; it does not
+rewrite the 2026-10-20 result or measure the new embedded AWK branches.
