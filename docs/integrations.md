@@ -180,9 +180,8 @@ What masking cannot do on either host:
 
 - Undo the tool effect. Files, commands, and network requests already happened
   when `PostToolUse` runs; masking is a model-input boundary, not a rollback.
-- Survive a timeout. A hook killed at the host budget produces no replacement,
-  and a timed-out Claude `PreToolUse` does not block the call. Keep the Git
-  hook and CI backstops.
+- Survive a timeout. A hook killed at the host budget produces no replacement.
+  Keep the Git hook and CI backstops.
 - Force acceptance. If a Claude built-in replacement does not match the tool's
   output schema, the host may keep the original. Agent Guard preserves the
   original JSON shape whenever it can; the last-resort fixed `[REDACTED]` string
@@ -192,7 +191,7 @@ Hook timeouts in every shipped manifest:
 
 | Event | Timeout |
 | --- | --- |
-| `PreToolUse` | 10 s |
+| `PreToolUse` | 60 s |
 | `PostToolUse` | 20 s |
 | `Stop` | 20 s |
 | `SessionStart` | 5 s |
@@ -201,3 +200,16 @@ Hook timeouts in every shipped manifest:
 `AGENT_GUARD_INFRA_FAILURE_MODE=closed` applies when Agent Guard itself can
 decide and return exit status 2 in time. A non-empty payload that is not a JSON
 object is rejected regardless of that mode; empty stdin passes with status 0.
+
+A Claude `PreToolUse` hook that the host kills at its timeout, cannot start,
+exits with a status other than 0 or 2, or prints stdout that is not one valid
+JSON object, blocks the tool call: the
+Claude manifests set `"onFailure": "block"` on that hook, whatever
+`AGENT_GUARD_INFRA_FAILURE_MODE` says. The infrastructure mode covers failures
+Agent Guard detects and reports itself; a hook that never returns cannot apply
+it. The 60 s budget leaves room for slow but legitimate checks, such as a long
+inline script on a loaded machine. Claude Code before 2.1.295 ignores
+`onFailure` and lets a timed-out `PreToolUse` hook through, and the Codex
+manifests do not set it. Other events keep the host default: a timed-out
+`UserPromptSubmit`, `PostToolUse`, `Stop`, or `SessionStart` hook does not
+block.

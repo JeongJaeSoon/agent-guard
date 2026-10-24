@@ -1,3 +1,23 @@
+## v3.6.7 - 2026-10-23
+
+- fix(hooks): stop over-masking booleans, page cursors and short multibyte words (#353)
+- ci: suite job の timeout を 25 分に上げる (#355)
+- fix(hooks): resolve command variables in any locale, after closed parens and before builtin-named arguments (#354)
+
+## v3.6.6 - 2026-10-23
+
+- fix(hooks): resolve a literal command variable in the git gate (#351)
+- fix(hooks): treat a bracket as a non-boundary before a spanning star (#350)
+- fix: Claude の PreToolUse hook が timeout・crash したら tool 呼び出しをブロックする (#349)
+- fix: inspect quoted substitutions and honor GIT_DIR in the git gate (#346)
+- Merge pull request #337 from JeongJaeSoon/codex/exec-raw-probe-failure
+- Merge pull request #336 from JeongJaeSoon/codex/prompt-assignment-failure-policy
+- Merge branch 'codex/prompt-assignment-failure-policy' into codex/exec-raw-probe-failure
+- Merge remote-tracking branch 'origin/main' into codex/prompt-assignment-failure-policy
+- fix: fail closed on exec raw probe errors
+- test: name synthetic assignment fixture explicitly
+- fix: preserve prompt assignment probe failures
+
 ## v3.6.5 - 2026-10-22
 
 - fix: only treat unquoted names as assignments in the git gate (#345)

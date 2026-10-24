@@ -2,7 +2,7 @@
 set -u
 
 PROGRAM=agent-guard
-VERSION=3.6.5
+VERSION=3.6.7
 
 # Resolve the script's own path, following symlinks. The bootstrap installer
 # drops a symlink at ~/.local/bin/agent-guard that points into ~/.agent-guard/
@@ -1651,13 +1651,20 @@ begin_infrastructure_failure() {
 
 # Emits the notice immediately. Only safe where the caller returns without
 # writing anything else to stdout; hook-user-prompt defers instead.
+# hook_warning_once repeats when its marker cannot be written, and a second
+# JSON object makes the stdout unparseable, which Claude's PreToolUse
+# onFailure "block" turns into a block. So write at most one per process.
+INFRA_FAILURE_NOTICE_EMITTED=0
+
 handle_hook_infrastructure_failure() {
   event=$1
   begin_infrastructure_failure "${2:-}" "$3"
   [ -n "$INFRA_FAILURE_NOTICE" ] || return 0
+  [ "$INFRA_FAILURE_NOTICE_EMITTED" = 0 ] || return 0
   case "$event" in
     PreToolUse|PostToolUse|UserPromptSubmit)
       printf '{"hookSpecificOutput":{"hookEventName":"%s","additionalContext":"%s"}}\n' "$event" "$INFRA_FAILURE_NOTICE"
+      INFRA_FAILURE_NOTICE_EMITTED=1
       ;;
   esac
   return 0
@@ -4269,7 +4276,14 @@ deny_path_command_regex() {
   converted=$(deny_path_regex_fragment "$pattern" "$mode")
   [ -n "$converted" ] || return 1
   # Catch path arguments and shell words without matching substrings like myenv.
-  printf '%s' '(^|[^[:alnum:]_./~-])('"${converted}"'|[^[:space:]<>|;&`$()]*/'"${converted}"')([^[:alnum:]_.-]|$)'
+  # A `[` just before an expanded word opens a bracket expression that matches
+  # one character, so the word after it is not where a file name starts: CSS
+  # selectors such as div[id*="x"] stay allowed.
+  dcr_lead='[^[:alnum:]_./~-]'
+  case "$mode" in
+    shell-expanded*) dcr_lead='[^[:alnum:][_./~-]' ;;
+  esac
+  printf '%s' '(^|'"$dcr_lead"')('"${converted}"'|[^[:space:]<>|;&`$()]*/'"${converted}"')([^[:alnum:]_.-]|$)'
 }
 
 # Set sx_out to an ERE matching any pin of the entry's letters and digits.
@@ -4353,7 +4367,7 @@ bash_matches_deny_path_mode() {
 }
 
 shell_dequote_for_policy() {
-  printf '%s\n' "$1" | awk '
+  printf '%s\n' "$1" | LC_ALL=C awk '
     {
       out = ""
       for (i = 1; i <= length($0); i++) {
@@ -4385,7 +4399,7 @@ shell_dequote_for_policy() {
 # as an escape again. Expansions and globs are left as text for the literal and
 # shell-expanded passes.
 shell_decode_ansi_c_for_policy() {
-  printf '%s\n' "$1" | awk '
+  printf '%s\n' "$1" | LC_ALL=C awk '
     function hexval(ch) { return index("0123456789abcdef", tolower(ch)) - 1 }
     function emit(v) {
       if (nul) return
@@ -4469,7 +4483,7 @@ shell_decode_ansi_c_for_policy() {
 # passes split the command into words and rejoin them with spaces, which would
 # turn $\<newline>'...' into `$\ '...'` and hide the $'...' string bash reads.
 shell_join_line_continuations() {
-  printf '%s\n' "$1" | awk '
+  printf '%s\n' "$1" | LC_ALL=C awk '
     { s = (NR == 1) ? $0 : s "\n" $0 }
     END {
       q = "\047"; out = ""; state = ""; dollar = 0; n = length(s)
@@ -4725,14 +4739,14 @@ bash_strip_source_module_prose() (
   case "$prose_message" in
     *'$'*|*'\'*) printf '%s' "$prose_original"; exit ;;
   esac
-  prose_words=$(printf '%s\n' "$prose_message" | awk '{
+  prose_words=$(printf '%s\n' "$prose_message" | LC_ALL=C awk '{
     for (i = 1; i <= NF; i++) print $i
   }')
   # shellcheck disable=SC2086
   set -- $prose_words
   prose_result=
   for prose_word in "$@"; do
-    prose_candidate=$(printf '%s' "$prose_word" | awk '
+    prose_candidate=$(printf '%s' "$prose_word" | LC_ALL=C awk '
       { sub(/^["\047`<(]+/, ""); sub(/["\047`>,;:)]+$/, ""); print }
     ')
     if candidate_is_env_source_module "$prose_candidate" \
@@ -4774,7 +4788,7 @@ is_shell_command_separator() {
 }
 
 shell_command_words() {
-  printf '%s\n' "$1" | awk '
+  printf '%s\n' "$1" | LC_ALL=C awk '
     {
       out = ""
       for (i = 1; i <= length($0); i++) {
@@ -4816,7 +4830,11 @@ shell_command_words() {
 # escaped part before its first unquoted `=` is emitted as 5: the shell runs
 # it as a command name, not an assignment, and whatever it expands to still
 # starts with that literal `NAME=`. It is a 6 instead when an unquoted
-# expansion or glob character may make it no word at all (nullglob). A bare `&` or a `( ) { }` character is emitted on its own with
+# expansion or glob character may make it no word at all (nullglob). With
+# tilde, the code of each command substitution inside double quotes in a word
+# follows that word as one record with prefix 7, each substitution's code
+# wrapped as `( code` and `)` lines and every newline written as \034; only
+# git_gate_records reads it. A bare `&` or a `( ) { }` character is emitted on its own with
 # prefix 3: a command boundary for most callers, but the commit argument parser
 # must tell `2>&1` and brace expansion apart from the end of the command. Newlines cannot be represented safely in the record stream, so
 # they make the affected token dynamic and therefore subject to infra policy.
@@ -4824,7 +4842,7 @@ shell_command_words() {
 # be code for another shell, but is wrapped in `3(` and `3)`: nothing in it
 # runs in this shell.
 git_command_records() {
-  printf '%s\n' "$1" | awk -v tilde="${2:-}" '
+  printf '%s\n' "$1" | LC_ALL=C awk -v tilde="${2:-}" '
     BEGIN { heredoc_next = 1 }
     function emit() {
       if (!started) return
@@ -4840,6 +4858,7 @@ git_command_records() {
       }
       if (tilde != "" && !at_word && name_quoted && word ~ /^[A-Za-z_][A-Za-z0-9_]*=/) print (splits || globbed ? "6" : "5") word
       else print (splits ? "1" : dynamic || word ~ /^(;|&&|\|\||\|)$/ || tilde != "" && cd_args && quoted && word ~ /^~/ ? "4" : "0") word
+      if (code != "") { print "7" code; code = "" }
       if (!at_word && (word == "cd" || word == "pushd")) cd_args = 1
       if (word !~ /^[A-Za-z_][A-Za-z0-9_]*=/ || name_quoted) at_word = 1
       if (word == "[[") in_test = 1
@@ -4848,8 +4867,15 @@ git_command_records() {
     }
     NR > 1 {
       if (quote == "") { emit(); print "0;"; cd_args = 0; at_word = 0 }
-      else { word = word " "; dynamic = 1 }
+      else { word = word (tilde != "" && quote == "double" ? "\034" : " "); dynamic = 1 }
       heredoc_expect = 0; heredoc_quoted = 0
+    }
+    nest_hd != "" && NR > nest_hd_line {
+      line = $0
+      if (nest_hd_strip) sub(/^\t+/, "", line)
+      if (line == nest_hd) nest_hd = ""
+      word = word $0
+      next
     }
     heredoc_next <= heredoc_count && NR > heredoc_line {
       line = $0
@@ -4875,6 +4901,41 @@ git_command_records() {
           started = 1
           continue
         }
+        # Inside a command substitution in double quotes: quoting, nesting,
+        # a case pattern and a here-document follow shell rules, so that the
+        # substitution ends where the shell ends it.
+        if (quote == "double" && nest != "") {
+          top = substr(nest, length(nest))
+          word = word c
+          if (top == "s") { if (c == "\047") nest = substr(nest, 1, length(nest) - 1) }
+          else if (c == "\\") { word = word n; i++ }
+          else if (top == "b") { if (c == "`") nest = substr(nest, 1, length(nest) - 1) }
+          else if (top == "d" && c == "\"") nest = substr(nest, 1, length(nest) - 1)
+          else if (c == "$" && n == "(") { word = word n; i++; nest = nest "p" }
+          else if (c == "`") nest = nest "b"
+          else if (top == "d") ;
+          else if (c == "\047") nest = nest "s"
+          else if (c == "\"") nest = nest "d"
+          else if (c == "(") nest = nest "p"
+          else if (c == ")" && top == "p") nest = substr(nest, 1, length(nest) - 1)
+          else if (substr($0, i, 4) ~ /^(case|esac)$/ && (i == 1 || substr($0, i - 1, 1) ~ /[ \t;&|(]/) \
+              && substr($0, i + 4, 1) ~ /^[ \t;)]?$/) {
+            word = word substr($0, i + 1, 3)
+            if (c == "c") nest = nest "c"
+            else if (top == "c") nest = substr(nest, 1, length(nest) - 1)
+            i += 3
+          } else if (c == "<" && n == "<" && substr($0, i + 2, 1) != "<") {
+            rest = substr($0, i + 2)
+            nest_hd_strip = rest ~ /^-/
+            sub(/^-?[ \t]*/, "", rest)
+            match(rest, /^[^ \t;&|()<>]*/)
+            nest_hd = substr(rest, 1, RLENGTH)
+            gsub(/["\047\\]/, "", nest_hd)
+            nest_hd_line = NR
+          }
+          if (nest == "") code = code "( " substr(word, body_start, length(word) - body_start) "\034)\034"
+          continue
+        }
         if (quote == "double") {
           if (c == "\"") { quote = ""; started = 1; continue }
           # `"` needs no backslash inside a bracket expression, and `\"` is not
@@ -4883,6 +4944,14 @@ git_command_records() {
           # backslash in the set, so the class is unchanged (#99).
           if (c == "\\" && n ~ /^["\\$`]$/) {
             word = word n; started = 1; i++; continue
+          }
+          if (tilde != "" && (c == "`" || c == "$" && n == "(")) {
+            word = word c
+            if (c == "$") { word = word n; i++ }
+            nest = c == "`" ? "b" : "p"
+            body_start = length(word) + 1
+            dynamic = 1; started = 1
+            continue
           }
           if (c == "$" || c == "`") dynamic = 1
           # "$@", "${a[@]}", "${!a@}", zsh "$a[@]" and "${(f)a}" still split;
@@ -4943,6 +5012,76 @@ git_command_records() {
     }
   '
 }
+
+# The records of $1 for the commit/push gate: git_command_records in tilde
+# mode, where the code of each command substitution inside a quoted word, as
+# in `echo "$(git commit)"`, runs in a ( ) subshell placed before the command
+# that word belongs to. Code that cannot be read back runs as a command only
+# run time knows.
+git_gate_records() (
+  set -f
+  gate_records=$(git_command_records "$1" tilde)
+  case "$gate_records" in
+    7*|*'
+7'*) ;;
+    *)
+      printf '%s\n' "$gate_records"
+      exit 0
+      ;;
+  esac
+  gate_ifs=$IFS
+  IFS='
+'
+  # shellcheck disable=SC2086
+  set -- $gate_records
+  IFS=$gate_ifs
+  gate_segment=
+  gate_code=
+  gate_prev=
+  gate_flush() {
+    if [ -n "$gate_code" ]; then
+      gate_sub=$(git_gate_records "$gate_code")
+      if printf '%s\n' "$gate_sub" \
+        | LC_ALL=C awk '$0 == "2" { exit 1 } $0 == "3(" { d++ } $0 == "3)" && --d < 0 { exit 1 } END { if (d) exit 1 }'; then
+        printf '%s\n' "$gate_sub"
+      else
+        printf '3(\n1$\n3)\n'
+      fi
+    fi
+    printf '%s' "$gate_segment"
+    gate_segment=
+    gate_code=
+  }
+  while [ "$#" -gt 0 ]; do
+    gate_record=$1
+    shift
+    gate_end=0
+    case "$gate_record" in
+      7*)
+        gate_code="$gate_code$(printf '%s' "${gate_record#7}" | tr '\034' '\n')
+"
+        continue
+        ;;
+      0';'|0'&&'|0'||'|0'|'|3'('|3')') gate_end=1 ;;
+      # Not the `&` of `2>&1` or `&>log`.
+      3'&')
+        case "$gate_prev:${1-}" in
+          *'>:'*|*'<:'*|*:0'>'*|*:0'<'*) ;;
+          *) gate_end=1 ;;
+        esac
+        ;;
+    esac
+    if [ "$gate_end" -eq 1 ]; then
+      gate_flush
+      printf '%s\n' "$gate_record"
+    else
+      gate_segment="$gate_segment$gate_record
+"
+    fi
+    gate_prev=$gate_record
+  done
+  gate_flush
+)
 
 # A sourced script runs in this shell and may change cwd where no command text
 # shows it (`. ./switch.sh; cat env.py`). Look for `.`/`source` where a command
@@ -5159,9 +5298,23 @@ mentions_git_config_env() {
     *HOME*|*GIT_*) ;;
     *) return 1 ;;
   esac
-  printf '%s\n' "$1" \
+  mentions_env_name 'HOME|XDG_CONFIG_HOME|GIT_CONFIG_[A-Za-z0-9_]*|GIT_DIR|GIT_COMMON_DIR|GIT_CEILING_DIRECTORIES|GIT_DISCOVERY_ACROSS_FILESYSTEM' "$1"
+}
+
+mentions_git_target_env() {
+  case "$1" in
+    *GIT_DIR*|*GIT_WORK_TREE*) ;;
+    *) return 1 ;;
+  esac
+  mentions_env_name 'GIT_DIR|GIT_WORK_TREE' "$1"
+}
+
+# Succeed when word $2 names a variable matching ERE $1 other than in an
+# expansion that only reads it.
+mentions_env_name() {
+  printf '%s\n' "$2" \
     | sed -E 's/\$[A-Za-z_][A-Za-z0-9_]*//g; s/\$\{#?[A-Za-z_][A-Za-z0-9_]*([}#%\/^,?+-]|:[^=])//g' \
-    | grep -Eq '(^|[^A-Za-z0-9_])(HOME|XDG_CONFIG_HOME|GIT_CONFIG_[A-Za-z0-9_]*|GIT_DIR|GIT_COMMON_DIR|GIT_CEILING_DIRECTORIES|GIT_DISCOVERY_ACROSS_FILESYSTEM)([^A-Za-z0-9_]|$)'
+    | grep -Eq "(^|[^A-Za-z0-9_])($1)([^A-Za-z0-9_]|\$)"
 }
 
 # Git runs a subcommand that has no built-in as an external git-<name>
@@ -5225,7 +5378,7 @@ git_alias_lookup() (
   alias_value=$(
     { env "$@" 2>/dev/null || printf '\001failed\0'; } \
       | tr '\0\n' '\n\001' \
-      | awk -v name="$alias_name" '
+      | LC_ALL=C awk -v name="$alias_name" '
         BEGIN { FS = "\001"; name = tolower(name) }
         $0 == "\001failed" { failed = 1; next }
         {
@@ -5652,19 +5805,206 @@ shell_command_code() {
   printf '%s:%s\n' "$code_taken" "$code_text"
 }
 
+# Print, for command $1 and its gate records $2, the variables whose $NAME
+# command word the commit/push gate may read without running it. "S<TAB>NAME":
+# every $NAME and ${NAME} in $1 stands apart as a whole word, so a quoted
+# "$NAME" command word is that one word. "R<TAB>NAME<TAB>VALUE": moreover an
+# unquoted $NAME command word expands to the literal VALUE, whose words are
+# plain and whose first word is an ordinary command, not git, a shell or a
+# wrapper. That holds when NAME is assigned once, by a bare top-level
+# `NAME=VALUE` that nothing before it makes conditional or moves into a
+# subshell, and nothing in the line can set it another way: another
+# assignment, a mention outside $NAME (read, unset, ${NAME:=x}), a dynamic
+# name given to declare, read or printf, or a command name only run time
+# knows; eval, source, trap and IFS, which can do any of that unseen; or git
+# and the shells, whose code may read NAME in a child that lacks it.
+git_gate_command_vars() {
+  printf '%s\n' "$2" | GGCV_CMD=$1 LC_ALL=C awk '
+    function base(t) { sub(/.*\//, "", t); return t }
+    function delim(c) { return c == "" || c ~ /[ \t\n;&|()<>]/ }
+    # The word from s to e - 1 is not glued to a neighbour, also across a
+    # double quote: "$X"{a,} and {a,}$X expand to other words.
+    function apart(s, e,   b, a) {
+      b = s > 1 ? substr(cmd, s - 1, 1) : ""
+      if (b == "\"") b = s > 2 ? substr(cmd, s - 2, 1) : ""
+      a = substr(cmd, e, 1)
+      if (a == "\"") a = substr(cmd, e + 1, 1)
+      return delim(b) && delim(a)
+    }
+    { rec[++n] = $0 }
+    END {
+      cmd = ENVIRON["GGCV_CMD"]
+      # zsh runs `$X eval ...` as eval when X is noglob or -.
+      special = "^(git|eval|source|\\.|trap|enable|alias|unalias|exec|command|builtin|noglob|nocorrect|-|env|sudo|nice|nohup|time|xargs|cd|pushd|popd|set|shopt|declare|typeset|local|export|readonly|read|unset|mapfile|readarray|getopts|let|printf|wait|compgen|sh|bash|dash|zsh|ksh|mksh|ash|yash|posh|csh|tcsh|fish)$"
+      unseen = "^(git|eval|source|\\.|trap|enable|alias|setopt|unsetopt|emulate|zmodload|autoload|exec|read|mapfile|readarray|getopts|select|coproc|=~|sh|bash|dash|zsh|ksh|mksh|ash|yash|posh|csh|tcsh|fish)$"
+      # Of those, the words that matter as an argument too: a resolved $NAME
+      # names an ordinary command, which runs no builtin its arguments name,
+      # the same as that command written out.
+      external = "^(git|=~|sh|bash|dash|zsh|ksh|mksh|ash|yash|posh|csh|tcsh|fish)$"
+      # Variables the shell itself sets or ties to another one.
+      shellset = "^(_|REPLY|MAPFILE|OPTARG|OPTIND|OPTERR|COPROC.*|BASH.*|PWD|OLDPWD|MATCH|MBEGIN|MEND|LINENO|RANDOM|SRANDOM|SECONDS|EPOCH.*|PPID|UID|EUID|GID|EGID|GROUPS|HOSTNAME|HOSTTYPE|OSTYPE|MACHTYPE|SHLVL|HISTCMD|FUNCNAME|PIPESTATUS|COLUMNS|LINES|ARGV|ARGC|STATUS|ERRNO|PATH|CDPATH|FPATH|MANPATH|MODULE_PATH|PSVAR|HOME|IFS|ZSH.*|TRY_BLOCK_.*|TTYIDLE|SIGNALS|COMP_.*|READLINE_.*|HISTFILE|PS[0-4])$"
+      namers = "^(declare|typeset|local|export|readonly|read|unset|mapfile|readarray|getopts|let|printf|wait|compgen)$"
+      # These may run a builtin of this shell; env, sudo and the like cannot.
+      wrappers = "^(command|builtin)$"
+      reserved = "^(if|then|else|elif|fi|do|done|while|until|for|case|esac|select|function|coproc|!|in)$"
+      abort = cmd ~ /IFS/ || index(cmd, "${!") || index(cmd, "\\\n")
+
+      for (i = 1; i <= length(cmd); ) {
+        if (substr(cmd, i, 1) !~ /[A-Za-z0-9_]/) { i++; continue }
+        for (j = i; substr(cmd, j, 1) ~ /[A-Za-z0-9_]/; j++) ;
+        name = substr(cmd, i, j - i)
+        p1 = i > 1 ? substr(cmd, i - 1, 1) : ""
+        if (name ~ /^[A-Za-z_]/) {
+          if (p1 == "$") {
+            used[name] = 1
+            if (!apart(i - 1, j)) glued[name] = 1
+          } else if (p1 == "{" && i > 2 && substr(cmd, i - 2, 1) == "$") {
+            used[name] = 1
+            if (substr(cmd, j, 1) != "}") tainted[name] = 1
+            else if (!apart(i - 2, j + 1)) glued[name] = 1
+          } else if (substr(cmd, j, 1) == "=" && (i == 1 || p1 ~ /[ \t\n;]/)) assigned[name]++
+          else tainted[name] = 1
+        }
+        i = j
+      }
+
+      head = 1; wrapped = 0; namer = ""; blocked = 0; depth = 0; varhead = 0
+      for (k = 1; k <= n; k++) {
+        r = rec[k]; kind = substr(r, 1, 1); t = substr(r, 2)
+        if (r == "3&" && rec[k - 1] ~ />$/) continue
+        # A here-document body is tokenized like the line, so a ) in it reads
+        # as a closing paren; depth after it says nothing.
+        if (index(t, "<<")) blocked = 1
+        if (r == "0;" || r == "0&&" || r == "0||" || r == "0|" || kind == "3") {
+          # A subshell or substitution that has closed leaves the assignments
+          # after it unconditional and in this shell. Braces are not counted:
+          # an argument } is emitted as 3} too, so it would close a group
+          # that bash still holds open.
+          if (t == "(") depth++
+          else if (t == ")" && depth > 0) depth--
+          else if (kind == "3") blocked = 1
+          head = 1; wrapped = 0; namer = ""; varhead = 0
+          continue
+        }
+        if (kind == "2" || kind == "5" || kind == "6") abort = 1
+        if (kind == "0" && tolower(base(t)) ~ (varhead ? external : unseen)) abort = 1
+        if (namer != "") {
+          if (kind != "0") {
+            if (!(namer ~ /^(declare|typeset|local|export|readonly)$/ && t ~ /^[A-Za-z_][A-Za-z0-9_]*=/) \
+                && !(namer == "printf" && nargs > 0 && printf_ok)) abort = 1
+          } else {
+            if (namer ~ /^(declare|typeset|local|export|readonly)$/ && t ~ /^-[A-Za-z]*n/) abort = 1
+            if (namer == "printf" && nargs == 0) printf_ok = t !~ /^-/
+          }
+          nargs++
+        } else if (kind == "0" && !varhead && base(t) ~ namers) {
+          namer = base(t); nargs = 0; printf_ok = 0
+        }
+        if (head && t ~ /^[A-Za-z_][A-Za-z0-9_]*=/) {
+          nm = t; sub(/=.*/, "", nm)
+          arec[nm]++
+          for (m = k - 1; m >= 1 && rec[m] == "0;"; m--) ;
+          if (kind == "0" && !blocked && !depth && (k == 1 || rec[k - 1] == "0;") \
+              && (m < 1 || rec[m] != "0&&" && rec[m] != "0||" && rec[m] != "0|") \
+              && (k == n || rec[k + 1] == "0;"))
+            cand[nm] = substr(t, length(nm) + 2)
+          continue
+        }
+        if (head && kind == "0" && t ~ reserved) { blocked = 1; continue }
+        if (wrapped && kind == "0" && t ~ /^-/) continue
+        if (head || wrapped) {
+          wrapped = head && kind == "0" && base(t) ~ wrappers
+          varhead = 1
+          if (kind == "1" && t == "$" && rec[k + 1] == "3{" && rec[k + 3] == "3}") {
+            heads[substr(rec[k + 2], 2)] = 1
+            k += 3
+          } else if (t ~ /^\$[A-Za-z_][A-Za-z0-9_]*$/) heads[substr(t, 2)] = 1
+          else if (kind == "4" && t ~ /^\$\{[A-Za-z_][A-Za-z0-9_]*\}$/) heads[substr(t, 3, length(t) - 3)] = 1
+          else {
+            varhead = 0
+            if (kind != "0") abort = 1
+          }
+          head = 0
+        }
+      }
+
+      for (nm in cand) {
+        if (arec[nm] != 1 || assigned[nm] != 1 || tainted[nm] || glued[nm] || toupper(nm) ~ shellset) continue
+        nw = split(cand[nm], w, /[ \t]+/)
+        # A case-insensitive file system runs GIT as git; zsh expands =git.
+        ok = nw > 0 && tolower(base(w[1])) !~ special
+        for (m = 1; m <= nw; m++)
+          if (w[m] !~ /^[A-Za-z0-9_.\/:,@%+-][A-Za-z0-9_.\/:=,@%+-]*$/ || tolower(base(w[m])) == "git") ok = 0
+        if (ok) resolved[nm] = cand[nm]
+      }
+      # A command name that resolves to nothing known may be declare or read.
+      for (nm in heads) if (!(nm in resolved)) abort = 1
+      for (nm in used) if (!glued[nm]) printf "S\t%s\n", nm
+      if (!abort) for (nm in resolved) printf "R\t%s\t%s\n", nm, resolved[nm]
+    }
+  '
+}
+
+# Succeed when the records in "$@", the arguments of a one-word command name
+# that may be git, cannot make it commit or push: each is a plain literal that
+# is not git, commit, push, or an option that moves the repository or sets
+# config, and the command reads no input a shell could run. An alias or an
+# external git-<name> is left to the git checks.
+git_unknown_head_args_safe() {
+  gua_prev=
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      0';'|0'&&'|0'||'|0'|'|3')'|3'}') return 0 ;;
+      3'&')
+        case "$gua_prev:${2-}" in
+          *'>:'*) shift; [ "$#" -gt 0 ] && shift; continue ;;
+          *:0'>'*) shift; continue ;;
+          *) return 0 ;;
+        esac
+        ;;
+      0?*) ;;
+      *) return 1 ;;
+    esac
+    gua_prev=${1#?}
+    case "$gua_prev" in
+      *[!A-Za-z0-9_./:=,@%+\>-]*) return 1 ;;
+      [Gg][Ii][Tt]|*/[Gg][Ii][Tt]|commit|push|-c*|-C*|--git-dir*|--work-tree*|--exec-path*|--config-env*|--namespace*|--no-verify|--no-gpg-sign) return 1 ;;
+    esac
+    shift
+  done
+}
+
 is_git_commit_or_push() {
   cmd=$1
   git_alias_workdir=${2:-}
   [ -n "$git_alias_workdir" ] || git_alias_workdir=$(pwd)
   (
     set -f
-    words=$(git_command_records "$cmd" tilde)
+    words=$(git_gate_records "$cmd")
     old_ifs=$IFS
     IFS='
 '
     # shellcheck disable=SC2086
     set -- $words
     IFS=$old_ifs
+
+    git_command_vars=
+    git_vars_failed=0
+    case "$cmd" in
+      *'$'*)
+        git_command_vars=$(git_gate_command_vars "$cmd" "$words") \
+          || { git_command_vars=; git_vars_failed=1; }
+        ;;
+    esac
+    # The resolvable variables whose assignment the scan has passed.
+    git_vars_set=' '
+    # The git command at hand stands for a command name only run time knows.
+    git_head_unknown=0
+    git_head_stdin=0
+    git_cmd_reads_input=0
+    case "$cmd" in
+      *'|'*|*'<'*) git_cmd_reads_input=1 ;;
+    esac
 
     unset git_builtin_names
     # A git alias expands per the configuration its command reads. That is
@@ -5676,6 +6016,12 @@ is_git_commit_or_push() {
     git_env_changed=0
     git_env_args=
     git_env_dynamic=0
+    # The same for GIT_DIR and GIT_WORK_TREE, which choose the repository a
+    # commit or push uses.
+    git_target_changed=0
+    git_target_args=
+    git_target_dynamic=0
+    shell_head=
     git_config_args=
     git_config_dynamic=0
     git_alias_depth=0
@@ -5836,9 +6182,21 @@ $dir"
         *) effective_c_dynamic=1 ;;
       esac
     }
+    # $1 is GIT_DIR or GIT_WORK_TREE, $2 the record of the path git takes for
+    # it. A commit or push is scanned with them, or fails per the policy.
+    git_target_value() {
+      case "$2" in
+        0|0*'~'*|[!0]*) git_target_dynamic=1 ;;
+        *) git_target_args="$git_target_args$1=${2#?}
+" ;;
+      esac
+    }
     # $1 is a NAME=value record before a command name. A tilde in it expands.
     git_env_assignment() {
       git_env_name=${1#?}
+      case "$git_env_name" in
+        GIT_DIR=*|GIT_WORK_TREE=*) git_target_value "${git_env_name%%=*}" "${1%"$git_env_name"}${1#*=}" ;;
+      esac
       is_git_config_env_name "${git_env_name%%=*}" || return 0
       case "$1" in
         0*'~'*|[!0]*) git_env_dynamic=1 ;;
@@ -5886,6 +6244,9 @@ $effective_c_dirs" "$git_config_args" "$git_env_args"
         # git check below. command_start stays 1 so the next token is re-examined
         # as the command head.
         if [ "$record_kind" != 5 ] && [ "$record_kind" != 6 ] && is_assignment_token "$token"; then
+          case "$record_kind$git_command_vars" in
+            0*"R	${token%%=*}	"*) git_vars_set="$git_vars_set${token%%=*} " ;;
+          esac
           git_env_assignment "$record"
           shift
           continue
@@ -5907,6 +6268,7 @@ $effective_c_dirs" "$git_config_args" "$git_env_args"
         case "${token#"${token%%[!0-9]*}"}" in
           '>'|'>>'|'<'|'<>'|'>|')
             shell_cd_wrapped=1
+            case "$token" in *'<'*) git_head_stdin=1 ;; esac
             shift
             [ "${1-}" = '3&' ] && shift
             [ "$#" -gt 0 ] && shift
@@ -5914,6 +6276,7 @@ $effective_c_dirs" "$git_config_args" "$git_env_args"
             ;;
           '>'*|'<'*)
             shell_cd_wrapped=1
+            case "$token" in *'<'*) git_head_stdin=1 ;; esac
             shift
             continue
             ;;
@@ -5925,10 +6288,63 @@ $effective_c_dirs" "$git_config_args" "$git_env_args"
           shift
           continue
         fi
-        # A command name only run time knows may be git, a shell or eval.
+        # A command name only run time knows may be git, a shell or eval;
+        # git_gate_command_vars names the variables whose value is known
+        # anyway. A quoted one whose value is not stands for one word, which
+        # is git at worst: the git checks then read its arguments.
+        git_var=
+        case "$record_kind:$token:${2-}:${4-}" in
+          '1:$:3{:3}') git_var=${3#?} ;;
+          [14]:'$'*) git_var=${token#?} ;;
+        esac
+        case "$record_kind:$git_var" in
+          4:'{'*'}') git_var=${git_var#?}; git_var=${git_var%?} ;;
+        esac
+        case "$git_var" in
+          ''|[0-9]*|*[!A-Za-z0-9_]*) git_var= ;;
+        esac
+        if [ -n "$git_var" ]; then
+          git_var_skip=1
+          [ "$token" = '$' ] && git_var_skip=4
+          git_var_value=
+          case "$git_vars_set" in
+            *" $git_var "*)
+              git_var_value=$(printf '%s\n' "$git_command_vars" | sed -n "s/^R	$git_var	//p")
+              ;;
+          esac
+          if [ -n "$git_var_value" ]; then
+            shift "$git_var_skip"
+            if [ "$record_kind" = 1 ]; then
+              # shellcheck disable=SC2086
+              git_var_records=$(printf '0%s\n' $git_var_value)
+            else
+              git_var_records=0$git_var_value
+            fi
+            IFS='
+'
+            # shellcheck disable=SC2086
+            set -- $git_var_records "$@"
+            IFS=$old_ifs
+            continue
+          fi
+          if [ "$record_kind$git_var_skip$xargs_wrapped$git_head_stdin" = 4100 ] \
+            && [ "$shell_cd_untrusted$shell_cd_braces" = 00 ] && [ -z "$shell_cd_stack" ] \
+            && [ "$git_cmd_reads_input" -eq 0 ] \
+            && printf '%s\n' "$git_command_vars" | grep -qxF "S	$git_var"; then
+            shift
+            if git_unknown_head_args_safe "$@"; then
+              git_head_unknown=1
+              set -- 0git "$@"
+              continue
+            fi
+            set -- "$record" "$@"
+          fi
+        fi
         case "$record_kind:${token##*/}" in
           1:*|4:*[\$\`]*)
             printf 'G\nU\n'
+            # The variable may be resolvable; the resolver itself failed.
+            if [ -n "$git_var" ] && [ "$git_vars_failed" -eq 1 ]; then printf 'F\n'; fi
             matched=0
             shell_cd_mutable=1
             shift
@@ -6004,17 +6420,17 @@ $shell_cd_dir"
             case "$shell_code_status" in
               0)
                 shift "${shell_code%%:*}"
-                shell_code_records=$(git_command_records "${shell_code#*:}" tilde)
+                shell_code_records=$(git_gate_records "${shell_code#*:}")
                 # An unbalanced ( or ) would restore the cd state of a
                 # subshell around this command.
                 printf '%s\n' "$shell_code_records" \
-                  | awk '$0 == "3(" { d++ } $0 == "3)" && --d < 0 { exit 1 } END { if (d) exit 1 }' \
+                  | LC_ALL=C awk '$0 == "3(" { d++ } $0 == "3)" && --d < 0 { exit 1 } END { if (d) exit 1 }' \
                   || shell_cd_untrusted=1
                 # env -C and --chdir start the shell in their directory.
                 shell_code_chdir=
                 if [ -n "$effective_c_dirs" ]; then
                   shell_code_chdir=$(printf '%s\n' "$effective_c_dirs" \
-                    | awk '{ print "0cd"; print "0--"; print "0" $0; print "0;" }')
+                    | LC_ALL=C awk '{ print "0cd"; print "0--"; print "0" $0; print "0;" }')
                 fi
                 [ "$effective_c_dynamic" -eq 0 ] || shell_code_chdir="$shell_code_chdir
 0cd
@@ -6022,6 +6438,7 @@ $shell_cd_dir"
 0;"
                 # An assignment before eval may outlast it.
                 [ -z "$git_env_args" ] && [ "$git_env_dynamic" -eq 0 ] || git_env_changed=1
+                [ -z "$git_target_args" ] && [ "$git_target_dynamic" -eq 0 ] || git_target_changed=1
                 IFS='
 '
                 if [ "${token##*/}" = eval ]; then
@@ -6049,8 +6466,11 @@ $shell_cd_dir"
           shell_cd_wrapped=1
           # xargs appends words read from stdin, which may be any argument.
           [ "$wrapper" = xargs ] && xargs_wrapped=1
-          # sudo may run git with another HOME.
-          [ "$wrapper" = sudo ] && git_env_dynamic=1
+          # sudo may run git with another HOME, and without GIT_DIR.
+          if [ "$wrapper" = sudo ]; then
+            git_env_dynamic=1
+            [ -z "$git_target_args${GIT_DIR:-}${GIT_WORK_TREE:-}" ] || git_target_dynamic=1
+          fi
           shift
           while [ "$#" -gt 0 ]; do
             record=$1
@@ -6088,6 +6508,7 @@ $shell_cd_dir"
                   # -i and -u remove variables that locate git configuration.
                   env:-|env:--ignore-environment|env:--unset|env:--unset=*|env:-[!-]*[iu]*|env:-[iu]*)
                     git_env_dynamic=1
+                    [ -z "$git_target_args${GIT_DIR:-}${GIT_WORK_TREE:-}" ] || git_target_dynamic=1
                     env_split=
                     ;;
                   *) env_split= ;;
@@ -6108,7 +6529,7 @@ $shell_cd_dir"
                   IFS='
 '
                   # shellcheck disable=SC2086
-                  set -- $(git_command_records "${env_split#?}" tilde) "$@"
+                  set -- $(git_gate_records "${env_split#?}") "$@"
                   IFS=$old_ifs
                   continue
                 fi
@@ -6169,6 +6590,10 @@ $shell_cd_dir"
                 -c|--git-dir) git_config_option "$token" "$git_value" ;;
                 --config-env) git_config_dynamic=1 ;;
               esac
+              case "$token" in
+                --git-dir) git_target_value GIT_DIR "$git_value" ;;
+                --work-tree) git_target_value GIT_WORK_TREE "$git_value" ;;
+              esac
               case "$git_value" in
                 0*|4*) continue ;;
               esac
@@ -6179,6 +6604,10 @@ $shell_cd_dir"
                 0--git-dir=*|0--bare) git_config_args="$git_config_args$token
 " ;;
                 0--config-env=*|4--git-dir=*|4--config-env=*) git_config_dynamic=1 ;;
+              esac
+              case "$token" in
+                --git-dir=*) git_target_value GIT_DIR "${record%"$token"}${token#*=}" ;;
+                --work-tree=*) git_target_value GIT_WORK_TREE "${record%"$token"}${token#*=}" ;;
               esac
               case "$record" in
                 0*) is_git_global_option "$token" && continue ;;
@@ -6206,10 +6635,13 @@ $shell_cd_dir"
                 # in the same command line must not hide behind an earlier
                 # plain commit or push.
                 printf 'G\n'
+                [ "$git_head_unknown" -eq 1 ] && printf 'U\n'
                 [ "$effective_c_dynamic" -eq 1 ] && printf 'U\n'
                 [ "$shell_cd_unknown$shell_cd_lost" = 00 ] || printf 'U\n'
                 [ -n "$shell_cd_dirs" ] && printf '%s\n' "$shell_cd_dirs" | sed 's/^/D/'
                 [ -n "$effective_c_dirs" ] && printf '%s\n' "$effective_c_dirs" | sed 's/^/D/'
+                [ "$git_target_changed$git_target_dynamic" = 00 ] || printf 'U\n'
+                [ -n "$git_target_args" ] && printf '%s' "$git_target_args" | sed 's/^/E/'
                 # N: a flag that disables hooks or signing, also from code
                 # that is_git_hook_bypass cannot see in the command line.
                 for git_arg in "$@"; do
@@ -6254,7 +6686,7 @@ $shell_cd_dir"
                       IFS='
 '
                       # shellcheck disable=SC2086
-                      set -- $(git_command_records "$git_alias" tilde) "$@"
+                      set -- $(git_gate_records "$git_alias") "$@"
                       IFS=$old_ifs
                       continue
                     fi
@@ -6268,7 +6700,12 @@ $shell_cd_dir"
             esac
           done
           git_env_args=
+          # A command other than git may also relink a path a later cd uses.
+          [ "$git_head_unknown" -eq 0 ] || shell_cd_mutable=1
+          git_head_unknown=0
           git_env_dynamic=0
+          git_target_args=
+          git_target_dynamic=0
           command_start=0
           continue
         fi
@@ -6285,6 +6722,14 @@ $shell_cd_dir"
       fi
 
       mentions_git_config_env "$token" && git_env_changed=1
+      # Only these builtins set or remove a variable named in an argument;
+      # any other command, such as cat for a commit message, does not.
+      [ "$command_start" -eq 1 ] && shell_head=$record_kind$token
+      case "$shell_head" in
+        0export|0unset|0declare|0typeset|0readonly|0local|0read)
+          mentions_git_target_env "$token" && git_target_changed=1
+          ;;
+      esac
       shift
       if [ "$record_kind" = 3 ] || is_shell_command_separator "$token"; then
         # `>&2` and `2>&1` redirect; they do not background anything.
@@ -6296,10 +6741,14 @@ $shell_cd_dir"
         effective_c_dirs=
         effective_c_dynamic=0
         xargs_wrapped=0
+        git_head_stdin=0
         # An assignment no git command took may stay in the environment.
         [ -z "$git_env_args" ] && [ "$git_env_dynamic" -eq 0 ] || git_env_changed=1
         git_env_args=
         git_env_dynamic=0
+        [ -z "$git_target_args" ] && [ "$git_target_dynamic" -eq 0 ] || git_target_changed=1
+        git_target_args=
+        git_target_dynamic=0
         git_config_args=
         git_config_dynamic=0
       else
@@ -6351,7 +6800,10 @@ check_git_command() {
     fi
     # A group with U cannot be scanned. The closed policy blocks the whole
     # command; the open policy still scans every other group.
-    if printf '%s\n' "$git_c_records" | grep -qx U; then
+    if printf '%s\n' "$git_c_records" | grep -qx F; then
+      handle_hook_infrastructure_failure PreToolUse "${HOOK_INPUT:-}" \
+        "$PROGRAM: awk failed while reading the command variables of this command, so a git commit or push it may run could not be resolved;"
+    elif printf '%s\n' "$git_c_records" | grep -qx U; then
       handle_hook_infrastructure_failure PreToolUse "${HOOK_INPUT:-}" \
         "$PROGRAM: a git commit or push may run in a working directory, or with arguments, a git alias or shell code, that could not be resolved safely;"
     fi
@@ -6408,6 +6860,7 @@ scan_git_command_group() (
   group_stage_all=0
   group_untracked=0
   group_pathspecs=
+  group_env=
   group_ifs=$IFS
   IFS='
 '
@@ -6422,6 +6875,8 @@ scan_git_command_group() (
         CDPATH= cd -- "${group_record#D}" 2>/dev/null || exit "$SCAN_STATUS_UNAVAILABLE"
         [ "$(pwd -P)" = "$group_physical" ] || exit "$SCAN_STATUS_UNAVAILABLE"
         ;;
+      E*) group_env="$group_env${group_record#E}
+" ;;
       W) group_stage_all=1 ;;
       I) group_stage_all=1; [ "$group_untracked" -eq 2 ] || group_untracked=1 ;;
       X) group_stage_all=1; group_untracked=2 ;;
@@ -6430,6 +6885,28 @@ scan_git_command_group() (
       *) exit "$SCAN_STATUS_UNAVAILABLE" ;;
     esac
   done
+  # Git reads a relative GIT_DIR or GIT_WORK_TREE from where it starts; the
+  # scan changes directory after that.
+  for group_assignment in $group_env; do
+    group_value=${group_assignment#*=}
+    case "$group_value" in
+      /*) ;;
+      *) group_value=$(pwd -P)/$group_value ;;
+    esac
+    export "${group_assignment%%=*}=$group_value"
+  done
+  # The scan runs Git from the work tree root, where it would find another
+  # repository than the one GIT_WORK_TREE was given with.
+  case "
+$group_env" in
+    *'
+GIT_DIR='*|'
+') ;;
+    *)
+      GIT_DIR=$(git rev-parse --absolute-git-dir 2>/dev/null) || exit "$SCAN_STATUS_UNAVAILABLE"
+      export GIT_DIR
+      ;;
+  esac
   # shellcheck disable=SC2086
   set -- $group_pathspecs
   IFS=$group_ifs
@@ -7008,6 +7485,23 @@ secretish_env_values() {
       return v ~ /^(example|dummy)[_-]?(token|key|secret|password)$/ \
           || v ~ /^not[-_ ]?a[-_ ]?real[-_ ]?(token|key|secret|password)$/
     }
+    # A boolean or null under a secret-bearing key (`api_token: true`) is a
+    # config flag, not a credential. Emitting it made the word a global
+    # literal, so every `true`/`false` in the same response was masked, and
+    # the prompt guard blocked a prompt that only described such a config.
+    # Whole trimmed value only, so `trueX1...` still masks.
+    function config_literal(value, v) {
+      v = tolower(edge_trim(value))
+      return v ~ /^(true|false|yes|no|on|off|null|nil|none)$/
+    }
+    # The short-value floor is about characters, but awk runs under LC_ALL=C
+    # and length() counts bytes: a two-character word in a multibyte script
+    # (six UTF-8 bytes) cleared the floor and became a global literal that
+    # masked the same word across a whole document. Skip continuation bytes.
+    function char_length(s, c) {
+      c = s
+      return length(s) - gsub(/[\200-\277]/, "", c)
+    }
     function emit_captured(v, trimmed) {
       emit_secret(v)
       trimmed = edge_trim(v)
@@ -7016,7 +7510,8 @@ secretish_env_values() {
     function emit_secret(value, eligible_length) {
       if (already_redacted(value)) return
       if (obvious_word_placeholder(value)) return
-      if (eligible_length == 0) eligible_length = length(value)
+      if (config_literal(value)) return
+      if (eligible_length == 0) eligible_length = char_length(value)
       if (eligible_length < 4 || length(value) == 0) return
       if (record_mode == "probe" || record_mode == "probe_raw") {
         if (!probe_found) print "x"
@@ -7119,6 +7614,15 @@ secretish_env_values() {
       if (value !~ /^v:[0-9]+$/ || length(value) > 11) return 0
       return tolower(assignment) ~ /token["'\''`]?[ \t]*[:=]$/
     }
+    # A pagination cursor key (`nextPageToken`, `next_page_token`) carries an
+    # opaque value the client has to send back verbatim, so masking it broke
+    # every search result past the first page. Only the exact camel/snake
+    # cursor names in a JSON/YAML `:` field are exempt, matched with case and
+    # a key boundary: `PAGE_TOKEN=` and `FB_PAGE_TOKEN` name a real page
+    # access token, and `homepage_token` or `next_page_token_id` are other keys.
+    function page_cursor(assignment) {
+      return assignment ~ /(^|[^A-Za-z0-9_.-])["'\''`]?((next|prev|previous)(PageToken|_page_token)|pageToken|page_token)["'\''`]?[ \t]*:$/
+    }
     # Value-side gate for the status-label colon path (#156). A status label on
     # its own cannot separate `error: password: authentication is disabled`
     # (prose, must not mask) from `error: password: hunter2-long-value`
@@ -7201,6 +7705,7 @@ secretish_env_values() {
         # one. Internal whitespace is untouched, so prose still reads as prose.
         if (require_credential && !credential_shaped(edge_trim(value))) return 0
         if (version_reference(assignment, value)) return 0
+        if (page_cursor(assignment)) return 0
       } else {
         value = raw
         sub(/[ \t,;].*$/, "", value)
@@ -7252,6 +7757,8 @@ secretish_env_values() {
         value = substr(value, 1, end)
         if (looks_like_reference(value, assignment, leading)) return 0
         if (version_reference(assignment, value)) return 0
+        if (page_cursor(assignment)) return 0
+        if (config_literal(value)) return 0
         if (require_credential && !credential_shaped(edge_trim(value))) return 0
         # Eligibility is based on the complete token. For short values, scope
         # replacement to the complete assignment token so an ordinary
@@ -7267,7 +7774,7 @@ secretish_env_values() {
         # scrubs every v1.2.3 in the response on main. Consistency with the
         # other paths is worth more here than containing a bad guess, because a
         # displayed secret costs more than a mangled log line.
-        if (length(value) < 4 && length(token) >= 4) {
+        if (char_length(value) < 4 && char_length(token) >= 4) {
           trailing = substr(token, end + 1)
           emit_mapping(assignment leading token,
                        assignment leading "[REDACTED]" trailing,
@@ -7275,7 +7782,7 @@ secretish_env_values() {
                        length(value))
           return 0
         }
-        emit_secret(value, length(token))
+        emit_secret(value, char_length(token))
         return 0
       }
       # emit_captured, not emit_secret: a padded quoted value (`" <secret> "`)

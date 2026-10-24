@@ -64,7 +64,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     # Keep a bounded runner lifetime. Partitions are balanced by measured
     # test time, not assertion count; see docs/ci.md for mapping and evidence.
-    timeout-minutes: 15
+    # macOS partition 5 alone takes about 14 minutes, so 15 left no headroom.
+    timeout-minutes: 25
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

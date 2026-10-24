@@ -67,7 +67,9 @@ A scan that could not run is not treated as clean. In the Claude Code and Codex
 plugins, the default warns that protection is degraded and lets the command
 continue, and `AGENT_GUARD_INFRA_FAILURE_MODE=closed` blocks it instead (see
 [Configuration](docs/configuration.md)). The native hook and the Action fail on
-an unavailable scan regardless of that setting.
+an unavailable scan regardless of that setting. A Claude Code check that times
+out or crashes before it decides blocks the tool call in either mode (Claude
+Code 2.1.295 and later).
 
 ## Choose your path
 

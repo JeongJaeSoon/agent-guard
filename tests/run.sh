@@ -96,6 +96,13 @@ expect_json_status() {
   fi
 }
 
+prompt_guard_case() { # $1 host, $2 prompt mode ('' = default), $3 pii mode ('' = off), $4 json
+  printf '%s' "$4" \
+    | AGENT_GUARD_HOOK_HOST="$1" AGENT_GUARD_PROMPT_GUARD_MODE="$2" \
+      AGENT_GUARD_PII_HOOK_MODE="$3" \
+      "$PLUGIN_ROOT/bin/agent-guard" hook-user-prompt
+}
+
 cleanup() {
   rm -rf "$TMP_ROOT" "$TESTTMP"
 }
@@ -586,7 +593,7 @@ hook_subcommand() {
 
 for event in PreToolUse PostToolUse Stop UserPromptSubmit; do
   case "$event" in
-    PreToolUse)  expected_sub=hook-pre-tool;  expected_timeout=10 ;;
+    PreToolUse)  expected_sub=hook-pre-tool;  expected_timeout=60 ;;
     PostToolUse) expected_sub=hook-post-tool; expected_timeout=20 ;;
     Stop)        expected_sub=hook-stop;      expected_timeout=20 ;;
     UserPromptSubmit) expected_sub=hook-user-prompt; expected_timeout=10 ;;
@@ -630,6 +637,30 @@ for event in PreToolUse PostToolUse Stop UserPromptSubmit; do
     ok "$event command subcommand in $file matches hooks/hooks.json"
   else
     not_ok "$event command subcommand in $file matches hooks/hooks.json (got: $actual_sub)"
+  fi
+done
+
+# Claude runs the tool when a PreToolUse hook times out or crashes unless the
+# hook sets onFailure "block". Only PreToolUse needs it, and Codex has no such
+# key, so every other hook object must leave it unset.
+for file in "$PLUGIN_ROOT/hooks/hooks.json" "$ROOT/examples/claude/settings.project.json" \
+  "$PLUGIN_ROOT/hooks.json" "$ROOT/examples/codex/hooks.json"; do
+  case "$file" in
+    "$PLUGIN_ROOT/hooks/hooks.json"|*/examples/claude/*) expected_pre=block ;;
+    *) expected_pre=null ;;
+  esac
+  actual_pre=$(jq -r '.hooks.PreToolUse[0].hooks[0].onFailure' "$file")
+  if [ "$actual_pre" = "$expected_pre" ]; then
+    ok "PreToolUse onFailure is $expected_pre in $file"
+  else
+    not_ok "PreToolUse onFailure is $expected_pre in $file (got: $actual_pre)"
+  fi
+  others=$(jq -r '[.hooks | to_entries[] | select(.key != "PreToolUse")
+                   | .value[].hooks[] | select(has("onFailure"))] | length' "$file")
+  if [ "$others" = 0 ]; then
+    ok "no non-PreToolUse hook sets onFailure in $file"
+  else
+    not_ok "no non-PreToolUse hook sets onFailure in $file (got: $others)"
   fi
 done
 
@@ -1507,6 +1538,53 @@ expect_json_status 0 "Bash any-character regex before a word remains allowed" \
   '{"tool_name":"Bash","tool_input":{"command":"sed -n '\''s/.*version: //p'\'' notes.txt"}}' \
   hook-pre-tool
 
+# A `[` opens a bracket expression that matches one character, so the word
+# after it does not start a file name: a CSS attribute substring selector is
+# not a star over an SSH key entry, quoted or not.
+expect_json_status 0 "Bash single-quoted CSS attribute substring selector remains allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"tool query --selector '\''div[id*=\"amount\"] >> nth=0'\''"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "Bash double-quoted CSS attribute substring selector remains allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"tool query --selector \"div[id*='\''amount'\'']\""}}' \
+  hook-pre-tool
+
+expect_json_status 0 "Bash piped CSS attribute substring selector remains allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"tool query --selector '\''td[id*=\"x\"]'\'' 2>&1 | tail -1"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "Bash chained CSS attribute substring selectors remain allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"tool query --selector '\''div[id*=\"a\"][id*=\"b\"]'\''"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "Bash unquoted CSS attribute substring selector remains allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"tool query --selector div[id*=x]"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "Bash CSS attribute prefix selector remains allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"tool query --selector '\''div[id^=\"x\"]'\''"}}' \
+  hook-pre-tool
+
+expect_json_status 0 "Bash CSS class substring selector remains allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"tool query --selector '\''div[class*=\"x\"]'\''"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash star after an SSH key prefix is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat id*"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash star after an SSH key prefix in the SSH directory is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat ~/.ssh/id*"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash bracket glob that pins an SSH key prefix is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat ~/.ssh/[i]d*"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash bracket glob inside an SSH key prefix is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat ~/.ssh/i[d]*"}}' \
+  hook-pre-tool
+
 expect_json_status 0 "ripgrep negative glob over a denied extension is allowed" \
   '{"tool_name":"Bash","tool_input":{"command":"rg --files -g '\''!*.pem'\''"}}' \
   hook-pre-tool
@@ -1877,13 +1955,6 @@ PASSWORD=not-a-real-password' \
   '{prompt:$prompt}')
 prompt_guard_placeholder_lookalike_json=$(jq -nc \
   --arg prompt 'API_KEY=example_token_value_long' '{prompt:$prompt}')
-
-prompt_guard_case() { # $1 host, $2 prompt mode ('' = default), $3 pii mode ('' = off), $4 json
-  printf '%s' "$4" \
-    | AGENT_GUARD_HOOK_HOST="$1" AGENT_GUARD_PROMPT_GUARD_MODE="$2" \
-      AGENT_GUARD_PII_HOOK_MODE="$3" \
-      "$PLUGIN_ROOT/bin/agent-guard" hook-user-prompt
-}
 
 for pg_h in claude codex; do
   run_expect 2 "prompt guard blocks a pasted secret by default ($pg_h)" \
@@ -4503,6 +4574,139 @@ else
   sed 's/^/  stderr: /' "$ERR"
 fi
 
+# A resolvable command variable stays resolvable whatever the locale and
+# whatever text its arguments carry: BSD awk fails on multibyte text under a
+# UTF-8 locale, and the gate read that failure as an unknown command name.
+# The cwd has a staged secret, so 0 means no commit was assumed; U means a
+# closed-policy block on an unknown command.
+VARCMD_REPO="$TMP_ROOT/varcmd"
+(
+  mkdir -p "$VARCMD_REPO" && cd "$VARCMD_REPO" || exit 2
+  git init -q
+  printf '%s\n' "AGENT_GUARD_TEST_SECRET" > settings.conf
+  git add settings.conf
+) || not_ok "varcmd: setup failed"
+varcmd_session=0
+# varcmd_case EXPECTED LOCALE COMMAND; C sets LC_ALL, others set LANG alone.
+varcmd_case() {
+  varcmd_session=$((varcmd_session + 1))
+  case "$2" in
+    C) set -- "$1" "$2" "$3" env LC_ALL=C ;;
+    *) set -- "$1" "$2" "$3" env -u LC_ALL -u LC_CTYPE LANG="$2" ;;
+  esac
+  case "$2" in
+    C.UTF-8|en_US.UTF-8) varcmd_filter='{session_id:$s,tool_name:"Bash",tool_input:{command:$c,workdir:$d}}'; varcmd_host=codex ;;
+    *) varcmd_filter='{session_id:$s,tool_name:"Bash",tool_input:{command:$c},cwd:$d}'; varcmd_host=claude ;;
+  esac
+  varcmd_name="var command [$varcmd_host $2]: $3"
+  varcmd_expected=$1
+  varcmd_command=$3
+  shift 3
+  jq -nc --arg c "$varcmd_command" --arg d "$VARCMD_REPO" --arg s "varcmd-$$-$varcmd_session" "$varcmd_filter" \
+    | (cd "$TMP_ROOT" && "$@" AGENT_GUARD_HOOK_HOST=$varcmd_host AGENT_GUARD_INFRA_FAILURE_MODE=closed \
+        "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool) >"$OUT" 2>"$ERR"
+  varcmd_status=$?
+  case "$varcmd_expected:$varcmd_status" in
+    0:0) ok "$varcmd_name" ;;
+    U:2) if grep -q 'could not' "$ERR"; then ok "$varcmd_name"; else
+           not_ok "$varcmd_name (blocked, but not as unresolved)"; sed 's/^/  stderr: /' "$ERR"; fi ;;
+    *) not_ok "$varcmd_name (expected $varcmd_expected, got $varcmd_status)"; sed 's/^/  stderr: /' "$ERR" ;;
+  esac
+}
+varcmd_nfd=$(printf 'cafe\314\201')
+for varcmd_locale in C C.UTF-8 en_US.UTF-8 ja_JP.UTF-8; do
+  for varcmd_command in \
+    'T="mytool"; $T run "テスト"' \
+    'T="mytool"; "$T" run "テスト"' \
+    'T="mytool --profile dev"; $T run "δοκιμή"' \
+    "T=\"mytool\"; \$T call --data '{\"title\":\"확인 항목\"}'" \
+    'T="mytool"; $T log "■ step（1）「check」"' \
+    'T="mytool"; $T fill "café"' \
+    "T=\"mytool\"; \$T fill \"$varcmd_nfd\"" \
+    'T="mytool"; $T fill "ﾃｽﾄ 🎉"' \
+    'T="mytool"; V=$($T get --selector ".x" 2>&1 | tail -1); [ "$V" = "保存" ] || echo "失敗"' \
+    'T="mytool"; for i in 1 2; do $T call --data "{\"name\":\"項目${i}\"}"; done' \
+    "T=\"mytool\"; \$T click --selector \"[data-test='group-a'] [aria-label='メニューを開く']\"" \
+    "T=\"mytool\"; \$T click \":text('新規') >> nth=1\"" \
+    'T="mytool"; $T eval "document.title"' \
+    'T="mytool"; $T read x' \
+    'T="mytool"; $T source list' \
+    'T="mytool"; $T wait idle' \
+    'X=$(date +%s); T="mytool"; $T run' \
+    'X="$(date)"; T="mytool"; $T run' \
+    'X=$((1+2)); T="mytool"; $T run' \
+    'diff <(echo a) <(echo b); T="mytool"; $T run' \
+    "T=\"mytool\"; \$T click --selector '.card >> nth=0 >> img[src*=\"icon_v2\"]'" \
+    'T="mytool"; $T call --data "{\"email\":\"${EMAIL}\",\"password\":\"${PASS}\"}"' \
+    "T=\"mytool\"; \$T fill 'input[autocomplete=\"cc-number\"]' \"4242424242424242\"" \
+    "mytool eval \"document.querySelector('#popup')?.remove()\""
+  do
+    varcmd_case 0 "$varcmd_locale" "$varcmd_command"
+  done
+done
+# git or a shell behind the variable, or a word that hides git, stays unknown
+# in every locale. A builtin-named word is only safe as an argument of an
+# ordinary command; a paren closed before the assignment says nothing about
+# it, and one still open, or a condition, does. A brace group never counts as
+# closed: an argument } looks the same as the one that ends it. git anywhere
+# in the line, a forwarding function and a trap keep the variable unknown.
+# A ) in a here-document body closes nothing.
+varcmd_nl='
+'
+for varcmd_locale in C ja_JP.UTF-8; do
+  for varcmd_command in \
+    'G="git"; $G commit -m "日本語のメッセージ"' \
+    'G="git"; $G push origin HEAD' \
+    'S="bash"; $S -c "git commit -m x"' \
+    'G="gi""t"; $G commit -m "テスト"' \
+    'T="mytool"; eval "$T commit"' \
+    'T="git"; $T eval' \
+    'T=noglob; $T eval "X=git"; $X commit -m x' \
+    'X=$(T=git); $T commit' \
+    '( T="mytool" ); $T commit' \
+    '{ T="mytool"; }; $T commit' \
+    'false && { echo }; T=mytool; }; $T commit' \
+    'false && { echo }; T=mytool; }; $T --version' \
+    'f() { echo }; T=mytool; }; $T commit' \
+    'false && { printf "%s\n" a }; T=mytool; }; $T commit' \
+    'false && { echo ${X}}; T=mytool; }; $T commit' \
+    'true && T="mytool"; $T run' \
+    'X=$(case a in a) echo ;; esac; T=mytool); $T commit' \
+    'X=$( (T=mytool) ); $T commit' \
+    'T="mytool"; f() { "$@" 2>&1 | tail -1; }; V=$(f $T get --selector ".y")' \
+    'T="mytool"; on_exit() { "$T" summary || true; }; trap on_exit EXIT; $T run' \
+    "trap 'git commit -am x' EXIT; T=\"mytool\"; \$T run" \
+    'f() { git "$@"; }; f commit -m x' \
+    'T="mytool"; $T run; git commit -m "x"' \
+    "( cat <<E${varcmd_nl})${varcmd_nl}E${varcmd_nl}T=mytool${varcmd_nl}); \$T commit" \
+    "X=\$(cat <<E${varcmd_nl})${varcmd_nl}E${varcmd_nl}T=mytool${varcmd_nl}); \$T commit" \
+    "( cat <<'E'${varcmd_nl})${varcmd_nl}E${varcmd_nl}T=mytool${varcmd_nl}); \$T commit" \
+    "( cat <<-E${varcmd_nl}	)${varcmd_nl}	E${varcmd_nl}T=mytool${varcmd_nl}); \$T commit" \
+    "false && ( cat <<E${varcmd_nl})${varcmd_nl}E${varcmd_nl}T=mytool${varcmd_nl}); \$T commit"
+  do
+    varcmd_case U "$varcmd_locale" "$varcmd_command"
+  done
+done
+varcmd_case 0 C "T=mytool; cat <<E${varcmd_nl})${varcmd_nl}E${varcmd_nl}\$T run"
+expect_json_status 2 "a secret in an argument of a resolved command variable is still caught" \
+  '{"tool_name":"Bash","tool_input":{"command":"T=\"mytool\"; $T call --data \"{\\\"password\\\":\\\"AGENT_GUARD_TEST_SECRET\\\"}\""}}' \
+  hook-pre-tool
+# A resolver that cannot run is reported as such, not as an unknown name.
+varcmd_awk_dir="$TMP_ROOT/varcmd-awk-fail"
+mkdir -p "$varcmd_awk_dir"
+printf '#!/bin/sh\n[ -z "${GGCV_CMD+x}" ] || exit 2\nexec %s "$@"\n' "$(command -v awk)" > "$varcmd_awk_dir/awk"
+chmod +x "$varcmd_awk_dir/awk"
+jq -nc --arg d "$VARCMD_REPO" '{session_id:"varcmd-awk-fail",tool_name:"Bash",tool_input:{command:"T=mytool; $T run"},cwd:$d}' \
+  | (cd "$TMP_ROOT" && PATH="$varcmd_awk_dir:$PATH" AGENT_GUARD_INFRA_FAILURE_MODE=closed \
+      "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool) >"$OUT" 2>"$ERR"
+varcmd_status=$?
+if [ "$varcmd_status" -eq 2 ] && grep -q 'awk failed' "$ERR"; then
+  ok "a failing command-variable resolver is reported as an awk failure"
+else
+  not_ok "a failing command-variable resolver is reported as an awk failure (got $varcmd_status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
 fi # end of shard 3
 
 if in_shard 2; then
@@ -4992,6 +5196,92 @@ shellcd_case codex secret U2 "X='V -C ../b'; env -u \$X git commit -m x"
 # A command name with a literal last component is that command.
 shellcd_case claude secret 2 'D=$(dirname "$(command -v git)"); "$D/git" commit -m x' a
 shellcd_case codex secret 2 "/usr/bin/env git commit -m x" a
+# A variable assigned once, earlier in the line, a plain literal that names an
+# ordinary command, is that command wherever it is the command name: a
+# user-built CLI held in a variable, in a function, behind a launcher.
+for sc_command in \
+  'CLI="echo"; $CLI sub arg' \
+  "CLI=\"echo --port 9223\"
+\$CLI pages x load" \
+  'CLI="echo"; run() { $CLI "$@"; }; run sub "$PWD"' \
+  'TOOL=./bin/mytool; $TOOL deploy' \
+  'CLI=echo; ${CLI} sub' \
+  'CLI=echo; "$CLI" sub "$PWD"' \
+  'CLI=echo; command $CLI sub "$PWD"' \
+  'CLI=echo; env $CLI sub "$PWD"' \
+  'CLI=echo; nice $CLI sub' \
+  'CLI=echo; time $CLI sub' \
+  'CLI=echo; xargs $CLI sub </dev/null' \
+  'RUNNER=npx; $RUNNER mytool sub' \
+  'CLI=echo; $CLI sub "$PWD" 2>&1 | tail -1' \
+  "set -e
+CLI=\"echo --port 9223\"
+export SC_SESSION=\"\$(basename \"\$PWD\")_\$\$\"
+\$CLI pages \"\$PWD\" load >/dev/null"
+do
+  shellcd_case claude secret 0 "$sc_command" a
+done
+# A quoted command word whose value is unknown is one word, git at worst: it
+# fails per the policy only when its arguments could commit or push.
+shellcd_case codex secret 0 '"$SC_UNSET" deploy --env prod' a
+shellcd_case claude secret 0 '"${SC_UNSET}" deploy' a
+for sc_command in \
+  'G=git; "$G" commit -m x' \
+  'G=git; "$G" -c alias.ci=commit ci -m x' \
+  'G=git; "$G" -C ../a commit -m x' \
+  'G=env; "$G" git commit -m x' \
+  "S=sh; printf 'git commit -m x\\n' | \"\$S\"" \
+  "S=sh; \"\$S\" <<<'git commit -m x'" \
+  "S=bash; \"\$S\" -c 'git commit -m x'" \
+  "S=sh; printf 'git commit -m x\\n' | { \"\$S\"; }" \
+  "S=sh; printf 'git commit -m x\\n' | ( \"\$S\" )" \
+  "S=sh; f() { \"\$S\"; }; printf 'git commit -m x\\n' | f"
+do
+  shellcd_case codex secret U2 "$sc_command" a
+done
+# A hook-skipping flag is blocked outright, whatever the command name.
+expect_json_status 2 "quoted unknown command word with a hook-skipping flag is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"G=git; \"$G\" commit --no-verify -m x"}}' \
+  hook-pre-tool
+# Anything else about the variable leaves the command name unknown.
+for sc_command in \
+  'X=$(echo git); $X commit -m x' \
+  'X=${SC_UNSET:-git}; $X commit -m x' \
+  'X=echo; X=git; $X commit -m x' \
+  "X=git; export X; bash -c '\$X commit -m x'" \
+  "X=echo; bash -c '\$X git commit -m x'" \
+  'X=echo; read X <<<git; $X commit -m x' \
+  'X=echo; unset X; $X git commit -m x' \
+  'X=echo; declare "$(printf X)=git"; $X commit -m x' \
+  'X=echo; f() { X=git; }; f; $X commit -m x' \
+  'false && X=echo; $X git commit -m x' \
+  '(X=echo); $X git commit -m x' \
+  '$X git commit -m x; X=echo' \
+  "X='env git'; \$X commit -m x" \
+  'IFS=_; X=git_commit; $X -m x' \
+  '$SC_UNSET git commit -m x' \
+  '_=echo; true "$(command -v git)"; $_ commit -m x' \
+  'REPLY=echo; read <<<git; $REPLY commit -m x' \
+  'OPTARG=echo; getopts a: o -agit; $OPTARG commit -m x'
+do
+  shellcd_case claude secret U2 "$sc_command" a
+done
+for sc_command in \
+  'X=$(true); $X commit -m x' \
+  'eval "$X commit -m x"' \
+  '$SC_UNSET commit -m x' \
+  '$SC_UNSET -C ../b push' \
+  '$SC_UNSET -c alias.ci=commit ci' \
+  '"$SC_UNSET" commit -m x' \
+  'X="g?t"; $X commit -m x' \
+  'MAPFILE=echo; mapfile -t <<<git; $MAPFILE commit -m x' \
+  'X=GIT; $X commit -m x' \
+  'X==git; $X commit -m x' \
+  "X=echo; alias e=eval; e \"\$(printf '\\\\x58')=git\"; \$X commit -m x" \
+  'exec <sc-no-such-input; "$SC_UNSET"'
+do
+  shellcd_case codex secret Ux "$sc_command" a
+done
 # The open policy still scans the git commands whose directory is known.
 shellcd_case claude secret UF 'git commit -m x; cd $SC_UNSET_DIR && git commit -m y' a
 shellcd_case codex secret UF 'eval "$(true)"; git commit -m x' a
@@ -5052,6 +5342,120 @@ for sc_host in claude codex; do
     shellcd_case "$sc_host" clean 0 "$sc_command" a
   done
 done
+
+# A command substitution inside double quotes runs too, where its command runs.
+# Each command runs under one host, alternating, to bound the shard's time.
+sc_nl='
+'
+sc_alt=codex
+sc_next_host() {
+  case "$sc_alt" in
+    claude) sc_alt=codex ;;
+    *) sc_alt=claude ;;
+  esac
+}
+for sc_command in \
+  'echo "$(git commit -m x)"' \
+  'SC_X="$(git commit -m x)"' \
+  'true "$(git commit -m x)"' \
+  '"SC_X=$(git commit -m x)" true' \
+  'echo "`git commit -m x`"' \
+  'echo "$(printf ")"; git commit -m x)"' \
+  "bash -c 'echo \"\$(git commit -m x)\"'" \
+  "echo \"\$(${sc_nl}git commit -m x${sc_nl})\"" \
+  'echo $(git commit -m x)'
+do
+  sc_next_host
+  shellcd_case "$sc_alt" secret 2 "$sc_command" a
+done
+for sc_alt in claude codex; do
+  shellcd_case "$sc_alt" clean 0 'echo "$(git commit -m x)"' a
+done
+for sc_command in \
+  'cd ../b && echo "$(git commit -m x)"' \
+  'echo "$(cd ../b && git commit -m x)"' \
+  "echo \"\$(cd ../b${sc_nl}git commit -m x)\""
+do
+  sc_next_host
+  shellcd_case "$sc_alt" secret 2 "$sc_command"
+done
+shellcd_case claude clean 0 'cd ../b && echo "$(git commit -m x)"'
+shellcd_case codex secret 0 'cd ../b && echo "$(git commit -m x)"' a
+# Text that only looks like one, and code that commits nothing, change nothing.
+for sc_command in \
+  'echo "$(date)"' \
+  "echo '\$(git commit -m x)'" \
+  'echo "\$(git commit -m x)"'
+do
+  sc_next_host
+  shellcd_case "$sc_alt" secret 0 "$sc_command" a
+done
+for sc_command in \
+  'git commit -m "$(git log -1 --format="%h %s")"' \
+  "git commit -m \"\$(cat <<'EOF'${sc_nl}fix: a thing${sc_nl}${sc_nl}More text (with parens) and \"quotes\".${sc_nl}EOF${sc_nl})\""
+do
+  for sc_alt in claude codex; do
+    shellcd_case "$sc_alt" secret 2 "$sc_command" a
+    shellcd_case "$sc_alt" clean 0 "$sc_command" a
+  done
+done
+
+# Code in a quoted substitution may stage what a later commit takes.
+for sc_alt in claude codex; do
+  for sc_mode in secret clean; do
+    (
+      cd "$SHELLCD_ROOT/a" || exit 2
+      git reset -q --hard "$SHELLCD_BASE_A"
+      case "$sc_mode" in
+        secret) printf '%s\n' "AGENT_GUARD_TEST_SECRET" >> settings.conf ;;
+        *) printf 'c=3\n' >> settings.conf ;;
+      esac
+    )
+    sc_command='echo "$(git add settings.conf)"; git commit -m x'
+    sc_session=$((sc_session + 1))
+    jq -nc --arg c "$sc_command" --arg d "$SHELLCD_ROOT/a" --arg s "shellcd-$$-$sc_session" \
+      '{session_id:$s,tool_name:"Bash",tool_input:{command:$c},cwd:$d}' \
+      | (cd "$TMP_ROOT" && AGENT_GUARD_HOOK_HOST=$sc_alt AGENT_GUARD_INFRA_FAILURE_MODE=closed \
+          "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool) >"$OUT" 2>"$ERR"
+    sc_status=$?
+    (cd "$SHELLCD_ROOT/a" && bash -c "$sc_command") >/dev/null 2>&1
+    sc_leaks=0
+    git -C "$SHELLCD_ROOT/a" log -p "$SHELLCD_BASE_A..HEAD" | grep -q AGENT_GUARD_TEST_SECRET && sc_leaks=2
+    sc_name="shell cd [$sc_alt] $sc_mode: $sc_command"
+    case "$sc_mode" in
+      secret) sc_want=2 ;;
+      *) sc_want=0 ;;
+    esac
+    if [ "$sc_status" -ne "$sc_want" ] || [ "$sc_leaks" -ne "$sc_want" ]; then
+      not_ok "$sc_name (expected $sc_want, got $sc_status; the command leaks=$sc_leaks)"
+      sed 's/^/  stderr: /' "$ERR"
+    else
+      ok "$sc_name"
+    fi
+  done
+done
+
+# GIT_DIR and GIT_WORK_TREE, or --git-dir and --work-tree, choose the
+# repository a commit uses; one only run time knows fails per the policy.
+for sc_command in \
+  'GIT_DIR=../b/.git GIT_WORK_TREE=../b git commit -m x' \
+  'GIT_DIR=../b/.git git commit -m x' \
+  'env GIT_DIR=../b/.git GIT_WORK_TREE=../b git commit -m x' \
+  'git --git-dir=../b/.git --work-tree=../b commit -m x' \
+  'git --git-dir ../b/.git --work-tree ../b commit -m x'
+do
+  sc_next_host
+  shellcd_case "$sc_alt" secret 2 "$sc_command"
+done
+for sc_alt in claude codex; do
+  shellcd_case "$sc_alt" clean 0 'GIT_DIR=../b/.git GIT_WORK_TREE=../b git commit -m x'
+done
+shellcd_case claude secret 0 'GIT_DIR=../b/.git GIT_WORK_TREE=../b git commit -m x' a
+shellcd_case codex secret 2 'GIT_WORK_TREE=../b git commit -m x' a
+shellcd_case claude secret U2 'GIT_DIR="$PWD/../b/.git" GIT_WORK_TREE=../b git commit -m x'
+shellcd_case codex secret U2 'export GIT_DIR=../b/.git GIT_WORK_TREE=../b; git commit -m x'
+shellcd_case claude secret U2 'GIT_DIR=~/.git git commit -m x'
+shellcd_case codex secret U0 'GIT_DIR=../b/.git env -u GIT_DIR git commit -m x'
 
 # The push gate follows the cd too. Nothing is committed, so the verdict is
 # checked against the same command with git -C, which the gate already follows.
@@ -10800,6 +11204,154 @@ else
   not_ok "#303 post-tool keeps the version handle and masks a secret in the same response"
   sed 's/^/  out: /' "$OUT"
 fi
+
+# A secret-bearing key with a boolean or null value is a config flag, not a
+# credential. Masking `true`/`false` also made the literal global, so the same
+# word vanished from unrelated prose in the response, and the prompt guard
+# blocked a prompt that merely described such a config. A pagination cursor
+# under a page-token key is opaque by design and has to be echoed back
+# verbatim; masking it broke every page after the first. Keys are assembled at
+# runtime so the repository's own scan does not read these as assignments.
+BOOL_AT=$(printf '%s%s' api _token)
+BOOL_PW=$(printf '%s%s' pass word)
+BOOL_NPT=$(printf '%s%s' nextPage Token)
+BOOL_SNAKE_NPT=$(printf '%s%s' next_page _token)
+BOOL_PT=$(printf '%s%s' page Token)
+BOOL_PAGE_SNAKE=$(printf '%s%s' page _token)
+BOOL_PAGE_ENV=$(printf '%s%s' PAGE _TOKEN)
+BOOL_FB_PAGE=$(printf '%s%s' FB_PAGE _TOKEN)
+BOOL_FB_CAMEL=$(printf '%s%s' fbPage Token)
+BOOL_SECRET=$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')
+BOOL_CURSOR=$(printf 'Ci%sQAhgB' "$BOOL_SECRET")
+BOOL_GHP=$(printf '%s%s' ghp_ "$BOOL_SECRET")
+BOOL_JWT=$(printf '%s.%s.%s' eyJhbGciOiJIUzI1NiJ9 eyJzdWIiOiIxMjM0NTY3ODkwIn0 "$BOOL_SECRET")
+bool_yaml=$(printf '%s: true\nfail_open: false\npii_filter: true\n%s: false\n' \
+  "$BOOL_AT" "$BOOL_PW")
+for bool_host in claude codex; do
+  bool_input=$(jq -nc --arg t "$bool_yaml" \
+    '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$t,stderr:"",interrupted:false,isImage:false}}')
+  printf '%s' "$bool_input" \
+    | (cd "$TMP_ROOT" && AGENT_GUARD_HOOK_HOST=$bool_host \
+        "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool) >"$OUT" 2>"$ERR"
+  if [ "$?" -eq 0 ] && [ ! -s "$OUT" ]; then
+    ok "post-tool leaves boolean values under secret keys visible ($bool_host)"
+  else
+    not_ok "post-tool leaves boolean values under secret keys visible ($bool_host)"
+    sed 's/^/  out: /' "$OUT"
+  fi
+
+  bool_input=$(jq -nc --arg t "$BOOL_AT: false
+
+Likely false, because the flag is off." \
+    '{tool_name:"Agent",tool_input:{},tool_response:{content:[{type:"text",text:$t}]}}')
+  printf '%s' "$bool_input" \
+    | (cd "$TMP_ROOT" && AGENT_GUARD_HOOK_HOST=$bool_host \
+        "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool) >"$OUT" 2>"$ERR"
+  if [ "$?" -eq 0 ] && [ ! -s "$OUT" ]; then
+    ok "post-tool keeps a boolean word in prose next to a boolean flag ($bool_host)"
+  else
+    not_ok "post-tool keeps a boolean word in prose next to a boolean flag ($bool_host)"
+    sed 's/^/  out: /' "$OUT"
+  fi
+
+  for bool_page in "{\"issues\":[],\"$BOOL_NPT\":\"$BOOL_CURSOR\",\"isLast\":false}" \
+                   "{\"$BOOL_SNAKE_NPT\": \"$BOOL_CURSOR\"}" \
+                   "$BOOL_SNAKE_NPT: $BOOL_CURSOR" \
+                   "{\"$BOOL_PT\":\"$BOOL_CURSOR\"}" \
+                   "$BOOL_PAGE_SNAKE: $BOOL_CURSOR"; do
+    bool_input=$(jq -nc --arg t "$bool_page" \
+      '{tool_name:"mcp__example__search",tool_input:{},tool_response:{content:[{type:"text",text:$t}]}}')
+    printf '%s' "$bool_input" \
+      | (cd "$TMP_ROOT" && AGENT_GUARD_HOOK_HOST=$bool_host \
+          "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool) >"$OUT" 2>"$ERR"
+    if [ "$?" -eq 0 ] && [ ! -s "$OUT" ]; then
+      ok "post-tool leaves a pagination cursor visible ($bool_host)"
+    else
+      not_ok "post-tool leaves a pagination cursor visible ($bool_host)"
+      sed 's/^/  out: /' "$OUT"
+    fi
+  done
+
+  # The short-value floor counts characters: a two-character word in a
+  # multibyte script is six bytes, so it used to clear the floor and become a
+  # global literal that masked the same word across a whole document.
+  bool_input=$(jq -nc --arg t "# notes
+API token = 認証 は一つにする
+次の 認証 フローも同じ" \
+    '{tool_name:"Read",tool_input:{file_path:"/tmp/notes.md"},tool_response:{type:"text",file:{filePath:"/tmp/notes.md",content:$t}}}')
+  printf '%s' "$bool_input" \
+    | (cd "$TMP_ROOT" && AGENT_GUARD_HOOK_HOST=$bool_host \
+        "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool) >"$OUT" 2>"$ERR"
+  if [ "$?" -eq 0 ] && [ ! -s "$OUT" ]; then
+    ok "post-tool leaves a short multibyte word after a secret key visible ($bool_host)"
+  else
+    not_ok "post-tool leaves a short multibyte word after a secret key visible ($bool_host)"
+    sed 's/^/  out: /' "$OUT"
+  fi
+
+  run_expect 0 "prompt guard allows a prompt describing boolean config keys ($bool_host)" \
+    prompt_guard_case "$bool_host" '' '' "$(jq -nc --arg p \
+      "keys like '$BOOL_AT: true' and 'fail_open: false' showed the marker; the $BOOL_NPT: [REDACTED] field too" \
+      '{prompt:$p}')"
+done
+
+if [ -n "$REAL_GITLEAKS" ]; then
+  BOOL_GL_DIR="$TESTTMP/page-cursor-gitleaks"
+  mkdir -p "$BOOL_GL_DIR"
+  bool_gl_case() { # $1 expected status, $2 label, $3 file content
+    printf '%s\n' "$3" >"$BOOL_GL_DIR/response.json"
+    PATH="$(dirname "$REAL_GITLEAKS"):$ORIGINAL_PATH" "$PLUGIN_ROOT/bin/agent-guard" \
+      scan-path "$BOOL_GL_DIR" >"$OUT" 2>"$ERR"
+    bool_gl_status=$?
+    if [ "$bool_gl_status" -eq "$1" ]; then
+      ok "real gitleaks: $2"
+    else
+      not_ok "real gitleaks: $2 (expected $1, got $bool_gl_status)"
+      sed 's/^/  stderr: /' "$ERR"
+    fi
+  }
+  bool_gl_case 0 "a pagination cursor under a page-token key is clean" \
+    "{\"$BOOL_NPT\":\"$BOOL_CURSOR\",\"isLast\":false}"
+  bool_gl_case 1 "the same value under a secret key is still found" \
+    "{\"$BOOL_AT\":\"$BOOL_CURSOR\"}"
+  bool_gl_case 1 "a vendor-shaped token under a page-token key is still found" \
+    "{\"$BOOL_NPT\":\"$(printf '%s' "$BOOL_GHP$BOOL_SECRET" | cut -c1-40)\"}"
+  bool_gl_case 1 "a page access token key is still found (env form)" \
+    "$BOOL_PAGE_ENV=$BOOL_CURSOR"
+  bool_gl_case 1 "a prefixed page access token key is still found" \
+    "{\"$BOOL_FB_PAGE\":\"$BOOL_CURSOR\"}"
+fi
+
+bool_case=0
+for bool_text in \
+  "$BOOL_AT: $BOOL_SECRET" \
+  "$BOOL_AT: trueX1$BOOL_SECRET" \
+  "$BOOL_AT: $BOOL_CURSOR" \
+  "{\"${BOOL_NPT}_id\":\"$BOOL_SECRET\"}" \
+  "$BOOL_PW: \"$BOOL_SECRET\"" \
+  "$BOOL_AT=$BOOL_GHP" \
+  "$BOOL_AT: $BOOL_JWT" \
+  "$BOOL_PW = 合言葉は$BOOL_SECRET" \
+  "$BOOL_PAGE_ENV=$BOOL_SECRET" \
+  "$BOOL_PAGE_ENV: $BOOL_SECRET" \
+  "$BOOL_FB_PAGE=$BOOL_SECRET" \
+  "{\"$BOOL_FB_PAGE\":\"$BOOL_SECRET\"}" \
+  "{\"$BOOL_FB_CAMEL\":\"$BOOL_SECRET\"}" \
+  "home$BOOL_PAGE_SNAKE: $BOOL_SECRET" \
+  "$BOOL_PAGE_SNAKE=$BOOL_SECRET"; do
+  bool_case=$((bool_case + 1))
+  bool_input=$(jq -nc --arg t "$bool_text" \
+    '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$t,stderr:"",interrupted:false,isImage:false}}')
+  post_tool_out "$bool_input"
+  if grep -q '\[REDACTED\]' "$OUT" && ! grep -Fq "$BOOL_SECRET" "$OUT"; then
+    ok "post-tool still masks a real value under a secret key (case $bool_case)"
+  else
+    not_ok "post-tool still masks a real value under a secret key (case $bool_case)"
+    sed 's/^/  out: /' "$OUT"
+  fi
+  run_expect 2 "prompt guard still blocks a real value under a secret key (case $bool_case)" \
+    prompt_guard_case claude '' '' "$(jq -nc --arg p "$bool_text" '{prompt:$p}')"
+done
 
 # Display redaction replaces only the assignment value token. Text after it is
 # preserved, metadata keys with secret-ish prefixes are not values, and a prose

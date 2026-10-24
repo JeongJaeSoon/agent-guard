@@ -7,7 +7,8 @@
           {
             "type": "command",
             "command": "/absolute/path/to/agent-guard/plugins/agent-guard/bin/agent-guard hook-pre-tool",
-            "timeout": 10
+            "timeout": 60,
+            "onFailure": "block"
           }
         ]
       }

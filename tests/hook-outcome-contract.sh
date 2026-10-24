@@ -186,6 +186,32 @@ JSON
         not_ok "$host open warning survives an unwritable marker ($attempt, status $status)"
       fi
     done
+
+    # Several scans failing in one run must still leave one JSON object on
+    # stdout: Claude's PreToolUse onFailure "block" treats unparseable output
+    # as a failure and would block an open-mode allow.
+    failing_scanner="$CASE_ROOT/failing-gitleaks"
+    printf '#!/bin/sh\n[ "${1:-}" = version ] && exec "%s" "$@"\nexit 3\n' \
+      "$MOCK_GITLEAKS" >"$failing_scanner"
+    chmod +x "$failing_scanner"
+    repo="$CASE_ROOT/multi-failure-repo-$host"
+    git init -q "$repo"
+    printf 'x\n' >"$repo/a.txt"
+    git -C "$repo" add a.txt
+    (cd "$repo" && AGENT_GUARD_WARNING_DIR="$readonly_dir" AGENT_GUARD_HOOK_HOST="$host" \
+      AGENT_GUARD_INFRA_FAILURE_MODE=open \
+      AGENT_GUARD_GITLEAKS_BIN="$failing_scanner" "$GUARD" hook-pre-tool \
+      >"$CASE_ROOT/out" 2>"$CASE_ROOT/err") <<JSON
+{"session_id":"outcome-multi","cwd":"$repo","tool_name":"Bash","tool_input":{"command":"git commit -m x"}}
+JSON
+    status=$?
+    warnings=$(grep -c 'AGENT_GUARD_INFRA_FAILURE_MODE=open' "$CASE_ROOT/err")
+    objects=$(jq -s length "$CASE_ROOT/out" 2>/dev/null) || objects=invalid
+    if [ "$status" -eq 0 ] && [ "$warnings" -ge 2 ] && [ "$objects" = 1 ]; then
+      ok "$host open mode writes one JSON object when several scans fail"
+    else
+      not_ok "$host open mode writes one JSON object when several scans fail (status $status, warnings $warnings, objects $objects)"
+    fi
     chmod 0700 "$readonly_dir"
   fi
 
