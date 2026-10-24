@@ -98,7 +98,7 @@ replacement for the existing cross-platform integration suite.
 ## Recorded eight-function observation (2026-10-20)
 
 The historical 4/4 above is unchanged. This separate observation runs the four
-current direct suites (35 + 18 + 83 + 4 = **140 assertions**) using installed
+measured direct suites (35 + 18 + 83 + 4 = **140 assertions**) using installed
 `/bin/bash` 3.2.57 on macOS arm64. The exact production source SHA256 is
 `09d4b111f99998567cab969837037310fc70259220c0927d4fbe611f1cfb4380`.
 
@@ -157,3 +157,6 @@ branch/condition coverage**. Normal POSIX-sh tests and Linux/macOS integration
 remain separate. This is neither whole-function semantic coverage nor a claim
 of 100% whole-file or repository coverage; instrumented runtime is not a cost
 baseline.
+
+The later status-label direct suite is outside this recorded observation. Its
+22 assertions do not change the fixed 40-location denominator or this result.
