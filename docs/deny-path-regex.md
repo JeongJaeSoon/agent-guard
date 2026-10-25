@@ -17,8 +17,10 @@ are unchanged. CI partitions, OS coverage and runner topology are unchanged.
 ASCII hex table, unsupported-input reset/status behavior, literal character
 and pin patterns, Unicode/newline/empty cases, no stdout/stderr and caller
 variable preservation. `make test-unit` runs these alongside the existing
-35 core and 18 framing assertions. Full CLI tests remain necessary: private
+35 core, 18 framing and 4 probe assertions (**140 direct assertions** total). Full CLI tests remain necessary: private
 producer contracts do not prove path policy or OS behavior by themselves.
+
+## Historical construction measurement
 
 A cloud Linux microbenchmark alternated three runs of the parent and candidate
 under the same `sh`, compiling every default shell-expanded deny-path regex.
@@ -29,3 +31,13 @@ This measures regex construction, not whole-hook or CI speedup. The combined
 GitHub macOS/Linux CI and repeated whole-workflow measurements are required
 before claiming the CI wall-time target is met. See the PR for exact-head
 validation and independent differential/mutation evidence.
+
+## Current validation scope
+
+The historical 136 count above predates the four probe assertions and is retained
+with its original measurement. Current entry points, costs and integration
+regressions are listed in [testing.md](testing.md). The selected Bash observation
+in [coverage-core.md](coverage-core.md) measures physical shell locations in the
+three character helpers, not regex semantics, complete case-arm coverage or
+filesystem policy enforcement. In particular, multiple hex cases share a
+physical source line. Full deny-read-mask CLI/OS contracts remain necessary.
