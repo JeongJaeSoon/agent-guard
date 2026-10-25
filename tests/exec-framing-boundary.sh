@@ -86,6 +86,7 @@ check() {
   injected=$mode
   [ "$mode" != normal ] || injected=
   if [ "$status" -eq 7 ] && cmp -s "$CASE/expected" "$CASE/out" \
+    && ! LC_ALL=C grep -Fq "boundary-synthetic-value" "$CASE/err" \
     && [ "$(cat "$BOUNDARY_CALLS")" = "$expected_calls" ] \
     && [ "$(cat "$BOUNDARY_INJECTIONS")" = "$injected" ]; then
     pass=$((pass+1))
