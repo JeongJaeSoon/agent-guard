@@ -175,6 +175,34 @@
     "command": "jq .k* a.json"
   },
   {
+    "id": "jq-brace-expanded-operand",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "brace expansion that repeats the filter as a file operand remains blocked",
+    "command": "jq .key{,}"
+  },
+  {
+    "id": "jq-quoted-brace-expanded-operand",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "brace expansion after a quoted filter remains blocked",
+    "command": "jq '.env'{,.json}"
+  },
+  {
+    "id": "jq-import-data-path",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a jq import names a data file to read, so the string remains checked",
+    "command": "jq -n -L . 'import \".env\" as $x; $x'"
+  },
+  {
+    "id": "jq-include-module-path",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a jq include names a module file to read, so the string remains checked",
+    "command": "jq -n -L . 'include \".env\"; .'"
+  },
+  {
     "id": "jq-env-member",
     "expected_status": 2,
     "classification": "must-block",

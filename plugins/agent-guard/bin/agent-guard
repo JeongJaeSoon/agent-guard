@@ -4759,12 +4759,22 @@ bash_strip_source_module_prose() (
 )
 
 # Print $1, a jq filter, with the names of the field chains rooted at `.`
-# removed: `.data.key` becomes `.`. `env.X`, `$x.y` and `"a.key"` keep theirs.
+# removed: `.data.key` becomes `.`. `env.X` and `$x.y` keep theirs, and so do
+# strings (an import or include path names a file jq reads) and a comment.
 jq_filter_without_field_names() {
   JQ_FILTER=$1 LC_ALL=C awk 'BEGIN {
     s = ENVIRON["JQ_FILTER"]; out = ""; n = length(s); chain = 0
     for (i = 1; i <= n; i++) {
       c = substr(s, i, 1)
+      if (c == "#") { out = out substr(s, i); break }
+      if (c == "\"") {
+        for (j = i + 1; j <= n && substr(s, j, 1) != "\""; j++)
+          if (substr(s, j, 1) == "\\") j++
+        out = out substr(s, i, j - i + 1)
+        i = j
+        chain = 0
+        continue
+      }
       if (c == "." && substr(s, i + 1, 1) ~ /[A-Za-z_]/ \
           && (chain || i == 1 || substr(s, i - 1, 1) !~ /[A-Za-z0-9_$.]/)) {
         if (!chain) out = out "."
@@ -4848,6 +4858,14 @@ bash_neutralize_jq_field_names() (
     jq_prev=$jq_rec
     case "$jq_rec" in
       0eval|0trap|0function) jq_bail ;;
+      # Inside jq's arguments a brace is brace expansion (`.key{,}` is the
+      # filter and a file) and a `(` a glob qualifier or a syntax error; a
+      # group or subshell can only open at a command start.
+      3'{'|3'}'|3'(')
+        case "$jq_state" in opt|operand|after) jq_seg_bad=1 ;; esac
+        jq_end_segment
+        continue
+        ;;
       0';'|0'&&'|0'||'|0'|'|3*) jq_end_segment; continue ;;
       0*) ;;
       4*) [ "$jq_state" = opt ] && [ "$jq_need" -gt 0 ] || jq_bail ;;

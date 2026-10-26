@@ -156,6 +156,9 @@ $x.key	$x.key
 "server.key"	"server.key"
 ..key	..key
 .	.
+import ".env" as $x; $x.key	import ".env" as $x; $x.key
+"\(.key) \"q\" .key" | .key	"\(.key) \"q\" .key" | .
+.a # "x" .key	. # "x" .key
 CASES
 printf 'passed: %s\nfailed: %s\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
