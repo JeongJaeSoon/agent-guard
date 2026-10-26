@@ -4840,16 +4840,26 @@ shell_command_words() {
 # they make the affected token dynamic and therefore subject to infra policy.
 # Comments are dropped. A here-document body is still tokenized, since it may
 # be code for another shell, but is wrapped in `3(` and `3)`: nothing in it
-# runs in this shell.
+# runs in this shell. With tilde, a body behind a quoted delimiter that cat,
+# tee or python reads, and nothing else on the line can, is wrapped in `3[`
+# and `3]` instead: this shell expands nothing in it, and none of them runs it
+# as shell code. Python code is outside the gate already, as `python3 -c` and
+# `python3 script.py` are. git_gate_records decides what such a body is.
 git_command_records() {
   printf '%s\n' "$1" | LC_ALL=C awk -v tilde="${2:-}" '
     BEGIN { heredoc_next = 1 }
+    # A pipe, a subshell or a background job on the line may hand a
+    # here-document to a shell after all.
+    function stdin_shared(  h) {
+      for (h = line_heredocs + 1; h <= heredoc_count; h++) heredoc_inert[h] = 0
+    }
     function emit() {
       if (!started) return
       if (heredoc_expect) {
         delim = substr(word, heredoc_mark + 1)
         heredoc_mark = 0
         if (delim != "" || heredoc_quoted) {
+          heredoc_inert[heredoc_count + 1] = tilde != "" && heredoc_quoted && head ~ /^(cat|tee|python|python3)$/
           heredoc_quoted = 0
           heredoc_delim[++heredoc_count] = delim
           heredoc_strip[heredoc_count] = heredoc_dash
@@ -4859,6 +4869,7 @@ git_command_records() {
       if (tilde != "" && !at_word && name_quoted && word ~ /^[A-Za-z_][A-Za-z0-9_]*=/) print (splits || globbed ? "6" : "5") word
       else print (splits ? "1" : dynamic || word ~ /^(;|&&|\|\||\|)$/ || tilde != "" && cd_args && quoted && word ~ /^~/ ? "4" : "0") word
       if (code != "") { print "7" code; code = "" }
+      if (!at_word && (word !~ /^[A-Za-z_][A-Za-z0-9_]*=/ || name_quoted)) head = dynamic || splits || quoted ? "" : word
       if (!at_word && (word == "cd" || word == "pushd")) cd_args = 1
       if (word !~ /^[A-Za-z_][A-Za-z0-9_]*=/ || name_quoted) at_word = 1
       if (word == "[[") in_test = 1
@@ -4866,9 +4877,10 @@ git_command_records() {
       word = ""; started = 0; dynamic = 0; splits = 0; quoted = 0; slashed = 0; name_quoted = 0; equaled = 0; globbed = 0
     }
     NR > 1 {
-      if (quote == "") { emit(); print "0;"; cd_args = 0; at_word = 0 }
-      else { word = word (tilde != "" && quote == "double" ? "\034" : " "); dynamic = 1 }
+      if (quote == "") { emit(); print "0;"; cd_args = 0; at_word = 0; head = "" }
+      else { stdin_shared(); word = word (tilde != "" && quote == "double" ? "\034" : " "); dynamic = 1 }
       heredoc_expect = 0; heredoc_quoted = 0
+      line_heredocs = heredoc_count
     }
     nest_hd != "" && NR > nest_hd_line {
       line = $0
@@ -4881,11 +4893,11 @@ git_command_records() {
       line = $0
       if (heredoc_strip[heredoc_next]) sub(/^\t+/, "", line)
       if (line != heredoc_delim[heredoc_next]) {
-        if (!heredoc_open) { print "3("; heredoc_open = 1 }
+        if (!heredoc_open) { print heredoc_inert[heredoc_next] ? "3[" : "3("; heredoc_open = 1 }
       } else {
         if (quote != "") { quote = ""; dynamic = 1; splits = 1 }
         emit()
-        if (heredoc_open) { print "3)"; heredoc_open = 0 }
+        if (heredoc_open) { print heredoc_inert[heredoc_next] ? "3]" : "3)"; heredoc_open = 0 }
         heredoc_next++
         next
       }
@@ -4971,7 +4983,9 @@ git_command_records() {
           quote = c == "\047" ? "single" : "double"; started = 1; if (!slashed) quoted = 1; if (!equaled) name_quoted = 1; continue
         }
         if (c == "\\") {
-          if (i == length($0)) { dynamic = 1; splits = 1; started = 1; continue }
+          # The command goes on past the line the body seems to start on.
+          if (i == length($0)) { stdin_shared(); dynamic = 1; splits = 1; started = 1; continue }
+          if (heredoc_expect) heredoc_quoted = 1
           word = word n; started = 1; if (!slashed) quoted = 1; if (!equaled) name_quoted = 1; i++; continue
         }
         if (c == "<" && n == "<" && !in_heredoc) {
@@ -4984,9 +4998,10 @@ git_command_records() {
         }
         if (c == ";" || c == "|" || (c == "&" && n == "&")) {
           emit()
+          if (c == "|" && n != "|") stdin_shared()
           if ((c == "|" || c == "&") && n == c) { print "0" c c; i++ }
           else print "0" c
-          cd_args = 0; at_word = 0
+          cd_args = 0; at_word = 0; head = ""
           continue
         }
         # Bare &, newline-free ( ) { } grouping: treat as a command boundary so
@@ -4997,7 +5012,9 @@ git_command_records() {
           # group in a `[[ =~ ]]` pattern do not.
           if (c == "(") parens = parens (started || in_test ? "w" : "s")
           if (c == ")") { closed = substr(parens, length(parens)); parens = substr(parens, 1, length(parens) - 1) }
-          emit(); print "3" c; cd_args = 0; at_word = 0; continue
+          emit()
+          if (c == "(" || c == ")" || c == "&" && substr($0, i - 1, 1) !~ /[<>]/) stdin_shared()
+          print "3" c; cd_args = 0; at_word = 0; head = ""; continue
         }
         if (c == "$" || c == "`") { dynamic = 1; splits = 1 }
         if (c == "/") slashed = 1
@@ -5020,6 +5037,50 @@ git_command_records() {
 # run time knows.
 git_gate_records() (
   set -f
+  gate_records=$(git_gate_code_records "$1")
+  case "$gate_records" in
+    *'
+3['*) ;;
+    *)
+      printf '%s\n' "$gate_records"
+      exit 0
+      ;;
+  esac
+  # A here-document body in `3[` and `3]` is text unless a command of the
+  # line may run what it wrote: a shell, a wrapper, a path or a name only run
+  # time knows. Code a shell or a git alias runs (gate_child_code) may follow
+  # a script the outer line wrote.
+  printf '%s\n' "$gate_records" | LC_ALL=C awk -v runner="${gate_child_code:-0}" '
+    { rec[++n] = $0 }
+    END {
+      head = 1
+      for (k = 1; k <= n && runner == 0; k++) {
+        r = rec[k]; kind = substr(r, 1, 1); t = substr(r, 2)
+        if (r == "3[") { body++; continue }
+        if (r == "3]") { body--; continue }
+        if (body) continue
+        if (r == "0;" || r == "0&&" || r == "0||" || r == "0|" || kind == "3") { head = 1; continue }
+        if (!head || kind ~ /[014]/ && t ~ /^[A-Za-z_][A-Za-z0-9_]*=/) continue
+        head = 0
+        b = t; sub(/.*\//, "", b)
+        if (kind != "0" || t ~ /\// || b ~ /^(sh|bash|dash|zsh|ksh|mksh|ash|yash|posh|csh|tcsh|fish|eval|source|\.|exec|coproc|trap|alias|env|command|builtin|sudo|doas|su|nice|nohup|time|timeout|xargs|watch|script|parallel)$/) runner = 1
+      }
+      body = 0
+      for (k = 1; k <= n; k++) {
+        r = rec[k]
+        if (runner && r == "3[") r = "3("
+        else if (runner && r == "3]") r = "3)"
+        else if (r == "3[") { body++; continue }
+        else if (r == "3]") { body--; continue }
+        if (!body) print r
+      }
+    }'
+)
+
+# git_gate_records without its here-document decision, which needs the whole
+# line.
+git_gate_code_records() (
+  set -f
   gate_records=$(git_command_records "$1" tilde)
   case "$gate_records" in
     7*|*'
@@ -5040,7 +5101,7 @@ git_gate_records() (
   gate_prev=
   gate_flush() {
     if [ -n "$gate_code" ]; then
-      gate_sub=$(git_gate_records "$gate_code")
+      gate_sub=$(git_gate_code_records "$gate_code")
       if printf '%s\n' "$gate_sub" \
         | LC_ALL=C awk '$0 == "2" { exit 1 } $0 == "3(" { d++ } $0 == "3)" && --d < 0 { exit 1 } END { if (d) exit 1 }'; then
         printf '%s\n' "$gate_sub"
@@ -5062,7 +5123,7 @@ git_gate_records() (
 "
         continue
         ;;
-      0';'|0'&&'|0'||'|0'|'|3'('|3')') gate_end=1 ;;
+      0';'|0'&&'|0'||'|0'|'|3'('|3')'|3'['|3']') gate_end=1 ;;
       # Not the `&` of `2>&1` or `&>log`.
       3'&')
         case "$gate_prev:${1-}" in
@@ -5818,6 +5879,9 @@ shell_command_code() {
 # name given to declare, read or printf, or a command name only run time
 # knows; eval, source, trap and IFS, which can do any of that unseen; or git
 # and the shells, whose code may read NAME in a child that lacks it.
+# "A<TAB>NAME<TAB>VALUE": the same for a VALUE that is one plain word, except
+# that git may run and $NAME may be glued to text other than a brace: an
+# unquoted $NAME git argument in this shell is that word.
 git_gate_command_vars() {
   printf '%s\n' "$2" | GGCV_CMD=$1 LC_ALL=C awk '
     function base(t) { sub(/.*\//, "", t); return t }
@@ -5830,6 +5894,16 @@ git_gate_command_vars() {
       a = substr(cmd, e, 1)
       if (a == "\"") a = substr(cmd, e + 1, 1)
       return delim(b) && delim(a)
+    }
+    # Of those neighbours, only a brace or an open paren makes the word from s
+    # to e - 1 part of another one: the records keep every other glued text
+    # in the same word.
+    function braced(s, e,   b, a) {
+      b = s > 1 ? substr(cmd, s - 1, 1) : ""
+      if (b == "\"") b = s > 2 ? substr(cmd, s - 2, 1) : ""
+      a = substr(cmd, e, 1)
+      if (a == "\"") a = substr(cmd, e + 1, 1)
+      return b ~ /[{}(]/ || a ~ /[{}(]/
     }
     { rec[++n] = $0 }
     END {
@@ -5858,11 +5932,14 @@ git_gate_command_vars() {
           if (p1 == "$") {
             used[name] = 1
             if (!apart(i - 1, j)) glued[name] = 1
+            if (braced(i - 1, j)) joined[name] = 1
           } else if (p1 == "{" && i > 2 && substr(cmd, i - 2, 1) == "$") {
             used[name] = 1
             if (substr(cmd, j, 1) != "}") tainted[name] = 1
             else if (!apart(i - 2, j + 1)) glued[name] = 1
           } else if (substr(cmd, j, 1) == "=" && (i == 1 || p1 ~ /[ \t\n;]/)) assigned[name]++
+          # An option word like `-C` or `+D` names no variable.
+          else if (p1 ~ /[-+]/ && (i == 2 || delim(substr(cmd, i - 2, 1))) && delim(substr(cmd, j, 1))) optword[name] = 1
           else tainted[name] = 1
         }
         i = j
@@ -5887,7 +5964,10 @@ git_gate_command_vars() {
           continue
         }
         if (kind == "2" || kind == "5" || kind == "6") abort = 1
-        if (kind == "0" && tolower(base(t)) ~ (varhead ? external : unseen)) abort = 1
+        if (kind == "0" && tolower(base(t)) ~ (varhead ? external : unseen)) {
+          if (tolower(base(t)) == "git") gitrun = 1
+          else abort = 1
+        }
         if (namer != "") {
           if (kind != "0") {
             if (!(namer ~ /^(declare|typeset|local|export|readonly)$/ && t ~ /^[A-Za-z_][A-Za-z0-9_]*=/) \
@@ -5929,8 +6009,10 @@ git_gate_command_vars() {
       }
 
       for (nm in cand) {
-        if (arec[nm] != 1 || assigned[nm] != 1 || tainted[nm] || glued[nm] || toupper(nm) ~ shellset) continue
+        if (arec[nm] != 1 || assigned[nm] != 1 || tainted[nm] || toupper(nm) ~ shellset) continue
         nw = split(cand[nm], w, /[ \t]+/)
+        if (nw == 1 && !joined[nm] && w[1] ~ /^[A-Za-z0-9_.\/:,@%+-][A-Za-z0-9_.\/:=,@%+-]*$/) plain[nm] = cand[nm]
+        if (glued[nm] || optword[nm]) continue
         # A case-insensitive file system runs GIT as git; zsh expands =git.
         ok = nw > 0 && tolower(base(w[1])) !~ special
         for (m = 1; m <= nw; m++)
@@ -5940,7 +6022,8 @@ git_gate_command_vars() {
       # A command name that resolves to nothing known may be declare or read.
       for (nm in heads) if (!(nm in resolved)) abort = 1
       for (nm in used) if (!glued[nm]) printf "S\t%s\n", nm
-      if (!abort) for (nm in resolved) printf "R\t%s\t%s\n", nm, resolved[nm]
+      if (!abort && !gitrun) for (nm in resolved) printf "R\t%s\t%s\n", nm, resolved[nm]
+      if (!abort) for (nm in plain) printf "A\t%s\t%s\n", nm, plain[nm]
     }
   '
 }
@@ -5981,6 +6064,8 @@ is_git_commit_or_push() {
   (
     set -f
     words=$(git_gate_records "$cmd")
+    # Every later git_gate_records call reads code a shell or a git alias runs.
+    gate_child_code=1
     old_ifs=$IFS
     IFS='
 '
@@ -5998,6 +6083,10 @@ is_git_commit_or_push() {
     esac
     # The resolvable variables whose assignment the scan has passed.
     git_vars_set=' '
+    # The same for one-word git arguments (A), read only in this shell's own
+    # code: code for a shell or a git alias runs in a child that lacks them.
+    git_args_set=' '
+    git_child_code=0
     # The git command at hand stands for a command name only run time knows.
     git_head_unknown=0
     git_head_stdin=0
@@ -6214,6 +6303,23 @@ ${2#?}
         *) git_config_dynamic=1 ;;
       esac
     }
+    # Set git_arg to record $1, or to the literal an unquoted $NAME in it
+    # stands for.
+    git_arg_record() {
+      git_arg=$1
+      case "$git_child_code$git_arg" in
+        01'$'*) ;;
+        *) return 0 ;;
+      esac
+      case "${git_arg#??}" in
+        ''|*[!A-Za-z0-9_]*) return 0 ;;
+      esac
+      case "$git_args_set" in
+        *" ${git_arg#??} "*)
+          git_arg=0$(printf '%s\n' "$git_command_vars" | sed -n "s/^A	${git_arg#??}	//p")
+          ;;
+      esac
+    }
     # Print what git expands subcommand $1 to, with the status of
     # git_alias_lookup; one that only run time knows fails with 2, unless git
     # runs an external command by that name instead.
@@ -6246,6 +6352,9 @@ $effective_c_dirs" "$git_config_args" "$git_env_args"
         if [ "$record_kind" != 5 ] && [ "$record_kind" != 6 ] && is_assignment_token "$token"; then
           case "$record_kind$git_command_vars" in
             0*"R	${token%%=*}	"*) git_vars_set="$git_vars_set${token%%=*} " ;;
+          esac
+          case "$record_kind$git_command_vars" in
+            0*"A	${token%%=*}	"*) git_args_set="$git_args_set${token%%=*} " ;;
           esac
           git_env_assignment "$record"
           shift
@@ -6439,6 +6548,7 @@ $shell_cd_dir"
                 # An assignment before eval may outlast it.
                 [ -z "$git_env_args" ] && [ "$git_env_dynamic" -eq 0 ] || git_env_changed=1
                 [ -z "$git_target_args" ] && [ "$git_target_dynamic" -eq 0 ] || git_target_changed=1
+                git_child_code=1
                 IFS='
 '
                 if [ "${token##*/}" = eval ]; then
@@ -6526,6 +6636,7 @@ $shell_cd_dir"
                     matched=0
                     break
                   fi
+                  git_child_code=1
                   IFS='
 '
                   # shellcheck disable=SC2086
@@ -6562,7 +6673,8 @@ $shell_cd_dir"
           git_alias_depth=0
           [ "$shell_cd_mutable" -eq 0 ] || git_config_mutable=1
           while [ "$#" -gt 0 ]; do
-            record=$1
+            git_arg_record "$1"
+            record=$git_arg
             token=${record#?}
             # `git --version && cd x` still reaches the cd.
             case "$record" in
@@ -6583,6 +6695,9 @@ $shell_cd_dir"
             # unknown directory. A long option's quoted value is one word.
             if git_option_takes_value "$token"; then
               [ "$#" -gt 0 ] || continue
+              git_arg_record "$1"
+              shift
+              set -- "$git_arg" "$@"
               [ "$token" = -C ] && append_effective_c_dir "$1"
               git_value=$1
               shift
@@ -6683,6 +6798,7 @@ $shell_cd_dir"
                   0)
                     if [ "$git_alias_depth" -lt 10 ]; then
                       git_alias_depth=$((git_alias_depth + 1))
+                      git_child_code=1
                       IFS='
 '
                       # shellcheck disable=SC2086
