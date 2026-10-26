@@ -1,0 +1,184 @@
+[
+  {
+    "id": "jq-select-field-test",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a jq select over a field named like a protected extension is filter text",
+    "command": "jq -r '.[] | select(.key|test(\"^AG_\")) | .value' list.json"
+  },
+  {
+    "id": "jq-piped-object-construction",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "jq object construction from piped upload results is filter text",
+    "command": "gh api repos/o/r/releases/1/assets | jq -r '.[] | {name: .name, key: .key}'"
+  },
+  {
+    "id": "jq-nested-field-chain",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a nested jq field chain is filter text",
+    "command": "jq '.data.key' data.json"
+  },
+  {
+    "id": "jq-to-entries-key",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "jq to_entries key access is filter text",
+    "command": "jq -c 'to_entries[] | .key' data.json"
+  },
+  {
+    "id": "jq-bare-filter",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "an unquoted jq field filter without glob characters is filter text",
+    "command": "jq -r .key out.json"
+  },
+  {
+    "id": "jq-arg-option-before-filter",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a jq filter after a --arg name/value pair is still the filter",
+    "command": "jq --arg p AG_ -r '.[] | select(.key|startswith($p))' list.json"
+  },
+  {
+    "id": "jq-field-named-env",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a jq field named env is filter text, not a dotfile",
+    "command": "jq -r '.env' config.json"
+  },
+  {
+    "id": "jq-two-segments",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "each jq command in a chain has its own filter",
+    "command": "jq '.key' a.json && jq -c '.pem' b.json"
+  },
+  {
+    "id": "jq-file-operand",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a protected file operand of jq remains blocked",
+    "command": "jq . server.key"
+  },
+  {
+    "id": "jq-field-and-file-operand",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a protected file operand after a jq field filter remains blocked",
+    "command": "jq '.key' server.key"
+  },
+  {
+    "id": "jq-input-redirect",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a protected input redirect to jq remains blocked",
+    "command": "jq '.key' < server.key"
+  },
+  {
+    "id": "jq-output-redirect",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a protected output redirect from jq remains blocked",
+    "command": "jq '.key' a.json > out.key"
+  },
+  {
+    "id": "jq-after-cat",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a cat of a protected file piped into jq remains blocked",
+    "command": "cat server.key | jq '.key'"
+  },
+  {
+    "id": "jq-same-text-as-cat-operand",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a cat operand spelled like the jq filter remains blocked",
+    "command": "cat '.key'; jq \".key\" a.json"
+  },
+  {
+    "id": "jq-grep-operand",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a grep of a protected file beside a jq filter remains blocked",
+    "command": "jq -r '.key' a.json; grep x server.key"
+  },
+  {
+    "id": "jq-from-file-before",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "with -f the first jq operand is a file and remains blocked",
+    "command": "jq -f prog.jq .key"
+  },
+  {
+    "id": "jq-from-file-after",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a later -f makes the first jq operand a file and it remains blocked",
+    "command": "jq '.key' -f prog.jq"
+  },
+  {
+    "id": "jq-from-file-cluster",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "an -f inside a short-option cluster makes the operand a file",
+    "command": "jq -rf .key a.json"
+  },
+  {
+    "id": "jq-from-file-long",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "--from-file makes the first jq operand a file",
+    "command": "jq --from-file .key a.json"
+  },
+  {
+    "id": "jq-function-redefined",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a shell function named jq can read its operand, so it remains blocked",
+    "command": "jq() { cat \"$@\"; }; jq '.key'"
+  },
+  {
+    "id": "jq-alias-redefined",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "an alias named jq can read its operand, so it remains blocked",
+    "command": "alias jq=cat; jq '.key'"
+  },
+  {
+    "id": "jq-path-changed",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a changed PATH can select another jq, so it remains blocked",
+    "command": "PATH=./bin jq '.key'"
+  },
+  {
+    "id": "jq-after-source",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a sourced script can redefine jq, so it remains blocked",
+    "command": ". ./tools.sh; jq '.key'"
+  },
+  {
+    "id": "jq-dynamic-filter",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "an expansion before the operand can shift it, so it remains blocked",
+    "command": "jq $OPTS '.key'"
+  },
+  {
+    "id": "jq-unquoted-glob-filter",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "an unquoted globbed jq filter can expand into file operands",
+    "command": "jq .k* a.json"
+  },
+  {
+    "id": "jq-env-member",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a jq env member keeps its existing env.* match",
+    "command": "jq -n 'env.AWS_REGION'"
+  }
+]

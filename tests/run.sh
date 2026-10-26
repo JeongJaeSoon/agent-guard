@@ -1598,18 +1598,22 @@ expect_json_status 2 "ripgrep positive glob over a denied extension remains bloc
   '{"tool_name":"Bash","tool_input":{"command":"rg --files -g '\''*.pem'\''"}}' \
   hook-pre-tool
 
-# A star that stands for one entry character must come with a pinned letter.
-# Each case runs through both hosts' native event shapes.
-star_stand_in_fixtures="$ROOT/tests/fixtures/bash-star-stand-in.json"
+# A star that stands for one entry character must come with a pinned letter,
+# and a jq filter's field names are not file operands. Each case runs through
+# both hosts' native event shapes.
 star_stand_in_cases="$TESTTMP/bash-star-stand-in.cases"
 star_stand_in_dir="$TESTTMP/bash-star-stand-in"
 mkdir -p "$star_stand_in_dir"
-if jq -e 'type == "array" and length > 0' "$star_stand_in_fixtures" >/dev/null \
-  && jq -c '.[]' "$star_stand_in_fixtures" >"$star_stand_in_cases"; then
-  ok "star stand-in fixture corpus is valid and non-empty"
-else
-  not_ok "star stand-in fixture corpus is valid and non-empty"
-fi
+: >"$star_stand_in_cases"
+for star_stand_in_fixtures in "$ROOT/tests/fixtures/bash-star-stand-in.json" \
+  "$ROOT/tests/fixtures/bash-jq-field-names.json"; do
+  if jq -e 'type == "array" and length > 0' "$star_stand_in_fixtures" >/dev/null \
+    && jq -c '.[]' "$star_stand_in_fixtures" >>"$star_stand_in_cases"; then
+    ok "${star_stand_in_fixtures##*/} fixture corpus is valid and non-empty"
+  else
+    not_ok "${star_stand_in_fixtures##*/} fixture corpus is valid and non-empty"
+  fi
+done
 while IFS= read -r star_stand_in_fixture; do
   star_stand_in_expected=$(printf '%s' "$star_stand_in_fixture" | jq -r '.expected_status')
   star_stand_in_name=$(printf '%s' "$star_stand_in_fixture" \
