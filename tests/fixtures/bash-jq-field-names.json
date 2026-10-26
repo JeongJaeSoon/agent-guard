@@ -109,14 +109,14 @@
     "expected_status": 2,
     "classification": "must-block",
     "description": "with -f the first jq operand is a file and remains blocked",
-    "command": "jq -f prog.jq .key"
+    "command": "jq -f filter.txt .key"
   },
   {
     "id": "jq-from-file-after",
     "expected_status": 2,
     "classification": "must-block",
     "description": "a later -f makes the first jq operand a file and it remains blocked",
-    "command": "jq '.key' -f prog.jq"
+    "command": "jq '.key' -f filter.txt"
   },
   {
     "id": "jq-from-file-cluster",
@@ -201,6 +201,41 @@
     "classification": "must-block",
     "description": "a jq include names a module file to read, so the string remains checked",
     "command": "jq -n -L . 'include \".env\"; .'"
+  },
+  {
+    "id": "jq-stderr-redirect-then-from-file",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "an -f after a 2>&1 redirect still makes the first operand a file",
+    "command": "jq '.key' 2>&1 -f filter.txt"
+  },
+  {
+    "id": "jq-amp-redirect-then-from-file",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "an -f after an &> redirect still makes the first operand a file",
+    "command": "jq '.key' &>out.txt -f filter.txt"
+  },
+  {
+    "id": "jq-globbed-option-value",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a globbed option value can expand into extra words and shift the filter",
+    "command": "jq --arg x [01] '.key'"
+  },
+  {
+    "id": "jq-globbed-operand-after-filter",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a globbed operand can expand into an -f option",
+    "command": "jq '.key' *"
+  },
+  {
+    "id": "jq-stderr-redirect-after-operand",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a 2>&1 redirect after the jq operands keeps the filter",
+    "command": "jq -r '.key' a.json 2>&1"
   },
   {
     "id": "jq-env-member",

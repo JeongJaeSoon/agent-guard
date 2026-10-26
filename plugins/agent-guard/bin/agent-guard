@@ -4855,9 +4855,21 @@ bash_neutralize_jq_field_names() (
   for jq_rec in "$@"; do
     jq_i=$((jq_i + 1))
     case "$jq_prev:$jq_rec" in "3(:3)") jq_bail ;; esac
+    jq_before=$jq_prev
     jq_prev=$jq_rec
     case "$jq_rec" in
       0eval|0trap|0function) jq_bail ;;
+      # The `&` of `2>&1` keeps jq's arguments going, so a later -f is still
+      # seen. Any other `&` among them (`&>out`, a background job) may hide
+      # more arguments and keeps the command unchanged.
+      3'&')
+        case "$jq_state:$jq_before" in
+          after:*'>'|after:*'<') continue ;;
+          opt:*|operand:*|after:*) jq_seg_bad=1 ;;
+        esac
+        jq_end_segment
+        continue
+        ;;
       # Inside jq's arguments a brace is brace expansion (`.key{,}` is the
       # filter and a file) and a `(` a glob qualifier or a syntax error; a
       # group or subshell can only open at a command start.
@@ -4882,6 +4894,11 @@ bash_neutralize_jq_field_names() (
       continue
     fi
     case "$jq_word" in *jq*) jq_bail ;; esac
+    # Records drop quoting, so any glob character in an option value or a
+    # later operand may expand into several words, or into an -f option.
+    case "$jq_state:$jq_need:$jq_word" in
+      opt:[12]:*[\*?[]*|operand:[12]:*[\*?[]*|after:*[\*?[]*) jq_seg_bad=1 ;;
+    esac
     case "$jq_state" in
       opt|operand)
         if [ "$jq_need" -gt 0 ]; then
