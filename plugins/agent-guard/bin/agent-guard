@@ -4823,7 +4823,7 @@ bash_neutralize_jq_field_names() (
         single:*) jq_old="'$jq_filter'" jq_repl="'$jq_new'" ;;
         double:*\"*|double:*\\*|double:*'$'*|double:*'`'*) continue ;;
         double:*) jq_old="\"$jq_filter\"" jq_repl="\"$jq_new\"" ;;
-        bare:*[\'\"\\*?[~]*) continue ;;
+        bare:*[\'\"\\*?[~\<\>]*) continue ;;
         bare:*) jq_old=$jq_filter jq_repl=$jq_new ;;
       esac
       jq_candidate=$(JQ_CMD=$jq_cmd JQ_OLD=$jq_old JQ_REPL=$jq_repl LC_ALL=C awk 'BEGIN {
@@ -4884,6 +4884,11 @@ bash_neutralize_jq_field_names() (
       *) jq_bail ;;
     esac
     jq_word=${jq_rec#?}
+    # bash_command_sources_script sees `.` only at a plain command start, not
+    # after `then` or `do`; outside jq's own arguments refuse it anywhere.
+    case "$jq_state:$jq_word" in
+      start:.|start:source|other:.|other:source) jq_bail ;;
+    esac
     if [ "$jq_state" = start ]; then
       if [ "$jq_rec" = 0jq ]; then
         jq_state=opt jq_need=0 jq_seg_bad=0

@@ -238,6 +238,27 @@
     "command": "jq -r '.key' a.json 2>&1"
   },
   {
+    "id": "jq-unspaced-input-redirect",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "an input redirect glued to a bare filter remains blocked",
+    "command": "jq .<.key"
+  },
+  {
+    "id": "jq-unspaced-output-redirect",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "an output redirect glued to a bare filter remains blocked",
+    "command": "jq .>.key"
+  },
+  {
+    "id": "jq-after-source-in-then",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a script sourced inside a compound command can redefine jq",
+    "command": "if true; then . ./tools.sh; fi; jq .key"
+  },
+  {
     "id": "jq-env-member",
     "expected_status": 2,
     "classification": "must-block",
