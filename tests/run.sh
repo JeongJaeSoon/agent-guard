@@ -5400,6 +5400,47 @@ do
     shellcd_case "$sc_alt" clean 0 "$sc_command" a
   done
 done
+# Text behind a quoted here-document delimiter that cat, tee or python reads
+# runs nothing; a shell reading it, or this shell expanding it, still does.
+for sc_command in \
+  "cat >/dev/null <<'EOF'${sc_nl}| \`tool land\` | \$(tool merge) |${sc_nl}git commit -m x${sc_nl}EOF" \
+  "python3 - <<'PY'${sc_nl}print('\`x\` \$(y) git commit -m x')${sc_nl}PY" \
+  "tee /dev/null <<\\EOF >/dev/null${sc_nl}(\`x\`)${sc_nl}EOF"
+do
+  sc_next_host
+  shellcd_case "$sc_alt" secret 0 "$sc_command" a
+done
+for sc_command in \
+  "bash <<'EOF'${sc_nl}git commit -m x${sc_nl}EOF" \
+  "cat <<'EOF' | bash${sc_nl}git commit -m x${sc_nl}EOF" \
+  "cat <<'EOF' \\${sc_nl}| bash${sc_nl}git commit -m x${sc_nl}EOF" \
+  "cat >sc-run.sh <<'EOF'${sc_nl}git commit -m x${sc_nl}EOF${sc_nl}bash sc-run.sh" \
+  "cat >sc-run.sh <<'EOF'${sc_nl}git commit -m x${sc_nl}EOF${sc_nl}. ./sc-run.sh"
+do
+  sc_next_host
+  shellcd_case "$sc_alt" secret 2 "$sc_command" a
+  shellcd_case "$sc_alt" clean 0 "$sc_command" a
+done
+sc_next_host
+shellcd_case "$sc_alt" secret U2 "bash <<'EOF'${sc_nl}\`echo git\` commit -m x${sc_nl}EOF" a
+sc_next_host
+shellcd_case "$sc_alt" secret UF "cat >/dev/null <<EOF${sc_nl}\$(git commit -m x)${sc_nl}EOF" a
+# An unquoted variable git argument set to one plain word is that word; one
+# that may split stays unknown.
+for sc_command in \
+  'SC_R=../b; git -C $SC_R commit -m x' \
+  'SC_R=commit; git -C ../b $SC_R -m x'
+do
+  sc_next_host
+  shellcd_case "$sc_alt" secret 2 "$sc_command"
+  shellcd_case "$sc_alt" clean 0 "$sc_command"
+done
+sc_next_host
+shellcd_case "$sc_alt" secret 0 'SC_R=../b; git -C $SC_R log -1 >/dev/null; echo "$(git -C $SC_R branch --show-current)"'
+sc_next_host
+shellcd_case "$sc_alt" secret U2 "SC_R='../b commit'; git -C \$SC_R -m x"
+sc_next_host
+shellcd_case "$sc_alt" secret U0 "SC_R=../b; sh -c 'git -C \$SC_R commit -m x'"
 
 # Code in a quoted substitution may stage what a later commit takes.
 for sc_alt in claude codex; do

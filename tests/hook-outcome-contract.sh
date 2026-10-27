@@ -231,6 +231,62 @@ JSON
     fi
   done
 
+  # Commands an agent runs that commit or push nothing: text behind a quoted
+  # here-document delimiter that only cat, tee or python reads, and a git
+  # argument held in a variable set to one plain word.
+  for shell_cmd in \
+    "$(printf 'cat > /tmp/x/plan.md <<%s\n| step | `tool land` or $(tool merge) |\ngit push origin main\nEOF' "'EOF'")" \
+    "$(printf 'python3 - <<%s\nprint("`x` $(y) git push")\nPY' "'PY'")" \
+    "$(printf 'cat > /tmp/x/brief.md <<%s\nSigned commits, push (no force). Measure it first (`tool status`, `tool --version`).\nEOF\ncp /tmp/x/a.png /tmp/x/b.png\nmytool create --prompt "signed commits, push (no force)"' "'EOF'")" \
+    "$(printf 'tee /tmp/x/n.md <<\\EOF >/dev/null\n`x`\nEOF')" \
+    'R=/tmp/x/r; git -C $R rev-parse --abbrev-ref HEAD; git -C $R branch --show-current' \
+    'p=/tmp/x/r; echo "$p: $(git -C $p branch --show-current) $(git -C $p status --porcelain | wc -l)"'; do
+    run_manifest "$host" closed "$MOCK_GITLEAKS" \
+      "$(jq -nc --arg c "$shell_cmd" '{session_id:"outcome-no-git-write",tool_name:"Bash",tool_input:{command:$c}}')"
+    status=$?
+    if [ "$status" -eq 0 ] && [ ! -s "$CASE_ROOT/err" ]; then
+      ok "$host manifest path allows a command that commits nothing: ${shell_cmd%%[ ;]*}"
+    else
+      not_ok "$host manifest path allows a command that commits nothing: ${shell_cmd%%[ ;]*} (status $status)"
+    fi
+  done
+
+  # The same text a shell may read, or this shell expands, stays code; so
+  # does a variable that may split or join other words.
+  for shell_cmd in \
+    "$(printf 'cat <<%s | bash\n$(echo git) push\nEOF' "'EOF'")" \
+    "$(printf 'cat > >(bash) <<%s\n$(echo git) push\nEOF' "'EOF'")" \
+    "$(printf 'cat <<%s \\\n| bash\n$(echo git) push\nEOF' "'EOF'")" \
+    "$(printf 'bash <<%s\n`echo git` push\nEOF' "'EOF'")" \
+    "$(printf 'cat >/dev/null <<EOF\n$(git push)\nEOF')" \
+    "R='/tmp/x push'; git -C \$R" \
+    'R=push; git -C /tmp/x $R{,}' \
+    "R=/tmp/x; sh -c 'git -C \$R push'" \
+    "R=/tmp/x; git -c alias.z='!git -C \$R push' z"; do
+    run_manifest "$host" closed "$MOCK_GITLEAKS" \
+      "$(jq -nc --arg c "$shell_cmd" '{session_id:"outcome-still-code",tool_name:"Bash",tool_input:{command:$c}}')"
+    status=$?
+    if [ "$status" -eq 2 ] && grep -Fq 'could not be resolved safely' "$CASE_ROOT/err"; then
+      ok "$host manifest path keeps code that may push unresolved: ${shell_cmd%%[ ;]*}"
+    else
+      not_ok "$host manifest path keeps code that may push unresolved: ${shell_cmd%%[ ;]*} (status $status)"
+    fi
+  done
+  # A body the same line may run as a script is still read for a push.
+  for shell_cmd in \
+    "$(printf 'cat > /tmp/x/s.sh <<%s\ngit push\nEOF\nbash /tmp/x/s.sh' "'EOF'")" \
+    "$(printf 'cat > /tmp/x/s.sh <<%s\ngit push\nEOF\nchmod +x /tmp/x/s.sh; /tmp/x/s.sh' "'EOF'")" \
+    "$(printf 'mkfifo /tmp/x/p; bash /tmp/x/p &\ncat > /tmp/x/p <<%s\ngit push\nEOF' "'EOF'")"; do
+    run_manifest "$host" closed "$MOCK_GITLEAKS" \
+      "$(jq -nc --arg c "$shell_cmd" '{session_id:"outcome-script",tool_name:"Bash",tool_input:{command:$c}}')"
+    status=$?
+    if [ "$status" -eq 2 ]; then
+      ok "$host manifest path reads a here-document the line runs: ${shell_cmd%%[ ;]*}"
+    else
+      not_ok "$host manifest path reads a here-document the line runs: ${shell_cmd%%[ ;]*} (status $status)"
+    fi
+  done
+
   # Subjects are expanded before matching. Do not execute these inputs: the
   # synthetic hook must classify re-evaluating forms as unresolved in closed
   # mode even without a lexical command substitution in the subject itself.
