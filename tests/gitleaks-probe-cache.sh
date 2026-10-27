@@ -6,7 +6,8 @@
 set -u
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 GUARD="$ROOT/plugins/agent-guard/bin/agent-guard"
-REAL_GITLEAKS=$(command -v gitleaks 2>/dev/null || :)
+# run.sh puts its mock gitleaks first on PATH, so it passes the real one in.
+REAL_GITLEAKS=${AGENT_GUARD_TEST_REAL_GITLEAKS-$(command -v gitleaks 2>/dev/null || :)}
 CASE=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-probe-cache.XXXXXX")
 CASE=$(CDPATH= cd -- "$CASE" && pwd -P)
 trap 'rm -rf "$CASE"' 0
@@ -75,8 +76,16 @@ reset
 (export AGENT_GUARD_LOG_MODE=off; prompt "$benign")
 check 'logging off creates no state directory' test ! -e "$XDG_STATE_HOME"
 
-if [ -z "$REAL_GITLEAKS" ] || ! "$REAL_GITLEAKS" version >/dev/null 2>&1; then
-  printf '# real gitleaks not available; skipped native cache reuse checks\n'
+real_head=
+[ -z "$REAL_GITLEAKS" ] || { IFS= read -r real_head <"$REAL_GITLEAKS"; } 2>/dev/null || :
+if [ -z "$REAL_GITLEAKS" ] || ! "$REAL_GITLEAKS" version >/dev/null 2>&1 \
+    || case "$real_head" in '#!'*) true ;; *) false ;; esac; then
+  # Linux CI installs the real scanner; skipping there would hide every reuse check.
+  if [ "${CI:-}" = true ] && [ "$(uname -s)" = Linux ]; then
+    bad 'real gitleaks is required for native cache reuse checks on Linux CI'
+  else
+    printf '# real gitleaks not available; skipped native cache reuse checks\n'
+  fi
 else
   rm -f "$CASE/bin/gitleaks"
   cp "$REAL_GITLEAKS" "$CASE/real/gitleaks"

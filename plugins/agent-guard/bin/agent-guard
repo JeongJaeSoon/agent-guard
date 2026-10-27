@@ -1594,7 +1594,9 @@ gitleaks_probe_cache_lookup() {
   case "$ag_gl_cache_bin" in *[[:cntrl:]]*) return 1 ;; esac
   # A version manager's shim (an asdf script, or a mise link to its own
   # binary) runs whichever gitleaks the cwd or environment selects behind one
-  # unchanged file, so only a native file named gitleaks is cached.
+  # unchanged file. Refuse the shapes that can be seen: a link chain ending in
+  # another name, and a #! script. A native multiplexer copied under the name
+  # gitleaks still passes; the TTL bounds it.
   ag_gl_cache_real=$ag_gl_cache_bin
   ag_gl_cache_hops=0
   while [ -L "$ag_gl_cache_real" ]; do
