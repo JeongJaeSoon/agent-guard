@@ -1578,7 +1578,7 @@ gitleaks_probe_error() {
 # executable for a short while. The key holds the resolved path, the minimum
 # version and the file's identity (device, inode, size, and mtime and ctime at
 # the finest resolution stat reports), so replacing or rewriting the binary
-# misses; the TTL bounds a wrapper script whose target changed underneath it.
+# misses; the TTL bounds whatever the key cannot see.
 # Only ready verdicts are stored, and any cache problem runs the full probe.
 # The file lives in the private log directory audit_begin validated, so
 # diagnostics (check, doctor, setup) and AGENT_GUARD_LOG_MODE=off always probe.
@@ -1592,6 +1592,24 @@ gitleaks_probe_cache_lookup() {
   ag_gl_cache_bin=$1
   case "$ag_gl_cache_bin" in /*) ;; *) return 1 ;; esac
   case "$ag_gl_cache_bin" in *[[:cntrl:]]*) return 1 ;; esac
+  # A version manager's shim (an asdf script, or a mise link to its own
+  # binary) runs whichever gitleaks the cwd or environment selects behind one
+  # unchanged file, so only a native file named gitleaks is cached.
+  ag_gl_cache_real=$ag_gl_cache_bin
+  ag_gl_cache_hops=0
+  while [ -L "$ag_gl_cache_real" ]; do
+    ag_gl_cache_hops=$((ag_gl_cache_hops + 1))
+    [ "$ag_gl_cache_hops" -le 8 ] || return 1
+    ag_gl_cache_link=$(readlink -- "$ag_gl_cache_real" 2>/dev/null) || return 1
+    case "$ag_gl_cache_link" in
+      /*) ag_gl_cache_real=$ag_gl_cache_link ;;
+      *) ag_gl_cache_real=${ag_gl_cache_real%/*}/$ag_gl_cache_link ;;
+    esac
+  done
+  [ "${ag_gl_cache_real##*/}" = gitleaks ] && [ -f "$ag_gl_cache_real" ] || return 1
+  ag_gl_cache_head=
+  IFS= read -r ag_gl_cache_head <"$ag_gl_cache_real" 2>/dev/null || :
+  case "$ag_gl_cache_head" in '#!'*) return 1 ;; esac
   case "${AG_OS:-$(uname -s)}" in
     Darwin) ag_gl_cache_id=$(stat -L -f '%d:%i:%z:%Fm:%Fc' "$ag_gl_cache_bin" 2>/dev/null) ;;
     *) ag_gl_cache_id=$(stat -L -c '%d:%i:%s:%y:%z' "$ag_gl_cache_bin" 2>/dev/null) ;;
@@ -1604,7 +1622,9 @@ gitleaks_probe_cache_lookup() {
       && IFS= read -r ag_gl_cached_version; } <"$ag_gl_cache_file" 2>/dev/null \
     || return 1
   [ "$ag_gl_cached_key" = "$GITLEAKS_PROBE_CACHE_KEY" ] || return 1
-  case "$ag_gl_cached_time" in ''|*[!0-9]*|?????????????*) return 1 ;; esac
+  # A leading zero would make the arithmetic below an octal error that ends
+  # the hook.
+  case "$ag_gl_cached_time" in ''|0*|*[!0-9]*|?????????????*) return 1 ;; esac
   ag_gl_cache_age=$((AG_AUDIT_START - ag_gl_cached_time))
   [ "$ag_gl_cache_age" -ge 0 ] \
     && [ "$ag_gl_cache_age" -lt "$GITLEAKS_PROBE_CACHE_TTL_SECONDS" ] || return 1
