@@ -51,7 +51,12 @@ once at invocation start, examines at most 2,000 top-level entries, and only
 removes generated event names. Concurrent runs or externally populated storage
 can exceed that target; cleanup remains bounded. No cleanup runs
 on the signal/exit path. Logging is best-effort and never changes a guard decision.
-Set `AGENT_GUARD_LOG_MODE=off` to opt out. `agent-guard logs status` reports
+The same directory holds `gitleaks-probe`, which records the resolved gitleaks
+path, its file identity and version after a successful readiness check, so later
+invocations within ten minutes can skip rerunning `gitleaks version`. Every
+invocation still runs its own scan.
+Set `AGENT_GUARD_LOG_MODE=off` to opt out; the readiness check then runs in
+every invocation. `agent-guard logs status` reports
 local log state and `agent-guard logs export` writes the safe metadata JSONL to
 standard output. Neither command exports inspected content, file paths,
 environment values, host session identifiers, or arbitrary tool names.

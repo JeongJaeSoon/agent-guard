@@ -66,9 +66,15 @@ fi
 # and embedded version agree. An interrupted plugin update can leave a
 # higher-looking directory with only bin/agent-guard; selecting it would turn a
 # healthy installation into a default-open DEGRADED hook.
+# Every hook checks the three policy files, so stay in the shell instead of
+# starting an awk per file.
 policy_file_has_active_rule() {
-  [ -r "$1" ] && [ -s "$1" ] \
-    && awk '$0 !~ /^[[:space:]]*(#|$)/ { found = 1; exit } END { exit !found }' "$1"
+  [ -r "$1" ] && [ -s "$1" ] || return 1
+  while IFS= read -r policy_line || [ -n "$policy_line" ]; do
+    policy_line=${policy_line#"${policy_line%%[![:space:]]*}"}
+    case "$policy_line" in ''|'#'*) ;; *) return 0 ;; esac
+  done <"$1"
+  return 1
 }
 
 cache_policy_file_usable() {
@@ -105,13 +111,19 @@ refresh_plugin_current_link() {
   if [ -e "$current" ] && [ ! -L "$current" ]; then
     return 1
   fi
+  current_target=
+  if [ -L "$current" ]; then
+    current_target=$(readlink "$current" 2>/dev/null) || current_target=
+    # Every check below leaves a link that already names this version as it
+    # is, so skip their processes on the common path.
+    [ "$current_target" != "$PLUGIN_CACHE_VERSION" ] || return 0
+  fi
   plugin_cache_root_usable "$ROOT_DIR" "$PLUGIN_CACHE_VERSION" || return 1
 
   # A stale older process must not roll a current link backward. Conversely, a
   # merely cached higher sibling must not become active before that version's
   # host-selected binary actually runs.
   if [ -L "$current" ]; then
-    current_target=$(readlink "$current" 2>/dev/null) || current_target=
     if is_semver_dir "$current_target" \
        && plugin_cache_root_usable "$PLUGIN_CACHE_BASE/$current_target" "$current_target"; then
       newest=$(printf '%s\n%s\n' "$current_target" "$PLUGIN_CACHE_VERSION" \
@@ -924,13 +936,19 @@ AG_AUDIT_FILE=
 AG_AUDIT_ID=
 AG_AUDIT_START=0
 AG_LIVE_PROBE_MARKER=
+# Set once by audit_begin; the audit helpers otherwise start uname and id on
+# every ownership check.
+AG_OS=
+AG_UID=
+# The private directory audit_begin validated, or empty.
+AG_STATE_DIR=
 
 audit_location() {
   printf '%s/agent-guard' "${XDG_STATE_HOME:-${HOME:-}/.local/state}"
 }
 
 audit_stat() {
-  case "$(uname -s)" in
+  case "${AG_OS:-$(uname -s)}" in
     Darwin) stat -f '%u:%Lp' "$1" 2>/dev/null ;;
     *) stat -c '%u:%a' "$1" 2>/dev/null ;;
   esac
@@ -956,7 +974,7 @@ audit_directory() (
     (umask 077; mkdir -p "$ag_dir") 2>/dev/null || return 1
   fi
   [ -d "$ag_dir" ] && [ ! -L "$ag_dir" ] || return 1
-  [ "$(audit_stat "$ag_dir")" = "$(id -u):700" ] || return 1
+  [ "$(audit_stat "$ag_dir")" = "${AG_UID:-$(id -u)}:700" ] || return 1
   printf '%s' "$ag_dir"
 )
 
@@ -1020,15 +1038,18 @@ audit_begin() {
   case "$AG_AUDIT_COMMAND" in hook-*) ;; *) AG_AUDIT_HOST=cli ;; esac
   AG_AUDIT_START=$(date +%s 2>/dev/null) || AG_AUDIT_START=0
   case "$AG_AUDIT_START" in ''|*[!0-9]*) AG_AUDIT_START=0 ;; esac
+  AG_OS=$(uname -s 2>/dev/null) || AG_OS=
+  AG_UID=$(id -u 2>/dev/null) || AG_UID=
   ag_candidate=
   ag_dir=$(audit_directory create) || ag_dir=
   if [ -n "$ag_dir" ]; then
+    AG_STATE_DIR=$ag_dir
     audit_prune "$ag_dir"
     ag_candidate=$(umask 077; mktemp "$ag_dir/event-$AG_AUDIT_START-XXXXXX" 2>/dev/null) || ag_candidate=
   fi
   AG_AUDIT_ID=${ag_candidate##*/event-}
   if [ -n "$ag_candidate" ] && [ ! -L "$ag_candidate" ] && [ -f "$ag_candidate" ] \
-      && [ "$(audit_stat "$ag_candidate")" = "$(id -u):600" ] \
+      && [ "$(audit_stat "$ag_candidate")" = "${AG_UID:-$(id -u)}:600" ] \
       && audit_record "$AG_AUDIT_START" started pending null 0 >>"$ag_candidate"; then
     # A caught signal before this assignment leaves no finish-only event.
     AG_AUDIT_FILE=$ag_candidate
@@ -1062,7 +1083,7 @@ audit_finish() {
   fi
   case "$ag_exit" in 130|143) ag_outcome=interrupted ;; esac
   if [ ! -L "$AG_AUDIT_FILE" ] && [ -f "$AG_AUDIT_FILE" ] \
-      && [ "$(audit_stat "$AG_AUDIT_FILE")" = "$(id -u):600" ]; then
+      && [ "$(audit_stat "$AG_AUDIT_FILE")" = "${AG_UID:-$(id -u)}:600" ]; then
     audit_record "$ag_end" finished "$ag_outcome" "$ag_exit" "$ag_duration" >>"$AG_AUDIT_FILE" 2>/dev/null \
       || printf '%s\n' 'agent-guard: local diagnostic log could not be completed.' >&2
   fi
@@ -1551,6 +1572,62 @@ gitleaks_probe_error() {
   esac
 }
 
+# Every hook is a new process, and the isolated `gitleaks version` probe costs
+# about as much as the scan that follows it, so on a loaded machine the pair can
+# reach the host's hook timeout. A ready verdict is reused for the same
+# executable for a short while. The key holds the resolved path, the minimum
+# version and the file's identity (device, inode, size, and mtime and ctime at
+# the finest resolution stat reports), so replacing or rewriting the binary
+# misses; the TTL bounds a wrapper script whose target changed underneath it.
+# Only ready verdicts are stored, and any cache problem runs the full probe.
+# The file lives in the private log directory audit_begin validated, so
+# diagnostics (check, doctor, setup) and AGENT_GUARD_LOG_MODE=off always probe.
+GITLEAKS_PROBE_CACHE_TTL_SECONDS=600
+GITLEAKS_PROBE_CACHE_KEY=
+
+gitleaks_probe_cache_lookup() {
+  GITLEAKS_PROBE_CACHE_KEY=
+  [ -n "$AG_STATE_DIR" ] || return 1
+  case "$AG_AUDIT_START" in ''|0|*[!0-9]*) return 1 ;; esac
+  ag_gl_cache_bin=$1
+  case "$ag_gl_cache_bin" in /*) ;; *) return 1 ;; esac
+  case "$ag_gl_cache_bin" in *[[:cntrl:]]*) return 1 ;; esac
+  case "${AG_OS:-$(uname -s)}" in
+    Darwin) ag_gl_cache_id=$(stat -L -f '%d:%i:%z:%Fm:%Fc' "$ag_gl_cache_bin" 2>/dev/null) ;;
+    *) ag_gl_cache_id=$(stat -L -c '%d:%i:%s:%y:%z' "$ag_gl_cache_bin" 2>/dev/null) ;;
+  esac || return 1
+  [ -n "$ag_gl_cache_id" ] || return 1
+  GITLEAKS_PROBE_CACHE_KEY="1 $GITLEAKS_MIN_VERSION $ag_gl_cache_id $ag_gl_cache_bin"
+  ag_gl_cache_file="$AG_STATE_DIR/gitleaks-probe"
+  [ -f "$ag_gl_cache_file" ] && [ ! -L "$ag_gl_cache_file" ] || return 1
+  { IFS= read -r ag_gl_cached_key && IFS= read -r ag_gl_cached_time \
+      && IFS= read -r ag_gl_cached_version; } <"$ag_gl_cache_file" 2>/dev/null \
+    || return 1
+  [ "$ag_gl_cached_key" = "$GITLEAKS_PROBE_CACHE_KEY" ] || return 1
+  case "$ag_gl_cached_time" in ''|*[!0-9]*|?????????????*) return 1 ;; esac
+  ag_gl_cache_age=$((AG_AUDIT_START - ag_gl_cached_time))
+  [ "$ag_gl_cache_age" -ge 0 ] \
+    && [ "$ag_gl_cache_age" -lt "$GITLEAKS_PROBE_CACHE_TTL_SECONDS" ] || return 1
+  case "$ag_gl_cached_version" in ''|*[!0-9.]*) return 1 ;; esac
+  semver_at_least "$ag_gl_cached_version" "$GITLEAKS_MIN_VERSION" || return 1
+  GITLEAKS_PROBE_STATE=ready
+  GITLEAKS_PROBE_VERSION=$ag_gl_cached_version
+  GITLEAKS_PROBE_DETAIL=
+}
+
+gitleaks_probe_cache_store() {
+  [ -n "$GITLEAKS_PROBE_CACHE_KEY" ] && [ "$GITLEAKS_PROBE_STATE" = ready ] || return 0
+  ag_gl_cache_file="$AG_STATE_DIR/gitleaks-probe"
+  [ ! -d "$ag_gl_cache_file" ] || return 0
+  ag_gl_cache_tmp=$(umask 077; mktemp "$ag_gl_cache_file.XXXXXX" 2>/dev/null) || return 0
+  if ! { printf '%s\n%s\n%s\n' "$GITLEAKS_PROBE_CACHE_KEY" "$AG_AUDIT_START" \
+        "$GITLEAKS_PROBE_VERSION" >"$ag_gl_cache_tmp" \
+      && mv -f "$ag_gl_cache_tmp" "$ag_gl_cache_file"; } 2>/dev/null; then
+    rm -f "$ag_gl_cache_tmp" 2>/dev/null || :
+  fi
+  return 0
+}
+
 prepare_gitleaks() {
   if [ -n "$GITLEAKS_READY_BIN" ]; then
     GITLEAKS_BIN=$GITLEAKS_READY_BIN
@@ -1566,7 +1643,12 @@ prepare_gitleaks() {
     GITLEAKS_PROBE_DETAIL=no-candidate
     return 1
   }
+  if gitleaks_probe_cache_lookup "$GITLEAKS_BIN"; then
+    GITLEAKS_READY_BIN=$GITLEAKS_BIN
+    return 0
+  fi
   probe_gitleaks "$GITLEAKS_BIN" || return 1
+  gitleaks_probe_cache_store
   GITLEAKS_READY_BIN=$GITLEAKS_BIN
   return 0
 }
