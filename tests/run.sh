@@ -128,9 +128,27 @@ case ${AGENT_GUARD_TEST_SHARD:-} in
     exit 2
     ;;
 esac
+case ${AGENT_GUARD_TEST_NAVIGATION_HOST:-} in
+  '') ;;
+  claude|codex)
+    if [ "${AGENT_GUARD_TEST_SHARD:-}" != 5 ]; then
+      say "AGENT_GUARD_TEST_NAVIGATION_HOST requires AGENT_GUARD_TEST_SHARD=5" >&2
+      exit 2
+    fi
+    ;;
+  *)
+    say "AGENT_GUARD_TEST_NAVIGATION_HOST must be unset, claude, or codex, got: $AGENT_GUARD_TEST_NAVIGATION_HOST" >&2
+    exit 2
+    ;;
+esac
 
 in_shard() {
   [ -z "${AGENT_GUARD_TEST_SHARD:-}" ] || [ "$AGENT_GUARD_TEST_SHARD" = "$1" ]
+}
+
+in_navigation_host() {
+  [ -z "${AGENT_GUARD_TEST_NAVIGATION_HOST:-}" ] \
+    || [ "$AGENT_GUARD_TEST_NAVIGATION_HOST" = "$1" ]
 }
 
 if in_shard 1; then
@@ -141,10 +159,13 @@ run_expect 0 "probe eligibility contracts" sh "$ROOT/tests/unit-probe.sh"
 run_expect 0 "status-label classification contracts" sh "$ROOT/tests/unit-status-label.sh"
 suite_shards=$(sed -n 's/^if in_shard \([0-9]*\); then$/\1/p' "$ROOT/tests/run.sh" | sort -u | tr '\n' ' ')
 ci_shards=$(sed -n "s/^ *shards: '\([0-9 ][0-9 ]*\)'$/\1/p" "$ROOT/.github/workflows/ci.yml" | tr ' ' '\n' | sort | tr '\n' ' ')
-if [ -n "$suite_shards" ] && [ "$suite_shards" = "$ci_shards" ]; then
-  ok "every test shard runs in the CI matrix"
+ci_navigation_hosts=$(awk '$1 == "navigation_host:" { print $2 }' "$ROOT/.github/workflows/ci.yml" | sort | tr '\n' ' ')
+if [ -n "$suite_shards" ] && [ "$suite_shards" = '1 2 3 4 5 ' ] \
+  && [ "$ci_shards" = '1 2 3 4 5 5 ' ] \
+  && [ "$ci_navigation_hosts" = 'claude codex ' ]; then
+  ok "every test shard and navigation host runs in the CI matrix"
 else
-  not_ok "every test shard runs in the CI matrix (suite: $suite_shards; ci.yml: $ci_shards)"
+  not_ok "every test shard and navigation host runs in the CI matrix (suite: $suite_shards; ci.yml: $ci_shards; navigation hosts: $ci_navigation_hosts)"
 fi
 
 if [ ! -e "$PLUGIN_ROOT/commands/setup-shell.md" ]; then
@@ -4940,6 +4961,7 @@ shellcd_case() {
   sc_mode=$2
   sc_expected=$3
   sc_command=$4
+  in_navigation_host "$sc_host" || return 0
   sc_repo=$SHELLCD_ROOT/${5:-b}
   sc_name="shell cd [$sc_host] $sc_mode: $sc_command"
   (
@@ -5242,9 +5264,11 @@ do
   shellcd_case codex secret U2 "$sc_command" a
 done
 # A hook-skipping flag is blocked outright, whatever the command name.
+if in_navigation_host claude; then
 expect_json_status 2 "quoted unknown command word with a hook-skipping flag is blocked" \
   '{"tool_name":"Bash","tool_input":{"command":"G=git; \"$G\" commit --no-verify -m x"}}' \
   hook-pre-tool
+fi
 # Anything else about the variable leaves the command name unknown.
 for sc_command in \
   'X=$(echo git); $X commit -m x' \
@@ -5445,6 +5469,7 @@ shellcd_case "$sc_alt" secret U0 "SC_R=../b; sh -c 'git -C \$SC_R commit -m x'"
 
 # Code in a quoted substitution may stage what a later commit takes.
 for sc_alt in claude codex; do
+  in_navigation_host "$sc_alt" || continue
   for sc_mode in secret clean; do
     (
       cd "$SHELLCD_ROOT/a" || exit 2
@@ -5502,6 +5527,7 @@ shellcd_case codex secret U0 'GIT_DIR=../b/.git env -u GIT_DIR git commit -m x'
 
 # The push gate follows the cd too. Nothing is committed, so the verdict is
 # checked against the same command with git -C, which the gate already follows.
+if in_navigation_host claude; then
 for sc_command in 'cd ../b; git push' 'git -C ../b push'; do
   for sc_mode in secret clean; do
     (
@@ -5525,6 +5551,7 @@ for sc_command in 'cd ../b; git push' 'git -C ../b push'; do
     fi
   done
 done
+fi
 
 fi # end of shard 5
 
