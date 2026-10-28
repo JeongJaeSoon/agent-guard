@@ -13,12 +13,12 @@ result, or mutable fixture is cached or shared between invocations. Rule order,
 ERE syntax, matching, error handling, scanner deadlines and process cleanup
 are unchanged. CI partitions, OS coverage and runner topology are unchanged.
 
-`tests/unit-deny-path.sh` adds 83 direct producer assertions: the full supported
-ASCII hex table, unsupported-input reset/status behavior, literal character
-and pin patterns, Unicode/newline/empty cases, no stdout/stderr and caller
-variable preservation. `make test-unit` runs these alongside the existing
-35 core, 18 framing, 4 probe and 22 status-label assertions (**162 direct assertions** total). Full CLI tests remain necessary: private
-producer contracts do not prove path policy or OS behavior by themselves.
+`tests/unit-deny-path.sh`는 83개 직접 producer assertion으로 지원하는 ASCII hex
+전체 표, 미지원 입력의 초기화와 상태, literal 문자 및 pin 패턴, Unicode·줄바꿈·빈 값,
+stdout/stderr 부재와 호출자 변수 보존을 검증한다. `make test-unit`의 전체 suite 목록과
+assertion 수는 [직접 계약 테스트 목록](testing.md#direct-contract-inventory)에서 관리한다.
+이 내부 producer 계약만으로 경로 정책이나 OS 동작을 입증할 수 없으므로 전체 CLI
+테스트도 필요하다.
 
 ## Historical construction measurement
 

@@ -48,13 +48,14 @@ All 22 direct cases pass on the unchanged source. These selected red controls
 establish sensitivity to the moved classification guarantees, not a general
 mutation score, new bug fix, or whole-source coverage claim.
 
-The family makes **23 → 5 CLI invocations**, with 22 direct assertions added.
-`make test-unit` therefore has **162 direct assertions** (previously 140).
-`tests/run.sh` runs the new direct suite once in partition 1 and keeps the five
-CLI representatives in partition 4. Outer assertion totals decrease by 17:
-18 CLI repetitions leave the full suite and one direct-suite assertion enters.
-All 22 unique input classifications remain covered; inner and outer counts must
-not be added as a single coverage denominator.
+이 테스트군은 CLI 호출을 **23 → 5회**로 줄이고 직접 assertion 22개를 추가했다.
+현재 `make test-unit`의 전체 suite 목록과 assertion 수는
+[직접 계약 테스트 목록](testing.md#direct-contract-inventory)에서 관리한다.
+`tests/run.sh`는 이 직접 suite를 partition 1에서 한 번 실행하고, 대표 CLI 사례
+5개는 partition 4에 유지한다. 이 변경 당시 CLI 반복 18개를 제거하고 직접 suite의
+외부 assertion 하나를 추가하여 외부 assertion 합계는 17개 줄었다.
+고유 입력 22개의 분류는 모두 검증하며, 내부·외부 assertion 수를 하나의 커버리지
+분모처럼 합산하면 안 된다.
 
 Local paired timing includes the original family versus the new direct suite
 plus five CLI cases, using the same mock scanner and real production CLI for

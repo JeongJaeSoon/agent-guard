@@ -1,8 +1,9 @@
 # Direct framing producer contracts
 
-`make test-unit` runs 162 direct assertions: core 35, framing 18, deny-path 83, probe 4 and status-label 22.
-`sh tests/unit-framing.sh` runs only the framing producer contracts, directly
-against extracted production function bodies without CLI startup.
+`make test-unit`의 전체 suite 목록과 assertion 수는
+[직접 계약 테스트 목록](testing.md#direct-contract-inventory)을 참고한다.
+`sh tests/unit-framing.sh`는 CLI를 시작하지 않고 추출한 프로덕션 함수 본문에 대해
+framing producer 계약만 검증한다.
 
 ## Why these checks add value
 
