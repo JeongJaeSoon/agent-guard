@@ -7507,11 +7507,13 @@ def restore_binary_payloads($orig):
         (.; setpath($p; $orig | getpath($p)));
 '
 
+# Literal splitting avoids regex replacement overhead on control-heavy leaves.
 frame_json_string_leaves() {
   jq -rj '
     .. | strings
-    | ((gsub("\u001f"; "\u001f\u001f") | gsub("\u001e"; "\u001f\u001e"))
-       + "\u001e\n")
+    | (split("\u001f") | join("\u001f\u001f"))
+    | (split("\u001e") | join("\u001f\u001e"))
+    | . + "\u001e\n"
   '
 }
 
@@ -7544,8 +7546,8 @@ frame_plaintext_leaf() {
 # Read an RS-delimited, US-escaped leaf stream. Each leaf gets independent
 # multiline quote state. Emits JSON-string records by default, or raw framed
 # secret records for exec's byte-preserving plaintext pass. Probe modes exit on
-# the first non-sanitized assignment key. Framed input modes fast-path a complete
-# escape-free leaf to avoid quadratic byte-by-byte string assembly.
+# the first non-sanitized assignment key. Framed input modes append ordinary
+# byte spans in bulk; control bytes retain the same escape/boundary decoder.
 secretish_env_values() {
   record_mode=${1:-json}
   LC_ALL=C awk -v record_mode="$record_mode" '
@@ -8175,25 +8177,23 @@ secretish_env_values() {
         if (probe_found) exit
         next
       }
-      # frame_json_string_leaves emits one boundary-terminated leaf unless the
-      # value contains a physical newline. Avoid building a large clean leaf one
-      # byte at a time in awk, which is quadratic on some macOS runners.
-      # Every framed mode can scan this leaf directly. Require the first RS
-      # to be the final byte and no pending escape, so unusual input still
-      # follows the byte decoder below. Only probe mode may stop at a finding.
-      if (!escaped && index($0, escape) == 0 &&
-          index($0, boundary) > 0 && index($0, boundary) == length($0)) {
-        leaf = leaf substr($0, 1, length($0) - 1)
-        scan_leaf(leaf)
-        leaf = ""
-        record_ended_at_boundary = 1
-        if (record_mode == "probe" && probe_found) exit
-        next
-      }
       record_ended_at_boundary = 0
+      # Split once rather than searching/copying the remaining line for every
+      # span; dense escaped controls must not turn the fast path quadratic.
+      split($0, frame_spans, /[\036\037]/)
+      frame_span_index = 1
+      frame_span_end = length(frame_spans[frame_span_index])
       for (i = 1; i <= length($0); i++) {
         ch = substr($0, i, 1)
-        if (escaped) {
+        # Append ordinary bytes as one span. The byte state machine still owns
+        # escapes and leaf boundaries, including escapes across physical lines.
+        # Repeated single-byte concatenation is quadratic on BSD awk even for
+        # a clean line if a newline or one escaped control byte defeats framing.
+        if (!escaped && index(escape boundary, ch) == 0) {
+          leaf = leaf substr($0, i, frame_span_end - i + 1)
+          i = frame_span_end
+          record_ended_at_boundary = 0
+        } else if (escaped) {
           leaf = leaf ch
           escaped = 0
           record_ended_at_boundary = 0
@@ -8208,6 +8208,10 @@ secretish_env_values() {
         } else {
           leaf = leaf ch
           record_ended_at_boundary = 0
+        }
+        if (i > frame_span_end) {
+          frame_span_index++
+          frame_span_end = i + length(frame_spans[frame_span_index])
         }
       }
       # awk removes physical newlines that came from a JSON leaf, so restore
@@ -8888,19 +8892,18 @@ redact_tool_response_json() {
                  + $parts[$i])
       else .
       end;
-    def redact($specs):
-      reduce ($specs
-                | map(select(.contextual))
-                | sort_by(.literal | length)
-                | reverse)[] as $x (.;
+    def prepare_specs($specs):
+      {contextual: ($specs | map(select(.contextual))
+                    | sort_by(.literal | length) | reverse),
+       ordinary: ($specs | map(select(.contextual | not))
+                  | sort_by(.literal | length) | reverse)};
+    def redact($plan):
+      reduce $plan.contextual[] as $x (.;
           if ($x.literal | length) > 0
           then context_replace($x.literal; $x.replacement)
           else .
           end)
-      | reduce ($specs
-                | map(select(.contextual | not))
-                | sort_by(.literal | length)
-                | reverse)[] as $x (.;
+      | reduce $plan.ordinary[] as $x (.;
         if ($x.literal | length) > 0
         then ((. / $x.literal) | join($x.replacement))
         else .
@@ -8918,8 +8921,11 @@ redact_tool_response_json() {
          or (($specs | length) * $string_work) > 8000000
       then shape_safe_walk(if type == "string" and length > 0
                            then "[REDACTED]" else . end)
-      else shape_safe_walk(if type == "string" and length > 0
-                           then redact($specs) else . end)
+      # Ordering belongs to the response, not each string leaf. Reuse one
+      # immutable plan while preserving contextual-first, longest-first order.
+      else prepare_specs($specs) as $plan
+           | shape_safe_walk(if type == "string" and length > 0
+                             then redact($plan) else . end)
       end
   ' 2>/dev/null
 }

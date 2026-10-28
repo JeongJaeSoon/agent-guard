@@ -9,7 +9,7 @@ trap 'rm -rf "$CASE"' 0
 sh "$ROOT/tests/helpers/extract-functions.sh" \
   "$ROOT/plugins/agent-guard/bin/agent-guard" "$CASE" secretish_env_values
 mv "$CASE/secretish_env_values.sh" "$CASE/fast.sh"
-# Force only the bulk framing path off: the existing byte decoder is the
+# Force only bulk span appends off: the existing byte decoder is the
 # reference for escaping, physical newlines, leaf boundaries and output modes.
 [ "$(grep -c 'if (!escaped && index' "$CASE/fast.sh")" -eq 1 ]
 sed 's/if (!escaped \&\& index/if (0 \&\& !escaped \&\& index/' \
@@ -29,6 +29,11 @@ jq -nc '[
   [("日本語🙂" * 1024) + " PASSWORD=framing-unicode-prefix", "TOKEN=framing-next-value"],
   [("a" * 4096) + " PASSWORD=framing-after-prefix", "TOKEN=framing-last-value"],
   ["PASSWORD=\"a\u001f\u001eb\nline\"", "TOKEN=framing-next-value"]
+,
+  [("a" * 8192) + "\n" + ("b" * 4096) + "\n", "TOKEN=span-final"],
+  [("a" * 8192) + "\u001e" + ("b" * 4096) + "\u001f", "TOKEN=span-final"],
+  ["PASSWORD=\"" + ("a" * 4096) + "\n" + ("b" * 4096) + "\"", "TOKEN=span-final"],
+  ["\u001f\u001e" * 256, "", "TOKEN=span-final"]
 ] | .[]' >"$CASE/cases.jsonl"
 count=0
 while IFS= read -r leaves; do
@@ -45,8 +50,10 @@ done <"$CASE/cases.jsonl"
 # Exercise decoder fallbacks not emitted by the JSON producer: multiple leaf
 # boundaries in one physical record, pending escape, partial record, and raw
 # invalid UTF-8. Framed mode must preserve bytes rather than reinterpret them.
-for fixture in boundaries pending partial invalid; do
+for fixture in boundaries empty_boundaries pending pending_controls partial invalid; do
   case "$fixture" in
+    empty_boundaries) printf '\036\036\nordinary\036\036\nTOKEN=span-final\036\n' ;;
+    pending_controls) printf 'clean\037\n\036data\036\nclean\037\n\037data\036\nTOKEN=span-final\036\n' ;;
     boundaries) printf 'PASSWORD=framing-first\036TOKEN=framing-second\036\n' ;;
     pending) printf 'clean\037\nPASSWORD=framing-next\036\n' ;;
     partial) printf '%s="framing-unfinished' PASSWORD ;;
@@ -87,4 +94,4 @@ for engine in fast slow; do
   [ "$status" -eq 23 ]
 done
 cmp "$CASE/fast.out" "$CASE/slow.out"
-printf 'ok - %s JSON leaf fixtures, four raw boundary fixtures, all three modes and producer failure\n' "$count"
+printf 'ok - %s JSON leaf fixtures, six raw boundary fixtures, all three modes and producer failure\n' "$count"

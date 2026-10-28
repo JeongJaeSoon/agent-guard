@@ -10964,6 +10964,7 @@ else
 fi
 
 run_expect 0 "framed leaf fast path preserves detector records and errors" sh "$ROOT/tests/framed-leaves.sh"
+run_expect 0 "redaction plan preserves ordering, context and output budgets" sh "$ROOT/tests/redaction-plan.sh"
 # --- Tool-output secret redaction (PostToolUse updatedToolOutput) ----------
 # Masks secret-like values in a tool's RESULT before the model sees it. Run from
 # a non-git dir so the mutation-tool working-tree backstop stays inert and these
@@ -13441,7 +13442,7 @@ mkdir -p "$FAIL_STAGE_JQ_DIR"
   printf '%s\n' '  nul:*'\''contains("\u0000")'\''*) partial_fail ;;'
   printf '%s\n' '  restore:*'\''.[0] as $orig'\''*) partial_fail ;;'
   printf '%s\n' '  detector_leaf:*"join(\"\\n\") end"*) partial_fail ;;'
-  printf '%s\n' '  detector_frame:*"gsub(\"\\u001f\""*) partial_fail ;;'
+  printf '%s\n' '  detector_frame:*"\"\\u001e\\n\""*) partial_fail ;;'
   printf '%s\n' '  detector_report:*".Secret // empty"*) partial_fail ;;'
   printf '%s\n' '  detector_bundle:*"secrets: unique"*) partial_fail ;;'
   printf '%s\n' '  bundle_classify_true:*"invalid secret bundle"*) printf "true"; exit 2 ;;'
