@@ -119,5 +119,13 @@ PATH로 모든 기존 partition을 다시 실행했다. 각 실행은 별도 TMP
 
 `make test-unit`, 실제 gitleaks 8.30.1의 `make smoke-test`, 저장소 전체 secret
 scan, ShellCheck(error), actionlint도 통과했다. 이 로컬 전체 검증은 CI wall time
-단축률의 증거가 아니며, hosted Linux/macOS CI 실행은 별도로 확인해야 한다.
-로컬의 알려진 환경 차이를 테스트 생략이나 기대값 완화로 처리하지 않았다.
+단축률의 증거가 아니다. 로컬의 알려진 환경 차이를 테스트 생략이나 기대값 완화로
+처리하지 않았다.
+
+최초 hosted 후보 `1ff1122`의 [CI run 40623642319](https://github.com/JeongJaeSoon/agent-guard/actions/runs/40623642319)에서는
+Linux 2,511개와 macOS 2,436개가 통과했고 모든 실패 집계는 0이었다. 실제
+gitleaks의 RSA private key 탐지 assertion과 `smoke-test ok`, 두 aggregate의
+`SHARDS_RESULT: success`도 로그에서 확인했다. OS별 수 차이는 기존 실제 scanner
+검증과 플랫폼별 사례 차이다. 이후 CI의 호스트별 실행 배치만 수정하며 마스킹
+실행 파일은 위 SHA-256 그대로다. 최종 후보의 CI 결과는
+[JeongJaeSoon/agent-guard#360](https://github.com/JeongJaeSoon/agent-guard/pull/360)에서 추적한다.
