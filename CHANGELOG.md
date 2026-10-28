@@ -1,3 +1,9 @@
+## v3.6.9 - 2026-10-28
+
+- perf(masking): streamline framing and reuse redaction plans (#360)
+- perf(ci): parallelize navigation by host contract (#361)
+- perf(hooks): reuse the gitleaks readiness verdict across hook processes (#359)
+
 ## v3.6.8 - 2026-10-27
 
 - fix(hooks): stop reading inert here-documents and plain-word git arguments as unknown code (#357)
