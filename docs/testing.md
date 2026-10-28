@@ -131,3 +131,7 @@ The [status-label family mapping](status-label-tests.md) records the subsequent
 move of pure classification variants to 22 direct assertions, five retained CLI
 representatives, equivalence and selected mutation controls. It does not change
 the historical four-suite timing or scoped Bash observation above.
+
+마스킹 처리 단계, 입력 형태별 성능 측정, 프레이밍 및 치환 순서의 회귀 검증은
+[마스킹 성능 문서](masking-performance.md)를 참고한다. 성능 측정은 모든 표본의
+마스킹 결과를 확인하며 기본 CI의 기능 검증을 대체하지 않는다.

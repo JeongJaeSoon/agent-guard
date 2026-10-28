@@ -24,10 +24,10 @@ The internal IDs select execution partitions; Actions displays descriptive names
 | Internal ID | Actions suite | Change from the previous layout |
 | --- | --- | --- |
 | 1 | Core, host adapters and Git (with 3) | Unchanged |
-| 2 | Command policies and shell navigation (with 5) | Adds git aliases and three mask suites previously in 3 |
+| 2 | Command policies | Adds git aliases and three mask suites previously in 3 |
 | 3 | Core, host adapters and Git (with 1) | Retains auto-staging regression cases |
 | 4 | CLI, scanner and output | Retains scanner integration; adds original 5 output, PII and shell-setup cases |
-| 5 | Command policies and shell navigation (with 2) | Runs shell-navigation cases previously in 4 |
+| 5 | Shell navigation | Runs shell-navigation cases previously in 4 |
 
 Regression assertion bodies and their unpartitioned execution order stay
 identical; the matrix-coverage assertion is updated for the bundle format. Moved groups initialize their own repositories, configuration and
@@ -106,24 +106,34 @@ summed job durations (runner time). Hosted-runner variability can overwhelm a
 single comparison; a lower wall time alone does not establish lower billed cost.
 The per-suite summary reports only test execution, excluding queue and setup.
 
-## Bounded concurrency within each OS
+## OS별 제한된 동시 실행
 
-The core runner executes partitions 1 and 3 concurrently; the policies runner
-executes 2 and 5 concurrently. The scanner runner executes 4 alone, retaining
-its real-scanner installation, no-skip gate and smoke test. This keeps all ten
-OS/partition combinations on six runners instead of ten. Each child gets a
-separate TMPDIR and output file; the parent waits for every child and fails if
-any child or output collection fails. Full logs are printed after completion,
-so they do not interleave. Hosted-runner teardown handles job cancellation.
-No internal timeout is relaxed. This uses the existing runner CPUs; contention
-can offset the reduction in runner lifetimes. Actual timing comparisons are
-required before claiming a saving; job count alone is not a cost measurement.
+core runner는 partition 1과 3을 동시에 실행한다. 오래 걸리는 command
+policies partition 2와 shell navigation partition 5는 서로 다른 runner에서
+실행하여 같은 macOS runner의 자원 경합이 critical path를 늘리지 않게 한다.
+scanner runner는 partition 4만 실행하며 real-scanner 설치, no-skip gate,
+smoke test를 그대로 유지한다. 따라서 test job은 6개에서 8개로 늘지만
+OS/partition 10개 조합은 그대로 모두 실행되며 aggregate job 2개의 이름과
+의존성도 바뀌지 않는다. core의 각 child는 별도 TMPDIR와 출력 파일을 사용하고 parent는
+모든 child를 기다린 뒤 하나라도 실패하거나 출력 수집이 실패하면 job을
+실패시킨다. 전체 log는 완료 후 출력하므로 서로 섞이지 않는다. job 취소 시
+hosted runner teardown이 정리를 담당하며 내부 timeout은 완화하지 않는다.
 
-The suite jobs time out after 25 minutes. On macOS, partition 5 alone took
-about 14 minutes in [main run 39933464643](https://github.com/JeongJaeSoon/agent-guard/actions/runs/39933464643);
-moving its slowest shell cd cases to partition 3 only moved the bottleneck to
-the core runner, because the case cost is uneven and runner time varies by a
-quarter between runs.
+2026-10-25~27의 최근 성공 CI 8회에서 결합된 macOS `Command policies and
+shell navigation` job은 [11분 32초](https://github.com/JeongJaeSoon/agent-guard/actions/runs/40181470019)~[16분 29초](https://github.com/JeongJaeSoon/agent-guard/actions/runs/40483354986)가 걸렸고,
+[최신 run](https://github.com/JeongJaeSoon/agent-guard/actions/runs/40537624147)은
+15분 49초였다. 이 변경은 같은 runner에서 두 heavy shell suite가 경쟁하는
+구조를 제거한다. 로컬 비교는 실행 중 source가 변경되어 인과 증거에서 제외했다.
+실제 candidate hosted CI가 실행되지 않았으므로 단축 효과는 **UNVERIFIED**다.
+job 수만으로 billed cost 절감을 주장하지 않는다.
+
+suite job timeout은 25분이다. [main run 39933464643](https://github.com/JeongJaeSoon/agent-guard/actions/runs/39933464643)에서
+macOS partition 5의 child elapsed는 약 14분이었지만, 이는 partition 2와 같은
+`Command policies and shell navigation` runner에서 동시에 실행된 값이다. 따라서
+partition 5의 독립 runner 시간으로 해석할 수 없다. 가장 느린 shell cd case를
+partition 3으로 옮긴 이전 시도는 병목을 core runner로 이동시켰을 뿐이었다.
+case 비용이 고르지 않고 runner 시간도 run 사이에 약 25% 변하므로 candidate
+hosted CI 전에는 이번 분리의 단축 효과를 확정하지 않는다.
 
 See [Test layers and coverage](testing.md) for the distinction between execution
 partitions, test-pyramid layers, assertion inventories and code coverage.

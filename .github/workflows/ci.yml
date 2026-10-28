@@ -48,16 +48,20 @@ jobs:
         # added blindly here to avoid a job that waits forever for a runner that
         # may not exist.
         os: [ubuntu-latest, macos-latest]
-        # All five partitions run once per OS. Two workers per runner use
-        # available CPUs without multiplying hosted runner lifetimes.
-        bundle: [core, policies, scanner]
+        # All five partitions run once per OS. Only the smaller core pair
+        # shares a runner; the two long-running policy suites get independent
+        # runner capacity instead of competing within the same job.
+        bundle: [core, commands, navigation, scanner]
         include:
           - bundle: core
             suite: Core, host adapters and Git
             shards: '1 3'
-          - bundle: policies
-            suite: Command policies and shell navigation
-            shards: '2 5'
+          - bundle: commands
+            suite: Command policies
+            shards: '2'
+          - bundle: navigation
+            suite: Shell navigation
+            shards: '5'
           - bundle: scanner
             suite: CLI, scanner and output
             shards: '4'
