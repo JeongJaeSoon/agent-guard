@@ -24,10 +24,10 @@ The internal IDs select execution partitions; Actions displays descriptive names
 | Internal ID | Actions suite | Change from the previous layout |
 | --- | --- | --- |
 | 1 | Core, host adapters and Git (with 3) | Unchanged |
-| 2 | Command policies | Adds git aliases and three mask suites previously in 3 |
+| 2 | Command policies and shell navigation (with 5) | Adds git aliases and three mask suites previously in 3 |
 | 3 | Core, host adapters and Git (with 1) | Retains auto-staging regression cases |
 | 4 | CLI, scanner and output | Retains scanner integration; adds original 5 output, PII and shell-setup cases |
-| 5 | Shell navigation | Runs shell-navigation cases previously in 4 |
+| 5 | Command policies and shell navigation (with 2) | Runs shell-navigation cases previously in 4 |
 
 Regression assertion bodies and their unpartitioned execution order stay
 identical; the matrix-coverage assertion is updated for the bundle format. Moved groups initialize their own repositories, configuration and
@@ -106,59 +106,24 @@ summed job durations (runner time). Hosted-runner variability can overwhelm a
 single comparison; a lower wall time alone does not establish lower billed cost.
 The per-suite summary reports only test execution, excluding queue and setup.
 
-## 호스트 계약별 병렬 실행
+## Bounded concurrency within each OS
 
-core runner는 partition 1과 3을 동시에 실행한다. command policies는
-partition 2, scanner는 partition 4를 각각 실행한다. 가장 오래 걸리는 shell
-navigation은 Claude와 Codex의 호스트 계약별 runner로 나눈다. 두 호스트는
-입력의 cwd/workdir 위치와 응답 계약이 다르며, 각 worker는 자신이 맡은 호스트의
-실제 hook·Bash·Git 검증 전체를 실행한다. 테스트 목록을 번호나 개수로 자르지 않는다.
+The core runner executes partitions 1 and 3 concurrently; the policies runner
+executes 2 and 5 concurrently. The scanner runner executes 4 alone, retaining
+its real-scanner installation, no-skip gate and smoke test. This keeps all ten
+OS/partition combinations on six runners instead of ten. Each child gets a
+separate TMPDIR and output file; the parent waits for every child and fails if
+any child or output collection fails. Full logs are printed after completion,
+so they do not interleave. Hosted-runner teardown handles job cancellation.
+No internal timeout is relaxed. This uses the existing runner CPUs; contention
+can offset the reduction in runner lifetimes. Actual timing comparisons are
+required before claiming a saving; job count alone is not a cost measurement.
 
-각 OS에서 navigation 두 worker의 합집합은 기존 378개 assertion과 같다.
-호스트 공통 assertion 5개는 Claude worker가 한 번 실행한다. fixture의 저장소,
-TMPDIR, 출력 파일은 worker마다 격리한다. 기본 `tests/run.sh`는 여전히 모든
-호스트를 실행하고, 호스트 선택은 navigation partition에만 허용한다.
-잘못된 호스트나 다른 partition과의 조합은 오류로 종료한다. core의 matrix 검증은
-일반 partition의 단일 실행과 Claude/Codex navigation의 누락·중복을 확인한다.
-
-따라서 test job은 이전 6개에서 10개가 된다. OS/partition/host의 전체 검증 범위,
-aggregate job 2개의 이름과 fail-closed 의존성은 유지한다. scanner의 실제 설치,
-no-skip gate와 smoke test도 그대로다. core의 parent는 모든 child를 기다리고,
-하나라도 실패하거나 출력 수집이 실패하면 job을 실패시킨다. 전체 log는 완료 후
-출력하며 job 취소 시 hosted runner teardown이 정리를 담당한다.
-
-### 측정과 설계 선택
-
-2026-10-25~27의 성공 CI 8회에서 결합된 macOS `Command policies and shell
-navigation` job은 [11분 32초](https://github.com/JeongJaeSoon/agent-guard/actions/runs/40181470019)~[16분 29초](https://github.com/JeongJaeSoon/agent-guard/actions/runs/40483354986)가 걸렸다.
-정확한 기준 커밋 `907e6db`의 [run 40537624147](https://github.com/JeongJaeSoon/agent-guard/actions/runs/40537624147)과
-최초 후보 `1ff1122`의 [run 40623642319](https://github.com/JeongJaeSoon/agent-guard/actions/runs/40623642319)를
-생성 시각부터 마지막 job 종료까지 비교한 결과는 다음과 같다.
-
-| 지표 | 기준 | 명령 정책과 navigation만 분리한 최초 후보 |
-| --- | ---: | ---: |
-| 전체 CI wall time | 960초 | 1,015초 |
-| 가장 긴 macOS job | 949초 | 1,003초 |
-| runner 실행 시간 합계 | 3,133초 | 3,296초 |
-
-두 실행은 모두 성공했지만 **최초 분리안의 속도 개선은 입증되지 않았다**.
-macOS navigation이 그대로 병목이었다. 따라서 그 결과를 개선 수치로 사용하지 않고,
-호스트별 실제 검증을 독립 runner에 배치하는 구조로 변경했다. 최초 후보의
-navigation 로그에는 Claude 사례 193개, Codex 사례 180개와 공통 assertion 5개가
-있다. 최종 호스트 분리 후보의 실제 실행 시간과 검증 결과는
-[JeongJaeSoon/agent-guard#360](https://github.com/JeongJaeSoon/agent-guard/pull/360)의
-검증 기록에서 확인한다.
-
-Hosted runner 이미지와 부하가 실행마다 달라질 수 있다. 전체 wall time,
-queue/start 지연, test-step 시간, runner 시간 합계를 구분하며, 단일 실행으로
-비용 절감이나 안정적인 단축률을 단정하지 않는다. 로컬 비교 중 source가 변경된
-표본은 제외했다. 같은 명령의 중복 파싱을 줄이는 별도 아이디어도 측정했지만,
-로컬 추정 절감량이 전체 navigation에서 약 4초에 불과해 이번 변경에 포함하지 않았다.
-
-suite job timeout은 25분을 유지한다. [main run 39933464643](https://github.com/JeongJaeSoon/agent-guard/actions/runs/39933464643)의
-macOS partition 5 child elapsed 약 14분은 partition 2와 같은 runner에서 동시에
-실행된 값이므로 독립 runner 시간으로 해석할 수 없다. 가장 느린 case를 다른
-번호의 partition으로 옮겨 병목만 이동시키는 방식도 사용하지 않는다.
+The suite jobs time out after 25 minutes. On macOS, partition 5 alone took
+about 14 minutes in [main run 39933464643](https://github.com/JeongJaeSoon/agent-guard/actions/runs/39933464643);
+moving its slowest shell cd cases to partition 3 only moved the bottleneck to
+the core runner, because the case cost is uneven and runner time varies by a
+quarter between runs.
 
 See [Test layers and coverage](testing.md) for the distinction between execution
 partitions, test-pyramid layers, assertion inventories and code coverage.

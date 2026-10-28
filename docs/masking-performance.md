@@ -126,6 +126,9 @@ scan, ShellCheck(error), actionlint도 통과했다. 이 로컬 전체 검증은
 Linux 2,511개와 macOS 2,436개가 통과했고 모든 실패 집계는 0이었다. 실제
 gitleaks의 RSA private key 탐지 assertion과 `smoke-test ok`, 두 aggregate의
 `SHARDS_RESULT: success`도 로그에서 확인했다. OS별 수 차이는 기존 실제 scanner
-검증과 플랫폼별 사례 차이다. 이후 CI의 호스트별 실행 배치만 수정하며 마스킹
-실행 파일은 위 SHA-256 그대로다. 최종 후보의 CI 결과는
+검증과 플랫폼별 사례 차이다. 이 결과는 CI 배치 변경을 함께 포함한 당시 후보의
+검증 기록이다. 마스킹 전용 변경은 main의 기존 CI 배치를 유지하고, 실행 파일은
+위 SHA-256 그대로다. 분리된 마스킹 후보의 단독 CI 결과는
 [JeongJaeSoon/agent-guard#360](https://github.com/JeongJaeSoon/agent-guard/pull/360)에서 추적한다.
+CI 호스트별 병렬 실행은 독립적인
+[JeongJaeSoon/agent-guard#361](https://github.com/JeongJaeSoon/agent-guard/pull/361)에서 다룬다.

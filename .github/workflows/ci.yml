@@ -48,33 +48,23 @@ jobs:
         # added blindly here to avoid a job that waits forever for a runner that
         # may not exist.
         os: [ubuntu-latest, macos-latest]
-        # Every assertion and host contract runs once per OS. Only the smaller
-        # core pair shares a runner; navigation is split by the Claude/Codex
-        # input contract and the long-running suites get independent capacity.
-        bundle: [core, commands, navigation-claude, navigation-codex, scanner]
+        # All five partitions run once per OS. Two workers per runner use
+        # available CPUs without multiplying hosted runner lifetimes.
+        bundle: [core, policies, scanner]
         include:
           - bundle: core
             suite: Core, host adapters and Git
             shards: '1 3'
-          - bundle: commands
-            suite: Command policies
-            shards: '2'
-          - bundle: navigation-claude
-            suite: Shell navigation (Claude)
-            shards: '5'
-            navigation_host: claude
-          - bundle: navigation-codex
-            suite: Shell navigation (Codex)
-            shards: '5'
-            navigation_host: codex
+          - bundle: policies
+            suite: Command policies and shell navigation
+            shards: '2 5'
           - bundle: scanner
             suite: CLI, scanner and output
             shards: '4'
     runs-on: ${{ matrix.os }}
     # Keep a bounded runner lifetime. Partitions are balanced by measured
     # test time, not assertion count; see docs/ci.md for mapping and evidence.
-    # The earlier ~14-minute partition 5 measurement was a child sharing one
-    # runner with partition 2, not an independent runner duration.
+    # macOS partition 5 alone takes about 14 minutes, so 15 left no headroom.
     timeout-minutes: 25
     steps:
       - name: Checkout
@@ -111,7 +101,6 @@ jobs:
       - name: Run tests
         env:
           TEST_PARTITIONS: ${{ matrix.shards }}
-          AGENT_GUARD_TEST_NAVIGATION_HOST: ${{ matrix.navigation_host }}
         run: |
           # IDs come only from the checked-in matrix; the driver validates
           # one or two distinct IDs and preserves every child exit status.
