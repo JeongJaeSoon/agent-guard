@@ -1,3 +1,7 @@
+## v3.6.10 - 2026-10-30
+
+- fix(prompt-guard): make blocked injected messages recoverable (#365)
+
 ## v3.6.9 - 2026-10-28
 
 - perf(masking): streamline framing and reuse redaction plans (#360)
