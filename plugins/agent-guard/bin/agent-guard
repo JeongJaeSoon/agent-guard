@@ -1724,14 +1724,29 @@ warning_state_path() {
   esac
   warning_dir=$(warning_root)
   if [ ! -d "$warning_dir" ]; then
-    mkdir -p "$warning_dir" 2>/dev/null || return 1
+    (umask 077; mkdir -p "$warning_dir") 2>/dev/null || return 1
     chmod 700 "$warning_dir" 2>/dev/null || :
   fi
   printf '%s\n' "$warning_dir/$1-$warning_session"
 }
 
+# warning_state_path for state that is read back into the model's context.
+# Another user who can create the shared default path could plant it, so the
+# directory must be ours and 0700; anything unverifiable is refused.
+private_warning_state_path() {
+  private_path=$(warning_state_path "$1" "${2:-}") || return 1
+  private_dir=${private_path%/*}
+  [ ! -L "$private_dir" ] && [ -O "$private_dir" ] || return 1
+  case $(ls -ld "$private_dir" 2>/dev/null) in
+    drwx------*) ;;
+    *) return 1 ;;
+  esac
+  printf '%s\n' "$private_path"
+}
+
+# `sh` has no UID variable, so the default derives the user from id -u.
 warning_root() {
-  printf '%s\n' "${AGENT_GUARD_WARNING_DIR:-${TMPDIR:-/tmp}/agent-guard-warnings-${UID:-user}}"
+  printf '%s\n' "${AGENT_GUARD_WARNING_DIR:-${TMPDIR:-/tmp}/agent-guard-warnings-$(id -u 2>/dev/null || echo user)}"
 }
 
 # Shared front half of every infrastructure-failure policy: apply the closed
@@ -7606,6 +7621,8 @@ secretish_env_values() {
       status_label = "(^|[ \t\r])(error|warning|info|note|debug|fatal|hint)[ \t]*:$"
       boundary = sprintf("%c", 30)
       escape = sprintf("%c", 31)
+      pw_n = split("your my the a an api access auth bearer client app user id key keys pass password secret secrets token tokens value personal private refresh session here", pw_words, " ")
+      for (pw_i = 1; pw_i <= pw_n; pw_i++) placeholder_word[pw_words[pw_i]] = 1
     }
     function quoted_end(raw, quote, i, slash_count, ch) {
       slash_count = 0
@@ -7707,13 +7724,15 @@ secretish_env_values() {
       sub(/[ \t\r\n]+$/, "", v)
       return v
     }
-    # The benign checks below judge a value by its core: prose glues trailing
-    # punctuation or a particle in another script onto a value (`<token>`,`,
-    # `enabled가`). Only the judgement uses the core; an emitted literal keeps
-    # the full token, so `pass1234비밀` still masks its tail.
+    # The benign checks below judge a value by its core: prose wraps a value
+    # in backticks or quotes, follows it with a comma, or glues on a Korean
+    # particle (`<token>`,`, `enabled가`). Only those come off, so a real
+    # suffix (`true비밀`, `disabled.`, `dummy_password!`) still masks. Only the
+    # judgement uses the core; an emitted literal keeps the full token.
     function prose_core(value, v) {
       v = tolower(edge_trim(value))
-      sub(/[\200-\377`'\''",.;:!?]+$/, "", v)
+      sub(/[`'\''",]+$/, "", v)
+      sub(/(가|이|은|는|을|를|의|도|에|에서|로|으로|와|과|만)$/, "", v)
       return v
     }
     # Keep the assignment heuristic aligned with the narrow, human-readable
@@ -7727,12 +7746,15 @@ secretish_env_values() {
           || angle_placeholder(v)
     }
     # Heuristic only, gitleaks has no rule that matches it: `<token>` and
-    # `<your-api-key>` stand for a value in prose. Words only, so no digits and
-    # no letter run over 12 (spelled out: awk `{n}` is not portable); a random
-    # credential in angle brackets still masks.
-    function angle_placeholder(v) {
-      return v ~ /^<[a-z][a-z_ .-]*>$/ && length(v) <= 40 \
-          && v !~ /[a-z][a-z][a-z][a-z][a-z][a-z][a-z][a-z][a-z][a-z][a-z][a-z][a-z]/
+    # `<your-api-key>` stand for a value in prose. Every word must be a known
+    # placeholder word, so an arbitrary word or passphrase in angle brackets
+    # (`<correct-horse-battery>`) still masks.
+    function angle_placeholder(v, n, i, words) {
+      if (v !~ /^<[a-z][a-z_ .-]*>$/) return 0
+      n = split(substr(v, 2, length(v) - 2), words, /[-_ .]+/)
+      for (i = 1; i <= n; i++)
+        if (!(words[i] in placeholder_word)) return 0
+      return n > 0
     }
     # A boolean or null under a secret-bearing key (`api_token: true`) is a
     # config flag, not a credential. Emitting it made the word a global
@@ -11503,20 +11525,24 @@ prompt_has_secretish_assignment() {
 # and the output path are echoed only when they match a strict shape, because
 # the hint is later shown to the model.
 injected_prompt_frame() {
-  printf '%s\n' "$1" | LC_ALL=C awk '
+  printf '%s\n' "$1" | LC_ALL=C awk -v anon="${2:-}" '
     NR == 1 {
       if ($0 == "<task-notification>") { kind = "task"; next }
       if ($0 ~ /^<agent-message from="[A-Za-z0-9_-]+">$/) {
-        kind = "message"; from = substr($0, 22, length($0) - 23); next
+        kind = "message"; from = substr($0, 22, length($0) - 23)
+        if (anon != "" || length(from) > 32) from = ""
+        next
       }
       exit
     }
     kind == "message" && NR == 2 && /^\[Subagent hand-back\]/ { kind = "handback" }
     kind == "task" && /^<task-id>[A-Za-z0-9_-]+<\/task-id>$/ {
       id = substr($0, 10, length($0) - 19)
+      if (anon != "" || length(id) > 32) id = ""
     }
-    kind == "task" && /^<output-file>\/[A-Za-z0-9._\/-]+<\/output-file>$/ {
+    kind == "task" && anon == "" && /^<output-file>\/[A-Za-z0-9._\/-]+<\/output-file>$/ {
       path = substr($0, 14, length($0) - 27)
+      if (length(path) > 512) path = ""
     }
     END {
       if (kind == "task") {
@@ -11528,9 +11554,11 @@ injected_prompt_frame() {
           target = path
         printf "a background task notification (task %s)|read %s with the Read tool, which masks secret-like values\n", id, target
       } else if (kind == "handback") {
-        printf "a subagent hand-back from agent %s|ask agent %s to resend its report without the credential values\n", from, from
+        if (from == "") printf "a subagent hand-back|ask the agent that sent it to resend its report without the credential values\n"
+        else printf "a subagent hand-back from agent %s|ask agent %s to resend its report without the credential values\n", from, from
       } else if (kind == "message") {
-        printf "a message from agent or session %s|ask %s to resend it without the credential values\n", from, from
+        if (from == "") printf "a message from another agent or session|ask its sender to resend it without the credential values\n"
+        else printf "a message from agent or session %s|ask %s to resend it without the credential values\n", from, from
       }
     }'
 }
@@ -11574,9 +11602,15 @@ block_injected_prompt() {
   esac
   frame=$(injected_prompt_frame "$2") || frame=
   [ -n "$frame" ] || return 0
+  # Ids and the path are echoed to the model, so drop them if they themselves
+  # look secret-like or the check cannot run.
+  if ! injected_frame_is_clean "$frame"; then
+    frame=$(injected_prompt_frame "$2" anon) || frame=
+    [ -n "$frame" ] || return 0
+  fi
   label=${frame%%'|'*}
   hint=${frame#*'|'}
-  if state=$(warning_state_path blocked-injection "$1"); then
+  if state=$(private_warning_state_path blocked-injection "$1"); then
     (umask 077
      printf '%s: blocked %s earlier in this session because it contained %s, so its text never reached you. To recover it, %s.\n' \
        "$PROGRAM" "$label" "$3" "$hint" >>"$state") 2>/dev/null || :
@@ -11585,13 +11619,20 @@ block_injected_prompt() {
   exit 2
 }
 
+injected_frame_is_clean() {
+  scan_text_direct "injected message label" "$1" >/dev/null 2>&1 || return 1
+  frame_probe_status=0
+  prompt_has_secretish_assignment "$1" 2>/dev/null || frame_probe_status=$?
+  [ "$frame_probe_status" -eq 1 ]
+}
+
 # Sets INJECTION_NOTICE to the queued notices (the last ten) and clears the
 # queue. The glob keeps the common no-queue case free of a jq parse.
 take_blocked_injection_notice() {
   INJECTION_NOTICE=
   set -- "$1" "$(warning_root)"/blocked-injection-*
   [ -e "$2" ] || return 0
-  if state=$(warning_state_path blocked-injection "$1") && [ -s "$state" ]; then
+  if state=$(private_warning_state_path blocked-injection "$1") && [ -s "$state" ]; then
     INJECTION_NOTICE=$(tail -n 10 "$state" 2>/dev/null | tr '\n' ' ') || INJECTION_NOTICE=
     INJECTION_NOTICE=${INJECTION_NOTICE% }
     rm -f "$state"
