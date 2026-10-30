@@ -240,7 +240,16 @@ JSON
     "$(printf 'cat > /tmp/x/brief.md <<%s\nSigned commits, push (no force). Measure it first (`tool status`, `tool --version`).\nEOF\ncp /tmp/x/a.png /tmp/x/b.png\nmytool create --prompt "signed commits, push (no force)"' "'EOF'")" \
     "$(printf 'tee /tmp/x/n.md <<\\EOF >/dev/null\n`x`\nEOF')" \
     'R=/tmp/x/r; git -C $R rev-parse --abbrev-ref HEAD; git -C $R branch --show-current' \
-    'p=/tmp/x/r; echo "$p: $(git -C $p branch --show-current) $(git -C $p status --porcelain | wc -l)"'; do
+    'p=/tmp/x/r; echo "$p: $(git -C $p branch --show-current) $(git -C $p status --porcelain | wc -l)"' \
+    "$(printf 'cd /tmp/x && cp a b && \\\nsed -i "" s/a/b/ b')" \
+    'echo $(date) $(date +%s)' \
+    't=$(( $(date +%s) - 5 )); [ $t -gt 0 ] && sleep $t' \
+    "$(printf 'cat > /tmp/x/b.md <<EOF\nHead $S at ${B}\nEOF')" \
+    'G=~/.local/bin/gh; $G pr edit 1 --body-file /tmp/x/b.md' \
+    'G=$HOME/.local/bin/gh; $G api user' \
+    "$(printf 'cat > /tmp/x/b.md <<%s\nRan `npm test`\nEOF\n/opt/homebrew/bin/gh pr edit 1 --body-file /tmp/x/b.md && /opt/homebrew/bin/gh pr view 1' "'EOF'")" \
+    "$(printf 'cat > /tmp/x/b.md <<%s\nRan `npm test`\nEOF\nbash /tmp/x/post.sh /tmp/x/b.md' "'EOF'")" \
+    "$(printf 'gh pr create --title t --body-file - <<EOF\nBody for $S\nEOF')"; do
     run_manifest "$host" closed "$MOCK_GITLEAKS" \
       "$(jq -nc --arg c "$shell_cmd" '{session_id:"outcome-no-git-write",tool_name:"Bash",tool_input:{command:$c}}')"
     status=$?
@@ -258,7 +267,6 @@ JSON
     "$(printf 'cat > >(bash) <<%s\n$(echo git) push\nEOF' "'EOF'")" \
     "$(printf 'cat <<%s \\\n| bash\n$(echo git) push\nEOF' "'EOF'")" \
     "$(printf 'bash <<%s\n`echo git` push\nEOF' "'EOF'")" \
-    "$(printf 'cat >/dev/null <<EOF\n$(git push)\nEOF')" \
     "R='/tmp/x push'; git -C \$R" \
     'R=push; git -C /tmp/x $R{,}' \
     "R=/tmp/x; sh -c 'git -C \$R push'" \
@@ -272,11 +280,50 @@ JSON
       not_ok "$host manifest path keeps code that may push unresolved: ${shell_cmd%%[ ;]*} (status $status)"
     fi
   done
-  # A body the same line may run as a script is still read for a push.
+  # A closed block names the part it could not resolve and what to run
+  # instead.
+  for case_line in \
+    'cd "$D" && git push	a cd goes to a directory only known at run time' \
+    'git clone -q /tmp/x/a /tmp/x/b && cd /tmp/x/b && git commit -m x	a cd runs after git `clone`' \
+    'gh repo clone o/r /tmp/x/c; cd /tmp/x/c && git push	a cd runs after `gh`' \
+    'G=~/bin/git; $G push	the command name `$G` is only known at run time' \
+    'for p in a b; do git -C $p push; done	so quote it'; do
+    shell_cmd=${case_line%%"	"*}
+    reason=${case_line#*"	"}
+    run_manifest "$host" closed "$MOCK_GITLEAKS" \
+      "$(jq -nc --arg c "$shell_cmd" '{session_id:"outcome-reason",tool_name:"Bash",tool_input:{command:$c}}')"
+    status=$?
+    if [ "$status" -eq 2 ] && grep -Fq "$reason" "$CASE_ROOT/err" \
+       && grep -Fq 'run that git command as its own Bash call' "$CASE_ROOT/err"; then
+      ok "$host closed block names why: $reason"
+    else
+      not_ok "$host closed block names why: $reason (status $status)"
+    fi
+  done
+
+  # A body the same line may run as a script is still read for a push, and
+  # so is a substitution the shell expands in a here-document, an
+  # arithmetic expansion or a continued line.
   for shell_cmd in \
+    "$(printf 'cat >/dev/null <<EOF\n$(git push)\nEOF')" \
+    "$(printf 'cat <<EOF\n%s\n$(git push)\nEOF' "x it's")" \
+    "$(printf 'cat <<EOF\n# $(git push)\nEOF')" \
+    "$(printf 'cat <<EOF\n`git push`\nEOF')" \
+    'echo $((git push) )' \
+    'echo $(( $(git push) + 1 ))' \
+    "$(printf 'echo a && \\\ngit push')" \
+    "$(printf 'gi\\\nt push')" \
+    "$(printf 'cat > s <<%s\ngit push\nEOF\nchmod +x s; ./s' "'EOF'")" \
     "$(printf 'cat > /tmp/x/s.sh <<%s\ngit push\nEOF\nbash /tmp/x/s.sh' "'EOF'")" \
     "$(printf 'cat > /tmp/x/s.sh <<%s\ngit push\nEOF\nchmod +x /tmp/x/s.sh; /tmp/x/s.sh' "'EOF'")" \
-    "$(printf 'mkfifo /tmp/x/p; bash /tmp/x/p &\ncat > /tmp/x/p <<%s\ngit push\nEOF' "'EOF'")"; do
+    "$(printf 'mkfifo /tmp/x/p; bash /tmp/x/p &\ncat > /tmp/x/p <<%s\ngit push\nEOF' "'EOF'")" \
+    "$(printf 'cat > s.sh <<EOF\necho $(date)\ngit push\nEOF\nsh s.sh')" \
+    "$(printf 'cat > s.sh <<%s\ngit push\nEOF\nsh S.SH' "'EOF'")" \
+    "$(printf 'cat > s.sh <<%s\ngit push\nEOF\nsh s.*' "'EOF'")" \
+    "$(printf 'cat > /tmp/x/run.sh <<%s\ngit push\nEOF\n/tmp/x/r?n.sh' "'EOF'")" \
+    "$(printf 'gh alias set --shell p - <<%s\ngit push\nEOF\ngh p' "'EOF'")" \
+    "echo 'a>' & git push" \
+    'echo a\> & git push'; do
     run_manifest "$host" closed "$MOCK_GITLEAKS" \
       "$(jq -nc --arg c "$shell_cmd" '{session_id:"outcome-script",tool_name:"Bash",tool_input:{command:$c}}')"
     status=$?

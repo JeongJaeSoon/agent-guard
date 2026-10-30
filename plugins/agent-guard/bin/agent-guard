@@ -3451,6 +3451,9 @@ scan_file_fragment_direct() {
 # one. Hook callers apply AGENT_GUARD_INFRA_FAILURE_MODE to infrastructure
 # failures; direct scan commands preserve the status for their caller.
 SCAN_STATUS_UNAVAILABLE=3
+# The git gate's own status for a commit or push whose directory does not
+# exist or is no repository when the hook runs.
+GIT_SCAN_STATUS_NO_REPOSITORY=4
 SCAN_INPUT_MAX_BYTES=10485760
 # Operators raise the budget when one legitimate file (a regenerated lockfile)
 # exceeds it; a larger budget scans more, never less, so it cannot bypass the
@@ -4962,16 +4965,18 @@ shell_command_words() {
 # tilde, the code of each command substitution inside double quotes in a word
 # follows that word as one record with prefix 7, each substitution's code
 # wrapped as `( code` and `)` lines and every newline written as \034; only
-# git_gate_records reads it. A bare `&` or a `( ) { }` character is emitted on its own with
+# git_gate_records reads it. Unquoted substitutions, in a word or in a
+# here-document body, get the same record. A bare `&` or a `( ) { }` character is emitted on its own with
 # prefix 3: a command boundary for most callers, but the commit argument parser
 # must tell `2>&1` and brace expansion apart from the end of the command. Newlines cannot be represented safely in the record stream, so
 # they make the affected token dynamic and therefore subject to infra policy.
 # Comments are dropped. A here-document body is still tokenized, since it may
 # be code for another shell, but is wrapped in `3(` and `3)`: nothing in it
-# runs in this shell. With tilde, a body behind a quoted delimiter that cat,
-# tee or python reads, and nothing else on the line can, is wrapped in `3[`
-# and `3]` instead: this shell expands nothing in it, and none of them runs it
-# as shell code. Python code is outside the gate already, as `python3 -c` and
+# runs in this shell. With tilde, a body that cat, tee, python, gh or git
+# commit reads, and nothing else on the line can, is wrapped in `3[` and `3]`
+# instead: none of them runs it as shell code. Behind an unquoted delimiter
+# the code of its substitutions follows the body as 7 records, since this
+# shell runs it either way. Python code is outside the gate already, as `python3 -c` and
 # `python3 script.py` are. git_gate_records decides what such a body is.
 git_command_records() {
   printf '%s\n' "$1" | LC_ALL=C awk -v tilde="${2:-}" '
@@ -4981,13 +4986,33 @@ git_command_records() {
     function stdin_shared(  h) {
       for (h = line_heredocs + 1; h <= heredoc_count; h++) heredoc_inert[h] = 0
     }
+    # The body of $(( expr )) is arithmetic, not a command: read it as the
+    # arguments of `:` so that only the substitutions in it run as code.
+    # $((cmd) ) is a subshell in a substitution and stays one.
+    function arith_body(b,   k, d, ch, q) {
+      if (!body_dollar || substr(b, 1, 1) != "(" || b ~ /[\\`]/) return b
+      d = 0; q = ""
+      for (k = 1; k <= length(b); k++) {
+        ch = substr(b, k, 1)
+        if (q != "") { if (ch == q) q = ""; continue }
+        if (ch == "\047" || ch == "\"") q = ch
+        else if (ch == "(") d++
+        else if (ch == ")" && --d == 0 && k < length(b)) return b
+      }
+      return d == 0 && q == "" ? "( :" substr(b, 2) : b
+    }
     function emit() {
       if (!started) return
       if (heredoc_expect) {
         delim = substr(word, heredoc_mark + 1)
         heredoc_mark = 0
         if (delim != "" || heredoc_quoted) {
-          heredoc_inert[heredoc_count + 1] = tilde != "" && heredoc_quoted && head ~ /^(cat|tee|python|python3)$/
+          # 1: text; 2: text the shell expands, so the code of its
+          # substitutions runs either way. gh reads its stdin as a body or
+          # JSON input, except for a --shell alias, and git commit as a
+          # message.
+          hb = head; sub(/.*\//, "", hb)
+          heredoc_inert[heredoc_count + 1] = tilde != "" && (hb ~ /^(cat|tee|python|python3|gh)$/ && head_sub != "alias" || head_sub == "commit") ? (heredoc_quoted ? 1 : 2) : 0
           heredoc_quoted = 0
           heredoc_delim[++heredoc_count] = delim
           heredoc_strip[heredoc_count] = heredoc_dash
@@ -4996,20 +5021,28 @@ git_command_records() {
       }
       if (tilde != "" && !at_word && name_quoted && word ~ /^[A-Za-z_][A-Za-z0-9_]*=/) print (splits || globbed ? "6" : "5") word
       else print (splits ? "1" : dynamic || word ~ /^(;|&&|\|\||\|)$/ || tilde != "" && cd_args && quoted && word ~ /^~/ ? "4" : "0") word
-      if (code != "") { print "7" code; code = "" }
+      if (code != "") {
+        if (heredoc_open && heredoc_inert[heredoc_next] == 2) body_code = body_code "7" code "\n"
+        else print "7" code
+        code = ""
+      }
+      last_word = word
       if (!at_word && (word !~ /^[A-Za-z_][A-Za-z0-9_]*=/ || name_quoted)) head = dynamic || splits || quoted ? "" : word
       if (!at_word && (word == "cd" || word == "pushd")) cd_args = 1
+      if (at_word && (head ~ /(^|\/)git$/ && word == "commit" || head ~ /(^|\/)gh$/ && word == "alias")) head_sub = word
       if (word !~ /^[A-Za-z_][A-Za-z0-9_]*=/ || name_quoted) at_word = 1
       if (word == "[[") in_test = 1
       if (word == "]]") in_test = 0
       word = ""; started = 0; dynamic = 0; splits = 0; quoted = 0; slashed = 0; name_quoted = 0; equaled = 0; globbed = 0
     }
-    NR > 1 {
-      if (quote == "") { emit(); print "0;"; cd_args = 0; at_word = 0; head = "" }
-      else { stdin_shared(); word = word (tilde != "" && quote == "double" ? "\034" : " "); dynamic = 1 }
+    # A backslash-newline outside quotes and here-documents joins two lines.
+    NR > 1 && !joined {
+      if (quote == "") { emit(); print "0;"; cd_args = 0; at_word = 0; head = ""; head_sub = "" }
+      else { stdin_shared(); word = word (tilde != "" && quote ~ /^(double|subst)$/ ? "\034" : " "); dynamic = 1 }
       heredoc_expect = 0; heredoc_quoted = 0
       line_heredocs = heredoc_count
     }
+    { joined = 0 }
     nest_hd != "" && NR > nest_hd_line {
       line = $0
       if (nest_hd_strip) sub(/^\t+/, "", line)
@@ -5023,9 +5056,10 @@ git_command_records() {
       if (line != heredoc_delim[heredoc_next]) {
         if (!heredoc_open) { print heredoc_inert[heredoc_next] ? "3[" : "3("; heredoc_open = 1 }
       } else {
-        if (quote != "") { quote = ""; dynamic = 1; splits = 1 }
+        if (quote != "") { quote = ""; nest = ""; dynamic = 1; splits = 1 }
         emit()
         if (heredoc_open) { print heredoc_inert[heredoc_next] ? "3]" : "3)"; heredoc_open = 0 }
+        printf "%s", body_code; body_code = ""
         heredoc_next++
         next
       }
@@ -5041,10 +5075,11 @@ git_command_records() {
           started = 1
           continue
         }
-        # Inside a command substitution in double quotes: quoting, nesting,
-        # a case pattern and a here-document follow shell rules, so that the
-        # substitution ends where the shell ends it.
-        if (quote == "double" && nest != "") {
+        # Inside a command substitution (in double quotes, or unquoted in
+        # tilde mode): quoting, nesting, a case pattern and a here-document
+        # follow shell rules, so that the substitution ends where the shell
+        # ends it.
+        if (quote ~ /^(double|subst)$/ && nest != "") {
           top = substr(nest, length(nest))
           word = word c
           if (top == "s") { if (c == "\047") nest = substr(nest, 1, length(nest) - 1) }
@@ -5073,7 +5108,10 @@ git_command_records() {
             gsub(/["\047\\]/, "", nest_hd)
             nest_hd_line = NR
           }
-          if (nest == "") code = code "( " substr(word, body_start, length(word) - body_start) "\034)\034"
+          if (nest == "") {
+            code = code "( " arith_body(substr(word, body_start, length(word) - body_start)) "\034)\034"
+            if (quote == "subst") quote = ""
+          }
           continue
         }
         if (quote == "double") {
@@ -5089,7 +5127,7 @@ git_command_records() {
             word = word c
             if (c == "$") { word = word n; i++ }
             nest = c == "`" ? "b" : "p"
-            body_start = length(word) + 1
+            body_start = length(word) + 1; body_dollar = c == "$"
             dynamic = 1; started = 1
             continue
           }
@@ -5101,18 +5139,33 @@ git_command_records() {
           continue
         }
         if (c == " " || c == "\t") { emit(); continue }
+        # Unquoted, a substitution splits into words and its code is hoisted
+        # as in double quotes; the word stays an argument of its command.
+        if (tilde != "" && (c == "`" || c == "$" && n == "(")) {
+          word = word c
+          if (c == "$") { word = word n; i++ }
+          nest = c == "`" ? "b" : "p"; quote = "subst"
+          body_start = length(word) + 1; body_dollar = c == "$"
+          dynamic = 1; splits = 1; started = 1
+          continue
+        }
+        # In a here-document body a quote or a `#` is text; a substitution
+        # in it still runs.
         # `#` opens a comment only where a word starts; `${#x}` and `a#b` do not,
         # nor does `$(x)#y`, but `(x)#y` does.
-        if (c == "#" && !started && (i == 1 || substr($0, i - 1, 1) ~ /[ \t;&|(]/ \
+        if (c == "#" && !started && !in_heredoc && (i == 1 || substr($0, i - 1, 1) ~ /[ \t;&|(]/ \
             || (substr($0, i - 1, 1) == ")" && closed == "s"))) break
-        if (c == "\047" || c == "\"") {
+        if ((c == "\047" || c == "\"") && !in_heredoc) {
           # An empty quoted word after << is a valid delimiter.
           if (heredoc_expect) heredoc_quoted = 1
           quote = c == "\047" ? "single" : "double"; started = 1; if (!slashed) quoted = 1; if (!equaled) name_quoted = 1; continue
         }
         if (c == "\\") {
-          # The command goes on past the line the body seems to start on.
-          if (i == length($0)) { stdin_shared(); dynamic = 1; splits = 1; started = 1; continue }
+          if (i == length($0)) {
+            if (!in_heredoc && !heredoc_expect && heredoc_count == line_heredocs) { joined = 1; continue }
+            # The command goes on past the line the body seems to start on.
+            stdin_shared(); dynamic = 1; splits = 1; started = 1; continue
+          }
           if (heredoc_expect) heredoc_quoted = 1
           word = word n; started = 1; if (!slashed) quoted = 1; if (!equaled) name_quoted = 1; i++; continue
         }
@@ -5129,7 +5182,7 @@ git_command_records() {
           if (c == "|" && n != "|") stdin_shared()
           if ((c == "|" || c == "&") && n == c) { print "0" c c; i++ }
           else print "0" c
-          cd_args = 0; at_word = 0; head = ""
+          cd_args = 0; at_word = 0; head = ""; head_sub = ""
           continue
         }
         # Bare &, newline-free ( ) { } grouping: treat as a command boundary so
@@ -5141,19 +5194,26 @@ git_command_records() {
           if (c == "(") parens = parens (started || in_test ? "w" : "s")
           if (c == ")") { closed = substr(parens, length(parens)); parens = substr(parens, 1, length(parens) - 1) }
           emit()
-          if (c == "(" || c == ")" || c == "&" && substr($0, i - 1, 1) !~ /[<>]/) stdin_shared()
-          print "3" c; cd_args = 0; at_word = 0; head = ""; continue
+          redirect = c == "&" && redir_at == NR ":" (i - 1)
+          if (c == "(" || c == ")" || c == "&" && !redirect) stdin_shared()
+          # Consumers read a `&` after a word ending in > or < as the `&` of
+          # `2>&1`; after a quoted or escaped > it backgrounds, so it gets a
+          # second one.
+          if (c == "&" && !redirect && last_word ~ /[<>]$/) print "3&"
+          print "3" c; cd_args = 0; at_word = 0; head = ""; head_sub = ""; continue
         }
         if (c == "$" || c == "`") { dynamic = 1; splits = 1 }
         if (c == "/") slashed = 1
         if (c == "=") equaled = 1
         if (index("*?[", c)) globbed = 1
+        if (c == ">" || c == "<") redir_at = NR ":" i
         word = word c; started = 1
       }
     }
     END {
       if (quote != "") print "2"
       else emit()
+      if (body_code != "") { if (heredoc_open) print "3]"; printf "%s", body_code }
     }
   '
 }
@@ -5175,12 +5235,22 @@ git_gate_records() (
       ;;
   esac
   # A here-document body in `3[` and `3]` is text unless a command of the
-  # line may run what it wrote: a shell, a wrapper, a path or a name only run
-  # time knows. Code a shell or a git alias runs (gate_child_code) may follow
-  # a script the outer line wrote.
+  # line may run what it wrote: a shell, a wrapper, a name only run time
+  # knows, or a path whose file name another word of the line also names, as
+  # the file a here-document is written to is. Code a shell or a git alias
+  # runs (gate_child_code) may follow a script the outer line wrote.
   printf '%s\n' "$gate_records" | LC_ALL=C awk -v runner="${gate_child_code:-0}" '
     { rec[++n] = $0 }
     END {
+      # File names the line gives as words other than a command name.
+      head = 1
+      for (k = 1; k <= n; k++) {
+        r = rec[k]; t = substr(r, 2)
+        if (r == "0;" || r == "0&&" || r == "0||" || r == "0|" || r ~ /^3/) { head = 1; continue }
+        if (head && t !~ /^[A-Za-z_][A-Za-z0-9_]*=/) { head = 0; continue }
+        sub(/^[0-9]*[<>&|]+/, "", t); sub(/.*\//, "", t)
+        named[tolower(t)]++
+      }
       head = 1
       for (k = 1; k <= n && runner == 0; k++) {
         r = rec[k]; kind = substr(r, 1, 1); t = substr(r, 2)
@@ -5191,7 +5261,13 @@ git_gate_records() (
         if (!head || kind ~ /[014]/ && t ~ /^[A-Za-z_][A-Za-z0-9_]*=/) continue
         head = 0
         b = t; sub(/.*\//, "", b)
-        if (kind != "0" || t ~ /\// || b ~ /^(sh|bash|dash|zsh|ksh|mksh|ash|yash|posh|csh|tcsh|fish|eval|source|\.|exec|coproc|trap|alias|env|command|builtin|sudo|doas|su|nice|nohup|time|timeout|xargs|watch|script|parallel)$/) runner = 1
+        # A shell given a script file no other word names runs that file, not
+        # what the line wrote.
+        # A file system may fold case, and a glob or brace may match it.
+        nb = substr(rec[k + 1], 2); sub(/.*\//, "", nb)
+        if (b ~ /^(sh|bash|dash|zsh|ksh|mksh|ash|yash|posh|csh|tcsh|fish)$/ \
+            && rec[k + 1] ~ /^0[^-;&|<>]/ && nb !~ /[*?[{]/ && named[tolower(nb)] == 1) continue
+        if (kind != "0" || t ~ /\// && (named[tolower(b)] || b ~ /[*?[{]/) || b ~ /^(sh|bash|dash|zsh|ksh|mksh|ash|yash|posh|csh|tcsh|fish|eval|source|\.|exec|coproc|trap|alias|env|command|builtin|sudo|doas|su|nice|nohup|time|timeout|xargs|watch|script|parallel)$/) runner = 1
       }
       body = 0
       for (k = 1; k <= n; k++) {
@@ -6112,7 +6188,8 @@ git_gate_command_vars() {
           nm = t; sub(/=.*/, "", nm)
           arec[nm]++
           for (m = k - 1; m >= 1 && rec[m] == "0;"; m--) ;
-          if (kind == "0" && !blocked && !depth && (k == 1 || rec[k - 1] == "0;") \
+          if ((kind == "0" || kind == "1" && substr(t, length(nm) + 2) ~ /^(\$HOME|\$\{HOME\})(\/[A-Za-z0-9_.\/:,@%+-]*)?$/) \
+              && !blocked && !depth && (k == 1 || rec[k - 1] == "0;") \
               && (m < 1 || rec[m] != "0&&" && rec[m] != "0||" && rec[m] != "0|") \
               && (k == n || rec[k + 1] == "0;"))
             cand[nm] = substr(t, length(nm) + 2)
@@ -6136,6 +6213,12 @@ git_gate_command_vars() {
         }
       }
 
+      # NAME=~/x and NAME=$HOME/x start with HOME, unless the line may set it.
+      home = ENVIRON["HOME"]
+      if (home ~ /^\/[A-Za-z0-9_.\/@%+-]*$/ && !assigned["HOME"] && !tainted["HOME"] && !abort)
+        for (nm in cand)
+          if (match(cand[nm], /^(~|\$HOME|\$\{HOME\})(\/|$)/))
+            cand[nm] = home substr(cand[nm], index(cand[nm], "/") ? index(cand[nm], "/") : length(cand[nm]) + 1)
       for (nm in cand) {
         if (arec[nm] != 1 || assigned[nm] != 1 || tainted[nm] || toupper(nm) ~ shellset) continue
         nw = split(cand[nm], w, /[ \t]+/)
@@ -6185,6 +6268,23 @@ git_unknown_head_args_safe() {
   done
 }
 
+# U marks a git commit or push group the scan cannot resolve; the Y record
+# after it says why, for the closed-mode message.
+git_unresolved() {
+  printf 'U\nY%s\n' "$1"
+}
+
+# $1 in backticks when it is a short plain word, else a neutral stand-in: the
+# reason must not echo a long or unusual word that may be a secret.
+git_reason_word() {
+  case "$1" in
+    ''|*[!A-Za-z0-9_.\$\{\}-]*) printf 'a word' ;;
+    *)
+      if [ "${#1}" -le 24 ]; then printf '`%s`' "$1"; else printf 'a word'; fi
+      ;;
+  esac
+}
+
 is_git_commit_or_push() {
   cmd=$1
   git_alias_workdir=${2:-}
@@ -6217,7 +6317,7 @@ is_git_commit_or_push() {
     git_child_code=0
     # The git command at hand stands for a command name only run time knows.
     git_head_unknown=0
-    git_head_stdin=0
+    git_head_sub=0
     git_cmd_reads_input=0
     case "$cmd" in
       *'|'*|*'<'*) git_cmd_reads_input=1 ;;
@@ -6285,6 +6385,10 @@ is_git_commit_or_push() {
     shell_cd_braces=0
     shell_cd_untrusted=0
     shell_cd_mutable=0
+    shell_cd_mutable_by=
+    shell_cd_mutable_git=
+    shell_cd_why=
+    shell_cd_reason() { [ -n "$shell_cd_why" ] || shell_cd_why=$1; }
     shell_cd_function=0
     shell_cd_stack=
     shell_cd_prev=
@@ -6318,16 +6422,16 @@ is_git_commit_or_push() {
         '&&') [ "$shell_cd_cond" -eq 2 ] || shell_cd_cond=1 ;;
         '||')
           shell_cd_cond=2
-          [ "$shell_cd_pending" -eq 0 ] || shell_cd_unknown=1
+          [ "$shell_cd_pending" -eq 0 ] || { shell_cd_unknown=1; shell_cd_reason "a cd may not run, since an || follows its && list"; }
           ;;
         '|')
           shell_cd_piped=1
-          [ "$shell_cd_last_was" -eq 0 ] || shell_cd_unknown=1
+          [ "$shell_cd_last_was" -eq 0 ] || { shell_cd_unknown=1; shell_cd_reason "a cd runs in a pipeline"; }
           ;;
         ';'|'&')
-          [ "$shell_cd_pending" -eq 0 ] || shell_cd_unknown=1
+          [ "$shell_cd_pending" -eq 0 ] || { shell_cd_unknown=1; shell_cd_reason "a cd may not run, since its && list ends"; }
           # A backgrounded list runs its cds in a subshell.
-          [ "$1:$shell_cd_in_list" != '&:1' ] || shell_cd_unknown=1
+          [ "$1:$shell_cd_in_list" != '&:1' ] || { shell_cd_unknown=1; shell_cd_reason "a cd runs in a background job"; }
           shell_cd_cond=0
           shell_cd_pending=0
           shell_cd_in_list=0
@@ -6357,7 +6461,7 @@ is_git_commit_or_push() {
             :
           elif [ "$shell_cd_untrusted" -eq 1 ]; then
             # A case pattern also ends in `)`; the subshell it closes is unknown.
-            [ "$shell_cd_count" -eq 0 ] || shell_cd_lost=1
+            [ "$shell_cd_count" -eq 0 ] || { shell_cd_lost=1; shell_cd_reason "a cd runs in a subshell the scan cannot follow"; }
           else
             shell_cd_saved=${shell_cd_stack##* }
             shell_cd_stack=${shell_cd_stack% *}
@@ -6479,10 +6583,10 @@ $effective_c_dirs" "$git_config_args" "$git_env_args"
         # as the command head.
         if [ "$record_kind" != 5 ] && [ "$record_kind" != 6 ] && is_assignment_token "$token"; then
           case "$record_kind$git_command_vars" in
-            0*"R	${token%%=*}	"*) git_vars_set="$git_vars_set${token%%=*} " ;;
+            [01]*"R	${token%%=*}	"*) git_vars_set="$git_vars_set${token%%=*} " ;;
           esac
           case "$record_kind$git_command_vars" in
-            0*"A	${token%%=*}	"*) git_args_set="$git_args_set${token%%=*} " ;;
+            [01]*"A	${token%%=*}	"*) git_args_set="$git_args_set${token%%=*} " ;;
           esac
           git_env_assignment "$record"
           shift
@@ -6505,7 +6609,7 @@ $effective_c_dirs" "$git_config_args" "$git_env_args"
         case "${token#"${token%%[!0-9]*}"}" in
           '>'|'>>'|'<'|'<>'|'>|')
             shell_cd_wrapped=1
-            case "$token" in *'<'*) git_head_stdin=1 ;; esac
+            case "$token" in *'<'*) git_head_sub=1 ;; esac
             shift
             [ "${1-}" = '3&' ] && shift
             [ "$#" -gt 0 ] && shift
@@ -6513,7 +6617,7 @@ $effective_c_dirs" "$git_config_args" "$git_env_args"
             ;;
           '>'*|'<'*)
             shell_cd_wrapped=1
-            case "$token" in *'<'*) git_head_stdin=1 ;; esac
+            case "$token" in *'<'*) git_head_sub=1 ;; esac
             shift
             continue
             ;;
@@ -6564,7 +6668,7 @@ $effective_c_dirs" "$git_config_args" "$git_env_args"
             IFS=$old_ifs
             continue
           fi
-          if [ "$record_kind$git_var_skip$xargs_wrapped$git_head_stdin" = 4100 ] \
+          if [ "$record_kind$git_var_skip$xargs_wrapped$git_head_sub" = 4100 ] \
             && [ "$shell_cd_untrusted$shell_cd_braces" = 00 ] && [ -z "$shell_cd_stack" ] \
             && [ "$git_cmd_reads_input" -eq 0 ] \
             && printf '%s\n' "$git_command_vars" | grep -qxF "S	$git_var"; then
@@ -6579,7 +6683,8 @@ $effective_c_dirs" "$git_config_args" "$git_env_args"
         fi
         case "$record_kind:${token##*/}" in
           1:*|4:*[\$\`]*)
-            printf 'G\nU\n'
+            printf 'G\n'
+            git_unresolved "the command name $(git_reason_word "$token") is only known at run time"
             # The variable may be resolvable; the resolver itself failed.
             if [ -n "$git_var" ] && [ "$git_vars_failed" -eq 1 ]; then printf 'F\n'; fi
             matched=0
@@ -6609,6 +6714,17 @@ $shell_cd_dir"
               [ "$shell_cd_cond" -eq 0 ] || shell_cd_pending=1
             else
               shell_cd_unknown=1
+              if [ "$shell_cd_mutable" -eq 1 ]; then
+                if [ -n "$shell_cd_mutable_by" ]; then
+                  shell_cd_reason "a cd runs after $shell_cd_mutable_git$(git_reason_word "$shell_cd_mutable_by") that may create or relink paths"
+                else
+                  shell_cd_reason "a cd runs after a command that may create or relink paths"
+                fi
+              elif [ "$shell_cd_untrusted$shell_cd_piped$shell_cd_wrapped$shell_cd_braces" != 0000 ] || [ "$shell_cd_cond" -eq 2 ]; then
+                shell_cd_reason "a cd runs after control flow, ||, in a pipeline, in braces or behind a redirection"
+              else
+                shell_cd_reason "a cd goes to a directory only known at run time"
+              fi
             fi
             shell_cd_last=1
             command_start=0
@@ -6690,7 +6806,8 @@ $shell_cd_dir"
                 continue
                 ;;
               1)
-                printf 'G\nU\n'
+                printf 'G\n'
+                git_unresolved "the shell code ${token##*/} runs is only known at run time"
                 matched=0
                 ;;
             esac
@@ -6760,7 +6877,8 @@ $shell_cd_dir"
                     0*[!A-Za-z0-9_./=:,+@%^~?*\'\"\ \	-]*) env_split=1 ;;
                   esac
                   if [ "${env_split%"${env_split#?}"}" != 0 ]; then
-                    printf 'G\nU\n'
+                    printf 'G\n'
+                    git_unresolved "env -S splits a string only known at run time"
                     matched=0
                     break
                   fi
@@ -6870,7 +6988,10 @@ $shell_cd_dir"
             case "$token" in
               status|log|diff|show|add|stage|rev-parse|config|remote|branch|tag|ls-files|describe|shortlog|blame|grep|fetch) ;;
               # Checkout, hooks and the rest may move a path a later cd follows.
-              *) shell_cd_mutable=1 ;;
+              *)
+                shell_cd_mutable=1
+                [ -n "$shell_cd_mutable_by" ] || { shell_cd_mutable_by=$token; shell_cd_mutable_git='git '; }
+                ;;
             esac
             case "$token" in
               commit|push)
@@ -6878,12 +6999,12 @@ $shell_cd_dir"
                 # in the same command line must not hide behind an earlier
                 # plain commit or push.
                 printf 'G\n'
-                [ "$git_head_unknown" -eq 1 ] && printf 'U\n'
-                [ "$effective_c_dynamic" -eq 1 ] && printf 'U\n'
-                [ "$shell_cd_unknown$shell_cd_lost" = 00 ] || printf 'U\n'
+                [ "$git_head_unknown" -eq 1 ] && git_unresolved "git is reached through a command name only known at run time"
+                [ "$effective_c_dynamic" -eq 1 ] && git_unresolved "a git option or argument is only known at run time; an unquoted variable may split into more words, so quote it"
+                [ "$shell_cd_unknown$shell_cd_lost" = 00 ] || git_unresolved "${shell_cd_why:-an earlier cd could not be followed}"
                 [ -n "$shell_cd_dirs" ] && printf '%s\n' "$shell_cd_dirs" | sed 's/^/D/'
                 [ -n "$effective_c_dirs" ] && printf '%s\n' "$effective_c_dirs" | sed 's/^/D/'
-                [ "$git_target_changed$git_target_dynamic" = 00 ] || printf 'U\n'
+                [ "$git_target_changed$git_target_dynamic" = 00 ] || git_unresolved "GIT_DIR or GIT_WORK_TREE changes in a way the scan cannot follow"
                 [ -n "$git_target_args" ] && printf '%s' "$git_target_args" | sed 's/^/E/'
                 # N: a flag that disables hooks or signing, also from code
                 # that is_git_hook_bypass cannot see in the command line.
@@ -6937,7 +7058,8 @@ $shell_cd_dir"
                     ;;
                   1) break ;;
                 esac
-                printf 'G\nU\n'
+                printf 'G\n'
+                git_unresolved "git $(git_reason_word "$token") is an alias or external command that could not be expanded"
                 matched=0
                 break
                 ;;
@@ -6961,7 +7083,20 @@ $shell_cd_dir"
           0echo|0printf|0pwd|0ls|0cat|0head|0tail|0wc|0true|0false|0:|0test|0'['|0'[['|0which|0type|0date|0whoami|0id|0uname|0grep|0rg|0sleep|0wait|0jq|0sort|0uniq|0diff|0stat|0basename|0dirname|0realpath|0readlink) ;;
           # Shell state only; `set -P` is caught when the scan resolves `..`.
           0set|0export|0read|0local|0declare|0typeset|0readonly|0shift|0printenv) ;;
-          *) shell_cd_mutable=1 ;;
+          # gh subcommands that only talk to the API; checkout, clone,
+          # download, extension and alias may write or relink local paths.
+          *)
+            case "$record_kind${token##*/} ${2-} ${3-}" in
+              '0gh 0auth 0status'|'0gh 0api '*|'0gh 0search '*|'0gh 0status '*) ;;
+              '0gh 0pr 0view'|'0gh 0pr 0list'|'0gh 0pr 0checks'|'0gh 0pr 0diff'|'0gh 0pr 0status'|'0gh 0pr 0edit'|'0gh 0pr 0comment') ;;
+              '0gh 0issue 0view'|'0gh 0issue 0list'|'0gh 0issue 0comment'|'0gh 0run 0view'|'0gh 0run 0list'|'0gh 0run 0watch') ;;
+              '0gh 0repo 0view'|'0gh 0release 0view'|'0gh 0release 0list') ;;
+              *)
+                shell_cd_mutable=1
+                [ -n "$shell_cd_mutable_by" ] || shell_cd_mutable_by=${token##*/}
+                ;;
+            esac
+            ;;
         esac
       fi
 
@@ -6976,16 +7111,17 @@ $shell_cd_dir"
       esac
       shift
       if [ "$record_kind" = 3 ] || is_shell_command_separator "$token"; then
-        # `>&2` and `2>&1` redirect; they do not background anything.
+        # `>&2` and `2>&1` redirect; they neither background anything nor
+        # start a command.
         case "$record_kind$token:$shell_cd_prev" in
-          '3&:'*'>'|'3&:'*'<') ;;
+          '3&:'*'>'|'3&:'*'<') shell_cd_prev=$token; continue ;;
           *) shell_cd_boundary "$token" "${1-}" "$command_start" ;;
         esac
         command_start=1
         effective_c_dirs=
         effective_c_dynamic=0
         xargs_wrapped=0
-        git_head_stdin=0
+        git_head_sub=0
         # An assignment no git command took may stay in the environment.
         [ -z "$git_env_args" ] && [ "$git_env_dynamic" -eq 0 ] || git_env_changed=1
         git_env_args=
@@ -7048,8 +7184,9 @@ check_git_command() {
       handle_hook_infrastructure_failure PreToolUse "${HOOK_INPUT:-}" \
         "$PROGRAM: awk failed while reading the command variables of this command, so a git commit or push it may run could not be resolved;"
     elif printf '%s\n' "$git_c_records" | grep -qx U; then
+      git_c_reason=$(printf '%s\n' "$git_c_records" | sed -n 's/^Y//p' | head -n 1)
       handle_hook_infrastructure_failure PreToolUse "${HOOK_INPUT:-}" \
-        "$PROGRAM: a git commit or push may run in a working directory, or with arguments, a git alias or shell code, that could not be resolved safely;"
+        "$PROGRAM: a git commit or push may run in a working directory, or with arguments, a git alias or shell code, that could not be resolved safely (${git_c_reason:-unresolved}); run that git command as its own Bash call, as git -C <absolute path> with literal arguments;"
     fi
     (
       set -f
@@ -7092,6 +7229,11 @@ U
 '[WIPX]*) git_scan_message="changes this git commit would stage contain secret-like values; blocking git command" ;;
       *) git_scan_message="staged changes contain secret-like values; blocking git command" ;;
     esac
+    if [ "$git_scan_status" -eq "$GIT_SCAN_STATUS_NO_REPOSITORY" ]; then
+      handle_hook_infrastructure_failure PreToolUse "${HOOK_INPUT:-}" \
+        "$PROGRAM: a git commit or push runs in a directory that does not exist or is not a git repository when the hook runs, such as one this command creates, so what it commits could not be scanned; create the repository in one Bash call and commit or push in the next;"
+      return $?
+    fi
     block_on_scan_status "$git_scan_status" "$git_scan_message"
   fi
 }
@@ -7115,8 +7257,8 @@ scan_git_command_group() (
         # A shell cd resolves `..` logically unless `set -P` is on; git -C and
         # env -C resolve it physically. Refuse to guess when they disagree.
         group_physical=$(CDPATH= cd -P -- "${group_record#D}" 2>/dev/null && pwd -P) \
-          || exit "$SCAN_STATUS_UNAVAILABLE"
-        CDPATH= cd -- "${group_record#D}" 2>/dev/null || exit "$SCAN_STATUS_UNAVAILABLE"
+          || exit "$GIT_SCAN_STATUS_NO_REPOSITORY"
+        CDPATH= cd -- "${group_record#D}" 2>/dev/null || exit "$GIT_SCAN_STATUS_NO_REPOSITORY"
         [ "$(pwd -P)" = "$group_physical" ] || exit "$SCAN_STATUS_UNAVAILABLE"
         ;;
       E*) group_env="$group_env${group_record#E}
@@ -7147,7 +7289,7 @@ $group_env" in
 GIT_DIR='*|'
 ') ;;
     *)
-      GIT_DIR=$(git rev-parse --absolute-git-dir 2>/dev/null) || exit "$SCAN_STATUS_UNAVAILABLE"
+      GIT_DIR=$(git rev-parse --absolute-git-dir 2>/dev/null) || exit "$GIT_SCAN_STATUS_NO_REPOSITORY"
       export GIT_DIR
       ;;
   esac
