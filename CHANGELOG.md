@@ -1,3 +1,7 @@
+## v3.6.11 - 2026-10-30
+
+- fix(hooks): resolve commit and push in compound Bash commands (#367)
+
 ## v3.6.10 - 2026-10-30
 
 - fix(prompt-guard): make blocked injected messages recoverable (#365)
