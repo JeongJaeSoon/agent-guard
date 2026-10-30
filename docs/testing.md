@@ -5,27 +5,48 @@ A count of passing assertions is an inventory check, **not a code-coverage
 percentage**. The execution partitions described in [CI](ci.md) are scheduling
 units, not security tiers or test-pyramid layers.
 
-## Current layers
+<a id="current-layers"></a>
 
-| Layer | Existing entry points | What they establish |
+## 현재 테스트 계층
+
+| 계층 | 실행 진입점 | 검증 범위 |
 | --- | --- | --- |
-| Static and packaging | ShellCheck, actionlint, plugin/layout and submission validators | Shell/workflow errors and packaging contracts |
-| Direct function contracts | `make test-unit`: `unit-core.sh`, `unit-framing.sh`, `unit-deny-path.sh`, `unit-probe.sh`, `unit-status-label.sh` | **162 assertions**: core 35, framing 18, deny-path producers 83, probe eligibility 4, status-label classification 22; extracted production bodies without CLI startup |
-| Focused failure regressions | `prompt-assignment-failure.sh`, `exec-raw-probe-failure.sh`, `exec-framing-boundary.sh` | Prompt direct/host-policy regressions 34; raw exec regressions 7; bounded exec framing regressions 24. These are separate from the 162 direct assertions |
-| Narrow component comparisons | `tests/framed-leaves.sh` | Framing fast path versus byte-decoder reference, escaping, byte boundaries and explicit detector expectations |
-| CLI contracts | `tests/deny-read-mask*.sh`, `source-module-prose.sh`, `hook-outcome-contract.sh`, `gitleaks-resolution.sh`, `audit-log.sh` | Exit status, host payloads, diagnostics, masking and infrastructure policy through the CLI |
-| OS/tool integration | Git fixtures in `tests/run.sh`, permission/ACL/symlink/signal cases, `pii-utf8.sh`, Linux real-gitleaks block | Actual filesystem, Git and process behavior; Apple awk and scanner differences |
-| Deployment and service integration | `make smoke-test`, archive/Homebrew validation, opt-in `make test-pleno-integration` | Real scanner/tool dependencies, installation and configured service boundaries |
-| Authenticated host E2E | Separate Claude/Codex host-dispatch verification | Host loads and invokes the installed adapter; direct CLI calls or selecting a host environment variable do not establish this |
+| 정적 검사와 패키징 | ShellCheck, actionlint, plugin/layout 및 submission validator | shell/workflow 오류와 패키징 계약 |
+| 직접 함수 계약 | `make test-unit`; 아래 [전체 목록](#direct-contract-inventory) 참고 | CLI 시작 없이 추출한 프로덕션 함수 본문 검증 |
+| 집중 실패 회귀 | `tests/prompt-assignment-failure.sh`, `tests/exec-raw-probe-failure.sh`, `tests/exec-framing-boundary.sh` | prompt 직접/host 정책 34개, raw exec 7개, exec framing 경계 24개; 직접 함수 계약 합계와 별도 |
+| 좁은 컴포넌트 비교 | `tests/framed-leaves.sh` | framing fast path와 byte decoder 비교, escaping, byte 경계와 명시적 detector 기대값 |
+| CLI 계약 | `tests/deny-read-mask*.sh`, `tests/source-module-prose.sh`, `tests/hook-outcome-contract.sh`, `tests/gitleaks-resolution.sh`, `tests/audit-log.sh` | CLI를 통한 종료 상태, host payload, 진단, 마스킹과 인프라 정책 |
+| OS/tool 통합 | `tests/run.sh`의 Git fixture, permission/ACL/symlink/signal 사례, `tests/pii-utf8.sh`, Linux real-gitleaks 블록 | 실제 파일시스템·Git·프로세스 동작, Apple awk와 scanner 차이 |
+| 배포와 서비스 통합 | `make smoke-test`, archive/Homebrew 검증, 선택 실행하는 `make test-pleno-integration` | 실제 scanner/tool 의존성, 설치와 설정한 서비스 경계 |
+| 인증된 host E2E | 별도 Claude/Codex host-dispatch 검증 | host가 설치된 adapter를 로드하고 호출하는지 확인; 직접 CLI 호출이나 host 환경변수 지정만으로는 입증되지 않음 |
 
-`make test-unit` runs all five direct suites; `make test` includes them once
-in partition 1 and retains the full integration suite. To investigate one partition, use
-`AGENT_GUARD_TEST_SHARD=2 tests/run.sh`; this is a local diagnostic selection,
-not a substitute for the complete CI gates. Narrow scripts can also run with
-`sh tests/source-module-prose.sh` or `sh tests/framed-leaves.sh`. A real scanner
-on PATH can enable additional integration assertions. CI requires those
-assertions and the smoke test on its Linux scanner job; other partitions use
-synthetic scanner fixtures. Preserve both Linux and macOS checks.
+<a id="direct-contract-inventory"></a>
+
+## 직접 계약 테스트 목록
+
+`make test-unit`의 전체 목록과 현재 수치는 이 표에서만 관리한다.
+Makefile의 실행 recipe와 각 스크립트의 `passed:` 출력을 기준으로 확인하며,
+suite를 추가하거나 assertion 수를 바꾸면 이 표도 함께 갱신한다.
+개별 문서는 각 suite의 계약과 검증 근거를 설명하고 이 목록을 참조한다.
+
+| 실행 경로 (`sh`로 개별 실행 가능) | 내부 assertion | `tests/run.sh` partition | 계약 설명 |
+| --- | ---: | ---: | --- |
+| `tests/unit-core.sh` | 35 | 1 | [버전 비교와 shell quoting](unit-tests.md) |
+| `tests/unit-framing.sh` | 18 | 1 | [framing producer](unit-framing.md) |
+| `tests/unit-deny-path.sh` | 83 | 1 | [deny-path 문자 producer](deny-path-regex.md) |
+| `tests/unit-probe.sh` | 4 | 1 | probe 대상 판정 |
+| `tests/unit-status-label.sh` | 22 | 1 | [status-label 분류](status-label-tests.md) |
+| `tests/redaction-plan.sh` | 8 | 4 | [치환 순서·문맥·출력 예산](masking-performance.md) |
+| **합계: 6개 suite** | **170** | | |
+
+`make test`는 위 suite를 각 partition에서 한 번씩 실행하고 전체 통합 테스트도
+실행한다. 각 suite는 내부 assertion 수와 무관하게 외부 assertion 하나로 집계한다.
+개별 partition 조사에는 `AGENT_GUARD_TEST_SHARD=2 tests/run.sh`를 사용하되,
+이 로컬 진단 선택으로 전체 CI 검증을 대체하지 않는다. 좁은 범위는
+`sh tests/source-module-prose.sh` 또는 `sh tests/framed-leaves.sh`로 실행할 수 있다.
+PATH에 실제 scanner가 있으면 추가 통합 assertion이 활성화될 수 있다.
+CI의 Linux scanner job은 이 assertion과 smoke test 실행을 요구하며 다른
+partition은 합성 scanner fixture를 사용한다. Linux와 macOS 검증을 모두 유지한다.
 
 The full test suite includes subprocess, file-mode and process-cleanup cases.
 Keep HOME, warning/session state, Git repositories and output files isolated.
@@ -51,8 +72,8 @@ total 140 assertions and about 0.479 seconds in this sample.
 | Same boundary suite with `BOUNDARY_TEST_GITLEAKS=/path/to/gitleaks` | 24 | 10.192 | Same contracts with real scanner |
 | `make smoke-test` with real scanner | separate E2E checks | 1.519 | Real git/jq/gitleaks, temporary repository |
 
-Each direct suite contributes one outer assertion in partition 1. Prompt
-regressions also run in partition 1; both exec regressions run in partition 4.
+위 과거 측정의 직접 suite 네 개는 각각 partition 1의 외부 assertion 하나에 해당한다.
+prompt 회귀도 partition 1에서, 두 exec 회귀는 partition 4에서 실행한다.
 Do not add their inner counts to `tests/run.sh`'s outer count as if they were a
 single coverage denominator. Existing OS/integration suites remain in place.
 For scale, PR337's local full suite passed 1958 outer assertions in 840.18 seconds;
