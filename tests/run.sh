@@ -4271,6 +4271,55 @@ else
   sed 's/^/  stderr: /' "$ERR"
 fi
 
+# Compound lines whose commit or push the scan can follow reach the staged
+# scan in closed mode: a cd after gh, a continued line, a here-document only
+# gh reads, and a $HOME or ~ variable. The secret repository still blocks.
+compound_clean="$TMP_ROOT/compound-clean"
+git init -q "$compound_clean"
+for compound_case in "$TEST_REPO 2" "$compound_clean 0"; do
+  compound_repo=${compound_case% *}
+  compound_want=${compound_case##* }
+  for shell_cmd in \
+    "gh auth status 2>&1 | grep -E scopes; cd $compound_repo && git push -q origin HEAD:release/x 2>&1 | tail -2; git ls-remote origin release/x" \
+    "cd $compound_repo && git add README.md && git commit -S -q -m docs && git push -q -u origin HEAD" \
+    "$(printf 'cd %s && \\\ngit commit -q -m docs' "$compound_repo")" \
+    "$(printf 'cat > %s/b.md <<%s\nRan `npm test`\nEOF\n/opt/homebrew/bin/gh pr edit 1 --body-file %s/b.md; git -C %s push' "$TMP_ROOT" "'EOF'" "$TMP_ROOT" "$compound_repo")" \
+    "R=\$HOME/${compound_repo#"$TMP_ROOT"/}; git -C \$R commit -q -m docs" \
+    "R=~/${compound_repo#"$TMP_ROOT"/}; git -C \$R commit -q -m docs"; do
+    jq -nc --arg command "$shell_cmd" --arg cwd "$TMP_ROOT" \
+      '{tool_name:"Bash",cwd:$cwd,tool_input:{command:$command}}' \
+      | HOME="$TMP_ROOT" AGENT_GUARD_INFRA_FAILURE_MODE=closed \
+          "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+    status=$?
+    if [ "$compound_want" -eq 2 ]; then
+      if [ "$status" -eq 2 ] && grep -q 'secret-like values' "$ERR"; then
+        ok "compound git command reaches the staged scan: ${shell_cmd%%[ ;]*}"
+      else
+        not_ok "compound git command reaches the staged scan: ${shell_cmd%%[ ;]*} (expected secret block, got $status)"
+        sed 's/^/  stderr: /' "$ERR"
+      fi
+    elif [ "$status" -eq 0 ] && ! grep -q 'agent-guard' "$ERR"; then
+      ok "compound git command in a clean repository passes: ${shell_cmd%%[ ;]*}"
+    else
+      not_ok "compound git command in a clean repository passes: ${shell_cmd%%[ ;]*} (got $status)"
+      sed 's/^/  stderr: /' "$ERR"
+    fi
+  done
+done
+
+# A repository this command creates does not exist when the hook runs.
+jq -nc --arg command "git init -q $TMP_ROOT/later; git -C $TMP_ROOT/later commit -q -m x" \
+  '{tool_name:"Bash",tool_input:{command:$command}}' \
+  | AGENT_GUARD_INFRA_FAILURE_MODE=closed \
+      "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+status=$?
+if [ "$status" -eq 2 ] && grep -q 'does not exist or is not a git repository when the hook runs' "$ERR"; then
+  ok "a commit in a repository the same command creates says why it is blocked"
+else
+  not_ok "a commit in a repository the same command creates says why it is blocked (got $status)"
+  sed 's/^/  stderr: /' "$ERR"
+fi
+
 # Codex runs hooks from the task root, which can differ from exec_command's
 # workdir. Honor the tool payload so the staged scan runs in the target repo.
 (
@@ -5307,7 +5356,10 @@ for sc_host in claude codex; do
   done
 done
 shellcd_case claude secret U2 "cd \$'../b' && git commit -m x"
-shellcd_case codex secret U2 'cd ../\
+# A continued line is one line.
+shellcd_case codex secret 2 'cd ../\
+b && git commit -m x'
+shellcd_case claude clean 0 'cd ../\
 b && git commit -m x'
 shellcd_case claude secret U2 'cd ../b && cd /tmp && cd - && git commit -m x'
 shellcd_case codex secret U2 'true && cd ../b; git commit -m x'
@@ -5605,7 +5657,8 @@ done
 sc_next_host
 shellcd_case "$sc_alt" secret U2 "bash <<'EOF'${sc_nl}\`echo git\` commit -m x${sc_nl}EOF" a
 sc_next_host
-shellcd_case "$sc_alt" secret UF "cat >/dev/null <<EOF${sc_nl}\$(git commit -m x)${sc_nl}EOF" a
+shellcd_case "$sc_alt" secret 2 "cat >/dev/null <<EOF${sc_nl}\$(git commit -m x)${sc_nl}EOF" a
+shellcd_case "$sc_alt" clean 0 "cat >/dev/null <<EOF${sc_nl}\$(git commit -m x)${sc_nl}EOF" a
 # An unquoted variable git argument set to one plain word is that word; one
 # that may split stays unknown.
 for sc_command in \
