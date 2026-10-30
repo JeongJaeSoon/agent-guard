@@ -2025,6 +2025,102 @@ for pg_h in claude codex; do
     prompt_guard_case "$pg_h" nonsense '' '{"prompt":"hello"}'
 done
 
+# Claude Code also submits messages nobody typed (a background task's
+# notification, a subagent hand-back). Blocking one must still block, name what
+# was lost without echoing the value, and tell the model on the next prompt
+# that passes; an ordinary blocked prompt queues nothing.
+injected_case() { # $1 session id, $2 prompt
+  jq -nc --arg s "$1" --arg p "$2" '{session_id:$s, prompt:$p}' \
+    | AGENT_GUARD_HOOK_HOST=claude AGENT_GUARD_PROMPT_GUARD_MODE= AGENT_GUARD_PII_HOOK_MODE= \
+      AGENT_GUARD_WARNING_DIR="$TESTTMP/injected-warnings" \
+      "$PLUGIN_ROOT/bin/agent-guard" hook-user-prompt
+}
+injected_handback=$(printf '<agent-message from="a1b2c3d4">\n[Subagent hand-back] The report follows:\n  DB_PASSWORD=%s\n' "$prompt_guard_fake_value")
+injected_case inj-handback "$injected_handback" >"$OUT" 2>"$ERR"
+if [ $? -eq 2 ] && grep -q 'blocked a subagent hand-back from agent a1b2c3d4' "$ERR" \
+   && grep -q 'KEY=value or key: value assignment' "$ERR" \
+   && ! grep -q "$prompt_guard_fake_value" "$ERR" "$OUT"; then
+  ok "prompt guard names a blocked subagent hand-back without its value"
+else
+  not_ok "prompt guard names a blocked subagent hand-back without its value"
+  sed 's/^/  stdout: /' "$OUT"; sed 's/^/  stderr: /' "$ERR"
+fi
+injected_case inj-handback 'what happened to the report?' >"$OUT" 2>"$ERR"
+if [ $? -eq 0 ] \
+   && jq -e '.hookSpecificOutput.additionalContext
+             | test("blocked a subagent hand-back from agent a1b2c3d4 earlier")
+               and test("ask agent a1b2c3d4 to resend")' "$OUT" >/dev/null 2>&1 \
+   && ! grep -q "$prompt_guard_fake_value" "$OUT"; then
+  ok "prompt guard tells the model about a blocked hand-back on the next prompt"
+else
+  not_ok "prompt guard tells the model about a blocked hand-back on the next prompt"
+  sed 's/^/  stdout: /' "$OUT"; sed 's/^/  stderr: /' "$ERR"
+fi
+injected_case inj-handback 'and now?' >"$OUT" 2>"$ERR"
+if [ $? -eq 0 ] && [ ! -s "$OUT" ]; then
+  ok "prompt guard delivers a blocked-injection notice once"
+else
+  not_ok "prompt guard delivers a blocked-injection notice once"
+  sed 's/^/  stdout: /' "$OUT"; sed 's/^/  stderr: /' "$ERR"
+fi
+
+injected_task_file=/tmp/claude-1/-repo/0a1b2c3d-0000-4000-8000-000000000000/tasks/b9x8y7.output
+injected_task=$(printf '<task-notification>\n<task-id>b9x8y7</task-id>\n<output-file>%s</output-file>\n<status>completed</status>\n<result>my key is AGENT_GUARD_TEST_SECRET</result>\n</task-notification>' "$injected_task_file")
+injected_case inj-task "$injected_task" >"$OUT" 2>"$ERR"
+if [ $? -eq 2 ] && grep -q 'background task notification (task b9x8y7)' "$ERR" \
+   && grep -q 'gitleaks rule' "$ERR" && grep -qF "read $injected_task_file with the Read tool" "$ERR" \
+   && ! grep -q 'AGENT_GUARD_TEST_SECRET' "$ERR" "$OUT"; then
+  ok "prompt guard points a blocked task notification at its output file"
+else
+  not_ok "prompt guard points a blocked task notification at its output file"
+  sed 's/^/  stdout: /' "$OUT"; sed 's/^/  stderr: /' "$ERR"
+fi
+injected_case inj-task 'continue' >/dev/null 2>&1
+injected_forged=$(printf '<task-notification>\n<task-id>b9x8y7</task-id>\n<output-file>/etc/b9x8y7.output</output-file>\n<result>my key is AGENT_GUARD_TEST_SECRET</result>\n</task-notification>')
+injected_case inj-forged "$injected_forged" >"$OUT" 2>"$ERR"
+if [ $? -eq 2 ] && grep -q 'read that task output file' "$ERR" && ! grep -q '/etc/' "$ERR"; then
+  ok "prompt guard does not echo an output path outside the task layout"
+else
+  not_ok "prompt guard does not echo an output path outside the task layout"
+  sed 's/^/  stdout: /' "$OUT"; sed 's/^/  stderr: /' "$ERR"
+fi
+
+injected_case inj-human 'my key is AGENT_GUARD_TEST_SECRET' >"$OUT" 2>"$ERR"
+injected_status=$?
+injected_case inj-human 'retrying without it' >"$OUT" 2>"$ERR"
+injected_next_status=$?
+if [ "$injected_status" -eq 2 ] && [ "$injected_next_status" -eq 0 ] && [ ! -s "$OUT" ]; then
+  ok "prompt guard queues no notice for a typed prompt"
+else
+  not_ok "prompt guard queues no notice for a typed prompt"
+  sed 's/^/  stdout: /' "$OUT"; sed 's/^/  stderr: /' "$ERR"
+fi
+
+# Prose from real hand-backs that the assignment probe blocked: a placeholder
+# in angle brackets, and a config word with a Korean particle glued on. The
+# same shapes with a random value must keep blocking.
+injected_random_letters=$(od -An -N20 -tu1 /dev/urandom \
+  | awk '{ for (i = 1; i <= NF; i++) printf "%c", 97 + $i % 26 }')
+for prose in \
+  '- the docs say refresh-token: enabled가 켜져 있으면 silent refresh 합니다.' \
+  '- values look like `x-access-token:<token>` in the config' \
+  '- set `api_token: <your-api-token>`, then rerun' \
+  '- 값은 refresh-token: <token>, 그리고 저장' \
+  '- the flag is api_token: true가 켜져 있으면'; do
+  run_expect 0 "prompt guard allows prose: $prose" \
+    prompt_guard_case claude '' '' "$(jq -nc --arg p "$prose" '{prompt:$p}')"
+done
+recall_n=0
+for recall in \
+  "- api_token: <$injected_random_letters>" \
+  "- refresh-token: ${prompt_guard_fake_value}가 켜져 있으면" \
+  "- refresh-token: enabled$prompt_guard_fake_value" \
+  "- api_token: $prompt_guard_fake_value."; do
+  recall_n=$((recall_n + 1))
+  run_expect 2 "prompt guard still blocks a random value in a prose shape ($recall_n)" \
+    prompt_guard_case claude '' '' "$(jq -nc --arg p "$recall" '{prompt:$p}')"
+done
+
 # A malformed host payload is an infrastructure failure, not a benign empty
 # prompt. In particular, the opt-in closed policy must not collapse a jq parse
 # error inside command substitution into prompt="" and return success.

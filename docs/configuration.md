@@ -65,6 +65,14 @@ return status 0 with no response. See [Output masking coverage](integrations.md#
 - `AGENT_GUARD_PROMPT_GUARD_MODE=block` is the default. `warn` passes a prompt
   with a notice and `off` disables secret prompt scanning. Hosts currently do
   not provide safe prompt rewriting, so `mask` degrades to block.
+- Claude Code also submits messages nobody typed through the same hook: a
+  background task notification, a subagent hand-back, or another session's
+  message. These are blocked like any other prompt. The block message names the
+  message kind and detector (never the value), and the next prompt that passes
+  carries a note telling the model what was blocked and how to recover it, for
+  example by reading the task output file, where output masking applies. The
+  hook input has no origin field, so the kind is read from the message frame
+  and only changes the wording, never the verdict.
 - Very large prompts skip the assignment heuristic to protect the host hook
   budget. Gitleaks still runs; the skipped heuristic follows the infrastructure
   policy.

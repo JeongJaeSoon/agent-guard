@@ -1705,24 +1705,33 @@ infrastructure_failure_mode() {
 }
 
 hook_warning_once() {
-  warning_input=${1:-}
+  warning_marker=$(warning_state_path infrastructure "${1:-}") || return 0
+  # Only an existing marker means this session already warned. A create that
+  # fails for another reason (full disk, read-only dir) must still warn.
+  (umask 077; set -C; : >"$warning_marker") 2>/dev/null || [ ! -e "$warning_marker" ]
+}
+
+# Per-session state file under the private warnings dir. Fails only when the
+# directory cannot be created.
+warning_state_path() {
   warning_session=${AGENT_GUARD_SESSION_ID:-}
   if [ -z "$warning_session" ] && command -v jq >/dev/null 2>&1; then
-    warning_session=$(printf '%s' "$warning_input" | jq -r '.session_id // empty' 2>/dev/null) || warning_session=
+    warning_session=$(printf '%s' "${2:-}" | jq -r '.session_id // empty' 2>/dev/null) || warning_session=
   fi
   [ -n "$warning_session" ] || warning_session="${AGENT_GUARD_HOOK_HOST:-host}-${PPID:-0}"
   case "$warning_session" in
     *[!A-Za-z0-9._-]*) warning_session="${AGENT_GUARD_HOOK_HOST:-host}-${PPID:-0}" ;;
   esac
-  warning_dir=${AGENT_GUARD_WARNING_DIR:-${TMPDIR:-/tmp}/agent-guard-warnings-${UID:-user}}
+  warning_dir=$(warning_root)
   if [ ! -d "$warning_dir" ]; then
-    mkdir -p "$warning_dir" 2>/dev/null || return 0
+    mkdir -p "$warning_dir" 2>/dev/null || return 1
     chmod 700 "$warning_dir" 2>/dev/null || :
   fi
-  warning_marker="$warning_dir/infrastructure-$warning_session"
-  # Only an existing marker means this session already warned. A create that
-  # fails for another reason (full disk, read-only dir) must still warn.
-  (umask 077; set -C; : >"$warning_marker") 2>/dev/null || [ ! -e "$warning_marker" ]
+  printf '%s\n' "$warning_dir/$1-$warning_session"
+}
+
+warning_root() {
+  printf '%s\n' "${AGENT_GUARD_WARNING_DIR:-${TMPDIR:-/tmp}/agent-guard-warnings-${UID:-user}}"
 }
 
 # Shared front half of every infrastructure-failure policy: apply the closed
@@ -7698,23 +7707,40 @@ secretish_env_values() {
       sub(/[ \t\r\n]+$/, "", v)
       return v
     }
+    # The benign checks below judge a value by its core: prose glues trailing
+    # punctuation or a particle in another script onto a value (`<token>`,`,
+    # `enabled가`). Only the judgement uses the core; an emitted literal keeps
+    # the full token, so `pass1234비밀` still masks its tail.
+    function prose_core(value, v) {
+      v = tolower(edge_trim(value))
+      sub(/[\200-\377`'\''",.;:!?]+$/, "", v)
+      return v
+    }
     # Keep the assignment heuristic aligned with the narrow, human-readable
-    # documentation placeholders in gitleaks.toml. Match the complete trimmed
-    # value only: decorated values and secrets that merely contain one of these
+    # documentation placeholders in gitleaks.toml. Match the complete core
+    # only: decorated values and secrets that merely contain one of these
     # words must retain independent protection from the heuristic.
     function obvious_word_placeholder(value, v) {
-      v = tolower(edge_trim(value))
+      v = prose_core(value)
       return v ~ /^(example|dummy)[_-]?(token|key|secret|password)$/ \
-          || v ~ /^not[-_ ]?a[-_ ]?real[-_ ]?(token|key|secret|password)$/
+          || v ~ /^not[-_ ]?a[-_ ]?real[-_ ]?(token|key|secret|password)$/ \
+          || angle_placeholder(v)
+    }
+    # Heuristic only, gitleaks has no rule that matches it: `<token>` and
+    # `<your-api-key>` stand for a value in prose. Words only, so no digits and
+    # no letter run over 12 (spelled out: awk `{n}` is not portable); a random
+    # credential in angle brackets still masks.
+    function angle_placeholder(v) {
+      return v ~ /^<[a-z][a-z_ .-]*>$/ && length(v) <= 40 \
+          && v !~ /[a-z][a-z][a-z][a-z][a-z][a-z][a-z][a-z][a-z][a-z][a-z][a-z][a-z]/
     }
     # A boolean or null under a secret-bearing key (`api_token: true`) is a
     # config flag, not a credential. Emitting it made the word a global
     # literal, so every `true`/`false` in the same response was masked, and
     # the prompt guard blocked a prompt that only described such a config.
-    # Whole trimmed value only, so `trueX1...` still masks.
-    function config_literal(value, v) {
-      v = tolower(edge_trim(value))
-      return v ~ /^(true|false|yes|no|on|off|null|nil|none)$/
+    # Whole core only, so `trueX1...` still masks.
+    function config_literal(value) {
+      return prose_core(value) ~ /^(true|false|yes|no|on|off|null|nil|none|enabled|disabled)$/
     }
     # The short-value floor is about characters, but awk runs under LC_ALL=C
     # and length() counts bytes: a two-character word in a multibyte script
@@ -11465,6 +11491,50 @@ prompt_has_secretish_assignment() {
   [ -n "$prompt_assignment_result" ]
 }
 
+# Claude Code also runs UserPromptSubmit on messages nobody typed: a background
+# task's notification, a subagent's hand-back, another session's message. A
+# block drops them before the model sees them, and the block reason reaches
+# only the user, so the session that waited for the report never learns it was
+# lost. The hook input has no origin field, so the frame is recognized from the
+# prompt text alone. It labels the block and nothing else: the frame can be
+# typed, so it must never relax the scan.
+#
+# Prints `<label>|<recovery hint>`, or nothing for an ordinary prompt. Ids
+# and the output path are echoed only when they match a strict shape, because
+# the hint is later shown to the model.
+injected_prompt_frame() {
+  printf '%s\n' "$1" | LC_ALL=C awk '
+    NR == 1 {
+      if ($0 == "<task-notification>") { kind = "task"; next }
+      if ($0 ~ /^<agent-message from="[A-Za-z0-9_-]+">$/) {
+        kind = "message"; from = substr($0, 22, length($0) - 23); next
+      }
+      exit
+    }
+    kind == "message" && NR == 2 && /^\[Subagent hand-back\]/ { kind = "handback" }
+    kind == "task" && /^<task-id>[A-Za-z0-9_-]+<\/task-id>$/ {
+      id = substr($0, 10, length($0) - 19)
+    }
+    kind == "task" && /^<output-file>\/[A-Za-z0-9._\/-]+<\/output-file>$/ {
+      path = substr($0, 14, length($0) - 27)
+    }
+    END {
+      if (kind == "task") {
+        if (id == "") { printf "a background task notification|check the task output file directly\n"; exit }
+        suffix = "/tasks/" id ".output"
+        target = "that task output file"
+        if (path != "" && path !~ /\/\.\.?\// &&
+            substr(path, length(path) - length(suffix) + 1) == suffix)
+          target = path
+        printf "a background task notification (task %s)|read %s with the Read tool, which masks secret-like values\n", id, target
+      } else if (kind == "handback") {
+        printf "a subagent hand-back from agent %s|ask agent %s to resend its report without the credential values\n", from, from
+      } else if (kind == "message") {
+        printf "a message from agent or session %s|ask %s to resend it without the credential values\n", from, from
+      }
+    }'
+}
+
 # The single hook response, whatever combination of facts produced it. A hook
 # may write at most one top-level JSON object, so the infrastructure notice and
 # the mode-specific message share one: additionalContext (the model-facing
@@ -11490,6 +11560,41 @@ emit_prompt_response() {
     jq -nc --arg c "$context" \
       '{hookSpecificOutput: {hookEventName: "UserPromptSubmit",
                              additionalContext: $c}}'
+  fi
+}
+
+# Blocks a recognized injected message with a reason that names what was lost,
+# and queues a notice for the model's next passing prompt. Returns for an
+# ordinary prompt. `continue: false` would reach the model sooner, but Claude
+# Code then keeps the blocked prompt text in the conversation.
+block_injected_prompt() {
+  case $2 in
+    '<task-notification>'*|'<agent-message from="'*) ;;
+    *) return 0 ;;
+  esac
+  frame=$(injected_prompt_frame "$2") || frame=
+  [ -n "$frame" ] || return 0
+  label=${frame%%'|'*}
+  hint=${frame#*'|'}
+  if state=$(warning_state_path blocked-injection "$1"); then
+    (umask 077
+     printf '%s: blocked %s earlier in this session because it contained %s, so its text never reached you. To recover it, %s.\n' \
+       "$PROGRAM" "$label" "$3" "$hint" >>"$state") 2>/dev/null || :
+  fi
+  info "$PROGRAM: blocked $label before it reached the model: it contains $3. It is framed as a message the host injected, so nobody will resubmit it; to recover it, $hint."
+  exit 2
+}
+
+# Sets INJECTION_NOTICE to the queued notices (the last ten) and clears the
+# queue. The glob keeps the common no-queue case free of a jq parse.
+take_blocked_injection_notice() {
+  INJECTION_NOTICE=
+  set -- "$1" "$(warning_root)"/blocked-injection-*
+  [ -e "$2" ] || return 0
+  if state=$(warning_state_path blocked-injection "$1") && [ -s "$state" ]; then
+    INJECTION_NOTICE=$(tail -n 10 "$state" 2>/dev/null | tr '\n' ' ') || INJECTION_NOTICE=
+    INJECTION_NOTICE=${INJECTION_NOTICE% }
+    rm -f "$state"
   fi
 }
 
@@ -11539,7 +11644,7 @@ hook_user_prompt() {
   scan_text_direct "user prompt" "$prompt"
   case $? in
     0) ;;
-    1) found=1 ;;
+    1) found=1; found_by='a value matching a gitleaks rule' ;;
     "$SCAN_STATUS_UNAVAILABLE")
       begin_infrastructure_failure "$input" \
         "$PROGRAM: scanner infrastructure could not verify the prompt;"
@@ -11565,7 +11670,7 @@ hook_user_prompt() {
       prompt_probe_status=0
       prompt_has_secretish_assignment "$prompt" || prompt_probe_status=$?
       case "$prompt_probe_status" in
-        0) found=1 ;;
+        0) found=1; found_by='a secret-like KEY=value or key: value assignment' ;;
         1) ;;
         *)
           begin_infrastructure_failure "$input" \
@@ -11574,6 +11679,10 @@ hook_user_prompt() {
           ;;
       esac
     fi
+  fi
+  if [ "$found" -ne 1 ] || [ "$prompt_mode" = warn ]; then
+    take_blocked_injection_notice "$input"
+    notice=$INJECTION_NOTICE${INJECTION_NOTICE:+${notice:+ }}$notice
   fi
   if [ "$found" -ne 1 ]; then
     emit_prompt_response "$notice" ''
@@ -11587,6 +11696,9 @@ hook_user_prompt() {
         "$PROGRAM: the submitted prompt contains secret-like values; they were passed through because AGENT_GUARD_PROMPT_GUARD_MODE=warn"
       return 0
       ;;
+  esac
+  block_injected_prompt "$input" "$prompt" "$found_by"
+  case "$prompt_mode" in
     mask)
       info "$PROGRAM: no host supports rewriting a submitted prompt yet, so mask degrades to block; remove the secret-like values and resubmit"
       exit 2
