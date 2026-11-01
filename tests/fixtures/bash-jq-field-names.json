@@ -52,8 +52,8 @@
     "id": "jq-two-segments",
     "expected_status": 0,
     "classification": "must-pass",
-    "description": "each jq command in a chain has its own filter",
-    "command": "jq '.key' a.json && jq -c '.pem' b.json"
+    "description": "each jq command in a pipeline has its own filter",
+    "command": "jq -c '.[] | .key' a.json | jq -r '.pem'"
   },
   {
     "id": "jq-file-operand",
@@ -299,6 +299,34 @@
     "classification": "must-block",
     "description": "a glob at a command start can expand to eval and redefine jq",
     "command": "ev?l \". /dev/stdin\"; jq .key"
+  },
+  {
+    "id": "jq-after-sequenced-command",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a jq after an earlier command in the same shell can be redefined by it",
+    "command": "gh api x > a.json && jq '.key' a.json"
+  },
+  {
+    "id": "jq-after-tilde-command-name",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a tilde at a command start can expand to a dot command",
+    "command": "HOME=.; ~ /dev/stdin; jq .key"
+  },
+  {
+    "id": "jq-after-negated-glob-alias",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a globbed alias after ! on an earlier line can redefine jq",
+    "command": "! al?as 'x=. /dev/stdin'\nx\njq .key"
+  },
+  {
+    "id": "jq-after-extglob-alias",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "an extglob command name on an earlier line can redefine jq",
+    "command": "@(al)ias 'x=. /dev/stdin'\nx\njq .key"
   },
   {
     "id": "jq-env-member",

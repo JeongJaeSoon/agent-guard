@@ -4923,12 +4923,16 @@ jq_filter_without_field_names() {
 
 # A jq filter is program text: `select(.key|test("x"))` names a field, not a
 # `*.key` file, and jq opens no file the filter names. Drop field names from
-# the filter of each jq at a command start. Only a literal command qualifies:
-# an expansion can shift which word is the filter, -f anywhere turns the first
-# operand into a file, and a function, alias, eval, trap, PATH change or sourced
-# script can make `jq` something that reads it. Every other word, redirections
-# included, still reaches the deny regex. A rewrite is kept only when
-# re-tokenizing shows that it changed the filter word and nothing else.
+# the filter of each jq at a command start of the first pipeline. Only that
+# pipeline qualifies: its other commands run in subshells, but any command
+# sequenced before jq (`;`, `&&`, `||`, a newline, `&`) runs in the same shell
+# and can redefine jq in ways no text test enumerates (alias, eval, a sourced
+# script, a command name made by tilde, glob or brace expansion). Inside it,
+# only literal words qualify: an expansion can shift which word is the
+# filter, -f anywhere turns the first operand into a file, and a PATH
+# assignment can pick another jq. Every other word, redirections included,
+# still reaches the deny regex. A rewrite is kept only when re-tokenizing
+# shows that it changed the filter word and nothing else.
 bash_neutralize_jq_field_names() (
   set -f
   jq_orig=$1
@@ -4999,7 +5003,7 @@ bash_neutralize_jq_field_names() (
           opt:*|operand:*|after:*) jq_seg_bad=1 ;;
         esac
         jq_end_segment
-        continue
+        break
         ;;
       # A record cannot tell a `{ ...; }` group from brace expansion, which
       # can make a command name (`{eval,}`) or turn the filter into a file
@@ -5012,7 +5016,8 @@ bash_neutralize_jq_field_names() (
         jq_end_segment
         continue
         ;;
-      0';'|0'&&'|0'||'|0'|'|3*) jq_end_segment; continue ;;
+      0';'|0'&&'|0'||') jq_end_segment; break ;;
+      0'|'|3*) jq_end_segment; continue ;;
       0*) ;;
       4*) [ "$jq_state" = opt ] && [ "$jq_need" -gt 0 ] || jq_bail ;;
       *) jq_bail ;;
