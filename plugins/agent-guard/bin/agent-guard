@@ -5047,9 +5047,12 @@ bash_neutralize_jq_field_names() (
     case "$jq_word" in *jq*) jq_bail ;; esac
     # Records drop quoting, so any glob character in an option value or a
     # later operand may expand into several words, or into an -f option
-    # (zsh extended glob: `^x` is every file but x).
+    # (zsh extended glob: `^x` is every file but x; zsh numeric range: `<0-9>`;
+    # a leading tilde becomes HOME, whatever it holds).
     case "$jq_state:$jq_need:$jq_word" in
       opt:[12]:*[\*?[#^]*|operand:[12]:*[\*?[#^]*|after:*[\*?[#^]*) jq_seg_bad=1 ;;
+      opt:[12]:*'<'*'>'*|operand:[12]:*'<'*'>'*|after:*'<'*'>'*) jq_seg_bad=1 ;;
+      opt:[12]:'~'*|operand:[12]:'~'*|after:*:'~'*) jq_seg_bad=1 ;;
     esac
     case "$jq_state" in
       opt|operand)

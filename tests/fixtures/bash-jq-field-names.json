@@ -343,6 +343,27 @@
     "command": "jq '.key' ^x"
   },
   {
+    "id": "jq-zsh-numeric-range-value",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a zsh numeric range option value can expand into two words and shift the filter",
+    "command": "jq --arg x <0-1> '.key'"
+  },
+  {
+    "id": "jq-zsh-numeric-range-operand",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a zsh numeric range operand can expand into extra operands",
+    "command": "jq '.key' <0-9>"
+  },
+  {
+    "id": "jq-tilde-operand",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a leading tilde operand expands to HOME, which can be an -f option",
+    "command": "jq '.key' ~"
+  },
+  {
     "id": "jq-env-member",
     "expected_status": 2,
     "classification": "must-block",
