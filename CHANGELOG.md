@@ -1,3 +1,37 @@
+## v3.6.11 - 2026-10-30
+
+- fix(hooks): resolve commit and push in compound Bash commands (#367)
+
+## v3.6.10 - 2026-10-30
+
+- fix(prompt-guard): make blocked injected messages recoverable (#365)
+
+## v3.6.9 - 2026-10-28
+
+- perf(masking): streamline framing and reuse redaction plans (#360)
+- perf(ci): parallelize navigation by host contract (#361)
+- perf(hooks): reuse the gitleaks readiness verdict across hook processes (#359)
+
+## v3.6.8 - 2026-10-27
+
+- fix(hooks): stop reading inert here-documents and plain-word git arguments as unknown code (#357)
+- Merge pull request #340 from JeongJaeSoon/codex/status-label-test-layers
+- Merge remote-tracking branch 'origin/main' into codex/local-chain-integration-20261024
+- Merge pull request #339 from JeongJaeSoon/codex/test-coverage-boundary
+- Merge branch 'codex/local-339-integration-20261024' into codex/local-chain-integration-20261024
+- test: revalidate selected locations after detector updates
+- test: revalidate selected locations after detector updates
+- Merge commit '0fb9d6cc2a017d57751aebe728ecf7ba72e832dd' into codex/local-chain-integration-20261024
+- Merge remote-tracking branch 'origin/main' into codex/local-chain-integration-20261024
+- Merge branch 'codex/test-coverage-boundary' into codex/status-label-test-layers
+- docs: date the recorded coverage observation
+- test: reject decision fields in fail-open prompt notices
+- Merge branch 'codex/exec-raw-probe-failure' into codex/test-coverage-boundary
+- Merge branch 'codex/test-coverage-boundary' into codex/status-label-test-layers
+- test: assert failure diagnostics do not expose fixture secrets
+- test: move status-label variants to direct classification contracts
+- test: document layers and guard exec framing failures
+
 ## v3.6.7 - 2026-10-23
 
 - fix(hooks): stop over-masking booleans, page cursors and short multibyte words (#353)

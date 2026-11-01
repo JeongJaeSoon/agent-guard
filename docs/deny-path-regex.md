@@ -16,9 +16,10 @@ are unchanged. CI partitions, OS coverage and runner topology are unchanged.
 `tests/unit-deny-path.sh` adds 83 direct producer assertions: the full supported
 ASCII hex table, unsupported-input reset/status behavior, literal character
 and pin patterns, Unicode/newline/empty cases, no stdout/stderr and caller
-variable preservation. `make test-unit` runs these alongside the existing
-35 core, 18 framing, 4 probe and 22 status-label assertions (**162 direct assertions** total). Full CLI tests remain necessary: private
-producer contracts do not prove path policy or OS behavior by themselves.
+variable preservation. See the [direct contract inventory](testing.md#direct-contract-inventory)
+for the complete `make test-unit` suite list and assertion counts. Full CLI
+tests remain necessary: private producer contracts do not prove path policy
+or OS behavior by themselves.
 
 ## Historical construction measurement
 

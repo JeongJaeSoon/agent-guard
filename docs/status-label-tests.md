@@ -49,12 +49,13 @@ establish sensitivity to the moved classification guarantees, not a general
 mutation score, new bug fix, or whole-source coverage claim.
 
 The family makes **23 → 5 CLI invocations**, with 22 direct assertions added.
-`make test-unit` therefore has **162 direct assertions** (previously 140).
-`tests/run.sh` runs the new direct suite once in partition 1 and keeps the five
-CLI representatives in partition 4. Outer assertion totals decrease by 17:
-18 CLI repetitions leave the full suite and one direct-suite assertion enters.
-All 22 unique input classifications remain covered; inner and outer counts must
-not be added as a single coverage denominator.
+See the [direct contract inventory](testing.md#direct-contract-inventory) for
+the current `make test-unit` suite list and assertion counts.
+`tests/run.sh` runs this direct suite once in partition 1 and keeps the five
+CLI representatives in partition 4. At the time of this change, outer assertion
+totals decreased by 17: 18 CLI repetitions left the full suite and one
+direct-suite assertion entered. All 22 unique input classifications remain
+covered; inner and outer counts must not be added as a single coverage denominator.
 
 Local paired timing includes the original family versus the new direct suite
 plus five CLI cases, using the same mock scanner and real production CLI for

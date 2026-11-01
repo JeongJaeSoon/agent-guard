@@ -9,7 +9,7 @@ stage=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-release.XXXXXX")
 trap 'rm -rf "$stage"' EXIT INT TERM
 
 cp -R "$ROOT/plugins/agent-guard/." "$stage/"
-cp "$ROOT/README.md" "$stage/README.md"
+cp "$ROOT"/README*.md "$stage/"
 cp "$ROOT/CHANGELOG.md" "$stage/CHANGELOG.md"
 mkdir -p "$stage/docs"
 cp "$ROOT/docs/demo.gif" "$stage/docs/demo.gif"

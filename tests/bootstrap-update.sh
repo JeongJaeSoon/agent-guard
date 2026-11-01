@@ -41,6 +41,9 @@ healthy() {
   [ ! -L "$AGENT_GUARD_HOME/bin/agent-guard" ]
   "$1" version >"$CASE_ROOT/version"
   grep -q agent-guard "$CASE_ROOT/version"
+  for readme in README.md README.ko.md README.ja.md; do
+    cmp -s "$ROOT/$readme" "$AGENT_GUARD_HOME/$readme" || return 1
+  done
 }
 installed_state_unchanged() {
   [ "$payload_before" = "$(shasum -a 256 "$AGENT_GUARD_HOME/bin/agent-guard")" ]
@@ -222,6 +225,15 @@ if AGENT_GUARD_BIN_DIR="$CASE_ROOT/custom bin" sh "$ROOT/bootstrap.sh" >"$CASE_R
 installed_state_unchanged
 grep -q 'unexpected top-level entry' "$CASE_ROOT/err"
 check 'checksum-valid unexpected archive entry leaves working installation untouched'
+
+rm "$CASE_ROOT/invalid-policy/unexpected-file"
+printf 'unexpected\n' >"$CASE_ROOT/invalid-policy/README.unreviewed.md"
+tar -C "$CASE_ROOT/invalid-policy" -czf "$CASE_ROOT/download/agent-guard-2.0.0.tar.gz" .
+(cd "$CASE_ROOT/download" && shasum -a 256 agent-guard-2.0.0.tar.gz >agent-guard-2.0.0.tar.gz.sha256)
+if AGENT_GUARD_BIN_DIR="$CASE_ROOT/custom bin" sh "$ROOT/bootstrap.sh" >"$CASE_ROOT/out" 2>"$CASE_ROOT/err"; then exit 1; fi
+installed_state_unchanged
+grep -q 'unexpected top-level entry: README.unreviewed.md' "$CASE_ROOT/err"
+check 'checksum-valid unreviewed README leaves working installation untouched'
 
 cp "$CASE_ROOT/valid.tar.gz" "$CASE_ROOT/download/agent-guard-2.0.0.tar.gz"
 if AGENT_GUARD_BIN_DIR="$CASE_ROOT/custom bin" sh "$ROOT/bootstrap.sh" >"$CASE_ROOT/out" 2>"$CASE_ROOT/err"; then exit 1; fi
