@@ -5001,10 +5001,13 @@ bash_neutralize_jq_field_names() (
         jq_end_segment
         continue
         ;;
-      # Inside jq's arguments a brace is brace expansion (`.key{,}` is the
-      # filter and a file) and a `(` a glob qualifier or a syntax error; a
-      # group or subshell can only open at a command start.
-      3'{'|3'}'|3'(')
+      # A record cannot tell a `{ ...; }` group from brace expansion, which
+      # can make a command name (`{eval,}`) or turn the filter into a file
+      # operand (`.key{,}`).
+      3'{'|3'}') jq_bail ;;
+      # Inside jq's arguments a `(` is a glob qualifier or a syntax error; a
+      # subshell can only open at a command start.
+      3'(')
         case "$jq_state" in opt|operand|after) jq_seg_bad=1 ;; esac
         jq_end_segment
         continue
@@ -5022,6 +5025,8 @@ bash_neutralize_jq_field_names() (
       start:.|start:source|other:.|other:source|*:eval|*:trap|*:function) jq_bail ;;
     esac
     if [ "$jq_state" = start ]; then
+      # A glob can expand to a command name such as eval (`ev?l`).
+      case "$jq_word" in *[\*?[]*) jq_bail ;; esac
       if [ "$jq_rec" = 0jq ]; then
         jq_state=opt jq_need=0 jq_seg_bad=0
       else

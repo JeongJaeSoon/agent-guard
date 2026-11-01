@@ -280,6 +280,27 @@
     "command": "eval</dev/null \". ./tools.sh\"; jq .key"
   },
   {
+    "id": "jq-after-brace-expanded-eval",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "brace expansion at a command start can produce eval and redefine jq",
+    "command": "{eval,} \". /dev/stdin\"; jq .key"
+  },
+  {
+    "id": "jq-after-brace-expanded-dot",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "brace expansion at a command start can produce a dot command",
+    "command": "{.,} ./tools.sh; jq .key"
+  },
+  {
+    "id": "jq-after-globbed-command-name",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a glob at a command start can expand to eval and redefine jq",
+    "command": "ev?l \". /dev/stdin\"; jq .key"
+  },
+  {
     "id": "jq-env-member",
     "expected_status": 2,
     "classification": "must-block",
