@@ -1,5 +1,7 @@
 # Installing Agent Guard
 
+English · [한국어](installation.ko.md) · [日本語](installation.ja.md)
+
 Agent Guard has one policy CLI and separate Claude Code and Codex plugin
 adapters. Choose the route that matches the boundary you want to protect:
 
