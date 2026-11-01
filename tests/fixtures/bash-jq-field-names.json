@@ -329,6 +329,20 @@
     "command": "@(al)ias 'x=. /dev/stdin'\nx\njq .key"
   },
   {
+    "id": "jq-zsh-extended-glob-filter",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a zsh extended-glob # in a bare filter can expand into a file operand",
+    "command": "jq .env#"
+  },
+  {
+    "id": "jq-zsh-negated-glob-operand",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a zsh negated glob operand can expand into an -f option",
+    "command": "jq '.key' ^x"
+  },
+  {
     "id": "jq-env-member",
     "expected_status": 2,
     "classification": "must-block",

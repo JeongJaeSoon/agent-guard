@@ -4959,7 +4959,9 @@ bash_neutralize_jq_field_names() (
         single:*) jq_old="'$jq_filter'" jq_repl="'$jq_new'" ;;
         double:*\"*|double:*\\*|double:*'$'*|double:*'`'*) continue ;;
         double:*) jq_old="\"$jq_filter\"" jq_repl="\"$jq_new\"" ;;
-        bare:*[\'\"\\*?[~\<\>]*) continue ;;
+        # Unquoted, only a plain field chain is sure to stay one literal
+        # word: zsh extended glob also expands `#` and `^`.
+        bare:*[!A-Za-z0-9_.]*) continue ;;
         bare:*) jq_old=$jq_filter jq_repl=$jq_new ;;
       esac
       jq_candidate=$(JQ_CMD=$jq_cmd JQ_OLD=$jq_old JQ_REPL=$jq_repl LC_ALL=C awk 'BEGIN {
@@ -5031,8 +5033,9 @@ bash_neutralize_jq_field_names() (
       start:.|start:source|other:.|other:source|*:eval|*:trap|*:function) jq_bail ;;
     esac
     if [ "$jq_state" = start ]; then
-      # A glob can expand to a command name such as eval (`ev?l`).
-      case "$jq_word" in *[\*?[]*) jq_bail ;; esac
+      # A glob can expand to a command name such as eval (`ev?l`); zsh
+      # extended glob adds `#` and `^`.
+      case "$jq_word" in *[\*?[#^]*) jq_bail ;; esac
       if [ "$jq_rec" = 0jq ]; then
         jq_state=opt jq_need=0 jq_seg_bad=0
       else
@@ -5043,9 +5046,10 @@ bash_neutralize_jq_field_names() (
     fi
     case "$jq_word" in *jq*) jq_bail ;; esac
     # Records drop quoting, so any glob character in an option value or a
-    # later operand may expand into several words, or into an -f option.
+    # later operand may expand into several words, or into an -f option
+    # (zsh extended glob: `^x` is every file but x).
     case "$jq_state:$jq_need:$jq_word" in
-      opt:[12]:*[\*?[]*|operand:[12]:*[\*?[]*|after:*[\*?[]*) jq_seg_bad=1 ;;
+      opt:[12]:*[\*?[#^]*|operand:[12]:*[\*?[#^]*|after:*[\*?[#^]*) jq_seg_bad=1 ;;
     esac
     case "$jq_state" in
       opt|operand)
