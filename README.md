@@ -144,3 +144,5 @@ responsible disclosure and [Support](SUPPORT.md) for safe reports.
 
 If Agent Guard keeps a secret out of a transcript for you, you can
 [sponsor its development](https://github.com/sponsors/JeongJaeSoon).
+
+<!-- session-pr-e2e test 2026-11-01 (guard): 머지 금지, 오너 확인 뒤 닫음 -->
