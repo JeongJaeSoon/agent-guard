@@ -1,0 +1,373 @@
+[
+  {
+    "id": "jq-select-field-test",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a jq select over a field named like a protected extension is filter text",
+    "command": "jq -r '.[] | select(.key|test(\"^AG_\")) | .value' list.json"
+  },
+  {
+    "id": "jq-piped-object-construction",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "jq object construction from piped upload results is filter text",
+    "command": "gh api repos/o/r/releases/1/assets | jq -r '.[] | {name: .name, key: .key}'"
+  },
+  {
+    "id": "jq-nested-field-chain",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a nested jq field chain is filter text",
+    "command": "jq '.data.key' data.json"
+  },
+  {
+    "id": "jq-to-entries-key",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "jq to_entries key access is filter text",
+    "command": "jq -c 'to_entries[] | .key' data.json"
+  },
+  {
+    "id": "jq-bare-filter",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "an unquoted jq field filter without glob characters is filter text",
+    "command": "jq -r .key out.json"
+  },
+  {
+    "id": "jq-arg-option-before-filter",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a jq filter after a --arg name/value pair is still the filter",
+    "command": "jq --arg p AG_ -r '.[] | select(.key|startswith($p))' list.json"
+  },
+  {
+    "id": "jq-field-named-env",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a jq field named env is filter text, not a dotfile",
+    "command": "jq -r '.env' config.json"
+  },
+  {
+    "id": "jq-two-segments",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "each jq command in a pipeline has its own filter",
+    "command": "jq -c '.[] | .key' a.json | jq -r '.pem'"
+  },
+  {
+    "id": "jq-file-operand",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a protected file operand of jq remains blocked",
+    "command": "jq . server.key"
+  },
+  {
+    "id": "jq-field-and-file-operand",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a protected file operand after a jq field filter remains blocked",
+    "command": "jq '.key' server.key"
+  },
+  {
+    "id": "jq-input-redirect",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a protected input redirect to jq remains blocked",
+    "command": "jq '.key' < server.key"
+  },
+  {
+    "id": "jq-output-redirect",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a protected output redirect from jq remains blocked",
+    "command": "jq '.key' a.json > out.key"
+  },
+  {
+    "id": "jq-after-cat",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a cat of a protected file piped into jq remains blocked",
+    "command": "cat server.key | jq '.key'"
+  },
+  {
+    "id": "jq-same-text-as-cat-operand",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a cat operand spelled like the jq filter remains blocked",
+    "command": "cat '.key'; jq \".key\" a.json"
+  },
+  {
+    "id": "jq-grep-operand",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a grep of a protected file beside a jq filter remains blocked",
+    "command": "jq -r '.key' a.json; grep x server.key"
+  },
+  {
+    "id": "jq-from-file-before",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "with -f the first jq operand is a file and remains blocked",
+    "command": "jq -f filter.txt .key"
+  },
+  {
+    "id": "jq-from-file-after",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a later -f makes the first jq operand a file and it remains blocked",
+    "command": "jq '.key' -f filter.txt"
+  },
+  {
+    "id": "jq-from-file-cluster",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "an -f inside a short-option cluster makes the operand a file",
+    "command": "jq -rf .key a.json"
+  },
+  {
+    "id": "jq-from-file-long",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "--from-file makes the first jq operand a file",
+    "command": "jq --from-file .key a.json"
+  },
+  {
+    "id": "jq-function-redefined",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a shell function named jq can read its operand, so it remains blocked",
+    "command": "jq() { cat \"$@\"; }; jq '.key'"
+  },
+  {
+    "id": "jq-alias-redefined",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "an alias named jq can read its operand, so it remains blocked",
+    "command": "alias jq=cat; jq '.key'"
+  },
+  {
+    "id": "jq-path-changed",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a changed PATH can select another jq, so it remains blocked",
+    "command": "PATH=./bin jq '.key'"
+  },
+  {
+    "id": "jq-after-source",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a sourced script can redefine jq, so it remains blocked",
+    "command": ". ./tools.sh; jq '.key'"
+  },
+  {
+    "id": "jq-dynamic-filter",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "an expansion before the operand can shift it, so it remains blocked",
+    "command": "jq $OPTS '.key'"
+  },
+  {
+    "id": "jq-unquoted-glob-filter",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "an unquoted globbed jq filter can expand into file operands",
+    "command": "jq .k* a.json"
+  },
+  {
+    "id": "jq-brace-expanded-operand",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "brace expansion that repeats the filter as a file operand remains blocked",
+    "command": "jq .key{,}"
+  },
+  {
+    "id": "jq-quoted-brace-expanded-operand",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "brace expansion after a quoted filter remains blocked",
+    "command": "jq '.env'{,.json}"
+  },
+  {
+    "id": "jq-import-data-path",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a jq import names a data file to read, so the string remains checked",
+    "command": "jq -n -L . 'import \".env\" as $x; $x'"
+  },
+  {
+    "id": "jq-include-module-path",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a jq include names a module file to read, so the string remains checked",
+    "command": "jq -n -L . 'include \".env\"; .'"
+  },
+  {
+    "id": "jq-stderr-redirect-then-from-file",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "an -f after a 2>&1 redirect still makes the first operand a file",
+    "command": "jq '.key' 2>&1 -f filter.txt"
+  },
+  {
+    "id": "jq-amp-redirect-then-from-file",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "an -f after an &> redirect still makes the first operand a file",
+    "command": "jq '.key' &>out.txt -f filter.txt"
+  },
+  {
+    "id": "jq-globbed-option-value",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a globbed option value can expand into extra words and shift the filter",
+    "command": "jq --arg x [01] '.key'"
+  },
+  {
+    "id": "jq-globbed-operand-after-filter",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a globbed operand can expand into an -f option",
+    "command": "jq '.key' *"
+  },
+  {
+    "id": "jq-stderr-redirect-after-operand",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a 2>&1 redirect after the jq operands keeps the filter",
+    "command": "jq -r '.key' a.json 2>&1"
+  },
+  {
+    "id": "jq-unspaced-input-redirect",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "an input redirect glued to a bare filter remains blocked",
+    "command": "jq .<.key"
+  },
+  {
+    "id": "jq-unspaced-output-redirect",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "an output redirect glued to a bare filter remains blocked",
+    "command": "jq .>.key"
+  },
+  {
+    "id": "jq-after-source-in-then",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a script sourced inside a compound command can redefine jq",
+    "command": "if true; then . ./tools.sh; fi; jq .key"
+  },
+  {
+    "id": "jq-after-redirected-dot-source",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a dot command with a glued redirect can source a jq redefinition",
+    "command": ".</dev/null ./tools.sh; jq .key"
+  },
+  {
+    "id": "jq-after-redirected-source",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a source command with a glued redirect can source a jq redefinition",
+    "command": "source</dev/null ./tools.sh; jq .key"
+  },
+  {
+    "id": "jq-after-redirected-eval",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "an eval with a glued redirect can source a jq redefinition",
+    "command": "eval</dev/null \". ./tools.sh\"; jq .key"
+  },
+  {
+    "id": "jq-after-brace-expanded-eval",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "brace expansion at a command start can produce eval and redefine jq",
+    "command": "{eval,} \". /dev/stdin\"; jq .key"
+  },
+  {
+    "id": "jq-after-brace-expanded-dot",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "brace expansion at a command start can produce a dot command",
+    "command": "{.,} ./tools.sh; jq .key"
+  },
+  {
+    "id": "jq-after-globbed-command-name",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a glob at a command start can expand to eval and redefine jq",
+    "command": "ev?l \". /dev/stdin\"; jq .key"
+  },
+  {
+    "id": "jq-after-sequenced-command",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a jq after an earlier command in the same shell can be redefined by it",
+    "command": "gh api x > a.json && jq '.key' a.json"
+  },
+  {
+    "id": "jq-after-tilde-command-name",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a tilde at a command start can expand to a dot command",
+    "command": "HOME=.; ~ /dev/stdin; jq .key"
+  },
+  {
+    "id": "jq-after-negated-glob-alias",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a globbed alias after ! on an earlier line can redefine jq",
+    "command": "! al?as 'x=. /dev/stdin'\nx\njq .key"
+  },
+  {
+    "id": "jq-after-extglob-alias",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "an extglob command name on an earlier line can redefine jq",
+    "command": "@(al)ias 'x=. /dev/stdin'\nx\njq .key"
+  },
+  {
+    "id": "jq-zsh-extended-glob-filter",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a zsh extended-glob # in a bare filter can expand into a file operand",
+    "command": "jq .env#"
+  },
+  {
+    "id": "jq-zsh-negated-glob-operand",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a zsh negated glob operand can expand into an -f option",
+    "command": "jq '.key' ^x"
+  },
+  {
+    "id": "jq-zsh-numeric-range-value",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a zsh numeric range option value can expand into two words and shift the filter",
+    "command": "jq --arg x <0-1> '.key'"
+  },
+  {
+    "id": "jq-zsh-numeric-range-operand",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a zsh numeric range operand can expand into extra operands",
+    "command": "jq '.key' <0-9>"
+  },
+  {
+    "id": "jq-tilde-operand",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a leading tilde operand expands to HOME, which can be an -f option",
+    "command": "jq '.key' ~"
+  },
+  {
+    "id": "jq-env-member",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a jq env member keeps its existing env.* match",
+    "command": "jq -n 'env.AWS_REGION'"
+  }
+]

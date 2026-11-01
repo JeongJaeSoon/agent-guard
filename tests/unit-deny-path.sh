@@ -6,8 +6,10 @@ SOURCE=${AGENT_GUARD_UNIT_SOURCE:-"$ROOT/plugins/agent-guard/bin/agent-guard"}
 CASE=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-unit-deny-path.XXXXXX")
 trap 'rm -rf "$CASE"' 0
 sh "$ROOT/tests/helpers/extract-functions.sh" "$SOURCE" "$CASE" \
-  deny_path_char_hex_pattern deny_path_shell_expansion_char_pattern deny_path_pin_char_pattern
-for function in deny_path_char_hex_pattern deny_path_shell_expansion_char_pattern deny_path_pin_char_pattern; do
+  deny_path_char_hex_pattern deny_path_shell_expansion_char_pattern deny_path_pin_char_pattern \
+  jq_filter_without_field_names
+for function in deny_path_char_hex_pattern deny_path_shell_expansion_char_pattern deny_path_pin_char_pattern \
+  jq_filter_without_field_names; do
   . "$CASE/$function.sh"
 done
 pass=0 fail=0
@@ -134,5 +136,29 @@ if [ "$sx_pin" = '(é|\[[^]]*é[^]]*\])' ] && [ ! -s "$CASE/out" ] && [ ! -s "$C
 else
   bad 'deny-path pin Unicode clears earlier hex'
 fi
+tab=$(printf '\t')
+while IFS=$tab read -r filter expected; do
+  actual=$(jq_filter_without_field_names "$filter" 2>"$CASE/err")
+  if [ "$actual" = "$expected" ] && [ ! -s "$CASE/err" ]; then
+    ok "jq filter field names: $filter"
+  else
+    bad "jq filter field names: $filter (got $actual)"
+  fi
+done <<'CASES'
+.key	.
+.data.key	.
+select(.key|test("^AG_"))	select(.|test("^AG_"))
+.[] | {name: .name, key: .key}	.[] | {name: ., key: .}
+.items[0].key, .meta?.key	.[0]., .?.
+env.AWS_REGION	env.AWS_REGION
+$ENV.HOME	$ENV.HOME
+$x.key	$x.key
+"server.key"	"server.key"
+..key	..key
+.	.
+import ".env" as $x; $x.key	import ".env" as $x; $x.key
+"\(.key) \"q\" .key" | .key	"\(.key) \"q\" .key" | .
+.a # "x" .key	. # "x" .key
+CASES
 printf 'passed: %s\nfailed: %s\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

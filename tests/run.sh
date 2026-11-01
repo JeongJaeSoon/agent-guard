@@ -1620,18 +1620,22 @@ expect_json_status 2 "ripgrep positive glob over a denied extension remains bloc
   '{"tool_name":"Bash","tool_input":{"command":"rg --files -g '\''*.pem'\''"}}' \
   hook-pre-tool
 
-# A star that stands for one entry character must come with a pinned letter.
-# Each case runs through both hosts' native event shapes.
-star_stand_in_fixtures="$ROOT/tests/fixtures/bash-star-stand-in.json"
+# A star that stands for one entry character must come with a pinned letter,
+# and a jq filter's field names are not file operands. Each case runs through
+# both hosts' native event shapes.
 star_stand_in_cases="$TESTTMP/bash-star-stand-in.cases"
 star_stand_in_dir="$TESTTMP/bash-star-stand-in"
 mkdir -p "$star_stand_in_dir"
-if jq -e 'type == "array" and length > 0' "$star_stand_in_fixtures" >/dev/null \
-  && jq -c '.[]' "$star_stand_in_fixtures" >"$star_stand_in_cases"; then
-  ok "star stand-in fixture corpus is valid and non-empty"
-else
-  not_ok "star stand-in fixture corpus is valid and non-empty"
-fi
+: >"$star_stand_in_cases"
+for star_stand_in_fixtures in "$ROOT/tests/fixtures/bash-star-stand-in.json" \
+  "$ROOT/tests/fixtures/bash-jq-field-names.json"; do
+  if jq -e 'type == "array" and length > 0' "$star_stand_in_fixtures" >/dev/null \
+    && jq -c '.[]' "$star_stand_in_fixtures" >>"$star_stand_in_cases"; then
+    ok "${star_stand_in_fixtures##*/} fixture corpus is valid and non-empty"
+  else
+    not_ok "${star_stand_in_fixtures##*/} fixture corpus is valid and non-empty"
+  fi
+done
 while IFS= read -r star_stand_in_fixture; do
   star_stand_in_expected=$(printf '%s' "$star_stand_in_fixture" | jq -r '.expected_status')
   star_stand_in_name=$(printf '%s' "$star_stand_in_fixture" \
@@ -1701,11 +1705,11 @@ expect_stderr_missing "in scanned text" \
 expect_stderr_contains "rewrite" \
   "Bash path block suggests a non-path-shaped rewrite"
 
-expect_json_status 2 "jq selector false positive reports its deny-read entry" \
-  '{"tool_name":"Bash","tool_input":{"command":"jq '\''.key'\'' d.json"}}' \
+expect_json_status 2 "yq selector false positive reports its deny-read entry" \
+  '{"tool_name":"Bash","tool_input":{"command":"yq '\''.key'\'' d.yaml"}}' \
   hook-pre-tool
 expect_stderr_contains "matched deny-read-paths entry '*.key'" \
-  "jq selector block names the deny-read entry that matched"
+  "yq selector block names the deny-read entry that matched"
 
 expect_json_status 2 "URL path false positive reports its deny-read entry" \
   '{"tool_name":"Bash","tool_input":{"command":"curl https://example.com/a.pem"}}' \
@@ -3206,6 +3210,16 @@ expect_json_status 2 "Bash cat .env.tpl.bak (tpl marker not final) is blocked" \
 # program cannot safely drop its operands, so it drops none: the #99 false
 # positive stays, and the read stays blocked.
 #
+# One deliberate exception: bash_neutralize_jq_field_names drops field names
+# from the filter of a plain `jq` in a fully literal command (its fixture is
+# tests/fixtures/bash-jq-field-names.json). It does not drop an operand; every
+# other word, the jq file operands included, is still checked, and any
+# redefinition of jq in the command text keeps the old block. What it cannot
+# see is a jq function or PATH shim left by an earlier command. The owner
+# accepted that residual (2026-10-27): earlier-command state already gets past
+# this text gate without jq, for example a path assembled from variables set in
+# a previous call.
+#
 # The exts are composed at runtime because a literal in this file would trip the
 # gate under test.
 NONPATH_KEY=$(printf 'k%s' 'ey')
@@ -3219,8 +3233,8 @@ for nonpath_case in \
   "echo see also foo.$NONPATH_PEM" \
   "echo see also foo.env" \
   "printf '%s' foo.$NONPATH_KEY" \
-  "jq -r .$NONPATH_KEY data.json" \
-  "jq .$NONPATH_KEY"; do
+  "yq -r .$NONPATH_KEY data.yaml" \
+  "./jq .$NONPATH_KEY"; do
   expect_json_status 2 "#99 Bash '$nonpath_case' keeps the accepted false positive" \
     "$(jq -nc --arg c "$nonpath_case" \
       '{tool_name:"Bash",tool_input:{command:$c}}')" \
@@ -3230,7 +3244,9 @@ done
 # Every case below reads the file for real (verified with `bash -c` against a
 # fixture directory) and was ALLOWED by some revision of the narrowing. They all
 # block trivially now that nothing is stripped; they stay as the standing
-# counter-examples any re-attempt has to answer.
+# counter-examples any re-attempt has to answer. Bare `jq .env` left this list
+# with the jq exception above: it reads the file only through a jq function or
+# shim defined before the command, the residual named there.
 nonpath_newline_env=$(printf 'echo hi\ncat .env')
 nonpath_newline_ssh=$(printf 'echo one\necho two\ncat .ssh/id_rsa')
 nonpath_newline_sec=$(printf 'printf x\ncat secrets.json')
@@ -3268,7 +3284,6 @@ for nonpath_case in \
   "\"echo foo\" .env" \
   "'echo' .env" \
   "\"echo\" .env" \
-  "jq .env" \
   "yq .env" \
   "yq -r .env" \
   "gojq . .env" \
