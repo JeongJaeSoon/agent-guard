@@ -4900,7 +4900,7 @@ bash_strip_source_module_prose() (
 # substitution, a here-document, a group or a comment. Segments after one
 # whose command is not on the inert list below are left alone too.
 search_operand_spans() {
-  printf '%s\n' "$1" | LC_ALL=C awk '
+  printf '%s\n' "$1" | LC_ALL=C awk -v grep_env="${GREP_OPTIONS-}" '
     function bail() { failed = 1; exit }
     function start_word() {
       if (inword) return
@@ -4914,7 +4914,7 @@ search_operand_spans() {
     }
     function bad(k) { return wdyn[k] || wuns[k] || wred[k] }
     function span(k) { return ws[k] " " we[k] "\n" }
-    function grep_scan(a, b, rg,   k, v, j, ch, rest, sawe, opnd, dd, out, noarg, numarg, wordarg, longs, longv) {
+    function grep_scan(a, b, rg,   k, v, j, ch, rest, sawe, opnd, dd, noconf, out, noarg, numarg, wordarg, longs, longv) {
       if (rg) {
         noarg = "iISsnNlcovwxFUuHLPazqbp0"; numarg = "ABCmjMd"; wordarg = "gtTEr"
         longs = "^--(hidden|no-ignore|no-ignore-vcs|no-ignore-dot|no-ignore-parent|ignore-case|smart-case|case-sensitive|line-number|no-line-number|count|count-matches|files-with-matches|files-without-match|only-matching|fixed-strings|word-regexp|line-regexp|invert-match|no-filename|with-filename|no-heading|heading|column|multiline|multiline-dotall|pcre2|follow|text|vimgrep|trim|no-messages|quiet|null|byte-offset|crlf|unrestricted|json|no-config)$"
@@ -4924,9 +4924,10 @@ search_operand_spans() {
         longs = "^--(recursive|dereference-recursive|ignore-case|no-ignore-case|line-number|count|files-with-matches|files-without-match|only-matching|extended-regexp|fixed-strings|basic-regexp|perl-regexp|word-regexp|line-regexp|invert-match|no-filename|with-filename|quiet|silent|no-messages|null|null-data|text|byte-offset|initial-tab|color|colour)$"
         longv = "^--(include|exclude|exclude-dir|max-count|context|after-context|before-context|binary-files|label|devices|directories|color|colour)="
       }
-      out = ""; sawe = 0; opnd = 0; dd = 0
+      out = ""; sawe = 0; opnd = 0; dd = 0; noconf = 0
       for (k = a + 1; k <= b; k++) {
         v = wv[k]
+        if (v == "--no-config" && !opnd && !dd) noconf = 1
         if (opnd) {
           if (!dd && substr(v, 1, 1) == "-") return ""
           continue
@@ -4966,6 +4967,10 @@ search_operand_spans() {
           return ""
         }
       }
+      # Options from the environment come before these words and can turn the
+      # pattern into a file: a ripgrep config file unless --no-config is
+      # given, and GREP_OPTIONS, which BSD grep still reads.
+      if (rg ? !noconf : grep_env != "") return ""
       return out
     }
     # A value moved off its option by a valueless one before it would be a

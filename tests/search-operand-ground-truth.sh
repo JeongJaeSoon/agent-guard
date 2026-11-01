@@ -74,8 +74,8 @@ allow grep --regexp='\.env' list.txt
 allow grep -rn --include='*.ts' -A3 'process\.env' src 2>/dev/null | head
 allow LC_ALL=C sort list.txt | grep -c -- '\.env'
 allow echo x; grep -E '\.env'
-allow rg -n 'process\.env\.PORT' src
-allow rg -n -g '*.ts' 'process\.env' src
+allow rg --no-config -n 'process\.env\.PORT' src
+allow rg --no-config -n -g '*.ts' 'process\.env' src
 allow cd ./sub && openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=t -keyout tls-up.key -out tls-up.crt
 allow openssl genrsa -out fresh.key 2048
 read cat .env
@@ -122,6 +122,7 @@ held cat list.txt >&grep .env
 held cat list.txt & grep .env
 held sudo grep VALUE .env
 held xargs grep .env < list.txt
+held rg -n 'process\.env' src
 held rg --pre cat VALUE .env
 held rg -g '*.env' VALUE .
 held cd sub && openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=t -keyout fresh2.key -out t.crt
@@ -131,6 +132,22 @@ held openssl x509 -in t.crt -out fresh3.key
 held chmod 644 fresh.key
 held sed -n 's/x/y/p' notes.txt .env
 CASES
+
+# Options from the environment come first and can make the pattern a file.
+printf -- '--regexp=VALUE\n' >"$CASE/rgrc"
+status=0
+(RIPGREP_CONFIG_PATH="$CASE/rgrc"; export RIPGREP_CONFIG_PATH; gate 'rg .env') || status=$?
+if [ "$status" -eq 2 ]; then ok "rg pattern kept without --no-config"; else bad "rg pattern kept without --no-config (got $status)"; fi
+if command -v rg >/dev/null 2>&1; then
+  (cd "$W" && RIPGREP_CONFIG_PATH="$CASE/rgrc" rg .env) </dev/null >"$CASE/out" 2>&1
+  if grep -Fq "$canary" "$CASE/out"; then ok "control: a ripgrep config makes the pattern a path"; else bad "control: a ripgrep config makes the pattern a path"; fi
+fi
+status=0
+gate 'grep .env' || status=$?
+if [ "$status" -eq 0 ]; then ok "grep pattern alone allowed"; else bad "grep pattern alone allowed (got $status)"; fi
+status=0
+(GREP_OPTIONS='-e VALUE'; export GREP_OPTIONS; gate 'grep .env') || status=$?
+if [ "$status" -eq 2 ]; then ok "grep pattern kept under GREP_OPTIONS"; else bad "grep pattern kept under GREP_OPTIONS (got $status)"; fi
 
 printf '%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

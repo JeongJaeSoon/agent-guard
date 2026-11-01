@@ -17,10 +17,18 @@
   },
   {
     "id": "ripgrep-environment-member-pattern",
+    "expected_status": 2,
+    "expected_reason": "bash_protected_path_text_match",
+    "classification": "known-limitation",
+    "description": "ripgrep environment-member search is conservatively blocked: a ripgrep config file may make the pattern a path",
+    "event": {"tool_name": "Bash", "tool_input": {"command": "rg -n 'process\\.env\\.PORT' src"}}
+  },
+  {
+    "id": "ripgrep-no-config-environment-member-pattern",
     "expected_status": 0,
     "classification": "safe-control",
-    "description": "a ripgrep search pattern that spells an environment member is not a file operand",
-    "event": {"tool_name": "Bash", "tool_input": {"command": "rg -n 'process\\.env\\.PORT' src"}}
+    "description": "a ripgrep search pattern with --no-config is not a file operand",
+    "event": {"tool_name": "Bash", "tool_input": {"command": "rg --no-config -n 'process\\.env\\.PORT' src"}}
   },
   {
     "id": "env-wrapped-public-port-member",
@@ -87,9 +95,10 @@
   },
   {
     "id": "ripgrep-url-regex-fills-protected-name",
-    "expected_status": 0,
-    "classification": "safe-control",
-    "description": "a ripgrep URL regex that spells a protected dotfile shape is not a file operand",
+    "expected_status": 2,
+    "expected_reason": "bash_protected_path_text_match",
+    "classification": "known-limitation",
+    "description": "a ripgrep URL regex that spells a protected dotfile shape is conservatively blocked without --no-config",
     "event": {"tool_name": "Bash", "tool_input": {"command": "rg -o 'https://[^ ]+\\.net[^ )]*' docs"}}
   },
   {
