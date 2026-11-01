@@ -5,10 +5,10 @@ and `sh_squote` function bodies. This component test needs only POSIX shell,
 awk, sed, cmp and ordinary system utilities; it does not initialize the CLI,
 create a Git repository, install a scanner or invoke a host adapter.
 
-`make test-unit`의 전체 suite 목록, assertion 수와 CI partition은
-[직접 계약 테스트 목록](testing.md#direct-contract-inventory)에서 관리한다.
-이 테스트들과 별도로 실행하는 실패 회귀 테스트 및 통합 경계는
-[테스트 계층 안내](testing.md)를 참고한다.
+See the [direct contract inventory](testing.md#direct-contract-inventory) for
+the complete `make test-unit` suite list, assertion counts, and CI partitions.
+See the [layer and cost inventory](testing.md) for the separate failure
+regressions and integration boundaries.
 
 The suite isolates the two named functions using their existing source layout,
 rejects missing/duplicate definitions and invalid shell syntax, and sources
