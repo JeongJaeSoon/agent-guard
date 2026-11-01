@@ -10,6 +10,8 @@
   <a href="LICENSE"><img src="https://img.shields.io/github/license/JeongJaeSoon/agent-guard" alt="MIT license"></a>
 </p>
 
+English · [한국어](README.ko.md) · [日本語](README.ja.md)
+
 **A local-first guardrail that keeps AI coding agents from leaking your secrets.**
 
 > Blocks risky `.env` reads, masks secret-like output, and scans changes before they reach Git. No hosted account, no telemetry.

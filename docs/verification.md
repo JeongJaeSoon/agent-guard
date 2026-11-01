@@ -1,5 +1,7 @@
 # Verification
 
+English · [한국어](verification.ko.md) · [日本語](verification.ja.md)
+
 Use separate evidence for dependencies, deterministic behavior, and live host
 dispatch. A passing earlier layer does not prove a later one.
 
