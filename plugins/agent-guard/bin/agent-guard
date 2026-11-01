@@ -4924,8 +4924,9 @@ jq_filter_without_field_names() {
 # A jq filter is program text: `select(.key|test("x"))` names a field, not a
 # `*.key` file, and jq opens no file the filter names. Drop field names from
 # the filter of each jq at a command start of the first pipeline. Only that
-# pipeline qualifies: its other commands run in subshells, but any command
-# sequenced before jq (`;`, `&&`, `||`, a newline, `&`) runs in the same shell
+# pipeline qualifies: an element left of jq runs in a subshell and one right of
+# it (the current shell in zsh or under lastpipe) starts after jq inherited its
+# environment, but any command sequenced before jq (`;`, `&&`, `||`, a newline, `&`) runs in the same shell
 # and can redefine jq in ways no text test enumerates (alias, eval, a sourced
 # script, a command name made by tilde, glob or brace expansion). Inside it,
 # only literal words qualify: an expansion can shift which word is the
