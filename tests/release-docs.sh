@@ -1,6 +1,6 @@
 #!/usr/bin/env sh
-# Verify that the standalone release carries the Markdown documents referenced
-# by its root README. This stays offline and exercises the actual tar builder.
+# Verify offline navigation from every shipped README and translated entry guide
+# against an archive produced by the actual release builder.
 set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
@@ -18,13 +18,21 @@ tar -xzf "$archive" -C "$stage"
 [ -f "$stage/CHANGELOG.md" ] \
   || { printf '%s\n' 'release archive is missing CHANGELOG.md' >&2; exit 1; }
 
-# Only relative Markdown links are archive members. Fragment-only links are
-# internal to README, and remote/absolute links intentionally resolve elsewhere.
-links=$(grep -oE '\]\(([^)#]+\.md)(#[^)]*)?\)' "$stage/README.md" 2>/dev/null \
-  | sed -E 's/^\]\(//; s/#.*\)$//; s/\)$//' || true)
-printf '%s\n' "$links" | while IFS= read -r link; do
-  [ -n "$link" ] || continue
-  case "$link" in http://*|https://*|/*) continue ;; esac
-  [ -f "$stage/$link" ] \
-    || { printf '%s\n' "release archive README link is missing: $link" >&2; exit 1; }
+for source in "$ROOT"/README*.md "$ROOT"/docs/installation*.md "$ROOT"/docs/verification*.md; do
+  relative=${source#"$ROOT"/}
+  document="$stage/$relative"
+  cmp -s "$source" "$document" \
+    || { printf '%s\n' "release archive document is missing or differs: $relative" >&2; exit 1; }
+  directory=$(dirname -- "$document")
+
+  # Fragment-only links stay in the document; remote and absolute links are not
+  # archive members. Resolve relative Markdown links from each document's folder.
+  links=$(grep -oE '\]\(([^)#]+\.md)(#[^)]*)?\)' "$document" 2>/dev/null \
+    | sed -E 's/^\]\(//; s/#.*\)$//; s/\)$//' || true)
+  printf '%s\n' "$links" | while IFS= read -r link; do
+    [ -n "$link" ] || continue
+    case "$link" in http://*|https://*|/*) continue ;; esac
+    [ -f "$directory/$link" ] \
+      || { printf '%s\n' "release archive document link is missing: $relative -> $link" >&2; exit 1; }
+  done
 done
