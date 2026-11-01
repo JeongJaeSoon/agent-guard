@@ -259,6 +259,27 @@
     "command": "if true; then . ./tools.sh; fi; jq .key"
   },
   {
+    "id": "jq-after-redirected-dot-source",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a dot command with a glued redirect can source a jq redefinition",
+    "command": ".</dev/null ./tools.sh; jq .key"
+  },
+  {
+    "id": "jq-after-redirected-source",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a source command with a glued redirect can source a jq redefinition",
+    "command": "source</dev/null ./tools.sh; jq .key"
+  },
+  {
+    "id": "jq-after-redirected-eval",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "an eval with a glued redirect can source a jq redefinition",
+    "command": "eval</dev/null \". ./tools.sh\"; jq .key"
+  },
+  {
     "id": "jq-env-member",
     "expected_status": 2,
     "classification": "must-block",

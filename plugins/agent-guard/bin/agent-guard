@@ -5016,9 +5016,10 @@ bash_neutralize_jq_field_names() (
     esac
     jq_word=${jq_rec#?}
     # bash_command_sources_script sees `.` only at a plain command start, not
-    # after `then` or `do`; outside jq's own arguments refuse it anywhere.
-    case "$jq_state:$jq_word" in
-      start:.|start:source|other:.|other:source) jq_bail ;;
+    # after `then` or `do` or with a glued redirect (`.</dev/null x.sh`);
+    # outside jq's own arguments refuse it anywhere.
+    case "$jq_state:${jq_word%%[<>]*}" in
+      start:.|start:source|other:.|other:source|*:eval|*:trap|*:function) jq_bail ;;
     esac
     if [ "$jq_state" = start ]; then
       if [ "$jq_rec" = 0jq ]; then
