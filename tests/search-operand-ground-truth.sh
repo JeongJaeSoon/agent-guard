@@ -72,7 +72,7 @@ allow for c in a b; do echo "== $c"; done; ls -a . | grep -E '^\.env'
 allow grep -e '\.env' -e '\.pem' list.txt
 allow grep --regexp='\.env' list.txt
 allow grep -rn --include='*.ts' -A3 'process\.env' src 2>/dev/null | head
-allow LC_ALL=C sort list.txt | grep -c -- '\.env'
+allow LC_ALL=C cat list.txt | grep -c -- '\.env'
 allow echo x; grep -E '\.env'
 allow rg --no-config -n 'process\.env\.PORT' src
 allow rg --no-config -n -g '*.ts' 'process\.env' src
@@ -131,6 +131,13 @@ held openssl req -x509 -key tls.key -out t.crt -subj /CN=t
 held openssl x509 -in t.crt -out fresh3.key
 held chmod 644 fresh.key
 held sed -n 's/x/y/p' notes.txt .env
+held git restore . && grep .env
+held echo x >p; grep .env
+held cat list.txt >p | grep .env
+held touch p; grep .env
+held sort -o p list.txt; grep .env
+held mkdir -p d; grep .env
+held find . -name p -delete; grep .env
 CASES
 
 # Options from the environment come first and can make the pattern a file.
@@ -148,6 +155,18 @@ if [ "$status" -eq 0 ]; then ok "grep pattern alone allowed"; else bad "grep pat
 status=0
 (GREP_OPTIONS='-e VALUE'; export GREP_OPTIONS; gate 'grep .env') || status=$?
 if [ "$status" -eq 2 ]; then ok "grep pattern kept under GREP_OPTIONS"; else bad "grep pattern kept under GREP_OPTIONS (got $status)"; fi
+
+# A segment before the search can rewrite a file that a PATH entry resolves
+# the later command name to. PATH is changed only for the run, not the hook.
+mkdir -p "$W/pbin"
+printf '#!/bin/sh\nexit 0\n' >"$W/pbin/grep"
+chmod +x "$W/pbin/grep"
+printf '#!/bin/sh\ncat "$1"\n' >"$W/shim"
+status=0
+gate 'cat shim >pbin/grep; grep .env' || status=$?
+if [ "$status" -eq 2 ]; then ok "pattern kept after a segment that writes a file"; else bad "pattern kept after a segment that writes a file (got $status)"; fi
+(cd "$W" && PATH="$W/pbin:$PATH" sh -c 'cat shim >pbin/grep; grep .env') </dev/null >"$CASE/out" 2>&1
+if grep -Fq "$canary" "$CASE/out"; then ok "control: a rewritten PATH entry makes grep read its pattern"; else bad "control: a rewritten PATH entry makes grep read its pattern"; fi
 
 printf '%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

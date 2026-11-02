@@ -5038,13 +5038,16 @@ search_operand_spans() {
         # A later command name means what it says only while every segment
         # before it is a command that cannot change how this shell looks up
         # names: any builtin (`hash`, `read PATH`, `printf -v`, `command
-        # export`) or loop variable might rebind it, so list the inert ones.
+        # export`) or loop variable might rebind it, and a command or
+        # redirection that writes files might create or replace the file a
+        # PATH entry resolves it to, so list the inert ones.
+        for (r = k; r <= e; r++) if (wred[r]) exit 0
         for (h = k; h <= e && wv[h] ~ /^(do|then|else|elif|if|while|until|done|fi|!)$/ && !bad(h); h++) ;
         for (a = h; h <= e && wv[h] ~ /^[A-Za-z_][A-Za-z0-9_]*=/ && !bad(h); h++) ;
         if (h > e) { if (a > e) continue; exit 0 }
         if (bad(h)) exit 0
         if (wv[h] == "for" && h + 2 <= e && wv[h + 1] ~ /^[a-z]$/ && wv[h + 2] == "in") continue
-        if (wv[h] !~ /^(grep|egrep|fgrep|rg|openssl|ls|cat|head|tail|sort|uniq|wc|cut|tr|echo|true|false|test|\[|pwd|cd|git|gh|jq|find|sed|awk|diff|comm|basename|dirname|date|stat|file|tee|mkdir|touch|sleep)$/) exit 0
+        if (wv[h] !~ /^(grep|egrep|fgrep|rg|ls|cat|head|tail|wc|cut|tr|echo|true|false|test|\[|pwd|cd|jq|diff|comm|basename|dirname|date|stat|sleep)$/) exit 0
       }
     }
   '
