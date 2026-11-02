@@ -1,3 +1,10 @@
+## v3.6.12 - 2026-11-02
+
+- fix(hooks): grep/rg 검색 패턴과 새 openssl 출력 경로를 보호 경로 검사에서 제외 (#373)
+- fix(hooks): jq filter field names no longer trip the protected-path check (#372)
+- docs: 영어 정본을 유지하고 한국어·일본어 안내 추가 (#369)
+- docs: 직접 계약 테스트 목록과 Makefile 도움말 정합성 정리 (#362)
+
 ## v3.6.11 - 2026-10-30
 
 - fix(hooks): resolve commit and push in compound Bash commands (#367)
