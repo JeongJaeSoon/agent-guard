@@ -2785,10 +2785,13 @@ expect_json_status 0 "env VAR=x cmd piped (wrapped command, not bare env) is all
   '{"tool_name":"Bash","tool_input":{"command":"env FOO=bar printf %s done | cat"}}' \
   hook-pre-tool
 
-# Bash provides one opaque command string, so source/search operands that look
-# like protected paths stay blocked. These policy-only fixtures verify both the
-# actionable diagnosis and the supported structured/script alternatives; none
-# of the embedded commands is executed.
+# Bash provides one opaque command string, so source operands that look like
+# protected paths stay blocked; only the search pattern of a plain grep/rg and
+# a new openssl output path are left out. These policy-only fixtures verify both
+# the actionable diagnosis and the supported structured/script alternatives;
+# none of the embedded commands is executed. The ground-truth script runs them.
+run_expect 0 "grep/rg search patterns and new openssl outputs leave out no protected read" \
+  sh "$ROOT/tests/search-operand-ground-truth.sh"
 ambiguous_bash_fixtures="$ROOT/tests/fixtures/ambiguous-bash-protected-path.json"
 ambiguous_bash_cases="$TESTTMP/ambiguous-bash-protected-path.cases"
 if jq -e 'type == "array" and length > 0' "$ambiguous_bash_fixtures" >/dev/null \

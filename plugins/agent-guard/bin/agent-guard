@@ -4889,6 +4889,233 @@ bash_strip_source_module_prose() (
   printf '%s' "$prose_result"
 )
 
+# Print the start and end offsets of words in $1 that name no file the command
+# reads: the search pattern of grep, egrep, fgrep and rg, and (as `O start end
+# value`) the output path of an openssl key or certificate generator. A word
+# qualifies only in a segment whose first word is that command and whose words
+# up to it match the option tables below; an unknown option, an expansion, a
+# glob, a redirection before it, or an option after an operand (GNU grep
+# permutes, BSD grep reads it as a file) leaves the segment alone. The whole
+# line is left alone when it may hide a segment boundary: a newline, a
+# substitution, a here-document, a group or a comment. Segments after one
+# whose command is not on the inert list below are left alone too.
+search_operand_spans() {
+  printf '%s\n' "$1" | LC_ALL=C awk -v grep_env="${GREP_OPTIONS-}" '
+    function bail() { failed = 1; exit }
+    function start_word() {
+      if (inword) return
+      inword = 1; wstart = i; val = ""; dyn = 0; uns = 0; red = 0
+    }
+    function flush_word() {
+      if (!inword) return
+      nw++; ws[nw] = wstart; we[nw] = i - 1; wv[nw] = val
+      wdyn[nw] = dyn; wuns[nw] = uns; wred[nw] = red; wseg[nw] = nseg
+      inword = 0
+    }
+    function bad(k) { return wdyn[k] || wuns[k] || wred[k] }
+    function span(k) { return ws[k] " " we[k] "\n" }
+    function grep_scan(a, b, rg,   k, v, j, ch, rest, sawe, opnd, dd, noconf, out, noarg, numarg, wordarg, longs, longv) {
+      if (rg) {
+        noarg = "iISsnNlcovwxFUuHLPazqbp0"; numarg = "ABCmjMd"; wordarg = "gtTEr"
+        longs = "^--(hidden|no-ignore|no-ignore-vcs|no-ignore-dot|no-ignore-parent|ignore-case|smart-case|case-sensitive|line-number|no-line-number|count|count-matches|files-with-matches|files-without-match|only-matching|fixed-strings|word-regexp|line-regexp|invert-match|no-filename|with-filename|no-heading|heading|column|multiline|multiline-dotall|pcre2|follow|text|vimgrep|trim|no-messages|quiet|null|byte-offset|crlf|unrestricted|json|no-config)$"
+        longv = "^--(glob|iglob|type|type-not|max-count|max-depth|context|after-context|before-context|color|colors|encoding|replace|sort|sortr|max-columns|threads|max-filesize)="
+      } else {
+        noarg = "EFGPHhilLnoqsvwxcrRaIUzZbTy"; numarg = "ABCm"; wordarg = "dD"
+        longs = "^--(recursive|dereference-recursive|ignore-case|no-ignore-case|line-number|count|files-with-matches|files-without-match|only-matching|extended-regexp|fixed-strings|basic-regexp|perl-regexp|word-regexp|line-regexp|invert-match|no-filename|with-filename|quiet|silent|no-messages|null|null-data|text|byte-offset|initial-tab|color|colour)$"
+        longv = "^--(include|exclude|exclude-dir|max-count|context|after-context|before-context|binary-files|label|devices|directories|color|colour)="
+      }
+      out = ""; sawe = 0; opnd = 0; dd = 0; noconf = 0
+      for (k = a + 1; k <= b; k++) {
+        v = wv[k]
+        if (v == "--no-config" && !opnd && !dd) noconf = 1
+        if (opnd) {
+          if (!dd && substr(v, 1, 1) == "-") return ""
+          continue
+        }
+        if (bad(k)) return ""
+        if (dd || v == "-" || substr(v, 1, 1) != "-") {
+          if (!sawe) out = out span(k)
+          opnd = 1
+          continue
+        }
+        if (v == "--") { dd = 1; continue }
+        if (substr(v, 1, 2) == "--") {
+          if (v == "--regexp") {
+            if (++k > b || bad(k)) return ""
+            out = out span(k); sawe = 1; continue
+          }
+          if (v ~ /^--regexp=/) { out = out span(k); sawe = 1; continue }
+          if (v ~ longs || v ~ longv) continue
+          return ""
+        }
+        for (j = 2; j <= length(v); j++) {
+          ch = substr(v, j, 1); rest = substr(v, j + 1)
+          if (index(noarg, ch)) continue
+          if (ch == "e") {
+            if (rest == "") { if (++k > b || bad(k)) return "" }
+            out = out span(k); sawe = 1; break
+          }
+          if (index(numarg, ch)) {
+            if (rest == "") { if (++k > b || bad(k)) return ""; rest = wv[k] }
+            if (rest !~ /^[0-9]+$/) return ""
+            break
+          }
+          if (index(wordarg, ch)) {
+            if (rest == "" && (++k > b || bad(k))) return ""
+            break
+          }
+          return ""
+        }
+      }
+      # Options from the environment come before these words and can turn the
+      # pattern into a file: a ripgrep config file unless --no-config is
+      # given, and GREP_OPTIONS, which BSD grep still reads.
+      if (rg ? !noconf : grep_env != "") return ""
+      return out
+    }
+    # A value moved off its option by a valueless one before it would be a
+    # stray operand, which these subcommands reject before writing anything.
+    function openssl_scan(a, b,   k, out) {
+      if (a + 1 > b || wv[a + 1] !~ /^(req|genrsa|genpkey|ecparam)$/ || bad(a + 1)) return ""
+      out = ""
+      for (k = a + 2; k < b; k++)
+        if ((wv[k] == "-out" || wv[k] == "-keyout") && !bad(k) && !bad(k + 1) \
+            && substr(wv[k + 1], 1, 1) != "-" && wv[k + 1] != "") {
+          out = out "O " ws[k + 1] " " we[k + 1] " " wv[k + 1] "\n"
+          k++
+        }
+      return out
+    }
+    BEGIN { safe = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_./:@%+,=-" }
+    NR > 1 { bail() }
+    {
+      s = $0; n = length(s); q = ""; nseg = 1
+      if (index(s, "`") || index(s, "$(") || index(s, "<<") || index(s, "<(") || index(s, ">(")) bail()
+      for (i = 1; i <= n; i++) {
+        c = substr(s, i, 1)
+        if (q == "s") { if (c == "\047") q = ""; else val = val c; continue }
+        if (q == "d") {
+          if (c == "\"") { q = ""; continue }
+          if (c == "\\" && i < n && index("$`\"\\", substr(s, i + 1, 1))) { i++; val = val substr(s, i, 1); continue }
+          if (c == "$") dyn = 1
+          val = val c
+          continue
+        }
+        if (c == " " || c == "\t") { flush_word(); continue }
+        if (c == ";" || c == "|" || c == "&" && substr(s, i + 1, 1) == "&") {
+          flush_word(); nseg++
+          if (c != ";" && substr(s, i + 1, 1) == c) i++
+          continue
+        }
+        # A lone `&` stays in a word: the next command then starts no segment
+        # of its own and is not parsed, which only keeps its text in the scan.
+        if (index("(){}", c) || c == "#" && !inword) bail()
+        start_word()
+        if (c == "\\") {
+          if (i == n) bail()
+          i++; val = val substr(s, i, 1)
+          continue
+        }
+        if (c == "\047") { q = "s"; continue }
+        if (c == "\"") { q = "d"; continue }
+        if (c == "<" || c == ">" || c == "&") red = 1
+        if (c == "$") dyn = 1
+        if (!index(safe, c) || c == "=" && i == wstart) uns = 1
+        val = val c
+      }
+      if (q != "") bail()
+      flush_word()
+    }
+    END {
+      if (failed) exit 1
+      for (k = 1; k <= nw; k = e + 1) {
+        for (e = k; e < nw && wseg[e + 1] == wseg[k]; e++) ;
+        if (!bad(k)) {
+          if (wv[k] ~ /^(grep|egrep|fgrep)$/) printf "%s", grep_scan(k, e, 0)
+          else if (wv[k] == "rg") printf "%s", grep_scan(k, e, 1)
+          else if (wv[k] == "openssl") printf "%s", openssl_scan(k, e)
+        }
+        # A later command name means what it says only while every segment
+        # before it is a command that cannot change how this shell looks up
+        # names: any builtin (`hash`, `read PATH`, `printf -v`, `command
+        # export`) or loop variable might rebind it, and a command or
+        # redirection that writes files might create or replace the file a
+        # PATH entry resolves it to, so list the inert ones.
+        for (r = k; r <= e; r++) if (wred[r]) exit 0
+        for (h = k; h <= e && wv[h] ~ /^(do|then|else|elif|if|while|until|done|fi|!)$/ && !bad(h); h++) ;
+        for (a = h; h <= e && wv[h] ~ /^[A-Za-z_][A-Za-z0-9_]*=/ && !bad(h); h++) ;
+        if (h > e) { if (a > e) continue; exit 0 }
+        if (bad(h)) exit 0
+        if (wv[h] == "for" && h + 2 <= e && wv[h + 1] ~ /^[a-z]$/ && wv[h + 2] == "in") continue
+        if (wv[h] !~ /^(grep|egrep|fgrep|rg|ls|cat|head|tail|wc|cut|tr|echo|true|false|test|\[|pwd|cd|jq|diff|comm|basename|dirname|date|stat|sleep)$/) exit 0
+      }
+    }
+  '
+}
+
+# Replace the words search_operand_spans finds with `_`, keeping every other
+# byte, so the later passes still see each file operand, option value and
+# redirection exactly as written. An output path is replaced only while
+# nothing exists there, from the event workdir and from the one static
+# directory the command may change to: overwriting a protected file stays
+# blocked.
+bash_strip_non_read_operands() (
+  set -f
+  sn_cmd=$1
+  sn_spans=$(search_operand_spans "$sn_cmd") && [ -n "$sn_spans" ] || {
+    printf '%s' "$sn_cmd"
+    exit 0
+  }
+  sn_rebase_known=1 sn_rebase=
+  case "$sn_spans" in
+    O*|*'
+O'*)
+      if bash_command_may_rebase_relative_paths "$sn_cmd"; then
+        sn_rebase=$(bash_command_rebase_target "$sn_cmd") || sn_rebase_known=0
+      fi
+      ;;
+  esac
+  sn_keep=
+  sn_ifs=$IFS
+  IFS='
+'
+  for sn_span in $sn_spans; do
+    IFS=$sn_ifs
+    case "$sn_span" in
+      'O '*)
+        sn_rest=${sn_span#O }
+        sn_start=${sn_rest%% *}; sn_rest=${sn_rest#* }
+        sn_end=${sn_rest%% *}; sn_path=${sn_rest#* }
+        case "$sn_path" in
+          /*) set -- "$sn_path" ;;
+          *)
+            [ "$sn_rebase_known" -eq 1 ] || continue
+            set -- "$sn_path"
+            [ -z "$sn_rebase" ] || set -- "$sn_path" "$sn_rebase/$sn_path"
+            ;;
+        esac
+        sn_new=1
+        for sn_target in "$@"; do
+          if [ -e "$sn_target" ] || [ -L "$sn_target" ]; then sn_new=0; fi
+        done
+        [ "$sn_new" -eq 1 ] || continue
+        sn_keep="$sn_keep $sn_start $sn_end"
+        ;;
+      *) sn_keep="$sn_keep $sn_span" ;;
+    esac
+  done
+  IFS=$sn_ifs
+  printf '%s\n' "$sn_cmd" | LC_ALL=C awk -v spans="$sn_keep" '
+    {
+      m = split(spans, p, " "); out = ""; at = 1
+      for (k = 1; k < m; k += 2) {
+        out = out substr($0, at, p[k] - at) "_"
+        at = p[k + 1] + 1
+      }
+      printf "%s", out substr($0, at)
+    }'
+)
+
 # Print $1, a jq filter, with the names of the field chains rooted at `.`
 # removed: `.data.key` becomes `.`. `env.X` and `$x.y` keep theirs, and so do
 # strings (an import or include path names a file jq reads) and a comment.
@@ -5101,6 +5328,8 @@ bash_matches_deny_path() {
     *"\\
 "*) deny_cmd=$(shell_join_line_continuations "$deny_cmd") ;;
   esac
+  # A failed rewrite keeps the whole command in the scan.
+  deny_stripped=$(bash_strip_non_read_operands "$deny_cmd") && deny_cmd=$deny_stripped
   deny_cmd=$(bash_neutralize_jq_field_names "$deny_cmd")
   deny_cmd=$(bash_strip_source_module_prose "$deny_cmd")
   deny_cmd=$(bash_strip_exclusion_operands "$deny_cmd")

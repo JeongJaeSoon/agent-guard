@@ -144,7 +144,10 @@ gitleaks config instead of the bundled one.
   JSON. Agent Guard does not swap a tool's output after the read instead: that
   path lets the original output through on an error, and the file has already
   been read by then.
-- Shell blocking is pattern-based. It can block benign path-shaped text and an
+- Shell blocking is pattern-based. Search patterns of plain `grep` and
+  `rg --no-config` commands and new `openssl` key output paths are left out of the path match
+  ([operations](operations.md)), but it can still block other benign
+  path-shaped text, and an
   actively evasive command can avoid a fixed pattern list.
 - A user-typed host shell escape is outside the tool-hook boundary. Do not print
   credentials there; use `agent-guard exec -- <command>` / `agx`, redirect both
