@@ -18,7 +18,13 @@ tar -xzf "$archive" -C "$stage"
 [ -f "$stage/CHANGELOG.md" ] \
   || { printf '%s\n' 'release archive is missing CHANGELOG.md' >&2; exit 1; }
 
-for source in "$ROOT"/README*.md "$ROOT"/docs/installation*.md "$ROOT"/docs/verification*.md; do
+for internal in README.md native-redactor.md rust-experiment-goal.ko.md development reports; do
+  [ ! -e "$stage/docs/$internal" ] \
+    || { printf '%s\n' "release archive includes repository-only documentation: $internal" >&2; exit 1; }
+done
+
+for source in "$ROOT"/README*.md "$ROOT"/docs/installation*.md "$ROOT"/docs/verification*.md \
+  "$ROOT/docs/configuration.md" "$ROOT/docs/integrations.md" "$ROOT/docs/operations.md"; do
   relative=${source#"$ROOT"/}
   document="$stage/$relative"
   cmp -s "$source" "$document" \

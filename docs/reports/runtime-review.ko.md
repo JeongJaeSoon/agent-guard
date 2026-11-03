@@ -3,6 +3,11 @@
 2026-11-04 내부 검토. 기준 소스는 `c81699ed2a368e0a4fefadca6446c7bc5c9734cd`다.
 새 한국어 작업 기록이며 기존 영어 문서의 번역본이 아니다.
 
+> 셸 최적화 당시의 검토·측정 기록이다. 최신 Rust 실험 결과와 대기 상태는
+> [그래프 보고서](../rust-performance.ko.html)와 [목표 문서](../rust-experiment-goal.ko.md)를 참고한다.
+
+명령은 저장소 루트에서 실행한다.
+
 ## 적용한 개선
 
 | 변경 | 이유 | 보존하는 동작 |
@@ -93,22 +98,23 @@ report parser 통합 후보의 공백-only 입력이 정상 빈 결과가 될 �
 `45b639e14834a761756b97c32cbe495bd7b474aab14ce49b23064f2154f2b45f`다.
 선택된 상대 위치 2·3이 각각 `record_mode` 할당과 awk 호출임을 다시 확인하고,
 관측 대상·분모를 유지한 채 stale hash를 갱신했다. 변경한 framing 함수의 선택
-위치와 hash도 재검토했다. [재측정 원본](../bench/results/source-locations-2026-11-04.json)은
+위치와 hash도 재검토했다. [재측정 원본](../../bench/results/source-locations-2026-11-04.json)은
 **39/40**, 정의만 읽는 음성 대조군은 **0/40**이다. embedded awk/jq, 전체 파일,
 분기 coverage를 측정한 수치가 아니다.
 
-## 재작성 판단
+## 재작성 판단의 후속 결과
 
-[재작성 검토](rewrite-assessment.ko.md)에 언어별 비교와 전환 조건을 정리했다.
-Rust 단발 출력 코어 실험을 우선 권장하며, Go 운영 경험이 많으면 Go도 유효하다.
-gitleaks와 셸 launcher를 유지하고, 마스킹 위치·강도와 실패 처리의 허용되지 않은
-차이가 0개임을 확인한 뒤 단계적으로 이전한다. 이번에는 native 코어를 구현하거나
-언어별 성능 우위를 측정한 것이 아니다.
+이 셸 점검 이후 문자열 치환만 선택형 Rust 코어로 구현했다.
+[실측 보고서](../rust-performance.ko.html)에 성능·CPU·메모리 결과와 검증 한계를,
+[코어 안내](../native-redactor.md)에 실행·복귀 계약을 유지한다.
+Rust는 단발 JSON·바이트 처리와 작업량 관리에 적합한 첫 실험 후보였다.
+Go는 유지보수 경험이 있는 팀의 대안이지만 이번에 구현하거나 비교 측정하지 않았으므로
+Rust가 Go보다 빠르다는 결론은 내리지 않는다. 탐지기·정책·셸 launcher는 유지한다.
 
 ## 로컬 실측 결과
 
 Linux x86_64, jq 1.7, gitleaks 8.30.1에서 수행했다. 기준 CLI와 후보 CLI의 SHA-256,
-scanner/config hash, 표본은 [기본 측정 원본](../bench/results/runtime-2026-11-04.json)에
+scanner/config hash, 표본은 [기본 측정 원본](../../bench/results/runtime-2026-11-04.json)에
 있다. 후보 CLI SHA-256은
 `8eafb814b1e64f7fca533aed37064e63d866eeb6636bc70fc426484e8709f409`다.
 아래 시간은 각각 표본의 중앙값이다.
@@ -126,12 +132,12 @@ scanner/config hash, 표본은 [기본 측정 원본](../bench/results/runtime-2
 일반 입력의 일괄 성능 향상이나 메모리 감소를 주장하지 않는다. 초기 통합 후보의
 첫 5회에서 정상 exec는 0.851→0.993초로 느리게 나와 두 정상 제어군을 별도
 15회 측정했고, 최종 코드에서도 전체 측정과 15회 제어군을 다시 실행했다.
-[최종 추가 원본](../bench/results/controls-2026-11-04.json)의 중앙값 차이는 각각
-약 +0.4%, +0.8%였다. [초기 원본](../bench/results/runtime-initial-2026-11-04.json)과
+[최종 추가 원본](../../bench/results/controls-2026-11-04.json)의 중앙값 차이는 각각
+약 +0.4%, +0.8%였다. [초기 원본](../../bench/results/runtime-initial-2026-11-04.json)과
 `*-initial-2026-11-04.json`도 보존했다. 초기 후보의 수치를 최종 CLI의 수치로
 표시하거나 유리한 표본만 버리지 않았다.
 
-[capture 원본](../bench/results/capture-2026-11-04.json)은 1/8 MiB 원문 모두
+[capture 원본](../../bench/results/capture-2026-11-04.json)은 1/8 MiB 원문 모두
 기존과 같이 `[REDACTED]`로 처리됨을 확인한다. peak RSS가 scan cap의 크기에
 고정되지 않음을 보여 주지만, 이 값으로 capture만의 메모리나 트리 전체 peak를
 역산할 수는 없다. 메모리를 제한하는 spool/capture 설계는 여전히 후속 과제다.
@@ -147,7 +153,7 @@ Bash policy 분석 경로의 구조적 비용을 줄이지 않았다는 증거�
 그중 정상 제어군은 추가 마스킹 없이 통과하고, 기존 정밀/보수적 마스킹 결과는
 각 fixture의 기대값과 일치했다. 이 수는 전체 제품의 탐지율이나 source coverage가 아니다.
 
-[watchdog 원본](../bench/results/watchdog-2026-11-04.json)은 Linux subreaper로
+[watchdog 원본](../../bench/results/watchdog-2026-11-04.json)은 Linux subreaper로
 각 CLI `check` 종료 뒤 입양한 고아 자식을 세고 회수한 결과다. 기준은 10회 모두
 1개, 후보는 10회 모두 0개였다. 시스템 전체의 고아 프로세스를 센 것이 아니다.
 다음 명령으로 별도 재현할 수 있다.
@@ -160,7 +166,7 @@ python3 bench/watchdog-orphans.py \
 
 ## 최종 회귀 검증
 
-[검증 원본](../bench/results/verification-2026-11-04.json)은 최종 CLI hash를 고정한
+[검증 원본](../../bench/results/verification-2026-11-04.json)은 최종 CLI hash를 고정한
 상태에서 전체 5개 shard를 최대 두 개씩 실행한 결과다. 실행 전후 CLI가 같았고,
 모든 shard와 후속 통합 검증의 종료 코드는 0이다.
 
@@ -179,8 +185,8 @@ python3 bench/watchdog-orphans.py \
 계약을 보존함을 확인했다. 실제 gitleaks를 사용한 `smoke-test`와 invalid-UTF-8
 exec framing 경계 회귀 **24개**도 통과했다.
 
-[기준 채널 결과](../bench/results/coverage-baseline-2026-11-04.tsv)와
-[최종 채널 결과](../bench/results/coverage-candidate-2026-11-04.tsv)의 15개 행은
+[기준 채널 결과](../../bench/results/coverage-baseline-2026-11-04.tsv)와
+[최종 채널 결과](../../bench/results/coverage-candidate-2026-11-04.tsv)의 15개 행은
 동일했다. 실제 scanner의 passive hook secret 사례는 **9/9 보호**,
 benign 제어군 오탐은 **0/4**, engine error는 0개다. hook이 발생하지 않는
 `!` 채널은 기존처럼 미보호로 기록하며, opt-in exec 보호와 혼합하지 않았다.
@@ -194,7 +200,7 @@ benign 제어군 오탐은 **0/4**, engine error는 0개다. hook이 발생하�
   private allow-list 신뢰 검사가 거부됐다. 실제 파일 소유권이 보이는 실행 환경에서
   재검증했으며, 제품의 ownership/ACL/working-directory 검사는 완화하지 않았다.
 - CPU quota 4개인 환경에서 초기 5-way 실행 중 readiness의 기존 2초 timeout과
-  DEGRADED 경로가 관측됐다. [부하 진단 원본](../bench/results/probe-load-2026-11-04.json)의
+  DEGRADED 경로가 관측됐다. [부하 진단 원본](../../bench/results/probe-load-2026-11-04.json)의
   원래 기준 CLI `check`에서도 150회 중 1회 같은 timeout이 있었다. 이를 특정 수정의
   성능 향상 증거로 해석하지 않는다. 최종 전체 검증은 최대 두 shard씩 실행했고
   deadline이나 infrastructure failure 기본값은 바꾸지 않았다. 과도한 동시 부하에서
@@ -202,3 +208,47 @@ benign 제어군 오탐은 **0/4**, engine error는 0개다. hook이 발생하�
 
 이번 검증은 Linux에서 수행했다. macOS CI와 인증된 실제 Claude/Codex의 host
 dispatch는 실행하지 않았으며, CLI 호스트 fixture 통과를 그 증거로 대신하지 않는다.
+
+## 실험 중 확인한 도구 호환성 수정
+
+### 감사 로그 보존과 구형 awk
+
+Rust 실험을 위한 Debian bookworm 이미지에서 `mawk 1.3.4 20200120`이
+`{1,12}`, `{6}` 반복 표현을 처리하지 않아 기존 `audit_prune`이 이벤트
+파일을 선택하지 못했다. 오래된 기록과 live-probe sidecar가 정리되지 않고,
+후속 감사 로그 검증도 실패했다. Rust 도입과 독립적인 기존 문제다.
+
+파일명 규칙을 세 필드로 분해하고 ASCII 문자 집합과 길이를 검사하도록
+변경했다. 허용 파일명, 7일 기한, 999개 보존, 2,000개 목록 상한,
+비어 있지 않은 sidecar를 삭제하지 않는 조건은 유지한다. 새 실행 의존성은
+없으며 탐지·마스킹 정책도 바꾸지 않는다.
+
+`tests/unit-audit-retention.sh`는 오래된 기록과 빈 sidecar 제거, 현재 기록
+보존, 형식이 다른 파일명 6종 보존, 개수 제한을 검증한다.
+
+```sh
+AGENT_GUARD_TEST_AWK=/usr/bin/mawk sh tests/unit-audit-retention.sh
+```
+
+동일한 구형 mawk에서 수정 전 소스를 지정하면 실패하고, 수정 후에는 10개
+조건을 통과하는 것을 확인했다. 전체 감사 로그 계약과 전체 회귀 검증은
+Rust 실험의 최종 검증 기록에 함께 남긴다.
+
+### jq 1.6의 NUL 판정과 과도 마스킹
+
+jq 1.6에서 `"clean" | contains("\u0000")`는 `true`를 반환한다.
+기존 NUL 선처리가 이 함수에 의존해 정상 문자열과 빈 문자열까지 전체 마스킹했다.
+`index("\u0000") != null`로 바꾸어 실제 NUL 위치가 있는 경우만 기존과 같이
+전체 leaf를 가린다. jq 1.7.1에서의 기존 동작과 일치시키는 호환성 수정이다.
+
+탐지 규칙이나 NUL-bearing leaf의 보수적 마스킹은 유지한다. 키·숫자·boolean·null,
+정상 Unicode, 빈 문자열과 문자열로 표시된 `\\u0000`은 유지한다.
+
+`tests/unit-nul-redaction.sh`의 독립 기대값 3개를 jq 1.6 및 1.7.1에서 검사한다.
+기존 소스+jq 1.6에서는 실패하고 수정 후에는 양쪽 모두 통과해야 한다.
+전체 suite의 NUL 실패 주입도 새 predicate를 대상으로 유지한다.
+
+```sh
+AGENT_GUARD_TEST_JQ=/absolute/path/to/jq-1.6 sh tests/unit-nul-redaction.sh
+AGENT_GUARD_TEST_JQ=/absolute/path/to/jq-1.7.1 sh tests/unit-nul-redaction.sh
+```
