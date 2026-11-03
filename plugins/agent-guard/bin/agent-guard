@@ -1004,7 +1004,11 @@ audit_prune() (
         BEGIN { prefix=ENVIRON["AG_AUDIT_PRUNE_DIR"] "/" }
         index($0, prefix) == 1 {
           name=substr($0, length(prefix)+1)
-          if (name ~ /^event-[0-9]{1,12}-[A-Za-z0-9]{6}$/) print
+          # Older system awks lack interval expressions. Keep the same ASCII
+          # filename grammar using field lengths and simple character classes.
+          if (split(name, fields, "-") == 3 && fields[1] == "event" &&
+              fields[2] ~ /^[0-9]+$/ && length(fields[2]) <= 12 &&
+              fields[3] ~ /^[A-Za-z0-9]+$/ && length(fields[3]) == 6) print
         }
       ' \
     | LC_ALL=C sort -r \

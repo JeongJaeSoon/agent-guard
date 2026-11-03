@@ -230,6 +230,7 @@ else
 fi
 
 run_expect 0 "private metadata-only audit logging contract" sh "$ROOT/tests/audit-log.sh"
+run_expect 0 "portable audit retention contract" sh "$ROOT/tests/unit-audit-retention.sh"
 run_expect 0 "host plugin lifecycle delegates safely" sh "$ROOT/tests/plugin-management.sh"
 
 run_expect 0 "standalone update preserves executable and link destinations" \
