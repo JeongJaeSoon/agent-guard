@@ -60,6 +60,13 @@ def main():
     assert verification['stable'] and all(x['status'] == 0 for x in verification['results'])
     assert differential['failed'] == integration['failed'] == supplemental['failed'] == 0
     assert all(row['verified'] for report in [claude, codex, control, kernel, followup] for row in report['cases'])
+    for measured in [claude, codex, control, followup]:
+        assert measured['binary_sha256']['candidate'] == verification['after_sha256']
+        assert measured['binary_sha256']['baseline'] == claude['binary_sha256']['baseline']
+        assert measured['scanner_sha256'] == claude['scanner_sha256']
+        assert measured['config_sha256'] == claude['config_sha256']
+        if measured['native_core_sha256']:
+            assert measured['native_core_sha256'] == kernel['native_sha256']
     assets = args.html.parent / 'assets'
     assets.mkdir(exist_ok=True)
     plt.rcParams.update({'font.family': 'DejaVu Sans', 'font.size': 10, 'axes.spines.top': False,
