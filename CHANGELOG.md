@@ -1,3 +1,7 @@
+## v3.6.13 - 2026-11-03
+
+- fix(scan): bare key 필드의 레코드 UUID를 generic-api-key 오탐에서 제외 (#375)
+
 ## v3.6.12 - 2026-11-02
 
 - fix(hooks): grep/rg 검색 패턴과 새 openssl 출력 경로를 보호 경로 검사에서 제외 (#373)
