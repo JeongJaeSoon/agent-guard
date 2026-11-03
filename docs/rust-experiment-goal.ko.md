@@ -18,7 +18,7 @@
 - [x] 동일 환경의 코어/실제 CLI/동시 부하 지연·CPU·메모리 반복 측정
 - [x] 개선·무효과·회귀를 구분한 Rust 채택/보류 판정
 - [x] 원시 측정값과 그래프를 포함한 한국어 HTML 보고서 생성·검증
-- [ ] PR별 변경·검증 근거를 정리하여 원격 저장소 브랜치 및 PR에 반영
+- [x] PR별 변경·검증 근거를 정리하여 원격 저장소 브랜치 및 PR에 반영
 
 최종 산출물은 코드, 자동 검증, 원시 JSON, 재현 명령, 그래프 HTML, PR 링크다. 앱 Goal 필드 설정 도구는 현재 제공되지 않으므로 이 파일을 저장소의 명시적 목표/완료 기준으로 사용한다.
 
@@ -67,3 +67,14 @@ Docker는 rootless/cgroup driver `none`으로 동작하여 요청한 컨테이�
 
 성능 기준은 통과했다. **선택형 Rust 도입 후보로 유지하되, 최종 CI 확인 전 채택 완료나 기본값 전환으로 표시하지 않는다.**
 [그래프 HTML 보고서](rust-performance.ko.html)와 [원시 결과](../bench/results/rust-experiment/)에 근거를 남겼다.
+
+## 저장소 반영
+
+검토·병합 순서: [#377 셸 최적화](https://github.com/JeongJaeSoon/agent-guard/pull/377)
+→ [#378 awk 보존 호환성](https://github.com/JeongJaeSoon/agent-guard/pull/378)
+→ [#379 jq NUL 과도 마스킹](https://github.com/JeongJaeSoon/agent-guard/pull/379)
+→ [#380 선택형 Rust 코어](https://github.com/JeongJaeSoon/agent-guard/pull/380)
+→ [#381 측정·그래프 보고서](https://github.com/JeongJaeSoon/agent-guard/pull/381).
+
+브랜치와 PR에 반영했으며 main에는 아직 병합하지 않았다. #377–379는 검증 후 리뷰 준비 상태이고,
+#380–381은 최종 macOS CI를 기다리는 초안 상태다. 앱 Goal 필드 설정과 저장소 목표 문서는 구분한다.
