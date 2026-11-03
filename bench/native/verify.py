@@ -16,6 +16,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--out', required=True, type=Path)
     parser.add_argument('--native-core', required=True, type=Path)
+    parser.add_argument('--shards', nargs='+', type=int, choices=range(1, 6), default=list(range(1, 6)))
     args = parser.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
     source = ROOT / 'plugins/agent-guard/bin/agent-guard'
@@ -36,11 +37,11 @@ def main():
                'real_scanner_skipped': any('skipped real-gitleaks' in s for s in lines)}
         print(json.dumps(row), flush=True)
         return row
+    jobs = [(shard, False) for shard in args.shards] + [(4, True)]
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
-        rows = list(executor.map(run, range(1, 6)))
-    rows.append(run(4, native=True))
+        rows = list(executor.map(lambda job: run(*job), jobs))
     after = hashlib.sha256(source.read_bytes()).hexdigest()
-    report = {'before_sha256': before, 'after_sha256': after, 'stable': before == after, 'results': rows}
+    report = {'before_sha256': before, 'after_sha256': after, 'stable': before == after, 'requested_shell_shards': args.shards, 'results': rows}
     (args.out / 'verification.json').write_text(json.dumps(report, indent=2))
     raise SystemExit(int(before != after or any(row['status'] for row in rows)))
 

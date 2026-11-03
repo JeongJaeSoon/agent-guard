@@ -29,15 +29,18 @@ run() {
 }
 CORE=/build/target/release/agent-guard-redact
 OLD=/baseline/plugins/agent-guard/bin/agent-guard
-run sh -c 'rustc --version; jq --version; /scanner/gitleaks version; cat /sys/fs/cgroup/cpu.max; cat /sys/fs/cgroup/memory.max; sha256sum /build/target/release/agent-guard-redact /baseline/plugins/agent-guard/bin/agent-guard /repo/plugins/agent-guard/bin/agent-guard /scanner/gitleaks; dpkg-query -W dash libc6 python3' >"$OUT/environment.txt"
+run sh -c 'rustc --version; jq --version; /scanner/gitleaks version; cat /sys/fs/cgroup/cpu.max; cat /sys/fs/cgroup/memory.max; sha256sum /build/target/release/agent-guard-redact /baseline/plugins/agent-guard/bin/agent-guard /repo/plugins/agent-guard/bin/agent-guard /scanner/gitleaks; dpkg-query -W dash gawk libc6 python3; ldd /build/target/release/agent-guard-redact; date -u' >"$OUT/environment.txt"
 run python3 tests/native-redaction.py --core "$CORE" >"$OUT/differential.json"
 run python3 tests/native-integration.py --core "$CORE" --scanner /scanner/gitleaks >"$OUT/integration.json"
 run python3 bench/native/kernel.py --core "$CORE" --runs 15 >"$OUT/kernel.json"
 run python3 bench/masking-latency.py --baseline "$OLD" --native-core "$CORE" \
-  --scanner /scanner/gitleaks --runs 9 --resources --include-boundaries >"$OUT/cli-claude.json" 2>"$OUT/cli-claude.log"
+  --scanner /scanner/gitleaks --runs 9 --resources --include-boundaries --trace-processes >"$OUT/cli-claude.json" 2>"$OUT/cli-claude.log"
 run python3 bench/masking-latency.py --baseline "$OLD" --native-core "$CORE" \
   --scanner /scanner/gitleaks --runs 9 --resources --host codex \
   --case small-clean --case long-line --case many-replacement-leaves >"$OUT/cli-codex.json" 2>"$OUT/cli-codex.log"
+run python3 bench/masking-latency.py --baseline "$OLD" \
+  --scanner /scanner/gitleaks --runs 9 --resources \
+  --case small-clean --case long-line --case many-replacement-leaves >"$OUT/cli-shell-control.json" 2>"$OUT/cli-shell-control.log"
 for workers in 1 4; do
   for repeat in 1 2 3; do
     order='shell rust'
