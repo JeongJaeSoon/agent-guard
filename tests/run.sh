@@ -11658,6 +11658,10 @@ if [ -n "$REAL_GITLEAKS" ]; then
     "      \"key\": \"$UUIDK_ID\""
   uuidk_case 1 "a UUID under a bare key in compact JSON is still found" \
     "{\"key\":\"$UUIDK_ID\",\"label\":\"agent\"}"
+  uuidk_case 0 "a UUID under a bare key field after another line is clean" \
+    "$(printf '    {\r\n      "key": "%s",\r\n      "label": "agent"\r' "$UUIDK_ID")"
+  uuidk_case 1 "a UUID on the line after a bare key is still found" \
+    "$(printf '{\n"key":\n"%s"\n}' "$UUIDK_ID")"
   uuidk_case 1 "a UUID under a bare YAML key is still found" \
     "key: $UUIDK_ID"
   uuidk_case 1 "a UUID under a slash-joined api key name is still found" \

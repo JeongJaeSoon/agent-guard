@@ -63,13 +63,14 @@ regexes = [
 # match starts at the last `key` of a longer name (`api/key`) and ends at a
 # quote inside the value, so this anchors the whole LINE instead: one JSON pair
 # `"key": "<lowercase canonical uuid>"`, optional trailing comma, nothing else.
+# gitleaks hands over a non-first line with its leading newline, hence `^\n?`.
 # Other key names, YAML, compact one-line JSON, uppercase or longer values, and
 # any second assignment on the line keep their findings.
 [[allowlists]]
 description = "Record UUIDs under a bare key field"
 regexTarget = "line"
 regexes = [
-  '''^\s*"key"\s*:\s*"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",?\s*$'''
+  '''^\n?[ \t]*"key"[ \t]*:[ \t]*"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",?[ \t]*\r?\n?$'''
 ]
 
 # Directory scans skip these exact lockfile names, then agent-guard rescans
