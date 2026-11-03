@@ -6,6 +6,12 @@ on:
     branches:
       - main
 
+# Replace only obsolete runs of the same PR. Non-PR runs have unique groups,
+# so main verification and manual checks cannot cancel each other.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
 
