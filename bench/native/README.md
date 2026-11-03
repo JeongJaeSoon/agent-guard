@@ -78,3 +78,15 @@ to constrained production deployments.
 The CLI workloads use synthetic output, cold readiness caches and PII off.
 They do not establish model latency, remote PII latency, repository scanning
 performance, macOS/ARM performance or production packaging readiness.
+
+## Artifact policy
+
+Keep reviewed raw measurements, source hashes and verification evidence under
+`bench/results/rust-experiment/`. Use ignored `bench/local/` for new exploratory
+runs so they cannot overwrite the recorded comparison by accident. Build logs
+and CLI progress logs are reproducible and ignored; unit and audit evidence
+remain tracked. Charts are embedded in the standalone HTML. The generator also
+exports SVG copies under `docs/assets/`, but those copies are not tracked.
+Cargo build directories, local caches and generated release archives are ignored;
+Cargo lockfiles and the curated measurement JSON remain tracked. `.dockerignore`
+keeps these local artifacts out of the benchmark image build context.
