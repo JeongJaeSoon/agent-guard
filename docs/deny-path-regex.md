@@ -13,7 +13,7 @@ result, or mutable fixture is cached or shared between invocations. Rule order,
 ERE syntax, matching, error handling, scanner deadlines and process cleanup
 are unchanged. CI partitions, OS coverage and runner topology are unchanged.
 
-`tests/unit-deny-path.sh` adds 83 direct producer assertions: the full supported
+The initial `tests/unit-deny-path.sh` suite added 83 direct producer assertions: the full supported
 ASCII hex table, unsupported-input reset/status behavior, literal character
 and pin patterns, Unicode/newline/empty cases, no stdout/stderr and caller
 variable preservation. See the [direct contract inventory](testing.md#direct-contract-inventory)

@@ -156,6 +156,7 @@ run_expect 0 "core function contracts" sh "$ROOT/tests/unit-core.sh"
 run_expect 0 "framing producer contracts" sh "$ROOT/tests/unit-framing.sh"
 run_expect 0 "deny-path character producer contracts" sh "$ROOT/tests/unit-deny-path.sh"
 run_expect 0 "probe eligibility contracts" sh "$ROOT/tests/unit-probe.sh"
+run_expect 0 "watchdog timer cleanup contracts" sh "$ROOT/tests/unit-watchdog.sh"
 run_expect 0 "status-label classification contracts" sh "$ROOT/tests/unit-status-label.sh"
 suite_shards=$(sed -n 's/^if in_shard \([0-9]*\); then$/\1/p' "$ROOT/tests/run.sh" | sort -u | tr '\n' ' ')
 ci_shards=$(sed -n "s/^ *shards: '\([0-9 ][0-9 ]*\)'$/\1/p" "$ROOT/.github/workflows/ci.yml" | tr ' ' '\n' | sort | tr '\n' ' ')
@@ -5783,6 +5784,7 @@ fi
 fi # end of shard 5
 
 if in_shard 4; then
+run_expect 0 "scanner report validation stays fail-closed" sh "$ROOT/tests/scanner-report.sh"
 SYMLINK_REPO="$TMP_ROOT/symlink-repo"
 mkdir -p "$SYMLINK_REPO"
 (

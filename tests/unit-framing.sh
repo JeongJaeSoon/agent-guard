@@ -47,6 +47,24 @@ plain_case 'plaintext RS and US escape order' '\036\037\037\036' '\037\036\037\0
 plain_case 'plaintext invalid UTF-8 and Unicode bytes' '\377日本語🙂' '\377日本語🙂\036'
 plain_case 'plaintext CR remains while final LF terminates' 'alpha\r\n' 'alpha\r\036'
 
+# Independent byte oracle: include every non-NUL byte, physical LF, invalid
+# UTF-8 and adjacent framing controls. No production encoder/decoder is reused.
+LC_ALL=C awk 'BEGIN { for (i = 1; i <= 255; i++) printf "%c", i }' >"$CASE/input"
+LC_ALL=C awk 'BEGIN {
+  for (i = 1; i <= 255; i++) {
+    if (i == 30 || i == 31) printf "%c", 31
+    printf "%c", i
+  }
+  printf "%c", 30
+}' >"$CASE/expected"
+check 'plaintext all non-NUL bytes' frame_plaintext_leaf
+LC_ALL=C awk 'BEGIN { for (i = 1; i <= 12000; i++) printf "q\036\037日本語\377" }' >"$CASE/input"
+LC_ALL=C awk 'BEGIN {
+  for (i = 1; i <= 12000; i++) printf "q\037\036\037\037日本語\377"
+  printf "\036"
+}' >"$CASE/expected"
+check 'plaintext dense controls and byte spans' frame_plaintext_leaf
+
 # Real framing must propagate a failed producer even after partial output.
 mkdir "$CASE/bin"
 for tool in jq awk; do

@@ -21,7 +21,7 @@ cat >"$CASE/bin/awk" <<'SHIM'
 hit=
 for arg do
   case "${INJECT_STAGE%%-*}:$arg" in
-    producer:*'NR > 1 { emit_char("\n") }'*) hit=$INJECT_STAGE ;;
+    producer:*'END { printf "%s", boundary }'*) hit=$INJECT_STAGE ;;
     detector:record_mode=probe) hit=$INJECT_STAGE ;;
   esac
 done

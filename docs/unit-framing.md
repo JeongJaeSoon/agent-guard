@@ -18,6 +18,7 @@ producer contracts and detector/decoder parity establish different behavior.
 | --- | ---: |
 | JSON: no strings, empty/scalar/nested strings, non-string/key exclusion, newline, RS/US, Unicode, quote/backslash/tab/CR | 8 |
 | Plaintext: empty input, absent/single/extra final LF, interior LF, RS/US, invalid UTF-8 plus Unicode, CRLF | 8 |
+| Plaintext: every non-NUL byte and a dense control/Unicode/invalid-byte stream | 2 |
 | jq/awk failure after partial output retains exit 23 and output | 2 |
 
 Expected output bytes are explicit fixtures, independent of the producer and
@@ -38,7 +39,7 @@ exhaustive mutation score. The test-only `AGENT_GUARD_UNIT_SOURCE` override can
 repeat controls against a trusted temporary source copy.
 
 The suite runs once in partition 1 on both existing CI operating systems. The
-18 inner assertions contribute one new outer assertion. The old decoder suite,
+20 inner assertions contribute one outer assertion. The old decoder suite,
 all security/OS integration assertions and real-scanner gates remain. No runtime,
 public API, workflow permission or required-check change is made. Adding tests
 is not evidence of a full-CI speedup.

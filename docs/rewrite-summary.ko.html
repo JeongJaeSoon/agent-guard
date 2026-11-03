@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="description" content="agent-guard의 Rust·Go 재작성 검토를 핵심 판단, 제안 구조, 전환 순서로 정리한 요약입니다.">
+  <title>agent-guard · 재작성 검토 요약</title>
+  <style>
+    :root { --ink:#172b29; --muted:#5b6b66; --green:#17654e; --line:#dce4df; --paper:#f5f6f0; --soft:#eaf1e9; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--paper); color:var(--ink); font-family:system-ui,-apple-system,"Segoe UI","Apple SD Gothic Neo","Malgun Gothic",sans-serif; line-height:1.65; word-break:keep-all; overflow-wrap:anywhere; }
+    a { color:var(--green); text-underline-offset:4px; }
+    a:focus-visible, summary:focus-visible { outline:3px solid var(--green); outline-offset:5px; border-radius:3px; }
+    .page { max-width:1080px; margin:auto; padding:36px 40px 28px; }
+    .masthead { display:flex; align-items:center; justify-content:space-between; gap:20px; padding-bottom:22px; border-bottom:1px solid var(--line); font-size:13px; }
+    .brand { display:flex; align-items:center; gap:10px; font-weight:750; letter-spacing:.02em; }
+    .mark { width:28px; height:28px; display:grid; place-items:center; background:var(--green); color:white; border-radius:8px; font-size:11px; letter-spacing:-.04em; }
+    .date { color:var(--muted); }
+    .hero { padding:42px 0 34px; display:grid; grid-template-columns:1.45fr 1fr; gap:44px; align-items:end; }
+    .eyebrow { margin:0 0 14px; font-size:12px; font-weight:750; color:var(--green); letter-spacing:.09em; }
+    h1 { margin:0; font-size:clamp(32px,4.5vw,49px); line-height:1.3; letter-spacing:-.055em; font-weight:780; }
+    h1 span { color:var(--green); }
+    .hero-note { margin:0 0 4px; color:var(--muted); font-size:16px; }
+    .hero-note strong { color:var(--ink); font-weight:650; }
+    .section-label { margin:0 0 16px; font-size:12px; color:var(--muted); letter-spacing:.055em; font-weight:700; }
+    .reasons { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-bottom:34px; }
+    .reason { padding:20px 22px; border:1px solid var(--line); background:#fff; border-radius:14px; }
+    .reason .number { color:var(--green); font-size:12px; font-weight:750; }
+    h2 { margin:0; font-size:21px; letter-spacing:-.035em; line-height:1.4; }
+    .reason h2 { margin:9px 0 7px; font-size:17px; }
+    .reason p { margin:0; font-size:14px; color:var(--muted); }
+    .architecture { padding:25px 28px; background:var(--soft); border-radius:16px; }
+    .architecture h2 { font-size:18px; }
+    .flow { display:grid; grid-template-columns:1fr 30px 1.1fr 30px 1fr; align-items:stretch; gap:10px; margin-top:19px; }
+    .node { border:1px solid #cbd9ce; background:#ffffffa6; border-radius:11px; padding:17px 18px; }
+    .node.core { color:white; background:var(--green); border-color:var(--green); }
+    .node .tag { display:block; font-size:11px; font-weight:650; color:var(--muted); margin-bottom:6px; }
+    .node.core .tag, .node.core p { color:#e0f0e8; }
+    .node h3 { margin:0 0 5px; font-size:17px; }
+    .node p { margin:0; font-size:12px; color:var(--muted); }
+    .arrow { display:grid; place-items:center; color:var(--green); font-size:22px; }
+    .architecture .caption { margin:15px 0 0; color:var(--muted); font-size:12px; }
+    .lower { display:grid; grid-template-columns:1fr 1fr; gap:36px; margin:34px 0; }
+    .lower h2 { font-size:19px; margin-bottom:15px; }
+    table { width:100%; border-collapse:collapse; font-size:13px; }
+    caption { text-align:left; color:var(--muted); font-size:12px; padding-bottom:10px; }
+    th, td { text-align:left; padding:11px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+    thead th { padding-top:0; color:var(--muted); font-size:11px; font-weight:600; }
+    tbody th { padding-left:0; white-space:nowrap; width:90px; }
+    .pick { color:var(--green); }
+    .steps { list-style:none; padding:0; margin:0; }
+    .steps li { display:grid; grid-template-columns:27px 1fr; gap:12px; margin-bottom:15px; }
+    .step-index { display:grid; place-items:center; width:25px; height:25px; border:1px solid #bed0c3; border-radius:50%; color:var(--green); font-size:11px; font-weight:700; margin-top:2px; }
+    .steps strong { display:block; font-size:14px; }
+    .steps p { margin:2px 0 0; color:var(--muted); font-size:12px; }
+    .rule { display:flex; gap:22px; justify-content:space-between; align-items:center; padding:23px 27px; border:1px solid #bed0c3; border-left:4px solid var(--green); background:#fff; border-radius:0 12px 12px 0; }
+    .rule h2 { font-size:18px; margin-bottom:4px; }
+    .rule p { margin:0; color:var(--muted); font-size:13px; }
+    .zero { color:var(--green); font-size:35px; font-weight:750; white-space:nowrap; letter-spacing:-.05em; }
+    .zero span { font-size:12px; font-weight:500; letter-spacing:0; }
+    details { margin-top:20px; color:var(--muted); font-size:12px; }
+    summary { cursor:pointer; width:fit-content; font-weight:600; padding:3px 0; }
+    details p { max-width:780px; margin:10px 0; }
+    code { font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-size:.95em; }
+    footer { display:flex; justify-content:space-between; gap:20px; margin-top:28px; border-top:1px solid var(--line); padding-top:15px; color:var(--muted); font-size:11px; }
+    footer p { margin:0; }
+    footer nav { display:flex; gap:15px; flex-shrink:0; }
+    @media (max-width:740px) {
+      .page { padding:23px 21px; }
+      .hero { grid-template-columns:1fr; gap:18px; padding:30px 0 25px; }
+      .hero-note { font-size:15px; max-width:420px; }
+      .reasons { grid-template-columns:1fr; gap:9px; margin-bottom:25px; }
+      .reason { padding:15px 18px; }
+      .reason h2 { margin-top:5px; }
+      .architecture { padding:21px; }
+      .flow { grid-template-columns:1fr; gap:7px; }
+      .arrow { transform:rotate(90deg); height:20px; }
+      .lower { grid-template-columns:1fr; gap:27px; margin:27px 0; }
+      .rule { padding:18px; gap:15px; }
+      .rule h2 { font-size:16px; }
+      .zero { font-size:29px; }
+      footer { flex-direction:column; gap:12px; }
+    }
+    @media print {
+      @page { size:A4; margin:12mm; }
+      body { background:white; font-size:10pt; print-color-adjust:exact; -webkit-print-color-adjust:exact; }
+      .page { padding:0; max-width:none; }
+      .hero { padding:24px 0; gap:24px; }
+      h1 { font-size:30px; }
+      .hero-note { font-size:12px; }
+      .reasons { margin-bottom:22px; }
+      .reason, .architecture, .rule, .lower { break-inside:avoid; }
+      .reason { padding:13px; }
+      .reason p { font-size:11px; }
+      .lower { gap:25px; margin:22px 0; }
+      details { display:none; }
+      footer { margin-top:20px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header class="masthead">
+      <div class="brand"><span class="mark" aria-hidden="true">AG</span> agent-guard <span class="date">/ 재작성 검토</span></div>
+      <time class="date" datetime="2026-11-04">2026. 11. 04</time>
+    </header>
+
+    <section class="hero" aria-labelledby="recommendation">
+      <div>
+        <p class="eyebrow">RECOMMENDATION · 권장 방향</p>
+        <h1 id="recommendation">출력 처리부터,<br><span>Rust로 단계적으로.</span></h1>
+      </div>
+      <p class="hero-note">기존 탐지 정책을 유지하면서<br><strong>출력 탐지·치환 코어 하나를 먼저 옮기고,</strong><br>결과와 성능을 검증한 뒤 범위를 넓힙니다.</p>
+    </section>
+
+    <section aria-label="이 방향을 권장하는 이유" class="reasons">
+      <article class="reason">
+        <span class="number">01 / 현재 한계</span>
+        <h2>반복 처리 비용이 큽니다</h2>
+        <p>외부 명령 실행, JSON 재파싱, 중간 파일과 메모리 복제가 반복됩니다.</p>
+      </article>
+      <article class="reason">
+        <span class="number">02 / Rust를 검토하는 이유</span>
+        <h2>자원 관리를 명확하게</h2>
+        <p>바이트·JSON·치환 계획을 한 코어에서 다루고 메모리와 자식 프로세스를 관리하기 좋습니다.</p>
+      </article>
+      <article class="reason">
+        <span class="number">03 / 전환 원칙</span>
+        <h2>마스킹 강도는 그대로</h2>
+        <p>처리 부분을 나눠 옮기면 마스킹 결과와 실패 처리를 기존 구현과 직접 비교할 수 있습니다.</p>
+      </article>
+    </section>
+
+    <section class="architecture" aria-labelledby="architecture-title">
+      <h2 id="architecture-title">제안하는 첫 전환 구조</h2>
+      <div class="flow" role="group" aria-label="기존 셸 진입점에서 새 Rust 출력 코어를 호출하고, 기존 gitleaks를 탐지기로 사용합니다.">
+        <div class="node">
+          <span class="tag">유지</span>
+          <h3>셸 진입점</h3>
+          <p>설치·호스트 연결<br>기존 Bash·Git 정책</p>
+        </div>
+        <span class="arrow" aria-hidden="true">→</span>
+        <div class="node core">
+          <span class="tag">신규 실험 · 먼저 이관</span>
+          <h3>Rust 출력 코어</h3>
+          <p>출력 탐지 결과 수집<br>문자열 처리·마스킹 치환</p>
+        </div>
+        <span class="arrow" aria-hidden="true">→</span>
+        <div class="node">
+          <span class="tag">유지</span>
+          <h3>gitleaks 탐지기</h3>
+          <p>현재 버전·설정 유지<br>기존 탐지 규칙 사용</p>
+        </div>
+      </div>
+      <p class="caption">단발 실행 코어로 시작합니다. 현재 배포본에 Rust 코어가 구현된 상태는 아닙니다.</p>
+    </section>
+
+    <div class="lower">
+      <section aria-labelledby="language-title">
+        <h2 id="language-title">언어 선택은 이렇게</h2>
+        <table>
+          <caption>구현·배포·유지보수 관점의 판단</caption>
+          <thead><tr><th scope="col">선택</th><th scope="col">권장 용도</th></tr></thead>
+          <tbody>
+            <tr><th scope="row" class="pick">Rust · 우선</th><td>자원·바이트 처리를 제어하는 출력 코어 실험</td></tr>
+            <tr><th scope="row">Go · 대안</th><td>팀이 Go 개발·운영에 더 익숙할 때</td></tr>
+            <tr><th scope="row">기존 셸</th><td>당장 가능한 최적화와 기존 설치·정책 유지</td></tr>
+          </tbody>
+        </table>
+      </section>
+      <section aria-labelledby="steps-title">
+        <h2 id="steps-title">전환은 세 단계로</h2>
+        <ol class="steps">
+          <li><span class="step-index" aria-hidden="true">1</span><div><strong>현재 결과를 기준으로 고정</strong><p>정상 입력·secret·오류·큰 출력의 기대 결과를 준비합니다.</p></div></li>
+          <li><span class="step-index" aria-hidden="true">2</span><div><strong>출력 코어만 선택적으로 적용</strong><p>기존 구현을 기본으로 두고 같은 입력을 비교합니다.</p></div></li>
+          <li><span class="step-index" aria-hidden="true">3</span><div><strong>검증 후 적용 범위 확대</strong><p>동작 일치, 실제 성능, 배포·롤백을 확인한 뒤 전환합니다.</p></div></li>
+        </ol>
+      </section>
+    </div>
+
+    <section class="rule" aria-labelledby="rule-title">
+      <div><h2 id="rule-title">통과 기준: 같은 입력에는 같은 보호 결과</h2><p>추가 마스킹·secret 노출·실패 처리의 허용되지 않은 차이가 없어야 합니다.</p></div>
+      <div class="zero">0<span>개 차이</span></div>
+    </section>
+
+    <details>
+      <summary>함께 기억할 구조 제약 두 가지</summary>
+      <p>설치·업데이트 로직이 셸 파일의 <code>VERSION=</code> 문자열을 읽으므로, 기존 진입점은 유지해야 합니다.</p>
+      <p><code>exec</code>는 전체 출력을 메모리에 받은 뒤 scan cap을 적용합니다. 언어를 바꾸는 작업과 함께, 출력 수집의 메모리 예산도 별도로 설계해야 합니다.</p>
+    </details>
+
+    <footer>
+      <p>검토 결론 요약 · Rust/Go의 속도·메모리 차이는 아직 실측하지 않았습니다.</p>
+      <nav aria-label="검토 근거"><a href="rewrite-assessment.ko.md">상세 검토 원문 ↗</a><a href="runtime-review.ko.md">현재 구현 실측 ↗</a></nav>
+    </footer>
+  </main>
+</body>
+</html>

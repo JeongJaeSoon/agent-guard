@@ -1,0 +1,196 @@
+{
+  "source_sha256": "48f13ee8a2f44ebdfa9e18502bb0fc2a9d62bd7705209689a860e9a6fd821e7f",
+  "bash": "GNU bash, version 5.2.37(1)-release (x86_64-pc-linux-gnu)",
+  "denominator": 40,
+  "observed": 39,
+  "definition_only_observed": 0,
+  "suites": [
+    {
+      "suite": "unit-core.sh",
+      "counts": [
+        "passed: 35",
+        "failed: 0"
+      ],
+      "sha256": "114714dd98f45ab89051a59e961379c3e5df49d9672bbcb9154f297213ad4de5"
+    },
+    {
+      "suite": "unit-framing.sh",
+      "counts": [
+        "passed: 20",
+        "failed: 0"
+      ],
+      "sha256": "ba4a162ae5fadd2a1261b71f3df11089900145948f81442d9ccd841427d725da"
+    },
+    {
+      "suite": "unit-deny-path.sh",
+      "counts": [
+        "passed: 97",
+        "failed: 0"
+      ],
+      "sha256": "9aad001359d45e9be0103a8597573403ae57837bc3444753fc20d73e10ea1053"
+    },
+    {
+      "suite": "unit-probe.sh",
+      "counts": [
+        "passed: 4",
+        "failed: 0"
+      ],
+      "sha256": "f7300f07b4c8838a7ac28af83e287a2f3e8d1c6346e9bb5038ba34b53de5d02d"
+    }
+  ],
+  "functions": [
+    {
+      "function": "sh_squote",
+      "eligible_source_lines": [
+        146,
+        147,
+        148
+      ],
+      "observed_source_lines": [
+        146,
+        147,
+        148
+      ],
+      "missing_source_lines": [],
+      "definition_only_source_lines": []
+    },
+    {
+      "function": "version_newer",
+      "eligible_source_lines": [
+        246
+      ],
+      "observed_source_lines": [
+        246
+      ],
+      "missing_source_lines": [],
+      "definition_only_source_lines": []
+    },
+    {
+      "function": "frame_json_string_leaves",
+      "eligible_source_lines": [
+        8121
+      ],
+      "observed_source_lines": [
+        8121
+      ],
+      "missing_source_lines": [],
+      "definition_only_source_lines": []
+    },
+    {
+      "function": "frame_plaintext_leaf",
+      "eligible_source_lines": [
+        8133
+      ],
+      "observed_source_lines": [
+        8133
+      ],
+      "missing_source_lines": [],
+      "definition_only_source_lines": []
+    },
+    {
+      "function": "secretish_env_values",
+      "eligible_source_lines": [
+        8161,
+        8162
+      ],
+      "observed_source_lines": [
+        8161,
+        8162
+      ],
+      "missing_source_lines": [],
+      "definition_only_source_lines": []
+    },
+    {
+      "function": "deny_path_char_hex_pattern",
+      "eligible_source_lines": [
+        4362,
+        4363,
+        4364,
+        4365,
+        4366,
+        4367,
+        4368,
+        4369,
+        4370,
+        4371,
+        4372,
+        4373,
+        4374,
+        4375,
+        4376,
+        4377
+      ],
+      "observed_source_lines": [
+        4362,
+        4363,
+        4364,
+        4365,
+        4366,
+        4367,
+        4368,
+        4369,
+        4370,
+        4371,
+        4372,
+        4373,
+        4374,
+        4375,
+        4376,
+        4377
+      ],
+      "missing_source_lines": [],
+      "definition_only_source_lines": []
+    },
+    {
+      "function": "deny_path_shell_expansion_char_pattern",
+      "eligible_source_lines": [
+        4385,
+        4386,
+        4388,
+        4390,
+        4392,
+        4393,
+        4394,
+        4396,
+        4397,
+        4399,
+        4403,
+        4404,
+        4406
+      ],
+      "observed_source_lines": [
+        4385,
+        4386,
+        4388,
+        4390,
+        4392,
+        4393,
+        4394,
+        4396,
+        4397,
+        4403,
+        4404,
+        4406
+      ],
+      "missing_source_lines": [
+        4399
+      ],
+      "definition_only_source_lines": []
+    },
+    {
+      "function": "deny_path_pin_char_pattern",
+      "eligible_source_lines": [
+        4321,
+        4322,
+        4324
+      ],
+      "observed_source_lines": [
+        4321,
+        4322,
+        4324
+      ],
+      "missing_source_lines": [],
+      "definition_only_source_lines": []
+    }
+  ]
+}

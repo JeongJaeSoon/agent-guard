@@ -12,6 +12,7 @@ units, not security tiers or test-pyramid layers.
 | Static and packaging | ShellCheck, actionlint, plugin/layout and submission validators | Shell/workflow errors and packaging contracts |
 | Direct function contracts | `make test-unit`; see the [complete inventory](#direct-contract-inventory) below | Extracted production bodies without CLI startup |
 | Focused failure regressions | `prompt-assignment-failure.sh`, `exec-raw-probe-failure.sh`, `exec-framing-boundary.sh` | Prompt direct/host-policy regressions 34; raw exec regressions 7; bounded exec framing regressions 24. These are separate from the direct function contract total |
+| Scanner report validation | `tests/scanner-report.sh` | Eight CLI checks: empty/whitespace/malformed/non-array reports and scanner failure stay fail-closed; clean arrays and precise findings retain their output |
 | Narrow component comparisons | `tests/framed-leaves.sh` | Framing fast path versus byte-decoder reference, escaping, byte boundaries and explicit detector expectations |
 | CLI contracts | `tests/deny-read-mask*.sh`, `source-module-prose.sh`, `hook-outcome-contract.sh`, `gitleaks-resolution.sh`, `audit-log.sh` | Exit status, host payloads, diagnostics, masking and infrastructure policy through the CLI |
 | OS/tool integration | Git fixtures in `tests/run.sh`, permission/ACL/symlink/signal cases, `pii-utf8.sh`, Linux real-gitleaks block | Actual filesystem, Git and process behavior; Apple awk and scanner differences |
@@ -28,12 +29,13 @@ Individual documents describe each suite's contracts and evidence and link here.
 | Entry point (also runnable with `sh`) | Inner assertions | `tests/run.sh` partition | Contract details |
 | --- | ---: | ---: | --- |
 | `tests/unit-core.sh` | 35 | 1 | [Version comparison and shell quoting](unit-tests.md) |
-| `tests/unit-framing.sh` | 18 | 1 | [Framing producers](unit-framing.md) |
-| `tests/unit-deny-path.sh` | 83 | 1 | [Deny-path character producers](deny-path-regex.md) |
+| `tests/unit-framing.sh` | 20 | 1 | [Framing producers](unit-framing.md) |
+| `tests/unit-deny-path.sh` | 97 | 1 | [Deny-path character producers](deny-path-regex.md) |
 | `tests/unit-probe.sh` | 4 | 1 | Probe eligibility |
+| `tests/unit-watchdog.sh` | 2 | 1 | Timer cancellation waits for the child on scanner success and failure |
 | `tests/unit-status-label.sh` | 22 | 1 | [Status-label classification](status-label-tests.md) |
 | `tests/redaction-plan.sh` | 8 | 4 | [Replacement ordering, context and output budgets](masking-performance.md) |
-| **Total: 6 suites** | **170** | | |
+| **Total: 7 suites** | **188** | | |
 
 `make test` runs each suite once in its assigned partition and retains the full
 integration suite. Each suite contributes one outer assertion, regardless of
