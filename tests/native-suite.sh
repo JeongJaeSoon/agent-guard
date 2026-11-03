@@ -22,5 +22,9 @@ export AGENT_GUARD_EXPERIMENTAL_REDACTOR=rust
 AGENT_GUARD_RUST_CORE_BIN="$CASE/core"
 NATIVE_SUITE_MARKER="$CASE/used"
 export AGENT_GUARD_RUST_CORE_BIN NATIVE_SUITE_MARKER
-sh "$ROOT/tests/run.sh"
+case "${1:-suite}" in
+  suite) sh "$ROOT/tests/run.sh" ;;
+  audit) sh "$ROOT/tests/audit-log.sh" ;;
+  *) echo "usage: sh tests/native-suite.sh [suite|audit]" >&2; exit 2 ;;
+esac
 test -s "$NATIVE_SUITE_MARKER"

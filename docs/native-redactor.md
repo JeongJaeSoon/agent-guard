@@ -43,6 +43,7 @@ python3 tests/native-redaction.py --core "$AGENT_GUARD_RUST_CORE_BIN"
 sh tests/redaction-plan.sh
 python3 tests/native-integration.py --core "$AGENT_GUARD_RUST_CORE_BIN" --scanner /absolute/path/to/gitleaks
 AGENT_GUARD_TEST_SHARD=4 sh tests/native-suite.sh
+sh tests/native-suite.sh audit
 ```
 
 The suite wrapper forwards the existing precise-stage fault injection to the

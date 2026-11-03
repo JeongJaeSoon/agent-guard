@@ -41,3 +41,4 @@ jobs:
         run: |
           export AGENT_GUARD_RUST_CORE_BIN="$PWD/native/redaction-core/target/release/agent-guard-redact"
           sh tests/native-suite.sh
+          sh tests/native-suite.sh audit
