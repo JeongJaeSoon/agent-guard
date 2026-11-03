@@ -42,8 +42,11 @@ validation. The serialized release workflow remains separate and is never
 cancelled by a PR update. Existing required check names and the fail-closed
 aggregate remain unchanged; all OS/host partitions still run.
 
-Legacy jq/awk contracts also run after relevant changes merge to main. Their
-check has a distinct name instead of the generic `contracts` label.
+Legacy jq/awk and experimental Rust contracts also run after relevant changes
+merge to main. Their checks have distinct names instead of the generic
+`contracts` label. Rust contracts compile with the pinned toolchain and exercise
+differential, real-scanner, fallback and output/audit regressions on Linux;
+the regular macOS suite does not imply native-helper validation on macOS.
 
 A queued job without an assigned runner has not started its test budget.
 Increasing a test timeout cannot fix runner allocation delays. Concurrency

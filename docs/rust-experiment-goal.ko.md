@@ -4,7 +4,7 @@
 
 ## 목표
 
-**마스킹 강도를 유지하면서 agent-guard의 병목을 검증·개선하고, Rust 전환의 실익을 근거로 판정하여 검토 가능한 PR 단위로 저장소에 반영한다.**
+**마스킹 강도를 유지하면서 agent-guard의 병목을 검증·개선하고, Rust 전환의 실익을 근거로 판정하여 PR 단위로 main에 반영한다. CI를 정비하고 검증한 버전을 릴리스한 뒤, 최신 main 기준으로 문서를 정리한다.**
 
 기존 셸 최적화 결과와 최적화 이후 Rust 추가 이득을 구분한다. Rust 첫 범위는 `redact_tool_response_json` 문자열 치환이다. 탐지기·정책·호스트 어댑터는 유지한다. 전체 재작성의 이득으로 확대 해석하지 않는다.
 
@@ -19,6 +19,10 @@
 - [x] 개선·무효과·회귀를 구분한 Rust 채택/보류 판정
 - [x] 원시 측정값과 그래프를 포함한 한국어 HTML 보고서 생성·검증
 - [x] PR별 변경·검증 근거를 정리하여 원격 저장소 브랜치 및 PR에 반영
+- [ ] 채택 PR 전체의 필수 CI 통과 및 main 병합: #377–379 완료, #380–381 대기
+- [ ] CI 실행 관리·main 계약 검사 보완: #383 검증 중
+- [ ] 릴리스 후보 검증, 릴리스 PR 병합 및 GitHub Release 발행: #384 준비 완료, 검증·발행 대기
+- [ ] 발행 후 최신 main 기준 문서 재구성: #382 준비 완료, 후속 병합 대기
 
 최종 산출물은 코드, 자동 검증, 원시 JSON, 재현 명령, 그래프 HTML, PR 링크다. 앱 Goal 필드 설정 도구는 현재 제공되지 않으므로 이 파일을 저장소의 명시적 목표/완료 기준으로 사용한다.
 
@@ -76,5 +80,13 @@ Docker는 rootless/cgroup driver `none`으로 동작하여 요청한 컨테이�
 → [#380 선택형 Rust 코어](https://github.com/JeongJaeSoon/agent-guard/pull/380)
 → [#381 측정·그래프 보고서](https://github.com/JeongJaeSoon/agent-guard/pull/381).
 
-브랜치와 PR에 반영했으며 main에는 아직 병합하지 않았다. #377–379는 검증 후 리뷰 준비 상태이고,
-#380–381은 최종 macOS CI를 기다리는 초안 상태다. 앱 Goal 필드 설정과 저장소 목표 문서는 구분한다.
+#377–379는 필수 검사를 통과한 뒤 main에 병합했다. #380–381은 최종 macOS CI를
+기다리는 초안 상태다. [#383 CI 정비](https://github.com/JeongJaeSoon/agent-guard/pull/383),
+[#384 v3.6.14 릴리스](https://github.com/JeongJaeSoon/agent-guard/pull/384),
+[#382 문서 정리](https://github.com/JeongJaeSoon/agent-guard/pull/382)를 별도 PR로 관리한다.
+문서 정리는 릴리스 발행 이후 최신 main을 반영하여 병합한다.
+
+현재 작업 환경은 GitHub REST API 호출에 Forbidden을 반환하며 연결 도구에는 릴리스 발행과
+workflow dispatch 기능이 없다. 릴리스 후보·노트·배포 파일 준비와 실제 게시를 구분한다.
+필수 CI나 발행 접근이 해결되지 않은 상태를 완료로 표시하지 않는다.
+앱 Goal 필드 설정과 저장소 목표 문서는 구분한다.
