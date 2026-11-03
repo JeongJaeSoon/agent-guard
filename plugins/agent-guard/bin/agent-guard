@@ -1453,7 +1453,15 @@ probe_gitleaks() {
   AG_GITLEAKS_PROBE_GROUP=$AG_GITLEAKS_PROBE_PID
   (
     ag_gl_watch_sleep_pid=
-    trap '[ -z "$ag_gl_watch_sleep_pid" ] || kill -TERM "$ag_gl_watch_sleep_pid" 2>/dev/null; exit 0' TERM INT
+    # Reap the timer before exiting. Killing it alone orphans a zombie when
+    # the host's PID 1 does not reap adopted children (common in containers).
+    trap 'trap "" TERM INT
+      if [ -n "$ag_gl_watch_sleep_pid" ]; then
+        kill -TERM "$ag_gl_watch_sleep_pid" 2>/dev/null || :
+        kill -KILL "$ag_gl_watch_sleep_pid" 2>/dev/null || :
+        wait "$ag_gl_watch_sleep_pid" 2>/dev/null || :
+      fi
+      exit 0' TERM INT
     sleep "$GITLEAKS_PROBE_TIMEOUT_SECONDS" &
     ag_gl_watch_sleep_pid=$!
     wait "$ag_gl_watch_sleep_pid" 2>/dev/null || exit 0
@@ -8123,18 +8131,18 @@ frame_json_string_leaves() {
 # leaves while preserving invalid bytes inside a credential value.
 frame_plaintext_leaf() {
   LC_ALL=C awk '
-    function emit_char(ch) {
-      if (ch == escape) printf "%s%s", escape, escape
-      else if (ch == boundary) printf "%s%s", escape, boundary
-      else printf "%s", ch
-    }
     BEGIN {
       boundary = sprintf("%c", 30)
       escape = sprintf("%c", 31)
     }
-    NR > 1 { emit_char("\n") }
+    NR > 1 { printf "\n" }
     {
-      for (i = 1; i <= length($0); i++) emit_char(substr($0, i, 1))
+      # Both patterns/replacements contain only literal control bytes. Escape
+      # US first so the US introduced for RS is not escaped again. Whole-record
+      # substitution avoids one interpreted function call/printf per byte.
+      gsub(escape, escape escape)
+      gsub(boundary, escape boundary)
+      printf "%s", $0
     }
     END { printf "%s", boundary }
   '
@@ -9073,9 +9081,11 @@ detect_output_secret_records() (
       detector_status=$?
       case "$detector_status" in 0|1) ;; *) detector_fail ;; esac
       [ -s "$detector_report" ] || detector_fail
-      jq -e 'type == "array"' "$detector_report" >/dev/null 2>&1 \
-        || detector_fail
-      jq -c '.[]? | (.Secret // empty)
+      # Validate and extract in one parser invocation. Stage output privately:
+      # a parser error after partial records must still fail the detector.
+      jq -sc 'if length == 0 or any(.[]; type != "array")
+              then error("invalid scanner report") else .[] end
+             | .[]? | (.Secret // empty)
              | select(type == "string" and length > 0)' \
         "$detector_report" >"$detector_work_a" 2>/dev/null || detector_fail
       cat "$detector_work_a" >>"$detector_records" || detector_fail
@@ -9529,7 +9539,7 @@ redact_tool_response_json() {
           else .
           end)
       | reduce $plan.ordinary[] as $x (.;
-        if ($x.literal | length) > 0
+        if ($x.literal | length) > 0 and contains($x.literal)
         then ((. / $x.literal) | join($x.replacement))
         else .
         end);

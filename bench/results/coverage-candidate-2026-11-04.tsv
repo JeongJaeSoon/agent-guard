@@ -1,0 +1,16 @@
+channel	variant	kind	outcome	verdict
+read-tool	plaintext	secret	blocked	protected
+read-tool	alt-path	secret	blocked	protected
+read-tool	benign	benign	passthrough	ok
+bash-read	plaintext	secret	blocked	protected
+bash-read	alt-command	secret	blocked	protected
+bash-read	redirect	secret	blocked	protected
+bash-cmd	plaintext	secret	blocked	protected
+bash-output	plaintext	secret	masked	protected
+bash-output	benign	benign	passthrough	ok
+read-output	plaintext	secret	masked	protected
+read-output	benign-config	benign	passthrough	ok
+read-output	benign-placeholder	benign	passthrough	ok
+mcp-output	plaintext	secret	masked	protected
+bang	plaintext	secret	leaked	UNCOVERED
+bang-wrapped	exec	secret	masked	protected

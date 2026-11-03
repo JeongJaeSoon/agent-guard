@@ -1,0 +1,264 @@
+{
+  "platform": "Linux-6.18.57-x86_64-with-glibc2.41",
+  "runs": 3,
+  "scanner_version": "8.30.1",
+  "binary_sha256": {
+    "baseline": "4a3de9a5e880f82ec49772617bc942b7ec3dd33b8c72568df6c921c3bc3dc08b",
+    "candidate": "48f13ee8a2f44ebdfa9e18502bb0fc2a9d62bd7705209689a860e9a6fd821e7f"
+  },
+  "scanner_sha256": "88f91962aa2f93ac6ab281d553b9e125f5197bbbce38f9f2437f7299c32e5509",
+  "config_sha256": "600185554fe3f53b2ab7d1459a70212e2242a8ab70bfe053ecefcc3015b1ed98",
+  "jq_version": "jq-1.7",
+  "python_version": "3.12.14",
+  "logical_cpu_count": 5,
+  "readiness_cache": "disabled with audit logging",
+  "cases": [
+    {
+      "name": "exec-over-cap-1048576",
+      "route": "exec",
+      "input_bytes": 1048576,
+      "verified": true,
+      "seconds": {
+        "baseline": {
+          "median": 0.3140123279999898,
+          "max": 0.31596244399997886,
+          "samples": [
+            0.31084251799984486,
+            0.3140123279999898,
+            0.31596244399997886
+          ]
+        },
+        "candidate": {
+          "median": 0.31045252000012624,
+          "max": 0.3106385759999739,
+          "samples": [
+            0.3106385759999739,
+            0.3044698280000375,
+            0.31045252000012624
+          ]
+        }
+      },
+      "speedup": 1.0114665134619043,
+      "resource_usage": {
+        "baseline": {
+          "user_cpu_seconds": {
+            "median": 0.296496,
+            "max": 0.313664,
+            "samples": [
+              0.281595,
+              0.313664,
+              0.296496
+            ]
+          },
+          "system_cpu_seconds": {
+            "median": 0.054361,
+            "max": 0.056639999999999996,
+            "samples": [
+              0.056639999999999996,
+              0.023129999999999998,
+              0.054361
+            ]
+          },
+          "max_child_peak_rss_kib": {
+            "median": 44776,
+            "max": 44840,
+            "samples": [
+              44200,
+              44776,
+              44840
+            ]
+          },
+          "voluntary_context_switches": {
+            "median": 642,
+            "max": 707,
+            "samples": [
+              642,
+              639,
+              707
+            ]
+          },
+          "involuntary_context_switches": {
+            "median": 18,
+            "max": 32,
+            "samples": [
+              32,
+              18,
+              18
+            ]
+          }
+        },
+        "candidate": {
+          "user_cpu_seconds": {
+            "median": 0.294109,
+            "max": 0.294581,
+            "samples": [
+              0.294109,
+              0.294581,
+              0.278184
+            ]
+          },
+          "system_cpu_seconds": {
+            "median": 0.033448,
+            "max": 0.063861,
+            "samples": [
+              0.031296,
+              0.033448,
+              0.063861
+            ]
+          },
+          "max_child_peak_rss_kib": {
+            "median": 45672,
+            "max": 46440,
+            "samples": [
+              45672,
+              44592,
+              46440
+            ]
+          },
+          "voluntary_context_switches": {
+            "median": 652,
+            "max": 659,
+            "samples": [
+              600,
+              652,
+              659
+            ]
+          },
+          "involuntary_context_switches": {
+            "median": 38,
+            "max": 51,
+            "samples": [
+              38,
+              51,
+              22
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "exec-over-cap-8388608",
+      "route": "exec",
+      "input_bytes": 8388608,
+      "verified": true,
+      "seconds": {
+        "baseline": {
+          "median": 0.43626800400011234,
+          "max": 0.4481410749999668,
+          "samples": [
+            0.4180551110000579,
+            0.4481410749999668,
+            0.43626800400011234
+          ]
+        },
+        "candidate": {
+          "median": 0.43584193599986065,
+          "max": 0.44867056199996114,
+          "samples": [
+            0.44867056199996114,
+            0.4178736360001949,
+            0.43584193599986065
+          ]
+        }
+      },
+      "speedup": 1.0009775745862413,
+      "resource_usage": {
+        "baseline": {
+          "user_cpu_seconds": {
+            "median": 0.375471,
+            "max": 0.380892,
+            "samples": [
+              0.34353,
+              0.375471,
+              0.380892
+            ]
+          },
+          "system_cpu_seconds": {
+            "median": 0.097865,
+            "max": 0.104033,
+            "samples": [
+              0.097865,
+              0.104033,
+              0.078092
+            ]
+          },
+          "max_child_peak_rss_kib": {
+            "median": 50680,
+            "max": 50752,
+            "samples": [
+              50752,
+              50664,
+              50680
+            ]
+          },
+          "voluntary_context_switches": {
+            "median": 2537,
+            "max": 2647,
+            "samples": [
+              2481,
+              2647,
+              2537
+            ]
+          },
+          "involuntary_context_switches": {
+            "median": 34,
+            "max": 63,
+            "samples": [
+              63,
+              34,
+              6
+            ]
+          }
+        },
+        "candidate": {
+          "user_cpu_seconds": {
+            "median": 0.36877899999999997,
+            "max": 0.380471,
+            "samples": [
+              0.380471,
+              0.354884,
+              0.36877899999999997
+            ]
+          },
+          "system_cpu_seconds": {
+            "median": 0.098926,
+            "max": 0.099746,
+            "samples": [
+              0.099746,
+              0.086963,
+              0.098926
+            ]
+          },
+          "max_child_peak_rss_kib": {
+            "median": 50664,
+            "max": 50664,
+            "samples": [
+              50664,
+              50664,
+              50664
+            ]
+          },
+          "voluntary_context_switches": {
+            "median": 2475,
+            "max": 2590,
+            "samples": [
+              2590,
+              2464,
+              2475
+            ]
+          },
+          "involuntary_context_switches": {
+            "median": 15,
+            "max": 45,
+            "samples": [
+              45,
+              12,
+              15
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "resources": "CPU includes waited-for descendants; RSS is the maximum individual child peak, not simultaneous tree memory"
+}

@@ -36,6 +36,7 @@ test-unit:
 	@sh tests/unit-framing.sh
 	@sh tests/unit-deny-path.sh
 	@sh tests/unit-probe.sh
+	@sh tests/unit-watchdog.sh
 	@sh tests/unit-status-label.sh
 	@sh tests/redaction-plan.sh
 

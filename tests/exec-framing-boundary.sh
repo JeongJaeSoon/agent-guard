@@ -20,7 +20,7 @@ cat >"$CASE/bin/awk" <<'SHIM'
 stage=
 for arg do
   case "$arg" in
-    *'NR > 1 { emit_char("\n") }'*) stage=producer ;;
+    *'END { printf "%s", boundary }'*) stage=producer ;;
     record_mode=framed) stage=detector ;;
     record_mode=probe_raw) stage=raw ;;
   esac
