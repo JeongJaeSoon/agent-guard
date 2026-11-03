@@ -40,6 +40,7 @@ test-unit:
 	@sh tests/unit-audit-retention.sh
 	@sh tests/unit-status-label.sh
 	@sh tests/redaction-plan.sh
+	@sh tests/unit-nul-redaction.sh
 
 test-pleno-integration:
 	@tests/run-pleno-integration.sh

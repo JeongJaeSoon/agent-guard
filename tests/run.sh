@@ -231,6 +231,7 @@ fi
 
 run_expect 0 "private metadata-only audit logging contract" sh "$ROOT/tests/audit-log.sh"
 run_expect 0 "portable audit retention contract" sh "$ROOT/tests/unit-audit-retention.sh"
+run_expect 0 "NUL redaction preserves clean leaves" sh "$ROOT/tests/unit-nul-redaction.sh"
 run_expect 0 "host plugin lifecycle delegates safely" sh "$ROOT/tests/plugin-management.sh"
 
 run_expect 0 "standalone update preserves executable and link destinations" \
@@ -13753,7 +13754,7 @@ mkdir -p "$FAIL_WHOLE_JQ_DIR"
   printf '%s\n' 'if [ "${AGENT_GUARD_TEST_FAIL_RESTORE:-0}" = 1 ]; then'
   printf '%s\n' '  case "$*" in *'\''.[0] as $orig'\''*) printf "{\"partial\":"; exit 2 ;; esac'
   printf '%s\n' 'fi'
-  printf '%s\n' 'case "$*" in *'\''contains("\u0000")'\''*) exit 2 ;; esac'
+  printf '%s\n' 'case "$*" in *'\''(index("\u0000") != null)'\''*) exit 2 ;; esac'
   printf '%s\n' 'case " $* " in'
   printf '%s\n' '  *"length > 0"*)'
   printf '%s\n' '    if [ "${AGENT_GUARD_TEST_PARTIAL_PRIMARY:-0}" = 1 ]; then printf "{\"partial\":"; fi'
@@ -13774,7 +13775,7 @@ mkdir -p "$FAIL_STAGE_JQ_DIR"
   printf '%s\n' '  extract:*".tool_response // empty"*) partial_fail ;;'
   printf '%s\n' '  precise:*"def context_replace"*) partial_fail ;;'
   printf '%s\n' '  strip:*"strip_binary_payloads") partial_fail ;;'
-  printf '%s\n' '  nul:*'\''contains("\u0000")'\''*) partial_fail ;;'
+  printf '%s\n' '  nul:*'\''(index("\u0000") != null)'\''*) partial_fail ;;'
   printf '%s\n' '  restore:*'\''.[0] as $orig'\''*) partial_fail ;;'
   printf '%s\n' '  detector_leaf:*"join(\"\\n\") end"*) partial_fail ;;'
   printf '%s\n' '  detector_frame:*"\"\\u001e\\n\""*) partial_fail ;;'
