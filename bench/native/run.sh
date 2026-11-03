@@ -32,6 +32,7 @@ OLD=/baseline/plugins/agent-guard/bin/agent-guard
 run sh -c 'rustc --version; jq --version; /scanner/gitleaks version; cat /sys/fs/cgroup/cpu.max; cat /sys/fs/cgroup/memory.max; sha256sum /build/target/release/agent-guard-redact /baseline/plugins/agent-guard/bin/agent-guard /repo/plugins/agent-guard/bin/agent-guard /scanner/gitleaks; dpkg-query -W dash gawk libc6 python3; ldd /build/target/release/agent-guard-redact; date -u' >"$OUT/environment.txt"
 run python3 tests/native-redaction.py --core "$CORE" >"$OUT/differential.json"
 run python3 tests/native-integration.py --core "$CORE" --scanner /scanner/gitleaks >"$OUT/integration.json"
+run sh -c 'mkdir /tmp/legacy-jq; ln -s /usr/bin/jq /tmp/legacy-jq/jq; PATH=/tmp/legacy-jq:$PATH python3 tests/native-integration.py --core /build/target/release/agent-guard-redact --scanner /scanner/gitleaks' >"$OUT/integration-jq16.json"
 run python3 bench/native/kernel.py --core "$CORE" --runs 15 >"$OUT/kernel.json"
 run python3 bench/masking-latency.py --baseline "$OLD" --native-core "$CORE" \
   --scanner /scanner/gitleaks --runs 9 --resources --include-boundaries --trace-processes >"$OUT/cli-claude.json" 2>"$OUT/cli-claude.log"
