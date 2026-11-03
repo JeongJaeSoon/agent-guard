@@ -5,15 +5,17 @@ on:
     paths:
       - 'native/**'
       - 'plugins/agent-guard/bin/agent-guard'
-      - 'tests/native-*'
-      - 'tests/redaction-plan.sh'
+      - 'tests/**'
+      - 'plugins/agent-guard/config/**'
+      - '.github/workflows/ci.yml'
       - '.github/workflows/native-redaction.yml'
   pull_request:
     paths:
       - 'native/**'
       - 'plugins/agent-guard/bin/agent-guard'
-      - 'tests/native-*'
-      - 'tests/redaction-plan.sh'
+      - 'tests/**'
+      - 'plugins/agent-guard/config/**'
+      - '.github/workflows/ci.yml'
       - '.github/workflows/native-redaction.yml'
   workflow_dispatch:
 permissions:
