@@ -16,4 +16,5 @@ RUN --mount=type=secret,id=proxy_ca,required=true \
 RUN --mount=type=secret,id=proxy_ca,required=true \
     SSL_CERT_FILE=/run/secrets/proxy_ca rustup component add rustfmt clippy
 RUN cargo fmt --check && cargo clippy --offline -- -D warnings
+RUN useradd --uid 1000 --create-home --shell /bin/bash agent
 WORKDIR /repo
