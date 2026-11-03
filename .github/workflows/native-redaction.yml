@@ -35,6 +35,21 @@ jobs:
           export AGENT_GUARD_RUST_CORE_BIN="$PWD/native/redaction-core/target/release/agent-guard-redact"
           python3 tests/native-redaction.py --core "$AGENT_GUARD_RUST_CORE_BIN"
           sh tests/redaction-plan.sh
+      - name: Install pinned real scanner
+        run: |
+          scanner_version=$(sed -n 's/^  GITLEAKS_VERSION: "\([^"]*\)"/\1/p' .github/workflows/ci.yml)
+          scanner_checksum=$(sed -n 's/^  GITLEAKS_CHECKSUM_LINUX_X64: "\([^"]*\)"/\1/p' .github/workflows/ci.yml)
+          test -n "$scanner_version" && test -n "$scanner_checksum"
+          archive="gitleaks_${scanner_version}_linux_x64.tar.gz"
+          scanner_tmp=$(mktemp -d)
+          curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/v${scanner_version}/${archive}" -o "$scanner_tmp/$archive"
+          echo "$scanner_checksum  $scanner_tmp/$archive" | sha256sum -c -
+          tar -xzf "$scanner_tmp/$archive" -C "$scanner_tmp" gitleaks
+          install -m 755 "$scanner_tmp/gitleaks" "$RUNNER_TEMP/gitleaks"
+          rm -rf "$scanner_tmp"
+      - name: Real host and fallback contracts
+        run: |
+          python3 tests/native-integration.py --core "$PWD/native/redaction-core/target/release/agent-guard-redact" --scanner "$RUNNER_TEMP/gitleaks"
       - name: Native scanner and output regression partition
         env:
           AGENT_GUARD_TEST_SHARD: '4'
