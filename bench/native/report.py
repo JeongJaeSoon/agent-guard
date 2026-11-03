@@ -68,7 +68,8 @@ def main():
         path = assets / ('rust-' + name + '.svg')
         fig.savefig(path, format='svg', bbox_inches='tight', facecolor='white')
         plt.close(fig)
-        text = path.read_text()
+        text = '\n'.join(line.rstrip() for line in path.read_text().splitlines()) + '\n'
+        path.write_text(text)
         return text[text.index('<svg'):]
     charts = {}
     rows = claude['cases']
