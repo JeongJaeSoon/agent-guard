@@ -428,6 +428,7 @@ chmod +x "$fail_live_jq_dir/jq"
 jq -nc --arg marker "$probe_marker" \
   '{session_id:"probe-redactor-failure",hook_event_name:"PostToolUse",tool_name:"Bash",tool_input:{},tool_response:{stdout:$marker,email:"reader@example.test"}}' \
   | PATH="$fail_live_jq_dir:$PATH" AGENT_GUARD_TEST_REAL_JQ="$REAL_JQ" \
+      AGENT_GUARD_TEST_PARTIAL_STAGE=precise \
       AGENT_GUARD_PII_HOOK_MODE=mask AGENT_GUARD_HOOK_HOST=claude \
       "$GUARD" hook-post-tool >"$CASE/probe-redactor-failure.out" \
         2>"$CASE/probe-redactor-failure.err"

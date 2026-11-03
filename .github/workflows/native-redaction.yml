@@ -1,0 +1,59 @@
+name: Experimental native redactor
+on:
+  pull_request:
+    paths:
+      - 'native/**'
+      - 'plugins/agent-guard/bin/agent-guard'
+      - 'tests/native-*'
+      - 'tests/redaction-plan.sh'
+      - '.github/workflows/native-redaction.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Build and check pinned compiler
+        run: |
+          rustup toolchain install 1.85.1 --profile minimal --component rustfmt --component clippy
+          cargo +1.85.1 fmt --manifest-path native/redaction-core/Cargo.toml --check
+          cargo +1.85.1 clippy --manifest-path native/redaction-core/Cargo.toml --locked -- -D warnings
+          cargo +1.85.1 build --release --locked --manifest-path native/redaction-core/Cargo.toml
+      - name: Pin reference jq
+        run: |
+          curl -fL https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-amd64 -o "$RUNNER_TEMP/jq"
+          echo "5942c9b0934e510ee61eb3e30273f1b3fe2590df93933a93d7c58b81d19c8ff5  $RUNNER_TEMP/jq" | sha256sum -c -
+          chmod +x "$RUNNER_TEMP/jq"
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+      - name: Differential and independent golden contracts
+        env:
+          AGENT_GUARD_EXPERIMENTAL_REDACTOR: rust
+        run: |
+          export AGENT_GUARD_RUST_CORE_BIN="$PWD/native/redaction-core/target/release/agent-guard-redact"
+          python3 tests/native-redaction.py --core "$AGENT_GUARD_RUST_CORE_BIN"
+          sh tests/redaction-plan.sh
+      - name: Install pinned real scanner
+        run: |
+          scanner_version=$(sed -n 's/^  GITLEAKS_VERSION: "\([^"]*\)"/\1/p' .github/workflows/ci.yml)
+          scanner_checksum=$(sed -n 's/^  GITLEAKS_CHECKSUM_LINUX_X64: "\([^"]*\)"/\1/p' .github/workflows/ci.yml)
+          test -n "$scanner_version" && test -n "$scanner_checksum"
+          archive="gitleaks_${scanner_version}_linux_x64.tar.gz"
+          scanner_tmp=$(mktemp -d)
+          curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/v${scanner_version}/${archive}" -o "$scanner_tmp/$archive"
+          echo "$scanner_checksum  $scanner_tmp/$archive" | sha256sum -c -
+          tar -xzf "$scanner_tmp/$archive" -C "$scanner_tmp" gitleaks
+          install -m 755 "$scanner_tmp/gitleaks" "$RUNNER_TEMP/gitleaks"
+          rm -rf "$scanner_tmp"
+      - name: Real host and fallback contracts
+        run: |
+          python3 tests/native-integration.py --core "$PWD/native/redaction-core/target/release/agent-guard-redact" --scanner "$RUNNER_TEMP/gitleaks"
+      - name: Native scanner and output regression partition
+        env:
+          AGENT_GUARD_TEST_SHARD: '4'
+        run: |
+          export AGENT_GUARD_RUST_CORE_BIN="$PWD/native/redaction-core/target/release/agent-guard-redact"
+          sh tests/native-suite.sh
+          sh tests/native-suite.sh audit
