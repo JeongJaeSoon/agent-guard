@@ -59,16 +59,17 @@ regexes = [
 ]
 
 # Recorded API fixtures key rows by record id (`{"key":"<uuid>","label":...}`),
-# and generic-api-key reads the bare `key` field as a credential label. Like the
-# cursor entry, this matches the full finding from the key boundary to its end:
-# only a bare lowercase `key`, a colon, and a whole lowercase canonical UUID.
-# `api_key`, `apiKey`, `secret_key`, `key=` and uppercase or longer values keep
-# their findings.
+# and generic-api-key reads the bare `key` field as a credential label. The
+# match starts at the last `key` of a longer name (`api/key`) and ends at a
+# quote inside the value, so this anchors the whole LINE instead: one JSON pair
+# `"key": "<lowercase canonical uuid>"`, optional trailing comma, nothing else.
+# Other key names, YAML, compact one-line JSON, uppercase or longer values, and
+# any second assignment on the line keep their findings.
 [[allowlists]]
 description = "Record UUIDs under a bare key field"
-regexTarget = "match"
+regexTarget = "line"
 regexes = [
-  '''^key["'`]?\s*:\s*["'`]?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}["'`]?$'''
+  '''^\s*"key"\s*:\s*"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",?\s*$'''
 ]
 
 # Directory scans skip these exact lockfile names, then agent-guard rescans

@@ -11624,20 +11624,22 @@ if [ -n "$REAL_GITLEAKS" ]; then
 fi
 
 # A lowercase UUID under a bare `key` field is a record identifier: recorded
-# API fixtures emit `{"key":"<agent uuid>","label":...}` rows, and
-# generic-api-key read every one as a credential, blocking the commit. The same
-# UUID under any other secret-ish key, a non-UUID value under `key`, or a UUID
-# with trailing characters keeps its finding.
+# API fixtures emit pretty-printed `"key": "<agent uuid>",` rows, and
+# generic-api-key read every one as a credential, blocking the commit. Only a
+# line holding that one pair is exempt. The UUID is fixed, not random, because
+# about 1 in 20 random UUIDs falls under the rule's entropy floor and would turn
+# every must-fail case below into a silent pass.
 if [ -n "$REAL_GITLEAKS" ]; then
   UUIDK_DIR="$TESTTMP/uuid-key-gitleaks"
   mkdir -p "$UUIDK_DIR"
-  UUIDK_HEX=$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')
-  UUIDK_ID=$(printf '%s' "$UUIDK_HEX" \
-    | sed -E 's/^(.{8})(.{4})(.{4})(.{4})(.{12})$/\1-\2-\3-\4-\5/')
+  UUIDK_HEX=$(printf '%s%s%s%s%s' 7b42a1e9 63dc 4f08 a295 1c8e6d03b574)
+  UUIDK_ID=$(printf '%s-%s-%s-%s-%s' 7b42a1e9 63dc 4f08 a295 1c8e6d03b574)
   UUIDK_UPPER=$(printf '%s' "$UUIDK_ID" | tr 'a-f' 'A-F')
   UUIDK_AK=$(printf '%s%s' api _key)
   UUIDK_AKC=$(printf '%s%s' api Key)
   UUIDK_SK=$(printf '%s%s' secret _key)
+  UUIDK_SLASH=$(printf '%s%s' api /key)
+  UUIDK_PRIV=$(printf '%s%s' 'private ' key)
   uuidk_case() { # $1 expected status, $2 label, $3 file content
     printf '%s\n' "$3" >"$UUIDK_DIR/fixtures.json"
     PATH="$(dirname "$REAL_GITLEAKS"):$ORIGINAL_PATH" "$PLUGIN_ROOT/bin/agent-guard" \
@@ -11650,10 +11652,26 @@ if [ -n "$REAL_GITLEAKS" ]; then
       sed 's/^/  stderr: /' "$ERR"
     fi
   }
-  uuidk_case 0 "a UUID under a bare key field is clean (compact JSON)" \
-    "{\"key\":\"$UUIDK_ID\",\"label\":\"agent\"}"
   uuidk_case 0 "a UUID under a bare key field is clean (indented JSON)" \
     "      \"key\": \"$UUIDK_ID\","
+  uuidk_case 0 "a UUID under a bare key field is clean (last member)" \
+    "      \"key\": \"$UUIDK_ID\""
+  uuidk_case 1 "a UUID under a bare key in compact JSON is still found" \
+    "{\"key\":\"$UUIDK_ID\",\"label\":\"agent\"}"
+  uuidk_case 1 "a UUID under a bare YAML key is still found" \
+    "key: $UUIDK_ID"
+  uuidk_case 1 "a UUID under a slash-joined api key name is still found" \
+    "      \"$UUIDK_SLASH\": \"$UUIDK_ID\","
+  uuidk_case 1 "a UUID under a spaced private key name is still found" \
+    "      \"$UUIDK_PRIV\": \"$UUIDK_ID\","
+  uuidk_case 1 "a UUID followed by a single quote and more text is still found" \
+    "      \"key\": \"$UUIDK_ID'live\","
+  uuidk_case 1 "a UUID followed by a backtick and more text is still found" \
+    "      \"key\": \"$UUIDK_ID\`live\","
+  uuidk_case 1 "an api key after a bare key UUID on one line is still found" \
+    "      \"key\": \"$UUIDK_ID\", \"$UUIDK_AK\": \"$UUIDK_ID\""
+  uuidk_case 1 "an api key before a bare key UUID on one line is still found" \
+    "      \"$UUIDK_AK\": \"$UUIDK_ID\", \"key\": \"$UUIDK_ID\""
   uuidk_case 1 "a UUID under an api key field is still found" \
     "{\"$UUIDK_AK\":\"$UUIDK_ID\"}"
   uuidk_case 1 "a UUID under a camelCase api key field is still found" \
@@ -11677,7 +11695,8 @@ if [ -n "$REAL_GITLEAKS" ]; then
     git init -q
     git config user.email t@e
     git config user.name t
-    printf '%s\n' "{\"rows\":[{\"key\":\"$UUIDK_ID\",\"label\":\"agent\"}]}" >fixtures.json
+    printf '{\n  "rows": [\n    {\n      "key": "%s",\n      "label": "agent"\n    }\n  ]\n}\n' \
+      "$UUIDK_ID" >fixtures.json
     git add fixtures.json
   )
   (cd "$UUIDK_REPO" && PATH="$(dirname "$REAL_GITLEAKS"):$ORIGINAL_PATH" \
