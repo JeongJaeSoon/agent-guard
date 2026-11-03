@@ -1,0 +1,492 @@
+{
+  "commit": "dd5b44d0134033f8ee5ef4c187e92aebcfb8214e",
+  "cli_sha256": "431e7c9ee678901e6c015ef36eb3e4b5195f162a4e55531aecaf68ac3992e622",
+  "workflows": [
+    {
+      "id": 41700748222,
+      "name": "Legacy jq and awk contracts",
+      "status": "completed",
+      "conclusion": "success",
+      "run_number": 4,
+      "jobs_url": "https://api.github.com/repos/JeongJaeSoon/agent-guard/actions/runs/41700748222/jobs",
+      "logs_url": "https://api.github.com/repos/JeongJaeSoon/agent-guard/actions/runs/41700748222/logs",
+      "workflow_id": 406087264
+    },
+    {
+      "id": 41700748300,
+      "name": "CI",
+      "status": "queued",
+      "conclusion": null,
+      "run_number": 891,
+      "jobs_url": "https://api.github.com/repos/JeongJaeSoon/agent-guard/actions/runs/41700748300/jobs",
+      "logs_url": "https://api.github.com/repos/JeongJaeSoon/agent-guard/actions/runs/41700748300/logs",
+      "workflow_id": 272419220
+    },
+    {
+      "id": 41700748392,
+      "name": "Plugin Validation",
+      "status": "completed",
+      "conclusion": "success",
+      "run_number": 783,
+      "jobs_url": "https://api.github.com/repos/JeongJaeSoon/agent-guard/actions/runs/41700748392/jobs",
+      "logs_url": "https://api.github.com/repos/JeongJaeSoon/agent-guard/actions/runs/41700748392/logs",
+      "workflow_id": 282477247
+    },
+    {
+      "id": 41700748217,
+      "name": "HOL Plugin Scanner",
+      "status": "completed",
+      "conclusion": "success",
+      "run_number": 760,
+      "jobs_url": "https://api.github.com/repos/JeongJaeSoon/agent-guard/actions/runs/41700748217/jobs",
+      "logs_url": "https://api.github.com/repos/JeongJaeSoon/agent-guard/actions/runs/41700748217/logs",
+      "workflow_id": 297380317
+    },
+    {
+      "id": 41700748257,
+      "name": "Experimental native redactor",
+      "status": "completed",
+      "conclusion": "success",
+      "run_number": 3,
+      "jobs_url": "https://api.github.com/repos/JeongJaeSoon/agent-guard/actions/runs/41700748257/jobs",
+      "logs_url": "https://api.github.com/repos/JeongJaeSoon/agent-guard/actions/runs/41700748257/logs",
+      "workflow_id": 406087478
+    }
+  ],
+  "jobs": [
+    {
+      "id": 126143069741,
+      "name": "Agent Guard",
+      "status": "completed",
+      "conclusion": "success",
+      "run_id": 41700748300,
+      "logs_url": null,
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1
+        },
+        {
+          "name": "Checkout",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2
+        },
+        {
+          "name": "Scan for secrets",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3
+        },
+        {
+          "name": "Post Checkout",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 6
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 7
+        }
+      ]
+    },
+    {
+      "id": 126143070017,
+      "name": "Shell navigation (Codex) (ubuntu-latest)",
+      "status": "completed",
+      "conclusion": "success",
+      "run_id": 41700748300,
+      "logs_url": null,
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1
+        },
+        {
+          "name": "Checkout",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2
+        },
+        {
+          "name": "Install pinned gitleaks (Linux x64)",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 3
+        },
+        {
+          "name": "Run tests",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4
+        },
+        {
+          "name": "Require real gitleaks integration ran (Linux)",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 5
+        },
+        {
+          "name": "Smoke test (real git/jq/gitleaks E2E)",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 6
+        },
+        {
+          "name": "Post Checkout",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 12
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 13
+        }
+      ]
+    },
+    {
+      "id": 126143070028,
+      "name": "Shell navigation (Claude) (ubuntu-latest)",
+      "status": "completed",
+      "conclusion": "success",
+      "run_id": 41700748300,
+      "logs_url": null,
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1
+        },
+        {
+          "name": "Checkout",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2
+        },
+        {
+          "name": "Install pinned gitleaks (Linux x64)",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 3
+        },
+        {
+          "name": "Run tests",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4
+        },
+        {
+          "name": "Require real gitleaks integration ran (Linux)",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 5
+        },
+        {
+          "name": "Smoke test (real git/jq/gitleaks E2E)",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 6
+        },
+        {
+          "name": "Post Checkout",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 12
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 13
+        }
+      ]
+    },
+    {
+      "id": 126143070201,
+      "name": "Command policies (macos-latest)",
+      "status": "queued",
+      "conclusion": null,
+      "run_id": 41700748300,
+      "logs_url": null,
+      "steps": null
+    },
+    {
+      "id": 126143070258,
+      "name": "Core, host adapters and Git (ubuntu-latest)",
+      "status": "completed",
+      "conclusion": "success",
+      "run_id": 41700748300,
+      "logs_url": null,
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1
+        },
+        {
+          "name": "Checkout",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2
+        },
+        {
+          "name": "Install pinned gitleaks (Linux x64)",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 3
+        },
+        {
+          "name": "Run tests",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4
+        },
+        {
+          "name": "Require real gitleaks integration ran (Linux)",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 5
+        },
+        {
+          "name": "Smoke test (real git/jq/gitleaks E2E)",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 6
+        },
+        {
+          "name": "Post Checkout",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 12
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 13
+        }
+      ]
+    },
+    {
+      "id": 126143070282,
+      "name": "CLI, scanner and output (ubuntu-latest)",
+      "status": "completed",
+      "conclusion": "success",
+      "run_id": 41700748300,
+      "logs_url": null,
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1
+        },
+        {
+          "name": "Checkout",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2
+        },
+        {
+          "name": "Install pinned gitleaks (Linux x64)",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3
+        },
+        {
+          "name": "Run tests",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4
+        },
+        {
+          "name": "Require real gitleaks integration ran (Linux)",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 5
+        },
+        {
+          "name": "Smoke test (real git/jq/gitleaks E2E)",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 6
+        },
+        {
+          "name": "Post Checkout",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 12
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 13
+        }
+      ]
+    },
+    {
+      "id": 126143070309,
+      "name": "Core, host adapters and Git (macos-latest)",
+      "status": "queued",
+      "conclusion": null,
+      "run_id": 41700748300,
+      "logs_url": null,
+      "steps": null
+    },
+    {
+      "id": 126143070319,
+      "name": "Command policies (ubuntu-latest)",
+      "status": "completed",
+      "conclusion": "success",
+      "run_id": 41700748300,
+      "logs_url": null,
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1
+        },
+        {
+          "name": "Checkout",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2
+        },
+        {
+          "name": "Install pinned gitleaks (Linux x64)",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 3
+        },
+        {
+          "name": "Run tests",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4
+        },
+        {
+          "name": "Require real gitleaks integration ran (Linux)",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 5
+        },
+        {
+          "name": "Smoke test (real git/jq/gitleaks E2E)",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 6
+        },
+        {
+          "name": "Post Checkout",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 12
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 13
+        }
+      ]
+    },
+    {
+      "id": 126143070351,
+      "name": "Shell navigation (Codex) (macos-latest)",
+      "status": "queued",
+      "conclusion": null,
+      "run_id": 41700748300,
+      "logs_url": null,
+      "steps": null
+    },
+    {
+      "id": 126143070408,
+      "name": "CLI, scanner and output (macos-latest)",
+      "status": "queued",
+      "conclusion": null,
+      "run_id": 41700748300,
+      "logs_url": null,
+      "steps": null
+    },
+    {
+      "id": 126143070449,
+      "name": "Lint",
+      "status": "completed",
+      "conclusion": "success",
+      "run_id": 41700748300,
+      "logs_url": null,
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1
+        },
+        {
+          "name": "Checkout",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2
+        },
+        {
+          "name": "Install pinned shellcheck",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3
+        },
+        {
+          "name": "Install pinned actionlint",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4
+        },
+        {
+          "name": "ShellCheck shell scripts",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 5
+        },
+        {
+          "name": "actionlint workflows",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 6
+        },
+        {
+          "name": "Post Checkout",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 12
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 13
+        }
+      ]
+    },
+    {
+      "id": 126143070506,
+      "name": "Shell navigation (Claude) (macos-latest)",
+      "status": "queued",
+      "conclusion": null,
+      "run_id": 41700748300,
+      "logs_url": null,
+      "steps": null
+    }
+  ],
+  "checked_at": "2026-11-03 19:19:23 UTC"
+}

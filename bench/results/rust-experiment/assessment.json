@@ -1,0 +1,40 @@
+{
+  "verdict": "Rust 성능 이득 확인 · CI 최종 확인 중",
+  "opt_in_gate_passed": false,
+  "performance_gate_passed": true,
+  "ci_complete": false,
+  "hot_latency_change_percent": -27.29309149083535,
+  "hot_cpu_change_percent": -26.335842980065983,
+  "hot_rss_change_percent": 0.4254221993038598,
+  "hot_latency_bootstrap_95_percent_interval": [
+    -28.434825290162912,
+    -26.767187910709566
+  ],
+  "latency_regressions_over_5_percent": [],
+  "load": {
+    "1": {
+      "shell": {
+        "requests_per_second": 0.8102461120001534,
+        "cpu_seconds_per_request": 1.282448125,
+        "sampled_sum_rss_mib": 89.24609375
+      },
+      "rust": {
+        "requests_per_second": 1.10650934483325,
+        "cpu_seconds_per_request": 0.951773875,
+        "sampled_sum_rss_mib": 89.703125
+      }
+    },
+    "4": {
+      "shell": {
+        "requests_per_second": 2.1968900846473467,
+        "cpu_seconds_per_request": 1.659591625,
+        "sampled_sum_rss_mib": 271.87890625
+      },
+      "rust": {
+        "requests_per_second": 3.081180106462398,
+        "cpu_seconds_per_request": 1.151000625,
+        "sampled_sum_rss_mib": 281.8984375
+      }
+    }
+  }
+}

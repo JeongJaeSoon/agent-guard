@@ -13,6 +13,7 @@ OUT=$3
 case "$SCANNER:$OUT" in /*:/*) ;; *) exit 2 ;; esac
 case "$(uname -s):$(uname -m)" in Linux:x86_64) ;; *) echo 'this image pins Linux/x86_64 jq' >&2; exit 2 ;; esac
 mkdir -p "$OUT"
+sha256sum plugins/agent-guard/bin/agent-guard >"$OUT/cli-source-before.sha256"
 CASE=$(mktemp -d)
 trap 'rm -rf "$CASE"' 0
 mkdir "$CASE/baseline"
@@ -31,12 +32,22 @@ docker run --rm --network=none -v "$ROOT:/repo:ro" "$IMAGE" sh -c '
   cmp /build/src/main.rs /repo/native/redaction-core/src/main.rs
 ' 
 docker image inspect "$IMAGE" --format '{{.Id}}' >"$OUT/image-id.txt"
+CGROUP_ISOLATED=0
+docker info --format '{"cgroup_driver":{{json .CgroupDriver}},"cgroup_version":{{json .CgroupVersion}},"warnings":{{json .Warnings}}}' >"$OUT/docker-info.json"
 run() {
   docker run --rm --init --network=none --cpus=2 --memory=1g \
-    -e PYTHONDONTWRITEBYTECODE=1 \
+    -e PYTHONDONTWRITEBYTECODE=1 -e "AGENT_GUARD_BENCH_CGROUP_ISOLATED=$CGROUP_ISOLATED" \
     -v "$ROOT:/repo:ro" -v "$CASE/baseline:/baseline:ro" -v "$SCANNER:/scanner/gitleaks:ro" \
     "$IMAGE" "$@"
 }
+CGROUP_DRIVER=$(docker info --format '{{.CgroupDriver}}')
+LIMITS=$(run sh -c 'cat /sys/fs/cgroup/cpu.max; cat /sys/fs/cgroup/memory.max')
+if [ "$CGROUP_DRIVER" != none ] && [ "$LIMITS" = "200000 100000
+1073741824" ]; then
+  CGROUP_ISOLATED=1
+else
+  echo 'Requested container limits are not visible; cgroup peaks must not be treated as container memory.' >&2
+fi
 CORE=/build/target/release/agent-guard-redact
 OLD=/baseline/plugins/agent-guard/bin/agent-guard
 run sh -c 'rustc --version; jq --version; /scanner/gitleaks version; cat /sys/fs/cgroup/cpu.max; cat /sys/fs/cgroup/memory.max; sha256sum /build/target/release/agent-guard-redact /baseline/plugins/agent-guard/bin/agent-guard /repo/plugins/agent-guard/bin/agent-guard /scanner/gitleaks; dpkg-query -W dash gawk libc6 python3; ldd /build/target/release/agent-guard-redact; date -u' >"$OUT/environment.txt"
@@ -67,3 +78,10 @@ for workers in 1 4; do
     done
   done
 done
+# The first clean workload showed environmental variance in the recorded run.
+# Preserve the original trials and add a separate 21-pair stability check.
+run python3 bench/masking-latency.py --baseline "$OLD" --native-core "$CORE" \
+  --scanner /scanner/gitleaks --runs 21 --resources --case small-clean \
+  >"$OUT/cli-clean-followup.json" 2>"$OUT/cli-clean-followup.log"
+sha256sum plugins/agent-guard/bin/agent-guard >"$OUT/cli-source-after.sha256"
+cmp "$OUT/cli-source-before.sha256" "$OUT/cli-source-after.sha256"
