@@ -17,9 +17,19 @@ CASE=$(mktemp -d)
 trap 'rm -rf "$CASE"' 0
 mkdir "$CASE/baseline"
 git archive "$BASELINE" plugins/agent-guard | tar -x -C "$CASE/baseline"
-IMAGE=agent-guard-rust-experiment
+IMAGE=${AGENT_GUARD_BENCH_IMAGE:-agent-guard-rust-experiment}
 CA_BUNDLE=${AGENT_GUARD_BENCH_CA_BUNDLE:-/etc/ssl/certs/ca-certificates.crt}
-docker build --secret "id=proxy_ca,src=$CA_BUNDLE" -f bench/native/Dockerfile -t "$IMAGE" . >"$OUT/build.log" 2>&1
+if [ -z "${AGENT_GUARD_BENCH_IMAGE:-}" ]; then
+  docker build --secret "id=proxy_ca,src=$CA_BUNDLE" -f bench/native/Dockerfile -t "$IMAGE" . >"$OUT/build.log" 2>&1
+else
+  printf 'Reusing explicitly selected image: %s\n' "$IMAGE" >"$OUT/build.log"
+fi
+# A reused image must contain exactly the current native source and lockfile.
+docker run --rm --network=none -v "$ROOT:/repo:ro" "$IMAGE" sh -c '
+  cmp /build/Cargo.toml /repo/native/redaction-core/Cargo.toml &&
+  cmp /build/Cargo.lock /repo/native/redaction-core/Cargo.lock &&
+  cmp /build/src/main.rs /repo/native/redaction-core/src/main.rs
+' 
 docker image inspect "$IMAGE" --format '{{.Id}}' >"$OUT/image-id.txt"
 run() {
   docker run --rm --init --network=none --cpus=2 --memory=1g \
