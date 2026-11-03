@@ -30,7 +30,7 @@ docker run --rm --network=none -v "$ROOT:/repo:ro" "$IMAGE" sh -c '
   cmp /build/Cargo.toml /repo/native/redaction-core/Cargo.toml &&
   cmp /build/Cargo.lock /repo/native/redaction-core/Cargo.lock &&
   cmp /build/src/main.rs /repo/native/redaction-core/src/main.rs
-' 
+'
 docker image inspect "$IMAGE" --format '{{.Id}}' >"$OUT/image-id.txt"
 CGROUP_ISOLATED=0
 docker info --format '{"cgroup_driver":{{json .CgroupDriver}},"cgroup_version":{{json .CgroupVersion}},"warnings":{{json .Warnings}}}' >"$OUT/docker-info.json"
