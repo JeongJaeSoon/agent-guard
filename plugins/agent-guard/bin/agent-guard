@@ -9505,6 +9505,24 @@ redact_tool_response_json() {
   resp=$1
   secrets=$2
   [ -n "$secrets" ] || return 1
+  # Explicit experiment only. A missing/failed native helper falls back to the
+  # established jq contract; partial helper stdout is never published.
+  if [ "${AGENT_GUARD_EXPERIMENTAL_REDACTOR:-}" = rust ]; then
+    rust_core=${AGENT_GUARD_RUST_CORE_BIN:-"$ROOT_DIR/libexec/agent-guard-redact"}
+    case "$rust_core" in
+      /*)
+        if [ -x "$rust_core" ] && rust_result=$(
+          printf '{"protocol":1,"response":%s,"secrets":%s}\n' "$resp" "$secrets" \
+            | "$rust_core" redact-v1 2>/dev/null
+        ); then
+          printf '%s\n' "$rust_result"
+          unset rust_result rust_core
+          return 0
+        fi
+        ;;
+    esac
+    unset rust_result rust_core
+  fi
   # Redacts string VALUES only; object KEYS are left untouched. Transforming keys
   # could collide two distinct keys onto one placeholder and silently drop an
   # entry; a secret appearing as a JSON key is a documented limitation (README).
