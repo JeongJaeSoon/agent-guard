@@ -9595,10 +9595,12 @@ redact_live_probe_response_json() {
 # POSIX shell variables cannot preserve NUL bytes. Keep NUL-bearing JSON leaves
 # out of command substitution entirely and conservatively replace the whole leaf
 # before the ordinary literal detector runs.
+# jq 1.6 contains("\u0000") also matches strings without NUL. index() uses
+# length-aware matching and preserves the same contract across jq versions.
 redact_nul_response_json() {
   resp=$1
   { printf '%s' "$resp"; } 2>/dev/null | jq -c "$JQ_WALK"'
-    walk(if type == "string" and contains("\u0000")
+    walk(if type == "string" and (index("\u0000") != null)
          then "[REDACTED]" else . end)
   ' 2>/dev/null
 }

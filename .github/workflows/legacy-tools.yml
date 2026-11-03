@@ -1,0 +1,24 @@
+name: Legacy jq and awk contracts
+on:
+  pull_request:
+    paths:
+      - 'plugins/agent-guard/bin/agent-guard'
+      - 'tests/unit-nul-redaction.sh'
+      - 'tests/unit-audit-retention.sh'
+      - '.github/workflows/legacy-tools.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  contracts:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Verify legacy tool contracts
+        run: |
+          jq --version
+          test "$(jq --version)" = jq-1.6
+          /usr/bin/mawk -W version
+          sh tests/unit-nul-redaction.sh
+          AGENT_GUARD_TEST_AWK=/usr/bin/mawk sh tests/unit-audit-retention.sh
