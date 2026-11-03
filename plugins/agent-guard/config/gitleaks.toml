@@ -58,6 +58,21 @@ regexes = [
   '''^(?:(?:next|prev|previous)(?:PageToken|_page_token)|pageToken|page_token)["'`]?\s*:'''
 ]
 
+# Recorded API fixtures key rows by record id (`{"key":"<uuid>","label":...}`),
+# and generic-api-key reads the bare `key` field as a credential label. The
+# match starts at the last `key` of a longer name (`api/key`) and ends at a
+# quote inside the value, so this anchors the whole LINE instead: one JSON pair
+# `"key": "<lowercase canonical uuid>"`, optional trailing comma, nothing else.
+# gitleaks hands over a non-first line with its leading newline, hence `^\n?`.
+# Other key names, YAML, compact one-line JSON, uppercase or longer values, and
+# any second assignment on the line keep their findings.
+[[allowlists]]
+description = "Record UUIDs under a bare key field"
+regexTarget = "line"
+regexes = [
+  '''^\n?[ \t]*"key"[ \t]*:[ \t]*"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",?[ \t]*\r?\n?$'''
+]
+
 # Directory scans skip these exact lockfile names, then agent-guard rescans
 # their non-checksum content through stdin. This avoids checksum false positives
 # without allowing credentials elsewhere in a lockfile.
