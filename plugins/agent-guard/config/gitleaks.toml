@@ -58,6 +58,19 @@ regexes = [
   '''^(?:(?:next|prev|previous)(?:PageToken|_page_token)|pageToken|page_token)["'`]?\s*:'''
 ]
 
+# Recorded API fixtures key rows by record id (`{"key":"<uuid>","label":...}`),
+# and generic-api-key reads the bare `key` field as a credential label. Like the
+# cursor entry, this matches the full finding from the key boundary to its end:
+# only a bare lowercase `key`, a colon, and a whole lowercase canonical UUID.
+# `api_key`, `apiKey`, `secret_key`, `key=` and uppercase or longer values keep
+# their findings.
+[[allowlists]]
+description = "Record UUIDs under a bare key field"
+regexTarget = "match"
+regexes = [
+  '''^key["'`]?\s*:\s*["'`]?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}["'`]?$'''
+]
+
 # Directory scans skip these exact lockfile names, then agent-guard rescans
 # their non-checksum content through stdin. This avoids checksum false positives
 # without allowing credentials elsewhere in a lockfile.

@@ -11623,6 +11623,88 @@ if [ -n "$REAL_GITLEAKS" ]; then
     "{\"$BOOL_FB_PAGE\":\"$BOOL_CURSOR\"}"
 fi
 
+# A lowercase UUID under a bare `key` field is a record identifier: recorded
+# API fixtures emit `{"key":"<agent uuid>","label":...}` rows, and
+# generic-api-key read every one as a credential, blocking the commit. The same
+# UUID under any other secret-ish key, a non-UUID value under `key`, or a UUID
+# with trailing characters keeps its finding.
+if [ -n "$REAL_GITLEAKS" ]; then
+  UUIDK_DIR="$TESTTMP/uuid-key-gitleaks"
+  mkdir -p "$UUIDK_DIR"
+  UUIDK_HEX=$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')
+  UUIDK_ID=$(printf '%s' "$UUIDK_HEX" \
+    | sed -E 's/^(.{8})(.{4})(.{4})(.{4})(.{12})$/\1-\2-\3-\4-\5/')
+  UUIDK_UPPER=$(printf '%s' "$UUIDK_ID" | tr 'a-f' 'A-F')
+  UUIDK_AK=$(printf '%s%s' api _key)
+  UUIDK_AKC=$(printf '%s%s' api Key)
+  UUIDK_SK=$(printf '%s%s' secret _key)
+  uuidk_case() { # $1 expected status, $2 label, $3 file content
+    printf '%s\n' "$3" >"$UUIDK_DIR/fixtures.json"
+    PATH="$(dirname "$REAL_GITLEAKS"):$ORIGINAL_PATH" "$PLUGIN_ROOT/bin/agent-guard" \
+      scan-path "$UUIDK_DIR" >"$OUT" 2>"$ERR"
+    uuidk_status=$?
+    if [ "$uuidk_status" -eq "$1" ]; then
+      ok "real gitleaks: $2"
+    else
+      not_ok "real gitleaks: $2 (expected $1, got $uuidk_status)"
+      sed 's/^/  stderr: /' "$ERR"
+    fi
+  }
+  uuidk_case 0 "a UUID under a bare key field is clean (compact JSON)" \
+    "{\"key\":\"$UUIDK_ID\",\"label\":\"agent\"}"
+  uuidk_case 0 "a UUID under a bare key field is clean (indented JSON)" \
+    "      \"key\": \"$UUIDK_ID\","
+  uuidk_case 1 "a UUID under an api key field is still found" \
+    "{\"$UUIDK_AK\":\"$UUIDK_ID\"}"
+  uuidk_case 1 "a UUID under a camelCase api key field is still found" \
+    "{\"$UUIDK_AKC\":\"$UUIDK_ID\"}"
+  uuidk_case 1 "a UUID under a secret key field is still found" \
+    "{\"$UUIDK_SK\":\"$UUIDK_ID\"}"
+  uuidk_case 1 "a UUID assigned to a bare key with = is still found" \
+    "key=$UUIDK_ID"
+  uuidk_case 1 "an uppercase UUID under a bare key field is still found" \
+    "{\"key\":\"$UUIDK_UPPER\"}"
+  uuidk_case 1 "a UUID with trailing characters under a bare key is still found" \
+    "{\"key\":\"$UUIDK_ID$UUIDK_HEX\"}"
+  uuidk_case 1 "a non-UUID hex value under a bare key field is still found" \
+    "{\"key\":\"$UUIDK_HEX\"}"
+
+  # The commit hook reads staged added lines through gitleaks stdin, not dir.
+  UUIDK_REPO="$TMP_ROOT/uuid-key-repo"
+  mkdir -p "$UUIDK_REPO"
+  (
+    cd "$UUIDK_REPO" || exit 2
+    git init -q
+    git config user.email t@e
+    git config user.name t
+    printf '%s\n' "{\"rows\":[{\"key\":\"$UUIDK_ID\",\"label\":\"agent\"}]}" >fixtures.json
+    git add fixtures.json
+  )
+  (cd "$UUIDK_REPO" && PATH="$(dirname "$REAL_GITLEAKS"):$ORIGINAL_PATH" \
+    "$PLUGIN_ROOT/bin/agent-guard" scan-staged) >"$OUT" 2>"$ERR"
+  uuidk_status=$?
+  if [ "$uuidk_status" -eq 0 ]; then
+    ok "real gitleaks: scan-staged passes a staged UUID under a bare key field"
+  else
+    not_ok "real gitleaks: scan-staged passes a staged UUID under a bare key field (got $uuidk_status)"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+  (
+    cd "$UUIDK_REPO" || exit 2
+    printf '%s\n' "{\"$UUIDK_AK\":\"$UUIDK_ID\"}" >config.json
+    git add config.json
+  )
+  (cd "$UUIDK_REPO" && PATH="$(dirname "$REAL_GITLEAKS"):$ORIGINAL_PATH" \
+    "$PLUGIN_ROOT/bin/agent-guard" scan-staged) >"$OUT" 2>"$ERR"
+  uuidk_status=$?
+  if [ "$uuidk_status" -eq 1 ]; then
+    ok "real gitleaks: scan-staged still blocks a staged UUID under an api key field"
+  else
+    not_ok "real gitleaks: scan-staged still blocks a staged UUID under an api key field (got $uuidk_status)"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+fi
+
 bool_case=0
 for bool_text in \
   "$BOOL_AT: $BOOL_SECRET" \
