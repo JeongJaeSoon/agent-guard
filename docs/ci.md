@@ -34,6 +34,23 @@ identical; the matrix-coverage assertion is updated for the bundle format. Moved
 sessions. The aggregate check names and their fail-closed dependencies remain
 unchanged; the release workflow consumes those aggregates, not the child names.
 
+## Run lifecycle and queued jobs
+
+A newer commit cancels obsolete runs of the same workflow on the same PR.
+Main pushes and manual checks use unique run groups, so they retain their own
+validation. The serialized release workflow remains separate and is never
+cancelled by a PR update. Existing required check names and the fail-closed
+aggregate remain unchanged; all OS/host partitions still run.
+
+Legacy jq/awk contracts also run after relevant changes merge to main. Their
+check has a distinct name instead of the generic `contracts` label.
+
+A queued job without an assigned runner has not started its test budget.
+Increasing a test timeout cannot fix runner allocation delays. Concurrency
+settings apply to new runs; they do not retroactively cancel older ungrouped
+runs. Cancel only superseded PR runs, preserving the current PR head and any
+release or main evidence still needed for publication.
+
 ## Reading test results
 
 Each partition prints execution seconds and passed/failed counts in the Actions job summary. The Run tests
