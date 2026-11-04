@@ -42,7 +42,9 @@ if agent-guard update > "$out/standalone-refused.log" 2>&1; then
   echo 'Homebrew install accepted standalone update' >&2; exit 1
 fi
 grep -F 'update is unavailable for Homebrew installs' "$out/standalone-refused.log"
-brew uninstall agent-guard-validation/releases/agent-guard
+# Upgrade intentionally retained the old keg for recovery. Remove both test
+# versions before untapping so the following canonical-tap install is fresh.
+brew uninstall --force agent-guard-validation/releases/agent-guard
 brew untap agent-guard-validation/releases
 brew tap JeongJaeSoon/tap
 cmp "$out/published-formula.rb" "$(brew --repo JeongJaeSoon/tap)/Formula/agent-guard.rb"
