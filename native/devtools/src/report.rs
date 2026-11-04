@@ -369,7 +369,22 @@ pub fn run(args: &Args) -> Result<()> {
         }
     }
     let memory = chart("Sampled sum of process RSS (MiB)", &data, false);
-    let svg = format!("{throughput}{memory}");
+    // An export is one XML document, even though the HTML shows two panels.
+    let body = |svg: &str| {
+        svg.split_once('>')
+            .unwrap()
+            .1
+            .strip_suffix("</svg>")
+            .unwrap()
+            .to_owned()
+    };
+    let panel_height = 90 + data.len() * 30;
+    let svg = format!(
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 1000 {}\" role=\"img\" aria-label=\"Concurrent throughput and sampled process RSS\"><g>{}</g><g transform=\"translate(0 {panel_height})\">{}</g></svg>",
+        panel_height * 2,
+        body(&throughput),
+        body(&memory)
+    );
     std::fs::write(parent.join("assets/rust-load.svg"), &svg)?;
     document.push_str(&format!("<section><h2>동시 부하와 프로세스 메모리</h2><p>보존된 초기 실험은 rootless Docker cgroup driver none으로 컨테이너별 제한이 적용되지 않았습니다. 현재 결과의 cgroup 격리 여부와 실제 CPU·메모리 한도는 아래 원시 환경 값으로 확인합니다. worker 1/4, 새 컨테이너에서 3회 교대 반복. 10 ms 표본 RSS 합은 드라이버·init 포함, 공유 페이지 중복·순간 peak 누락 가능성이 있습니다. 페이지 캐시·daemon·빌드는 제외합니다. cgroup peak를 컨테이너 메모리로 해석하지 않습니다.</p><div class=\"chart\">{svg}</div><pre>{}</pre></section>",escape(&serde_json::to_string_pretty(&json!({"summary":load_summary,"cgroups":loads.iter().map(|r|json!({"workers":r["workers"],"requests":r["requests"],"backend":r["backend"],"isolated":r["cgroup_isolated"],"limits":r["container_cgroup"]})).collect::<Vec<_>>()}))?)));
     document.push_str(&format!("<section><h2>정확성·실패 처리 검증</h2><p>불일치 0건. 차등 {}건, 실제 스캐너 호스트·복귀 {}건, jq 1.6 호스트·복귀 {}건, 단위 {}건, Rust 감사 로그 {}건.</p><pre>{}</pre><p>측정 코어 커밋에 대한 Linux/macOS CI 증거입니다. 이후 PR의 최신 커밋 검사는 별도로 확인합니다.</p><pre>{}</pre></section>",differential["passed"],integration["passed"],legacy["passed"],supplemental["unit_passed"],supplemental["native_audit_passed"],escape(&serde_json::to_string_pretty(&verification)?),escape(&serde_json::to_string_pretty(&ci)?)));
