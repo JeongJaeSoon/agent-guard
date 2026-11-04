@@ -1,0 +1,81 @@
+{
+  "build": {
+    "control": {
+      "wall_seconds": 27.898515671,
+      "cpu_seconds": 92.081615,
+      "max_child_peak_rss_kib": 293568.0,
+      "sampled_peak_rss_sum_kib": 576640
+    },
+    "candidate": {
+      "wall_seconds": 30.891410778,
+      "cpu_seconds": 100.698673,
+      "max_child_peak_rss_kib": 828952.0,
+      "sampled_peak_rss_sum_kib": 866160
+    }
+  },
+  "hooks_public": {
+    "claude": {
+      "verified": true,
+      "baseline": {
+        "wall_seconds": 1.080814939,
+        "cpu_seconds": 1.1460730000000001,
+        "max_child_peak_rss_kib": 62192.0
+      },
+      "candidate": {
+        "wall_seconds": 0.40517862,
+        "cpu_seconds": 0.42850099999999997,
+        "max_child_peak_rss_kib": 34712.0
+      }
+    },
+    "codex": {
+      "verified": true,
+      "baseline": {
+        "wall_seconds": 1.072203897,
+        "cpu_seconds": 1.1355359999999999,
+        "max_child_peak_rss_kib": 62312.0
+      },
+      "candidate": {
+        "wall_seconds": 0.404392811,
+        "cpu_seconds": 0.426223,
+        "max_child_peak_rss_kib": 34652.0
+      }
+    }
+  },
+  "hooks_control": {
+    "claude": {
+      "verified": true,
+      "baseline": {
+        "wall_seconds": 1.109379243,
+        "cpu_seconds": 1.1739439999999999,
+        "max_child_peak_rss_kib": 63280.0
+      },
+      "candidate": {
+        "wall_seconds": 0.409486881,
+        "cpu_seconds": 0.435235,
+        "max_child_peak_rss_kib": 34652.0
+      },
+      "source_build_break_even": {
+        "wall_seconds": 5,
+        "cpu_seconds": 12
+      }
+    },
+    "codex": {
+      "verified": true,
+      "baseline": {
+        "wall_seconds": 1.089593656,
+        "cpu_seconds": 1.158751,
+        "max_child_peak_rss_kib": 62584.0
+      },
+      "candidate": {
+        "wall_seconds": 0.413536388,
+        "cpu_seconds": 0.438687,
+        "max_child_peak_rss_kib": 34780.0
+      },
+      "source_build_break_even": {
+        "wall_seconds": 5,
+        "cpu_seconds": 12
+      }
+    }
+  },
+  "limits": "Local 4CPU/16GiB, not CI2CPU/1GiB. Source-build break-even: one cold build then sequential measured off-cache many-leaf hooks using rebuilt control/candidate, same compiler. Not ordinary user installation or universal workload. Memory peaks cannot be amortized."
+}
