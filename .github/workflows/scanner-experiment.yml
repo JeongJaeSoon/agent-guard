@@ -1,0 +1,101 @@
+name: Scanner startup experiment
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/scanner-experiment.yml'
+      - 'bench/scanner/**'
+      - 'native/devtools/**'
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  platform:
+    name: Scanner contracts (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            target: x86_64-unknown-linux-musl
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+          - os: macos-15
+            target: aarch64-apple-darwin
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version: '1.26.0'
+          cache: false
+      - name: Build both scanner arms and run unchanged upstream expectations
+        run: |
+          sh bench/scanner/build-experiment.sh "$RUNNER_TEMP/scanners"
+          rustup toolchain install 1.85.1 --profile minimal
+          cargo +1.85.1 build --release --locked --manifest-path native/devtools/Cargo.toml
+          sh scripts/install-native-test-tools.sh "$RUNNER_TEMP/test-bin"
+          mkdir -p "$RUNNER_TEMP/public" "$RUNNER_TEMP/evidence"
+          curl -fsSL https://github.com/JeongJaeSoon/agent-guard/releases/download/v3.7.0/agent-guard-3.7.0.tar.gz -o "$RUNNER_TEMP/public.tar.gz"
+          printf '%s  %s\n' d6ff2d398643f789d0259c782f7760504836f4495471dba613e3abc46dc2bf3d "$RUNNER_TEMP/public.tar.gz" | shasum -a 256 -c -
+          tar -xzf "$RUNNER_TEMP/public.tar.gz" -C "$RUNNER_TEMP/public"
+      - name: Compiler-free corpus and host execution
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          export PATH="$RUNNER_TEMP/test-bin:/usr/bin:/bin:/usr/sbin:/sbin"
+          if command -v cargo || command -v rustc || command -v go; then exit 1; fi
+          driver=native/devtools/target/release/agent-guard-devtools
+          "$driver" scanner-differential --scanner "$RUNNER_TEMP/test-bin/gitleaks" \
+            --control-scanner "$RUNNER_TEMP/scanners/control/gitleaks" \
+            --candidate-scanner "$RUNNER_TEMP/scanners/candidate/gitleaks" \
+            --source "$RUNNER_TEMP/scanners/source/testdata" --out "$RUNNER_TEMP/evidence/corpus" \
+            > "$RUNNER_TEMP/evidence/corpus-summary.json" 2> "$RUNNER_TEMP/evidence/corpus.stderr"
+          "$driver" native-integration --core "$RUNNER_TEMP/public/libexec/agent-guard-redact-$TARGET" \
+            --scanner "$RUNNER_TEMP/scanners/candidate/gitleaks" \
+            > "$RUNNER_TEMP/evidence/host.json" 2> "$RUNNER_TEMP/evidence/host.stderr"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: scanner-contracts-${{ matrix.target }}
+          path: |
+            ${{ runner.temp }}/evidence/
+            ${{ runner.temp }}/scanners/control/
+            ${{ runner.temp }}/scanners/candidate/
+            ${{ runner.temp }}/scanners/*.txt
+            ${{ runner.temp }}/scanners/*.patch
+          if-no-files-found: error
+  performance:
+    name: Scanner constrained performance
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version: '1.26.0'
+          cache: false
+      - name: Build isolated candidates
+        run: |
+          sh bench/scanner/build-experiment.sh "$RUNNER_TEMP/scanners"
+          sh scripts/install-native-test-tools.sh "$RUNNER_TEMP/test-bin"
+      - name: Compare actual public Agent Guard with cold and warm readiness
+        run: |
+          sh bench/scanner/run-constrained.sh "$RUNNER_TEMP/test-bin/gitleaks" \
+            "$RUNNER_TEMP/scanners/control/gitleaks" "$RUNNER_TEMP/scanners/candidate/gitleaks" \
+            "$RUNNER_TEMP/performance"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: scanner-constrained-performance
+          path: ${{ runner.temp }}/performance/
+          if-no-files-found: error
