@@ -3,6 +3,26 @@
 내부 검증 기록. v3.6.14의 과거 측정은 `bench/results/rust-experiment/`에
 그대로 남겨 두고 이번 결과와 합산하지 않는다. 아직 v3.7.0 발행 완료 기록이 아니다.
 
+## 체크섬 비용 수정 후 후보 검증
+
+[PR #392](https://github.com/JeongJaeSoon/agent-guard/pull/392)의 head `4a3f4e7`에서
+필수 8개 포함 Actions 30개가 성공했다. [새 원본](../bench/results/rust-packaged/qualification-4a3f4e7/)은
+첫 릴리스 병합의 실패와 분리했다. AMD EPYC 7763에서 같은 2 CPU·1 GiB·swap 없음
+조건으로 비교했으며 앞선 EPYC 9V45의 절대 시간과 직접 비교하지 않는다.
+공개 3.6.15 CLI와 비교 기준 `9a0ee9e`의 차이는 VERSION 문자열뿐이다.
+
+Claude 목표 지연 −27.25%·CPU −25.99%, Codex −26.92%·−25.49%다.
+실패했던 `escaped-control`은 지연 −0.26%·CPU −0.51%이며 일반 경로 지연·CPU
+5% 초과 회귀는 없다. 동시 4개 처리량은 0.880 → 1.218 요청/초,
+CPU/요청은 2.256 → 1.620초, 표본 RSS 합은 301.453 → 302.160 MiB다.
+메모리 절감은 주장하지 않는다. swap 없음은 동일 Docker run 함수의 사전 실제
+cgroup 검사로 확인했으며 개별 부하 JSON에는 CPU·메모리 한도만 기록한다.
+
+네 플랫폼 모두 차등 1,024/0, 실제 scanner 호스트 90/0, 감사 116/0과
+컴파일러 없는 설치·업데이트·호스트 복귀 44건을 통과했다. 같은 head의 jq 1.6·zsh·
+Rust 미설치 Docker에서 packaged 44건과 전체 2,714건/실패 0도 확인했다.
+병합 커밋 `e709445`와 공개 배포 검증은 별도로 진행한다.
+
 ## 첫 릴리스 PR의 최종 후보 검증
 
 [PR #391](https://github.com/JeongJaeSoon/agent-guard/pull/391)의 최종 head
