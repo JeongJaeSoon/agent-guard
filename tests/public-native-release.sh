@@ -16,7 +16,7 @@ fi
 uname -a > "$out/platform.txt"
 base="https://github.com/JeongJaeSoon/agent-guard/releases/download/v$version"
 mkdir -p "$case_dir/download" "$case_dir/home"
-for asset in bootstrap.sh "agent-guard-$version.tar.gz" "agent-guard-$version.tar.gz.sha256" agent-guard.rb native-validation.json; do
+for asset in bootstrap.sh "agent-guard-$version.tar.gz" "agent-guard-$version.tar.gz.sha256" agent-guard.rb native-validation.json THIRD_PARTY_NOTICES.md; do
   curl -fsSL "$base/$asset" -o "$case_dir/download/$asset"
 done
 (cd "$case_dir/download" && shasum -a 256 -c "agent-guard-$version.tar.gz.sha256") > "$out/archive-checksum.txt"
@@ -27,6 +27,7 @@ jq -e --arg sha "$published_sha" '.release_sha == $sha and (.targets|length) == 
 printf '%s\n' "$published_sha" > "$out/published-tag-sha.txt"
 mkdir "$case_dir/payload"
 tar -xzf "$case_dir/download/agent-guard-$version.tar.gz" -C "$case_dir/payload"
+cmp "$case_dir/download/THIRD_PARTY_NOTICES.md" "$case_dir/payload/THIRD_PARTY_NOTICES.md"
 for target in x86_64-unknown-linux-musl aarch64-unknown-linux-musl x86_64-apple-darwin aarch64-apple-darwin; do
   name="agent-guard-redact-$target"
   curl -fsSL "$base/$name" -o "$case_dir/download/$name"

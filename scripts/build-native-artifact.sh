@@ -16,6 +16,7 @@ cargo +1.85.1 build --release --locked --target "$target" --manifest-path "$ROOT
 name="agent-guard-redact-$target"
 cp "$ROOT/native/redaction-core/target/$target/release/agent-guard-redact" "$out/$name"
 chmod 755 "$out/$name"
+cp "$ROOT/THIRD_PARTY_NOTICES.md" "$out/THIRD_PARTY_NOTICES.md"
 # Execute the very artifact that will be uploaded, including Unicode and shape.
 actual=$(printf '%s\n' '{"protocol":1,"response":{"text":"가 secret secret","type":"text","ok":false},"secrets":["secret"]}' | "$out/$name" redact-v1)
 [ "$actual" = '{"text":"가 [REDACTED] [REDACTED]","type":"text","ok":false}' ]

@@ -36,6 +36,29 @@ removes its installed plugin. Restart the host afterwards.
 
 ## Runtime dependencies
 
+The v3.7 release archive and Homebrew package include Rust literal-replacement
+helpers for Linux/macOS on x64/arm64. No Rust compiler is needed. The CLI uses
+the matching checksum-verified helper by default and falls back to shell/jq if
+it is absent or fails. Detection, policy, PII and host adapters remain in shell;
+the dependencies below are still required. To explicitly use shell:
+
+```sh
+export AGENT_GUARD_EXPERIMENTAL_REDACTOR=shell
+```
+
+Linux helpers use static musl and do not require glibc; actual execution is
+tested on Ubuntu 24.04. macOS helpers target macOS 14+ and are tested on macOS 15
+on both architectures. A deployment target does not prove every older OS/kernel
+works; unsupported environments retain the shell fallback. Packaged checksums
+detect corruption, not a malicious replacement of both the binary and checksum.
+
+Source archives and host-managed Git marketplace plugins contain no binaries
+and therefore use shell unless a trusted prebuilt helper is configured through
+the existing `AGENT_GUARD_RUST_CORE_BIN` override. The standalone installation
+can supply that helper without editing host caches. See the [native helper
+guide](https://github.com/JeongJaeSoon/agent-guard/blob/v3.7.0/docs/native-redactor.md)
+for selection, checksum verification and developer overrides.
+
 The runtime on macOS and Linux needs `sh`, `awk`, `git`, `jq`, and gitleaks
 8.30 or newer. It also needs one of `setsid` or Perl to run the gitleaks version
 probe in its own process group, which is what bounds the probe's time limit and

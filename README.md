@@ -131,6 +131,12 @@ also required to run the gitleaks version probe in its own process group.
 `agent-guard doctor` reports a missing isolation tool with the install command
 for your platform.
 
+Release archives and Homebrew packages use a prebuilt Rust helper for literal
+replacement, with checksum verification and shell fallback. Rust is not a
+runtime dependency; detection, policy and host adapters remain in shell.
+Git marketplace plugins remain source-only. See [installation](docs/installation.md)
+for platform requirements, explicit shell selection and prebuilt helper use.
+
 Default processing is local and ephemeral. Read [Privacy](PRIVACY.md) before
 enabling an endpoint-backed PII provider. Read [Security](SECURITY.md) for
 responsible disclosure and [Support](SUPPORT.md) for safe reports.

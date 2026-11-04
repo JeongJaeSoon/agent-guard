@@ -22,11 +22,13 @@ have separate homes so that completed investigations do not obscure setup help.
   [status-label classification](development/status-label-tests.md)
 - [Exec framing failure regression](development/exec-framing-boundary.md)
 - [Scoped Bash source observations](development/coverage-core.md)
-- [Experimental Rust helper](native-redactor.md)
+- [Rust helper, platform support and fallback](native-redactor.md)
 
 ## Performance and ongoing work
 
-- **Latest Rust experiment:** [한국어 graph report](rust-performance.ko.html),
+- **Packaged Rust rollout:** [qualification and measurements (한국어)](rust-packaged-validation.ko.md),
+  [goal and v4 design review (한국어)](rust-experiment-goal.ko.md).
+- **Earlier opt-in Rust experiment:** [한국어 graph report](rust-performance.ko.html),
   [goal and completion status](rust-experiment-goal.ko.md),
   [reproduction instructions](../bench/native/README.md),
   [raw measurements](../bench/results/rust-experiment/).
@@ -35,8 +37,9 @@ have separate homes so that completed investigations do not obscure setup help.
   [PR #360 masking measurements (한국어)](reports/masking-performance.ko.md).
 
 Measurements describe their recorded source and environment; they are not a
-claim that the current branch passed every platform gate. The Rust helper
-remains opt-in. Consult the goal document for outstanding work.
+claim that the current branch passed every platform gate. Release archives use
+the packaged helper with shell fallback; source-only plugins require an explicit
+prebuilt override. Consult the goal document for outstanding work.
 
 ## Keeping this directory useful
 

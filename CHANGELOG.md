@@ -1,3 +1,25 @@
+## v3.7.0 - 2026-11-04
+
+기존 CLI·설정·출력·종료 코드·마스킹 정책과 호스트 계약을 유지하면서, 검증된 문자열 치환 코어를 사전 빌드 Rust 바이너리로 제공합니다. 일반 사용자는 Rust를 설치할 필요가 없습니다. 탐지·PII·정책·호스트 어댑터는 셸에 남으며 전체 Rust 재작성이 아닙니다.
+
+### 배포와 복구
+
+- Linux/macOS × x64/arm64 바이너리와 SHA-256을 공개 자산 및 기존 universal archive에 포함합니다. Linux는 정적 musl이며 glibc 의존성이 없습니다. macOS 배포 대상은 14 이상이고 실제 검증 환경은 두 아키텍처 모두 macOS 15입니다. 그 밖의 OS·커널 실행까지 입증한 것으로 일반화하지 않습니다.
+- 배포 아카이브와 Homebrew에서는 해당 플랫폼 바이너리의 체크섬을 확인하고 기본으로 사용합니다. 부재·손상·체크섬 불일치·실행 오류·빈/부분/복수 JSON 출력은 원래 셸/jq 경로로 복귀합니다. `AGENT_GUARD_EXPERIMENTAL_REDACTOR=shell`은 명시적 셸 선택으로 유지합니다.
+- Git marketplace 플러그인과 소스 아카이브는 바이너리가 없으므로 셸을 사용합니다. 기존 `AGENT_GUARD_RUST_CORE_BIN`으로 검증된 독립 설치의 바이너리를 지정할 수 있으며 Rust 컴파일이나 호스트 캐시 수정은 필요하지 않습니다.
+- 업데이트를 기존 설치 옆에서 준비하고 검증한 뒤 같은 파일시스템에서 교체합니다. 추출·커밋·공개 링크 실패 및 INT/TERM에 대해 기존 정상 설치를 복구합니다. SIGKILL·전원 손실 때의 남은 `previous` 디렉터리 복구는 설치 안내를 따릅니다.
+- 릴리스는 최종 PR head와 병합 커밋의 필수 검사 및 네 플랫폼 실제 실행·설치·성능 검증을 요구합니다. 다른 SHA의 바이너리를 발행하거나 기존 공개 자산을 덮어쓰지 않습니다.
+
+### 측정과 범위
+
+기본 전환 전 Linux x64의 실제 2 CPU·1 GiB·swap 없음 제한에서, 같은 입력·gitleaks 8.30.1·설정으로 시작 비용과 배포 체크섬 검증까지 포함해 측정했습니다. Claude 목표 경로 지연 22.20%·CPU 20.68%, Codex 지연 21.96%·CPU 21.06%가 개선됐고 일반 경로 지연 5% 초과 회귀는 없었습니다. 동시 작업 4개 처리량은 1.562→2.059 요청/초입니다. 이는 해당 입력·환경의 결과이며 다른 플랫폼의 성능이나 메모리 절감 입증이 아닙니다.
+
+- [지원 조건·선택·실패 복귀](https://github.com/JeongJaeSoon/agent-guard/blob/v3.7.0/docs/native-redactor.md)
+- [실측 검증 기록과 재현 방법](https://github.com/JeongJaeSoon/agent-guard/blob/v3.7.0/docs/rust-packaged-validation.ko.md)
+- [새 측정 원본](https://github.com/JeongJaeSoon/agent-guard/tree/v3.7.0/bench/results/rust-packaged/qualification-30d7df8)
+
+현재 병목만으로 호환성을 깨야 할 필요성은 입증되지 않았습니다. 영역별 후속 후보와 판단 근거를 문서화했고, 버전 번호를 위한 v4 변경은 추가하지 않았습니다.
+
 ## v3.6.15 - 2026-11-04
 
 ### 변경 사항

@@ -1,4 +1,4 @@
-<!-- translated-from: README.md; source-blob: f24030f908fb7bfe371e9e4da72cbdeb225d1317 -->
+<!-- translated-from: README.md; source-blob: f5b84578e7b4a21fc467c55f0d61fda258c7b9a7 -->
 
 <p align="center">
   <a href="https://github.com/JeongJaeSoon/agent-guard/releases"><img src="docs/assets/icon.png" alt="Agent Guard icon" width="128" height="128"></a>
@@ -98,6 +98,8 @@ agent-guard logs export --output agent-guard-support.jsonl
 <a id="requirements-and-scope"></a>
 
 ## 요구 사항과 범위
+
+릴리스 아카이브와 Homebrew 패키지는 체크섬 검증과 셸 복귀를 갖춘 사전 빌드 Rust 문자열 치환기를 사용합니다. Rust는 실행 의존성이 아니며 탐지·정책·호스트 어댑터는 셸에 남습니다. Git marketplace 플러그인은 소스로만 배포합니다. 플랫폼 조건, 명시적 셸 선택과 사전 빌드 치환기 사용은 [설치 안내](docs/installation.ko.md)를 참고하세요.
 
 지원 플랫폼은 x64·arm64의 macOS와 Linux입니다. 실행 의존성은 `sh`, `awk`, `git`, `jq`, gitleaks 8.30 이상입니다. 현재 Windows는 지원하지 않습니다. gitleaks 버전 확인을 별도 프로세스 그룹에서 실행하려면 Linux `util-linux`의 `setsid` 또는 Perl 중 하나도 필요합니다. `agent-guard doctor`는 격리 도구가 없으면 플랫폼별 설치 명령을 표시합니다.
 

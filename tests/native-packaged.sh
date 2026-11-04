@@ -53,7 +53,11 @@ for host in claude codex; do
     printf '%s\n' "$payload" | AGENT_GUARD_EXPERIMENTAL_REDACTOR=rust "$cli" hook-post-tool > "$case_dir/actual"
     cmp "$case_dir/expected" "$case_dir/actual"
     test ! -e "$NATIVE_UNVERIFIED_MARKER"
-    count=$((count + 1))
+    (unset AGENT_GUARD_EXPERIMENTAL_REDACTOR
+     printf '%s\n' "$payload" | "$cli" hook-post-tool) > "$case_dir/actual"
+    cmp "$case_dir/expected" "$case_dir/actual"
+    test ! -e "$NATIVE_UNVERIFIED_MARKER"
+    count=$((count + 2))
     printf 'ok - %s packaged %s preserves full shell output\n' "$host" "$fault"
   done
 done
@@ -71,7 +75,15 @@ printf '%s\n' "$payload" | AGENT_GUARD_EXPERIMENTAL_REDACTOR=rust "$cli" hook-po
 cmp "$case_dir/expected" "$case_dir/actual"
 test -s "$NATIVE_TEST_MARKER"
 rm "$NATIVE_TEST_MARKER"
+(unset AGENT_GUARD_EXPERIMENTAL_REDACTOR
+ printf '%s\n' "$payload" | "$cli" hook-post-tool) > "$case_dir/actual"
+cmp "$case_dir/expected" "$case_dir/actual"
+test -s "$NATIVE_TEST_MARKER"
+rm "$NATIVE_TEST_MARKER"
 printf '%s\n' "$payload" | AGENT_GUARD_EXPERIMENTAL_REDACTOR=shell "$cli" hook-post-tool > "$case_dir/actual"
 cmp "$case_dir/expected" "$case_dir/actual"
 test ! -e "$NATIVE_TEST_MARKER"
-printf 'passed: %s; verified native invocation and explicit shell selection\n' "$count"
+printf '%s\n' "$payload" | AGENT_GUARD_EXPERIMENTAL_REDACTOR= "$cli" hook-post-tool > "$case_dir/actual"
+cmp "$case_dir/expected" "$case_dir/actual"
+test ! -e "$NATIVE_TEST_MARKER"
+printf 'passed: %s; verified default/explicit native invocation and explicit shell/empty selection\n' "$count"

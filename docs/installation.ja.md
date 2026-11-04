@@ -1,4 +1,4 @@
-<!-- translated-from: docs/installation.md; source-blob: 24dc7fff276235c964db8a242b5693f4dbae48e8 -->
+<!-- translated-from: docs/installation.md; source-blob: 925371b250c691400ef7aed889100d032487417b -->
 
 <a id="installing-agent-guard"></a>
 
@@ -34,6 +34,16 @@ codex plugin add agent-guard@agent-guard
 <a id="runtime-dependencies"></a>
 
 ## 実行時の依存関係
+
+v3.7のリリースアーカイブとHomebrewパッケージには、Linux/macOSのx64/arm64用Rust文字列置換ヘルパーが含まれます。Rustコンパイラーは不要です。CLIは対象プラットフォームのチェックサムを検証したヘルパーを既定で使用し、不在や失敗時はshell/jqへ戻ります。検出・ポリシー・PII・host adapterはshellに残るため、以下の依存関係は引き続き必要です。shellを明示的に選択するには次を設定してください。
+
+```sh
+export AGENT_GUARD_EXPERIMENTAL_REDACTOR=shell
+```
+
+Linuxヘルパーは静的muslを使うためglibcは不要で、Ubuntu 24.04で実行を検証します。macOSヘルパーのdeployment targetはmacOS 14以降で、両アーキテクチャともmacOS 15で検証します。deployment targetの設定だけでは、すべての古いOS・カーネルで動作する証拠にはなりません。未対応環境ではshellへのフォールバックを維持します。配布チェックサムは破損を検出しますが、バイナリとチェックサムの両方が悪意をもって置き換えられた場合の認証にはなりません。
+
+ソースアーカイブとhost管理のGit marketplaceプラグインにはバイナリがないため、既存の `AGENT_GUARD_RUST_CORE_BIN` で信頼できるビルド済みヘルパーを指定しなければshellを使います。スタンドアロン版のヘルパーを使えばhostのキャッシュを編集する必要はありません。選択・チェックサム検証・開発者の上書き設定は[ネイティブヘルパーガイド（英語）](https://github.com/JeongJaeSoon/agent-guard/blob/v3.7.0/docs/native-redactor.md)を参照してください。
 
 macOSとLinuxでの実行には `sh`、`awk`、`git`、`jq`、gitleaks 8.30以降が必要です。gitleaksのバージョン確認を独立したプロセスグループで実行するため、`setsid` またはPerlも必要です。この隔離によって、確認処理の時間制限と子プロセスの後処理が可能になります。Linuxでは `sudo apt-get install -y util-linux` または `sudo dnf install -y util-linux` で `setsid` を導入してください。HomebrewのformulaはCLIとともにPerlを導入します。macOSの手動導入でどちらもない場合は `brew install perl` を使えます。
 

@@ -1,4 +1,4 @@
-<!-- translated-from: docs/installation.md; source-blob: 24dc7fff276235c964db8a242b5693f4dbae48e8 -->
+<!-- translated-from: docs/installation.md; source-blob: 925371b250c691400ef7aed889100d032487417b -->
 
 <a id="installing-agent-guard"></a>
 
@@ -34,6 +34,16 @@ codex plugin add agent-guard@agent-guard
 <a id="runtime-dependencies"></a>
 
 ## 실행 의존성
+
+v3.7 릴리스 아카이브와 Homebrew 패키지에는 Linux/macOS x64/arm64용 Rust 문자열 치환기가 포함됩니다. Rust 컴파일러는 필요하지 않습니다. CLI는 해당 플랫폼의 체크섬을 검증한 치환기를 기본으로 사용하며, 바이너리가 없거나 실패하면 셸/jq로 복귀합니다. 탐지·정책·PII·호스트 어댑터는 셸에 남으므로 아래 의존성은 계속 필요합니다. 셸을 명시적으로 선택하려면 다음을 설정하세요.
+
+```sh
+export AGENT_GUARD_EXPERIMENTAL_REDACTOR=shell
+```
+
+Linux 치환기는 정적 musl을 사용해 glibc가 필요하지 않으며 Ubuntu 24.04에서 실제 실행을 검사합니다. macOS 치환기의 배포 대상은 macOS 14 이상이며 두 아키텍처 모두 macOS 15에서 검사합니다. 배포 대상 설정만으로 모든 이전 OS·커널의 실행이 입증되지는 않습니다. 미지원 환경은 셸 복귀를 유지합니다. 배포 체크섬은 손상을 탐지하며 바이너리와 체크섬이 함께 악의적으로 교체된 경우를 인증하지는 않습니다.
+
+소스 아카이브와 호스트가 관리하는 Git marketplace 플러그인에는 바이너리가 없으므로 기존 `AGENT_GUARD_RUST_CORE_BIN`으로 신뢰하는 사전 빌드 치환기를 지정하지 않으면 셸을 사용합니다. 독립 설치의 치환기를 사용하면 호스트 캐시를 수정할 필요가 없습니다. 선택·체크섬 검증·개발자 재정의는 [네이티브 치환기 안내(영어)](https://github.com/JeongJaeSoon/agent-guard/blob/v3.7.0/docs/native-redactor.md)를 참고하세요.
 
 macOS와 Linux에서 실행하려면 `sh`, `awk`, `git`, `jq`, gitleaks 8.30 이상이 필요합니다. gitleaks 버전 확인을 별도 프로세스 그룹에서 실행하기 위한 `setsid` 또는 Perl도 필요합니다. 이 격리로 버전 확인의 시간 제한과 자식 프로세스 정리를 보장합니다. Linux에서는 `sudo apt-get install -y util-linux` 또는 `sudo dnf install -y util-linux`로 `setsid`를 설치하세요. Homebrew formula는 CLI와 함께 Perl을 설치합니다. macOS에서 수동 설치했고 두 도구가 모두 없다면 `brew install perl`을 사용할 수 있습니다.
 
