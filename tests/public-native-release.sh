@@ -21,6 +21,10 @@ for asset in bootstrap.sh "agent-guard-$version.tar.gz" "agent-guard-$version.ta
 done
 (cd "$case_dir/download" && shasum -a 256 -c "agent-guard-$version.tar.gz.sha256") > "$out/archive-checksum.txt"
 cp "$case_dir/download/native-validation.json" "$out/"
+published_sha=$(git ls-remote https://github.com/JeongJaeSoon/agent-guard.git "refs/tags/v$version" | awk 'NR == 1 {print $1}')
+[ "${#published_sha}" -eq 40 ]
+jq -e --arg sha "$published_sha" '.release_sha == $sha and (.targets|length) == 4' "$out/native-validation.json" >/dev/null
+printf '%s\n' "$published_sha" > "$out/published-tag-sha.txt"
 mkdir "$case_dir/payload"
 tar -xzf "$case_dir/download/agent-guard-$version.tar.gz" -C "$case_dir/payload"
 for target in x86_64-unknown-linux-musl aarch64-unknown-linux-musl x86_64-apple-darwin aarch64-apple-darwin; do
