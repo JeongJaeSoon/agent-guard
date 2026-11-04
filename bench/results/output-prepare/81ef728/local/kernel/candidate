@@ -1,0 +1,2 @@
+#!/bin/sh
+exec /workspace/agent-guard-output/native/redaction-core/target/release/agent-guard-redact prepare-v1 "$1/plain" "$1/framed" < "$1/response.json"

@@ -1,0 +1,9 @@
+#!/bin/sh
+case "$*" in
+  *'invalid scanner report'*) stage=scanner-report-parse ;;
+  *'join("\n")'*) stage=json-leaf-extraction ;;
+  *'split("\u001f")'*) stage=json-leaf-framing ;;
+  *'updatedToolOutput'*) stage=host-output-format ;;
+  *) stage=json-other ;;
+esac
+exec "$PROFILE_DRIVER" resource-sample "$PROFILE_SAMPLES/$stage.$$" /usr/bin/jq "$@"

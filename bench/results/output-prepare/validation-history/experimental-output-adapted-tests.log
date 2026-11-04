@@ -1,0 +1,949 @@
+ok - scanner report validation stays fail-closed
+ok - symlink to a deny-listed target is blocked via realpath resolution
+ok - Bash cat of a template-named symlink to a real secret is blocked (#132)
+ok - Bash cat of the real .env behind the symlink is blocked
+ok - Read of the template-named symlink is blocked (parity with Bash gate)
+ok - Bash cat of sample.env symlink to a real env file is blocked
+ok - Read of sample.env symlink to a real env file is blocked
+ok - Bash cat of a relative template symlink is blocked when workdir differs from cwd (#132)
+ok - Bash cat of a relative genuine template stays allowed across workdir cd
+ok - Bash inline cwd change cannot hide a relative template symlink
+ok - Bash wrapper cwd change cannot hide a relative template symlink
+ok - Bash path-qualified wrapper cwd change cannot hide a relative template symlink
+ok - Bash direct relative genuine template stays allowed
+ok - static source-module prose keeps executable inputs protected
+ok - Bash inline cd cannot hide a source-module symlink
+ok - Bash git -C cannot hide a source-module symlink
+ok - Bash absolute cd cannot hide a source-module symlink
+ok - Bash env -C cannot hide a source-module symlink
+ok - Bash logical cd through a symlink stays conservative
+ok - Bash redirection before the cd operand stays conservative
+ok - Bash redirection before the -C operand stays conservative
+ok - Bash bare cd target stays conservative (CDPATH, cdable_vars)
+ok - Bash sourced script stays conservative
+ok - Bash sourced script without cd stays conservative
+ok - Bash eval-quoted cd cannot hide a source-module symlink
+ok - Bash sh -c quoted cd cannot hide a template symlink
+ok - Bash prose naming a source module stays allowed
+ok - Bash inline cd keeps a genuine source module readable
+ok - Bash absolute cd keeps git add of a source module allowed
+ok - Bash git -C keeps git add of a source module allowed
+ok - Bash inline cd keeps a genuine template readable
+ok - Bash dynamic cd target stays conservative
+ok - Bash two cwd changes stay conservative
+ok - Bash tilde cd target stays conservative
+ok - Bash cd does not unblock a runtime dotenv
+ok - Bash cat of a genuine regular-file .env.example template stays allowed
+ok - Bash cat of a genuine regular-file sample.env template stays allowed
+ok - Action installer preserves status and cleans temporary downloads
+ok - action.yml env-var paths pattern resists shell injection
+ok - version subcommand prints program/version
+ok - version output starts with program name
+ok - help subcommand exits 0
+ok - no args exits 0 with usage on stderr
+ok - unknown subcommand exits 2
+ok - help lists smoke-test
+ok - help lists pii-filter
+ok - check passes when deps and configs exist
+ok - check rejects an incompatible gitleaks version
+ok - incompatible gitleaks error reports the required version
+ok - pii-filter regex provider masks common PII
+ok - pii-filter leaves clean text unchanged
+ok - pii-filter preserves clean text without trailing newline
+ok - pii-filter preserves masked text without trailing newline
+ok - pii-filter --check passes for default regex provider
+ok - pii-filter --check passes for explicit regex provider
+ok - pii-filter rejects unknown providers
+ok - pii-filter provider error lists the accepted values
+ok - pii-filter provider rejection does not fall through to pass-through output
+ok - pii-filter reports a rejected provider exactly once
+ok - pii-filter --check rejects unknown providers
+ok - pii-filter help lists the accepted values
+ok - pii-filter help marks the http adapter experimental
+ok - pii-filter unknown provider does not reach the endpoint adapter
+ok - pii-filter endpoint provider fails closed before curl when request serialization fails
+ok - pii-filter experimental http adapter uses endpoint response
+ok - pii-filter endpoint adapter sends text JSON payload
+ok - pii-filter endpoint adapter uses AGENT_GUARD_PII_REDACT_URL
+ok - pii-filter pleno provider uses the verified text response
+ok - pii-filter pleno provider sends text and explicit default language
+ok - pii-filter endpoint adapter applies a bounded default timeout
+ok - pii-filter pleno provider accepts explicit Japanese language
+ok - pii-filter pleno provider rejects invalid language before network access
+ok - pii-filter pleno provider accepts an empty string response
+ok - pii-filter pleno provider rejects generic http response aliases
+ok - pii-filter pleno provider fails closed on malformed JSON
+ok - pii-filter http provider fails closed without partial output on empty-response response
+ok - pii-filter http provider fails closed without partial output on multi response
+ok - pii-filter http provider fails closed without partial output on valid-bad-json response
+ok - pii-filter http provider fails closed without partial output on wrong-type response
+ok - pii-filter pleno provider fails closed without partial output on empty-response response
+ok - pii-filter pleno provider fails closed without partial output on multi response
+ok - pii-filter pleno provider fails closed without partial output on valid-bad-json response
+ok - pii-filter pleno provider fails closed without partial output on wrong-type response
+ok - pii-filter http provider accepts an empty string response
+ok - pii-filter http provider preserves exact response bytes for exact text
+ok - pii-filter http provider preserves exact response bytes for exact-newline text
+ok - pii-filter pleno provider preserves exact response bytes for exact text
+ok - pii-filter pleno provider preserves exact response bytes for exact-newline text
+ok - pii-filter pleno provider passes endpoint check
+ok - PII hook block mode uses the pleno provider
+ok - PII hook endpoint request is capped below the host timeout
+ok - pii-filter pleno provider fails closed on timeout
+ok - pii-filter pleno provider fails closed on HTTP failure
+ok - pii-filter endpoint failure hides URL credentials and remote stderr
+ok - pii-filter pleno provider fails closed when URL is missing
+ok - pii-filter pleno provider rejects invalid timeout before network access
+ok - pii-filter experimental http adapter passes endpoint check
+ok - pii-filter endpoint provider fails closed when URL is missing
+ok - pii-filter endpoint provider fails closed on HTTP failure
+ok - pii-filter endpoint provider fails closed on bad response shape
+ok - pii-filter endpoint provider fails closed when curl is missing
+ok - pii-filter endpoint provider fails closed when jq is missing
+ok - setup --help exits 0
+ok - setup unknown flag exits 2
+ok - setup with all deps present exits 0
+ok - doctor reports a newer release without changing its exit status
+ok - doctor reports the latest release when it matches the installed version, with a bounded lookup
+ok - doctor prints an older published release verbatim instead of claiming latest
+ok - doctor reports latest unknown when curl is absent from PATH
+ok - doctor reports latest unknown when the release lookup fails
+ok - doctor rejects unexpected redirect target and never echoes it
+ok - doctor rejects unexpected redirect target and never echoes it
+ok - doctor rejects unexpected redirect target and never echoes it
+ok - doctor rejects unexpected redirect target and never echoes it
+ok - doctor rejects unexpected redirect target and never echoes it
+ok - doctor rejects unexpected redirect target and never echoes it
+ok - AGENT_GUARD_RELEASE_CHECK=off skips the release lookup entirely
+ok - doctor performs exactly one HEAD lookup against releases/latest
+ok - scan-path is clean for benign directory
+ok - scan-path detects secret via mock gitleaks
+ok - scan-path with multiple paths returns 1 if any has a leak
+ok - scan-path accepts -- arg terminator before paths
+ok - scan-path dies when given a missing path
+ok - scan-path dies with no paths
+ok - empty stdin to hook-pre-tool is allowed
+ok - unknown tool name passes through hook-pre-tool
+ok - Read on benign path passes
+ok - Bash on benign command passes
+ok - live PreToolUse sentinel is blocked before execution
+ok - MultiEdit with one secret edit is blocked
+ok - MultiEdit with all-clean edits passes
+ok - Write with no content key passes
+ok - Edit with clean new_string passes
+ok - NotebookEdit with secret new_source is blocked
+ok - NotebookEdit with clean new_source passes
+ok - hook-post-tool ignores non-mutation tools
+ok - hook-post-tool blocks when working tree has a new secret
+ok - hook-stop allows clean working tree when not active
+ok - hook-stop blocks when working tree has a secret and not active
+ok - hook-post-tool silently skips when cwd is not a git work tree
+ok - hook-stop silently skips when cwd is not a git work tree
+ok - hook-post-tool scans the repository root from payload cwd subdirectories
+ok - hook-stop scans the repository root from payload workdir subdirectories
+ok - hook-post-tool blocks a Write to a path git skips
+ok - hook-post-tool allows a clean Write to a path git skips
+ok - hook-post-tool blocks an Edit whose skipped target file holds a secret
+ok - hook-post-tool leaves committed tracked content to the working-tree backstop
+ok - hook-post-tool blocks an Edit to a skip-worktree tracked file
+ok - hook-post-tool blocks an Edit to an assume-unchanged tracked file
+ok - hook-post-tool allows a clean Edit to a skip-worktree tracked file
+ok - hook-post-tool allows a clean Edit to an assume-unchanged tracked file
+ok - hook-post-tool still catches a tracked file that matches .gitignore
+ok - hook-post-tool leaves a tracked ignored file to the working-tree backstop
+ok - hook-post-tool follows a symlink out of a skipped directory
+ok - hook-post-tool blocks a Write outside any git repository
+ok - hook-post-tool allows a clean Write outside any git repository
+ok - hook-post-tool blocks a Write into a different repository
+ok - hook-post-tool stays silent when the written path does not exist
+ok - hook-post-tool skips a written path that is not a regular file
+ok - hook-post-tool continues on an unscannable written path when the policy is open
+ok - hook-post-tool blocks an unscannable written path when the policy is closed
+ok - scan-staged reports unavailable when git diff fails
+ok - scan-working-tree reports unavailable when git diff fails
+ok - non-git PreTool secret checks remain active when git is unavailable
+ok - git-only PreTool gating follows the default open policy when git is unavailable
+ok - git-only PreTool gating supports closed policy when git is unavailable
+ok - PostTool repository gating follows open policy and output redaction remains active without git
+ok - #125 control: scan-staged catches a staged secret with real git
+ok - #125 scan-staged fails closed when git diff fails
+ok - #125 control: scan-working-tree catches a tracked-mod secret with real git
+ok - #125 scan-working-tree fails closed when git diff fails
+ok - #125 control: scan-working-tree allows a clean tree with real git
+ok - #126 scan-staged from a subdir catches a secret staged at repo root
+ok - #126 control: scan-staged from a subdir allows a clean tree
+ok - #126 scan-working-tree from a subdir catches an untracked secret at repo root
+ok - #126 commit gate from a subdir blocks a secret staged at repo root
+ok - #126 hook-post-tool scans the event workdir repo, not the process cwd
+ok - #126 control: hook-post-tool allows a clean event-workdir repo
+ok - #126 hook-stop scans the event workdir root, not the process cwd subdir
+ok - #126 control: hook-stop allows a clean event-workdir repo
+ok - scan-path fail-closes when gitleaks itself errors
+ok - scan-path fail-closes when gitleaks exits 0 but reports an error
+ok - hook-pre-tool follows the default open policy when gitleaks errors
+ok - hook-pre-tool supports opt-in closed policy when gitleaks errors
+ok - deny-bash-patterns invalid ERE fails closed
+ok - deny-read-paths invalid generated ERE fails closed in Bash scan
+ok - valid deny-read file still allows a benign Bash command
+ok - valid deny-read file still blocks a deny-listed path in a Bash command
+ok - custom deny-read policy overrides a Read template exception
+ok - custom deny-read policy overrides a Bash template exception
+ok - custom directory deny overrides a nested template exception
+ok - custom deny-read policy overrides a Read source-module exception
+ok - custom deny-read policy overrides a Bash source-module exception
+ok - deny-read-paths loop fails closed when a bad entry follows a valid one
+ok - object tool_input blocks a deny pattern (baseline)
+ok - string-encoded tool_input blocks a deny pattern (no fail-open)
+ok - string-encoded Write tool_input with a secret is blocked
+ok - benign string-encoded tool_input is allowed
+ok - benign string-encoded Write tool_input is allowed
+ok - non-JSON string Bash tool_input is allowed (no command to scan)
+ok - array-decoding string Bash tool_input is allowed (no command to scan)
+ok - raw-string MCP tool_input with a secret is blocked (no coerce-to-{} fail-open)
+ok - array-encoded-string MCP tool_input with a secret is blocked
+ok - scan-path reports unavailable when gitleaks is missing
+ok - direct scan dependency statuses and recovery
+ok - deterministic gitleaks resolution and capability diagnostics
+ok - gitleaks readiness cache reuses only a fresh verdict for the same binary
+ok - setup and manifest hook outcome contracts
+ok - setup exits 1 when gitleaks missing
+ok - setup --install without --gitleaks-checksum exits 2
+ok - setup exits 1 when git is missing
+ok - setup --install still exits 1 when git is missing
+ok - hook degrades open with an actionable setup warning when dependencies are missing
+ok - Codex hook degrades open with Codex setup guidance
+ok - Claude hook degrades open with Claude setup guidance
+not ok - degraded dependency warning is emitted only once per session
+  stderr: agent-guard: gitleaks readiness failed (state=missing, detail=none)
+ok - missing hook dependencies follow the opt-in closed infrastructure policy
+ok - hook-pre-tool validates before missing gitleaks attempt 1
+ok - hook-pre-tool validates before missing gitleaks attempt 2
+ok - hook-post-tool validates before missing gitleaks attempt 1
+ok - hook-post-tool validates before missing gitleaks attempt 2
+ok - hook-stop validates before missing gitleaks attempt 1
+ok - hook-stop validates before missing gitleaks attempt 2
+ok - post-tool validates malformed input before a missing policy file
+ok - valid hook input with a missing policy still follows degraded-open semantics
+ok - jq-missing hook input retains the default degraded-open policy
+ok - jq-missing hook input retains the opt-in degraded-closed policy
+ok - hook readiness treats the portable fallback awk as a required dependency
+ok - hook dependencies reject a policy file with no active rules
+ok - exec fails closed before running a command when masking dependencies are missing
+ok - check discovers gitleaks in Agent Guard's private install directory
+ok - *** Delete File: hunk produces no scannable content
+ok - *** Update File: hunk added line is scanned
+ok - *** Update File: context-only hunk is allowed
+ok - MCP input without secret passes
+ok - MCP input with secret in nested object is blocked
+ok - scan-staged exits 3 (cannot scan) outside a git work tree
+ok - commit from a non-repo cwd follows the default open infrastructure policy
+ok - unscannable commit names the reason and the directory
+ok - unscannable commit message keeps the agent-guard: prefix
+ok - unscannable commit message does not name an internal subcommand
+ok - unscannable commit is not reported as a secret detection
+ok - default open infrastructure policy is explicit in the warning
+ok - infrastructure policy warning is deduplicated once per session
+ok - closed infrastructure policy blocks an unscannable commit
+ok - commit with a staged secret is still blocked
+ok - secret detection is reported as a detection, not as a scan failure
+ok - install.sh git-hooks succeeds in a clean repo
+ok - install.sh sets core.hooksPath=githooks
+ok - install.sh writes an executable githooks/pre-commit
+ok - installed native git hook blocks a staged secret
+ok - install.sh quotes generated hook paths safely
+ok - installed hook works when agent path contains a quote
+ok - install.sh refuses to overwrite an existing core.hooksPath
+ok - install.sh chains an existing .git/hooks/pre-commit
+ok - installed hook runs the pre-existing pre-commit hook
+ok - install.sh git-hooks re-run succeeds on an already-installed repo
+ok - re-running install.sh keeps the legacy pre-commit chained
+ok - install.sh refreshes a stale matched hook to the resolved binary
+ok - refreshed hook is group/other readable and executable (755, not 711)
+ok - install.sh fails closed when the core.hooksPath write fails
+ok - install.sh clean fresh install still succeeds and wires core.hooksPath
+ok - install.sh unknown subcommand exits 2
+ok - install.sh check passes
+ok - release tarball builder succeeds
+ok - release tarball contains the CLI, installer, managed settings, and exact consolidated README with demo and icon
+ok - extracted release installer check resolves the archive layout
+ok - Homebrew formula renderer emits a pinned release
+ok - Homebrew formula pins release, installs CLI dependencies, and checks the guard
+ok - Homebrew formula renderer rejects a malformed checksum
+ok - Homebrew formula renderer rejects a malformed version
+ok - release workflow generates and uploads the Homebrew formula
+ok - githooks/pre-commit blocks commits with staged secrets
+ok - Codex full-payload Bash on .env is blocked
+ok - Codex full-payload apply_patch with secret is blocked
+ok - scan-working-tree single-shot detects a secret among 5 untracked files
+ok - single-shot scan reports an 'untracked files' label
+ok - scan-working-tree detects a secret in a non-ASCII untracked filename
+ok - over-limit untracked input reports the intended secret-safe size diagnostic
+ok - untracked scanning preserves a special filename and detects its finding
+ok - below-limit untracked input scans clean
+ok - genuine untracked file-read failure uses a bounded generic preparation diagnostic
+ok - over-limit untracked input preserves open hook policy
+ok - over-limit untracked input preserves closed hook policy
+ok - AGENT_GUARD_SCAN_INPUT_MAX_BYTES lifts the untracked scan input limit
+ok - over-limit staged diff reports the scan input limit with its byte budget
+ok - over-limit working-tree diff reports the scan input limit
+ok - genuine git diff failure stays distinct from the scan input limit
+ok - genuine git diff failure relays one bounded, sanitized git stderr line
+ok - silent git diff failure emits no empty git stderr line
+ok - clean scan-staged emits no git stderr line
+ok - flooded git diff stderr is bounded at capture and still relays one line
+ok - noisy-but-successful git diff is not killed by SIGPIPE on stderr
+ok - over-limit diff preserves open hook policy
+ok - over-limit diff preserves closed hook policy
+ok - over-limit diff diagnostic names AGENT_GUARD_SCAN_INPUT_MAX_BYTES
+ok - AGENT_GUARD_SCAN_INPUT_MAX_BYTES lifts the staged diff scan input limit
+ok - AGENT_GUARD_SCAN_INPUT_MAX_BYTES='abc' keeps the default budget
+ok - AGENT_GUARD_SCAN_INPUT_MAX_BYTES='0' keeps the default budget
+ok - AGENT_GUARD_SCAN_INPUT_MAX_BYTES='000' keeps the default budget
+ok - AGENT_GUARD_SCAN_INPUT_MAX_BYTES='-1' keeps the default budget
+ok - AGENT_GUARD_SCAN_INPUT_MAX_BYTES='' keeps the default budget
+ok - AGENT_GUARD_SCAN_INPUT_MAX_BYTES='1' keeps the default budget
+ok - AGENT_GUARD_SCAN_INPUT_MAX_BYTES='10485759' keeps the default budget
+ok - AGENT_GUARD_SCAN_INPUT_MAX_BYTES='9223372036854775808' keeps the default budget
+ok - AGENT_GUARD_SCAN_INPUT_MAX_BYTES='1000000000000000000000' keeps the default budget
+ok - AGENT_GUARD_SCAN_INPUT_MAX_BYTES accepts a leading-zero positive value
+ok - AGENT_GUARD_SCAN_INPUT_MAX_BYTES equal to the default keeps the default budget
+ok - AGENT_GUARD_SCAN_INPUT_MAX_BYTES=1 cannot shrink the budget below a small clean diff
+ok - raised budget unblocks the closed-policy stop hook end to end
+ok - check prints a gitleaks version line
+ok - scan-staged scans TOML fragments without guessing multiline-string context
+ok - Edit scans a structural TOML-looking fragment conservatively
+ok - Edit scans a structural uv.lock fragment conservatively
+ok - Edit does not infer a complete go.sum record from a replacement fragment
+ok - MultiEdit scans structural TOML-looking fragments conservatively
+ok - apply_patch scans structural TOML-looking fragments conservatively
+ok - apply_patch scans package-lock fragments without guessing JSON depth
+ok - Write preserves Cargo checksum values outside dependency tables
+ok - scan-path preserves Cargo checksum values outside dependency tables
+ok - Write preserves uv hash values outside artifact records
+ok - scan-path preserves uv hash values outside artifact records
+ok - Write preserves package-lock integrity values outside package maps
+ok - scan-path preserves package-lock integrity values outside package maps
+ok - Write scans malformed package-lock content without early neutralization
+ok - Write scans raw package-lock content when snapshot copying fails
+ok - scan-path preserves malformed package-lock integrity values
+ok - scan-staged scans package-lock fragments without guessing JSON depth
+ok - untracked scanning preserves Cargo checksum values outside dependency tables
+ok - untracked scanning preserves malformed package-lock integrity values
+ok - Cargo.lock filtering falls back for incomplete toml TOML
+ok - uv.lock filtering falls back for incomplete toml TOML
+ok - Cargo.lock filtering falls back for incomplete quote TOML
+ok - uv.lock filtering falls back for incomplete quote TOML
+ok - Cargo.lock filtering falls back for incomplete inline TOML
+ok - uv.lock filtering falls back for incomplete inline TOML
+ok - Cargo.lock filtering falls back for incomplete array TOML
+ok - uv.lock filtering falls back for incomplete array TOML
+ok - Cargo.lock filtering falls back for an invalid TOML basic-string escape
+ok - uv.lock filtering falls back for an invalid TOML basic-string escape
+ok - Cargo.lock filtering falls back for incomplete \u
+ok - uv.lock filtering falls back for incomplete \u
+ok - Cargo.lock filtering falls back for incomplete \u12
+ok - uv.lock filtering falls back for incomplete \u12
+ok - Cargo.lock filtering falls back for incomplete \U0001F60
+ok - uv.lock filtering falls back for incomplete \U0001F60
+ok - Cargo.lock filtering neutralizes the checksum and preserves CRLF bytes
+ok - uv.lock filtering neutralizes the checksum and preserves CRLF bytes
+ok - scan-path keeps incomplete toml Cargo.lock scannable
+ok - scan-path keeps incomplete toml uv.lock scannable
+ok - scan-path keeps incomplete quote Cargo.lock scannable
+ok - scan-path keeps incomplete quote uv.lock scannable
+ok - scan-path keeps incomplete inline Cargo.lock scannable
+ok - scan-path keeps incomplete inline uv.lock scannable
+ok - scan-path keeps incomplete array Cargo.lock scannable
+ok - scan-path keeps incomplete array uv.lock scannable
+ok - scan-path keeps invalid-escape Cargo.lock bytes scannable
+ok - scan-path keeps invalid-escape uv.lock bytes scannable
+ok - scan-path keeps incomplete \u Cargo.lock bytes scannable
+ok - scan-path keeps incomplete \u uv.lock bytes scannable
+ok - scan-path keeps incomplete \u12 Cargo.lock bytes scannable
+ok - scan-path keeps incomplete \u12 uv.lock bytes scannable
+ok - scan-path keeps incomplete \U0001F60 Cargo.lock bytes scannable
+ok - scan-path keeps incomplete \U0001F60 uv.lock bytes scannable
+ok - scan-path neutralizes eligible checksums in CRLF-folded Cargo.lock
+ok - scan-path neutralizes eligible checksums in CRLF-folded uv.lock
+ok - go.sum filtering preserves malformed trailing data
+ok - scan-path keeps malformed go.sum checksum bytes scannable
+ok - yarn.lock filtering preserves malformed trailing data
+ok - scan-path keeps malformed yarn.lock checksum bytes scannable
+ok - Cargo.lock filtering preserves malformed trailing data
+ok - scan-path keeps malformed Cargo.lock checksum bytes scannable
+ok - Cargo.lock filtering is limited to dependency checksum tables
+ok - uv.lock filtering is limited to URL-bearing artifact records
+ok - lockfile filtering preserves NUL-bearing input byte-for-byte
+ok - lockfile filtering preserves invalid UTF-8 bytes and their credential suffix
+ok - package-lock filtering is limited to package dependency maps
+ok - package-lock filtering preserves malformed JSON for conservative scanning
+ok - package-lock validation and filtering use one immutable snapshot
+ok - package-lock filtering fails conservative beyond bounded JSON depth
+real gitleaks not available; skipped real-gitleaks integration tests
+ok - checksum --help prints usage from the helper script
+ok - checksum subcommand prints all four platforms with paste-ready snippets
+ok - checksum subcommand exits 2 when the source URL is unreachable
+ok - framed leaf fast path preserves detector records and errors
+ok - redaction plan preserves ordering, context and output budgets
+ok - generated Claude PostToolUse command routes PowerShell to the redaction handler contract
+ok - generated Claude PostToolUse command routes Skill to the redaction handler contract
+ok - generated Claude PostToolUse command routes Monitor to the redaction handler contract
+ok - generated Claude PostToolUse command routes LSP to the redaction handler contract
+ok - generated Claude PostToolUse command routes ListMcpResourcesTool to the redaction handler contract
+ok - post-tool preserves disk and output findings in one claude response
+ok - post-tool preserves disk and output findings in one codex response
+ok - post-tool direct target finding does not skip output masking
+ok - post-tool masks a gitleaks-detected secret in Bash stdout (shape preserved)
+ok - post-tool masks a secret returned by an Agent subagent
+ok - live PostToolUse sentinel is rewritten before reaching the model
+ok - Codex post-tool uses decision block plus sanitized additionalContext
+ok - post-tool env-assignment heuristic masks KEY=value gitleaks misses
+ok - post-tool leaves exact documentation placeholders visible (Claude)
+ok - post-tool leaves exact documentation placeholders visible (Codex)
+ok - post-tool still masks non-exact placeholder lookalike (example_token_value_long)
+ok - post-tool still masks non-exact placeholder lookalike (prefixexampletokensuffix)
+ok - post-tool still masks non-exact placeholder lookalike (xxxxxxxxxxxx)
+ok - post-tool still masks non-exact placeholder lookalike (000000000000)
+ok - post-tool masks a vendor-shaped value embedding a placeholder word
+ok - #303 post-tool leaves a v:10 version handle visible (claude)
+ok - #303 post-tool leaves a v:10 version handle visible (codex)
+ok - #303 post-tool leaves a v:123 version handle visible (claude)
+ok - #303 post-tool leaves a v:123 version handle visible (codex)
+ok - #303 post-tool leaves a v:999999999 version handle visible (claude)
+ok - #303 post-tool leaves a v:999999999 version handle visible (codex)
+ok - #303 post-tool leaves an unquoted token-key version handle visible
+ok - #303 post-tool still masks a non-handle token or other secret key (case 1)
+ok - #303 post-tool still masks a non-handle token or other secret key (case 2)
+ok - #303 post-tool still masks a non-handle token or other secret key (case 3)
+ok - #303 post-tool still masks a non-handle token or other secret key (case 4)
+ok - #303 post-tool still masks a non-handle token or other secret key (case 5)
+ok - #303 post-tool still masks a non-handle token or other secret key (case 6)
+ok - #303 post-tool still masks a non-handle token or other secret key (case 7)
+ok - #303 post-tool still masks a non-handle token or other secret key (case 8)
+ok - #303 post-tool keeps the version handle and masks a secret in the same response
+ok - post-tool leaves a draft snapshot token visible (claude)
+ok - post-tool leaves a draft snapshot token visible (claude)
+ok - post-tool leaves a draft snapshot token visible (claude)
+ok - post-tool leaves a draft snapshot token visible (claude)
+ok - prompt guard allows a prompt quoting a draft snapshot token (claude)
+ok - post-tool leaves a draft snapshot token visible (codex)
+ok - post-tool leaves a draft snapshot token visible (codex)
+ok - post-tool leaves a draft snapshot token visible (codex)
+ok - post-tool leaves a draft snapshot token visible (codex)
+ok - prompt guard allows a prompt quoting a draft snapshot token (codex)
+ok - post-tool still masks a snapshot-shaped value elsewhere or another shape (case 1)
+ok - post-tool still masks a snapshot-shaped value elsewhere or another shape (case 2)
+ok - post-tool still masks a snapshot-shaped value elsewhere or another shape (case 3)
+ok - post-tool still masks a snapshot-shaped value elsewhere or another shape (case 4)
+ok - post-tool still masks a snapshot-shaped value elsewhere or another shape (case 5)
+ok - post-tool still masks a snapshot-shaped value elsewhere or another shape (case 6)
+ok - post-tool still masks a snapshot-shaped value elsewhere or another shape (case 7)
+ok - post-tool still masks a snapshot-shaped value elsewhere or another shape (case 8)
+ok - post-tool still masks a snapshot-shaped value elsewhere or another shape (case 9)
+ok - post-tool keeps a draft snapshot token and masks a secret in the same response
+ok - post-tool keeps a draft snapshot token and masks a bearer token in the same response
+ok - post-tool leaves boolean values under secret keys visible (claude)
+ok - post-tool keeps a boolean word in prose next to a boolean flag (claude)
+ok - post-tool leaves a pagination cursor visible (claude)
+ok - post-tool leaves a pagination cursor visible (claude)
+ok - post-tool leaves a pagination cursor visible (claude)
+ok - post-tool leaves a pagination cursor visible (claude)
+ok - post-tool leaves a pagination cursor visible (claude)
+ok - post-tool leaves a short multibyte word after a secret key visible (claude)
+ok - prompt guard allows a prompt describing boolean config keys (claude)
+ok - post-tool leaves boolean values under secret keys visible (codex)
+ok - post-tool keeps a boolean word in prose next to a boolean flag (codex)
+ok - post-tool leaves a pagination cursor visible (codex)
+ok - post-tool leaves a pagination cursor visible (codex)
+ok - post-tool leaves a pagination cursor visible (codex)
+ok - post-tool leaves a pagination cursor visible (codex)
+ok - post-tool leaves a pagination cursor visible (codex)
+ok - post-tool leaves a short multibyte word after a secret key visible (codex)
+ok - prompt guard allows a prompt describing boolean config keys (codex)
+ok - post-tool still masks a real value under a secret key (case 1)
+ok - prompt guard still blocks a real value under a secret key (case 1)
+ok - post-tool still masks a real value under a secret key (case 2)
+ok - prompt guard still blocks a real value under a secret key (case 2)
+ok - post-tool still masks a real value under a secret key (case 3)
+ok - prompt guard still blocks a real value under a secret key (case 3)
+ok - post-tool still masks a real value under a secret key (case 4)
+ok - prompt guard still blocks a real value under a secret key (case 4)
+ok - post-tool still masks a real value under a secret key (case 5)
+ok - prompt guard still blocks a real value under a secret key (case 5)
+ok - post-tool still masks a real value under a secret key (case 6)
+ok - prompt guard still blocks a real value under a secret key (case 6)
+ok - post-tool still masks a real value under a secret key (case 7)
+ok - prompt guard still blocks a real value under a secret key (case 7)
+ok - post-tool still masks a real value under a secret key (case 8)
+ok - prompt guard still blocks a real value under a secret key (case 8)
+ok - post-tool still masks a real value under a secret key (case 9)
+ok - prompt guard still blocks a real value under a secret key (case 9)
+ok - post-tool still masks a real value under a secret key (case 10)
+ok - prompt guard still blocks a real value under a secret key (case 10)
+ok - post-tool still masks a real value under a secret key (case 11)
+ok - prompt guard still blocks a real value under a secret key (case 11)
+ok - post-tool still masks a real value under a secret key (case 12)
+ok - prompt guard still blocks a real value under a secret key (case 12)
+ok - post-tool still masks a real value under a secret key (case 13)
+ok - prompt guard still blocks a real value under a secret key (case 13)
+ok - post-tool still masks a real value under a secret key (case 14)
+ok - prompt guard still blocks a real value under a secret key (case 14)
+ok - post-tool still masks a real value under a secret key (case 15)
+ok - prompt guard still blocks a real value under a secret key (case 15)
+ok - post-tool masks only the matched assignment value and preserves adjacent text
+ok - #169 post-tool masks the exact value in each nested leaf and preserves shape
+ok - #169 Codex post-tool keeps the same exact-extent nested rewrite
+ok - #169 post-tool leaves a clean nested response unrewritten
+ok - post-tool preserves closing punctuation after an unquoted secret
+ok - post-tool preserves closing punctuation after an unquoted secret
+ok - post-tool preserves closing punctuation after an unquoted secret
+ok - post-tool masks short unquoted values before structural punctuation
+ok - post-tool masks short unquoted values before structural punctuation
+ok - post-tool scopes a short secret without stranding a longer value
+ok - post-tool scopes an all-closer secret to its assignment
+ok - post-tool requires a boundary after a contextual token
+ok - post-tool preserves a contextual closer shared with a quoted secret
+ok - post-tool treats a newline as a contextual token boundary
+ok - post-tool keeps contextual and ordinary meanings for one literal
+ok - post-tool keeps an existing redaction sentinel idempotent
+ok - #178 a redacted output is unchanged when fed back through post-tool
+ok - #178 a redacted output is unchanged when fed back through post-tool
+ok - #178 a redacted output is unchanged when fed back through post-tool
+ok - #178 a redacted output is unchanged when fed back through post-tool
+ok - #178 a redacted output is unchanged when fed back through post-tool
+ok - #178 a redacted output is unchanged when fed back through post-tool
+ok - #178 a redacted output is unchanged when fed back through post-tool
+ok - #178 a redacted output is unchanged when fed back through post-tool
+ok - post-tool does not treat a redaction-prefix secret as sanitized
+ok - post-tool masks through punctuation inside an unquoted secret
+ok - post-tool masks through punctuation inside an unquoted secret
+ok - post-tool masks through punctuation inside an unquoted secret
+ok - post-tool masks through an escaped double quote without leaking a suffix
+ok - post-tool masks through an escaped single quote without leaking a suffix
+ok - post-tool masks a multiline quoted assignment as one complete value
+ok - post-tool masks a multiline quoted assignment as one complete value
+ok - post-tool keeps multiline quote state inside each object string leaf
+ok - post-tool keeps multiline quote state inside each array string leaf
+ok - post-tool scans thousands of sibling leaves in one framed stream
+ok - post-tool conservatively masks a NUL-bearing string leaf
+ok - post-tool treats an ASCII RS inside a secret as data
+ok - post-tool masks through an escaped backtick without leaking a suffix
+ok - post-tool treats a quote after an even backslash run as closing
+ok - post-tool masks an unterminated quoted assignment
+ok - post-tool masks an unterminated quoted assignment
+ok - post-tool masks an unterminated quoted assignment
+ok - post-tool does not mask metadata keys that merely begin with a secret keyword
+ok - post-tool does not treat a prose colon as a secret assignment
+ok - post-tool masks a secret behind a non-status colon label (response)
+ok - post-tool masks a secret behind a non-status colon label (Response)
+ok - post-tool masks a secret behind a non-status colon label (result)
+ok - post-tool masks a secret behind a non-status colon label (response.error)
+ok - post-tool masks a secret behind a non-status colon label (response/error)
+ok - post-tool masks a JWT behind a status colon label
+ok - post-tool leaves a status-word prose chain untouched (WARNING)
+ok - post-tool leaves a status-word prose chain untouched (Info)
+ok - post-tool leaves a status-word prose chain untouched (fatal)
+ok - post-tool leaves a status-word prose chain untouched (2026-08-02 10)
+ok - #156 post-tool masks a gitleaks-invisible secret behind a status label (error)
+ok - #156 post-tool leaves a non-credential value after a status label untouched (not-found)
+ok - #156 post-tool leaves a quoted multi-word message after a status label untouched (error)
+ok - #156 post-tool masks a date-prefixed credential behind a status label
+ok - #156 post-tool leaves a complete date/clock value untouched (2026-08-30T10:00:00Z)
+ok - #156 a status-label secret is masked where it recurs later in the output
+ok - #156 an unterminated quoted credential behind a status label still masks
+ok - #156 an unterminated quoted prose chain behind a status label stays visible
+ok - #156 a padded quoted status-label credential still masks
+ok - #156 a padded quoted status-label credential still masks
+ok - #156 a padded quoted status-label credential still masks
+ok - #156 a padded quoted status-label credential still blocks at the prompt guard
+ok - #156 a padded quoted prose message stays visible
+ok - #156 a status-label credential beginning on the next line still masks
+ok - #156 a status-label prose chain beginning on the next line stays visible
+ok - #156 a multiline status-label capture also masks the bare recurrence
+ok - #156 a padded single-line credential also masks the bare recurrence
+ok - #156 a padded single-line credential also masks the bare recurrence
+ok - #156 a padded single-line credential also masks the bare recurrence
+ok - #156 a padded single-line credential also masks the bare recurrence
+ok - #156 an indented multiline status-label credential still masks
+ok - #156 an indented multiline status-label credential still masks
+ok - #156 an indented multiline prose chain stays visible
+ok - #156 a capture closing on a later credential's opening quote still masks it
+ok - #156 a capture closing on a later credential's opening quote still masks it
+ok - #156 a capture closing on a later credential's opening quote still masks it
+ok - #156 the same shape still blocks at the prompt guard
+ok - #156 the single-quote spelling of the eaten-quote shape still masks
+ok - #156 an unterminated status-label quote does not swallow later assignments
+ok - #156 an unterminated status-label quote still blocks at the prompt guard
+ok - #156 an apostrophe in status-label prose does not swallow later assignments
+ok - #156 post-tool masks a delimiter-separated passphrase (correct-horse-battery-staple)
+ok - #156 post-tool masks a delimiter-separated passphrase (correct.horse.battery.staple)
+ok - #156 post-tool masks a delimiter-separated passphrase (correct_horse_battery_staple)
+ok - #178 post-tool masks an assignment inside a quoted JSON string leaf
+ok - #178 post-tool masks an assignment inside a quoted JSON string leaf
+ok - #178 post-tool masks an assignment inside a quoted JSON string leaf
+ok - #178 post-tool masks an assignment inside a quoted JSON string leaf
+ok - #178 post-tool masks an assignment inside a quoted JSON string leaf
+ok - #180 post-tool masks a quoted assignment that begins a line
+ok - #180 post-tool masks a quoted assignment that begins a line
+ok - #180 a duplicate inner mapping does not strand its key prefix
+ok - #180 a separate short credential is not suppressed by substring overlap
+ok - #180 mixed quotes keep nested credential masking
+ok - #180 mixed quotes keep nested credential masking
+ok - #178 an assignment inside a quoted JSON string leaf still blocks at the prompt guard
+ok - #180 a quoted line-start assignment blocks at the prompt guard
+ok - #178 colon widening preserves a compact JavaScript labelled reference
+ok - #178 prompt guard allows a compact JavaScript labelled reference
+ok - #178 the outer quoted assignment still wins over its own rescan
+ok - #178 a redaction sentinel inside a quoted leaf stays idempotent
+ok - #178 a redaction sentinel inside a quoted leaf stays idempotent
+ok - #178 a redaction sentinel inside a quoted leaf stays idempotent
+ok - #178 a redaction sentinel inside a quoted leaf stays idempotent
+ok - #178 the prompt guard does not block its own sentinel in a quoted leaf
+ok - #178 a CRLF quoted leaf still masks
+ok - #178 a CRLF quoted leaf still masks
+ok - #178 a CRLF quoted leaf still masks
+ok - #178 an assignment after a carriage return still masks
+ok - #178 an assignment after a carriage return still masks
+ok - #178 an assignment after a carriage return still masks
+ok - #178 an assignment after a carriage return still masks
+ok - #178 an assignment after a carriage return still blocks at the prompt guard
+ok - #156 a status-label prose chain split by a carriage return stays visible
+ok - #156 a credential behind a carriage-return-split status label still masks
+ok - #156 a status-label prose chain split by a carriage return stays visible
+ok - #156 a credential behind a carriage-return-split status label still masks
+ok - #156 a status-label prose chain split by a carriage return stays visible
+ok - #156 a credential behind a carriage-return-split status label still masks
+ok - #156 a status-label prose chain split by a carriage return stays visible
+ok - #156 a credential behind a carriage-return-split status label still masks
+ok - #156 a status-label prose chain split by a carriage return stays visible
+ok - #156 a credential behind a carriage-return-split status label still masks
+ok - #156 a status-label prose chain split by a carriage return stays visible
+ok - #156 a credential behind a carriage-return-split status label still masks
+ok - #156 a status-label prose chain split by a carriage return stays visible
+ok - #156 a credential behind a carriage-return-split status label still masks
+ok - #156 a status-label prose chain after a carriage return stays visible
+ok - #178 the carriage return survives the CRLF rewrite
+ok - post-tool leaves a credential reference untouched (const apiKey = process.env.API_KEY;)
+ok - post-tool leaves a credential reference untouched (password = os.environ["DB_PASSWORD"])
+ok - post-tool leaves a credential reference untouched (password = os.environ.get("DB_PASSWORD"))
+ok - post-tool leaves a credential reference untouched (export const API_KEY = config.apiKey;)
+ok - post-tool leaves a credential reference untouched (secret = ENV.fetch("SESSION_KEY"))
+ok - post-tool leaves a credential reference untouched (String token = config.getToken();)
+ok - post-tool leaves a credential reference untouched (API_KEY=${API_KEY:?required})
+ok - post-tool leaves a credential reference untouched (API_KEY=${API_KEY:-fallback})
+ok - post-tool leaves a credential reference untouched (const k = process.env.API_KEY)
+ok - post-tool leaves a credential reference untouched (token := os.Getenv("GITHUB_TOKEN"))
+ok - post-tool leaves a credential reference untouched (if (!process.env.API_KEY) throw new Error("missing"))
+ok - post-tool leaves a credential reference untouched (make(api_key=DEFAULT_API_KEY))
+ok - post-tool leaves a credential reference untouched (def connect(password=DEFAULT_PASSWORD):)
+ok - post-tool leaves a credential reference untouched (def connect(password=None):)
+ok - post-tool leaves a credential reference untouched (fn(password=user_password))
+ok - post-tool leaves a credential reference untouched (password = cfg.Token)
+ok - post-tool leaves a credential reference untouched (password = settings.API_KEY)
+ok - post-tool leaves a credential reference untouched (password = app.config.apiKey)
+ok - post-tool still masks a credential literal (DATABASE_PASSWORD=hunter2-long-value)
+ok - post-tool still masks a credential literal (password = wrap(secret_key=hunter2-long-value))
+ok - post-tool still masks a credential literal (config[api_key=hunter2-long-value])
+ok - post-tool still masks a credential literal (x=${password: hunter2-long-value})
+ok - post-tool still masks a credential literal (PASSWORD=$2b$12$hunter2-long-value)
+ok - post-tool still masks a credential literal (API_TOKEN=hunter2-long-value))
+ok - post-tool still masks a credential literal (PASSWORD=correct.horse.battery.staple)
+ok - post-tool still masks a credential literal (password: correct.horse.battery.staple)
+ok - post-tool still masks a credential literal (password = correct.horse.battery.staple)
+ok - post-tool still masks a credential literal (password = My.Secret.Phrase)
+ok - post-tool still masks a credential literal (password: xxx.yyy.zzz)
+ok - post-tool still masks a credential literal (api_key=v1.0.secretpart)
+ok - post-tool still masks a credential literal (API_KEY=config.apiKey)
+ok - post-tool still masks a credential literal (password = my.Secret.phrase)
+ok - post-tool still masks a credential literal (password = correct.Horse.battery)
+ok - post-tool still masks a credential literal (password = my.secret.Phrase)
+ok - post-tool still masks a credential literal (password = correct.horse.Battery)
+ok - post-tool still masks a credential literal (token = my.Secret.value.phrase)
+ok - post-tool preserves nested response shape and masks only the detected leaf
+ok - Codex post-tool leaves a credential reference untouched
+ok - Codex post-tool still masks a literal nested in an argument list
+ok - post-tool masks a comma-delimited assignment after a status label
+ok - post-tool keeps YAML sequence mapping redaction covered
+ok - post-tool masks suffix-qualified credential key AWS_SECRET_ACCESS_KEY_ID
+ok - post-tool masks suffix-qualified credential key API_KEY_VALUE
+ok - post-tool masks suffix-qualified credential key DB_PASSWORD_HASH
+ok - post-tool masks suffix-qualified credential key PRIVATE_KEY_PEM
+ok - post-tool masks suffix-qualified credential key CLIENT_SECRET_CERT
+ok - post-tool masks suffix-qualified credential key SERVICE_ACCOUNT_CREDENTIAL_JSON
+ok - post-tool masks a whitespace-prefixed colon assignment in a log line
+ok - post-tool does not mask non-credential words that merely contain a secret term
+ok - post-tool masks secrets in Read string output (shape stays string)
+ok - post-tool leaves clean output untouched (no rewrite emitted)
+ok - post-tool redaction disabled via AGENT_GUARD_OUTPUT_REDACT=off
+ok - post-tool redacts overlapping secrets without leaking the longer suffix
+ok - post-tool bounds high-cardinality redaction below the hook timeout
+ok - post-tool counts empty-leaf traversal in the redaction work cap
+ok - post-tool bounds large high-cardinality secret detection
+ok - post-tool bounds non-assignment secret aggregation
+ok - post-tool leaves large clean output unchanged
+ok - post-tool passes an over-cap Read image block through untouched
+ok - post-tool passes an over-cap MCP image block through untouched
+ok - post-tool passes an over-cap PDF document block through untouched
+ok - post-tool passes an over-cap MCP-native image block through untouched
+ok - post-tool passes an over-cap Read PDF block through untouched
+ok - post-tool masks the text sibling and restores the image payload intact
+ok - post-tool does not inspect the payload of a binary content block
+ok - post-tool keeps content-block discriminators in the over-cap whole-leaf mask
+ok - post-tool still masks an over-cap image block of a text media type
+ok - post-tool masks a non-protocol type value in the whole-leaf path
+ok - post-tool bounds oversized output before invoking gitleaks
+ok - post-tool fails closed when the gitleaks report exceeds its cap
+ok - post-tool preflights newline-heavy leaves before assignment probing
+ok - post-tool discards partial extract transform output before conservative replacement
+ok - post-tool discards partial precise transform output before conservative replacement
+ok - post-tool discards partial nul transform output before conservative replacement
+ok - post-tool discards partial detector leaf extraction for a compact token
+ok - post-tool discards partial detector leaf extraction for a compact token
+ok - post-tool discards partial detector leaf extraction for a compact token
+ok - post-tool discards partial detector_report output before conservative replacement
+ok - post-tool discards partial detector_bundle output before conservative replacement
+ok - post-tool discards partial env framing before conservative replacement
+ok - post-tool classifies a complete whole-leaf bundle
+ok - post-tool discards partial whole-leaf bundle classification
+ok - post-tool classifies and applies a complete secrets bundle
+ok - exec discards partial secrets extraction and masks the complete output
+ok - exec classifies and applies a complete secrets bundle
+ok - post-tool discards partial binary-strip output and masks the original native shape
+ok - post-tool uses the portable whole-leaf fallback for Claude
+ok - whole-leaf rewrite discards partial primary jq output before the awk fallback
+ok - whole-leaf rewrite discards a partial nonzero fallback and emits one fixed response
+ok - Codex envelope serialization discards partial jq output before its fixed response
+ok - post-tool uses the portable whole-leaf fallback for Codex
+ok - portable whole-leaf fallback preserves native nested shape and only allowlisted discriminators
+ok - portable whole-leaf fallback decodes escaped discriminator semantics while preserving key lexemes
+ok - portable whole-leaf fallback restores a stripped binary payload exactly
+ok - binary restore failure keeps the stripped payload instead of guessing raw bytes
+ok - portable whole-leaf fallback neutralizes an over-cap numeric/boolean response within the hook timeout
+ok - post-tool large probe preserves already-sanitized assignments
+ok - post-tool large probe ignores ineligible short assignments
+ok - post-tool large probe retains eligible contextual short mappings
+ok - post-tool anchors env value past a log prefix and masks it across leaves
+ok - post-tool masks a JWT in tool output (shape preserved)
+ok - post-tool masks a Bearer token but keeps the Authorization label
+ok - post-tool env heuristic masks a newly-covered SESSION_KEY= value
+ok - post-tool does not over-mask benign prose containing the word token
+ok - post-tool masks a Bearer token whole when it holds base64 chars
+ok - post-tool masks an all-caps BEARER token
+ok - post-tool does not over-mask NODE_PATH= / FILE_PATTERN= benign keys
+ok - post-tool mask mode masks email/IP/KR-RRN in output (shape preserved)
+ok - post-tool leaves PII untouched without mask mode (default)
+ok - post-tool composes secret redaction and PII masking in one rewrite
+ok - pii-filter masks Korean resident reg. no. and mobile
+ok - CLI pii-filter and hook output masker mask identically (incl. card + SSN)
+ok - PII leaves an epoch-nanosecond timestamp alone (CLI, output masker, input gate)
+ok - PII leaves a Snowflake-style 18-digit id alone (CLI, output masker, input gate)
+ok - PII leaves a Luhn-invalid 16-digit order number alone (CLI, output masker, input gate)
+ok - PII leaves out-of-range dotted numbers alone (CLI, output masker, input gate)
+ok - PII leaves a 5-part dotted version alone (CLI, output masker, input gate)
+ok - PII leaves an SSN shape inside a longer digit run alone (CLI, output masker, input gate)
+ok - PII leaves a 12-digit numeric id alone (CLI, output masker, input gate)
+ok - PII leaves an RRN shape inside a longer digit run alone (CLI, output masker, input gate)
+ok - PII still catches an unseparated 16-digit PAN (CLI, output masker, input gate)
+ok - PII still catches a 19-digit PAN (CLI, output masker, input gate)
+ok - PII still catches an unseparated 15-digit Amex (CLI, output masker, input gate)
+ok - PII still catches a PAN trailed by a 3-digit number (CLI, output masker, input gate)
+ok - PII still catches a US SSN (CLI, output masker, input gate)
+ok - PII still catches a KR resident reg. no. (CLI, output masker, input gate)
+ok - PII masks a valid dotted quad even in version-like context
+ok - PII gate clears a 250 KB single-line record within the PreToolUse timeout (1s)
+ok - PII byte windows preserve UTF-8, caller-locale emails, and failure isolation
+ok - PII skip IP_ADDRESS keeps IPv4 and both maskers stay in sync
+ok - PII skip accepts a comma-separated list
+ok - PII skip empty masks every type
+ok - PII skip leaves Tier-2 masking untouched
+ok - PII skip cannot disable the Tier-2 input hard-block
+ok - PII skip IP_ADDRESS also stops block mode from blocking an IPv4 input
+ok - PII skip IP_ADDRESS leaves block mode blocking other Tier-1 PII
+ok - PII skip rejects CREDIT_CARD
+ok - PII skip rejects SSN
+ok - PII skip rejects KR_RRN
+ok - PII skip rejects BOGUS
+ok - PII skip rejects ip_address
+ok - PII skip rejection reaches hook-pre-tool
+ok - PII skip rejection reaches hook-post-tool
+ok - PII skip rejection reaches hook-user-prompt
+ok - PII skip is refused with the http provider
+ok - PII skip is refused with the pleno provider
+ok - an empty PII skip set leaves endpoint providers untouched
+ok - PII skip rejection reaches pii-filter --check
+ok - PII skip rejection reaches agent-guard exec
+ok - PII skip applies to agent-guard exec output
+ok - exec leaves exact documentation placeholders visible
+ok - exec still masks a decorated placeholder lookalike
+ok - exec masks a secret in a command's output
+ok - exec bounds high-cardinality non-assignment redaction
+ok - exec masks a multiline quoted assignment as one complete value
+ok - exec scopes a short secret without stranding a longer value
+ok - exec requires a boundary after a contextual token
+ok - exec treats a newline as a contextual token boundary
+ok - exec keeps contextual and ordinary meanings for one literal
+ok - exec treats framed control bytes as secret data
+ok - exec preserves unrelated non-UTF-8 bytes while masking a secret
+ok - exec masks a secret containing a non-UTF-8 byte
+ok - exec fails closed when raw-byte temp allocation fails
+ok - exec scopes an all-closer secret on the raw byte path
+ok - exec enforces a contextual boundary on the raw byte path
+ok - #156 exec raw-probe termination leaves a status-label prose tail visible
+ok - #156 exec raw-probe termination still masks a credential tail
+ok - exec accepts a raw newline as a contextual token boundary
+ok - exec raw masking keeps contextual and ordinary meanings for one literal
+ok - exec raw masking treats framed control bytes as secret data
+ok - exec keeps an existing redaction sentinel idempotent
+ok - exec keeps a redaction sentinel idempotent on the raw byte path
+ok - exec masks an invalid-byte printenv value by secret-bearing name
+ok - exec conservatively masks multi-name invalid-byte printenv output
+ok - exec raw probe failures preserve fail-closed output and command status
+ok - exec framing boundary failures preserve fail-closed output and command status
+ok - exec conservatively bounds oversized invalid-byte output
+ok - exec preserves oversized invalid-byte output without secret records
+ok - exec raw probe ignores ineligible short assignments
+ok - exec raw probe retains eligible contextual short mappings
+ok - exec raw probe retains multiline quote state across records
+ok - exec keeps oversized invalid-byte redaction sentinels idempotent
+ok - exec preserves oversized invalid-byte prose metadata
+ok - exec masks a bare printenv value using its variable-name context
+ok - exec streams a quote-heavy printenv response into jq
+ok - exec streams high-cardinality printenv metadata off argv
+ok - exec bounds repeated large printenv values under BSD semantics
+ok - exec bounds trailing newline-only GNU model values
+ok - exec fail-closes a printenv detector pipeline failure
+ok - exec masks a bare printenv value after an option terminator
+ok - exec masks a complete unterminated quoted printenv value
+ok - exec masks a newline-bearing printenv value as one complete secret
+ok - exec masks a newline-bearing printenv value as one complete secret
+ok - exec masks a newline-bearing printenv value as one complete secret
+ok - exec follows host printenv argument semantics and masks every emitted value
+ok - exec does not over-mask a later benign printenv value with a stripped prefix
+ok - exec masks a GNU secret before a trailing empty value
+ok - exec leaves an empty requested printenv value empty
+ok - exec propagates the wrapped command's exit code (7)
+ok - exec prints clean output and exits 0
+ok - exec with no command prints usage to stderr and exits 2
+ok - exec with AGENT_GUARD_OUTPUT_REDACT=off passes the secret through unmasked
+ok - exec masks PII when AGENT_GUARD_PII_HOOK_MODE=mask
+ok - shell-init --bash defines the agx wrapper
+ok - shell-init --bash snippet parses under sh -n
+ok - shell-init --zsh snippet parses under zsh -n
+ok - shell-init (auto) emits a source-time shell detector
+ok - shell-init (auto) snippet parses under sh -n
+ok - shell-init bash hook chains onto an existing DEBUG trap
+ok - shell-init bash hook installs the nudge when no DEBUG trap exists
+ok - shell-init nudge warns on a bare secret-loading idiom
+ok - shell-init nudge stays silent when the command is wrapped with agx
+ok - shell-init nudge stays silent when BOTH streams are discarded
+ok - shell-init nudge still warns on a bare stdout-only redirect (stderr leaks)
+ok - shell-init nudge still warns on a bare stderr-only redirect (stdout leaks)
+ok - shell-init nudge stays silent on a benign command
+ok - shell-init enables Claude command wrapping by default
+ok - shell-init --no-command-wrapping omits automatic command overrides
+ok - shell-init rejects unsupported flag --claude-bang-guard with no snippet
+ok - shell-init rejects unsupported flag --experimental-bang-guard with no snippet
+ok - shell-init rejects unsupported flag --definitely-unknown with no snippet
+ok - shell-init control: supported flags still emit the command wrappers
+ok - shell-init help exposes only the 2.x command-wrapping option
+ok - command-wrapping snippet parses under sh -n
+ok - command-wrapping snippet parses under zsh -n
+ok - command wrapping routes dump commands through agent-guard exec inside Claude Code
+ok - command wrapping is inert (passthrough) outside Claude Code
+ok - AGENT_GUARD_COMMAND_WRAPPING=off disables wrapping at runtime
+ok - Claude command wrapping masks a bare printenv value
+ok - transparent command wrapping fails open with a loud warning when masking is unavailable
+ok - command wrapping preserves a pre-existing cat alias under bash
+ok - command wrapping survives Claude alias cleanup under bash
+ok - command wrapping preserves a pre-existing cat alias under zsh
+ok - command wrapping survives Claude alias cleanup under zsh
+ok - shell-init bakes the absolute binary path (__agentguard_bin)
+ok - shell-init emits the __agentguard_exe resolver
+ok - command wrapping routes via the baked path when agent-guard is off $PATH
+ok - $AGENT_GUARD_BIN takes priority in the resolver
+ok - command wrapping fails OPEN (runs the command) when no binary resolves
+ok - command wrapping warns only once per shell session when it cannot mask
+ok - agx follows the default open policy when no binary resolves
+ok - agx closed policy refuses to run when no binary resolves
+ok - transparent wrapping supports the opt-in closed infrastructure policy
+ok - hook-session-start emits a systemMessage JSON warning on marker mismatch
+ok - drift warning names both the plugin and the masking version
+ok - hook-session-start is silent when the marker matches the plugin version
+ok - Claude SessionStart guides default command-wrapping setup when the marker is absent
+ok - command-wrapping setup guidance offers the standalone CLI form
+ok - SessionStart stays quiet with no marker when the managed rc block is installed (#139)
+ok - SessionStart still nags when the block is only in the other shell's rc (#139)
+ok - SessionStart is quiet for bash snapshot after fish-login setup (#139)
+ok - SessionStart is quiet for zsh snapshot after fish-login setup (#139)
+ok - SessionStart is quiet when fish snapshot coverage includes both rc files
+ok - SessionStart warns when fish snapshot coverage is missing .bashrc
+ok - SessionStart warns when fish snapshot coverage is missing .zshrc
+ok - SessionStart warns when the managed block can no longer resolve its binary (#155)
+ok - SessionStart warns on delimiters with no shell-init inside them (#155)
+ok - Codex SessionStart does not request Claude command-wrapping setup
+ok - Codex SessionStart ignores Claude shell-integration version drift
+ok - hook-session-start is silent when the marker cannot be parsed
+ok - Codex SessionStart uses Codex dependency setup guidance
+ok - Claude SessionStart uses Claude dependency setup guidance
+ok - shell-init snippet exports the AGENT_GUARD_SHELL_INIT_VERSION marker
+ok - shell-init (marker) snippet parses under sh -n
+ok - shell-init marker reflects the version resolved via $PATH
+ok - shell-init marker reflects the version resolved via the baked path (plugin-only)
+ok - shell-init marker honors $AGENT_GUARD_BIN over $PATH and the baked path
+ok - shell-init leaves the marker unset when no binary resolves
+ok - shell-init clears a stale inherited marker when nothing resolves
+ok - setup-shell writes a managed shell-init block into the rc
+ok - setup-shell output stays host-neutral
+ok - setup-shell is idempotent (one managed block after two runs)
+ok - setup-shell preserves unrelated rc lines
+ok - setup-shell enables command wrapping by default
+ok - setup-shell persists the command-wrapping opt-out
+ok - setup-shell rejects the removed 1.x flag --claude-bang-guard
+ok - setup-shell rejects the removed 1.x flag --experimental-bang-guard
+ok - setup-shell rejects a removed flag even after --help
+ok - setup-shell --help alone still prints usage with exit 0
+ok - setup-shell help exposes only the 2.x command-wrapping option
+ok - shell startup respects selected current before cached versions
+ok - setup-shell bakes the stable invocation with resolver fallbacks
+ok - setup-shell rc line installs the guard even with agent-guard off $PATH
+ok - setup-shell rc line falls back to the baked path when a stub agent-guard shadows $PATH
+ok - setup-shell rejects an unknown option
+ok - setup-shell refuses an rc with an unbalanced managed-block marker
+ok - setup-shell leaves the rc untouched when it refuses
+ok - setup-shell writes through a symlinked rc (link preserved, target updated)
+ok - setup-shell preserves target content when writing through a symlink
+ok - setup-shell installs both POSIX rc files for a fish login shell (#139)
+ok - setup-shell reports the fish limitation and plugin-only executable (#139)
+ok - setup-shell detects passwd fish with process SHELL=zsh (#139)
+ok - setup-shell detects passwd fish with process SHELL=bash (#139)
+ok - setup-shell detects a macOS dscl fish login shell
+ok - setup-shell fish-login dual-write is idempotent
+ok - setup-shell explicit --bash/--zsh/--rc selectors override shell detection
+ok - setup-shell falls back to process SHELL when login-shell lookup is absent or fails
+ok - fresh plugin execution creates the stable current symlink
+ok - setup-shell records only the stable plugin path
+ok - upgrade retargets the stable PATH before the old version is removed
+ok - pre-upgrade shell integration resolves through current after upgrade
+ok - setup-shell makes the stable binary discoverable without manual PATH injection
+ok - stale binaries preserve the newer active current without activating cached siblings
+ok - running the host-selected newer plugin advances the stable current link
+ok - scan temp exists mid-flight (precondition for the cleanup test)
+ok - interrupted scan leaves no leftover scan temp (#131)
+ok - normal hook completion leaves no leftover scan temp
+ok - scan-working-tree scans tracked files marked binary and -diff
+ok - scan-working-tree keeps a finding when a later scan is unavailable
+ok - scan-working-tree keeps an untracked finding after an earlier unavailable diff
+ok - hook-post-tool directly scans a tracked target after Git backstop failure
+ok - scan-working-tree reports an over-budget diff as unavailable
+ok - Codex apply_patch directly scans multiple safe relative targets from payload cwd
+yes: standard output: Broken pipe
+yes: standard output: Broken pipe
+ok - apply_patch excludes successfully Git-covered tracked files from direct-scan budget
+ok - apply_patch still caps ignored targets that require direct scanning
+ok - apply_patch still caps tracked targets after the Git backstop fails
+ok - Codex apply_patch malformed write target follows closed infrastructure policy
+ok - Codex apply_patch target count limit follows closed infrastructure policy
+ok - structured Write target with a trailing newline is not silently treated as another path
+ok - structured Write normal target passes under closed infrastructure policy
+passed: 942
+failed: 1

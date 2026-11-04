@@ -1,0 +1,536 @@
+{
+  "platform": "Linux 127d806794ae 6.18.57 #1 SMP Tue Oct 20 21:56:04 UTC 2026 x86_64 GNU/Linux",
+  "runs": 7,
+  "host": "claude",
+  "native_core_sha256": "e5effd1d40057d4099cbda0982547e2656ef8005f7308cd685dc2fb52f82b514",
+  "scanner_version": "8.30.1",
+  "binary_sha256": {
+    "baseline": "40396373da10a49228bec84e9c9950627dff69965e117ae3c362d47be71cefed",
+    "candidate": "c95e0bbf301c63de2034e4ea61ff85fd3322520e6fc0ae385419288db2886a55"
+  },
+  "scanner_sha256": "88f91962aa2f93ac6ab281d553b9e125f5197bbbce38f9f2437f7299c32e5509",
+  "config_sha256": "600185554fe3f53b2ab7d1459a70212e2242a8ab70bfe053ecefcc3015b1ed98",
+  "jq_version": "jq-1.7",
+  "driver": "agent-guard-devtools (Rust)",
+  "logical_cpu_count": 5,
+  "readiness_cache": "disabled with audit logging",
+  "cases": [
+    {
+      "name": "small-clean",
+      "route": "hook",
+      "input_bytes": 82,
+      "verified": true,
+      "seconds": {
+        "baseline": {
+          "median": 0.930925934,
+          "max": 0.96956491,
+          "samples": [
+            0.950206195,
+            0.921067665,
+            0.96956491,
+            0.930925934,
+            0.919150547,
+            0.935559528,
+            0.900357748
+          ]
+        },
+        "candidate": {
+          "median": 0.928614315,
+          "max": 0.988476834,
+          "samples": [
+            0.914667425,
+            0.905311606,
+            0.940195804,
+            0.988476834,
+            0.945303341,
+            0.917088061,
+            0.928614315
+          ]
+        }
+      },
+      "speedup": 1.0024893208759118,
+      "resource_usage": {
+        "baseline": {
+          "user_cpu_seconds": {
+            "median": 0.87242,
+            "max": 0.907208,
+            "samples": [
+              0.87242,
+              0.866729,
+              0.890548,
+              0.907208,
+              0.886361,
+              0.869238,
+              0.855595
+            ]
+          },
+          "system_cpu_seconds": {
+            "median": 0.116981,
+            "max": 0.139239,
+            "samples": [
+              0.139239,
+              0.116981,
+              0.126057,
+              0.075544,
+              0.089369,
+              0.119366,
+              0.105152
+            ]
+          },
+          "max_child_peak_rss_kib": {
+            "median": 62184.0,
+            "max": 62884.0,
+            "samples": [
+              62632.0,
+              61544.0,
+              62184.0,
+              62884.0,
+              62576.0,
+              61096.0,
+              61288.0
+            ]
+          },
+          "voluntary_context_switches": {
+            "median": 1058.0,
+            "max": 1109.0,
+            "samples": [
+              1058.0,
+              1045.0,
+              1051.0,
+              1084.0,
+              1109.0,
+              1058.0,
+              1062.0
+            ]
+          },
+          "involuntary_context_switches": {
+            "median": 50.0,
+            "max": 97.0,
+            "samples": [
+              68.0,
+              32.0,
+              49.0,
+              47.0,
+              97.0,
+              50.0,
+              54.0
+            ]
+          }
+        },
+        "candidate": {
+          "user_cpu_seconds": {
+            "median": 0.890066,
+            "max": 0.906352,
+            "samples": [
+              0.86336,
+              0.883439,
+              0.881122,
+              0.906352,
+              0.899266,
+              0.890066,
+              0.894779
+            ]
+          },
+          "system_cpu_seconds": {
+            "median": 0.107268,
+            "max": 0.135803,
+            "samples": [
+              0.113575,
+              0.0824,
+              0.113705,
+              0.135803,
+              0.082016,
+              0.080641,
+              0.107268
+            ]
+          },
+          "max_child_peak_rss_kib": {
+            "median": 61680.0,
+            "max": 62888.0,
+            "samples": [
+              61680.0,
+              61744.0,
+              58728.0,
+              60464.0,
+              58544.0,
+              62888.0,
+              62824.0
+            ]
+          },
+          "voluntary_context_switches": {
+            "median": 1070.0,
+            "max": 1165.0,
+            "samples": [
+              1165.0,
+              1070.0,
+              1092.0,
+              1011.0,
+              1050.0,
+              1041.0,
+              1137.0
+            ]
+          },
+          "involuntary_context_switches": {
+            "median": 65.0,
+            "max": 77.0,
+            "samples": [
+              51.0,
+              77.0,
+              35.0,
+              65.0,
+              74.0,
+              74.0,
+              48.0
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "long-line",
+      "route": "hook",
+      "input_bytes": 260079,
+      "verified": true,
+      "seconds": {
+        "baseline": {
+          "median": 1.202189604,
+          "max": 1.215772511,
+          "samples": [
+            1.215772511,
+            1.168184082,
+            1.201705261,
+            1.200455847,
+            1.204061721,
+            1.202189604,
+            1.213576354
+          ]
+        },
+        "candidate": {
+          "median": 1.209107924,
+          "max": 1.23519306,
+          "samples": [
+            1.23519306,
+            1.153452289,
+            1.225679941,
+            1.22683545,
+            1.199945248,
+            1.209107924,
+            1.1613039
+          ]
+        }
+      },
+      "speedup": 0.9942781617234691,
+      "resource_usage": {
+        "baseline": {
+          "user_cpu_seconds": {
+            "median": 1.122976,
+            "max": 1.147991,
+            "samples": [
+              1.100009,
+              1.125907,
+              1.122976,
+              1.147991,
+              1.118588,
+              1.146888,
+              1.118644
+            ]
+          },
+          "system_cpu_seconds": {
+            "median": 0.134341,
+            "max": 0.196181,
+            "samples": [
+              0.196181,
+              0.113673,
+              0.149586,
+              0.127801,
+              0.134341,
+              0.128975,
+              0.161396
+            ]
+          },
+          "max_child_peak_rss_kib": {
+            "median": 62000.0,
+            "max": 63848.0,
+            "samples": [
+              61296.0,
+              62696.0,
+              63848.0,
+              63472.0,
+              62000.0,
+              59560.0,
+              61544.0
+            ]
+          },
+          "voluntary_context_switches": {
+            "median": 1790.0,
+            "max": 1837.0,
+            "samples": [
+              1790.0,
+              1728.0,
+              1753.0,
+              1796.0,
+              1811.0,
+              1837.0,
+              1722.0
+            ]
+          },
+          "involuntary_context_switches": {
+            "median": 182.0,
+            "max": 221.0,
+            "samples": [
+              197.0,
+              201.0,
+              182.0,
+              221.0,
+              93.0,
+              181.0,
+              135.0
+            ]
+          }
+        },
+        "candidate": {
+          "user_cpu_seconds": {
+            "median": 1.110602,
+            "max": 1.185304,
+            "samples": [
+              1.172694,
+              1.065204,
+              1.185304,
+              1.118318,
+              1.110602,
+              1.105123,
+              1.087641
+            ]
+          },
+          "system_cpu_seconds": {
+            "median": 0.170042,
+            "max": 0.17978,
+            "samples": [
+              0.13436,
+              0.173814,
+              0.120996,
+              0.176295,
+              0.170042,
+              0.17978,
+              0.145755
+            ]
+          },
+          "max_child_peak_rss_kib": {
+            "median": 62640.0,
+            "max": 63336.0,
+            "samples": [
+              62436.0,
+              62640.0,
+              63016.0,
+              63336.0,
+              59176.0,
+              61928.0,
+              63336.0
+            ]
+          },
+          "voluntary_context_switches": {
+            "median": 1818.0,
+            "max": 1933.0,
+            "samples": [
+              1787.0,
+              1840.0,
+              1818.0,
+              1754.0,
+              1933.0,
+              1812.0,
+              1840.0
+            ]
+          },
+          "involuntary_context_switches": {
+            "median": 101.0,
+            "max": 153.0,
+            "samples": [
+              48.0,
+              126.0,
+              87.0,
+              146.0,
+              101.0,
+              153.0,
+              83.0
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "many-replacement-leaves",
+      "route": "hook",
+      "input_bytes": 38752,
+      "verified": true,
+      "seconds": {
+        "baseline": {
+          "median": 1.022289401,
+          "max": 1.109968312,
+          "samples": [
+            1.018284757,
+            1.027389495,
+            1.109968312,
+            1.024313326,
+            0.972406323,
+            1.022289401,
+            1.005362094
+          ]
+        },
+        "candidate": {
+          "median": 0.978078759,
+          "max": 1.013226672,
+          "samples": [
+            1.003272572,
+            0.982576181,
+            0.964999115,
+            0.966791405,
+            0.972508195,
+            1.013226672,
+            0.978078759
+          ]
+        }
+      },
+      "speedup": 1.045201515310691,
+      "resource_usage": {
+        "baseline": {
+          "user_cpu_seconds": {
+            "median": 0.971242,
+            "max": 1.064703,
+            "samples": [
+              0.959536,
+              0.957275,
+              1.064703,
+              0.973629,
+              0.921957,
+              0.971242,
+              0.97318
+            ]
+          },
+          "system_cpu_seconds": {
+            "median": 0.108523,
+            "max": 0.128096,
+            "samples": [
+              0.108523,
+              0.128096,
+              0.121184,
+              0.102158,
+              0.11125,
+              0.108088,
+              0.086084
+            ]
+          },
+          "max_child_peak_rss_kib": {
+            "median": 62448.0,
+            "max": 62896.0,
+            "samples": [
+              62896.0,
+              62568.0,
+              62760.0,
+              59688.0,
+              62448.0,
+              59368.0,
+              61872.0
+            ]
+          },
+          "voluntary_context_switches": {
+            "median": 1091.0,
+            "max": 1156.0,
+            "samples": [
+              1074.0,
+              1006.0,
+              1154.0,
+              1156.0,
+              1096.0,
+              1091.0,
+              1031.0
+            ]
+          },
+          "involuntary_context_switches": {
+            "median": 53.0,
+            "max": 120.0,
+            "samples": [
+              53.0,
+              43.0,
+              51.0,
+              120.0,
+              46.0,
+              77.0,
+              53.0
+            ]
+          }
+        },
+        "candidate": {
+          "user_cpu_seconds": {
+            "median": 0.930026,
+            "max": 0.948258,
+            "samples": [
+              0.948258,
+              0.927168,
+              0.928885,
+              0.935929,
+              0.930026,
+              0.941995,
+              0.902281
+            ]
+          },
+          "system_cpu_seconds": {
+            "median": 0.109901,
+            "max": 0.131322,
+            "samples": [
+              0.119264,
+              0.109901,
+              0.089729,
+              0.095363,
+              0.106402,
+              0.131322,
+              0.130513
+            ]
+          },
+          "max_child_peak_rss_kib": {
+            "median": 62440.0,
+            "max": 63140.0,
+            "samples": [
+              62448.0,
+              63140.0,
+              62256.0,
+              62376.0,
+              62952.0,
+              62440.0,
+              62384.0
+            ]
+          },
+          "voluntary_context_switches": {
+            "median": 1079.0,
+            "max": 1227.0,
+            "samples": [
+              1017.0,
+              1046.0,
+              1114.0,
+              1079.0,
+              1055.0,
+              1227.0,
+              1086.0
+            ]
+          },
+          "involuntary_context_switches": {
+            "median": 54.0,
+            "max": 88.0,
+            "samples": [
+              30.0,
+              59.0,
+              66.0,
+              54.0,
+              44.0,
+              88.0,
+              48.0
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "resources": "CPU includes waited-for descendants; RSS is the maximum individual child peak, not simultaneous tree memory",
+  "native_dispatch": "packaged-checksum",
+  "baseline_native_dispatch": "packaged-checksum",
+  "output_prepare_sha256": "6b05642c726082222c85f236007a9ce938bd3140b0d41364744e53656eff5f64"
+}

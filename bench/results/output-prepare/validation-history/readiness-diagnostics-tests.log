@@ -1,0 +1,48 @@
+ok - explicit gitleaks override has highest priority
+ok - private gitleaks precedes PATH
+ok - PATH is used when no explicit or private candidate exists
+ok - invalid explicit override does not fall back
+ok - invalid private candidate does not fall back to PATH
+ok - doctor distinguishes a missing selected gitleaks
+ok - check distinguishes version runtime failure
+ok - check distinguishes unparseable version output
+ok - check distinguishes an unsupported version
+ok - version output followed by nonzero exit remains a runtime failure
+ok - a replaced binary is re-probed on the next invocation
+ok - doctor reports runtime gitleaks state
+ok - doctor reports unparseable gitleaks state
+ok - doctor reports unsupported gitleaks state
+ok - unsupported hook scanner follows open policy with one bounded version probe
+ok - unsupported hook scanner follows closed policy with one bounded version probe
+ok - supported hook scanner uses one version probe within the 10-second hook budget (1s)
+ok - version probing stays bounded and cleans up when mktemp is unavailable
+ok - completed fallback cleanup relinquishes ownership before EXIT
+ok - pre-existing FIFO cannot block or be removed by fallback allocation
+ok - missing fallback cleanup helper fails before running the scanner
+ok - relative private selection stays bound across PostToolUse cwd changes
+ok - relative explicit selection stays bound across PostToolUse cwd changes
+ok - a ready binary that becomes non-executable fails closed without PATH fallback
+ok - slow version probe follows open policy before a scanned route (2s)
+ok - slow version probe follows closed policy before a scanned route (2s)
+ok - claude post-tool preserves the same-invocation readiness reason without private data
+ok - codex post-tool preserves the same-invocation readiness reason without private data
+ok - missing watchdog sleep fails immediately before running the scanner
+ok - check diagnoses a missing version isolation launcher before scanning
+ok - setup suggests the isolation dependency instead of reinstalling gitleaks
+ok - doctor suggests the isolation dependency instead of reinstalling gitleaks
+ok - setup --install leaves a missing launcher nonzero without reinstalling gitleaks
+ok - setup --install preflights the launcher before downloading a missing gitleaks
+ok - setsid-only runtime probes and scans with no alternate launcher
+ok - perl-only runtime probes and scans with no alternate launcher
+ok - setup --install revalidates full gitleaks readiness after installation
+ok - missing isolation launcher follows the open infrastructure policy
+ok - missing isolation launcher follows the closed infrastructure policy
+ok - timed-out version wrappers cannot leave a descendant running
+ok - setsid-only timeout terminates scanner descendants
+ok - perl-only timeout terminates scanner descendants
+ok - oversized version output is bounded and classified as a runtime failure
+ok - interrupting a version probe cleans its private workspace without scanning
+ok - interrupting a fallback version probe removes its bounded output files
+ok - check reports missing jq lookbehind without disabling the fallback
+ok - doctor reports missing jq lookbehind without disabling the fallback
+47 passed, 0 failed

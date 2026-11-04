@@ -107,6 +107,16 @@ Treat `2` and `3` as "not scanned", never as clean.
 
 ## Routine checks
 
+Performance experiments need separate accuracy and timing evidence. Compare the
+actual public release with the candidate using the same inputs, scanner,
+configuration and enforced resource limits, and verify every output against an
+independent expectation. Keep CLI startup, CPU, maximum individual child RSS,
+sampled process RSS sum and throughput distinct. A faster result caused by
+masking extra clean content or weakening a failure boundary is a failed
+experiment. Repeated successful checks after an intermittent failure do not
+establish its cause; retain the failed fixture, stdout and stderr when available.
+
+
 ```sh
 agent-guard doctor
 agent-guard smoke-test

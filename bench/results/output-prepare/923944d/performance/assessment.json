@@ -1,0 +1,317 @@
+{
+  "targets": [
+    {
+      "host": "claude",
+      "name": "many-replacement-leaves",
+      "verified": true,
+      "latency_change_percent": -3.130398487360675,
+      "cpu_change_percent": -2.859036172570506
+    },
+    {
+      "host": "codex",
+      "name": "many-replacement-leaves",
+      "verified": true,
+      "latency_change_percent": -2.976101056409841,
+      "cpu_change_percent": -2.4833143168714766
+    }
+  ],
+  "ordinary_regressions": [],
+  "all_cases": [
+    {
+      "host": "claude",
+      "name": "small-clean",
+      "verified": true,
+      "latency_change_percent": 0.04638313117748538,
+      "cpu_change_percent": -0.027956132833839575
+    },
+    {
+      "host": "claude",
+      "name": "long-line",
+      "verified": true,
+      "latency_change_percent": -0.6262930507960118,
+      "cpu_change_percent": -0.611342960626815
+    },
+    {
+      "host": "claude",
+      "name": "long-multiline",
+      "verified": true,
+      "latency_change_percent": -0.8018406783623755,
+      "cpu_change_percent": -0.4861243886676525
+    },
+    {
+      "host": "claude",
+      "name": "escaped-control",
+      "verified": true,
+      "latency_change_percent": -0.31227428764841747,
+      "cpu_change_percent": -0.10166438882242002
+    },
+    {
+      "host": "claude",
+      "name": "many-lines",
+      "verified": true,
+      "latency_change_percent": -0.9314526081383057,
+      "cpu_change_percent": -0.8090835420657139
+    },
+    {
+      "host": "claude",
+      "name": "many-replacement-leaves",
+      "verified": true,
+      "latency_change_percent": -3.130398487360675,
+      "cpu_change_percent": -2.859036172570506
+    },
+    {
+      "host": "claude",
+      "name": "dense-controls",
+      "verified": true,
+      "latency_change_percent": 0.10745063945141187,
+      "cpu_change_percent": 0.5749194318406703
+    },
+    {
+      "host": "claude",
+      "name": "exec-multiline",
+      "verified": true,
+      "latency_change_percent": -0.747998775043146,
+      "cpu_change_percent": -0.6818496599174106
+    },
+    {
+      "host": "claude",
+      "name": "exec-clean",
+      "verified": true,
+      "latency_change_percent": 0.7263572342457447,
+      "cpu_change_percent": 0.7960025158990858
+    },
+    {
+      "host": "claude",
+      "name": "exec-long-quoted-secret",
+      "verified": true,
+      "latency_change_percent": -0.972753135461879,
+      "cpu_change_percent": -0.7125549184166302
+    },
+    {
+      "host": "claude",
+      "name": "placeholder-control",
+      "verified": true,
+      "latency_change_percent": -0.25589398561303156,
+      "cpu_change_percent": -0.4576093075203791
+    },
+    {
+      "host": "claude",
+      "name": "metadata-control",
+      "verified": true,
+      "latency_change_percent": -0.8630171925025909,
+      "cpu_change_percent": -0.7006774949761763
+    },
+    {
+      "host": "claude",
+      "name": "prose-control",
+      "verified": true,
+      "latency_change_percent": 0.6811254192069516,
+      "cpu_change_percent": 1.18005875059215
+    },
+    {
+      "host": "claude",
+      "name": "exec-over-cap-1048576",
+      "verified": true,
+      "latency_change_percent": -0.022298233387418875,
+      "cpu_change_percent": 0.8793023204272776
+    },
+    {
+      "host": "claude",
+      "name": "exec-over-cap-8388608",
+      "verified": true,
+      "latency_change_percent": 0.20823240696961065,
+      "cpu_change_percent": 0.7799228779190592
+    },
+    {
+      "host": "claude",
+      "name": "pre-read-clean",
+      "verified": true,
+      "latency_change_percent": 0.06006138352101509,
+      "cpu_change_percent": 0.5688878914961393
+    },
+    {
+      "host": "claude",
+      "name": "pre-read-placeholder",
+      "verified": true,
+      "latency_change_percent": 1.3249628790847234,
+      "cpu_change_percent": 0.7838674309188942
+    },
+    {
+      "host": "claude",
+      "name": "pre-bash-clean",
+      "verified": true,
+      "latency_change_percent": 0.13086501822461294,
+      "cpu_change_percent": -0.1221933247428364
+    },
+    {
+      "host": "claude",
+      "name": "pre-git-status",
+      "verified": true,
+      "latency_change_percent": 0.211952804588611,
+      "cpu_change_percent": -0.30764548814946613
+    },
+    {
+      "host": "claude",
+      "name": "pre-unknown-tool",
+      "verified": true,
+      "latency_change_percent": -0.2609004726337849,
+      "cpu_change_percent": 0.790019683992127
+    },
+    {
+      "host": "claude",
+      "name": "prompt-clean",
+      "verified": true,
+      "latency_change_percent": 0.26596509515055544,
+      "cpu_change_percent": 0.9288847599652872
+    },
+    {
+      "host": "codex",
+      "name": "small-clean",
+      "verified": true,
+      "latency_change_percent": 0.1417441400006325,
+      "cpu_change_percent": 0.29437008593262703
+    },
+    {
+      "host": "codex",
+      "name": "long-line",
+      "verified": true,
+      "latency_change_percent": -0.5376691474971551,
+      "cpu_change_percent": -1.123364754687517
+    },
+    {
+      "host": "codex",
+      "name": "long-multiline",
+      "verified": true,
+      "latency_change_percent": -0.5664512743576711,
+      "cpu_change_percent": -0.28673387624349456
+    },
+    {
+      "host": "codex",
+      "name": "escaped-control",
+      "verified": true,
+      "latency_change_percent": -0.049471314620352924,
+      "cpu_change_percent": -0.09580236409701959
+    },
+    {
+      "host": "codex",
+      "name": "many-lines",
+      "verified": true,
+      "latency_change_percent": -0.3692971779914678,
+      "cpu_change_percent": 0.22745720357146837
+    },
+    {
+      "host": "codex",
+      "name": "many-replacement-leaves",
+      "verified": true,
+      "latency_change_percent": -2.976101056409841,
+      "cpu_change_percent": -2.4833143168714766
+    },
+    {
+      "host": "codex",
+      "name": "dense-controls",
+      "verified": true,
+      "latency_change_percent": -0.3986234814971068,
+      "cpu_change_percent": -0.08588543535218429
+    },
+    {
+      "host": "codex",
+      "name": "exec-multiline",
+      "verified": true,
+      "latency_change_percent": -0.8000254218900937,
+      "cpu_change_percent": -0.9100284797850411
+    },
+    {
+      "host": "codex",
+      "name": "exec-clean",
+      "verified": true,
+      "latency_change_percent": 0.23818737060741224,
+      "cpu_change_percent": 0.15957174205751823
+    },
+    {
+      "host": "codex",
+      "name": "exec-long-quoted-secret",
+      "verified": true,
+      "latency_change_percent": -0.5689204941118242,
+      "cpu_change_percent": -0.9294190306933348
+    },
+    {
+      "host": "codex",
+      "name": "placeholder-control",
+      "verified": true,
+      "latency_change_percent": -0.33043942791954883,
+      "cpu_change_percent": -0.37100408081811587
+    },
+    {
+      "host": "codex",
+      "name": "metadata-control",
+      "verified": true,
+      "latency_change_percent": 1.3478565648914254,
+      "cpu_change_percent": 2.134425711512855
+    },
+    {
+      "host": "codex",
+      "name": "prose-control",
+      "verified": true,
+      "latency_change_percent": -0.02131600179028359,
+      "cpu_change_percent": -0.7791045591791668
+    },
+    {
+      "host": "codex",
+      "name": "exec-over-cap-1048576",
+      "verified": true,
+      "latency_change_percent": -0.5166089561443044,
+      "cpu_change_percent": -0.5466367613912615
+    },
+    {
+      "host": "codex",
+      "name": "exec-over-cap-8388608",
+      "verified": true,
+      "latency_change_percent": 1.1042727136033825,
+      "cpu_change_percent": 1.192023523278074
+    },
+    {
+      "host": "codex",
+      "name": "pre-read-clean",
+      "verified": true,
+      "latency_change_percent": 0.10313586206827097,
+      "cpu_change_percent": 0.37777709474884347
+    },
+    {
+      "host": "codex",
+      "name": "pre-read-placeholder",
+      "verified": true,
+      "latency_change_percent": 1.3412973481100154,
+      "cpu_change_percent": 1.4382607389857194
+    },
+    {
+      "host": "codex",
+      "name": "pre-bash-clean",
+      "verified": true,
+      "latency_change_percent": 0.2985634628588807,
+      "cpu_change_percent": -0.0009163455893412831
+    },
+    {
+      "host": "codex",
+      "name": "pre-git-status",
+      "verified": true,
+      "latency_change_percent": -0.77937440153798,
+      "cpu_change_percent": -0.9037756973342526
+    },
+    {
+      "host": "codex",
+      "name": "pre-unknown-tool",
+      "verified": true,
+      "latency_change_percent": 0.5556747986953159,
+      "cpu_change_percent": 1.510216961585198
+    },
+    {
+      "host": "codex",
+      "name": "prompt-clean",
+      "verified": true,
+      "latency_change_percent": 0.288467633401579,
+      "cpu_change_percent": 0.7390545940395565
+    }
+  ],
+  "accepted": false,
+  "scope": "explicit experimental preparation; public v3.7.0 redactor bytes on both sides; no release/default change"
+}

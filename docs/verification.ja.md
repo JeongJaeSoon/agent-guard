@@ -1,4 +1,4 @@
-<!-- translated-from: docs/verification.md; source-blob: 9fd0748eab29d52f6d06342382e7994583f0e812 -->
+<!-- translated-from: docs/verification.md; source-blob: f8f5505dce4836ab5b003d8b402b1e02b01a58d7 -->
 
 <a id="verification"></a>
 
@@ -84,6 +84,16 @@ sentinelを含むファイルの読み取り自体もguardの対象となるツ�
 <a id="routine-checks"></a>
 
 ## 日常のチェック
+
+性能実験には、正確性と時間測定のそれぞれの根拠が必要です。実際の公開
+リリースと候補を、同じ入力・scanner・設定・実際に適用されたリソース制限で
+比較し、すべての出力を独立した期待値で検証してください。CLIの起動コスト、
+CPU、単一の子プロセスの最大RSS、サンプリングしたプロセスRSSの合計、
+スループットは区別します。正常な内容の過剰マスキングや失敗時の境界の緩和で
+速くなった結果は、失敗した実験です。断続的な失敗の後に繰り返し検査が成功
+しても、原因が判明したことにはなりません。取得できる失敗時のfixture・stdout・
+stderrを保存してください。
+
 
 ```sh
 agent-guard doctor

@@ -1,0 +1,273 @@
+﻿2026-11-04T13:05:57.2484630Z Current runner version: '2.338.2'
+2026-11-04T13:05:57.2552920Z ##[group]Runner Image Provisioner
+2026-11-04T13:05:57.2554970Z Hosted Compute Agent
+2026-11-04T13:05:57.2556900Z Version: 20260819.586
+2026-11-04T13:05:57.2558720Z Commit: 3cc4a88dfa507ef76119ad1bb3eccc6378bb2b76
+2026-11-04T13:05:57.2561090Z Build Date: 2026-08-18T23:20:18Z
+2026-11-04T13:05:57.2563460Z Worker ID: {dc7d6011-dff3-4bd5-813d-57d9c9af1407}
+2026-11-04T13:05:57.2565340Z Azure Region: westus
+2026-11-04T13:05:57.2566800Z ##[endgroup]
+2026-11-04T13:05:57.2570990Z ##[group]Operating System
+2026-11-04T13:05:57.2572480Z macOS
+2026-11-04T13:05:57.2573790Z 15.7.9
+2026-11-04T13:05:57.2575610Z 24G830
+2026-11-04T13:05:57.2577540Z ##[endgroup]
+2026-11-04T13:05:57.2581140Z ##[group]Runner Image
+2026-11-04T13:05:57.2582750Z Image: macos-15
+2026-11-04T13:05:57.2584100Z Version: 20260824.0482.1
+2026-11-04T13:05:57.2587650Z Included Software: https://github.com/actions/runner-images/blob/macos-15/20260824.0482/images/macos/macos-15-Readme.md
+2026-11-04T13:05:57.2592020Z Image Release: https://github.com/actions/runner-images/releases/tag/macos-15%2F20260824.0482
+2026-11-04T13:05:57.2595580Z ##[endgroup]
+2026-11-04T13:05:57.2598380Z ##[group]GITHUB_TOKEN Permissions
+2026-11-04T13:05:57.2603660Z Contents: read
+2026-11-04T13:05:57.2604850Z Metadata: read
+2026-11-04T13:05:57.2605950Z ##[endgroup]
+2026-11-04T13:05:57.2610950Z Secret source: Actions
+2026-11-04T13:05:57.2613210Z Cache mode: write
+2026-11-04T13:05:57.2616100Z Prepare workflow directory
+2026-11-04T13:05:57.3352360Z Prepare all required actions
+2026-11-04T13:05:57.3471660Z Getting action download info
+2026-11-04T13:05:57.5712450Z Download action repository 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' (SHA:3d3c42e5aac5ba805825da76410c181273ba90b1)
+2026-11-04T13:05:57.8802920Z Download action repository 'actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02' (SHA:ea165f8d65b6e75b540449e92b4886f43607fa02)
+2026-11-04T13:05:58.5504510Z Complete job name: Native execution (x86_64-apple-darwin)
+2026-11-04T13:05:58.6905500Z ##[group]Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+2026-11-04T13:05:58.6907850Z with:
+2026-11-04T13:05:58.6908760Z   persist-credentials: false
+2026-11-04T13:05:58.6909780Z   repository: JeongJaeSoon/agent-guard
+2026-11-04T13:05:58.6917850Z   token: ***
+2026-11-04T13:05:58.6918700Z   ssh-strict: true
+2026-11-04T13:05:58.6919540Z   ssh-user: git
+2026-11-04T13:05:58.6920390Z   clean: true
+2026-11-04T13:05:58.6921290Z   sparse-checkout-cone-mode: true
+2026-11-04T13:05:58.6922420Z   fetch-depth: 1
+2026-11-04T13:05:58.6923340Z   fetch-tags: false
+2026-11-04T13:05:58.6924210Z   show-progress: true
+2026-11-04T13:05:58.6925180Z   lfs: false
+2026-11-04T13:05:58.6926040Z   submodules: false
+2026-11-04T13:05:58.6926960Z   set-safe-directory: true
+2026-11-04T13:05:58.6928320Z   allow-unsafe-pr-checkout: false
+2026-11-04T13:05:58.6930570Z ##[endgroup]
+2026-11-04T13:05:59.1044560Z Syncing repository: JeongJaeSoon/agent-guard
+2026-11-04T13:05:59.1047740Z ##[group]Getting Git version info
+2026-11-04T13:05:59.1049220Z Working directory is '/Users/runner/work/agent-guard/agent-guard'
+2026-11-04T13:05:59.1051220Z [command]/usr/local/bin/git version
+2026-11-04T13:05:59.1357340Z git version 2.55.0
+2026-11-04T13:05:59.1383680Z ##[endgroup]
+2026-11-04T13:05:59.1393660Z Copying '/Users/runner/.gitconfig' to '/Users/runner/work/_temp/b5a361c4-f0b1-4a84-8827-81e6513568fc/.gitconfig'
+2026-11-04T13:05:59.1410990Z Temporarily overriding HOME='/Users/runner/work/_temp/b5a361c4-f0b1-4a84-8827-81e6513568fc' before making global git config changes
+2026-11-04T13:05:59.1414420Z Adding repository directory to the temporary git global config as a safe directory
+2026-11-04T13:05:59.1418820Z [command]/usr/local/bin/git config --global --add safe.directory /Users/runner/work/agent-guard/agent-guard
+2026-11-04T13:05:59.1552880Z Deleting the contents of '/Users/runner/work/agent-guard/agent-guard'
+2026-11-04T13:05:59.1559680Z ##[group]Determining repository object format
+2026-11-04T13:05:59.1562170Z ##[endgroup]
+2026-11-04T13:05:59.1563550Z ##[group]Initializing the repository
+2026-11-04T13:05:59.1567310Z [command]/usr/local/bin/git init /Users/runner/work/agent-guard/agent-guard
+2026-11-04T13:05:59.1956410Z hint: Using 'master' as the name for the initial branch. This default branch name
+2026-11-04T13:05:59.1959750Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+2026-11-04T13:05:59.1961570Z hint: to use in all of your new repositories, which will suppress this warning,
+2026-11-04T13:05:59.1963360Z hint: call:
+2026-11-04T13:05:59.1964270Z hint:
+2026-11-04T13:05:59.1965300Z hint: 	git config --global init.defaultBranch <name>
+2026-11-04T13:05:59.1966470Z hint:
+2026-11-04T13:05:59.1967730Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2026-11-04T13:05:59.1969690Z hint: 'development'. The just-created branch can be renamed via this command:
+2026-11-04T13:05:59.1971130Z hint:
+2026-11-04T13:05:59.1971920Z hint: 	git branch -m <name>
+2026-11-04T13:05:59.1972890Z hint:
+2026-11-04T13:05:59.1974090Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2026-11-04T13:05:59.1976330Z Initialized empty Git repository in /Users/runner/work/agent-guard/agent-guard/.git/
+2026-11-04T13:05:59.1979690Z [command]/usr/local/bin/git remote add origin https://github.com/JeongJaeSoon/agent-guard
+2026-11-04T13:05:59.2103250Z ##[endgroup]
+2026-11-04T13:05:59.2105430Z ##[group]Disabling automatic garbage collection
+2026-11-04T13:05:59.2109920Z [command]/usr/local/bin/git config --local gc.auto 0
+2026-11-04T13:05:59.2218940Z ##[endgroup]
+2026-11-04T13:05:59.2220390Z ##[group]Setting up auth
+2026-11-04T13:05:59.2221380Z Removing SSH command configuration
+2026-11-04T13:05:59.2226390Z [command]/usr/local/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-04T13:05:59.2334310Z [command]/usr/local/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-04T13:05:59.3861270Z Removing HTTP extra header
+2026-11-04T13:05:59.3867940Z [command]/usr/local/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-04T13:05:59.3973540Z [command]/usr/local/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-04T13:05:59.6276480Z Removing includeIf entries pointing to credentials config files
+2026-11-04T13:05:59.6292400Z [command]/usr/local/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-04T13:05:59.7206540Z [command]/usr/local/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-04T13:05:59.8392520Z [command]/usr/local/bin/git config --file /Users/runner/work/_temp/git-credentials-0dda3bdf-6936-4e38-9d0e-608f82e560b3.config http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2026-11-04T13:05:59.8587170Z [command]/usr/local/bin/git config --local includeIf.gitdir:/Users/runner/work/agent-guard/agent-guard/.git.path /Users/runner/work/_temp/git-credentials-0dda3bdf-6936-4e38-9d0e-608f82e560b3.config
+2026-11-04T13:05:59.8753210Z [command]/usr/local/bin/git config --local includeIf.gitdir:/Users/runner/work/agent-guard/agent-guard/.git/worktrees/*.path /Users/runner/work/_temp/git-credentials-0dda3bdf-6936-4e38-9d0e-608f82e560b3.config
+2026-11-04T13:05:59.9056650Z [command]/usr/local/bin/git config --local includeIf.gitdir:/github/workspace/.git.path /github/runner_temp/git-credentials-0dda3bdf-6936-4e38-9d0e-608f82e560b3.config
+2026-11-04T13:05:59.9068480Z [command]/usr/local/bin/git config --local includeIf.gitdir:/github/workspace/.git/worktrees/*.path /github/runner_temp/git-credentials-0dda3bdf-6936-4e38-9d0e-608f82e560b3.config
+2026-11-04T13:05:59.9180950Z ##[endgroup]
+2026-11-04T13:05:59.9183180Z ##[group]Fetching the repository
+2026-11-04T13:05:59.9193170Z [command]/usr/local/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +36a74b1931eda562b8a96c993465f7721491322d:refs/remotes/pull/393/merge
+2026-11-04T13:06:01.1540820Z From https://github.com/JeongJaeSoon/agent-guard
+2026-11-04T13:06:01.1549540Z  * [new ref]         36a74b1931eda562b8a96c993465f7721491322d -> pull/393/merge
+2026-11-04T13:06:01.1555240Z ##[endgroup]
+2026-11-04T13:06:01.1557880Z ##[group]Determining the checkout info
+2026-11-04T13:06:01.1560170Z ##[endgroup]
+2026-11-04T13:06:01.1561980Z [command]/usr/local/bin/git sparse-checkout disable
+2026-11-04T13:06:01.1717150Z [command]/usr/local/bin/git config --local --unset-all extensions.worktreeConfig
+2026-11-04T13:06:01.1854630Z ##[group]Checking out the ref
+2026-11-04T13:06:01.1860610Z [command]/usr/local/bin/git checkout --progress --force refs/remotes/pull/393/merge
+2026-11-04T13:06:01.3508950Z HEAD is now at 36a74b1 Merge d3474af20014269f346d037dd6a936963c10f88a into e709445fb6fce9ade8cbbd2d6bcf2940e48da178
+2026-11-04T13:06:01.3528500Z ##[endgroup]
+2026-11-04T13:06:01.3697860Z [command]/usr/local/bin/git log -1 --format=%H
+2026-11-04T13:06:01.3824050Z 36a74b1931eda562b8a96c993465f7721491322d
+2026-11-04T13:06:01.3843080Z ##[group]Removing auth
+2026-11-04T13:06:01.3845040Z Removing SSH command configuration
+2026-11-04T13:06:01.3849470Z [command]/usr/local/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-04T13:06:01.4006270Z [command]/usr/local/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-04T13:06:01.5902000Z Removing HTTP extra header
+2026-11-04T13:06:01.5907450Z [command]/usr/local/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-04T13:06:01.6060910Z [command]/usr/local/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-04T13:06:01.8041210Z Removing includeIf entries pointing to credentials config files
+2026-11-04T13:06:01.8049140Z [command]/usr/local/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-04T13:06:01.8178210Z includeif.gitdir:/Users/runner/work/agent-guard/agent-guard/.git.path
+2026-11-04T13:06:01.8190080Z includeif.gitdir:/Users/runner/work/agent-guard/agent-guard/.git/worktrees/*.path
+2026-11-04T13:06:01.8255320Z includeif.gitdir:/github/workspace/.git.path
+2026-11-04T13:06:01.8265010Z includeif.gitdir:/github/workspace/.git/worktrees/*.path
+2026-11-04T13:06:01.8272790Z [command]/usr/local/bin/git config --local --get-all includeif.gitdir:/Users/runner/work/agent-guard/agent-guard/.git.path
+2026-11-04T13:06:01.8361930Z /Users/runner/work/_temp/git-credentials-0dda3bdf-6936-4e38-9d0e-608f82e560b3.config
+2026-11-04T13:06:01.8429480Z [command]/usr/local/bin/git config --local --unset includeif.gitdir:/Users/runner/work/agent-guard/agent-guard/.git.path \/Users\/runner\/work\/_temp\/git\-credentials\-0dda3bdf\-6936\-4e38\-9d0e\-608f82e560b3\.config
+2026-11-04T13:06:01.8564270Z [command]/usr/local/bin/git config --local --get-all includeif.gitdir:/Users/runner/work/agent-guard/agent-guard/.git/worktrees/*.path
+2026-11-04T13:06:01.8679290Z /Users/runner/work/_temp/git-credentials-0dda3bdf-6936-4e38-9d0e-608f82e560b3.config
+2026-11-04T13:06:01.8699020Z [command]/usr/local/bin/git config --local --unset includeif.gitdir:/Users/runner/work/agent-guard/agent-guard/.git/worktrees/*.path \/Users\/runner\/work\/_temp\/git\-credentials\-0dda3bdf\-6936\-4e38\-9d0e\-608f82e560b3\.config
+2026-11-04T13:06:01.8828860Z [command]/usr/local/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git.path
+2026-11-04T13:06:01.8952970Z /github/runner_temp/git-credentials-0dda3bdf-6936-4e38-9d0e-608f82e560b3.config
+2026-11-04T13:06:01.8968820Z [command]/usr/local/bin/git config --local --unset includeif.gitdir:/github/workspace/.git.path \/github\/runner_temp\/git\-credentials\-0dda3bdf\-6936\-4e38\-9d0e\-608f82e560b3\.config
+2026-11-04T13:06:01.9103600Z [command]/usr/local/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git/worktrees/*.path
+2026-11-04T13:06:01.9246400Z /github/runner_temp/git-credentials-0dda3bdf-6936-4e38-9d0e-608f82e560b3.config
+2026-11-04T13:06:01.9261520Z [command]/usr/local/bin/git config --local --unset includeif.gitdir:/github/workspace/.git/worktrees/*.path \/github\/runner_temp\/git\-credentials\-0dda3bdf\-6936\-4e38\-9d0e\-608f82e560b3\.config
+2026-11-04T13:06:01.9409670Z [command]/usr/local/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-04T13:06:02.2528020Z Removing credentials config '/Users/runner/work/_temp/git-credentials-0dda3bdf-6936-4e38-9d0e-608f82e560b3.config'
+2026-11-04T13:06:02.2541520Z ##[endgroup]
+2026-11-04T13:06:02.2950150Z ##[group]Run rustup toolchain install 1.85.1 --profile minimal --target "$TARGET"
+2026-11-04T13:06:02.2951810Z [36;1mrustup toolchain install 1.85.1 --profile minimal --target "$TARGET"[0m
+2026-11-04T13:06:02.2952850Z [36;1mif [ "$RUNNER_OS" = Linux ]; then[0m
+2026-11-04T13:06:02.2953580Z [36;1m  sudo apt-get update -qq[0m
+2026-11-04T13:06:02.2954310Z [36;1m  sudo apt-get install -y musl-tools[0m
+2026-11-04T13:06:02.2955000Z [36;1mfi[0m
+2026-11-04T13:06:02.3044650Z shell: /bin/bash -e {0}
+2026-11-04T13:06:02.3045250Z env:
+2026-11-04T13:06:02.3045710Z   TARGET: x86_64-apple-darwin
+2026-11-04T13:06:02.3046250Z ##[endgroup]
+2026-11-04T13:06:02.4043870Z info: syncing channel updates for 1.85.1-x86_64-apple-darwin
+2026-11-04T13:06:02.6047640Z info: latest update on 2025-03-18 for version 1.85.1 (4eb161250 2025-03-15)
+2026-11-04T13:06:02.6049400Z info: downloading 3 components
+2026-11-04T13:06:16.6600940Z 
+2026-11-04T13:06:16.6893830Z info: self-update is disabled for this build of rustup
+2026-11-04T13:06:16.6895720Z info: any updates to rustup will need to be fetched with your system package manager
+2026-11-04T13:06:16.6897720Z   1.85.1-x86_64-apple-darwin installed - rustc 1.85.1 (4eb161250 2025-03-15)
+2026-11-04T13:06:16.6898940Z 
+2026-11-04T13:06:16.7165080Z ##[group]Run sh scripts/build-native-artifact.sh "$TARGET" "$RUNNER_TEMP/artifacts"
+2026-11-04T13:06:16.7166590Z [36;1msh scripts/build-native-artifact.sh "$TARGET" "$RUNNER_TEMP/artifacts"[0m
+2026-11-04T13:06:16.7168060Z [36;1mcargo +1.85.1 build --release --locked --manifest-path native/devtools/Cargo.toml[0m
+2026-11-04T13:06:16.7171050Z [36;1msh scripts/install-native-test-tools.sh "$RUNNER_TEMP/test-bin"[0m
+2026-11-04T13:06:16.7253670Z shell: /bin/bash -e {0}
+2026-11-04T13:06:16.7254210Z env:
+2026-11-04T13:06:16.7254670Z   TARGET: x86_64-apple-darwin
+2026-11-04T13:06:16.7255220Z ##[endgroup]
+2026-11-04T13:06:16.9157830Z     Updating crates.io index
+2026-11-04T13:06:17.0774050Z  Downloading crates ...
+2026-11-04T13:06:17.1295970Z   Downloaded serde_core v1.0.229
+2026-11-04T13:06:17.1523230Z   Downloaded equivalent v1.0.3
+2026-11-04T13:06:17.1598540Z   Downloaded hashbrown v0.16.1
+2026-11-04T13:06:17.1881890Z   Downloaded ryu v1.0.23
+2026-11-04T13:06:17.2093000Z   Downloaded indexmap v2.11.4
+2026-11-04T13:06:17.2343930Z   Downloaded memchr v2.8.3
+2026-11-04T13:06:17.2682310Z   Downloaded itoa v1.0.18
+2026-11-04T13:06:17.2782470Z   Downloaded serde_json v1.0.145
+2026-11-04T13:06:17.3705740Z    Compiling serde_core v1.0.229
+2026-11-04T13:06:17.3726050Z    Compiling hashbrown v0.16.1
+2026-11-04T13:06:17.3729160Z    Compiling equivalent v1.0.3
+2026-11-04T13:06:17.3731390Z    Compiling serde_json v1.0.145
+2026-11-04T13:06:17.5567120Z    Compiling ryu v1.0.23
+2026-11-04T13:06:18.6642080Z    Compiling memchr v2.8.3
+2026-11-04T13:06:20.1078730Z    Compiling indexmap v2.11.4
+2026-11-04T13:06:20.7637620Z    Compiling itoa v1.0.18
+2026-11-04T13:06:29.7844540Z    Compiling agent-guard-redact v0.1.0 (/Users/runner/work/agent-guard/agent-guard/native/redaction-core)
+2026-11-04T13:06:38.7689110Z     Finished `release` profile [optimized] target(s) in 21.95s
+2026-11-04T13:06:41.0282180Z     Updating crates.io index
+2026-11-04T13:06:41.2222060Z  Downloading crates ...
+2026-11-04T13:06:41.2610410Z   Downloaded sha2 v0.10.9
+2026-11-04T13:06:41.2760650Z   Downloaded serde_core v1.0.228
+2026-11-04T13:06:41.2909370Z   Downloaded version_check v0.9.5
+2026-11-04T13:06:41.2966330Z   Downloaded once_cell v1.21.4
+2026-11-04T13:06:41.3079100Z   Downloaded typenum v1.20.1
+2026-11-04T13:06:41.3211260Z   Downloaded cfg-if v1.0.5
+2026-11-04T13:06:41.3268290Z   Downloaded tempfile v3.23.0
+2026-11-04T13:06:41.3379690Z   Downloaded serde v1.0.228
+2026-11-04T13:06:41.3522770Z   Downloaded fastrand v2.5.0
+2026-11-04T13:06:41.3571850Z   Downloaded getrandom v0.3.4
+2026-11-04T13:06:41.3734320Z   Downloaded errno v0.3.14
+2026-11-04T13:06:41.3802010Z   Downloaded block-buffer v0.10.4
+2026-11-04T13:06:41.3845080Z   Downloaded bitflags v2.13.2
+2026-11-04T13:06:41.4072380Z   Downloaded generic-array v0.14.7
+2026-11-04T13:06:41.4145950Z   Downloaded crypto-common v0.1.7
+2026-11-04T13:06:41.4189820Z   Downloaded cpufeatures v0.2.17
+2026-11-04T13:06:41.4253050Z   Downloaded digest v0.10.7
+2026-11-04T13:06:41.4327740Z   Downloaded rustix v1.1.3
+2026-11-04T13:06:41.5420480Z   Downloaded libc v0.2.177
+2026-11-04T13:06:41.6788040Z    Compiling version_check v0.9.5
+2026-11-04T13:06:41.6800450Z    Compiling libc v0.2.177
+2026-11-04T13:06:41.6808080Z    Compiling typenum v1.20.1
+2026-11-04T13:06:41.6810230Z    Compiling serde_core v1.0.228
+2026-11-04T13:06:42.2418790Z    Compiling getrandom v0.3.4
+2026-11-04T13:06:42.3801600Z    Compiling generic-array v0.14.7
+2026-11-04T13:06:42.6960780Z    Compiling cfg-if v1.0.5
+2026-11-04T13:06:42.7026810Z    Compiling rustix v1.1.3
+2026-11-04T13:06:43.6623960Z    Compiling bitflags v2.13.2
+2026-11-04T13:06:44.1956910Z    Compiling errno v0.3.14
+2026-11-04T13:06:44.2052510Z    Compiling hashbrown v0.16.1
+2026-11-04T13:06:44.3624810Z    Compiling serde_json v1.0.145
+2026-11-04T13:06:44.6462280Z    Compiling serde v1.0.228
+2026-11-04T13:06:44.9518620Z    Compiling equivalent v1.0.3
+2026-11-04T13:06:45.4993330Z    Compiling block-buffer v0.10.4
+2026-11-04T13:06:45.7065170Z    Compiling crypto-common v0.1.7
+2026-11-04T13:06:45.8622930Z    Compiling digest v0.10.7
+2026-11-04T13:06:45.9007100Z    Compiling indexmap v2.11.4
+2026-11-04T13:06:46.4046760Z    Compiling cpufeatures v0.2.17
+2026-11-04T13:06:46.4742980Z    Compiling itoa v1.0.18
+2026-11-04T13:06:46.8618390Z    Compiling ryu v1.0.23
+2026-11-04T13:06:47.4813880Z    Compiling memchr v2.8.3
+2026-11-04T13:06:48.0017480Z    Compiling fastrand v2.5.0
+2026-11-04T13:06:48.4563960Z    Compiling once_cell v1.21.4
+2026-11-04T13:06:48.7485980Z    Compiling tempfile v3.23.0
+2026-11-04T13:06:49.1763820Z    Compiling sha2 v0.10.9
+2026-11-04T13:06:53.5338900Z    Compiling agent-guard-devtools v0.1.0 (/Users/runner/work/agent-guard/agent-guard/native/devtools)
+2026-11-04T13:07:32.4211140Z     Finished `release` profile [optimized] target(s) in 51.44s
+2026-11-04T13:07:33.5127480Z /var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/tmp.B9AumKjLiP/scanner.tar.gz: OK
+2026-11-04T13:07:34.4516370Z /var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/tmp.B9AumKjLiP/jq: OK
+2026-11-04T13:07:34.4951610Z ##[group]Run export PATH="$RUNNER_TEMP/test-bin:/usr/bin:/bin:/usr/sbin:/sbin"
+2026-11-04T13:07:34.4952790Z [36;1mexport PATH="$RUNNER_TEMP/test-bin:/usr/bin:/bin:/usr/sbin:/sbin"[0m
+2026-11-04T13:07:34.4954910Z [36;1mif command -v cargo || command -v rustc; then[0m
+2026-11-04T13:07:34.4955890Z [36;1m  echo 'Rust compiler unexpectedly visible on runtime test PATH' >&2[0m
+2026-11-04T13:07:34.4956700Z [36;1m  exit 1[0m
+2026-11-04T13:07:34.4957120Z [36;1mfi[0m
+2026-11-04T13:07:34.4957680Z [36;1mcore="$RUNNER_TEMP/artifacts/agent-guard-redact-$TARGET"[0m
+2026-11-04T13:07:34.4959300Z [36;1mnative/devtools/target/release/agent-guard-devtools native-redaction --core "$core" > "$RUNNER_TEMP/artifacts/differential.json"[0m
+2026-11-04T13:07:34.4962120Z [36;1mnative/devtools/target/release/agent-guard-devtools native-integration --core "$core" --scanner "$RUNNER_TEMP/test-bin/gitleaks" > "$RUNNER_TEMP/artifacts/integration.json"[0m
+2026-11-04T13:07:34.4966770Z [36;1mAGENT_GUARD_RUST_CORE_BIN="$core" sh tests/native-suite.sh audit > "$RUNNER_TEMP/artifacts/audit.log"[0m
+2026-11-04T13:07:34.5208810Z shell: /bin/bash -e {0}
+2026-11-04T13:07:34.5209300Z env:
+2026-11-04T13:07:34.5210330Z   TARGET: x86_64-apple-darwin
+2026-11-04T13:07:34.5211180Z ##[endgroup]
+2026-11-04T13:08:20.6452400Z agent-guard-devtools: host/fallback mismatch: claude, /var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/.tmp2hshwF/failing
+2026-11-04T13:08:20.6552230Z ##[error]Process completed with exit code 1.
+2026-11-04T13:08:20.8772830Z Post job cleanup.
+2026-11-04T13:08:21.4371340Z [command]/usr/local/bin/git version
+2026-11-04T13:08:21.4440360Z git version 2.55.0
+2026-11-04T13:08:21.5696760Z Copying '/Users/runner/.gitconfig' to '/Users/runner/work/_temp/533cda71-4553-40d4-b938-aaa3f9618712/.gitconfig'
+2026-11-04T13:08:21.5701580Z Temporarily overriding HOME='/Users/runner/work/_temp/533cda71-4553-40d4-b938-aaa3f9618712' before making global git config changes
+2026-11-04T13:08:21.5705900Z Adding repository directory to the temporary git global config as a safe directory
+2026-11-04T13:08:21.5710340Z [command]/usr/local/bin/git config --global --add safe.directory /Users/runner/work/agent-guard/agent-guard
+2026-11-04T13:08:21.5729070Z Removing SSH command configuration
+2026-11-04T13:08:21.5734920Z [command]/usr/local/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-04T13:08:21.5756940Z [command]/usr/local/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-04T13:08:21.7507400Z Removing HTTP extra header
+2026-11-04T13:08:21.7517110Z [command]/usr/local/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-04T13:08:21.7661720Z [command]/usr/local/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-04T13:08:21.9777010Z Removing includeIf entries pointing to credentials config files
+2026-11-04T13:08:21.9785530Z [command]/usr/local/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-04T13:08:21.9914790Z [command]/usr/local/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-04T13:08:22.2071810Z Cleaning up orphan processes
+

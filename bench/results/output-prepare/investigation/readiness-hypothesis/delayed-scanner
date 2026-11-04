@@ -1,0 +1,3 @@
+#!/bin/sh
+if [ "${1:-}" = version ]; then sleep 3; fi
+exec /workspace/agent-guard-tools/gitleaks "$@"
