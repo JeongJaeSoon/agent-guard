@@ -6,6 +6,12 @@ on:
         description: Published X.Y.Z release to validate
         required: true
         type: string
+      previous_version:
+        description: Published release to upgrade from
+        required: true
+        type: choice
+        default: '3.6.15'
+        options: ['3.6.14', '3.6.15']
 permissions:
   contents: read
 jobs:
@@ -26,9 +32,10 @@ jobs:
       - name: Verify published installs without a Rust compiler
         env:
           VERSION: ${{ inputs.version }}
+          PREVIOUS_VERSION: ${{ inputs.previous_version }}
         run: |
           export PATH="$RUNNER_TEMP/test-bin:/usr/bin:/bin:/usr/sbin:/sbin"
-          sh tests/public-native-release.sh "$VERSION" "$RUNNER_TEMP/public-evidence"
+          sh tests/public-native-release.sh "$VERSION" "$RUNNER_TEMP/public-evidence" "$PREVIOUS_VERSION"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
@@ -53,7 +60,8 @@ jobs:
       - name: Verify public formula upgrade and canonical tap install
         env:
           VERSION: ${{ inputs.version }}
-        run: sh tests/public-native-homebrew.sh "$VERSION" "$RUNNER_TEMP/homebrew-evidence"
+          PREVIOUS_VERSION: ${{ inputs.previous_version }}
+        run: sh tests/public-native-homebrew.sh "$VERSION" "$RUNNER_TEMP/homebrew-evidence" "$PREVIOUS_VERSION"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:

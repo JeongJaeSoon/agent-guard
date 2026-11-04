@@ -4,7 +4,10 @@ set -eu
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)
 version=${1:?published version required}
 out=${2:?new evidence directory required}
+previous=${3:-3.6.15}
 printf '%s\n' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'
+# Both qualified source releases publish the same pinned bootstrap bytes.
+case "$previous" in 3.6.14|3.6.15) ;; *) echo 'unqualified previous release' >&2; exit 2 ;; esac
 [ ! -e "$out" ] || { echo 'refusing to overwrite release evidence' >&2; exit 2; }
 mkdir -p "$out"
 out=$(CDPATH='' cd -- "$out" && pwd -P)
@@ -42,11 +45,12 @@ export AGENT_GUARD_HOME="$case_dir/fresh" AGENT_GUARD_BIN_DIR="$case_dir/fresh-b
 AGENT_GUARD_VERSION="$version" sh "$case_dir/download/bootstrap.sh" > "$out/fresh.log" 2>&1
 "$AGENT_GUARD_BIN_DIR/agent-guard" version | grep -F "agent-guard $version"
 "$AGENT_GUARD_BIN_DIR/agent-guard" smoke-test >> "$out/fresh.log" 2>&1
-curl -fsSL https://github.com/JeongJaeSoon/agent-guard/releases/download/v3.6.14/bootstrap.sh -o "$case_dir/old-bootstrap.sh"
+curl -fsSL "https://github.com/JeongJaeSoon/agent-guard/releases/download/v$previous/bootstrap.sh" -o "$case_dir/old-bootstrap.sh"
 printf '%s  %s\n' 2f6a796c1249d1a4ecdfa9b41507dcd61f34cc42dbb43013769c7cbac3112e12 "$case_dir/old-bootstrap.sh" | shasum -a 256 -c -
 export AGENT_GUARD_HOME="$case_dir/upgrade" AGENT_GUARD_BIN_DIR="$case_dir/upgrade-bin"
-AGENT_GUARD_VERSION=3.6.14 sh "$case_dir/old-bootstrap.sh" > "$out/old.log" 2>&1
-"$AGENT_GUARD_BIN_DIR/agent-guard" version | grep -F 'agent-guard 3.6.14'
+AGENT_GUARD_VERSION="$previous" sh "$case_dir/old-bootstrap.sh" > "$out/old.log" 2>&1
+"$AGENT_GUARD_BIN_DIR/agent-guard" version | grep -F "agent-guard $previous"
+printf '%s\n' "$previous" > "$out/upgrade-from.txt"
 printf 'preserve local note\n' > "$AGENT_GUARD_HOME/local-note"
 AGENT_GUARD_VERSION="$version" "$AGENT_GUARD_BIN_DIR/agent-guard" update > "$out/update.log" 2>&1
 "$AGENT_GUARD_BIN_DIR/agent-guard" version | grep -F "agent-guard $version"
@@ -63,4 +67,4 @@ esac
 # Test the downloaded CLI and helper together, not the checkout's CLI.
 AGENT_GUARD_TEST_PAYLOAD="$AGENT_GUARD_HOME" sh "$ROOT/tests/native-packaged.sh" \
   "$AGENT_GUARD_HOME/libexec/agent-guard-redact-$target" "$(command -v gitleaks)" > "$out/fallback.log"
-printf 'passed: public assets, fresh install, 3.6.14 update, scanner and host fallback\n'
+printf 'passed: public assets, fresh install, %s update, scanner and host fallback\n' "$previous"

@@ -159,7 +159,8 @@ qualification record (Korean)](rust-packaged-validation.ko.md) preserves the
 pre-default measurements separately from the historical experiment.
 
 After publication, `public-native-release.yml` checks actual public assets,
-compiler-free fresh installs and updates from v3.6.14 on all four native
+compiler-free fresh installs and updates from v3.6.15 on all four native
 platforms, plus public Homebrew formula upgrades and canonical tap installs on
 Linux x64 and both macOS architectures. Those results must be inspected before claiming
-release validation is complete.
+release validation is complete. Its `previous_version` input also supports
+v3.6.14, the baseline used by the candidate installation tests.

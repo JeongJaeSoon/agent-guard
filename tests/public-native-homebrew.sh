@@ -3,7 +3,9 @@
 set -eu
 version=${1:?published version required}
 out=${2:?new evidence directory required}
+previous=${3:-3.6.15}
 printf '%s\n' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'
+case "$previous" in 3.6.14|3.6.15) ;; *) echo 'unqualified previous release' >&2; exit 2 ;; esac
 [ "${GITHUB_ACTIONS:-}" = true ] || { echo 'requires a disposable Actions runner' >&2; exit 2; }
 [ ! -e "$out" ] || exit 2
 mkdir -p "$out"
@@ -19,9 +21,10 @@ brew config > "$out/brew-config.txt"
 brew tap-new agent-guard-validation/releases
 tap=$(brew --repo agent-guard-validation/releases)
 mkdir -p "$tap/Formula"
-curl -fsSL https://github.com/JeongJaeSoon/agent-guard/releases/download/v3.6.14/agent-guard.rb -o "$tap/Formula/agent-guard.rb"
+curl -fsSL "https://github.com/JeongJaeSoon/agent-guard/releases/download/v$previous/agent-guard.rb" -o "$tap/Formula/agent-guard.rb"
 brew install agent-guard-validation/releases/agent-guard > "$out/install-old.log" 2>&1
-agent-guard version | grep -F 'agent-guard 3.6.14'
+agent-guard version | grep -F "agent-guard $previous"
+printf '%s\n' "$previous" > "$out/upgrade-from.txt"
 curl -fsSL "https://github.com/JeongJaeSoon/agent-guard/releases/download/v$version/agent-guard.rb" -o "$out/published-formula.rb"
 cp "$out/published-formula.rb" "$tap/Formula/agent-guard.rb"
 brew upgrade agent-guard-validation/releases/agent-guard > "$out/upgrade.log" 2>&1
