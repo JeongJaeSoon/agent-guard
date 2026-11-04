@@ -1,0 +1,62 @@
+{
+  "version": "3.6.14",
+  "release_sha": "12b1bdfecfdf663f8d155c2ab4408162cb4e9f8b",
+  "release_url": "https://github.com/JeongJaeSoon/agent-guard/releases/tag/v3.6.14",
+  "published_at": "2026-11-04T08:01:55Z",
+  "workflow_url": "https://github.com/JeongJaeSoon/agent-guard/actions/runs/41796361357",
+  "workflow_conclusion": "success",
+  "required_checks_on_release_head_and_merge": "6/6 success",
+  "merge_checks": "20/20 success",
+  "assets": [
+    {
+      "name": "agent-guard-3.6.14.tar.gz",
+      "sha256": "3edfb6d0ace72bc7999723a46a2490297f76a811bcfd558216b641723726be2c",
+      "url": "https://github.com/JeongJaeSoon/agent-guard/releases/download/v3.6.14/agent-guard-3.6.14.tar.gz"
+    },
+    {
+      "name": "agent-guard-3.6.14.tar.gz.sha256",
+      "sha256": "814b4b70d9e6872dbd856fb0eaf9eb30cc4bf897e3f2f1a8ecabd4808faddfa9",
+      "url": "https://github.com/JeongJaeSoon/agent-guard/releases/download/v3.6.14/agent-guard-3.6.14.tar.gz.sha256"
+    },
+    {
+      "name": "agent-guard.rb",
+      "sha256": "91da8b58398b2c5046369c7c30bc11956e34f00f8e6dfc3d4bd9d95e076e3f27",
+      "url": "https://github.com/JeongJaeSoon/agent-guard/releases/download/v3.6.14/agent-guard.rb"
+    },
+    {
+      "name": "bootstrap.sh",
+      "sha256": "2f6a796c1249d1a4ecdfa9b41507dcd61f34cc42dbb43013769c7cbac3112e12",
+      "url": "https://github.com/JeongJaeSoon/agent-guard/releases/download/v3.6.14/bootstrap.sh"
+    },
+    {
+      "name": "install.sh",
+      "sha256": "5c8e72a232aa8b837a64384697bb5984359572e0447b8c9f8a75418a0905bdb4",
+      "url": "https://github.com/JeongJaeSoon/agent-guard/releases/download/v3.6.14/install.sh"
+    }
+  ],
+  "verification": {
+    "platform": "Linux x64",
+    "rustc_and_cargo_on_test_path": false,
+    "fresh_latest_install": "passed",
+    "published_update_3_6_13_to_3_6_14": "passed",
+    "real_gitleaks_8_30_1_smoke": "passed",
+    "bootstrap_failure_preserves_install_regressions": "passed",
+    "checksum_and_formula_comparison": "passed",
+    "tag_v3_and_v3_6_14_match_release_sha": true,
+    "legacy_v1_sha": "a795c72e0c9a58ce8a5d0eee5e92423f3cf3e4e1"
+  },
+  "homebrew": {
+    "pr": "https://github.com/JeongJaeSoon/homebrew-tap/pull/22",
+    "formula_ci": "success",
+    "merge_sha": "9d18851770d676040b548dea7c07ccf4216289a6",
+    "formula_matches_release_asset": true
+  },
+  "limitations": [
+    "Rust core remains opt-in; default is shell/jq",
+    "No platform Rust binaries are shipped",
+    "Linux/macOS x64/arm64 Rust binary distribution and compiler-free install/update/fallback validation remain outstanding",
+    "No local macOS brew install/upgrade was performed",
+    "Documentation packaging exclusions apply to future releases; published v3.6.14 assets are unchanged",
+    "Original devtools worktree unavailable; no old environment was deleted or reset"
+  ]
+}

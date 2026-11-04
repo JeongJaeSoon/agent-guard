@@ -12,7 +12,7 @@ Python 개발 스크립트는 기능을 Rust로 옮기고 동등성을 검증한
 
 현재 Rust 범위는 문자열 치환 코어 `redact_tool_response_json`이다.
 탐지·정책·호스트 처리는 여전히 셸이므로 이를 전체 Rust 재작성 완료로 표현하지 않는다.
-이번 준비 버전은 v3.6.14이며 기본 동작은 셸/jq다. Rust 기본 전환은
+발행 버전은 v3.6.14이며 기본 동작은 셸/jq다. Rust 기본 전환은
 플랫폼별 사전 빌드 바이너리, Rust 미설치 환경의 설치·업데이트·실패 복귀를
 검증한 뒤 별도로 판정한다. 내부 언어 변경만으로 v4를 자동 확정하지 않는다.
 
@@ -29,9 +29,12 @@ Python 개발 스크립트는 기능을 Rust로 옮기고 동등성을 검증한
 - [x] 이관 변경을 별도 PR로 제출하고 해당 커밋의 필수 CI 통과 후 main 병합
 - [x] 성능 보고서 #381 및 CI 정비 #383의 최신 커밋 검사 통과 후 main 병합
 - [x] 릴리스 #384에 모든 선행 변경 반영, 버전·CHANGELOG·배포 아카이브·설치 검증 완료
-- [ ] 릴리스 PR과 병합 커밋의 필수 검사 통과 후 태그·노트·체크섬·배포 파일 실제 발행
-- [ ] 발행 후 최신 main 기준으로 #382 문서 재구성 및 불필요한 문서 제거, 링크·배포 문서 검사 후 병합
-- [ ] 최종 main 커밋, 병합 PR, 릴리스 URL, 검증 결과와 남은 제한을 보고
+- [x] 릴리스 PR과 병합 커밋의 필수 검사 통과 후 태그·노트·체크섬·배포 파일 실제 발행
+- [x] 발행 후 최신 main 기준으로 #382 문서 재구성 및 불필요한 문서 제거, 링크·배포 문서 검사
+
+문서 정리의 최종 head CI·병합 결과와 병합 후 main SHA는
+[PR #382](https://github.com/JeongJaeSoon/agent-guard/pull/382) 및 최종 작업 보고에서 확인한다.
+아래 발행 검증은 문서 PR 병합 전의 릴리스 커밋을 대상으로 하며, PR 준비를 병합 완료로 간주하지 않는다.
 
 PR 생성, 초안 릴리스 작성, 로컬 테스트 통과만으로 전체 목표를 완료 처리하지 않는다.
 앱 Goal 본문을 수정하는 도구는 현재 제공되지 않는다. 이 문서는 저장소에서
@@ -92,7 +95,7 @@ Docker는 rootless/cgroup driver `none`으로 동작하여 요청한 컨테이�
 - 차등 1,024건, jq 1.7.1/1.6 호스트·복귀 각 90건, 기존/Rust 출력 샤드 각 1,018건, 단위 201건, Rust 감사 로그 116건 통과.
 - 측정 코어 커밋 `dd5b44d0134033f8ee5ef4c187e92aebcfb8214e`의 Rust 전용·legacy·plugin·HOL 및 Linux/macOS 전체 CI 통과. 이후 PR의 최신 커밋 CI는 별도로 확인한다.
 
-성능 기준과 측정 코어의 CI는 통과해 **선택형 Rust 코어를 #380으로 main에 병합했다. 기본값 전환과 최종 릴리스 발행은 아직 완료되지 않았다.**
+성능 기준과 측정 코어의 CI는 통과해 **선택형 Rust 코어를 #380으로 main에 병합하고 v3.6.14를 발행했다. Rust 기본값 전환은 아직 완료되지 않았다.**
 [그래프 HTML 보고서](rust-performance.ko.html)와 [원시 결과](../bench/results/rust-experiment/)에 근거를 남겼다.
 
 ## 저장소 반영과 현재 상태
@@ -118,12 +121,26 @@ Docker는 rootless/cgroup driver `none`으로 동작하여 요청한 컨테이�
 - #386은 `9535d05e78a0ca33662d15a450bcd2914a3bb67d`의 필수 6개를 포함한
   19개 검사를 통과했고, `7dd2295ef0593d95c948665d7c66285eb1cd8279`로 main에 병합했다.
   Linux/macOS 전체 회귀, 두 OS 개발 도구, macOS 실제 스캐너 코어 계약이 통과했다.
-- #384에는 #385가 추가된 최신 main `83b67b57a2df9845620aa2cd98a58e15ed840b13`도
-  통합했다. 현재 후보의 차등·호스트 검사를 다시 확인하고 최신 head CI로 병합을 판정한다.
-  #382는 실제 발행 이후 최신 main을 기준으로 반영한다.
-- 실행 환경은 정상 시작됐다. 다만 현재 `api.github.com`은 Forbidden으로
-  차단된다. 사용자에게 허용 승인은 받았지만, 실제 환경 정책 반영과 인증·workflow
-  dispatch는 아직 검증하지 못했다. 검사·발행 절차는 우회하지 않는다.
+- #384는 `12b1bdfecfdf663f8d155c2ab4408162cb4e9f8b`로 main에 병합됐다.
+  릴리스 head와 병합 SHA의 필수 6개 검사 모두 성공했고, 병합 SHA의 검사 20개가 성공했다.
+- 새 환경의 `api.github.com` 허용 정책은 enforced 상태이며 실제 요청 HTTP 200과
+  인증된 API 요청을 확인했다. 명령별 네트워크 권한을 적용한 뒤 기존 프록시로 연결했다.
+  기존 장애 환경은 여전히 접근할 수 없으며 삭제·초기화하지 않았다.
+  이번 환경의 기존 `resume-20261104.bundle`은 무결성을 확인했다.
+- `release.yml`을 `ref=main`, `version=3.6.14`, `bump=patch`, `dry_run=false`로
+  실행해 [실제 릴리스](https://github.com/JeongJaeSoon/agent-guard/releases/tag/v3.6.14)를 발행했다.
+  [발행 실행](https://github.com/JeongJaeSoon/agent-guard/actions/runs/41796361357)은 성공했으며,
+  `v3.6.14`와 이동 태그 `v3`는 위 병합 SHA를 가리킨다. 기존 `v1`은 유지했다.
+- 공개 자산 5개를 내려받아 체크섬, installer 원본, 렌더링한 Homebrew formula와 비교했다.
+  Rust 컴파일러가 PATH에 없는 Linux x64에서 최신 신규 설치, 실제 `3.6.13 → 3.6.14`
+  업데이트, gitleaks 8.30.1 smoke 검사가 통과했다. 기존 bootstrap 회귀 검사로
+  체크섬·payload 오류 시 기존 실행 파일 보존도 확인했다.
+- Homebrew [tap PR #22](https://github.com/JeongJaeSoon/homebrew-tap/pull/22)는 formula CI 성공 후
+  병합했다. 이번 환경에서 macOS의 실제 `brew install/upgrade`를 실행한 것은 아니다.
+- #382는 발행 후 main을 재확인한 뒤 보존 검토본 `906d152`를 실제 PR 브랜치에 반영한다.
+  배포 문서 검사, 전체 plugin layout, 단위 계약과 bootstrap 회귀 검사를 통과했다.
+  [발행 검증 기록](../bench/results/release-validation/v3.6.14.json)에 자산 해시와 검증 범위를 남긴다.
+  문서 제외 규칙은 후속 배포부터 적용되며 이미 발행한 v3.6.14 자산을 교체하지 않는다.
 
 ## Rust 코어 이행과 기본값 판정
 
