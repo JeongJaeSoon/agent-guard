@@ -67,8 +67,10 @@ Homebrew 3.6.15 설치→3.7.0 업그레이드, `brew test`, 체크섬과 standa
 호스트 복귀 출력 불일치가 한 번 발생했다. 당시 오류에 fixture 번호·양쪽 출력·
 stderr가 없고 임시 데이터가 제거되어 원인을 단정할 수 없다. 고정 합성 fixture의
 실패 진단과 artifact 보존을 추가하고 같은 timeout·기대값으로 macOS Intel
-계약을 3회 실행하도록 했다. 이 후속 CI는 위 릴리스 커밋·공개 배포 검증과
-구분하며, 실제 결과를 확인한 뒤 후속 PR 병합을 판단한다.
+계약을 3회 실행하도록 했다. `bbd6a31`의 [후속 원본](../bench/results/release-validation/v3.7.0-public/post-release-diagnostics/)에서
+같은 macOS Intel 계약 90건을 세 번 모두 통과했으나, 최초 원인 수정 완료를
+뜻하지 않는다. 이 후속 CI는 위 릴리스 커밋·공개 배포 검증과 구분한다.
+공개 검증을 통과한 `d3474af` 이후 공개 verifier와 제품 런타임은 바뀌지 않았다.
 
 ## 체크섬 비용 수정 후 후보 검증
 
@@ -217,6 +219,18 @@ Codex 지연 −26.90%·CPU −26.26%이며 일반 경로 지연 5% 초과 회�
 sh bench/native/run-packaged.sh /absolute/path/to/gitleaks \
   9a0ee9eb2eed1e60b78d4404f985b077149c675d /absolute/new/results-directory
 ```
+
+공개 파일의 네 플랫폼 설치·업데이트와 Homebrew 검사는 일회용 Actions runner에서
+재현한다. 다음 명령은 공개 릴리스를 다시 발행하거나 자산을 교체하지 않는다.
+
+```sh
+gh workflow run public-native-release.yml -R JeongJaeSoon/agent-guard \
+  --ref main -f version=3.7.0 -f previous_version=3.6.15
+```
+
+완료된 실행의 `public-*` artifact에서 실제 태그 SHA, OS·아키텍처, 다운로드
+체크섬, 이전 버전, scanner·호스트 복귀와 Homebrew 설치 로그를 확인한다.
+과거 원본을 덮어쓰지 않도록 새 출력 디렉터리를 사용한다.
 
 기존 출력 디렉터리는 거부한다. 판정기는 원본의 소스·스캐너·설정 해시,
 배포 바이너리 경로, 독립 출력 검증과 적용된 자원 제한부터 확인한다.

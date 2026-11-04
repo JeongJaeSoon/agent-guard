@@ -1,0 +1,55 @@
+{
+  "original_failure": {
+    "head": "d3474af20014269f346d037dd6a936963c10f88a",
+    "workflow": "https://github.com/JeongJaeSoon/agent-guard/actions/runs/41834759669",
+    "job": "https://github.com/JeongJaeSoon/agent-guard/actions/runs/41834759669/job/126591007436",
+    "message": "host/fallback mismatch: claude, failing",
+    "root_cause": "미확정",
+    "limitation": "기존 오류에는 fixture 번호·양쪽 출력·stderr가 없고 임시 원본이 제거됐다. 최초 실행의 원인을 역으로 확정할 수 없다."
+  },
+  "diagnostic_head": "bbd6a317cc2ba2437fe352a90b1b577b0866429a",
+  "native_workflow": "https://github.com/JeongJaeSoon/agent-guard/actions/runs/41836544303",
+  "artifact": {
+    "id": 13327567236,
+    "name": "native-x86_64-apple-darwin",
+    "size_in_bytes": 225813,
+    "url": "https://api.github.com/repos/JeongJaeSoon/agent-guard/actions/artifacts/13327567236",
+    "archive_download_url": "https://api.github.com/repos/JeongJaeSoon/agent-guard/actions/artifacts/13327567236/zip",
+    "expired": false,
+    "created_at": "2026-11-04T13:24:44Z",
+    "expires_at": "2027-02-02T13:16:06Z",
+    "updated_at": "2026-11-04T13:24:44Z",
+    "digest": "sha256:e5e98b729f1ab9f110c211f4e229d8f3245c7cba489051bd5b9196e464a6c956",
+    "workflow_run": {
+      "id": 41836544303,
+      "repository_id": 1227952190,
+      "head_repository_id": 1227952190,
+      "head_branch": "codex/public-homebrew-validation",
+      "head_sha": "bbd6a317cc2ba2437fe352a90b1b577b0866429a"
+    }
+  },
+  "same_macos_intel_contract_trials": [
+    {
+      "passed": 90,
+      "failed": 0
+    },
+    {
+      "passed": 90,
+      "failed": 0
+    },
+    {
+      "passed": 90,
+      "failed": 0
+    }
+  ],
+  "status": "같은 기대값의 3회 실행에서 불일치 미재현. 원인 수정 완료를 뜻하지 않는다.",
+  "runtime_changes": false,
+  "timeout_changes": false,
+  "expectation_changes": false,
+  "changes": [
+    "고정 합성 fixture의 실패 시 번호·stdout·stderr·시간 기록",
+    "실패 native artifact도 보존",
+    "macOS Intel에서 계약 3회 실행"
+  ],
+  "public_verifier_files_unchanged_since_successful_d3474af": true
+}
