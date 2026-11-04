@@ -1,3 +1,20 @@
+## v3.6.15 - 2026-11-04
+
+- fix(hooks): keep draft snapshot tokens visible (#387)
+- Merge pull request #388 from JeongJaeSoon/codex/rust-platform-distribution
+- ci: 네 플랫폼 Rust 바이너리의 네이티브 실행 검증 추가
+- Merge pull request #382 from JeongJaeSoon/codex/docs-consolidation
+- docs: 실제 v3.6.14 발행과 설치 검증 근거 반영
+- Merge remote-tracking branch 'origin/main' into codex/docs-validation
+- Merge branch 'codex/release-validation' into codex/docs-validation
+- Merge branch 'codex/release-validation' into codex/docs-validation
+- Merge branch 'codex/release-validation' into codex/docs-validation
+- Merge branch 'codex/release-validation' into codex/docs-validation
+- merge: 문서 정리의 Rust 이관·릴리스 충돌 사전 검토
+- docs: main 병합·CI·릴리스·문서 정리 완료 조건 명시
+- Merge branch 'codex/ci-run-lifecycle' into codex/docs-consolidation
+- docs: 중복 검토 문서 통합과 사용자·개발·측정 자료 재구성
+
 ## v3.6.14 - 2026-11-04
 
 기본 셸 실행의 병목과 도구 호환성을 개선하고, 측정으로 효과를 확인한 Rust 문자열 치환기를 선택형 실험으로 추가했습니다. 일반 설치에 Rust 의존성이 추가되지 않으며 기본 마스킹 정책은 유지합니다.
