@@ -140,22 +140,26 @@ pub fn integration(args: &Args) -> Result<()> {
     let mut count = 0;
     for host in ["claude", "codex"] {
         env.insert("AGENT_GUARD_HOOK_HOST".into(), host.into());
-        for response in &values {
+        for (response_index, response) in values.iter().enumerate() {
             let payload = serde_json::to_vec(
                 &json!({"tool_name":"Read","tool_input":{},"tool_response":response}),
             )?;
             env.insert("AGENT_GUARD_EXPERIMENTAL_REDACTOR".into(), "shell".into());
-            let (_, old) = checked(
+            let (old_elapsed, old) = invoke(
                 &[cli()?, "hook-post-tool".into()],
                 &payload,
                 &env,
                 None,
                 30.0,
             )?;
+            ensure(
+                old.status.success(),
+                format!("host baseline failed: {host}, fixture={response_index}, status={}, stderr={:?}", old.status, String::from_utf8_lossy(&old.stderr)),
+            )?;
             for binary in &variants {
                 env.insert("AGENT_GUARD_EXPERIMENTAL_REDACTOR".into(), "rust".into());
                 env.insert("AGENT_GUARD_RUST_CORE_BIN".into(), binary.clone());
-                let (_, new) = checked(
+                let (new_elapsed, new) = invoke(
                     &[cli()?, "hook-post-tool".into()],
                     &payload,
                     &env,
@@ -163,8 +167,20 @@ pub fn integration(args: &Args) -> Result<()> {
                     30.0,
                 )?;
                 ensure(
-                    old == new,
-                    format!("host/fallback mismatch: {host}, {binary}"),
+                    new.status.success(),
+                    format!("host candidate failed: {host}, fixture={response_index}, status={}, stderr={:?}", new.status, String::from_utf8_lossy(&new.stderr)),
+                )?;
+                // These are only the fixed synthetic fixtures above. Preserve
+                // failure evidence instead of losing it with the temp directory.
+                ensure(
+                    old.stdout == new.stdout,
+                    format!(
+                        "host/fallback mismatch: {host}, {binary}, fixture={response_index}, baseline_seconds={old_elapsed}, candidate_seconds={new_elapsed}, baseline_stdout={:?}, candidate_stdout={:?}, baseline_stderr={:?}, candidate_stderr={:?}",
+                        String::from_utf8_lossy(&old.stdout),
+                        String::from_utf8_lossy(&new.stdout),
+                        String::from_utf8_lossy(&old.stderr),
+                        String::from_utf8_lossy(&new.stderr),
+                    ),
                 )?;
                 count += 1;
             }

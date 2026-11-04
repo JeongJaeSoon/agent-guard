@@ -58,8 +58,14 @@ jobs:
           core="$RUNNER_TEMP/artifacts/agent-guard-redact-$TARGET"
           native/devtools/target/release/agent-guard-devtools native-redaction --core "$core" > "$RUNNER_TEMP/artifacts/differential.json"
           native/devtools/target/release/agent-guard-devtools native-integration --core "$core" --scanner "$RUNNER_TEMP/test-bin/gitleaks" > "$RUNNER_TEMP/artifacts/integration.json"
+          if [ "$TARGET" = x86_64-apple-darwin ]; then
+            for trial in 2 3; do
+              native/devtools/target/release/agent-guard-devtools native-integration --core "$core" --scanner "$RUNNER_TEMP/test-bin/gitleaks" > "$RUNNER_TEMP/artifacts/integration-$trial.json"
+            done
+          fi
           AGENT_GUARD_RUST_CORE_BIN="$core" sh tests/native-suite.sh audit > "$RUNNER_TEMP/artifacts/audit.log"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
         with:
           name: native-${{ matrix.target }}
           path: ${{ runner.temp }}/artifacts/
