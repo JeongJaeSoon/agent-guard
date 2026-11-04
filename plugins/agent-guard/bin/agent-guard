@@ -9567,7 +9567,16 @@ redact_tool_response_json() {
       if [ -n "$rust_target" ] && [ -f "$rust_core" ] && [ ! -L "$rust_core" ] \
           && [ -f "$rust_core.sha256" ] && [ ! -L "$rust_core.sha256" ] \
           && rust_expected=$(cat "$rust_core.sha256" 2>/dev/null) \
-          && rust_actual=$(CDPATH= cd -- "$ROOT_DIR/libexec" && shasum -a 256 "$rust_name" 2>/dev/null) \
+          && rust_actual=$(
+            CDPATH='' cd -- "$ROOT_DIR/libexec" || exit 1
+            # Avoid starting Perl for each Linux invocation. Both tools emit
+            # the same SHA-256/name record; macOS keeps its system shasum.
+            if command -v sha256sum >/dev/null 2>&1; then
+              sha256sum "$rust_name" 2>/dev/null
+            else
+              shasum -a 256 "$rust_name" 2>/dev/null
+            fi
+          ) \
           && [ "$rust_expected" = "$rust_actual" ]; then
         :
       else
