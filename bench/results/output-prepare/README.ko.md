@@ -11,7 +11,9 @@
 `startup/cli-1..3`은 잘못 사용한 `--version`의 usage 경로다. 유효한 공개 CLI 시작 검사는 `startup/cli-version-*`다. 이런 시행 과정도 덮어쓰지 않았다. 채택 판정에는 실제 제한이 확인된 별도 CI의 교대 측정만 사용한다.
 
 - `923944d/performance`: 최종 후보의 실제 2 CPU/1 GiB/swap 0 비교. `assessment.json`은 채택 실패다. `summary.json`은 원시 표본에서 계산한 요약이며 나머지 artifact 파일을 바꾸지 않았다.
-- `923944d/linux-*`: 최종 후보의 네이티브 실제 실행 계약과 artifact 출처.
+- `923944d/linux-*`, `923944d/macos-*`: 최종 후보의 네 플랫폼 실제 실행 계약과 artifact 출처.
+- `923944d/install-linux-*`: Linux 두 플랫폼의 컴파일러 없는 설치·업데이트·복구 검사.
+- `923944d/public-profile-stages`: 실제 공개 CLI의 JSON 준비·scanner report 파싱을 구분한 후속 단일 진단. 채택 표본에 합치지 않는다.
 - `923944d/public-recheck`: 공개 v3.7.0 자산 15개 SHA-256 재확인 및 tap formula.
 - `reproduction`: 실험 커밋에서 실행하는 수집·오류 주입 스크립트 사본. 현재 main의 기본 기능으로 제공하는 코드가 아니다.
 

@@ -1,0 +1,25 @@
+ok - standalone update preserves custom public link and unrelated files
+ok - real gitleaks version, doctor, check and smoke pass before and after update
+ok - relative symlink invocation updates without a self-link
+ok - PATH invocation updates without a self-link
+ok - direct payload invocation skips a redundant symlink
+ok - explicit update link-directory override is honored
+ok - Homebrew ownership marker refuses standalone updater before download
+ok - legacy Homebrew Cellar receipt refuses standalone updater before download
+ok - plugin cache still refuses standalone updater before download
+ok - physical directory aliases cannot create executable self-links
+ok - replaced payload-bin alias creates the missing public executable link
+ok - stale public link is rejected without touching its external target or payload alias
+ok - update replaces an installer symlink without modifying its external target
+ok - checksum-valid incomplete archive leaves working executable untouched
+ok - checksum-valid non-regular policy leaves working installation untouched
+ok - checksum-valid archive link leaves working installation untouched
+ok - checksum-valid unexpected archive entry leaves working installation untouched
+ok - checksum-valid unreviewed README leaves working installation untouched
+ok - checksum failure preserves the installed executable
+ok - directory link target is rejected without changing existing data
+ok - transaction extract failure restores the working install and public link
+ok - transaction commit failure restores the working install and public link
+ok - transaction interrupt failure restores the working install and public link
+ok - transaction interrupt-int failure restores the working install and public link
+ok - transaction link failure restores the working install and public link
