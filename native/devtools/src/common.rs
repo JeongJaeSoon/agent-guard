@@ -55,6 +55,88 @@ impl Args {
             return Err("a command is required".into());
         }
         let command = values.remove(0);
+        let commands = "native-redaction, native-integration, resource-sample, masking-latency, kernel, load, watchdog-orphans, verify, measure-selected-bash, report";
+        if ["--help", "-h", "help"].contains(&command.as_str()) {
+            println!("Usage: agent-guard-devtools <command> [options]\nCommands: {commands}");
+            std::process::exit(0);
+        }
+        if command == "resource-sample" {
+            // The destination and child argv are positional and must pass through.
+            if values.len() == 1 && ["--help", "-h"].contains(&values[0].as_str()) {
+                println!(
+                    "Usage: agent-guard-devtools resource-sample destination command [args...]"
+                );
+                std::process::exit(0);
+            }
+            return Ok(Self { command, values });
+        }
+        let options: &[&str] = match command.as_str() {
+            "native-redaction" => &["--core", "--source"],
+            "native-integration" => &["--core", "--scanner"],
+            "masking-latency" => &[
+                "--binary",
+                "--baseline",
+                "--native-core",
+                "--host",
+                "--scanner",
+                "--runs",
+                "--timeout",
+                "--case",
+            ],
+            "kernel" => &["--core", "--runs"],
+            "load" => &["--binary", "--core", "--scanner", "--workers", "--requests"],
+            "watchdog-orphans" => &["--binary", "--baseline", "--scanner", "--runs"],
+            "verify" => &["--out", "--native-core", "--shards"],
+            "report" => &["--results", "--html"],
+            "measure-selected-bash" => &[],
+            _ => return Err(format!("unknown command; choose: {commands}").into()),
+        };
+        let flags: &[&str] = if command == "masking-latency" {
+            &["--resources", "--include-boundaries", "--trace-processes"]
+        } else {
+            &[]
+        };
+        if values
+            .iter()
+            .any(|v| ["--help", "-h"].contains(&v.as_str()))
+        {
+            println!(
+                "Usage: agent-guard-devtools {command} [options]\nValue options: {}\nFlags: {}",
+                options.join(", "),
+                flags.join(", ")
+            );
+            std::process::exit(0);
+        }
+        values = values
+            .into_iter()
+            .flat_map(|v| {
+                if v.starts_with("--") {
+                    if let Some((key, value)) = v.split_once('=') {
+                        return vec![key.to_owned(), value.to_owned()];
+                    }
+                }
+                vec![v]
+            })
+            .collect();
+        let mut index = 0;
+        while index < values.len() {
+            let name = values[index].as_str();
+            if flags.contains(&name) {
+                index += 1;
+                continue;
+            }
+            ensure(options.contains(&name), format!("unknown option: {name}"))?;
+            let start = index + 1;
+            index = start;
+            if name == "--shards" {
+                while index < values.len() && !values[index].starts_with("--") {
+                    index += 1;
+                }
+            } else if index < values.len() && !values[index].starts_with("--") {
+                index += 1;
+            }
+            ensure(index > start, format!("option requires a value: {name}"))?;
+        }
         Ok(Self { command, values })
     }
     pub fn all(&self, name: &str) -> Vec<String> {
@@ -67,7 +149,7 @@ impl Args {
     pub fn get(&self, name: &str) -> Result<String> {
         self.all(name)
             .into_iter()
-            .next()
+            .last()
             .ok_or_else(|| format!("required option: {name}").into())
     }
     pub fn opt(&self, name: &str, default: impl AsRef<str>) -> String {
