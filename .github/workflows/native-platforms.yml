@@ -142,7 +142,7 @@ jobs:
           cp "$RUNNER_TEMP/native-performance/agent-guard-redact-x86_64-unknown-linux-musl"* plugins/agent-guard/libexec/
           chmod 755 plugins/agent-guard/libexec/agent-guard-redact-x86_64-unknown-linux-musl
           sh scripts/install-native-test-tools.sh "$RUNNER_TEMP/test-bin"
-          sh bench/native/run-packaged.sh "$RUNNER_TEMP/test-bin/gitleaks" a47c12d4c62a3204d30bca7507e37cd2462e0365 "$RUNNER_TEMP/performance"
+          sh bench/native/run-packaged.sh "$RUNNER_TEMP/test-bin/gitleaks" 9a0ee9eb2eed1e60b78d4404f985b077149c675d "$RUNNER_TEMP/performance"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:

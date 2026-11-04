@@ -124,7 +124,9 @@ and failure contracts on all four platforms without Rust on PATH.
 
 `bench/native/run-packaged.sh` refuses to measure unless Docker exposes enforced
 2-CPU, 1-GiB and no-swap limits. It uses the qualified musl binary, including
-platform selection and checksum cost, against the frozen v3.6.14 shell source.
+platform selection and checksum cost, against shell source
+`9a0ee9eb2eed1e60b78d4404f985b077149c675d` (v3.6.14 plus the subsequent
+snapshot-token compatibility fix, also present in the candidate).
 Raw results go to a new directory and every measured output is verified. A
 successful collection is not a performance verdict: review the 10% improvement
 and 5% regression criteria before default activation.
