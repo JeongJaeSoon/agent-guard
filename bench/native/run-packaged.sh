@@ -61,3 +61,4 @@ for workers in 1 4; do
 done
 run agent-guard-devtools masking-latency --baseline "$old" --native-core "$core" --packaged-native \
   --scanner /scanner/gitleaks --runs 21 --resources --case small-clean > "$out/cli-clean-followup.json" 2> "$out/cli-clean-followup.log"
+sh bench/native/assess-packaged.sh "$out"
