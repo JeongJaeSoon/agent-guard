@@ -42,11 +42,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-15-intel, macos-15]
+        os: [ubuntu-24.04, macos-15-intel, macos-15]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
+      - name: Expose preinstalled Linux Homebrew
+        if: runner.os == 'Linux'
+        run: echo '/home/linuxbrew/.linuxbrew/bin' >> "$GITHUB_PATH"
       - name: Verify public formula upgrade and canonical tap install
         env:
           VERSION: ${{ inputs.version }}
