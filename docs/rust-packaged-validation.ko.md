@@ -90,8 +90,15 @@ sh bench/native/run-packaged.sh /absolute/path/to/gitleaks \
 CI 내부에서 대체했으므로 공개 v3.7.0 검증과 구분한다.
 
 설치 과정은 기존 디렉터리와 공개 실행 링크를 보존한다. 추출·커밋·링크 생성
-오류와 TERM을 주입해 복구를 확인한다. SIGKILL·전원 손실은 셸 trap으로
+오류와 TERM·INT를 주입해 복구를 확인한다. SIGKILL·전원 손실은 셸 trap으로
 복구할 수 없으며 남은 `previous` 디렉터리의 수동 복구 안내를 유지한다.
+
+`bae3c94`의 macOS 병렬 회귀 검사는 SIGINT를 무시하는 부모 상태를 상속하여
+INT 주입이 전달되지 않았다. 이 실패는 [CI 로그](https://github.com/JeongJaeSoon/agent-guard/actions/runs/41817050471/job/126530332408)에
+보존한다. 기존 런타임의 portable process launcher에도 쓰는 Perl로 테스트
+자식의 신호 상태를 초기화하고 TERM/INT 종료 코드 143/130과 설치 보존을 함께
+검사하도록 고쳤다. 신호를 무시하는 부모 아래의 로컬 재현 검사도 통과했으며,
+후속 최종 SHA의 macOS CI 결과로 수정 여부를 판단한다.
 
 로컬 전체 검사 중 임시 디렉터리 생성 실패를 다루지 않던 기존 테스트의
 정리 코드가 개발 작업 트리를 지운 사건이 있었다. 당시 변경은 모두 커밋과
