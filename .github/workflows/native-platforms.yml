@@ -84,7 +84,8 @@ jobs:
       - name: Prepare qualified artifacts and runtime dependencies
         run: |
           mkdir -p "$RUNNER_TEMP/native" "$RUNNER_TEMP/install-evidence"
-          for dir in "$RUNNER_TEMP"/downloaded/native-*; do
+          for target in x86_64-unknown-linux-musl aarch64-unknown-linux-musl x86_64-apple-darwin aarch64-apple-darwin; do
+            dir="$RUNNER_TEMP/downloaded/native-$target"
             cp "$dir"/agent-guard-redact-* "$RUNNER_TEMP/native/"
           done
           chmod 755 "$RUNNER_TEMP/native"/agent-guard-redact-*
