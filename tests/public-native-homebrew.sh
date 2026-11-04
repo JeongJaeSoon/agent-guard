@@ -5,7 +5,7 @@ version=${1:?published version required}
 out=${2:?new evidence directory required}
 previous=${3:-3.6.15}
 printf '%s\n' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'
-case "$previous" in 3.6.14|3.6.15) ;; *) echo 'unqualified previous release' >&2; exit 2 ;; esac
+case "$previous" in 3.6.14|3.6.15|3.7.0) ;; *) echo 'unqualified previous release' >&2; exit 2 ;; esac
 [ "${GITHUB_ACTIONS:-}" = true ] || { echo 'requires a disposable Actions runner' >&2; exit 2; }
 [ ! -e "$out" ] || exit 2
 mkdir -p "$out"

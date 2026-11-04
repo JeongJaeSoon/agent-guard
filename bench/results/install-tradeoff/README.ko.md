@@ -78,3 +78,14 @@ Codex 애플리케이션 등록은 측정 밖이다. 일반 컨테이너 HOME=/r
 체크섬과 smoke-test가 모두 통과했다. 실제 Claude/Codex 도구 dispatch가
 관측됐다는 뜻은 아니다. Docker의 CgroupDriver는 none이며 외부 4 CPU/16 GiB
 제한만 확인했다. 소스 빌드는 이 일반 bootstrap 과정에서 필요하지 않았다.
+
+
+## 발행 후 검증 준비
+
+이 실험 브랜치에만 public validation의 이전 버전 선택으로 3.7.0을 추가했다.
+실제 공개 bootstrap bytes의 SHA-256
+`a28827587c60a02c44567a480e1e0e08bf517c407f64e8b28fa4450aee75b64e`를
+검증하고 고정했다. 기존 3.6.14/3.6.15 지원·pin·기대값은 유지한다.
+현재 릴리스 head를 바꾸지 않고, 발행 후 이 브랜치의 workflow_dispatch로
+실제 3.7.0→3.7.1 공개 다운로드·설치·업데이트와 Homebrew를 검증한다.
+이 항목은 실행 준비이며, 아직 발행이나 검증 성공을 뜻하지 않는다.

@@ -6,8 +6,12 @@ version=${1:?published version required}
 out=${2:?new evidence directory required}
 previous=${3:-3.6.15}
 printf '%s\n' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'
-# Both qualified source releases publish the same pinned bootstrap bytes.
-case "$previous" in 3.6.14|3.6.15) ;; *) echo 'unqualified previous release' >&2; exit 2 ;; esac
+# Pin each supported public bootstrap before executing it.
+case "$previous" in
+  3.6.14|3.6.15) previous_bootstrap_sha=2f6a796c1249d1a4ecdfa9b41507dcd61f34cc42dbb43013769c7cbac3112e12 ;;
+  3.7.0) previous_bootstrap_sha=a28827587c60a02c44567a480e1e0e08bf517c407f64e8b28fa4450aee75b64e ;;
+  *) echo 'unqualified previous release' >&2; exit 2 ;;
+esac
 [ ! -e "$out" ] || { echo 'refusing to overwrite release evidence' >&2; exit 2; }
 mkdir -p "$out"
 out=$(CDPATH='' cd -- "$out" && pwd -P)
@@ -46,7 +50,7 @@ AGENT_GUARD_VERSION="$version" sh "$case_dir/download/bootstrap.sh" > "$out/fres
 "$AGENT_GUARD_BIN_DIR/agent-guard" version | grep -F "agent-guard $version"
 "$AGENT_GUARD_BIN_DIR/agent-guard" smoke-test >> "$out/fresh.log" 2>&1
 curl -fsSL "https://github.com/JeongJaeSoon/agent-guard/releases/download/v$previous/bootstrap.sh" -o "$case_dir/old-bootstrap.sh"
-printf '%s  %s\n' 2f6a796c1249d1a4ecdfa9b41507dcd61f34cc42dbb43013769c7cbac3112e12 "$case_dir/old-bootstrap.sh" | shasum -a 256 -c -
+printf '%s  %s\n' "$previous_bootstrap_sha" "$case_dir/old-bootstrap.sh" | shasum -a 256 -c -
 export AGENT_GUARD_HOME="$case_dir/upgrade" AGENT_GUARD_BIN_DIR="$case_dir/upgrade-bin"
 AGENT_GUARD_VERSION="$previous" sh "$case_dir/old-bootstrap.sh" > "$out/old.log" 2>&1
 "$AGENT_GUARD_BIN_DIR/agent-guard" version | grep -F "agent-guard $previous"
