@@ -1,0 +1,23 @@
+Usage:
+  agent-guard hook-pre-tool
+  agent-guard hook-post-tool
+  agent-guard hook-stop
+  agent-guard hook-session-start
+  agent-guard hook-user-prompt
+  agent-guard exec [--] <cmd> [args...]
+  agent-guard shell-init [--bash|--zsh] [--no-command-wrapping]
+  agent-guard setup-shell [--bash|--zsh|--rc FILE] [--no-command-wrapping]
+  agent-guard pii-filter [--check]
+  agent-guard mask-file [--key-paths] [--] FILE
+  agent-guard scan-staged
+  agent-guard scan-working-tree
+  agent-guard scan-path PATH...
+  agent-guard check
+  agent-guard setup [--install --gitleaks-checksum SHA [--gitleaks-version X.Y.Z]]
+  agent-guard doctor
+  agent-guard logs [status|export [--output FILE]]
+  agent-guard plugin status|install|update|uninstall [--host claude|codex|all] [--scope user|project|local]
+  agent-guard update
+  agent-guard smoke-test
+  agent-guard checksum [VERSION]
+  agent-guard version

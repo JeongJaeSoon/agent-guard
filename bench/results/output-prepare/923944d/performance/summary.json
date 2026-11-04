@@ -1,0 +1,96 @@
+{
+  "targets": [
+    {
+      "host": "claude",
+      "baseline": {
+        "latency_ms": 943.68564,
+        "cpu_ms": 989.949,
+        "max_child_peak_rss_kib_median": 63852.0,
+        "process_profile": {
+          "execve_calls": 79,
+          "process_creation_calls": 132,
+          "thread_creation_calls": 14
+        }
+      },
+      "candidate": {
+        "latency_ms": 914.1445190000001,
+        "cpu_ms": 961.646,
+        "max_child_peak_rss_kib_median": 64116.0,
+        "process_profile": {
+          "execve_calls": 79,
+          "process_creation_calls": 132,
+          "thread_creation_calls": 13
+        }
+      }
+    },
+    {
+      "host": "codex",
+      "baseline": {
+        "latency_ms": 945.1874270000001,
+        "cpu_ms": 990.37,
+        "max_child_peak_rss_kib_median": 64372.0,
+        "process_profile": {
+          "execve_calls": 80,
+          "process_creation_calls": 135,
+          "thread_creation_calls": 13
+        }
+      },
+      "candidate": {
+        "latency_ms": 917.0576940000001,
+        "cpu_ms": 965.776,
+        "max_child_peak_rss_kib_median": 63860.0,
+        "process_profile": {
+          "execve_calls": 80,
+          "process_creation_calls": 135,
+          "thread_creation_calls": 13
+        }
+      }
+    }
+  ],
+  "load": [
+    {
+      "workers": 1,
+      "rounds": 3,
+      "requests_per_round": 8,
+      "baseline": {
+        "requests_per_second": 1.0590688231920453,
+        "median_seconds": 0.9424749295,
+        "max_child_peak_rss_kib": 65268.0,
+        "sampled_process_rss_peak_kib": 86844.0,
+        "cpu_seconds": 7.910726,
+        "cgroup_memory_peak_bytes": 58560512
+      },
+      "candidate": {
+        "requests_per_second": 1.090463554613565,
+        "median_seconds": 0.91603024,
+        "max_child_peak_rss_kib": 65268.0,
+        "sampled_process_rss_peak_kib": 87140.0,
+        "cpu_seconds": 7.701551,
+        "cgroup_memory_peak_bytes": 58810368
+      },
+      "throughput_change_percent": 2.9643712225326135
+    },
+    {
+      "workers": 4,
+      "rounds": 3,
+      "requests_per_round": 8,
+      "baseline": {
+        "requests_per_second": 1.291171602819551,
+        "median_seconds": 3.0604557310000002,
+        "max_child_peak_rss_kib": 65836.0,
+        "sampled_process_rss_peak_kib": 310412.0,
+        "cpu_seconds": 12.255885000000001,
+        "cgroup_memory_peak_bytes": 206823424
+      },
+      "candidate": {
+        "requests_per_second": 1.3356011344197358,
+        "median_seconds": 2.9455783495,
+        "max_child_peak_rss_kib": 65444.0,
+        "sampled_process_rss_peak_kib": 308444.0,
+        "cpu_seconds": 11.785127999999998,
+        "cgroup_memory_peak_bytes": 200654848
+      },
+      "throughput_change_percent": 3.4410245317635146
+    }
+  ]
+}

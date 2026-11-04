@@ -2,6 +2,15 @@
 
 내부 작업 문서. 기존 문서의 번역이 아니다.
 
+## v3.7 이후 실제 후보 실험
+
+계획 단계에서 멈추지 않고 [PR #395](https://github.com/JeongJaeSoon/agent-guard/pull/395)에서
+출력 문자열 추출·framing의 Rust 통합을 구현했다. 실제 공개 v3.7 아카이브를
+동일 조건으로 비교하며, macOS Intel 불일치도 보존된 stdout·stderr로 다시
+조사한다. 구간 비용, 채택 기준, 실패·수정 원본과 최종 판단은
+[후속 실험 기록](rust-output-experiment.ko.md)을 따른다. 아래 표는 v3.7 발행
+당시의 판단 이력이며, 후속 구현·발행을 완료했다는 의미로 읽지 않는다.
+
 ## 후속 목표: v3.7.0과 v4.0.0
 
 작업 재개 때 main `a47c12d4c62a3204d30bca7507e37cd2462e0365`의

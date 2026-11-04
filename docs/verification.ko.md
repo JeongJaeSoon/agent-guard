@@ -1,4 +1,4 @@
-<!-- translated-from: docs/verification.md; source-blob: 9fd0748eab29d52f6d06342382e7994583f0e812 -->
+<!-- translated-from: docs/verification.md; source-blob: f8f5505dce4836ab5b003d8b402b1e02b01a58d7 -->
 
 <a id="verification"></a>
 
@@ -84,6 +84,15 @@ sentinel이 들어 있는 파일을 읽는 것도 guard가 보호하는 도구 �
 <a id="routine-checks"></a>
 
 ## 정기 확인
+
+성능 실험에는 정확도와 시간 측정의 별도 근거가 필요합니다. 실제 공개 릴리스와
+후보를 같은 입력·스캐너·설정·실제 적용된 자원 제한에서 비교하고, 모든 출력을
+독립 기대값으로 검증하세요. CLI 시작 비용, CPU, 단일 자식 최대 RSS, 표본
+프로세스 RSS 합과 처리량을 구분합니다. 정상 내용의 과도 마스킹이나 실패
+경계 완화 때문에 빨라진 결과는 실패한 실험입니다. 간헐적 실패 뒤 반복 검사가
+성공해도 원인이 확인된 것은 아닙니다. 확보할 수 있는 실패 fixture·stdout·stderr를
+보존하세요.
+
 
 ```sh
 agent-guard doctor

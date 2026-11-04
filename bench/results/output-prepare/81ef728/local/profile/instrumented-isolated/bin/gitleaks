@@ -1,0 +1,3 @@
+#!/bin/sh
+case "${1:-}" in version) stage=scanner-readiness ;; *) stage=scanner-execution ;; esac
+exec "$PROFILE_DRIVER" resource-sample "$PROFILE_SAMPLES/$stage.$$" "$PROFILE_SCANNER" "$@"

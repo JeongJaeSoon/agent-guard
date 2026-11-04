@@ -1,0 +1,176 @@
+{
+  "platform": "Linux 127d806794ae 6.18.57 #1 SMP Tue Oct 20 21:56:04 UTC 2026 x86_64 GNU/Linux",
+  "runs": 5,
+  "host": "claude",
+  "native_core_sha256": "e5effd1d40057d4099cbda0982547e2656ef8005f7308cd685dc2fb52f82b514",
+  "scanner_version": "8.30.1",
+  "binary_sha256": {
+    "candidate": "40396373da10a49228bec84e9c9950627dff69965e117ae3c362d47be71cefed"
+  },
+  "scanner_sha256": "88f91962aa2f93ac6ab281d553b9e125f5197bbbce38f9f2437f7299c32e5509",
+  "config_sha256": "600185554fe3f53b2ab7d1459a70212e2242a8ab70bfe053ecefcc3015b1ed98",
+  "jq_version": "jq-1.7",
+  "driver": "agent-guard-devtools (Rust)",
+  "logical_cpu_count": 5,
+  "readiness_cache": "disabled with audit logging",
+  "cases": [
+    {
+      "name": "small-clean",
+      "route": "hook",
+      "input_bytes": 82,
+      "verified": true,
+      "seconds": {
+        "candidate": {
+          "median": 0.937606571,
+          "max": 1.012040761,
+          "samples": [
+            0.937606571,
+            1.012040761,
+            0.951574888,
+            0.900291602,
+            0.917793994
+          ]
+        }
+      },
+      "resource_usage": {
+        "candidate": {
+          "user_cpu_seconds": {
+            "median": 0.883419,
+            "max": 0.961398,
+            "samples": [
+              0.859615,
+              0.961398,
+              0.911364,
+              0.883419,
+              0.870545
+            ]
+          },
+          "system_cpu_seconds": {
+            "median": 0.09769,
+            "max": 0.136708,
+            "samples": [
+              0.136708,
+              0.09769,
+              0.088935,
+              0.067375,
+              0.11689
+            ]
+          },
+          "max_child_peak_rss_kib": {
+            "median": 61928.0,
+            "max": 62448.0,
+            "samples": [
+              62000.0,
+              62448.0,
+              61928.0,
+              61872.0,
+              61872.0
+            ]
+          },
+          "voluntary_context_switches": {
+            "median": 1101.0,
+            "max": 1167.0,
+            "samples": [
+              1101.0,
+              1120.0,
+              1024.0,
+              983.0,
+              1167.0
+            ]
+          },
+          "involuntary_context_switches": {
+            "median": 56.0,
+            "max": 142.0,
+            "samples": [
+              56.0,
+              142.0,
+              52.0,
+              64.0,
+              53.0
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "many-replacement-leaves",
+      "route": "hook",
+      "input_bytes": 38752,
+      "verified": true,
+      "seconds": {
+        "candidate": {
+          "median": 1.025458538,
+          "max": 1.066629119,
+          "samples": [
+            1.00492605,
+            1.032325853,
+            1.003873408,
+            1.066629119,
+            1.025458538
+          ]
+        }
+      },
+      "resource_usage": {
+        "candidate": {
+          "user_cpu_seconds": {
+            "median": 0.983029,
+            "max": 1.008004,
+            "samples": [
+              0.983029,
+              0.992697,
+              0.961583,
+              1.008004,
+              0.974357
+            ]
+          },
+          "system_cpu_seconds": {
+            "median": 0.101149,
+            "max": 0.123955,
+            "samples": [
+              0.079127,
+              0.09541,
+              0.101149,
+              0.123955,
+              0.121704
+            ]
+          },
+          "max_child_peak_rss_kib": {
+            "median": 62192.0,
+            "max": 63728.0,
+            "samples": [
+              61352.0,
+              62192.0,
+              63728.0,
+              61552.0,
+              62760.0
+            ]
+          },
+          "voluntary_context_switches": {
+            "median": 1141.0,
+            "max": 1180.0,
+            "samples": [
+              1180.0,
+              1144.0,
+              1141.0,
+              1069.0,
+              1126.0
+            ]
+          },
+          "involuntary_context_switches": {
+            "median": 61.0,
+            "max": 89.0,
+            "samples": [
+              61.0,
+              59.0,
+              89.0,
+              45.0,
+              78.0
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "resources": "CPU includes waited-for descendants; RSS is the maximum individual child peak, not simultaneous tree memory",
+  "native_dispatch": "packaged-checksum"
+}

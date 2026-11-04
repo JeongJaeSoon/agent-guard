@@ -1,0 +1,4 @@
+#!/bin/sh
+set -eu
+jq -rj 'if type == "string" then . else [.. | strings] | join("\n") end' "$1/response.json" > "$1/plain"
+jq -rj '.. | strings | (split("\u001f") | join("\u001f\u001f")) | (split("\u001e") | join("\u001f\u001e")) | . + "\u001e\n"' "$1/response.json" > "$1/framed"
