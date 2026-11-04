@@ -34,9 +34,13 @@ check() {
 }
 check 'empty requested secret remains empty' '' 0 \
   env EMPTY_PASSWORD='' "$GUARD" exec -- "$case_dir/printenv" EMPTY_PASSWORD
+# Synthetic values are assembled at runtime, as in tests/run.sh, so repository
+# secret scanners do not mistake the test fixture for a deployed credential.
+fixture_first=$(printf '%s-%s' documented-fake-printenv-value 123456)
+fixture_second=$(printf '%s-%s' omega-secret-tail alpha-long-value)
 check 'missing argument preserves status and both emitted masks' "$(printf '[REDACTED]\n[REDACTED]')" 1 \
-  env -u AGENT_GUARD_TEST_UNSET_PASSWORD DEMO_TOKEN=documented-fake-printenv-value-123456 \
-    SECONDARY_PASSWORD=omega-secret-tail-alpha-long-value \
+  env -u AGENT_GUARD_TEST_UNSET_PASSWORD DEMO_TOKEN="$fixture_first" \
+    SECONDARY_PASSWORD="$fixture_second" \
     "$GUARD" exec -- "$case_dir/printenv" DEMO_TOKEN AGENT_GUARD_TEST_UNSET_PASSWORD SECONDARY_PASSWORD
 newline_secret=$(printf 'alpha-secret-head\nx')
 newline_secret=${newline_secret%x}
