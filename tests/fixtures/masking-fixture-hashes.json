@@ -1,0 +1,128 @@
+[
+  {
+    "name": "small-clean",
+    "route": "hook",
+    "value_sha256": "899d9f53b675f510075f37b09b2bcfc9ee29c3a7f74abf70da5a8f3cb7a54e40",
+    "expected_sha256": "899d9f53b675f510075f37b09b2bcfc9ee29c3a7f74abf70da5a8f3cb7a54e40"
+  },
+  {
+    "name": "long-line",
+    "route": "hook",
+    "value_sha256": "0070524fdfce941163f91e4cbfbb463058696ddeab6dde0b3f2cbf3194474825",
+    "expected_sha256": "77ff32bc97923d3d17e61062969b8a422d8ac35069a12d137158cc7cdee01094"
+  },
+  {
+    "name": "long-multiline",
+    "route": "hook",
+    "value_sha256": "610659342db3ad15b9be492a2ddf55424fa6a706a52d48314143e2ff384f2d90",
+    "expected_sha256": "ffb6578afa6426ae77e457a0ea28a4af8285184019690ff1e2b9c2cb87209779"
+  },
+  {
+    "name": "escaped-control",
+    "route": "hook",
+    "value_sha256": "23e0b2a275c672296c565cd9face5c2df524d7efe497865830f07388e2f91910",
+    "expected_sha256": "20713e6aa7e98aadf91fb98e3a6e4be6731c47c1ed49453cb8cb62d14dbbbccb"
+  },
+  {
+    "name": "many-lines",
+    "route": "hook",
+    "value_sha256": "441dc8378b0f793e0c65e56d1ce82792e88b43a59758d349426264098af09f07",
+    "expected_sha256": "7ab17cb96a598f2c5e4c77013aac2b7181c569dc9db325111ce55e4cf347a042"
+  },
+  {
+    "name": "many-replacement-leaves",
+    "route": "hook",
+    "value_sha256": "3938ae0904d2295a678470a7736c3df0bbf061ef6460800e67fc101edff2d6c1",
+    "expected_sha256": "339b258a2cadcc5afb1f4515f37ef2c179b09e81c9570949d38c8b61626e986d"
+  },
+  {
+    "name": "dense-controls",
+    "route": "hook",
+    "value_sha256": "a79995e83826c6625d12bf2b40eab5e8d34276f3e81800d75f2cb801b56d978a",
+    "expected_sha256": "fca92358a25a3418b48b418da3d16a5a170136fefcafc47495b432a98cd19093"
+  },
+  {
+    "name": "exec-multiline",
+    "route": "exec",
+    "value_sha256": "610659342db3ad15b9be492a2ddf55424fa6a706a52d48314143e2ff384f2d90",
+    "expected_sha256": "ffb6578afa6426ae77e457a0ea28a4af8285184019690ff1e2b9c2cb87209779"
+  },
+  {
+    "name": "exec-clean",
+    "route": "exec",
+    "value_sha256": "899d9f53b675f510075f37b09b2bcfc9ee29c3a7f74abf70da5a8f3cb7a54e40",
+    "expected_sha256": "899d9f53b675f510075f37b09b2bcfc9ee29c3a7f74abf70da5a8f3cb7a54e40"
+  },
+  {
+    "name": "exec-long-quoted-secret",
+    "route": "exec",
+    "value_sha256": "4d5ba1e58eda2c015492a3ed0b8919fc85710bd5446f7e98d65045abad489d04",
+    "expected_sha256": "70b0cb3fb9adbfa237a59499edf4d678aecffd300b5d43f4f1917b483d41c1fd"
+  },
+  {
+    "name": "placeholder-control",
+    "route": "hook",
+    "value_sha256": "01f52fd6df61c4b82d15be811bfe3ea3213e2c5fa7cb297af3f9a8b97115555a",
+    "expected_sha256": "01f52fd6df61c4b82d15be811bfe3ea3213e2c5fa7cb297af3f9a8b97115555a"
+  },
+  {
+    "name": "metadata-control",
+    "route": "hook",
+    "value_sha256": "1386194eeb7970e62c3c43f5f3953237c3d957315ee932e075fb46906736ac5b",
+    "expected_sha256": "1386194eeb7970e62c3c43f5f3953237c3d957315ee932e075fb46906736ac5b"
+  },
+  {
+    "name": "prose-control",
+    "route": "hook",
+    "value_sha256": "c301f533bdfdc0e69c0426cdc05f580ceab83ad748188090ec2d1de249fe20cd",
+    "expected_sha256": "c301f533bdfdc0e69c0426cdc05f580ceab83ad748188090ec2d1de249fe20cd"
+  },
+  {
+    "name": "exec-over-cap-1048576",
+    "route": "exec",
+    "value_sha256": "249654dc6c054203321aa70e6a1bdfad6b108058db82600d14300c2e0800f907",
+    "expected_sha256": "fca92358a25a3418b48b418da3d16a5a170136fefcafc47495b432a98cd19093"
+  },
+  {
+    "name": "exec-over-cap-8388608",
+    "route": "exec",
+    "value_sha256": "0d31af2d956c1ad92dbece9c54230ce9227cdbfeba2a49d998ba3239311a2969",
+    "expected_sha256": "fca92358a25a3418b48b418da3d16a5a170136fefcafc47495b432a98cd19093"
+  },
+  {
+    "name": "pre-read-clean",
+    "route": "pre",
+    "value_sha256": "5bf1ad8466348d7fe8bcbaecbca4a17ee97673db3bf3dd537ff547e78e43200d",
+    "expected_sha256": "12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126"
+  },
+  {
+    "name": "pre-read-placeholder",
+    "route": "pre",
+    "value_sha256": "9009c6f628c437920533e3be0904bd114b859718b537f45de546d982b784e6ee",
+    "expected_sha256": "12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126"
+  },
+  {
+    "name": "pre-bash-clean",
+    "route": "pre",
+    "value_sha256": "940030d4de396dd0a47f6be2854f9d1c5726bb883e7c3d169d92de40ca76ee76",
+    "expected_sha256": "12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126"
+  },
+  {
+    "name": "pre-git-status",
+    "route": "pre",
+    "value_sha256": "999df2d3d5fc04bbf03b5b5f1f64c6e6373b5ea55b72ab5db8857958093bd4f9",
+    "expected_sha256": "12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126"
+  },
+  {
+    "name": "pre-unknown-tool",
+    "route": "pre",
+    "value_sha256": "00827ea98f188f521937cebcbfbc6ad1ead518e636f65ecab6b1056172952d8f",
+    "expected_sha256": "12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126"
+  },
+  {
+    "name": "prompt-clean",
+    "route": "prompt",
+    "value_sha256": "15d8cd73779d2bef76fdcc98d188babd42b5b3507688e13bf11882042a8ac649",
+    "expected_sha256": "12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126"
+  }
+]
