@@ -1,4 +1,4 @@
-<!-- translated-from: docs/installation.md; source-blob: 63ed4d12f61638385d2bb565018802fd6c3f734a -->
+<!-- translated-from: docs/installation.md; source-blob: 24dc7fff276235c964db8a242b5693f4dbae48e8 -->
 
 <a id="installing-agent-guard"></a>
 
@@ -105,6 +105,13 @@ agent-guard check
 ```
 
 プラグインキャッシュ内ではupdaterを意図的に利用できなくしています。実行ファイル自身がmarketplaceの削除で消えるキャッシュにあるため、自分でmarketplaceの固定先を変更できないからです。代わりに `agent-guard plugin update --host claude` または `--host codex` を実行してください。導入済みプラグインがすでにCLIに一致していれば、最新のGitHubリリースを調べ、新しいリリースへ進めるための正確なhost管理コマンドである `marketplace remove`、`marketplace add ...@vX.Y.Z`、プラグイン導入コマンドを表示します。`agent-guard doctor` と `agent-guard plugin status` も同じリリースの古さを報告します。照会を省略するには `AGENT_GUARD_RELEASE_CHECK=off` を設定します。shellブロックはキャッシュの `current` リンク経由で解決されるため、プラグインの更新後に `setup-shell` を再実行する必要はありません。
+
+スタンドアロンCLIの更新では、既存のインストールの隣に候補を準備してから
+置き換えます。チェックサム・展開・置換の失敗時は以前のインストールを維持
+または復元し、無関係なローカルファイルも保持します。電源断や処理できない
+強制終了で最後のディレクトリ置換が中断された場合は、隣の
+`.agent-guard-update.*/previous` バックアップを保持し、元のインストール先に
+復元してから再試行してください。旧・新ペイロードを保存する空き容量が必要です。
 
 <a id="homebrew"></a>
 

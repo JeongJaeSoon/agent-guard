@@ -176,6 +176,13 @@ staleness. Set `AGENT_GUARD_RELEASE_CHECK=off` to skip the lookup. The shell
 block resolves through the cache's `current` link, so `setup-shell` does not
 need to be rerun after a plugin update.
 
+Standalone updates are staged beside the current installation before replacement.
+Checksum, extraction and commit failures leave or restore the previous install;
+unrelated local files are preserved. If power loss or an unhandled termination
+interrupts the final directory replacement, preserve the sibling
+`.agent-guard-update.*/previous` backup and restore it to the original installation
+path before retrying. Keep enough disk space for the old and new payloads.
+
 ## Homebrew
 
 Install the released formula from the project tap:

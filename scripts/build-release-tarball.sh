@@ -9,6 +9,23 @@ stage=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-release.XXXXXX")
 trap 'rm -rf "$stage"' EXIT INT TERM
 
 cp -R "$ROOT/plugins/agent-guard/." "$stage/"
+# Qualification and release callers provide already executed, native artifacts.
+# Source-only archives retain the shell implementation and do not build/download.
+if [ -n "${AGENT_GUARD_NATIVE_ARTIFACT_DIR:-}" ]; then
+  mkdir -p "$stage/libexec"
+  for target in x86_64-unknown-linux-musl aarch64-unknown-linux-musl \
+    x86_64-apple-darwin aarch64-apple-darwin; do
+    name="agent-guard-redact-$target"
+    source="$AGENT_GUARD_NATIVE_ARTIFACT_DIR/$name"
+    [ -f "$source" ] && [ ! -L "$source" ] && [ -f "$source.sha256" ] && [ ! -L "$source.sha256" ] \
+      || { echo "missing regular native artifact: $name" >&2; exit 2; }
+    expected=$(cat "$source.sha256")
+    actual=$(CDPATH= cd -- "$AGENT_GUARD_NATIVE_ARTIFACT_DIR" && shasum -a 256 "$name")
+    [ "$actual" = "$expected" ] || { echo "native artifact checksum mismatch: $name" >&2; exit 2; }
+    cp "$source" "$source.sha256" "$stage/libexec/"
+    chmod 755 "$stage/libexec/$name"
+  done
+fi
 cp "$ROOT"/README*.md "$stage/"
 cp "$ROOT/CHANGELOG.md" "$stage/CHANGELOG.md"
 mkdir -p "$stage/docs"

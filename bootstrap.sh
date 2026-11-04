@@ -31,6 +31,24 @@ require() {
   command -v "$1" >/dev/null 2>&1 || die "required command not found: $1"
 }
 
+# Build beside the installation so the final renames stay on one filesystem.
+# On a handled interruption or commit failure, restore the previous directory.
+cleanup() {
+  if [ -n "${transaction:-}" ] && [ -d "$transaction/previous" ] \
+      && [ "${install_committed:-0}" != 1 ]; then
+    if [ -e "$HOME_DIR" ] && ! mv "$HOME_DIR" "$transaction/failed"; then
+      info "$prog: rollback could not move failed install; previous install retained at $transaction/previous"
+      return
+    fi
+    if ! mv "$transaction/previous" "$HOME_DIR"; then
+      info "$prog: rollback could not restore install; previous install retained at $transaction/previous"
+      return
+    fi
+  fi
+  [ -z "${transaction:-}" ] || rm -rf "$transaction"
+  [ -z "${tmp:-}" ] || rm -rf "$tmp"
+}
+
 resolve_latest_version() {
   # GitHub redirects releases/latest -> releases/tag/vX.Y.Z. We follow the
   # redirect (-L) and read the effective URL rather than parsing release
@@ -60,10 +78,23 @@ validate_payload_layout() {
   for entry in "$stage"/.[!.]* "$stage"/..?* "$stage"/*; do
     [ -e "$entry" ] || continue
     case ${entry##*/} in
-      .claude-plugin|.codex-plugin|CHANGELOG.md|LICENSE|PRIVACY.md|README.md|README.ko.md|README.ja.md|SECURITY.md|SUPPORT.md|THIRD_PARTY_NOTICES.md|assets|bin|codex-skills|commands|config|deployment|docs|hooks|hooks.json|install.sh|scripts|skills) ;;
+      .claude-plugin|.codex-plugin|CHANGELOG.md|LICENSE|PRIVACY.md|README.md|README.ko.md|README.ja.md|SECURITY.md|SUPPORT.md|THIRD_PARTY_NOTICES.md|assets|bin|codex-skills|commands|config|deployment|docs|hooks|hooks.json|install.sh|libexec|scripts|skills) ;;
       *) die "archive contains an unexpected top-level entry: ${entry##*/}" ;;
     esac
   done
+  if [ -e "$stage/libexec" ]; then
+    [ -d "$stage/libexec" ] || die "native payload is not a directory"
+    for target in x86_64-unknown-linux-musl aarch64-unknown-linux-musl \
+      x86_64-apple-darwin aarch64-apple-darwin; do
+      name="agent-guard-redact-$target"
+      [ -f "$stage/libexec/$name" ] && [ -x "$stage/libexec/$name" ] \
+        && [ -f "$stage/libexec/$name.sha256" ] || die "incomplete native payload: $name"
+      expected=$(cat "$stage/libexec/$name.sha256")
+      actual=$(CDPATH= cd -- "$stage/libexec" && shasum -a 256 "$name") \
+        || die "cannot verify native payload: $name"
+      [ "$actual" = "$expected" ] || die "native checksum mismatch: $name"
+    done
+  fi
 }
 
 main() {
@@ -82,8 +113,9 @@ main() {
 
   tmp=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-bootstrap.XXXXXX") \
     || die "mktemp failed"
-  # shellcheck disable=SC2064
-  trap "rm -rf '$tmp'" EXIT INT TERM
+  trap cleanup EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
 
   info "$prog: downloading $archive"
   curl -fsSL "$base/$archive"        -o "$tmp/$archive" \
@@ -120,9 +152,18 @@ main() {
   [ ! -d "$HOME_DIR/bin/agent-guard" ] || die "executable destination is a directory"
   [ ! -L "$HOME_DIR/bin/agent-guard" ] || die "executable destination must not be a symlink"
   [ ! -d "$BIN_DIR/agent-guard" ] || die "link destination is a directory"
-  # Retain tar's replacement semantics: an existing installer symlink must be
-  # replaced, not followed (or rejected partway through by BSD cp -R).
-  tar -xzf "$tmp/$archive" -C "$HOME_DIR" || die "installation extraction failed"
+  [ "$HOME_DIR" != / ] || die "installation destination must not be the filesystem root"
+  transaction=$(mktemp -d "$(dirname "$HOME_DIR")/.agent-guard-update.XXXXXX") \
+    || die "cannot create installation transaction"
+  mkdir "$transaction/next"
+  cp -R "$HOME_DIR/." "$transaction/next/" || die "cannot stage existing installation"
+  # Retain tar's replacement semantics for old symlinks, but perform every
+  # extraction write in the staged copy, never in the working installation.
+  tar -xzf "$tmp/$archive" -C "$transaction/next" || die "installation extraction failed"
+  "$transaction/next/bin/agent-guard" version >/dev/null \
+    || die "staged executable failed validation"
+  mv "$HOME_DIR" "$transaction/previous" || die "cannot preserve previous installation"
+  mv "$transaction/next" "$HOME_DIR" || die "cannot commit staged installation"
   # tar may replace a pre-existing HOME_DIR/bin symlink with the archive's real
   # bin directory. Resolve it after extraction so a former alias of BIN_DIR does
   # not make us skip creation of the public executable link.
@@ -131,9 +172,10 @@ main() {
   if [ "$BIN_DIR" = "$payload_bin_dir" ]; then
     info "$prog: executable already lives in $BIN_DIR; no symlink needed"
   else
-    ln -sf "$bin_path" "$BIN_DIR/agent-guard"
+    ln -sf "$bin_path" "$BIN_DIR/agent-guard" || die "cannot update public executable link"
     info "$prog: linked $BIN_DIR/agent-guard -> $bin_path"
   fi
+  install_committed=1
 
   case ":$PATH:" in
     *":$BIN_DIR:"*) ;;

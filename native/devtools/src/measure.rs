@@ -115,12 +115,21 @@ pub fn latency(args: &Args) -> Result<()> {
     }
     binaries.push(("candidate", absolute(args.opt("--binary", cli()?))?));
     let core = args.get("--native-core").ok().map(absolute).transpose()?;
+    ensure(
+        !args.flag("--packaged-native") || core.is_some(),
+        "packaged measurement requires --native-core for artifact identity",
+    )?;
     let mut hashes = json!({});
     for (label, path) in &binaries {
         hashes[label] = json!(hash(path)?);
     }
     let mut report = json!({"platform":version(&["uname","-a"])?,"runs":runs,"host":host,"native_core_sha256":core.as_ref().map(hash).transpose()?,"scanner_version":version(&[&scanner,"version"])?,"binary_sha256":hashes,"scanner_sha256":hash(&scanner)?,"config_sha256":hash(&env["AGENT_GUARD_GITLEAKS_CONFIG"])?,"jq_version":version(&["jq","--version"])?,"driver":"agent-guard-devtools (Rust)","logical_cpu_count":unsafe { libc::sysconf(libc::_SC_NPROCESSORS_ONLN) },"readiness_cache":"disabled with audit logging","cases":[],"resources":if args.flag("--resources") {Some("CPU includes waited-for descendants; RSS is the maximum individual child peak, not simultaneous tree memory")} else {None}});
     let directory = tempfile::tempdir()?;
+    report["native_dispatch"] = json!(if args.flag("--packaged-native") {
+        "packaged-checksum"
+    } else {
+        "explicit-override"
+    });
     let mut cases = fixtures(args.flag("--include-boundaries"));
     let selected = args.all("--case");
     for name in &selected {
@@ -179,7 +188,14 @@ pub fn latency(args: &Args) -> Result<()> {
                 if *label == "candidate" {
                     if let Some(core) = &core {
                         env.insert("AGENT_GUARD_EXPERIMENTAL_REDACTOR".into(), "rust".into());
-                        env.insert("AGENT_GUARD_RUST_CORE_BIN".into(), core.clone());
+                        env.insert(
+                            "AGENT_GUARD_RUST_CORE_BIN".into(),
+                            if args.flag("--packaged-native") {
+                                String::new()
+                            } else {
+                                core.clone()
+                            },
+                        );
                     }
                 }
                 let trace = directory.path().join("processes.trace");
@@ -365,6 +381,10 @@ pub fn load(args: &Args) -> Result<()> {
     let requests = args.positive("--requests", 12)?;
     let binary = absolute(args.get("--binary")?)?;
     let core = args.get("--core").ok().map(absolute).transpose()?;
+    ensure(
+        !args.flag("--packaged-native") || core.is_some(),
+        "packaged load requires --core for artifact identity",
+    )?;
     let mut env = base_env(&args.get("--scanner")?)?;
     env.insert("AGENT_GUARD_HOOK_HOST".into(), "claude".into());
     env.insert(
@@ -372,7 +392,14 @@ pub fn load(args: &Args) -> Result<()> {
         if core.is_some() { "rust" } else { "shell" }.into(),
     );
     if let Some(core) = &core {
-        env.insert("AGENT_GUARD_RUST_CORE_BIN".into(), core.clone());
+        env.insert(
+            "AGENT_GUARD_RUST_CORE_BIN".into(),
+            if args.flag("--packaged-native") {
+                String::new()
+            } else {
+                core.clone()
+            },
+        );
     }
     let fixture = fixtures(false)
         .into_iter()
