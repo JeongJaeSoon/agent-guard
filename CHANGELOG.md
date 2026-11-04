@@ -1,19 +1,10 @@
 ## v3.6.15 - 2026-11-04
 
-- fix(hooks): keep draft snapshot tokens visible (#387)
-- Merge pull request #388 from JeongJaeSoon/codex/rust-platform-distribution
-- ci: 네 플랫폼 Rust 바이너리의 네이티브 실행 검증 추가
-- Merge pull request #382 from JeongJaeSoon/codex/docs-consolidation
-- docs: 실제 v3.6.14 발행과 설치 검증 근거 반영
-- Merge remote-tracking branch 'origin/main' into codex/docs-validation
-- Merge branch 'codex/release-validation' into codex/docs-validation
-- Merge branch 'codex/release-validation' into codex/docs-validation
-- Merge branch 'codex/release-validation' into codex/docs-validation
-- Merge branch 'codex/release-validation' into codex/docs-validation
-- merge: 문서 정리의 Rust 이관·릴리스 충돌 사전 검토
-- docs: main 병합·CI·릴리스·문서 정리 완료 조건 명시
-- Merge branch 'codex/ci-run-lifecycle' into codex/docs-consolidation
-- docs: 중복 검토 문서 통합과 사용자·개발·측정 자료 재구성
+### 변경 사항
+
+- **draft snapshot token 과잉 마스킹 수정**: 문서 도구의 draft 조회 결과에 들어 있는 `d<n>:` 형식의 snapshot token 을 더 이상 가리지 않고, 이 토큰을 인용한 프롬프트도 차단하지 않습니다. 다음 update 요청에 이 토큰을 그대로 보낼 수 있습니다. 면제 조건은 정확한 `snapshotToken`/`snapshot_token` 키와 해당 값 형식이 함께 맞는 경우뿐입니다. 다른 secret 키 아래의 같은 값, env 형식, 그 밖의 값 형식은 계속 가립니다. (#387)
+- **Rust 배포 후보 CI**: 네 플랫폼에서 Rust 바이너리를 빌드하고 실제로 실행해 확인하는 CI 를 추가했습니다. 일반 설치 경로는 바뀌지 않습니다. (#388)
+- **문서 정리**: 중복 검토 문서를 통합하고, 사용자·개발·측정 자료를 다시 구성했습니다. v3.6.14 발행과 설치 검증 근거를 반영했습니다. (#382)
 
 ## v3.6.14 - 2026-11-04
 
