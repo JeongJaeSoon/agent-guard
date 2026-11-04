@@ -280,10 +280,11 @@ esac
 for destination do :; done
 case "$destination:${QA_INSTALL_FAULT:-}" in
   */.agent-guard-update.*/previous:interrupt) kill -TERM "$PPID" ;;
+  */.agent-guard-update.*/previous:interrupt-int) kill -INT "$PPID" ;;
 esac
 FAULT
 chmod +x "$CASE_ROOT/fault-bin/tar" "$CASE_ROOT/fault-bin/mv"
-for fault in extract commit interrupt link; do
+for fault in extract commit interrupt interrupt-int link; do
   if PATH="$CASE_ROOT/fault-bin:$PATH" QA_INSTALL_FAULT="$fault" \
     AGENT_GUARD_BIN_DIR="$CASE_ROOT/custom bin" sh "$ROOT/bootstrap.sh" >"$CASE_ROOT/out" 2>"$CASE_ROOT/err"; then
     echo "fault did not fail the installation: $fault" >&2; exit 1
