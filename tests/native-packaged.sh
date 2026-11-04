@@ -30,7 +30,9 @@ for host in claude codex; do
   export AGENT_GUARD_HOOK_HOST="$host"
   printf '%s\n' "$payload" | AGENT_GUARD_EXPERIMENTAL_REDACTOR=shell "$cli" hook-post-tool > "$case_dir/expected"
   grep -q REDACTED "$case_dir/expected"
-  ! grep -q perf-literal-tail "$case_dir/expected"
+  if grep -q perf-literal-tail "$case_dir/expected"; then
+    echo 'shell expectation leaked the fixture secret' >&2; exit 1
+  fi
   for fault in healthy missing corrupt checksum no-checksum no-execute error partial-zero empty-zero multiple-zero partial-error; do
     cp "$core" "$helper"
     chmod 755 "$helper"
