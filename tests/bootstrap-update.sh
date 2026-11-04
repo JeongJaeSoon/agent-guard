@@ -273,6 +273,9 @@ cat >"$CASE_ROOT/fault-bin/mv" <<'FAULT'
 case "$1:${QA_INSTALL_FAULT:-}" in
   */.agent-guard-update.*/next:commit) exit 2 ;;
 esac
+case "${2:-}:${QA_INSTALL_FAULT:-}" in
+  */.agent-guard-link.*/agent-guard:link) exit 2 ;;
+esac
 "$QA_REAL_MV" "$@" || exit $?
 for destination do :; done
 case "$destination:${QA_INSTALL_FAULT:-}" in
@@ -280,7 +283,7 @@ case "$destination:${QA_INSTALL_FAULT:-}" in
 esac
 FAULT
 chmod +x "$CASE_ROOT/fault-bin/tar" "$CASE_ROOT/fault-bin/mv"
-for fault in extract commit interrupt; do
+for fault in extract commit interrupt link; do
   if PATH="$CASE_ROOT/fault-bin:$PATH" QA_INSTALL_FAULT="$fault" \
     AGENT_GUARD_BIN_DIR="$CASE_ROOT/custom bin" sh "$ROOT/bootstrap.sh" >"$CASE_ROOT/out" 2>"$CASE_ROOT/err"; then
     echo "fault did not fail the installation: $fault" >&2; exit 1

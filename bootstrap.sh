@@ -46,6 +46,7 @@ cleanup() {
     fi
   fi
   [ -z "${transaction:-}" ] || rm -rf "$transaction"
+  [ -z "${link_stage:-}" ] || rm -rf "$link_stage"
   [ -z "${tmp:-}" ] || rm -rf "$tmp"
 }
 
@@ -172,7 +173,12 @@ main() {
   if [ "$BIN_DIR" = "$payload_bin_dir" ]; then
     info "$prog: executable already lives in $BIN_DIR; no symlink needed"
   else
-    ln -sf "$bin_path" "$BIN_DIR/agent-guard" || die "cannot update public executable link"
+    # Prepare the symlink in the public directory's filesystem. A failed ln or
+    # rename must not unlink the existing working public command.
+    link_stage=$(mktemp -d "$BIN_DIR/.agent-guard-link.XXXXXX") \
+      || die "cannot stage public executable link"
+    ln -s "$bin_path" "$link_stage/agent-guard" || die "cannot stage public executable link"
+    mv -f "$link_stage/agent-guard" "$BIN_DIR/agent-guard" || die "cannot update public executable link"
     info "$prog: linked $BIN_DIR/agent-guard -> $bin_path"
   fi
   install_committed=1
