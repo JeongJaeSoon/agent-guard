@@ -167,17 +167,18 @@ jobs:
 
   output-experiment:
     name: Output preparation experiment
-    needs: platform
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-        with:
-          name: native-x86_64-unknown-linux-musl
-          path: ${{ runner.temp }}/output-core
+      - name: Build the measured Linux helper independently of other platform jobs
+        run: |
+          rustup toolchain install 1.85.1 --profile minimal --target x86_64-unknown-linux-musl
+          sudo apt-get update -qq
+          sudo apt-get install -y musl-tools
+          sh scripts/build-native-artifact.sh x86_64-unknown-linux-musl "$RUNNER_TEMP/output-core"
       - name: Compare against the actual public v3.7.0 archive
         run: |
           sh scripts/install-native-test-tools.sh "$RUNNER_TEMP/test-bin"

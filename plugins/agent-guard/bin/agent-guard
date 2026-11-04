@@ -1703,7 +1703,13 @@ need_gitleaks() {
 hook_dependencies_ready() {
   command -v jq >/dev/null 2>&1 || return 1
   command -v awk >/dev/null 2>&1 || return 1
-  prepare_gitleaks || return 1
+  if ! prepare_gitleaks; then
+    # Preserve the reason from this invocation. A later doctor/retry cannot
+    # explain an intermittent failure. These fields are internal enums only;
+    # never include scanner output, executable paths or hook payloads here.
+    info "$PROGRAM: gitleaks readiness failed (state=$GITLEAKS_PROBE_STATE, detail=${GITLEAKS_PROBE_DETAIL:-none})"
+    return 1
+  fi
   [ -f "$GITLEAKS_CONFIG" ] && policy_file_has_active_rule "$GITLEAKS_CONFIG" || return 1
   [ -f "$DENY_READ_PATHS" ] && policy_file_has_active_rule "$DENY_READ_PATHS" || return 1
   [ -f "$DENY_BASH_PATTERNS" ] && policy_file_has_active_rule "$DENY_BASH_PATTERNS" || return 1

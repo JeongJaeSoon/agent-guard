@@ -501,10 +501,29 @@ for mode in open closed; do
   [ "$mode" = closed ] && expected_status=2
   if [ "$status" -eq "$expected_status" ] \
      && [ "$slow_elapsed" -le 5 ] && [ ! -e "$SLOW_SCAN_MARKER" ] \
+     && grep -Fq 'gitleaks readiness failed (state=runtime-failure, detail=timeout)' "$CASE_ROOT/err" \
      && grep -Fq "AGENT_GUARD_INFRA_FAILURE_MODE=$mode" "$CASE_ROOT/err"; then
     ok "slow version probe follows $mode policy before a scanned route (${slow_elapsed}s)"
   else
     not_ok "slow version probe stays below the hook timeout in $mode mode (status $status, ${slow_elapsed}s)"
+  fi
+done
+
+for host in claude codex; do
+  printf '%s' '{"tool_name":"Read","tool_input":{},"tool_response":{"stdout":"API_KEY=diagnostic-fixture","clean":"visible"}}' \
+    | env AGENT_GUARD_LOG_MODE=off AGENT_GUARD_RELEASE_CHECK=off \
+        AGENT_GUARD_GITLEAKS_BIN="$SLOW_BIN/gitleaks" AGENT_GUARD_HOOK_HOST="$host" \
+        AGENT_GUARD_INFRA_FAILURE_MODE=open AGENT_GUARD_WARNING_DIR="$CASE_ROOT/post-$host" \
+        "$GUARD" hook-post-tool >"$CASE_ROOT/out" 2>"$CASE_ROOT/err"
+  status=$?
+  if [ "$status" -eq 0 ] \
+      && grep -Fq 'gitleaks readiness failed (state=runtime-failure, detail=timeout)' "$CASE_ROOT/err" \
+      && grep -Fq 'protection is DEGRADED' "$CASE_ROOT/out" \
+      && ! grep -Fq "$SLOW_BIN" "$CASE_ROOT/err" \
+      && ! grep -Fq 'diagnostic-fixture' "$CASE_ROOT/err"; then
+    ok "$host post-tool preserves the same-invocation readiness reason without private data"
+  else
+    not_ok "$host post-tool readiness diagnostic contract (status $status)"
   fi
 done
 

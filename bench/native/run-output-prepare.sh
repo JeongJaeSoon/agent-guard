@@ -38,6 +38,7 @@ printf '%s\n' "$limits" > "$out/enforced-limits.txt"
 git rev-parse HEAD > "$out/checkout-sha.txt"
 run sh -c 'uname -a; jq --version; /scanner/gitleaks version; sha256sum /public/bin/agent-guard /candidate/bin/agent-guard /public/libexec/agent-guard-redact-x86_64-unknown-linux-musl /candidate/libexec/agent-guard-redact-x86_64-unknown-linux-musl /prepare /scanner/gitleaks /repo/plugins/agent-guard/config/gitleaks.toml' > "$out/environment.txt"
 run cat /proc/cpuinfo > "$out/cpuinfo.txt"
+run sh bench/native/test-output-prepare-experiment.sh /repo /prepare > "$out/output-corpus.log" 2>&1
 for host in claude codex; do
   run agent-guard-devtools masking-latency --binary /candidate/bin/agent-guard \
     --baseline /public/bin/agent-guard --baseline-packaged-native \
