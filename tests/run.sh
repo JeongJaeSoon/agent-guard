@@ -232,6 +232,7 @@ fi
 run_expect 0 "private metadata-only audit logging contract" sh "$ROOT/tests/audit-log.sh"
 run_expect 0 "portable audit retention contract" sh "$ROOT/tests/unit-audit-retention.sh"
 run_expect 0 "NUL redaction preserves clean leaves" sh "$ROOT/tests/unit-nul-redaction.sh"
+run_expect 0 "printenv argument boundaries preserve empty and public values" sh "$ROOT/tests/printenv-argument-contract.sh"
 run_expect 0 "host plugin lifecycle delegates safely" sh "$ROOT/tests/plugin-management.sh"
 
 run_expect 0 "standalone update preserves executable and link destinations" \

@@ -4,6 +4,7 @@ on:
     paths:
       - 'plugins/agent-guard/bin/agent-guard'
       - 'tests/unit-nul-redaction.sh'
+      - 'tests/printenv-argument-contract.sh'
       - 'tests/unit-audit-retention.sh'
       - '.github/workflows/legacy-tools.yml'
   push:
@@ -11,6 +12,7 @@ on:
     paths:
       - 'plugins/agent-guard/bin/agent-guard'
       - 'tests/unit-nul-redaction.sh'
+      - 'tests/printenv-argument-contract.sh'
       - 'tests/unit-audit-retention.sh'
       - '.github/workflows/legacy-tools.yml'
   workflow_dispatch:
@@ -37,4 +39,5 @@ jobs:
           test "$(jq --version)" = jq-1.6
           /usr/bin/mawk -W version
           sh tests/unit-nul-redaction.sh
+          sh tests/printenv-argument-contract.sh
           AGENT_GUARD_TEST_AWK=/usr/bin/mawk sh tests/unit-audit-retention.sh

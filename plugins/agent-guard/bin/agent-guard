@@ -9326,11 +9326,13 @@ detect_printenv_argument_secret_records() {
   # argv: the original command can fit while jq's extra argv entries cross
   # ARG_MAX. NUL is the only byte a process argument cannot contain, so this
   # preserves every argument boundary without reserving another sentinel.
-  if ! printf '%s\0' "$@" >"$printenv_args_file" \
+  # jq 1.6 raw slurp drops a final NUL. Append a non-NUL terminal field so the
+  # preceding argument delimiter survives, then validate/remove only that field.
+  if ! { printf '%s\0' "$@" && printf '.'; } >"$printenv_args_file" \
     || ! jq -Rsc '
     def trim_trailing_newlines: sub("\n+$"; "");
     (split("\u0000")
-     | if length > 0 and .[-1] == "" then .[:-1]
+     | if length > 1 and .[-1] == "." then .[:-1]
        else error("unterminated printenv argument stream")
        end) as $args
     | {entries:
