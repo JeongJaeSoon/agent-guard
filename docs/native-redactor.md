@@ -51,3 +51,17 @@ helper, then lets the failing jq fallback exercise the original fail-closed
 assertion. Other faults still target their original stages. It also requires
 proof that the native helper was invoked. Performance goals and measurements
 are recorded in [the internal experiment goal](rust-experiment-goal.ko.md).
+
+## Before expanding the experiment
+
+Keep the scanner and its rules fixed when moving another output stage. Rust's
+regex syntax is not interchangeable with jq/Oniguruma or gitleaks' Go regex
+syntax. Preserve the executable-boundary fixtures for numbers, duplicate keys,
+Unicode, invalid bytes, limits and partial failures; shell source-extraction
+tests alone do not exercise a native implementation.
+
+Default activation needs Linux/macOS × x64/arm64 artifacts, checksums, payload
+completeness, launcher/protocol compatibility and interrupted-update/rollback
+checks. The shell launcher still owns version resolution. A persistent daemon
+would add secret lifetime, IPC authentication and session-isolation concerns;
+this experiment keeps one-shot execution.

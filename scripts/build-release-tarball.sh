@@ -16,11 +16,11 @@ cp "$ROOT/docs/demo.gif" "$stage/docs/demo.gif"
 mkdir -p "$stage/docs/assets"
 cp "$ROOT/docs/assets/icon.png" "$stage/docs/assets/icon.png"
 # The standalone archive replaces the plugin README with the repository README.
-# Ship every repository Markdown guide it links to so that README navigation is
-# useful without cloning the repository.
-for doc in "$ROOT"/docs/*.md; do
-  [ -f "$doc" ] || continue
-  cp "$doc" "$stage/docs/"
+# Ship user guides and their translations for offline README navigation.
+# Developer notes, experiment goals and reports belong to the source checkout.
+for guide in installation installation.ko installation.ja \
+  verification verification.ko verification.ja configuration integrations operations; do
+  cp "$ROOT/docs/$guide.md" "$stage/docs/"
 done
 cp "$ROOT/install.sh" "$stage/install.sh"
 cp -R "$ROOT/deployment" "$stage/deployment"
