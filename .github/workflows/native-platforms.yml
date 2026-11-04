@@ -1,0 +1,74 @@
+name: Native platform artifacts
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  platform:
+    name: Native execution (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            target: x86_64-unknown-linux-musl
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+          - os: macos-15
+            target: aarch64-apple-darwin
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Install native build tools
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          rustup toolchain install 1.85.1 --profile minimal --target "$TARGET"
+          if [ "$RUNNER_OS" = Linux ]; then
+            sudo apt-get update -qq
+            sudo apt-get install -y musl-tools
+          fi
+      - name: Build and execute release artifact
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          sh scripts/build-native-artifact.sh "$TARGET" "$RUNNER_TEMP/artifacts"
+          cargo +1.85.1 build --release --locked --manifest-path native/devtools/Cargo.toml
+          sh scripts/install-native-test-tools.sh "$RUNNER_TEMP/test-bin"
+      - name: Compiler-free differential and host contracts
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          export PATH="$RUNNER_TEMP/test-bin:/usr/bin:/bin:/usr/sbin:/sbin"
+          ! command -v cargo
+          ! command -v rustc
+          core="$RUNNER_TEMP/artifacts/agent-guard-redact-$TARGET"
+          native/devtools/target/release/agent-guard-devtools native-redaction --core "$core" > "$RUNNER_TEMP/artifacts/differential.json"
+          native/devtools/target/release/agent-guard-devtools native-integration --core "$core" --scanner "$RUNNER_TEMP/test-bin/gitleaks" > "$RUNNER_TEMP/artifacts/integration.json"
+          AGENT_GUARD_RUST_CORE_BIN="$core" sh tests/native-suite.sh audit > "$RUNNER_TEMP/artifacts/audit.log"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: native-${{ matrix.target }}
+          path: ${{ runner.temp }}/artifacts/
+          if-no-files-found: error
+  complete:
+    name: Native platform artifacts
+    if: always()
+    needs: platform
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require all four native executions
+        env:
+          RESULT: ${{ needs.platform.result }}
+        run: test "$RESULT" = success
