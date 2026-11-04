@@ -46,7 +46,7 @@ jobs:
           sh scripts/build-native-artifact.sh "$TARGET" "$RUNNER_TEMP/artifacts"
           cargo +1.85.1 build --release --locked --manifest-path native/devtools/Cargo.toml
           sh scripts/install-native-test-tools.sh "$RUNNER_TEMP/test-bin"
-      - name: Compiler-free differential and host contracts
+      - name: Compiler-free differential
         env:
           TARGET: ${{ matrix.target }}
         run: |
@@ -55,15 +55,88 @@ jobs:
             echo 'Rust compiler unexpectedly visible on runtime test PATH' >&2
             exit 1
           fi
-          core="$RUNNER_TEMP/artifacts/agent-guard-redact-$TARGET"
-          native/devtools/target/release/agent-guard-devtools native-redaction --core "$core" > "$RUNNER_TEMP/artifacts/differential.json"
-          native/devtools/target/release/agent-guard-devtools native-integration --core "$core" --scanner "$RUNNER_TEMP/test-bin/gitleaks" > "$RUNNER_TEMP/artifacts/integration.json"
-          if [ "$TARGET" = x86_64-apple-darwin ]; then
-            for trial in 2 3; do
-              native/devtools/target/release/agent-guard-devtools native-integration --core "$core" --scanner "$RUNNER_TEMP/test-bin/gitleaks" > "$RUNNER_TEMP/artifacts/integration-$trial.json"
-            done
+          date -u
+          native/devtools/target/release/agent-guard-devtools native-redaction --core "$RUNNER_TEMP/artifacts/agent-guard-redact-$TARGET" > "$RUNNER_TEMP/artifacts/differential.json"
+          date -u
+      - name: Preserve Intel differential checkpoint
+        if: always() && matrix.target == 'x86_64-apple-darwin'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: checkpoint-intel-differential
+          path: ${{ runner.temp }}/artifacts/differential.json
+          if-no-files-found: warn
+      - name: Compiler-free integration
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          export PATH="$RUNNER_TEMP/test-bin:/usr/bin:/bin:/usr/sbin:/sbin"
+          if command -v cargo || command -v rustc; then
+            echo 'Rust compiler unexpectedly visible on runtime test PATH' >&2
+            exit 1
           fi
-          AGENT_GUARD_RUST_CORE_BIN="$core" sh tests/native-suite.sh audit > "$RUNNER_TEMP/artifacts/audit.log"
+          date -u
+          native/devtools/target/release/agent-guard-devtools native-integration --core "$RUNNER_TEMP/artifacts/agent-guard-redact-$TARGET" --scanner "$RUNNER_TEMP/test-bin/gitleaks" > "$RUNNER_TEMP/artifacts/integration.json"
+          date -u
+      - name: Preserve Intel integration checkpoint
+        if: always() && matrix.target == 'x86_64-apple-darwin'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: checkpoint-intel-integration
+          path: ${{ runner.temp }}/artifacts/integration.json
+          if-no-files-found: warn
+      - name: Compiler-free integration-2
+        if: matrix.target == 'x86_64-apple-darwin'
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          export PATH="$RUNNER_TEMP/test-bin:/usr/bin:/bin:/usr/sbin:/sbin"
+          if command -v cargo || command -v rustc; then
+            echo 'Rust compiler unexpectedly visible on runtime test PATH' >&2
+            exit 1
+          fi
+          date -u
+          native/devtools/target/release/agent-guard-devtools native-integration --core "$RUNNER_TEMP/artifacts/agent-guard-redact-$TARGET" --scanner "$RUNNER_TEMP/test-bin/gitleaks" > "$RUNNER_TEMP/artifacts/integration-2.json"
+          date -u
+      - name: Preserve Intel integration-2 checkpoint
+        if: always() && matrix.target == 'x86_64-apple-darwin'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: checkpoint-intel-integration-2
+          path: ${{ runner.temp }}/artifacts/integration-2.json
+          if-no-files-found: warn
+      - name: Compiler-free integration-3
+        if: matrix.target == 'x86_64-apple-darwin'
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          export PATH="$RUNNER_TEMP/test-bin:/usr/bin:/bin:/usr/sbin:/sbin"
+          if command -v cargo || command -v rustc; then
+            echo 'Rust compiler unexpectedly visible on runtime test PATH' >&2
+            exit 1
+          fi
+          date -u
+          native/devtools/target/release/agent-guard-devtools native-integration --core "$RUNNER_TEMP/artifacts/agent-guard-redact-$TARGET" --scanner "$RUNNER_TEMP/test-bin/gitleaks" > "$RUNNER_TEMP/artifacts/integration-3.json"
+          date -u
+      - name: Preserve Intel integration-3 checkpoint
+        if: always() && matrix.target == 'x86_64-apple-darwin'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: checkpoint-intel-integration-3
+          path: ${{ runner.temp }}/artifacts/integration-3.json
+          if-no-files-found: warn
+      - name: Compiler-free audit contracts
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -o pipefail
+          export PATH="$RUNNER_TEMP/test-bin:/usr/bin:/bin:/usr/sbin:/sbin"
+          if command -v cargo || command -v rustc; then
+            echo 'Rust compiler unexpectedly visible on runtime test PATH' >&2
+            exit 1
+          fi
+          date -u
+          AGENT_GUARD_RUST_CORE_BIN="$RUNNER_TEMP/artifacts/agent-guard-redact-$TARGET" sh tests/native-suite.sh audit 2>&1 | tee "$RUNNER_TEMP/artifacts/audit.log"
+          date -u
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:

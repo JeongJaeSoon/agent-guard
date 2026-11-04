@@ -119,6 +119,7 @@ jobs:
           TEST_PARTITIONS: ${{ matrix.shards }}
           AGENT_GUARD_TEST_NAVIGATION_HOST: ${{ matrix.navigation_host }}
         run: |
+          jq --version
           # IDs come only from the checked-in matrix; the driver validates
           # one or two distinct IDs and preserves every child exit status.
           read -r -a partitions <<< "$TEST_PARTITIONS"

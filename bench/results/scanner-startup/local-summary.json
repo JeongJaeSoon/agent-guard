@@ -1,0 +1,168 @@
+{
+  "scope": "Local exploratory comparison; outer cgroup only, not 2 CPU/1 GiB acceptance. Actual public v3.7.0 CLI and redactor in both arms. Scanner is changed.",
+  "pairs": 7,
+  "rows": [
+    {
+      "host": "claude",
+      "audit_state": "cold",
+      "case": "small-clean",
+      "verified": true,
+      "baseline": {
+        "wall_ms": 978.719922,
+        "cpu_ms": 1043.012,
+        "max_individual_child_rss_kib_median": 61928.0
+      },
+      "candidate": {
+        "wall_ms": 313.434143,
+        "cpu_ms": 337.633,
+        "max_individual_child_rss_kib_median": 33944.0
+      },
+      "wall_change_percent": -67.97509318503481,
+      "cpu_change_percent": -67.62903974259164
+    },
+    {
+      "host": "claude",
+      "audit_state": "cold",
+      "case": "long-line",
+      "verified": true,
+      "baseline": {
+        "wall_ms": 1260.326664,
+        "cpu_ms": 1351.683,
+        "max_individual_child_rss_kib_median": 62512.0
+      },
+      "candidate": {
+        "wall_ms": 576.0282119999999,
+        "cpu_ms": 620.141,
+        "max_individual_child_rss_kib_median": 35036.0
+      },
+      "wall_change_percent": -54.295324501680156,
+      "cpu_change_percent": -54.12082566696481
+    },
+    {
+      "host": "claude",
+      "audit_state": "cold",
+      "case": "many-replacement-leaves",
+      "verified": true,
+      "baseline": {
+        "wall_ms": 1087.78172,
+        "cpu_ms": 1174.1979999999999,
+        "max_individual_child_rss_kib_median": 62320.0
+      },
+      "candidate": {
+        "wall_ms": 423.747356,
+        "cpu_ms": 454.885,
+        "max_individual_child_rss_kib_median": 34652.0
+      },
+      "wall_change_percent": -61.04481733706648,
+      "cpu_change_percent": -61.25994082769686
+    },
+    {
+      "host": "claude",
+      "audit_state": "off",
+      "case": "small-clean",
+      "verified": true,
+      "baseline": {
+        "wall_ms": 984.962691,
+        "cpu_ms": 1046.48,
+        "max_individual_child_rss_kib_median": 61744.0
+      },
+      "candidate": {
+        "wall_ms": 287.766315,
+        "cpu_ms": 306.431,
+        "max_individual_child_rss_kib_median": 34012.0
+      },
+      "wall_change_percent": -70.78403906772952,
+      "cpu_change_percent": -70.71793058634661
+    },
+    {
+      "host": "claude",
+      "audit_state": "off",
+      "case": "long-line",
+      "verified": true,
+      "baseline": {
+        "wall_ms": 1311.035473,
+        "cpu_ms": 1366.96,
+        "max_individual_child_rss_kib_median": 62440.0
+      },
+      "candidate": {
+        "wall_ms": 569.087398,
+        "cpu_ms": 605.264,
+        "max_individual_child_rss_kib_median": 34908.0
+      },
+      "wall_change_percent": -56.59252478517796,
+      "cpu_change_percent": -55.721893837420254
+    },
+    {
+      "host": "claude",
+      "audit_state": "off",
+      "case": "many-replacement-leaves",
+      "verified": true,
+      "baseline": {
+        "wall_ms": 1049.9281250000001,
+        "cpu_ms": 1107.8480000000002,
+        "max_individual_child_rss_kib_median": 62440.0
+      },
+      "candidate": {
+        "wall_ms": 389.66413900000003,
+        "cpu_ms": 412.44599999999997,
+        "max_individual_child_rss_kib_median": 34712.0
+      },
+      "wall_change_percent": -62.88658911770746,
+      "cpu_change_percent": -62.77052447628195
+    },
+    {
+      "host": "claude",
+      "audit_state": "warm",
+      "case": "small-clean",
+      "verified": true,
+      "baseline": {
+        "wall_ms": 638.69201,
+        "cpu_ms": 684.6750000000001,
+        "max_individual_child_rss_kib_median": 61864.0
+      },
+      "candidate": {
+        "wall_ms": 291.947893,
+        "cpu_ms": 314.134,
+        "max_individual_child_rss_kib_median": 33952.0
+      },
+      "wall_change_percent": -54.28972205241771,
+      "cpu_change_percent": -54.11925366049586
+    },
+    {
+      "host": "claude",
+      "audit_state": "warm",
+      "case": "long-line",
+      "verified": true,
+      "baseline": {
+        "wall_ms": 933.7958950000001,
+        "cpu_ms": 998.852,
+        "max_individual_child_rss_kib_median": 62760.0
+      },
+      "candidate": {
+        "wall_ms": 546.131581,
+        "cpu_ms": 586.519,
+        "max_individual_child_rss_kib_median": 35036.0
+      },
+      "wall_change_percent": -41.5148873619754,
+      "cpu_change_percent": -41.280690232386775
+    },
+    {
+      "host": "claude",
+      "audit_state": "warm",
+      "case": "many-replacement-leaves",
+      "verified": true,
+      "baseline": {
+        "wall_ms": 760.3483279999999,
+        "cpu_ms": 805.45,
+        "max_individual_child_rss_kib_median": 62768.0
+      },
+      "candidate": {
+        "wall_ms": 395.948368,
+        "cpu_ms": 420.77699999999993,
+        "max_individual_child_rss_kib_median": 34524.0
+      },
+      "wall_change_percent": -47.92539768694013,
+      "cpu_change_percent": -47.75876839034081
+    }
+  ]
+}

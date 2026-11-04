@@ -6,6 +6,7 @@ on:
       - 'tests/unit-nul-redaction.sh'
       - 'tests/printenv-argument-contract.sh'
       - 'tests/unit-audit-retention.sh'
+      - 'tests/post-tool-serialization-recovery.sh'
       - '.github/workflows/legacy-tools.yml'
   push:
     branches: [main]
@@ -14,6 +15,7 @@ on:
       - 'tests/unit-nul-redaction.sh'
       - 'tests/printenv-argument-contract.sh'
       - 'tests/unit-audit-retention.sh'
+      - 'tests/post-tool-serialization-recovery.sh'
       - '.github/workflows/legacy-tools.yml'
   workflow_dispatch:
 # Replace only obsolete runs of the same PR. Non-PR runs have unique groups,
@@ -41,3 +43,12 @@ jobs:
           sh tests/unit-nul-redaction.sh
           sh tests/printenv-argument-contract.sh
           AGENT_GUARD_TEST_AWK=/usr/bin/mawk sh tests/unit-audit-retention.sh
+          sh tests/post-tool-serialization-recovery.sh
+      - name: Verify jq 1.8.1 successful truncation recovery
+        run: |
+          set -eu
+          mkdir -p "$RUNNER_TEMP/jq-1.8.1"
+          curl -fsSL https://github.com/jqlang/jq/releases/download/jq-1.8.1/jq-linux-amd64 -o "$RUNNER_TEMP/jq-1.8.1/jq"
+          printf '%s  %s\n' 020468de7539ce70ef1bceaf7cde2e8c4f2ca6c3afb84642aabc5c97d9fc2a0d "$RUNNER_TEMP/jq-1.8.1/jq" | sha256sum -c -
+          chmod +x "$RUNNER_TEMP/jq-1.8.1/jq"
+          AGENT_GUARD_TEST_JQ="$RUNNER_TEMP/jq-1.8.1/jq" sh tests/post-tool-serialization-recovery.sh

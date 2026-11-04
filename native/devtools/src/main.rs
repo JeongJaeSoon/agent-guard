@@ -2,6 +2,7 @@ mod common;
 mod contracts;
 mod measure;
 mod report;
+mod scanner;
 mod verification;
 use common::*;
 
@@ -19,6 +20,7 @@ fn main_result() -> Result<()> {
         "native-redaction" => contracts::differential(&args),
         "native-integration" => contracts::integration(&args),
         "resource-sample" => measure::resource_sample(&args),
+        "scanner-differential" => scanner::differential(&args),
         "masking-latency" => measure::latency(&args),
         "kernel" => measure::kernel(&args),
         "load" => measure::load(&args),
@@ -26,6 +28,6 @@ fn main_result() -> Result<()> {
         "verify" => verification::verify(&args),
         "measure-selected-bash" => verification::selected_bash(&args),
         "report" => report::run(&args),
-        _ => Err("commands: native-redaction, native-integration, resource-sample, masking-latency, kernel, load, watchdog-orphans, verify, measure-selected-bash, report".into()),
+        _ => Err("commands: native-redaction, native-integration, scanner-differential, resource-sample, masking-latency, kernel, load, watchdog-orphans, verify, measure-selected-bash, report".into()),
     }
 }

@@ -1,0 +1,46 @@
+diff --git a/go.mod b/go.mod
+index a413f1d..c90f8e5 100644
+--- a/go.mod
++++ b/go.mod
+@@ -1,6 +1,6 @@
+ module github.com/zricethezav/gitleaks/v8
+ 
+-go 1.24.11
++go 1.26.0
+ 
+ require (
+ 	github.com/BobuSumisu/aho-corasick v1.0.3
+@@ -77,9 +77,9 @@ require (
+ 	github.com/spf13/cast v1.7.1 // indirect
+ 	github.com/spf13/pflag v1.0.6 // indirect
+ 	github.com/subosito/gotenv v1.6.0 // indirect
+-	github.com/wasilibs/go-re2 v1.9.0
++	github.com/wasilibs/go-re2 v1.13.0
+ 	golang.org/x/sync v0.11.0 // indirect
+-	golang.org/x/sys v0.30.0 // indirect
++	golang.org/x/sys v0.48.0 // indirect
+ 	golang.org/x/text v0.22.0 // indirect
+ 	gopkg.in/ini.v1 v1.67.0 // indirect
+ 	gopkg.in/yaml.v3 v3.0.1 // indirect
+diff --git a/go.sum b/go.sum
+index 5e9b7d2..aeeb202 100644
+--- a/go.sum
++++ b/go.sum
+@@ -229,6 +229,8 @@ github.com/ulikunitz/xz v0.5.12 h1:37Nm15o69RwBkXM0J6A5OlE67RZTfzUxTj8fB3dfcsc=
+ github.com/ulikunitz/xz v0.5.12/go.mod h1:nbz6k7qbPmH4IRqmfOplQw/tblSgqTqBwxkY0oWt/14=
+ github.com/wasilibs/go-re2 v1.9.0 h1:kjAd8qbNvV4Ve2Uf+zrpTCrDHtqH4dlsRXktywo73JQ=
+ github.com/wasilibs/go-re2 v1.9.0/go.mod h1:0sRtscWgpUdNA137bmr1IUgrRX0Su4dcn9AEe61y+yI=
++github.com/wasilibs/go-re2 v1.13.0 h1:FImemHDWIeNRuDq/o8Vvx0seJ2k7ofloHLt4z0V+eR0=
++github.com/wasilibs/go-re2 v1.13.0/go.mod h1:E/UzEXX4cjlurXHJwfzKh46OhfQMLmOM0oG0ljyDL/8=
+ github.com/wasilibs/wazero-helpers v0.0.0-20240620070341-3dff1577cd52 h1:OvLBa8SqJnZ6P+mjlzc2K7PM22rRUPE1x32G9DTPrC4=
+ github.com/wasilibs/wazero-helpers v0.0.0-20240620070341-3dff1577cd52/go.mod h1:jMeV4Vpbi8osrE/pKUxRZkVaA0EX7NZN0A9/oRzgpgY=
+ github.com/xyproto/randomstring v1.0.5 h1:YtlWPoRdgMu3NZtP45drfy1GKoojuR7hmRcnhZqKjWU=
+@@ -330,6 +332,8 @@ golang.org/x/sys v0.6.0/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
+ golang.org/x/sys v0.12.0/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
+ golang.org/x/sys v0.30.0 h1:QjkSwP/36a20jFYWkSue1YwXzLmsV5Gfq7Eiy72C1uc=
+ golang.org/x/sys v0.30.0/go.mod h1:/VUhepiaJMQUp4+oa/7Zr1D23ma6VTLIYjOOTFZPUcA=
++golang.org/x/sys v0.48.0 h1:bbX/i/6MgT9BVLM9RT1thmxL04yeTAhbEz4SyadbXoo=
++golang.org/x/sys v0.48.0/go.mod h1:hNLxWAXmnKAxqDtdwIYC4bM9oQPEecfsnNMuSxOs3og=
+ golang.org/x/term v0.0.0-20201126162022-7de9c90e9dd1/go.mod h1:bj7SfCRtBDWHUb9snDiAeCFNEtKQo2Wmx5Cou7ajbmo=
+ golang.org/x/term v0.0.0-20210927222741-03fcf44c2211/go.mod h1:jbD1KX2456YbFQfuXm/mYQcufACuNUgVhRMnK/tPxf8=
+ golang.org/x/term v0.5.0/go.mod h1:jMB1sMXY+tzblOD4FWmEbocvup2/aLOaQEp7JmGp78k=

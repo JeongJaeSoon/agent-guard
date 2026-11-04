@@ -55,7 +55,7 @@ impl Args {
             return Err("a command is required".into());
         }
         let command = values.remove(0);
-        let commands = "native-redaction, native-integration, resource-sample, masking-latency, kernel, load, watchdog-orphans, verify, measure-selected-bash, report";
+        let commands = "native-redaction, native-integration, scanner-differential, resource-sample, masking-latency, kernel, load, watchdog-orphans, verify, measure-selected-bash, report";
         if ["--help", "-h", "help"].contains(&command.as_str()) {
             println!("Usage: agent-guard-devtools <command> [options]\nCommands: {commands}");
             std::process::exit(0);
@@ -73,12 +73,21 @@ impl Args {
         let options: &[&str] = match command.as_str() {
             "native-redaction" => &["--core", "--source"],
             "native-integration" => &["--core", "--scanner"],
+            "scanner-differential" => &[
+                "--scanner",
+                "--candidate-scanner",
+                "--control-scanner",
+                "--source",
+                "--out",
+            ],
             "masking-latency" => &[
                 "--binary",
                 "--baseline",
                 "--native-core",
                 "--host",
                 "--scanner",
+                "--candidate-scanner",
+                "--audit-state",
                 "--runs",
                 "--timeout",
                 "--case",
@@ -97,6 +106,7 @@ impl Args {
                 "--include-boundaries",
                 "--trace-processes",
                 "--packaged-native",
+                "--baseline-packaged-native",
             ]
         } else if command == "load" {
             &["--packaged-native"]

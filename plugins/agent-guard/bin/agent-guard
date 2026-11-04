@@ -2,7 +2,7 @@
 set -u
 
 PROGRAM=agent-guard
-VERSION=3.7.0
+VERSION=3.7.1
 
 # Resolve the script's own path, following symlinks. The bootstrap installer
 # drops a symlink at ~/.local/bin/agent-guard that points into ~/.agent-guard/
@@ -1919,7 +1919,23 @@ degraded_hook_message() {
     codex) setup_ref='$setup-agent-guard' ;;
     *) setup_ref='/agent-guard:setup-agent-guard' ;;
   esac
-  printf 'agent-guard: protection is DEGRADED because jq, awk, git, gitleaks (including its setsid or Perl process-isolation helper), or a policy file is unavailable. Run %s (or agent-guard setup), approve any required installation, verify with agent-guard check and smoke-test, then restart the host;' "$setup_ref"
+  printf 'agent-guard: protection is DEGRADED because jq, awk, git, gitleaks (including its setsid or Perl process-isolation helper), or a policy file is unavailable.'
+  # Fixed diagnostic codes only: never include scanner output, paths or payloads
+  # in the host envelope. Keep the existing once-per-session warning boundary.
+  degraded_probe_reason=
+  case "${GITLEAKS_PROBE_STATE:-}" in
+    missing|unparseable|unsupported) degraded_probe_reason=$GITLEAKS_PROBE_STATE ;;
+    runtime-failure)
+      case "${GITLEAKS_PROBE_DETAIL:-}" in
+        timeout|output-limit|output-unavailable|command-failed|timer-unavailable|launcher-unavailable|temp-helper-unavailable|temp-unavailable)
+          degraded_probe_reason=$GITLEAKS_PROBE_DETAIL ;;
+        *) degraded_probe_reason=runtime-failure ;;
+      esac
+      ;;
+  esac
+  [ -z "$degraded_probe_reason" ] \
+    || printf ' Scanner readiness: %s.' "$degraded_probe_reason"
+  printf ' Run %s (or agent-guard setup), approve any required installation, verify with agent-guard check and smoke-test, then restart the host;' "$setup_ref"
 }
 
 emit_degraded_hook_warning() {
@@ -10307,7 +10323,16 @@ rewrite_response_conservatively() {
   if ! SAFE_REWRITE=$(redact_response_whole_leaf_fail_closed "$conservative_input"); then
     SAFE_REWRITE=
   fi
-  [ -n "$SAFE_REWRITE" ] || block_failed_output_rewrite
+  if [ -z "$SAFE_REWRITE" ]; then
+    # Some jq printers exit successfully after truncating deep JSON to a
+    # non-JSON marker. The intermediate response then cannot be repaired.
+    # Recover from the retained hook envelope, not the damaged serialization.
+    # Recovery emits the complete host response; stop to avoid a second one.
+    if recover_post_tool_validation_failure "${HOOK_INPUT:-}"; then
+      exit 0
+    fi
+    block_failed_output_rewrite
+  fi
 }
 
 emit_secret_free_post_tool_replacement() {
@@ -10368,7 +10393,7 @@ recover_post_tool_validation_failure() {
     return 1
   fi
 
-  # The jq validator failed, so no scanner-dependent verdict is trustworthy.
+  # Primary JSON processing failed, so no scanner-dependent verdict is trustworthy.
   # Conservatively sanitize the entire response with the independent parser.
   recovery_output=
   if ! recovery_output=$(redact_response_values_awk "$recovery_response"); then
@@ -10380,7 +10405,7 @@ recover_post_tool_validation_failure() {
 
   audit_note masked
   emit_post_tool_replacement "$recovery_output"
-  info "$PROGRAM: replaced the complete tool output after the primary PostToolUse JSON validator failed"
+  info "$PROGRAM: replaced the complete tool output after the primary PostToolUse JSON processing failed"
   return 0
 }
 

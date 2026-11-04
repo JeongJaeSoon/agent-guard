@@ -1,0 +1,71 @@
+{
+  "head": "301d09111d22b341c8821e8c49ec05519afbfe01",
+  "run_id": 41888821620,
+  "targets": [
+    {
+      "host": "claude",
+      "audit_state": "cold",
+      "name": "many-replacement-leaves",
+      "verified": true,
+      "latency_change_percent": -65.4849109512999,
+      "cpu_change_percent": -64.97711902158507,
+      "baseline_ms": 942.8052279999999,
+      "candidate_ms": 325.410064
+    },
+    {
+      "host": "codex",
+      "audit_state": "cold",
+      "name": "many-replacement-leaves",
+      "verified": true,
+      "latency_change_percent": -64.4694825876089,
+      "cpu_change_percent": -64.12118511918021,
+      "baseline_ms": 938.463184,
+      "candidate_ms": 333.440825
+    },
+    {
+      "host": "claude",
+      "audit_state": "warm",
+      "name": "many-replacement-leaves",
+      "verified": true,
+      "latency_change_percent": -46.92982977021409,
+      "cpu_change_percent": -46.79611180965277,
+      "baseline_ms": 426.90825,
+      "candidate_ms": 226.560935
+    },
+    {
+      "host": "codex",
+      "audit_state": "warm",
+      "name": "many-replacement-leaves",
+      "verified": true,
+      "latency_change_percent": -45.673843459422024,
+      "cpu_change_percent": -45.63541882228507,
+      "baseline_ms": 407.68865700000003,
+      "candidate_ms": 221.481578
+    },
+    {
+      "host": "claude",
+      "audit_state": "off",
+      "name": "many-replacement-leaves",
+      "verified": true,
+      "latency_change_percent": -64.5407737497433,
+      "cpu_change_percent": -64.51047849860676,
+      "baseline_ms": 948.837898,
+      "candidate_ms": 336.45057699999995
+    },
+    {
+      "host": "codex",
+      "audit_state": "off",
+      "name": "many-replacement-leaves",
+      "verified": true,
+      "latency_change_percent": -63.66193816389332,
+      "cpu_change_percent": -63.37607584674851,
+      "baseline_ms": 932.904109,
+      "candidate_ms": 338.999272
+    }
+  ],
+  "ordinary_regressions": [],
+  "performance_accepted": true,
+  "measurements_complete": true,
+  "scope": "same public Agent Guard; changed scanner dependency; correctness and deployment qualification remain separate",
+  "runner_note": "Each audit state uses a separate runner; each baseline/candidate pair shares its runner and enforced 2 CPU / 1 GiB cgroup."
+}

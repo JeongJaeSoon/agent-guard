@@ -224,6 +224,7 @@ for mode in open closed; do
   version_calls=$(grep -c ' version$' "$CASE_ROOT/scan-log" 2>/dev/null || true)
   if [ "$status" -eq "$expected_status" ] \
      && [ "$version_calls" -eq 1 ] \
+     && grep -Fq 'Scanner readiness: unsupported.' "$CASE_ROOT/err" \
      && grep -Fq "AGENT_GUARD_INFRA_FAILURE_MODE=$mode" "$CASE_ROOT/err"; then
     ok "unsupported hook scanner follows $mode policy with one bounded version probe"
   else
@@ -501,10 +502,31 @@ for mode in open closed; do
   [ "$mode" = closed ] && expected_status=2
   if [ "$status" -eq "$expected_status" ] \
      && [ "$slow_elapsed" -le 5 ] && [ ! -e "$SLOW_SCAN_MARKER" ] \
+     && grep -Fq 'Scanner readiness: timeout.' "$CASE_ROOT/err" \
      && grep -Fq "AGENT_GUARD_INFRA_FAILURE_MODE=$mode" "$CASE_ROOT/err"; then
     ok "slow version probe follows $mode policy before a scanned route (${slow_elapsed}s)"
   else
     not_ok "slow version probe stays below the hook timeout in $mode mode (status $status, ${slow_elapsed}s)"
+  fi
+done
+
+for diagnostic_host in claude codex; do
+  rm -f "$SLOW_SCAN_MARKER"
+  printf '%s' '{"session_id":"slow-clean-post","tool_name":"Read","tool_response":"ordinary build status"}' \
+    | env AGENT_GUARD_LOG_MODE=off AGENT_GUARD_HOOK_HOST="$diagnostic_host" \
+        AGENT_GUARD_GITLEAKS_BIN="$SLOW_BIN/gitleaks" \
+        AGENT_GUARD_INFRA_FAILURE_MODE=open \
+        AGENT_GUARD_WARNING_DIR="$CASE_ROOT/slow-post-$diagnostic_host" \
+        "$GUARD" hook-post-tool >"$CASE_ROOT/out" 2>"$CASE_ROOT/err"
+  status=$?
+  if [ "$status" -eq 0 ] && [ ! -e "$SLOW_SCAN_MARKER" ] \
+     && [ "$(grep -c 'Scanner readiness: timeout.' "$CASE_ROOT/err")" -eq 1 ] \
+     && jq -e '.hookSpecificOutput.hookEventName == "PostToolUse"
+          and (.hookSpecificOutput.additionalContext | contains("Scanner readiness: timeout."))
+          and (.hookSpecificOutput | has("updatedToolOutput") | not)' "$CASE_ROOT/out" >/dev/null; then
+    ok "clean PostToolUse preserves one readiness-timeout diagnostic ($diagnostic_host)"
+  else
+    not_ok "clean PostToolUse readiness diagnostic ($diagnostic_host, status $status)"
   fi
 done
 

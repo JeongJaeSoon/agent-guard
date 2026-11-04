@@ -1,0 +1,30 @@
+{
+  "gitleaks_source": "83d9cd684c87d95d656c1458ef04895a7f1cbd8e",
+  "compiler": "Go 1.26.0, CGO_ENABLED=0",
+  "candidate_changes": "go-re2 1.9.0 to 1.13.0, x/sys 0.30.0 to 0.48.0",
+  "tool_source_commit": "5ff98aec5426012aef9c06ce2908bfbd84d52c4c",
+  "prepare_source_commit": "923944d",
+  "public_agent_guard_commit": "e709445fb6fce9ade8cbbd2d6bcf2940e48da178",
+  "sha256": {
+    "public_scanner": "88f91962aa2f93ac6ab281d553b9e125f5197bbbce38f9f2437f7299c32e5509",
+    "control_scanner": "914fe9b538e9a5612dadbd865de5fcf39c7855c9b7fdf2f96d80e649432a2680",
+    "candidate_scanner": "ac0545f833be3710a632e33a41be0597b8262f178ded494b13398a33d762320c",
+    "stdlib_rebuild": "680100ece3cf7a862b700aada291753bc5d4b3f00d230aae1cf7a41f2c3e5809",
+    "homebrew_bottle_binary": "3f2e23be63f74acbcb0da7b623e7524a92b2da54f23a06f2026936d8619d8e7e",
+    "driver": "9a7a4a0fa8c30c7eebd7e3bccd62206dd532ad6be3350c5a0046b744232ebff2",
+    "public_cli": "40396373da10a49228bec84e9c9950627dff69965e117ae3c362d47be71cefed",
+    "public_core": "e5effd1d40057d4099cbda0982547e2656ef8005f7308cd685dc2fb52f82b514",
+    "prepare_candidate": "6b05642c726082222c85f236007a9ce938bd3140b0d41364744e53656eff5f64"
+  },
+  "outer_cgroup": {
+    "cpu.max": "400000 100000",
+    "memory.max": "17179869184",
+    "memory.swap.max": "max"
+  },
+  "local_native_corpus": {
+    "passed": 1041,
+    "failed": 2,
+    "limitation": "Two private allow-list fixtures are below sandbox /tmp/.git marker; unmodified trust boundary rejects them."
+  },
+  "deployment": "No default runtime, installer, release, or Homebrew formula changed."
+}

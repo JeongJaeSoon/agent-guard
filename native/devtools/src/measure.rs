@@ -108,6 +108,13 @@ pub fn latency(args: &Args) -> Result<()> {
         version(&["sh", "-c", "command -v gitleaks"]).unwrap_or_default(),
     );
     let mut env = base_env(&scanner)?;
+    let candidate_scanner = absolute(args.opt("--candidate-scanner", &scanner))?;
+    let scanner = absolute(&scanner)?;
+    let audit_state = args.opt("--audit-state", "off");
+    ensure(
+        ["off", "cold", "warm"].contains(&audit_state.as_str()),
+        "invalid audit state",
+    )?;
     env.insert("AGENT_GUARD_HOOK_HOST".into(), host.clone());
     let mut binaries = Vec::new();
     if let Ok(b) = args.get("--baseline") {
@@ -125,6 +132,19 @@ pub fn latency(args: &Args) -> Result<()> {
     }
     let mut report = json!({"platform":version(&["uname","-a"])?,"runs":runs,"host":host,"native_core_sha256":core.as_ref().map(hash).transpose()?,"scanner_version":version(&[&scanner,"version"])?,"binary_sha256":hashes,"scanner_sha256":hash(&scanner)?,"config_sha256":hash(&env["AGENT_GUARD_GITLEAKS_CONFIG"])?,"jq_version":version(&["jq","--version"])?,"driver":"agent-guard-devtools (Rust)","logical_cpu_count":unsafe { libc::sysconf(libc::_SC_NPROCESSORS_ONLN) },"readiness_cache":"disabled with audit logging","cases":[],"resources":if args.flag("--resources") {Some("CPU includes waited-for descendants; RSS is the maximum individual child peak, not simultaneous tree memory")} else {None}});
     let directory = tempfile::tempdir()?;
+    report["audit_state"] = json!(audit_state);
+    report["readiness_cache"] = json!(match audit_state.as_str() {
+        "warm" => "logging enabled; isolated state primed once before each case/backend",
+        "cold" => "logging enabled; fresh isolated state for every invocation",
+        _ => "logging disabled; readiness probe on every invocation",
+    });
+    report["candidate_scanner_sha256"] = json!(hash(&candidate_scanner)?);
+    report["candidate_scanner_version"] = json!(version(&[&candidate_scanner, "version"])?);
+    report["baseline_native_dispatch"] = json!(if args.flag("--baseline-packaged-native") {
+        "packaged-checksum"
+    } else {
+        "shell"
+    });
     report["native_dispatch"] = json!(if args.flag("--packaged-native") {
         "packaged-checksum"
     } else {
@@ -154,6 +174,7 @@ pub fn latency(args: &Args) -> Result<()> {
         let mut samples = json!({});
         let mut resources = json!({});
         let mut processes = json!({});
+        let mut process_traces = json!({});
         for (label, _) in &binaries {
             samples[label] = json!([]);
             resources[label] = json!([]);
@@ -185,6 +206,36 @@ pub fn latency(args: &Args) -> Result<()> {
                     );
                 }
                 env.insert("AGENT_GUARD_EXPERIMENTAL_REDACTOR".into(), "shell".into());
+                env.insert("AGENT_GUARD_RUST_CORE_BIN".into(), String::new());
+                env.insert(
+                    "AGENT_GUARD_EXPERIMENTAL_OUTPUT_PREPARE_BIN".into(),
+                    String::new(),
+                );
+                env.insert(
+                    "AGENT_GUARD_GITLEAKS_BIN".into(),
+                    if *label == "candidate" {
+                        candidate_scanner.clone()
+                    } else {
+                        scanner.clone()
+                    },
+                );
+                env.insert(
+                    "AGENT_GUARD_LOG_MODE".into(),
+                    if audit_state == "off" { "off" } else { "on" }.into(),
+                );
+                let state = directory.path().join(format!(
+                    "state-{}-{label}-{}",
+                    f.name,
+                    if audit_state == "warm" {
+                        "warm".into()
+                    } else {
+                        sample.to_string()
+                    }
+                ));
+                env.insert("XDG_STATE_HOME".into(), state.display().to_string());
+                if *label == "baseline" && args.flag("--baseline-packaged-native") {
+                    env.insert("AGENT_GUARD_EXPERIMENTAL_REDACTOR".into(), "rust".into());
+                }
                 if *label == "candidate" {
                     if let Some(core) = &core {
                         env.insert("AGENT_GUARD_EXPERIMENTAL_REDACTOR".into(), "rust".into());
@@ -199,6 +250,24 @@ pub fn latency(args: &Args) -> Result<()> {
                     }
                 }
                 let trace = directory.path().join("processes.trace");
+                if audit_state == "warm" && sample == 0 {
+                    let prime = br#"{"tool_name":"Read","tool_response":"public status"}"#;
+                    let (_, output) = checked(
+                        &[binary.clone(), "hook-post-tool".into()],
+                        prime,
+                        &env,
+                        Some(directory.path()),
+                        timeout,
+                    )?;
+                    ensure(
+                        output.is_empty(),
+                        "warmup output did not match independent clean expectation",
+                    )?;
+                    ensure(
+                        state.join("agent-guard/gitleaks-probe").is_file(),
+                        "readiness cache was not primed",
+                    )?;
+                }
                 let input = if f.route == "exec" {
                     b""
                 } else {
@@ -248,6 +317,15 @@ pub fn latency(args: &Args) -> Result<()> {
                             .any(|s| line.contains(s))
                     };
                     processes[label] = json!({"execve_calls":text.matches("execve(").count()+text.matches("execveat(").count(),"process_creation_calls":text.lines().filter(|s|creation(s)&&!s.contains("CLONE_THREAD")).count(),"thread_creation_calls":text.lines().filter(|s|(s.contains("clone(")||s.contains("clone3("))&&s.contains("CLONE_THREAD")).count()});
+                    processes[label]["scanner_version_execs"] = json!(text
+                        .lines()
+                        .filter(|s| s
+                            .split_once("execve(\"")
+                            .and_then(|(_, rest)| rest.split_once('"'))
+                            .is_some_and(|(executable, _)| executable.ends_with("/gitleaks"))
+                            && s.contains("\"version\""))
+                        .count());
+                    process_traces[label] = json!(text);
                 } else {
                     samples[label].as_array_mut().unwrap().push(json!(elapsed));
                     eprintln!("{label} {} {elapsed:.3}s", f.name);
@@ -283,6 +361,7 @@ pub fn latency(args: &Args) -> Result<()> {
         }
         if args.flag("--trace-processes") {
             row["process_profile"] = processes;
+            row["process_trace"] = process_traces;
         }
         report["cases"].as_array_mut().unwrap().push(row);
     }
