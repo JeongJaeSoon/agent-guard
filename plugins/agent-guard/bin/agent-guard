@@ -8507,6 +8507,15 @@ secretish_env_values() {
     function page_cursor(assignment) {
       return assignment ~ /(^|[^A-Za-z0-9_.-])["'\''`]?((next|prev|previous)(PageToken|_page_token)|pageToken|page_token)["'\''`]?[ \t]*:$/
     }
+    # A draft read from a document tool returns a `d<n>:`-prefixed base64 snapshot
+    # token for optimistic locking; the next update must echo it verbatim, so
+    # masking it made every draft update fail. Exempt only that value shape
+    # under the exact snapshot-token key in a JSON/YAML `:` field. The same
+    # value under other keys, the env form, or any other shape still masks.
+    function snapshot_handle(assignment, value) {
+      if (value !~ /^d[0-9]+:[A-Za-z0-9+\/_-]+=*$/) return 0
+      return assignment ~ /(^|[^A-Za-z0-9_.-])["'\''`]?(snapshotToken|snapshot_token)["'\''`]?[ \t]*:$/
+    }
     # Value-side gate for the status-label colon path (#156). A status label on
     # its own cannot separate `error: password: authentication is disabled`
     # (prose, must not mask) from `error: password: hunter2-long-value`
@@ -8590,6 +8599,7 @@ secretish_env_values() {
         if (require_credential && !credential_shaped(edge_trim(value))) return 0
         if (version_reference(assignment, value)) return 0
         if (page_cursor(assignment)) return 0
+        if (snapshot_handle(assignment, value)) return 0
       } else {
         value = raw
         sub(/[ \t,;].*$/, "", value)
@@ -8642,6 +8652,7 @@ secretish_env_values() {
         if (looks_like_reference(value, assignment, leading)) return 0
         if (version_reference(assignment, value)) return 0
         if (page_cursor(assignment)) return 0
+        if (snapshot_handle(assignment, value)) return 0
         if (config_literal(value)) return 0
         if (require_credential && !credential_shaped(edge_trim(value))) return 0
         # Eligibility is based on the complete token. For short values, scope
