@@ -50,8 +50,9 @@ jobs:
         env:
           TARGET: ${{ matrix.target }}
         run: |
-          export PATH="$RUNNER_TEMP/test-bin:/usr/bin:/bin:/usr/sbin:/sbin"
-          if command -v cargo || command -v rustc || command -v go; then exit 1; fi
+          sh bench/scanner/runtime-path.sh "$RUNNER_TEMP/runtime-bin"
+          export PATH="$RUNNER_TEMP/test-bin:$RUNNER_TEMP/runtime-bin"
+          if command -v cargo || command -v rustc || command -v go || command -v cc; then exit 1; fi
           driver=native/devtools/target/release/agent-guard-devtools
           "$driver" scanner-differential --scanner "$RUNNER_TEMP/test-bin/gitleaks" \
             --control-scanner "$RUNNER_TEMP/scanners/control/gitleaks" \
@@ -73,9 +74,13 @@ jobs:
             ${{ runner.temp }}/scanners/*.patch
           if-no-files-found: error
   performance:
-    name: Scanner constrained performance
+    name: Scanner constrained performance (${{ matrix.audit_state }})
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        audit_state: [off, cold, warm]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -89,13 +94,41 @@ jobs:
           sh bench/scanner/build-experiment.sh "$RUNNER_TEMP/scanners"
           sh scripts/install-native-test-tools.sh "$RUNNER_TEMP/test-bin"
       - name: Compare actual public Agent Guard with cold and warm readiness
+        env:
+          AUDIT_STATE: ${{ matrix.audit_state }}
         run: |
           sh bench/scanner/run-constrained.sh "$RUNNER_TEMP/test-bin/gitleaks" \
             "$RUNNER_TEMP/scanners/control/gitleaks" "$RUNNER_TEMP/scanners/candidate/gitleaks" \
-            "$RUNNER_TEMP/performance"
+            "$RUNNER_TEMP/performance" "$AUDIT_STATE"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
-          name: scanner-constrained-performance
+          name: scanner-constrained-${{ matrix.audit_state }}
           path: ${{ runner.temp }}/performance/
+          if-no-files-found: error
+  assessment:
+    name: Scanner experiment assessment
+    needs: performance
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: scanner-constrained-*
+          path: evidence
+      - name: Require complete paired evidence and report adoption criteria
+        run: |
+          set -- evidence/*/cli-*.json
+          test "$#" -eq 6
+          jq -s --argjson expected_targets 6 -f bench/scanner/assess.jq "$@" > assessment.json
+          jq -e '.measurements_complete' assessment.json
+          cat assessment.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: scanner-assessment
+          path: assessment.json
           if-no-files-found: error

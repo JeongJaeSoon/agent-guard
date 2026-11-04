@@ -1,0 +1,227 @@
+{
+  "source_commit": "c4e5c48535d17c09c7d2285429b84494e0cd2f30",
+  "workflow_run": 41878575601,
+  "job": 126745460249,
+  "artifact": 13351500333,
+  "limits": [
+    "200000 100000",
+    "1073741824",
+    "0"
+  ],
+  "target_rows": [
+    {
+      "host": "claude",
+      "audit_state": "cold",
+      "verified": true,
+      "baseline": {
+        "latency_ms": 951.792923,
+        "cpu_ms": 1005.1510000000002,
+        "max_individual_child_rss_kib_median": 63796.0,
+        "process_profile": {
+          "execve_calls": 103,
+          "process_creation_calls": 162,
+          "thread_creation_calls": 13,
+          "scanner_version_execs": 2
+        }
+      },
+      "candidate": {
+        "latency_ms": 356.724744,
+        "cpu_ms": 380.88700000000006,
+        "max_individual_child_rss_kib_median": 36512.0,
+        "process_profile": {
+          "execve_calls": 103,
+          "process_creation_calls": 162,
+          "thread_creation_calls": 10,
+          "scanner_version_execs": 2
+        }
+      }
+    },
+    {
+      "host": "claude",
+      "audit_state": "off",
+      "verified": true,
+      "baseline": {
+        "latency_ms": 932.514768,
+        "cpu_ms": 980.1120000000001,
+        "max_individual_child_rss_kib_median": 63732.0,
+        "process_profile": {
+          "execve_calls": 79,
+          "process_creation_calls": 132,
+          "thread_creation_calls": 13,
+          "scanner_version_execs": 2
+        }
+      },
+      "candidate": {
+        "latency_ms": 331.07092,
+        "cpu_ms": 349.09599999999995,
+        "max_individual_child_rss_kib_median": 36444.0,
+        "process_profile": {
+          "execve_calls": 79,
+          "process_creation_calls": 132,
+          "thread_creation_calls": 10,
+          "scanner_version_execs": 2
+        }
+      }
+    },
+    {
+      "host": "claude",
+      "audit_state": "warm",
+      "verified": true,
+      "baseline": {
+        "latency_ms": 655.091928,
+        "cpu_ms": 691.6139999999999,
+        "max_individual_child_rss_kib_median": 63788.0,
+        "process_profile": {
+          "execve_calls": 91,
+          "process_creation_calls": 146,
+          "thread_creation_calls": 7,
+          "scanner_version_execs": 0
+        }
+      },
+      "candidate": {
+        "latency_ms": 334.70522200000005,
+        "cpu_ms": 357.46,
+        "max_individual_child_rss_kib_median": 36512.0,
+        "process_profile": {
+          "execve_calls": 91,
+          "process_creation_calls": 146,
+          "thread_creation_calls": 5,
+          "scanner_version_execs": 0
+        }
+      }
+    },
+    {
+      "host": "codex",
+      "audit_state": "cold",
+      "verified": true,
+      "baseline": {
+        "latency_ms": 975.016628,
+        "cpu_ms": 1034.503,
+        "max_individual_child_rss_kib_median": 63856.0,
+        "process_profile": {
+          "execve_calls": 104,
+          "process_creation_calls": 166,
+          "thread_creation_calls": 14,
+          "scanner_version_execs": 2
+        }
+      },
+      "candidate": {
+        "latency_ms": 366.047939,
+        "cpu_ms": 393.52,
+        "max_individual_child_rss_kib_median": 36580.0,
+        "process_profile": {
+          "execve_calls": 104,
+          "process_creation_calls": 165,
+          "thread_creation_calls": 9,
+          "scanner_version_execs": 2
+        }
+      }
+    },
+    {
+      "host": "codex",
+      "audit_state": "off",
+      "verified": true,
+      "baseline": {
+        "latency_ms": 941.212397,
+        "cpu_ms": 990.011,
+        "max_individual_child_rss_kib_median": 64244.0,
+        "process_profile": {
+          "execve_calls": 80,
+          "process_creation_calls": 135,
+          "thread_creation_calls": 14,
+          "scanner_version_execs": 2
+        }
+      },
+      "candidate": {
+        "latency_ms": 339.1113,
+        "cpu_ms": 356.76099999999997,
+        "max_individual_child_rss_kib_median": 36324.0,
+        "process_profile": {
+          "execve_calls": 80,
+          "process_creation_calls": 135,
+          "thread_creation_calls": 10,
+          "scanner_version_execs": 2
+        }
+      }
+    },
+    {
+      "host": "codex",
+      "audit_state": "warm",
+      "verified": true,
+      "baseline": {
+        "latency_ms": 659.509526,
+        "cpu_ms": 697.79,
+        "max_individual_child_rss_kib_median": 64116.0,
+        "process_profile": {
+          "execve_calls": 92,
+          "process_creation_calls": 149,
+          "thread_creation_calls": 7,
+          "scanner_version_execs": 0
+        }
+      },
+      "candidate": {
+        "latency_ms": 342.33577599999995,
+        "cpu_ms": 363.406,
+        "max_individual_child_rss_kib_median": 36444.0,
+        "process_profile": {
+          "execve_calls": 92,
+          "process_creation_calls": 149,
+          "thread_creation_calls": 5,
+          "scanner_version_execs": 0
+        }
+      }
+    }
+  ],
+  "load": [
+    {
+      "workers": 1,
+      "scanner": "public",
+      "requests_per_round": 8,
+      "rounds": 3,
+      "verified": true,
+      "throughput_per_second": 1.0705793684692506,
+      "cpu_seconds_per_round": 7.8255230000000005,
+      "max_individual_child_rss_kib": 65004.0,
+      "sampled_rss_sum_peak_kib": 86880.0
+    },
+    {
+      "workers": 1,
+      "scanner": "candidate",
+      "requests_per_round": 8,
+      "rounds": 3,
+      "verified": true,
+      "throughput_per_second": 2.9577885036842817,
+      "cpu_seconds_per_round": 2.834331,
+      "max_individual_child_rss_kib": 36768.0,
+      "sampled_rss_sum_peak_kib": 58352.0
+    },
+    {
+      "workers": 4,
+      "scanner": "public",
+      "requests_per_round": 8,
+      "rounds": 3,
+      "verified": true,
+      "throughput_per_second": 1.2408628859751005,
+      "cpu_seconds_per_round": 12.744697,
+      "max_individual_child_rss_kib": 65828.0,
+      "sampled_rss_sum_peak_kib": 306804.0
+    },
+    {
+      "workers": 4,
+      "scanner": "candidate",
+      "requests_per_round": 8,
+      "rounds": 3,
+      "verified": true,
+      "throughput_per_second": 3.7446405300493733,
+      "cpu_seconds_per_round": 4.295189,
+      "max_individual_child_rss_kib": 37468.0,
+      "sampled_rss_sum_peak_kib": 195832.0
+    }
+  ],
+  "output_corpus": {
+    "passed": 1039,
+    "failed": 0
+  },
+  "scope": "Official GitHub gitleaks 8.30.1 versus RE2 1.13 rebuild. Same public Agent Guard v3.7.0 CLI/core. Does not apply to Homebrew scanner replacement.",
+  "process_counter_note": "c4e5c48 scanner_version_execs also counts the setsid launcher argv: off/cold 2 is not two scanner executions. Warm 0 and timing/resource samples are unaffected. Fixed in the later driver; original raw values are retained."
+}

@@ -77,6 +77,10 @@ byte length with the placeholder's if you need to confirm it.
 - A detected secret is a block/finding, not a scanner error.
 - A `DEGRADED` message or unavailable scanner is not a clean scan. Repair the
   dependency or choose the documented infrastructure policy.
+  When available, `Scanner readiness: timeout.` identifies a bounded version
+  probe that timed out; other fixed readiness codes distinguish an unsupported
+  version or a failed probe. These diagnostics include no scanner output or
+  input paths. A timeout code identifies the failed stage, not why it was slow.
 - `open` infrastructure mode continues after a visible one-time warning;
   `closed` blocks. This policy applies to infrastructure failures, while a
   secret detection blocks. Non-empty malformed or non-object PreToolUse and

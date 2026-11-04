@@ -42,7 +42,9 @@ upstream testdata 및 독립 기대값·Unicode·NUL·잘못된 UTF-8 경계를 
 호스트 계약은 컴파일러가 없는 PATH에서 실행한다.
 
 별도 Linux job은 실제 2 CPU/1 GiB/swap 0을 확인하고 두 호스트의 21개 경로를
-9쌍 교대로 측정한다. 로그 off, 로그 on의 매번 새 상태, 로그 on의 준비 캐시
+9쌍 교대로 측정한다. off/cold/warm은 각각 독립 runner에서 수집하고 6개 목표
+비교와 126개 경로 결과가 모두 있는지 집계한다. 쌍 내부의 환경을 동일하게
+유지하며, 다른 runner의 절대 지연을 직접 비교하지 않는다. 로그 off, 로그 on의 매번 새 상태, 로그 on의 준비 캐시
 적중을 구분한다. warmup은 독립 clean 기대값과 cache 생성까지 확인하고 측정에서
 제외하며 각 측정은 새 CLI 프로세스를 실행한다. 별도 strace에서 실제 version
 실행 횟수도 보존한다. 동시 처리량과 10 ms RSS 합은 별도로 측정한다.
@@ -82,3 +84,115 @@ wrapper가 추가되는 진단 실행이며 각 값의 합을 비계측 CLI 시�
 횟수를 줄이는 것이다. 작은 Rust helper를 더 붙이거나 탐지·정책·호스트 전체를
 재작성해야 한다는 근거는 없다. 호환성을 유지하는 scanner 업데이트는 원칙상
 v3.x 범위이며, v4.0.0을 필요하게 하는 계약 변경은 아직 확인하지 못했다.
+
+## 설치 경로 차이: 전체 사용자 일괄 교체는 기각
+
+Homebrew의 gitleaks formula와 실제 8.30.1 Linux x64 bottle은 `gore2regex`를
+쓰지 않는다. Go 표준 정규식으로 빌드되어 공식 GitHub 바이너리의 wazero 시작
+비용이 없다. 따라서 앞의 개선율을 Homebrew 사용자에게 일반화할 수 없다.
+
+공개 bottle archive SHA-256은
+`78b43afdf14a05c5df07b73aeaf63ae56b784c905f057411a43ee8fde40fe5d1`이다.
+검증 후 원본 실행 파일은 수정하지 않고 시스템 ELF loader로 실행했다. bottle의
+`@@HOMEBREW_PREFIX@@/lib/ld.so`는 미설치 상태에서 직접 실행할 수 없으므로
+실험용 shell wrapper만 사용했다. 이 비교는 로그 off이며 wrapper는 준비 캐시
+대상이 아니므로 warm 설치 검증으로 표현하지 않는다. 실제 Homebrew 설치·갱신
+검증도 아니다. 원본·wrapper·loader 해시를 함께 보존한다.
+
+같은 공개 Agent Guard CLI/core에서 9쌍 교대 비교한 RE2 1.13 후보는 다음과 같이
+더 느렸다. 자원 제한 CI 수치가 아니라 로컬 탐색 결과다.
+
+| 호스트·입력 | 공개 Homebrew 기준 지연 (ms) | RE2 후보 (ms) | 지연 변화 | CPU 변화 |
+| --- | ---: | ---: | ---: | ---: |
+| Claude small-clean | 243.77 | 309.23 | +26.85% | +20.49% |
+| Claude long-line | 476.18 | 563.74 | +18.39% | +14.42% |
+| Claude many-replacement-leaves | 345.47 | 401.60 | +16.25% | +11.96% |
+| Codex small-clean | 209.64 | 286.30 | +36.57% | +30.29% |
+| Codex long-line | 487.83 | 564.15 | +15.65% | +12.35% |
+| Codex many-replacement-leaves | 346.61 | 395.47 | +14.10% | +9.90% |
+
+따라서 모든 설치의 scanner를 이 후보로 일괄 교체하는 방안은 기각한다. 공식
+GitHub scanner를 사용하는 경로의 의존성 개선 후보로만 남긴다. 기존 Homebrew
+선택을 유지해야 하며, 공통 성능 개선은 JSON·출력 처리 통합에서 찾아야 한다.
+실제 bottle·동일 컴파일러 stdlib 재빌드·RE2 후보의 별도 230입력 비교도 불일치
+0이었지만 이것으로 두 정규식 엔진의 모든 의미가 같다고 결론 내리지 않는다.
+
+후보 scanner로 실행한 로컬 출력 partition은 1,041개 통과, 2개 실패였다. 실패는
+기존 환경에서도 관측한 `/tmp/.git` sandbox marker 아래 allow-list 신뢰 경계
+검사 두 건이다. 원시 stderr를 보존하며 기대값이나 신뢰 검사를 완화하지 않았다.
+따라서 이 로컬 실행을 전체 suite 성공으로 기록하지 않는다. 기존 macOS Intel
+일회성 출력 불일치의 원인 미확정 상태도 유지한다.
+
+## Intel 재관측과 진단 보강
+
+기존 공개 scanner를 쓰는 `c4e5c48`의 native-platforms Intel job
+`126744811093`에서 불일치를 다시 관측했다. Claude fixture 4는
+`ordinary build status`이고 baseline 2.222 s에는 빈 출력, failing-helper
+variant 2.404 s에는 DEGRADED envelope가 나왔다. 이번에는 fixture 번호,
+stdout·stderr와 두 시간이 모두 남았다. 정상 입력의 준비 실패를 가리키지만,
+기존 메시지에 probe detail이 없어 timeout으로 단정하지 않는다.
+
+`degraded_hook_message`에 고정된 scanner 준비 원인 코드를 추가한다. 경로,
+scanner 원문, hook 입력은 포함하지 않는다. 기존 한 번의 경고 안에 표시해
+세션별 경고 제한·호스트 envelope·실패 정책·2초 시간 제한을 유지한다. 지원하지
+않는 버전, 실제 지연 probe의 open/closed, 두 호스트의 clean PostToolUse를
+검증하는 회귀 검사로 진단 전달을 확인한다. 원래 간헐적 지연의 원인 수정으로
+간주하지 않는다.
+
+별도 실험 CI의 macOS 두 플랫폼은 230 입력과 90 host/fallback 검사를 통과했다.
+Linux 두 플랫폼은 시스템 PATH의 `go` 때문에 컴파일러 부재 검사에서 중단됐다.
+명시한 런타임 도구만 연결하는 PATH로 수정한다. 로컬에서는 누락된 테스트 도구
+`cmp`를 추가한 뒤 컴파일러 없는 host/fallback 90 검사를 통과했다. 초기 실패
+로그와 수정 후 결과를 모두 남긴다.
+
+진단 변경 후 readiness 검사 47개와 정규 suite 환경(`AGENT_GUARD_LOG_MODE=off`)
+의 host outcome 검사 144개가 통과했다. 처음 host outcome 스크립트만 독립 실행한
+경우 기본 audit 저장소를 쓸 수 없어 40개가 실패했다. 해당 로그를 별도로
+보존하고 원래 suite가 지정하는 환경으로 검증했다. 출력 partition 재검사에서도
+1,041 통과와 기존 sandbox allow-list 2실패만 관측했다.
+
+## 실제 제한 자원 결과 (`c4e5c48`)
+
+[실행 41878575601](https://github.com/JeongJaeSoon/agent-guard/actions/runs/41878575601)의
+성능 job `126745460249`는 35분 27초에 완료됐다. 실제 cgroup 값은 CPU
+`200000 100000`, memory `1073741824`, swap `0`이었다. 같은 runner에서
+두 호스트 × 3 audit 상태 × 21 입력 × 9쌍을 교대로 실행했다.
+
+| 목표 | audit | 공개 지연 → 후보 (ms) | 지연 변화 | CPU 변화 |
+| --- | --- | ---: | ---: | ---: |
+| Claude | off | 932.51 → 331.07 | −64.50% | −64.38% |
+| Claude | cold | 951.79 → 356.72 | −62.52% | −62.11% |
+| Claude | warm | 655.09 → 334.71 | −48.91% | −48.32% |
+| Codex | off | 941.21 → 339.11 | −63.97% | −63.96% |
+| Codex | cold | 975.02 → 366.05 | −62.46% | −61.96% |
+| Codex | warm | 659.51 → 342.34 | −48.09% | −47.92% |
+
+126개 경로 비교의 독립 출력 검증은 모두 통과했고, 일반 경로의 지연 또는 CPU
+5% 초과 회귀는 0개다. 별도 출력 partition은 1,039 통과·0 실패였다. 같은
+컴파일러로 원래 RE2를 재빌드한 대조군 지연은 세 입력에서 +0.61%, +0.26%,
+−0.90%로, 후보의 큰 개선을 컴파일러 변경만으로 설명하지 못했다.
+
+8요청씩 3라운드의 처리량 중앙값은 1 worker에서 1.071 → 2.958 req/s,
+4 workers에서 1.241 → 3.745 req/s였다. 4 workers의 최대 단일 자식 RSS는
+65,828 → 37,468 KiB, 10 ms 표본 RSS 합의 peak는 306,804 → 195,832 KiB였다.
+이는 공유 페이지를 중복 계산하는 표본 합이며 고유 물리 메모리로 해석하지 않는다.
+
+이 범위의 성능 채택 기준은 충족했다. Homebrew 일괄 교체의 회귀 판정은 그대로이며,
+네 플랫폼 검증·공급 출처·설치·업데이트·복구까지 완료한 제품 채택은 아니다.
+릴리스나 v4.0.0 전환을 수행하지 않았다.
+
+원래 trace counter는 `setsid` argv에 포함된 `gitleaks version`도 세어 off/cold를
+2로 기록했다. 지연·CPU 표본과 분리된 trace 계수 오류다. 실제 실행 파일명이
+`gitleaks`인 execve만 세도록 수정하고 원시 trace도 JSON에 보존한다. `c4e5c48`의
+기존 계수는 덮어쓰지 않으며 버전 실행이 실제 두 번이었다고 해석하지 않는다.
+
+원시 trace를 남기는 후속 로컬 검사에서 off/cold의 scanner 버전 실행은 각각
+1회, warm은 0회였다. 최초 sandbox의 ptrace 차단 실패를 보존한 뒤, 고정된
+합성 입력으로 생성한 자식만 추적하는 실행에서 확인했다. 이 1쌍 진단 결과를
+9쌍의 성능 판정에 섞지 않는다.
+
+추가로 같은 Go 1.26.0에서 양쪽 `go-re2/...` 전체 테스트를 `-race -count=1`로
+실행해 모두 통과했다. race 계측은 CGO_ENABLED=1이며 `re2_cgo` 태그를 쓰지
+않아 두 WASM 계열 backend를 검사한다. 실제 성능 바이너리는 CGO_ENABLED=0이다.
+생성된 16/32/64-bit 메모리 접근의 범위 검사도 확인했다. 이것은 전체 의존성에
+대한 보안 감사 완료나 모든 탐지 의미의 동등성 증명이 아니다.

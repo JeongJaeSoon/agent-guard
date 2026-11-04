@@ -1919,7 +1919,23 @@ degraded_hook_message() {
     codex) setup_ref='$setup-agent-guard' ;;
     *) setup_ref='/agent-guard:setup-agent-guard' ;;
   esac
-  printf 'agent-guard: protection is DEGRADED because jq, awk, git, gitleaks (including its setsid or Perl process-isolation helper), or a policy file is unavailable. Run %s (or agent-guard setup), approve any required installation, verify with agent-guard check and smoke-test, then restart the host;' "$setup_ref"
+  printf 'agent-guard: protection is DEGRADED because jq, awk, git, gitleaks (including its setsid or Perl process-isolation helper), or a policy file is unavailable.'
+  # Fixed diagnostic codes only: never include scanner output, paths or payloads
+  # in the host envelope. Keep the existing once-per-session warning boundary.
+  degraded_probe_reason=
+  case "${GITLEAKS_PROBE_STATE:-}" in
+    missing|unparseable|unsupported) degraded_probe_reason=$GITLEAKS_PROBE_STATE ;;
+    runtime-failure)
+      case "${GITLEAKS_PROBE_DETAIL:-}" in
+        timeout|output-limit|output-unavailable|command-failed|timer-unavailable|launcher-unavailable|temp-helper-unavailable|temp-unavailable)
+          degraded_probe_reason=$GITLEAKS_PROBE_DETAIL ;;
+        *) degraded_probe_reason=runtime-failure ;;
+      esac
+      ;;
+  esac
+  [ -z "$degraded_probe_reason" ] \
+    || printf ' Scanner readiness: %s.' "$degraded_probe_reason"
+  printf ' Run %s (or agent-guard setup), approve any required installation, verify with agent-guard check and smoke-test, then restart the host;' "$setup_ref"
 }
 
 emit_degraded_hook_warning() {

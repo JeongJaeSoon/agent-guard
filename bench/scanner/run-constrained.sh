@@ -7,6 +7,12 @@ public=${1:?absolute official scanner required}
 control=${2:?absolute rebuild control required}
 candidate=${3:?absolute experimental scanner required}
 out=${4:?new absolute evidence directory required}
+mode_selection=${5:-all}
+case "$mode_selection" in
+  all) modes='off cold warm'; expected_targets=6 ;;
+  off|cold|warm) modes=$mode_selection; expected_targets=2 ;;
+  *) echo 'audit mode must be all, off, cold or warm' >&2; exit 2 ;;
+esac
 case "$public:$control:$candidate:$out" in /*:/*:/*:/*) ;; *) exit 2 ;; esac
 [ ! -e "$out" ] || exit 2
 mkdir -p "$out"
@@ -36,6 +42,7 @@ git rev-parse HEAD > "$out/checkout-sha.txt"
 run sh -c 'uname -a; jq --version; sha256sum /scanner/*/gitleaks /public/bin/agent-guard /repo/plugins/agent-guard/config/gitleaks.toml' > "$out/environment.txt"
 run cat /proc/cpuinfo > "$out/cpuinfo.txt"
 core=/public/libexec/agent-guard-redact-x86_64-unknown-linux-musl
+if [ "$mode_selection" = all ] || [ "$mode_selection" = off ]; then
 run env AGENT_GUARD_RUST_CORE_BIN="$core" AGENT_GUARD_TEST_SHARD=4 sh -c '
   # Preserve the suite mocks; its real-scanner block discovers this candidate.
   PATH=/scanner/candidate:$PATH
@@ -43,7 +50,8 @@ run env AGENT_GUARD_RUST_CORE_BIN="$core" AGENT_GUARD_TEST_SHARD=4 sh -c '
   unset AGENT_GUARD_GITLEAKS_BIN
   exec sh tests/native-suite.sh
 ' > "$out/output-corpus.log" 2>&1
-for mode in off cold warm; do
+fi
+for mode in $modes; do
   for host in claude codex; do
     run agent-guard-devtools masking-latency --baseline /public/bin/agent-guard --binary /public/bin/agent-guard \
       --baseline-packaged-native --native-core "$core" --packaged-native \
@@ -52,6 +60,7 @@ for mode in off cold warm; do
       > "$out/cli-$host-$mode.json" 2> "$out/cli-$host-$mode.stderr"
   done
 done
+if [ "$mode_selection" = all ] || [ "$mode_selection" = off ]; then
 run agent-guard-devtools masking-latency --baseline /public/bin/agent-guard --binary /public/bin/agent-guard \
   --baseline-packaged-native --native-core "$core" --packaged-native \
   --scanner /scanner/public/gitleaks --candidate-scanner /scanner/control/gitleaks \
@@ -68,5 +77,6 @@ for workers in 1 4; do
     done
   done
 done
-jq -s -f bench/scanner/assess.jq "$out"/cli-*.json > "$out/assessment.json"
+fi
+jq -s --argjson expected_targets "$expected_targets" -f bench/scanner/assess.jq "$out"/cli-*.json > "$out/assessment.json"
 cat "$out/assessment.json"

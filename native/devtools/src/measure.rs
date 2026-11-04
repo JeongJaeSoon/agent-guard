@@ -174,6 +174,7 @@ pub fn latency(args: &Args) -> Result<()> {
         let mut samples = json!({});
         let mut resources = json!({});
         let mut processes = json!({});
+        let mut process_traces = json!({});
         for (label, _) in &binaries {
             samples[label] = json!([]);
             resources[label] = json!([]);
@@ -318,10 +319,13 @@ pub fn latency(args: &Args) -> Result<()> {
                     processes[label] = json!({"execve_calls":text.matches("execve(").count()+text.matches("execveat(").count(),"process_creation_calls":text.lines().filter(|s|creation(s)&&!s.contains("CLONE_THREAD")).count(),"thread_creation_calls":text.lines().filter(|s|(s.contains("clone(")||s.contains("clone3("))&&s.contains("CLONE_THREAD")).count()});
                     processes[label]["scanner_version_execs"] = json!(text
                         .lines()
-                        .filter(|s| s.contains("execve(")
-                            && s.contains("gitleaks")
+                        .filter(|s| s
+                            .split_once("execve(\"")
+                            .and_then(|(_, rest)| rest.split_once('"'))
+                            .is_some_and(|(executable, _)| executable.ends_with("/gitleaks"))
                             && s.contains("\"version\""))
                         .count());
+                    process_traces[label] = json!(text);
                 } else {
                     samples[label].as_array_mut().unwrap().push(json!(elapsed));
                     eprintln!("{label} {} {elapsed:.3}s", f.name);
@@ -357,6 +361,7 @@ pub fn latency(args: &Args) -> Result<()> {
         }
         if args.flag("--trace-processes") {
             row["process_profile"] = processes;
+            row["process_trace"] = process_traces;
         }
         report["cases"].as_array_mut().unwrap().push(row);
     }

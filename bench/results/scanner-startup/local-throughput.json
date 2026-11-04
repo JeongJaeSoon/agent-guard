@@ -1,0 +1,71 @@
+{
+  "scope": "Local 4 CPU / 16 GiB outer cgroup. No individual 2 CPU / 1 GiB limit. Logging off. Homebrew bottle through system-loader wrapper. RSS sum sampled every 10 ms, not unique physical memory.",
+  "rows": [
+    {
+      "workers": 1,
+      "scanner": "public",
+      "requests_per_round": 8,
+      "rounds": 3,
+      "verified": true,
+      "requests_per_second_median": 0.8398931169489148,
+      "cpu_seconds_per_round_median": 10.056709999999999,
+      "max_individual_child_rss_kib_median": 63344.0,
+      "sampled_process_rss_peak_kib_median": 254968.0
+    },
+    {
+      "workers": 1,
+      "scanner": "candidate",
+      "requests_per_round": 8,
+      "rounds": 3,
+      "verified": true,
+      "requests_per_second_median": 2.0744934117881675,
+      "cpu_seconds_per_round_median": 4.095601,
+      "max_individual_child_rss_kib_median": 35036.0,
+      "sampled_process_rss_peak_kib_median": 226652.0
+    },
+    {
+      "workers": 1,
+      "scanner": "homebrew",
+      "requests_per_round": 8,
+      "rounds": 3,
+      "verified": true,
+      "requests_per_second_median": 2.3397290554329375,
+      "cpu_seconds_per_round_median": 3.7135550000000004,
+      "max_individual_child_rss_kib_median": 39392.0,
+      "sampled_process_rss_peak_kib_median": 230768.0
+    },
+    {
+      "workers": 4,
+      "scanner": "public",
+      "requests_per_round": 8,
+      "rounds": 3,
+      "verified": true,
+      "requests_per_second_median": 2.253743240457769,
+      "cpu_seconds_per_round_median": 12.424798000000001,
+      "max_individual_child_rss_kib_median": 64872.0,
+      "sampled_process_rss_peak_kib_median": 460056.0
+    },
+    {
+      "workers": 4,
+      "scanner": "candidate",
+      "requests_per_round": 8,
+      "rounds": 3,
+      "verified": true,
+      "requests_per_second_median": 5.675296311068961,
+      "cpu_seconds_per_round_median": 4.8016879999999995,
+      "max_individual_child_rss_kib_median": 35732.0,
+      "sampled_process_rss_peak_kib_median": 348956.0
+    },
+    {
+      "workers": 4,
+      "scanner": "homebrew",
+      "requests_per_round": 8,
+      "rounds": 3,
+      "verified": true,
+      "requests_per_second_median": 6.442157722360256,
+      "cpu_seconds_per_round_median": 4.340282,
+      "max_individual_child_rss_kib_median": 38908.0,
+      "sampled_process_rss_peak_kib_median": 373836.0
+    }
+  ]
+}

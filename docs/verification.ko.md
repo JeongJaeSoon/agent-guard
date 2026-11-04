@@ -1,4 +1,4 @@
-<!-- translated-from: docs/verification.md; source-blob: 9237b2ac6e52b9efb4b1095a0b651f55e32dd884 -->
+<!-- translated-from: docs/verification.md; source-blob: 7f8884427eb96951613533dcd8dda73235a7bb28 -->
 
 <a id="verification"></a>
 
@@ -67,6 +67,10 @@ sentinel이 들어 있는 파일을 읽는 것도 guard가 보호하는 도구 �
 
 - 비밀 정보 탐지는 차단 또는 탐지 결과이며 scanner 오류가 아닙니다.
 - `DEGRADED` 메시지나 사용할 수 없는 scanner는 정상 검사 결과가 아닙니다. 의존성을 복구하거나 문서에 명시된 인프라 정책을 선택하세요.
+  `Scanner readiness: timeout.`이 함께 나오면 시간 제한이 있는 버전 확인이
+  초과된 것입니다. 다른 고정 준비 코드는 지원하지 않는 버전이나 probe 실패를
+  구분합니다. 진단에는 scanner 출력이나 입력 경로를 넣지 않습니다. timeout
+  코드는 실패한 단계를 알려 주며, 느려진 원인까지 설명하지는 않습니다.
 - `open` 인프라 모드는 눈에 보이는 일회성 경고 후 계속 실행하며 `closed`는 차단합니다. 이는 인프라 장애에 대한 정책이며 비밀 정보를 탐지하면 차단합니다. 비어 있지 않으면서 형식이 잘못되었거나 객체가 아닌 PreToolUse·Stop 입력은 인프라 모드와 무관하게 차단합니다. PostToolUse는 먼저 독립된 parser로 유효한 host envelope를 복구하고 보수적인 치환 결과를 출력합니다. 비어 있지 않으면서 형식이 잘못되었거나 객체가 아닌 PostToolUse envelope의 종료 상태 2는 눈에 보이는 진단이며, 이미 완료된 도구 결과를 되돌릴 수는 없습니다. 빈 stdin은 문서화된 예외입니다. PreToolUse, PostToolUse, Stop 모두 응답 없이 종료 상태 0을 반환합니다. 거부한 이벤트는 모두 보고합니다.
 - host가 시간 제한에 도달한 hook을 종료하면 hook이 판단하지 못할 수 있습니다. Claude Code 2.1.295 이상은 `PreToolUse` hook의 시간 초과나 비정상 종료 시 도구 호출을 차단합니다. 다른 이벤트와 host에는 해당하지 않습니다. Git과 CI의 추가 방어를 유지하세요.
 
