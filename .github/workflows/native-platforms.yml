@@ -51,8 +51,10 @@ jobs:
           TARGET: ${{ matrix.target }}
         run: |
           export PATH="$RUNNER_TEMP/test-bin:/usr/bin:/bin:/usr/sbin:/sbin"
-          ! command -v cargo
-          ! command -v rustc
+          if command -v cargo || command -v rustc; then
+            echo 'Rust compiler unexpectedly visible on runtime test PATH' >&2
+            exit 1
+          fi
           core="$RUNNER_TEMP/artifacts/agent-guard-redact-$TARGET"
           native/devtools/target/release/agent-guard-devtools native-redaction --core "$core" > "$RUNNER_TEMP/artifacts/differential.json"
           native/devtools/target/release/agent-guard-devtools native-integration --core "$core" --scanner "$RUNNER_TEMP/test-bin/gitleaks" > "$RUNNER_TEMP/artifacts/integration.json"
@@ -62,13 +64,93 @@ jobs:
           name: native-${{ matrix.target }}
           path: ${{ runner.temp }}/artifacts/
           if-no-files-found: error
+  installation:
+    name: Native installation (${{ matrix.os }})
+    needs: platform
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-15-intel, macos-15]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: native-*
+          path: ${{ runner.temp }}/downloaded
+      - name: Prepare qualified artifacts and runtime dependencies
+        run: |
+          mkdir -p "$RUNNER_TEMP/native" "$RUNNER_TEMP/install-evidence"
+          for target in x86_64-unknown-linux-musl aarch64-unknown-linux-musl x86_64-apple-darwin aarch64-apple-darwin; do
+            dir="$RUNNER_TEMP/downloaded/native-$target"
+            cp "$dir"/agent-guard-redact-* "$RUNNER_TEMP/native/"
+          done
+          chmod 755 "$RUNNER_TEMP/native"/agent-guard-redact-*
+          sh scripts/install-native-test-tools.sh "$RUNNER_TEMP/test-bin"
+      - name: Compiler-free fresh install, published update and failure recovery
+        run: |
+          export PATH="$RUNNER_TEMP/test-bin:/usr/bin:/bin:/usr/sbin:/sbin"
+          if command -v cargo || command -v rustc; then
+            echo 'Rust compiler unexpectedly visible on runtime test PATH' >&2
+            exit 1
+          fi
+          export AGENT_GUARD_NATIVE_ARTIFACT_DIR="$RUNNER_TEMP/native"
+          sh tests/tempdir-failure.sh > "$RUNNER_TEMP/install-evidence/tempdir-failure.log" 2>&1
+          sh tests/native-install.sh > "$RUNNER_TEMP/install-evidence/install.log" 2>&1
+          sh tests/bootstrap-update.sh > "$RUNNER_TEMP/install-evidence/bootstrap.log" 2>&1
+          case "$(uname -s):$(uname -m)" in
+            Linux:x86_64) target=x86_64-unknown-linux-musl ;;
+            Linux:aarch64) target=aarch64-unknown-linux-musl ;;
+            Darwin:x86_64) target=x86_64-apple-darwin ;;
+            Darwin:arm64) target=aarch64-apple-darwin ;;
+            *) exit 2 ;;
+          esac
+          sh tests/native-packaged.sh "$RUNNER_TEMP/native/agent-guard-redact-$target" "$RUNNER_TEMP/test-bin/gitleaks" > "$RUNNER_TEMP/install-evidence/fallback.log" 2>&1
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: native-install-${{ matrix.os }}
+          path: ${{ runner.temp }}/install-evidence/
+          if-no-files-found: error
   complete:
     name: Native platform artifacts
     if: always()
-    needs: platform
+    needs: [platform, installation]
     runs-on: ubuntu-latest
     steps:
       - name: Require all four native executions
         env:
           RESULT: ${{ needs.platform.result }}
-        run: test "$RESULT" = success
+          INSTALL: ${{ needs.installation.result }}
+        run: test "$RESULT" = success && test "$INSTALL" = success
+
+  performance:
+    name: Packaged performance evidence
+    needs: platform
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: native-x86_64-unknown-linux-musl
+          path: ${{ runner.temp }}/native-performance
+      - name: Measure the packaged binary under enforced cgroup limits
+        run: |
+          mkdir -p plugins/agent-guard/libexec
+          cp "$RUNNER_TEMP/native-performance/agent-guard-redact-x86_64-unknown-linux-musl"* plugins/agent-guard/libexec/
+          chmod 755 plugins/agent-guard/libexec/agent-guard-redact-x86_64-unknown-linux-musl
+          sh scripts/install-native-test-tools.sh "$RUNNER_TEMP/test-bin"
+          sh bench/native/run-packaged.sh "$RUNNER_TEMP/test-bin/gitleaks" 9a0ee9eb2eed1e60b78d4404f985b077149c675d "$RUNNER_TEMP/performance"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: packaged-performance
+          path: ${{ runner.temp }}/performance/
+          if-no-files-found: error

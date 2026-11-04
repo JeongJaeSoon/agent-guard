@@ -89,3 +89,44 @@ qualification artifacts, not a published v3.7.0 release. Linux kernel portabilit
 beyond the tested runners is not established by static linking alone. Existing
 shell support remains unchanged. Installer/update validation and performance
 qualification must pass before default activation or a release.
+
+## Packaged helper integration (qualification)
+
+The archive builder accepts `AGENT_GUARD_NATIVE_ARTIFACT_DIR`, a directory with
+all four `agent-guard-redact-TARGET` executables and their `.sha256` files. It
+verifies every checksum before including `libexec/` in the existing universal
+archive. Bootstrap verifies that complete native payload before staging an
+installation. A source-only archive still works through shell/jq.
+
+In opt-in Rust mode, absent an explicit developer binary override or legacy
+`libexec/agent-guard-redact`, the CLI selects the packaged target using the
+running OS and architecture, verifies its checksum, then executes it. A missing,
+changed, non-executable or failing helper falls back to shell/jq. Empty,
+truncated or multiple JSON outputs are discarded even if the helper exits zero.
+`AGENT_GUARD_EXPERIMENTAL_REDACTOR=shell` explicitly selects shell. No runtime
+compilation or network request is introduced. Checksums detect corruption;
+they do not authenticate a malicious replacement of both binary and checksum.
+
+Bootstrap builds the update beside the current directory, preserving unrelated
+files, then replaces the directory with same-filesystem renames. Extraction or
+commit failures and handled INT/TERM restore the previous installation. SIGKILL,
+power loss and filesystem failure cannot run a shell cleanup trap; a previous
+copy remains in the sibling `.agent-guard-update.*/previous` directory if the
+process stops during the commit window. Preserve that directory and restore it
+to the original installation path before retrying. Do not delete it blindly.
+
+`tests/native-install.sh` exercises a published v3.6.14 install followed by a
+candidate update, a fresh candidate install, checksums and actual scanner smoke.
+Only candidate downloads are substituted; the original release downloads and
+all installers execute. `tests/native-packaged.sh` checks both host envelopes
+and proves the selected helper was invoked. The native CI repeats installation
+and failure contracts on all four platforms without Rust on PATH.
+
+`bench/native/run-packaged.sh` refuses to measure unless Docker exposes enforced
+2-CPU, 1-GiB and no-swap limits. It uses the qualified musl binary, including
+platform selection and checksum cost, against shell source
+`9a0ee9eb2eed1e60b78d4404f985b077149c675d` (v3.6.14 plus the subsequent
+snapshot-token compatibility fix, also present in the candidate).
+Raw results go to a new directory and every measured output is verified. A
+successful collection is not a performance verdict: review the 10% improvement
+and 5% regression criteria before default activation.

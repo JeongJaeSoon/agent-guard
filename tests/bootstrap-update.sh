@@ -247,3 +247,47 @@ if AGENT_GUARD_BIN_DIR="$CASE_ROOT/directory-target" sh "$ROOT/bootstrap.sh" >"$
 grep -q preserve "$CASE_ROOT/directory-target/agent-guard/note"
 installed_state_unchanged
 check 'directory link target is rejected without changing existing data'
+
+# Fail at real installation transaction boundaries, after payload validation.
+# The old executable, public link and unrelated user file must all survive.
+export QA_REAL_TAR QA_REAL_MV
+QA_REAL_TAR=$(command -v tar)
+QA_REAL_MV=$(command -v mv)
+mkdir "$CASE_ROOT/fault-bin"
+cat >"$CASE_ROOT/fault-bin/tar" <<'FAULT'
+#!/bin/sh
+previous= destination=
+for arg do
+  if [ "$previous" = -C ]; then destination=$arg; fi
+  previous=$arg
+done
+case "$destination:${QA_INSTALL_FAULT:-}" in
+  */.agent-guard-update.*/next:extract)
+    printf 'broken staged file\n' >"$destination/bin/agent-guard"
+    exit 2 ;;
+esac
+exec "$QA_REAL_TAR" "$@"
+FAULT
+cat >"$CASE_ROOT/fault-bin/mv" <<'FAULT'
+#!/bin/sh
+case "$1:${QA_INSTALL_FAULT:-}" in
+  */.agent-guard-update.*/next:commit) exit 2 ;;
+esac
+case "${2:-}:${QA_INSTALL_FAULT:-}" in
+  */.agent-guard-link.*/agent-guard:link) exit 2 ;;
+esac
+"$QA_REAL_MV" "$@" || exit $?
+for destination do :; done
+case "$destination:${QA_INSTALL_FAULT:-}" in
+  */.agent-guard-update.*/previous:interrupt) kill -TERM "$PPID" ;;
+esac
+FAULT
+chmod +x "$CASE_ROOT/fault-bin/tar" "$CASE_ROOT/fault-bin/mv"
+for fault in extract commit interrupt link; do
+  if PATH="$CASE_ROOT/fault-bin:$PATH" QA_INSTALL_FAULT="$fault" \
+    AGENT_GUARD_BIN_DIR="$CASE_ROOT/custom bin" sh "$ROOT/bootstrap.sh" >"$CASE_ROOT/out" 2>"$CASE_ROOT/err"; then
+    echo "fault did not fail the installation: $fault" >&2; exit 1
+  fi
+  installed_state_unchanged
+  check "transaction $fault failure restores the working install and public link"
+done

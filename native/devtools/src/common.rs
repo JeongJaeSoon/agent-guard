@@ -92,7 +92,14 @@ impl Args {
             _ => return Err(format!("unknown command; choose: {commands}").into()),
         };
         let flags: &[&str] = if command == "masking-latency" {
-            &["--resources", "--include-boundaries", "--trace-processes"]
+            &[
+                "--resources",
+                "--include-boundaries",
+                "--trace-processes",
+                "--packaged-native",
+            ]
+        } else if command == "load" {
+            &["--packaged-native"]
         } else {
             &[]
         };

@@ -9545,12 +9545,36 @@ redact_tool_response_json() {
   # established jq contract; partial helper stdout is never published.
   if [ "${AGENT_GUARD_EXPERIMENTAL_REDACTOR:-}" = rust ]; then
     rust_core=${AGENT_GUARD_RUST_CORE_BIN:-"$ROOT_DIR/libexec/agent-guard-redact"}
+    # Explicit developer overrides retain their trusted-executable contract.
+    # Packaged helpers are selected only for the running architecture and must
+    # match the checksum shipped inside the checksum-verified release archive.
+    if [ -z "${AGENT_GUARD_RUST_CORE_BIN:-}" ] && [ ! -e "$rust_core" ]; then
+      rust_target=
+      case "$(uname -s):$(uname -m)" in
+        Linux:x86_64|Linux:amd64) rust_target=x86_64-unknown-linux-musl ;;
+        Linux:aarch64|Linux:arm64) rust_target=aarch64-unknown-linux-musl ;;
+        Darwin:x86_64) rust_target=x86_64-apple-darwin ;;
+        Darwin:arm64) rust_target=aarch64-apple-darwin ;;
+      esac
+      rust_name="agent-guard-redact-$rust_target"
+      rust_core="$ROOT_DIR/libexec/$rust_name"
+      if [ -n "$rust_target" ] && [ -f "$rust_core" ] && [ ! -L "$rust_core" ] \
+          && [ -f "$rust_core.sha256" ] && [ ! -L "$rust_core.sha256" ] \
+          && rust_expected=$(cat "$rust_core.sha256" 2>/dev/null) \
+          && rust_actual=$(CDPATH= cd -- "$ROOT_DIR/libexec" && shasum -a 256 "$rust_name" 2>/dev/null) \
+          && [ "$rust_expected" = "$rust_actual" ]; then
+        :
+      else
+        rust_core=
+      fi
+      unset rust_target rust_name rust_expected rust_actual
+    fi
     case "$rust_core" in
       /*)
         if [ -x "$rust_core" ] && rust_result=$(
           printf '{"protocol":1,"response":%s,"secrets":%s}\n' "$resp" "$secrets" \
             | "$rust_core" redact-v1 2>/dev/null
-        ); then
+        ) && printf '%s\n' "$rust_result" | jq -e -s 'length == 1' >/dev/null 2>&1; then
           printf '%s\n' "$rust_result"
           unset rust_result rust_core
           return 0

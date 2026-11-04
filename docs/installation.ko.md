@@ -1,4 +1,4 @@
-<!-- translated-from: docs/installation.md; source-blob: 63ed4d12f61638385d2bb565018802fd6c3f734a -->
+<!-- translated-from: docs/installation.md; source-blob: 24dc7fff276235c964db8a242b5693f4dbae48e8 -->
 
 <a id="installing-agent-guard"></a>
 
@@ -105,6 +105,12 @@ agent-guard check
 ```
 
 플러그인 캐시에서는 updater를 의도적으로 사용할 수 없게 되어 있습니다. 실행 파일 자체가 marketplace 제거 시 삭제되는 캐시에 있어 스스로 marketplace의 고정 태그를 바꿀 수 없기 때문입니다. 대신 `agent-guard plugin update --host claude` 또는 `--host codex`를 실행하세요. 설치된 플러그인이 이미 CLI와 일치하면 최신 GitHub 릴리스를 조회하고, 새 버전으로 이동하는 정확한 host 관리 명령인 `marketplace remove`, `marketplace add ...@vX.Y.Z`, 플러그인 설치 명령을 출력합니다. `agent-guard doctor`와 `agent-guard plugin status`도 같은 릴리스 노후 상태를 보고합니다. 조회를 건너뛰려면 `AGENT_GUARD_RELEASE_CHECK=off`를 설정하세요. shell 블록은 캐시의 `current` 링크를 통해 실행되므로 플러그인 업데이트 후 `setup-shell`을 다시 실행할 필요가 없습니다.
+
+독립 CLI 업데이트는 기존 설치 옆에 후보를 준비한 뒤 교체합니다. 체크섬·추출·
+교체 실패 시 이전 설치를 유지하거나 복구하며, 관련 없는 로컬 파일도 보존합니다.
+전원 손실이나 처리할 수 없는 강제 종료가 마지막 디렉터리 교체를 중단하면,
+옆 디렉터리의 `.agent-guard-update.*/previous` 백업을 보존하고 원래 설치 경로로
+복구한 뒤 다시 시도하세요. 이전·새 배포본을 함께 보관할 디스크 공간이 필요합니다.
 
 <a id="homebrew"></a>
 
