@@ -1,0 +1,19 @@
+[package]
+name = "agent-guard-devtools"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+publish = false
+
+[dependencies]
+serde = "=1.0.228"
+serde_json = { version = "=1.0.145", features = ["preserve_order", "arbitrary_precision", "unbounded_depth", "float_roundtrip"] }
+indexmap = "=2.11.4"
+libc = "=0.2.177"
+sha2 = "=0.10.9"
+tempfile = "=3.23.0"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

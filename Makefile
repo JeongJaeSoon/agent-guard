@@ -14,7 +14,7 @@ help:
 	@printf '  make test-pleno-integration  Run opt-in tests against a real pleno endpoint.\n'
 	@printf '  make smoke-test    Run real git/jq/gitleaks end-to-end checks.\n'
 	@printf '  make bench         Run the leak-prevention channel-coverage benchmark (real gitleaks).\n'
-	@printf '  make bench-masking Run verified masking latency samples (Python 3, real gitleaks).\n'
+	@printf '  make bench-masking Run verified masking latency samples (Rust devtools, real gitleaks).\n'
 	@printf '  make scan          Scan the working tree for secrets.\n'
 	@printf '  make scan-staged   Scan staged changes only.\n'
 	@printf '  make checksum [VERSION=X.Y.Z]   Fetch gitleaks-checksum for every supported OS/arch (CI typically picks linux/x64).\n'
@@ -52,7 +52,7 @@ bench:
 	@sh bench/run.sh
 
 bench-masking:
-	@python3 bench/masking-latency.py
+	@sh scripts/devtools.sh masking-latency
 
 scan:
 	@plugins/agent-guard/bin/agent-guard scan-working-tree

@@ -1,0 +1,15 @@
+.git
+**/target/
+**/__pycache__/
+bench/local/
+bench/results/*
+!bench/results/rust-experiment/
+bench/results/rust-experiment/*
+# Compile-time golden statistics tests read only these reviewed historical inputs.
+!bench/results/rust-experiment/cli-claude.json
+!bench/results/rust-experiment/cli-codex.json
+!bench/results/rust-experiment/cli-clean-followup.json
+docs/assets/rust-*.svg
+agent-guard-*.tar.gz
+agent-guard-*.tar.gz.sha256
+agent-guard.rb
