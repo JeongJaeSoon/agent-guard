@@ -72,11 +72,13 @@ impl Args {
         }
         let options: &[&str] = match command.as_str() {
             "native-redaction" => &["--core", "--source"],
-            "native-integration" => &["--core", "--scanner"],
+            "native-output-prepare" => &["--core"],
+            "native-integration" => &["--core", "--scanner", "--output-prepare-core"],
             "masking-latency" => &[
                 "--binary",
                 "--baseline",
                 "--native-core",
+                "--output-prepare-core",
                 "--host",
                 "--scanner",
                 "--runs",
@@ -84,7 +86,14 @@ impl Args {
                 "--case",
             ],
             "kernel" => &["--core", "--runs"],
-            "load" => &["--binary", "--core", "--scanner", "--workers", "--requests"],
+            "load" => &[
+                "--binary",
+                "--core",
+                "--output-prepare-core",
+                "--scanner",
+                "--workers",
+                "--requests",
+            ],
             "watchdog-orphans" => &["--binary", "--baseline", "--scanner", "--runs"],
             "verify" => &["--out", "--native-core", "--shards"],
             "report" => &["--results", "--html"],
@@ -97,6 +106,7 @@ impl Args {
                 "--include-boundaries",
                 "--trace-processes",
                 "--packaged-native",
+                "--baseline-packaged-native",
             ]
         } else if command == "load" {
             &["--packaged-native"]

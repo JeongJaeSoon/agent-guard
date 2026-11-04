@@ -17,6 +17,7 @@ fn main_result() -> Result<()> {
     let args = Args::new()?;
     match args.command.as_str() {
         "native-redaction" => contracts::differential(&args),
+        "native-output-prepare" => contracts::output_prepare(&args),
         "native-integration" => contracts::integration(&args),
         "resource-sample" => measure::resource_sample(&args),
         "masking-latency" => measure::latency(&args),

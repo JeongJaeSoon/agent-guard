@@ -58,6 +58,8 @@ jobs:
           core="$RUNNER_TEMP/artifacts/agent-guard-redact-$TARGET"
           native/devtools/target/release/agent-guard-devtools native-redaction --core "$core" > "$RUNNER_TEMP/artifacts/differential.json"
           native/devtools/target/release/agent-guard-devtools native-integration --core "$core" --scanner "$RUNNER_TEMP/test-bin/gitleaks" > "$RUNNER_TEMP/artifacts/integration.json"
+          native/devtools/target/release/agent-guard-devtools native-output-prepare --core "$core" > "$RUNNER_TEMP/artifacts/output-prepare.json" 2> "$RUNNER_TEMP/artifacts/output-prepare.log"
+          native/devtools/target/release/agent-guard-devtools native-integration --core "$core" --scanner "$RUNNER_TEMP/test-bin/gitleaks" --output-prepare-core "$core" > "$RUNNER_TEMP/artifacts/output-integration.json" 2> "$RUNNER_TEMP/artifacts/output-integration.log"
           if [ "$TARGET" = x86_64-apple-darwin ]; then
             for trial in 2 3; do
               native/devtools/target/release/agent-guard-devtools native-integration --core "$core" --scanner "$RUNNER_TEMP/test-bin/gitleaks" > "$RUNNER_TEMP/artifacts/integration-$trial.json"
@@ -161,4 +163,28 @@ jobs:
         with:
           name: packaged-performance
           path: ${{ runner.temp }}/performance/
+          if-no-files-found: error
+
+  output-experiment:
+    name: Output preparation experiment
+    needs: platform
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: native-x86_64-unknown-linux-musl
+          path: ${{ runner.temp }}/output-core
+      - name: Compare against the actual public v3.7.0 archive
+        run: |
+          sh scripts/install-native-test-tools.sh "$RUNNER_TEMP/test-bin"
+          sh bench/native/run-output-prepare.sh "$RUNNER_TEMP/test-bin/gitleaks" "$RUNNER_TEMP/output-core/agent-guard-redact-x86_64-unknown-linux-musl" "$RUNNER_TEMP/output-experiment"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: output-experiment
+          path: ${{ runner.temp }}/output-experiment/
           if-no-files-found: error

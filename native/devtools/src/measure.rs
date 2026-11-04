@@ -67,7 +67,7 @@ pub fn sampled(
     let (_, output) = checked(&wrapped, payload, env, cwd, timeout)?;
     Ok((read_json(metrics_path)?, output))
 }
-fn valid_output(f: &Fixture, host: &str, output: &[u8]) -> Result<bool> {
+pub(crate) fn valid_output(f: &Fixture, host: &str, output: &[u8]) -> Result<bool> {
     if f.route == "exec" {
         return Ok(
             output == format!("{}\n", f.expected.as_str().ok_or("expected string")?).as_bytes()
@@ -130,6 +130,17 @@ pub fn latency(args: &Args) -> Result<()> {
     } else {
         "explicit-override"
     });
+    report["baseline_native_dispatch"] = json!(if args.flag("--baseline-packaged-native") {
+        "packaged-checksum"
+    } else {
+        "shell"
+    });
+    let prepare_core = args
+        .get("--output-prepare-core")
+        .ok()
+        .map(absolute)
+        .transpose()?;
+    report["output_prepare_sha256"] = json!(prepare_core.as_ref().map(hash).transpose()?);
     let mut cases = fixtures(args.flag("--include-boundaries"));
     let selected = args.all("--case");
     for name in &selected {
@@ -185,7 +196,21 @@ pub fn latency(args: &Args) -> Result<()> {
                     );
                 }
                 env.insert("AGENT_GUARD_EXPERIMENTAL_REDACTOR".into(), "shell".into());
+                env.insert("AGENT_GUARD_RUST_CORE_BIN".into(), String::new());
+                env.insert(
+                    "AGENT_GUARD_EXPERIMENTAL_OUTPUT_PREPARE_BIN".into(),
+                    String::new(),
+                );
+                if *label == "baseline" && args.flag("--baseline-packaged-native") {
+                    env.insert("AGENT_GUARD_EXPERIMENTAL_REDACTOR".into(), "rust".into());
+                }
                 if *label == "candidate" {
+                    if let Some(prepare_core) = &prepare_core {
+                        env.insert(
+                            "AGENT_GUARD_EXPERIMENTAL_OUTPUT_PREPARE_BIN".into(),
+                            prepare_core.clone(),
+                        );
+                    }
                     if let Some(core) = &core {
                         env.insert("AGENT_GUARD_EXPERIMENTAL_REDACTOR".into(), "rust".into());
                         env.insert(
@@ -386,6 +411,14 @@ pub fn load(args: &Args) -> Result<()> {
         "packaged load requires --core for artifact identity",
     )?;
     let mut env = base_env(&args.get("--scanner")?)?;
+    env.insert(
+        "AGENT_GUARD_EXPERIMENTAL_OUTPUT_PREPARE_BIN".into(),
+        args.get("--output-prepare-core")
+            .ok()
+            .map(absolute)
+            .transpose()?
+            .unwrap_or_default(),
+    );
     env.insert("AGENT_GUARD_HOOK_HOST".into(), "claude".into());
     env.insert(
         "AGENT_GUARD_EXPERIMENTAL_REDACTOR".into(),
