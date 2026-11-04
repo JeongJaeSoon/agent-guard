@@ -13,7 +13,7 @@ case "$(uname -s):$(uname -m)" in
 esac
 case_dir=$(mktemp -d)
 trap 'rm -rf "$case_dir"' 0
-cp -R "$ROOT/plugins/agent-guard" "$case_dir/payload"
+cp -R "${AGENT_GUARD_TEST_PAYLOAD:-$ROOT/plugins/agent-guard}" "$case_dir/payload"
 mkdir -p "$case_dir/payload/libexec"
 name="agent-guard-redact-$target"
 helper="$case_dir/payload/libexec/$name"
@@ -30,7 +30,9 @@ for host in claude codex; do
   export AGENT_GUARD_HOOK_HOST="$host"
   printf '%s\n' "$payload" | AGENT_GUARD_EXPERIMENTAL_REDACTOR=shell "$cli" hook-post-tool > "$case_dir/expected"
   grep -q REDACTED "$case_dir/expected"
-  ! grep -q perf-literal-tail "$case_dir/expected"
+  if grep -q perf-literal-tail "$case_dir/expected"; then
+    echo 'shell expectation leaked the fixture secret' >&2; exit 1
+  fi
   for fault in healthy missing corrupt checksum no-checksum no-execute error partial-zero empty-zero multiple-zero partial-error; do
     cp "$core" "$helper"
     chmod 755 "$helper"

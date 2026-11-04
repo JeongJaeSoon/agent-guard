@@ -1,0 +1,59 @@
+name: Public native release validation
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Published X.Y.Z release to validate
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  public:
+    name: Public install (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-15-intel, macos-15]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Install scanner and jq
+        run: sh scripts/install-native-test-tools.sh "$RUNNER_TEMP/test-bin"
+      - name: Verify published installs without a Rust compiler
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          export PATH="$RUNNER_TEMP/test-bin:/usr/bin:/bin:/usr/sbin:/sbin"
+          sh tests/public-native-release.sh "$VERSION" "$RUNNER_TEMP/public-evidence"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: public-${{ matrix.os }}
+          path: ${{ runner.temp }}/public-evidence/
+          if-no-files-found: error
+  homebrew:
+    name: Public Homebrew (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15-intel, macos-15]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Verify public formula upgrade and canonical tap install
+        env:
+          VERSION: ${{ inputs.version }}
+        run: sh tests/public-native-homebrew.sh "$VERSION" "$RUNNER_TEMP/homebrew-evidence"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: public-homebrew-${{ matrix.os }}
+          path: ${{ runner.temp }}/homebrew-evidence/
+          if-no-files-found: error
