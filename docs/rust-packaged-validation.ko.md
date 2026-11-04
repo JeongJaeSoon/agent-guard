@@ -3,6 +3,44 @@
 내부 검증 기록. v3.6.14의 과거 측정은 `bench/results/rust-experiment/`에
 그대로 남겨 두고 이번 결과와 합산하지 않는다. 아직 v3.7.0 발행 완료 기록이 아니다.
 
+## 최종 후보 검증
+
+[PR #391](https://github.com/JeongJaeSoon/agent-guard/pull/391)의 최종 head
+`d58cf2af97a7f75e7dee6f0ead42f43549b34f7c`에서 필수 8개를 포함한 Actions 30개가
+성공했다. CI checkout `a337c4cbe19edbcd9173a064563c6ff699c9cd03`의 tree는
+head와 동일한 `c11f6e5c43810e1ad70739ebf78d795afe1a4cd0`임을 확인했다.
+[최종 후보 원본](../bench/results/rust-packaged/qualification-d58cf2a/)은 두 예비
+측정과 분리했다. 이번에는 CPU 모델도 `cpuinfo.txt`에 보존했다.
+
+네 플랫폼 각각 차등 1,024건/불일치 0, 실제 gitleaks 호스트 계약 90건/실패 0,
+감사 로그 116건/실패 0이다. 컴파일러가 PATH에 없는 신규 설치, 실제 공개
+3.6.14에서 후보로 업데이트, 기존 설치 보존, 기본값·명시적 Rust 호스트 복귀
+44건 및 명시적 셸·빈 설정 선택도 모두 통과했다. 네 플랫폼의 INT/TERM·추출·
+커밋·공개 링크 실패 복구 로그를 함께 보존한다.
+
+같은 입력·스캐너·설정과 실제 2 CPU·1 GiB·swap 없음 제한에서 측정했다.
+최초 9쌍과 사전 예정한 정상 입력 21쌍 후속 결과를 모두 남긴다.
+
+| 지표 | 셸 대비 Rust 변화 |
+| --- | ---: |
+| Claude 목표 CLI 지연 / CPU | −22.69% / −22.45% |
+| Codex 목표 CLI 지연 / CPU | −23.83% / −23.08% |
+| Claude 정상 입력 후속 지연 / CPU | +0.26% / +0.04% |
+| 일반 경로 지연 5% 초과 회귀 | 없음 |
+| 동시 4개 처리량 | 1.597 → 2.077 요청/초 |
+| 동시 4개 CPU/요청 | 1.240 → 0.949초 |
+| 동시 4개 표본 프로세스 RSS 합 | 295.348 → 295.703 MiB |
+
+단일 자식 최대 RSS 중앙값 변화는 Claude −0.20%, Codex −1.00%다. 10 ms
+표본 프로세스 RSS 합은 최대 자식 RSS와 다르며 공유 페이지 중복과 짧은 peak
+누락이 가능하다. 메모리 절감이나 다른 세 플랫폼의 성능 개선을 주장하지 않는다.
+
+Rust 미설치 Docker의 jq 1.6·zsh 전체 검사는 `ff956aa`에서 2,714건/실패 0이다.
+최종 head와 런타임 소스가 같고 사용한 Rust 바이너리는 최종 CI 바이너리와
+바이트 단위로 일치한다. 기존 `native-suite.sh`를 사용해 Rust와 jq에 함께 실패를
+주입했으며, 실제 기본 packaged 선택은 위 네 플랫폼 44건으로 별도 검증했다.
+소스·이미지·바이너리·전체 로그 해시는 `local-full-suite.json`에 보존한다.
+
 ## 기본값 전환 전 측정
 
 [PR #389](https://github.com/JeongJaeSoon/agent-guard/pull/389)의 head

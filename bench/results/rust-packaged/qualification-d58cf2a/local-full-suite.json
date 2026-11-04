@@ -1,0 +1,25 @@
+{
+  "source_sha": "ff956aa389691884f13cb3e2073bc7454ff1c67f",
+  "candidate_sha": "d58cf2af97a7f75e7dee6f0ead42f43549b34f7c",
+  "runtime_source_identical": true,
+  "cli_sha256": "29b23a39236d8ad244197400efe4162c0d12d0d8e3d1c2b38e56a5b0c6c6c6d6",
+  "native_binary_sha256": "e5effd1d40057d4099cbda0982547e2656ef8005f7308cd685dc2fb52f82b514",
+  "native_binary_matches_candidate_ci": true,
+  "platform": "Linux x64",
+  "jq": "1.6",
+  "zsh": true,
+  "rust_compiler_installed": false,
+  "network": "none",
+  "image": "sha256:954b9b6880e6a0e2ba1b692e3b552cd62c2e6785c0fcd88155d8392b505aa907",
+  "suite": "tests/native-suite.sh suite",
+  "passed": 2714,
+  "failed": 0,
+  "native_invocation_marker_verified": true,
+  "log": "rust-platforms-local/ff956aa-native-suite-full-zsh-jq16.log",
+  "log_sha256": "09bd0aa70ca0dfe1f262e9563063709cb2ddf5a54d9014bbf8c876bb945f41ba",
+  "limitations": [
+    "전체 검사는 실제 Rust 코어를 기존 오류 주입 wrapper로 실행했다. 기본 packaged 선택은 별도 네 플랫폼 44건 검사로 확인한다.",
+    "이 로컬 correctness 실행은 자원 제한 성능 측정이 아니다.",
+    "최종 후보의 모든 CI 및 실제 공개 배포 검증을 대체하지 않는다."
+  ]
+}
