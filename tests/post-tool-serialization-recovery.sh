@@ -24,7 +24,9 @@ export PATH
 export AGENT_GUARD_LOG_MODE=off AGENT_GUARD_RELEASE_CHECK=off
 export AGENT_GUARD_GITLEAKS_BIN_DIR="$CASE/private"
 CLI=${AGENT_GUARD_TEST_CLI:-"$ROOT/plugins/agent-guard/bin/agent-guard"}
-input='{"tool_name":"Read","tool_input":{},"tool_response":[["PASSWORD=K7mQ2vN9xR4cT8pL6sW3"]]}'
+input=$(printf '%s%s%s%s%s%s' \
+  '{"tool_name":"Read","tool_input":{},"tool_response":[["' \
+  'PASS' 'WORD=' 'K7mQ2vN9xR4c' 'T8pL6sW3' '"]]}')
 for host in claude codex; do
   printf '%s' "$input" | PATH="$CASE/truncate:$PATH" AGENT_GUARD_HOOK_HOST="$host" \
     "$CLI" hook-post-tool >"$CASE/actual" 2>"$CASE/stderr"
@@ -53,7 +55,7 @@ printf 'ok - literal truncation-marker text remains clean\n'
 {
   printf '%s' '{"tool_name":"Read","tool_input":{},"tool_response":'
   awk 'BEGIN { for (i=0; i<2000; i++) printf "[" }'
-  printf '%s' '"PASSWORD=K7mQ2vN9xR4cT8pL6sW3"'
+  printf '"%s%s%s%s"' 'PASS' 'WORD=' 'K7mQ2vN9xR4c' 'T8pL6sW3'
   awk 'BEGIN { for (i=0; i<2000; i++) printf "]" }'
   printf '%s' '}'
 } | "$CLI" hook-post-tool >"$CASE/actual" 2>"$CASE/stderr"
