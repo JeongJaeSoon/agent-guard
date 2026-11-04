@@ -1,0 +1,42 @@
+{
+  "source_sha": "e709445fb6fce9ade8cbbd2d6bcf2940e48da178",
+  "native_helper_available": false,
+  "actual_native_execs": 0,
+  "resource_limit": "outer4CPU/16GiB",
+  "runs": 9,
+  "audit_state": "off",
+  "measurement_note": "driver requested packaged dispatch for both arms but source has no libexec helper; generic native_dispatch labels are request flags, not proof of actual native execution; native_core_sha256 identifies the supplied reference only",
+  "hosts": {
+    "claude": {
+      "verified": true,
+      "baseline": {
+        "wall_seconds": 1.563877857,
+        "cpu_seconds": 1.637782,
+        "max_child_peak_rss_kib": 61992.0
+      },
+      "candidate": {
+        "wall_seconds": 0.824352073,
+        "cpu_seconds": 0.8428370000000001,
+        "max_child_peak_rss_kib": 34908.0
+      },
+      "wall_change_percent": -47.28795031465172,
+      "cpu_change_percent": -48.53790064856006
+    },
+    "codex": {
+      "verified": true,
+      "baseline": {
+        "wall_seconds": 1.4850084190000001,
+        "cpu_seconds": 1.550959,
+        "max_child_peak_rss_kib": 62440.0
+      },
+      "candidate": {
+        "wall_seconds": 0.823596591,
+        "cpu_seconds": 0.84751,
+        "max_child_peak_rss_kib": 34712.0
+      },
+      "wall_change_percent": -44.5392645279003,
+      "cpu_change_percent": -45.355744413617636
+    }
+  },
+  "trace_expected_output_verified": true
+}
