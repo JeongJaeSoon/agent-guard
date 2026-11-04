@@ -62,3 +62,17 @@ CI 실행 파일은 원본 다운로드 ZIP에 그대로 보존하고, 위 아�
 `omitted-binaries.json`의 크기와 SHA-256으로 식별한다. 확보한 빌드 정보,
 native helper의 라이선스, 측정·입력·출력·오류 자료는 아카이브에 포함한다.
 후속 collector는 scanner 양쪽의 모듈 라이선스·notice도 함께 보존한다.
+
+`ci-301d091.tar.gz`는 원시 파일 10,016개와 내부 manifest를 포함한다. 네 플랫폼의
+230개 corpus·90개 호스트 결과, 전체 126개 제한 자원 비교, 원시 exec trace,
+양쪽 scanner 모듈 라이선스·notice, 일반 CI의 깊은 JSON 실패 로그를 보존한다.
+실행 파일 8개는 원본 ZIP에 보존하고 아카이브에서 크기·SHA-256으로 식별한다.
+`constrained-301d091-summary.json`은 상태별 별도 runner의 쌍별 비교다.
+이 head의 scanner 실험은 성공했지만 일반 CI는 실패했으며, 전체 CI 성공으로
+표현하지 않는다. jq 호환성 결함과 후속 수정은 실험 설명의 별도 항목을 따른다.
+
+`json-serialization-recovery.tar.gz`에는 최초 로컬 재현, jq 버전·stack 제한별
+원시 stdout와 shell trace, 공개 v3.7.0의 회귀 검사 실패, 수정 후 세 jq 버전의
+회귀 결과 및 jq 1.8.1 core partition 825 통과 로그가 있다. 공식 jq 바이너리의
+해시도 기록하며, 실행 파일은 별도 원본으로 보존한다. 이 합성 입력의 trace를
+실사용자 비밀값이 담긴 hook에 적용해서는 안 된다.

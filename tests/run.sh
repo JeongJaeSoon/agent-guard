@@ -2390,6 +2390,9 @@ make_deep_post_tool_input() {
   printf '%s' '}'
 }
 
+run_expect 0 "post-tool serialization recovers from the retained envelope" \
+  sh "$ROOT/tests/post-tool-serialization-recovery.sh"
+
 make_deep_post_tool_expected() {
   deep_count=$1
   deep_leaf=${2:-'PASSWORD=[REDACTED]'}

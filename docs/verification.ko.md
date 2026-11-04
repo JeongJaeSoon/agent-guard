@@ -1,4 +1,4 @@
-<!-- translated-from: docs/verification.md; source-blob: 7f8884427eb96951613533dcd8dda73235a7bb28 -->
+<!-- translated-from: docs/verification.md; source-blob: 05a64008ada1b596a1472e5147f0ae0d0882ea1a -->
 
 <a id="verification"></a>
 
@@ -65,6 +65,10 @@ sentinel이 들어 있는 파일을 읽는 것도 guard가 보호하는 도구 �
 
 ## 결과를 올바르게 해석하기
 
+- JSON 도구가 정상 종료해도 직렬화된 출력이 완전하다는 뜻은 아닙니다.
+  PostToolUse의 중간 출력을 안전하게 치환할 수 없으면 보존된 원본 이벤트로
+  보수적인 복구를 시도합니다. 독립 parser가 성공하면 중첩 응답 구조를
+  유지하며, 검사 실패를 정상 검사로 취급하지 않습니다.
 - 비밀 정보 탐지는 차단 또는 탐지 결과이며 scanner 오류가 아닙니다.
 - `DEGRADED` 메시지나 사용할 수 없는 scanner는 정상 검사 결과가 아닙니다. 의존성을 복구하거나 문서에 명시된 인프라 정책을 선택하세요.
   `Scanner readiness: timeout.`이 함께 나오면 시간 제한이 있는 버전 확인이

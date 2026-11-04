@@ -1,4 +1,4 @@
-<!-- translated-from: docs/verification.md; source-blob: 7f8884427eb96951613533dcd8dda73235a7bb28 -->
+<!-- translated-from: docs/verification.md; source-blob: 05a64008ada1b596a1472e5147f0ae0d0882ea1a -->
 
 <a id="verification"></a>
 
@@ -65,6 +65,10 @@ sentinelを含むファイルの読み取り自体もguardの対象となるツ�
 
 ## 結果を正しく読む
 
+- JSONツールが正常終了しても、シリアライズされた出力が完全とは限りません。
+  PostToolUseの中間出力を安全に置換できない場合は、保持した元のイベントから
+  保守的な復元を試みます。独立したparserが成功すればネストした応答の構造を
+  保ちます。検査の失敗を正常な検査結果として扱うことはありません。
 - 秘密情報の検出はブロックまたは検出結果であり、scannerのエラーではありません。
 - `DEGRADED` の表示やscannerが使えない状態は、正常な検査結果ではありません。依存関係を修復するか、文書化されたインフラ障害ポリシーを選んでください。
   `Scanner readiness: timeout.` が表示された場合は、時間制限付きのバージョン

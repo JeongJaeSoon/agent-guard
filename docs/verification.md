@@ -74,6 +74,11 @@ byte length with the placeholder's if you need to confirm it.
 
 ## Read results correctly
 
+- A successful JSON-tool exit does not always mean its serialized output is
+  complete. If intermediate PostToolUse output cannot be safely rewritten,
+  the guard attempts conservative recovery from the retained original event.
+  This preserves nested response shape when the independent parser succeeds;
+  it does not treat a failed scan as clean.
 - A detected secret is a block/finding, not a scanner error.
 - A `DEGRADED` message or unavailable scanner is not a clean scan. Repair the
   dependency or choose the documented infrastructure policy.
