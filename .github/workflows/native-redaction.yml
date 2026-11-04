@@ -4,6 +4,8 @@ on:
     branches: [main]
     paths:
       - 'native/**'
+      - 'bench/native/**'
+      - 'scripts/devtools.sh'
       - 'plugins/agent-guard/bin/agent-guard'
       - 'tests/**'
       - 'plugins/agent-guard/config/**'
@@ -12,6 +14,8 @@ on:
   pull_request:
     paths:
       - 'native/**'
+      - 'bench/native/**'
+      - 'scripts/devtools.sh'
       - 'plugins/agent-guard/bin/agent-guard'
       - 'tests/**'
       - 'plugins/agent-guard/config/**'
@@ -41,6 +45,10 @@ jobs:
           cargo +1.85.1 fmt --manifest-path native/redaction-core/Cargo.toml --check
           cargo +1.85.1 clippy --manifest-path native/redaction-core/Cargo.toml --locked -- -D warnings
           cargo +1.85.1 build --release --locked --manifest-path native/redaction-core/Cargo.toml
+          cargo +1.85.1 fmt --manifest-path native/devtools/Cargo.toml --check
+          cargo +1.85.1 clippy --manifest-path native/devtools/Cargo.toml --locked --all-targets -- -D warnings
+          cargo +1.85.1 test --manifest-path native/devtools/Cargo.toml --locked
+          cargo +1.85.1 build --release --locked --manifest-path native/devtools/Cargo.toml
       - name: Pin reference jq
         run: |
           curl -fL https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-amd64 -o "$RUNNER_TEMP/jq"
@@ -52,7 +60,7 @@ jobs:
           AGENT_GUARD_EXPERIMENTAL_REDACTOR: rust
         run: |
           export AGENT_GUARD_RUST_CORE_BIN="$PWD/native/redaction-core/target/release/agent-guard-redact"
-          python3 tests/native-redaction.py --core "$AGENT_GUARD_RUST_CORE_BIN"
+          native/devtools/target/release/agent-guard-devtools native-redaction --core "$AGENT_GUARD_RUST_CORE_BIN"
           sh tests/redaction-plan.sh
       - name: Install pinned real scanner
         run: |
@@ -68,7 +76,9 @@ jobs:
           rm -rf "$scanner_tmp"
       - name: Real host and fallback contracts
         run: |
-          python3 tests/native-integration.py --core "$PWD/native/redaction-core/target/release/agent-guard-redact" --scanner "$RUNNER_TEMP/gitleaks"
+          native/devtools/target/release/agent-guard-devtools native-integration --core "$PWD/native/redaction-core/target/release/agent-guard-redact" --scanner "$RUNNER_TEMP/gitleaks"
+      - name: Developer tool compatibility contracts
+        run: sh tests/devtools.sh "$PWD/native/devtools/target/release/agent-guard-devtools"
       - name: Native scanner and output regression partition
         env:
           AGENT_GUARD_TEST_SHARD: '4'
@@ -76,3 +86,24 @@ jobs:
           export AGENT_GUARD_RUST_CORE_BIN="$PWD/native/redaction-core/target/release/agent-guard-redact"
           sh tests/native-suite.sh
           sh tests/native-suite.sh audit
+
+  developer-tools:
+    name: Developer tools (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Build and verify developer tools
+        run: |
+          rustup toolchain install 1.85.1 --profile minimal --component rustfmt --component clippy
+          cargo +1.85.1 fmt --manifest-path native/devtools/Cargo.toml --check
+          cargo +1.85.1 clippy --manifest-path native/devtools/Cargo.toml --locked --all-targets -- -D warnings
+          cargo +1.85.1 test --manifest-path native/devtools/Cargo.toml --locked
+          cargo +1.85.1 build --manifest-path native/devtools/Cargo.toml --release --locked
+          sh tests/devtools.sh "$PWD/native/devtools/target/release/agent-guard-devtools"

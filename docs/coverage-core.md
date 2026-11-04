@@ -132,10 +132,10 @@ explanation of the missing observation, not a general unreachable-code proof.
 A separate process sources all eight definitions without calling them and
 observes **0/40** eligible locations.
 
-Run from the repository root with existing Python 3 and Bash (no installation):
+Run from the repository root with Rust 1.85.1+ and Bash (developer tools only):
 
 ```sh
-python3 tests/measure-selected-bash.py
+sh scripts/devtools.sh measure-selected-bash
 ```
 
 The script prints only aggregate counts, source line lists, interpreter/source

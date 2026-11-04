@@ -6,7 +6,7 @@ policy, PII and host envelopes remain in the shell CLI.
 
 ## Reproduce
 
-Use Linux/x86_64, Docker, Python 3 and a verified gitleaks 8.30.1 executable.
+Use Linux/x86_64, Docker and a verified gitleaks 8.30.1 executable.
 The image pins Rust 1.85.1, its base digest, jq 1.7.1 and the Cargo lockfile.
 APT package versions are recorded in the results rather than pinned forever.
 Do not run builds, regression suites or other benchmarks simultaneously.
@@ -15,10 +15,10 @@ Do not run builds, regression suites or other benchmarks simultaneously.
 sh bench/native/run.sh /absolute/path/to/gitleaks \
   16075762fa528f071f01f9c1998083b30aaca116 \
   "$PWD/bench/results/rust-experiment"
-python3 bench/native/report.py --results bench/results/rust-experiment
+sh scripts/devtools.sh report --results bench/results/rust-experiment
 ```
 
-The report generator additionally needs matplotlib. It emits a standalone
+The Rust report generator requires Rust 1.85.1+ only for building. It emits a standalone
 Korean HTML file and exportable SVG charts, with no external web dependencies.
 The report also reads `verification.json` and `ci.json`; preserve the actual
 validation results for the measured CLI SHA-256 rather than borrowing a passing
@@ -29,8 +29,8 @@ a build-time proxy CA bundle. To reuse a previously verified image without
 building, set `AGENT_GUARD_BENCH_IMAGE` to its immutable image ID. The runner
 checks that the image's Rust source, manifest and lockfile match the checkout.
 
-For regression verification, run `bench/native/verify.py` inside the same image
-with a read-only checkout, `PYTHONDONTWRITEBYTECODE=1`, an actual passwd entry
+For regression verification, run `agent-guard-devtools verify` inside the same image
+with a read-only checkout, an actual passwd entry
 for the selected UID, and gitleaks on PATH. Its default runs all five existing
 shell partitions plus the Rust output partition. `--shards 4` runs only the
 shell/Rust output partitions; that narrower result must not be described as a
@@ -90,3 +90,27 @@ exports SVG copies under `docs/assets/`, but those copies are not tracked.
 Cargo build directories, local caches and generated release archives are ignored;
 Cargo lockfiles and the curated measurement JSON remain tracked. `.dockerignore`
 keeps these local artifacts out of the benchmark image build context.
+
+## Developer tool migration
+
+`native/devtools` replaces all ten former Python verification, measurement and
+report scripts. Use `sh scripts/devtools.sh <command> [options]` locally; it builds
+the locked release binary before running. The Docker image provides the same
+`agent-guard-devtools` executable without Python or matplotlib. The installed
+shell CLI does not invoke Cargo or the developer binary.
+
+Commands: `native-redaction`, `native-integration`, `measure-selected-bash`,
+`resource-sample`, `watchdog-orphans`, `masking-latency`, `kernel`, `load`, `verify`,
+`report`. Options retain the former scripts' meanings. Run regression partitions
+with `verify --out /absolute/results --native-core /build/target/release/agent-guard-redact`.
+
+The 1,013 valid differential inputs are frozen in
+`tests/fixtures/native-contracts.json` from Python seed 60261104. Eleven malformed
+inputs are checked separately. Fixture hashes preserve all 21 masking/boundary
+inputs and full expected values. Unit tests compare 1,000 CPython random draws
+and every retained report interval and paired CPU median. `tests/devtools.sh`
+compares the complete historical assessment, rejection gates, child resource
+exit status and source-location observation without a Python interpreter.
+The old performance JSON and HTML remain historical evidence; migration smoke
+measurements belong in a separate result directory. SVG rendering is now native
+and deterministic; historical matplotlib SVGs need not be byte-identical.
