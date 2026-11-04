@@ -145,6 +145,7 @@ pub fn integration(args: &Args) -> Result<()> {
                 &json!({"tool_name":"Read","tool_input":{},"tool_response":response}),
             )?;
             env.insert("AGENT_GUARD_EXPERIMENTAL_REDACTOR".into(), "shell".into());
+            eprintln!("integration start: host={host} fixture={response_index} variant=shell");
             let (old_elapsed, old) = invoke(
                 &[cli()?, "hook-post-tool".into()],
                 &payload,
@@ -152,11 +153,13 @@ pub fn integration(args: &Args) -> Result<()> {
                 None,
                 30.0,
             )?;
+            eprintln!("integration end: host={host} fixture={response_index} variant=shell seconds={old_elapsed:.3} status={}", old.status);
             ensure(
                 old.status.success(),
                 format!("host baseline failed: {host}, fixture={response_index}, status={}, stderr={:?}", old.status, String::from_utf8_lossy(&old.stderr)),
             )?;
-            for binary in &variants {
+            for (variant_index, binary) in variants.iter().enumerate() {
+                eprintln!("integration start: host={host} fixture={response_index} variant={variant_index}");
                 env.insert("AGENT_GUARD_EXPERIMENTAL_REDACTOR".into(), "rust".into());
                 env.insert("AGENT_GUARD_RUST_CORE_BIN".into(), binary.clone());
                 let (new_elapsed, new) = invoke(
@@ -166,6 +169,7 @@ pub fn integration(args: &Args) -> Result<()> {
                     None,
                     30.0,
                 )?;
+                eprintln!("integration end: host={host} fixture={response_index} variant={variant_index} seconds={new_elapsed:.3} status={}", new.status);
                 ensure(
                     new.status.success(),
                     format!("host candidate failed: {host}, fixture={response_index}, status={}, stderr={:?}", new.status, String::from_utf8_lossy(&new.stderr)),
@@ -190,7 +194,8 @@ pub fn integration(args: &Args) -> Result<()> {
         std::fs::metadata(marker)?.len() > 0,
         "native helper was never used",
     )?;
-    for binary in variants {
+    for (variant_index, binary) in variants.into_iter().enumerate() {
+        eprintln!("redaction-plan start: variant={variant_index}");
         env.insert("AGENT_GUARD_RUST_CORE_BIN".into(), binary);
         checked(
             &[
@@ -205,6 +210,7 @@ pub fn integration(args: &Args) -> Result<()> {
             None,
             30.0,
         )?;
+        eprintln!("redaction-plan end: variant={variant_index}");
         count += 8;
     }
     emit(&json!({"passed":count,"failed":0,"native_invocation_verified":true}))
