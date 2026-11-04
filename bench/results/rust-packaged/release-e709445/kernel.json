@@ -1,0 +1,1348 @@
+{
+  "runs": 15,
+  "native_sha256": "e5effd1d40057d4099cbda0982547e2656ef8005f7308cd685dc2fb52f82b514",
+  "jq_version": "jq-1.7.1",
+  "scope": "one process, stdin JSON, includes startup; no scanner or shell pipeline",
+  "cases": [
+    {
+      "name": "small",
+      "verified": true,
+      "samples": {
+        "shell-jq": [
+          {
+            "user_cpu_seconds": 0.001937,
+            "system_cpu_seconds": 0.000968,
+            "max_child_peak_rss_kib": 2336.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.002964757
+          },
+          {
+            "user_cpu_seconds": 0.002878,
+            "system_cpu_seconds": 0.0,
+            "max_child_peak_rss_kib": 2336.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.00292695
+          },
+          {
+            "user_cpu_seconds": 0.00189,
+            "system_cpu_seconds": 0.000945,
+            "max_child_peak_rss_kib": 2428.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.002883464
+          },
+          {
+            "user_cpu_seconds": 0.001928,
+            "system_cpu_seconds": 0.000964,
+            "max_child_peak_rss_kib": 2336.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 1,
+            "wall_seconds": 0.002955793
+          },
+          {
+            "user_cpu_seconds": 0.002868,
+            "system_cpu_seconds": 0.0,
+            "max_child_peak_rss_kib": 2348.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.002939258
+          },
+          {
+            "user_cpu_seconds": 0.001901,
+            "system_cpu_seconds": 0.00095,
+            "max_child_peak_rss_kib": 2336.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 1,
+            "wall_seconds": 0.002913208
+          },
+          {
+            "user_cpu_seconds": 0.001921,
+            "system_cpu_seconds": 0.00096,
+            "max_child_peak_rss_kib": 2336.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.002931466
+          },
+          {
+            "user_cpu_seconds": 0.002924,
+            "system_cpu_seconds": 0.0,
+            "max_child_peak_rss_kib": 2364.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 1,
+            "wall_seconds": 0.002982063
+          },
+          {
+            "user_cpu_seconds": 0.001892,
+            "system_cpu_seconds": 0.000946,
+            "max_child_peak_rss_kib": 2364.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.002891226
+          },
+          {
+            "user_cpu_seconds": 0.002834,
+            "system_cpu_seconds": 0.0,
+            "max_child_peak_rss_kib": 2336.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.002884254
+          },
+          {
+            "user_cpu_seconds": 0.002897,
+            "system_cpu_seconds": 0.0,
+            "max_child_peak_rss_kib": 2336.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 1,
+            "wall_seconds": 0.002951647
+          },
+          {
+            "user_cpu_seconds": 0.002874,
+            "system_cpu_seconds": 0.0,
+            "max_child_peak_rss_kib": 2432.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.0029271
+          },
+          {
+            "user_cpu_seconds": 0.002858,
+            "system_cpu_seconds": 0.0,
+            "max_child_peak_rss_kib": 2380.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.002904816
+          },
+          {
+            "user_cpu_seconds": 0.000942,
+            "system_cpu_seconds": 0.001884,
+            "max_child_peak_rss_kib": 2336.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.002873569
+          },
+          {
+            "user_cpu_seconds": 0.001972,
+            "system_cpu_seconds": 0.000986,
+            "max_child_peak_rss_kib": 2336.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 1,
+            "wall_seconds": 0.00301362
+          }
+        ],
+        "rust": [
+          {
+            "user_cpu_seconds": 0.00028,
+            "system_cpu_seconds": 0.0,
+            "max_child_peak_rss_kib": 2300.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.000330911
+          },
+          {
+            "user_cpu_seconds": 0.000258,
+            "system_cpu_seconds": 0.0,
+            "max_child_peak_rss_kib": 2284.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.000309458
+          },
+          {
+            "user_cpu_seconds": 0.0,
+            "system_cpu_seconds": 0.000277,
+            "max_child_peak_rss_kib": 2260.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.000318772
+          },
+          {
+            "user_cpu_seconds": 0.000259,
+            "system_cpu_seconds": 0.0,
+            "max_child_peak_rss_kib": 2428.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.000302999
+          },
+          {
+            "user_cpu_seconds": 0.000267,
+            "system_cpu_seconds": 0.0,
+            "max_child_peak_rss_kib": 2256.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.00031052
+          },
+          {
+            "user_cpu_seconds": 0.000258,
+            "system_cpu_seconds": 0.0,
+            "max_child_peak_rss_kib": 2368.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.000318211
+          },
+          {
+            "user_cpu_seconds": 0.000271,
+            "system_cpu_seconds": 0.0,
+            "max_child_peak_rss_kib": 2348.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.000312163
+          },
+          {
+            "user_cpu_seconds": 0.0,
+            "system_cpu_seconds": 0.000267,
+            "max_child_peak_rss_kib": 2312.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.000309559
+          },
+          {
+            "user_cpu_seconds": 0.000262,
+            "system_cpu_seconds": 0.0,
+            "max_child_peak_rss_kib": 2316.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.000308417
+          },
+          {
+            "user_cpu_seconds": 0.000251,
+            "system_cpu_seconds": 0.0,
+            "max_child_peak_rss_kib": 2292.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.000294456
+          },
+          {
+            "user_cpu_seconds": 0.000283,
+            "system_cpu_seconds": 0.0,
+            "max_child_peak_rss_kib": 2432.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.000327856
+          },
+          {
+            "user_cpu_seconds": 0.000244,
+            "system_cpu_seconds": 0.0,
+            "max_child_peak_rss_kib": 2368.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.000286964
+          },
+          {
+            "user_cpu_seconds": 0.0,
+            "system_cpu_seconds": 0.000276,
+            "max_child_peak_rss_kib": 2436.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.000322178
+          },
+          {
+            "user_cpu_seconds": 0.000251,
+            "system_cpu_seconds": 0.0,
+            "max_child_peak_rss_kib": 2328.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.000291912
+          },
+          {
+            "user_cpu_seconds": 0.0,
+            "system_cpu_seconds": 0.000274,
+            "max_child_peak_rss_kib": 2344.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.000318933
+          }
+        ]
+      },
+      "medians": {
+        "shell-jq": {
+          "user_cpu_seconds": 0.001972,
+          "system_cpu_seconds": 0.000945,
+          "max_child_peak_rss_kib": 2336.0,
+          "voluntary_context_switches": 1.0,
+          "involuntary_context_switches": 0.0,
+          "wall_seconds": 0.0029271
+        },
+        "rust": {
+          "user_cpu_seconds": 0.000258,
+          "system_cpu_seconds": 0.0,
+          "max_child_peak_rss_kib": 2328.0,
+          "voluntary_context_switches": 1.0,
+          "involuntary_context_switches": 0.0,
+          "wall_seconds": 0.00031052
+        }
+      }
+    },
+    {
+      "name": "long",
+      "verified": true,
+      "samples": {
+        "shell-jq": [
+          {
+            "user_cpu_seconds": 0.008918,
+            "system_cpu_seconds": 0.00099,
+            "max_child_peak_rss_kib": 3488.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 3,
+            "wall_seconds": 0.00999112
+          },
+          {
+            "user_cpu_seconds": 0.006944,
+            "system_cpu_seconds": 0.002976,
+            "max_child_peak_rss_kib": 3488.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 1,
+            "wall_seconds": 0.009988086
+          },
+          {
+            "user_cpu_seconds": 0.007061,
+            "system_cpu_seconds": 0.003026,
+            "max_child_peak_rss_kib": 3488.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 2,
+            "wall_seconds": 0.010164222
+          },
+          {
+            "user_cpu_seconds": 0.006581,
+            "system_cpu_seconds": 0.00376,
+            "max_child_peak_rss_kib": 3488.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 1,
+            "wall_seconds": 0.010424286
+          },
+          {
+            "user_cpu_seconds": 0.007694,
+            "system_cpu_seconds": 0.002885,
+            "max_child_peak_rss_kib": 3488.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 1,
+            "wall_seconds": 0.01065823
+          },
+          {
+            "user_cpu_seconds": 0.0092,
+            "system_cpu_seconds": 0.001022,
+            "max_child_peak_rss_kib": 3488.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 1,
+            "wall_seconds": 0.010291285
+          },
+          {
+            "user_cpu_seconds": 0.007333,
+            "system_cpu_seconds": 0.00275,
+            "max_child_peak_rss_kib": 3488.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 1,
+            "wall_seconds": 0.010159134
+          },
+          {
+            "user_cpu_seconds": 0.008444,
+            "system_cpu_seconds": 0.001876,
+            "max_child_peak_rss_kib": 3488.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.010382322
+          },
+          {
+            "user_cpu_seconds": 0.009243,
+            "system_cpu_seconds": 0.001027,
+            "max_child_peak_rss_kib": 3488.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.010329392
+          },
+          {
+            "user_cpu_seconds": 0.007001,
+            "system_cpu_seconds": 0.003,
+            "max_child_peak_rss_kib": 3488.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 2,
+            "wall_seconds": 0.010079875
+          },
+          {
+            "user_cpu_seconds": 0.008405,
+            "system_cpu_seconds": 0.001867,
+            "max_child_peak_rss_kib": 3488.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 1,
+            "wall_seconds": 0.010346668
+          },
+          {
+            "user_cpu_seconds": 0.009229,
+            "system_cpu_seconds": 0.001025,
+            "max_child_peak_rss_kib": 3488.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 2,
+            "wall_seconds": 0.010336763
+          },
+          {
+            "user_cpu_seconds": 0.008967,
+            "system_cpu_seconds": 0.000996,
+            "max_child_peak_rss_kib": 3488.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 1,
+            "wall_seconds": 0.010032443
+          },
+          {
+            "user_cpu_seconds": 0.009828,
+            "system_cpu_seconds": 0.001965,
+            "max_child_peak_rss_kib": 3488.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 2,
+            "wall_seconds": 0.011873048
+          },
+          {
+            "user_cpu_seconds": 0.009233,
+            "system_cpu_seconds": 0.001025,
+            "max_child_peak_rss_kib": 3488.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 1,
+            "wall_seconds": 0.010326027
+          }
+        ],
+        "rust": [
+          {
+            "user_cpu_seconds": 0.001406,
+            "system_cpu_seconds": 0.0,
+            "max_child_peak_rss_kib": 2436.0,
+            "voluntary_context_switches": 6,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.001550085
+          },
+          {
+            "user_cpu_seconds": 0.000712,
+            "system_cpu_seconds": 0.000712,
+            "max_child_peak_rss_kib": 2296.0,
+            "voluntary_context_switches": 6,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.001563076
+          },
+          {
+            "user_cpu_seconds": 0.000734,
+            "system_cpu_seconds": 0.000734,
+            "max_child_peak_rss_kib": 2344.0,
+            "voluntary_context_switches": 6,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.00162506
+          },
+          {
+            "user_cpu_seconds": 0.0,
+            "system_cpu_seconds": 0.001417,
+            "max_child_peak_rss_kib": 2284.0,
+            "voluntary_context_switches": 6,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.001561843
+          },
+          {
+            "user_cpu_seconds": 0.001457,
+            "system_cpu_seconds": 0.0,
+            "max_child_peak_rss_kib": 2260.0,
+            "voluntary_context_switches": 6,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.001603177
+          },
+          {
+            "user_cpu_seconds": 0.001433,
+            "system_cpu_seconds": 0.0,
+            "max_child_peak_rss_kib": 2428.0,
+            "voluntary_context_switches": 6,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.001581133
+          },
+          {
+            "user_cpu_seconds": 0.000747,
+            "system_cpu_seconds": 0.000747,
+            "max_child_peak_rss_kib": 2296.0,
+            "voluntary_context_switches": 6,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.001648975
+          },
+          {
+            "user_cpu_seconds": 0.0,
+            "system_cpu_seconds": 0.001432,
+            "max_child_peak_rss_kib": 2428.0,
+            "voluntary_context_switches": 7,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.001582736
+          },
+          {
+            "user_cpu_seconds": 0.001447,
+            "system_cpu_seconds": 0.0,
+            "max_child_peak_rss_kib": 2280.0,
+            "voluntary_context_switches": 6,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.001595755
+          },
+          {
+            "user_cpu_seconds": 0.001427,
+            "system_cpu_seconds": 0.0,
+            "max_child_peak_rss_kib": 2348.0,
+            "voluntary_context_switches": 6,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.00157261
+          },
+          {
+            "user_cpu_seconds": 0.0,
+            "system_cpu_seconds": 0.001453,
+            "max_child_peak_rss_kib": 2364.0,
+            "voluntary_context_switches": 6,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.001623467
+          },
+          {
+            "user_cpu_seconds": 0.0,
+            "system_cpu_seconds": 0.00141,
+            "max_child_peak_rss_kib": 2364.0,
+            "voluntary_context_switches": 6,
+            "involuntary_context_switches": 1,
+            "wall_seconds": 0.001563617
+          },
+          {
+            "user_cpu_seconds": 0.0,
+            "system_cpu_seconds": 0.001453,
+            "max_child_peak_rss_kib": 2264.0,
+            "voluntary_context_switches": 6,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.001597157
+          },
+          {
+            "user_cpu_seconds": 0.0,
+            "system_cpu_seconds": 0.001388,
+            "max_child_peak_rss_kib": 2376.0,
+            "voluntary_context_switches": 6,
+            "involuntary_context_switches": 1,
+            "wall_seconds": 0.001582415
+          },
+          {
+            "user_cpu_seconds": 0.0,
+            "system_cpu_seconds": 0.001436,
+            "max_child_peak_rss_kib": 2312.0,
+            "voluntary_context_switches": 6,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.001588645
+          }
+        ]
+      },
+      "medians": {
+        "shell-jq": {
+          "user_cpu_seconds": 0.008444,
+          "system_cpu_seconds": 0.001876,
+          "max_child_peak_rss_kib": 3488.0,
+          "voluntary_context_switches": 1.0,
+          "involuntary_context_switches": 1.0,
+          "wall_seconds": 0.010326027
+        },
+        "rust": {
+          "user_cpu_seconds": 0.000712,
+          "system_cpu_seconds": 0.000747,
+          "max_child_peak_rss_kib": 2344.0,
+          "voluntary_context_switches": 6.0,
+          "involuntary_context_switches": 0.0,
+          "wall_seconds": 0.001582736
+        }
+      }
+    },
+    {
+      "name": "many-leaves",
+      "verified": true,
+      "samples": {
+        "shell-jq": [
+          {
+            "user_cpu_seconds": 0.276318,
+            "system_cpu_seconds": 0.000997,
+            "max_child_peak_rss_kib": 2592.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 3,
+            "wall_seconds": 0.277456471
+          },
+          {
+            "user_cpu_seconds": 0.275173,
+            "system_cpu_seconds": 0.001,
+            "max_child_peak_rss_kib": 2592.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.276266821
+          },
+          {
+            "user_cpu_seconds": 0.274865,
+            "system_cpu_seconds": 0.001003,
+            "max_child_peak_rss_kib": 2464.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 4,
+            "wall_seconds": 0.276080018
+          },
+          {
+            "user_cpu_seconds": 0.27258,
+            "system_cpu_seconds": 0.002995,
+            "max_child_peak_rss_kib": 2592.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 2,
+            "wall_seconds": 0.275689897
+          },
+          {
+            "user_cpu_seconds": 0.274562,
+            "system_cpu_seconds": 0.000998,
+            "max_child_peak_rss_kib": 2592.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 1,
+            "wall_seconds": 0.275684695
+          },
+          {
+            "user_cpu_seconds": 0.276595,
+            "system_cpu_seconds": 0.0,
+            "max_child_peak_rss_kib": 2592.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 3,
+            "wall_seconds": 0.276722295
+          },
+          {
+            "user_cpu_seconds": 0.275135,
+            "system_cpu_seconds": 0.001,
+            "max_child_peak_rss_kib": 2464.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 3,
+            "wall_seconds": 0.277259427
+          },
+          {
+            "user_cpu_seconds": 0.275162,
+            "system_cpu_seconds": 0.0,
+            "max_child_peak_rss_kib": 2592.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 2,
+            "wall_seconds": 0.275282085
+          },
+          {
+            "user_cpu_seconds": 0.274221,
+            "system_cpu_seconds": 0.001,
+            "max_child_peak_rss_kib": 2592.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 2,
+            "wall_seconds": 0.275354345
+          },
+          {
+            "user_cpu_seconds": 0.274057,
+            "system_cpu_seconds": 0.001,
+            "max_child_peak_rss_kib": 2592.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 4,
+            "wall_seconds": 0.275327875
+          },
+          {
+            "user_cpu_seconds": 0.281231,
+            "system_cpu_seconds": 0.0,
+            "max_child_peak_rss_kib": 2592.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 1,
+            "wall_seconds": 0.281345327
+          },
+          {
+            "user_cpu_seconds": 0.280317,
+            "system_cpu_seconds": 0.0,
+            "max_child_peak_rss_kib": 2592.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.280423556
+          },
+          {
+            "user_cpu_seconds": 0.276806,
+            "system_cpu_seconds": 0.001998,
+            "max_child_peak_rss_kib": 2592.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 4,
+            "wall_seconds": 0.278943987
+          },
+          {
+            "user_cpu_seconds": 0.274816,
+            "system_cpu_seconds": 0.0,
+            "max_child_peak_rss_kib": 2464.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 2,
+            "wall_seconds": 0.275089224
+          },
+          {
+            "user_cpu_seconds": 0.277398,
+            "system_cpu_seconds": 0.0,
+            "max_child_peak_rss_kib": 2592.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 3,
+            "wall_seconds": 0.277546662
+          }
+        ],
+        "rust": [
+          {
+            "user_cpu_seconds": 0.002068,
+            "system_cpu_seconds": 0.0,
+            "max_child_peak_rss_kib": 2256.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.002119348
+          },
+          {
+            "user_cpu_seconds": 0.002022,
+            "system_cpu_seconds": 0.0,
+            "max_child_peak_rss_kib": 2348.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.002074259
+          },
+          {
+            "user_cpu_seconds": 0.001021,
+            "system_cpu_seconds": 0.001021,
+            "max_child_peak_rss_kib": 2372.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.002091815
+          },
+          {
+            "user_cpu_seconds": 0.001004,
+            "system_cpu_seconds": 0.001004,
+            "max_child_peak_rss_kib": 2284.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.002055661
+          },
+          {
+            "user_cpu_seconds": 0.001036,
+            "system_cpu_seconds": 0.001036,
+            "max_child_peak_rss_kib": 2344.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.002126378
+          },
+          {
+            "user_cpu_seconds": 0.001007,
+            "system_cpu_seconds": 0.001007,
+            "max_child_peak_rss_kib": 2280.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.002066597
+          },
+          {
+            "user_cpu_seconds": 0.001022,
+            "system_cpu_seconds": 0.001022,
+            "max_child_peak_rss_kib": 2252.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.002092146
+          },
+          {
+            "user_cpu_seconds": 0.001001,
+            "system_cpu_seconds": 0.001001,
+            "max_child_peak_rss_kib": 2388.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.002052646
+          },
+          {
+            "user_cpu_seconds": 0.001029,
+            "system_cpu_seconds": 0.001029,
+            "max_child_peak_rss_kib": 2336.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.002111005
+          },
+          {
+            "user_cpu_seconds": 0.001001,
+            "system_cpu_seconds": 0.001001,
+            "max_child_peak_rss_kib": 2204.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.002047738
+          },
+          {
+            "user_cpu_seconds": 0.001043,
+            "system_cpu_seconds": 0.001043,
+            "max_child_peak_rss_kib": 2304.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.002144005
+          },
+          {
+            "user_cpu_seconds": 0.0,
+            "system_cpu_seconds": 0.002072,
+            "max_child_peak_rss_kib": 2320.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.002142612
+          },
+          {
+            "user_cpu_seconds": 0.000685,
+            "system_cpu_seconds": 0.001371,
+            "max_child_peak_rss_kib": 2428.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.002109762
+          },
+          {
+            "user_cpu_seconds": 0.000998,
+            "system_cpu_seconds": 0.000998,
+            "max_child_peak_rss_kib": 2252.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.00204862
+          },
+          {
+            "user_cpu_seconds": 0.001029,
+            "system_cpu_seconds": 0.001029,
+            "max_child_peak_rss_kib": 2428.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.002111355
+          }
+        ]
+      },
+      "medians": {
+        "shell-jq": {
+          "user_cpu_seconds": 0.275162,
+          "system_cpu_seconds": 0.000998,
+          "max_child_peak_rss_kib": 2592.0,
+          "voluntary_context_switches": 1.0,
+          "involuntary_context_switches": 2.0,
+          "wall_seconds": 0.276266821
+        },
+        "rust": {
+          "user_cpu_seconds": 0.001021,
+          "system_cpu_seconds": 0.001021,
+          "max_child_peak_rss_kib": 2320.0,
+          "voluntary_context_switches": 1.0,
+          "involuntary_context_switches": 0.0,
+          "wall_seconds": 0.002092146
+        }
+      }
+    },
+    {
+      "name": "unicode",
+      "verified": true,
+      "samples": {
+        "shell-jq": [
+          {
+            "user_cpu_seconds": 0.03124,
+            "system_cpu_seconds": 0.0,
+            "max_child_peak_rss_kib": 2592.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 1,
+            "wall_seconds": 0.03133676
+          },
+          {
+            "user_cpu_seconds": 0.030009,
+            "system_cpu_seconds": 0.001,
+            "max_child_peak_rss_kib": 2592.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 1,
+            "wall_seconds": 0.031097348
+          },
+          {
+            "user_cpu_seconds": 0.028042,
+            "system_cpu_seconds": 0.003004,
+            "max_child_peak_rss_kib": 2592.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 1,
+            "wall_seconds": 0.031154644
+          },
+          {
+            "user_cpu_seconds": 0.029125,
+            "system_cpu_seconds": 0.002008,
+            "max_child_peak_rss_kib": 2592.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 2,
+            "wall_seconds": 0.031234935
+          },
+          {
+            "user_cpu_seconds": 0.029129,
+            "system_cpu_seconds": 0.002008,
+            "max_child_peak_rss_kib": 2592.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 2,
+            "wall_seconds": 0.031243518
+          },
+          {
+            "user_cpu_seconds": 0.027632,
+            "system_cpu_seconds": 0.003947,
+            "max_child_peak_rss_kib": 2592.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 2,
+            "wall_seconds": 0.031680841
+          },
+          {
+            "user_cpu_seconds": 0.030264,
+            "system_cpu_seconds": 0.001008,
+            "max_child_peak_rss_kib": 2592.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 1,
+            "wall_seconds": 0.031376981
+          },
+          {
+            "user_cpu_seconds": 0.029115,
+            "system_cpu_seconds": 0.002007,
+            "max_child_peak_rss_kib": 2592.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 2,
+            "wall_seconds": 0.031223658
+          },
+          {
+            "user_cpu_seconds": 0.029187,
+            "system_cpu_seconds": 0.002012,
+            "max_child_peak_rss_kib": 2592.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 2,
+            "wall_seconds": 0.031328056
+          },
+          {
+            "user_cpu_seconds": 0.030443,
+            "system_cpu_seconds": 0.001014,
+            "max_child_peak_rss_kib": 2592.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.031546006
+          },
+          {
+            "user_cpu_seconds": 0.029032,
+            "system_cpu_seconds": 0.002002,
+            "max_child_peak_rss_kib": 2592.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 1,
+            "wall_seconds": 0.031129917
+          },
+          {
+            "user_cpu_seconds": 0.031495,
+            "system_cpu_seconds": 0.0,
+            "max_child_peak_rss_kib": 2592.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.031582702
+          },
+          {
+            "user_cpu_seconds": 0.029909,
+            "system_cpu_seconds": 0.000996,
+            "max_child_peak_rss_kib": 2592.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 1,
+            "wall_seconds": 0.031001442
+          },
+          {
+            "user_cpu_seconds": 0.029998,
+            "system_cpu_seconds": 0.000999,
+            "max_child_peak_rss_kib": 2592.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 1,
+            "wall_seconds": 0.031091508
+          },
+          {
+            "user_cpu_seconds": 0.030189,
+            "system_cpu_seconds": 0.001006,
+            "max_child_peak_rss_kib": 2592.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 1,
+            "wall_seconds": 0.031286374
+          }
+        ],
+        "rust": [
+          {
+            "user_cpu_seconds": 0.003588,
+            "system_cpu_seconds": 0.000897,
+            "max_child_peak_rss_kib": 2392.0,
+            "voluntary_context_switches": 5,
+            "involuntary_context_switches": 2,
+            "wall_seconds": 0.004635084
+          },
+          {
+            "user_cpu_seconds": 0.000883,
+            "system_cpu_seconds": 0.003534,
+            "max_child_peak_rss_kib": 2268.0,
+            "voluntary_context_switches": 5,
+            "involuntary_context_switches": 1,
+            "wall_seconds": 0.004561363
+          },
+          {
+            "user_cpu_seconds": 0.0,
+            "system_cpu_seconds": 0.004505,
+            "max_child_peak_rss_kib": 2380.0,
+            "voluntary_context_switches": 5,
+            "involuntary_context_switches": 1,
+            "wall_seconds": 0.004672791
+          },
+          {
+            "user_cpu_seconds": 0.002205,
+            "system_cpu_seconds": 0.002205,
+            "max_child_peak_rss_kib": 2356.0,
+            "voluntary_context_switches": 5,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.004562994
+          },
+          {
+            "user_cpu_seconds": 0.00181,
+            "system_cpu_seconds": 0.002715,
+            "max_child_peak_rss_kib": 2236.0,
+            "voluntary_context_switches": 5,
+            "involuntary_context_switches": 1,
+            "wall_seconds": 0.004679641
+          },
+          {
+            "user_cpu_seconds": 0.001114,
+            "system_cpu_seconds": 0.003344,
+            "max_child_peak_rss_kib": 2252.0,
+            "voluntary_context_switches": 5,
+            "involuntary_context_switches": 1,
+            "wall_seconds": 0.004607823
+          },
+          {
+            "user_cpu_seconds": 0.002258,
+            "system_cpu_seconds": 0.002258,
+            "max_child_peak_rss_kib": 2284.0,
+            "voluntary_context_switches": 5,
+            "involuntary_context_switches": 1,
+            "wall_seconds": 0.00466494
+          },
+          {
+            "user_cpu_seconds": 0.00179,
+            "system_cpu_seconds": 0.002686,
+            "max_child_peak_rss_kib": 2420.0,
+            "voluntary_context_switches": 5,
+            "involuntary_context_switches": 1,
+            "wall_seconds": 0.00462597
+          },
+          {
+            "user_cpu_seconds": 0.001143,
+            "system_cpu_seconds": 0.003431,
+            "max_child_peak_rss_kib": 2428.0,
+            "voluntary_context_switches": 5,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.004739392
+          },
+          {
+            "user_cpu_seconds": 0.0009,
+            "system_cpu_seconds": 0.003603,
+            "max_child_peak_rss_kib": 2364.0,
+            "voluntary_context_switches": 5,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.004648494
+          },
+          {
+            "user_cpu_seconds": 0.002259,
+            "system_cpu_seconds": 0.002259,
+            "max_child_peak_rss_kib": 2344.0,
+            "voluntary_context_switches": 5,
+            "involuntary_context_switches": 2,
+            "wall_seconds": 0.004681194
+          },
+          {
+            "user_cpu_seconds": 0.000955,
+            "system_cpu_seconds": 0.003821,
+            "max_child_peak_rss_kib": 2372.0,
+            "voluntary_context_switches": 5,
+            "involuntary_context_switches": 1,
+            "wall_seconds": 0.004978303
+          },
+          {
+            "user_cpu_seconds": 0.002254,
+            "system_cpu_seconds": 0.002254,
+            "max_child_peak_rss_kib": 2364.0,
+            "voluntary_context_switches": 5,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.004667984
+          },
+          {
+            "user_cpu_seconds": 0.001108,
+            "system_cpu_seconds": 0.003324,
+            "max_child_peak_rss_kib": 2264.0,
+            "voluntary_context_switches": 5,
+            "involuntary_context_switches": 1,
+            "wall_seconds": 0.004590496
+          },
+          {
+            "user_cpu_seconds": 0.0,
+            "system_cpu_seconds": 0.004579,
+            "max_child_peak_rss_kib": 2376.0,
+            "voluntary_context_switches": 5,
+            "involuntary_context_switches": 1,
+            "wall_seconds": 0.004724349
+          }
+        ]
+      },
+      "medians": {
+        "shell-jq": {
+          "user_cpu_seconds": 0.029909,
+          "system_cpu_seconds": 0.001014,
+          "max_child_peak_rss_kib": 2592.0,
+          "voluntary_context_switches": 1.0,
+          "involuntary_context_switches": 1.0,
+          "wall_seconds": 0.031243518
+        },
+        "rust": {
+          "user_cpu_seconds": 0.001143,
+          "system_cpu_seconds": 0.003324,
+          "max_child_peak_rss_kib": 2364.0,
+          "voluntary_context_switches": 5.0,
+          "involuntary_context_switches": 1.0,
+          "wall_seconds": 0.00466494
+        }
+      }
+    },
+    {
+      "name": "budget-fallback",
+      "verified": true,
+      "samples": {
+        "shell-jq": [
+          {
+            "user_cpu_seconds": 0.005554,
+            "system_cpu_seconds": 0.000925,
+            "max_child_peak_rss_kib": 2440.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.006541088
+          },
+          {
+            "user_cpu_seconds": 0.00654,
+            "system_cpu_seconds": 0.0,
+            "max_child_peak_rss_kib": 2384.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.00659524
+          },
+          {
+            "user_cpu_seconds": 0.004683,
+            "system_cpu_seconds": 0.001873,
+            "max_child_peak_rss_kib": 2336.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.006609561
+          },
+          {
+            "user_cpu_seconds": 0.006443,
+            "system_cpu_seconds": 0.0,
+            "max_child_peak_rss_kib": 2336.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 1,
+            "wall_seconds": 0.006504152
+          },
+          {
+            "user_cpu_seconds": 0.006412,
+            "system_cpu_seconds": 0.0,
+            "max_child_peak_rss_kib": 2364.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 1,
+            "wall_seconds": 0.00647605
+          },
+          {
+            "user_cpu_seconds": 0.005607,
+            "system_cpu_seconds": 0.000934,
+            "max_child_peak_rss_kib": 2388.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.006598615
+          },
+          {
+            "user_cpu_seconds": 0.00651,
+            "system_cpu_seconds": 0.0,
+            "max_child_peak_rss_kib": 2344.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 1,
+            "wall_seconds": 0.006582881
+          },
+          {
+            "user_cpu_seconds": 0.006574,
+            "system_cpu_seconds": 0.0,
+            "max_child_peak_rss_kib": 2336.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.00663495
+          },
+          {
+            "user_cpu_seconds": 0.005662,
+            "system_cpu_seconds": 0.000943,
+            "max_child_peak_rss_kib": 2420.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.006670885
+          },
+          {
+            "user_cpu_seconds": 0.00573,
+            "system_cpu_seconds": 0.000955,
+            "max_child_peak_rss_kib": 2336.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.006742413
+          },
+          {
+            "user_cpu_seconds": 0.006706,
+            "system_cpu_seconds": 0.0,
+            "max_child_peak_rss_kib": 2336.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.00677387
+          },
+          {
+            "user_cpu_seconds": 0.006659,
+            "system_cpu_seconds": 0.0,
+            "max_child_peak_rss_kib": 2336.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.006724055
+          },
+          {
+            "user_cpu_seconds": 0.004736,
+            "system_cpu_seconds": 0.001894,
+            "max_child_peak_rss_kib": 2344.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 1,
+            "wall_seconds": 0.006699387
+          },
+          {
+            "user_cpu_seconds": 0.006704,
+            "system_cpu_seconds": 0.0,
+            "max_child_peak_rss_kib": 2336.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.006783004
+          },
+          {
+            "user_cpu_seconds": 0.004695,
+            "system_cpu_seconds": 0.001878,
+            "max_child_peak_rss_kib": 2380.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.006635351
+          }
+        ],
+        "rust": [
+          {
+            "user_cpu_seconds": 0.0,
+            "system_cpu_seconds": 0.00092,
+            "max_child_peak_rss_kib": 2336.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.000972772
+          },
+          {
+            "user_cpu_seconds": 0.0,
+            "system_cpu_seconds": 0.0009,
+            "max_child_peak_rss_kib": 2272.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.000947423
+          },
+          {
+            "user_cpu_seconds": 0.0,
+            "system_cpu_seconds": 0.000909,
+            "max_child_peak_rss_kib": 2280.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.000957439
+          },
+          {
+            "user_cpu_seconds": 0.0,
+            "system_cpu_seconds": 0.000887,
+            "max_child_peak_rss_kib": 2300.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.000933512
+          },
+          {
+            "user_cpu_seconds": 0.000876,
+            "system_cpu_seconds": 0.0,
+            "max_child_peak_rss_kib": 2268.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.000922936
+          },
+          {
+            "user_cpu_seconds": 0.0,
+            "system_cpu_seconds": 0.000882,
+            "max_child_peak_rss_kib": 2432.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.000927934
+          },
+          {
+            "user_cpu_seconds": 0.0,
+            "system_cpu_seconds": 0.000921,
+            "max_child_peak_rss_kib": 2364.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.000969607
+          },
+          {
+            "user_cpu_seconds": 0.0,
+            "system_cpu_seconds": 0.000917,
+            "max_child_peak_rss_kib": 2236.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.000963888
+          },
+          {
+            "user_cpu_seconds": 0.0,
+            "system_cpu_seconds": 0.000948,
+            "max_child_peak_rss_kib": 2344.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.00100418
+          },
+          {
+            "user_cpu_seconds": 0.0,
+            "system_cpu_seconds": 0.000919,
+            "max_child_peak_rss_kib": 2436.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.000970609
+          },
+          {
+            "user_cpu_seconds": 0.0,
+            "system_cpu_seconds": 0.000946,
+            "max_child_peak_rss_kib": 2356.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.000999993
+          },
+          {
+            "user_cpu_seconds": 0.0,
+            "system_cpu_seconds": 0.000904,
+            "max_child_peak_rss_kib": 2264.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.000951089
+          },
+          {
+            "user_cpu_seconds": 0.000943,
+            "system_cpu_seconds": 0.0,
+            "max_child_peak_rss_kib": 2276.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.001005321
+          },
+          {
+            "user_cpu_seconds": 0.0,
+            "system_cpu_seconds": 0.000914,
+            "max_child_peak_rss_kib": 2300.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.000963137
+          },
+          {
+            "user_cpu_seconds": 0.0,
+            "system_cpu_seconds": 0.000916,
+            "max_child_peak_rss_kib": 2356.0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "wall_seconds": 0.000967825
+          }
+        ]
+      },
+      "medians": {
+        "shell-jq": {
+          "user_cpu_seconds": 0.006412,
+          "system_cpu_seconds": 0.0,
+          "max_child_peak_rss_kib": 2344.0,
+          "voluntary_context_switches": 1.0,
+          "involuntary_context_switches": 0.0,
+          "wall_seconds": 0.00663495
+        },
+        "rust": {
+          "user_cpu_seconds": 0.0,
+          "system_cpu_seconds": 0.000914,
+          "max_child_peak_rss_kib": 2300.0,
+          "voluntary_context_switches": 1.0,
+          "involuntary_context_switches": 0.0,
+          "wall_seconds": 0.000963888
+        }
+      }
+    }
+  ]
+}

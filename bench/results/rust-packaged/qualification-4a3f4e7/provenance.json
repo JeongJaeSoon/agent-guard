@@ -1,0 +1,21 @@
+{
+  "kind": "체크섬 비용 수정 후 릴리스 PR 검증",
+  "pr": "https://github.com/JeongJaeSoon/agent-guard/pull/392",
+  "pr_head": "4a3f4e7fbba54b83deb8c3c77144d74c0096ed59",
+  "tested_merge_sha": "177e6268ad3f5d69c1c217fabb1a86c8074d237b",
+  "tested_tree_sha": "43f3f8a364f0dc1dec24c5667deabe43a13330d5",
+  "head_tree_identical": true,
+  "workflow": "https://github.com/JeongJaeSoon/agent-guard/actions/runs/41827592408",
+  "artifact_id": 13323270580,
+  "artifact_zip_sha256": "9a9dcf7a77c14e544d0db4f86c7a12caf41cfd222aba7baa6e332c6b876e39f7",
+  "baseline_sha": "9a0ee9eb2eed1e60b78d4404f985b077149c675d",
+  "baseline_relation_to_public_3_6_15": "CLI는 VERSION 문자열만 다르고 실행 코드가 같다.",
+  "ci": "필수 8개 포함 Actions 30개 성공",
+  "not_a_release": true,
+  "limitations": [
+    "AMD EPYC 7763에서 측정했다. 앞선 EPYC 9V45 측정의 절대 시간과 직접 비교하거나 합산하지 않는다.",
+    "Linux x64 성능만 측정했다.",
+    "swap 없음은 실행 전 같은 Docker run 함수의 실제 cgroup 값으로 확인했다. 개별 load JSON에는 cpu.max와 memory.max만 기록되며 memory.swap.max는 별도 수집하지 않았다.",
+    "이 후보 결과는 릴리스 병합 SHA와 공개 자산 검증을 대체하지 않는다."
+  ]
+}

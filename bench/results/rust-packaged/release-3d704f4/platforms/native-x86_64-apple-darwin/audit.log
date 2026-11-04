@@ -1,0 +1,124 @@
+ok - clean passthrough status and stdout unchanged
+ok - export succeeds
+true
+ok - successful invocation has start and finish linked by run ID
+ok - pass does not imply a clean scan
+ok - logs without a subcommand keeps the status default
+ok - logs help exits successfully
+ok - output-file export succeeds
+ok - output-file export preserves stdout export records
+ok - output-file export leaves stdout empty
+ok - output-file export reports its location on stderr
+ok - output-file export is mode 0600
+ok - output-file export removes its temporary file
+ok - output-file export refuses an existing target
+ok - existing output target remains unchanged
+ok - existing output refusal leaves no temporary file
+ok - output-file export refuses a directory target
+ok - directory target remains a directory
+ok - directory target refusal leaves no temporary file
+ok - output-file export refuses a FIFO target
+ok - FIFO target remains a FIFO
+ok - FIFO target refusal leaves no temporary file
+ok - output-file export refuses a symlink target
+ok - symlink target refusal leaves no temporary file
+ok - output-file export refuses a dangling symlink target
+ok - dangling symlink target remains a symlink
+ok - dangling symlink refusal leaves no temporary file
+ok - output-file export refuses an immediate symlink parent
+ok - symlink parent receives no completed export
+ok - symlink parent refusal leaves no temporary file
+ok - output-file export requires an existing parent
+ok - missing parent receives no completed export
+ok - output-file export fails when jq is unavailable
+ok - jq failure leaves no completed export
+ok - jq failure leaves no temporary file
+ok - output-file export fails when audit storage is unavailable
+ok - storage failure leaves no completed export
+ok - storage failure leaves no temporary file
+ok - protected read stays blocked
+ok - blocked outcome recorded
+ok - log excludes raw paths and session identifiers
+ok - claude mask retains status
+ok - claude mask is recorded without response contents
+ok - claude content-free logs
+ok - codex mask retains status
+ok - codex mask is recorded without response contents
+ok - codex content-free logs
+ok - open infrastructure policy retains status
+ok - open infrastructure failure never reported as pass
+ok - closed infrastructure policy retains status
+ok - closed infrastructure failure never reported as pass
+ok - opt-out creates no persistent log directory
+ok - unsafe log storage does not change denial
+ok - unsafe storage emits generic diagnostic
+ok - symlink log path not followed
+true
+ok - concurrent invocations preserve separate complete records
+ok - export strips arbitrary added fields
+ok - export rejects poisoned allowed fields
+ok - SIGTERM preserves conventional status
+ok - SIGTERM exit does not run retention cleanup
+ok - SIGTERM records interruption
+ok - retention bounds completed invocation files
+ok - old records removed on next invocation
+ok - retention removes the empty live-probe sidecar for a pruned event
+ok - retention still removes an event with a nonempty sidecar
+ok - retention does not recurse into a nonempty live-probe sidecar
+ok - retention ignores foreign names
+ok - retention ignores a sidecar without a strictly valid event id
+ok - retention never recurses into foreign directories
+ok - the live post-tool sentinel is readable from the binary
+ok - claude live probe keeps the host status
+true
+ok - claude live probe emits top-level JSON
+ok - claude live probe drops the raw sentinel and secret
+ok - claude normal secret keeps the bare placeholder
+ok - claude live probe names the exact audit run id
+ok - claude live probe run id is not masked as a phone number
+ok - claude live probe replacement names a well-formed run id
+ok - claude live probe run id resolves to its masked post-tool record
+ok - claude live probe audit remains metadata-only
+ok - codex live probe keeps the host status
+true
+ok - codex live probe emits top-level JSON
+ok - codex live probe drops the raw sentinel and secret
+ok - codex normal secret keeps the bare placeholder
+ok - codex live probe names the exact audit run id
+ok - codex live probe run id is not masked as a phone number
+ok - codex live probe replacement names a well-formed run id
+ok - codex live probe run id resolves to its masked post-tool record
+ok - codex live probe audit remains metadata-only
+ok - live probe records a private directory sidecar
+ok - live probe sidecar is mode 0700
+ok - claude live probe falls back to the bare placeholder without logging
+ok - claude live probe falls back to the bare placeholder when logging fails
+ok - codex live probe falls back to the bare placeholder without logging
+ok - codex live probe falls back to the bare placeholder when logging fails
+ok - live probe falls back to the bare placeholder when sidecar creation fails
+true
+ok - live-probe redactor failure conservatively replaces the complete response
+ok - failed live-probe redaction leaves no provenance sidecar
+true
+ok - claude direct envelope emits one valid replacement without jq
+ok - claude direct envelope retains delivered live-probe provenance
+true
+ok - codex envelope serialization failure emits one fixed block response
+ok - codex fixed envelope removes undelivered live-probe provenance
+ok - codex fixed envelope id does not forge provenance
+ok - claude preserves a provenance-verified live probe replacement under PII masking
+ok - claude verified live probe id is not masked as a phone number on re-entry
+ok - codex preserves a provenance-verified live probe replacement under PII masking
+ok - codex verified live probe id is not masked as a phone number on re-entry
+ok - masked outcome after redactor failure does not forge provenance
+ok - ordinary PII masking produces a plausible audit run id
+ok - ordinary PII masking does not create live-probe provenance
+ok - claude rewrites a forged live probe replacement
+ok - claude ordinary masked event id does not forge live-probe provenance
+ok - codex rewrites a forged live probe replacement
+ok - codex ordinary masked event id does not forge live-probe provenance
+ok - live probe rejects a sidecar with unsafe mode
+ok - live probe rejects a non-directory sidecar
+ok - live probe rejects a symlink sidecar
+ok - the replacement is not blocked at the prompt guard
+116 audit log checks passed, 0 failed

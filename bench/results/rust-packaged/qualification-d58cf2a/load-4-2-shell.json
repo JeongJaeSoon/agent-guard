@@ -1,0 +1,35 @@
+{
+  "backend": "shell",
+  "workers": 4,
+  "requests": 8,
+  "verified": true,
+  "elapsed_seconds": 5.011423846,
+  "requests_per_second": 1.5963527025129618,
+  "latency_samples": [
+    2.415466029,
+    2.422403771,
+    2.519533202,
+    2.628441947,
+    2.522948138,
+    2.493480186,
+    2.407229272,
+    2.380830989
+  ],
+  "median_seconds": 2.4579419785,
+  "max_seconds": 2.628441947,
+  "user_cpu_seconds": 9.012361,
+  "system_cpu_seconds": 0.895882,
+  "max_child_peak_rss_kib": 65576.0,
+  "container_cgroup": {
+    "memory.peak": "196591616",
+    "memory.max": "1073741824",
+    "cpu.max": "200000 100000",
+    "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0"
+  },
+  "sampled_process_rss_peak_kib": 303524.0,
+  "rss_sample_count": 273,
+  "rss_sample_interval_seconds": 0.01,
+  "driver_cpu_seconds": 0.103619,
+  "cgroup_isolated": true,
+  "memory_scope": "10 ms sampled sum of RSS in the private container PID namespace, including driver/init; shared pages may be counted multiple times; excludes page cache, daemon and build; sampling may miss short peaks; cgroup counters are not container-specific unless cgroup_isolated is true; ru_maxrss is max individual child peak"
+}
