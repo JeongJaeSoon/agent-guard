@@ -58,7 +58,8 @@ pub fn verify(args: &Args) -> Result<()> {
     let out = std::fs::canonicalize(out)?;
     let core = absolute(args.get("--native-core")?)?;
     let before = hash(cli()?)?;
-    let shards: Vec<usize> = if let Some(index) = args.values.iter().position(|s| s == "--shards") {
+    let shards: Vec<usize> = if let Some(index) = args.values.iter().rposition(|s| s == "--shards")
+    {
         args.values[index + 1..]
             .iter()
             .take_while(|s| !s.starts_with("--"))
