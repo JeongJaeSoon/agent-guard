@@ -1,0 +1,44 @@
+﻿2026-11-04T16:05:33.5314049Z Current runner version: '2.338.2'
+2026-11-04T16:05:33.5339651Z ##[group]Runner Image Provisioner
+2026-11-04T16:05:33.5340505Z Hosted Compute Agent
+2026-11-04T16:05:33.5341592Z Version: 20261021.618
+2026-11-04T16:05:33.5342381Z Commit: 21505ad2541d5be6135ed84fc33697146cf75b8e
+2026-11-04T16:05:33.5343224Z Build Date: 2026-10-21T00:45:21Z
+2026-11-04T16:05:33.5343986Z Worker ID: {0da22b1f-be29-4ab4-9e30-eb0ab8d2c982}
+2026-11-04T16:05:33.5344733Z Region: northcentralus
+2026-11-04T16:05:33.5345450Z Cloud: Azure
+2026-11-04T16:05:33.5346077Z ##[endgroup]
+2026-11-04T16:05:33.5347568Z ##[group]Operating System
+2026-11-04T16:05:33.5348262Z Ubuntu
+2026-11-04T16:05:33.5348836Z 24.04.5
+2026-11-04T16:05:33.5349443Z LTS
+2026-11-04T16:05:33.5350107Z ##[endgroup]
+2026-11-04T16:05:33.5350732Z ##[group]Runner Image
+2026-11-04T16:05:33.5351637Z Image: ubuntu-24.04
+2026-11-04T16:05:33.5352273Z Version: 20261025.353.1
+2026-11-04T16:05:33.5353725Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20261025.353/images/ubuntu/Ubuntu2404-Readme.md
+2026-11-04T16:05:33.5355346Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20261025.353
+2026-11-04T16:05:33.5356407Z ##[endgroup]
+2026-11-04T16:05:33.5357554Z ##[group]GITHUB_TOKEN Permissions
+2026-11-04T16:05:33.5359993Z Contents: read
+2026-11-04T16:05:33.5360642Z Metadata: read
+2026-11-04T16:05:33.5361626Z ##[endgroup]
+2026-11-04T16:05:33.5364099Z Secret source: Actions
+2026-11-04T16:05:33.5365248Z Cache mode: write
+2026-11-04T16:05:33.5366143Z Prepare workflow directory
+2026-11-04T16:05:33.5768686Z Prepare all required actions
+2026-11-04T16:05:33.5830758Z Complete job name: Test (macos-latest)
+2026-11-04T16:05:33.6865648Z ##[group]Run if [ "$SHARDS_RESULT" != success ]; then
+2026-11-04T16:05:33.6956956Z [36;1mif [ "$SHARDS_RESULT" != success ]; then[0m
+2026-11-04T16:05:33.6958330Z [36;1m  echo "::error::test shards finished with: $SHARDS_RESULT" >&2[0m
+2026-11-04T16:05:33.6959510Z [36;1m  exit 1[0m
+2026-11-04T16:05:33.6960178Z [36;1mfi[0m
+2026-11-04T16:05:33.7307387Z shell: /usr/bin/bash -e {0}
+2026-11-04T16:05:33.7308600Z env:
+2026-11-04T16:05:33.7309265Z   GITLEAKS_VERSION: 8.30.1
+2026-11-04T16:05:33.7310610Z   GITLEAKS_CHECKSUM_LINUX_X64: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+2026-11-04T16:05:33.7312286Z   SHARDS_RESULT: abandoned
+2026-11-04T16:05:33.7313057Z ##[endgroup]
+2026-11-04T16:05:33.7603290Z ##[error]test shards finished with: abandoned
+2026-11-04T16:05:33.7618800Z ##[error]Process completed with exit code 1.
+2026-11-04T16:05:33.7777126Z Cleaning up orphan processes
