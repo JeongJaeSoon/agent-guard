@@ -1,0 +1,104 @@
+{
+  "fresh": {
+    "3.7.0": {
+      "wall_seconds_median": 1.7,
+      "cpu_seconds_median": 0.8400000000000001,
+      "max_child_peak_rss_kib_median": 45744,
+      "samples": [
+        {
+          "wall_seconds": 1.7,
+          "user_cpu_seconds": 0.68,
+          "system_cpu_seconds": 0.16,
+          "max_child_peak_rss_kib": 44912,
+          "exit": 0
+        },
+        {
+          "wall_seconds": 1.58,
+          "user_cpu_seconds": 0.64,
+          "system_cpu_seconds": 0.18,
+          "max_child_peak_rss_kib": 45992,
+          "exit": 0
+        },
+        {
+          "wall_seconds": 2.37,
+          "user_cpu_seconds": 1.15,
+          "system_cpu_seconds": 0.5,
+          "max_child_peak_rss_kib": 45744,
+          "exit": 0
+        }
+      ]
+    },
+    "3.7.1": {
+      "wall_seconds_median": 1.68,
+      "cpu_seconds_median": 0.83,
+      "max_child_peak_rss_kib_median": 45604,
+      "samples": [
+        {
+          "wall_seconds": 1.68,
+          "user_cpu_seconds": 0.68,
+          "system_cpu_seconds": 0.14,
+          "max_child_peak_rss_kib": 45604,
+          "exit": 0
+        },
+        {
+          "wall_seconds": 1.9,
+          "user_cpu_seconds": 0.69,
+          "system_cpu_seconds": 0.15,
+          "max_child_peak_rss_kib": 44144,
+          "exit": 0
+        },
+        {
+          "wall_seconds": 1.67,
+          "user_cpu_seconds": 0.69,
+          "system_cpu_seconds": 0.14,
+          "max_child_peak_rss_kib": 45992,
+          "exit": 0
+        }
+      ]
+    }
+  },
+  "update": {
+    "3.7.0_to_3.7.1": {
+      "wall_seconds_median": 2.02,
+      "cpu_seconds_median": 0.92,
+      "max_child_peak_rss_kib_median": 46000,
+      "samples": [
+        {
+          "wall_seconds": 2.02,
+          "user_cpu_seconds": 0.76,
+          "system_cpu_seconds": 0.18,
+          "max_child_peak_rss_kib": 44912,
+          "exit": 0
+        },
+        {
+          "wall_seconds": 1.79,
+          "user_cpu_seconds": 0.77,
+          "system_cpu_seconds": 0.15,
+          "max_child_peak_rss_kib": 46000,
+          "exit": 0
+        },
+        {
+          "wall_seconds": 2.1,
+          "user_cpu_seconds": 0.76,
+          "system_cpu_seconds": 0.15,
+          "max_child_peak_rss_kib": 46184,
+          "exit": 0
+        }
+      ]
+    }
+  },
+  "conditions": {
+    "image": "sha256:b4bb415311de1abaa4dc7f4026b5ad28e642b10af78d8481ac32a9e219420706",
+    "dependencies": "preinstalled jq1.7/git2.43.0/officialgitleaks8.30.1",
+    "network": "actual public downloads; wall includes network; no cross-platform inference",
+    "outer_cgroup": "4CPU/16GiB; Docker CgroupDriver none",
+    "rss_sum": "not sampled",
+    "repetitions": 3,
+    "order": [
+      "3.7.0,3.7.1",
+      "3.7.1,3.7.0",
+      "3.7.0,3.7.1"
+    ],
+    "updates": "separate containers after all fresh pairs; existing local note preserved"
+  }
+}
