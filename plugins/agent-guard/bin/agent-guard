@@ -6477,6 +6477,27 @@ shell_command_code() {
         esac
         ;;
     esac
+    # A $NAME this shell set to one plain word is that word, which may still
+    # be an option such as -c.
+    case "$git_child_code:$code_kind:$code_word" in
+      0:[14]:'$'*)
+        code_var=${code_word#?}
+        case "$code_kind:$code_var" in
+          4:'{'*'}') code_var=${code_var#?}; code_var=${code_var%?} ;;
+        esac
+        case "$code_var" in
+          ''|[0-9]*|*[!A-Za-z0-9_]*) ;;
+          *)
+            case "$git_args_set" in
+              *" $code_var "*)
+                code_word=$(printf '%s\n' "$git_command_vars" | sed -n "s/^A	$code_var	//p")
+                code_kind=0
+                ;;
+            esac
+            ;;
+        esac
+        ;;
+    esac
     [ "$code_kind" = 0 ] || return 1
     case "${code_word#"${code_word%%[!0-9]*}"}" in
       '<<<') code_state=here; continue ;;
@@ -6531,8 +6552,9 @@ shell_command_code() {
 # knows; eval, source, trap and IFS, which can do any of that unseen; or git
 # and the shells, whose code may read NAME in a child that lacks it.
 # "A<TAB>NAME<TAB>VALUE": the same for a VALUE that is one plain word, except
-# that git may run and $NAME may be glued to text other than a brace: an
-# unquoted $NAME git argument in this shell is that word.
+# that git or a shell may run and $NAME may be glued to text other than a
+# brace: an unquoted $NAME git argument, or a $NAME shell operand, in this
+# shell is that word.
 git_gate_command_vars() {
   printf '%s\n' "$2" | GGCV_CMD=$1 LC_ALL=C awk '
     function base(t) { sub(/.*\//, "", t); return t }
@@ -6617,6 +6639,9 @@ git_gate_command_vars() {
         if (kind == "2" || kind == "5" || kind == "6") abort = 1
         if (kind == "0" && tolower(base(t)) ~ (varhead ? external : unseen)) {
           if (tolower(base(t)) == "git") gitrun = 1
+          # A child shell cannot set NAME here, so only R is lost: its code
+          # may read NAME as a command name where NAME is unset.
+          else if (tolower(base(t)) ~ /^(sh|bash|dash|zsh|ksh|mksh|ash|yash|posh|csh|tcsh|fish)$/) shellrun = 1
           else abort = 1
         }
         if (namer != "") {
@@ -6680,7 +6705,7 @@ git_gate_command_vars() {
       # A command name that resolves to nothing known may be declare or read.
       for (nm in heads) if (!(nm in resolved)) abort = 1
       for (nm in used) if (!glued[nm]) printf "S\t%s\n", nm
-      if (!abort && !gitrun) for (nm in resolved) printf "R\t%s\t%s\n", nm, resolved[nm]
+      if (!abort && !gitrun && !shellrun) for (nm in resolved) printf "R\t%s\t%s\n", nm, resolved[nm]
       if (!abort) for (nm in plain) printf "A\t%s\t%s\n", nm, plain[nm]
     }
   '
