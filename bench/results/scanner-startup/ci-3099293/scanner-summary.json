@@ -1,0 +1,169 @@
+{
+  "head": "3099293be604a68e25fe706ac940c2743e98469f",
+  "run_id": 41902550673,
+  "comparisons": 126,
+  "verified": true,
+  "ordinary_regressions": [],
+  "targets": [
+    {
+      "host": "claude",
+      "audit_state": "cold",
+      "name": "many-replacement-leaves",
+      "verified": true,
+      "latency_change_percent": -62.83515868070151,
+      "cpu_change_percent": -62.57496861100026,
+      "baseline_ms": 972.666736,
+      "candidate_ms": 361.490049
+    },
+    {
+      "host": "codex",
+      "audit_state": "cold",
+      "name": "many-replacement-leaves",
+      "verified": true,
+      "latency_change_percent": -61.85869688351444,
+      "cpu_change_percent": -61.70497521804318,
+      "baseline_ms": 967.141429,
+      "candidate_ms": 368.88034400000004
+    },
+    {
+      "host": "claude",
+      "audit_state": "off",
+      "name": "many-replacement-leaves",
+      "verified": true,
+      "latency_change_percent": -66.75650148962006,
+      "cpu_change_percent": -66.53865738556168,
+      "baseline_ms": 921.763565,
+      "candidate_ms": 306.42645699999997
+    },
+    {
+      "host": "codex",
+      "audit_state": "off",
+      "name": "many-replacement-leaves",
+      "verified": true,
+      "latency_change_percent": -66.02594704115342,
+      "cpu_change_percent": -65.9607798414813,
+      "baseline_ms": 917.416204,
+      "candidate_ms": 311.683467
+    },
+    {
+      "host": "claude",
+      "audit_state": "warm",
+      "name": "many-replacement-leaves",
+      "verified": true,
+      "latency_change_percent": -48.202034289483954,
+      "cpu_change_percent": -47.87742205877994,
+      "baseline_ms": 669.815388,
+      "candidate_ms": 346.950745
+    },
+    {
+      "host": "codex",
+      "audit_state": "warm",
+      "name": "many-replacement-leaves",
+      "verified": true,
+      "latency_change_percent": -48.40710454093824,
+      "cpu_change_percent": -48.161828811197395,
+      "baseline_ms": 674.6267270000001,
+      "candidate_ms": 348.059462
+    }
+  ],
+  "load": {
+    "1": {
+      "public": {
+        "requests_per_second": 1.0873779793975178,
+        "max_child_peak_rss_kib": 64948.0,
+        "sampled_process_rss_peak_kib": 86924.0,
+        "cpu_seconds": 7.721258000000001
+      },
+      "candidate": {
+        "requests_per_second": 3.1919680546145353,
+        "max_child_peak_rss_kib": 36768.0,
+        "sampled_process_rss_peak_kib": 58152.0,
+        "cpu_seconds": 2.625482
+      }
+    },
+    "4": {
+      "public": {
+        "requests_per_second": 1.2414480523200835,
+        "max_child_peak_rss_kib": 65900.0,
+        "sampled_process_rss_peak_kib": 308236.0,
+        "cpu_seconds": 12.787415
+      },
+      "candidate": {
+        "requests_per_second": 3.7195008024497525,
+        "max_child_peak_rss_kib": 37404.0,
+        "sampled_process_rss_peak_kib": 199080.0,
+        "cpu_seconds": 4.2939039999999995
+      }
+    }
+  },
+  "platforms": {
+    "scanner-contracts-aarch64-unknown-linux-musl": {
+      "corpus": {
+        "cases": 230,
+        "failures": 0,
+        "config_sha256": "600185554fe3f53b2ab7d1459a70212e2242a8ab70bfe053ecefcc3015b1ed98",
+        "scanner_sha256": {
+          "public": "00e91bbe655bd7c47753e8cfe61cb76ea1a5d7e7702fe161ee40102b46b3823b",
+          "control": "02c087ee4f842db88f0f06de14841d87332971d6d911ef12580dc40fcbccaf6d",
+          "candidate": "42ab103e91fa5f05f7604fbef116168fd5bf8bdf56e2a2f59c1fc1380a7dde09"
+        }
+      },
+      "host": {
+        "passed": 90,
+        "failed": 0,
+        "native_invocation_verified": true
+      }
+    },
+    "scanner-contracts-aarch64-apple-darwin": {
+      "corpus": {
+        "cases": 230,
+        "failures": 0,
+        "config_sha256": "600185554fe3f53b2ab7d1459a70212e2242a8ab70bfe053ecefcc3015b1ed98",
+        "scanner_sha256": {
+          "public": "ba52fb1bfabbcde42f032afad3d6e0b19dff8ed105229a16e7caa338bbc0e84f",
+          "control": "06c8ff4ca9e825a45bc9b9673b9b1de3910889a137b35e7d04545db8c99c7136",
+          "candidate": "a0204755ca54da9beb2997e58c74b48ed28bf5caf8ca64724a9aced824d5f38e"
+        }
+      },
+      "host": {
+        "passed": 90,
+        "failed": 0,
+        "native_invocation_verified": true
+      }
+    },
+    "scanner-contracts-x86_64-apple-darwin": {
+      "corpus": {
+        "cases": 230,
+        "failures": 0,
+        "config_sha256": "600185554fe3f53b2ab7d1459a70212e2242a8ab70bfe053ecefcc3015b1ed98",
+        "scanner_sha256": {
+          "public": "cee01fea7173f1b779dff188e1c26ecbcb4027d394acc573b23aaf0be260e291",
+          "control": "cde75e564c75049d0807f0229f62c4f28230ec06e9fddc3e1bff2cb70996075c",
+          "candidate": "459a8e640effe38cd532737d53e7591ec62b3fa0a1629eff343efd1e0ebd6d94"
+        }
+      },
+      "host": {
+        "passed": 90,
+        "failed": 0,
+        "native_invocation_verified": true
+      }
+    },
+    "scanner-contracts-x86_64-unknown-linux-musl": {
+      "corpus": {
+        "cases": 230,
+        "failures": 0,
+        "config_sha256": "600185554fe3f53b2ab7d1459a70212e2242a8ab70bfe053ecefcc3015b1ed98",
+        "scanner_sha256": {
+          "public": "88f91962aa2f93ac6ab281d553b9e125f5197bbbce38f9f2437f7299c32e5509",
+          "control": "914fe9b538e9a5612dadbd865de5fcf39c7855c9b7fdf2f96d80e649432a2680",
+          "candidate": "ac0545f833be3710a632e33a41be0597b8262f178ded494b13398a33d762320c"
+        }
+      },
+      "host": {
+        "passed": 90,
+        "failed": 0,
+        "native_invocation_verified": true
+      }
+    }
+  }
+}
