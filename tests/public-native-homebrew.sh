@@ -18,7 +18,13 @@ if command -v cargo || command -v rustc; then
   echo 'Rust compiler visible on runtime test PATH' >&2; exit 1
 fi
 brew config > "$out/brew-config.txt"
-brew tap-new agent-guard-validation/releases
+# tap-new creates a local initial commit. Disposable runners need not have a
+# global Git identity; scope the synthetic identity to this temporary tap.
+GIT_AUTHOR_NAME='Agent Guard release validation' \
+GIT_AUTHOR_EMAIL='release-validation@example.invalid' \
+GIT_COMMITTER_NAME='Agent Guard release validation' \
+GIT_COMMITTER_EMAIL='release-validation@example.invalid' \
+  brew tap-new agent-guard-validation/releases
 tap=$(brew --repo agent-guard-validation/releases)
 mkdir -p "$tap/Formula"
 curl -fsSL "https://github.com/JeongJaeSoon/agent-guard/releases/download/v$previous/agent-guard.rb" -o "$tap/Formula/agent-guard.rb"
