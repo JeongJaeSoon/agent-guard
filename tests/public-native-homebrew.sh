@@ -18,14 +18,15 @@ if command -v cargo || command -v rustc; then
   echo 'Rust compiler visible on runtime test PATH' >&2; exit 1
 fi
 brew config > "$out/brew-config.txt"
-# tap-new creates a local initial commit. Disposable runners need not have a
-# global Git identity; scope the synthetic identity to this temporary tap.
-GIT_AUTHOR_NAME='Agent Guard release validation' \
-GIT_AUTHOR_EMAIL='release-validation@example.invalid' \
-GIT_COMMITTER_NAME='Agent Guard release validation' \
-GIT_COMMITTER_EMAIL='release-validation@example.invalid' \
-  brew tap-new agent-guard-validation/releases
+# Homebrew resets author environment variables in tap-new. Initialise its
+# temporary Git repository ourselves without changing global Git settings.
+brew tap-new --no-git agent-guard-validation/releases
 tap=$(brew --repo agent-guard-validation/releases)
+git -C "$tap" init --initial-branch=main
+git -C "$tap" add --all
+git -C "$tap" -c user.name='Agent Guard release validation' \
+  -c user.email='release-validation@example.invalid' -c commit.gpgsign=false \
+  commit -m 'Create disposable release-validation tap'
 mkdir -p "$tap/Formula"
 curl -fsSL "https://github.com/JeongJaeSoon/agent-guard/releases/download/v$previous/agent-guard.rb" -o "$tap/Formula/agent-guard.rb"
 brew install agent-guard-validation/releases/agent-guard > "$out/install-old.log" 2>&1
