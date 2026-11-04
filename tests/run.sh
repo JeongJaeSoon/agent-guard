@@ -11532,6 +11532,97 @@ else
   sed 's/^/  out: /' "$OUT"
 fi
 
+# A document tool's draft read returns a `d<n>:`-prefixed base64 snapshot
+# token for optimistic locking, and the next update has to echo it verbatim.
+# Masking it made every draft update impossible, and the prompt guard blocked
+# a prompt quoting it. Only that shape under the exact snapshot-token key is
+# exempt; the same value under any other secret key, a qualified key, the env
+# form, or a differently shaped value still masks.
+SNAP_ST=$(printf '%s%s' snapshot Token)
+SNAP_SNAKE=$(printf '%s%s' snapshot _token)
+SNAP_ENV=$(printf '%s%s' SNAPSHOT _TOKEN)
+SNAP_AT=$(printf '%s%s' access _token)
+SNAP_AUTH=$(printf '%s%s' Author ization)
+SNAP_BEARER=$(printf 'Ab9%s' "$(od -An -N14 -tx1 /dev/urandom | tr -d ' \n')")
+SNAP_URL=d1:$(head -c 48 /dev/urandom | base64 | tr '+/' '-_' | tr -d '=\n')
+SNAP_STD=d7:$(head -c 32 /dev/urandom | base64 | tr -d '\n')
+SNAP_PAD=d1:$(head -c 31 /dev/urandom | base64 | tr -d '\n')
+SNAP_SECRET=$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')
+for snap_host in claude codex; do
+  for snap_text in "{\"id\":\"1\",\"$SNAP_ST\":\"$SNAP_URL\",\"status\":\"draft\"}" \
+                   "{\"$SNAP_ST\": \"$SNAP_STD\"}" \
+                   "{\"$SNAP_SNAKE\":\"$SNAP_PAD\"}" \
+                   "$SNAP_SNAKE: $SNAP_URL"; do
+    snap_input=$(jq -nc --arg t "$snap_text" \
+      '{tool_name:"mcp__example__getDraft",tool_input:{},tool_response:{content:[{type:"text",text:$t}]}}')
+    printf '%s' "$snap_input" \
+      | (cd "$TMP_ROOT" && AGENT_GUARD_HOOK_HOST=$snap_host \
+          "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool) >"$OUT" 2>"$ERR"
+    if [ "$?" -eq 0 ] && [ ! -s "$OUT" ]; then
+      ok "post-tool leaves a draft snapshot token visible ($snap_host)"
+    else
+      not_ok "post-tool leaves a draft snapshot token visible ($snap_host)"
+      sed 's/^/  out: /' "$OUT"
+    fi
+  done
+
+  run_expect 0 "prompt guard allows a prompt quoting a draft snapshot token ($snap_host)" \
+    prompt_guard_case "$snap_host" '' '' "$(jq -nc --arg p \
+      "publish the draft with {\"$SNAP_ST\": \"$SNAP_URL\"}" '{prompt:$p}')"
+done
+
+snap_case=0
+for snap_text in \
+  "{\"$VREF_PW\":\"$SNAP_URL\"}" \
+  "{\"$VREF_AK\":\"$SNAP_URL\"}" \
+  "{\"$SNAP_AT\":\"$SNAP_URL\"}" \
+  "{\"${SNAP_ST}_id\":\"$SNAP_URL\"}" \
+  "{\"my$(printf '%s%s' Snapshot Token)\":\"$SNAP_URL\"}" \
+  "$SNAP_ENV=$SNAP_URL" \
+  "{\"$SNAP_ST\":\"x1:$SNAP_SECRET\"}" \
+  "{\"$SNAP_ST\":\"$SNAP_SECRET\"}" \
+  "{\"$SNAP_ST\":\"d1:eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.$SNAP_SECRET\"}"; do
+  snap_case=$((snap_case + 1))
+  snap_input=$(jq -nc --arg t "$snap_text" \
+    '{tool_name:"mcp__example__getDraft",tool_input:{},tool_response:{content:[{type:"text",text:$t}]}}')
+  post_tool_out "$snap_input"
+  if grep -q '\[REDACTED\]' "$OUT" \
+     && ! grep -Fq "$SNAP_URL" "$OUT" && ! grep -Fq "$SNAP_SECRET" "$OUT"; then
+    ok "post-tool still masks a snapshot-shaped value elsewhere or another shape (case $snap_case)"
+  else
+    not_ok "post-tool still masks a snapshot-shaped value elsewhere or another shape (case $snap_case)"
+    sed 's/^/  out: /' "$OUT"
+  fi
+done
+
+snap_input=$(jq -nc \
+  --arg t "{\"$SNAP_ST\":\"$SNAP_URL\",\"$VREF_PW\":\"$SNAP_SECRET\"}" \
+  '{tool_name:"mcp__example__getDraft",tool_input:{},tool_response:{content:[{type:"text",text:$t}]}}')
+snap_expected=$(printf '{"%s":"%s","%s":"[%s]"}' "$SNAP_ST" "$SNAP_URL" "$VREF_PW" REDACTED)
+post_tool_out "$snap_input"
+if jq -e --arg expected "$snap_expected" \
+     '.hookSpecificOutput.updatedToolOutput.content[0].text == $expected' \
+     "$OUT" >/dev/null 2>&1; then
+  ok "post-tool keeps a draft snapshot token and masks a secret in the same response"
+else
+  not_ok "post-tool keeps a draft snapshot token and masks a secret in the same response"
+  sed 's/^/  out: /' "$OUT"
+fi
+
+snap_input=$(jq -nc \
+  --arg t "$(printf '{"%s":"%s"}\n%s: Bearer %s' "$SNAP_ST" "$SNAP_URL" "$SNAP_AUTH" "$SNAP_BEARER")" \
+  '{tool_name:"mcp__example__getDraft",tool_input:{},tool_response:{content:[{type:"text",text:$t}]}}')
+snap_expected=$(printf '{"%s":"%s"}\n%s: Bearer [%s]' "$SNAP_ST" "$SNAP_URL" "$SNAP_AUTH" REDACTED)
+post_tool_out "$snap_input"
+if jq -e --arg expected "$snap_expected" \
+     '.hookSpecificOutput.updatedToolOutput.content[0].text == $expected' \
+     "$OUT" >/dev/null 2>&1; then
+  ok "post-tool keeps a draft snapshot token and masks a bearer token in the same response"
+else
+  not_ok "post-tool keeps a draft snapshot token and masks a bearer token in the same response"
+  sed 's/^/  out: /' "$OUT"
+fi
+
 # A secret-bearing key with a boolean or null value is a config flag, not a
 # credential. Masking `true`/`false` also made the literal global, so the same
 # word vanished from unrelated prose in the response, and the prompt guard
