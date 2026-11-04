@@ -513,6 +513,7 @@ for host in claude codex; do
   printf '%s' '{"tool_name":"Read","tool_input":{},"tool_response":{"stdout":"API_KEY=diagnostic-fixture","clean":"visible"}}' \
     | env AGENT_GUARD_LOG_MODE=off AGENT_GUARD_RELEASE_CHECK=off \
         AGENT_GUARD_GITLEAKS_BIN="$SLOW_BIN/gitleaks" AGENT_GUARD_HOOK_HOST="$host" \
+        AGENT_GUARD_SESSION_ID="diagnostic-$host" \
         AGENT_GUARD_INFRA_FAILURE_MODE=open AGENT_GUARD_WARNING_DIR="$CASE_ROOT/post-$host" \
         "$GUARD" hook-post-tool >"$CASE_ROOT/out" 2>"$CASE_ROOT/err"
   status=$?
@@ -524,6 +525,18 @@ for host in claude codex; do
     ok "$host post-tool preserves the same-invocation readiness reason without private data"
   else
     not_ok "$host post-tool readiness diagnostic contract (status $status)"
+  fi
+  printf '%s' '{"tool_name":"Read","tool_input":{},"tool_response":"ordinary"}' \
+    | env AGENT_GUARD_LOG_MODE=off AGENT_GUARD_RELEASE_CHECK=off \
+        AGENT_GUARD_GITLEAKS_BIN="$SLOW_BIN/gitleaks" AGENT_GUARD_HOOK_HOST="$host" \
+        AGENT_GUARD_SESSION_ID="diagnostic-$host" \
+        AGENT_GUARD_INFRA_FAILURE_MODE=open AGENT_GUARD_WARNING_DIR="$CASE_ROOT/post-$host" \
+        "$GUARD" hook-post-tool >"$CASE_ROOT/out" 2>"$CASE_ROOT/err"
+  status=$?
+  if [ "$status" -eq 0 ] && [ ! -s "$CASE_ROOT/err" ] && [ ! -s "$CASE_ROOT/out" ]; then
+    ok "$host readiness detail preserves once-per-session open warnings"
+  else
+    not_ok "$host repeats a suppressed readiness diagnostic (status $status)"
   fi
 done
 
