@@ -61,3 +61,20 @@ Codex 지연 1.090 → 0.414초, CPU 1.159 → 0.439초였다.
 Homebrew 경로의 회귀, scanner 공급 출처·업데이트·복구·상위 유지보수 검증이
 해결되지 않았으므로 기존의 전체 scanner 일괄 교체 기각 결론은 바꾸지 않는다.
 설치 방식이나 호스트 계약을 깨야 한다는 근거, v4 필요성도 추가로 발견하지 못했다.
+
+
+## 실제 공개 v3.7.0 bootstrap 기준 측정
+
+별도 `public-v3.7.0-bootstrap.tar.gz`는 compiler가 없는 Ubuntu 24.04의
+일회용 컨테이너 3개에 실제 공개 v3.7.0을 새로 설치한 원시 자료다. 기존 jq,
+git, 공식 gitleaks가 있는 상태이며 인터넷 다운로드·체크섬·압축 해제·setup·
+기본 shell integration을 포함한다. 의존성 설치, Docker 이미지 준비, Claude/
+Codex 애플리케이션 등록은 측정 밖이다. 일반 컨테이너 HOME=/root를 사용했고
+사용자의 실제 HOME이나 설정을 변경하지 않았다.
+
+중앙값은 설치 1.64초, CPU 0.81초, 최대 자식 RSS 44.8 MiB였다. 표본 RSS 합은
+이 설치 측정에서 수집하지 않았다. 네트워크에 영향받는 3회 기준 관측이며
+미래 버전의 설치 개선율로 표현하지 않는다. 설치 후 네 플랫폼 native 자산의
+체크섬과 smoke-test가 모두 통과했다. 실제 Claude/Codex 도구 dispatch가
+관측됐다는 뜻은 아니다. Docker의 CgroupDriver는 none이며 외부 4 CPU/16 GiB
+제한만 확인했다. 소스 빌드는 이 일반 bootstrap 과정에서 필요하지 않았다.
