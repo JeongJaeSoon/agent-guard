@@ -93,6 +93,7 @@ jobs:
           ! command -v cargo
           ! command -v rustc
           export AGENT_GUARD_NATIVE_ARTIFACT_DIR="$RUNNER_TEMP/native"
+          sh tests/tempdir-failure.sh > "$RUNNER_TEMP/install-evidence/tempdir-failure.log" 2>&1
           sh tests/native-install.sh > "$RUNNER_TEMP/install-evidence/install.log" 2>&1
           sh tests/bootstrap-update.sh > "$RUNNER_TEMP/install-evidence/bootstrap.log" 2>&1
           case "$(uname -s):$(uname -m)" in
