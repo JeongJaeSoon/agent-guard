@@ -36,7 +36,13 @@ git rev-parse HEAD > "$out/checkout-sha.txt"
 run sh -c 'uname -a; jq --version; sha256sum /scanner/*/gitleaks /public/bin/agent-guard /repo/plugins/agent-guard/config/gitleaks.toml' > "$out/environment.txt"
 run cat /proc/cpuinfo > "$out/cpuinfo.txt"
 core=/public/libexec/agent-guard-redact-x86_64-unknown-linux-musl
-run env AGENT_GUARD_GITLEAKS_BIN=/scanner/candidate/gitleaks AGENT_GUARD_RUST_CORE_BIN="$core" AGENT_GUARD_TEST_SHARD=4 sh tests/native-suite.sh > "$out/output-corpus.log" 2>&1
+run env AGENT_GUARD_RUST_CORE_BIN="$core" AGENT_GUARD_TEST_SHARD=4 sh -c '
+  # Preserve the suite mocks; its real-scanner block discovers this candidate.
+  PATH=/scanner/candidate:$PATH
+  export PATH
+  unset AGENT_GUARD_GITLEAKS_BIN
+  exec sh tests/native-suite.sh
+' > "$out/output-corpus.log" 2>&1
 for mode in off cold warm; do
   for host in claude codex; do
     run agent-guard-devtools masking-latency --baseline /public/bin/agent-guard --binary /public/bin/agent-guard \

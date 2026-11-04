@@ -116,6 +116,14 @@ masking extra clean content or weakening a failure boundary is a failed
 experiment. Repeated successful checks after an intermittent failure do not
 establish its cause; retain the failed fixture, stdout and stderr when available.
 
+When the scanner itself is the experiment, identify that variable explicitly.
+Compare the official scanner, a rebuild with the original dependencies, and the
+candidate built with the same compiler and flags. Record binary hashes and
+dependency versions; an unchanged version string does not establish identical
+behavior. Test audit logging off and on, with both cold and warm readiness
+caches. A faster experimental scanner is not a supported installation until
+its detection, platform, update and recovery checks pass.
+
 
 ```sh
 agent-guard doctor
