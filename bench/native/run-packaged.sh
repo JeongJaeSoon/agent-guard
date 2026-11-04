@@ -33,6 +33,7 @@ printf '%s\n' "$limits" > "$out/enforced-limits.txt"
 core=/repo/plugins/agent-guard/libexec/agent-guard-redact-x86_64-unknown-linux-musl
 old=/baseline/plugins/agent-guard/bin/agent-guard
 run sh -c 'uname -a; jq --version; /scanner/gitleaks version; sha256sum plugins/agent-guard/bin/agent-guard plugins/agent-guard/libexec/agent-guard-redact-* /scanner/gitleaks; dpkg-query -W dash gawk libc6; date -u' > "$out/environment.txt"
+run cat /proc/cpuinfo > "$out/cpuinfo.txt"
 run agent-guard-devtools native-redaction --core "$core" > "$out/differential.json"
 run agent-guard-devtools native-integration --core "$core" --scanner /scanner/gitleaks > "$out/integration.json"
 run sh tests/native-packaged.sh "$core" /scanner/gitleaks > "$out/packaged.log"
@@ -61,3 +62,4 @@ for workers in 1 4; do
 done
 run agent-guard-devtools masking-latency --baseline "$old" --native-core "$core" --packaged-native \
   --scanner /scanner/gitleaks --runs 21 --resources --case small-clean > "$out/cli-clean-followup.json" 2> "$out/cli-clean-followup.log"
+sh bench/native/assess-packaged.sh "$out"

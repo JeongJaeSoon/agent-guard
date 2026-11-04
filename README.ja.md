@@ -1,4 +1,4 @@
-<!-- translated-from: README.md; source-blob: f24030f908fb7bfe371e9e4da72cbdeb225d1317 -->
+<!-- translated-from: README.md; source-blob: f5b84578e7b4a21fc467c55f0d61fda258c7b9a7 -->
 
 <p align="center">
   <a href="https://github.com/JeongJaeSoon/agent-guard/releases"><img src="docs/assets/icon.png" alt="Agent Guard icon" width="128" height="128"></a>
@@ -98,6 +98,8 @@ agent-guard logs export --output agent-guard-support.jsonl
 <a id="requirements-and-scope"></a>
 
 ## 動作要件と対象範囲
+
+リリースアーカイブとHomebrewパッケージは、チェックサム検証とshellへのフォールバックを備えたビルド済みRust文字列置換ヘルパーを使います。Rustは実行時の依存関係ではなく、検出・ポリシー・host adapterはshellに残ります。Git marketplaceプラグインはソースのみで配布します。プラットフォーム要件、明示的なshell選択、ビルド済みヘルパーの利用方法は[インストールガイド](docs/installation.ja.md)を参照してください。
 
 対応プラットフォームはx64・arm64のmacOSとLinuxです。実行時には `sh`、`awk`、`git`、`jq`、gitleaks 8.30以降が必要です。現在Windowsには対応していません。gitleaksのバージョン確認を独立したプロセスグループで実行するため、Linuxの `util-linux` に含まれる `setsid`、またはPerlも必要です。`agent-guard doctor` は隔離ツールがなければ、プラットフォームに合った導入コマンドを表示します。
 

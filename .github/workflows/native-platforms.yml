@@ -98,6 +98,8 @@ jobs:
             exit 1
           fi
           export AGENT_GUARD_NATIVE_ARTIFACT_DIR="$RUNNER_TEMP/native"
+          sh tests/packaged-performance-gate.sh > "$RUNNER_TEMP/install-evidence/performance-gate.log" 2>&1
+          sh tests/native-release.sh > "$RUNNER_TEMP/install-evidence/release-selection.log" 2>&1
           sh tests/tempdir-failure.sh > "$RUNNER_TEMP/install-evidence/tempdir-failure.log" 2>&1
           sh tests/native-install.sh > "$RUNNER_TEMP/install-evidence/install.log" 2>&1
           sh tests/bootstrap-update.sh > "$RUNNER_TEMP/install-evidence/bootstrap.log" 2>&1

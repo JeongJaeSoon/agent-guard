@@ -280,14 +280,29 @@ esac
 for destination do :; done
 case "$destination:${QA_INSTALL_FAULT:-}" in
   */.agent-guard-update.*/previous:interrupt) kill -TERM "$PPID" ;;
+  */.agent-guard-update.*/previous:interrupt-int) kill -INT "$PPID" ;;
 esac
 FAULT
 chmod +x "$CASE_ROOT/fault-bin/tar" "$CASE_ROOT/fault-bin/mv"
-for fault in extract commit interrupt link; do
+# CI partitions run as asynchronous children and can inherit SIGINT ignored.
+# A POSIX shell cannot restore a signal ignored when it starts. Use the Perl
+# already used by the runtime's portable process launcher to give the installer
+# a foreground-like signal disposition, including on macOS /bin/sh.
+command -v perl >/dev/null 2>&1 || { echo 'signal fault tests require perl' >&2; exit 1; }
+for fault in extract commit interrupt interrupt-int link; do
+  fault_status=0
   if PATH="$CASE_ROOT/fault-bin:$PATH" QA_INSTALL_FAULT="$fault" \
-    AGENT_GUARD_BIN_DIR="$CASE_ROOT/custom bin" sh "$ROOT/bootstrap.sh" >"$CASE_ROOT/out" 2>"$CASE_ROOT/err"; then
+    AGENT_GUARD_BIN_DIR="$CASE_ROOT/custom bin" \
+    perl -e '$SIG{INT} = "DEFAULT"; $SIG{TERM} = "DEFAULT"; exec @ARGV; die "exec installer: $!"' \
+      sh "$ROOT/bootstrap.sh" >"$CASE_ROOT/out" 2>"$CASE_ROOT/err"; then
     echo "fault did not fail the installation: $fault" >&2; exit 1
+  else
+    fault_status=$?
   fi
+  case "$fault" in
+    interrupt) [ "$fault_status" -eq 143 ] ;;
+    interrupt-int) [ "$fault_status" -eq 130 ] ;;
+  esac
   installed_state_unchanged
   check "transaction $fault failure restores the working install and public link"
 done

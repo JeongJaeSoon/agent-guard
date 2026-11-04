@@ -1,11 +1,13 @@
-# Experimental Rust literal redactor
+# Rust literal redactor
 
-The normal CLI continues to use the shell/jq implementation. The optional Rust
-helper replaces only `redact_tool_response_json`: detection, scan limits, PII,
-policy, binary handling and host envelopes stay in the CLI. This is a development
-experiment, not a complete Rust rewrite or a supported binary release.
+The v3.7 release archive includes a prebuilt Rust helper, selected by default
+for `redact_tool_response_json`. Detection, scan limits, PII, policy, binary
+handling and host envelopes stay in the shell CLI. This is not a complete Rust
+rewrite. Users need no Rust compiler. Missing or failing helpers safely return
+to shell/jq; `AGENT_GUARD_EXPERIMENTAL_REDACTOR=shell` explicitly selects shell.
+The existing environment-variable name is retained for compatibility.
 
-Build with Rust 1.85.1 or later:
+Developers can still build an explicit override with Rust 1.85.1 or later:
 
 ```sh
 cargo build --release --locked --manifest-path native/redaction-core/Cargo.toml
@@ -13,13 +15,33 @@ export AGENT_GUARD_EXPERIMENTAL_REDACTOR=rust
 export AGENT_GUARD_RUST_CORE_BIN="$PWD/native/redaction-core/target/release/agent-guard-redact"
 ```
 
-The binary path must be absolute and executable. Without an override the CLI
-looks in its plugin's `libexec/agent-guard-redact`. Missing helpers, nonzero exits
-and unsupported requests return to the existing jq implementation. Partial
-helper output is discarded. The executable is trusted code, like the configured
-scanner; do not select an untrusted binary. No compilation or download occurs at
-runtime. Running a prebuilt helper does not require Rust, but portable platform
-artifacts and installer integration remain future work.
+The override must be absolute and executable. It retains the existing trusted
+executable contract, as does a manually installed legacy `libexec/agent-guard-redact`.
+Otherwise the CLI selects the packaged platform helper and verifies its sidecar
+checksum before executing it. Missing helpers, nonzero exits and unsupported
+requests return to jq. Empty, partial or multiple JSON outputs are discarded.
+No compilation or download occurs during masking.
+
+## Source-only host plugins
+
+Git marketplace plugins and source archives contain no binaries. They retain
+shell fallback by default. To use a prebuilt helper without changing a host's
+plugin cache, install the standalone release of the same version, verify its
+helper, then expose the existing override to the host's launch environment.
+Choose the exact target from the platform table below; this example is Linux x64:
+
+```sh
+target=x86_64-unknown-linux-musl
+native_root="$HOME/.agent-guard/libexec"
+(cd "$native_root" && shasum -a 256 -c "agent-guard-redact-$target.sha256") &&
+  export AGENT_GUARD_RUST_CORE_BIN="$native_root/agent-guard-redact-$target"
+```
+
+For Homebrew the helper directory is `$(brew --prefix agent-guard)/libexec/libexec`.
+Restart the host with the verified environment; this does not register or replace
+its hooks. Explicit overrides do not recheck the sidecar on every request, so
+only point at a trusted installation. Unset the override to return to the
+plugin-local selection, or select `shell` to disable native execution entirely.
 
 The one-shot `redact-v1` protocol reads one UTF-8 JSON object from stdin:
 `{"protocol":1,"response":...,"secrets":[...]}`. It emits a complete JSON response
@@ -60,9 +82,9 @@ syntax. Preserve the executable-boundary fixtures for numbers, duplicate keys,
 Unicode, invalid bytes, limits and partial failures; shell source-extraction
 tests alone do not exercise a native implementation.
 
-Default activation needs Linux/macOS × x64/arm64 artifacts, checksums, payload
-completeness, launcher/protocol compatibility and interrupted-update/rollback
-checks. The shell launcher still owns version resolution. A persistent daemon
+Release qualification requires Linux/macOS × x64/arm64 artifacts, checksums,
+payload completeness, launcher/protocol compatibility and interrupted-update/
+rollback checks. The shell launcher still owns version resolution. A persistent daemon
 would add secret lifetime, IPC authentication and session-isolation concerns;
 this experiment keeps one-shot execution.
 
@@ -84,13 +106,15 @@ does not satisfy this gate. The aggregate fails if any platform fails.
 The build record includes the source SHA, compiler, actual OS/architecture and
 dynamic-library inspection. CI artifacts contain the executable, SHA-256 file,
 and execution evidence. Verify in the artifact directory with
-`shasum -a 256 -c agent-guard-redact-TARGET.sha256` (replace `TARGET`). These are
-qualification artifacts, not a published v3.7.0 release. Linux kernel portability
-beyond the tested runners is not established by static linking alone. Existing
-shell support remains unchanged. Installer/update validation and performance
-qualification must pass before default activation or a release.
+`shasum -a 256 -c agent-guard-redact-TARGET.sha256` (replace `TARGET`).
+The release workflow only publishes artifacts built from its exact
+reviewed main commit after successful native execution and installation checks.
+The public release provides each binary and checksum as well as the universal
+archive. Linux kernel portability beyond the tested runners and execution on
+macOS 14 are not established by static linking or deployment-target settings.
+Existing shell support and failure fallback remain unchanged.
 
-## Packaged helper integration (qualification)
+## Packaged helper integration
 
 The archive builder accepts `AGENT_GUARD_NATIVE_ARTIFACT_DIR`, a directory with
 all four `agent-guard-redact-TARGET` executables and their `.sha256` files. It
@@ -98,7 +122,7 @@ verifies every checksum before including `libexec/` in the existing universal
 archive. Bootstrap verifies that complete native payload before staging an
 installation. A source-only archive still works through shell/jq.
 
-In opt-in Rust mode, absent an explicit developer binary override or legacy
+In default Rust mode, absent an explicit developer binary override or legacy
 `libexec/agent-guard-redact`, the CLI selects the packaged target using the
 running OS and architecture, verifies its checksum, then executes it. A missing,
 changed, non-executable or failing helper falls back to shell/jq. Empty,
@@ -127,6 +151,16 @@ and failure contracts on all four platforms without Rust on PATH.
 platform selection and checksum cost, against shell source
 `9a0ee9eb2eed1e60b78d4404f985b077149c675d` (v3.6.14 plus the subsequent
 snapshot-token compatibility fix, also present in the candidate).
-Raw results go to a new directory and every measured output is verified. A
-successful collection is not a performance verdict: review the 10% improvement
-and 5% regression criteria before default activation.
+Raw results go to a new directory and every measured output is verified.
+`assess-packaged.sh` checks the measured identities, enforced limits and the
+10% target improvement / 5% general latency regression criteria. Its result is
+separate from final CI and public-release verification. The [packaged-runtime
+qualification record (Korean)](rust-packaged-validation.ko.md) preserves the
+pre-default measurements separately from the historical experiment.
+
+After publication, `public-native-release.yml` checks actual public assets,
+compiler-free fresh installs and updates from v3.6.15 on all four native
+platforms, plus public Homebrew formula upgrades and canonical tap installs on
+Linux x64 and both macOS architectures. Those results must be inspected before claiming
+release validation is complete. Its `previous_version` input also supports
+v3.6.14, the baseline used by the candidate installation tests.

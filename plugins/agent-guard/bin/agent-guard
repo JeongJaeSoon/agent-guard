@@ -2,7 +2,7 @@
 set -u
 
 PROGRAM=agent-guard
-VERSION=3.6.15
+VERSION=3.7.0
 
 # Resolve the script's own path, following symlinks. The bootstrap installer
 # drops a symlink at ~/.local/bin/agent-guard that points into ~/.agent-guard/
@@ -9326,11 +9326,13 @@ detect_printenv_argument_secret_records() {
   # argv: the original command can fit while jq's extra argv entries cross
   # ARG_MAX. NUL is the only byte a process argument cannot contain, so this
   # preserves every argument boundary without reserving another sentinel.
-  if ! printf '%s\0' "$@" >"$printenv_args_file" \
+  # jq 1.6 raw slurp drops a final NUL. Append a non-NUL terminal field so the
+  # preceding argument delimiter survives, then validate/remove only that field.
+  if ! { printf '%s\0' "$@" && printf '.'; } >"$printenv_args_file" \
     || ! jq -Rsc '
     def trim_trailing_newlines: sub("\n+$"; "");
     (split("\u0000")
-     | if length > 0 and .[-1] == "" then .[:-1]
+     | if length > 1 and .[-1] == "." then .[:-1]
        else error("unterminated printenv argument stream")
        end) as $args
     | {entries:
@@ -9541,14 +9543,18 @@ redact_tool_response_json() {
   resp=$1
   secrets=$2
   [ -n "$secrets" ] || return 1
-  # Explicit experiment only. A missing/failed native helper falls back to the
-  # established jq contract; partial helper stdout is never published.
-  if [ "${AGENT_GUARD_EXPERIMENTAL_REDACTOR:-}" = rust ]; then
-    rust_core=${AGENT_GUARD_RUST_CORE_BIN:-"$ROOT_DIR/libexec/agent-guard-redact"}
+  # Prefer the qualified packaged helper. Explicit shell/empty selections keep
+  # the established jq contract; failed/partial helper stdout is never published.
+  if [ "${AGENT_GUARD_EXPERIMENTAL_REDACTOR-rust}" = rust ]; then
+    rust_core=${AGENT_GUARD_RUST_CORE_BIN:-}
+    if [ -z "$rust_core" ] && [ -n "${ROOT_DIR:-}" ]; then
+      rust_core="$ROOT_DIR/libexec/agent-guard-redact"
+    fi
     # Explicit developer overrides retain their trusted-executable contract.
     # Packaged helpers are selected only for the running architecture and must
     # match the checksum shipped inside the checksum-verified release archive.
-    if [ -z "${AGENT_GUARD_RUST_CORE_BIN:-}" ] && [ ! -e "$rust_core" ]; then
+    if [ -z "${AGENT_GUARD_RUST_CORE_BIN:-}" ] && [ -n "${ROOT_DIR:-}" ] \
+        && [ -d "$ROOT_DIR/libexec" ] && [ ! -e "$rust_core" ]; then
       rust_target=
       case "$(uname -s):$(uname -m)" in
         Linux:x86_64|Linux:amd64) rust_target=x86_64-unknown-linux-musl ;;

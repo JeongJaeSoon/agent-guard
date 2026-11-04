@@ -1,0 +1,424 @@
+{
+  "performance_gate_passed": true,
+  "limits": {
+    "cpu": 2,
+    "memory_bytes": 1073741824,
+    "swap_bytes": 0
+  },
+  "source_sha256": {
+    "baseline": "aca5c65a1943d0f64aa44957c8158c1058928d3151cf1e3772085153e00504ba",
+    "candidate": "a08a30c57382417aebd8c435e3ac1ae958ca27fc1afa67c37e963a10aedb4584"
+  },
+  "scanner_sha256": "88f91962aa2f93ac6ab281d553b9e125f5197bbbce38f9f2437f7299c32e5509",
+  "initial_cli": [
+    {
+      "host": "claude",
+      "name": "small-clean",
+      "latency_change_percent": 0.25553958786741493,
+      "cpu_change_percent": 0.37217423840854025,
+      "max_child_peak_rss_change_percent": 0.5021025544467372
+    },
+    {
+      "host": "claude",
+      "name": "long-line",
+      "latency_change_percent": 1.4583004322151316,
+      "cpu_change_percent": 1.5952671304785282,
+      "max_child_peak_rss_change_percent": 1.310731615098626
+    },
+    {
+      "host": "claude",
+      "name": "long-multiline",
+      "latency_change_percent": 2.2121317749425273,
+      "cpu_change_percent": 1.7731690324488847,
+      "max_child_peak_rss_change_percent": 0.6037356141123107
+    },
+    {
+      "host": "claude",
+      "name": "escaped-control",
+      "latency_change_percent": 1.4938740490429314,
+      "cpu_change_percent": 0.9837446079522527,
+      "max_child_peak_rss_change_percent": 0.386798926944909
+    },
+    {
+      "host": "claude",
+      "name": "many-lines",
+      "latency_change_percent": 1.9459397825328573,
+      "cpu_change_percent": 1.8083005177493616,
+      "max_child_peak_rss_change_percent": 0.20671510899523682
+    },
+    {
+      "host": "claude",
+      "name": "many-replacement-leaves",
+      "latency_change_percent": -26.96537516967794,
+      "cpu_change_percent": -25.989951336865623,
+      "max_child_peak_rss_change_percent": 0.3078856424756582
+    },
+    {
+      "host": "claude",
+      "name": "dense-controls",
+      "latency_change_percent": -0.7594631019413378,
+      "cpu_change_percent": -0.04236156360103438,
+      "max_child_peak_rss_change_percent": -2.0191822311963703
+    },
+    {
+      "host": "claude",
+      "name": "exec-multiline",
+      "latency_change_percent": -0.2804529361945418,
+      "cpu_change_percent": -0.22266050760367806,
+      "max_child_peak_rss_change_percent": 0.5125609061570557
+    },
+    {
+      "host": "claude",
+      "name": "exec-clean",
+      "latency_change_percent": -0.22430012056448012,
+      "cpu_change_percent": -0.6739073047478894,
+      "max_child_peak_rss_change_percent": -0.10744532928833594
+    },
+    {
+      "host": "claude",
+      "name": "exec-long-quoted-secret",
+      "latency_change_percent": -0.033738830368135186,
+      "cpu_change_percent": 0.09421101049622571,
+      "max_child_peak_rss_change_percent": 0.2884193366355259
+    },
+    {
+      "host": "claude",
+      "name": "placeholder-control",
+      "latency_change_percent": 0.3767094037897323,
+      "cpu_change_percent": 0.10979462678537555,
+      "max_child_peak_rss_change_percent": -0.4000750140651377
+    },
+    {
+      "host": "claude",
+      "name": "metadata-control",
+      "latency_change_percent": -0.14061370298197318,
+      "cpu_change_percent": 0.3129217922365424,
+      "max_child_peak_rss_change_percent": 0.6952784274066204
+    },
+    {
+      "host": "claude",
+      "name": "prose-control",
+      "latency_change_percent": 0.021115148376904536,
+      "cpu_change_percent": -0.28164803041096365,
+      "max_child_peak_rss_change_percent": -0.2890355010995882
+    },
+    {
+      "host": "claude",
+      "name": "exec-over-cap-1048576",
+      "latency_change_percent": 0.1573386711394953,
+      "cpu_change_percent": 0.1912250315399433,
+      "max_child_peak_rss_change_percent": 0.6758469206724627
+    },
+    {
+      "host": "claude",
+      "name": "exec-over-cap-8388608",
+      "latency_change_percent": -1.4991763347368403,
+      "cpu_change_percent": -1.7396422340403173,
+      "max_child_peak_rss_change_percent": -0.08558313234264814
+    },
+    {
+      "host": "claude",
+      "name": "pre-read-clean",
+      "latency_change_percent": 0.12611991807731648,
+      "cpu_change_percent": 1.1207076987478581,
+      "max_child_peak_rss_change_percent": -1.4931668635059903
+    },
+    {
+      "host": "claude",
+      "name": "pre-read-placeholder",
+      "latency_change_percent": -0.09056855653047924,
+      "cpu_change_percent": -0.11219643005754287,
+      "max_child_peak_rss_change_percent": -0.5377699352995591
+    },
+    {
+      "host": "claude",
+      "name": "pre-bash-clean",
+      "latency_change_percent": -0.5731950932539642,
+      "cpu_change_percent": -0.2983084791029156,
+      "max_child_peak_rss_change_percent": -0.40330203541496523
+    },
+    {
+      "host": "claude",
+      "name": "pre-git-status",
+      "latency_change_percent": 0.292141655227085,
+      "cpu_change_percent": 0.7537906563944707,
+      "max_child_peak_rss_change_percent": 0.8082338826798097
+    },
+    {
+      "host": "claude",
+      "name": "pre-unknown-tool",
+      "latency_change_percent": 1.4348894965847458,
+      "cpu_change_percent": 0.7637731656819691,
+      "max_child_peak_rss_change_percent": 1.5071073814009184
+    },
+    {
+      "host": "claude",
+      "name": "prompt-clean",
+      "latency_change_percent": -0.07591710521431816,
+      "cpu_change_percent": -0.14155139805070993,
+      "max_child_peak_rss_change_percent": 0.10053408733898817
+    },
+    {
+      "host": "codex",
+      "name": "small-clean",
+      "latency_change_percent": 0.42226768109272506,
+      "cpu_change_percent": 0.7620884841497366,
+      "max_child_peak_rss_change_percent": 0.2028783363976494
+    },
+    {
+      "host": "codex",
+      "name": "long-line",
+      "latency_change_percent": 1.005303324912199,
+      "cpu_change_percent": 0.6540926862444785,
+      "max_child_peak_rss_change_percent": 3.0838419530998973
+    },
+    {
+      "host": "codex",
+      "name": "many-replacement-leaves",
+      "latency_change_percent": -26.90003497894631,
+      "cpu_change_percent": -26.264248299711625,
+      "max_child_peak_rss_change_percent": -2.613557831249602
+    }
+  ],
+  "clean_followup": {
+    "host": "claude",
+    "name": "small-clean",
+    "latency_change_percent": 0.9284592211509679,
+    "cpu_change_percent": 0.8171248093269856,
+    "max_child_peak_rss_change_percent": -1.006226023520529
+  },
+  "evaluated_cli": [
+    {
+      "host": "claude",
+      "name": "small-clean",
+      "latency_change_percent": 0.9284592211509679,
+      "cpu_change_percent": 0.8171248093269856,
+      "max_child_peak_rss_change_percent": -1.006226023520529
+    },
+    {
+      "host": "claude",
+      "name": "long-line",
+      "latency_change_percent": 1.4583004322151316,
+      "cpu_change_percent": 1.5952671304785282,
+      "max_child_peak_rss_change_percent": 1.310731615098626
+    },
+    {
+      "host": "claude",
+      "name": "long-multiline",
+      "latency_change_percent": 2.2121317749425273,
+      "cpu_change_percent": 1.7731690324488847,
+      "max_child_peak_rss_change_percent": 0.6037356141123107
+    },
+    {
+      "host": "claude",
+      "name": "escaped-control",
+      "latency_change_percent": 1.4938740490429314,
+      "cpu_change_percent": 0.9837446079522527,
+      "max_child_peak_rss_change_percent": 0.386798926944909
+    },
+    {
+      "host": "claude",
+      "name": "many-lines",
+      "latency_change_percent": 1.9459397825328573,
+      "cpu_change_percent": 1.8083005177493616,
+      "max_child_peak_rss_change_percent": 0.20671510899523682
+    },
+    {
+      "host": "claude",
+      "name": "many-replacement-leaves",
+      "latency_change_percent": -26.96537516967794,
+      "cpu_change_percent": -25.989951336865623,
+      "max_child_peak_rss_change_percent": 0.3078856424756582
+    },
+    {
+      "host": "claude",
+      "name": "dense-controls",
+      "latency_change_percent": -0.7594631019413378,
+      "cpu_change_percent": -0.04236156360103438,
+      "max_child_peak_rss_change_percent": -2.0191822311963703
+    },
+    {
+      "host": "claude",
+      "name": "exec-multiline",
+      "latency_change_percent": -0.2804529361945418,
+      "cpu_change_percent": -0.22266050760367806,
+      "max_child_peak_rss_change_percent": 0.5125609061570557
+    },
+    {
+      "host": "claude",
+      "name": "exec-clean",
+      "latency_change_percent": -0.22430012056448012,
+      "cpu_change_percent": -0.6739073047478894,
+      "max_child_peak_rss_change_percent": -0.10744532928833594
+    },
+    {
+      "host": "claude",
+      "name": "exec-long-quoted-secret",
+      "latency_change_percent": -0.033738830368135186,
+      "cpu_change_percent": 0.09421101049622571,
+      "max_child_peak_rss_change_percent": 0.2884193366355259
+    },
+    {
+      "host": "claude",
+      "name": "placeholder-control",
+      "latency_change_percent": 0.3767094037897323,
+      "cpu_change_percent": 0.10979462678537555,
+      "max_child_peak_rss_change_percent": -0.4000750140651377
+    },
+    {
+      "host": "claude",
+      "name": "metadata-control",
+      "latency_change_percent": -0.14061370298197318,
+      "cpu_change_percent": 0.3129217922365424,
+      "max_child_peak_rss_change_percent": 0.6952784274066204
+    },
+    {
+      "host": "claude",
+      "name": "prose-control",
+      "latency_change_percent": 0.021115148376904536,
+      "cpu_change_percent": -0.28164803041096365,
+      "max_child_peak_rss_change_percent": -0.2890355010995882
+    },
+    {
+      "host": "claude",
+      "name": "exec-over-cap-1048576",
+      "latency_change_percent": 0.1573386711394953,
+      "cpu_change_percent": 0.1912250315399433,
+      "max_child_peak_rss_change_percent": 0.6758469206724627
+    },
+    {
+      "host": "claude",
+      "name": "exec-over-cap-8388608",
+      "latency_change_percent": -1.4991763347368403,
+      "cpu_change_percent": -1.7396422340403173,
+      "max_child_peak_rss_change_percent": -0.08558313234264814
+    },
+    {
+      "host": "claude",
+      "name": "pre-read-clean",
+      "latency_change_percent": 0.12611991807731648,
+      "cpu_change_percent": 1.1207076987478581,
+      "max_child_peak_rss_change_percent": -1.4931668635059903
+    },
+    {
+      "host": "claude",
+      "name": "pre-read-placeholder",
+      "latency_change_percent": -0.09056855653047924,
+      "cpu_change_percent": -0.11219643005754287,
+      "max_child_peak_rss_change_percent": -0.5377699352995591
+    },
+    {
+      "host": "claude",
+      "name": "pre-bash-clean",
+      "latency_change_percent": -0.5731950932539642,
+      "cpu_change_percent": -0.2983084791029156,
+      "max_child_peak_rss_change_percent": -0.40330203541496523
+    },
+    {
+      "host": "claude",
+      "name": "pre-git-status",
+      "latency_change_percent": 0.292141655227085,
+      "cpu_change_percent": 0.7537906563944707,
+      "max_child_peak_rss_change_percent": 0.8082338826798097
+    },
+    {
+      "host": "claude",
+      "name": "pre-unknown-tool",
+      "latency_change_percent": 1.4348894965847458,
+      "cpu_change_percent": 0.7637731656819691,
+      "max_child_peak_rss_change_percent": 1.5071073814009184
+    },
+    {
+      "host": "claude",
+      "name": "prompt-clean",
+      "latency_change_percent": -0.07591710521431816,
+      "cpu_change_percent": -0.14155139805070993,
+      "max_child_peak_rss_change_percent": 0.10053408733898817
+    },
+    {
+      "host": "codex",
+      "name": "small-clean",
+      "latency_change_percent": 0.42226768109272506,
+      "cpu_change_percent": 0.7620884841497366,
+      "max_child_peak_rss_change_percent": 0.2028783363976494
+    },
+    {
+      "host": "codex",
+      "name": "long-line",
+      "latency_change_percent": 1.005303324912199,
+      "cpu_change_percent": 0.6540926862444785,
+      "max_child_peak_rss_change_percent": 3.0838419530998973
+    },
+    {
+      "host": "codex",
+      "name": "many-replacement-leaves",
+      "latency_change_percent": -26.90003497894631,
+      "cpu_change_percent": -26.264248299711625,
+      "max_child_peak_rss_change_percent": -2.613557831249602
+    }
+  ],
+  "latency_regressions_over_5_percent": [],
+  "shell_control": [
+    {
+      "host": "control",
+      "name": "small-clean",
+      "latency_change_percent": 0.2390691395488087,
+      "cpu_change_percent": 0.2521141013566375,
+      "max_child_peak_rss_change_percent": 0.4053454936981504
+    },
+    {
+      "host": "control",
+      "name": "long-line",
+      "latency_change_percent": 0.043125368900920336,
+      "cpu_change_percent": 0.10214825024557062,
+      "max_child_peak_rss_change_percent": 1.104271117598521
+    },
+    {
+      "host": "control",
+      "name": "many-replacement-leaves",
+      "latency_change_percent": -0.2032506405505785,
+      "cpu_change_percent": -0.4985018343158343,
+      "max_child_peak_rss_change_percent": 0.7022383848517055
+    }
+  ],
+  "load": [
+    {
+      "workers": 1,
+      "backend": "rust",
+      "requests_per_second": 1.1425496719678052,
+      "cpu_seconds_per_request": 0.911075,
+      "sampled_sum_rss_mib": 84.89453125,
+      "max_child_peak_rss_mib": 63.85546875
+    },
+    {
+      "workers": 1,
+      "backend": "shell",
+      "requests_per_second": 0.8266336981506119,
+      "cpu_seconds_per_request": 1.246663125,
+      "sampled_sum_rss_mib": 84.46875,
+      "max_child_peak_rss_mib": 63.42578125
+    },
+    {
+      "workers": 4,
+      "backend": "rust",
+      "requests_per_second": 1.4301007957278895,
+      "cpu_seconds_per_request": 1.383523,
+      "sampled_sum_rss_mib": 299.94921875,
+      "max_child_peak_rss_mib": 64.35546875
+    },
+    {
+      "workers": 4,
+      "backend": "shell",
+      "requests_per_second": 1.0281589172308743,
+      "cpu_seconds_per_request": 1.93252675,
+      "sampled_sum_rss_mib": 303.15625,
+      "max_child_peak_rss_mib": 63.73046875
+    }
+  ],
+  "limitations": [
+    "RSS sum is sampled every 10 ms and can double-count shared pages or miss peaks",
+    "Child peak RSS is not concurrent process-tree memory",
+    "Linux x64 performance is not a measured speedup for other platforms",
+    "Passing this metric gate does not imply final CI or public release verification"
+  ]
+}
