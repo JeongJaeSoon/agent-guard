@@ -3,8 +3,9 @@ set -u
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 GUARD=${AGENT_GUARD_TEST_BIN:-"$ROOT/plugins/agent-guard/bin/agent-guard"}
 MOCK_GITLEAKS="$ROOT/tests/fixtures/mock-gitleaks"
-CASE=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-mask-allow.XXXXXX")
-CASE=$(CDPATH= cd -- "$CASE" && pwd -P)
+CASE=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-mask-allow.XXXXXX") || exit 1
+[ -n "$CASE" ] && [ -d "$CASE" ] || exit 1
+CASE=$(CDPATH= cd -- "$CASE" && pwd -P) || exit 1
 trap 'chmod -R u+rwx "$CASE" 2>/dev/null; rm -rf "$CASE"' 0
 export AGENT_GUARD_LOG_MODE=off
 export AGENT_GUARD_WARNING_DIR="$CASE/warnings"
