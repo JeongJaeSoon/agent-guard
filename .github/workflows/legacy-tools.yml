@@ -6,15 +6,31 @@ on:
       - 'tests/unit-nul-redaction.sh'
       - 'tests/unit-audit-retention.sh'
       - '.github/workflows/legacy-tools.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'plugins/agent-guard/bin/agent-guard'
+      - 'tests/unit-nul-redaction.sh'
+      - 'tests/unit-audit-retention.sh'
+      - '.github/workflows/legacy-tools.yml'
   workflow_dispatch:
+# Replace only obsolete runs of the same PR. Non-PR runs have unique groups,
+# so main verification and manual checks cannot cancel each other.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
 jobs:
   contracts:
+    name: Legacy jq and awk contracts
     runs-on: ubuntu-22.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
       - name: Verify legacy tool contracts
         run: |
           jq --version

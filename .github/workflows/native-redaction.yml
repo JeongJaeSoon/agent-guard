@@ -1,21 +1,40 @@
 name: Experimental native redactor
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'native/**'
+      - 'plugins/agent-guard/bin/agent-guard'
+      - 'tests/**'
+      - 'plugins/agent-guard/config/**'
+      - '.github/workflows/ci.yml'
+      - '.github/workflows/native-redaction.yml'
   pull_request:
     paths:
       - 'native/**'
       - 'plugins/agent-guard/bin/agent-guard'
-      - 'tests/native-*'
-      - 'tests/redaction-plan.sh'
+      - 'tests/**'
+      - 'plugins/agent-guard/config/**'
+      - '.github/workflows/ci.yml'
       - '.github/workflows/native-redaction.yml'
   workflow_dispatch:
 permissions:
   contents: read
+
+# Replace only obsolete runs of the same PR. Non-PR runs have unique groups.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   contracts:
+    name: Native redactor contracts
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
       - name: Build and check pinned compiler
         run: |
           rustup toolchain install 1.85.1 --profile minimal --component rustfmt --component clippy
