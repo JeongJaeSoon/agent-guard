@@ -1,0 +1,205 @@
+ok - version 0.0.0 > 0.0.0 returns 1 without output
+ok - version 3.6.4 > 3.6.4 returns 1 without output
+ok - version 1.0.0 > 0.99.99 returns 0 without output
+ok - version 0.99.99 > 1.0.0 returns 1 without output
+ok - version 3.7.0 > 3.6.99 returns 0 without output
+ok - version 3.6.99 > 3.7.0 returns 1 without output
+ok - version 3.6.5 > 3.6.4 returns 0 without output
+ok - version 3.6.4 > 3.6.5 returns 1 without output
+ok - version 10.0.0 > 9.99.99 returns 0 without output
+ok - version 9.99.99 > 10.0.0 returns 1 without output
+ok - version 1.10.0 > 1.9.99 returns 0 without output
+ok - version 1.9.99 > 1.10.0 returns 1 without output
+ok - version 1.2.10 > 1.2.9 returns 0 without output
+ok - version 1.2.9 > 1.2.10 returns 1 without output
+ok - version 01.02.003 > 1.2.3 returns 1 without output
+ok - quote empty exact bytes
+ok - quote empty is one literal shell argument
+ok - quote spaces exact bytes
+ok - quote spaces is one literal shell argument
+ok - quote apostrophe exact bytes
+ok - quote apostrophe is one literal shell argument
+ok - quote adjacent-quotes exact bytes
+ok - quote adjacent-quotes is one literal shell argument
+ok - quote backslash exact bytes
+ok - quote backslash is one literal shell argument
+ok - quote expansion exact bytes
+ok - quote expansion is one literal shell argument
+ok - quote option exact bytes
+ok - quote option is one literal shell argument
+ok - quote unicode exact bytes
+ok - quote unicode is one literal shell argument
+ok - quote tab exact bytes
+ok - quote tab is one literal shell argument
+ok - quote newlines exact bytes
+ok - quote newlines is one literal shell argument
+passed: 35
+failed: 0
+ok - JSON no string leaves
+ok - JSON empty string is a leaf
+ok - JSON scalar string
+ok - JSON nested values exclude keys and nonstrings
+ok - JSON physical newline remains within leaf
+ok - JSON RS and US escape order
+ok - JSON Unicode bytes
+ok - JSON decoded quote backslash tab CR
+ok - plaintext empty input is one leaf
+ok - plaintext no final newline
+ok - plaintext single final LF terminates record
+ok - plaintext interior LF preserved
+ok - plaintext extra final LF preserved
+ok - plaintext RS and US escape order
+ok - plaintext invalid UTF-8 and Unicode bytes
+ok - plaintext CR remains while final LF terminates
+ok - plaintext all non-NUL bytes
+ok - plaintext dense controls and byte spans
+ok - JSON producer error and partial output
+ok - plaintext producer error and partial output
+passed: 20
+failed: 0
+ok - deny-path hex 0
+ok - deny-path hex 1
+ok - deny-path hex 2
+ok - deny-path hex 3
+ok - deny-path hex 4
+ok - deny-path hex 5
+ok - deny-path hex 6
+ok - deny-path hex 7
+ok - deny-path hex 8
+ok - deny-path hex 9
+ok - deny-path hex a
+ok - deny-path hex b
+ok - deny-path hex c
+ok - deny-path hex d
+ok - deny-path hex e
+ok - deny-path hex f
+ok - deny-path hex g
+ok - deny-path hex h
+ok - deny-path hex i
+ok - deny-path hex j
+ok - deny-path hex k
+ok - deny-path hex l
+ok - deny-path hex m
+ok - deny-path hex n
+ok - deny-path hex o
+ok - deny-path hex p
+ok - deny-path hex q
+ok - deny-path hex r
+ok - deny-path hex s
+ok - deny-path hex t
+ok - deny-path hex u
+ok - deny-path hex v
+ok - deny-path hex w
+ok - deny-path hex x
+ok - deny-path hex y
+ok - deny-path hex z
+ok - deny-path hex A
+ok - deny-path hex B
+ok - deny-path hex C
+ok - deny-path hex D
+ok - deny-path hex E
+ok - deny-path hex F
+ok - deny-path hex G
+ok - deny-path hex H
+ok - deny-path hex I
+ok - deny-path hex J
+ok - deny-path hex K
+ok - deny-path hex L
+ok - deny-path hex M
+ok - deny-path hex N
+ok - deny-path hex O
+ok - deny-path hex P
+ok - deny-path hex Q
+ok - deny-path hex R
+ok - deny-path hex S
+ok - deny-path hex T
+ok - deny-path hex U
+ok - deny-path hex V
+ok - deny-path hex W
+ok - deny-path hex X
+ok - deny-path hex Y
+ok - deny-path hex Z
+ok - deny-path hex .
+ok - deny-path hex _
+ok - deny-path hex -
+ok - deny-path unsupported hex clears prior output
+ok - deny-path unsupported hex clears prior output
+ok - deny-path unsupported hex clears prior output
+ok - deny-path unsupported hex clears prior output
+ok - deny-path unsupported hex clears prior output
+ok - deny-path unsupported hex clears prior output
+ok - deny-path unsupported hex clears prior output
+ok - deny-path unsupported hex clears prior output
+ok - deny-path character letter
+ok - deny-path character dot
+ok - deny-path character slash
+ok - deny-path character question
+ok - deny-path character quote
+ok - deny-path character empty
+ok - deny-path character unicode
+ok - deny-path character newline
+ok - deny-path pin ASCII exact bytes
+ok - deny-path pin Unicode clears earlier hex
+ok - jq filter field names: .key
+ok - jq filter field names: .data.key
+ok - jq filter field names: select(.key|test("^AG_"))
+ok - jq filter field names: .[] | {name: .name, key: .key}
+ok - jq filter field names: .items[0].key, .meta?.key
+ok - jq filter field names: env.AWS_REGION
+ok - jq filter field names: $ENV.HOME
+ok - jq filter field names: $x.key
+ok - jq filter field names: "server.key"
+ok - jq filter field names: ..key
+ok - jq filter field names: .
+ok - jq filter field names: import ".env" as $x; $x.key
+ok - jq filter field names: "\(.key) \"q\" .key" | .key
+ok - jq filter field names: .a # "x" .key
+passed: 97
+failed: 0
+ok - probe ignores already-redacted value
+ok - probe ignores ineligible short value
+ok - probe retains contextual short mapping
+ok - probe emits exactly one marker for two eligible leaves
+passed: 4
+failed: 0
+ok - watchdog reaps cancelled timer (scanner status 0)
+ok - watchdog reaps cancelled timer (scanner status 1)
+passed: 2
+failed: 0
+passed: 10
+failed: 0
+ok - status-label error-password
+ok - status-label warning-db
+ok - status-label uppercase-client
+ok - status-label fatal-api
+ok - status-label info-refresh
+ok - status-label nested-error
+ok - status-label log-prefix
+ok - status-label not-found
+ok - status-label path
+ok - status-label timestamp-local
+ok - status-label clock
+ok - status-label sentence-case
+ok - status-label ordinary-word
+ok - status-label quoted-length
+ok - status-label quoted-expiry
+ok - status-label quoted-profile
+ok - status-label quoted-rotation
+ok - status-label quoted-title
+ok - status-label date-prefix-secret
+ok - status-label date
+ok - status-label timestamp-z
+ok - status-label timestamp-offset
+passed: 22
+failed: 0
+ok - longest literal first across nested leaves
+ok - contextual replacement precedes ordinary replacement
+ok - keys and protocol discriminators preserve shape
+ok - equal length replacement order remains stable
+ok - equal length contextual order remains stable across leaves
+ok - empty literal does not insert replacements
+ok - record budget preserves conservative shape
+ok - one plan applies to every leaf
+passed: 8
+passed: 3
+failed: 0

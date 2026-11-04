@@ -95,6 +95,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--binary", type=Path, default=ROOT / "plugins/agent-guard/bin/agent-guard")
     parser.add_argument("--baseline", type=Path)
+    parser.add_argument("--native-core", type=Path, help="opt candidate into Rust; baseline stays shell")
+    parser.add_argument("--host", choices=("claude", "codex"), default="claude")
     parser.add_argument("--scanner", type=Path, default=shutil.which("gitleaks"))
     parser.add_argument("--runs", type=int, default=5)
     parser.add_argument("--timeout", type=float, default=30)
@@ -118,12 +120,13 @@ def main():
         binaries = {"baseline": args.baseline.resolve(), **binaries}
     scanner = Path(args.scanner).resolve()
     env = dict(os.environ, AGENT_GUARD_LOG_MODE="off", AGENT_GUARD_RELEASE_CHECK="off",
-               AGENT_GUARD_HOOK_HOST="claude",
+               AGENT_GUARD_HOOK_HOST=args.host,
                AGENT_GUARD_PII_HOOK_MODE="off", AGENT_GUARD_OUTPUT_REDACT="mask",
                AGENT_GUARD_GITLEAKS_BIN=str(scanner),
                AGENT_GUARD_GITLEAKS_CONFIG=str(ROOT / "plugins/agent-guard/config/gitleaks.toml"))
     report = {
-        "platform": platform.platform(), "runs": args.runs,
+        "platform": platform.platform(), "runs": args.runs, "host": args.host,
+        "native_core_sha256": hashlib.sha256(args.native_core.read_bytes()).hexdigest() if args.native_core else None,
         "scanner_version": subprocess.check_output([str(scanner), "version"], text=True).strip(),
         "binary_sha256": {name: hashlib.sha256(path.read_bytes()).hexdigest()
                           for name, path in binaries.items()},
@@ -175,8 +178,13 @@ def main():
                         command = [sys.executable, str(ROOT / "bench/resource-sample.py"),
                                    str(resource_file), *command]
                     try:
+                        run_env = dict(env)
+                        run_env["AGENT_GUARD_EXPERIMENTAL_REDACTOR"] = "shell"
+                        if label == "candidate" and args.native_core:
+                            run_env.update(AGENT_GUARD_EXPERIMENTAL_REDACTOR="rust",
+                                           AGENT_GUARD_RUST_CORE_BIN=str(args.native_core.resolve()))
                         elapsed, output = invoke(command, payload if route != "exec" else b"",
-                                                 env, directory, args.timeout)
+                                                 run_env, directory, args.timeout)
                     except RuntimeError as error:
                         raise RuntimeError(label + ": " + name + ": " + str(error)) from None
                     if args.resources and not tracing:
@@ -191,7 +199,14 @@ def main():
                         valid = output == b""
                     else:
                         try:
-                            valid = json.loads(output)["hookSpecificOutput"]["updatedToolOutput"] == expected
+                            envelope = json.loads(output)
+                            if args.host == "codex":
+                                context = envelope["hookSpecificOutput"]["additionalContext"]
+                                prefix = "Agent Guard sanitized tool output:\n"
+                                valid = (envelope["decision"] == "block" and context.startswith(prefix)
+                                         and json.loads(context[len(prefix):]) == expected)
+                            else:
+                                valid = envelope["hookSpecificOutput"]["updatedToolOutput"] == expected
                         except (ValueError, KeyError, TypeError):
                             valid = False
                     if not valid:

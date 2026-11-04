@@ -1,0 +1,13 @@
+{
+  "excluded_from_performance_samples": [
+    "An initial Docker rebuild ran out of disk before timing began; only four explicitly identified task-owned nonshared cache records were removed, and the source-matched immutable image was reused.",
+    "Initial host regression failures involved shared /tmp and root-owned generated Python caches; read-only Docker mounts and PYTHONDONTWRITEBYTECODE removed this interference.",
+    "A Docker regression run lacked an account entry for UID 1000; after adding the account, both final output partitions passed.",
+    "The first native GitHub workflow omitted the real scanner installation. Its readiness check correctly failed; the workflow now installs the existing pinned scanner and runs host contracts."
+  ],
+  "production_defects_fixed_separately": [
+    "Old awk without interval regular expressions did not apply audit retention filename matching.",
+    "jq 1.6 contains(\"\\u0000\") incorrectly matched clean strings; index(\"\\u0000\") preserves the intended NUL-only treatment."
+  ],
+  "measurement_limitation": "Rootless Docker did not enforce the requested per-container cgroup limits. Same-image paired timings are retained with the actual shared parent limits documented. Parent cgroup memory.peak is excluded from memory comparisons."
+}
