@@ -1,7 +1,74 @@
 # Rust 사전 빌드 배포 검증 기록
 
 내부 검증 기록. v3.6.14의 과거 측정은 `bench/results/rust-experiment/`에
-그대로 남겨 두고 이번 결과와 합산하지 않는다. 아직 v3.7.0 발행 완료 기록이 아니다.
+그대로 남겨 두고 이번 결과와 합산하지 않는다. v3.7.0은 실제 발행됐으며,
+공개 standalone 네 플랫폼과 Homebrew 세 환경 검증을 통과했다.
+
+## 실제 릴리스 커밋의 검증과 측정
+
+릴리스 커밋 `e709445fb6fce9ade8cbbd2d6bcf2940e48da178`과 PR #392 최종 head는
+각각 필수 8개를 포함한 Actions 30개를 통과했다. [발행 실행](https://github.com/JeongJaeSoon/agent-guard/actions/runs/41832898078)은
+2026-11-04 12:51:49 UTC에 [v3.7.0](https://github.com/JeongJaeSoon/agent-guard/releases/tag/v3.7.0)을
+공개했다. 네 바이너리·sidecar, universal archive·체크섬, installer·formula,
+출처 정보·라이선스 고지를 포함한 자산 15개를 실제 다운로드하여 SHA-256을
+확인했다. 공개 네 바이너리는 릴리스 커밋 CI artifact와 바이트 단위로 같다.
+`v3.7.0`과 `v3`는 위 커밋이며 기존 `v1`은 `a795c72`로 유지했다.
+
+[릴리스 커밋 원본](../bench/results/rust-packaged/release-e709445/)은 AMD EPYC 9V74의
+Linux x64에서 측정했다. 같은 입력·gitleaks 8.30.1·jq 1.7.1·설정과 실제
+2 CPU·1 GiB·swap 없음 제한으로 CLI 시작·플랫폼 선택·체크섬 비용까지 포함한다.
+이 실행의 교대 비교만 아래 표에 쓰며 다른 CPU 모델의 이전 표본과 합산하지 않는다.
+
+| 지표 | 셸 | Rust | 변화 |
+| --- | ---: | ---: | ---: |
+| Claude 목표 CLI 지연 | 1,041.455 ms | 759.676 ms | −27.06% |
+| 같은 경로 CPU | 1.059335초 | 0.794316초 | −25.02% |
+| Codex 목표 CLI 지연 | 1,015.998 ms | 762.465 ms | −24.95% |
+| 같은 경로 CPU | 1.049440초 | 0.782054초 | −25.48% |
+| 동시 4개 처리량 | 1.203 요청/초 | 1.649 요청/초 | +37.06% |
+| 동시 4개 CPU/요청 | 1.645305초 | 1.196279초 | 감소 |
+| 동시 4개 표본 프로세스 RSS 합 | 300.465 MiB | 297.539 MiB | 해당 실행의 표본 |
+| 동시 4개 최대 자식 RSS | 64.598 MiB | 63.660 MiB | 해당 실행의 자식 peak |
+
+일반 경로의 지연·CPU 5% 초과 회귀는 없다. 앞서 실패한 `escaped-control`은
+지연 +1.07%·CPU −0.35%로 기준 안에 있고, 정상 입력 후속 지연은 −1.93%다.
+Claude/Codex 목표의 최대 자식 RSS 중앙값은 각각 63,916→63,348 KiB,
+64,056→63,476 KiB다. 10 ms 표본 RSS 합은 공유 페이지 중복과 짧은 peak 누락이
+가능하고 최대 자식 RSS와도 다르다. 메모리 절감이나 다른 세 플랫폼의 성능
+개선을 일반화하지 않는다. 개별 부하 JSON은 실제 CPU·메모리 한도를 기록하며,
+swap 없음은 동일 Docker run 함수의 실행 전 cgroup 검사로 확인했다.
+
+네 플랫폼 모두 독립 기대값을 포함한 차등 1,024/0, 실제 scanner 호스트 90/0,
+감사 116/0과 컴파일러 없는 후보 설치·업데이트를 통과했다. 공개 배포 후에는
+다운로드를 대체하지 않고 네 플랫폼의 신규 설치·3.6.15→3.7.0 업데이트,
+실제 scanner smoke, 정상 4건·실패 복귀 40건 및 기본값/명시적 선택을 확인했다.
+공개 검증과 Homebrew 테스트 환경 수정의 기록은
+[공개 원본](../bench/results/release-validation/v3.7.0-public/)에 따로 남긴다.
+
+[공개 검증 실행](https://github.com/JeongJaeSoon/agent-guard/actions/runs/41834816697)은
+verifier `d3474af`에서 7개 모두 성공했다. Linux x64/macOS x64/arm64의 공개
+Homebrew 3.6.15 설치→3.7.0 업그레이드, `brew test`, 체크섬과 standalone update
+거부를 확인한 뒤 정식 tap 신규 설치·`brew test`도 통과했다.
+[tap #24](https://github.com/JeongJaeSoon/homebrew-tap/pull/24)는 formula CI 성공 후
+`64d16f9`로 병합했으며 공개 formula와 바이트 단위로 일치한다. Linux x64에서는
+버전 미지정 최신 설치와 공개 3.6.14→3.7.0 업데이트도 추가 확인했다.
+[구조화된 발행 기록](../bench/results/release-validation/v3.7.0.json)에 자산 해시,
+태그·PR·CI와 검증 범위를 보존한다.
+
+초기 Homebrew 검사는 Linux의 임시 tap 커밋 작성자와 macOS의 이전 keg 정리에서
+실패했다. 환경변수 작성자는 Homebrew가 초기화하므로 `tap-new --no-git` 후
+해당 임시 저장소의 초기 커밋만 Git `-c user.name/user.email`로 생성했다.
+업그레이드로 남은 두 테스트 버전을 정리한 뒤 정식 tap 설치를 다시 검사했다.
+`initial`, `intermediate-dfe72d4`, `intermediate-285a353`, `final`을 분리해
+실패를 성공으로 덮지 않았다. 공개 자산·태그·formula는 교체하지 않았다.
+
+후속 검증 도구 [PR #393](https://github.com/JeongJaeSoon/agent-guard/pull/393)의
+별도 [macOS Intel native CI](https://github.com/JeongJaeSoon/agent-guard/actions/runs/41834759669/job/126591007436)에서
+호스트 복귀 출력 불일치가 한 번 발생했다. 당시 오류에 fixture 번호·양쪽 출력·
+stderr가 없고 임시 데이터가 제거되어 원인을 단정할 수 없다. 고정 합성 fixture의
+실패 진단과 artifact 보존을 추가하고 같은 timeout·기대값으로 macOS Intel
+계약을 3회 실행하도록 했다. 이 후속 CI는 위 릴리스 커밋·공개 배포 검증과
+구분하며, 실제 결과를 확인한 뒤 후속 PR 병합을 판단한다.
 
 ## 체크섬 비용 수정 후 후보 검증
 

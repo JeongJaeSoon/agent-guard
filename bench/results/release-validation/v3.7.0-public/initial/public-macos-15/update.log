@@ -1,0 +1,35 @@
+agent-guard: downloading the checksum-verified standalone updater
+agent-guard-bootstrap: target version v3.7.0
+agent-guard-bootstrap: downloading agent-guard-3.7.0.tar.gz
+agent-guard-bootstrap: verifying sha256
+agent-guard-3.7.0.tar.gz: OK
+agent-guard-bootstrap: extracting to /private/var/folders/y3/p6x0rn5562l5qyxy7x6jqrsc0000gn/T/tmp.MMoVismPEP/upgrade
+agent-guard-bootstrap: linked /private/var/folders/y3/p6x0rn5562l5qyxy7x6jqrsc0000gn/T/tmp.MMoVismPEP/upgrade-bin/agent-guard -> /private/var/folders/y3/p6x0rn5562l5qyxy7x6jqrsc0000gn/T/tmp.MMoVismPEP/upgrade/bin/agent-guard
+
+agent-guard-bootstrap: /private/var/folders/y3/p6x0rn5562l5qyxy7x6jqrsc0000gn/T/tmp.MMoVismPEP/upgrade-bin is not on PATH. Add this to your shell rc:
+  export PATH="/private/var/folders/y3/p6x0rn5562l5qyxy7x6jqrsc0000gn/T/tmp.MMoVismPEP/upgrade-bin:$PATH"
+
+agent-guard-bootstrap: running 'agent-guard setup' to report dependency status
+
+agent-guard: jq  ok  (jq-1.7.1)
+agent-guard: jq regex lookbehind  supported
+agent-guard: git  ok  (git version 2.39.5 (Apple Git-154))
+agent-guard: gitleaks  ok  (8.30.1; /Users/runner/work/_temp/test-bin/gitleaks)
+agent-guard: host hook protection: unverified (dependency checks do not observe tool dispatch)
+agent-guard: setup ok (dependencies only)
+
+agent-guard-bootstrap: installing shell integration with command wrapping on
+agent-guard: shell integration written to /var/folders/y3/p6x0rn5562l5qyxy7x6jqrsc0000gn/T/tmp.MMoVismPEP/home/.bashrc
+agent-guard: restart your shell and any sessions launched from it to apply
+
+agent-guard-bootstrap: done. v3.7.0 installed at /private/var/folders/y3/p6x0rn5562l5qyxy7x6jqrsc0000gn/T/tmp.MMoVismPEP/upgrade.
+agent-guard: dependencies ok
+agent-guard: jq regex lookbehind supported
+agent-guard: gitleaks 8.30.1 (required >= 8.30.0; /Users/runner/work/_temp/test-bin/gitleaks)
+agent-guard: smoke ok: scan-path allows a clean directory
+agent-guard: smoke ok: scan-path blocks a private-key fixture
+agent-guard: smoke ok: hook-pre-tool blocks .env reads
+agent-guard: smoke ok: pii-filter runs with the regex provider
+agent-guard: smoke ok: hook-pre-tool blocks secret-like writes
+agent-guard: smoke ok: native pre-commit hook blocks staged fixture
+agent-guard: smoke-test ok

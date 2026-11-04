@@ -1,0 +1,24 @@
+agent-guard-bootstrap: target version v3.6.15
+agent-guard-bootstrap: downloading agent-guard-3.6.15.tar.gz
+agent-guard-bootstrap: verifying sha256
+agent-guard-3.6.15.tar.gz: OK
+agent-guard-bootstrap: extracting to /tmp/tmp.LVU6bI67Fs/upgrade
+agent-guard-bootstrap: linked /tmp/tmp.LVU6bI67Fs/upgrade-bin/agent-guard -> /tmp/tmp.LVU6bI67Fs/upgrade/bin/agent-guard
+
+agent-guard-bootstrap: /tmp/tmp.LVU6bI67Fs/upgrade-bin is not on PATH. Add this to your shell rc:
+  export PATH="/tmp/tmp.LVU6bI67Fs/upgrade-bin:$PATH"
+
+agent-guard-bootstrap: running 'agent-guard setup' to report dependency status
+
+agent-guard: jq  ok  (jq-1.7.1)
+agent-guard: jq regex lookbehind  supported
+agent-guard: git  ok  (git version 2.56.0)
+agent-guard: gitleaks  ok  (8.30.1; /home/runner/work/_temp/test-bin/gitleaks)
+agent-guard: host hook protection: unverified (dependency checks do not observe tool dispatch)
+agent-guard: setup ok (dependencies only)
+
+agent-guard-bootstrap: installing shell integration with command wrapping on
+agent-guard: shell integration written to /tmp/tmp.LVU6bI67Fs/home/.bashrc
+agent-guard: restart your shell and any sessions launched from it to apply
+
+agent-guard-bootstrap: done. v3.6.15 installed at /tmp/tmp.LVU6bI67Fs/upgrade.
