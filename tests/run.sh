@@ -5474,6 +5474,28 @@ export SC_SESSION=\"\$(basename \"\$PWD\")_\$\$\"
 do
   shellcd_case claude secret 0 "$sc_command" a
 done
+# A shell's script operand held in such a variable is that script file, as
+# when it is written out: a helper run once per item in a loop.
+for sc_command in \
+  'S=/dev/null; bash "$S" 1 body-1.md results' \
+  'S="/dev/null"; for n in 1 2 3; do bash "$S" $n body-$n.md results; done' \
+  'S=/dev/null; sh $S' \
+  'S=/dev/null; bash -- "${S}" x'
+do
+  shellcd_case claude secret 0 "$sc_command" a
+done
+# The value is substituted, not trusted as a file: an option still reads the
+# words after it, and any other way of setting the variable stays unknown.
+shellcd_case codex secret 2 "S=-c; bash \"\$S\" 'git commit -m x'" a
+for sc_command in \
+  "S=/dev/null; S=-c; bash \"\$S\" 'git commit -m x'" \
+  "S=\$(printf -- -c); bash \"\$S\" 'git commit -m x'" \
+  "S=/dev/null; read S <<<-c; bash \"\$S\" 'git commit -m x'"
+do
+  shellcd_case claude secret U2 "$sc_command" a
+done
+shellcd_case codex secret Ux "bash \"\$SC_UNSET\" 'git commit -m x'" a
+shellcd_case claude secret Ux "S=/dev/null; bash -c 'bash \"\$S\" \"git commit -m x\"'" a
 # A quoted command word whose value is unknown is one word, git at worst: it
 # fails per the policy only when its arguments could commit or push.
 shellcd_case codex secret 0 '"$SC_UNSET" deploy --env prod' a

@@ -140,7 +140,7 @@ for host in claude codex; do
   # unresolvable command in a session must still say why it was denied.
   for attempt in first second; do
     run_manifest "$host" closed "$MOCK_GITLEAKS" \
-      '{"session_id":"outcome-repeat","tool_name":"Bash","tool_input":{"command":"V=/tmp/x/tool.sh; bash $V doctor"}}'
+      '{"session_id":"outcome-repeat","tool_name":"Bash","tool_input":{"command":"V=$(printf /tmp/x/tool.sh); bash $V doctor"}}'
     status=$?
     if [ "$status" -eq 2 ] && grep -Fq 'could not be resolved safely' "$CASE_ROOT/err"; then
       ok "$host manifest path explains the $attempt closed block in a session"
