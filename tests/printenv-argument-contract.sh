@@ -39,16 +39,16 @@ check 'empty requested secret remains empty' '' 0 \
 fixture_first=$(printf '%s-%s' documented-fake-printenv-value 123456)
 fixture_second=$(printf '%s-%s' omega-secret-tail alpha-long-value)
 check 'missing argument preserves status and both emitted masks' "$(printf '[REDACTED]\n[REDACTED]')" 1 \
-  env -u AGENT_GUARD_TEST_UNSET_PASSWORD DEMO_TOKEN="$fixture_first" \
-    SECONDARY_PASSWORD="$fixture_second" \
+  env -u AGENT_GUARD_TEST_UNSET_PASSWORD DEMO_TOKEN="${fixture_first}" \
+    SECONDARY_PASSWORD="${fixture_second}" \
     "$GUARD" exec -- "$case_dir/printenv" DEMO_TOKEN AGENT_GUARD_TEST_UNSET_PASSWORD SECONDARY_PASSWORD
 newline_secret=$(printf 'alpha-secret-head\nx')
 newline_secret=${newline_secret%x}
 check 'trailing secret newline does not consume a later public value' "$(printf '[REDACTED]\nalpha-secret-head')" 0 \
-  env FIRST_TOKEN="$newline_secret" PUBLIC_INFO=alpha-secret-head \
+  env FIRST_TOKEN="${newline_secret}" PUBLIC_INFO=alpha-secret-head \
     "$GUARD" exec -- "$case_dir/printenv" FIRST_TOKEN PUBLIC_INFO
 newline_secret=$(printf 'abcd\nx')
 newline_secret=${newline_secret%x}
 check 'trailing empty value preserves public prefix and masks complete secret' "$(printf 'x\n[REDACTED]')" 0 \
-  env PUBLIC_INFO=x PASSWORD="$newline_secret" EMPTY='' \
+  env PUBLIC_INFO=x PASSWORD="${newline_secret}" EMPTY='' \
     "$GUARD" exec -- "$case_dir/printenv" PUBLIC_INFO PASSWORD EMPTY
