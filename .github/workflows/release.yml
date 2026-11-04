@@ -407,6 +407,19 @@ jobs:
           done
           scripts/validate-plugin-layout.sh --marketplace
 
+          # Publish the reviewed version entry, including its limitations.
+          # Validate it before creating any tag or release asset.
+          release_notes="$RUNNER_TEMP/release-notes.md"
+          awk -v version="v${v}" '
+            /^## / {
+              if (found) exit
+              if ($2 == version) found = 1
+              next
+            }
+            found { print; if (NF) body = 1 }
+            END { if (!found || !body) exit 1 }
+          ' CHANGELOG.md > "$release_notes"
+
           # Releasing a new major line must not move an older major's compatibility
           # tag. Capture v1 before publishing v2+ and prove it is unchanged after
           # the new moving tag is pushed.
@@ -464,10 +477,11 @@ jobs:
           # Idempotent release publish: if a release object already exists
           # (recovery path from a previous half-finished dispatch), upload the
           # assets with --clobber so any stale assets are replaced. Otherwise
-          # create the release fresh with auto-generated notes. Recheck the
+          # create the release with its reviewed CHANGELOG entry. Recheck the
           # state here rather than reusing Detect's output so we don't race a
           # release object that was created between the two steps.
           if gh release view "v${v}" >/dev/null 2>&1; then
+            gh release edit "v${v}" --notes-file "$release_notes"
             gh release upload "v${v}" \
               "agent-guard-${v}.tar.gz" \
               "agent-guard-${v}.tar.gz.sha256" \
@@ -478,7 +492,7 @@ jobs:
           else
             gh release create "v${v}" \
               --title "Agent Guard v${v}" \
-              --generate-notes \
+              --notes-file "$release_notes" \
               "agent-guard-${v}.tar.gz" \
               "agent-guard-${v}.tar.gz.sha256" \
               agent-guard.rb \

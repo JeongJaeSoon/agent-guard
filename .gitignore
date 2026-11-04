@@ -1,6 +1,21 @@
 # Benchmark artifacts (regenerable via `make bench`)
 bench/results.tsv
 
-# Local Rust builds and interpreter caches left by pre-migration tooling.
-**/target/
-__pycache__/
+# Developer build/cache output. Cargo.lock remains tracked.
+/native/**/target/
+**/__pycache__/
+*.py[cod]
+.DS_Store
+
+# Unreviewed local measurements; curated evidence stays in bench/results/.
+/bench/local/
+/bench/results/**/build.log
+/bench/results/**/cli-*.log
+
+# Export copies of charts already embedded in the standalone HTML report.
+/docs/assets/rust-*.svg
+
+# Release assets are built locally or attached to GitHub Releases.
+/agent-guard-*.tar.gz
+/agent-guard-*.tar.gz.sha256
+/agent-guard.rb

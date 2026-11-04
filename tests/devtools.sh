@@ -13,7 +13,20 @@ cp bench/results/rust-experiment/environment.txt bench/results/rust-experiment/i
 jq -S . bench/results/rust-experiment/assessment.json >"$CASE/expected"
 jq -S . "$CASE/assessment.json" >"$CASE/actual"
 cmp "$CASE/expected" "$CASE/actual"
+"$TOOLS" --help >"$CASE/help"
+"$TOOLS" report --help >"$CASE/report-help"
+if "$TOOLS" report --results "$CASE/results" --html "$CASE/unknown.html" --unknown-option >"$CASE/unknown-output" 2>"$CASE/unknown-error"; then
+  echo 'unknown report option was silently accepted' >&2; exit 1
+fi
+test ! -e "$CASE/unknown.html"
+grep -q 'unknown option' "$CASE/unknown-error"
+"$TOOLS" report --results /nonexistent --results "$CASE/results" "--html=$CASE/last-option.html" >"$CASE/last-option.json"
+jq -S . "$CASE/last-option.json" >"$CASE/actual"
+cmp "$CASE/expected" "$CASE/actual"
 test "$(find "$CASE/assets" -name 'rust-*.svg' | wc -l | tr -d ' ')" = 5
+for chart in "$CASE"/assets/rust-*.svg; do
+  test "$(grep -o '<svg ' "$chart" | wc -l | tr -d ' ')" = 1
+done
 for heading in '판정과 적용 범위' '실제 CLI' '동시 부하' '정확성' '측정 한계'; do
   grep -q "$heading" "$CASE/report.html"
 done
