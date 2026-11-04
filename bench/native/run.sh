@@ -29,14 +29,18 @@ fi
 docker run --rm --network=none -v "$ROOT:/repo:ro" "$IMAGE" sh -c '
   cmp /build/Cargo.toml /repo/native/redaction-core/Cargo.toml &&
   cmp /build/Cargo.lock /repo/native/redaction-core/Cargo.lock &&
-  cmp /build/src/main.rs /repo/native/redaction-core/src/main.rs
+  cmp /build/src/main.rs /repo/native/redaction-core/src/main.rs &&
+  cmp /devtools/Cargo.toml /repo/native/devtools/Cargo.toml &&
+  cmp /devtools/Cargo.lock /repo/native/devtools/Cargo.lock &&
+  diff -r /devtools/src /repo/native/devtools/src &&
+  ! command -v python3 && ! command -v python
 '
 docker image inspect "$IMAGE" --format '{{.Id}}' >"$OUT/image-id.txt"
 CGROUP_ISOLATED=0
 docker info --format '{"cgroup_driver":{{json .CgroupDriver}},"cgroup_version":{{json .CgroupVersion}},"warnings":{{json .Warnings}}}' >"$OUT/docker-info.json"
 run() {
   docker run --rm --init --network=none --cpus=2 --memory=1g \
-    -e PYTHONDONTWRITEBYTECODE=1 -e "AGENT_GUARD_BENCH_CGROUP_ISOLATED=$CGROUP_ISOLATED" \
+    -e "AGENT_GUARD_BENCH_CGROUP_ISOLATED=$CGROUP_ISOLATED" \
     -v "$ROOT:/repo:ro" -v "$CASE/baseline:/baseline:ro" -v "$SCANNER:/scanner/gitleaks:ro" \
     "$IMAGE" "$@"
 }
@@ -50,17 +54,17 @@ else
 fi
 CORE=/build/target/release/agent-guard-redact
 OLD=/baseline/plugins/agent-guard/bin/agent-guard
-run sh -c 'rustc --version; jq --version; /scanner/gitleaks version; cat /sys/fs/cgroup/cpu.max; cat /sys/fs/cgroup/memory.max; sha256sum /build/target/release/agent-guard-redact /baseline/plugins/agent-guard/bin/agent-guard /repo/plugins/agent-guard/bin/agent-guard /scanner/gitleaks; dpkg-query -W dash gawk libc6 python3; ldd /build/target/release/agent-guard-redact; date -u' >"$OUT/environment.txt"
-run python3 tests/native-redaction.py --core "$CORE" >"$OUT/differential.json"
-run python3 tests/native-integration.py --core "$CORE" --scanner /scanner/gitleaks >"$OUT/integration.json"
-run sh -c 'mkdir /tmp/legacy-jq; ln -s /usr/bin/jq /tmp/legacy-jq/jq; PATH=/tmp/legacy-jq:$PATH python3 tests/native-integration.py --core /build/target/release/agent-guard-redact --scanner /scanner/gitleaks' >"$OUT/integration-jq16.json"
-run python3 bench/native/kernel.py --core "$CORE" --runs 15 >"$OUT/kernel.json"
-run python3 bench/masking-latency.py --baseline "$OLD" --native-core "$CORE" \
+run sh -c 'rustc --version; jq --version; /scanner/gitleaks version; cat /sys/fs/cgroup/cpu.max; cat /sys/fs/cgroup/memory.max; sha256sum /build/target/release/agent-guard-redact /baseline/plugins/agent-guard/bin/agent-guard /repo/plugins/agent-guard/bin/agent-guard /scanner/gitleaks; dpkg-query -W dash gawk libc6; ldd /build/target/release/agent-guard-redact; date -u' >"$OUT/environment.txt"
+run agent-guard-devtools native-redaction --core "$CORE" >"$OUT/differential.json"
+run agent-guard-devtools native-integration --core "$CORE" --scanner /scanner/gitleaks >"$OUT/integration.json"
+run sh -c 'mkdir /tmp/legacy-jq; ln -s /usr/bin/jq /tmp/legacy-jq/jq; PATH=/tmp/legacy-jq:$PATH agent-guard-devtools native-integration --core /build/target/release/agent-guard-redact --scanner /scanner/gitleaks' >"$OUT/integration-jq16.json"
+run agent-guard-devtools kernel --core "$CORE" --runs 15 >"$OUT/kernel.json"
+run agent-guard-devtools masking-latency --baseline "$OLD" --native-core "$CORE" \
   --scanner /scanner/gitleaks --runs 9 --resources --include-boundaries --trace-processes >"$OUT/cli-claude.json" 2>"$OUT/cli-claude.log"
-run python3 bench/masking-latency.py --baseline "$OLD" --native-core "$CORE" \
+run agent-guard-devtools masking-latency --baseline "$OLD" --native-core "$CORE" \
   --scanner /scanner/gitleaks --runs 9 --resources --host codex \
   --case small-clean --case long-line --case many-replacement-leaves >"$OUT/cli-codex.json" 2>"$OUT/cli-codex.log"
-run python3 bench/masking-latency.py --baseline "$OLD" \
+run agent-guard-devtools masking-latency --baseline "$OLD" \
   --scanner /scanner/gitleaks --runs 9 --resources \
   --case small-clean --case long-line --case many-replacement-leaves >"$OUT/cli-shell-control.json" 2>"$OUT/cli-shell-control.log"
 for workers in 1 4; do
@@ -69,10 +73,10 @@ for workers in 1 4; do
     if [ "$repeat" = 2 ]; then order='rust shell'; fi
     for backend in $order; do
       if [ "$backend" = rust ]; then
-        run python3 bench/native/load.py --binary /repo/plugins/agent-guard/bin/agent-guard \
+        run agent-guard-devtools load --binary /repo/plugins/agent-guard/bin/agent-guard \
           --core "$CORE" --scanner /scanner/gitleaks --workers "$workers" --requests 8 >"$OUT/load-$workers-$repeat-$backend.json"
       else
-        run python3 bench/native/load.py --binary "$OLD" \
+        run agent-guard-devtools load --binary "$OLD" \
           --scanner /scanner/gitleaks --workers "$workers" --requests 8 >"$OUT/load-$workers-$repeat-$backend.json"
       fi
     done
@@ -80,7 +84,7 @@ for workers in 1 4; do
 done
 # The first clean workload showed environmental variance in the recorded run.
 # Preserve the original trials and add a separate 21-pair stability check.
-run python3 bench/masking-latency.py --baseline "$OLD" --native-core "$CORE" \
+run agent-guard-devtools masking-latency --baseline "$OLD" --native-core "$CORE" \
   --scanner /scanner/gitleaks --runs 21 --resources --case small-clean \
   >"$OUT/cli-clean-followup.json" 2>"$OUT/cli-clean-followup.log"
 sha256sum plugins/agent-guard/bin/agent-guard >"$OUT/cli-source-after.sha256"

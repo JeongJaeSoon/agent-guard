@@ -35,12 +35,12 @@ Rust로 전면 재작성하면 빨라진다는 결론을 내릴 측정 근거는
 | 장애 경계 | `run_gitleaks_stdin`, `hook_dependencies_ready`, `handle_hook_infrastructure_failure` | 정상·탐지·실행 불가를 별도 상태로 유지. plugin 기본 open/설정 closed와 native Git hook의 정책을 혼합하면 안 됨 |
 | 호스트 출력 | `emit_post_tool_replacement` | Claude는 `updatedToolOutput`, Codex는 block와 sanitized `additionalContext`. 공통 JSON envelope 하나로 합치면 계약 위반 |
 | 설치/업데이트 | `plugin_cache_root_usable`, `shell_init_resolver`, 생성 hook의 `root_ok` | 실행 파일을 텍스트로 읽어 `VERSION=`를 찾음. ELF/Mach-O로 파일을 단순 교체하면 정상 plugin 선택이 실패할 수 있음 |
-| 테스트 | `tests/helpers/extract-functions.sh`, `tests/selected-bash-locations.json`, `tests/measure-selected-bash.py` | 함수 본문 추출·해시 기반 단위 검증은 native 구현을 검증하지 못함. 실행 파일 경계의 fixture도 필요 |
+| 테스트 | `tests/helpers/extract-functions.sh`, `tests/selected-bash-locations.json`, `native/devtools/src/verification.rs` | 함수 본문 추출·해시 기반 단위 검증은 native 구현을 검증하지 못함. 실행 파일 경계의 fixture도 필요 |
 
 관련 파일은 [CLI](../plugins/agent-guard/bin/agent-guard),
 [hook 생성기](../scripts/render-hook-manifests.sh),
 [배포 tarball 생성기](../scripts/build-release-tarball.sh),
-[회귀 테스트](../tests/run.sh), [마스킹 측정기](../bench/masking-latency.py)다.
+[회귀 테스트](../tests/run.sh), [마스킹 측정기](../native/devtools/src/measure.rs)다.
 함수 이름을 근거로 사용했으며 이후 편집으로 달라질 수 있는 줄 번호는 고정하지 않았다.
 
 ## 언어별 비교

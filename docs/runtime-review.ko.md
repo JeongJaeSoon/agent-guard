@@ -46,7 +46,7 @@ object key, binary payload, 호스트의 hook 미발생 채널 등 기존 보호
 일치하는 것을 확인했다. 양쪽에 같은 scanner와 설정 파일을 적용한다.
 
 ```sh
-python3 bench/masking-latency.py \
+sh scripts/devtools.sh masking-latency \
   --baseline /absolute/path/to/baseline/plugins/agent-guard/bin/agent-guard \
   --scanner /absolute/path/to/gitleaks --runs 5 \
   --resources --include-boundaries --trace-processes
@@ -57,9 +57,11 @@ python3 bench/masking-latency.py \
 정상 입력은 빈 hook 출력 또는 변경 없는 exec 출력이어야 한다. 변환한 leaf의
 원래 secret이 사라졌는지만 확인하는 방식이 아니라 전체 기대값과 비교한다.
 
-`--resources`는 표본마다 새 Python worker를 사용해 이전 표본의
+보존된 아래 측정은 Python 도구로 실행했다. 현재 Rust 도구의
+`--resources`도 표본마다 새 worker를 사용해 이전 표본의
 `RUSAGE_CHILDREN` high-water mark가 섞이지 않게 한다. 보고하는 wall time은
-worker 초기화 이후 CLI 실행 구간이며, Python worker 시작 시간은 제외한다.
+worker 초기화 이후 CLI 실행 구간이며, worker 시작 시간은 제외한다.
+새 Rust 도구의 smoke 수치를 과거 성능 수치와 섞지 않는다.
 CPU는 회수된 CLI와 하위 프로세스의 user/system 시간이다.
 `max_child_peak_rss_kib`는 자식의 개별 peak RSS 최대값이며 **동시 process tree의
 메모리 합계가 아니다.** Linux와 macOS의 RSS 단위를 KiB로 정규화한다.
@@ -153,7 +155,7 @@ Bash policy 분석 경로의 구조적 비용을 줄이지 않았다는 증거�
 다음 명령으로 별도 재현할 수 있다.
 
 ```sh
-python3 bench/watchdog-orphans.py \
+sh scripts/devtools.sh watchdog-orphans \
   --baseline /absolute/path/to/baseline/plugins/agent-guard/bin/agent-guard \
   --scanner /absolute/path/to/gitleaks --runs 10
 ```

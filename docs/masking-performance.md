@@ -1,7 +1,7 @@
 # 마스킹 성능과 처리 단계
 
 마스킹 지연은 입력 바이트 수뿐 아니라 줄바꿈, 제어 문자, 문자열 leaf 수,
-치환 규칙 수에 따라 달라진다. `bench/masking-latency.py`는 이 입력 형태를
+치환 규칙 수에 따라 달라진다. `scripts/devtools.sh masking-latency`는 이 입력 형태를
 분리해서 측정하고, **각 측정에서 마스킹 결과까지 검증**한다.
 탐지를 생략하거나 제한값을 낮춰서 얻은 단축은 아니다.
 
@@ -24,12 +24,12 @@ timeout이 아니다.
 
 ## 재현 방법
 
-필요한 도구는 Python 3, `jq`, 실제 `gitleaks`다. Python은 개발용 측정 도구에만
-사용하며 배포 CLI에는 새 의존성을 추가하지 않는다.
+필요한 도구는 Rust 1.85.1+, `jq`, 실제 `gitleaks`다. Rust는 개발 도구 빌드에만
+필요하며 배포 CLI에는 새 의존성을 추가하지 않는다. Python 실행 의존성은 제거했다.
 
 ```sh
 make bench-masking
-python3 bench/masking-latency.py --baseline /absolute/path/to/baseline/bin/agent-guard --runs 5
+sh scripts/devtools.sh masking-latency --baseline /absolute/path/to/baseline/bin/agent-guard --runs 5
 ```
 
 기준 실행 파일은 같은 버전의 전체 plugin payload와 함께 두어야 한다. 측정은
