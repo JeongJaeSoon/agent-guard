@@ -65,3 +65,27 @@ completeness, launcher/protocol compatibility and interrupted-update/rollback
 checks. The shell launcher still owns version resolution. A persistent daemon
 would add secret lifetime, IPC authentication and session-isolation concerns;
 this experiment keeps one-shot execution.
+
+## Native artifact qualification
+
+`native-platforms.yml` builds with Rust 1.85.1 and the locked dependencies on
+four native runners. It executes each uploaded binary against the existing
+1,024 differential/invalid-input cases, real-scanner Claude/Codex fallback
+contracts, and audit suite with Cargo and rustc absent from PATH. A build alone
+does not satisfy this gate. The aggregate fails if any platform fails.
+
+| Artifact target | Native runner | Binary requirements |
+| --- | --- | --- |
+| `x86_64-unknown-linux-musl` | Ubuntu 24.04 x64 | Static musl; no glibc dependency |
+| `aarch64-unknown-linux-musl` | Ubuntu 24.04 ARM64 | Static musl; no glibc dependency |
+| `x86_64-apple-darwin` | macOS 15 Intel | macOS 14+ deployment target; system libraries |
+| `aarch64-apple-darwin` | macOS 15 ARM64 | macOS 14+ deployment target; system libraries |
+
+The build record includes the source SHA, compiler, actual OS/architecture and
+dynamic-library inspection. CI artifacts contain the executable, SHA-256 file,
+and execution evidence. Verify in the artifact directory with
+`shasum -a 256 -c agent-guard-redact-TARGET.sha256` (replace `TARGET`). These are
+qualification artifacts, not a published v3.7.0 release. Linux kernel portability
+beyond the tested runners is not established by static linking alone. Existing
+shell support remains unchanged. Installer/update validation and performance
+qualification must pass before default activation or a release.
