@@ -1,5 +1,5 @@
 name: Experimental native redactor
-run-name: Numeric fallback locale and child-process diagnosis
+run-name: Numeric fallback focused validation
 on:
   workflow_dispatch:
 permissions:
@@ -12,7 +12,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-15-intel]
+        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-15, macos-15-intel]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -21,15 +21,15 @@ jobs:
         run: |
           sh scripts/install-native-test-tools.sh "$RUNNER_TEMP/test-bin"
           export PATH="$RUNNER_TEMP/test-bin:$PATH"
-          mkdir "$RUNNER_TEMP/evidence"
-          locale > "$RUNNER_TEMP/evidence/locale.txt"
-          AG_NUMERIC_TIME_CHILDREN=1 python3 bench/fused-output/diagnose-numeric.py plugins/agent-guard "$RUNNER_TEMP/evidence/default"
-          LC_ALL=C AG_NUMERIC_TIME_CHILDREN=1 python3 bench/fused-output/diagnose-numeric.py plugins/agent-guard "$RUNNER_TEMP/evidence/C"
+          python3 bench/fused-output/diagnose-numeric.py plugins/agent-guard "$RUNNER_TEMP/evidence"
           uname -a > "$RUNNER_TEMP/evidence/platform.txt"
+          jq --version >> "$RUNNER_TEMP/evidence/platform.txt"
           /bin/sh --version >> "$RUNNER_TEMP/evidence/platform.txt" 2>&1 || true
+          jq -e 'all(.[]; .independent_expected and .status == 0) and
+            all(.[] | select(.mode == "original"); .wall_seconds < 20)' "$RUNNER_TEMP/evidence/results.json"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
-          name: numeric-locale-${{ matrix.os }}
+          name: numeric-fixed-${{ matrix.os }}
           path: ${{ runner.temp }}/evidence/
           if-no-files-found: error
