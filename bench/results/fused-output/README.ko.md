@@ -140,6 +140,30 @@ Intel Codex는 한계에 가까우므로 충분한 시간 여유가 있다고 �
 서로 구분한다. 현재 공개 배포는 여전히 v3.7.1이며 새 후보를 발행하지 않았다.
 호환성 변경이나 v4.0.0 필요성도 입증되지 않았다.
 
+## 후속 readiness 진단과 재현 가능한 타이머 경합
+
+`d69bffa`의 macOS Intel/ARM 독립 진단은 각 24회 hook(원본/계측 ×
+GOMAXPROCS 기본/1 × 6라운드), 12회 직접 version, 2회 inittrace다.
+모든 합성 fixture의 독립 기대값은 맞았고 readiness timeout은 재현되지 않았다.
+Intel 직접 version은 0.34~0.83초, inittrace의 go-re2 초기화는 약 0.28~0.31초였다.
+이 진단의 성공은 실패한 `bd19cb5` CI를 대체하거나 원인 해결을 뜻하지 않는다.
+초기 진단 `0485b39`는 중복 계측 anchor assertion에서 중단됐다. 제품 실행 전의
+진단기 결함이며 실패 artifact와 로그도 `ci-readiness-0485b39/`에 보존했다.
+
+별도 `c1c7990`에서 부모가 완료된 version 자식을 reap한 직후 3초 동안
+지연되는 상황을 의도적으로 만들었다. 기존 코드의 정상 종료와 exit 7은 모두
+잘못된 timeout으로 바뀌었고, 실제 8초 걸리는 자식만 기대대로 timeout이었다
+(1성공/2실패). watchdog이 timeout을 기록하기 전에 자식의 생존 여부를 확인하는
+최소 수정은 세 경우를 모두 통과했다. 원래 2초 제한을 늘리지 않았고, 기존
+readiness 47개 검사도 모두 통과했다. 네 플랫폼의 전후 회귀 검증을 진행한다.
+이 결정적 경합 재현을 최초 자료 없는 mismatch나 앞선 실제 CI timeout의
+근본 원인으로 확정하지 않는다.
+
+읽기 전용 `bd19cb5` 소스와 helper로 수행한 컴파일러 없는 격리 Linux 전체 suite는
+2739 성공/0실패였고 Docker die event의 exitCode도 0이었다. 전체 로그와 종료
+이벤트 메타데이터를 보존했다. 이는 새 타이머 수정이나 네 플랫폼 설치 검증의
+완료를 의미하지 않는다.
+
 ## 설치 비용: 같은 컴파일러와 실험 payload
 
 `install-cost-afab414/`는 **Linux x64 로컬 4CPU/16GiB**의 별도 측정이다.
