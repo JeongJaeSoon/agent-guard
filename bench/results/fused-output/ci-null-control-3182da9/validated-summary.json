@@ -1,0 +1,3639 @@
+{
+  "scope": "fixed A/A negative controls and attribution A/B; 3 blocks of 9 pairs; original results retained; whole-cgroup throttle counters are not CLI CPU",
+  "comparison_count": 120,
+  "cli_runs": 2160,
+  "rows": [
+    {
+      "trial": 1,
+      "kind": "aa",
+      "scheduling": "pinned",
+      "host": "claude",
+      "name": "small-clean",
+      "arms": {
+        "baseline": {
+          "latency": 0.145079182,
+          "cpu": 0.16534700000000002,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.144376989,
+          "cpu": 0.16433799999999998,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": -0.48400672675421585,
+      "cpu_change_percent": -0.610231815515272
+    },
+    {
+      "trial": 1,
+      "kind": "aa",
+      "scheduling": "pinned",
+      "host": "claude",
+      "name": "many-replacement-leaves",
+      "arms": {
+        "baseline": {
+          "latency": 0.277028221,
+          "cpu": 0.303237,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.276674634,
+          "cpu": 0.303692,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": -0.1276357328230615,
+      "cpu_change_percent": 0.15004765249624352
+    },
+    {
+      "trial": 1,
+      "kind": "aa",
+      "scheduling": "pinned",
+      "host": "claude",
+      "name": "exec-long-quoted-secret",
+      "arms": {
+        "baseline": {
+          "latency": 0.457288239,
+          "cpu": 0.482034,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.456092255,
+          "cpu": 0.480883,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": -0.2615383248463554,
+      "cpu_change_percent": -0.2387798371069283
+    },
+    {
+      "trial": 1,
+      "kind": "aa",
+      "scheduling": "pinned",
+      "host": "claude",
+      "name": "exec-over-cap-8388608",
+      "arms": {
+        "baseline": {
+          "latency": 0.226395535,
+          "cpu": 0.250491,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.225631215,
+          "cpu": 0.24927,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": -0.337603831276978,
+      "cpu_change_percent": -0.4874426626106487
+    },
+    {
+      "trial": 1,
+      "kind": "aa",
+      "scheduling": "pinned",
+      "host": "claude",
+      "name": "pre-read-clean",
+      "arms": {
+        "baseline": {
+          "latency": 0.055300175,
+          "cpu": 0.060876,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.054882622,
+          "cpu": 0.060406999999999995,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": -0.7550663266436386,
+      "cpu_change_percent": -0.7704185557526833
+    },
+    {
+      "trial": 1,
+      "kind": "aa",
+      "scheduling": "pinned",
+      "host": "codex",
+      "name": "small-clean",
+      "arms": {
+        "baseline": {
+          "latency": 0.145030582,
+          "cpu": 0.164821,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.144031809,
+          "cpu": 0.163893,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": -0.6886637192147327,
+      "cpu_change_percent": -0.5630350501452996
+    },
+    {
+      "trial": 1,
+      "kind": "aa",
+      "scheduling": "pinned",
+      "host": "codex",
+      "name": "many-replacement-leaves",
+      "arms": {
+        "baseline": {
+          "latency": 0.280513817,
+          "cpu": 0.30923,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.28149441,
+          "cpu": 0.308596,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": 0.3495703029843922,
+      "cpu_change_percent": -0.2050253856352935
+    },
+    {
+      "trial": 1,
+      "kind": "aa",
+      "scheduling": "pinned",
+      "host": "codex",
+      "name": "exec-long-quoted-secret",
+      "arms": {
+        "baseline": {
+          "latency": 0.458701013,
+          "cpu": 0.480734,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.453652916,
+          "cpu": 0.479371,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": -1.100520133361893,
+      "cpu_change_percent": -0.2835247766956317
+    },
+    {
+      "trial": 1,
+      "kind": "aa",
+      "scheduling": "pinned",
+      "host": "codex",
+      "name": "exec-over-cap-8388608",
+      "arms": {
+        "baseline": {
+          "latency": 0.227359309,
+          "cpu": 0.251434,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.226306255,
+          "cpu": 0.250532,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": -0.46316731196609506,
+      "cpu_change_percent": -0.3587422544286012
+    },
+    {
+      "trial": 1,
+      "kind": "aa",
+      "scheduling": "pinned",
+      "host": "codex",
+      "name": "pre-read-clean",
+      "arms": {
+        "baseline": {
+          "latency": 0.055418638,
+          "cpu": 0.060903,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.055564883,
+          "cpu": 0.06102,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": 0.26389136449005424,
+      "cpu_change_percent": 0.19210876311510638
+    },
+    {
+      "trial": 1,
+      "kind": "aa",
+      "scheduling": "quota",
+      "host": "claude",
+      "name": "small-clean",
+      "arms": {
+        "baseline": {
+          "latency": 0.139125426,
+          "cpu": 0.160967,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.138504763,
+          "cpu": 0.160275,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": -0.4461175917621185,
+      "cpu_change_percent": -0.4299017811104089
+    },
+    {
+      "trial": 1,
+      "kind": "aa",
+      "scheduling": "quota",
+      "host": "claude",
+      "name": "many-replacement-leaves",
+      "arms": {
+        "baseline": {
+          "latency": 0.269929602,
+          "cpu": 0.29895700000000003,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.270267917,
+          "cpu": 0.298804,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": 0.12533453074183853,
+      "cpu_change_percent": -0.05117792859843373
+    },
+    {
+      "trial": 1,
+      "kind": "aa",
+      "scheduling": "quota",
+      "host": "claude",
+      "name": "exec-long-quoted-secret",
+      "arms": {
+        "baseline": {
+          "latency": 0.458923828,
+          "cpu": 0.487917,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.451543027,
+          "cpu": 0.478793,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": -1.6082845452077943,
+      "cpu_change_percent": -1.8699901827564869
+    },
+    {
+      "trial": 1,
+      "kind": "aa",
+      "scheduling": "quota",
+      "host": "claude",
+      "name": "exec-over-cap-8388608",
+      "arms": {
+        "baseline": {
+          "latency": 0.213426202,
+          "cpu": 0.234195,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.214123628,
+          "cpu": 0.234846,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": 0.32677618467857883,
+      "cpu_change_percent": 0.27797348363542973
+    },
+    {
+      "trial": 1,
+      "kind": "aa",
+      "scheduling": "quota",
+      "host": "claude",
+      "name": "pre-read-clean",
+      "arms": {
+        "baseline": {
+          "latency": 0.053604306,
+          "cpu": 0.058628,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.05342901,
+          "cpu": 0.058577,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": -0.32701850481936523,
+      "cpu_change_percent": -0.08698915194105261
+    },
+    {
+      "trial": 1,
+      "kind": "aa",
+      "scheduling": "quota",
+      "host": "codex",
+      "name": "small-clean",
+      "arms": {
+        "baseline": {
+          "latency": 0.141436595,
+          "cpu": 0.16461599999999998,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.141747066,
+          "cpu": 0.16350599999999998,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": 0.21951249604108547,
+      "cpu_change_percent": -0.6742965446858151
+    },
+    {
+      "trial": 1,
+      "kind": "aa",
+      "scheduling": "quota",
+      "host": "codex",
+      "name": "many-replacement-leaves",
+      "arms": {
+        "baseline": {
+          "latency": 0.277043592,
+          "cpu": 0.306295,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.275511313,
+          "cpu": 0.30501900000000004,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": -0.5530822745035802,
+      "cpu_change_percent": -0.4165918477284758
+    },
+    {
+      "trial": 1,
+      "kind": "aa",
+      "scheduling": "quota",
+      "host": "codex",
+      "name": "exec-long-quoted-secret",
+      "arms": {
+        "baseline": {
+          "latency": 0.448676103,
+          "cpu": 0.477525,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.448297799,
+          "cpu": 0.478143,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": -0.08431561152254519,
+      "cpu_change_percent": 0.12941730799433948
+    },
+    {
+      "trial": 1,
+      "kind": "aa",
+      "scheduling": "quota",
+      "host": "codex",
+      "name": "exec-over-cap-8388608",
+      "arms": {
+        "baseline": {
+          "latency": 0.214547338,
+          "cpu": 0.235477,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.211863425,
+          "cpu": 0.233478,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": -1.2509654163129325,
+      "cpu_change_percent": -0.8489151806758244
+    },
+    {
+      "trial": 1,
+      "kind": "aa",
+      "scheduling": "quota",
+      "host": "codex",
+      "name": "pre-read-clean",
+      "arms": {
+        "baseline": {
+          "latency": 0.053331823,
+          "cpu": 0.057824,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.053493561,
+          "cpu": 0.058671,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": 0.30326733815193574,
+      "cpu_change_percent": 1.4647897066961901
+    },
+    {
+      "trial": 1,
+      "kind": "ab",
+      "scheduling": "pinned",
+      "host": "claude",
+      "name": "small-clean",
+      "arms": {
+        "baseline": {
+          "latency": 0.146545785,
+          "cpu": 0.167052,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.12739363,
+          "cpu": 0.14685,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": -13.069058929262278,
+      "cpu_change_percent": -12.093240428130159
+    },
+    {
+      "trial": 1,
+      "kind": "ab",
+      "scheduling": "pinned",
+      "host": "claude",
+      "name": "many-replacement-leaves",
+      "arms": {
+        "baseline": {
+          "latency": 0.276993158,
+          "cpu": 0.303137,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.23120737,
+          "cpu": 0.256481,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": -16.5295736293963,
+      "cpu_change_percent": -15.391060807489676
+    },
+    {
+      "trial": 1,
+      "kind": "ab",
+      "scheduling": "pinned",
+      "host": "claude",
+      "name": "exec-long-quoted-secret",
+      "arms": {
+        "baseline": {
+          "latency": 0.457199757,
+          "cpu": 0.48302500000000004,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.430401497,
+          "cpu": 0.451337,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": -5.861389816967899,
+      "cpu_change_percent": -6.560322964649867
+    },
+    {
+      "trial": 1,
+      "kind": "ab",
+      "scheduling": "pinned",
+      "host": "claude",
+      "name": "exec-over-cap-8388608",
+      "arms": {
+        "baseline": {
+          "latency": 0.227706564,
+          "cpu": 0.251838,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.225359911,
+          "cpu": 0.249577,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": -1.0305601027821076,
+      "cpu_change_percent": -0.8977993789658467
+    },
+    {
+      "trial": 1,
+      "kind": "ab",
+      "scheduling": "pinned",
+      "host": "claude",
+      "name": "pre-read-clean",
+      "arms": {
+        "baseline": {
+          "latency": 0.054744803,
+          "cpu": 0.060094999999999996,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.055670974,
+          "cpu": 0.06092,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": 1.691797119079963,
+      "cpu_change_percent": 1.3728263582660993
+    },
+    {
+      "trial": 1,
+      "kind": "ab",
+      "scheduling": "pinned",
+      "host": "codex",
+      "name": "small-clean",
+      "arms": {
+        "baseline": {
+          "latency": 0.146758461,
+          "cpu": 0.16702,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.1297474,
+          "cpu": 0.14937099999999998,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": -11.591196094649693,
+      "cpu_change_percent": -10.56699796431566
+    },
+    {
+      "trial": 1,
+      "kind": "ab",
+      "scheduling": "pinned",
+      "host": "codex",
+      "name": "many-replacement-leaves",
+      "arms": {
+        "baseline": {
+          "latency": 0.284672851,
+          "cpu": 0.31335,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.237800156,
+          "cpu": 0.265237,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": -16.465460206459937,
+      "cpu_change_percent": -15.354396042763685
+    },
+    {
+      "trial": 1,
+      "kind": "ab",
+      "scheduling": "pinned",
+      "host": "codex",
+      "name": "exec-long-quoted-secret",
+      "arms": {
+        "baseline": {
+          "latency": 0.459890664,
+          "cpu": 0.48199400000000003,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.427585026,
+          "cpu": 0.45290699999999995,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": -7.024634446590994,
+      "cpu_change_percent": -6.034722423930605
+    },
+    {
+      "trial": 1,
+      "kind": "ab",
+      "scheduling": "pinned",
+      "host": "codex",
+      "name": "exec-over-cap-8388608",
+      "arms": {
+        "baseline": {
+          "latency": 0.227030846,
+          "cpu": 0.25178,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.224992404,
+          "cpu": 0.24864399999999998,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": -0.8978700629957537,
+      "cpu_change_percent": -1.2455318134879767
+    },
+    {
+      "trial": 1,
+      "kind": "ab",
+      "scheduling": "pinned",
+      "host": "codex",
+      "name": "pre-read-clean",
+      "arms": {
+        "baseline": {
+          "latency": 0.055614891,
+          "cpu": 0.061065999999999995,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.056400073,
+          "cpu": 0.061945,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": 1.4118197228868201,
+      "cpu_change_percent": 1.439426194609128
+    },
+    {
+      "trial": 1,
+      "kind": "ab",
+      "scheduling": "quota",
+      "host": "claude",
+      "name": "small-clean",
+      "arms": {
+        "baseline": {
+          "latency": 0.144913704,
+          "cpu": 0.167308,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.127607352,
+          "cpu": 0.14984,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": -11.942522703028825,
+      "cpu_change_percent": -10.440624477012461
+    },
+    {
+      "trial": 1,
+      "kind": "ab",
+      "scheduling": "quota",
+      "host": "claude",
+      "name": "many-replacement-leaves",
+      "arms": {
+        "baseline": {
+          "latency": 0.270802312,
+          "cpu": 0.299887,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.225103938,
+          "cpu": 0.253572,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": -16.87517867277292,
+      "cpu_change_percent": -15.444150630070652
+    },
+    {
+      "trial": 1,
+      "kind": "ab",
+      "scheduling": "quota",
+      "host": "claude",
+      "name": "exec-long-quoted-secret",
+      "arms": {
+        "baseline": {
+          "latency": 0.447883255,
+          "cpu": 0.477064,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.419698923,
+          "cpu": 0.44845,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": -6.292785382208576,
+      "cpu_change_percent": -5.997937383663398
+    },
+    {
+      "trial": 1,
+      "kind": "ab",
+      "scheduling": "quota",
+      "host": "claude",
+      "name": "exec-over-cap-8388608",
+      "arms": {
+        "baseline": {
+          "latency": 0.210933497,
+          "cpu": 0.23169099999999998,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.212519486,
+          "cpu": 0.23254799999999998,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": 0.7518905354326089,
+      "cpu_change_percent": 0.36988920588196805
+    },
+    {
+      "trial": 1,
+      "kind": "ab",
+      "scheduling": "quota",
+      "host": "claude",
+      "name": "pre-read-clean",
+      "arms": {
+        "baseline": {
+          "latency": 0.053193587,
+          "cpu": 0.058080999999999994,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.053534283,
+          "cpu": 0.058419,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": 0.6404832221598378,
+      "cpu_change_percent": 0.5819459031352947
+    },
+    {
+      "trial": 1,
+      "kind": "ab",
+      "scheduling": "quota",
+      "host": "codex",
+      "name": "small-clean",
+      "arms": {
+        "baseline": {
+          "latency": 0.140732345,
+          "cpu": 0.162969,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.123631178,
+          "cpu": 0.14604,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": -12.151554072377612,
+      "cpu_change_percent": -10.387865176812772
+    },
+    {
+      "trial": 1,
+      "kind": "ab",
+      "scheduling": "quota",
+      "host": "codex",
+      "name": "many-replacement-leaves",
+      "arms": {
+        "baseline": {
+          "latency": 0.273756431,
+          "cpu": 0.303582,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.227803216,
+          "cpu": 0.25789,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": -16.786168212428233,
+      "cpu_change_percent": -15.050958225454735
+    },
+    {
+      "trial": 1,
+      "kind": "ab",
+      "scheduling": "quota",
+      "host": "codex",
+      "name": "exec-long-quoted-secret",
+      "arms": {
+        "baseline": {
+          "latency": 0.450587623,
+          "cpu": 0.479888,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.4173925,
+          "cpu": 0.447488,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": -7.367073862124263,
+      "cpu_change_percent": -6.7515753675857715
+    },
+    {
+      "trial": 1,
+      "kind": "ab",
+      "scheduling": "quota",
+      "host": "codex",
+      "name": "exec-over-cap-8388608",
+      "arms": {
+        "baseline": {
+          "latency": 0.210928898,
+          "cpu": 0.231703,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.20878377,
+          "cpu": 0.229171,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": -1.0169910431144458,
+      "cpu_change_percent": -1.0927782549211562
+    },
+    {
+      "trial": 1,
+      "kind": "ab",
+      "scheduling": "quota",
+      "host": "codex",
+      "name": "pre-read-clean",
+      "arms": {
+        "baseline": {
+          "latency": 0.052970705,
+          "cpu": 0.057766,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.053616685,
+          "cpu": 0.058328,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": 1.2195042523976074,
+      "cpu_change_percent": 0.9728906277048699
+    },
+    {
+      "trial": 2,
+      "kind": "aa",
+      "scheduling": "pinned",
+      "host": "claude",
+      "name": "small-clean",
+      "arms": {
+        "baseline": {
+          "latency": 0.149970584,
+          "cpu": 0.17146699999999998,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.150185851,
+          "cpu": 0.171414,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": 0.1435394823827707,
+      "cpu_change_percent": -0.030909737733775255
+    },
+    {
+      "trial": 2,
+      "kind": "aa",
+      "scheduling": "pinned",
+      "host": "claude",
+      "name": "many-replacement-leaves",
+      "arms": {
+        "baseline": {
+          "latency": 0.278518206,
+          "cpu": 0.30526,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.278781748,
+          "cpu": 0.30646,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": 0.09462289872712581,
+      "cpu_change_percent": 0.39310751490533313
+    },
+    {
+      "trial": 2,
+      "kind": "aa",
+      "scheduling": "pinned",
+      "host": "claude",
+      "name": "exec-long-quoted-secret",
+      "arms": {
+        "baseline": {
+          "latency": 0.458494769,
+          "cpu": 0.48429900000000004,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.460846198,
+          "cpu": 0.488047,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": 0.5128584138764714,
+      "cpu_change_percent": 0.7739020728929846
+    },
+    {
+      "trial": 2,
+      "kind": "aa",
+      "scheduling": "pinned",
+      "host": "claude",
+      "name": "exec-over-cap-8388608",
+      "arms": {
+        "baseline": {
+          "latency": 0.227599073,
+          "cpu": 0.251834,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.227903809,
+          "cpu": 0.252504,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": 0.13389158223855446,
+      "cpu_change_percent": 0.26604826989207186
+    },
+    {
+      "trial": 2,
+      "kind": "aa",
+      "scheduling": "pinned",
+      "host": "claude",
+      "name": "pre-read-clean",
+      "arms": {
+        "baseline": {
+          "latency": 0.056187764,
+          "cpu": 0.061845,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.056378194,
+          "cpu": 0.061929000000000005,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": 0.3389172062443935,
+      "cpu_change_percent": 0.13582342954161497
+    },
+    {
+      "trial": 2,
+      "kind": "aa",
+      "scheduling": "pinned",
+      "host": "codex",
+      "name": "small-clean",
+      "arms": {
+        "baseline": {
+          "latency": 0.149128667,
+          "cpu": 0.169566,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.149542707,
+          "cpu": 0.169266,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": 0.27763944272365393,
+      "cpu_change_percent": -0.17692226035879166
+    },
+    {
+      "trial": 2,
+      "kind": "aa",
+      "scheduling": "pinned",
+      "host": "codex",
+      "name": "many-replacement-leaves",
+      "arms": {
+        "baseline": {
+          "latency": 0.286035556,
+          "cpu": 0.314191,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.287290195,
+          "cpu": 0.314674,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": 0.43863043376328736,
+      "cpu_change_percent": 0.15372814625498332
+    },
+    {
+      "trial": 2,
+      "kind": "aa",
+      "scheduling": "pinned",
+      "host": "codex",
+      "name": "exec-long-quoted-secret",
+      "arms": {
+        "baseline": {
+          "latency": 0.459332577,
+          "cpu": 0.486866,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.458893864,
+          "cpu": 0.48561699999999997,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": -0.09551097003948072,
+      "cpu_change_percent": -0.25653876015167
+    },
+    {
+      "trial": 2,
+      "kind": "aa",
+      "scheduling": "pinned",
+      "host": "codex",
+      "name": "exec-over-cap-8388608",
+      "arms": {
+        "baseline": {
+          "latency": 0.226821019,
+          "cpu": 0.250985,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.226942331,
+          "cpu": 0.25112999999999996,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": 0.05348357949135352,
+      "cpu_change_percent": 0.05777237683524117
+    },
+    {
+      "trial": 2,
+      "kind": "aa",
+      "scheduling": "pinned",
+      "host": "codex",
+      "name": "pre-read-clean",
+      "arms": {
+        "baseline": {
+          "latency": 0.055380845,
+          "cpu": 0.060711,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.05550694,
+          "cpu": 0.061177999999999996,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": 0.22768702788842354,
+      "cpu_change_percent": 0.7692180988618125
+    },
+    {
+      "trial": 2,
+      "kind": "aa",
+      "scheduling": "quota",
+      "host": "claude",
+      "name": "small-clean",
+      "arms": {
+        "baseline": {
+          "latency": 0.143704867,
+          "cpu": 0.16558499999999998,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.144305323,
+          "cpu": 0.16724299999999998,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": 0.41783971032798295,
+      "cpu_change_percent": 1.001298426789865
+    },
+    {
+      "trial": 2,
+      "kind": "aa",
+      "scheduling": "quota",
+      "host": "claude",
+      "name": "many-replacement-leaves",
+      "arms": {
+        "baseline": {
+          "latency": 0.273309819,
+          "cpu": 0.30170399999999997,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.272435504,
+          "cpu": 0.302267,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": -0.3198988617382992,
+      "cpu_change_percent": 0.1866067403813121
+    },
+    {
+      "trial": 2,
+      "kind": "aa",
+      "scheduling": "quota",
+      "host": "claude",
+      "name": "exec-long-quoted-secret",
+      "arms": {
+        "baseline": {
+          "latency": 0.453981411,
+          "cpu": 0.481453,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.451443194,
+          "cpu": 0.48129299999999997,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": -0.5591015267363053,
+      "cpu_change_percent": -0.0332327350748729
+    },
+    {
+      "trial": 2,
+      "kind": "aa",
+      "scheduling": "quota",
+      "host": "claude",
+      "name": "exec-over-cap-8388608",
+      "arms": {
+        "baseline": {
+          "latency": 0.213340127,
+          "cpu": 0.233648,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.209939526,
+          "cpu": 0.23045300000000002,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": -1.593980957928276,
+      "cpu_change_percent": -1.3674416215845975
+    },
+    {
+      "trial": 2,
+      "kind": "aa",
+      "scheduling": "quota",
+      "host": "claude",
+      "name": "pre-read-clean",
+      "arms": {
+        "baseline": {
+          "latency": 0.053453264,
+          "cpu": 0.058419,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.053764096,
+          "cpu": 0.058832999999999996,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": 0.5815023756079674,
+      "cpu_change_percent": 0.7086735479895134
+    },
+    {
+      "trial": 2,
+      "kind": "aa",
+      "scheduling": "quota",
+      "host": "codex",
+      "name": "small-clean",
+      "arms": {
+        "baseline": {
+          "latency": 0.139241581,
+          "cpu": 0.16195199999999998,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.141102059,
+          "cpu": 0.16346,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": 1.3361511601911458,
+      "cpu_change_percent": 0.9311400908911249
+    },
+    {
+      "trial": 2,
+      "kind": "aa",
+      "scheduling": "quota",
+      "host": "codex",
+      "name": "many-replacement-leaves",
+      "arms": {
+        "baseline": {
+          "latency": 0.275243263,
+          "cpu": 0.306537,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.27380546,
+          "cpu": 0.303142,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": -0.5223753650965945,
+      "cpu_change_percent": -1.107533511452119
+    },
+    {
+      "trial": 2,
+      "kind": "aa",
+      "scheduling": "quota",
+      "host": "codex",
+      "name": "exec-long-quoted-secret",
+      "arms": {
+        "baseline": {
+          "latency": 0.450363599,
+          "cpu": 0.480694,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.448770202,
+          "cpu": 0.478634,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": -0.35380235070907595,
+      "cpu_change_percent": -0.4285470590438045
+    },
+    {
+      "trial": 2,
+      "kind": "aa",
+      "scheduling": "quota",
+      "host": "codex",
+      "name": "exec-over-cap-8388608",
+      "arms": {
+        "baseline": {
+          "latency": 0.211735133,
+          "cpu": 0.232342,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.211918169,
+          "cpu": 0.232167,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": 0.08644573879006412,
+      "cpu_change_percent": -0.07532000241022851
+    },
+    {
+      "trial": 2,
+      "kind": "aa",
+      "scheduling": "quota",
+      "host": "codex",
+      "name": "pre-read-clean",
+      "arms": {
+        "baseline": {
+          "latency": 0.05260915,
+          "cpu": 0.057463,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.052634617,
+          "cpu": 0.057628,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": 0.048407929038951636,
+      "cpu_change_percent": 0.2871412909176252
+    },
+    {
+      "trial": 2,
+      "kind": "ab",
+      "scheduling": "pinned",
+      "host": "claude",
+      "name": "small-clean",
+      "arms": {
+        "baseline": {
+          "latency": 0.147463189,
+          "cpu": 0.167829,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.129019423,
+          "cpu": 0.148482,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": -12.507369551054538,
+      "cpu_change_percent": -11.527805087321019
+    },
+    {
+      "trial": 2,
+      "kind": "ab",
+      "scheduling": "pinned",
+      "host": "claude",
+      "name": "many-replacement-leaves",
+      "arms": {
+        "baseline": {
+          "latency": 0.280964062,
+          "cpu": 0.305994,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.232601876,
+          "cpu": 0.25883900000000004,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": -17.21294376787591,
+      "cpu_change_percent": -15.410432884304903
+    },
+    {
+      "trial": 2,
+      "kind": "ab",
+      "scheduling": "pinned",
+      "host": "claude",
+      "name": "exec-long-quoted-secret",
+      "arms": {
+        "baseline": {
+          "latency": 0.458376632,
+          "cpu": 0.48463600000000007,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.431468398,
+          "cpu": 0.458504,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": -5.8703328489049245,
+      "cpu_change_percent": -5.392088082602209
+    },
+    {
+      "trial": 2,
+      "kind": "ab",
+      "scheduling": "pinned",
+      "host": "claude",
+      "name": "exec-over-cap-8388608",
+      "arms": {
+        "baseline": {
+          "latency": 0.226186413,
+          "cpu": 0.249576,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.223213816,
+          "cpu": 0.246152,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": -1.3142243871208992,
+      "cpu_change_percent": -1.3719267878321562
+    },
+    {
+      "trial": 2,
+      "kind": "ab",
+      "scheduling": "pinned",
+      "host": "claude",
+      "name": "pre-read-clean",
+      "arms": {
+        "baseline": {
+          "latency": 0.053603789,
+          "cpu": 0.058922,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.054347149,
+          "cpu": 0.059594999999999995,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": 1.3867676406233098,
+      "cpu_change_percent": 1.142187977325948
+    },
+    {
+      "trial": 2,
+      "kind": "ab",
+      "scheduling": "pinned",
+      "host": "codex",
+      "name": "small-clean",
+      "arms": {
+        "baseline": {
+          "latency": 0.143342205,
+          "cpu": 0.16298,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.127107715,
+          "cpu": 0.146067,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": -11.325687364722759,
+      "cpu_change_percent": -10.377346913731756
+    },
+    {
+      "trial": 2,
+      "kind": "ab",
+      "scheduling": "pinned",
+      "host": "codex",
+      "name": "many-replacement-leaves",
+      "arms": {
+        "baseline": {
+          "latency": 0.278177306,
+          "cpu": 0.306879,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.232653399,
+          "cpu": 0.260092,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": -16.365068615626033,
+      "cpu_change_percent": -15.246074185591073
+    },
+    {
+      "trial": 2,
+      "kind": "ab",
+      "scheduling": "pinned",
+      "host": "codex",
+      "name": "exec-long-quoted-secret",
+      "arms": {
+        "baseline": {
+          "latency": 0.455233497,
+          "cpu": 0.479021,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.422384276,
+          "cpu": 0.446749,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": -7.215905950787271,
+      "cpu_change_percent": -6.7370741575004
+    },
+    {
+      "trial": 2,
+      "kind": "ab",
+      "scheduling": "pinned",
+      "host": "codex",
+      "name": "exec-over-cap-8388608",
+      "arms": {
+        "baseline": {
+          "latency": 0.225561888,
+          "cpu": 0.24928,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.226019396,
+          "cpu": 0.24946600000000002,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": 0.20283036467581006,
+      "cpu_change_percent": 0.07461489088576023
+    },
+    {
+      "trial": 2,
+      "kind": "ab",
+      "scheduling": "pinned",
+      "host": "codex",
+      "name": "pre-read-clean",
+      "arms": {
+        "baseline": {
+          "latency": 0.055950986,
+          "cpu": 0.061555,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.056421701,
+          "cpu": 0.061794,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": 0.8412988468156746,
+      "cpu_change_percent": 0.3882706522622126
+    },
+    {
+      "trial": 2,
+      "kind": "ab",
+      "scheduling": "quota",
+      "host": "claude",
+      "name": "small-clean",
+      "arms": {
+        "baseline": {
+          "latency": 0.142471785,
+          "cpu": 0.164487,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.124805506,
+          "cpu": 0.146585,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": -12.399843941030142,
+      "cpu_change_percent": -10.883534869017009
+    },
+    {
+      "trial": 2,
+      "kind": "ab",
+      "scheduling": "quota",
+      "host": "claude",
+      "name": "many-replacement-leaves",
+      "arms": {
+        "baseline": {
+          "latency": 0.267645359,
+          "cpu": 0.29731799999999997,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.222199965,
+          "cpu": 0.250093,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": -16.979705596165417,
+      "cpu_change_percent": -15.883666646486239
+    },
+    {
+      "trial": 2,
+      "kind": "ab",
+      "scheduling": "quota",
+      "host": "claude",
+      "name": "exec-long-quoted-secret",
+      "arms": {
+        "baseline": {
+          "latency": 0.451544966,
+          "cpu": 0.480257,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.416437722,
+          "cpu": 0.444403,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": -7.774916485283101,
+      "cpu_change_percent": -7.465586134090707
+    },
+    {
+      "trial": 2,
+      "kind": "ab",
+      "scheduling": "quota",
+      "host": "claude",
+      "name": "exec-over-cap-8388608",
+      "arms": {
+        "baseline": {
+          "latency": 0.208956504,
+          "cpu": 0.22919299999999998,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.209898759,
+          "cpu": 0.230329,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": 0.4509335588807506,
+      "cpu_change_percent": 0.49565213597275726
+    },
+    {
+      "trial": 2,
+      "kind": "ab",
+      "scheduling": "quota",
+      "host": "claude",
+      "name": "pre-read-clean",
+      "arms": {
+        "baseline": {
+          "latency": 0.054461177,
+          "cpu": 0.059191,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.054967218,
+          "cpu": 0.059869000000000006,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": 0.929177494639899,
+      "cpu_change_percent": 1.1454444087783733
+    },
+    {
+      "trial": 2,
+      "kind": "ab",
+      "scheduling": "quota",
+      "host": "codex",
+      "name": "small-clean",
+      "arms": {
+        "baseline": {
+          "latency": 0.142375083,
+          "cpu": 0.165393,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.12529364,
+          "cpu": 0.14635700000000001,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": -11.997494673980281,
+      "cpu_change_percent": -11.509556027159551
+    },
+    {
+      "trial": 2,
+      "kind": "ab",
+      "scheduling": "quota",
+      "host": "codex",
+      "name": "many-replacement-leaves",
+      "arms": {
+        "baseline": {
+          "latency": 0.274815513,
+          "cpu": 0.304783,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.229351077,
+          "cpu": 0.25943499999999997,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": -16.543620665257,
+      "cpu_change_percent": -14.878782609266283
+    },
+    {
+      "trial": 2,
+      "kind": "ab",
+      "scheduling": "quota",
+      "host": "codex",
+      "name": "exec-long-quoted-secret",
+      "arms": {
+        "baseline": {
+          "latency": 0.44771782,
+          "cpu": 0.476394,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.421763546,
+          "cpu": 0.45032300000000003,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": -5.797016075884587,
+      "cpu_change_percent": -5.472571023144701
+    },
+    {
+      "trial": 2,
+      "kind": "ab",
+      "scheduling": "quota",
+      "host": "codex",
+      "name": "exec-over-cap-8388608",
+      "arms": {
+        "baseline": {
+          "latency": 0.212955588,
+          "cpu": 0.233621,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.211095314,
+          "cpu": 0.231805,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": -0.8735502164892717,
+      "cpu_change_percent": -0.7773273806721104
+    },
+    {
+      "trial": 2,
+      "kind": "ab",
+      "scheduling": "quota",
+      "host": "codex",
+      "name": "pre-read-clean",
+      "arms": {
+        "baseline": {
+          "latency": 0.053469494,
+          "cpu": 0.058323,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.054265299,
+          "cpu": 0.059171,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": 1.4883346380648366,
+      "cpu_change_percent": 1.453971846441382
+    },
+    {
+      "trial": 3,
+      "kind": "aa",
+      "scheduling": "pinned",
+      "host": "claude",
+      "name": "small-clean",
+      "arms": {
+        "baseline": {
+          "latency": 0.143969502,
+          "cpu": 0.164066,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.14402074,
+          "cpu": 0.163628,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": 0.03558948200015344,
+      "cpu_change_percent": -0.2669657333024489
+    },
+    {
+      "trial": 3,
+      "kind": "aa",
+      "scheduling": "pinned",
+      "host": "claude",
+      "name": "many-replacement-leaves",
+      "arms": {
+        "baseline": {
+          "latency": 0.277172145,
+          "cpu": 0.302818,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.278318897,
+          "cpu": 0.302984,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": 0.4137327724616835,
+      "cpu_change_percent": 0.054818405775081125
+    },
+    {
+      "trial": 3,
+      "kind": "aa",
+      "scheduling": "pinned",
+      "host": "claude",
+      "name": "exec-long-quoted-secret",
+      "arms": {
+        "baseline": {
+          "latency": 0.453816598,
+          "cpu": 0.479398,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.4529731,
+          "cpu": 0.47839600000000004,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": -0.1858675957903122,
+      "cpu_change_percent": -0.2090121360539543
+    },
+    {
+      "trial": 3,
+      "kind": "aa",
+      "scheduling": "pinned",
+      "host": "claude",
+      "name": "exec-over-cap-8388608",
+      "arms": {
+        "baseline": {
+          "latency": 0.224746948,
+          "cpu": 0.24857,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.224930347,
+          "cpu": 0.248507,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": 0.08160244293951013,
+      "cpu_change_percent": -0.02534497324697682
+    },
+    {
+      "trial": 3,
+      "kind": "aa",
+      "scheduling": "pinned",
+      "host": "claude",
+      "name": "pre-read-clean",
+      "arms": {
+        "baseline": {
+          "latency": 0.053804116,
+          "cpu": 0.059095999999999996,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.05325881,
+          "cpu": 0.058745,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": -1.0135023870664561,
+      "cpu_change_percent": -0.5939488290239603
+    },
+    {
+      "trial": 3,
+      "kind": "aa",
+      "scheduling": "pinned",
+      "host": "codex",
+      "name": "small-clean",
+      "arms": {
+        "baseline": {
+          "latency": 0.142813745,
+          "cpu": 0.16211599999999998,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.144146001,
+          "cpu": 0.163306,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": 0.9328625896618092,
+      "cpu_change_percent": 0.7340422907054389
+    },
+    {
+      "trial": 3,
+      "kind": "aa",
+      "scheduling": "pinned",
+      "host": "codex",
+      "name": "many-replacement-leaves",
+      "arms": {
+        "baseline": {
+          "latency": 0.28085034,
+          "cpu": 0.308413,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.280495809,
+          "cpu": 0.30852599999999997,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": -0.12623484806889573,
+      "cpu_change_percent": 0.03663918187624127
+    },
+    {
+      "trial": 3,
+      "kind": "aa",
+      "scheduling": "pinned",
+      "host": "codex",
+      "name": "exec-long-quoted-secret",
+      "arms": {
+        "baseline": {
+          "latency": 0.456844932,
+          "cpu": 0.48200999999999994,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.455746243,
+          "cpu": 0.479746,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": -0.24049495201579063,
+      "cpu_change_percent": -0.46969979875934875
+    },
+    {
+      "trial": 3,
+      "kind": "aa",
+      "scheduling": "pinned",
+      "host": "codex",
+      "name": "exec-over-cap-8388608",
+      "arms": {
+        "baseline": {
+          "latency": 0.22460886,
+          "cpu": 0.24817100000000003,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.222410565,
+          "cpu": 0.246131,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": -0.9787214092979224,
+      "cpu_change_percent": -0.8220138533511334
+    },
+    {
+      "trial": 3,
+      "kind": "aa",
+      "scheduling": "pinned",
+      "host": "codex",
+      "name": "pre-read-clean",
+      "arms": {
+        "baseline": {
+          "latency": 0.054133297,
+          "cpu": 0.059607999999999994,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.054060479,
+          "cpu": 0.059411,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": -0.13451610013702764,
+      "cpu_change_percent": -0.3304925513353818
+    },
+    {
+      "trial": 3,
+      "kind": "aa",
+      "scheduling": "quota",
+      "host": "claude",
+      "name": "small-clean",
+      "arms": {
+        "baseline": {
+          "latency": 0.139062952,
+          "cpu": 0.160889,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.139585623,
+          "cpu": 0.161991,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": 0.37585208172483675,
+      "cpu_change_percent": 0.6849442783533943
+    },
+    {
+      "trial": 3,
+      "kind": "aa",
+      "scheduling": "quota",
+      "host": "claude",
+      "name": "many-replacement-leaves",
+      "arms": {
+        "baseline": {
+          "latency": 0.264493033,
+          "cpu": 0.29377,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.265802557,
+          "cpu": 0.293784,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": 0.4951071811407637,
+      "cpu_change_percent": 0.004765632978176448
+    },
+    {
+      "trial": 3,
+      "kind": "aa",
+      "scheduling": "quota",
+      "host": "claude",
+      "name": "exec-long-quoted-secret",
+      "arms": {
+        "baseline": {
+          "latency": 0.445440558,
+          "cpu": 0.472999,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.453697818,
+          "cpu": 0.482282,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": 1.8537288200864754,
+      "cpu_change_percent": 1.9625834304089373
+    },
+    {
+      "trial": 3,
+      "kind": "aa",
+      "scheduling": "quota",
+      "host": "claude",
+      "name": "exec-over-cap-8388608",
+      "arms": {
+        "baseline": {
+          "latency": 0.210175419,
+          "cpu": 0.230371,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.208270151,
+          "cpu": 0.22828199999999998,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": -0.906513239780915,
+      "cpu_change_percent": -0.9067981646995515
+    },
+    {
+      "trial": 3,
+      "kind": "aa",
+      "scheduling": "quota",
+      "host": "claude",
+      "name": "pre-read-clean",
+      "arms": {
+        "baseline": {
+          "latency": 0.052380897,
+          "cpu": 0.057124,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.052494879,
+          "cpu": 0.057307,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": 0.2176022300649061,
+      "cpu_change_percent": 0.3203557173867333
+    },
+    {
+      "trial": 3,
+      "kind": "aa",
+      "scheduling": "quota",
+      "host": "codex",
+      "name": "small-clean",
+      "arms": {
+        "baseline": {
+          "latency": 0.139260631,
+          "cpu": 0.16053,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.140757036,
+          "cpu": 0.1627,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": 1.074535559155998,
+      "cpu_change_percent": 1.3517722544072797
+    },
+    {
+      "trial": 3,
+      "kind": "aa",
+      "scheduling": "quota",
+      "host": "codex",
+      "name": "many-replacement-leaves",
+      "arms": {
+        "baseline": {
+          "latency": 0.269660408,
+          "cpu": 0.299186,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.271476577,
+          "cpu": 0.301799,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": 0.6735022814324143,
+      "cpu_change_percent": 0.8733697432366405
+    },
+    {
+      "trial": 3,
+      "kind": "aa",
+      "scheduling": "quota",
+      "host": "codex",
+      "name": "exec-long-quoted-secret",
+      "arms": {
+        "baseline": {
+          "latency": 0.447625,
+          "cpu": 0.477293,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.448392389,
+          "cpu": 0.47718400000000005,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": 0.17143568835520373,
+      "cpu_change_percent": -0.0228371252040116
+    },
+    {
+      "trial": 3,
+      "kind": "aa",
+      "scheduling": "quota",
+      "host": "codex",
+      "name": "exec-over-cap-8388608",
+      "arms": {
+        "baseline": {
+          "latency": 0.208551363,
+          "cpu": 0.228946,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.209789254,
+          "cpu": 0.23005599999999998,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": 0.5935664875036162,
+      "cpu_change_percent": 0.484830484044263
+    },
+    {
+      "trial": 3,
+      "kind": "aa",
+      "scheduling": "quota",
+      "host": "codex",
+      "name": "pre-read-clean",
+      "arms": {
+        "baseline": {
+          "latency": 0.052755619,
+          "cpu": 0.057592000000000004,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.053005646,
+          "cpu": 0.057456,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": 0.4739343500073323,
+      "cpu_change_percent": -0.2361439088762407
+    },
+    {
+      "trial": 3,
+      "kind": "ab",
+      "scheduling": "pinned",
+      "host": "claude",
+      "name": "small-clean",
+      "arms": {
+        "baseline": {
+          "latency": 0.144652662,
+          "cpu": 0.164398,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.127268302,
+          "cpu": 0.14665299999999998,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": -12.018002129819072,
+      "cpu_change_percent": -10.793926933417685
+    },
+    {
+      "trial": 3,
+      "kind": "ab",
+      "scheduling": "pinned",
+      "host": "claude",
+      "name": "many-replacement-leaves",
+      "arms": {
+        "baseline": {
+          "latency": 0.272529582,
+          "cpu": 0.297964,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.228219432,
+          "cpu": 0.254219,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": -16.25884048066385,
+      "cpu_change_percent": -14.681303781664912
+    },
+    {
+      "trial": 3,
+      "kind": "ab",
+      "scheduling": "pinned",
+      "host": "claude",
+      "name": "exec-long-quoted-secret",
+      "arms": {
+        "baseline": {
+          "latency": 0.452510009,
+          "cpu": 0.477819,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.423383318,
+          "cpu": 0.44871399999999995,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": -6.436695414620097,
+      "cpu_change_percent": -6.09121864136839
+    },
+    {
+      "trial": 3,
+      "kind": "ab",
+      "scheduling": "pinned",
+      "host": "claude",
+      "name": "exec-over-cap-8388608",
+      "arms": {
+        "baseline": {
+          "latency": 0.223499044,
+          "cpu": 0.246689,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.221835281,
+          "cpu": 0.244633,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": -0.7444161595608456,
+      "cpu_change_percent": -0.8334380535816366
+    },
+    {
+      "trial": 3,
+      "kind": "ab",
+      "scheduling": "pinned",
+      "host": "claude",
+      "name": "pre-read-clean",
+      "arms": {
+        "baseline": {
+          "latency": 0.053852861,
+          "cpu": 0.059451000000000004,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.05419742,
+          "cpu": 0.059441999999999995,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": 0.6398155893704516,
+      "cpu_change_percent": -0.015138517434543086
+    },
+    {
+      "trial": 3,
+      "kind": "ab",
+      "scheduling": "pinned",
+      "host": "codex",
+      "name": "small-clean",
+      "arms": {
+        "baseline": {
+          "latency": 0.143398593,
+          "cpu": 0.162877,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.125793245,
+          "cpu": 0.144997,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": -12.277211116011433,
+      "cpu_change_percent": -10.977608870497368
+    },
+    {
+      "trial": 3,
+      "kind": "ab",
+      "scheduling": "pinned",
+      "host": "codex",
+      "name": "many-replacement-leaves",
+      "arms": {
+        "baseline": {
+          "latency": 0.279560881,
+          "cpu": 0.307505,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.233686271,
+          "cpu": 0.261397,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": -16.40952404925351,
+      "cpu_change_percent": -14.99422773613437
+    },
+    {
+      "trial": 3,
+      "kind": "ab",
+      "scheduling": "pinned",
+      "host": "codex",
+      "name": "exec-long-quoted-secret",
+      "arms": {
+        "baseline": {
+          "latency": 0.454429747,
+          "cpu": 0.47801299999999997,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.426055104,
+          "cpu": 0.448083,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": -6.244010914188669,
+      "cpu_change_percent": -6.261335988770167
+    },
+    {
+      "trial": 3,
+      "kind": "ab",
+      "scheduling": "pinned",
+      "host": "codex",
+      "name": "exec-over-cap-8388608",
+      "arms": {
+        "baseline": {
+          "latency": 0.226691271,
+          "cpu": 0.25030600000000003,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.22477476,
+          "cpu": 0.248153,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": -0.8454277888803263,
+      "cpu_change_percent": -0.8601471798518667
+    },
+    {
+      "trial": 3,
+      "kind": "ab",
+      "scheduling": "pinned",
+      "host": "codex",
+      "name": "pre-read-clean",
+      "arms": {
+        "baseline": {
+          "latency": 0.054808648,
+          "cpu": 0.060321,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.0549806,
+          "cpu": 0.060363,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": 0.31373151185920545,
+      "cpu_change_percent": 0.06962749291292702
+    },
+    {
+      "trial": 3,
+      "kind": "ab",
+      "scheduling": "quota",
+      "host": "claude",
+      "name": "small-clean",
+      "arms": {
+        "baseline": {
+          "latency": 0.140774023,
+          "cpu": 0.16173900000000002,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.123476835,
+          "cpu": 0.14566400000000002,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": -12.287201595425035,
+      "cpu_change_percent": -9.938852101224816
+    },
+    {
+      "trial": 3,
+      "kind": "ab",
+      "scheduling": "quota",
+      "host": "claude",
+      "name": "many-replacement-leaves",
+      "arms": {
+        "baseline": {
+          "latency": 0.268484074,
+          "cpu": 0.29739000000000004,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.222296423,
+          "cpu": 0.250465,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": -17.203125053890545,
+      "cpu_change_percent": -15.778943474898298
+    },
+    {
+      "trial": 3,
+      "kind": "ab",
+      "scheduling": "quota",
+      "host": "claude",
+      "name": "exec-long-quoted-secret",
+      "arms": {
+        "baseline": {
+          "latency": 0.446949109,
+          "cpu": 0.475063,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.416573524,
+          "cpu": 0.443632,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": -6.7962066347916235,
+      "cpu_change_percent": -6.616175117826472
+    },
+    {
+      "trial": 3,
+      "kind": "ab",
+      "scheduling": "quota",
+      "host": "claude",
+      "name": "exec-over-cap-8388608",
+      "arms": {
+        "baseline": {
+          "latency": 0.209934563,
+          "cpu": 0.230673,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.208958399,
+          "cpu": 0.229407,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": -0.46498489150640365,
+      "cpu_change_percent": -0.5488288616352976
+    },
+    {
+      "trial": 3,
+      "kind": "ab",
+      "scheduling": "quota",
+      "host": "claude",
+      "name": "pre-read-clean",
+      "arms": {
+        "baseline": {
+          "latency": 0.051973811,
+          "cpu": 0.056825,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.052567874,
+          "cpu": 0.057435,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": 1.1430045027869928,
+      "cpu_change_percent": 1.0734711834579747
+    },
+    {
+      "trial": 3,
+      "kind": "ab",
+      "scheduling": "quota",
+      "host": "codex",
+      "name": "small-clean",
+      "arms": {
+        "baseline": {
+          "latency": 0.139495692,
+          "cpu": 0.159747,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.121641846,
+          "cpu": 0.14317200000000002,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": -12.798851164521984,
+      "cpu_change_percent": -10.37578170482073
+    },
+    {
+      "trial": 3,
+      "kind": "ab",
+      "scheduling": "quota",
+      "host": "codex",
+      "name": "many-replacement-leaves",
+      "arms": {
+        "baseline": {
+          "latency": 0.268155979,
+          "cpu": 0.298436,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.224398433,
+          "cpu": 0.254245,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": -16.317945310479164,
+      "cpu_change_percent": -14.807529922663477
+    },
+    {
+      "trial": 3,
+      "kind": "ab",
+      "scheduling": "quota",
+      "host": "codex",
+      "name": "exec-long-quoted-secret",
+      "arms": {
+        "baseline": {
+          "latency": 0.447907388,
+          "cpu": 0.476739,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.417835739,
+          "cpu": 0.44515899999999997,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": -6.713809552076433,
+      "cpu_change_percent": -6.624169619015863
+    },
+    {
+      "trial": 3,
+      "kind": "ab",
+      "scheduling": "quota",
+      "host": "codex",
+      "name": "exec-over-cap-8388608",
+      "arms": {
+        "baseline": {
+          "latency": 0.212248314,
+          "cpu": 0.232221,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.21457423,
+          "cpu": 0.235881,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": 1.095846631789965,
+      "cpu_change_percent": 1.5760848502073488
+    },
+    {
+      "trial": 3,
+      "kind": "ab",
+      "scheduling": "quota",
+      "host": "codex",
+      "name": "pre-read-clean",
+      "arms": {
+        "baseline": {
+          "latency": 0.052554409,
+          "cpu": 0.057384000000000004,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        },
+        "candidate": {
+          "latency": 0.05359843,
+          "cpu": 0.058425,
+          "throttled_samples": 0,
+          "throttled_usec_median": 0.0
+        }
+      },
+      "latency_change_percent": 1.9865526410923984,
+      "cpu_change_percent": 1.814094521120868
+    }
+  ],
+  "pooled_27": [
+    {
+      "kind": "aa",
+      "scheduling": "pinned",
+      "host": "claude",
+      "name": "small-clean",
+      "samples_per_arm": 27,
+      "arms": {
+        "baseline": {
+          "latency": 0.145409231,
+          "cpu": 0.165406,
+          "throttled": 0.0
+        },
+        "candidate": {
+          "latency": 0.14533079,
+          "cpu": 0.165016,
+          "throttled": 0.0
+        }
+      },
+      "latency_change_percent": -0.053944993354659854,
+      "cpu_change_percent": -0.23578346613786216
+    },
+    {
+      "kind": "aa",
+      "scheduling": "pinned",
+      "host": "claude",
+      "name": "many-replacement-leaves",
+      "samples_per_arm": 27,
+      "arms": {
+        "baseline": {
+          "latency": 0.278059978,
+          "cpu": 0.304214,
+          "throttled": 0.0
+        },
+        "candidate": {
+          "latency": 0.277909678,
+          "cpu": 0.303879,
+          "throttled": 0.0
+        }
+      },
+      "latency_change_percent": -0.054053086345273726,
+      "cpu_change_percent": -0.1101198498425382
+    },
+    {
+      "kind": "aa",
+      "scheduling": "pinned",
+      "host": "claude",
+      "name": "exec-long-quoted-secret",
+      "samples_per_arm": 27,
+      "arms": {
+        "baseline": {
+          "latency": 0.457600112,
+          "cpu": 0.48327200000000003,
+          "throttled": 0.0
+        },
+        "candidate": {
+          "latency": 0.456605916,
+          "cpu": 0.48224100000000003,
+          "throttled": 0.0
+        }
+      },
+      "latency_change_percent": -0.21726305871183627,
+      "cpu_change_percent": -0.2133374166101043
+    },
+    {
+      "kind": "aa",
+      "scheduling": "pinned",
+      "host": "claude",
+      "name": "exec-over-cap-8388608",
+      "samples_per_arm": 27,
+      "arms": {
+        "baseline": {
+          "latency": 0.226693182,
+          "cpu": 0.25067799999999996,
+          "throttled": 0.0
+        },
+        "candidate": {
+          "latency": 0.226379742,
+          "cpu": 0.250302,
+          "throttled": 0.0
+        }
+      },
+      "latency_change_percent": -0.13826617864493018,
+      "cpu_change_percent": -0.14999321839169744
+    },
+    {
+      "kind": "aa",
+      "scheduling": "pinned",
+      "host": "claude",
+      "name": "pre-read-clean",
+      "samples_per_arm": 27,
+      "arms": {
+        "baseline": {
+          "latency": 0.055300175,
+          "cpu": 0.060876,
+          "throttled": 0.0
+        },
+        "candidate": {
+          "latency": 0.054882622,
+          "cpu": 0.060406999999999995,
+          "throttled": 0.0
+        }
+      },
+      "latency_change_percent": -0.7550663266436386,
+      "cpu_change_percent": -0.7704185557526833
+    },
+    {
+      "kind": "aa",
+      "scheduling": "pinned",
+      "host": "codex",
+      "name": "small-clean",
+      "samples_per_arm": 27,
+      "arms": {
+        "baseline": {
+          "latency": 0.146159841,
+          "cpu": 0.165372,
+          "throttled": 0.0
+        },
+        "candidate": {
+          "latency": 0.14529841,
+          "cpu": 0.16462300000000002,
+          "throttled": 0.0
+        }
+      },
+      "latency_change_percent": -0.5893759832429124,
+      "cpu_change_percent": -0.4529182691144662
+    },
+    {
+      "kind": "aa",
+      "scheduling": "pinned",
+      "host": "codex",
+      "name": "many-replacement-leaves",
+      "samples_per_arm": 27,
+      "arms": {
+        "baseline": {
+          "latency": 0.281965587,
+          "cpu": 0.309872,
+          "throttled": 0.0
+        },
+        "candidate": {
+          "latency": 0.282747621,
+          "cpu": 0.309606,
+          "throttled": 0.0
+        }
+      },
+      "latency_change_percent": 0.2773508669339897,
+      "cpu_change_percent": -0.08584189600867598
+    },
+    {
+      "kind": "aa",
+      "scheduling": "pinned",
+      "host": "codex",
+      "name": "exec-long-quoted-secret",
+      "samples_per_arm": 27,
+      "arms": {
+        "baseline": {
+          "latency": 0.458701013,
+          "cpu": 0.484143,
+          "throttled": 0.0
+        },
+        "candidate": {
+          "latency": 0.455863205,
+          "cpu": 0.482127,
+          "throttled": 0.0
+        }
+      },
+      "latency_change_percent": -0.6186618122859922,
+      "cpu_change_percent": -0.4164058966049322
+    },
+    {
+      "kind": "aa",
+      "scheduling": "pinned",
+      "host": "codex",
+      "name": "exec-over-cap-8388608",
+      "samples_per_arm": 27,
+      "arms": {
+        "baseline": {
+          "latency": 0.226724799,
+          "cpu": 0.250457,
+          "throttled": 0.0
+        },
+        "candidate": {
+          "latency": 0.225793343,
+          "cpu": 0.249629,
+          "throttled": 0.0
+        }
+      },
+      "latency_change_percent": -0.4108311063052206,
+      "cpu_change_percent": -0.33059567111319854
+    },
+    {
+      "kind": "aa",
+      "scheduling": "pinned",
+      "host": "codex",
+      "name": "pre-read-clean",
+      "samples_per_arm": 27,
+      "arms": {
+        "baseline": {
+          "latency": 0.055153522,
+          "cpu": 0.060657,
+          "throttled": 0.0
+        },
+        "candidate": {
+          "latency": 0.055389694,
+          "cpu": 0.060733999999999996,
+          "throttled": 0.0
+        }
+      },
+      "latency_change_percent": 0.42820837443526827,
+      "cpu_change_percent": 0.12694330415286004
+    },
+    {
+      "kind": "aa",
+      "scheduling": "quota",
+      "host": "claude",
+      "name": "small-clean",
+      "samples_per_arm": 27,
+      "arms": {
+        "baseline": {
+          "latency": 0.140558612,
+          "cpu": 0.162799,
+          "throttled": 0.0
+        },
+        "candidate": {
+          "latency": 0.140771507,
+          "cpu": 0.16233799999999998,
+          "throttled": 0.0
+        }
+      },
+      "latency_change_percent": 0.15146350477621695,
+      "cpu_change_percent": -0.28317127255081953
+    },
+    {
+      "kind": "aa",
+      "scheduling": "quota",
+      "host": "claude",
+      "name": "many-replacement-leaves",
+      "samples_per_arm": 27,
+      "arms": {
+        "baseline": {
+          "latency": 0.269929602,
+          "cpu": 0.29895700000000003,
+          "throttled": 0.0
+        },
+        "candidate": {
+          "latency": 0.270267917,
+          "cpu": 0.298804,
+          "throttled": 0.0
+        }
+      },
+      "latency_change_percent": 0.12533453074183853,
+      "cpu_change_percent": -0.05117792859843373
+    },
+    {
+      "kind": "aa",
+      "scheduling": "quota",
+      "host": "claude",
+      "name": "exec-long-quoted-secret",
+      "samples_per_arm": 27,
+      "arms": {
+        "baseline": {
+          "latency": 0.45046227,
+          "cpu": 0.479071,
+          "throttled": 0.0
+        },
+        "candidate": {
+          "latency": 0.451543027,
+          "cpu": 0.481151,
+          "throttled": 0.0
+        }
+      },
+      "latency_change_percent": 0.23992175859699483,
+      "cpu_change_percent": 0.43417364023286
+    },
+    {
+      "kind": "aa",
+      "scheduling": "quota",
+      "host": "claude",
+      "name": "exec-over-cap-8388608",
+      "samples_per_arm": 27,
+      "arms": {
+        "baseline": {
+          "latency": 0.21301419,
+          "cpu": 0.233212,
+          "throttled": 0.0
+        },
+        "candidate": {
+          "latency": 0.211123601,
+          "cpu": 0.23121,
+          "throttled": 0.0
+        }
+      },
+      "latency_change_percent": -0.887541341729392,
+      "cpu_change_percent": -0.8584463921239016
+    },
+    {
+      "kind": "aa",
+      "scheduling": "quota",
+      "host": "claude",
+      "name": "pre-read-clean",
+      "samples_per_arm": 27,
+      "arms": {
+        "baseline": {
+          "latency": 0.053199414,
+          "cpu": 0.058186,
+          "throttled": 0.0
+        },
+        "candidate": {
+          "latency": 0.05342901,
+          "cpu": 0.058381,
+          "throttled": 0.0
+        }
+      },
+      "latency_change_percent": 0.43157618239930695,
+      "cpu_change_percent": 0.33513216237583965
+    },
+    {
+      "kind": "aa",
+      "scheduling": "quota",
+      "host": "codex",
+      "name": "small-clean",
+      "samples_per_arm": 27,
+      "arms": {
+        "baseline": {
+          "latency": 0.140688284,
+          "cpu": 0.16215400000000002,
+          "throttled": 0.0
+        },
+        "candidate": {
+          "latency": 0.141102059,
+          "cpu": 0.16328199999999998,
+          "throttled": 0.0
+        }
+      },
+      "latency_change_percent": 0.29410764580795057,
+      "cpu_change_percent": 0.6956350136289924
+    },
+    {
+      "kind": "aa",
+      "scheduling": "quota",
+      "host": "codex",
+      "name": "many-replacement-leaves",
+      "samples_per_arm": 27,
+      "arms": {
+        "baseline": {
+          "latency": 0.275243263,
+          "cpu": 0.306156,
+          "throttled": 0.0
+        },
+        "candidate": {
+          "latency": 0.274035079,
+          "cpu": 0.303142,
+          "throttled": 0.0
+        }
+      },
+      "latency_change_percent": -0.43895134319781315,
+      "cpu_change_percent": -0.9844654359215443
+    },
+    {
+      "kind": "aa",
+      "scheduling": "quota",
+      "host": "codex",
+      "name": "exec-long-quoted-secret",
+      "samples_per_arm": 27,
+      "arms": {
+        "baseline": {
+          "latency": 0.449550031,
+          "cpu": 0.47836999999999996,
+          "throttled": 0.0
+        },
+        "candidate": {
+          "latency": 0.448392389,
+          "cpu": 0.47743,
+          "throttled": 0.0
+        }
+      },
+      "latency_change_percent": -0.25751127130942963,
+      "cpu_change_percent": -0.196500616677453
+    },
+    {
+      "kind": "aa",
+      "scheduling": "quota",
+      "host": "codex",
+      "name": "exec-over-cap-8388608",
+      "samples_per_arm": 27,
+      "arms": {
+        "baseline": {
+          "latency": 0.21172837,
+          "cpu": 0.23234,
+          "throttled": 0.0
+        },
+        "candidate": {
+          "latency": 0.211863425,
+          "cpu": 0.232167,
+          "throttled": 0.0
+        }
+      },
+      "latency_change_percent": 0.06378691717128238,
+      "cpu_change_percent": -0.07445984333304123
+    },
+    {
+      "kind": "aa",
+      "scheduling": "quota",
+      "host": "codex",
+      "name": "pre-read-clean",
+      "samples_per_arm": 27,
+      "arms": {
+        "baseline": {
+          "latency": 0.052755619,
+          "cpu": 0.057752,
+          "throttled": 0.0
+        },
+        "candidate": {
+          "latency": 0.053062372,
+          "cpu": 0.05811,
+          "throttled": 0.0
+        }
+      },
+      "latency_change_percent": 0.5814603369548088,
+      "cpu_change_percent": 0.6198919517938828
+    },
+    {
+      "kind": "ab",
+      "scheduling": "pinned",
+      "host": "claude",
+      "name": "small-clean",
+      "samples_per_arm": 27,
+      "arms": {
+        "baseline": {
+          "latency": 0.146091947,
+          "cpu": 0.166145,
+          "throttled": 0.0
+        },
+        "candidate": {
+          "latency": 0.128001163,
+          "cpu": 0.14730300000000002,
+          "throttled": 0.0
+        }
+      },
+      "latency_change_percent": -12.383149360039669,
+      "cpu_change_percent": -11.340696379668348
+    },
+    {
+      "kind": "ab",
+      "scheduling": "pinned",
+      "host": "claude",
+      "name": "many-replacement-leaves",
+      "samples_per_arm": 27,
+      "arms": {
+        "baseline": {
+          "latency": 0.276993158,
+          "cpu": 0.303137,
+          "throttled": 0.0
+        },
+        "candidate": {
+          "latency": 0.230936317,
+          "cpu": 0.256481,
+          "throttled": 0.0
+        }
+      },
+      "latency_change_percent": -16.62742911505417,
+      "cpu_change_percent": -15.391060807489676
+    },
+    {
+      "kind": "ab",
+      "scheduling": "pinned",
+      "host": "claude",
+      "name": "exec-long-quoted-secret",
+      "samples_per_arm": 27,
+      "arms": {
+        "baseline": {
+          "latency": 0.456035035,
+          "cpu": 0.48162000000000005,
+          "throttled": 0.0
+        },
+        "candidate": {
+          "latency": 0.426876037,
+          "cpu": 0.451337,
+          "throttled": 0.0
+        }
+      },
+      "latency_change_percent": -6.394025844966055,
+      "cpu_change_percent": -6.287737220215117
+    },
+    {
+      "kind": "ab",
+      "scheduling": "pinned",
+      "host": "claude",
+      "name": "exec-over-cap-8388608",
+      "samples_per_arm": 27,
+      "arms": {
+        "baseline": {
+          "latency": 0.226041144,
+          "cpu": 0.249263,
+          "throttled": 0.0
+        },
+        "candidate": {
+          "latency": 0.223345446,
+          "cpu": 0.24632199999999999,
+          "throttled": 0.0
+        }
+      },
+      "latency_change_percent": -1.192569614671568,
+      "cpu_change_percent": -1.179878281172908
+    },
+    {
+      "kind": "ab",
+      "scheduling": "pinned",
+      "host": "claude",
+      "name": "pre-read-clean",
+      "samples_per_arm": 27,
+      "arms": {
+        "baseline": {
+          "latency": 0.05397408,
+          "cpu": 0.059436,
+          "throttled": 0.0
+        },
+        "candidate": {
+          "latency": 0.054474629,
+          "cpu": 0.059729000000000004,
+          "throttled": 0.0
+        }
+      },
+      "latency_change_percent": 0.927387738707175,
+      "cpu_change_percent": 0.4929672252506956
+    },
+    {
+      "kind": "ab",
+      "scheduling": "pinned",
+      "host": "codex",
+      "name": "small-clean",
+      "samples_per_arm": 27,
+      "arms": {
+        "baseline": {
+          "latency": 0.144553243,
+          "cpu": 0.16428500000000001,
+          "throttled": 0.0
+        },
+        "candidate": {
+          "latency": 0.127538707,
+          "cpu": 0.146642,
+          "throttled": 0.0
+        }
+      },
+      "latency_change_percent": -11.770428422695433,
+      "cpu_change_percent": -10.739264083756893
+    },
+    {
+      "kind": "ab",
+      "scheduling": "pinned",
+      "host": "codex",
+      "name": "many-replacement-leaves",
+      "samples_per_arm": 27,
+      "arms": {
+        "baseline": {
+          "latency": 0.280715754,
+          "cpu": 0.308801,
+          "throttled": 0.0
+        },
+        "candidate": {
+          "latency": 0.234541704,
+          "cpu": 0.261934,
+          "throttled": 0.0
+        }
+      },
+      "latency_change_percent": -16.448684956954718,
+      "cpu_change_percent": -15.17708815709794
+    },
+    {
+      "kind": "ab",
+      "scheduling": "pinned",
+      "host": "codex",
+      "name": "exec-long-quoted-secret",
+      "samples_per_arm": 27,
+      "arms": {
+        "baseline": {
+          "latency": 0.456244336,
+          "cpu": 0.48129200000000005,
+          "throttled": 0.0
+        },
+        "candidate": {
+          "latency": 0.423514136,
+          "cpu": 0.448083,
+          "throttled": 0.0
+        }
+      },
+      "latency_change_percent": -7.173831523466845,
+      "cpu_change_percent": -6.899969249436944
+    },
+    {
+      "kind": "ab",
+      "scheduling": "pinned",
+      "host": "codex",
+      "name": "exec-over-cap-8388608",
+      "samples_per_arm": 27,
+      "arms": {
+        "baseline": {
+          "latency": 0.226109336,
+          "cpu": 0.25030600000000003,
+          "throttled": 0.0
+        },
+        "candidate": {
+          "latency": 0.225320056,
+          "cpu": 0.249338,
+          "throttled": 0.0
+        }
+      },
+      "latency_change_percent": -0.3490700622817311,
+      "cpu_change_percent": -0.3867266465845898
+    },
+    {
+      "kind": "ab",
+      "scheduling": "pinned",
+      "host": "codex",
+      "name": "pre-read-clean",
+      "samples_per_arm": 27,
+      "arms": {
+        "baseline": {
+          "latency": 0.055503988,
+          "cpu": 0.061061000000000004,
+          "throttled": 0.0
+        },
+        "candidate": {
+          "latency": 0.056228483,
+          "cpu": 0.061742,
+          "throttled": 0.0
+        }
+      },
+      "latency_change_percent": 1.3053026027607384,
+      "cpu_change_percent": 1.1152781644584886
+    },
+    {
+      "kind": "ab",
+      "scheduling": "quota",
+      "host": "claude",
+      "name": "small-clean",
+      "samples_per_arm": 27,
+      "arms": {
+        "baseline": {
+          "latency": 0.143500758,
+          "cpu": 0.16483399999999998,
+          "throttled": 0.0
+        },
+        "candidate": {
+          "latency": 0.125483476,
+          "cpu": 0.147312,
+          "throttled": 0.0
+        }
+      },
+      "latency_change_percent": -12.555530891342048,
+      "cpu_change_percent": -10.630088452625053
+    },
+    {
+      "kind": "ab",
+      "scheduling": "quota",
+      "host": "claude",
+      "name": "many-replacement-leaves",
+      "samples_per_arm": 27,
+      "arms": {
+        "baseline": {
+          "latency": 0.268484074,
+          "cpu": 0.297876,
+          "throttled": 0.0
+        },
+        "candidate": {
+          "latency": 0.223020675,
+          "cpu": 0.25162300000000004,
+          "throttled": 0.0
+        }
+      },
+      "latency_change_percent": -16.933369016145072,
+      "cpu_change_percent": -15.527602089460025
+    },
+    {
+      "kind": "ab",
+      "scheduling": "quota",
+      "host": "claude",
+      "name": "exec-long-quoted-secret",
+      "samples_per_arm": 27,
+      "arms": {
+        "baseline": {
+          "latency": 0.447404815,
+          "cpu": 0.47688200000000003,
+          "throttled": 0.0
+        },
+        "candidate": {
+          "latency": 0.417870512,
+          "cpu": 0.444403,
+          "throttled": 0.0
+        }
+      },
+      "latency_change_percent": -6.601248357150558,
+      "cpu_change_percent": -6.8106995021829375
+    },
+    {
+      "kind": "ab",
+      "scheduling": "quota",
+      "host": "claude",
+      "name": "exec-over-cap-8388608",
+      "samples_per_arm": 27,
+      "arms": {
+        "baseline": {
+          "latency": 0.209463821,
+          "cpu": 0.23023,
+          "throttled": 0.0
+        },
+        "candidate": {
+          "latency": 0.209606465,
+          "cpu": 0.230281,
+          "throttled": 0.0
+        }
+      },
+      "latency_change_percent": 0.06809958842486363,
+      "cpu_change_percent": 0.022151761282196425
+    },
+    {
+      "kind": "ab",
+      "scheduling": "quota",
+      "host": "claude",
+      "name": "pre-read-clean",
+      "samples_per_arm": 27,
+      "arms": {
+        "baseline": {
+          "latency": 0.053193587,
+          "cpu": 0.058080999999999994,
+          "throttled": 0.0
+        },
+        "candidate": {
+          "latency": 0.053796657,
+          "cpu": 0.058606,
+          "throttled": 0.0
+        }
+      },
+      "latency_change_percent": 1.1337268907998244,
+      "cpu_change_percent": 0.9039100566450298
+    },
+    {
+      "kind": "ab",
+      "scheduling": "quota",
+      "host": "codex",
+      "name": "small-clean",
+      "samples_per_arm": 27,
+      "arms": {
+        "baseline": {
+          "latency": 0.140872009,
+          "cpu": 0.16283799999999998,
+          "throttled": 0.0
+        },
+        "candidate": {
+          "latency": 0.123631178,
+          "cpu": 0.145928,
+          "throttled": 0.0
+        }
+      },
+      "latency_change_percent": -12.238649198223616,
+      "cpu_change_percent": -10.384553973888144
+    },
+    {
+      "kind": "ab",
+      "scheduling": "quota",
+      "host": "codex",
+      "name": "many-replacement-leaves",
+      "samples_per_arm": 27,
+      "arms": {
+        "baseline": {
+          "latency": 0.27370735,
+          "cpu": 0.303084,
+          "throttled": 0.0
+        },
+        "candidate": {
+          "latency": 0.227395342,
+          "cpu": 0.257264,
+          "throttled": 0.0
+        }
+      },
+      "latency_change_percent": -16.92026465493163,
+      "cpu_change_percent": -15.117921104380317
+    },
+    {
+      "kind": "ab",
+      "scheduling": "quota",
+      "host": "codex",
+      "name": "exec-long-quoted-secret",
+      "samples_per_arm": 27,
+      "arms": {
+        "baseline": {
+          "latency": 0.447973159,
+          "cpu": 0.476739,
+          "throttled": 0.0
+        },
+        "candidate": {
+          "latency": 0.419451305,
+          "cpu": 0.447689,
+          "throttled": 0.0
+        }
+      },
+      "latency_change_percent": -6.366866725602193,
+      "cpu_change_percent": -6.09348091932903
+    },
+    {
+      "kind": "ab",
+      "scheduling": "quota",
+      "host": "codex",
+      "name": "exec-over-cap-8388608",
+      "samples_per_arm": 27,
+      "arms": {
+        "baseline": {
+          "latency": 0.212248314,
+          "cpu": 0.232533,
+          "throttled": 0.0
+        },
+        "candidate": {
+          "latency": 0.210347851,
+          "cpu": 0.22953400000000002,
+          "throttled": 0.0
+        }
+      },
+      "latency_change_percent": -0.8953960406959838,
+      "cpu_change_percent": -1.2897094175880253
+    },
+    {
+      "kind": "ab",
+      "scheduling": "quota",
+      "host": "codex",
+      "name": "pre-read-clean",
+      "samples_per_arm": 27,
+      "arms": {
+        "baseline": {
+          "latency": 0.053104122,
+          "cpu": 0.058165,
+          "throttled": 0.0
+        },
+        "candidate": {
+          "latency": 0.053955725,
+          "cpu": 0.058893,
+          "throttled": 0.0
+        }
+      },
+      "latency_change_percent": 1.6036476415145495,
+      "cpu_change_percent": 1.251611794034213
+    }
+  ],
+  "groups": [
+    {
+      "kind": "aa",
+      "scheduling": "quota",
+      "comparisons": 30,
+      "positive_5pct_excursions": [],
+      "absolute_5pct_excursions": 0
+    },
+    {
+      "kind": "aa",
+      "scheduling": "pinned",
+      "comparisons": 30,
+      "positive_5pct_excursions": [],
+      "absolute_5pct_excursions": 0
+    },
+    {
+      "kind": "ab",
+      "scheduling": "quota",
+      "comparisons": 30,
+      "positive_5pct_excursions": [],
+      "absolute_5pct_excursions": 18
+    },
+    {
+      "kind": "ab",
+      "scheduling": "pinned",
+      "comparisons": 30,
+      "positive_5pct_excursions": [],
+      "absolute_5pct_excursions": 18
+    }
+  ]
+}
