@@ -390,3 +390,11 @@ PR #404는 exact head f49740f의 필수 8개 checks와 실제 공유 core 252개
 병합 native run 42067118465에서 macOS Intel/ARM 및 Linux ARM은 differential 각 1024개와 integration 각 90개(명시적 native invocation 포함)를 통과했다. Intel의 사전 고정 추가 integration 2회도 각각 90개 통과했다. 그러나 Linux x64 job 127384208780은 16:43:14 UTC Rust 설치 완료 메시지 뒤 출력이 없었고 17:03:15에 기존 20분 job 제한으로 취소됐다. 빌드/제품 검사는 시작되지 않았고 후속 설치·성능 관문도 생략됐다. 정확한 정지 명령·네트워크/lock 원인은 로그만으로 확정하지 않는다. 체크 snapshot, 실패 전체 로그, 성공한 3개 플랫폼과 checkpoint 7개 ZIP 및 GitHub digest를 `ci-7bb7f57-native/`에 보존했다. 진행 중/대기 중인 다른 checks를 성공으로 표시하지 않는다.
 
 PR #406, head `4018ce15d3834f804b52169d666a92e10de471bb`는 Rust 설치·apt metadata 갱신·musl 설치를 각각 독립 단계로 분리한다. Rust 5분/각 apt 단계 4분으로 대기를 제한하고 apt 연결/읽기 20초, lock 30초, 자동 재시도 0을 지정한다. quiet를 제거하며 metadata 갱신 오류도 실패 처리한다. 전체 job 20분, 제품 준비 2초, 모든 독립 기대값/성능 기준은 유지한다. actionlint 및 diff 검사는 통과했다. 원인 해결을 주장하지 않고 후속 정지 위치를 식별하도록 보강한 것이다. 원래 실패 run을 재실행하지 않았고 새 head/merge의 필수 검증 완료 전에는 발행하지 않는다. 배포자 CI 준비 비용이며 사용자 컴파일러 없는 설치 비용과는 별개다.
+
+### 17:09 UTC: GitHub Actions 시작 장애로 외부 검증 대기
+
+GitHub 공식 상태 API의 2026-11-05 16:52:52 UTC 갱신은 Actions `degraded_performance`, 사건 `t89g2q1800fr`를 investigating으로 보고한다. 일부 workflow 시작 지연/오류를 공지했으며 https://www.githubstatus.com/incidents/t89g2q1800fr 에서 추적할 수 있다. 이 공식 장애를 앞선 Rust 설치 완료 이후 중단의 직접 원인으로 확정하지는 않는다.
+
+17:09 UTC PR #406의 네 native job 및 필수 CI 대부분은 queued이고 HOL은 진행 중이다. 정확한 head/이전 merge check snapshot은 `blocked-head-1709.json`, `blocked-merge-1709.json`에 보존했다. 새 native run은 42071272873, CI run은 42071272682다. 이전 main native aggregate는 실패이며 설치/성능 관문은 skipped이다. 아직 공개 latest는 v3.7.1(발행 2026-11-04 20:56:17 UTC)이고 v3.8.0 태그/자산/Homebrew 발행은 수행하지 않았다. 동일 실패 job 재실행이나 빈 commit으로 새 실행을 만들지 않았다.
+
+재개 조건은 실행 서비스 복구 후 이미 대기 중인 #406의 실제 결과 수집이다. 네 플랫폼/실제 공유 core 252개/공개 기본 4개/기존 packaged 및 필수 8개가 성공하면 #406 exact head를 병합하고, 그 merge의 동일 필수 CI가 성공한 뒤 release.yml을 version=3.8.0으로 실행한다. 이후 실제 공개 15개 자산·checksum·Homebrew tap 및 4플랫폼+3Homebrew 설치/업데이트/복귀/보존을 검증한다. 공개 배포본 설치 비용 9쌍 스크립트는 준비됐지만 아직 실행할 공개 v3.8.0 자산이 없어 결과를 만들지 않았다. 이 대기는 사용자 재승인 요구가 아니며, 기존 승인 범위는 그대로다.
