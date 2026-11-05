@@ -1,7 +1,11 @@
 # 출력 통합 실험의 보존 증거
 
-2026-11-05 조사 기록이다. 공개 main/release는 v3.7.1
-`d00b4882c55704e5d83899ffd3820946aa9c15fa`이며, 이 성능 후보는 배포하지 않았다.
+2026-11-05부터 이어진 조사 기록이다. 최신 상태(11월 6일 04:26 JST):
+PR #406의 최종 head 필수 8개 검사를 통과해 main `f295e1a`로 병합했다.
+실제 병합 커밋의 배포 검증은 진행 중이며, 공개 latest는 여전히 v3.7.1이다.
+실제 설치 구성의 최종 PR 비교는 252개 모두 독립 출력 일치·일반 회귀 기준 통과다.
+Homebrew 목표 지연 15.17~17.84%, CPU 13.41~16.42% 감소지만 메모리 절감은 없다.
+아래 기록은 당시 상태를 보존한 시간순 이력이며 실패 결과도 그대로 남긴다.
 [구현 PR #403](https://github.com/JeongJaeSoon/agent-guard/pull/403)의 결과를
 실패한 후보까지 덮어쓰지 않고 보존한다. `SHA256.json`은 이 디렉터리의 원시 파일 해시다.
 
@@ -434,3 +438,13 @@ Homebrew 4-worker 처리량 4.22045→5.06632 req/s, CPU 3.807615→3.138596초/
 기존 packaged 관문과 실제 공개 v3.7.0의 기본 4경로 관문도 통과했다. 공개 기본 경로의 지연 변화는 exec-multiline +0.237%, exec-clean -0.150%, 긴 quoted secret -1.689%, unknown-tool -0.718%였고 CPU는 각각 +0.149%, -0.500%, -1.797%, +0.096%였다. 모두 독립 출력이 일치했다. ZIP 19개와 원시·체크섬·요약은 `ci-c3cfb40-native/`에 보존했다.
 
 11월 6일 04:20 JST 시점 일반 CI 14개와 별도 native redactor/devtools 3개는 성공했으며, Native platform artifacts의 마지막 집계 job이 대기 중이다. exact head의 필수 8개 성공 확인 전에는 병합하지 않는다. v3.8.0은 아직 미발행이다.
+
+## c3cfb40 필수 검사 성공과 PR #406 병합
+
+11월 6일 04:26 JST에 최종 head c3cfb40의 필수 8개 checks가 모두 success임을 확인했다. 정확한 전체 snapshot은 `ci-c3cfb40-native/checks-final-success.json`이다. expected head를 지정해 PR #406을 병합했고 실제 merge는 `f295e1a6727b674713a52134dd576f7cd2272131`이다. merge와 최종 head의 tree는 모두 `aeab415d05cd64dea1fa863ee81822a7fed2d015`로 일치한다. 이후 발행 자산은 PR 합성 merge 산출물이 아니라 실제 main-push native run 42093870746의 산출물이어야 한다. 해당 merge의 필수 검사는 진행 중이며 공개 v3.8.0 발행은 아직 수행하지 않았다. 발행 전 legacy v1은 `a795c72e0c9a58ce8a5d0eee5e92423f3cf3e4e1`, 공개 v3는 v3.7.1의 d00b4882다.
+
+### f295e1a 실제 병합 커밋: 네 플랫폼 native 검증 완료
+
+네 플랫폼의 differential 각 1,024/0, integration 각 90/0, 감사 로그 116/0 및 Intel 사전 지정 추가 integration 2회가 모두 통과했다. `main-native-provenance.json`에서 build source가 실제 main f295e1a임을 확인했고 체크섬 및 승인된 c3cfb40 PR 바이너리와 bytes까지 일치한다. Linux ARM·macOS ARM의 컴파일러 없는 설치/업데이트/복귀와 공유 core·소스 플러그인 16개 계약도 통과했다. 현재 확보된 10개 원본 ZIP을 `ci-f295e1a-native/`에 보존한다. Linux x64/macOS Intel 설치와 실제 공유 core 성능 관문은 아직 queued이며 macOS 일반 CI는 진행 중이다. 공개 발행은 하지 않았다. 이 중간 상태를 전체 필수 CI 성공으로 취급하지 않는다.
+
+기존 SHA256 목록 537개를 검증했으며 갱신한 README 외 원시/분석 파일은 모두 기존 해시와 일치했다. 현재 목록은 추가 자료를 포함해 다시 계산했다. 설치 비용 스크립트는 실제 공개 archive·bootstrap을 각각 GitHub 자산 digest와 대조하며, 공개 v3.8.0이 나온 뒤 별도 실행한다.
