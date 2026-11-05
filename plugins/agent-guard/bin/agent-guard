@@ -9812,6 +9812,17 @@ redact_response_values_awk() {
               && clean !~ /[}\]]$/ && NR > 1) json_fail()
         }
         {
+          # Compact scalar records inside an open container need no structural
+          # rescanning or repeated substitutions. Bracket-bearing records still
+          # pass through the complete structure checks below.
+          if (depth > 0 && ($0 == "true" || $0 == "false" || $0 == "null" \
+              || $0 ~ /^-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?$/)) {
+            if (NR > 1) printf ","
+            if ($0 == "null" || $0 == "false") printf "%s", $0
+            else if ($0 == "true") printf "false"
+            else printf "0"
+            next
+          }
           scan_structure($0)
           if (NR > 1) printf ","
           transformed = $0
@@ -10318,9 +10329,16 @@ extract_post_tool_response_awk() {
 redact_response_whole_leaf_fail_closed() {
   whole_leaf_response=$1
   whole_leaf_redacted=
-  if ! whole_leaf_redacted=$(redact_nonempty_response_strings "$whole_leaf_response"); then
-    whole_leaf_redacted=
-  fi
+  # A quote-free compact JSON value contains no strings. The primary string
+  # transform would return it unchanged and then enter the same value fallback.
+  # Avoid copying a large numeric array through that known identity transform.
+  case "$whole_leaf_response" in
+    *'"'*)
+      if ! whole_leaf_redacted=$(redact_nonempty_response_strings "$whole_leaf_response"); then
+        whole_leaf_redacted=
+      fi
+      ;;
+  esac
   if [ -z "$whole_leaf_redacted" ] \
       || [ "$whole_leaf_redacted" = "$whole_leaf_response" ]; then
     whole_leaf_redacted=
