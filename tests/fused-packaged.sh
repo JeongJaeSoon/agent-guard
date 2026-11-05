@@ -46,14 +46,27 @@ payload='{"tool_name":"Read","tool_input":{},"tool_response":{"stdout":"API_KEY=
 count=0
 for host in claude codex; do
   export AGENT_GUARD_HOOK_HOST="$host"
-  for mode in healthy partial missing shell no-module; do
+  for mode in healthy partial missing shell no-module source-healthy source-partial source-shell; do
+    helper="$case_dir/payload/libexec/$name"
+    unset AGENT_GUARD_RUST_CORE_BIN
+    case "$mode" in
+      source-*)
+        # A Git marketplace cache has no bundled core. Use the same verified
+        # standalone helper for preparation and the existing redactor override.
+        mv "$case_dir/payload/libexec" "$case_dir/standalone-libexec"
+        helper="$case_dir/standalone-libexec/$name"
+        (cd "$case_dir/standalone-libexec" && shasum -a 256 -c "$name.sha256") >/dev/null
+        export AGENT_GUARD_RUST_CORE_BIN="$helper"
+        ;;
+    esac
     export AGENT_GUARD_EXPERIMENTAL_OUTPUT_PIPELINE=fused
     export AGENT_GUARD_EXPERIMENTAL_OUTPUT_PREPARE_BIN="$helper"
     : >"$FUSED_PACKAGED_MARKER"
     case "$mode" in
-      partial) AGENT_GUARD_EXPERIMENTAL_OUTPUT_PREPARE_BIN="$case_dir/partial" ;;
+      partial|source-partial) AGENT_GUARD_EXPERIMENTAL_OUTPUT_PREPARE_BIN="$case_dir/partial" ;;
       missing) AGENT_GUARD_EXPERIMENTAL_OUTPUT_PREPARE_BIN="$case_dir/missing" ;;
       shell) unset AGENT_GUARD_EXPERIMENTAL_OUTPUT_PIPELINE AGENT_GUARD_EXPERIMENTAL_OUTPUT_PREPARE_BIN ;;
+      source-shell) unset AGENT_GUARD_EXPERIMENTAL_OUTPUT_PIPELINE AGENT_GUARD_EXPERIMENTAL_OUTPUT_PREPARE_BIN AGENT_GUARD_RUST_CORE_BIN ;;
       no-module) mv "$case_dir/payload/scripts/output-pipeline-experiment.sh" "$case_dir/module" ;;
     esac
     printf '%s\n' "$payload" | "$cli" hook-post-tool >"$case_dir/actual"
@@ -65,15 +78,23 @@ for host in claude codex; do
         (.hookSpecificOutput.additionalContext | ltrimstr("Agent Guard sanitized tool output:\n") | fromjson) ==
         {stdout:"API_KEY=[REDACTED]",clean:"visible",type:"text"}' "$case_dir/actual" >/dev/null
     fi
-    if [ "$mode" = healthy ]; then
-      grep -qx prepare-v1 "$FUSED_PACKAGED_MARKER"
+    case "$mode" in
+      healthy|source-healthy)
+        grep -qx prepare-v1 "$FUSED_PACKAGED_MARKER"
+        grep -qx redact-v1 "$FUSED_PACKAGED_MARKER"
+        ;;
+      source-shell) test ! -s "$FUSED_PACKAGED_MARKER" ;;
+      *) ! grep -qx prepare-v1 "$FUSED_PACKAGED_MARKER" ;;
+    esac
+    if [ "$mode" = source-partial ]; then
       grep -qx redact-v1 "$FUSED_PACKAGED_MARKER"
-    else
-      ! grep -qx prepare-v1 "$FUSED_PACKAGED_MARKER"
     fi
     if [ "$mode" = no-module ]; then
       mv "$case_dir/module" "$case_dir/payload/scripts/output-pipeline-experiment.sh"
     fi
+    case "$mode" in
+      source-*) mv "$case_dir/standalone-libexec" "$case_dir/payload/libexec" ;;
+    esac
     count=$((count + 1))
     printf 'ok - %s installed fused %s preserves independent output\n' "$host" "$mode"
   done

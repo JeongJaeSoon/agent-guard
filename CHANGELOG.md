@@ -3,7 +3,7 @@
 ### 선택형 출력 처리 통합
 
 - 기존 core에 JSON 문자열 추출·framing을 위한 `prepare-v1`을 추가하고, private 중간 파일과 출력 처리를 통합하는 선택형 경로를 제공합니다. 전체 재작성은 아니며 탐지·scanner·정책·PII·호스트 계약은 기존 셸에 남습니다. 기본 출력 파이프라인은 바꾸지 않습니다.
-- `AGENT_GUARD_EXPERIMENTAL_OUTPUT_PIPELINE=fused`와 검증된 절대 `AGENT_GUARD_EXPERIMENTAL_OUTPUT_PREPARE_BIN`을 함께 선택합니다. 같은 설치 core를 준비·치환에 공유하므로 두 번째 helper나 Rust 컴파일러 설치는 필요하지 않습니다. helper 실패·누락은 원래 jq 단계로, 모듈 누락은 원래 파이프라인으로 복귀합니다. 두 설정을 지우고 호스트를 재시작하면 기본 경로로 돌아갑니다.
+- `AGENT_GUARD_EXPERIMENTAL_OUTPUT_PIPELINE=fused`와 검증된 절대 `AGENT_GUARD_EXPERIMENTAL_OUTPUT_PREPARE_BIN`을 함께 선택합니다. 소스만 있는 Git marketplace 플러그인은 기존 `AGENT_GUARD_RUST_CORE_BIN`도 같은 바이너리로 지정해 준비·치환에 공유합니다. 두 번째 helper나 Rust 컴파일러 설치는 필요하지 않습니다. helper 실패·누락은 원래 jq 단계로, 모듈 누락은 원래 파이프라인으로 복귀합니다. 선택 설정을 지우고 호스트를 재시작하면 기본 경로로 돌아갑니다.
 - Claude/Codex의 기존 설치·업데이트 명령을 유지합니다. Git marketplace 설치는 같은 릴리스의 독립 사전 빌드 core를 연결할 수 있으며 호스트 캐시를 수정할 필요가 없습니다. 신뢰하는 실행 파일 재정의 계약과 체크섬 검증 방법은 [설치 안내](https://github.com/JeongJaeSoon/agent-guard/blob/v3.8.0/docs/installation.ko.md)를 참고하세요.
 
 ### 기본 경로의 수정
