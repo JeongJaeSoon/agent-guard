@@ -1,0 +1,15 @@
+{
+  "runtime_commit": "94f97ca",
+  "release_equivalent_runtime": "2ee4ae6c3818157a5f8f25c1ac8dbeb63a3fb723",
+  "command": "sh tests/run.sh",
+  "exit_code": 0,
+  "passed": 2625,
+  "failed": 0,
+  "limitations": [
+    "Mounted scanner owner-only executable permission made it unavailable to the container proof user; real-gitleaks integration block was skipped. This is not real-scanner qualification.",
+    "Node, zsh and ACL tooling were unavailable; optional checks were skipped.",
+    "Worktree Git metadata was outside the container; git archive lifecycle checks were skipped.",
+    "Exact-head CI and four native platform jobs provide the required real-scanner, packaging and host qualification separately."
+  ],
+  "initial_setup_failure": "startup-path-full-suite-mount-permission.log, before tests ran; repository read permissions corrected"
+}

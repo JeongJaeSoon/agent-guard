@@ -1,0 +1,509 @@
+﻿2026-11-05T14:13:40.0250352Z Current runner version: '2.338.2'
+2026-11-05T14:13:40.0275179Z ##[group]Runner Image Provisioner
+2026-11-05T14:13:40.0276238Z Hosted Compute Agent
+2026-11-05T14:13:40.0276824Z Version: 20261028.624
+2026-11-05T14:13:40.0277553Z Commit: 54898b74c23fde5556c9b3c3a2290865feef0dfe
+2026-11-05T14:13:40.0278562Z Build Date: 2026-10-28T21:51:42Z
+2026-11-05T14:13:40.0279409Z Worker ID: {90cc01d0-04a7-4b87-98e1-254a7063420f}
+2026-11-05T14:13:40.0280213Z Region: westus
+2026-11-05T14:13:40.0280847Z Cloud: Azure
+2026-11-05T14:13:40.0281828Z ##[endgroup]
+2026-11-05T14:13:40.0283425Z ##[group]Operating System
+2026-11-05T14:13:40.0284147Z Ubuntu
+2026-11-05T14:13:40.0284706Z 24.04.5
+2026-11-05T14:13:40.0285220Z LTS
+2026-11-05T14:13:40.0285784Z ##[endgroup]
+2026-11-05T14:13:40.0286379Z ##[group]Runner Image
+2026-11-05T14:13:40.0286962Z Image: ubuntu-24.04
+2026-11-05T14:13:40.0287597Z Version: 20261101.360.1
+2026-11-05T14:13:40.0288833Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20261101.360/images/ubuntu/Ubuntu2404-Readme.md
+2026-11-05T14:13:40.0290550Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20261101.360
+2026-11-05T14:13:40.0291833Z ##[endgroup]
+2026-11-05T14:13:40.0293186Z ##[group]GITHUB_TOKEN Permissions
+2026-11-05T14:13:40.0295452Z Contents: read
+2026-11-05T14:13:40.0296142Z Metadata: read
+2026-11-05T14:13:40.0296709Z ##[endgroup]
+2026-11-05T14:13:40.0298836Z Secret source: Actions
+2026-11-05T14:13:40.0299779Z Cache mode: write
+2026-11-05T14:13:40.0300934Z Prepare workflow directory
+2026-11-05T14:13:40.0666823Z Prepare all required actions
+2026-11-05T14:13:40.0725490Z Getting action download info
+2026-11-05T14:13:40.4440713Z Download action repository 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' (SHA:3d3c42e5aac5ba805825da76410c181273ba90b1)
+2026-11-05T14:13:40.5453167Z Download action repository 'actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093' (SHA:d3f86a106a0bac45b974a628896c90dbdf5c8093)
+2026-11-05T14:13:40.9219945Z Download action repository 'actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02' (SHA:ea165f8d65b6e75b540449e92b4886f43607fa02)
+2026-11-05T14:13:41.1214340Z Complete job name: Packaged performance evidence
+2026-11-05T14:13:41.2115572Z ##[group]Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+2026-11-05T14:13:41.2116633Z with:
+2026-11-05T14:13:41.2117081Z   persist-credentials: false
+2026-11-05T14:13:41.2117594Z   fetch-depth: 0
+2026-11-05T14:13:41.2118076Z   repository: JeongJaeSoon/agent-guard
+2026-11-05T14:13:41.2122270Z   token: ***
+2026-11-05T14:13:41.2122722Z   ssh-strict: true
+2026-11-05T14:13:41.2123163Z   ssh-user: git
+2026-11-05T14:13:41.2123589Z   clean: true
+2026-11-05T14:13:41.2124039Z   sparse-checkout-cone-mode: true
+2026-11-05T14:13:41.2124574Z   fetch-tags: false
+2026-11-05T14:13:41.2125018Z   show-progress: true
+2026-11-05T14:13:41.2125472Z   lfs: false
+2026-11-05T14:13:41.2125890Z   submodules: false
+2026-11-05T14:13:41.2126346Z   set-safe-directory: true
+2026-11-05T14:13:41.2126876Z   allow-unsafe-pr-checkout: false
+2026-11-05T14:13:41.2127653Z ##[endgroup]
+2026-11-05T14:13:41.5247764Z Syncing repository: JeongJaeSoon/agent-guard
+2026-11-05T14:13:41.5249671Z ##[group]Getting Git version info
+2026-11-05T14:13:41.5250444Z Working directory is '/home/runner/work/agent-guard/agent-guard'
+2026-11-05T14:13:41.5252078Z [command]/usr/bin/git version
+2026-11-05T14:13:41.5362137Z git version 2.56.0
+2026-11-05T14:13:41.5384803Z ##[endgroup]
+2026-11-05T14:13:41.5396025Z Temporarily overriding HOME='/home/runner/work/_temp/6f107960-4d2a-4ba1-940f-bbcb47ac10f8' before making global git config changes
+2026-11-05T14:13:41.5398395Z Adding repository directory to the temporary git global config as a safe directory
+2026-11-05T14:13:41.5402323Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/agent-guard/agent-guard
+2026-11-05T14:13:41.5453647Z Deleting the contents of '/home/runner/work/agent-guard/agent-guard'
+2026-11-05T14:13:41.5457296Z ##[group]Determining repository object format
+2026-11-05T14:13:41.5459255Z ##[endgroup]
+2026-11-05T14:13:41.5460663Z ##[group]Initializing the repository
+2026-11-05T14:13:41.5463783Z [command]/usr/bin/git init /home/runner/work/agent-guard/agent-guard
+2026-11-05T14:13:41.5589668Z hint: Using 'master' as the name for the initial branch. This default branch name
+2026-11-05T14:13:41.5591819Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+2026-11-05T14:13:41.5593473Z hint: to use in all of your new repositories, which will suppress this warning,
+2026-11-05T14:13:41.5594869Z hint: call:
+2026-11-05T14:13:41.5595677Z hint:
+2026-11-05T14:13:41.5596564Z hint: 	git config --global init.defaultBranch <name>
+2026-11-05T14:13:41.5597559Z hint:
+2026-11-05T14:13:41.5598466Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2026-11-05T14:13:41.5600028Z hint: 'development'. The just-created branch can be renamed via this command:
+2026-11-05T14:13:41.5601526Z hint:
+2026-11-05T14:13:41.5602357Z hint: 	git branch -m <name>
+2026-11-05T14:13:41.5603222Z hint:
+2026-11-05T14:13:41.5604216Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2026-11-05T14:13:41.5613653Z Initialized empty Git repository in /home/runner/work/agent-guard/agent-guard/.git/
+2026-11-05T14:13:41.5626968Z [command]/usr/bin/git remote add origin https://github.com/JeongJaeSoon/agent-guard
+2026-11-05T14:13:41.5684513Z ##[endgroup]
+2026-11-05T14:13:41.5685808Z ##[group]Disabling automatic garbage collection
+2026-11-05T14:13:41.5698358Z [command]/usr/bin/git config --local gc.auto 0
+2026-11-05T14:13:41.5728722Z ##[endgroup]
+2026-11-05T14:13:41.5730293Z ##[group]Setting up auth
+2026-11-05T14:13:41.5731175Z Removing SSH command configuration
+2026-11-05T14:13:41.5735933Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-05T14:13:41.5778010Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-05T14:13:41.6184928Z Removing HTTP extra header
+2026-11-05T14:13:41.6192279Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-05T14:13:41.6244581Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-05T14:13:41.6488372Z Removing includeIf entries pointing to credentials config files
+2026-11-05T14:13:41.6493102Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-05T14:13:41.6538927Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-05T14:13:41.6784116Z [command]/usr/bin/git config --file /home/runner/work/_temp/git-credentials-7837495a-4967-4ef2-a65f-1fe7a1651b8e.config http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2026-11-05T14:13:41.6834075Z [command]/usr/bin/git config --local includeIf.gitdir:/home/runner/work/agent-guard/agent-guard/.git.path /home/runner/work/_temp/git-credentials-7837495a-4967-4ef2-a65f-1fe7a1651b8e.config
+2026-11-05T14:13:41.6876431Z [command]/usr/bin/git config --local includeIf.gitdir:/home/runner/work/agent-guard/agent-guard/.git/worktrees/*.path /home/runner/work/_temp/git-credentials-7837495a-4967-4ef2-a65f-1fe7a1651b8e.config
+2026-11-05T14:13:41.6919295Z [command]/usr/bin/git config --local includeIf.gitdir:/github/workspace/.git.path /github/runner_temp/git-credentials-7837495a-4967-4ef2-a65f-1fe7a1651b8e.config
+2026-11-05T14:13:41.6962198Z [command]/usr/bin/git config --local includeIf.gitdir:/github/workspace/.git/worktrees/*.path /github/runner_temp/git-credentials-7837495a-4967-4ef2-a65f-1fe7a1651b8e.config
+2026-11-05T14:13:41.7008612Z ##[endgroup]
+2026-11-05T14:13:41.7009366Z ##[group]Fetching the repository
+2026-11-05T14:13:41.7010982Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules origin +refs/heads/*:refs/remotes/origin/* +refs/tags/*:refs/tags/* +b8f2d6356708b7f118dd69ceb29363699eb2b969:refs/remotes/pull/404/merge
+2026-11-05T14:13:44.1919697Z From https://github.com/JeongJaeSoon/agent-guard
+2026-11-05T14:13:44.1920909Z  * [new branch]      codex/ci-output-rebalance                -> origin/codex/ci-output-rebalance
+2026-11-05T14:13:44.1922328Z  * [new branch]      codex/ci-process-overhead                -> origin/codex/ci-process-overhead
+2026-11-05T14:13:44.1923065Z  * [new branch]      codex/docs-validation                    -> origin/codex/docs-validation
+2026-11-05T14:13:44.1923780Z  * [new branch]      codex/fused-output-evidence              -> origin/codex/fused-output-evidence
+2026-11-05T14:13:44.1924498Z  * [new branch]      codex/fused-release-prep                 -> origin/codex/fused-release-prep
+2026-11-05T14:13:44.1925227Z  * [new branch]      codex/install-tradeoff-evidence          -> origin/codex/install-tradeoff-evidence
+2026-11-05T14:13:44.1926102Z  * [new branch]      codex/numeric-fallback-experiment        -> origin/codex/numeric-fallback-experiment
+2026-11-05T14:13:44.1926877Z  * [new branch]      codex/numeric-fallback-locale            -> origin/codex/numeric-fallback-locale
+2026-11-05T14:13:44.1927664Z  * [new branch]      codex/numeric-fallback-locale-restore    -> origin/codex/numeric-fallback-locale-restore
+2026-11-05T14:13:44.1928515Z  * [new branch]      codex/numeric-fallback-preflight         -> origin/codex/numeric-fallback-preflight
+2026-11-05T14:13:44.1929283Z  * [new branch]      codex/numeric-fallback-transport         -> origin/codex/numeric-fallback-transport
+2026-11-05T14:13:44.1930049Z  * [new branch]      codex/output-pipeline-experiment         -> origin/codex/output-pipeline-experiment
+2026-11-05T14:13:44.1930784Z  * [new branch]      codex/probe-completion-race              -> origin/codex/probe-completion-race
+2026-11-05T14:13:44.1932017Z  * [new branch]      codex/readiness-timeout-diagnosis        -> origin/codex/readiness-timeout-diagnosis
+2026-11-05T14:13:44.1932825Z  * [new branch]      codex/release-validation                 -> origin/codex/release-validation
+2026-11-05T14:13:44.1934119Z  * [new branch]      codex/rust-output-experiment             -> origin/codex/rust-output-experiment
+2026-11-05T14:13:44.1934870Z  * [new branch]      codex/rust-packaged-runtime              -> origin/codex/rust-packaged-runtime
+2026-11-05T14:13:44.1935701Z  * [new branch]      codex/startup-path-proof                 -> origin/codex/startup-path-proof
+2026-11-05T14:13:44.1936485Z  * [new branch]      codex/validation-five-prs                -> origin/codex/validation-five-prs
+2026-11-05T14:13:44.1937437Z  * [new branch]      dependabot/github_actions/actions/download-artifact-8.0.2 -> origin/dependabot/github_actions/actions/download-artifact-8.0.2
+2026-11-05T14:13:44.1938547Z  * [new branch]      dependabot/github_actions/actions/setup-go-7.0.0 -> origin/dependabot/github_actions/actions/setup-go-7.0.0
+2026-11-05T14:13:44.1939597Z  * [new branch]      dependabot/github_actions/actions/upload-artifact-7.0.2 -> origin/dependabot/github_actions/actions/upload-artifact-7.0.2
+2026-11-05T14:13:44.1940850Z  * [new branch]      dependabot/github_actions/hashgraph-online/ai-plugin-scanner-action-1.2.813 -> origin/dependabot/github_actions/hashgraph-online/ai-plugin-scanner-action-1.2.813
+2026-11-05T14:13:44.1942811Z  * [new branch]      main                                     -> origin/main
+2026-11-05T14:13:44.1943444Z  * [new branch]      release/v3.8.0                           -> origin/release/v3.8.0
+2026-11-05T14:13:44.1944351Z  * [new tag]         v1                                       -> v1
+2026-11-05T14:13:44.1945207Z  * [new tag]         v1.0.0                                   -> v1.0.0
+2026-11-05T14:13:44.1946113Z  * [new tag]         v1.0.1                                   -> v1.0.1
+2026-11-05T14:13:44.1946995Z  * [new tag]         v1.0.2                                   -> v1.0.2
+2026-11-05T14:13:44.1947901Z  * [new tag]         v1.1.0                                   -> v1.1.0
+2026-11-05T14:13:44.1948536Z  * [new tag]         v1.1.1                                   -> v1.1.1
+2026-11-05T14:13:44.1949042Z  * [new tag]         v1.1.2                                   -> v1.1.2
+2026-11-05T14:13:44.1949497Z  * [new tag]         v1.10.0                                  -> v1.10.0
+2026-11-05T14:13:44.1949945Z  * [new tag]         v1.10.1                                  -> v1.10.1
+2026-11-05T14:13:44.1950388Z  * [new tag]         v1.2.0                                   -> v1.2.0
+2026-11-05T14:13:44.1950825Z  * [new tag]         v1.2.1                                   -> v1.2.1
+2026-11-05T14:13:44.1951529Z  * [new tag]         v1.2.2                                   -> v1.2.2
+2026-11-05T14:13:44.2029540Z  * [new tag]         v1.3.0                                   -> v1.3.0
+2026-11-05T14:13:44.2030271Z  * [new tag]         v1.3.1                                   -> v1.3.1
+2026-11-05T14:13:44.2030862Z  * [new tag]         v1.3.2                                   -> v1.3.2
+2026-11-05T14:13:44.2031635Z  * [new tag]         v1.3.3                                   -> v1.3.3
+2026-11-05T14:13:44.2032218Z  * [new tag]         v1.3.4                                   -> v1.3.4
+2026-11-05T14:13:44.2032682Z  * [new tag]         v1.3.5                                   -> v1.3.5
+2026-11-05T14:13:44.2033136Z  * [new tag]         v1.3.6                                   -> v1.3.6
+2026-11-05T14:13:44.2033574Z  * [new tag]         v1.3.7                                   -> v1.3.7
+2026-11-05T14:13:44.2034025Z  * [new tag]         v1.3.8                                   -> v1.3.8
+2026-11-05T14:13:44.2034465Z  * [new tag]         v1.4.0                                   -> v1.4.0
+2026-11-05T14:13:44.2034901Z  * [new tag]         v1.5.0                                   -> v1.5.0
+2026-11-05T14:13:44.2035322Z  * [new tag]         v1.6.0                                   -> v1.6.0
+2026-11-05T14:13:44.2035763Z  * [new tag]         v1.7.0                                   -> v1.7.0
+2026-11-05T14:13:44.2036189Z  * [new tag]         v1.7.1                                   -> v1.7.1
+2026-11-05T14:13:44.2036818Z  * [new tag]         v1.8.0                                   -> v1.8.0
+2026-11-05T14:13:44.2037261Z  * [new tag]         v1.9.0                                   -> v1.9.0
+2026-11-05T14:13:44.2037682Z  * [new tag]         v2                                       -> v2
+2026-11-05T14:13:44.2038103Z  * [new tag]         v2.0.0                                   -> v2.0.0
+2026-11-05T14:13:44.2038522Z  * [new tag]         v2.0.1                                   -> v2.0.1
+2026-11-05T14:13:44.2038931Z  * [new tag]         v2.1.0                                   -> v2.1.0
+2026-11-05T14:13:44.2039348Z  * [new tag]         v2.2.0                                   -> v2.2.0
+2026-11-05T14:13:44.2039828Z  * [new tag]         v3                                       -> v3
+2026-11-05T14:13:44.2040246Z  * [new tag]         v3.0.0                                   -> v3.0.0
+2026-11-05T14:13:44.2040671Z  * [new tag]         v3.0.1                                   -> v3.0.1
+2026-11-05T14:13:44.2041097Z  * [new tag]         v3.1.0                                   -> v3.1.0
+2026-11-05T14:13:44.2041677Z  * [new tag]         v3.1.1                                   -> v3.1.1
+2026-11-05T14:13:44.2042095Z  * [new tag]         v3.2.0                                   -> v3.2.0
+2026-11-05T14:13:44.2042528Z  * [new tag]         v3.3.0                                   -> v3.3.0
+2026-11-05T14:13:44.2042937Z  * [new tag]         v3.4.0                                   -> v3.4.0
+2026-11-05T14:13:44.2043352Z  * [new tag]         v3.4.1                                   -> v3.4.1
+2026-11-05T14:13:44.2043766Z  * [new tag]         v3.4.2                                   -> v3.4.2
+2026-11-05T14:13:44.2044204Z  * [new tag]         v3.4.3                                   -> v3.4.3
+2026-11-05T14:13:44.2044638Z  * [new tag]         v3.4.4                                   -> v3.4.4
+2026-11-05T14:13:44.2045261Z  * [new tag]         v3.4.5                                   -> v3.4.5
+2026-11-05T14:13:44.2045689Z  * [new tag]         v3.5.0                                   -> v3.5.0
+2026-11-05T14:13:44.2046105Z  * [new tag]         v3.5.1                                   -> v3.5.1
+2026-11-05T14:13:44.2046799Z  * [new tag]         v3.5.2                                   -> v3.5.2
+2026-11-05T14:13:44.2047567Z  * [new tag]         v3.5.3                                   -> v3.5.3
+2026-11-05T14:13:44.2048185Z  * [new tag]         v3.5.4                                   -> v3.5.4
+2026-11-05T14:13:44.2048620Z  * [new tag]         v3.5.5                                   -> v3.5.5
+2026-11-05T14:13:44.2049055Z  * [new tag]         v3.5.6                                   -> v3.5.6
+2026-11-05T14:13:44.2049480Z  * [new tag]         v3.6.0                                   -> v3.6.0
+2026-11-05T14:13:44.2049916Z  * [new tag]         v3.6.1                                   -> v3.6.1
+2026-11-05T14:13:44.2050369Z  * [new tag]         v3.6.10                                  -> v3.6.10
+2026-11-05T14:13:44.2050816Z  * [new tag]         v3.6.11                                  -> v3.6.11
+2026-11-05T14:13:44.2051735Z  * [new tag]         v3.6.12                                  -> v3.6.12
+2026-11-05T14:13:44.2052233Z  * [new tag]         v3.6.13                                  -> v3.6.13
+2026-11-05T14:13:44.2052799Z  * [new tag]         v3.6.14                                  -> v3.6.14
+2026-11-05T14:13:44.2053246Z  * [new tag]         v3.6.15                                  -> v3.6.15
+2026-11-05T14:13:44.2053674Z  * [new tag]         v3.6.2                                   -> v3.6.2
+2026-11-05T14:13:44.2054108Z  * [new tag]         v3.6.3                                   -> v3.6.3
+2026-11-05T14:13:44.2054533Z  * [new tag]         v3.6.4                                   -> v3.6.4
+2026-11-05T14:13:44.2054973Z  * [new tag]         v3.6.5                                   -> v3.6.5
+2026-11-05T14:13:44.2055404Z  * [new tag]         v3.6.6                                   -> v3.6.6
+2026-11-05T14:13:44.2056015Z  * [new tag]         v3.6.7                                   -> v3.6.7
+2026-11-05T14:13:44.2056752Z  * [new tag]         v3.6.8                                   -> v3.6.8
+2026-11-05T14:13:44.2057389Z  * [new tag]         v3.6.9                                   -> v3.6.9
+2026-11-05T14:13:44.2057837Z  * [new tag]         v3.7.0                                   -> v3.7.0
+2026-11-05T14:13:44.2058324Z  * [new tag]         v3.7.1                                   -> v3.7.1
+2026-11-05T14:13:44.2058840Z  * [new ref]         b8f2d6356708b7f118dd69ceb29363699eb2b969 -> pull/404/merge
+2026-11-05T14:13:44.2060306Z ##[endgroup]
+2026-11-05T14:13:44.2060811Z ##[group]Determining the checkout info
+2026-11-05T14:13:44.2061597Z ##[endgroup]
+2026-11-05T14:13:44.2061957Z [command]/usr/bin/git sparse-checkout disable
+2026-11-05T14:13:44.2063433Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+2026-11-05T14:13:44.2064708Z ##[group]Checking out the ref
+2026-11-05T14:13:44.2065210Z [command]/usr/bin/git checkout --progress --force refs/remotes/pull/404/merge
+2026-11-05T14:13:44.3257602Z Note: switching to 'refs/remotes/pull/404/merge'.
+2026-11-05T14:13:44.3258260Z 
+2026-11-05T14:13:44.3258697Z You are in 'detached HEAD' state. You can look around, make experimental
+2026-11-05T14:13:44.3259732Z changes and commit them, and you can discard any commits you make in this
+2026-11-05T14:13:44.3260785Z state without impacting any branches by switching back to a branch.
+2026-11-05T14:13:44.3261625Z 
+2026-11-05T14:13:44.3262025Z If you want to create a new branch to retain commits you create, you may
+2026-11-05T14:13:44.3262905Z do so (now or later) by using -c with the switch command. Example:
+2026-11-05T14:13:44.3263412Z 
+2026-11-05T14:13:44.3263640Z   git switch -c <new-branch-name>
+2026-11-05T14:13:44.3263972Z 
+2026-11-05T14:13:44.3264189Z Or undo this operation with:
+2026-11-05T14:13:44.3264839Z 
+2026-11-05T14:13:44.3265025Z   git switch -
+2026-11-05T14:13:44.3265278Z 
+2026-11-05T14:13:44.3265696Z Turn off this advice by setting config variable advice.detachedHead to false
+2026-11-05T14:13:44.3266285Z 
+2026-11-05T14:13:44.3266934Z HEAD is now at b8f2d63 Merge 2ee4ae6c3818157a5f8f25c1ac8dbeb63a3fb723 into 3730d87b0ab0d3a1d70821560dded1b4343664a9
+2026-11-05T14:13:44.3289429Z ##[endgroup]
+2026-11-05T14:13:44.3349092Z [command]/usr/bin/git log -1 --format=%H
+2026-11-05T14:13:44.3386963Z b8f2d6356708b7f118dd69ceb29363699eb2b969
+2026-11-05T14:13:44.3397081Z ##[group]Removing auth
+2026-11-05T14:13:44.3397739Z Removing SSH command configuration
+2026-11-05T14:13:44.3402223Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-05T14:13:44.3444883Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-05T14:13:44.3690945Z Removing HTTP extra header
+2026-11-05T14:13:44.3695309Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-05T14:13:44.3738477Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-05T14:13:44.3994105Z Removing includeIf entries pointing to credentials config files
+2026-11-05T14:13:44.3998869Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-05T14:13:44.4043900Z includeif.gitdir:/home/runner/work/agent-guard/agent-guard/.git.path
+2026-11-05T14:13:44.4045334Z includeif.gitdir:/home/runner/work/agent-guard/agent-guard/.git/worktrees/*.path
+2026-11-05T14:13:44.4046582Z includeif.gitdir:/github/workspace/.git.path
+2026-11-05T14:13:44.4047534Z includeif.gitdir:/github/workspace/.git/worktrees/*.path
+2026-11-05T14:13:44.4055439Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/agent-guard/agent-guard/.git.path
+2026-11-05T14:13:44.4095866Z /home/runner/work/_temp/git-credentials-7837495a-4967-4ef2-a65f-1fe7a1651b8e.config
+2026-11-05T14:13:44.4128419Z [command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/agent-guard/agent-guard/.git.path \/home\/runner\/work\/_temp\/git\-credentials\-7837495a\-4967\-4ef2\-a65f\-1fe7a1651b8e\.config
+2026-11-05T14:13:44.4168756Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/agent-guard/agent-guard/.git/worktrees/*.path
+2026-11-05T14:13:44.4208824Z /home/runner/work/_temp/git-credentials-7837495a-4967-4ef2-a65f-1fe7a1651b8e.config
+2026-11-05T14:13:44.4219798Z [command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/agent-guard/agent-guard/.git/worktrees/*.path \/home\/runner\/work\/_temp\/git\-credentials\-7837495a\-4967\-4ef2\-a65f\-1fe7a1651b8e\.config
+2026-11-05T14:13:44.4266028Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git.path
+2026-11-05T14:13:44.4300723Z /github/runner_temp/git-credentials-7837495a-4967-4ef2-a65f-1fe7a1651b8e.config
+2026-11-05T14:13:44.4308947Z [command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git.path \/github\/runner_temp\/git\-credentials\-7837495a\-4967\-4ef2\-a65f\-1fe7a1651b8e\.config
+2026-11-05T14:13:44.4358195Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git/worktrees/*.path
+2026-11-05T14:13:44.4393304Z /github/runner_temp/git-credentials-7837495a-4967-4ef2-a65f-1fe7a1651b8e.config
+2026-11-05T14:13:44.4402641Z [command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git/worktrees/*.path \/github\/runner_temp\/git\-credentials\-7837495a\-4967\-4ef2\-a65f\-1fe7a1651b8e\.config
+2026-11-05T14:13:44.4446195Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-05T14:13:44.4688604Z Removing credentials config '/home/runner/work/_temp/git-credentials-7837495a-4967-4ef2-a65f-1fe7a1651b8e.config'
+2026-11-05T14:13:44.4697068Z ##[endgroup]
+2026-11-05T14:13:44.4961050Z ##[group]Run actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+2026-11-05T14:13:44.4961930Z with:
+2026-11-05T14:13:44.4962213Z   name: native-x86_64-unknown-linux-musl
+2026-11-05T14:13:44.4962601Z   path: /home/runner/work/_temp/native-performance
+2026-11-05T14:13:44.4962970Z   merge-multiple: false
+2026-11-05T14:13:44.4963277Z   repository: JeongJaeSoon/agent-guard
+2026-11-05T14:13:44.4963592Z   run-id: 42039910187
+2026-11-05T14:13:44.4963862Z ##[endgroup]
+2026-11-05T14:13:44.6525632Z Downloading single artifact
+2026-11-05T14:13:44.6734343Z (node:2404) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+2026-11-05T14:13:44.6735353Z (Use `node --trace-deprecation ...` to show where the warning was created)
+2026-11-05T14:13:44.9483923Z Preparing to download the following artifacts:
+2026-11-05T14:13:44.9485414Z - native-x86_64-unknown-linux-musl (ID: 13420117622, Size: 293078, Expected Digest: sha256:2c94009d72785acba60cb71a6fa0007781b285fa767563694a637425942539e0)
+2026-11-05T14:13:45.2249778Z Redirecting to blob download url: https://productionresultssa14.blob.core.windows.net/actions-results/3fe5cd30-c821-8cc2-8c80-b42ac7449765/workflow-job-run-adbdb255-8e80-557a-b85b-5de02d2a47d0/artifacts/2bd93718fca1920ad4d6baee2895b99528bc318d7824dcbfa16b5e967cff4bba.zip
+2026-11-05T14:13:45.2252434Z Starting download of artifact to: /home/runner/work/_temp/native-performance
+2026-11-05T14:13:45.5355009Z (node:2404) [DEP0005] DeprecationWarning: Buffer() is deprecated due to security and usability issues. Please use the Buffer.alloc(), Buffer.allocUnsafe(), or Buffer.from() methods instead.
+2026-11-05T14:13:45.8527044Z SHA256 digest of downloaded artifact is 2c94009d72785acba60cb71a6fa0007781b285fa767563694a637425942539e0
+2026-11-05T14:13:45.8528215Z Artifact download completed successfully.
+2026-11-05T14:13:45.8528888Z Total of 1 artifact(s) downloaded
+2026-11-05T14:13:45.8535514Z Download artifact has finished successfully
+2026-11-05T14:13:45.8723277Z ##[group]Run mkdir -p plugins/agent-guard/libexec
+2026-11-05T14:13:45.8723784Z [36;1mmkdir -p plugins/agent-guard/libexec[0m
+2026-11-05T14:13:45.8724443Z [36;1mcp "$RUNNER_TEMP/native-performance/agent-guard-redact-x86_64-unknown-linux-musl"* plugins/agent-guard/libexec/[0m
+2026-11-05T14:13:45.8725210Z [36;1mchmod 755 plugins/agent-guard/libexec/agent-guard-redact-x86_64-unknown-linux-musl[0m
+2026-11-05T14:13:45.8725792Z [36;1msh scripts/install-native-test-tools.sh "$RUNNER_TEMP/test-bin"[0m
+2026-11-05T14:13:45.8726537Z [36;1msh bench/native/run-packaged.sh "$RUNNER_TEMP/test-bin/gitleaks" 9a0ee9eb2eed1e60b78d4404f985b077149c675d "$RUNNER_TEMP/performance"[0m
+2026-11-05T14:13:45.8750422Z shell: /usr/bin/bash -e {0}
+2026-11-05T14:13:45.8750719Z ##[endgroup]
+2026-11-05T14:13:46.0627959Z /tmp/tmp.388LTpP9eL/scanner.tar.gz: OK
+2026-11-05T14:13:46.3457056Z /tmp/tmp.388LTpP9eL/jq: OK
+2026-11-05T14:14:56.8114955Z integration start: host=claude fixture=0 variant=shell
+2026-11-05T14:14:57.6595399Z integration end: host=claude fixture=0 variant=shell seconds=0.848 status=exit status: 0
+2026-11-05T14:14:57.6596394Z integration start: host=claude fixture=0 variant=0
+2026-11-05T14:14:58.5026250Z integration end: host=claude fixture=0 variant=0 seconds=0.843 status=exit status: 0
+2026-11-05T14:14:58.5026815Z integration start: host=claude fixture=0 variant=1
+2026-11-05T14:14:59.3784864Z integration end: host=claude fixture=0 variant=1 seconds=0.876 status=exit status: 0
+2026-11-05T14:14:59.3785797Z integration start: host=claude fixture=0 variant=2
+2026-11-05T14:15:00.2139072Z integration end: host=claude fixture=0 variant=2 seconds=0.835 status=exit status: 0
+2026-11-05T14:15:00.2140050Z integration start: host=claude fixture=0 variant=3
+2026-11-05T14:15:01.0507171Z integration end: host=claude fixture=0 variant=3 seconds=0.837 status=exit status: 0
+2026-11-05T14:15:01.0508548Z integration start: host=claude fixture=0 variant=4
+2026-11-05T14:15:01.9093034Z integration end: host=claude fixture=0 variant=4 seconds=0.859 status=exit status: 0
+2026-11-05T14:15:01.9099865Z integration start: host=claude fixture=1 variant=shell
+2026-11-05T14:15:02.7423185Z integration end: host=claude fixture=1 variant=shell seconds=0.833 status=exit status: 0
+2026-11-05T14:15:02.7424103Z integration start: host=claude fixture=1 variant=0
+2026-11-05T14:15:03.6088600Z integration end: host=claude fixture=1 variant=0 seconds=0.866 status=exit status: 0
+2026-11-05T14:15:03.6089385Z integration start: host=claude fixture=1 variant=1
+2026-11-05T14:15:04.4816277Z integration end: host=claude fixture=1 variant=1 seconds=0.873 status=exit status: 0
+2026-11-05T14:15:04.4817112Z integration start: host=claude fixture=1 variant=2
+2026-11-05T14:15:05.3123074Z integration end: host=claude fixture=1 variant=2 seconds=0.831 status=exit status: 0
+2026-11-05T14:15:05.3124075Z integration start: host=claude fixture=1 variant=3
+2026-11-05T14:15:06.1478168Z integration end: host=claude fixture=1 variant=3 seconds=0.835 status=exit status: 0
+2026-11-05T14:15:06.1478715Z integration start: host=claude fixture=1 variant=4
+2026-11-05T14:15:07.0027675Z integration end: host=claude fixture=1 variant=4 seconds=0.855 status=exit status: 0
+2026-11-05T14:15:07.0028365Z integration start: host=claude fixture=2 variant=shell
+2026-11-05T14:15:07.8480345Z integration end: host=claude fixture=2 variant=shell seconds=0.845 status=exit status: 0
+2026-11-05T14:15:07.8481101Z integration start: host=claude fixture=2 variant=0
+2026-11-05T14:15:08.6970817Z integration end: host=claude fixture=2 variant=0 seconds=0.849 status=exit status: 0
+2026-11-05T14:15:08.6972100Z integration start: host=claude fixture=2 variant=1
+2026-11-05T14:15:09.5521050Z integration end: host=claude fixture=2 variant=1 seconds=0.855 status=exit status: 0
+2026-11-05T14:15:09.5522195Z integration start: host=claude fixture=2 variant=2
+2026-11-05T14:15:10.4556596Z integration end: host=claude fixture=2 variant=2 seconds=0.903 status=exit status: 0
+2026-11-05T14:15:10.4557811Z integration start: host=claude fixture=2 variant=3
+2026-11-05T14:15:11.3484163Z integration end: host=claude fixture=2 variant=3 seconds=0.893 status=exit status: 0
+2026-11-05T14:15:11.3485204Z integration start: host=claude fixture=2 variant=4
+2026-11-05T14:15:12.1716970Z integration end: host=claude fixture=2 variant=4 seconds=0.823 status=exit status: 0
+2026-11-05T14:15:12.1717737Z integration start: host=claude fixture=3 variant=shell
+2026-11-05T14:15:13.0423814Z integration end: host=claude fixture=3 variant=shell seconds=0.871 status=exit status: 0
+2026-11-05T14:15:13.0424909Z integration start: host=claude fixture=3 variant=0
+2026-11-05T14:15:13.9570994Z integration end: host=claude fixture=3 variant=0 seconds=0.915 status=exit status: 0
+2026-11-05T14:15:13.9572271Z integration start: host=claude fixture=3 variant=1
+2026-11-05T14:15:14.8223023Z integration end: host=claude fixture=3 variant=1 seconds=0.865 status=exit status: 0
+2026-11-05T14:15:14.8223567Z integration start: host=claude fixture=3 variant=2
+2026-11-05T14:15:15.6855540Z integration end: host=claude fixture=3 variant=2 seconds=0.863 status=exit status: 0
+2026-11-05T14:15:15.6856086Z integration start: host=claude fixture=3 variant=3
+2026-11-05T14:15:16.5287856Z integration end: host=claude fixture=3 variant=3 seconds=0.843 status=exit status: 0
+2026-11-05T14:15:16.5288389Z integration start: host=claude fixture=3 variant=4
+2026-11-05T14:15:17.3776780Z integration end: host=claude fixture=3 variant=4 seconds=0.849 status=exit status: 0
+2026-11-05T14:15:17.3777421Z integration start: host=claude fixture=4 variant=shell
+2026-11-05T14:15:18.2027345Z integration end: host=claude fixture=4 variant=shell seconds=0.825 status=exit status: 0
+2026-11-05T14:15:18.2028167Z integration start: host=claude fixture=4 variant=0
+2026-11-05T14:15:19.0297155Z integration end: host=claude fixture=4 variant=0 seconds=0.827 status=exit status: 0
+2026-11-05T14:15:19.0297992Z integration start: host=claude fixture=4 variant=1
+2026-11-05T14:15:19.8602129Z integration end: host=claude fixture=4 variant=1 seconds=0.830 status=exit status: 0
+2026-11-05T14:15:19.8602689Z integration start: host=claude fixture=4 variant=2
+2026-11-05T14:15:20.6922468Z integration end: host=claude fixture=4 variant=2 seconds=0.832 status=exit status: 0
+2026-11-05T14:15:20.6923171Z integration start: host=claude fixture=4 variant=3
+2026-11-05T14:15:21.5276352Z integration end: host=claude fixture=4 variant=3 seconds=0.835 status=exit status: 0
+2026-11-05T14:15:21.5277087Z integration start: host=claude fixture=4 variant=4
+2026-11-05T14:15:22.3628702Z integration end: host=claude fixture=4 variant=4 seconds=0.835 status=exit status: 0
+2026-11-05T14:15:22.3629674Z integration start: host=codex fixture=0 variant=shell
+2026-11-05T14:15:23.1998748Z integration end: host=codex fixture=0 variant=shell seconds=0.837 status=exit status: 0
+2026-11-05T14:15:23.1999725Z integration start: host=codex fixture=0 variant=0
+2026-11-05T14:15:24.0279795Z integration end: host=codex fixture=0 variant=0 seconds=0.828 status=exit status: 0
+2026-11-05T14:15:24.0280767Z integration start: host=codex fixture=0 variant=1
+2026-11-05T14:15:24.8571723Z integration end: host=codex fixture=0 variant=1 seconds=0.829 status=exit status: 0
+2026-11-05T14:15:24.8572606Z integration start: host=codex fixture=0 variant=2
+2026-11-05T14:15:25.6948804Z integration end: host=codex fixture=0 variant=2 seconds=0.838 status=exit status: 0
+2026-11-05T14:15:25.6949654Z integration start: host=codex fixture=0 variant=3
+2026-11-05T14:15:26.5357366Z integration end: host=codex fixture=0 variant=3 seconds=0.841 status=exit status: 0
+2026-11-05T14:15:26.5358284Z integration start: host=codex fixture=0 variant=4
+2026-11-05T14:15:27.3870056Z integration end: host=codex fixture=0 variant=4 seconds=0.851 status=exit status: 0
+2026-11-05T14:15:27.3870591Z integration start: host=codex fixture=1 variant=shell
+2026-11-05T14:15:28.2274002Z integration end: host=codex fixture=1 variant=shell seconds=0.840 status=exit status: 0
+2026-11-05T14:15:28.2275147Z integration start: host=codex fixture=1 variant=0
+2026-11-05T14:15:29.0559423Z integration end: host=codex fixture=1 variant=0 seconds=0.828 status=exit status: 0
+2026-11-05T14:15:29.0560516Z integration start: host=codex fixture=1 variant=1
+2026-11-05T14:15:29.8840319Z integration end: host=codex fixture=1 variant=1 seconds=0.828 status=exit status: 0
+2026-11-05T14:15:29.8840859Z integration start: host=codex fixture=1 variant=2
+2026-11-05T14:15:30.7189255Z integration end: host=codex fixture=1 variant=2 seconds=0.835 status=exit status: 0
+2026-11-05T14:15:30.7189883Z integration start: host=codex fixture=1 variant=3
+2026-11-05T14:15:31.5525985Z integration end: host=codex fixture=1 variant=3 seconds=0.834 status=exit status: 0
+2026-11-05T14:15:31.5526740Z integration start: host=codex fixture=1 variant=4
+2026-11-05T14:15:32.3851101Z integration end: host=codex fixture=1 variant=4 seconds=0.832 status=exit status: 0
+2026-11-05T14:15:32.3851950Z integration start: host=codex fixture=2 variant=shell
+2026-11-05T14:15:33.2151769Z integration end: host=codex fixture=2 variant=shell seconds=0.830 status=exit status: 0
+2026-11-05T14:15:33.2152450Z integration start: host=codex fixture=2 variant=0
+2026-11-05T14:15:34.0476096Z integration end: host=codex fixture=2 variant=0 seconds=0.832 status=exit status: 0
+2026-11-05T14:15:34.0476952Z integration start: host=codex fixture=2 variant=1
+2026-11-05T14:15:34.8698329Z integration end: host=codex fixture=2 variant=1 seconds=0.822 status=exit status: 0
+2026-11-05T14:15:34.8699035Z integration start: host=codex fixture=2 variant=2
+2026-11-05T14:15:35.6988640Z integration end: host=codex fixture=2 variant=2 seconds=0.829 status=exit status: 0
+2026-11-05T14:15:35.6989193Z integration start: host=codex fixture=2 variant=3
+2026-11-05T14:15:36.5309524Z integration end: host=codex fixture=2 variant=3 seconds=0.832 status=exit status: 0
+2026-11-05T14:15:36.5312256Z integration start: host=codex fixture=2 variant=4
+2026-11-05T14:15:37.3433206Z integration end: host=codex fixture=2 variant=4 seconds=0.812 status=exit status: 0
+2026-11-05T14:15:37.3434236Z integration start: host=codex fixture=3 variant=shell
+2026-11-05T14:15:38.1805507Z integration end: host=codex fixture=3 variant=shell seconds=0.837 status=exit status: 0
+2026-11-05T14:15:38.1806489Z integration start: host=codex fixture=3 variant=0
+2026-11-05T14:15:39.0118149Z integration end: host=codex fixture=3 variant=0 seconds=0.831 status=exit status: 0
+2026-11-05T14:15:39.0118910Z integration start: host=codex fixture=3 variant=1
+2026-11-05T14:15:39.8606322Z integration end: host=codex fixture=3 variant=1 seconds=0.849 status=exit status: 0
+2026-11-05T14:15:39.8607061Z integration start: host=codex fixture=3 variant=2
+2026-11-05T14:15:40.6920117Z integration end: host=codex fixture=3 variant=2 seconds=0.831 status=exit status: 0
+2026-11-05T14:15:40.6920768Z integration start: host=codex fixture=3 variant=3
+2026-11-05T14:15:41.5253481Z integration end: host=codex fixture=3 variant=3 seconds=0.833 status=exit status: 0
+2026-11-05T14:15:41.5254043Z integration start: host=codex fixture=3 variant=4
+2026-11-05T14:15:42.3825936Z integration end: host=codex fixture=3 variant=4 seconds=0.857 status=exit status: 0
+2026-11-05T14:15:42.3826856Z integration start: host=codex fixture=4 variant=shell
+2026-11-05T14:15:43.2309976Z integration end: host=codex fixture=4 variant=shell seconds=0.848 status=exit status: 0
+2026-11-05T14:15:43.2310598Z integration start: host=codex fixture=4 variant=0
+2026-11-05T14:15:44.0776983Z integration end: host=codex fixture=4 variant=0 seconds=0.847 status=exit status: 0
+2026-11-05T14:15:44.0777715Z integration start: host=codex fixture=4 variant=1
+2026-11-05T14:15:44.9368926Z integration end: host=codex fixture=4 variant=1 seconds=0.859 status=exit status: 0
+2026-11-05T14:15:44.9369591Z integration start: host=codex fixture=4 variant=2
+2026-11-05T14:15:45.7759200Z integration end: host=codex fixture=4 variant=2 seconds=0.839 status=exit status: 0
+2026-11-05T14:15:45.7759850Z integration start: host=codex fixture=4 variant=3
+2026-11-05T14:15:46.6049628Z integration end: host=codex fixture=4 variant=3 seconds=0.829 status=exit status: 0
+2026-11-05T14:15:46.6050634Z integration start: host=codex fixture=4 variant=4
+2026-11-05T14:15:47.4273859Z integration end: host=codex fixture=4 variant=4 seconds=0.823 status=exit status: 0
+2026-11-05T14:15:47.4274352Z redaction-plan start: variant=0
+2026-11-05T14:15:47.5125358Z redaction-plan end: variant=0
+2026-11-05T14:15:47.5125956Z redaction-plan start: variant=1
+2026-11-05T14:15:47.6008079Z redaction-plan end: variant=1
+2026-11-05T14:15:47.6008437Z redaction-plan start: variant=2
+2026-11-05T14:15:47.7251026Z redaction-plan end: variant=2
+2026-11-05T14:15:47.7251646Z redaction-plan start: variant=3
+2026-11-05T14:15:47.8380259Z redaction-plan end: variant=3
+2026-11-05T14:15:47.8380766Z redaction-plan start: variant=4
+2026-11-05T14:15:47.9548878Z redaction-plan end: variant=4
+2026-11-05T14:15:48.9411573Z agent-guard: masked secret-like values in Read output
+2026-11-05T14:15:49.8038337Z agent-guard: masked secret-like values in Read output
+2026-11-05T14:15:50.6363020Z agent-guard: masked secret-like values in Read output
+2026-11-05T14:15:51.4977210Z agent-guard: masked secret-like values in Read output
+2026-11-05T14:15:52.3376243Z agent-guard: masked secret-like values in Read output
+2026-11-05T14:15:53.2085822Z agent-guard: masked secret-like values in Read output
+2026-11-05T14:15:54.0505922Z agent-guard: masked secret-like values in Read output
+2026-11-05T14:15:54.9081119Z agent-guard: masked secret-like values in Read output
+2026-11-05T14:15:55.7420069Z agent-guard: masked secret-like values in Read output
+2026-11-05T14:15:56.6133982Z agent-guard: masked secret-like values in Read output
+2026-11-05T14:15:57.4661680Z agent-guard: masked secret-like values in Read output
+2026-11-05T14:15:58.3211575Z agent-guard: masked secret-like values in Read output
+2026-11-05T14:15:59.1746857Z agent-guard: masked secret-like values in Read output
+2026-11-05T14:16:00.0826808Z agent-guard: masked secret-like values in Read output
+2026-11-05T14:16:00.9150509Z agent-guard: masked secret-like values in Read output
+2026-11-05T14:16:01.8212956Z agent-guard: masked secret-like values in Read output
+2026-11-05T14:16:02.7116917Z agent-guard: masked secret-like values in Read output
+2026-11-05T14:16:03.6701763Z agent-guard: masked secret-like values in Read output
+2026-11-05T14:16:04.5673300Z agent-guard: masked secret-like values in Read output
+2026-11-05T14:16:05.4822100Z agent-guard: masked secret-like values in Read output
+2026-11-05T14:16:06.3262188Z agent-guard: masked secret-like values in Read output
+2026-11-05T14:16:07.2183445Z agent-guard: masked secret-like values in Read output
+2026-11-05T14:16:08.0634209Z agent-guard: masked secret-like values in Read output
+2026-11-05T14:16:08.9559499Z agent-guard: masked secret-like values in Read output
+2026-11-05T14:16:09.8338197Z agent-guard: masked secret-like values in Read output
+2026-11-05T14:16:10.6895542Z agent-guard: masked secret-like values in Read output
+2026-11-05T14:16:11.5446465Z agent-guard: masked secret-like values in Read output
+2026-11-05T14:16:12.3891293Z agent-guard: masked secret-like values in Read output
+2026-11-05T14:16:13.2458681Z agent-guard: masked secret-like values in Read output
+2026-11-05T14:16:14.0866151Z agent-guard: masked secret-like values in Read output
+2026-11-05T14:16:14.9447968Z agent-guard: masked secret-like values in Read output
+2026-11-05T14:16:15.7958287Z agent-guard: masked secret-like values in Read output
+2026-11-05T14:16:16.6649298Z agent-guard: masked secret-like values in Read output
+2026-11-05T14:16:17.5096804Z agent-guard: masked secret-like values in Read output
+2026-11-05T14:16:18.3843856Z agent-guard: masked secret-like values in Read output
+2026-11-05T14:16:19.2624254Z agent-guard: masked secret-like values in Read output
+2026-11-05T14:16:20.1985452Z agent-guard: masked secret-like values in Read output
+2026-11-05T14:16:21.0459564Z agent-guard: masked secret-like values in Read output
+2026-11-05T14:16:21.9295481Z agent-guard: masked secret-like values in Read output
+2026-11-05T14:16:22.7834093Z agent-guard: masked secret-like values in Read output
+2026-11-05T14:16:23.6727327Z agent-guard: masked secret-like values in Read output
+2026-11-05T14:16:24.5497695Z agent-guard: masked secret-like values in Read output
+2026-11-05T14:16:25.4313977Z agent-guard: masked secret-like values in Read output
+2026-11-05T14:16:26.2648793Z agent-guard: masked secret-like values in Read output
+2026-11-05T14:16:27.1554253Z agent-guard: masked secret-like values in Read output
+2026-11-05T14:16:28.0040119Z agent-guard: masked secret-like values in Read output
+2026-11-05T14:16:28.8599114Z agent-guard: masked secret-like values in Read output
+2026-11-05T14:16:29.7043473Z agent-guard: masked secret-like values in Read output
+2026-11-05T14:16:30.5515196Z agent-guard: masked secret-like values in Read output
+2026-11-05T14:16:31.4064467Z agent-guard: masked secret-like values in Read output
+2026-11-05T14:27:16.5139824Z false
+2026-11-05T14:27:16.5196934Z ##[error]Process completed with exit code 1.
+2026-11-05T14:27:16.5283095Z ##[group]Run actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+2026-11-05T14:27:16.5283529Z with:
+2026-11-05T14:27:16.5283749Z   name: packaged-performance
+2026-11-05T14:27:16.5284041Z   path: /home/runner/work/_temp/performance/
+2026-11-05T14:27:16.5284342Z   if-no-files-found: error
+2026-11-05T14:27:16.5284594Z   compression-level: 6
+2026-11-05T14:27:16.5284818Z   overwrite: false
+2026-11-05T14:27:16.5285046Z   include-hidden-files: false
+2026-11-05T14:27:16.5285289Z ##[endgroup]
+2026-11-05T14:27:16.6991062Z (node:144384) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+2026-11-05T14:27:16.6993626Z (Use `node --trace-deprecation ...` to show where the warning was created)
+2026-11-05T14:27:16.7158825Z With the provided path, there will be 31 files uploaded
+2026-11-05T14:27:16.7160569Z Artifact name is valid!
+2026-11-05T14:27:16.7161632Z Root directory input is valid!
+2026-11-05T14:27:17.1004678Z Beginning upload of artifact content to blob storage
+2026-11-05T14:27:17.2236081Z (node:144384) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+2026-11-05T14:27:17.7635107Z Uploaded bytes 308206
+2026-11-05T14:27:17.8409661Z Finished uploading artifact content to blob storage!
+2026-11-05T14:27:17.8410783Z SHA256 digest of uploaded artifact zip is d6295c9d78fb9211eb58a1ea9780278a9f89f9ff1100efc6ed0d087848ba1c63
+2026-11-05T14:27:17.8412846Z Finalizing artifact upload
+2026-11-05T14:27:18.3984927Z Artifact packaged-performance.zip successfully finalized. Artifact ID 13422334787
+2026-11-05T14:27:18.3986516Z Artifact packaged-performance has been successfully uploaded! Final size is 308206 bytes. Artifact ID is 13422334787
+2026-11-05T14:27:18.3993346Z Artifact download URL: https://github.com/JeongJaeSoon/agent-guard/actions/runs/42039910187/artifacts/13422334787
+2026-11-05T14:27:18.4219079Z Post job cleanup.
+2026-11-05T14:27:18.5091988Z [command]/usr/bin/git version
+2026-11-05T14:27:18.5135318Z git version 2.56.0
+2026-11-05T14:27:18.5210183Z Temporarily overriding HOME='/home/runner/work/_temp/0ddf3224-35ac-4dd4-822d-9930e2a97578' before making global git config changes
+2026-11-05T14:27:18.5214251Z Adding repository directory to the temporary git global config as a safe directory
+2026-11-05T14:27:18.5217543Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/agent-guard/agent-guard
+2026-11-05T14:27:18.5253794Z Removing SSH command configuration
+2026-11-05T14:27:18.5261997Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-05T14:27:18.5303677Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-05T14:27:18.5578888Z Removing HTTP extra header
+2026-11-05T14:27:18.5586280Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-05T14:27:18.5631158Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-05T14:27:18.5908477Z Removing includeIf entries pointing to credentials config files
+2026-11-05T14:27:18.5909609Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-05T14:27:18.5960658Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-05T14:27:18.6376619Z Cleaning up orphan processes
+2026-11-05T14:27:18.6872454Z ##[warning]Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093, actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+
