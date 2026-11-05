@@ -131,6 +131,7 @@ check 2 "rg -n x ./notes; orca orchestration send --body '.env'"
 check 2 "test -v 'path[\$(cp ./reader ~/bin/orca)1]'; orca orchestration send --body '.env'"
 check 2 "[ -v 'path[\$(cp ./reader ~/bin/orca)1]' ]; orca orchestration send --body '.env'"
 check 2 "orca orchestration send --body '.env' | rg --hostname-bin ./swap x"
+check 2 "stat -A path +name /tmp/x; orca orchestration send --body '.env'"
 check 0 "grep -n x ./notes; orca orchestration send --body '.env'"
 # Piped and backgrounded commands run alongside the message command.
 check 2 "orca orchestration send --body '.env' </tmp/gate | sh -c 'cp /bin/cat ~/bin/orca'"

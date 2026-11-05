@@ -4957,7 +4957,7 @@ message_value_records() {
     # The same list as search_operand_spans; a redirection may write a file a
     # command name resolves to.
     function inert(   j) {
-      if (kind[1] != "0" || word[1] !~ /^(grep|egrep|fgrep|ls|cat|head|tail|wc|cut|tr|echo|true|false|pwd|cd|jq|diff|comm|basename|dirname|date|stat|sleep)$/) return 0
+      if (kind[1] != "0" || word[1] !~ /^(grep|egrep|fgrep|ls|cat|head|tail|wc|cut|tr|echo|true|false|pwd|cd|jq|diff|comm|basename|dirname|date|sleep)$/) return 0
       for (j = 1; j <= n; j++) if (word[j] ~ /[<>]/) return 0
       return 1
     }
@@ -5214,11 +5214,12 @@ search_operand_spans() {
         if (bad(h)) exit 0
         if (wv[h] == "for" && h + 2 <= e && wv[h + 1] ~ /^[a-z]$/ && wv[h + 2] == "in") continue
         # rg runs programs (--pre, --hostname-bin, RIPGREP_CONFIG_PATH), test
-        # and [ evaluate array subscripts, and an assignment prefix such as
+        # and [ evaluate array subscripts, the zsh stat builtin assigns arrays
+        # (`stat -A path`), and an assignment prefix such as
         # LD_PRELOAD can make any listed command run code; a locale name
         # without a path loads no code.
         for (r = a; r < h; r++) if (wv[r] !~ /^(LC_[A-Z]+|LANG|LANGUAGE|TZ)=[A-Za-z0-9_.@:+-]*$/) exit 0
-        if (wv[h] !~ /^(grep|egrep|fgrep|ls|cat|head|tail|wc|cut|tr|echo|true|false|pwd|cd|jq|diff|comm|basename|dirname|date|stat|sleep)$/) exit 0
+        if (wv[h] !~ /^(grep|egrep|fgrep|ls|cat|head|tail|wc|cut|tr|echo|true|false|pwd|cd|jq|diff|comm|basename|dirname|date|sleep)$/) exit 0
       }
     }
   '

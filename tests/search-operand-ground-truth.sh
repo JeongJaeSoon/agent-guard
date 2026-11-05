@@ -122,6 +122,7 @@ held rg --hostname-bin ./swap x notes.txt; grep .env
 held RIPGREP_CONFIG_PATH=./rgconfig rg x notes.txt; grep .env
 held LD_PRELOAD=./x.so cat notes.txt; grep .env
 held LC_ALL=/tmp/x cat notes.txt; grep .env
+held stat -A path +name /tmp/x; grep .env
 held LC_ALL=C LD_PRELOAD=./x.so cat notes.txt; grep .env
 held test -v 'path[$(cp ./reader ./grep)1]'; grep .env
 held [ -v 'path[$(cp ./reader ./grep)1]' ]; grep .env
