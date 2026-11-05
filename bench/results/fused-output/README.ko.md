@@ -504,3 +504,5 @@ Public native release validation run `42104857774`는 공개 태그 v3.8.0의 �
 - **호환성과 버전:** 필요한 호환성 변경은 입증되지 않았다. 기존 Claude/Codex 설치·업데이트 방식과 셸 복구를 유지하는 선택형 기능을 v3.8.0으로 실제 제공했다. 사용자 Rust 컴파일러가 필요하지 않다. v4 숫자를 위한 변경은 만들지 않았다.
 - **미해결:** 최초 v3.7.0 Intel 출력 불일치는 최초 fixture/stdout/stderr 부재로 원인 미확정이다. 후속 readiness timeout·재현 가능한 Linux 완료/zombie 경합·numeric locale 문제를 최초 사건과 동일시하지 않는다. 공식 scanner 목표는 여전히 10% 미달이며 전체 메모리 절감도 입증하지 못했다. 성능 수치는 검증한 Linux 자원 제한/입력에 한정되고 네 플랫폼 모든 실제 host 버전·이전 OS로 일반화하지 않는다.
 - **배포:** 최종 head c3cfb40와 실제 release merge f295e1a의 필수 CI 8개 각각 성공 후 발행했다. 공개 15개 자산·SHA-256·정확한 main native 출처·v1 보존·Homebrew #26 및 실제 공개 4+3 환경 검증을 모두 완료했다.
+
+최종 릴리스 설명과 PR #406/Homebrew #26에 위 결과를 반영했다. 설명 갱신 전후 공개 자산 15개의 ID·이름·크기·digest는 모두 같으며 latest는 v3.8.0, 버전 태그는 계속 f295e1a다. release 및 tap formula workflow는 각각 첫 실행에서 성공했다. 최종 metadata·태그·workflow snapshot과 공개 설명은 `release-v3.8.0-final/`에 보존했다. 바이너리·체크섬·버전 태그를 덮어쓰지 않았다.
