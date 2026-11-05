@@ -4921,6 +4921,99 @@ bash_strip_source_module_prose() (
   printf '%s' "$prose_result"
 )
 
+# Print the record numbers (git_command_records) of message values the
+# command sends as data: the subject and body of `orca orchestration
+# send|reply|ask`, the title and body of `gh pr|issue create|comment|edit` and
+# `gh pr review`, and the message of `git commit`. These CLIs open no file the
+# text names; their file-taking forms (--body-file, -F) are not listed. As in
+# search_operand_spans, a segment qualifies only when it starts with the bare
+# command name and every segment before it is an inert command without a
+# redirection, so nothing earlier on the line can change what the name runs.
+# Prints nothing when the line may hide a command (heredoc, group, eval).
+message_value_records() {
+  printf '%s\n' "$1" | LC_ALL=C awk '
+    function bail() { failed = 1; exit }
+    function boundary(r) { return r == "0;" || r == "0&&" || r == "0||" || r == "0|" || r == "3(" || r == "3)" }
+    function finish(   j, w, o, need, opts) {
+      if (n == 0) return
+      if (ok && kind[1] == "0") {
+        if (word[1] == "orca" && word[2] == "orchestration" && word[3] ~ /^(send|reply|ask)$/) opts = "|--subject|--body|"
+        else if (word[1] == "gh" && (word[2] ~ /^(pr|issue)$/ && word[3] ~ /^(create|comment|edit)$/ || word[2] == "pr" && word[3] == "review")) opts = "|-t|--title|-b|--body|"
+        else if (word[1] == "git" && word[2] == "commit") opts = "|-m|--message|"
+        for (j = 2; opts != "" && j <= n; j++) {
+          w = word[j]
+          if (kind[j] != "0") continue
+          if (index(opts, "|" w "|") || opts ~ /-m\|/ && w ~ /^-[aqsvn]+m$/) {
+            if (j + 1 <= n && (kind[j + 1] == "0" || kind[j + 1] == "4") && substr(word[j + 1], 1, 1) != "-") print rec[j + 1]
+            j++
+          }
+        }
+        if (opts != "") ok = 0
+      }
+      if (kind[1] != "0" || word[1] !~ /^(grep|egrep|fgrep|rg|ls|cat|head|tail|wc|cut|tr|echo|true|false|test|\[|pwd|cd|jq|diff|comm|basename|dirname|date|stat|sleep)$/) ok = 0
+      for (j = 1; j <= n; j++) if (kind[j] != "0" && kind[j] != "4" || word[j] ~ /[<>]/) ok = 0
+      n = 0
+    }
+    BEGIN { ok = 1; n = 0 }
+    {
+      r = $0; k = substr(r, 1, 1); v = substr(r, 2)
+      if (r == "3[" || r == "3]" || r == "3{" || r == "3}" || k == "2") bail()
+      if (k == "0" && v ~ /^(eval|alias|function|trap|source|\.)$/) bail()
+      if (boundary(r)) { finish(); next }
+      if (k == "3") { ok = 0; next }
+      n++; kind[n] = k; word[n] = v; rec[n] = NR
+    }
+    END { if (!failed) finish() }
+  '
+}
+
+# Replace each message value message_value_records finds with `'_'`. A value
+# is replaced only when it is one quoted literal (single quotes, or double
+# quotes holding no `$`, backquote or backslash) and re-tokenizing shows that
+# it changed that record and nothing else.
+bash_strip_message_values() (
+  set -f
+  mv_cmd=$1
+  case "$mv_cmd" in *orca*|*gh*|*git*) ;; *) printf '%s' "$mv_cmd"; exit 0 ;; esac
+  if bash_command_sources_script "$mv_cmd"; then
+    printf '%s' "$mv_cmd"
+    exit 0
+  fi
+  mv_records=$(git_command_records "$mv_cmd")
+  mv_targets=$(message_value_records "$mv_records")
+  for mv_at in $mv_targets; do
+    mv_expected=$(printf '%s\n' "$mv_records" | awk -v k="$mv_at" 'NR == k { print "0_"; next } { print }')
+    mv_value=$(printf '%s\n' "$mv_records" | awk -v k="$mv_at" 'NR == k { print substr($0, 2) }')
+    mv_try=1
+    while [ "$mv_try" -le 20 ]; do
+      mv_candidate=$(MV_CMD=$mv_cmd MV_VALUE=$mv_value LC_ALL=C awk -v want="$mv_try" 'BEGIN {
+        s = ENVIRON["MV_CMD"]; v = ENVIRON["MV_VALUE"]; n = length(s); seen = 0
+        for (i = 1; i <= n; i++) {
+          q = substr(s, i, 1)
+          if (q != "\047" && q != "\"") continue
+          for (j = i + 1; j <= n && substr(s, j, 1) != q; j++) ;
+          if (j > n) exit 1
+          body = substr(s, i + 1, j - i - 1)
+          flat = body; gsub(/\n/, " ", flat)
+          if (flat == v && !(q == "\"" && body ~ /[$`\\]/) && ++seen == want) {
+            printf "%s", substr(s, 1, i) "_" substr(s, j)
+            exit 0
+          }
+          i = j
+        }
+        exit 1
+      }') || break
+      if [ "$(git_command_records "$mv_candidate")" = "$mv_expected" ]; then
+        mv_cmd=$mv_candidate
+        mv_records=$mv_expected
+        break
+      fi
+      mv_try=$((mv_try + 1))
+    done
+  done
+  printf '%s' "$mv_cmd"
+)
+
 # Print the start and end offsets of words in $1 that name no file the command
 # reads: the search pattern of grep, egrep, fgrep and rg, and (as `O start end
 # value`) the output path of an openssl key or certificate generator. A word
@@ -5361,6 +5454,7 @@ bash_matches_deny_path() {
 "*) deny_cmd=$(shell_join_line_continuations "$deny_cmd") ;;
   esac
   # A failed rewrite keeps the whole command in the scan.
+  deny_stripped=$(bash_strip_message_values "$deny_cmd") && deny_cmd=$deny_stripped
   deny_stripped=$(bash_strip_non_read_operands "$deny_cmd") && deny_cmd=$deny_stripped
   deny_cmd=$(bash_neutralize_jq_field_names "$deny_cmd")
   deny_cmd=$(bash_strip_source_module_prose "$deny_cmd")
@@ -7819,7 +7913,10 @@ check_bash_command() {
   patterns=$(mktemp_file) || die "failed to create temp file"
   grep -Ev '^[[:space:]]*(#|$)' "$DENY_BASH_PATTERNS" >"$patterns"
   if [ -s "$patterns" ]; then
-    printf '%s\n' "$cmd" | grep -E -q -f "$patterns"
+    # A message body that quotes a risky command (a report that `printenv` was
+    # blocked) only sends that text; the gitleaks scan below still sees it.
+    pattern_cmd=$(bash_strip_message_values "$cmd") || pattern_cmd=$cmd
+    printf '%s\n' "$pattern_cmd" | grep -E -q -f "$patterns"
     grep_status=$?
     rm -f "$patterns"
     case "$grep_status" in

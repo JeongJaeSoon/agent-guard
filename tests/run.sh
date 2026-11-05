@@ -1752,17 +1752,20 @@ bash_diag_no_leak "prefix wildcard eating a URL userinfo field" \
 bash_diag_no_leak "prefix wildcard eating a directory component" \
   "cat /home/$bash_diag_token/id_rsa"
 
-# The diagnosis is the whole fix: no command-name exemption was added, so every
-# shape that merely looks safe must still block. `git commit -m` in particular
-# is NOT exempt -- a shadowed `git` (alias, function, PATH shim) could hand that
-# operand to a reader, which is exactly the case README's Known Limitations
-# refuses to exempt by apparent command name.
-expect_json_status 2 "git commit message operand is not exempt" \
+# A quoted literal `git commit -m` message is data, not a file operand, but only
+# while nothing on the line can redefine `git` (a function, alias, eval, source,
+# hash or PATH change keeps the whole line in the scan). tests/
+# message-value-prose.sh holds the shadowing controls.
+expect_json_status 0 "a quoted git commit message is not a file operand" \
   '{"tool_name":"Bash","tool_input":{"command":"git commit -m '\''fix foo.key parse'\''"}}' \
   hook-pre-tool
 
-expect_json_status 2 "double-quoted git commit message operand is not exempt" \
+expect_json_status 0 "a double-quoted git commit message is not a file operand" \
   '{"tool_name":"Bash","tool_input":{"command":"git commit -m \"fix foo.key parse\""}}' \
+  hook-pre-tool
+
+expect_json_status 2 "an unquoted git commit message is still scanned" \
+  '{"tool_name":"Bash","tool_input":{"command":"git commit -m id_rsa"}}' \
   hook-pre-tool
 
 expect_json_status 2 "attached git commit message operand is not exempt" \
@@ -2799,6 +2802,8 @@ expect_json_status 0 "env VAR=x cmd piped (wrapped command, not bare env) is all
 # none of the embedded commands is executed. The ground-truth script runs them.
 run_expect 0 "grep/rg search patterns and new openssl outputs leave out no protected read" \
   sh "$ROOT/tests/search-operand-ground-truth.sh"
+run_expect 0 "orca/gh/git message values leave out no protected read" \
+  sh "$ROOT/tests/message-value-prose.sh"
 ambiguous_bash_fixtures="$ROOT/tests/fixtures/ambiguous-bash-protected-path.json"
 ambiguous_bash_cases="$TESTTMP/ambiguous-bash-protected-path.cases"
 if jq -e 'type == "array" and length > 0' "$ambiguous_bash_fixtures" >/dev/null \
@@ -3554,6 +3559,23 @@ expect_json_status 0 "set -e is allowed" \
 expect_json_status 0 "set -o pipefail is allowed" \
   '{"tool_name":"Bash","tool_input":{"command":"set -o pipefail"}}' \
   hook-pre-tool
+
+for set_dump in 'set | grep -i tok' 'set > out.txt' 'set|base64' 'x; set | head'; do
+  expect_json_status 2 "piped or redirected set is blocked: $set_dump" \
+    "$(jq -nc --arg c "$set_dump" '{tool_name:"Bash",tool_input:{command:$c}}')" \
+    hook-pre-tool
+done
+expect_json_status 0 "a regex alternation naming set is allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"grep -E \"a|set|b\" notes.txt"}}' \
+  hook-pre-tool
+
+# The 1Password CLI must be its own word: prose such as `stop reading` is not.
+for op_case in '2|op read op://v/i/f' '2|/usr/local/bin/op read op://v/i/f' \
+  '2|x; op item get foo' "0|echo 'we stop reading now'" '0|echo "loop item getter"'; do
+  expect_json_status "${op_case%%|*}" "1Password CLI word boundary: ${op_case#*|}" \
+    "$(jq -nc --arg c "${op_case#*|}" '{tool_name:"Bash",tool_input:{command:$c}}')" \
+    hook-pre-tool
+done
 
 expect_json_status 0 "export of a single variable is allowed" \
   '{"tool_name":"Bash","tool_input":{"command":"export FOO=bar"}}' \
@@ -11813,6 +11835,23 @@ if [ -n "$REAL_GITLEAKS" ]; then
     "{\"key\":\"$UUIDK_ID$UUIDK_HEX\"}"
   uuidk_case 1 "a non-UUID hex value under a bare key field is still found" \
     "{\"key\":\"$UUIDK_HEX\"}"
+
+  # An Orca repository id (`--repo id:<uuid>`) after a word holding `key`.
+  UUIDK_MK=$(printf '%s%s' model- key)
+  uuidk_case 0 "a UUID under an id: label after a key word is clean" \
+    "skills-sync card /b/94S-1415-$UUIDK_MK.full.md --repo id:$UUIDK_ID --name x"
+  uuidk_case 0 "a quoted UUID under an id: label after a key word is clean" \
+    "$UUIDK_MK --repo 'id:$UUIDK_ID' --name x"
+  uuidk_case 1 "a UUID under a key word with a colon is still found" \
+    "$UUIDK_MK: $UUIDK_ID"
+  uuidk_case 1 "a UUID assigned to an upper-case key name is still found" \
+    "MODEL_KEY=$UUIDK_ID"
+  uuidk_case 1 "an uppercase UUID under an id: label is still found" \
+    "$UUIDK_MK --repo id:${UUIDK_UPPER}X"
+  uuidk_case 1 "a UUID with trailing characters under an id: label is still found" \
+    "$UUIDK_MK --repo id:${UUIDK_ID}abcd"
+  uuidk_case 1 "an api key after an id: UUID on one line is still found" \
+    "$UUIDK_MK --repo id:$UUIDK_ID $UUIDK_AK=$UUIDK_ID"
 
   # The commit hook reads staged added lines through gitleaks stdin, not dir.
   UUIDK_REPO="$TMP_ROOT/uuid-key-repo"

@@ -1,7 +1,10 @@
 # POSIX ERE patterns. Blank lines and lines starting with # are ignored.
 # Path-based reads are handled from deny-read-paths; keep only pathless shell idioms here.
-(^|[[:space:];|&])printenv([^[:alnum:]_-]|$)
+(^|[[:space:];|&(`])printenv([^[:alnum:]_-]|$)
 (^|[[:space:];|&])env[[:space:]]*($|[;&])
+# A command substitution (`$(env)`, `` `env` ``) hands the whole environment to
+# its outer command, such as a message body.
+(\$\(|`)[[:space:]]*env[[:space:]]*(\)|`)
 # `env` whose output is piped or redirected dumps the environment into a sink
 # (`env | base64`, `env > /tmp/e`). Matching any `|`/`>` (rather than a fixed
 # sink list) closes gaps like `env | gzip` or `env | gpg`. The leading class
@@ -14,13 +17,16 @@
 # 'a|set|b' regex are not blocked, only a bare environment dump.
 (^|[[:space:];|&])(declare|typeset|export)[[:space:]]+-[A-Za-z]*p
 (^|[[:space:];|&])set[[:space:]]*($|[;&])
+# Like `env` above, a bare `set` piped or redirected dumps every variable.
+(^|[[:space:];&])set[[:space:]]*[|>]
 # Reading /proc/<pid>/environ dumps the environment. The PID segment is often a
 # shell variable ($$, $BASHPID) the deny-read glob cannot match, so accept any
 # non-space, non-slash segment here.
 /proc/[^[:space:]/]+/environ
 security([[:space:]]+-[^[:space:]]+)*[[:space:]]+find-(generic|internet)-password
-op[[:space:]]+read
-op[[:space:]]+item[[:space:]]+get
+# A word ending in `op` (`stop reading`) is not the 1Password CLI.
+(^|[^[:alnum:]_.-])op[[:space:]]+read
+(^|[^[:alnum:]_.-])op[[:space:]]+item[[:space:]]+get
 vault[[:space:]]+kv[[:space:]]+get
 vault[[:space:]]+read
 aws[[:space:]]+secretsmanager[[:space:]]+get-secret-value

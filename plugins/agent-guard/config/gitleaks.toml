@@ -73,6 +73,20 @@ regexes = [
   '''^\n?[ \t]*"key"[ \t]*:[ \t]*"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",?[ \t]*\r?\n?$'''
 ]
 
+# An `id:` label names an identifier, not a credential, yet generic-api-key
+# lets up to 20 characters sit between its keyword and the `:`, so a nearby
+# word such as `model-key.md --repo id:<uuid>` turns an Orca repository id into
+# a finding. Anchored to the end of the match: a space, then exactly `id:` and
+# one lowercase canonical UUID. `key: <uuid>`, `api_key=<uuid>` and `token id
+# <uuid>` (no colon) keep their findings.
+[[allowlists]]
+description = "Canonical UUIDs under a bare id: label"
+targetRules = ["generic-api-key"]
+regexTarget = "match"
+regexes = [
+  '''[ \t]id:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}[\x60'"\s;]?$'''
+]
+
 # Directory scans skip these exact lockfile names, then agent-guard rescans
 # their non-checksum content through stdin. This avoids checksum false positives
 # without allowing credentials elsewhere in a lockfile.
