@@ -422,3 +422,15 @@ Homebrew 목표는 지연 13.29~17.03%, CPU 12.07~15.04% 감소였다. 공식 sc
 `tests/fused-packaged.sh`는 호스트 캐시의 libexec를 외부 독립 설치 위치로 옮긴 상태에서 체크섬 확인, 같은 wrapper의 prepare-v1/redact-v1 실제 호출, 부분 준비 실패의 jq 복귀, 모든 설정 해제 뒤 core 호출 없음과 독립 출력을 검사한다. 기존 10개 + 두 호스트의 새 3경로로 총 16개다. 컴파일러 없는 격리 컨테이너·실제 qualified core·실제 scanner에서 16개 모두 통과했다. 체크섬 확인을 추가하기 전/후 로그와 최종 patch를 source-shared-core/에 별도 보존했다. 제품 런타임은 바꾸지 않았다.
 
 새 head는 `c3cfb4005dc7bca90b19111049409dc0c36f3da9`이다. 새 commit push 시 이전 Apple Silicon 설치(queued)와 macOS 출력 CI(in progress)는 GitHub concurrency 규칙으로 취소됐다. 이전 성능 측정은 모두 완료돼 보존됐지만, 이전 head의 필수 CI 전체 성공을 주장하지 않는다. 새 head/merge의 필수 8개와 네 플랫폼 16개 설치 계약을 다시 검증한다. v3.8.0 발행은 아직 수행하지 않았다.
+
+## c3cfb40: 소스 플러그인 연결을 포함한 네 플랫폼 및 성능 검증
+
+새 head `c3cfb4005dc7bca90b19111049409dc0c36f3da9`에서 네 플랫폼 native 실행과 컴파일러 없는 새 설치·공개 3.6.14/3.7.1 업데이트·실패 복귀·기존 정상 설치 보존이 모두 통과했다. 각 설치 단계의 공유 core 검사는 새 소스 플러그인 경로까지 포함한 16개 독립 기대값/실제 core 호출을 통과했다. PR 합성 merge 70a49406의 부모는 base 7bb7f57과 head c3cfb40이고 tree aeab415d는 head와 같다. 네 바이너리는 f49740f와 동일한 bytes이며, 이 PR 산출물은 아직 공개 main 산출물이 아니다.
+
+동일 공개 v3.7.0·scanner·입력·설정, 실제 2CPU/1GiB/swap0, 각 9쌍의 공유 core 252개 비교는 불일치 0·일반 지연/CPU 5% 초과 회귀 0으로 통과했다. Homebrew 목표 지연 15.17~17.84%, CPU 13.41~16.42% 감소다. 공식 scanner 목표는 지연 1.54~7.52%, CPU 1.11~6.82% 감소로 모든 환경의 10% 개선을 주장하지 않는다. 별도 혼합 helper 구성의 과거 실패를 이 결과로 바꾸지 않는다.
+
+Homebrew 4-worker 처리량 4.22045→5.06632 req/s, CPU 3.807615→3.138596초/8요청, 최대 자식 RSS 39.875→39.840MiB, 표본 RSS 합 216.164→236.258MiB다. 단일 worker 표본 RSS 합도 60.840→66.500MiB로 증가했다. 메모리 절감이 아니다. 공식 scanner 4-worker 처리량은 1.23117→1.29021 req/s였다.
+
+기존 packaged 관문과 실제 공개 v3.7.0의 기본 4경로 관문도 통과했다. 공개 기본 경로의 지연 변화는 exec-multiline +0.237%, exec-clean -0.150%, 긴 quoted secret -1.689%, unknown-tool -0.718%였고 CPU는 각각 +0.149%, -0.500%, -1.797%, +0.096%였다. 모두 독립 출력이 일치했다. ZIP 19개와 원시·체크섬·요약은 `ci-c3cfb40-native/`에 보존했다.
+
+11월 6일 04:20 JST 시점 일반 CI 14개와 별도 native redactor/devtools 3개는 성공했으며, Native platform artifacts의 마지막 집계 job이 대기 중이다. exact head의 필수 8개 성공 확인 전에는 병합하지 않는다. v3.8.0은 아직 미발행이다.
