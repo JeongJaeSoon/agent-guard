@@ -303,3 +303,22 @@ Homebrew 4-worker 부하는 4.459→5.204 req/s, CPU 3.633→3.044초/8요청, �
 기존 packaged 관문을 그대로 유지하고 실제 공개 v3.7.0을 기준으로 기본 exec 세 경로와 unknown-tool을 9쌍 비교하는 추가 지연/CPU 5% 관문도 넣었다. 새 릴리스 head는 `10cc80c89d6c616616ce2a3642c0e362bdec52ba`이며 이 기록 시점 CI 진행 중이다. 설치 비용은 앞선 사전 발행 후보 측정이며 최종 공개 자산에서 재확인해야 한다. 공개 최신은 v3.7.1이다.
 
 앞선 startup 수정의 로컬 전체 suite는 2625통과/0실패였으나 컨테이너 UID 때문에 실제 scanner optional 블록과 Node/zsh/ACL 등이 생략되었다. Git archive도 worktree 메타데이터가 컨테이너 밖에 있어 생략되었다. 로그·종료 상태·최초 mount 권한 오류를 모두 보존하며 이것을 실제 scanner 통합 완료로 과장하지 않는다. 새 구간 처리 전체 검사는 읽을 수 있는 실제 scanner와 독립 Git clone을 사용한다.
+
+
+## 세 번째 릴리스 후보 10cc80c: 실제 공유 core 통과, 추가 차단 항목 보존
+
+정확한 head `10cc80c89d6c616616ce2a3642c0e362bdec52ba`의 실제 공유 설치 core 비교 252건은 불일치 0, 일반 회귀 0, 목표 개선 기준 통과였다. 네 플랫폼 native 실행·설치도 통과했다. 그러나 별도 기여도 분리 378건에서는 stdlib/cold/Claude pre-read-clean 지연 +5.3539%(CPU +0.9221%), stdlib/off/Codex small-clean 지연 +18.7223%(CPU -10.9294%)를 관측했다. 두 조건을 다른 scanner의 성공으로 덮지 않는다. 두 실험 전체 출력 불일치는 0이었다.
+
+또한 Fused contracts/macOS Intel의 Codex fixture 1/missing redactor 변형에서 실제 준비 timeout이 발생했다. 정상 기준 출력은 1.682초, DEGRADED 후보 출력은 2.996초였다. 2초 scanner 준비는 출력 core 실행 전이며 이번 plaintext framing과 다른 경로다. 최초 v3.7.0 사건의 원인과 같다고 확정하지 않는다. 원본 host.stderr와 job 로그를 보존했고 이 head를 병합·발행하지 않았다.
+
+추가한 공개 v3.7.0 기본 경로 비교 명령은 `--include-boundaries` 누락으로 unknown fixture 오류를 내어 실행되지 않았다. 도구 설정 오류도 원시 실패로 남겼다. 기존 packaged 원시만 별도로 재집계한 `legacy-derived-assessment.json`은 기준 통과이며 긴 quoted secret은 기존 셸 기준 지연 -1.2567%/CPU -1.4323%였다. 이 파생 계산을 CI 성공으로 바꾸지 않는다. 후속 코드는 옵션을 수정하고 두 관문의 결과를 각각 보존한 뒤 어느 하나라도 실패하면 최종 실패하도록 한다. 실제 공개 baseline·패키지 checksum dispatch의 4개 명령 smoke는 기대값 모두 일치했지만 단일 실행이라 성능 근거가 아니다.
+
+새 framing 소스의 로컬 전체 suite는 실제 scanner와 독립 Git clone을 사용해 2726통과/0실패였다. 선택적 도구 부재에 의한 skip은 로그에 남으며 네 플랫폼 CI를 대신하지 않는다.
+
+### 고정 부하 조사와 별도 확인된 zombie 경합
+
+독립 `8d5069d` 진단은 macOS Intel/ARM, Linux x64에서 각각 4라운드, 유휴/명시적 CPU 압력, 원본/종료 후 계측 사본, Claude/Codex의 고정 32 hook과 직접 version 8개를 수집했다. 96 hook 모두 독립 기대값 일치, 준비 timeout 0이었다. Intel 전체 hook 최대 3.639초는 hook 전체 시간이며 2초 준비 제한 위반을 의미하지 않는다. 자식 PID/상태/CPU 시간·probe 출력·종료 상태를 보존했다. 이번 실제 CI 실패의 원인은 여전히 미확정이고 진단 수집 성공을 배포 성공으로 간주하지 않는다.
+
+부모를 SIGSTOP으로 중단하고 자식만 완료시키는 별도 결정적 실험에서는 새 경합을 확인했다. 완료됐지만 부모가 회수하지 못한 zombie 자식은 `kill -0`에 존재한다고 응답해 watchdog이 정상/실패 종료를 timeout으로 덮었다. 기존 수정은 이미 회수된 자식만 처리했다. `fa6ae88`은 deadline 시점의 zombie 상태를 구분하며 ps 조회 실패는 기존 보수적 timeout을 유지한다. 로컬 전후 검사는 기존 2통과/2실패 → 수정 4통과/0실패이고, 기존 준비 계약 47건 및 이미 회수된 자식의 3건도 통과했다. 제품 2초 제한은 그대로다. 이것이 보존된 실제 Intel 실패의 원인이라고 소급 확정하지 않는다.
+
+네 플랫폼 결정적 검증 첫 시도 `4b1c0dd`에서 Linux 두 플랫폼은 전후 기대대로 통과했으나 macOS 두 플랫폼은 fixture 부모 식별 검증 전에 종료했다. 빈 before.log까지 보존하고 실제 부모 식별 로그를 추가한 별도 진단을 진행한다. 이를 제품 수정 검증 완료로 표시하지 않는다. 공개 최신 버전은 계속 v3.7.1이다.
