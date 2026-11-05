@@ -181,6 +181,7 @@ jobs:
           sh tests/native-release.sh > "$RUNNER_TEMP/install-evidence/release-selection.log" 2>&1
           sh tests/tempdir-failure.sh > "$RUNNER_TEMP/install-evidence/tempdir-failure.log" 2>&1
           sh tests/native-install.sh > "$RUNNER_TEMP/install-evidence/install.log" 2>&1
+          sh tests/native-install.sh 3.7.1 > "$RUNNER_TEMP/install-evidence/install-from-3.7.1.log" 2>&1
           sh tests/bootstrap-update.sh > "$RUNNER_TEMP/install-evidence/bootstrap.log" 2>&1
           case "$(uname -s):$(uname -m)" in
             Linux:x86_64) target=x86_64-unknown-linux-musl ;;

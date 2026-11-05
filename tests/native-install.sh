@@ -1,20 +1,26 @@
 #!/bin/sh
-# Real published v3.6.14 -> candidate update; only candidate HTTP is substituted.
+# Real published source -> candidate update; only candidate HTTP is substituted.
 set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 : "${AGENT_GUARD_NATIVE_ARTIFACT_DIR:?all four qualified artifacts required}"
+previous=${1:-3.6.14}
+case "$previous" in
+  3.6.14) previous_bootstrap_sha=2f6a796c1249d1a4ecdfa9b41507dcd61f34cc42dbb43013769c7cbac3112e12 ;;
+  3.7.1) previous_bootstrap_sha=a28827587c60a02c44567a480e1e0e08bf517c407f64e8b28fa4450aee75b64e ;;
+  *) echo 'unqualified previous release' >&2; exit 2 ;;
+esac
 case_dir=$(mktemp -d)
 trap 'rm -rf "$case_dir"' 0
 mkdir -p "$case_dir/download" "$case_dir/http-bin" "$case_dir/home"
 version=$(sed -n 's/^VERSION=//p' "$ROOT/plugins/agent-guard/bin/agent-guard")
 sh "$ROOT/scripts/build-release-tarball.sh" "$version" "$case_dir/download/agent-guard-$version.tar.gz"
 (cd "$case_dir/download" && shasum -a 256 "agent-guard-$version.tar.gz" > "agent-guard-$version.tar.gz.sha256")
-curl -fsSL https://github.com/JeongJaeSoon/agent-guard/releases/download/v3.6.14/bootstrap.sh -o "$case_dir/old-bootstrap.sh"
-printf '%s  %s\n' 2f6a796c1249d1a4ecdfa9b41507dcd61f34cc42dbb43013769c7cbac3112e12 "$case_dir/old-bootstrap.sh" | shasum -a 256 -c -
-env HOME="$case_dir/home" AGENT_GUARD_VERSION=3.6.14 AGENT_GUARD_HOME="$case_dir/install" \
+curl -fsSL "https://github.com/JeongJaeSoon/agent-guard/releases/download/v$previous/bootstrap.sh" -o "$case_dir/old-bootstrap.sh"
+printf '%s  %s\n' "$previous_bootstrap_sha" "$case_dir/old-bootstrap.sh" | shasum -a 256 -c -
+env HOME="$case_dir/home" AGENT_GUARD_VERSION="$previous" AGENT_GUARD_HOME="$case_dir/install" \
   AGENT_GUARD_BIN_DIR="$case_dir/public" sh "$case_dir/old-bootstrap.sh" > "$case_dir/old.log" 2>&1 \
   || { cat "$case_dir/old.log" >&2; exit 1; }
-"$case_dir/public/agent-guard" version | grep 'agent-guard 3.6.14'
+"$case_dir/public/agent-guard" version | grep -Fx "agent-guard $previous"
 printf 'preserve local file\n' > "$case_dir/install/local-note"
 cat > "$case_dir/http-bin/curl" <<'HTTP'
 #!/bin/sh
@@ -58,4 +64,4 @@ fi
 grep 'native checksum mismatch' "$case_dir/broken.log"
 test "$before" = "$(shasum -a 256 "$case_dir/install/bin/agent-guard")"
 (cd "$case_dir/install/libexec" && shasum -a 256 -c ./*.sha256)
-printf 'passed: compiler-free fresh install and published 3.6.14 -> candidate update\n'
+printf 'passed: compiler-free fresh install and published %s -> candidate update\n' "$previous"
