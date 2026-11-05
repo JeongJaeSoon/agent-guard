@@ -50,6 +50,15 @@ error diagnostics. The helper preserves object keys, protocol discriminators,
 Unicode character lengths, contextual-first and reverse equal-length ordering,
 and the existing 256-spec / 8,000,000-work conservative replacement limits.
 
+The v3.8 helper also supports the opt-in pipeline's `prepare-v1 PLAIN FRAMED`
+command in the same executable. It reads one JSON value and writes string-leaf
+bytes and RS/US framing to two files already created in the caller's private
+directory. Only after both writes complete does it emit `prepared-v1`. The shell
+requires successful exit and that exact acknowledgement; otherwise it overwrites
+the stages through the original jq path. Detection and policy stay in shell.
+See [installation](installation.md#optional-fused-output-preparation-v38) for
+verified prebuilt selection and opt-out. No second installed helper is required.
+
 The caller already canonicalizes JSON with jq and masks NUL-bearing leaves.
 Raw-core differential tests use jq 1.7.1; jq 1.6 has different NUL-string behavior.
 The helper rejects nesting over 1,024 levels and the reserved

@@ -7998,10 +7998,14 @@ fi
 
 run_expect 0 "direct scan dependency statuses and recovery" \
   "$REAL_SH" "$ROOT/tests/direct-scan-status.sh"
+run_expect 0 "regular and linked executable paths select the same payload" \
+  "$REAL_SH" "$ROOT/tests/script-location.sh"
 run_expect 0 "deterministic gitleaks resolution and capability diagnostics" \
   "$REAL_SH" "$ROOT/tests/gitleaks-resolution.sh"
 run_expect 0 "completed scanner probes retain their status after parent scheduling delay" \
   "$REAL_SH" "$ROOT/tests/gitleaks-probe-completion.sh"
+run_expect 0 "unreaped completed scanner probes retain their exit status" \
+  "$REAL_SH" "$ROOT/tests/gitleaks-probe-zombie.sh"
 run_expect 0 "gitleaks readiness cache reuses only a fresh verdict for the same binary" \
   env AGENT_GUARD_TEST_REAL_GITLEAKS="$REAL_GITLEAKS" \
   "$REAL_SH" "$ROOT/tests/gitleaks-probe-cache.sh"
@@ -15057,6 +15061,8 @@ else
 fi
 
 # --- agent-guard exec (shell-escape output masking) --------------------------
+run_expect 0 "plaintext framing preserves escaped records, byte boundaries and clean data" \
+  "$REAL_SH" "$ROOT/tests/plaintext-framing.sh"
 # `agent-guard exec` runs a command and masks secret-like values in its captured
 # output before printing. Secret VALUE assembled at runtime from fragments so this
 # file never holds a contiguous `token=...`-shaped literal upstream scanners flag.

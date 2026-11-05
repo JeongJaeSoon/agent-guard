@@ -30,15 +30,29 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-      - name: Install native build tools
+      - name: Install pinned Rust toolchain
+        timeout-minutes: 5
         env:
           TARGET: ${{ matrix.target }}
         run: |
           rustup toolchain install 1.85.1 --profile minimal --target "$TARGET"
-          if [ "$RUNNER_OS" = Linux ]; then
-            sudo apt-get update -qq
-            sudo apt-get install -y musl-tools
-          fi
+      # Keep repository refresh and package installation visible separately.
+      # A stalled runner/mirror must fail within the original job budget and
+      # must not consume it silently before any native contract can execute.
+      - name: Refresh Linux package metadata
+        if: runner.os == 'Linux'
+        timeout-minutes: 4
+        run: |
+          sudo apt-get -o Acquire::Retries=0 \
+            -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 \
+            -o DPkg::Lock::Timeout=30 update --error-on=any
+      - name: Install Linux musl tools
+        if: runner.os == 'Linux'
+        timeout-minutes: 4
+        run: |
+          sudo apt-get -o Acquire::Retries=0 \
+            -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 \
+            -o DPkg::Lock::Timeout=30 install -y musl-tools
       - name: Build and execute release artifact
         env:
           TARGET: ${{ matrix.target }}
@@ -181,6 +195,7 @@ jobs:
           sh tests/native-release.sh > "$RUNNER_TEMP/install-evidence/release-selection.log" 2>&1
           sh tests/tempdir-failure.sh > "$RUNNER_TEMP/install-evidence/tempdir-failure.log" 2>&1
           sh tests/native-install.sh > "$RUNNER_TEMP/install-evidence/install.log" 2>&1
+          sh tests/native-install.sh 3.7.1 > "$RUNNER_TEMP/install-evidence/install-from-3.7.1.log" 2>&1
           sh tests/bootstrap-update.sh > "$RUNNER_TEMP/install-evidence/bootstrap.log" 2>&1
           case "$(uname -s):$(uname -m)" in
             Linux:x86_64) target=x86_64-unknown-linux-musl ;;
@@ -190,6 +205,7 @@ jobs:
             *) exit 2 ;;
           esac
           sh tests/native-packaged.sh "$RUNNER_TEMP/native/agent-guard-redact-$target" "$RUNNER_TEMP/test-bin/gitleaks" > "$RUNNER_TEMP/install-evidence/fallback.log" 2>&1
+          sh tests/fused-packaged.sh "$RUNNER_TEMP/native/agent-guard-redact-$target" "$RUNNER_TEMP/test-bin/gitleaks" > "$RUNNER_TEMP/install-evidence/fused-packaged.log" 2>&1
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
@@ -199,14 +215,15 @@ jobs:
   complete:
     name: Native platform artifacts
     if: always()
-    needs: [platform, installation]
+    needs: [platform, installation, fused-performance]
     runs-on: ubuntu-latest
     steps:
       - name: Require all four native executions
         env:
           RESULT: ${{ needs.platform.result }}
           INSTALL: ${{ needs.installation.result }}
-        run: test "$RESULT" = success && test "$INSTALL" = success
+          FUSED: ${{ needs.fused-performance.result }}
+        run: test "$RESULT" = success && test "$INSTALL" = success && test "$FUSED" = success
 
   performance:
     name: Packaged performance evidence
@@ -234,4 +251,82 @@ jobs:
         with:
           name: packaged-performance
           path: ${{ runner.temp }}/performance/
+          if-no-files-found: error
+
+  fused-performance:
+    name: Fused packaged performance (${{ matrix.scanner }}, ${{ matrix.audit }})
+    needs: platform
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        scanner: [official, homebrew]
+        audit: [off, cold, warm]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: native-x86_64-unknown-linux-musl
+          path: ${{ runner.temp }}/qualified-core
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version: '1.26.0'
+          cache: false
+      - name: Prepare unchanged scanner for both arms
+        env:
+          SCANNER_KIND: ${{ matrix.scanner }}
+        run: |
+          sh scripts/install-native-test-tools.sh "$RUNNER_TEMP/test-bin"
+          mkdir "$RUNNER_TEMP/scanner"
+          if [ "$SCANNER_KIND" = official ]; then
+            cp "$RUNNER_TEMP/test-bin/gitleaks" "$RUNNER_TEMP/scanner/gitleaks"
+          else
+            eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+            HOMEBREW_NO_AUTO_UPDATE=1 brew install gitleaks
+            installed="$(brew --prefix gitleaks)/bin/gitleaks"
+            test "$("$installed" version)" = 8.30.1
+            bottle=$(brew --cache gitleaks)
+            printf '%s  %s\n' 78b43afdf14a05c5df07b73aeaf63ae56b784c905f057411a43ee8fde40fe5d1 "$bottle" \
+              | sha256sum -c - > "$RUNNER_TEMP/scanner/bottle-checksum.txt"
+            cp "$installed" "$RUNNER_TEMP/scanner/gitleaks"
+            cmp "$installed" "$RUNNER_TEMP/scanner/gitleaks"
+            brew info --json=v2 gitleaks > "$RUNNER_TEMP/scanner/homebrew.json"
+            brew config > "$RUNNER_TEMP/scanner/homebrew-config.txt"
+            cp "$(brew --prefix gitleaks)/sbom.spdx.json" "$RUNNER_TEMP/scanner/homebrew-sbom.json"
+            file "$installed" > "$RUNNER_TEMP/scanner/executable-format.txt"
+          fi
+          # The pinned public Homebrew ELF also fails Go's build-info reader
+          # before installation. Preserve that diagnostic, but use the verified
+          # bottle, SBOM, installed bytes and actual execution as its identity.
+          if go version -m "$RUNNER_TEMP/scanner/gitleaks" > "$RUNNER_TEMP/scanner/buildinfo.txt" 2> "$RUNNER_TEMP/scanner/buildinfo.stderr"; then
+            printf '0\n' > "$RUNNER_TEMP/scanner/buildinfo.status"
+          else
+            status=$?
+            printf '%s\n' "$status" > "$RUNNER_TEMP/scanner/buildinfo.status"
+            test "$SCANNER_KIND" = homebrew
+          fi
+          sha256sum "$RUNNER_TEMP/scanner/gitleaks" > "$RUNNER_TEMP/scanner/binary.sha256"
+      - name: Compare the actual shared packaged core against public v3.7.0
+        env:
+          AUDIT_STATE: ${{ matrix.audit }}
+          SCANNER_KIND: ${{ matrix.scanner }}
+        run: |
+          export AGENT_GUARD_BENCH_FUSED_PACKAGED_CORE="$RUNNER_TEMP/qualified-core/agent-guard-redact-x86_64-unknown-linux-musl"
+          chmod 755 "$AGENT_GUARD_BENCH_FUSED_PACKAGED_CORE"
+          sh bench/fused-output/run-constrained.sh "$RUNNER_TEMP/scanner/gitleaks" "$AUDIT_STATE" "$RUNNER_TEMP/evidence"
+          jq -e '.measurements_complete and (.ordinary_regressions | length) == 0 and all(.all_cases[]; .verified)' "$RUNNER_TEMP/evidence/assessment.json"
+          if [ "$SCANNER_KIND" = homebrew ]; then
+            jq -e '.performance_accepted' "$RUNNER_TEMP/evidence/assessment.json"
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: fused-packaged-${{ matrix.scanner }}-${{ matrix.audit }}
+          path: |
+            ${{ runner.temp }}/evidence/
+            ${{ runner.temp }}/scanner/*.*
+            ${{ runner.temp }}/qualified-core/*.build.txt
           if-no-files-found: error
