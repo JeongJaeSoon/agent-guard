@@ -72,6 +72,7 @@ impl Args {
         }
         let options: &[&str] = match command.as_str() {
             "native-redaction" => &["--core", "--source"],
+            "output-prepare" => &["--core"],
             "native-integration" => &["--core", "--scanner"],
             "scanner-differential" => &[
                 "--scanner",

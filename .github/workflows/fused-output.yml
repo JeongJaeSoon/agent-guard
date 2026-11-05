@@ -1,0 +1,104 @@
+name: Fused output proof
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/fused-output.yml'
+      - 'bench/fused-output/**'
+      - 'native/**'
+      - 'plugins/agent-guard/bin/agent-guard'
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  contracts:
+    name: Fused contracts (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-15, macos-15-intel]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Build isolated helper and reference tools
+        run: |
+          rustup toolchain install 1.85.1 --profile minimal
+          for crate in redaction-core devtools; do
+            cargo +1.85.1 build --release --locked --manifest-path "native/$crate/Cargo.toml"
+          done
+          sh scripts/install-native-test-tools.sh "$RUNNER_TEMP/test-bin"
+          sh bench/scanner/runtime-path.sh "$RUNNER_TEMP/runtime-bin"
+          mkdir -p "$RUNNER_TEMP/evidence"
+      - name: Compiler-free prepare and host contracts
+        run: |
+          export PATH="$RUNNER_TEMP/test-bin:$RUNNER_TEMP/runtime-bin"
+          if command -v cargo || command -v rustc || command -v go || command -v cc; then exit 1; fi
+          driver=native/devtools/target/release/agent-guard-devtools
+          core="$PWD/native/redaction-core/target/release/agent-guard-redact"
+          export AGENT_GUARD_EXPERIMENTAL_OUTPUT_PIPELINE=fused
+          export AGENT_GUARD_EXPERIMENTAL_OUTPUT_PREPARE_BIN="$core"
+          "$driver" output-prepare --core "$core" > "$RUNNER_TEMP/evidence/prepare.json"
+          "$driver" native-redaction --core "$core" > "$RUNNER_TEMP/evidence/redaction.json"
+          "$driver" native-integration --core "$core" --scanner "$RUNNER_TEMP/test-bin/gitleaks" \
+            > "$RUNNER_TEMP/evidence/host.json" 2> "$RUNNER_TEMP/evidence/host.stderr"
+          sh tests/scanner-report.sh > "$RUNNER_TEMP/evidence/scanner-report.log" 2>&1
+          sh tests/fused-output.sh > "$RUNNER_TEMP/evidence/prepare-fallback.log" 2>&1
+          export AGENT_GUARD_RUST_CORE_BIN="$core"
+          export AGENT_GUARD_TEST_SHARD=4
+          sh tests/native-suite.sh > "$RUNNER_TEMP/evidence/output-suite.log" 2>&1
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: fused-contracts-${{ matrix.os }}
+          path: ${{ runner.temp }}/evidence/
+          if-no-files-found: error
+  performance:
+    name: Fused performance (${{ matrix.scanner }}, ${{ matrix.audit }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        scanner: [official, stdlib]
+        audit: [off, cold, warm]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version: '1.26.0'
+          cache: false
+      - name: Prepare unchanged scanner for both arms
+        env:
+          SCANNER_KIND: ${{ matrix.scanner }}
+        run: |
+          sh scripts/install-native-test-tools.sh "$RUNNER_TEMP/test-bin"
+          mkdir "$RUNNER_TEMP/scanner"
+          if [ "$SCANNER_KIND" = official ]; then
+            cp "$RUNNER_TEMP/test-bin/gitleaks" "$RUNNER_TEMP/scanner/gitleaks"
+          else
+            git init -q "$RUNNER_TEMP/source"
+            git -C "$RUNNER_TEMP/source" remote add origin https://github.com/gitleaks/gitleaks.git
+            git -C "$RUNNER_TEMP/source" fetch -q --depth=1 origin 83d9cd684c87d95d656c1458ef04895a7f1cbd8e
+            git -C "$RUNNER_TEMP/source" checkout -q --detach FETCH_HEAD
+            (cd "$RUNNER_TEMP/source" && CGO_ENABLED=0 GOTOOLCHAIN=local go build -buildvcs=false -trimpath \
+              -ldflags '-s -w -X=github.com/zricethezav/gitleaks/v8/version.Version=8.30.1' \
+              -o "$RUNNER_TEMP/scanner/gitleaks" .)
+          fi
+          go version -m "$RUNNER_TEMP/scanner/gitleaks" > "$RUNNER_TEMP/scanner/buildinfo.txt"
+          sha256sum "$RUNNER_TEMP/scanner/gitleaks" > "$RUNNER_TEMP/scanner/binary.sha256"
+      - name: Actual public baseline and enforced resource limits
+        env:
+          AUDIT_STATE: ${{ matrix.audit }}
+        run: sh bench/fused-output/run-constrained.sh "$RUNNER_TEMP/scanner/gitleaks" "$AUDIT_STATE" "$RUNNER_TEMP/evidence"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: fused-performance-${{ matrix.scanner }}-${{ matrix.audit }}
+          path: |
+            ${{ runner.temp }}/evidence/
+            ${{ runner.temp }}/scanner/buildinfo.txt
+            ${{ runner.temp }}/scanner/binary.sha256
+          if-no-files-found: error
