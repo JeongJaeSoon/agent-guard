@@ -51,6 +51,13 @@ The macOS aggregate reports the selected matrix's result, not full macOS coverag
 on ordinary PRs. This reduces runner usage at the cost of later detection of
 macOS-specific failures outside the core/host/Git bundle.
 
+The release workflow also requires the latest full CI run for each release head
+and main merge commit to succeed. It checks the workflow path, commit, event and
+branch; a manual full run on the same commit is also valid. A newer reduced PR
+run cannot replace this evidence merely by reusing the aggregate check names.
+Unavailable or malformed run metadata blocks publication. The core jobs test
+these rules with `sh tests/full-ci-run.sh` on both operating systems.
+
 Legacy jq/awk and experimental Rust contracts also run after relevant changes
 merge to main. Their checks have distinct names instead of the generic
 `contracts` label. Rust contracts compile with the pinned toolchain and exercise
