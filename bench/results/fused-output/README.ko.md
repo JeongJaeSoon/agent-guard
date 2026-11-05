@@ -398,3 +398,11 @@ GitHub 공식 상태 API의 2026-11-05 16:52:52 UTC 갱신은 Actions `degraded_
 17:09 UTC PR #406의 네 native job 및 필수 CI 대부분은 queued이고 HOL은 진행 중이다. 정확한 head/이전 merge check snapshot은 `blocked-head-1709.json`, `blocked-merge-1709.json`에 보존했다. 새 native run은 42071272873, CI run은 42071272682다. 이전 main native aggregate는 실패이며 설치/성능 관문은 skipped이다. 아직 공개 latest는 v3.7.1(발행 2026-11-04 20:56:17 UTC)이고 v3.8.0 태그/자산/Homebrew 발행은 수행하지 않았다. 동일 실패 job 재실행이나 빈 commit으로 새 실행을 만들지 않았다.
 
 재개 조건은 실행 서비스 복구 후 이미 대기 중인 #406의 실제 결과 수집이다. 네 플랫폼/실제 공유 core 252개/공개 기본 4개/기존 packaged 및 필수 8개가 성공하면 #406 exact head를 병합하고, 그 merge의 동일 필수 CI가 성공한 뒤 release.yml을 version=3.8.0으로 실행한다. 이후 실제 공개 15개 자산·checksum·Homebrew tap 및 4플랫폼+3Homebrew 설치/업데이트/복귀/보존을 검증한다. 공개 배포본 설치 비용 9쌍 스크립트는 준비됐지만 아직 실행할 공개 v3.8.0 자산이 없어 결과를 만들지 않았다. 이 대기는 사용자 재승인 요구가 아니며, 기존 승인 범위는 그대로다.
+
+## 11월 6일 02:27 JST: Actions 복구 확인과 기존 대기 검증 재개
+
+공식 상태 API의 새 snapshot(갱신 2026-11-05 17:20:37 UTC)은 Actions operational, 사건 t89g2q1800fr는 복구 후 monitoring으로 표시했다. 앞선 장애 기록은 당시 조회된 snapshot이며 현재 상태로 취급하지 않는다. PR #406의 기존 실행은 자동으로 진행됐고 별도 재실행하지 않았다.
+
+4018ce1 Linux x64와 ARM native 실행은 성공했다. 각각 differential 1024/0, integration 90/0, native invocation 확인이며 원본 ZIP과 digest를 `ci-4018ce1-native/`에 보존했다. Linux x64의 분리된 준비 로그에서 Rust 1.85.1 설치, apt 갱신, musl 설치가 완료됐다. 이전 7bb7f57의 무출력 중단 원인을 이 성공만으로 확정하지 않는다.
+
+02:30 JST 기준 main은 계속 7bb7f57이고 #406은 미병합이다. macOS native 두 플랫폼과 일부 macOS CI는 여전히 queued이므로 네 플랫폼/후속 설치/실제 공유 core 성능 관문은 완료되지 않았다. 같은 저장소의 별도 scanner 실험 42067550431·42067649294에서 Intel 작업이 진행 중인 것도 관측했지만, 이것만으로 runner 대기의 원인을 단정하거나 다른 작업을 취소하지 않았다. 외부 서비스 전체 장애는 복구됐지만 이 릴리스의 CI 결과는 아직 대기 중이다. v3.8.0 발행·Homebrew 갱신은 수행하지 않았다.
