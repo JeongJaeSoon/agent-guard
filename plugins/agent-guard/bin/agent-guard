@@ -1486,6 +1486,11 @@ probe_gitleaks() {
     # before cancelling this watchdog. Do not turn its completed exit status
     # into a timeout, or signal a group whose leader no longer exists.
     kill -0 "$AG_GITLEAKS_PROBE_PID" 2>/dev/null || exit 0
+    # A completed child can still exist as a zombie while its parent is
+    # descheduled. It has no running code to time out; preserve wait's status.
+    # Missing/failed ps keeps the conservative original deadline behavior.
+    ag_gl_deadline_state=$(ps -o stat= -p "$AG_GITLEAKS_PROBE_PID" 2>/dev/null) || ag_gl_deadline_state=
+    case "$ag_gl_deadline_state" in *Z*) exit 0 ;; esac
     printf 'timeout\n' >"$ag_gl_probe_timeout"
     kill_gitleaks_probe_group TERM
     kill -TERM "$AG_GITLEAKS_PROBE_PID" 2>/dev/null || :
