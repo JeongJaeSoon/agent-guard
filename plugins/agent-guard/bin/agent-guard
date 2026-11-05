@@ -5026,14 +5026,16 @@ message_value_records() {
   '
 }
 
-# Replace each message value message_value_records finds with `'_'`. A value
-# is replaced only when it is one quoted literal (single quotes, or double
-# quotes holding no `$`, backquote or backslash) and re-tokenizing shows that
-# it changed that record and nothing else.
+# Replace each message value message_value_records finds, quotes included,
+# with `_`. A value is replaced only when it is one quoted literal (single
+# quotes, or double quotes holding no `$`, backquote or backslash) and
+# re-tokenizing shows that it changed that record and nothing else. Leaving no
+# quotes lets the deny-path check skip its dequoted pass.
 bash_strip_message_values() (
   set -f
   mv_cmd=$1
-  case "$mv_cmd" in *orca*|*gh*|*git*) ;; *) printf '%s' "$mv_cmd"; exit 0 ;; esac
+  # Every message option starts with `-` and follows the command words.
+  case "$mv_cmd" in *orca*orchestration*-*|*gh*-*|*git*commit*-*) ;; *) printf '%s' "$mv_cmd"; exit 0 ;; esac
   if bash_command_sources_script "$mv_cmd"; then
     printf '%s' "$mv_cmd"
     exit 0
@@ -5055,7 +5057,7 @@ bash_strip_message_values() (
           body = substr(s, i + 1, j - i - 1)
           flat = body; gsub(/\n/, " ", flat)
           if (flat == v && !(q == "\"" && body ~ /[$`\\]/) && ++seen == want) {
-            printf "%s", substr(s, 1, i) "_" substr(s, j)
+            printf "%s", substr(s, 1, i - 1) "_" substr(s, j + 1)
             exit 0
           }
           i = j
@@ -5519,7 +5521,13 @@ bash_matches_deny_path() {
 "*) deny_cmd=$(shell_join_line_continuations "$deny_cmd") ;;
   esac
   # A failed rewrite keeps the whole command in the scan.
-  deny_stripped=$(bash_strip_message_values "$deny_cmd") && deny_cmd=$deny_stripped
+  # The deny-pattern check already stripped the same text (it depends on
+  # nothing but the text), so reuse that result.
+  if [ "${mv_strip_in+set}" = set ] && [ "$deny_cmd" = "$mv_strip_in" ]; then
+    deny_cmd=$mv_strip_out
+  else
+    deny_stripped=$(bash_strip_message_values "$deny_cmd") && deny_cmd=$deny_stripped
+  fi
   deny_stripped=$(bash_strip_non_read_operands "$deny_cmd") && deny_cmd=$deny_stripped
   deny_cmd=$(bash_neutralize_jq_field_names "$deny_cmd")
   deny_cmd=$(bash_strip_source_module_prose "$deny_cmd")
@@ -7962,6 +7970,8 @@ check_bash_command() {
   # `cd X<newline>git commit` into one word and hiding the commit from the
   # detector (#127). Keep an untouched copy and use it for every later check.
   raw_cmd=$cmd
+  # Set only by the deny-pattern check below, never from the environment.
+  unset mv_strip_in mv_strip_out
   workdir=$(json_value '.tool_input.workdir // .tool_input.cwd // .cwd // empty' "$input")
 
   # A harmless, deterministic sentinel lets setup prove that the host really
@@ -7980,7 +7990,11 @@ check_bash_command() {
   if [ -s "$patterns" ]; then
     # A message body that quotes a risky command (a report that `printenv` was
     # blocked) only sends that text; the gitleaks scan below still sees it.
-    pattern_cmd=$(bash_strip_message_values "$cmd") || pattern_cmd=$cmd
+    if pattern_cmd=$(bash_strip_message_values "$cmd"); then
+      mv_strip_in=$cmd mv_strip_out=$pattern_cmd
+    else
+      pattern_cmd=$cmd
+    fi
     printf '%s\n' "$pattern_cmd" | grep -E -q -f "$patterns"
     grep_status=$?
     rm -f "$patterns"
