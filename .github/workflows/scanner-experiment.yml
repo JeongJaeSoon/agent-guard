@@ -62,7 +62,7 @@ jobs:
           "$driver" native-integration --core "$RUNNER_TEMP/public/libexec/agent-guard-redact-$TARGET" \
             --scanner "$RUNNER_TEMP/scanners/candidate/gitleaks" \
             > "$RUNNER_TEMP/evidence/host.json" 2> "$RUNNER_TEMP/evidence/host.stderr"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:
           name: scanner-contracts-${{ matrix.target }}
@@ -100,7 +100,7 @@ jobs:
           sh bench/scanner/run-constrained.sh "$RUNNER_TEMP/test-bin/gitleaks" \
             "$RUNNER_TEMP/scanners/control/gitleaks" "$RUNNER_TEMP/scanners/candidate/gitleaks" \
             "$RUNNER_TEMP/performance" "$AUDIT_STATE"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:
           name: scanner-constrained-${{ matrix.audit_state }}
@@ -126,7 +126,7 @@ jobs:
           jq -s --argjson expected_targets 6 -f bench/scanner/assess.jq "$@" > assessment.json
           jq -e '.measurements_complete' assessment.json
           cat assessment.json
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:
           name: scanner-assessment

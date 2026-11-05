@@ -48,7 +48,7 @@ jobs:
           # Preserve the failed status, but collect candidate evidence even
           # when an immutable public baseline hits its readiness failure path.
           exit "$diagnostic_status"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:
           name: numeric-diagnostic-${{ matrix.os }}
@@ -95,7 +95,7 @@ jobs:
           export AGENT_GUARD_RUST_CORE_BIN="$AGENT_GUARD_EXPERIMENTAL_OUTPUT_PREPARE_BIN"
           export AGENT_GUARD_TEST_SHARD=4
           sh tests/native-suite.sh > "$RUNNER_TEMP/evidence/output-suite.log" 2>&1
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:
           name: fused-contracts-${{ matrix.os }}
@@ -162,7 +162,7 @@ jobs:
         env:
           AUDIT_STATE: ${{ matrix.audit }}
         run: sh bench/fused-output/run-constrained.sh "$RUNNER_TEMP/scanner/gitleaks" "$AUDIT_STATE" "$RUNNER_TEMP/evidence"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:
           name: fused-performance-${{ matrix.scanner }}-${{ matrix.audit }}
