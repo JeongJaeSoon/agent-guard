@@ -1,0 +1,5635 @@
+{
+  "scope": "same scanner in both arms; actual public v3.7.0 versus candidate with one qualified packaged core shared by prepare and redaction; Homebrew target",
+  "measurements_complete": true,
+  "missing_jobs": [],
+  "comparison_count": 252,
+  "mismatch_count": 0,
+  "ordinary_regressions": [],
+  "targets": [
+    {
+      "scanner": "homebrew",
+      "audit": "cold",
+      "host": "claude",
+      "name": "many-replacement-leaves",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.278959233,
+          "cpu_seconds": 0.312683,
+          "max_child_rss_mib": 38.79296875
+        },
+        "candidate": {
+          "latency_seconds": 0.233314872,
+          "cpu_seconds": 0.266301,
+          "max_child_rss_mib": 38.4921875
+        }
+      },
+      "latency_change_percent": -16.362376863862384,
+      "cpu_change_percent": -14.833553471087324
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "cold",
+      "host": "codex",
+      "name": "many-replacement-leaves",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.282705194,
+          "cpu_seconds": 0.317646,
+          "max_child_rss_mib": 38.97265625
+        },
+        "candidate": {
+          "latency_seconds": 0.238724413,
+          "cpu_seconds": 0.272716,
+          "max_child_rss_mib": 39.06640625
+        }
+      },
+      "latency_change_percent": -15.557118133457426,
+      "cpu_change_percent": -14.144676778552212
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "off",
+      "host": "claude",
+      "name": "many-replacement-leaves",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.263006696,
+          "cpu_seconds": 0.291265,
+          "max_child_rss_mib": 39.03515625
+        },
+        "candidate": {
+          "latency_seconds": 0.218664279,
+          "cpu_seconds": 0.246807,
+          "max_child_rss_mib": 38.78125
+        }
+      },
+      "latency_change_percent": -16.859805348834158,
+      "cpu_change_percent": -15.263763239661476
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "off",
+      "host": "codex",
+      "name": "many-replacement-leaves",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.264411478,
+          "cpu_seconds": 0.292019,
+          "max_child_rss_mib": 38.953125
+        },
+        "candidate": {
+          "latency_seconds": 0.221051116,
+          "cpu_seconds": 0.249836,
+          "max_child_rss_mib": 38.875
+        }
+      },
+      "latency_change_percent": -16.398819872713688,
+      "cpu_change_percent": -14.445292943267384
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "warm",
+      "host": "claude",
+      "name": "many-replacement-leaves",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.213004581,
+          "cpu_seconds": 0.2344,
+          "max_child_rss_mib": 39.24609375
+        },
+        "candidate": {
+          "latency_seconds": 0.177123678,
+          "cpu_seconds": 0.200389,
+          "max_child_rss_mib": 38.828125
+        }
+      },
+      "latency_change_percent": -16.84513207722983,
+      "cpu_change_percent": -14.509812286689417
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "warm",
+      "host": "codex",
+      "name": "many-replacement-leaves",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.214974155,
+          "cpu_seconds": 0.23809000000000002,
+          "max_child_rss_mib": 38.640625
+        },
+        "candidate": {
+          "latency_seconds": 0.180508316,
+          "cpu_seconds": 0.204545,
+          "max_child_rss_mib": 38.95703125
+        }
+      },
+      "latency_change_percent": -16.032550052353965,
+      "cpu_change_percent": -14.089209962619186
+    },
+    {
+      "scanner": "official",
+      "audit": "cold",
+      "host": "claude",
+      "name": "many-replacement-leaves",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.949159281,
+          "cpu_seconds": 1.0003170000000001,
+          "max_child_rss_mib": 62.11328125
+        },
+        "candidate": {
+          "latency_seconds": 0.905179891,
+          "cpu_seconds": 0.9563240000000001,
+          "max_child_rss_mib": 62.09765625
+        }
+      },
+      "latency_change_percent": -4.6335099788167184,
+      "cpu_change_percent": -4.397905863841167
+    },
+    {
+      "scanner": "official",
+      "audit": "cold",
+      "host": "codex",
+      "name": "many-replacement-leaves",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.950326301,
+          "cpu_seconds": 1.005169,
+          "max_child_rss_mib": 62.04296875
+        },
+        "candidate": {
+          "latency_seconds": 0.910104371,
+          "cpu_seconds": 0.9659580000000001,
+          "max_child_rss_mib": 62.79296875
+        }
+      },
+      "latency_change_percent": -4.232433634392285,
+      "cpu_change_percent": -3.900936061498106
+    },
+    {
+      "scanner": "official",
+      "audit": "off",
+      "host": "claude",
+      "name": "many-replacement-leaves",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.755473643,
+          "cpu_seconds": 0.768091,
+          "max_child_rss_mib": 62.54296875
+        },
+        "candidate": {
+          "latency_seconds": 0.697208707,
+          "cpu_seconds": 0.729572,
+          "max_child_rss_mib": 62.80078125
+        }
+      },
+      "latency_change_percent": -7.712371773637106,
+      "cpu_change_percent": -5.014900578186698
+    },
+    {
+      "scanner": "official",
+      "audit": "off",
+      "host": "codex",
+      "name": "many-replacement-leaves",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.742588759,
+          "cpu_seconds": 0.772608,
+          "max_child_rss_mib": 62.60546875
+        },
+        "candidate": {
+          "latency_seconds": 0.698633505,
+          "cpu_seconds": 0.7325659999999999,
+          "max_child_rss_mib": 62.73828125
+        }
+      },
+      "latency_change_percent": -5.919191944029956,
+      "cpu_change_percent": -5.182705848243874
+    },
+    {
+      "scanner": "official",
+      "audit": "warm",
+      "host": "claude",
+      "name": "many-replacement-leaves",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.654642546,
+          "cpu_seconds": 0.69093,
+          "max_child_rss_mib": 62.86328125
+        },
+        "candidate": {
+          "latency_seconds": 0.612501642,
+          "cpu_seconds": 0.648879,
+          "max_child_rss_mib": 62.359375
+        }
+      },
+      "latency_change_percent": -6.437238804213019,
+      "cpu_change_percent": -6.086144761408541
+    },
+    {
+      "scanner": "official",
+      "audit": "warm",
+      "host": "codex",
+      "name": "many-replacement-leaves",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.662697006,
+          "cpu_seconds": 0.703323,
+          "max_child_rss_mib": 62.92578125
+        },
+        "candidate": {
+          "latency_seconds": 0.615944021,
+          "cpu_seconds": 0.654809,
+          "max_child_rss_mib": 62.36328125
+        }
+      },
+      "latency_change_percent": -7.054956424535286,
+      "cpu_change_percent": -6.89782646095749
+    }
+  ],
+  "load": [
+    {
+      "scanner": "homebrew",
+      "workers": 1,
+      "arms": {
+        "baseline": {
+          "requests_per_second": 3.822589610120401,
+          "cpu_seconds": 2.304906,
+          "max_child_rss_mib": 39.40625,
+          "sampled_rss_sum_mib": 60.734375
+        },
+        "candidate": {
+          "requests_per_second": 4.577521116016219,
+          "cpu_seconds": 1.9573040000000002,
+          "max_child_rss_mib": 39.609375,
+          "sampled_rss_sum_mib": 66.28125
+        }
+      },
+      "requests_per_trial": 8
+    },
+    {
+      "scanner": "homebrew",
+      "workers": 4,
+      "arms": {
+        "baseline": {
+          "requests_per_second": 4.4933819092556435,
+          "cpu_seconds": 3.600977,
+          "max_child_rss_mib": 39.828125,
+          "sampled_rss_sum_mib": 214.55078125
+        },
+        "candidate": {
+          "requests_per_second": 5.3380942301105305,
+          "cpu_seconds": 2.978181,
+          "max_child_rss_mib": 39.96484375,
+          "sampled_rss_sum_mib": 238.0546875
+        }
+      },
+      "requests_per_trial": 8
+    },
+    {
+      "scanner": "official",
+      "workers": 1,
+      "arms": {
+        "baseline": {
+          "requests_per_second": 1.3152636747486248,
+          "cpu_seconds": 6.173952,
+          "max_child_rss_mib": 63.73046875,
+          "sampled_rss_sum_mib": 84.828125
+        },
+        "candidate": {
+          "requests_per_second": 1.4003831226963164,
+          "cpu_seconds": 5.886202999999999,
+          "max_child_rss_mib": 63.48828125,
+          "sampled_rss_sum_mib": 90.4765625
+        }
+      },
+      "requests_per_trial": 8
+    },
+    {
+      "scanner": "official",
+      "workers": 4,
+      "arms": {
+        "baseline": {
+          "requests_per_second": 1.6597782398012098,
+          "cpu_seconds": 9.538969999999999,
+          "max_child_rss_mib": 63.6015625,
+          "sampled_rss_sum_mib": 302.3046875
+        },
+        "candidate": {
+          "requests_per_second": 1.7322465682606147,
+          "cpu_seconds": 9.04861,
+          "max_child_rss_mib": 63.73046875,
+          "sampled_rss_sum_mib": 322.36328125
+        }
+      },
+      "requests_per_trial": 8
+    }
+  ],
+  "accepted_performance": true,
+  "all_cases": [
+    {
+      "scanner": "homebrew",
+      "audit": "cold",
+      "host": "claude",
+      "name": "small-clean",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.156465939,
+          "cpu_seconds": 0.183911,
+          "max_child_rss_mib": 38.5703125
+        },
+        "candidate": {
+          "latency_seconds": 0.139478192,
+          "cpu_seconds": 0.167729,
+          "max_child_rss_mib": 38.8203125
+        }
+      },
+      "latency_change_percent": -10.857153389786644,
+      "cpu_change_percent": -8.798821168934978
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "cold",
+      "host": "claude",
+      "name": "long-line",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.355472384,
+          "cpu_seconds": 0.40830599999999995,
+          "max_child_rss_mib": 38.921875
+        },
+        "candidate": {
+          "latency_seconds": 0.336069294,
+          "cpu_seconds": 0.390328,
+          "max_child_rss_mib": 38.84765625
+        }
+      },
+      "latency_change_percent": -5.458395890466683,
+      "cpu_change_percent": -4.403070246334839
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "cold",
+      "host": "claude",
+      "name": "long-multiline",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.356291328,
+          "cpu_seconds": 0.40964100000000003,
+          "max_child_rss_mib": 38.84375
+        },
+        "candidate": {
+          "latency_seconds": 0.339030528,
+          "cpu_seconds": 0.392749,
+          "max_child_rss_mib": 38.859375
+        }
+      },
+      "latency_change_percent": -4.844574830628501,
+      "cpu_change_percent": -4.123610673736278
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "cold",
+      "host": "claude",
+      "name": "escaped-control",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.349423385,
+          "cpu_seconds": 0.40291599999999994,
+          "max_child_rss_mib": 39.0546875
+        },
+        "candidate": {
+          "latency_seconds": 0.330635208,
+          "cpu_seconds": 0.382707,
+          "max_child_rss_mib": 38.80078125
+        }
+      },
+      "latency_change_percent": -5.376908875174447,
+      "cpu_change_percent": -5.015685651599822
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "cold",
+      "host": "claude",
+      "name": "many-lines",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.374894493,
+          "cpu_seconds": 0.42675399999999997,
+          "max_child_rss_mib": 38.890625
+        },
+        "candidate": {
+          "latency_seconds": 0.360437429,
+          "cpu_seconds": 0.41179899999999997,
+          "max_child_rss_mib": 39.12890625
+        }
+      },
+      "latency_change_percent": -3.8563020449596253,
+      "cpu_change_percent": -3.5043608261433934
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "cold",
+      "host": "claude",
+      "name": "many-replacement-leaves",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.278959233,
+          "cpu_seconds": 0.312683,
+          "max_child_rss_mib": 38.79296875
+        },
+        "candidate": {
+          "latency_seconds": 0.233314872,
+          "cpu_seconds": 0.266301,
+          "max_child_rss_mib": 38.4921875
+        }
+      },
+      "latency_change_percent": -16.362376863862384,
+      "cpu_change_percent": -14.833553471087324
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "cold",
+      "host": "claude",
+      "name": "dense-controls",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.318713765,
+          "cpu_seconds": 0.364445,
+          "max_child_rss_mib": 16.87890625
+        },
+        "candidate": {
+          "latency_seconds": 0.317835852,
+          "cpu_seconds": 0.363871,
+          "max_child_rss_mib": 16.83203125
+        }
+      },
+      "latency_change_percent": -0.2754549995667821,
+      "cpu_change_percent": -0.15749975990890785
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "cold",
+      "host": "claude",
+      "name": "exec-multiline",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.281521992,
+          "cpu_seconds": 0.318923,
+          "max_child_rss_mib": 39.0703125
+        },
+        "candidate": {
+          "latency_seconds": 0.265282513,
+          "cpu_seconds": 0.300302,
+          "max_child_rss_mib": 39.05078125
+        }
+      },
+      "latency_change_percent": -5.7684584016441605,
+      "cpu_change_percent": -5.838713419853692
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "cold",
+      "host": "claude",
+      "name": "exec-clean",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.140167243,
+          "cpu_seconds": 0.164632,
+          "max_child_rss_mib": 38.47265625
+        },
+        "candidate": {
+          "latency_seconds": 0.126244795,
+          "cpu_seconds": 0.151735,
+          "max_child_rss_mib": 38.8671875
+        }
+      },
+      "latency_change_percent": -9.932740133869943,
+      "cpu_change_percent": -7.833835463336403
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "cold",
+      "host": "claude",
+      "name": "exec-long-quoted-secret",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.460413536,
+          "cpu_seconds": 0.49373300000000003,
+          "max_child_rss_mib": 38.98828125
+        },
+        "candidate": {
+          "latency_seconds": 0.430888912,
+          "cpu_seconds": 0.46301899999999996,
+          "max_child_rss_mib": 38.84765625
+        }
+      },
+      "latency_change_percent": -6.41263162167326,
+      "cpu_change_percent": -6.220771145538196
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "cold",
+      "host": "claude",
+      "name": "placeholder-control",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.153689916,
+          "cpu_seconds": 0.18069600000000002,
+          "max_child_rss_mib": 38.3125
+        },
+        "candidate": {
+          "latency_seconds": 0.136667365,
+          "cpu_seconds": 0.16368300000000002,
+          "max_child_rss_mib": 38.87890625
+        }
+      },
+      "latency_change_percent": -11.07590624228072,
+      "cpu_change_percent": -9.415260990835439
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "cold",
+      "host": "claude",
+      "name": "metadata-control",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.153480253,
+          "cpu_seconds": 0.180404,
+          "max_child_rss_mib": 38.51171875
+        },
+        "candidate": {
+          "latency_seconds": 0.137926052,
+          "cpu_seconds": 0.16516,
+          "max_child_rss_mib": 38.44140625
+        }
+      },
+      "latency_change_percent": -10.134333698290177,
+      "cpu_change_percent": -8.449923505022062
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "cold",
+      "host": "claude",
+      "name": "prose-control",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.154388484,
+          "cpu_seconds": 0.18124099999999999,
+          "max_child_rss_mib": 38.39453125
+        },
+        "candidate": {
+          "latency_seconds": 0.137595113,
+          "cpu_seconds": 0.164551,
+          "max_child_rss_mib": 38.84765625
+        }
+      },
+      "latency_change_percent": -10.87734691403538,
+      "cpu_change_percent": -9.208733123299906
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "cold",
+      "host": "claude",
+      "name": "exec-over-cap-1048576",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.07095531,
+          "cpu_seconds": 0.08466699999999999,
+          "max_child_rss_mib": 15.1953125
+        },
+        "candidate": {
+          "latency_seconds": 0.070287195,
+          "cpu_seconds": 0.083622,
+          "max_child_rss_mib": 15.14453125
+        }
+      },
+      "latency_change_percent": -0.9415997195981518,
+      "cpu_change_percent": -1.2342471092633422
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "cold",
+      "host": "claude",
+      "name": "exec-over-cap-8388608",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.230891256,
+          "cpu_seconds": 0.257085,
+          "max_child_rss_mib": 50.17578125
+        },
+        "candidate": {
+          "latency_seconds": 0.227465892,
+          "cpu_seconds": 0.25399,
+          "max_child_rss_mib": 50.2734375
+        }
+      },
+      "latency_change_percent": -1.4835399396848525,
+      "cpu_change_percent": -1.203881984557642
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "cold",
+      "host": "claude",
+      "name": "pre-read-clean",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.069523976,
+          "cpu_seconds": 0.080973,
+          "max_child_rss_mib": 15.1640625
+        },
+        "candidate": {
+          "latency_seconds": 0.069864654,
+          "cpu_seconds": 0.081261,
+          "max_child_rss_mib": 15.08203125
+        }
+      },
+      "latency_change_percent": 0.4900151280185616,
+      "cpu_change_percent": 0.35567411359340717
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "cold",
+      "host": "claude",
+      "name": "pre-read-placeholder",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.070129996,
+          "cpu_seconds": 0.081106,
+          "max_child_rss_mib": 15.1796875
+        },
+        "candidate": {
+          "latency_seconds": 0.070560482,
+          "cpu_seconds": 0.08154,
+          "max_child_rss_mib": 15.15625
+        }
+      },
+      "latency_change_percent": 0.6138400464189342,
+      "cpu_change_percent": 0.5351022119202131
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "cold",
+      "host": "claude",
+      "name": "pre-bash-clean",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.793832712,
+          "cpu_seconds": 0.906612,
+          "max_child_rss_mib": 38.6015625
+        },
+        "candidate": {
+          "latency_seconds": 0.791051614,
+          "cpu_seconds": 0.902614,
+          "max_child_rss_mib": 38.22265625
+        }
+      },
+      "latency_change_percent": -0.35033804452241357,
+      "cpu_change_percent": -0.4409824710019272
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "cold",
+      "host": "claude",
+      "name": "pre-git-status",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.455169107,
+          "cpu_seconds": 0.524134,
+          "max_child_rss_mib": 38.8671875
+        },
+        "candidate": {
+          "latency_seconds": 0.455435761,
+          "cpu_seconds": 0.5234829999999999,
+          "max_child_rss_mib": 38.796875
+        }
+      },
+      "latency_change_percent": 0.05858350136227486,
+      "cpu_change_percent": -0.12420487890502097
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "cold",
+      "host": "claude",
+      "name": "pre-unknown-tool",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.054396072,
+          "cpu_seconds": 0.064745,
+          "max_child_rss_mib": 15.1796875
+        },
+        "candidate": {
+          "latency_seconds": 0.052788607,
+          "cpu_seconds": 0.063724,
+          "max_child_rss_mib": 15.17578125
+        }
+      },
+      "latency_change_percent": -2.9551122735479773,
+      "cpu_change_percent": -1.5769557494787145
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "cold",
+      "host": "claude",
+      "name": "prompt-clean",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.102150836,
+          "cpu_seconds": 0.124174,
+          "max_child_rss_mib": 38.31640625
+        },
+        "candidate": {
+          "latency_seconds": 0.10147866,
+          "cpu_seconds": 0.125083,
+          "max_child_rss_mib": 38.2421875
+        }
+      },
+      "latency_change_percent": -0.6580230043344848,
+      "cpu_change_percent": 0.7320373024948701
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "cold",
+      "host": "codex",
+      "name": "small-clean",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.154535757,
+          "cpu_seconds": 0.18241200000000002,
+          "max_child_rss_mib": 38.8125
+        },
+        "candidate": {
+          "latency_seconds": 0.137663233,
+          "cpu_seconds": 0.164259,
+          "max_child_rss_mib": 38.6328125
+        }
+      },
+      "latency_change_percent": -10.918200633656582,
+      "cpu_change_percent": -9.951647917900154
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "cold",
+      "host": "codex",
+      "name": "long-line",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.365527456,
+          "cpu_seconds": 0.42211499999999996,
+          "max_child_rss_mib": 38.578125
+        },
+        "candidate": {
+          "latency_seconds": 0.348388456,
+          "cpu_seconds": 0.40447999999999995,
+          "max_child_rss_mib": 39.02734375
+        }
+      },
+      "latency_change_percent": -4.688840665364403,
+      "cpu_change_percent": -4.177771460384017
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "cold",
+      "host": "codex",
+      "name": "long-multiline",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.365773236,
+          "cpu_seconds": 0.422427,
+          "max_child_rss_mib": 38.984375
+        },
+        "candidate": {
+          "latency_seconds": 0.346282505,
+          "cpu_seconds": 0.402709,
+          "max_child_rss_mib": 39.16015625
+        }
+      },
+      "latency_change_percent": -5.328637823025407,
+      "cpu_change_percent": -4.667788754033242
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "cold",
+      "host": "codex",
+      "name": "escaped-control",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.362197024,
+          "cpu_seconds": 0.41892799999999997,
+          "max_child_rss_mib": 38.6875
+        },
+        "candidate": {
+          "latency_seconds": 0.346223132,
+          "cpu_seconds": 0.402907,
+          "max_child_rss_mib": 38.8125
+        }
+      },
+      "latency_change_percent": -4.4102769878087145,
+      "cpu_change_percent": -3.8242848413092334
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "cold",
+      "host": "codex",
+      "name": "many-lines",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.395706113,
+          "cpu_seconds": 0.450163,
+          "max_child_rss_mib": 38.94140625
+        },
+        "candidate": {
+          "latency_seconds": 0.376126302,
+          "cpu_seconds": 0.433986,
+          "max_child_rss_mib": 38.6171875
+        }
+      },
+      "latency_change_percent": -4.948068871506162,
+      "cpu_change_percent": -3.5935872117432988
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "cold",
+      "host": "codex",
+      "name": "many-replacement-leaves",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.282705194,
+          "cpu_seconds": 0.317646,
+          "max_child_rss_mib": 38.97265625
+        },
+        "candidate": {
+          "latency_seconds": 0.238724413,
+          "cpu_seconds": 0.272716,
+          "max_child_rss_mib": 39.06640625
+        }
+      },
+      "latency_change_percent": -15.557118133457426,
+      "cpu_change_percent": -14.144676778552212
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "cold",
+      "host": "codex",
+      "name": "dense-controls",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.321479129,
+          "cpu_seconds": 0.36883200000000005,
+          "max_child_rss_mib": 16.8984375
+        },
+        "candidate": {
+          "latency_seconds": 0.322260594,
+          "cpu_seconds": 0.36890100000000003,
+          "max_child_rss_mib": 16.88671875
+        }
+      },
+      "latency_change_percent": 0.24308420967509292,
+      "cpu_change_percent": 0.018707704320664043
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "cold",
+      "host": "codex",
+      "name": "exec-multiline",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.284932206,
+          "cpu_seconds": 0.32319,
+          "max_child_rss_mib": 38.55078125
+        },
+        "candidate": {
+          "latency_seconds": 0.264989572,
+          "cpu_seconds": 0.302731,
+          "max_child_rss_mib": 39.0390625
+        }
+      },
+      "latency_change_percent": -6.999080335622021,
+      "cpu_change_percent": -6.330332002846628
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "cold",
+      "host": "codex",
+      "name": "exec-clean",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.143075975,
+          "cpu_seconds": 0.16880699999999998,
+          "max_child_rss_mib": 38.80078125
+        },
+        "candidate": {
+          "latency_seconds": 0.126941415,
+          "cpu_seconds": 0.153447,
+          "max_child_rss_mib": 38.75390625
+        }
+      },
+      "latency_change_percent": -11.276917735489834,
+      "cpu_change_percent": -9.099148731983853
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "cold",
+      "host": "codex",
+      "name": "exec-long-quoted-secret",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.461427526,
+          "cpu_seconds": 0.496018,
+          "max_child_rss_mib": 38.9296875
+        },
+        "candidate": {
+          "latency_seconds": 0.431405724,
+          "cpu_seconds": 0.464638,
+          "max_child_rss_mib": 39.03515625
+        }
+      },
+      "latency_change_percent": -6.506287620127804,
+      "cpu_change_percent": -6.326383316734474
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "cold",
+      "host": "codex",
+      "name": "placeholder-control",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.154046198,
+          "cpu_seconds": 0.181114,
+          "max_child_rss_mib": 38.84375
+        },
+        "candidate": {
+          "latency_seconds": 0.13724824,
+          "cpu_seconds": 0.16451700000000002,
+          "max_child_rss_mib": 38.265625
+        }
+      },
+      "latency_change_percent": -10.90449372856317,
+      "cpu_change_percent": -9.1638415583555
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "cold",
+      "host": "codex",
+      "name": "metadata-control",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.154412292,
+          "cpu_seconds": 0.18217699999999998,
+          "max_child_rss_mib": 38.6015625
+        },
+        "candidate": {
+          "latency_seconds": 0.137148931,
+          "cpu_seconds": 0.164303,
+          "max_child_rss_mib": 39.06640625
+        }
+      },
+      "latency_change_percent": -11.180043231273329,
+      "cpu_change_percent": -9.81133732578755
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "cold",
+      "host": "codex",
+      "name": "prose-control",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.154284072,
+          "cpu_seconds": 0.181341,
+          "max_child_rss_mib": 38.96484375
+        },
+        "candidate": {
+          "latency_seconds": 0.137649526,
+          "cpu_seconds": 0.164302,
+          "max_child_rss_mib": 39.140625
+        }
+      },
+      "latency_change_percent": -10.781764951083217,
+      "cpu_change_percent": -9.396110090933652
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "cold",
+      "host": "codex",
+      "name": "exec-over-cap-1048576",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.070984204,
+          "cpu_seconds": 0.084387,
+          "max_child_rss_mib": 15.1796875
+        },
+        "candidate": {
+          "latency_seconds": 0.069805386,
+          "cpu_seconds": 0.083316,
+          "max_child_rss_mib": 15.1328125
+        }
+      },
+      "latency_change_percent": -1.6606765076917607,
+      "cpu_change_percent": -1.2691528315972866
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "cold",
+      "host": "codex",
+      "name": "exec-over-cap-8388608",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.231856187,
+          "cpu_seconds": 0.258463,
+          "max_child_rss_mib": 50.1640625
+        },
+        "candidate": {
+          "latency_seconds": 0.230240531,
+          "cpu_seconds": 0.256709,
+          "max_child_rss_mib": 50.28125
+        }
+      },
+      "latency_change_percent": -0.6968354051298142,
+      "cpu_change_percent": -0.6786271149061829
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "cold",
+      "host": "codex",
+      "name": "pre-read-clean",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.069663823,
+          "cpu_seconds": 0.08108199999999999,
+          "max_child_rss_mib": 15.1796875
+        },
+        "candidate": {
+          "latency_seconds": 0.070524254,
+          "cpu_seconds": 0.081341,
+          "max_child_rss_mib": 15.17578125
+        }
+      },
+      "latency_change_percent": 1.2351188363578514,
+      "cpu_change_percent": 0.3194297131299262
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "cold",
+      "host": "codex",
+      "name": "pre-read-placeholder",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.069838299,
+          "cpu_seconds": 0.080887,
+          "max_child_rss_mib": 15.1796875
+        },
+        "candidate": {
+          "latency_seconds": 0.070578958,
+          "cpu_seconds": 0.081594,
+          "max_child_rss_mib": 15.16015625
+        }
+      },
+      "latency_change_percent": 1.0605341347159625,
+      "cpu_change_percent": 0.8740588722538911
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "cold",
+      "host": "codex",
+      "name": "pre-bash-clean",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.794571708,
+          "cpu_seconds": 0.906641,
+          "max_child_rss_mib": 38.94921875
+        },
+        "candidate": {
+          "latency_seconds": 0.792476087,
+          "cpu_seconds": 0.906189,
+          "max_child_rss_mib": 38.8046875
+        }
+      },
+      "latency_change_percent": -0.26374221217551064,
+      "cpu_change_percent": -0.04985435249453829
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "cold",
+      "host": "codex",
+      "name": "pre-git-status",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.463966868,
+          "cpu_seconds": 0.5319480000000001,
+          "max_child_rss_mib": 38.3046875
+        },
+        "candidate": {
+          "latency_seconds": 0.461139909,
+          "cpu_seconds": 0.53047,
+          "max_child_rss_mib": 39.078125
+        }
+      },
+      "latency_change_percent": -0.6093019124805199,
+      "cpu_change_percent": -0.27784670682098334
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "cold",
+      "host": "codex",
+      "name": "pre-unknown-tool",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.054549945,
+          "cpu_seconds": 0.065777,
+          "max_child_rss_mib": 15.1328125
+        },
+        "candidate": {
+          "latency_seconds": 0.053420679,
+          "cpu_seconds": 0.06451,
+          "max_child_rss_mib": 15.18359375
+        }
+      },
+      "latency_change_percent": -2.070150574853935,
+      "cpu_change_percent": -1.9262052085075365
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "cold",
+      "host": "codex",
+      "name": "prompt-clean",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.103255969,
+          "cpu_seconds": 0.128111,
+          "max_child_rss_mib": 38.3515625
+        },
+        "candidate": {
+          "latency_seconds": 0.102322539,
+          "cpu_seconds": 0.127629,
+          "max_child_rss_mib": 38.6875
+        }
+      },
+      "latency_change_percent": -0.9039961651030493,
+      "cpu_change_percent": -0.3762362326420132
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "off",
+      "host": "claude",
+      "name": "small-clean",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.138835541,
+          "cpu_seconds": 0.158475,
+          "max_child_rss_mib": 38.41796875
+        },
+        "candidate": {
+          "latency_seconds": 0.119790345,
+          "cpu_seconds": 0.140252,
+          "max_child_rss_mib": 38.515625
+        }
+      },
+      "latency_change_percent": -13.717810196742054,
+      "cpu_change_percent": -11.498974601672195
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "off",
+      "host": "claude",
+      "name": "long-line",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.335753978,
+          "cpu_seconds": 0.383572,
+          "max_child_rss_mib": 38.97265625
+        },
+        "candidate": {
+          "latency_seconds": 0.316380623,
+          "cpu_seconds": 0.362657,
+          "max_child_rss_mib": 39.078125
+        }
+      },
+      "latency_change_percent": -5.770104382799001,
+      "cpu_change_percent": -5.452692063028586
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "off",
+      "host": "claude",
+      "name": "long-multiline",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.333878246,
+          "cpu_seconds": 0.37938,
+          "max_child_rss_mib": 38.5
+        },
+        "candidate": {
+          "latency_seconds": 0.315920777,
+          "cpu_seconds": 0.362935,
+          "max_child_rss_mib": 39.0546875
+        }
+      },
+      "latency_change_percent": -5.378448346107579,
+      "cpu_change_percent": -4.3347039907216995
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "off",
+      "host": "claude",
+      "name": "escaped-control",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.331313507,
+          "cpu_seconds": 0.376739,
+          "max_child_rss_mib": 39.09765625
+        },
+        "candidate": {
+          "latency_seconds": 0.312588209,
+          "cpu_seconds": 0.358422,
+          "max_child_rss_mib": 38.46484375
+        }
+      },
+      "latency_change_percent": -5.651836585098835,
+      "cpu_change_percent": -4.861986680433928
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "off",
+      "host": "claude",
+      "name": "many-lines",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.359182452,
+          "cpu_seconds": 0.404257,
+          "max_child_rss_mib": 39.03515625
+        },
+        "candidate": {
+          "latency_seconds": 0.34138016,
+          "cpu_seconds": 0.38651899999999995,
+          "max_child_rss_mib": 39.08203125
+        }
+      },
+      "latency_change_percent": -4.956336786742577,
+      "cpu_change_percent": -4.387802808609386
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "off",
+      "host": "claude",
+      "name": "many-replacement-leaves",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.263006696,
+          "cpu_seconds": 0.291265,
+          "max_child_rss_mib": 39.03515625
+        },
+        "candidate": {
+          "latency_seconds": 0.218664279,
+          "cpu_seconds": 0.246807,
+          "max_child_rss_mib": 38.78125
+        }
+      },
+      "latency_change_percent": -16.859805348834158,
+      "cpu_change_percent": -15.263763239661476
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "off",
+      "host": "claude",
+      "name": "dense-controls",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.300334897,
+          "cpu_seconds": 0.340903,
+          "max_child_rss_mib": 16.83984375
+        },
+        "candidate": {
+          "latency_seconds": 0.30087775,
+          "cpu_seconds": 0.340986,
+          "max_child_rss_mib": 16.8671875
+        }
+      },
+      "latency_change_percent": 0.1807492254221721,
+      "cpu_change_percent": 0.024347101668209525
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "off",
+      "host": "claude",
+      "name": "exec-multiline",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.264462298,
+          "cpu_seconds": 0.295207,
+          "max_child_rss_mib": 38.8046875
+        },
+        "candidate": {
+          "latency_seconds": 0.244945045,
+          "cpu_seconds": 0.27636299999999997,
+          "max_child_rss_mib": 38.984375
+        }
+      },
+      "latency_change_percent": -7.37997557595147,
+      "cpu_change_percent": -6.38331746875922
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "off",
+      "host": "claude",
+      "name": "exec-clean",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.123471421,
+          "cpu_seconds": 0.14136900000000002,
+          "max_child_rss_mib": 38.72265625
+        },
+        "candidate": {
+          "latency_seconds": 0.107856452,
+          "cpu_seconds": 0.126449,
+          "max_child_rss_mib": 38.85546875
+        }
+      },
+      "latency_change_percent": -12.646626137071825,
+      "cpu_change_percent": -10.55394039711678
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "off",
+      "host": "claude",
+      "name": "exec-long-quoted-secret",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.443877672,
+          "cpu_seconds": 0.471618,
+          "max_child_rss_mib": 38.5546875
+        },
+        "candidate": {
+          "latency_seconds": 0.412929791,
+          "cpu_seconds": 0.43976099999999996,
+          "max_child_rss_mib": 38.9296875
+        }
+      },
+      "latency_change_percent": -6.972164393977454,
+      "cpu_change_percent": -6.754831240537895
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "off",
+      "host": "claude",
+      "name": "placeholder-control",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.137462594,
+          "cpu_seconds": 0.158601,
+          "max_child_rss_mib": 38.83984375
+        },
+        "candidate": {
+          "latency_seconds": 0.121145197,
+          "cpu_seconds": 0.142096,
+          "max_child_rss_mib": 38.72265625
+        }
+      },
+      "latency_change_percent": -11.870427092333202,
+      "cpu_change_percent": -10.406617864956713
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "off",
+      "host": "claude",
+      "name": "metadata-control",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.137829701,
+          "cpu_seconds": 0.159176,
+          "max_child_rss_mib": 39.05078125
+        },
+        "candidate": {
+          "latency_seconds": 0.120675761,
+          "cpu_seconds": 0.14117,
+          "max_child_rss_mib": 38.4921875
+        }
+      },
+      "latency_change_percent": -12.445749991143051,
+      "cpu_change_percent": -11.312006835201306
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "off",
+      "host": "claude",
+      "name": "prose-control",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.137371148,
+          "cpu_seconds": 0.158393,
+          "max_child_rss_mib": 38.52734375
+        },
+        "candidate": {
+          "latency_seconds": 0.12084098,
+          "cpu_seconds": 0.14219199999999999,
+          "max_child_rss_mib": 38.890625
+        }
+      },
+      "latency_change_percent": -12.033216756694786,
+      "cpu_change_percent": -10.228356051088127
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "off",
+      "host": "claude",
+      "name": "exec-over-cap-1048576",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.05195908,
+          "cpu_seconds": 0.059215,
+          "max_child_rss_mib": 15.1796875
+        },
+        "candidate": {
+          "latency_seconds": 0.05128448,
+          "cpu_seconds": 0.058554999999999996,
+          "max_child_rss_mib": 15.15625
+        }
+      },
+      "latency_change_percent": -1.2983293776564153,
+      "cpu_change_percent": -1.1145824537701632
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "off",
+      "host": "claude",
+      "name": "exec-over-cap-8388608",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.206166722,
+          "cpu_seconds": 0.226771,
+          "max_child_rss_mib": 50.22265625
+        },
+        "candidate": {
+          "latency_seconds": 0.208079453,
+          "cpu_seconds": 0.228486,
+          "max_child_rss_mib": 50.234375
+        }
+      },
+      "latency_change_percent": 0.9277593306256326,
+      "cpu_change_percent": 0.7562695406378994
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "off",
+      "host": "claude",
+      "name": "pre-read-clean",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.051590509,
+          "cpu_seconds": 0.05628,
+          "max_child_rss_mib": 15.18359375
+        },
+        "candidate": {
+          "latency_seconds": 0.051906852,
+          "cpu_seconds": 0.056812,
+          "max_child_rss_mib": 15.16796875
+        }
+      },
+      "latency_change_percent": 0.6131806142870344,
+      "cpu_change_percent": 0.9452736318408039
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "off",
+      "host": "claude",
+      "name": "pre-read-placeholder",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.050907516,
+          "cpu_seconds": 0.055575,
+          "max_child_rss_mib": 15.17578125
+        },
+        "candidate": {
+          "latency_seconds": 0.051711562,
+          "cpu_seconds": 0.056353,
+          "max_child_rss_mib": 15.2421875
+        }
+      },
+      "latency_change_percent": 1.5794249320670195,
+      "cpu_change_percent": 1.3999100314889823
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "off",
+      "host": "claude",
+      "name": "pre-bash-clean",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.776950005,
+          "cpu_seconds": 0.882594,
+          "max_child_rss_mib": 38.4375
+        },
+        "candidate": {
+          "latency_seconds": 0.776854497,
+          "cpu_seconds": 0.878398,
+          "max_child_rss_mib": 38.4765625
+        }
+      },
+      "latency_change_percent": -0.012292682847725445,
+      "cpu_change_percent": -0.4754167828016076
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "off",
+      "host": "claude",
+      "name": "pre-git-status",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.4407432,
+          "cpu_seconds": 0.50319,
+          "max_child_rss_mib": 38.27734375
+        },
+        "candidate": {
+          "latency_seconds": 0.441408323,
+          "cpu_seconds": 0.503147,
+          "max_child_rss_mib": 38.875
+        }
+      },
+      "latency_change_percent": 0.15090941845501415,
+      "cpu_change_percent": -0.008545479838628633
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "off",
+      "host": "claude",
+      "name": "pre-unknown-tool",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.035946098,
+          "cpu_seconds": 0.040394,
+          "max_child_rss_mib": 15.2421875
+        },
+        "candidate": {
+          "latency_seconds": 0.035332799,
+          "cpu_seconds": 0.03961,
+          "max_child_rss_mib": 15.16015625
+        }
+      },
+      "latency_change_percent": -1.7061629331784678,
+      "cpu_change_percent": -1.940882309253844
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "off",
+      "host": "claude",
+      "name": "prompt-clean",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.084944004,
+          "cpu_seconds": 0.102293,
+          "max_child_rss_mib": 38.83203125
+        },
+        "candidate": {
+          "latency_seconds": 0.083718169,
+          "cpu_seconds": 0.102035,
+          "max_child_rss_mib": 38.72265625
+        }
+      },
+      "latency_change_percent": -1.443109510119167,
+      "cpu_change_percent": -0.25221667171750894
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "off",
+      "host": "codex",
+      "name": "small-clean",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.136404681,
+          "cpu_seconds": 0.15706,
+          "max_child_rss_mib": 38.63671875
+        },
+        "candidate": {
+          "latency_seconds": 0.118731239,
+          "cpu_seconds": 0.139211,
+          "max_child_rss_mib": 38.61328125
+        }
+      },
+      "latency_change_percent": -12.95662426716866,
+      "cpu_change_percent": -11.364446708264364
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "off",
+      "host": "codex",
+      "name": "long-line",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.347980318,
+          "cpu_seconds": 0.399322,
+          "max_child_rss_mib": 38.90625
+        },
+        "candidate": {
+          "latency_seconds": 0.329432537,
+          "cpu_seconds": 0.379553,
+          "max_child_rss_mib": 38.66015625
+        }
+      },
+      "latency_change_percent": -5.330123584748259,
+      "cpu_change_percent": -4.950641337066342
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "off",
+      "host": "codex",
+      "name": "long-multiline",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.348424241,
+          "cpu_seconds": 0.399798,
+          "max_child_rss_mib": 39.17578125
+        },
+        "candidate": {
+          "latency_seconds": 0.331304854,
+          "cpu_seconds": 0.381692,
+          "max_child_rss_mib": 38.97265625
+        }
+      },
+      "latency_change_percent": -4.913374267779503,
+      "cpu_change_percent": -4.5287870374539185
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "off",
+      "host": "codex",
+      "name": "escaped-control",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.343551578,
+          "cpu_seconds": 0.39349199999999995,
+          "max_child_rss_mib": 38.5625
+        },
+        "candidate": {
+          "latency_seconds": 0.3254531,
+          "cpu_seconds": 0.376223,
+          "max_child_rss_mib": 38.80859375
+        }
+      },
+      "latency_change_percent": -5.2680526473960825,
+      "cpu_change_percent": -4.38865339066613
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "off",
+      "host": "codex",
+      "name": "many-lines",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.371469902,
+          "cpu_seconds": 0.421369,
+          "max_child_rss_mib": 39.14453125
+        },
+        "candidate": {
+          "latency_seconds": 0.353812018,
+          "cpu_seconds": 0.404004,
+          "max_child_rss_mib": 38.91015625
+        }
+      },
+      "latency_change_percent": -4.753516746559994,
+      "cpu_change_percent": -4.121091015238432
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "off",
+      "host": "codex",
+      "name": "many-replacement-leaves",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.264411478,
+          "cpu_seconds": 0.292019,
+          "max_child_rss_mib": 38.953125
+        },
+        "candidate": {
+          "latency_seconds": 0.221051116,
+          "cpu_seconds": 0.249836,
+          "max_child_rss_mib": 38.875
+        }
+      },
+      "latency_change_percent": -16.398819872713688,
+      "cpu_change_percent": -14.445292943267384
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "off",
+      "host": "codex",
+      "name": "dense-controls",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.303786725,
+          "cpu_seconds": 0.34475199999999995,
+          "max_child_rss_mib": 16.84375
+        },
+        "candidate": {
+          "latency_seconds": 0.301159533,
+          "cpu_seconds": 0.34163,
+          "max_child_rss_mib": 16.85546875
+        }
+      },
+      "latency_change_percent": -0.8648146162410497,
+      "cpu_change_percent": -0.9055785028078023
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "off",
+      "host": "codex",
+      "name": "exec-multiline",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.26175071,
+          "cpu_seconds": 0.294206,
+          "max_child_rss_mib": 39.0625
+        },
+        "candidate": {
+          "latency_seconds": 0.243967176,
+          "cpu_seconds": 0.275847,
+          "max_child_rss_mib": 39.11328125
+        }
+      },
+      "latency_change_percent": -6.794072879496671,
+      "cpu_change_percent": -6.240185448291335
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "off",
+      "host": "codex",
+      "name": "exec-clean",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.12311873,
+          "cpu_seconds": 0.142594,
+          "max_child_rss_mib": 38.84765625
+        },
+        "candidate": {
+          "latency_seconds": 0.107995981,
+          "cpu_seconds": 0.125448,
+          "max_child_rss_mib": 38.7265625
+        }
+      },
+      "latency_change_percent": -12.283061236905212,
+      "cpu_change_percent": -12.024348850582767
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "off",
+      "host": "codex",
+      "name": "exec-long-quoted-secret",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.445292949,
+          "cpu_seconds": 0.473398,
+          "max_child_rss_mib": 38.375
+        },
+        "candidate": {
+          "latency_seconds": 0.413817759,
+          "cpu_seconds": 0.441094,
+          "max_child_rss_mib": 38.58203125
+        }
+      },
+      "latency_change_percent": -7.068423174156302,
+      "cpu_change_percent": -6.823856459047139
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "off",
+      "host": "codex",
+      "name": "placeholder-control",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.137504487,
+          "cpu_seconds": 0.15862500000000002,
+          "max_child_rss_mib": 38.67578125
+        },
+        "candidate": {
+          "latency_seconds": 0.120714877,
+          "cpu_seconds": 0.140712,
+          "max_child_rss_mib": 38.5546875
+        }
+      },
+      "latency_change_percent": -12.210227001537778,
+      "cpu_change_percent": -11.292671394799058
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "off",
+      "host": "codex",
+      "name": "metadata-control",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.134294969,
+          "cpu_seconds": 0.155693,
+          "max_child_rss_mib": 38.9140625
+        },
+        "candidate": {
+          "latency_seconds": 0.118482005,
+          "cpu_seconds": 0.138856,
+          "max_child_rss_mib": 38.86328125
+        }
+      },
+      "latency_change_percent": -11.774799992693685,
+      "cpu_change_percent": -10.814230569132842
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "off",
+      "host": "codex",
+      "name": "prose-control",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.135265974,
+          "cpu_seconds": 0.155931,
+          "max_child_rss_mib": 38.60546875
+        },
+        "candidate": {
+          "latency_seconds": 0.117895541,
+          "cpu_seconds": 0.13819599999999999,
+          "max_child_rss_mib": 38.46875
+        }
+      },
+      "latency_change_percent": -12.841687001048763,
+      "cpu_change_percent": -11.373620383374694
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "off",
+      "host": "codex",
+      "name": "exec-over-cap-1048576",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.051468332,
+          "cpu_seconds": 0.058463,
+          "max_child_rss_mib": 15.1796875
+        },
+        "candidate": {
+          "latency_seconds": 0.050567317,
+          "cpu_seconds": 0.057723,
+          "max_child_rss_mib": 15.1796875
+        }
+      },
+      "latency_change_percent": -1.7506201677567446,
+      "cpu_change_percent": -1.2657578297384786
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "off",
+      "host": "codex",
+      "name": "exec-over-cap-8388608",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.204045959,
+          "cpu_seconds": 0.223896,
+          "max_child_rss_mib": 50.26953125
+        },
+        "candidate": {
+          "latency_seconds": 0.2026256,
+          "cpu_seconds": 0.222352,
+          "max_child_rss_mib": 50.29296875
+        }
+      },
+      "latency_change_percent": -0.6960975884849563,
+      "cpu_change_percent": -0.6896058884482192
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "off",
+      "host": "codex",
+      "name": "pre-read-clean",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.050586188,
+          "cpu_seconds": 0.055626,
+          "max_child_rss_mib": 15.078125
+        },
+        "candidate": {
+          "latency_seconds": 0.051434428,
+          "cpu_seconds": 0.056061,
+          "max_child_rss_mib": 15.2265625
+        }
+      },
+      "latency_change_percent": 1.6768213489421369,
+      "cpu_change_percent": 0.7820084133318916
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "off",
+      "host": "codex",
+      "name": "pre-read-placeholder",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.051160691,
+          "cpu_seconds": 0.055889,
+          "max_child_rss_mib": 15.1640625
+        },
+        "candidate": {
+          "latency_seconds": 0.051813939,
+          "cpu_seconds": 0.056458,
+          "max_child_rss_mib": 15.08203125
+        }
+      },
+      "latency_change_percent": 1.2768553106524694,
+      "cpu_change_percent": 1.0180894272576069
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "off",
+      "host": "codex",
+      "name": "pre-bash-clean",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.774012453,
+          "cpu_seconds": 0.877238,
+          "max_child_rss_mib": 38.5
+        },
+        "candidate": {
+          "latency_seconds": 0.776360083,
+          "cpu_seconds": 0.8812519999999999,
+          "max_child_rss_mib": 38.86328125
+        }
+      },
+      "latency_change_percent": 0.3033064895662685,
+      "cpu_change_percent": 0.45757251737841287
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "off",
+      "host": "codex",
+      "name": "pre-git-status",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.442651682,
+          "cpu_seconds": 0.506905,
+          "max_child_rss_mib": 38.91015625
+        },
+        "candidate": {
+          "latency_seconds": 0.44060931,
+          "cpu_seconds": 0.5015339999999999,
+          "max_child_rss_mib": 38.4609375
+        }
+      },
+      "latency_change_percent": -0.4613948354995734,
+      "cpu_change_percent": -1.0595673745573908
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "off",
+      "host": "codex",
+      "name": "pre-unknown-tool",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.035375741,
+          "cpu_seconds": 0.039505,
+          "max_child_rss_mib": 15.1796875
+        },
+        "candidate": {
+          "latency_seconds": 0.034513431,
+          "cpu_seconds": 0.038721,
+          "max_child_rss_mib": 15.1796875
+        }
+      },
+      "latency_change_percent": -2.437574381834162,
+      "cpu_change_percent": -1.984558916592838
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "off",
+      "host": "codex",
+      "name": "prompt-clean",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.083775408,
+          "cpu_seconds": 0.101937,
+          "max_child_rss_mib": 38.78515625
+        },
+        "candidate": {
+          "latency_seconds": 0.08281242,
+          "cpu_seconds": 0.100966,
+          "max_child_rss_mib": 38.734375
+        }
+      },
+      "latency_change_percent": -1.149487687365247,
+      "cpu_change_percent": -0.9525491234782302
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "warm",
+      "host": "claude",
+      "name": "small-clean",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.116172347,
+          "cpu_seconds": 0.133073,
+          "max_child_rss_mib": 39.046875
+        },
+        "candidate": {
+          "latency_seconds": 0.10177604,
+          "cpu_seconds": 0.11926,
+          "max_child_rss_mib": 38.97265625
+        }
+      },
+      "latency_change_percent": -12.392197774914537,
+      "cpu_change_percent": -10.380016983159612
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "warm",
+      "host": "claude",
+      "name": "long-line",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.280057766,
+          "cpu_seconds": 0.318224,
+          "max_child_rss_mib": 39.265625
+        },
+        "candidate": {
+          "latency_seconds": 0.267854322,
+          "cpu_seconds": 0.306665,
+          "max_child_rss_mib": 38.80859375
+        }
+      },
+      "latency_change_percent": -4.357473879156782,
+      "cpu_change_percent": -3.6323470259942647
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "warm",
+      "host": "claude",
+      "name": "long-multiline",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.27992871,
+          "cpu_seconds": 0.317866,
+          "max_child_rss_mib": 38.8359375
+        },
+        "candidate": {
+          "latency_seconds": 0.265548646,
+          "cpu_seconds": 0.302959,
+          "max_child_rss_mib": 38.9375
+        }
+      },
+      "latency_change_percent": -5.137045071225465,
+      "cpu_change_percent": -4.689712017013459
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "warm",
+      "host": "claude",
+      "name": "escaped-control",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.276332448,
+          "cpu_seconds": 0.314307,
+          "max_child_rss_mib": 39.08203125
+        },
+        "candidate": {
+          "latency_seconds": 0.261960014,
+          "cpu_seconds": 0.299926,
+          "max_child_rss_mib": 38.765625
+        }
+      },
+      "latency_change_percent": -5.201138738509636,
+      "cpu_change_percent": -4.575462843652856
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "warm",
+      "host": "claude",
+      "name": "many-lines",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.289380639,
+          "cpu_seconds": 0.326013,
+          "max_child_rss_mib": 38.83203125
+        },
+        "candidate": {
+          "latency_seconds": 0.274092637,
+          "cpu_seconds": 0.311761,
+          "max_child_rss_mib": 39.08203125
+        }
+      },
+      "latency_change_percent": -5.2830078932820435,
+      "cpu_change_percent": -4.371604813304986
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "warm",
+      "host": "claude",
+      "name": "many-replacement-leaves",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.213004581,
+          "cpu_seconds": 0.2344,
+          "max_child_rss_mib": 39.24609375
+        },
+        "candidate": {
+          "latency_seconds": 0.177123678,
+          "cpu_seconds": 0.200389,
+          "max_child_rss_mib": 38.828125
+        }
+      },
+      "latency_change_percent": -16.84513207722983,
+      "cpu_change_percent": -14.509812286689417
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "warm",
+      "host": "claude",
+      "name": "dense-controls",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.237761139,
+          "cpu_seconds": 0.27291299999999996,
+          "max_child_rss_mib": 16.96875
+        },
+        "candidate": {
+          "latency_seconds": 0.23671094,
+          "cpu_seconds": 0.271551,
+          "max_child_rss_mib": 16.94140625
+        }
+      },
+      "latency_change_percent": -0.44170338534591513,
+      "cpu_change_percent": -0.49906014004461596
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "warm",
+      "host": "claude",
+      "name": "exec-multiline",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.221878005,
+          "cpu_seconds": 0.248577,
+          "max_child_rss_mib": 39.18359375
+        },
+        "candidate": {
+          "latency_seconds": 0.206787562,
+          "cpu_seconds": 0.233627,
+          "max_child_rss_mib": 39.0859375
+        }
+      },
+      "latency_change_percent": -6.801234308916737,
+      "cpu_change_percent": -6.014233014317494
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "warm",
+      "host": "claude",
+      "name": "exec-clean",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.104182388,
+          "cpu_seconds": 0.119584,
+          "max_child_rss_mib": 38.76953125
+        },
+        "candidate": {
+          "latency_seconds": 0.092162218,
+          "cpu_seconds": 0.107485,
+          "max_child_rss_mib": 38.71875
+        }
+      },
+      "latency_change_percent": -11.53762188672427,
+      "cpu_change_percent": -10.117574257425744
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "warm",
+      "host": "claude",
+      "name": "exec-long-quoted-secret",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.368101692,
+          "cpu_seconds": 0.390427,
+          "max_child_rss_mib": 38.8515625
+        },
+        "candidate": {
+          "latency_seconds": 0.345671312,
+          "cpu_seconds": 0.36721,
+          "max_child_rss_mib": 38.95703125
+        }
+      },
+      "latency_change_percent": -6.093528089514999,
+      "cpu_change_percent": -5.946566195473169
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "warm",
+      "host": "claude",
+      "name": "placeholder-control",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.115975727,
+          "cpu_seconds": 0.132955,
+          "max_child_rss_mib": 38.48046875
+        },
+        "candidate": {
+          "latency_seconds": 0.101566621,
+          "cpu_seconds": 0.11865200000000001,
+          "max_child_rss_mib": 38.83203125
+        }
+      },
+      "latency_change_percent": -12.424242876270142,
+      "cpu_change_percent": -10.757775187093365
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "warm",
+      "host": "claude",
+      "name": "metadata-control",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.114179057,
+          "cpu_seconds": 0.131145,
+          "max_child_rss_mib": 38.53515625
+        },
+        "candidate": {
+          "latency_seconds": 0.100460573,
+          "cpu_seconds": 0.11718,
+          "max_child_rss_mib": 38.5546875
+        }
+      },
+      "latency_change_percent": -12.014886407758652,
+      "cpu_change_percent": -10.648518815052043
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "warm",
+      "host": "claude",
+      "name": "prose-control",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.116737385,
+          "cpu_seconds": 0.13488699999999998,
+          "max_child_rss_mib": 38.8671875
+        },
+        "candidate": {
+          "latency_seconds": 0.101581744,
+          "cpu_seconds": 0.118527,
+          "max_child_rss_mib": 38.55859375
+        }
+      },
+      "latency_change_percent": -12.982679884426052,
+      "cpu_change_percent": -12.128670665075203
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "warm",
+      "host": "claude",
+      "name": "exec-over-cap-1048576",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.047992346,
+          "cpu_seconds": 0.056824,
+          "max_child_rss_mib": 8.1640625
+        },
+        "candidate": {
+          "latency_seconds": 0.047527654,
+          "cpu_seconds": 0.056332999999999994,
+          "max_child_rss_mib": 8.1640625
+        }
+      },
+      "latency_change_percent": -0.9682627308946201,
+      "cpu_change_percent": -0.8640715190764592
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "warm",
+      "host": "claude",
+      "name": "exec-over-cap-8388608",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.195486594,
+          "cpu_seconds": 0.215672,
+          "max_child_rss_mib": 50.1640625
+        },
+        "candidate": {
+          "latency_seconds": 0.191509885,
+          "cpu_seconds": 0.211421,
+          "max_child_rss_mib": 50.18359375
+        }
+      },
+      "latency_change_percent": -2.0342617458463774,
+      "cpu_change_percent": -1.9710486294002072
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "warm",
+      "host": "claude",
+      "name": "pre-read-clean",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.046554111,
+          "cpu_seconds": 0.05312,
+          "max_child_rss_mib": 3.60546875
+        },
+        "candidate": {
+          "latency_seconds": 0.047197286,
+          "cpu_seconds": 0.053589,
+          "max_child_rss_mib": 3.62109375
+        }
+      },
+      "latency_change_percent": 1.3815643477758544,
+      "cpu_change_percent": 0.8829066265060082
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "warm",
+      "host": "claude",
+      "name": "pre-read-placeholder",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.046246087,
+          "cpu_seconds": 0.052862000000000006,
+          "max_child_rss_mib": 3.65625
+        },
+        "candidate": {
+          "latency_seconds": 0.046907849,
+          "cpu_seconds": 0.053398,
+          "max_child_rss_mib": 3.61328125
+        }
+      },
+      "latency_change_percent": 1.4309578235235376,
+      "cpu_change_percent": 1.013960879270548
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "warm",
+      "host": "claude",
+      "name": "pre-bash-clean",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.644197008,
+          "cpu_seconds": 0.72952,
+          "max_child_rss_mib": 38.890625
+        },
+        "candidate": {
+          "latency_seconds": 0.643542249,
+          "cpu_seconds": 0.7295659999999999,
+          "max_child_rss_mib": 38.6640625
+        }
+      },
+      "latency_change_percent": -0.10163955930698743,
+      "cpu_change_percent": 0.006305515955684626
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "warm",
+      "host": "claude",
+      "name": "pre-git-status",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.36183506,
+          "cpu_seconds": 0.411867,
+          "max_child_rss_mib": 38.484375
+        },
+        "candidate": {
+          "latency_seconds": 0.362840227,
+          "cpu_seconds": 0.411518,
+          "max_child_rss_mib": 38.4765625
+        }
+      },
+      "latency_change_percent": 0.2777970161321752,
+      "cpu_change_percent": -0.08473609199085574
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "warm",
+      "host": "claude",
+      "name": "pre-unknown-tool",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.032671796,
+          "cpu_seconds": 0.038858000000000004,
+          "max_child_rss_mib": 3.6328125
+        },
+        "candidate": {
+          "latency_seconds": 0.03176678,
+          "cpu_seconds": 0.038036,
+          "max_child_rss_mib": 3.625
+        }
+      },
+      "latency_change_percent": -2.7700221928418034,
+      "cpu_change_percent": -2.115394513356328
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "warm",
+      "host": "claude",
+      "name": "prompt-clean",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.073190445,
+          "cpu_seconds": 0.089454,
+          "max_child_rss_mib": 39.20703125
+        },
+        "candidate": {
+          "latency_seconds": 0.071702696,
+          "cpu_seconds": 0.085747,
+          "max_child_rss_mib": 38.546875
+        }
+      },
+      "latency_change_percent": -2.0327093242840766,
+      "cpu_change_percent": -4.144029333512201
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "warm",
+      "host": "codex",
+      "name": "small-clean",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.114685516,
+          "cpu_seconds": 0.131833,
+          "max_child_rss_mib": 38.76171875
+        },
+        "candidate": {
+          "latency_seconds": 0.1010922,
+          "cpu_seconds": 0.117747,
+          "max_child_rss_mib": 38.5
+        }
+      },
+      "latency_change_percent": -11.85268765761145,
+      "cpu_change_percent": -10.684729923463776
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "warm",
+      "host": "codex",
+      "name": "long-line",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.291617697,
+          "cpu_seconds": 0.332639,
+          "max_child_rss_mib": 39.1484375
+        },
+        "candidate": {
+          "latency_seconds": 0.275215375,
+          "cpu_seconds": 0.31716,
+          "max_child_rss_mib": 39.24609375
+        }
+      },
+      "latency_change_percent": -5.6245976045822825,
+      "cpu_change_percent": -4.653393017655782
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "warm",
+      "host": "codex",
+      "name": "long-multiline",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.291786984,
+          "cpu_seconds": 0.33333999999999997,
+          "max_child_rss_mib": 38.72265625
+        },
+        "candidate": {
+          "latency_seconds": 0.277779007,
+          "cpu_seconds": 0.319949,
+          "max_child_rss_mib": 39.0234375
+        }
+      },
+      "latency_change_percent": -4.800754580608713,
+      "cpu_change_percent": -4.017219655606885
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "warm",
+      "host": "codex",
+      "name": "escaped-control",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.288158551,
+          "cpu_seconds": 0.328724,
+          "max_child_rss_mib": 39.30078125
+        },
+        "candidate": {
+          "latency_seconds": 0.272634773,
+          "cpu_seconds": 0.314166,
+          "max_child_rss_mib": 39.12890625
+        }
+      },
+      "latency_change_percent": -5.387234890697378,
+      "cpu_change_percent": -4.42863922317811
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "warm",
+      "host": "codex",
+      "name": "many-lines",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.301629082,
+          "cpu_seconds": 0.34224,
+          "max_child_rss_mib": 38.953125
+        },
+        "candidate": {
+          "latency_seconds": 0.285329193,
+          "cpu_seconds": 0.326495,
+          "max_child_rss_mib": 39.12109375
+        }
+      },
+      "latency_change_percent": -5.403951400150476,
+      "cpu_change_percent": -4.600572697522209
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "warm",
+      "host": "codex",
+      "name": "many-replacement-leaves",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.214974155,
+          "cpu_seconds": 0.23809000000000002,
+          "max_child_rss_mib": 38.640625
+        },
+        "candidate": {
+          "latency_seconds": 0.180508316,
+          "cpu_seconds": 0.204545,
+          "max_child_rss_mib": 38.95703125
+        }
+      },
+      "latency_change_percent": -16.032550052353965,
+      "cpu_change_percent": -14.089209962619186
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "warm",
+      "host": "codex",
+      "name": "dense-controls",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.23994516,
+          "cpu_seconds": 0.275377,
+          "max_child_rss_mib": 16.95703125
+        },
+        "candidate": {
+          "latency_seconds": 0.239426273,
+          "cpu_seconds": 0.27500199999999997,
+          "max_child_rss_mib": 16.97265625
+        }
+      },
+      "latency_change_percent": -0.21625233032414037,
+      "cpu_change_percent": -0.13617695014471742
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "warm",
+      "host": "codex",
+      "name": "exec-multiline",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.221235799,
+          "cpu_seconds": 0.24729600000000002,
+          "max_child_rss_mib": 39.26953125
+        },
+        "candidate": {
+          "latency_seconds": 0.205102298,
+          "cpu_seconds": 0.23134100000000002,
+          "max_child_rss_mib": 38.890625
+        }
+      },
+      "latency_change_percent": -7.292445921014812,
+      "cpu_change_percent": -6.451782479296064
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "warm",
+      "host": "codex",
+      "name": "exec-clean",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.103998349,
+          "cpu_seconds": 0.119455,
+          "max_child_rss_mib": 38.89453125
+        },
+        "candidate": {
+          "latency_seconds": 0.091162417,
+          "cpu_seconds": 0.10535,
+          "max_child_rss_mib": 38.453125
+        }
+      },
+      "latency_change_percent": -12.342438243899434,
+      "cpu_change_percent": -11.807793729856431
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "warm",
+      "host": "codex",
+      "name": "exec-long-quoted-secret",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.369696879,
+          "cpu_seconds": 0.391638,
+          "max_child_rss_mib": 38.91015625
+        },
+        "candidate": {
+          "latency_seconds": 0.346135103,
+          "cpu_seconds": 0.368908,
+          "max_child_rss_mib": 38.83203125
+        }
+      },
+      "latency_change_percent": -6.373268842228985,
+      "cpu_change_percent": -5.80382904621104
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "warm",
+      "host": "codex",
+      "name": "placeholder-control",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.115020904,
+          "cpu_seconds": 0.132169,
+          "max_child_rss_mib": 38.5390625
+        },
+        "candidate": {
+          "latency_seconds": 0.101381218,
+          "cpu_seconds": 0.11927399999999999,
+          "max_child_rss_mib": 38.8203125
+        }
+      },
+      "latency_change_percent": -11.858440966522055,
+      "cpu_change_percent": -9.756448183764743
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "warm",
+      "host": "codex",
+      "name": "metadata-control",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.114792414,
+          "cpu_seconds": 0.13221,
+          "max_child_rss_mib": 38.5390625
+        },
+        "candidate": {
+          "latency_seconds": 0.101970977,
+          "cpu_seconds": 0.119167,
+          "max_child_rss_mib": 39.078125
+        }
+      },
+      "latency_change_percent": -11.1692371936703,
+      "cpu_change_percent": -9.86536570607367
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "warm",
+      "host": "codex",
+      "name": "prose-control",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.115273847,
+          "cpu_seconds": 0.132455,
+          "max_child_rss_mib": 38.67578125
+        },
+        "candidate": {
+          "latency_seconds": 0.101594931,
+          "cpu_seconds": 0.118979,
+          "max_child_rss_mib": 38.7109375
+        }
+      },
+      "latency_change_percent": -11.866452240463532,
+      "cpu_change_percent": -10.174021365746844
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "warm",
+      "host": "codex",
+      "name": "exec-over-cap-1048576",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.047856163,
+          "cpu_seconds": 0.056411,
+          "max_child_rss_mib": 8.171875
+        },
+        "candidate": {
+          "latency_seconds": 0.047160544,
+          "cpu_seconds": 0.055729,
+          "max_child_rss_mib": 8.23046875
+        }
+      },
+      "latency_change_percent": -1.4535619999455518,
+      "cpu_change_percent": -1.2089840633918936
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "warm",
+      "host": "codex",
+      "name": "exec-over-cap-8388608",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.195172208,
+          "cpu_seconds": 0.215386,
+          "max_child_rss_mib": 50.15625
+        },
+        "candidate": {
+          "latency_seconds": 0.191247037,
+          "cpu_seconds": 0.21113900000000002,
+          "max_child_rss_mib": 50.23046875
+        }
+      },
+      "latency_change_percent": -2.0111321382396796,
+      "cpu_change_percent": -1.9718087526580108
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "warm",
+      "host": "codex",
+      "name": "pre-read-clean",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.046673805,
+          "cpu_seconds": 0.053024,
+          "max_child_rss_mib": 3.6328125
+        },
+        "candidate": {
+          "latency_seconds": 0.047558108,
+          "cpu_seconds": 0.053938,
+          "max_child_rss_mib": 3.625
+        }
+      },
+      "latency_change_percent": 1.894645186952304,
+      "cpu_change_percent": 1.7237477368738707
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "warm",
+      "host": "codex",
+      "name": "pre-read-placeholder",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.046516438,
+          "cpu_seconds": 0.052857,
+          "max_child_rss_mib": 3.625
+        },
+        "candidate": {
+          "latency_seconds": 0.047781291,
+          "cpu_seconds": 0.053265,
+          "max_child_rss_mib": 3.64453125
+        }
+      },
+      "latency_change_percent": 2.719152743380726,
+      "cpu_change_percent": 0.771893978091831
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "warm",
+      "host": "codex",
+      "name": "pre-bash-clean",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.645963392,
+          "cpu_seconds": 0.7292069999999999,
+          "max_child_rss_mib": 38.5234375
+        },
+        "candidate": {
+          "latency_seconds": 0.645908194,
+          "cpu_seconds": 0.7302489999999999,
+          "max_child_rss_mib": 38.7890625
+        }
+      },
+      "latency_change_percent": -0.00854506628139573,
+      "cpu_change_percent": 0.14289495301060828
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "warm",
+      "host": "codex",
+      "name": "pre-git-status",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.366425874,
+          "cpu_seconds": 0.416728,
+          "max_child_rss_mib": 38.4140625
+        },
+        "candidate": {
+          "latency_seconds": 0.365260441,
+          "cpu_seconds": 0.41505400000000003,
+          "max_child_rss_mib": 38.73828125
+        }
+      },
+      "latency_change_percent": -0.31805423216374473,
+      "cpu_change_percent": -0.40170086963198237
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "warm",
+      "host": "codex",
+      "name": "pre-unknown-tool",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.032491124,
+          "cpu_seconds": 0.038757,
+          "max_child_rss_mib": 3.62109375
+        },
+        "candidate": {
+          "latency_seconds": 0.032089879,
+          "cpu_seconds": 0.037942000000000004,
+          "max_child_rss_mib": 3.65234375
+        }
+      },
+      "latency_change_percent": -1.2349372708681972,
+      "cpu_change_percent": -2.1028459375080577
+    },
+    {
+      "scanner": "homebrew",
+      "audit": "warm",
+      "host": "codex",
+      "name": "prompt-clean",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.071709628,
+          "cpu_seconds": 0.087363,
+          "max_child_rss_mib": 38.76953125
+        },
+        "candidate": {
+          "latency_seconds": 0.071544483,
+          "cpu_seconds": 0.086834,
+          "max_child_rss_mib": 39.09765625
+        }
+      },
+      "latency_change_percent": -0.2302968298761643,
+      "cpu_change_percent": -0.6055194991014479
+    },
+    {
+      "scanner": "official",
+      "audit": "cold",
+      "host": "claude",
+      "name": "small-clean",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.853725268,
+          "cpu_seconds": 0.9031340000000001,
+          "max_child_rss_mib": 62.609375
+        },
+        "candidate": {
+          "latency_seconds": 0.828439791,
+          "cpu_seconds": 0.873113,
+          "max_child_rss_mib": 61.92578125
+        }
+      },
+      "latency_change_percent": -2.9617814943249443,
+      "cpu_change_percent": -3.3240914415801015
+    },
+    {
+      "scanner": "official",
+      "audit": "cold",
+      "host": "claude",
+      "name": "long-line",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 1.082978312,
+          "cpu_seconds": 1.152647,
+          "max_child_rss_mib": 62.17578125
+        },
+        "candidate": {
+          "latency_seconds": 1.064903467,
+          "cpu_seconds": 1.135639,
+          "max_child_rss_mib": 62.98828125
+        }
+      },
+      "latency_change_percent": -1.6689941801900199,
+      "cpu_change_percent": -1.475560167163048
+    },
+    {
+      "scanner": "official",
+      "audit": "cold",
+      "host": "claude",
+      "name": "long-multiline",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 1.089863081,
+          "cpu_seconds": 1.162352,
+          "max_child_rss_mib": 62.73828125
+        },
+        "candidate": {
+          "latency_seconds": 1.074116361,
+          "cpu_seconds": 1.146837,
+          "max_child_rss_mib": 62.41796875
+        }
+      },
+      "latency_change_percent": -1.444834702130815,
+      "cpu_change_percent": -1.3347935909259756
+    },
+    {
+      "scanner": "official",
+      "audit": "cold",
+      "host": "claude",
+      "name": "escaped-control",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 1.085488829,
+          "cpu_seconds": 1.15635,
+          "max_child_rss_mib": 62.73828125
+        },
+        "candidate": {
+          "latency_seconds": 1.068779304,
+          "cpu_seconds": 1.136903,
+          "max_child_rss_mib": 62.67578125
+        }
+      },
+      "latency_change_percent": -1.5393548559494152,
+      "cpu_change_percent": -1.68175725342673
+    },
+    {
+      "scanner": "official",
+      "audit": "cold",
+      "host": "claude",
+      "name": "many-lines",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 1.023224383,
+          "cpu_seconds": 1.0952600000000001,
+          "max_child_rss_mib": 62.67578125
+        },
+        "candidate": {
+          "latency_seconds": 1.006428481,
+          "cpu_seconds": 1.078652,
+          "max_child_rss_mib": 62.55078125
+        }
+      },
+      "latency_change_percent": -1.641468115796474,
+      "cpu_change_percent": -1.5163522816500352
+    },
+    {
+      "scanner": "official",
+      "audit": "cold",
+      "host": "claude",
+      "name": "many-replacement-leaves",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.949159281,
+          "cpu_seconds": 1.0003170000000001,
+          "max_child_rss_mib": 62.11328125
+        },
+        "candidate": {
+          "latency_seconds": 0.905179891,
+          "cpu_seconds": 0.9563240000000001,
+          "max_child_rss_mib": 62.09765625
+        }
+      },
+      "latency_change_percent": -4.6335099788167184,
+      "cpu_change_percent": -4.397905863841167
+    },
+    {
+      "scanner": "official",
+      "audit": "cold",
+      "host": "claude",
+      "name": "dense-controls",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.605933311,
+          "cpu_seconds": 0.665052,
+          "max_child_rss_mib": 45.86328125
+        },
+        "candidate": {
+          "latency_seconds": 0.599248598,
+          "cpu_seconds": 0.6614289999999999,
+          "max_child_rss_mib": 45.61328125
+        }
+      },
+      "latency_change_percent": -1.1032093596187953,
+      "cpu_change_percent": -0.5447694315632523
+    },
+    {
+      "scanner": "official",
+      "audit": "cold",
+      "host": "claude",
+      "name": "exec-multiline",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 1.019752387,
+          "cpu_seconds": 1.076748,
+          "max_child_rss_mib": 61.98828125
+        },
+        "candidate": {
+          "latency_seconds": 0.998202139,
+          "cpu_seconds": 1.062464,
+          "max_child_rss_mib": 62.67578125
+        }
+      },
+      "latency_change_percent": -2.1132824276487883,
+      "cpu_change_percent": -1.3265870937303803
+    },
+    {
+      "scanner": "official",
+      "audit": "cold",
+      "host": "claude",
+      "name": "exec-clean",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.846438341,
+          "cpu_seconds": 0.89473,
+          "max_child_rss_mib": 61.41796875
+        },
+        "candidate": {
+          "latency_seconds": 0.831057844,
+          "cpu_seconds": 0.8807130000000001,
+          "max_child_rss_mib": 61.92578125
+        }
+      },
+      "latency_change_percent": -1.817084157816995,
+      "cpu_change_percent": -1.5666178623718774
+    },
+    {
+      "scanner": "official",
+      "audit": "cold",
+      "host": "claude",
+      "name": "exec-long-quoted-secret",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.991303007,
+          "cpu_seconds": 1.047132,
+          "max_child_rss_mib": 62.3046875
+        },
+        "candidate": {
+          "latency_seconds": 0.966359998,
+          "cpu_seconds": 1.018799,
+          "max_child_rss_mib": 62.8671875
+        }
+      },
+      "latency_change_percent": -2.516184135815891,
+      "cpu_change_percent": -2.7057715741663824
+    },
+    {
+      "scanner": "official",
+      "audit": "cold",
+      "host": "claude",
+      "name": "placeholder-control",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.858920789,
+          "cpu_seconds": 0.906268,
+          "max_child_rss_mib": 62.73828125
+        },
+        "candidate": {
+          "latency_seconds": 0.839146055,
+          "cpu_seconds": 0.888721,
+          "max_child_rss_mib": 62.11328125
+        }
+      },
+      "latency_change_percent": -2.302276793535618,
+      "cpu_change_percent": -1.9361822330701273
+    },
+    {
+      "scanner": "official",
+      "audit": "cold",
+      "host": "claude",
+      "name": "metadata-control",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.847246756,
+          "cpu_seconds": 0.891095,
+          "max_child_rss_mib": 62.11328125
+        },
+        "candidate": {
+          "latency_seconds": 0.828168936,
+          "cpu_seconds": 0.878593,
+          "max_child_rss_mib": 61.98828125
+        }
+      },
+      "latency_change_percent": -2.2517430565411334,
+      "cpu_change_percent": -1.4029929468799662
+    },
+    {
+      "scanner": "official",
+      "audit": "cold",
+      "host": "claude",
+      "name": "prose-control",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.844427782,
+          "cpu_seconds": 0.895138,
+          "max_child_rss_mib": 62.23828125
+        },
+        "candidate": {
+          "latency_seconds": 0.827263834,
+          "cpu_seconds": 0.873783,
+          "max_child_rss_mib": 62.86328125
+        }
+      },
+      "latency_change_percent": -2.032612896670416,
+      "cpu_change_percent": -2.385665673896098
+    },
+    {
+      "scanner": "official",
+      "audit": "cold",
+      "host": "claude",
+      "name": "exec-over-cap-1048576",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.35438914,
+          "cpu_seconds": 0.383782,
+          "max_child_rss_mib": 45.7421875
+        },
+        "candidate": {
+          "latency_seconds": 0.354980575,
+          "cpu_seconds": 0.383211,
+          "max_child_rss_mib": 45.48828125
+        }
+      },
+      "latency_change_percent": 0.16688857903490728,
+      "cpu_change_percent": -0.14878238166459168
+    },
+    {
+      "scanner": "official",
+      "audit": "cold",
+      "host": "claude",
+      "name": "exec-over-cap-8388608",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.515882691,
+          "cpu_seconds": 0.558343,
+          "max_child_rss_mib": 50.24609375
+        },
+        "candidate": {
+          "latency_seconds": 0.512508579,
+          "cpu_seconds": 0.552941,
+          "max_child_rss_mib": 50.2578125
+        }
+      },
+      "latency_change_percent": -0.6540463672970787,
+      "cpu_change_percent": -0.9675056372158375
+    },
+    {
+      "scanner": "official",
+      "audit": "cold",
+      "host": "claude",
+      "name": "pre-read-clean",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.353963408,
+          "cpu_seconds": 0.381246,
+          "max_child_rss_mib": 45.61328125
+        },
+        "candidate": {
+          "latency_seconds": 0.359015801,
+          "cpu_seconds": 0.380896,
+          "max_child_rss_mib": 45.0546875
+        }
+      },
+      "latency_change_percent": 1.4273772050471534,
+      "cpu_change_percent": -0.09180424188055536
+    },
+    {
+      "scanner": "official",
+      "audit": "cold",
+      "host": "claude",
+      "name": "pre-read-placeholder",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.353245887,
+          "cpu_seconds": 0.377799,
+          "max_child_rss_mib": 45.80078125
+        },
+        "candidate": {
+          "latency_seconds": 0.356847736,
+          "cpu_seconds": 0.383252,
+          "max_child_rss_mib": 45.61328125
+        }
+      },
+      "latency_change_percent": 1.0196435776193669,
+      "cpu_change_percent": 1.4433600935947366
+    },
+    {
+      "scanner": "official",
+      "audit": "cold",
+      "host": "claude",
+      "name": "pre-bash-clean",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 1.4767005260000001,
+          "cpu_seconds": 1.606782,
+          "max_child_rss_mib": 62.22265625
+        },
+        "candidate": {
+          "latency_seconds": 1.480784796,
+          "cpu_seconds": 1.612377,
+          "max_child_rss_mib": 62.05078125
+        }
+      },
+      "latency_change_percent": 0.27658079130392643,
+      "cpu_change_percent": 0.34821151842627796
+    },
+    {
+      "scanner": "official",
+      "audit": "cold",
+      "host": "claude",
+      "name": "pre-git-status",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 1.14528212,
+          "cpu_seconds": 1.236304,
+          "max_child_rss_mib": 62.73828125
+        },
+        "candidate": {
+          "latency_seconds": 1.145649736,
+          "cpu_seconds": 1.2301739999999999,
+          "max_child_rss_mib": 61.796875
+        }
+      },
+      "latency_change_percent": 0.03209829207846404,
+      "cpu_change_percent": -0.4958327401674789
+    },
+    {
+      "scanner": "official",
+      "audit": "cold",
+      "host": "claude",
+      "name": "pre-unknown-tool",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.341651075,
+          "cpu_seconds": 0.367079,
+          "max_child_rss_mib": 45.55078125
+        },
+        "candidate": {
+          "latency_seconds": 0.339896706,
+          "cpu_seconds": 0.365371,
+          "max_child_rss_mib": 45.36328125
+        }
+      },
+      "latency_change_percent": -0.5134972866688736,
+      "cpu_change_percent": -0.4652949365122949
+    },
+    {
+      "scanner": "official",
+      "audit": "cold",
+      "host": "claude",
+      "name": "prompt-clean",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.79029799,
+          "cpu_seconds": 0.834121,
+          "max_child_rss_mib": 62.48828125
+        },
+        "candidate": {
+          "latency_seconds": 0.797512459,
+          "cpu_seconds": 0.8356490000000001,
+          "max_child_rss_mib": 59.30078125
+        }
+      },
+      "latency_change_percent": 0.9128795835606329,
+      "cpu_change_percent": 0.18318685178770888
+    },
+    {
+      "scanner": "official",
+      "audit": "cold",
+      "host": "codex",
+      "name": "small-clean",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.845015828,
+          "cpu_seconds": 0.892836,
+          "max_child_rss_mib": 62.36328125
+        },
+        "candidate": {
+          "latency_seconds": 0.823733292,
+          "cpu_seconds": 0.869158,
+          "max_child_rss_mib": 62.48828125
+        }
+      },
+      "latency_change_percent": -2.518596136876139,
+      "cpu_change_percent": -2.6519987993315675
+    },
+    {
+      "scanner": "official",
+      "audit": "cold",
+      "host": "codex",
+      "name": "long-line",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 1.095945798,
+          "cpu_seconds": 1.174512,
+          "max_child_rss_mib": 62.98828125
+        },
+        "candidate": {
+          "latency_seconds": 1.078306453,
+          "cpu_seconds": 1.1510310000000001,
+          "max_child_rss_mib": 62.91015625
+        }
+      },
+      "latency_change_percent": -1.6095088855845097,
+      "cpu_change_percent": -1.9992132902856508
+    },
+    {
+      "scanner": "official",
+      "audit": "cold",
+      "host": "codex",
+      "name": "long-multiline",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 1.093172915,
+          "cpu_seconds": 1.169136,
+          "max_child_rss_mib": 62.48828125
+        },
+        "candidate": {
+          "latency_seconds": 1.081658172,
+          "cpu_seconds": 1.156532,
+          "max_child_rss_mib": 62.17578125
+        }
+      },
+      "latency_change_percent": -1.0533322626274488,
+      "cpu_change_percent": -1.0780610638967625
+    },
+    {
+      "scanner": "official",
+      "audit": "cold",
+      "host": "codex",
+      "name": "escaped-control",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 1.09449409,
+          "cpu_seconds": 1.1705,
+          "max_child_rss_mib": 62.54296875
+        },
+        "candidate": {
+          "latency_seconds": 1.080685696,
+          "cpu_seconds": 1.157818,
+          "max_child_rss_mib": 62.73828125
+        }
+      },
+      "latency_change_percent": -1.2616234410183114,
+      "cpu_change_percent": -1.083468603161053
+    },
+    {
+      "scanner": "official",
+      "audit": "cold",
+      "host": "codex",
+      "name": "many-lines",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 1.033131627,
+          "cpu_seconds": 1.109354,
+          "max_child_rss_mib": 62.4921875
+        },
+        "candidate": {
+          "latency_seconds": 1.017105374,
+          "cpu_seconds": 1.0916890000000001,
+          "max_child_rss_mib": 62.54296875
+        }
+      },
+      "latency_change_percent": -1.5512305093724477,
+      "cpu_change_percent": -1.5923681710256488
+    },
+    {
+      "scanner": "official",
+      "audit": "cold",
+      "host": "codex",
+      "name": "many-replacement-leaves",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.950326301,
+          "cpu_seconds": 1.005169,
+          "max_child_rss_mib": 62.04296875
+        },
+        "candidate": {
+          "latency_seconds": 0.910104371,
+          "cpu_seconds": 0.9659580000000001,
+          "max_child_rss_mib": 62.79296875
+        }
+      },
+      "latency_change_percent": -4.232433634392285,
+      "cpu_change_percent": -3.900936061498106
+    },
+    {
+      "scanner": "official",
+      "audit": "cold",
+      "host": "codex",
+      "name": "dense-controls",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.605780822,
+          "cpu_seconds": 0.6671710000000001,
+          "max_child_rss_mib": 45.73828125
+        },
+        "candidate": {
+          "latency_seconds": 0.603862482,
+          "cpu_seconds": 0.6641790000000001,
+          "max_child_rss_mib": 45.42578125
+        }
+      },
+      "latency_change_percent": -0.3166722897675389,
+      "cpu_change_percent": -0.4484607394506068
+    },
+    {
+      "scanner": "official",
+      "audit": "cold",
+      "host": "codex",
+      "name": "exec-multiline",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 1.011610075,
+          "cpu_seconds": 1.068453,
+          "max_child_rss_mib": 62.23828125
+        },
+        "candidate": {
+          "latency_seconds": 0.993169361,
+          "cpu_seconds": 1.04851,
+          "max_child_rss_mib": 62.42578125
+        }
+      },
+      "latency_change_percent": -1.822907309419608,
+      "cpu_change_percent": -1.8665303948793288
+    },
+    {
+      "scanner": "official",
+      "audit": "cold",
+      "host": "codex",
+      "name": "exec-clean",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.833469689,
+          "cpu_seconds": 0.874048,
+          "max_child_rss_mib": 62.67578125
+        },
+        "candidate": {
+          "latency_seconds": 0.820260884,
+          "cpu_seconds": 0.865945,
+          "max_child_rss_mib": 61.61328125
+        }
+      },
+      "latency_change_percent": -1.5847972846916525,
+      "cpu_change_percent": -0.9270657904371427
+    },
+    {
+      "scanner": "official",
+      "audit": "cold",
+      "host": "codex",
+      "name": "exec-long-quoted-secret",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.986158699,
+          "cpu_seconds": 1.039504,
+          "max_child_rss_mib": 61.6796875
+        },
+        "candidate": {
+          "latency_seconds": 0.958084427,
+          "cpu_seconds": 1.0112700000000001,
+          "max_child_rss_mib": 62.48828125
+        }
+      },
+      "latency_change_percent": -2.8468310453954593,
+      "cpu_change_percent": -2.7161030645384554
+    },
+    {
+      "scanner": "official",
+      "audit": "cold",
+      "host": "codex",
+      "name": "placeholder-control",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.848153598,
+          "cpu_seconds": 0.8932329999999999,
+          "max_child_rss_mib": 62.23828125
+        },
+        "candidate": {
+          "latency_seconds": 0.82761754,
+          "cpu_seconds": 0.87483,
+          "max_child_rss_mib": 62.55078125
+        }
+      },
+      "latency_change_percent": -2.4212663895343156,
+      "cpu_change_percent": -2.06026870928413
+    },
+    {
+      "scanner": "official",
+      "audit": "cold",
+      "host": "codex",
+      "name": "metadata-control",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.851708719,
+          "cpu_seconds": 0.897167,
+          "max_child_rss_mib": 62.11328125
+        },
+        "candidate": {
+          "latency_seconds": 0.837750996,
+          "cpu_seconds": 0.887746,
+          "max_child_rss_mib": 62.11328125
+        }
+      },
+      "latency_change_percent": -1.638790667352552,
+      "cpu_change_percent": -1.0500832063595755
+    },
+    {
+      "scanner": "official",
+      "audit": "cold",
+      "host": "codex",
+      "name": "prose-control",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.848276863,
+          "cpu_seconds": 0.894978,
+          "max_child_rss_mib": 62.55078125
+        },
+        "candidate": {
+          "latency_seconds": 0.825106544,
+          "cpu_seconds": 0.871533,
+          "max_child_rss_mib": 61.92578125
+        }
+      },
+      "latency_change_percent": -2.731457146910299,
+      "cpu_change_percent": -2.619617465457258
+    },
+    {
+      "scanner": "official",
+      "audit": "cold",
+      "host": "codex",
+      "name": "exec-over-cap-1048576",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.35822956,
+          "cpu_seconds": 0.384466,
+          "max_child_rss_mib": 45.60546875
+        },
+        "candidate": {
+          "latency_seconds": 0.357978203,
+          "cpu_seconds": 0.38552699999999995,
+          "max_child_rss_mib": 45.859375
+        }
+      },
+      "latency_change_percent": -0.07016645974162738,
+      "cpu_change_percent": 0.27596718565490175
+    },
+    {
+      "scanner": "official",
+      "audit": "cold",
+      "host": "codex",
+      "name": "exec-over-cap-8388608",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.519018833,
+          "cpu_seconds": 0.5600419999999999,
+          "max_child_rss_mib": 50.25390625
+        },
+        "candidate": {
+          "latency_seconds": 0.517607333,
+          "cpu_seconds": 0.560437,
+          "max_child_rss_mib": 50.28125
+        }
+      },
+      "latency_change_percent": -0.27195544944705885,
+      "cpu_change_percent": 0.07053042450388958
+    },
+    {
+      "scanner": "official",
+      "audit": "cold",
+      "host": "codex",
+      "name": "pre-read-clean",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.360147531,
+          "cpu_seconds": 0.385636,
+          "max_child_rss_mib": 45.60546875
+        },
+        "candidate": {
+          "latency_seconds": 0.358789597,
+          "cpu_seconds": 0.383598,
+          "max_child_rss_mib": 45.73828125
+        }
+      },
+      "latency_change_percent": -0.3770493709146061,
+      "cpu_change_percent": -0.5284776317563633
+    },
+    {
+      "scanner": "official",
+      "audit": "cold",
+      "host": "codex",
+      "name": "pre-read-placeholder",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.356767835,
+          "cpu_seconds": 0.378886,
+          "max_child_rss_mib": 46.23828125
+        },
+        "candidate": {
+          "latency_seconds": 0.360778294,
+          "cpu_seconds": 0.38560799999999995,
+          "max_child_rss_mib": 45.35546875
+        }
+      },
+      "latency_change_percent": 1.1241089040439967,
+      "cpu_change_percent": 1.7741484245920702
+    },
+    {
+      "scanner": "official",
+      "audit": "cold",
+      "host": "codex",
+      "name": "pre-bash-clean",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 1.48652154,
+          "cpu_seconds": 1.6216679999999999,
+          "max_child_rss_mib": 62.23828125
+        },
+        "candidate": {
+          "latency_seconds": 1.485682062,
+          "cpu_seconds": 1.616066,
+          "max_child_rss_mib": 62.36328125
+        }
+      },
+      "latency_change_percent": -0.05647264283840103,
+      "cpu_change_percent": -0.3454467868885591
+    },
+    {
+      "scanner": "official",
+      "audit": "cold",
+      "host": "codex",
+      "name": "pre-git-status",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 1.153585536,
+          "cpu_seconds": 1.245112,
+          "max_child_rss_mib": 61.98828125
+        },
+        "candidate": {
+          "latency_seconds": 1.148898479,
+          "cpu_seconds": 1.241422,
+          "max_child_rss_mib": 62.41796875
+        }
+      },
+      "latency_change_percent": -0.40630337792306737,
+      "cpu_change_percent": -0.2963588817712748
+    },
+    {
+      "scanner": "official",
+      "audit": "cold",
+      "host": "codex",
+      "name": "pre-unknown-tool",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.337643538,
+          "cpu_seconds": 0.36145900000000003,
+          "max_child_rss_mib": 45.48828125
+        },
+        "candidate": {
+          "latency_seconds": 0.337758126,
+          "cpu_seconds": 0.362118,
+          "max_child_rss_mib": 45.67578125
+        }
+      },
+      "latency_change_percent": 0.03393756642839918,
+      "cpu_change_percent": 0.18231666662054113
+    },
+    {
+      "scanner": "official",
+      "audit": "cold",
+      "host": "codex",
+      "name": "prompt-clean",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.788488716,
+          "cpu_seconds": 0.834858,
+          "max_child_rss_mib": 61.73046875
+        },
+        "candidate": {
+          "latency_seconds": 0.786137774,
+          "cpu_seconds": 0.829253,
+          "max_child_rss_mib": 62.42578125
+        }
+      },
+      "latency_change_percent": -0.2981579764294362,
+      "cpu_change_percent": -0.6713716584137663
+    },
+    {
+      "scanner": "official",
+      "audit": "off",
+      "host": "claude",
+      "name": "small-clean",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.651847701,
+          "cpu_seconds": 0.6823509999999999,
+          "max_child_rss_mib": 61.86328125
+        },
+        "candidate": {
+          "latency_seconds": 0.639064807,
+          "cpu_seconds": 0.6610590000000001,
+          "max_child_rss_mib": 62.23046875
+        }
+      },
+      "latency_change_percent": -1.9610246351087435,
+      "cpu_change_percent": -3.120388187311207
+    },
+    {
+      "scanner": "official",
+      "audit": "off",
+      "host": "claude",
+      "name": "long-line",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.845729681,
+          "cpu_seconds": 0.8958360000000001,
+          "max_child_rss_mib": 62.05078125
+        },
+        "candidate": {
+          "latency_seconds": 0.830332736,
+          "cpu_seconds": 0.8810209999999999,
+          "max_child_rss_mib": 62.171875
+        }
+      },
+      "latency_change_percent": -1.8205515717261478,
+      "cpu_change_percent": -1.65376251903252
+    },
+    {
+      "scanner": "official",
+      "audit": "off",
+      "host": "claude",
+      "name": "long-multiline",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.872538357,
+          "cpu_seconds": 0.8944679999999999,
+          "max_child_rss_mib": 61.86328125
+        },
+        "candidate": {
+          "latency_seconds": 0.830687546,
+          "cpu_seconds": 0.88075,
+          "max_child_rss_mib": 61.86328125
+        }
+      },
+      "latency_change_percent": -4.796443693764163,
+      "cpu_change_percent": -1.5336490517268264
+    },
+    {
+      "scanner": "official",
+      "audit": "off",
+      "host": "claude",
+      "name": "escaped-control",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.879078309,
+          "cpu_seconds": 0.90726,
+          "max_child_rss_mib": 62.11328125
+        },
+        "candidate": {
+          "latency_seconds": 0.840916888,
+          "cpu_seconds": 0.8866740000000001,
+          "max_child_rss_mib": 62.11328125
+        }
+      },
+      "latency_change_percent": -4.341071848696931,
+      "cpu_change_percent": -2.2690298260696906
+    },
+    {
+      "scanner": "official",
+      "audit": "off",
+      "host": "claude",
+      "name": "many-lines",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.800778846,
+          "cpu_seconds": 0.8374710000000001,
+          "max_child_rss_mib": 61.73828125
+        },
+        "candidate": {
+          "latency_seconds": 0.783166669,
+          "cpu_seconds": 0.8288,
+          "max_child_rss_mib": 61.36328125
+        }
+      },
+      "latency_change_percent": -2.199380901228265,
+      "cpu_change_percent": -1.0353791355163455
+    },
+    {
+      "scanner": "official",
+      "audit": "off",
+      "host": "claude",
+      "name": "many-replacement-leaves",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.755473643,
+          "cpu_seconds": 0.768091,
+          "max_child_rss_mib": 62.54296875
+        },
+        "candidate": {
+          "latency_seconds": 0.697208707,
+          "cpu_seconds": 0.729572,
+          "max_child_rss_mib": 62.80078125
+        }
+      },
+      "latency_change_percent": -7.712371773637106,
+      "cpu_change_percent": -5.014900578186698
+    },
+    {
+      "scanner": "official",
+      "audit": "off",
+      "host": "claude",
+      "name": "dense-controls",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.458285009,
+          "cpu_seconds": 0.503334,
+          "max_child_rss_mib": 46.36328125
+        },
+        "candidate": {
+          "latency_seconds": 0.455904911,
+          "cpu_seconds": 0.497618,
+          "max_child_rss_mib": 45.36328125
+        }
+      },
+      "latency_change_percent": -0.5193488665914403,
+      "cpu_change_percent": -1.1356276349302696
+    },
+    {
+      "scanner": "official",
+      "audit": "off",
+      "host": "claude",
+      "name": "exec-multiline",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.786450218,
+          "cpu_seconds": 0.82629,
+          "max_child_rss_mib": 62.48828125
+        },
+        "candidate": {
+          "latency_seconds": 0.775623562,
+          "cpu_seconds": 0.813878,
+          "max_child_rss_mib": 62.61328125
+        }
+      },
+      "latency_change_percent": -1.3766486107070985,
+      "cpu_change_percent": -1.502136053927794
+    },
+    {
+      "scanner": "official",
+      "audit": "off",
+      "host": "claude",
+      "name": "exec-clean",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.650907485,
+          "cpu_seconds": 0.6658259999999999,
+          "max_child_rss_mib": 61.92578125
+        },
+        "candidate": {
+          "latency_seconds": 0.627585612,
+          "cpu_seconds": 0.652773,
+          "max_child_rss_mib": 60.6796875
+        }
+      },
+      "latency_change_percent": -3.582978155490102,
+      "cpu_change_percent": -1.9604220922583182
+    },
+    {
+      "scanner": "official",
+      "audit": "off",
+      "host": "claude",
+      "name": "exec-long-quoted-secret",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.76488976,
+          "cpu_seconds": 0.800085,
+          "max_child_rss_mib": 62.30078125
+        },
+        "candidate": {
+          "latency_seconds": 0.742174596,
+          "cpu_seconds": 0.776004,
+          "max_child_rss_mib": 62.54296875
+        }
+      },
+      "latency_change_percent": -2.969730435402873,
+      "cpu_change_percent": -3.0098052081966364
+    },
+    {
+      "scanner": "official",
+      "audit": "off",
+      "host": "claude",
+      "name": "placeholder-control",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.655553993,
+          "cpu_seconds": 0.685054,
+          "max_child_rss_mib": 61.98828125
+        },
+        "candidate": {
+          "latency_seconds": 0.642781168,
+          "cpu_seconds": 0.672142,
+          "max_child_rss_mib": 62.23828125
+        }
+      },
+      "latency_change_percent": -1.9484016780292879,
+      "cpu_change_percent": -1.8848149196997621
+    },
+    {
+      "scanner": "official",
+      "audit": "off",
+      "host": "claude",
+      "name": "metadata-control",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.65794843,
+          "cpu_seconds": 0.6795340000000001,
+          "max_child_rss_mib": 61.98828125
+        },
+        "candidate": {
+          "latency_seconds": 0.6389289,
+          "cpu_seconds": 0.671448,
+          "max_child_rss_mib": 62.48828125
+        }
+      },
+      "latency_change_percent": -2.8907326369028707,
+      "cpu_change_percent": -1.1899331012134806
+    },
+    {
+      "scanner": "official",
+      "audit": "off",
+      "host": "claude",
+      "name": "prose-control",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.655006565,
+          "cpu_seconds": 0.68496,
+          "max_child_rss_mib": 62.234375
+        },
+        "candidate": {
+          "latency_seconds": 0.639980006,
+          "cpu_seconds": 0.6665760000000001,
+          "max_child_rss_mib": 62.17578125
+        }
+      },
+      "latency_change_percent": -2.294108151419816,
+      "cpu_change_percent": -2.68395234758233
+    },
+    {
+      "scanner": "official",
+      "audit": "off",
+      "host": "claude",
+      "name": "exec-over-cap-1048576",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.266092618,
+          "cpu_seconds": 0.28375,
+          "max_child_rss_mib": 45.98828125
+        },
+        "candidate": {
+          "latency_seconds": 0.268151429,
+          "cpu_seconds": 0.281064,
+          "max_child_rss_mib": 46.42578125
+        }
+      },
+      "latency_change_percent": 0.77371969785347,
+      "cpu_change_percent": -0.9466079295154306
+    },
+    {
+      "scanner": "official",
+      "audit": "off",
+      "host": "claude",
+      "name": "exec-over-cap-8388608",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.401432275,
+          "cpu_seconds": 0.426344,
+          "max_child_rss_mib": 50.1640625
+        },
+        "candidate": {
+          "latency_seconds": 0.404397511,
+          "cpu_seconds": 0.43161099999999997,
+          "max_child_rss_mib": 50.1796875
+        }
+      },
+      "latency_change_percent": 0.7386640747807371,
+      "cpu_change_percent": 1.2353873867111842
+    },
+    {
+      "scanner": "official",
+      "audit": "off",
+      "host": "claude",
+      "name": "pre-read-clean",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.269430061,
+          "cpu_seconds": 0.282493,
+          "max_child_rss_mib": 45.80078125
+        },
+        "candidate": {
+          "latency_seconds": 0.268269475,
+          "cpu_seconds": 0.28141,
+          "max_child_rss_mib": 45.54296875
+        }
+      },
+      "latency_change_percent": -0.43075594300518993,
+      "cpu_change_percent": -0.3833723313498072
+    },
+    {
+      "scanner": "official",
+      "audit": "off",
+      "host": "claude",
+      "name": "pre-read-placeholder",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.264384298,
+          "cpu_seconds": 0.27852,
+          "max_child_rss_mib": 45.7421875
+        },
+        "candidate": {
+          "latency_seconds": 0.265710586,
+          "cpu_seconds": 0.279608,
+          "max_child_rss_mib": 46.42578125
+        }
+      },
+      "latency_change_percent": 0.5016515769026508,
+      "cpu_change_percent": 0.390636220020113
+    },
+    {
+      "scanner": "official",
+      "audit": "off",
+      "host": "claude",
+      "name": "pre-bash-clean",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 1.176824249,
+          "cpu_seconds": 1.274223,
+          "max_child_rss_mib": 61.41796875
+        },
+        "candidate": {
+          "latency_seconds": 1.168866853,
+          "cpu_seconds": 1.2652619999999999,
+          "max_child_rss_mib": 61.73046875
+        }
+      },
+      "latency_change_percent": -0.6761753937991943,
+      "cpu_change_percent": -0.703252099514784
+    },
+    {
+      "scanner": "official",
+      "audit": "off",
+      "host": "claude",
+      "name": "pre-git-status",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.896736348,
+          "cpu_seconds": 0.960177,
+          "max_child_rss_mib": 61.92578125
+        },
+        "candidate": {
+          "latency_seconds": 0.894321423,
+          "cpu_seconds": 0.954066,
+          "max_child_rss_mib": 61.10546875
+        }
+      },
+      "latency_change_percent": -0.2693015628714157,
+      "cpu_change_percent": -0.6364451554244699
+    },
+    {
+      "scanner": "official",
+      "audit": "off",
+      "host": "claude",
+      "name": "pre-unknown-tool",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.25085338,
+          "cpu_seconds": 0.265779,
+          "max_child_rss_mib": 46.11328125
+        },
+        "candidate": {
+          "latency_seconds": 0.24996228,
+          "cpu_seconds": 0.263721,
+          "max_child_rss_mib": 46.42578125
+        }
+      },
+      "latency_change_percent": -0.3552274240833486,
+      "cpu_change_percent": -0.7743275428081287
+    },
+    {
+      "scanner": "official",
+      "audit": "off",
+      "host": "claude",
+      "name": "prompt-clean",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.60651091,
+          "cpu_seconds": 0.63707,
+          "max_child_rss_mib": 62.36328125
+        },
+        "candidate": {
+          "latency_seconds": 0.609191278,
+          "cpu_seconds": 0.6407160000000001,
+          "max_child_rss_mib": 61.61328125
+        }
+      },
+      "latency_change_percent": 0.4419323635909356,
+      "cpu_change_percent": 0.5723075957116297
+    },
+    {
+      "scanner": "official",
+      "audit": "off",
+      "host": "codex",
+      "name": "small-clean",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.64756508,
+          "cpu_seconds": 0.678275,
+          "max_child_rss_mib": 61.98046875
+        },
+        "candidate": {
+          "latency_seconds": 0.638502435,
+          "cpu_seconds": 0.665212,
+          "max_child_rss_mib": 62.17578125
+        }
+      },
+      "latency_change_percent": -1.399495630616765,
+      "cpu_change_percent": -1.9259150049758533
+    },
+    {
+      "scanner": "official",
+      "audit": "off",
+      "host": "codex",
+      "name": "long-line",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.856239895,
+          "cpu_seconds": 0.909651,
+          "max_child_rss_mib": 62.0390625
+        },
+        "candidate": {
+          "latency_seconds": 0.841815045,
+          "cpu_seconds": 0.893001,
+          "max_child_rss_mib": 62.3046875
+        }
+      },
+      "latency_change_percent": -1.6846738962098873,
+      "cpu_change_percent": -1.8303723076212641
+    },
+    {
+      "scanner": "official",
+      "audit": "off",
+      "host": "codex",
+      "name": "long-multiline",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.855115728,
+          "cpu_seconds": 0.910157,
+          "max_child_rss_mib": 62.41796875
+        },
+        "candidate": {
+          "latency_seconds": 0.844764592,
+          "cpu_seconds": 0.896048,
+          "max_child_rss_mib": 62.23828125
+        }
+      },
+      "latency_change_percent": -1.2104953354337145,
+      "cpu_change_percent": -1.5501721131628954
+    },
+    {
+      "scanner": "official",
+      "audit": "off",
+      "host": "codex",
+      "name": "escaped-control",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.862567837,
+          "cpu_seconds": 0.914032,
+          "max_child_rss_mib": 62.73828125
+        },
+        "candidate": {
+          "latency_seconds": 0.84033596,
+          "cpu_seconds": 0.899931,
+          "max_child_rss_mib": 62.36328125
+        }
+      },
+      "latency_change_percent": -2.5774062104288675,
+      "cpu_change_percent": -1.542724981182264
+    },
+    {
+      "scanner": "official",
+      "audit": "off",
+      "host": "codex",
+      "name": "many-lines",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.809984441,
+          "cpu_seconds": 0.8601829999999999,
+          "max_child_rss_mib": 62.30078125
+        },
+        "candidate": {
+          "latency_seconds": 0.812463974,
+          "cpu_seconds": 0.847846,
+          "max_child_rss_mib": 62.48046875
+        }
+      },
+      "latency_change_percent": 0.30612106535512495,
+      "cpu_change_percent": -1.4342296929839238
+    },
+    {
+      "scanner": "official",
+      "audit": "off",
+      "host": "codex",
+      "name": "many-replacement-leaves",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.742588759,
+          "cpu_seconds": 0.772608,
+          "max_child_rss_mib": 62.60546875
+        },
+        "candidate": {
+          "latency_seconds": 0.698633505,
+          "cpu_seconds": 0.7325659999999999,
+          "max_child_rss_mib": 62.73828125
+        }
+      },
+      "latency_change_percent": -5.919191944029956,
+      "cpu_change_percent": -5.182705848243874
+    },
+    {
+      "scanner": "official",
+      "audit": "off",
+      "host": "codex",
+      "name": "dense-controls",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.458329639,
+          "cpu_seconds": 0.501571,
+          "max_child_rss_mib": 46.11328125
+        },
+        "candidate": {
+          "latency_seconds": 0.462604004,
+          "cpu_seconds": 0.5051140000000001,
+          "max_child_rss_mib": 45.98828125
+        }
+      },
+      "latency_change_percent": 0.9325962443375913,
+      "cpu_change_percent": 0.7063805523046751
+    },
+    {
+      "scanner": "official",
+      "audit": "off",
+      "host": "codex",
+      "name": "exec-multiline",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.788701973,
+          "cpu_seconds": 0.823619,
+          "max_child_rss_mib": 62.05078125
+        },
+        "candidate": {
+          "latency_seconds": 0.772683616,
+          "cpu_seconds": 0.813156,
+          "max_child_rss_mib": 62.48828125
+        }
+      },
+      "latency_change_percent": -2.0309771686091604,
+      "cpu_change_percent": -1.2703689448640643
+    },
+    {
+      "scanner": "official",
+      "audit": "off",
+      "host": "codex",
+      "name": "exec-clean",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.657030078,
+          "cpu_seconds": 0.681347,
+          "max_child_rss_mib": 62.17578125
+        },
+        "candidate": {
+          "latency_seconds": 0.630345004,
+          "cpu_seconds": 0.658925,
+          "max_child_rss_mib": 61.9921875
+        }
+      },
+      "latency_change_percent": -4.061469161538134,
+      "cpu_change_percent": -3.2908341858113532
+    },
+    {
+      "scanner": "official",
+      "audit": "off",
+      "host": "codex",
+      "name": "exec-long-quoted-secret",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.769668869,
+          "cpu_seconds": 0.805483,
+          "max_child_rss_mib": 62.30078125
+        },
+        "candidate": {
+          "latency_seconds": 0.749293495,
+          "cpu_seconds": 0.785353,
+          "max_child_rss_mib": 62.41796875
+        }
+      },
+      "latency_change_percent": -2.647290909202671,
+      "cpu_change_percent": -2.499121645025404
+    },
+    {
+      "scanner": "official",
+      "audit": "off",
+      "host": "codex",
+      "name": "placeholder-control",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.652809785,
+          "cpu_seconds": 0.683133,
+          "max_child_rss_mib": 62.61328125
+        },
+        "candidate": {
+          "latency_seconds": 0.636733646,
+          "cpu_seconds": 0.665419,
+          "max_child_rss_mib": 62.17578125
+        }
+      },
+      "latency_change_percent": -2.4626069292144503,
+      "cpu_change_percent": -2.5930528901399907
+    },
+    {
+      "scanner": "official",
+      "audit": "off",
+      "host": "codex",
+      "name": "metadata-control",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.648921854,
+          "cpu_seconds": 0.676729,
+          "max_child_rss_mib": 61.36328125
+        },
+        "candidate": {
+          "latency_seconds": 0.638822085,
+          "cpu_seconds": 0.668062,
+          "max_child_rss_mib": 62.23046875
+        }
+      },
+      "latency_change_percent": -1.5563921815460957,
+      "cpu_change_percent": -1.280719460818136
+    },
+    {
+      "scanner": "official",
+      "audit": "off",
+      "host": "codex",
+      "name": "prose-control",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.656066834,
+          "cpu_seconds": 0.686167,
+          "max_child_rss_mib": 62.48828125
+        },
+        "candidate": {
+          "latency_seconds": 0.644602672,
+          "cpu_seconds": 0.673929,
+          "max_child_rss_mib": 61.9296875
+        }
+      },
+      "latency_change_percent": -1.74740764292316,
+      "cpu_change_percent": -1.7835308314156695
+    },
+    {
+      "scanner": "official",
+      "audit": "off",
+      "host": "codex",
+      "name": "exec-over-cap-1048576",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.267483713,
+          "cpu_seconds": 0.28439800000000004,
+          "max_child_rss_mib": 46.1796875
+        },
+        "candidate": {
+          "latency_seconds": 0.267173196,
+          "cpu_seconds": 0.28250000000000003,
+          "max_child_rss_mib": 46.55078125
+        }
+      },
+      "latency_change_percent": -0.11608818963867451,
+      "cpu_change_percent": -0.6673745947580523
+    },
+    {
+      "scanner": "official",
+      "audit": "off",
+      "host": "codex",
+      "name": "exec-over-cap-8388608",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.404492354,
+          "cpu_seconds": 0.434288,
+          "max_child_rss_mib": 50.1640625
+        },
+        "candidate": {
+          "latency_seconds": 0.407292008,
+          "cpu_seconds": 0.436266,
+          "max_child_rss_mib": 50.26953125
+        }
+      },
+      "latency_change_percent": 0.6921401535318061,
+      "cpu_change_percent": 0.45545812916774064
+    },
+    {
+      "scanner": "official",
+      "audit": "off",
+      "host": "codex",
+      "name": "pre-read-clean",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.267685368,
+          "cpu_seconds": 0.282687,
+          "max_child_rss_mib": 45.92578125
+        },
+        "candidate": {
+          "latency_seconds": 0.269988371,
+          "cpu_seconds": 0.28166,
+          "max_child_rss_mib": 46.11328125
+        }
+      },
+      "latency_change_percent": 0.8603395162039673,
+      "cpu_change_percent": -0.36329933813723514
+    },
+    {
+      "scanner": "official",
+      "audit": "off",
+      "host": "codex",
+      "name": "pre-read-placeholder",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.270793076,
+          "cpu_seconds": 0.282729,
+          "max_child_rss_mib": 45.73828125
+        },
+        "candidate": {
+          "latency_seconds": 0.268323746,
+          "cpu_seconds": 0.282347,
+          "max_child_rss_mib": 45.61328125
+        }
+      },
+      "latency_change_percent": -0.9118881606854812,
+      "cpu_change_percent": -0.13511171475157902
+    },
+    {
+      "scanner": "official",
+      "audit": "off",
+      "host": "codex",
+      "name": "pre-bash-clean",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 1.183534643,
+          "cpu_seconds": 1.2782369999999998,
+          "max_child_rss_mib": 61.42578125
+        },
+        "candidate": {
+          "latency_seconds": 1.181695366,
+          "cpu_seconds": 1.2776,
+          "max_child_rss_mib": 61.73828125
+        }
+      },
+      "latency_change_percent": -0.15540542145330294,
+      "cpu_change_percent": -0.0498342639119187
+    },
+    {
+      "scanner": "official",
+      "audit": "off",
+      "host": "codex",
+      "name": "pre-git-status",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.907285937,
+          "cpu_seconds": 0.973905,
+          "max_child_rss_mib": 61.6796875
+        },
+        "candidate": {
+          "latency_seconds": 0.904198993,
+          "cpu_seconds": 0.969673,
+          "max_child_rss_mib": 61.92578125
+        }
+      },
+      "latency_change_percent": -0.3402393748333954,
+      "cpu_change_percent": -0.4345393031147782
+    },
+    {
+      "scanner": "official",
+      "audit": "off",
+      "host": "codex",
+      "name": "pre-unknown-tool",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.254849596,
+          "cpu_seconds": 0.267575,
+          "max_child_rss_mib": 46.2421875
+        },
+        "candidate": {
+          "latency_seconds": 0.253381013,
+          "cpu_seconds": 0.268914,
+          "max_child_rss_mib": 45.55078125
+        }
+      },
+      "latency_change_percent": -0.576254788334063,
+      "cpu_change_percent": 0.5004204428664671
+    },
+    {
+      "scanner": "official",
+      "audit": "off",
+      "host": "codex",
+      "name": "prompt-clean",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.612764544,
+          "cpu_seconds": 0.6403800000000001,
+          "max_child_rss_mib": 61.9296875
+        },
+        "candidate": {
+          "latency_seconds": 0.610766323,
+          "cpu_seconds": 0.6366350000000001,
+          "max_child_rss_mib": 61.73828125
+        }
+      },
+      "latency_change_percent": -0.3260993181746552,
+      "cpu_change_percent": -0.5848090196445832
+    },
+    {
+      "scanner": "official",
+      "audit": "warm",
+      "host": "claude",
+      "name": "small-clean",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.557583244,
+          "cpu_seconds": 0.587065,
+          "max_child_rss_mib": 62.23828125
+        },
+        "candidate": {
+          "latency_seconds": 0.536473497,
+          "cpu_seconds": 0.565062,
+          "max_child_rss_mib": 62.35546875
+        }
+      },
+      "latency_change_percent": -3.785936400915235,
+      "cpu_change_percent": -3.7479665795099315
+    },
+    {
+      "scanner": "official",
+      "audit": "warm",
+      "host": "claude",
+      "name": "long-line",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.801878306,
+          "cpu_seconds": 0.859553,
+          "max_child_rss_mib": 62.05078125
+        },
+        "candidate": {
+          "latency_seconds": 0.78255325,
+          "cpu_seconds": 0.8405819999999999,
+          "max_child_rss_mib": 62.30078125
+        }
+      },
+      "latency_change_percent": -2.4099736650064707,
+      "cpu_change_percent": -2.207077399532087
+    },
+    {
+      "scanner": "official",
+      "audit": "warm",
+      "host": "claude",
+      "name": "long-multiline",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.802769116,
+          "cpu_seconds": 0.860644,
+          "max_child_rss_mib": 62.79296875
+        },
+        "candidate": {
+          "latency_seconds": 0.782154471,
+          "cpu_seconds": 0.84127,
+          "max_child_rss_mib": 62.73828125
+        }
+      },
+      "latency_change_percent": -2.567941963527154,
+      "cpu_change_percent": -2.2511049864984867
+    },
+    {
+      "scanner": "official",
+      "audit": "warm",
+      "host": "claude",
+      "name": "escaped-control",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.80110969,
+          "cpu_seconds": 0.8569039999999999,
+          "max_child_rss_mib": 62.5546875
+        },
+        "candidate": {
+          "latency_seconds": 0.779185805,
+          "cpu_seconds": 0.833911,
+          "max_child_rss_mib": 62.8046875
+        }
+      },
+      "latency_change_percent": -2.73668952874605,
+      "cpu_change_percent": -2.68326440301363
+    },
+    {
+      "scanner": "official",
+      "audit": "warm",
+      "host": "claude",
+      "name": "many-lines",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.735702037,
+          "cpu_seconds": 0.788252,
+          "max_child_rss_mib": 62.30078125
+        },
+        "candidate": {
+          "latency_seconds": 0.717827225,
+          "cpu_seconds": 0.774837,
+          "max_child_rss_mib": 62.67578125
+        }
+      },
+      "latency_change_percent": -2.4296265473028766,
+      "cpu_change_percent": -1.7018669156564137
+    },
+    {
+      "scanner": "official",
+      "audit": "warm",
+      "host": "claude",
+      "name": "many-replacement-leaves",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.654642546,
+          "cpu_seconds": 0.69093,
+          "max_child_rss_mib": 62.86328125
+        },
+        "candidate": {
+          "latency_seconds": 0.612501642,
+          "cpu_seconds": 0.648879,
+          "max_child_rss_mib": 62.359375
+        }
+      },
+      "latency_change_percent": -6.437238804213019,
+      "cpu_change_percent": -6.086144761408541
+    },
+    {
+      "scanner": "official",
+      "audit": "warm",
+      "host": "claude",
+      "name": "dense-controls",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.308570333,
+          "cpu_seconds": 0.353538,
+          "max_child_rss_mib": 16.8359375
+        },
+        "candidate": {
+          "latency_seconds": 0.306414111,
+          "cpu_seconds": 0.350675,
+          "max_child_rss_mib": 16.94140625
+        }
+      },
+      "latency_change_percent": -0.6987781291340145,
+      "cpu_change_percent": -0.8098139379642322
+    },
+    {
+      "scanner": "official",
+      "audit": "warm",
+      "host": "claude",
+      "name": "exec-multiline",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.724887503,
+          "cpu_seconds": 0.765154,
+          "max_child_rss_mib": 62.48828125
+        },
+        "candidate": {
+          "latency_seconds": 0.70574415,
+          "cpu_seconds": 0.748612,
+          "max_child_rss_mib": 62.55078125
+        }
+      },
+      "latency_change_percent": -2.6408722623543435,
+      "cpu_change_percent": -2.1619177315938987
+    },
+    {
+      "scanner": "official",
+      "audit": "warm",
+      "host": "claude",
+      "name": "exec-clean",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.537355775,
+          "cpu_seconds": 0.565618,
+          "max_child_rss_mib": 61.98828125
+        },
+        "candidate": {
+          "latency_seconds": 0.523956783,
+          "cpu_seconds": 0.5516479999999999,
+          "max_child_rss_mib": 61.86328125
+        }
+      },
+      "latency_change_percent": -2.4935047920532583,
+      "cpu_change_percent": -2.469864820426515
+    },
+    {
+      "scanner": "official",
+      "audit": "warm",
+      "host": "claude",
+      "name": "exec-long-quoted-secret",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.701488593,
+          "cpu_seconds": 0.738138,
+          "max_child_rss_mib": 62.36328125
+        },
+        "candidate": {
+          "latency_seconds": 0.67362944,
+          "cpu_seconds": 0.708031,
+          "max_child_rss_mib": 62.48828125
+        }
+      },
+      "latency_change_percent": -3.9714335026970193,
+      "cpu_change_percent": -4.078776597330036
+    },
+    {
+      "scanner": "official",
+      "audit": "warm",
+      "host": "claude",
+      "name": "placeholder-control",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.558484943,
+          "cpu_seconds": 0.587473,
+          "max_child_rss_mib": 62.5546875
+        },
+        "candidate": {
+          "latency_seconds": 0.537956275,
+          "cpu_seconds": 0.568317,
+          "max_child_rss_mib": 62.05078125
+        }
+      },
+      "latency_change_percent": -3.675778238483318,
+      "cpu_change_percent": -3.260745600223336
+    },
+    {
+      "scanner": "official",
+      "audit": "warm",
+      "host": "claude",
+      "name": "metadata-control",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.554702468,
+          "cpu_seconds": 0.582601,
+          "max_child_rss_mib": 61.86328125
+        },
+        "candidate": {
+          "latency_seconds": 0.542150832,
+          "cpu_seconds": 0.571048,
+          "max_child_rss_mib": 61.9296875
+        }
+      },
+      "latency_change_percent": -2.262769092276684,
+      "cpu_change_percent": -1.983003805348782
+    },
+    {
+      "scanner": "official",
+      "audit": "warm",
+      "host": "claude",
+      "name": "prose-control",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.556190024,
+          "cpu_seconds": 0.583914,
+          "max_child_rss_mib": 62.55078125
+        },
+        "candidate": {
+          "latency_seconds": 0.540670959,
+          "cpu_seconds": 0.5691900000000001,
+          "max_child_rss_mib": 62.36328125
+        }
+      },
+      "latency_change_percent": -2.7902451195349065,
+      "cpu_change_percent": -2.521604208838968
+    },
+    {
+      "scanner": "official",
+      "audit": "warm",
+      "host": "claude",
+      "name": "exec-over-cap-1048576",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.064201464,
+          "cpu_seconds": 0.075393,
+          "max_child_rss_mib": 8.26953125
+        },
+        "candidate": {
+          "latency_seconds": 0.063045156,
+          "cpu_seconds": 0.07333,
+          "max_child_rss_mib": 8.26171875
+        }
+      },
+      "latency_change_percent": -1.8010617327978595,
+      "cpu_change_percent": -2.736328306341429
+    },
+    {
+      "scanner": "official",
+      "audit": "warm",
+      "host": "claude",
+      "name": "exec-over-cap-8388608",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.240533369,
+          "cpu_seconds": 0.265196,
+          "max_child_rss_mib": 50.2265625
+        },
+        "candidate": {
+          "latency_seconds": 0.24819093,
+          "cpu_seconds": 0.27273400000000003,
+          "max_child_rss_mib": 50.2890625
+        }
+      },
+      "latency_change_percent": 3.1835753317037696,
+      "cpu_change_percent": 2.842425979275731
+    },
+    {
+      "scanner": "official",
+      "audit": "warm",
+      "host": "claude",
+      "name": "pre-read-clean",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.0640191,
+          "cpu_seconds": 0.072474,
+          "max_child_rss_mib": 3.53125
+        },
+        "candidate": {
+          "latency_seconds": 0.064700834,
+          "cpu_seconds": 0.073064,
+          "max_child_rss_mib": 3.5625
+        }
+      },
+      "latency_change_percent": 1.0648915714216667,
+      "cpu_change_percent": 0.8140850511907827
+    },
+    {
+      "scanner": "official",
+      "audit": "warm",
+      "host": "claude",
+      "name": "pre-read-placeholder",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.062984407,
+          "cpu_seconds": 0.071147,
+          "max_child_rss_mib": 3.546875
+        },
+        "candidate": {
+          "latency_seconds": 0.063388692,
+          "cpu_seconds": 0.071552,
+          "max_child_rss_mib": 3.52734375
+        }
+      },
+      "latency_change_percent": 0.6418810928869867,
+      "cpu_change_percent": 0.5692439596890919
+    },
+    {
+      "scanner": "official",
+      "audit": "warm",
+      "host": "claude",
+      "name": "pre-bash-clean",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 1.225801312,
+          "cpu_seconds": 1.3400690000000002,
+          "max_child_rss_mib": 61.73828125
+        },
+        "candidate": {
+          "latency_seconds": 1.221399973,
+          "cpu_seconds": 1.3354659999999998,
+          "max_child_rss_mib": 62.23828125
+        }
+      },
+      "latency_change_percent": -0.3590581081055255,
+      "cpu_change_percent": -0.3434897755265065
+    },
+    {
+      "scanner": "official",
+      "audit": "warm",
+      "host": "claude",
+      "name": "pre-git-status",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.877913167,
+          "cpu_seconds": 0.949943,
+          "max_child_rss_mib": 62.30078125
+        },
+        "candidate": {
+          "latency_seconds": 0.873275094,
+          "cpu_seconds": 0.945487,
+          "max_child_rss_mib": 61.86328125
+        }
+      },
+      "latency_change_percent": -0.5283065768166062,
+      "cpu_change_percent": -0.4690807764255345
+    },
+    {
+      "scanner": "official",
+      "audit": "warm",
+      "host": "claude",
+      "name": "pre-unknown-tool",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.04506345,
+          "cpu_seconds": 0.05259,
+          "max_child_rss_mib": 3.53125
+        },
+        "candidate": {
+          "latency_seconds": 0.044100923,
+          "cpu_seconds": 0.051913,
+          "max_child_rss_mib": 3.578125
+        }
+      },
+      "latency_change_percent": -2.1359372174123314,
+      "cpu_change_percent": -1.2873169804145213
+    },
+    {
+      "scanner": "official",
+      "audit": "warm",
+      "host": "claude",
+      "name": "prompt-clean",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.497177624,
+          "cpu_seconds": 0.522687,
+          "max_child_rss_mib": 61.1796875
+        },
+        "candidate": {
+          "latency_seconds": 0.500944001,
+          "cpu_seconds": 0.526621,
+          "max_child_rss_mib": 61.59765625
+        }
+      },
+      "latency_change_percent": 0.7575515908575969,
+      "cpu_change_percent": 0.752649291067109
+    },
+    {
+      "scanner": "official",
+      "audit": "warm",
+      "host": "codex",
+      "name": "small-clean",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.553448184,
+          "cpu_seconds": 0.582673,
+          "max_child_rss_mib": 61.86328125
+        },
+        "candidate": {
+          "latency_seconds": 0.534236301,
+          "cpu_seconds": 0.566313,
+          "max_child_rss_mib": 62.23046875
+        }
+      },
+      "latency_change_percent": -3.471306538788821,
+      "cpu_change_percent": -2.8077498013465596
+    },
+    {
+      "scanner": "official",
+      "audit": "warm",
+      "host": "codex",
+      "name": "long-line",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.814510781,
+          "cpu_seconds": 0.8753569999999999,
+          "max_child_rss_mib": 62.42578125
+        },
+        "candidate": {
+          "latency_seconds": 0.802259309,
+          "cpu_seconds": 0.865808,
+          "max_child_rss_mib": 62.92578125
+        }
+      },
+      "latency_change_percent": -1.5041509929381802,
+      "cpu_change_percent": -1.090869211076162
+    },
+    {
+      "scanner": "official",
+      "audit": "warm",
+      "host": "codex",
+      "name": "long-multiline",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.811805743,
+          "cpu_seconds": 0.8751180000000001,
+          "max_child_rss_mib": 62.23828125
+        },
+        "candidate": {
+          "latency_seconds": 0.795931135,
+          "cpu_seconds": 0.857311,
+          "max_child_rss_mib": 62.36328125
+        }
+      },
+      "latency_change_percent": -1.9554687974164708,
+      "cpu_change_percent": -2.0348113054468153
+    },
+    {
+      "scanner": "official",
+      "audit": "warm",
+      "host": "codex",
+      "name": "escaped-control",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.815652722,
+          "cpu_seconds": 0.875288,
+          "max_child_rss_mib": 61.23828125
+        },
+        "candidate": {
+          "latency_seconds": 0.798304627,
+          "cpu_seconds": 0.860255,
+          "max_child_rss_mib": 62.98828125
+        }
+      },
+      "latency_change_percent": -2.126897211531653,
+      "cpu_change_percent": -1.717491842684915
+    },
+    {
+      "scanner": "official",
+      "audit": "warm",
+      "host": "codex",
+      "name": "many-lines",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.752016244,
+          "cpu_seconds": 0.814234,
+          "max_child_rss_mib": 61.92578125
+        },
+        "candidate": {
+          "latency_seconds": 0.731065808,
+          "cpu_seconds": 0.793126,
+          "max_child_rss_mib": 62.17578125
+        }
+      },
+      "latency_change_percent": -2.7859020555944247,
+      "cpu_change_percent": -2.5923751648788906
+    },
+    {
+      "scanner": "official",
+      "audit": "warm",
+      "host": "codex",
+      "name": "many-replacement-leaves",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.662697006,
+          "cpu_seconds": 0.703323,
+          "max_child_rss_mib": 62.92578125
+        },
+        "candidate": {
+          "latency_seconds": 0.615944021,
+          "cpu_seconds": 0.654809,
+          "max_child_rss_mib": 62.36328125
+        }
+      },
+      "latency_change_percent": -7.054956424535286,
+      "cpu_change_percent": -6.89782646095749
+    },
+    {
+      "scanner": "official",
+      "audit": "warm",
+      "host": "codex",
+      "name": "dense-controls",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.311249463,
+          "cpu_seconds": 0.356813,
+          "max_child_rss_mib": 16.87890625
+        },
+        "candidate": {
+          "latency_seconds": 0.311042229,
+          "cpu_seconds": 0.356261,
+          "max_child_rss_mib": 16.89453125
+        }
+      },
+      "latency_change_percent": -0.06658131969210501,
+      "cpu_change_percent": -0.15470288358327977
+    },
+    {
+      "scanner": "official",
+      "audit": "warm",
+      "host": "codex",
+      "name": "exec-multiline",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.72827131,
+          "cpu_seconds": 0.7719750000000001,
+          "max_child_rss_mib": 62.61328125
+        },
+        "candidate": {
+          "latency_seconds": 0.704069668,
+          "cpu_seconds": 0.745861,
+          "max_child_rss_mib": 62.30078125
+        }
+      },
+      "latency_change_percent": -3.3231629020234132,
+      "cpu_change_percent": -3.3827520321254023
+    },
+    {
+      "scanner": "official",
+      "audit": "warm",
+      "host": "codex",
+      "name": "exec-clean",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.54501417,
+          "cpu_seconds": 0.5721310000000001,
+          "max_child_rss_mib": 61.23828125
+        },
+        "candidate": {
+          "latency_seconds": 0.525446098,
+          "cpu_seconds": 0.54975,
+          "max_child_rss_mib": 61.92578125
+        }
+      },
+      "latency_change_percent": -3.5903785767625096,
+      "cpu_change_percent": -3.91186633830366
+    },
+    {
+      "scanner": "official",
+      "audit": "warm",
+      "host": "codex",
+      "name": "exec-long-quoted-secret",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.703265176,
+          "cpu_seconds": 0.739999,
+          "max_child_rss_mib": 62.36328125
+        },
+        "candidate": {
+          "latency_seconds": 0.671721923,
+          "cpu_seconds": 0.7081689999999999,
+          "max_child_rss_mib": 63.04296875
+        }
+      },
+      "latency_change_percent": -4.485257350493354,
+      "cpu_change_percent": -4.301357163996167
+    },
+    {
+      "scanner": "official",
+      "audit": "warm",
+      "host": "codex",
+      "name": "placeholder-control",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.55474581,
+          "cpu_seconds": 0.586262,
+          "max_child_rss_mib": 62.6171875
+        },
+        "candidate": {
+          "latency_seconds": 0.540194778,
+          "cpu_seconds": 0.568362,
+          "max_child_rss_mib": 62.10546875
+        }
+      },
+      "latency_change_percent": -2.6230089056463513,
+      "cpu_change_percent": -3.0532424069784403
+    },
+    {
+      "scanner": "official",
+      "audit": "warm",
+      "host": "codex",
+      "name": "metadata-control",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.552377153,
+          "cpu_seconds": 0.584225,
+          "max_child_rss_mib": 61.98828125
+        },
+        "candidate": {
+          "latency_seconds": 0.53797326,
+          "cpu_seconds": 0.5646869999999999,
+          "max_child_rss_mib": 61.86328125
+        }
+      },
+      "latency_change_percent": -2.6076192546652943,
+      "cpu_change_percent": -3.3442594890667254
+    },
+    {
+      "scanner": "official",
+      "audit": "warm",
+      "host": "codex",
+      "name": "prose-control",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.5555989,
+          "cpu_seconds": 0.586054,
+          "max_child_rss_mib": 61.98828125
+        },
+        "candidate": {
+          "latency_seconds": 0.539401855,
+          "cpu_seconds": 0.570164,
+          "max_child_rss_mib": 62.73828125
+        }
+      },
+      "latency_change_percent": -2.915240652924256,
+      "cpu_change_percent": -2.711354243806874
+    },
+    {
+      "scanner": "official",
+      "audit": "warm",
+      "host": "codex",
+      "name": "exec-over-cap-1048576",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.064118014,
+          "cpu_seconds": 0.075132,
+          "max_child_rss_mib": 8.24609375
+        },
+        "candidate": {
+          "latency_seconds": 0.063694388,
+          "cpu_seconds": 0.074239,
+          "max_child_rss_mib": 8.28125
+        }
+      },
+      "latency_change_percent": -0.6606973197890942,
+      "cpu_change_percent": -1.1885747750625675
+    },
+    {
+      "scanner": "official",
+      "audit": "warm",
+      "host": "codex",
+      "name": "exec-over-cap-8388608",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.246435449,
+          "cpu_seconds": 0.271927,
+          "max_child_rss_mib": 50.25
+        },
+        "candidate": {
+          "latency_seconds": 0.243648763,
+          "cpu_seconds": 0.26860799999999996,
+          "max_child_rss_mib": 50.27734375
+        }
+      },
+      "latency_change_percent": -1.1307975420370653,
+      "cpu_change_percent": -1.220548161822843
+    },
+    {
+      "scanner": "official",
+      "audit": "warm",
+      "host": "codex",
+      "name": "pre-read-clean",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.062690314,
+          "cpu_seconds": 0.071035,
+          "max_child_rss_mib": 3.50390625
+        },
+        "candidate": {
+          "latency_seconds": 0.063656178,
+          "cpu_seconds": 0.072035,
+          "max_child_rss_mib": 3.50390625
+        }
+      },
+      "latency_change_percent": 1.5406909590530926,
+      "cpu_change_percent": 1.4077567396354018
+    },
+    {
+      "scanner": "official",
+      "audit": "warm",
+      "host": "codex",
+      "name": "pre-read-placeholder",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.062935363,
+          "cpu_seconds": 0.071656,
+          "max_child_rss_mib": 3.56640625
+        },
+        "candidate": {
+          "latency_seconds": 0.063321175,
+          "cpu_seconds": 0.07149,
+          "max_child_rss_mib": 3.546875
+        }
+      },
+      "latency_change_percent": 0.6130289579802772,
+      "cpu_change_percent": -0.2316623869599188
+    },
+    {
+      "scanner": "official",
+      "audit": "warm",
+      "host": "codex",
+      "name": "pre-bash-clean",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 1.229043066,
+          "cpu_seconds": 1.3389,
+          "max_child_rss_mib": 61.29296875
+        },
+        "candidate": {
+          "latency_seconds": 1.232425972,
+          "cpu_seconds": 1.348926,
+          "max_child_rss_mib": 62.30078125
+        }
+      },
+      "latency_change_percent": 0.27524714906939085,
+      "cpu_change_percent": 0.7488236612144261
+    },
+    {
+      "scanner": "official",
+      "audit": "warm",
+      "host": "codex",
+      "name": "pre-git-status",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.874152964,
+          "cpu_seconds": 0.94649,
+          "max_child_rss_mib": 61.67578125
+        },
+        "candidate": {
+          "latency_seconds": 0.874198317,
+          "cpu_seconds": 0.946312,
+          "max_child_rss_mib": 62.1796875
+        }
+      },
+      "latency_change_percent": 0.0051882224127552945,
+      "cpu_change_percent": -0.018806326532772033
+    },
+    {
+      "scanner": "official",
+      "audit": "warm",
+      "host": "codex",
+      "name": "pre-unknown-tool",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.044530456,
+          "cpu_seconds": 0.052327,
+          "max_child_rss_mib": 3.546875
+        },
+        "candidate": {
+          "latency_seconds": 0.043732904,
+          "cpu_seconds": 0.051257,
+          "max_child_rss_mib": 3.546875
+        }
+      },
+      "latency_change_percent": -1.7910258992182793,
+      "cpu_change_percent": -2.0448334511819932
+    },
+    {
+      "scanner": "official",
+      "audit": "warm",
+      "host": "codex",
+      "name": "prompt-clean",
+      "verified": true,
+      "arms": {
+        "baseline": {
+          "latency_seconds": 0.501646205,
+          "cpu_seconds": 0.527368,
+          "max_child_rss_mib": 62.11328125
+        },
+        "candidate": {
+          "latency_seconds": 0.496538441,
+          "cpu_seconds": 0.523472,
+          "max_child_rss_mib": 62.23828125
+        }
+      },
+      "latency_change_percent": -1.0182004666017597,
+      "cpu_change_percent": -0.7387630648806764
+    }
+  ]
+}

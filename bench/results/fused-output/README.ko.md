@@ -448,3 +448,19 @@ Homebrew 4-worker 처리량 4.22045→5.06632 req/s, CPU 3.807615→3.138596초/
 네 플랫폼의 differential 각 1,024/0, integration 각 90/0, 감사 로그 116/0 및 Intel 사전 지정 추가 integration 2회가 모두 통과했다. `main-native-provenance.json`에서 build source가 실제 main f295e1a임을 확인했고 체크섬 및 승인된 c3cfb40 PR 바이너리와 bytes까지 일치한다. Linux ARM·macOS ARM의 컴파일러 없는 설치/업데이트/복귀와 공유 core·소스 플러그인 16개 계약도 통과했다. 현재 확보된 10개 원본 ZIP을 `ci-f295e1a-native/`에 보존한다. Linux x64/macOS Intel 설치와 실제 공유 core 성능 관문은 아직 queued이며 macOS 일반 CI는 진행 중이다. 공개 발행은 하지 않았다. 이 중간 상태를 전체 필수 CI 성공으로 취급하지 않는다.
 
 기존 SHA256 목록 537개를 검증했으며 갱신한 README 외 원시/분석 파일은 모두 기존 해시와 일치했다. 현재 목록은 추가 자료를 포함해 다시 계산했다. 설치 비용 스크립트는 실제 공개 archive·bootstrap을 각각 GitHub 자산 digest와 대조하며, 공개 v3.8.0이 나온 뒤 별도 실행한다.
+
+## f295e1a 실제 병합 커밋의 최종 성능·설치 관문
+
+네 플랫폼 native 실행과 컴파일러 없는 설치·업데이트·실패 복귀·기존 정상 설치 보존, 각 플랫폼의 공유 core/소스 플러그인 16개 계약이 모두 통과했다. 일반 Linux/macOS 테스트 및 별도 native redactor/devtools 검사도 통과했다. 실제 공유 core 6조합과 기존 packaged/공개 기본 경로 관문을 완료했으며 원본 ZIP 19개를 보존했다. 마지막 Native platform artifacts 집계 check 성공을 확인한 뒤에만 발행한다.
+
+실제 공개 v3.7.0, 동일 scanner bytes·입력·설정, 실제 2CPU/1GiB/swap0, 9쌍 교대 실행의 252개 비교(4,536회 CLI)는 불일치 0·일반 경로 지연/CPU 5% 초과 회귀 0으로 채택 기준을 통과했다. Homebrew 목표 지연 15.56~16.86%, CPU 14.09~15.26% 감소다. 공식 scanner는 지연 4.23~7.71%, CPU 3.90~6.90% 감소로 10% 미달이며 전체 scanner의 목표 충족을 주장하지 않는다. 기본 경로는 기본값 그대로 검사했고 exec-multiline/clean/긴 quoted secret/unknown-tool 지연 변화 -0.82/-0.32/-1.88/-1.40%, CPU -1.18/-1.08/-1.18/-0.98%였다. 작은 차이를 확정적인 기본 경로 개선으로 해석하지 않는다.
+
+| 실제 병합 커밋 / Homebrew 부하 | 공개 v3.7.0 | 선택형 공유 core |
+|---|---:|---:|
+| 1-worker 처리량 req/s | 3.823 | 4.578 |
+| 4-worker 처리량 req/s | 4.493 | 5.338 |
+| 4-worker CPU 초/8요청 | 3.601 | 2.978 |
+| 4-worker 최대 자식 RSS MiB | 39.828 | 39.965 |
+| 4-worker 표본 RSS 합 MiB | 214.551 | 238.055 |
+
+부하는 Claude에서 각 8요청×3회 중앙값이다. 공식 scanner 4-worker 처리량은 1.660→1.732 req/s, CPU 9.539→9.049초/8요청, 최대 자식 RSS 63.602→63.730MiB, 표본 RSS 합 302.305→322.363MiB였다. 메모리 절감은 없다. 표본 RSS 합은 공유 페이지 중복 집계 가능성이 있고 짧은 피크를 놓칠 수 있다. 이 성능을 네 플랫폼 모두의 실측 성능으로 일반화하지 않는다. 최초 자료 없는 Intel 불일치 원인은 계속 미확정이다.
