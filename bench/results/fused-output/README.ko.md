@@ -155,7 +155,8 @@ Intel 직접 version은 0.34~0.83초, inittrace의 go-re2 초기화는 약 0.28~
 잘못된 timeout으로 바뀌었고, 실제 8초 걸리는 자식만 기대대로 timeout이었다
 (1성공/2실패). watchdog이 timeout을 기록하기 전에 자식의 생존 여부를 확인하는
 최소 수정은 세 경우를 모두 통과했다. 원래 2초 제한을 늘리지 않았고, 기존
-readiness 47개 검사도 모두 통과했다. 네 플랫폼의 전후 회귀 검증을 진행한다.
+readiness 47개 검사도 모두 통과했다. 네 플랫폼 전후 회귀 실행 `42026053383`에서도 각각 기존 1성공/2실패,
+수정 3성공/0실패, 기존 readiness 47성공/0실패를 확인했다.
 이 결정적 경합 재현을 최초 자료 없는 mismatch나 앞선 실제 CI timeout의
 근본 원인으로 확정하지 않는다.
 
@@ -204,3 +205,11 @@ source-only 사용자가 새 helper를 직접 빌드하는 선택을 한다면 0
 
 원시 측정과 재집계 스크립트를 함께 보존하며 공개 v3.7.1의 설치/업데이트 검증은
 [별도 배포 보고서](https://github.com/JeongJaeSoon/agent-guard/blob/d58823b8055972a589e7a9cf4752dab27cc857d6/bench/results/release-validation/v3.7.1-report.ko.md)를 참조한다.
+
+추가로 실제 CI 빌드 core 자체의 파일 크기를 공개 v3.7.0과 대조했다
+(`prebuilt-size-bd19.json`). Linux x64와 macOS Intel은 각각 +4096 bytes,
+ARM 두 플랫폼은 파일 크기가 같았다. prepare 명령을 기존 core와 함께 담으면
+별도 helper 파일을 영구적으로 더 설치할 필요는 없다. 따라서 위 합성 별도-helper
+패키지의 +229097 bytes를 최종 제품 설치 증가분으로 확정하지 않는다. 이 실제
+산출물 크기 대조도 Intel qualification이 실패한 후보의 값이며, 공개 릴리스나
+최종 설치 시간 검증은 아니다.

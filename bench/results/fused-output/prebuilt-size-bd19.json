@@ -1,0 +1,29 @@
+{
+  "scope": "actual CI-produced native bytes versus public v3.7.0; candidate Intel qualification failed; not a release archive or install timing; prepare can share core binary but formal benchmark uses separate helper",
+  "rows": [
+    {
+      "target": "x86_64-unknown-linux-musl",
+      "public_v370_bytes": 538872,
+      "bd19_bytes": 542968,
+      "delta_bytes": 4096
+    },
+    {
+      "target": "aarch64-unknown-linux-musl",
+      "public_v370_bytes": 526048,
+      "bd19_bytes": 526048,
+      "delta_bytes": 0
+    },
+    {
+      "target": "x86_64-apple-darwin",
+      "public_v370_bytes": 394404,
+      "bd19_bytes": 398500,
+      "delta_bytes": 4096
+    },
+    {
+      "target": "aarch64-apple-darwin",
+      "public_v370_bytes": 401696,
+      "bd19_bytes": 401696,
+      "delta_bytes": 0
+    }
+  ]
+}
