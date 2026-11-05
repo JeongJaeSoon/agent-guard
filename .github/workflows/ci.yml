@@ -47,11 +47,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Main and release PRs retain full macOS coverage. Other PRs run the
-        # full Linux suite plus the macOS core/host/Git bundle below.
         os: ${{ fromJSON((github.event_name != 'pull_request' || startsWith(github.head_ref, 'release/')) && '["ubuntu-latest","macos-latest"]' || '["ubuntu-latest"]') }}
-        # The core pair shares a runner; navigation is split by the Claude/Codex
-        # input contract and the long-running suites get independent capacity.
         bundle: [core, commands, navigation-claude, navigation-codex, scanner]
         include:
           - bundle: core
@@ -71,6 +67,8 @@ jobs:
           - bundle: scanner
             suite: CLI, scanner and output
             shards: '4'
+          # Merges into main/release's existing macOS core job; otherwise
+          # creates a job that must supply every bundle field itself.
           - os: macos-latest
             bundle: core
             suite: Core, host adapters and Git
@@ -96,7 +94,7 @@ jobs:
         # real-detection block (the #124 anchored-placeholder scan-accuracy
         # regressions) and so `make smoke-test` can run end-to-end. On macOS the
         # suite self-skips the real-gitleaks block and uses the bundled mock,
-        # which still gives cross-OS coverage of the rest of the suite. The
+        # which gives full cross-OS coverage on main and release PRs. The
         # macOS/darwin archive has a different checksum than the pin above, so
         # the real-gitleaks + smoke steps are scoped to Linux only.
         if: runner.os == 'Linux' && matrix.bundle == 'scanner'

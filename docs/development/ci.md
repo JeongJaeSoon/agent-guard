@@ -32,7 +32,8 @@ The internal IDs select execution partitions; Actions displays descriptive names
 | 5 | Shell navigation | Runs shell-navigation cases previously in 4 |
 
 Regression assertion bodies and their unpartitioned execution order stay
-identical; the matrix-coverage assertion is updated for the bundle format. Moved groups initialize their own repositories, configuration and
+identical; the matrix-coverage assertion counts both core entries and the two
+navigation hosts. Moved groups initialize their own repositories, configuration and
 sessions. The aggregate check names and their fail-closed dependencies remain
 unchanged; the release workflow consumes those aggregates, not the child names.
 
@@ -140,15 +141,16 @@ navigation은 Claude와 Codex의 호스트 계약별 runner로 나눈다. 두 �
 입력의 cwd/workdir 위치와 응답 계약이 다르며, 각 worker는 자신이 맡은 호스트의
 실제 hook·Bash·Git 검증 전체를 실행한다. 테스트 목록을 번호나 개수로 자르지 않는다.
 
-각 OS에서 navigation 두 worker의 합집합은 기존 378개 assertion과 같다.
+전체 matrix에서는 각 OS의 navigation 두 worker 합집합이 기존 378개 assertion과 같다.
 호스트 공통 assertion 5개는 Claude worker가 한 번 실행한다. fixture의 저장소,
 TMPDIR, 출력 파일은 worker마다 격리한다. 기본 `tests/run.sh`는 여전히 모든
 호스트를 실행하고, 호스트 선택은 navigation partition에만 허용한다.
 잘못된 호스트나 다른 partition과의 조합은 오류로 종료한다. core의 matrix 검증은
-일반 partition의 단일 실행과 Claude/Codex navigation의 누락·중복을 확인한다.
+core 항목 2개와 일반 partition의 단일 항목, Claude/Codex navigation 항목의 누락·중복을 확인한다.
 
-따라서 test job은 이전 6개에서 10개가 된다. OS/partition/host의 전체 검증 범위,
-aggregate job 2개의 이름과 fail-closed 의존성은 유지한다. scanner의 실제 설치,
+따라서 전체 matrix의 test job은 10개이고 일반 PR은 Linux 5개와 macOS core 1개다.
+main과 release PR의 OS/partition/host 전체 검증 범위, 모든 실행의 aggregate job
+2개 이름과 fail-closed 의존성은 유지한다. scanner의 실제 설치,
 no-skip gate와 smoke test도 그대로다. core의 parent는 모든 child를 기다리고,
 하나라도 실패하거나 출력 수집이 실패하면 job을 실패시킨다. 전체 log는 완료 후
 출력하며 job 취소 시 hosted runner teardown이 정리를 담당한다.
