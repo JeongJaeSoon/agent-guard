@@ -464,3 +464,7 @@ Homebrew 4-worker 처리량 4.22045→5.06632 req/s, CPU 3.807615→3.138596초/
 | 4-worker 표본 RSS 합 MiB | 214.551 | 238.055 |
 
 부하는 Claude에서 각 8요청×3회 중앙값이다. 공식 scanner 4-worker 처리량은 1.660→1.732 req/s, CPU 9.539→9.049초/8요청, 최대 자식 RSS 63.602→63.730MiB, 표본 RSS 합 302.305→322.363MiB였다. 메모리 절감은 없다. 표본 RSS 합은 공유 페이지 중복 집계 가능성이 있고 짧은 피크를 놓칠 수 있다. 이 성능을 네 플랫폼 모두의 실측 성능으로 일반화하지 않는다. 최초 자료 없는 Intel 불일치 원인은 계속 미확정이다.
+
+### 발행 전 최종 확인
+
+최종 head c3cfb40와 실제 merge f295e1a의 필수 8개 checks가 모두 success임을 확인했다. main은 f295e1a 그대로이고 공개 latest는 아직 v3.7.1이었다. `checks-final-success.json`에 merge check 전체 snapshot을 보존했다. 이 조건을 확인한 뒤 release.yml을 main에서 version=3.8.0, bump=minor, dry_run=false로 한 번 실행했다. 공개 자산·Homebrew와 공개 설치 결과는 이 실행 이후 별도로 검증한다.
