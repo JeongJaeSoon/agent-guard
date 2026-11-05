@@ -14373,6 +14373,43 @@ else
   sed 's/^/  stderr: /' "$ERR"
 fi
 
+# Keep numeric fallback values and nested shapes independent of the optimized
+# scalar-record path. Quoted values still follow the original string transform.
+while IFS='|' read -r numeric_response numeric_expected; do
+  printf '%s' "$numeric_response" >"$fallback_numeric_response"
+  for numeric_host in claude codex; do
+    printf '%s' '{"tool_name":"Read","tool_input":{},"tool_response":[]}' \
+      | (cd "$TMP_ROOT" \
+          && PATH="$FAIL_WHOLE_JQ_DIR:$PATH" \
+             AGENT_GUARD_HOOK_HOST="$numeric_host" \
+             AGENT_GUARD_TEST_REAL_JQ="$REAL_JQ" \
+             AGENT_GUARD_TEST_RESPONSE_FILE="$fallback_numeric_response" \
+             "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool) >"$OUT" 2>"$ERR"
+    numeric_status=$?
+    if [ "$numeric_status" -eq 0 ] \
+       && jq -e --arg host "$numeric_host" --argjson expected "$numeric_expected" '
+            if $host == "codex" then
+              .decision == "block" and
+              ((.hookSpecificOutput.additionalContext
+                | ltrimstr("Agent Guard sanitized tool output:\n") | fromjson) == $expected)
+            else .hookSpecificOutput.updatedToolOutput == $expected end
+          ' "$OUT" >/dev/null 2>&1; then
+      ok "portable fallback preserves independent numeric/shape expectation for $numeric_host: $numeric_response"
+    else
+      not_ok "portable fallback changes numeric/shape expectation for $numeric_host: $numeric_response"
+      cut -c1-400 "$OUT" | sed 's/^/  stdout: /'
+      sed 's/^/  stderr: /' "$ERR"
+    fi
+  done
+done <<'NUMERIC_FALLBACK_CASES'
+[12,-3,0,1.25,1e+50,true,false,null]|[0,0,0,0,0,false,false,null]
+[[1],[],{},[[true,null],-2.5e-6],3]|[[0],[],{},[[false,null],0],0]
+[true,{},[false],null,4]|[false,{},[false],null,0]
+12|0
+true|false
+{"items":[12,true,null],"type":"text","keep":""}|{"items":[0,false,null],"type":"text","keep":""}
+NUMERIC_FALLBACK_CASES
+
 # The large-response assignment probe consumes framed leaves. A sanitized value
 # must be checked after removing the transport boundary or `[REDACTED]` plus RS
 # is mistaken for a new secret and unrelated clean leaves are over-masked.

@@ -31,19 +31,43 @@ case " $* " in *"length > 0"*) exit 2 ;; esac
 exec "$AGENT_GUARD_TEST_REAL_JQ" "$@"
 ''')
 (wrapper / "jq").chmod(0o755)
+if os.environ.get("AG_NUMERIC_TIME_CHILDREN") == "1":
+    timed = destination / "child-times"
+    timed.mkdir()
+    time_flags = "-l" if sys.platform == "darwin" else "-v"
+    for tool in ["awk", "jq"]:
+        real = shutil.which(tool)
+        assert real
+        target = wrapper / ("timed-jq" if tool == "jq" else "awk")
+        target.write_text(f'''#!/bin/sh
+/usr/bin/time {time_flags} "{real}" "$@" 2>"{timed}/{tool}-$$.log"
+''')
+        target.chmod(0o755)
+    real_jq = str(wrapper / "timed-jq")
 text = (source / "bin/agent-guard").read_text()
 functions = ["redact_tool_output", "redact_nul_response_json",
              "rewrite_response_conservatively", "redact_response_whole_leaf_fail_closed",
              "redact_nonempty_response_strings", "redact_response_values_awk",
              "emit_post_tool_replacement", "output_scan_input_exceeds_cap"]
+if re.search(r"^redact_response_values_awk_current\(\)", text, re.M):
+    functions.append("redact_response_values_awk_current")
+if re.search(r"^rewrite_current_response_conservatively\(\)", text, re.M):
+    functions.append("rewrite_current_response_conservatively")
 for name in functions:
     pattern = rf"^{name}\(\) ([{{(])"
     match = re.search(pattern, text, re.M)
     assert match, name
+    locale_before = ""
+    locale_after = ""
+    if name == "redact_tool_output":
+        locale_before = '  printf "locale-before=%s\\n" "${LC_ALL-unset}" >>"$AG_DIAGNOSTIC_STAGES"\n'
+        locale_after = '  printf "locale-after=%s\\n" "${LC_ALL-unset}" >>"$AG_DIAGNOSTIC_STAGES"\n'
     wrapper_text = f'''{name}() {{
+{locale_before}\
   printf '%s enter {name}\\n' "$(date +%s)" >>"$AG_DIAGNOSTIC_STAGES"
   ag_diagnostic_real_{name} "$@"
   ag_diagnostic_status_{name}=$?
+{locale_after}\
   printf '%s leave {name} status=%s\\n' "$(date +%s)" "$ag_diagnostic_status_{name}" >>"$AG_DIAGNOSTIC_STAGES"
   return "$ag_diagnostic_status_{name}"
 }}
@@ -88,3 +112,8 @@ for mode, plugin in [("original", source), ("instrumented", copy)]:
     (destination / "results.json").write_text(json.dumps(rows, indent=2) + "\n")
     print(json.dumps(rows[-1]), flush=True)
     assert correct and process.returncode == 0
+    if mode == "instrumented":
+        lines = stages.read_text().splitlines()
+        before = [line.removeprefix("locale-before=") for line in lines if line.startswith("locale-before=")]
+        after = [line.removeprefix("locale-after=") for line in lines if line.startswith("locale-after=")]
+        assert before and before == after, "caller locale changed"

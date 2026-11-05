@@ -8933,6 +8933,7 @@ secretish_env_values() {
 
 # Treat malformed byte counts as over-cap so callers fail closed. Keeping the
 # limit in one helper aligns PostToolUse, gitleaks, and exec preflights.
+OUTPUT_SCAN_MAX_BYTES=327680
 output_scan_input_exceeds_cap() {
   output_scan_input=$1
   output_scan_bytes=$(printf '%s' "$output_scan_input" \
@@ -8940,7 +8941,7 @@ output_scan_input_exceeds_cap() {
   case "$output_scan_bytes" in
     ''|*[!0-9]*) return 0 ;;
   esac
-  [ "$output_scan_bytes" -gt 327680 ]
+  [ "$output_scan_bytes" -gt "$OUTPUT_SCAN_MAX_BYTES" ]
 }
 
 # Bind the live post-tool probe's replacement to this invocation's diagnostic
@@ -9767,6 +9768,13 @@ redact_nonempty_response_strings() {
 # malformed or interrupted transform can never expose a partial replacement.
 redact_response_values_awk() {
   whole_leaf_response=$1
+  redact_response_values_awk_current
+}
+
+# The conservative caller already owns whole_leaf_response. Read that inherited
+# shell variable inside its command substitution instead of expanding a large
+# JSON value through another function argument and assignment.
+redact_response_values_awk_current() {
   whole_leaf_tmp=$(mktemp_file) || return 1
   case "$whole_leaf_response" in
     *'"'*) ;;
@@ -9812,6 +9820,17 @@ redact_response_values_awk() {
               && clean !~ /[}\]]$/ && NR > 1) json_fail()
         }
         {
+          # Compact scalar records inside an open container need no structural
+          # rescanning or repeated substitutions. Bracket-bearing records still
+          # pass through the complete structure checks below.
+          if (depth > 0 && ($0 == "true" || $0 == "false" || $0 == "null" \
+              || $0 ~ /^-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?$/)) {
+            if (NR > 1) printf ","
+            if ($0 == "null" || $0 == "false") printf "%s", $0
+            else if ($0 == "true") printf "false"
+            else printf "0"
+            next
+          }
           scan_structure($0)
           if (NR > 1) printf ","
           transformed = $0
@@ -10316,15 +10335,23 @@ extract_post_tool_response_awk() {
 }
 
 redact_response_whole_leaf_fail_closed() {
-  whole_leaf_response=$1
+  # rewrite_response_conservatively sets whole_leaf_response before forking this
+  # command substitution; all transformations below keep their private output.
   whole_leaf_redacted=
-  if ! whole_leaf_redacted=$(redact_nonempty_response_strings "$whole_leaf_response"); then
-    whole_leaf_redacted=
-  fi
+  # A quote-free compact JSON value contains no strings. The primary string
+  # transform would return it unchanged and then enter the same value fallback.
+  # Avoid copying a large numeric array through that known identity transform.
+  case "$whole_leaf_response" in
+    *'"'*)
+      if ! whole_leaf_redacted=$(redact_nonempty_response_strings "$whole_leaf_response"); then
+        whole_leaf_redacted=
+      fi
+      ;;
+  esac
   if [ -z "$whole_leaf_redacted" ] \
       || [ "$whole_leaf_redacted" = "$whole_leaf_response" ]; then
     whole_leaf_redacted=
-    if ! whole_leaf_redacted=$(redact_response_values_awk "$whole_leaf_response"); then
+    if ! whole_leaf_redacted=$(redact_response_values_awk_current); then
       whole_leaf_redacted=
     fi
   fi
@@ -10337,9 +10364,13 @@ redact_response_whole_leaf_fail_closed() {
 }
 
 rewrite_response_conservatively() {
-  conservative_input=$1
+  whole_leaf_response=$1
+  rewrite_current_response_conservatively
+}
+
+rewrite_current_response_conservatively() {
   SAFE_REWRITE=
-  if ! SAFE_REWRITE=$(redact_response_whole_leaf_fail_closed "$conservative_input"); then
+  if ! SAFE_REWRITE=$(redact_response_whole_leaf_fail_closed); then
     SAFE_REWRITE=
   fi
   if [ -z "$SAFE_REWRITE" ]; then
@@ -11666,6 +11697,38 @@ redact_tool_output() {
     ''|null) return 0 ;;
   esac
 
+  # Only quote-free oversized JSON enters this scope. Such a value has no
+  # strings or binary payload and is ASCII; byte and character semantics agree.
+  # Older macOS shells otherwise spend substantial CPU expanding these large
+  # ASCII variables in a multibyte locale. Assign in this shell, then restore
+  # the exact prior set/unset state. The temporary function-call environment
+  # alone did not resolve the measured older-shell regression.
+  if [ "$secrets_on" -eq 1 ]; then
+    case "$resp" in
+      *'"'*) ;;
+      *)
+        if [ "${#resp}" -gt "$OUTPUT_SCAN_MAX_BYTES" ]; then
+          ag_output_lc_all_set=${LC_ALL+x}
+          ag_output_lc_all_saved=${LC_ALL-}
+          LC_ALL=C
+          export LC_ALL
+          redact_tool_output_response
+          ag_output_response_status=$?
+          if [ "$ag_output_lc_all_set" = x ]; then
+            LC_ALL=$ag_output_lc_all_saved
+          else
+            unset LC_ALL
+          fi
+          return "$ag_output_response_status"
+        fi
+        ;;
+    esac
+  fi
+  redact_tool_output_response
+}
+
+redact_tool_output_response() {
+
   # Image and PDF payloads are lifted out before every pass below and put back
   # afterwards: a text scanner cannot read pixels, the host forwards the bytes
   # rather than showing them to the model, and one screenshot alone crosses
@@ -11674,6 +11737,23 @@ redact_tool_output() {
   # high-cardinality output the path collection.
   resp_full=''
   conservative_done=0
+  # A quote-free JSON value is ASCII and has no string or binary payload. Its
+  # character count is its byte count. Above the existing cap it must take the
+  # conservative path anyway; do so before another large copy and NUL walk.
+  # The same validated fallback and failure recovery remain authoritative.
+  if [ "$secrets_on" -eq 1 ]; then
+    case "$resp" in
+      *'"'*) ;;
+      *)
+        if [ "${#resp}" -gt "$OUTPUT_SCAN_MAX_BYTES" ]; then
+          whole_leaf_response=$resp
+          rewrite_current_response_conservatively
+          resp=$SAFE_REWRITE
+          conservative_done=1
+        fi
+        ;;
+    esac
+  fi
   case "$resp" in
     *base64*|*mimeType*)
       r=
