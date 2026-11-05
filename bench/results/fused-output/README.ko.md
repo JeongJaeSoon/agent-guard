@@ -1,11 +1,12 @@
 # 출력 통합 실험의 보존 증거
 
-2026-11-05부터 이어진 조사 기록이다. 최신 상태(11월 6일 04:26 JST):
-PR #406의 최종 head 필수 8개 검사를 통과해 main `f295e1a`로 병합했다.
-실제 병합 커밋의 배포 검증은 진행 중이며, 공개 latest는 여전히 v3.7.1이다.
-실제 설치 구성의 최종 PR 비교는 252개 모두 독립 출력 일치·일반 회귀 기준 통과다.
-Homebrew 목표 지연 15.17~17.84%, CPU 13.41~16.42% 감소지만 메모리 절감은 없다.
-아래 기록은 당시 상태를 보존한 시간순 이력이며 실패 결과도 그대로 남긴다.
+2026-11-05부터 이어진 조사 기록이다. 최신 상태(11월 6일): v3.8.0을 실제
+main `f295e1a`에서 발행했고 공개 자산 15개를 검증했다. Homebrew PR #26도
+formula CI 성공 후 병합했다. 공개 태그에서 네 플랫폼 설치 및 세 Homebrew
+환경의 최종 검증을 진행 중이다. 최종 PR head와 실제 merge의 필수 8개 checks는
+각각 모두 성공했다. 실제 설치 구성 252개 비교는 독립 출력 불일치·일반 5% 초과
+회귀 0이다. Homebrew 목표 지연 15.56~16.86%, CPU 14.09~15.26% 감소이며
+메모리 절감은 없다. 아래는 실패 결과도 보존한 시간순 이력이다.
 [구현 PR #403](https://github.com/JeongJaeSoon/agent-guard/pull/403)의 결과를
 실패한 후보까지 덮어쓰지 않고 보존한다. `SHA256.json`은 이 디렉터리의 원시 파일 해시다.
 
@@ -468,3 +469,25 @@ Homebrew 4-worker 처리량 4.22045→5.06632 req/s, CPU 3.807615→3.138596초/
 ### 발행 전 최종 확인
 
 최종 head c3cfb40와 실제 merge f295e1a의 필수 8개 checks가 모두 success임을 확인했다. main은 f295e1a 그대로이고 공개 latest는 아직 v3.7.1이었다. `checks-final-success.json`에 merge check 전체 snapshot을 보존했다. 이 조건을 확인한 뒤 release.yml을 main에서 version=3.8.0, bump=minor, dry_run=false로 한 번 실행했다. 공개 자산·Homebrew와 공개 설치 결과는 이 실행 이후 별도로 검증한다.
+
+## 실제 공개 v3.8.0과 Homebrew 배포
+
+release run 42103569021은 성공했다. v3.8.0은 2026-11-05 20:31:09 UTC(11월 6일 05:31:09 JST)에 실제 공개됐다. `public-v3.8.0.zip`에는 공개 15개 자산과 metadata/digest 검증·main 바이너리 비교·태그 확인·Homebrew 검증 snapshot을 보존했다. 압축을 푼 payload 중복 사본은 ZIP에 추가하지 않았다. 공개 core 네 개는 실제 main-push qualified binary와 bytes가 같고, archive 내부 core와도 일치한다. native-validation의 SHA는 f295e1a이며 해당 main-push native workflow가 성공했음을 검증했다. installer/notices/formula는 검토한 소스/렌더링 결과와 일치하고 CLI·두 호스트 manifest 버전은 3.8.0이다. archive SHA-256은 `d0caf58492f6b8b93c98948fbf2f1ff3bc0e7d64d083cefb24537d216957e46b`다. v3는 f295e1a를 가리키고 기존 v1 a795c72는 변하지 않았다.
+
+Homebrew PR #26의 exact head 630880e에서 formula audit·실제 install·brew test가 성공한 뒤 병합했다. tap merge는 `9e232cacf87c98bf30d652c0110f55db328c0847`이고 main formula는 공개 자산과 바이트까지 일치한다. 공개 태그 v3.8.0에서 public-native-release run 42104857774를 version=3.8.0, previous_version=3.7.1로 시작했다. 이는 f295e1a에서 실행되는 네 플랫폼 실제 공개 설치/업데이트/복귀 및 세 Homebrew 환경 검증이며 아직 결과 대기 중이다.
+
+### 실제 공개본의 설치 비용: 9쌍 교대 측정
+
+두 버전의 실제 공개 archive와 bootstrap을 자산 digest로 검증했다. compiler 없는 격리 Docker에서 각 9회 교대 새 설치했으며 18회 모두 버전·CLI 링크·shell integration 검증에 성공했다. `published-install-cost-v3.8.0.zip`에는 모든 리소스 표본·stdout/stderr·조건·입력 identity·bootstrap·HTTP 대체기를 보존했다. 입력 tarball은 공개 자산과 로컬 원본에 유지하며 ZIP 중복은 제외했다.
+
+| 설치 항목(중앙값) | 실제 공개 v3.7.0 | 실제 공개 v3.8.0 |
+|---|---:|---:|
+| bootstrap 지연 초 | 0.637492 | 0.640202 |
+| CPU 초 | 0.681287 | 0.688275 |
+| 최대 개별 자식 RSS MiB | 44.671875 | 44.476563 |
+| 설치 일반 파일 합 bytes | 3,494,569 | 3,539,549 |
+| 공개 archive bytes | 1,927,563 | 1,948,006 |
+
+설치 지연 차이는 +2.71ms, CPU +6.99ms다. 설치 파일 +44,980 bytes(+1.29%), 압축 배포본 +20,443 bytes(+1.06%)다. 작은 시간·RSS 차이를 설치 속도/메모리 개선으로 주장하지 않는다. 실제 로컬 cgroup은 4CPU/16GiB이며 네트워크 다운로드, Docker 시작, 의존성 최초 설치를 제외했다. filesystem cache를 강제로 비우지 않았다. 2CPU/1GiB 사용 성능과 조건이 다르므로 몇 회 사용하면 회수되는지 계산하지 않는다.
+
+위 증가분은 기존 packaged v3.7.0 사용자 기준이다. 소스 Git 플러그인만 사용하던 사람이 문서대로 독립 설치를 새로 연결하면 약 3.54MB 전체 설치를 추가한다. 이미 standalone/Homebrew가 있는 경우와 구분해야 한다. core 네 파일 중 플랫폼별 크기는 약 399~543KB지만 안내된 독립 설치는 universal package다. host 내부 Git clone 옵션·의존성/network 비용까지 이 수치로 일반화하지 않는다. 매 실행의 RSS 증가는 일회성 설치 비용과 별개의 tradeoff다.
