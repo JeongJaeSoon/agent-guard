@@ -69,3 +69,29 @@ base64, printenv, yes가 빠진 로그를 확인했다. compiler-free 준비·ho
 버전·formula 정보·build info·해시를 보존하고, bottle의 loader와 라이브러리 prefix를
 읽기 전용으로 함께 마운트하여 실행 파일을 패치하지 않는다. 따라서 이전 stdlib
 소스 재빌드 관측과 실제 Homebrew 비교를 구분할 수 있다.
+
+실제 Homebrew 추가의 최초 3개 job은 설치 뒤 `go version -m` 단계에서 중단됐다.
+로컬에 보존한 SHA-256 `78b43af...fe5d1`의 **설치 전 공개 bottle ELF**에도 같은
+오류가 재현되어, 설치나 후보의 실행 실패로 해석하지 않는다. Go build-info를
+읽을 수 있다고 가정한 검증기 문제다. 후속 검증은 해당 공식 bottle 해시를 고정하고
+설치된 8.30.1 버전·복사 바이트 일치·Homebrew SBOM·formula·ELF 정보와 실제 실행을
+검사한다. build-info의 원래 실패 상태와 stderr는 지우지 않는다. 공식 및 stdlib
+소스 빌드의 build-info 추출 실패는 여전히 검증 실패로 처리한다.
+
+`733cf38` 직접 실행에서는 stdlib의 126개 비교가 목표 10%/일반 경로 5% 기준을
+통과했다. 공식 scanner warm의 Claude pre-read-placeholder는 지연 +6.06%,
+CPU +5.42%여서 전체 기준은 아직 실패다. 출력과 무관한 PreToolUse에서도 추가한
+출력 함수 정의를 매번 파싱하고 있었으므로, 다음 후보는 그 정의를 별도 파일로
+옮겨 출력 detector를 실제 호출할 때만 읽는다. 동일 실패 표본을 보존하며, 이 변경이
+회귀를 해소하는지는 후속 측정으로 판단한다. 단순 재실행이나 기준 변경은 하지 않는다.
+
+같은 head의 macOS Intel 출력 suite는 1042건 성공·1건 실패였다. 기존 960000개
+숫자/불리언 fallback fixture가 36초 걸려 원래의 20초 조건을 넘었다. stdout 일부와
+stderr는 남았지만 실패한 조건의 단락 평가로 전체 출력 검증은 완료되지 않았다.
+새 진단은 공개 3.7.0/3.7.1/후보 각각의 원본 CLI와 함수별 시간 계측 CLI를 한 번씩
+실행하고 입력·전체 stdout·stderr·CPU·RSS·독립 기대값·단계 시간을 보존한다.
+계측 오버헤드는 성능 판정에 섞지 않으며 시간 제한·기대값은 그대로 유지한다.
+
+고정된 `355bf54` 소스를 읽기 전용으로 둔 컴파일러 없는 Linux 컨테이너에서 전체
+suite 2727건 성공·0건 실패(exit 0)를 확인했다. 해당 CLI 구현은 `733cf38`과 같고,
+이후 지연 로딩 변경은 별도 fallback 6건 및 후속 플랫폼 CI로 검증한다.

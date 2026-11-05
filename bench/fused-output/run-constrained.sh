@@ -43,7 +43,7 @@ limits=$(run sh -c 'cat /sys/fs/cgroup/cpu.max /sys/fs/cgroup/memory.max /sys/fs
 0" ] || { echo 'resource limits not enforced' >&2; exit 2; }
 printf '%s\n' "$limits" > "$out/enforced-limits.txt"
 git rev-parse HEAD > "$out/checkout-sha.txt"
-run sh -c 'uname -a; jq --version; sha256sum /scanner/gitleaks /public/bin/agent-guard plugins/agent-guard/bin/agent-guard /build/target/release/agent-guard-redact; cat /proc/cpuinfo' > "$out/environment.txt"
+run sh -c 'uname -a; jq --version; sha256sum /scanner/gitleaks /public/bin/agent-guard plugins/agent-guard/bin/agent-guard plugins/agent-guard/scripts/output-pipeline-experiment.sh /build/target/release/agent-guard-redact; cat /proc/cpuinfo' > "$out/environment.txt"
 core=/public/libexec/agent-guard-redact-x86_64-unknown-linux-musl
 for host in claude codex; do
   run agent-guard-devtools masking-latency --baseline /public/bin/agent-guard \

@@ -7,12 +7,49 @@ on:
       - 'bench/fused-output/**'
       - 'native/**'
       - 'plugins/agent-guard/bin/agent-guard'
+      - 'plugins/agent-guard/scripts/output-pipeline-experiment.sh'
+      - 'tests/fused-output.sh'
+      - 'tests/native-suite.sh'
 permissions:
   contents: read
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
+  numeric-diagnostic:
+    name: Numeric fallback diagnosis (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15-intel]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Preserve public baseline and candidate stage measurements
+        run: |
+          sh scripts/install-native-test-tools.sh "$RUNNER_TEMP/test-bin"
+          export PATH="$RUNNER_TEMP/test-bin:$PATH"
+          mkdir -p "$RUNNER_TEMP/numeric"
+          for version in 3.7.0 3.7.1; do
+            mkdir "$RUNNER_TEMP/public-$version"
+            curl -fsSL "https://github.com/JeongJaeSoon/agent-guard/releases/download/v$version/agent-guard-$version.tar.gz" -o "$RUNNER_TEMP/public-$version.tar.gz"
+            curl -fsSL "https://github.com/JeongJaeSoon/agent-guard/releases/download/v$version/agent-guard-$version.tar.gz.sha256" -o "$RUNNER_TEMP/public-$version.sha256"
+            expected=$(awk -v name="agent-guard-$version.tar.gz" '$2 == name {print $1}' "$RUNNER_TEMP/public-$version.sha256")
+            actual=$(shasum -a 256 "$RUNNER_TEMP/public-$version.tar.gz" | awk '{print $1}')
+            test -n "$expected" && test "$actual" = "$expected"
+            printf '%s %s\n' "$version" "$actual" >> "$RUNNER_TEMP/numeric/public-checksums.txt"
+            tar -xzf "$RUNNER_TEMP/public-$version.tar.gz" -C "$RUNNER_TEMP/public-$version"
+            python3 bench/fused-output/diagnose-numeric.py "$RUNNER_TEMP/public-$version" "$RUNNER_TEMP/numeric/$version"
+          done
+          AGENT_GUARD_EXPERIMENTAL_OUTPUT_PIPELINE=fused \
+            python3 bench/fused-output/diagnose-numeric.py plugins/agent-guard "$RUNNER_TEMP/numeric/candidate"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: numeric-diagnostic-${{ matrix.os }}
+          path: ${{ runner.temp }}/numeric/
+          if-no-files-found: error
   contracts:
     name: Fused contracts (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -94,11 +131,28 @@ jobs:
           else
             eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
             HOMEBREW_NO_AUTO_UPDATE=1 brew install gitleaks
-            cp "$(command -v gitleaks)" "$RUNNER_TEMP/scanner/gitleaks"
+            installed="$(brew --prefix gitleaks)/bin/gitleaks"
+            test "$("$installed" version)" = 8.30.1
+            bottle=$(brew --cache gitleaks)
+            printf '%s  %s\n' 78b43afdf14a05c5df07b73aeaf63ae56b784c905f057411a43ee8fde40fe5d1 "$bottle" \
+              | sha256sum -c - > "$RUNNER_TEMP/scanner/bottle-checksum.txt"
+            cp "$installed" "$RUNNER_TEMP/scanner/gitleaks"
+            cmp "$installed" "$RUNNER_TEMP/scanner/gitleaks"
             brew info --json=v2 gitleaks > "$RUNNER_TEMP/scanner/homebrew.json"
             brew config > "$RUNNER_TEMP/scanner/homebrew-config.txt"
+            cp "$(brew --prefix gitleaks)/sbom.spdx.json" "$RUNNER_TEMP/scanner/homebrew-sbom.json"
+            file "$installed" > "$RUNNER_TEMP/scanner/executable-format.txt"
           fi
-          go version -m "$RUNNER_TEMP/scanner/gitleaks" > "$RUNNER_TEMP/scanner/buildinfo.txt"
+          # The pinned public Homebrew ELF also fails Go's build-info reader
+          # before installation. Preserve that diagnostic, but use the verified
+          # bottle, SBOM, installed bytes and actual execution as its identity.
+          if go version -m "$RUNNER_TEMP/scanner/gitleaks" > "$RUNNER_TEMP/scanner/buildinfo.txt" 2> "$RUNNER_TEMP/scanner/buildinfo.stderr"; then
+            printf '0\n' > "$RUNNER_TEMP/scanner/buildinfo.status"
+          else
+            status=$?
+            printf '%s\n' "$status" > "$RUNNER_TEMP/scanner/buildinfo.status"
+            test "$SCANNER_KIND" = homebrew
+          fi
           sha256sum "$RUNNER_TEMP/scanner/gitleaks" > "$RUNNER_TEMP/scanner/binary.sha256"
       - name: Actual public baseline and enforced resource limits
         env:
@@ -111,7 +165,12 @@ jobs:
           path: |
             ${{ runner.temp }}/evidence/
             ${{ runner.temp }}/scanner/buildinfo.txt
+            ${{ runner.temp }}/scanner/buildinfo.stderr
+            ${{ runner.temp }}/scanner/buildinfo.status
             ${{ runner.temp }}/scanner/binary.sha256
             ${{ runner.temp }}/scanner/homebrew.json
             ${{ runner.temp }}/scanner/homebrew-config.txt
+            ${{ runner.temp }}/scanner/homebrew-sbom.json
+            ${{ runner.temp }}/scanner/bottle-checksum.txt
+            ${{ runner.temp }}/scanner/executable-format.txt
           if-no-files-found: error
