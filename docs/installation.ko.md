@@ -1,4 +1,4 @@
-<!-- translated-from: docs/installation.md; source-blob: 925371b250c691400ef7aed889100d032487417b -->
+<!-- translated-from: docs/installation.md; source-blob: 5b57e1206ad3e8325dc7f71e613b1448be81e40e -->
 
 <a id="installing-agent-guard"></a>
 
@@ -33,6 +33,45 @@ codex plugin add agent-guard@agent-guard
 
 <a id="runtime-dependencies"></a>
 
+## 선택형 출력 준비 통합(v3.8+)
+
+출력 파이프라인 실험은 명시적으로 선택합니다. 기존 scanner·규칙·정책·호스트
+출력 계약을 유지하며 private 중간 파일과 JSON 준비를 통합합니다. 같은 릴리스의
+사전 빌드 core를 설치하세요. 기존 core 파일이 준비와 치환을 모두 지원하므로
+두 번째 helper나 컴파일러가 필요하지 않습니다. Git marketplace 설치에서도
+호스트 캐시를 수정하지 않고 독립 설치의 helper를 사용할 수 있습니다.
+
+Linux x64에서는 설치된 helper를 검증하고 두 설정을 호스트 시작 환경에 노출합니다.
+
+```sh
+target=x86_64-unknown-linux-musl
+native_root="$HOME/.agent-guard/libexec"
+if (cd "$native_root" && shasum -a 256 -c "agent-guard-redact-$target.sha256"); then
+  export AGENT_GUARD_EXPERIMENTAL_OUTPUT_PIPELINE=fused
+  export AGENT_GUARD_EXPERIMENTAL_OUTPUT_PREPARE_BIN="$native_root/agent-guard-redact-$target"
+fi
+```
+
+플랫폼에 맞는 target은 [네이티브 helper 안내(영어)](https://github.com/JeongJaeSoon/agent-guard/blob/v3.8.0/docs/native-redactor.md)에서 선택하세요.
+Homebrew에서는 `native_root="$(brew --prefix agent-guard)/libexec/libexec"`로 설정합니다.
+이 명시적 경로는 신뢰하는 실행 파일 재정의이므로 검증된 설치만 지정하세요.
+준비 helper가 없거나 실패하면 원래 jq 단계로 복귀하고, 실험 모듈이 없으면
+원래 출력 파이프라인으로 복귀합니다. scanner와 준비 제한 시간은 바뀌지 않습니다.
+
+시작 환경을 바꾼 뒤 Claude 또는 Codex를 재시작하세요. 기존 플러그인 설치·업데이트
+명령은 같습니다. 기본 출력 파이프라인으로 복구하려면 두 설정을 지우고 호스트를
+재시작합니다.
+
+```sh
+unset AGENT_GUARD_EXPERIMENTAL_OUTPUT_PIPELINE
+unset AGENT_GUARD_EXPERIMENTAL_OUTPUT_PREPARE_BIN
+```
+
+기존 기본 문자열 치환기 선택은 유지됩니다. 해당 native helper도 끄려면
+`AGENT_GUARD_EXPERIMENTAL_REDACTOR=shell`을 사용하세요. 측정된 이득은 작업과
+scanner에 따라 다르며 표본 프로세스 RSS 합이 늘 수 있습니다. 적용 전
+[검증 안내](verification.ko.md)를 확인하세요.
+
 ## 실행 의존성
 
 v3.7 릴리스 아카이브와 Homebrew 패키지에는 Linux/macOS x64/arm64용 Rust 문자열 치환기가 포함됩니다. Rust 컴파일러는 필요하지 않습니다. CLI는 해당 플랫폼의 체크섬을 검증한 치환기를 기본으로 사용하며, 바이너리가 없거나 실패하면 셸/jq로 복귀합니다. 탐지·정책·PII·호스트 어댑터는 셸에 남으므로 아래 의존성은 계속 필요합니다. 셸을 명시적으로 선택하려면 다음을 설정하세요.
@@ -43,7 +82,7 @@ export AGENT_GUARD_EXPERIMENTAL_REDACTOR=shell
 
 Linux 치환기는 정적 musl을 사용해 glibc가 필요하지 않으며 Ubuntu 24.04에서 실제 실행을 검사합니다. macOS 치환기의 배포 대상은 macOS 14 이상이며 두 아키텍처 모두 macOS 15에서 검사합니다. 배포 대상 설정만으로 모든 이전 OS·커널의 실행이 입증되지는 않습니다. 미지원 환경은 셸 복귀를 유지합니다. 배포 체크섬은 손상을 탐지하며 바이너리와 체크섬이 함께 악의적으로 교체된 경우를 인증하지는 않습니다.
 
-소스 아카이브와 호스트가 관리하는 Git marketplace 플러그인에는 바이너리가 없으므로 기존 `AGENT_GUARD_RUST_CORE_BIN`으로 신뢰하는 사전 빌드 치환기를 지정하지 않으면 셸을 사용합니다. 독립 설치의 치환기를 사용하면 호스트 캐시를 수정할 필요가 없습니다. 선택·체크섬 검증·개발자 재정의는 [네이티브 치환기 안내(영어)](https://github.com/JeongJaeSoon/agent-guard/blob/v3.7.0/docs/native-redactor.md)를 참고하세요.
+소스 아카이브와 호스트가 관리하는 Git marketplace 플러그인에는 바이너리가 없으므로 기존 `AGENT_GUARD_RUST_CORE_BIN`으로 신뢰하는 사전 빌드 치환기를 지정하지 않으면 셸을 사용합니다. 독립 설치의 치환기를 사용하면 호스트 캐시를 수정할 필요가 없습니다. 선택·체크섬 검증·개발자 재정의는 [네이티브 치환기 안내(영어)](https://github.com/JeongJaeSoon/agent-guard/blob/v3.8.0/docs/native-redactor.md)를 참고하세요.
 
 macOS와 Linux에서 실행하려면 `sh`, `awk`, `git`, `jq`, gitleaks 8.30 이상이 필요합니다. gitleaks 버전 확인을 별도 프로세스 그룹에서 실행하기 위한 `setsid` 또는 Perl도 필요합니다. 이 격리로 버전 확인의 시간 제한과 자식 프로세스 정리를 보장합니다. Linux에서는 `sudo apt-get install -y util-linux` 또는 `sudo dnf install -y util-linux`로 `setsid`를 설치하세요. Homebrew formula는 CLI와 함께 Perl을 설치합니다. macOS에서 수동 설치했고 두 도구가 모두 없다면 `brew install perl`을 사용할 수 있습니다.
 
