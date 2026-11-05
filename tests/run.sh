@@ -7976,6 +7976,8 @@ fi
 
 run_expect 0 "direct scan dependency statuses and recovery" \
   "$REAL_SH" "$ROOT/tests/direct-scan-status.sh"
+run_expect 0 "regular and linked executable paths select the same payload" \
+  "$REAL_SH" "$ROOT/tests/script-location.sh"
 run_expect 0 "deterministic gitleaks resolution and capability diagnostics" \
   "$REAL_SH" "$ROOT/tests/gitleaks-resolution.sh"
 run_expect 0 "completed scanner probes retain their status after parent scheduling delay" \

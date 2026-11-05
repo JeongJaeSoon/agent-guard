@@ -29,6 +29,18 @@ script_path() {
 }
 
 script_dir() {
+  # Host hooks invoke the regular executable by absolute path. Resolve its
+  # parent in this existing subshell without spawning script_path and dirname.
+  # Symlink and relative invocations retain the portable chain resolver below.
+  case "$0" in
+    /*)
+      if [ ! -L "$0" ]; then
+        script_parent=${0%/*}
+        CDPATH= cd -- "${script_parent:-/}" && pwd -P
+        return
+      fi
+      ;;
+  esac
   # shellcheck disable=SC2164
   CDPATH= cd -- "$(dirname -- "$(script_path)")" && pwd -P
 }
