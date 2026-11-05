@@ -15014,6 +15014,8 @@ else
 fi
 
 # --- agent-guard exec (shell-escape output masking) --------------------------
+run_expect 0 "plaintext framing preserves escaped records, byte boundaries and clean data" \
+  "$REAL_SH" "$ROOT/tests/plaintext-framing.sh"
 # `agent-guard exec` runs a command and masks secret-like values in its captured
 # output before printing. Secret VALUE assembled at runtime from fragments so this
 # file never holds a contiguous `token=...`-shaped literal upstream scanners flag.
