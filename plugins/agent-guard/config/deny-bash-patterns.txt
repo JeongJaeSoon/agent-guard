@@ -2,9 +2,11 @@
 # Path-based reads are handled from deny-read-paths; keep only pathless shell idioms here.
 (^|[[:space:];|&(`])printenv([^[:alnum:]_-]|$)
 (^|[[:space:];|&])env[[:space:]]*($|[;&])
-# A command substitution (`$(env)`, `` `env` ``) hands the whole environment to
-# its outer command, such as a message body.
-(\$\(|`)[[:space:]]*env[[:space:]]*(\)|`)
+# A command substitution that lists variables (`$(env)`, `` `set` ``,
+# `$(env -u X | head)`, `$(declare -x)`) hands them to its outer command, such
+# as a message body. An `env` that runs a command (`$(env LC_ALL=C date)`) does
+# not list them.
+(\$\(|`)[[:space:]]*(command[[:space:]]+)?(([^[:space:]`)]*/)?env([[:space:]]+(-0|--null|-u[[:space:]]*[^-[:space:]`)|;&][^[:space:]`)|;&]*|--unset=[^[:space:]`)|;&]+))*|set|export([[:space:]]+-p)?|(declare|typeset)([[:space:]]+-[A-Za-z]*[px][A-Za-z]*)?)[[:space:]]*(\)|`|[|>;&])
 # `env` whose output is piped or redirected dumps the environment into a sink
 # (`env | base64`, `env > /tmp/e`). Matching any `|`/`>` (rather than a fixed
 # sink list) closes gaps like `env | gzip` or `env | gpg`. The leading class

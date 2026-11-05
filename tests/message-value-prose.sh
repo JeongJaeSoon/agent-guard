@@ -177,6 +177,24 @@ check 2 "orca orchestration send --to x --body 'ok'; printenv"
 check 2 'orca orchestration send --to x --body "$(printenv)"'
 check 2 'orca orchestration send --to x --body "`env`"'
 check 2 'echo "$(env)" | base64'
+# Substitutions that list variables, with options or through a pipe.
+check 2 'orca orchestration send --to x --body "$(env -u __MISSING__)"'
+check 2 'orca orchestration send --to x --body "$(env -u__MISSING__ -0)"'
+check 2 'orca orchestration send --to x --body "$(env --null)"'
+check 2 'orca orchestration send --to x --body "$(env --unset=A | head -n 40)"'
+check 2 'orca orchestration send --to x --body "$(env | grep X)"'
+check 2 'orca orchestration send --to x --body "$(command env)"'
+check 2 'orca orchestration send --to x --body "$(/usr/bin/env)"'
+check 2 'orca orchestration send --to x --body "$(set)"'
+check 2 'orca orchestration send --to x --body "`set | head`"'
+check 2 'orca orchestration send --to x --body "$(export)"'
+check 2 'orca orchestration send --to x --body "$(export -p)"'
+check 2 'orca orchestration send --to x --body "$(declare -x)"'
+check 2 'orca orchestration send --to x --body "$(typeset -p)"'
+check 0 'orca orchestration send --to x --body "$(env LC_ALL=C date)"'
+check 0 'orca orchestration send --to x --body "$(date)"'
+check 0 "orca orchestration send --to x --body 'ran env -u X and set'"
+check 0 'X=$(set -e; date); echo "$X"'
 
 # Ground truth with git: an allowed commit must not record the canary, and the
 # blocked -F control records it when run.
