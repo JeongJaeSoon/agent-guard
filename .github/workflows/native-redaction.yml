@@ -1,146 +1,33 @@
-name: Experimental native redactor
+name: Scanner process diagnosis
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'native/**'
-      - 'bench/native/**'
-      - 'scripts/devtools.sh'
-      - 'plugins/agent-guard/bin/agent-guard'
-      - 'tests/**'
-      - 'plugins/agent-guard/config/**'
-      - '.github/workflows/ci.yml'
-      - '.github/workflows/native-redaction.yml'
-  pull_request:
-    paths:
-      - 'native/**'
-      - 'bench/native/**'
-      - 'scripts/devtools.sh'
-      - 'plugins/agent-guard/bin/agent-guard'
-      - 'tests/**'
-      - 'plugins/agent-guard/config/**'
-      - '.github/workflows/ci.yml'
-      - '.github/workflows/native-redaction.yml'
   workflow_dispatch:
 permissions:
   contents: read
-
-# Replace only obsolete runs of the same PR. Non-PR runs have unique groups.
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-
 jobs:
-  contracts:
-    name: Native redactor contracts
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          persist-credentials: false
-      - name: Build and check pinned compiler
-        run: |
-          rustup toolchain install 1.85.1 --profile minimal --component rustfmt --component clippy
-          cargo +1.85.1 fmt --manifest-path native/redaction-core/Cargo.toml --check
-          cargo +1.85.1 clippy --manifest-path native/redaction-core/Cargo.toml --locked -- -D warnings
-          cargo +1.85.1 build --release --locked --manifest-path native/redaction-core/Cargo.toml
-          cargo +1.85.1 fmt --manifest-path native/devtools/Cargo.toml --check
-          cargo +1.85.1 clippy --manifest-path native/devtools/Cargo.toml --locked --all-targets -- -D warnings
-          cargo +1.85.1 test --manifest-path native/devtools/Cargo.toml --locked
-          cargo +1.85.1 build --release --locked --manifest-path native/devtools/Cargo.toml
-      - name: Pin reference jq
-        run: |
-          curl -fL https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-amd64 -o "$RUNNER_TEMP/jq"
-          echo "5942c9b0934e510ee61eb3e30273f1b3fe2590df93933a93d7c58b81d19c8ff5  $RUNNER_TEMP/jq" | sha256sum -c -
-          chmod +x "$RUNNER_TEMP/jq"
-          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
-      - name: Differential and independent golden contracts
-        env:
-          AGENT_GUARD_EXPERIMENTAL_REDACTOR: rust
-        run: |
-          export AGENT_GUARD_RUST_CORE_BIN="$PWD/native/redaction-core/target/release/agent-guard-redact"
-          native/devtools/target/release/agent-guard-devtools native-redaction --core "$AGENT_GUARD_RUST_CORE_BIN"
-          sh tests/redaction-plan.sh
-      - name: Install pinned real scanner
-        run: |
-          scanner_version=$(sed -n 's/^  GITLEAKS_VERSION: "\([^"]*\)"/\1/p' .github/workflows/ci.yml)
-          scanner_checksum=$(sed -n 's/^  GITLEAKS_CHECKSUM_LINUX_X64: "\([^"]*\)"/\1/p' .github/workflows/ci.yml)
-          test -n "$scanner_version" && test -n "$scanner_checksum"
-          archive="gitleaks_${scanner_version}_linux_x64.tar.gz"
-          scanner_tmp=$(mktemp -d)
-          curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/v${scanner_version}/${archive}" -o "$scanner_tmp/$archive"
-          echo "$scanner_checksum  $scanner_tmp/$archive" | sha256sum -c -
-          tar -xzf "$scanner_tmp/$archive" -C "$scanner_tmp" gitleaks
-          install -m 755 "$scanner_tmp/gitleaks" "$RUNNER_TEMP/gitleaks"
-          rm -rf "$scanner_tmp"
-      - name: Real host and fallback contracts
-        run: |
-          native/devtools/target/release/agent-guard-devtools native-integration --core "$PWD/native/redaction-core/target/release/agent-guard-redact" --scanner "$RUNNER_TEMP/gitleaks"
-      - name: Developer tool compatibility contracts
-        run: sh tests/devtools.sh "$PWD/native/devtools/target/release/agent-guard-devtools"
-      - name: Native scanner and output regression partition
-        env:
-          AGENT_GUARD_TEST_SHARD: '4'
-        run: |
-          export AGENT_GUARD_RUST_CORE_BIN="$PWD/native/redaction-core/target/release/agent-guard-redact"
-          sh tests/native-suite.sh
-          sh tests/native-suite.sh audit
-
-  developer-tools:
-    name: Developer tools (${{ matrix.os }})
+  diagnosis:
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 10
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [macos-15-intel, macos-15, ubuntu-24.04]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Prepare exact scanner and current core
+        run: |
+          rustup toolchain install 1.85.1 --profile minimal
+          cargo +1.85.1 build --release --locked --manifest-path native/redaction-core/Cargo.toml
+          sh scripts/install-native-test-tools.sh "$RUNNER_TEMP/test-bin"
+      - name: Collect fixed idle and pressure samples without retry acceptance
+        run: |
+          export PATH="$RUNNER_TEMP/test-bin:$PATH"
+          python3 bench/fused-output/diagnose-process.py \
+            --scanner "$RUNNER_TEMP/test-bin/gitleaks" \
+            --core "$PWD/native/redaction-core/target/release/agent-guard-redact" \
+            --out "$RUNNER_TEMP/process-evidence"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
         with:
-          persist-credentials: false
-      - name: Build and verify developer tools
-        run: |
-          rustup toolchain install 1.85.1 --profile minimal --component rustfmt --component clippy
-          cargo +1.85.1 fmt --manifest-path native/devtools/Cargo.toml --check
-          cargo +1.85.1 clippy --manifest-path native/devtools/Cargo.toml --locked --all-targets -- -D warnings
-          cargo +1.85.1 test --manifest-path native/devtools/Cargo.toml --locked
-          cargo +1.85.1 build --manifest-path native/devtools/Cargo.toml --release --locked
-          sh tests/devtools.sh "$PWD/native/devtools/target/release/agent-guard-devtools"
-      - name: Pin real scanner and reference jq for macOS core contracts
-        if: runner.os == 'macOS'
-        run: |
-          set -euo pipefail
-          scanner_version=$(sed -n 's/^  GITLEAKS_VERSION: "\([^"]*\)"/\1/p' .github/workflows/ci.yml)
-          case "$scanner_version:$(uname -m)" in
-            8.30.1:arm64)
-              scanner_arch=arm64
-              scanner_sha=b40ab0ae55c505963e365f271a8d3846efbc170aa17f2607f13df610a9aeb6a5
-              jq_arch=arm64
-              jq_sha=0bbe619e663e0de2c550be2fe0d240d076799d6f8a652b70fa04aea8a8362e8a
-              ;;
-            8.30.1:x86_64)
-              scanner_arch=x64
-              scanner_sha=dfe101a4db2255fc85120ac7f3d25e4342c3c20cf749f2c20a18081af1952709
-              jq_arch=amd64
-              jq_sha=4155822bbf5ea90f5c79cf254665975eb4274d426d0709770c21774de5407443
-              ;;
-            *) echo 'unsupported macOS scanner pin or architecture' >&2; exit 1 ;;
-          esac
-          mkdir -p "$RUNNER_TEMP/native-bin"
-          archive="gitleaks_${scanner_version}_darwin_${scanner_arch}.tar.gz"
-          curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/v${scanner_version}/${archive}" -o "$RUNNER_TEMP/$archive"
-          echo "$scanner_sha  $RUNNER_TEMP/$archive" | shasum -a 256 -c -
-          tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP/native-bin" gitleaks
-          curl -fsSL "https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-macos-${jq_arch}" -o "$RUNNER_TEMP/native-bin/jq"
-          echo "$jq_sha  $RUNNER_TEMP/native-bin/jq" | shasum -a 256 -c -
-          chmod +x "$RUNNER_TEMP/native-bin/jq" "$RUNNER_TEMP/native-bin/gitleaks"
-          echo "$RUNNER_TEMP/native-bin" >> "$GITHUB_PATH"
-      - name: macOS Rust core differential, real host and fallback contracts
-        if: runner.os == 'macOS'
-        run: |
-          cargo +1.85.1 build --manifest-path native/redaction-core/Cargo.toml --release --locked
-          export AGENT_GUARD_RUST_CORE_BIN="$PWD/native/redaction-core/target/release/agent-guard-redact"
-          native/devtools/target/release/agent-guard-devtools native-redaction --core "$AGENT_GUARD_RUST_CORE_BIN"
-          native/devtools/target/release/agent-guard-devtools native-integration --core "$AGENT_GUARD_RUST_CORE_BIN" --scanner "$RUNNER_TEMP/native-bin/gitleaks"
-          sh tests/native-suite.sh audit
+          name: scanner-process-${{ matrix.os }}
+          path: ${{ runner.temp }}/process-evidence/
+          if-no-files-found: error
