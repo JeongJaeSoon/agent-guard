@@ -1,0 +1,365 @@
+﻿2026-11-05T13:31:56.2740170Z Current runner version: '2.338.2'
+2026-11-05T13:31:56.2765711Z ##[group]Runner Image Provisioner
+2026-11-05T13:31:56.2767053Z Hosted Compute Agent
+2026-11-05T13:31:56.2767750Z Version: 20261028.624
+2026-11-05T13:31:56.2768402Z Commit: 54898b74c23fde5556c9b3c3a2290865feef0dfe
+2026-11-05T13:31:56.2769122Z Build Date: 2026-10-28T21:51:42Z
+2026-11-05T13:31:56.2769941Z Worker ID: {db1b53dd-a683-4e62-9630-e4c9c1e2043a}
+2026-11-05T13:31:56.2770678Z Region: westus2
+2026-11-05T13:31:56.2771285Z Cloud: Azure
+2026-11-05T13:31:56.2771864Z ##[endgroup]
+2026-11-05T13:31:56.2773481Z ##[group]Operating System
+2026-11-05T13:31:56.2774320Z Ubuntu
+2026-11-05T13:31:56.2774863Z 24.04.5
+2026-11-05T13:31:56.2775423Z LTS
+2026-11-05T13:31:56.2776233Z ##[endgroup]
+2026-11-05T13:31:56.2776853Z ##[group]Runner Image
+2026-11-05T13:31:56.2777550Z Image: ubuntu-24.04
+2026-11-05T13:31:56.2778131Z Version: 20261101.360.1
+2026-11-05T13:31:56.2779466Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20261101.360/images/ubuntu/Ubuntu2404-Readme.md
+2026-11-05T13:31:56.2781079Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20261101.360
+2026-11-05T13:31:56.2782116Z ##[endgroup]
+2026-11-05T13:31:56.2783263Z ##[group]GITHUB_TOKEN Permissions
+2026-11-05T13:31:56.2785472Z Contents: read
+2026-11-05T13:31:56.2786364Z Metadata: read
+2026-11-05T13:31:56.2786971Z ##[endgroup]
+2026-11-05T13:31:56.2789283Z Secret source: Actions
+2026-11-05T13:31:56.2790303Z Cache mode: write
+2026-11-05T13:31:56.2791484Z Prepare workflow directory
+2026-11-05T13:31:56.3143310Z Prepare all required actions
+2026-11-05T13:31:56.3195043Z Getting action download info
+2026-11-05T13:31:56.7107137Z Download action repository 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' (SHA:3d3c42e5aac5ba805825da76410c181273ba90b1)
+2026-11-05T13:31:56.8561096Z Download action repository 'actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093' (SHA:d3f86a106a0bac45b974a628896c90dbdf5c8093)
+2026-11-05T13:31:57.1068682Z Download action repository 'actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16' (SHA:924ae3a1cded613372ab5595356fb5720e22ba16)
+2026-11-05T13:31:57.3466441Z Download action repository 'actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02' (SHA:ea165f8d65b6e75b540449e92b4886f43607fa02)
+2026-11-05T13:31:57.6548356Z Complete job name: Fused packaged performance (homebrew, off)
+2026-11-05T13:31:57.7509781Z ##[group]Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+2026-11-05T13:31:57.7510908Z with:
+2026-11-05T13:31:57.7511374Z   persist-credentials: false
+2026-11-05T13:31:57.7511947Z   repository: JeongJaeSoon/agent-guard
+2026-11-05T13:31:57.7516009Z   token: ***
+2026-11-05T13:31:57.7516486Z   ssh-strict: true
+2026-11-05T13:31:57.7516950Z   ssh-user: git
+2026-11-05T13:31:57.7517392Z   clean: true
+2026-11-05T13:31:57.7517855Z   sparse-checkout-cone-mode: true
+2026-11-05T13:31:57.7518402Z   fetch-depth: 1
+2026-11-05T13:31:57.7518844Z   fetch-tags: false
+2026-11-05T13:31:57.7519303Z   show-progress: true
+2026-11-05T13:31:57.7519821Z   lfs: false
+2026-11-05T13:31:57.7520263Z   submodules: false
+2026-11-05T13:31:57.7520725Z   set-safe-directory: true
+2026-11-05T13:31:57.7521241Z   allow-unsafe-pr-checkout: false
+2026-11-05T13:31:57.7522111Z ##[endgroup]
+2026-11-05T13:31:58.0619021Z Syncing repository: JeongJaeSoon/agent-guard
+2026-11-05T13:31:58.0621004Z ##[group]Getting Git version info
+2026-11-05T13:31:58.0621822Z Working directory is '/home/runner/work/agent-guard/agent-guard'
+2026-11-05T13:31:58.0622915Z [command]/usr/bin/git version
+2026-11-05T13:31:58.0758501Z git version 2.56.0
+2026-11-05T13:31:58.0780173Z ##[endgroup]
+2026-11-05T13:31:58.0832785Z Temporarily overriding HOME='/home/runner/work/_temp/96cfe0f6-f4aa-434c-8e81-c2c5cbc0364a' before making global git config changes
+2026-11-05T13:31:58.0834709Z Adding repository directory to the temporary git global config as a safe directory
+2026-11-05T13:31:58.0840009Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/agent-guard/agent-guard
+2026-11-05T13:31:58.0895279Z Deleting the contents of '/home/runner/work/agent-guard/agent-guard'
+2026-11-05T13:31:58.0900060Z ##[group]Determining repository object format
+2026-11-05T13:31:58.0902052Z ##[endgroup]
+2026-11-05T13:31:58.0903394Z ##[group]Initializing the repository
+2026-11-05T13:31:58.0908125Z [command]/usr/bin/git init /home/runner/work/agent-guard/agent-guard
+2026-11-05T13:31:58.1021720Z hint: Using 'master' as the name for the initial branch. This default branch name
+2026-11-05T13:31:58.1023434Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+2026-11-05T13:31:58.1024448Z hint: to use in all of your new repositories, which will suppress this warning,
+2026-11-05T13:31:58.1025278Z hint: call:
+2026-11-05T13:31:58.1025731Z hint:
+2026-11-05T13:31:58.1026941Z hint: 	git config --global init.defaultBranch <name>
+2026-11-05T13:31:58.1027974Z hint:
+2026-11-05T13:31:58.1028610Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2026-11-05T13:31:58.1029628Z hint: 'development'. The just-created branch can be renamed via this command:
+2026-11-05T13:31:58.1030422Z hint:
+2026-11-05T13:31:58.1031000Z hint: 	git branch -m <name>
+2026-11-05T13:31:58.1031667Z hint:
+2026-11-05T13:31:58.1032551Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2026-11-05T13:31:58.1039886Z Initialized empty Git repository in /home/runner/work/agent-guard/agent-guard/.git/
+2026-11-05T13:31:58.1053950Z [command]/usr/bin/git remote add origin https://github.com/JeongJaeSoon/agent-guard
+2026-11-05T13:31:58.1111318Z ##[endgroup]
+2026-11-05T13:31:58.1112910Z ##[group]Disabling automatic garbage collection
+2026-11-05T13:31:58.1114644Z [command]/usr/bin/git config --local gc.auto 0
+2026-11-05T13:31:58.1153165Z ##[endgroup]
+2026-11-05T13:31:58.1155431Z ##[group]Setting up auth
+2026-11-05T13:31:58.1157257Z Removing SSH command configuration
+2026-11-05T13:31:58.1262410Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-05T13:31:58.1271762Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-05T13:31:58.1688031Z Removing HTTP extra header
+2026-11-05T13:31:58.1690589Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-05T13:31:58.1742392Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-05T13:31:58.2002988Z Removing includeIf entries pointing to credentials config files
+2026-11-05T13:31:58.2008789Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-05T13:31:58.2054363Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-05T13:31:58.2303895Z [command]/usr/bin/git config --file /home/runner/work/_temp/git-credentials-423e7815-a5e9-42f6-a270-345f2ca580e2.config http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2026-11-05T13:31:58.2354796Z [command]/usr/bin/git config --local includeIf.gitdir:/home/runner/work/agent-guard/agent-guard/.git.path /home/runner/work/_temp/git-credentials-423e7815-a5e9-42f6-a270-345f2ca580e2.config
+2026-11-05T13:31:58.2404142Z [command]/usr/bin/git config --local includeIf.gitdir:/home/runner/work/agent-guard/agent-guard/.git/worktrees/*.path /home/runner/work/_temp/git-credentials-423e7815-a5e9-42f6-a270-345f2ca580e2.config
+2026-11-05T13:31:58.2451194Z [command]/usr/bin/git config --local includeIf.gitdir:/github/workspace/.git.path /github/runner_temp/git-credentials-423e7815-a5e9-42f6-a270-345f2ca580e2.config
+2026-11-05T13:31:58.2497840Z [command]/usr/bin/git config --local includeIf.gitdir:/github/workspace/.git/worktrees/*.path /github/runner_temp/git-credentials-423e7815-a5e9-42f6-a270-345f2ca580e2.config
+2026-11-05T13:31:58.2540090Z ##[endgroup]
+2026-11-05T13:31:58.2541584Z ##[group]Fetching the repository
+2026-11-05T13:31:58.2549282Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +0f1d12be30434f6232bdf5dde44d80ac61512f35:refs/remotes/pull/404/merge
+2026-11-05T13:31:58.8376825Z From https://github.com/JeongJaeSoon/agent-guard
+2026-11-05T13:31:58.8378892Z  * [new ref]         0f1d12be30434f6232bdf5dde44d80ac61512f35 -> pull/404/merge
+2026-11-05T13:31:58.8386001Z ##[endgroup]
+2026-11-05T13:31:58.8387998Z ##[group]Determining the checkout info
+2026-11-05T13:31:58.8389956Z ##[endgroup]
+2026-11-05T13:31:58.8391837Z [command]/usr/bin/git sparse-checkout disable
+2026-11-05T13:31:58.8467991Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+2026-11-05T13:31:58.8514923Z ##[group]Checking out the ref
+2026-11-05T13:31:58.8519530Z [command]/usr/bin/git checkout --progress --force refs/remotes/pull/404/merge
+2026-11-05T13:31:58.9558028Z Note: switching to 'refs/remotes/pull/404/merge'.
+2026-11-05T13:31:58.9559334Z 
+2026-11-05T13:31:58.9560406Z You are in 'detached HEAD' state. You can look around, make experimental
+2026-11-05T13:31:58.9562679Z changes and commit them, and you can discard any commits you make in this
+2026-11-05T13:31:58.9564938Z state without impacting any branches by switching back to a branch.
+2026-11-05T13:31:58.9566743Z 
+2026-11-05T13:31:58.9568223Z If you want to create a new branch to retain commits you create, you may
+2026-11-05T13:31:58.9571303Z do so (now or later) by using -c with the switch command. Example:
+2026-11-05T13:31:58.9573140Z 
+2026-11-05T13:31:58.9574217Z   git switch -c <new-branch-name>
+2026-11-05T13:31:58.9575614Z 
+2026-11-05T13:31:58.9576640Z Or undo this operation with:
+2026-11-05T13:31:58.9577946Z 
+2026-11-05T13:31:58.9578767Z   git switch -
+2026-11-05T13:31:58.9579799Z 
+2026-11-05T13:31:58.9581355Z Turn off this advice by setting config variable advice.detachedHead to false
+2026-11-05T13:31:58.9583441Z 
+2026-11-05T13:31:58.9586077Z HEAD is now at 0f1d12b Merge ae18024caf872fb392afaafe44b84bcb6cb5d706 into 3730d87b0ab0d3a1d70821560dded1b4343664a9
+2026-11-05T13:31:58.9593667Z ##[endgroup]
+2026-11-05T13:31:58.9638834Z [command]/usr/bin/git log -1 --format=%H
+2026-11-05T13:31:58.9677269Z 0f1d12be30434f6232bdf5dde44d80ac61512f35
+2026-11-05T13:31:58.9688226Z ##[group]Removing auth
+2026-11-05T13:31:58.9689739Z Removing SSH command configuration
+2026-11-05T13:31:58.9692647Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-05T13:31:58.9737884Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-05T13:31:58.9992086Z Removing HTTP extra header
+2026-11-05T13:31:58.9994627Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-05T13:31:59.0040516Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-05T13:31:59.0289386Z Removing includeIf entries pointing to credentials config files
+2026-11-05T13:31:59.0292366Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-05T13:31:59.0335225Z includeif.gitdir:/home/runner/work/agent-guard/agent-guard/.git.path
+2026-11-05T13:31:59.0339456Z includeif.gitdir:/home/runner/work/agent-guard/agent-guard/.git/worktrees/*.path
+2026-11-05T13:31:59.0342367Z includeif.gitdir:/github/workspace/.git.path
+2026-11-05T13:31:59.0344431Z includeif.gitdir:/github/workspace/.git/worktrees/*.path
+2026-11-05T13:31:59.0360816Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/agent-guard/agent-guard/.git.path
+2026-11-05T13:31:59.0384318Z /home/runner/work/_temp/git-credentials-423e7815-a5e9-42f6-a270-345f2ca580e2.config
+2026-11-05T13:31:59.0413661Z [command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/agent-guard/agent-guard/.git.path \/home\/runner\/work\/_temp\/git\-credentials\-423e7815\-a5e9\-42f6\-a270\-345f2ca580e2\.config
+2026-11-05T13:31:59.0451091Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/agent-guard/agent-guard/.git/worktrees/*.path
+2026-11-05T13:31:59.0494090Z /home/runner/work/_temp/git-credentials-423e7815-a5e9-42f6-a270-345f2ca580e2.config
+2026-11-05T13:31:59.0505456Z [command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/agent-guard/agent-guard/.git/worktrees/*.path \/home\/runner\/work\/_temp\/git\-credentials\-423e7815\-a5e9\-42f6\-a270\-345f2ca580e2\.config
+2026-11-05T13:31:59.0557732Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git.path
+2026-11-05T13:31:59.0597741Z /github/runner_temp/git-credentials-423e7815-a5e9-42f6-a270-345f2ca580e2.config
+2026-11-05T13:31:59.0610425Z [command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git.path \/github\/runner_temp\/git\-credentials\-423e7815\-a5e9\-42f6\-a270\-345f2ca580e2\.config
+2026-11-05T13:31:59.0681770Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git/worktrees/*.path
+2026-11-05T13:31:59.0724108Z /github/runner_temp/git-credentials-423e7815-a5e9-42f6-a270-345f2ca580e2.config
+2026-11-05T13:31:59.0740509Z [command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git/worktrees/*.path \/github\/runner_temp\/git\-credentials\-423e7815\-a5e9\-42f6\-a270\-345f2ca580e2\.config
+2026-11-05T13:31:59.0790082Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-05T13:31:59.1037143Z Removing credentials config '/home/runner/work/_temp/git-credentials-423e7815-a5e9-42f6-a270-345f2ca580e2.config'
+2026-11-05T13:31:59.1045377Z ##[endgroup]
+2026-11-05T13:31:59.1398991Z ##[group]Run actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+2026-11-05T13:31:59.1400789Z with:
+2026-11-05T13:31:59.1401704Z   name: native-x86_64-unknown-linux-musl
+2026-11-05T13:31:59.1403015Z   path: /home/runner/work/_temp/qualified-core
+2026-11-05T13:31:59.1404314Z   merge-multiple: false
+2026-11-05T13:31:59.1405384Z   repository: JeongJaeSoon/agent-guard
+2026-11-05T13:31:59.1406779Z   run-id: 42033715202
+2026-11-05T13:31:59.1407721Z ##[endgroup]
+2026-11-05T13:31:59.3061380Z Downloading single artifact
+2026-11-05T13:31:59.3257864Z (node:2701) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+2026-11-05T13:31:59.3262841Z (Use `node --trace-deprecation ...` to show where the warning was created)
+2026-11-05T13:31:59.5823817Z Preparing to download the following artifacts:
+2026-11-05T13:31:59.5829381Z - native-x86_64-unknown-linux-musl (ID: 13416943464, Size: 293077, Expected Digest: sha256:b947fa74ad6b26a89e392d9e186d0bce170bbc106b314f627c9b7f4a59f1ab8f)
+2026-11-05T13:31:59.8453148Z Redirecting to blob download url: https://productionresultssa8.blob.core.windows.net/actions-results/7bb363ec-5328-85ae-95a3-22adceca118f/workflow-job-run-c0cbec95-98bb-5259-9b4d-2cb1430444fa/artifacts/2bd93718fca1920ad4d6baee2895b99528bc318d7824dcbfa16b5e967cff4bba.zip
+2026-11-05T13:31:59.8470634Z Starting download of artifact to: /home/runner/work/_temp/qualified-core
+2026-11-05T13:32:00.2033172Z (node:2701) [DEP0005] DeprecationWarning: Buffer() is deprecated due to security and usability issues. Please use the Buffer.alloc(), Buffer.allocUnsafe(), or Buffer.from() methods instead.
+2026-11-05T13:32:00.4672011Z SHA256 digest of downloaded artifact is b947fa74ad6b26a89e392d9e186d0bce170bbc106b314f627c9b7f4a59f1ab8f
+2026-11-05T13:32:00.4673087Z Artifact download completed successfully.
+2026-11-05T13:32:00.4673589Z Total of 1 artifact(s) downloaded
+2026-11-05T13:32:00.4676987Z Download artifact has finished successfully
+2026-11-05T13:32:00.4898129Z ##[group]Run actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+2026-11-05T13:32:00.4898609Z with:
+2026-11-05T13:32:00.4898861Z   go-version: 1.26.0
+2026-11-05T13:32:00.4899131Z   cache: false
+2026-11-05T13:32:00.4899393Z   check-latest: false
+2026-11-05T13:32:00.4901874Z   token: ***
+2026-11-05T13:32:00.4902137Z ##[endgroup]
+2026-11-05T13:32:00.6203350Z Setup go version spec 1.26.0
+2026-11-05T13:32:00.6221738Z Attempting to download 1.26.0...
+2026-11-05T13:32:01.1500801Z matching 1.26.0...
+2026-11-05T13:32:01.1551785Z Acquiring 1.26.0 from https://github.com/actions/go-versions/releases/download/1.26.0-21889650668/go-1.26.0-linux-x64.tar.gz
+2026-11-05T13:32:01.6431711Z Extracting Go...
+2026-11-05T13:32:01.6576647Z [command]/usr/bin/tar xz --warning=no-unknown-keyword --overwrite -C /home/runner/work/_temp/65a77646-31a8-456c-b05e-28d2c773f5d0 -f /home/runner/work/_temp/e9c99c5d-f1b9-4521-8ebc-5f208d88b272
+2026-11-05T13:32:03.2667325Z Successfully extracted go to /home/runner/work/_temp/65a77646-31a8-456c-b05e-28d2c773f5d0
+2026-11-05T13:32:03.2668359Z Adding to the cache ...
+2026-11-05T13:32:08.1510673Z Successfully cached go to /opt/hostedtoolcache/go/1.26.0/x64
+2026-11-05T13:32:08.1512376Z Added go to the path
+2026-11-05T13:32:08.1515013Z Successfully set up Go version 1.26.0
+2026-11-05T13:32:08.1788266Z go version go1.26.0 linux/amd64
+2026-11-05T13:32:08.1788530Z 
+2026-11-05T13:32:08.1788852Z ##[group]go env
+2026-11-05T13:32:08.5821138Z AR='ar'
+2026-11-05T13:32:08.5821640Z CC='gcc'
+2026-11-05T13:32:08.5821961Z CGO_CFLAGS='-O2 -g'
+2026-11-05T13:32:08.5822265Z CGO_CPPFLAGS=''
+2026-11-05T13:32:08.5822595Z CGO_CXXFLAGS='-O2 -g'
+2026-11-05T13:32:08.5822917Z CGO_ENABLED='1'
+2026-11-05T13:32:08.5823244Z CGO_FFLAGS='-O2 -g'
+2026-11-05T13:32:08.5823523Z CGO_LDFLAGS='-O2 -g'
+2026-11-05T13:32:08.5823803Z CXX='g++'
+2026-11-05T13:32:08.5824051Z GCCGO='gccgo'
+2026-11-05T13:32:08.5824314Z GO111MODULE=''
+2026-11-05T13:32:08.5825596Z GOAMD64='v1'
+2026-11-05T13:32:08.5826172Z GOARCH='amd64'
+2026-11-05T13:32:08.5826522Z GOAUTH='netrc'
+2026-11-05T13:32:08.5826772Z GOBIN=''
+2026-11-05T13:32:08.5827057Z GOCACHE='/home/runner/.cache/go-build'
+2026-11-05T13:32:08.5827417Z GOCACHEPROG=''
+2026-11-05T13:32:08.5827678Z GODEBUG=''
+2026-11-05T13:32:08.5827981Z GOENV='/home/runner/.config/go/env'
+2026-11-05T13:32:08.5828320Z GOEXE=''
+2026-11-05T13:32:08.5828573Z GOEXPERIMENT=''
+2026-11-05T13:32:08.5828851Z GOFIPS140='off'
+2026-11-05T13:32:08.5829153Z GOFLAGS=''
+2026-11-05T13:32:08.5830031Z GOGCCFLAGS='-fPIC -m64 -pthread -Wl,--no-gc-sections -fmessage-length=0 -ffile-prefix-map=/tmp/go-build3695076684=/tmp/go-build -gno-record-gcc-switches'
+2026-11-05T13:32:08.5830989Z GOHOSTARCH='amd64'
+2026-11-05T13:32:08.5831269Z GOHOSTOS='linux'
+2026-11-05T13:32:08.5831541Z GOINSECURE=''
+2026-11-05T13:32:08.5831833Z GOMOD='/dev/null'
+2026-11-05T13:32:08.5832138Z GOMODCACHE='/home/runner/go/pkg/mod'
+2026-11-05T13:32:08.5832433Z GONOPROXY=''
+2026-11-05T13:32:08.5832646Z GONOSUMDB=''
+2026-11-05T13:32:08.5832845Z GOOS='linux'
+2026-11-05T13:32:08.5833076Z GOPATH='/home/runner/go'
+2026-11-05T13:32:08.5833320Z GOPRIVATE=''
+2026-11-05T13:32:08.5833597Z GOPROXY='https://proxy.golang.org,direct'
+2026-11-05T13:32:08.5833962Z GOROOT='/opt/hostedtoolcache/go/1.26.0/x64'
+2026-11-05T13:32:08.5834284Z GOSUMDB='sum.golang.org'
+2026-11-05T13:32:08.5834537Z GOTELEMETRY='local'
+2026-11-05T13:32:08.5834824Z GOTELEMETRYDIR='/home/runner/.config/go/telemetry'
+2026-11-05T13:32:08.5835165Z GOTMPDIR=''
+2026-11-05T13:32:08.5835373Z GOTOOLCHAIN='local'
+2026-11-05T13:32:08.5835990Z GOTOOLDIR='/opt/hostedtoolcache/go/1.26.0/x64/pkg/tool/linux_amd64'
+2026-11-05T13:32:08.5836419Z GOVCS=''
+2026-11-05T13:32:08.5836636Z GOVERSION='go1.26.0'
+2026-11-05T13:32:08.5836861Z GOWORK=''
+2026-11-05T13:32:08.5837080Z PKG_CONFIG='pkg-config'
+2026-11-05T13:32:08.5837238Z 
+2026-11-05T13:32:08.5846993Z ##[endgroup]
+2026-11-05T13:32:08.6088836Z ##[group]Run sh scripts/install-native-test-tools.sh "$RUNNER_TEMP/test-bin"
+2026-11-05T13:32:08.6089519Z [36;1msh scripts/install-native-test-tools.sh "$RUNNER_TEMP/test-bin"[0m
+2026-11-05T13:32:08.6090137Z [36;1mmkdir "$RUNNER_TEMP/scanner"[0m
+2026-11-05T13:32:08.6090452Z [36;1mif [ "$SCANNER_KIND" = official ]; then[0m
+2026-11-05T13:32:08.6090880Z [36;1m  cp "$RUNNER_TEMP/test-bin/gitleaks" "$RUNNER_TEMP/scanner/gitleaks"[0m
+2026-11-05T13:32:08.6091266Z [36;1melse[0m
+2026-11-05T13:32:08.6091541Z [36;1m  eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"[0m
+2026-11-05T13:32:08.6091946Z [36;1m  HOMEBREW_NO_AUTO_UPDATE=1 brew install gitleaks[0m
+2026-11-05T13:32:08.6092343Z [36;1m  installed="$(brew --prefix gitleaks)/bin/gitleaks"[0m
+2026-11-05T13:32:08.6092720Z [36;1m  test "$("$installed" version)" = 8.30.1[0m
+2026-11-05T13:32:08.6093050Z [36;1m  bottle=$(brew --cache gitleaks)[0m
+2026-11-05T13:32:08.6093585Z [36;1m  printf '%s  %s\n' 78b43afdf14a05c5df07b73aeaf63ae56b784c905f057411a43ee8fde40fe5d1 "$bottle" \[0m
+2026-11-05T13:32:08.6094184Z [36;1m    | sha256sum -c - > "$RUNNER_TEMP/scanner/bottle-checksum.txt"[0m
+2026-11-05T13:32:08.6094612Z [36;1m  cp "$installed" "$RUNNER_TEMP/scanner/gitleaks"[0m
+2026-11-05T13:32:08.6095015Z [36;1m  cmp "$installed" "$RUNNER_TEMP/scanner/gitleaks"[0m
+2026-11-05T13:32:08.6095459Z [36;1m  brew info --json=v2 gitleaks > "$RUNNER_TEMP/scanner/homebrew.json"[0m
+2026-11-05T13:32:08.6096327Z [36;1m  brew config > "$RUNNER_TEMP/scanner/homebrew-config.txt"[0m
+2026-11-05T13:32:08.6097085Z [36;1m  cp "$(brew --prefix gitleaks)/sbom.spdx.json" "$RUNNER_TEMP/scanner/homebrew-sbom.json"[0m
+2026-11-05T13:32:08.6097672Z [36;1m  file "$installed" > "$RUNNER_TEMP/scanner/executable-format.txt"[0m
+2026-11-05T13:32:08.6098077Z [36;1mfi[0m
+2026-11-05T13:32:08.6098383Z [36;1m# The pinned public Homebrew ELF also fails Go's build-info reader[0m
+2026-11-05T13:32:08.6098890Z [36;1m# before installation. Preserve that diagnostic, but use the verified[0m
+2026-11-05T13:32:08.6099401Z [36;1m# bottle, SBOM, installed bytes and actual execution as its identity.[0m
+2026-11-05T13:32:08.6100123Z [36;1mif go version -m "$RUNNER_TEMP/scanner/gitleaks" > "$RUNNER_TEMP/scanner/buildinfo.txt" 2> "$RUNNER_TEMP/scanner/buildinfo.stderr"; then[0m
+2026-11-05T13:32:08.6100813Z [36;1m  printf '0\n' > "$RUNNER_TEMP/scanner/buildinfo.status"[0m
+2026-11-05T13:32:08.6101160Z [36;1melse[0m
+2026-11-05T13:32:08.6101362Z [36;1m  status=$?[0m
+2026-11-05T13:32:08.6101702Z [36;1m  printf '%s\n' "$status" > "$RUNNER_TEMP/scanner/buildinfo.status"[0m
+2026-11-05T13:32:08.6102117Z [36;1m  test "$SCANNER_KIND" = homebrew[0m
+2026-11-05T13:32:08.6102405Z [36;1mfi[0m
+2026-11-05T13:32:08.6102765Z [36;1msha256sum "$RUNNER_TEMP/scanner/gitleaks" > "$RUNNER_TEMP/scanner/binary.sha256"[0m
+2026-11-05T13:32:08.6129207Z shell: /usr/bin/bash -e {0}
+2026-11-05T13:32:08.6129482Z env:
+2026-11-05T13:32:08.6129688Z   GOTOOLCHAIN: local
+2026-11-05T13:32:08.6129930Z   SCANNER_KIND: homebrew
+2026-11-05T13:32:08.6130156Z ##[endgroup]
+2026-11-05T13:32:08.8060976Z /tmp/tmp.nHIx9QuaTg/scanner.tar.gz: OK
+2026-11-05T13:32:09.0876225Z /tmp/tmp.nHIx9QuaTg/jq: OK
+2026-11-05T13:32:14.0646146Z [32m==>[0m [1mDownloading Homebrew API data[0m
+2026-11-05T13:32:15.3089914Z ✔︎ JSON API packages.x86_64_linux.jws.json
+2026-11-05T13:32:16.0653736Z [32m==>[0m [1mDownloading bottle manifests[0m
+2026-11-05T13:32:16.2263313Z ✔︎ Bottle Manifest gitleaks (8.30.1)
+2026-11-05T13:32:16.2460641Z [32m==>[0m [1mFetching downloads for: [32mgitleaks[39m[0m
+2026-11-05T13:32:16.8369164Z ##[warning]Landlock ABI 10 or later is required to deny all network access; found ABI 8. Applying the network restrictions supported by this kernel.
+2026-11-05T13:32:18.1886567Z ✔︎ Bottle gitleaks (8.30.1)
+2026-11-05T13:32:18.1955262Z [34m==>[0m [1mPouring gitleaks--8.30.1.x86_64_linux.bottle.tar.gz[0m
+2026-11-05T13:32:19.9869132Z 🍺  /home/linuxbrew/.linuxbrew/Cellar/gitleaks/8.30.1: 10 files, 16.4MB
+2026-11-05T13:32:19.9913398Z [32m==>[0m [1mCaveats[0m
+2026-11-05T13:32:19.9913982Z Bash completion has been installed to:
+2026-11-05T13:32:19.9914580Z   /home/linuxbrew/.linuxbrew/etc/bash_completion.d
+2026-11-05T13:32:26.6396120Z ##[group]Run export AGENT_GUARD_BENCH_FUSED_PACKAGED_CORE="$RUNNER_TEMP/qualified-core/agent-guard-redact-x86_64-unknown-linux-musl"
+2026-11-05T13:32:26.6397123Z [36;1mexport AGENT_GUARD_BENCH_FUSED_PACKAGED_CORE="$RUNNER_TEMP/qualified-core/agent-guard-redact-x86_64-unknown-linux-musl"[0m
+2026-11-05T13:32:26.6397767Z [36;1mchmod 755 "$AGENT_GUARD_BENCH_FUSED_PACKAGED_CORE"[0m
+2026-11-05T13:32:26.6398374Z [36;1msh bench/fused-output/run-constrained.sh "$RUNNER_TEMP/scanner/gitleaks" "$AUDIT_STATE" "$RUNNER_TEMP/evidence"[0m
+2026-11-05T13:32:26.6399281Z [36;1mjq -e '.measurements_complete and (.ordinary_regressions | length) == 0 and all(.all_cases[]; .verified)' "$RUNNER_TEMP/evidence/assessment.json"[0m
+2026-11-05T13:32:26.6399937Z [36;1mif [ "$SCANNER_KIND" = homebrew ]; then[0m
+2026-11-05T13:32:26.6400359Z [36;1m  jq -e '.performance_accepted' "$RUNNER_TEMP/evidence/assessment.json"[0m
+2026-11-05T13:32:26.6400762Z [36;1mfi[0m
+2026-11-05T13:32:26.6421139Z shell: /usr/bin/bash -e {0}
+2026-11-05T13:32:26.6421392Z env:
+2026-11-05T13:32:26.6421591Z   GOTOOLCHAIN: local
+2026-11-05T13:32:26.6421809Z   AUDIT_STATE: off
+2026-11-05T13:32:26.6422031Z   SCANNER_KIND: homebrew
+2026-11-05T13:32:26.6422259Z ##[endgroup]
+2026-11-05T13:38:40.0106126Z true
+2026-11-05T13:38:40.0206740Z false
+2026-11-05T13:38:40.0217812Z ##[error]Process completed with exit code 1.
+2026-11-05T13:38:40.0275634Z ##[group]Run actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+2026-11-05T13:38:40.0276421Z with:
+2026-11-05T13:38:40.0276648Z   name: fused-packaged-homebrew-off
+2026-11-05T13:38:40.0277219Z   path: /home/runner/work/_temp/evidence/
+/home/runner/work/_temp/scanner/*.*
+/home/runner/work/_temp/qualified-core/*.build.txt
+
+2026-11-05T13:38:40.0277791Z   if-no-files-found: error
+2026-11-05T13:38:40.0278041Z   compression-level: 6
+2026-11-05T13:38:40.0278281Z   overwrite: false
+2026-11-05T13:38:40.0278503Z   include-hidden-files: false
+2026-11-05T13:38:40.0278743Z env:
+2026-11-05T13:38:40.0278949Z   GOTOOLCHAIN: local
+2026-11-05T13:38:40.0279170Z ##[endgroup]
+2026-11-05T13:38:40.2029193Z (node:166592) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+2026-11-05T13:38:40.2030592Z (Use `node --trace-deprecation ...` to show where the warning was created)
+2026-11-05T13:38:40.2184933Z Multiple search paths detected. Calculating the least common ancestor of all paths
+2026-11-05T13:38:40.2188219Z The least common ancestor is /home/runner/work/_temp. This will be the root directory of the artifact
+2026-11-05T13:38:40.2189306Z With the provided path, there will be 34 files uploaded
+2026-11-05T13:38:40.2194496Z Artifact name is valid!
+2026-11-05T13:38:40.2195414Z Root directory input is valid!
+2026-11-05T13:38:40.5923530Z Beginning upload of artifact content to blob storage
+2026-11-05T13:38:40.8285528Z (node:166592) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+2026-11-05T13:38:41.4566421Z Uploaded bytes 570071
+2026-11-05T13:38:41.5353464Z Finished uploading artifact content to blob storage!
+2026-11-05T13:38:41.5354641Z SHA256 digest of uploaded artifact zip is 11f5d2e8d8ac46086c1492fcc0c3713cd16d5d542120c64469f9f4bf2278e3b1
+2026-11-05T13:38:41.5356344Z Finalizing artifact upload
+2026-11-05T13:38:42.0649035Z Artifact fused-packaged-homebrew-off.zip successfully finalized. Artifact ID 13419630584
+2026-11-05T13:38:42.0651011Z Artifact fused-packaged-homebrew-off has been successfully uploaded! Final size is 570071 bytes. Artifact ID is 13419630584
+2026-11-05T13:38:42.0657858Z Artifact download URL: https://github.com/JeongJaeSoon/agent-guard/actions/runs/42033715202/artifacts/13419630584
+2026-11-05T13:38:42.0889442Z Post job cleanup.
+2026-11-05T13:38:42.1814439Z [command]/usr/bin/git version
+2026-11-05T13:38:42.1864908Z git version 2.56.0
+2026-11-05T13:38:42.1941638Z Temporarily overriding HOME='/home/runner/work/_temp/fbe73824-b081-4824-8fe9-c4851497afb9' before making global git config changes
+2026-11-05T13:38:42.1943437Z Adding repository directory to the temporary git global config as a safe directory
+2026-11-05T13:38:42.1944795Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/agent-guard/agent-guard
+2026-11-05T13:38:42.1977273Z Removing SSH command configuration
+2026-11-05T13:38:42.1984626Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-05T13:38:42.2031802Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-05T13:38:42.2310757Z Removing HTTP extra header
+2026-11-05T13:38:42.2319647Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-05T13:38:42.2360088Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-05T13:38:42.2657772Z Removing includeIf entries pointing to credentials config files
+2026-11-05T13:38:42.2666470Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-05T13:38:42.2717371Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-05T13:38:42.3139460Z Cleaning up orphan processes
+2026-11-05T13:38:42.3503284Z ##[warning]Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093, actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+
