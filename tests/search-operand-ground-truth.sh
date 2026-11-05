@@ -116,6 +116,8 @@ held printf -v PATH %s d; grep .env
 held command export PATH=d; grep .env
 held for c in a; do hash -p /bin/cat grep; done; grep .env
 held hash -p /bin/cat grep; grep .env
+held rg --pre /bin/sh x ./swap; grep .env
+held rg --pre=/bin/sh x ./swap; grep .env
 held functions[grep]='cat $1'; grep .env
 held grep() { cat "$@"; }; grep .env
 held cat list.txt >&grep .env

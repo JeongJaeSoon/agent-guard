@@ -4954,10 +4954,22 @@ message_value_records() {
       return w ~ /^-[aqsvne]+$/ || w ~ /^--[a-z-]+=/ \
         || w ~ /^--(all|quiet|verbose|signoff|no-signoff|edit|no-edit|amend|allow-empty|allow-empty-message|only|include|dry-run|reset-author|status|no-status|no-gpg-sign|short|porcelain|long)$/
     }
-    function finish(   j, w, opts) {
+    # rg --pre runs a program of the caller choosing; a redirection may
+    # write a file a command name resolves to.
+    function inert(   j) {
+      if (kind[1] != "0" || word[1] !~ /^(grep|egrep|fgrep|rg|ls|cat|head|tail|wc|cut|tr|echo|true|false|test|\[|pwd|cd|jq|diff|comm|basename|dirname|date|stat|sleep)$/) return 0
+      for (j = 1; j <= n; j++) if (word[j] ~ /[<>]/ || word[1] == "rg" && word[j] ~ /^--pre(=|$)/) return 0
+      return 1
+    }
+    function finish(bound,   j, w, opts, all, before) {
       if (n == 0) return
-      for (j = 1; j <= n; j++) if (!plain(j)) { ok = 0; n = 0; return }
-      if (ok && kind[1] == "0") {
+      all = 1
+      for (j = 1; j <= n; j++) if (!plain(j)) all = 0
+      # The commands of a pipeline start together, so one piped after a
+      # message command may replace it before it runs.
+      if (pipe_target && !(all && inert())) bail()
+      before = length(out)
+      if (all && ok && kind[1] == "0") {
         if (word[1] == "orca" && word[2] == "orchestration" && word[3] ~ /^(send|reply|ask)$/) opts = "|--subject|--body|"
         else if (word[1] == "gh" && (word[2] ~ /^(pr|issue)$/ && word[3] ~ /^(create|comment|edit)$/ || word[2] == "pr" && word[3] == "review")) opts = "|-t|--title|-b|--body|"
         else if (word[1] == "git" && word[2] == "commit") opts = "|-m|--message|"
@@ -4973,9 +4985,8 @@ message_value_records() {
         }
         if (opts != "") ok = 0
       }
-      if (kind[1] != "0" || word[1] !~ /^(grep|egrep|fgrep|rg|ls|cat|head|tail|wc|cut|tr|echo|true|false|test|\[|pwd|cd|jq|diff|comm|basename|dirname|date|stat|sleep)$/) ok = 0
-      # A redirection may write a file a later command name resolves to.
-      for (j = 1; j <= n; j++) if (word[j] ~ /[<>]/) ok = 0
+      if (!all || !inert()) ok = 0
+      pipe_target = bound == "0|" && (pipe_target || length(out) > before)
       n = 0
     }
     BEGIN { ok = 1; n = 0 }
@@ -4985,13 +4996,15 @@ message_value_records() {
       # before the command it sits in, so it can replace what the name runs.
       if (r ~ /^3[][(){}]$/ || k == "2") bail()
       if (k == "0" && v ~ /^(eval|alias|function|trap|source|\.)$/) bail()
-      if (boundary(r)) { finish(); next }
+      if (boundary(r)) { finish(r); next }
       # The `&` of `2>&1`; a backgrounding `&` after it comes as a second one.
       if (r == "3&" && n > 0 && word[n] ~ /[<>]$/ && dup != NR - 1) { dup = NR; next }
+      # A backgrounded command (or `|&`) runs alongside whatever follows.
+      if (r == "3&") { finish(r); if (out != "") bail(); ok = 0; next }
       if (k == "3") { ok = 0; next }
       n++; kind[n] = k; word[n] = v; rec[n] = NR
     }
-    END { if (!failed) { finish(); printf "%s", out } }
+    END { if (!failed) { finish(""); printf "%s", out } }
   '
 }
 
@@ -5201,6 +5214,8 @@ search_operand_spans() {
         if (bad(h)) exit 0
         if (wv[h] == "for" && h + 2 <= e && wv[h + 1] ~ /^[a-z]$/ && wv[h + 2] == "in") continue
         if (wv[h] !~ /^(grep|egrep|fgrep|rg|ls|cat|head|tail|wc|cut|tr|echo|true|false|test|\[|pwd|cd|jq|diff|comm|basename|dirname|date|stat|sleep)$/) exit 0
+        # rg --pre runs a program of the caller choosing.
+        if (wv[h] == "rg") for (r = h; r <= e; r++) if (wv[r] ~ /^--pre(=|$)/) exit 0
       }
     }
   '
