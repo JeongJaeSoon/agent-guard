@@ -1488,8 +1488,9 @@ probe_gitleaks() {
     kill -0 "$AG_GITLEAKS_PROBE_PID" 2>/dev/null || exit 0
     # A completed child can still exist as a zombie while its parent is
     # descheduled. It has no running code to time out; preserve wait's status.
+    # Use the system utility: a PATH shim must not stall the watchdog.
     # Missing/failed ps keeps the conservative original deadline behavior.
-    ag_gl_deadline_state=$(ps -o stat= -p "$AG_GITLEAKS_PROBE_PID" 2>/dev/null) || ag_gl_deadline_state=
+    ag_gl_deadline_state=$(/bin/ps -o stat= -p "$AG_GITLEAKS_PROBE_PID" 2>/dev/null) || ag_gl_deadline_state=
     case "$ag_gl_deadline_state" in *Z*) exit 0 ;; esac
     printf 'timeout\n' >"$ag_gl_probe_timeout"
     kill_gitleaks_probe_group TERM
