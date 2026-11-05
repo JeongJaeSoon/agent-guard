@@ -70,11 +70,15 @@ for workers in 1 4; do
 done
 run agent-guard-devtools masking-latency --baseline "$old" --native-core "$core" --packaged-native \
   --scanner /scanner/gitleaks --runs 21 --resources --case small-clean > "$out/cli-clean-followup.json" 2> "$out/cli-clean-followup.log"
+legacy_status=0
+sh bench/native/assess-packaged.sh "$out" || legacy_status=$?
+public_status=0
 run agent-guard-devtools masking-latency --baseline /public/bin/agent-guard \
   --baseline-packaged-native --native-core "$core" --packaged-native \
-  --scanner /scanner/gitleaks --runs 9 --resources \
+  --scanner /scanner/gitleaks --runs 9 --resources --include-boundaries \
   --case exec-clean --case exec-multiline --case exec-long-quoted-secret \
-  --case pre-unknown-tool > "$out/cli-public-default.json" 2> "$out/cli-public-default.log"
+  --case pre-unknown-tool > "$out/cli-public-default.json" 2> "$out/cli-public-default.log" || public_status=$?
+if [ "$public_status" -eq 0 ]; then
 jq -e '
   def median: sort | .[length / 2 | floor];
   def cpu($arm): .resource_usage[$arm] as $r
@@ -83,5 +87,6 @@ jq -e '
   .runs == 9 and (.cases | length) == 4 and all(.cases[];
     .verified and .seconds.candidate.median <= .seconds.baseline.median * 1.05
     and cpu("candidate") <= cpu("baseline") * 1.05)
-' "$out/cli-public-default.json" > "$out/public-default-gate.txt"
-sh bench/native/assess-packaged.sh "$out"
+' "$out/cli-public-default.json" > "$out/public-default-gate.txt" || public_status=$?
+fi
+[ "$legacy_status" -eq 0 ] && [ "$public_status" -eq 0 ]
