@@ -118,6 +118,13 @@ held for c in a; do hash -p /bin/cat grep; done; grep .env
 held hash -p /bin/cat grep; grep .env
 held rg --pre /bin/sh x ./swap; grep .env
 held rg --pre=/bin/sh x ./swap; grep .env
+held rg --hostname-bin ./swap x notes.txt; grep .env
+held RIPGREP_CONFIG_PATH=./rgconfig rg x notes.txt; grep .env
+held LD_PRELOAD=./x.so cat notes.txt; grep .env
+held LC_ALL=/tmp/x cat notes.txt; grep .env
+held LC_ALL=C LD_PRELOAD=./x.so cat notes.txt; grep .env
+held test -v 'path[$(cp ./reader ./grep)1]'; grep .env
+held [ -v 'path[$(cp ./reader ./grep)1]' ]; grep .env
 held functions[grep]='cat $1'; grep .env
 held grep() { cat "$@"; }; grep .env
 held cat list.txt >&grep .env

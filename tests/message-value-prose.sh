@@ -122,10 +122,16 @@ check 2 "git commit -m '.env' >(cp /bin/cat ~/bin/git)"
 check 2 "(cp /bin/cat ~/bin/git); git commit -m '.env'"
 check 2 "git commit -m '.env'; (true)"
 check 0 "orca orchestration send --to x --body 'see .env' 2>&1 | tail -n 1"
-# rg --pre runs any program, so an earlier rg is not inert.
+# rg runs programs and test evaluates array subscripts, so neither is inert.
 check 2 "rg --pre /bin/sh x ./swap; orca orchestration send --body '.env'"
 check 2 "rg --pre=/bin/sh x ./swap; orca orchestration send --body '.env'"
-check 0 "rg -n x ./notes; orca orchestration send --body '.env'"
+check 2 "rg --pre\"\$AG_UNSET\" /bin/sh x ./swap; orca orchestration send --body '.env'"
+check 2 "rg --hostname-bin ./swap x ./notes; orca orchestration send --body '.env'"
+check 2 "rg -n x ./notes; orca orchestration send --body '.env'"
+check 2 "test -v 'path[\$(cp ./reader ~/bin/orca)1]'; orca orchestration send --body '.env'"
+check 2 "[ -v 'path[\$(cp ./reader ~/bin/orca)1]' ]; orca orchestration send --body '.env'"
+check 2 "orca orchestration send --body '.env' | rg --hostname-bin ./swap x"
+check 0 "grep -n x ./notes; orca orchestration send --body '.env'"
 # Piped and backgrounded commands run alongside the message command.
 check 2 "orca orchestration send --body '.env' </tmp/gate | sh -c 'cp /bin/cat ~/bin/orca'"
 check 2 "orca orchestration send --body '.env' | tail -n 1 | sh -c 'cp /bin/cat ~/bin/orca'"
