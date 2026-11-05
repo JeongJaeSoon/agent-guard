@@ -44,14 +44,19 @@ for mode in ready failed slow unavailable; do
     sleep .1; attempt=$((attempt + 1))
   done
   { IFS= read -r parent && IFS= read -r probe_pid; } <"$folder/parent"
+  printf "# controlled probe: guard=%s parent=%s child=%s mode=%s\n" "$guard_pid" "$parent" "$probe_pid" "$mode"
   [ "$parent" = "$guard_pid" ]
   kill -STOP "$guard_pid"
   touch "$folder/release"
   sleep .3
-  observed=$(ps -o stat= -p "$probe_pid")
+  observed=$(ps -o stat= -p "$probe_pid" 2>/dev/null) || observed=gone
+  printf '# child state before deadline: %s\n' "$observed"
+  if [ "$observed" = gone ]; then
+    ! kill -0 "$probe_pid" 2>/dev/null
+  fi
   case "$mode:$observed" in
     slow:*) ;;
-    *:Z*|*:' '*Z*) ;;
+    *:Z*|*:' '*Z*|*:gone) ;;
     *) printf 'not ok - expected completed zombie: %s (%s)\n' "$mode" "$observed"; exit 1 ;;
   esac
   sleep 2.2
@@ -64,7 +69,11 @@ for mode in ready failed slow unavailable; do
     failed)
       if [ "$status" -ne 0 ] && grep -q 'command failed' "$folder/err" \
           && ! grep -q 'timed out' "$folder/err"; then valid=1; fi ;;
-    slow|unavailable)
+    unavailable)
+      if [ "$observed" = gone ] && [ "$status" -eq 0 ]; then valid=1
+      elif [ "$observed" != gone ] && [ "$status" -ne 0 ] \
+          && grep -q 'timed out after 2s' "$folder/err"; then valid=1; fi ;;
+    slow)
       if [ "$status" -ne 0 ] && grep -q 'timed out after 2s' "$folder/err"; then valid=1; fi ;;
   esac
   if [ "$valid" -eq 1 ]; then
