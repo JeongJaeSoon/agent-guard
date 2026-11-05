@@ -57,10 +57,17 @@ for name in functions:
     pattern = rf"^{name}\(\) ([{{(])"
     match = re.search(pattern, text, re.M)
     assert match, name
+    locale_before = ""
+    locale_after = ""
+    if name == "redact_tool_output":
+        locale_before = '  printf "locale-before=%s\\n" "${LC_ALL-unset}" >>"$AG_DIAGNOSTIC_STAGES"\n'
+        locale_after = '  printf "locale-after=%s\\n" "${LC_ALL-unset}" >>"$AG_DIAGNOSTIC_STAGES"\n'
     wrapper_text = f'''{name}() {{
+{locale_before}\
   printf '%s enter {name}\\n' "$(date +%s)" >>"$AG_DIAGNOSTIC_STAGES"
   ag_diagnostic_real_{name} "$@"
   ag_diagnostic_status_{name}=$?
+{locale_after}\
   printf '%s leave {name} status=%s\\n' "$(date +%s)" "$ag_diagnostic_status_{name}" >>"$AG_DIAGNOSTIC_STAGES"
   return "$ag_diagnostic_status_{name}"
 }}
@@ -105,3 +112,8 @@ for mode, plugin in [("original", source), ("instrumented", copy)]:
     (destination / "results.json").write_text(json.dumps(rows, indent=2) + "\n")
     print(json.dumps(rows[-1]), flush=True)
     assert correct and process.returncode == 0
+    if mode == "instrumented":
+        lines = stages.read_text().splitlines()
+        before = [line.removeprefix("locale-before=") for line in lines if line.startswith("locale-before=")]
+        after = [line.removeprefix("locale-after=") for line in lines if line.startswith("locale-after=")]
+        assert before and before == after, "caller locale changed"

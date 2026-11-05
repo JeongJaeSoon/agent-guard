@@ -11700,15 +11700,26 @@ redact_tool_output() {
   # Only quote-free oversized JSON enters this scope. Such a value has no
   # strings or binary payload and is ASCII; byte and character semantics agree.
   # Older macOS shells otherwise spend substantial CPU expanding these large
-  # ASCII variables in a multibyte locale. The assignment is scoped to this
-  # function call and leaves the caller's locale and ordinary paths unchanged.
+  # ASCII variables in a multibyte locale. Assign in this shell, then restore
+  # the exact prior set/unset state. The temporary function-call environment
+  # alone did not resolve the measured older-shell regression.
   if [ "$secrets_on" -eq 1 ]; then
     case "$resp" in
       *'"'*) ;;
       *)
         if [ "${#resp}" -gt "$OUTPUT_SCAN_MAX_BYTES" ]; then
-          LC_ALL=C redact_tool_output_response
-          return $?
+          ag_output_lc_all_set=${LC_ALL+x}
+          ag_output_lc_all_saved=${LC_ALL-}
+          LC_ALL=C
+          export LC_ALL
+          redact_tool_output_response
+          ag_output_response_status=$?
+          if [ "$ag_output_lc_all_set" = x ]; then
+            LC_ALL=$ag_output_lc_all_saved
+          else
+            unset LC_ALL
+          fi
+          return "$ag_output_response_status"
         fi
         ;;
     esac
