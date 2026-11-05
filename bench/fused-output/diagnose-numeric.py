@@ -36,6 +36,8 @@ functions = ["redact_tool_output", "redact_nul_response_json",
              "rewrite_response_conservatively", "redact_response_whole_leaf_fail_closed",
              "redact_nonempty_response_strings", "redact_response_values_awk",
              "emit_post_tool_replacement", "output_scan_input_exceeds_cap"]
+if re.search(r"^redact_response_values_awk_current\(\)", text, re.M):
+    functions.append("redact_response_values_awk_current")
 for name in functions:
     pattern = rf"^{name}\(\) ([{{(])"
     match = re.search(pattern, text, re.M)

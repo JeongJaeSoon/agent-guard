@@ -9767,6 +9767,13 @@ redact_nonempty_response_strings() {
 # malformed or interrupted transform can never expose a partial replacement.
 redact_response_values_awk() {
   whole_leaf_response=$1
+  redact_response_values_awk_current
+}
+
+# The conservative caller already owns whole_leaf_response. Read that inherited
+# shell variable inside its command substitution instead of expanding a large
+# JSON value through another function argument and assignment.
+redact_response_values_awk_current() {
   whole_leaf_tmp=$(mktemp_file) || return 1
   case "$whole_leaf_response" in
     *'"'*) ;;
@@ -10327,7 +10334,8 @@ extract_post_tool_response_awk() {
 }
 
 redact_response_whole_leaf_fail_closed() {
-  whole_leaf_response=$1
+  # rewrite_response_conservatively sets whole_leaf_response before forking this
+  # command substitution; all transformations below keep their private output.
   whole_leaf_redacted=
   # A quote-free compact JSON value contains no strings. The primary string
   # transform would return it unchanged and then enter the same value fallback.
@@ -10342,7 +10350,7 @@ redact_response_whole_leaf_fail_closed() {
   if [ -z "$whole_leaf_redacted" ] \
       || [ "$whole_leaf_redacted" = "$whole_leaf_response" ]; then
     whole_leaf_redacted=
-    if ! whole_leaf_redacted=$(redact_response_values_awk "$whole_leaf_response"); then
+    if ! whole_leaf_redacted=$(redact_response_values_awk_current); then
       whole_leaf_redacted=
     fi
   fi
@@ -10355,9 +10363,9 @@ redact_response_whole_leaf_fail_closed() {
 }
 
 rewrite_response_conservatively() {
-  conservative_input=$1
+  whole_leaf_response=$1
   SAFE_REWRITE=
-  if ! SAFE_REWRITE=$(redact_response_whole_leaf_fail_closed "$conservative_input"); then
+  if ! SAFE_REWRITE=$(redact_response_whole_leaf_fail_closed); then
     SAFE_REWRITE=
   fi
   if [ -z "$SAFE_REWRITE" ]; then
