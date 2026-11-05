@@ -30,15 +30,29 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-      - name: Install native build tools
+      - name: Install pinned Rust toolchain
+        timeout-minutes: 5
         env:
           TARGET: ${{ matrix.target }}
         run: |
           rustup toolchain install 1.85.1 --profile minimal --target "$TARGET"
-          if [ "$RUNNER_OS" = Linux ]; then
-            sudo apt-get update -qq
-            sudo apt-get install -y musl-tools
-          fi
+      # Keep repository refresh and package installation visible separately.
+      # A stalled runner/mirror must fail within the original job budget and
+      # must not consume it silently before any native contract can execute.
+      - name: Refresh Linux package metadata
+        if: runner.os == 'Linux'
+        timeout-minutes: 4
+        run: |
+          sudo apt-get -o Acquire::Retries=0 \
+            -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 \
+            -o DPkg::Lock::Timeout=30 update --error-on=any
+      - name: Install Linux musl tools
+        if: runner.os == 'Linux'
+        timeout-minutes: 4
+        run: |
+          sudo apt-get -o Acquire::Retries=0 \
+            -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 \
+            -o DPkg::Lock::Timeout=30 install -y musl-tools
       - name: Build and execute release artifact
         env:
           TARGET: ${{ matrix.target }}
