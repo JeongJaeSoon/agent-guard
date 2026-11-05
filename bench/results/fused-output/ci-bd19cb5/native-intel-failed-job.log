@@ -1,0 +1,465 @@
+﻿2026-11-05T12:00:33.8303090Z Current runner version: '2.338.2'
+2026-11-05T12:00:33.8366160Z ##[group]Runner Image Provisioner
+2026-11-05T12:00:33.8368670Z Hosted Compute Agent
+2026-11-05T12:00:33.8370370Z Version: 20260819.586
+2026-11-05T12:00:33.8372220Z Commit: 3cc4a88dfa507ef76119ad1bb3eccc6378bb2b76
+2026-11-05T12:00:33.8374600Z Build Date: 2026-08-18T23:20:18Z
+2026-11-05T12:00:33.8376710Z Worker ID: {fa6ae68c-2ba7-432d-a761-86e90c451998}
+2026-11-05T12:00:33.8378970Z Azure Region: westus
+2026-11-05T12:00:33.8380640Z ##[endgroup]
+2026-11-05T12:00:33.8384900Z ##[group]Operating System
+2026-11-05T12:00:33.8386820Z macOS
+2026-11-05T12:00:33.8388620Z 15.7.9
+2026-11-05T12:00:33.8390170Z 24G830
+2026-11-05T12:00:33.8391680Z ##[endgroup]
+2026-11-05T12:00:33.8393260Z ##[group]Runner Image
+2026-11-05T12:00:33.8395100Z Image: macos-15
+2026-11-05T12:00:33.8396690Z Version: 20260824.0482.1
+2026-11-05T12:00:33.8400780Z Included Software: https://github.com/actions/runner-images/blob/macos-15/20260824.0482/images/macos/macos-15-Readme.md
+2026-11-05T12:00:33.8407320Z Image Release: https://github.com/actions/runner-images/releases/tag/macos-15%2F20260824.0482
+2026-11-05T12:00:33.8410780Z ##[endgroup]
+2026-11-05T12:00:33.8414280Z ##[group]GITHUB_TOKEN Permissions
+2026-11-05T12:00:33.8420210Z Contents: read
+2026-11-05T12:00:33.8421760Z Metadata: read
+2026-11-05T12:00:33.8423230Z ##[endgroup]
+2026-11-05T12:00:33.8428850Z Secret source: Actions
+2026-11-05T12:00:33.8431670Z Cache mode: write
+2026-11-05T12:00:33.8434580Z Prepare workflow directory
+2026-11-05T12:00:33.9290490Z Prepare all required actions
+2026-11-05T12:00:33.9410090Z Getting action download info
+2026-11-05T12:00:34.5924150Z Download action repository 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' (SHA:3d3c42e5aac5ba805825da76410c181273ba90b1)
+2026-11-05T12:00:35.1269900Z Download action repository 'actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02' (SHA:ea165f8d65b6e75b540449e92b4886f43607fa02)
+2026-11-05T12:00:36.5492140Z Complete job name: Native execution (x86_64-apple-darwin)
+2026-11-05T12:00:37.1848770Z ##[group]Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+2026-11-05T12:00:37.1854190Z with:
+2026-11-05T12:00:37.1855790Z   persist-credentials: false
+2026-11-05T12:00:37.1858680Z   repository: JeongJaeSoon/agent-guard
+2026-11-05T12:00:37.1906520Z   token: ***
+2026-11-05T12:00:37.1908400Z   ssh-strict: true
+2026-11-05T12:00:37.1910160Z   ssh-user: git
+2026-11-05T12:00:37.1911830Z   clean: true
+2026-11-05T12:00:37.1913470Z   sparse-checkout-cone-mode: true
+2026-11-05T12:00:37.1915780Z   fetch-depth: 1
+2026-11-05T12:00:37.1917380Z   fetch-tags: false
+2026-11-05T12:00:37.1919070Z   show-progress: true
+2026-11-05T12:00:37.1920970Z   lfs: false
+2026-11-05T12:00:37.1922370Z   submodules: false
+2026-11-05T12:00:37.1924140Z   set-safe-directory: true
+2026-11-05T12:00:37.1926300Z   allow-unsafe-pr-checkout: false
+2026-11-05T12:00:37.1930670Z ##[endgroup]
+2026-11-05T12:00:38.3542140Z Syncing repository: JeongJaeSoon/agent-guard
+2026-11-05T12:00:38.3557760Z ##[group]Getting Git version info
+2026-11-05T12:00:38.3566360Z Working directory is '/Users/runner/work/agent-guard/agent-guard'
+2026-11-05T12:00:38.3579300Z [command]/usr/local/bin/git version
+2026-11-05T12:00:38.3776100Z git version 2.55.0
+2026-11-05T12:00:38.4626160Z ##[endgroup]
+2026-11-05T12:00:38.4780830Z Copying '/Users/runner/.gitconfig' to '/Users/runner/work/_temp/8077335e-9999-4e4d-829c-350487b6ec5e/.gitconfig'
+2026-11-05T12:00:38.4830030Z Temporarily overriding HOME='/Users/runner/work/_temp/8077335e-9999-4e4d-829c-350487b6ec5e' before making global git config changes
+2026-11-05T12:00:38.4850690Z Adding repository directory to the temporary git global config as a safe directory
+2026-11-05T12:00:38.4892200Z [command]/usr/local/bin/git config --global --add safe.directory /Users/runner/work/agent-guard/agent-guard
+2026-11-05T12:00:38.5934810Z Deleting the contents of '/Users/runner/work/agent-guard/agent-guard'
+2026-11-05T12:00:38.5992100Z ##[group]Determining repository object format
+2026-11-05T12:00:38.6053090Z ##[endgroup]
+2026-11-05T12:00:38.6098430Z ##[group]Initializing the repository
+2026-11-05T12:00:38.7106600Z [command]/usr/local/bin/git init /Users/runner/work/agent-guard/agent-guard
+2026-11-05T12:00:38.7113900Z hint: Using 'master' as the name for the initial branch. This default branch name
+2026-11-05T12:00:38.7404800Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+2026-11-05T12:00:38.7413520Z hint: to use in all of your new repositories, which will suppress this warning,
+2026-11-05T12:00:38.7420520Z hint: call:
+2026-11-05T12:00:38.7423940Z hint:
+2026-11-05T12:00:38.7427060Z hint: 	git config --global init.defaultBranch <name>
+2026-11-05T12:00:38.7454500Z hint:
+2026-11-05T12:00:38.7464580Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2026-11-05T12:00:38.7476690Z hint: 'development'. The just-created branch can be renamed via this command:
+2026-11-05T12:00:38.7487470Z hint:
+2026-11-05T12:00:38.7490220Z hint: 	git branch -m <name>
+2026-11-05T12:00:38.7493490Z hint:
+2026-11-05T12:00:38.7497720Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2026-11-05T12:00:38.7504790Z Initialized empty Git repository in /Users/runner/work/agent-guard/agent-guard/.git/
+2026-11-05T12:00:38.7516730Z [command]/usr/local/bin/git remote add origin https://github.com/JeongJaeSoon/agent-guard
+2026-11-05T12:00:38.7528020Z ##[endgroup]
+2026-11-05T12:00:38.7533050Z ##[group]Disabling automatic garbage collection
+2026-11-05T12:00:38.7537450Z [command]/usr/local/bin/git config --local gc.auto 0
+2026-11-05T12:00:38.7546700Z ##[endgroup]
+2026-11-05T12:00:38.7552580Z ##[group]Setting up auth
+2026-11-05T12:00:38.7559890Z Removing SSH command configuration
+2026-11-05T12:00:38.7565200Z [command]/usr/local/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-05T12:00:38.7582630Z [command]/usr/local/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-05T12:00:39.0174920Z Removing HTTP extra header
+2026-11-05T12:00:39.0407010Z [command]/usr/local/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-05T12:00:39.0644390Z [command]/usr/local/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-05T12:00:39.3010150Z Removing includeIf entries pointing to credentials config files
+2026-11-05T12:00:39.3078280Z [command]/usr/local/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-05T12:00:39.3261550Z [command]/usr/local/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-05T12:00:39.6371480Z [command]/usr/local/bin/git config --file /Users/runner/work/_temp/git-credentials-5c31f0b1-2fad-4d5e-9f35-3396b93882d8.config http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2026-11-05T12:00:39.6556010Z [command]/usr/local/bin/git config --local includeIf.gitdir:/Users/runner/work/agent-guard/agent-guard/.git.path /Users/runner/work/_temp/git-credentials-5c31f0b1-2fad-4d5e-9f35-3396b93882d8.config
+2026-11-05T12:00:39.6680410Z [command]/usr/local/bin/git config --local includeIf.gitdir:/Users/runner/work/agent-guard/agent-guard/.git/worktrees/*.path /Users/runner/work/_temp/git-credentials-5c31f0b1-2fad-4d5e-9f35-3396b93882d8.config
+2026-11-05T12:00:39.6829300Z [command]/usr/local/bin/git config --local includeIf.gitdir:/github/workspace/.git.path /github/runner_temp/git-credentials-5c31f0b1-2fad-4d5e-9f35-3396b93882d8.config
+2026-11-05T12:00:39.7109430Z [command]/usr/local/bin/git config --local includeIf.gitdir:/github/workspace/.git/worktrees/*.path /github/runner_temp/git-credentials-5c31f0b1-2fad-4d5e-9f35-3396b93882d8.config
+2026-11-05T12:00:39.7249180Z ##[endgroup]
+2026-11-05T12:00:39.7303640Z ##[group]Fetching the repository
+2026-11-05T12:00:39.7347380Z [command]/usr/local/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +d810da6301c435a1f1b8f8b332bd300ac27e9266:refs/remotes/pull/403/merge
+2026-11-05T12:00:41.0629930Z From https://github.com/JeongJaeSoon/agent-guard
+2026-11-05T12:00:41.0698550Z  * [new ref]         d810da6301c435a1f1b8f8b332bd300ac27e9266 -> pull/403/merge
+2026-11-05T12:00:41.1018280Z ##[endgroup]
+2026-11-05T12:00:41.1024230Z ##[group]Determining the checkout info
+2026-11-05T12:00:41.1099350Z ##[endgroup]
+2026-11-05T12:00:41.1144360Z [command]/usr/local/bin/git sparse-checkout disable
+2026-11-05T12:00:41.2265510Z [command]/usr/local/bin/git config --local --unset-all extensions.worktreeConfig
+2026-11-05T12:00:41.3157910Z ##[group]Checking out the ref
+2026-11-05T12:00:41.3242120Z [command]/usr/local/bin/git checkout --progress --force refs/remotes/pull/403/merge
+2026-11-05T12:00:42.1800830Z Updating files:  66% (976/1473)
+2026-11-05T12:00:42.1878050Z Updating files:  67% (987/1473)
+2026-11-05T12:00:42.1960120Z Updating files:  68% (1002/1473)
+2026-11-05T12:00:42.2040770Z Updating files:  69% (1017/1473)
+2026-11-05T12:00:42.2092350Z Updating files:  70% (1032/1473)
+2026-11-05T12:00:42.2164910Z Updating files:  71% (1046/1473)
+2026-11-05T12:00:42.2300890Z Updating files:  72% (1061/1473)
+2026-11-05T12:00:42.2362990Z Updating files:  73% (1076/1473)
+2026-11-05T12:00:42.2424580Z Updating files:  74% (1091/1473)
+2026-11-05T12:00:42.3430740Z Updating files:  75% (1105/1473)
+2026-11-05T12:00:42.3982830Z Updating files:  76% (1120/1473)
+2026-11-05T12:00:42.3992720Z Updating files:  77% (1135/1473)
+2026-11-05T12:00:42.4192630Z Updating files:  78% (1149/1473)
+2026-11-05T12:00:42.4359580Z Updating files:  79% (1164/1473)
+2026-11-05T12:00:42.4509940Z Updating files:  80% (1179/1473)
+2026-11-05T12:00:42.4588560Z Updating files:  81% (1194/1473)
+2026-11-05T12:00:42.4688840Z Updating files:  82% (1208/1473)
+2026-11-05T12:00:42.4758700Z Updating files:  83% (1223/1473)
+2026-11-05T12:00:42.4852880Z Updating files:  84% (1238/1473)
+2026-11-05T12:00:42.5076960Z Updating files:  85% (1253/1473)
+2026-11-05T12:00:42.5142620Z Updating files:  86% (1267/1473)
+2026-11-05T12:00:42.5226630Z Updating files:  87% (1282/1473)
+2026-11-05T12:00:42.5331230Z Updating files:  88% (1297/1473)
+2026-11-05T12:00:42.5450550Z Updating files:  89% (1311/1473)
+2026-11-05T12:00:42.6366360Z Updating files:  90% (1326/1473)
+2026-11-05T12:00:42.8305770Z Updating files:  91% (1341/1473)
+2026-11-05T12:00:42.8870260Z Updating files:  92% (1356/1473)
+2026-11-05T12:00:42.9523750Z Updating files:  93% (1370/1473)
+2026-11-05T12:00:42.9605320Z Updating files:  94% (1385/1473)
+2026-11-05T12:00:42.9674120Z Updating files:  95% (1400/1473)
+2026-11-05T12:00:42.9754950Z Updating files:  96% (1415/1473)
+2026-11-05T12:00:42.9870010Z Updating files:  97% (1429/1473)
+2026-11-05T12:00:42.9985510Z Updating files:  98% (1444/1473)
+2026-11-05T12:00:43.0564230Z Updating files:  99% (1459/1473)
+2026-11-05T12:00:43.0657540Z Updating files: 100% (1473/1473)
+2026-11-05T12:00:43.0693420Z Updating files: 100% (1473/1473), done.
+2026-11-05T12:00:43.0742110Z HEAD is now at d810da6 Merge bd19cb501d79fdd633cd3fcf01ace84223156a1f into d00b4882c55704e5d83899ffd3820946aa9c15fa
+2026-11-05T12:00:43.0938870Z ##[endgroup]
+2026-11-05T12:00:43.2185930Z [command]/usr/local/bin/git log -1 --format=%H
+2026-11-05T12:00:43.3205900Z d810da6301c435a1f1b8f8b332bd300ac27e9266
+2026-11-05T12:00:43.4822840Z ##[group]Removing auth
+2026-11-05T12:00:43.5008340Z Removing SSH command configuration
+2026-11-05T12:00:43.6011310Z [command]/usr/local/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-05T12:00:43.6784730Z [command]/usr/local/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-05T12:00:43.7583660Z Removing HTTP extra header
+2026-11-05T12:00:43.8588100Z [command]/usr/local/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-05T12:00:44.0124610Z [command]/usr/local/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-05T12:00:44.0317460Z Removing includeIf entries pointing to credentials config files
+2026-11-05T12:00:44.0373440Z [command]/usr/local/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-05T12:00:44.0412830Z includeif.gitdir:/Users/runner/work/agent-guard/agent-guard/.git.path
+2026-11-05T12:00:44.0459190Z includeif.gitdir:/Users/runner/work/agent-guard/agent-guard/.git/worktrees/*.path
+2026-11-05T12:00:44.0466510Z includeif.gitdir:/github/workspace/.git.path
+2026-11-05T12:00:44.0501750Z includeif.gitdir:/github/workspace/.git/worktrees/*.path
+2026-11-05T12:00:44.0687000Z [command]/usr/local/bin/git config --local --get-all includeif.gitdir:/Users/runner/work/agent-guard/agent-guard/.git.path
+2026-11-05T12:00:44.0728040Z /Users/runner/work/_temp/git-credentials-5c31f0b1-2fad-4d5e-9f35-3396b93882d8.config
+2026-11-05T12:00:44.0877290Z [command]/usr/local/bin/git config --local --unset includeif.gitdir:/Users/runner/work/agent-guard/agent-guard/.git.path \/Users\/runner\/work\/_temp\/git\-credentials\-5c31f0b1\-2fad\-4d5e\-9f35\-3396b93882d8\.config
+2026-11-05T12:00:44.1048210Z [command]/usr/local/bin/git config --local --get-all includeif.gitdir:/Users/runner/work/agent-guard/agent-guard/.git/worktrees/*.path
+2026-11-05T12:00:44.1095090Z /Users/runner/work/_temp/git-credentials-5c31f0b1-2fad-4d5e-9f35-3396b93882d8.config
+2026-11-05T12:00:44.1209030Z [command]/usr/local/bin/git config --local --unset includeif.gitdir:/Users/runner/work/agent-guard/agent-guard/.git/worktrees/*.path \/Users\/runner\/work\/_temp\/git\-credentials\-5c31f0b1\-2fad\-4d5e\-9f35\-3396b93882d8\.config
+2026-11-05T12:00:44.2220300Z [command]/usr/local/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git.path
+2026-11-05T12:00:44.2227500Z /github/runner_temp/git-credentials-5c31f0b1-2fad-4d5e-9f35-3396b93882d8.config
+2026-11-05T12:00:44.2305110Z [command]/usr/local/bin/git config --local --unset includeif.gitdir:/github/workspace/.git.path \/github\/runner_temp\/git\-credentials\-5c31f0b1\-2fad\-4d5e\-9f35\-3396b93882d8\.config
+2026-11-05T12:00:44.2443990Z [command]/usr/local/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git/worktrees/*.path
+2026-11-05T12:00:44.2480910Z /github/runner_temp/git-credentials-5c31f0b1-2fad-4d5e-9f35-3396b93882d8.config
+2026-11-05T12:00:44.2802910Z [command]/usr/local/bin/git config --local --unset includeif.gitdir:/github/workspace/.git/worktrees/*.path \/github\/runner_temp\/git\-credentials\-5c31f0b1\-2fad\-4d5e\-9f35\-3396b93882d8\.config
+2026-11-05T12:00:44.3230910Z [command]/usr/local/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-05T12:00:44.4043430Z Removing credentials config '/Users/runner/work/_temp/git-credentials-5c31f0b1-2fad-4d5e-9f35-3396b93882d8.config'
+2026-11-05T12:00:44.4060940Z ##[endgroup]
+2026-11-05T12:00:44.4660920Z ##[group]Run rustup toolchain install 1.85.1 --profile minimal --target "$TARGET"
+2026-11-05T12:00:44.4665020Z [36;1mrustup toolchain install 1.85.1 --profile minimal --target "$TARGET"[0m
+2026-11-05T12:00:44.4668350Z [36;1mif [ "$RUNNER_OS" = Linux ]; then[0m
+2026-11-05T12:00:44.4670850Z [36;1m  sudo apt-get update -qq[0m
+2026-11-05T12:00:44.4673360Z [36;1m  sudo apt-get install -y musl-tools[0m
+2026-11-05T12:00:44.4675860Z [36;1mfi[0m
+2026-11-05T12:00:44.4791240Z shell: /bin/bash -e {0}
+2026-11-05T12:00:44.4794060Z env:
+2026-11-05T12:00:44.4796630Z   TARGET: x86_64-apple-darwin
+2026-11-05T12:00:44.4799470Z ##[endgroup]
+2026-11-05T12:00:44.6113560Z info: syncing channel updates for 1.85.1-x86_64-apple-darwin
+2026-11-05T12:00:44.8991630Z info: latest update on 2025-03-18 for version 1.85.1 (4eb161250 2025-03-15)
+2026-11-05T12:00:44.8997000Z info: downloading 3 components
+2026-11-05T12:01:07.6102960Z 
+2026-11-05T12:01:07.6464920Z info: self-update is disabled for this build of rustup
+2026-11-05T12:01:07.6466260Z   1.85.1-x86_64-apple-darwin installed - rustc 1.85.1 (4eb161250 2025-03-15)
+2026-11-05T12:01:07.6665850Z info: any updates to rustup will need to be fetched with your system package manager
+2026-11-05T12:01:07.6666780Z 
+2026-11-05T12:01:07.6945470Z ##[group]Run sh scripts/build-native-artifact.sh "$TARGET" "$RUNNER_TEMP/artifacts"
+2026-11-05T12:01:07.6947840Z [36;1msh scripts/build-native-artifact.sh "$TARGET" "$RUNNER_TEMP/artifacts"[0m
+2026-11-05T12:01:07.6950040Z [36;1mcargo +1.85.1 build --release --locked --manifest-path native/devtools/Cargo.toml[0m
+2026-11-05T12:01:07.6952140Z [36;1msh scripts/install-native-test-tools.sh "$RUNNER_TEMP/test-bin"[0m
+2026-11-05T12:01:07.7081460Z shell: /bin/bash -e {0}
+2026-11-05T12:01:07.7082460Z env:
+2026-11-05T12:01:07.7083270Z   TARGET: x86_64-apple-darwin
+2026-11-05T12:01:07.7084260Z ##[endgroup]
+2026-11-05T12:01:08.0979920Z     Updating crates.io index
+2026-11-05T12:01:08.3968240Z  Downloading crates ...
+2026-11-05T12:01:08.4580550Z   Downloaded equivalent v1.0.3
+2026-11-05T12:01:08.4680190Z   Downloaded itoa v1.0.18
+2026-11-05T12:01:08.4841240Z   Downloaded serde_json v1.0.145
+2026-11-05T12:01:08.5536590Z   Downloaded serde_core v1.0.229
+2026-11-05T12:01:08.6131500Z   Downloaded ryu v1.0.23
+2026-11-05T12:01:08.6595640Z   Downloaded memchr v2.8.3
+2026-11-05T12:01:08.7076220Z   Downloaded indexmap v2.11.4
+2026-11-05T12:01:08.7362970Z   Downloaded hashbrown v0.16.1
+2026-11-05T12:01:08.9309310Z    Compiling serde_core v1.0.229
+2026-11-05T12:01:09.0312010Z    Compiling equivalent v1.0.3
+2026-11-05T12:01:09.1416310Z    Compiling serde_json v1.0.145
+2026-11-05T12:01:09.2422200Z    Compiling hashbrown v0.16.1
+2026-11-05T12:01:09.2429230Z    Compiling itoa v1.0.18
+2026-11-05T12:01:10.0441000Z    Compiling memchr v2.8.3
+2026-11-05T12:01:13.0121150Z    Compiling indexmap v2.11.4
+2026-11-05T12:01:15.1690900Z    Compiling ryu v1.0.23
+2026-11-05T12:01:29.6661330Z    Compiling agent-guard-redact v0.1.0 (/Users/runner/work/agent-guard/agent-guard/native/redaction-core)
+2026-11-05T12:01:45.3751650Z     Finished `release` profile [optimized] target(s) in 37.47s
+2026-11-05T12:01:49.9030210Z     Updating crates.io index
+2026-11-05T12:01:50.1657370Z  Downloading crates ...
+2026-11-05T12:01:50.2857290Z   Downloaded bitflags v2.13.2
+2026-11-05T12:01:50.3976120Z   Downloaded version_check v0.9.5
+2026-11-05T12:01:50.4983500Z   Downloaded getrandom v0.3.4
+2026-11-05T12:01:50.5985760Z   Downloaded sha2 v0.10.9
+2026-11-05T12:01:50.6984900Z   Downloaded tempfile v3.23.0
+2026-11-05T12:01:50.7099340Z   Downloaded serde_core v1.0.228
+2026-11-05T12:01:50.8109270Z   Downloaded serde v1.0.228
+2026-11-05T12:01:50.9112670Z   Downloaded generic-array v0.14.7
+2026-11-05T12:01:50.9769620Z   Downloaded typenum v1.20.1
+2026-11-05T12:01:50.9771760Z   Downloaded fastrand v2.5.0
+2026-11-05T12:01:50.9773940Z   Downloaded cpufeatures v0.2.17
+2026-11-05T12:01:50.9775450Z   Downloaded cfg-if v1.0.5
+2026-11-05T12:01:50.9777400Z   Downloaded once_cell v1.21.4
+2026-11-05T12:01:50.9779600Z   Downloaded errno v0.3.14
+2026-11-05T12:01:50.9780670Z   Downloaded digest v0.10.7
+2026-11-05T12:01:50.9782520Z   Downloaded crypto-common v0.1.7
+2026-11-05T12:01:50.9783900Z   Downloaded block-buffer v0.10.4
+2026-11-05T12:01:50.9784860Z   Downloaded rustix v1.1.3
+2026-11-05T12:01:51.2269290Z   Downloaded libc v0.2.177
+2026-11-05T12:01:51.5328580Z    Compiling version_check v0.9.5
+2026-11-05T12:01:51.6130910Z    Compiling libc v0.2.177
+2026-11-05T12:01:51.6628230Z    Compiling typenum v1.20.1
+2026-11-05T12:01:51.7189350Z    Compiling serde_core v1.0.228
+2026-11-05T12:01:52.2197470Z    Compiling rustix v1.1.3
+2026-11-05T12:01:52.5182530Z    Compiling generic-array v0.14.7
+2026-11-05T12:01:52.9193860Z    Compiling cfg-if v1.0.5
+2026-11-05T12:01:53.1198900Z    Compiling getrandom v0.3.4
+2026-11-05T12:01:53.8744950Z    Compiling hashbrown v0.16.1
+2026-11-05T12:01:56.7628640Z    Compiling errno v0.3.14
+2026-11-05T12:01:56.9637180Z    Compiling serde v1.0.228
+2026-11-05T12:01:57.6409550Z    Compiling equivalent v1.0.3
+2026-11-05T12:01:57.7833070Z    Compiling bitflags v2.13.2
+2026-11-05T12:01:58.2844390Z    Compiling serde_json v1.0.145
+2026-11-05T12:01:59.0887440Z    Compiling indexmap v2.11.4
+2026-11-05T12:01:59.6907430Z    Compiling crypto-common v0.1.7
+2026-11-05T12:01:59.9310110Z    Compiling block-buffer v0.10.4
+2026-11-05T12:02:00.4352160Z    Compiling digest v0.10.7
+2026-11-05T12:02:01.4872390Z    Compiling memchr v2.8.3
+2026-11-05T12:02:04.3105000Z    Compiling once_cell v1.21.4
+2026-11-05T12:02:05.0781770Z    Compiling cpufeatures v0.2.17
+2026-11-05T12:02:05.3159790Z    Compiling fastrand v2.5.0
+2026-11-05T12:02:06.3071870Z    Compiling itoa v1.0.18
+2026-11-05T12:02:06.4697040Z    Compiling ryu v1.0.23
+2026-11-05T12:02:06.8821810Z    Compiling tempfile v3.23.0
+2026-11-05T12:02:06.9606690Z    Compiling sha2 v0.10.9
+2026-11-05T12:02:16.0456150Z    Compiling agent-guard-devtools v0.1.0 (/Users/runner/work/agent-guard/agent-guard/native/devtools)
+2026-11-05T12:03:09.9239660Z     Finished `release` profile [optimized] target(s) in 1m 20s
+2026-11-05T12:03:11.2322230Z /var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/tmp.0edppnYhcc/scanner.tar.gz: OK
+2026-11-05T12:03:12.2608410Z /var/folders/20/jp1_0n3n7kndh6rnbqb5344m0000gn/T/tmp.0edppnYhcc/jq: OK
+2026-11-05T12:03:12.3185850Z ##[group]Run export PATH="$RUNNER_TEMP/test-bin:/usr/bin:/bin:/usr/sbin:/sbin"
+2026-11-05T12:03:12.3188700Z [36;1mexport PATH="$RUNNER_TEMP/test-bin:/usr/bin:/bin:/usr/sbin:/sbin"[0m
+2026-11-05T12:03:12.3190250Z [36;1mif command -v cargo || command -v rustc; then[0m
+2026-11-05T12:03:12.3191790Z [36;1m  echo 'Rust compiler unexpectedly visible on runtime test PATH' >&2[0m
+2026-11-05T12:03:12.3193170Z [36;1m  exit 1[0m
+2026-11-05T12:03:12.3193900Z [36;1mfi[0m
+2026-11-05T12:03:12.3194600Z [36;1mdate -u[0m
+2026-11-05T12:03:12.3197430Z [36;1mnative/devtools/target/release/agent-guard-devtools native-redaction --core "$RUNNER_TEMP/artifacts/agent-guard-redact-$TARGET" > "$RUNNER_TEMP/artifacts/differential.json"[0m
+2026-11-05T12:03:12.3201020Z [36;1mdate -u[0m
+2026-11-05T12:03:12.3334090Z shell: /bin/bash -e {0}
+2026-11-05T12:03:12.3334830Z env:
+2026-11-05T12:03:12.3335610Z   TARGET: x86_64-apple-darwin
+2026-11-05T12:03:12.3336290Z ##[endgroup]
+2026-11-05T12:03:12.3831640Z Thu Nov  5 12:03:12 UTC 2026
+2026-11-05T12:03:47.1105450Z Thu Nov  5 12:03:47 UTC 2026
+2026-11-05T12:03:47.1905790Z ##[group]Run actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+2026-11-05T12:03:47.1907330Z with:
+2026-11-05T12:03:47.1908130Z   name: checkpoint-intel-differential
+2026-11-05T12:03:47.1909560Z   path: /Users/runner/work/_temp/artifacts/differential.json
+2026-11-05T12:03:47.1910610Z   if-no-files-found: warn
+2026-11-05T12:03:47.1911190Z   compression-level: 6
+2026-11-05T12:03:47.1911920Z   overwrite: false
+2026-11-05T12:03:47.1912640Z   include-hidden-files: false
+2026-11-05T12:03:47.1913550Z ##[endgroup]
+2026-11-05T12:03:47.6409510Z (node:6685) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+2026-11-05T12:03:47.6482300Z (Use `node --trace-deprecation ...` to show where the warning was created)
+2026-11-05T12:03:47.7193470Z With the provided path, there will be 1 file uploaded
+2026-11-05T12:03:47.7242180Z Artifact name is valid!
+2026-11-05T12:03:47.7269150Z Root directory input is valid!
+2026-11-05T12:03:48.1683610Z (node:6685) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+2026-11-05T12:03:48.2136030Z Beginning upload of artifact content to blob storage
+2026-11-05T12:03:48.4619700Z Uploaded bytes 204
+2026-11-05T12:03:48.5440710Z Finished uploading artifact content to blob storage!
+2026-11-05T12:03:48.5527550Z SHA256 digest of uploaded artifact zip is 82d7773c0424387cb4d72c6f0dc896be759076119ebd55b94a0dbf5635c0d704
+2026-11-05T12:03:48.5572610Z Finalizing artifact upload
+2026-11-05T12:03:49.0889510Z Artifact checkpoint-intel-differential.zip successfully finalized. Artifact ID 13412663160
+2026-11-05T12:03:49.0955290Z Artifact checkpoint-intel-differential has been successfully uploaded! Final size is 204 bytes. Artifact ID is 13412663160
+2026-11-05T12:03:49.0993590Z Artifact download URL: https://github.com/JeongJaeSoon/agent-guard/actions/runs/42021944431/artifacts/13412663160
+2026-11-05T12:03:49.1137410Z ##[group]Run export PATH="$RUNNER_TEMP/test-bin:/usr/bin:/bin:/usr/sbin:/sbin"
+2026-11-05T12:03:49.1139520Z [36;1mexport PATH="$RUNNER_TEMP/test-bin:/usr/bin:/bin:/usr/sbin:/sbin"[0m
+2026-11-05T12:03:49.1141170Z [36;1mif command -v cargo || command -v rustc; then[0m
+2026-11-05T12:03:49.1142930Z [36;1m  echo 'Rust compiler unexpectedly visible on runtime test PATH' >&2[0m
+2026-11-05T12:03:49.1144400Z [36;1m  exit 1[0m
+2026-11-05T12:03:49.1145260Z [36;1mfi[0m
+2026-11-05T12:03:49.1146070Z [36;1mdate -u[0m
+2026-11-05T12:03:49.1149810Z [36;1mnative/devtools/target/release/agent-guard-devtools native-integration --core "$RUNNER_TEMP/artifacts/agent-guard-redact-$TARGET" --scanner "$RUNNER_TEMP/test-bin/gitleaks" > "$RUNNER_TEMP/artifacts/integration.json"[0m
+2026-11-05T12:03:49.1153340Z [36;1mdate -u[0m
+2026-11-05T12:03:49.1291180Z shell: /bin/bash -e {0}
+2026-11-05T12:03:49.1292390Z env:
+2026-11-05T12:03:49.1293290Z   TARGET: x86_64-apple-darwin
+2026-11-05T12:03:49.1294530Z ##[endgroup]
+2026-11-05T12:03:49.1800230Z Thu Nov  5 12:03:49 UTC 2026
+2026-11-05T12:03:49.1919070Z integration start: host=claude fixture=0 variant=shell
+2026-11-05T12:03:52.2908760Z integration end: host=claude fixture=0 variant=shell seconds=3.093 status=exit status: 0
+2026-11-05T12:03:52.3001950Z integration start: host=claude fixture=0 variant=0
+2026-11-05T12:03:55.7132790Z integration end: host=claude fixture=0 variant=0 seconds=3.425 status=exit status: 0
+2026-11-05T12:03:55.7151950Z integration start: host=claude fixture=0 variant=1
+2026-11-05T12:03:58.7284090Z integration end: host=claude fixture=0 variant=1 seconds=3.015 status=exit status: 0
+2026-11-05T12:03:58.7286490Z integration start: host=claude fixture=0 variant=2
+2026-11-05T12:04:01.5537530Z integration end: host=claude fixture=0 variant=2 seconds=2.824 status=exit status: 0
+2026-11-05T12:04:01.5538830Z integration start: host=claude fixture=0 variant=3
+2026-11-05T12:04:04.6373590Z integration end: host=claude fixture=0 variant=3 seconds=3.082 status=exit status: 0
+2026-11-05T12:04:04.6375470Z integration start: host=claude fixture=0 variant=4
+2026-11-05T12:04:07.5506190Z integration end: host=claude fixture=0 variant=4 seconds=2.912 status=exit status: 0
+2026-11-05T12:04:07.5508150Z integration start: host=claude fixture=1 variant=shell
+2026-11-05T12:04:10.3611630Z integration end: host=claude fixture=1 variant=shell seconds=2.809 status=exit status: 0
+2026-11-05T12:04:10.3613780Z integration start: host=claude fixture=1 variant=0
+2026-11-05T12:04:13.1095590Z integration end: host=claude fixture=1 variant=0 seconds=2.747 status=exit status: 0
+2026-11-05T12:04:13.1097370Z integration start: host=claude fixture=1 variant=1
+2026-11-05T12:04:18.4488840Z integration end: host=claude fixture=1 variant=1 seconds=5.336 status=exit status: 0
+2026-11-05T12:04:18.5048100Z integration start: host=claude fixture=1 variant=2
+2026-11-05T12:04:21.7728670Z integration end: host=claude fixture=1 variant=2 seconds=3.322 status=exit status: 0
+2026-11-05T12:04:21.7737210Z integration start: host=claude fixture=1 variant=3
+2026-11-05T12:04:25.1706960Z integration end: host=claude fixture=1 variant=3 seconds=3.396 status=exit status: 0
+2026-11-05T12:04:25.1708650Z integration start: host=claude fixture=1 variant=4
+2026-11-05T12:04:28.7333040Z integration end: host=claude fixture=1 variant=4 seconds=3.556 status=exit status: 0
+2026-11-05T12:04:28.7445220Z integration start: host=claude fixture=2 variant=shell
+2026-11-05T12:04:31.8165790Z integration end: host=claude fixture=2 variant=shell seconds=3.084 status=exit status: 0
+2026-11-05T12:04:31.8168930Z integration start: host=claude fixture=2 variant=0
+2026-11-05T12:04:34.2819650Z integration end: host=claude fixture=2 variant=0 seconds=2.464 status=exit status: 0
+2026-11-05T12:04:34.2821660Z integration start: host=claude fixture=2 variant=1
+2026-11-05T12:04:37.0481270Z integration end: host=claude fixture=2 variant=1 seconds=2.765 status=exit status: 0
+2026-11-05T12:04:37.0483590Z integration start: host=claude fixture=2 variant=2
+2026-11-05T12:04:40.1335720Z integration end: host=claude fixture=2 variant=2 seconds=3.084 status=exit status: 0
+2026-11-05T12:04:40.1337770Z integration start: host=claude fixture=2 variant=3
+2026-11-05T12:04:42.9780080Z integration end: host=claude fixture=2 variant=3 seconds=2.843 status=exit status: 0
+2026-11-05T12:04:42.9781840Z integration start: host=claude fixture=2 variant=4
+2026-11-05T12:04:45.5058180Z integration end: host=claude fixture=2 variant=4 seconds=2.522 status=exit status: 0
+2026-11-05T12:04:45.5060770Z integration start: host=claude fixture=3 variant=shell
+2026-11-05T12:04:48.0352940Z integration end: host=claude fixture=3 variant=shell seconds=2.532 status=exit status: 0
+2026-11-05T12:04:48.0355800Z integration start: host=claude fixture=3 variant=0
+2026-11-05T12:04:51.1748900Z integration end: host=claude fixture=3 variant=0 seconds=3.138 status=exit status: 0
+2026-11-05T12:04:51.1753130Z integration start: host=claude fixture=3 variant=1
+2026-11-05T12:04:54.1492000Z integration end: host=claude fixture=3 variant=1 seconds=2.973 status=exit status: 0
+2026-11-05T12:04:54.1494430Z integration start: host=claude fixture=3 variant=2
+2026-11-05T12:04:57.1095350Z integration end: host=claude fixture=3 variant=2 seconds=2.959 status=exit status: 0
+2026-11-05T12:04:57.1097260Z integration start: host=claude fixture=3 variant=3
+2026-11-05T12:05:01.3947350Z integration end: host=claude fixture=3 variant=3 seconds=4.282 status=exit status: 0
+2026-11-05T12:05:01.3952090Z integration start: host=claude fixture=3 variant=4
+2026-11-05T12:05:04.2421860Z integration end: host=claude fixture=3 variant=4 seconds=2.846 status=exit status: 0
+2026-11-05T12:05:04.2501040Z agent-guard-devtools: host/fallback mismatch: claude, relative-path, fixture=3, baseline_seconds=2.531516066, candidate_seconds=2.845609602, baseline_stdout="{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"updatedToolOutput\":{\"stdout\":\"API_KEY=[REDACTED]\",\"$serde_json::private::Number\":\"123\"}}}\n", candidate_stdout="{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"agent-guard: protection is DEGRADED because jq, awk, git, gitleaks (including its setsid or Perl process-isolation helper), or a policy file is unavailable. Scanner readiness: timeout. Run /agent-guard:setup-agent-guard (or agent-guard setup), approve any required installation, verify with agent-guard check and smoke-test, then restart the host; continuing because AGENT_GUARD_INFRA_FAILURE_MODE=open (the default).\"}}\n", baseline_stderr="agent-guard: masked secret-like values in Read output\n", candidate_stderr="agent-guard: protection is DEGRADED because jq, awk, git, gitleaks (including its setsid or Perl process-isolation helper), or a policy file is unavailable. Scanner readiness: timeout. Run /agent-guard:setup-agent-guard (or agent-guard setup), approve any required installation, verify with agent-guard check and smoke-test, then restart the host; continuing because AGENT_GUARD_INFRA_FAILURE_MODE=open (the default).\n"
+2026-11-05T12:05:04.2573930Z ##[error]Process completed with exit code 1.
+2026-11-05T12:05:04.2922080Z ##[group]Run actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+2026-11-05T12:05:04.2923530Z with:
+2026-11-05T12:05:04.2924320Z   name: checkpoint-intel-integration
+2026-11-05T12:05:04.2925190Z   path: /Users/runner/work/_temp/artifacts/integration.json
+2026-11-05T12:05:04.2926010Z   if-no-files-found: warn
+2026-11-05T12:05:04.2926570Z   compression-level: 6
+2026-11-05T12:05:04.2929350Z   overwrite: false
+2026-11-05T12:05:04.2929920Z   include-hidden-files: false
+2026-11-05T12:05:04.2930530Z ##[endgroup]
+2026-11-05T12:05:05.9695840Z (node:10721) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+2026-11-05T12:05:05.9847220Z (Use `node --trace-deprecation ...` to show where the warning was created)
+2026-11-05T12:05:05.9986000Z With the provided path, there will be 1 file uploaded
+2026-11-05T12:05:05.9990740Z Artifact name is valid!
+2026-11-05T12:05:05.9992400Z Root directory input is valid!
+2026-11-05T12:05:06.4447010Z Beginning upload of artifact content to blob storage
+2026-11-05T12:05:06.5408090Z (node:10721) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+2026-11-05T12:05:06.8388890Z Uploaded bytes 148
+2026-11-05T12:05:06.9184250Z Finished uploading artifact content to blob storage!
+2026-11-05T12:05:06.9217910Z SHA256 digest of uploaded artifact zip is c72d8ff20eb561d8ee71c86462b3dc166280be0f60b3cd7bcbbbeb107b832496
+2026-11-05T12:05:06.9221190Z Finalizing artifact upload
+2026-11-05T12:05:07.4473840Z Artifact checkpoint-intel-integration.zip successfully finalized. Artifact ID 13412304136
+2026-11-05T12:05:07.4479850Z Artifact checkpoint-intel-integration has been successfully uploaded! Final size is 148 bytes. Artifact ID is 13412304136
+2026-11-05T12:05:07.4484190Z Artifact download URL: https://github.com/JeongJaeSoon/agent-guard/actions/runs/42021944431/artifacts/13412304136
+2026-11-05T12:05:07.4809490Z ##[group]Run actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+2026-11-05T12:05:07.4810970Z with:
+2026-11-05T12:05:07.4811750Z   name: checkpoint-intel-integration-2
+2026-11-05T12:05:07.4813340Z   path: /Users/runner/work/_temp/artifacts/integration-2.json
+2026-11-05T12:05:07.4814580Z   if-no-files-found: warn
+2026-11-05T12:05:07.4815580Z   compression-level: 6
+2026-11-05T12:05:07.4816490Z   overwrite: false
+2026-11-05T12:05:07.4817310Z   include-hidden-files: false
+2026-11-05T12:05:07.4818670Z ##[endgroup]
+2026-11-05T12:05:09.3007900Z (node:10763) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+2026-11-05T12:05:09.3032240Z (Use `node --trace-deprecation ...` to show where the warning was created)
+2026-11-05T12:05:09.3231980Z ##[warning]No files were found with the provided path: /Users/runner/work/_temp/artifacts/integration-2.json. No artifacts will be uploaded.
+2026-11-05T12:05:09.3545850Z ##[group]Run actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+2026-11-05T12:05:09.3549120Z with:
+2026-11-05T12:05:09.3550030Z   name: checkpoint-intel-integration-3
+2026-11-05T12:05:09.3551320Z   path: /Users/runner/work/_temp/artifacts/integration-3.json
+2026-11-05T12:05:09.3552560Z   if-no-files-found: warn
+2026-11-05T12:05:09.3553550Z   compression-level: 6
+2026-11-05T12:05:09.3554340Z   overwrite: false
+2026-11-05T12:05:09.3555420Z   include-hidden-files: false
+2026-11-05T12:05:09.3556340Z ##[endgroup]
+2026-11-05T12:05:10.1633430Z (node:10799) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+2026-11-05T12:05:10.1816520Z (Use `node --trace-deprecation ...` to show where the warning was created)
+2026-11-05T12:05:10.2023400Z ##[warning]No files were found with the provided path: /Users/runner/work/_temp/artifacts/integration-3.json. No artifacts will be uploaded.
+2026-11-05T12:05:10.2224700Z ##[group]Run actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+2026-11-05T12:05:10.2226220Z with:
+2026-11-05T12:05:10.2226950Z   name: native-x86_64-apple-darwin
+2026-11-05T12:05:10.2228810Z   path: /Users/runner/work/_temp/artifacts/
+2026-11-05T12:05:10.2229880Z   if-no-files-found: error
+2026-11-05T12:05:10.2230870Z   compression-level: 6
+2026-11-05T12:05:10.2231810Z   overwrite: false
+2026-11-05T12:05:10.2232650Z   include-hidden-files: false
+2026-11-05T12:05:10.2234660Z ##[endgroup]
+2026-11-05T12:05:12.7372770Z (node:10820) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+2026-11-05T12:05:12.7376990Z (Use `node --trace-deprecation ...` to show where the warning was created)
+2026-11-05T12:05:12.7524330Z With the provided path, there will be 6 files uploaded
+2026-11-05T12:05:12.7532990Z Artifact name is valid!
+2026-11-05T12:05:12.7535350Z Root directory input is valid!
+2026-11-05T12:05:13.6286990Z (node:10820) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+2026-11-05T12:05:13.6309530Z Beginning upload of artifact content to blob storage
+2026-11-05T12:05:14.1141470Z Uploaded bytes 225638
+2026-11-05T12:05:14.2005350Z Finished uploading artifact content to blob storage!
+2026-11-05T12:05:14.2046330Z SHA256 digest of uploaded artifact zip is 58e51948fe29db6e6a5bc8109918a5699ebd6299aed6bffac75a2b74a884740c
+2026-11-05T12:05:14.2051270Z Finalizing artifact upload
+2026-11-05T12:05:14.7127850Z Artifact native-x86_64-apple-darwin.zip successfully finalized. Artifact ID 13413440687
+2026-11-05T12:05:14.7132650Z Artifact native-x86_64-apple-darwin has been successfully uploaded! Final size is 225638 bytes. Artifact ID is 13413440687
+2026-11-05T12:05:14.7158680Z Artifact download URL: https://github.com/JeongJaeSoon/agent-guard/actions/runs/42021944431/artifacts/13413440687
+2026-11-05T12:05:14.7642130Z Post job cleanup.
+2026-11-05T12:05:16.1599030Z [command]/usr/local/bin/git version
+2026-11-05T12:05:16.1680570Z git version 2.55.0
+2026-11-05T12:05:16.2387800Z Copying '/Users/runner/.gitconfig' to '/Users/runner/work/_temp/b614dd72-8820-4a0b-99f9-434f059ba6c1/.gitconfig'
+2026-11-05T12:05:16.2391300Z Temporarily overriding HOME='/Users/runner/work/_temp/b614dd72-8820-4a0b-99f9-434f059ba6c1' before making global git config changes
+2026-11-05T12:05:16.2395850Z Adding repository directory to the temporary git global config as a safe directory
+2026-11-05T12:05:16.2487950Z [command]/usr/local/bin/git config --global --add safe.directory /Users/runner/work/agent-guard/agent-guard
+2026-11-05T12:05:16.3436590Z Removing SSH command configuration
+2026-11-05T12:05:16.3442880Z [command]/usr/local/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-05T12:05:16.3489140Z [command]/usr/local/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-05T12:05:18.1039170Z Removing HTTP extra header
+2026-11-05T12:05:18.1091120Z [command]/usr/local/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-05T12:05:18.1487950Z [command]/usr/local/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-05T12:05:19.4792100Z Removing includeIf entries pointing to credentials config files
+2026-11-05T12:05:19.4799720Z [command]/usr/local/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-05T12:05:19.6110900Z [command]/usr/local/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-05T12:05:19.8699290Z Cleaning up orphan processes
+2026-11-05T12:05:20.5648080Z ##[warning]Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
