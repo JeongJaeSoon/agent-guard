@@ -4933,7 +4933,7 @@ bash_strip_source_module_prose() (
 message_value_records() {
   printf '%s\n' "$1" | LC_ALL=C awk '
     function bail() { failed = 1; exit }
-    function boundary(r) { return r == "0;" || r == "0&&" || r == "0||" || r == "0|" || r == "3(" || r == "3)" }
+    function boundary(r) { return r == "0;" || r == "0&&" || r == "0||" || r == "0|" }
     # Every word of a simple command is expanded before its name is looked
     # up, and an expansion can assign (`${PWD:PATH=0}` evaluates PATH=0), so
     # a word is plain only when it is literal or its expansions are bare
@@ -4965,7 +4965,7 @@ message_value_records() {
           w = word[j]
           if (w == "--") break
           if (index(opts, "|" w "|") || opts ~ /-m\|/ && w ~ /^-[aqsvn]+m$/) {
-            if (j + 1 <= n && substr(word[j + 1], 1, 1) != "-") print rec[j + 1]
+            if (j + 1 <= n && substr(word[j + 1], 1, 1) != "-") out = out rec[j + 1] "\n"
             j++
             continue
           }
@@ -4981,13 +4981,17 @@ message_value_records() {
     BEGIN { ok = 1; n = 0 }
     {
       r = $0; k = substr(r, 1, 1); v = substr(r, 2)
-      if (r == "3[" || r == "3]" || r == "3{" || r == "3}" || k == "2") bail()
+      # A subshell or a process substitution (`<(`, `>(`, zsh `=(`) runs
+      # before the command it sits in, so it can replace what the name runs.
+      if (r ~ /^3[][(){}]$/ || k == "2") bail()
       if (k == "0" && v ~ /^(eval|alias|function|trap|source|\.)$/) bail()
       if (boundary(r)) { finish(); next }
+      # The `&` of `2>&1`; a backgrounding `&` after it comes as a second one.
+      if (r == "3&" && n > 0 && word[n] ~ /[<>]$/ && dup != NR - 1) { dup = NR; next }
       if (k == "3") { ok = 0; next }
       n++; kind[n] = k; word[n] = v; rec[n] = NR
     }
-    END { if (!failed) finish() }
+    END { if (!failed) { finish(); printf "%s", out } }
   '
 }
 

@@ -78,8 +78,13 @@ check 2 "git commit -m 'msg' .env"
 check 2 'git commit --message -F .env'
 check 2 'git -c core.editor=cat commit -m x .env'
 check 2 'gh pr create --title t --body x .env'
-check 0 "orca orchestration send --to x --body 'see .env' <<'EOF'${nl}x${nl}EOF"
+# A here-document body reaches the records as a `(` group, which a subshell
+# also produces, so the line keeps its scan even when the delimiter is quoted.
+check 2 "orca orchestration send --to x --body 'see .env' <<'EOF'${nl}x${nl}EOF"
 check 2 "orca orchestration send --to x --body 'see .env' <<EOF${nl}\$(cat .env)${nl}EOF"
+check 2 "orca orchestration send --to x --body 'see .env' <<EOF${nl}\$(cp /bin/cat ~/bin/orca)${nl}EOF"
+# A later segment expands after the message command has run.
+check 0 "orca orchestration send --body 'see .env' && echo \"exit \$? \$(date)\""
 check 2 "orca orchestration send --body '.env'; orca orchestration send --body-file .env"
 # Anything on the line that can redefine the command name keeps the message in
 # the scan (PR #220's reason for not exempting git commit -m).
@@ -110,6 +115,13 @@ check 2 "echo \"\${PWD:PATH=0}\"; orca orchestration send --body '.env'"
 check 2 "orca orchestration send --from \"\${PWD:PATH=0}\" --body '.env'"
 check 2 "orca orchestration send --from \"\$((PATH=0))\" --body '.env'"
 check 2 "orca orchestration send --from \"\$X[PATH=0]\" --body '.env'"
+# A process substitution or subshell runs before the command it sits in.
+check 2 "orca orchestration send --body '.env' =(cp /bin/cat ~/bin/orca)"
+check 2 "orca orchestration send --body '.env' <(cp /bin/cat ~/bin/orca)"
+check 2 "git commit -m '.env' >(cp /bin/cat ~/bin/git)"
+check 2 "(cp /bin/cat ~/bin/git); git commit -m '.env'"
+check 2 "git commit -m '.env'; (true)"
+check 0 "orca orchestration send --to x --body 'see .env' 2>&1 | tail -n 1"
 check 0 "orca orchestration send --from \"\$ORCA_TERMINAL_HANDLE\" --body 'see .env'"
 check 0 "orca orchestration send --from \"\${H}\" --to \"run:\$R\" --body 'see .env'"
 # After `--`, or past an option that may take a value, git commit words are
