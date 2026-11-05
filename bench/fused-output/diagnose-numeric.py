@@ -31,6 +31,19 @@ case " $* " in *"length > 0"*) exit 2 ;; esac
 exec "$AGENT_GUARD_TEST_REAL_JQ" "$@"
 ''')
 (wrapper / "jq").chmod(0o755)
+if os.environ.get("AG_NUMERIC_TIME_CHILDREN") == "1":
+    timed = destination / "child-times"
+    timed.mkdir()
+    time_flags = "-l" if sys.platform == "darwin" else "-v"
+    for tool in ["awk", "jq"]:
+        real = shutil.which(tool)
+        assert real
+        target = wrapper / ("timed-jq" if tool == "jq" else "awk")
+        target.write_text(f'''#!/bin/sh
+/usr/bin/time {time_flags} "{real}" "$@" 2>"{timed}/{tool}-$$.log"
+''')
+        target.chmod(0o755)
+    real_jq = str(wrapper / "timed-jq")
 text = (source / "bin/agent-guard").read_text()
 functions = ["redact_tool_output", "redact_nul_response_json",
              "rewrite_response_conservatively", "redact_response_whole_leaf_fail_closed",
