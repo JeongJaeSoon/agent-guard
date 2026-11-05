@@ -9,7 +9,7 @@ runs. The release workflow also relies on the existing check names.
 | --- | --- |
 | Agent Guard | Real scanner against the checked-out tree |
 | Named suites (ubuntu-latest) | All suite partitions on Linux; real scanner integration and smoke test in shard 4 |
-| Named suites (macos-latest) | All suite partitions on macOS with the mock scanner; platform-specific permission and process behavior |
+| Named suites (macos-latest) | Core, host adapters and Git on every PR; all partitions on main and `release/` PRs, with the mock scanner |
 | Test (ubuntu-latest), Test (macos-latest) | Fail-closed aggregate of every shard, including cancelled/failed jobs |
 | Lint | ShellCheck on tracked shell scripts and actionlint on workflows |
 | Plugin Layout | Codex, Claude, marketplaces, release archive, and submission metadata |
@@ -17,7 +17,9 @@ runs. The release workflow also relies on the existing check names.
 
 The numbers are execution partitions, not security tiers or sequential stages.
 `tests/run.sh` without `AGENT_GUARD_TEST_SHARD` runs them all in order. CI runs
-them on both operating systems, and shard 1 checks that every
+them all on Linux for every PR and on both operating systems for main pushes
+and PRs whose source branch starts with `release/`. Other PRs also run partitions
+1 and 3 on macOS. Shard 1 checks that every
 partition is present in the matrix. Fixtures remain local to each partition.
 The internal IDs select execution partitions; Actions displays descriptive names:
 
@@ -40,7 +42,11 @@ A newer commit cancels obsolete runs of the same workflow on the same PR.
 Main pushes and manual checks use unique run groups, so they retain their own
 validation. The serialized release workflow remains separate and is never
 cancelled by a PR update. Existing required check names and the fail-closed
-aggregate remain unchanged; all OS/host partitions still run.
+aggregate remain unchanged. Main and release PRs retain all OS/host partitions;
+other PRs defer macOS command, navigation and scanner/output coverage until main.
+The macOS aggregate reports the selected matrix's result, not full macOS coverage
+on ordinary PRs. This reduces runner usage at the cost of later detection of
+macOS-specific failures outside the core/host/Git bundle.
 
 Legacy jq/awk and experimental Rust contracts also run after relevant changes
 merge to main. Their checks have distinct names instead of the generic
