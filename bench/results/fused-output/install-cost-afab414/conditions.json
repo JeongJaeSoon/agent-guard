@@ -1,0 +1,11 @@
+{
+  "scope": "local developer build and synthetic packaged payload verification/unpack; not public network installation",
+  "candidate_head": "afab414afb165a10312f96e656151b08795ae79b",
+  "baseline_head": "e709445fb6fce9ade8cbbd2d6bcf2940e48da178",
+  "rustc": "rustc 1.85.0 (4d91de4e4 2025-02-17)",
+  "cpu_max": "400000 100000",
+  "memory_max": "17179869184",
+  "build": "same x86_64-unknown-linux-gnu target, empty target per sample, prepopulated dependency sources, --locked --offline; filesystem cache not dropped",
+  "memory": "max child RSS separate from 10ms sampled process-group RSS sum; shared pages duplicated and short peaks may be missed",
+  "package": "both synthetic gzip level6 deterministic metadata; actual v3.7.0 payload reused; candidate CLI/module plus separate GNU prepare helper, original musl redactor unchanged"
+}

@@ -1,0 +1,16 @@
+[package]
+name = "agent-guard-redact"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+publish = false
+
+[dependencies]
+serde_json = { version = "=1.0.145", features = ["preserve_order", "arbitrary_precision", "unbounded_depth"] }
+# Pin the transitive ordered-map dependency to the compiler's supported MSRV.
+indexmap = "=2.11.4"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

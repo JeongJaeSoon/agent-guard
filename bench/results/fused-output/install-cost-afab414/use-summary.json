@@ -1,0 +1,70 @@
+[
+  {
+    "scanner": "use-official",
+    "case": "small-clean",
+    "verified": true,
+    "arms": {
+      "baseline": {
+        "latency_seconds": 0.952015923,
+        "cpu_seconds": 0.999707,
+        "max_child_rss_mib": 59.9140625
+      },
+      "candidate": {
+        "latency_seconds": 0.914737073,
+        "cpu_seconds": 0.974156,
+        "max_child_rss_mib": 60.8515625
+      }
+    }
+  },
+  {
+    "scanner": "use-official",
+    "case": "many-replacement-leaves",
+    "verified": true,
+    "arms": {
+      "baseline": {
+        "latency_seconds": 1.046053043,
+        "cpu_seconds": 1.107323,
+        "max_child_rss_mib": 60.6640625
+      },
+      "candidate": {
+        "latency_seconds": 0.98845994,
+        "cpu_seconds": 1.051181,
+        "max_child_rss_mib": 60.859375
+      }
+    }
+  },
+  {
+    "scanner": "use-stdlib",
+    "case": "small-clean",
+    "verified": true,
+    "arms": {
+      "baseline": {
+        "latency_seconds": 0.200128986,
+        "cpu_seconds": 0.225476,
+        "max_child_rss_mib": 36.4140625
+      },
+      "candidate": {
+        "latency_seconds": 0.161223174,
+        "cpu_seconds": 0.187701,
+        "max_child_rss_mib": 36.47265625
+      }
+    }
+  },
+  {
+    "scanner": "use-stdlib",
+    "case": "many-replacement-leaves",
+    "verified": true,
+    "arms": {
+      "baseline": {
+        "latency_seconds": 0.353882056,
+        "cpu_seconds": 0.382345,
+        "max_child_rss_mib": 36.5390625
+      },
+      "candidate": {
+        "latency_seconds": 0.273341361,
+        "cpu_seconds": 0.301795,
+        "max_child_rss_mib": 36.84765625
+      }
+    }
+  }
+]
