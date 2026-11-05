@@ -12765,8 +12765,22 @@ redact_plaintext_framed() {
         pending_literal = ""
       }
     }
-    function feed_framed(line, i, ch) {
+    function feed_framed(line, i, ch, n, pieces) {
       record_ended_at_boundary = 0
+      # Without escape bytes every RS is structural. Consume whole spans
+      # instead of repeatedly copying a long literal one byte at a time.
+      # Escaped records retain the byte-wise state machine below.
+      if (!escaped && index(line, escape) == 0) {
+        n = split(line, pieces, boundary)
+        for (i = 1; i < n; i++) {
+          consume_record(record pieces[i])
+          record = ""
+        }
+        record = record pieces[n]
+        record_ended_at_boundary = (n > 1 && pieces[n] == "")
+        if (!record_ended_at_boundary) record = record "\n"
+        return
+      }
       for (i = 1; i <= length(line); i++) {
         ch = substr(line, i, 1)
         if (escaped) {
