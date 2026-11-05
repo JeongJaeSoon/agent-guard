@@ -169,3 +169,21 @@ scanner readiness의 기존 2초 timeout이 DEGRADED 출력 차이의 직접 원
 47성공/0실패였다. 이는 결정적으로 만든 부모 지연 경합의 수정 증거이며 실제
 간헐 CI timeout의 동일 원인 증명은 아니다. 기존 `bd19cb5` CI 원시는 보존하고
 이 수정이 포함된 최종 head를 별도로 검증한다.
+
+## 배포 패키지 조합의 추가 검증
+
+원인별 성능 실험은 공개 redactor bytes를 양쪽에서 유지하고 준비 helper를
+분리했다. 최종 설치에서는 같은 검증된 core가 `prepare-v1`과 `redact-v1`을
+모두 처리하므로, 설치물의 이 조합도 별도로 측정한다. native-platforms의 새
+공식/Homebrew × off/cold/warm job은 해당 실행에서 실제 빌드·실행한 Linux
+musl artifact와 sidecar를 받아 후보 설치 위치에 넣고, 같은 파일을 준비 경로에도
+지정한다. 공개 v3.7.0 기준본과 scanner bytes·입력·정책·실제 2CPU/1GiB/swap0·
+9쌍 교대 조건은 같다. 기존 attribution 원시와 별도 artifact 이름으로 보존한다.
+
+실제 Homebrew 목표 지연 또는 CPU 10% 이상, 두 scanner 일반 경로 지연·CPU
+5% 초과 회귀 없음, 모든 독립 출력 일치를 요구한다. 하나라도 실패하면 native
+배포 집계도 실패한다. 공식 scanner 목표의 10% 개선을 요구했다고 표현하지 않는다.
+두 호스트의 설치 core 공유·부분 실패·helper/모듈 누락·옵션 해제 10개 검사도
+네 플랫폼 설치 검증과 발행 후 공개 설치·Homebrew 검증에 추가한다. 로컬에서는
+컴파일러·네트워크 없는 컨테이너에서 같은 10개 독립 기대값 검사를 통과했다.
+이 추가 검증을 마치기 전에는 최종 제품 채택·발행이 완료됐다고 표현하지 않는다.
