@@ -94,7 +94,28 @@ fn valid_output(f: &Fixture, host: &str, output: &[u8]) -> Result<bool> {
         Ok(envelope["hookSpecificOutput"]["updatedToolOutput"] == f.expected)
     }
 }
+fn cgroup_cpu_stats() -> Result<[u64; 3]> {
+    let text = std::fs::read_to_string("/sys/fs/cgroup/cpu.stat")?;
+    let mut result = [0; 3];
+    for (index, key) in ["nr_periods", "nr_throttled", "throttled_usec"]
+        .iter()
+        .enumerate()
+    {
+        let prefix = format!("{key} ");
+        result[index] = text
+            .lines()
+            .find_map(|line| line.strip_prefix(&prefix))
+            .ok_or("missing cgroup CPU counter")?
+            .parse()?;
+    }
+    Ok(result)
+}
+
 pub fn latency(args: &Args) -> Result<()> {
+    ensure(
+        !args.flag("--cgroup-stats") || args.flag("--resources"),
+        "cgroup stats require resources",
+    )?;
     let runs = args.positive("--runs", 5)?;
     let timeout: f64 = args.opt("--timeout", "30").parse()?;
     ensure(
@@ -138,6 +159,9 @@ pub fn latency(args: &Args) -> Result<()> {
     let mut report = json!({"platform":version(&["uname","-a"])?,"runs":runs,"host":host,"native_core_sha256":core.as_ref().map(hash).transpose()?,"scanner_version":version(&[&scanner,"version"])?,"binary_sha256":hashes,"scanner_sha256":hash(&scanner)?,"config_sha256":hash(&env["AGENT_GUARD_GITLEAKS_CONFIG"])?,"jq_version":version(&["jq","--version"])?,"driver":"agent-guard-devtools (Rust)","logical_cpu_count":unsafe { libc::sysconf(libc::_SC_NPROCESSORS_ONLN) },"readiness_cache":"disabled with audit logging","cases":[],"resources":if args.flag("--resources") {Some("CPU includes waited-for descendants; RSS is the maximum individual child peak, not simultaneous tree memory")} else {None}});
     let directory = tempfile::tempdir()?;
     report["fused_output"] = json!(args.flag("--fused-output"));
+    if args.flag("--cgroup-stats") {
+        report["cgroup_counter_scope"] = json!("whole benchmark cgroup deltas; include driver work around the child; snapshot reads are outside CLI wall timing; not additional CLI CPU time");
+    }
     report["prepare_core_sha256"] = json!(prepare.as_ref().map(hash).transpose()?);
     report["audit_state"] = json!(audit_state);
     report["readiness_cache"] = json!(match audit_state.as_str() {
@@ -311,6 +335,11 @@ pub fn latency(args: &Args) -> Result<()> {
                     wrapped.extend(command);
                     checked(&wrapped, input, &env, Some(directory.path()), timeout)?
                 } else if args.flag("--resources") {
+                    let cgroup_before = if args.flag("--cgroup-stats") {
+                        Some(cgroup_cpu_stats()?)
+                    } else {
+                        None
+                    };
                     let (mut row, bytes) = sampled(
                         &command,
                         input,
@@ -319,6 +348,17 @@ pub fn latency(args: &Args) -> Result<()> {
                         timeout,
                         &directory.path().join("resources.json"),
                     )?;
+                    if let Some(before) = cgroup_before {
+                        let after = cgroup_cpu_stats()?;
+                        for (index, key) in ["nr_periods", "nr_throttled", "throttled_usec"]
+                            .iter()
+                            .enumerate()
+                        {
+                            row[format!("cgroup_{key}")] = json!(after[index]
+                                .checked_sub(before[index])
+                                .ok_or("cgroup counter decreased")?);
+                        }
+                    }
                     let elapsed = number(&row["wall_seconds"]);
                     row.as_object_mut().unwrap().remove("wall_seconds");
                     resources[label].as_array_mut().unwrap().push(row);

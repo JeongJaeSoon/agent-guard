@@ -117,6 +117,7 @@ impl Args {
                 "--packaged-native",
                 "--baseline-packaged-native",
                 "--fused-output",
+                "--cgroup-stats",
             ]
         } else if command == "load" {
             &["--packaged-native", "--fused-output"]
