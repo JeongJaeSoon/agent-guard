@@ -1,0 +1,244 @@
+commit c3cfb4005dc7bca90b19111049409dc0c36f3da9
+Author:     JeongJaeSoon <53788601+JeongJaeSoon@users.noreply.github.com>
+AuthorDate: Thu Nov 5 18:21:28 2026 +0000
+Commit:     JeongJaeSoon <53788601+JeongJaeSoon@users.noreply.github.com>
+CommitDate: Thu Nov 5 18:21:28 2026 +0000
+
+    docs: Git 플러그인의 공유 core 연결과 복구 검증 보완
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 385683c..64e5e3f 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -3,7 +3,7 @@
+ ### 선택형 출력 처리 통합
+ 
+ - 기존 core에 JSON 문자열 추출·framing을 위한 `prepare-v1`을 추가하고, private 중간 파일과 출력 처리를 통합하는 선택형 경로를 제공합니다. 전체 재작성은 아니며 탐지·scanner·정책·PII·호스트 계약은 기존 셸에 남습니다. 기본 출력 파이프라인은 바꾸지 않습니다.
+-- `AGENT_GUARD_EXPERIMENTAL_OUTPUT_PIPELINE=fused`와 검증된 절대 `AGENT_GUARD_EXPERIMENTAL_OUTPUT_PREPARE_BIN`을 함께 선택합니다. 같은 설치 core를 준비·치환에 공유하므로 두 번째 helper나 Rust 컴파일러 설치는 필요하지 않습니다. helper 실패·누락은 원래 jq 단계로, 모듈 누락은 원래 파이프라인으로 복귀합니다. 두 설정을 지우고 호스트를 재시작하면 기본 경로로 돌아갑니다.
++- `AGENT_GUARD_EXPERIMENTAL_OUTPUT_PIPELINE=fused`와 검증된 절대 `AGENT_GUARD_EXPERIMENTAL_OUTPUT_PREPARE_BIN`을 함께 선택합니다. 소스만 있는 Git marketplace 플러그인은 기존 `AGENT_GUARD_RUST_CORE_BIN`도 같은 바이너리로 지정해 준비·치환에 공유합니다. 두 번째 helper나 Rust 컴파일러 설치는 필요하지 않습니다. helper 실패·누락은 원래 jq 단계로, 모듈 누락은 원래 파이프라인으로 복귀합니다. 선택 설정을 지우고 호스트를 재시작하면 기본 경로로 돌아갑니다.
+ - Claude/Codex의 기존 설치·업데이트 명령을 유지합니다. Git marketplace 설치는 같은 릴리스의 독립 사전 빌드 core를 연결할 수 있으며 호스트 캐시를 수정할 필요가 없습니다. 신뢰하는 실행 파일 재정의 계약과 체크섬 검증 방법은 [설치 안내](https://github.com/JeongJaeSoon/agent-guard/blob/v3.8.0/docs/installation.ko.md)를 참고하세요.
+ 
+ ### 기본 경로의 수정
+diff --git a/docs/installation.ja.md b/docs/installation.ja.md
+index 496c291..c30e0dc 100644
+--- a/docs/installation.ja.md
++++ b/docs/installation.ja.md
+@@ -1,4 +1,4 @@
+-<!-- translated-from: docs/installation.md; source-blob: 5b57e1206ad3e8325dc7f71e613b1448be81e40e -->
++<!-- translated-from: docs/installation.md; source-blob: 024f7a5ea37458a155fe687ee531b30e6be3a7c0 -->
+ 
+ <a id="installing-agent-guard"></a>
+ 
+@@ -41,7 +41,7 @@ codex plugin add agent-guard@agent-guard
+ サポートするため、2つ目のhelperやコンパイラは不要です。Git marketplaceからの
+ インストールでも、hostキャッシュを変更せずスタンドアロン版のhelperを利用できます。
+ 
+-Linux x64ではインストール済みhelperを検証し、両方の設定をhostの起動環境に渡します。
++Linux x64ではインストール済みhelperを検証し、パイプラインの2つの設定をhostの起動環境に渡します。
+ 
+ ```sh
+ target=x86_64-unknown-linux-musl
+@@ -54,21 +54,33 @@ fi
+ 
+ プラットフォームに対応するtargetは[ネイティブhelperガイド（英語）](https://github.com/JeongJaeSoon/agent-guard/blob/v3.8.0/docs/native-redactor.md)で確認してください。
+ Homebrewでは `native_root="$(brew --prefix agent-guard)/libexec/libexec"` を設定します。
++スタンドアロン版とHomebrew版はチェックサムを検証した置換helperを自動選択します。
++ソースのみのGit marketplaceプラグインでは、置換も同じ検証済みcoreに接続してください。
++
++```sh
++if (cd "$native_root" && shasum -a 256 -c "agent-guard-redact-$target.sha256"); then
++  export AGENT_GUARD_RUST_CORE_BIN="$native_root/agent-guard-redact-$target"
++fi
++```
++
+ この明示的なパスは信頼する実行ファイルの上書き指定です。検証済みのインストールだけを
+-指定してください。準備helperがない、または失敗した場合は元のjq処理に戻り、実験用
++指定してください。準備パスだけを設定すると、ソースのみのプラグインの置換は
++シェルのままとなり、測定した共有core構成とは異なります。
++準備helperがない、または失敗した場合は元のjq処理に戻り、実験用
+ モジュールがない場合は元の出力パイプラインに戻ります。scannerと準備の制限時間は
+ 変わりません。
+ 
+ 起動環境を変更した後はClaudeまたはCodexを再起動してください。既存のプラグイン
+-インストール・更新コマンドは同じです。既定の出力パイプラインに戻すには、両方の設定を
++インストール・更新コマンドは同じです。既定の出力パイプラインに戻すには、次の設定を
+ 解除してhostを再起動します。
+ 
+ ```sh
+ unset AGENT_GUARD_EXPERIMENTAL_OUTPUT_PIPELINE
+ unset AGENT_GUARD_EXPERIMENTAL_OUTPUT_PREPARE_BIN
++unset AGENT_GUARD_RUST_CORE_BIN
+ ```
+ 
+-既定の文字列置換helperの選択は維持されます。そのnative helperも無効にする場合は、
++既定の文字列置換helperの選択に戻ります。そのnative helperも無効にする場合は、
+ `AGENT_GUARD_EXPERIMENTAL_REDACTOR=shell` を使ってください。測定された改善は
+ 処理内容とscannerによって異なり、標本プロセスRSS合計が増える場合があります。
+ 適用前に[検証ガイド](verification.ja.md)を確認してください。
+diff --git a/docs/installation.ko.md b/docs/installation.ko.md
+index 0185b77..8eee3de 100644
+--- a/docs/installation.ko.md
++++ b/docs/installation.ko.md
+@@ -1,4 +1,4 @@
+-<!-- translated-from: docs/installation.md; source-blob: 5b57e1206ad3e8325dc7f71e613b1448be81e40e -->
++<!-- translated-from: docs/installation.md; source-blob: 024f7a5ea37458a155fe687ee531b30e6be3a7c0 -->
+ 
+ <a id="installing-agent-guard"></a>
+ 
+@@ -41,7 +41,7 @@ codex plugin add agent-guard@agent-guard
+ 두 번째 helper나 컴파일러가 필요하지 않습니다. Git marketplace 설치에서도
+ 호스트 캐시를 수정하지 않고 독립 설치의 helper를 사용할 수 있습니다.
+ 
+-Linux x64에서는 설치된 helper를 검증하고 두 설정을 호스트 시작 환경에 노출합니다.
++Linux x64에서는 설치된 helper를 검증하고 파이프라인의 두 설정을 호스트 시작 환경에 노출합니다.
+ 
+ ```sh
+ target=x86_64-unknown-linux-musl
+@@ -54,20 +54,31 @@ fi
+ 
+ 플랫폼에 맞는 target은 [네이티브 helper 안내(영어)](https://github.com/JeongJaeSoon/agent-guard/blob/v3.8.0/docs/native-redactor.md)에서 선택하세요.
+ Homebrew에서는 `native_root="$(brew --prefix agent-guard)/libexec/libexec"`로 설정합니다.
++독립 설치와 Homebrew는 체크섬을 검증한 치환기를 자동 선택합니다.
++소스만 있는 Git marketplace 플러그인은 치환도 같은 검증된 core에 연결하세요.
++
++```sh
++if (cd "$native_root" && shasum -a 256 -c "agent-guard-redact-$target.sha256"); then
++  export AGENT_GUARD_RUST_CORE_BIN="$native_root/agent-guard-redact-$target"
++fi
++```
++
+ 이 명시적 경로는 신뢰하는 실행 파일 재정의이므로 검증된 설치만 지정하세요.
++준비 경로만 설정하면 해당 플러그인의 치환은 셸에 남으므로, 측정한 공유 core 구성과 다릅니다.
+ 준비 helper가 없거나 실패하면 원래 jq 단계로 복귀하고, 실험 모듈이 없으면
+ 원래 출력 파이프라인으로 복귀합니다. scanner와 준비 제한 시간은 바뀌지 않습니다.
+ 
+ 시작 환경을 바꾼 뒤 Claude 또는 Codex를 재시작하세요. 기존 플러그인 설치·업데이트
+-명령은 같습니다. 기본 출력 파이프라인으로 복구하려면 두 설정을 지우고 호스트를
++명령은 같습니다. 기본 출력 파이프라인으로 복구하려면 다음 설정을 지우고 호스트를
+ 재시작합니다.
+ 
+ ```sh
+ unset AGENT_GUARD_EXPERIMENTAL_OUTPUT_PIPELINE
+ unset AGENT_GUARD_EXPERIMENTAL_OUTPUT_PREPARE_BIN
++unset AGENT_GUARD_RUST_CORE_BIN
+ ```
+ 
+-기존 기본 문자열 치환기 선택은 유지됩니다. 해당 native helper도 끄려면
++기존 기본 문자열 치환기 선택으로 돌아갑니다. 해당 native helper도 끄려면
+ `AGENT_GUARD_EXPERIMENTAL_REDACTOR=shell`을 사용하세요. 측정된 이득은 작업과
+ scanner에 따라 다르며 표본 프로세스 RSS 합이 늘 수 있습니다. 적용 전
+ [검증 안내](verification.ko.md)를 확인하세요.
+diff --git a/docs/installation.md b/docs/installation.md
+index 5b57e12..024f7a5 100644
+--- a/docs/installation.md
++++ b/docs/installation.md
+@@ -43,7 +43,7 @@ supports both preparation and redaction, so a second helper or compiler is not
+ required. Git marketplace installations can use the standalone helper without
+ editing host caches.
+ 
+-For Linux x64, verify the installed helper and expose both settings to the host's
++For Linux x64, verify the installed helper and expose both pipeline settings to the host's
+ launch environment:
+ 
+ ```sh
+@@ -58,21 +58,34 @@ fi
+ Choose the matching target for your platform from the [native helper guide
+ (English)](https://github.com/JeongJaeSoon/agent-guard/blob/v3.8.0/docs/native-redactor.md).
+ For Homebrew, set `native_root="$(brew --prefix agent-guard)/libexec/libexec"`.
+-This explicit path is a trusted executable override; only use a verified
+-installation. Missing or failing preparation falls back to the original jq
++Standalone and Homebrew installations select their checksum-verified redactor
++automatically. For source-only Git marketplace plugins, also connect redaction to
++the same verified core:
++
++```sh
++if (cd "$native_root" && shasum -a 256 -c "agent-guard-redact-$target.sha256"); then
++  export AGENT_GUARD_RUST_CORE_BIN="$native_root/agent-guard-redact-$target"
++fi
++```
++
++These explicit paths are trusted executable overrides; only use a verified
++installation. Setting only the preparation path leaves source-only plugins using
++shell redaction, which differs from the measured shared-core configuration.
++Missing or failing preparation falls back to the original jq
+ stages. A missing experimental module falls back to the original output pipeline.
+ The scanner and its readiness deadline do not change.
+ 
+ Restart Claude or Codex after changing the launch environment. Existing plugin
+ install/update commands remain the same. To restore the default output pipeline,
+-unset both settings and restart the host:
++unset these settings and restart the host:
+ 
+ ```sh
+ unset AGENT_GUARD_EXPERIMENTAL_OUTPUT_PIPELINE
+ unset AGENT_GUARD_EXPERIMENTAL_OUTPUT_PREPARE_BIN
++unset AGENT_GUARD_RUST_CORE_BIN
+ ```
+ 
+-This leaves the existing default literal redactor selection intact. To disable
++This restores the existing default literal redactor selection. To disable
+ that native helper too, use `AGENT_GUARD_EXPERIMENTAL_REDACTOR=shell`.
+ The measured gain depends on the workload and scanner; it can come with a larger
+ sampled process RSS sum. See [verification](verification.md) before rollout.
+diff --git a/tests/fused-packaged.sh b/tests/fused-packaged.sh
+index 5c86148..9e71bca 100644
+--- a/tests/fused-packaged.sh
++++ b/tests/fused-packaged.sh
+@@ -46,14 +46,27 @@ payload='{"tool_name":"Read","tool_input":{},"tool_response":{"stdout":"API_KEY=
+ count=0
+ for host in claude codex; do
+   export AGENT_GUARD_HOOK_HOST="$host"
+-  for mode in healthy partial missing shell no-module; do
++  for mode in healthy partial missing shell no-module source-healthy source-partial source-shell; do
++    helper="$case_dir/payload/libexec/$name"
++    unset AGENT_GUARD_RUST_CORE_BIN
++    case "$mode" in
++      source-*)
++        # A Git marketplace cache has no bundled core. Use the same verified
++        # standalone helper for preparation and the existing redactor override.
++        mv "$case_dir/payload/libexec" "$case_dir/standalone-libexec"
++        helper="$case_dir/standalone-libexec/$name"
++        (cd "$case_dir/standalone-libexec" && shasum -a 256 -c "$name.sha256") >/dev/null
++        export AGENT_GUARD_RUST_CORE_BIN="$helper"
++        ;;
++    esac
+     export AGENT_GUARD_EXPERIMENTAL_OUTPUT_PIPELINE=fused
+     export AGENT_GUARD_EXPERIMENTAL_OUTPUT_PREPARE_BIN="$helper"
+     : >"$FUSED_PACKAGED_MARKER"
+     case "$mode" in
+-      partial) AGENT_GUARD_EXPERIMENTAL_OUTPUT_PREPARE_BIN="$case_dir/partial" ;;
++      partial|source-partial) AGENT_GUARD_EXPERIMENTAL_OUTPUT_PREPARE_BIN="$case_dir/partial" ;;
+       missing) AGENT_GUARD_EXPERIMENTAL_OUTPUT_PREPARE_BIN="$case_dir/missing" ;;
+       shell) unset AGENT_GUARD_EXPERIMENTAL_OUTPUT_PIPELINE AGENT_GUARD_EXPERIMENTAL_OUTPUT_PREPARE_BIN ;;
++      source-shell) unset AGENT_GUARD_EXPERIMENTAL_OUTPUT_PIPELINE AGENT_GUARD_EXPERIMENTAL_OUTPUT_PREPARE_BIN AGENT_GUARD_RUST_CORE_BIN ;;
+       no-module) mv "$case_dir/payload/scripts/output-pipeline-experiment.sh" "$case_dir/module" ;;
+     esac
+     printf '%s\n' "$payload" | "$cli" hook-post-tool >"$case_dir/actual"
+@@ -65,15 +78,23 @@ for host in claude codex; do
+         (.hookSpecificOutput.additionalContext | ltrimstr("Agent Guard sanitized tool output:\n") | fromjson) ==
+         {stdout:"API_KEY=[REDACTED]",clean:"visible",type:"text"}' "$case_dir/actual" >/dev/null
+     fi
+-    if [ "$mode" = healthy ]; then
+-      grep -qx prepare-v1 "$FUSED_PACKAGED_MARKER"
++    case "$mode" in
++      healthy|source-healthy)
++        grep -qx prepare-v1 "$FUSED_PACKAGED_MARKER"
++        grep -qx redact-v1 "$FUSED_PACKAGED_MARKER"
++        ;;
++      source-shell) test ! -s "$FUSED_PACKAGED_MARKER" ;;
++      *) ! grep -qx prepare-v1 "$FUSED_PACKAGED_MARKER" ;;
++    esac
++    if [ "$mode" = source-partial ]; then
+       grep -qx redact-v1 "$FUSED_PACKAGED_MARKER"
+-    else
+-      ! grep -qx prepare-v1 "$FUSED_PACKAGED_MARKER"
+     fi
+     if [ "$mode" = no-module ]; then
+       mv "$case_dir/module" "$case_dir/payload/scripts/output-pipeline-experiment.sh"
+     fi
++    case "$mode" in
++      source-*) mv "$case_dir/standalone-libexec" "$case_dir/payload/libexec" ;;
++    esac
+     count=$((count + 1))
+     printf 'ok - %s installed fused %s preserves independent output\n' "$host" "$mode"
+   done

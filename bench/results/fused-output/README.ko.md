@@ -406,3 +406,19 @@ GitHub 공식 상태 API의 2026-11-05 16:52:52 UTC 갱신은 Actions `degraded_
 4018ce1 Linux x64와 ARM native 실행은 성공했다. 각각 differential 1024/0, integration 90/0, native invocation 확인이며 원본 ZIP과 digest를 `ci-4018ce1-native/`에 보존했다. Linux x64의 분리된 준비 로그에서 Rust 1.85.1 설치, apt 갱신, musl 설치가 완료됐다. 이전 7bb7f57의 무출력 중단 원인을 이 성공만으로 확정하지 않는다.
 
 02:30 JST 기준 main은 계속 7bb7f57이고 #406은 미병합이다. macOS native 두 플랫폼과 일부 macOS CI는 여전히 queued이므로 네 플랫폼/후속 설치/실제 공유 core 성능 관문은 완료되지 않았다. 같은 저장소의 별도 scanner 실험 42067550431·42067649294에서 Intel 작업이 진행 중인 것도 관측했지만, 이것만으로 runner 대기의 원인을 단정하거나 다른 작업을 취소하지 않았다. 외부 서비스 전체 장애는 복구됐지만 이 릴리스의 CI 결과는 아직 대기 중이다. v3.8.0 발행·Homebrew 갱신은 수행하지 않았다.
+
+## 4018ce1: 성능 관문 완료와 Git 소스 설치 안내 보완
+
+PR #406의 4018ce1 실행은 네 플랫폼 core differential 1024개·integration 90개 및 사전 고정 Intel 추가 2회, Linux x64/ARM·macOS Intel의 설치/업데이트/복귀를 통과했다. 실제 공유 core의 252개 비교는 불일치 0, 일반 경로 지연·CPU 5% 초과 회귀 0, Homebrew 목표 10% 이상 개선으로 채택 성능 기준을 통과했다. 실제 2CPU/1GiB/swap0와 동일 scanner 바이트, 공개 v3.7.0, 각 9쌍을 다시 확인했다. 기존 packaged 및 공개 v3.7.0 기본 4경로 관문도 통과했다. 원본 ZIP 18개·모든 표본·요약은 `ci-4018ce1-native/`에 보존한다.
+
+Homebrew 목표는 지연 13.29~17.03%, CPU 12.07~15.04% 감소였다. 공식 scanner 목표는 지연 4.84~6.88%, CPU 5.02~6.93% 감소로 여전히 10% 미달이다. Homebrew 4-worker 처리량 4.46149→5.28116 req/s, CPU 3.550848→3.009437초/8요청, 최대 자식 RSS 39.617→39.727MiB, 표본 RSS 합 215.547→238.285MiB였다. 메모리 절감은 없다.
+
+로컬 산출물 출처 확인의 첫 assertion은 PR head 자체를 build source로 기대해 중단됐다. GitHub pull_request의 기본 checkout은 합성 merge 227f10a7이며 부모는 정확한 base 7bb7f57과 head 4018ce1이고 tree는 head와 같은 55562e33이다. 잘못된 가정의 실패 기록을 보존하고 부모·tree·네 바이너리 checksum·독립 검사 결과를 확인했다. 네 바이너리는 f49740f와 바이트까지 같았다. 이 PR 산출물을 실제 공개 릴리스용 main 산출물로 간주하지 않는다.
+
+### 소스만 있는 호스트 캐시에서 동일 core를 연결하는 예제
+
+설치 안내를 실제 선택 코드와 대조하면서 Git marketplace 플러그인의 예제만으로는 준비 helper만 연결되고 치환은 셸에 남을 수 있음을 확인했다. 기존 설치 명령이나 정상 출력이 깨지는 문제가 아니라, 측정한 동일 core 공유 구성의 재현에 필요한 기존 `AGENT_GUARD_RUST_CORE_BIN` 지정 안내가 불충분한 문제다. 독립 설치/Homebrew의 자동 체크섬 선택은 유지하고, 소스 플러그인만 같은 검증된 core에 추가 연결하는 예제를 EN·KO·JA에 넣었다. 복구 예제는 명시적 치환기 설정도 해제한다. 세 언어의 코드 블록 15개가 같고 source-blob을 갱신했다.
+
+`tests/fused-packaged.sh`는 호스트 캐시의 libexec를 외부 독립 설치 위치로 옮긴 상태에서 체크섬 확인, 같은 wrapper의 prepare-v1/redact-v1 실제 호출, 부분 준비 실패의 jq 복귀, 모든 설정 해제 뒤 core 호출 없음과 독립 출력을 검사한다. 기존 10개 + 두 호스트의 새 3경로로 총 16개다. 컴파일러 없는 격리 컨테이너·실제 qualified core·실제 scanner에서 16개 모두 통과했다. 체크섬 확인을 추가하기 전/후 로그와 최종 patch를 source-shared-core/에 별도 보존했다. 제품 런타임은 바꾸지 않았다.
+
+새 head는 `c3cfb4005dc7bca90b19111049409dc0c36f3da9`이다. 새 commit push 시 이전 Apple Silicon 설치(queued)와 macOS 출력 CI(in progress)는 GitHub concurrency 규칙으로 취소됐다. 이전 성능 측정은 모두 완료돼 보존됐지만, 이전 head의 필수 CI 전체 성공을 주장하지 않는다. 새 head/merge의 필수 8개와 네 플랫폼 16개 설치 계약을 다시 검증한다. v3.8.0 발행은 아직 수행하지 않았다.
