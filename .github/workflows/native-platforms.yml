@@ -312,6 +312,6 @@ jobs:
           name: fused-packaged-${{ matrix.scanner }}-${{ matrix.audit }}
           path: |
             ${{ runner.temp }}/evidence/
-            ${{ runner.temp }}/scanner/
+            ${{ runner.temp }}/scanner/*.*
             ${{ runner.temp }}/qualified-core/*.build.txt
           if-no-files-found: error
