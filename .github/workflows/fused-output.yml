@@ -1,0 +1,176 @@
+name: Fused output proof
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/fused-output.yml'
+      - 'bench/fused-output/**'
+      - 'native/**'
+      - 'plugins/agent-guard/bin/agent-guard'
+      - 'plugins/agent-guard/scripts/output-pipeline-experiment.sh'
+      - 'tests/fused-output.sh'
+      - 'tests/native-suite.sh'
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  numeric-diagnostic:
+    name: Numeric fallback diagnosis (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15-intel]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Preserve public baseline and candidate stage measurements
+        run: |
+          sh scripts/install-native-test-tools.sh "$RUNNER_TEMP/test-bin"
+          export PATH="$RUNNER_TEMP/test-bin:$PATH"
+          mkdir -p "$RUNNER_TEMP/numeric"
+          for version in 3.7.0 3.7.1; do
+            mkdir "$RUNNER_TEMP/public-$version"
+            curl -fsSL "https://github.com/JeongJaeSoon/agent-guard/releases/download/v$version/agent-guard-$version.tar.gz" -o "$RUNNER_TEMP/public-$version.tar.gz"
+            curl -fsSL "https://github.com/JeongJaeSoon/agent-guard/releases/download/v$version/agent-guard-$version.tar.gz.sha256" -o "$RUNNER_TEMP/public-$version.sha256"
+            expected=$(awk -v name="agent-guard-$version.tar.gz" '$2 == name {print $1}' "$RUNNER_TEMP/public-$version.sha256")
+            actual=$(shasum -a 256 "$RUNNER_TEMP/public-$version.tar.gz" | awk '{print $1}')
+            test -n "$expected" && test "$actual" = "$expected"
+            printf '%s %s\n' "$version" "$actual" >> "$RUNNER_TEMP/numeric/public-checksums.txt"
+            tar -xzf "$RUNNER_TEMP/public-$version.tar.gz" -C "$RUNNER_TEMP/public-$version"
+            python3 bench/fused-output/diagnose-numeric.py "$RUNNER_TEMP/public-$version" "$RUNNER_TEMP/numeric/$version"
+          done
+          AGENT_GUARD_EXPERIMENTAL_OUTPUT_PIPELINE=fused \
+            python3 bench/fused-output/diagnose-numeric.py plugins/agent-guard "$RUNNER_TEMP/numeric/candidate"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: numeric-diagnostic-${{ matrix.os }}
+          path: ${{ runner.temp }}/numeric/
+          if-no-files-found: error
+  contracts:
+    name: Fused contracts (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-15, macos-15-intel]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Build isolated helper and reference tools
+        run: |
+          rustup toolchain install 1.85.1 --profile minimal
+          for crate in redaction-core devtools; do
+            cargo +1.85.1 build --release --locked --manifest-path "native/$crate/Cargo.toml"
+          done
+          sh scripts/install-native-test-tools.sh "$RUNNER_TEMP/test-bin"
+          sh bench/scanner/runtime-path.sh "$RUNNER_TEMP/runtime-bin"
+          mkdir -p "$RUNNER_TEMP/evidence"
+      - name: Compiler-free prepare and host contracts
+        run: |
+          export PATH="$RUNNER_TEMP/test-bin:$RUNNER_TEMP/runtime-bin"
+          if command -v cargo || command -v rustc || command -v go || command -v cc; then exit 1; fi
+          driver=native/devtools/target/release/agent-guard-devtools
+          core="$PWD/native/redaction-core/target/release/agent-guard-redact"
+          export AGENT_GUARD_EXPERIMENTAL_OUTPUT_PIPELINE=fused
+          export AGENT_GUARD_EXPERIMENTAL_OUTPUT_PREPARE_BIN="$core"
+          "$driver" output-prepare --core "$core" > "$RUNNER_TEMP/evidence/prepare.json"
+          "$driver" native-redaction --core "$core" > "$RUNNER_TEMP/evidence/redaction.json"
+          "$driver" native-integration --core "$core" --scanner "$RUNNER_TEMP/test-bin/gitleaks" \
+            > "$RUNNER_TEMP/evidence/host.json" 2> "$RUNNER_TEMP/evidence/host.stderr"
+          sh tests/scanner-report.sh > "$RUNNER_TEMP/evidence/scanner-report.log" 2>&1
+          sh tests/fused-output.sh > "$RUNNER_TEMP/evidence/prepare-fallback.log" 2>&1
+      - name: Output suite with system fixture utilities
+        run: |
+          export PATH="$RUNNER_TEMP/test-bin:$PATH"
+          export AGENT_GUARD_EXPERIMENTAL_OUTPUT_PIPELINE=fused
+          export AGENT_GUARD_EXPERIMENTAL_OUTPUT_PREPARE_BIN="$PWD/native/redaction-core/target/release/agent-guard-redact"
+          export AGENT_GUARD_RUST_CORE_BIN="$AGENT_GUARD_EXPERIMENTAL_OUTPUT_PREPARE_BIN"
+          export AGENT_GUARD_TEST_SHARD=4
+          sh tests/native-suite.sh > "$RUNNER_TEMP/evidence/output-suite.log" 2>&1
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: fused-contracts-${{ matrix.os }}
+          path: ${{ runner.temp }}/evidence/
+          if-no-files-found: error
+  performance:
+    name: Fused performance (${{ matrix.scanner }}, ${{ matrix.audit }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        scanner: [official, stdlib, homebrew]
+        audit: [off, cold, warm]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version: '1.26.0'
+          cache: false
+      - name: Prepare unchanged scanner for both arms
+        env:
+          SCANNER_KIND: ${{ matrix.scanner }}
+        run: |
+          sh scripts/install-native-test-tools.sh "$RUNNER_TEMP/test-bin"
+          mkdir "$RUNNER_TEMP/scanner"
+          if [ "$SCANNER_KIND" = official ]; then
+            cp "$RUNNER_TEMP/test-bin/gitleaks" "$RUNNER_TEMP/scanner/gitleaks"
+          elif [ "$SCANNER_KIND" = stdlib ]; then
+            git init -q "$RUNNER_TEMP/source"
+            git -C "$RUNNER_TEMP/source" remote add origin https://github.com/gitleaks/gitleaks.git
+            git -C "$RUNNER_TEMP/source" fetch -q --depth=1 origin 83d9cd684c87d95d656c1458ef04895a7f1cbd8e
+            git -C "$RUNNER_TEMP/source" checkout -q --detach FETCH_HEAD
+            (cd "$RUNNER_TEMP/source" && CGO_ENABLED=0 GOTOOLCHAIN=local go build -buildvcs=false -trimpath \
+              -ldflags '-s -w -X=github.com/zricethezav/gitleaks/v8/version.Version=8.30.1' \
+              -o "$RUNNER_TEMP/scanner/gitleaks" .)
+          else
+            eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+            HOMEBREW_NO_AUTO_UPDATE=1 brew install gitleaks
+            installed="$(brew --prefix gitleaks)/bin/gitleaks"
+            test "$("$installed" version)" = 8.30.1
+            bottle=$(brew --cache gitleaks)
+            printf '%s  %s\n' 78b43afdf14a05c5df07b73aeaf63ae56b784c905f057411a43ee8fde40fe5d1 "$bottle" \
+              | sha256sum -c - > "$RUNNER_TEMP/scanner/bottle-checksum.txt"
+            cp "$installed" "$RUNNER_TEMP/scanner/gitleaks"
+            cmp "$installed" "$RUNNER_TEMP/scanner/gitleaks"
+            brew info --json=v2 gitleaks > "$RUNNER_TEMP/scanner/homebrew.json"
+            brew config > "$RUNNER_TEMP/scanner/homebrew-config.txt"
+            cp "$(brew --prefix gitleaks)/sbom.spdx.json" "$RUNNER_TEMP/scanner/homebrew-sbom.json"
+            file "$installed" > "$RUNNER_TEMP/scanner/executable-format.txt"
+          fi
+          # The pinned public Homebrew ELF also fails Go's build-info reader
+          # before installation. Preserve that diagnostic, but use the verified
+          # bottle, SBOM, installed bytes and actual execution as its identity.
+          if go version -m "$RUNNER_TEMP/scanner/gitleaks" > "$RUNNER_TEMP/scanner/buildinfo.txt" 2> "$RUNNER_TEMP/scanner/buildinfo.stderr"; then
+            printf '0\n' > "$RUNNER_TEMP/scanner/buildinfo.status"
+          else
+            status=$?
+            printf '%s\n' "$status" > "$RUNNER_TEMP/scanner/buildinfo.status"
+            test "$SCANNER_KIND" = homebrew
+          fi
+          sha256sum "$RUNNER_TEMP/scanner/gitleaks" > "$RUNNER_TEMP/scanner/binary.sha256"
+      - name: Actual public baseline and enforced resource limits
+        env:
+          AUDIT_STATE: ${{ matrix.audit }}
+        run: sh bench/fused-output/run-constrained.sh "$RUNNER_TEMP/scanner/gitleaks" "$AUDIT_STATE" "$RUNNER_TEMP/evidence"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: fused-performance-${{ matrix.scanner }}-${{ matrix.audit }}
+          path: |
+            ${{ runner.temp }}/evidence/
+            ${{ runner.temp }}/scanner/buildinfo.txt
+            ${{ runner.temp }}/scanner/buildinfo.stderr
+            ${{ runner.temp }}/scanner/buildinfo.status
+            ${{ runner.temp }}/scanner/binary.sha256
+            ${{ runner.temp }}/scanner/homebrew.json
+            ${{ runner.temp }}/scanner/homebrew-config.txt
+            ${{ runner.temp }}/scanner/homebrew-sbom.json
+            ${{ runner.temp }}/scanner/bottle-checksum.txt
+            ${{ runner.temp }}/scanner/executable-format.txt
+          if-no-files-found: error

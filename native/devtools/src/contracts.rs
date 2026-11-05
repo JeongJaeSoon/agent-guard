@@ -347,6 +347,94 @@ pub fn fixtures(boundaries: bool) -> Vec<Fixture> {
     out
 }
 
+pub fn output_prepare(args: &Args) -> Result<()> {
+    let core = absolute(args.get("--core")?)?;
+    let directory = tempfile::tempdir()?;
+    let plain = directory.path().join("plain");
+    let framed = directory.path().join("framed");
+    let command = vec![
+        core,
+        "prepare-v1".into(),
+        plain.display().to_string(),
+        framed.display().to_string(),
+    ];
+    let corpus = read_json(root()?.join("tests/fixtures/native-contracts.json"))?;
+    let mut cases: Vec<Vec<u8>> = corpus
+        .as_array()
+        .ok_or("invalid corpus")?
+        .iter()
+        .map(|c| serde_json::to_vec(&c[1]))
+        .collect::<std::result::Result<_, _>>()?;
+    cases.extend([
+        br#"{"first":"a","second":"b","first":"c"}"#.to_vec(),
+        br#"{"number":123456789012345678901234567890,"float":1e400,"text":"visible"}"#.to_vec(),
+        r#"["","\u0000","\u001e\u001f","日本語\n한국어"]"#.as_bytes().to_vec(),
+    ]);
+    let mut count = 0;
+    for payload in cases {
+        std::fs::write(&plain, b"stale")?;
+        std::fs::write(&framed, b"stale")?;
+        let (_, ack) = checked(&command, &payload, &Env::new(), None, 15.0)?;
+        ensure(ack == b"prepared-v1\n", "missing preparation completion")?;
+        for (path, filter) in [
+            (&plain, "if type == \"string\" then . else [.. | strings] | join(\"\\n\") end"),
+            (&framed, ".. | strings | (split(\"\\u001f\") | join(\"\\u001f\\u001f\")) | (split(\"\\u001e\") | join(\"\\u001f\\u001e\")) | . + \"\\u001e\\n\""),
+        ] {
+            let (_, expected) = checked(&["jq".into(), "-rj".into(), filter.into()], &payload, &Env::new(), None, 15.0)?;
+            ensure(std::fs::read(path)? == expected, format!("prepare mismatch case {count}, {}", path.display()))?;
+        }
+        count += 1;
+    }
+    // Independent expected bytes: keys and scalars are excluded, empty leaves
+    // remain in join order, and separator bytes inside leaves cannot collide.
+    checked(
+        &command,
+        br#"{"key":["a","",30,"b\u001e\u001f"],"z":null}"#,
+        &Env::new(),
+        None,
+        15.0,
+    )?;
+    ensure(
+        std::fs::read(&plain)? == b"a\n\nb\x1e\x1f",
+        "independent plain expectation",
+    )?;
+    ensure(
+        std::fs::read(&framed)? == b"a\x1e\n\x1e\nb\x1f\x1e\x1f\x1f\x1e\n",
+        "independent frame expectation",
+    )?;
+    let mut invalid = vec![
+        b"".to_vec(),
+        b"{\"secret\":".to_vec(),
+        b"{}{}".to_vec(),
+        vec![255],
+        br#"{"$serde_json::private::Number":"secret"}"#.to_vec(),
+    ];
+    invalid.push(format!("{}0{}", "[".repeat(1025), "]".repeat(1025)).into_bytes());
+    for payload in invalid {
+        std::fs::write(&plain, b"stale")?;
+        std::fs::write(&framed, b"stale")?;
+        let (_, output) = invoke(&command, &payload, &Env::new(), None, 15.0)?;
+        ensure(
+            !output.status.success() && output.stdout.is_empty(),
+            "invalid preparation accepted",
+        )?;
+        ensure(
+            std::fs::read(&plain)? == b"stale" && std::fs::read(&framed)? == b"stale",
+            "parse failure published partial files",
+        )?;
+        count += 1;
+    }
+    std::fs::remove_file(&framed)?;
+    let (_, output) = invoke(&command, br#""secret""#, &Env::new(), None, 15.0)?;
+    ensure(
+        !output.status.success() && output.stdout.is_empty(),
+        "write failure published completion",
+    )?;
+    emit(
+        &json!({"passed":count + 2,"failed":0,"independent_bytes":true,"partial_write_rejected":true}),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

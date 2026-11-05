@@ -182,13 +182,65 @@ fn supported_input(input: &[u8]) -> Result<(), ()> {
     Ok(())
 }
 
+// Experimental transport only: the shell still owns all detector and policy
+// decisions. Match jq's value traversal, join, and RS/US escaping byte for byte.
+fn prepare_leaves(value: &Value, leaves: &mut Vec<String>) {
+    match value {
+        Value::String(s) => leaves.push(s.clone()),
+        Value::Array(a) => {
+            for v in a {
+                prepare_leaves(v, leaves);
+            }
+        }
+        Value::Object(o) => {
+            for v in o.values() {
+                prepare_leaves(v, leaves);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn prepare(value: &Value, plain_path: &str, frame_path: &str) -> Result<(), ()> {
+    let mut leaves = Vec::new();
+    prepare_leaves(value, &mut leaves);
+    let plain = leaves.join("\n");
+    let mut framed = Vec::new();
+    for leaf in leaves {
+        for byte in leaf.bytes() {
+            if byte == 30 || byte == 31 {
+                framed.push(31);
+            }
+            framed.push(byte);
+        }
+        framed.extend_from_slice(b"\x1e\n");
+    }
+    // Destinations belong to the caller's private staging directory. Publish
+    // the completion record only after both complete writes succeed. A caller
+    // must overwrite both stages on failure; never consume a successful prefix.
+    for (path, bytes) in [(plain_path, plain.as_bytes()), (frame_path, &framed)] {
+        std::fs::OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .open(path)
+            .map_err(|_| ())?
+            .write_all(bytes)
+            .map_err(|_| ())?;
+    }
+    io::stdout()
+        .lock()
+        .write_all(b"prepared-v1\n")
+        .map_err(|_| ())
+}
+
 fn run() -> Result<(), ()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args == ["--version"] {
         println!("agent-guard-redact 0.1.0 protocol=1");
         return Ok(());
     }
-    if args != ["redact-v1"] {
+    let preparing = args.len() == 3 && args[0] == "prepare-v1";
+    if args != ["redact-v1"] && !preparing {
         return Err(());
     }
     let mut input = Vec::new();
@@ -200,6 +252,9 @@ fn run() -> Result<(), ()> {
     let request = values.next().ok_or(())?.map_err(|_| ())?;
     if values.next().is_some() {
         return Err(());
+    }
+    if preparing {
+        return prepare(&request, &args[1], &args[2]);
     }
     let output = redact(request)?;
     // Serialize completely before publishing. Errors never include input data.

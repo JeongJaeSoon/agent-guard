@@ -133,6 +133,18 @@ behavior. Test audit logging off and on, with both cold and warm readiness
 caches. A faster experimental scanner is not a supported installation until
 its detection, platform, update and recovery checks pass.
 
+Separate one-time installation costs from per-invocation costs. Report download
+and installed sizes, verification/unpacking, and source compilation separately;
+prebuilt helpers do not require a compiler on the user's machine. Compute a
+break-even invocation count only from comparable measurements of the actual
+workload. Peak memory cannot be amortized by repeated use. Lower latency and CPU
+can coexist with a higher sampled process RSS sum, so report that trade-off too.
+
+The fused output-pipeline candidate remains an explicit experiment, separate
+from the default installation path. A measured improvement does not establish
+release readiness: preserve compiler-free host setup, fallback behavior, and
+the host's existing timeout and locale contracts before adopting it.
+
 
 ```sh
 agent-guard doctor

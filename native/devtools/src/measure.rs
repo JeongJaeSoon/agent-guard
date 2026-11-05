@@ -122,6 +122,11 @@ pub fn latency(args: &Args) -> Result<()> {
     }
     binaries.push(("candidate", absolute(args.opt("--binary", cli()?))?));
     let core = args.get("--native-core").ok().map(absolute).transpose()?;
+    let prepare = args.get("--prepare-core").ok().map(absolute).transpose()?;
+    ensure(
+        prepare.is_none() || args.flag("--fused-output"),
+        "prepare requires fused-output",
+    )?;
     ensure(
         !args.flag("--packaged-native") || core.is_some(),
         "packaged measurement requires --native-core for artifact identity",
@@ -132,6 +137,8 @@ pub fn latency(args: &Args) -> Result<()> {
     }
     let mut report = json!({"platform":version(&["uname","-a"])?,"runs":runs,"host":host,"native_core_sha256":core.as_ref().map(hash).transpose()?,"scanner_version":version(&[&scanner,"version"])?,"binary_sha256":hashes,"scanner_sha256":hash(&scanner)?,"config_sha256":hash(&env["AGENT_GUARD_GITLEAKS_CONFIG"])?,"jq_version":version(&["jq","--version"])?,"driver":"agent-guard-devtools (Rust)","logical_cpu_count":unsafe { libc::sysconf(libc::_SC_NPROCESSORS_ONLN) },"readiness_cache":"disabled with audit logging","cases":[],"resources":if args.flag("--resources") {Some("CPU includes waited-for descendants; RSS is the maximum individual child peak, not simultaneous tree memory")} else {None}});
     let directory = tempfile::tempdir()?;
+    report["fused_output"] = json!(args.flag("--fused-output"));
+    report["prepare_core_sha256"] = json!(prepare.as_ref().map(hash).transpose()?);
     report["audit_state"] = json!(audit_state);
     report["readiness_cache"] = json!(match audit_state.as_str() {
         "warm" => "logging enabled; isolated state primed once before each case/backend",
@@ -212,6 +219,10 @@ pub fn latency(args: &Args) -> Result<()> {
                     String::new(),
                 );
                 env.insert(
+                    "AGENT_GUARD_EXPERIMENTAL_OUTPUT_PIPELINE".into(),
+                    String::new(),
+                );
+                env.insert(
                     "AGENT_GUARD_GITLEAKS_BIN".into(),
                     if *label == "candidate" {
                         candidate_scanner.clone()
@@ -237,6 +248,16 @@ pub fn latency(args: &Args) -> Result<()> {
                     env.insert("AGENT_GUARD_EXPERIMENTAL_REDACTOR".into(), "rust".into());
                 }
                 if *label == "candidate" {
+                    if args.flag("--fused-output") {
+                        env.insert(
+                            "AGENT_GUARD_EXPERIMENTAL_OUTPUT_PIPELINE".into(),
+                            "fused".into(),
+                        );
+                        env.insert(
+                            "AGENT_GUARD_EXPERIMENTAL_OUTPUT_PREPARE_BIN".into(),
+                            prepare.clone().unwrap_or_default(),
+                        );
+                    }
                     if let Some(core) = &core {
                         env.insert("AGENT_GUARD_EXPERIMENTAL_REDACTOR".into(), "rust".into());
                         env.insert(
@@ -460,11 +481,29 @@ pub fn load(args: &Args) -> Result<()> {
     let requests = args.positive("--requests", 12)?;
     let binary = absolute(args.get("--binary")?)?;
     let core = args.get("--core").ok().map(absolute).transpose()?;
+    let prepare = args.get("--prepare-core").ok().map(absolute).transpose()?;
+    ensure(
+        prepare.is_none() || args.flag("--fused-output"),
+        "prepare requires fused-output",
+    )?;
     ensure(
         !args.flag("--packaged-native") || core.is_some(),
         "packaged load requires --core for artifact identity",
     )?;
     let mut env = base_env(&args.get("--scanner")?)?;
+    env.insert(
+        "AGENT_GUARD_EXPERIMENTAL_OUTPUT_PIPELINE".into(),
+        if args.flag("--fused-output") {
+            "fused"
+        } else {
+            ""
+        }
+        .into(),
+    );
+    env.insert(
+        "AGENT_GUARD_EXPERIMENTAL_OUTPUT_PREPARE_BIN".into(),
+        prepare.clone().unwrap_or_default(),
+    );
     env.insert("AGENT_GUARD_HOOK_HOST".into(), "claude".into());
     env.insert(
         "AGENT_GUARD_EXPERIMENTAL_REDACTOR".into(),
@@ -576,6 +615,6 @@ pub fn load(args: &Args) -> Result<()> {
         );
     }
     emit(
-        &json!({"backend":if core.is_some(){"rust"}else{"shell"},"workers":workers,"requests":requests,"verified":true,"elapsed_seconds":elapsed,"requests_per_second":requests as f64/elapsed,"latency_samples":samples,"median_seconds":median(samples.clone()),"max_seconds":samples.iter().copied().fold(0.0,f64::max),"user_cpu_seconds":u["user_cpu_seconds"],"system_cpu_seconds":u["system_cpu_seconds"],"max_child_peak_rss_kib":u["max_child_peak_rss_kib"],"container_cgroup":cgroup,"sampled_process_rss_peak_kib":rss.iter().copied().fold(0.0,f64::max),"rss_sample_count":rss.len(),"rss_sample_interval_seconds":0.01,"driver_cpu_seconds":number(&driver["user_cpu_seconds"])+number(&driver["system_cpu_seconds"]),"cgroup_isolated":std::env::var("AGENT_GUARD_BENCH_CGROUP_ISOLATED").as_deref()==Ok("1"),"memory_scope":"10 ms sampled sum of RSS in the private container PID namespace, including driver/init; shared pages may be counted multiple times; excludes page cache, daemon and build; sampling may miss short peaks; cgroup counters are not container-specific unless cgroup_isolated is true; ru_maxrss is max individual child peak"}),
+        &json!({"fused_output":args.flag("--fused-output"),"prepare_core_sha256":prepare.as_ref().map(hash).transpose()?,"backend":if core.is_some(){"rust"}else{"shell"},"workers":workers,"requests":requests,"verified":true,"elapsed_seconds":elapsed,"requests_per_second":requests as f64/elapsed,"latency_samples":samples,"median_seconds":median(samples.clone()),"max_seconds":samples.iter().copied().fold(0.0,f64::max),"user_cpu_seconds":u["user_cpu_seconds"],"system_cpu_seconds":u["system_cpu_seconds"],"max_child_peak_rss_kib":u["max_child_peak_rss_kib"],"container_cgroup":cgroup,"sampled_process_rss_peak_kib":rss.iter().copied().fold(0.0,f64::max),"rss_sample_count":rss.len(),"rss_sample_interval_seconds":0.01,"driver_cpu_seconds":number(&driver["user_cpu_seconds"])+number(&driver["system_cpu_seconds"]),"cgroup_isolated":std::env::var("AGENT_GUARD_BENCH_CGROUP_ISOLATED").as_deref()==Ok("1"),"memory_scope":"10 ms sampled sum of RSS in the private container PID namespace, including driver/init; shared pages may be counted multiple times; excludes page cache, daemon and build; sampling may miss short peaks; cgroup counters are not container-specific unless cgroup_isolated is true; ru_maxrss is max individual child peak"}),
     )
 }

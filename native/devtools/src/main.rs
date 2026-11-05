@@ -18,6 +18,7 @@ fn main_result() -> Result<()> {
     let args = Args::new()?;
     match args.command.as_str() {
         "native-redaction" => contracts::differential(&args),
+        "output-prepare" => contracts::output_prepare(&args),
         "native-integration" => contracts::integration(&args),
         "resource-sample" => measure::resource_sample(&args),
         "scanner-differential" => scanner::differential(&args),
