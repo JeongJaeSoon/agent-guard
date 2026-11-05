@@ -13,6 +13,7 @@ import time
 p = argparse.ArgumentParser()
 p.add_argument('--scanner', required=True)
 p.add_argument('--out', required=True)
+p.add_argument('--rounds', type=int, default=6)
 a = p.parse_args()
 root = Path(__file__).resolve().parents[2]
 out = Path(a.out).resolve()
@@ -23,13 +24,13 @@ copy = out / 'instrumented'
 shutil.copytree(plugin, copy)
 cli = copy / 'bin/agent-guard'
 source = cli.read_text()
-needle = '  ag_gl_probe_status=$?\n'
+needle = '  AG_GITLEAKS_PROBE_GROUP=\n  ag_gl_probe_bytes='
 assert source.count(needle) == 1
-source = source.replace(needle, needle + '''  # Diagnostic copy only, after the timed child has already exited.
+source = source.replace(needle, '''  # Diagnostic copy only, after the child and watchdog have both been reaped.
   printf 'status=%s\\ntimeout=' "$ag_gl_probe_status" >"$AG_READINESS_DIAG/probe-status"
   cat "$ag_gl_probe_timeout" >>"$AG_READINESS_DIAG/probe-status"
   cp "$ag_gl_probe_output" "$AG_READINESS_DIAG/probe-output"
-''')
+''' + needle)
 cli.write_text(source)
 payload = json.dumps({'tool_name': 'Read', 'tool_input': {}, 'tool_response': {
     'stdout': 'API_KEY=perf-literal-tail', '$serde_json::private::Number': '123'
@@ -80,7 +81,8 @@ base = dict(os.environ, AGENT_GUARD_LOG_MODE='off', AGENT_GUARD_RELEASE_CHECK='o
 for key in ['GODEBUG', 'GOMAXPROCS', 'AGENT_GUARD_EXPERIMENTAL_OUTPUT_PIPELINE',
             'AGENT_GUARD_EXPERIMENTAL_OUTPUT_PREPARE_BIN']:
     base.pop(key, None)
-for i in range(6):
+assert a.rounds > 0
+for i in range(a.rounds):
     for mode in (['default', 'single'] if i % 2 == 0 else ['single', 'default']):
         env = dict(base)
         if mode == 'single':
