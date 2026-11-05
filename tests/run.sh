@@ -11847,7 +11847,13 @@ if [ -n "$REAL_GITLEAKS" ]; then
   uuidk_case 1 "a UUID assigned to an upper-case key name is still found" \
     "MODEL_KEY=$UUIDK_ID"
   uuidk_case 1 "an uppercase UUID under an id: label is still found" \
+    "$UUIDK_MK --repo id:$UUIDK_UPPER"
+  uuidk_case 1 "an uppercase UUID with a trailing character under an id: label is still found" \
     "$UUIDK_MK --repo id:${UUIDK_UPPER}X"
+  uuidk_case 1 "a UUID under an id: label outside --repo is still found" \
+    "Authorization: token id:$UUIDK_ID"
+  uuidk_case 1 "a UUID under an id: label after another option is still found" \
+    "$UUIDK_MK --name id:$UUIDK_ID"
   uuidk_case 1 "a UUID with trailing characters under an id: label is still found" \
     "$UUIDK_MK --repo id:${UUIDK_ID}abcd"
   uuidk_case 1 "an api key after an id: UUID on one line is still found" \

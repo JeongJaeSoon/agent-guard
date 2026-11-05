@@ -104,6 +104,22 @@ check 2 "g\"it\" commit -m 'id_rsa'"
 check 2 "\$G commit -m 'id_rsa'"
 check 2 "git -c alias.commit='!cat' commit -m 'id_rsa'"
 check 2 "git --exec-path=/tmp/x commit -m 'id_rsa'"
+# Every word is expanded before the name is looked up; an expansion that is
+# not a bare parameter reference may assign PATH (arithmetic in an offset).
+check 2 "echo \"\${PWD:PATH=0}\"; orca orchestration send --body '.env'"
+check 2 "orca orchestration send --from \"\${PWD:PATH=0}\" --body '.env'"
+check 2 "orca orchestration send --from \"\$((PATH=0))\" --body '.env'"
+check 2 "orca orchestration send --from \"\$X[PATH=0]\" --body '.env'"
+check 0 "orca orchestration send --from \"\$ORCA_TERMINAL_HANDLE\" --body 'see .env'"
+check 0 "orca orchestration send --from \"\${H}\" --to \"run:\$R\" --body 'see .env'"
+# After `--`, or past an option that may take a value, git commit words are
+# pathspecs it reads into the commit.
+check 2 "git commit --only -- -m '.env'"
+check 2 "git commit --only \"\${AG_ARGS:---}\" -m '.env'"
+check 2 "git commit -C HEAD -m '.env'"
+check 2 "git commit a.txt -m '.env'"
+check 0 "git commit -q --amend --no-edit -m 'see .env'"
+check 0 "git commit --author='A <a@b>' -m 'see .env'"
 # A risky command quoted in a message is data; the same command run is not.
 check 0 "orca orchestration send --to x --body 'the hook refused printenv'"
 check 2 "orca orchestration send --to x --body 'ok'; printenv"
@@ -114,6 +130,8 @@ check 2 'echo "$(env)" | base64'
 # Ground truth with git: an allowed commit must not record the canary, and the
 # blocked -F control records it when run.
 if command -v git >/dev/null 2>&1; then
+  # A commit without -m opens no editor and keeps an empty message.
+  export GIT_EDITOR=true
   (
     cd "$W" || exit 1
     git init -q && git config user.email t@e && git config user.name t
@@ -126,17 +144,39 @@ if command -v git >/dev/null 2>&1; then
       bad "git ground truth: expected hook $1 got $status: $2"
       return
     fi
-    (cd "$W" && sh -c "$2") >/dev/null 2>&1
-    if (cd "$W" && git log -1 --format=%B 2>/dev/null) | grep -q "$canary"; then leaked=yes; else leaked=no; fi
+    before=$(cd "$W" && git rev-parse -q --verify HEAD 2>/dev/null)
+    if ! (cd "$W" && sh -c "$2") >/dev/null 2>&1; then
+      bad "git ground truth: command failed, so it proves nothing: $2"
+      return
+    fi
+    after=$(cd "$W" && git rev-parse -q --verify HEAD 2>/dev/null)
+    if [ -z "$after" ] || [ "$after" = "$before" ]; then
+      bad "git ground truth: no new commit: $2"
+      return
+    fi
+    # The canary may land in the message (-F) or in the tree (a pathspec).
+    if (cd "$W" && { git log -1 --format=%B; git grep -q "$canary" HEAD -- . && echo "$canary"; }) 2>/dev/null \
+      | grep -q "$canary"; then leaked=yes; else leaked=no; fi
     if [ "$leaked" = "$3" ]; then
       ok "git ground truth: $2 (leak=$leaked)"
     else
       bad "git ground truth: $2 expected leak=$3 got $leaked"
     fi
   }
+  # .env is tracked with a placeholder; only the working tree holds the canary.
+  printf 'VALUE=placeholder\n' >"$W/.env"
+  (cd "$W" && git add .env && git commit -q -m init && printf 'b\n' >>a.txt && git add a.txt) \
+    || bad "git sandbox setup commit"
+  printf 'VALUE=%s\n' "$canary" >"$W/.env"
   run_git 0 "git commit -q -m 'see .env and state.env'" no
-  printf 'b\n' >>"$W/a.txt" && (cd "$W" && git add a.txt)
+  printf 'c\n' >>"$W/a.txt" && (cd "$W" && git add a.txt)
   run_git 2 'git commit -q -F .env' yes
+  # Pathspec control: `--only -- -m .env` commits the working-tree .env,
+  # which holds a canary the tree did not have before.
+  printf 'VALUE=%s-only\n' "$canary" >"$W/.env"
+  printf 'd\n' >"$W/-m"
+  (cd "$W" && git add -- -m) || bad "git sandbox setup -m file"
+  run_git 2 "git commit -q --allow-empty-message --only -- -m '.env'" yes
 fi
 
 printf '%s passed, %s failed\n' "$pass" "$fail"

@@ -4934,24 +4934,48 @@ message_value_records() {
   printf '%s\n' "$1" | LC_ALL=C awk '
     function bail() { failed = 1; exit }
     function boundary(r) { return r == "0;" || r == "0&&" || r == "0||" || r == "0|" || r == "3(" || r == "3)" }
-    function finish(   j, w, o, need, opts) {
+    # Every word of a simple command is expanded before its name is looked
+    # up, and an expansion can assign (`${PWD:PATH=0}` evaluates PATH=0), so
+    # a word is plain only when it is literal or its expansions are bare
+    # parameter references. zsh evaluates `$x[...]` as a subscript.
+    function plain(j,   v) {
+      if (kind[j] == "0") return 1
+      if (kind[j] != "4") return 0
+      v = word[j]
+      if (v ~ /\$[A-Za-z_][A-Za-z0-9_]*\[/) return 0
+      gsub(/\$\{[A-Za-z_][A-Za-z0-9_]*\}/, "", v)
+      gsub(/\$[A-Za-z_][A-Za-z0-9_]*/, "", v)
+      return v !~ /[$`]/
+    }
+    # git commit operands are pathspecs it reads, so pair a message option
+    # only through options known to take no separate value; `--` or anything
+    # else ends the search.
+    function git_flag(w) {
+      return w ~ /^-[aqsvne]+$/ || w ~ /^--[a-z-]+=/ \
+        || w ~ /^--(all|quiet|verbose|signoff|no-signoff|edit|no-edit|amend|allow-empty|allow-empty-message|only|include|dry-run|reset-author|status|no-status|no-gpg-sign|short|porcelain|long)$/
+    }
+    function finish(   j, w, opts) {
       if (n == 0) return
+      for (j = 1; j <= n; j++) if (!plain(j)) { ok = 0; n = 0; return }
       if (ok && kind[1] == "0") {
         if (word[1] == "orca" && word[2] == "orchestration" && word[3] ~ /^(send|reply|ask)$/) opts = "|--subject|--body|"
         else if (word[1] == "gh" && (word[2] ~ /^(pr|issue)$/ && word[3] ~ /^(create|comment|edit)$/ || word[2] == "pr" && word[3] == "review")) opts = "|-t|--title|-b|--body|"
         else if (word[1] == "git" && word[2] == "commit") opts = "|-m|--message|"
-        for (j = 2; opts != "" && j <= n; j++) {
+        for (j = (opts ~ /-m\|/ ? 3 : 2); opts != "" && j <= n; j++) {
           w = word[j]
-          if (kind[j] != "0") continue
+          if (w == "--") break
           if (index(opts, "|" w "|") || opts ~ /-m\|/ && w ~ /^-[aqsvn]+m$/) {
-            if (j + 1 <= n && (kind[j + 1] == "0" || kind[j + 1] == "4") && substr(word[j + 1], 1, 1) != "-") print rec[j + 1]
+            if (j + 1 <= n && substr(word[j + 1], 1, 1) != "-") print rec[j + 1]
             j++
+            continue
           }
+          if (opts ~ /-m\|/ && !git_flag(w)) break
         }
         if (opts != "") ok = 0
       }
       if (kind[1] != "0" || word[1] !~ /^(grep|egrep|fgrep|rg|ls|cat|head|tail|wc|cut|tr|echo|true|false|test|\[|pwd|cd|jq|diff|comm|basename|dirname|date|stat|sleep)$/) ok = 0
-      for (j = 1; j <= n; j++) if (kind[j] != "0" && kind[j] != "4" || word[j] ~ /[<>]/) ok = 0
+      # A redirection may write a file a later command name resolves to.
+      for (j = 1; j <= n; j++) if (word[j] ~ /[<>]/) ok = 0
       n = 0
     }
     BEGIN { ok = 1; n = 0 }

@@ -76,15 +76,16 @@ regexes = [
 # An `id:` label names an identifier, not a credential, yet generic-api-key
 # lets up to 20 characters sit between its keyword and the `:`, so a nearby
 # word such as `model-key.md --repo id:<uuid>` turns an Orca repository id into
-# a finding. Anchored to the end of the match: a space, then exactly `id:` and
-# one lowercase canonical UUID. `key: <uuid>`, `api_key=<uuid>` and `token id
-# <uuid>` (no colon) keep their findings.
+# a finding. Anchored to the end of the match and to that option: `--repo`,
+# optional quote, `id:` and one lowercase canonical UUID. A bare `id:` label is
+# not enough (`Authorization: token id:<uuid>` keeps its finding), nor are
+# `key: <uuid>` and `api_key=<uuid>`.
 [[allowlists]]
-description = "Canonical UUIDs under a bare id: label"
+description = "Orca repository ids (--repo id:<uuid>)"
 targetRules = ["generic-api-key"]
 regexTarget = "match"
 regexes = [
-  '''[ \t]id:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}[\x60'"\s;]?$'''
+  '''--repo[ \t]+['"]?id:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}[\x60'"\s;]?$'''
 ]
 
 # Directory scans skip these exact lockfile names, then agent-guard rescans
