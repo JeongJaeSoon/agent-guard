@@ -13,6 +13,13 @@ case_dir=$(mktemp -d)
 trap 'rm -rf "$case_dir"' 0
 mkdir "$case_dir/baseline"
 git archive "$baseline" plugins/agent-guard | tar -x -C "$case_dir/baseline"
+# Keep the original pre-native control, and separately qualify ordinary default
+# dispatch against the actual public v3.7.0 payload with its packaged core.
+mkdir "$case_dir/public"
+curl -fsSL https://github.com/JeongJaeSoon/agent-guard/releases/download/v3.7.0/agent-guard-3.7.0.tar.gz -o "$case_dir/public.tar.gz"
+printf '%s  %s\n' d6ff2d398643f789d0259c782f7760504836f4495471dba613e3abc46dc2bf3d "$case_dir/public.tar.gz" | sha256sum -c - > "$out/public-checksum.txt"
+tar -xzf "$case_dir/public.tar.gz" -C "$case_dir/public"
+chmod -R a+rX "$case_dir/public"
 image=agent-guard-packaged-qualification
 docker build --secret id=proxy_ca,src=/etc/ssl/certs/ca-certificates.crt \
   -f bench/native/Dockerfile -t "$image" . > "$out/build.log" 2>&1
@@ -22,6 +29,7 @@ run() {
   docker run --rm --init --network=none --cpus=2 --memory=1g --memory-swap=1g \
     -e AGENT_GUARD_BENCH_CGROUP_ISOLATED=1 \
     -v "$ROOT:/repo:ro" -v "$case_dir/baseline:/baseline:ro" -v "$scanner:/scanner/gitleaks:ro" \
+    -v "$case_dir/public:/public:ro" \
     "$image" "$@"
 }
 limits=$(run sh -c 'cat /sys/fs/cgroup/cpu.max /sys/fs/cgroup/memory.max /sys/fs/cgroup/memory.swap.max')
@@ -62,4 +70,23 @@ for workers in 1 4; do
 done
 run agent-guard-devtools masking-latency --baseline "$old" --native-core "$core" --packaged-native \
   --scanner /scanner/gitleaks --runs 21 --resources --case small-clean > "$out/cli-clean-followup.json" 2> "$out/cli-clean-followup.log"
-sh bench/native/assess-packaged.sh "$out"
+legacy_status=0
+sh bench/native/assess-packaged.sh "$out" || legacy_status=$?
+public_status=0
+run agent-guard-devtools masking-latency --baseline /public/bin/agent-guard \
+  --baseline-packaged-native --native-core "$core" --packaged-native \
+  --scanner /scanner/gitleaks --runs 9 --resources --include-boundaries \
+  --case exec-clean --case exec-multiline --case exec-long-quoted-secret \
+  --case pre-unknown-tool > "$out/cli-public-default.json" 2> "$out/cli-public-default.log" || public_status=$?
+if [ "$public_status" -eq 0 ]; then
+jq -e '
+  def median: sort | .[length / 2 | floor];
+  def cpu($arm): .resource_usage[$arm] as $r
+    | [range(0; $r.user_cpu_seconds.samples | length) as $i
+       | $r.user_cpu_seconds.samples[$i] + $r.system_cpu_seconds.samples[$i]] | median;
+  .runs == 9 and (.cases | length) == 4 and all(.cases[];
+    .verified and .seconds.candidate.median <= .seconds.baseline.median * 1.05
+    and cpu("candidate") <= cpu("baseline") * 1.05)
+' "$out/cli-public-default.json" > "$out/public-default-gate.txt" || public_status=$?
+fi
+[ "$legacy_status" -eq 0 ] && [ "$public_status" -eq 0 ]

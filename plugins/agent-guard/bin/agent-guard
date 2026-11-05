@@ -2,7 +2,7 @@
 set -u
 
 PROGRAM=agent-guard
-VERSION=3.7.1
+VERSION=3.8.0
 
 # Resolve the script's own path, following symlinks. The bootstrap installer
 # drops a symlink at ~/.local/bin/agent-guard that points into ~/.agent-guard/
@@ -29,6 +29,18 @@ script_path() {
 }
 
 script_dir() {
+  # Host hooks invoke the regular executable by absolute path. Resolve its
+  # parent in this existing subshell without spawning script_path and dirname.
+  # Symlink and relative invocations retain the portable chain resolver below.
+  case "$0" in
+    /*)
+      if [ ! -L "$0" ]; then
+        script_parent=${0%/*}
+        CDPATH= cd -- "${script_parent:-/}" && pwd -P
+        return
+      fi
+      ;;
+  esac
   # shellcheck disable=SC2164
   CDPATH= cd -- "$(dirname -- "$(script_path)")" && pwd -P
 }
@@ -1474,6 +1486,12 @@ probe_gitleaks() {
     # before cancelling this watchdog. Do not turn its completed exit status
     # into a timeout, or signal a group whose leader no longer exists.
     kill -0 "$AG_GITLEAKS_PROBE_PID" 2>/dev/null || exit 0
+    # A completed child can still exist as a zombie while its parent is
+    # descheduled. It has no running code to time out; preserve wait's status.
+    # Use the system utility: a PATH shim must not stall the watchdog.
+    # Missing/failed ps keeps the conservative original deadline behavior.
+    ag_gl_deadline_state=$(/bin/ps -o stat= -p "$AG_GITLEAKS_PROBE_PID" 2>/dev/null) || ag_gl_deadline_state=
+    case "$ag_gl_deadline_state" in *Z*) exit 0 ;; esac
     printf 'timeout\n' >"$ag_gl_probe_timeout"
     kill_gitleaks_probe_group TERM
     kill -TERM "$AG_GITLEAKS_PROBE_PID" 2>/dev/null || :
@@ -12753,8 +12771,22 @@ redact_plaintext_framed() {
         pending_literal = ""
       }
     }
-    function feed_framed(line, i, ch) {
+    function feed_framed(line, i, ch, n, pieces) {
       record_ended_at_boundary = 0
+      # Without escape bytes every RS is structural. Consume whole spans
+      # instead of repeatedly copying a long literal one byte at a time.
+      # Escaped records retain the byte-wise state machine below.
+      if (!escaped && index(line, escape) == 0) {
+        n = split(line, pieces, boundary)
+        for (i = 1; i < n; i++) {
+          consume_record(record pieces[i])
+          record = ""
+        }
+        record = record pieces[n]
+        record_ended_at_boundary = (n > 1 && pieces[n] == "")
+        if (!record_ended_at_boundary) record = record "\n"
+        return
+      }
       for (i = 1; i <= length(line); i++) {
         ch = substr(line, i, 1)
         if (escaped) {

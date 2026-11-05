@@ -31,6 +31,7 @@ jobs:
           sh scripts/install-native-test-tools.sh "$RUNNER_TEMP/test-bin"
           export PATH="$RUNNER_TEMP/test-bin:$PATH"
           mkdir -p "$RUNNER_TEMP/numeric"
+          diagnostic_status=0
           for version in 3.7.0 3.7.1; do
             mkdir "$RUNNER_TEMP/public-$version"
             curl -fsSL "https://github.com/JeongJaeSoon/agent-guard/releases/download/v$version/agent-guard-$version.tar.gz" -o "$RUNNER_TEMP/public-$version.tar.gz"
@@ -40,10 +41,13 @@ jobs:
             test -n "$expected" && test "$actual" = "$expected"
             printf '%s %s\n' "$version" "$actual" >> "$RUNNER_TEMP/numeric/public-checksums.txt"
             tar -xzf "$RUNNER_TEMP/public-$version.tar.gz" -C "$RUNNER_TEMP/public-$version"
-            python3 bench/fused-output/diagnose-numeric.py "$RUNNER_TEMP/public-$version" "$RUNNER_TEMP/numeric/$version"
+            python3 bench/fused-output/diagnose-numeric.py "$RUNNER_TEMP/public-$version" "$RUNNER_TEMP/numeric/$version" || diagnostic_status=1
           done
           AGENT_GUARD_EXPERIMENTAL_OUTPUT_PIPELINE=fused \
-            python3 bench/fused-output/diagnose-numeric.py plugins/agent-guard "$RUNNER_TEMP/numeric/candidate"
+            python3 bench/fused-output/diagnose-numeric.py plugins/agent-guard "$RUNNER_TEMP/numeric/candidate" || diagnostic_status=1
+          # Preserve the failed status, but collect candidate evidence even
+          # when an immutable public baseline hits its readiness failure path.
+          exit "$diagnostic_status"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:

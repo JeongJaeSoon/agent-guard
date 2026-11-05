@@ -16,10 +16,26 @@ curl -fsSL https://github.com/JeongJaeSoon/agent-guard/releases/download/v3.7.0/
 printf '%s  %s\n' d6ff2d398643f789d0259c782f7760504836f4495471dba613e3abc46dc2bf3d "$stage/public.tar.gz" | sha256sum -c - > "$out/public-checksum.txt"
 tar -xzf "$stage/public.tar.gz" -C "$stage/public"
 chmod -R a+rX "$stage/public"
-# Both arms use the identical qualified public redactor. The experimental
-# prepare helper is separate; its startup cost remains inside candidate timing.
+# Attribution runs retain the public redactor in both arms. Release qualification
+# can instead use one qualified candidate artifact for preparation and redaction.
+# Both modes keep every native process startup inside candidate timing.
 mkdir -p plugins/agent-guard/libexec
-cp "$stage/public/libexec/agent-guard-redact-x86_64-unknown-linux-musl"* plugins/agent-guard/libexec/
+qualified_core=${AGENT_GUARD_BENCH_FUSED_PACKAGED_CORE:-}
+core=/public/libexec/agent-guard-redact-x86_64-unknown-linux-musl
+prepare=/build/target/release/agent-guard-redact
+comparison_scope='same scanner and public redactor; output pipeline experiment'
+if [ -n "$qualified_core" ]; then
+  case "$qualified_core" in /*/agent-guard-redact-x86_64-unknown-linux-musl) ;; *) exit 2 ;; esac
+  [ -f "$qualified_core" ] && [ ! -L "$qualified_core" ]
+  [ -f "$qualified_core.sha256" ] && [ ! -L "$qualified_core.sha256" ]
+  (cd "${qualified_core%/*}" && sha256sum -c "${qualified_core##*/}.sha256") > "$out/candidate-core-checksum.txt"
+  cp "$qualified_core" "$qualified_core.sha256" plugins/agent-guard/libexec/
+  core=/repo/plugins/agent-guard/libexec/agent-guard-redact-x86_64-unknown-linux-musl
+  prepare=$core
+  comparison_scope='same scanner; public v3.7.0 versus candidate sharing one qualified packaged core'
+else
+  cp "$stage/public/libexec/agent-guard-redact-x86_64-unknown-linux-musl"* plugins/agent-guard/libexec/
+fi
 image=agent-guard-fused-proof
 docker build --secret id=proxy_ca,src=/etc/ssl/certs/ca-certificates.crt -f bench/native/Dockerfile -t "$image" . > "$out/build.log" 2>&1
 docker image inspect "$image" --format '{{.Id}}' > "$out/image-id.txt"
@@ -44,11 +60,10 @@ limits=$(run sh -c 'cat /sys/fs/cgroup/cpu.max /sys/fs/cgroup/memory.max /sys/fs
 printf '%s\n' "$limits" > "$out/enforced-limits.txt"
 git rev-parse HEAD > "$out/checkout-sha.txt"
 run sh -c 'uname -a; jq --version; sha256sum /scanner/gitleaks /public/bin/agent-guard plugins/agent-guard/bin/agent-guard plugins/agent-guard/scripts/output-pipeline-experiment.sh /build/target/release/agent-guard-redact; cat /proc/cpuinfo' > "$out/environment.txt"
-core=/public/libexec/agent-guard-redact-x86_64-unknown-linux-musl
 for host in claude codex; do
   run agent-guard-devtools masking-latency --baseline /public/bin/agent-guard \
     --binary /repo/plugins/agent-guard/bin/agent-guard \
-    --fused-output --prepare-core /build/target/release/agent-guard-redact \
+    --fused-output --prepare-core "$prepare" \
     --baseline-packaged-native --native-core "$core" --packaged-native \
     --scanner /scanner/gitleaks --audit-state "$mode" --host "$host" \
     --runs 9 --resources --include-boundaries --trace-processes \
@@ -61,19 +76,21 @@ if [ "$mode" = off ]; then
       if [ "$trial" = 2 ]; then order='candidate baseline'; fi
       for arm in $order; do
         binary=/public/bin/agent-guard
+        load_core=/public/libexec/agent-guard-redact-x86_64-unknown-linux-musl
         set --
         if [ "$arm" = candidate ]; then
           binary=/repo/plugins/agent-guard/bin/agent-guard
-          set -- --fused-output --prepare-core /build/target/release/agent-guard-redact
+          load_core=$core
+          set -- --fused-output --prepare-core "$prepare"
         fi
-        run agent-guard-devtools load --binary "$binary" --core "$core" --packaged-native \
+        run agent-guard-devtools load --binary "$binary" --core "$load_core" --packaged-native \
           --scanner /scanner/gitleaks --workers "$workers" --requests 8 "$@" > "$out/load-$workers-$trial-$arm.json"
       done
     done
   done
 fi
 jq -s --argjson expected_targets 2 -f bench/scanner/assess.jq "$out"/cli-*.json \
-  | jq '.scope="same scanner and public redactor; output pipeline experiment"' > "$out/assessment.json"
+  | jq --arg scope "$comparison_scope" '.scope=$scope' > "$out/assessment.json"
 # Always preserve sub-threshold measurements. The aggregate applies declared
 # target and ordinary-path criteria; this step only requires complete evidence.
 jq -e '.measurements_complete and all(.all_cases[]; .verified)' "$out/assessment.json"
