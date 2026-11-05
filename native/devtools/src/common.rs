@@ -85,6 +85,7 @@ impl Args {
                 "--binary",
                 "--baseline",
                 "--native-core",
+                "--prepare-core",
                 "--host",
                 "--scanner",
                 "--candidate-scanner",
@@ -94,7 +95,14 @@ impl Args {
                 "--case",
             ],
             "kernel" => &["--core", "--runs"],
-            "load" => &["--binary", "--core", "--scanner", "--workers", "--requests"],
+            "load" => &[
+                "--binary",
+                "--core",
+                "--prepare-core",
+                "--scanner",
+                "--workers",
+                "--requests",
+            ],
             "watchdog-orphans" => &["--binary", "--baseline", "--scanner", "--runs"],
             "verify" => &["--out", "--native-core", "--shards"],
             "report" => &["--results", "--html"],
@@ -108,9 +116,10 @@ impl Args {
                 "--trace-processes",
                 "--packaged-native",
                 "--baseline-packaged-native",
+                "--fused-output",
             ]
         } else if command == "load" {
-            &["--packaged-native"]
+            &["--packaged-native", "--fused-output"]
         } else {
             &[]
         };

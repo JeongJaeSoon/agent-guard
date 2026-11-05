@@ -26,7 +26,6 @@ docker image inspect "$image" --format '{{.Id}}' > "$out/image-id.txt"
 run() {
   docker run --rm --init --network=none --cpus=2 --memory=1g --memory-swap=1g \
     -e AGENT_GUARD_BENCH_CGROUP_ISOLATED=1 \
-    -e AGENT_GUARD_FUSED_PREPARE_BIN=/build/target/release/agent-guard-redact \
     -v "$stage/public:/public:ro" -v "$scanner:/scanner/gitleaks:ro" "$image" "$@"
 }
 limits=$(run sh -c 'cat /sys/fs/cgroup/cpu.max /sys/fs/cgroup/memory.max /sys/fs/cgroup/memory.swap.max')
@@ -39,7 +38,8 @@ run sh -c 'uname -a; jq --version; sha256sum /scanner/gitleaks /public/bin/agent
 core=/public/libexec/agent-guard-redact-x86_64-unknown-linux-musl
 for host in claude codex; do
   run agent-guard-devtools masking-latency --baseline /public/bin/agent-guard \
-    --binary /repo/bench/fused-output/candidate-prepare \
+    --binary /repo/plugins/agent-guard/bin/agent-guard \
+    --fused-output --prepare-core /build/target/release/agent-guard-redact \
     --baseline-packaged-native --native-core "$core" --packaged-native \
     --scanner /scanner/gitleaks --audit-state "$mode" --host "$host" \
     --runs 9 --resources --include-boundaries --trace-processes \
@@ -52,9 +52,13 @@ if [ "$mode" = off ]; then
       if [ "$trial" = 2 ]; then order='candidate baseline'; fi
       for arm in $order; do
         binary=/public/bin/agent-guard
-        [ "$arm" != candidate ] || binary=/repo/bench/fused-output/candidate-prepare
+        set --
+        if [ "$arm" = candidate ]; then
+          binary=/repo/plugins/agent-guard/bin/agent-guard
+          set -- --fused-output --prepare-core /build/target/release/agent-guard-redact
+        fi
         run agent-guard-devtools load --binary "$binary" --core "$core" --packaged-native \
-          --scanner /scanner/gitleaks --workers "$workers" --requests 8 > "$out/load-$workers-$trial-$arm.json"
+          --scanner /scanner/gitleaks --workers "$workers" --requests 8 "$@" > "$out/load-$workers-$trial-$arm.json"
       done
     done
   done

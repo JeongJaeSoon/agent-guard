@@ -43,3 +43,24 @@ RSS·10ms 표본 RSS 합을 구분한다. stdlib 빌드는 동일 upstream 소�
 두 호스트와 helper 실패 복귀, 기존 출력 suite 및 scanner report 실패를 검사한다.
 온전한 전체 suite도 별도로 실행한다. 과도 마스킹, 탐지 생략, timeout 확대는
 채택 수단이 아니다. 효과가 부족하면 원시 기록을 남기고 더 넓은 구현을 비교한다.
+
+## 최초 CI와 측정 진입점 수정
+
+`b673546`의 최초 stdlib/cold 실행에서 목표 지연 약 15%, CPU 약 13~14% 개선을
+관측했으나 Codex pre-read-clean 지연이 5.0259% 증가해 판정은 실패했다.
+이 실행은 편의 wrapper를 후보에만 추가해 dirname·shell exec 비용도 포함했다.
+기준을 완화하거나 같은 실행을 재시도하지 않고, devtools가 실제 CLI를 양쪽 모두
+직접 실행하면서 후보에만 명시적 환경 선택을 전달하도록 수정한다. baseline의
+실험 변수는 매번 비우며 helper 해시도 결과에 기록한다. 최초 wrapper 결과는
+별도로 남기고 수정된 진입점과 혼합하지 않는다.
+
+기존 jq 부분 출력 주입은 native 준비 경로에서는 실행되지 않는다. 이에 native
+테스트 wrapper도 해당 두 단계에서 먼저 실패하게 하고, 원래 jq fallback에도
+그대로 주입하여 기존 whole-leaf 기대값을 유지한다. 정상 native 준비와 prepare
+실패 후 정상 jq 복구는 각각 corpus와 `tests/fused-output.sh`로 따로 검증한다.
+
+최초 Linux 출력 suite에서는 1004건 성공·35건 실패를 보존했다. 컴파일러 없는
+host 계약용 PATH를 전체 suite에도 적용해 fixture 생성에 필요한 gzip, mkfifo,
+base64, printenv, yes가 빠진 로그를 확인했다. compiler-free 준비·host·fallback
+검사는 유지하고, 전체 출력 suite는 시스템 fixture 도구가 있는 별도 step에서
+실행하도록 분리한다. 기대값과 scanner 제한 시간은 변경하지 않는다.

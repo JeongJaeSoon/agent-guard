@@ -46,7 +46,12 @@ jobs:
             > "$RUNNER_TEMP/evidence/host.json" 2> "$RUNNER_TEMP/evidence/host.stderr"
           sh tests/scanner-report.sh > "$RUNNER_TEMP/evidence/scanner-report.log" 2>&1
           sh tests/fused-output.sh > "$RUNNER_TEMP/evidence/prepare-fallback.log" 2>&1
-          export AGENT_GUARD_RUST_CORE_BIN="$core"
+      - name: Output suite with system fixture utilities
+        run: |
+          export PATH="$RUNNER_TEMP/test-bin:$PATH"
+          export AGENT_GUARD_EXPERIMENTAL_OUTPUT_PIPELINE=fused
+          export AGENT_GUARD_EXPERIMENTAL_OUTPUT_PREPARE_BIN="$PWD/native/redaction-core/target/release/agent-guard-redact"
+          export AGENT_GUARD_RUST_CORE_BIN="$AGENT_GUARD_EXPERIMENTAL_OUTPUT_PREPARE_BIN"
           export AGENT_GUARD_TEST_SHARD=4
           sh tests/native-suite.sh > "$RUNNER_TEMP/evidence/output-suite.log" 2>&1
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
