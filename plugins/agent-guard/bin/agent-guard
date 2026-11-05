@@ -11697,6 +11697,27 @@ redact_tool_output() {
     ''|null) return 0 ;;
   esac
 
+  # Only quote-free oversized JSON enters this scope. Such a value has no
+  # strings or binary payload and is ASCII; byte and character semantics agree.
+  # Older macOS shells otherwise spend substantial CPU expanding these large
+  # ASCII variables in a multibyte locale. The assignment is scoped to this
+  # function call and leaves the caller's locale and ordinary paths unchanged.
+  if [ "$secrets_on" -eq 1 ]; then
+    case "$resp" in
+      *'"'*) ;;
+      *)
+        if [ "${#resp}" -gt "$OUTPUT_SCAN_MAX_BYTES" ]; then
+          LC_ALL=C redact_tool_output_response
+          return $?
+        fi
+        ;;
+    esac
+  fi
+  redact_tool_output_response
+}
+
+redact_tool_output_response() {
+
   # Image and PDF payloads are lifted out before every pass below and put back
   # afterwards: a text scanner cannot read pixels, the host forwards the bytes
   # rather than showing them to the model, and one screenshot alone crosses
