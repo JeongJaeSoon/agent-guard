@@ -190,6 +190,7 @@ jobs:
             *) exit 2 ;;
           esac
           sh tests/native-packaged.sh "$RUNNER_TEMP/native/agent-guard-redact-$target" "$RUNNER_TEMP/test-bin/gitleaks" > "$RUNNER_TEMP/install-evidence/fallback.log" 2>&1
+          sh tests/fused-packaged.sh "$RUNNER_TEMP/native/agent-guard-redact-$target" "$RUNNER_TEMP/test-bin/gitleaks" > "$RUNNER_TEMP/install-evidence/fused-packaged.log" 2>&1
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:

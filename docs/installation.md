@@ -34,6 +34,49 @@ CLI. Without one, move to a newer release by removing the marketplace and
 repeating the commands above with the new tag; removing the marketplace also
 removes its installed plugin. Restart the host afterwards.
 
+## Optional fused output preparation (v3.8+)
+
+The output-pipeline experiment is opt-in. It combines private staging and JSON
+preparation while keeping the existing scanner, rules, policies and host output
+contracts. Install the same release's prebuilt core; the existing core file
+supports both preparation and redaction, so a second helper or compiler is not
+required. Git marketplace installations can use the standalone helper without
+editing host caches.
+
+For Linux x64, verify the installed helper and expose both settings to the host's
+launch environment:
+
+```sh
+target=x86_64-unknown-linux-musl
+native_root="$HOME/.agent-guard/libexec"
+if (cd "$native_root" && shasum -a 256 -c "agent-guard-redact-$target.sha256"); then
+  export AGENT_GUARD_EXPERIMENTAL_OUTPUT_PIPELINE=fused
+  export AGENT_GUARD_EXPERIMENTAL_OUTPUT_PREPARE_BIN="$native_root/agent-guard-redact-$target"
+fi
+```
+
+Choose the matching target for your platform from the [native helper guide
+(English)](https://github.com/JeongJaeSoon/agent-guard/blob/v3.8.0/docs/native-redactor.md).
+For Homebrew, set `native_root="$(brew --prefix agent-guard)/libexec/libexec"`.
+This explicit path is a trusted executable override; only use a verified
+installation. Missing or failing preparation falls back to the original jq
+stages. A missing experimental module falls back to the original output pipeline.
+The scanner and its readiness deadline do not change.
+
+Restart Claude or Codex after changing the launch environment. Existing plugin
+install/update commands remain the same. To restore the default output pipeline,
+unset both settings and restart the host:
+
+```sh
+unset AGENT_GUARD_EXPERIMENTAL_OUTPUT_PIPELINE
+unset AGENT_GUARD_EXPERIMENTAL_OUTPUT_PREPARE_BIN
+```
+
+This leaves the existing default literal redactor selection intact. To disable
+that native helper too, use `AGENT_GUARD_EXPERIMENTAL_REDACTOR=shell`.
+The measured gain depends on the workload and scanner; it can come with a larger
+sampled process RSS sum. See [verification](verification.md) before rollout.
+
 ## Runtime dependencies
 
 The v3.7 release archive and Homebrew package include Rust literal-replacement
@@ -56,7 +99,7 @@ Source archives and host-managed Git marketplace plugins contain no binaries
 and therefore use shell unless a trusted prebuilt helper is configured through
 the existing `AGENT_GUARD_RUST_CORE_BIN` override. The standalone installation
 can supply that helper without editing host caches. See the [native helper
-guide](https://github.com/JeongJaeSoon/agent-guard/blob/v3.7.0/docs/native-redactor.md)
+guide](https://github.com/JeongJaeSoon/agent-guard/blob/v3.8.0/docs/native-redactor.md)
 for selection, checksum verification and developer overrides.
 
 The runtime on macOS and Linux needs `sh`, `awk`, `git`, `jq`, and gitleaks

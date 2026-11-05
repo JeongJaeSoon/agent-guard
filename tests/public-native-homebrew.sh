@@ -1,11 +1,12 @@
 #!/bin/sh
 # Run only in a disposable CI runner: exercises real Homebrew install/upgrade.
 set -eu
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)
 version=${1:?published version required}
 out=${2:?new evidence directory required}
-previous=${3:-3.6.15}
+previous=${3:-3.7.1}
 printf '%s\n' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'
-case "$previous" in 3.6.14|3.6.15) ;; *) echo 'unqualified previous release' >&2; exit 2 ;; esac
+case "$previous" in 3.6.14|3.6.15|3.7.0|3.7.1) ;; *) echo 'unqualified previous release' >&2; exit 2 ;; esac
 [ "${GITHUB_ACTIONS:-}" = true ] || { echo 'requires a disposable Actions runner' >&2; exit 2; }
 [ ! -e "$out" ] || exit 2
 mkdir -p "$out"
@@ -52,5 +53,16 @@ cmp "$out/published-formula.rb" "$(brew --repo JeongJaeSoon/tap)/Formula/agent-g
 brew install JeongJaeSoon/tap/agent-guard > "$out/install-tap.log" 2>&1
 agent-guard version | grep -F "agent-guard $version"
 brew test JeongJaeSoon/tap/agent-guard >> "$out/install-tap.log" 2>&1
+prefix=$(brew --prefix agent-guard)
+if [ -f "$prefix/libexec/scripts/output-pipeline-experiment.sh" ]; then
+  case "$(uname -s):$(uname -m)" in
+    Linux:x86_64) target=x86_64-unknown-linux-musl ;;
+    Darwin:x86_64) target=x86_64-apple-darwin ;;
+    Darwin:arm64) target=aarch64-apple-darwin ;;
+    *) exit 2 ;;
+  esac
+  AGENT_GUARD_TEST_PAYLOAD="$prefix/libexec" sh "$ROOT/tests/fused-packaged.sh" \
+    "$prefix/libexec/libexec/agent-guard-redact-$target" "$(command -v gitleaks)" > "$out/fused-packaged.log"
+fi
 brew list --versions agent-guard > "$out/installed-version.txt"
 printf 'passed: published formula upgrade and canonical tap fresh install\n'
