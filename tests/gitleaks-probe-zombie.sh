@@ -16,8 +16,14 @@ cleanup() {
 }
 trap cleanup 0
 mkdir "$CASE/bad-bin"
-printf '#!/bin/sh\nexit 1\n' >"$CASE/bad-bin/ps"
+printf '#!/bin/sh\ntouch "$PROBE_ZOMBIE_CASE/shadow-ps"\nsleep 5\nexit 1\n' >"$CASE/bad-bin/ps"
 chmod +x "$CASE/bad-bin/ps"
+# Simulate an absent system utility in a test-only copy, preserving its config.
+mkdir -p "$CASE/unavailable-plugin/bin"
+cp -R "$ROOT/plugins/agent-guard/config" "$CASE/unavailable-plugin/"
+awk '{ sub("/bin/ps -o stat=", "/nonexistent-agent-guard-test/ps -o stat="); print }' \
+  "$GUARD" >"$CASE/unavailable-plugin/bin/agent-guard"
+chmod +x "$CASE/unavailable-plugin/bin/agent-guard"
 cat >"$CASE/gitleaks" <<'SCANNER'
 #!/bin/sh
 [ "$1" = version ] || exit 9
@@ -33,11 +39,12 @@ chmod +x "$CASE/gitleaks"
 pass=0 fail=0
 for mode in ready failed slow unavailable; do
   folder="$CASE/$mode"; mkdir "$folder"
-  probe_path=$PATH
-  [ "$mode" != unavailable ] || probe_path="$CASE/bad-bin:$PATH"
+  probe_path="$CASE/bad-bin:$PATH"
+  probe_guard=$GUARD
+  [ "$mode" != unavailable ] || probe_guard="$CASE/unavailable-plugin/bin/agent-guard"
   env PATH="$probe_path" AGENT_GUARD_LOG_MODE=off AGENT_GUARD_RELEASE_CHECK=off \
     AGENT_GUARD_GITLEAKS_BIN="$CASE/gitleaks" PROBE_ZOMBIE_MODE="$mode" \
-    PROBE_ZOMBIE_CASE="$folder" "$GUARD" check >"$folder/out" 2>"$folder/err" &
+    PROBE_ZOMBIE_CASE="$folder" "$probe_guard" check >"$folder/out" 2>"$folder/err" &
   guard_pid=$!
   attempt=0
   while [ ! -s "$folder/parent" ] && [ "$attempt" -lt 100 ]; do
@@ -76,7 +83,7 @@ for mode in ready failed slow unavailable; do
     slow)
       if [ "$status" -ne 0 ] && grep -q 'timed out after 2s' "$folder/err"; then valid=1; fi ;;
   esac
-  if [ "$valid" -eq 1 ]; then
+  if [ "$valid" -eq 1 ] && [ ! -e "$folder/shadow-ps" ]; then
     pass=$((pass + 1)); printf 'ok - unreaped probe verdict: %s\n' "$mode"
   else
     fail=$((fail + 1)); printf 'not ok - unreaped probe verdict: %s\n' "$mode"
