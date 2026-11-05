@@ -4,6 +4,8 @@ CI runs on pull requests and pushes to `main`: the first validates a proposed
 change, the second validates the merged tree. Plugin Validation and HOL scan
 have the same triggers but own different checks; they are not duplicate suite
 runs. The release workflow also relies on the existing check names.
+Manual dispatch runs the full Linux/macOS matrix on the selected ref, so the
+main/release matrix can be verified before merging a CI change.
 
 | Check | Coverage |
 | --- | --- |
