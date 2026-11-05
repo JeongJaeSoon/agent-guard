@@ -155,6 +155,22 @@ check 2 "git commit -C HEAD -m '.env'"
 check 2 "git commit a.txt -m '.env'"
 check 0 "git commit -q --amend --no-edit -m 'see .env'"
 check 0 "git commit --author='A <a@b>' -m 'see .env'"
+# An unquoted glob can expand to files named `--` or `-m` and shift a quoted
+# value into the pathspecs; a quoted or escaped glob character cannot.
+check 2 "git commit -m -? -m '.env'"
+check 2 "git commit -m ?? -m '.env'"
+check 2 "git commit -m [-]- -m '.env'"
+check 2 "git commit -m x* -m '.env'"
+check 2 "git commit -m x^y -m '.env'"
+check 2 "'git' commit -m -? -m '.env'"
+check 2 "\\git commit -m -? -m '.env'"
+check 2 "orca orchestration send --to x* --body '.env'"
+check 2 "gh pr create -t ?? -b '.env'"
+check 0 "git commit -m 'why? see .env'"
+check 0 "git commit -m \"fix [x]* see .env\""
+check 0 "git commit -m \\?x -m 'see .env'"
+check 0 "ls *.md; git commit -m 'see .env'"
+check 0 "git commit -m 'see .env' && ls *.md"
 # A risky command quoted in a message is data; the same command run is not.
 check 0 "orca orchestration send --to x --body 'the hook refused printenv'"
 check 2 "orca orchestration send --to x --body 'ok'; printenv"
@@ -212,6 +228,11 @@ if command -v git >/dev/null 2>&1; then
   printf 'd\n' >"$W/-m"
   (cd "$W" && git add -- -m) || bad "git sandbox setup -m file"
   run_git 2 "git commit -q --allow-empty-message --only -- -m '.env'" yes
+  # Glob control: with files `--` and `-m`, `-?` expands to both, so the
+  # quoted `.env` becomes a pathspec.
+  printf 'VALUE=%s-glob\n' "$canary" >"$W/.env"
+  printf 'e\n' >"$W/--"
+  run_git 2 "git commit -q -m -? -m '.env'" yes
 fi
 
 printf '%s passed, %s failed\n' "$pass" "$fail"

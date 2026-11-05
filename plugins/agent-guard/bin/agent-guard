@@ -5026,6 +5026,37 @@ message_value_records() {
   '
 }
 
+# Succeed when a command named git, gh or orca holds an unquoted glob
+# character. The records show a glob word as a literal, but its expansion can
+# add words (files named `--` or `-m`) and turn a message value into a
+# pathspec. `^` and `#` are globs under zsh EXTENDED_GLOB.
+message_command_has_glob() {
+  MV_CMD=$1 LC_ALL=C awk 'BEGIN {
+    s = ENVIRON["MV_CMD"]; n = length(s); q = 0; fw = ""; inw = 1; glob = 0
+    for (i = 1; i <= n; i++) {
+      c = substr(s, i, 1)
+      if (q == 1) { if (c == "\047") q = 0; else if (inw) fw = fw c; continue }
+      if (q == 2) {
+        if (c == "\"") q = 0
+        else { if (c == "\\") c = substr(s, ++i, 1); if (inw) fw = fw c }
+        continue
+      }
+      if (c == "\\") { c = substr(s, ++i, 1); if (c != "\n" && inw) fw = fw c; continue }
+      if (c == "\047") { q = 1; started = 1; continue }
+      if (c == "\"") { q = 2; started = 1; continue }
+      if (c ~ /[;&|\n]/) {
+        if (glob && fw ~ /^(git|gh|orca)$/) exit 0
+        fw = ""; inw = 1; started = 0; glob = 0
+        continue
+      }
+      if (c == " " || c == "\t") { if (started) inw = 0; continue }
+      if (c ~ /[*?[^#]/) glob = 1
+      if (inw) { fw = fw c; started = 1 }
+    }
+    exit !(glob && fw ~ /^(git|gh|orca)$/)
+  }'
+}
+
 # Replace each message value message_value_records finds, quotes included,
 # with `_`. A value is replaced only when it is one quoted literal (single
 # quotes, or double quotes holding no `$`, backquote or backslash) and
@@ -5042,6 +5073,10 @@ bash_strip_message_values() (
   fi
   mv_records=$(git_command_records "$mv_cmd")
   mv_targets=$(message_value_records "$mv_records")
+  if [ -n "$mv_targets" ] && message_command_has_glob "$mv_cmd"; then
+    printf '%s' "$mv_cmd"
+    exit 0
+  fi
   for mv_at in $mv_targets; do
     mv_expected=$(printf '%s\n' "$mv_records" | awk -v k="$mv_at" 'NR == k { print "0_"; next } { print }')
     mv_value=$(printf '%s\n' "$mv_records" | awk -v k="$mv_at" 'NR == k { print substr($0, 2) }')
