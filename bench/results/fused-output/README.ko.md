@@ -382,3 +382,11 @@ Homebrew 4-worker 처리량은 4.389→5.334 req/s, CPU는 3.650→3.048초/8요
 실제 네트워크에서 각 모드 한 번씩 clone하고 checkout까지 수행했다. Git pack은 v3.7.0 shallow 1,919,349 bytes, 현재 공개 v3.7.1 shallow 6,701,948 bytes, f49740f shallow 6,735,807 bytes다. 최신 공개 버전 대비 후보의 추가 pack은 33,859 bytes(약 0.5%)였다. v3.7.0 대비 차이 대부분은 이미 v3.7.1에 포함된 저장소 내용이다. checkout 파일 합은 각각 5,407,367 / 13,195,149 / 13,296,264 bytes다.
 
 현재 전체 브랜치·이력을 가져온 clone은 109,164,025-byte pack, 약 16.08초/CPU 6.92초/최대 개별 자식 RSS 39.23MiB였다. 이력과 실험 자료를 포함하는 모드다. shallow clone 지연은 이번 환경에서 v3.7.0 0.915초, v3.7.1 1.555초, 후보 1.665초였다. 각 1회이고 네트워크·서버 cache가 통제되지 않았으므로 성능 채택 근거가 아니다. 실제 Claude/Codex 내부 clone 옵션도 확정하지 않았으므로 이 숫자를 호스트 설치 지연으로 단정하지 않는다. HTTP/TLS overhead는 pack bytes에 포함하지 않는다. 명령·리소스 원시·pack SHA·refs·범위는 git-transfer metadata ZIP에, 실제 clone들은 로컬 별도 경로에 보존했다.
+
+## PR #404 병합 후 준비 단계 중단과 발행 보류
+
+PR #404는 exact head f49740f의 필수 8개 checks와 실제 공유 core 252개·기본/기존 packaged 관문 성공을 확인한 뒤 병합했다. 병합 커밋은 `7bb7f57dec05c81a7981fd299983b5cc12342e1f`이며 제품 tree는 f49740f와 같다. v3.8.0은 아직 발행하지 않았다.
+
+병합 native run 42067118465에서 macOS Intel/ARM 및 Linux ARM은 differential 각 1024개와 integration 각 90개(명시적 native invocation 포함)를 통과했다. Intel의 사전 고정 추가 integration 2회도 각각 90개 통과했다. 그러나 Linux x64 job 127384208780은 16:43:14 UTC Rust 설치 완료 메시지 뒤 출력이 없었고 17:03:15에 기존 20분 job 제한으로 취소됐다. 빌드/제품 검사는 시작되지 않았고 후속 설치·성능 관문도 생략됐다. 정확한 정지 명령·네트워크/lock 원인은 로그만으로 확정하지 않는다. 체크 snapshot, 실패 전체 로그, 성공한 3개 플랫폼과 checkpoint 7개 ZIP 및 GitHub digest를 `ci-7bb7f57-native/`에 보존했다. 진행 중/대기 중인 다른 checks를 성공으로 표시하지 않는다.
+
+PR #406, head `4018ce15d3834f804b52169d666a92e10de471bb`는 Rust 설치·apt metadata 갱신·musl 설치를 각각 독립 단계로 분리한다. Rust 5분/각 apt 단계 4분으로 대기를 제한하고 apt 연결/읽기 20초, lock 30초, 자동 재시도 0을 지정한다. quiet를 제거하며 metadata 갱신 오류도 실패 처리한다. 전체 job 20분, 제품 준비 2초, 모든 독립 기대값/성능 기준은 유지한다. actionlint 및 diff 검사는 통과했다. 원인 해결을 주장하지 않고 후속 정지 위치를 식별하도록 보강한 것이다. 원래 실패 run을 재실행하지 않았고 새 head/merge의 필수 검증 완료 전에는 발행하지 않는다. 배포자 CI 준비 비용이며 사용자 컴파일러 없는 설치 비용과는 별개다.
