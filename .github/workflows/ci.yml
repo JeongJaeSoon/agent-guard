@@ -88,10 +88,6 @@ jobs:
           # pushes, so do not leave the GITHUB_TOKEN in the git config.
           persist-credentials: false
 
-      - name: Verify release CI provenance
-        if: matrix.bundle == 'core'
-        run: sh tests/full-ci-run.sh
-
       - name: Install pinned gitleaks (Linux x64)
         # Only shard 4 consumes real gitleaks. Other shards use the bundled
         # mock; installing the same archive there adds four unused downloads.

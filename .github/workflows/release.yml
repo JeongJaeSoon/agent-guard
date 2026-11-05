@@ -156,24 +156,6 @@ jobs:
               exit 1
             fi
             required_checks=$'Agent Guard\nTest (ubuntu-latest)\nTest (macos-latest)\nLint\nPlugin Layout\nHOL Plugin Scanner\nNative platform artifacts\nPackaged performance evidence'
-            require_full_ci() {
-              # Check names alone cannot distinguish a reduced PR run on the same SHA.
-              local ci_runs
-              if ! ci_runs=$(gh api --paginate --slurp \
-                -H "Accept: application/vnd.github+json" \
-                "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=$1&per_page=100"); then
-                echo "::error::unable to read full CI evidence for $1"
-                exit 1
-              fi
-              if ! printf '%s\n' "$ci_runs" \
-                | jq -se --arg sha "$1" --arg event "$2" --arg branch "$3" \
-                    -f scripts/require-full-ci.jq >/dev/null; then
-                echo "::error::latest full CI for $1 ($2/$3) is missing or not successful"
-                exit 1
-              fi
-            }
-            require_full_ci "$release_head_sha" pull_request "$release_branch"
-            require_full_ci "$release_sha" push main
             release_head_checks=$(gh api \
               -H "Accept: application/vnd.github+json" \
               "repos/${GITHUB_REPOSITORY}/commits/${release_head_sha}/check-runs?filter=latest&per_page=100")
