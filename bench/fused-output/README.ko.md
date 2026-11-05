@@ -141,3 +141,25 @@ locale 상태가 정확히 같은지도 독립적으로 확인한다.
 Intel 11.12초였고 전체 독립 출력과 호출 전후 locale 상태도 일치했다.
 이 플랫폼별 단일 실행을 평균 성능 비율로 사용하지 않는다. 최종 PR head에서는
 전체 계약 및 동일 scanner 성능 측정을 다시 적용한다.
+
+통합 `bd19cb5`의 378개 동일 조건 비교는 독립 기대값 불일치 0, 일반 경로
+지연·CPU 5% 초과 회귀 0으로 사전 성능 기준을 통과했다. 실제 Homebrew의
+목표 지연은 15.30~21.51%, CPU는 13.72~15.17% 감소했다. Claude 동시
+4요청 표본 RSS 합은 213.43→238.37MiB로 증가했으므로 메모리 개선으로
+표현하지 않는다. 격리 Linux 전체 suite도 2739 성공/0실패, exit 0이었다.
+
+그러나 같은 head의 native-platforms Intel job `127226599967`은 Claude
+fixture 3 / relative-path에서 실패했다. 이번에는 원시 stdout/stderr가 남아
+scanner readiness의 기존 2초 timeout이 DEGRADED 출력 차이의 직접 원인임을
+확인했다. 후속 macOS Intel/ARM의 각 24회 합성 hook 진단에서는 재현되지
+않았고, Intel 직접 version은 0.34~0.83초였다. 이 성공으로 기존 실패를
+지우지 않으며 최초 자료 없는 v3.7.0 mismatch에 같은 원인을 소급하지 않는다.
+
+별도로 부모가 완료한 version 자식을 reap한 직후 지연되는 경합을 결정적으로
+재현했다. 기존 watchdog은 이미 정상 종료/exit 7인 자식도 늦게 timeout으로
+바꿨다. timeout 기록 직전에 자식의 생존 여부를 확인하는 최소 수정과 전후
+회귀 검사를 추가한다. 실제 느린 자식의 2초 제한과 실패 정책은 그대로다.
+이 재현 가능한 경합이 위의 실제 CI timeout 원인이었다고 확정하지 않는다.
+실패를 성공까지 재실행하지 않고, 수정된 head의 필수 CI·네 플랫폼 설치·성능을
+별도로 검증한다. 원시 자료는 `codex/fused-output-evidence` 브랜치에 head별로
+보존하며 공개 배포는 아직 v3.7.1이다.
