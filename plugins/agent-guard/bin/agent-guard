@@ -1470,6 +1470,10 @@ probe_gitleaks() {
     ag_gl_watch_sleep_pid=$!
     wait "$ag_gl_watch_sleep_pid" 2>/dev/null || exit 0
     ag_gl_watch_sleep_pid=
+    # The parent may have reaped a completed probe and then been descheduled
+    # before cancelling this watchdog. Do not turn its completed exit status
+    # into a timeout, or signal a group whose leader no longer exists.
+    kill -0 "$AG_GITLEAKS_PROBE_PID" 2>/dev/null || exit 0
     printf 'timeout\n' >"$ag_gl_probe_timeout"
     kill_gitleaks_probe_group TERM
     kill -TERM "$AG_GITLEAKS_PROBE_PID" 2>/dev/null || :
