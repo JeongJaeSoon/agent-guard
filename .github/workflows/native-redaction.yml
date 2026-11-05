@@ -1,5 +1,5 @@
 name: Experimental native redactor
-run-name: Numeric fallback focused validation
+run-name: Codex numeric fallback focused validation
 on:
   workflow_dispatch:
 permissions:
@@ -21,7 +21,7 @@ jobs:
         run: |
           sh scripts/install-native-test-tools.sh "$RUNNER_TEMP/test-bin"
           export PATH="$RUNNER_TEMP/test-bin:$PATH"
-          python3 bench/fused-output/diagnose-numeric.py plugins/agent-guard "$RUNNER_TEMP/evidence"
+          AG_NUMERIC_TEST_HOST=codex python3 bench/fused-output/diagnose-numeric.py plugins/agent-guard "$RUNNER_TEMP/evidence"
           uname -a > "$RUNNER_TEMP/evidence/platform.txt"
           jq --version >> "$RUNNER_TEMP/evidence/platform.txt"
           /bin/sh --version >> "$RUNNER_TEMP/evidence/platform.txt" 2>&1 || true
@@ -30,6 +30,6 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
-          name: numeric-fixed-${{ matrix.os }}
+          name: numeric-codex-${{ matrix.os }}
           path: ${{ runner.temp }}/evidence/
           if-no-files-found: error

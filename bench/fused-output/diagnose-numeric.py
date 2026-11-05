@@ -78,10 +78,12 @@ shutil.copytree(source, copy, ignore=shutil.ignore_patterns("target", ".git"))
 (copy / "bin/agent-guard").write_text(text)
 env = os.environ.copy()
 env.pop("AI_AGENT", None)
+host = env.get("AG_NUMERIC_TEST_HOST", "claude")
+assert host in ("claude", "codex")
 env.update(AGENT_GUARD_TEST_RESPONSE_FILE=str(fixture), AGENT_GUARD_TEST_REAL_JQ=real_jq,
            AGENT_GUARD_LOG_MODE="off", AGENT_GUARD_RELEASE_CHECK="off",
            AGENT_GUARD_OUTPUT_REDACT="mask", AGENT_GUARD_PII_HOOK_MODE="off",
-           AGENT_GUARD_HOOK_HOST="claude", PATH=str(wrapper) + ":" + env["PATH"])
+           AGENT_GUARD_HOOK_HOST=host, PATH=str(wrapper) + ":" + env["PATH"])
 rows = []
 for mode, plugin in [("original", source), ("instrumented", copy)]:
     stages = destination / f"{mode}-stages.log"
@@ -97,13 +99,19 @@ for mode, plugin in [("original", source), ("instrumented", copy)]:
     diagnostic_error = None
     try:
         output = json.loads((destination / f"{mode}.stdout").read_text())
-        values = output["hookSpecificOutput"]["updatedToolOutput"]
+        if host == "codex":
+            assert output["decision"] == "block"
+            context = output["hookSpecificOutput"]["additionalContext"]
+            assert context.startswith("Agent Guard sanitized tool output:\n")
+            values = json.loads(context.removeprefix("Agent Guard sanitized tool output:\n"))
+        else:
+            values = output["hookSpecificOutput"]["updatedToolOutput"]
         correct = (len(values) == 960000 and all(type(v) is int and v == 0 if i % 2 == 0
                                                else v is False for i, v in enumerate(values)))
     except (ValueError, KeyError, TypeError) as error:
         correct = False
         diagnostic_error = str(error)
-    rows.append(dict(mode=mode, wall_seconds=elapsed, user_cpu_seconds=usage.ru_utime,
+    rows.append(dict(mode=mode, host=host, wall_seconds=elapsed, user_cpu_seconds=usage.ru_utime,
                      system_cpu_seconds=usage.ru_stime,
                      max_child_peak_rss_kib=usage.ru_maxrss / (1024 if sys.platform == "darwin" else 1),
                      status=process.returncode, independent_expected=correct, diagnostic_error=diagnostic_error,
