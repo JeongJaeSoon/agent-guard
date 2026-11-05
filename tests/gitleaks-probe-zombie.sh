@@ -44,6 +44,7 @@ for mode in ready failed slow unavailable; do
     sleep .1; attempt=$((attempt + 1))
   done
   { IFS= read -r parent && IFS= read -r probe_pid; } <"$folder/parent"
+  printf "# controlled probe: guard=%s parent=%s child=%s mode=%s\n" "$guard_pid" "$parent" "$probe_pid" "$mode"
   [ "$parent" = "$guard_pid" ]
   kill -STOP "$guard_pid"
   touch "$folder/release"
