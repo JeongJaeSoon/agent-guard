@@ -23,10 +23,19 @@ cp "$stage/public/libexec/agent-guard-redact-x86_64-unknown-linux-musl"* plugins
 image=agent-guard-fused-proof
 docker build --secret id=proxy_ca,src=/etc/ssl/certs/ca-certificates.crt -f bench/native/Dockerfile -t "$image" . > "$out/build.log" 2>&1
 docker image inspect "$image" --format '{{.Id}}' > "$out/image-id.txt"
-run() {
+run_container() {
   docker run --rm --init --network=none --cpus=2 --memory=1g --memory-swap=1g \
     -e AGENT_GUARD_BENCH_CGROUP_ISOLATED=1 \
-    -v "$stage/public:/public:ro" -v "$scanner:/scanner/gitleaks:ro" "$image" "$@"
+    -v "$stage/public:/public:ro" -v "$scanner:/scanner/gitleaks:ro" "$@"
+}
+run() {
+  # Real Linux Homebrew bottles reference their own dynamic loader/libraries.
+  # Preserve that published binary and runtime prefix instead of patching ELF.
+  if [ -d /home/linuxbrew/.linuxbrew ]; then
+    run_container -v /home/linuxbrew/.linuxbrew:/home/linuxbrew/.linuxbrew:ro "$image" "$@"
+  else
+    run_container "$image" "$@"
+  fi
 }
 limits=$(run sh -c 'cat /sys/fs/cgroup/cpu.max /sys/fs/cgroup/memory.max /sys/fs/cgroup/memory.swap.max')
 [ "$(docker info --format '{{.CgroupDriver}}')" != none ] && [ "$limits" = "200000 100000

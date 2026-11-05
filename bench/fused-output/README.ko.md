@@ -64,3 +64,8 @@ host 계약용 PATH를 전체 suite에도 적용해 fixture 생성에 필요한 
 base64, printenv, yes가 빠진 로그를 확인했다. compiler-free 준비·host·fallback
 검사는 유지하고, 전체 출력 suite는 시스템 fixture 도구가 있는 별도 step에서
 실행하도록 분리한다. 기대값과 scanner 제한 시간은 변경하지 않는다.
+
+후속 CI는 실제 Linux Homebrew 설치 바이너리도 같은 방식으로 양쪽에 사용한다.
+버전·formula 정보·build info·해시를 보존하고, bottle의 loader와 라이브러리 prefix를
+읽기 전용으로 함께 마운트하여 실행 파일을 패치하지 않는다. 따라서 이전 stdlib
+소스 재빌드 관측과 실제 Homebrew 비교를 구분할 수 있다.

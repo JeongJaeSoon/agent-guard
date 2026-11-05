@@ -67,7 +67,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        scanner: [official, stdlib]
+        scanner: [official, stdlib, homebrew]
         audit: [off, cold, warm]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -83,7 +83,7 @@ jobs:
           mkdir "$RUNNER_TEMP/scanner"
           if [ "$SCANNER_KIND" = official ]; then
             cp "$RUNNER_TEMP/test-bin/gitleaks" "$RUNNER_TEMP/scanner/gitleaks"
-          else
+          elif [ "$SCANNER_KIND" = stdlib ]; then
             git init -q "$RUNNER_TEMP/source"
             git -C "$RUNNER_TEMP/source" remote add origin https://github.com/gitleaks/gitleaks.git
             git -C "$RUNNER_TEMP/source" fetch -q --depth=1 origin 83d9cd684c87d95d656c1458ef04895a7f1cbd8e
@@ -91,6 +91,12 @@ jobs:
             (cd "$RUNNER_TEMP/source" && CGO_ENABLED=0 GOTOOLCHAIN=local go build -buildvcs=false -trimpath \
               -ldflags '-s -w -X=github.com/zricethezav/gitleaks/v8/version.Version=8.30.1' \
               -o "$RUNNER_TEMP/scanner/gitleaks" .)
+          else
+            eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+            HOMEBREW_NO_AUTO_UPDATE=1 brew install gitleaks
+            cp "$(command -v gitleaks)" "$RUNNER_TEMP/scanner/gitleaks"
+            brew info --json=v2 gitleaks > "$RUNNER_TEMP/scanner/homebrew.json"
+            brew config > "$RUNNER_TEMP/scanner/homebrew-config.txt"
           fi
           go version -m "$RUNNER_TEMP/scanner/gitleaks" > "$RUNNER_TEMP/scanner/buildinfo.txt"
           sha256sum "$RUNNER_TEMP/scanner/gitleaks" > "$RUNNER_TEMP/scanner/binary.sha256"
@@ -106,4 +112,6 @@ jobs:
             ${{ runner.temp }}/evidence/
             ${{ runner.temp }}/scanner/buildinfo.txt
             ${{ runner.temp }}/scanner/binary.sha256
+            ${{ runner.temp }}/scanner/homebrew.json
+            ${{ runner.temp }}/scanner/homebrew-config.txt
           if-no-files-found: error
