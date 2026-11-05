@@ -8933,6 +8933,7 @@ secretish_env_values() {
 
 # Treat malformed byte counts as over-cap so callers fail closed. Keeping the
 # limit in one helper aligns PostToolUse, gitleaks, and exec preflights.
+OUTPUT_SCAN_MAX_BYTES=327680
 output_scan_input_exceeds_cap() {
   output_scan_input=$1
   output_scan_bytes=$(printf '%s' "$output_scan_input" \
@@ -8940,7 +8941,7 @@ output_scan_input_exceeds_cap() {
   case "$output_scan_bytes" in
     ''|*[!0-9]*) return 0 ;;
   esac
-  [ "$output_scan_bytes" -gt 327680 ]
+  [ "$output_scan_bytes" -gt "$OUTPUT_SCAN_MAX_BYTES" ]
 }
 
 # Bind the live post-tool probe's replacement to this invocation's diagnostic
@@ -10364,6 +10365,10 @@ redact_response_whole_leaf_fail_closed() {
 
 rewrite_response_conservatively() {
   whole_leaf_response=$1
+  rewrite_current_response_conservatively
+}
+
+rewrite_current_response_conservatively() {
   SAFE_REWRITE=
   if ! SAFE_REWRITE=$(redact_response_whole_leaf_fail_closed); then
     SAFE_REWRITE=
@@ -11700,6 +11705,23 @@ redact_tool_output() {
   # high-cardinality output the path collection.
   resp_full=''
   conservative_done=0
+  # A quote-free JSON value is ASCII and has no string or binary payload. Its
+  # character count is its byte count. Above the existing cap it must take the
+  # conservative path anyway; do so before another large copy and NUL walk.
+  # The same validated fallback and failure recovery remain authoritative.
+  if [ "$secrets_on" -eq 1 ]; then
+    case "$resp" in
+      *'"'*) ;;
+      *)
+        if [ "${#resp}" -gt "$OUTPUT_SCAN_MAX_BYTES" ]; then
+          whole_leaf_response=$resp
+          rewrite_current_response_conservatively
+          resp=$SAFE_REWRITE
+          conservative_done=1
+        fi
+        ;;
+    esac
+  fi
   case "$resp" in
     *base64*|*mimeType*)
       r=
