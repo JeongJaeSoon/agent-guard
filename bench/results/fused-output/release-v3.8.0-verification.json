@@ -1,0 +1,525 @@
+{
+  "release": "v3.8.0",
+  "release_sha": "f295e1a6727b674713a52134dd576f7cd2272131",
+  "reviewed_head": "c3cfb4005dc7bca90b19111049409dc0c36f3da9",
+  "head_and_merge_required_checks": "8 success each",
+  "release_run": 42103569021,
+  "native_run": 42093870746,
+  "public_run": 42104857774,
+  "homebrew_pr": 26,
+  "homebrew_merge": "9e232cacf87c98bf30d652c0110f55db328c0847",
+  "performance": {
+    "scope": "same scanner in both arms; actual public v3.7.0 versus candidate with one qualified packaged core shared by prepare and redaction; Homebrew target",
+    "comparison_count": 252,
+    "mismatch_count": 0,
+    "ordinary_regressions": [],
+    "accepted_performance": true,
+    "targets": [
+      {
+        "scanner": "homebrew",
+        "audit": "cold",
+        "host": "claude",
+        "name": "many-replacement-leaves",
+        "verified": true,
+        "arms": {
+          "baseline": {
+            "latency_seconds": 0.278959233,
+            "cpu_seconds": 0.312683,
+            "max_child_rss_mib": 38.79296875
+          },
+          "candidate": {
+            "latency_seconds": 0.233314872,
+            "cpu_seconds": 0.266301,
+            "max_child_rss_mib": 38.4921875
+          }
+        },
+        "latency_change_percent": -16.362376863862384,
+        "cpu_change_percent": -14.833553471087324
+      },
+      {
+        "scanner": "homebrew",
+        "audit": "cold",
+        "host": "codex",
+        "name": "many-replacement-leaves",
+        "verified": true,
+        "arms": {
+          "baseline": {
+            "latency_seconds": 0.282705194,
+            "cpu_seconds": 0.317646,
+            "max_child_rss_mib": 38.97265625
+          },
+          "candidate": {
+            "latency_seconds": 0.238724413,
+            "cpu_seconds": 0.272716,
+            "max_child_rss_mib": 39.06640625
+          }
+        },
+        "latency_change_percent": -15.557118133457426,
+        "cpu_change_percent": -14.144676778552212
+      },
+      {
+        "scanner": "homebrew",
+        "audit": "off",
+        "host": "claude",
+        "name": "many-replacement-leaves",
+        "verified": true,
+        "arms": {
+          "baseline": {
+            "latency_seconds": 0.263006696,
+            "cpu_seconds": 0.291265,
+            "max_child_rss_mib": 39.03515625
+          },
+          "candidate": {
+            "latency_seconds": 0.218664279,
+            "cpu_seconds": 0.246807,
+            "max_child_rss_mib": 38.78125
+          }
+        },
+        "latency_change_percent": -16.859805348834158,
+        "cpu_change_percent": -15.263763239661476
+      },
+      {
+        "scanner": "homebrew",
+        "audit": "off",
+        "host": "codex",
+        "name": "many-replacement-leaves",
+        "verified": true,
+        "arms": {
+          "baseline": {
+            "latency_seconds": 0.264411478,
+            "cpu_seconds": 0.292019,
+            "max_child_rss_mib": 38.953125
+          },
+          "candidate": {
+            "latency_seconds": 0.221051116,
+            "cpu_seconds": 0.249836,
+            "max_child_rss_mib": 38.875
+          }
+        },
+        "latency_change_percent": -16.398819872713688,
+        "cpu_change_percent": -14.445292943267384
+      },
+      {
+        "scanner": "homebrew",
+        "audit": "warm",
+        "host": "claude",
+        "name": "many-replacement-leaves",
+        "verified": true,
+        "arms": {
+          "baseline": {
+            "latency_seconds": 0.213004581,
+            "cpu_seconds": 0.2344,
+            "max_child_rss_mib": 39.24609375
+          },
+          "candidate": {
+            "latency_seconds": 0.177123678,
+            "cpu_seconds": 0.200389,
+            "max_child_rss_mib": 38.828125
+          }
+        },
+        "latency_change_percent": -16.84513207722983,
+        "cpu_change_percent": -14.509812286689417
+      },
+      {
+        "scanner": "homebrew",
+        "audit": "warm",
+        "host": "codex",
+        "name": "many-replacement-leaves",
+        "verified": true,
+        "arms": {
+          "baseline": {
+            "latency_seconds": 0.214974155,
+            "cpu_seconds": 0.23809000000000002,
+            "max_child_rss_mib": 38.640625
+          },
+          "candidate": {
+            "latency_seconds": 0.180508316,
+            "cpu_seconds": 0.204545,
+            "max_child_rss_mib": 38.95703125
+          }
+        },
+        "latency_change_percent": -16.032550052353965,
+        "cpu_change_percent": -14.089209962619186
+      },
+      {
+        "scanner": "official",
+        "audit": "cold",
+        "host": "claude",
+        "name": "many-replacement-leaves",
+        "verified": true,
+        "arms": {
+          "baseline": {
+            "latency_seconds": 0.949159281,
+            "cpu_seconds": 1.0003170000000001,
+            "max_child_rss_mib": 62.11328125
+          },
+          "candidate": {
+            "latency_seconds": 0.905179891,
+            "cpu_seconds": 0.9563240000000001,
+            "max_child_rss_mib": 62.09765625
+          }
+        },
+        "latency_change_percent": -4.6335099788167184,
+        "cpu_change_percent": -4.397905863841167
+      },
+      {
+        "scanner": "official",
+        "audit": "cold",
+        "host": "codex",
+        "name": "many-replacement-leaves",
+        "verified": true,
+        "arms": {
+          "baseline": {
+            "latency_seconds": 0.950326301,
+            "cpu_seconds": 1.005169,
+            "max_child_rss_mib": 62.04296875
+          },
+          "candidate": {
+            "latency_seconds": 0.910104371,
+            "cpu_seconds": 0.9659580000000001,
+            "max_child_rss_mib": 62.79296875
+          }
+        },
+        "latency_change_percent": -4.232433634392285,
+        "cpu_change_percent": -3.900936061498106
+      },
+      {
+        "scanner": "official",
+        "audit": "off",
+        "host": "claude",
+        "name": "many-replacement-leaves",
+        "verified": true,
+        "arms": {
+          "baseline": {
+            "latency_seconds": 0.755473643,
+            "cpu_seconds": 0.768091,
+            "max_child_rss_mib": 62.54296875
+          },
+          "candidate": {
+            "latency_seconds": 0.697208707,
+            "cpu_seconds": 0.729572,
+            "max_child_rss_mib": 62.80078125
+          }
+        },
+        "latency_change_percent": -7.712371773637106,
+        "cpu_change_percent": -5.014900578186698
+      },
+      {
+        "scanner": "official",
+        "audit": "off",
+        "host": "codex",
+        "name": "many-replacement-leaves",
+        "verified": true,
+        "arms": {
+          "baseline": {
+            "latency_seconds": 0.742588759,
+            "cpu_seconds": 0.772608,
+            "max_child_rss_mib": 62.60546875
+          },
+          "candidate": {
+            "latency_seconds": 0.698633505,
+            "cpu_seconds": 0.7325659999999999,
+            "max_child_rss_mib": 62.73828125
+          }
+        },
+        "latency_change_percent": -5.919191944029956,
+        "cpu_change_percent": -5.182705848243874
+      },
+      {
+        "scanner": "official",
+        "audit": "warm",
+        "host": "claude",
+        "name": "many-replacement-leaves",
+        "verified": true,
+        "arms": {
+          "baseline": {
+            "latency_seconds": 0.654642546,
+            "cpu_seconds": 0.69093,
+            "max_child_rss_mib": 62.86328125
+          },
+          "candidate": {
+            "latency_seconds": 0.612501642,
+            "cpu_seconds": 0.648879,
+            "max_child_rss_mib": 62.359375
+          }
+        },
+        "latency_change_percent": -6.437238804213019,
+        "cpu_change_percent": -6.086144761408541
+      },
+      {
+        "scanner": "official",
+        "audit": "warm",
+        "host": "codex",
+        "name": "many-replacement-leaves",
+        "verified": true,
+        "arms": {
+          "baseline": {
+            "latency_seconds": 0.662697006,
+            "cpu_seconds": 0.703323,
+            "max_child_rss_mib": 62.92578125
+          },
+          "candidate": {
+            "latency_seconds": 0.615944021,
+            "cpu_seconds": 0.654809,
+            "max_child_rss_mib": 62.36328125
+          }
+        },
+        "latency_change_percent": -7.054956424535286,
+        "cpu_change_percent": -6.89782646095749
+      }
+    ],
+    "load": [
+      {
+        "scanner": "homebrew",
+        "workers": 1,
+        "arms": {
+          "baseline": {
+            "requests_per_second": 3.822589610120401,
+            "cpu_seconds": 2.304906,
+            "max_child_rss_mib": 39.40625,
+            "sampled_rss_sum_mib": 60.734375
+          },
+          "candidate": {
+            "requests_per_second": 4.577521116016219,
+            "cpu_seconds": 1.9573040000000002,
+            "max_child_rss_mib": 39.609375,
+            "sampled_rss_sum_mib": 66.28125
+          }
+        },
+        "requests_per_trial": 8
+      },
+      {
+        "scanner": "homebrew",
+        "workers": 4,
+        "arms": {
+          "baseline": {
+            "requests_per_second": 4.4933819092556435,
+            "cpu_seconds": 3.600977,
+            "max_child_rss_mib": 39.828125,
+            "sampled_rss_sum_mib": 214.55078125
+          },
+          "candidate": {
+            "requests_per_second": 5.3380942301105305,
+            "cpu_seconds": 2.978181,
+            "max_child_rss_mib": 39.96484375,
+            "sampled_rss_sum_mib": 238.0546875
+          }
+        },
+        "requests_per_trial": 8
+      },
+      {
+        "scanner": "official",
+        "workers": 1,
+        "arms": {
+          "baseline": {
+            "requests_per_second": 1.3152636747486248,
+            "cpu_seconds": 6.173952,
+            "max_child_rss_mib": 63.73046875,
+            "sampled_rss_sum_mib": 84.828125
+          },
+          "candidate": {
+            "requests_per_second": 1.4003831226963164,
+            "cpu_seconds": 5.886202999999999,
+            "max_child_rss_mib": 63.48828125,
+            "sampled_rss_sum_mib": 90.4765625
+          }
+        },
+        "requests_per_trial": 8
+      },
+      {
+        "scanner": "official",
+        "workers": 4,
+        "arms": {
+          "baseline": {
+            "requests_per_second": 1.6597782398012098,
+            "cpu_seconds": 9.538969999999999,
+            "max_child_rss_mib": 63.6015625,
+            "sampled_rss_sum_mib": 302.3046875
+          },
+          "candidate": {
+            "requests_per_second": 1.7322465682606147,
+            "cpu_seconds": 9.04861,
+            "max_child_rss_mib": 63.73046875,
+            "sampled_rss_sum_mib": 322.36328125
+          }
+        },
+        "requests_per_trial": 8
+      }
+    ]
+  },
+  "installation_cost": {
+    "scope": "actual public bootstraps; local 4CPU/16GiB; 9 alternating pairs; excludes network/Docker startup/first dependency install",
+    "medians": {
+      "baseline": {
+        "wall_seconds": 0.637491679,
+        "cpu_seconds": 0.681287,
+        "max_child_peak_rss_kib": 45744.0,
+        "installed_bytes": 3494569
+      },
+      "candidate": {
+        "wall_seconds": 0.640202339,
+        "cpu_seconds": 0.688275,
+        "max_child_peak_rss_kib": 45544.0,
+        "installed_bytes": 3539549
+      }
+    }
+  },
+  "public_assets": {
+    "tag": "v3.8.0",
+    "release_sha": "f295e1a6727b674713a52134dd576f7cd2272131",
+    "assets": [
+      {
+        "name": "agent-guard-3.8.0.tar.gz",
+        "sha256": "d0caf58492f6b8b93c98948fbf2f1ff3bc0e7d64d083cefb24537d216957e46b",
+        "verified": true
+      },
+      {
+        "name": "agent-guard-3.8.0.tar.gz.sha256",
+        "sha256": "72abc1a7f06d9dc448be96a171e8b21437b07a2d417f55991e7b0d9eea66208e",
+        "verified": true
+      },
+      {
+        "name": "agent-guard-redact-aarch64-apple-darwin",
+        "sha256": "49ec7071dd88c2e3feea57032244591877f945968414cb128cd8fa2e318bed2b",
+        "verified": true
+      },
+      {
+        "name": "agent-guard-redact-aarch64-apple-darwin.sha256",
+        "sha256": "5360cc7c1670f30ef93db0c86958002edd30ddd47a3e1f9802a63b05c1fb1933",
+        "verified": true
+      },
+      {
+        "name": "agent-guard-redact-aarch64-unknown-linux-musl",
+        "sha256": "e07a3463b1d35f24fc9a587f358fe382496e2136cf0271b42982f1c83c414144",
+        "verified": true
+      },
+      {
+        "name": "agent-guard-redact-aarch64-unknown-linux-musl.sha256",
+        "sha256": "f32e2dd2038de5337f37b50a33a94496fc770abb442511223558f1c8e448f3bf",
+        "verified": true
+      },
+      {
+        "name": "agent-guard-redact-x86_64-apple-darwin",
+        "sha256": "0742ba3df74ccd6fe5fa133dbf4f3f796c06e7bd279965c8f093acf7214bffca",
+        "verified": true
+      },
+      {
+        "name": "agent-guard-redact-x86_64-apple-darwin.sha256",
+        "sha256": "c2980c651997ea1d59575172b06790913c0efd4f18685df99459bffb20526c4d",
+        "verified": true
+      },
+      {
+        "name": "agent-guard-redact-x86_64-unknown-linux-musl",
+        "sha256": "ffbe52a07f07ea6f4447f1218627b946288d1d2eab134128b74927c09358c200",
+        "verified": true
+      },
+      {
+        "name": "agent-guard-redact-x86_64-unknown-linux-musl.sha256",
+        "sha256": "b3fd84cd95fc013a9c5d262793c152506c2f0acaeff9734d2e6f95c47d4932fc",
+        "verified": true
+      },
+      {
+        "name": "agent-guard.rb",
+        "sha256": "d25728470a2cf99b7ebae0627f7582089b44edc4081b787609744bb503c5f8df",
+        "verified": true
+      },
+      {
+        "name": "bootstrap.sh",
+        "sha256": "a28827587c60a02c44567a480e1e0e08bf517c407f64e8b28fa4450aee75b64e",
+        "verified": true
+      },
+      {
+        "name": "install.sh",
+        "sha256": "5c8e72a232aa8b837a64384697bb5984359572e0447b8c9f8a75418a0905bdb4",
+        "verified": true
+      },
+      {
+        "name": "native-validation.json",
+        "sha256": "3962c6966e7e72aa6cf49a935c05bf5137a7544392c2ce309f37aac28ed0d4ad",
+        "verified": true
+      },
+      {
+        "name": "THIRD_PARTY_NOTICES.md",
+        "sha256": "0688b189a6861bc074cef1ddb78a3b55c3c91250ce0d174f7815a12f87e6b9b1",
+        "verified": true
+      }
+    ],
+    "all_native_assets_match_archive": true,
+    "cli_and_host_versions_match": true,
+    "reviewed_installers_and_notices_match": true,
+    "rendered_formula_matches": true,
+    "qualification_is_exact_main_push": true
+  },
+  "public_validation": {
+    "release": "v3.8.0",
+    "release_sha": "f295e1a6727b674713a52134dd576f7cd2272131",
+    "workflow_run": 42104857774,
+    "attempt": 1,
+    "passed": 7,
+    "failed": 0,
+    "platforms": [
+      {
+        "name": "public-ubuntu-24.04",
+        "upgrade_from": "3.7.1",
+        "fused_contracts_passed": 16,
+        "all_native_checksums_verified": true,
+        "published_release_verified": true
+      },
+      {
+        "name": "public-ubuntu-24.04-arm",
+        "upgrade_from": "3.7.1",
+        "fused_contracts_passed": 16,
+        "all_native_checksums_verified": true,
+        "published_release_verified": true
+      },
+      {
+        "name": "public-macos-15-intel",
+        "upgrade_from": "3.7.1",
+        "fused_contracts_passed": 16,
+        "all_native_checksums_verified": true,
+        "published_release_verified": true
+      },
+      {
+        "name": "public-macos-15",
+        "upgrade_from": "3.7.1",
+        "fused_contracts_passed": 16,
+        "all_native_checksums_verified": true,
+        "published_release_verified": true
+      },
+      {
+        "name": "public-homebrew-ubuntu-24.04",
+        "upgrade_from": "3.7.1",
+        "fused_contracts_passed": 16,
+        "all_native_checksums_verified": true,
+        "published_release_verified": true
+      },
+      {
+        "name": "public-homebrew-macos-15-intel",
+        "upgrade_from": "3.7.1",
+        "fused_contracts_passed": 16,
+        "all_native_checksums_verified": true,
+        "published_release_verified": true
+      },
+      {
+        "name": "public-homebrew-macos-15",
+        "upgrade_from": "3.7.1",
+        "fused_contracts_passed": 16,
+        "all_native_checksums_verified": true,
+        "published_release_verified": true
+      }
+    ]
+  },
+  "compatibility_breaks": [],
+  "original_v370_intel_root_cause": "unconfirmed; missing initial fixture/stdout/stderr",
+  "limitations": [
+    "fused pipeline remains opt-in",
+    "official scanner target below 10 percent",
+    "no aggregate memory saving",
+    "measured performance not generalized to every platform/host version"
+  ],
+  "rejected_configurations": [
+    "core preparation alone below target",
+    "blanket scanner dependency replacement regresses Homebrew",
+    "separate GNU prepare/public redactor hybrid retains two ordinary regressions"
+  ]
+}

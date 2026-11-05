@@ -3,7 +3,7 @@
 2026-11-05부터 이어진 조사 기록이다. 최신 상태(11월 6일): v3.8.0을 실제
 main `f295e1a`에서 발행했고 공개 자산 15개를 검증했다. Homebrew PR #26도
 formula CI 성공 후 병합했다. 공개 태그에서 네 플랫폼 설치 및 세 Homebrew
-환경의 최종 검증을 진행 중이다. 최종 PR head와 실제 merge의 필수 8개 checks는
+환경의 최종 검증도 모두 통과했다. 최종 PR head와 실제 merge의 필수 8개 checks는
 각각 모두 성공했다. 실제 설치 구성 252개 비교는 독립 출력 불일치·일반 5% 초과
 회귀 0이다. Homebrew 목표 지연 15.56~16.86%, CPU 14.09~15.26% 감소이며
 메모리 절감은 없다. 아래는 실패 결과도 보존한 시간순 이력이다.
@@ -491,3 +491,16 @@ Homebrew PR #26의 exact head 630880e에서 formula audit·실제 install·brew 
 설치 지연 차이는 +2.71ms, CPU +6.99ms다. 설치 파일 +44,980 bytes(+1.29%), 압축 배포본 +20,443 bytes(+1.06%)다. 작은 시간·RSS 차이를 설치 속도/메모리 개선으로 주장하지 않는다. 실제 로컬 cgroup은 4CPU/16GiB이며 네트워크 다운로드, Docker 시작, 의존성 최초 설치를 제외했다. filesystem cache를 강제로 비우지 않았다. 2CPU/1GiB 사용 성능과 조건이 다르므로 몇 회 사용하면 회수되는지 계산하지 않는다.
 
 위 증가분은 기존 packaged v3.7.0 사용자 기준이다. 소스 Git 플러그인만 사용하던 사람이 문서대로 독립 설치를 새로 연결하면 약 3.54MB 전체 설치를 추가한다. 이미 standalone/Homebrew가 있는 경우와 구분해야 한다. core 네 파일 중 플랫폼별 크기는 약 399~543KB지만 안내된 독립 설치는 universal package다. host 내부 Git clone 옵션·의존성/network 비용까지 이 수치로 일반화하지 않는다. 매 실행의 RSS 증가는 일회성 설치 비용과 별개의 tradeoff다.
+
+## 최종 공개 검증 완료와 결론
+
+Public native release validation run `42104857774`는 공개 태그 v3.8.0의 정확한 f295e1a에서 attempt 1로 성공했다. Linux x64/ARM, macOS Intel/ARM의 직접 공개 설치·3.7.1 업데이트·복귀 검사 네 개와 Linux x64/macOS Intel/ARM의 실제 Homebrew 업데이트·정식 tap 새 설치 세 개가 모두 성공했다. 일곱 환경 각각에서 공유 core·소스 Git 플러그인·부분 실패 복귀·설정 해제의 16개 계약이 통과했고, 공개 core 네 파일의 checksum도 확인했다. 네 직접 설치 로그의 published-tag/native-validation SHA는 f295e1a이며, Homebrew 세 환경의 설치 버전은 3.8.0이고 다운로드한 formula는 공개 자산과 bytes까지 같다. 원본 ZIP 7개·GitHub digest·전체 job/run snapshot·독립 재확인은 `public-v3.8.0-ci/`에 보존했다.
+
+마지막 artifact의 첫 수집 응답에 file_uri가 없어 로컬 검증은 파일 부재로 중단됐다. 빈 manifest 5와 수집 복구 기록을 남기고 동일 성공 artifact 13452657948를 다시 내려받아 GitHub digest를 검증했다. 제품 실행·CI·성능 측정을 재실행한 것이 아니며 공개 workflow attempt는 1이다.
+
+- **채택:** 동일 qualified Rust core의 출력 준비·치환 연결, 선택형 출력 통합, 평문 framing과 시작 경로 최적화, 근거가 있는 numeric/완료 경합 수정. 기본 사용 경로는 유지하고 선택 설정 해제로 복구한다.
+- **기각:** 최초 core 준비 단독 후보는 약 3%여서 목표 미달. scanner 일괄 의존성 교체는 공식 배포본의 이득에도 Homebrew 회귀가 있어 기각. 개발용 GNU prepare/public redactor 혼합 구성의 f49740f 일반 경로 두 회귀도 실패로 유지한다. 공유 qualified core의 252개 통과로 혼합 구성 실패를 덮어쓰지 않는다.
+- **정확도·보안:** 최종 252개 비교의 독립 출력 불일치 0, 일반 지연/CPU 5% 초과 회귀 0. 기존 corpus와 네 플랫폼 native/감사/호스트·fallback 검사를 통과했다. 탐지·정책·PII·호스트 계약이나 마스킹 기대값을 완화하지 않았다.
+- **호환성과 버전:** 필요한 호환성 변경은 입증되지 않았다. 기존 Claude/Codex 설치·업데이트 방식과 셸 복구를 유지하는 선택형 기능을 v3.8.0으로 실제 제공했다. 사용자 Rust 컴파일러가 필요하지 않다. v4 숫자를 위한 변경은 만들지 않았다.
+- **미해결:** 최초 v3.7.0 Intel 출력 불일치는 최초 fixture/stdout/stderr 부재로 원인 미확정이다. 후속 readiness timeout·재현 가능한 Linux 완료/zombie 경합·numeric locale 문제를 최초 사건과 동일시하지 않는다. 공식 scanner 목표는 여전히 10% 미달이며 전체 메모리 절감도 입증하지 못했다. 성능 수치는 검증한 Linux 자원 제한/입력에 한정되고 네 플랫폼 모든 실제 host 버전·이전 OS로 일반화하지 않는다.
+- **배포:** 최종 head c3cfb40와 실제 release merge f295e1a의 필수 CI 8개 각각 성공 후 발행했다. 공개 15개 자산·SHA-256·정확한 main native 출처·v1 보존·Homebrew #26 및 실제 공개 4+3 환경 검증을 모두 완료했다.
