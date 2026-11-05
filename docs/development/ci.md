@@ -12,7 +12,8 @@ main/release matrix can be verified before merging a CI change.
 | Agent Guard | Real scanner against the checked-out tree |
 | Named suites (ubuntu-latest) | All suite partitions on Linux; real scanner integration and smoke test in shard 4 |
 | Named suites (macos-latest) | Core, host adapters and Git on every PR; all partitions on main and `release/` PRs, with the mock scanner |
-| Test (ubuntu-latest), Test (macos-latest) | Fail-closed aggregate of every shard, including cancelled/failed jobs |
+| Test (ubuntu-latest), Test (macos-latest) | Full-matrix aggregate on main, release PRs and manual dispatch; names consumed by release |
+| PR subset test (ubuntu-latest), PR subset test (macos-latest) | Ordinary PR aggregate of every selected shard, including cancelled/failed jobs |
 | Lint | ShellCheck on tracked shell scripts and actionlint on workflows |
 | Plugin Layout | Codex, Claude, marketplaces, release archive, and submission metadata |
 | HOL Plugin Scanner | Independent plugin scanner |
@@ -36,19 +37,24 @@ The internal IDs select execution partitions; Actions displays descriptive names
 Regression assertion bodies and their unpartitioned execution order stay
 identical; the matrix-coverage assertion counts both core entries and the two
 navigation hosts. Moved groups initialize their own repositories, configuration and
-sessions. The aggregate check names and their fail-closed dependencies remain
-unchanged; the release workflow consumes those aggregates, not the child names.
+sessions. Full-matrix aggregate names remain unchanged; the release workflow
+consumes those aggregates, not the child names. Reduced PR runs use distinct
+aggregate names, so a later subset success on the same SHA cannot replace full
+macOS evidence. Coverage and check identity share one scope decision in the
+existing Agent Guard job; test shards start after that job succeeds.
 
 ## Run lifecycle and queued jobs
 
 A newer commit cancels obsolete runs of the same workflow on the same PR.
 Main pushes and manual checks use unique run groups, so they retain their own
 validation. The serialized release workflow remains separate and is never
-cancelled by a PR update. Existing required check names and the fail-closed
-aggregate remain unchanged. Main and release PRs retain all OS/host partitions;
+cancelled by a PR update. Full aggregate names and fail-closed shard checks
+remain unchanged. Main and release PRs retain all OS/host partitions;
 other PRs defer macOS command, navigation and scanner/output coverage until main.
-The macOS aggregate reports the selected matrix's result, not full macOS coverage
-on ordinary PRs. This reduces runner usage at the cost of later detection of
+The PR subset macOS aggregate reports the selected matrix's result, not full
+macOS coverage. The full `Test` names are never emitted by a reduced run.
+`sh tests/ci-scope.sh` tests the shared producer and workflow wiring. This reduces
+runner usage at the cost of later detection of
 macOS-specific failures outside the core/host/Git bundle.
 
 Legacy jq/awk and experimental Rust contracts also run after relevant changes

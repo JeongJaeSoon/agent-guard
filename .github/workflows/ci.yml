@@ -32,9 +32,19 @@ jobs:
     name: Agent Guard
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    outputs:
+      oses: ${{ steps.scope.outputs.oses }}
+      check_prefix: ${{ steps.scope.outputs.check_prefix }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Select CI coverage and check identity
+        id: scope
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          HEAD_REF: ${{ github.head_ref }}
+        run: sh .github/scripts/ci-scope.sh "$EVENT_NAME" "$HEAD_REF" >> "$GITHUB_OUTPUT"
 
       - name: Scan for secrets
         uses: ./
@@ -45,10 +55,11 @@ jobs:
 
   test-shard:
     name: ${{ matrix.suite }} (${{ matrix.os }})
+    needs: secret-guard
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ fromJSON((github.event_name != 'pull_request' || startsWith(github.head_ref, 'release/')) && '["ubuntu-latest","macos-latest"]' || '["ubuntu-latest"]') }}
+        os: ${{ fromJSON(needs.secret-guard.outputs.oses) }}
         bundle: [core, commands, navigation-claude, navigation-codex, scanner]
         include:
           - bundle: core
@@ -145,10 +156,10 @@ jobs:
         run: make smoke-test
 
   test:
-    # Keeps the check names release.yml requires. needs sees the shard matrix
-    # as one result, so any selected shard fails both aggregate checks.
-    name: Test (${{ matrix.os }})
-    needs: test-shard
+    # Only full coverage may produce the names release.yml consumes.
+    # Any selected shard failure still fails both aggregate checks.
+    name: ${{ needs.secret-guard.outputs.check_prefix }} (${{ matrix.os }})
+    needs: [secret-guard, test-shard]
     if: always()
     strategy:
       matrix:
