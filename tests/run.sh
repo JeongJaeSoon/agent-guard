@@ -152,6 +152,7 @@ in_navigation_host() {
 }
 
 if in_shard 1; then
+run_expect 0 "CI scope keeps reduced checks separate from release evidence" sh "$ROOT/tests/ci-scope.sh"
 run_expect 0 "core function contracts" sh "$ROOT/tests/unit-core.sh"
 run_expect 0 "framing producer contracts" sh "$ROOT/tests/unit-framing.sh"
 run_expect 0 "deny-path character producer contracts" sh "$ROOT/tests/unit-deny-path.sh"
@@ -162,7 +163,7 @@ suite_shards=$(sed -n 's/^if in_shard \([0-9]*\); then$/\1/p' "$ROOT/tests/run.s
 ci_shards=$(sed -n "s/^ *shards: '\([0-9 ][0-9 ]*\)'$/\1/p" "$ROOT/.github/workflows/ci.yml" | tr ' ' '\n' | sort | tr '\n' ' ')
 ci_navigation_hosts=$(awk '$1 == "navigation_host:" { print $2 }' "$ROOT/.github/workflows/ci.yml" | sort | tr '\n' ' ')
 if [ -n "$suite_shards" ] && [ "$suite_shards" = '1 2 3 4 5 ' ] \
-  && [ "$ci_shards" = '1 2 3 4 5 5 ' ] \
+  && [ "$ci_shards" = '1 1 2 3 3 4 5 5 ' ] \
   && [ "$ci_navigation_hosts" = 'claude codex ' ]; then
   ok "every test shard and navigation host runs in the CI matrix"
 else

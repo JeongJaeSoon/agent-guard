@@ -4,20 +4,25 @@ CI runs on pull requests and pushes to `main`: the first validates a proposed
 change, the second validates the merged tree. Plugin Validation and HOL scan
 have the same triggers but own different checks; they are not duplicate suite
 runs. The release workflow also relies on the existing check names.
+Manual dispatch runs the full Linux/macOS matrix on the selected ref, so the
+main/release matrix can be verified before merging a CI change.
 
 | Check | Coverage |
 | --- | --- |
 | Agent Guard | Real scanner against the checked-out tree |
 | Named suites (ubuntu-latest) | All suite partitions on Linux; real scanner integration and smoke test in shard 4 |
-| Named suites (macos-latest) | All suite partitions on macOS with the mock scanner; platform-specific permission and process behavior |
-| Test (ubuntu-latest), Test (macos-latest) | Fail-closed aggregate of every shard, including cancelled/failed jobs |
+| Named suites (macos-latest) | Core, host adapters and Git on every PR; all partitions on main and `release/` PRs, with the mock scanner |
+| Test (ubuntu-latest), Test (macos-latest) | Full-matrix aggregate on main, release PRs and manual dispatch; names consumed by release |
+| PR subset test (ubuntu-latest), PR subset test (macos-latest) | Ordinary PR aggregate of every selected shard, including cancelled/failed jobs |
 | Lint | ShellCheck on tracked shell scripts and actionlint on workflows |
 | Plugin Layout | Codex, Claude, marketplaces, release archive, and submission metadata |
 | HOL Plugin Scanner | Independent plugin scanner |
 
 The numbers are execution partitions, not security tiers or sequential stages.
 `tests/run.sh` without `AGENT_GUARD_TEST_SHARD` runs them all in order. CI runs
-them on both operating systems, and shard 1 checks that every
+them all on Linux for every PR and on both operating systems for main pushes
+and PRs whose source branch starts with `release/`. Other PRs also run partitions
+1 and 3 on macOS. Shard 1 checks that every
 partition is present in the matrix. Fixtures remain local to each partition.
 The internal IDs select execution partitions; Actions displays descriptive names:
 
@@ -30,17 +35,27 @@ The internal IDs select execution partitions; Actions displays descriptive names
 | 5 | Shell navigation | Runs shell-navigation cases previously in 4 |
 
 Regression assertion bodies and their unpartitioned execution order stay
-identical; the matrix-coverage assertion is updated for the bundle format. Moved groups initialize their own repositories, configuration and
-sessions. The aggregate check names and their fail-closed dependencies remain
-unchanged; the release workflow consumes those aggregates, not the child names.
+identical; the matrix-coverage assertion counts both core entries and the two
+navigation hosts. Moved groups initialize their own repositories, configuration and
+sessions. Full-matrix aggregate names remain unchanged; the release workflow
+consumes those aggregates, not the child names. Reduced PR runs use distinct
+aggregate names, so a later subset success on the same SHA cannot replace full
+macOS evidence. Coverage and check identity share one scope decision in the
+existing Agent Guard job; test shards start after that job succeeds.
 
 ## Run lifecycle and queued jobs
 
 A newer commit cancels obsolete runs of the same workflow on the same PR.
 Main pushes and manual checks use unique run groups, so they retain their own
 validation. The serialized release workflow remains separate and is never
-cancelled by a PR update. Existing required check names and the fail-closed
-aggregate remain unchanged; all OS/host partitions still run.
+cancelled by a PR update. Full aggregate names and fail-closed shard checks
+remain unchanged. Main and release PRs retain all OS/host partitions;
+other PRs defer macOS command, navigation and scanner/output coverage until main.
+The PR subset macOS aggregate reports the selected matrix's result, not full
+macOS coverage. The full `Test` names are never emitted by a reduced run.
+`sh tests/ci-scope.sh` tests the shared producer and workflow wiring. This reduces
+runner usage at the cost of later detection of
+macOS-specific failures outside the core/host/Git bundle.
 
 Legacy jq/awk and experimental Rust contracts also run after relevant changes
 merge to main. Their checks have distinct names instead of the generic
@@ -134,15 +149,16 @@ navigation은 Claude와 Codex의 호스트 계약별 runner로 나눈다. 두 �
 입력의 cwd/workdir 위치와 응답 계약이 다르며, 각 worker는 자신이 맡은 호스트의
 실제 hook·Bash·Git 검증 전체를 실행한다. 테스트 목록을 번호나 개수로 자르지 않는다.
 
-각 OS에서 navigation 두 worker의 합집합은 기존 378개 assertion과 같다.
+전체 matrix에서는 각 OS의 navigation 두 worker 합집합이 기존 378개 assertion과 같다.
 호스트 공통 assertion 5개는 Claude worker가 한 번 실행한다. fixture의 저장소,
 TMPDIR, 출력 파일은 worker마다 격리한다. 기본 `tests/run.sh`는 여전히 모든
 호스트를 실행하고, 호스트 선택은 navigation partition에만 허용한다.
 잘못된 호스트나 다른 partition과의 조합은 오류로 종료한다. core의 matrix 검증은
-일반 partition의 단일 실행과 Claude/Codex navigation의 누락·중복을 확인한다.
+core 항목 2개와 일반 partition의 단일 항목, Claude/Codex navigation 항목의 누락·중복을 확인한다.
 
-따라서 test job은 이전 6개에서 10개가 된다. OS/partition/host의 전체 검증 범위,
-aggregate job 2개의 이름과 fail-closed 의존성은 유지한다. scanner의 실제 설치,
+따라서 전체 matrix의 test job은 10개이고 일반 PR은 Linux 5개와 macOS core 1개다.
+main과 release PR의 OS/partition/host 전체 검증 범위, 모든 실행의 aggregate job
+2개 이름과 fail-closed 의존성은 유지한다. scanner의 실제 설치,
 no-skip gate와 smoke test도 그대로다. core의 parent는 모든 child를 기다리고,
 하나라도 실패하거나 출력 수집이 실패하면 job을 실패시킨다. 전체 log는 완료 후
 출력하며 job 취소 시 hosted runner teardown이 정리를 담당한다.
