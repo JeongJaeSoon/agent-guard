@@ -1,0 +1,40 @@
+{
+  "samples": 14,
+  "warmup": 1,
+  "timeout_seconds": 30,
+  "premeasurement_fixture_revision": "many-replacements fixed to 32 secret leaves + 1 clean leaf before any Linux run; 400-leaf draft was not measured; independent accuracy work observed conservative whole-leaf masking on high leaf counts, so stress results remain separate from comparable-work timing",
+  "order": "condition cyclic rotations, reversing the second full cycle; 14 measured rounds for seven conditions (six defaults plus optional fused); exact condition order in each raw sample",
+  "installation": "pinned bootstrap fresh/refresh 12 balanced repetitions including archive/checksum network; predownloaded bootstrap script itself excluded and its one-off download recorded; dependencies already installed; archive extraction measured separately",
+  "rss": "wait4 max child RSS KiB; separate rss-profile has process RSS sum sampled every 5ms; profile elapsed/CPU excluded from performance comparisons",
+  "audit_state": "off or on-warm: fresh HOME for each version/mode/host/audit/input/concurrency. One warmup initializes state; 14 measured rounds retain that same HOME and audit/cache files. Different inputs and concurrency never share state. Separate RSS profile uses a distinct HOME with its own warmup. No claim that every cache lookup hits: exact cache files preserved; TTL expiration is possible.",
+  "scope": "public standalone archives only; fixed official scanner/config; audit off and on-warm; no aggregate input-weighted score",
+  "v3.8.1": {
+    "release": {
+      "error": "GitHub API error 404: {\"message\":\"Not Found\",\"documentation_url\":\"https://docs.github.com/rest/releases/releases#get-a-release-by-tag-name\",\"status\":\"404\"}",
+      "error_code": "NOT_FOUND",
+      "error_data": {
+        "message": "Not Found",
+        "documentation_url": "https://docs.github.com/rest/releases/releases#get-a-release-by-tag-name",
+        "status": "404"
+      }
+    },
+    "tag": {
+      "error": "GitHub API error 404: {\"message\":\"Not Found\",\"documentation_url\":\"https://docs.github.com/rest/git/refs#get-a-reference\",\"status\":\"404\"}",
+      "error_code": "NOT_FOUND",
+      "error_data": {
+        "message": "Not Found",
+        "documentation_url": "https://docs.github.com/rest/git/refs#get-a-reference",
+        "status": "404"
+      }
+    },
+    "commit": {
+      "error": "GitHub API error 422: {\"message\":\"No commit found for SHA: v3.8.1\",\"documentation_url\":\"https://docs.github.com/rest/commits/commits#get-a-commit\",\"status\":\"422\"}",
+      "error_code": "INVALID_ARGUMENT",
+      "error_data": {
+        "message": "No commit found for SHA: v3.8.1",
+        "documentation_url": "https://docs.github.com/rest/commits/commits#get-a-commit",
+        "status": "422"
+      }
+    }
+  }
+}
