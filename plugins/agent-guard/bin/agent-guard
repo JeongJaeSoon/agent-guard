@@ -9163,14 +9163,16 @@ secretish_env_values() {
     function config_literal(value) {
       return prose_core(value) ~ /^(true|false|yes|no|on|off|null|nil|none|enabled|disabled)$/
     }
-    # `privateKey: string;` and `login(password: string)` name a type. Only a
-    # colon label and a bare type word qualify; a type with brackets or a call
-    # is already a reference above.
+    # A field or parameter annotated with a bare type word (the TypeScript and
+    # Python forms) names a type, not a value. Only a colon label and a bare
+    # type word qualify; a type with brackets or a call is already a reference
+    # above.
     function type_annotation(assignment, value) {
       return assignment ~ /:$/ && (tolower(value) in type_word)
     }
-    # An object member that reads a value (`privateKey: config.privateKey,`)
-    # has the shape looks_like_reference accepts after `=`: a lowercase head, a
+    # An object member whose value reads another object (a key, a colon, then
+    # `config.` and a field name, then a comma) has the shape
+    # looks_like_reference accepts after `=`: a lowercase head, a
     # dotted chain, an uppercase letter and no digits. The trailing comma is
     # what separates it from a YAML scalar; `term` is the character after the
     # token.
