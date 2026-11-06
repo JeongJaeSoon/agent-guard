@@ -179,3 +179,13 @@ observed **0/40**. The missing location is now line **4260**, the same dot
 fallback assignment previously recorded at 4240. The detector invocation
 locations are now 7330 and 7331. This is a separate observation; it does not
 rewrite the 2026-10-20 result or measure the new embedded AWK branches.
+
+## Denominator review after the reference-value change (2026-11-06)
+
+`secretish_env_values` body changed: the embedded AWK program gained one
+condition that treats a bare `$name` value as a variable reference. The
+manifest rejected the changed body. The function's two eligible shell lines
+(the `record_mode` assignment and the `LC_ALL=C awk` invocation) are the same,
+and the AWK program stays outside the denominator, so only this function's
+hash was refreshed. This entry records the review, not a new measurement; the
+selected total stays 40.
