@@ -19,6 +19,11 @@ case "$action" in
     exec python "$base/runtime/run.py" --lab /lab --out /results/runtime/ci \
       --environment "linux-ci-$scanner-$host-2cpu-1g" --scanners "$scanner" --hosts "$host" --require-limits
     ;;
+  controlled)
+    exec python "$base/runtime/run.py" --lab /lab --out /results/runtime/controlled \
+      --environment "linux-ci-controlled-$scanner-$host-2cpu-1g" --scanners "$scanner" --hosts "$host" \
+      --policy-mode common --rss-all-versions --require-limits
+    ;;
   rss)
     exec python "$base/runtime/run.py" --lab /lab --out /results/runtime/rss-supplement \
       --environment "linux-ci-rss-$scanner-$host-2cpu-1g" --scanners "$scanner" --hosts "$host" \
