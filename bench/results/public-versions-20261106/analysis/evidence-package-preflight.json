@@ -1,0 +1,82 @@
+{
+  "credential_preflight_findings_without_values": [
+    {
+      "path": "evidence/ci/42223034457/recovered-partial-homebrew-claude/runtime/ci/inputs/vendor-placeholder.json",
+      "detector": "github-token-like"
+    },
+    {
+      "path": "evidence/ci/42223034457/recovered-partial-homebrew-claude/runtime/ci/inputs/vendor-positive.json",
+      "detector": "github-token-like"
+    }
+  ],
+  "artifact_readonly_preflight": [
+    {
+      "source": "evidence/ci/42223034457/old-main-homebrew-claude.zip",
+      "sha_matches_metadata": true,
+      "artifact_id": 13505246288
+    },
+    {
+      "source": "evidence/ci/42224583403/public-version-benchmark-linux-homebrew-claude.zip",
+      "sha_matches_metadata": true,
+      "artifact_id": 13507816572
+    },
+    {
+      "source": "evidence/ci/42224583403/public-version-benchmark-linux-homebrew-codex.zip",
+      "sha_matches_metadata": true,
+      "artifact_id": 13506965582
+    },
+    {
+      "source": "evidence/ci/42224583403/public-version-correctness-linux-homebrew-fixed.zip",
+      "sha_matches_metadata": true,
+      "artifact_id": 13505217948
+    },
+    {
+      "source": "evidence/ci/42224583403/public-version-correctness-linux-homebrew-packaged.zip",
+      "sha_matches_metadata": true,
+      "artifact_id": 13505337735
+    },
+    {
+      "source": "evidence/ci/42224583403/public-version-correctness-linux-official-fixed.zip",
+      "sha_matches_metadata": true,
+      "artifact_id": 13505517967
+    },
+    {
+      "source": "evidence/ci/42224583403/public-version-correctness-linux-official-packaged.zip",
+      "sha_matches_metadata": true,
+      "artifact_id": 13506536905
+    },
+    {
+      "source": "evidence/ci/42224583622/public-version-rss-linux-homebrew-claude.zip",
+      "sha_matches_metadata": true,
+      "artifact_id": 13506375431
+    },
+    {
+      "source": "evidence/ci/42224583622/public-version-rss-linux-homebrew-codex.zip",
+      "sha_matches_metadata": true,
+      "artifact_id": 13505009842
+    },
+    {
+      "source": "evidence/ci/42224583622/public-version-rss-linux-official-claude.zip",
+      "sha_matches_metadata": true,
+      "artifact_id": 13505887174
+    },
+    {
+      "source": "evidence/ci/42224583622/public-version-rss-linux-official-codex.zip",
+      "sha_matches_metadata": true,
+      "artifact_id": 13505029948
+    },
+    {
+      "source": "evidence/ci/42227732499/public-version-installation-compact-linux.zip",
+      "sha_matches_metadata": true,
+      "artifact_id": 13506143850
+    }
+  ],
+  "missing_primary_artifacts": [
+    "42224583403/public-version-benchmark-linux-official-claude.zip",
+    "42224583403/public-version-benchmark-linux-official-codex.zip"
+  ],
+  "evidence_zip_generated": false,
+  "credential_scan_scope_correction": "Initial scan accidentally traversed recovered-partial-homebrew-claude (an exploded old ZIP). Two token-like findings were synthetic benchmark inputs vendor-placeholder/vendor-positive, not active credentials. Exclude recovered-* along with extracted-* since original cancelled ZIP is preserved separately. No redaction or original file changes.",
+  "corrected_credential_preflight_findings_without_values": [],
+  "corrected_ci_attempt_file_count": 821
+}

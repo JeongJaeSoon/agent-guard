@@ -1,0 +1,41 @@
+name: Public version RSS supplement
+on:
+  workflow_dispatch:
+  pull_request:
+    types: [labeled]
+    paths:
+      - '.github/workflows/public-version-rss.yml'
+      - 'bench/results/public-versions-20261106/runtime/**'
+permissions:
+  contents: read
+concurrency:
+  group: public-version-rss-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: false
+jobs:
+  rss:
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'public-version-rss'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        scanner: [official, homebrew]
+        host: [claude, codex]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Supplemental per-version sampled RSS under enforced limits
+        run: sh bench/results/public-versions-20261106/runtime/ci.sh "$RUNNER_TEMP/public-version-rss-lab" "$RUNNER_TEMP/public-version-rss-evidence" agent-guard-public-bench:20261106 '${{ matrix.scanner }}' '${{ matrix.host }}' rss
+      - name: Restore synthetic evidence ownership for artifact export
+        if: always()
+        run: |
+          if [ -d "$RUNNER_TEMP/public-version-rss-evidence" ]; then
+            sudo chown -R -- "$(id -u):$(id -g)" "$RUNNER_TEMP/public-version-rss-evidence"
+          fi
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: public-version-rss-linux-${{ matrix.scanner }}-${{ matrix.host }}
+          path: ${{ runner.temp }}/public-version-rss-evidence/
+          retention-days: 30
+          include-hidden-files: true
+          if-no-files-found: error
