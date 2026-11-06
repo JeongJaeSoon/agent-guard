@@ -5670,6 +5670,27 @@ bash_neutralize_runtime_globals() (
     # it counts as text only for a command known to treat it as text: the
     # pattern of a grep-family command, the code given to an interpreter with
     # -e or -c, or the output words of echo and printf.
+    # echo and printf only print the word, but the output can become a file
+    # operand elsewhere: inside a substitution or group, or piped to a command
+    # that opens what it reads. Only a pipe to a plain text filter keeps it text.
+    function echo_text(qs, p, pre,   rest, e, i, c, d, word) {
+      if (p > 0 && substr(pre, p, 1) == "(") return 0
+      e = index(substr(s, qs + 1), substr(s, qs, 1))
+      if (e == 0) return 0
+      rest = substr(s, qs + e + 1)
+      for (i = 1; i <= length(rest); i++) {
+        c = substr(rest, i, 1)
+        if (index(";&\n)", c) > 0) break
+        if (c != "|") continue
+        if (substr(rest, i + 1, 1) == "|") break
+        d = substr(rest, i + 1)
+        sub(/^[ \t]+/, "", d)
+        match(d, /^[A-Za-z0-9_-]*/)
+        word = substr(d, 1, RLENGTH)
+        if (word !~ /^(wc|head|tail|sort|uniq|tr|cut|nl)$/) return 0
+      }
+      return 1
+    }
     function text_word(qs,   pre, p, c, seg, nw, w, x, last, cmd, w0) {
       pre = substr(s, 1, qs - 1)
       p = 0
@@ -5698,7 +5719,7 @@ bash_neutralize_runtime_globals() (
       }
       last = substr(pre, length(pre), 1)
       if (last != " " && last != "\t" && w[nw] !~ /^-/) return 0
-      if (cmd ~ /^(echo|printf)$/) return 1
+      if (cmd ~ /^(echo|printf)$/) return echo_text(qs, p, pre)
       if (cmd ~ /^(grep|egrep|fgrep|rg|ag|ack)$/) {
         for (x++; x <= nw; x++) {
           if (w[x] !~ /^-/ || w[x] ~ /^-[A-Za-z]*f/ || w[x] ~ /^--file/) return 0
