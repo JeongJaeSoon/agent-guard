@@ -1,0 +1,41 @@
+name: 공개 배포본 제한 환경 실측
+on:
+  push:
+    branches: ['bench/public-release-comparison-20261106']
+    paths: ['bench/results/public-release-comparison/ci/**']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  measure:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 1
+      - name: Build measurement image
+        run: docker build -t guard-public-comparison bench/results/public-release-comparison/ci
+      - name: Preserve image identity and run with enforced limits
+        run: |
+          mkdir -p bench/results/public-release-comparison/linux
+          docker image inspect guard-public-comparison > bench/results/public-release-comparison/linux/image.json
+          docker run --rm --cpus=2 --memory=1g --memory-swap=1g --pids-limit=512 -v "$PWD/bench/results/public-release-comparison/ci:/experiment:ro" -v "$PWD/bench/results/public-release-comparison/linux:/results" guard-public-comparison
+      - name: Save all evidence even when measurements fail
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: public-release-comparison-linux
+          path: bench/results/public-release-comparison/linux
+          retention-days: 90
+      - name: Preserve text evidence on this report branch
+        if: always()
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add bench/results/public-release-comparison/linux
+          if ! git diff --cached --quiet; then
+            git commit -m '실측: 공개 배포본 Linux 제한 환경 원시 자료 보존'
+            git push origin HEAD:"${GITHUB_REF_NAME}"
+          fi
