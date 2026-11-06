@@ -1,0 +1,151 @@
+name: 공개 7버전 입력별 분할 실측
+on:
+  push:
+    branches: ['bench/public-seven-partitioned-comparison-20261106']
+    paths: ['bench/results/public-release-comparison/ci-seven-partitioned/**']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  measure:
+    name: ${{ matrix.partition_id }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        include:
+          - partition_id: "small-clean--claude--off"
+            input: "small-clean"
+            agent_host: "claude"
+            audit: "off"
+          - partition_id: "small-clean--claude--on-warm"
+            input: "small-clean"
+            agent_host: "claude"
+            audit: "on-warm"
+          - partition_id: "small-clean--codex--off"
+            input: "small-clean"
+            agent_host: "codex"
+            audit: "off"
+          - partition_id: "small-clean--codex--on-warm"
+            input: "small-clean"
+            agent_host: "codex"
+            audit: "on-warm"
+          - partition_id: "many-replacements--claude--off"
+            input: "many-replacements"
+            agent_host: "claude"
+            audit: "off"
+          - partition_id: "many-replacements--claude--on-warm"
+            input: "many-replacements"
+            agent_host: "claude"
+            audit: "on-warm"
+          - partition_id: "many-replacements--codex--off"
+            input: "many-replacements"
+            agent_host: "codex"
+            audit: "off"
+          - partition_id: "many-replacements--codex--on-warm"
+            input: "many-replacements"
+            agent_host: "codex"
+            audit: "on-warm"
+          - partition_id: "long-string--claude--off"
+            input: "long-string"
+            agent_host: "claude"
+            audit: "off"
+          - partition_id: "long-string--claude--on-warm"
+            input: "long-string"
+            agent_host: "claude"
+            audit: "on-warm"
+          - partition_id: "long-string--codex--off"
+            input: "long-string"
+            agent_host: "codex"
+            audit: "off"
+          - partition_id: "long-string--codex--on-warm"
+            input: "long-string"
+            agent_host: "codex"
+            audit: "on-warm"
+          - partition_id: "control-multiline--claude--off"
+            input: "control-multiline"
+            agent_host: "claude"
+            audit: "off"
+          - partition_id: "control-multiline--claude--on-warm"
+            input: "control-multiline"
+            agent_host: "claude"
+            audit: "on-warm"
+          - partition_id: "control-multiline--codex--off"
+            input: "control-multiline"
+            agent_host: "codex"
+            audit: "off"
+          - partition_id: "control-multiline--codex--on-warm"
+            input: "control-multiline"
+            agent_host: "codex"
+            audit: "on-warm"
+          - partition_id: "large-output--claude--off"
+            input: "large-output"
+            agent_host: "claude"
+            audit: "off"
+          - partition_id: "large-output--claude--on-warm"
+            input: "large-output"
+            agent_host: "claude"
+            audit: "on-warm"
+          - partition_id: "large-output--codex--off"
+            input: "large-output"
+            agent_host: "codex"
+            audit: "off"
+          - partition_id: "large-output--codex--on-warm"
+            input: "large-output"
+            agent_host: "codex"
+            audit: "on-warm"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 1
+      - name: Build unchanged measurement image
+        run: docker build -t guard-public-seven-partitioned bench/results/public-release-comparison/ci-seven-partitioned
+      - name: Execute this input-host-audit partition once
+        run: |
+          mkdir -p bench/results/public-release-comparison/linux-seven-partitioned/${{ matrix.partition_id }}
+          docker image inspect guard-public-seven-partitioned > bench/results/public-release-comparison/linux-seven-partitioned/${{ matrix.partition_id }}/image.json
+          docker run --rm --cpus=2 --memory=1g --memory-swap=1g --pids-limit=512 -e AG_EXPERIMENT_EXECUTION_HOST="${RUNNER_NAME}:$(hostname):${GITHUB_RUN_ID}" -v "$PWD/bench/results/public-release-comparison/ci-seven-partitioned:/experiment:ro" -v "$PWD/bench/results/public-release-comparison/linux-seven-partitioned/${{ matrix.partition_id }}:/results" guard-public-seven-partitioned --stage performance --only-input "${{ matrix.input }}" --only-host "${{ matrix.agent_host }}" --only-audit "${{ matrix.audit }}"
+      - name: Make synthetic evidence readable after all timing ends
+        if: always()
+        run: sudo chmod -R a+rX bench/results/public-release-comparison/linux-seven-partitioned/${{ matrix.partition_id }}
+      - name: Preserve exact outputs and failures from this partition
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: seven-part--${{ matrix.partition_id }}
+          path: bench/results/public-release-comparison/linux-seven-partitioned/${{ matrix.partition_id }}
+          retention-days: 90
+  collect:
+    name: Preserve all partition artifacts in one report commit
+    needs: measure
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 1
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: seven-part--*
+          path: /tmp/public-seven-partitioned-collected
+      - name: Commit every available partition once without discarding failures
+        run: |
+          mkdir -p bench/results/public-release-comparison/linux-seven-partitioned
+          for source in /tmp/public-seven-partitioned-collected/seven-part--*; do
+            [ -d "$source" ] || continue
+            name=${source##*/seven-part--}
+            mkdir -p "bench/results/public-release-comparison/linux-seven-partitioned/$name"
+            cp -R "$source/." "bench/results/public-release-comparison/linux-seven-partitioned/$name/"
+          done
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add bench/results/public-release-comparison/linux-seven-partitioned
+          if ! git diff --cached --quiet; then
+            git commit -m '실측: 공개 7버전 분할 프로토콜 원시 자료 전체 보존'
+            git push origin HEAD:"${GITHUB_REF_NAME}"
+          fi

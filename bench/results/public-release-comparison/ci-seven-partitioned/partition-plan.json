@@ -1,0 +1,146 @@
+{
+  "protocol": "public-seven-partitioned-policy-fixed-v1",
+  "partition_count": 20,
+  "partitions": [
+    {
+      "partition_id": "small-clean--claude--off",
+      "input": "small-clean",
+      "agent_host": "claude",
+      "audit": "off"
+    },
+    {
+      "partition_id": "small-clean--claude--on-warm",
+      "input": "small-clean",
+      "agent_host": "claude",
+      "audit": "on-warm"
+    },
+    {
+      "partition_id": "small-clean--codex--off",
+      "input": "small-clean",
+      "agent_host": "codex",
+      "audit": "off"
+    },
+    {
+      "partition_id": "small-clean--codex--on-warm",
+      "input": "small-clean",
+      "agent_host": "codex",
+      "audit": "on-warm"
+    },
+    {
+      "partition_id": "many-replacements--claude--off",
+      "input": "many-replacements",
+      "agent_host": "claude",
+      "audit": "off"
+    },
+    {
+      "partition_id": "many-replacements--claude--on-warm",
+      "input": "many-replacements",
+      "agent_host": "claude",
+      "audit": "on-warm"
+    },
+    {
+      "partition_id": "many-replacements--codex--off",
+      "input": "many-replacements",
+      "agent_host": "codex",
+      "audit": "off"
+    },
+    {
+      "partition_id": "many-replacements--codex--on-warm",
+      "input": "many-replacements",
+      "agent_host": "codex",
+      "audit": "on-warm"
+    },
+    {
+      "partition_id": "long-string--claude--off",
+      "input": "long-string",
+      "agent_host": "claude",
+      "audit": "off"
+    },
+    {
+      "partition_id": "long-string--claude--on-warm",
+      "input": "long-string",
+      "agent_host": "claude",
+      "audit": "on-warm"
+    },
+    {
+      "partition_id": "long-string--codex--off",
+      "input": "long-string",
+      "agent_host": "codex",
+      "audit": "off"
+    },
+    {
+      "partition_id": "long-string--codex--on-warm",
+      "input": "long-string",
+      "agent_host": "codex",
+      "audit": "on-warm"
+    },
+    {
+      "partition_id": "control-multiline--claude--off",
+      "input": "control-multiline",
+      "agent_host": "claude",
+      "audit": "off"
+    },
+    {
+      "partition_id": "control-multiline--claude--on-warm",
+      "input": "control-multiline",
+      "agent_host": "claude",
+      "audit": "on-warm"
+    },
+    {
+      "partition_id": "control-multiline--codex--off",
+      "input": "control-multiline",
+      "agent_host": "codex",
+      "audit": "off"
+    },
+    {
+      "partition_id": "control-multiline--codex--on-warm",
+      "input": "control-multiline",
+      "agent_host": "codex",
+      "audit": "on-warm"
+    },
+    {
+      "partition_id": "large-output--claude--off",
+      "input": "large-output",
+      "agent_host": "claude",
+      "audit": "off"
+    },
+    {
+      "partition_id": "large-output--claude--on-warm",
+      "input": "large-output",
+      "agent_host": "claude",
+      "audit": "on-warm"
+    },
+    {
+      "partition_id": "large-output--codex--off",
+      "input": "large-output",
+      "agent_host": "codex",
+      "audit": "off"
+    },
+    {
+      "partition_id": "large-output--codex--on-warm",
+      "input": "large-output",
+      "agent_host": "codex",
+      "audit": "on-warm"
+    }
+  ],
+  "source_protocol": "public-seven-policy-fixed-v1",
+  "installation_remeasured": false,
+  "partial_sources_preserved": [
+    "42164682413 initial-six",
+    "42166701576 initial-seven monolithic"
+  ],
+  "split_reason": "Measured initial partial-runtime records predict about3h for the monolithic 90min job; partitioning is fixed before viewing performance outcomes and does not retry a failed product result",
+  "fixed": [
+    "inputs",
+    "independent expected outputs",
+    "scanner/policy bytes",
+    "measurement interval",
+    "30s timeout",
+    "warmup1",
+    "series9 Latin rounds",
+    "endpoint12 rotate/reverse rounds",
+    "RSS9 rounds",
+    "1/4 concurrency"
+  ],
+  "scope": "Version/mode comparisons only within the same partition host. Different input/agent-host/audit partitions are separate VMs; no aggregate performance score or cross-input cache attribution."
+}

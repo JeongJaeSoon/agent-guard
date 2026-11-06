@@ -1,0 +1,67 @@
+{
+  "validation": [
+    "all9 original run.py measurement/control function ASTs unchanged",
+    "base_runtime.py exact bytes unchanged, including wait4 measurement and expected-value functions",
+    "Dockerfile exact bytes unchanged",
+    "Cartesian filter retains selected host/audit/input and both concurrency values in original order",
+    "non-selected RSS inputs produce no profile rows",
+    "20 unique partitions, no installation matrix"
+  ],
+  "ast_proof": [
+    {
+      "function": "env_for",
+      "ast_sha256": "09753bd5720261bcff1c8dfeaca7387223d7cd5b79368aa45129562fd5c8fcfc",
+      "unchanged": true
+    },
+    {
+      "function": "checkpoint",
+      "ast_sha256": "7a985cc8162001868fe093d1c8f6b353df162d7f165e4c13e7bfd225ab5780f6",
+      "unchanged": true
+    },
+    {
+      "function": "outputs_keep",
+      "ast_sha256": "4992f7101b22893f2df9e74859dc7e4141798fb4a6ae4d68dc6d8921784837d6",
+      "unchanged": true
+    },
+    {
+      "function": "batch_command",
+      "ast_sha256": "43890e7810ac516cd0ad442ca1e1ae50199c815cab7953cb5bdbbdb3279f77fd",
+      "unchanged": true
+    },
+    {
+      "function": "timing_matrix",
+      "ast_sha256": "32cbefdeb451136bb73621f48f2425832c26792f6888f63dd36c70e9a5af522c",
+      "unchanged": true
+    },
+    {
+      "function": "probe",
+      "ast_sha256": "a11a92ee3672b53907f547360cc34b7e7daee7b40aadb0c196bc244e3a853b2e",
+      "unchanged": true
+    },
+    {
+      "function": "prepare",
+      "ast_sha256": "df4d8f3e82bc1a20916c50eb767a71fc22ab43895f037384012a36562311e5fc",
+      "unchanged": true
+    },
+    {
+      "function": "installations",
+      "ast_sha256": "d24121de1e1231933fff02c36f8a95d1198afe4a933c3348e4c4f36c965da4c9",
+      "unchanged": true
+    },
+    {
+      "function": "main",
+      "ast_sha256": "b04ea5e3d7439ca27c51f25f76d85bc512f834b08b5181bd240ac92ca938234f",
+      "unchanged": true
+    }
+  ],
+  "files": {
+    "run.py": "59803d8e0cae336c48af8c64f590ee0810e4b4f0a392500fb23450b116a985de",
+    "workflow.yml": "a3517fed91f2f990f453c4d46f5ad39d95414b2d564ab97ae98dcdeae1dbdc6e",
+    "Dockerfile": "fb73208926681ce6fd8f4b682565aad983535fcf56b8fb6e0928d080ded7be50",
+    "release-lock.json": "399c992d40f06ef26a6d619d13d850e9fc5d0599fa3cdc71543c1fbf8cabeee9",
+    "run.monolithic-measured-v1.py": "523f85ef2c727e781cf7870da030b770a9f453b83849a58f38395fe2d5cebc0d",
+    "partition-plan.json": "9630cf0ad034be68ff7251d0274c6a112bf4b50dabaa6bb3b43ce3a11ac3c21c",
+    "README.ko.md": "08359fce4fc138d44a924ffeb77f8e4a37bf74e19e426da112f64574980790c2",
+    "base_runtime.py": "1a05b18ad7c347620ba8320cf95f917f3f54cd46d2efd6612c5c450000c5b722"
+  }
+}
