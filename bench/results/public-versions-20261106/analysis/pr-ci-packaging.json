@@ -123,5 +123,77 @@
   "repackaged_clean_git_archive_scan": {
     "findings": 0,
     "scanner_config_unchanged": true
-  }
+  },
+  "preserved_original_redacted_local_report": {
+    "path": "pr-ci-first-local-redacted-findings.json.gz",
+    "uncompressed_sha256": "2454ee69d0520e209bd318b95858688fc8f323fca9344551d10157418d5f56ee",
+    "gzip_sha256": "5d6d01366ccfed1f91d3b7bae3b35948d32633cd9016a9bd62db2adc46b77b3d"
+  },
+  "first_failure_annotations": {
+    "subset": [
+      {
+        "path": ".github",
+        "blob_href": "https://github.com/JeongJaeSoon/agent-guard/blob/3866c16ef5ebcb34ac4f6c37e3d72560bb5a2bb0/.github",
+        "start_line": 13,
+        "start_column": null,
+        "end_line": 13,
+        "end_column": null,
+        "annotation_level": "failure",
+        "title": "",
+        "message": "Process completed with exit code 1.",
+        "raw_details": ""
+      },
+      {
+        "path": ".github",
+        "blob_href": "https://github.com/JeongJaeSoon/agent-guard/blob/3866c16ef5ebcb34ac4f6c37e3d72560bb5a2bb0/.github",
+        "start_line": 12,
+        "start_column": null,
+        "end_line": 12,
+        "end_column": null,
+        "annotation_level": "failure",
+        "title": "",
+        "message": "test shards finished with: skipped",
+        "raw_details": ""
+      },
+      {
+        "path": ".github",
+        "blob_href": "https://github.com/JeongJaeSoon/agent-guard/blob/3866c16ef5ebcb34ac4f6c37e3d72560bb5a2bb0/.github",
+        "start_line": 1,
+        "start_column": null,
+        "end_line": 1,
+        "end_column": null,
+        "annotation_level": "notice",
+        "title": "",
+        "message": "\"The ubuntu-latest label will migrate to Ubuntu 26 beginning October 19, 2026. For more information, see https://github.com/actions/runner-images/issues/14748\"",
+        "raw_details": ""
+      }
+    ],
+    "guard": [
+      {
+        "path": ".github",
+        "blob_href": "https://github.com/JeongJaeSoon/agent-guard/blob/3866c16ef5ebcb34ac4f6c37e3d72560bb5a2bb0/.github",
+        "start_line": 93,
+        "start_column": null,
+        "end_line": 93,
+        "end_column": null,
+        "annotation_level": "failure",
+        "title": "",
+        "message": "Process completed with exit code 1.",
+        "raw_details": ""
+      },
+      {
+        "path": ".github",
+        "blob_href": "https://github.com/JeongJaeSoon/agent-guard/blob/3866c16ef5ebcb34ac4f6c37e3d72560bb5a2bb0/.github",
+        "start_line": 1,
+        "start_column": null,
+        "end_line": 1,
+        "end_column": null,
+        "annotation_level": "notice",
+        "title": "",
+        "message": "\"The ubuntu-latest label will migrate to Ubuntu 26 beginning October 19, 2026. For more information, see https://github.com/actions/runner-images/issues/14748\"",
+        "raw_details": ""
+      }
+    ]
+  },
+  "ci_job_logs_access": "GitHub redirected to blob.core.windows.net logs; network policy denied access; no bypass attempted. API annotations and independently reproduced scanner findings retained."
 }
