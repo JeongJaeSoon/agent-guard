@@ -2,7 +2,7 @@
 set -u
 
 PROGRAM=agent-guard
-VERSION=3.8.1
+VERSION=3.8.2
 
 # Resolve the script's own path, following symlinks. The bootstrap installer
 # drops a symlink at ~/.local/bin/agent-guard that points into ~/.agent-guard/
@@ -5064,6 +5064,200 @@ message_command_has_glob() {
   }'
 }
 
+# Replace a whole lookup of the agent runner's own variables with `:` so the
+# deny patterns do not read it as an environment dump. Two shapes qualify, each
+# only when every word parses and the segment ends at a command boundary:
+#   printenv NAME...   NAME is ORCA_* or CLAUDE_JOB_DIR and not secret-named;
+#   env | grep PAT... PAT is a quoted anchored whole name (`^ORCA_X=`) and
+#                      nothing else: a prefix or a regex prints other
+#                      variables with their values, and a count or exit
+#                      status still tells a guessed value apart. The grep must
+#                      come first, so a filter cannot rewrite lines into the
+#                      name; the rest are read-nothing filters (cut sort uniq
+#                      head tail wc sed s///).
+# Anything else, including file operands, redirects, `$`/backquote/`\` in a
+# word, a second pipe branch or `&`, stays untouched and keeps matching. The
+# PostToolUse redactor still hides a token-named variable such a lookup prints.
+bash_strip_safe_env_lookups() {
+  case "$1" in
+    *env*) ;;
+    *) printf '%s' "$1"; return 0 ;;
+  esac
+  EG_TEXT=$1 LC_ALL=C awk '
+    function isterm(c) { return c == "" || index(" \t\n;|&)", c) > 0 }
+    function skipsp(p) {
+      while (substr(t, p, 1) == " " || substr(t, p, 1) == "\t") p++
+      return p
+    }
+    function secretish(s) {
+      return toupper(s) ~ /TOKEN|SECRET|PASS|CREDENTIAL|CAPAB|KEY|AUTH|COOKIE|SESSION|DSN|PIN|BEARER|PRIV|CERT|HASH|LOGIN/
+    }
+    # One shell word at p: sets wv (value), wk (u/s/d quoting) and wp (next).
+    function word(p,   c, j, k, v) {
+      c = substr(t, p, 1)
+      if (c == "" || index(" \t\n;|&)", c)) return 0
+      if (c == "\047") {
+        j = index(substr(t, p + 1), "\047")
+        if (!j) return 0
+        v = substr(t, p + 1, j - 1)
+        if (index(v, "\n")) return 0
+        wv = v; wk = "s"; wp = p + j + 1
+      } else if (c == "\"") {
+        j = p + 1; v = ""
+        while (1) {
+          k = substr(t, j, 1)
+          if (k == "") return 0
+          if (k == "\"") break
+          if (index("$`\\!\n", k)) return 0
+          v = v k; j++
+        }
+        wv = v; wk = "d"; wp = j + 1
+      } else {
+        j = p; v = ""
+        while (!isterm(substr(t, j, 1))) {
+          k = substr(t, j, 1)
+          if (!index(SAFE, k)) return 0
+          v = v k; j++
+        }
+        wv = v; wk = "u"; wp = j
+      }
+      return isterm(substr(t, wp, 1))
+    }
+    function endok(p,   c, d) {
+      p = skipsp(p); c = substr(t, p, 1); d = substr(t, p + 1, 1)
+      return c == "" || c == "\n" || c == ";" || c == ")" || (c == "&" && d == "&") || (c == "|" && d == "|")
+    }
+    function grepok(   i, np, pat) {
+      np = 0
+      for (i = 1; i <= nargs; i++) {
+        if (!np && ak[i] == "u" && substr(a[i], 1, 1) == "-") {
+          if (a[i] !~ /^-[iEonceqwsxF]+$/) return 0
+        } else {
+          np++
+          if (np > 1 || ak[i] == "u") return 0
+          pat = a[i]
+        }
+      }
+      # Only one whole variable name selects that variable alone. Anything
+      # wider, a regex included, prints other variables with their values, and
+      # even a count or an exit status tells a regex-guessed value apart.
+      return np == 1 && exactname(pat)
+    }
+    function exactname(s) {
+      return s ~ /^\^(ORCA_[A-Z0-9_]+|CLAUDE_JOB_DIR)=$/ && !secretish(s)
+    }
+    function cutok(   i, d, f) {
+      # After the prefix grep the name must stay on the line: field 1 or a
+      # character range that starts at 1. A later field or range would print a
+      # value with its name cut off, which the output redactor cannot key on.
+      for (i = 1; i <= nargs; i++) {
+        if (a[i] ~ /^-d.$/) d++
+        else if (a[i] == "-f1" || a[i] ~ /^-c1?-[0-9]+$/) f++
+        else if (a[i] != "-s") return 0
+      }
+      return f == 1 && d <= 1
+    }
+    # tail -c would keep only the end of a line, a value without its name.
+    function headok(name,   i, s, bytes) {
+      bytes = name == "head" ? "[nc]" : "n"
+      for (i = 1; i <= nargs; i++) {
+        s = a[i]
+        if (s ~ /^-[0-9]+$/ || s ~ ("^-" bytes "[0-9]+$")) continue
+        if (s ~ ("^-" bytes "$") && a[i + 1] ~ /^[0-9]+$/) { i++; continue }
+        return 0
+      }
+      return 1
+    }
+    function flagsok(re,   i) {
+      for (i = 1; i <= nargs; i++) if (a[i] !~ re) return 0
+      return 1
+    }
+    function sedok(   i, np, parts) {
+      i = 1
+      if (a[1] == "-E") i = 2
+      if (nargs != i) return 0
+      np = split(a[i], parts, "/")
+      # The pattern must end in `=.*` and the replacement must be literal text
+      # (no `&`, no backslash group reference): a group before the `=` could
+      # still capture value text, so the sed may only delete a value.
+      if (!(np == 4 && parts[1] == "s" && parts[2] ~ /=\.\*$/ && parts[3] !~ /[&\\]/ && parts[4] ~ /^[gIi]*$/)) return 0
+      return 1
+    }
+    function stageok(name, pre,   i) {
+      if (name == "grep" || name == "egrep") return grepok()
+      if (pre) return 0
+      if (name == "sed") return sedok()
+      for (i = 1; i <= nargs; i++) if (ak[i] != "u") return 0
+      if (name == "cut") return cutok()
+      if (name == "head" || name == "tail") return headok(name)
+      if (name == "sort") return flagsok("^-[urfnV]+$")
+      if (name == "uniq") return flagsok("^-[cdu]$")
+      if (name == "wc") return flagsok("^-[lwcm]+$")
+      return 0
+    }
+    function envseg(p,   name, q, greps) {
+      p = skipsp(p); greps = 0
+      while (1) {
+        if (substr(t, p, 1) != "|" || substr(t, p + 1, 1) == "|" || substr(t, p + 1, 1) == "&") return 0
+        p = skipsp(p + 1)
+        if (!word(p) || wk != "u") return 0
+        name = wv; p = wp; nargs = 0
+        while (1) {
+          q = skipsp(p)
+          if (word(q)) { nargs++; a[nargs] = wv; ak[nargs] = wk; p = wp; continue }
+          if (!isterm(substr(t, q, 1))) return 0
+          p = q
+          break
+        }
+        if (!stageok(name, !greps)) return 0
+        if (name == "grep" || name == "egrep") greps = 1
+        p = skipsp(p)
+        if (substr(t, p, 1) == "|" && substr(t, p + 1, 1) != "|") continue
+        break
+      }
+      if (!greps || !endok(p)) return 0
+      return p
+    }
+    function printenvseg(p,   q, n) {
+      n = 0
+      while (1) {
+        q = skipsp(p)
+        if (substr(t, q, 2) == "2>") {
+          if (substr(t, q, 11) != "2>/dev/null" || !isterm(substr(t, q + 11, 1))) return 0
+          p = q + 11
+          break
+        }
+        if (!word(q)) {
+          if (!isterm(substr(t, q, 1))) return 0
+          p = q
+          break
+        }
+        if (wk != "u" || wv !~ /^(ORCA_[A-Z0-9_]+|CLAUDE_JOB_DIR)$/ || secretish(wv)) return 0
+        n++; p = wp
+      }
+      if (!n || !endok(p)) return 0
+      return p
+    }
+    BEGIN {
+      t = ENVIRON["EG_TEXT"]
+      SAFE = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_=,:./@%+-"
+      n = length(t); out = ""; prev = ""; i = 1
+      while (i <= n) {
+        c = substr(t, i, 1); e = 0
+        if ((prev == "" || index(";&|(`\n", prev)) && (c == "e" || c == "p")) {
+          if (substr(t, i, 3) == "env" && isterm(substr(t, i + 3, 1))) e = envseg(i + 3)
+          else if (substr(t, i, 8) == "printenv" && isterm(substr(t, i + 8, 1))) e = printenvseg(i + 8)
+        }
+        if (e) { out = out ":"; i = e; prev = ":"; continue }
+        out = out c
+        if (c != " " && c != "\t") prev = c
+        i++
+      }
+      printf "%s", out
+    }
+  ' </dev/null
+}
+
 # Replace each message value message_value_records finds, quotes included,
 # with `_`. A value is replaced only when it is one quoted literal (single
 # quotes, or double quotes holding no `$`, backquote or backslash) and
@@ -5355,32 +5549,84 @@ O'*)
 # removed: `.data.key` becomes `.`. `env.X` and `$x.y` keep theirs, and so do
 # strings (an import or include path names a file jq reads) and a comment.
 jq_filter_without_field_names() {
-  JQ_FILTER=$1 LC_ALL=C awk 'BEGIN {
-    s = ENVIRON["JQ_FILTER"]; out = ""; n = length(s); chain = 0
-    for (i = 1; i <= n; i++) {
-      c = substr(s, i, 1)
-      if (c == "#") { out = out substr(s, i); break }
-      if (c == "\"") {
-        for (j = i + 1; j <= n && substr(s, j, 1) != "\""; j++)
-          if (substr(s, j, 1) == "\\") j++
-        out = out substr(s, i, j - i + 1)
-        i = j
-        chain = 0
-        continue
+  JQ_FILTER=$1 LC_ALL=C awk '
+    # t[k] opens a string; return the index of its closing quote, or 0.
+    function skipstr(t, k,   m, c, e) {
+      m = length(t)
+      for (k++; k <= m; k++) {
+        c = substr(t, k, 1)
+        if (c == "\"") return k
+        if (c == "\\") {
+          if (substr(t, k + 1, 1) == "(") {
+            e = matchparen(t, k + 2)
+            if (!e) return 0
+            k = e
+            continue
+          }
+          k++
+        }
       }
-      if (c == "." && substr(s, i + 1, 1) ~ /[A-Za-z_]/ \
-          && (chain || i == 1 || substr(s, i - 1, 1) !~ /[A-Za-z0-9_$.]/)) {
-        if (!chain) out = out "."
-        for (i++; i <= n && substr(s, i, 1) ~ /[A-Za-z0-9_]/; i++) ;
-        i--
-        chain = 1
-        continue
-      }
-      chain = 0
-      out = out c
+      return 0
     }
-    printf "%s", out
-  }'
+    # k is just past a "("; return the index of the matching ")", or 0.
+    function matchparen(t, k,   m, c, d, e) {
+      m = length(t); d = 1
+      for (; k <= m; k++) {
+        c = substr(t, k, 1)
+        if (c == "\"") {
+          e = skipstr(t, k)
+          if (!e) return 0
+          k = e
+          continue
+        }
+        if (c == "(") d++
+        else if (c == ")" && --d == 0) return k
+      }
+      return 0
+    }
+    # The text of a string is a literal (an import path names a file), but the
+    # code of a "\( )" interpolation in it is a filter like any other.
+    function strip(t,   out, n, i, c, j, e, chain) {
+      out = ""; n = length(t); chain = 0
+      for (i = 1; i <= n; i++) {
+        c = substr(t, i, 1)
+        if (c == "#") { out = out substr(t, i); break }
+        if (c == "\"") {
+          out = out c
+          for (j = i + 1; j <= n && substr(t, j, 1) != "\""; j++) {
+            if (substr(t, j, 1) == "\\") {
+              if (substr(t, j + 1, 1) == "(") {
+                e = matchparen(t, j + 2)
+                if (!e) return t
+                out = out "\\(" strip(substr(t, j + 2, e - j - 2)) ")"
+                j = e
+                continue
+              }
+              out = out substr(t, j, 2)
+              j++
+              continue
+            }
+            out = out substr(t, j, 1)
+          }
+          out = out substr(t, j, 1)
+          i = j
+          chain = 0
+          continue
+        }
+        if (c == "." && substr(t, i + 1, 1) ~ /[A-Za-z_]/ \
+            && (chain || i == 1 || substr(t, i - 1, 1) !~ /[A-Za-z0-9_$.]/)) {
+          if (!chain) out = out "."
+          for (i++; i <= n && substr(t, i, 1) ~ /[A-Za-z0-9_]/; i++) ;
+          i--
+          chain = 1
+          continue
+        }
+        chain = 0
+        out = out c
+      }
+      return out
+    }
+    BEGIN { printf "%s", strip(ENVIRON["JQ_FILTER"]) }'
 }
 
 # A jq filter is program text: `select(.key|test("x"))` names a field, not a
@@ -5556,6 +5802,284 @@ bash_neutralize_jq_field_names() (
   printf '%s' "$jq_cmd"
 )
 
+# `process.env.PORT` in program text ends in `.env` and so looks like a dotenv
+# file name. Rewrite the four runtime objects (process.env, import.meta.env,
+# Bun.env, Deno.env) to a non-matching spelling, but only while no file of that
+# name or a dotted variant of it exists in the directories the command's
+# relative names resolve against; a real file with that name keeps its match.
+# Only a member access inside a quoted argument qualifies (inline program text
+# or a search pattern): an unquoted word is a file operand, and the bare object
+# is a whole-environment dump. The text before the name must be a word start
+# (not a path part, a prefix, an expansion or a quoted join), and what follows
+# must be member names or a plain index, then a delimiter that cannot extend
+# the word into a glob or another name.
+bash_neutralize_runtime_globals() (
+  set -f
+  rg_orig=$1
+  case "$rg_orig" in
+    *process.env*|*import.meta.env*|*Bun.env*|*Deno.env*) ;;
+    *) printf '%s' "$rg_orig"; exit 0 ;;
+  esac
+  # A here-document body can hold a stray quote that the quote tracking below
+  # would carry past the body, so leave such commands as they are.
+  case "$rg_orig" in
+    *'<<'*) printf '%s' "$rg_orig"; exit 0 ;;
+  esac
+  rg_rebase=
+  if bash_command_may_rebase_relative_paths "$rg_orig"; then
+    rg_rebase=$(bash_command_rebase_target "$rg_orig") \
+      || { printf '%s' "$rg_orig"; exit 0; }
+  fi
+  rg_dirs=.
+  if [ -n "$rg_rebase" ]; then
+    case "$rg_rebase" in
+      *[[:space:]]*) printf '%s' "$rg_orig"; exit 0 ;;
+    esac
+    rg_dirs=". $rg_rebase"
+  fi
+  for rg_dir in $rg_dirs; do
+    rg_found=$(
+      CDPATH= cd -- "$rg_dir" 2>/dev/null || { echo 1; exit 0; }
+      set +f
+      for rg_path in process.env process.env.* import.meta.env import.meta.env.* \
+        Bun.env Bun.env.* Deno.env Deno.env.*; do
+        if [ -e "$rg_path" ] || [ -L "$rg_path" ]; then echo 1; break; fi
+      done
+    )
+    [ -z "$rg_found" ] || { printf '%s' "$rg_orig"; exit 0; }
+  done
+  RG_CMD=$rg_orig LC_ALL=C awk '
+    function ok_prev(i,   p, q) {
+      if (i == 1) return 1
+      p = substr(s, i - 1, 1)
+      if (p == "\047" || p == "\"") {
+        if (i == 2) return 1
+        q = substr(s, i - 2, 1)
+        return index(" \t\n(,;{=|&!<>", q) > 0
+      }
+      return index(" \t\n(,;{=|&!<>", p) > 0
+    }
+    # A quoted word is a file operand for any command that opens files
+    # (`tar -xOf a.tar "process.env.PORT"`), whatever the word looks like, so
+    # it counts as text only for a command known to treat it as text: the
+    # pattern of a grep-family command, the code given to an interpreter with
+    # -e or -c, or the output words of echo and printf.
+    # echo and printf only print the word, but the output can become a file
+    # operand elsewhere: inside a substitution or group, or piped to a command
+    # that opens what it reads. Only a pipe to a plain text filter keeps it text.
+    function echo_text(qs, p, pre,   rest, e, i, c, d, word) {
+      if (p > 0 && substr(pre, p, 1) == "(") return 0
+      e = index(substr(s, qs + 1), substr(s, qs, 1))
+      if (e == 0) return 0
+      rest = substr(s, qs + e + 1)
+      for (i = 1; i <= length(rest); i++) {
+        c = substr(rest, i, 1)
+        if (index(";&\n)", c) > 0) break
+        if (c != "|") continue
+        if (substr(rest, i + 1, 1) == "|") break
+        d = substr(rest, i + 1)
+        sub(/^[ \t]+/, "", d)
+        match(d, /^[A-Za-z0-9_-]*/)
+        word = substr(d, 1, RLENGTH)
+        if (word !~ /^(wc|head|tail|sort|uniq|tr|cut|nl)$/) return 0
+      }
+      return 1
+    }
+    function text_word(qs,   pre, p, c, seg, nw, w, x, last, cmd, w0) {
+      pre = substr(s, 1, qs - 1)
+      p = 0
+      for (x = length(pre); x >= 1; x--) {
+        c = substr(pre, x, 1)
+        if (index(";|&\n(", c) > 0) { p = x; break }
+      }
+      seg = substr(pre, p + 1)
+      if (seg ~ /[\047"\\$`*?]/) return 0
+      nw = split(seg, w, /[ \t]+/)
+      while (nw > 0 && w[nw] == "") nw--
+      x = 1
+      while (x <= nw && w[x] == "") x++
+      if (x > nw) return 0
+      cmd = w[x]
+      # Look through env, command and similar wrappers to the command they run.
+      while (cmd ~ /^(env|command|exec|nohup)$/) {
+        w0 = cmd
+        for (x++; x <= nw; x++) {
+          if (w[x] ~ /^[A-Za-z_][A-Za-z0-9_]*=/) continue
+          if (w0 == "env" && w[x] ~ /^-/) continue
+          break
+        }
+        if (x > nw) return 0
+        cmd = w[x]
+      }
+      last = substr(pre, length(pre), 1)
+      if (last != " " && last != "\t" && w[nw] !~ /^-/) return 0
+      if (cmd ~ /^(echo|printf)$/) return echo_text(qs, p, pre)
+      if (cmd ~ /^(grep|egrep|fgrep|rg|ag|ack)$/) {
+        for (x++; x <= nw; x++) {
+          if (w[x] !~ /^-/ || w[x] ~ /^-[A-Za-z]*f/ || w[x] ~ /^--file/) return 0
+        }
+        return 1
+      }
+      if (cmd ~ /^(node|nodejs|bun|python|python3|ruby|perl|deno)$/) {
+        if (x == nw || w[nw] !~ /^(-e|-p|-pe|-ep|-c|--eval|--print)$/ && !(cmd == "deno" && w[nw] == "eval")) return 0
+        for (x++; x <= nw; x++) {
+          if (cmd == "deno" && w[x] == "eval") continue
+          if (w[x] !~ /^-/) return 0
+        }
+        return 1
+      }
+      return 0
+    }
+    function ok_tail(j,   c, k, body, members, first, b) {
+      members = 0
+      while (j <= n) {
+        c = substr(s, j, 1)
+        if (c == "." && substr(s, j + 1, 1) ~ /[A-Za-z_]/) {
+          b = j + 1
+          for (j++; j <= n && substr(s, j, 1) ~ /[A-Za-z0-9_]/; j++) ;
+          if (!members) first = substr(s, b, j - b)
+          members++
+          continue
+        }
+        if (c == "[") {
+          k = index(substr(s, j), "]")
+          if (k == 0) return 0
+          body = substr(s, j + 1, k - 2)
+          if (body !~ /^["\047]?[A-Za-z0-9_]+["\047]?$/) return 0
+          if (!members) { first = body; gsub(/["\047]/, "", first) }
+          j += k
+          members++
+          continue
+        }
+        break
+      }
+      if (!members) return 0
+      # A member that the object itself defines (toObject, valueOf, entries, ...)
+      # hands back the whole environment however long the chain after it is, or
+      # even when it is only referenced and called later.
+      if (first ~ /^(toObject|valueOf|toString|toLocaleString|toJSON|constructor|__proto__|__defineGetter__|__defineSetter__|__lookupGetter__|__lookupSetter__|entries|keys|values)$/) return 0
+      # A direct call on the object is a lookup only for the keyed accessors.
+      if (members == 1 && substr(s, j, 1) == "(" && first !~ /^(get|has|set|delete)$/) return 0
+      if (j > n) return 1
+      return index(" \t\n()]},;\047\"|&=+!<>", substr(s, j, 1)) > 0
+    }
+    BEGIN {
+      s = ENVIRON["RG_CMD"]; n = length(s); out = ""; quote = ""
+      nn = split("process.env import.meta.env Bun.env Deno.env", names, " ")
+      split("process_env import.meta_env Bun_env Deno_env", repl, " ")
+      for (i = 1; i <= n; ) {
+        k = 0
+        for (m = 1; m <= nn; m++)
+          if (substr(s, i, length(names[m])) == names[m]) { k = m; break }
+        if (k && quote != "" && ok_prev(i) && ok_tail(i + length(names[k])) && text_word(qstart)) {
+          out = out repl[k]; i += length(names[k]); continue
+        }
+        ch = substr(s, i, 1)
+        if (quote != "\047" && ch == "\\") { out = out ch substr(s, i + 1, 1); i += 2; continue }
+        if (quote == "" && (ch == "\047" || ch == "\"")) { quote = ch; qstart = i }
+        else if (quote != "" && ch == quote) quote = ""
+        out = out ch; i++
+      }
+      printf "%s", out
+    }'
+)
+
+# Print $1 without the bodies of the here-documents that `cat` or `tee` only
+# write out: that text is data, so a protected-path name in it opens no file.
+# The line that starts the heredoc (its redirect target included) and the
+# delimiter line stay. Anything not read with confidence prints $1 unchanged:
+# a head other than cat/tee (a shell or python runs its body), a pipe, group or
+# background on the line, a body with no terminator, an unquoted delimiter whose
+# body expands something, or a line the command gate does not read the same
+# way after the rewrite (a later `sh`, `.` or `eval` may run what was written).
+bash_strip_heredoc_bodies() (
+  set -f
+  hd_cmd=$1
+  case "$hd_cmd" in
+    *'<<'*) ;;
+    *) printf '%s' "$hd_cmd"; exit 0 ;;
+  esac
+  hd_new=$(printf '%s\n' "$hd_cmd" | LC_ALL=C awk '
+    function reject() { bad = 1; exit 1 }
+    delim != "" {
+      line = $0
+      if (strip) sub(/^\t+/, "", line)
+      if (line == delim) { delim = ""; kept[++nk] = $0; next }
+      if (!quoted && $0 ~ /[$`\\]/) reject()
+      next
+    }
+    {
+      kept[++nk] = $0
+      if (index($0, "<<") == 0) next
+      rest = $0
+      if (rest ~ /<<</ || rest ~ /\\/) reject()
+      pre = substr(rest, 1, index(rest, "<<") - 1)
+      post = substr(rest, index(rest, "<<") + 2)
+      if (index(post, "<<") > 0) reject()
+      t = rest; gsub(/&&/, "", t)
+      if (t ~ /[&()`|]/) reject()
+      q = rest; if (gsub(/\047/, "", q) % 2 || gsub(/"/, "", q) % 2) reject()
+      while (match(pre, /(&&|;)/)) pre = substr(pre, RSTART + RLENGTH)
+      if (pre !~ /^[ \t]*(cat|tee)([ \t]|$)/) reject()
+      strip = 0
+      if (post ~ /^-/) { strip = 1; post = substr(post, 2) }
+      sub(/^[ \t]+/, "", post)
+      c = substr(post, 1, 1)
+      if (c == "\047" || c == "\"") {
+        quoted = 1
+        e = index(substr(post, 2), c)
+        if (e == 0) reject()
+        delim = substr(post, 2, e - 1)
+        post = substr(post, e + 2)
+      } else {
+        quoted = 0
+        if (!match(post, /^[A-Za-z_][A-Za-z0-9_]*/)) reject()
+        delim = substr(post, 1, RLENGTH)
+        post = substr(post, RLENGTH + 1)
+      }
+      if (delim == "" || delim ~ /[ \t$`\\\047"]/ || post !~ /^([ \t;&<>]|$)/) reject()
+      # Name what the line writes: a word after > or >>, and the operands of tee.
+      m = split(rest, w, /[ \t]+/); tee = 0
+      for (k = 1; k <= m; k++) {
+        name = ""
+        if (w[k] ~ /^>>?$/) name = w[k + 1]
+        else if (w[k] ~ /^>>?[^>]/) { name = w[k]; sub(/^>>?/, "", name) }
+        else if (w[k] == "tee") { tee = 1; continue }
+        else if (tee && w[k] !~ /^[-<>&;]/) name = w[k]
+        if (w[k] ~ /^(&&|;)$/) tee = 0
+        gsub(/["\047]/, "", name); sub(/.*\//, "", name)
+        if (name != "") target[++nt] = name
+      }
+    }
+    END {
+      if (bad || delim != "") exit 1
+      text = ""
+      for (k = 1; k <= nk; k++) text = text kept[k] "\n"
+      # Whatever the line writes may run later, as a script or an interpreter
+      # argument, so the file name may not come up again.
+      for (k = 1; k <= nt; k++) {
+        c = 0; s = text
+        while ((p = index(s, target[k])) > 0) { c++; s = substr(s, p + length(target[k])) }
+        for (j = 1; j <= nt; j++) if (target[j] == target[k] && j != k) c--
+        if (c > 1) exit 1
+      }
+      if (text ~ /(^|[^A-Za-z0-9_.-])(python[0-9.]*|node|nodejs|ruby|perl|php|lua|deno|bun|awk|gawk|mawk|osascript|tclsh|Rscript|swift|java|jshell)([^A-Za-z0-9_-]|$)/) exit 1
+      printf "%s", text
+    }
+  ') || { printf '%s' "$hd_cmd"; exit 0; }
+  if [ "$hd_new" = "$hd_cmd" ]; then
+    printf '%s' "$hd_cmd"
+    exit 0
+  fi
+  hd_before=$(git_gate_records "$hd_cmd")
+  hd_after=$(git_gate_records "$hd_new")
+  if [ "$hd_before" = "$hd_after" ]; then
+    printf '%s' "$hd_new"
+  else
+    printf '%s' "$hd_cmd"
+  fi
+)
+
 # Private variable name; see check_bash_command (#127).
 bash_matches_deny_path() {
   deny_cmd=$1
@@ -5563,6 +6087,7 @@ bash_matches_deny_path() {
     *"\\
 "*) deny_cmd=$(shell_join_line_continuations "$deny_cmd") ;;
   esac
+  deny_cmd=$(bash_strip_heredoc_bodies "$deny_cmd")
   # A failed rewrite keeps the whole command in the scan.
   # The deny-pattern check already stripped the same text (it depends on
   # nothing but the text), so reuse that result.
@@ -5573,6 +6098,7 @@ bash_matches_deny_path() {
   fi
   deny_stripped=$(bash_strip_non_read_operands "$deny_cmd") && deny_cmd=$deny_stripped
   deny_cmd=$(bash_neutralize_jq_field_names "$deny_cmd")
+  deny_cmd=$(bash_neutralize_runtime_globals "$deny_cmd")
   deny_cmd=$(bash_strip_source_module_prose "$deny_cmd")
   deny_cmd=$(bash_strip_exclusion_operands "$deny_cmd")
   deny_cmd=$(bash_strip_allowed_tokens "$deny_cmd")
@@ -8038,6 +8564,9 @@ check_bash_command() {
     else
       pattern_cmd=$cmd
     fi
+    if env_stripped=$(bash_strip_safe_env_lookups "$pattern_cmd"); then
+      pattern_cmd=$env_stripped
+    fi
     printf '%s\n' "$pattern_cmd" | grep -E -q -f "$patterns"
     grep_status=$?
     rm -f "$patterns"
@@ -8604,12 +9133,25 @@ secretish_env_values() {
     # `<your-api-key>` stand for a value in prose. Every word must be a known
     # placeholder word, so an arbitrary word or passphrase in angle brackets
     # (`<correct-horse-battery>`) still masks.
+    # A name before a placeholder noun (`<acme-pat>`) is still a placeholder:
+    # the last word says it stands for a value. A phrase that ends in any other
+    # word stays caught.
     function angle_placeholder(v, n, i, words) {
       if (v !~ /^<[a-z][a-z_ .-]*>$/) return 0
       n = split(substr(v, 2, length(v) - 2), words, /[-_ .]+/)
+      if (n > 1 && words[n] ~ /^(pat|token|key|secret|password)$/) return 1
       for (i = 1; i <= n; i++)
         if (!(words[i] in placeholder_word)) return 0
       return n > 0
+    }
+    # A markdown label such as `**Repo secret**: **cannot verify**` has a
+    # secret-bearing key and a status word for a value. Whole core only, after
+    # the emphasis marks come off, so `cannot123` still masks.
+    function prose_status_word(value, v) {
+      v = prose_core(value)
+      sub(/^[*_]+/, "", v)
+      sub(/[*_]+$/, "", v)
+      return v ~ /^(cannot|unknown|missing|present|deleted|n\/a)$/
     }
     # A boolean or null under a secret-bearing key (`api_token: true`) is a
     # config flag, not a credential. Emitting it made the word a global
@@ -8669,6 +9211,7 @@ secretish_env_values() {
       if (already_redacted(value)) return
       if (obvious_word_placeholder(value)) return
       if (config_literal(value)) return
+      if (prose_status_word(value)) return
       if (masked_placeholder(value)) return
       if (eligible_length == 0) eligible_length = char_length(value)
       if (eligible_length < 4 || length(value) == 0) return
@@ -8931,6 +9474,7 @@ secretish_env_values() {
         if (page_cursor(assignment)) return 0
         if (snapshot_handle(assignment, value)) return 0
         if (config_literal(value)) return 0
+        if (prose_status_word(value)) return 0
         if (masked_placeholder(value)) return 0
         if (require_credential && !credential_shaped(edge_trim(value))) return 0
         # Eligibility is based on the complete token. For short values, scope

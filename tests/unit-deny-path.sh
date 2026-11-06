@@ -157,7 +157,7 @@ $x.key	$x.key
 ..key	..key
 .	.
 import ".env" as $x; $x.key	import ".env" as $x; $x.key
-"\(.key) \"q\" .key" | .key	"\(.key) \"q\" .key" | .
+"\(.key) \"q\" .key" | .key	"\(.) \"q\" .key" | .
 .a # "x" .key	. # "x" .key
 CASES
 printf 'passed: %s\nfailed: %s\n' "$pass" "$fail"
