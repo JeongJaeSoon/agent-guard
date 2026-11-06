@@ -1,0 +1,70 @@
+name: 공개 7버전 정책 고정 성능 실측
+on:
+  push:
+    branches: ['bench/public-seven-release-comparison-20261106']
+    paths: ['bench/results/public-release-comparison/ci-seven/**']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  measure:
+    name: ${{ matrix.stage }} under verified cgroup limits
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        stage: [performance, installation]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 1
+      - name: Build fixed measurement image
+        run: docker build -t guard-public-seven bench/results/public-release-comparison/ci-seven
+      - name: Run separate experiment stage
+        run: |
+          mkdir -p bench/results/public-release-comparison/linux-seven/${{ matrix.stage }}
+          docker image inspect guard-public-seven > bench/results/public-release-comparison/linux-seven/${{ matrix.stage }}/image.json
+          docker run --rm --cpus=2 --memory=1g --memory-swap=1g --pids-limit=512 -v "$PWD/bench/results/public-release-comparison/ci-seven:/experiment:ro" -v "$PWD/bench/results/public-release-comparison/linux-seven/${{ matrix.stage }}:/results" guard-public-seven --stage ${{ matrix.stage }}
+      - name: Make synthetic evidence readable after measurement
+        if: always()
+        run: sudo chmod -R a+rX bench/results/public-release-comparison/linux-seven/${{ matrix.stage }}
+      - name: Preserve all exact evidence including failures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: public-seven-${{ matrix.stage }}
+          path: bench/results/public-release-comparison/linux-seven/${{ matrix.stage }}
+          retention-days: 90
+  collect:
+    name: Preserve both stage artifacts in one report commit
+    needs: measure
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 1
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: public-seven-*
+          path: /tmp/public-seven-collected
+      - name: Commit exact results once
+        run: |
+          mkdir -p bench/results/public-release-comparison/linux-seven
+          for stage in performance installation; do
+            if [ -d "/tmp/public-seven-collected/public-seven-$stage" ]; then
+              mkdir -p "bench/results/public-release-comparison/linux-seven/$stage"
+              cp -R "/tmp/public-seven-collected/public-seven-$stage/." "bench/results/public-release-comparison/linux-seven/$stage/"
+            fi
+          done
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add bench/results/public-release-comparison/linux-seven
+          if ! git diff --cached --quiet; then
+            git commit -m '실측: 공개 7버전 성능·설치·직접 비교 원시 자료 보존'
+            git push origin HEAD:"${GITHUB_REF_NAME}"
+          fi
