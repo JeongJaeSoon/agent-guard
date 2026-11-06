@@ -8617,6 +8617,20 @@ secretish_env_values() {
     function config_literal(value) {
       return prose_core(value) ~ /^(true|false|yes|no|on|off|null|nil|none|enabled|disabled)$/
     }
+    # A value another tool already masked (`gh auth status` prints
+    # `ghu_****`) carries no credential. Only the exact shapes below: a known
+    # vendor prefix followed by nothing but mask characters, `<redacted>`, or a
+    # bare run of mask characters. A real token keeps at least one non-mask
+    # character after its prefix, so `ghu_****real` still masks. The bullet is
+    # matched as bytes because awk runs under LC_ALL=C.
+    function masked_placeholder(value, v, mask, star) {
+      v = prose_core(value)
+      star = "(\\*|\342\200\242)"
+      mask = "(\\*|x|\342\200\242)"
+      return v ~ /^<redacted>$/ \
+          || v ~ ("^" star star star "+$") \
+          || v ~ ("^(gh[pousr]_|github_pat_|glpat-|xox[abposr]-|sk-|npm_|akia|asia)" mask mask mask "+$")
+    }
     # The short-value floor is about characters, but awk runs under LC_ALL=C
     # and length() counts bytes: a two-character word in a multibyte script
     # (six UTF-8 bytes) cleared the floor and became a global literal that
@@ -8634,6 +8648,7 @@ secretish_env_values() {
       if (already_redacted(value)) return
       if (obvious_word_placeholder(value)) return
       if (config_literal(value)) return
+      if (masked_placeholder(value)) return
       if (eligible_length == 0) eligible_length = char_length(value)
       if (eligible_length < 4 || length(value) == 0) return
       if (record_mode == "probe" || record_mode == "probe_raw") {
@@ -8893,6 +8908,7 @@ secretish_env_values() {
         if (page_cursor(assignment)) return 0
         if (snapshot_handle(assignment, value)) return 0
         if (config_literal(value)) return 0
+        if (masked_placeholder(value)) return 0
         if (require_credential && !credential_shaped(edge_trim(value))) return 0
         # Eligibility is based on the complete token. For short values, scope
         # replacement to the complete assignment token so an ordinary
