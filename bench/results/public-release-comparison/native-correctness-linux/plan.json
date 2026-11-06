@@ -1,0 +1,40 @@
+{
+  "case_count": 19,
+  "sample_count_per_cell": 1,
+  "timeout_seconds": 20,
+  "retries": 0,
+  "kind": "public_archive_correctness_only",
+  "independent_expectations": "unchanged 15 original + 4 corpus-shaped semantic cases from macOS source correctness; copied files and hashes preserved",
+  "source_case_sha256": "5b42a8dc47b0d1604c2308288aafd478d905b4da4ab86aba8f97d4b27a8200c7",
+  "supplement_case_sha256": "33574d6aebb3d868c4ba3fae20eccf8c042dd1c7e64c0cf1e383e8b58f2ea90f",
+  "scanner": {
+    "name": "gitleaks_8.30.1_linux_x64.tar.gz",
+    "url": "https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz",
+    "sha256": "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
+  },
+  "config": "v3.8.0 public archive common bytes across all versions (matches source accuracy config)",
+  "hosts": [
+    "claude",
+    "codex"
+  ],
+  "native_versions": "seven real public archives; default helper auto selection; optional fused on3.8.0/3.8.1 only when module+core exist; non-semver install directories to avoid plugin-cache semantics",
+  "fallback_faults": [
+    "missing prepare path",
+    "invalid prepare acknowledgement",
+    "missing redactor path",
+    "missing module in isolated untracked installed copy"
+  ],
+  "compatibility": [
+    "unknown tool PreToolUse empty pass-through",
+    "malformed Pre/PostToolUse JSON reject",
+    "scanner readiness infrastructure open/closed"
+  ],
+  "unknown_native_host_event": "N/A: Claude/Codex applications not installed; manifest unknown event registration inspected but no actual host dispatcher available",
+  "v381": {
+    "release_exists": true,
+    "tag_exists": true,
+    "commit": "40df53135b1fa07aecc218cde6a02d3f558b667d",
+    "release_id": 436106638,
+    "published_at": "2026-11-06T04:41:51Z"
+  }
+}

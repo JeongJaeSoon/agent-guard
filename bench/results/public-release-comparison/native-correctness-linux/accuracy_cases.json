@@ -1,0 +1,672 @@
+[
+  {
+    "case": "clean_small",
+    "response": {
+      "text": "normal harmless text",
+      "clean": "visible"
+    },
+    "expected": {
+      "text": "normal harmless text",
+      "clean": "visible"
+    },
+    "sensitive": false
+  },
+  {
+    "case": "clean_structure",
+    "response": {
+      "rows": [
+        false,
+        true,
+        null,
+        0,
+        1,
+        "",
+        "한글 😀"
+      ]
+    },
+    "expected": {
+      "rows": [
+        false,
+        true,
+        null,
+        0,
+        1,
+        "",
+        "한글 😀"
+      ]
+    },
+    "sensitive": false
+  },
+  {
+    "case": "bare_key_uuid",
+    "response": {
+      "key": "5b84df64-59ef-47cd-9bfa-4937e01c9868"
+    },
+    "expected": {
+      "key": "5b84df64-59ef-47cd-9bfa-4937e01c9868"
+    },
+    "sensitive": false
+  },
+  {
+    "case": "snapshot_camel",
+    "response": {
+      "snapshotToken": "d17:3c0ef8b7-904d-4b7b-8a91-2564eefbb224"
+    },
+    "expected": {
+      "snapshotToken": "d17:3c0ef8b7-904d-4b7b-8a91-2564eefbb224"
+    },
+    "sensitive": false
+  },
+  {
+    "case": "snapshot_snake",
+    "response": {
+      "snapshot_token": "d17:3c0ef8b7-904d-4b7b-8a91-2564eefbb224"
+    },
+    "expected": {
+      "snapshot_token": "d17:3c0ef8b7-904d-4b7b-8a91-2564eefbb224"
+    },
+    "sensitive": false
+  },
+  {
+    "case": "assignment",
+    "response": {
+      "text": "PASSWORD=precision-Secret-472962",
+      "clean": "visible"
+    },
+    "expected": {
+      "text": "PASSWORD=[REDACTED]",
+      "clean": "visible"
+    },
+    "sensitive": true
+  },
+  {
+    "case": "quoted_multiline",
+    "response": [
+      "PASSWORD=\"first line\nsecond line\"",
+      "safe"
+    ],
+    "expected": [
+      "PASSWORD=\"[REDACTED]\"",
+      "safe"
+    ],
+    "sensitive": true
+  },
+  {
+    "case": "unicode_assignment",
+    "response": [
+      "PASSWORD=precision-한글😀-value",
+      "safe"
+    ],
+    "expected": [
+      "PASSWORD=[REDACTED]",
+      "safe"
+    ],
+    "sensitive": true
+  },
+  {
+    "case": "control_assignment",
+    "response": [
+      "PASSWORD=precision-\u001e-rs",
+      "TOKEN=precision-\u001f-us",
+      "safe"
+    ],
+    "expected": [
+      "PASSWORD=[REDACTED]",
+      "TOKEN=[REDACTED]",
+      "safe"
+    ],
+    "sensitive": true
+  },
+  {
+    "case": "unclosed_quote_leaf_boundary",
+    "response": [
+      "PASSWORD=\"precision-first",
+      "",
+      "TOKEN=precision-second"
+    ],
+    "expected": [
+      "PASSWORD=\"[REDACTED]",
+      "",
+      "TOKEN=[REDACTED]"
+    ],
+    "sensitive": true
+  },
+  {
+    "case": "nul_leaf",
+    "response": {
+      "text": "prefix\u0000secret",
+      "clean": "visible"
+    },
+    "expected": {
+      "text": "[REDACTED]",
+      "clean": "visible"
+    },
+    "sensitive": true
+  },
+  {
+    "case": "long_prefix",
+    "response": {
+      "text": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa PASSWORD=precision-Secret-472962",
+      "clean": "visible"
+    },
+    "expected": {
+      "text": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa PASSWORD=[REDACTED]",
+      "clean": "visible"
+    },
+    "sensitive": true
+  },
+  {
+    "case": "many_strings",
+    "response": {
+      "rows": [
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962",
+        "PASSWORD=precision-Secret-472962"
+      ],
+      "clean": "visible"
+    },
+    "expected": {
+      "rows": [
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]",
+        "PASSWORD=[REDACTED]"
+      ],
+      "clean": "visible"
+    },
+    "sensitive": true
+  },
+  {
+    "case": "snapshot_wrong_secret_key",
+    "response": {
+      "password": "d17:3c0ef8b7-904d-4b7b-8a91-2564eefbb224"
+    },
+    "expected": {
+      "password": "[REDACTED]"
+    },
+    "sensitive": true
+  },
+  {
+    "case": "snapshot_env_form",
+    "response": {
+      "text": "SNAPSHOT_TOKEN=d17:3c0ef8b7-904d-4b7b-8a91-2564eefbb224"
+    },
+    "expected": {
+      "text": "SNAPSHOT_TOKEN=[REDACTED]"
+    },
+    "sensitive": true
+  },
+  {
+    "case": "corpus_snapshot_camel_text",
+    "response": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"id\":\"1\",\"snapshotToken\":\"d1:VFhCNzgOw0me41YaXYW40R5-jGIaKdNuCfU91ULb6ossVhc5jc4bO7eRmAcy-hmQ\",\"status\":\"draft\"}"
+        }
+      ]
+    },
+    "expected": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"id\":\"1\",\"snapshotToken\":\"d1:VFhCNzgOw0me41YaXYW40R5-jGIaKdNuCfU91ULb6ossVhc5jc4bO7eRmAcy-hmQ\",\"status\":\"draft\"}"
+        }
+      ]
+    },
+    "sensitive": false
+  },
+  {
+    "case": "corpus_snapshot_snake_text",
+    "response": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"snapshot_token\":\"d1:VFhCNzgOw0me41YaXYW40R5-jGIaKdNuCfU91ULb6ossVhc5jc4bO7eRmAcy-hmQ\"}"
+        }
+      ]
+    },
+    "expected": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"snapshot_token\":\"d1:VFhCNzgOw0me41YaXYW40R5-jGIaKdNuCfU91ULb6ossVhc5jc4bO7eRmAcy-hmQ\"}"
+        }
+      ]
+    },
+    "sensitive": false
+  },
+  {
+    "case": "corpus_same_shape_password_text",
+    "response": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"password\":\"d1:VFhCNzgOw0me41YaXYW40R5-jGIaKdNuCfU91ULb6ossVhc5jc4bO7eRmAcy-hmQ\"}"
+        }
+      ]
+    },
+    "expected": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"password\":\"[REDACTED]\"}"
+        }
+      ]
+    },
+    "sensitive": true
+  },
+  {
+    "case": "corpus_mixed_text",
+    "response": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"snapshotToken\":\"d1:VFhCNzgOw0me41YaXYW40R5-jGIaKdNuCfU91ULb6ossVhc5jc4bO7eRmAcy-hmQ\",\"password\":\"supplement-Secret-8qa94X\"}"
+        }
+      ]
+    },
+    "expected": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"snapshotToken\":\"d1:VFhCNzgOw0me41YaXYW40R5-jGIaKdNuCfU91ULb6ossVhc5jc4bO7eRmAcy-hmQ\",\"password\":\"[REDACTED]\"}"
+        }
+      ]
+    },
+    "sensitive": true
+  }
+]
