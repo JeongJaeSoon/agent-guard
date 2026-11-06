@@ -5665,19 +5665,12 @@ bash_neutralize_runtime_globals() (
       }
       return index(" \t\n(,;{=|&!<>", p) > 0
     }
-    # A quoted word with no space or code punctuation may be a file operand
-    # (`tar -xOf a.tar "process.env.PORT"`), so it only counts as text when it
-    # is the pattern of a grep-family command; a word with code in it is program
-    # text.
-    function text_word(qs,   rest, e, content) {
-      rest = substr(s, qs + 1)
-      e = index(rest, substr(s, qs, 1))
-      if (e == 0) return 0
-      content = substr(rest, 1, e - 1)
-      if (content ~ /[ \t\n(){};]/) return 1
-      return pattern_word(qs)
-    }
-    function pattern_word(qs,   pre, p, c, seg, nw, w, x, last) {
+    # A quoted word is a file operand for any command that opens files
+    # (`tar -xOf a.tar "process.env.PORT"`), whatever the word looks like, so
+    # it counts as text only for a command known to treat it as text: the
+    # pattern of a grep-family command, the code given to an interpreter with
+    # -e or -c, or the output words of echo and printf.
+    function text_word(qs,   pre, p, c, seg, nw, w, x, last, cmd) {
       pre = substr(s, 1, qs - 1)
       p = 0
       for (x = length(pre); x >= 1; x--) {
@@ -5690,13 +5683,26 @@ bash_neutralize_runtime_globals() (
       while (nw > 0 && w[nw] == "") nw--
       x = 1
       while (x <= nw && w[x] == "") x++
-      if (x > nw || w[x] !~ /^(grep|egrep|fgrep|rg|ag|ack)$/) return 0
-      for (x++; x <= nw; x++) {
-        if (w[x] !~ /^-/ || w[x] ~ /^-[A-Za-z]*f/ || w[x] ~ /^--file/) return 0
-      }
+      if (x > nw) return 0
+      cmd = w[x]
       last = substr(pre, length(pre), 1)
       if (last != " " && last != "\t" && w[nw] !~ /^-/) return 0
-      return 1
+      if (cmd ~ /^(echo|printf)$/) return 1
+      if (cmd ~ /^(grep|egrep|fgrep|rg|ag|ack)$/) {
+        for (x++; x <= nw; x++) {
+          if (w[x] !~ /^-/ || w[x] ~ /^-[A-Za-z]*f/ || w[x] ~ /^--file/) return 0
+        }
+        return 1
+      }
+      if (cmd ~ /^(node|nodejs|bun|python|python3|ruby|perl|deno)$/) {
+        if (x == nw || w[nw] !~ /^(-e|-p|-pe|-ep|-c|--eval|--print)$/ && !(cmd == "deno" && w[nw] == "eval")) return 0
+        for (x++; x <= nw; x++) {
+          if (cmd == "deno" && w[x] == "eval") continue
+          if (w[x] !~ /^-/) return 0
+        }
+        return 1
+      }
+      return 0
     }
     function ok_tail(j,   c, k, body, members, first, b) {
       members = 0

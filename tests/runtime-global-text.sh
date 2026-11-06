@@ -91,7 +91,18 @@ check 0 "$W" "deno eval 'console.log(Deno.env.get(\"HOME\"))'"
 check 0 "$W" "node --input-type=module -e 'console.log(import.meta.env.DEV)'"
 check 0 "$W" "cd $W && node -e 'console.log(process.env.HOME)'"
 check 0 "$W" "node -e 'console.log(process.env.A, process.env.B)' && ls"
-check 0 "$W" "printf '%s\\n' 'uses process.env.PORT' | wc -l"
+check 0 "$W" "echo 'uses process.env.PORT' | wc -l"
+check 0 "$W" "python3 -c 'import os; print(\"process.env.PORT\")'"
+# A quoted file operand is not text however the word looks; only a command
+# known to treat the word as text qualifies.
+check 2 "$W" "tar -xOf /dev/stdin 'process.env.PORT '"
+check 2 "$W" "tar -xOf /dev/stdin ' process.env.PORT'"
+check 2 "$W" "tar -xOf a.tar 'x process.env.PORT y'"
+check 2 "$W" "tar -xOf a.tar 'f(process.env.PORT)'"
+check 2 "$W" "unzip -p a.zip 'process.env.PORT '"
+check 2 "$W" "7z x -so a.7z 'process.env.PORT '"
+check 2 "$W" "bsdtar -xOf a.tar 'process.env.PORT '"
+check 2 "$W" "node app.js -e 'process.env.PORT '"
 
 # A jq field chain inside a string interpolation is program text.
 check 0 "$W" "jq -r 'to_entries[] | \"\\(.key) \\(.value)\"' data.json"
