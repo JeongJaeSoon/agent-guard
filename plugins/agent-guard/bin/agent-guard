@@ -5576,12 +5576,12 @@ bash_strip_heredoc_bodies() (
     delim != "" {
       line = $0
       if (strip) sub(/^\t+/, "", line)
-      if (line == delim) { delim = ""; print $0; next }
+      if (line == delim) { delim = ""; kept[++nk] = $0; next }
       if (!quoted && $0 ~ /[$`\\]/) reject()
       next
     }
     {
-      print $0
+      kept[++nk] = $0
       if (index($0, "<<") == 0) next
       rest = $0
       if (rest ~ /<<</ || rest ~ /\\/) reject()
@@ -5610,8 +5610,34 @@ bash_strip_heredoc_bodies() (
         post = substr(post, RLENGTH + 1)
       }
       if (delim == "" || delim ~ /[ \t$`\\\047"]/ || post !~ /^([ \t;&<>]|$)/) reject()
+      # Name what the line writes: a word after > or >>, and the operands of tee.
+      m = split(rest, w, /[ \t]+/); tee = 0
+      for (k = 1; k <= m; k++) {
+        name = ""
+        if (w[k] ~ /^>>?$/) name = w[k + 1]
+        else if (w[k] ~ /^>>?[^>]/) { name = w[k]; sub(/^>>?/, "", name) }
+        else if (w[k] == "tee") { tee = 1; continue }
+        else if (tee && w[k] !~ /^[-<>&;]/) name = w[k]
+        if (w[k] ~ /^(&&|;)$/) tee = 0
+        gsub(/["\047]/, "", name); sub(/.*\//, "", name)
+        if (name != "") target[++nt] = name
+      }
     }
-    END { if (bad || delim != "") exit 1 }
+    END {
+      if (bad || delim != "") exit 1
+      text = ""
+      for (k = 1; k <= nk; k++) text = text kept[k] "\n"
+      # Whatever the line writes may run later, as a script or an interpreter
+      # argument, so the file name may not come up again.
+      for (k = 1; k <= nt; k++) {
+        c = 0; s = text
+        while ((p = index(s, target[k])) > 0) { c++; s = substr(s, p + length(target[k])) }
+        for (j = 1; j <= nt; j++) if (target[j] == target[k] && j != k) c--
+        if (c > 1) exit 1
+      }
+      if (text ~ /(^|[^A-Za-z0-9_.-])(python[0-9.]*|node|nodejs|ruby|perl|php|lua|deno|bun|awk|gawk|mawk|osascript|tclsh|Rscript|swift|java|jshell)([^A-Za-z0-9_-]|$)/) exit 1
+      printf "%s", text
+    }
   ') || { printf '%s' "$hd_cmd"; exit 0; }
   if [ "$hd_new" = "$hd_cmd" ]; then
     printf '%s' "$hd_cmd"

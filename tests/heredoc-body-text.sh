@@ -69,6 +69,18 @@ check 2 "body written then run" \
   "cat > $D/x.sh <<'EOF'${NL}cat ./key.p8${NL}EOF${NL}sh $D/x.sh"
 check 2 "body written then sourced" \
   "cat > $D/x.sh <<'EOF'${NL}cat ./key.p8${NL}EOF${NL}. $D/x.sh"
+check 2 "body written then run by python" \
+  "cat > $D/r.py <<'EOF'${NL}open('./key.p8').read()${NL}EOF${NL}python3 $D/r.py"
+check 2 "body written then run by python through its base name" \
+  "cat > $D/r.py <<'EOF'${NL}open('./key.p8').read()${NL}EOF${NL}cd $D && python3 r.py"
+check 2 "body written then run by node" \
+  "cat > $D/r.js <<'EOF'${NL}require('fs').readFileSync('./key.p8')${NL}EOF${NL}node $D/r.js"
+check 2 "body written then run by path" \
+  "cat > $D/r <<'EOF'${NL}cat ./key.p8${NL}EOF${NL}chmod +x $D/r && $D/r"
+check 2 "written file named again" \
+  "cat > $D/r.md <<'EOF'${NL}see key.p8${NL}EOF${NL}ls $D/r.md"
+check 2 "interpreter named after the body" \
+  "cat > $D/r.md <<'EOF'${NL}see key.p8${NL}EOF${NL}python3 -c 'print(1)'"
 check 2 "unquoted delimiter expands a substitution" \
   "cat <<EOF${NL}\$(cat ./key.p8)${NL}EOF"
 check 2 "unquoted delimiter expands a backtick" \
