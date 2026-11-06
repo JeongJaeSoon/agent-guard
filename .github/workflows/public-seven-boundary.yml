@@ -1,0 +1,71 @@
+name: 공개7버전 unknown 및 scanner 실패 경로 실측
+on:
+  push:
+    branches: ['bench/public-seven-boundary-comparison-20261106']
+    paths: ['bench/results/public-release-comparison/ci-boundary/**']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  measure:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        host: [claude, codex]
+        audit: ['off', 'on-warm']
+        input: [unknown-event, missing-scanner-open, missing-scanner-closed]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 1
+      - name: Build image without compiling product code
+        run: docker build -t guard-public-boundary bench/results/public-release-comparison/ci-boundary
+      - name: Run single-host matrix cell under verified limits
+        run: |
+          result="bench/results/public-release-comparison/linux-boundary/${{ matrix.host }}-${{ matrix.audit }}-${{ matrix.input }}"
+          mkdir -p "$result"
+          docker image inspect guard-public-boundary > "$result/image.json"
+          docker run --rm --cpus=2 --memory=1g --memory-swap=1g --pids-limit=512 -e BENCH_HOST=${{ matrix.host }} -e BENCH_AUDIT=${{ matrix.audit }} -e BENCH_INPUT=${{ matrix.input }} -v "$PWD/bench/results/public-release-comparison/ci-boundary:/experiment:ro" -v "$PWD/$result:/results" guard-public-boundary
+      - name: Make exact evidence readable
+        if: always()
+        run: sudo chmod -R a+rX bench/results/public-release-comparison/linux-boundary
+      - name: Preserve every sample and failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: public-boundary-${{ matrix.host }}-${{ matrix.audit }}-${{ matrix.input }}
+          path: bench/results/public-release-comparison/linux-boundary/${{ matrix.host }}-${{ matrix.audit }}-${{ matrix.input }}
+          retention-days: 90
+  collect:
+    needs: measure
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 1
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: public-boundary-*
+          path: /tmp/public-boundary-collected
+      - name: Preserve all independent host cells in one evidence commit
+        run: |
+          mkdir -p bench/results/public-release-comparison/linux-boundary
+          for item in /tmp/public-boundary-collected/public-boundary-*; do
+            [ -d "$item" ] || continue
+            cell=${item##*/public-boundary-}
+            mkdir -p "bench/results/public-release-comparison/linux-boundary/$cell"
+            cp -R "$item/." "bench/results/public-release-comparison/linux-boundary/$cell/"
+          done
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add bench/results/public-release-comparison/linux-boundary
+          if ! git diff --cached --quiet; then
+            git commit -m '실측: 공개7버전 unknown/scanner failure 경로 원시 자료 보존'
+            git push origin HEAD:"${GITHUB_REF_NAME}"
+          fi

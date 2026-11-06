@@ -1,0 +1,24 @@
+{
+  "measure_ast_identical": true,
+  "source_base_sha256": "1a05b18ad7c347620ba8320cf95f917f3f54cd46d2efd6612c5c450000c5b722",
+  "copied_base_sha256": "1a05b18ad7c347620ba8320cf95f917f3f54cd46d2efd6612c5c450000c5b722",
+  "syntax_compiled": true,
+  "local_runtime_measurements": 0,
+  "failure_contract_source": "public shell begin_infrastructure_failure/hook_warning_once; per-batch shared explicit session; independently check exactly1 warning for open",
+  "product_code_changed": false,
+  "independent_contract_checks": {
+    "checks": 8,
+    "passed": true,
+    "scope": "AST-extracted validator only; no local product invocation or timing"
+  },
+  "tool_sha256": {
+    "run.py": "c8f98119e986c9d1df53aa270bf3a890ff24af01499ac5544157503c60cc9cc9",
+    "preparation_runtime.py": "523f85ef2c727e781cf7870da030b770a9f453b83849a58f38395fe2d5cebc0d",
+    "workflow.yml": "1aa9bb986b2b5f7ee28cff3f8562f3f08309ca68d5ff88617cd44a2e5724f7e5",
+    "Dockerfile": "fb73208926681ce6fd8f4b682565aad983535fcf56b8fb6e0928d080ded7be50",
+    "release-lock.json": "399c992d40f06ef26a6d619d13d850e9fc5d0599fa3cdc71543c1fbf8cabeee9",
+    "README.ko.md": "1274754a2e5f0f6e2937d2fa84993af15c381009d16b6cb070e112bb590b3dff",
+    "base_runtime.py": "1a05b18ad7c347620ba8320cf95f917f3f54cd46d2efd6612c5c450000c5b722"
+  },
+  "premeasurement_cleanup": "remove previous worker out/err/status outside timer so timeout cannot expose stale child evidence"
+}
