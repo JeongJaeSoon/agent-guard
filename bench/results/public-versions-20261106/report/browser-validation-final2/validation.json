@@ -1,0 +1,750 @@
+{
+  "started_at_utc": "2026-11-06T16:16:18.030798+00:00",
+  "html_path": "/workspace/agent-guard-bench/bench/results/public-versions-20261106/report/report.ko.html",
+  "html_sha256": "4c7c79cbca723ce492685375a4572ed09ab56f7c2f014de1da993733afca217b",
+  "browser": "disposable Chromium via Playwright",
+  "browser_executable": "/usr/bin/chromium",
+  "profile": "new temporary context; no user profile",
+  "navigation_mode": "loopback-http",
+  "file_url_verified": false,
+  "network": "only this generated HTML over loopback HTTP is allowed; all external HTTP(S) requests blocked",
+  "assertions": [
+    {
+      "assertion": "HTML document title is visible",
+      "passed": true
+    },
+    {
+      "assertion": "Korean report heading rendered",
+      "passed": true
+    },
+    {
+      "assertion": "required section #conclusion exists",
+      "passed": true
+    },
+    {
+      "assertion": "required section #versions exists",
+      "passed": true
+    },
+    {
+      "assertion": "required section #cumulative exists",
+      "passed": true
+    },
+    {
+      "assertion": "required section #graphs exists",
+      "passed": true
+    },
+    {
+      "assertion": "required section #evidence exists",
+      "passed": true
+    },
+    {
+      "assertion": "browser-parsed embedded JSON exactly equals data.json",
+      "passed": true
+    },
+    {
+      "assertion": "cohort CPU/image/cgroup evidence rendered without mixing environments",
+      "passed": true
+    },
+    {
+      "assertion": "cohort environment table preserves every runner",
+      "passed": true
+    },
+    {
+      "assertion": "all bundled static figure download links rendered",
+      "passed": true
+    },
+    {
+      "assertion": "standalone HTML does not auto-load bundled static figures",
+      "passed": true
+    },
+    {
+      "assertion": "all seven public versions visible in change table",
+      "passed": true
+    },
+    {
+      "assertion": "short highlights rendered separately from full conclusions",
+      "passed": true
+    },
+    {
+      "assertion": "expanding full conclusions preserves every quantitative statement",
+      "passed": true
+    },
+    {
+      "assertion": "all seven version positions rendered including N/A",
+      "passed": true
+    },
+    {
+      "assertion": "small percentage axis does not round negative ticks to negative zero",
+      "passed": true
+    },
+    {
+      "assertion": "CLI latency SVG rendered for initial condition",
+      "passed": true
+    },
+    {
+      "assertion": "initial table medians and n equal source JSON (display rounds to 0.001)",
+      "passed": true
+    },
+    {
+      "assertion": "filter controls actually changed and tables validated",
+      "passed": true
+    },
+    {
+      "assertion": "all metric selectors and corresponding numeric tables checked",
+      "passed": true
+    },
+    {
+      "assertion": "downloaded complete raw JSON exactly equals data.json",
+      "passed": true
+    },
+    {
+      "assertion": "aggregate CSV download row count equals embedded data",
+      "passed": true
+    },
+    {
+      "assertion": "all downloaded aggregate CSV medians/quantiles/n equal JSON",
+      "passed": true
+    },
+    {
+      "assertion": "runtime CSV download row count equals JSON",
+      "passed": true
+    },
+    {
+      "assertion": "installation CSV download row count equals JSON",
+      "passed": true
+    },
+    {
+      "assertion": "correctness CSV download row count equals JSON",
+      "passed": true
+    },
+    {
+      "assertion": "selected-condition CSV includes exactly the selected aggregate rows",
+      "passed": true
+    },
+    {
+      "assertion": "all installation environment/scenario tables, medians, n and charts checked",
+      "passed": true
+    },
+    {
+      "assertion": "accuracy environment/scanner/host filters and visible row counts checked",
+      "passed": true
+    },
+    {
+      "assertion": "mobile recommendation text including long environment variables wraps without clipping",
+      "passed": true
+    },
+    {
+      "assertion": "no external HTTP(S) requests made by report page",
+      "passed": true
+    },
+    {
+      "assertion": "no uncaught page JavaScript errors",
+      "passed": true
+    },
+    {
+      "assertion": "no browser console errors",
+      "passed": true
+    }
+  ],
+  "filter_changes": [
+    {
+      "changed": "environment",
+      "requested": "linux-ci-controlled-homebrew-claude-2cpu-1g",
+      "actual": {
+        "phase": "runtime",
+        "series": "versions",
+        "environment": "linux-ci-controlled-homebrew-claude-2cpu-1g",
+        "distribution": "standalone",
+        "scanner": "homebrew",
+        "host": "claude",
+        "audit": "off",
+        "case": "small-clean",
+        "variant": "default",
+        "workers": "1"
+      },
+      "matching_aggregate_rows": 28
+    },
+    {
+      "changed": "environment",
+      "requested": "linux-ci-controlled-homebrew-codex-2cpu-1g",
+      "actual": {
+        "phase": "runtime",
+        "series": "versions",
+        "environment": "linux-ci-controlled-homebrew-codex-2cpu-1g",
+        "distribution": "standalone",
+        "scanner": "homebrew",
+        "host": "codex",
+        "audit": "off",
+        "case": "small-clean",
+        "variant": "default",
+        "workers": "1"
+      },
+      "matching_aggregate_rows": 28
+    },
+    {
+      "changed": "environment",
+      "requested": "linux-ci-controlled-official-claude-2cpu-1g",
+      "actual": {
+        "phase": "runtime",
+        "series": "versions",
+        "environment": "linux-ci-controlled-official-claude-2cpu-1g",
+        "distribution": "standalone",
+        "scanner": "official",
+        "host": "claude",
+        "audit": "off",
+        "case": "small-clean",
+        "variant": "default",
+        "workers": "1"
+      },
+      "matching_aggregate_rows": 28
+    },
+    {
+      "changed": "environment",
+      "requested": "linux-ci-controlled-official-codex-2cpu-1g",
+      "actual": {
+        "phase": "runtime",
+        "series": "versions",
+        "environment": "linux-ci-controlled-official-codex-2cpu-1g",
+        "distribution": "standalone",
+        "scanner": "official",
+        "host": "codex",
+        "audit": "off",
+        "case": "small-clean",
+        "variant": "default",
+        "workers": "1"
+      },
+      "matching_aggregate_rows": 28
+    },
+    {
+      "changed": "distribution",
+      "requested": "source-plugin",
+      "actual": {
+        "phase": "runtime",
+        "series": "source",
+        "environment": "linux-ci-controlled-official-codex-2cpu-1g",
+        "distribution": "source-plugin",
+        "scanner": "official",
+        "host": "codex",
+        "audit": "off",
+        "case": "small-clean",
+        "variant": "default",
+        "workers": "1"
+      },
+      "matching_aggregate_rows": 8
+    },
+    {
+      "changed": "distribution",
+      "requested": "standalone",
+      "actual": {
+        "phase": "runtime",
+        "series": "direct",
+        "environment": "linux-ci-controlled-official-codex-2cpu-1g",
+        "distribution": "standalone",
+        "scanner": "official",
+        "host": "codex",
+        "audit": "off",
+        "case": "small-clean",
+        "variant": "default",
+        "workers": "1"
+      },
+      "matching_aggregate_rows": 8
+    },
+    {
+      "changed": "scanner",
+      "requested": "official",
+      "actual": {
+        "phase": "runtime",
+        "series": "direct",
+        "environment": "linux-ci-controlled-official-codex-2cpu-1g",
+        "distribution": "standalone",
+        "scanner": "official",
+        "host": "codex",
+        "audit": "off",
+        "case": "small-clean",
+        "variant": "default",
+        "workers": "1"
+      },
+      "matching_aggregate_rows": 8
+    },
+    {
+      "changed": "host",
+      "requested": "codex",
+      "actual": {
+        "phase": "runtime",
+        "series": "direct",
+        "environment": "linux-ci-controlled-official-codex-2cpu-1g",
+        "distribution": "standalone",
+        "scanner": "official",
+        "host": "codex",
+        "audit": "off",
+        "case": "small-clean",
+        "variant": "default",
+        "workers": "1"
+      },
+      "matching_aggregate_rows": 8
+    },
+    {
+      "changed": "audit",
+      "requested": "cold",
+      "actual": {
+        "phase": "runtime",
+        "series": "audit",
+        "environment": "linux-ci-controlled-official-codex-2cpu-1g",
+        "distribution": "standalone",
+        "scanner": "official",
+        "host": "codex",
+        "audit": "cold",
+        "case": "small-clean",
+        "variant": "default",
+        "workers": "1"
+      },
+      "matching_aggregate_rows": 8
+    },
+    {
+      "changed": "audit",
+      "requested": "off",
+      "actual": {
+        "phase": "runtime",
+        "series": "direct",
+        "environment": "linux-ci-controlled-official-codex-2cpu-1g",
+        "distribution": "standalone",
+        "scanner": "official",
+        "host": "codex",
+        "audit": "off",
+        "case": "small-clean",
+        "variant": "default",
+        "workers": "1"
+      },
+      "matching_aggregate_rows": 8
+    },
+    {
+      "changed": "audit",
+      "requested": "warm",
+      "actual": {
+        "phase": "runtime",
+        "series": "audit",
+        "environment": "linux-ci-controlled-official-codex-2cpu-1g",
+        "distribution": "standalone",
+        "scanner": "official",
+        "host": "codex",
+        "audit": "warm",
+        "case": "small-clean",
+        "variant": "default",
+        "workers": "1"
+      },
+      "matching_aggregate_rows": 8
+    },
+    {
+      "changed": "case",
+      "requested": "dense-controls",
+      "actual": {
+        "phase": "runtime",
+        "series": "direct",
+        "environment": "linux-ci-controlled-official-codex-2cpu-1g",
+        "distribution": "standalone",
+        "scanner": "official",
+        "host": "codex",
+        "audit": "off",
+        "case": "dense-controls",
+        "variant": "default",
+        "workers": "1"
+      },
+      "matching_aggregate_rows": 8
+    },
+    {
+      "changed": "case",
+      "requested": "escaped-control",
+      "actual": {
+        "phase": "runtime",
+        "series": "direct",
+        "environment": "linux-ci-controlled-official-codex-2cpu-1g",
+        "distribution": "standalone",
+        "scanner": "official",
+        "host": "codex",
+        "audit": "off",
+        "case": "escaped-control",
+        "variant": "default",
+        "workers": "1"
+      },
+      "matching_aggregate_rows": 8
+    },
+    {
+      "changed": "case",
+      "requested": "long-line",
+      "actual": {
+        "phase": "runtime",
+        "series": "direct",
+        "environment": "linux-ci-controlled-official-codex-2cpu-1g",
+        "distribution": "standalone",
+        "scanner": "official",
+        "host": "codex",
+        "audit": "off",
+        "case": "long-line",
+        "variant": "default",
+        "workers": "1"
+      },
+      "matching_aggregate_rows": 8
+    },
+    {
+      "changed": "case",
+      "requested": "long-multiline",
+      "actual": {
+        "phase": "runtime",
+        "series": "direct",
+        "environment": "linux-ci-controlled-official-codex-2cpu-1g",
+        "distribution": "standalone",
+        "scanner": "official",
+        "host": "codex",
+        "audit": "off",
+        "case": "long-multiline",
+        "variant": "default",
+        "workers": "1"
+      },
+      "matching_aggregate_rows": 8
+    },
+    {
+      "changed": "case",
+      "requested": "many-replacement-leaves",
+      "actual": {
+        "phase": "runtime",
+        "series": "direct",
+        "environment": "linux-ci-controlled-official-codex-2cpu-1g",
+        "distribution": "standalone",
+        "scanner": "official",
+        "host": "codex",
+        "audit": "off",
+        "case": "many-replacement-leaves",
+        "variant": "default",
+        "workers": "1"
+      },
+      "matching_aggregate_rows": 8
+    },
+    {
+      "changed": "case",
+      "requested": "scanner-failure-open",
+      "actual": {
+        "phase": "runtime",
+        "series": "direct",
+        "environment": "linux-ci-controlled-official-codex-2cpu-1g",
+        "distribution": "standalone",
+        "scanner": "official",
+        "host": "codex",
+        "audit": "off",
+        "case": "scanner-failure-open",
+        "variant": "default",
+        "workers": "1"
+      },
+      "matching_aggregate_rows": 8
+    },
+    {
+      "changed": "case",
+      "requested": "small-clean",
+      "actual": {
+        "phase": "runtime",
+        "series": "direct",
+        "environment": "linux-ci-controlled-official-codex-2cpu-1g",
+        "distribution": "standalone",
+        "scanner": "official",
+        "host": "codex",
+        "audit": "off",
+        "case": "small-clean",
+        "variant": "default",
+        "workers": "1"
+      },
+      "matching_aggregate_rows": 8
+    },
+    {
+      "changed": "case",
+      "requested": "unknown-event",
+      "actual": {
+        "phase": "runtime",
+        "series": "direct",
+        "environment": "linux-ci-controlled-official-codex-2cpu-1g",
+        "distribution": "standalone",
+        "scanner": "official",
+        "host": "codex",
+        "audit": "off",
+        "case": "unknown-event",
+        "variant": "default",
+        "workers": "1"
+      },
+      "matching_aggregate_rows": 8
+    },
+    {
+      "changed": "variant",
+      "requested": "default",
+      "actual": {
+        "phase": "runtime",
+        "series": "direct",
+        "environment": "linux-ci-controlled-official-codex-2cpu-1g",
+        "distribution": "standalone",
+        "scanner": "official",
+        "host": "codex",
+        "audit": "off",
+        "case": "unknown-event",
+        "variant": "default",
+        "workers": "1"
+      },
+      "matching_aggregate_rows": 8
+    },
+    {
+      "changed": "variant",
+      "requested": "fused",
+      "actual": {
+        "phase": "runtime",
+        "series": "direct",
+        "environment": "linux-ci-controlled-official-codex-2cpu-1g",
+        "distribution": "standalone",
+        "scanner": "official",
+        "host": "codex",
+        "audit": "off",
+        "case": "unknown-event",
+        "variant": "fused",
+        "workers": "1"
+      },
+      "matching_aggregate_rows": 4
+    },
+    {
+      "changed": "series",
+      "requested": "audit",
+      "actual": {
+        "phase": "runtime",
+        "series": "audit",
+        "environment": "linux-ci-controlled-official-codex-2cpu-1g",
+        "distribution": "standalone",
+        "scanner": "official",
+        "host": "codex",
+        "audit": "cold",
+        "case": "long-multiline",
+        "variant": "fused",
+        "workers": "1"
+      },
+      "matching_aggregate_rows": 4
+    },
+    {
+      "changed": "series",
+      "requested": "direct",
+      "actual": {
+        "phase": "runtime",
+        "series": "direct",
+        "environment": "linux-ci-controlled-official-codex-2cpu-1g",
+        "distribution": "standalone",
+        "scanner": "official",
+        "host": "codex",
+        "audit": "off",
+        "case": "long-multiline",
+        "variant": "fused",
+        "workers": "1"
+      },
+      "matching_aggregate_rows": 4
+    },
+    {
+      "changed": "series",
+      "requested": "load",
+      "actual": {
+        "phase": "runtime",
+        "series": "load",
+        "environment": "linux-ci-controlled-official-codex-2cpu-1g",
+        "distribution": "standalone",
+        "scanner": "official",
+        "host": "codex",
+        "audit": "off",
+        "case": "long-multiline",
+        "variant": "fused",
+        "workers": "4"
+      },
+      "matching_aggregate_rows": 4
+    },
+    {
+      "changed": "series",
+      "requested": "optional",
+      "actual": {
+        "phase": "runtime",
+        "series": "optional",
+        "environment": "linux-ci-controlled-official-codex-2cpu-1g",
+        "distribution": "standalone",
+        "scanner": "official",
+        "host": "codex",
+        "audit": "off",
+        "case": "long-multiline",
+        "variant": "fused",
+        "workers": "1"
+      },
+      "matching_aggregate_rows": 8
+    },
+    {
+      "changed": "series",
+      "requested": "rss",
+      "actual": {
+        "phase": "rss",
+        "series": "rss",
+        "environment": "linux-ci-controlled-official-codex-2cpu-1g",
+        "distribution": "standalone",
+        "scanner": "official",
+        "host": "codex",
+        "audit": "off",
+        "case": "long-multiline",
+        "variant": "fused",
+        "workers": "1"
+      },
+      "matching_aggregate_rows": 2
+    },
+    {
+      "changed": "series",
+      "requested": "source",
+      "actual": {
+        "phase": "runtime",
+        "series": "source",
+        "environment": "linux-ci-controlled-official-codex-2cpu-1g",
+        "distribution": "source-plugin",
+        "scanner": "official",
+        "host": "codex",
+        "audit": "off",
+        "case": "long-multiline",
+        "variant": "fused",
+        "workers": "1"
+      },
+      "matching_aggregate_rows": 4
+    },
+    {
+      "changed": "series",
+      "requested": "versions",
+      "actual": {
+        "phase": "runtime",
+        "series": "versions",
+        "environment": "linux-ci-controlled-official-codex-2cpu-1g",
+        "distribution": "standalone",
+        "scanner": "official",
+        "host": "codex",
+        "audit": "off",
+        "case": "long-multiline",
+        "variant": "default",
+        "workers": "1"
+      },
+      "matching_aggregate_rows": 28
+    },
+    {
+      "changed": "phase",
+      "requested": "rss",
+      "actual": {
+        "phase": "rss",
+        "series": "rss",
+        "environment": "linux-ci-controlled-official-codex-2cpu-1g",
+        "distribution": "standalone",
+        "scanner": "official",
+        "host": "codex",
+        "audit": "off",
+        "case": "long-multiline",
+        "variant": "default",
+        "workers": "1"
+      },
+      "matching_aggregate_rows": 14
+    },
+    {
+      "changed": "phase",
+      "requested": "runtime",
+      "actual": {
+        "phase": "runtime",
+        "series": "direct",
+        "environment": "linux-ci-controlled-official-codex-2cpu-1g",
+        "distribution": "standalone",
+        "scanner": "official",
+        "host": "codex",
+        "audit": "off",
+        "case": "long-multiline",
+        "variant": "default",
+        "workers": "1"
+      },
+      "matching_aggregate_rows": 8
+    },
+    {
+      "changed": "workers",
+      "requested": "1",
+      "actual": {
+        "phase": "runtime",
+        "series": "direct",
+        "environment": "linux-ci-controlled-official-codex-2cpu-1g",
+        "distribution": "standalone",
+        "scanner": "official",
+        "host": "codex",
+        "audit": "off",
+        "case": "long-multiline",
+        "variant": "default",
+        "workers": "1"
+      },
+      "matching_aggregate_rows": 8
+    },
+    {
+      "changed": "workers",
+      "requested": "4",
+      "actual": {
+        "phase": "runtime",
+        "series": "load",
+        "environment": "linux-ci-controlled-official-codex-2cpu-1g",
+        "distribution": "standalone",
+        "scanner": "official",
+        "host": "codex",
+        "audit": "off",
+        "case": "long-multiline",
+        "variant": "default",
+        "workers": "4"
+      },
+      "matching_aggregate_rows": 28
+    }
+  ],
+  "downloads": [
+    {
+      "button": "download-json",
+      "suggested_filename": "agent-guard-raw.json",
+      "saved_as": "download-raw.json",
+      "bytes": 41211248,
+      "sha256": "4e89fa4c7dc4f6bb75871312c2877963a861bce5d09c694411b94809fa514ed0"
+    },
+    {
+      "button": "download-aggregates",
+      "suggested_filename": "aggregates.csv",
+      "saved_as": "download-aggregates.csv",
+      "bytes": 1543738,
+      "sha256": "96959e382c3562fc2b1612fe4548adaa1a584b609ce5c4ea2b8916d85f3b350a"
+    },
+    {
+      "button": "download-csv",
+      "suggested_filename": "runtime-raw.csv",
+      "saved_as": "download-runtime.csv",
+      "bytes": 20154147,
+      "sha256": "243c7b2c7124237be74609ddc701a5fb1b877f1f40e5b592fab7b8b0dc520c0d"
+    },
+    {
+      "button": "download-install",
+      "suggested_filename": "installation-raw.csv",
+      "saved_as": "download-installation.csv",
+      "bytes": 435831,
+      "sha256": "66ffcc9ca5dd7d89c830b15273360cb65dca909fae15cea3502059ea58e005ec"
+    },
+    {
+      "button": "download-correctness",
+      "suggested_filename": "correctness-raw.csv",
+      "saved_as": "download-correctness.csv",
+      "bytes": 2178643,
+      "sha256": "862085511308226183df5ec4171c9d066756ebf5b68c82375a78f5bf5953379c"
+    },
+    {
+      "button": "download-selected",
+      "suggested_filename": "selected-aggregates.csv",
+      "saved_as": "download-selected.csv",
+      "bytes": 16271,
+      "sha256": "0562f1c47d6980ebb691dd30321e963a7bed11274e483226b0419f651de884d3"
+    }
+  ],
+  "console_errors": [],
+  "page_errors": [],
+  "external_requests": [],
+  "artifact_requests": [
+    "/report.ko.html"
+  ],
+  "success": true,
+  "file_url_limit": "file:// navigation is blocked by managed Chromium policy; see preserved browser-tooling-failures.json. This run tests the same all-inline artifact over an allowed loopback HTTP origin and does not claim file:// verification.",
+  "navigation_url": "http://localhost:31460/report.ko.html",
+  "browser_version": "155.0.8059.79",
+  "finished_at_utc": "2026-11-06T16:17:14.825120+00:00"
+}

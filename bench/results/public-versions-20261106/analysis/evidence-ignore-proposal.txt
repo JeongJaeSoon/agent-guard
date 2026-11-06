@@ -1,0 +1,31 @@
+# HISTORICAL PROPOSAL: parent subsequently approved task-base .gitignore.
+# Applied patterns retain additional curated/GZ files; actual .gitignore and evidence-ignore-validation.json are authoritative.
+# Raw directories/logs below are preserved in raw/*.zip with all-member SHA256.
+# Python harnesses, root raw JSON/CSV, protocols and curated summaries remain visible.
+__pycache__/
+*.pyc
+*.pyo
+/installation/logs/
+/installation/full-network/logs/
+/installation/homebrew-functional/homebrew-logs/
+/installation/homebrew-measured/homebrew-logs/
+/installation/*.stdout
+/installation/*.stderr
+/installation/*.log
+/installation/homebrew-functional/*.stdout
+/installation/homebrew-functional/*.stderr
+/installation/homebrew-measured/*.stdout
+/installation/homebrew-measured/*.stderr
+/correctness/sanity-jq16/
+/correctness/official-*/
+/correctness/existing-core-corpus-local/
+/correctness/*.log
+/runtime/components-local/raw/
+/runtime/components-local/inputs/
+/runtime/components-local/samples.csv
+/runtime/components-local/samples.jsonl
+/runtime/components-local/execution.log
+/runtime/local-pilot/
+/runtime/local-pilot-attribution/
+/evidence/ci/
+# Keep raw ZIPs, manifests, index and checksum files tracked.

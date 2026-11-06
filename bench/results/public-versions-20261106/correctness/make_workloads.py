@@ -38,6 +38,32 @@ def workloads():
         add('scanner-failure-'+mode,{'tool_name':'Bash','tool_input':{'command':'printf clean'}},None,route='pre',status=status,infra_mode=mode,scanner_failure=True,category='failure-policy')
     return out
 
+def compatibility_workloads():
+    # jq1.6 printenv boundary fix: a trailing newline in a requested secret
+    # must not consume a later public argument. Every value is synthetic.
+    return [dict(name='printenv-trailing-newline',route='exec',value='',
+                 expected='[REDACTED]\nalpha-secret-head',status=0,
+                 command=['/usr/bin/printenv','FIRST_TOKEN','PUBLIC_INFO'],
+                 env={'FIRST_TOKEN':'alpha-secret-head\n','PUBLIC_INFO':'alpha-secret-head'}),
+            dict(name='printenv-empty-secret',route='exec',value='',expected='',status=0,
+                 command=['/usr/bin/printenv','EMPTY_PASSWORD'],env={'EMPTY_PASSWORD':''}),
+            dict(name='printenv-missing-argument',route='exec',value='',
+                 expected='[REDACTED]\n[REDACTED]',status=1,
+                 command=['/usr/bin/printenv','DEMO_TOKEN','AGENT_GUARD_TEST_UNSET_PASSWORD','SECONDARY_PASSWORD'],
+                 env={'DEMO_TOKEN':'documented-fake-printenv-value-123456','SECONDARY_PASSWORD':'omega-secret-tail-alpha-long-value'})]
+
+def masked_token_workloads():
+    # Additional suite frozen after the primary 32-case corpus. main #416 is
+    # outside the public v3.8.1 endpoint and must never stand in for that release.
+    body='Aa1Bb2Cc3Dd4Ee5Ff6Gg7Hh8Ii9Jj0Kk1Ll2'
+    return [dict(name=name,route='prompt',value={'prompt':text},expected='',status=status,
+                 category='false-positive' if status==0 else 'security-positive')
+            for name,text,status in [
+                ('masked-vendor-prompt','Token: ghu_'+'*'*28,0),
+                ('masked-redacted-prompt','password: <redacted>',0),
+                ('partial-mask-prompt','Token: ghu_****'+body,2),
+                ('real-shaped-prompt','Token: ghu_'+body,2)]]
+
 if __name__=='__main__':
     dest=Path(__file__).with_name('workloads.json')
     dest.write_text(json.dumps(workloads(),ensure_ascii=False,indent=2)+'\n')

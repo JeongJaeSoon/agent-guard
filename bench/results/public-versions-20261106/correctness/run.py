@@ -2,7 +2,7 @@
 """공개 배포본 정확도. 실패도 기록하며 제한시간·기대값을 변경하지 않는다."""
 import argparse,csv,hashlib,json,os,signal,subprocess,time
 from pathlib import Path
-from make_workloads import workloads
+from make_workloads import workloads,compatibility_workloads,masked_token_workloads
 from common import payload,validate
 
 def sha(path): return hashlib.sha256(Path(path).read_bytes()).hexdigest()
@@ -16,10 +16,11 @@ def main():
     p.add_argument('--versions',default='v3.6.13,v3.6.14,v3.6.15,v3.7.0,v3.7.1,v3.8.0,v3.8.1')
     p.add_argument('--variants',default='default')
     p.add_argument('--cases',default='')
+    p.add_argument('--suite',choices=['independent','compatibility','masked-token'],default='independent')
     p.add_argument('--config-mode',choices=['fixed','packaged'],default='fixed')
     p.add_argument('--label',default='linux-jq1.6-actual4CPU16GiB')
     args=p.parse_args(); out=Path(args.out); out.mkdir(parents=True,exist_ok=False)
-    versions=args.versions.split(','); cases=workloads()
+    versions=args.versions.split(','); cases={'independent':workloads,'compatibility':compatibility_workloads,'masked-token':masked_token_workloads}[args.suite]()
     if args.cases: cases=[c for c in cases if c['name'] in args.cases.split(',')]
     releases=Path(args.releases)
     config=releases/'v3.6.13/payload/config/gitleaks.toml'
@@ -39,6 +40,7 @@ def main():
                 for case in cases:
                     name=case['name']; label=f'{version}-{variant}-{host}-{name}'
                     dest=out/label; dest.mkdir(); env=base|{'AGENT_GUARD_HOOK_HOST':host,'AGENT_GUARD_WARNING_DIR':str(dest/'warnings'),'AGENT_GUARD_INFRA_FAILURE_MODE':case.get('infra_mode','open')}
+                    env.update(case.get('env',{}))
                     if args.config_mode=='packaged': env['AGENT_GUARD_GITLEAKS_CONFIG']=str(releases/version/'payload/config/gitleaks.toml')
                     if variant=='fused':
                         env['AGENT_GUARD_EXPERIMENTAL_OUTPUT_PIPELINE']='fused'
@@ -47,7 +49,7 @@ def main():
                     if case.get('scanner_failure'): env['AGENT_GUARD_GITLEAKS_BIN']=str(dest/'missing-scanner')
                     data=payload(case); command=[str(cli),{'hook':'hook-post-tool','pre':'hook-pre-tool','prompt':'hook-user-prompt'}.get(case['route'],'exec')]
                     if case['route']=='exec':
-                        source=dest/'synthetic-output'; source.write_text(case['value']); command+=['--','cat',str(source)]; data=b''
+                        source=dest/'synthetic-output'; source.write_text(case['value']); command+=['--']+case.get('command',['cat',str(source)]); data=b''
                     (dest/'stdin.json').write_bytes(data)
                     start=time.monotonic(); proc=subprocess.Popen(command,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=env,cwd=state,start_new_session=True)
                     timeout=False

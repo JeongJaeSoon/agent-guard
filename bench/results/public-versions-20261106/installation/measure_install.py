@@ -37,9 +37,12 @@ with open(os.environ['BENCH_TRANSFER_LOG'],'a') as f:f.write(str(src.stat().st_s
     orders=[(VERSIONS[r%len(VERSIONS):]+VERSIONS[:r%len(VERSIONS)])[::(-1 if r%2 else 1)] for r in range(args.rounds)]
     protocol={'warmups_per_version':1 if args.phase=='cached' else 0,'rounds':args.rounds,'orders':orders,'threshold_improvement_percent':10,'threshold_regression_percent':5,'phase':args.phase,'timeout':'120s fixed per installation/transfer; kill process group; retained failures; no retries','scope':'published bootstrap + checksum validation + extraction + setup dependency diagnostics + default setup-shell; existing deps ready; cached transport excludes network and bootstrap script download','environment':args.environment}
     write_json(out/('protocol-'+args.phase+'.json'),protocol)
+    if args.phase=='network':protocol['scope']='actual curl public pinned archive transfer only; TLS verification on; checksum verified after timing; excludes bootstrap/checksum/dependencies/extraction/setup; proxy/CDN cache unknown'
     scenarios=['standalone-fresh-cached','standalone-update-cached','dependency-scanner-cached'] if args.phase=='cached' else ['asset-network-download']
     if args.scenarios:scenarios=args.scenarios.split(',')
-    protocol['scenarios']=scenarios;write_json(out/('protocol-'+args.phase+'.json'),protocol)
+    protocol['scenarios']=scenarios
+    if 'standalone-fresh-network' in scenarios:protocol['scope']='actual published local reviewed bootstrap + real network archive/checksum downloads + validation/extraction/setup/default shell integration; preexisting ready dependencies; excludes initial bootstrap download; proxy/CDN cache unknown'
+    write_json(out/('protocol-'+args.phase+'.json'),protocol)
     for scenario in scenarios:
       for round_num in range(-1 if args.phase=='cached' else 0,args.rounds):
         order=VERSIONS if round_num<0 else orders[round_num]
@@ -65,6 +68,9 @@ with open(os.environ['BENCH_TRANSFER_LOG'],'a') as f:f.write(str(src.stat().st_s
             env['PATH']=str(shim)+':'+os.environ['PATH']
             # No scanner on PATH or private cache in this fresh HOME.
             cmd=[str(lab/'releases'/('v'+v)/'payload/bin/agent-guard'),'setup','--install','--gitleaks-version','8.30.1','--gitleaks-checksum','551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb']
+          elif scenario=='standalone-fresh-network':
+            env['PATH']=str(lab/'scanners/official')+':'+os.environ['PATH']
+            cmd=['sh',str(bootstrap)]
           elif scenario=='asset-network-download':
             env['PATH']=os.environ['PATH'];url=f'https://github.com/JeongJaeSoon/agent-guard/releases/download/v{v}/agent-guard-{v}.tar.gz'
             cmd=['curl','-fsSL',url,'-o',str(run/'asset.tar.gz')]
@@ -75,6 +81,11 @@ with open(os.environ['BENCH_TRANSFER_LOG'],'a') as f:f.write(str(src.stat().st_s
           row=dict(version=v,from_version=from_v,scenario=scenario,round=round_num,position=pos,environment=protocol['environment'],scope=protocol['scope'],warmup=round_num<0,installed_bytes=(bytes_of(home) if scenario=='dependency-scanner-cached' else installed),home_delta_bytes=bytes_of(home)-before,download_bytes=sum(int(l.split()[0]) for l in transfer.read_text().splitlines()) if transfer.exists() else ((run/'asset.tar.gz').stat().st_size if (run/'asset.tar.gz').exists() else None),user_config_preserved=preserved,log_prefix='installation/logs/'+label,**m)
           if scenario not in ('asset-network-download','dependency-scanner-cached') and m['success']:
             row['installed_version']=subprocess.check_output([str(home/'.local/bin/agent-guard'),'version'],env=env,text=True).strip();row['success']=row['success'] and row['installed_version'].endswith(v) and preserved
+          if scenario=='standalone-fresh-network':
+            row['requested_asset_bytes']=sum((lab/'releases'/('v'+v)/'assets'/name).stat().st_size for name in [f'agent-guard-{v}.tar.gz',f'agent-guard-{v}.tar.gz.sha256'])
+            row['download_bytes']=row['requested_asset_bytes'] if row['success'] else None
+            if (home/'.agent-guard/bin/agent-guard').exists():
+              row['installed_cli_sha256']=hashlib.sha256((home/'.agent-guard/bin/agent-guard').read_bytes()).hexdigest();row['expected_cli_sha256']=hashlib.sha256((lab/'releases'/('v'+v)/'payload/bin/agent-guard').read_bytes()).hexdigest();row['cli_matches_public']=row['installed_cli_sha256']==row['expected_cli_sha256'];row['success']=row['success'] and row['cli_matches_public']
           if scenario=='asset-network-download' and (run/'asset.tar.gz').exists():
             expected=hashlib.sha256((lab/'releases'/('v'+v)/'assets'/f'agent-guard-{v}.tar.gz').read_bytes()).hexdigest();actual=hashlib.sha256((run/'asset.tar.gz').read_bytes()).hexdigest()
             row.update(expected_sha256=expected,actual_sha256=actual,checksum_match=expected==actual);row['success']=row['success'] and expected==actual

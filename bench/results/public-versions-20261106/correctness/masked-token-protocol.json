@@ -1,0 +1,65 @@
+{
+  "scope": "Additional accuracy suite; primary 32 inputs unchanged; no timing comparisons",
+  "frozen_before_execution": true,
+  "date_utc": "2026-11-06",
+  "jq": "1.7.1",
+  "versions": [
+    "v3.6.13",
+    "v3.6.14",
+    "v3.6.15",
+    "v3.7.0",
+    "v3.7.1",
+    "v3.8.0",
+    "v3.8.1"
+  ],
+  "hosts": [
+    "claude",
+    "codex"
+  ],
+  "cases": [
+    {
+      "name": "masked-vendor-prompt",
+      "route": "prompt",
+      "value": {
+        "prompt": "Token: ghu_****************************"
+      },
+      "expected": "",
+      "status": 0,
+      "category": "false-positive"
+    },
+    {
+      "name": "masked-redacted-prompt",
+      "route": "prompt",
+      "value": {
+        "prompt": "password: <redacted>"
+      },
+      "expected": "",
+      "status": 0,
+      "category": "false-positive"
+    },
+    {
+      "name": "partial-mask-prompt",
+      "route": "prompt",
+      "value": {
+        "prompt": "Token: ghu_****Aa1Bb2Cc3Dd4Ee5Ff6Gg7Hh8Ii9Jj0Kk1Ll2"
+      },
+      "expected": "",
+      "status": 2,
+      "category": "security-positive"
+    },
+    {
+      "name": "real-shaped-prompt",
+      "route": "prompt",
+      "value": {
+        "prompt": "Token: ghu_Aa1Bb2Cc3Dd4Ee5Ff6Gg7Hh8Ii9Jj0Kk1Ll2"
+      },
+      "expected": "",
+      "status": 2,
+      "category": "security-positive"
+    }
+  ],
+  "n_per_condition": 1,
+  "scanner": "official 8.30.1 identical bytes",
+  "config": "fixed v3.6.13",
+  "timeout_seconds": 30
+}
