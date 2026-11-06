@@ -228,7 +228,9 @@ jobs:
   complete:
     name: Native platform artifacts
     if: always()
-    needs: [platform, installation]
+    # Wait for the evidence jobs without judging them, so this check turns
+    # green only after the workflow run is completed for release lookup.
+    needs: [platform, installation, performance, fused-performance]
     runs-on: ubuntu-latest
     steps:
       - name: Require all four native executions
