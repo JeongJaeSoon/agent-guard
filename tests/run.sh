@@ -2880,6 +2880,10 @@ run_expect 0 "grep/rg search patterns and new openssl outputs leave out no prote
   sh "$ROOT/tests/search-operand-ground-truth.sh"
 run_expect 0 "orca/gh/git message values leave out no protected read" \
   sh "$ROOT/tests/message-value-prose.sh"
+run_expect 0 "cat/tee here-document bodies leave out no protected read" \
+  sh "$ROOT/tests/heredoc-body-text.sh"
+run_expect 0 "status words and named placeholders are prose, real values still block" \
+  sh "$ROOT/tests/prompt-prose-placeholder.sh"
 ambiguous_bash_fixtures="$ROOT/tests/fixtures/ambiguous-bash-protected-path.json"
 ambiguous_bash_cases="$TESTTMP/ambiguous-bash-protected-path.cases"
 if jq -e 'type == "array" and length > 0' "$ambiguous_bash_fixtures" >/dev/null \
