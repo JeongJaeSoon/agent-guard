@@ -26,6 +26,13 @@
 (^|[[:space:];|&])set[[:space:]]*($|[;&])
 # Like `env` above, a bare `set` piped or redirected dumps every variable.
 (^|[[:space:];&])set[[:space:]]*[|>]
+# Printing a variable through a name held in another variable (indirect
+# expansion, or a name reference) reads values without naming them. A name list
+# (`${!PREFIX*}`, `${!arr[@]}`) prints names only and stays allowed.
+\$\{![A-Za-z_][A-Za-z0-9_]*(\}|[:#%/^,~=+?-]|\[[^]@*]|@[A-Za-z])
+(^|[[:space:];|&(])(declare|typeset|local)([[:space:]]+-[A-Za-z]+)*[[:space:]]+-[A-Za-z]*n
+# `eval` that expands a variable's value into the command it runs does the same.
+(^|[[:space:];|&(])eval[[:space:]][^;|&]*(\\\$|\$\$)
 # Reading /proc/<pid>/environ dumps the environment. The PID segment is often a
 # shell variable ($$, $BASHPID) the deny-read glob cannot match, so accept any
 # non-space, non-slash segment here.
