@@ -1,0 +1,46 @@
+{
+  "protocol": "public-seven-boundary-v1",
+  "host": "claude",
+  "audit": "off",
+  "input": "missing-scanner-closed",
+  "versions": [
+    "3.6.13",
+    "3.6.14",
+    "3.6.15",
+    "3.7.0",
+    "3.7.1",
+    "3.8.0",
+    "3.8.1"
+  ],
+  "series_repeats": 9,
+  "endpoint_repeats": 12,
+  "warmup": 1,
+  "timeout_seconds": 30,
+  "retries": 0,
+  "series_order": "9 condition Latin cyclic rotations",
+  "endpoint_order": "3 cyclic rotations repeated four cycles; alternate cycles reversed",
+  "concurrency": [
+    1,
+    4
+  ],
+  "direct_cli": "hook-post-tool; FutureEvent is payload only, host dispatcher unverified",
+  "contract": {
+    "unknown-event": "each worker exit0 and empty stdout",
+    "missing-scanner-open": "new valid session per batch; exactly one warning envelope and stderr notice; remaining concurrency-1 stdout empty; all worker exit0; warmup and regular same contract",
+    "missing-scanner-closed": "all worker exit2, empty stdout, explicit closed stderr; batch exit1 expected"
+  },
+  "normal_masking_speedup_eligible": false,
+  "retained_home": "each measurement/version/mode/concurrency retains HOME for audit cache; each batch gets a new session id",
+  "all_policy": "v3.6.13 three files",
+  "scanner": {
+    "name": "gitleaks_8.30.1_linux_x64.tar.gz",
+    "url": "https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz",
+    "sha256": "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
+  },
+  "measurement_function": "exact copied base_runtime.measure; no modification",
+  "single_measurement": "same outer batch shell as four concurrency; includes wrapper overhead in all versions",
+  "thresholds": {
+    "improvement_pct": 10,
+    "regression_gt_pct": 5
+  }
+}
