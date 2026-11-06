@@ -36,7 +36,7 @@ jobs:
         run: |
           export PATH="$RUNNER_TEMP/test-bin:/usr/bin:/bin:/usr/sbin:/sbin"
           sh tests/public-native-release.sh "$VERSION" "$RUNNER_TEMP/public-evidence" "$PREVIOUS_VERSION"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:
           name: public-${{ matrix.os }}
@@ -62,7 +62,7 @@ jobs:
           VERSION: ${{ inputs.version }}
           PREVIOUS_VERSION: ${{ inputs.previous_version }}
         run: sh tests/public-native-homebrew.sh "$VERSION" "$RUNNER_TEMP/homebrew-evidence" "$PREVIOUS_VERSION"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:
           name: public-homebrew-${{ matrix.os }}
