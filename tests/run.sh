@@ -13209,6 +13209,9 @@ for display_case in \
   fi
 done
 
+run_expect 0 "post-tool keeps type annotations, member references and fixture words in source text" \
+  sh "$ROOT/tests/source-text-redaction.sh"
+
 # Must-mask controls for the same gate. Narrowing the value side must not open a
 # hole: a bare literal still masks, a literal nested in an argument or subscript
 # list still masks (it is now reached on its own instead of by swallowing the

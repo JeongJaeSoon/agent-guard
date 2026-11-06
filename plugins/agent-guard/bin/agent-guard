@@ -8476,6 +8476,8 @@ secretish_env_values() {
       escape = sprintf("%c", 31)
       pw_n = split("your my the a an api access auth bearer client app user id key keys pass password secret secrets token tokens value personal private refresh session here", pw_words, " ")
       for (pw_i = 1; pw_i <= pw_n; pw_i++) placeholder_word[pw_words[pw_i]] = 1
+      type_n = split("string number boolean bigint symbol unknown any never void object buffer uint8array str int float bool bytes bytearray", type_words, " ")
+      for (type_i = 1; type_i <= type_n; type_i++) type_word[type_words[type_i]] = 1
     }
     function quoted_end(raw, quote, i, slash_count, ch) {
       slash_count = 0
@@ -8617,6 +8619,22 @@ secretish_env_values() {
     function config_literal(value) {
       return prose_core(value) ~ /^(true|false|yes|no|on|off|null|nil|none|enabled|disabled)$/
     }
+    # `privateKey: string;` and `login(password: string)` name a type. Only a
+    # colon label and a bare type word qualify; a type with brackets or a call
+    # is already a reference above.
+    function type_annotation(assignment, value) {
+      return assignment ~ /:$/ && (tolower(value) in type_word)
+    }
+    # An object member that reads a value (`privateKey: config.privateKey,`)
+    # has the shape looks_like_reference accepts after `=`: a lowercase head, a
+    # dotted chain, an uppercase letter and no digits. The trailing comma is
+    # what separates it from a YAML scalar; `term` is the character after the
+    # token.
+    function member_reference(assignment, value, term) {
+      if (term != "," || assignment !~ /:$/) return 0
+      if (!(value ~ /[A-Z]/ && value ~ /^[a-z_$]+(\.[A-Za-z_$]+)+$/)) return 0
+      return accessor_chain(value)
+    }
     # The short-value floor is about characters, but awk runs under LC_ALL=C
     # and length() counts bytes: a two-character word in a multibyte script
     # (six UTF-8 bytes) cleared the floor and became a global literal that
@@ -8676,6 +8694,9 @@ secretish_env_values() {
       for (i = 1; i < n; i++)
         if (parts[i] ~ /[A-Z]/) return 0
       leaf = parts[n]
+      # Two parts (`abc.Def`) look like a word pair, so only a camelCase leaf
+      # (`cfg.secretId`) counts; longer chains also take snake or upper case.
+      if (n == 2 && leaf !~ /^[a-z_$][A-Za-z_$]*[A-Z]/) return 0
       if (n > 2 && leaf !~ /_/ && leaf !~ /^[A-Z$]+$/ \
           && leaf !~ /^[a-z_$][A-Za-z_$]*[A-Z]/)
         return 0
@@ -8888,6 +8909,8 @@ secretish_env_values() {
           break
         }
         value = substr(value, 1, end)
+        if (type_annotation(assignment, value)) return 0
+        if (member_reference(assignment, value, substr(raw, length(token) + 1, 1))) return 0
         if (looks_like_reference(value, assignment, leading)) return 0
         if (version_reference(assignment, value)) return 0
         if (page_cursor(assignment)) return 0
