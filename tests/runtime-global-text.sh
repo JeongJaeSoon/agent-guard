@@ -103,6 +103,10 @@ check 2 "$W" "unzip -p a.zip 'process.env.PORT '"
 check 2 "$W" "7z x -so a.7z 'process.env.PORT '"
 check 2 "$W" "bsdtar -xOf a.tar 'process.env.PORT '"
 check 2 "$W" "node app.js -e 'process.env.PORT '"
+check 2 "$W" "env X=1 tar -xOf a.tar 'process.env.PORT '"
+check 2 "$W" "command tar -xOf a.tar 'process.env.PORT '"
+check 0 "$W" "env NODE_ENV=test node -e 'console.log(process.env.PORT)'"
+check 0 "$W" "command node -e 'console.log(process.env.PORT)'"
 
 # A jq field chain inside a string interpolation is program text.
 check 0 "$W" "jq -r 'to_entries[] | \"\\(.key) \\(.value)\"' data.json"

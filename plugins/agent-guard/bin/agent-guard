@@ -5670,7 +5670,7 @@ bash_neutralize_runtime_globals() (
     # it counts as text only for a command known to treat it as text: the
     # pattern of a grep-family command, the code given to an interpreter with
     # -e or -c, or the output words of echo and printf.
-    function text_word(qs,   pre, p, c, seg, nw, w, x, last, cmd) {
+    function text_word(qs,   pre, p, c, seg, nw, w, x, last, cmd, w0) {
       pre = substr(s, 1, qs - 1)
       p = 0
       for (x = length(pre); x >= 1; x--) {
@@ -5685,6 +5685,17 @@ bash_neutralize_runtime_globals() (
       while (x <= nw && w[x] == "") x++
       if (x > nw) return 0
       cmd = w[x]
+      # Look through env, command and similar wrappers to the command they run.
+      while (cmd ~ /^(env|command|exec|nohup)$/) {
+        w0 = cmd
+        for (x++; x <= nw; x++) {
+          if (w[x] ~ /^[A-Za-z_][A-Za-z0-9_]*=/) continue
+          if (w0 == "env" && w[x] ~ /^-/) continue
+          break
+        }
+        if (x > nw) return 0
+        cmd = w[x]
+      }
       last = substr(pre, length(pre), 1)
       if (last != " " && last != "\t" && w[nw] !~ /^-/) return 0
       if (cmd ~ /^(echo|printf)$/) return 1
