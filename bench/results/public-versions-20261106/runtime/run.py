@@ -50,8 +50,9 @@ def worker(spec):
         timed[i].update(stdout_sha256=sha(stdout),stderr_sha256=sha(stderr))
     write(folder/'metrics.json',dict(wall_s=wall,cpu_s=u.ru_utime+u.ru_stime,user_cpu_s=u.ru_utime,system_cpu_s=u.ru_stime,max_child_rss_kib=u.ru_maxrss,rss_sum_peak_kib=max(sample) if sample else None,rss_sample_count=len(sample),driver_cpu_s=d.ru_utime+d.ru_stime-driver0.ru_utime-driver0.ru_stime,requests=spec['requests'],workers=spec['workers'],processes=timed))
 def main():
-    p=argparse.ArgumentParser();p.add_argument('--lab',default='/lab');p.add_argument('--out',required=True);p.add_argument('--environment',required=True);p.add_argument('--scanners',default='official,homebrew');p.add_argument('--hosts',default='claude,codex');p.add_argument('--series',default='versions,direct,optional,source,audit,load,rss,trace');p.add_argument('--require-limits',action='store_true');p.add_argument('--worker');a=p.parse_args()
+    p=argparse.ArgumentParser();p.add_argument('--lab',default='/lab');p.add_argument('--out',required=True);p.add_argument('--environment',required=True);p.add_argument('--scanners',default='official,homebrew');p.add_argument('--hosts',default='claude,codex');p.add_argument('--series',default='versions,direct,optional,source,audit,load,rss,trace');p.add_argument('--require-limits',action='store_true');p.add_argument('--rss-all-versions',action='store_true');p.add_argument('--worker');a=p.parse_args()
     out=Path(a.out);out.mkdir(parents=True,exist_ok=False);lab=Path(a.lab); proto=json.loads((ROOT/'runtime/protocol.json').read_text()); cases={c['name']:c for c in workloads()}; selected=a.series.split(',')
+    if a.rss_all_versions:proto.update(rss_rounds=16,rss_arms='all seven public defaults plus v3.8.1 fused',rss_order='8 forward rotations then 8 reversed rotations',rss_supplement=True)
     limits={n:Path('/sys/fs/cgroup/'+n).read_text().strip() for n in ['cpu.max','memory.max','memory.swap.max']};limits['proc_swaps']=Path('/proc/swaps').read_text();limits['verified_requested']=all(limits[k]==v for k,v in {'cpu.max':'200000 100000','memory.max':'1073741824','memory.swap.max':'0'}.items())
     write(out/'environment.json',dict(label=a.environment,limits=limits,uname=list(os.uname()),python=sys.version,jq=subprocess.check_output(['jq','--version']).decode().strip(),jq_sha256=sha(Path(subprocess.check_output(['sh','-c','command -v jq']).decode().strip()).read_bytes()),protocol=proto))
     if a.require_limits and not limits['verified_requested']:raise SystemExit('required cgroup limits NOT enforced; measurements refused')
@@ -123,7 +124,9 @@ def main():
                 for audit in ['warm','cold']:schedule(meta('audit',audit),proto['audit_endpoint_cases'],endpoints)
             if 'load' in selected:schedule(meta('load'),proto['throughput_cases'],allarms+[(VERS[-1],'fused','standalone')],rounds=16,workers=4,rotation=True)
             if 'rss' in selected:
-                for workers in [1,4]:schedule(meta('rss'),['many-replacement-leaves','long-multiline'],endpoints,rounds=9,workers=workers,phase='rss')
+                for workers in [1,4]:
+                    rss_arms=allarms+[(VERS[-1],'fused','standalone')] if a.rss_all_versions else endpoints
+                    schedule(meta('rss'),['many-replacement-leaves','long-multiline'],rss_arms,rounds=16 if a.rss_all_versions else 9,workers=workers,phase='rss',rotation=a.rss_all_versions)
             if 'trace' in selected:schedule(meta('trace'),['small-clean','many-replacement-leaves','long-multiline'],endpoints,rounds=1,phase='trace')
     write(out/'unavailable.json',skipped)
     fields=['phase','environment','series','scanner','host','audit','case','version','variant','distribution','round','order','workers','requests','wall_s','cpu_s','user_cpu_s','system_cpu_s','max_child_rss_kib','rss_sum_peak_kib','rss_sample_count','driver_cpu_s','success','eligible','cli_sha256','config_sha256','scanner_sha256']

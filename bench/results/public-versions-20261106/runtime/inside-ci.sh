@@ -19,6 +19,11 @@ case "$action" in
     exec python "$base/runtime/run.py" --lab /lab --out /results/runtime/ci \
       --environment "linux-ci-$scanner-$host-2cpu-1g" --scanners "$scanner" --hosts "$host" --require-limits
     ;;
+  rss)
+    exec python "$base/runtime/run.py" --lab /lab --out /results/runtime/rss-supplement \
+      --environment "linux-ci-rss-$scanner-$host-2cpu-1g" --scanners "$scanner" --hosts "$host" \
+      --series rss --rss-all-versions --require-limits
+    ;;
   installation)
     python "$base/installation/measure_install.py" --lab /lab --out /results/installation/cached \
       --phase cached --rounds 9 --work /results/installation-work/cached --environment linux-ci-install-2cpu-1g
@@ -45,6 +50,10 @@ case "$action" in
         --out /results/correctness/official-jq16-focused --variants default,fused --config-mode fixed \
         --cases small-clean,long-line,many-replacement-leaves,placeholder-control,metadata-control,unknown-event \
         --label linux-ci-official-jq16-fixed-focused-2cpu-1g
+      PATH="/tmp/jq16-bin:$PATH" python "$base/correctness/run.py" --releases /lab/releases \
+        --scanner /lab/scanners/official/gitleaks --scanner-name official \
+        --out /results/correctness/official-jq16-printenv --variants default --config-mode fixed \
+        --suite compatibility --label linux-ci-official-jq16-printenv-2cpu-1g
       python "$base/correctness/existing_corpus.py" --repo /repo --releases /lab/releases \
         --out /results/correctness/existing-core-corpus
     fi
