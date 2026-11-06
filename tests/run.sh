@@ -1991,6 +1991,31 @@ PASSWORD=not-a-real-password' \
 prompt_guard_placeholder_lookalike_json=$(jq -nc \
   --arg prompt 'API_KEY=example_token_value_long' '{prompt:$prompt}')
 
+# Values another tool already masked are not credentials; a real-shaped body
+# after the same prefix still is. The bodies are generated at run time so no
+# committed literal resembles a live token.
+prompt_guard_masked_json=$(jq -nc --arg prompt \
+  'gh auth status
+  - Token: ghu_****************************
+  - Token: github_pat_xxxxxxxxxxxxxxxxxxxxxxxx
+password: <redacted>
+token: ***
+Token: ghp_••••••••••••
+api_key: sk-XXXXXXXXXXXX
+secret:
+running: false
+type: agent' \
+  '{prompt:$prompt}')
+prompt_guard_token_body=$(od -An -N20 -tx1 /dev/urandom | LC_ALL=C tr -d ' \n')
+prompt_guard_real_ghu_json=$(jq -nc --arg v "$prompt_guard_token_body" \
+  '{prompt: ("Token: ghu_" + $v)}')
+prompt_guard_partial_mask_json=$(jq -nc --arg v "$prompt_guard_token_body" \
+  '{prompt: ("Token: ghu_****" + $v)}')
+prompt_guard_real_pat_json=$(jq -nc --arg v "$prompt_guard_token_body" \
+  '{prompt: ("token=github_pat_" + $v)}')
+prompt_guard_generic_json=$(jq -nc --arg v "$prompt_guard_token_body" \
+  '{prompt: ("password: " + $v)}')
+
 for pg_h in claude codex; do
   run_expect 2 "prompt guard blocks a pasted secret by default ($pg_h)" \
     prompt_guard_case "$pg_h" '' '' '{"prompt":"my key is AGENT_GUARD_TEST_SECRET"}'
@@ -2003,6 +2028,21 @@ for pg_h in claude codex; do
 
   run_expect 2 "prompt guard blocks a decorated placeholder lookalike ($pg_h)" \
     prompt_guard_case "$pg_h" '' '' "$prompt_guard_placeholder_lookalike_json"
+
+  run_expect 0 "prompt guard allows masked token samples and empty values ($pg_h)" \
+    prompt_guard_case "$pg_h" '' '' "$prompt_guard_masked_json"
+
+  run_expect 2 "prompt guard blocks a real-shaped ghu_ token ($pg_h)" \
+    prompt_guard_case "$pg_h" '' '' "$prompt_guard_real_ghu_json"
+
+  run_expect 2 "prompt guard blocks a partly masked token with a real tail ($pg_h)" \
+    prompt_guard_case "$pg_h" '' '' "$prompt_guard_partial_mask_json"
+
+  run_expect 2 "prompt guard blocks a real-shaped github_pat_ token ($pg_h)" \
+    prompt_guard_case "$pg_h" '' '' "$prompt_guard_real_pat_json"
+
+  run_expect 2 "prompt guard blocks a generic high-entropy password ($pg_h)" \
+    prompt_guard_case "$pg_h" '' '' "$prompt_guard_generic_json"
 
   prompt_guard_case "$pg_h" '' '' '{"prompt":"please refactor the login handler"}' >"$OUT" 2>"$ERR"
   if [ $? -eq 0 ] && [ ! -s "$OUT" ]; then
@@ -2807,6 +2847,10 @@ run_expect 0 "orca/gh/git message values leave out no protected read" \
   sh "$ROOT/tests/message-value-prose.sh"
 run_expect 0 "ORCA_ and CLAUDE_JOB_DIR lookups pass while secret dumps stay blocked" \
   sh "$ROOT/tests/env-lookup-allowlist.sh"
+run_expect 0 "cat/tee here-document bodies leave out no protected read" \
+  sh "$ROOT/tests/heredoc-body-text.sh"
+run_expect 0 "status words and named placeholders are prose, real values still block" \
+  sh "$ROOT/tests/prompt-prose-placeholder.sh"
 ambiguous_bash_fixtures="$ROOT/tests/fixtures/ambiguous-bash-protected-path.json"
 ambiguous_bash_cases="$TESTTMP/ambiguous-bash-protected-path.cases"
 if jq -e 'type == "array" and length > 0' "$ambiguous_bash_fixtures" >/dev/null \
