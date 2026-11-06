@@ -161,6 +161,19 @@ check 2 "env | grep '^ORCA_' | sed 's/a/b/;w out'"
 check 2 "env | grep '^ORCA_' | sed 's/a/b/' -i x"
 check 2 "env | grep '^ORCA_' | head -n"
 
+# Names listed and then printed through another variable reveal values without
+# the lookup naming them; a bare name list stays allowed.
+check 0 "compgen -e"
+check 0 "compgen -v ORCA | head -5"
+check 0 'echo "${!ORCA*}"'
+check 2 'for n in $(compgen -v ORCA); do echo "${!n}"; done'
+check 2 'for n in $(compgen -e); do printf "%s\n" "${!n}"; done'
+check 2 'n=ORCA_RUN_ID; echo ${!n}'
+check 2 'n=ORCA_RUN_ID; echo "${!n:-none}"'
+check 2 'n=ORCA_RUN_ID; echo "${!n@Q}"'
+check 2 'for n in $(compgen -v ORCA); do declare -n r=$n; echo "$r"; done'
+check 2 'for n in $(compgen -v ORCA); do typeset -n r=$n; echo "$r"; done'
+
 # Execution control for the multi-line case: the second line of a value
 # survives `grep | cut -d= -f1`, so that filter proves nothing about names.
 multi=$(env ORCA_FIXTURE_NOTE="first-line
