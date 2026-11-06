@@ -60,6 +60,24 @@ check 2 "$W" "bun -e 'console.log(Bun.env.valueOf())'"
 check 2 "$W" "node -e 'console.log(process.env.valueOf())'"
 check 2 "$W" 'echo "a\"b"; cat process.env.A'
 check 0 "$W" "node -e 'console.log(process.env.PORT.toString())'"
+# An object-level method hands back the whole environment at any chain length,
+# and when it is only referenced and called later.
+check 2 "$W" "deno eval 'console.log(Deno.env.toObject.call(null))'"
+check 2 "$W" "deno eval 'console.log(Deno.env[\"toObject\"].call(null))'"
+check 2 "$W" "deno eval 'const f = Deno.env.toObject; console.log(f())'"
+check 2 "$W" "node -e 'const f = process.env.valueOf; console.log(f.call(process))'"
+check 2 "$W" "bun -e 'console.log(Bun.env.entries.call(null))'"
+# A quoted word with no code in it may be a file operand; only the pattern of a
+# grep-family command is text.
+check 2 "$W" "tar -xOf config.tar 'process.env.PORT'"
+check 2 "$W" "tar -xOf config.tar \"process.env.PORT\""
+check 2 "$W" "cat 'process.env.PORT'"
+check 2 "$W" "grep -f 'process.env.PORT' data.json"
+check 2 "$W" "grep -e x 'process.env.PORT'"
+check 2 "$W" "grep -n x | tar -xOf config.tar 'process.env.PORT'"
+check 0 "$W" "grep -n 'process.env.PORT' data.json"
+check 0 "$W" "rg -n \"process.env.PORT\" ."
+check 0 "$W" "grep -rn 'import.meta.env.DEV' . | wc -l"
 check 0 "$W" "deno eval \"console.log(Deno.env.get('PORT'))\""
 check 2 "$W" "cat <<EOF
 it's

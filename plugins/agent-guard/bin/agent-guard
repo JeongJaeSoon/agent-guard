@@ -5665,6 +5665,39 @@ bash_neutralize_runtime_globals() (
       }
       return index(" \t\n(,;{=|&!<>", p) > 0
     }
+    # A quoted word with no space or code punctuation may be a file operand
+    # (`tar -xOf a.tar "process.env.PORT"`), so it only counts as text when it
+    # is the pattern of a grep-family command; a word with code in it is program
+    # text.
+    function text_word(qs,   rest, e, content) {
+      rest = substr(s, qs + 1)
+      e = index(rest, substr(s, qs, 1))
+      if (e == 0) return 0
+      content = substr(rest, 1, e - 1)
+      if (content ~ /[ \t\n(){};]/) return 1
+      return pattern_word(qs)
+    }
+    function pattern_word(qs,   pre, p, c, seg, nw, w, x, last) {
+      pre = substr(s, 1, qs - 1)
+      p = 0
+      for (x = length(pre); x >= 1; x--) {
+        c = substr(pre, x, 1)
+        if (index(";|&\n(", c) > 0) { p = x; break }
+      }
+      seg = substr(pre, p + 1)
+      if (seg ~ /[\047"\\$`*?]/) return 0
+      nw = split(seg, w, /[ \t]+/)
+      while (nw > 0 && w[nw] == "") nw--
+      x = 1
+      while (x <= nw && w[x] == "") x++
+      if (x > nw || w[x] !~ /^(grep|egrep|fgrep|rg|ag|ack)$/) return 0
+      for (x++; x <= nw; x++) {
+        if (w[x] !~ /^-/ || w[x] ~ /^-[A-Za-z]*f/ || w[x] ~ /^--file/) return 0
+      }
+      last = substr(pre, length(pre), 1)
+      if (last != " " && last != "\t" && w[nw] !~ /^-/) return 0
+      return 1
+    }
     function ok_tail(j,   c, k, body, members, first, b) {
       members = 0
       while (j <= n) {
@@ -5681,6 +5714,7 @@ bash_neutralize_runtime_globals() (
           if (k == 0) return 0
           body = substr(s, j + 1, k - 2)
           if (body !~ /^["\047]?[A-Za-z0-9_]+["\047]?$/) return 0
+          if (!members) { first = body; gsub(/["\047]/, "", first) }
           j += k
           members++
           continue
@@ -5688,8 +5722,11 @@ bash_neutralize_runtime_globals() (
         break
       }
       if (!members) return 0
-      # A method called on the object itself (toObject, valueOf, entries) can
-      # return the whole environment; only the keyed accessors are lookups.
+      # A member that the object itself defines (toObject, valueOf, entries, ...)
+      # hands back the whole environment however long the chain after it is, or
+      # even when it is only referenced and called later.
+      if (first ~ /^(toObject|valueOf|toString|toLocaleString|toJSON|constructor|__proto__|__defineGetter__|__defineSetter__|__lookupGetter__|__lookupSetter__|entries|keys|values)$/) return 0
+      # A direct call on the object is a lookup only for the keyed accessors.
       if (members == 1 && substr(s, j, 1) == "(" && first !~ /^(get|has|set|delete)$/) return 0
       if (j > n) return 1
       return index(" \t\n()]},;\047\"|&=+!<>", substr(s, j, 1)) > 0
@@ -5702,12 +5739,12 @@ bash_neutralize_runtime_globals() (
         k = 0
         for (m = 1; m <= nn; m++)
           if (substr(s, i, length(names[m])) == names[m]) { k = m; break }
-        if (k && quote != "" && ok_prev(i) && ok_tail(i + length(names[k]))) {
+        if (k && quote != "" && ok_prev(i) && ok_tail(i + length(names[k])) && text_word(qstart)) {
           out = out repl[k]; i += length(names[k]); continue
         }
         ch = substr(s, i, 1)
         if (quote != "\047" && ch == "\\") { out = out ch substr(s, i + 1, 1); i += 2; continue }
-        if (quote == "" && (ch == "\047" || ch == "\"")) quote = ch
+        if (quote == "" && (ch == "\047" || ch == "\"")) { quote = ch; qstart = i }
         else if (quote != "" && ch == quote) quote = ""
         out = out ch; i++
       }
