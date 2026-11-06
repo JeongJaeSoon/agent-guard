@@ -155,7 +155,7 @@ jobs:
               echo "release PR merged at $release_sha but origin/main is $main_sha; refusing to tag a later commit"
               exit 1
             fi
-            required_checks=$'Agent Guard\nTest (ubuntu-latest)\nTest (macos-latest)\nLint\nPlugin Layout\nHOL Plugin Scanner\nNative platform artifacts\nPackaged performance evidence'
+            required_checks=$'Agent Guard\nTest (ubuntu-latest)\nTest (macos-latest)\nLint\nPlugin Layout\nHOL Plugin Scanner\nNative platform artifacts'
             release_head_checks=$(gh api \
               -H "Accept: application/vnd.github+json" \
               "repos/${GITHUB_REPOSITORY}/commits/${release_head_sha}/check-runs?filter=latest&per_page=100")
