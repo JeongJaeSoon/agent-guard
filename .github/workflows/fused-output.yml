@@ -16,8 +16,11 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
+  # Diagnosis and performance comparison are manual evidence runs; pull
+  # requests keep the fused contracts below.
   numeric-diagnostic:
     name: Numeric fallback diagnosis (${{ matrix.os }})
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     strategy:
@@ -48,7 +51,7 @@ jobs:
           # Preserve the failed status, but collect candidate evidence even
           # when an immutable public baseline hits its readiness failure path.
           exit "$diagnostic_status"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:
           name: numeric-diagnostic-${{ matrix.os }}
@@ -95,7 +98,7 @@ jobs:
           export AGENT_GUARD_RUST_CORE_BIN="$AGENT_GUARD_EXPERIMENTAL_OUTPUT_PREPARE_BIN"
           export AGENT_GUARD_TEST_SHARD=4
           sh tests/native-suite.sh > "$RUNNER_TEMP/evidence/output-suite.log" 2>&1
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:
           name: fused-contracts-${{ matrix.os }}
@@ -103,6 +106,7 @@ jobs:
           if-no-files-found: error
   performance:
     name: Fused performance (${{ matrix.scanner }}, ${{ matrix.audit }})
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     strategy:
@@ -112,7 +116,7 @@ jobs:
         audit: [off, cold, warm]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
         with:
           go-version: '1.26.0'
           cache: false
@@ -162,7 +166,7 @@ jobs:
         env:
           AUDIT_STATE: ${{ matrix.audit }}
         run: sh bench/fused-output/run-constrained.sh "$RUNNER_TEMP/scanner/gitleaks" "$AUDIT_STATE" "$RUNNER_TEMP/evidence"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:
           name: fused-performance-${{ matrix.scanner }}-${{ matrix.audit }}
