@@ -41,11 +41,8 @@ def export(archive,metadata,out,check_pin=True):
             if path.is_absolute() or '..' in path.parts:raise ValueError('unsafe archive path')
             with source.open(item) as f:sha,magic=digest_stream(f)
             is_work=bool(path.parts) and path.parts[0]=='installation-work'
-            binary=magic in [b'\x7fELF',b'\xcf\xfa\xed\xfe',b'\xce\xfa\xed\xfe',b'\xfe\xed\xfa\xcf',b'\xfe\xed\xfa\xce',b'\xca\xfe\xba\xbe']
-            entrypoint=path.name=='agent-guard' and any(x.endswith('/bin/agent-guard') for x in public.get(sha,[]))
-            archive_copy=path.name.endswith(('.tar.gz','.tgz'))
-            omit=is_work and sha in public and (binary or entrypoint or archive_copy)
-            row=dict(path=str(path),size=item.file_size,compressed_size=item.compress_size,sha256=sha,zip_crc32=f'{item.CRC:08x}',zip_mode=oct(item.external_attr>>16),retained=not omit,omission_reason='verified copy of downloadable public executable/archive' if omit else '',public_sources=' | '.join(public.get(sha,[])))
+            omit=is_work and sha in public
+            row=dict(path=str(path),size=item.file_size,compressed_size=item.compress_size,sha256=sha,zip_crc32=f'{item.CRC:08x}',zip_mode=oct(item.external_attr>>16),retained=not omit,omission_reason='verified copy of downloadable public release file' if omit else '',public_sources=' | '.join(public.get(sha,[])))
             rows.append(row)
             if not omit:
                 dest=out/path;dest.parent.mkdir(parents=True,exist_ok=True)
@@ -53,13 +50,13 @@ def export(archive,metadata,out,check_pin=True):
     with (out/'work-file-manifest.csv').open('w',newline='') as f:
         w=csv.DictWriter(f,fieldnames=list(rows[0]));w.writeheader();w.writerows(rows)
     (out/'source-artifact.json').write_text(json.dumps(meta,ensure_ascii=False,indent=2)+'\n')
-    summary=dict(source_run_id=42224583403,source_artifact_id=meta['id'],source_artifact_size=archive.stat().st_size,source_artifact_sha256=actual,source_artifact_url=f"https://github.com/JeongJaeSoon/agent-guard/actions/runs/42224583403/artifacts/{meta['id']}",source_artifact_expires_at=meta.get('expires_at'),files=len(rows),retained_files=sum(r['retained'] for r in rows),omitted_files=sum(not r['retained'] for r in rows),retained_bytes=sum(r['size'] for r in rows if r['retained']),omitted_public_bytes=sum(r['size'] for r in rows if not r['retained']),scope='read-only export of existing measurements; no product CLI, installer, scanner or benchmark rerun; omit only SHA-verified downloadable public executables/archives under installation-work; retain all other evidence')
+    summary=dict(source_run_id=42224583403,source_artifact_id=meta['id'],source_artifact_size=archive.stat().st_size,source_artifact_sha256=actual,source_artifact_url=f"https://github.com/JeongJaeSoon/agent-guard/actions/runs/42224583403/artifacts/{meta['id']}",source_artifact_expires_at=meta.get('expires_at'),files=len(rows),retained_files=sum(r['retained'] for r in rows),omitted_files=sum(not r['retained'] for r in rows),retained_bytes=sum(r['size'] for r in rows if r['retained']),omitted_public_bytes=sum(r['size'] for r in rows if not r['retained']),scope='read-only export of existing measurements; no product CLI, installer, scanner or benchmark rerun; omit only SHA-verified downloadable public release-file copies under installation-work; retain all other evidence')
     (out/'export-summary.json').write_text(json.dumps(summary,ensure_ascii=False,indent=2)+'\n')
     (out/'EXPORT.ko.md').write_text('''# 설치 원시 자료의 소형 내보내기
 
 이 자료는 이미 완료한 설치 실험의 기존 artifact를 읽어서 만든다. 설치나 성능 측정을 다시 실행하지 않는다. 원본 ZIP의 ID·크기·SHA-256을 고정 검증한다.
 
-`installation-work` 안에서 공개 릴리스/고정 scanner와 SHA-256이 일치하는 실행 파일·배포 압축 파일의 반복 복사만 제외했다. 그 밖의 결과 JSON, 로그, 전송 기록, 반환 상태, 사용자 설정 sentinel, `.bashrc`, 보존 파일 및 중간 생성물은 유지한다. 모든 원본 파일의 경로·크기·SHA-256·ZIP mode와 제외 사유는 `work-file-manifest.csv`에 남는다.
+`installation-work` 안에서 공개 릴리스/고정 scanner와 SHA-256이 일치하는 배포 파일의 반복 복사를 제외했다. 여기에는 실행 파일·배포 압축 파일뿐 아니라 GIF/PNG 등 이미 압축된 공개 자료도 포함한다. 그 밖의 결과 JSON, 로그, 전송 기록, 반환 상태, 사용자 설정 sentinel, `.bashrc`, 보존 파일 및 중간 생성물은 유지한다. 모든 원본 파일의 경로·크기·SHA-256·ZIP mode와 제외 사유는 `work-file-manifest.csv`에 남는다.
 
 원본 전체 artifact의 URL과 만료일은 `source-artifact.json` 및 `export-summary.json`을 참고한다. GitHub 원본의 보존 기간은 30일이며 영구 보존이라고 주장하지 않는다. 이 소형 원시 자료는 보고서 저장소에 함께 보존한다.
 ''')

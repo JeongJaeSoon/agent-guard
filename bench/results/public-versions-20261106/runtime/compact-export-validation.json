@@ -1,9 +1,9 @@
 {
   "scope": "synthetic ZIP fixture only; production CLI always requires the pinned artifact digest",
   "wrong_artifact_rejected_before_extraction": true,
-  "known_public_binary_copy_omitted": true,
+  "known_public_binary_and_image_copies_omitted": true,
   "unknown_binary_retained": true,
   "raw_json_and_failure_stderr_and_hidden_config_and_preservation_sentinel_retained_byte_for_byte": true,
-  "all_source_file_hashes_recorded": true,
-  "source_fixture_files": 7
+  "source_fixture_files": 8,
+  "recovery_change": "Exclude all hash-verified public release-file copies beneath installation-work, including GIF/PNG, while retaining every unknown/nonpublic generated file."
 }
