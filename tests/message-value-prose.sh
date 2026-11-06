@@ -208,6 +208,21 @@ check 2 'orca orchestration send --to x --body "$(env A=x\ y)"'
 check 2 "orca orchestration send --to x --body \"\$(env -C '/tmp/a b')\""
 check 2 "orca orchestration send --to x --body \"\$(env -u 'A B' | head)\""
 check 0 "orca orchestration send --to x --body \"\$(env A='x y' date)\""
+check 2 'orca orchestration send --to x --body "$(command -p env)"'
+check 2 'orca orchestration send --to x --body "$(command -pv env)"'
+check 2 'orca orchestration send --to x --body "$(exec env -0)"'
+check 2 'orca orchestration send --to x --body "$(nice -n 5 env)"'
+check 2 'orca orchestration send --to x --body "$(time nohup env)"'
+check 2 'orca orchestration send --to x --body "$(builtin set)"'
+check 2 'orca orchestration send --to x --body "$(command -p export -p)"'
+check 2 'orca orchestration send --to x --body "$(\env)"'
+check 2 "orca orchestration send --to x --body \"\$('env' -u A)\""
+check 2 "orca orchestration send --to x --body \"\$(\"set\")\""
+check 2 'orca orchestration send --to x --body "$(command -p env -S "-0")"'
+check 0 'orca orchestration send --to x --body "$(command -v git)"'
+check 0 'orca orchestration send --to x --body "$(nice -n 5 date)"'
+# A named `declare -p NAME` sends one value, as `--body "$NAME"` does.
+check 0 'orca orchestration send --to x --body "$(declare -p HOME)"'
 check 0 'orca orchestration send --to x --body "$(env -C /tmp date)"'
 check 0 'orca orchestration send --to x --body "$(env LC_ALL=C date)"'
 check 0 'orca orchestration send --to x --body "$(date)"'
