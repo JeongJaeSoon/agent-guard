@@ -49,15 +49,18 @@ check 0 'echo start; printenv ORCA_RUN_ID && echo done'
 check 0 "env | grep '^ORCA_TERMINAL_HANDLE='"
 check 0 "env | grep -i '^ORCA_RUN_ID=' | head -1"
 check 0 "env | grep '^CLAUDE_JOB_DIR='"
-check 0 "env | cut -d= -f1 | grep '^ORCA_'"
-check 0 "env | grep '^ORCA_' | cut -d= -f1"
-check 0 "env | grep -i '^ORCA_' | cut -d= -f1 | sort"
-check 0 "env | grep -i '^ORCA_' | sed 's/=.*//'"
 check 0 "env | grep -c '^ORCA_'"
 check 0 "echo a; env | grep '^ORCA_' | wc -l; ls"
-check 0 "cd /tmp && env | cut -d= -f1 | grep '^ORCA_' && ls"
-check 0 "(env | grep '^ORCA_' | cut -d= -f1)"
-check 0 "echo \"\$(env | grep '^ORCA_' | cut -d= -f1 | head -1)\""
+check 0 "cd /tmp && env | grep -c '^ORCA_' && ls"
+check 0 "echo \"\$(env | grep '^ORCA_' | wc -l)\""
+# Splitting lines at `=` is not a names-only filter: a value that spans lines
+# prints its later lines whole (see the execution control below).
+check 2 "env | cut -d= -f1 | grep '^ORCA_'"
+check 2 "env | grep '^ORCA_' | cut -d= -f1"
+check 2 "env | grep -i '^ORCA_' | cut -d= -f1 | sort"
+check 2 "env | grep -i '^ORCA_' | sed 's/=.*//'"
+check 2 "cd /tmp && env | cut -d= -f1 | grep '^ORCA_' && ls"
+check 2 "echo \"\$(env | grep '^ORCA_' | cut -d= -f1 | head -1)\""
 # A prefix prints every variable under it with its value, including a
 # cookie- or session-named one the output redactor may not recognise, so a
 # prefix is only allowed when the pipeline leaves names or counts.
@@ -157,6 +160,15 @@ check 2 "env | grep '^ORCA_' | sed -n 'p'"
 check 2 "env | grep '^ORCA_' | sed 's/a/b/;w out'"
 check 2 "env | grep '^ORCA_' | sed 's/a/b/' -i x"
 check 2 "env | grep '^ORCA_' | head -n"
+
+# Execution control for the multi-line case: the second line of a value
+# survives `grep | cut -d= -f1`, so that filter proves nothing about names.
+multi=$(env ORCA_FIXTURE_NOTE="first-line
+ORCA_FIXTURE_$canary" sh -c "env | grep '^ORCA_FIXTURE' | cut -d= -f1")
+case "$multi" in
+  *"$canary"*) ok "leak control: a later line of a multi-line value survives cut -d= -f1" ;;
+  *) bad "leak control: multi-line value did not reach the output" ;;
+esac
 
 # Layering: the gate no longer passes a prefix that prints values, but the
 # post-tool layer is still the second line; it hides a token-named variable in

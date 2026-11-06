@@ -5070,12 +5070,11 @@ message_command_has_glob() {
 #   printenv NAME...   NAME is ORCA_* or CLAUDE_JOB_DIR and not secret-named;
 #   env | grep PAT... PAT is a quoted anchored whole name (`^ORCA_X=`), or a
 #                      wider ^ORCA_ / ^CLAUDE_JOB_DIR prefix when the pipeline
-#                      also leaves only names or counts (`cut -d= -f1`,
-#                      `sed s/=.*//`, `wc`, `grep -c`), since a prefix prints
-#                      every variable under it with its value. A grep or
-#                      `cut -d= -f1` must come first, so a filter cannot
-#                      rewrite lines into the prefix; the rest are
-#                      read-nothing filters (cut sort uniq head tail wc sed s///).
+#                      prints only a count (`wc`, `grep -c`), since a prefix
+#                      prints every variable under it with its value. The grep
+#                      must come first, so a filter cannot rewrite lines into
+#                      the prefix; the rest are read-nothing filters (cut sort
+#                      uniq head tail wc sed s///).
 # Anything else, including file operands, redirects, `$`/backquote/`\` in a
 # word, a second pipe branch or `&`, stays untouched and keeps matching. The
 # PostToolUse redactor still hides a token-named variable such a lookup prints.
@@ -5170,7 +5169,9 @@ bash_strip_safe_env_lookups() {
       if (np != 1) return 0
       # One whole variable name selects that variable alone. A wider prefix
       # prints every variable under it with its value, so it only qualifies
-      # when a `cut -d= -f1` in the same pipeline leaves the names alone.
+      # when the pipeline prints a count (wc, grep -c or -q). Splitting lines at
+      # `=` does not leave names: a value spanning several lines prints its
+      # later lines whole.
       if (exactname(pat)) return 1
       if (!patok(pat)) return 0
       gbroad = 1
@@ -5179,11 +5180,7 @@ bash_strip_safe_env_lookups() {
     function exactname(s) {
       return s ~ /^\^(ORCA_[A-Z0-9_]+|CLAUDE_JOB_DIR)=$/ && !secretish(s)
     }
-    function namecut() {
-      return nargs == 2 && ((a[1] == "-d=" && a[2] == "-f1") || (a[1] == "-f1" && a[2] == "-d="))
-    }
-    function cutok(pre,   i, d, f) {
-      if (pre) return nargs == 2 && ((a[1] == "-d=" && a[2] == "-f1") || (a[1] == "-f1" && a[2] == "-d="))
+    function cutok(   i, d, f) {
       # After the prefix grep the name must stay on the line: field 1 or a
       # character range that starts at 1. A later field or range would print a
       # value with its name cut off, which the output redactor cannot key on.
@@ -5218,24 +5215,14 @@ bash_strip_safe_env_lookups() {
       # (no `&`, no backslash group reference): a group before the `=` could
       # still capture value text, so the sed may only delete a value.
       if (!(np == 4 && parts[1] == "s" && parts[2] ~ /=\.\*$/ && parts[3] !~ /[&\\]/ && parts[4] ~ /^[gIi]*$/)) return 0
-      # `s/=.*//` removes the value from every line that has one.
-      if (parts[2] == "=.*") names_only = 1
       return 1
     }
     function stageok(name, pre,   i) {
       if (name == "grep" || name == "egrep") return grepok()
-      if (pre) {
-        if (name != "cut" || !cutok(1)) return 0
-        names_only = 1
-        return 1
-      }
+      if (pre) return 0
       if (name == "sed") return sedok()
       for (i = 1; i <= nargs; i++) if (ak[i] != "u") return 0
-      if (name == "cut") {
-        if (!cutok(0)) return 0
-        if (namecut()) names_only = 1
-        return 1
-      }
+      if (name == "cut") return cutok()
       if (name == "head" || name == "tail") return headok(name)
       if (name == "sort") return flagsok("^-[urfnV]+$")
       if (name == "uniq") return flagsok("^-[cdu]$")
