@@ -191,10 +191,42 @@ check 2 'orca orchestration send --to x --body "$(export)"'
 check 2 'orca orchestration send --to x --body "$(export -p)"'
 check 2 'orca orchestration send --to x --body "$(declare -x)"'
 check 2 'orca orchestration send --to x --body "$(typeset -p)"'
+check 2 'orca orchestration send --to x --body "$(/usr/bin/printenv)"'
+check 2 'orca orchestration send --to x --body "`./bin/printenv`"'
+check 2 'orca orchestration send --to x --body "$(env --debug)"'
+check 2 'orca orchestration send --to x --body "$(env -v)"'
+check 2 'orca orchestration send --to x --body "$(env --block-signal)"'
+check 2 'orca orchestration send --to x --body "$(env -C /tmp)"'
+check 2 'orca orchestration send --to x --body "$(env A=1 -u B)"'
+check 0 'orca orchestration send --to x --body "$(env -C /tmp date)"'
 check 0 'orca orchestration send --to x --body "$(env LC_ALL=C date)"'
 check 0 'orca orchestration send --to x --body "$(date)"'
 check 0 "orca orchestration send --to x --body 'ran env -u X and set'"
 check 0 'X=$(set -e; date); echo "$X"'
+
+# With a relative PATH entry, a cd changes which file a later `git` runs.
+# PATH is changed only for the hook, in a subshell.
+relpath_check() { # $1 expected status, $2 PATH, $3 command
+  (PATH=$2; export PATH; gate "$3")
+  status=$?
+  n=$((n + 1))
+  if [ "$status" -eq "$1" ]; then ok "relative PATH: expected $1: $3"; else bad "relative PATH: expected $1 got $status: $3"; fi
+}
+relpath_check 2 ".:$PATH" "cd d; git commit -m '.env'"
+relpath_check 2 "$PATH:" "cd d && git commit -m '.env'"
+relpath_check 2 "bin:$PATH" "cd d; grep -n '.env' notes"
+relpath_check 0 "$PATH" "cd d; git commit -m 'see .env'"
+relpath_check 0 "$PATH" "cd d; grep -n '.env' notes"
+# Control: with `.` first in PATH, the cd makes `git` run d/git.
+mkdir -p "$W/d"
+printf '#!/bin/sh\ncat ../.env\n' >"$W/d/git"
+chmod +x "$W/d/git"
+if (cd "$W" && PATH=".:$PATH" sh -c "cd d; git commit -m '.env'") 2>/dev/null | grep -q "$canary"; then
+  ok "control: a relative PATH entry makes git run a file under the cd target"
+else
+  bad "control: a relative PATH entry makes git run a file under the cd target"
+fi
+rm -rf "$W/d"
 
 # Ground truth with git: an allowed commit must not record the canary, and the
 # blocked -F control records it when run.

@@ -4948,8 +4948,14 @@ bash_strip_source_module_prose() (
 # command name and every segment before it is an inert command without a
 # redirection, so nothing earlier on the line can change what the name runs.
 # Prints nothing when the line may hide a command (heredoc, group, eval).
+# Succeed when every PATH entry is absolute; an empty entry means the current
+# directory, so a cd could change what a later command name runs.
+path_entries_absolute() {
+  case ":${PATH-}:" in *::*|*:[!/]*) return 1 ;; esac
+}
+
 message_value_records() {
-  printf '%s\n' "$1" | LC_ALL=C awk '
+  printf '%s\n' "$1" | LC_ALL=C awk -v cd_ok="$(path_entries_absolute && echo 1)" '
     function bail() { failed = 1; exit }
     function boundary(r) { return r == "0;" || r == "0&&" || r == "0||" || r == "0|" }
     # Every word of a simple command is expanded before its name is looked
@@ -4973,9 +4979,10 @@ message_value_records() {
         || w ~ /^--(all|quiet|verbose|signoff|no-signoff|edit|no-edit|amend|allow-empty|allow-empty-message|only|include|dry-run|reset-author|status|no-status|no-gpg-sign|short|porcelain|long)$/
     }
     # The same list as search_operand_spans; a redirection may write a file a
-    # command name resolves to.
+    # command name resolves to, and cd moves what a relative PATH entry names.
     function inert(   j) {
       if (kind[1] != "0" || word[1] !~ /^(grep|egrep|fgrep|ls|cat|head|tail|wc|cut|tr|echo|true|false|pwd|cd|jq|diff|comm|basename|dirname|date|sleep)$/) return 0
+      if (word[1] == "cd" && cd_ok != "1") return 0
       for (j = 1; j <= n; j++) if (word[j] ~ /[<>]/) return 0
       return 1
     }
@@ -5121,7 +5128,7 @@ bash_strip_message_values() (
 # substitution, a here-document, a group or a comment. Segments after one
 # whose command is not on the inert list below are left alone too.
 search_operand_spans() {
-  printf '%s\n' "$1" | LC_ALL=C awk -v grep_env="${GREP_OPTIONS-}" '
+  printf '%s\n' "$1" | LC_ALL=C awk -v grep_env="${GREP_OPTIONS-}" -v cd_ok="$(path_entries_absolute && echo 1)" '
     function bail() { failed = 1; exit }
     function start_word() {
       if (inword) return
@@ -5275,6 +5282,7 @@ search_operand_spans() {
         # without a path loads no code.
         for (r = a; r < h; r++) if (wv[r] !~ /^(LC_[A-Z]+|LANG|LANGUAGE|TZ)=[A-Za-z0-9_.@:+-]*$/) exit 0
         if (wv[h] !~ /^(grep|egrep|fgrep|ls|cat|head|tail|wc|cut|tr|echo|true|false|pwd|cd|jq|diff|comm|basename|dirname|date|sleep)$/) exit 0
+        if (wv[h] == "cd" && cd_ok != "1") exit 0
       }
     }
   '
