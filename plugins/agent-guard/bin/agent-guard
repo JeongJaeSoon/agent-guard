@@ -8726,6 +8726,11 @@ secretish_env_values() {
       ch = substr(assignment, 1, 1)
       if ((ch == "(" || ch == "[") && v ~ /^[A-Za-z_$]+(\.[A-Za-z_$]+)*$/)
         return 1
+      # A bare `$name` reads a variable, like `${name}`: a jq `--arg` filter,
+      # a shell line, a template. A digit or a second `$` (bcrypt, argon2)
+      # keeps the token a value.
+      if (v ~ /^\$[A-Za-z_]+$/)
+        return 1
       # Dotted identifier chain (`process.env.API_KEY`, `config.apiKey`), and
       # only in a code-shaped assignment: whitespace on both sides of `=`, a
       # lowercase head segment (accessor roots are lowercase in the languages
