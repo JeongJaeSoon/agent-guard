@@ -49,10 +49,24 @@ check 0 'echo start; printenv ORCA_RUN_ID && echo done'
 check 0 "env | grep '^ORCA_TERMINAL_HANDLE='"
 check 0 "env | grep -i '^ORCA_RUN_ID=' | head -1"
 check 0 "env | grep '^CLAUDE_JOB_DIR='"
-check 0 "env | grep -c '^ORCA_'"
-check 0 "echo a; env | grep '^ORCA_' | wc -l; ls"
-check 0 "cd /tmp && env | grep -c '^ORCA_' && ls"
-check 0 "echo \"\$(env | grep '^ORCA_' | wc -l)\""
+check 0 "env | grep -q '^ORCA_RUN_ID='"
+check 0 "env | grep -c '^ORCA_RUN_ID='"
+check 0 "echo a; env | grep '^ORCA_RUN_ID=' | wc -l; ls"
+check 0 "cd /tmp && env | grep -c '^ORCA_RUN_ID=' && ls"
+check 0 "echo \"\$(env | grep '^ORCA_RUN_ID=' | wc -l)\""
+# A count or an exit status is an oracle: a regex that hides a secret name
+# (`TOKE[N]`) and anchors a guessed value tells it apart one character at a
+# time, so only a literal whole name may select a variable.
+check 2 "env | grep -c '^ORCA_'"
+check 2 "env | grep -q '^ORCA_'"
+check 2 "echo a; env | grep '^ORCA_' | wc -l; ls"
+check 2 "env | grep -q '^ORCA_AGENT_HOOK_TOKE[N].a'"
+check 2 "env | grep -q '^ORCA_AGENT_HOOK_TOKE[N]='"
+check 2 "env | grep -c '^ORCA_AGENT_HOOK_TOKEN.*a'"
+check 2 "env | grep -E -q '^ORCA_(AGENT_HOOK_TOKEN)='"
+check 2 "env | grep -q '^ORCA_RUN_ID=a'"
+check 2 "env | grep -q '^ORCA_RUN_I.='"
+check 2 "env | grep -q '^ORCA_RUN_ID'"
 # Splitting lines at `=` is not a names-only filter: a value that spans lines
 # prints its later lines whole (see the execution control below).
 check 2 "env | cut -d= -f1 | grep '^ORCA_'"
