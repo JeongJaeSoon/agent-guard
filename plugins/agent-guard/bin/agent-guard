@@ -5195,9 +5195,10 @@ bash_strip_safe_env_lookups() {
       if (a[1] == "-E") i = 2
       if (nargs != i) return 0
       np = split(a[i], parts, "/")
-      # The pattern must end in `=.*`: it can only delete from the `=` to the
-      # end of the line, never strip a name and leave the value behind.
-      return np == 4 && parts[1] == "s" && parts[2] ~ /=\.\*$/ && parts[3] !~ /&/ && parts[4] ~ /^[gIi]*$/
+      # The pattern must end in `=.*` and the replacement must be literal text
+      # (no `&`, no backslash group reference): a group before the `=` could
+      # still capture value text, so the sed may only delete a value.
+      return np == 4 && parts[1] == "s" && parts[2] ~ /=\.\*$/ && parts[3] !~ /[&\\]/ && parts[4] ~ /^[gIi]*$/
     }
     function stageok(name, pre,   i) {
       if (name == "grep" || name == "egrep") return grepok()
