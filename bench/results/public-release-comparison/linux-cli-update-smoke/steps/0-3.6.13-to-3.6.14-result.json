@@ -1,0 +1,111 @@
+{
+  "command": [
+    "/tmp/public-cli-update-smoke/isolated-user/public-bin/agent-guard",
+    "update"
+  ],
+  "returncode": 0,
+  "timeout": false,
+  "stdout_path": "steps/0-3.6.13-to-3.6.14.stdout",
+  "stderr_path": "steps/0-3.6.13-to-3.6.14.stderr",
+  "performance": "N/A: compatibility only, n1; curl evidence wrapper adds overhead",
+  "step": 0,
+  "from_version": "3.6.13",
+  "to_version": "3.6.14",
+  "source_cli_sha256": "4a3de9a5e880f82ec49772617bc942b7ec3dd33b8c72568df6c921c3bc3dc08b",
+  "source_cli_observed_version": "agent-guard 3.6.13",
+  "from_commit": "c81699ed2a368e0a4fefadca6446c7bc5c9734cd",
+  "to_commit": "12b1bdfecfdf663f8d155c2ab4408162cb4e9f8b",
+  "final_version": "agent-guard 3.6.14",
+  "dynamic_bootstrap_records": [
+    {
+      "args": [
+        "-fsSL",
+        "https://github.com/JeongJaeSoon/agent-guard/releases/latest/download/bootstrap.sh",
+        "-o",
+        "/tmp/public-cli-update-smoke/isolated-user/tmp/agent-guard-run.UZt6vV/bootstrap.sh"
+      ],
+      "returncode": 0,
+      "step": "0",
+      "real_executable": "/usr/bin/curl",
+      "output_path": "/tmp/public-cli-update-smoke/isolated-user/tmp/agent-guard-run.UZt6vV/bootstrap.sh",
+      "bytes": 9875,
+      "sha256": "a28827587c60a02c44567a480e1e0e08bf517c407f64e8b28fa4450aee75b64e",
+      "saved_path": "downloaded/a28827587c60a02c44567a480e1e0e08bf517c407f64e8b28fa4450aee75b64e-bootstrap.sh"
+    }
+  ],
+  "dynamic_bootstrap_matching_locked_releases": [
+    "3.7.0",
+    "3.7.1",
+    "3.8.0",
+    "3.8.1"
+  ],
+  "native_core_checksum_verification": [],
+  "expected_native_core_count": 0,
+  "native_core_count_valid": true,
+  "downloads": [
+    {
+      "args": [
+        "-fsSL",
+        "https://github.com/JeongJaeSoon/agent-guard/releases/latest/download/bootstrap.sh",
+        "-o",
+        "/tmp/public-cli-update-smoke/isolated-user/tmp/agent-guard-run.UZt6vV/bootstrap.sh"
+      ],
+      "returncode": 0,
+      "step": "0",
+      "real_executable": "/usr/bin/curl",
+      "output_path": "/tmp/public-cli-update-smoke/isolated-user/tmp/agent-guard-run.UZt6vV/bootstrap.sh",
+      "bytes": 9875,
+      "sha256": "a28827587c60a02c44567a480e1e0e08bf517c407f64e8b28fa4450aee75b64e",
+      "saved_path": "downloaded/a28827587c60a02c44567a480e1e0e08bf517c407f64e8b28fa4450aee75b64e-bootstrap.sh"
+    },
+    {
+      "args": [
+        "-fsSL",
+        "https://github.com/JeongJaeSoon/agent-guard/releases/download/v3.6.14/agent-guard-3.6.14.tar.gz",
+        "-o",
+        "/tmp/public-cli-update-smoke/isolated-user/tmp/agent-guard-bootstrap.koCzXM/agent-guard-3.6.14.tar.gz"
+      ],
+      "returncode": 0,
+      "step": "0",
+      "real_executable": "/usr/bin/curl",
+      "output_path": "/tmp/public-cli-update-smoke/isolated-user/tmp/agent-guard-bootstrap.koCzXM/agent-guard-3.6.14.tar.gz",
+      "bytes": 1024541,
+      "sha256": "3edfb6d0ace72bc7999723a46a2490297f76a811bcfd558216b641723726be2c"
+    },
+    {
+      "args": [
+        "-fsSL",
+        "https://github.com/JeongJaeSoon/agent-guard/releases/download/v3.6.14/agent-guard-3.6.14.tar.gz.sha256",
+        "-o",
+        "/tmp/public-cli-update-smoke/isolated-user/tmp/agent-guard-bootstrap.koCzXM/agent-guard-3.6.14.tar.gz.sha256"
+      ],
+      "returncode": 0,
+      "step": "0",
+      "real_executable": "/usr/bin/curl",
+      "output_path": "/tmp/public-cli-update-smoke/isolated-user/tmp/agent-guard-bootstrap.koCzXM/agent-guard-3.6.14.tar.gz.sha256",
+      "bytes": 92,
+      "sha256": "814b4b70d9e6872dbd856fb0eaf9eb30cc4bf897e3f2f1a8ecabd4808faddfa9",
+      "saved_path": "downloaded/814b4b70d9e6872dbd856fb0eaf9eb30cc4bf897e3f2f1a8ecabd4808faddfa9-agent-guard-3.6.14.tar.gz.sha256"
+    }
+  ],
+  "archive_lock_verified": true,
+  "checksum_lock_verified": true,
+  "rc_prefix_preserved": true,
+  "rc_byte_unchanged": true,
+  "custom_files_preserved": true,
+  "preserved_before": {
+    "payload/local-user-settings.txt": "f29d603d75aab6a984015273853a63c9f08d679a0e07191abdff8d2a278df344",
+    "payload/config/custom-user.toml": "8aa9b58bae98e3ab9e2e4b72d4ed6148d75cadd2111b8d0250cecf9c0ba23e1f",
+    "external-gitleaks.toml": "c52809eb6038c346284b81abfc058495a75fe8863b594076e794c6a0576ef8f3"
+  },
+  "preserved_after": {
+    "payload/local-user-settings.txt": "f29d603d75aab6a984015273853a63c9f08d679a0e07191abdff8d2a278df344",
+    "payload/config/custom-user.toml": "8aa9b58bae98e3ab9e2e4b72d4ed6148d75cadd2111b8d0250cecf9c0ba23e1f",
+    "external-gitleaks.toml": "c52809eb6038c346284b81abfc058495a75fe8863b594076e794c6a0576ef8f3"
+  },
+  "public_symlink_preserved": true,
+  "native_core_bindings": {},
+  "scanner_sha256": "88f91962aa2f93ac6ab281d553b9e125f5197bbbce38f9f2437f7299c32e5509",
+  "curl_wrapper_sha256": "b729bf530c909b3029c072fbf870fb3855ecfa27c281de41ddd1483ada6cd0d5",
+  "correct": true
+}

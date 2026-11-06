@@ -1,0 +1,46 @@
+{
+  "versions": [
+    "3.6.13",
+    "3.6.14",
+    "3.6.15",
+    "3.7.0",
+    "3.7.1",
+    "3.8.0",
+    "3.8.1"
+  ],
+  "steps": [
+    [
+      "3.6.13",
+      "3.6.14"
+    ],
+    [
+      "3.6.14",
+      "3.6.15"
+    ],
+    [
+      "3.6.15",
+      "3.7.0"
+    ],
+    [
+      "3.7.0",
+      "3.7.1"
+    ],
+    [
+      "3.7.1",
+      "3.8.0"
+    ],
+    [
+      "3.8.0",
+      "3.8.1"
+    ]
+  ],
+  "samples_per_step": 1,
+  "timeout_seconds": 120,
+  "retries": 0,
+  "cohort": "one sequential actual public standalone CLI update chain",
+  "pin": "AGENT_GUARD_VERSION is inherited by the downloaded bootstrap; target is verified after each actual CLI update",
+  "command": "<isolated public-bin>/agent-guard update",
+  "wrapper": "/usr/bin/curl invoked with identical arguments and inherited stdio; after return, downloaded bootstrap/checksum text copied and every output file hashed; original returncode preserved",
+  "timing": "N/A; wrapper adds execution, copying and hashing overhead; no percentages or performance claims",
+  "failure": "stop the dependent chain at first failure; preserve original output, no expectation relaxation or timeout change"
+}

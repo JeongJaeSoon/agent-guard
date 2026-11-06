@@ -1,0 +1,31 @@
+{
+  "command": [
+    "sh",
+    "/tmp/public-cli-update-smoke/initial-bootstrap.sh"
+  ],
+  "returncode": 0,
+  "timeout": false,
+  "stdout_path": "preparation.stdout",
+  "stderr_path": "preparation.stderr",
+  "performance": "N/A: compatibility only, n1; curl evidence wrapper adds overhead",
+  "initial_bootstrap_sha256": "2f6a796c1249d1a4ecdfa9b41507dcd61f34cc42dbb43013769c7cbac3112e12",
+  "initial_archive_records": [
+    {
+      "args": [
+        "-fsSL",
+        "https://github.com/JeongJaeSoon/agent-guard/releases/download/v3.6.13/agent-guard-3.6.13.tar.gz",
+        "-o",
+        "/tmp/public-cli-update-smoke/isolated-user/tmp/agent-guard-bootstrap.2xjcv1/agent-guard-3.6.13.tar.gz"
+      ],
+      "returncode": 0,
+      "step": "prepare",
+      "real_executable": "/usr/bin/curl",
+      "output_path": "/tmp/public-cli-update-smoke/isolated-user/tmp/agent-guard-bootstrap.2xjcv1/agent-guard-3.6.13.tar.gz",
+      "bytes": 1004568,
+      "sha256": "08a7b479d8e927c540793a30f4be1d1f21084bf5763d71bea3db57b3d125db4a"
+    }
+  ],
+  "initial_archive_lock_verified": true,
+  "initial_cli_version": "agent-guard 3.6.13",
+  "initial_cli_sha256": "4a3de9a5e880f82ec49772617bc942b7ec3dd33b8c72568df6c921c3bc3dc08b"
+}

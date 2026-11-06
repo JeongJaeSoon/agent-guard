@@ -1,0 +1,145 @@
+{
+  "command": [
+    "/tmp/public-cli-update-smoke/isolated-user/public-bin/agent-guard",
+    "update"
+  ],
+  "returncode": 0,
+  "timeout": false,
+  "stdout_path": "steps/3-3.7.0-to-3.7.1.stdout",
+  "stderr_path": "steps/3-3.7.0-to-3.7.1.stderr",
+  "performance": "N/A: compatibility only, n1; curl evidence wrapper adds overhead",
+  "step": 3,
+  "from_version": "3.7.0",
+  "to_version": "3.7.1",
+  "source_cli_sha256": "40396373da10a49228bec84e9c9950627dff69965e117ae3c362d47be71cefed",
+  "source_cli_observed_version": "agent-guard 3.7.0",
+  "from_commit": "e709445fb6fce9ade8cbbd2d6bcf2940e48da178",
+  "to_commit": "d00b4882c55704e5d83899ffd3820946aa9c15fa",
+  "final_version": "agent-guard 3.7.1",
+  "dynamic_bootstrap_records": [
+    {
+      "args": [
+        "-fsSL",
+        "https://github.com/JeongJaeSoon/agent-guard/releases/latest/download/bootstrap.sh",
+        "-o",
+        "/tmp/public-cli-update-smoke/isolated-user/tmp/agent-guard-run.Gjb7iw/bootstrap.sh"
+      ],
+      "returncode": 0,
+      "step": "3",
+      "real_executable": "/usr/bin/curl",
+      "output_path": "/tmp/public-cli-update-smoke/isolated-user/tmp/agent-guard-run.Gjb7iw/bootstrap.sh",
+      "bytes": 9875,
+      "sha256": "a28827587c60a02c44567a480e1e0e08bf517c407f64e8b28fa4450aee75b64e",
+      "saved_path": "downloaded/a28827587c60a02c44567a480e1e0e08bf517c407f64e8b28fa4450aee75b64e-bootstrap.sh"
+    }
+  ],
+  "dynamic_bootstrap_matching_locked_releases": [
+    "3.7.0",
+    "3.7.1",
+    "3.8.0",
+    "3.8.1"
+  ],
+  "native_core_checksum_verification": [
+    {
+      "binary": "libexec/agent-guard-redact-aarch64-unknown-linux-musl",
+      "expected": "77ee0814262dfd52448390931a135faa424321ed0d587fc0dd467e839d9ed6b3",
+      "actual": "77ee0814262dfd52448390931a135faa424321ed0d587fc0dd467e839d9ed6b3",
+      "verified": true
+    },
+    {
+      "binary": "libexec/agent-guard-redact-aarch64-apple-darwin",
+      "expected": "45f8538d9c6a43329e3d1c8aa775b24da19ce6c760d0711541885f7a07656dc7",
+      "actual": "45f8538d9c6a43329e3d1c8aa775b24da19ce6c760d0711541885f7a07656dc7",
+      "verified": true
+    },
+    {
+      "binary": "libexec/agent-guard-redact-x86_64-unknown-linux-musl",
+      "expected": "e5effd1d40057d4099cbda0982547e2656ef8005f7308cd685dc2fb52f82b514",
+      "actual": "e5effd1d40057d4099cbda0982547e2656ef8005f7308cd685dc2fb52f82b514",
+      "verified": true
+    },
+    {
+      "binary": "libexec/agent-guard-redact-x86_64-apple-darwin",
+      "expected": "c809cebf7d5bf43f05dc9a3b5e5ebf5941635b837ac614d57ab8701da309c2d5",
+      "actual": "c809cebf7d5bf43f05dc9a3b5e5ebf5941635b837ac614d57ab8701da309c2d5",
+      "verified": true
+    }
+  ],
+  "expected_native_core_count": 4,
+  "native_core_count_valid": true,
+  "downloads": [
+    {
+      "args": [
+        "-fsSL",
+        "https://github.com/JeongJaeSoon/agent-guard/releases/latest/download/bootstrap.sh",
+        "-o",
+        "/tmp/public-cli-update-smoke/isolated-user/tmp/agent-guard-run.Gjb7iw/bootstrap.sh"
+      ],
+      "returncode": 0,
+      "step": "3",
+      "real_executable": "/usr/bin/curl",
+      "output_path": "/tmp/public-cli-update-smoke/isolated-user/tmp/agent-guard-run.Gjb7iw/bootstrap.sh",
+      "bytes": 9875,
+      "sha256": "a28827587c60a02c44567a480e1e0e08bf517c407f64e8b28fa4450aee75b64e",
+      "saved_path": "downloaded/a28827587c60a02c44567a480e1e0e08bf517c407f64e8b28fa4450aee75b64e-bootstrap.sh"
+    },
+    {
+      "args": [
+        "-fsSL",
+        "https://github.com/JeongJaeSoon/agent-guard/releases/download/v3.7.1/agent-guard-3.7.1.tar.gz",
+        "-o",
+        "/tmp/public-cli-update-smoke/isolated-user/tmp/agent-guard-bootstrap.PxutSL/agent-guard-3.7.1.tar.gz"
+      ],
+      "returncode": 0,
+      "step": "3",
+      "real_executable": "/usr/bin/curl",
+      "output_path": "/tmp/public-cli-update-smoke/isolated-user/tmp/agent-guard-bootstrap.PxutSL/agent-guard-3.7.1.tar.gz",
+      "bytes": 1930486,
+      "sha256": "a7888c04a0e3da1eee113b43778209318ab520f42b8a932944078907f2bbaf90"
+    },
+    {
+      "args": [
+        "-fsSL",
+        "https://github.com/JeongJaeSoon/agent-guard/releases/download/v3.7.1/agent-guard-3.7.1.tar.gz.sha256",
+        "-o",
+        "/tmp/public-cli-update-smoke/isolated-user/tmp/agent-guard-bootstrap.PxutSL/agent-guard-3.7.1.tar.gz.sha256"
+      ],
+      "returncode": 0,
+      "step": "3",
+      "real_executable": "/usr/bin/curl",
+      "output_path": "/tmp/public-cli-update-smoke/isolated-user/tmp/agent-guard-bootstrap.PxutSL/agent-guard-3.7.1.tar.gz.sha256",
+      "bytes": 91,
+      "sha256": "4e3cbfb87a7226174b0cbf55863dea1f49d17dfb1efd4036d0ba8a623b008917",
+      "saved_path": "downloaded/4e3cbfb87a7226174b0cbf55863dea1f49d17dfb1efd4036d0ba8a623b008917-agent-guard-3.7.1.tar.gz.sha256"
+    }
+  ],
+  "archive_lock_verified": true,
+  "checksum_lock_verified": true,
+  "rc_prefix_preserved": true,
+  "rc_byte_unchanged": true,
+  "custom_files_preserved": true,
+  "preserved_before": {
+    "payload/local-user-settings.txt": "f29d603d75aab6a984015273853a63c9f08d679a0e07191abdff8d2a278df344",
+    "payload/config/custom-user.toml": "8aa9b58bae98e3ab9e2e4b72d4ed6148d75cadd2111b8d0250cecf9c0ba23e1f",
+    "external-gitleaks.toml": "c52809eb6038c346284b81abfc058495a75fe8863b594076e794c6a0576ef8f3"
+  },
+  "preserved_after": {
+    "payload/local-user-settings.txt": "f29d603d75aab6a984015273853a63c9f08d679a0e07191abdff8d2a278df344",
+    "payload/config/custom-user.toml": "8aa9b58bae98e3ab9e2e4b72d4ed6148d75cadd2111b8d0250cecf9c0ba23e1f",
+    "external-gitleaks.toml": "c52809eb6038c346284b81abfc058495a75fe8863b594076e794c6a0576ef8f3"
+  },
+  "public_symlink_preserved": true,
+  "native_core_bindings": {
+    "libexec/agent-guard-redact-aarch64-apple-darwin": "45f8538d9c6a43329e3d1c8aa775b24da19ce6c760d0711541885f7a07656dc7",
+    "libexec/agent-guard-redact-aarch64-apple-darwin.sha256": "5786cc6c6b23b0548db1e378260a990742ba438066a567c3e1d8ce26ab5fe92e",
+    "libexec/agent-guard-redact-aarch64-unknown-linux-musl": "77ee0814262dfd52448390931a135faa424321ed0d587fc0dd467e839d9ed6b3",
+    "libexec/agent-guard-redact-aarch64-unknown-linux-musl.sha256": "1a6329fd0099f2c232d1b28f4eb75f2ae615edfc67d270b30563a1d7a9121411",
+    "libexec/agent-guard-redact-x86_64-apple-darwin": "c809cebf7d5bf43f05dc9a3b5e5ebf5941635b837ac614d57ab8701da309c2d5",
+    "libexec/agent-guard-redact-x86_64-apple-darwin.sha256": "98f5b1826995cbf90d196bc9d6351bc57e93b98cb12873e7da695482d1b76824",
+    "libexec/agent-guard-redact-x86_64-unknown-linux-musl": "e5effd1d40057d4099cbda0982547e2656ef8005f7308cd685dc2fb52f82b514",
+    "libexec/agent-guard-redact-x86_64-unknown-linux-musl.sha256": "a359391c9e9a828b7aa7e65e44b61bd4c46c725d5fc0d96c79e08a58c80389ea"
+  },
+  "scanner_sha256": "88f91962aa2f93ac6ab281d553b9e125f5197bbbce38f9f2437f7299c32e5509",
+  "curl_wrapper_sha256": "b729bf530c909b3029c072fbf870fb3855ecfa27c281de41ddd1483ada6cd0d5",
+  "correct": true
+}
