@@ -99,5 +99,15 @@ hides '  secret: correct.Horse,' correct.Horse
 hides '  password: hunter.Two,' hunter.Two
 keeps '  secret_id: cfg.secretId,'
 
+# Letters and dots with a camelCase end are also what a passphrase of words
+# looks like, so the member-read exemption needs a head that source code reads
+# members from (config, opts, this, process, ...). Any other head stays masked.
+hides '  password: winter.coldPassword,' winter.coldPassword
+hides '  secret: winter.cold.coldPassword,' winter.cold.coldPassword
+hides '  token: purple.rainbowToken,' purple.rainbowToken
+hides '  password: {winter.coldPassword}, user: x' winter.coldPassword
+keeps '  secret: config.secretValue,'
+keeps '  token: this.state.authToken,'
+
 printf '# pass=%s fail=%s\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

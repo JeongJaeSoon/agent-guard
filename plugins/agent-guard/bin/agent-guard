@@ -9007,6 +9007,8 @@ secretish_env_values() {
       for (pw_i = 1; pw_i <= pw_n; pw_i++) placeholder_word[pw_words[pw_i]] = 1
       type_n = split("string number boolean bigint symbol unknown any never void object buffer uint8array str int float bool bytes bytearray", type_words, " ")
       for (type_i = 1; type_i <= type_n; type_i++) type_word[type_words[type_i]] = 1
+      root_n = split("this self opts options config cfg conf settings props params args ctx context env input data req request state app user process", root_words, " ")
+      for (root_i = 1; root_i <= root_n; root_i++) root_word[root_words[root_i]] = 1
     }
     function quoted_end(raw, quote, i, slash_count, ch) {
       slash_count = 0
@@ -9178,6 +9180,10 @@ secretish_env_values() {
       # Two parts (`abc.Def`) look like a word pair, so only a camelCase leaf
       # (`cfg.secretId`) counts as a member read here.
       if (value !~ /\..*\./ && value !~ /\.[a-z_$][A-Za-z_$]*[A-Z]/) return 0
+      # Letters, dots and a comma alone do not show source code: a passphrase of
+      # words has that shape. The head must also be an object name that source
+      # code commonly reads from, a closed list.
+      if (!(substr(value, 1, index(value, ".") - 1) in root_word)) return 0
       return accessor_chain(value)
     }
     # A value another tool already masked (`gh auth status` prints
