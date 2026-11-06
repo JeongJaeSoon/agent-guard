@@ -13051,6 +13051,29 @@ expect_json_status 0 "#178 prompt guard allows a compact JavaScript labelled ref
     '{session_id:"t",hook_event_name:"UserPromptSubmit",prompt:$prompt}')" \
   hook-user-prompt
 
+# A bare `$name` after a credential key is a variable reference, like
+# `${name}`: a jq filter reading `--arg k`, a shell line, a template. A `$`
+# value that carries a digit or a second `$` (bcrypt, argon2) stays a value.
+for var_reference in \
+  'jq -n --arg k "$K" '\''{kid:"x",private_key:$k}'\''' \
+  'jq -n --arg k "$K" '\''{kid:"x",private_key: $k}'\''' \
+  'PRIVATE_KEY=$KEY' \
+  'password: $PASSWORD'; do
+  expect_json_status 0 "prompt guard allows a bare variable reference ($var_reference)" \
+    "$(jq -nc --arg prompt "$var_reference" \
+      '{session_id:"t",hook_event_name:"UserPromptSubmit",prompt:$prompt}')" \
+    hook-user-prompt
+done
+for var_value in \
+  "DB_PASSWORD=\$k9$JSONLEAF_SECRET" \
+  "DB_PASSWORD=\$argon\$$JSONLEAF_SECRET" \
+  "{\"private_key\":\$k9$JSONLEAF_SECRET}"; do
+  expect_json_status 2 "prompt guard still blocks a dollar-prefixed value ($(printf '%.12s' "$var_value")...)" \
+    "$(jq -nc --arg prompt "$var_value" \
+      '{session_id:"t",hook_event_name:"UserPromptSubmit",prompt:$prompt}')" \
+    hook-user-prompt
+done
+
 # The trailing-quote strip must NOT fire on the line-start rescan of a value an
 # outer quoted assignment already claimed, or it emits a second, narrower
 # mapping that beats the outer one and strands the key prefix on display.
@@ -13236,6 +13259,9 @@ for display_case in \
   'fn(password=user_password)' \
   'password = cfg.Token' \
   'password = settings.API_KEY' \
+  'password: $PASSWORD' \
+  'PRIVATE_KEY=$KEY' \
+  'jq -n --arg k "$K" '\''{kid:"x",private_key:$k}'\''' \
   'password = app.config.apiKey'; do
   display_input=$(jq -nc --arg stdout "$display_case" \
     '{tool_name:"Bash",tool_input:{command:"x"},tool_response:{stdout:$stdout,stderr:"",interrupted:false,isImage:false}}')
