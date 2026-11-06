@@ -46,21 +46,37 @@ check 0 'printenv CLAUDE_JOB_DIR'
 check 0 'echo start; printenv ORCA_RUN_ID && echo done'
 
 # Quoted prefix greps over a bare `env`.
-check 0 "env | grep '^ORCA_'"
-check 0 "env | grep -i '^ORCA_' | head -5"
-check 0 "env | grep -o '^ORCA_[A-Z_]*' | sort"
-check 0 'env | grep -E "^ORCA_(TERMINAL|DISPATCH|RUN)"'
+check 0 "env | grep '^ORCA_TERMINAL_HANDLE='"
+check 0 "env | grep -i '^ORCA_RUN_ID=' | head -1"
+check 0 "env | grep '^CLAUDE_JOB_DIR='"
 check 0 "env | cut -d= -f1 | grep '^ORCA_'"
+check 0 "env | grep '^ORCA_' | cut -d= -f1"
+check 0 "env | grep -i '^ORCA_' | cut -d= -f1 | sort"
 check 0 "env | grep -i '^ORCA_' | sed 's/=.*//'"
-check 0 "env | grep -E '^ORCA_' | sed -E 's/(TOKEN|SECRET)=.*/<set>/'"
+check 0 "env | grep -c '^ORCA_'"
+check 0 "echo a; env | grep '^ORCA_' | wc -l; ls"
+check 0 "cd /tmp && env | cut -d= -f1 | grep '^ORCA_' && ls"
+check 0 "(env | grep '^ORCA_' | cut -d= -f1)"
+check 0 "echo \"\$(env | grep '^ORCA_' | cut -d= -f1 | head -1)\""
+# A prefix prints every variable under it with its value, including a
+# cookie- or session-named one the output redactor may not recognise, so a
+# prefix is only allowed when the pipeline leaves names or counts.
+check 2 "env | grep '^ORCA_'"
+check 2 "env | grep -i '^ORCA_' | head -5"
+check 2 "env | grep -o '^ORCA_[A-Z_]*' | sort"
+check 2 'env | grep -E "^ORCA_(TERMINAL|DISPATCH|RUN)"'
+check 2 "env | grep -E '^ORCA_' | sed -E 's/(TOKEN|SECRET)=.*/<set>/'"
 check 2 "env | grep -E '^ORCA_' | sed -E 's/^[^=]*=(.*)=.*/\\1/'"
 check 2 "env | grep '^ORCA_' | sed 's/^[^=]*=\\(.*\\)=.*/\\1/'"
-check 0 "env | grep -c '^ORCA_'"
-check 0 "env | grep '^CLAUDE_JOB_DIR'"
-check 0 "echo a; env | grep '^ORCA_' | wc -l; ls"
-check 0 "cd /tmp && env | grep '^ORCA_' && ls"
-check 0 "(env | grep '^ORCA_')"
-check 0 "echo \"\$(env | grep '^ORCA_' | head -1)\""
+check 2 "env | grep '^CLAUDE_JOB_DIR'"
+check 2 "env | grep '^ORCA_TERMINAL_HANDLE'"
+check 2 "env | grep '^ORCA_COOKIE='"
+check 2 "env | grep '^ORCA_SESSION_ID='"
+check 2 "env | grep '^ORCA_API_TOKEN='"
+check 2 "env | grep -i '^orca_' | head -1"
+check 2 "cd /tmp && env | grep '^ORCA_' && ls"
+check 2 "echo \"\$(env | grep '^ORCA_' | head -1)\""
+check 2 "env | grep '^ORCA_' | sort | uniq -c"
 
 # The secret-bearing lookups stay blocked.
 check 2 'printenv'
@@ -97,7 +113,8 @@ check 2 "X=\$(env) env | grep '^ORCA_'"
 
 # A filter that drops the name and keeps the value would hide a token-named
 # variable from the post-tool layer, which keys on the name.
-check 0 "env | grep -i '^ORCA_' | cut -c1-80"
+check 2 "env | grep -i '^ORCA_' | cut -c1-80"
+check 0 "env | grep -i '^ORCA_RUN_ID=' | cut -c1-80"
 check 2 "env | grep '^ORCA_' | cut -d= -f2"
 check 2 "env | grep '^ORCA_' | cut -c10-"
 check 2 "env | grep '^ORCA_' | tail -c 12"
@@ -141,8 +158,9 @@ check 2 "env | grep '^ORCA_' | sed 's/a/b/;w out'"
 check 2 "env | grep '^ORCA_' | sed 's/a/b/' -i x"
 check 2 "env | grep '^ORCA_' | head -n"
 
-# Layering: the gate lets the prefix lookup through, the post-tool layer hides
-# a token-named variable in what it printed.
+# Layering: the gate no longer passes a prefix that prints values, but the
+# post-tool layer is still the second line; it hides a token-named variable in
+# a listing that reaches it by another route.
 listing=$(env ORCA_FIXTURE_TOKEN="$canary" ORCA_FIXTURE_HANDLE=term_fixture \
   sh -c "env | grep '^ORCA_FIXTURE'")
 case "$listing" in

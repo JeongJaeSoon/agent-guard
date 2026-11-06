@@ -5068,9 +5068,13 @@ message_command_has_glob() {
 # deny patterns do not read it as an environment dump. Two shapes qualify, each
 # only when every word parses and the segment ends at a command boundary:
 #   printenv NAME...   NAME is ORCA_* or CLAUDE_JOB_DIR and not secret-named;
-#   env | grep PAT... PAT is a quoted anchored ^ORCA_ / ^CLAUDE_JOB_DIR prefix
-#                      (a grep or `cut -d= -f1` must come first, so a filter
-#                      cannot rewrite lines into the prefix), followed only by
+#   env | grep PAT... PAT is a quoted anchored whole name (`^ORCA_X=`), or a
+#                      wider ^ORCA_ / ^CLAUDE_JOB_DIR prefix when the pipeline
+#                      also leaves only names or counts (`cut -d= -f1`,
+#                      `sed s/=.*//`, `wc`, `grep -c`), since a prefix prints
+#                      every variable under it with its value. A grep or
+#                      `cut -d= -f1` must come first, so a filter cannot
+#                      rewrite lines into the prefix; the rest are
 #                      read-nothing filters (cut sort uniq head tail wc sed s///).
 # Anything else, including file operands, redirects, `$`/backquote/`\` in a
 # word, a second pipe branch or `&`, stays untouched and keeps matching. The
@@ -5155,13 +5159,28 @@ bash_strip_safe_env_lookups() {
       for (i = 1; i <= nargs; i++) {
         if (!np && ak[i] == "u" && substr(a[i], 1, 1) == "-") {
           if (a[i] !~ /^-[iEonceqwsxF]+$/) return 0
+          # -c and -q print a count or nothing, never a line.
+          if (a[i] ~ /[cq]/) names_only = 1
         } else {
           np++
           if (np > 1 || ak[i] == "u") return 0
           pat = a[i]
         }
       }
-      return np == 1 && patok(pat)
+      if (np != 1) return 0
+      # One whole variable name selects that variable alone. A wider prefix
+      # prints every variable under it with its value, so it only qualifies
+      # when a `cut -d= -f1` in the same pipeline leaves the names alone.
+      if (exactname(pat)) return 1
+      if (!patok(pat)) return 0
+      gbroad = 1
+      return 1
+    }
+    function exactname(s) {
+      return s ~ /^\^(ORCA_[A-Z0-9_]+|CLAUDE_JOB_DIR)=$/ && !secretish(s)
+    }
+    function namecut() {
+      return nargs == 2 && ((a[1] == "-d=" && a[2] == "-f1") || (a[1] == "-f1" && a[2] == "-d="))
     }
     function cutok(pre,   i, d, f) {
       if (pre) return nargs == 2 && ((a[1] == "-d=" && a[2] == "-f1") || (a[1] == "-f1" && a[2] == "-d="))
@@ -5198,22 +5217,37 @@ bash_strip_safe_env_lookups() {
       # The pattern must end in `=.*` and the replacement must be literal text
       # (no `&`, no backslash group reference): a group before the `=` could
       # still capture value text, so the sed may only delete a value.
-      return np == 4 && parts[1] == "s" && parts[2] ~ /=\.\*$/ && parts[3] !~ /[&\\]/ && parts[4] ~ /^[gIi]*$/
+      if (!(np == 4 && parts[1] == "s" && parts[2] ~ /=\.\*$/ && parts[3] !~ /[&\\]/ && parts[4] ~ /^[gIi]*$/)) return 0
+      # `s/=.*//` removes the value from every line that has one.
+      if (parts[2] == "=.*") names_only = 1
+      return 1
     }
     function stageok(name, pre,   i) {
       if (name == "grep" || name == "egrep") return grepok()
-      if (pre) return name == "cut" && cutok(1)
+      if (pre) {
+        if (name != "cut" || !cutok(1)) return 0
+        names_only = 1
+        return 1
+      }
       if (name == "sed") return sedok()
       for (i = 1; i <= nargs; i++) if (ak[i] != "u") return 0
-      if (name == "cut") return cutok(0)
+      if (name == "cut") {
+        if (!cutok(0)) return 0
+        if (namecut()) names_only = 1
+        return 1
+      }
       if (name == "head" || name == "tail") return headok(name)
       if (name == "sort") return flagsok("^-[urfnV]+$")
       if (name == "uniq") return flagsok("^-[cdu]$")
-      if (name == "wc") return flagsok("^-[lwcm]+$")
+      if (name == "wc") {
+        if (!flagsok("^-[lwcm]+$")) return 0
+        names_only = 1
+        return 1
+      }
       return 0
     }
     function envseg(p,   name, q, greps) {
-      p = skipsp(p); greps = 0
+      p = skipsp(p); greps = 0; gbroad = 0; names_only = 0
       while (1) {
         if (substr(t, p, 1) != "|" || substr(t, p + 1, 1) == "|" || substr(t, p + 1, 1) == "&") return 0
         p = skipsp(p + 1)
@@ -5232,7 +5266,7 @@ bash_strip_safe_env_lookups() {
         if (substr(t, p, 1) == "|" && substr(t, p + 1, 1) != "|") continue
         break
       }
-      if (!greps || !endok(p)) return 0
+      if (!greps || !endok(p) || (gbroad && !names_only)) return 0
       return p
     }
     function printenvseg(p,   q, n) {
