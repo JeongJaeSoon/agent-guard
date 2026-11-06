@@ -202,6 +202,12 @@ check 2 "orca orchestration send --to x --body \"\$(env -S '-u __MISSING__')\""
 check 2 "orca orchestration send --to x --body \"\$(env -iS '-0')\""
 check 2 "orca orchestration send --to x --body \"\$(env --split-string='-u A')\""
 check 2 "orca orchestration send --to x --body \"\$(env -C /tmp --split-string '-0')\""
+check 2 "orca orchestration send --to x --body \"\$(env A='x y')\""
+check 2 'orca orchestration send --to x --body "$(env A="x y" B=1)"'
+check 2 'orca orchestration send --to x --body "$(env A=x\ y)"'
+check 2 "orca orchestration send --to x --body \"\$(env -C '/tmp/a b')\""
+check 2 "orca orchestration send --to x --body \"\$(env -u 'A B' | head)\""
+check 0 "orca orchestration send --to x --body \"\$(env A='x y' date)\""
 check 0 'orca orchestration send --to x --body "$(env -C /tmp date)"'
 check 0 'orca orchestration send --to x --body "$(env LC_ALL=C date)"'
 check 0 'orca orchestration send --to x --body "$(date)"'

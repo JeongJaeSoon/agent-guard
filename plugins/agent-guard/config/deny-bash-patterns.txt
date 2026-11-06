@@ -6,10 +6,10 @@
 # `$(env -u X | head)`, `$(declare -x)`) hands them to its outer command, such
 # as a message body. An `env` with any options and assignments but no command
 # prints the environment; one that runs a command (`$(env LC_ALL=C date)`)
-# does not. `-S` splits a string into more options or a command, so an `env`
+# does not. A quoted or escaped part (`A='x y'`) stays in one word. `-S` splits a string into more options or a command, so an `env`
 # with it is held whatever follows.
 (\$\(|`)[[:space:]]*(command[[:space:]]+)?([^[:space:]`)]*/)?env[[:space:]]([^`)|;&]*[[:space:]])?(-[A-Za-z0-9]*S|--split-string)
-(\$\(|`)[[:space:]]*(command[[:space:]]+)?(([^[:space:]`)]*/)?env([[:space:]]+(-[^[:space:]`)|;&]*|[A-Za-z_][A-Za-z0-9_]*=[^[:space:]`)|;&]*|(-u|-C|--unset|--chdir)[[:space:]]+[^-[:space:]`)|;&][^[:space:]`)|;&]*))*|set|export([[:space:]]+-p)?|(declare|typeset)([[:space:]]+-[A-Za-z]*[px][A-Za-z]*)?)[[:space:]]*(\)|`|[|>;&])
+(\$\(|`)[[:space:]]*(command[[:space:]]+)?(([^[:space:]`)]*/)?env([[:space:]]+(-([^[:space:]`)|;&'"\]|'[^']*'|"[^"]*"|\\.)*|[A-Za-z_][A-Za-z0-9_]*=([^[:space:]`)|;&'"\]|'[^']*'|"[^"]*"|\\.)*|(-u|-C|--unset|--chdir)[[:space:]]+([^[:space:]`)|;&'"\]|'[^']*'|"[^"]*"|\\.)+))*|set|export([[:space:]]+-p)?|(declare|typeset)([[:space:]]+-[A-Za-z]*[px][A-Za-z]*)?)[[:space:]]*(\)|`|[|>;&])
 # `env` whose output is piped or redirected dumps the environment into a sink
 # (`env | base64`, `env > /tmp/e`). Matching any `|`/`>` (rather than a fixed
 # sink list) closes gaps like `env | gzip` or `env | gpg`. The leading class
