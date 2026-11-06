@@ -1,0 +1,82 @@
+[
+  {
+    "case": "corpus_snapshot_camel_text",
+    "response": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"id\":\"1\",\"snapshotToken\":\"d1:VFhCNzgOw0me41YaXYW40R5-jGIaKdNuCfU91ULb6ossVhc5jc4bO7eRmAcy-hmQ\",\"status\":\"draft\"}"
+        }
+      ]
+    },
+    "expected": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"id\":\"1\",\"snapshotToken\":\"d1:VFhCNzgOw0me41YaXYW40R5-jGIaKdNuCfU91ULb6ossVhc5jc4bO7eRmAcy-hmQ\",\"status\":\"draft\"}"
+        }
+      ]
+    },
+    "sensitive": false
+  },
+  {
+    "case": "corpus_snapshot_snake_text",
+    "response": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"snapshot_token\":\"d1:VFhCNzgOw0me41YaXYW40R5-jGIaKdNuCfU91ULb6ossVhc5jc4bO7eRmAcy-hmQ\"}"
+        }
+      ]
+    },
+    "expected": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"snapshot_token\":\"d1:VFhCNzgOw0me41YaXYW40R5-jGIaKdNuCfU91ULb6ossVhc5jc4bO7eRmAcy-hmQ\"}"
+        }
+      ]
+    },
+    "sensitive": false
+  },
+  {
+    "case": "corpus_same_shape_password_text",
+    "response": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"password\":\"d1:VFhCNzgOw0me41YaXYW40R5-jGIaKdNuCfU91ULb6ossVhc5jc4bO7eRmAcy-hmQ\"}"
+        }
+      ]
+    },
+    "expected": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"password\":\"[REDACTED]\"}"
+        }
+      ]
+    },
+    "sensitive": true
+  },
+  {
+    "case": "corpus_mixed_text",
+    "response": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"snapshotToken\":\"d1:VFhCNzgOw0me41YaXYW40R5-jGIaKdNuCfU91ULb6ossVhc5jc4bO7eRmAcy-hmQ\",\"password\":\"supplement-Secret-8qa94X\"}"
+        }
+      ]
+    },
+    "expected": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"snapshotToken\":\"d1:VFhCNzgOw0me41YaXYW40R5-jGIaKdNuCfU91ULb6ossVhc5jc4bO7eRmAcy-hmQ\",\"password\":\"[REDACTED]\"}"
+        }
+      ]
+    },
+    "sensitive": true
+  }
+]

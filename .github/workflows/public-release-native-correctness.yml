@@ -1,0 +1,41 @@
+name: 공개 package 정확도 및 실패 복귀 검증
+on:
+  push:
+    branches: ['bench/public-release-correctness-20261106']
+    paths: ['bench/results/public-release-comparison/native-ci/**']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  correctness:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 1
+      - name: Build isolated correctness image
+        run: docker build -t guard-public-correctness bench/results/public-release-comparison/native-ci
+      - name: Check public archive correctness under resource limits
+        run: |
+          mkdir -p bench/results/public-release-comparison/native-correctness-linux
+          docker image inspect guard-public-correctness > bench/results/public-release-comparison/native-correctness-linux/image.json
+          docker run --rm --user "$(id -u):$(id -g)" --cpus=2 --memory=1g --memory-swap=1g --pids-limit=512 -v "$PWD/bench/results/public-release-comparison/native-ci:/experiment:ro" -v "$PWD/bench/results/public-release-comparison/native-correctness-linux:/results" guard-public-correctness
+      - name: Save exact outputs and failures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: public-release-native-correctness
+          path: bench/results/public-release-comparison/native-correctness-linux
+          retention-days: 90
+      - name: Preserve correctness evidence on this report branch
+        if: always()
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add bench/results/public-release-comparison/native-correctness-linux
+          if ! git diff --cached --quiet; then
+            git commit -m '실측: 공개 package 정확도와 실패 복귀 원시 자료 보존'
+            git push origin HEAD:"${GITHUB_REF_NAME}"
+          fi
