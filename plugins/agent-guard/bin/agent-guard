@@ -5556,6 +5556,76 @@ bash_neutralize_jq_field_names() (
   printf '%s' "$jq_cmd"
 )
 
+# Print $1 without the bodies of the here-documents that `cat` or `tee` only
+# write out: that text is data, so a protected-path name in it opens no file.
+# The line that starts the heredoc (its redirect target included) and the
+# delimiter line stay. Anything not read with confidence prints $1 unchanged:
+# a head other than cat/tee (a shell or python runs its body), a pipe, group or
+# background on the line, a body with no terminator, an unquoted delimiter whose
+# body expands something, or a line the command gate does not read the same
+# way after the rewrite (a later `sh`, `.` or `eval` may run what was written).
+bash_strip_heredoc_bodies() (
+  set -f
+  hd_cmd=$1
+  case "$hd_cmd" in
+    *'<<'*) ;;
+    *) printf '%s' "$hd_cmd"; exit 0 ;;
+  esac
+  hd_new=$(printf '%s\n' "$hd_cmd" | LC_ALL=C awk '
+    function reject() { bad = 1; exit 1 }
+    delim != "" {
+      line = $0
+      if (strip) sub(/^\t+/, "", line)
+      if (line == delim) { delim = ""; print $0; next }
+      if (!quoted && $0 ~ /[$`\\]/) reject()
+      next
+    }
+    {
+      print $0
+      if (index($0, "<<") == 0) next
+      rest = $0
+      if (rest ~ /<<</ || rest ~ /\\/) reject()
+      pre = substr(rest, 1, index(rest, "<<") - 1)
+      post = substr(rest, index(rest, "<<") + 2)
+      if (index(post, "<<") > 0) reject()
+      t = rest; gsub(/&&/, "", t)
+      if (t ~ /[&()`|]/) reject()
+      q = rest; if (gsub(/\047/, "", q) % 2 || gsub(/"/, "", q) % 2) reject()
+      while (match(pre, /(&&|;)/)) pre = substr(pre, RSTART + RLENGTH)
+      if (pre !~ /^[ \t]*(cat|tee)([ \t]|$)/) reject()
+      strip = 0
+      if (post ~ /^-/) { strip = 1; post = substr(post, 2) }
+      sub(/^[ \t]+/, "", post)
+      c = substr(post, 1, 1)
+      if (c == "\047" || c == "\"") {
+        quoted = 1
+        e = index(substr(post, 2), c)
+        if (e == 0) reject()
+        delim = substr(post, 2, e - 1)
+        post = substr(post, e + 2)
+      } else {
+        quoted = 0
+        if (!match(post, /^[A-Za-z_][A-Za-z0-9_]*/)) reject()
+        delim = substr(post, 1, RLENGTH)
+        post = substr(post, RLENGTH + 1)
+      }
+      if (delim == "" || delim ~ /[ \t$`\\\047"]/ || post !~ /^([ \t;&<>]|$)/) reject()
+    }
+    END { if (bad || delim != "") exit 1 }
+  ') || { printf '%s' "$hd_cmd"; exit 0; }
+  if [ "$hd_new" = "$hd_cmd" ]; then
+    printf '%s' "$hd_cmd"
+    exit 0
+  fi
+  hd_before=$(git_gate_records "$hd_cmd")
+  hd_after=$(git_gate_records "$hd_new")
+  if [ "$hd_before" = "$hd_after" ]; then
+    printf '%s' "$hd_new"
+  else
+    printf '%s' "$hd_cmd"
+  fi
+)
+
 # Private variable name; see check_bash_command (#127).
 bash_matches_deny_path() {
   deny_cmd=$1
@@ -5563,6 +5633,7 @@ bash_matches_deny_path() {
     *"\\
 "*) deny_cmd=$(shell_join_line_continuations "$deny_cmd") ;;
   esac
+  deny_cmd=$(bash_strip_heredoc_bodies "$deny_cmd")
   # A failed rewrite keeps the whole command in the scan.
   # The deny-pattern check already stripped the same text (it depends on
   # nothing but the text), so reuse that result.
@@ -8602,12 +8673,25 @@ secretish_env_values() {
     # `<your-api-key>` stand for a value in prose. Every word must be a known
     # placeholder word, so an arbitrary word or passphrase in angle brackets
     # (`<correct-horse-battery>`) still masks.
+    # A name before a placeholder noun (`<acme-pat>`) is still a placeholder:
+    # the last word says it stands for a value. A phrase that ends in any other
+    # word stays caught.
     function angle_placeholder(v, n, i, words) {
       if (v !~ /^<[a-z][a-z_ .-]*>$/) return 0
       n = split(substr(v, 2, length(v) - 2), words, /[-_ .]+/)
+      if (n > 1 && words[n] ~ /^(pat|token|key|secret|password)$/) return 1
       for (i = 1; i <= n; i++)
         if (!(words[i] in placeholder_word)) return 0
       return n > 0
+    }
+    # A markdown label such as `**Repo secret**: **cannot verify**` has a
+    # secret-bearing key and a status word for a value. Whole core only, after
+    # the emphasis marks come off, so `cannot123` still masks.
+    function prose_status_word(value, v) {
+      v = prose_core(value)
+      sub(/^[*_]+/, "", v)
+      sub(/[*_]+$/, "", v)
+      return v ~ /^(cannot|unknown|missing|present|deleted|n\/a)$/
     }
     # A boolean or null under a secret-bearing key (`api_token: true`) is a
     # config flag, not a credential. Emitting it made the word a global
@@ -8648,6 +8732,7 @@ secretish_env_values() {
       if (already_redacted(value)) return
       if (obvious_word_placeholder(value)) return
       if (config_literal(value)) return
+      if (prose_status_word(value)) return
       if (masked_placeholder(value)) return
       if (eligible_length == 0) eligible_length = char_length(value)
       if (eligible_length < 4 || length(value) == 0) return
@@ -8908,6 +8993,7 @@ secretish_env_values() {
         if (page_cursor(assignment)) return 0
         if (snapshot_handle(assignment, value)) return 0
         if (config_literal(value)) return 0
+        if (prose_status_word(value)) return 0
         if (masked_placeholder(value)) return 0
         if (require_credential && !credential_shaped(edge_trim(value))) return 0
         # Eligibility is based on the complete token. For short values, scope
