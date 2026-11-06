@@ -11,6 +11,9 @@ printf '%s\n' "$limits" > /results/provision/applied-limits.txt
 1073741824
 0" ] || { printf 'resource limits not applied\n' >&2; exit 2; }
 { uname -a; cat /proc/self/cgroup; cat /proc/swaps; jq --version; /usr/bin/jq --version; python --version; cat /etc/os-release; } > /results/provision/measured-environment.txt
+cat /proc/cpuinfo > /results/provision/cpuinfo.txt
+dpkg-query -W > /results/provision/dpkg-versions.txt
+sha256sum /bin/dash /usr/bin/awk /usr/bin/jq /usr/local/bin/jq /usr/bin/time /usr/bin/strace /usr/local/bin/python3 > /results/provision/tool-checksums.txt
 case "$action" in
   runtime)
     exec python "$base/runtime/run.py" --lab /lab --out /results/runtime/ci \

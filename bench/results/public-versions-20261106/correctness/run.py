@@ -24,6 +24,9 @@ def main():
     releases=Path(args.releases)
     config=releases/'v3.6.13/payload/config/gitleaks.toml'
     state=out/'state'; state.mkdir(); (state/'.env').write_text('SENTINEL=protected-not-executed\n')
+    # The allowed commit-message fixture must see a real empty repository,
+    # rather than accidentally exercising missing-repository degradation.
+    subprocess.run(['git','init','-q',str(state)],check=True,capture_output=True)
     # No inherited Agent Guard overrides; all state is beneath the evidence dir.
     base={k:v for k,v in os.environ.items() if not k.startswith('AGENT_GUARD_') and k not in ['AI_AGENT','CLAUDE_PLUGIN_ROOT','PLUGIN_ROOT']}
     base.update(HOME=str(state),XDG_CONFIG_HOME=str(state/'config'),XDG_CACHE_HOME=str(state/'cache'),XDG_STATE_HOME=str(state/'xdg-state'),AGENT_GUARD_LOG_MODE='off',AGENT_GUARD_RELEASE_CHECK='off',AGENT_GUARD_PII_HOOK_MODE='off',AGENT_GUARD_OUTPUT_REDACT='mask',AGENT_GUARD_GITLEAKS_BIN=args.scanner,AGENT_GUARD_GITLEAKS_CONFIG=str(config))
