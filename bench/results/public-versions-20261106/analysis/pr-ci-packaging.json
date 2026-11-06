@@ -1,0 +1,127 @@
+{
+  "scope": "Post-report repository CI packaging only; no measurement/expected-value/policy changes",
+  "failed_ci_run": "42251460656",
+  "failed_head": "3866c16ef5ebcb34ac4f6c37e3d72560bb5a2bb0",
+  "ci_failure_annotations": "secret guard exit1; dependent test shards skipped",
+  "local_same_scanner_config_reproduction": {
+    "findings": 10,
+    "synthetic_fixture_files": 5,
+    "all_matched_test_fixtures": true,
+    "findings_without_secret_fields": [
+      {
+        "File": "/tmp/ag-report-ci-tree/bench/results/public-versions-20261106/correctness/masked-token-protocol.json",
+        "RuleID": "agent-guard-vendor-token-shape",
+        "StartLine": 54,
+        "EndLine": 54,
+        "Fingerprint": "/tmp/ag-report-ci-tree/bench/results/public-versions-20261106/correctness/masked-token-protocol.json:agent-guard-vendor-token-shape:54"
+      },
+      {
+        "File": "/tmp/ag-report-ci-tree/bench/results/public-versions-20261106/correctness/masked-token-protocol.json",
+        "RuleID": "github-app-token",
+        "StartLine": 54,
+        "EndLine": 54,
+        "Fingerprint": "/tmp/ag-report-ci-tree/bench/results/public-versions-20261106/correctness/masked-token-protocol.json:github-app-token:54"
+      },
+      {
+        "File": "/tmp/ag-report-ci-tree/bench/results/public-versions-20261106/installation/homebrew-gitleaks-actual-tap.rb",
+        "RuleID": "agent-guard-vendor-token-shape",
+        "StartLine": 43,
+        "EndLine": 43,
+        "Fingerprint": "/tmp/ag-report-ci-tree/bench/results/public-versions-20261106/installation/homebrew-gitleaks-actual-tap.rb:agent-guard-vendor-token-shape:43"
+      },
+      {
+        "File": "/tmp/ag-report-ci-tree/bench/results/public-versions-20261106/installation/homebrew-gitleaks-actual-tap.rb",
+        "RuleID": "github-pat",
+        "StartLine": 43,
+        "EndLine": 43,
+        "Fingerprint": "/tmp/ag-report-ci-tree/bench/results/public-versions-20261106/installation/homebrew-gitleaks-actual-tap.rb:github-pat:43"
+      },
+      {
+        "File": "/tmp/ag-report-ci-tree/bench/results/public-versions-20261106/installation/homebrew-gitleaks.rb",
+        "RuleID": "agent-guard-vendor-token-shape",
+        "StartLine": 43,
+        "EndLine": 43,
+        "Fingerprint": "/tmp/ag-report-ci-tree/bench/results/public-versions-20261106/installation/homebrew-gitleaks.rb:agent-guard-vendor-token-shape:43"
+      },
+      {
+        "File": "/tmp/ag-report-ci-tree/bench/results/public-versions-20261106/installation/homebrew-gitleaks.rb",
+        "RuleID": "github-pat",
+        "StartLine": 43,
+        "EndLine": 43,
+        "Fingerprint": "/tmp/ag-report-ci-tree/bench/results/public-versions-20261106/installation/homebrew-gitleaks.rb:github-pat:43"
+      },
+      {
+        "File": "/tmp/ag-report-ci-tree/bench/results/public-versions-20261106/correctness/workloads.json",
+        "RuleID": "github-pat",
+        "StartLine": 8326,
+        "EndLine": 8326,
+        "Fingerprint": "/tmp/ag-report-ci-tree/bench/results/public-versions-20261106/correctness/workloads.json:github-pat:8326"
+      },
+      {
+        "File": "/tmp/ag-report-ci-tree/bench/results/public-versions-20261106/correctness/workloads.json",
+        "RuleID": "agent-guard-vendor-token-shape",
+        "StartLine": 8326,
+        "EndLine": 8326,
+        "Fingerprint": "/tmp/ag-report-ci-tree/bench/results/public-versions-20261106/correctness/workloads.json:agent-guard-vendor-token-shape:8326"
+      },
+      {
+        "File": "/tmp/ag-report-ci-tree/bench/results/public-versions-20261106/correctness/workloads.v1.json",
+        "RuleID": "agent-guard-vendor-token-shape",
+        "StartLine": 8326,
+        "EndLine": 8326,
+        "Fingerprint": "/tmp/ag-report-ci-tree/bench/results/public-versions-20261106/correctness/workloads.v1.json:agent-guard-vendor-token-shape:8326"
+      },
+      {
+        "File": "/tmp/ag-report-ci-tree/bench/results/public-versions-20261106/correctness/workloads.v1.json",
+        "RuleID": "github-pat",
+        "StartLine": 8326,
+        "EndLine": 8326,
+        "Fingerprint": "/tmp/ag-report-ci-tree/bench/results/public-versions-20261106/correctness/workloads.v1.json:github-pat:8326"
+      }
+    ]
+  },
+  "preserved_files": [
+    {
+      "original_path": "bench/results/public-versions-20261106/correctness/masked-token-protocol.json",
+      "preserved_gzip": "bench/results/public-versions-20261106/correctness/masked-token-protocol.json.gz",
+      "original_sha256": "e23f03ef0abd49bcc148b2cf78d4fe3e1e8feec22b109ddc2d08c82f0f32efdb",
+      "gzip_sha256": "d5e6bf3a587c0537b4059c687f83a64f96484c7d3e244158423883a20199480b",
+      "byte_equal_after_decompression": true
+    },
+    {
+      "original_path": "bench/results/public-versions-20261106/correctness/workloads.json",
+      "preserved_gzip": "bench/results/public-versions-20261106/correctness/workloads.json.gz",
+      "original_sha256": "03cc0b5a29ffecf6c9ecd570320dc7f5be21844985d304f4cd69bc57b6bf5e5d",
+      "gzip_sha256": "b5aae050485eb93a2ad135930f5be7bd97fffb066a5edb5e1b05da9d2b2d3168",
+      "byte_equal_after_decompression": true
+    },
+    {
+      "original_path": "bench/results/public-versions-20261106/correctness/workloads.v1.json",
+      "preserved_gzip": "bench/results/public-versions-20261106/correctness/workloads.v1.json.gz",
+      "original_sha256": "d4e059d9b58bf1aefcdf30d2e48da082c185a16aeda238fb9c09a83ecbcfec08",
+      "gzip_sha256": "75f19264ace2e1fa6bded7088740e8f23675ce4357ae15888651d8d3ef3329dc",
+      "byte_equal_after_decompression": true
+    },
+    {
+      "original_path": "bench/results/public-versions-20261106/installation/homebrew-gitleaks.rb",
+      "preserved_gzip": "bench/results/public-versions-20261106/installation/homebrew-gitleaks.rb.gz",
+      "original_sha256": "eb430a1ae9a324253596d4fc227ad3d799b1dfaf99986bfc757bb777f083e4f5",
+      "gzip_sha256": "150df069483428c554c74ac940ceb4e3d6eea04de1855c3c2100ecd08e4bd5aa",
+      "byte_equal_after_decompression": true
+    },
+    {
+      "original_path": "bench/results/public-versions-20261106/installation/homebrew-gitleaks-actual-tap.rb",
+      "preserved_gzip": "bench/results/public-versions-20261106/installation/homebrew-gitleaks-actual-tap.rb.gz",
+      "original_sha256": "eb430a1ae9a324253596d4fc227ad3d799b1dfaf99986bfc757bb777f083e4f5",
+      "gzip_sha256": "150df069483428c554c74ac940ceb4e3d6eea04de1855c3c2100ecd08e4bd5aa",
+      "byte_equal_after_decompression": true
+    }
+  ],
+  "original_failed_commit_retained": true,
+  "public_detector_rules_unchanged": true,
+  "raw_archives_unchanged": true,
+  "repackaged_clean_git_archive_scan": {
+    "findings": 0,
+    "scanner_config_unchanged": true
+  }
+}

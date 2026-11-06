@@ -10,6 +10,7 @@
 - [전체 개선·회귀 판정 CSV](analysis/changes.csv), [회귀 원문 JSON](analysis/regressions.json): 서로 다른 조건·지표·비교 유형은 독립 행이며 개수를 실사용 회귀율로 해석하지 않는다.
 - [실제 복원·원본 대조](analysis/final-evidence-original-comparison.json), [최종 증거 패킹 검증](analysis/final-evidence-packaging-summary.json)
 - [실제 브라우저 검증 자료](report/browser-evidence.zip), [별도 프로세스 trace 해석](analysis/TRACE-FINDINGS.ko.md)·[전체 분류](analysis/traces/)
+- [저장소 CI의 양성 fixture 탐지와 바이트 보존 패키징](analysis/CI-PACKAGING.ko.md)
 
 ## 비교 조건
 
