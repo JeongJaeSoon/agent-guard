@@ -1,7 +1,17 @@
 # POSIX ERE patterns. Blank lines and lines starting with # are ignored.
 # Path-based reads are handled from deny-read-paths; keep only pathless shell idioms here.
-(^|[[:space:];|&])printenv([^[:alnum:]_-]|$)
+(^|[[:space:];|&(`])([^[:space:];|&()`]*/)?printenv([^[:alnum:]_.-]|$)
 (^|[[:space:];|&])env[[:space:]]*($|[;&])
+# A command substitution that lists variables (`$(env)`, `` `set` ``,
+# `$(env -u X | head)`, `$(declare -x)`) hands them to its outer command, such
+# as a message body. An `env` with any options and assignments but no command
+# prints the environment; one that runs a command (`$(env LC_ALL=C date)`)
+# does not. A quoted or escaped part (`A='x y'`) stays in one word. Wrappers
+# that run their operand (`command -p`, `builtin`, `exec`, `time`, `nohup`,
+# `nice`) and a quoted or escaped name (`\env`, `'set'`) are read through. `-S` splits a string into more options or a command, so an `env`
+# with it is held whatever follows.
+(\$\(|`)[[:space:]]*((command|builtin|exec|time|nohup|nice)([[:space:]]+(-[^[:space:]`)|;&]*|[0-9]+))*[[:space:]]+)*([^[:space:]`)]*/)?\\?['"]?env['"]?[[:space:]]([^`)|;&]*[[:space:]])?(-[A-Za-z0-9]*S|--split-string)
+(\$\(|`)[[:space:]]*((command|builtin|exec|time|nohup|nice)([[:space:]]+(-[^[:space:]`)|;&]*|[0-9]+))*[[:space:]]+)*(([^[:space:]`)]*/)?\\?['"]?env['"]?([[:space:]]+(-([^[:space:]`)|;&'"\]|'[^']*'|"[^"]*"|\\.)*|[A-Za-z_][A-Za-z0-9_]*=([^[:space:]`)|;&'"\]|'[^']*'|"[^"]*"|\\.)*|(-u|-C|--unset|--chdir)[[:space:]]+([^[:space:]`)|;&'"\]|'[^']*'|"[^"]*"|\\.)+))*|\\?['"]?(set|export)['"]?|\\?['"]?export['"]?[[:space:]]+-p|\\?['"]?(declare|typeset)['"]?([[:space:]]+-[A-Za-z]*[px][A-Za-z]*)?)[[:space:]]*(\)|`|[|>;&])
 # `env` whose output is piped or redirected dumps the environment into a sink
 # (`env | base64`, `env > /tmp/e`). Matching any `|`/`>` (rather than a fixed
 # sink list) closes gaps like `env | gzip` or `env | gpg`. The leading class
@@ -14,13 +24,16 @@
 # 'a|set|b' regex are not blocked, only a bare environment dump.
 (^|[[:space:];|&])(declare|typeset|export)[[:space:]]+-[A-Za-z]*p
 (^|[[:space:];|&])set[[:space:]]*($|[;&])
+# Like `env` above, a bare `set` piped or redirected dumps every variable.
+(^|[[:space:];&])set[[:space:]]*[|>]
 # Reading /proc/<pid>/environ dumps the environment. The PID segment is often a
 # shell variable ($$, $BASHPID) the deny-read glob cannot match, so accept any
 # non-space, non-slash segment here.
 /proc/[^[:space:]/]+/environ
 security([[:space:]]+-[^[:space:]]+)*[[:space:]]+find-(generic|internet)-password
-op[[:space:]]+read
-op[[:space:]]+item[[:space:]]+get
+# A word ending in `op` (`stop reading`) is not the 1Password CLI.
+(^|[^[:alnum:]_.-])op[[:space:]]+read
+(^|[^[:alnum:]_.-])op[[:space:]]+item[[:space:]]+get
 vault[[:space:]]+kv[[:space:]]+get
 vault[[:space:]]+read
 aws[[:space:]]+secretsmanager[[:space:]]+get-secret-value

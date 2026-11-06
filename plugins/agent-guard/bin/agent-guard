@@ -4939,6 +4939,184 @@ bash_strip_source_module_prose() (
   printf '%s' "$prose_result"
 )
 
+# Print the record numbers (git_command_records) of message values the
+# command sends as data: the subject and body of `orca orchestration
+# send|reply|ask`, the title and body of `gh pr|issue create|comment|edit` and
+# `gh pr review`, and the message of `git commit`. These CLIs open no file the
+# text names; their file-taking forms (--body-file, -F) are not listed. As in
+# search_operand_spans, a segment qualifies only when it starts with the bare
+# command name and every segment before it is an inert command without a
+# redirection, so nothing earlier on the line can change what the name runs.
+# Prints nothing when the line may hide a command (heredoc, group, eval).
+# Succeed when every PATH entry is absolute; an empty entry means the current
+# directory, so a cd could change what a later command name runs.
+path_entries_absolute() {
+  case ":${PATH-}:" in *::*|*:[!/]*) return 1 ;; esac
+}
+
+message_value_records() {
+  printf '%s\n' "$1" | LC_ALL=C awk -v cd_ok="$(path_entries_absolute && echo 1)" '
+    function bail() { failed = 1; exit }
+    function boundary(r) { return r == "0;" || r == "0&&" || r == "0||" || r == "0|" }
+    # Every word of a simple command is expanded before its name is looked
+    # up, and an expansion can assign (`${PWD:PATH=0}` evaluates PATH=0), so
+    # a word is plain only when it is literal or its expansions are bare
+    # parameter references. zsh evaluates `$x[...]` as a subscript.
+    function plain(j,   v) {
+      if (kind[j] == "0") return 1
+      if (kind[j] != "4") return 0
+      v = word[j]
+      if (v ~ /\$[A-Za-z_][A-Za-z0-9_]*\[/) return 0
+      gsub(/\$\{[A-Za-z_][A-Za-z0-9_]*\}/, "", v)
+      gsub(/\$[A-Za-z_][A-Za-z0-9_]*/, "", v)
+      return v !~ /[$`]/
+    }
+    # git commit operands are pathspecs it reads, so pair a message option
+    # only through options known to take no separate value; `--` or anything
+    # else ends the search.
+    function git_flag(w) {
+      return w ~ /^-[aqsvne]+$/ || w ~ /^--[a-z-]+=/ \
+        || w ~ /^--(all|quiet|verbose|signoff|no-signoff|edit|no-edit|amend|allow-empty|allow-empty-message|only|include|dry-run|reset-author|status|no-status|no-gpg-sign|short|porcelain|long)$/
+    }
+    # The same list as search_operand_spans; a redirection may write a file a
+    # command name resolves to, and cd moves what a relative PATH entry names.
+    function inert(   j) {
+      if (kind[1] != "0" || word[1] !~ /^(grep|egrep|fgrep|ls|cat|head|tail|wc|cut|tr|echo|true|false|pwd|cd|jq|diff|comm|basename|dirname|date|sleep)$/) return 0
+      if (word[1] == "cd" && cd_ok != "1") return 0
+      for (j = 1; j <= n; j++) if (word[j] ~ /[<>]/) return 0
+      return 1
+    }
+    function finish(bound,   j, w, opts, all, before) {
+      if (n == 0) return
+      all = 1
+      for (j = 1; j <= n; j++) if (!plain(j)) all = 0
+      # The commands of a pipeline start together, so one piped after a
+      # message command may replace it before it runs.
+      if (pipe_target && !(all && inert())) bail()
+      before = length(out)
+      if (all && ok && kind[1] == "0") {
+        if (word[1] == "orca" && word[2] == "orchestration" && word[3] ~ /^(send|reply|ask)$/) opts = "|--subject|--body|"
+        else if (word[1] == "gh" && (word[2] ~ /^(pr|issue)$/ && word[3] ~ /^(create|comment|edit)$/ || word[2] == "pr" && word[3] == "review")) opts = "|-t|--title|-b|--body|"
+        else if (word[1] == "git" && word[2] == "commit") opts = "|-m|--message|"
+        for (j = (opts ~ /-m\|/ ? 3 : 2); opts != "" && j <= n; j++) {
+          w = word[j]
+          if (w == "--") break
+          if (index(opts, "|" w "|") || opts ~ /-m\|/ && w ~ /^-[aqsvn]+m$/) {
+            if (j + 1 <= n && substr(word[j + 1], 1, 1) != "-") out = out rec[j + 1] "\n"
+            j++
+            continue
+          }
+          if (opts ~ /-m\|/ && !git_flag(w)) break
+        }
+        if (opts != "") ok = 0
+      }
+      if (!all || !inert()) ok = 0
+      pipe_target = bound == "0|" && (pipe_target || length(out) > before)
+      n = 0
+    }
+    BEGIN { ok = 1; n = 0 }
+    {
+      r = $0; k = substr(r, 1, 1); v = substr(r, 2)
+      # A subshell or a process substitution (`<(`, `>(`, zsh `=(`) runs
+      # before the command it sits in, so it can replace what the name runs.
+      if (r ~ /^3[][(){}]$/ || k == "2") bail()
+      if (k == "0" && v ~ /^(eval|alias|function|trap|source|\.)$/) bail()
+      if (boundary(r)) { finish(r); next }
+      # The `&` of `2>&1`; a backgrounding `&` after it comes as a second one.
+      if (r == "3&" && n > 0 && word[n] ~ /[<>]$/ && dup != NR - 1) { dup = NR; next }
+      # A backgrounded command (or `|&`) runs alongside whatever follows.
+      if (r == "3&") { finish(r); if (out != "") bail(); ok = 0; next }
+      if (k == "3") { ok = 0; next }
+      n++; kind[n] = k; word[n] = v; rec[n] = NR
+    }
+    END { if (!failed) { finish(""); printf "%s", out } }
+  '
+}
+
+# Succeed when a command named git, gh or orca holds an unquoted glob
+# character. The records show a glob word as a literal, but its expansion can
+# add words (files named `--` or `-m`) and turn a message value into a
+# pathspec. `^` and `#` are globs under zsh EXTENDED_GLOB.
+message_command_has_glob() {
+  MV_CMD=$1 LC_ALL=C awk 'BEGIN {
+    s = ENVIRON["MV_CMD"]; n = length(s); q = 0; fw = ""; inw = 1; glob = 0
+    for (i = 1; i <= n; i++) {
+      c = substr(s, i, 1)
+      if (q == 1) { if (c == "\047") q = 0; else if (inw) fw = fw c; continue }
+      if (q == 2) {
+        if (c == "\"") q = 0
+        else { if (c == "\\") c = substr(s, ++i, 1); if (inw) fw = fw c }
+        continue
+      }
+      if (c == "\\") { c = substr(s, ++i, 1); if (c != "\n" && inw) fw = fw c; continue }
+      if (c == "\047") { q = 1; started = 1; continue }
+      if (c == "\"") { q = 2; started = 1; continue }
+      if (c ~ /[;&|\n]/) {
+        if (glob && fw ~ /^(git|gh|orca)$/) exit 0
+        fw = ""; inw = 1; started = 0; glob = 0
+        continue
+      }
+      if (c == " " || c == "\t") { if (started) inw = 0; continue }
+      if (c ~ /[*?[^#]/) glob = 1
+      if (inw) { fw = fw c; started = 1 }
+    }
+    exit !(glob && fw ~ /^(git|gh|orca)$/)
+  }'
+}
+
+# Replace each message value message_value_records finds, quotes included,
+# with `_`. A value is replaced only when it is one quoted literal (single
+# quotes, or double quotes holding no `$`, backquote or backslash) and
+# re-tokenizing shows that it changed that record and nothing else. Leaving no
+# quotes lets the deny-path check skip its dequoted pass.
+bash_strip_message_values() (
+  set -f
+  mv_cmd=$1
+  # Every message option starts with `-` and follows the command words.
+  case "$mv_cmd" in *orca*orchestration*-*|*gh*-*|*git*commit*-*) ;; *) printf '%s' "$mv_cmd"; exit 0 ;; esac
+  if bash_command_sources_script "$mv_cmd"; then
+    printf '%s' "$mv_cmd"
+    exit 0
+  fi
+  mv_records=$(git_command_records "$mv_cmd")
+  mv_targets=$(message_value_records "$mv_records")
+  if [ -n "$mv_targets" ] && message_command_has_glob "$mv_cmd"; then
+    printf '%s' "$mv_cmd"
+    exit 0
+  fi
+  for mv_at in $mv_targets; do
+    mv_expected=$(printf '%s\n' "$mv_records" | awk -v k="$mv_at" 'NR == k { print "0_"; next } { print }')
+    mv_value=$(printf '%s\n' "$mv_records" | awk -v k="$mv_at" 'NR == k { print substr($0, 2) }')
+    mv_try=1
+    while [ "$mv_try" -le 20 ]; do
+      mv_candidate=$(MV_CMD=$mv_cmd MV_VALUE=$mv_value LC_ALL=C awk -v want="$mv_try" 'BEGIN {
+        s = ENVIRON["MV_CMD"]; v = ENVIRON["MV_VALUE"]; n = length(s); seen = 0
+        for (i = 1; i <= n; i++) {
+          q = substr(s, i, 1)
+          if (q != "\047" && q != "\"") continue
+          for (j = i + 1; j <= n && substr(s, j, 1) != q; j++) ;
+          if (j > n) exit 1
+          body = substr(s, i + 1, j - i - 1)
+          flat = body; gsub(/\n/, " ", flat)
+          if (flat == v && !(q == "\"" && body ~ /[$`\\]/) && ++seen == want) {
+            printf "%s", substr(s, 1, i - 1) "_" substr(s, j + 1)
+            exit 0
+          }
+          i = j
+        }
+        exit 1
+      }') || break
+      if [ "$(git_command_records "$mv_candidate")" = "$mv_expected" ]; then
+        mv_cmd=$mv_candidate
+        mv_records=$mv_expected
+        break
+      fi
+      mv_try=$((mv_try + 1))
+    done
+  done
+  printf '%s' "$mv_cmd"
+)
+
 # Print the start and end offsets of words in $1 that name no file the command
 # reads: the search pattern of grep, egrep, fgrep and rg, and (as `O start end
 # value`) the output path of an openssl key or certificate generator. A word
@@ -4950,7 +5128,7 @@ bash_strip_source_module_prose() (
 # substitution, a here-document, a group or a comment. Segments after one
 # whose command is not on the inert list below are left alone too.
 search_operand_spans() {
-  printf '%s\n' "$1" | LC_ALL=C awk -v grep_env="${GREP_OPTIONS-}" '
+  printf '%s\n' "$1" | LC_ALL=C awk -v grep_env="${GREP_OPTIONS-}" -v cd_ok="$(path_entries_absolute && echo 1)" '
     function bail() { failed = 1; exit }
     function start_word() {
       if (inword) return
@@ -5097,7 +5275,14 @@ search_operand_spans() {
         if (h > e) { if (a > e) continue; exit 0 }
         if (bad(h)) exit 0
         if (wv[h] == "for" && h + 2 <= e && wv[h + 1] ~ /^[a-z]$/ && wv[h + 2] == "in") continue
-        if (wv[h] !~ /^(grep|egrep|fgrep|rg|ls|cat|head|tail|wc|cut|tr|echo|true|false|test|\[|pwd|cd|jq|diff|comm|basename|dirname|date|stat|sleep)$/) exit 0
+        # rg runs programs (--pre, --hostname-bin, RIPGREP_CONFIG_PATH), test
+        # and [ evaluate array subscripts, the zsh stat builtin assigns arrays
+        # (`stat -A path`), and an assignment prefix such as
+        # LD_PRELOAD can make any listed command run code; a locale name
+        # without a path loads no code.
+        for (r = a; r < h; r++) if (wv[r] !~ /^(LC_[A-Z]+|LANG|LANGUAGE|TZ)=[A-Za-z0-9_.@:+-]*$/) exit 0
+        if (wv[h] !~ /^(grep|egrep|fgrep|ls|cat|head|tail|wc|cut|tr|echo|true|false|pwd|cd|jq|diff|comm|basename|dirname|date|sleep)$/) exit 0
+        if (wv[h] == "cd" && cd_ok != "1") exit 0
       }
     }
   '
@@ -5379,6 +5564,13 @@ bash_matches_deny_path() {
 "*) deny_cmd=$(shell_join_line_continuations "$deny_cmd") ;;
   esac
   # A failed rewrite keeps the whole command in the scan.
+  # The deny-pattern check already stripped the same text (it depends on
+  # nothing but the text), so reuse that result.
+  if [ "${mv_strip_in+set}" = set ] && [ "$deny_cmd" = "$mv_strip_in" ]; then
+    deny_cmd=$mv_strip_out
+  else
+    deny_stripped=$(bash_strip_message_values "$deny_cmd") && deny_cmd=$deny_stripped
+  fi
   deny_stripped=$(bash_strip_non_read_operands "$deny_cmd") && deny_cmd=$deny_stripped
   deny_cmd=$(bash_neutralize_jq_field_names "$deny_cmd")
   deny_cmd=$(bash_strip_source_module_prose "$deny_cmd")
@@ -7821,6 +8013,8 @@ check_bash_command() {
   # `cd X<newline>git commit` into one word and hiding the commit from the
   # detector (#127). Keep an untouched copy and use it for every later check.
   raw_cmd=$cmd
+  # Set only by the deny-pattern check below, never from the environment.
+  unset mv_strip_in mv_strip_out
   workdir=$(json_value '.tool_input.workdir // .tool_input.cwd // .cwd // empty' "$input")
 
   # A harmless, deterministic sentinel lets setup prove that the host really
@@ -7837,7 +8031,14 @@ check_bash_command() {
   patterns=$(mktemp_file) || die "failed to create temp file"
   grep -Ev '^[[:space:]]*(#|$)' "$DENY_BASH_PATTERNS" >"$patterns"
   if [ -s "$patterns" ]; then
-    printf '%s\n' "$cmd" | grep -E -q -f "$patterns"
+    # A message body that quotes a risky command (a report that `printenv` was
+    # blocked) only sends that text; the gitleaks scan below still sees it.
+    if pattern_cmd=$(bash_strip_message_values "$cmd"); then
+      mv_strip_in=$cmd mv_strip_out=$pattern_cmd
+    else
+      pattern_cmd=$cmd
+    fi
+    printf '%s\n' "$pattern_cmd" | grep -E -q -f "$patterns"
     grep_status=$?
     rm -f "$patterns"
     case "$grep_status" in
