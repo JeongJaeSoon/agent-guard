@@ -1,3 +1,14 @@
+## v3.8.2 - 2026-11-06
+
+- fix(hooks): heredoc 본문과 산문 placeholder를 오탐으로 막지 않는다 (#423)
+- ci: PR의 Fused contracts에서 macOS Intel 잡을 뺀다 (#417)
+- fix(hooks): 마스킹된 토큰 값을 secret-like 할당으로 오인하지 않는다 (#416)
+- ci: bump actions/upload-artifact from 4.6.2 to 7.0.2 (#401)
+- ci: bump actions/setup-go from 6.5.0 to 7.0.0 (#400)
+- ci: bump actions/download-artifact from 4.3.0 to 8.0.2 (#399)
+- ci: bump hashgraph-online/ai-plugin-scanner-action (#402)
+- ci: 성능 비교를 차단 조건에서 빼고 중복 잡을 줄인다 (#415)
+
 ## v3.8.1 - 2026-11-06
 
 - fix(hooks): 메시지 본문 오탐을 줄이고 set·$(env) 환경 출력 구멍을 막는다 (#405)
