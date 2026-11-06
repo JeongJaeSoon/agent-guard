@@ -1,0 +1,52 @@
+{
+  "protocol": "public-seven-partitioned-policy-fixed-v1",
+  "stage": "performance",
+  "versions": [
+    "3.6.13",
+    "3.6.14",
+    "3.6.15",
+    "3.7.0",
+    "3.7.1",
+    "3.8.0",
+    "3.8.1"
+  ],
+  "series_conditions": "7 public default execution routes +3.8.0 fused+3.8.1 fused",
+  "series_repeats": 9,
+  "series_order": "9 Latin cyclic rotations, one occurrence per execution position; one full warmup block before measured rounds",
+  "endpoint_conditions": [
+    "3.6.13 default",
+    "3.8.1 default",
+    "3.8.1 fused"
+  ],
+  "endpoint_repeats": 12,
+  "endpoint_order": "3 cyclic rotations repeated four cycles, reversing alternating cycles",
+  "endpoint_measurement": "endpoint-direct; never merged with main cli series",
+  "rss_repeats": 9,
+  "rss_inputs": [
+    "small-clean",
+    "many-replacements"
+  ],
+  "rss_measurement": "rss-profile; elapsed/CPU/throughput ineligible for performance comparison",
+  "installation_repeats": 14,
+  "installation_order": "14 rounds: seven Latin rotations then reversed rotations",
+  "warmup": 1,
+  "timeout_seconds": 30,
+  "retries": 0,
+  "policy_mode": "all three v3.6.13 policy files fixed through documented environment overrides; packaged default native selection otherwise preserved",
+  "audit_state": "off or on-warm; new HOME per measurement/version/mode/host/audit/input/concurrency; one warmup then retained HOME for measured rounds; different inputs/concurrency/experiments do not share state; cache expiry possible",
+  "scanner": {
+    "name": "gitleaks_8.30.1_linux_x64.tar.gz",
+    "url": "https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz",
+    "sha256": "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
+  },
+  "installation_scope": "fresh/refresh include archive+checksum network, verification, setup; predownloaded bootstrap and dependency first install excluded; archive-only separate; CLI update dynamic-latest path unverified",
+  "primary_install_path": "official pinned bootstrap installed under a non-semver payload root before performance timing",
+  "earlier_six_run": "Separate protocol/cutoff; data never merged; no retry or replacement of original samples",
+  "execution_host": "GitHub Actions 1000134951:runnervm7aw5e:42170459944",
+  "partition_id": "large-output--codex--on-warm",
+  "partition_input": "large-output",
+  "partition_agent_host": "codex",
+  "partition_audit": "on-warm",
+  "across_partition_aggregation_allowed": false,
+  "installation_comparison_source": "existing completed seven-version installation artifact; not repeated here"
+}

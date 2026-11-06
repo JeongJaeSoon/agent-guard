@@ -1,0 +1,482 @@
+2180  1793944081.439071 execve("/tmp/public-release-experiment/3.8.0/bin/agent-guard", ["/tmp/public-release-experiment/3.8.0/bin/agent-guard", "hook-post-tool"], 0x7ffde3498390 /* 15 vars */) = 0 <0.000267>
+2180  1793944081.444354 execve("/usr/local/sbin/sh", ["sh", "/tmp/public-release-experiment/3.8.0/bin/agent-guard", "hook-post-tool"], 0x7ffedb1a1b70 /* 15 vars */) = -1 ENOENT (No such file or directory) <0.000039>
+2180  1793944081.444463 execve("/usr/local/bin/sh", ["sh", "/tmp/public-release-experiment/3.8.0/bin/agent-guard", "hook-post-tool"], 0x7ffedb1a1b70 /* 15 vars */) = -1 ENOENT (No such file or directory) <0.000024>
+2180  1793944081.444533 execve("/usr/sbin/sh", ["sh", "/tmp/public-release-experiment/3.8.0/bin/agent-guard", "hook-post-tool"], 0x7ffedb1a1b70 /* 15 vars */) = -1 ENOENT (No such file or directory) <0.000021>
+2180  1793944081.444632 execve("/usr/bin/sh", ["sh", "/tmp/public-release-experiment/3.8.0/bin/agent-guard", "hook-post-tool"], 0x7ffedb1a1b70 /* 15 vars */) = 0 <0.000254>
+2181  1793944081.448437 +++ exited with 0 +++
+2180  1793944081.448467 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2181, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2182  1793944081.449434 +++ exited with 0 +++
+2180  1793944081.449460 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2182, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2183  1793944081.450103 +++ exited with 0 +++
+2180  1793944081.450153 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2183, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2184  1793944081.451593 execve("/usr/bin/readlink", ["readlink", "/tmp/public-release-experiment/current"], 0x564c03dd37b8 /* 16 vars */) = 0 <0.005620>
+2184  1793944081.462687 +++ exited with 0 +++
+2180  1793944081.462741 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2184, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2185  1793944081.483066 +++ exited with 0 +++
+2180  1793944081.483130 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2185, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2186  1793944081.483792 +++ exited with 0 +++
+2180  1793944081.483838 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2186, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2187  1793944081.504028 +++ exited with 0 +++
+2180  1793944081.504086 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2187, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2189  1793944081.505309 +++ exited with 0 +++
+2188  1793944081.505362 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2189, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2190  1793944081.505838 execve("/usr/bin/sort", ["sort", "-t.", "-k1,1n", "-k2,2n", "-k3,3n"], 0x564c03dd37b8 /* 16 vars */) = 0 <0.000261>
+2191  1793944081.506383 execve("/usr/bin/tail", ["tail", "-n", "1"], 0x564c03dd37b8 /* 16 vars */ <unfinished ...>
+2190  1793944081.513803 +++ exited with 0 +++
+2188  1793944081.513860 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2190, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2191  1793944081.515570 <... execve resumed>) = 0 <0.009145>
+2191  1793944081.520774 +++ exited with 0 +++
+2188  1793944081.520828 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2191, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2188  1793944081.521111 +++ exited with 0 +++
+2180  1793944081.521132 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2188, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2192  1793944081.521927 execve("/usr/bin/ln", ["ln", "-sfn", "3.8.0", "/tmp/public-release-experiment/current"], 0x564c03dd37b8 /* 16 vars */) = 0 <0.000171>
+2192  1793944081.527280 +++ exited with 0 +++
+2180  1793944081.527337 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2192, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2194  1793944081.540565 execve("/usr/bin/mktemp", ["mktemp", "-d", "/tmp/public-release-experiment/probe-home-3.8.0-default-semver-layout-supplement-not-original-run/tmp/agent-guard-run.XXXXXX"], 0x564c03f1e7e8 /* 16 vars */) = 0 <0.000193>
+2194  1793944081.545965 +++ exited with 0 +++
+2193  1793944081.546022 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2194, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2193  1793944081.546453 +++ exited with 0 +++
+2180  1793944081.546476 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2193, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2196  1793944081.548239 execve("/usr/bin/cat", ["cat"], 0x564c03f129c0 /* 16 vars */) = 0 <0.000163>
+2196  1793944081.554687 +++ exited with 0 +++
+2195  1793944081.554744 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2196, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2195  1793944081.555082 +++ exited with 0 +++
+2180  1793944081.555103 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2195, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2197  1793944081.557142 +++ exited with 0 +++
+2180  1793944081.557195 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2197, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2198  1793944081.557434 execve("/usr/bin/jq", ["jq", "-e", "type == \"object\""], 0x564c03f12ef0 /* 16 vars */) = 0 <0.000267>
+2198  1793944081.566563 +++ exited with 0 +++
+2180  1793944081.566613 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2198, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2200  1793944081.569972 +++ exited with 0 +++
+2199  1793944081.570026 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2200, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2199  1793944081.570605 +++ exited with 0 +++
+2180  1793944081.570630 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2199, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2201  1793944081.573146 +++ exited with 0 +++
+2180  1793944081.573171 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2201, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2203  1793944081.574975 execve("/usr/bin/mktemp", ["mktemp", "/tmp/public-release-experiment/probe-home-3.8.0-default-semver-layout-supplement-not-original-run/tmp/agent-guard-run.CG3D79/agent-guard.XXXXXX"], 0x564c03f25410 /* 16 vars */) = 0 <0.000221>
+2203  1793944081.581427 +++ exited with 0 +++
+2202  1793944081.581479 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2203, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2202  1793944081.581938 +++ exited with 0 +++
+2180  1793944081.581962 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2202, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2205  1793944081.583729 execve("/usr/bin/mktemp", ["mktemp", "/tmp/public-release-experiment/probe-home-3.8.0-default-semver-layout-supplement-not-original-run/tmp/agent-guard-run.CG3D79/agent-guard.XXXXXX"], 0x564c03f25890 /* 16 vars */) = 0 <0.000206>
+2205  1793944081.590228 +++ exited with 0 +++
+2204  1793944081.590303 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2205, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2204  1793944081.590771 +++ exited with 0 +++
+2180  1793944081.590793 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2204, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2208  1793944081.592551 execve("/usr/bin/sleep", ["sleep", "2"], 0x564c03f12fb0 /* 16 vars */) = 0 <0.000332>
+2206  1793944081.593257 execve("/usr/bin/setsid", ["/usr/bin/setsid", "/tmp/public-release-experiment/scanner/gitleaks", "version"], 0x564c03f25968 /* 16 vars */) = 0 <0.000338>
+2206  1793944081.599230 execve("/tmp/public-release-experiment/scanner/gitleaks", ["/tmp/public-release-experiment/scanner/gitleaks", "version"], 0x7ffd24281318 /* 16 vars */) = 0 <0.000210>
+2206  1793944081.614644 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2206, si_uid=0} ---
+2206  1793944081.614877 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2206, si_uid=0} ---
+2206  1793944081.615374 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2206, si_uid=0} ---
+2206  1793944081.615528 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2206, si_uid=0} ---
+2206  1793944081.615664 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2206, si_uid=0} ---
+2206  1793944081.616040 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2206, si_uid=0} ---
+2211  1793944081.618332 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2206, si_uid=0} ---
+2206  1793944081.618415 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2206, si_uid=0} ---
+2211  1793944081.618788 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2206, si_uid=0} ---
+2206  1793944081.618836 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2206, si_uid=0} ---
+2206  1793944081.619181 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2206, si_uid=0} ---
+2211  1793944081.619296 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2206, si_uid=0} ---
+2213  1793944081.619634 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2206, si_uid=0} ---
+2206  1793944081.622948 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2206, si_uid=0} ---
+2206  1793944081.624441 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2206, si_uid=0} ---
+2206  1793944081.625013 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2206, si_uid=0} ---
+2206  1793944081.625808 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2206, si_uid=0} ---
+2213  1793944081.625959 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2206, si_uid=0} ---
+2206  1793944081.639208 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2206, si_uid=0} ---
+2211  1793944081.647369 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2206, si_uid=0} ---
+2206  1793944081.648789 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2206, si_uid=0} ---
+2211  1793944081.649376 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2206, si_uid=0} ---
+2206  1793944081.649469 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2206, si_uid=0} ---
+2206  1793944081.650017 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2206, si_uid=0} ---
+2206  1793944081.650383 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2206, si_uid=0} ---
+2206  1793944081.664936 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2206, si_uid=0} ---
+2206  1793944081.685363 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2206, si_uid=0} ---
+2206  1793944081.691341 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2206, si_uid=0} ---
+2212  1793944081.692361 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2206, si_uid=0} ---
+2206  1793944081.693228 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2206, si_uid=0} ---
+2206  1793944081.693664 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2206, si_uid=0} ---
+2206  1793944081.694296 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2206, si_uid=0} ---
+2206  1793944081.694849 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2206, si_uid=0} ---
+2206  1793944081.705783 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2206, si_uid=0} ---
+2206  1793944081.716082 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2206, si_uid=0} ---
+2206  1793944081.736594 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2206, si_uid=0} ---
+2206  1793944081.756945 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2206, si_uid=0} ---
+2206  1793944081.777415 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2206, si_uid=0} ---
+2206  1793944081.797790 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2206, si_uid=0} ---
+2206  1793944081.818211 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2206, si_uid=0} ---
+2206  1793944081.838621 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2206, si_uid=0} ---
+2206  1793944081.850574 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2206, si_uid=0} ---
+2206  1793944081.852953 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2206, si_uid=0} ---
+2206  1793944081.854398 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2206, si_uid=0} ---
+2206  1793944081.854963 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2206, si_uid=0} ---
+2206  1793944081.855547 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2206, si_uid=0} ---
+2206  1793944081.855821 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2206, si_uid=0} ---
+2206  1793944081.869207 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2206, si_uid=0} ---
+2206  1793944081.889683 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2206, si_uid=0} ---
+2206  1793944081.910095 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2206, si_uid=0} ---
+2214  1793944081.914542 +++ exited with 0 +++
+2213  1793944081.914569 +++ exited with 0 +++
+2211  1793944081.914581 +++ exited with 0 +++
+2212  1793944081.915318 +++ exited with 0 +++
+2209  1793944081.917303 +++ exited with 0 +++
+2210  1793944081.917452 +++ exited with 0 +++
+2206  1793944081.917466 +++ exited with 0 +++
+2180  1793944081.917501 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2206, si_uid=0, si_status=0, si_utime=28 /* 0.28 s */, si_stime=5 /* 0.05 s */} ---
+2207  1793944081.919241 --- SIGTERM {si_signo=SIGTERM, si_code=SI_USER, si_pid=2180, si_uid=0} ---
+2208  1793944081.919874 --- SIGTERM {si_signo=SIGTERM, si_code=SI_USER, si_pid=2207, si_uid=0} ---
+2208  1793944081.920068 +++ killed by SIGTERM +++
+2207  1793944081.920115 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_KILLED, si_pid=2208, si_uid=0, si_status=SIGTERM, si_utime=0, si_stime=0} ---
+2207  1793944081.921087 +++ exited with 0 +++
+2180  1793944081.921129 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2207, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2217  1793944081.923113 execve("/usr/bin/tr", ["tr", "-d", "[:space:]"], 0x564c03f13000 /* 16 vars */ <unfinished ...>
+2216  1793944081.923307 execve("/usr/bin/wc", ["wc", "-c"], 0x564c03f253f8 /* 16 vars */ <unfinished ...>
+2217  1793944081.923464 <... execve resumed>) = 0 <0.000304>
+2216  1793944081.923636 <... execve resumed>) = 0 <0.000283>
+2216  1793944081.925985 +++ exited with 0 +++
+2215  1793944081.926045 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2216, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2217  1793944081.929509 +++ exited with 0 +++
+2215  1793944081.929557 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2217, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2215  1793944081.929833 +++ exited with 0 +++
+2180  1793944081.929855 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2215, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2218  1793944081.930658 execve("/usr/bin/rm", ["rm", "-f", "/tmp/public-release-experiment/probe-home-3.8.0-default-semver-layout-supplement-not-original-run/tmp/agent-guard-run.CG3D79/agent-guard.wXu9JA"], 0x564c03f25dc8 /* 16 vars */) = 0 <0.000206>
+2218  1793944081.937098 +++ exited with 0 +++
+2180  1793944081.937145 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2218, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2219  1793944081.937995 execve("/usr/bin/awk", ["awk", "\n      {\n        line = $0\n        if (match(line, /[vV]?[0-9][0-9]*\\.[0-9][0-9]*\\.[0-9][0-9]*/)) {\n          version = substr(line, RSTART, RLENGTH)\n          "..., "/tmp/public-release-experiment/probe-home-3.8.0-default-semver-layout-supplement-not-original-run/tmp/agent-guard-run.CG3D79/agent-guard.qALigU"], 0x564c03ed5aa8 /* 16 vars */) = 0 <0.000281>
+2219  1793944081.942466 +++ exited with 0 +++
+2180  1793944081.942513 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2219, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2220  1793944081.942817 execve("/usr/bin/rm", ["rm", "-f", "/tmp/public-release-experiment/probe-home-3.8.0-default-semver-layout-supplement-not-original-run/tmp/agent-guard-run.CG3D79/agent-guard.qALigU"], 0x564c03f25dc8 /* 16 vars */) = 0 <0.000205>
+2220  1793944081.949413 +++ exited with 0 +++
+2180  1793944081.949461 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2220, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2221  1793944081.950308 +++ exited with 0 +++
+2180  1793944081.950354 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2221, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2224  1793944081.966118 execve("/usr/bin/jq", ["jq", "-r", ".tool_input | type"], 0x564c03f267c8 /* 16 vars */ <unfinished ...>
+2223  1793944081.966159 +++ exited with 0 +++
+2222  1793944081.966211 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2223, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2224  1793944081.966471 <... execve resumed>) = 0 <0.000314>
+2224  1793944081.975244 +++ exited with 0 +++
+2222  1793944081.975324 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2224, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2222  1793944081.975682 +++ exited with 0 +++
+2180  1793944081.975703 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2222, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2227  1793944081.977283 execve("/usr/bin/jq", ["jq", "-r", ".tool_name // .tool // .name // empty"], 0x564c03f267e0 /* 16 vars */ <unfinished ...>
+2226  1793944081.977323 +++ exited with 0 +++
+2225  1793944081.977373 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2226, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2227  1793944081.977611 <... execve resumed>) = 0 <0.000293>
+2227  1793944081.986208 +++ exited with 0 +++
+2225  1793944081.986254 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2227, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2225  1793944081.986567 +++ exited with 0 +++
+2180  1793944081.986589 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2225, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2230  1793944081.988144 execve("/usr/bin/jq", ["jq", "-r", ".tool_input.workdir // .tool_input.cwd // .cwd // empty"], 0x564c03f267f0 /* 16 vars */ <unfinished ...>
+2229  1793944081.988178 +++ exited with 0 +++
+2228  1793944081.988221 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2229, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2230  1793944081.988472 <... execve resumed>) = 0 <0.000295>
+2230  1793944081.996885 +++ exited with 0 +++
+2228  1793944081.996930 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2230, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2228  1793944081.997218 +++ exited with 0 +++
+2180  1793944081.997241 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2228, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2232  1793944081.999194 execve("/usr/bin/git", ["git", "rev-parse", "--is-inside-work-tree"], 0x564c03f12f38 /* 16 vars */) = 0 <0.000193>
+2232  1793944082.005334 +++ exited with 128 +++
+2231  1793944082.005392 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2232, si_uid=0, si_status=128, si_utime=0, si_stime=0} ---
+2231  1793944082.005932 +++ exited with 0 +++
+2180  1793944082.005974 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2231, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2233  1793944082.006883 +++ exited with 0 +++
+2180  1793944082.006911 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2233, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2234  1793944082.008766 +++ exited with 0 +++
+2180  1793944082.008793 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2234, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2236  1793944082.010289 +++ exited with 0 +++
+2235  1793944082.010352 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2236, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2237  1793944082.010560 execve("/usr/bin/jq", ["jq", "-c", ".tool_response // empty"], 0x564c03f273f0 /* 16 vars */) = 0 <0.000238>
+2237  1793944082.019653 +++ exited with 0 +++
+2235  1793944082.019734 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2237, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2235  1793944082.020049 +++ exited with 0 +++
+2180  1793944082.020069 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2235, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2240  1793944082.021958 execve("/usr/bin/jq", ["jq", "-c", "def walk(f): def w: if type == \"object\" then map_values(w)\n                    elif type == \"array\" then map(w)\n                    else . end | f; w;\n\n    walk"...], 0x564c03f27ee0 /* 16 vars */ <unfinished ...>
+2239  1793944082.022065 +++ exited with 0 +++
+2238  1793944082.022109 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2239, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2240  1793944082.022302 <... execve resumed>) = 0 <0.000305>
+2240  1793944082.031190 +++ exited with 0 +++
+2238  1793944082.031256 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2240, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2238  1793944082.031553 +++ exited with 0 +++
+2180  1793944082.031574 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2238, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2242  1793944082.033044 +++ exited with 0 +++
+2241  1793944082.033157 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2242, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2243  1793944082.033433 execve("/usr/bin/wc", ["wc", "-c"], 0x564c03f294d0 /* 16 vars */) = 0 <0.000235>
+2244  1793944082.034073 execve("/usr/bin/tr", ["tr", "-d", "[:space:]"], 0x564c03f294d8 /* 16 vars */) = 0 <0.000332>
+2243  1793944082.036400 +++ exited with 0 +++
+2241  1793944082.036457 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2243, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2244  1793944082.040391 +++ exited with 0 +++
+2241  1793944082.040441 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2244, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2241  1793944082.040725 +++ exited with 0 +++
+2180  1793944082.040746 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2241, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2246  1793944082.042178 +++ exited with 0 +++
+2245  1793944082.042341 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2246, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2247  1793944082.042584 execve("/usr/bin/wc", ["wc", "-c"], 0x564c03f294b0 /* 16 vars */) = 0 <0.000231>
+2248  1793944082.043228 execve("/usr/bin/tr", ["tr", "-d", "[:space:]"], 0x564c03f294d8 /* 16 vars */) = 0 <0.000349>
+2247  1793944082.048965 +++ exited with 0 +++
+2245  1793944082.049019 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2247, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2248  1793944082.049412 +++ exited with 0 +++
+2245  1793944082.049464 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2248, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2245  1793944082.049771 +++ exited with 0 +++
+2180  1793944082.049791 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2245, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2252  1793944082.052192 execve("/usr/bin/mktemp", ["mktemp", "/tmp/public-release-experiment/probe-home-3.8.0-default-semver-layout-supplement-not-original-run/tmp/agent-guard-run.CG3D79/agent-guard.XXXXXX"], 0x564c03f295a0 /* 16 vars */) = 0 <0.000190>
+2252  1793944082.057718 +++ exited with 0 +++
+2251  1793944082.057763 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2252, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2251  1793944082.058151 +++ exited with 0 +++
+2250  1793944082.058206 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2251, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2254  1793944082.059490 execve("/usr/bin/mktemp", ["mktemp", "/tmp/public-release-experiment/probe-home-3.8.0-default-semver-layout-supplement-not-original-run/tmp/agent-guard-run.CG3D79/agent-guard.XXXXXX"], 0x564c03f295a0 /* 16 vars */) = 0 <0.000203>
+2254  1793944082.065815 +++ exited with 0 +++
+2253  1793944082.065875 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2254, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2253  1793944082.066310 +++ exited with 0 +++
+2250  1793944082.066354 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2253, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2257  1793944082.068219 execve("/usr/bin/mktemp", ["mktemp", "/tmp/public-release-experiment/probe-home-3.8.0-default-semver-layout-supplement-not-original-run/tmp/agent-guard-run.CG3D79/agent-guard.XXXXXX"], 0x564c03f29bf0 /* 16 vars */) = 0 <0.000209>
+2257  1793944082.073732 +++ exited with 0 +++
+2256  1793944082.073790 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2257, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2256  1793944082.074187 +++ exited with 0 +++
+2255  1793944082.074229 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2256, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2259  1793944082.075667 execve("/usr/bin/mktemp", ["mktemp", "/tmp/public-release-experiment/probe-home-3.8.0-default-semver-layout-supplement-not-original-run/tmp/agent-guard-run.CG3D79/agent-guard.XXXXXX"], 0x564c03f29bf8 /* 16 vars */) = 0 <0.000155>
+2259  1793944082.080735 +++ exited with 0 +++
+2258  1793944082.080789 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2259, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2258  1793944082.081204 +++ exited with 0 +++
+2255  1793944082.081244 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2258, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2261  1793944082.082707 execve("/usr/bin/mktemp", ["mktemp", "/tmp/public-release-experiment/probe-home-3.8.0-default-semver-layout-supplement-not-original-run/tmp/agent-guard-run.CG3D79/agent-guard.XXXXXX"], 0x564c03f29bf8 /* 16 vars */) = 0 <0.000192>
+2261  1793944082.087767 +++ exited with 0 +++
+2260  1793944082.087811 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2261, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2260  1793944082.088165 +++ exited with 0 +++
+2255  1793944082.088209 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2260, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2263  1793944082.089518 execve("/usr/bin/mktemp", ["mktemp", "/tmp/public-release-experiment/probe-home-3.8.0-default-semver-layout-supplement-not-original-run/tmp/agent-guard-run.CG3D79/agent-guard.XXXXXX"], 0x564c03f29bf0 /* 16 vars */) = 0 <0.000177>
+2263  1793944082.094951 +++ exited with 0 +++
+2262  1793944082.095008 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2263, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2262  1793944082.095494 +++ exited with 0 +++
+2255  1793944082.095547 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2262, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2265  1793944082.097018 execve("/usr/bin/mktemp", ["mktemp", "/tmp/public-release-experiment/probe-home-3.8.0-default-semver-layout-supplement-not-original-run/tmp/agent-guard-run.CG3D79/agent-guard.XXXXXX"], 0x564c03f29bf0 /* 16 vars */) = 0 <0.000156>
+2265  1793944082.102627 +++ exited with 0 +++
+2264  1793944082.102684 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2265, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2264  1793944082.103104 +++ exited with 0 +++
+2255  1793944082.103144 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2264, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2266  1793944082.105075 execve("/usr/bin/jq", ["jq", "-rj", "if type == \"string\" then . else [.. | strings] | join(\"\\n\") end"], 0x564c03f29c98 /* 16 vars */) = 0 <0.000184>
+2266  1793944082.114102 +++ exited with 0 +++
+2255  1793944082.114149 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2266, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2268  1793944082.115825 +++ exited with 0 +++
+2267  1793944082.115972 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2268, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2269  1793944082.116217 execve("/usr/bin/wc", ["wc", "-c"], 0x564c03f2c090 /* 16 vars */) = 0 <0.000315>
+2270  1793944082.117029 execve("/usr/bin/tr", ["tr", "-d", "[:space:]"], 0x564c03f2c098 /* 16 vars */) = 0 <0.000358>
+2269  1793944082.119153 +++ exited with 0 +++
+2267  1793944082.119212 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2269, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2270  1793944082.122811 +++ exited with 0 +++
+2267  1793944082.122866 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2270, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2267  1793944082.123188 +++ exited with 0 +++
+2255  1793944082.123227 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2267, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2272  1793944082.124699 execve("/usr/bin/mktemp", ["mktemp", "/tmp/public-release-experiment/probe-home-3.8.0-default-semver-layout-supplement-not-original-run/tmp/agent-guard-run.CG3D79/agent-guard.XXXXXX"], 0x564c03f29bf0 /* 16 vars */) = 0 <0.000161>
+2272  1793944082.129885 +++ exited with 0 +++
+2271  1793944082.129930 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2272, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2271  1793944082.130321 +++ exited with 0 +++
+2255  1793944082.130370 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2271, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2273  1793944082.131924 execve("/tmp/public-release-experiment/scanner/gitleaks", ["/tmp/public-release-experiment/scanner/gitleaks", "stdin", "--report-format", "json", "--report-path", "/tmp/public-release-experiment/probe-home-3.8.0-default-semver-layout-supplement-not-original-run/tmp/agent-guard-run.CG3D79/agent-guard.sM9l2X", "--no-banner", "--config", "/tmp/public-release-experiment/fixed-policy/gitleaks.toml"], 0x564c03f29da8 /* 16 vars */) = 0 <0.000202>
+2273  1793944082.139422 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2273, si_uid=0} ---
+2273  1793944082.149245 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2273, si_uid=0} ---
+2273  1793944082.149485 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2273, si_uid=0} ---
+2273  1793944082.154525 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2273, si_uid=0} ---
+2273  1793944082.170967 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2273, si_uid=0} ---
+2273  1793944082.176751 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2273, si_uid=0} ---
+2273  1793944082.177501 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2273, si_uid=0} ---
+2273  1793944082.177822 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2273, si_uid=0} ---
+2273  1793944082.178680 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2273, si_uid=0} ---
+2273  1793944082.191379 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2273, si_uid=0} ---
+2273  1793944082.211240 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2273, si_uid=0} ---
+2277  1793944082.211410 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2273, si_uid=0} ---
+2275  1793944082.211437 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2273, si_uid=0} ---
+2273  1793944082.211734 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2273, si_uid=0} ---
+2273  1793944082.212628 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2273, si_uid=0} ---
+2276  1793944082.212759 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2273, si_uid=0} ---
+2273  1793944082.213042 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2273, si_uid=0} ---
+2273  1793944082.213232 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2273, si_uid=0} ---
+2273  1793944082.213492 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2273, si_uid=0} ---
+2273  1793944082.214149 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2273, si_uid=0} ---
+2273  1793944082.233031 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2273, si_uid=0} ---
+2273  1793944082.253385 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2273, si_uid=0} ---
+2273  1793944082.273771 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2273, si_uid=0} ---
+2273  1793944082.294178 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2273, si_uid=0} ---
+2273  1793944082.314617 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2273, si_uid=0} ---
+2273  1793944082.334977 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2273, si_uid=0} ---
+2273  1793944082.355488 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2273, si_uid=0} ---
+2273  1793944082.375818 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2273, si_uid=0} ---
+2273  1793944082.396216 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2273, si_uid=0} ---
+2273  1793944082.411281 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2273, si_uid=0} ---
+2273  1793944082.412952 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2273, si_uid=0} ---
+2273  1793944082.413232 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2273, si_uid=0} ---
+2273  1793944082.414169 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2273, si_uid=0} ---
+2273  1793944082.414610 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2273, si_uid=0} ---
+2273  1793944082.415170 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2273, si_uid=0} ---
+2273  1793944082.426902 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2273, si_uid=0} ---
+2277  1793944082.447328 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2273, si_uid=0} ---
+2279  1793944082.467824 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2273, si_uid=0} ---
+2279  1793944082.488357 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2273, si_uid=0} ---
+2279  1793944082.503445 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2273, si_uid=0} ---
+2278  1793944082.504391 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2273, si_uid=0} ---
+2277  1793944082.504639 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2273, si_uid=0} ---
+2278  1793944082.505040 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2273, si_uid=0} ---
+2276  1793944082.505422 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2273, si_uid=0} ---
+2276  1793944082.519076 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2273, si_uid=0} ---
+2276  1793944082.539716 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2273, si_uid=0} ---
+2279  1793944082.560189 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2273, si_uid=0} ---
+2279  1793944082.580738 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2273, si_uid=0} ---
+2279  1793944082.601289 --- SIGURG {si_signo=SIGURG, si_code=SI_TKILL, si_pid=2273, si_uid=0} ---
+2279  1793944082.614851 +++ exited with 0 +++
+2278  1793944082.614883 +++ exited with 0 +++
+2277  1793944082.614904 +++ exited with 0 +++
+2276  1793944082.614915 +++ exited with 0 +++
+2274  1793944082.614927 +++ exited with 0 +++
+2275  1793944082.614969 +++ exited with 0 +++
+2280  1793944082.619328 +++ exited with 0 +++
+2273  1793944082.619347 +++ exited with 0 +++
+2255  1793944082.619383 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2273, si_uid=0, si_status=0, si_utime=43 /* 0.43 s */, si_stime=4 /* 0.04 s */} ---
+2281  1793944082.620236 execve("/usr/bin/jq", ["jq", "-sc", "if length == 0 or any(.[]; type != \"array\")\n              then error(\"invalid scanner report\") else .[] end\n             | .[]? | (.Secret // empty)\n           "..., "/tmp/public-release-experiment/probe-home-3.8.0-default-semver-layout-supplement-not-original-run/tmp/agent-guard-run.CG3D79/agent-guard.sM9l2X"], 0x564c03f29d50 /* 16 vars */) = 0 <0.000204>
+2281  1793944082.630705 +++ exited with 0 +++
+2255  1793944082.630751 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2281, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2282  1793944082.631589 execve("/usr/bin/cat", ["cat", "/tmp/public-release-experiment/probe-home-3.8.0-default-semver-layout-supplement-not-original-run/tmp/agent-guard-run.CG3D79/agent-guard.UqPSId"], 0x564c03f29c18 /* 16 vars */) = 0 <0.000191>
+2282  1793944082.638246 +++ exited with 0 +++
+2255  1793944082.638321 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2282, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2283  1793944082.638678 execve("/usr/bin/rm", ["rm", "-f", "/tmp/public-release-experiment/probe-home-3.8.0-default-semver-layout-supplement-not-original-run/tmp/agent-guard-run.CG3D79/agent-guard.sM9l2X"], 0x564c03f29b98 /* 16 vars */) = 0 <0.000214>
+2283  1793944082.644533 +++ exited with 0 +++
+2255  1793944082.644588 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2283, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2284  1793944082.645805 execve("/usr/bin/jq", ["jq", "-rj", "\n    .. | strings\n    | (split(\"\\u001f\") | join(\"\\u001f\\u001f\"))\n    | (split(\"\\u001e\") | join(\"\\u001f\\u001e\"))\n    | . + \"\\u001e\\n\"\n  "], 0x564c03f29d30 /* 16 vars */) = 0 <0.000155>
+2284  1793944082.654738 +++ exited with 0 +++
+2255  1793944082.654784 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2284, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2285  1793944082.656370 execve("/usr/bin/awk", ["awk", "-v", "record_mode=json", "\n    BEGIN {\n      core = \"password|passwd|passphrase|db[_-]?pass(word)?|secret|secret[_-]?key|token|refresh[_-]?token|auth[_-]?token|session[_-]?key|api[_-]?ke"...], 0x564c03f35638 /* 16 vars */) = 0 <0.000199>
+2285  1793944082.661166 +++ exited with 0 +++
+2255  1793944082.661220 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2285, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2286  1793944082.662181 execve("/usr/bin/cat", ["cat", "/tmp/public-release-experiment/probe-home-3.8.0-default-semver-layout-supplement-not-original-run/tmp/agent-guard-run.CG3D79/agent-guard.W730nv"], 0x564c03f29c18 /* 16 vars */) = 0 <0.000183>
+2286  1793944082.667502 +++ exited with 0 +++
+2255  1793944082.667547 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2286, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2287  1793944082.668865 execve("/usr/bin/grep", ["grep", "-Eo", "eyJ[A-Za-z0-9_-]+\\.eyJ[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+"], 0x564c03f29ca0 /* 16 vars */) = 0 <0.000211>
+2287  1793944082.675375 +++ exited with 1 +++
+2255  1793944082.675424 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2287, si_uid=0, si_status=1, si_utime=0, si_stime=0} ---
+2288  1793944082.676735 execve("/usr/bin/jq", ["jq", "-Rc", "select(length > 0)"], 0x564c03f29c68 /* 16 vars */) = 0 <0.000203>
+2288  1793944082.685595 +++ exited with 0 +++
+2255  1793944082.685641 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2288, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2289  1793944082.686389 execve("/usr/bin/cat", ["cat", "/tmp/public-release-experiment/probe-home-3.8.0-default-semver-layout-supplement-not-original-run/tmp/agent-guard-run.CG3D79/agent-guard.W730nv"], 0x564c03f29c18 /* 16 vars */) = 0 <0.000202>
+2289  1793944082.692864 +++ exited with 0 +++
+2255  1793944082.692910 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2289, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2290  1793944082.693982 execve("/usr/bin/grep", ["grep", "-Eio", "bearer[ \\t]+[-A-Za-z0-9._~+/=]+"], 0x564c03f29c80 /* 16 vars */) = 0 <0.000216>
+2290  1793944082.701651 +++ exited with 1 +++
+2255  1793944082.701702 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2290, si_uid=0, si_status=1, si_utime=0, si_stime=0} ---
+2291  1793944082.702923 execve("/usr/bin/awk", ["awk", "{ tok = $2; if (length(tok) >= 8) print tok }"], 0x564c03f29c68 /* 16 vars */) = 0 <0.000202>
+2291  1793944082.706941 +++ exited with 0 +++
+2255  1793944082.706988 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2291, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2292  1793944082.708186 execve("/usr/bin/jq", ["jq", "-Rc", "select(length > 0)"], 0x564c03f29c68 /* 16 vars */) = 0 <0.000219>
+2292  1793944082.718383 +++ exited with 0 +++
+2255  1793944082.718431 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2292, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2293  1793944082.719143 execve("/usr/bin/cat", ["cat", "/tmp/public-release-experiment/probe-home-3.8.0-default-semver-layout-supplement-not-original-run/tmp/agent-guard-run.CG3D79/agent-guard.UqPSId"], 0x564c03f29c18 /* 16 vars */) = 0 <0.000192>
+2293  1793944082.725618 +++ exited with 0 +++
+2255  1793944082.725667 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2293, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2294  1793944082.726040 execve("/usr/bin/cat", ["cat", "/tmp/public-release-experiment/probe-home-3.8.0-default-semver-layout-supplement-not-original-run/tmp/agent-guard-run.CG3D79/agent-guard.iAGi8L"], 0x564c03f29b78 /* 16 vars */) = 0 <0.000180>
+2294  1793944082.732364 +++ exited with 0 +++
+2255  1793944082.732411 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2294, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2295  1793944082.732691 execve("/usr/bin/rm", ["rm", "-f", "/tmp/public-release-experiment/probe-home-3.8.0-default-semver-layout-supplement-not-original-run/tmp/agent-guard-run.CG3D79/agent-guard.Ch4sS9", "/tmp/public-release-experiment/probe-home-3.8.0-default-semver-layout-supplement-not-original-run/tmp/agent-guard-run.CG3D79/agent-guard.MC9o6K", "/tmp/public-release-experiment/probe-home-3.8.0-default-semver-layout-supplement-not-original-run/tmp/agent-guard-run.CG3D79/agent-guard.iAGi8L", "/tmp/public-release-experiment/probe-home-3.8.0-default-semver-layout-supplement-not-original-run/tmp/agent-guard-run.CG3D79/agent-guard.UqPSId", "/tmp/public-release-experiment/probe-home-3.8.0-default-semver-layout-supplement-not-original-run/tmp/agent-guard-run.CG3D79/agent-guard.W730nv"], 0x564c03f29ee0 /* 16 vars */) = 0 <0.000186>
+2295  1793944082.739634 +++ exited with 0 +++
+2255  1793944082.739692 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2295, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2255  1793944082.740082 +++ exited with 0 +++
+2250  1793944082.740136 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2255, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2298  1793944082.742642 execve("/usr/bin/mktemp", ["mktemp", "/tmp/public-release-experiment/probe-home-3.8.0-default-semver-layout-supplement-not-original-run/tmp/agent-guard-run.CG3D79/agent-guard.XXXXXX"], 0x564c03f29720 /* 16 vars */) = 0 <0.000172>
+2298  1793944082.747753 +++ exited with 0 +++
+2297  1793944082.747796 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2298, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2297  1793944082.748164 +++ exited with 0 +++
+2296  1793944082.748206 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2297, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2300  1793944082.749531 execve("/usr/bin/mktemp", ["mktemp", "/tmp/public-release-experiment/probe-home-3.8.0-default-semver-layout-supplement-not-original-run/tmp/agent-guard-run.CG3D79/agent-guard.XXXXXX"], 0x564c03f29720 /* 16 vars */) = 0 <0.000198>
+2300  1793944082.755944 +++ exited with 0 +++
+2299  1793944082.756000 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2300, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2299  1793944082.756431 +++ exited with 0 +++
+2296  1793944082.756476 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2299, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2302  1793944082.757868 execve("/usr/bin/mktemp", ["mktemp", "/tmp/public-release-experiment/probe-home-3.8.0-default-semver-layout-supplement-not-original-run/tmp/agent-guard-run.CG3D79/agent-guard.XXXXXX"], 0x564c03f29720 /* 16 vars */) = 0 <0.000153>
+2302  1793944082.763058 +++ exited with 0 +++
+2301  1793944082.763108 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2302, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2301  1793944082.763550 +++ exited with 0 +++
+2296  1793944082.763593 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2301, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2303  1793944082.764440 execve("/usr/bin/cat", ["cat"], 0x564c03f29688 /* 16 vars */) = 0 <0.000160>
+2303  1793944082.769550 +++ exited with 0 +++
+2296  1793944082.769597 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2303, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2304  1793944082.770576 execve("/usr/bin/awk", ["awk", "\n        BEGIN {\n          max_records = 256\n          max_bytes = 65536\n        }\n        {\n          record_count++\n          record_bytes += length($0) + 1\n "...], 0x564c03f29970 /* 16 vars */) = 0 <0.000229>
+2304  1793944082.773978 +++ exited with 0 +++
+2296  1793944082.774024 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2304, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2305  1793944082.775217 execve("/usr/bin/jq", ["jq", "-sc", "\n        if any(.[]; type == \"object\" and .agent_guard_whole_leaf == true)\n        then {whole_leaf: true, secrets: []}\n        else {whole_leaf: false, secrets"...], 0x564c03f29850 /* 16 vars */) = 0 <0.000226>
+2305  1793944082.786233 +++ exited with 0 +++
+2296  1793944082.786312 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2305, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2306  1793944082.786952 execve("/usr/bin/cat", ["cat", "/tmp/public-release-experiment/probe-home-3.8.0-default-semver-layout-supplement-not-original-run/tmp/agent-guard-run.CG3D79/agent-guard.aH06br"], 0x564c03f296a8 /* 16 vars */) = 0 <0.000224>
+2306  1793944082.793589 +++ exited with 0 +++
+2296  1793944082.793637 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2306, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2307  1793944082.793956 execve("/usr/bin/rm", ["rm", "-f", "/tmp/public-release-experiment/probe-home-3.8.0-default-semver-layout-supplement-not-original-run/tmp/agent-guard-run.CG3D79/agent-guard.vs2S3V", "/tmp/public-release-experiment/probe-home-3.8.0-default-semver-layout-supplement-not-original-run/tmp/agent-guard-run.CG3D79/agent-guard.BFCugK", "/tmp/public-release-experiment/probe-home-3.8.0-default-semver-layout-supplement-not-original-run/tmp/agent-guard-run.CG3D79/agent-guard.aH06br"], 0x564c03f29848 /* 16 vars */) = 0 <0.000199>
+2307  1793944082.800418 +++ exited with 0 +++
+2296  1793944082.800466 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2307, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2296  1793944082.800805 +++ exited with 0 +++
+2250  1793944082.800856 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2296, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2308  1793944082.801653 execve("/usr/bin/cat", ["cat", "/tmp/public-release-experiment/probe-home-3.8.0-default-semver-layout-supplement-not-original-run/tmp/agent-guard-run.CG3D79/agent-guard.wRnIXd"], 0x564c03f29528 /* 16 vars */) = 0 <0.000189>
+2308  1793944082.806915 +++ exited with 0 +++
+2250  1793944082.806958 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2308, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2309  1793944082.807249 execve("/usr/bin/rm", ["rm", "-f", "/tmp/public-release-experiment/probe-home-3.8.0-default-semver-layout-supplement-not-original-run/tmp/agent-guard-run.CG3D79/agent-guard.AYLz1J", "/tmp/public-release-experiment/probe-home-3.8.0-default-semver-layout-supplement-not-original-run/tmp/agent-guard-run.CG3D79/agent-guard.wRnIXd"], 0x564c03f29608 /* 16 vars */) = 0 <0.000192>
+2309  1793944082.813894 +++ exited with 0 +++
+2250  1793944082.813942 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2309, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2250  1793944082.814254 +++ exited with 0 +++
+2249  1793944082.814331 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2250, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2249  1793944082.814660 +++ exited with 0 +++
+2180  1793944082.814684 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2249, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2311  1793944082.816338 execve("/usr/bin/mktemp", ["mktemp", "/tmp/public-release-experiment/probe-home-3.8.0-default-semver-layout-supplement-not-original-run/tmp/agent-guard-run.CG3D79/agent-guard.XXXXXX"], 0x564c03f27588 /* 16 vars */) = 0 <0.000160>
+2311  1793944082.821659 +++ exited with 0 +++
+2310  1793944082.821715 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2311, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2310  1793944082.822164 +++ exited with 0 +++
+2180  1793944082.822184 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2310, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2313  1793944082.823802 execve("/usr/bin/mktemp", ["mktemp", "/tmp/public-release-experiment/probe-home-3.8.0-default-semver-layout-supplement-not-original-run/tmp/agent-guard-run.CG3D79/agent-guard.XXXXXX"], 0x564c03f27588 /* 16 vars */) = 0 <0.000161>
+2313  1793944082.828904 +++ exited with 0 +++
+2312  1793944082.828954 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2313, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2312  1793944082.829344 +++ exited with 0 +++
+2180  1793944082.829370 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2312, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2314  1793944082.831301 execve("/usr/bin/jq", ["jq", "-jr", "\n      if type != \"object\"\n         or (.whole_leaf | type) != \"boolean\"\n         or (.secrets | type) != \"array\"\n         or any(.secrets[];\n                (("...], 0x564c03f12ff8 /* 16 vars */) = 0 <0.000165>
+2314  1793944082.840316 +++ exited with 0 +++
+2180  1793944082.840371 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2314, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2315  1793944082.843010 execve("/usr/bin/rm", ["rm", "-f", "/tmp/public-release-experiment/probe-home-3.8.0-default-semver-layout-supplement-not-original-run/tmp/agent-guard-run.CG3D79/agent-guard.esoTbf", "/tmp/public-release-experiment/probe-home-3.8.0-default-semver-layout-supplement-not-original-run/tmp/agent-guard-run.CG3D79/agent-guard.5KMf8x"], 0x564c03f275e8 /* 16 vars */) = 0 <0.000161>
+2315  1793944082.849603 +++ exited with 0 +++
+2180  1793944082.849661 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2315, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2317  1793944082.851245 execve("/usr/bin/uname", ["uname", "-s"], 0x564c03f294c8 /* 16 vars */) = 0 <0.000276>
+2317  1793944082.857583 +++ exited with 0 +++
+2316  1793944082.857629 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2317, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2318  1793944082.858401 execve("/usr/bin/uname", ["uname", "-m"], 0x564c03f294d0 /* 16 vars */) = 0 <0.000243>
+2318  1793944082.864091 +++ exited with 0 +++
+2316  1793944082.864137 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2318, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2319  1793944082.865457 execve("/usr/bin/cat", ["cat", "/tmp/public-release-experiment/3.8.0/libexec/agent-guard-redact-x86_64-unknown-linux-musl.sha256"], 0x564c03f29570 /* 16 vars */) = 0 <0.000245>
+2319  1793944082.871889 +++ exited with 0 +++
+2316  1793944082.871934 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2319, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2320  1793944082.873826 execve("/usr/bin/sha256sum", ["sha256sum", "agent-guard-redact-x86_64-unknown-linux-musl"], 0x564c03f29540 /* 17 vars */) = 0 <0.000263>
+2320  1793944082.881658 +++ exited with 0 +++
+2316  1793944082.881703 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2320, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2322  1793944082.883021 +++ exited with 0 +++
+2321  1793944082.883075 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2322, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2323  1793944082.883219 execve("/tmp/public-release-experiment/3.8.0/libexec/agent-guard-redact-x86_64-unknown-linux-musl", ["/tmp/public-release-experiment/3.8.0/libexec/agent-guard-redact-x86_64-unknown-linux-musl", "redact-v1"], 0x564c03f295e8 /* 16 vars */) = 0 <0.000232>
+2323  1793944082.885719 +++ exited with 0 +++
+2321  1793944082.885773 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2323, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2321  1793944082.886123 +++ exited with 0 +++
+2316  1793944082.886166 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2321, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2324  1793944082.887159 +++ exited with 0 +++
+2316  1793944082.887223 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2324, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2325  1793944082.887565 execve("/usr/bin/jq", ["jq", "-e", "-s", "length == 1"], 0x564c03f295a0 /* 16 vars */) = 0 <0.000239>
+2325  1793944082.896421 +++ exited with 0 +++
+2316  1793944082.896466 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2325, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2316  1793944082.896841 +++ exited with 0 +++
+2180  1793944082.896863 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2316, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2326  1793944082.897986 +++ exited with 0 +++
+2180  1793944082.898013 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2326, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2327  1793944082.899050 +++ exited with 0 +++
+2180  1793944082.899110 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2327, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2328  1793944082.900315 +++ exited with 0 +++
+2180  1793944082.900342 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2328, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2330  1793944082.902105 +++ exited with 0 +++
+2331  1793944082.902134 execve("/usr/bin/jq", ["jq", "-r", ".tool_name // \"tool\""], 0x564c03f291f0 /* 16 vars */ <unfinished ...>
+2329  1793944082.902188 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2330, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2331  1793944082.902424 <... execve resumed>) = 0 <0.000267>
+2331  1793944082.910902 +++ exited with 0 +++
+2329  1793944082.910956 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2331, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2329  1793944082.911294 +++ exited with 0 +++
+2180  1793944082.911317 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2329, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2332  1793944082.912071 execve("/usr/bin/rm", ["rm", "-rf", "/tmp/public-release-experiment/probe-home-3.8.0-default-semver-layout-supplement-not-original-run/tmp/agent-guard-run.CG3D79"], 0x564c03f12628 /* 16 vars */) = 0 <0.000180>
+2332  1793944082.917604 +++ exited with 0 +++
+2180  1793944082.917660 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=2332, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+2180  1793944082.918069 +++ exited with 0 +++

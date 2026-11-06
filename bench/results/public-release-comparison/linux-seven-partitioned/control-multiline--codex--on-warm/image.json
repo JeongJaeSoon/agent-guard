@@ -1,0 +1,65 @@
+[
+    {
+        "Id": "sha256:7a4d1b860e3d78beccef1f54a907f1ba16ab21ac3bc838f9c24bafd7eecfba99",
+        "RepoTags": [
+            "guard-public-seven-partitioned:latest"
+        ],
+        "RepoDigests": [],
+        "Parent": "",
+        "Comment": "buildkit.dockerfile.v0",
+        "Created": "2026-11-06T05:47:30.277945605Z",
+        "DockerVersion": "",
+        "Author": "",
+        "Config": {
+            "Hostname": "",
+            "Domainname": "",
+            "User": "",
+            "AttachStdin": false,
+            "AttachStdout": false,
+            "AttachStderr": false,
+            "Tty": false,
+            "OpenStdin": false,
+            "StdinOnce": false,
+            "Env": [
+                "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+                "LC_ALL=C.UTF-8",
+                "LANG=C.UTF-8"
+            ],
+            "Cmd": null,
+            "Image": "",
+            "Volumes": null,
+            "WorkingDir": "/experiment",
+            "Entrypoint": [
+                "python3",
+                "/experiment/run.py"
+            ],
+            "OnBuild": null,
+            "Labels": {
+                "org.opencontainers.image.version": "24.04"
+            }
+        },
+        "Architecture": "amd64",
+        "Os": "linux",
+        "Size": 194757868,
+        "GraphDriver": {
+            "Data": {
+                "LowerDir": "/var/lib/docker/overlay2/uki9bhlkoi2fvlbn4fpzt3nnh/diff:/var/lib/docker/overlay2/24e87ef21fa17c41f66b7e4de2bb20b34b9dd2ff93be42768d39be6d191a7889/diff",
+                "MergedDir": "/var/lib/docker/overlay2/70f99ygdgred95sa8g1ed8lid/merged",
+                "UpperDir": "/var/lib/docker/overlay2/70f99ygdgred95sa8g1ed8lid/diff",
+                "WorkDir": "/var/lib/docker/overlay2/70f99ygdgred95sa8g1ed8lid/work"
+            },
+            "Name": "overlay2"
+        },
+        "RootFS": {
+            "Type": "layers",
+            "Layers": [
+                "sha256:bec87777bc2fb2edcdf9af11df1531469e7df911309c1413082b18fcb8610278",
+                "sha256:a6deb3cc496abd6e6aff59dccc24f1cec3ca8cf0fb4f17ed070d22faa0804429",
+                "sha256:9971fd53f8f512ff87cc4ea424cf6ceb795816a71ef57ff8d82179aa67a4640d"
+            ]
+        },
+        "Metadata": {
+            "LastTagTime": "2026-11-06T05:47:31.612608806Z"
+        }
+    }
+]
