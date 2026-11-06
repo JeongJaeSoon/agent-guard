@@ -1,5 +1,7 @@
 ## v3.8.2 - 2026-11-06
 
+- fix(hooks): heredoc 본문과 산문 placeholder를 오탐으로 막지 않는다 (#423)
+- ci: PR의 Fused contracts에서 macOS Intel 잡을 뺀다 (#417)
 - fix(hooks): 마스킹된 토큰 값을 secret-like 할당으로 오인하지 않는다 (#416)
 - ci: bump actions/upload-artifact from 4.6.2 to 7.0.2 (#401)
 - ci: bump actions/setup-go from 6.5.0 to 7.0.0 (#400)
