@@ -198,6 +198,10 @@ check 2 'orca orchestration send --to x --body "$(env -v)"'
 check 2 'orca orchestration send --to x --body "$(env --block-signal)"'
 check 2 'orca orchestration send --to x --body "$(env -C /tmp)"'
 check 2 'orca orchestration send --to x --body "$(env A=1 -u B)"'
+check 2 "orca orchestration send --to x --body \"\$(env -S '-u __MISSING__')\""
+check 2 "orca orchestration send --to x --body \"\$(env -iS '-0')\""
+check 2 "orca orchestration send --to x --body \"\$(env --split-string='-u A')\""
+check 2 "orca orchestration send --to x --body \"\$(env -C /tmp --split-string '-0')\""
 check 0 'orca orchestration send --to x --body "$(env -C /tmp date)"'
 check 0 'orca orchestration send --to x --body "$(env LC_ALL=C date)"'
 check 0 'orca orchestration send --to x --body "$(date)"'
