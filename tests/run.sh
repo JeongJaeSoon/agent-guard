@@ -2847,6 +2847,8 @@ run_expect 0 "orca/gh/git message values leave out no protected read" \
   sh "$ROOT/tests/message-value-prose.sh"
 run_expect 0 "runtime environment objects and jq interpolation leave out no protected read" \
   sh "$ROOT/tests/runtime-global-text.sh"
+run_expect 0 "ORCA_ and CLAUDE_JOB_DIR lookups pass while secret dumps stay blocked" \
+  sh "$ROOT/tests/env-lookup-allowlist.sh"
 run_expect 0 "cat/tee here-document bodies leave out no protected read" \
   sh "$ROOT/tests/heredoc-body-text.sh"
 run_expect 0 "status words and named placeholders are prose, real values still block" \
