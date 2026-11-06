@@ -8633,6 +8633,9 @@ secretish_env_values() {
     function member_reference(assignment, value, term) {
       if (term != "," || assignment !~ /:$/) return 0
       if (!(value ~ /[A-Z]/ && value ~ /^[a-z_$]+(\.[A-Za-z_$]+)+$/)) return 0
+      # Two parts (`abc.Def`) look like a word pair, so only a camelCase leaf
+      # (`cfg.secretId`) counts as a member read here.
+      if (value !~ /\..*\./ && value !~ /\.[a-z_$][A-Za-z_$]*[A-Z]/) return 0
       return accessor_chain(value)
     }
     # The short-value floor is about characters, but awk runs under LC_ALL=C
@@ -8694,9 +8697,6 @@ secretish_env_values() {
       for (i = 1; i < n; i++)
         if (parts[i] ~ /[A-Z]/) return 0
       leaf = parts[n]
-      # Two parts (`abc.Def`) look like a word pair, so only a camelCase leaf
-      # (`cfg.secretId`) counts; longer chains also take snake or upper case.
-      if (n == 2 && leaf !~ /^[a-z_$][A-Za-z_$]*[A-Z]/) return 0
       if (n > 2 && leaf !~ /_/ && leaf !~ /^[A-Z$]+$/ \
           && leaf !~ /^[a-z_$][A-Za-z_$]*[A-Z]/)
         return 0
