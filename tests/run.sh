@@ -1478,6 +1478,25 @@ expect_json_status 2 "Bash glob wildcard path bypass is blocked" \
   '{"tool_name":"Bash","tool_input":{"command":"cat .e?v"}}' \
   hook-pre-tool
 
+# A digit-only bracket cannot match a letter, so `e[0-9]*.` is no spelling of
+# `env.*` even though the word is read as a glob. Any bracket that can hold a
+# letter still counts.
+expect_json_status 0 "Bash sed capture group over e[0-9]* remains allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"orca snapshot | sed -n '\''s/.*ref=\\(e[0-9]*\\).*/@\\1/p'\''"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash glob e[n]* with a letter bracket is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat e[n]*.local"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash glob e[0-9n]* with a mixed bracket is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat e[0-9n]*.local"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash glob e[^0-9]* with a negated bracket is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat e[^0-9]*.local"}}' \
+  hook-pre-tool
+
 # One `*` can expand over several characters of a deny entry, so a star after
 # any pinned prefix still names the protected file.
 expect_json_status 2 "Bash trailing star over a protected dotfile is blocked" \
