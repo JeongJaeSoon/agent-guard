@@ -1,0 +1,51 @@
+name: 주 실측 원문 증거 묶음 전송
+on:
+  push:
+    branches: ['bench/public-seven-evidence-transfer-20261106']
+permissions:
+  contents: write
+jobs:
+  bundle-original-evidence:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 1
+      - name: Bundle existing measured files without executing product
+        run: |
+          python3 - <<'PY'
+          import base64, hashlib, json, pathlib, tarfile
+          source=pathlib.Path('bench/results/public-release-comparison/linux-seven-partitioned')
+          output=pathlib.Path('bench/results/public-release-comparison/primary-evidence-transfer')
+          output.mkdir(parents=True,exist_ok=True)
+          archive=output/'primary-exact.tar.gz'
+          entries=[]
+          for p in sorted(source.rglob('*')):
+              if p.is_file():
+                  b=p.read_bytes()
+                  entries.append({'path':str(p.relative_to(source)),'bytes':len(b),'sha256':hashlib.sha256(b).hexdigest(),'git_blob_sha1':hashlib.sha1(b'blob '+str(len(b)).encode()+b'\0'+b).hexdigest()})
+          with tarfile.open(archive,'w:gz',compresslevel=6) as tf:
+              tf.add(source,arcname='linux-seven-partitioned')
+          binary=archive.read_bytes();encoded=base64.b64encode(binary).decode('ascii');chunks=[]
+          for i,start in enumerate(range(0,len(encoded),180000)):
+              p=output/('archive.b64.'+str(i).zfill(4)+'.txt');p.write_text(encoded[start:start+180000],encoding='ascii')
+              b=p.read_bytes();chunks.append({'path':p.name,'bytes':len(b),'sha256':hashlib.sha256(b).hexdigest()})
+          manifest={'source_result_commit':'8253eae90bb6ea354b01d8422e71dd3a1cd75cc4','source_measurement_commit':'696d2d8e44ea17466640937a6d0fbf1b0b5f1f95','source_run_id':42170459944,'operation':'Read and archive original files only; no benchmark/product execution or numeric reconstruction','archive_bytes':len(binary),'archive_sha256':hashlib.sha256(binary).hexdigest(),'file_count':len(entries),'file_bytes':sum(e['bytes'] for e in entries),'chunks':chunks,'entries':entries}
+          (output/'manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2)+'\n')
+          print(json.dumps({k:manifest[k] for k in ('archive_bytes','archive_sha256','file_count','file_bytes')}))
+          PY
+      - name: Preserve exact byte archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: primary-original-evidence-bundle
+          path: bench/results/public-release-comparison/primary-evidence-transfer
+          retention-days: 90
+      - name: Preserve UTF-8 chunks and digest map
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add bench/results/public-release-comparison/primary-evidence-transfer/manifest.json bench/results/public-release-comparison/primary-evidence-transfer/*.txt
+          git commit -m '증거: 주 실측 원문 파일을 재측정 없이 묶어 전송'
+          git push origin HEAD:"${GITHUB_REF_NAME}"
