@@ -1,0 +1,7 @@
+{
+  "stage": "local harness validation before any seven-release CI measurement",
+  "failure": "Exact CSV chunk reconstruction assertion failed because read_text normalized CSV CRLF line endings.",
+  "fix": "Read exact source bytes and decode UTF-8 before line-boundary chunking, preserving CRLF.",
+  "measurement_impact": "No installation measurement had run. Timeout, correctness expectations, and product code remain unchanged.",
+  "original_failure": "AssertionError in local validation script at line 26; exit 1"
+}

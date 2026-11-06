@@ -1,0 +1,41 @@
+name: 공개 7개 배포본 인접 버전 업데이트 실측
+on:
+  push:
+    branches: ['bench/public-seven-release-update-cost-20261106']
+    paths: ['bench/results/public-release-comparison/seven-update-ci/**']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  measure-updates:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 1
+      - name: Build compiler-free measurement image
+        run: docker build -t guard-public-seven-updates bench/results/public-release-comparison/ci
+      - name: Save image identity and run with enforced limits as runner UID
+        run: |
+          mkdir -p bench/results/public-release-comparison/linux-seven-updates
+          docker image inspect guard-public-seven-updates > bench/results/public-release-comparison/linux-seven-updates/image.json
+          docker run --rm --user "$(id -u):$(id -g)" --cpus=2 --memory=1g --memory-swap=1g --pids-limit=512 --entrypoint python3 -v "$PWD/bench/results/public-release-comparison/seven-update-ci:/experiment-update:ro" -v "$PWD/bench/results/public-release-comparison/linux-seven-updates:/results-update" guard-public-seven-updates /experiment-update/run_updates.py
+      - name: Save all evidence even when updates fail
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: public-seven-release-adjacent-updates-linux
+          path: bench/results/public-release-comparison/linux-seven-updates
+          retention-days: 90
+      - name: Preserve text evidence on report branch
+        if: always()
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add bench/results/public-release-comparison/linux-seven-updates
+          if ! git diff --cached --quiet; then
+            git commit -m '실측: 공개 7개 버전 pinned bootstrap 업데이트 원시 자료 보존'
+            git push origin HEAD:"${GITHUB_REF_NAME}"
+          fi

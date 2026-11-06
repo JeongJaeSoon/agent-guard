@@ -1,0 +1,27 @@
+{
+  "reason": "v3.8.1 became public after initial six-release lock. Independent seven-release update experiment; existing evidence remains unchanged.",
+  "previous_tool_sha256": "1e0a503315bca7b3ee75d6c556eae1e1c5337d8a902b635a725afa7a67b054b1",
+  "previous_release_lock_sha256": "24b5d162b2b7c0330695110c828d0171e62cd8169d9b361659f011ea82a4d01d",
+  "new_tool_sha256": "ccf3c4805786ad714d40f5d05c44353edf33d2f76e55736f13b54b56cc4b677b",
+  "new_release_lock_sha256": "399c992d40f06ef26a6d619d13d850e9fc5d0599fa3cdc71543c1fbf8cabeee9",
+  "changes": [
+    "seven-release lock and required version assertion",
+    "six adjacent pairs x12 complete positional balance",
+    "unique scratch directory and separate trigger branch/evidence paths",
+    "three separate cohorts: 72 fresh-old adjacent,72 sequential-chain steps,12 direct endpoint",
+    "before/after full payload hash deltas outside timed interval",
+    "actual cumulative sequential-chain size and separately summed absolute measured step costs",
+    "exact JSONL/CSV byte reconstruction chunks preserving CRLF"
+  ],
+  "unchanged": [
+    "120-second timeout",
+    "no retry",
+    "public pinned bootstrap bytes",
+    "compiler absence checks",
+    "cgroup limit checks",
+    "preservation expectations",
+    "measurement stages and sentinel checks",
+    "statistics/failure handling"
+  ],
+  "environment_separation": "New CI host/image identity recorded separately; same CPU/memory/swap constraints do not prove same physical host or Docker image bytes. Never concatenate old and new samples."
+}
