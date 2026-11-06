@@ -5064,6 +5064,217 @@ message_command_has_glob() {
   }'
 }
 
+# Replace a whole lookup of the agent runner's own variables with `:` so the
+# deny patterns do not read it as an environment dump. Two shapes qualify, each
+# only when every word parses and the segment ends at a command boundary:
+#   printenv NAME...   NAME is ORCA_* or CLAUDE_JOB_DIR and not secret-named;
+#   env | grep PAT... PAT is a quoted anchored ^ORCA_ / ^CLAUDE_JOB_DIR prefix
+#                      (a grep or `cut -d= -f1` must come first, so a filter
+#                      cannot rewrite lines into the prefix), followed only by
+#                      read-nothing filters (cut sort uniq head tail wc sed s///).
+# Anything else, including file operands, redirects, `$`/backquote/`\` in a
+# word, a second pipe branch or `&`, stays untouched and keeps matching. The
+# PostToolUse redactor still hides a token-named variable such a lookup prints.
+bash_strip_safe_env_lookups() {
+  case "$1" in
+    *env*) ;;
+    *) printf '%s' "$1"; return 0 ;;
+  esac
+  EG_TEXT=$1 LC_ALL=C awk '
+    function isterm(c) { return c == "" || index(" \t\n;|&)", c) > 0 }
+    function skipsp(p) {
+      while (substr(t, p, 1) == " " || substr(t, p, 1) == "\t") p++
+      return p
+    }
+    function secretish(s) {
+      return toupper(s) ~ /TOKEN|SECRET|PASS|CREDENTIAL|CAPAB|KEY|AUTH|COOKIE|SESSION|DSN|PIN|BEARER|PRIV|CERT|HASH|LOGIN/
+    }
+    # One shell word at p: sets wv (value), wk (u/s/d quoting) and wp (next).
+    function word(p,   c, j, k, v) {
+      c = substr(t, p, 1)
+      if (c == "" || index(" \t\n;|&)", c)) return 0
+      if (c == "\047") {
+        j = index(substr(t, p + 1), "\047")
+        if (!j) return 0
+        v = substr(t, p + 1, j - 1)
+        if (index(v, "\n")) return 0
+        wv = v; wk = "s"; wp = p + j + 1
+      } else if (c == "\"") {
+        j = p + 1; v = ""
+        while (1) {
+          k = substr(t, j, 1)
+          if (k == "") return 0
+          if (k == "\"") break
+          if (index("$`\\!\n", k)) return 0
+          v = v k; j++
+        }
+        wv = v; wk = "d"; wp = j + 1
+      } else {
+        j = p; v = ""
+        while (!isterm(substr(t, j, 1))) {
+          k = substr(t, j, 1)
+          if (!index(SAFE, k)) return 0
+          v = v k; j++
+        }
+        wv = v; wk = "u"; wp = j
+      }
+      return isterm(substr(t, wp, 1))
+    }
+    function endok(p,   c, d) {
+      p = skipsp(p); c = substr(t, p, 1); d = substr(t, p + 1, 1)
+      return c == "" || c == "\n" || c == ";" || c == ")" || (c == "&" && d == "&") || (c == "|" && d == "|")
+    }
+    function patok(s,   n, i, c, depth, pre) {
+      if (index(s, "^ORCA_") == 1) pre = 6
+      else if (index(s, "^CLAUDE_JOB_DIR") == 1) pre = 15
+      else return 0
+      if (index(substr(s, 2), "^")) return 0
+      c = substr(s, pre + 1, 1)
+      if (c == "*" || c == "+" || c == "?") return 0
+      if (secretish(s)) return 0
+      n = length(s); depth = 0
+      for (i = 2; i <= n; i++) {
+        c = substr(s, i, 1)
+        if (!index(PATCH, c)) return 0
+        if (c == "[") {
+          i++
+          if (substr(s, i, 1) == "]") i++
+          while (i <= n && substr(s, i, 1) != "]") {
+            if (substr(s, i, 1) == "[") return 0
+            i++
+          }
+          if (i > n) return 0
+        } else if (c == "(") depth++
+        else if (c == ")") { depth--; if (depth < 0) return 0 }
+        else if (c == "|" && depth == 0) return 0
+      }
+      return depth == 0
+    }
+    function grepok(   i, np, pat) {
+      np = 0
+      for (i = 1; i <= nargs; i++) {
+        if (!np && ak[i] == "u" && substr(a[i], 1, 1) == "-") {
+          if (a[i] !~ /^-[iEonceqwsxF]+$/) return 0
+        } else {
+          np++
+          if (np > 1 || ak[i] == "u") return 0
+          pat = a[i]
+        }
+      }
+      return np == 1 && patok(pat)
+    }
+    function cutok(pre,   i, d, f) {
+      if (pre) return nargs == 2 && ((a[1] == "-d=" && a[2] == "-f1") || (a[1] == "-f1" && a[2] == "-d="))
+      # After the prefix grep the name must stay on the line: field 1 or a
+      # character range that starts at 1. A later field or range would print a
+      # value with its name cut off, which the output redactor cannot key on.
+      for (i = 1; i <= nargs; i++) {
+        if (a[i] ~ /^-d.$/) d++
+        else if (a[i] == "-f1" || a[i] ~ /^-c1?-[0-9]+$/) f++
+        else if (a[i] != "-s") return 0
+      }
+      return f == 1 && d <= 1
+    }
+    # tail -c would keep only the end of a line, a value without its name.
+    function headok(name,   i, s, bytes) {
+      bytes = name == "head" ? "[nc]" : "n"
+      for (i = 1; i <= nargs; i++) {
+        s = a[i]
+        if (s ~ /^-[0-9]+$/ || s ~ ("^-" bytes "[0-9]+$")) continue
+        if (s ~ ("^-" bytes "$") && a[i + 1] ~ /^[0-9]+$/) { i++; continue }
+        return 0
+      }
+      return 1
+    }
+    function flagsok(re,   i) {
+      for (i = 1; i <= nargs; i++) if (a[i] !~ re) return 0
+      return 1
+    }
+    function sedok(   i, np, parts) {
+      i = 1
+      if (a[1] == "-E") i = 2
+      if (nargs != i) return 0
+      np = split(a[i], parts, "/")
+      # The pattern must end in `=.*`: it can only delete from the `=` to the
+      # end of the line, never strip a name and leave the value behind.
+      return np == 4 && parts[1] == "s" && parts[2] ~ /=\.\*$/ && parts[3] !~ /&/ && parts[4] ~ /^[gIi]*$/
+    }
+    function stageok(name, pre,   i) {
+      if (name == "grep" || name == "egrep") return grepok()
+      if (pre) return name == "cut" && cutok(1)
+      if (name == "sed") return sedok()
+      for (i = 1; i <= nargs; i++) if (ak[i] != "u") return 0
+      if (name == "cut") return cutok(0)
+      if (name == "head" || name == "tail") return headok(name)
+      if (name == "sort") return flagsok("^-[urfnV]+$")
+      if (name == "uniq") return flagsok("^-[cdu]$")
+      if (name == "wc") return flagsok("^-[lwcm]+$")
+      return 0
+    }
+    function envseg(p,   name, q, greps) {
+      p = skipsp(p); greps = 0
+      while (1) {
+        if (substr(t, p, 1) != "|" || substr(t, p + 1, 1) == "|" || substr(t, p + 1, 1) == "&") return 0
+        p = skipsp(p + 1)
+        if (!word(p) || wk != "u") return 0
+        name = wv; p = wp; nargs = 0
+        while (1) {
+          q = skipsp(p)
+          if (word(q)) { nargs++; a[nargs] = wv; ak[nargs] = wk; p = wp; continue }
+          if (!isterm(substr(t, q, 1))) return 0
+          p = q
+          break
+        }
+        if (!stageok(name, !greps)) return 0
+        if (name == "grep" || name == "egrep") greps = 1
+        p = skipsp(p)
+        if (substr(t, p, 1) == "|" && substr(t, p + 1, 1) != "|") continue
+        break
+      }
+      if (!greps || !endok(p)) return 0
+      return p
+    }
+    function printenvseg(p,   q, n) {
+      n = 0
+      while (1) {
+        q = skipsp(p)
+        if (substr(t, q, 2) == "2>") {
+          if (substr(t, q, 11) != "2>/dev/null" || !isterm(substr(t, q + 11, 1))) return 0
+          p = q + 11
+          break
+        }
+        if (!word(q)) {
+          if (!isterm(substr(t, q, 1))) return 0
+          p = q
+          break
+        }
+        if (wk != "u" || wv !~ /^(ORCA_[A-Z0-9_]+|CLAUDE_JOB_DIR)$/ || secretish(wv)) return 0
+        n++; p = wp
+      }
+      if (!n || !endok(p)) return 0
+      return p
+    }
+    BEGIN {
+      t = ENVIRON["EG_TEXT"]
+      SAFE = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_=,:./@%+-"
+      PATCH = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_^()|.*+[]-"
+      n = length(t); out = ""; prev = ""; i = 1
+      while (i <= n) {
+        c = substr(t, i, 1); e = 0
+        if ((prev == "" || index(";&|(`\n", prev)) && (c == "e" || c == "p")) {
+          if (substr(t, i, 3) == "env" && isterm(substr(t, i + 3, 1))) e = envseg(i + 3)
+          else if (substr(t, i, 8) == "printenv" && isterm(substr(t, i + 8, 1))) e = printenvseg(i + 8)
+        }
+        if (e) { out = out ":"; i = e; prev = ":"; continue }
+        out = out c
+        if (c != " " && c != "\t") prev = c
+        i++
+      }
+      printf "%s", out
+    }
+  ' </dev/null
+}
+
 # Replace each message value message_value_records finds, quotes included,
 # with `_`. A value is replaced only when it is one quoted literal (single
 # quotes, or double quotes holding no `$`, backquote or backslash) and
@@ -8037,6 +8248,9 @@ check_bash_command() {
       mv_strip_in=$cmd mv_strip_out=$pattern_cmd
     else
       pattern_cmd=$cmd
+    fi
+    if env_stripped=$(bash_strip_safe_env_lookups "$pattern_cmd"); then
+      pattern_cmd=$env_stripped
     fi
     printf '%s\n' "$pattern_cmd" | grep -E -q -f "$patterns"
     grep_status=$?
