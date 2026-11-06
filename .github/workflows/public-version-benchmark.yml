@@ -2,7 +2,7 @@ name: Public version benchmark
 on:
   workflow_dispatch:
   pull_request:
-    types: [opened, reopened, synchronize, labeled]
+    types: [labeled]
     paths:
       - '.github/workflows/public-version-benchmark.yml'
       - 'bench/results/public-versions-20261106/**'
@@ -26,12 +26,19 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: Public releases and measured 2 CPU / 1 GiB / no swap execution
         run: sh bench/results/public-versions-20261106/runtime/ci.sh "$RUNNER_TEMP/public-version-lab" "$RUNNER_TEMP/public-version-evidence" agent-guard-public-bench:20261106 '${{ matrix.scanner }}' '${{ matrix.host }}' runtime
+      - name: Restore synthetic evidence ownership for artifact export
+        if: always()
+        run: |
+          if [ -d "$RUNNER_TEMP/public-version-evidence" ]; then
+            sudo chown -R -- "$(id -u):$(id -g)" "$RUNNER_TEMP/public-version-evidence"
+          fi
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:
           name: public-version-benchmark-linux-${{ matrix.scanner }}-${{ matrix.host }}
           path: ${{ runner.temp }}/public-version-evidence/
           retention-days: 30
+          include-hidden-files: true
           if-no-files-found: error
   installation:
     if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'public-version-benchmark')
@@ -41,12 +48,19 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: Isolated public installation and supported update paths
         run: sh bench/results/public-versions-20261106/runtime/ci.sh "$RUNNER_TEMP/public-version-lab" "$RUNNER_TEMP/public-version-evidence" agent-guard-public-bench:20261106 official installation installation
+      - name: Restore synthetic evidence ownership for artifact export
+        if: always()
+        run: |
+          if [ -d "$RUNNER_TEMP/public-version-evidence" ]; then
+            sudo chown -R -- "$(id -u):$(id -g)" "$RUNNER_TEMP/public-version-evidence"
+          fi
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:
           name: public-version-installation-linux
           path: ${{ runner.temp }}/public-version-evidence/
           retention-days: 30
+          include-hidden-files: true
           if-no-files-found: error
   correctness:
     if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'public-version-benchmark')
@@ -61,10 +75,17 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: Independent expected outputs and masking/security compatibility
         run: sh bench/results/public-versions-20261106/runtime/ci.sh "$RUNNER_TEMP/public-version-lab" "$RUNNER_TEMP/public-version-evidence" agent-guard-public-bench:20261106 '${{ matrix.scanner }}' '${{ matrix.config }}' correctness
+      - name: Restore synthetic evidence ownership for artifact export
+        if: always()
+        run: |
+          if [ -d "$RUNNER_TEMP/public-version-evidence" ]; then
+            sudo chown -R -- "$(id -u):$(id -g)" "$RUNNER_TEMP/public-version-evidence"
+          fi
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:
           name: public-version-correctness-linux-${{ matrix.scanner }}-${{ matrix.config }}
           path: ${{ runner.temp }}/public-version-evidence/
           retention-days: 30
+          include-hidden-files: true
           if-no-files-found: error

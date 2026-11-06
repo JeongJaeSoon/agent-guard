@@ -6,7 +6,7 @@ scanner=${2:?scanner kind}
 host=${3:?host or config mode}
 base=/repo/bench/results/public-versions-20261106
 limits=$(cat /sys/fs/cgroup/cpu.max /sys/fs/cgroup/memory.max /sys/fs/cgroup/memory.swap.max)
-printf '%s\n' "$limits" > /results/provision/applied-limits.txt
+printf '%s\n' "$limits" | tee /results/provision/applied-limits.txt
 [ "$limits" = "200000 100000
 1073741824
 0" ] || { printf 'resource limits not applied\n' >&2; exit 2; }

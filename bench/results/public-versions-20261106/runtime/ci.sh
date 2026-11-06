@@ -11,6 +11,22 @@ action=${6:-runtime}
 case "$lab:$evidence" in /*:/*) ;; *) echo 'absolute paths required' >&2; exit 2 ;; esac
 [ ! -e "$lab" ] && [ ! -e "$evidence" ] || { echo 'refusing to overwrite previous evidence' >&2; exit 2; }
 mkdir -p "$evidence/provision" "$evidence/runtime"
+# Security-state directories intentionally use 0700. Return ownership to the
+# hosted-runner account after every exit so the uploader can preserve them.
+runner_owner="$(id -u):$(id -g)"
+restore_evidence_owner() {
+  measured_status=$?
+  trap - 0
+  if ! sudo chown -R -- "$runner_owner" "$evidence"; then
+    echo 'evidence ownership restoration failed' >&2
+    [ "$measured_status" -ne 0 ] || measured_status=4
+  fi
+  exit "$measured_status"
+}
+trap restore_evidence_owner 0
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
 python3 "$root/bench/results/public-versions-20261106/runtime/prepare-ci.py" --lab "$lab" --evidence "$evidence/provision"
 scanners=official
 # The hosted runner's fresh Homebrew prefix is independent of the user's host.
