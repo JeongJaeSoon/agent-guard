@@ -1,0 +1,29 @@
+name: 완료 설치 증거 조기 보존
+on:
+  push:
+    branches: ['bench/public-seven-installation-evidence-20261106']
+permissions:
+  actions: read
+  contents: write
+jobs:
+  collect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 1
+      - uses: actions/download-artifact@v4
+        with:
+          name: public-seven-installation
+          run-id: 42166701576
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: bench/results/public-release-comparison/linux-seven/installation
+      - name: Preserve original measured bytes without rerunning measurement
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add bench/results/public-release-comparison/linux-seven/installation
+          git commit -m '증거: 완료된 설치 artifact 원문을 재측정 없이 보존'
+          git push origin HEAD:"${GITHUB_REF_NAME}"
