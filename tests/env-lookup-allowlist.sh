@@ -173,6 +173,17 @@ check 2 'n=ORCA_RUN_ID; echo "${!n:-none}"'
 check 2 'n=ORCA_RUN_ID; echo "${!n@Q}"'
 check 2 'for n in $(compgen -v ORCA); do declare -n r=$n; echo "$r"; done'
 check 2 'for n in $(compgen -v ORCA); do typeset -n r=$n; echo "$r"; done'
+check 2 'for n in $(compgen -e); do eval echo \$$n; done'
+check 2 'for n in $(compgen -e); do eval "echo \$$n"; done'
+check 2 'for n in $(compgen -v ORCA); do eval "printf %s \"\$$n\""; done'
+check 2 'declare -r -n r=ORCA_RUN_ID; echo "$r"'
+check 2 'declare -n -r r=ORCA_RUN_ID; echo "$r"'
+check 2 'declare -nr r=ORCA_RUN_ID; echo "$r"'
+check 2 'declare -rn r=ORCA_RUN_ID; echo "$r"'
+check 2 'typeset -r -n r=ORCA_RUN_ID; echo "$r"'
+check 2 'f() { local -r -n r=ORCA_RUN_ID; echo "$r"; }; f'
+check 0 'eval "$(ssh-agent -s)"'
+check 0 'declare -r X=1; declare -a arr; echo done'
 
 # Execution control for the multi-line case: the second line of a value
 # survives `grep | cut -d= -f1`, so that filter proves nothing about names.
