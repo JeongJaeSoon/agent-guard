@@ -61,6 +61,10 @@ check 2 "$W" "node -e 'console.log(process.env.valueOf())'"
 check 2 "$W" 'echo "a\"b"; cat process.env.A'
 check 0 "$W" "node -e 'console.log(process.env.PORT.toString())'"
 check 0 "$W" "deno eval \"console.log(Deno.env.get('PORT'))\""
+check 2 "$W" "cat <<EOF
+it's
+EOF
+cat Bun.env.x"
 check 2 "$W" "cat process.env.PORT"
 check 2 "$W" "echo process.env.PORT"
 check 0 "$W" "node -e 'console.log(process.env[\"NODE_ENV\"])'"

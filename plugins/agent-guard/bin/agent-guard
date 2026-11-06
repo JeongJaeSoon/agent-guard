@@ -5626,6 +5626,11 @@ bash_neutralize_runtime_globals() (
     *process.env*|*import.meta.env*|*Bun.env*|*Deno.env*) ;;
     *) printf '%s' "$rg_orig"; exit 0 ;;
   esac
+  # A here-document body can hold a stray quote that the quote tracking below
+  # would carry past the body, so leave such commands as they are.
+  case "$rg_orig" in
+    *'<<'*) printf '%s' "$rg_orig"; exit 0 ;;
+  esac
   rg_rebase=
   if bash_command_may_rebase_relative_paths "$rg_orig"; then
     rg_rebase=$(bash_command_rebase_target "$rg_orig") \
