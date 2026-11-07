@@ -1,0 +1,62 @@
+# Raw evidence is preserved in raw/*.zip and per-member SHA256 manifests.
+# Keep harnesses, curated root summaries/protocols, README files and gzip data.
+__pycache__/
+*.pyc
+*.pyo
+
+/installation/logs/
+/installation/full-network/logs/
+/installation/homebrew-functional/homebrew-logs/
+/installation/homebrew-measured/homebrew-logs/
+/installation/*.stdout
+/installation/*.stderr
+/installation/*.log
+/installation/homebrew-functional/*.stdout
+/installation/homebrew-functional/*.stderr
+/installation/homebrew-measured/*.stdout
+/installation/homebrew-measured/*.stderr
+
+/correctness/sanity-jq16/
+/correctness/official-*/**
+!/correctness/official-*/**/
+!/correctness/official-*/**/*.gz
+!/correctness/official-*/**/*.py
+!/correctness/official-*/**/README*.md
+/correctness/*.log
+/correctness/*/state/
+
+/runtime/components-local/raw/
+/runtime/components-local/inputs/
+/runtime/components-local/execution.log
+/runtime/local-pilot/**
+!/runtime/local-pilot/*.json
+!/runtime/local-pilot/*.csv
+!/runtime/local-pilot/*.py
+!/runtime/local-pilot/README*.md
+/runtime/local-pilot-attribution/**
+!/runtime/local-pilot-attribution/*.json
+!/runtime/local-pilot-attribution/*.csv
+!/runtime/local-pilot-attribution/*.py
+!/runtime/local-pilot-attribution/README*.md
+/runtime/policy-access-local/*/
+/runtime/policy-access-local/*.log
+/runtime/policy-access-local-ptrace-enabled/*/
+/runtime/policy-access-local-ptrace-enabled/*.log
+/runtime/common-policy-proof-local/*/
+
+# CI originals, status polling and exploded copies are archived, not individually staged.
+/evidence/ci/
+# raw/*.zip, raw/manifests, JSON/CSV indexes and checksum files remain trackable.
+/installation/homebrew-launcher-functional/*/
+/installation/homebrew-launcher-functional/*.stdout
+/installation/homebrew-launcher-functional/*.stderr
+
+# Actual browser downloads are retained byte-for-byte in report/browser-evidence.zip.
+/report/browser-validation*/download-*
+
+# Positive security fixtures retain exact original bytes in adjacent .gz and raw ZIP.
+/correctness/masked-token-protocol.json
+/correctness/workloads.json
+/correctness/workloads.v1.json
+/installation/homebrew-gitleaks.rb
+/installation/homebrew-gitleaks-actual-tap.rb

@@ -1,0 +1,40 @@
+{
+  "rows": [
+    {
+      "comparison": "homebrew-fixed-vs-packaged",
+      "scope": "behavior only, no cross-job latency inference",
+      "matched_conditions": 576,
+      "equal_status_stdoutsha_success": 576,
+      "same_scanner_bytes": true,
+      "left_scanner_sha256": "cbec0c8fabdc36d864dd0a90b4e6e5ad4863e04f108f39bf517a5d07ae976015",
+      "right_scanner_sha256": "cbec0c8fabdc36d864dd0a90b4e6e5ad4863e04f108f39bf517a5d07ae976015",
+      "left_source": "bench/results/public-versions-20261106/evidence/ci/42224583403/extracted/public-version-correctness-linux-homebrew-fixed/correctness/homebrew-jq171-fixed/results.json",
+      "right_source": "bench/results/public-versions-20261106/evidence/ci/42224583403/extracted/public-version-correctness-linux-homebrew-packaged/correctness/homebrew-jq171-packaged/results.json",
+      "differences": []
+    },
+    {
+      "comparison": "official-fixed-vs-packaged",
+      "scope": "behavior only, no cross-job latency inference",
+      "matched_conditions": 576,
+      "equal_status_stdoutsha_success": 576,
+      "same_scanner_bytes": true,
+      "left_scanner_sha256": "88f91962aa2f93ac6ab281d553b9e125f5197bbbce38f9f2437f7299c32e5509",
+      "right_scanner_sha256": "88f91962aa2f93ac6ab281d553b9e125f5197bbbce38f9f2437f7299c32e5509",
+      "left_source": "bench/results/public-versions-20261106/evidence/ci/42224583403/extracted/public-version-correctness-linux-official-fixed/correctness/official-jq171-fixed/results.json",
+      "right_source": "bench/results/public-versions-20261106/evidence/ci/42224583403/extracted/public-version-correctness-linux-official-packaged/correctness/official-jq171-packaged/results.json",
+      "differences": []
+    },
+    {
+      "comparison": "fixed-official-vs-homebrew",
+      "scope": "behavior only, no cross-job latency inference",
+      "matched_conditions": 576,
+      "equal_status_stdoutsha_success": 576,
+      "same_scanner_bytes": false,
+      "left_scanner_sha256": "88f91962aa2f93ac6ab281d553b9e125f5197bbbce38f9f2437f7299c32e5509",
+      "right_scanner_sha256": "cbec0c8fabdc36d864dd0a90b4e6e5ad4863e04f108f39bf517a5d07ae976015",
+      "left_source": "bench/results/public-versions-20261106/evidence/ci/42224583403/extracted/public-version-correctness-linux-official-fixed/correctness/official-jq171-fixed/results.json",
+      "right_source": "bench/results/public-versions-20261106/evidence/ci/42224583403/extracted/public-version-correctness-linux-homebrew-fixed/correctness/homebrew-jq171-fixed/results.json",
+      "differences": []
+    }
+  ]
+}
