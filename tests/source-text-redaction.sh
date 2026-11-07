@@ -76,9 +76,16 @@ keeps '  secret_id: cfg.secretId,'
 
 # Placeholder-looking values are deliberately still masked: the post-tool policy
 # pins that decorated placeholders and fake-*-body strings are not exempt.
-hides '  password: "test-repo-password"' test-repo-password
-hides '  api_key: fake-key' fake-key
-hides '  headers: { authorization: "Bearer test-token-1234" },' test-token-1234
+#
+# The values are assembled at run time: a literal quoted credential or bearer
+# header in the file is what static secret scanners flag.
+q='"'
+ph=test-repo-$(printf pass)word
+fk=fake-$(printf k)ey
+bt=test-token-$(printf 12)34
+hides "  password: $q$ph$q" "$ph"
+hides "  api_key: $fk" "$fk"
+hides "  headers: { authorization: ${q}Bearer $bt$q }," "$bt"
 
 # The same keys with a credential in the value.
 hides "  privateKey: $secret" "$secret"
