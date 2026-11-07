@@ -179,3 +179,15 @@ observed **0/40**. The missing location is now line **4260**, the same dot
 fallback assignment previously recorded at 4240. The detector invocation
 locations are now 7330 and 7331. This is a separate observation; it does not
 rewrite the 2026-10-20 result or measure the new embedded AWK branches.
+
+## Denominator review after the letter-bracket change (2026-11-06)
+
+`deny_path_shell_expansion_char_pattern` gained a nested `case` that picks a
+narrower bracket alternative for an ASCII letter. The manifest rejected the
+changed body. Under the same counting rule, its eligible relative lines went
+from 13 to 16. The three new locations are the default `sx_bracket`
+assignment, the nested `case` control and the letter-arm assignment; the
+`if` and the two `sx_char` assignments moved down and are still counted.
+The selected total becomes 43 and only this function's hash was refreshed. This entry records the review, not a new measurement:
+the Bash 3.2.57 observation above was not repeated, and the CI selected-bash
+check is the evidence that the new locations are observed.
