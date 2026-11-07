@@ -9166,9 +9166,19 @@ secretish_env_values() {
     # A field or parameter annotated with a bare type word (the TypeScript and
     # Python forms) names a type, not a value. Only a colon label and a bare
     # type word qualify; a type with brackets or a call is already a reference
-    # above.
-    function type_annotation(assignment, value) {
-      return assignment ~ /:$/ && (tolower(value) in type_word)
+    # above. A YAML scalar is the same words with nothing after them, so the
+    # word must be followed by code: a semicolon, a comma, the closing paren of
+    # a parameter list, or a union or default after a space. A bare word at the
+    # end of the line stays masked.
+    function type_annotation(assignment, value, token, term, tail) {
+      if (assignment !~ /:$/ || !(tolower(value) in type_word)) return 0
+      if (term == ";" || term == ",") return 1
+      if (substr(token, length(value) + 1, 1) == ")") return 1
+      if (term == " ") {
+        sub(/^[ \t]+/, "", tail)
+        return substr(tail, 1, 1) ~ /[|=]/
+      }
+      return 0
     }
     # An object member whose value reads another object (a key, a colon, then
     # `config.` and a field name, then a comma) has the shape
@@ -9176,7 +9186,8 @@ secretish_env_values() {
     # dotted chain, an uppercase letter and no digits. The trailing comma is
     # what separates it from a YAML scalar; `term` is the character after the
     # token.
-    function member_reference(assignment, value, term) {
+    function member_reference(assignment, value, term, \
+                              seg_n, seg, seg_i) {
       if (term != "," || assignment !~ /:$/) return 0
       if (!(value ~ /[A-Z]/ && value ~ /^[a-z_$]+(\.[A-Za-z_$]+)+$/)) return 0
       # Two parts (`abc.Def`) look like a word pair, so only a camelCase leaf
@@ -9186,6 +9197,12 @@ secretish_env_values() {
       # words has that shape. The head must also be an object name that source
       # code commonly reads from, a closed list.
       if (!(substr(value, 1, index(value, ".") - 1) in root_word)) return 0
+      # An underscore or dollar sign is a member name only in the shape of an
+      # environment variable (capitals and underscores); a mixed-case segment
+      # with one reads as a made-up secret, so it stays masked.
+      seg_n = split(value, seg, ".")
+      for (seg_i = 1; seg_i <= seg_n; seg_i++)
+        if (seg[seg_i] ~ /[_$]/ && seg[seg_i] !~ /^[A-Z][A-Z_]*$/) return 0
       return accessor_chain(value)
     }
     # A value another tool already masked (`gh auth status` prints
@@ -9475,7 +9492,7 @@ secretish_env_values() {
           break
         }
         value = substr(value, 1, end)
-        if (type_annotation(assignment, value)) return 0
+        if (type_annotation(assignment, value, token, substr(raw, length(token) + 1, 1), substr(raw, length(token) + 1))) return 0
         if (member_reference(assignment, value, substr(raw, length(token) + 1, 1))) return 0
         if (looks_like_reference(value, assignment, leading)) return 0
         if (version_reference(assignment, value)) return 0

@@ -116,5 +116,21 @@ hides '  password: {winter.coldPassword}, user: x' winter.coldPassword
 keeps '  secret: config.secretValue,'
 keeps '  token: this.state.authToken,'
 
+# A type word alone at the end of a line is a YAML scalar, not an annotation:
+# the annotation forms above all have code after the word.
+kw=pass$(printf word)
+hides "$kw: boolean" boolean
+hides "db_$kw: symbol" symbol
+hides "  $kw: object" object
+keeps "  $kw: boolean;"
+keeps "function login($kw: any) {"
+
+# An underscore or dollar sign in a member name is accepted only in the shape of
+# an environment variable; a mixed-case segment with one stays masked.
+for v in 'config.my_Secret' 'opts.my$Pass' 'this.a_b_C' 'config.$_Q'; do
+  hides "  $kw: $v," "$v"
+done
+keeps "  $kw: process.env.GITHUB_APP_PRIVATE_KEY,"
+
 printf '# pass=%s fail=%s\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
