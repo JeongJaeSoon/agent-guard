@@ -1,0 +1,502 @@
+{
+  "complete": false,
+  "stopped_by_researcher": true,
+  "reason": "Parent requested stop after policy-unreferenced hypothesis was falsified by successful opens and reads; heavy full-read trace timeouts add no necessary evidence. No outcome-based timing reruns.",
+  "planned_calls": 24,
+  "completed_calls": 12,
+  "incomplete_started_conditions": [
+    "escaped-control-v3.6.13-default"
+  ],
+  "completed_rows": [
+    {
+      "case": "long-line",
+      "version": "v3.6.13",
+      "variant": "default",
+      "host": "claude",
+      "returncode": -9,
+      "timeout": true,
+      "correct_output": false,
+      "reasons": [
+        "exit-status",
+        "output-mismatch"
+      ],
+      "trace": "long-line-v3.6.13-default/files.strace",
+      "config_files": [
+        {
+          "path": "/workspace/agent-guard-lab/releases/v3.6.13/payload/config/deny-bash-patterns.txt",
+          "open_successes": 1,
+          "observed_read_bytes": 209
+        },
+        {
+          "path": "/workspace/agent-guard-lab/releases/v3.6.13/payload/config/deny-read-paths.txt",
+          "open_successes": 1,
+          "observed_read_bytes": 80
+        },
+        {
+          "path": "/workspace/agent-guard-lab/releases/v3.6.13/payload/config/gitleaks.toml",
+          "open_successes": 2,
+          "observed_read_bytes": 4485
+        }
+      ],
+      "policy": {
+        "deny_bash_successful_open_count": 1,
+        "deny_bash_read_bytes": 209,
+        "deny_read_successful_open_count": 1,
+        "deny_read_read_bytes": 80,
+        "gitleaks_config_successful_open_count": 2,
+        "gitleaks_config_read_bytes": 4485
+      }
+    },
+    {
+      "case": "long-line",
+      "version": "v3.8.1",
+      "variant": "default",
+      "host": "claude",
+      "returncode": -9,
+      "timeout": true,
+      "correct_output": false,
+      "reasons": [
+        "exit-status",
+        "output-mismatch"
+      ],
+      "trace": "long-line-v3.8.1-default/files.strace",
+      "config_files": [
+        {
+          "path": "/workspace/agent-guard-lab/releases/v3.6.13/payload/config/gitleaks.toml",
+          "open_successes": 2,
+          "observed_read_bytes": 4485
+        },
+        {
+          "path": "/workspace/agent-guard-lab/releases/v3.8.1/payload/config/deny-bash-patterns.txt",
+          "open_successes": 1,
+          "observed_read_bytes": 235
+        },
+        {
+          "path": "/workspace/agent-guard-lab/releases/v3.8.1/payload/config/deny-read-paths.txt",
+          "open_successes": 1,
+          "observed_read_bytes": 80
+        }
+      ],
+      "policy": {
+        "deny_bash_successful_open_count": 1,
+        "deny_bash_read_bytes": 235,
+        "deny_read_successful_open_count": 1,
+        "deny_read_read_bytes": 80,
+        "gitleaks_config_successful_open_count": 2,
+        "gitleaks_config_read_bytes": 4485
+      }
+    },
+    {
+      "case": "long-line",
+      "version": "v3.8.1",
+      "variant": "fused",
+      "host": "claude",
+      "returncode": -9,
+      "timeout": true,
+      "correct_output": false,
+      "reasons": [
+        "exit-status",
+        "output-mismatch"
+      ],
+      "trace": "long-line-v3.8.1-fused/files.strace",
+      "config_files": [
+        {
+          "path": "/workspace/agent-guard-lab/releases/v3.6.13/payload/config/gitleaks.toml",
+          "open_successes": 1,
+          "observed_read_bytes": 22
+        },
+        {
+          "path": "/workspace/agent-guard-lab/releases/v3.8.1/payload/config/deny-bash-patterns.txt",
+          "open_successes": 1,
+          "observed_read_bytes": 235
+        },
+        {
+          "path": "/workspace/agent-guard-lab/releases/v3.8.1/payload/config/deny-read-paths.txt",
+          "open_successes": 1,
+          "observed_read_bytes": 80
+        }
+      ],
+      "policy": {
+        "deny_bash_successful_open_count": 1,
+        "deny_bash_read_bytes": 235,
+        "deny_read_successful_open_count": 1,
+        "deny_read_read_bytes": 80,
+        "gitleaks_config_successful_open_count": 1,
+        "gitleaks_config_read_bytes": 22
+      }
+    },
+    {
+      "case": "long-multiline",
+      "version": "v3.6.13",
+      "variant": "default",
+      "host": "claude",
+      "returncode": -9,
+      "timeout": true,
+      "correct_output": false,
+      "reasons": [
+        "exit-status",
+        "output-mismatch"
+      ],
+      "trace": "long-multiline-v3.6.13-default/files.strace",
+      "config_files": [
+        {
+          "path": "/workspace/agent-guard-lab/releases/v3.6.13/payload/config/deny-bash-patterns.txt",
+          "open_successes": 1,
+          "observed_read_bytes": 209
+        },
+        {
+          "path": "/workspace/agent-guard-lab/releases/v3.6.13/payload/config/deny-read-paths.txt",
+          "open_successes": 1,
+          "observed_read_bytes": 80
+        },
+        {
+          "path": "/workspace/agent-guard-lab/releases/v3.6.13/payload/config/gitleaks.toml",
+          "open_successes": 2,
+          "observed_read_bytes": 4485
+        }
+      ],
+      "policy": {
+        "deny_bash_successful_open_count": 1,
+        "deny_bash_read_bytes": 209,
+        "deny_read_successful_open_count": 1,
+        "deny_read_read_bytes": 80,
+        "gitleaks_config_successful_open_count": 2,
+        "gitleaks_config_read_bytes": 4485
+      }
+    },
+    {
+      "case": "long-multiline",
+      "version": "v3.8.1",
+      "variant": "default",
+      "host": "claude",
+      "returncode": 0,
+      "timeout": false,
+      "correct_output": true,
+      "reasons": [],
+      "trace": "long-multiline-v3.8.1-default/files.strace",
+      "config_files": [
+        {
+          "path": "/workspace/agent-guard-lab/releases/v3.6.13/payload/config/gitleaks.toml",
+          "open_successes": 3,
+          "observed_read_bytes": 8948
+        },
+        {
+          "path": "/workspace/agent-guard-lab/releases/v3.8.1/payload/config/deny-bash-patterns.txt",
+          "open_successes": 1,
+          "observed_read_bytes": 235
+        },
+        {
+          "path": "/workspace/agent-guard-lab/releases/v3.8.1/payload/config/deny-read-paths.txt",
+          "open_successes": 1,
+          "observed_read_bytes": 80
+        },
+        {
+          "path": "plugins/agent-guard/config/",
+          "open_successes": 1,
+          "observed_read_bytes": 0
+        }
+      ],
+      "policy": {
+        "deny_bash_successful_open_count": 1,
+        "deny_bash_read_bytes": 235,
+        "deny_read_successful_open_count": 1,
+        "deny_read_read_bytes": 80,
+        "gitleaks_config_successful_open_count": 3,
+        "gitleaks_config_read_bytes": 8948
+      }
+    },
+    {
+      "case": "long-multiline",
+      "version": "v3.8.1",
+      "variant": "fused",
+      "host": "claude",
+      "returncode": 0,
+      "timeout": false,
+      "correct_output": true,
+      "reasons": [],
+      "trace": "long-multiline-v3.8.1-fused/files.strace",
+      "config_files": [
+        {
+          "path": "/workspace/agent-guard-lab/releases/v3.6.13/payload/config/gitleaks.toml",
+          "open_successes": 3,
+          "observed_read_bytes": 8948
+        },
+        {
+          "path": "/workspace/agent-guard-lab/releases/v3.8.1/payload/config/deny-bash-patterns.txt",
+          "open_successes": 1,
+          "observed_read_bytes": 235
+        },
+        {
+          "path": "/workspace/agent-guard-lab/releases/v3.8.1/payload/config/deny-read-paths.txt",
+          "open_successes": 1,
+          "observed_read_bytes": 80
+        },
+        {
+          "path": "plugins/agent-guard/config/",
+          "open_successes": 1,
+          "observed_read_bytes": 0
+        }
+      ],
+      "policy": {
+        "deny_bash_successful_open_count": 1,
+        "deny_bash_read_bytes": 235,
+        "deny_read_successful_open_count": 1,
+        "deny_read_read_bytes": 80,
+        "gitleaks_config_successful_open_count": 3,
+        "gitleaks_config_read_bytes": 8948
+      }
+    },
+    {
+      "case": "many-replacement-leaves",
+      "version": "v3.6.13",
+      "variant": "default",
+      "host": "claude",
+      "returncode": 0,
+      "timeout": false,
+      "correct_output": true,
+      "reasons": [],
+      "trace": "many-replacement-leaves-v3.6.13-default/files.strace",
+      "config_files": [
+        {
+          "path": "/workspace/agent-guard-lab/releases/v3.6.13/payload/config/deny-bash-patterns.txt",
+          "open_successes": 1,
+          "observed_read_bytes": 209
+        },
+        {
+          "path": "/workspace/agent-guard-lab/releases/v3.6.13/payload/config/deny-read-paths.txt",
+          "open_successes": 1,
+          "observed_read_bytes": 80
+        },
+        {
+          "path": "/workspace/agent-guard-lab/releases/v3.6.13/payload/config/gitleaks.toml",
+          "open_successes": 3,
+          "observed_read_bytes": 8948
+        },
+        {
+          "path": "plugins/agent-guard/config/",
+          "open_successes": 1,
+          "observed_read_bytes": 0
+        }
+      ],
+      "policy": {
+        "deny_bash_successful_open_count": 1,
+        "deny_bash_read_bytes": 209,
+        "deny_read_successful_open_count": 1,
+        "deny_read_read_bytes": 80,
+        "gitleaks_config_successful_open_count": 3,
+        "gitleaks_config_read_bytes": 8948
+      }
+    },
+    {
+      "case": "many-replacement-leaves",
+      "version": "v3.8.1",
+      "variant": "default",
+      "host": "claude",
+      "returncode": 0,
+      "timeout": false,
+      "correct_output": true,
+      "reasons": [],
+      "trace": "many-replacement-leaves-v3.8.1-default/files.strace",
+      "config_files": [
+        {
+          "path": "/workspace/agent-guard-lab/releases/v3.6.13/payload/config/gitleaks.toml",
+          "open_successes": 3,
+          "observed_read_bytes": 8948
+        },
+        {
+          "path": "/workspace/agent-guard-lab/releases/v3.8.1/payload/config/deny-bash-patterns.txt",
+          "open_successes": 1,
+          "observed_read_bytes": 235
+        },
+        {
+          "path": "/workspace/agent-guard-lab/releases/v3.8.1/payload/config/deny-read-paths.txt",
+          "open_successes": 1,
+          "observed_read_bytes": 80
+        },
+        {
+          "path": "plugins/agent-guard/config/",
+          "open_successes": 1,
+          "observed_read_bytes": 0
+        }
+      ],
+      "policy": {
+        "deny_bash_successful_open_count": 1,
+        "deny_bash_read_bytes": 235,
+        "deny_read_successful_open_count": 1,
+        "deny_read_read_bytes": 80,
+        "gitleaks_config_successful_open_count": 3,
+        "gitleaks_config_read_bytes": 8948
+      }
+    },
+    {
+      "case": "many-replacement-leaves",
+      "version": "v3.8.1",
+      "variant": "fused",
+      "host": "claude",
+      "returncode": 0,
+      "timeout": false,
+      "correct_output": true,
+      "reasons": [],
+      "trace": "many-replacement-leaves-v3.8.1-fused/files.strace",
+      "config_files": [
+        {
+          "path": "/workspace/agent-guard-lab/releases/v3.6.13/payload/config/gitleaks.toml",
+          "open_successes": 3,
+          "observed_read_bytes": 8948
+        },
+        {
+          "path": "/workspace/agent-guard-lab/releases/v3.8.1/payload/config/deny-bash-patterns.txt",
+          "open_successes": 1,
+          "observed_read_bytes": 235
+        },
+        {
+          "path": "/workspace/agent-guard-lab/releases/v3.8.1/payload/config/deny-read-paths.txt",
+          "open_successes": 1,
+          "observed_read_bytes": 80
+        },
+        {
+          "path": "plugins/agent-guard/config/",
+          "open_successes": 1,
+          "observed_read_bytes": 0
+        }
+      ],
+      "policy": {
+        "deny_bash_successful_open_count": 1,
+        "deny_bash_read_bytes": 235,
+        "deny_read_successful_open_count": 1,
+        "deny_read_read_bytes": 80,
+        "gitleaks_config_successful_open_count": 3,
+        "gitleaks_config_read_bytes": 8948
+      }
+    },
+    {
+      "case": "small-clean",
+      "version": "v3.6.13",
+      "variant": "default",
+      "host": "claude",
+      "returncode": -9,
+      "timeout": true,
+      "correct_output": false,
+      "reasons": [
+        "exit-status"
+      ],
+      "trace": "small-clean-v3.6.13-default/files.strace",
+      "config_files": [
+        {
+          "path": "/workspace/agent-guard-lab/releases/v3.6.13/payload/config/deny-bash-patterns.txt",
+          "open_successes": 1,
+          "observed_read_bytes": 209
+        },
+        {
+          "path": "/workspace/agent-guard-lab/releases/v3.6.13/payload/config/deny-read-paths.txt",
+          "open_successes": 1,
+          "observed_read_bytes": 80
+        },
+        {
+          "path": "/workspace/agent-guard-lab/releases/v3.6.13/payload/config/gitleaks.toml",
+          "open_successes": 2,
+          "observed_read_bytes": 4485
+        }
+      ],
+      "policy": {
+        "deny_bash_successful_open_count": 1,
+        "deny_bash_read_bytes": 209,
+        "deny_read_successful_open_count": 1,
+        "deny_read_read_bytes": 80,
+        "gitleaks_config_successful_open_count": 2,
+        "gitleaks_config_read_bytes": 4485
+      }
+    },
+    {
+      "case": "small-clean",
+      "version": "v3.8.1",
+      "variant": "default",
+      "host": "claude",
+      "returncode": -9,
+      "timeout": true,
+      "correct_output": false,
+      "reasons": [
+        "exit-status"
+      ],
+      "trace": "small-clean-v3.8.1-default/files.strace",
+      "config_files": [
+        {
+          "path": "/workspace/agent-guard-lab/releases/v3.6.13/payload/config/gitleaks.toml",
+          "open_successes": 3,
+          "observed_read_bytes": 8948
+        },
+        {
+          "path": "/workspace/agent-guard-lab/releases/v3.8.1/payload/config/deny-bash-patterns.txt",
+          "open_successes": 1,
+          "observed_read_bytes": 235
+        },
+        {
+          "path": "/workspace/agent-guard-lab/releases/v3.8.1/payload/config/deny-read-paths.txt",
+          "open_successes": 1,
+          "observed_read_bytes": 80
+        },
+        {
+          "path": "plugins/agent-guard/config/",
+          "open_successes": 1,
+          "observed_read_bytes": 0
+        }
+      ],
+      "policy": {
+        "deny_bash_successful_open_count": 1,
+        "deny_bash_read_bytes": 235,
+        "deny_read_successful_open_count": 1,
+        "deny_read_read_bytes": 80,
+        "gitleaks_config_successful_open_count": 3,
+        "gitleaks_config_read_bytes": 8948
+      }
+    },
+    {
+      "case": "small-clean",
+      "version": "v3.8.1",
+      "variant": "fused",
+      "host": "claude",
+      "returncode": 0,
+      "timeout": false,
+      "correct_output": true,
+      "reasons": [],
+      "trace": "small-clean-v3.8.1-fused/files.strace",
+      "config_files": [
+        {
+          "path": "/workspace/agent-guard-lab/releases/v3.6.13/payload/config/gitleaks.toml",
+          "open_successes": 3,
+          "observed_read_bytes": 8948
+        },
+        {
+          "path": "/workspace/agent-guard-lab/releases/v3.8.1/payload/config/deny-bash-patterns.txt",
+          "open_successes": 1,
+          "observed_read_bytes": 235
+        },
+        {
+          "path": "/workspace/agent-guard-lab/releases/v3.8.1/payload/config/deny-read-paths.txt",
+          "open_successes": 1,
+          "observed_read_bytes": 80
+        },
+        {
+          "path": "plugins/agent-guard/config/",
+          "open_successes": 1,
+          "observed_read_bytes": 0
+        }
+      ],
+      "policy": {
+        "deny_bash_successful_open_count": 1,
+        "deny_bash_read_bytes": 235,
+        "deny_read_successful_open_count": 1,
+        "deny_read_read_bytes": 80,
+        "gitleaks_config_successful_open_count": 3,
+        "gitleaks_config_read_bytes": 8948
+      }
+    }
+  ],
+  "stopped_own_tool_process_ids": [
+    113236,
+    115860,
+    115863,
+    116138
+  ],
+  "partial_stdout_stderr_note": "Completed conditions keep stdout/stderr/status. Any in-progress condition may have only stdin/invocation/live trace because the controller had not yet published communicate buffers. No output is inferred."
+}

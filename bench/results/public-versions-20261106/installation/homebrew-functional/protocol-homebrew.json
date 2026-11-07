@@ -1,0 +1,16 @@
+{
+  "environment": "local-host-debian13-homebrew-actual-4CPU-16GiB-no-host-swap",
+  "prefix": "/workspace/agb",
+  "rounds": 0,
+  "warmups": 1,
+  "versions": [
+    "3.6.13",
+    "3.8.1"
+  ],
+  "fresh_order": "even round baseline/latest, odd round latest/baseline",
+  "upgrade": "3.6.13 to 3.8.1 repeated; seed outside timing",
+  "scope": "actual brew install/upgrade with unchanged public formula pinned in isolated local tap; dependencies and download already cached; normal cleanup included; initial brew/dependencies/scanner setup excluded",
+  "timeout_s": 120,
+  "threshold_improvement_percent": 10,
+  "threshold_regression_percent": 5
+}

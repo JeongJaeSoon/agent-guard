@@ -1,0 +1,74 @@
+{
+  "environment": "linux-local-actual4CPU16GiB-jq1.7.1",
+  "scope": "core-only existing frozen differential corpus; separate from independent CLI expected-value checks",
+  "source": "bench/results/public-versions-20261106/correctness/existing-core-corpus-local/results.json",
+  "corpus_sha256": "2ff4426ca5e55292f8b6e94707df76a2974cfb876e95205ecc6eb1b92d727f85",
+  "corpus_input_n": 1013,
+  "reference_failures": [],
+  "native_sample_records_verified": 4052,
+  "rows": [
+    {
+      "version": "v3.6.13",
+      "status": "N/A",
+      "reason": "no public native binary"
+    },
+    {
+      "version": "v3.6.14",
+      "status": "N/A",
+      "reason": "no public native binary"
+    },
+    {
+      "version": "v3.6.15",
+      "status": "N/A",
+      "reason": "no public native binary"
+    },
+    {
+      "version": "v3.7.0",
+      "core_sha256": "e5effd1d40057d4099cbda0982547e2656ef8005f7308cd685dc2fb52f82b514",
+      "status": "measured",
+      "passed": 1013,
+      "failed": 0,
+      "n": 1013,
+      "failures": [],
+      "raw_jsonl_gz": "/results/correctness/existing-core-corpus-local/v3.7.0-raw.jsonl.gz",
+      "raw_jsonl_gz_sha256": "19c161bc4ecd0cdbb9315c42dd3947ed2b2253aa0c64719eead2f7aa84ffe3af"
+    },
+    {
+      "version": "v3.7.1",
+      "core_sha256": "e5effd1d40057d4099cbda0982547e2656ef8005f7308cd685dc2fb52f82b514",
+      "status": "measured",
+      "passed": 1013,
+      "failed": 0,
+      "n": 1013,
+      "failures": [],
+      "raw_jsonl_gz": "/results/correctness/existing-core-corpus-local/v3.7.1-raw.jsonl.gz",
+      "raw_jsonl_gz_sha256": "d1fd9fcde670fbaf388d13318a8db43ab42db3cda56b876047abc320a0938532"
+    },
+    {
+      "version": "v3.8.0",
+      "core_sha256": "ffbe52a07f07ea6f4447f1218627b946288d1d2eab134128b74927c09358c200",
+      "status": "measured",
+      "passed": 1013,
+      "failed": 0,
+      "n": 1013,
+      "failures": [],
+      "raw_jsonl_gz": "/results/correctness/existing-core-corpus-local/v3.8.0-raw.jsonl.gz",
+      "raw_jsonl_gz_sha256": "eb53da303a5c2c6e88420211606fc8d76aff1471df75ffed213499d8539107f2"
+    },
+    {
+      "version": "v3.8.1",
+      "core_sha256": "ffbe52a07f07ea6f4447f1218627b946288d1d2eab134128b74927c09358c200",
+      "status": "measured",
+      "passed": 1013,
+      "failed": 0,
+      "n": 1013,
+      "failures": [],
+      "raw_jsonl_gz": "/results/correctness/existing-core-corpus-local/v3.8.1-raw.jsonl.gz",
+      "raw_jsonl_gz_sha256": "07a0bdcc8eedda57d8e02518c050579fa46bedd4f0a298af2d41e49a62e7b6fd"
+    }
+  ],
+  "resource_limits_note": "Local rootless requested limits ineffective; local-environment.txt confirms actual outer4CPU16GiB. This core-only correctness supplement is not constrained CI latency.",
+  "verification_note": "Parsed JSON equality to frozen baseline jq contract; independent expected-value CLI checks are reported separately.",
+  "native_command": "redact-v1",
+  "not_covered": "This 1013-case run does not test prepare-v1 framing or malformed wire protocol; public fused pipeline is independently exercised by the 32-case CLI checks and injected-fault cases."
+}

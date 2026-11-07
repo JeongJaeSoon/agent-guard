@@ -1,0 +1,91 @@
+{
+  "label": "local-policy-proof-only-4cpu16g",
+  "limits": {
+    "cpu.max": "400000 100000",
+    "memory.max": "17179869184",
+    "memory.swap.max": "max",
+    "proc_swaps": "Filename\t\t\t\tType\t\tSize\t\tUsed\t\tPriority\n",
+    "verified_requested": false
+  },
+  "uname": [
+    "Linux",
+    "113800459f2a",
+    "6.18.57",
+    "#1 SMP Tue Oct 20 21:56:04 UTC 2026",
+    "x86_64"
+  ],
+  "python": "3.12.16 (main, Nov  5 2026, 07:58:44) [GCC 12.2.0]",
+  "jq": "jq-1.7.1",
+  "jq_sha256": "5942c9b0934e510ee61eb3e30273f1b3fe2590df93933a93d7c58b81d19c8ff5",
+  "protocol": {
+    "frozen_before_runtime_measurement": true,
+    "date_utc": "2026-11-06",
+    "versions": [
+      "v3.6.13",
+      "v3.6.14",
+      "v3.6.15",
+      "v3.7.0",
+      "v3.7.1",
+      "v3.8.0",
+      "v3.8.1"
+    ],
+    "rounds": 14,
+    "warmups_per_arm": 2,
+    "timeout_seconds": 30,
+    "version_order": "14 rounds: cyclic rotations of seven versions, then reversed rotations; every version occupies every position twice",
+    "pair_order": "alternate forward/reverse arms; 14 rounds",
+    "thresholds": {
+      "improvement_percent": 10,
+      "regression_strictly_greater_percent": 5
+    },
+    "main_cases": [
+      "small-clean",
+      "many-replacement-leaves",
+      "long-line",
+      "long-multiline",
+      "escaped-control",
+      "dense-controls",
+      "unknown-event",
+      "scanner-failure-open"
+    ],
+    "audit_full_matrix": [
+      "off"
+    ],
+    "audit_endpoint_matrix": [
+      "warm",
+      "cold"
+    ],
+    "audit_endpoint_cases": [
+      "small-clean",
+      "many-replacement-leaves",
+      "long-multiline"
+    ],
+    "throughput_cases": [
+      "small-clean",
+      "many-replacement-leaves",
+      "long-multiline"
+    ],
+    "throughput_requests_per_sample": 4,
+    "throughput_workers": [
+      4
+    ],
+    "single_request_throughput": "1 / CLI wall time (workers=1, requests=1)",
+    "rss": "separate phase=rss; /proc sampled sum every 10ms; excludes benchmark driver, includes only request descendants; shared pages can repeat; sampling can miss brief peaks",
+    "rss_rounds": 16,
+    "config": "v3.6.13 public config bytes for every version",
+    "scanner": "same pinned scanner bytes for all versions within official/Homebrew groups",
+    "eligibility": "all requests must match independent expected status and decoded output; mismatches/timeouts preserved and excluded from same-work performance",
+    "primary_environment": "CI only if cgroup reports cpu.max=200000 100000 memory.max=1073741824 memory.swap.max=0",
+    "local_environment": "rootless Docker cgroup driver none; actual outer 4CPU quota and 16GiB; no host swap; requested limits ineffective",
+    "no_cross_workload_average": true,
+    "jq_primary": "1.7.1 official binary, SHA256 5942c9b0934e510ee61eb3e30273f1b3fe2590df93933a93d7c58b81d19c8ff5",
+    "jq_secondary": "1.6 correctness only; baseline overmasking pilot retained; main timing not yet begun when jq chosen",
+    "load_rounds": 16,
+    "load_order": "8 arms (7 defaults plus v3.8.1 fused), 16 rounds of 8 rotations then reverse rotations",
+    "policy_mode": "common",
+    "policy_scope": "gitleaks fixed; deny-read public bytes identical; deny-bash baseline override only in common mode",
+    "rss_arms": "all seven public defaults plus v3.8.1 fused",
+    "rss_order": "8 forward rotations then 8 reversed rotations",
+    "rss_supplement": true
+  }
+}

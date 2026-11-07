@@ -1,0 +1,24 @@
+{
+  "success": true,
+  "scope": "temporary synthetic fixtures only; no real benchmark ZIP packaging/restoration or source mutation",
+  "checks": [
+    "offline round trip:binary/UTF8/newline/broken-symlink and exact CI extraction root",
+    "identical existing files reused without changing inode or mtime",
+    "conflicting existing data refused before any destination writes",
+    "existing symlink directory traversal refused",
+    "ZipSlip refused despite self-consistent ZIP/index/SHA256SUMS",
+    "retained CI artifact metadata ID/SHA verified independently of index"
+  ],
+  "valid_restore": {
+    "mode": "execute",
+    "archives_verified": 6,
+    "members_verified": 5,
+    "unique_destinations": 5,
+    "new_files": 5,
+    "reused_identical": 0,
+    "source_mutations": "none",
+    "different_existing_data": "refused",
+    "cohort_separation": "index extraction roots preserve shipping-policy, controlled and cancelled/partial original paths",
+    "all_restored_hashes_verified": true
+  }
+}
