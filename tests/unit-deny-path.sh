@@ -113,7 +113,9 @@ check_char() {
     bad "deny-path character $label"
   fi
 }
-check_char letter a '(a|\\x6[1]|\?|\*|\[[^]]+\])'
+check_char letter a '(a|\\x6[1]|\?|\*|\[[^]]*[^]0-9-][^]]*\])'
+check_char uppercase Q '(Q|\\x7[1]|\?|\*|\[[^]]*[^]0-9-][^]]*\])'
+check_char digit 5 '(5|\\x3[5]|\?|\*|\[[^]]+\])'
 check_char dot . '(\.|\\x2[eE])'
 check_char slash / /
 check_char question '?' '(\?|\?|\*|\[[^]]+\])'
@@ -157,7 +159,7 @@ $x.key	$x.key
 ..key	..key
 .	.
 import ".env" as $x; $x.key	import ".env" as $x; $x.key
-"\(.key) \"q\" .key" | .key	"\(.key) \"q\" .key" | .
+"\(.key) \"q\" .key" | .key	"\(.) \"q\" .key" | .
 .a # "x" .key	. # "x" .key
 CASES
 printf 'passed: %s\nfailed: %s\n' "$pass" "$fail"

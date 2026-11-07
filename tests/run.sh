@@ -1478,6 +1478,41 @@ expect_json_status 2 "Bash glob wildcard path bypass is blocked" \
   '{"tool_name":"Bash","tool_input":{"command":"cat .e?v"}}' \
   hook-pre-tool
 
+# A digit-only bracket cannot match a letter, so `e[0-9]*.` is no spelling of
+# `env.*` even though the word is read as a glob. Any bracket that can hold a
+# letter still counts.
+expect_json_status 0 "Bash sed capture group over e[0-9]* remains allowed" \
+  '{"tool_name":"Bash","tool_input":{"command":"orca snapshot | sed -n '\''s/.*ref=\\(e[0-9]*\\).*/@\\1/p'\''"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash glob e[n]* with a letter bracket is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat e[n]*.local"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash glob e[0-9n]* with a mixed bracket is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat e[0-9n]*.local"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash glob e[^0-9]* with a negated bracket is blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"cat e[^0-9]*.local"}}' \
+  hook-pre-tool
+
+# Judged true blocks in the 2026-11-06 false-positive review. A count of
+# matching lines still reads the file and answers a guess at a value; a path
+# handed to another program is read by that program; a search after an
+# unlisted command stays in the scan because that command may replace grep.
+expect_json_status 2 "Bash grep -c over a dotenv file stays blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"grep -c '\''^API_KEY=.'\'' proj/.env.local"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash path of a key file handed to another program stays blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"tool upload --element e37 --files /home/u/.config/app/app-key.pem"}}' \
+  hook-pre-tool
+
+expect_json_status 2 "Bash search text after an unlisted pipeline command stays blocked" \
+  '{"tool_name":"Bash","tool_input":{"command":"tool snapshot --page p1 | grep -n '\''Private key (.pem)\"'\''"}}' \
+  hook-pre-tool
+
 # One `*` can expand over several characters of a deny entry, so a star after
 # any pinned prefix still names the protected file.
 expect_json_status 2 "Bash trailing star over a protected dotfile is blocked" \
@@ -2845,6 +2880,14 @@ run_expect 0 "grep/rg search patterns and new openssl outputs leave out no prote
   sh "$ROOT/tests/search-operand-ground-truth.sh"
 run_expect 0 "orca/gh/git message values leave out no protected read" \
   sh "$ROOT/tests/message-value-prose.sh"
+run_expect 0 "runtime environment objects and jq interpolation leave out no protected read" \
+  sh "$ROOT/tests/runtime-global-text.sh"
+run_expect 0 "ORCA_ and CLAUDE_JOB_DIR lookups pass while secret dumps stay blocked" \
+  sh "$ROOT/tests/env-lookup-allowlist.sh"
+run_expect 0 "cat/tee here-document bodies leave out no protected read" \
+  sh "$ROOT/tests/heredoc-body-text.sh"
+run_expect 0 "status words and named placeholders are prose, real values still block" \
+  sh "$ROOT/tests/prompt-prose-placeholder.sh"
 ambiguous_bash_fixtures="$ROOT/tests/fixtures/ambiguous-bash-protected-path.json"
 ambiguous_bash_cases="$TESTTMP/ambiguous-bash-protected-path.cases"
 if jq -e 'type == "array" and length > 0' "$ambiguous_bash_fixtures" >/dev/null \
@@ -13274,6 +13317,9 @@ for display_case in \
     sed 's/^/  out: /' "$OUT"
   fi
 done
+
+run_expect 0 "post-tool keeps type annotations, member references and fixture words in source text" \
+  sh "$ROOT/tests/source-text-redaction.sh"
 
 # Must-mask controls for the same gate. Narrowing the value side must not open a
 # hole: a bare literal still masks, a literal nested in an argument or subscript
