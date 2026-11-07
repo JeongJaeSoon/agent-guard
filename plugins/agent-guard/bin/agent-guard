@@ -4442,10 +4442,17 @@ deny_path_shell_expansion_char_pattern() {
       fi
       ;;
     *)
+      # A bracket made only of digits and `-` (`[0-9]`) cannot match an ASCII
+      # letter. The letters are listed because a range follows the locale.
+      sx_bracket='\[[^]]+\]'
+      case "$sx_char_input" in
+        [abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ])
+          sx_bracket='\[[^]]*[^]0-9-][^]]*\]' ;;
+      esac
       if [ -n "$sx_hex" ]; then
-        sx_char="($sx_char_literal|\\\\x$sx_hex|\\?|\\*|\\[[^]]+\\])"
+        sx_char="($sx_char_literal|\\\\x$sx_hex|\\?|\\*|$sx_bracket)"
       else
-        sx_char="($sx_char_literal|\\?|\\*|\\[[^]]+\\])"
+        sx_char="($sx_char_literal|\\?|\\*|$sx_bracket)"
       fi
       ;;
   esac
