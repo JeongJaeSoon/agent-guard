@@ -1,10 +1,9 @@
 [
   {
     "id": "public-port-member",
-    "expected_status": 2,
-    "expected_reason": "bash_protected_path_text_match",
-    "classification": "known-limitation",
-    "description": "inline Node public PORT access is conservatively blocked",
+    "expected_status": 0,
+    "classification": "safe-control",
+    "description": "inline Node public PORT access is a member read of the runtime object, not a file",
     "event": {"tool_name": "Bash", "tool_input": {"command": "node -e 'console.log(process.env.PORT)'"}}
   },
   {
@@ -32,18 +31,16 @@
   },
   {
     "id": "env-wrapped-public-port-member",
-    "expected_status": 2,
-    "expected_reason": "bash_protected_path_text_match",
-    "classification": "known-limitation",
-    "description": "env-wrapped inline Node public PORT access is conservatively blocked",
+    "expected_status": 0,
+    "classification": "safe-control",
+    "description": "env-wrapped inline Node public PORT access is a member read of the runtime object, not a file",
     "event": {"tool_name": "Bash", "tool_input": {"command": "env NODE_ENV=test node -e 'console.log(process.env.PORT)'"}}
   },
   {
     "id": "command-wrapped-public-port-member",
-    "expected_status": 2,
-    "expected_reason": "bash_protected_path_text_match",
-    "classification": "known-limitation",
-    "description": "command-wrapped inline Node public PORT access is conservatively blocked",
+    "expected_status": 0,
+    "classification": "safe-control",
+    "description": "command-wrapped inline Node public PORT access is a member read of the runtime object, not a file",
     "event": {"tool_name": "Bash", "tool_input": {"command": "command node -e 'console.log(process.env.PORT)'"}}
   },
   {
