@@ -2880,6 +2880,10 @@ run_expect 0 "grep/rg search patterns and new openssl outputs leave out no prote
   sh "$ROOT/tests/search-operand-ground-truth.sh"
 run_expect 0 "orca/gh/git message values leave out no protected read" \
   sh "$ROOT/tests/message-value-prose.sh"
+run_expect 0 "runtime environment objects and jq interpolation leave out no protected read" \
+  sh "$ROOT/tests/runtime-global-text.sh"
+run_expect 0 "ORCA_ and CLAUDE_JOB_DIR lookups pass while secret dumps stay blocked" \
+  sh "$ROOT/tests/env-lookup-allowlist.sh"
 run_expect 0 "cat/tee here-document bodies leave out no protected read" \
   sh "$ROOT/tests/heredoc-body-text.sh"
 run_expect 0 "status words and named placeholders are prose, real values still block" \
@@ -13287,6 +13291,9 @@ for display_case in \
     sed 's/^/  out: /' "$OUT"
   fi
 done
+
+run_expect 0 "post-tool keeps type annotations, member references and fixture words in source text" \
+  sh "$ROOT/tests/source-text-redaction.sh"
 
 # Must-mask controls for the same gate. Narrowing the value side must not open a
 # hole: a bare literal still masks, a literal nested in an argument or subscript
