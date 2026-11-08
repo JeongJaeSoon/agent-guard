@@ -92,7 +92,12 @@ for log_line in \
   'INFO the password: values was rotated' \
   'INFO auth received the password: values was rotated' \
   '2026-11-08 INFO auth rotated a password: values that was accepted' \
-  '2026-11-08 12:00:01 INFO auth: the password: values were rotated'; do
+  '2026-11-08 12:00:01 INFO auth: the password: values were rotated' \
+  'received the password: values was rotated at 123' \
+  'received the password: values was rotated user=alice' \
+  'received the password: values was rotated INFO' \
+  '2026-11-08 INFO auth. the password: values was rotated' \
+  '2026-11-08 INFO auth; the password: values was rotated'; do
   check 2 "log line with a descriptive noun value blocks the prompt: $log_line" "$log_line"
   postcheck 1 "log line with a descriptive noun value is masked: $log_line" "$log_line"
 done

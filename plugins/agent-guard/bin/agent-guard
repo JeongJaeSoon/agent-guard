@@ -9674,15 +9674,20 @@ secretish_env_values() {
         # Sentence context for descriptive_noun: the key directly follows a
         # determiner (`carry a secret:`) and was reached through the whitespace
         # delimiter. A key at line start, indented, after `-`, `{`, `[` or
-        # another assignment is not a sentence. Within the same sentence (text
-        # after the last `.?!;`), a digit, `=` or an ALL-CAPS word is a log
-        # signal (`2026-11-08 INFO auth rotated a password:`), not prose.
+        # another assignment is not a sentence. Within the same sentence, a
+        # digit, `=` or an ALL-CAPS word before or after the key is a log
+        # signal (`2026-11-08 INFO auth rotated a password:`), not prose. A
+        # sentence starts only after `.?!;` and a capital letter, so a log
+        # header such as `INFO auth. the password:` is not cut away.
         prose_prefix = substr(rest, 1, start - 1)
-        sub(/^.*[.?!;][ \t]+/, "", prose_prefix)
+        while (match(prose_prefix, /[.?!;][ \t]+[A-Z]/))
+          prose_prefix = substr(prose_prefix, RSTART + RLENGTH - 1)
+        prose_suffix = substr(rest, start + matched_length)
+        sub(/[.?!;][ \t].*$/, "", prose_suffix)
         prose_context = chose_colon && (first == " " || first == "\t") \
           && tolower(prose_prefix) ~ /(^|[ \t])(a|an|the|this|that|these|those|each|any|every|no|some|real|literal|raw|plain)$/ \
-          && prose_prefix !~ /[0-9=]/ \
-          && prose_prefix !~ /(^|[^A-Za-z])[A-Z][A-Z]+([^A-Za-z]|$)/
+          && (prose_prefix prose_suffix) !~ /[0-9=]/ \
+          && (prose_prefix prose_suffix) !~ /(^|[^A-Za-z])[A-Z][A-Z]+([^A-Za-z]|$)/
         if (!skip &&
             emit_value(rest, start + matched_length,
                        substr(rest, start, matched_length), status_guard)) break
