@@ -41,6 +41,9 @@ check 0 "descriptive noun after a token key" 'Report each token: keys that were 
 
 check 2 "descriptive noun with a random suffix" "Think about inputs that carry a secret: values${rnd} that start with a dollar sign."
 check 2 "descriptive noun with a digit suffix" 'a secret: values2 that start with a dollar sign'
+check 2 "bare descriptive noun as an env assignment value" 'export API_SECRET=values'
+check 2 "quoted descriptive noun as an env assignment value" 'export API_SECRET="values"'
+check 2 "single-quoted descriptive noun as an assignment value" "export API_SECRET='tokens'"
 check 2 "random value after a key in a sentence" "Think about inputs that carry a secret: ${rnd} in a sentence."
 check 2 "descriptive noun does not exempt an env assignment value" "export API_SECRET=values${rnd}"
 check 2 "status word glued to random text" "export API_SECRET=missing$rnd"
