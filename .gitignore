@@ -7,12 +7,16 @@ bench/results.tsv
 *.py[cod]
 .DS_Store
 
-# Unreviewed local measurements; curated evidence stays in bench/results/.
+# Local measurements and raw results are not committed. Keep them in bench/local/,
+# a release asset or a CI artifact. Only the inputs read by tests/devtools.sh and
+# the public-version CI harness are tracked (force-add a new reviewed input).
 /bench/local/
-/bench/results/**/build.log
-/bench/results/**/cli-*.log
+/bench/results/*
+!/bench/results/rust-experiment/
+!/bench/results/public-versions-20261106/
 
-# Export copies of charts already embedded in the standalone HTML report.
+# Output of `devtools report`: the generated HTML and its chart exports.
+/docs/rust-*.html
 /docs/assets/rust-*.svg
 
 # Release assets are built locally or attached to GitHub Releases.

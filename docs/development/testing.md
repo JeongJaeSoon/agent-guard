@@ -34,7 +34,7 @@ Individual documents describe each suite's contracts and evidence and link here.
 | `tests/unit-probe.sh` | 4 | 1 | Probe eligibility |
 | `tests/unit-watchdog.sh` | 2 | 1 | Timer cancellation waits for the child on scanner success and failure |
 | `tests/unit-status-label.sh` | 22 | 1 | [Status-label classification](status-label-tests.md) |
-| `tests/redaction-plan.sh` | 8 | 4 | [Replacement ordering, context and output budgets](../reports/masking-performance.ko.md) |
+| `tests/redaction-plan.sh` | 8 | 4 | Replacement ordering, context and output budgets |
 | `tests/unit-audit-retention.sh` | 10 | 1 | Portable audit filename and retention rules |
 | `tests/unit-nul-redaction.sh` | 3 | 1 | NUL-only masking on supported jq versions |
 | **Total: 9 suites** | **201** | | |
@@ -156,5 +156,5 @@ representatives, equivalence and selected mutation controls. It does not change
 the historical four-suite timing or scoped Bash observation above.
 
 마스킹 처리 단계, 입력 형태별 성능 측정, 프레이밍 및 치환 순서의 회귀 검증은
-[마스킹 성능 문서](../reports/masking-performance.ko.md)를 참고한다. 성능 측정은 모든 표본의
+`tests/redaction-plan.sh`가 맡는다. 성능 측정은 모든 표본의
 마스킹 결과를 확인하며 기본 CI의 기능 검증을 대체하지 않는다.
