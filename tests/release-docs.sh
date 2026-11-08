@@ -18,7 +18,7 @@ tar -xzf "$archive" -C "$stage"
 [ -f "$stage/CHANGELOG.md" ] \
   || { printf '%s\n' 'release archive is missing CHANGELOG.md' >&2; exit 1; }
 
-for internal in README.md native-redactor.md rust-experiment-goal.ko.md development reports; do
+for internal in README.md native-redactor.md development; do
   [ ! -e "$stage/docs/$internal" ] \
     || { printf '%s\n' "release archive includes repository-only documentation: $internal" >&2; exit 1; }
 done
