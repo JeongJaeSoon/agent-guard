@@ -37,7 +37,7 @@ check 0 "export of a named placeholder" 'export DEPLOY_PAT=<acme-pat>'
 check 0 "named token placeholder" 'export API_TOKEN=<acme-token>'
 
 check 0 "descriptive plural noun after a key in a sentence" 'Think about inputs that carry a secret: values that start with a dollar sign.'
-check 0 "descriptive noun in a sentence that has an earlier colon" 'Step 2: think about inputs that carry a secret: values that start with a dollar sign.'
+check 0 "descriptive noun in a sentence that has an earlier colon" 'Review the patch itself: think about inputs that carry a secret: values that start with a dollar sign.'
 check 0 "descriptive noun after a token key" 'Report each token: keys that were rotated.'
 
 check 2 "descriptive noun with a random suffix" "Think about inputs that carry a secret: values${rnd} that start with a dollar sign."
@@ -88,7 +88,11 @@ for log_line in \
   'INFO auth password: values accepted' \
   'INFO auth token: tokens issued' \
   '2026-11-08 ok login secret: secrets rotated' \
-  'INFO the password: values accepted'; do
+  'INFO the password: values accepted' \
+  'INFO the password: values was rotated' \
+  'INFO auth received the password: values was rotated' \
+  '2026-11-08 INFO auth rotated a password: values that was accepted' \
+  '2026-11-08 12:00:01 INFO auth: the password: values were rotated'; do
   check 2 "log line with a descriptive noun value blocks the prompt: $log_line" "$log_line"
   postcheck 1 "log line with a descriptive noun value is masked: $log_line" "$log_line"
 done

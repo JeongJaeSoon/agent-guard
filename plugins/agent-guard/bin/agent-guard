@@ -9673,12 +9673,16 @@ secretish_env_values() {
         next_rescan_cover_end = 0
         # Sentence context for descriptive_noun: the key directly follows a
         # determiner (`carry a secret:`) and was reached through the whitespace
-        # delimiter. A key at line start, indented, after `-`, `{`, `[`, another
-        # assignment or a log word (`INFO auth password:`) is not a sentence.
+        # delimiter. A key at line start, indented, after `-`, `{`, `[` or
+        # another assignment is not a sentence. Within the same sentence (text
+        # after the last `.?!;`), a digit, `=` or an ALL-CAPS word is a log
+        # signal (`2026-11-08 INFO auth rotated a password:`), not prose.
         prose_prefix = substr(rest, 1, start - 1)
-        sub(/^.*[]:={}[]/, "", prose_prefix)
+        sub(/^.*[.?!;][ \t]+/, "", prose_prefix)
         prose_context = chose_colon && (first == " " || first == "\t") \
-          && tolower(prose_prefix) ~ /(^|[ \t])(a|an|the|this|that|these|those|each|any|every|no|some|real|literal|raw|plain)$/
+          && tolower(prose_prefix) ~ /(^|[ \t])(a|an|the|this|that|these|those|each|any|every|no|some|real|literal|raw|plain)$/ \
+          && prose_prefix !~ /[0-9=]/ \
+          && prose_prefix !~ /(^|[^A-Za-z])[A-Z][A-Z]+([^A-Za-z]|$)/
         if (!skip &&
             emit_value(rest, start + matched_length,
                        substr(rest, start, matched_length), status_guard)) break
