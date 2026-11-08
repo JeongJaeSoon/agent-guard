@@ -4545,7 +4545,8 @@ deny_path_cache_file() {
 # A read error ends the loop like end of file. Count the active entries in a
 # second pass: every one of them must have written exactly one regex.
 deny_path_cache_complete() {
-  dpc_want=$(grep -Evc '^[[:space:]]*(#|$)' "$DENY_READ_PATHS") || return 1
+  # Skips exactly what the loop skips: an empty line or one starting with `#`.
+  dpc_want=$(grep -Evc '^(#|$)' "$DENY_READ_PATHS") || return 1
   dpc_got=$(grep -c '' "$1") || return 1
   [ "$dpc_want" -eq "$dpc_got" ] 2>/dev/null
 }

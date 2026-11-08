@@ -133,11 +133,14 @@ gen_status=$(
 check 'a failed regex for one entry is refused' test "$gen_status" = 1
 check 'a failed regex for one entry publishes no file' \
   test "$(ls "$CASE/store" | wc -l | tr -d ' ')" = 0
-# A read error ends the loop like end of file; the entry count catches it.
+# A read error ends the loop like end of file; the entry count catches it. The
+# first line starts with a space, so the loop treats it as an entry, not a
+# comment, and the count has to agree.
+printf ' # padding\nsecretfile.txt\n' >"$CASE/padded-list"
 read_status=$(
   . "$CASE/deny_path_cache_store.sh"
   . "$CASE/deny_path_cache_complete.sh"
-  DENY_READ_PATHS="$CASE/partial-list" AG_STATE_DIR="$CASE/store"
+  DENY_READ_PATHS="$CASE/padded-list" AG_STATE_DIR="$CASE/store"
   dpc_file="$CASE/store/published"
   deny_path_command_regex() { echo "$1"; }
   reads=0
