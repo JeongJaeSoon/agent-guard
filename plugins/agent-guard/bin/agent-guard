@@ -4553,7 +4553,10 @@ deny_path_cache_store() {
       case "$dpc_entry" in
         ''|\#*) continue ;;
       esac
-      dpc_regex=$(deny_path_command_regex "$dpc_entry" "$dpc_mode") || continue
+      # The scan skips an entry that yields no regex, but a failure here may be
+      # transient, and a file without that entry would rule its commands out.
+      dpc_regex=$(deny_path_command_regex "$dpc_entry" "$dpc_mode") \
+        || { dpc_failed=1; break; }
       printf '%s\n' "$dpc_regex" || { dpc_failed=1; break; }
     done <"$DENY_READ_PATHS" >"$dpc_tmp" \
       && [ -z "$dpc_failed" ] && [ -s "$dpc_tmp" ] && mv -f "$dpc_tmp" "$dpc_file"

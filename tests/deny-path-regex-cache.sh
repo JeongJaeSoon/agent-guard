@@ -119,6 +119,18 @@ partial_status=$(
 check 'a cache write that fails part way is refused' test "$partial_status" = 1
 check 'a cache write that fails part way publishes no file' \
   test "$(ls "$CASE/store" | wc -l | tr -d ' ')" = 0
+# The same when one entry's regex cannot be produced.
+gen_status=$(
+  . "$CASE/deny_path_cache_store.sh"
+  DENY_READ_PATHS="$CASE/partial-list" AG_STATE_DIR="$CASE/store"
+  dpc_file="$CASE/store/published"
+  deny_path_command_regex() { [ "$1" != beta ] || return 1; echo "$1"; }
+  deny_path_cache_store literal
+  echo $?
+)
+check 'a failed regex for one entry is refused' test "$gen_status" = 1
+check 'a failed regex for one entry publishes no file' \
+  test "$(ls "$CASE/store" | wc -l | tr -d ' ')" = 0
 
 # A tampered line that matches every command only sends the scan down the
 # per-entry loop, which gives its own verdict.
