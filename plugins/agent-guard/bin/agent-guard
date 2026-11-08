@@ -4542,6 +4542,14 @@ deny_path_cache_file() {
   [ ! -L "$dpc_file" ] && [ ! -d "$dpc_file" ]
 }
 
+# A read error ends the loop like end of file. Count the active entries in a
+# second pass: every one of them must have written exactly one regex.
+deny_path_cache_complete() {
+  dpc_want=$(grep -Evc '^[[:space:]]*(#|$)' "$DENY_READ_PATHS") || return 1
+  dpc_got=$(grep -c '' "$1") || return 1
+  [ "$dpc_want" -eq "$dpc_got" ] 2>/dev/null
+}
+
 deny_path_cache_store() {
   dpc_mode=$1
   dpc_tmp=$(umask 077; mktemp "$dpc_file.XXXXXX" 2>/dev/null) || return 1
@@ -4559,7 +4567,8 @@ deny_path_cache_store() {
         || { dpc_failed=1; break; }
       printf '%s\n' "$dpc_regex" || { dpc_failed=1; break; }
     done <"$DENY_READ_PATHS" >"$dpc_tmp" \
-      && [ -z "$dpc_failed" ] && [ -s "$dpc_tmp" ] && mv -f "$dpc_tmp" "$dpc_file"
+      && [ -z "$dpc_failed" ] && [ -s "$dpc_tmp" ] \
+      && deny_path_cache_complete "$dpc_tmp" && mv -f "$dpc_tmp" "$dpc_file"
   } 2>/dev/null; then
     rm -f "$dpc_tmp" 2>/dev/null || :
     return 1

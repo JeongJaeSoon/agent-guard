@@ -104,11 +104,12 @@ check 'another locale does not reuse the C locale files' test "$(cache_files)" -
 # file would lack an entry and rule that entry's commands out. The store
 # function runs alone with a printf that fails on the second regex.
 rm -rf "$STATE"
-sh "$ROOT/tests/helpers/extract-functions.sh" "$GUARD" "$CASE" deny_path_cache_store
+sh "$ROOT/tests/helpers/extract-functions.sh" "$GUARD" "$CASE" deny_path_cache_store deny_path_cache_complete
 printf 'alpha\nbeta\n# end\n' >"$CASE/partial-list"
 mkdir -p "$CASE/store"
 partial_status=$(
   . "$CASE/deny_path_cache_store.sh"
+  . "$CASE/deny_path_cache_complete.sh"
   DENY_READ_PATHS="$CASE/partial-list" AG_STATE_DIR="$CASE/store"
   dpc_file="$CASE/store/published"
   deny_path_command_regex() { echo "$1"; }
@@ -122,6 +123,7 @@ check 'a cache write that fails part way publishes no file' \
 # The same when one entry's regex cannot be produced.
 gen_status=$(
   . "$CASE/deny_path_cache_store.sh"
+  . "$CASE/deny_path_cache_complete.sh"
   DENY_READ_PATHS="$CASE/partial-list" AG_STATE_DIR="$CASE/store"
   dpc_file="$CASE/store/published"
   deny_path_command_regex() { [ "$1" != beta ] || return 1; echo "$1"; }
@@ -131,6 +133,33 @@ gen_status=$(
 check 'a failed regex for one entry is refused' test "$gen_status" = 1
 check 'a failed regex for one entry publishes no file' \
   test "$(ls "$CASE/store" | wc -l | tr -d ' ')" = 0
+# A read error ends the loop like end of file; the entry count catches it.
+read_status=$(
+  . "$CASE/deny_path_cache_store.sh"
+  . "$CASE/deny_path_cache_complete.sh"
+  DENY_READ_PATHS="$CASE/partial-list" AG_STATE_DIR="$CASE/store"
+  dpc_file="$CASE/store/published"
+  deny_path_command_regex() { echo "$1"; }
+  reads=0
+  read() { reads=$((reads + 1)); [ "$reads" -le 1 ] || { dpc_entry=; return 1; }; command read "$@"; }
+  deny_path_cache_store literal
+  echo $?
+)
+check 'a list read that stops early is refused' test "$read_status" = 1
+check 'a list read that stops early publishes no file' \
+  test "$(ls "$CASE/store" | wc -l | tr -d ' ')" = 0
+# Control: the same stubs without the fault publish.
+ok_status=$(
+  . "$CASE/deny_path_cache_store.sh"
+  . "$CASE/deny_path_cache_complete.sh"
+  DENY_READ_PATHS="$CASE/partial-list" AG_STATE_DIR="$CASE/store"
+  dpc_file="$CASE/store/published"
+  deny_path_command_regex() { echo "$1"; }
+  deny_path_cache_store literal
+  echo $?
+)
+check 'a complete list is published' test "$ok_status:$(wc -l <"$CASE/store/published" | tr -d ' ')" = 0:2
+rm -f "$CASE/store/published"
 
 # A tampered line that matches every command only sends the scan down the
 # per-entry loop, which gives its own verdict.
