@@ -9171,7 +9171,7 @@ secretish_env_values() {
     # core, so `values2` and `valuesX` still mask.
     function descriptive_noun(assignment, value, following) {
       if (!prose_context || assignment !~ /:$/) return 0
-      if (following !~ /^[ \t]+[A-Za-z]/) return 0
+      if (following !~ /^[ \t]+[A-Za-z]+([ \t,.;]|$)/) return 0
       return tolower(value) ~ /^(values?|secrets|tokens|keys|passwords|credentials)$/
     }
     # A boolean or null under a secret-bearing key (`api_token: true`) is a

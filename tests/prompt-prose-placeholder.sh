@@ -48,6 +48,8 @@ check 2 "single-quoted descriptive noun as an assignment value" "export API_SECR
 check 2 "descriptive noun ending the line after two plain words" 'INFO auth password: values'
 check 2 "descriptive noun with a Korean particle" 'Think about a secret: values가 start here'
 check 2 "descriptive noun with a trailing quote" "Think about a secret: values' that start here"
+check 2 "descriptive noun followed by an assignment token" 'Think about a secret: values x=1'
+check 2 "descriptive noun followed by a mixed token" 'Think about a secret: values a123'
 check 2 "config line with a descriptive noun at line start" 'password: values'
 check 2 "indented config line with a descriptive noun" '  password: values'
 check 2 "config line with no space after the colon" 'password:values'
