@@ -9166,12 +9166,14 @@ secretish_env_values() {
     # start with`) describes credentials in a sentence. Colon form only: after
     # `=` the same word is a plausible literal value (`API_SECRET=<word>`), and
     # a short common word can be a real password, so a configuration line
-    # (`password: <word>` at line start, indented, in a map or list) must keep
-    # masking: prose_context also requires a sentence before the key. Whole
-    # core, so `values2` and `valuesX` still mask.
+    # (`password: <word>` at line start, indented, in a map or list) and a log
+    # line (`INFO auth password: <word> accepted`) must keep masking. The key
+    # has to follow a determiner and the noun has to be followed by a linking
+    # word (`that`, `are`, `were`) that opens a clause, as a description does.
+    # Exact value, so `values2` and `valuesX` still mask.
     function descriptive_noun(assignment, value, following) {
       if (!prose_context || assignment !~ /:$/) return 0
-      if (following !~ /^[ \t]+[A-Za-z]+([ \t,.;]|$)/) return 0
+      if (tolower(following) !~ /^[ \t]+(that|which|who|whose|are|is|were|was|can|could|may|might|must|should|would|will|start|starts|begin|begins|look|looks|like|appear|appears)([ \t,.;]|$)/) return 0
       return tolower(value) ~ /^(values?|secrets|tokens|keys|passwords|credentials)$/
     }
     # A boolean or null under a secret-bearing key (`api_token: true`) is a
@@ -9669,14 +9671,14 @@ secretish_env_values() {
         # leaving adjacent status text untouched.
         next_rescan_cover_start = 0
         next_rescan_cover_end = 0
-        # Sentence context for descriptive_noun: the key sits mid-line after
-        # at least two plain words (`carry a secret:`), reached through the
-        # whitespace delimiter. A key at line start, indented, after `-`, `{`,
-        # `[` or another assignment is configuration, not a sentence.
+        # Sentence context for descriptive_noun: the key directly follows a
+        # determiner (`carry a secret:`) and was reached through the whitespace
+        # delimiter. A key at line start, indented, after `-`, `{`, `[`, another
+        # assignment or a log word (`INFO auth password:`) is not a sentence.
         prose_prefix = substr(rest, 1, start - 1)
         sub(/^.*[]:={}[]/, "", prose_prefix)
         prose_context = chose_colon && (first == " " || first == "\t") \
-          && prose_prefix ~ /[A-Za-z]+[ \t]+[A-Za-z]+$/
+          && tolower(prose_prefix) ~ /(^|[ \t])(a|an|the|this|that|these|those|each|any|every|no|some|real|literal|raw|plain)$/
         if (!skip &&
             emit_value(rest, start + matched_length,
                        substr(rest, start, matched_length), status_guard)) break

@@ -64,5 +64,35 @@ check 2 "arbitrary phrase in brackets" 'export API_TOKEN=<correct-horse-battery>
 check 2 "bracket phrase ending in another word" 'export API_TOKEN=<acme-pat-extra>'
 check 2 "random value" "export API_TOKEN=$rnd"
 
+# Log lines: a real credential equal to a descriptive noun, followed by a plain
+# word, is not a sentence. Both the prompt guard and output masking must catch
+# it; the same noun inside a descriptive sentence stays allowed.
+postcheck() {
+  expected=$1
+  label=$2
+  text=$3
+  checked=$((checked + 1))
+  jq -nc --arg o "$text" --arg d "$ROOT" \
+    '{tool_name:"Bash",tool_input:{command:"cat app.log"},
+      tool_response:{stdout:$o,stderr:"",interrupted:false},cwd:$d}' \
+    | "$GUARD" hook-post-tool > "$CASE_ROOT/post" 2> "$CASE_ROOT/err"
+  if [ -s "$CASE_ROOT/post" ]; then masked=1; else masked=0; fi
+  if [ "$masked" -eq "$expected" ]; then
+    printf 'ok - output masking %s: %s\n' "$checked" "$label"
+  else
+    printf 'not ok - output masking %s: %s: expected masked=%s got %s\n' "$checked" "$label" "$expected" "$masked"
+    failed=$((failed + 1))
+  fi
+}
+for log_line in \
+  'INFO auth password: values accepted' \
+  'INFO auth token: tokens issued' \
+  '2026-11-08 ok login secret: secrets rotated' \
+  'INFO the password: values accepted'; do
+  check 2 "log line with a descriptive noun value blocks the prompt: $log_line" "$log_line"
+  postcheck 1 "log line with a descriptive noun value is masked: $log_line" "$log_line"
+done
+postcheck 0 "descriptive sentence is not masked" 'Think about inputs that carry a secret: values that start with a dollar sign.'
+
 printf '%s prompt prose checks, %s failed\n' "$checked" "$failed"
 [ "$failed" -eq 0 ]
