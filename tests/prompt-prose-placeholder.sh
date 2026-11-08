@@ -134,6 +134,15 @@ check 2 "numbered item with a lower-case word blocks the prompt" '1) the passwor
 postcheck 1 "numbered item with a lower-case word is masked" '1) the password: values that start here.'
 check 0 "numbered item with a capitalised sentence" '2. Review the patch itself: think about inputs that carry a secret: values that start with a dollar sign.'
 postcheck 0 "numbered item with a capitalised sentence is not masked" '2. Review the patch itself: think about inputs that carry a secret: values that start with a dollar sign.'
+# Generated controls: text after an unterminated quote is scanned again, and the
+# exemption must not apply there, whatever opens the original line.
+for rescan_prefix in '-' '1.' '#' '>' '|'; do
+  for rescan_noun in value values secrets tokens keys passwords credentials; do
+    rescan_line="$rescan_prefix error: password: 'The password: $rescan_noun that start here."
+    check 2 "quoted rescan blocks the prompt: $rescan_line" "$rescan_line"
+    postcheck 1 "quoted rescan is masked: $rescan_line" "$rescan_line"
+  done
+done
 # Accepted residual (owner decision, 2026-11-08, r12): a numbered item that is a
 # capitalised sentence passes.
 check 0 "accepted residual: numbered capitalised sentence" '2. The password: values that start here.'

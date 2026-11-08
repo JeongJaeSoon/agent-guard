@@ -9686,6 +9686,7 @@ secretish_env_values() {
         sub(/[.?!;][ \t].*$/, "", prose_suffix)
         prose_context = chose_colon && (first == " " || first == "\t") \
           && substr(rest, start, matched_length) !~ /["'\''`]/ \
+          && !guard_rescan \
           && (line ~ /^[ \t]*[A-Za-z]/ || line ~ /^[ \t]*[0-9]+[.)][ \t]+[A-Z]/) \
           && tolower(prose_prefix) ~ /(^|[ \t])(a|an|the|this|that|these|those|each|any|every|no|some|real|literal|raw|plain)$/ \
           && (prose_prefix prose_suffix) !~ /[0-9=]/ \
