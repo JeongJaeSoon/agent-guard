@@ -1,8 +1,10 @@
 #!/bin/sh
-# A bare `$name` after a credential key is a variable reference (a jq filter
-# reading `--arg k`, a shell line, a template), like `${name}`. It is not a
-# value, for the prompt guard or for PostToolUse output masking. A `$` value
-# that carries a digit or a second `$` (bcrypt, argon2) stays a value.
+# A bare `$name` after a credential key is a variable reference only inside a
+# brace or parenthesis expression: a jq filter reading `--arg k`
+# (`{private_key:$k}`). There it is not a value, for the prompt guard or for
+# PostToolUse output masking. Anywhere else a letters-only `$name` cannot be
+# told from a password of letters, and a `$` value that carries a digit or a
+# second `$` (bcrypt, argon2) always stays a value.
 #
 # Controls: the hash-shaped values below must still block and still mask. Their
 # tails are random per run, so no literal in this file looks like a credential.
@@ -60,11 +62,20 @@ jq_arg_space='jq -n --arg k '"$q"'$K'"$q"' '\''{kid:"x",private_key: $k}'\'
 # Must pass: a variable reference is not a value.
 prompt 0 "allows a jq --arg reference" "$jq_arg"
 prompt 0 "allows a jq --arg reference with a space" "$jq_arg_space"
-prompt 0 "allows an env assignment from a variable" 'PRIVATE_KEY=$KEY'
-prompt 0 "allows a labelled variable" 'password: $PASSWORD'
+jq_next_key='jq -n --arg k '"$q"'$K'"$q"' '\''{private_key:$k,kid:"x"}'\'
+prompt 0 "allows a reference followed by the next key of the expression" "$jq_next_key"
 post_tool 0 "leaves a jq --arg reference untouched" "$jq_arg"
-post_tool 0 "leaves an env assignment from a variable untouched" 'PRIVATE_KEY=$KEY'
-post_tool 0 "leaves a labelled variable untouched" 'password: $PASSWORD'
+post_tool 0 "leaves a reference followed by the next key untouched" "$jq_next_key"
+
+# Outside a brace or parenthesis expression the name is indistinguishable from
+# a password that happens to be letters, so a line end or a space keeps it a value.
+prompt 2 "blocks a name at the end of an env assignment" 'PRIVATE_KEY=$KEY'
+prompt 2 "blocks a name after a label" 'password: $PASSWORD'
+prompt 2 "blocks random letters after a label" "password: \$$rnd"
+prompt 2 "blocks a name followed by a spaced shell separator" "export PRIVATE_KEY=\$$rnd; echo done"
+prompt 2 "blocks random letters inside an expression with a space after" "{${q}private_key${q}: \$$rnd }"
+post_tool 1 "masks a name at the end of an env assignment" 'PRIVATE_KEY=$KEY'
+post_tool 1 "masks random letters after a label" "password: \$$rnd"
 
 # Must block or mask: the same keys with a hash-shaped value.
 prompt 2 "blocks a bcrypt value" "DB_PASSWORD=$bcrypt"
@@ -78,9 +89,7 @@ prompt 2 "blocks a bcrypt value in JSON" "{${q}private_key${q}:${q}$bcrypt${q}}"
 # part of a value, while a shell separator followed by a space ends a command.
 prompt 2 "blocks a name followed by glued text after a semicolon" "password: \$$rnd;$rnd"
 prompt 2 "blocks a name followed by glued text after a comma" "password: \$$rnd,$rnd"
-prompt 0 "allows a reference followed by a spaced shell separator" "export PRIVATE_KEY=\$$rnd; echo done"
 post_tool 1 "masks a name followed by glued text after a semicolon" "password: \$$rnd;$rnd"
-post_tool 0 "leaves a reference followed by a spaced shell separator untouched" "export PRIVATE_KEY=\$$rnd; echo done"
 post_tool 1 "masks a bcrypt value" "DB_PASSWORD=$bcrypt"
 post_tool 1 "masks an argon2 value" "DB_PASSWORD=$argon"
 post_tool 1 "masks a bcrypt value in JSON" "{${q}private_key${q}:${q}$bcrypt${q}}"

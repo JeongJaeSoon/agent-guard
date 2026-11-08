@@ -202,6 +202,8 @@ and the AWK program stays outside the denominator, so only this function's
 hash was refreshed. This entry records the review, not a new measurement; the
 selected total is unchanged by this entry.
 
-A later review round added one more AWK condition: a `$name` token followed
-directly by `;` or `,` and more text is a value, not a reference. The shell
+A later review round narrowed that condition: a bare `$name` is a reference
+only inside a brace or parenthesis expression (a closer directly after it, or
+a comma and the next key). At a line end, before a space or with glued text it
+stays a value, because it cannot be told from a password of letters. The shell
 lines are unchanged, so only the hash was refreshed again.

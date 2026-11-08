@@ -9378,7 +9378,7 @@ secretish_env_values() {
         return 0
       return 1
     }
-    function looks_like_reference(value, assignment, leading, rest, v, ch) {
+    function looks_like_reference(value, assignment, leading, after, v, ch) {
       # An opener or an embedded quote: call, index, expansion or nested string.
       # An opener only counts past the first character, because a call, an index
       # and an expansion always follow the thing they apply to; a token that
@@ -9410,10 +9410,14 @@ secretish_env_values() {
         return 1
       # A bare `$name` reads a variable, like `${name}`: a jq `--arg` filter,
       # a shell line, a template. A digit or a second `$` (bcrypt, argon2)
-      # keeps the token a value. The token ends at `,` or `;`, so text glued to
-      # it (`$name;tail`) belongs to the value; a separator and a space end a
-      # shell command.
-      if (v ~ /^\$[A-Za-z_]+$/ && rest !~ /^[,;][^ \t]/)
+      # keeps the token a value. A letters-only name is indistinguishable from a
+      # password of letters, so it is a reference only inside a brace or
+      # parenthesis expression: a closer follows it directly (`{key:$k}`), or a
+      # comma and the next key of the expression. A line end, a space or glued
+      # text keeps it a value.
+      if (v ~ /^\$[A-Za-z_]+$/ \
+          && (after ~ /^[^ \t,;]*[})]/ \
+              || after ~ /^,[ \t]*.?[A-Za-z_][A-Za-z0-9_-]*.?[ \t]*:/))
         return 1
       # Dotted identifier chain (`process.env.API_KEY`, `config.apiKey`), and
       # only in a code-shaped assignment: whitespace on both sides of `=`, a
@@ -9594,7 +9598,7 @@ secretish_env_values() {
         value = substr(value, 1, end)
         if (type_annotation(assignment, value, token, substr(raw, length(token) + 1, 1), substr(raw, length(token) + 1))) return 0
         if (member_reference(assignment, value, substr(raw, length(token) + 1, 1))) return 0
-        if (looks_like_reference(value, assignment, leading, substr(raw, length(token) + 1))) return 0
+        if (looks_like_reference(value, assignment, leading, substr(token, length(value) + 1) substr(raw, length(token) + 1))) return 0
         if (version_reference(assignment, value)) return 0
         if (page_cursor(assignment)) return 0
         if (snapshot_handle(assignment, value)) return 0
