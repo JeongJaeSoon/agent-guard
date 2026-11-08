@@ -42,4 +42,7 @@ check 2 "bracket phrase ending in another word" 'export API_TOKEN=<acme-pat-extr
 check 2 "random value" "export API_TOKEN=$rnd"
 
 printf '%s prompt prose checks, %s failed\n' "$checked" "$failed"
+
+# Bare `$name` references share this prompt-guard path; run.sh stays untouched.
+sh "$ROOT/tests/prompt-bare-var-ref.sh" || failed=$((failed + 1))
 [ "$failed" -eq 0 ]
