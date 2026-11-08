@@ -36,6 +36,13 @@ check 0 "plain status word" '- Repo secret: present'
 check 0 "export of a named placeholder" 'export DEPLOY_PAT=<acme-pat>'
 check 0 "named token placeholder" 'export API_TOKEN=<acme-token>'
 
+check 0 "descriptive plural noun after a key in a sentence" 'Think about inputs that carry a secret: values that start with a dollar sign.'
+check 0 "descriptive noun after a token key" 'Report each token: keys that were rotated.'
+
+check 2 "descriptive noun with a random suffix" "Think about inputs that carry a secret: values${rnd} that start with a dollar sign."
+check 2 "descriptive noun with a digit suffix" 'a secret: values2 that start with a dollar sign'
+check 2 "random value after a key in a sentence" "Think about inputs that carry a secret: ${rnd} in a sentence."
+check 2 "descriptive noun does not exempt an env assignment value" "export API_SECRET=values${rnd}"
 check 2 "status word glued to random text" "export API_SECRET=missing$rnd"
 check 2 "arbitrary phrase in brackets" 'export API_TOKEN=<correct-horse-battery>'
 check 2 "bracket phrase ending in another word" 'export API_TOKEN=<acme-pat-extra>'

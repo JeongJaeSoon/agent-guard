@@ -9155,12 +9155,15 @@ secretish_env_values() {
     }
     # A markdown label such as `**Repo secret**: **cannot verify**` has a
     # secret-bearing key and a status word for a value. Whole core only, after
-    # the emphasis marks come off, so `cannot123` still masks.
+    # the emphasis marks come off, so `cannot123` still masks. A plural or
+    # singular noun naming the thing itself (`a secret: values that start
+    # with`) is a description of credentials, not one; no real credential is
+    # the bare word, and `values2`/`valuesX` still mask.
     function prose_status_word(value, v) {
       v = prose_core(value)
       sub(/^[*_]+/, "", v)
       sub(/[*_]+$/, "", v)
-      return v ~ /^(cannot|unknown|missing|present|deleted|n\/a)$/
+      return v ~ /^(cannot|unknown|missing|present|deleted|n\/a|values?|secrets|tokens|keys|passwords|credentials)$/
     }
     # A boolean or null under a secret-bearing key (`api_token: true`) is a
     # config flag, not a credential. Emitting it made the word a global

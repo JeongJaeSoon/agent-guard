@@ -191,3 +191,12 @@ assignment, the nested `case` control and the letter-arm assignment; the
 The selected total becomes 43 and only this function's hash was refreshed. This entry records the review, not a new measurement:
 the Bash 3.2.57 observation above was not repeated, and the CI selected-bash
 check is the evidence that the new locations are observed.
+
+## Hash refresh after the prompt prose noun change (2026-11-08)
+
+The value-side word list inside the `secretish_env_values` AWK program gained
+descriptive nouns, so the manifest rejected the changed body. The function's
+two selected relative locations (lines 2 and 3) are unchanged and the AWK
+text is outside the denominator, so only that function hash was refreshed and
+the selected total stays 43. This entry records the review, not a new
+measurement.
