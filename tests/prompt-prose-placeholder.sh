@@ -113,6 +113,30 @@ for outside_scope in \
   check 2 "outside the accepted noun scope blocks the prompt: $outside_scope" "$outside_scope"
   postcheck 1 "outside the accepted noun scope is masked: $outside_scope" "$outside_scope"
 done
+# Generated controls: the exemption applies to a line only when it starts with
+# a letter, or with a numbered-list marker followed by a capitalised word. Every
+# other line-start marker, in any indentation, keeps the block and the mask.
+tab=$(printf '\t')
+printf '%s\n' '-' '*' '+' '#' '##' '>' '|' '1.' '1)' '"' '`' \
+  "${tab}-" '  -' '    -' '  #' '  >' ' |' "${tab}1." '  1)' \
+  '"note.' '`note.' '- note.' '# note.' '> note.' > "$CASE_ROOT/prefixes"
+printf '%s\n' \
+  'the password: values that start here.' \
+  'a secret: values that start here.' \
+  'each token: keys that were rotated.' > "$CASE_ROOT/keys"
+while IFS= read -r prefix; do
+  while IFS= read -r key; do
+    check 2 "marker line blocks the prompt: $prefix $key" "$prefix $key"
+    postcheck 1 "marker line is masked: $prefix $key" "$prefix $key"
+  done < "$CASE_ROOT/keys"
+done < "$CASE_ROOT/prefixes"
+check 2 "numbered item with a lower-case word blocks the prompt" '1) the password: values that start here.'
+postcheck 1 "numbered item with a lower-case word is masked" '1) the password: values that start here.'
+check 0 "numbered item with a capitalised sentence" '2. Review the patch itself: think about inputs that carry a secret: values that start with a dollar sign.'
+postcheck 0 "numbered item with a capitalised sentence is not masked" '2. Review the patch itself: think about inputs that carry a secret: values that start with a dollar sign.'
+# Accepted residual (owner decision, 2026-11-08, r12): a numbered item that is a
+# capitalised sentence passes.
+check 0 "accepted residual: numbered capitalised sentence" '2. The password: values that start here.'
 # Pinned accepted residual (owner decision, 2026-11-08): a sentence split hides
 # the log header. Changing this result needs a new owner decision.
 check 0 "accepted residual: capitalised message after a lower-case header" 'info auth. The password: values that start here.'
