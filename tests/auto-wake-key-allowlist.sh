@@ -11,7 +11,9 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 GUARD="$ROOT/plugins/agent-guard/bin/agent-guard"
 CASE_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-auto-wake-key.XXXXXX")
 ORIGINAL_PATH=$PATH
-GITLEAKS=${AGENT_GUARD_TEST_REAL_GITLEAKS:-$(command -v gitleaks 2>/dev/null || true)}
+# A host that passes the variable empty means "no real gitleaks": PATH then holds
+# only run.sh's mock, which would turn every must-fail case into a false failure.
+GITLEAKS=${AGENT_GUARD_TEST_REAL_GITLEAKS-$(command -v gitleaks 2>/dev/null || true)}
 pass=0
 fail=0
 
