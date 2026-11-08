@@ -8096,6 +8096,9 @@ run_expect 0 "unreaped completed scanner probes retain their exit status" \
 run_expect 0 "gitleaks readiness cache reuses only a fresh verdict for the same binary" \
   env AGENT_GUARD_TEST_REAL_GITLEAKS="$REAL_GITLEAKS" \
   "$REAL_SH" "$ROOT/tests/gitleaks-probe-cache.sh"
+run_expect 0 "auto-wake dispatch ids under --key are clean while key-shaped values stay found" \
+  env AGENT_GUARD_TEST_REAL_GITLEAKS="$REAL_GITLEAKS" \
+  "$REAL_SH" "$ROOT/tests/auto-wake-key-allowlist.sh"
 run_expect 0 "setup and manifest hook outcome contracts" \
   "$REAL_SH" "$ROOT/tests/hook-outcome-contract.sh"
 
@@ -11949,48 +11952,6 @@ if [ -n "$REAL_GITLEAKS" ]; then
     "$UUIDK_MK --repo id:${UUIDK_ID}abcd"
   uuidk_case 1 "an api key after an id: UUID on one line is still found" \
     "$UUIDK_MK --repo id:$UUIDK_ID $UUIDK_AK=$UUIDK_ID"
-
-  # `orch-dash inbox resolve --key auto-wake:<dispatch id>`: the dispatch id
-  # (`ctx_` plus lowercase hex) sits behind a `key` option and a `:`, which
-  # generic-api-key reads as a labelled secret. Ids are built at run time.
-  # Fixed, not random: a low-entropy id falls under the rule's floor and would
-  # turn every must-fail case below into a silent pass.
-  CTXK_HEX=9f3a7c21d4e6
-  CTXK_ID="ctx_$CTXK_HEX"
-  CTXK_CMD="orch-dash inbox resolve --key auto-wake:"
-  CTXK_OPT=$(printf '%s%s' to ken)
-  uuidk_case 0 "an auto-wake dispatch id under --key is clean" \
-    "$CTXK_CMD$CTXK_ID"
-  uuidk_case 0 "an auto-wake dispatch id under --key is clean before more options" \
-    "$CTXK_CMD$CTXK_ID --json"
-  uuidk_case 0 "an auto-wake dispatch id under --key is clean beside an Orca repo id" \
-    "skills-sync card /b/cards-key.md --repo id:$UUIDK_ID --name fix-some-thing-card; $CTXK_CMD$CTXK_ID"
-  uuidk_case 0 "a kebab-case card name beside a key word is clean" \
-    "skills-sync card /b/cards-key.full.md --name cards-key-fix-some-thing-card"
-  uuidk_case 1 "a dispatch id under another option is still found" \
-    "orch-dash inbox resolve --$CTXK_OPT auto-wake:$CTXK_ID"
-  uuidk_case 1 "a dispatch id assigned to an api key name is still found" \
-    "$UUIDK_AK=$CTXK_ID"
-  uuidk_case 1 "a dispatch id with a trailing character under --key is still found" \
-    "$CTXK_CMD${CTXK_ID}Z"
-  uuidk_case 1 "a dispatch id joined to a double-quoted tail under --key is still found" \
-    "$CTXK_CMD$CTXK_ID\"Z\""
-  uuidk_case 1 "a dispatch id joined to a single-quoted tail under --key is still found" \
-    "$CTXK_CMD$CTXK_ID'Z'"
-  uuidk_case 1 "a dispatch id joined to a carriage-return tail under --key is still found" \
-    "$CTXK_CMD$CTXK_ID$(printf '\r')Z"
-  uuidk_case 1 "a dispatch id joined to a form-feed tail under --key is still found" \
-    "$CTXK_CMD$CTXK_ID$(printf '\f')Z"
-  uuidk_case 0 "an auto-wake dispatch id under --key is clean before a next command" \
-    "$CTXK_CMD$CTXK_ID; echo done"
-  uuidk_case 1 "an uppercase dispatch id under --key is still found" \
-    "$CTXK_CMD$(printf '%s' "$CTXK_ID" | tr 'a-f' 'A-F')"
-  uuidk_case 1 "a non-dispatch value under auto-wake: is still found" \
-    "$CTXK_CMD$CTXK_HEX$CTXK_HEX"
-  uuidk_case 1 "a dispatch id without the auto-wake label is still found" \
-    "orch-dash inbox resolve --key other:$CTXK_ID"
-  uuidk_case 1 "an api key after a dispatch id on one line is still found" \
-    "$CTXK_CMD$CTXK_ID $UUIDK_AK=$UUIDK_ID"
 
   # The commit hook reads staged added lines through gitleaks stdin, not dir.
   UUIDK_REPO="$TMP_ROOT/uuid-key-repo"
