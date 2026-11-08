@@ -9169,10 +9169,10 @@ secretish_env_values() {
     # (`password: <word>` at line start, indented, in a map or list) must keep
     # masking: prose_context also requires a sentence before the key. Whole
     # core, so `values2` and `valuesX` still mask.
-    function descriptive_noun(assignment, value, v) {
+    function descriptive_noun(assignment, value, following) {
       if (!prose_context || assignment !~ /:$/) return 0
-      v = prose_core(value)
-      return v ~ /^(values?|secrets|tokens|keys|passwords|credentials)$/
+      if (following !~ /^[ \t]+[A-Za-z]/) return 0
+      return tolower(value) ~ /^(values?|secrets|tokens|keys|passwords|credentials)$/
     }
     # A boolean or null under a secret-bearing key (`api_token: true`) is a
     # config flag, not a credential. Emitting it made the word a global
@@ -9519,7 +9519,7 @@ secretish_env_values() {
         if (snapshot_handle(assignment, value)) return 0
         if (config_literal(value)) return 0
         if (prose_status_word(value)) return 0
-        if (descriptive_noun(assignment, value)) return 0
+        if (value == token && descriptive_noun(assignment, value, substr(raw, length(token) + 1))) return 0
         if (masked_placeholder(value)) return 0
         if (require_credential && !credential_shaped(edge_trim(value))) return 0
         # Eligibility is based on the complete token. For short values, scope

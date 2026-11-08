@@ -45,6 +45,9 @@ check 2 "descriptive noun with a digit suffix" 'a secret: values2 that start wit
 check 2 "bare descriptive noun as an env assignment value" 'export API_SECRET=values'
 check 2 "quoted descriptive noun as an env assignment value" 'export API_SECRET="values"'
 check 2 "single-quoted descriptive noun as an assignment value" "export API_SECRET='tokens'"
+check 2 "descriptive noun ending the line after two plain words" 'INFO auth password: values'
+check 2 "descriptive noun with a Korean particle" 'Think about a secret: values가 start here'
+check 2 "descriptive noun with a trailing quote" "Think about a secret: values' that start here"
 check 2 "config line with a descriptive noun at line start" 'password: values'
 check 2 "indented config line with a descriptive noun" '  password: values'
 check 2 "config line with no space after the colon" 'password:values'
