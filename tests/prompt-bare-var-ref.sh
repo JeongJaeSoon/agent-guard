@@ -49,7 +49,7 @@ post_tool() { # $1 must-mask(1)/untouched(0), $2 label, $3 stdout text
   if [ "$1" -eq 0 ]; then
     [ "$status" -eq 0 ] && [ ! -s "$CASE/out" ]
   else
-    [ "$status" -eq 0 ] && [ -s "$CASE/out" ] && ! grep -qF -- "$rnd" "$CASE/out"
+    [ "$status" -eq 0 ] && [ -s "$CASE/out" ] && ! grep -qF -- "\$$rnd" "$CASE/out"
   fi
   verdict "post-tool $2" $? "status $status"
 }
@@ -74,6 +74,13 @@ prompt 2 "blocks a letter-digit-dollar value" "DB_PASSWORD=\$k9\$$rnd"
 prompt 2 "blocks a letters-then-dollar value" "DB_PASSWORD=\$argon\$$rnd"
 prompt 2 "blocks a bare dollar value in JSON" "{${q}private_key${q}:\$k9\$$rnd}"
 prompt 2 "blocks a bcrypt value in JSON" "{${q}private_key${q}:${q}$bcrypt${q}}"
+# The token ends at a delimiter, so text glued to the name after `;` or `,` is
+# part of a value, while a shell separator followed by a space ends a command.
+prompt 2 "blocks a name followed by glued text after a semicolon" "password: \$$rnd;$rnd"
+prompt 2 "blocks a name followed by glued text after a comma" "password: \$$rnd,$rnd"
+prompt 0 "allows a reference followed by a spaced shell separator" "export PRIVATE_KEY=\$$rnd; echo done"
+post_tool 1 "masks a name followed by glued text after a semicolon" "password: \$$rnd;$rnd"
+post_tool 0 "leaves a reference followed by a spaced shell separator untouched" "export PRIVATE_KEY=\$$rnd; echo done"
 post_tool 1 "masks a bcrypt value" "DB_PASSWORD=$bcrypt"
 post_tool 1 "masks an argon2 value" "DB_PASSWORD=$argon"
 post_tool 1 "masks a bcrypt value in JSON" "{${q}private_key${q}:${q}$bcrypt${q}}"

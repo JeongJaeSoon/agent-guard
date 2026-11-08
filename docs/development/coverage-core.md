@@ -201,3 +201,7 @@ manifest rejected the changed body. The function's two eligible shell lines
 and the AWK program stays outside the denominator, so only this function's
 hash was refreshed. This entry records the review, not a new measurement; the
 selected total is unchanged by this entry.
+
+A later review round added one more AWK condition: a `$name` token followed
+directly by `;` or `,` and more text is a value, not a reference. The shell
+lines are unchanged, so only the hash was refreshed again.
