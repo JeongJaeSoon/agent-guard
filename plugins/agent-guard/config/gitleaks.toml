@@ -88,6 +88,20 @@ regexes = [
   '''--repo[ \t]+['"]?id:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}[\x60'"\s;]?$'''
 ]
 
+# `orch-dash inbox resolve --key auto-wake:<dispatch id>` names an inbox item
+# by its dispatch id (`ctx_` plus lowercase hex). generic-api-key reads the
+# `key` option, the `auto-wake:` label and the id as a labelled secret. Anchored
+# to the whole match: the `--key` option, the `auto-wake:` label and one
+# lowercase dispatch id, nothing before or after. Another option, another
+# label, an uppercase or longer id, and `api_key=ctx_...` keep their findings.
+[[allowlists]]
+description = "Orca auto-wake inbox keys (--key auto-wake:ctx_<hex>)"
+targetRules = ["generic-api-key"]
+regexTarget = "match"
+regexes = [
+  '''^--key[ \t]+['"]?auto-wake:ctx_[0-9a-f]{6,32}[\x60'"\s;]?$'''
+]
+
 # Directory scans skip these exact lockfile names, then agent-guard rescans
 # their non-checksum content through stdin. This avoids checksum false positives
 # without allowing credentials elsewhere in a lockfile.

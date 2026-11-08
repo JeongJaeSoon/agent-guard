@@ -11947,6 +11947,38 @@ if [ -n "$REAL_GITLEAKS" ]; then
   uuidk_case 1 "an api key after an id: UUID on one line is still found" \
     "$UUIDK_MK --repo id:$UUIDK_ID $UUIDK_AK=$UUIDK_ID"
 
+  # `orch-dash inbox resolve --key auto-wake:<dispatch id>`: the dispatch id
+  # (`ctx_` plus lowercase hex) sits behind a `key` option and a `:`, which
+  # generic-api-key reads as a labelled secret. Ids are built at run time.
+  # Fixed, not random: a low-entropy id falls under the rule's floor and would
+  # turn every must-fail case below into a silent pass.
+  CTXK_HEX=9f3a7c21d4e6
+  CTXK_ID="ctx_$CTXK_HEX"
+  CTXK_CMD="orch-dash inbox resolve --key auto-wake:"
+  CTXK_OPT=$(printf '%s%s' to ken)
+  uuidk_case 0 "an auto-wake dispatch id under --key is clean" \
+    "$CTXK_CMD$CTXK_ID"
+  uuidk_case 0 "an auto-wake dispatch id under --key is clean before more options" \
+    "$CTXK_CMD$CTXK_ID --json"
+  uuidk_case 0 "an auto-wake dispatch id under --key is clean beside an Orca repo id" \
+    "skills-sync card /b/cards-key.md --repo id:$UUIDK_ID --name fix-some-thing-card; $CTXK_CMD$CTXK_ID"
+  uuidk_case 0 "a kebab-case card name beside a key word is clean" \
+    "skills-sync card /b/cards-key.full.md --name cards-key-fix-some-thing-card"
+  uuidk_case 1 "a dispatch id under another option is still found" \
+    "orch-dash inbox resolve --$CTXK_OPT auto-wake:$CTXK_ID"
+  uuidk_case 1 "a dispatch id assigned to an api key name is still found" \
+    "$UUIDK_AK=$CTXK_ID"
+  uuidk_case 1 "a dispatch id with a trailing character under --key is still found" \
+    "$CTXK_CMD${CTXK_ID}Z"
+  uuidk_case 1 "an uppercase dispatch id under --key is still found" \
+    "$CTXK_CMD$(printf '%s' "$CTXK_ID" | tr 'a-f' 'A-F')"
+  uuidk_case 1 "a non-dispatch value under auto-wake: is still found" \
+    "$CTXK_CMD$CTXK_HEX$CTXK_HEX"
+  uuidk_case 1 "a dispatch id without the auto-wake label is still found" \
+    "orch-dash inbox resolve --key other:$CTXK_ID"
+  uuidk_case 1 "an api key after a dispatch id on one line is still found" \
+    "$CTXK_CMD$CTXK_ID $UUIDK_AK=$UUIDK_ID"
+
   # The commit hook reads staged added lines through gitleaks stdin, not dir.
   UUIDK_REPO="$TMP_ROOT/uuid-key-repo"
   mkdir -p "$UUIDK_REPO"
