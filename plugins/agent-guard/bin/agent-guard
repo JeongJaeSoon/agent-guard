@@ -4510,11 +4510,73 @@ bash_shell_expanded_match_is_pinned() {
   printf '%s\n' "$sp_words" | grep -Eq "$sx_out"
 }
 
+# Compiling every entry's regex in shell is most of a Bash hook's CPU, and the
+# result depends only on the deny list, this script and the mode. One combined
+# regex file per mode lets a single grep rule a command out. Only a clean
+# "no match" is trusted: a match, a grep error, or any cache problem runs the
+# per-entry loop below, which names the entry and applies the pin check.
+# The file name carries the identity (device, inode, size, mtime, ctime) of the
+# deny list and of this script, so editing either one misses the cache. The
+# file lives in the private state directory audit_begin validated; without one
+# (diagnostics, AGENT_GUARD_LOG_MODE=off) nothing is cached.
+DENY_PATH_CACHE_ID=
+
+deny_path_cache_file() {
+  [ -n "$AG_STATE_DIR" ] || return 1
+  if [ -z "$DENY_PATH_CACHE_ID" ]; then
+    dpc_nl='
+'
+    case "${AG_OS:-$(uname -s)}" in
+      Darwin) dpc_ids=$(stat -L -f '%d:%i:%z:%Fm:%Fc' "$DENY_READ_PATHS" "$SELF_BIN" 2>/dev/null) || return 1 ;;
+      *) dpc_ids=$(stat -L -c '%d:%i:%s:%y:%z' "$DENY_READ_PATHS" "$SELF_BIN" 2>/dev/null) || return 1 ;;
+    esac
+    dpc_ids="$VERSION:${dpc_ids%%"$dpc_nl"*}:${dpc_ids#*"$dpc_nl"}"
+    # Anything outside this alphabet (a Linux stat date has spaces and a
+    # sign) is not a file name worth trusting.
+    case "$dpc_ids" in *[!0-9A-Za-z.:_+\ -]*) return 1 ;; esac
+    DENY_PATH_CACHE_ID=$dpc_ids
+  fi
+  dpc_file="$AG_STATE_DIR/deny-path-regex-$1-$DENY_PATH_CACHE_ID"
+  [ ! -L "$dpc_file" ] && [ ! -d "$dpc_file" ]
+}
+
+deny_path_cache_store() {
+  dpc_mode=$1
+  dpc_tmp=$(umask 077; mktemp "$dpc_file.XXXXXX" 2>/dev/null) || return 1
+  if ! {
+    while IFS= read -r dpc_entry || [ -n "$dpc_entry" ]; do
+      case "$dpc_entry" in
+        ''|\#*) continue ;;
+      esac
+      dpc_regex=$(deny_path_command_regex "$dpc_entry" "$dpc_mode") || continue
+      printf '%s\n' "$dpc_regex"
+    done <"$DENY_READ_PATHS" >"$dpc_tmp" \
+      && [ -s "$dpc_tmp" ] && mv -f "$dpc_tmp" "$dpc_file"
+  } 2>/dev/null; then
+    rm -f "$dpc_tmp" 2>/dev/null || :
+    return 1
+  fi
+  # Superseded files for other list or script versions.
+  for dpc_old in "$AG_STATE_DIR/deny-path-regex-$dpc_mode-"*; do
+    [ "$dpc_old" = "$dpc_file" ] || [ -d "$dpc_old" ] || rm -f "$dpc_old" 2>/dev/null || :
+  done
+  return 0
+}
+
+# Return 0 only when no deny-list entry can match $1 in mode $2.
+deny_path_cache_rules_out() {
+  deny_path_cache_file "$2" || return 1
+  [ -s "$dpc_file" ] && [ -f "$dpc_file" ] || deny_path_cache_store "$2" || return 1
+  printf '%s\n' "$1" | grep -Eq -f "$dpc_file"
+  [ "$?" -eq 1 ]
+}
+
 # Private variable name; see check_bash_command (#127).
 bash_matches_deny_path_mode() {
   mode_cmd=$1
   mode=$2
   [ -f "$DENY_READ_PATHS" ] || return 1
+  ! deny_path_cache_rules_out "$mode_cmd" "$mode" || return 1
   while IFS= read -r entry || [ -n "$entry" ]; do
     case "$entry" in
       ''|\#*) continue ;;
