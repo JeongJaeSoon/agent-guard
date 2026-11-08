@@ -104,10 +104,18 @@ done
 for outside_scope in \
   '"account the password": values that start here.' \
   'Think about a password: vAlUeS that start here.' \
-  'Think about a password: Values that start here.'; do
+  'Think about a password: Values that start here.' \
+  '- the password: values that start here.' \
+  '  - the password: values that start here.' \
+  '* the password: values that start here.' \
+  '1. the password: values that start here.' \
+  '  2) the password: values that start here.'; do
   check 2 "outside the accepted noun scope blocks the prompt: $outside_scope" "$outside_scope"
   postcheck 1 "outside the accepted noun scope is masked: $outside_scope" "$outside_scope"
 done
+# Pinned accepted residual (owner decision, 2026-11-08): a sentence split hides
+# the log header. Changing this result needs a new owner decision.
+check 0 "accepted residual: capitalised message after a lower-case header" 'info auth. The password: values that start here.'
 postcheck 0 "descriptive sentence is not masked" 'Think about inputs that carry a secret: values that start with a dollar sign.'
 
 printf '%s prompt prose checks, %s failed\n' "$checked" "$failed"
