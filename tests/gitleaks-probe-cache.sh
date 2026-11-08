@@ -152,5 +152,11 @@ else
     test "$(grep -c 8.99.9 "$CASE/out" "$CASE/err" | awk -F: '{s+=$2} END{print s}')" = 0
 fi
 
+# Hosted here, not in run.sh, which is already near ShellCheck's memory limit.
+# The script scans with the real binary, so drop this file's shim override.
+check 'auto-wake dispatch ids under --key are clean while key-shaped values stay found' \
+  env -u AGENT_GUARD_GITLEAKS_BIN AGENT_GUARD_TEST_REAL_GITLEAKS="$REAL_GITLEAKS" \
+  sh "$ROOT/tests/auto-wake-key-allowlist.sh"
+
 printf '1..%s\n' "$((pass + fail))"
 [ "$fail" -eq 0 ]
