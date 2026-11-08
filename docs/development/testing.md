@@ -156,5 +156,5 @@ representatives, equivalence and selected mutation controls. It does not change
 the historical four-suite timing or scoped Bash observation above.
 
 마스킹 처리 단계, 입력 형태별 성능 측정, 프레이밍 및 치환 순서의 회귀 검증은
-`tests/redaction-plan.sh`가 맡는다. 성능 측정은 모든 표본의
+`tests/redaction-plan.sh`가 치환 순서와 출력 예산 계약을 검증한다. 성능 측정은 모든 표본의
 마스킹 결과를 확인하며 기본 CI의 기능 검증을 대체하지 않는다.
