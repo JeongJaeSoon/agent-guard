@@ -11970,6 +11970,10 @@ if [ -n "$REAL_GITLEAKS" ]; then
     "$UUIDK_AK=$CTXK_ID"
   uuidk_case 1 "a dispatch id with a trailing character under --key is still found" \
     "$CTXK_CMD${CTXK_ID}Z"
+  uuidk_case 1 "a dispatch id joined to a double-quoted tail under --key is still found" \
+    "$CTXK_CMD$CTXK_ID\"Z\""
+  uuidk_case 1 "a dispatch id joined to a single-quoted tail under --key is still found" \
+    "$CTXK_CMD$CTXK_ID'Z'"
   uuidk_case 1 "an uppercase dispatch id under --key is still found" \
     "$CTXK_CMD$(printf '%s' "$CTXK_ID" | tr 'a-f' 'A-F')"
   uuidk_case 1 "a non-dispatch value under auto-wake: is still found" \
