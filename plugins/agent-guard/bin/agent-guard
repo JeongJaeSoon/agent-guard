@@ -9174,7 +9174,7 @@ secretish_env_values() {
     function descriptive_noun(assignment, value, following) {
       if (!prose_context || assignment !~ /:$/) return 0
       if (tolower(following) !~ /^[ \t]+(that|which|who|whose|are|is|were|was|can|could|may|might|must|should|would|will|start|starts|begin|begins|look|looks|like|appear|appears)([ \t,.;]|$)/) return 0
-      return tolower(value) ~ /^(values?|secrets|tokens|keys|passwords|credentials)$/
+      return value ~ /^(values?|secrets|tokens|keys|passwords|credentials)$/
     }
     # A boolean or null under a secret-bearing key (`api_token: true`) is a
     # config flag, not a credential. Emitting it made the word a global
@@ -9685,6 +9685,7 @@ secretish_env_values() {
         prose_suffix = substr(rest, start + matched_length)
         sub(/[.?!;][ \t].*$/, "", prose_suffix)
         prose_context = chose_colon && (first == " " || first == "\t") \
+          && substr(rest, start, matched_length) !~ /["'\''`]/ \
           && tolower(prose_prefix) ~ /(^|[ \t])(a|an|the|this|that|these|those|each|any|every|no|some|real|literal|raw|plain)$/ \
           && (prose_prefix prose_suffix) !~ /[0-9=]/ \
           && (prose_prefix prose_suffix) !~ /(^|[^A-Za-z])[A-Z][A-Z]+([^A-Za-z]|$)/

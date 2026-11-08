@@ -101,6 +101,13 @@ for log_line in \
   check 2 "log line with a descriptive noun value blocks the prompt: $log_line" "$log_line"
   postcheck 1 "log line with a descriptive noun value is masked: $log_line" "$log_line"
 done
+for outside_scope in \
+  '"account the password": values that start here.' \
+  'Think about a password: vAlUeS that start here.' \
+  'Think about a password: Values that start here.'; do
+  check 2 "outside the accepted noun scope blocks the prompt: $outside_scope" "$outside_scope"
+  postcheck 1 "outside the accepted noun scope is masked: $outside_scope" "$outside_scope"
+done
 postcheck 0 "descriptive sentence is not masked" 'Think about inputs that carry a secret: values that start with a dollar sign.'
 
 printf '%s prompt prose checks, %s failed\n' "$checked" "$failed"
