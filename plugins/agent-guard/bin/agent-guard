@@ -9165,10 +9165,12 @@ secretish_env_values() {
     # A noun naming the thing itself after a colon (`a secret: values that
     # start with`) describes credentials in a sentence. Colon form only: after
     # `=` the same word is a plausible literal value (`API_SECRET=<word>`), and
-    # a short common word can be a real password. Whole core, so `values2`
-    # and `valuesX` still mask.
+    # a short common word can be a real password, so a configuration line
+    # (`password: <word>` at line start, indented, in a map or list) must keep
+    # masking: prose_context also requires a sentence before the key. Whole
+    # core, so `values2` and `valuesX` still mask.
     function descriptive_noun(assignment, value, v) {
-      if (assignment !~ /:$/) return 0
+      if (!prose_context || assignment !~ /:$/) return 0
       v = prose_core(value)
       return v ~ /^(values?|secrets|tokens|keys|passwords|credentials)$/
     }
@@ -9667,6 +9669,14 @@ secretish_env_values() {
         # leaving adjacent status text untouched.
         next_rescan_cover_start = 0
         next_rescan_cover_end = 0
+        # Sentence context for descriptive_noun: the key sits mid-line after
+        # at least two plain words (`carry a secret:`), reached through the
+        # whitespace delimiter. A key at line start, indented, after `-`, `{`,
+        # `[` or another assignment is configuration, not a sentence.
+        prose_prefix = substr(rest, 1, start - 1)
+        sub(/^.*[]:={}[]/, "", prose_prefix)
+        prose_context = chose_colon && (first == " " || first == "\t") \
+          && prose_prefix ~ /[A-Za-z]+[ \t]+[A-Za-z]+$/
         if (!skip &&
             emit_value(rest, start + matched_length,
                        substr(rest, start, matched_length), status_guard)) break
