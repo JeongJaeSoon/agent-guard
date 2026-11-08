@@ -93,6 +93,33 @@ status_of 'ls -la' >/dev/null
 check 'logging off writes no cache' test "$(cache_files)" -eq 0
 LOG=on
 
+# The regexes depend on the locale, so each locale gets its own file.
+rm -rf "$STATE"
+LC_ALL=C status_of 'ls -la' >/dev/null
+check 'the C locale caches both modes' test "$(cache_files)" -eq 2
+LC_ALL=en_US.UTF-8 status_of 'ls -la' >/dev/null
+check 'another locale does not reuse the C locale files' test "$(cache_files)" -eq 4
+
+# A write that fails part way must not publish the regexes written so far: the
+# file would lack an entry and rule that entry's commands out. The store
+# function runs alone with a printf that fails on the second regex.
+rm -rf "$STATE"
+sh "$ROOT/tests/helpers/extract-functions.sh" "$GUARD" "$CASE" deny_path_cache_store
+printf 'alpha\nbeta\n# end\n' >"$CASE/partial-list"
+mkdir -p "$CASE/store"
+partial_status=$(
+  . "$CASE/deny_path_cache_store.sh"
+  DENY_READ_PATHS="$CASE/partial-list" AG_STATE_DIR="$CASE/store"
+  dpc_file="$CASE/store/published"
+  deny_path_command_regex() { echo "$1"; }
+  printf() { [ "${2-}" != beta ] || return 1; command printf "$@"; }
+  deny_path_cache_store literal
+  echo $?
+)
+check 'a cache write that fails part way is refused' test "$partial_status" = 1
+check 'a cache write that fails part way publishes no file' \
+  test "$(ls "$CASE/store" | wc -l | tr -d ' ')" = 0
+
 # A tampered line that matches every command only sends the scan down the
 # per-entry loop, which gives its own verdict.
 status_of 'ls -la' >/dev/null
@@ -121,8 +148,19 @@ check 'a custom list leaves other names alone' test "$(status_of 'cat other.key'
 first=$(ls "$STATE" | grep '^deny-path-regex-literal-')
 printf 'secretfile.txt\nother.key\n' >"$CASE/deny1.txt"
 check 'an edited list blocks its new entry' test "$(status_of 'cat other.key')" = 2
-second=$(ls "$STATE" | grep '^deny-path-regex-literal-')
-check 'the edit replaced the cache file' test "$first" != "$second" -a "$(cache_files)" -eq 2
+check 'the edit got its own cache file' \
+  test "$(ls "$STATE" | grep -c '^deny-path-regex-literal-')" -eq 2 \
+  -a "$(ls "$STATE" | grep -c "^$first\$")" -eq 1
+# Past six files for one mode, the next write keeps only its own.
+n=0
+while [ "$n" -lt 7 ]; do
+  : >"$STATE/deny-path-regex-literal-old-$n"
+  n=$((n + 1))
+done
+printf 'secretfile.txt\nother.key\nthird.key\n' >"$CASE/deny1.txt"
+check 'a third list version is still enforced' test "$(status_of 'cat third.key')" = 2
+check 'a pile of old cache files is pruned to the current one' \
+  test "$(ls "$STATE" | grep -c '^deny-path-regex-literal-')" -eq 1
 
 # An entry that is not a valid regex fails closed, cold and warm.
 printf 'a\\\n' >"$CASE/deny2.txt"

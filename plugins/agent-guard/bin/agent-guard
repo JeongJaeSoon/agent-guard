@@ -4530,7 +4530,9 @@ deny_path_cache_file() {
       Darwin) dpc_ids=$(stat -L -f '%d:%i:%z:%Fm:%Fc' "$DENY_READ_PATHS" "$SELF_BIN" 2>/dev/null) || return 1 ;;
       *) dpc_ids=$(stat -L -c '%d:%i:%s:%y:%z' "$DENY_READ_PATHS" "$SELF_BIN" 2>/dev/null) || return 1 ;;
     esac
-    dpc_ids="$VERSION:${dpc_ids%%"$dpc_nl"*}:${dpc_ids#*"$dpc_nl"}"
+    # The regex splits a multibyte character differently per locale, so the
+    # locale that built a file is part of its name.
+    dpc_ids="$VERSION:${dpc_ids%%"$dpc_nl"*}:${dpc_ids#*"$dpc_nl"}:L${LC_ALL:-}:${LC_CTYPE:-}:${LANG:-}"
     # Anything outside this alphabet (a Linux stat date has spaces and a
     # sign) is not a file name worth trusting.
     case "$dpc_ids" in *[!0-9A-Za-z.:_+\ -]*) return 1 ;; esac
@@ -4543,23 +4545,32 @@ deny_path_cache_file() {
 deny_path_cache_store() {
   dpc_mode=$1
   dpc_tmp=$(umask 077; mktemp "$dpc_file.XXXXXX" 2>/dev/null) || return 1
+  # A failed write (a full disk) must not publish the regexes written so far:
+  # a file missing an entry would rule that entry's commands out.
+  dpc_failed=
   if ! {
     while IFS= read -r dpc_entry || [ -n "$dpc_entry" ]; do
       case "$dpc_entry" in
         ''|\#*) continue ;;
       esac
       dpc_regex=$(deny_path_command_regex "$dpc_entry" "$dpc_mode") || continue
-      printf '%s\n' "$dpc_regex"
+      printf '%s\n' "$dpc_regex" || { dpc_failed=1; break; }
     done <"$DENY_READ_PATHS" >"$dpc_tmp" \
-      && [ -s "$dpc_tmp" ] && mv -f "$dpc_tmp" "$dpc_file"
+      && [ -z "$dpc_failed" ] && [ -s "$dpc_tmp" ] && mv -f "$dpc_tmp" "$dpc_file"
   } 2>/dev/null; then
     rm -f "$dpc_tmp" 2>/dev/null || :
     return 1
   fi
-  # Superseded files for other list or script versions.
+  # Files of other list, script or locale keys stay until a handful pile up.
+  dpc_count=0
   for dpc_old in "$AG_STATE_DIR/deny-path-regex-$dpc_mode-"*; do
-    [ "$dpc_old" = "$dpc_file" ] || [ -d "$dpc_old" ] || rm -f "$dpc_old" 2>/dev/null || :
+    [ -f "$dpc_old" ] && dpc_count=$((dpc_count + 1))
   done
+  if [ "$dpc_count" -gt 6 ]; then
+    for dpc_old in "$AG_STATE_DIR/deny-path-regex-$dpc_mode-"*; do
+      [ "$dpc_old" = "$dpc_file" ] || [ -d "$dpc_old" ] || rm -f "$dpc_old" 2>/dev/null || :
+    done
+  fi
   return 0
 }
 
