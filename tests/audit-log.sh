@@ -9,6 +9,13 @@ REAL_JQ=$(command -v jq)
 CASE=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-audit.XXXXXX")
 CASE=$(CDPATH= cd -- "$CASE" && pwd -P)
 trap 'rm -rf "$CASE"' 0
+# After a Bash call, hook-post-tool scans the Git work tree around its cwd, so
+# a caller's dirty checkout (an untracked note or leftover fixture) would turn
+# the expected masked outcome into a block. Run every hook from a private
+# directory that Git cannot resolve to an enclosing work tree.
+mkdir "$CASE/cwd"
+cd "$CASE/cwd" || exit 1
+export GIT_CEILING_DIRECTORIES="$CASE"
 export XDG_STATE_HOME="$CASE/state"
 export AGENT_GUARD_LOG_MODE=on
 export AGENT_GUARD_GITLEAKS_BIN="$ROOT/tests/fixtures/mock-gitleaks"
@@ -19,6 +26,8 @@ pass=0; fail=0
 ok() { pass=$((pass + 1)); printf 'ok - %s\n' "$1"; }
 bad() { fail=$((fail + 1)); printf 'not ok - %s\n' "$1"; }
 check() { label=$1; shift; if "$@"; then ok "$label"; else bad "$label"; fi; }
+check 'hooks run outside any Git work tree regardless of the caller cwd' \
+  sh -c '! git rev-parse --is-inside-work-tree >/dev/null 2>&1'
 export_logs() { "$GUARD" logs export >"$CASE/export" 2>"$CASE/export.err"; }
 has_outcome() { jq -es --arg o "$1" 'any(.[]; .phase == "finished" and .outcome == $o)' "$CASE/export" >/dev/null; }
 new_case() { rm -rf "$XDG_STATE_HOME"; }
