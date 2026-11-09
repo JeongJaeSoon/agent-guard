@@ -106,7 +106,10 @@ for log_line in \
   'Nov 08 12:00:01 auth. The password: values was rotated' \
   'received the password: values was rotated. user=alice' \
   'auth api_token: true received the password: values was rotated' \
-  'error: rotation failed. The password: values was rejected'; do
+  'error: rotation failed. The password: values was rejected' \
+  'ALERT auth. The password: passwords was rotated' \
+  'user = alice. The password: passwords was rotated' \
+  'The PASSWORD: passwords was rotated'; do
   check 2 "log line with a descriptive noun value blocks the prompt: $log_line" "$log_line"
   postcheck 1 "log line with a descriptive noun value is masked: $log_line" "$log_line"
 done
@@ -152,7 +155,16 @@ for rescan_prefix in '-' '1.' '#' '>' '|'; do
     postcheck 1 "quoted rescan is masked: $rescan_line" "$rescan_line"
   done
 done
-# Accepted residual (owner decision, 2026-11-08, r12): a numbered item that is a
+# Known limits, pending the owner's decision: a log line that carries none of
+# the line-wide log shapes reads as prose. Pinned so a change to them is seen.
+for known_limit in \
+  'auth service: the password: values was rotated' \
+  'user alice reset the password: values that were issued' \
+  'auth 42 failed. The password: values was rotated'; do
+  check 0 "known limit passes the prompt: $known_limit" "$known_limit"
+  postcheck 0 "known limit is not masked: $known_limit" "$known_limit"
+done
+# Known limit (owner decision, 2026-11-08, r12): a numbered item that is a
 # capitalised sentence passes.
 check 0 "accepted residual: numbered capitalised sentence" '2. The password: values that start here.'
 # The reported prompt line: a commit sha and an acronym on the same line must
