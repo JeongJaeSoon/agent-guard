@@ -203,7 +203,8 @@ hash was refreshed. This entry records the review, not a new measurement; the
 selected total is unchanged by this entry.
 
 A later review round narrowed that condition: a bare `$name` is a reference
-only inside a brace or parenthesis expression (a closer directly after it, or
-a comma and the next key). At a line end, before a space or with glued text it
-stays a value, because it cannot be told from a password of letters. The shell
+only inside a brace or parenthesis expression (an opener before the key is
+still open, and a closer comes directly after it, or a comma and the next key).
+At a line end, before a space, with glued text or after a quote it stays a
+value, because it cannot be told from a password of letters. The shell
 lines are unchanged, so only the hash was refreshed again.

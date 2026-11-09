@@ -74,6 +74,16 @@ prompt 2 "blocks a name after a label" 'password: $PASSWORD'
 prompt 2 "blocks random letters after a label" "password: \$$rnd"
 prompt 2 "blocks a name followed by a spaced shell separator" "export PRIVATE_KEY=\$$rnd; echo done"
 prompt 2 "blocks random letters inside an expression with a space after" "{${q}private_key${q}: \$$rnd }"
+# Text glued to the name keeps it a value: a colon before the closer, or a
+# suffix after the comma that is not a key.
+prompt 2 "blocks a name followed by a colon and a closer" "{password:\$$rnd:}"
+prompt 2 "blocks a name followed by a comma and a non-key suffix" "{password:\$$rnd,/note:stuff}"
+post_tool 1 "masks a name followed by a colon and a closer" "{password:\$$rnd:}"
+post_tool 1 "masks a name followed by a comma and a non-key suffix" "{password:\$$rnd,/note:stuff}"
+# A closer with no opener before the key is not inside an expression.
+prompt 2 "blocks a name followed by a closing paren with no opener" "password: \$$rnd)"
+prompt 2 "blocks a name followed by a closing brace with no opener" "password: \$$rnd}"
+post_tool 1 "masks a name followed by a closing paren with no opener" "password: \$$rnd)"
 # A quote before the closer ends a quoted string, not a variable use.
 prompt 2 "blocks random letters at the end of a quoted string inside parentheses" "(echo 'password: \$$rnd')"
 prompt 2 "blocks random letters at the end of a quoted string inside braces" "{echo 'password: \$$rnd'}"

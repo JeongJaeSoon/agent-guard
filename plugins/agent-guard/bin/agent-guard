@@ -9378,7 +9378,7 @@ secretish_env_values() {
         return 0
       return 1
     }
-    function looks_like_reference(value, assignment, leading, after, v, ch) {
+    function looks_like_reference(value, assignment, leading, after, inside, v, ch) {
       # An opener or an embedded quote: call, index, expansion or nested string.
       # An opener only counts past the first character, because a call, an index
       # and an expansion always follow the thing they apply to; a token that
@@ -9416,9 +9416,9 @@ secretish_env_values() {
       # comma and the next key of the expression. A line end, a space, glued
       # text or a quote before the closer (the end of a quoted string) keeps it
       # a value.
-      if (v ~ /^\$[A-Za-z_]+$/ \
+      if (value ~ /^\$[A-Za-z_]+$/ && inside \
           && (after ~ /^[})]/ \
-              || after ~ /^,[ \t]*.?[A-Za-z_][A-Za-z0-9_-]*.?[ \t]*:/))
+              || after ~ /^,[ \t]*["'\'']?[A-Za-z_][A-Za-z0-9_-]*["'\'']?[ \t]*:/))
         return 1
       # Dotted identifier chain (`process.env.API_KEY`, `config.apiKey`), and
       # only in a code-shaped assignment: whitespace on both sides of `=`, a
@@ -9510,7 +9510,8 @@ secretish_env_values() {
     }
     function emit_value(source, start, assignment, require_credential, \
                         raw, leading, quote, end, \
-                        value, token, trailing, ch) {
+                        value, token, trailing, ch, \
+                        inside, before, opens, closes) {
       next_rescan_cover_start = 0
       next_rescan_cover_end = 0
       raw = substr(source, start)
@@ -9599,7 +9600,18 @@ secretish_env_values() {
         value = substr(value, 1, end)
         if (type_annotation(assignment, value, token, substr(raw, length(token) + 1, 1), substr(raw, length(token) + 1))) return 0
         if (member_reference(assignment, value, substr(raw, length(token) + 1, 1))) return 0
-        if (looks_like_reference(value, assignment, leading, substr(token, length(value) + 1) substr(raw, length(token) + 1))) return 0
+        # Only a bare dollar-name needs to know whether an opener before the key
+        # is still unclosed. `source` may already have dropped an earlier part of
+        # the line, which can only make a reference read as a value.
+        inside = 0
+        if (value ~ /^\$[A-Za-z_]+$/) {
+          before = substr(source, 1, start - 1)
+          opens = gsub(/[{(]/, "", before)
+          before = substr(source, 1, start - 1)
+          closes = gsub(/[})]/, "", before)
+          inside = opens > closes
+        }
+        if (looks_like_reference(value, assignment, leading, substr(token, length(value) + 1) substr(raw, length(token) + 1), inside)) return 0
         if (version_reference(assignment, value)) return 0
         if (page_cursor(assignment)) return 0
         if (snapshot_handle(assignment, value)) return 0
