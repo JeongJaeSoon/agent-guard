@@ -74,6 +74,10 @@ prompt 2 "blocks a name after a label" 'password: $PASSWORD'
 prompt 2 "blocks random letters after a label" "password: \$$rnd"
 prompt 2 "blocks a name followed by a spaced shell separator" "export PRIVATE_KEY=\$$rnd; echo done"
 prompt 2 "blocks random letters inside an expression with a space after" "{${q}private_key${q}: \$$rnd }"
+# A quote before the closer ends a quoted string, not a variable use.
+prompt 2 "blocks random letters at the end of a quoted string inside parentheses" "(echo 'password: \$$rnd')"
+prompt 2 "blocks random letters at the end of a quoted string inside braces" "{echo 'password: \$$rnd'}"
+post_tool 1 "masks random letters at the end of a quoted string inside parentheses" "(echo 'password: \$$rnd')"
 post_tool 1 "masks a name at the end of an env assignment" 'PRIVATE_KEY=$KEY'
 post_tool 1 "masks random letters after a label" "password: \$$rnd"
 

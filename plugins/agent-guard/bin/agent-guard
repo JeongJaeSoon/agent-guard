@@ -9413,10 +9413,11 @@ secretish_env_values() {
       # keeps the token a value. A letters-only name is indistinguishable from a
       # password of letters, so it is a reference only inside a brace or
       # parenthesis expression: a closer follows it directly (`{key:$k}`), or a
-      # comma and the next key of the expression. A line end, a space or glued
-      # text keeps it a value.
+      # comma and the next key of the expression. A line end, a space, glued
+      # text or a quote before the closer (the end of a quoted string) keeps it
+      # a value.
       if (v ~ /^\$[A-Za-z_]+$/ \
-          && (after ~ /^[^ \t,;]*[})]/ \
+          && (after ~ /^[})]/ \
               || after ~ /^,[ \t]*.?[A-Za-z_][A-Za-z0-9_-]*.?[ \t]*:/))
         return 1
       # Dotted identifier chain (`process.env.API_KEY`, `config.apiKey`), and
