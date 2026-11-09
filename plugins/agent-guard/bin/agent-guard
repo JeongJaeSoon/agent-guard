@@ -1007,7 +1007,7 @@ audit_record() {
 # Fixed codes for why an invocation blocked. A host can drop the block reason
 # a hook prints (codex exec shows only "hook: UserPromptSubmit Blocked"), so
 # the metadata log keeps the code. Never a value, path, or rule text.
-AUDIT_REASONS='secret-rule secret-assignment pii infra-failure-closed'
+AUDIT_REASONS='secret-rule secret-assignment pii pii-detector-failure infra-failure-closed'
 
 audit_reason() {
   [ -n "$AG_AUDIT_FILE" ] && [ -n "${AGENT_GUARD_RUNDIR:-}" ] || return 0
@@ -1153,7 +1153,7 @@ audit_export() {
       | select(.outcome | IN("pending", "pass", "blocked", "masked", "degraded", "error", "interrupted", "warned"))
       | select(.exit_code == null or (.exit_code | type == "number" and . >= 0 and . <= 255 and floor == .))
       | select(.duration_seconds | type == "number" and . >= 0 and . <= 9999999999 and floor == .)
-      | select(.reason == null or (.reason | IN("secret-rule", "secret-assignment", "pii", "infra-failure-closed")))
+      | select(.reason == null or (.reason | IN("secret-rule", "secret-assignment", "pii", "pii-detector-failure", "infra-failure-closed")))
       | {schema,run_id,time,version,command,host,phase,outcome,exit_code,duration_seconds,reason}
     ' "$ag_file" 2>/dev/null || :
   done
@@ -2826,10 +2826,15 @@ block_on_pii_text() {
       status=$?
       case "$status" in
         1) return 0 ;;
-        0) info "$PROGRAM: blocked high-sensitivity PII (SSN/credit card/resident reg. no.) in $label" ;;
-        *) info "$PROGRAM: blocked input: Tier-2 PII detector failed (status $status) in $label" ;;
+        0)
+          info "$PROGRAM: blocked high-sensitivity PII (SSN/credit card/resident reg. no.) in $label"
+          audit_reason pii
+          ;;
+        *)
+          info "$PROGRAM: blocked input: Tier-2 PII detector failed (status $status) in $label"
+          audit_reason pii-detector-failure
+          ;;
       esac
-      audit_reason pii
       exit 2
       ;;
   esac

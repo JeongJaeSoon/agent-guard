@@ -46,7 +46,8 @@ identifier.
 `pass` only means the invocation returned without a block; it is not evidence
 that every scanner or host route was clean.
 A record of a blocked call may carry a fixed `reason` code: `secret-rule`,
-`secret-assignment`, `pii`, or `infra-failure-closed`. The code names the check
+`secret-assignment`, `pii`, `pii-detector-failure`, or
+`infra-failure-closed`. The code names the check
 that stopped the call, never the value, path, or rule text.
 
 The default retention target is 1,000 invocations and seven days. Cleanup runs

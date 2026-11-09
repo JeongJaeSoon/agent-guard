@@ -679,6 +679,20 @@ for host in claude codex; do
   check "$host clean prompt records no reason" \
     test "$(reason_of "$host" 'hello there')" = 'pass null'
 done
+# A Tier-2 PII detector that cannot run must not be recorded as a PII match.
+REAL_AWK=$(command -v awk)
+mkdir "$CASE/fail-tier2"
+cat >"$CASE/fail-tier2/awk" <<'EOSH'
+#!/bin/sh
+case "$*" in *CC16_RE=*) exit 5 ;; esac
+exec "${AGENT_GUARD_TEST_REAL_AWK:?}" "$@"
+EOSH
+chmod +x "$CASE/fail-tier2/awk"
+for host in claude codex; do
+  check "$host PII detector failure records its own reason code" \
+    test "$(reason_of "$host" 'hello there' AGENT_GUARD_PII_HOOK_MODE=mask \
+      AGENT_GUARD_TEST_REAL_AWK="$REAL_AWK" PATH="$CASE/fail-tier2:$PATH")" = 'blocked pii-detector-failure'
+done
 reason_of codex 'The password: lantern was set' >/dev/null
 if grep -Fq lantern "$CASE/export"; then
   bad 'reason code never carries the blocked value'
