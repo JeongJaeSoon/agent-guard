@@ -650,5 +650,70 @@ else
   bad 'the replacement is not blocked at the prompt guard'
 fi
 
+# A host may drop the block reason a hook prints (codex exec shows only
+# "hook: UserPromptSubmit Blocked"), so a block keeps a fixed reason code in the
+# metadata log. Synthetic values only; the code never carries the value.
+reason_of() {
+  # $1 host, $2 prompt, remaining: extra environment assignments
+  reason_host=$1
+  reason_prompt=$2
+  shift 2
+  new_case
+  jq -nc --arg p "$reason_prompt" '{session_id:"reason",hook_event_name:"UserPromptSubmit",prompt:$p}' \
+    | env AGENT_GUARD_HOOK_HOST="$reason_host" "$@" "$GUARD" hook-user-prompt \
+      >"$CASE/reason.out" 2>"$CASE/reason.err"
+  printf '%s' "$?" >"$CASE/reason.status"
+  export_logs
+  jq -r 'select(.phase == "finished" and .command == "hook-user-prompt")
+         | "\(.outcome) \(.reason // "null")"' "$CASE/export" | tail -1
+}
+cat >"$CASE/failing-gitleaks" <<'EOSH'
+#!/bin/sh
+case "${1:-}" in version) echo 8.30.1; exit 0 ;; esac
+exit 7
+EOSH
+chmod +x "$CASE/failing-gitleaks"
+for host in claude codex; do
+  check "$host prompt block by assignment records its reason code" \
+    test "$(reason_of "$host" 'The password: lantern was set')" = 'blocked secret-assignment'
+  check "$host prompt block keeps exit 2 and the stderr reason" \
+    sh -c 'test "$(cat "$1")" -eq 2 && grep -Fq "blocked user prompt" "$2"' _ "$CASE/reason.status" "$CASE/reason.err"
+  check "$host prompt block by a scanner rule records its reason code" \
+    test "$(reason_of "$host" 'see AGENT_GUARD_TEST_SECRET')" = 'blocked secret-rule'
+  check "$host prompt block by PII records its reason code" \
+    test "$(reason_of "$host" 'ssn 123-45-6789' AGENT_GUARD_PII_HOOK_MODE=block)" = 'blocked pii'
+  check "$host closed infrastructure failure records its reason code" \
+    test "$(reason_of "$host" 'hello there' AGENT_GUARD_INFRA_FAILURE_MODE=closed \
+      AGENT_GUARD_GITLEAKS_BIN="$CASE/failing-gitleaks")" = 'degraded infra-failure-closed'
+  check "$host clean prompt records no reason" \
+    test "$(reason_of "$host" 'hello there')" = 'pass null'
+done
+# A Tier-2 PII detector that cannot run must not be recorded as a PII match.
+REAL_AWK=$(command -v awk)
+mkdir "$CASE/fail-tier2"
+cat >"$CASE/fail-tier2/awk" <<'EOSH'
+#!/bin/sh
+case "$*" in *CC16_RE=*) exit 5 ;; esac
+exec "${AGENT_GUARD_TEST_REAL_AWK:?}" "$@"
+EOSH
+chmod +x "$CASE/fail-tier2/awk"
+for host in claude codex; do
+  check "$host PII detector failure records its own reason code" \
+    test "$(reason_of "$host" 'hello there' AGENT_GUARD_PII_HOOK_MODE=mask \
+      AGENT_GUARD_TEST_REAL_AWK="$REAL_AWK" PATH="$CASE/fail-tier2:$PATH")" = 'blocked pii-detector-failure'
+done
+reason_of codex 'The password: lantern was set' >/dev/null
+if grep -Fq lantern "$CASE/export"; then
+  bad 'reason code never carries the blocked value'
+else
+  ok 'reason code never carries the blocked value'
+fi
+reason_file=$(ls "$XDG_STATE_HOME"/agent-guard/event-* | head -1)
+sed 's/"reason":"secret-assignment"/"reason":"lantern"/' "$reason_file" >"$CASE/forged"
+cat "$CASE/forged" >"$reason_file"
+export_logs
+check 'export drops a record whose reason is not a known code' \
+  sh -c '! grep -Fq lantern "$1" && ! jq -es "any(.[]; .phase == \"finished\")" "$1" >/dev/null' _ "$CASE/export"
+
 printf '%s audit log checks passed, %s failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

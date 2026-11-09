@@ -1000,8 +1000,23 @@ audit_note() {
 
 audit_record() {
   # Every interpolated string is selected internally, never supplied by a host.
-  printf '{"schema":1,"run_id":"%s","time":%s,"version":"%s","command":"%s","host":"%s","phase":"%s","outcome":"%s","exit_code":%s,"duration_seconds":%s}\n' \
-    "$AG_AUDIT_ID" "$1" "$VERSION" "$AG_AUDIT_COMMAND" "$AG_AUDIT_HOST" "$2" "$3" "$4" "$5"
+  printf '{"schema":1,"run_id":"%s","time":%s,"version":"%s","command":"%s","host":"%s","phase":"%s","outcome":"%s","exit_code":%s,"duration_seconds":%s,"reason":%s}\n' \
+    "$AG_AUDIT_ID" "$1" "$VERSION" "$AG_AUDIT_COMMAND" "$AG_AUDIT_HOST" "$2" "$3" "$4" "$5" "${6:-null}"
+}
+
+# Fixed codes for why an invocation blocked. A host can drop the block reason
+# a hook prints (codex exec shows only "hook: UserPromptSubmit Blocked"), so
+# the metadata log keeps the code. Never a value, path, or rule text.
+AUDIT_REASONS='secret-rule secret-assignment pii pii-detector-failure infra-failure-closed'
+
+audit_reason() {
+  [ -n "$AG_AUDIT_FILE" ] && [ -n "${AGENT_GUARD_RUNDIR:-}" ] || return 0
+  case " $AUDIT_REASONS " in *" $1 "*) ;; *) return 0 ;; esac
+  # The first reason wins: a later infrastructure note must not replace the
+  # verdict that actually decided the block.
+  [ ! -e "$AGENT_GUARD_RUNDIR/audit-reason" ] || return 0
+  (umask 077; printf '%s\n' "$1" >"$AGENT_GUARD_RUNDIR/audit-reason") 2>/dev/null || :
+  return 0
 }
 
 audit_prune() (
@@ -1066,7 +1081,7 @@ audit_begin() {
   AG_AUDIT_ID=${ag_candidate##*/event-}
   if [ -n "$ag_candidate" ] && [ ! -L "$ag_candidate" ] && [ -f "$ag_candidate" ] \
       && [ "$(audit_stat "$ag_candidate")" = "${AG_UID:-$(id -u)}:600" ] \
-      && audit_record "$AG_AUDIT_START" started pending null 0 >>"$ag_candidate"; then
+      && audit_record "$AG_AUDIT_START" started pending null 0 null >>"$ag_candidate"; then
     # A caught signal before this assignment leaves no finish-only event.
     AG_AUDIT_FILE=$ag_candidate
   else
@@ -1098,9 +1113,19 @@ audit_finish() {
     done
   fi
   case "$ag_exit" in 130|143) ag_outcome=interrupted ;; esac
+  ag_reason=null
+  # Recorded only beside a nonzero exit: a closed infrastructure block keeps
+  # its degraded outcome but still names why it stopped the call.
+  if [ "$ag_exit" != 0 ] && [ -n "${AGENT_GUARD_RUNDIR:-}" ] \
+      && [ -f "$AGENT_GUARD_RUNDIR/audit-reason" ]; then
+    IFS= read -r ag_reason_code <"$AGENT_GUARD_RUNDIR/audit-reason" 2>/dev/null || ag_reason_code=
+    case " $AUDIT_REASONS " in
+      *" $ag_reason_code "*) [ -z "$ag_reason_code" ] || ag_reason="\"$ag_reason_code\"" ;;
+    esac
+  fi
   if [ ! -L "$AG_AUDIT_FILE" ] && [ -f "$AG_AUDIT_FILE" ] \
       && [ "$(audit_stat "$AG_AUDIT_FILE")" = "${AG_UID:-$(id -u)}:600" ]; then
-    audit_record "$ag_end" finished "$ag_outcome" "$ag_exit" "$ag_duration" >>"$AG_AUDIT_FILE" 2>/dev/null \
+    audit_record "$ag_end" finished "$ag_outcome" "$ag_exit" "$ag_duration" "$ag_reason" >>"$AG_AUDIT_FILE" 2>/dev/null \
       || printf '%s\n' 'agent-guard: local diagnostic log could not be completed.' >&2
   fi
   return 0
@@ -1128,7 +1153,8 @@ audit_export() {
       | select(.outcome | IN("pending", "pass", "blocked", "masked", "degraded", "error", "interrupted", "warned"))
       | select(.exit_code == null or (.exit_code | type == "number" and . >= 0 and . <= 255 and floor == .))
       | select(.duration_seconds | type == "number" and . >= 0 and . <= 9999999999 and floor == .)
-      | {schema,run_id,time,version,command,host,phase,outcome,exit_code,duration_seconds}
+      | select(.reason == null or (.reason | IN("secret-rule", "secret-assignment", "pii", "pii-detector-failure", "infra-failure-closed")))
+      | {schema,run_id,time,version,command,host,phase,outcome,exit_code,duration_seconds,reason}
     ' "$ag_file" 2>/dev/null || :
   done
 }
@@ -1801,6 +1827,7 @@ begin_infrastructure_failure() {
   # block carries its own reason: a bare exit 2 reaches the host as a denial
   # with no verdict or explanation.
   if [ "$mode" = closed ]; then
+    audit_reason infra-failure-closed
     info "$detail Blocking because AGENT_GUARD_INFRA_FAILURE_MODE=closed."
     exit 2
   fi
@@ -2788,6 +2815,7 @@ block_on_pii_text() {
     block)
       pii_text_has_match "$text" || return 0
       info "$PROGRAM: blocked PII in $label; run agent-guard pii-filter before using this tool"
+      audit_reason pii
       exit 2
       ;;
     mask)
@@ -2798,8 +2826,14 @@ block_on_pii_text() {
       status=$?
       case "$status" in
         1) return 0 ;;
-        0) info "$PROGRAM: blocked high-sensitivity PII (SSN/credit card/resident reg. no.) in $label" ;;
-        *) info "$PROGRAM: blocked input: Tier-2 PII detector failed (status $status) in $label" ;;
+        0)
+          info "$PROGRAM: blocked high-sensitivity PII (SSN/credit card/resident reg. no.) in $label"
+          audit_reason pii
+          ;;
+        *)
+          info "$PROGRAM: blocked input: Tier-2 PII detector failed (status $status) in $label"
+          audit_reason pii-detector-failure
+          ;;
       esac
       exit 2
       ;;
@@ -13416,10 +13450,11 @@ hook_user_prompt() {
   # emit_prompt_response folds both messages into the single allowed object.
   notice=
   found=0
+  found_reason=
   scan_text_direct "user prompt" "$prompt"
   case $? in
     0) ;;
-    1) found=1; found_by='a value matching a gitleaks rule' ;;
+    1) found=1; found_by='a value matching a gitleaks rule'; found_reason=secret-rule ;;
     "$SCAN_STATUS_UNAVAILABLE")
       begin_infrastructure_failure "$input" \
         "$PROGRAM: scanner infrastructure could not verify the prompt;"
@@ -13445,7 +13480,7 @@ hook_user_prompt() {
       prompt_probe_status=0
       prompt_has_secretish_assignment "$prompt" || prompt_probe_status=$?
       case "$prompt_probe_status" in
-        0) found=1; found_by='a secret-like KEY=value or key: value assignment' ;;
+        0) found=1; found_by='a secret-like KEY=value or key: value assignment'; found_reason=secret-assignment ;;
         1) ;;
         *)
           begin_infrastructure_failure "$input" \
@@ -13472,6 +13507,7 @@ hook_user_prompt() {
       return 0
       ;;
   esac
+  audit_reason "$found_reason"
   block_injected_prompt "$input" "$prompt" "$found_by"
   case "$prompt_mode" in
     mask)
