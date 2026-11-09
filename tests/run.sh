@@ -209,6 +209,7 @@ for file in \
   "$ROOT/tests/deny-read-mask-allow.sh" \
   "$ROOT/tests/gitleaks-resolution.sh" \
   "$ROOT/tests/gitleaks-probe-cache.sh" \
+  "$ROOT/tests/deny-path-regex-cache.sh" \
   "$ROOT/tests/run.sh"; do
   run_expect 0 "shell syntax: $file" sh -n "$file"
 done
@@ -2884,6 +2885,8 @@ run_expect 0 "runtime environment objects and jq interpolation leave out no prot
   sh "$ROOT/tests/runtime-global-text.sh"
 run_expect 0 "ORCA_ and CLAUDE_JOB_DIR lookups pass while secret dumps stay blocked" \
   sh "$ROOT/tests/env-lookup-allowlist.sh"
+run_expect 0 "the protected-path regex cache only rules commands out and never changes a verdict" \
+  sh "$ROOT/tests/deny-path-regex-cache.sh"
 run_expect 0 "cat/tee here-document bodies leave out no protected read" \
   sh "$ROOT/tests/heredoc-body-text.sh"
 run_expect 0 "status words and named placeholders are prose, real values still block" \

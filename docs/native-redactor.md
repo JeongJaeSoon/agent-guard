@@ -80,8 +80,8 @@ sh tests/native-suite.sh audit
 The suite wrapper forwards the existing precise-stage fault injection to the
 helper, then lets the failing jq fallback exercise the original fail-closed
 assertion. Other faults still target their original stages. It also requires
-proof that the native helper was invoked. Performance goals and measurements
-are recorded in [the internal experiment goal](rust-experiment-goal.ko.md).
+proof that the native helper was invoked. Earlier performance goals and
+measurements are kept in Git history and the release tags, not in the tree.
 
 ## Before expanding the experiment
 
@@ -163,9 +163,9 @@ snapshot-token compatibility fix, also present in the candidate).
 Raw results go to a new directory and every measured output is verified.
 `assess-packaged.sh` checks the measured identities, enforced limits and the
 10% target improvement / 5% general latency regression criteria. Its result is
-separate from final CI and public-release verification. The [packaged-runtime
-qualification record (Korean)](rust-packaged-validation.ko.md) preserves the
-pre-default measurements separately from the historical experiment.
+separate from final CI and public-release verification. The pre-default
+qualification measurements are kept in the `v3.7.0` release tag, not in the
+tree.
 
 After publication, `public-native-release.yml` checks actual public assets,
 compiler-free fresh installs and updates from v3.6.15 on all four native

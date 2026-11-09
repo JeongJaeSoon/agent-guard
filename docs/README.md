@@ -24,30 +24,21 @@ have separate homes so that completed investigations do not obscure setup help.
 - [Scoped Bash source observations](development/coverage-core.md)
 - [Rust helper, platform support and fallback](native-redactor.md)
 
-## Performance and ongoing work
+## Measurements
 
-- **Packaged Rust rollout:** [qualification and measurements (한국어)](rust-packaged-validation.ko.md),
-  [goal and v4 design review (한국어)](rust-experiment-goal.ko.md).
-- **Earlier opt-in Rust experiment:** [한국어 graph report](rust-performance.ko.html),
-  [goal and completion status](rust-experiment-goal.ko.md),
-  [reproduction instructions](../bench/native/README.md),
-  [raw measurements](../bench/results/rust-experiment/).
-- **Earlier shell work:** [runtime review and tool compatibility fixes
-  (한국어)](reports/runtime-review.ko.md) and
-  [PR #360 masking measurements (한국어)](reports/masking-performance.ko.md).
-
-Measurements describe their recorded source and environment; they are not a
-claim that the current branch passed every platform gate. Release archives use
-the packaged helper with shell fallback; source-only plugins require an explicit
-prebuilt override. Consult the goal document for outstanding work.
+Reproduction instructions for the Rust helper measurements are in
+[bench/native](../bench/native/README.md). Earlier reports, experiment goals and
+raw measurement runs were removed from the tree; they remain in Git history and
+in the release tags (for example `v3.7.1`). Release archives use the packaged
+helper with shell fallback; source-only plugins require an explicit prebuilt
+override.
 
 ## Keeping this directory useful
 
-Update the relevant guide or report instead of creating one document per PR.
-Merge short completed fix notes into their parent report. Remove superseded
-plans when their unique decisions are preserved in the implementation guide or
-final report; Git history retains the earlier discussion. Keep raw evidence in
-`bench/results/`, and retain unresolved goals until their checks finish.
+Update the relevant guide instead of creating one document per PR. Do not
+commit generated reports, raw measurement output, goal or plan notes: write them
+to the ignored `bench/local/` directory, a release asset or a CI artifact.
+Git history retains earlier discussion.
 
-Standalone releases contain the user guides above. This index, developer notes,
-experiment goals and reports are repository documentation.
+Standalone releases contain the user guides above. This index and the developer
+notes are repository documentation.
