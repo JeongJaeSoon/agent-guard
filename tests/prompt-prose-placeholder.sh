@@ -97,7 +97,16 @@ for log_line in \
   'received the password: values was rotated user=alice' \
   'received the password: values was rotated INFO' \
   '2026-11-08 INFO auth. the password: values was rotated' \
-  '2026-11-08 INFO auth; the password: values was rotated'; do
+  '2026-11-08 INFO auth; the password: values was rotated' \
+  '2026-11-08 info auth. Received the password: values was rotated' \
+  'received the password: values was rotated. INFO user=alice 123' \
+  'INFO api_token: true received the password: values was rotated' \
+  'info auth. The password: values that start here.' \
+  'WARN auth. The password: tokens that were issued.' \
+  'Nov 08 12:00:01 auth. The password: values was rotated' \
+  'received the password: values was rotated. user=alice' \
+  'auth api_token: true received the password: values was rotated' \
+  'error: rotation failed. The password: values was rejected'; do
   check 2 "log line with a descriptive noun value blocks the prompt: $log_line" "$log_line"
   postcheck 1 "log line with a descriptive noun value is masked: $log_line" "$log_line"
 done
@@ -146,9 +155,11 @@ done
 # Accepted residual (owner decision, 2026-11-08, r12): a numbered item that is a
 # capitalised sentence passes.
 check 0 "accepted residual: numbered capitalised sentence" '2. The password: values that start here.'
-# Pinned accepted residual (owner decision, 2026-11-08): a sentence split hides
-# the log header. Changing this result needs a new owner decision.
-check 0 "accepted residual: capitalised message after a lower-case header" 'info auth. The password: values that start here.'
+# The reported prompt line: a commit sha and an acronym on the same line must
+# not withdraw the exemption.
+fp_line='2. Review the PR patch itself: `git diff 85a38d451dfba6401722e46de9e1582156408e7a cb05ea165927abe817832bf21b34a88485e06421` (merge-base to old head) — is the change correct and minimal? Think about inputs that look like `$name` but carry a secret: values that start with `$` yet are literal secrets, `$name` glued to other characters.'
+check 0 "reported review prompt line" "$fp_line"
+postcheck 0 "reported review prompt line is not masked" "$fp_line"
 postcheck 0 "descriptive sentence is not masked" 'Think about inputs that carry a secret: values that start with a dollar sign.'
 
 printf '%s prompt prose checks, %s failed\n' "$checked" "$failed"

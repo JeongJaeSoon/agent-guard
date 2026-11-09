@@ -9764,7 +9764,11 @@ secretish_env_values() {
         # digit, `=` or an ALL-CAPS word before or after the key is a log
         # signal (`2026-11-08 INFO auth rotated a password:`), not prose. A
         # sentence starts only after `.?!;` and a capital letter, so a log
-        # header such as `INFO auth. the password:` is not cut away.
+        # header such as `INFO auth. the password:` is not cut away. Sentence
+        # cuts still hide a header or trailer, so log-only shapes anywhere on
+        # the line (a level word, a timestamp, `k=`, a `snake_key:`) withdraw
+        # the exemption too; digits and capitals cannot be line-wide because
+        # a prose line may carry a commit sha or an acronym.
         prose_prefix = substr(rest, 1, start - 1)
         while (match(prose_prefix, /[.?!;][ \t]+[A-Z]/))
           prose_prefix = substr(prose_prefix, RSTART + RLENGTH - 1)
@@ -9776,7 +9780,10 @@ secretish_env_values() {
           && (line ~ /^[ \t]*[A-Za-z]/ || line ~ /^[ \t]*[0-9]+[.)][ \t]+[A-Z]/) \
           && tolower(prose_prefix) ~ /(^|[ \t])(a|an|the|this|that|these|those|each|any|every|no|some|real|literal|raw|plain)$/ \
           && (prose_prefix prose_suffix) !~ /[0-9=]/ \
-          && (prose_prefix prose_suffix) !~ /(^|[^A-Za-z])[A-Z][A-Z]+([^A-Za-z]|$)/
+          && (prose_prefix prose_suffix) !~ /(^|[^A-Za-z])[A-Z][A-Z]+([^A-Za-z]|$)/ \
+          && tolower(line) !~ /(^|[^a-z])(info|warn|warning|error|err|debug|trace|fatal|notice|crit|critical)([^a-z]|$)/ \
+          && line !~ /[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]|[0-9]:[0-9][0-9]:[0-9][0-9]/ \
+          && line !~ /[A-Za-z0-9_]=|[A-Za-z0-9]_[A-Za-z0-9_]*:/
         if (!skip &&
             emit_value(rest, start + matched_length,
                        substr(rest, start, matched_length), status_guard)) break

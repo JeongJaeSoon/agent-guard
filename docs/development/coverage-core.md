@@ -198,5 +198,6 @@ The `secretish_env_values` AWK program gained a colon-only check for
 descriptive nouns, so the manifest rejected the changed body. The function's
 two selected relative locations (lines 2 and 3) are unchanged and the AWK
 text is outside the denominator, so only that function hash was refreshed and
-the selected total stays 43. This entry records the review, not a new
-measurement.
+the selected total stays 43. The 2026-11-09 narrowing (line-wide log signals)
+also changed only that AWK text and refreshed the same hash. This entry
+records the review, not a new measurement.
