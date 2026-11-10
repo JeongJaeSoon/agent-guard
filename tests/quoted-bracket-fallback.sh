@@ -15,7 +15,7 @@ REAL_AWK=$(command -v awk) || exit 1
 mkdir "$CASE_ROOT/bin" || exit 1
 {
   printf '#!/bin/sh\n'
-  printf 'case "$*" in *pyneutral*) exit 2 ;; esac\n'
+  printf 'case "$*" in *pyneutral*) : >"%s/normalizer-ran"; exit 2 ;; esac\n' "$CASE_ROOT"
   printf 'exec %s "$@"\n' "$REAL_AWK"
 } >"$CASE_ROOT/bin/awk"
 chmod +x "$CASE_ROOT/bin/awk"
@@ -38,10 +38,30 @@ check() {
   fi
 }
 
-check 2 "unquoted bracket glob stays blocked when normalization fails" 'cat .e[n]v'
-check 2 "quoted fragments around an unquoted bracket stay blocked" "cat '.e'[n]\"v\""
+# The normalization only runs on a command that has a `[` followed by a quote,
+# so each of these carries one.
+check 2 "unquoted bracket glob stays blocked when normalization fails" "python3 -c 'a[\"x\"]' | cat .e[n]v"
+check 2 "quoted fragments around an unquoted bracket stay blocked" "python3 -c 'a[\"x\"]' | cat '.e'[n]\"v\""
 check 2 "plain dotenv read stays blocked" 'cat .env.local'
 check 0 "an unrelated command still passes" 'ls -la'
+
+# A command with no `[` followed by a quote must not pay for the normalizer:
+# the Bash hook runs on every command, and the extra processes were a measured
+# latency regression in the pre-bash-clean benchmark.
+rm -f "$CASE_ROOT/normalizer-ran"
+for clean in 'ls -la' 'git log --oneline -5 --format="%h %s" | head -3' "grep -n 'foo' src/main.c"; do
+  checked=$((checked + 1))
+  jq -nc --arg c "$clean" --arg w "$CASE_ROOT" \
+    '{tool_name:"Bash",tool_input:{command:$c,workdir:$w}}' \
+    | PATH="$CASE_ROOT/bin:$PATH" "$GUARD" hook-pre-tool > "$CASE_ROOT/out" 2> "$CASE_ROOT/err"
+  if [ -e "$CASE_ROOT/normalizer-ran" ]; then
+    printf 'not ok - bracket fallback %s: normalizer ran for a command without a subscript: %s\n' "$checked" "$clean"
+    failed=$((failed + 1))
+    rm -f "$CASE_ROOT/normalizer-ran"
+  else
+    printf 'ok - bracket fallback %s: no normalizer process for: %s\n' "$checked" "$clean"
+  fi
+done
 
 [ "$failed" -eq 0 ] || exit 1
 printf 'passed: %s\n' "$checked"

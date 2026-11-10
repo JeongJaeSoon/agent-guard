@@ -6344,15 +6344,25 @@ bash_matches_deny_path() {
   bash_matches_deny_path_mode "$deny_cmd" "literal" && return 0
   # Brackets that bash keeps literal are not globs, so both shell-expanded
   # passes read a copy in which they no longer look like bracket expressions.
-  # A failed or empty rewrite scans the original text, never nothing.
-  neutral_cmd=$(shell_neutralize_quoted_brackets_for_policy "$deny_cmd") || neutral_cmd=
-  [ -n "$neutral_cmd" ] || neutral_cmd=$deny_cmd
+  # Only a `[` followed by a quote can be a subscript, so any other command is
+  # scanned as it is and costs no extra process. A failed or empty rewrite
+  # scans the original text, never nothing.
+  neutral_cmd=$deny_cmd
+  case "$deny_cmd" in
+    *'["'*|*"['"*)
+      neutral_cmd=$(shell_neutralize_quoted_brackets_for_policy "$deny_cmd") || neutral_cmd=
+      [ -n "$neutral_cmd" ] || neutral_cmd=$deny_cmd
+      ;;
+  esac
   bash_matches_deny_path_mode "$neutral_cmd" "shell-expanded" && return 0
   dequoted=$(shell_dequote_for_policy "$deny_cmd")
   [ "$dequoted" = "$deny_cmd" ] && return 1
   bash_matches_deny_path_mode "$dequoted" "literal" && return 0
-  dequoted_sx=$(shell_dequote_for_policy "$neutral_cmd") || dequoted_sx=
-  [ -n "$dequoted_sx" ] || dequoted_sx=$dequoted
+  dequoted_sx=$dequoted
+  if [ "$neutral_cmd" != "$deny_cmd" ]; then
+    dequoted_sx=$(shell_dequote_for_policy "$neutral_cmd") || dequoted_sx=
+    [ -n "$dequoted_sx" ] || dequoted_sx=$dequoted
+  fi
   bash_matches_deny_path_mode "$dequoted_sx" "shell-expanded" && return 0
   case "$deny_cmd" in *"\$'"*) ;; *) return 1 ;; esac
   decoded=$(shell_decode_ansi_c_for_policy "$deny_cmd")
