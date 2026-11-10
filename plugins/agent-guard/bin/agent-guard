@@ -4724,11 +4724,23 @@ shell_dequote_for_policy() {
 # quote the command may only continue through pipes: a `;`, `&`, redirection,
 # backtick, $( or a following line could run what the program wrote
 # (python3 -c '...' > code; . ./code), and the dot command is on the list above.
+# Also left alone: a multi-line command (a here-document or function body is
+# not attributable to python), a function definition, alias or PATH assignment
+# (python3 may not be python), and a program that can list a directory or
+# import its way to one (os, pathlib, listdir...), since only such a program
+# can match names against pattern text; one that cannot opens literal names,
+# which the unmodified scan already reads.
 # A `#` that starts a word ends the line for quote tracking, so a comment's
 # apostrophe cannot flip the state for the lines below it.
 shell_neutralize_quoted_brackets_for_policy() {
+  # A second line may be a here-document body or a function body, neither of
+  # which this scan can attribute to python, so such a command is left alone.
+  case "$1" in
+    *'
+'*) printf '%s\n' "$1"; return ;;
+  esac
   if printf '%s\n' "$1" | grep -Eq \
-    '(^|[^[:alnum:]_.-])(sh|bash|zsh|dash|ksh|ash|csh|tcsh|fish|eval|source|xargs|read|mapfile|readarray)([^[:alnum:]_.-]|$)|ssh|system|popen|Popen|subprocess|spawn|exec|child_process|glob|fnmatch|\$\(|`|<\(|>\(|(^|[[:space:];&|(])\.([[:space:]]|$)'; then
+    '(^|[^[:alnum:]_.-])(sh|bash|zsh|dash|ksh|ash|csh|tcsh|fish|eval|source|xargs|read|mapfile|readarray|alias|function|os)([^[:alnum:]_.-]|$)|ssh|system|popen|Popen|subprocess|spawn|exec|child_process|glob|fnmatch|listdir|iterdir|scandir|walk|pathlib|Path|shutil|fileinput|__import__|importlib|compile|getattr|globals|builtins|<<|\$\(|`|<\(|>\(|[A-Za-z_][A-Za-z0-9_]*[[:space:]]*\(\)[[:space:]]*[{(]|(^|[[:space:];&|(])\.([[:space:]]|$)|(^|[[:space:];&|(])PATH='; then
     printf '%s\n' "$1"
     return
   fi

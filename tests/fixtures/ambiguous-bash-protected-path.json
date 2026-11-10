@@ -368,6 +368,38 @@
     "event": {"tool_name": "Bash", "tool_input": {"command": "python3 -c 'import re,pathlib;[print(p.read_text()) for p in pathlib.Path(\".\").iterdir() if re.fullmatch(t\"{\"e[\"\"n\"\"]v.production\"}\".interpolations[0].value,p.name)]'"}}
   },
   {
+    "id": "shell-function-overrides-python",
+    "expected_status": 2,
+    "expected_reason": "bash_protected_path_text_match",
+    "classification": "true-positive",
+    "description": "a shell function can redefine python3, so the quoted argument is not python code",
+    "event": {"tool_name": "Bash", "tool_input": {"command": "python3() { perl -e 'opendir(D,\".\");for(readdir(D)){if(/$ARGV[0]/){open(F,\"<\",$_);print <F>}}' \"$2\"; }; python3 -c 'e[\"n\"]v.production'"}}
+  },
+  {
+    "id": "path-assignment-replaces-python",
+    "expected_status": 2,
+    "expected_reason": "bash_protected_path_text_match",
+    "classification": "true-positive",
+    "description": "a PATH assignment can make python3 any program, so the quoted argument is not python code",
+    "event": {"tool_name": "Bash", "tool_input": {"command": "PATH=./bin:$PATH python3 -c 'e[\"n\"]v.production'"}}
+  },
+  {
+    "id": "heredoc-body-hides-python-prefix",
+    "expected_status": 2,
+    "expected_reason": "bash_protected_path_text_match",
+    "classification": "true-positive",
+    "description": "a here-document body is another program's input, so a python prefix inside it proves nothing",
+    "event": {"tool_name": "Bash", "tool_input": {"command": "perl <<'EOF'\n$p=q{;python3 -c 'e[\"n\"]v.production'}\nEOF"}}
+  },
+  {
+    "id": "python-directory-listing-with-pattern-text",
+    "expected_status": 2,
+    "expected_reason": "bash_protected_path_text_match",
+    "classification": "true-positive",
+    "description": "a python program that lists a directory can match names against pattern text, so its brackets stay",
+    "event": {"tool_name": "Bash", "tool_input": {"command": "python3 -c 'import os;[print(x) for x in os.listdir(\".\") if x==e[\"n\"]v.production]'"}}
+  },
+  {
     "id": "env-assignment-before-python-subscripts",
     "expected_status": 0,
     "classification": "safe-control",
