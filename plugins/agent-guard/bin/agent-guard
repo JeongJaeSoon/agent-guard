@@ -4702,8 +4702,10 @@ shell_dequote_for_policy() {
 # otherwise read as the bracket glob a[x][y] in the shell-expanded passes; the
 # raw text reads `["x"]` as a bracket expression too. Only a '...' quote that is
 # the program argument of python -c (the text just before it ends in that
-# option) can hold a subscript: other quoted text may be a pattern that find, a
-# shell run through `. /dev/stdin`, or rg expands itself. Inside such a program
+# option, and python itself is in command position, after at most NAME=value
+# assignments) can hold a subscript: other quoted text may be a pattern that
+# find, a shell run through `. /dev/stdin`, rg, or another interpreter that
+# only received `python3 -c` as arguments expands itself. Inside such a program
 # the Python strings are followed (", """, backslash escapes), and only a `[`
 # followed by a quote that sits outside every Python string opens a subscript;
 # the next `]` outside a string closes it. A `[` inside a string literal is
@@ -4743,8 +4745,8 @@ shell_neutralize_quoted_brackets_for_policy() {
         if (ps == 0) {
           if (ch == "#") return s
           if (ch == "\"") {
-            # An f-string may nest quotes (Python 3.12), which this scan cannot follow.
-            if (substr(s, (j > 2 ? j - 2 : 1), (j > 2 ? 2 : j - 1)) ~ /[fF]$|[fF][rR]$/) return s
+            # An f-string or t-string may nest quotes (Python 3.12, 3.14), which this scan cannot follow.
+            if (substr(s, (j > 2 ? j - 2 : 1), (j > 2 ? 2 : j - 1)) ~ /[fFtT]$|[fFtT][rR]$/) return s
             if (substr(s, j, 3) == "\"\"\"") { ps = 3; res2 = res2 "\"\"\""; j += 2; continue }
             ps = 1
           } else if (ch == "[" && substr(s, j + 1, 1) == "\"") { sub2 = 1; ch = "\001" }
@@ -4770,7 +4772,7 @@ shell_neutralize_quoted_brackets_for_policy() {
             out = out substr($0, i); break
           }
           if (c == "$" && nx == "\047") { out = out "$\047"; i++; st = 3; continue }
-          if (c == "\047" && out ~ /(^|[ \t;&|(])python[0-9.]*([ \t]+-[A-Za-z]+)*[ \t]+-c[ \t]+$/) {
+          if (c == "\047" && out ~ /(^|[;&|(])[ \t]*([A-Za-z_][A-Za-z0-9_]*=[^ \t]*[ \t]+)*python[0-9.]*([ \t]+-[A-Za-z]+)*[ \t]+-c[ \t]+$/) {
             e = index(substr($0, i + 1), "\047")
             if (e > 0) {
               out = out "\047" pyneutral(substr($0, i + 1, e - 1)) "\047"

@@ -352,6 +352,29 @@
     "event": {"tool_name": "Bash", "tool_input": {"command": "python3 -c 'import re,pathlib;[print(p.read_text()) for p in pathlib.Path(\".\").iterdir() if re.fullmatch(f\"{\"e[\"\"n\"\"]v.production\"}\",p.name)]'"}}
   },
   {
+    "id": "python-as-operand-of-another-interpreter",
+    "expected_status": 2,
+    "expected_reason": "bash_protected_path_text_match",
+    "classification": "true-positive",
+    "description": "python3 -c as an argument of perl is not a python program, so its brackets stay pattern text",
+    "event": {"tool_name": "Bash", "tool_input": {"command": "perl -e 'opendir(D,\".\");for(readdir(D)){if(/$ARGV[2]/){open(F,\"<\",$_);print <F>}}' python3 -c 'e[\"n\"]v.production'"}}
+  },
+  {
+    "id": "python-template-string-nested-quotes-class",
+    "expected_status": 2,
+    "expected_reason": "bash_protected_path_text_match",
+    "classification": "true-positive",
+    "description": "a t-string nests quotes like an f-string, so its brackets stay pattern text",
+    "event": {"tool_name": "Bash", "tool_input": {"command": "python3 -c 'import re,pathlib;[print(p.read_text()) for p in pathlib.Path(\".\").iterdir() if re.fullmatch(t\"{\"e[\"\"n\"\"]v.production\"}\".interpolations[0].value,p.name)]'"}}
+  },
+  {
+    "id": "env-assignment-before-python-subscripts",
+    "expected_status": 0,
+    "classification": "safe-control",
+    "description": "an environment assignment before python3 -c still leaves it in command position",
+    "event": {"tool_name": "Bash", "tool_input": {"command": "PYTHONUTF8=1 python3 -c 'x(\"a\")[\"result\"][\"snapshot\"][\"treeText\"].splitlines()'"}}
+  },
+  {
     "id": "python-output-piped-to-dot-command",
     "expected_status": 2,
     "expected_reason": "bash_protected_path_text_match",
