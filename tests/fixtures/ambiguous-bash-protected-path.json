@@ -170,5 +170,121 @@
     "classification": "safe-control",
     "description": "structured Grep keeps a search pattern distinct from its path",
     "event": {"tool_name": "Grep", "tool_input": {"pattern": "process\\.env\\.PORT", "path": "src"}}
+  },
+  {
+    "id": "quoted-python-subscripts-piped-state",
+    "expected_status": 0,
+    "classification": "safe-control",
+    "description": "python subscripts inside single quotes are not shell globs (GUI app-state pipe)",
+    "event": {"tool_name": "Bash", "tool_input": {"command": "orca computer get-app-state --app com.anthropic.claudefordesktop --no-screenshot --json | python3 -c 'import json,sys;t=json.load(sys.stdin)[\"result\"][\"snapshot\"][\"treeText\"].splitlines();import re;[print(l) for l in t if re.search(r\"^\\s*(3[2-9]\\d|4[0-6]\\d)\\s\",l)]' | grep -v \"텍스트, Value\" | head -60"}}
+  },
+  {
+    "id": "quoted-python-subscripts-state-file",
+    "expected_status": 0,
+    "classification": "safe-control",
+    "description": "python subscripts inside single quotes are not shell globs (state file read)",
+    "event": {"tool_name": "Bash", "tool_input": {"command": "orca computer get-app-state --app com.anthropic.claudefordesktop --no-screenshot --json > st.json && python3 -c 'import json;t=json.load(open(\"st.json\"))[\"result\"][\"snapshot\"][\"treeText\"].splitlines();print(\"\\n\".join(l for l in t[-80:] if \"Value\" not in l))'"}}
+  },
+  {
+    "id": "quoted-python-subscripts-minimal-word",
+    "expected_status": 0,
+    "classification": "safe-control",
+    "description": "the smallest word that used to trip env.* through quoted subscripts stays allowed inside its single quotes",
+    "event": {"tool_name": "Bash", "tool_input": {"command": "python3 -c 'json;t=json.load(open(\"st.json\"))[\"result\"][\"snapshot\"][\"treeText\"].splitlines();print(\"\\n\".join(l'"}}
+  },
+  {
+    "id": "quoted-python-subscripts-generic",
+    "expected_status": 0,
+    "classification": "safe-control",
+    "description": "chained quoted subscripts in a single-quoted python program stay allowed",
+    "event": {"tool_name": "Bash", "tool_input": {"command": "python3 -c 'x(\"a\")[\"result\"][\"snapshot\"][\"treeText\"].splitlines();print(\"\\n\".join(l))'"}}
+  },
+  {
+    "id": "quoted-subscripts-with-real-env-operand",
+    "expected_status": 2,
+    "expected_reason": "bash_protected_path_text_match",
+    "classification": "true-positive",
+    "description": "quoted python subscripts do not hide a real .env operand on the same command",
+    "event": {"tool_name": "Bash", "tool_input": {"command": "python3 -c 'print(a[\"result\"][\"snapshot\"][\"treeText\"].splitlines())' .env"}}
+  },
+  {
+    "id": "plain-dotenv-cat",
+    "expected_status": 2,
+    "expected_reason": "bash_protected_path_text_match",
+    "classification": "true-positive",
+    "description": "reading a dotenv file directly stays blocked",
+    "event": {"tool_name": "Bash", "tool_input": {"command": "cat .env"}}
+  },
+  {
+    "id": "dotenv-local-cat",
+    "expected_status": 2,
+    "expected_reason": "bash_protected_path_text_match",
+    "classification": "true-positive",
+    "description": "reading .env.local stays blocked",
+    "event": {"tool_name": "Bash", "tool_input": {"command": "cat .env.local"}}
+  },
+  {
+    "id": "env-star-entry-operand",
+    "expected_status": 2,
+    "expected_reason": "bash_protected_path_text_match",
+    "classification": "true-positive",
+    "description": "a file operand that matches the env.* entry stays blocked",
+    "event": {"tool_name": "Bash", "tool_input": {"command": "cat env.production"}}
+  },
+  {
+    "id": "unquoted-bracket-glob-env-operand",
+    "expected_status": 2,
+    "expected_reason": "bash_protected_path_text_match",
+    "classification": "true-positive",
+    "description": "an unquoted bracket glob that names an env file stays blocked",
+    "event": {"tool_name": "Bash", "tool_input": {"command": "cat e[n]v.production"}}
+  },
+  {
+    "id": "double-quoted-protected-path",
+    "expected_status": 2,
+    "expected_reason": "bash_protected_path_text_match",
+    "classification": "true-positive",
+    "description": "a double-quoted protected path stays blocked",
+    "event": {"tool_name": "Bash", "tool_input": {"command": "cat \".env.local\""}}
+  },
+  {
+    "id": "single-quoted-protected-path",
+    "expected_status": 2,
+    "expected_reason": "bash_protected_path_text_match",
+    "classification": "true-positive",
+    "description": "a single-quoted protected path stays blocked",
+    "event": {"tool_name": "Bash", "tool_input": {"command": "cat '.env.local'"}}
+  },
+  {
+    "id": "quoted-fragments-around-unquoted-bracket",
+    "expected_status": 2,
+    "expected_reason": "bash_protected_path_text_match",
+    "classification": "true-positive",
+    "description": "quoted fragments around an unquoted bracket still spell a glob onto an env file",
+    "event": {"tool_name": "Bash", "tool_input": {"command": "cat '.e'[n]\"v\""}}
+  },
+  {
+    "id": "unquoted-quoted-content-bracket-glob",
+    "expected_status": 2,
+    "expected_reason": "bash_protected_path_text_match",
+    "classification": "true-positive",
+    "description": "an unquoted bracket whose members are quoted is still a glob onto an env file",
+    "event": {"tool_name": "Bash", "tool_input": {"command": "cat e[\"n\"]v.production"}}
+  },
+  {
+    "id": "shell-c-quoted-subscript-glob",
+    "expected_status": 2,
+    "expected_reason": "bash_protected_path_text_match",
+    "classification": "true-positive",
+    "description": "a quoted subscript handed to bash -c is a glob in the inner shell",
+    "event": {"tool_name": "Bash", "tool_input": {"command": "bash -c 'cat e[\"n\"]v.production'"}}
+  },
+  {
+    "id": "quoted-subscripts-before-unquoted-bracket-glob",
+    "expected_status": 2,
+    "expected_reason": "bash_protected_path_text_match",
+    "classification": "true-positive",
+    "description": "quoted brackets earlier in the command do not hide a later unquoted bracket glob",
+    "event": {"tool_name": "Bash", "tool_input": {"command": "echo '[\"a\"]' ; cat .e[n]\"v\""}}
   }
 ]
