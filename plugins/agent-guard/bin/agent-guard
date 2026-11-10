@@ -4714,16 +4714,24 @@ shell_dequote_for_policy() {
 # glob/fnmatch): python3 -c 'glob.glob("""e["n"]v""")' reads a real glob. The
 # same goes for a command that turns the program's output into shell words
 # ($(...), backticks, <(...), read): cat $(python3 -c 'print("""e["n"]v""")')
-# lets the shell expand what the program printed.
+# lets the shell expand what the program printed. After the program's closing
+# quote the command may only continue through pipes: a `;`, `&`, redirection,
+# backtick, $( or a following line could run what the program wrote
+# (python3 -c '...' > code; . ./code), and the dot command is on the list above.
 # A `#` that starts a word ends the line for quote tracking, so a comment's
 # apostrophe cannot flip the state for the lines below it.
 shell_neutralize_quoted_brackets_for_policy() {
   if printf '%s\n' "$1" | grep -Eq \
-    '(^|[^[:alnum:]_.-])(sh|bash|zsh|dash|ksh|ash|csh|tcsh|fish|eval|source|xargs|read|mapfile|readarray)([^[:alnum:]_.-]|$)|ssh|system|popen|Popen|subprocess|spawn|exec|child_process|glob|fnmatch|\$\(|`|<\(|>\('; then
+    '(^|[^[:alnum:]_.-])(sh|bash|zsh|dash|ksh|ash|csh|tcsh|fish|eval|source|xargs|read|mapfile|readarray)([^[:alnum:]_.-]|$)|ssh|system|popen|Popen|subprocess|spawn|exec|child_process|glob|fnmatch|\$\(|`|<\(|>\(|(^|[[:space:];&|(])\.([[:space:]]|$)'; then
     printf '%s\n' "$1"
     return
   fi
   printf '%s\n' "$1" | LC_ALL=C awk '
+    function closed(l, p,   r) {
+      r = substr(l, p + 1)
+      if (r ~ /[;&<>`]/ || r ~ /\$\(/) bail = 1
+      lastclose = NR
+    }
     {
       orig[NR] = $0
       out = ""
@@ -4745,7 +4753,7 @@ shell_neutralize_quoted_brackets_for_policy() {
           continue
         }
         if (st == 1) {
-          if (c == "\047") { st = 0; sub1 = 0 }
+          if (c == "\047") { if (prog) closed($0, i); prog = 0; st = 0; sub1 = 0 }
           else if (prog && c == "[" && nx == "\"") { sub1 = 1; c = "\001" }
           else if (c == "]" && sub1) { sub1 = 0; c = "\001" }
           out = out c
@@ -4754,7 +4762,7 @@ shell_neutralize_quoted_brackets_for_policy() {
         if (st == 2) {
           if (c == "\\") { out = out c nx; i++; continue }
           if (c == "`" || (c == "$" && nx == "(")) bail = 1
-          if (c == "\"") { st = 0; sub1 = 0 }
+          if (c == "\"") { if (prog) closed($0, i); prog = 0; st = 0; sub1 = 0 }
           else if (prog && c == "[" && (nx == "\047" || substr($0, i + 1, 2) == "\\\"")) { sub1 = 1; c = "\001" }
           else if (c == "]" && sub1) { sub1 = 0; c = "\001" }
           out = out c
@@ -4767,7 +4775,7 @@ shell_neutralize_quoted_brackets_for_policy() {
       res[NR] = out
     }
     END {
-      keep = (st != 0 || bail)
+      keep = (st != 0 || bail || (lastclose && lastclose < NR))
       for (k = 1; k <= NR; k++) print keep ? orig[k] : res[k]
     }
   '
