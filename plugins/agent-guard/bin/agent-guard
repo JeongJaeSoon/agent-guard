@@ -4700,13 +4700,17 @@ shell_dequote_for_policy() {
 # Replace the brackets of a quoted subscript with \001. shell_dequote_for_policy
 # drops the quotes, so a program such as python3 -c 'a["x"]["y"]' would
 # otherwise read as the bracket glob a[x][y] in the shell-expanded passes; the
-# raw text reads `["x"]` as a bracket expression too. Only a quote that is the
-# program argument of python -c or node -e (the text just before it ends in
-# that option) can hold a subscript: other quoted text may be a pattern that
-# find, a shell run through `. /dev/stdin`, or rg expands itself. Inside such a
-# program, a `[` followed by a quote opens a subscript, and only the next `]`
-# closes it: `[^ ]` in a quoted regex keeps its brackets, and so does every
-# bracket outside quotes (a glob such as .e[n]"v").
+# raw text reads `["x"]` as a bracket expression too. Only a '...' quote that is
+# the program argument of python -c (the text just before it ends in that
+# option) can hold a subscript: other quoted text may be a pattern that find, a
+# shell run through `. /dev/stdin`, or rg expands itself. Inside such a program
+# the Python strings are followed (", """, backslash escapes), and only a `[`
+# followed by a quote that sits outside every Python string opens a subscript;
+# the next `]` outside a string closes it. A `[` inside a string literal is
+# pattern text (re.fullmatch("""e["n"]v""", name)) and keeps its brackets, as
+# does `[^ ]` in a quoted regex and every bracket outside quotes (a glob such
+# as .e[n]"v"). A program with a `#` outside a string, or a string that does
+# not close, is left alone.
 # The text comes back unchanged, so every bracket is read, when the quote state
 # cannot be followed to the end (an unterminated quote, or $( or a backtick
 # inside double quotes), or when the command could expand a pattern from inside
@@ -4732,6 +4736,25 @@ shell_neutralize_quoted_brackets_for_policy() {
       if (r ~ /[;&<>`]/ || r ~ /\$\(/) bail = 1
       lastclose = NR
     }
+    function pyneutral(s,   j, m, ch, ps, sub2, res2) {
+      m = length(s); ps = 0; sub2 = 0; res2 = ""
+      for (j = 1; j <= m; j++) {
+        ch = substr(s, j, 1)
+        if (ps == 0) {
+          if (ch == "#") return s
+          if (ch == "\"") {
+            if (substr(s, j, 3) == "\"\"\"") { ps = 3; res2 = res2 "\"\"\""; j += 2; continue }
+            ps = 1
+          } else if (ch == "[" && substr(s, j + 1, 1) == "\"") { sub2 = 1; ch = "\001" }
+          else if (ch == "]" && sub2) { sub2 = 0; ch = "\001" }
+        } else if (ch == "\\") {
+          res2 = res2 ch substr(s, j + 1, 1); j++; continue
+        } else if (ps == 1 && ch == "\"") ps = 0
+        else if (ps == 3 && substr(s, j, 3) == "\"\"\"") { ps = 0; res2 = res2 "\"\"\""; j += 2; continue }
+        res2 = res2 ch
+      }
+      return (ps == 0 && !sub2) ? res2 : s
+    }
     {
       orig[NR] = $0
       out = ""
@@ -4745,26 +4768,29 @@ shell_neutralize_quoted_brackets_for_policy() {
             out = out substr($0, i); break
           }
           if (c == "$" && nx == "\047") { out = out "$\047"; i++; st = 3; continue }
-          if (c == "\047" || c == "\"") {
-            prog = (out ~ /(^|[ \t;&|(])(python[0-9.]*|node|nodejs)([ \t]+-[A-Za-z]+)*[ \t]+-[ce][ \t]+$/)
-            st = (c == "\047") ? 1 : 2
+          if (c == "\047" && out ~ /(^|[ \t;&|(])python[0-9.]*([ \t]+-[A-Za-z]+)*[ \t]+-c[ \t]+$/) {
+            e = index(substr($0, i + 1), "\047")
+            if (e > 0) {
+              out = out "\047" pyneutral(substr($0, i + 1, e - 1)) "\047"
+              i += e
+              closed($0, i)
+              continue
+            }
           }
+          if (c == "\047") st = 1
+          else if (c == "\"") st = 2
           out = out c
           continue
         }
         if (st == 1) {
-          if (c == "\047") { if (prog) closed($0, i); prog = 0; st = 0; sub1 = 0 }
-          else if (prog && c == "[" && nx == "\"") { sub1 = 1; c = "\001" }
-          else if (c == "]" && sub1) { sub1 = 0; c = "\001" }
+          if (c == "\047") st = 0
           out = out c
           continue
         }
         if (st == 2) {
           if (c == "\\") { out = out c nx; i++; continue }
           if (c == "`" || (c == "$" && nx == "(")) bail = 1
-          if (c == "\"") { if (prog) closed($0, i); prog = 0; st = 0; sub1 = 0 }
-          else if (prog && c == "[" && (nx == "\047" || substr($0, i + 1, 2) == "\\\"")) { sub1 = 1; c = "\001" }
-          else if (c == "]" && sub1) { sub1 = 0; c = "\001" }
+          if (c == "\"") st = 0
           out = out c
           continue
         }

@@ -336,6 +336,14 @@
     "event": {"tool_name": "Bash", "tool_input": {"command": "python3 -c 'print(\"\"\"cat e[\"n\"]v.production\"\"\")' > code; chmod +x code; ./code"}}
   },
   {
+    "id": "python-regex-string-with-quoted-class",
+    "expected_status": 2,
+    "expected_reason": "bash_protected_path_text_match",
+    "classification": "true-positive",
+    "description": "a bracket inside a python string literal is pattern text, not a subscript",
+    "event": {"tool_name": "Bash", "tool_input": {"command": "python3 -c 'import re,pathlib;[print(p.read_text()) for p in pathlib.Path(\".\").iterdir() if re.fullmatch(\"\"\"e[\"n\"]v.production\"\"\",p.name)]'"}}
+  },
+  {
     "id": "python-output-piped-to-dot-command",
     "expected_status": 2,
     "expected_reason": "bash_protected_path_text_match",
