@@ -4726,7 +4726,9 @@ shell_dequote_for_policy() {
 # (python3 -c '...' > code; . ./code), and the dot command is on the list above.
 # Also left alone: a multi-line command (a here-document or function body is
 # not attributable to python), a function definition, alias or PATH assignment
-# (python3 may not be python), and a program that can list a directory or
+# (python3 may not be python), a backslash before a separator (the text this
+# function receives has already lost whether a `;` was escaped), and a program
+# that can list a directory or
 # import its way to one (os, pathlib, listdir...), since only such a program
 # can match names against pattern text; one that cannot opens literal names,
 # which the unmodified scan already reads.
@@ -4740,7 +4742,7 @@ shell_neutralize_quoted_brackets_for_policy() {
 '*) printf '%s\n' "$1"; return ;;
   esac
   if printf '%s\n' "$1" | grep -Eq \
-    '(^|[^[:alnum:]_.-])(sh|bash|zsh|dash|ksh|ash|csh|tcsh|fish|eval|source|xargs|read|mapfile|readarray|alias|function|os)([^[:alnum:]_.-]|$)|ssh|system|popen|Popen|subprocess|spawn|exec|child_process|glob|fnmatch|listdir|iterdir|scandir|walk|pathlib|Path|shutil|fileinput|__import__|importlib|compile|getattr|globals|builtins|<<|\$\(|`|<\(|>\(|[A-Za-z_][A-Za-z0-9_]*[[:space:]]*\(\)[[:space:]]*[{(]|(^|[[:space:];&|(])\.([[:space:]]|$)|(^|[[:space:];&|(])PATH='; then
+    '(^|[^[:alnum:]_.-])(sh|bash|zsh|dash|ksh|ash|csh|tcsh|fish|eval|source|xargs|read|mapfile|readarray|alias|function|os)([^[:alnum:]_.-]|$)|ssh|system|popen|Popen|subprocess|spawn|exec|child_process|glob|fnmatch|listdir|iterdir|scandir|walk|pathlib|Path|shutil|fileinput|__import__|importlib|compile|getattr|globals|builtins|<<|\$\(|`|<\(|>\(|[A-Za-z_][A-Za-z0-9_]*[[:space:]]*\(\)[[:space:]]*[{(]|(^|[[:space:];&|(])\.([[:space:]]|$)|(^|[[:space:];&|(])PATH=|\\[[:space:]]*[;&|(]'; then
     printf '%s\n' "$1"
     return
   fi
