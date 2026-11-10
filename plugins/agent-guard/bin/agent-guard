@@ -4711,12 +4711,15 @@ shell_dequote_for_policy() {
 # cannot be followed to the end (an unterminated quote, or $( or a backtick
 # inside double quotes), or when the command could expand a pattern from inside
 # the program (a shell, eval, source, ssh, xargs, a process-spawning call, or
-# glob/fnmatch): python3 -c 'glob.glob("""e["n"]v""")' reads a real glob.
+# glob/fnmatch): python3 -c 'glob.glob("""e["n"]v""")' reads a real glob. The
+# same goes for a command that turns the program's output into shell words
+# ($(...), backticks, <(...), read): cat $(python3 -c 'print("""e["n"]v""")')
+# lets the shell expand what the program printed.
 # A `#` that starts a word ends the line for quote tracking, so a comment's
 # apostrophe cannot flip the state for the lines below it.
 shell_neutralize_quoted_brackets_for_policy() {
   if printf '%s\n' "$1" | grep -Eq \
-    '(^|[^[:alnum:]_.-])(sh|bash|zsh|dash|ksh|ash|csh|tcsh|fish|eval|source|xargs)([^[:alnum:]_.-]|$)|ssh|system|popen|Popen|subprocess|spawn|exec|child_process|glob|fnmatch'; then
+    '(^|[^[:alnum:]_.-])(sh|bash|zsh|dash|ksh|ash|csh|tcsh|fish|eval|source|xargs|read|mapfile|readarray)([^[:alnum:]_.-]|$)|ssh|system|popen|Popen|subprocess|spawn|exec|child_process|glob|fnmatch|\$\(|`|<\(|>\('; then
     printf '%s\n' "$1"
     return
   fi
