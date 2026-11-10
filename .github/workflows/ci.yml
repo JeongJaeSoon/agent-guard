@@ -238,9 +238,13 @@ jobs:
           set -euo pipefail
           # A hand-kept list silently loses coverage each time a script is
           # added, and five had already fallen out of it.
-          git ls-files -z '*.sh' | xargs -0 shellcheck --severity=error \
-            plugins/agent-guard/bin/agent-guard \
-            githooks/pre-commit
+          #
+          # One process per file: a single invocation over every script peaked
+          # at 13.6 GiB resident memory (OOM on the runner); `xargs -n 1`
+          # peaked at 1.8 GiB. xargs exits 123 when any invocation fails, and
+          # pipefail propagates that.
+          { git ls-files -z '*.sh'; printf '%s\0' plugins/agent-guard/bin/agent-guard githooks/pre-commit; } \
+            | xargs -0 -n 1 shellcheck --severity=error
 
       - name: actionlint workflows
         # actionlint auto-discovers every workflow under .github/workflows and
