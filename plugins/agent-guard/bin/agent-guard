@@ -6342,12 +6342,15 @@ bash_matches_deny_path() {
   bash_matches_deny_path_mode "$deny_cmd" "literal" && return 0
   # Brackets that bash keeps literal are not globs, so both shell-expanded
   # passes read a copy in which they no longer look like bracket expressions.
-  neutral_cmd=$(shell_neutralize_quoted_brackets_for_policy "$deny_cmd")
+  # A failed or empty rewrite scans the original text, never nothing.
+  neutral_cmd=$(shell_neutralize_quoted_brackets_for_policy "$deny_cmd") || neutral_cmd=
+  [ -n "$neutral_cmd" ] || neutral_cmd=$deny_cmd
   bash_matches_deny_path_mode "$neutral_cmd" "shell-expanded" && return 0
   dequoted=$(shell_dequote_for_policy "$deny_cmd")
   [ "$dequoted" = "$deny_cmd" ] && return 1
   bash_matches_deny_path_mode "$dequoted" "literal" && return 0
-  dequoted_sx=$(shell_dequote_for_policy "$neutral_cmd")
+  dequoted_sx=$(shell_dequote_for_policy "$neutral_cmd") || dequoted_sx=
+  [ -n "$dequoted_sx" ] || dequoted_sx=$dequoted
   bash_matches_deny_path_mode "$dequoted_sx" "shell-expanded" && return 0
   case "$deny_cmd" in *"\$'"*) ;; *) return 1 ;; esac
   decoded=$(shell_decode_ansi_c_for_policy "$deny_cmd")
