@@ -4743,6 +4743,8 @@ shell_neutralize_quoted_brackets_for_policy() {
         if (ps == 0) {
           if (ch == "#") return s
           if (ch == "\"") {
+            # An f-string may nest quotes (Python 3.12), which this scan cannot follow.
+            if (substr(s, (j > 2 ? j - 2 : 1), (j > 2 ? 2 : j - 1)) ~ /[fF]$|[fF][rR]$/) return s
             if (substr(s, j, 3) == "\"\"\"") { ps = 3; res2 = res2 "\"\"\""; j += 2; continue }
             ps = 1
           } else if (ch == "[" && substr(s, j + 1, 1) == "\"") { sub2 = 1; ch = "\001" }
