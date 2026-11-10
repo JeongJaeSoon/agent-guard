@@ -280,6 +280,30 @@
     "event": {"tool_name": "Bash", "tool_input": {"command": "bash -c 'cat e[\"n\"]v.production'"}}
   },
   {
+    "id": "dot-command-reruns-quoted-subscript-glob",
+    "expected_status": 2,
+    "expected_reason": "bash_protected_path_text_match",
+    "classification": "true-positive",
+    "description": "the dot command reruns a quoted string as shell code, so its subscript is a glob",
+    "event": {"tool_name": "Bash", "tool_input": {"command": ". /dev/stdin <<< 'cat e[\"n\"]v.production'"}}
+  },
+  {
+    "id": "python-glob-module-quoted-subscript",
+    "expected_status": 2,
+    "expected_reason": "bash_protected_path_text_match",
+    "classification": "true-positive",
+    "description": "a python program that expands the pattern itself reads a real glob",
+    "event": {"tool_name": "Bash", "tool_input": {"command": "python3 -c 'import glob; print(open(glob.glob(\"\"\"e[\"n\"]v.production\"\"\")[0]).read())'"}}
+  },
+  {
+    "id": "find-name-quoted-subscript-glob",
+    "expected_status": 2,
+    "expected_reason": "bash_protected_path_text_match",
+    "classification": "true-positive",
+    "description": "find expands a quoted -name pattern itself, so its subscript is a glob",
+    "event": {"tool_name": "Bash", "tool_input": {"command": "find . -name 'e[\"n\"]v.production' -exec cat {} +"}}
+  },
+  {
     "id": "quoted-subscripts-before-unquoted-bracket-glob",
     "expected_status": 2,
     "expected_reason": "bash_protected_path_text_match",

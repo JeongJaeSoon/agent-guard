@@ -4700,20 +4700,23 @@ shell_dequote_for_policy() {
 # Replace the brackets of a quoted subscript with \001. shell_dequote_for_policy
 # drops the quotes, so a program such as python3 -c 'a["x"]["y"]' would
 # otherwise read as the bracket glob a[x][y] in the shell-expanded passes; the
-# raw text reads `["x"]` as a bracket expression too. Only a `[` that sits
-# inside '...' or "..." and is followed by a quote opens a subscript, and only
-# the next `]` closes it: `[^ ]` in a quoted regex keeps its brackets, and so
-# does every bracket outside quotes (a glob such as .e[n]"v").
+# raw text reads `["x"]` as a bracket expression too. Only a quote that is the
+# program argument of python -c or node -e (the text just before it ends in
+# that option) can hold a subscript: other quoted text may be a pattern that
+# find, a shell run through `. /dev/stdin`, or rg expands itself. Inside such a
+# program, a `[` followed by a quote opens a subscript, and only the next `]`
+# closes it: `[^ ]` in a quoted regex keeps its brackets, and so does every
+# bracket outside quotes (a glob such as .e[n]"v").
 # The text comes back unchanged, so every bracket is read, when the quote state
 # cannot be followed to the end (an unterminated quote, or $( or a backtick
-# inside double quotes), or when the command could hand the quoted text to a
-# shell that expands it (a shell, eval, source, ssh, xargs, or a process-spawning
-# call): in bash -c '... .e["n"]v' the subscript is a real glob.
+# inside double quotes), or when the command could expand a pattern from inside
+# the program (a shell, eval, source, ssh, xargs, a process-spawning call, or
+# glob/fnmatch): python3 -c 'glob.glob("""e["n"]v""")' reads a real glob.
 # A `#` that starts a word ends the line for quote tracking, so a comment's
 # apostrophe cannot flip the state for the lines below it.
 shell_neutralize_quoted_brackets_for_policy() {
   if printf '%s\n' "$1" | grep -Eq \
-    '(^|[^[:alnum:]_.-])(sh|bash|zsh|dash|ksh|ash|csh|tcsh|fish|eval|source|xargs)([^[:alnum:]_.-]|$)|ssh|system|popen|Popen|subprocess|spawn|exec|child_process'; then
+    '(^|[^[:alnum:]_.-])(sh|bash|zsh|dash|ksh|ash|csh|tcsh|fish|eval|source|xargs)([^[:alnum:]_.-]|$)|ssh|system|popen|Popen|subprocess|spawn|exec|child_process|glob|fnmatch'; then
     printf '%s\n' "$1"
     return
   fi
@@ -4731,14 +4734,16 @@ shell_neutralize_quoted_brackets_for_policy() {
             out = out substr($0, i); break
           }
           if (c == "$" && nx == "\047") { out = out "$\047"; i++; st = 3; continue }
-          if (c == "\047") st = 1
-          else if (c == "\"") st = 2
+          if (c == "\047" || c == "\"") {
+            prog = (out ~ /(^|[ \t;&|(])(python[0-9.]*|node|nodejs)([ \t]+-[A-Za-z]+)*[ \t]+-[ce][ \t]+$/)
+            st = (c == "\047") ? 1 : 2
+          }
           out = out c
           continue
         }
         if (st == 1) {
           if (c == "\047") { st = 0; sub1 = 0 }
-          else if (c == "[" && nx == "\"") { sub1 = 1; c = "\001" }
+          else if (prog && c == "[" && nx == "\"") { sub1 = 1; c = "\001" }
           else if (c == "]" && sub1) { sub1 = 0; c = "\001" }
           out = out c
           continue
@@ -4747,7 +4752,7 @@ shell_neutralize_quoted_brackets_for_policy() {
           if (c == "\\") { out = out c nx; i++; continue }
           if (c == "`" || (c == "$" && nx == "(")) bail = 1
           if (c == "\"") { st = 0; sub1 = 0 }
-          else if (c == "[" && (nx == "\047" || substr($0, i + 1, 2) == "\\\"")) { sub1 = 1; c = "\001" }
+          else if (prog && c == "[" && (nx == "\047" || substr($0, i + 1, 2) == "\\\"")) { sub1 = 1; c = "\001" }
           else if (c == "]" && sub1) { sub1 = 0; c = "\001" }
           out = out c
           continue
