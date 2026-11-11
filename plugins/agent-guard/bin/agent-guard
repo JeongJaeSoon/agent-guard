@@ -2444,7 +2444,14 @@ rundir_temp_file() {
   while [ -z "$rt_file" ] && [ "$rt_tries" -lt 64 ]; do
     rt_tries=$((rt_tries + 1))
     rt_try="$rt_dir/agent-guard.$rt_n"
-    if { printf '' >"$rt_dir/.claim.$rt_n"; } 2>/dev/null \
+    rt_claim="$rt_dir/.claim.$rt_n"
+    # noclobber opens an existing non-regular file (a FIFO would block the
+    # hook) without O_EXCL, so any entry already at either name is skipped
+    # before a redirection touches it.
+    if [ -e "$rt_claim" ] || [ -L "$rt_claim" ] \
+        || [ -e "$rt_try" ] || [ -L "$rt_try" ]; then
+      :
+    elif { printf '' >"$rt_claim"; } 2>/dev/null \
         && { printf '' >"$rt_try"; } 2>/dev/null \
         && [ -f "$rt_try" ] && [ ! -L "$rt_try" ]; then
       rt_file=$rt_try

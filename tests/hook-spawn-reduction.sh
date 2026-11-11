@@ -160,6 +160,40 @@ printf '%s\n' "$n" >|"$RUNDIR/.next"
 f3=$(rundir_temp_file) || f3=
 check "an existing entry at the next name is skipped, not followed" \
   sh -c '[ -n "$1" ] && [ "$1" != "$2" ] && [ ! -e "$3" ]' _ "$f3" "$RUNDIR/agent-guard.$n" "$CASE/outside"
+# A FIFO at the next name (or at its claim marker) must be skipped, not opened:
+# noclobber opens an existing non-regular file, and a FIFO would block forever.
+fifo_ok=1
+for fifo_at in agent-guard claim; do
+  n=1
+  while [ -e "$RUNDIR/.claim.$n" ] || [ -e "$RUNDIR/agent-guard.$n" ] \
+      || [ -L "$RUNDIR/agent-guard.$n" ]; do n=$((n + 1)); done
+  case "$fifo_at" in
+    claim) fifo="$RUNDIR/.claim.$n" ;;
+    *) fifo="$RUNDIR/agent-guard.$n" ;;
+  esac
+  mkfifo "$fifo" || { fifo_ok=0; continue; }
+  printf '%s\n' "$n" >|"$RUNDIR/.next"
+  ( rundir_temp_file >"$CASE/fifo-out" 2>/dev/null ) &
+  fifo_pid=$!
+  waited=0
+  while kill -0 "$fifo_pid" 2>/dev/null && [ "$waited" -lt 50 ]; do
+    sleep 0.1 2>/dev/null || sleep 1
+    waited=$((waited + 1))
+  done
+  if kill -0 "$fifo_pid" 2>/dev/null; then
+    fifo_ok=0
+    kill "$fifo_pid" 2>/dev/null
+    # Release a writer blocked on the FIFO so the subshell can exit.
+    : <"$fifo" &
+    wait "$fifo_pid" 2>/dev/null
+  else
+    wait "$fifo_pid" 2>/dev/null
+    got=$(cat "$CASE/fifo-out")
+    [ -n "$got" ] && [ -f "$got" ] && [ ! -p "$got" ] && [ "$got" != "$RUNDIR/agent-guard.$n" ] || fifo_ok=0
+  fi
+  [ -p "$fifo" ] || fifo_ok=0
+done
+check "a FIFO at the next name or claim is skipped without blocking" [ "$fifo_ok" -eq 1 ]
 AG_UMASK=
 if rundir_temp_file >/dev/null 2>&1; then bad "without a saved umask the shortcut declines"; else ok "without a saved umask the shortcut declines"; fi
 AG_UMASK=$(umask)
