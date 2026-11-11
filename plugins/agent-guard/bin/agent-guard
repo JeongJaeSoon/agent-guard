@@ -4697,6 +4697,134 @@ shell_dequote_for_policy() {
   '
 }
 
+# Replace the brackets of a quoted subscript with \001. shell_dequote_for_policy
+# drops the quotes, so a program such as python3 -c 'a["x"]["y"]' would
+# otherwise read as the bracket glob a[x][y] in the shell-expanded passes; the
+# raw text reads `["x"]` as a bracket expression too. Only a '...' quote that is
+# the program argument of python -c (the text just before it ends in that
+# option, and python itself is in command position, after at most NAME=value
+# assignments) can hold a subscript: other quoted text may be a pattern that
+# find, a shell run through `. /dev/stdin`, rg, or another interpreter that
+# only received `python3 -c` as arguments expands itself. Inside such a program
+# the Python strings are followed (", """, backslash escapes), and only a `[`
+# followed by a quote that sits outside every Python string opens a subscript;
+# the next `]` outside a string closes it. A `[` inside a string literal is
+# pattern text (re.fullmatch("""e["n"]v""", name)) and keeps its brackets, as
+# does `[^ ]` in a quoted regex and every bracket outside quotes (a glob such
+# as .e[n]"v"). A program with a `#` outside a string, or a string that does
+# not close, is left alone.
+# The text comes back unchanged, so every bracket is read, when the quote state
+# cannot be followed to the end (an unterminated quote, or $( or a backtick
+# inside double quotes), or when the command could expand a pattern from inside
+# the program (a shell, eval, source, ssh, xargs, a process-spawning call, or
+# glob/fnmatch): python3 -c 'glob.glob("""e["n"]v""")' reads a real glob. The
+# same goes for a command that turns the program's output into shell words
+# ($(...), backticks, <(...), read): cat $(python3 -c 'print("""e["n"]v""")')
+# lets the shell expand what the program printed. After the program's closing
+# quote the command may only continue through pipes: a `;`, `&`, redirection,
+# backtick, $( or a following line could run what the program wrote
+# (python3 -c '...' > code; . ./code), and the dot command is on the list above.
+# Also left alone: a multi-line command (a here-document or function body is
+# not attributable to python), a function definition, alias or PATH assignment
+# (python3 may not be python), a backslash before a separator (the text this
+# function receives has already lost whether a `;` was escaped), and a program
+# that can list a directory or
+# import its way to one (os, pathlib, listdir...), since only such a program
+# can match names against pattern text; one that cannot opens literal names,
+# which the unmodified scan already reads.
+# A `#` that starts a word ends the line for quote tracking, so a comment's
+# apostrophe cannot flip the state for the lines below it.
+shell_neutralize_quoted_brackets_for_policy() {
+  # A second line may be a here-document body or a function body, neither of
+  # which this scan can attribute to python, so such a command is left alone.
+  case "$1" in
+    *'
+'*) printf '%s\n' "$1"; return ;;
+  esac
+  if printf '%s\n' "$1" | grep -Eq \
+    '(^|[^[:alnum:]_.-])(sh|bash|zsh|dash|ksh|ash|csh|tcsh|fish|eval|source|xargs|read|mapfile|readarray|alias|function|os)([^[:alnum:]_.-]|$)|ssh|system|popen|Popen|subprocess|spawn|exec|child_process|glob|fnmatch|listdir|iterdir|scandir|walk|pathlib|Path|shutil|fileinput|__import__|importlib|compile|getattr|globals|builtins|<<|\$\(|`|<\(|>\(|[A-Za-z_][A-Za-z0-9_]*[[:space:]]*\(\)[[:space:]]*[{(]|(^|[[:space:];&|(])\.([[:space:]]|$)|(^|[[:space:];&|(])PATH=|\\[[:space:]]*[;&|(]'; then
+    printf '%s\n' "$1"
+    return
+  fi
+  printf '%s\n' "$1" | LC_ALL=C awk '
+    function closed(l, p,   r) {
+      r = substr(l, p + 1)
+      if (r ~ /[;&<>`]/ || r ~ /\$\(/) bail = 1
+      lastclose = NR
+    }
+    function pyneutral(s,   j, m, ch, ps, sub2, res2) {
+      m = length(s); ps = 0; sub2 = 0; res2 = ""
+      for (j = 1; j <= m; j++) {
+        ch = substr(s, j, 1)
+        if (ps == 0) {
+          if (ch == "#") return s
+          if (ch == "\"") {
+            # An f-string or t-string may nest quotes (Python 3.12, 3.14), which this scan cannot follow.
+            if (substr(s, (j > 2 ? j - 2 : 1), (j > 2 ? 2 : j - 1)) ~ /[fFtT]$|[fFtT][rR]$/) return s
+            if (substr(s, j, 3) == "\"\"\"") { ps = 3; res2 = res2 "\"\"\""; j += 2; continue }
+            ps = 1
+          } else if (ch == "[" && substr(s, j + 1, 1) == "\"") { sub2 = 1; ch = "\001" }
+          else if (ch == "]" && sub2) { sub2 = 0; ch = "\001" }
+        } else if (ch == "\\") {
+          res2 = res2 ch substr(s, j + 1, 1); j++; continue
+        } else if (ps == 1 && ch == "\"") ps = 0
+        else if (ps == 3 && substr(s, j, 3) == "\"\"\"") { ps = 0; res2 = res2 "\"\"\""; j += 2; continue }
+        res2 = res2 ch
+      }
+      return (ps == 0 && !sub2) ? res2 : s
+    }
+    {
+      orig[NR] = $0
+      out = ""
+      n = length($0)
+      for (i = 1; i <= n; i++) {
+        c = substr($0, i, 1)
+        nx = substr($0, i + 1, 1)
+        if (st == 0) {
+          if (c == "\\") { out = out c nx; i++; continue }
+          if (c == "#" && (i == 1 || substr($0, i - 1, 1) ~ /[ \t;&|(]/)) {
+            out = out substr($0, i); break
+          }
+          if (c == "$" && nx == "\047") { out = out "$\047"; i++; st = 3; continue }
+          if (c == "\047" && out ~ /(^|[;&|(])[ \t]*([A-Za-z_][A-Za-z0-9_]*=[^ \t]*[ \t]+)*python[0-9.]*([ \t]+-[A-Za-z]+)*[ \t]+-c[ \t]+$/) {
+            e = index(substr($0, i + 1), "\047")
+            if (e > 0) {
+              out = out "\047" pyneutral(substr($0, i + 1, e - 1)) "\047"
+              i += e
+              closed($0, i)
+              continue
+            }
+          }
+          if (c == "\047") st = 1
+          else if (c == "\"") st = 2
+          out = out c
+          continue
+        }
+        if (st == 1) {
+          if (c == "\047") st = 0
+          out = out c
+          continue
+        }
+        if (st == 2) {
+          if (c == "\\") { out = out c nx; i++; continue }
+          if (c == "`" || (c == "$" && nx == "(")) bail = 1
+          if (c == "\"") st = 0
+          out = out c
+          continue
+        }
+        if (c == "\\") { out = out c nx; i++; continue }
+        if (c == "\047") st = 0
+        out = out c
+      }
+      res[NR] = out
+    }
+    END {
+      keep = (st != 0 || bail || (lastclose && lastclose < NR))
+      for (k = 1; k <= NR; k++) print keep ? orig[k] : res[k]
+    }
+  '
+}
+
 # Unquote the command the way bash would, decoding $'...' escapes. The coarse
 # pass above turns $'.e\x6e'v into $.ex6ev, so an ANSI-C escape spliced with
 # unquoted text slipped past both it and the raw \xHH alternatives. A byte that
@@ -6230,11 +6358,28 @@ bash_matches_deny_path() {
   deny_cmd=$(bash_strip_exclusion_operands "$deny_cmd")
   deny_cmd=$(bash_strip_allowed_tokens "$deny_cmd")
   bash_matches_deny_path_mode "$deny_cmd" "literal" && return 0
-  bash_matches_deny_path_mode "$deny_cmd" "shell-expanded" && return 0
+  # Brackets that bash keeps literal are not globs, so both shell-expanded
+  # passes read a copy in which they no longer look like bracket expressions.
+  # Only a `[` followed by a quote can be a subscript, so any other command is
+  # scanned as it is and costs no extra process. A failed or empty rewrite
+  # scans the original text, never nothing.
+  neutral_cmd=$deny_cmd
+  case "$deny_cmd" in
+    *'["'*|*"['"*)
+      neutral_cmd=$(shell_neutralize_quoted_brackets_for_policy "$deny_cmd") || neutral_cmd=
+      [ -n "$neutral_cmd" ] || neutral_cmd=$deny_cmd
+      ;;
+  esac
+  bash_matches_deny_path_mode "$neutral_cmd" "shell-expanded" && return 0
   dequoted=$(shell_dequote_for_policy "$deny_cmd")
   [ "$dequoted" = "$deny_cmd" ] && return 1
   bash_matches_deny_path_mode "$dequoted" "literal" && return 0
-  bash_matches_deny_path_mode "$dequoted" "shell-expanded" && return 0
+  dequoted_sx=$dequoted
+  if [ "$neutral_cmd" != "$deny_cmd" ]; then
+    dequoted_sx=$(shell_dequote_for_policy "$neutral_cmd") || dequoted_sx=
+    [ -n "$dequoted_sx" ] || dequoted_sx=$dequoted
+  fi
+  bash_matches_deny_path_mode "$dequoted_sx" "shell-expanded" && return 0
   case "$deny_cmd" in *"\$'"*) ;; *) return 1 ;; esac
   decoded=$(shell_decode_ansi_c_for_policy "$deny_cmd")
   bash_matches_deny_path_mode "$decoded" "literal" && return 0

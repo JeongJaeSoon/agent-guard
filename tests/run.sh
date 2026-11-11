@@ -2889,6 +2889,8 @@ run_expect 0 "the protected-path regex cache only rules commands out and never c
   sh "$ROOT/tests/deny-path-regex-cache.sh"
 run_expect 0 "cat/tee here-document bodies leave out no protected read" \
   sh "$ROOT/tests/heredoc-body-text.sh"
+run_expect 0 "a failed quoted-bracket normalization keeps the protected-path verdict" \
+  sh "$ROOT/tests/quoted-bracket-fallback.sh"
 run_expect 0 "status words and named placeholders are prose, real values still block" \
   sh "$ROOT/tests/prompt-prose-placeholder.sh"
 ambiguous_bash_fixtures="$ROOT/tests/fixtures/ambiguous-bash-protected-path.json"
