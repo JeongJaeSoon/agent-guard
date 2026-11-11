@@ -17,7 +17,7 @@ check() {
   label=$2
   command=$3
   checked=$((checked + 1))
-  jq -nc --arg c "$command" --arg w "$CASE_ROOT" \
+  jq -nc --arg c "$command" --arg w "${WORKDIR:-$CASE_ROOT}" \
     '{tool_name:"Bash",tool_input:{command:$c,workdir:$w}}' \
     | "$GUARD" hook-pre-tool > "$CASE_ROOT/out" 2> "$CASE_ROOT/err"
   status=$?
@@ -93,6 +93,69 @@ check 2 "unbalanced quote on the heredoc line" \
   "echo 'x; cat > $D/SKILL.md <<'EOF'${NL}see key.p8${NL}EOF"
 check 2 "here-string is not a heredoc body" \
   "bash <<< 'cat ./key.p8'"
+
+# #410/#412: a quoted-delimiter body that gh or git commit reads from stdin
+# as a message (`--body-file -`, `-F -`) is data sent to GitHub or stored as
+# the commit message, the same text message_value_records exempts as -m or
+# --body. Only a first-line command with nothing that can run the stored
+# message afterwards qualifies.
+REPO=$CASE_ROOT/repo
+git init -q "$REPO" || exit 1
+check 0 "gh pr create reads its body from stdin" \
+  "gh pr create --title 'fix: x' --body-file - <<'EOF'${NL}never commit .env or key.p8${NL}EOF"
+check 0 "gh pr comment -F -" \
+  "gh pr comment 5 -F - <<'EOF'${NL}see key.p8${NL}EOF"
+check 0 "gh issue create --body-file=-" \
+  "gh issue create --title t --body-file=- <<'EOF'${NL}see .env${NL}EOF"
+check 0 "gh pr review --body-file -" \
+  "gh pr review 5 --comment --body-file - <<'EOF'${NL}see key.p8${NL}EOF"
+WORKDIR=$REPO check 0 "git commit -F - reads its message from stdin" \
+  "git commit -F - <<'EOF'${NL}fix: never read .env or key.p8${NL}EOF"
+WORKDIR=$REPO check 0 "git add before and git push after a stdin commit" \
+  "git add a.txt && git commit -s -F - <<'EOF' && git push origin HEAD${NL}fix: mention key.p8${NL}EOF"
+WORKDIR=$REPO check 0 "git commit --file=- with a dash delimiter" \
+  "git commit --file=- <<-'EOF'${NL}	fix: mention key.p8${NL}	EOF"
+
+check 2 "message body behind an unquoted delimiter" \
+  "gh pr create --title t --body-file - <<EOF${NL}see key.p8${NL}EOF"
+check 2 "message body expands a substitution" \
+  "gh pr create --title t --body-file - <<EOF${NL}\$(cat ./key.p8)${NL}EOF"
+check 2 "gh output piped to sh" \
+  "gh pr create --title t --body-file - <<'EOF' | sh${NL}cat ./key.p8${NL}EOF"
+check 2 "gh output piped to xargs cat" \
+  "gh pr create --title t --body-file - <<'EOF' | xargs cat${NL}./key.p8${NL}EOF"
+check 2 "gh without --body-file -" \
+  "gh pr create --title t <<'EOF'${NL}cat ./key.p8${NL}EOF"
+check 2 "gh --body-file names a protected file" \
+  "gh pr create --title t --body-file ./key.p8 <<'EOF'${NL}x${NL}EOF"
+check 2 "gh --editor reads the same stdin" \
+  "gh pr create --title t --body-file - --editor <<'EOF'${NL}cat ./key.p8${NL}EOF"
+check 2 "gh api -F is a field, not a body" \
+  "gh api -F - <<'EOF'${NL}cat ./key.p8${NL}EOF"
+check 2 "alias before the message command" \
+  "alias gh=sh; gh pr create --body-file - <<'EOF'${NL}cat ./key.p8${NL}EOF"
+check 2 "function before the message command" \
+  "gh() { sh; }; gh pr create --body-file - <<'EOF'${NL}cat ./key.p8${NL}EOF"
+check 2 "PATH assignment before the message command" \
+  "PATH=.:\$PATH gh pr create --body-file - <<'EOF'${NL}cat ./key.p8${NL}EOF"
+check 2 "eval runs the message command" \
+  "eval gh pr create --body-file - <<'EOF'${NL}cat ./key.p8${NL}EOF"
+check 2 "earlier line before the message command" \
+  "echo hi${NL}gh pr create --body-file - <<'EOF'${NL}cat ./key.p8${NL}EOF"
+check 2 "protected read after the message command" \
+  "gh pr create --body-file - <<'EOF' && cat ./key.p8${NL}x${NL}EOF"
+check 2 "protected read on a later line" \
+  "gh pr create --body-file - <<'EOF'${NL}x${NL}EOF${NL}cat ./key.p8"
+WORKDIR=$REPO check 2 "git commit pathspec operand next to a stdin message" \
+  "git commit -F - ./key.p8 <<'EOF'${NL}msg${NL}EOF"
+WORKDIR=$REPO check 2 "git commit -e opens an editor" \
+  "git commit -e -F - <<'EOF'${NL}cat ./key.p8${NL}EOF"
+WORKDIR=$REPO check 2 "stored commit message run on a later line" \
+  "git commit -F - <<'EOF'${NL}cat ./key.p8${NL}EOF${NL}git log -1 --format=%B | sh"
+WORKDIR=$REPO check 2 "stored commit message run after the commit" \
+  "git commit -F - <<'EOF' && git log -1 --format=%B | sh${NL}cat ./key.p8${NL}EOF"
+check 2 "two heredocs with a message consumer" \
+  "cat > $D/a.md <<'A'${NL}x${NL}A${NL}gh pr create --body-file - <<'EOF'${NL}cat ./key.p8${NL}EOF"
 
 printf '%s heredoc body checks, %s failed\n' "$checked" "$failed"
 [ "$failed" -eq 0 ]
