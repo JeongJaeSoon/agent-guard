@@ -971,7 +971,9 @@ audit_stat() {
 audit_directory() (
   ag_dir=$(audit_location)
   case "$ag_dir" in /*) ;; *) return 1 ;; esac
-  if printf '%s' "$ag_dir" | LC_ALL=C grep -q '[[:cntrl:]]'; then return 1; fi
+  # A shell pattern instead of a printf|grep pipeline on every hook (#407). It
+  # also refuses a newline, which grep's line splitting let through.
+  case "$ag_dir" in *[[:cntrl:]]*) return 1 ;; esac
   ag_prefix=
   ag_rest=${ag_dir#/}
   while [ -n "$ag_rest" ]; do
@@ -982,7 +984,9 @@ audit_directory() (
     if [ "$ag_part" = "$ag_rest" ]; then break; fi
     ag_rest=${ag_rest#*/}
   done
-  if [ "${1:-}" = create ]; then
+  # mkdir -p leaves an existing directory untouched, so only a missing (or
+  # not-yet-plain) directory needs the subshell and the mkdir process (#407).
+  if [ "${1:-}" = create ] && { [ ! -d "$ag_dir" ] || [ -L "$ag_dir" ]; }; then
     (umask 077; mkdir -p "$ag_dir") 2>/dev/null || return 1
   fi
   [ -d "$ag_dir" ] && [ ! -L "$ag_dir" ] || return 1
@@ -1045,8 +1049,19 @@ audit_prune() (
       ' \
     | while IFS= read -r ag_old; do
         ag_old_id=${ag_old##*/event-}
-        if printf '%s' "$ag_old_id" \
-          | LC_ALL=C grep -Eq '^[0-9]{1,12}-[A-Za-z0-9]{6}$'; then
+        # The run-id grammar ^[0-9]{1,12}-[A-Za-z0-9]{6}$, checked with shell
+        # patterns instead of a printf|grep pipeline per pruned file (#407).
+        # The classes are spelled out so no locale can widen a range.
+        ag_id_time=${ag_old_id%%-*}
+        ag_id_rand=${ag_old_id#*-}
+        ag_id_ok=1
+        case "$ag_old_id" in *-*) ;; *) ag_id_ok= ;; esac
+        case "$ag_id_time" in ''|*[!0123456789]*) ag_id_ok= ;; esac
+        case "$ag_id_rand" in
+          ''|*[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789]*) ag_id_ok= ;;
+        esac
+        if [ -n "$ag_id_ok" ] && [ "${#ag_id_time}" -le 12 ] \
+            && [ "${#ag_id_rand}" -eq 6 ]; then
           # A live-probe sidecar is an empty directory by construction. Never
           # recurse or remove a nonempty/tampered marker during retention.
           rmdir "$ag_dir/live-probe-$ag_old_id" 2>/dev/null || :
@@ -2395,9 +2410,52 @@ mktemp_file() {
   # behavior when there is no rundir — sourced in tests, or its creation failed —
   # so temp allocation never hard-fails.
   if [ -n "${AGENT_GUARD_RUNDIR:-}" ] && [ -d "$AGENT_GUARD_RUNDIR" ]; then
+    rundir_temp_file && return 0
     mktemp "$AGENT_GUARD_RUNDIR/agent-guard.XXXXXX" 2>/dev/null && return 0
   fi
   mktemp "${TMPDIR:-/tmp}/agent-guard.XXXXXX" 2>/dev/null || mktemp /tmp/agent-guard.XXXXXX
+}
+
+# A hook allocates a couple dozen scan temp files, and a mktemp process for
+# each was a large share of its execs (#407). Inside the private rundir that
+# mktemp -d created (mode 700, removed by the exit trap) a name only has to be
+# unique, not unpredictable, so claim one with the shell alone:
+#   - noclobber (set -C) makes each create an O_EXCL open, so two claimers can
+#     never get the same name and an existing entry is never reused;
+#   - a never-deleted .claim.N marker is taken first, so a number whose temp
+#     file a caller already removed is not handed out again;
+#   - .next is only a starting hint; a lost or stale update costs a retry;
+#   - the file is created under umask 077 (mode 600, as mktemp makes it) and
+#     the caller's umask and noclobber setting are restored afterwards.
+# Any doubt -- no saved umask, a symlinked rundir, no free name in a bounded
+# number of tries -- returns 1 and mktemp_file runs mktemp as before.
+rundir_temp_file() {
+  rt_dir=${AGENT_GUARD_RUNDIR:-}
+  [ -n "$rt_dir" ] && [ -d "$rt_dir" ] && [ ! -L "$rt_dir" ] || return 1
+  case "${AG_UMASK:-}" in ''|*[!01234567]*|?????*) return 1 ;; esac
+  rt_n=
+  { IFS= read -r rt_n <"$rt_dir/.next"; } 2>/dev/null || rt_n=
+  case "$rt_n" in ''|0*|*[!0123456789]*|?????????*) rt_n=1 ;; esac
+  case $- in *C*) rt_noclobber=1 ;; *) rt_noclobber= ;; esac
+  set -C
+  umask 077
+  rt_file=
+  rt_tries=0
+  while [ -z "$rt_file" ] && [ "$rt_tries" -lt 64 ]; do
+    rt_tries=$((rt_tries + 1))
+    rt_try="$rt_dir/agent-guard.$rt_n"
+    if { printf '' >"$rt_dir/.claim.$rt_n"; } 2>/dev/null \
+        && { printf '' >"$rt_try"; } 2>/dev/null \
+        && [ -f "$rt_try" ] && [ ! -L "$rt_try" ]; then
+      rt_file=$rt_try
+    fi
+    rt_n=$((rt_n + 1))
+  done
+  umask "$AG_UMASK"
+  [ -n "$rt_noclobber" ] || set +C
+  [ -n "$rt_file" ] || return 1
+  { printf '%s\n' "$rt_n" >|"$rt_dir/.next"; } 2>/dev/null || :
+  printf '%s\n' "$rt_file"
 }
 
 pii_filter_usage() {
@@ -3641,8 +3699,15 @@ extract_patch_added_lines() {
     }
   ' | filter_lockfile_records
 }
+# A hook asks this twice for the same directory (the caller's guard, then
+# require_git_repo), so a yes is remembered for the exact $PWD of this shell
+# and its subshells (#407). A no is never remembered, and any other directory
+# asks git again.
+AG_INSIDE_GIT_PWD=
 inside_git_repo() {
-  git rev-parse --is-inside-work-tree >/dev/null 2>&1
+  [ -n "${AG_INSIDE_GIT_PWD:-}" ] && [ "$AG_INSIDE_GIT_PWD" = "$PWD" ] && return 0
+  git rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 1
+  AG_INSIDE_GIT_PWD=$PWD
 }
 
 # Name the directory and the action, not the internal subcommand: the operator
@@ -3677,9 +3742,19 @@ extract_git_diff_added() {
       | { head -c 512 >"$diff_err_file"; cat >/dev/null; }
   ) | head -c $((SCAN_COMPONENT_MAX_BYTES + 1)) >"$diff_file"
   pipe_status=$?
-  diff_status=$(sed -n '1p' "$diff_status_file" 2>/dev/null)
+  # The first line, read by the shell instead of a sed process (#407).
+  diff_status=
+  { IFS= read -r diff_status <"$diff_status_file"; } 2>/dev/null || :
   rm -f "$diff_status_file"
-  diff_bytes=$(LC_ALL=C wc -c <"$diff_file" 2>/dev/null | tr -d '[:space:]')
+  diff_bytes=$(LC_ALL=C wc -c <"$diff_file" 2>/dev/null)
+  # BSD wc pads the count with blanks. Trim them here instead of piping through
+  # tr (#407); anything else that is not a plain number still fails closed below.
+  while :; do
+    case "$diff_bytes" in
+      [[:space:]]*) diff_bytes=${diff_bytes#?} ;;
+      *) break ;;
+    esac
+  done
   case "$diff_bytes" in
     ''|*[!0-9]*) rm -f "$diff_file" "$diff_err_file"; return "$SCAN_STATUS_UNAVAILABLE" ;;
   esac
@@ -3698,6 +3773,12 @@ extract_git_diff_added() {
     info "$PROGRAM: git diff failed; staged or working changes were not scanned"
     [ -z "$git_line" ] || info "$PROGRAM: git: $git_line"
     return "$SCAN_STATUS_UNAVAILABLE"
+  fi
+  # A successful empty diff has no added line, and both awk filters print
+  # nothing and exit 0 on empty input, so skip their two processes (#407).
+  if [ "$diff_bytes" -eq 0 ]; then
+    rm -f "$diff_file" "$diff_err_file"
+    return 0
   fi
   extract_added_lines <"$diff_file"
   status=$?
@@ -3959,9 +4040,88 @@ scan_path() {
   return "$result"
 }
 
+# Every hook used to start one jq process (plus the pipeline and command
+# substitution around it) per field it read from its own input: the object
+# check, `.tool_input | type`, the tool name, the command, the path... (#407).
+# json_value_prime reads those fields in one jq run, and json_value answers
+# them from shell variables only while it is handed that exact input text.
+#
+# A field is cached only when `jq -r EXPR` provably prints the same bytes: the
+# expression yields exactly one string without a NUL byte (printed with a
+# newline) or nothing at all. Any other shape -- a number, an object, several
+# results, an error, a stream of several JSON documents -- is left uncached and
+# json_value runs jq exactly as before, so no value is ever reformatted.
+# Expressions json_value_prime does not list always run jq.
+JV_CACHE_INPUT=
+JV_CACHE_OBJECT=
+
+json_value_prime() {
+  JV_CACHE_INPUT=
+  JV_CACHE_OBJECT=
+  for jv_name in input_type tool workdir command path content new_string; do
+    unset "jv_$jv_name" "jv_${jv_name}_set"
+  done
+  jv_object=
+  [ -n "$1" ] || return 0
+  command -v jq >/dev/null 2>&1 || return 0
+  jv_program='
+    def cached($name; f):
+      (try ([f] | if length == 0 then {none: true}
+                  elif length == 1 and (.[0] | type) == "string"
+                       and ((.[0] | explode | map(select(. == 0)) | length) == 0)
+                  then {value: .[0]}
+                  else null end)
+       catch null) as $v
+      | if $v == null then empty
+        elif $v.none then "\($name)_set=0"
+        else "\($name)_set=1", "\($name)=\($v.value | @sh)" end;
+    if length == 1 and (.[0] | type) == "object" then
+      .[0]
+      | "jv_object=1",
+        cached("jv_input_type"; .tool_input | type),
+        cached("jv_tool"; .tool_name // .tool // .name // empty),
+        cached("jv_workdir"; .tool_input.workdir // .tool_input.cwd // .cwd // empty),
+        cached("jv_command"; .tool_input.command // .tool_input.cmd // empty),
+        cached("jv_path"; .tool_input.file_path // .tool_input.path // empty),
+        cached("jv_content"; .tool_input.content // empty),
+        cached("jv_new_string"; .tool_input.new_string // empty)
+    else empty end'
+  # Slurp so a stream of several documents is seen as such and left uncached.
+  jv_assignments=$(printf '%s' "$1" | jq -rs "$jv_program" 2>/dev/null) || return 0
+  # jq's @sh quotes every value; the names are the fixed ones above.
+  eval "$jv_assignments"
+  [ "$jv_object" = 1 ] || return 0
+  JV_CACHE_OBJECT=1
+  JV_CACHE_INPUT=$1
+}
+
+# Return 0 when $1 is the primed input and that input is exactly one JSON
+# object, so `jq -e 'type == "object"'` would succeed on it; otherwise return 1
+# and let the caller run jq itself.
+json_input_is_primed_object() {
+  [ "${JV_CACHE_OBJECT:-}" = 1 ] && [ -n "${JV_CACHE_INPUT:-}" ] \
+    && [ "$1" = "$JV_CACHE_INPUT" ]
+}
+
 json_value() {
   expr=$1
   input=$2
+  if [ -n "${JV_CACHE_INPUT:-}" ] && [ "$input" = "$JV_CACHE_INPUT" ]; then
+    case "$expr" in
+      '.tool_input | type') jv_set=${jv_input_type_set:-} jv_val=${jv_input_type:-} ;;
+      '.tool_name // .tool // .name // empty') jv_set=${jv_tool_set:-} jv_val=${jv_tool:-} ;;
+      '.tool_input.workdir // .tool_input.cwd // .cwd // empty') jv_set=${jv_workdir_set:-} jv_val=${jv_workdir:-} ;;
+      '.tool_input.command // .tool_input.cmd // empty') jv_set=${jv_command_set:-} jv_val=${jv_command:-} ;;
+      '.tool_input.file_path // .tool_input.path // empty') jv_set=${jv_path_set:-} jv_val=${jv_path:-} ;;
+      '.tool_input.content // empty') jv_set=${jv_content_set:-} jv_val=${jv_content:-} ;;
+      '.tool_input.new_string // empty') jv_set=${jv_new_string_set:-} jv_val=${jv_new_string:-} ;;
+      *) jv_set= ;;
+    esac
+    case "$jv_set" in
+      0) return 0 ;;
+      1) printf '%s\n' "$jv_val"; return 0 ;;
+    esac
+  fi
   printf '%s' "$input" | jq -r "$expr"
 }
 
@@ -9211,7 +9371,10 @@ hook_pre_tool() {
   HOOK_EVENT=PreToolUse
   HOOK_INPUT=$input
   if command -v jq >/dev/null 2>&1 && [ -n "$input" ]; then
-    validate_hook_object PreToolUse "$input" || return 0
+    json_value_prime "$input"
+    # One primed JSON object is exactly what the jq object check accepts.
+    json_input_is_primed_object "$input" \
+      || validate_hook_object PreToolUse "$input" || return 0
   fi
   if ! hook_dependencies_ready; then
     emit_degraded_hook_warning PreToolUse "$input"
@@ -13576,6 +13739,9 @@ hook_post_tool() {
   HOOK_EVENT=PostToolUse
   HOOK_INPUT=$input
   if command -v jq >/dev/null 2>&1 && [ -n "$input" ]; then
+    # The object check itself still runs here: its failure is what selects the
+    # validation-recovery path below, which must stay reachable on its own.
+    json_value_prime "$input"
     if ! printf '%s' "$input" | jq -e 'type == "object"' >/dev/null 2>&1; then
       if recover_post_tool_validation_failure "$input"; then
         return 0
@@ -15147,6 +15313,8 @@ do_update() {
 # they hold no real secrets. An un-trappable SIGKILL also leaves the dir to the OS temp reaper.
 AGENT_GUARD_RUNDIR=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-run.XXXXXX" 2>/dev/null \
   || mktemp -d /tmp/agent-guard-run.XXXXXX 2>/dev/null || printf '')
+# Saved once so rundir_temp_file can restore it without a process per file.
+AG_UMASK=$(umask 2>/dev/null) || AG_UMASK=
 # Logging is independent of stdout and never changes the guard's exit status.
 # SIGKILL cannot be trapped; a started-only record remains useful evidence.
 trap 'ag_final_status=$?; clear_gitleaks_probe_processes; claude_block_capture_finish "$ag_final_status"; audit_finish "$ag_final_status"; [ -z "$AGENT_GUARD_RUNDIR" ] || rm -rf "$AGENT_GUARD_RUNDIR"; exit "$ag_final_status"' 0

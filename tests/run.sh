@@ -210,6 +210,7 @@ for file in \
   "$ROOT/tests/gitleaks-resolution.sh" \
   "$ROOT/tests/gitleaks-probe-cache.sh" \
   "$ROOT/tests/deny-path-regex-cache.sh" \
+  "$ROOT/tests/hook-spawn-reduction.sh" \
   "$ROOT/tests/run.sh"; do
   run_expect 0 "shell syntax: $file" sh -n "$file"
 done
@@ -2887,6 +2888,8 @@ run_expect 0 "ORCA_ and CLAUDE_JOB_DIR lookups pass while secret dumps stay bloc
   sh "$ROOT/tests/env-lookup-allowlist.sh"
 run_expect 0 "the protected-path regex cache only rules commands out and never changes a verdict" \
   sh "$ROOT/tests/deny-path-regex-cache.sh"
+run_expect 0 "hook process shortcuts answer exactly as the processes they replace (#407)" \
+  sh "$ROOT/tests/hook-spawn-reduction.sh"
 run_expect 0 "cat/tee here-document bodies leave out no protected read" \
   sh "$ROOT/tests/heredoc-body-text.sh"
 run_expect 0 "a failed quoted-bracket normalization keeps the protected-path verdict" \
