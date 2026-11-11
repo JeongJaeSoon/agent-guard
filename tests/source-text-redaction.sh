@@ -182,5 +182,18 @@ hides "    existingSecretKey: \"Abc$secret\"" "Abc$secret"
 hides "  $kw: required$secret" "required$secret"
 hides "TOKEN=ghp_$secret$secret" "$secret"
 
+# A quoted command substitution is a reference only when no word inside can
+# be a literal: echo and printf print their argument, a long or mixed word is
+# a value, and an existingSecret suffix that is not a reference name holds one.
+hides "DB_$kw=\"\$(echo Q7v$secret)\"" "Q7v$secret"
+hides "export API_TOKEN=\"\$(printf %s Sup3r$secret | base64)\"" "Sup3r$secret"
+hides "  $kw: \"\$(echo -n hunter2$secret)\"" "hunter2$secret"
+hides "  token: \"\$(/usr/bin/echo verysecret)\"" verysecret
+hides "  token: \"\$(werft login verysecretpassphrase)\"" verysecretpassphrase
+hides "    existingSecretPassword: verysecretpassphrase" verysecretpassphrase
+hides "    existingSecretToken: verysecretpassphrase" verysecretpassphrase
+keeps '  TOKEN="$(cat /run/secrets/werft_token)"'
+keeps '    existingSecretName: werft-egress'
+
 printf '# pass=%s fail=%s\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

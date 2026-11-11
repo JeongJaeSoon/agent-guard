@@ -9701,10 +9701,38 @@ secretish_env_values() {
         return tail ~ /^[ \t]+[A-Za-z_$][A-Za-z0-9_$.]*([ \t;,)]|$)/
       return 0
     }
+    # A command substitution is a reference only when nothing inside it can be
+    # a literal credential. One simple command, no quotes, expansions,
+    # operators or redirections. The command is a plain name or path and not
+    # one that prints its arguments (echo, printf, print). Every argument is an
+    # option, a path with a slash, or a short lowercase subcommand word, and no
+    # word is credential shaped. Anything else, such as a literal handed to
+    # echo or printf, or a long or mixed word, keeps masking.
+    function command_substitution_reference(value, inner, n, words, i, w) {
+      if (value !~ /^\$\([^()"'\''`$|;&<>\\]*\)$/) return 0
+      inner = substr(value, 3, length(value) - 3)
+      n = split(inner, words, /[ \t]+/)
+      i = 1
+      if (words[1] == "") i = 2
+      if (i > n || words[i] !~ /^[A-Za-z0-9_.\/-]+$/) return 0
+      w = words[i]
+      sub(/^.*\//, "", w)
+      if (w == "echo" || w == "printf" || w == "print" || w == "") return 0
+      for (; i <= n; i++) {
+        w = words[i]
+        if (w == "") continue
+        if (credential_shaped(w)) return 0
+        if (w ~ /^--?[a-z][a-z0-9-]*$/) continue
+        if (w ~ /\// && w ~ /^[A-Za-z0-9_.\/-]+$/) continue
+        if (w ~ /^[a-z][a-z-]*$/ && length(w) <= 10) continue
+        return 0
+      }
+      return 1
+    }
     # A quoted value made of nothing but one expansion or template reference
     # holds no credential text: a shell variable (in braces, or bare with an
-    # environment-variable name), a shell command substitution without
-    # quotes inside, a GitHub Actions expression that reads a secret, variable
+    # environment-variable name), a command substitution that passes the test
+    # above, a GitHub Actions expression that reads a secret, variable
     # or input, or a Go/Helm template that reads a value (`.Values.x`) with
     # optional pipe functions. The unquoted branch already treats these as
     # references through their opener; inside quotes that test does not run.
@@ -9713,17 +9741,19 @@ secretish_env_values() {
     function interpolated_reference(value) {
       return value ~ /^\$\{[A-Za-z_][A-Za-z0-9_]*\}$/ \
           || value ~ /^\$[A-Z]+(_[A-Z]+)*$/ \
-          || value ~ /^\$\([^()"'\''`$]*\)$/ \
+          || command_substitution_reference(value) \
           || value ~ /^\$\{\{[ \t]*(secrets|vars|env|inputs)\.[A-Za-z_][A-Za-z0-9_]*[ \t]*\}\}$/ \
           || value ~ /^\{\{-?[ \t]*\.[A-Za-z_][A-Za-z0-9_.]*([ \t]*\|[ \t]*[A-Za-z_][A-Za-z0-9_]*)*[ \t]*-?\}\}$/
     }
     # Helm charts name an existing Kubernetes Secret, and the data key inside
     # it, under `existingSecret` style keys. Those values are object names,
-    # never the credential. Exempt only that camelCase key family in a colon
+    # never the credential. Exempt only the reference names in that camelCase
+    # family (the bare key, a Name suffix, or a suffix ending in Key or Ref;
+    # a Password or Token suffix may hold the value itself) in a colon
     # field and a lowercase DNS-style name that is not credential shaped, so
     # a random or digit-mixed value under the same key still masks.
     function secret_object_name(assignment, value) {
-      if (assignment !~ /(^|[^A-Za-z0-9_.-])["'\''`]?existingSecret([A-Z][A-Za-z]*)?["'\''`]?[ \t]*:$/) return 0
+      if (assignment !~ /(^|[^A-Za-z0-9_.-])["'\''`]?existingSecret(Name|([A-Z][A-Za-z]*)?(Key|Ref))?["'\''`]?[ \t]*:$/) return 0
       if (length(value) > 253 || value !~ /^[a-z0-9]([a-z0-9._-]*[a-z0-9])?$/) return 0
       return !credential_shaped(value)
     }
