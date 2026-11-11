@@ -9620,7 +9620,7 @@ secretish_env_values() {
       v = prose_core(value)
       sub(/^[*_]+/, "", v)
       sub(/[*_]+$/, "", v)
-      return v ~ /^(cannot|unknown|missing|present|deleted|n\/a)$/
+      return v ~ /^(cannot|unknown|missing|present|deleted|required|optional|n\/a)$/
     }
     # A boolean or null under a secret-bearing key (`api_token: true`) is a
     # config flag, not a credential. Emitting it made the word a global
@@ -9628,7 +9628,7 @@ secretish_env_values() {
     # the prompt guard blocked a prompt that only described such a config.
     # Whole core only, so `trueX1...` still masks.
     function config_literal(value) {
-      return prose_core(value) ~ /^(true|false|yes|no|on|off|null|nil|none|enabled|disabled)$/
+      return prose_core(value) ~ /^(true|false|yes|no|on|off|null|nil|none|undefined|enabled|disabled)$/
     }
     # A field or parameter annotated with a bare type word (the TypeScript and
     # Python forms) names a type, not a value. Only a colon label and a bare
@@ -9653,13 +9653,30 @@ secretish_env_values() {
     # dotted chain, an uppercase letter and no digits. The trailing comma is
     # what separates it from a YAML scalar; `term` is the character after the
     # token.
-    function member_reference(assignment, value, term, \
-                              seg_n, seg, seg_i) {
-      if (term != "," || assignment !~ /:$/) return 0
-      if (!(value ~ /[A-Z]/ && value ~ /^[a-z_$]+(\.[A-Za-z_$]+)+$/)) return 0
-      # Two parts (`abc.Def`) look like a word pair, so only a camelCase leaf
-      # (`cfg.secretId`) counts as a member read here.
-      if (value !~ /\..*\./ && value !~ /\.[a-z_$][A-Za-z_$]*[A-Z]/) return 0
+    #
+    # A logical or nullish operator after a space (`??`, `||`, `&&`) is code
+    # as well: a YAML or env scalar never continues with one. That form also
+    # accepts an all-lowercase chain (`config.token`), because the operator,
+    # not the case, is what shows source code there; the root head and the
+    # segment rules below still apply. `process.env.` followed by an
+    # environment-variable name reads a variable wherever the line ends, so it
+    # needs no terminator at all.
+    function member_reference(assignment, value, term, tail, \
+                              seg_n, seg, seg_i, code_tail) {
+      if (assignment !~ /:$/) return 0
+      sub(/^[ \t]+/, "", tail)
+      code_tail = (term == " " && tail ~ /^(\?\?|\|\||&&)/)
+      if (term != "," && !code_tail \
+          && value !~ /^process\.env\.[A-Z][A-Z_]*$/) return 0
+      if (value !~ /^[a-z_$]+(\.[A-Za-z_$]+)+$/) return 0
+      if (!code_tail) {
+        if (value !~ /[A-Z]/) return 0
+        # Two parts (`abc.Def`) look like a word pair, so only a camelCase
+        # leaf (`cfg.secretId`) or an environment-variable name
+        # (`env.API_KEY`) counts as a member read here.
+        if (value !~ /\..*\./ && value !~ /\.[a-z_$][A-Za-z_$]*[A-Z]/ \
+            && value !~ /\.[A-Z][A-Z_]+$/) return 0
+      }
       # Letters, dots and a comma alone do not show source code: a passphrase of
       # words has that shape. The head must also be an object name that source
       # code commonly reads from, a closed list.
@@ -9671,6 +9688,44 @@ secretish_env_values() {
       for (seg_i = 1; seg_i <= seg_n; seg_i++)
         if (seg[seg_i] ~ /[_$]/ && seg[seg_i] !~ /^[A-Z][A-Z_]*$/) return 0
       return accessor_chain(value)
+    }
+    # A code keyword that starts an expression (`await` or `new` before a
+    # call, `typeof` before an operand) is the first word of source code, not
+    # a value: the token cut at the space left only the keyword. The call or
+    # operand after it must be there, so the bare word alone still masks.
+    function keyword_expression(assignment, value, tail) {
+      if (assignment !~ /([ \t]=|:)$/) return 0
+      if (value == "await" || value == "new" || value == "yield")
+        return tail ~ /^[ \t]+[A-Za-z_$][A-Za-z0-9_$.]*\(/
+      if (value == "typeof")
+        return tail ~ /^[ \t]+[A-Za-z_$][A-Za-z0-9_$.]*([ \t;,)]|$)/
+      return 0
+    }
+    # A quoted value made of nothing but one expansion or template reference
+    # holds no credential text: a shell variable (in braces, or bare with an
+    # environment-variable name), a shell command substitution without
+    # quotes inside, a GitHub Actions expression that reads a secret, variable
+    # or input, or a Go/Helm template that reads a value (`.Values.x`) with
+    # optional pipe functions. The unquoted branch already treats these as
+    # references through their opener; inside quotes that test does not run.
+    # Any literal text next to the reference, a quote inside a template, or a
+    # lowercase or digit-bearing bare dollar word keeps masking.
+    function interpolated_reference(value) {
+      return value ~ /^\$\{[A-Za-z_][A-Za-z0-9_]*\}$/ \
+          || value ~ /^\$[A-Z]+(_[A-Z]+)*$/ \
+          || value ~ /^\$\([^()"'\''`$]*\)$/ \
+          || value ~ /^\$\{\{[ \t]*(secrets|vars|env|inputs)\.[A-Za-z_][A-Za-z0-9_]*[ \t]*\}\}$/ \
+          || value ~ /^\{\{-?[ \t]*\.[A-Za-z_][A-Za-z0-9_.]*([ \t]*\|[ \t]*[A-Za-z_][A-Za-z0-9_]*)*[ \t]*-?\}\}$/
+    }
+    # Helm charts name an existing Kubernetes Secret, and the data key inside
+    # it, under `existingSecret` style keys. Those values are object names,
+    # never the credential. Exempt only that camelCase key family in a colon
+    # field and a lowercase DNS-style name that is not credential shaped, so
+    # a random or digit-mixed value under the same key still masks.
+    function secret_object_name(assignment, value) {
+      if (assignment !~ /(^|[^A-Za-z0-9_.-])["'\''`]?existingSecret([A-Z][A-Za-z]*)?["'\''`]?[ \t]*:$/) return 0
+      if (length(value) > 253 || value !~ /^[a-z0-9]([a-z0-9._-]*[a-z0-9])?$/) return 0
+      return !credential_shaped(value)
     }
     # A value another tool already masked (`gh auth status` prints
     # `ghu_****`) carries no credential. Only the exact shapes below: a known
@@ -9910,6 +9965,8 @@ secretish_env_values() {
         if (version_reference(assignment, value)) return 0
         if (page_cursor(assignment)) return 0
         if (snapshot_handle(assignment, value)) return 0
+        if (interpolated_reference(value)) return 0
+        if (secret_object_name(assignment, value)) return 0
       } else {
         value = raw
         sub(/[ \t,;].*$/, "", value)
@@ -9960,7 +10017,9 @@ secretish_env_values() {
         }
         value = substr(value, 1, end)
         if (type_annotation(assignment, value, token, substr(raw, length(token) + 1, 1), substr(raw, length(token) + 1))) return 0
-        if (member_reference(assignment, value, substr(raw, length(token) + 1, 1))) return 0
+        if (member_reference(assignment, value, substr(raw, length(token) + 1, 1), substr(raw, length(token) + 1))) return 0
+        if (keyword_expression(assignment, value, substr(raw, length(token) + 1))) return 0
+        if (secret_object_name(assignment, value)) return 0
         if (looks_like_reference(value, assignment, leading)) return 0
         if (version_reference(assignment, value)) return 0
         if (page_cursor(assignment)) return 0

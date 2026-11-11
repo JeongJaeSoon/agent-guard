@@ -132,5 +132,55 @@ for v in 'config.my_Secret' 'opts.my$Pass' 'this.a_b_C' 'config.$_Q'; do
 done
 keeps "  $kw: process.env.GITHUB_APP_PRIVATE_KEY,"
 
+# Issue #426: `rg -n` and `cat` of compose files, Helm values, TypeScript config
+# and fixture JSON that only NAME a credential. A logical or nullish operator
+# after a member read, an environment-variable leaf, a `process.env.` read at
+# the end of a line, a code keyword before a call, a quoted value that is only
+# an expansion or template, an existingSecret object name and status words.
+keeps '  token: process.env.EGRESS_PROXY_TOKEN ?? "",'
+keeps '  token: opts.token ?? defaultToken,'
+keeps '  token: options.token || process.env.WERFT_TOKEN,'
+keeps '  token: config.token && config.token.trim(),'
+keeps '  egressToken: env.EGRESS_TOKEN,'
+keeps '  apiKey: env.API_KEY,'
+keeps '  token: env.WERFT_TOKEN ?? "",'
+keeps '  token: process.env.EGRESS_PROXY_TOKEN'
+keeps '    const token = await createBootstrapToken(db);'
+keeps '  const token = await getToken();'
+keeps '  let secret = typeof opts.secret === "string" ? opts.secret : undefined;'
+keeps '{"name": "client", "env": {"WERFT_TOKEN": "${WERFT_TOKEN}"}}'
+keeps '  token: "${WERFT_TOKEN}"'
+keeps '  "token": "$WERFT_TOKEN",'
+keeps '  export WERFT_TOKEN="$(werft token create)"'
+keeps '  BOOTSTRAP_TOKEN: "${{ secrets.BOOTSTRAP_TOKEN }}"'
+keeps '  "apiKey": "{{ .Values.apiKey }}",'
+keeps '  password: "{{ .Values.postgres.password | quote }}"'
+keeps '    existingSecret: werft-egress'
+keeps '    existingSecretKey: egress-token'
+keeps '  "expectedEnv": {"BOOTSTRAP_TOKEN": "required"},'
+keeps 'infra/compose.core.yml:13:      EGRESS_PROXY_TOKEN: ${EGRESS_PROXY_TOKEN:-}'
+keeps 'apps/control-host/src/api/api-settings.ts:10:  bootstrapToken: string;'
+keeps 'apps/control-host/src/api/api-settings.ts:16:  // Bootstrap token is generated on first start'
+
+# Controls for #426: the same shapes with a credential in them still mask.
+# The operator form needs a root head and an identifier chain, the env leaf
+# needs capitals and underscores only, the keyword needs a call after it, a
+# quoted expansion must be the whole value, and existingSecret takes only a
+# lowercase name that is not credential shaped.
+hides "  token: config.a$secret ?? x," "$secret"
+hides "  token: winter.coldPassword ?? x," winter.coldPassword
+hides "  $kw: hunter$secret ?? x" "hunter$secret"
+hides "  token: env.A$secret," "$secret"
+hides "  token: process.env.API_KEY_$secret" "$secret"
+hides "  token: await$secret" "$secret"
+hides "  token: \"\${WERFT_TOKEN}$secret\"" "$secret"
+hides "  token: \"\$token$secret\"" "$secret"
+hides "  token: \"\${{ secrets.X }}$secret\"" "$secret"
+hides "  token: \"{{ \\\"$secret\\\" }}\"" "$secret"
+hides "    existingSecret: $secret" "$secret"
+hides "    existingSecretKey: \"Abc$secret\"" "Abc$secret"
+hides "  $kw: required$secret" "required$secret"
+hides "TOKEN=ghp_$secret$secret" "$secret"
+
 printf '# pass=%s fail=%s\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
