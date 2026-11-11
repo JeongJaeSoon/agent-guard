@@ -5513,16 +5513,146 @@ bash_strip_safe_env_lookups() {
   ' </dev/null
 }
 
+MESSAGE_HEREDOC_PLACEHOLDER=agent_guard_heredoc_message
+
+# Print $1 with every word of the form
+#   "$(cat <<'EOF'
+#   text
+#   EOF
+#   )"
+# replaced by the single-quoted placeholder above, and fail unless at least one
+# word was replaced and nothing else on the line is a substitution. With a
+# quoted delimiter the body expands nothing, so the word is that text and
+# runs nothing else. The proof is textual and holds for a shell that reads the
+# here-document inside the substitution (bash 4 and later, zsh, dash, ksh)
+# and for one that only matches quotes and parentheses to find where it ends
+# (bash 3.2): the body may not hold `$`, a backslash or a double quote, each
+# backquote or single quote must pair on its line around text with none of
+# them or a parenthesis, the other parentheses of a line must balance, a line
+# with `#` (a comment to such a scanner) may hold none of them, and no line
+# may start with the delimiter (a `EOF)` that some shell might accept). Any
+# other substitution, backquote, here-document or comment outside the words
+# makes the whole line fail, and re-tokenizing must show that each word was
+# one record that only the placeholder replaced.
+message_heredoc_placeholders() (
+  set -f
+  mh_cmd=$1
+  case "$mh_cmd" in *"$MESSAGE_HEREDOC_PLACEHOLDER"*) exit 1 ;; esac
+  mh_new=$(MH_CMD=$mh_cmd MH_PH=$MESSAGE_HEREDOC_PLACEHOLDER LC_ALL=C awk '
+    function inert(line, d,   x, k, j, ch, depth) {
+      x = line; sub(/^[ \t]+/, "", x)
+      if (substr(x, 1, length(d)) == d) return 0
+      if (line ~ /[\\$"]/) return 0
+      if (index(line, "#") && line ~ /[\047`()]/) return 0
+      depth = 0
+      for (k = 1; k <= length(line); k++) {
+        ch = substr(line, k, 1)
+        if (ch == "\047" || ch == "`") {
+          j = index(substr(line, k + 1), ch)
+          if (!j || substr(line, k + 1, j - 1) ~ /[\047`()]/) return 0
+          k += j
+        } else if (ch == "(") depth++
+        else if (ch == ")" && --depth < 0) return 0
+      }
+      return depth == 0
+    }
+    # The index just past the closing quote of a safe word at i, or 0.
+    function safe(i,   t, d, k, line, after) {
+      t = substr(s, i + 1)
+      if (!match(t, /^\$\([ \t]*cat[ \t]+<<[ \t]*\047[A-Za-z_][A-Za-z0-9_]*\047[ \t]*\n/)) return 0
+      d = substr(t, 1, RLENGTH); sub(/^[^\047]*\047/, "", d); sub(/\047.*/, "", d)
+      t = substr(t, RLENGTH + 1)
+      while (1) {
+        k = index(t, "\n")
+        if (!k) return 0
+        line = substr(t, 1, k - 1); t = substr(t, k + 1)
+        if (line == d) break
+        if (!inert(line, d)) return 0
+      }
+      if (!match(t, /^[ \t]*\)"/)) return 0
+      after = substr(t, RLENGTH + 1, 1)
+      if (after != "" && index(" \t\n;&|", after) == 0) return 0
+      return n - length(t) + 1 + RLENGTH
+    }
+    BEGIN {
+      s = ENVIRON["MH_CMD"]; ph = ENVIRON["MH_PH"]; n = length(s); out = ""; count = 0; i = 1
+      while (i <= n) {
+        c = substr(s, i, 1)
+        if (c == "\047") {
+          j = index(substr(s, i + 1), "\047")
+          if (!j) exit 1
+          out = out substr(s, i, j + 1); i += j + 1; continue
+        }
+        if (c == "\\") { out = out substr(s, i, 2); i += 2; continue }
+        if (c == "\"") {
+          p = i == 1 ? " " : substr(s, i - 1, 1)
+          if ((p == " " || p == "\t") && (e = safe(i))) {
+            out = out "\047" ph "\047"; count++; i = e; continue
+          }
+          for (j = i + 1; j <= n; j++) {
+            d = substr(s, j, 1)
+            if (d == "\\") { j++; continue }
+            if (d == "`" || d == "$" && substr(s, j + 1, 1) == "(") exit 1
+            if (d == "\"") break
+          }
+          if (j > n) exit 1
+          out = out substr(s, i, j - i + 1); i = j + 1; continue
+        }
+        if (c == "`" || c == "#" || c == "$" && substr(s, i + 1, 1) == "(" || substr(s, i, 2) == "<<") exit 1
+        out = out c; i++
+      }
+      if (!count) exit 1
+      printf "%s", out
+    }
+  ' </dev/null) || exit 1
+  MH_OLD=$(git_command_records "$mh_cmd") MH_NEW=$(git_command_records "$mh_new") \
+    MH_PH=$MESSAGE_HEREDOC_PLACEHOLDER LC_ALL=C awk 'BEGIN {
+      a = split(ENVIRON["MH_OLD"], old, "\n"); b = split(ENVIRON["MH_NEW"], new, "\n")
+      if (a != b) exit 1
+      for (k = 1; k <= a; k++) {
+        if (old[k] == new[k]) continue
+        if (new[k] != "0" ENVIRON["MH_PH"] || substr(old[k], 1, 3) != "4$(") exit 1
+        changed++
+      }
+      exit !changed
+    }' || exit 1
+  printf '%s' "$mh_new"
+)
+
 # Replace each message value message_value_records finds, quotes included,
 # with `_`. A value is replaced only when it is one quoted literal (single
 # quotes, or double quotes holding no `$`, backquote or backslash) and
 # re-tokenizing shows that it changed that record and nothing else. Leaving no
 # quotes lets the deny-path check skip its dequoted pass.
+#
+# Any other substitution in a message value, or anywhere in the command,
+# leaves the value in the scan (#409). The one exception is a value of the
+# `"$(cat <<'EOF' ... EOF)"` shape that message_heredoc_placeholders proves is
+# only its text: it is read as that literal, and only when every such word on
+# the line turned out to be a message value; otherwise the whole line is
+# handled as if none of them were literals.
 bash_strip_message_values() (
   set -f
   mv_cmd=$1
   # Every message option starts with `-` and follows the command words.
   case "$mv_cmd" in *orca*orchestration*-*|*gh*-*|*git*commit*-*) ;; *) printf '%s' "$mv_cmd"; exit 0 ;; esac
+  case "$mv_cmd" in
+    *'"$('*cat*'<<'*)
+      if mv_masked=$(message_heredoc_placeholders "$mv_cmd") \
+        && mv_masked=$(bash_strip_literal_message_values "$mv_masked"); then
+        case "$mv_masked" in
+          *"$MESSAGE_HEREDOC_PLACEHOLDER"*) ;;
+          *) printf '%s' "$mv_masked"; exit 0 ;;
+        esac
+      fi
+      ;;
+  esac
+  bash_strip_literal_message_values "$mv_cmd"
+)
+
+bash_strip_literal_message_values() (
+  set -f
+  mv_cmd=$1
   if bash_command_sources_script "$mv_cmd"; then
     printf '%s' "$mv_cmd"
     exit 0
