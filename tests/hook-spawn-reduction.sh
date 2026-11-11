@@ -104,6 +104,29 @@ json_value_prime '[1]'
 if json_input_is_primed_object '[1]'; then bad "an array is not a primed object"; else ok "an array is not a primed object"; fi
 json_value_prime '{"tool_name":"Bash"'
 if json_input_is_primed_object '{"tool_name":"Bash"'; then bad "invalid JSON is not a primed object"; else ok "invalid JSON is not a primed object"; fi
+# Large inputs and large fields stay on the per-field jq path (a big Write body
+# would cost more to quote into the shell than the jq runs it saves).
+big=$(awk 'BEGIN { s = "a"; while (length(s) < 70000) s = s s; print s }')
+doc="{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"/tmp/x\",\"content\":\"$big\"}}"
+json_value_prime "$doc"
+# (Compared in this shell: a single argv string is capped near 128 KiB.)
+if [ -n "$JV_CACHE_INPUT" ] && [ -z "${jv_content_set:-}" ] && [ "${jv_tool:-}" = Write ]; then
+  ok "a field longer than 64 Ki characters is not cached"
+else
+  bad "a field longer than 64 Ki characters is not cached"
+fi
+if [ "$(json_value '.tool_input.content // empty' "$doc")" = "$big" ]; then
+  ok "an uncached large field still prints what jq prints"
+else
+  bad "an uncached large field still prints what jq prints"
+fi
+huge=$(printf '%s' "$big" | awk '{ s = $0; while (length(s) < 270000) s = s s; print s }')
+json_value_prime "{\"tool_name\":\"Write\",\"tool_input\":{\"content\":\"$huge\"}}"
+if [ -z "$JV_CACHE_INPUT" ]; then
+  ok "an input longer than 256 Ki characters is not primed"
+else
+  bad "an input longer than 256 Ki characters is not primed"
+fi
 doc='{"tool_name":"Bash","tool_input":{"command":"ls"}}'
 json_value_prime "$doc"
 check "a primed object is recognized only for the same text" json_input_is_primed_object "$doc"
