@@ -192,7 +192,16 @@ hides "  token: \"\$(/usr/bin/echo verysecret)\"" verysecret
 hides "  token: \"\$(werft login verysecretpassphrase)\"" verysecretpassphrase
 hides "    existingSecretPassword: verysecretpassphrase" verysecretpassphrase
 hides "    existingSecretToken: verysecretpassphrase" verysecretpassphrase
+# A bare argument outside the closed subcommand list, or any word after an
+# option that names a credential, is the value itself.
+hides "  TOKEN=\"\$(werft token hunterpass)\"" hunterpass
+hides "  token: \"\$(werft token abcdefghij)\"" abcdefghij
+hides "  token: \"\$(cmd --$kw hunterpw)\"" hunterpw
+hides "  token: \"\$(cmd -p hunter)\"" hunter
+hides "  token: \"\$(cmd --api-key hunterkey)\"" hunterkey
 keeps '  TOKEN="$(cat /run/secrets/werft_token)"'
+keeps '  TOKEN="$(cat /run/secrets/egress_token)"'
+keeps '  TOKEN="$(vault read -field token /secret/werft)"'
 keeps '    existingSecretName: werft-egress'
 
 printf '# pass=%s fail=%s\n' "$pass" "$fail"

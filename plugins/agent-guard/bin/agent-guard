@@ -9476,6 +9476,10 @@ secretish_env_values() {
       for (type_i = 1; type_i <= type_n; type_i++) type_word[type_words[type_i]] = 1
       root_n = split("this self opts options config cfg conf settings props params args ctx context env input data req request state app user process", root_words, " ")
       for (root_i = 1; root_i <= root_n; root_i++) root_word[root_words[root_i]] = 1
+      # Subcommand words a credential-retrieval command takes inside `$(...)`.
+      # Closed on purpose: any other bare argument may be the literal value.
+      sub_n = split("token create get read show print generate new login auth value secret key decrypt export", sub_words, " ")
+      for (sub_i = 1; sub_i <= sub_n; sub_i++) subcommand_word[sub_words[sub_i]] = 1
     }
     function quoted_end(raw, quote, i, slash_count, ch) {
       slash_count = 0
@@ -9704,11 +9708,16 @@ secretish_env_values() {
     # A command substitution is a reference only when nothing inside it can be
     # a literal credential. One simple command, no quotes, expansions,
     # operators or redirections. The command is a plain name or path and not
-    # one that prints its arguments (echo, printf, print). Every argument is an
-    # option, a path with a slash, or a short lowercase subcommand word, and no
-    # word is credential shaped. Anything else, such as a literal handed to
-    # echo or printf, or a long or mixed word, keeps masking.
-    function command_substitution_reference(value, inner, n, words, i, w) {
+    # one that prints its arguments (echo, printf, print); a bare command name
+    # is a program that runs, not text that is the value. Every argument is an
+    # option, a path with a slash, or a word from the closed subcommand list in
+    # BEGIN (`token create`, `secret get`, ...), and no word is credential
+    # shaped. An option that names a credential (`-p`, or a long option with
+    # pass, token, secret, key, auth or cred in it) takes the next word as its
+    # value, so any word after one keeps masking. Anything else, such as a
+    # literal handed to echo or printf, or an unlisted word, keeps masking.
+    function command_substitution_reference(value, inner, n, words, i, w, \
+                                            value_option) {
       if (value !~ /^\$\([^()"'\''`$|;&<>\\]*\)$/) return 0
       inner = substr(value, 3, length(value) - 3)
       n = split(inner, words, /[ \t]+/)
@@ -9718,13 +9727,20 @@ secretish_env_values() {
       w = words[i]
       sub(/^.*\//, "", w)
       if (w == "echo" || w == "printf" || w == "print" || w == "") return 0
-      for (; i <= n; i++) {
+      if (credential_shaped(w)) return 0
+      value_option = 0
+      for (i++; i <= n; i++) {
         w = words[i]
         if (w == "") continue
         if (credential_shaped(w)) return 0
-        if (w ~ /^--?[a-z][a-z0-9-]*$/) continue
+        if (w ~ /^--?[a-z][a-z0-9-]*$/) {
+          value_option = (w == "-p" \
+            || (w ~ /^--/ && w ~ /(pass|token|secret|key|auth|cred)/))
+          continue
+        }
+        if (value_option) return 0
         if (w ~ /\// && w ~ /^[A-Za-z0-9_.\/-]+$/) continue
-        if (w ~ /^[a-z][a-z-]*$/ && length(w) <= 10) continue
+        if (w in subcommand_word) continue
         return 0
       }
       return 1

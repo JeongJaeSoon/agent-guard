@@ -44,6 +44,8 @@ check 2 "random value" "export API_TOKEN=$rnd"
 check 2 "echo of a literal in a substitution" "DB_PASSWORD=\"\$(echo Q7$rnd)\""
 check 2 "printf of a literal in a substitution" "export API_TOKEN=\"\$(printf %s S3$rnd | base64)\""
 check 2 "long argument in a substitution" "password: \"\$(werft login $rnd)\""
+check 2 "unlisted argument word in a substitution" 'TOKEN="$(werft token hunterpass)"'
+check 2 "word after a credential option in a substitution" 'TOKEN="$(cmd -p hunter)"'
 check 0 "command with subcommand words" 'export WERFT_TOKEN="$(werft token create)"'
 
 printf '%s prompt prose checks, %s failed\n' "$checked" "$failed"
