@@ -9,9 +9,11 @@
 # does not. A quoted or escaped part (`A='x y'`) stays in one word. Wrappers
 # that run their operand (`command -p`, `builtin`, `exec`, `time`, `nohup`,
 # `nice`) and a quoted or escaped name (`\env`, `'set'`) are read through. `-S` splits a string into more options or a command, so an `env`
-# with it is held whatever follows.
-(\$\(|`)[[:space:]]*((command|builtin|exec|time|nohup|nice)([[:space:]]+(-[^[:space:]`)|;&]*|[0-9]+))*[[:space:]]+)*([^[:space:]`)]*/)?\\?['"]?env['"]?[[:space:]]([^`)|;&]*[[:space:]])?(-[A-Za-z0-9]*S|--split-string)
-(\$\(|`)[[:space:]]*((command|builtin|exec|time|nohup|nice)([[:space:]]+(-[^[:space:]`)|;&]*|[0-9]+))*[[:space:]]+)*(([^[:space:]`)]*/)?\\?['"]?env['"]?([[:space:]]+(-([^[:space:]`)|;&'"\]|'[^']*'|"[^"]*"|\\.)*|[A-Za-z_][A-Za-z0-9_]*=([^[:space:]`)|;&'"\]|'[^']*'|"[^"]*"|\\.)*|(-u|-C|--unset|--chdir)[[:space:]]+([^[:space:]`)|;&'"\]|'[^']*'|"[^"]*"|\\.)+))*|\\?['"]?(set|export)['"]?|\\?['"]?export['"]?[[:space:]]+-p|\\?['"]?(declare|typeset)['"]?([[:space:]]+-[A-Za-z]*[px][A-Za-z]*)?)[[:space:]]*(\)|`|[|>;&])
+# with it is held whatever follows. A process substitution (`<(env)`,
+# `>(set)`, zsh `=(env)`) or a subshell `(env)` at a command start runs the
+# same lister, so it opens the same way; `"(env)"` inside a word does not.
+([$<>]\(|(^|[[:space:];|&(])=?\(|`)[[:space:]]*((command|builtin|exec|time|nohup|nice)([[:space:]]+(-[^[:space:]`)|;&]*|[0-9]+))*[[:space:]]+)*([^[:space:]`)]*/)?\\?['"]?env['"]?[[:space:]]([^`)|;&]*[[:space:]])?(-[A-Za-z0-9]*S|--split-string)
+([$<>]\(|(^|[[:space:];|&(])=?\(|`)[[:space:]]*((command|builtin|exec|time|nohup|nice)([[:space:]]+(-[^[:space:]`)|;&]*|[0-9]+))*[[:space:]]+)*(([^[:space:]`)]*/)?\\?['"]?env['"]?([[:space:]]+(-([^[:space:]`)|;&'"\]|'[^']*'|"[^"]*"|\\.)*|[A-Za-z_][A-Za-z0-9_]*=([^[:space:]`)|;&'"\]|'[^']*'|"[^"]*"|\\.)*|(-u|-C|--unset|--chdir)[[:space:]]+([^[:space:]`)|;&'"\]|'[^']*'|"[^"]*"|\\.)+))*|\\?['"]?(set|export)['"]?|\\?['"]?export['"]?[[:space:]]+-p|\\?['"]?(declare|typeset)['"]?([[:space:]]+-[A-Za-z]*[px][A-Za-z]*)?)[[:space:]]*(\)|`|[|>;&])
 # `env` whose output is piped or redirected dumps the environment into a sink
 # (`env | base64`, `env > /tmp/e`). Matching any `|`/`>` (rather than a fixed
 # sink list) closes gaps like `env | gzip` or `env | gpg`. The leading class
