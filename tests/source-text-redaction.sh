@@ -132,5 +132,77 @@ for v in 'config.my_Secret' 'opts.my$Pass' 'this.a_b_C' 'config.$_Q'; do
 done
 keeps "  $kw: process.env.GITHUB_APP_PRIVATE_KEY,"
 
+# Issue #426: `rg -n` and `cat` of compose files, Helm values, TypeScript config
+# and fixture JSON that only NAME a credential. A logical or nullish operator
+# after a member read, an environment-variable leaf, a `process.env.` read at
+# the end of a line, a code keyword before a call, a quoted value that is only
+# an expansion or template, an existingSecret object name and status words.
+keeps '  token: process.env.EGRESS_PROXY_TOKEN ?? "",'
+keeps '  token: opts.token ?? defaultToken,'
+keeps '  token: options.token || process.env.WERFT_TOKEN,'
+keeps '  token: config.token && config.token.trim(),'
+keeps '  egressToken: env.EGRESS_TOKEN,'
+keeps '  apiKey: env.API_KEY,'
+keeps '  token: env.WERFT_TOKEN ?? "",'
+keeps '  token: process.env.EGRESS_PROXY_TOKEN'
+keeps '    const token = await createBootstrapToken(db);'
+keeps '  const token = await getToken();'
+keeps '  let secret = typeof opts.secret === "string" ? opts.secret : undefined;'
+keeps '{"name": "client", "env": {"WERFT_TOKEN": "${WERFT_TOKEN}"}}'
+keeps '  token: "${WERFT_TOKEN}"'
+keeps '  "token": "$WERFT_TOKEN",'
+keeps '  export WERFT_TOKEN="$(werft token create)"'
+keeps '  BOOTSTRAP_TOKEN: "${{ secrets.BOOTSTRAP_TOKEN }}"'
+keeps '  "apiKey": "{{ .Values.apiKey }}",'
+keeps '  password: "{{ .Values.postgres.password | quote }}"'
+keeps '    existingSecret: werft-egress'
+keeps '    existingSecretKey: egress-token'
+keeps '  "expectedEnv": {"BOOTSTRAP_TOKEN": "required"},'
+keeps 'infra/compose.core.yml:13:      EGRESS_PROXY_TOKEN: ${EGRESS_PROXY_TOKEN:-}'
+keeps 'apps/control-host/src/api/api-settings.ts:10:  bootstrapToken: string;'
+keeps 'apps/control-host/src/api/api-settings.ts:16:  // Bootstrap token is generated on first start'
+
+# Controls for #426: the same shapes with a credential in them still mask.
+# The operator form needs a root head and an identifier chain, the env leaf
+# needs capitals and underscores only, the keyword needs a call after it, a
+# quoted expansion must be the whole value, and existingSecret takes only a
+# lowercase name that is not credential shaped.
+hides "  token: config.a$secret ?? x," "$secret"
+hides "  token: winter.coldPassword ?? x," winter.coldPassword
+hides "  $kw: hunter$secret ?? x" "hunter$secret"
+hides "  token: env.A$secret," "$secret"
+hides "  token: process.env.API_KEY_$secret" "$secret"
+hides "  token: await$secret" "$secret"
+hides "  token: \"\${WERFT_TOKEN}$secret\"" "$secret"
+hides "  token: \"\$token$secret\"" "$secret"
+hides "  token: \"\${{ secrets.X }}$secret\"" "$secret"
+hides "  token: \"{{ \\\"$secret\\\" }}\"" "$secret"
+hides "    existingSecret: $secret" "$secret"
+hides "    existingSecretKey: \"Abc$secret\"" "Abc$secret"
+hides "  $kw: required$secret" "required$secret"
+hides "TOKEN=ghp_$secret$secret" "$secret"
+
+# A quoted command substitution is a reference only when no word inside can
+# be a literal: echo and printf print their argument, a long or mixed word is
+# a value, and an existingSecret suffix that is not a reference name holds one.
+hides "DB_$kw=\"\$(echo Q7v$secret)\"" "Q7v$secret"
+hides "export API_TOKEN=\"\$(printf %s Sup3r$secret | base64)\"" "Sup3r$secret"
+hides "  $kw: \"\$(echo -n hunter2$secret)\"" "hunter2$secret"
+hides "  token: \"\$(/usr/bin/echo verysecret)\"" verysecret
+hides "  token: \"\$(werft login verysecretpassphrase)\"" verysecretpassphrase
+hides "    existingSecretPassword: verysecretpassphrase" verysecretpassphrase
+hides "    existingSecretToken: verysecretpassphrase" verysecretpassphrase
+# A bare argument outside the closed subcommand list, or any word after an
+# option that names a credential, is the value itself.
+hides "  TOKEN=\"\$(werft token hunterpass)\"" hunterpass
+hides "  token: \"\$(werft token abcdefghij)\"" abcdefghij
+hides "  token: \"\$(cmd --$kw hunterpw)\"" hunterpw
+hides "  token: \"\$(cmd -p hunter)\"" hunter
+hides "  token: \"\$(cmd --api-key hunterkey)\"" hunterkey
+keeps '  TOKEN="$(cat /run/secrets/werft_token)"'
+keeps '  TOKEN="$(cat /run/secrets/egress_token)"'
+keeps '  TOKEN="$(vault read -field token /secret/werft)"'
+keeps '    existingSecretName: werft-egress'
+
 printf '# pass=%s fail=%s\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

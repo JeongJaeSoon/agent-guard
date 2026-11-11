@@ -40,6 +40,13 @@ check 2 "status word glued to random text" "export API_SECRET=missing$rnd"
 check 2 "arbitrary phrase in brackets" 'export API_TOKEN=<correct-horse-battery>'
 check 2 "bracket phrase ending in another word" 'export API_TOKEN=<acme-pat-extra>'
 check 2 "random value" "export API_TOKEN=$rnd"
+# A quoted command substitution blocks unless nothing inside can be a literal.
+check 2 "echo of a literal in a substitution" "DB_PASSWORD=\"\$(echo Q7$rnd)\""
+check 2 "printf of a literal in a substitution" "export API_TOKEN=\"\$(printf %s S3$rnd | base64)\""
+check 2 "long argument in a substitution" "password: \"\$(werft login $rnd)\""
+check 2 "unlisted argument word in a substitution" 'TOKEN="$(werft token hunterpass)"'
+check 2 "word after a credential option in a substitution" 'TOKEN="$(cmd -p hunter)"'
+check 0 "command with subcommand words" 'export WERFT_TOKEN="$(werft token create)"'
 
 printf '%s prompt prose checks, %s failed\n' "$checked" "$failed"
 [ "$failed" -eq 0 ]

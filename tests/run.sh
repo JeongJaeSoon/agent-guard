@@ -2971,6 +2971,30 @@ expect_json_status 0 "Read local.env.example template is allowed" \
   '{"tool_name":"Read","tool_input":{"file_path":"local.env.example"}}' \
   hook-pre-tool
 
+# Issue #426: a named template under a directory (`<name>.env.example`) is the
+# same template for a Bash read on both hosts, directly and after a static
+# `./` cd. A runtime sibling in the same command keeps the block.
+for env_example_host in claude codex; do
+  for env_example_case in \
+    "0|cat infra/test-ops.env.example" \
+    "0|sed -n 1,80p infra/test-ops.env.example" \
+    "0|cd ./infra && cat test-ops.env.example" \
+    "2|cat infra/test-ops.env.example infra/test-ops.env"; do
+    env_example_expected=${env_example_case%%|*}
+    env_example_command=${env_example_case#*|}
+    jq -nc --arg c "$env_example_command" '{tool_name:"Bash",tool_input:{command:$c}}' \
+      | AGENT_GUARD_HOOK_HOST=$env_example_host \
+          "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+    env_example_status=$?
+    if [ "$env_example_status" -eq "$env_example_expected" ]; then
+      ok "Bash $env_example_command exits $env_example_expected ($env_example_host)"
+    else
+      not_ok "Bash $env_example_command exits $env_example_expected ($env_example_host, got $env_example_status)"
+      sed 's/^/  stderr: /' "$ERR"
+    fi
+  done
+done
+
 expect_json_status 0 "Bash cat template.env is allowed" \
   '{"tool_name":"Bash","tool_input":{"command":"cat template.env"}}' \
   hook-pre-tool
