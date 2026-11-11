@@ -429,5 +429,28 @@
     "classification": "true-positive",
     "description": "quoted brackets earlier in the command do not hide a later unquoted bracket glob",
     "event": {"tool_name": "Bash", "tool_input": {"command": "echo '[\"a\"]' ; cat .e[n]\"v\""}}
+  },
+  {
+    "id": "gh-body-file-stdin-heredoc",
+    "expected_status": 0,
+    "classification": "safe-control",
+    "description": "a quoted-delimiter heredoc that gh pr create reads with --body-file - is the PR body, not a file it opens",
+    "event": {"tool_name": "Bash", "tool_input": {"command": "gh pr create --title t --body-file - <<'EOF'\nNever commit .env or key.p8.\nEOF"}}
+  },
+  {
+    "id": "gh-body-file-stdin-heredoc-piped-to-shell",
+    "expected_status": 2,
+    "expected_reason": "bash_protected_path_text_match",
+    "classification": "true-positive",
+    "description": "a pipe after the message command keeps the heredoc body in the protected-path match",
+    "event": {"tool_name": "Bash", "tool_input": {"command": "gh pr create --title t --body-file - <<'EOF' | sh\ncat .env\nEOF"}}
+  },
+  {
+    "id": "gh-body-file-stdin-unquoted-delimiter",
+    "expected_status": 2,
+    "expected_reason": "bash_protected_path_text_match",
+    "classification": "true-positive",
+    "description": "an unquoted delimiter expands the body, so its substitutions stay in the match",
+    "event": {"tool_name": "Bash", "tool_input": {"command": "gh pr create --title t --body-file - <<EOF\n$(cat .env)\nEOF"}}
   }
 ]

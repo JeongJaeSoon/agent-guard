@@ -6370,10 +6370,14 @@ bash_neutralize_runtime_globals() (
 )
 
 # Print $1 without the bodies of the here-documents that `cat` or `tee` only
-# write out: that text is data, so a protected-path name in it opens no file.
-# The line that starts the heredoc (its redirect target included) and the
-# delimiter line stay. Anything not read with confidence prints $1 unchanged:
-# a head other than cat/tee (a shell or python runs its body), a pipe, group or
+# write out, or that a gh or git commit message command reads from stdin
+# (`--body-file -`, `-F -`) behind a quoted delimiter: that text is data, so a
+# protected-path name in it opens no file. A message body qualifies only in a
+# first-line command, alone with its heredoc, with nothing but `git add`
+# before it and `git push` after it, as a later command could run the stored
+# message. The line that starts the heredoc (its redirect target included) and
+# the delimiter line stay. Anything not read with confidence prints $1
+# unchanged: another head (a shell or python runs its body), a pipe, group or
 # background on the line, a body with no terminator, an unquoted delimiter whose
 # body expands something, or a line the command gate does not read the same
 # way after the rewrite (a later `sh`, `.` or `eval` may run what was written).
@@ -6386,10 +6390,57 @@ bash_strip_heredoc_bodies() (
   esac
   hd_new=$(printf '%s\n' "$hd_cmd" | LC_ALL=C awk '
     function reject() { bad = 1; exit 1 }
+    # The words of s, quoted text replaced by Q, in w[1..]; returns the count.
+    function words(s, w) {
+      gsub(/\047[^\047]*\047|"[^"]*"/, "Q", s)
+      sub(/^[ \t]+/, "", s)
+      return split(s, w, /[ \t]+/)
+    }
+    # Succeed when segment s is `gh pr|issue create|comment|edit`,
+    # `gh pr review` or `git commit` (the commands message_value_records
+    # exempts) reading its body or message from stdin with `-F -`,
+    # `--body-file -` or `--file -`, and no option starts an editor, a web
+    # browser or an interactive prompt that would read the same stdin.
+    function message_stdin(s,   w, m, k, gh, gc, dash) {
+      if (match(s, /(;|&&)/)) s = substr(s, 1, RSTART - 1)
+      m = words(s, w)
+      gh = w[1] == "gh" && (w[2] ~ /^(pr|issue)$/ && w[3] ~ /^(create|comment|edit)$/ || w[2] == "pr" && w[3] == "review")
+      gc = w[1] == "git" && w[2] == "commit"
+      if (!gh && !gc) return 0
+      for (k = 3; k <= m; k++) {
+        if (w[k] == "--") break
+        if (gh && (w[k] ~ /^-[A-Za-z]*[ew]/ || w[k] ~ /^--(editor|web)/)) return 0
+        if (gc && (w[k] ~ /^-[A-Za-z]*[cCeip]/ || w[k] ~ /^--(edit|patch|interactive|reedit-message|reuse-message|squash|fixup|template)/)) return 0
+        if ((w[k] == "-F" || gh && w[k] == "--body-file" || gc && w[k] == "--file") && w[k + 1] == "-") dash = 1
+        if (gh && w[k] == "--body-file=-" || gc && w[k] == "--file=-") dash = 1
+      }
+      return dash
+    }
+    # Commands that may come before the message command on its line: none
+    # of them can change what gh or git names or reads.
+    function lead_inert(s,   seg) {
+      while (s != "") {
+        if (match(s, /(;|&&)/)) { seg = substr(s, 1, RSTART - 1); s = substr(s, RSTART + RLENGTH) }
+        else { seg = s; s = "" }
+        if (seg ~ /[<>$]/ || seg !~ /^[ \t]*git[ \t]+(add|status)([ \t]|$)/) return 0
+      }
+      return 1
+    }
+    # After the message command, only `git push` may follow on its line.
+    function tail_inert(s,   seg) {
+      if (!match(s, /(;|&&)/)) return 1
+      s = substr(s, RSTART + RLENGTH)
+      while (s != "") {
+        if (match(s, /(;|&&)/)) { seg = substr(s, 1, RSTART - 1); s = substr(s, RSTART + RLENGTH) }
+        else { seg = s; s = "" }
+        if (seg ~ /[<>$]/ || seg !~ /^[ \t]*git[ \t]+push([ \t]|$)/) return 0
+      }
+      return 1
+    }
     delim != "" {
       line = $0
       if (strip) sub(/^\t+/, "", line)
-      if (line == delim) { delim = ""; kept[++nk] = $0; next }
+      if (line == delim) { delim = ""; kept[++nk] = $0; if (msg) mend = nk; next }
       if (!quoted && $0 ~ /[$`\\]/) reject()
       next
     }
@@ -6404,8 +6455,11 @@ bash_strip_heredoc_bodies() (
       t = rest; gsub(/&&/, "", t)
       if (t ~ /[&()`|]/) reject()
       q = rest; if (gsub(/\047/, "", q) % 2 || gsub(/"/, "", q) % 2) reject()
-      while (match(pre, /(&&|;)/)) pre = substr(pre, RSTART + RLENGTH)
-      if (pre !~ /^[ \t]*(cat|tee)([ \t]|$)/) reject()
+      lead = ""
+      while (match(pre, /(&&|;)/)) { lead = lead substr(pre, 1, RSTART + RLENGTH - 1); pre = substr(pre, RSTART + RLENGTH) }
+      writer = pre ~ /^[ \t]*(cat|tee)([ \t]|$)/
+      if (!writer && pre !~ /^[ \t]*(gh|git)[ \t]/) reject()
+      nh++
       strip = 0
       if (post ~ /^-/) { strip = 1; post = substr(post, 2) }
       sub(/^[ \t]+/, "", post)
@@ -6423,6 +6477,13 @@ bash_strip_heredoc_bodies() (
         post = substr(post, RLENGTH + 1)
       }
       if (delim == "" || delim ~ /[ \t$`\\\047"]/ || post !~ /^([ \t;&<>]|$)/) reject()
+      if (!writer) {
+        # A message body read from stdin: the line must be the first, the
+        # heredoc its only one and nothing may run after it (a later
+        # `git log --format=%B | sh` would run what was stored).
+        if (!quoted || NR != 1 || !message_stdin(pre post) || !lead_inert(lead) || !tail_inert(post)) reject()
+        msg = 1
+      }
       # Name what the line writes: a word after > or >>, and the operands of tee.
       m = split(rest, w, /[ \t]+/); tee = 0
       for (k = 1; k <= m; k++) {
@@ -6438,6 +6499,10 @@ bash_strip_heredoc_bodies() (
     }
     END {
       if (bad || delim != "") exit 1
+      if (msg) {
+        if (nh != 1 || !mend) exit 1
+        for (k = mend + 1; k <= nk; k++) if (kept[k] !~ /^[ \t]*$/) exit 1
+      }
       text = ""
       for (k = 1; k <= nk; k++) text = text kept[k] "\n"
       # Whatever the line writes may run later, as a script or an interpreter
