@@ -242,6 +242,16 @@ check 0 'diff <(sort a) <(sort b)'
 check 0 'gh pr create --title t --body-file <(env LC_ALL=C date)'
 check 0 '(set -e; date)'
 check 0 'echo "(env)"'
+check 0 "echo 'use (env)'"
+check 0 "echo 'compare (set) output'"
+check 0 'echo "x (export -p)"'
+check 0 "echo 'what to do (env)'"
+check 2 'if true; then (env); fi'
+check 2 'while true; do (set); done'
+check 2 'true && ( env )'
+check 2 '! (env)'
+check 2 '{ (env); }'
+check 2 'cat =(env)'
 # Message values with a substitution never get the exemption, whatever shape
 # the option or the substitution has.
 check 2 'gh pr comment 1 --body "$(env)"'
