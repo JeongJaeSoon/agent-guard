@@ -1725,6 +1725,148 @@ gitleaks_probe_cache_store() {
   return 0
 }
 
+# A hook scans the same short text over and over (`ls -la`, `git status`), and
+# each scan starts gitleaks (#407). A clean verdict is a function of the bytes
+# fed to `gitleaks stdin`, the flags below, the config file, the gitleaks
+# executable, and what gitleaks reads beside them: GITLEAKS_CONFIG and
+# GITLEAKS_CONFIG_TOML, and ./.gitleaksignore in the scan's directory. Only a
+# completed clean scan is remembered, under a SHA-256 of all of that, so a
+# change to any one of them misses. Findings, scanner errors, signals, and
+# could-not-run states are never stored, and every doubt (no hash tool, no
+# native-binary identity from the probe cache, an ignore file, an extended
+# config file, a stale, foreign or unreadable entry) runs the scan as before.
+# Entries hold only hashes and a time, never the text. They live in a 0700
+# directory inside the private state directory audit_begin validated, so
+# diagnostics and AGENT_GUARD_LOG_MODE=off never cache. The TTL matches the
+# probe cache: a version manager that swaps gitleaks behind one file changes
+# the probed version within that window. AGENT_GUARD_SCAN_CACHE=off opts out.
+# Keep GITLEAKS_STDIN_SCAN_FLAGS equal to the flags run_gitleaks_stdin passes.
+GITLEAKS_STDIN_SCAN_FLAGS='stdin --redact --no-banner --no-color --log-level error --config CONFIG --exit-code 1'
+GITLEAKS_CLEAN_CACHE_TTL_SECONDS=600
+GITLEAKS_CLEAN_CACHE_MAX_ENTRIES=256
+GITLEAKS_CLEAN_CACHE_FORMAT=1
+GITLEAKS_CLEAN_CACHE_FILE=
+GITLEAKS_CLEAN_CACHE_CONFIG_SUM=
+
+# $1 is the scanned text, fed as printf '%s\n'. Sets GITLEAKS_CLEAN_CACHE_FILE
+# and GITLEAKS_CLEAN_CACHE_CONFIG_SUM, or fails when the scan must not be cached.
+gitleaks_clean_cache_key() {
+  GITLEAKS_CLEAN_CACHE_FILE=
+  GITLEAKS_CLEAN_CACHE_CONFIG_SUM=
+  [ "${AGENT_GUARD_SCAN_CACHE:-on}" = on ] || return 1
+  [ -n "$AG_STATE_DIR" ] || return 1
+  case "$AG_AUDIT_START" in ''|0|*[!0-9]*) return 1 ;; esac
+  # The probe cache's identity of a native executable; a script shim has none.
+  [ -n "$GITLEAKS_PROBE_CACHE_KEY" ] && [ "$GITLEAKS_PROBE_STATE" = ready ] \
+    && [ -n "$GITLEAKS_READY_BIN" ] || return 1
+  case "$GITLEAKS_PROBE_CACHE_KEY" in *" $GITLEAKS_READY_BIN") ;; *) return 1 ;; esac
+  case "$GITLEAKS_PROBE_VERSION" in ''|*[!0-9.]*) return 1 ;; esac
+  # gitleaks stdin applies ./.gitleaksignore; its contents can hide a finding.
+  [ ! -e .gitleaksignore ] && [ ! -L .gitleaksignore ] || return 1
+  [ -f "$GITLEAKS_CONFIG" ] || return 1
+  if command -v sha256sum >/dev/null 2>&1; then
+    set -- "$1" sha256sum
+  elif command -v shasum >/dev/null 2>&1; then
+    set -- "$1" shasum -a 256
+  else
+    return 1
+  fi
+  ag_glc_text=$1
+  shift
+  # Length-prefixed fields; the scanned bytes come last, exactly as fed.
+  ag_glc_sums=$(
+    {
+      printf 'agent-guard gitleaks clean %s\n' "$GITLEAKS_CLEAN_CACHE_FORMAT"
+      for ag_glc_field in "$VERSION" "$GITLEAKS_STDIN_SCAN_FLAGS" \
+          "$GITLEAKS_PROBE_CACHE_KEY" "$GITLEAKS_PROBE_VERSION" \
+          "${GITLEAKS_CONFIG+set}:${GITLEAKS_CONFIG:-}" \
+          "${GITLEAKS_CONFIG_TOML+set}:${GITLEAKS_CONFIG_TOML:-}"; do
+        printf '%s:%s\n' "${#ag_glc_field}" "$ag_glc_field"
+      done
+      printf '%s\n' "$ag_glc_text"
+    } | LC_ALL=C "$@" - "$GITLEAKS_CONFIG" 2>/dev/null
+  ) || return 1
+  ag_glc_text=
+  ag_glc_nl='
+'
+  case "$ag_glc_sums" in *"$ag_glc_nl"*) ;; *) return 1 ;; esac
+  ag_glc_text_sum=${ag_glc_sums%%"$ag_glc_nl"*}
+  ag_glc_text_sum=${ag_glc_text_sum%% *}
+  ag_glc_config_sum=${ag_glc_sums#*"$ag_glc_nl"}
+  ag_glc_config_sum=${ag_glc_config_sum%% *}
+  for ag_glc_sum in "$ag_glc_text_sum" "$ag_glc_config_sum"; do
+    case "$ag_glc_sum" in *[!0123456789abcdef]*) return 1 ;; esac
+    [ "${#ag_glc_sum}" -eq 64 ] || return 1
+  done
+  GITLEAKS_CLEAN_CACHE_FILE="$AG_STATE_DIR/gitleaks-clean/$ag_glc_text_sum"
+  GITLEAKS_CLEAN_CACHE_CONFIG_SUM=$ag_glc_config_sum
+}
+
+# Succeed only for a fresh entry of this exact key. Any other state misses.
+gitleaks_clean_cache_hit() {
+  [ -n "$GITLEAKS_CLEAN_CACHE_FILE" ] || return 1
+  ag_glc_dir="$AG_STATE_DIR/gitleaks-clean"
+  [ -d "$ag_glc_dir" ] && [ ! -L "$ag_glc_dir" ] || return 1
+  [ -f "$GITLEAKS_CLEAN_CACHE_FILE" ] && [ ! -L "$GITLEAKS_CLEAN_CACHE_FILE" ] || return 1
+  { IFS= read -r ag_glc_format && IFS= read -r ag_glc_config \
+      && IFS= read -r ag_glc_time; } <"$GITLEAKS_CLEAN_CACHE_FILE" 2>/dev/null \
+    || return 1
+  [ "$ag_glc_format" = "$GITLEAKS_CLEAN_CACHE_FORMAT" ] || return 1
+  [ "$ag_glc_config" = "$GITLEAKS_CLEAN_CACHE_CONFIG_SUM" ] || return 1
+  # A leading zero would make the arithmetic an octal error that ends the hook.
+  case "$ag_glc_time" in ''|0*|*[!0-9]*|?????????????*) return 1 ;; esac
+  ag_glc_age=$((AG_AUDIT_START - ag_glc_time))
+  [ "$ag_glc_age" -ge 0 ] && [ "$ag_glc_age" -lt "$GITLEAKS_CLEAN_CACHE_TTL_SECONDS" ]
+}
+
+# Called only after run_gitleaks_stdin returned 0: gitleaks exited 0 and
+# printed nothing. Never fails the scan; a store problem only skips the store.
+gitleaks_clean_cache_store() {
+  [ -n "$GITLEAKS_CLEAN_CACHE_FILE" ] || return 0
+  # An ignore file that appeared during the scan may have been read by it.
+  [ ! -e .gitleaksignore ] && [ ! -L .gitleaksignore ] || return 0
+  # An [extend] path pulls in a file the key does not hash.
+  LC_ALL=C awk '
+    /^[[:space:]]*\[/ { ext = ($0 ~ /^[[:space:]]*\[[[:space:]]*extend[[:space:]]*\][[:space:]]*(#.*)?$/) }
+    /^[[:space:]]*extend[[:space:]]*\./ { found = 1 }
+    ext && /^[[:space:]]*path[[:space:]]*=/ { found = 1 }
+    END { exit found }
+  ' "$GITLEAKS_CONFIG" 2>/dev/null || return 0
+  ag_glc_dir="$AG_STATE_DIR/gitleaks-clean"
+  if [ ! -d "$ag_glc_dir" ] && [ ! -L "$ag_glc_dir" ]; then
+    (umask 077; mkdir "$ag_glc_dir") 2>/dev/null || return 0
+  fi
+  [ -d "$ag_glc_dir" ] && [ ! -L "$ag_glc_dir" ] \
+    && [ "$(audit_stat "$ag_glc_dir")" = "${AG_UID:-$(id -u)}:700" ] || return 0
+  [ ! -d "$GITLEAKS_CLEAN_CACHE_FILE" ] || return 0
+  ag_glc_tmp=$(umask 077; mktemp "$ag_glc_dir/tmp.XXXXXX" 2>/dev/null) || return 0
+  if ! { printf '%s\n%s\n%s\n' "$GITLEAKS_CLEAN_CACHE_FORMAT" \
+        "$GITLEAKS_CLEAN_CACHE_CONFIG_SUM" "$AG_AUDIT_START" >"$ag_glc_tmp" \
+      && mv -f "$ag_glc_tmp" "$GITLEAKS_CLEAN_CACHE_FILE"; } 2>/dev/null; then
+    rm -f "$ag_glc_tmp" 2>/dev/null || :
+    return 0
+  fi
+  # Bound the directory: past the limit, keep the newest three quarters.
+  ag_glc_count=0
+  for ag_glc_entry in "$ag_glc_dir"/*; do
+    ag_glc_count=$((ag_glc_count + 1))
+  done
+  [ "$ag_glc_count" -gt "$GITLEAKS_CLEAN_CACHE_MAX_ENTRIES" ] || return 0
+  ( cd "$ag_glc_dir" 2>/dev/null && ls -t 2>/dev/null ) \
+    | tail -n +$((GITLEAKS_CLEAN_CACHE_MAX_ENTRIES * 3 / 4 + 1)) \
+    | while IFS= read -r ag_glc_entry; do
+        # Only names this cache writes; never a path from elsewhere.
+        case "$ag_glc_entry" in
+          *[!0123456789abcdefABCDEFGHIJKLMNOPQRSTUVWXYZghijklmnopqrstuvwxyz.]*) continue ;;
+          tmp.??????) ;;
+          *) [ "${#ag_glc_entry}" -eq 64 ] || continue
+             case "$ag_glc_entry" in *[!0123456789abcdef]*) continue ;; esac ;;
+        esac
+        [ -d "$ag_glc_dir/$ag_glc_entry" ] || rm -f "$ag_glc_dir/$ag_glc_entry" 2>/dev/null || :
+      done
+  return 0
+}
+
 prepare_gitleaks() {
   if [ -n "$GITLEAKS_READY_BIN" ]; then
     GITLEAKS_BIN=$GITLEAKS_READY_BIN
@@ -3563,7 +3705,16 @@ scan_text_direct() {
   label=$1
   text=$2
   [ -n "$text" ] || return 0
+  # The cache is consulted only after an earlier prepare_gitleaks in this
+  # process left a ready native executable; otherwise the scan below resolves,
+  # probes and reports exactly as before.
+  if gitleaks_clean_cache_key "$text"; then
+    gitleaks_clean_cache_hit && return 0
+  fi
   printf '%s\n' "$text" | run_gitleaks_stdin "$label"
+  ag_glc_status=$?
+  [ "$ag_glc_status" -ne 0 ] || gitleaks_clean_cache_store
+  return "$ag_glc_status"
 }
 
 # Remove only recognized lockfile checksum fields before scanning proposed file

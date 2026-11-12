@@ -360,6 +360,7 @@ reads it.
 | `AGENT_GUARD_PII_LANGUAGE` / `AGENT_GUARD_PII_TIMEOUT_SECONDS` | Provider language and positive timeout control. |
 | `AGENT_GUARD_COMMAND_WRAPPING` | `off` disables shell command wrapping for the current process. |
 | `AGENT_GUARD_LOG_MODE` | The post-v3.3.0 metadata log is on by default; set `off` to opt out. |
+| `AGENT_GUARD_SCAN_CACHE` | `on` (default) or `off`. When on, a hook or scan command skips gitleaks only for text that was already scanned clean within the last 10 minutes under the same gitleaks executable (a native binary, not a script shim), configuration file contents, `GITLEAKS_CONFIG`/`GITLEAKS_CONFIG_TOML`, scan flags, and agent-guard version. Entries are SHA-256 hashes in the private state directory, at most 256 of them; the scanned text is never stored. Findings, scanner errors, and scans that could not run are never cached. A `.gitleaksignore` in the scan directory, a configuration with an `[extend]` path, `AGENT_GUARD_LOG_MODE=off`, no `sha256sum` or `shasum`, and any value other than `on` disable it. |
 | `AGENT_GUARD_RELEASE_CHECK` | `on` (default) or `off`; `doctor`, `plugin status`, and the `plugin update` no-op skip the latest-release lookup when off. |
 
 `AGENT_GUARD_HOME`, `AGENT_GUARD_BIN`, `AGENT_GUARD_HOOK_HOST`,
