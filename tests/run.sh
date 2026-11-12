@@ -209,6 +209,7 @@ for file in \
   "$ROOT/tests/deny-read-mask-allow.sh" \
   "$ROOT/tests/gitleaks-resolution.sh" \
   "$ROOT/tests/gitleaks-probe-cache.sh" \
+  "$ROOT/tests/gitleaks-clean-cache.sh" \
   "$ROOT/tests/deny-path-regex-cache.sh" \
   "$ROOT/tests/hook-spawn-reduction.sh" \
   "$ROOT/tests/run.sh"; do
@@ -8125,6 +8126,8 @@ run_expect 0 "unreaped completed scanner probes retain their exit status" \
 run_expect 0 "gitleaks readiness cache reuses only a fresh verdict for the same binary" \
   env AGENT_GUARD_TEST_REAL_GITLEAKS="$REAL_GITLEAKS" \
   "$REAL_SH" "$ROOT/tests/gitleaks-probe-cache.sh"
+run_expect 0 "gitleaks clean-verdict cache skips only an identical clean scan (#407)" \
+  "$REAL_SH" "$ROOT/tests/gitleaks-clean-cache.sh"
 run_expect 0 "setup and manifest hook outcome contracts" \
   "$REAL_SH" "$ROOT/tests/hook-outcome-contract.sh"
 

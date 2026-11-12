@@ -1,5 +1,6 @@
 /*
- * Process-free stand-in for gitleaks, used only by bench/process-count/run.sh.
+ * Process-free stand-in for gitleaks, used only by bench/process-count/run.sh
+ * and tests/gitleaks-clean-cache.sh.
  *
  * It implements the same contract as tests/fixtures/mock-gitleaks (stdin, dir
  * and version modes; AGENT_GUARD_TEST_SECRET or "PRIVATE KEY" is a finding)
@@ -8,13 +9,23 @@
  *     which keeps the per-event counts about agent-guard itself, and
  *   - agent-guard's gitleaks probe cache treats it like a real release binary
  *     (the cache refuses #! scripts), so steady-state hooks are measured.
+ * Test-only knobs, all unset by the bench: FAKE_GITLEAKS_CALLS names a file
+ * that gets one line (the mode) per invocation; FAKE_GITLEAKS_STDIN_EXIT forces
+ * the stdin exit status ("kill" ends it with SIGKILL, as a host timeout does);
+ * FAKE_GITLEAKS_STDIN_NOISE prints an error line and exits 0;
+ * FAKE_GITLEAKS_STDIN_APPEND names a file that each stdin scan appends a line
+ * to (a config edited while the scan runs); FAKE_GITLEAKS_STDIN_RELINK_TARGET
+ * and FAKE_GITLEAKS_STDIN_RELINK_LINK point that link at that target during
+ * each stdin scan (a symlinked config retargeted while the scan runs).
  * It is not a scanner and must never be installed as one.
  */
 #define _XOPEN_SOURCE 700
 #include <ftw.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 #include <sys/stat.h>
 
 static int found;
@@ -70,6 +81,14 @@ static int walk(const char *path, const struct stat *sb, int type, struct FTW *f
 
 int main(int argc, char **argv) {
   const char *mode = argc > 1 ? argv[1] : "";
+  const char *calls = getenv("FAKE_GITLEAKS_CALLS");
+  if (calls && *calls) {
+    FILE *c = fopen(calls, "a");
+    if (c) {
+      fprintf(c, "%s\n", mode);
+      fclose(c);
+    }
+  }
   if (strcmp(mode, "version") == 0) {
     puts("8.30.1-mock");
     return 0;
@@ -84,6 +103,29 @@ int main(int argc, char **argv) {
     }
     buf = slurp(stdin, &len);
     found = has_secret(buf, len);
+    {
+      const char *forced = getenv("FAKE_GITLEAKS_STDIN_EXIT");
+      const char *append = getenv("FAKE_GITLEAKS_STDIN_APPEND");
+      const char *rl_target = getenv("FAKE_GITLEAKS_STDIN_RELINK_TARGET");
+      const char *rl_link = getenv("FAKE_GITLEAKS_STDIN_RELINK_LINK");
+      if (rl_target && *rl_target && rl_link && *rl_link) {
+        unlink(rl_link);
+        if (symlink(rl_target, rl_link) != 0) return 2;
+      }
+      if (append && *append) {
+        FILE *a = fopen(append, "a");
+        if (a) {
+          fputs("# edited during the scan\n", a);
+          fclose(a);
+        }
+      }
+      if (forced && strcmp(forced, "kill") == 0) raise(SIGKILL);
+      if (forced && *forced) return atoi(forced);
+      if (getenv("FAKE_GITLEAKS_STDIN_NOISE")) {
+        puts("error: simulated scanner error");
+        return 0;
+      }
+    }
     if (report && *report) {
       FILE *r = fopen(report, "w");
       if (r) {
