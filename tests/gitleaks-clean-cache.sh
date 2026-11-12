@@ -279,6 +279,37 @@ check 'the unchanged config afterwards is cached again' \
   test "$(AGENT_GUARD_GITLEAKS_CONFIG="$CASE/moving.toml" scans_for 'ls -la'):$(AGENT_GUARD_GITLEAKS_CONFIG="$CASE/moving.toml" scans_for 'ls -la')" = 1:0
 rm -rf "$STORE"
 
+# A link on the config path can be pointed at another, older file during the
+# scan without touching that file's ctime: such a path is always hashed again,
+# so gitleaks's verdict on B is never stored under A's key.
+mkdir -p "$CASE/cfg/a" "$CASE/cfg/b"
+cp "$CASE/gitleaks.toml" "$CASE/cfg/A.toml"
+cp "$CASE/gitleaks.toml" "$CASE/cfg/B.toml"
+printf '# B differs\n' >>"$CASE/cfg/B.toml"
+cp "$CASE/cfg/A.toml" "$CASE/cfg/a/c.toml"
+cp "$CASE/cfg/B.toml" "$CASE/cfg/b/c.toml"
+ln -s "$CASE/cfg/A.toml" "$CASE/cfg/link.toml"
+ln -s "$CASE/cfg/a" "$CASE/cfg/dirlink"
+# Both targets must be older than the hook process for the ctime shortcut.
+sleep 2
+for shape in file dir; do
+  case "$shape" in
+    file) cfg="$CASE/cfg/link.toml" link="$CASE/cfg/link.toml" a="$CASE/cfg/A.toml" b="$CASE/cfg/B.toml" ;;
+    dir) cfg="$CASE/cfg/dirlink/c.toml" link="$CASE/cfg/dirlink" a="$CASE/cfg/a" b="$CASE/cfg/b" ;;
+  esac
+  rm -rf "$STORE"
+  check "a $shape link re-pointed at the same file during the scan still caches" \
+    test "$(AGENT_GUARD_GITLEAKS_CONFIG="$cfg" FAKE_GITLEAKS_STDIN_RELINK_TARGET="$a" FAKE_GITLEAKS_STDIN_RELINK_LINK="$link" scans_for 'ls -la'):$(entries)" = 1:1
+  rm -rf "$STORE"
+  check "a $shape link moved from A to B during the scan stores nothing" \
+    test "$(AGENT_GUARD_GITLEAKS_CONFIG="$cfg" FAKE_GITLEAKS_STDIN_RELINK_TARGET="$b" FAKE_GITLEAKS_STDIN_RELINK_LINK="$link" scans_for 'ls -la'):$(entries)" = 1:0
+  rm -f "$link"
+  ln -s "$a" "$link"
+  check "an unchanged $shape link still caches" \
+    test "$(AGENT_GUARD_GITLEAKS_CONFIG="$cfg" scans_for 'ls -la'):$(AGENT_GUARD_GITLEAKS_CONFIG="$cfg" scans_for 'ls -la')" = 1:0
+done
+rm -rf "$STORE"
+
 # The hash tool is never taken from PATH. Shims that answer a constant, a
 # constant only for stdin (hashing files honestly), or a replayed clean digest
 # change nothing: the system tool still caches, and a secret is still blocked.
@@ -409,17 +440,26 @@ bash_status 'ls -la' >/dev/null
 markers=$(ls "$STORE" | grep -c '^config-[0-9a-f]\{64\}$')
 m=$(ls "$STORE" | grep '^config-' | head -n 1)
 version=$(sed -n "s/^VERSION=//p" "$GUARD" | head -n 1)
-check 'a passing config leaves one marker holding the version' \
-  test "$markers:$(cat "$STORE/$m")" = "1:$version"
+checker=$(sed -n "s/^GITLEAKS_CLEAN_CACHE_CHECKER_FORMAT=//p" "$GUARD" | head -n 1)
+check 'a passing config leaves one marker holding the version and checker format' \
+  test -n "$checker" -a "$markers:$(cat "$STORE/$m")" = "1:$version:$checker"
 check 'the marker file mode is 600' test "$(mode_of "$STORE/$m")" = 600
 printf 'old\n' >"$STORE/$m"
 check 'a marker of another version re-checks and still caches' \
   test "$(scans_for 'ls -lb'):$(scans_for 'ls -lb')" = 1:0
+check 'a stale marker is rewritten after the check passes' \
+  test "$(cat "$STORE/$m")" = "$version:$checker"
 printf '[extend]\npath = "%s"\n' "$CASE/other.toml" >"$CASE/marked.toml"
 sum=$(sha256sum "$CASE/marked.toml" | cut -d' ' -f1)
 printf 'old\n' >"$STORE/config-$sum"
 check 'a marker of another version does not pass an extending config' \
   test "$(AGENT_GUARD_GITLEAKS_CONFIG="$CASE/marked.toml" scans_for 'ls -la'):$(AGENT_GUARD_GITLEAKS_CONFIG="$CASE/marked.toml" scans_for 'ls -la'):$(cat "$STORE/config-$sum")" = 1:1:old
+# A marker from an older checker within the same release is checked again.
+for stale in "$version" "$version:0" "$version:$((checker + 1))"; do
+  printf '%s\n' "$stale" >"$STORE/config-$sum"
+  check "a marker of checker [$stale] does not pass an extending config" \
+    test "$(AGENT_GUARD_GITLEAKS_CONFIG="$CASE/marked.toml" scans_for 'ls -lc'):$(AGENT_GUARD_GITLEAKS_CONFIG="$CASE/marked.toml" scans_for 'ls -lc'):$(cat "$STORE/config-$sum")" = "1:1:$stale"
+done
 rm -f "$STORE/config-$sum"
 
 # Other PreToolUse scans are not cached either: an Edit fragment and an MCP

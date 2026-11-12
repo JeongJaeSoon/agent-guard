@@ -1745,6 +1745,9 @@ GITLEAKS_STDIN_SCAN_FLAGS='stdin --redact --no-banner --no-color --log-level err
 GITLEAKS_CLEAN_CACHE_TTL_SECONDS=600
 GITLEAKS_CLEAN_CACHE_MAX_ENTRIES=256
 GITLEAKS_CLEAN_CACHE_FORMAT=1
+# Bump when gitleaks_clean_cache_config_cacheable changes, so a config-<hash>
+# marker it wrote is checked again even within one release.
+GITLEAKS_CLEAN_CACHE_CHECKER_FORMAT=1
 GITLEAKS_CLEAN_CACHE_FILE=
 GITLEAKS_CLEAN_CACHE_CONFIG_SUM=
 
@@ -1963,12 +1966,26 @@ gitleaks_clean_cache_hit() {
   [ "$ag_glc_age" -ge 0 ] && [ "$ag_glc_age" -lt "$GITLEAKS_CLEAN_CACHE_TTL_SECONDS" ]
 }
 
+# Succeed when $1 is absolute and no component of it is a symlink (shell tests
+# only, no process).
+gitleaks_clean_cache_plain_path() {
+  case "$1" in /*) ;; *) return 1 ;; esac
+  ag_glc_prefix=
+  ag_glc_rest=${1#/}
+  while [ -n "$ag_glc_rest" ]; do
+    ag_glc_part=${ag_glc_rest%%/*}
+    ag_glc_prefix="$ag_glc_prefix/$ag_glc_part"
+    [ ! -L "$ag_glc_prefix" ] || return 1
+    case "$ag_glc_rest" in */*) ag_glc_rest=${ag_glc_rest#*/} ;; *) ag_glc_rest= ;; esac
+  done
+}
+
 # Called only after run_gitleaks_stdin returned 0: gitleaks exited 0 and
 # printed nothing. Never fails the scan; a store problem only skips the store.
 # A miss already paid for gitleaks, so the store keeps to one stat and one mv:
 # the config is hashed again only when its ctime is not older than this
 # process, the config check runs once per config content (a marker named by
-# its hash and holding this version remembers a pass), and the entry is
+# its hash and holding this version and checker format remembers a pass), and the entry is
 # written by the shell under noclobber and umask 077 (an mv only to replace).
 gitleaks_clean_cache_store() {
   [ -n "$GITLEAKS_CLEAN_CACHE_FILE" ] || return 0
@@ -1989,10 +2006,13 @@ gitleaks_clean_cache_store() {
   # The config gitleaks just read must be the one the key hashed. A ctime from
   # before this process started means no change since the key was taken; any
   # later one (a write, a rename onto it, even one that restores the old bytes)
-  # hashes the file again.
+  # hashes the file again. A link anywhere on the path can be pointed at
+  # another, older file without touching that file's ctime, so such a path (or
+  # a relative one) is always hashed again.
   case "$ag_glc_config_ctime" in ''|*[!0-9]*|?????????????*) return 0 ;; esac
   ag_glc_config_ctime=${ag_glc_config_ctime#"${ag_glc_config_ctime%%[!0]*}"}
-  if [ "${ag_glc_config_ctime:-0}" -ge "$AG_AUDIT_START" ]; then
+  if [ "${ag_glc_config_ctime:-0}" -ge "$AG_AUDIT_START" ] \
+      || ! gitleaks_clean_cache_plain_path "$GITLEAKS_CONFIG"; then
     ag_glc_sums=$(gitleaks_clean_cache_hash "$GITLEAKS_CONFIG" /dev/null 2>/dev/null) \
       || return 0
     gitleaks_clean_cache_sums "$ag_glc_sums" 2 || return 0
@@ -2003,8 +2023,10 @@ gitleaks_clean_cache_store() {
   if [ -f "$ag_glc_marker" ] && [ ! -L "$ag_glc_marker" ]; then
     { IFS= read -r ag_glc_marked <"$ag_glc_marker"; } 2>/dev/null || ag_glc_marked=
   fi
-  if [ "$ag_glc_marked" != "$VERSION" ]; then
+  ag_glc_remark=
+  if [ "$ag_glc_marked" != "$VERSION:$GITLEAKS_CLEAN_CACHE_CHECKER_FORMAT" ]; then
     gitleaks_clean_cache_config_cacheable || return 0
+    ag_glc_remark=1
   fi
   [ ! -d "$GITLEAKS_CLEAN_CACHE_FILE" ] || return 0
   # A new entry is created in place: noclobber makes the open O_EXCL, and a
@@ -2027,8 +2049,13 @@ gitleaks_clean_cache_store() {
         "$GITLEAKS_CLEAN_CACHE_CONFIG_SUM" "$AG_AUDIT_START" >"$ag_glc_target"; } 2>/dev/null; then
     ag_glc_wrote=1
   fi
-  if [ -z "$ag_glc_marked" ] && [ ! -e "$ag_glc_marker" ] && [ ! -L "$ag_glc_marker" ]; then
-    { printf '%s\n' "$VERSION" >"$ag_glc_marker"; } 2>/dev/null || :
+  # A stale marker (another release or checker) is rewritten after the pass.
+  if [ -n "$ag_glc_remark" ] && [ ! -L "$ag_glc_marker" ]; then
+    if [ ! -e "$ag_glc_marker" ]; then
+      { printf '%s:%s\n' "$VERSION" "$GITLEAKS_CLEAN_CACHE_CHECKER_FORMAT" >"$ag_glc_marker"; } 2>/dev/null || :
+    elif [ -f "$ag_glc_marker" ]; then
+      { printf '%s:%s\n' "$VERSION" "$GITLEAKS_CLEAN_CACHE_CHECKER_FORMAT" >|"$ag_glc_marker"; } 2>/dev/null || :
+    fi
   fi
   umask "$AG_UMASK"
   [ -n "$ag_glc_noclobber" ] || set +C

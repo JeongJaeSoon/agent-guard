@@ -14,7 +14,9 @@
  * the stdin exit status ("kill" ends it with SIGKILL, as a host timeout does);
  * FAKE_GITLEAKS_STDIN_NOISE prints an error line and exits 0;
  * FAKE_GITLEAKS_STDIN_APPEND names a file that each stdin scan appends a line
- * to (a config edited while the scan runs).
+ * to (a config edited while the scan runs); FAKE_GITLEAKS_STDIN_RELINK_TARGET
+ * and FAKE_GITLEAKS_STDIN_RELINK_LINK point that link at that target during
+ * each stdin scan (a symlinked config retargeted while the scan runs).
  * It is not a scanner and must never be installed as one.
  */
 #define _XOPEN_SOURCE 700
@@ -23,6 +25,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 #include <sys/stat.h>
 
 static int found;
@@ -103,6 +106,12 @@ int main(int argc, char **argv) {
     {
       const char *forced = getenv("FAKE_GITLEAKS_STDIN_EXIT");
       const char *append = getenv("FAKE_GITLEAKS_STDIN_APPEND");
+      const char *rl_target = getenv("FAKE_GITLEAKS_STDIN_RELINK_TARGET");
+      const char *rl_link = getenv("FAKE_GITLEAKS_STDIN_RELINK_LINK");
+      if (rl_target && *rl_target && rl_link && *rl_link) {
+        unlink(rl_link);
+        if (symlink(rl_target, rl_link) != 0) return 2;
+      }
       if (append && *append) {
         FILE *a = fopen(append, "a");
         if (a) {
