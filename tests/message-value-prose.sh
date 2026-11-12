@@ -57,6 +57,15 @@ check 0 "cd /tmp && git commit -am 'docs: .env guide'"
 check 0 "orca orchestration send --to lead --body 'blocked: printenv and gh auth token were refused'"
 
 check 2 'orca orchestration send --to x --subject s --body-file state.env'
+# `ask --question` carries the question text as data too (#410); only `ask`
+# takes it, and a file-taking or substituted form is still checked.
+check 0 "orca orchestration ask --to lead --question 'is state.env still read by the loader?'"
+check 0 "orca orchestration ask --to lead --subject q --question 'should .env.local move to secrets.json?'"
+check 2 "orca orchestration send --to lead --question 'is state.env read?'"
+check 2 "orca orchestration ask --to lead --question-file state.env"
+check 2 'orca orchestration ask --to lead --question "$(cat .env)"'
+check 2 "orca orchestration ask --to lead --question 'x' && cat .env"
+check 2 "orca orchestration ask --to lead --question 'x' ./secrets.json"
 check 2 'gh issue create -F .env'
 check 2 'git commit -F .env'
 check 2 'gh api -F body=@.env repos/o/r/issues'
