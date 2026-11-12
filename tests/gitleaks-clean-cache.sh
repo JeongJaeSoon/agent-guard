@@ -180,12 +180,90 @@ check 'a cache directory with a wide mode stores nothing' \
   test "$(scans_for 'ls -la'):$(scans_for 'ls -la'):$(entries)" = 1:1:0
 rm -rf "$STORE"
 
-# An [extend] path loads a file the key does not hash.
-printf '[extend]\npath = "%s"\n' "$CASE/other.toml" >"$CASE/extend.toml"
-export AGENT_GUARD_GITLEAKS_CONFIG="$CASE/extend.toml"
-check 'a config extending a file is never cached' \
-  test "$(scans_for 'ls -la'):$(scans_for 'ls -la')" = 1:1
-export AGENT_GUARD_GITLEAKS_CONFIG="$CASE/gitleaks.toml"
+# An [extend] path loads a file the key does not hash, and TOML and viper
+# offer many spellings of it. Each one, and anything unrecognized near it,
+# is never cached; the plain useDefault forms still are.
+o="$CASE/other.toml"
+n=0
+while IFS= read -r spelling; do
+  n=$((n + 1))
+  printf '%b\n' "$spelling" | sed "s#OTHER#$o#g" >"$CASE/extend-$n.toml"
+  rm -rf "$STORE"
+  check "never cached: $(printf '%b' "$spelling" | tr '\n' ' ')" \
+    test "$(AGENT_GUARD_GITLEAKS_CONFIG="$CASE/extend-$n.toml" scans_for 'ls -la'):$(AGENT_GUARD_GITLEAKS_CONFIG="$CASE/extend-$n.toml" scans_for 'ls -la'):$(entries)" = 1:1:0
+done <<'EOF'
+[extend]\npath = "OTHER"
+[extend]\nuseDefault = true\npath = "OTHER"
+[extend]\n"path" = "OTHER"
+[extend]\n'path' = "OTHER"
+[extend]\nPATH = "OTHER"
+[ "extend" ]\npath = "OTHER"
+['extend']\npath = "OTHER"
+[EXTEND]\npath = "OTHER"
+extend = { path = "OTHER" }
+extend.path = "OTHER"
+"extend".path = "OTHER"
+'extend'.path = "OTHER"
+extend . path = "OTHER"
+"\\u0065xtend".path = "OTHER"
+["\\u0065xtend"]\npath = "OTHER"
+[extend] # extend\nuseDefault = true
+[extend]\nuseDefault = true\ndisabledRules = [\n"generic-api-key" ]
+EOF
+for spelling in '[extend]\nuseDefault = true' '[extend]\nuseDefault = true\ndisabledRules = ["generic-api-key"]' \
+    'title = "x"\n[[rules]]\nid = "r"\nregex = '"'''x'''"; do
+  n=$((n + 1))
+  printf '%b\n' "$spelling" >"$CASE/extend-$n.toml"
+  rm -rf "$STORE"
+  check "still cached: $(printf '%b' "$spelling" | tr '\n' ' ')" \
+    test "$(AGENT_GUARD_GITLEAKS_CONFIG="$CASE/extend-$n.toml" scans_for 'ls -la'):$(AGENT_GUARD_GITLEAKS_CONFIG="$CASE/extend-$n.toml" scans_for 'ls -la')" = 1:0
+done
+rm -rf "$STORE"
+
+# A config edited while the scan runs is not the one the key hashed.
+cp "$CASE/gitleaks.toml" "$CASE/moving.toml"
+check 'a config edited during the scan is not cached' \
+  test "$(AGENT_GUARD_GITLEAKS_CONFIG="$CASE/moving.toml" FAKE_GITLEAKS_STDIN_APPEND="$CASE/moving.toml" scans_for 'ls -la'):$(entries)" = 1:0
+check 'the unchanged config afterwards is cached again' \
+  test "$(AGENT_GUARD_GITLEAKS_CONFIG="$CASE/moving.toml" scans_for 'ls -la'):$(AGENT_GUARD_GITLEAKS_CONFIG="$CASE/moving.toml" scans_for 'ls -la')" = 1:0
+rm -rf "$STORE"
+
+# The hash tool comes from PATH. One that answers a constant, or ignores its
+# input, must never turn a secret into a hit.
+mkdir -p "$CASE/hashbin"
+for constant in 1111111111111111111111111111111111111111111111111111111111111111 \
+    e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855; do
+  printf '#!/bin/sh\ncat >/dev/null\nfor f in "$@"; do printf "%%s  %%s\\n" %s "$f"; done\n' "$constant" >"$CASE/hashbin/sha256sum"
+  chmod +x "$CASE/hashbin/sha256sum"
+  reset
+  PATH="$CASE/hashbin:$PATH" bash_status 'ls -la' >/dev/null
+  check "a constant-hash tool ($constant) is not trusted for a clean text" \
+    test "$(PATH="$CASE/hashbin:$PATH" scans_for 'ls -la'):$(entries)" = 1:0
+  check "a constant-hash tool ($constant) still blocks a secret" \
+    test "$(PATH="$CASE/hashbin:$PATH" scan_and_status "echo $marker")" = 1:2
+done
+# A tool that hashes only the known vector correctly still repeats itself.
+printf '#!/bin/sh\ncat >/dev/null\nfor f in "$@"; do if [ "$f" = /dev/null ]; then s=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855; else s=2222222222222222222222222222222222222222222222222222222222222222; fi; printf "%%s  %%s\\n" "$s" "$f"; done\n' >"$CASE/hashbin/sha256sum"
+reset
+check 'a hash tool that ignores its input is not trusted' \
+  test "$(PATH="$CASE/hashbin:$PATH" scans_for 'ls -la'):$(PATH="$CASE/hashbin:$PATH" scans_for 'ls -la'):$(entries)" = 1:1:0
+check 'a hash tool that ignores its input still blocks a secret' \
+  test "$(PATH="$CASE/hashbin:$PATH" scan_and_status "echo $marker")" = 1:2
+
+# A hit needs the directory and entry exactly as the store leaves them.
+reset
+bash_status 'ls -la' >/dev/null
+f=$(ls "$STORE")
+chmod 777 "$STORE"
+check 'a 0777 cache directory is not trusted on a hit' test "$(scans_for 'ls -la')" = 1
+chmod 700 "$STORE"
+check 'the restored directory is trusted again' test "$(scans_for 'ls -la')" = 0
+chmod 620 "$STORE/$f"
+check 'a group-writable entry is not trusted' test "$(scans_for 'ls -la')" = 1
+chmod 602 "$STORE/$f" 2>/dev/null
+check 'an other-writable entry is not trusted' test "$(scans_for 'ls -la')" = 1
+chmod 600 "$STORE/$f"
+check 'a private entry is trusted again' test "$(scans_for 'ls -la')" = 0
 
 # The opt-out, an unknown value, and logging off all scan every time.
 for v in off 1; do

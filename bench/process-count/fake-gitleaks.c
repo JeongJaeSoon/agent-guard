@@ -12,7 +12,9 @@
  * Test-only knobs, all unset by the bench: FAKE_GITLEAKS_CALLS names a file
  * that gets one line (the mode) per invocation; FAKE_GITLEAKS_STDIN_EXIT forces
  * the stdin exit status ("kill" ends it with SIGKILL, as a host timeout does);
- * FAKE_GITLEAKS_STDIN_NOISE prints an error line and exits 0.
+ * FAKE_GITLEAKS_STDIN_NOISE prints an error line and exits 0;
+ * FAKE_GITLEAKS_STDIN_APPEND names a file that each stdin scan appends a line
+ * to (a config edited while the scan runs).
  * It is not a scanner and must never be installed as one.
  */
 #define _XOPEN_SOURCE 700
@@ -100,6 +102,14 @@ int main(int argc, char **argv) {
     found = has_secret(buf, len);
     {
       const char *forced = getenv("FAKE_GITLEAKS_STDIN_EXIT");
+      const char *append = getenv("FAKE_GITLEAKS_STDIN_APPEND");
+      if (append && *append) {
+        FILE *a = fopen(append, "a");
+        if (a) {
+          fputs("# edited during the scan\n", a);
+          fclose(a);
+        }
+      }
       if (forced && strcmp(forced, "kill") == 0) raise(SIGKILL);
       if (forced && *forced) return atoi(forced);
       if (getenv("FAKE_GITLEAKS_STDIN_NOISE")) {

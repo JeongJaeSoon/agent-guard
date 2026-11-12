@@ -1764,15 +1764,8 @@ gitleaks_clean_cache_key() {
   # gitleaks stdin applies ./.gitleaksignore; its contents can hide a finding.
   [ ! -e .gitleaksignore ] && [ ! -L .gitleaksignore ] || return 1
   [ -f "$GITLEAKS_CONFIG" ] || return 1
-  if command -v sha256sum >/dev/null 2>&1; then
-    set -- "$1" sha256sum
-  elif command -v shasum >/dev/null 2>&1; then
-    set -- "$1" shasum -a 256
-  else
-    return 1
-  fi
+  gitleaks_clean_cache_hasher || return 1
   ag_glc_text=$1
-  shift
   # Length-prefixed fields; the scanned bytes come last, exactly as fed.
   ag_glc_sums=$(
     {
@@ -1784,22 +1777,96 @@ gitleaks_clean_cache_key() {
         printf '%s:%s\n' "${#ag_glc_field}" "$ag_glc_field"
       done
       printf '%s\n' "$ag_glc_text"
-    } | LC_ALL=C "$@" - "$GITLEAKS_CONFIG" 2>/dev/null
+    } | gitleaks_clean_cache_hash - "$GITLEAKS_CONFIG" /dev/null 2>/dev/null
   ) || return 1
   ag_glc_text=
+  gitleaks_clean_cache_sums "$ag_glc_sums" 3 || return 1
+  GITLEAKS_CLEAN_CACHE_FILE="$AG_STATE_DIR/gitleaks-clean/$ag_glc_sum1"
+  GITLEAKS_CLEAN_CACHE_CONFIG_SUM=$ag_glc_sum2
+}
+
+# The hash tool comes from PATH (the repo has no pinned resolver for it), so its
+# answers are checked before any is trusted: the last operand of every call is
+# /dev/null, whose SHA-256 is known, and all digests of one call must differ.
+# A tool that answers a constant or ignores its input fails one of the two, and
+# the scan runs.
+GITLEAKS_CLEAN_CACHE_HASHER=
+GITLEAKS_CLEAN_CACHE_EMPTY_SUM=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+
+gitleaks_clean_cache_hasher() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    GITLEAKS_CLEAN_CACHE_HASHER=sha256sum
+  elif command -v shasum >/dev/null 2>&1; then
+    GITLEAKS_CLEAN_CACHE_HASHER=shasum
+  else
+    GITLEAKS_CLEAN_CACHE_HASHER=
+    return 1
+  fi
+}
+
+gitleaks_clean_cache_hash() {
+  case "$GITLEAKS_CLEAN_CACHE_HASHER" in
+    sha256sum) LC_ALL=C sha256sum "$@" ;;
+    shasum) LC_ALL=C shasum -a 256 "$@" ;;
+    *) return 1 ;;
+  esac
+}
+
+# $1 is the output of one hash call whose last operand was /dev/null, $2 the
+# number of operands. Sets ag_glc_sum1, ag_glc_sum2, ... in operand order.
+gitleaks_clean_cache_sums() {
+  ag_glc_rest=$1
   ag_glc_nl='
 '
-  case "$ag_glc_sums" in *"$ag_glc_nl"*) ;; *) return 1 ;; esac
-  ag_glc_text_sum=${ag_glc_sums%%"$ag_glc_nl"*}
-  ag_glc_text_sum=${ag_glc_text_sum%% *}
-  ag_glc_config_sum=${ag_glc_sums#*"$ag_glc_nl"}
-  ag_glc_config_sum=${ag_glc_config_sum%% *}
-  for ag_glc_sum in "$ag_glc_text_sum" "$ag_glc_config_sum"; do
-    case "$ag_glc_sum" in *[!0123456789abcdef]*) return 1 ;; esac
+  ag_glc_i=0
+  ag_glc_seen=
+  while [ "$ag_glc_i" -lt "$2" ]; do
+    ag_glc_i=$((ag_glc_i + 1))
+    [ -n "$ag_glc_rest" ] || return 1
+    ag_glc_line=${ag_glc_rest%%"$ag_glc_nl"*}
+    case "$ag_glc_rest" in
+      *"$ag_glc_nl"*) ag_glc_rest=${ag_glc_rest#*"$ag_glc_nl"} ;;
+      *) ag_glc_rest= ;;
+    esac
+    ag_glc_sum=${ag_glc_line%% *}
+    case "$ag_glc_sum" in ''|*[!0123456789abcdef]*) return 1 ;; esac
     [ "${#ag_glc_sum}" -eq 64 ] || return 1
+    case " $ag_glc_seen " in *" $ag_glc_sum "*) return 1 ;; esac
+    ag_glc_seen="$ag_glc_seen $ag_glc_sum"
+    eval "ag_glc_sum$ag_glc_i=\$ag_glc_sum"
   done
-  GITLEAKS_CLEAN_CACHE_FILE="$AG_STATE_DIR/gitleaks-clean/$ag_glc_text_sum"
-  GITLEAKS_CLEAN_CACHE_CONFIG_SUM=$ag_glc_config_sum
+  [ -z "$ag_glc_rest" ] && [ "$ag_glc_sum" = "$GITLEAKS_CLEAN_CACHE_EMPTY_SUM" ]
+}
+
+# Only configurations whose loaded files the key hashes are cached. gitleaks
+# reads its config through viper, which ignores key case, and TOML spells a key
+# bare, quoted, dotted, as an inline table, or with escapes in a basic string.
+# So the word extend may appear only once per line, as a lone [extend] header
+# whose body sets nothing but useDefault and a one-line disabledRules list, and
+# no key or table header may start with a basic (double-quoted) string, where
+# an escape can hide a name. Anything else, a comment naming extend included,
+# is not cached.
+gitleaks_clean_cache_config_cacheable() {
+  LC_ALL=C awk '
+    { l = tolower($0) }
+    {
+      c = l
+      n = gsub(/extend/, "", c)
+      if (n) {
+        if (n == 1 && l ~ /^[ \t]*\[[ \t]*extend[ \t]*\][ \t]*(#.*)?$/) { ext = 1; next }
+        bad = 1; exit
+      }
+    }
+    /^[ \t]*\[/ { ext = 0; if (index($0, "\"")) { bad = 1; exit }; next }
+    /^[ \t]*"/ { bad = 1; exit }
+    ext {
+      if (l ~ /^[ \t]*(#.*)?$/) next
+      if (l ~ /^[ \t]*usedefault[ \t]*=[ \t]*(true|false)[ \t]*(#.*)?$/) next
+      if (l ~ /^[ \t]*disabledrules[ \t]*=[ \t]*\[.*\][ \t]*(#.*)?$/ && !index(l, "\\")) next
+      bad = 1; exit
+    }
+    END { exit bad }
+  ' "$GITLEAKS_CONFIG" 2>/dev/null
 }
 
 # Succeed only for a fresh entry of this exact key. Any other state misses.
@@ -1808,6 +1875,19 @@ gitleaks_clean_cache_hit() {
   ag_glc_dir="$AG_STATE_DIR/gitleaks-clean"
   [ -d "$ag_glc_dir" ] && [ ! -L "$ag_glc_dir" ] || return 1
   [ -f "$GITLEAKS_CLEAN_CACHE_FILE" ] && [ ! -L "$GITLEAKS_CLEAN_CACHE_FILE" ] || return 1
+  # The directory as the store left it, and an entry nobody else could write.
+  case "${AG_OS:-$(uname -s)}" in
+    Darwin) ag_glc_modes=$(stat -f '%u:%Lp' "$ag_glc_dir" "$GITLEAKS_CLEAN_CACHE_FILE" 2>/dev/null) ;;
+    *) ag_glc_modes=$(stat -c '%u:%a' "$ag_glc_dir" "$GITLEAKS_CLEAN_CACHE_FILE" 2>/dev/null) ;;
+  esac || return 1
+  ag_glc_nl='
+'
+  ag_glc_uid=${AG_UID:-$(id -u)}
+  [ "${ag_glc_modes%%"$ag_glc_nl"*}" = "$ag_glc_uid:700" ] || return 1
+  case "${ag_glc_modes#*"$ag_glc_nl"}" in
+    "$ag_glc_uid":[0-7][0145][0145]) ;;
+    *) return 1 ;;
+  esac
   { IFS= read -r ag_glc_format && IFS= read -r ag_glc_config \
       && IFS= read -r ag_glc_time; } <"$GITLEAKS_CLEAN_CACHE_FILE" 2>/dev/null \
     || return 1
@@ -1825,13 +1905,13 @@ gitleaks_clean_cache_store() {
   [ -n "$GITLEAKS_CLEAN_CACHE_FILE" ] || return 0
   # An ignore file that appeared during the scan may have been read by it.
   [ ! -e .gitleaksignore ] && [ ! -L .gitleaksignore ] || return 0
-  # An [extend] path pulls in a file the key does not hash.
-  LC_ALL=C awk '
-    /^[[:space:]]*\[/ { ext = ($0 ~ /^[[:space:]]*\[[[:space:]]*extend[[:space:]]*\][[:space:]]*(#.*)?$/) }
-    /^[[:space:]]*extend[[:space:]]*\./ { found = 1 }
-    ext && /^[[:space:]]*path[[:space:]]*=/ { found = 1 }
-    END { exit found }
-  ' "$GITLEAKS_CONFIG" 2>/dev/null || return 0
+  gitleaks_clean_cache_config_cacheable || return 0
+  # The config gitleaks just read must be the one the key hashed.
+  [ -n "$GITLEAKS_CLEAN_CACHE_HASHER" ] || return 0
+  ag_glc_sums=$(gitleaks_clean_cache_hash "$GITLEAKS_CONFIG" /dev/null 2>/dev/null) \
+    || return 0
+  gitleaks_clean_cache_sums "$ag_glc_sums" 2 || return 0
+  [ "$ag_glc_sum1" = "$GITLEAKS_CLEAN_CACHE_CONFIG_SUM" ] || return 0
   ag_glc_dir="$AG_STATE_DIR/gitleaks-clean"
   if [ ! -d "$ag_glc_dir" ] && [ ! -L "$ag_glc_dir" ]; then
     (umask 077; mkdir "$ag_glc_dir") 2>/dev/null || return 0
