@@ -68,6 +68,43 @@ if ! command -v cc >/dev/null 2>&1 \
 fi
 cp "$CASE/bin/gitleaks" "$CASE/gitleaks.native"
 
+# The cache trusts only a root-owned hash tool at a fixed system path. Find the
+# one it would pick; without one, caching must simply be off.
+stat_line() {
+  case "$(uname -s)" in
+    Darwin|*BSD|DragonFly) stat -f '%u:%Lp' "$1" ;;
+    *) stat -c '%u:%a' "$1" ;;
+  esac 2>/dev/null
+}
+sys_hasher=
+for c in /usr/bin/sha256sum /bin/sha256sum /usr/bin/shasum; do
+  [ -f "$c" ] && [ ! -L "$c" ] && [ -x "$c" ] && [ -d "${c%/*}" ] && [ ! -L "${c%/*}" ] || continue
+  sys_hasher=$c
+  break
+done
+sys_ok=
+if [ -n "$sys_hasher" ]; then
+  case "$(stat_line "$sys_hasher"):$(stat_line "${sys_hasher%/*}")" in
+    0:*[0145][0145]:0:*[0145][0145]) sys_ok=1 ;;
+  esac
+fi
+# Linux normally has /usr/bin/sha256sum and macOS /usr/bin/shasum (a perl
+# script); both are root's. The branch this run checks is printed.
+if [ -n "$sys_ok" ]; then
+  printf '# trusted hash tool: %s; caching is expected on\n' "$sys_hasher"
+fi
+if [ -z "$sys_ok" ]; then
+  printf '# no root-owned system hash tool; checking that nothing is cached\n'
+  reset
+  check 'without a trusted hash tool every clean command is scanned' \
+    test "$(scan_and_status 'ls -la'):$(scan_and_status 'ls -la'):$(entries)" = 1:0:1:0:0
+  check 'without a trusted hash tool a secret is blocked' \
+    test "$(scan_and_status "echo $marker")" = 1:2
+  printf '%s passed, %s failed\n' "$pass" "$fail"
+  [ "$fail" -eq 0 ]
+  exit
+fi
+
 reset
 check 'a cold clean command scans once' test "$(scan_and_status 'ls -la')" = 1:0
 check 'the identical command reuses the clean verdict' test "$(scan_and_status 'ls -la')" = 0:0
@@ -131,14 +168,19 @@ check 'nothing is stored beside .gitleaksignore' test "$(entries)" = "$n"
 # A scan that did not complete clean is never stored.
 for how in 2 126 kill; do
   cmd="echo failed-$how"
-  FAKE_GITLEAKS_STDIN_EXIT=$how bash_status "$cmd" >/dev/null
+  (FAKE_GITLEAKS_STDIN_EXIT=$how bash_status "$cmd" >/dev/null)
   check "a scanner status of $how is not cached" test "$(scans_for "$cmd")" = 1
 done
 cmd='echo noisy'
-FAKE_GITLEAKS_STDIN_NOISE=1 bash_status "$cmd" >/dev/null
+(FAKE_GITLEAKS_STDIN_NOISE=1 bash_status "$cmd" >/dev/null)
 check 'a scanner error printed with status 0 is not cached' test "$(scans_for "$cmd")" = 1
 check 'a scanner error under the closed policy blocks, not passes' \
   test "$(FAKE_GITLEAKS_STDIN_EXIT=2 AGENT_GUARD_INFRA_FAILURE_MODE=closed bash_status 'echo closed-fail')" = 2
+# A shell that keeps an assignment before a function call (bash 3.2 as sh on
+# macOS) would carry a forced scanner failure into every later case, where the
+# open infrastructure policy then passes a secret. Prove nothing leaked.
+check 'forced scanner results stay inside their own case' \
+  test -z "${FAKE_GITLEAKS_STDIN_EXIT-}${FAKE_GITLEAKS_STDIN_NOISE-}${FAKE_GITLEAKS_STDIN_APPEND-}"
 
 # Every unusable entry falls back to the scan.
 reset
@@ -209,9 +251,16 @@ extend . path = "OTHER"
 ["\\u0065xtend"]\npath = "OTHER"
 [extend] # extend\nuseDefault = true
 [extend]\nuseDefault = true\ndisabledRules = [\n"generic-api-key" ]
+[extend]\ndisabledRules = [''' ]\n[not_a_real_table]\n''']\npath = 'OTHER'
+[extend]\ndisabledRules = [""" ]\n[not_a_real_table]\n"""]\npath = 'OTHER'
+[extend]\nuseDefault = true # '''\n[x]\n'''\npath = 'OTHER'
+title = '''\n'''\n[extend]\nuseDefault = true
+title = '''\n[extend]\n'''\n[extend]\npath = "OTHER"
+[extend]\nuseDefault = true\n[[rules]]\nid = "r"\nregex = 'x'\n[extend]\npath = "OTHER"
 EOF
 for spelling in '[extend]\nuseDefault = true' '[extend]\nuseDefault = true\ndisabledRules = ["generic-api-key"]' \
-    'title = "x"\n[[rules]]\nid = "r"\nregex = '"'''x'''"; do
+    'title = "x"\n[[rules]]\nid = "r"\nregex = '"'''x'''" \
+    '[extend]\nuseDefault = true\n[[rules]]\nid = "r"\nregex = '"'''x'''"; do
   n=$((n + 1))
   printf '%b\n' "$spelling" >"$CASE/extend-$n.toml"
   rm -rf "$STORE"
@@ -228,27 +277,69 @@ check 'the unchanged config afterwards is cached again' \
   test "$(AGENT_GUARD_GITLEAKS_CONFIG="$CASE/moving.toml" scans_for 'ls -la'):$(AGENT_GUARD_GITLEAKS_CONFIG="$CASE/moving.toml" scans_for 'ls -la')" = 1:0
 rm -rf "$STORE"
 
-# The hash tool comes from PATH. One that answers a constant, or ignores its
-# input, must never turn a secret into a hit.
+# The hash tool is never taken from PATH. Shims that answer a constant, a
+# constant only for stdin (hashing files honestly), or a replayed clean digest
+# change nothing: the system tool still caches, and a secret is still blocked.
 mkdir -p "$CASE/hashbin"
-for constant in 1111111111111111111111111111111111111111111111111111111111111111 \
-    e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855; do
-  printf '#!/bin/sh\ncat >/dev/null\nfor f in "$@"; do printf "%%s  %%s\\n" %s "$f"; done\n' "$constant" >"$CASE/hashbin/sha256sum"
-  chmod +x "$CASE/hashbin/sha256sum"
-  reset
-  PATH="$CASE/hashbin:$PATH" bash_status 'ls -la' >/dev/null
-  check "a constant-hash tool ($constant) is not trusted for a clean text" \
-    test "$(PATH="$CASE/hashbin:$PATH" scans_for 'ls -la'):$(entries)" = 1:0
-  check "a constant-hash tool ($constant) still blocks a secret" \
-    test "$(PATH="$CASE/hashbin:$PATH" scan_and_status "echo $marker")" = 1:2
-done
-# A tool that hashes only the known vector correctly still repeats itself.
-printf '#!/bin/sh\ncat >/dev/null\nfor f in "$@"; do if [ "$f" = /dev/null ]; then s=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855; else s=2222222222222222222222222222222222222222222222222222222222222222; fi; printf "%%s  %%s\\n" "$s" "$f"; done\n' >"$CASE/hashbin/sha256sum"
+empty=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
 reset
-check 'a hash tool that ignores its input is not trusted' \
-  test "$(PATH="$CASE/hashbin:$PATH" scans_for 'ls -la'):$(PATH="$CASE/hashbin:$PATH" scans_for 'ls -la'):$(entries)" = 1:1:0
-check 'a hash tool that ignores its input still blocks a secret' \
-  test "$(PATH="$CASE/hashbin:$PATH" scan_and_status "echo $marker")" = 1:2
+bash_status 'ls -la' >/dev/null
+clean_sum=$(ls "$STORE" | head -n 1)
+for kind in constant stdin-constant replay; do
+  case "$kind" in
+    constant) body='cat >/dev/null; for f in "$@"; do echo "1111111111111111111111111111111111111111111111111111111111111111  $f"; done' ;;
+    stdin-constant) body="for f in \"\$@\"; do if [ \"\$f\" = - ]; then cat >/dev/null; echo \"3333333333333333333333333333333333333333333333333333333333333333  -\"; else PATH=/usr/bin:/bin sha256sum \"\$f\"; fi; done" ;;
+    replay) body="for f in \"\$@\"; do if [ \"\$f\" = - ]; then cat >/dev/null; echo \"$clean_sum  -\"; else PATH=/usr/bin:/bin sha256sum \"\$f\"; fi; done" ;;
+  esac
+  for tool in sha256sum shasum; do
+    printf '#!/bin/sh\n: >"%s/ran"\n%s\n' "$CASE/hashbin" "$body" >"$CASE/hashbin/$tool"
+    chmod +x "$CASE/hashbin/$tool"
+  done
+  reset
+  (PATH="$CASE/hashbin:$PATH" bash_status 'ls -la' >/dev/null)
+  check "a $kind hash shim on PATH still blocks a secret" \
+    test "$(PATH="$CASE/hashbin:$PATH" scan_and_status "echo $marker")" = 1:2
+  check "a $kind hash shim on PATH leaves the system tool caching" \
+    test "$(PATH="$CASE/hashbin:$PATH" scans_for 'ls -la')" = 0
+  check "a $kind hash shim on PATH is never run" test ! -e "$CASE/hashbin/ran"
+done
+
+# The tool must sit at a fixed path, not behind a link, and be root's and
+# writable by nobody else. Checked through the functions themselves.
+sh "$ROOT/tests/helpers/extract-functions.sh" "$GUARD" "$CASE" \
+  gitleaks_clean_cache_hasher gitleaks_clean_cache_modes_ok >/dev/null
+mkdir -p "$CASE/fake-sys/bin" "$CASE/fake-sys/linkdir"
+cp "$sys_hasher" "$CASE/fake-sys/bin/sha256sum"
+ln -s "$CASE/fake-sys/bin/sha256sum" "$CASE/fake-sys/linkdir/sha256sum"
+ln -s "$CASE/fake-sys/bin" "$CASE/fake-sys/bindir"
+pick() (
+  . "$CASE/gitleaks_clean_cache_hasher.sh"
+  gitleaks_clean_cache_hasher "$@" && printf '%s\n' "$GITLEAKS_CLEAN_CACHE_HASHER"
+)
+modes() (
+  . "$CASE/gitleaks_clean_cache_modes_ok.sh"
+  gitleaks_clean_cache_modes_ok "$(printf '%b' "$1")" 1000 && echo "$ag_glc_i"
+)
+check 'a symlinked tool is skipped' \
+  test "$(pick "$CASE/fake-sys/linkdir/sha256sum" "$CASE/fake-sys/bin/sha256sum")" = "$CASE/fake-sys/bin/sha256sum"
+check 'a tool in a symlinked directory is skipped' test -z "$(pick "$CASE/fake-sys/bindir/sha256sum")"
+check 'a tool under another name is skipped' test -z "$(pick "$CASE/fake-sys/bin")"
+check 'a relative tool path is skipped' test -z "$(cd "$CASE/fake-sys" && pick bin/sha256sum)"
+check 'the default candidates never include a PATH lookup' \
+  test "$(PATH="$CASE/hashbin" pick)" = "$sys_hasher"
+check 'a root-owned private tool, a 700 cache dir and a private entry pass' \
+  test "$(modes '0:755:1\n0:755:2\n1000:700:2\n1000:600:1')" = 4
+check 'the store check without an entry passes' test "$(modes '0:755:1\n0:755:2\n1000:700:2')" = 3
+check 'a tool not owned by root fails' test -z "$(modes '1000:755:1\n0:755:2\n1000:700:2\n1000:600:1')"
+check 'a group-writable tool fails' test -z "$(modes '0:775:1\n0:755:2\n1000:700:2\n1000:600:1')"
+check 'an other-writable tool directory fails' test -z "$(modes '0:755:1\n0:757:2\n1000:700:2\n1000:600:1')"
+check 'a tool directory not owned by root fails' test -z "$(modes '0:755:1\n1000:755:2\n1000:700:2\n1000:600:1')"
+check 'a setuid-style four-digit mode is read by its last digits' test "$(modes '0:4755:1\n0:755:2\n1000:700:2')" = 3
+check 'a foreign cache directory fails' test -z "$(modes '0:755:1\n0:755:2\n0:700:2\n1000:600:1')"
+check 'a hard-linked entry fails' test -z "$(modes '0:755:1\n0:755:2\n1000:700:2\n1000:600:2')"
+check 'a foreign entry fails' test -z "$(modes '0:755:1\n0:755:2\n1000:700:2\n0:600:1')"
+check 'garbled stat output fails' test -z "$(modes '0:755\n0:755:2\n1000:700:2')"
+check 'too few lines fail' test -z "$(modes '0:755:1\n0:755:2')"
 
 # A hit needs the directory and entry exactly as the store leaves them.
 reset
@@ -264,6 +355,9 @@ chmod 602 "$STORE/$f" 2>/dev/null
 check 'an other-writable entry is not trusted' test "$(scans_for 'ls -la')" = 1
 chmod 600 "$STORE/$f"
 check 'a private entry is trusted again' test "$(scans_for 'ls -la')" = 0
+ln "$STORE/$f" "$CASE/outside/hardlink"
+check 'a hard-linked entry is not trusted' test "$(scans_for 'ls -la')" = 1
+check 'the replaced entry has one link and is trusted again' test "$(scans_for 'ls -la')" = 0
 
 # The opt-out, an unknown value, and logging off all scan every time.
 for v in off 1; do
