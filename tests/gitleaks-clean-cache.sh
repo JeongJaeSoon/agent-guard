@@ -27,7 +27,9 @@ bad() { fail=$((fail + 1)); printf 'not ok - %s\n' "$*"; }
 check() { label=$1; shift; if "$@"; then ok "$label"; else bad "$label"; fi; }
 
 scans() { grep -cx stdin "$FAKE_GITLEAKS_CALLS" 2>/dev/null || :; }
-entries() { ls "$STORE" 2>/dev/null | grep -c '' || :; }
+# Entries are named by a 64-digit SHA-256; config-<hash> markers are not entries.
+entry_list() { ls "$STORE" 2>/dev/null | grep -E '^[0-9a-f]{64}$'; }
+entries() { entry_list | grep -c '' || :; }
 reset() { rm -rf "$XDG_STATE_HOME" "$AGENT_GUARD_WARNING_DIR"; : >"$FAKE_GITLEAKS_CALLS"; }
 mode_of() {
   case "$(uname -s)" in
@@ -113,7 +115,7 @@ check 'ten identical clean commands start gitleaks once' test "$(scans)" = 1
 check 'a different text is scanned' test "$(scan_and_status 'git status')" = 1:0
 check 'a one-byte difference is scanned' test "$(scans_for 'ls -la ')" = 1
 check 'the cache directory mode is 700' test "$(mode_of "$STORE")" = 700
-f=$(ls "$STORE" | head -n 1)
+f=$(entry_list | head -n 1)
 check 'an entry file mode is 600' test "$(mode_of "$STORE/$f")" = 600
 check 'an entry is named by a SHA-256' \
   sh -c 'case "$1" in *[!0-9a-f]*) exit 1 ;; esac; [ "${#1}" -eq 64 ]' _ "$f"
@@ -185,7 +187,7 @@ check 'forced scanner results stay inside their own case' \
 # Every unusable entry falls back to the scan.
 reset
 bash_status 'ls -la' >/dev/null
-f=$(ls "$STORE")
+f=$(entry_list)
 good=$(cat "$STORE/$f")
 printf 'not a cache\n' >"$STORE/$f"
 check 'a corrupt entry is scanned' test "$(scan_and_status 'ls -la')" = 1:0
@@ -284,7 +286,7 @@ mkdir -p "$CASE/hashbin"
 empty=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
 reset
 bash_status 'ls -la' >/dev/null
-clean_sum=$(ls "$STORE" | head -n 1)
+clean_sum=$(entry_list | head -n 1)
 for kind in constant stdin-constant replay; do
   case "$kind" in
     constant) body='cat >/dev/null; for f in "$@"; do echo "1111111111111111111111111111111111111111111111111111111111111111  $f"; done' ;;
@@ -318,7 +320,8 @@ pick() (
 )
 modes() (
   . "$CASE/gitleaks_clean_cache_modes_ok.sh"
-  gitleaks_clean_cache_modes_ok "$(printf '%b' "$1")" 1000 && echo "$ag_glc_i"
+  gitleaks_clean_cache_modes_ok "$(printf '%b' "$1")" 1000 "${2:-hit}" \
+    && echo "$ag_glc_i:$ag_glc_config_ctime"
 )
 check 'a symlinked tool is skipped' \
   test "$(pick "$CASE/fake-sys/linkdir/sha256sum" "$CASE/fake-sys/bin/sha256sum")" = "$CASE/fake-sys/bin/sha256sum"
@@ -327,24 +330,30 @@ check 'a tool under another name is skipped' test -z "$(pick "$CASE/fake-sys/bin
 check 'a relative tool path is skipped' test -z "$(cd "$CASE/fake-sys" && pick bin/sha256sum)"
 check 'the default candidates never include a PATH lookup' \
   test "$(PATH="$CASE/hashbin" pick)" = "$sys_hasher"
+ok4='0:755:1:5\n0:755:2:5\n1000:700:2:5'
 check 'a root-owned private tool, a 700 cache dir and a private entry pass' \
-  test "$(modes '0:755:1\n0:755:2\n1000:700:2\n1000:600:1')" = 4
-check 'the store check without an entry passes' test "$(modes '0:755:1\n0:755:2\n1000:700:2')" = 3
-check 'a tool not owned by root fails' test -z "$(modes '1000:755:1\n0:755:2\n1000:700:2\n1000:600:1')"
-check 'a group-writable tool fails' test -z "$(modes '0:775:1\n0:755:2\n1000:700:2\n1000:600:1')"
-check 'an other-writable tool directory fails' test -z "$(modes '0:755:1\n0:757:2\n1000:700:2\n1000:600:1')"
-check 'a tool directory not owned by root fails' test -z "$(modes '0:755:1\n1000:755:2\n1000:700:2\n1000:600:1')"
-check 'a setuid-style four-digit mode is read by its last digits' test "$(modes '0:4755:1\n0:755:2\n1000:700:2')" = 3
-check 'a foreign cache directory fails' test -z "$(modes '0:755:1\n0:755:2\n0:700:2\n1000:600:1')"
-check 'a hard-linked entry fails' test -z "$(modes '0:755:1\n0:755:2\n1000:700:2\n1000:600:2')"
-check 'a foreign entry fails' test -z "$(modes '0:755:1\n0:755:2\n1000:700:2\n0:600:1')"
-check 'garbled stat output fails' test -z "$(modes '0:755\n0:755:2\n1000:700:2')"
-check 'too few lines fail' test -z "$(modes '0:755:1\n0:755:2')"
+  test "$(modes "$ok4\n1000:600:1:5")" = 4:
+check 'the store check reports the config ctime' test "$(modes "$ok4\n0:666:3:42" store)" = 4:42
+check 'the store check still needs four lines' test -z "$(modes "$ok4" store)"
+check 'a tool not owned by root fails' test -z "$(modes '1000:755:1:5\n0:755:2:5\n1000:700:2:5\n1000:600:1:5')"
+check 'a group-writable tool fails' test -z "$(modes '0:775:1:5\n0:755:2:5\n1000:700:2:5\n1000:600:1:5')"
+check 'an other-writable tool directory fails' test -z "$(modes '0:755:1:5\n0:757:2:5\n1000:700:2:5\n1000:600:1:5')"
+check 'a tool directory not owned by root fails' test -z "$(modes '0:755:1:5\n1000:755:2:5\n1000:700:2:5\n1000:600:1:5')"
+check 'a setuid-style four-digit mode is read by its last digits' \
+  test "$(modes '0:4755:1:5\n0:755:2:5\n1000:700:2:5\n1000:600:1:5')" = 4:
+check 'a foreign cache directory fails' test -z "$(modes '0:755:1:5\n0:755:2:5\n0:700:2:5\n1000:600:1:5')"
+check 'a hard-linked entry fails' test -z "$(modes "$ok4\n1000:600:2:5")"
+check 'a foreign entry fails' test -z "$(modes "$ok4\n0:600:1:5")"
+check 'a group-writable entry fails' test -z "$(modes "$ok4\n1000:620:1:5")"
+check 'garbled stat output fails' test -z "$(modes '0:755:1\n0:755:2:5\n1000:700:2:5\n1000:600:1:5')"
+check 'an extra field fails' test -z "$(modes "$ok4\n1000:600:1:5:9")"
+check 'too few lines fail' test -z "$(modes '0:755:1:5\n0:755:2:5')"
+check 'an unknown kind fails' test -z "$(modes "$ok4\n1000:600:1:5" other)"
 
 # A hit needs the directory and entry exactly as the store leaves them.
 reset
 bash_status 'ls -la' >/dev/null
-f=$(ls "$STORE")
+f=$(entry_list)
 chmod 777 "$STORE"
 check 'a 0777 cache directory is not trusted on a hit' test "$(scans_for 'ls -la')" = 1
 chmod 700 "$STORE"
@@ -389,13 +398,56 @@ prompt_status() {
 prompt_status 'please refactor the parser' >/dev/null
 before=$(scans)
 check 'a repeated clean prompt passes' test "$(prompt_status 'please refactor the parser')" = 0
-check 'a repeated clean prompt reuses the verdict' test "$(scans)" = "$before"
+check 'a repeated clean prompt is scanned again: prompts never use the cache' \
+  test "$(($(scans) - before)):$(entries)" = 1:0
 check 'a secret prompt is still blocked' test "$(prompt_status "please use $marker")" = 2
+
+# The config check runs once per config content: a marker named by its hash
+# and holding this version remembers a pass. Nothing else in it is trusted.
+reset
+bash_status 'ls -la' >/dev/null
+markers=$(ls "$STORE" | grep -c '^config-[0-9a-f]\{64\}$')
+m=$(ls "$STORE" | grep '^config-' | head -n 1)
+version=$(sed -n "s/^VERSION=//p" "$GUARD" | head -n 1)
+check 'a passing config leaves one marker holding the version' \
+  test "$markers:$(cat "$STORE/$m")" = "1:$version"
+check 'the marker file mode is 600' test "$(mode_of "$STORE/$m")" = 600
+printf 'old\n' >"$STORE/$m"
+check 'a marker of another version re-checks and still caches' \
+  test "$(scans_for 'ls -lb'):$(scans_for 'ls -lb')" = 1:0
+printf '[extend]\npath = "%s"\n' "$CASE/other.toml" >"$CASE/marked.toml"
+sum=$(sha256sum "$CASE/marked.toml" | cut -d' ' -f1)
+printf 'old\n' >"$STORE/config-$sum"
+check 'a marker of another version does not pass an extending config' \
+  test "$(AGENT_GUARD_GITLEAKS_CONFIG="$CASE/marked.toml" scans_for 'ls -la'):$(AGENT_GUARD_GITLEAKS_CONFIG="$CASE/marked.toml" scans_for 'ls -la'):$(cat "$STORE/config-$sum")" = 1:1:old
+rm -f "$STORE/config-$sum"
+
+# Other PreToolUse scans are not cached either: an Edit fragment and an MCP
+# input are scanned on every event and store nothing.
+reset
+tool_status() {
+  jq -nc --arg t "$1" --argjson i "$2" --arg d "$CASE/w" \
+    '{tool_name:$t,tool_input:$i,cwd:$d,session_id:"clean-cache-tool"}' \
+    | (cd "$CASE/w" && AGENT_GUARD_HOOK_HOST=claude "$GUARD" hook-pre-tool >"$CASE/out" 2>"$CASE/err")
+  echo $?
+}
+edit='{"file_path":"'"$CASE"'/w/notes.txt","old_string":"a","new_string":"plain words"}'
+before=$(scans)
+tool_status Edit "$edit" >/dev/null
+check 'a repeated Edit fragment passes' test "$(tool_status Edit "$edit")" = 0
+check 'a repeated Edit fragment is scanned each time and never cached' \
+  test "$(($(scans) - before)):$(entries)" = 2:0
+mcp='{"query":"plain words"}'
+before=$(scans)
+tool_status mcp__demo__search "$mcp" >/dev/null
+check 'a repeated MCP input passes' test "$(tool_status mcp__demo__search "$mcp")" = 0
+check 'a repeated MCP input is scanned each time and never cached' \
+  test "$(($(scans) - before)):$(entries)" = 2:0
 
 # The directory stays bounded.
 reset
 bash_status 'ls -la' >/dev/null
-f=$(ls "$STORE")
+f=$(entry_list)
 i=0
 while [ "$i" -lt 300 ]; do
   printf '1\n%s\n1\n' "$f" >"$STORE/$(printf '%064x' "$i")"

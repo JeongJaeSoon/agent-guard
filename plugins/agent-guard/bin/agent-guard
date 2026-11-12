@@ -1822,24 +1822,32 @@ gitleaks_clean_cache_hash() {
   esac
 }
 
-# Print uid:mode:links for each operand, one line each, through BSD or GNU stat.
+# Print uid:mode:links:ctime for each operand, one line each, through BSD or
+# GNU stat. $1 is -L to follow symlinks or -P not to; BSD stat wants every
+# option before the operands.
 gitleaks_clean_cache_stat() {
   case "${AG_OS:-$(uname -s)}" in
-    Darwin|*BSD|DragonFly) stat -f '%u:%Lp:%l' "$@" 2>/dev/null ;;
-    *) stat -c '%u:%a:%h' "$@" 2>/dev/null ;;
+    Darwin|*BSD|DragonFly) ag_glc_follow=$1; shift
+      if [ "$ag_glc_follow" = -L ]; then stat -L -f '%u:%Lp:%l:%c' "$@" 2>/dev/null
+      else stat -f '%u:%Lp:%l:%c' "$@" 2>/dev/null; fi ;;
+    *) ag_glc_follow=$1; shift
+      if [ "$ag_glc_follow" = -L ]; then stat -L -c '%u:%a:%h:%Z' "$@" 2>/dev/null
+      else stat -c '%u:%a:%h:%Z' "$@" 2>/dev/null; fi ;;
   esac
 }
 
-# $1 holds the stat lines of the hash tool, its directory and the cache
-# directory, then optionally the entry; $2 is this user's uid. The tool and its
-# directory: root's and writable by nobody else. The cache directory: this
-# user's, 0700. The entry: this user's, writable by nobody else, one link (a
-# hard link could make another file's content an entry).
+# $1 holds four stat lines: the hash tool, its directory, the cache directory,
+# and then the entry ($3 = hit) or the config ($3 = store); $2 is this user's
+# uid. The tool and its directory: root's and writable by nobody else. The
+# cache directory: this user's, 0700. The entry: this user's, writable by
+# nobody else, one link (a hard link could make another file's content an
+# entry). The config's ctime is left in ag_glc_config_ctime.
 gitleaks_clean_cache_modes_ok() {
   ag_glc_rest=$1
   ag_glc_nl='
 '
   ag_glc_i=0
+  ag_glc_config_ctime=
   while [ -n "$ag_glc_rest" ]; do
     ag_glc_i=$((ag_glc_i + 1))
     ag_glc_line=${ag_glc_rest%%"$ag_glc_nl"*}
@@ -1847,26 +1855,26 @@ gitleaks_clean_cache_modes_ok() {
       *"$ag_glc_nl"*) ag_glc_rest=${ag_glc_rest#*"$ag_glc_nl"} ;;
       *) ag_glc_rest= ;;
     esac
-    case "$ag_glc_line" in *:*:*:*) return 1 ;; *:*:*) ;; *) return 1 ;; esac
+    case "$ag_glc_line" in *:*:*:*:*) return 1 ;; *:*:*:*) ;; *) return 1 ;; esac
+    case "$ag_glc_line" in *[!0-9:]*|*::*|:*|*:) return 1 ;; esac
     ag_glc_owner=${ag_glc_line%%:*}
-    ag_glc_mode=${ag_glc_line#*:}
-    ag_glc_links=${ag_glc_mode#*:}
-    ag_glc_mode=${ag_glc_mode%%:*}
-    case "$ag_glc_owner:$ag_glc_mode:$ag_glc_links" in
-      *[!0-9:]*|*::*|:*|*:) return 1 ;;
-    esac
-    case "$ag_glc_links" in *:*) return 1 ;; esac
+    ag_glc_line=${ag_glc_line#*:}
+    ag_glc_mode=${ag_glc_line%%:*}
+    ag_glc_line=${ag_glc_line#*:}
+    ag_glc_links=${ag_glc_line%%:*}
+    ag_glc_ctime=${ag_glc_line#*:}
     case "$ag_glc_mode" in [0-7][0-7][0-7]|[0-7][0-7][0-7][0-7]) ;; *) return 1 ;; esac
-    case "$ag_glc_i" in
-      1|2) [ "$ag_glc_owner" = 0 ] || return 1
+    case "$ag_glc_i:$3" in
+      1:*|2:*) [ "$ag_glc_owner" = 0 ] || return 1
            case "$ag_glc_mode" in *[0145][0145]) ;; *) return 1 ;; esac ;;
-      3) [ "$ag_glc_owner" = "$2" ] && [ "$ag_glc_mode" = 700 ] || return 1 ;;
-      4) [ "$ag_glc_owner" = "$2" ] && [ "$ag_glc_links" = 1 ] || return 1
+      3:*) [ "$ag_glc_owner" = "$2" ] && [ "$ag_glc_mode" = 700 ] || return 1 ;;
+      4:hit) [ "$ag_glc_owner" = "$2" ] && [ "$ag_glc_links" = 1 ] || return 1
          case "$ag_glc_mode" in *[0145][0145]) ;; *) return 1 ;; esac ;;
+      4:store) ag_glc_config_ctime=$ag_glc_ctime ;;
       *) return 1 ;;
     esac
   done
-  [ "$ag_glc_i" -ge 3 ]
+  [ "$ag_glc_i" -eq 4 ]
 }
 
 # $1 is the output of one hash call whose last operand was /dev/null, $2 the
@@ -1941,10 +1949,9 @@ gitleaks_clean_cache_hit() {
   [ -f "$GITLEAKS_CLEAN_CACHE_FILE" ] && [ ! -L "$GITLEAKS_CLEAN_CACHE_FILE" ] || return 1
   # The tool that named the entry, the directory as the store left it, and an
   # entry nobody else could write, in one stat.
-  ag_glc_modes=$(gitleaks_clean_cache_stat "$GITLEAKS_CLEAN_CACHE_HASHER" \
+  ag_glc_modes=$(gitleaks_clean_cache_stat -P "$GITLEAKS_CLEAN_CACHE_HASHER" \
     "${GITLEAKS_CLEAN_CACHE_HASHER%/*}" "$ag_glc_dir" "$GITLEAKS_CLEAN_CACHE_FILE") || return 1
-  gitleaks_clean_cache_modes_ok "$ag_glc_modes" "${AG_UID:-$(id -u)}" || return 1
-  [ "$ag_glc_i" -eq 4 ] || return 1
+  gitleaks_clean_cache_modes_ok "$ag_glc_modes" "${AG_UID:-$(id -u)}" hit || return 1
   { IFS= read -r ag_glc_format && IFS= read -r ag_glc_config \
       && IFS= read -r ag_glc_time; } <"$GITLEAKS_CLEAN_CACHE_FILE" 2>/dev/null \
     || return 1
@@ -1958,47 +1965,91 @@ gitleaks_clean_cache_hit() {
 
 # Called only after run_gitleaks_stdin returned 0: gitleaks exited 0 and
 # printed nothing. Never fails the scan; a store problem only skips the store.
+# A miss already paid for gitleaks, so the store keeps to one stat and one mv:
+# the config is hashed again only when its ctime is not older than this
+# process, the config check runs once per config content (a marker named by
+# its hash and holding this version remembers a pass), and the entry is
+# written by the shell under noclobber and umask 077 (an mv only to replace).
 gitleaks_clean_cache_store() {
   [ -n "$GITLEAKS_CLEAN_CACHE_FILE" ] || return 0
   # An ignore file that appeared during the scan may have been read by it.
   [ ! -e .gitleaksignore ] && [ ! -L .gitleaksignore ] || return 0
-  gitleaks_clean_cache_config_cacheable || return 0
   [ -n "$GITLEAKS_CLEAN_CACHE_HASHER" ] || return 0
+  case "${AG_UMASK:-}" in ''|*[!01234567]*|?????*) return 0 ;; esac
   ag_glc_dir="$AG_STATE_DIR/gitleaks-clean"
   if [ ! -d "$ag_glc_dir" ] && [ ! -L "$ag_glc_dir" ]; then
     (umask 077; mkdir "$ag_glc_dir") 2>/dev/null || return 0
   fi
   [ -d "$ag_glc_dir" ] && [ ! -L "$ag_glc_dir" ] || return 0
-  ag_glc_modes=$(gitleaks_clean_cache_stat "$GITLEAKS_CLEAN_CACHE_HASHER" \
-    "${GITLEAKS_CLEAN_CACHE_HASHER%/*}" "$ag_glc_dir") || return 0
-  gitleaks_clean_cache_modes_ok "$ag_glc_modes" "${AG_UID:-$(id -u)}" || return 0
-  [ "$ag_glc_i" -eq 3 ] || return 0
-  # The config gitleaks just read must be the one the key hashed.
-  ag_glc_sums=$(gitleaks_clean_cache_hash "$GITLEAKS_CONFIG" /dev/null 2>/dev/null) \
-    || return 0
-  gitleaks_clean_cache_sums "$ag_glc_sums" 2 || return 0
-  [ "$ag_glc_sum1" = "$GITLEAKS_CLEAN_CACHE_CONFIG_SUM" ] || return 0
+  # -L: the config is read through any link, as gitleaks reads it. The tool and
+  # the directories were checked not to be links.
+  ag_glc_modes=$(gitleaks_clean_cache_stat -L "$GITLEAKS_CLEAN_CACHE_HASHER" \
+    "${GITLEAKS_CLEAN_CACHE_HASHER%/*}" "$ag_glc_dir" "$GITLEAKS_CONFIG") || return 0
+  gitleaks_clean_cache_modes_ok "$ag_glc_modes" "${AG_UID:-$(id -u)}" store || return 0
+  # The config gitleaks just read must be the one the key hashed. A ctime from
+  # before this process started means no change since the key was taken; any
+  # later one (a write, a rename onto it, even one that restores the old bytes)
+  # hashes the file again.
+  case "$ag_glc_config_ctime" in ''|*[!0-9]*|?????????????*) return 0 ;; esac
+  ag_glc_config_ctime=${ag_glc_config_ctime#"${ag_glc_config_ctime%%[!0]*}"}
+  if [ "${ag_glc_config_ctime:-0}" -ge "$AG_AUDIT_START" ]; then
+    ag_glc_sums=$(gitleaks_clean_cache_hash "$GITLEAKS_CONFIG" /dev/null 2>/dev/null) \
+      || return 0
+    gitleaks_clean_cache_sums "$ag_glc_sums" 2 || return 0
+    [ "$ag_glc_sum1" = "$GITLEAKS_CLEAN_CACHE_CONFIG_SUM" ] || return 0
+  fi
+  ag_glc_marker="$ag_glc_dir/config-$GITLEAKS_CLEAN_CACHE_CONFIG_SUM"
+  ag_glc_marked=
+  if [ -f "$ag_glc_marker" ] && [ ! -L "$ag_glc_marker" ]; then
+    { IFS= read -r ag_glc_marked <"$ag_glc_marker"; } 2>/dev/null || ag_glc_marked=
+  fi
+  if [ "$ag_glc_marked" != "$VERSION" ]; then
+    gitleaks_clean_cache_config_cacheable || return 0
+  fi
   [ ! -d "$GITLEAKS_CLEAN_CACHE_FILE" ] || return 0
-  ag_glc_tmp=$(umask 077; mktemp "$ag_glc_dir/tmp.XXXXXX" 2>/dev/null) || return 0
-  if ! { printf '%s\n%s\n%s\n' "$GITLEAKS_CLEAN_CACHE_FORMAT" \
-        "$GITLEAKS_CLEAN_CACHE_CONFIG_SUM" "$AG_AUDIT_START" >"$ag_glc_tmp" \
-      && mv -f "$ag_glc_tmp" "$GITLEAKS_CLEAN_CACHE_FILE"; } 2>/dev/null; then
+  # A new entry is created in place: noclobber makes the open O_EXCL, and a
+  # reader that races the single short write sees too few lines, a short hash
+  # or a short (so expired) time, all of which miss. Replacing an existing
+  # entry goes through a temporary name and one mv.
+  case $- in *C*) ag_glc_noclobber=1 ;; *) ag_glc_noclobber= ;; esac
+  set -C
+  umask 077
+  ag_glc_tmp=
+  ag_glc_wrote=
+  if [ -e "$GITLEAKS_CLEAN_CACHE_FILE" ] || [ -L "$GITLEAKS_CLEAN_CACHE_FILE" ]; then
+    ag_glc_tmp="$ag_glc_dir/tmp.$$"
+    ag_glc_target=$ag_glc_tmp
+  else
+    ag_glc_target=$GITLEAKS_CLEAN_CACHE_FILE
+  fi
+  if [ ! -e "$ag_glc_target" ] && [ ! -L "$ag_glc_target" ] \
+      && { printf '%s\n%s\n%s\n' "$GITLEAKS_CLEAN_CACHE_FORMAT" \
+        "$GITLEAKS_CLEAN_CACHE_CONFIG_SUM" "$AG_AUDIT_START" >"$ag_glc_target"; } 2>/dev/null; then
+    ag_glc_wrote=1
+  fi
+  if [ -z "$ag_glc_marked" ] && [ ! -e "$ag_glc_marker" ] && [ ! -L "$ag_glc_marker" ]; then
+    { printf '%s\n' "$VERSION" >"$ag_glc_marker"; } 2>/dev/null || :
+  fi
+  umask "$AG_UMASK"
+  [ -n "$ag_glc_noclobber" ] || set +C
+  [ -n "$ag_glc_wrote" ] || return 0
+  if [ -n "$ag_glc_tmp" ] && ! mv -f "$ag_glc_tmp" "$GITLEAKS_CLEAN_CACHE_FILE" 2>/dev/null; then
     rm -f "$ag_glc_tmp" 2>/dev/null || :
     return 0
   fi
-  # Bound the directory: past the limit, keep the newest three quarters.
-  ag_glc_count=0
-  for ag_glc_entry in "$ag_glc_dir"/*; do
-    ag_glc_count=$((ag_glc_count + 1))
-  done
-  [ "$ag_glc_count" -gt "$GITLEAKS_CLEAN_CACHE_MAX_ENTRIES" ] || return 0
+  # Bound the directory with a builtin count; only past the limit, keep the
+  # newest three quarters.
+  set -- "$ag_glc_dir"/*
+  [ "$#" -gt "$GITLEAKS_CLEAN_CACHE_MAX_ENTRIES" ] || return 0
   ( cd "$ag_glc_dir" 2>/dev/null && ls -t 2>/dev/null ) \
     | tail -n +$((GITLEAKS_CLEAN_CACHE_MAX_ENTRIES * 3 / 4 + 1)) \
     | while IFS= read -r ag_glc_entry; do
         # Only names this cache writes; never a path from elsewhere.
         case "$ag_glc_entry" in
-          *[!0123456789abcdefABCDEFGHIJKLMNOPQRSTUVWXYZghijklmnopqrstuvwxyz.]*) continue ;;
-          tmp.??????) ;;
+          tmp.*) case "${ag_glc_entry#tmp.}" in ''|*[!0123456789]*) continue ;; esac ;;
+          config-*) ag_glc_hex=${ag_glc_entry#config-}
+             [ "${#ag_glc_hex}" -eq 64 ] || continue
+             case "$ag_glc_hex" in *[!0123456789abcdef]*) continue ;; esac ;;
           *) [ "${#ag_glc_entry}" -eq 64 ] || continue
              case "$ag_glc_entry" in *[!0123456789abcdef]*) continue ;; esac ;;
         esac
@@ -3845,13 +3896,21 @@ scan_text_direct() {
   label=$1
   text=$2
   [ -n "$text" ] || return 0
-  # The cache is consulted only after an earlier prepare_gitleaks in this
-  # process left a ready native executable; otherwise the scan below resolves,
-  # probes and reports exactly as before.
-  if gitleaks_clean_cache_key "$text"; then
+  printf '%s\n' "$text" | run_gitleaks_stdin "$label"
+}
+
+# The PreToolUse Bash command text is the one scan that repeats byte for byte
+# (`ls -la`, `git status`, hundreds of times an hour), so only it consults the
+# clean-verdict cache; every other caller of scan_text_direct scans directly.
+# The cache is consulted only after an earlier prepare_gitleaks in this process
+# left a ready native executable; otherwise the scan below resolves, probes and
+# reports exactly as scan_text_direct does.
+scan_shell_command_text() {
+  [ -n "$1" ] || return 0
+  if gitleaks_clean_cache_key "$1"; then
     gitleaks_clean_cache_hit && return 0
   fi
-  printf '%s\n' "$text" | run_gitleaks_stdin "$label"
+  printf '%s\n' "$1" | run_gitleaks_stdin "shell command"
   ag_glc_status=$?
   [ "$ag_glc_status" -ne 0 ] || gitleaks_clean_cache_store
   return "$ag_glc_status"
@@ -9557,7 +9616,7 @@ check_bash_command() {
     *) exit 2 ;;
   esac
 
-  scan_text_direct "shell command" "$raw_cmd"
+  scan_shell_command_text "$raw_cmd"
   block_on_scan_status "$?" "shell command contains secret-like values"
 
   # Path-policy helpers above intentionally dequote their input and use global
