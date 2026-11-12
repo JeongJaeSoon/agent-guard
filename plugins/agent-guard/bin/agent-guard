@@ -5369,7 +5369,7 @@ bash_strip_source_module_prose() (
 
 # Print the record numbers (git_command_records) of message values the
 # command sends as data: the subject and body of `orca orchestration
-# send|reply|ask`, the title and body of `gh pr|issue create|comment|edit` and
+# send|reply|ask` (and the question of `ask`), the title and body of `gh pr|issue create|comment|edit` and
 # `gh pr review`, and the message of `git commit`. These CLIs open no file the
 # text names; their file-taking forms (--body-file, -F) are not listed. As in
 # search_operand_spans, a segment qualifies only when it starts with the bare
@@ -5423,7 +5423,8 @@ message_value_records() {
       if (pipe_target && !(all && inert())) bail()
       before = length(out)
       if (all && ok && kind[1] == "0") {
-        if (word[1] == "orca" && word[2] == "orchestration" && word[3] ~ /^(send|reply|ask)$/) opts = "|--subject|--body|"
+        if (word[1] == "orca" && word[2] == "orchestration" && word[3] ~ /^(send|reply)$/) opts = "|--subject|--body|"
+        else if (word[1] == "orca" && word[2] == "orchestration" && word[3] == "ask") opts = "|--subject|--body|--question|"
         else if (word[1] == "gh" && (word[2] ~ /^(pr|issue)$/ && word[3] ~ /^(create|comment|edit)$/ || word[2] == "pr" && word[3] == "review")) opts = "|-t|--title|-b|--body|"
         else if (word[1] == "git" && word[2] == "commit") opts = "|-m|--message|"
         for (j = (opts ~ /-m\|/ ? 3 : 2); opts != "" && j <= n; j++) {
