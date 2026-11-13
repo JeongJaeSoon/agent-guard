@@ -211,6 +211,24 @@ scan_case 1 "an unquoted UUID joined to a double-quoted tail is still found" \
   "${REF_SEC}Id=$REF_ID\"Z\""
 scan_case 1 "an unquoted UUID joined to a single-quoted tail is still found" \
   "${REF_SEC}Id=$REF_ID'Z'"
+# The allowlist sees only up to the closing quote; a backstop rule finds a
+# quoted UUID that the shell joins to more text.
+rule_case agent-guard-reference-id-concatenation "a double-quoted UUID joined to more text" \
+  "${REF_SEC}Id=\"$REF_ID\"Z"
+scan_case 1 "a single-quoted UUID joined to more text is still found" \
+  "${REF_SEC}Id='$REF_ID'Z"
+scan_case 1 "a quoted UUID joined to another quoted string is still found" \
+  "${REF_SEC}Id=\"$REF_ID\"\"Z\""
+scan_case 1 "a quoted UUID joined to an escaped n is still found" \
+  "${REF_SEC}Id=\"$REF_ID\"\\nZ"
+scan_case 1 "a quoted UUID joined to a variable is still found" \
+  "${REF_SEC}Id=\"$REF_ID\"\$TAIL"
+scan_case 0 "a quoted UUID closing a call argument is clean" \
+  "  login({ ${REF_SEC}Id: \"$REF_ID\"})"
+scan_case 0 "a quoted UUID before a list bracket is clean" \
+  "  ids: [${REF_SEC}Ref: '$REF_ID']"
+scan_case 0 "a quoted UUID before a comment is clean" \
+  "${REF_SEC}Ref: \"$REF_ID\"# fixture"
 # A backslash and n or r is not a separator: the shell keeps it in the word.
 scan_case 1 "an unquoted UUID followed by an escaped n is still found" \
   "${REF_SEC}Id=$REF_ID\\nZ"
