@@ -72,7 +72,9 @@ printf '%s\n' "$notify" | grep -Fxq '    needs: [build, performance, fused-perfo
 for result in failure cancelled skipped; do
   printf '%s\n' "$notify" | grep -Fq "contains(needs.*.result, '$result')" || fail "notify reports a $result measurement"
 done
-printf '%s\n' "$notify" | grep -Fq 'group: performance-nightly-issue' || fail 'notify runs one at a time'
+# No concurrency group: a pending notify job would be cancelled and its report lost.
+if printf '%s\n' "$notify" | grep -Fq 'concurrency:'; then fail 'notify is never cancelled as pending'; fi
+printf '%s\n' "$notify" | grep -Fq 'gh issue close "$created"' || fail 'overlapping notify runs fold into one issue'
 grep -Fq 'name: Packaged performance evidence' "$perf" || fail 'packaged measurement moved'
 grep -Fq 'name: Fused packaged performance (' "$perf" || fail 'fused measurement moved'
 for text in 'Packaged performance evidence' 'Fused packaged performance' 'continue-on-error: true'; do

@@ -174,11 +174,6 @@ jobs:
       && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
           || contains(needs.*.result, 'skipped'))
     needs: [build, performance, fused-performance]
-    # Serialize lookup and creation across runs (a re-run can overlap the next
-    # nightly) so two runs cannot both find no issue and open two.
-    concurrency:
-      group: performance-nightly-issue
-      cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -247,14 +242,26 @@ jobs:
               echo 'No confirmed regression rows were found. A job can also fail on a missed target, an unverified output, or a measurement that did not complete or did not run; see the run artifacts.'
             fi
           } > "$body"
-          issues="$RUNNER_TEMP/open-issues.json"
-          gh api --paginate --slurp "repos/$REPO/issues?state=open&per_page=100" > "$issues"
-          number=$(jq -r --arg title "$TITLE" '
-            [.[][] | select(.pull_request == null and .title == $title
-                            and .user.login == "github-actions[bot]")]
-            | sort_by(.number) | first | .number // empty' "$issues")
+          oldest_open_issue() {
+            # Command substitution drops -e in bash, so fail explicitly.
+            gh api --paginate --slurp "repos/$REPO/issues?state=open&per_page=100" > "$RUNNER_TEMP/open-issues.json" || return 1
+            jq -r --arg title "$TITLE" '
+              [.[][] | select(.pull_request == null and .title == $title
+                              and .user.login == "github-actions[bot]")]
+              | sort_by(.number) | first | .number // empty' "$RUNNER_TEMP/open-issues.json"
+          }
+          number=$(oldest_open_issue)
           if [ -n "$number" ]; then
             gh issue comment "$number" --repo "$REPO" --body-file "$body"
           else
-            gh issue create --repo "$REPO" --title "$TITLE" --body-file "$body"
+            created=$(gh issue create --repo "$REPO" --title "$TITLE" --body-file "$body")
+            created=${created##*/}
+            # Overlapping runs (a re-run next to a nightly) can each find no
+            # issue and open one. Every run keeps the oldest, so the others
+            # move their report there and close their own issue.
+            number=$(oldest_open_issue)
+            if [ -n "$number" ] && [ "$number" != "$created" ]; then
+              gh issue comment "$number" --repo "$REPO" --body-file "$body"
+              gh issue close "$created" --repo "$REPO" --reason 'not planned' --comment "Duplicate of #$number"
+            fi
           fi
