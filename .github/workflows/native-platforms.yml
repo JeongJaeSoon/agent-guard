@@ -232,7 +232,39 @@ jobs:
     # green only after the workflow run is completed for release lookup.
     needs: [platform, installation, performance, fused-performance]
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
     steps:
+      # continue-on-error keeps a failed performance job out of the run
+      # conclusion, so the run list shows green. Name those jobs where the run
+      # summary and annotations show them, without changing the conclusion.
+      - name: Report performance evidence that did not pass
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          if ! failed=$(gh api --paginate "repos/$REPO/actions/runs/$RUN_ID/attempts/$RUN_ATTEMPT/jobs" --jq '
+              .jobs[]
+              | select((.name | startswith("Packaged performance evidence") or startswith("Fused packaged performance"))
+                       and .conclusion != "success" and .conclusion != "skipped")
+              | "\(.name): \(.conclusion // "unfinished")"'); then
+            echo '::warning title=Performance evidence status unknown::could not read this run attempt'"'"'s job conclusions'
+            exit 0
+          fi
+          [ -n "$failed" ] || exit 0
+          {
+            echo '### Performance evidence that did not pass'
+            echo
+            printf '%s\n' "$failed" | sed 's/^/- /'
+            echo
+            echo 'These jobs are evidence, not gates: the run conclusion and release lookup ignore them.'
+            echo 'Their artifacts keep the 9-pair screening and the 21-pair confirmation rows.'
+          } >> "$GITHUB_STEP_SUMMARY"
+          printf '%s\n' "$failed" | while IFS= read -r line; do
+            echo "::warning title=Performance evidence did not pass::$line"
+          done
       - name: Require all four native executions
         env:
           RESULT: ${{ needs.platform.result }}
@@ -241,7 +273,9 @@ jobs:
 
   # Performance jobs are evidence, not gates: shared-runner noise around the
   # 5% threshold failed releases without a real regression. The workflow
-  # conclusion (read by scripts/prepare-native-release.sh) ignores them.
+  # conclusion (read by scripts/prepare-native-release.sh) ignores them, and
+  # `complete` names the ones that failed. A screened 5% regression must also
+  # repeat in a 21-pair confirmation (bench/native/confirm.jq).
   performance:
     name: Packaged performance evidence
     needs: platform

@@ -60,14 +60,18 @@ limits=$(run sh -c 'cat /sys/fs/cgroup/cpu.max /sys/fs/cgroup/memory.max /sys/fs
 printf '%s\n' "$limits" > "$out/enforced-limits.txt"
 git rev-parse HEAD > "$out/checkout-sha.txt"
 run sh -c 'uname -a; jq --version; sha256sum /scanner/gitleaks /public/bin/agent-guard plugins/agent-guard/bin/agent-guard plugins/agent-guard/scripts/output-pipeline-experiment.sh /build/target/release/agent-guard-redact; cat /proc/cpuinfo' > "$out/environment.txt"
-for host in claude codex; do
+measure() {
+  measure_host=$1 measure_runs=$2
+  shift 2
   run agent-guard-devtools masking-latency --baseline /public/bin/agent-guard \
     --binary /repo/plugins/agent-guard/bin/agent-guard \
     --fused-output --prepare-core "$prepare" \
     --baseline-packaged-native --native-core "$core" --packaged-native \
-    --scanner /scanner/gitleaks --audit-state "$mode" --host "$host" \
-    --runs 9 --resources --include-boundaries --trace-processes \
-    > "$out/cli-$host.json" 2> "$out/cli-$host.stderr"
+    --scanner /scanner/gitleaks --audit-state "$mode" --host "$measure_host" \
+    --runs "$measure_runs" --resources --include-boundaries "$@"
+}
+for host in claude codex; do
+  measure "$host" 9 --trace-processes > "$out/cli-$host.json" 2> "$out/cli-$host.stderr"
 done
 if [ "$mode" = off ]; then
   for workers in 1 4; do
@@ -90,7 +94,26 @@ if [ "$mode" = off ]; then
   done
 fi
 jq -s --argjson expected_targets 2 -f bench/scanner/assess.jq "$out"/cli-*.json \
-  | jq --arg scope "$comparison_scope" '.scope=$scope' > "$out/assessment.json"
+  | jq --arg scope "$comparison_scope" '.scope=$scope' > "$out/screening.json"
+# Predeclared confirmation (see bench/native/confirm.jq): only flagged cases are
+# measured again, and screening.json keeps the original verdict.
+screened=$(jq -c '[.ordinary_regressions[] | {host, name}]' "$out/screening.json")
+for host in claude codex; do
+  set --
+  for name in $(printf '%s' "$screened" | jq -r --arg host "$host" '.[] | select(.host == $host) | .name'); do
+    set -- "$@" --case "$name"
+  done
+  [ "$#" -gt 0 ] || continue
+  measure "$host" 21 "$@" > "$out/confirm-$host.json" 2> "$out/confirm-$host.stderr"
+done
+set --
+for host in claude codex; do
+  [ ! -f "$out/confirm-$host.json" ] || set -- "$@" "$out/confirm-$host.json"
+done
+jq -n --argjson screened "$screened" --argjson check_cpu true -f bench/native/confirm.jq "$@" \
+  < /dev/null > "$out/confirmation.json"
+jq --slurpfile confirmation "$out/confirmation.json" -f bench/fused-output/finalize.jq \
+  "$out/screening.json" > "$out/assessment.json"
 # Always preserve sub-threshold measurements. The aggregate applies declared
 # target and ordinary-path criteria; this step only requires complete evidence.
 jq -e '.measurements_complete and all(.all_cases[]; .verified)' "$out/assessment.json"
