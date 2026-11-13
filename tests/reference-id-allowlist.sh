@@ -159,6 +159,13 @@ scan_case 0 "a UUID under a secretRef field with := is clean" \
   "vault.${REF_SEC}Ref := \"$REF_ID\""
 scan_case 0 "two reference ids on one line are clean" \
   "  { ${REF_SEC}Id: '$REF_ID', ${REF_TOK}Ref: '$REF_ID' }"
+# The snake `_id` branch spells "a segment that does not end in secret" one
+# position at a time; each suffix of the word and each one-letter change of it
+# stays exempt. The `api_` prefix keeps every name a generic-api-key finding.
+for ref_seg in s et ret cret ecret xecret sxcret sexret secxet secrxt secrex; do
+  scan_case 0 "a UUID under api_${ref_seg}_id is clean" \
+    "api_${ref_seg}_id = \"$REF_ID\""
+done
 
 # UUID-shaped real credentials keep their findings.
 scan_case 1 "a UUID under a secret field is still found" \
@@ -177,6 +184,10 @@ scan_case 1 "a UUID under a client_secret_id field is still found" \
   "  client_${REF_SEC}_id: \"$REF_ID\","
 scan_case 1 "a UUID under a snake name ending in secret before _id is still found" \
   "  app${REF_SEC}_id: \"$REF_ID\","
+scan_case 1 "a UUID under a dotted client.secret_id is still found" \
+  "client.${REF_SEC}_id = \"$REF_ID\""
+scan_case 1 "a UUID under a hyphenated client-secret_id is still found" \
+  "client-${REF_SEC}_id = \"$REF_ID\""
 scan_case 1 "a Consul SecretID is still found" \
   "  SecretID: \"$REF_ID\","
 scan_case 1 "an upper-case SECRET_ID assignment is still found" \
@@ -200,6 +211,11 @@ scan_case 1 "an unquoted UUID joined to a double-quoted tail is still found" \
   "${REF_SEC}Id=$REF_ID\"Z\""
 scan_case 1 "an unquoted UUID joined to a single-quoted tail is still found" \
   "${REF_SEC}Id=$REF_ID'Z'"
+# A backslash and n or r is not a separator: the shell keeps it in the word.
+scan_case 1 "an unquoted UUID followed by an escaped n is still found" \
+  "${REF_SEC}Id=$REF_ID\\nZ"
+scan_case 1 "an unquoted UUID followed by an escaped r is still found" \
+  "${REF_SEC}Id=$REF_ID\\rZ"
 
 # Vendor rules for UUID-shaped keys are not targeted by the exemption.
 rule_case heroku-api-key "a UUID under a heroku key id field" \

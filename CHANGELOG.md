@@ -1,3 +1,7 @@
+## Unreleased
+
+- fix(scan): `secretId`, `tokenRef`, `credential_ref`, `token_id`처럼 이름 끝이 `Id`·`Ref`·`_ref`·`_id`인 칸에 소문자 UUID 하나만 있으면 `generic-api-key` finding으로 보지 않습니다. Edit/Write 검사, 커밋 검사, `scan-path`, 출력 마스킹에 똑같이 적용됩니다. snake `secret_id`(Vault AppRole), `SecretID`·`SECRET_ID`·`secret-id`, 대문자·접두사가 붙은·더 긴 값, 공급자 전용 UUID 규칙(Heroku, Snyk, HubSpot)은 계속 잡습니다.
+
 ## v3.8.2 - 2026-11-06
 
 - fix(hooks): heredoc 본문과 산문 placeholder를 오탐으로 막지 않는다 (#423)
