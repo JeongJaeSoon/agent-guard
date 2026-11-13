@@ -156,7 +156,8 @@ and proves the selected helper was invoked. The native CI repeats installation
 and failure contracts on all four platforms without Rust on PATH.
 
 `bench/native/run-packaged.sh` refuses to measure unless Docker exposes enforced
-2-CPU, 1-GiB and no-swap limits. It uses the qualified musl binary, including
+2-CPU, 1-GiB and no-swap limits. It uses the musl binary built by
+`scripts/build-native-artifact.sh`, including
 platform selection and checksum cost, against shell source
 `9a0ee9eb2eed1e60b78d4404f985b077149c675d` (v3.6.14 plus the subsequent
 snapshot-token compatibility fix, also present in the candidate).
@@ -167,7 +168,11 @@ exceeds 5% in the 9-pair screening is measured again with 21 fresh pairs, and
 counts as a regression only if the confirmation also exceeds 5%
 (`bench/native/confirm.jq`); `assessment.json` keeps the screening verdict and
 `legacy-confirmation.json` the confirmed one. Its result is separate from final
-CI and public-release verification. The pre-default
+CI and public-release verification. CI runs this and the fused measurement in
+`performance.yml` nightly, on manual dispatch, and on release pull requests,
+not on every main push. A nightly run that does not pass opens one GitHub issue,
+and later failures comment on it. The release workflow reports the release
+pull request's result as a warning and does not block on it. The pre-default
 qualification measurements are kept in the `v3.7.0` release tag, not in the
 tree.
 
