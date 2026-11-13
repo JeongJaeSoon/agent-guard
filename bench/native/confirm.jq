@@ -12,11 +12,15 @@ def cpu($arm): .resource_usage[$arm] as $r
      | $r.user_cpu_seconds.samples[$i] + $r.system_cpu_seconds.samples[$i]] | median;
 [inputs | .host as $host | .runs as $runs | .cases[]
  | {host:$host, name, verified, runs:$runs,
+    samples_complete:([.seconds.baseline.samples, .seconds.candidate.samples,
+                       (.resource_usage.baseline, .resource_usage.candidate
+                        | .user_cpu_seconds.samples, .system_cpu_seconds.samples)]
+                      | all(type == "array" and length == $runs and all(.[]; type == "number"))),
     latency_change_percent:(100 * (.seconds.candidate.median / .seconds.baseline.median - 1)),
     cpu_change_percent:(100 * (cpu("candidate") / cpu("baseline") - 1))}] as $rows
 | ($screened | map({host, name}) | unique) as $wanted
 | (($rows | map({host, name}) | sort) == $wanted
-   and all($rows[]; .runs == 21 and .verified == true)) as $complete
+   and all($rows[]; .runs == 21 and .samples_complete and .verified == true)) as $complete
 | [$rows[] | select(.latency_change_percent > 5 or ($check_cpu and .cpu_change_percent > 5))] as $confirmed
 | {complete:$complete, rows:$rows, confirmed:$confirmed,
    passed:($complete and ($confirmed | length) == 0)}

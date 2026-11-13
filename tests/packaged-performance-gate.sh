@@ -35,8 +35,10 @@ reject wrong-dispatch '.[1].native_dispatch="explicit-override"'
 # Confirmation of screened regressions (bench/native/confirm.jq and the fused
 # finalize step): fresh 21-pair rows decide, and incomplete evidence never passes.
 jq -n '
-  def usage($cpu): {user_cpu_seconds:{samples:[$cpu,$cpu,$cpu]},system_cpu_seconds:{samples:[1,1,1]}};
-  def row($name;$latency;$cpu): {name:$name,verified:true,seconds:{baseline:{median:10},candidate:{median:$latency}},
+  def n($v): [range(0;21) | $v];
+  def usage($cpu): {user_cpu_seconds:{samples:n($cpu)},system_cpu_seconds:{samples:n(1)}};
+  def row($name;$latency;$cpu): {name:$name,verified:true,
+    seconds:{baseline:{median:10,samples:n(10)},candidate:{median:$latency,samples:n($latency)}},
     resource_usage:{baseline:usage(3),candidate:usage($cpu)}};
   {host:"codex",runs:21,cases:[row("escaped-control";10.1;3)]}' > "$case_dir/confirm.json"
 jq -n '{measurements_complete:true,
@@ -59,8 +61,10 @@ confirm() {
 }
 confirm noise-not-repeated . . true true true
 confirm latency-repeated '.cases[0].seconds.candidate.median=10.6' . true false false
-confirm cpu-repeated '.cases[0].resource_usage.candidate.user_cpu_seconds.samples=[3.3,3.3,3.3]' . true false false
-confirm cpu-ignored-when-latency-only '.cases[0].resource_usage.candidate.user_cpu_seconds.samples=[3.3,3.3,3.3]' . false true true
+confirm cpu-repeated '.cases[0].resource_usage.candidate.user_cpu_seconds.samples|=map(3.3)' . true false false
+confirm cpu-ignored-when-latency-only '.cases[0].resource_usage.candidate.user_cpu_seconds.samples|=map(3.3)' . false true true
+confirm too-few-samples '.cases[0].seconds.candidate.samples|=.[:1]' . true false false
+confirm empty-system-cpu '.cases[0].resource_usage.candidate.system_cpu_seconds.samples=[]' . true false false
 confirm missing-confirmation '.cases=[]' . true false false
 confirm short-confirmation '.runs=9' . true false false
 confirm unverified-confirmation '.cases[0].verified=false' . true false false
