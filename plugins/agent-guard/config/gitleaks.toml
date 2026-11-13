@@ -41,14 +41,15 @@ keywords = ["ghp_", "gho_", "ghu_", "ghs_", "ghr_", "github_pat_", "a3t", "akia"
 # generic-api-key, and so do its rule allowlists (copied verbatim from gitleaks
 # 8.30.1; of the stopwords only those spelled with hex digits and hyphens can
 # occur in a UUID). So a line this rule finds also carried a generic-api-key
-# finding before that allowlist existed. `,` `]` `}` still end the value: they
-# close a quoted string in JSON, YAML and JS, the shape this exemption is for,
-# and a match cannot tell that context from a shell assignment.
+# finding before that allowlist existed. `,` `]` `}` end the value after `:`,
+# `=>` and `:=` (JSON, YAML, JS objects, the shape this exemption is for). After
+# a bare `=`, the shell assignment form, they end it only when a separator
+# follows; `x_ref="<uuid>",Z` is one shell word. Without secretGroup, gitleaks
+# takes the first non-empty group, the UUID in either branch.
 [[rules]]
 id = "agent-guard-reference-id-concatenation"
 description = "Quoted UUID under a reference-id name joined to more text"
-regex = '''(?i)[\w.-]{0,50}?(?:access|auth|(?-i:[Aa]pi|API)|credential|creds|key|passw(?:or)?d|secret|token)(?:[\w.-]{0,18}id|[\w.-]{0,17}ref)['"]?[ \t]*(?:=|:|=>|:=)[ \t]*["'\x60]([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})["'\x60](?:[^ \t\n\r,;)\]}&|<>]|\r(?:[^\n]|$))'''
-secretGroup = 1
+regex = '''(?i)[\w.-]{0,50}?(?:access|auth|(?-i:[Aa]pi|API)|credential|creds|key|passw(?:or)?d|secret|token)(?:[\w.-]{0,18}id|[\w.-]{0,17}ref)['"]?[ \t]*(?:(?:=|:|=>|:=)[ \t]*["'\x60]([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})["'\x60](?:[^ \t\n\r,;)\]}&|<>]|\r(?:[^\n]|$))|=[ \t]*["'\x60]([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})["'\x60][,\]}](?:[^ \t\n\r;)&|<>]|\r(?:[^\n]|$)))'''
 entropy = 3.5
 keywords = ["access", "auth", "api", "credential", "creds", "key", "passwd", "password", "secret", "token"]
 

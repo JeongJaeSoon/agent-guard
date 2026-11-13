@@ -246,6 +246,22 @@ scan_case 1 "a quoted UUID joined to a lone carriage return is still found" \
   "${REF_SEC}Id=\"$REF_ID\"$(printf '\r')Z"
 scan_case 1 "a quoted UUID joined to a form feed is still found" \
   "${REF_SEC}Id=\"$REF_ID\"$(printf '\f')Z"
+# After a bare `=` (a shell assignment), `,` `]` `}` joined to more text stay
+# in the word; after `:` they close a JS or JSON value.
+for ref_tail in ',Z' ']Z' '}Z' ',,' '],x'; do
+  scan_case 1 "a shell-assigned quoted UUID joined to $ref_tail is still found" \
+    "${REF_SEC}Id=\"$REF_ID\"$ref_tail"
+done
+scan_case 1 "a shell-assigned quoted UUID joined to a comma and lone CR is still found" \
+  "${REF_SEC}Id=\"$REF_ID\",$(printf '\r')Z"
+scan_case 0 "a shell-assigned quoted UUID before a comma and space is clean" \
+  "f(${REF_SEC}_ref=\"$REF_ID\", x=1)"
+scan_case 0 "a quoted UUID after => before a comma is clean" \
+  "  ${REF_SEC}_ref => \"$REF_ID\",x"
+scan_case 0 "a quoted UUID after := before a comma is clean" \
+  "${REF_SEC}Ref := \"$REF_ID\",x"
+scan_case 0 "a low-entropy shell-assigned quoted UUID joined to a comma stays clean" \
+  "${REF_SEC}Id=\"11111111-1111-4111-8111-111111111111\",Z"
 scan_case 1 "a quoted UUID before a carriage return at end of file is still found" \
   "${REF_SEC}Id=\"$REF_ID\"$(printf '\r')" raw
 # generic-api-key's own rule allowlists and stopwords drop these on origin/main;
