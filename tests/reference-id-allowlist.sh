@@ -52,12 +52,15 @@ not_ok() {
   [ ! -s "$CASE_ROOT/err" ] || sed 's/^/  stderr: /' "$CASE_ROOT/err"
 }
 
-# $1 expected status, $2 label, $3 file content, $4 `raw` to omit the final LF
+# $1 expected status, $2 label, $3 file content, $4 `raw` to omit the final LF.
+# The fixture is named $scan_name (a path allowlist keys on the extension).
+scan_name=fixture.ts
 scan_case() {
+  rm -f "$CASE_ROOT/scan/"*
   if [ "${4:-}" = raw ]; then
-    printf '%s' "$3" >"$CASE_ROOT/scan/fixture.ts"
+    printf '%s' "$3" >"$CASE_ROOT/scan/$scan_name"
   else
-    printf '%s\n' "$3" >"$CASE_ROOT/scan/fixture.ts"
+    printf '%s\n' "$3" >"$CASE_ROOT/scan/$scan_name"
   fi
   PATH="$SCAN_PATH" "$GUARD" scan-path "$CASE_ROOT/scan" \
     >"$CASE_ROOT/out" 2>"$CASE_ROOT/err"
@@ -253,6 +256,16 @@ for ref_name in apiId keyId authorId credential_id aPiRef; do
 done
 scan_case 0 "a quoted UUID holding a stopword joined to more text stays clean" \
   "${REF_SEC}Id=\"000000e9-63dc-4f08-a295-1c8e6d03b574\"Z"
+scan_case 0 "a joined quoted UUID on a --mount=type=secret line stays clean" \
+  "RUN --mount=type=$REF_SEC,id=x ${REF_SEC}Id=\"$REF_ID\"Z"
+scan_case 0 "a joined quoted UUID on an import line stays clean" \
+  "import {x} from \"m\"; ${REF_SEC}Id=\"$REF_ID\"Z"
+scan_name=recipe.bb
+scan_case 0 "a joined quoted UUID on a BitBake LICENSE line stays clean" \
+  "LICENSE=\"MIT\"; ${REF_SEC}Id=\"$REF_ID\"Z"
+scan_name=fixture.ts
+scan_case 1 "the same joined quoted UUID outside a BitBake file is still found" \
+  "LICENSE=\"MIT\"; ${REF_SEC}Id=\"$REF_ID\"Z"
 # The backstop mirrors generic-api-key's name bound: a name too long for it
 # carried no finding before and gets none now.
 scan_case 0 "a quoted UUID under a name too long for the keyword bound is clean" \
