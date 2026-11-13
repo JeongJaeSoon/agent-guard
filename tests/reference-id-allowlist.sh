@@ -227,8 +227,22 @@ scan_case 0 "a quoted UUID closing a call argument is clean" \
   "  login({ ${REF_SEC}Id: \"$REF_ID\"})"
 scan_case 0 "a quoted UUID before a list bracket is clean" \
   "  ids: [${REF_SEC}Ref: '$REF_ID']"
-scan_case 0 "a quoted UUID before a comment is clean" \
-  "${REF_SEC}Ref: \"$REF_ID\"# fixture"
+scan_case 0 "a quoted UUID before a spaced comment is clean" \
+  "${REF_SEC}Ref: \"$REF_ID\" # fixture"
+scan_case 0 "a quoted UUID at a CRLF line end is clean" \
+  "${REF_SEC}Ref: \"$REF_ID\"$(printf '\r')"
+# An adjacent # does not start a shell comment, and a lone CR or FF does not
+# end the word.
+scan_case 1 "a quoted UUID joined to a hash is still found" \
+  "${REF_SEC}Id=\"$REF_ID\"#Z"
+scan_case 1 "a quoted UUID joined to a lone carriage return is still found" \
+  "${REF_SEC}Id=\"$REF_ID\"$(printf '\r')Z"
+scan_case 1 "a quoted UUID joined to a form feed is still found" \
+  "${REF_SEC}Id=\"$REF_ID\"$(printf '\f')Z"
+# The backstop mirrors generic-api-key's name bound: a name too long for it
+# carried no finding before and gets none now.
+scan_case 0 "a quoted UUID under a name too long for the keyword bound is clean" \
+  "const ${REF_TOK}ExternalResourceRowId = \"$REF_ID\".toString();"
 # A backslash and n or r is not a separator: the shell keeps it in the word.
 scan_case 1 "an unquoted UUID followed by an escaped n is still found" \
   "${REF_SEC}Id=$REF_ID\\nZ"

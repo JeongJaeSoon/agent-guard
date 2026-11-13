@@ -33,13 +33,18 @@ keywords = ["ghp_", "gho_", "ghu_", "ghs_", "ghr_", "github_pat_", "a3t", "akia"
 # match stops at the closing quote of a quoted UUID, so the allowlist cannot
 # see a value that continues past it: in a shell `x_ref="<uuid>"Z` is one word
 # longer than a UUID. This rule finds a quoted UUID under such a name when the
-# next character continues the word, i.e. anything but whitespace or a
-# delimiter that ends a value (, ; ) ] } & | < > #). Every line it finds also
-# carried a generic-api-key finding before that allowlist existed.
+# next character continues the shell word: anything but a space, tab, line
+# end (LF, or CR before LF) or a value delimiter (, ; ) ] } & | < >). An
+# adjacent `#` does not start a shell comment, so it continues the word. The
+# name bound (20 characters after the keyword, suffix included) and the 3.5
+# entropy floor on the UUID mirror generic-api-key, so every line this rule
+# finds also carried a generic-api-key finding before that allowlist existed.
 [[rules]]
 id = "agent-guard-reference-id-concatenation"
 description = "Quoted UUID under a reference-id name joined to more text"
-regex = '''(?i)[\w.-]{0,50}?(?:access|auth|api|credential|creds|key|passw(?:or)?d|secret|token)[\w.-]{0,20}?(?:id|ref)['"]?[ \t]*(?:=|:|=>|:=)[ \t]*(?:"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"|'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'|\x60[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\x60)[^\s,;)\]}&|<>#]'''
+regex = '''(?i)[\w.-]{0,50}?(?:access|auth|api|credential|creds|key|passw(?:or)?d|secret|token)(?:[\w.-]{0,18}id|[\w.-]{0,17}ref)['"]?[ \t]*(?:=|:|=>|:=)[ \t]*["'\x60]([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})["'\x60](?:[^ \t\n\r,;)\]}&|<>]|\r[^\n])'''
+secretGroup = 1
+entropy = 3.5
 keywords = ["access", "auth", "api", "credential", "creds", "key", "passwd", "password", "secret", "token"]
 
 [[allowlists]]
