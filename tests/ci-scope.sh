@@ -75,6 +75,7 @@ done
 # No concurrency group: a pending notify job would be cancelled and its report lost.
 if printf '%s\n' "$notify" | grep -Fq 'concurrency:'; then fail 'notify is never cancelled as pending'; fi
 printf '%s\n' "$notify" | grep -Fq 'gh issue close "$created"' || fail 'overlapping notify runs fold into one issue'
+printf '%s\n' "$notify" | grep -Fq '[ "$number" -lt "$created" ]' || fail 'notify folds only into a smaller issue number'
 grep -Fq 'name: Packaged performance evidence' "$perf" || fail 'packaged measurement moved'
 grep -Fq 'name: Fused packaged performance (' "$perf" || fail 'fused measurement moved'
 for text in 'Packaged performance evidence' 'Fused packaged performance' 'continue-on-error: true'; do

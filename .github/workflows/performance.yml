@@ -257,10 +257,13 @@ jobs:
             created=$(gh issue create --repo "$REPO" --title "$TITLE" --body-file "$body")
             created=${created##*/}
             # Overlapping runs (a re-run next to a nightly) can each find no
-            # issue and open one. Every run keeps the oldest, so the others
-            # move their report there and close their own issue.
+            # issue and open one. A run folds its issue only into a smaller
+            # number, so lagging listings can never close the oldest one.
             number=$(oldest_open_issue)
-            if [ -n "$number" ] && [ "$number" != "$created" ]; then
+            case "$created:$number" in
+              *[!0-9:]*|:*|*:) number='' ;;
+            esac
+            if [ -n "$number" ] && [ "$number" -lt "$created" ]; then
               gh issue comment "$number" --repo "$REPO" --body-file "$body"
               gh issue close "$created" --repo "$REPO" --reason 'not planned' --comment "Duplicate of #$number"
             fi
