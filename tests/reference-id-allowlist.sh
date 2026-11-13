@@ -52,9 +52,13 @@ not_ok() {
   [ ! -s "$CASE_ROOT/err" ] || sed 's/^/  stderr: /' "$CASE_ROOT/err"
 }
 
-# $1 expected status, $2 label, $3 file content
+# $1 expected status, $2 label, $3 file content, $4 `raw` to omit the final LF
 scan_case() {
-  printf '%s\n' "$3" >"$CASE_ROOT/scan/fixture.ts"
+  if [ "${4:-}" = raw ]; then
+    printf '%s' "$3" >"$CASE_ROOT/scan/fixture.ts"
+  else
+    printf '%s\n' "$3" >"$CASE_ROOT/scan/fixture.ts"
+  fi
   PATH="$SCAN_PATH" "$GUARD" scan-path "$CASE_ROOT/scan" \
     >"$CASE_ROOT/out" 2>"$CASE_ROOT/err"
   scan_status=$?
@@ -239,6 +243,16 @@ scan_case 1 "a quoted UUID joined to a lone carriage return is still found" \
   "${REF_SEC}Id=\"$REF_ID\"$(printf '\r')Z"
 scan_case 1 "a quoted UUID joined to a form feed is still found" \
   "${REF_SEC}Id=\"$REF_ID\"$(printf '\f')Z"
+scan_case 1 "a quoted UUID before a carriage return at end of file is still found" \
+  "${REF_SEC}Id=\"$REF_ID\"$(printf '\r')" raw
+# generic-api-key's own rule allowlists and stopwords drop these on origin/main;
+# the backstop copies them, so it adds no finding here.
+for ref_name in apiId keyId authorId credential_id aPiRef; do
+  scan_case 0 "a quoted UUID joined to more text under $ref_name stays clean" \
+    "$ref_name=\"$REF_ID\"Z"
+done
+scan_case 0 "a quoted UUID holding a stopword joined to more text stays clean" \
+  "${REF_SEC}Id=\"000000e9-63dc-4f08-a295-1c8e6d03b574\"Z"
 # The backstop mirrors generic-api-key's name bound: a name too long for it
 # carried no finding before and gets none now.
 scan_case 0 "a quoted UUID under a name too long for the keyword bound is clean" \
