@@ -1,6 +1,6 @@
 ## Unreleased
 
-- fix(scan): `secretId`, `tokenRef`, `credential_ref`, `token_id`처럼 이름 끝이 `Id`·`Ref`·`_ref`·`_id`인 칸에 소문자 UUID 하나만 있으면 `generic-api-key` finding으로 보지 않습니다. Edit/Write 검사, 커밋 검사, `scan-path`, 출력 마스킹에 똑같이 적용됩니다. snake `secret_id`(Vault AppRole), `SecretID`·`SECRET_ID`·`secret-id`, 대문자 UUID, 같은 줄의 다른 secret, 공급자 전용 UUID 규칙(Heroku, Snyk, HubSpot)은 이전과 같이 잡습니다. 따옴표 UUID 뒤에 글자가 이어져 셸에서 더 긴 값이 되면 새 규칙 `agent-guard-reference-id-concatenation`이 잡습니다. 다만 셸 대입에서 따옴표 UUID 바로 뒤에 `,` `]` `}` 한 글자만 붙고 값이 끝나면 Python 여러 줄 키워드 인자와 구별할 수 없어 잡지 않습니다.
+- fix(scan): `clientId`·`tokenRef`·`credential_ref`·`token_id`처럼 이름 끝이 `Id`·`Ref`·`_id`·`_ref`인 칸에 소문자 UUID 하나만 있으면 `generic-api-key` finding으로 보지 않습니다. Edit/Write 검사, 커밋 검사, `scan-path`, 출력 마스킹에 똑같이 적용됩니다. 접미사 앞 이름이 대소문자와 관계없이 `secret`이나 `secrets`로 끝나면(`secretId`, `secretRef`, `secret_ref`, `clientSecretRef`, `secret_id`) 이전과 같이 잡습니다. Vault AppRole과 Consul/Nomad의 secret id가 UUID이기 때문입니다. `SecretID`·`SECRET_ID`·`secret-id`, 대문자 UUID, 같은 줄의 다른 secret, 공급자 전용 UUID 규칙(Heroku, Snyk, HubSpot)도 그대로 잡습니다. 따옴표 UUID 뒤에 글자가 이어져 셸에서 더 긴 값이 되면 새 규칙 `agent-guard-reference-id-concatenation`이 잡습니다. 다만 secret이 아닌 참조 id의 셸 대입에서 따옴표 UUID 바로 뒤에 `,` `]` `}` 한 글자만 붙고 값이 끝나면, Python 여러 줄 키워드 인자와 구별할 수 없어 잡지 않습니다.
 
 ## v3.8.2 - 2026-11-06
 

@@ -46,8 +46,10 @@ keywords = ["ghp_", "gho_", "ghu_", "ghs_", "ghr_", "github_pat_", "a3t", "akia"
 # for). After a bare `=`, the shell assignment form, they end it only when a
 # separator follows; `x_ref="<uuid>",Z` is one shell word. Known limit: one of
 # them alone at the end (`x_ref="<uuid>",`) is not found, because a multi-line
-# Python keyword argument has the same shape. Without secretGroup, gitleaks
-# takes the first non-empty group, the UUID in either branch.
+# Python keyword argument has the same shape. A name ending in `secret` keeps
+# its generic-api-key finding there, since the allowlist does not cover it.
+# Without secretGroup, gitleaks takes the first non-empty group, the UUID in
+# either branch.
 [[rules]]
 id = "agent-guard-reference-id-concatenation"
 description = "Quoted UUID under a reference-id name joined to more text"
@@ -145,24 +147,28 @@ regexes = [
   '''--repo[ \t]+['"]?id:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}[\x60'"\s;]?$'''
 ]
 
-# Fixtures and API payloads name a stored credential by reference (`secretId`,
-# `tokenRef`, `credential_ref`) and fill it with a random UUID. generic-api-key
-# reads the keyword inside the field name as a credential label, and about 95%
-# of v4 UUIDs clear its 3.5 entropy floor. Anchored to the whole match: one
-# name whose last segment is camelCase `Id`/`Ref` or snake `_ref`/`_id`, one
-# assignment, and one lowercase canonical UUID, either quoted or followed only
-# by a real shell separator (not an escaped `\n`, which a shell keeps inside
-# the word). A snake segment ending in `secret` before `_id` keeps
-# its finding: Vault AppRole and Consul/Nomad ACL credentials are UUIDs under
-# `secret_id`. So do `SecretID`, `SECRET_ID`, kebab `secret-id`, uppercase,
-# prefixed or longer values, and a name with a space in the match. Vendor rules
-# for UUID-shaped keys (heroku, snyk, hubspot) are not targeted.
+# Fixtures and API payloads name a stored object by reference (`clientId`,
+# `tokenRef`, `credential_ref`, `session_id`) and fill it with a random UUID.
+# generic-api-key reads the keyword inside the field name as a credential
+# label, and about 95% of v4 UUIDs clear its 3.5 entropy floor. Anchored to the
+# whole match: one name ending in camelCase `Id`/`Ref` or snake `_id`/`_ref`,
+# one assignment, and one lowercase canonical UUID, either quoted or followed
+# only by a real shell separator (not an escaped `\n`, which a shell keeps
+# inside the word). A name whose part before the suffix ends in `secret` or
+# `secrets`, in any case (`secretId`, `clientSecretRef`, `secret_ref`,
+# `vault.secretId`), keeps its finding: Vault AppRole and Consul/Nomad ACL
+# credentials are UUIDs under `secret_id`/`SecretID`, and clients rename them
+# to camelCase. RE2 has no lookbehind, so the name part spells that out
+# position by position from the end. `SECRET_ID`, kebab `secret-id`,
+# uppercase, prefixed or longer values, and a name with a space in the match
+# keep their findings too. Vendor rules for UUID-shaped keys (heroku, snyk,
+# hubspot) are not targeted.
 [[allowlists]]
 description = "UUID reference ids under *Id, *Ref, *_ref or *_id names"
 targetRules = ["generic-api-key"]
 regexTarget = "match"
 regexes = [
-  '''^(?:[\w.-]*[a-z0-9](?:Id|Ref)|[\w.-]*[a-z0-9]_ref|(?:[\w.-]*[_.-])?(?:[a-z0-9]{1,5}|[a-z0-9]*(?:[a-su-z0-9]|[a-df-z0-9][a-z0-9]|[a-qs-z0-9][a-z0-9]{2}|[abd-z0-9][a-z0-9]{3}|[a-df-z0-9][a-z0-9]{4}|[a-rt-z0-9][a-z0-9]{5}))_id)['"]?[ \t]*(?:=|:|=>|:=)[ \t]*(?:"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"|'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'|\x60[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\x60|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}[ \t\n;]?)$'''
+  '''^(?:[\w.-]{0,4}[a-z0-9]|[\w.-]{0,5}s|[\w.-]*(?:[a-ru-z0-9]|(?:[0-9A-DF-Za-df-z_.-]|[0-9A-QS-Za-qs-z_.-][\w.-]|[0-9ABD-Zabd-z_.-][\w.-]{2}|[0-9A-DF-Za-df-z_.-][\w.-]{3}|[0-9A-RT-Za-rt-z_.-][\w.-]{4})t|(?:[0-9A-SU-Za-su-z_.-]|[0-9A-DF-Za-df-z_.-][\w.-]|[0-9A-QS-Za-qs-z_.-][\w.-]{2}|[0-9ABD-Zabd-z_.-][\w.-]{3}|[0-9A-DF-Za-df-z_.-][\w.-]{4}|[0-9A-RT-Za-rt-z_.-][\w.-]{5})s))(?:Id|Ref|_id|_ref)['"]?[ \t]*(?:=|:|=>|:=)[ \t]*(?:"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"|'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'|\x60[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\x60|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}[ \t\n;]?)$'''
 ]
 
 # `orch-dash inbox resolve --key auto-wake:<dispatch id>` names an inbox item
