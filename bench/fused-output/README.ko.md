@@ -174,7 +174,7 @@ scanner readiness의 기존 2초 timeout이 DEGRADED 출력 차이의 직접 원
 
 원인별 성능 실험은 공개 redactor bytes를 양쪽에서 유지하고 준비 helper를
 분리했다. 최종 설치에서는 같은 검증된 core가 `prepare-v1`과 `redact-v1`을
-모두 처리하므로, 설치물의 이 조합도 별도로 측정한다. native-platforms의 새
+모두 처리하므로, 설치물의 이 조합도 별도로 측정한다. `performance.yml`의
 공식/Homebrew × off/cold/warm job은 해당 실행에서 실제 빌드·실행한 Linux
 musl artifact와 sidecar를 받아 후보 설치 위치에 넣고, 같은 파일을 준비 경로에도
 지정한다. 공개 v3.7.0 기준본과 scanner bytes·입력·정책·실제 2CPU/1GiB/swap0·
@@ -184,8 +184,10 @@ musl artifact와 sidecar를 받아 후보 설치 위치에 넣고, 같은 파일
 5% 초과 회귀 없음, 모든 독립 출력 일치를 요구한다. 9쌍 측정에서 5%를 넘은
 일반 경로 케이스는 그 케이스만 새 21쌍으로 다시 재고, 다시 5%를 넘을 때만 회귀로
 판정한다(`bench/native/confirm.jq`). `screening.json`과 `assessment.json`의
-`screened_regressions`에 첫 판정을 남긴다. #415 이후 이 job은 증거용이라 실패해도
-native 배포 집계와 릴리스를 막지 않는다. 대신 집계 job이 실패한 job 이름을 경고로
+`screened_regressions`에 첫 판정을 남긴다. 이 job은 main push마다 돌지 않고
+nightly, 수동 실행, 릴리스 PR에서만 돈다. 실패해도 native 배포 집계와 릴리스를
+막지 않는다. nightly가 통과하지 못하면 GitHub issue 하나를 열고, 이후 실패는 그
+issue에 댓글로 남긴다. 릴리스 workflow는 릴리스 PR head의 결과를 경고로만
 남긴다. 공식 scanner 목표의 10% 개선을 요구했다고 표현하지 않는다.
 두 호스트의 설치 core 공유·부분 실패·helper/모듈 누락·옵션 해제 10개 검사도
 네 플랫폼 설치 검증과 발행 후 공개 설치·Homebrew 검증에 추가한다. 로컬에서는

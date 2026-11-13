@@ -232,6 +232,47 @@ jobs:
             exit 1
           fi
 
+      # Performance evidence warns and never blocks: before #415, runner noise
+      # around the 5% threshold blocked releases without a real regression.
+      # The release PR head and the release merge commit (verified to be
+      # origin/main) hold the exact tree this dispatch publishes; the latest
+      # run on either counts, so a dispatch on main can supply missing evidence.
+      - name: Report release performance evidence
+        if: steps.state.outputs.publish_ready == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_HEAD_SHA: ${{ steps.state.outputs.release_head_sha }}
+          RELEASE_SHA: ${{ steps.state.outputs.release_sha }}
+        run: |
+          set -uo pipefail
+          runs="$RUNNER_TEMP/performance-runs.json"
+          : > "$runs"
+          read_ok=true
+          for sha in "$RELEASE_HEAD_SHA" "$RELEASE_SHA"; do
+            gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/performance.yml/runs?head_sha=${sha}&per_page=100" >> "$runs" \
+              || read_ok=false
+          done
+          subject="release head ${RELEASE_HEAD_SHA} or release commit ${RELEASE_SHA}"
+          if [ "$read_ok" != true ] \
+            || ! latest=$(jq -rs '[.[].workflow_runs[]] | sort_by(.id) | last
+                | if . == null then "missing" else "\(.status) \(.conclusion // "none") \(.html_url)" end' "$runs"); then
+            message="could not read Performance evidence runs for $subject"
+          else
+            read -r status conclusion url <<< "$latest"
+            if [ "$status" = missing ]; then
+              message="no Performance evidence run for $subject; run 'gh workflow run performance.yml --ref main' to measure it"
+            elif [ "$status" != completed ]; then
+              message="Performance evidence for $subject has not finished: $url"
+            elif [ "$conclusion" != success ]; then
+              message="Performance evidence for $subject concluded $conclusion: $url"
+            else
+              echo "Performance evidence passed for $subject: $url"
+              exit 0
+            fi
+          fi
+          echo "::warning title=Release performance evidence::$message"
+          printf '### Release performance evidence\n\n%s\n\nThis does not block the release.\n' "$message" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Bump version in tracked files
         if: steps.state.outputs.skip_pr_cycle != 'true'
         env:
@@ -341,7 +382,7 @@ jobs:
           else
             git push -u origin "$br"
           fi
-          printf -v body 'v%s 릴리스 준비 PR입니다.\n\nworkflow_dispatch 실행자: @%s\n이전 태그: %s\n버전 증가: %s\nDry run: %s\n\n이 PR은 자동 병합되지 않으며, 이 실행에서는 태그 생성이나 릴리스 발행도 수행하지 않습니다.\n\nGitHub Actions의 GITHUB_TOKEN으로 만든 PR은 일반 PR CI를 자동 기동하지 않습니다. 병합 전에 maintainer 개인 토큰으로 인증된 로컬 git/gh 세션에서 아래 명령으로 같은 브랜치에 빈 커밋을 push하세요(GITHUB_TOKEN 사용 금지).\n\n```sh\ngit fetch origin %s\ngit switch %s 2>/dev/null || git switch --track origin/%s\ngit pull --ff-only origin %s\ngit commit --allow-empty -m "ci: trigger release verification"\ngit push origin %s\n```\n\n다음 필수 checks가 모두 SUCCESS인지 확인한 뒤 사람이 병합하세요: Agent Guard, Test (ubuntu-latest), Test (macos-latest), Lint, Plugin Layout, HOL Plugin Scanner.\n\n병합 후 version에 %s를 명시하여 release workflow를 다시 실행하면 origin/main의 버전, 병합 PR의 exact head SHA에 연결된 필수 checks, 병합 commit을 검증한 뒤 태그와 릴리스를 발행합니다.\n' \
+          printf -v body 'v%s 릴리스 준비 PR입니다.\n\nworkflow_dispatch 실행자: @%s\n이전 태그: %s\n버전 증가: %s\nDry run: %s\n\n이 PR은 자동 병합되지 않으며, 이 실행에서는 태그 생성이나 릴리스 발행도 수행하지 않습니다.\n\nGitHub Actions의 GITHUB_TOKEN으로 만든 PR은 일반 PR CI를 자동 기동하지 않습니다. 병합 전에 maintainer 개인 토큰으로 인증된 로컬 git/gh 세션에서 아래 명령으로 같은 브랜치에 빈 커밋을 push하세요(GITHUB_TOKEN 사용 금지).\n\n```sh\ngit fetch origin %s\ngit switch %s 2>/dev/null || git switch --track origin/%s\ngit pull --ff-only origin %s\ngit commit --allow-empty -m "ci: trigger release verification"\ngit push origin %s\n```\n\n다음 필수 checks가 모두 SUCCESS인지 확인한 뒤 사람이 병합하세요: Agent Guard, Test (ubuntu-latest), Test (macos-latest), Lint, Plugin Layout, HOL Plugin Scanner.\n\n같은 push로 Performance evidence 워크플로도 이 PR head를 측정합니다. 릴리스를 막지는 않지만 병합 전에 결과를 확인하세요. 발행 dispatch도 결과를 경고로 남깁니다.\n\n병합 후 version에 %s를 명시하여 release workflow를 다시 실행하면 origin/main의 버전, 병합 PR의 exact head SHA에 연결된 필수 checks, 병합 commit을 검증한 뒤 태그와 릴리스를 발행합니다.\n' \
             "$v" \
             "${{ github.actor }}" \
             "$PREVIOUS_VERSION" \

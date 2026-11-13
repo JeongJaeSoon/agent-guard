@@ -1,0 +1,273 @@
+name: Performance evidence
+# Measurement only: no release reads this workflow's conclusion, and the release
+# workflow only warns about it. It lives apart from native-platforms.yml so a
+# nightly run never adds a `Native platform artifacts` check to a main commit.
+on:
+  schedule:
+    - cron: '23 17 * * *'
+  workflow_dispatch:
+  # Release PRs always bump this manifest, so they measure the exact tree they
+  # release; PRs changing the measurement itself also run it.
+  pull_request:
+    paths:
+      - '.github/workflows/performance.yml'
+      - 'bench/native/**'
+      - 'bench/fused-output/**'
+      - 'bench/scanner/**'
+      - 'native/devtools/**'
+      - 'scripts/build-native-artifact.sh'
+      - 'scripts/install-native-test-tools.sh'
+      - 'plugins/agent-guard/.claude-plugin/plugin.json'
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  build:
+    name: Linux musl core
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Install pinned Rust toolchain
+        timeout-minutes: 5
+        run: |
+          rustup toolchain install 1.85.1 --profile minimal --target x86_64-unknown-linux-musl
+      - name: Refresh Linux package metadata
+        timeout-minutes: 4
+        run: |
+          sudo apt-get -o Acquire::Retries=0 \
+            -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 \
+            -o DPkg::Lock::Timeout=30 update --error-on=any
+      - name: Install Linux musl tools
+        timeout-minutes: 4
+        run: |
+          sudo apt-get -o Acquire::Retries=0 \
+            -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 \
+            -o DPkg::Lock::Timeout=30 install -y musl-tools
+      - name: Build and execute the packaged core
+        run: |
+          sh scripts/build-native-artifact.sh x86_64-unknown-linux-musl "$RUNNER_TEMP/artifacts"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: native-x86_64-unknown-linux-musl
+          path: ${{ runner.temp }}/artifacts/
+          if-no-files-found: error
+
+  # A screened 5% regression must also repeat in a 21-pair confirmation
+  # (bench/native/confirm.jq) before a job fails.
+  performance:
+    name: Packaged performance evidence
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: native-x86_64-unknown-linux-musl
+          path: ${{ runner.temp }}/native-performance
+      - name: Measure the packaged binary under enforced cgroup limits
+        run: |
+          mkdir -p plugins/agent-guard/libexec
+          cp "$RUNNER_TEMP/native-performance/agent-guard-redact-x86_64-unknown-linux-musl"* plugins/agent-guard/libexec/
+          chmod 755 plugins/agent-guard/libexec/agent-guard-redact-x86_64-unknown-linux-musl
+          sh scripts/install-native-test-tools.sh "$RUNNER_TEMP/test-bin"
+          sh bench/native/run-packaged.sh "$RUNNER_TEMP/test-bin/gitleaks" 9a0ee9eb2eed1e60b78d4404f985b077149c675d "$RUNNER_TEMP/performance"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: packaged-performance
+          path: ${{ runner.temp }}/performance/
+          if-no-files-found: error
+
+  fused-performance:
+    name: Fused packaged performance (${{ matrix.scanner }}, ${{ matrix.audit }})
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        scanner: [official, homebrew]
+        audit: [off, cold, warm]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: native-x86_64-unknown-linux-musl
+          path: ${{ runner.temp }}/qualified-core
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version: '1.26.0'
+          cache: false
+      - name: Prepare unchanged scanner for both arms
+        env:
+          SCANNER_KIND: ${{ matrix.scanner }}
+        run: |
+          sh scripts/install-native-test-tools.sh "$RUNNER_TEMP/test-bin"
+          mkdir "$RUNNER_TEMP/scanner"
+          if [ "$SCANNER_KIND" = official ]; then
+            cp "$RUNNER_TEMP/test-bin/gitleaks" "$RUNNER_TEMP/scanner/gitleaks"
+          else
+            eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+            HOMEBREW_NO_AUTO_UPDATE=1 brew install gitleaks
+            installed="$(brew --prefix gitleaks)/bin/gitleaks"
+            test "$("$installed" version)" = 8.30.1
+            bottle=$(brew --cache gitleaks)
+            printf '%s  %s\n' 78b43afdf14a05c5df07b73aeaf63ae56b784c905f057411a43ee8fde40fe5d1 "$bottle" \
+              | sha256sum -c - > "$RUNNER_TEMP/scanner/bottle-checksum.txt"
+            cp "$installed" "$RUNNER_TEMP/scanner/gitleaks"
+            cmp "$installed" "$RUNNER_TEMP/scanner/gitleaks"
+            brew info --json=v2 gitleaks > "$RUNNER_TEMP/scanner/homebrew.json"
+            brew config > "$RUNNER_TEMP/scanner/homebrew-config.txt"
+            cp "$(brew --prefix gitleaks)/sbom.spdx.json" "$RUNNER_TEMP/scanner/homebrew-sbom.json"
+            file "$installed" > "$RUNNER_TEMP/scanner/executable-format.txt"
+          fi
+          # The pinned public Homebrew ELF also fails Go's build-info reader
+          # before installation. Preserve that diagnostic, but use the verified
+          # bottle, SBOM, installed bytes and actual execution as its identity.
+          if go version -m "$RUNNER_TEMP/scanner/gitleaks" > "$RUNNER_TEMP/scanner/buildinfo.txt" 2> "$RUNNER_TEMP/scanner/buildinfo.stderr"; then
+            printf '0\n' > "$RUNNER_TEMP/scanner/buildinfo.status"
+          else
+            status=$?
+            printf '%s\n' "$status" > "$RUNNER_TEMP/scanner/buildinfo.status"
+            test "$SCANNER_KIND" = homebrew
+          fi
+          sha256sum "$RUNNER_TEMP/scanner/gitleaks" > "$RUNNER_TEMP/scanner/binary.sha256"
+      - name: Compare the actual shared packaged core against public v3.7.0
+        env:
+          AUDIT_STATE: ${{ matrix.audit }}
+          SCANNER_KIND: ${{ matrix.scanner }}
+        run: |
+          export AGENT_GUARD_BENCH_FUSED_PACKAGED_CORE="$RUNNER_TEMP/qualified-core/agent-guard-redact-x86_64-unknown-linux-musl"
+          chmod 755 "$AGENT_GUARD_BENCH_FUSED_PACKAGED_CORE"
+          sh bench/fused-output/run-constrained.sh "$RUNNER_TEMP/scanner/gitleaks" "$AUDIT_STATE" "$RUNNER_TEMP/evidence"
+          jq -e '.measurements_complete and (.ordinary_regressions | length) == 0 and all(.all_cases[]; .verified)' "$RUNNER_TEMP/evidence/assessment.json"
+          if [ "$SCANNER_KIND" = homebrew ]; then
+            jq -e '.performance_accepted' "$RUNNER_TEMP/evidence/assessment.json"
+          fi
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: fused-packaged-${{ matrix.scanner }}-${{ matrix.audit }}
+          path: |
+            ${{ runner.temp }}/evidence/
+            ${{ runner.temp }}/scanner/*.*
+            ${{ runner.temp }}/qualified-core/*.build.txt
+          if-no-files-found: error
+
+  # Nobody watches nightly runs, so a nightly that did not pass opens one issue
+  # and later ones comment on it. People close it; a passing night does not.
+  notify:
+    name: Nightly performance issue
+    if: >-
+      always() && github.event_name == 'schedule'
+      && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+          || contains(needs.*.result, 'skipped'))
+    needs: [build, performance, fused-performance]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      issues: write
+    steps:
+      - name: Download measurement evidence
+        # A missing artifact must not suppress the issue; the body says so.
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          pattern: '*packaged*'
+          path: ${{ runner.temp }}/evidence
+      - name: Open or update the nightly performance issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          HEAD_SHA: ${{ github.sha }}
+          # Issues are tickets, which this repository writes in Korean (AGENTS.md).
+          TITLE: nightly 성능 측정이 통과하지 못했습니다
+        run: |
+          jobs="$RUNNER_TEMP/run-jobs.json"
+          # A partial re-run keeps the earlier result of jobs it did not
+          # re-run, so judge each job by its latest attempt across the run.
+          if gh api --paginate --slurp "repos/$REPO/actions/runs/$RUN_ID/jobs?filter=all&per_page=100" > "$jobs" \
+            && failed=$(jq -r '
+              [.[].jobs[]] | group_by(.name) | map(max_by(.run_attempt))[]
+              | select(.name != "Nightly performance issue" and .conclusion != "success")
+              | "- \(.name): \(.conclusion // "unfinished")"' "$jobs"); then
+            :
+          else
+            failed='- 이 run의 job 결론을 읽지 못했습니다.'
+          fi
+          # Every measurement path writes bench/native/confirm.jq output to a
+          # *confirmation.json file; its confirmed rows are the regressions.
+          rows="$RUNNER_TEMP/confirmed-rows.md"
+          : > "$rows"
+          if [ -d "$RUNNER_TEMP/evidence" ]; then
+            find "$RUNNER_TEMP/evidence" -name '*confirmation.json' | sort | while IFS= read -r file; do
+              artifact=${file#"$RUNNER_TEMP/evidence/"}
+              artifact=${artifact%%/*}
+              jq -r --arg artifact "$artifact" --arg file "${file##*/}" '
+                def pct: . * 10 | round / 10 + 0 | if . > 0 then "+\(.)" else "\(.)" end;
+                (.confirmed[] | "| \($artifact) | \($file) | \(.host)/\(.name) | \(.latency_change_percent | pct)% | \(.cpu_change_percent | pct)% |"),
+                (select(.complete == false) | "| \($artifact) | \($file) | 확인 측정 불완전 | | |")
+              ' "$file" || echo "| $artifact | ${file##*/} | 읽을 수 없음 | | |"
+            done >> "$rows"
+          fi
+          body="$RUNNER_TEMP/issue.md"
+          {
+            echo "nightly run: $RUN_URL"
+            echo "커밋: $HEAD_SHA"
+            echo
+            echo '통과하지 못한 job(최신 attempt):'
+            echo
+            printf '%s\n' "$failed"
+            echo
+            if [ -s "$rows" ]; then
+              echo '새 21쌍 확인에서도 5%를 넘은 행(candidate 대 baseline 중앙값):'
+              echo
+              echo '| Artifact | 파일 | Host/case | Latency | CPU |'
+              echo '| --- | --- | --- | --- | --- |'
+              cat "$rows"
+              echo
+              echo 'CPU는 그대로이고 latency만 오른 행은 공유 러너의 off-CPU 정지일 수 있습니다. artifact의 cpuinfo.txt와 원시 표본을 함께 확인하세요.'
+            else
+              echo '확인된 회귀 행이 없습니다. 목표 미달, 출력 검증 실패, 측정 미완료나 미실행으로도 job이 실패합니다. run artifact를 확인하세요.'
+            fi
+          } > "$body"
+          oldest_open_issue() {
+            # Command substitution drops -e in bash, so fail explicitly.
+            gh api --paginate --slurp "repos/$REPO/issues?state=open&per_page=100" > "$RUNNER_TEMP/open-issues.json" || return 1
+            jq -r --arg title "$TITLE" '
+              [.[][] | select(.pull_request == null and .title == $title
+                              and .user.login == "github-actions[bot]")]
+              | sort_by(.number) | first | .number // empty' "$RUNNER_TEMP/open-issues.json"
+          }
+          number=$(oldest_open_issue)
+          if [ -n "$number" ]; then
+            gh issue comment "$number" --repo "$REPO" --body-file "$body"
+          else
+            created=$(gh issue create --repo "$REPO" --title "$TITLE" --body-file "$body")
+            created=${created##*/}
+            # Overlapping runs (a re-run next to a nightly) can each find no
+            # issue and open one. A run folds its issue only into a smaller
+            # number, so lagging listings can never close the oldest one.
+            number=$(oldest_open_issue)
+            case "$created:$number" in
+              *[!0-9:]*|:*|*:) number='' ;;
+            esac
+            if [ -n "$number" ] && [ "$number" -lt "$created" ]; then
+              gh issue comment "$number" --repo "$REPO" --body-file "$body"
+              gh issue close "$created" --repo "$REPO" --reason 'not planned' --comment "#$number 와 중복이라 닫습니다."
+            fi
+          fi
