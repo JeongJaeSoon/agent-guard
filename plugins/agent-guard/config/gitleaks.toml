@@ -29,6 +29,65 @@ keywords = ["ghp_", "gho_", "ghu_", "ghs_", "ghr_", "github_pat_", "a3t", "akia"
     '''^(?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z0-9]*EXAMPLE$'''
   ]
 
+# Backstop for the "UUID reference ids" allowlist below. generic-api-key's
+# match stops at the closing quote of a quoted UUID, so the allowlist cannot
+# see a value that continues past it: in a shell `x_ref="<uuid>"Z` is one word
+# longer than a UUID. This rule finds a quoted UUID under such a name when the
+# next character continues the shell word: anything but a space, tab, line
+# end (LF, or CR before LF) or a value delimiter (, ; ) ] } & | < >). An
+# adjacent `#` does not start a shell comment, so it continues the word. The
+# name bound (20 characters after the keyword, suffix included), the
+# case-sensitive `api` keyword and the 3.5 entropy floor on the UUID mirror
+# generic-api-key, and so do its rule allowlists (copied verbatim from gitleaks
+# 8.30.1; of the stopwords only those spelled with hex digits and hyphens can
+# occur in a UUID). This keeps its findings close to generic-api-key's, but it
+# matches on its own, so it is not an exact subset. `,` `]` `}` end the value
+# after `:`, `=>` and `:=` (JSON, YAML, JS objects, the shape this exemption is
+# for). After a bare `=`, the shell assignment form, they end it only when a
+# separator follows; `x_ref="<uuid>",Z` is one shell word. Known limit: one of
+# them alone at the end (`x_ref="<uuid>",`) is not found, because a multi-line
+# Python keyword argument has the same shape. A name ending in `secret` keeps
+# its generic-api-key finding there, since the allowlist does not cover it.
+# Without secretGroup, gitleaks takes the first non-empty group, the UUID in
+# either branch.
+[[rules]]
+id = "agent-guard-reference-id-concatenation"
+description = "Quoted UUID under a reference-id name joined to more text"
+regex = '''(?i)[\w.-]{0,50}?(?:access|auth|(?-i:[Aa]pi|API)|credential|creds|key|passw(?:or)?d|secret|token)(?:[\w.-]{0,18}id|[\w.-]{0,17}ref)['"]?[ \t]*(?:(?:=|:|=>|:=)[ \t]*["'\x60]([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})["'\x60](?:[^ \t\n\r,;)\]}&|<>]|\r(?:[^\n]|$))|=[ \t]*["'\x60]([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})["'\x60][,\]}](?:[^ \t\n\r;)&|<>]|\r(?:[^\n]|$)))'''
+entropy = 3.5
+keywords = ["access", "auth", "api", "credential", "creds", "key", "passwd", "password", "secret", "token"]
+
+  [[rules.allowlists]]
+  regexes = [
+    '''^[a-zA-Z_.-]+$''',
+  ]
+
+  [[rules.allowlists]]
+  regexTarget = "match"
+  regexes = [
+    '''(?i)(?:access(?:ibility|or)|access[_.-]?id|random[_.-]?access|api[_.-]?(?:id|name|version)|rapid|capital|[a-z0-9-]*?api[a-z0-9-]*?:jar:|author|X-MS-Exchange-Organization-Auth|Authentication-Results|(?:credentials?[_.-]?id|withCredentials)|(?:bucket|foreign|hot|idx|natural|primary|pub(?:lic)?|schema|sequence)[_.-]?key|(?:turkey)|key[_.-]?(?:alias|board|code|frame|id|length|mesh|name|pair|press(?:ed)?|ring|selector|signature|size|stone|storetype|word|up|down|left|right)|key[_.-]?vault[_.-]?(?:id|name)|keyVaultToStoreSecrets|key(?:store|tab)[_.-]?(?:file|path)|issuerkeyhash|(?-i:[DdMm]onkey|[DM]ONKEY)|keying|(?:secret)[_.-]?(?:length|name|size)|UserSecretsId|(?:csrf)[_.-]?token|(?:io\.jsonwebtoken[ \t]?:[ \t]?[\w-]+)|(?:api|credentials|token)[_.-]?(?:endpoint|ur[il])|public[_.-]?token|(?:key|token)[_.-]?file|(?-i:(?:[A-Z_]+=\n[A-Z_]+=|[a-z_]+=\n[a-z_]+=)(?:\n|\z))|(?-i:(?:[A-Z.]+=\n[A-Z.]+=|[a-z.]+=\n[a-z.]+=)(?:\n|\z)))''',
+  ]
+  stopwords = ["000000", "6fe4476ee5a1832882e326b506d14126", "aaaaaa", "add-", "dead", "feed"]
+
+  [[rules.allowlists]]
+  regexTarget = "line"
+  regexes = [
+    '''--mount=type=secret,''',
+    '''import[ \t]+{[ \t\w,]+}[ \t]+from[ \t]+['"][^'"]+['"]''',
+  ]
+
+  [[rules.allowlists]]
+  condition = "AND"
+  paths = [
+    '''\.bb$''','''\.bbappend$''','''\.bbclass$''','''\.inc$''',
+  ]
+  regexTarget = "line"
+  regexes = [
+    '''LICENSE[^=]*=\s*"[^"]+''',
+    '''LIC_FILES_CHKSUM[^=]*=\s*"[^"]+''',
+    '''SRC[^=]*=\s*"[a-zA-Z0-9]+''',
+  ]
+
 [[allowlists]]
 description = "Obvious dummy placeholders"
 # Every entry is anchored to the WHOLE secret. A docs placeholder is exempt
@@ -86,6 +145,30 @@ targetRules = ["generic-api-key"]
 regexTarget = "match"
 regexes = [
   '''--repo[ \t]+['"]?id:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}[\x60'"\s;]?$'''
+]
+
+# Fixtures and API payloads name a stored object by reference (`clientId`,
+# `tokenRef`, `credential_ref`, `session_id`) and fill it with a random UUID.
+# generic-api-key reads the keyword inside the field name as a credential
+# label, and about 95% of v4 UUIDs clear its 3.5 entropy floor. Anchored to the
+# whole match: one name ending in camelCase `Id`/`Ref` or snake `_id`/`_ref`,
+# one assignment, and one lowercase canonical UUID, either quoted or followed
+# only by a real shell separator (not an escaped `\n`, which a shell keeps
+# inside the word). A name whose part before the suffix ends in `secret` or
+# `secrets`, in any case (`secretId`, `clientSecretRef`, `secret_ref`,
+# `vault.secretId`), keeps its finding: Vault AppRole and Consul/Nomad ACL
+# credentials are UUIDs under `secret_id`/`SecretID`, and clients rename them
+# to camelCase. RE2 has no lookbehind, so the name part spells that out
+# position by position from the end. `SECRET_ID`, kebab `secret-id`,
+# uppercase, prefixed or longer values, and a name with a space in the match
+# keep their findings too. Vendor rules for UUID-shaped keys (heroku, snyk,
+# hubspot) are not targeted.
+[[allowlists]]
+description = "UUID reference ids under *Id, *Ref, *_ref or *_id names"
+targetRules = ["generic-api-key"]
+regexTarget = "match"
+regexes = [
+  '''^(?:[\w.-]{0,4}[a-z0-9]|[\w.-]{0,5}s|[\w.-]*(?:[a-ru-z0-9]|(?:[0-9A-DF-Za-df-z_.-]|[0-9A-QS-Za-qs-z_.-][\w.-]|[0-9ABD-Zabd-z_.-][\w.-]{2}|[0-9A-DF-Za-df-z_.-][\w.-]{3}|[0-9A-RT-Za-rt-z_.-][\w.-]{4})t|(?:[0-9A-SU-Za-su-z_.-]|[0-9A-DF-Za-df-z_.-][\w.-]|[0-9A-QS-Za-qs-z_.-][\w.-]{2}|[0-9ABD-Zabd-z_.-][\w.-]{3}|[0-9A-DF-Za-df-z_.-][\w.-]{4}|[0-9A-RT-Za-rt-z_.-][\w.-]{5})s))(?:Id|Ref|_id|_ref)['"]?[ \t]*(?:=|:|=>|:=)[ \t]*(?:"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"|'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'|\x60[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\x60|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}[ \t\n;]?)$'''
 ]
 
 # `orch-dash inbox resolve --key auto-wake:<dispatch id>` names an inbox item
