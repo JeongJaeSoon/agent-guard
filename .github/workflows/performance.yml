@@ -194,7 +194,8 @@ jobs:
           RUN_ID: ${{ github.run_id }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           HEAD_SHA: ${{ github.sha }}
-          TITLE: Nightly performance evidence did not pass
+          # Issues are tickets, which this repository writes in Korean (AGENTS.md).
+          TITLE: nightly 성능 측정이 통과하지 못했습니다
         run: |
           jobs="$RUNNER_TEMP/run-jobs.json"
           # A partial re-run keeps the earlier result of jobs it did not
@@ -206,7 +207,7 @@ jobs:
               | "- \(.name): \(.conclusion // "unfinished")"' "$jobs"); then
             :
           else
-            failed='- Could not read the job conclusions of this run.'
+            failed='- 이 run의 job 결론을 읽지 못했습니다.'
           fi
           # Every measurement path writes bench/native/confirm.jq output to a
           # *confirmation.json file; its confirmed rows are the regressions.
@@ -219,27 +220,29 @@ jobs:
               jq -r --arg artifact "$artifact" --arg file "${file##*/}" '
                 def pct: . * 10 | round / 10 + 0 | if . > 0 then "+\(.)" else "\(.)" end;
                 (.confirmed[] | "| \($artifact) | \($file) | \(.host)/\(.name) | \(.latency_change_percent | pct)% | \(.cpu_change_percent | pct)% |"),
-                (select(.complete == false) | "| \($artifact) | \($file) | confirmation incomplete | | |")
-              ' "$file" || echo "| $artifact | ${file##*/} | unreadable | | |"
+                (select(.complete == false) | "| \($artifact) | \($file) | 확인 측정 불완전 | | |")
+              ' "$file" || echo "| $artifact | ${file##*/} | 읽을 수 없음 | | |"
             done >> "$rows"
           fi
           body="$RUNNER_TEMP/issue.md"
           {
-            echo "Nightly run: $RUN_URL"
-            echo "Commit: $HEAD_SHA"
+            echo "nightly run: $RUN_URL"
+            echo "커밋: $HEAD_SHA"
             echo
-            echo 'Jobs that did not pass (latest attempt):'
+            echo '통과하지 못한 job(최신 attempt):'
             echo
             printf '%s\n' "$failed"
             echo
             if [ -s "$rows" ]; then
-              echo 'Regressions confirmed by 21 fresh pairs (candidate vs baseline median):'
+              echo '새 21쌍 확인에서도 5%를 넘은 행(candidate 대 baseline 중앙값):'
               echo
-              echo '| Artifact | File | Host/case | Latency | CPU |'
+              echo '| Artifact | 파일 | Host/case | Latency | CPU |'
               echo '| --- | --- | --- | --- | --- |'
               cat "$rows"
+              echo
+              echo 'CPU는 그대로이고 latency만 오른 행은 공유 러너의 off-CPU 정지일 수 있습니다. artifact의 cpuinfo.txt와 원시 표본을 함께 확인하세요.'
             else
-              echo 'No confirmed regression rows were found. A job can also fail on a missed target, an unverified output, or a measurement that did not complete or did not run; see the run artifacts.'
+              echo '확인된 회귀 행이 없습니다. 목표 미달, 출력 검증 실패, 측정 미완료나 미실행으로도 job이 실패합니다. run artifact를 확인하세요.'
             fi
           } > "$body"
           oldest_open_issue() {
@@ -265,6 +268,6 @@ jobs:
             esac
             if [ -n "$number" ] && [ "$number" -lt "$created" ]; then
               gh issue comment "$number" --repo "$REPO" --body-file "$body"
-              gh issue close "$created" --repo "$REPO" --reason 'not planned' --comment "Duplicate of #$number"
+              gh issue close "$created" --repo "$REPO" --reason 'not planned' --comment "#$number 와 중복이라 닫습니다."
             fi
           fi
