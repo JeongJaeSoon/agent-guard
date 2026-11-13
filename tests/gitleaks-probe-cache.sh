@@ -157,6 +157,9 @@ fi
 check 'auto-wake dispatch ids under --key are clean while key-shaped values stay found' \
   env -u AGENT_GUARD_GITLEAKS_BIN AGENT_GUARD_TEST_REAL_GITLEAKS="$REAL_GITLEAKS" \
   sh "$ROOT/tests/auto-wake-key-allowlist.sh"
+check 'UUID reference ids are clean while UUID-shaped credentials stay found' \
+  env -u AGENT_GUARD_GITLEAKS_BIN AGENT_GUARD_TEST_REAL_GITLEAKS="$REAL_GITLEAKS" \
+  sh "$ROOT/tests/reference-id-allowlist.sh"
 
 printf '1..%s\n' "$((pass + fail))"
 [ "$fail" -eq 0 ]
