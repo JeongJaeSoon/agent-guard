@@ -72,6 +72,35 @@ run agent-guard-devtools masking-latency --baseline "$old" --native-core "$core"
   --scanner /scanner/gitleaks --runs 21 --resources --case small-clean > "$out/cli-clean-followup.json" 2> "$out/cli-clean-followup.log"
 legacy_status=0
 sh bench/native/assess-packaged.sh "$out" || legacy_status=$?
+# Predeclared confirmation (see bench/native/confirm.jq): a screened latency
+# regression stands only if 21 fresh pairs repeat it. assessment.json keeps the
+# screening verdict; legacy-confirmation.json holds the confirmed one. Missing
+# target improvement or broken evidence is never re-measured.
+if [ "$legacy_status" -ne 0 ] && legacy_screened=$(jq -ce '
+    [.evaluated_cli[] | select(.name == "many-replacement-leaves")] as $hot
+    | if ($hot | length) == 2
+         and all($hot[]; .latency_change_percent <= -10 or .cpu_change_percent <= -10)
+         and (.latency_regressions_over_5_percent | length) > 0
+      then [.latency_regressions_over_5_percent[] | {host, name}] else false end
+  ' "$out/assessment.json" 2>/dev/null); then
+  for host in claude codex; do
+    set --
+    for name in $(printf '%s' "$legacy_screened" | jq -r --arg host "$host" '.[] | select(.host == $host) | .name'); do
+      set -- "$@" --case "$name"
+    done
+    [ "$#" -gt 0 ] || continue
+    run agent-guard-devtools masking-latency --baseline "$old" --native-core "$core" --packaged-native \
+      --scanner /scanner/gitleaks --runs 21 --resources --include-boundaries --host "$host" "$@" \
+      > "$out/legacy-confirm-$host.json" 2> "$out/legacy-confirm-$host.log"
+  done
+  set --
+  for host in claude codex; do
+    [ ! -f "$out/legacy-confirm-$host.json" ] || set -- "$@" "$out/legacy-confirm-$host.json"
+  done
+  jq -n --argjson screened "$legacy_screened" --argjson check_cpu false -f bench/native/confirm.jq "$@" \
+    < /dev/null > "$out/legacy-confirmation.json"
+  jq -e '.passed' "$out/legacy-confirmation.json" && legacy_status=0
+fi
 public_status=0
 run agent-guard-devtools masking-latency --baseline /public/bin/agent-guard \
   --baseline-packaged-native --native-core "$core" --packaged-native \
@@ -88,5 +117,25 @@ jq -e '
     .verified and .seconds.candidate.median <= .seconds.baseline.median * 1.05
     and cpu("candidate") <= cpu("baseline") * 1.05)
 ' "$out/cli-public-default.json" > "$out/public-default-gate.txt" || public_status=$?
+fi
+# The same confirmation for the public-default comparison, after a complete and
+# verified screening only.
+if [ "$public_status" -ne 0 ] \
+  && jq -e '.runs == 9 and (.cases | length) == 4 and all(.cases[]; .verified == true)' \
+    "$out/cli-public-default.json" > /dev/null 2>&1 \
+  && public_screened=$(jq -n --argjson screened '[]' --argjson check_cpu true -f bench/native/confirm.jq \
+      "$out/cli-public-default.json" < /dev/null \
+    | jq -ce '[.confirmed[] | {host, name}] | if length > 0 then . else false end'); then
+  set --
+  for name in $(printf '%s' "$public_screened" | jq -r '.[].name'); do
+    set -- "$@" --case "$name"
+  done
+  run agent-guard-devtools masking-latency --baseline /public/bin/agent-guard \
+    --baseline-packaged-native --native-core "$core" --packaged-native \
+    --scanner /scanner/gitleaks --runs 21 --resources --include-boundaries "$@" \
+    > "$out/public-default-confirm.json" 2> "$out/public-default-confirm.log"
+  jq -n --argjson screened "$public_screened" --argjson check_cpu true -f bench/native/confirm.jq \
+    "$out/public-default-confirm.json" < /dev/null > "$out/public-default-confirmation.json"
+  jq -e '.passed' "$out/public-default-confirmation.json" && public_status=0
 fi
 [ "$legacy_status" -eq 0 ] && [ "$public_status" -eq 0 ]

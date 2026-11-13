@@ -162,8 +162,12 @@ platform selection and checksum cost, against shell source
 snapshot-token compatibility fix, also present in the candidate).
 Raw results go to a new directory and every measured output is verified.
 `assess-packaged.sh` checks the measured identities, enforced limits and the
-10% target improvement / 5% general latency regression criteria. Its result is
-separate from final CI and public-release verification. The pre-default
+10% target improvement / 5% general latency regression criteria. A case that
+exceeds 5% in the 9-pair screening is measured again with 21 fresh pairs, and
+counts as a regression only if the confirmation also exceeds 5%
+(`bench/native/confirm.jq`); `assessment.json` keeps the screening verdict and
+`legacy-confirmation.json` the confirmed one. Its result is separate from final
+CI and public-release verification. The pre-default
 qualification measurements are kept in the `v3.7.0` release tag, not in the
 tree.
 
