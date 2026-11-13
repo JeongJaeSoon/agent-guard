@@ -256,6 +256,11 @@ scan_case 1 "a shell-assigned quoted UUID joined to a comma and lone CR is still
   "${REF_SEC}Id=\"$REF_ID\",$(printf '\r')Z"
 scan_case 0 "a shell-assigned quoted UUID before a comma and space is clean" \
   "f(${REF_SEC}_ref=\"$REF_ID\", x=1)"
+scan_case 0 "a quoted UUID in a multi-line Python keyword argument is clean" \
+  "client.create(
+    ${REF_SEC}_ref=\"$REF_ID\",
+    name=\"web\",
+)"
 scan_case 0 "a quoted UUID after => before a comma is clean" \
   "  ${REF_SEC}_ref => \"$REF_ID\",x"
 scan_case 0 "a quoted UUID after := before a comma is clean" \
