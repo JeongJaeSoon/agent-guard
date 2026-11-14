@@ -14682,11 +14682,12 @@ hook_session_start() {
   # wording: the user action is to restore the binary, not to discover setup.
   # Keep Codex silent: Claude shell snapshots are not a Codex command boundary.
   # A marker inherited from a shell that loaded earlier says nothing about the
-  # rc a new snapshot reads, so a block that can no longer load still warns.
+  # rc a new snapshot reads, so a block that cannot load (2) or covers fish only
+  # partly (3) still warns; with a marker, only "no block" (1) stays quiet.
   if [ "$(hook_host)" = claude ]; then
     shell_init_block_state
     block_state=$?
-    [ -z "$marker" ] || [ "$block_state" -eq 2 ] || block_state=0
+    [ -z "$marker" ] || [ "$block_state" -ne 1 ] || block_state=0
     case $block_state in
       0) wrapping_setup= ;;
       2) wrapping_setup='agent-guard command wrapping is set up in your shell rc but can no longer load: the agent-guard binary that block resolves is gone (plugin cache updated, uninstalled, or the block was edited). Command output is NOT masked. Reinstall or update agent-guard, rerun /agent-guard:setup-shell (or agent-guard setup-shell for a standalone install), then restart the shell and Claude Code.' ;;

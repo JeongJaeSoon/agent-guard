@@ -21,8 +21,8 @@ ok() { printf 'ok - %s\n' "$*"; }
 not_ok() { fail=1; printf 'not ok - %s\n' "$*"; }
 ag() { env HOME="$SS_HOME" "$PLUGIN_ROOT/bin/agent-guard" "$@"; }
 # Source an rc in a clean shell and report whether agx was defined.
-loads() {  # $1 = shell, $2 = PATH, $3 = rc
-  env HOME="$SS_HOME" PATH="$2" AGENT_GUARD_BIN= AGENT_GUARD_SHELL_INIT_VERSION= \
+loads() {  # $1 = shell, $2 = PATH, $3 = rc, $4 = HOME (default: $SS_HOME)
+  env HOME="${4:-$SS_HOME}" PATH="$2" AGENT_GUARD_BIN= AGENT_GUARD_SHELL_INIT_VERSION= \
     "$1" -c '. "$1"; command -v agx >/dev/null 2>&1 && echo INSTALLED || echo MISSING' \
     _ "$3" 2>/dev/null
 }
@@ -261,11 +261,32 @@ else
     *'can no longer load'*) ok "SessionStart reports a missing resolver file despite an inherited marker" ;;
     *) not_ok "SessionStart reports a missing resolver file despite an inherited marker" ;;
   esac
+  # The rc line only checks -r; a directory put there by hand must still warn.
+  mkdir "$ss_start_home/.agent-guard/shell-init.sh"
+  case "$(session_start_message "" "$ss_version")" in
+    *'can no longer load'*) ok "SessionStart reports a directory at the resolver path" ;;
+    *) not_ok "SessionStart reports a directory at the resolver path" ;;
+  esac
+  rmdir "$ss_start_home/.agent-guard/shell-init.sh"
+  # fish covers both rc files: one healthy, one missing is partial coverage,
+  # and an inherited marker must not hide it either.
+  ss_fish_home="$CASE_ROOT/fish-home"
+  mkdir -p "$ss_fish_home"
+  env HOME="$ss_fish_home" SHELL=/bin/zsh "$PLUGIN_ROOT/bin/agent-guard" setup-shell --zsh >/dev/null 2>&1
+  env HOME="$ss_fish_home" SHELL=/bin/bash "$PLUGIN_ROOT/bin/agent-guard" setup-shell --bash --no-command-wrapping >/dev/null 2>&1
+  mv "$ss_fish_home/.agent-guard/shell-init.sh" "$CASE_ROOT/fish-init.moved"
+  case "$(env -u AGENT_GUARD_SHELL_INIT_VERSION AGENT_GUARD_SHELL_INIT_VERSION="$ss_version" \
+      HOME="$ss_fish_home" SHELL=/usr/bin/fish AGENT_GUARD_HOOK_HOST=claude \
+      AGENT_GUARD_GITLEAKS_BIN="$ROOT/tests/fixtures/mock-gitleaks" PATH="$ss_start_path" \
+      "$PLUGIN_ROOT/bin/agent-guard" hook-session-start 2>/dev/null)" in
+    *'does not cover both'*) ok "SessionStart reports partial fish coverage despite an inherited marker" ;;
+    *) not_ok "SessionStart reports partial fish coverage despite an inherited marker" ;;
+  esac
   # sh_squote escapes a quote in HOME; the probe must read the same path.
   ss_quote_home="$CASE_ROOT/home with ' quote"
   mkdir -p "$ss_quote_home"
   env HOME="$ss_quote_home" SHELL=/bin/zsh "$PLUGIN_ROOT/bin/agent-guard" setup-shell >/dev/null 2>&1
-  ss_quote_loads=$(loads /bin/sh /usr/bin:/bin "$ss_quote_home/.zshrc")
+  ss_quote_loads=$(loads /bin/sh /usr/bin:/bin "$ss_quote_home/.zshrc" "$ss_quote_home")
   case "$(session_start_message "$ss_quote_home")" in
     *'can no longer load'*|*'is not loaded'*)
       not_ok "SessionStart reads a resolver path whose HOME contains a quote (loads: $ss_quote_loads)" ;;
