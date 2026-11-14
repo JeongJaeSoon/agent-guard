@@ -376,7 +376,9 @@ default policy. Do not loosen them only to silence a false positive; first
 confirm whether the operation is actually benign and use a structurally clear
 alternative where possible.
 
-`setup-shell` installs an explicit shell-rc block. It offers command wrapping
+`setup-shell` installs an explicit one-line shell-rc block that sources
+`~/.agent-guard/shell-init.sh` (`shell-init-no-wrapping.sh` for the opt-out),
+where the validating resolver lives. It offers command wrapping
 and a non-blocking nudge for common credential-dump commands. The wrapping is
 text-only and intentionally does not turn a shell integration into a complete
 security boundary.

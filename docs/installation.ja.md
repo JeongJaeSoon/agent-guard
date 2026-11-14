@@ -1,4 +1,4 @@
-<!-- translated-from: docs/installation.md; source-blob: 52e5ff00c80fe37dc870bec3f241a5a249b9f60e -->
+<!-- translated-from: docs/installation.md; source-blob: 44a7a26fb93606c96abaeea35fc2e62c861bd9d6 -->
 
 <a id="installing-agent-guard"></a>
 
@@ -166,7 +166,7 @@ agent-guard doctor
 agent-guard check
 ```
 
-プラグインキャッシュ内ではupdaterを意図的に利用できなくしています。実行ファイル自身がmarketplaceの削除で消えるキャッシュにあるため、自分でmarketplaceの固定先を変更できないからです。代わりに `agent-guard plugin update --host claude` または `--host codex` を実行してください。導入済みプラグインがすでにCLIに一致していれば、最新のGitHubリリースを調べ、新しいリリースへ進めるための正確なhost管理コマンドである `marketplace remove`、`marketplace add ...@vX.Y.Z`、プラグイン導入コマンドを表示します。`agent-guard doctor` と `agent-guard plugin status` も同じリリースの古さを報告します。照会を省略するには `AGENT_GUARD_RELEASE_CHECK=off` を設定します。shellブロックはキャッシュの `current` リンク経由で解決されるため、プラグインの更新後に `setup-shell` を再実行する必要はありません。
+プラグインキャッシュ内ではupdaterを意図的に利用できなくしています。実行ファイル自身がmarketplaceの削除で消えるキャッシュにあるため、自分でmarketplaceの固定先を変更できないからです。代わりに `agent-guard plugin update --host claude` または `--host codex` を実行してください。導入済みプラグインがすでにCLIに一致していれば、最新のGitHubリリースを調べ、新しいリリースへ進めるための正確なhost管理コマンドである `marketplace remove`、`marketplace add ...@vX.Y.Z`、プラグイン導入コマンドを表示します。`agent-guard doctor` と `agent-guard plugin status` も同じリリースの古さを報告します。照会を省略するには `AGENT_GUARD_RELEASE_CHECK=off` を設定します。`setup-shell` はshell rcに `~/.agent-guard/shell-init.sh` を読み込む1行を追加し、検証を行うresolverをそのファイルに書き込みます。どちらもキャッシュの `current` リンク経由で解決されるため、プラグインの更新後に `setup-shell` を再実行する必要はありません。再実行すると、以前の複数行ブロックを同じ位置で1行の形に置き換えます。
 
 スタンドアロンCLIの更新では、既存のインストールの隣に候補を準備してから
 置き換えます。チェックサム・展開・置換の失敗時は以前のインストールを維持
@@ -209,7 +209,7 @@ agent-guard plugin update --host all
 
 ## アンインストール
 
-各経路を所有する管理ツールから削除してください。hostプラグインにはClaude CodeまたはCodexのプラグイン管理ツールを、Homebrewには `brew uninstall JeongJaeSoon/tap/agent-guard` を使います。スタンドアロンの場合は、まず `agent-guard setup-shell` が選んだshell rcファイルから管理対象のshell integrationブロックを取り除きます。次のコマンドでパスを確認した後に限り、公開シンボリックリンクと導入ディレクトリを削除してください。
+各経路を所有する管理ツールから削除してください。hostプラグインにはClaude CodeまたはCodexのプラグイン管理ツールを、Homebrewには `brew uninstall JeongJaeSoon/tap/agent-guard` を使います。スタンドアロンの場合は、まず `agent-guard setup-shell` が選んだshell rcファイルから管理対象のshell integrationブロックと、そのブロックが読み込んでいた `~/.agent-guard/shell-init*.sh` ファイルを取り除きます。次のコマンドでパスを確認した後に限り、公開シンボリックリンクと導入ディレクトリを削除してください。
 
 ```sh
 command -v agent-guard

@@ -15,9 +15,10 @@ locate the versioned plugin-cache binary.
 2. Resolve `../../bin/agent-guard` relative to this skill directory and confirm
    that it is executable. Use that plugin-local binary even if another
    `agent-guard` is on `PATH`; do not install or update a standalone copy.
-3. Tell the user that `setup-shell` will update the managed block in their shell
-   rc with command wrapping enabled by default. Obtain host approval for the
-   home-directory write before running:
+3. Tell the user that `setup-shell` will update the one-line managed block in
+   their shell rc and write the resolver it sources to
+   `~/.agent-guard/shell-init.sh`, with command wrapping enabled by default.
+   Obtain host approval for both home-directory writes before running:
 
    ```sh
    "<plugin-local-agent-guard>" setup-shell

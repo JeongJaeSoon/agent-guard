@@ -1,4 +1,4 @@
-<!-- translated-from: docs/installation.md; source-blob: 52e5ff00c80fe37dc870bec3f241a5a249b9f60e -->
+<!-- translated-from: docs/installation.md; source-blob: 44a7a26fb93606c96abaeea35fc2e62c861bd9d6 -->
 
 <a id="installing-agent-guard"></a>
 
@@ -164,7 +164,7 @@ agent-guard doctor
 agent-guard check
 ```
 
-플러그인 캐시에서는 updater를 의도적으로 사용할 수 없게 되어 있습니다. 실행 파일 자체가 marketplace 제거 시 삭제되는 캐시에 있어 스스로 marketplace의 고정 태그를 바꿀 수 없기 때문입니다. 대신 `agent-guard plugin update --host claude` 또는 `--host codex`를 실행하세요. 설치된 플러그인이 이미 CLI와 일치하면 최신 GitHub 릴리스를 조회하고, 새 버전으로 이동하는 정확한 host 관리 명령인 `marketplace remove`, `marketplace add ...@vX.Y.Z`, 플러그인 설치 명령을 출력합니다. `agent-guard doctor`와 `agent-guard plugin status`도 같은 릴리스 노후 상태를 보고합니다. 조회를 건너뛰려면 `AGENT_GUARD_RELEASE_CHECK=off`를 설정하세요. shell 블록은 캐시의 `current` 링크를 통해 실행되므로 플러그인 업데이트 후 `setup-shell`을 다시 실행할 필요가 없습니다.
+플러그인 캐시에서는 updater를 의도적으로 사용할 수 없게 되어 있습니다. 실행 파일 자체가 marketplace 제거 시 삭제되는 캐시에 있어 스스로 marketplace의 고정 태그를 바꿀 수 없기 때문입니다. 대신 `agent-guard plugin update --host claude` 또는 `--host codex`를 실행하세요. 설치된 플러그인이 이미 CLI와 일치하면 최신 GitHub 릴리스를 조회하고, 새 버전으로 이동하는 정확한 host 관리 명령인 `marketplace remove`, `marketplace add ...@vX.Y.Z`, 플러그인 설치 명령을 출력합니다. `agent-guard doctor`와 `agent-guard plugin status`도 같은 릴리스 노후 상태를 보고합니다. 조회를 건너뛰려면 `AGENT_GUARD_RELEASE_CHECK=off`를 설정하세요. `setup-shell`은 shell rc에 `~/.agent-guard/shell-init.sh`를 읽는 한 줄을 추가하고, 검증하는 resolver를 그 파일에 씁니다. 둘 다 캐시의 `current` 링크를 통해 실행 파일을 찾으므로 플러그인 업데이트 후 `setup-shell`을 다시 실행할 필요가 없습니다. 다시 실행하면 예전 여러 줄 블록을 같은 자리에서 한 줄 형태로 바꿉니다.
 
 독립 CLI 업데이트는 기존 설치 옆에 후보를 준비한 뒤 교체합니다. 체크섬·추출·
 교체 실패 시 이전 설치를 유지하거나 복구하며, 관련 없는 로컬 파일도 보존합니다.
@@ -206,7 +206,7 @@ agent-guard plugin update --host all
 
 ## 설치 제거
 
-각 경로를 소유한 관리 도구로 제거하세요. host 플러그인은 Claude Code 또는 Codex 플러그인 관리 도구를, Homebrew는 `brew uninstall JeongJaeSoon/tap/agent-guard`를 사용합니다. 독립 설치는 먼저 `agent-guard setup-shell`이 선택한 shell rc 파일에서 관리되는 shell integration 블록을 제거하세요. 다음 명령으로 경로를 확인한 뒤에만 공개 심볼릭 링크와 설치 디렉터리를 제거합니다.
+각 경로를 소유한 관리 도구로 제거하세요. host 플러그인은 Claude Code 또는 Codex 플러그인 관리 도구를, Homebrew는 `brew uninstall JeongJaeSoon/tap/agent-guard`를 사용합니다. 독립 설치는 먼저 `agent-guard setup-shell`이 선택한 shell rc 파일에서 관리되는 shell integration 블록과, 그 블록이 읽던 `~/.agent-guard/shell-init*.sh` 파일을 제거하세요. 다음 명령으로 경로를 확인한 뒤에만 공개 심볼릭 링크와 설치 디렉터리를 제거합니다.
 
 ```sh
 command -v agent-guard
