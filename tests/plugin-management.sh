@@ -969,14 +969,14 @@ else
   sed 's/^/  stderr: /' "$case_dir/err"
 fi
 
-for trust_mode in missing duplicate unknown badtype errors malformed init-error silent; do
+for trust_mode in missing duplicate unknown badtype errors errors-none malformed corrupt-tail init-error silent; do
   trust_case "doctor_trust_$trust_mode" "$trust_mode"
   case "$trust_mode" in
     missing|duplicate) want='expected agent-guard hooks are missing or duplicated' ;;
     unknown) want='unknown hook trust status' ;;
     badtype) want='unexpected agent-guard hook entry' ;;
-    errors) want='Codex reported hook configuration errors' ;;
-    malformed) want='Codex did not answer hooks/list in time' ;;
+    errors|errors-none) want='Codex reported hook configuration errors' ;;
+    malformed|corrupt-tail) want='unreadable Codex reply' ;;
     init-error|silent) want='Codex app-server did not initialize' ;;
   esac
   run_doctor_here
@@ -990,6 +990,59 @@ for trust_mode in missing duplicate unknown badtype errors malformed init-error 
     sed 's/^/  stderr: /' "$case_dir/err"
   fi
 done
+
+trust_case doctor_trust_errors_modified errors-modified
+run_doctor_here
+status=$?
+if [ "$status" -eq 1 ] && trust_line | grep -Fq 'codex hook trust: needs review for'; then
+  ok 'doctor still fails on agent-guard Codex hooks that need review when Codex also reports hook errors'
+else
+  not_ok "doctor still fails on agent-guard Codex hooks that need review when Codex also reports hook errors (status $status)"
+  sed 's/^/  stderr: /' "$case_dir/err"
+fi
+
+# The launcher can be interrupted before it calls setsid, so no probe group
+# exists yet; exit cleanup must still end the probe instead of waiting on it.
+trust_case doctor_trust_signal_before_group trusted
+printf '%s\n' '#!/bin/sh' \
+  'case "$*" in *agent-guard-codex-trust*) printf "%s\n" "$$" >"$AG_TEST_LAUNCHER_PID"; exec sleep 30 ;; esac' \
+  "exec perl -MPOSIX -e 'POSIX::setsid() >= 0 or exit 125; exec @ARGV; exit 126' \"\$@\"" \
+  >"$case_bin/setsid"
+chmod +x "$case_bin/setsid"
+export AG_TEST_LAUNCHER_PID="$case_dir/launcher-pid"
+(cd "$case_dir" && PATH="$case_bin:/usr/bin:/bin" exec "$GUARD" doctor >"$case_dir/out" 2>"$case_dir/err") &
+guard_pid=$!
+tries=0
+while [ ! -s "$AG_TEST_LAUNCHER_PID" ] && [ "$tries" -lt 100 ]; do
+  sleep 0.1; tries=$((tries + 1))
+done
+kill -TERM "$guard_pid" 2>/dev/null
+tries=0
+while kill -0 "$guard_pid" 2>/dev/null && [ "$tries" -lt 50 ]; do
+  sleep 0.1; tries=$((tries + 1))
+done
+guard_done=1
+if kill -0 "$guard_pid" 2>/dev/null; then
+  guard_done=0
+  kill -KILL "$guard_pid" 2>/dev/null
+fi
+wait "$guard_pid" 2>/dev/null
+status=$?
+launcher_pid=$(cat "$AG_TEST_LAUNCHER_PID" 2>/dev/null)
+launcher_gone=0
+if [ -n "$launcher_pid" ]; then
+  if kill -0 "$launcher_pid" 2>/dev/null; then
+    kill -KILL "$launcher_pid" 2>/dev/null
+  else
+    launcher_gone=1
+  fi
+fi
+if [ "$guard_done" -eq 1 ] && [ "$status" -eq 143 ] && [ "$launcher_gone" -eq 1 ]; then
+  ok 'doctor interrupted before the Codex probe group exists exits promptly and ends the probe'
+else
+  not_ok "doctor interrupted before the Codex probe group exists exits promptly and ends the probe (done $guard_done, status $status, launcher_gone $launcher_gone)"
+fi
+unset AG_TEST_LAUNCHER_PID
 
 trust_case doctor_trust_init_error_order init-error
 run_doctor_here

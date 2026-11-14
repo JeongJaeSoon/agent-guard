@@ -45,11 +45,11 @@ if [ "$host" = codex ] && [ "$#" -eq 1 ] && [ "$1" = app-server ]; then
             | ($ev | map(h(.; "trusted"; true))) as $ok
             | {jsonrpc: "2.0", id: 2, result: {data: [{
                 cwd: .params.cwds[0], warnings: [],
-                errors: (if $mode == "errors" then [{message: "invalid hook", path: "/fixture/hooks.json"}] else [] end),
+                errors: (if $mode | startswith("errors") then [{message: "invalid hook", path: "/fixture/hooks.json"}] else [] end),
                 hooks: ([{key: "/fixture/.codex/hooks.json:pre_tool_use:0:0", eventName: "preToolUse",
                           trustStatus: "modified", enabled: true, source: "user"}]
                   + (if $mode == "managed" then $ev | map(h(.; "managed"; true))
-                     elif $mode == "modified" then $ev | map(h(.; "modified"; true))
+                     elif $mode == "modified" or $mode == "errors-modified" then $ev | map(h(.; "modified"; true))
                      elif $mode == "untrusted" then $ev | map(h(.; "untrusted"; true))
                      elif $mode == "mixed" then
                        [h("preToolUse"; "trusted"; true), h("postToolUse"; "modified"; true),
@@ -58,15 +58,20 @@ if [ "$host" = codex ] && [ "$#" -eq 1 ] && [ "$1" = app-server ]; then
                      elif $mode == "disabled" then [h("preToolUse"; "trusted"; false)] + $ok[1:]
                      elif $mode == "missing" then $ok[1:]
                      elif $mode == "duplicate" then $ok + [$ok[0]]
-                     elif $mode == "none" then []
+                     elif $mode == "none" or $mode == "errors-none" then []
                      elif $mode == "unknown" then [h("preToolUse"; "pending"; true)] + $ok[1:]
                      elif $mode == "badtype" then [$ok[0] | .enabled = "yes"] + $ok[1:]
                      else $ok end))}]}}'
+          # A truncated duplicate after a complete reply must not be skipped.
+          [ "$trust_mode" != corrupt-tail ] \
+            || printf '%s\n' '{"jsonrpc":"2.0","id":2,"result":{"data":[{"hooks":['
         fi
         case "$trust_mode" in
           linger) trap '' TERM; while :; do sleep 1; done ;;
           spawn)
-            sh -c 'trap "" HUP; printf "%s\n" "$$" >"$1"; exec sleep 30' spawn "$AG_PLUGIN_TEST_TRUST_CHILD" &
+            # Recorded by the parent so the PID exists even if cleanup wins the race.
+            sh -c 'trap "" HUP; exec sleep 30' spawn &
+            printf '%s\n' "$!" >"$AG_PLUGIN_TEST_TRUST_CHILD"
             ;;
         esac
         ;;

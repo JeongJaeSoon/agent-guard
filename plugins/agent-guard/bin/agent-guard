@@ -337,7 +337,11 @@ clear_codex_trust_probe_processes() {
       kill -KILL -"$CODEX_TRUST_GROUP" 2>/dev/null || :
       ;;
   esac
+  # A signal can arrive before the launcher has called setsid, when no group
+  # exists yet; the unreaped probe itself is still safe to signal.
   if [ -n "$CODEX_TRUST_PROBE_PID" ]; then
+    kill -TERM "$CODEX_TRUST_PROBE_PID" 2>/dev/null || :
+    kill -KILL "$CODEX_TRUST_PROBE_PID" 2>/dev/null || :
     wait "$CODEX_TRUST_PROBE_PID" 2>/dev/null || :
     CODEX_TRUST_PROBE_PID=
   fi
@@ -425,12 +429,14 @@ codex_trust_probe() {
     wait "$ct_watch_sleep_pid" 2>/dev/null || exit 0
     ct_watch_sleep_pid=
     kill -0 "$CODEX_TRUST_PROBE_PID" 2>/dev/null || exit 0
-    kill -TERM -"$CODEX_TRUST_GROUP" 2>/dev/null || :
+    kill -TERM -"$CODEX_TRUST_GROUP" 2>/dev/null \
+      || kill -TERM "$CODEX_TRUST_PROBE_PID" 2>/dev/null || :
     sleep 1 &
     ct_watch_sleep_pid=$!
     wait "$ct_watch_sleep_pid" 2>/dev/null || exit 0
     ct_watch_sleep_pid=
-    kill -KILL -"$CODEX_TRUST_GROUP" 2>/dev/null || :
+    kill -KILL -"$CODEX_TRUST_GROUP" 2>/dev/null \
+      || kill -KILL "$CODEX_TRUST_PROBE_PID" 2>/dev/null || :
   ) &
   CODEX_TRUST_WATCHDOG_PID=$!
   wait "$CODEX_TRUST_PROBE_PID" 2>/dev/null
@@ -449,10 +455,12 @@ codex_trust_probe() {
   fi
   ct_verdict=$(jq -R -s -r --argjson expected "$CODEX_TRUST_EVENTS" '
     def names: map(.eventName) | join(", ");
-    [splits("\n") | fromjson? | select(type == "object")] as $m
-    | ($m | map(select(.id == 1))) as $init
-    | ($m | map(select(.id == 2))) as $list
-    | if ($init | length) != 1 or ($init[0].result | type) != "object" then
+    [splits("\n") | select(length > 0) | (try fromjson catch null)] as $m
+    | ($m | map(select(type == "object" and .id == 1))) as $init
+    | ($m | map(select(type == "object" and .id == 2))) as $list
+    | if any($m[]; type != "object") then
+        "unverified\tunreadable Codex reply"
+      elif ($init | length) != 1 or ($init[0].result | type) != "object" then
         "unverified\tCodex app-server did not initialize"
       elif ($list | length) != 1 then
         "unverified\tCodex did not answer hooks/list in time"
@@ -464,9 +472,9 @@ codex_trust_probe() {
             "unverified\tunexpected hooks/list reply"
           else
             ($entry.hooks | map(select(type == "object" and .pluginId == "agent-guard@agent-guard"))) as $ag
-            | if ($ag | length) == 0 then
-                "absent\t"
-              elif any($ag[]; (.eventName | type) != "string"
+            # A hook Codex lists as needing review or turned off is skipped even
+            # when other entries failed to load; errors only block absent and ok.
+            | if any($ag[]; (.eventName | type) != "string"
                   or (.trustStatus | type) != "string"
                   or (.enabled | type) != "boolean") then
                 "unverified\tunexpected agent-guard hook entry"
@@ -478,6 +486,8 @@ codex_trust_probe() {
                 "disabled\t" + ($ag | map(select(.enabled != true)) | names)
               elif ($entry.errors | length) > 0 then
                 "unverified\tCodex reported hook configuration errors"
+              elif ($ag | length) == 0 then
+                "absent\t"
               elif ([$ag[].eventName] | sort) != ($expected | sort) then
                 "unverified\texpected agent-guard hooks are missing or duplicated"
               else
