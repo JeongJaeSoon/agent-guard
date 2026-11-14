@@ -3931,8 +3931,12 @@ bash_cmd_case 0 "an IPv6 host with a port is allowed" \
   "curl 'http://[::1]:8080/health'"
 bash_cmd_case 0 "an email address in a commit message is allowed" \
   "git commit -m 'Reported-by: alice@example.com'"
-bash_cmd_case 0 "a userinfo URL inside a commit message is left to the gitleaks pass" \
+bash_cmd_case 0 "a userinfo URL inside a commit message is not a deny-bash match" \
   "git commit -m 'see https://u:p@example.com'"
+bash_cmd_case 0 "a URL and a later email in one compact JSON word are allowed" \
+  "curl -d '{\"callback\":\"http://localhost:3000\",\"email\":\"alice@example.com\"}' https://example.com/hooks"
+bash_cmd_case 0 "a URL and an email in one compact jq object are allowed" \
+  "jq -n '{\"homepage\":\"https://example.com\",\"author\":\"alice@example.com\"}'"
 
 expect_json_status 2 "gcloud auth print-refresh-token is blocked" \
   '{"tool_name":"Bash","tool_input":{"command":"gcloud auth print-refresh-token"}}' \
