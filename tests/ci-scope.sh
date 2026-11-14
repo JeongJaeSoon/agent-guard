@@ -78,7 +78,18 @@ printf '%s\n' "$notify" | grep -Fq 'gh issue close "$created"' || fail 'overlapp
 printf '%s\n' "$notify" | grep -Fq '[ "$number" -lt "$created" ]' || fail 'notify folds only into a smaller issue number'
 printf '%s\n' "$notify" | grep -Fq 'sh .github/scripts/performance-issue-body.sh "$RUNNER_TEMP/evidence" "$failed"' \
   || fail 'notify builds the body with the tested script'
-printf '%s\n' "$notify" | grep -Fq '이슈 본문을 만들지 못했습니다.' || fail 'a body script failure still opens the issue'
+# Run notify's own body lines where the script is missing, as after a failed checkout.
+fallback=$(mktemp -d)
+printf '%s\n' "$notify" | awk '/^          body="\$RUNNER_TEMP\/issue.md"$/ { on = 1 } on { print substr($0, 11) } on && /^          fi$/ { exit }' \
+  > "$fallback/body-lines.sh"
+(cd "$fallback" && RUNNER_TEMP="$fallback" RUN_URL=https://example.invalid/run HEAD_SHA=synthetic-sha \
+  failed='- Packaged performance evidence: failure' sh -eu body-lines.sh 2>/dev/null) \
+  && grep -Fxq 'nightly run: https://example.invalid/run' "$fallback/issue.md" \
+  && grep -Fxq '커밋: synthetic-sha' "$fallback/issue.md" \
+  && grep -Fxq '이슈 본문을 만들지 못했습니다. run 로그와 artifact를 확인하세요.' "$fallback/issue.md" \
+  && grep -Fxq -- '- Packaged performance evidence: failure' "$fallback/issue.md" \
+  || { rm -rf "$fallback"; fail 'a body script failure still opens the issue with the run, commit and jobs'; }
+rm -rf "$fallback"
 sh "$ROOT/tests/performance-issue-body.sh" > /dev/null || fail 'nightly issue body fixtures'
 grep -Fq 'name: Packaged performance evidence' "$perf" || fail 'packaged measurement moved'
 grep -Fq 'name: Fused packaged performance (' "$perf" || fail 'fused measurement moved'

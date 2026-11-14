@@ -41,6 +41,9 @@ printf 'Linux synthetic\n' > "$evidence/fused-packaged-official-cold/evidence/en
 jq -n '{complete:false,confirmed:[]}' > "$packaged/public-default-confirmation.json"
 row cpu-missing 9 null | jq -s '{complete:true,confirmed:.}' > "$evidence/fused-packaged-official-off/evidence/confirmation.json"
 printf '{not json' > "$evidence/fused-packaged-homebrew-cold/evidence/confirmation.json"
+{
+  row fused-stall 6 1; row fused-cost 6 6
+} | jq -s '{complete:true,confirmed:.}' > "$evidence/fused-packaged-homebrew-warm/evidence/confirmation.json"
 render "$evidence"
 
 has '러너 CPU(packaged job, cpuinfo.txt): Synthetic CPU A' 'packaged CPU comes from cpuinfo.txt, once per model'
@@ -57,8 +60,10 @@ has "| packaged-performance | $cpu | legacy-confirmation.json | claude/cpu-confi
 has "| packaged-performance | $cpu | public-default-confirmation.json | 확인 측정 불완전 | | | |" 'incomplete confirmation is reported'
 has '| fused-packaged-official-off | Synthetic CPU B | confirmation.json | 읽을 수 없음 | | | |' 'a row without CPU time is unreadable'
 has '| fused-packaged-homebrew-cold | Synthetic CPU B | confirmation.json | 읽을 수 없음 | | | |' 'malformed confirmation is reported'
+has "| fused-packaged-homebrew-warm | Synthetic CPU C | confirmation.json | claude/fused-stall | +6% | +1% | $note |" 'a fused row carries its own CPU'
+has '| fused-packaged-homebrew-warm | Synthetic CPU C | confirmation.json | claude/fused-cost | +6% | +6% |  |' 'a fused row with CPU cost is not marked'
 lacks 'claude/cpu-missing' 'a row without CPU time is never marked'
-[ "$(grep -c "$note" "$case_dir/body")" -eq 3 ] || fail 'exactly the latency-only rows are marked'
+[ "$(grep -c "$note" "$case_dir/body")" -eq 4 ] || fail 'exactly the latency-only rows are marked'
 has '| Artifact | 러너 CPU | 파일 | Host/case | Latency | CPU 시간 | 판단 |' 'table names the CPU time column'
 [ "$(head -n 1 "$case_dir/body")" = '러너 CPU(packaged job, cpuinfo.txt): Synthetic CPU A' ] || fail 'runner CPU is the first line'
 printf 'ok - nightly performance issue body fixtures passed\n'
