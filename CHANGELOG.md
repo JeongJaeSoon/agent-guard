@@ -1,6 +1,6 @@
 ## Unreleased
 
-- feat(doctor): Codex가 `PATH`에 있으면 `agent-guard doctor`가 Codex에 agent-guard hook trust를 묻습니다. 잠깐 띄운 `codex app-server`의 `hooks/list`를 쓰므로 모델은 부르지 않습니다. Codex는 hook 항목과 플러그인 내용으로 trust를 검사하므로, `hooks.json`이 그대로여도 플러그인을 갱신하면 agent-guard hook이 모두 `modified`가 되어 실행되지 않을 수 있습니다. 이 상태를 이제 알립니다. (#PR)
+- feat(doctor): Codex가 `PATH`에 있으면 `agent-guard doctor`가 Codex에 agent-guard hook trust를 묻습니다. 잠깐 띄운 `codex app-server`의 `hooks/list`를 쓰므로 모델은 부르지 않습니다. Codex는 hook 항목과 플러그인 내용으로 trust를 검사하므로, `hooks.json`이 그대로여도 플러그인을 갱신하면 agent-guard hook이 모두 `modified`가 되어 실행되지 않을 수 있습니다. 이 상태를 이제 알립니다. (#458)
   - 동작 변경: agent-guard hook이 `modified`·`untrusted`(검토 필요)이거나 꺼져 있으면 `doctor`가 exit 1로 끝나고, TUI의 "Hooks need review"에서 다시 trust하는 절차를 출력합니다. 응답을 읽지 못하면 ok가 아니라 unverified로 보고하고, 이때 종료 코드는 바꾸지 않습니다. Codex용 `plugin status`·`plugin install`·`plugin update`(이미 일치하는 경우 포함)도 같은 결과를 출력하지만 종료 코드는 바꾸지 않습니다. ok는 새 Codex 프로세스가 읽는 설정의 스냅샷이며, hook 실행을 관찰한 것은 아닙니다. agent-guard는 trust를 직접 쓰지 않습니다.
   - 사용자가 할 일: 플러그인을 갱신한 뒤 `agent-guard doctor`를 실행하고, 안내가 나오면 그 절차대로 다시 trust합니다. 확인을 끄려면 `AGENT_GUARD_CODEX_TRUST_CHECK=off`를 설정합니다. 이 확인은 Codex app server를 띄우므로, 여느 Codex 시작처럼 네트워크에 접속하거나 Codex 자체 캐시를 갱신할 수 있습니다.
   - 운영자가 할 일: 없습니다. v3.9.0 노트의 "Codex hook trust를 다시 받을 필요가 없습니다"는 틀렸습니다. 플러그인 내용이 바뀌면 Codex hook을 다시 trust해야 합니다.
