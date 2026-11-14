@@ -171,7 +171,10 @@ counts as a regression only if the confirmation also exceeds 5%
 CI and public-release verification. CI runs this and the fused measurement in
 `performance.yml` nightly, on manual dispatch, and on release pull requests,
 not on every main push. A nightly run that does not pass opens one GitHub issue,
-and later failures comment on it. The release workflow reports the release
+and later failures comment on it. The issue body starts with the runner CPU
+model of the packaged job (`cpuinfo.txt`) and of each fused job
+(`environment.txt`). It marks a confirmed row whose CPU time rose by at most 2%
+as a suspected off-CPU stall; the mark changes no job result. The release workflow reports the release
 pull request's result as a warning and does not block on it. The pre-default
 qualification measurements are kept in the `v3.7.0` release tag, not in the
 tree.

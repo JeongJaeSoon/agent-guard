@@ -180,6 +180,12 @@ jobs:
       actions: read
       issues: write
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        # Without the body script the issue still opens with a short body.
+        continue-on-error: true
+        with:
+          persist-credentials: false
+          sparse-checkout: .github/scripts
       - name: Download measurement evidence
         # A missing artifact must not suppress the issue; the body says so.
         continue-on-error: true
@@ -209,42 +215,14 @@ jobs:
           else
             failed='- 이 run의 job 결론을 읽지 못했습니다.'
           fi
-          # Every measurement path writes bench/native/confirm.jq output to a
-          # *confirmation.json file; its confirmed rows are the regressions.
-          rows="$RUNNER_TEMP/confirmed-rows.md"
-          : > "$rows"
-          if [ -d "$RUNNER_TEMP/evidence" ]; then
-            find "$RUNNER_TEMP/evidence" -name '*confirmation.json' | sort | while IFS= read -r file; do
-              artifact=${file#"$RUNNER_TEMP/evidence/"}
-              artifact=${artifact%%/*}
-              jq -r --arg artifact "$artifact" --arg file "${file##*/}" '
-                def pct: . * 10 | round / 10 + 0 | if . > 0 then "+\(.)" else "\(.)" end;
-                (.confirmed[] | "| \($artifact) | \($file) | \(.host)/\(.name) | \(.latency_change_percent | pct)% | \(.cpu_change_percent | pct)% |"),
-                (select(.complete == false) | "| \($artifact) | \($file) | 확인 측정 불완전 | | |")
-              ' "$file" || echo "| $artifact | ${file##*/} | 읽을 수 없음 | | |"
-            done >> "$rows"
-          fi
           body="$RUNNER_TEMP/issue.md"
-          {
-            echo "nightly run: $RUN_URL"
-            echo "커밋: $HEAD_SHA"
-            echo
-            echo '통과하지 못한 job(최신 attempt):'
-            echo
-            printf '%s\n' "$failed"
-            echo
-            if [ -s "$rows" ]; then
-              echo '새 21쌍 확인에서도 5%를 넘은 행(candidate 대 baseline 중앙값):'
-              echo
-              echo '| Artifact | 파일 | Host/case | Latency | CPU |'
-              echo '| --- | --- | --- | --- | --- |'
-              cat "$rows"
-              echo
-              echo 'CPU는 그대로이고 latency만 오른 행은 공유 러너의 off-CPU 정지일 수 있습니다. artifact의 cpuinfo.txt와 원시 표본을 함께 확인하세요.'
-            else
-              echo '확인된 회귀 행이 없습니다. 목표 미달, 출력 검증 실패, 측정 미완료나 미실행으로도 job이 실패합니다. run artifact를 확인하세요.'
-            fi
-          } > "$body"
+          if ! sh .github/scripts/performance-issue-body.sh "$RUNNER_TEMP/evidence" "$failed" > "$body"; then
+            printf '%s\n' "nightly run: $RUN_URL" "커밋: $HEAD_SHA" '' \
+              '이슈 본문을 만들지 못했습니다. run 로그와 artifact를 확인하세요.' '' \
+              '통과하지 못한 job(최신 attempt):' '' "$failed" > "$body"
+          fi
+          # The title stays the same for every runner CPU, so a night on any
+          # CPU comments on the one open issue instead of opening another.
           oldest_open_issue() {
             # Command substitution drops -e in bash, so fail explicitly.
             gh api --paginate --slurp "repos/$REPO/issues?state=open&per_page=100" > "$RUNNER_TEMP/open-issues.json" || return 1
