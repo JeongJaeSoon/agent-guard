@@ -3915,6 +3915,8 @@ bash_cmd_case 2 "an upper-case URL scheme with user:password is blocked" \
   "curl HTTPS://u:p@example.com/"
 bash_cmd_case 2 "a password given as a shell variable is blocked" \
   'git clone https://deploy:$GIT_PW@example.com/acme/api.git'
+bash_cmd_case 2 "a password given as a braced shell variable is blocked" \
+  'docker run -e DATABASE_URL=postgres://app:${PG_PW}@db/acme acme/api'
 bash_cmd_case 0 "a URL with a user and no password is allowed" \
   "git clone ssh://git@example.com/acme/api.git"
 bash_cmd_case 0 "an scp-style git remote is allowed" \
