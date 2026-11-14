@@ -1787,7 +1787,7 @@ bash_diag_no_leak() { # $1 name, $2 command carrying the token
 bash_diag_no_leak "deny-entry wildcard eating a URL query" \
   "curl https://example.com/.env?token=$bash_diag_token"
 bash_diag_no_leak "prefix wildcard eating a URL userinfo field" \
-  "curl https://user:$bash_diag_token@example.com/.env"
+  "curl https://$bash_diag_token@example.com/.env"
 bash_diag_no_leak "prefix wildcard eating a directory component" \
   "cat /home/$bash_diag_token/id_rsa"
 
@@ -3880,6 +3880,59 @@ expect_json_status 0 "mvn help:effective-settings (masked default) is allowed" \
 expect_json_status 2 "security find-internet-password is blocked" \
   '{"tool_name":"Bash","tool_input":{"command":"security find-internet-password -s github.com -w"}}' \
   hook-pre-tool
+
+bash_cmd_case() { # $1 expected status, $2 name, $3 command
+  expect_json_status "$1" "$2" \
+    "$(jq -nc --arg c "$3" '{tool_name:"Bash",tool_input:{command:$c}}')" \
+    hook-pre-tool
+}
+
+# No keychain path in these commands, so only the deny-bash line can block them.
+bash_cmd_case 2 "security dump-keychain is blocked" "security dump-keychain"
+bash_cmd_case 2 "security dump-keychain -d is blocked" "security dump-keychain -d"
+bash_cmd_case 2 "security with a leading option before dump-keychain is blocked" \
+  "security -q dump-keychain"
+bash_cmd_case 2 "security dump-keychain by absolute path is blocked" \
+  "/usr/bin/security dump-keychain"
+bash_cmd_case 2 "security find-generic-password without -w stays blocked" \
+  "security find-generic-password -s svc"
+bash_cmd_case 0 "security list-keychains is allowed" "security list-keychains"
+bash_cmd_case 0 "security dump-trust-settings is allowed" "security dump-trust-settings"
+bash_cmd_case 0 "security find-certificate is allowed" "security find-certificate -c acme"
+bash_cmd_case 0 "a commit message naming dump-keychain is allowed" \
+  "git commit -m 'docs: security dump-keychain is denied'"
+
+# A URL whose userinfo carries a password puts it in argv and the transcript.
+bash_cmd_case 2 "git clone with user:password in the URL is blocked" \
+  "git clone https://deploy:pw@example.com/acme/api.git"
+bash_cmd_case 2 "git remote set-url with user:password in the URL is blocked" \
+  "git remote set-url origin https://x:y@example.com/acme/api.git"
+bash_cmd_case 2 "a database URL with user:password is blocked" \
+  "psql postgres://app:pw@db.example.com/acme"
+bash_cmd_case 2 "a URL with an empty user and a password is blocked" \
+  "redis-cli -u redis://:pw@cache.example.com:6379"
+bash_cmd_case 2 "an upper-case URL scheme with user:password is blocked" \
+  "curl HTTPS://u:p@example.com/"
+bash_cmd_case 2 "a password given as a shell variable is blocked" \
+  'git clone https://deploy:$GIT_PW@example.com/acme/api.git'
+bash_cmd_case 0 "a URL with a user and no password is allowed" \
+  "git clone ssh://git@example.com/acme/api.git"
+bash_cmd_case 0 "an scp-style git remote is allowed" \
+  "git clone git@example.com:acme/api.git"
+bash_cmd_case 0 "an @ in a URL path is allowed" \
+  "curl https://example.com/users/@alice"
+bash_cmd_case 0 "an @ in a URL query is allowed" \
+  "curl 'https://example.com/search?q=a:b@c'"
+bash_cmd_case 0 "an @ in a query right after a port is allowed" \
+  "curl 'https://example.com:8443?next=a@b'"
+bash_cmd_case 0 "an @ in a path after a port is allowed" \
+  "curl https://example.com:8443/@alice"
+bash_cmd_case 0 "an IPv6 host with a port is allowed" \
+  "curl 'http://[::1]:8080/health'"
+bash_cmd_case 0 "an email address in a commit message is allowed" \
+  "git commit -m 'Reported-by: alice@example.com'"
+bash_cmd_case 0 "a userinfo URL inside a commit message is left to the gitleaks pass" \
+  "git commit -m 'see https://u:p@example.com'"
 
 expect_json_status 2 "gcloud auth print-refresh-token is blocked" \
   '{"tool_name":"Bash","tool_input":{"command":"gcloud auth print-refresh-token"}}' \
