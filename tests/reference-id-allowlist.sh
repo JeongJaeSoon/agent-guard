@@ -13,8 +13,11 @@ set -u
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 GUARD="$ROOT/plugins/agent-guard/bin/agent-guard"
-CASE_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-reference-id.XXXXXX")
-CASE_ROOT=$(CDPATH= cd -- "$CASE_ROOT" && pwd -P)
+# Exit before the cleanup trap exists: an empty CASE_ROOT would make
+# `cd -- ""` resolve to the current directory, which the trap then removes.
+CASE_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-reference-id.XXXXXX") || exit 1
+[ -n "$CASE_ROOT" ] || exit 1
+CASE_ROOT=$(CDPATH= cd -- "$CASE_ROOT" && pwd -P) || exit 1
 ORIGINAL_PATH=$PATH
 # A host that passes the variable empty means "no real gitleaks": PATH then holds
 # only run.sh's mock, which would turn every must-fail case into a false failure.

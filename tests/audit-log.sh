@@ -6,8 +6,11 @@ GUARD="$ROOT/plugins/agent-guard/bin/agent-guard"
 # preceding environment assignments before expanding later assignments.
 REAL_MKDIR=$(command -v mkdir)
 REAL_JQ=$(command -v jq)
-CASE=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-audit.XXXXXX")
-CASE=$(CDPATH= cd -- "$CASE" && pwd -P)
+# Exit before the cleanup trap exists: an empty CASE would make `cd -- ""`
+# resolve to the current directory, which the trap then removes.
+CASE=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-audit.XXXXXX") || exit 1
+[ -n "$CASE" ] || exit 1
+CASE=$(CDPATH= cd -- "$CASE" && pwd -P) || exit 1
 trap 'rm -rf "$CASE"' 0
 # After a Bash call, hook-post-tool scans the Git work tree around its cwd, so
 # a caller's dirty checkout (an untracked note or leftover fixture) would turn

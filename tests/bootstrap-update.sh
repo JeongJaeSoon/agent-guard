@@ -3,8 +3,11 @@
 # validation, installation, CLI update, shell setup and version execute for real.
 set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
-CASE_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-update-test.XXXXXX")
-CASE_ROOT=$(CDPATH= cd -- "$CASE_ROOT" && pwd -P)
+# Exit before the cleanup trap exists: an empty CASE_ROOT would make
+# `cd -- ""` resolve to the current directory, which the trap then removes.
+CASE_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-update-test.XXXXXX") || exit 1
+[ -n "$CASE_ROOT" ] || exit 1
+CASE_ROOT=$(CDPATH= cd -- "$CASE_ROOT" && pwd -P) || exit 1
 trap 'rm -rf "$CASE_ROOT"' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM

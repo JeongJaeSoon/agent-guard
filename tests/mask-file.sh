@@ -7,8 +7,11 @@
 set -u
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 GUARD="$ROOT/plugins/agent-guard/bin/agent-guard"
-CASE=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-mask.XXXXXX")
-CASE=$(CDPATH= cd -- "$CASE" && pwd -P)
+# Exit before the cleanup trap exists: an empty CASE would make `cd -- ""`
+# resolve to the current directory, which the trap then removes.
+CASE=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-mask.XXXXXX") || exit 1
+[ -n "$CASE" ] || exit 1
+CASE=$(CDPATH= cd -- "$CASE" && pwd -P) || exit 1
 trap 'rm -rf "$CASE"' 0
 export AGENT_GUARD_LOG_MODE=off
 # Every invocation's temp files must land here and be gone afterwards.
