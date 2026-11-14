@@ -1,3 +1,36 @@
+## v3.9.0 - 2026-11-14
+
+- feat(shell): rc 블록을 마커 두 줄과 `[ ! -r ~/… ] || . ~/…` 한 줄로 줄인다 (#456)
+- feat(shell): setup-shell이 rc에 resolver 파일을 읽는 한 줄만 쓴다 (#455)
+- fix(tests): mktemp가 실패하면 cleanup trap 전에 시험 스크립트를 끝낸다 (#454)
+- chore(platform): Intel Mac(x86_64-apple-darwin) 지원을 끝낸다 (#450)
+- ci(perf): nightly 성능 실패 issue에 러너 CPU를 적고 latency만 오른 확정 행을 노이즈 의심으로 표시한다 (#451)
+- fix(scan): 접두사가 있는 UUID 모양 key를 탐지한다 (#453)
+- fix(hooks): dump-keychain과 URL userinfo 비밀번호를 deny 패턴으로 막는다 (#449)
+- fix(scan): 참조 id 칸의 UUID를 generic-api-key 오탐에서 뺀다 (#448)
+- ci(perf): 성능 측정을 main push에서 빼고 nightly·릴리스 PR에서 돌리며 nightly 실패는 issue로 알린다 (#447)
+- ci(perf): 9쌍에서 넘은 케이스만 21쌍으로 확인해 러너 노이즈 실패를 줄이고 실패한 성능 job을 드러낸다 (#446)
+- ci: bump hashgraph-online/ai-plugin-scanner-action (#441)
+- perf(scan): 동일 바이트의 clean 판정을 캐시해 반복 gitleaks 실행을 줄인다 (#443)
+- fix(hooks): orca orchestration ask의 --question 값을 메시지 값으로 본다 (#442)
+- perf(hooks): 훅 한 번마다 띄우던 jq·mktemp·보조 프로세스를 줄인다 (#440)
+- fix(hooks): 변수 이름과 참조만 담은 소스 출력을 실행 후 마스킹에서 뺀다 (#439)
+- fix(hooks): gh·git commit이 stdin으로 읽는 heredoc 메시지 본문을 보호 경로 매치에서 뺀다 (#438)
+- fix(hooks): 메시지 값의 명령 치환을 구조적으로 판정하고 quoted heredoc 본문만 문자열로 본다 (#437)
+- fix(hooks): 따옴표 안의 python 첨자를 env.* glob 오탐으로 막지 않는다 (#436)
+- ci(lint): ShellCheck를 파일당 1프로세스로 실행해 메모리 피크를 낮춘다 (#435)
+- fix(hooks): 차단 사유 코드를 감사 기록에 남겨 codex exec에서도 원인을 찾게 한다 (#434)
+- fix(tests): audit-log 시험이 호출 위치의 Git 작업 트리에 영향받지 않게 한다 (#433)
+- fix(scan): 실제 gitleaks가 없는 샤드에서 auto-wake 대조 시험을 건너뛴다 (#431)
+- fix(scan): auto-wake 인박스 key의 dispatch id를 generic-api-key 오탐에서 뺀다 (#428)
+- chore: 생성물·실험·계획 문서와 측정 원본을 삭제하고 재발을 막는다 (#430)
+- perf(hooks): 보호 경로 정규식 컴파일 결과를 캐시해 Bash 훅 CPU를 줄인다 (#429)
+- bench: 공개 7버전 실측 비교와 한국어 HTML·정확도 보고서 (#425)
+- fix(hooks): 숫자만 든 브래킷이 ASCII 글자 자리를 대신하지 못하게 한다 (#422)
+- fix(hooks): 소스 코드의 타입 주석과 멤버 참조를 출력 마스킹에서 뺀다 (#421)
+- fix(hooks): 런타임 환경 객체 멤버 접근과 jq 보간을 보호 경로 텍스트 매치에서 뺀다 (#418)
+- fix(hooks): ORCA_·CLAUDE_JOB_DIR 변수 조회를 환경 덤프 차단에서 뺀다 (#419)
+
 ## Unreleased
 
 - feat(shell): `setup-shell`이 shell rc에 약 155줄 블록 대신 시작·끝 마커와 한 줄 `[ ! -r ~/.agent-guard/shell-init.sh ] || . ~/.agent-guard/shell-init.sh`만 씁니다. 실행 전에 캐시 바이너리를 검증하는 resolver는 그 파일로 옮겼고 내용은 같습니다. 두 파일 모두 캐시의 `current` 링크와 캐시 기준 경로만 적으므로, 플러그인 버전이 바뀌어도 다시 쓸 필요가 없습니다. 마스킹·deny·hook 동작과 hook manifest는 바뀌지 않습니다.
