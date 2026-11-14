@@ -187,7 +187,10 @@ musl artifact와 sidecar를 받아 후보 설치 위치에 넣고, 같은 파일
 `screened_regressions`에 첫 판정을 남긴다. 이 job은 main push마다 돌지 않고
 nightly, 수동 실행, 릴리스 PR에서만 돈다. 실패해도 native 배포 집계와 릴리스를
 막지 않는다. nightly가 통과하지 못하면 GitHub issue 하나를 열고, 이후 실패는 그
-issue에 댓글로 남긴다. 릴리스 workflow는 릴리스 PR head의 결과를 경고로만
+issue에 댓글로 남긴다. issue 본문 맨 위에는 packaged job(`cpuinfo.txt`)과
+fused job별(`environment.txt`) 러너 CPU 이름을 적는다. 확정 행 중 CPU 시간이
++2% 이하로 오른 행은 노이즈 의심(latency만 오름)으로 표시한다. 이 표시는 job
+결론을 바꾸지 않는다. 릴리스 workflow는 릴리스 PR head의 결과를 경고로만
 남긴다. 공식 scanner 목표의 10% 개선을 요구했다고 표현하지 않는다.
 두 호스트의 설치 core 공유·부분 실패·helper/모듈 누락·옵션 해제 10개 검사도
 네 플랫폼 설치 검증과 발행 후 공개 설치·Homebrew 검증에 추가한다. 로컬에서는

@@ -76,6 +76,10 @@ done
 if printf '%s\n' "$notify" | grep -Fq 'concurrency:'; then fail 'notify is never cancelled as pending'; fi
 printf '%s\n' "$notify" | grep -Fq 'gh issue close "$created"' || fail 'overlapping notify runs fold into one issue'
 printf '%s\n' "$notify" | grep -Fq '[ "$number" -lt "$created" ]' || fail 'notify folds only into a smaller issue number'
+printf '%s\n' "$notify" | grep -Fq 'sh .github/scripts/performance-issue-body.sh "$RUNNER_TEMP/evidence" "$failed"' \
+  || fail 'notify builds the body with the tested script'
+printf '%s\n' "$notify" | grep -Fq '이슈 본문을 만들지 못했습니다.' || fail 'a body script failure still opens the issue'
+sh "$ROOT/tests/performance-issue-body.sh" > /dev/null || fail 'nightly issue body fixtures'
 grep -Fq 'name: Packaged performance evidence' "$perf" || fail 'packaged measurement moved'
 grep -Fq 'name: Fused packaged performance (' "$perf" || fail 'fused measurement moved'
 for text in 'Packaged performance evidence' 'Fused packaged performance' 'continue-on-error: true'; do
