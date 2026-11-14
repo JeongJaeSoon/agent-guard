@@ -12,6 +12,69 @@ case "$host:$*" in
   "${AG_PLUGIN_TEST_FAIL:-__never__}"*) exit 1 ;;
 esac
 
+# Codex app-server: newline-delimited JSON-RPC on stdin/stdout. Replies follow
+# AG_PLUGIN_TEST_TRUST; the hang/linger/spawn modes exercise the deadline and
+# process-group cleanup in the guard.
+if [ "$host" = codex ] && [ "$#" -eq 1 ] && [ "$1" = app-server ]; then
+  trust_mode=${AG_PLUGIN_TEST_TRUST:-trusted}
+  [ -z "${AG_PLUGIN_TEST_TRUST_PIDFILE:-}" ] || printf '%s\n' "$$" >>"$AG_PLUGIN_TEST_TRUST_PIDFILE"
+  case "$trust_mode" in
+    silent) exit 0 ;;
+    hang) trap '' TERM; while :; do sleep 1; done ;;
+  esac
+  while IFS= read -r line; do
+    [ -z "${AG_PLUGIN_TEST_TRUST_REQUESTS:-}" ] || printf '%s\n' "$line" >>"$AG_PLUGIN_TEST_TRUST_REQUESTS"
+    case "$line" in
+      *'"method":"initialize"'*)
+        printf '%s\n' '{"jsonrpc":"2.0","method":"remoteControl/status/changed","params":{}}'
+        if [ "$trust_mode" = init-error ]; then
+          printf '%s\n' '{"jsonrpc":"2.0","id":1,"error":{"code":-32600,"message":"rejected"}}'
+        else
+          printf '%s\n' '{"jsonrpc":"2.0","id":1,"result":{"userAgent":"mock"}}'
+        fi
+        ;;
+      *'"method":"hooks/list"'*)
+        if [ "$trust_mode" = malformed ]; then
+          printf '%s\n' '{"jsonrpc":"2.0","id":2,"result":{not-json'
+        else
+          printf '%s' "$line" | jq -c --arg mode "$trust_mode" '
+            def h($e; $t; $on): {key: ("agent-guard@agent-guard:hooks.json:" + $e + ":0:0"),
+              pluginId: "agent-guard@agent-guard", eventName: $e, trustStatus: $t,
+              enabled: $on, source: "plugin"};
+            ["preToolUse", "postToolUse", "sessionStart", "userPromptSubmit", "stop"] as $ev
+            | ($ev | map(h(.; "trusted"; true))) as $ok
+            | {jsonrpc: "2.0", id: 2, result: {data: [{
+                cwd: .params.cwds[0], warnings: [],
+                errors: (if $mode == "errors" then [{message: "invalid hook", path: "/fixture/hooks.json"}] else [] end),
+                hooks: ([{key: "/fixture/.codex/hooks.json:pre_tool_use:0:0", eventName: "preToolUse",
+                          trustStatus: "modified", enabled: true, source: "user"}]
+                  + (if $mode == "managed" then $ev | map(h(.; "managed"; true))
+                     elif $mode == "modified" then $ev | map(h(.; "modified"; true))
+                     elif $mode == "untrusted" then $ev | map(h(.; "untrusted"; true))
+                     elif $mode == "mixed" then
+                       [h("preToolUse"; "trusted"; true), h("postToolUse"; "modified"; true),
+                        h("sessionStart"; "trusted"; true), h("userPromptSubmit"; "trusted"; true),
+                        h("stop"; "untrusted"; true)]
+                     elif $mode == "disabled" then [h("preToolUse"; "trusted"; false)] + $ok[1:]
+                     elif $mode == "missing" then $ok[1:]
+                     elif $mode == "duplicate" then $ok + [$ok[0]]
+                     elif $mode == "none" then []
+                     elif $mode == "unknown" then [h("preToolUse"; "pending"; true)] + $ok[1:]
+                     elif $mode == "badtype" then [$ok[0] | .enabled = "yes"] + $ok[1:]
+                     else $ok end))}]}}'
+        fi
+        case "$trust_mode" in
+          linger) trap '' TERM; while :; do sleep 1; done ;;
+          spawn)
+            sh -c 'trap "" HUP; printf "%s\n" "$$" >"$1"; exec sleep 30' spawn "$AG_PLUGIN_TEST_TRUST_CHILD" &
+            ;;
+        esac
+        ;;
+    esac
+  done
+  exit 0
+fi
+
 # Codex 0.153.4 omits Git refs from marketplace-list JSON. Its add command is
 # the read-safe identity probe: the same ref succeeds idempotently, while an
 # existing unpinned or different ref fails without changing manager state.

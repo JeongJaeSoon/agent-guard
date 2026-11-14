@@ -46,6 +46,10 @@ new_case() {
   # run_guard keeps the real curl reachable; stay offline unless a case
   # installs mock_release_curl.
   export AGENT_GUARD_RELEASE_CHECK=off
+  # Keep call logs exact; trust cases opt in through trust_case.
+  export AGENT_GUARD_CODEX_TRUST_CHECK=off
+  unset AG_PLUGIN_TEST_TRUST AG_PLUGIN_TEST_TRUST_REQUESTS AG_PLUGIN_TEST_TRUST_PIDFILE \
+    AG_PLUGIN_TEST_TRUST_CHILD AG_PLUGIN_TEST_CODEX_TRUST_TIMEOUT AGENT_GUARD_GITLEAKS_BIN
 }
 
 # Mock the GitHub releases/latest HEAD redirect. $1 is the tag the redirect
@@ -861,6 +865,277 @@ if run_guard plugin update --host claude \
   ok 'update no-op prints an older published release verbatim without a forward block'
 else
   not_ok 'update no-op prints an older published release verbatim without a forward block'
+fi
+
+# --- Codex hook trust (app-server hooks/list) --------------------------------
+
+trust_case() {
+  new_case "$1"
+  add_host codex
+  export AGENT_GUARD_CODEX_TRUST_CHECK=on AG_PLUGIN_TEST_TRUST="$2"
+  export AG_PLUGIN_TEST_TRUST_REQUESTS="$case_dir/requests"
+  export AG_PLUGIN_TEST_TRUST_PIDFILE="$case_dir/server-pids"
+  export AGENT_GUARD_GITLEAKS_BIN="$ROOT/tests/fixtures/mock-gitleaks"
+  : >"$case_dir/requests"
+}
+
+run_doctor_here() {
+  (cd "$case_dir" && run_guard doctor)
+}
+
+case_cwd() { (cd "$case_dir" && pwd -P); }
+
+no_server_left() {
+  [ -s "$case_dir/server-pids" ] || return 1
+  while IFS= read -r server_pid; do
+    kill -0 "$server_pid" 2>/dev/null && return 1
+  done <"$case_dir/server-pids"
+  return 0
+}
+
+trust_line() { grep 'codex hook trust:' "$case_dir/err"; }
+
+new_case doctor_trust_baseline
+export AGENT_GUARD_GITLEAKS_BIN="$ROOT/tests/fixtures/mock-gitleaks"
+if run_doctor_here && ! grep -q 'codex hook trust' "$case_dir/err"; then
+  ok 'doctor baseline passes and runs no Codex trust check without codex on PATH'
+else
+  not_ok 'doctor baseline passes and runs no Codex trust check without codex on PATH'
+  sed 's/^/  stderr: /' "$case_dir/err"
+fi
+
+trust_case doctor_trust_ok trusted
+if run_doctor_here \
+   && trust_line | grep -Fq "codex hook trust: ok (agent-guard hooks are trusted and enabled for $(case_cwd);" \
+   && grep -Fq 'host hook protection: unverified' "$case_dir/err" \
+   && sed -n 1p "$case_dir/requests" | grep -Fq '"method":"initialize"' \
+   && sed -n 2p "$case_dir/requests" | grep -Fq '"method":"initialized"' \
+   && sed -n 3p "$case_dir/requests" | jq -e --arg cwd "$(case_cwd)" '.method == "hooks/list" and .params.cwds == [$cwd]' >/dev/null \
+   && grep -Fxq 'codex app-server' "$case_log" \
+   && no_server_left; then
+  ok 'doctor reports trusted agent-guard Codex hooks for the current directory and keeps dispatch unverified'
+else
+  not_ok 'doctor reports trusted agent-guard Codex hooks for the current directory and keeps dispatch unverified'
+  sed 's/^/  stderr: /' "$case_dir/err"
+  sed 's/^/  request: /' "$case_dir/requests"
+fi
+
+trust_case doctor_trust_managed managed
+if run_doctor_here && trust_line | grep -Fq 'codex hook trust: ok'; then
+  ok 'doctor treats managed agent-guard Codex hooks as trusted'
+else
+  not_ok 'doctor treats managed agent-guard Codex hooks as trusted'
+fi
+
+for trust_mode in modified untrusted mixed; do
+  trust_case "doctor_trust_$trust_mode" "$trust_mode"
+  case "$trust_mode" in
+    mixed) want='(postToolUse, stop)' ;;
+    *) want='(preToolUse, postToolUse, sessionStart, userPromptSubmit, stop)' ;;
+  esac
+  run_doctor_here
+  status=$?
+  if [ "$status" -eq 1 ] \
+     && trust_line | grep -Fq "codex hook trust: needs review for $(case_cwd) $want; Codex skips these agent-guard hooks until they are trusted again" \
+     && grep -Fq "choose 'Review hooks' at 'Hooks need review'" "$case_dir/err" \
+     && grep -Fq 'Source is agent-guard@agent-guard' "$case_dir/err" \
+     && grep -Fq 'restart Codex sessions that were already running' "$case_dir/err" \
+     && grep -Fq 'agent-guard: release:' "$case_dir/err"; then
+    ok "doctor fails and gives re-trust steps for $trust_mode agent-guard Codex hooks"
+  else
+    not_ok "doctor fails and gives re-trust steps for $trust_mode agent-guard Codex hooks (status $status)"
+    sed 's/^/  stderr: /' "$case_dir/err"
+  fi
+done
+
+trust_case doctor_trust_disabled disabled
+run_doctor_here
+status=$?
+if [ "$status" -eq 1 ] \
+   && trust_line | grep -Fq "codex hook trust: disabled for $(case_cwd) (preToolUse);" \
+   && ! grep -q 'needs review' "$case_dir/err"; then
+  ok 'doctor fails when Codex has an agent-guard hook turned off'
+else
+  not_ok "doctor fails when Codex has an agent-guard hook turned off (status $status)"
+  sed 's/^/  stderr: /' "$case_dir/err"
+fi
+
+trust_case doctor_trust_none none
+if run_doctor_here \
+   && trust_line | grep -Fq "codex hook trust: Codex loads no agent-guard hooks for $(case_cwd) (plugin not installed or not enabled for Codex)"; then
+  ok 'doctor reports no loaded agent-guard Codex hooks without failing and ignores a modified non-agent-guard hook'
+else
+  not_ok 'doctor reports no loaded agent-guard Codex hooks without failing and ignores a modified non-agent-guard hook'
+  sed 's/^/  stderr: /' "$case_dir/err"
+fi
+
+for trust_mode in missing duplicate unknown badtype errors malformed init-error silent; do
+  trust_case "doctor_trust_$trust_mode" "$trust_mode"
+  case "$trust_mode" in
+    missing|duplicate) want='expected agent-guard hooks are missing or duplicated' ;;
+    unknown) want='unknown hook trust status' ;;
+    badtype) want='unexpected agent-guard hook entry' ;;
+    errors) want='Codex reported hook configuration errors' ;;
+    malformed) want='Codex did not answer hooks/list in time' ;;
+    init-error|silent) want='Codex app-server did not initialize' ;;
+  esac
+  run_doctor_here
+  status=$?
+  if [ "$status" -eq 0 ] \
+     && trust_line | grep -Fxq "agent-guard: codex hook trust: unverified ($want)" \
+     && ! grep -q 'codex hook trust: ok' "$case_dir/err"; then
+    ok "doctor reports $trust_mode Codex replies as unverified, never ok, without changing its exit status"
+  else
+    not_ok "doctor reports $trust_mode Codex replies as unverified, never ok, without changing its exit status (status $status)"
+    sed 's/^/  stderr: /' "$case_dir/err"
+  fi
+done
+
+trust_case doctor_trust_init_error_order init-error
+run_doctor_here
+if ! grep -Fq 'hooks/list' "$case_dir/requests" && grep -Fq '"method":"initialize"' "$case_dir/requests"; then
+  ok 'doctor sends hooks/list only after a successful initialize reply'
+else
+  not_ok 'doctor sends hooks/list only after a successful initialize reply'
+  sed 's/^/  request: /' "$case_dir/requests"
+fi
+
+trust_case doctor_trust_off modified
+export AGENT_GUARD_CODEX_TRUST_CHECK=off
+if run_doctor_here \
+   && trust_line | grep -Fxq 'agent-guard: codex hook trust: unverified (check skipped by AGENT_GUARD_CODEX_TRUST_CHECK=off)' \
+   && ! grep -Fq 'app-server' "$case_log"; then
+  ok 'AGENT_GUARD_CODEX_TRUST_CHECK=off skips the Codex query and reports unverified'
+else
+  not_ok 'AGENT_GUARD_CODEX_TRUST_CHECK=off skips the Codex query and reports unverified'
+  sed 's/^/  stderr: /' "$case_dir/err"
+fi
+
+trust_case doctor_trust_keeps_failure modified
+export AGENT_GUARD_GITLEAKS_BIN="$case_dir/no-gitleaks"
+run_doctor_here
+status=$?
+if [ "$status" -eq 1 ] && trust_line | grep -Fq 'needs review'; then
+  ok 'doctor keeps a dependency failure status when Codex hooks also need review'
+else
+  not_ok "doctor keeps a dependency failure status when Codex hooks also need review (status $status)"
+fi
+
+for trust_mode in hang linger spawn; do
+  trust_case "doctor_trust_$trust_mode" "$trust_mode"
+  export AG_PLUGIN_TEST_CODEX_TRUST_TIMEOUT=1 AG_PLUGIN_TEST_TRUST_CHILD="$case_dir/child-pid"
+  case "$trust_mode" in
+    hang) want='agent-guard: codex hook trust: unverified (Codex app-server did not initialize)' ;;
+    *) want="agent-guard: codex hook trust: ok (agent-guard hooks are trusted and enabled for $(case_cwd); configuration snapshot, not observed dispatch)" ;;
+  esac
+  started=$(date +%s)
+  run_doctor_here
+  elapsed=$(( $(date +%s) - started ))
+  child_gone=1
+  if [ "$trust_mode" = spawn ]; then
+    child_gone=0
+    [ -s "$case_dir/child-pid" ] && ! kill -0 "$(cat "$case_dir/child-pid")" 2>/dev/null && child_gone=1
+  fi
+  if [ "$elapsed" -le 8 ] \
+     && trust_line | grep -Fxq "$want" \
+     && no_server_left && [ "$child_gone" -eq 1 ]; then
+    ok "doctor bounds a $trust_mode Codex app-server and leaves no probe process behind"
+  else
+    not_ok "doctor bounds a $trust_mode Codex app-server and leaves no probe process behind (elapsed ${elapsed}s, child_gone $child_gone)"
+    sed 's/^/  stderr: /' "$case_dir/err"
+  fi
+done
+
+trust_case plugin_status_trust modified
+export AG_PLUGIN_TEST_MARKETPLACE=ok AG_PLUGIN_TEST_INSTALLED=1
+if run_guard plugin status --host codex \
+   && grep -Fq 'codex: installed, enabled' "$case_dir/out" \
+   && trust_line | grep -Fq 'codex hook trust: needs review'; then
+  ok 'plugin status keeps its exit status and warns about Codex hooks that need review'
+else
+  not_ok 'plugin status keeps its exit status and warns about Codex hooks that need review'
+  sed 's/^/  stderr: /' "$case_dir/err"
+fi
+
+trust_case plugin_status_trust_disabled_plugin modified
+export AG_PLUGIN_TEST_MARKETPLACE=ok AG_PLUGIN_TEST_INSTALLED=disabled
+if run_guard plugin status --host codex \
+   && ! grep -Fq 'app-server' "$case_log" && ! trust_line >/dev/null; then
+  ok 'plugin status skips the Codex trust query for a disabled plugin'
+else
+  not_ok 'plugin status skips the Codex trust query for a disabled plugin'
+fi
+
+trust_case plugin_status_trust_none none
+export AG_PLUGIN_TEST_MARKETPLACE=ok AG_PLUGIN_TEST_INSTALLED=1
+if run_guard plugin status --host codex \
+   && trust_line | grep -Fq 'codex hook trust: unverified (Codex lists no agent-guard hooks for'; then
+  ok 'plugin status treats an installed plugin with no listed hooks as unverified'
+else
+  not_ok 'plugin status treats an installed plugin with no listed hooks as unverified'
+  sed 's/^/  stderr: /' "$case_dir/err"
+fi
+
+trust_case plugin_install_trust untrusted
+if run_guard plugin install --host codex \
+   && grep -Fxq 'codex plugin add agent-guard@agent-guard' "$case_log" \
+   && grep -Fxq 'codex app-server' "$case_log" \
+   && [ "$(grep -n -Fx 'codex app-server' "$case_log" | cut -d: -f1)" -gt "$(grep -n -Fx 'codex plugin add agent-guard@agent-guard' "$case_log" | cut -d: -f1)" ] \
+   && trust_line | grep -Fq 'needs review'; then
+  ok 'plugin install checks Codex hook trust after installing and keeps its exit status'
+else
+  not_ok 'plugin install checks Codex hook trust after installing and keeps its exit status'
+  sed 's/^/  stderr: /' "$case_dir/err"
+fi
+
+trust_case plugin_install_noop_trust modified
+export AG_PLUGIN_TEST_MARKETPLACE=ok AG_PLUGIN_TEST_INSTALLED=1
+if run_guard plugin install --host codex \
+   && grep -q 'already installed and enabled' "$case_dir/out" \
+   && trust_line | grep -Fq 'needs review'; then
+  ok 'plugin install no-op still reports Codex hooks that need review'
+else
+  not_ok 'plugin install no-op still reports Codex hooks that need review'
+fi
+
+trust_case plugin_update_noop_trust modified
+export AG_PLUGIN_TEST_MARKETPLACE=ok AG_PLUGIN_TEST_INSTALLED=1
+if run_guard plugin update --host codex \
+   && grep -q 'already matches this CLI' "$case_dir/out" \
+   && trust_line | grep -Fq 'needs review'; then
+  ok 'plugin update no-op still reports Codex hooks that need review'
+else
+  not_ok 'plugin update no-op still reports Codex hooks that need review'
+  sed 's/^/  stderr: /' "$case_dir/err"
+fi
+
+trust_case plugin_update_trust modified
+export AG_PLUGIN_TEST_MARKETPLACE=ok AG_PLUGIN_TEST_INSTALLED=old
+if run_guard plugin update --host codex \
+   && [ "$(grep -n -Fx 'codex app-server' "$case_log" | cut -d: -f1)" -gt "$(grep -n -F 'codex plugin marketplace upgrade' "$case_log" | cut -d: -f1)" ] \
+   && trust_line | grep -Fq 'needs review'; then
+  ok 'plugin update checks Codex hook trust after the upgrade and keeps its exit status'
+else
+  not_ok 'plugin update checks Codex hook trust after the upgrade and keeps its exit status'
+  sed 's/^/  stderr: /' "$case_dir/err"
+fi
+
+trust_case plugin_update_failed_trust modified
+export AG_PLUGIN_TEST_MARKETPLACE=ok AG_PLUGIN_TEST_INSTALLED=old
+export AG_PLUGIN_TEST_FAIL='codex:plugin marketplace upgrade'
+if ! run_guard plugin update --host codex && ! grep -Fq 'app-server' "$case_log"; then
+  ok 'a failed plugin update reports the failure without a Codex trust query'
+else
+  not_ok 'a failed plugin update reports the failure without a Codex trust query'
+fi
+
+# The expected event set must track the Codex manifest the plugin ships.
+expected_events=$(sed -n "s/^CODEX_TRUST_EVENTS='\(.*\)'\$/\1/p" "$GUARD" | jq -c 'sort')
+manifest_events=$(jq -c '[.hooks | keys[] | (.[0:1] | ascii_downcase) + .[1:]] | sort' "$ROOT/plugins/agent-guard/hooks.json" 2>/dev/null)
+if [ -n "$expected_events" ] && [ "$expected_events" = "$manifest_events" ]; then
+  ok 'the expected Codex trust events match the shipped Codex hooks manifest'
+else
+  not_ok "the expected Codex trust events match the shipped Codex hooks manifest ($expected_events vs $manifest_events)"
 fi
 
 printf 'plugin management: %s passed, %s failed\n' "$pass" "$fail"

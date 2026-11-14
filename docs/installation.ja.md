@@ -1,4 +1,4 @@
-<!-- translated-from: docs/installation.md; source-blob: dbe9f5f7b2180b3b93653088d9657ea06b0ab934 -->
+<!-- translated-from: docs/installation.md; source-blob: 164e2cfc8c8b81516f4bca90639eec4745a36add -->
 
 <a id="installing-agent-guard"></a>
 
@@ -167,6 +167,17 @@ agent-guard check
 ```
 
 プラグインキャッシュ内ではupdaterを意図的に利用できなくしています。実行ファイル自身がmarketplaceの削除で消えるキャッシュにあるため、自分でmarketplaceの固定先を変更できないからです。代わりに `agent-guard plugin update --host claude` または `--host codex` を実行してください。導入済みプラグインがすでにCLIに一致していれば、最新のGitHubリリースを調べ、新しいリリースへ進めるための正確なhost管理コマンドである `marketplace remove`、`marketplace add ...@vX.Y.Z`、プラグイン導入コマンドを表示します。`agent-guard doctor` と `agent-guard plugin status` も同じリリースの古さを報告します。照会を省略するには `AGENT_GUARD_RELEASE_CHECK=off` を設定します。
+
+Codexが `PATH` にある場合、`agent-guard doctor` は一時的に起動した `codex app-server` に `hooks/list` で問い合わせます。現在のディレクトリでCodexがagent-guardのhookを実行するかを確かめるためです。Codexは各hookを、hookの項目とプラグインの内容で信頼します。そのため `hooks.json` が変わらなくても、プラグインを更新するとagent-guardのhookがすべて再確認待ちになることがあります。再び信頼されるまで、Codexはそれらのhookを実行しません。
+
+Codexがagent-guardのhookを再確認待ちまたは無効と報告した場合、`doctor` はexit 1で終了し、次の手順を表示します。
+
+1. そのディレクトリで `codex` を起動します。
+2. **Hooks need review** で **Review hooks** を選びます。
+3. 各hookのSourceが `agent-guard@agent-guard` で、コマンドが想定どおりであることを確認してから信頼します。
+4. 実行中のCodexセッションを再起動します。
+
+Codex向けの `plugin status`、`plugin install`、`plugin update` も同じ確認結果を表示しますが、終了コードは変えません。読み取れない応答はokではなくunverifiedとして報告します。okは新しいCodexプロセスが読む設定がそうなっているという意味であり、hookの実際の実行を観測したという意味ではありません。この確認はCodexのapp serverを起動するため、通常のCodex起動と同じくネットワークに接続したり、Codex自身のキャッシュを更新したりすることがあります。省略するには `AGENT_GUARD_CODEX_TRUST_CHECK=off` を設定します。
 
 `setup-shell` はshell rcに次のブロックを追加し、検証を行うresolverを `~/.agent-guard/shell-init.sh` に書き込みます。
 

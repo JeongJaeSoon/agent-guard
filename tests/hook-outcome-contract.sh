@@ -9,6 +9,8 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 PLUGIN_ROOT="$ROOT/plugins/agent-guard"
 GUARD="$PLUGIN_ROOT/bin/agent-guard"
 MOCK_GITLEAKS="$ROOT/tests/fixtures/mock-gitleaks"
+# Keep doctor from querying a real Codex on the developer's PATH.
+export AGENT_GUARD_CODEX_TRUST_CHECK=off
 CASE_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-hook-outcome.XXXXXX") || exit 1
 trap 'rm -rf "$CASE_ROOT"' EXIT HUP INT TERM
 

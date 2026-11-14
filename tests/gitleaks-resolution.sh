@@ -3,6 +3,8 @@ set -u
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 GUARD="$ROOT/plugins/agent-guard/bin/agent-guard"
+# Keep doctor from querying a real Codex on the developer's PATH.
+export AGENT_GUARD_CODEX_TRUST_CHECK=off
 CASE_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-gitleaks-resolution.XXXXXX")
 ORIGINAL_PATH=$PATH
 REAL_JQ=$(command -v jq)
