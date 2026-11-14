@@ -1,4 +1,4 @@
-<!-- translated-from: docs/installation.md; source-blob: 44a7a26fb93606c96abaeea35fc2e62c861bd9d6 -->
+<!-- translated-from: docs/installation.md; source-blob: dbe9f5f7b2180b3b93653088d9657ea06b0ab934 -->
 
 <a id="installing-agent-guard"></a>
 
@@ -166,7 +166,17 @@ agent-guard doctor
 agent-guard check
 ```
 
-プラグインキャッシュ内ではupdaterを意図的に利用できなくしています。実行ファイル自身がmarketplaceの削除で消えるキャッシュにあるため、自分でmarketplaceの固定先を変更できないからです。代わりに `agent-guard plugin update --host claude` または `--host codex` を実行してください。導入済みプラグインがすでにCLIに一致していれば、最新のGitHubリリースを調べ、新しいリリースへ進めるための正確なhost管理コマンドである `marketplace remove`、`marketplace add ...@vX.Y.Z`、プラグイン導入コマンドを表示します。`agent-guard doctor` と `agent-guard plugin status` も同じリリースの古さを報告します。照会を省略するには `AGENT_GUARD_RELEASE_CHECK=off` を設定します。`setup-shell` はshell rcに `~/.agent-guard/shell-init.sh` を読み込む1行を追加し、検証を行うresolverをそのファイルに書き込みます。どちらもキャッシュの `current` リンク経由で解決されるため、プラグインの更新後に `setup-shell` を再実行する必要はありません。再実行すると、以前の複数行ブロックを同じ位置で1行の形に置き換えます。
+プラグインキャッシュ内ではupdaterを意図的に利用できなくしています。実行ファイル自身がmarketplaceの削除で消えるキャッシュにあるため、自分でmarketplaceの固定先を変更できないからです。代わりに `agent-guard plugin update --host claude` または `--host codex` を実行してください。導入済みプラグインがすでにCLIに一致していれば、最新のGitHubリリースを調べ、新しいリリースへ進めるための正確なhost管理コマンドである `marketplace remove`、`marketplace add ...@vX.Y.Z`、プラグイン導入コマンドを表示します。`agent-guard doctor` と `agent-guard plugin status` も同じリリースの古さを報告します。照会を省略するには `AGENT_GUARD_RELEASE_CHECK=off` を設定します。
+
+`setup-shell` はshell rcに次のブロックを追加し、検証を行うresolverを `~/.agent-guard/shell-init.sh` に書き込みます。
+
+```sh
+# >>> agent-guard shell-init >>>
+[ ! -r ~/.agent-guard/shell-init.sh ] || . ~/.agent-guard/shell-init.sh
+# <<< agent-guard shell-init <<<
+```
+
+ファイルがない場合、この行は何もせず終了ステータス0で終わります。どちらもキャッシュの `current` リンク経由で解決されるため、プラグインの更新後に `setup-shell` を再実行する必要はありません。再実行すると、以前のブロックを同じ位置でこのブロックに置き換えます。
 
 スタンドアロンCLIの更新では、既存のインストールの隣に候補を準備してから
 置き換えます。チェックサム・展開・置換の失敗時は以前のインストールを維持

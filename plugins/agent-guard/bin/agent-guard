@@ -14584,21 +14584,29 @@ shell_init_rc_block_state() {
   block=$(awk -v b="$SHELL_INIT_BLOCK_BEGIN" -v e="$SHELL_INIT_BLOCK_END" \
     '$0==b{inb=1;next} $0==e&&inb{found=1;inb=0;next} inb{print} END{exit !found}' \
     "$rc_probe" 2>/dev/null) || return 1
-  # Current blocks source the resolver file setup-shell wrote; older blocks
+  # Current blocks source the resolver file setup-shell wrote, by `~/` path or,
+  # in the earlier `if` form, by an sh_squote'd absolute path; older blocks
   # carry the resolver inline. A missing file loads nothing.
+  rc_init=
   case "$block" in
     *"_agbin='"*) ;;
     *"; then . '"*)
       shell_init_unsquote "${block##*; then . \'}" || return 2
       rc_init=$unsquoted
-      [ -f "$rc_init" ] && [ -r "$rc_init" ] || return 2
-      block=
-      while IFS= read -r rc_init_line || [ -n "$rc_init_line" ]; do
-        block="$block$rc_init_line
-"
-      done <"$rc_init"
+      ;;
+    *" . ~/"*)
+      rc_init=${block##*" . ~/"}
+      rc_init=$HOME/${rc_init%%[[:space:]]*}
       ;;
   esac
+  if [ -n "$rc_init" ]; then
+    [ -f "$rc_init" ] && [ -r "$rc_init" ] || return 2
+    block=
+    while IFS= read -r rc_init_line || [ -n "$rc_init_line" ]; do
+      block="$block$rc_init_line
+"
+    done <"$rc_init"
+  fi
   # Delimiters wrapping something that never invokes shell-init protect nothing.
   case "$block" in *shell-init*) ;; *) return 2 ;; esac
 
@@ -14681,9 +14689,14 @@ hook_session_start() {
   # above is lost. A block that can no longer resolve its binary gets its own
   # wording: the user action is to restore the binary, not to discover setup.
   # Keep Codex silent: Claude shell snapshots are not a Codex command boundary.
-  if [ -z "$marker" ] && [ "$(hook_host)" = claude ]; then
+  # A marker inherited from a shell that loaded earlier says nothing about the
+  # rc a new snapshot reads, so a block that cannot load (2) or covers fish only
+  # partly (3) still warns; with a marker, only "no block" (1) stays quiet.
+  if [ "$(hook_host)" = claude ]; then
     shell_init_block_state
-    case $? in
+    block_state=$?
+    [ -z "$marker" ] || [ "$block_state" -ne 1 ] || block_state=0
+    case $block_state in
       0) wrapping_setup= ;;
       2) wrapping_setup='agent-guard command wrapping is set up in your shell rc but can no longer load: the agent-guard binary that block resolves is gone (plugin cache updated, uninstalled, or the block was edited). Command output is NOT masked. Reinstall or update agent-guard, rerun /agent-guard:setup-shell (or agent-guard setup-shell for a standalone install), then restart the shell and Claude Code.' ;;
       3) wrapping_setup='agent-guard command wrapping for a fish shell does not cover both .bashrc and .zshrc, so the host snapshot may be unprotected. Command output is NOT masked unless the snapshot chose the surviving rc. Rerun /agent-guard:setup-shell (or agent-guard setup-shell for a standalone install), then restart the shell and Claude Code.' ;;
@@ -15470,7 +15483,6 @@ setup_shell_write_rc() {  # $1 = rc path, $2 = the eval line to manage
   tmp=$(mktemp "$rc_dir/.agent-guard-rc.XXXXXX" 2>/dev/null) \
     || die "setup-shell: failed to create temp file in $rc_dir"
   rc_block="$begin
-# Managed by 'agent-guard setup-shell' — remove this block to disable.
 $line
 $end"
   if [ -f "$rc_real" ]; then
@@ -15660,14 +15672,18 @@ fi
   [ -n "${HOME:-}" ] || die "setup-shell: HOME is not set"
   # One file per wrapping choice, so an opt-out rc and a default rc on the same
   # account do not overwrite each other's resolver.
-  bootstrap="$HOME/.agent-guard/shell-init${wrapping:+-no-wrapping}.sh"
+  bootstrap_rel=.agent-guard/shell-init${wrapping:+-no-wrapping}.sh
+  bootstrap=$HOME/$bootstrap_rel
+  # Clear an inherited marker first: shell-init re-exports it only when it
+  # loads, so a missing binary must not look protected to SessionStart.
   setup_shell_write_bootstrap "$bootstrap" "# Managed by 'agent-guard setup-shell' and sourced from your shell rc. Rerun setup-shell to regenerate.
+unset AGENT_GUARD_SHELL_INIT_VERSION
 ${path_line:+$path_line
 }$line"
-  bootstrap_word=$(sh_squote "$bootstrap")
-  # Clear an inherited marker first: shell-init re-exports it only when it
-  # loads, so a missing file or binary must not look protected to SessionStart.
-  line="unset AGENT_GUARD_SHELL_INIT_VERSION; if [ -f $bootstrap_word ] && [ -r $bootstrap_word ]; then . $bootstrap_word; fi"
+  # `~` keeps the rc line free of quoting; `[ ! -r ] ||` (not `[ -r ] &&`) ends
+  # with status 0 when the file is missing, so a `set -e` caller sourcing the rc
+  # survives and the first prompt's $? stays 0.
+  line="[ ! -r ~/$bootstrap_rel ] || . ~/$bootstrap_rel"
 
   if [ "$sh_target" = fish ]; then
     setup_shell_write_rc "$HOME/.bashrc" "$line"

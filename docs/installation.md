@@ -257,11 +257,20 @@ GitHub release and prints the exact host-manager `marketplace remove`,
 `marketplace add ...@vX.Y.Z`, and plugin install commands that move forward;
 `agent-guard doctor` and `agent-guard plugin status` report the same release
 staleness. Set `AGENT_GUARD_RELEASE_CHECK=off` to skip the lookup.
-`setup-shell` adds one line to the shell rc that sources
-`~/.agent-guard/shell-init.sh`, and writes the validating resolver to that file.
-Both resolve through the cache's `current` link, so `setup-shell` does not need
-to be rerun after a plugin update. Rerunning it replaces an older multi-line
-block in place with the one-line form.
+
+`setup-shell` adds this block to the shell rc and writes the validating
+resolver to `~/.agent-guard/shell-init.sh`:
+
+```sh
+# >>> agent-guard shell-init >>>
+[ ! -r ~/.agent-guard/shell-init.sh ] || . ~/.agent-guard/shell-init.sh
+# <<< agent-guard shell-init <<<
+```
+
+When the file is missing, the line does nothing and still exits 0. Both
+resolve through the cache's `current` link, so `setup-shell` does not need to
+be rerun after a plugin update. Rerunning it replaces an older block in place
+with this one.
 
 Standalone updates are staged beside the current installation before replacement.
 Checksum, extraction and commit failures leave or restore the previous install;
