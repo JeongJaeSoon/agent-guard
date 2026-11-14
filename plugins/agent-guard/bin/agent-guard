@@ -15488,6 +15488,8 @@ $end"
 # plugin update does not require rewriting either file.
 setup_shell_write_bootstrap() {  # $1 = bootstrap path, $2 = file content
   bootstrap_dir=${1%/*}
+  # `mv` onto a directory (or a link to one) would move the file inside it.
+  [ ! -d "$1" ] || die "setup-shell: $1 is a directory; remove it, then re-run."
   (umask 077; mkdir -p -- "$bootstrap_dir") 2>/dev/null \
     || die "setup-shell: failed to create $bootstrap_dir"
   bootstrap_tmp=$(mktemp "$bootstrap_dir/.shell-init.XXXXXX" 2>/dev/null) \
@@ -15647,7 +15649,9 @@ fi
 ${path_line:+$path_line
 }$line"
   bootstrap_word=$(sh_squote "$bootstrap")
-  line="if [ -r $bootstrap_word ]; then . $bootstrap_word; fi"
+  # Clear an inherited marker first: shell-init re-exports it only when it
+  # loads, so a missing file or binary must not look protected to SessionStart.
+  line="unset AGENT_GUARD_SHELL_INIT_VERSION; if [ -f $bootstrap_word ] && [ -r $bootstrap_word ]; then . $bootstrap_word; fi"
 
   if [ "$sh_target" = fish ]; then
     setup_shell_write_rc "$HOME/.bashrc" "$line"

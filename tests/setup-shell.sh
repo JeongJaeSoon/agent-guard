@@ -49,7 +49,7 @@ ss_block_lines=$(printf '%s\n' "$ss_block" | wc -l | tr -d ' ')
 ss_source_line=$(printf '%s\n' "$ss_block" | sed -n 3p)
 ss_init_word="'$INIT'"
 if [ "$ss_block_lines" = 4 ] \
-   && [ "$ss_source_line" = "if [ -r $ss_init_word ]; then . $ss_init_word; fi" ]; then
+   && [ "$ss_source_line" = "unset AGENT_GUARD_SHELL_INIT_VERSION; if [ -f $ss_init_word ] && [ -r $ss_init_word ]; then . $ss_init_word; fi" ]; then
   ok "setup-shell rc block is one line that sources ~/.agent-guard/shell-init.sh"
 else
   not_ok "setup-shell rc block is one source line (lines $ss_block_lines): $ss_block"
@@ -175,7 +175,35 @@ for ss_shell in /bin/sh /bin/bash /bin/zsh; do
     sed 's/^/  stderr: /' "$ERR"
   fi
 done
+# A marker inherited from a protected parent must not survive a child shell
+# whose rc loads nothing. Must-pass control: it is re-exported when it loads.
+ss_inherited=$(env HOME="$SS_HOME" PATH=/usr/bin:/bin AGENT_GUARD_BIN= \
+  AGENT_GUARD_SHELL_INIT_VERSION=9.9.9 /bin/sh -c \
+  '. "$1"; printf %s "${AGENT_GUARD_SHELL_INIT_VERSION:-UNSET}"' _ "$ss_rc" 2>/dev/null)
 mv "$CASE_ROOT/shell-init.moved" "$INIT"
+ss_reloaded=$(env HOME="$SS_HOME" PATH=/usr/bin:/bin AGENT_GUARD_BIN= \
+  AGENT_GUARD_SHELL_INIT_VERSION=9.9.9 /bin/sh -c \
+  '. "$1"; printf %s "${AGENT_GUARD_SHELL_INIT_VERSION:-UNSET}"' _ "$ss_rc" 2>/dev/null)
+if [ "$ss_inherited" = UNSET ] && [ "$ss_reloaded" != UNSET ] && [ "$ss_reloaded" != 9.9.9 ]; then
+  ok "rc line clears an inherited marker unless the resolver file loads"
+else
+  not_ok "rc line clears an inherited marker (missing: $ss_inherited, loaded: $ss_reloaded)"
+fi
+
+# A directory at the resolver path is refused before the rc is touched.
+ss_dir_home="$CASE_ROOT/dir-home"
+mkdir -p "$ss_dir_home/.agent-guard/shell-init.sh"
+printf 'export AG_DIR_KEEP=1\n' >"$CASE_ROOT/dir.rc"
+if env HOME="$ss_dir_home" "$PLUGIN_ROOT/bin/agent-guard" setup-shell --rc "$CASE_ROOT/dir.rc" >/dev/null 2>"$ERR"; then
+  not_ok "setup-shell refuses a directory at the resolver path"
+elif grep -q 'is a directory' "$ERR" \
+     && [ "$(cat "$CASE_ROOT/dir.rc")" = 'export AG_DIR_KEEP=1' ] \
+     && [ -z "$(ls -A "$ss_dir_home/.agent-guard/shell-init.sh")" ]; then
+  ok "setup-shell refuses a directory at the resolver path and leaves the rc untouched"
+else
+  not_ok "setup-shell directory refusal left changes behind"
+  sed 's/^/  stderr: /' "$ERR"
+fi
 
 # SessionStart follows the rc line into the resolver file: present and
 # resolvable stays quiet, missing reports that the block can no longer load.

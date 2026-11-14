@@ -16778,8 +16778,8 @@ if [ "$(readlink "$CLEAN_CACHE/current" 2>/dev/null)" = 3.0.0 ]; then
 else
   not_ok "fresh plugin execution creates the stable current symlink"
 fi
-if grep -Fq "$CLEAN_CACHE/current/bin/agent-guard" "$CLEAN_RC" \
-   && ! grep -Fq "$CLEAN_CACHE/3.0.0/bin/agent-guard" "$CLEAN_RC"; then
+if grep -Fq "$CLEAN_CACHE/current/bin/agent-guard" "$CLEAN_HOME/.agent-guard/shell-init.sh" \
+   && ! grep -Fq "$CLEAN_CACHE/3.0.0/bin/agent-guard" "$CLEAN_RC" "$CLEAN_HOME/.agent-guard/shell-init.sh"; then
   ok "setup-shell records only the stable plugin path"
 else
   not_ok "setup-shell records only the stable plugin path"
