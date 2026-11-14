@@ -13,7 +13,7 @@ trap 'rm -rf "$tmp"' 0
 gh api "repos/$repo/actions/workflows/native-platforms.yml/runs?head_sha=$sha&event=push&per_page=100" > "$tmp/runs.json"
 run=$(jq -r --arg sha "$sha" '[.workflow_runs[] | select(.head_sha == $sha and .head_branch == "main" and .event == "push")] | sort_by(.id) | last | select(.status == "completed" and .conclusion == "success") | .id' "$tmp/runs.json")
 [ -n "$run" ] && [ "$run" != null ] || { echo 'no successful native main workflow for release SHA' >&2; exit 2; }
-for target in x86_64-unknown-linux-musl aarch64-unknown-linux-musl x86_64-apple-darwin aarch64-apple-darwin; do
+for target in x86_64-unknown-linux-musl aarch64-unknown-linux-musl aarch64-apple-darwin; do
   name="agent-guard-redact-$target"
   gh run download "$run" --repo "$repo" --name "native-$target" --dir "$tmp/$target"
   [ "$(head -n 1 "$tmp/$target/$name.build.txt")" = "$sha" ] \
@@ -27,4 +27,4 @@ for target in x86_64-unknown-linux-musl aarch64-unknown-linux-musl x86_64-apple-
   chmod 755 "$out/$name"
 done
 jq -n --arg sha "$sha" --arg repo "$repo" --argjson run "$run" \
-  '{release_sha:$sha,native_workflow_url:("https://github.com/"+$repo+"/actions/runs/"+($run|tostring)),targets:["x86_64-unknown-linux-musl","aarch64-unknown-linux-musl","x86_64-apple-darwin","aarch64-apple-darwin"]}' > "$out/native-validation.json"
+  '{release_sha:$sha,native_workflow_url:("https://github.com/"+$repo+"/actions/runs/"+($run|tostring)),targets:["x86_64-unknown-linux-musl","aarch64-unknown-linux-musl","aarch64-apple-darwin"]}' > "$out/native-validation.json"

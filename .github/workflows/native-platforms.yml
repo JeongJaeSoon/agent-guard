@@ -35,8 +35,6 @@ jobs:
             target: x86_64-unknown-linux-musl
           - os: ubuntu-24.04-arm
             target: aarch64-unknown-linux-musl
-          - os: macos-15-intel
-            target: x86_64-apple-darwin
           - os: macos-15
             target: aarch64-apple-darwin
     steps:
@@ -85,13 +83,6 @@ jobs:
           date -u
           native/devtools/target/release/agent-guard-devtools native-redaction --core "$RUNNER_TEMP/artifacts/agent-guard-redact-$TARGET" > "$RUNNER_TEMP/artifacts/differential.json"
           date -u
-      - name: Preserve Intel differential checkpoint
-        if: always() && matrix.target == 'x86_64-apple-darwin'
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
-        with:
-          name: checkpoint-intel-differential
-          path: ${{ runner.temp }}/artifacts/differential.json
-          if-no-files-found: warn
       - name: Compiler-free integration
         env:
           TARGET: ${{ matrix.target }}
@@ -104,53 +95,6 @@ jobs:
           date -u
           native/devtools/target/release/agent-guard-devtools native-integration --core "$RUNNER_TEMP/artifacts/agent-guard-redact-$TARGET" --scanner "$RUNNER_TEMP/test-bin/gitleaks" > "$RUNNER_TEMP/artifacts/integration.json"
           date -u
-      - name: Preserve Intel integration checkpoint
-        if: always() && matrix.target == 'x86_64-apple-darwin'
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
-        with:
-          name: checkpoint-intel-integration
-          path: ${{ runner.temp }}/artifacts/integration.json
-          if-no-files-found: warn
-      - name: Compiler-free integration-2
-        if: matrix.target == 'x86_64-apple-darwin'
-        env:
-          TARGET: ${{ matrix.target }}
-        run: |
-          export PATH="$RUNNER_TEMP/test-bin:/usr/bin:/bin:/usr/sbin:/sbin"
-          if command -v cargo || command -v rustc; then
-            echo 'Rust compiler unexpectedly visible on runtime test PATH' >&2
-            exit 1
-          fi
-          date -u
-          native/devtools/target/release/agent-guard-devtools native-integration --core "$RUNNER_TEMP/artifacts/agent-guard-redact-$TARGET" --scanner "$RUNNER_TEMP/test-bin/gitleaks" > "$RUNNER_TEMP/artifacts/integration-2.json"
-          date -u
-      - name: Preserve Intel integration-2 checkpoint
-        if: always() && matrix.target == 'x86_64-apple-darwin'
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
-        with:
-          name: checkpoint-intel-integration-2
-          path: ${{ runner.temp }}/artifacts/integration-2.json
-          if-no-files-found: warn
-      - name: Compiler-free integration-3
-        if: matrix.target == 'x86_64-apple-darwin'
-        env:
-          TARGET: ${{ matrix.target }}
-        run: |
-          export PATH="$RUNNER_TEMP/test-bin:/usr/bin:/bin:/usr/sbin:/sbin"
-          if command -v cargo || command -v rustc; then
-            echo 'Rust compiler unexpectedly visible on runtime test PATH' >&2
-            exit 1
-          fi
-          date -u
-          native/devtools/target/release/agent-guard-devtools native-integration --core "$RUNNER_TEMP/artifacts/agent-guard-redact-$TARGET" --scanner "$RUNNER_TEMP/test-bin/gitleaks" > "$RUNNER_TEMP/artifacts/integration-3.json"
-          date -u
-      - name: Preserve Intel integration-3 checkpoint
-        if: always() && matrix.target == 'x86_64-apple-darwin'
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
-        with:
-          name: checkpoint-intel-integration-3
-          path: ${{ runner.temp }}/artifacts/integration-3.json
-          if-no-files-found: warn
       - name: Compiler-free audit contracts
         env:
           TARGET: ${{ matrix.target }}
@@ -178,7 +122,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-15-intel, macos-15]
+        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-15]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -190,7 +134,7 @@ jobs:
       - name: Prepare qualified artifacts and runtime dependencies
         run: |
           mkdir -p "$RUNNER_TEMP/native" "$RUNNER_TEMP/install-evidence"
-          for target in x86_64-unknown-linux-musl aarch64-unknown-linux-musl x86_64-apple-darwin aarch64-apple-darwin; do
+          for target in x86_64-unknown-linux-musl aarch64-unknown-linux-musl aarch64-apple-darwin; do
             dir="$RUNNER_TEMP/downloaded/native-$target"
             cp "$dir"/agent-guard-redact-* "$RUNNER_TEMP/native/"
           done
@@ -213,7 +157,6 @@ jobs:
           case "$(uname -s):$(uname -m)" in
             Linux:x86_64) target=x86_64-unknown-linux-musl ;;
             Linux:aarch64) target=aarch64-unknown-linux-musl ;;
-            Darwin:x86_64) target=x86_64-apple-darwin ;;
             Darwin:arm64) target=aarch64-apple-darwin ;;
             *) exit 2 ;;
           esac
@@ -233,7 +176,7 @@ jobs:
     needs: [platform, installation]
     runs-on: ubuntu-latest
     steps:
-      - name: Require all four native executions
+      - name: Require all three native executions
         env:
           RESULT: ${{ needs.platform.result }}
           INSTALL: ${{ needs.installation.result }}

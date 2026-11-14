@@ -14,7 +14,7 @@ cp -R "$ROOT/plugins/agent-guard/." "$stage/"
 if [ -n "${AGENT_GUARD_NATIVE_ARTIFACT_DIR:-}" ]; then
   mkdir -p "$stage/libexec"
   for target in x86_64-unknown-linux-musl aarch64-unknown-linux-musl \
-    x86_64-apple-darwin aarch64-apple-darwin; do
+    aarch64-apple-darwin; do
     name="agent-guard-redact-$target"
     source="$AGENT_GUARD_NATIVE_ARTIFACT_DIR/$name"
     [ -f "$source" ] && [ ! -L "$source" ] && [ -f "$source.sha256" ] && [ ! -L "$source.sha256" ] \

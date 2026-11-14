@@ -124,7 +124,10 @@ provide `agent-guard` on `PATH`. See [Support](SUPPORT.md) for what to submit.
 
 ## Requirements and scope
 
-Supported platforms are macOS and Linux on x64 and arm64. Runtime dependencies
+Supported platforms are macOS on arm64 (Apple silicon) and Linux on x64 and
+arm64. Intel Mac (x86_64) support ended after v3.8.2: later releases ship no
+Intel native helper and are not tested on Intel, so an existing Intel install
+keeps working through the shell/jq fallback. Runtime dependencies
 are `sh`, `awk`, `git`, `jq`, and gitleaks 8.30 or newer. Windows is not
 currently supported. One of `setsid` (from `util-linux` on Linux) or Perl is
 also required to run the gitleaks version probe in its own process group.

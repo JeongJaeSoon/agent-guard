@@ -33,7 +33,7 @@ write_run() {
     '{workflow_runs:[{id:1,head_sha:$sha,head_branch:"main",event:"push",status:"completed",conclusion:$conclusion}]}' > "$case_dir/runs.json"
 }
 write_run "$sha" success
-for target in x86_64-unknown-linux-musl aarch64-unknown-linux-musl x86_64-apple-darwin aarch64-apple-darwin; do
+for target in x86_64-unknown-linux-musl aarch64-unknown-linux-musl aarch64-apple-darwin; do
   dir="$case_dir/artifacts/native-$target"
   name="agent-guard-redact-$target"
   mkdir "$dir"
@@ -44,7 +44,9 @@ for target in x86_64-unknown-linux-musl aarch64-unknown-linux-musl x86_64-apple-
   printf '{"passed":90,"failed":0,"native_invocation_verified":true}\n' > "$dir/integration.json"
 done
 sh "$ROOT/scripts/prepare-native-release.sh" "$sha" "$case_dir/good"
-test "$(find "$case_dir/good" -type f | wc -l | tr -d ' ')" = 9
+test "$(find "$case_dir/good" -type f | wc -l | tr -d ' ')" = 7
+jq -e '.targets == ["x86_64-unknown-linux-musl","aarch64-unknown-linux-musl","aarch64-apple-darwin"]' \
+  "$case_dir/good/native-validation.json" >/dev/null
 printf 'ok - exact successful main artifacts are selected\n'
 reject() {
   if sh "$ROOT/scripts/prepare-native-release.sh" "$sha" "$case_dir/reject-$1" > "$case_dir/out" 2> "$case_dir/err"; then

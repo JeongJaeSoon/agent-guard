@@ -91,7 +91,7 @@ syntax. Preserve the executable-boundary fixtures for numbers, duplicate keys,
 Unicode, invalid bytes, limits and partial failures; shell source-extraction
 tests alone do not exercise a native implementation.
 
-Release qualification requires Linux/macOS × x64/arm64 artifacts, checksums,
+Release qualification requires Linux x64/arm64 and macOS arm64 artifacts, checksums,
 payload completeness, launcher/protocol compatibility and interrupted-update/
 rollback checks. The shell launcher still owns version resolution. A persistent daemon
 would add secret lifetime, IPC authentication and session-isolation concerns;
@@ -100,7 +100,7 @@ this experiment keeps one-shot execution.
 ## Native artifact qualification
 
 `native-platforms.yml` builds with Rust 1.85.1 and the locked dependencies on
-four native runners. It executes each uploaded binary against the existing
+three native runners. It executes each uploaded binary against the existing
 1,024 differential/invalid-input cases, real-scanner Claude/Codex fallback
 contracts, and audit suite with Cargo and rustc absent from PATH. A build alone
 does not satisfy this gate. The aggregate fails if any platform fails.
@@ -109,8 +109,12 @@ does not satisfy this gate. The aggregate fails if any platform fails.
 | --- | --- | --- |
 | `x86_64-unknown-linux-musl` | Ubuntu 24.04 x64 | Static musl; no glibc dependency |
 | `aarch64-unknown-linux-musl` | Ubuntu 24.04 ARM64 | Static musl; no glibc dependency |
-| `x86_64-apple-darwin` | macOS 15 Intel | macOS 14+ deployment target; system libraries |
 | `aarch64-apple-darwin` | macOS 15 ARM64 | macOS 14+ deployment target; system libraries |
+
+`x86_64-apple-darwin` (macOS Intel) was built and released through v3.8.2 and
+is no longer produced or tested. The CLI does not select a helper on Intel
+macOS, so an Intel install uses shell/jq even if an old helper remains;
+bootstrap removes that leftover helper on update.
 
 The build record includes the source SHA, compiler, actual OS/architecture and
 dynamic-library inspection. CI artifacts contain the executable, SHA-256 file,
@@ -126,7 +130,7 @@ Existing shell support and failure fallback remain unchanged.
 ## Packaged helper integration
 
 The archive builder accepts `AGENT_GUARD_NATIVE_ARTIFACT_DIR`, a directory with
-all four `agent-guard-redact-TARGET` executables and their `.sha256` files. It
+all three `agent-guard-redact-TARGET` executables and their `.sha256` files. It
 verifies every checksum before including `libexec/` in the existing universal
 archive. Bootstrap verifies that complete native payload before staging an
 installation. A source-only archive still works through shell/jq.
@@ -153,7 +157,7 @@ candidate update, a fresh candidate install, checksums and actual scanner smoke.
 Only candidate downloads are substituted; the original release downloads and
 all installers execute. `tests/native-packaged.sh` checks both host envelopes
 and proves the selected helper was invoked. The native CI repeats installation
-and failure contracts on all four platforms without Rust on PATH.
+and failure contracts on all three platforms without Rust on PATH.
 
 `bench/native/run-packaged.sh` refuses to measure unless Docker exposes enforced
 2-CPU, 1-GiB and no-swap limits. It uses the musl binary built by
@@ -180,8 +184,8 @@ qualification measurements are kept in the `v3.7.0` release tag, not in the
 tree.
 
 After publication, `public-native-release.yml` checks actual public assets,
-compiler-free fresh installs and updates from v3.6.15 on all four native
+compiler-free fresh installs and updates from v3.6.15 on all three native
 platforms, plus public Homebrew formula upgrades and canonical tap installs on
-Linux x64 and both macOS architectures. Those results must be inspected before claiming
+Linux x64 and macOS arm64. Those results must be inspected before claiming
 release validation is complete. Its `previous_version` input also supports
 v3.6.14, the baseline used by the candidate installation tests.

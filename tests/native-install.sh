@@ -2,7 +2,7 @@
 # Real published source -> candidate update; only candidate HTTP is substituted.
 set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
-: "${AGENT_GUARD_NATIVE_ARTIFACT_DIR:?all four qualified artifacts required}"
+: "${AGENT_GUARD_NATIVE_ARTIFACT_DIR:?all three qualified artifacts required}"
 previous=${1:-3.6.14}
 case "$previous" in
   3.6.14) previous_bootstrap_sha=2f6a796c1249d1a4ecdfa9b41507dcd61f34cc42dbb43013769c7cbac3112e12 ;;
@@ -21,6 +21,11 @@ env HOME="$case_dir/home" AGENT_GUARD_VERSION="$previous" AGENT_GUARD_HOME="$cas
   AGENT_GUARD_BIN_DIR="$case_dir/public" sh "$case_dir/old-bootstrap.sh" > "$case_dir/old.log" 2>&1 \
   || { cat "$case_dir/old.log" >&2; exit 1; }
 "$case_dir/public/agent-guard" version | grep -Fx "agent-guard $previous"
+retired="$case_dir/install/libexec/agent-guard-redact-x86_64-apple-darwin"
+if [ "$previous" = 3.7.1 ]; then
+  test -f "$retired"
+  test -f "$retired.sha256"
+fi
 printf 'preserve local file\n' > "$case_dir/install/local-note"
 cat > "$case_dir/http-bin/curl" <<'HTTP'
 #!/bin/sh
@@ -42,6 +47,8 @@ env HOME="$case_dir/home" PATH="$case_dir/http-bin:$PATH" AGENT_GUARD_VERSION="$
   || { cat "$case_dir/update.log" >&2; exit 1; }
 grep 'preserve local file' "$case_dir/install/local-note"
 test -d "$case_dir/install/libexec"
+test ! -e "$retired"
+test ! -e "$retired.sha256"
 env HOME="$case_dir/home" PATH="$case_dir/http-bin:$PATH" AGENT_GUARD_VERSION="$version" \
   AGENT_GUARD_HOME="$case_dir/fresh" AGENT_GUARD_BIN_DIR="$case_dir/fresh-bin" \
   sh "$ROOT/bootstrap.sh" > "$case_dir/fresh.log" 2>&1 \

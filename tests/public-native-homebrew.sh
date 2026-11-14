@@ -57,7 +57,6 @@ prefix=$(brew --prefix agent-guard)
 if [ -f "$prefix/libexec/scripts/output-pipeline-experiment.sh" ]; then
   case "$(uname -s):$(uname -m)" in
     Linux:x86_64) target=x86_64-unknown-linux-musl ;;
-    Darwin:x86_64) target=x86_64-apple-darwin ;;
     Darwin:arm64) target=aarch64-apple-darwin ;;
     *) exit 2 ;;
   esac

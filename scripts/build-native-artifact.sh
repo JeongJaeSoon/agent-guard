@@ -6,7 +6,7 @@ target=${1:?Rust target required}
 out=${2:?output directory required}
 case "$(uname -s):$(uname -m):$target" in
   Linux:x86_64:x86_64-unknown-linux-musl|Linux:aarch64:aarch64-unknown-linux-musl) ;;
-  Darwin:x86_64:x86_64-apple-darwin|Darwin:arm64:aarch64-apple-darwin)
+  Darwin:arm64:aarch64-apple-darwin)
     export MACOSX_DEPLOYMENT_TARGET=14.0 ;;
   *) echo 'build target must match the native runner' >&2; exit 2 ;;
 esac

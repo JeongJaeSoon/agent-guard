@@ -33,6 +33,18 @@ class AgentGuard < Formula
     SH
   end
 
+  def caveats
+    on_macos do
+      on_intel do
+        <<~EOS
+          Intel Mac (x86_64) support ended after Agent Guard v3.8.2.
+          Later releases ship no Intel native helper and are not tested on Intel;
+          redaction uses the shell/jq fallback.
+        EOS
+      end
+    end
+  end
+
   test do
     assert_match "agent-guard ${version}", shell_output("#{bin}/agent-guard version")
     system bin/"agent-guard", "check"

@@ -1,4 +1,4 @@
-<!-- translated-from: README.md; source-blob: f5b84578e7b4a21fc467c55f0d61fda258c7b9a7 -->
+<!-- translated-from: README.md; source-blob: 8224622d83dda9dcc07ddb8ddc242b23b6f94200 -->
 
 <p align="center">
   <a href="https://github.com/JeongJaeSoon/agent-guard/releases"><img src="docs/assets/icon.png" alt="Agent Guard icon" width="128" height="128"></a>
@@ -101,7 +101,7 @@ agent-guard logs export --output agent-guard-support.jsonl
 
 リリースアーカイブとHomebrewパッケージは、チェックサム検証とshellへのフォールバックを備えたビルド済みRust文字列置換ヘルパーを使います。Rustは実行時の依存関係ではなく、検出・ポリシー・host adapterはshellに残ります。Git marketplaceプラグインはソースのみで配布します。プラットフォーム要件、明示的なshell選択、ビルド済みヘルパーの利用方法は[インストールガイド](docs/installation.ja.md)を参照してください。
 
-対応プラットフォームはx64・arm64のmacOSとLinuxです。実行時には `sh`、`awk`、`git`、`jq`、gitleaks 8.30以降が必要です。現在Windowsには対応していません。gitleaksのバージョン確認を独立したプロセスグループで実行するため、Linuxの `util-linux` に含まれる `setsid`、またはPerlも必要です。`agent-guard doctor` は隔離ツールがなければ、プラットフォームに合った導入コマンドを表示します。
+対応プラットフォームはarm64(Apple silicon)のmacOSと、x64・arm64のLinuxです。Intel Mac(x86_64)のサポートはv3.8.2で終了しました。以降のリリースはIntel用ネイティブhelperを配布せず、Intelでは検証しません。既存のIntel環境はshell/jqへのフォールバックで引き続き動作します。実行時には `sh`、`awk`、`git`、`jq`、gitleaks 8.30以降が必要です。現在Windowsには対応していません。gitleaksのバージョン確認を独立したプロセスグループで実行するため、Linuxの `util-linux` に含まれる `setsid`、またはPerlも必要です。`agent-guard doctor` は隔離ツールがなければ、プラットフォームに合った導入コマンドを表示します。
 
 既定の処理はローカルで一時的に行われます。エンドポイントを使うPIIプロバイダーを有効にする前に[プライバシー](PRIVACY.md)を読んでください。責任ある脆弱性報告は[セキュリティ](SECURITY.md)、安全な問題報告は[サポート](SUPPORT.md)を参照してください。
 
