@@ -1,4 +1,4 @@
-<!-- translated-from: docs/installation.md; source-blob: 44a7a26fb93606c96abaeea35fc2e62c861bd9d6 -->
+<!-- translated-from: docs/installation.md; source-blob: dbe9f5f7b2180b3b93653088d9657ea06b0ab934 -->
 
 <a id="installing-agent-guard"></a>
 
@@ -164,7 +164,17 @@ agent-guard doctor
 agent-guard check
 ```
 
-플러그인 캐시에서는 updater를 의도적으로 사용할 수 없게 되어 있습니다. 실행 파일 자체가 marketplace 제거 시 삭제되는 캐시에 있어 스스로 marketplace의 고정 태그를 바꿀 수 없기 때문입니다. 대신 `agent-guard plugin update --host claude` 또는 `--host codex`를 실행하세요. 설치된 플러그인이 이미 CLI와 일치하면 최신 GitHub 릴리스를 조회하고, 새 버전으로 이동하는 정확한 host 관리 명령인 `marketplace remove`, `marketplace add ...@vX.Y.Z`, 플러그인 설치 명령을 출력합니다. `agent-guard doctor`와 `agent-guard plugin status`도 같은 릴리스 노후 상태를 보고합니다. 조회를 건너뛰려면 `AGENT_GUARD_RELEASE_CHECK=off`를 설정하세요. `setup-shell`은 shell rc에 `~/.agent-guard/shell-init.sh`를 읽는 한 줄을 추가하고, 검증하는 resolver를 그 파일에 씁니다. 둘 다 캐시의 `current` 링크를 통해 실행 파일을 찾으므로 플러그인 업데이트 후 `setup-shell`을 다시 실행할 필요가 없습니다. 다시 실행하면 예전 여러 줄 블록을 같은 자리에서 한 줄 형태로 바꿉니다.
+플러그인 캐시에서는 updater를 의도적으로 사용할 수 없게 되어 있습니다. 실행 파일 자체가 marketplace 제거 시 삭제되는 캐시에 있어 스스로 marketplace의 고정 태그를 바꿀 수 없기 때문입니다. 대신 `agent-guard plugin update --host claude` 또는 `--host codex`를 실행하세요. 설치된 플러그인이 이미 CLI와 일치하면 최신 GitHub 릴리스를 조회하고, 새 버전으로 이동하는 정확한 host 관리 명령인 `marketplace remove`, `marketplace add ...@vX.Y.Z`, 플러그인 설치 명령을 출력합니다. `agent-guard doctor`와 `agent-guard plugin status`도 같은 릴리스 노후 상태를 보고합니다. 조회를 건너뛰려면 `AGENT_GUARD_RELEASE_CHECK=off`를 설정하세요.
+
+`setup-shell`은 shell rc에 다음 블록을 추가하고, 검증하는 resolver를 `~/.agent-guard/shell-init.sh`에 씁니다.
+
+```sh
+# >>> agent-guard shell-init >>>
+[ ! -r ~/.agent-guard/shell-init.sh ] || . ~/.agent-guard/shell-init.sh
+# <<< agent-guard shell-init <<<
+```
+
+파일이 없으면 이 줄은 아무것도 하지 않고 종료 상태 0으로 끝납니다. 둘 다 캐시의 `current` 링크를 통해 실행 파일을 찾으므로 플러그인 업데이트 후 `setup-shell`을 다시 실행할 필요가 없습니다. 다시 실행하면 예전 블록을 같은 자리에서 이 블록으로 바꿉니다.
 
 독립 CLI 업데이트는 기존 설치 옆에 후보를 준비한 뒤 교체합니다. 체크섬·추출·
 교체 실패 시 이전 설치를 유지하거나 복구하며, 관련 없는 로컬 파일도 보존합니다.
