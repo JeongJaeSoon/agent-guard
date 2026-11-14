@@ -1,13 +1,23 @@
 ## v3.9.0 - 2026-11-14
 
-- feat(shell): rc 블록을 마커 두 줄과 `[ ! -r ~/… ] || . ~/…` 한 줄로 줄인다 (#456)
-- feat(shell): setup-shell이 rc에 resolver 파일을 읽는 한 줄만 쓴다 (#455)
+### 주요 변경
+
+- feat(shell): `setup-shell`이 shell rc에 약 155줄 블록 대신 시작·끝 마커와 한 줄 `[ ! -r ~/.agent-guard/shell-init.sh ] || . ~/.agent-guard/shell-init.sh`만 씁니다. 실행 전에 캐시 바이너리를 검증하는 resolver는 그 파일로 옮겼고 내용은 같습니다. 두 파일 모두 캐시의 `current` 링크와 캐시 기준 경로만 적으므로, 플러그인 버전이 바뀌어도 다시 쓸 필요가 없습니다. 마스킹·deny·hook 동작과 hook manifest는 바뀌지 않습니다. (#455, #456)
+  - 동작 변경: `setup-shell`을 다시 실행하면 예전 블록을 같은 자리에서 새 블록으로 바꿉니다(블록 뒤의 rc 줄 순서가 유지됩니다). `--no-command-wrapping`은 `~/.agent-guard/shell-init-no-wrapping.sh`를 따로 씁니다. 파일이 없으면 rc 줄은 아무것도 하지 않고 종료 상태 0으로 끝나므로, `set -e`로 rc를 읽는 스크립트도 멈추지 않습니다. 이때 SessionStart가 "can no longer load" 안내를 보이며, 이 안내는 이제 부모 셸에서 물려받은 `AGENT_GUARD_SHELL_INIT_VERSION`이 있어도 나옵니다. 같은 계정에서 다른 설치 경로로 `setup-shell`을 실행하면 마지막 실행이 그 파일을 씁니다.
+  - 사용자가 할 일: 새 블록을 원하면 `/agent-guard:setup-shell`(독립 설치는 `agent-guard setup-shell`)을 한 번 다시 실행하고 셸과 세션을 다시 시작합니다. 예전 블록도 그대로 동작합니다. 독립 설치를 지울 때는 rc 블록과 함께 `~/.agent-guard/shell-init*.sh`도 지웁니다.
+  - 운영자가 할 일: 없습니다. hook manifest가 바뀌지 않으므로 Codex hook trust를 다시 받을 필요가 없습니다.
+- fix(scan): 접두사가 있는 UUID 모양 key(LaunchDarkly 서버 SDK key 모양, `sdk-`와 소문자 UUID)를 shape 규칙 `agent-guard-vendor-token-shape`로 잡습니다. `sdk-` 뒤에 패키지 이름 같은 일반 단어가 오면 잡지 않습니다. (#453)
+- chore(platform): Intel Mac(x86_64-apple-darwin) 지원을 끝냅니다. 마지막 지원 버전은 v3.8.2입니다. 이후 릴리스는 `agent-guard-redact-x86_64-apple-darwin` helper(archive의 `libexec/`와 별도 asset)를 배포하지 않습니다. `native-validation.json`의 targets는 3개입니다. CI는 macOS Intel 러너를 쓰지 않습니다. (#450)
+  - 동작 변경: Intel Mac에서는 CLI가 native helper를 고르지 않고 셸/jq 치환기를 씁니다. hook이 막히지는 않습니다. v3.8.2에서 남은 Intel helper가 있어도 실행하지 않으며, 독립 설치 스크립트가 업데이트 때 지웁니다. 독립 설치 스크립트와 Homebrew formula(caveats)는 Intel Mac에서 설치·업데이트 때 지원 종료 안내를 보입니다.
+  - 사용자가 할 일: Apple silicon Mac과 Linux는 할 일이 없습니다. Intel Mac에서 검증된 native helper를 계속 쓰려면 v3.8.2에 머무릅니다. 독립 설치는 설치 스크립트를 `AGENT_GUARD_VERSION=3.8.2`로 실행하고, 그 뒤 `agent-guard update`를 하지 않습니다. Homebrew는 v3.8.2에서 `brew pin agent-guard`를 씁니다. `AGENT_GUARD_RUST_CORE_BIN`이나 `AGENT_GUARD_EXPERIMENTAL_OUTPUT_PREPARE_BIN`에 Intel helper 경로를 직접 넣었다면, 업데이트 뒤 그 파일이 없어 jq 단계로 돌아가므로 설정을 지웁니다.
+  - 운영자가 할 일: 다음 릴리스의 Phase 2는 main push native run의 세 플랫폼 artifact만 읽습니다. `public-native-release.yml`은 targets가 3개인 릴리스만 통과시키므로 v3.8.2 이하를 다시 검증하는 데 쓰지 않습니다.
+- fix(hooks): Bash 명령의 `security dump-keychain`(옵션 유무와 관계없이)과, URL userinfo에 비밀번호가 든 명령(`scheme://user:password@host`, 사용자 이름이 비거나 비밀번호가 셸 변수여도)을 deny 패턴으로 막습니다. 비밀번호 없는 `ssh://git@host`, scp형 `git@host:repo`, URL path·query 안의 `@`, 한 단어로 붙은 JSON 안에서 URL 뒤에 오는 메일 주소, 커밋 메시지 값 안의 메일 주소와 URL은 이 패턴으로 막지 않습니다. 알려진 잔여: `postgres://postgres:postgres@localhost`처럼 로컬 기본 자격 증명 URL, 명령 글 안의 자리표시 URL, 비밀번호 변수 이름만 쓰는 대입·`export`·heredoc 줄, `https://[^:]+:[^@]+@` 같은 grep 정규식 글, 태그와 digest를 함께 쓴 컨테이너 transport 참조(`docker://alpine:3.19@sha256:…`), 큰따옴표 없이 URL 뒤에 `@`가 오는 한 단어 payload(`url=http://localhost:3000&email=a@b`)도 막힙니다. URL 안에서 비밀번호를 큰따옴표로 감싸거나 `$(<file)`로 읽으면(`https://u:"$PW"@host`) 막지 않습니다. (#449)
+- fix(scan): `clientId`·`tokenRef`·`credential_ref`·`token_id`처럼 이름 끝이 `Id`·`Ref`·`_id`·`_ref`인 칸에 소문자 UUID 하나만 있으면 `generic-api-key` finding으로 보지 않습니다. Edit/Write 검사, 커밋 검사, `scan-path`, 출력 마스킹에 똑같이 적용됩니다. 접미사 앞 이름이 대소문자와 관계없이 `secret`이나 `secrets`로 끝나면(`secretId`, `secretRef`, `secret_ref`, `clientSecretRef`, `secret_id`) 이전과 같이 잡습니다. Vault AppRole과 Consul/Nomad의 secret id가 UUID이기 때문입니다. `SecretID`·`SECRET_ID`·`secret-id`, 대문자 UUID, 같은 줄의 다른 secret, 공급자 전용 UUID 규칙(Heroku, Snyk, HubSpot)도 그대로 잡습니다. 따옴표 UUID 뒤에 글자가 이어져 셸에서 더 긴 값이 되면 새 규칙 `agent-guard-reference-id-concatenation`이 잡습니다. 다만 secret이 아닌 참조 id의 셸 대입에서 따옴표 UUID 바로 뒤에 `,` `]` `}` 한 글자만 붙고 값이 끝나면, Python 여러 줄 키워드 인자와 구별할 수 없어 잡지 않습니다. (#448)
+
+### 그 밖의 변경
+
 - fix(tests): mktemp가 실패하면 cleanup trap 전에 시험 스크립트를 끝낸다 (#454)
-- chore(platform): Intel Mac(x86_64-apple-darwin) 지원을 끝낸다 (#450)
 - ci(perf): nightly 성능 실패 issue에 러너 CPU를 적고 latency만 오른 확정 행을 노이즈 의심으로 표시한다 (#451)
-- fix(scan): 접두사가 있는 UUID 모양 key를 탐지한다 (#453)
-- fix(hooks): dump-keychain과 URL userinfo 비밀번호를 deny 패턴으로 막는다 (#449)
-- fix(scan): 참조 id 칸의 UUID를 generic-api-key 오탐에서 뺀다 (#448)
 - ci(perf): 성능 측정을 main push에서 빼고 nightly·릴리스 PR에서 돌리며 nightly 실패는 issue로 알린다 (#447)
 - ci(perf): 9쌍에서 넘은 케이스만 21쌍으로 확인해 러너 노이즈 실패를 줄이고 실패한 성능 job을 드러낸다 (#446)
 - ci: bump hashgraph-online/ai-plugin-scanner-action (#441)
@@ -30,20 +40,6 @@
 - fix(hooks): 소스 코드의 타입 주석과 멤버 참조를 출력 마스킹에서 뺀다 (#421)
 - fix(hooks): 런타임 환경 객체 멤버 접근과 jq 보간을 보호 경로 텍스트 매치에서 뺀다 (#418)
 - fix(hooks): ORCA_·CLAUDE_JOB_DIR 변수 조회를 환경 덤프 차단에서 뺀다 (#419)
-
-## Unreleased
-
-- feat(shell): `setup-shell`이 shell rc에 약 155줄 블록 대신 시작·끝 마커와 한 줄 `[ ! -r ~/.agent-guard/shell-init.sh ] || . ~/.agent-guard/shell-init.sh`만 씁니다. 실행 전에 캐시 바이너리를 검증하는 resolver는 그 파일로 옮겼고 내용은 같습니다. 두 파일 모두 캐시의 `current` 링크와 캐시 기준 경로만 적으므로, 플러그인 버전이 바뀌어도 다시 쓸 필요가 없습니다. 마스킹·deny·hook 동작과 hook manifest는 바뀌지 않습니다.
-  - 동작 변경: `setup-shell`을 다시 실행하면 예전 블록을 같은 자리에서 새 블록으로 바꿉니다(블록 뒤의 rc 줄 순서가 유지됩니다). `--no-command-wrapping`은 `~/.agent-guard/shell-init-no-wrapping.sh`를 따로 씁니다. 파일이 없으면 rc 줄은 아무것도 하지 않고 종료 상태 0으로 끝나므로, `set -e`로 rc를 읽는 스크립트도 멈추지 않습니다. 이때 SessionStart가 "can no longer load" 안내를 보이며, 이 안내는 이제 부모 셸에서 물려받은 `AGENT_GUARD_SHELL_INIT_VERSION`이 있어도 나옵니다. 같은 계정에서 다른 설치 경로로 `setup-shell`을 실행하면 마지막 실행이 그 파일을 씁니다.
-  - 사용자가 할 일: 새 블록을 원하면 `/agent-guard:setup-shell`(독립 설치는 `agent-guard setup-shell`)을 한 번 다시 실행하고 셸과 세션을 다시 시작합니다. 예전 블록도 그대로 동작합니다. 독립 설치를 지울 때는 rc 블록과 함께 `~/.agent-guard/shell-init*.sh`도 지웁니다.
-  - 운영자가 할 일: 없습니다. hook manifest가 바뀌지 않으므로 Codex hook trust를 다시 받을 필요가 없습니다.
-- fix(scan): 접두사가 있는 UUID 모양 key(LaunchDarkly 서버 SDK key 모양, `sdk-`와 소문자 UUID)를 shape 규칙 `agent-guard-vendor-token-shape`로 잡습니다. `sdk-` 뒤에 패키지 이름 같은 일반 단어가 오면 잡지 않습니다.
-- chore(platform): Intel Mac(x86_64-apple-darwin) 지원을 끝냅니다. 마지막 지원 버전은 v3.8.2입니다. 이후 릴리스는 `agent-guard-redact-x86_64-apple-darwin` helper(archive의 `libexec/`와 별도 asset)를 배포하지 않습니다. `native-validation.json`의 targets는 3개입니다. CI는 macOS Intel 러너를 쓰지 않습니다.
-  - 동작 변경: Intel Mac에서는 CLI가 native helper를 고르지 않고 셸/jq 치환기를 씁니다. hook이 막히지는 않습니다. v3.8.2에서 남은 Intel helper가 있어도 실행하지 않으며, 독립 설치 스크립트가 업데이트 때 지웁니다. 독립 설치 스크립트와 Homebrew formula(caveats)는 Intel Mac에서 설치·업데이트 때 지원 종료 안내를 보입니다.
-  - 사용자가 할 일: Apple silicon Mac과 Linux는 할 일이 없습니다. Intel Mac에서 검증된 native helper를 계속 쓰려면 v3.8.2에 머무릅니다. 독립 설치는 설치 스크립트를 `AGENT_GUARD_VERSION=3.8.2`로 실행하고, 그 뒤 `agent-guard update`를 하지 않습니다. Homebrew는 v3.8.2에서 `brew pin agent-guard`를 씁니다. `AGENT_GUARD_RUST_CORE_BIN`이나 `AGENT_GUARD_EXPERIMENTAL_OUTPUT_PREPARE_BIN`에 Intel helper 경로를 직접 넣었다면, 업데이트 뒤 그 파일이 없어 jq 단계로 돌아가므로 설정을 지웁니다.
-  - 운영자가 할 일: 다음 릴리스의 Phase 2는 main push native run의 세 플랫폼 artifact만 읽습니다. `public-native-release.yml`은 targets가 3개인 릴리스만 통과시키므로 v3.8.2 이하를 다시 검증하는 데 쓰지 않습니다.
-- fix(hooks): Bash 명령의 `security dump-keychain`(옵션 유무와 관계없이)과, URL userinfo에 비밀번호가 든 명령(`scheme://user:password@host`, 사용자 이름이 비거나 비밀번호가 셸 변수여도)을 deny 패턴으로 막습니다. 비밀번호 없는 `ssh://git@host`, scp형 `git@host:repo`, URL path·query 안의 `@`, 한 단어로 붙은 JSON 안에서 URL 뒤에 오는 메일 주소, 커밋 메시지 값 안의 메일 주소와 URL은 이 패턴으로 막지 않습니다. 알려진 잔여: `postgres://postgres:postgres@localhost`처럼 로컬 기본 자격 증명 URL, 명령 글 안의 자리표시 URL, 비밀번호 변수 이름만 쓰는 대입·`export`·heredoc 줄, `https://[^:]+:[^@]+@` 같은 grep 정규식 글, 태그와 digest를 함께 쓴 컨테이너 transport 참조(`docker://alpine:3.19@sha256:…`), 큰따옴표 없이 URL 뒤에 `@`가 오는 한 단어 payload(`url=http://localhost:3000&email=a@b`)도 막힙니다. URL 안에서 비밀번호를 큰따옴표로 감싸거나 `$(<file)`로 읽으면(`https://u:"$PW"@host`) 막지 않습니다.
-- fix(scan): `clientId`·`tokenRef`·`credential_ref`·`token_id`처럼 이름 끝이 `Id`·`Ref`·`_id`·`_ref`인 칸에 소문자 UUID 하나만 있으면 `generic-api-key` finding으로 보지 않습니다. Edit/Write 검사, 커밋 검사, `scan-path`, 출력 마스킹에 똑같이 적용됩니다. 접미사 앞 이름이 대소문자와 관계없이 `secret`이나 `secrets`로 끝나면(`secretId`, `secretRef`, `secret_ref`, `clientSecretRef`, `secret_id`) 이전과 같이 잡습니다. Vault AppRole과 Consul/Nomad의 secret id가 UUID이기 때문입니다. `SecretID`·`SECRET_ID`·`secret-id`, 대문자 UUID, 같은 줄의 다른 secret, 공급자 전용 UUID 규칙(Heroku, Snyk, HubSpot)도 그대로 잡습니다. 따옴표 UUID 뒤에 글자가 이어져 셸에서 더 긴 값이 되면 새 규칙 `agent-guard-reference-id-concatenation`이 잡습니다. 다만 secret이 아닌 참조 id의 셸 대입에서 따옴표 UUID 바로 뒤에 `,` `]` `}` 한 글자만 붙고 값이 끝나면, Python 여러 줄 키워드 인자와 구별할 수 없어 잡지 않습니다.
 
 ## v3.8.2 - 2026-11-06
 
