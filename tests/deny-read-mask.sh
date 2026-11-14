@@ -3,8 +3,11 @@ set -u
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 GUARD="$ROOT/plugins/agent-guard/bin/agent-guard"
 MOCK_GITLEAKS="$ROOT/tests/fixtures/mock-gitleaks"
-CASE=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-deny-mask.XXXXXX")
-CASE=$(CDPATH= cd -- "$CASE" && pwd -P)
+# Exit before the cleanup trap exists: an empty CASE would make `cd -- ""`
+# resolve to the current directory, which the trap then removes.
+CASE=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-deny-mask.XXXXXX") || exit 1
+[ -n "$CASE" ] || exit 1
+CASE=$(CDPATH= cd -- "$CASE" && pwd -P) || exit 1
 trap 'chmod -R u+rwx "$CASE" 2>/dev/null; rm -rf "$CASE"' 0
 export AGENT_GUARD_LOG_MODE=off
 export AGENT_GUARD_GITLEAKS_BIN="$MOCK_GITLEAKS"

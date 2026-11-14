@@ -8,8 +8,11 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 GUARD="$ROOT/plugins/agent-guard/bin/agent-guard"
 # run.sh puts its mock gitleaks first on PATH, so it passes the real one in.
 REAL_GITLEAKS=${AGENT_GUARD_TEST_REAL_GITLEAKS-$(command -v gitleaks 2>/dev/null || :)}
-CASE=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-probe-cache.XXXXXX")
-CASE=$(CDPATH= cd -- "$CASE" && pwd -P)
+# Exit before the cleanup trap exists: an empty CASE would make `cd -- ""`
+# resolve to the current directory, which the trap then removes.
+CASE=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-probe-cache.XXXXXX") || exit 1
+[ -n "$CASE" ] || exit 1
+CASE=$(CDPATH= cd -- "$CASE" && pwd -P) || exit 1
 trap 'rm -rf "$CASE"' 0
 mkdir -p "$CASE/bin" "$CASE/home" "$CASE/multi" "$CASE/real"
 export HOME="$CASE/home" XDG_STATE_HOME="$CASE/state" AGENT_GUARD_LOG_MODE=on
