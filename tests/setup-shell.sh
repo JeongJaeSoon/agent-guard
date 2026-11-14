@@ -282,6 +282,21 @@ else
     *'does not cover both'*) ok "SessionStart reports partial fish coverage despite an inherited marker" ;;
     *) not_ok "SessionStart reports partial fish coverage despite an inherited marker" ;;
   esac
+  # The earlier `if` form (main between v3.8.2 and v3.9.0) still reads as
+  # loadable until setup-shell reruns; without its file it warns.
+  ss_if_home="$CASE_ROOT/if-home"
+  mkdir -p "$ss_if_home"
+  env HOME="$ss_if_home" SHELL=/bin/zsh "$PLUGIN_ROOT/bin/agent-guard" setup-shell >/dev/null 2>&1
+  ss_if_init="$ss_if_home/.agent-guard/shell-init.sh"
+  printf '%s\n' "$BEGIN" \
+    "unset AGENT_GUARD_SHELL_INIT_VERSION; if [ -f '$ss_if_init' ] && [ -r '$ss_if_init' ]; then . '$ss_if_init'; fi" \
+    "$END" >"$ss_if_home/.zshrc"
+  ss_if_quiet=$(session_start_message "$ss_if_home" "$ss_version")
+  mv "$ss_if_init" "$CASE_ROOT/if-init.moved"
+  case "$ss_if_quiet:$(session_start_message "$ss_if_home" "$ss_version")" in
+    :*'can no longer load'*) ok "SessionStart reads the earlier if-form block (quiet with its file, warns without)" ;;
+    *) not_ok "SessionStart reads the earlier if-form block (with file: $ss_if_quiet)" ;;
+  esac
   # sh_squote escapes a quote in HOME; the probe must read the same path.
   ss_quote_home="$CASE_ROOT/home with ' quote"
   mkdir -p "$ss_quote_home"

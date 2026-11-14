@@ -14584,21 +14584,29 @@ shell_init_rc_block_state() {
   block=$(awk -v b="$SHELL_INIT_BLOCK_BEGIN" -v e="$SHELL_INIT_BLOCK_END" \
     '$0==b{inb=1;next} $0==e&&inb{found=1;inb=0;next} inb{print} END{exit !found}' \
     "$rc_probe" 2>/dev/null) || return 1
-  # Current blocks source the resolver file setup-shell wrote; older blocks
+  # Current blocks source the resolver file setup-shell wrote, by `~/` path or,
+  # in the earlier `if` form, by an sh_squote'd absolute path; older blocks
   # carry the resolver inline. A missing file loads nothing.
+  rc_init=
   case "$block" in
     *"_agbin='"*) ;;
+    *"; then . '"*)
+      shell_init_unsquote "${block##*; then . \'}" || return 2
+      rc_init=$unsquoted
+      ;;
     *" . ~/"*)
       rc_init=${block##*" . ~/"}
       rc_init=$HOME/${rc_init%%[[:space:]]*}
-      [ -f "$rc_init" ] && [ -r "$rc_init" ] || return 2
-      block=
-      while IFS= read -r rc_init_line || [ -n "$rc_init_line" ]; do
-        block="$block$rc_init_line
-"
-      done <"$rc_init"
       ;;
   esac
+  if [ -n "$rc_init" ]; then
+    [ -f "$rc_init" ] && [ -r "$rc_init" ] || return 2
+    block=
+    while IFS= read -r rc_init_line || [ -n "$rc_init_line" ]; do
+      block="$block$rc_init_line
+"
+    done <"$rc_init"
+  fi
   # Delimiters wrapping something that never invokes shell-init protect nothing.
   case "$block" in *shell-init*) ;; *) return 2 ;; esac
 
