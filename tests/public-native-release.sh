@@ -30,12 +30,12 @@ done
 cp "$case_dir/download/native-validation.json" "$out/"
 published_sha=$(git ls-remote https://github.com/JeongJaeSoon/agent-guard.git "refs/tags/v$version" | awk 'NR == 1 {print $1}')
 [ "${#published_sha}" -eq 40 ]
-jq -e --arg sha "$published_sha" '.release_sha == $sha and (.targets|length) == 4' "$out/native-validation.json" >/dev/null
+jq -e --arg sha "$published_sha" '.release_sha == $sha and (.targets|length) == 3' "$out/native-validation.json" >/dev/null
 printf '%s\n' "$published_sha" > "$out/published-tag-sha.txt"
 mkdir "$case_dir/payload"
 tar -xzf "$case_dir/download/agent-guard-$version.tar.gz" -C "$case_dir/payload"
 cmp "$case_dir/download/THIRD_PARTY_NOTICES.md" "$case_dir/payload/THIRD_PARTY_NOTICES.md"
-for target in x86_64-unknown-linux-musl aarch64-unknown-linux-musl x86_64-apple-darwin aarch64-apple-darwin; do
+for target in x86_64-unknown-linux-musl aarch64-unknown-linux-musl aarch64-apple-darwin; do
   name="agent-guard-redact-$target"
   curl -fsSL "$base/$name" -o "$case_dir/download/$name"
   curl -fsSL "$base/$name.sha256" -o "$case_dir/download/$name.sha256"
@@ -64,7 +64,6 @@ grep -F 'preserve local note' "$AGENT_GUARD_HOME/local-note"
 case "$(uname -s):$(uname -m)" in
   Linux:x86_64) target=x86_64-unknown-linux-musl ;;
   Linux:aarch64) target=aarch64-unknown-linux-musl ;;
-  Darwin:x86_64) target=x86_64-apple-darwin ;;
   Darwin:arm64) target=aarch64-apple-darwin ;;
   *) exit 2 ;;
 esac

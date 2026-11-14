@@ -461,7 +461,7 @@ jobs:
           ' CHANGELOG.md > "$release_notes"
 
           # Qualify and assemble everything before creating any version tag.
-          # These artifacts were executed on all four native platforms at this
+          # These artifacts were executed on all three native platforms at this
           # exact main SHA; a cross-build or another commit is not accepted.
           native_release_dir="$RUNNER_TEMP/qualified-native"
           sh scripts/prepare-native-release.sh "$head_sha" "$native_release_dir"

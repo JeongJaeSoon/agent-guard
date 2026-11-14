@@ -69,6 +69,13 @@ zero_sha=$(printf '%064d' 0)
 "$ROOT/scripts/render-homebrew-formula.sh" 3.5.0 "$zero_sha" >"$CASE/old.rb"
 "$ROOT/scripts/render-homebrew-formula.sh" 3.6.0 "$zero_sha" >"$CASE/new.rb"
 "$ROOT/scripts/render-homebrew-formula.sh" 3.7.0 "$zero_sha" >"$CASE/newer.rb"
+# The end-of-support caveat must reach macOS Intel only, not Linux x86_64.
+sed -n '/^  def caveats$/,/^  end$/p' "$CASE/newer.rb" >"$CASE/caveats.rb"
+awk '/on_macos do/ { m = NR } /on_intel do/ { if (m && NR > m) i = 1 }
+  END { exit !i }' "$CASE/caveats.rb" \
+  || fail 'Intel caveat is not nested under on_macos'
+grep -Fq 'Intel Mac (x86_64) support ended after Agent Guard v3.8.2.' "$CASE/caveats.rb" \
+  || fail 'Intel caveat does not name the last supported release'
 
 # reset MAIN_FORMULA: a tap whose main carries MAIN_FORMULA and nothing else.
 reset() {

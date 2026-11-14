@@ -92,8 +92,9 @@ sampled process RSS sum. See [verification](verification.md) before rollout.
 
 ## Runtime dependencies
 
-The v3.7 release archive and Homebrew package include Rust literal-replacement
-helpers for Linux/macOS on x64/arm64. No Rust compiler is needed. The CLI uses
+Release archives and Homebrew packages from v3.7 include Rust literal-replacement
+helpers for Linux x64/arm64 and macOS arm64. v3.7.0 through v3.8.2 also shipped
+a macOS x64 helper. No Rust compiler is needed. The CLI uses
 the matching checksum-verified helper by default and falls back to shell/jq if
 it is absent or fails. Detection, policy, PII and host adapters remain in shell;
 the dependencies below are still required. To explicitly use shell:
@@ -103,8 +104,12 @@ export AGENT_GUARD_EXPERIMENTAL_REDACTOR=shell
 ```
 
 Linux helpers use static musl and do not require glibc; actual execution is
-tested on Ubuntu 24.04. macOS helpers target macOS 14+ and are tested on macOS 15
-on both architectures. A deployment target does not prove every older OS/kernel
+tested on Ubuntu 24.04. The macOS helper targets macOS 14+ and is tested on
+macOS 15 arm64. Intel Mac (x86_64) support ended after v3.8.2: later releases
+ship no Intel helper and are not tested on Intel, so an Intel install uses the
+shell/jq fallback. The standalone installer prints this notice on Intel and
+removes the old Intel helper on update; to stay on the last supported release,
+run the installer with `AGENT_GUARD_VERSION=3.8.2`. A deployment target does not prove every older OS/kernel
 works; unsupported environments retain the shell fallback. Packaged checksums
 detect corruption, not a malicious replacement of both the binary and checksum.
 

@@ -1,5 +1,5 @@
 #!/bin/sh
-# Pinned real scanner and jq reference, for all four native CI runners.
+# Pinned real scanner and jq reference, for all three native CI runners.
 set -eu
 out=${1:?output directory required}
 case "$(uname -s):$(uname -m)" in
@@ -11,10 +11,6 @@ case "$(uname -s):$(uname -m)" in
     platform=linux_arm64; jq_asset=jq-linux-arm64
     scanner_sha=e4a487ee7ccd7d3a7f7ec08657610aa3606637dab924210b3aee62570fb4b080
     jq_sha=4dd2d8a0661df0b22f1bb9a1f9830f06b6f3b8f7d91211a1ef5d7c4f06a8b4a5 ;;
-  Darwin:x86_64)
-    platform=darwin_x64; jq_asset=jq-macos-amd64
-    scanner_sha=dfe101a4db2255fc85120ac7f3d25e4342c3c20cf749f2c20a18081af1952709
-    jq_sha=4155822bbf5ea90f5c79cf254665975eb4274d426d0709770c21774de5407443 ;;
   Darwin:arm64)
     platform=darwin_arm64; jq_asset=jq-macos-arm64
     scanner_sha=b40ab0ae55c505963e365f271a8d3846efbc170aa17f2607f13df610a9aeb6a5

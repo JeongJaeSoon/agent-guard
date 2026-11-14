@@ -306,3 +306,75 @@ for fault in extract commit interrupt interrupt-int link; do
   installed_state_unchanged
   check "transaction $fault failure restores the working install and public link"
 done
+
+# v3.8.2 was the last release with an Intel macOS helper. Only `uname -m` is
+# faked, so a Linux runner proves the notice stays Darwin-only.
+mkdir -p "$CASE_ROOT/arch-bin" "$AGENT_GUARD_HOME/libexec"
+cat >"$CASE_ROOT/arch-bin/uname" <<'STUB'
+#!/bin/sh
+[ "${1:-}" = -m ] && { printf '%s\n' "$QA_UNAME_M"; exit 0; }
+exec /usr/bin/uname "$@"
+STUB
+cat >"$CASE_ROOT/fake-helper" <<'STUB'
+#!/bin/sh
+: >"$QA_HELPER_MARKER"
+cat >/dev/null
+printf '%s\n' '{"stdout":"native","type":"text"}'
+STUB
+chmod +x "$CASE_ROOT/arch-bin/uname" "$CASE_ROOT/fake-helper"
+install_helper() {
+  cp "$CASE_ROOT/fake-helper" "$AGENT_GUARD_HOME/libexec/$1"
+  (cd "$AGENT_GUARD_HOME/libexec" && shasum -a 256 "$1" >"$1.sha256")
+}
+retired_name=agent-guard-redact-x86_64-apple-darwin
+retired="$AGENT_GUARD_HOME/libexec/$retired_name"
+install_helper "$retired_name"
+printf 'keep\n' >"$AGENT_GUARD_HOME/libexec/unrelated-note"
+PATH="$CASE_ROOT/arch-bin:$PATH" QA_UNAME_M=arm64 AGENT_GUARD_BIN_DIR="$CASE_ROOT/custom bin" \
+  run sh "$ROOT/bootstrap.sh"
+[ ! -e "$retired" ]
+[ ! -e "$retired.sha256" ]
+grep -q keep "$AGENT_GUARD_HOME/libexec/unrelated-note"
+if grep -q 'Intel Mac' "$CASE_ROOT/err"; then exit 1; fi
+check 'update drops the retired Intel macOS helper and keeps other libexec files'
+PATH="$CASE_ROOT/arch-bin:$PATH" QA_UNAME_M=x86_64 AGENT_GUARD_BIN_DIR="$CASE_ROOT/custom bin" \
+  run sh "$ROOT/bootstrap.sh"
+if [ "$(/usr/bin/uname -s)" = Darwin ]; then
+  grep -q 'NOTICE: Intel Mac (x86_64) support ended after v3.8.2' "$CASE_ROOT/err"
+  grep -q 'AGENT_GUARD_VERSION=3.8.2 sh' "$CASE_ROOT/err"
+  check 'Intel Mac install shows the end-of-support notice'
+else
+  if grep -q 'Intel Mac' "$CASE_ROOT/err"; then exit 1; fi
+  check 'x86_64 Linux install shows no Intel Mac notice'
+fi
+
+# A leftover Intel helper with a valid checksum must stay unused; the arm64
+# control proves the same fake helper is selected where a target exists.
+if [ "$(/usr/bin/uname -s)" = Darwin ]; then
+  export QA_HELPER_MARKER="$CASE_ROOT/helper-ran"
+  hook_payload='{"tool_name":"Read","tool_input":{},"tool_response":{"stdout":"key AGENT_GUARD_TEST_SECRET_0","type":"text"}}'
+  for arch in x86_64 arm64; do
+    case "$arch" in
+      x86_64) install_helper "$retired_name" ;;
+      arm64) install_helper agent-guard-redact-aarch64-apple-darwin ;;
+    esac
+    rm -f "$QA_HELPER_MARKER"
+    printf '%s\n' "$hook_payload" | env PATH="$CASE_ROOT/arch-bin:$PATH" QA_UNAME_M="$arch" \
+      AGENT_GUARD_HOOK_HOST=claude AGENT_GUARD_LOG_MODE=off AGENT_GUARD_RELEASE_CHECK=off \
+      AGENT_GUARD_PII_HOOK_MODE=off AGENT_GUARD_OUTPUT_REDACT=mask \
+      AGENT_GUARD_GITLEAKS_BIN="$ROOT/tests/fixtures/mock-gitleaks" \
+      "$AGENT_GUARD_HOME/bin/agent-guard" hook-post-tool >"$CASE_ROOT/out"
+    case "$arch" in
+      x86_64)
+        [ ! -e "$QA_HELPER_MARKER" ]
+        grep -q REDACTED "$CASE_ROOT/out"
+        if grep -q native "$CASE_ROOT/out"; then exit 1; fi ;;
+      arm64)
+        [ -e "$QA_HELPER_MARKER" ]
+        grep -q native "$CASE_ROOT/out" ;;
+    esac
+  done
+  check 'Intel Mac CLI ignores a leftover Intel helper and redacts with shell/jq'
+else
+  printf 'skip - Intel Mac helper selection needs a Darwin host\n'
+fi

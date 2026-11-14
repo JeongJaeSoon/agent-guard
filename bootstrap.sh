@@ -86,7 +86,7 @@ validate_payload_layout() {
   if [ -e "$stage/libexec" ]; then
     [ -d "$stage/libexec" ] || die "native payload is not a directory"
     for target in x86_64-unknown-linux-musl aarch64-unknown-linux-musl \
-      x86_64-apple-darwin aarch64-apple-darwin; do
+      aarch64-apple-darwin; do
       name="agent-guard-redact-$target"
       [ -f "$stage/libexec/$name" ] && [ -x "$stage/libexec/$name" ] \
         && [ -f "$stage/libexec/$name.sha256" ] || die "incomplete native payload: $name"
@@ -158,6 +158,13 @@ main() {
     || die "cannot create installation transaction"
   mkdir "$transaction/next"
   cp -R "$HOME_DIR/." "$transaction/next/" || die "cannot stage existing installation"
+  # Drop the Intel macOS helper of v3.8.2 and earlier before extraction; an
+  # archive that still ships it (a pinned older version) restores it.
+  if [ -d "$transaction/next/libexec" ] && [ ! -L "$transaction/next/libexec" ]; then
+    rm -f "$transaction/next/libexec/agent-guard-redact-x86_64-apple-darwin" \
+      "$transaction/next/libexec/agent-guard-redact-x86_64-apple-darwin.sha256" \
+      || die "cannot remove retired Intel macOS helper"
+  fi
   # Retain tar's replacement semantics for old symlinks, but perform every
   # extraction write in the staged copy, never in the working installation.
   tar -xzf "$tmp/$archive" -C "$transaction/next" || die "installation extraction failed"
@@ -217,6 +224,13 @@ main() {
       ;;
   esac
   info ""
+  if [ "$(uname -s):$(uname -m)" = Darwin:x86_64 ]; then
+    info "$prog: NOTICE: Intel Mac (x86_64) support ended after v3.8.2."
+    info "  Later releases ship no Intel native helper and are not tested on Intel;"
+    info "  redaction uses the shell/jq fallback. To stay on the last supported release:"
+    info "  curl -fsSL https://github.com/${REPO}/releases/latest/download/bootstrap.sh | AGENT_GUARD_VERSION=3.8.2 sh"
+    info ""
+  fi
   info "$prog: done. v${VERSION} installed at $HOME_DIR."
 }
 

@@ -1,4 +1,4 @@
-<!-- translated-from: docs/installation.md; source-blob: 024f7a5ea37458a155fe687ee531b30e6be3a7c0 -->
+<!-- translated-from: docs/installation.md; source-blob: 52e5ff00c80fe37dc870bec3f241a5a249b9f60e -->
 
 <a id="installing-agent-guard"></a>
 
@@ -87,13 +87,13 @@ unset AGENT_GUARD_RUST_CORE_BIN
 
 ## 実行時の依存関係
 
-v3.7のリリースアーカイブとHomebrewパッケージには、Linux/macOSのx64/arm64用Rust文字列置換ヘルパーが含まれます。Rustコンパイラーは不要です。CLIは対象プラットフォームのチェックサムを検証したヘルパーを既定で使用し、不在や失敗時はshell/jqへ戻ります。検出・ポリシー・PII・host adapterはshellに残るため、以下の依存関係は引き続き必要です。shellを明示的に選択するには次を設定してください。
+v3.7以降のリリースアーカイブとHomebrewパッケージには、Linux x64/arm64とmacOS arm64用のRust文字列置換ヘルパーが含まれます。v3.7.0からv3.8.2まではmacOS x64用ヘルパーも含んでいました。Rustコンパイラーは不要です。CLIは対象プラットフォームのチェックサムを検証したヘルパーを既定で使用し、不在や失敗時はshell/jqへ戻ります。検出・ポリシー・PII・host adapterはshellに残るため、以下の依存関係は引き続き必要です。shellを明示的に選択するには次を設定してください。
 
 ```sh
 export AGENT_GUARD_EXPERIMENTAL_REDACTOR=shell
 ```
 
-Linuxヘルパーは静的muslを使うためglibcは不要で、Ubuntu 24.04で実行を検証します。macOSヘルパーのdeployment targetはmacOS 14以降で、両アーキテクチャともmacOS 15で検証します。deployment targetの設定だけでは、すべての古いOS・カーネルで動作する証拠にはなりません。未対応環境ではshellへのフォールバックを維持します。配布チェックサムは破損を検出しますが、バイナリとチェックサムの両方が悪意をもって置き換えられた場合の認証にはなりません。
+Linuxヘルパーは静的muslを使うためglibcは不要で、Ubuntu 24.04で実行を検証します。macOSヘルパーのdeployment targetはmacOS 14以降で、macOS 15 arm64で検証します。Intel Mac(x86_64)のサポートはv3.8.2で終了しました。以降のリリースはIntel用ヘルパーを配布せず、Intelでは検証しないため、Intel環境ではshell/jqへのフォールバックを使います。スタンドアロンのインストーラーはIntelでこの案内を表示し、更新時に古いIntel用ヘルパーを削除します。最後のサポート版に留まるには、インストーラーを `AGENT_GUARD_VERSION=3.8.2` で実行してください。deployment targetの設定だけでは、すべての古いOS・カーネルで動作する証拠にはなりません。未対応環境ではshellへのフォールバックを維持します。配布チェックサムは破損を検出しますが、バイナリとチェックサムの両方が悪意をもって置き換えられた場合の認証にはなりません。
 
 ソースアーカイブとhost管理のGit marketplaceプラグインにはバイナリがないため、既存の `AGENT_GUARD_RUST_CORE_BIN` で信頼できるビルド済みヘルパーを指定しなければshellを使います。スタンドアロン版のヘルパーを使えばhostのキャッシュを編集する必要はありません。選択・チェックサム検証・開発者の上書き設定は[ネイティブヘルパーガイド（英語）](https://github.com/JeongJaeSoon/agent-guard/blob/v3.8.0/docs/native-redactor.md)を参照してください。
 
