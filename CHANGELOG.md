@@ -1,5 +1,9 @@
 ## Unreleased
 
+- feat(shell): `setup-shell`이 shell rc에 약 155줄 블록 대신 `~/.agent-guard/shell-init.sh`를 읽는 한 줄 블록을 씁니다. 실행 전에 캐시 바이너리를 검증하는 resolver는 그 파일로 옮겼고 내용은 같습니다. 두 파일 모두 캐시의 `current` 링크와 캐시 기준 경로만 적으므로, 플러그인 버전이 바뀌어도 다시 쓸 필요가 없습니다. 마스킹·deny·hook 동작과 hook manifest는 바뀌지 않습니다.
+  - 동작 변경: `setup-shell`을 다시 실행하면 예전 여러 줄 블록을 같은 자리에서 한 줄 블록으로 바꿉니다(블록 뒤의 rc 줄 순서가 유지됩니다). `--no-command-wrapping`은 `~/.agent-guard/shell-init-no-wrapping.sh`를 따로 씁니다. 파일이 없으면 rc 줄은 아무것도 하지 않고 셸 시작을 실패시키지 않으며, SessionStart가 "can no longer load" 안내를 보입니다. 같은 계정에서 다른 설치 경로로 `setup-shell`을 실행하면 마지막 실행이 그 파일을 씁니다.
+  - 사용자가 할 일: 새 블록을 원하면 `/agent-guard:setup-shell`(독립 설치는 `agent-guard setup-shell`)을 한 번 다시 실행하고 셸과 세션을 다시 시작합니다. 예전 블록도 그대로 동작합니다. 독립 설치를 지울 때는 rc 블록과 함께 `~/.agent-guard/shell-init*.sh`도 지웁니다.
+  - 운영자가 할 일: 없습니다. hook manifest가 바뀌지 않으므로 Codex hook trust를 다시 받을 필요가 없습니다.
 - fix(scan): 접두사가 있는 UUID 모양 key(LaunchDarkly 서버 SDK key 모양, `sdk-`와 소문자 UUID)를 shape 규칙 `agent-guard-vendor-token-shape`로 잡습니다. `sdk-` 뒤에 패키지 이름 같은 일반 단어가 오면 잡지 않습니다.
 - chore(platform): Intel Mac(x86_64-apple-darwin) 지원을 끝냅니다. 마지막 지원 버전은 v3.8.2입니다. 이후 릴리스는 `agent-guard-redact-x86_64-apple-darwin` helper(archive의 `libexec/`와 별도 asset)를 배포하지 않습니다. `native-validation.json`의 targets는 3개입니다. CI는 macOS Intel 러너를 쓰지 않습니다.
   - 동작 변경: Intel Mac에서는 CLI가 native helper를 고르지 않고 셸/jq 치환기를 씁니다. hook이 막히지는 않습니다. v3.8.2에서 남은 Intel helper가 있어도 실행하지 않으며, 독립 설치 스크립트가 업데이트 때 지웁니다. 독립 설치 스크립트와 Homebrew formula(caveats)는 Intel Mac에서 설치·업데이트 때 지원 종료 안내를 보입니다.

@@ -43,8 +43,9 @@ command is a working-tree scan; it does not prove hook dispatch. Complete both
 live probes after it.
 
 `setup-agent-guard` diagnoses the plugin-local binary and its dependencies; it
-does not install a second Agent Guard CLI on `PATH`. `setup-shell` writes the
-plugin's stable `current/bin` directory into the selected bash or zsh rc. After
+does not install a second Agent Guard CLI on `PATH`. `setup-shell` adds one
+line to the selected bash or zsh rc that sources `~/.agent-guard/shell-init.sh`,
+which puts the plugin's stable `current/bin` directory on `PATH`. After
 restarting that shell, the same plugin-local executable is available as the
 bare `agent-guard` command without Homebrew or the standalone bootstrap.
 

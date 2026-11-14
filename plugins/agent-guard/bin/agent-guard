@@ -14561,6 +14561,22 @@ hook_user_prompt() {
 # resolution order against the paths it baked in: the stable/self path, then the
 # newest versioned binary under the plugin cache base, then `agent-guard` on
 # $PATH. All stat-level; nothing is executed and no subshell is forked.
+#
+# Read one sh_squote word from $1, the text right after its opening quote, into
+# $unsquoted. Fails when the word never closes.
+shell_init_unsquote() {
+  us_rest=$1 unsquoted=
+  while :; do
+    case "$us_rest" in *"'"*) ;; *) return 1 ;; esac
+    unsquoted=$unsquoted${us_rest%%"'"*}
+    us_rest=${us_rest#*"'"}
+    case "$us_rest" in
+      "\\''"*) unsquoted="$unsquoted'"; us_rest=${us_rest#"\\''"} ;;
+      *) return 0 ;;
+    esac
+  done
+}
+
 shell_init_rc_block_state() {
   rc_probe=$1
   # Both delimiters must be present, or the block is not a block (setup-shell
@@ -14568,19 +14584,33 @@ shell_init_rc_block_state() {
   block=$(awk -v b="$SHELL_INIT_BLOCK_BEGIN" -v e="$SHELL_INIT_BLOCK_END" \
     '$0==b{inb=1;next} $0==e&&inb{found=1;inb=0;next} inb{print} END{exit !found}' \
     "$rc_probe" 2>/dev/null) || return 1
+  # Current blocks source the resolver file setup-shell wrote; older blocks
+  # carry the resolver inline. A missing file loads nothing.
+  case "$block" in
+    *"_agbin='"*) ;;
+    *"; then . '"*)
+      shell_init_unsquote "${block##*; then . \'}" || return 2
+      rc_init=$unsquoted
+      [ -f "$rc_init" ] && [ -r "$rc_init" ] || return 2
+      block=
+      while IFS= read -r rc_init_line || [ -n "$rc_init_line" ]; do
+        block="$block$rc_init_line
+"
+      done <"$rc_init"
+      ;;
+  esac
   # Delimiters wrapping something that never invokes shell-init protect nothing.
   case "$block" in *shell-init*) ;; *) return 2 ;; esac
 
-  # The baked words are emitted by sh_squote, so read up to the closing quote. A
-  # path containing a quote truncates here and reads as unresolvable — the safe
-  # direction: a false "run setup" is recoverable, a false "you are protected"
-  # is not.
+  # The baked words are emitted by sh_squote. A word that does not parse reads
+  # as unresolvable — the safe direction: a false "run setup" is recoverable, a
+  # false "you are protected" is not.
   agbin= agbase=
   case "$block" in
-    *"_agbin='"*) agbin=${block#*_agbin=\'}; agbin=${agbin%%\'*} ;;
+    *"_agbin='"*) shell_init_unsquote "${block#*_agbin=\'}" && agbin=$unsquoted ;;
   esac
   case "$block" in
-    *"_agbase='"*) agbase=${block#*_agbase=\'}; agbase=${agbase%%\'*} ;;
+    *"_agbase='"*) shell_init_unsquote "${block#*_agbase=\'}" && agbase=$unsquoted ;;
   esac
   [ -n "$agbin" ] && [ -x "$agbin" ] && return 0
   if [ -n "$agbase" ]; then
@@ -15439,31 +15469,51 @@ setup_shell_write_rc() {  # $1 = rc path, $2 = the eval line to manage
   # half-written, even if this process is killed mid-run.
   tmp=$(mktemp "$rc_dir/.agent-guard-rc.XXXXXX" 2>/dev/null) \
     || die "setup-shell: failed to create temp file in $rc_dir"
+  rc_block="$begin
+# Managed by 'agent-guard setup-shell' — remove this block to disable.
+$line
+$end"
   if [ -f "$rc_real" ]; then
     # Seed perms/owner from the existing rc (a plain `>` below keeps the inode's
     # mode while rewriting content); a brand-new rc keeps mktemp's private 0600.
     cp -p "$rc_real" "$tmp" 2>/dev/null || :
-    # Strip any existing managed block, then REFUSE if we hit a begin marker with
-    # no matching end (`END{exit skip}`): silently dropping everything after an
-    # unbalanced marker would eat unrelated rc content.
-    if ! awk -v b="$begin" -v e="$end" \
-      '$0==b{skip=1} skip==0{print} $0==e{skip=0} END{exit skip}' "$rc_real" >"$tmp"; then
+    # Replace the first managed block where it stands (so rc lines after it keep
+    # their order), drop any later copies, and append when there is none. REFUSE
+    # on a begin marker with no matching end (`exit skip`): silently dropping
+    # everything after an unbalanced marker would eat unrelated rc content. The
+    # block travels through ENVIRON because `awk -v` rewrites backslashes.
+    if ! AGENT_GUARD_RC_BLOCK=$rc_block awk -v b="$begin" -v e="$end" '
+      $0==b { skip=1; if (!done) { print ENVIRON["AGENT_GUARD_RC_BLOCK"]; done=1 } }
+      skip==0 { print }
+      $0==e { skip=0 }
+      END { if (skip) exit 1; if (!done) print ENVIRON["AGENT_GUARD_RC_BLOCK"] }
+    ' "$rc_real" >"$tmp"; then
       rm -f "$tmp"
       die "setup-shell: $rc_real has '$begin' with no matching '$end'; refusing to overwrite. Fix or remove that block, then re-run."
     fi
   else
-    : >"$tmp"
+    printf '%s\n' "$rc_block" >"$tmp"
   fi
-  {
-    printf '%s\n' "$begin"
-    printf '%s\n' "# Managed by 'agent-guard setup-shell' — remove this block to disable."
-    [ -z "${path_line:-}" ] || printf '%s\n' "$path_line"
-    printf '%s\n' "$line"
-    printf '%s\n' "$end"
-  } >>"$tmp"
   mv "$tmp" "$rc_real" || { rm -f "$tmp"; die "setup-shell: failed to write $rc_real"; }
 
   info "$PROGRAM: shell integration written to $rc_real"
+}
+
+# The rc block only sources this file, so the validating resolver lives outside
+# the rc. It names `current` and the cache base, never a version directory, so a
+# plugin update does not require rewriting either file.
+setup_shell_write_bootstrap() {  # $1 = bootstrap path, $2 = file content
+  bootstrap_dir=${1%/*}
+  # `mv` onto a directory (or a link to one) would move the file inside it.
+  [ ! -d "$1" ] || die "setup-shell: $1 is a directory; remove it, then re-run."
+  (umask 077; mkdir -p -- "$bootstrap_dir") 2>/dev/null \
+    || die "setup-shell: failed to create $bootstrap_dir"
+  bootstrap_tmp=$(mktemp "$bootstrap_dir/.shell-init.XXXXXX" 2>/dev/null) \
+    || die "setup-shell: failed to create temp file in $bootstrap_dir"
+  printf '%s\n' "$2" >"$bootstrap_tmp" \
+    && mv "$bootstrap_tmp" "$1" \
+    || { rm -f "$bootstrap_tmp"; die "setup-shell: failed to write $1"; }
+  info "$PROGRAM: shell resolver written to $1"
 }
 
 # `setup-shell` — write the `eval "$(... shell-init ...)"` line into the user's
@@ -15529,8 +15579,9 @@ do_setup_shell() {
   if [ "$want_help" -eq 1 ]; then
     {
       printf '%s\n' "Usage: $PROGRAM setup-shell [--bash|--zsh|--rc FILE] [--no-command-wrapping]"
-      printf '%s\n' "Adds the shell-init line to your shell rc (idempotent). Restart your"
-      printf '%s\n' "shell and any sessions launched from it afterwards to apply."
+      printf '%s\n' "Adds one line to your shell rc that sources ~/.agent-guard/shell-init.sh,"
+      printf '%s\n' "and writes that file (idempotent; an older inline block is replaced)."
+      printf '%s\n' "Restart your shell and any sessions launched from it afterwards to apply."
       printf '%s\n' "If the process or account login shell is fish, setup writes both ~/.bashrc"
       printf '%s\n' "and ~/.zshrc: fish cannot eval the POSIX snippet, and agent shell snapshots"
       printf '%s\n' "run one of those two. Account lookup is best-effort (getent on Linux, dscl"
@@ -15606,6 +15657,17 @@ fi
     stable_dir=$(sh_squote "$PLUGIN_CACHE_BASE/current/bin")
     path_line="case :\$PATH: in *:$stable_dir:*) ;; *) PATH=$stable_dir\${PATH:+:\$PATH} ;; esac; export PATH"
   fi
+  [ -n "${HOME:-}" ] || die "setup-shell: HOME is not set"
+  # One file per wrapping choice, so an opt-out rc and a default rc on the same
+  # account do not overwrite each other's resolver.
+  bootstrap="$HOME/.agent-guard/shell-init${wrapping:+-no-wrapping}.sh"
+  setup_shell_write_bootstrap "$bootstrap" "# Managed by 'agent-guard setup-shell' and sourced from your shell rc. Rerun setup-shell to regenerate.
+${path_line:+$path_line
+}$line"
+  bootstrap_word=$(sh_squote "$bootstrap")
+  # Clear an inherited marker first: shell-init re-exports it only when it
+  # loads, so a missing file or binary must not look protected to SessionStart.
+  line="unset AGENT_GUARD_SHELL_INIT_VERSION; if [ -f $bootstrap_word ] && [ -r $bootstrap_word ]; then . $bootstrap_word; fi"
 
   if [ "$sh_target" = fish ]; then
     setup_shell_write_rc "$HOME/.bashrc" "$line"

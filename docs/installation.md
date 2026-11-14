@@ -256,9 +256,12 @@ When the installed plugin already matches the CLI, it looks up the latest
 GitHub release and prints the exact host-manager `marketplace remove`,
 `marketplace add ...@vX.Y.Z`, and plugin install commands that move forward;
 `agent-guard doctor` and `agent-guard plugin status` report the same release
-staleness. Set `AGENT_GUARD_RELEASE_CHECK=off` to skip the lookup. The shell
-block resolves through the cache's `current` link, so `setup-shell` does not
-need to be rerun after a plugin update.
+staleness. Set `AGENT_GUARD_RELEASE_CHECK=off` to skip the lookup.
+`setup-shell` adds one line to the shell rc that sources
+`~/.agent-guard/shell-init.sh`, and writes the validating resolver to that file.
+Both resolve through the cache's `current` link, so `setup-shell` does not need
+to be rerun after a plugin update. Rerunning it replaces an older multi-line
+block in place with the one-line form.
 
 Standalone updates are staged beside the current installation before replacement.
 Checksum, extraction and commit failures leave or restore the previous install;
@@ -309,7 +312,8 @@ Remove each route through the manager that owns it: use the Claude Code or
 Codex plugin manager for a host plugin, and `brew uninstall
 JeongJaeSoon/tap/agent-guard` for Homebrew. For a standalone install, first
 remove the managed shell-integration block from the shell rc file selected by
-`agent-guard setup-shell`, then remove the public symlink and the installation
+`agent-guard setup-shell` and the `~/.agent-guard/shell-init*.sh` files it
+sourced, then remove the public symlink and the installation
 directory only after confirming their paths:
 
 ```sh
