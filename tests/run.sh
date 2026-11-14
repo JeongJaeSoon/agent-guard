@@ -291,13 +291,13 @@ for bootstrap_mode in on off; do
     not_ok "bootstrap installs Agent Guard with command wrapping $bootstrap_mode (status $status)"
   fi
   if [ "$bootstrap_mode" = on ]; then
-    if grep -q 'agent-guard shell-init' "$bootstrap_home/.zshrc" 2>/dev/null \
-       && ! grep -q -- '--no-command-wrapping' "$bootstrap_home/.zshrc" 2>/dev/null; then
+    if grep -Fq '"$_agresolved" shell-init 2>' "$bootstrap_home/.agent-guard/shell-init.sh" 2>/dev/null \
+       && ! grep -q -- '--no-command-wrapping' "$bootstrap_home/.zshrc" "$bootstrap_home/.agent-guard/shell-init.sh" 2>/dev/null; then
       ok "bootstrap enables command wrapping by default"
     else
       not_ok "bootstrap enables command wrapping by default"
     fi
-  elif grep -q 'shell-init --no-command-wrapping' "$bootstrap_home/.zshrc" 2>/dev/null; then
+  elif grep -q 'shell-init --no-command-wrapping' "$bootstrap_home/.agent-guard/shell-init-no-wrapping.sh" 2>/dev/null; then
     ok "bootstrap persists AGENT_GUARD_COMMAND_WRAPPING=off"
   else
     not_ok "bootstrap persists AGENT_GUARD_COMMAND_WRAPPING=off"
@@ -16719,7 +16719,7 @@ fi
 # setup or widening writes unexpectedly.
 ss_no_lookup_bin="$TESTTMP/no-login-shell-lookup-bin"
 mkdir -p "$ss_no_lookup_bin"
-for ss_tool in sh dirname sed mktemp mv rm id; do
+for ss_tool in sh dirname sed mkdir mktemp mv rm id; do
   ss_tool_path=$(command -v "$ss_tool" 2>/dev/null || :)
   [ -n "$ss_tool_path" ] && ln -s "$ss_tool_path" "$ss_no_lookup_bin/$ss_tool"
 done

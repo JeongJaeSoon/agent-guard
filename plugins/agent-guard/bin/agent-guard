@@ -14561,6 +14561,22 @@ hook_user_prompt() {
 # resolution order against the paths it baked in: the stable/self path, then the
 # newest versioned binary under the plugin cache base, then `agent-guard` on
 # $PATH. All stat-level; nothing is executed and no subshell is forked.
+#
+# Read one sh_squote word from $1, the text right after its opening quote, into
+# $unsquoted. Fails when the word never closes.
+shell_init_unsquote() {
+  us_rest=$1 unsquoted=
+  while :; do
+    case "$us_rest" in *"'"*) ;; *) return 1 ;; esac
+    unsquoted=$unsquoted${us_rest%%"'"*}
+    us_rest=${us_rest#*"'"}
+    case "$us_rest" in
+      "\\''"*) unsquoted="$unsquoted'"; us_rest=${us_rest#"\\''"} ;;
+      *) return 0 ;;
+    esac
+  done
+}
+
 shell_init_rc_block_state() {
   rc_probe=$1
   # Both delimiters must be present, or the block is not a block (setup-shell
@@ -14573,7 +14589,8 @@ shell_init_rc_block_state() {
   case "$block" in
     *"_agbin='"*) ;;
     *"; then . '"*)
-      rc_init=${block#*; then . \'}; rc_init=${rc_init%%\'*}
+      shell_init_unsquote "${block##*; then . \'}" || return 2
+      rc_init=$unsquoted
       [ -f "$rc_init" ] && [ -r "$rc_init" ] || return 2
       block=
       while IFS= read -r rc_init_line || [ -n "$rc_init_line" ]; do
@@ -14585,16 +14602,15 @@ shell_init_rc_block_state() {
   # Delimiters wrapping something that never invokes shell-init protect nothing.
   case "$block" in *shell-init*) ;; *) return 2 ;; esac
 
-  # The baked words are emitted by sh_squote, so read up to the closing quote. A
-  # path containing a quote truncates here and reads as unresolvable — the safe
-  # direction: a false "run setup" is recoverable, a false "you are protected"
-  # is not.
+  # The baked words are emitted by sh_squote. A word that does not parse reads
+  # as unresolvable — the safe direction: a false "run setup" is recoverable, a
+  # false "you are protected" is not.
   agbin= agbase=
   case "$block" in
-    *"_agbin='"*) agbin=${block#*_agbin=\'}; agbin=${agbin%%\'*} ;;
+    *"_agbin='"*) shell_init_unsquote "${block#*_agbin=\'}" && agbin=$unsquoted ;;
   esac
   case "$block" in
-    *"_agbase='"*) agbase=${block#*_agbase=\'}; agbase=${agbase%%\'*} ;;
+    *"_agbase='"*) shell_init_unsquote "${block#*_agbase=\'}" && agbase=$unsquoted ;;
   esac
   [ -n "$agbin" ] && [ -x "$agbin" ] && return 0
   if [ -n "$agbase" ]; then

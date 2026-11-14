@@ -210,8 +210,8 @@ fi
 ss_start_home="$CASE_ROOT/sstart-home"
 mkdir -p "$ss_start_home"
 ss_start_path="$(dirname "$(command -v jq)"):$(dirname "$(command -v git)"):/usr/bin:/bin"
-session_start_message() {
-  env -u AGENT_GUARD_SHELL_INIT_VERSION HOME="$ss_start_home" SHELL=/bin/zsh \
+session_start_message() {  # $1 = HOME (default: $ss_start_home)
+  env -u AGENT_GUARD_SHELL_INIT_VERSION HOME="${1:-$ss_start_home}" SHELL=/bin/zsh \
     AGENT_GUARD_HOOK_HOST=claude AGENT_GUARD_GITLEAKS_BIN="$ROOT/tests/fixtures/mock-gitleaks" \
     PATH="$ss_start_path" "$PLUGIN_ROOT/bin/agent-guard" hook-session-start 2>/dev/null
 }
@@ -228,6 +228,20 @@ else
   case "$(session_start_message)" in
     *'can no longer load'*) ok "SessionStart reports a one-line block whose resolver file is missing" ;;
     *) not_ok "SessionStart reports a one-line block whose resolver file is missing" ;;
+  esac
+  # sh_squote escapes a quote in HOME; the probe must read the same path.
+  ss_quote_home="$CASE_ROOT/home with ' quote"
+  mkdir -p "$ss_quote_home"
+  env HOME="$ss_quote_home" SHELL=/bin/zsh "$PLUGIN_ROOT/bin/agent-guard" setup-shell >/dev/null 2>&1
+  ss_quote_loads=$(loads /bin/sh /usr/bin:/bin "$ss_quote_home/.zshrc")
+  case "$(session_start_message "$ss_quote_home")" in
+    *'can no longer load'*|*'is not loaded'*)
+      not_ok "SessionStart reads a resolver path whose HOME contains a quote (loads: $ss_quote_loads)" ;;
+    *) if [ "$ss_quote_loads" = INSTALLED ]; then
+         ok "SessionStart reads a resolver path whose HOME contains a quote"
+       else
+         not_ok "rc with a quoted HOME did not load (got: $ss_quote_loads)"
+       fi ;;
   esac
 fi
 
