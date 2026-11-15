@@ -40,9 +40,12 @@ return status 0 with no response. See [Output masking coverage](integrations.md#
 ## Output and prompt handling
 
 - `AGENT_GUARD_OUTPUT_REDACT=off` disables secret-like output masking. The
-  default is masking. It also turns off the Claude `PostToolUseFailure` check,
-  which reports secret-like values in a failed tool's output but cannot mask
-  them ([Integrations](integrations.md#output-masking-coverage)).
+  default is masking. With `AGENT_GUARD_DENY_READ_MODE=mask` it also masks the
+  values of the project's root dotenv files; see
+  [Known dotenv values in output](#known-dotenv-values-in-output). It also
+  turns off the Claude `PostToolUseFailure` check, which reports secret-like
+  values in a failed tool's output but cannot mask them
+  ([Integrations](integrations.md#output-masking-coverage)).
 - A tool result too large to scan is masked fail-closed: every nonempty string
   in it is replaced. Anthropic content-block discriminators (`type`,
   `source.type`, `media_type`) survive that rewrite when the value is exactly a
@@ -215,6 +218,59 @@ Keys and comments are shown as written. If key names are sensitive too, keep
 `block`. The view covers the whole file; `Read`'s `offset` and `limit` are
 ignored.
 
+### Known dotenv values in output
+
+A secret under a generic key name with no vendor prefix (`APP_SEED=...`) has
+nothing that marks it as a secret, so the output detectors alone let it
+through. In `mask` mode, output masking also replaces every exact occurrence of
+a value from the project's root dotenv files with `[REDACTED]`, wherever it
+appears: after its own key, bare in a log line, inside an argv list, or as a
+URL password. Agent Guard's own process reads the files; the model never sees
+them.
+
+```text
+$ printf 'worker started, seed %s\n' "$APP_SEED" | agent-guard exec -- cat
+worker started, seed [REDACTED]
+```
+
+- It runs only with `AGENT_GUARD_DENY_READ_MODE=mask`, the mode in which you
+  already let Agent Guard read protected files. In `block` (the default) and
+  with any invalid mode value, Agent Guard never opens a dotenv file for
+  output masking, and such a value stays unmasked.
+- `AGENT_GUARD_KNOWN_VALUE_REDACT=off` turns it off in `mask` mode.
+  `AGENT_GUARD_OUTPUT_REDACT=off` turns it off with the rest of output masking.
+- It applies wherever the shared output masking runs: Claude and Codex
+  `PostToolUse` and `agent-guard exec` / `agx`.
+- Files: only those directly in the project directory (the event's `cwd`; for
+  `exec`, its working directory) and in that directory's Git top level. No
+  subdirectory is searched. A file counts only when its name is on the
+  deny-read list and mask-file reads it as dotenv (the dotenv row of the table
+  above), so templates such as `.env.example`, `.env.sample` and
+  `.env.template`, and `.envrc`, are skipped. Symlinks are skipped.
+- Values: the dotenv subset above. Quotes are removed, an unquoted value ends
+  before a ` #` comment, and a trailing CR is dropped. Values shorter than 8
+  bytes, `true`/`false`/`yes`/`no`/`on`/`off` in any case, numbers, empty
+  values, and values that mix fewer than two of letters, digits and other
+  characters (a plain word such as `development` or `localhost`) are not used.
+  So a long secret made only of letters is not a known value. Matching is exact and literal: no regex, no encoded
+  variants (base64, URL encoding, a changed case).
+- A file that cannot be read or is outside the dotenv subset, or is over
+  64 KiB, contributes no values. One line outside the subset (a `${VAR}`
+  reference, a backtick, a value over several lines) is enough: that whole
+  file then contributes no values, even from its other lines. This is not an infrastructure failure: masking by
+  every other rule continues as before and no warning names the file. If the
+  value matcher itself fails, the output is masked conservatively, as for any
+  other detector failure.
+- Values are held in memory for one hook or `exec` run only. They are never
+  written to the audit log, a cache, a warning or an error message.
+- A value that passes these filters is masked everywhere it appears in
+  output, even where it is not used as a secret (for example a host name such
+  as `db.example.com`).
+
+A secret that is not in a root dotenv file (another file, the process
+environment, a nested `.env`, a secret manager) is still not covered. Neither
+is one in `block` mode.
+
 ### Deny-value rules
 
 Text that must never show, such as your organization's token format, can be
@@ -354,6 +410,7 @@ reads it.
 | `AGENT_GUARD_INFRA_FAILURE_MODE` | `open` (default) or `closed` for hook infrastructure failures. |
 | `AGENT_GUARD_SCAN_INPUT_MAX_BYTES` | Positive integer `>= 10485760`; default `10485760` (10 MiB, split into thirds per producer, so `scan-staged` and each `scan-working-tree` component get 3495253 bytes by default). It can only raise the budget: smaller, non-numeric, or overlong (19+ digit) values keep the default. A larger budget scans more input; it never excludes anything from scanning. |
 | `AGENT_GUARD_OUTPUT_REDACT` | Output secret masking; set `off` only with deliberate acceptance of the reduced protection. |
+| `AGENT_GUARD_KNOWN_VALUE_REDACT` | `on` (default) or `off`. Only with `AGENT_GUARD_DENY_READ_MODE=mask`: output masking also masks the values of the project's root dotenv files ([Known dotenv values in output](#known-dotenv-values-in-output)). `off` skips it. |
 | `AGENT_GUARD_PROMPT_GUARD_MODE` | `block` (default), `warn`, `off`, or the currently blocking `mask` fallback. |
 | `AGENT_GUARD_PII_HOOK_MODE` | `off` (default), `block`, or `mask`. |
 | `AGENT_GUARD_PII_PROVIDER` | `regex` (default), `http`, or `pleno`. |

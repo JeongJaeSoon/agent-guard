@@ -189,6 +189,14 @@ What masking cannot do on either host:
   output schema, the host may keep the original. Agent Guard preserves the
   original JSON shape whenever it can; the last-resort fixed `[REDACTED]` string
   is the known exception.
+- Recognize a secret that has no secret-like shape. A value under a generic
+  key name with no vendor prefix (`APP_SEED=...`, or the same value bare in a
+  log line, an argv list or a URL password) passes the detectors. With
+  `AGENT_GUARD_DENY_READ_MODE=mask`, the values of the project's root dotenv
+  files are masked as known values on every route above
+  ([Known dotenv values in output](configuration.md#known-dotenv-values-in-output)).
+  In `block` mode (the default), and for a secret that is not in a root dotenv
+  file, this gap remains.
 
 Hook timeouts in every shipped manifest:
 
