@@ -286,6 +286,267 @@ print_release_forward_commands() {
   printf '%s\n' "$PROGRAM: marketplace removal also removes its installed plugin; restart the host afterwards" >&2
 }
 
+# Codex trusts each hook by its entry hash and by the plugin's content hash, so
+# a plugin update can mark every agent-guard hook "modified" while hooks.json
+# stays byte-identical. Codex then skips them and no agent-guard process ever
+# starts. Ask Codex (app-server hooks/list) instead of re-deriving its
+# undocumented hashes. The answer is a snapshot of what a fresh Codex process
+# reads for one directory, not observed dispatch; trust is never written here.
+CODEX_TRUST_TIMEOUT_SECONDS=10
+CODEX_TRUST_MAX_BYTES=4194304
+CODEX_TRUST_EVENTS='["preToolUse","postToolUse","sessionStart","userPromptSubmit","stop"]'
+CODEX_TRUST_STATE=
+CODEX_TRUST_DETAIL=
+CODEX_TRUST_CWD=
+CODEX_TRUST_PROBE_PID=
+CODEX_TRUST_GROUP=
+CODEX_TRUST_WATCHDOG_PID=
+
+# Runs as the leader of its own process group. hooks/list is sent only after a
+# successful initialize reply. Closing stdin is what stops app-server, so the
+# writer holds it open until the reply arrives or the deadline passes.
+CODEX_TRUST_CLIENT='codex=$1 out=$2 cwd=$3 limit=$4 version=$5
+deadline=$(( $(date +%s) + limit ))
+replied() {
+  jq -R -e --argjson id "$1" "fromjson? | select(type == \"object\" and .id == \$id) | $2" "$out" >/dev/null 2>&1
+}
+await() {
+  until replied "$1" true; do
+    [ "$(date +%s)" -lt "$deadline" ] || return 1
+    sleep 0.1 2>/dev/null || sleep 1
+  done
+}
+{
+  jq -nc --arg v "$version" "{jsonrpc: \"2.0\", id: 1, method: \"initialize\", params: {clientInfo: {name: \"agent-guard\", title: \"agent-guard\", version: \$v}, capabilities: {}}}"
+  await 1 && replied 1 "(.result | type == \"object\")" || exit 0
+  printf "%s\n" "{\"jsonrpc\":\"2.0\",\"method\":\"initialized\"}"
+  jq -nc --arg cwd "$cwd" "{jsonrpc: \"2.0\", id: 2, method: \"hooks/list\", params: {cwds: [\$cwd]}}"
+  await 2 || :
+} | "$codex" app-server >"$out" 2>/dev/null'
+
+clear_codex_trust_probe_processes() {
+  if [ -n "$CODEX_TRUST_WATCHDOG_PID" ]; then
+    kill -TERM "$CODEX_TRUST_WATCHDOG_PID" 2>/dev/null || :
+    wait "$CODEX_TRUST_WATCHDOG_PID" 2>/dev/null || :
+    CODEX_TRUST_WATCHDOG_PID=
+  fi
+  case "$CODEX_TRUST_GROUP" in
+    ''|*[!0-9]*) ;;
+    *)
+      kill -TERM -"$CODEX_TRUST_GROUP" 2>/dev/null || :
+      kill -KILL -"$CODEX_TRUST_GROUP" 2>/dev/null || :
+      ;;
+  esac
+  # A signal can arrive before the launcher has called setsid, when no group
+  # exists yet; the unreaped probe itself is still safe to signal.
+  if [ -n "$CODEX_TRUST_PROBE_PID" ]; then
+    kill -TERM "$CODEX_TRUST_PROBE_PID" 2>/dev/null || :
+    kill -KILL "$CODEX_TRUST_PROBE_PID" 2>/dev/null || :
+    wait "$CODEX_TRUST_PROBE_PID" 2>/dev/null || :
+    CODEX_TRUST_PROBE_PID=
+  fi
+  CODEX_TRUST_GROUP=
+}
+
+# Sets CODEX_TRUST_STATE to ok, review, disabled, absent, or unverified. Only
+# a complete, well-formed reply listing every expected hook once as trusted or
+# managed and enabled is ok; anything that could not be read is unverified.
+codex_trust_probe() {
+  CODEX_TRUST_CWD=$1
+  CODEX_TRUST_STATE=unverified
+  CODEX_TRUST_DETAIL=
+  if [ "${AGENT_GUARD_CODEX_TRUST_CHECK:-on}" = off ]; then
+    CODEX_TRUST_DETAIL='check skipped by AGENT_GUARD_CODEX_TRUST_CHECK=off'
+    return 0
+  fi
+  ct_codex=$(command -v codex 2>/dev/null) || ct_codex=
+  if [ -z "$ct_codex" ]; then
+    CODEX_TRUST_DETAIL='codex is not on PATH'
+    return 0
+  fi
+  if ! command -v jq >/dev/null 2>&1; then
+    CODEX_TRUST_DETAIL='jq is required to read the Codex reply'
+    return 0
+  fi
+  if ! select_gitleaks_probe_launcher; then
+    CODEX_TRUST_DETAIL='setsid or perl is required to bound the Codex query'
+    return 0
+  fi
+  ct_limit=$CODEX_TRUST_TIMEOUT_SECONDS
+  if [ "${AG_PLUGIN_TEST_MODE:-0}" = 1 ]; then
+    case "${AG_PLUGIN_TEST_CODEX_TRUST_TIMEOUT:-}" in
+      ''|*[!0-9]*) ;;
+      *) ct_limit=$AG_PLUGIN_TEST_CODEX_TRUST_TIMEOUT ;;
+    esac
+  fi
+  ct_dir=
+  [ -z "$AGENT_GUARD_RUNDIR" ] \
+    || ct_dir=$(mktemp -d "$AGENT_GUARD_RUNDIR/codex-trust.XXXXXX" 2>/dev/null) \
+    || ct_dir=
+  if [ -z "$ct_dir" ]; then
+    CODEX_TRUST_DETAIL='no private temporary directory for the Codex reply'
+    return 0
+  fi
+  ct_out="$ct_dir/reply"
+  : >"$ct_out" || {
+    rm -rf "$ct_dir"
+    CODEX_TRUST_DETAIL='no private temporary directory for the Codex reply'
+    return 0
+  }
+  (
+    # app-server's own state is not this probe's to place; run it outside the
+    # project so the cwd cannot select a different Codex home or config.
+    cd "$ct_dir" || exit 125
+    case "$GITLEAKS_PROBE_LAUNCHER" in
+      setsid)
+        exec "$GITLEAKS_PROBE_LAUNCHER_BIN" sh -c "$CODEX_TRUST_CLIENT" agent-guard-codex-trust \
+          "$ct_codex" "$ct_out" "$CODEX_TRUST_CWD" "$ct_limit" "$VERSION"
+        ;;
+      perl)
+        exec "$GITLEAKS_PROBE_LAUNCHER_BIN" -MPOSIX \
+          -e 'POSIX::setsid() >= 0 or exit 125; exec @ARGV; exit 126' \
+          sh -c "$CODEX_TRUST_CLIENT" agent-guard-codex-trust \
+          "$ct_codex" "$ct_out" "$CODEX_TRUST_CWD" "$ct_limit" "$VERSION"
+        ;;
+      *) exit 125 ;;
+    esac
+  ) </dev/null >/dev/null 2>&1 &
+  CODEX_TRUST_PROBE_PID=$!
+  CODEX_TRUST_GROUP=$CODEX_TRUST_PROBE_PID
+  (
+    ct_watch_sleep_pid=
+    trap 'trap "" TERM INT
+      if [ -n "$ct_watch_sleep_pid" ]; then
+        kill -TERM "$ct_watch_sleep_pid" 2>/dev/null || :
+        kill -KILL "$ct_watch_sleep_pid" 2>/dev/null || :
+        wait "$ct_watch_sleep_pid" 2>/dev/null || :
+      fi
+      exit 0' TERM INT
+    # The client stops writing at the deadline; this bounds a server that
+    # ignores end of input or a client that cannot run at all.
+    sleep "$((ct_limit + 2))" &
+    ct_watch_sleep_pid=$!
+    wait "$ct_watch_sleep_pid" 2>/dev/null || exit 0
+    ct_watch_sleep_pid=
+    kill -0 "$CODEX_TRUST_PROBE_PID" 2>/dev/null || exit 0
+    kill -TERM -"$CODEX_TRUST_GROUP" 2>/dev/null \
+      || kill -TERM "$CODEX_TRUST_PROBE_PID" 2>/dev/null || :
+    sleep 1 &
+    ct_watch_sleep_pid=$!
+    wait "$ct_watch_sleep_pid" 2>/dev/null || exit 0
+    ct_watch_sleep_pid=
+    kill -KILL -"$CODEX_TRUST_GROUP" 2>/dev/null \
+      || kill -KILL "$CODEX_TRUST_PROBE_PID" 2>/dev/null || :
+  ) &
+  CODEX_TRUST_WATCHDOG_PID=$!
+  wait "$CODEX_TRUST_PROBE_PID" 2>/dev/null
+  CODEX_TRUST_PROBE_PID=
+  # Always clear the probe-private group: app-server may leave helpers behind.
+  clear_codex_trust_probe_processes
+
+  ct_bytes=$(LC_ALL=C wc -c <"$ct_out" 2>/dev/null | tr -d '[:space:]')
+  case "$ct_bytes" in
+    ''|*[!0-9]*) ct_bytes=$((CODEX_TRUST_MAX_BYTES + 1)) ;;
+  esac
+  if [ "$ct_bytes" -gt "$CODEX_TRUST_MAX_BYTES" ]; then
+    CODEX_TRUST_DETAIL='Codex reply exceeded the size limit'
+    rm -rf "$ct_dir"
+    return 0
+  fi
+  ct_verdict=$(jq -R -s -r --argjson expected "$CODEX_TRUST_EVENTS" '
+    def names: map(.eventName) | join(", ");
+    [splits("\n") | select(length > 0) | (try fromjson catch null)] as $m
+    | ($m | map(select(type == "object" and .id == 1))) as $init
+    | ($m | map(select(type == "object" and .id == 2))) as $list
+    | if any($m[]; type != "object") then
+        "unverified\tunreadable Codex reply"
+      elif ($init | length) != 1 or ($init[0].result | type) != "object" then
+        "unverified\tCodex app-server did not initialize"
+      elif ($list | length) != 1 then
+        "unverified\tCodex did not answer hooks/list in time"
+      elif ($list[0].result.data | type) != "array" or ($list[0].result.data | length) != 1 then
+        "unverified\tunexpected hooks/list reply"
+      else
+        $list[0].result.data[0] as $entry
+        | if ($entry.hooks | type) != "array" or ($entry.errors | type) != "array" then
+            "unverified\tunexpected hooks/list reply"
+          else
+            ($entry.hooks | map(select(type == "object" and .pluginId == "agent-guard@agent-guard"))) as $ag
+            # A hook Codex lists as needing review or turned off is skipped even
+            # when other entries failed to load; errors only block absent and ok.
+            | if any($ag[]; (.eventName | type) != "string"
+                  or (.trustStatus | type) != "string"
+                  or (.enabled | type) != "boolean") then
+                "unverified\tunexpected agent-guard hook entry"
+              elif any($ag[]; .trustStatus == "modified" or .trustStatus == "untrusted") then
+                "review\t" + ($ag | map(select(.trustStatus == "modified" or .trustStatus == "untrusted")) | names)
+              elif any($ag[]; .trustStatus != "trusted" and .trustStatus != "managed") then
+                "unverified\tunknown hook trust status"
+              elif any($ag[]; .enabled != true) then
+                "disabled\t" + ($ag | map(select(.enabled != true)) | names)
+              elif ($entry.errors | length) > 0 then
+                "unverified\tCodex reported hook configuration errors"
+              elif ($ag | length) == 0 then
+                "absent\t"
+              elif ([$ag[].eventName] | sort) != ($expected | sort) then
+                "unverified\texpected agent-guard hooks are missing or duplicated"
+              else
+                "ok\t"
+              end
+          end
+      end
+  ' "$ct_out" 2>/dev/null) || ct_verdict="unverified	unreadable Codex reply"
+  rm -rf "$ct_dir"
+  CODEX_TRUST_STATE=${ct_verdict%%	*}
+  CODEX_TRUST_DETAIL=${ct_verdict#*	}
+  case "$CODEX_TRUST_STATE" in
+    ok|review|disabled|absent) ;;
+    *) CODEX_TRUST_STATE=unverified ;;
+  esac
+  [ -n "$CODEX_TRUST_DETAIL" ] || [ "$CODEX_TRUST_STATE" != unverified ] \
+    || CODEX_TRUST_DETAIL='unreadable Codex reply'
+  return 0
+}
+
+# $1 is plugin when the Codex plugin manager reported agent-guard installed and
+# enabled, so an empty hook list cannot mean "not installed". Returns 1 only
+# when Codex's own reply shows that it will not run agent-guard hooks.
+codex_trust_report() {
+  case "$CODEX_TRUST_STATE" in
+    ok)
+      info "$PROGRAM: codex hook trust: ok (agent-guard hooks are trusted and enabled for $CODEX_TRUST_CWD; configuration snapshot, not observed dispatch)"
+      ;;
+    review)
+      info "$PROGRAM: codex hook trust: needs review for $CODEX_TRUST_CWD ($CODEX_TRUST_DETAIL); Codex skips these agent-guard hooks until they are trusted again"
+      info "$PROGRAM: to re-trust, start 'codex' in that directory and choose 'Review hooks' at 'Hooks need review';"
+      info "  trust a hook only after checking that its Source is agent-guard@agent-guard and its command is expected,"
+      info "  then restart Codex sessions that were already running"
+      return 1
+      ;;
+    disabled)
+      info "$PROGRAM: codex hook trust: disabled for $CODEX_TRUST_CWD ($CODEX_TRUST_DETAIL); Codex will not run these agent-guard hooks until they are turned back on in its hook list"
+      return 1
+      ;;
+    absent)
+      if [ "${1:-}" = plugin ]; then
+        info "$PROGRAM: codex hook trust: unverified (Codex lists no agent-guard hooks for $CODEX_TRUST_CWD although the plugin is installed and enabled)"
+      else
+        info "$PROGRAM: codex hook trust: Codex loads no agent-guard hooks for $CODEX_TRUST_CWD (plugin not installed or not enabled for Codex)"
+      fi
+      ;;
+    *)
+      info "$PROGRAM: codex hook trust: unverified ($CODEX_TRUST_DETAIL)"
+      ;;
+  esac
+  return 0
+}
+
+plugin_codex_trust() {
+  ct_here=$(pwd -P 2>/dev/null) || ct_here=$PWD
+  codex_trust_probe "$ct_here"
+  codex_trust_report plugin || :
+}
+
 plugin_marketplace_source_is_agent_guard() {
   plugin_host=$1
   plugin_json=$2
@@ -652,6 +913,9 @@ plugin_for_host() {
         printf '%s: installed, %s (%s, marketplace %s)\n' \
           "$plugin_host" "$([ "$plugin_is_enabled" -eq 1 ] && printf enabled || printf disabled)" \
           "$plugin_version_status" "$plugin_marketplace_status"
+        if [ "$plugin_host" = codex ] && [ "$plugin_is_enabled" -eq 1 ]; then
+          plugin_codex_trust
+        fi
       else
         printf '%s: not installed (marketplace %s)\n' \
           "$plugin_host" "$plugin_marketplace_status"
@@ -723,6 +987,7 @@ plugin_for_host() {
         fi
         printf '%s: agent-guard plugin is already installed and enabled (version %s, marketplace v%s)\n' \
           "$plugin_host" "$plugin_installed_version" "$VERSION"
+        [ "$plugin_host" != codex ] || plugin_codex_trust
       else
         plugin_marketplace_added=0
         if [ "$plugin_has_marketplace" -eq 0 ]; then
@@ -753,6 +1018,9 @@ plugin_for_host() {
             plugin_retry="$plugin_retry --scope $plugin_scope"
           fi
           printf '%s\n' "$PROGRAM: $plugin_host marketplace 'agent-guard' was added, but plugin installation failed; the marketplace remains configured and it is safe to retry '$plugin_retry'" >&2
+        fi
+        if [ "$plugin_install_status" -eq 0 ] && [ "$plugin_host" = codex ]; then
+          plugin_codex_trust
         fi
         [ "$plugin_install_status" -eq 0 ]
       fi
@@ -819,6 +1087,9 @@ plugin_for_host() {
           printf '%s\n' "$PROGRAM: this CLI is $VERSION and can only pin the marketplace to v$VERSION; the latest release could not be looked up. To move to a newer release v<X.Y.Z> from https://github.com/JeongJaeSoon/agent-guard/releases, run:" >&2
           print_release_forward_commands "$plugin_host" 'v<X.Y.Z>' "$plugin_scope"
         fi
+        if [ "$plugin_host" = codex ] && [ "$plugin_is_enabled" -eq 1 ]; then
+          plugin_codex_trust
+        fi
         return 0
       fi
       case "$plugin_host" in
@@ -835,6 +1106,9 @@ plugin_for_host() {
           plugin_retry="$plugin_retry --scope $plugin_scope"
         fi
         printf '%s\n' "$PROGRAM: $plugin_host update did not complete; the marketplace remains pinned to v$VERSION and it is safe to retry '$plugin_retry'" >&2
+      elif [ "$plugin_host" = codex ] && [ "$plugin_is_enabled" -eq 1 ]; then
+        # A content change is exactly what invalidates Codex hook trust.
+        plugin_codex_trust
       fi
       [ "$plugin_update_status" -eq 0 ]
       ;;
@@ -15724,6 +15998,11 @@ homebrew_managed_install() {
 do_doctor() {
   do_setup "$@"
   doctor_status=$?
+  if command -v codex >/dev/null 2>&1; then
+    doctor_here=$(pwd -P 2>/dev/null) || doctor_here=$PWD
+    codex_trust_probe "$doctor_here"
+    codex_trust_report doctor || [ "$doctor_status" -ne 0 ] || doctor_status=1
+  fi
   if latest_release_version; then
     if version_newer "$LATEST_RELEASE_VERSION" "$VERSION"; then
       info "$PROGRAM: release: $VERSION installed; $LATEST_RELEASE_VERSION is available"
@@ -15786,7 +16065,7 @@ AGENT_GUARD_RUNDIR=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-run.XXXXXX" 2>/dev/n
 AG_UMASK=$(umask 2>/dev/null) || AG_UMASK=
 # Logging is independent of stdout and never changes the guard's exit status.
 # SIGKILL cannot be trapped; a started-only record remains useful evidence.
-trap 'ag_final_status=$?; clear_gitleaks_probe_processes; claude_block_capture_finish "$ag_final_status"; audit_finish "$ag_final_status"; [ -z "$AGENT_GUARD_RUNDIR" ] || rm -rf "$AGENT_GUARD_RUNDIR"; exit "$ag_final_status"' 0
+trap 'ag_final_status=$?; clear_gitleaks_probe_processes; clear_codex_trust_probe_processes; claude_block_capture_finish "$ag_final_status"; audit_finish "$ag_final_status"; [ -z "$AGENT_GUARD_RUNDIR" ] || rm -rf "$AGENT_GUARD_RUNDIR"; exit "$ag_final_status"' 0
 trap 'exit 130' INT
 trap 'exit 143' TERM
 

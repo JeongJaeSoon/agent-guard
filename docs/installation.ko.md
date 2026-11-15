@@ -1,4 +1,4 @@
-<!-- translated-from: docs/installation.md; source-blob: dbe9f5f7b2180b3b93653088d9657ea06b0ab934 -->
+<!-- translated-from: docs/installation.md; source-blob: 164e2cfc8c8b81516f4bca90639eec4745a36add -->
 
 <a id="installing-agent-guard"></a>
 
@@ -165,6 +165,17 @@ agent-guard check
 ```
 
 플러그인 캐시에서는 updater를 의도적으로 사용할 수 없게 되어 있습니다. 실행 파일 자체가 marketplace 제거 시 삭제되는 캐시에 있어 스스로 marketplace의 고정 태그를 바꿀 수 없기 때문입니다. 대신 `agent-guard plugin update --host claude` 또는 `--host codex`를 실행하세요. 설치된 플러그인이 이미 CLI와 일치하면 최신 GitHub 릴리스를 조회하고, 새 버전으로 이동하는 정확한 host 관리 명령인 `marketplace remove`, `marketplace add ...@vX.Y.Z`, 플러그인 설치 명령을 출력합니다. `agent-guard doctor`와 `agent-guard plugin status`도 같은 릴리스 노후 상태를 보고합니다. 조회를 건너뛰려면 `AGENT_GUARD_RELEASE_CHECK=off`를 설정하세요.
+
+Codex가 `PATH`에 있으면 `agent-guard doctor`는 잠깐 띄운 `codex app-server`에 `hooks/list`로 묻습니다. 현재 디렉터리에서 Codex가 agent-guard hook을 실행할지 확인하려는 것입니다. Codex는 각 hook을 hook 항목과 플러그인 내용으로 신뢰합니다. 그래서 `hooks.json`이 그대로여도 플러그인을 갱신하면 agent-guard hook이 모두 다시 검토가 필요한 상태가 될 수 있습니다. 이 hook들은 다시 신뢰할 때까지 Codex가 실행하지 않습니다.
+
+Codex가 agent-guard hook을 검토 필요나 꺼짐으로 보고하면, `doctor`는 exit 1로 끝나고 다음 절차를 출력합니다.
+
+1. 그 디렉터리에서 `codex`를 시작합니다.
+2. **Hooks need review**에서 **Review hooks**를 고릅니다.
+3. 각 hook의 Source가 `agent-guard@agent-guard`이고 명령이 예상과 같은지 확인한 뒤에만 신뢰합니다.
+4. 실행 중인 Codex 세션을 다시 시작합니다.
+
+Codex용 `plugin status`, `plugin install`, `plugin update`도 같은 확인 결과를 출력하지만, 종료 코드는 바꾸지 않습니다. 읽을 수 없는 응답은 ok가 아니라 unverified로 보고합니다. ok는 새 Codex 프로세스가 읽는 설정이 그렇다는 뜻이며, hook이 실제로 실행되는 것을 관찰했다는 뜻은 아닙니다. 이 확인은 Codex의 app server를 띄우므로, 여느 Codex 시작과 마찬가지로 네트워크에 접속하거나 Codex 자체 캐시를 갱신할 수 있습니다. 건너뛰려면 `AGENT_GUARD_CODEX_TRUST_CHECK=off`를 설정하세요.
 
 `setup-shell`은 shell rc에 다음 블록을 추가하고, 검증하는 resolver를 `~/.agent-guard/shell-init.sh`에 씁니다.
 

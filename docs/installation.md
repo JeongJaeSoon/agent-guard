@@ -258,6 +258,30 @@ GitHub release and prints the exact host-manager `marketplace remove`,
 `agent-guard doctor` and `agent-guard plugin status` report the same release
 staleness. Set `AGENT_GUARD_RELEASE_CHECK=off` to skip the lookup.
 
+When Codex is on `PATH`, `agent-guard doctor` also asks a short-lived
+`codex app-server` (`hooks/list`) whether Codex will run the agent-guard hooks
+for the current directory. Codex trusts each hook by its entry and by the
+plugin's content, so a plugin update can leave every agent-guard hook needing
+review even when `hooks.json` is unchanged, and Codex skips those hooks until
+they are trusted again.
+
+When Codex reports an agent-guard hook as needing review or turned off,
+`doctor` exits 1 and prints these steps:
+
+1. Start `codex` in that directory.
+2. Choose **Review hooks** at **Hooks need review**.
+3. Trust each hook only after checking that its Source is
+   `agent-guard@agent-guard` and its command is expected.
+4. Restart running Codex sessions.
+
+`plugin status`, `plugin install`, and `plugin update` for Codex print the same
+check without changing
+their exit status. A reply that cannot be read is reported as unverified, never
+as ok, and ok describes the configuration a fresh Codex process reads, not
+observed hook dispatch. The check starts Codex's app server, which may contact
+the network and refresh Codex's own caches as any Codex start does; set
+`AGENT_GUARD_CODEX_TRUST_CHECK=off` to skip it.
+
 `setup-shell` adds this block to the shell rc and writes the validating
 resolver to `~/.agent-guard/shell-init.sh`:
 
