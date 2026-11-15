@@ -9,6 +9,8 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 GUARD="$ROOT/plugins/agent-guard/bin/agent-guard"
 CASE=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-post-tool-failure.XXXXXX") || exit 1
 [ -n "$CASE" ] || exit 1
+# The audit directory refuses a symlinked component (macOS /var -> /private/var).
+CASE=$(CDPATH= cd -- "$CASE" && pwd -P) || exit 1
 trap 'rm -rf "$CASE"' 0
 mkdir "$CASE/cwd" "$CASE/home"
 cd "$CASE/cwd" || exit 1
