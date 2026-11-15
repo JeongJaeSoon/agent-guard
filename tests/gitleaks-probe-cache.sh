@@ -166,6 +166,9 @@ check 'UUID reference ids are clean while UUID-shaped credentials stay found' \
 check 'Figma MCP file keys pass while the same value elsewhere stays found' \
   env -u AGENT_GUARD_GITLEAKS_BIN AGENT_GUARD_TEST_REAL_GITLEAKS="$REAL_GITLEAKS" \
   sh "$ROOT/tests/figma-file-key.sh"
+check 'issue ids after a Secret-suffixed name pass while secret shapes stay blocked' \
+  env -u AGENT_GUARD_GITLEAKS_BIN AGENT_GUARD_TEST_REAL_GITLEAKS="$REAL_GITLEAKS" \
+  sh "$ROOT/tests/prompt-issue-reference.sh"
 check 'prefixed-UUID keys are found while sdk- package names stay clean' \
   env -u AGENT_GUARD_GITLEAKS_BIN AGENT_GUARD_TEST_REAL_GITLEAKS="$REAL_GITLEAKS" \
   sh "$ROOT/tests/prefixed-uuid-key.sh"
