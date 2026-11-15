@@ -10935,7 +10935,7 @@ secretish_env_values() {
     function page_cursor(assignment) {
       return assignment ~ /(^|[^A-Za-z0-9_.-])["'\''`]?((next|prev|previous)(PageToken|_page_token)|pageToken|page_token)["'\''`]?[ \t]*:$/
     }
-    # A prose line names a camelCase setter or field that ends in Secret, then
+    # A prose line names a camel- or PascalCase setter or field ending in Secret, then
     # a colon, the issue-tracker id it tracks, and more prose
     # (`setClientSecret: ABC-123 의 조건`). Exempt only that whole shape. The
     # key is camelCase (a lowercase letter or digit right before `Secret`), so
@@ -10951,7 +10951,9 @@ secretish_env_values() {
     function issue_reference(assignment, value, tail, v, dash) {
       if (assignment !~ /[a-z0-9]Secret`?[ \t]*:$/) return 0
       sub(/^[ \t]+/, "", tail)
-      if (tail !~ /^[A-Za-z\200-\377]/) return 0
+      # A Latin letter, or a UTF-8 lead byte of the Hangul syllable block. Any
+      # other non-ASCII lead (a dash, a fullwidth sign, NBSP) is not a word.
+      if (tail !~ /^[A-Za-z\352-\355]/) return 0
       v = value
       sub(/[`,]+$/, "", v)
       sub(/(가|이|은|는|을|를|의|도|에|에서|로|으로|와|과|만)$/, "", v)

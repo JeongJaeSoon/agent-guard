@@ -43,6 +43,8 @@ pw=$(printf '%s%s' pass word)
 env_key=$(printf '%s%s' CLIENT _SECRET)
 json_key=$(printf '%s%s' client Secret)
 setter=$(printf '%s%s' setClient Secret)
+snake_setter=$(printf '%s%s' client_ Secret)
+bare_name=$(printf '%s%s' Sec ret)
 pass=0
 fail=0
 
@@ -122,6 +124,18 @@ prompt_case 2 'seven-digit number' "${setter}: AB-1234567 참고"
 prompt_case 2 'leading-zero number' "${setter}: AB-0123 참고"
 prompt_case 2 'all-digit team key' "${setter}: 2024-1234 참고"
 prompt_case 2 'lowercase id' "${setter}: ab-1234 참고"
+prompt_case 2 'letters after the number' "${setter}: AB-1234X 참고"
+prompt_case 2 'lowercase letter after the number' "${setter}: AB-1234x 참고"
+prompt_case 2 'lowercase prefix before the id' "${setter}: xAB-1234 참고"
+prompt_case 2 'backticked id ending in a period' "${setter}: \`AB-1234.\` 참고"
+prompt_case 2 'backticked id ending in a paren' "${setter}: \`AB-1234)\` 참고"
+prompt_case 2 'backticked id at line end' "${setter}: \`AB-1234\`"
+prompt_case 2 'backticked id before a comment' "${setter}: \`AB-1234\` # rotate"
+prompt_case 2 'backticked id in a flow mapping' "{${setter}: \`AB-1234\`, next: x}"
+prompt_case 2 'number after the id' "${setter}: AB-1234 2024 참고"
+prompt_case 2 'em dash after the id' "${setter}: AB-1234 — 참고"
+prompt_case 2 'underscore before Secret' "${snake_setter}: AB-1234 참고"
+prompt_case 2 'bare Secret name' "${bare_name}: AB-1234 참고"
 prompt_case 2 'id in single quotes' "${setter}: 'AB-1234' 참고"
 prompt_case 2 'id in double quotes' "${setter}: \"AB-1234\" 참고"
 prompt_case 2 'two particles' "${setter}: AB-1234의의 참고"
