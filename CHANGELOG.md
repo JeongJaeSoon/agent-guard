@@ -1,3 +1,13 @@
+## v3.11.0 - 2026-11-15
+
+- fix(mcp): Figma MCP 도구의 fileKey·file_key 파일 키를 비밀값으로 보지 않는다 (#466)
+- fix(hooks): 훅마다 statusMessage 이름을 붙여 Codex /hooks의 Unnamed hook을 없앤다 (#465)
+- fix(bash): grep 앞 구간 판정이 믿는 위치의 jq·sed에도 필터 예외를 적용한다 (#464)
+- fix(bash): sed s 명령의 정규식을 보호 경로 검사에서 뺀다 (#463)
+- feat(redact): deny-read mask 모드에서 루트 dotenv 값을 출력에서 마스킹한다 (#460)
+- feat(hooks): Claude PostToolUseFailure의 실패 출력에서 secret을 찾아 마스킹되지 않았음을 알린다 (#461)
+- fix(bash): jq 필터의 env 멤버 이름을 보호 경로 검사에서 뺀다 (#462)
+
 ## Unreleased
 
 - fix(redact): 이름이 Secret으로 끝나는 함수나 필드 뒤에 콜론과 이슈 트래커 id가 오는 글(`- setClientSecret: ABC-123 조건을 따른다`)을 프롬프트 가드가 더는 막지 않고, 출력 마스킹도 그 id를 가리지 않습니다. 대입문 probe가 콜론 뒤 4자 넘는 값을 모두 비밀값으로 보던 탓입니다. (#471)
