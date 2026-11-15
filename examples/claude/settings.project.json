@@ -25,6 +25,18 @@
         ]
       }
     ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "^(Write|Edit|MultiEdit|NotebookEdit|Bash|PowerShell|apply_patch|Read|NotebookRead|Grep|Glob|WebFetch|WebSearch|Agent|Task|Skill|Monitor|LSP|ListMcpResourcesTool|ReadMcpResourceTool|mcp__.*)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/absolute/path/to/agent-guard/plugins/agent-guard/bin/agent-guard hook-post-tool-failure",
+            "timeout": 20
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "matcher": "",

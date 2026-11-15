@@ -365,9 +365,51 @@
   },
   {
     "id": "jq-env-member",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a jq env member reads an environment variable, not a file",
+    "command": "jq -n 'env.AWS_REGION'"
+  },
+  {
+    "id": "jq-env-member-object",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a jq object built from an env member is filter text",
+    "command": "jq -nc '{name: \"x\", value: env.HOME}'"
+  },
+  {
+    "id": "jq-env-member-interpolation",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "an env member inside a string interpolation is filter text",
+    "command": "jq -rn '\"\\(env.HOME)/x\"'"
+  },
+  {
+    "id": "jq-env-member-and-file-operand",
     "expected_status": 2,
     "classification": "must-block",
-    "description": "a jq env member keeps its existing env.* match",
-    "command": "jq -n 'env.AWS_REGION'"
+    "description": "a protected file operand after an env member filter remains blocked",
+    "command": "jq -r 'env.HOME' env.local"
+  },
+  {
+    "id": "jq-env-member-rawfile",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a protected --rawfile value beside an env member filter remains blocked",
+    "command": "jq -n --rawfile s env.local 'env.HOME'"
+  },
+  {
+    "id": "jq-env-member-include",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "an include path beside an env member remains checked",
+    "command": "jq -n -L . 'include \"env.local\"; env.HOME'"
+  },
+  {
+    "id": "jq-env-member-after-source",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a sourced script can redefine jq, so an env member after it remains blocked",
+    "command": ". ./tools.sh; jq -n 'env.HOME'"
   }
 ]

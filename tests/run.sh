@@ -212,6 +212,7 @@ for file in \
   "$ROOT/tests/gitleaks-clean-cache.sh" \
   "$ROOT/tests/deny-path-regex-cache.sh" \
   "$ROOT/tests/hook-spawn-reduction.sh" \
+  "$ROOT/tests/post-tool-failure.sh" \
   "$ROOT/tests/run.sh"; do
   run_expect 0 "shell syntax: $file" sh -n "$file"
 done
@@ -234,6 +235,8 @@ else
 fi
 
 run_expect 0 "private metadata-only audit logging contract" sh "$ROOT/tests/audit-log.sh"
+run_expect 0 "failed tool output is reported, not masked, on PostToolUseFailure" \
+  sh "$ROOT/tests/post-tool-failure.sh"
 run_expect 0 "portable audit retention contract" sh "$ROOT/tests/unit-audit-retention.sh"
 run_expect 0 "NUL redaction preserves clean leaves" sh "$ROOT/tests/unit-nul-redaction.sh"
 run_expect 0 "printenv argument boundaries preserve empty and public values" sh "$ROOT/tests/printenv-argument-contract.sh"
@@ -620,7 +623,7 @@ done
 # itself to the contract rather than only checking the files against each other.
 hook_subcommand() {
   jq -r ".hooks.${2}[0].hooks[0].command" "$1" \
-    | grep -oE 'hook-(pre-tool|post-tool|stop|user-prompt)' | tail -n1
+    | grep -oE 'hook-(pre-tool|post-tool-failure|post-tool|stop|user-prompt)' | tail -n1
 }
 
 for event in PreToolUse PostToolUse Stop UserPromptSubmit; do

@@ -170,7 +170,7 @@ as covered is a candidate: prove it on your install with the live probes in
 | --- | --- | --- | --- |
 | Claude | Successful `PostToolUse` of `Write`, `Edit`, `MultiEdit`, `NotebookEdit`, `Bash`, `PowerShell`, `apply_patch`, `Read`, `NotebookRead`, `Grep`, `Glob`, `WebFetch`, `WebSearch`, `Agent`, `Task`, `Skill`, `Monitor`, `LSP`, `ListMcpResourcesTool`, `ReadMcpResourceTool` | Covered | The matcher is anchored to these exact names. |
 | Claude | `mcp__*` tools | Covered | MCP results skip the built-in output schema check. |
-| Claude | Failed tool calls (`PostToolUseFailure`) | Not covered | Separate event; not in the manifest. |
+| Claude | Failed tool calls (`PostToolUseFailure`) | Detected, not masked (host limit) | Same matcher as `PostToolUse`. The host lets this event add context only, so the failure output reaches the model unchanged. On a finding, the hook names the category, never the value, and tells the model not to repeat or use it and to tell the user it may need rotating. `logs export` records `hook-post-tool-failure` with outcome `warned`. Host-side fix request: [anthropics/claude-code#97278](https://github.com/anthropics/claude-code/issues/97278). |
 | Claude | Any other tool name | Not covered | The hook never starts. |
 | Claude | A `!` shell escape you type yourself | Not covered | Outside the tool-hook boundary; use `agent-guard exec` / `agx`. |
 | Claude | Image or PDF blocks | Text parts only | Binary bytes are restored unchanged; if that restore fails the payload is emptied rather than leaked. |
@@ -204,6 +204,7 @@ Hook timeouts in every shipped manifest:
 | --- | --- |
 | `PreToolUse` | 60 s |
 | `PostToolUse` | 20 s |
+| `PostToolUseFailure` (Claude only) | 20 s |
 | `Stop` | 20 s |
 | `SessionStart` | 5 s |
 | `UserPromptSubmit` | 10 s |
@@ -222,5 +223,13 @@ it. The 60 s budget leaves room for slow but legitimate checks, such as a long
 inline script on a loaded machine. Claude Code before 2.1.295 ignores
 `onFailure` and lets a timed-out `PreToolUse` hook through, and the Codex
 manifests do not set it. Other events keep the host default: a timed-out
-`UserPromptSubmit`, `PostToolUse`, `Stop`, or `SessionStart` hook does not
-block.
+`UserPromptSubmit`, `PostToolUse`, `PostToolUseFailure`, `Stop`, or
+`SessionStart` hook does not block.
+
+A `PostToolUseFailure` hook cannot block or mask anything: the tool has already
+failed, and none of `updatedToolOutput`, `decision: "block"`, or exit status 2
+replaces the error text. So a scan that cannot run is reported to the
+model as additional context, never as a clean result: once per session under
+`AGENT_GUARD_INFRA_FAILURE_MODE=open`, and on every failed call under `closed`.
+Input that is not a JSON object, or has no `error` field, passes through with
+no response. `AGENT_GUARD_OUTPUT_REDACT=off` turns this check off as well.

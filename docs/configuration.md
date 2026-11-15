@@ -42,7 +42,10 @@ return status 0 with no response. See [Output masking coverage](integrations.md#
 - `AGENT_GUARD_OUTPUT_REDACT=off` disables secret-like output masking. The
   default is masking. With `AGENT_GUARD_DENY_READ_MODE=mask` it also masks the
   values of the project's root dotenv files; see
-  [Known dotenv values in output](#known-dotenv-values-in-output).
+  [Known dotenv values in output](#known-dotenv-values-in-output). It also
+  turns off the Claude `PostToolUseFailure` check, which reports secret-like
+  values in a failed tool's output but cannot mask them
+  ([Integrations](integrations.md#output-masking-coverage)).
 - A tool result too large to scan is masked fail-closed: every nonempty string
   in it is replaced. Anthropic content-block discriminators (`type`,
   `source.type`, `media_type`) survive that rewrite when the value is exactly a

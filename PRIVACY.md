@@ -1,6 +1,6 @@
 # Privacy and Data Handling
 
-Last updated: 2026-09-11
+Last updated: 2026-11-15
 
 Agent Guard is local by default. The project does not operate an Agent Guard
 service, account system, telemetry collector, crash reporter, or analytics
@@ -12,13 +12,15 @@ content.
 ## What the plugin processes
 
 When enabled, Agent Guard registers hooks for `SessionStart`, `UserPromptSubmit`,
-`PreToolUse`, `PostToolUse`, and `Stop`.
+`PreToolUse`, `PostToolUse`, and `Stop`, plus `PostToolUseFailure` on Claude
+Code.
 
 | Surface | Data inspected | Purpose | Persistent storage |
 |---|---|---|---|
 | `UserPromptSubmit` | The full text of the prompt the user submits | Block (or, opt-in, warn about) secret-like values and opt-in PII classes before the prompt reaches the model or the transcript | None |
 | `PreToolUse` | Matched tool names and inputs, including paths, proposed content, shell commands, URLs/search queries, and MCP arguments | Block deny-listed reads, credential-dumping commands, secret-like input, and opt-in PII classes before execution | None |
 | `PostToolUse` | Matched tool outputs; after mutation tools, changed and untracked files in the current Git work tree | Mask secret-like output and opt-in PII; detect secrets written to the work tree | None |
+| `PostToolUseFailure` (Claude Code) | The error text of a failed matched tool call | Detect secret-like values in failure output, which the host does not let a hook mask, and warn the model without repeating the value | None |
 | `Stop` | Changed and untracked files in the current Git work tree | Final working-tree secret scan | None |
 | `SessionStart` | Dependency availability and Agent Guard shell-integration version marker | Report degraded setup or version drift | None |
 | CLI and shell wrappers | Only stdin, paths, or command output explicitly passed by the user | On-demand scan or masking | None |
