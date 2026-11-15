@@ -179,6 +179,16 @@ as covered is a candidate: prove it on your install with the live probes in
 | Codex | `write_stdin` | No new event | The original command's `PostToolUse` may arrive when it ends. |
 | Codex | Other local tools, hosted `WebSearch` | Not covered | Not a coverage claim. The Codex matcher is unanchored, so a custom tool whose name merely contains `Bash`, `Agent`, or `Task` (for example `MyTaskRunner`) may still trigger generic redaction; that incidental match is not treated as coverage. Hosted `WebSearch` is not on the hook path at all. |
 
+Figma file keys: on an MCP server whose name contains `figma` (any case), a
+22-character alphanumeric value in a `fileKey` or `file_key` field is not a
+finding, in the MCP input check or in output masking, on either host. The key
+names a document; opening the file still needs a Figma login with access to
+it. The same value anywhere else in the event (another field, a URL query, a
+key assignment) is still a finding, and masking then replaces every copy,
+including the one in the file URL. A field name written with JSON Unicode
+escapes, or JSON text encoded twice, is not recognized, so that value is still
+scanned and masked.
+
 What masking cannot do on either host:
 
 - Undo the tool effect. Files, commands, and network requests already happened
