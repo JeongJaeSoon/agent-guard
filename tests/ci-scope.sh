@@ -97,6 +97,17 @@ for text in 'Packaged performance evidence' 'Fused packaged performance' 'contin
   if grep -Fq "$text" "$native"; then fail "native qualification has no $text"; fi
 done
 grep -Fq 'needs: [platform, installation]' "$native" || fail 'native aggregate waits only for qualification'
+# PRs trigger native qualification only for the test files it runs; a script
+# the workflow executes must stay inside that filter.
+native_tests=$(sed -n 's/.*sh tests\/\([A-Za-z0-9_-]*\.sh\).*/\1/p' "$native" | sort -u)
+[ -n "$native_tests" ] || fail 'native qualification executes test scripts'
+for script in $native_tests; do
+  case $script in
+    native-*.sh) grep -Fq "      - 'tests/native-*.sh'" "$native" ;;
+    *) grep -Fq "      - 'tests/$script'" "$native" ;;
+  esac || fail "PRs changing tests/$script run native qualification"
+done
+if grep -Fq "      - 'tests/**'" "$native"; then fail 'native qualification skips unrelated test changes'; fi
 release_perf=$(awk '/- name: Report release performance evidence/ { on = 1; print; next } on && /^      - / { exit } on' \
   "$ROOT/.github/workflows/release.yml")
 printf '%s\n' "$release_perf" | grep -Fq 'for sha in "$RELEASE_HEAD_SHA" "$RELEASE_SHA"; do' \
