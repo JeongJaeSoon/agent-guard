@@ -134,10 +134,129 @@
   },
   {
     "id": "regex-with-pinned-letter",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "the regex of a sed s command is program text, not a file operand",
+    "command": "sed -E 's/x.*?y//' README.md"
+  },
+  {
+    "id": "sed-s-tab-bracket",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a sed s regex with a bracket expression and a star names no file",
+    "command": "sed 's/^d2-gate\\t[^\\t]*\\t//' a.log"
+  },
+  {
+    "id": "sed-s-in-pipeline",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a sed s regex in the middle of a pipeline names no file",
+    "command": "cut -c1-400 a.log | sed 's/^d2-gate\\t[^\\t]*\\t//' | head -107"
+  },
+  {
+    "id": "sed-s-extended-group",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "an extended sed s regex with a group and a back-reference names no file",
+    "command": "sed -E 's/^([^\\t]*)\\t[^\\t]*\\t[^ ]+ /\\1 | /' a.log"
+  },
+  {
+    "id": "sed-s-expression-option",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a sed s script given with -ne names no file",
+    "command": "sed -ne 's/^x\\t[^\\t]*//p' a.log"
+  },
+  {
+    "id": "sed-s-two-commands",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "two sed s commands joined by a semicolon name no file",
+    "command": "sed 's/^x\\t[^\\t]*//; s/[[:space:]]*$//g' a.log"
+  },
+  {
+    "id": "sed-s-file-operand",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a protected file operand of sed stays blocked next to an s script",
+    "command": "sed 's/^[^\\t]*\\t//' env.local"
+  },
+  {
+    "id": "sed-s-script-file-option",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "with -f the s-shaped word is a file operand and stays blocked",
+    "command": "sed -f a.sed 's/.env/x/'"
+  },
+  {
+    "id": "sed-s-later-expression",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a later -e makes the earlier s-shaped word a file operand",
+    "command": "sed 's/.env/x/' -e p"
+  },
+  {
+    "id": "sed-read-command",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a sed r command names a file and stays blocked",
+    "command": "sed 'r env.local' a.log"
+  },
+  {
+    "id": "sed-s-write-flag",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "an s command with a w flag names a file and stays blocked",
+    "command": "sed 's/.env/x/w env.local' a.log"
+  },
+  {
+    "id": "sed-s-execute-flag",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "an s command with an e flag runs its result and stays blocked",
+    "command": "sed 's/.env/x/e' a.log"
+  },
+  {
+    "id": "sed-s-address",
     "expected_status": 2,
     "classification": "known-limitation",
-    "description": "regex text that pins a protected letter is conservatively blocked",
-    "command": "sed -E 's/x.*?y//' README.md"
+    "description": "a script with an address is not rewritten and is conservatively blocked",
+    "command": "sed '/.env/s/a/b/' a.log"
+  },
+  {
+    "id": "sed-s-bracket-delimiter",
+    "expected_status": 2,
+    "classification": "known-limitation",
+    "description": "a delimiter inside a bracket expression is not rewritten and is conservatively blocked",
+    "command": "sed 's/[/].env/x/' a.log"
+  },
+  {
+    "id": "sed-s-after-word-holding-sed",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "an English word that holds the letters of sed does not name sed",
+    "command": "grep -E 'passed: [0-9]+' a.log | sed -E 's/^x\\t[^\\t]*//'"
+  },
+  {
+    "id": "sed-named-by-another-word",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a word that names sed outside its command start keeps the command unchanged",
+    "command": "alias sed=cat | sed 's/.env/x/' a.log"
+  },
+  {
+    "id": "sed-s-in-place",
+    "expected_status": 2,
+    "classification": "known-limitation",
+    "description": "an in-place sed is not rewritten and is conservatively blocked",
+    "command": "sed -i 's/.env/x/' a.log"
+  },
+  {
+    "id": "sed-s-after-source",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "sed after a sourced script may be redefined and stays blocked",
+    "command": ". ./tools.sh; sed 's/.env/x/' a.log"
   },
   {
     "id": "pattern-text-in-quoted-argument",
