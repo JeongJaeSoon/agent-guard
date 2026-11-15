@@ -185,6 +185,7 @@ usage() {
 Usage:
   agent-guard hook-pre-tool
   agent-guard hook-post-tool
+  agent-guard hook-post-tool-failure
   agent-guard hook-stop
   agent-guard hook-session-start
   agent-guard hook-user-prompt
@@ -1351,7 +1352,7 @@ audit_begin() {
     return 0 ;;
   esac
   case "$1" in
-    hook-pre-tool|hook-post-tool|hook-stop|hook-user-prompt|hook-session-start|scan-staged|scan-working-tree|scan-path|exec|pii-filter) AG_AUDIT_COMMAND=$1 ;;
+    hook-pre-tool|hook-post-tool|hook-post-tool-failure|hook-stop|hook-user-prompt|hook-session-start|scan-staged|scan-working-tree|scan-path|exec|pii-filter) AG_AUDIT_COMMAND=$1 ;;
     *) return 0 ;;
   esac
   case "${AGENT_GUARD_HOOK_HOST:-claude}" in codex) AG_AUDIT_HOST=codex ;; *) AG_AUDIT_HOST=claude ;; esac
@@ -1436,7 +1437,7 @@ audit_export() {
       | select(.run_id | type == "string" and test("^[0-9]{1,12}-[A-Za-z0-9]{6}$"))
       | select(.time | type == "number" and . >= 0 and . <= 9999999999 and floor == .)
       | select(.version | type == "string" and test("^[0-9]{1,5}\\.[0-9]{1,5}\\.[0-9]{1,5}$"))
-      | select(.command | IN("hook-pre-tool", "hook-post-tool", "hook-stop", "hook-user-prompt", "hook-session-start", "scan-staged", "scan-working-tree", "scan-path", "exec", "pii-filter"))
+      | select(.command | IN("hook-pre-tool", "hook-post-tool", "hook-post-tool-failure", "hook-stop", "hook-user-prompt", "hook-session-start", "scan-staged", "scan-working-tree", "scan-path", "exec", "pii-filter"))
       | select(.host | IN("claude", "codex", "cli"))
       | select(.phase | IN("started", "finished"))
       | select(.outcome | IN("pending", "pass", "blocked", "masked", "degraded", "error", "interrupted", "warned"))
@@ -2500,7 +2501,7 @@ handle_hook_infrastructure_failure() {
   [ -n "$INFRA_FAILURE_NOTICE" ] || return 0
   [ "$INFRA_FAILURE_NOTICE_EMITTED" = 0 ] || return 0
   case "$event" in
-    PreToolUse|PostToolUse|UserPromptSubmit)
+    PreToolUse|PostToolUse|PostToolUseFailure|UserPromptSubmit)
       printf '{"hookSpecificOutput":{"hookEventName":"%s","additionalContext":"%s"}}\n' "$event" "$INFRA_FAILURE_NOTICE"
       INFRA_FAILURE_NOTICE_EMITTED=1
       ;;
@@ -14497,6 +14498,87 @@ hook_post_tool() {
   fi
 }
 
+# --- hook-post-tool-failure: report secrets in a failed tool's output --------
+# Claude Code fires PostToolUseFailure, not PostToolUse, when a tool fails, and
+# its `error` string is generally the failed result as the model reads it. The
+# host lets this event add context only: updatedToolOutput, decision "block"
+# and exit 2 all leave the error text unchanged (anthropics/claude-code#97278).
+# So this hook cannot mask or block. It runs the detectors that mask a
+# successful result and, on a finding, tells the model by category only that a
+# secret-like value reached it unmasked. A scan that could not run is reported
+# as such, never as clean. Every message below is a fixed string: no value,
+# path, rule text or tool name from the event is echoed.
+
+post_tool_failure_context() {
+  printf '{"hookSpecificOutput":{"hookEventName":"PostToolUseFailure","additionalContext":"%s"}}\n' "$1"
+}
+
+# Nothing can be blocked, so the closed policy has no exit 2 to give. It
+# reports every unverified failure to the model instead of only the first one
+# per session, which is what the open policy does.
+post_tool_failure_unverified() {
+  if [ "$(infrastructure_failure_mode)" = closed ]; then
+    audit_note degraded
+    unverified_message="$2 the failed tool output was NOT checked for secret-like values and was not masked. A failed tool result cannot be blocked or replaced, so this is reported because AGENT_GUARD_INFRA_FAILURE_MODE=closed."
+    info "$unverified_message"
+    post_tool_failure_context "$unverified_message"
+    return 0
+  fi
+  handle_hook_infrastructure_failure PostToolUseFailure "$1" "$2"
+}
+
+hook_post_tool_failure() {
+  input=$(read_stdin)
+  HOOK_EVENT=PostToolUseFailure
+  HOOK_INPUT=$input
+  [ -n "$input" ] || return 0
+  # The same switch that turns off masking of successful tool output.
+  output_redact_enabled || return 0
+  # A malformed envelope cannot be inspected, and exit 2 would block nothing:
+  # the tool already failed. Pass it through with a diagnostic.
+  if command -v jq >/dev/null 2>&1 \
+    && ! printf '%s' "$input" | jq -e 'type == "object"' >/dev/null 2>&1; then
+    audit_note error
+    info "$PROGRAM: the PostToolUseFailure hook input was not a JSON object; passing it through unchecked because a failed tool result cannot be blocked"
+    return 0
+  fi
+  if ! hook_dependencies_ready; then
+    post_tool_failure_unverified "$input" "$(degraded_hook_message)"
+    return 0
+  fi
+  # The output detectors take the value as a JSON string. An event without an
+  # error field is not one this hook knows, so it passes through.
+  if ! failure_output=$(printf '%s' "$input" | jq -c '
+      .error | if . == null then empty
+               elif type == "string" then .
+               else tojson end' 2>/dev/null); then
+    post_tool_failure_unverified "$input" \
+      "$PROGRAM: the failed tool output could not be parsed;"
+    return 0
+  fi
+  case "$failure_output" in ''|'""') return 0 ;; esac
+  # The detector treats an over-cap value as one whole-leaf secret. That is
+  # right for a rewrite, but here it would report an exposure nobody saw.
+  if output_scan_input_exceeds_cap "$failure_output"; then
+    post_tool_failure_unverified "$input" \
+      "$PROGRAM: the failed tool output exceeds the output scan cap;"
+    return 0
+  fi
+  failure_bundle=
+  if ! failure_bundle=$(detect_output_secret_bundle "$failure_output") \
+    || ! classify_secret_bundle "$failure_bundle"; then
+    post_tool_failure_unverified "$input" \
+      "$PROGRAM: the failed tool output could not be scanned;"
+    return 0
+  fi
+  if [ "$BUNDLE_MODE" != whole_leaf ] && [ "$BUNDLE_SECRETS" = '[]' ]; then
+    return 0
+  fi
+  audit_note warned
+  info "$PROGRAM: a failed tool's output contains secret-like values; they reached the model unmasked because Claude Code cannot replace a failed tool result"
+  post_tool_failure_context "$PROGRAM: the output of this failed tool call contains a secret-like value (category: secret-like value, found by the detectors that mask successful tool output). It was NOT masked: Claude Code does not let a PostToolUseFailure hook replace a failed tool's output (host limit, anthropics/claude-code#97278). Do not repeat, quote, transform, or use that value in any reply or later tool call. Tell the user that a credential may have been exposed in a failed tool result and may need rotating."
+}
+
 hook_stop() {
   input=$(read_stdin)
   HOOK_EVENT=Stop
@@ -16085,6 +16167,7 @@ audit_begin "$cmd"
 case "$cmd" in
   hook-pre-tool) claude_block_capture_begin PreToolUse; hook_pre_tool ;;
   hook-post-tool) hook_post_tool ;;
+  hook-post-tool-failure) hook_post_tool_failure ;;
   hook-stop) claude_block_capture_begin Stop; hook_stop ;;
   hook-session-start) hook_session_start ;;
   hook-user-prompt) claude_block_capture_begin UserPromptSubmit; hook_user_prompt ;;

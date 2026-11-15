@@ -40,7 +40,9 @@ return status 0 with no response. See [Output masking coverage](integrations.md#
 ## Output and prompt handling
 
 - `AGENT_GUARD_OUTPUT_REDACT=off` disables secret-like output masking. The
-  default is masking.
+  default is masking. It also turns off the Claude `PostToolUseFailure` check,
+  which reports secret-like values in a failed tool's output but cannot mask
+  them ([Integrations](integrations.md#output-masking-coverage)).
 - A tool result too large to scan is masked fail-closed: every nonempty string
   in it is replaced. Anthropic content-block discriminators (`type`,
   `source.type`, `media_type`) survive that rewrite when the value is exactly a
