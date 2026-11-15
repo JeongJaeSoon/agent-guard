@@ -336,6 +336,27 @@
     "command": "jq -r '.key' a.json; jq -r '.data.key' b.json"
   },
   {
+    "id": "jq-after-multibyte-text",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "multibyte text before a later jq keeps the rewrite on its filter word",
+    "command": "echo '확인 중'; jq -r '.key' a.json"
+  },
+  {
+    "id": "jq-and-sed-in-later-segments",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a later jq and a sed after it are both rewritten",
+    "command": "echo x; jq '.a.key' a.json && sed 's/^x\\t[^\\t]*//' a.log"
+  },
+  {
+    "id": "later-jq-file-operand-after-multibyte-text",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "the file operand of a later jq is still checked after multibyte text",
+    "command": "echo '확인 중'; jq -r '.key' server.key"
+  },
+  {
     "id": "jq-after-locale-prefixed-command",
     "expected_status": 0,
     "classification": "must-pass",
