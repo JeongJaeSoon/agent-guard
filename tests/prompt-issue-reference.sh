@@ -85,7 +85,6 @@ prompt_case 0 'reported spec line with a ticket id after a Secret-suffixed name'
   "$(cat "$FIXTURE")"
 prompt_case 0 'getter name, team key, Korean prose' '- getSecret: PROJ-42 이슈를 참고한다.'
 prompt_case 0 'ticket id with a particle' '- setClientSecret: 94S-1654의 수용 조건'
-prompt_case 0 'ticket id before a comma' 'rotateSecret: ABC-123, then deploy'
 prompt_case 0 'backticked ticket id' 'clientSecret: `WERFT-9` follow-up'
 # The passing side of each limit, so an off-by-one tightening shows up.
 prompt_case 0 'ten-character team key' "${setter}: WORKSPACES-12 참고"
@@ -116,6 +115,21 @@ prompt_case 2 'id shape under a lowercase secret key' "${json_key%Secret}_secret
 prompt_case 2 'id shape under a Secret name at line end' 'setClientSecret: ABC-2024'
 prompt_case 2 'id shape under a Secret name before a comment' 'clientSecret: ABC-2024 # rotate'
 prompt_case 2 'backticked id shape under a password key' "${pw}: \`ABC-2024\` 참고"
+# The blocking side of each value limit, under a qualifying name and prose, so
+# loosening any one of them fails here.
+prompt_case 2 'eleven-character team key' "${setter}: WORKSPACESX-12 참고"
+prompt_case 2 'seven-digit number' "${setter}: AB-1234567 참고"
+prompt_case 2 'leading-zero number' "${setter}: AB-0123 참고"
+prompt_case 2 'all-digit team key' "${setter}: 2024-1234 참고"
+prompt_case 2 'lowercase id' "${setter}: ab-1234 참고"
+prompt_case 2 'id in single quotes' "${setter}: 'AB-1234' 참고"
+prompt_case 2 'id in double quotes' "${setter}: \"AB-1234\" 참고"
+prompt_case 2 'two particles' "${setter}: AB-1234의의 참고"
+# What follows must be a word: a flow mapping, a comment or punctuation is not.
+prompt_case 2 'flow mapping' "{${setter}: AB-1234, next: x}"
+prompt_case 2 'slash comment' "${setter}: AB-1234 // rotate"
+prompt_case 2 'semicolon comment' "${setter}: AB-1234 ; rotate"
+prompt_case 2 'dash after the value' "${setter}: AB-1234 - rotate"
 
 mask_case 'ticket id stays, real value is masked' \
   "setClientSecret: 94S-1654 adds a check

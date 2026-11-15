@@ -10942,15 +10942,16 @@ secretish_env_values() {
     # `secret:`, `api_secret:` and `CLIENT_SECRET:` and every password, token
     # or key field still mask. The id is an uppercase team key of up to ten
     # characters (Linear keys may start with a digit) and a number of up to six
-    # digits with no leading zero, after a trailing comma or Korean particle
-    # comes off. Text must follow on the same line and must not be a `#`
-    # comment, which is what separates prose from a YAML scalar. Unquoted or
-    # in markdown backticks only; the `=` form, a JSON string, lowercase or
-    # mixed-case words, and longer digit runs still mask.
+    # digits with no leading zero, after a Korean particle (or, inside
+    # backticks, a trailing comma) comes off. A word must follow on the same
+    # line, starting with a letter or a non-ASCII byte: that separates prose
+    # from a YAML scalar, a flow mapping (`, next:`), and a `#`, `//` or `;`
+    # comment. Unquoted or in markdown backticks only; the `=` form, a JSON
+    # string, lowercase or mixed-case words, and longer digit runs still mask.
     function issue_reference(assignment, value, tail, v, dash) {
-      if (assignment !~ /[a-z0-9]Secret`?[ \t]*:$/ || value ~ /[a-z]/) return 0
-      sub(/^[ \t\r]+/, "", tail)
-      if (tail == "" || substr(tail, 1, 1) == "#") return 0
+      if (assignment !~ /[a-z0-9]Secret`?[ \t]*:$/) return 0
+      sub(/^[ \t]+/, "", tail)
+      if (tail !~ /^[A-Za-z\200-\377]/) return 0
       v = value
       sub(/[`,]+$/, "", v)
       sub(/(가|이|은|는|을|를|의|도|에|에서|로|으로|와|과|만)$/, "", v)
