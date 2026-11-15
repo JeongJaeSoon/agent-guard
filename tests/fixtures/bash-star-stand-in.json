@@ -259,6 +259,34 @@
     "command": ". ./tools.sh; sed 's/.env/x/' a.log"
   },
   {
+    "id": "sed-s-after-inert-command",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a sed s regex after an inert command is pattern text",
+    "command": "echo x; sed 's/^x\\t[^\\t]*//' a.log"
+  },
+  {
+    "id": "sed-s-after-grep-or",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a sed s regex after || and grep is pattern text",
+    "command": "grep -q ok a.log || sed -E 's/^([^\\t]*)\\t[^\\t]*/\\1/' a.log"
+  },
+  {
+    "id": "sed-s-after-file-writing-command",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a command that can write files before sed stops the segment check",
+    "command": "cp a.log b.log; sed 's/^x\\t[^\\t]*//' b.log"
+  },
+  {
+    "id": "later-sed-file-operand",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a later trusted sed still has its file operands checked",
+    "command": "echo x; sed 's/^x\\t[^\\t]*//' .terraformrc"
+  },
+  {
     "id": "pattern-text-in-quoted-argument",
     "expected_status": 2,
     "classification": "known-limitation",
