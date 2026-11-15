@@ -6851,6 +6851,58 @@ jq_filter_without_field_names() {
     BEGIN { printf "%s", strip(ENVIRON["JQ_FILTER"]) }'
 }
 
+# Print $1, a sed script, with the regex of each s command removed:
+# `s/^a\t[^\t]*//g` becomes `s///g`. sed never opens a file its regex names.
+# Fail unless the script is only s commands joined by `;`, with flags that
+# neither write (w) nor run (e) anything. A delimiter or `\]` inside a bracket
+# expression also fails, since GNU and BSD sed may end such a regex at
+# different places, and so may a newline.
+sed_script_without_regex() {
+  SED_SCRIPT=$1 LC_ALL=C awk 'BEGIN {
+    t = ENVIRON["SED_SCRIPT"]; n = length(t); i = 1; out = ""
+    while (1) {
+      while (i <= n && substr(t, i, 1) == " ") i++
+      if (i > n) break
+      d = substr(t, i + 1, 1)
+      if (substr(t, i, 1) != "s" || d == "" || index("/|#,:@!%", d) == 0) exit 1
+      for (i += 2; i <= n && (c = substr(t, i, 1)) != d; i++) {
+        if (c == "\n") exit 1
+        if (c == "\\") { i++; if (substr(t, i, 1) == "\n") exit 1; continue }
+        if (c != "[") continue
+        j = i + 1
+        if (substr(t, j, 1) == "^") j++
+        if (substr(t, j, 1) == "]") j++
+        for (; j <= n && (c = substr(t, j, 1)) != "]"; j++) {
+          if (c == d || c == "\n" || substr(t, j, 2) == "\\]") exit 1
+          if (c == "[" && (k = index(":.=", substr(t, j + 1, 1)))) {
+            e = index(substr(t, j + 2), substr(":.=", k, 1) "]")
+            if (e == 0 || index(substr(t, j + 2, e - 1), d)) exit 1
+            j += e + 2
+          }
+        }
+        if (j > n) exit 1
+        i = j
+      }
+      if (i > n) exit 1
+      out = out "s" d d
+      for (i++; i <= n && (c = substr(t, i, 1)) != d; i++) {
+        if (c == "\n") exit 1
+        if (c == "\\") { out = out c; i++; c = substr(t, i, 1); if (c == "\n") exit 1 }
+        out = out c
+      }
+      if (i > n) exit 1
+      out = out d
+      for (i++; i <= n && substr(t, i, 1) ~ /[gpIiMm0-9]/; i++) out = out substr(t, i, 1)
+      while (i <= n && substr(t, i, 1) == " ") i++
+      if (i > n) break
+      if (substr(t, i, 1) != ";") exit 1
+      out = out ";"
+      i++
+    }
+    printf "%s", out
+  }'
+}
+
 # A jq filter is program text: `select(.key|test("x"))` names a field, not a
 # `*.key` file, and jq opens no file the filter names. Drop field names from
 # the filter of each jq at a command start of the first pipeline. Only that
@@ -6863,11 +6915,14 @@ jq_filter_without_field_names() {
 # filter, -f anywhere turns the first operand into a file, and a PATH
 # assignment can pick another jq. Every other word, redirections included,
 # still reaches the deny regex. A rewrite is kept only when re-tokenizing
-# shows that it changed the filter word and nothing else.
+# shows that it changed the filter word and nothing else. The script of a sed
+# made only of s commands gets the same treatment under the same rules: its
+# regexes are dropped (sed_script_without_regex), and -f, -i or an -e after
+# the script word keeps the command unchanged.
 bash_neutralize_jq_field_names() (
   set -f
   jq_orig=$1
-  case "$jq_orig" in *jq*) ;; *) printf '%s' "$jq_orig"; exit 0 ;; esac
+  case "$jq_orig" in *jq*|*sed*) ;; *) printf '%s' "$jq_orig"; exit 0 ;; esac
   case "$jq_orig" in
     *PATH*|*path=*|*path+=*|*'path['*) printf '%s' "$jq_orig"; exit 0 ;;
   esac
@@ -6877,9 +6932,30 @@ bash_neutralize_jq_field_names() (
   fi
   jq_cmd=$jq_orig
   jq_records=$(git_command_records "$jq_orig")
+  jq_sed=0
+  case "
+$jq_records
+" in *'
+0sed
+'*) jq_sed=1 ;; esac
 
+  # A word that names a rewritten tool anywhere but at its own command start
+  # may run or redefine it, so it keeps the command unchanged. sed counts only
+  # as a whole name (`sed=`, `[sed]`, `/sed`), since English words such as
+  # "passed" hold it.
+  jq_names_tool() {
+    case "$1" in *jq*) return 0 ;; esac
+    [ "$jq_sed" = 1 ] || return 1
+    case "$1" in
+      sed|sed[!A-Za-z0-9_]*|*[!A-Za-z0-9_]sed|*[!A-Za-z0-9_]sed[!A-Za-z0-9_]*) return 0 ;;
+    esac
+    return 1
+  }
   jq_try_rewrite() {
-    jq_new=$(jq_filter_without_field_names "$jq_filter")
+    case "$jq_tool" in
+      sed) jq_new=$(sed_script_without_regex "$jq_filter") || return 0 ;;
+      *) jq_new=$(jq_filter_without_field_names "$jq_filter") ;;
+    esac
     [ "$jq_new" = "$jq_filter" ] && return 0
     jq_expected=$(printf '%s\n' "$jq_records" | JQ_NEW=$jq_new awk -v k="$jq_filter_at" '
       NR == k { print "0" ENVIRON["JQ_NEW"]; next } { print }')
@@ -6966,15 +7042,14 @@ bash_neutralize_jq_field_names() (
       # A glob can expand to a command name such as eval (`ev?l`); zsh
       # extended glob adds `#` and `^`.
       case "$jq_word" in *[\*?[#^]*) jq_bail ;; esac
-      if [ "$jq_rec" = 0jq ]; then
-        jq_state=opt jq_need=0 jq_seg_bad=0
-      else
-        jq_state=other
-      fi
-      case "$jq_word" in *jq*) [ "$jq_state" = opt ] || jq_bail ;; esac
+      case "$jq_rec" in
+        0jq|0sed) jq_tool=$jq_word jq_state=opt jq_need=0 jq_seg_bad=0 jq_e=0 ;;
+        *) jq_state=other ;;
+      esac
+      if [ "$jq_state" != opt ] && jq_names_tool "$jq_word"; then jq_bail; fi
       continue
     fi
-    case "$jq_word" in *jq*) jq_bail ;; esac
+    if jq_names_tool "$jq_word"; then jq_bail; fi
     # Records drop quoting, so any glob character in an option value or a
     # later operand may expand into several words, or into an -f option
     # (zsh extended glob: `^x` is every file but x; zsh numeric range: `<0-9>`;
@@ -6988,6 +7063,26 @@ bash_neutralize_jq_field_names() (
       opt|operand)
         if [ "$jq_need" -gt 0 ]; then
           jq_need=$((jq_need - 1))
+          continue
+        fi
+        if [ "$jq_tool:$jq_e" = sed:1 ]; then
+          jq_filter=$jq_word jq_filter_at=$jq_i jq_state=after
+          continue
+        fi
+        if [ "$jq_tool" = sed ]; then
+          case "$jq_state:$jq_word" in
+            opt:--) jq_state=operand ;;
+            opt:--quiet|opt:--silent|opt:--regexp-extended|opt:--separate|\
+            opt:--unbuffered|opt:--null-data|opt:--posix) ;;
+            opt:--expression) jq_e=1 ;;
+            opt:-?*)
+              jq_flags=${jq_word#-}
+              case "$jq_flags" in *e) jq_flags=${jq_flags%e} jq_e=1 ;; esac
+              case "$jq_flags" in *[!nErsuz]*) jq_seg_bad=1 jq_state=other ;; esac
+              ;;
+            *:'<'*|*:'>'*|*:[0-9]*'<'*|*:[0-9]*'>'*) jq_seg_bad=1 jq_state=other ;;
+            *) jq_filter=$jq_word jq_filter_at=$jq_i jq_state=after ;;
+          esac
           continue
         fi
         case "$jq_state:$jq_word" in
@@ -7007,7 +7102,17 @@ bash_neutralize_jq_field_names() (
           *) jq_filter=$jq_word jq_filter_at=$jq_i jq_state=after ;;
         esac
         ;;
+      # GNU sed reorders its arguments, so an -e or -f after the script word
+      # makes that word a file operand.
       after)
+        if [ "$jq_tool" = sed ]; then
+          case "$jq_word" in
+            --quiet|--silent|--regexp-extended|--separate|--unbuffered|\
+            --null-data|--posix|--) ;;
+            -?*) case "${jq_word#-}" in *[!nErsuz]*) jq_seg_bad=1 ;; esac ;;
+          esac
+          continue
+        fi
         case "$jq_word" in
           --null-input|--raw-input|--slurp|--compact-output|--raw-output|\
           --raw-output0|--join-output|--ascii-output|--sort-keys|--color-output|\

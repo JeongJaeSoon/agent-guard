@@ -7,9 +7,9 @@ CASE=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-unit-deny-path.XXXXXX")
 trap 'rm -rf "$CASE"' 0
 sh "$ROOT/tests/helpers/extract-functions.sh" "$SOURCE" "$CASE" \
   deny_path_char_hex_pattern deny_path_shell_expansion_char_pattern deny_path_pin_char_pattern \
-  jq_filter_without_field_names
+  jq_filter_without_field_names sed_script_without_regex
 for function in deny_path_char_hex_pattern deny_path_shell_expansion_char_pattern deny_path_pin_char_pattern \
-  jq_filter_without_field_names; do
+  jq_filter_without_field_names sed_script_without_regex; do
   . "$CASE/$function.sh"
 done
 pass=0 fail=0
@@ -176,5 +176,49 @@ if [ "$actual" = "$filter" ] && [ ! -s "$CASE/err" ]; then
 else
   bad "jq filter field names: a comment in an interpolation (got $actual)"
 fi
+# `!` marks a script that must be refused and printed as nothing.
+while IFS=$tab read -r script expected; do
+  status=0
+  actual=$(sed_script_without_regex "$script" 2>"$CASE/err") || status=$?
+  if [ "$expected" = '!' ]; then
+    if [ "$status" -ne 0 ] && [ -z "$actual" ]; then
+      ok "sed script refused: $script"
+    else
+      bad "sed script refused: $script (got $actual)"
+    fi
+  elif [ "$status" -eq 0 ] && [ "$actual" = "$expected" ] && [ ! -s "$CASE/err" ]; then
+    ok "sed script regex removed: $script"
+  else
+    bad "sed script regex removed: $script (got $status $actual)"
+  fi
+done <<'CASES'
+s/a/b/	s//b/
+s/^d2-gate\t[^\t]*\t//	s///
+s/^([^\t]*)\t[^\t]*\t[^ ]+ /\1 | /	s//\1 | /
+s|a/b|c|g	s||c|g
+s/x\/y/z/2p	s//z/2p
+s/a/b/; s/[[:space:]]*$//g	s//b/;s///g
+s/[]x]*//	s///
+s/[^]x]*//I	s///I
+s/a/\//	s//\//
+s/a/b/w out	!
+s/a/b/e	!
+r x	!
+p	!
+/a/s/b/c/	!
+s/a/b/;p	!
+s/[/]//	!
+s/[\]]//	!
+s/[[:/:]]//	!
+s/[a//	!
+s/a	!
+s/a/b	!
+sxaxbx	!
+CASES
+nl='
+'
+status=0
+sed_script_without_regex "s/a/b/${nl}p" >/dev/null 2>&1 || status=$?
+if [ "$status" -ne 0 ]; then ok "sed script refused: a newline"; else bad "sed script refused: a newline"; fi
 printf 'passed: %s\nfailed: %s\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

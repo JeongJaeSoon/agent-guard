@@ -78,6 +78,9 @@ allow rg --no-config -n 'process\.env\.PORT' src
 allow rg --no-config -n -g '*.ts' 'process\.env' src
 allow cd ./sub && openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=t -keyout tls-up.key -out tls-up.crt
 allow openssl genrsa -out fresh.key 2048
+allow sed 's/^d2-gate\t[^\t]*\t//' notes.txt
+allow cut -c1-40 notes.txt | sed -E 's/^([^\t]*)\t[^\t]*/\1/' | head -3
+allow sed -n 's/.env/x/p' list.txt
 read cat .env
 read grep -E '^VALUE=' .env
 read cut -d= -f2 state.env
@@ -89,6 +92,8 @@ read grep -h VALUE list.txt .env
 read cat .env | grep -E '\.env|VALUE'
 read grep -f list.txt .env
 read grep VALUE < .env
+read sed 's/^x\t[^\t]*//' .env
+read sed 's/.env/x/' list.txt .env
 held grep -f .env list.txt
 held grep --file=.env list.txt
 held grep pat list.txt -e .env
@@ -141,6 +146,10 @@ held openssl req -x509 -key tls.key -out t.crt -subj /CN=t
 held openssl x509 -in t.crt -out fresh3.key
 held chmod 644 fresh.key
 held sed -n 's/x/y/p' notes.txt .env
+held sed -f list.txt 's/.env/x/'
+held sed 's/.env/x/' -e p
+held sed 's/.env/x/w .env' notes.txt
+held sed '/.env/r .env' list.txt
 held git restore . && grep .env
 held echo x >p; grep .env
 held cat list.txt >p | grep .env
