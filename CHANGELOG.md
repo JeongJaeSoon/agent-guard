@@ -1,3 +1,13 @@
+## v3.10.1 - 2026-11-15
+
+- fix(mcp): Figma MCP 도구의 fileKey·file_key 파일 키를 비밀값으로 보지 않는다 (#466)
+- fix(hooks): 훅마다 statusMessage 이름을 붙여 Codex /hooks의 Unnamed hook을 없앤다 (#465)
+- fix(bash): grep 앞 구간 판정이 믿는 위치의 jq·sed에도 필터 예외를 적용한다 (#464)
+- fix(bash): sed s 명령의 정규식을 보호 경로 검사에서 뺀다 (#463)
+- feat(redact): deny-read mask 모드에서 루트 dotenv 값을 출력에서 마스킹한다 (#460)
+- feat(hooks): Claude PostToolUseFailure의 실패 출력에서 secret을 찾아 마스킹되지 않았음을 알린다 (#461)
+- fix(bash): jq 필터의 env 멤버 이름을 보호 경로 검사에서 뺀다 (#462)
+
 ## Unreleased
 
 - feat(hooks): Claude Code에서 도구 호출이 실패하면 `PostToolUse` 대신 `PostToolUseFailure`가 실행됩니다. Claude 플러그인 manifest와 `examples/claude/settings.project.json`이 이 event를 `PostToolUse`와 같은 matcher·20초 timeout으로 등록하고, 새 subcommand `hook-post-tool-failure`가 실패 출력(`error`)을 성공 출력 마스킹과 같은 detector로 검사합니다. (#444, #461)
