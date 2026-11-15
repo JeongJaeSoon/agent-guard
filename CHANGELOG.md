@@ -1,3 +1,10 @@
+## Unreleased
+
+- feat(hooks): Claude Code에서 도구 호출이 실패하면 `PostToolUse` 대신 `PostToolUseFailure`가 실행됩니다. Claude 플러그인 manifest와 `examples/claude/settings.project.json`이 이 event를 `PostToolUse`와 같은 matcher·20초 timeout으로 등록하고, 새 subcommand `hook-post-tool-failure`가 실패 출력(`error`)을 성공 출력 마스킹과 같은 detector로 검사합니다. (#444)
+  - 동작 변경: host가 이 event에 `additionalContext`만 허용하므로 실패 출력은 마스킹되지 않고 그대로 모델에 갑니다(`updatedToolOutput`, `decision: "block"`, exit 2 모두 error 글을 바꾸지 못합니다. host 쪽 요청: anthropics/claude-code#97278). secret 모양 값을 찾으면 값은 적지 않고 종류만 밝혀, 마스킹되지 않았다는 것과 그 값을 되풀이하거나 쓰지 말고 사용자에게 교체가 필요할 수 있다고 알리라는 내용을 `additionalContext`로 보냅니다. `logs export`에는 `hook-post-tool-failure` 기록이 outcome `warned`로 남습니다. 깨끗하면 아무것도 출력하지 않습니다. 검사를 못 하면 깨끗하다고 하지 않고 `AGENT_GUARD_INFRA_FAILURE_MODE=open`에서는 세션마다 한 번, `closed`에서는 매번 알립니다. 막을 수 있는 것이 없으므로 두 모드 모두 exit 0입니다. JSON 객체가 아니거나 `error`가 없는 입력은 그대로 통과합니다. `AGENT_GUARD_OUTPUT_REDACT=off`면 검사하지 않습니다. Codex manifest는 바뀌지 않습니다.
+  - 사용자가 할 일: Claude Code 플러그인을 갱신하고 플러그인을 다시 읽습니다. 경고가 나오면 그 자격 증명을 교체합니다.
+  - 운영자가 할 일: standalone 설정을 쓰면 `examples/claude/settings.project.json`의 `PostToolUseFailure` 항목을 settings에 더합니다.
+
 ## v3.10.0 - 2026-11-15
 
 ### 주요 변경

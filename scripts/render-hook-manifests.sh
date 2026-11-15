@@ -2,8 +2,8 @@
 # Render every committed hook manifest from ONE set of tables.
 #
 # Every event's matcher, timeout, and hook subcommand must agree across all four
-# manifests; only the command string and the Claude-only PreToolUse onFailure
-# key legitimately differ. Editing them by hand
+# manifests; only the command string, the Claude-only PreToolUse onFailure key,
+# and the Claude-only PostToolUseFailure event legitimately differ. Editing them by hand
 # meant twenty copies kept in lockstep, so this script is the single source of
 # truth: edit the tables below, run it, and commit the result.
 #
@@ -73,14 +73,21 @@ render_manifest() { # $1 = root env var, $2 = host tag, $3/$4 = pre/post matcher
   # 0/2, or prints invalid JSON through unchecked unless onFailure is "block"
   # (Claude Code 2.1.295+).
   # Codex has no such key, so its manifests leave it out.
+  # Claude fires PostToolUseFailure instead of PostToolUse when a tool fails,
+  # so the failure output needs its own registration with the same matcher.
+  # Codex has no such event.
   case "$2" in
-    claude) pre_on_failure=block ;;
-    *) pre_on_failure= ;;
+    claude) pre_on_failure=block; with_failure=1 ;;
+    *) pre_on_failure=; with_failure= ;;
   esac
   # Status-checked assignments: a render_command failure inside a jq argument's
   # command substitution would otherwise be discarded while jq still exits 0.
   pre=$(render_command "$1" "$2" hook-pre-tool "$5") || return 1
   post=$(render_command "$1" "$2" hook-post-tool "$5") || return 1
+  failure=
+  if [ -n "$with_failure" ]; then
+    failure=$(render_command "$1" "$2" hook-post-tool-failure "$5") || return 1
+  fi
   stop=$(render_command "$1" "$2" hook-stop "$5") || return 1
   session=$(render_command "$1" "$2" hook-session-start "$5") || return 1
   prompt=$(render_command "$1" "$2" hook-user-prompt "$5") || return 1
@@ -90,23 +97,29 @@ render_manifest() { # $1 = root env var, $2 = host tag, $3/$4 = pre/post matcher
     --arg pre "$pre" \
     --arg pre_on_failure "$pre_on_failure" \
     --arg post "$post" \
+    --arg failure "$failure" \
     --arg stop "$stop" \
     --arg session "$session" \
     --arg prompt "$prompt" \
-    '{hooks: {
+    '{hooks: ({
        PreToolUse: [{matcher: $pre_matcher,
                      hooks: [{type: "command", command: $pre, timeout: 60}
                              + (if $pre_on_failure == "" then {}
                                 else {onFailure: $pre_on_failure} end)]}],
        PostToolUse: [{matcher: $post_matcher,
-                      hooks: [{type: "command", command: $post, timeout: 20}]}],
+                      hooks: [{type: "command", command: $post, timeout: 20}]}]}
+     + (if $failure == "" then {}
+        else {PostToolUseFailure: [{matcher: $post_matcher,
+                                    hooks: [{type: "command", command: $failure,
+                                             timeout: 20}]}]} end)
+     + {
        Stop: [{matcher: "",
                hooks: [{type: "command", command: $stop, timeout: 20}]}],
        SessionStart: [{matcher: "startup|resume|clear|compact",
                        hooks: [{type: "command", command: $session, timeout: 5}]}],
        UserPromptSubmit: [{matcher: "",
                            hooks: [{type: "command", command: $prompt, timeout: 10}]}]
-     }}'
+     })}'
 }
 
 render_target() { # $1 = one of the four committed manifest paths
