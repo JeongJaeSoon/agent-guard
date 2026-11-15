@@ -6756,8 +6756,9 @@ O'*)
 )
 
 # Print $1, a jq filter, with the names of the field chains rooted at `.`
-# removed: `.data.key` becomes `.`. `env.X` and `$x.y` keep theirs, and so do
-# strings (an import or include path names a file jq reads) and a comment.
+# removed: `.data.key` becomes `.`, and `env.X` becomes `env`. `$x.y` keeps
+# its names, and so do strings (an import or include path names a file jq
+# reads) and a comment.
 jq_filter_without_field_names() {
   JQ_FILTER=$1 LC_ALL=C awk '
     # t[k] opens a string; return the index of its closing quote, or 0.
@@ -6778,11 +6779,13 @@ jq_filter_without_field_names() {
       }
       return 0
     }
-    # k is just past a "("; return the index of the matching ")", or 0.
+    # k is just past a "("; return the index of the matching ")", or 0. A
+    # comment can hide a ")" up to its line end, so it returns 0 too.
     function matchparen(t, k,   m, c, d, e) {
       m = length(t); d = 1
       for (; k <= m; k++) {
         c = substr(t, k, 1)
+        if (c == "#") return 0
         if (c == "\"") {
           e = skipstr(t, k)
           if (!e) return 0
@@ -6821,6 +6824,14 @@ jq_filter_without_field_names() {
           out = out substr(t, j, 1)
           i = j
           chain = 0
+          continue
+        }
+        # The builtin env object: its member names are environment variables.
+        if (substr(t, i, 4) == "env." && substr(t, i + 4, 1) ~ /[A-Za-z_]/ \
+            && (i == 1 || substr(t, i - 1, 1) !~ /[A-Za-z0-9_$.]/)) {
+          out = out "env"
+          i += 2
+          chain = 1
           continue
         }
         if (c == "." && substr(t, i + 1, 1) ~ /[A-Za-z_]/ \

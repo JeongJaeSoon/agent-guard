@@ -1,7 +1,7 @@
 #!/bin/sh
 # Source text that merely names a runtime environment object (`process.env.X`,
-# `import.meta.env`, `Bun.env`, `Deno.env`) or a jq field (`"\(.key)"`) is not a
-# protected-file read. The hook-only checks are never executed. Controls: a file
+# `import.meta.env`, `Bun.env`, `Deno.env`), a jq field (`"\(.key)"`) or a jq env
+# member (`env.HOME`) is not a protected-file read. The hook-only checks are never executed. Controls: a file
 # that really has the runtime-global name, a path-shaped name and the plain
 # protected files must stay blocked, and the leak control proves the harness can
 # see a canary when the same text is a file operand.
@@ -120,6 +120,31 @@ check 0 "$W" "command node -e 'console.log(process.env.PORT)'"
 check 0 "$W" "jq -r 'to_entries[] | \"\\(.key) \\(.value)\"' data.json"
 check 0 "$W" "jq -c '.[] | \"k=\\(.key)\"' data.json"
 check 0 "$W" "jq -r '.a | tostring | \"\\(.) \\(.key)\"' data.json"
+
+# A jq env member names an environment variable. Run each allowed filter next
+# to a file of the same name: jq must print the variable, never the file.
+E="$CASE/e"
+mkdir -p "$E"
+printf '%s\n' "$canary" >"$E/env.HOME"
+for f in "env.HOME" "{v: env.HOME}" "\"\\(env.HOME)/x\""; do
+  check 0 "$E" "jq -nc '$f'"
+  out=$(cd "$E" && HOME=/agent-guard-home jq -nc "$f" 2>&1)
+  case "$out" in
+    *"$canary"*) bad "jq env member read the file: $f" ;;
+    *agent-guard-home*) ok "jq env member prints the variable: $f" ;;
+    *) bad "jq env member output unexpected: $f: $out" ;;
+  esac
+done
+check 2 "$E" "jq -R . env.HOME"
+check 2 "$E" "jq -n 'env.HOME' env.HOME"
+check 2 "$E" "jq -n --rawfile s env.HOME '\$s'"
+# The whole environment stays behind its own deny pattern.
+check 2 "$E" "jq -n env"
+leak=$(cd "$E" && jq -R . env.HOME 2>/dev/null)
+case "$leak" in
+  *"$canary"*) ok "leak control: jq reading the env-named file shows the canary" ;;
+  *) bad "leak control: jq canary missing" ;;
+esac
 
 # The same text is a read when it names a file that exists here.
 check 2 "$X" "cat process.env"
