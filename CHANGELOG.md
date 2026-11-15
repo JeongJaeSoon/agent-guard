@@ -1,3 +1,7 @@
+## v3.10.0 - 2026-11-15
+
+- feat(doctor): Codex hook trust가 modified·untrusted면 알리고 다시 trust하는 절차를 안내한다 (#458)
+
 ## Unreleased
 
 - feat(doctor): Codex가 `PATH`에 있으면 `agent-guard doctor`가 Codex에 agent-guard hook trust를 묻습니다. 잠깐 띄운 `codex app-server`의 `hooks/list`를 쓰므로 모델은 부르지 않습니다. Codex는 hook 항목과 플러그인 내용으로 trust를 검사하므로, `hooks.json`이 그대로여도 플러그인을 갱신하면 agent-guard hook이 모두 `modified`가 되어 실행되지 않을 수 있습니다. 이 상태를 이제 알립니다. (#458)
