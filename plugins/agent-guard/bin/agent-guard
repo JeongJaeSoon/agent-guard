@@ -10074,12 +10074,16 @@ scan_tool_input() {
   block_on_scan_status "$?" "$label contains secret-like values"
 }
 
+# The scan view stays in its own variable: the PII check after this one must
+# read the original event from the caller's `input`.
 scan_mcp_input() {
-  mcp_scan_input=$1
+  need_cmd jq
+  text=$(printf '%s' "$1" | jq -c '.tool_input // {}')
   if is_figma_mcp_tool "${2:-}"; then
-    mcp_scan_input=$(figma_file_key_scan_view "$1")
+    text=$(figma_file_key_scan_view "$text")
   fi
-  scan_tool_input "$mcp_scan_input" "MCP tool input"
+  scan_text_direct "MCP tool input" "$text"
+  block_on_scan_status "$?" "MCP tool input contains secret-like values"
 }
 
 # Figma MCP tools take a file key in `fileKey` and return it in `file_key`. The
@@ -10092,6 +10096,7 @@ is_figma_mcp_tool() {
   [ "$figma_tool_rest" != "${1:-}" ] || return 1
   figma_tool_server=${figma_tool_rest%%__*}
   [ "$figma_tool_server" != "$figma_tool_rest" ] || return 1
+  [ -n "${figma_tool_rest#*__}" ] || return 1
   case "$figma_tool_server" in
     *[Ff][Ii][Gg][Mm][Aa]*) return 0 ;;
   esac
@@ -10106,14 +10111,15 @@ is_figma_mcp_tool() {
 # printed, so the full value is scanned.
 figma_file_key_scan_view() {
   if figma_view=$(printf '%s' "$1" | jq -c "$JQ_WALK"'
-      def blank_key: if type == "string" and test("^[A-Za-z0-9]{22}$")
+      def blank_key: if type == "string" and length == 22
+                        and test("\\A[A-Za-z0-9]{22}\\z")
                      then "" else . end;
       walk(if type == "object"
            then with_entries(if .key == "fileKey" or .key == "file_key"
                              then .value |= blank_key else . end)
            elif type == "string"
-           then gsub("\"fileKey\"[ \t]*:[ \t]*\"[A-Za-z0-9]{22}\""; "\"fileKey\":\"\"")
-                | gsub("\"file_key\"[ \t]*:[ \t]*\"[A-Za-z0-9]{22}\""; "\"file_key\":\"\"")
+           then gsub("\"fileKey\"[ \t\r\n]*:[ \t\r\n]*\"[A-Za-z0-9]{22}\""; "\"fileKey\":\"\"")
+                | gsub("\"file_key\"[ \t\r\n]*:[ \t\r\n]*\"[A-Za-z0-9]{22}\""; "\"file_key\":\"\"")
            else . end)
     ' 2>/dev/null) && [ -n "$figma_view" ]; then
     printf '%s' "$figma_view"

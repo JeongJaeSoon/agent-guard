@@ -50,6 +50,11 @@ not_ok() {
 # is built at run time so this file holds no literal finding.
 KEY=$(printf '%s%s%s' Qm7Rt2 Xa9Lp4Vb K8Hn3Wz6)
 LONG_KEY="${KEY}J"
+SHORT_KEY=$(printf '%s' "$KEY" | cut -c1-21)
+# 22 alphanumerics around a test card number, so the key shape matches.
+PII_KEY=$(printf 'ABC%s%sDEF' 4111 111111111111)
+PRETTY=$(printf '{\r\n  "file_key" \r\n:\n "%s",\n  "message": "Created"\n}' "$KEY")
+ESCAPED=$(printf '{"file\\u005fkey":"%s"}' "$KEY")
 VENDOR=$(printf 'gh%s_%s%s' p "$KEY" "$KEY" | cut -c1-40)
 FIG=mcp__claude_ai_Figma__create_new_file
 FIG_SESSION=mcp__claude_ai_Figma__create_session
@@ -93,7 +98,7 @@ post_passes() {
 }
 
 # $1 host, $2 label, $3 tool, $4 tool_response JSON, $5 value that must not
-# survive anywhere in the rewritten result.
+# survive anywhere in the rewritten result, $6 optional text that must.
 post_masks() {
   post_hook "$1" "$3" "$4"
   case $1 in
@@ -101,7 +106,7 @@ post_masks() {
     codex) contract='.decision == "block" and (.hookSpecificOutput.additionalContext | contains("[REDACTED]"))' ;;
   esac
   if [ "$hook_status" -eq 0 ] && jq -e "$contract" "$CASE/out" >/dev/null 2>&1 \
-    && ! leaks "$5"; then
+    && ! leaks "$5" && { [ -z "${6:-}" ] || grep -q "$6" "$CASE/out"; }; then
     ok "$1 PostToolUse masks: $2"
   else
     not_ok "$1 PostToolUse masks: $2 (status $hook_status)"
@@ -131,7 +136,7 @@ for host in claude codex; do
     "$(jq -nc --arg k "$KEY" --arg u "$URL" '{file_key:$k,file_url:$u}')"
   # Controls: the same text from another server, or a server that only names a
   # tool after Figma, is masked, URL copy included.
-  post_masks "$host" "same result from another MCP server" "$OTHER" "$(text_response "$RESPONSE")" "$KEY"
+  post_masks "$host" "same result from another MCP server" "$OTHER" "$(text_response "$RESPONSE")" "$KEY" Created
   post_masks "$host" "figma in the tool name only" "$OTHER_NAMED" "$(text_response "$RESPONSE")" "$KEY"
   # The same value elsewhere in a Figma result is a finding, so every copy,
   # including file_key and the URL path, is masked.
@@ -145,6 +150,12 @@ for host in claude codex; do
     "$(text_response "{\"file_key\":\"$LONG_KEY\"}")" "$LONG_KEY"
   post_masks "$host" "vendor token under file_key" "$FIG" \
     "$(text_response "{\"file_key\":\"$VENDOR\"}")" "$VENDOR"
+  post_passes "$host" "pretty-printed JSON text with CR/LF around the colon" "$FIG" \
+    "$(text_response "$PRETTY")"
+  post_masks "$host" "unicode-escaped field name stays scanned" "$FIG" \
+    "$(text_response "$ESCAPED")" "$KEY"
+  post_masks "$host" "21-character value under file_key" "$FIG" \
+    "$(text_response "{\"file_key\":\"$SHORT_KEY\"}")" "$SHORT_KEY"
 
   pre_case "$host" 0 "create_session fileKey" "$FIG_SESSION" \
     "$(jq -nc --arg k "$KEY" '{fileKey:$k,description:"Build the library"}')"
@@ -160,13 +171,43 @@ for host in claude codex; do
     "$(jq -nc --arg k "$LONG_KEY" '{fileKey:$k}')"
   pre_case "$host" 2 "vendor token as fileKey" "$FIG_SESSION" \
     "$(jq -nc --arg k "$VENDOR" '{fileKey:$k}')"
+  pre_case "$host" 2 "fileKey with a trailing newline" "$FIG_SESSION" \
+    "$(jq -nc --arg k "$KEY" '{fileKey:($k + "\n")}')"
+  pre_case "$host" 2 "21-character fileKey" "$FIG_SESSION" \
+    "$(jq -nc --arg k "$SHORT_KEY" '{fileKey:$k}')"
+  # The PII check must read the event, not the blanked scan view.
+  n=$((n + 1))
+  jq -nc --arg t "$FIG_SESSION" --arg k "$PII_KEY" --arg d "$CASE/cwd" --arg s "figma-key-$n" \
+    '{session_id:$s,hook_event_name:"PreToolUse",tool_name:$t,tool_input:{fileKey:$k},cwd:$d}' |
+    (cd "$CASE/cwd" && AGENT_GUARD_PII_HOOK_MODE=block AGENT_GUARD_HOOK_HOST=$host \
+      "$GUARD" hook-pre-tool) >"$CASE/out" 2>"$CASE/err"
+  hook_status=$?
+  if [ "$hook_status" -eq 2 ] && grep -q 'blocked PII in MCP tool input' "$CASE/err"; then
+    ok "$host PreToolUse: PII inside a fileKey-shaped value is still blocked"
+  else
+    not_ok "$host PreToolUse: PII inside a fileKey-shaped value is still blocked (status $hook_status)"
+  fi
 done
+
+# Fail closed: when the scan-view jq program fails, the unchanged input is
+# scanned, so the Figma key is found again.
+mkdir "$CASE/badjq"
+printf '#!/bin/sh\ncase "$*" in *blank_key*) exit 5 ;; esac\nexec "%s" "$@"\n' \
+  "$(command -v jq)" >"$CASE/badjq/jq"
+chmod +x "$CASE/badjq/jq"
+real_path=$PATH
+PATH="$CASE/badjq:$PATH"
+pre_case claude 2 "a failing scan view scans the unchanged input" "$FIG_SESSION" \
+  "$(jq -nc --arg k "$KEY" '{fileKey:$k}')"
+post_masks claude "a failing scan view masks the unchanged output" "$FIG" \
+  "$(text_response "$RESPONSE")" "$KEY" Created
+PATH=$real_path
 
 # PostToolUseFailure only reports; a Figma error carrying its key stays quiet
 # while the same error from another server is reported.
 failure_case() {
   n=$((n + 1))
-  jq -nc --arg t "$2" --arg e "Error: {\"file_key\":\"$KEY\"}" --arg s "figma-key-$n" \
+  jq -nc --arg t "$2" --arg e "Error: {\"file_key\":\"$KEY\"}${4:-}" --arg s "figma-key-$n" \
     '{session_id:$s,hook_event_name:"PostToolUseFailure",tool_name:$t,tool_input:{},error:$e}' |
     (cd "$CASE/cwd" && AGENT_GUARD_HOOK_HOST=claude AGENT_GUARD_WARNING_DIR="$CASE/warn-$n" \
       "$GUARD" hook-post-tool-failure) >"$CASE/out" 2>"$CASE/err"
@@ -180,6 +221,8 @@ failure_case() {
 }
 failure_case quiet "$FIG" "Figma error with its file key is not reported"
 failure_case report "$OTHER" "the same error from another server is reported"
+failure_case report "$FIG" "a Figma error with the key also in an assignment is reported" \
+  " retry with api_key=$KEY"
 
 printf '1..%s\n' "$((pass + fail))"
 [ "$fail" -eq 0 ]

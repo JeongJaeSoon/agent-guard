@@ -185,7 +185,9 @@ finding, in the MCP input check or in output masking, on either host. The key
 names a document; opening the file still needs a Figma login with access to
 it. The same value anywhere else in the event (another field, a URL query, a
 key assignment) is still a finding, and masking then replaces every copy,
-including the one in the file URL.
+including the one in the file URL. A field name written with JSON Unicode
+escapes, or JSON text encoded twice, is not recognized, so that value is still
+scanned and masked.
 
 What masking cannot do on either host:
 
