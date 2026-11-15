@@ -246,19 +246,23 @@ worker started, seed [REDACTED]
   `.env.template`, and `.envrc`, are skipped. Symlinks are skipped.
 - Values: the dotenv subset above. Quotes are removed, an unquoted value ends
   before a ` #` comment, and a trailing CR is dropped. Values shorter than 8
-  bytes, `true`/`false`/`yes`/`no`/`on`/`off` in any case, numbers and empty
-  values are not used. Matching is exact and literal: no regex, no encoded
+  bytes, `true`/`false`/`yes`/`no`/`on`/`off` in any case, numbers, empty
+  values, and values that mix fewer than two of letters, digits and other
+  characters (a plain word such as `development` or `localhost`) are not used.
+  So a long secret made only of letters is not a known value. Matching is exact and literal: no regex, no encoded
   variants (base64, URL encoding, a changed case).
-- A file that cannot be read or is outside the dotenv subset (for example a
-  `${VAR}` reference or a value over several lines), or is over 64 KiB,
-  contributes no values. This is not an infrastructure failure: masking by
+- A file that cannot be read or is outside the dotenv subset, or is over
+  64 KiB, contributes no values. One line outside the subset (a `${VAR}`
+  reference, a backtick, a value over several lines) is enough: that whole
+  file then contributes no values, even from its other lines. This is not an infrastructure failure: masking by
   every other rule continues as before and no warning names the file. If the
   value matcher itself fails, the output is masked conservatively, as for any
   other detector failure.
 - Values are held in memory for one hook or `exec` run only. They are never
   written to the audit log, a cache, a warning or an error message.
-- An ordinary word used as a value (`development`, `localhost`) is masked
-  everywhere it appears in output too.
+- A value that passes these filters is masked everywhere it appears in
+  output, even where it is not used as a secret (for example a host name such
+  as `db.example.com`).
 
 A secret that is not in a root dotenv file (another file, the process
 environment, a nested `.env`, a secret manager) is still not covered. Neither

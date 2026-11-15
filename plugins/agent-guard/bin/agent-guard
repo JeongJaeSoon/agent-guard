@@ -11342,8 +11342,9 @@ ag_known_value_base=
 # exemptions, so `.env.example` is skipped) and mask-file reads it as dotenv.
 # Symlinks are skipped. A file mask-file cannot read or parse (unreadable,
 # over 64 KiB, outside its dotenv subset) contributes no values; masking by
-# every other rule continues. Values shorter than 8 bytes, booleans, numbers
-# and empty values are dropped. Nothing is written to disk or to stderr.
+# every other rule continues. Values shorter than 8 bytes, booleans, numbers,
+# empty values and values with fewer than two of letters, digits and other
+# characters (a plain word) are dropped. Nothing is written to disk or to stderr.
 known_env_values() (
   kv_base=$ag_known_value_base
   [ -n "$kv_base" ] && [ -d "$kv_base" ] || kv_base=.
@@ -11376,7 +11377,12 @@ known_env_values() (
     length($0) < 8 { next }
     tolower($0) ~ /^(true|false|yes|no|on|off)$/ { next }
     /^[-+]?[0-9]+([.][0-9]+)?$/ { next }
-    { print }
+    {
+      # At least two of letters, digits and other characters, so a plain
+      # word such as `development` or `localhost` is not a known value.
+      k = ($0 ~ /[A-Za-z]/) + ($0 ~ /[0-9]/) + ($0 ~ /[^A-Za-z0-9]/)
+      if (k >= 2) print
+    }
   '
 )
 

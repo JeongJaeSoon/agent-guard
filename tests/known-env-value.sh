@@ -34,6 +34,9 @@ sub_value=$(printf '%s%s' nested-fake '-Sd73qP')
   printf 'FLAG=FALSE\n'
   printf 'COUNT=123456789\n'
   printf 'EMPTY=\n'
+  printf 'APP_ENV=development\n'
+  printf 'DB_HOST=localhost\n'
+  printf 'LETTERS=OnlyLettersLongValue\n'
   printf "META='%s'\n" "$meta"
   printf 'export QUOTED="%s" # note\n' "$quoted"
   printf 'CRLF=%s\r\n' "$crlf"
@@ -97,6 +100,9 @@ expect_exec 'CRLF value masked without the CR' \
   "c $crlf" 'c [REDACTED]'
 expect_exec 'short, boolean and numeric values stay' \
   'abc1234 FALSE 123456789 ok' 'abc1234 FALSE 123456789 ok'
+expect_exec 'plain-word values stay' \
+  'env development on localhost OnlyLettersLongValue' \
+  'env development on localhost OnlyLettersLongValue'
 expect_exec 'template file values are not read' \
   "t $template" "t $template"
 expect_exec 'nested dotenv files are not read' \
