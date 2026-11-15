@@ -9,7 +9,7 @@
   - 사용자가 할 일: 없습니다. `mask` 모드에서 끄려면 `AGENT_GUARD_KNOWN_VALUE_REDACT=off`를 설정합니다. `AGENT_GUARD_OUTPUT_REDACT=off`도 이 기능을 끕니다. 루트 dotenv 파일 밖에 있는 secret은 여전히 잡지 않습니다.
 - fix(hooks): hook마다 `statusMessage` 이름을 붙여, Codex `/hooks` 화면에서 agent-guard hook 5개가 "Unnamed hook"이 아니라 `agent-guard: checking tool call`처럼 보입니다. Claude manifest의 hook 6개(`PostToolUseFailure` 포함)에도 같은 이름을 붙였고, Claude와 Codex 모두 hook이 도는 동안 이 글을 상태 표시로 보여 줍니다. hook 명령·matcher·timeout은 바뀌지 않습니다.
   - 동작 변경: hook이 도는 동안 보이는 상태 글만 바뀝니다. 막기·스캔 결과와 종료 코드는 같습니다.
-  - 사용자가 할 일: Codex는 hook 항목과 플러그인 내용으로 trust를 검사합니다. 그래서 이 버전으로 갱신하면 agent-guard hook이 모두 `modified`가 되고, 다시 trust할 때까지 실행되지 않습니다. 갱신 뒤 `agent-guard doctor`를 실행하고, 안내대로 TUI의 "Hooks need review"에서 다시 trust합니다. Claude는 할 일이 없습니다. `examples/`의 hook 설정을 복사해 쓰는 독립 설치는 이름이 필요할 때 `statusMessage`를 직접 더합니다.
+  - 사용자가 할 일: Codex는 hook 항목과 플러그인 내용으로 trust를 검사합니다. 그래서 hook을 직접 trust해 둔 설치는 이 버전으로 갱신하면 agent-guard hook이 모두 `modified`가 되고, 다시 trust할 때까지 실행되지 않습니다. 관리형(managed) trust로 받는 설치는 그 설정을 따릅니다. 갱신 뒤 `agent-guard doctor`를 실행하고, 안내대로 TUI의 "Hooks need review"에서 다시 trust합니다. Claude는 할 일이 없습니다. `examples/`의 hook 설정을 복사해 쓰는 독립 설치는 이름이 필요할 때 `statusMessage`를 직접 더합니다.
   - 운영자가 할 일: 없습니다.
 
 ## v3.10.0 - 2026-11-15
