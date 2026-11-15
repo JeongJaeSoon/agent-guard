@@ -402,12 +402,24 @@ else
   not_ok "release PR creation safely reuses only an identical remote release tree"
 fi
 
+release_main_ci_line=$(grep -n 'name: Require successful main CI' "$ROOT/.github/workflows/release.yml" | cut -d: -f1)
+release_bump_line=$(grep -n 'name: Bump version in tracked files' "$ROOT/.github/workflows/release.yml" | cut -d: -f1)
+if [ -n "$release_main_ci_line" ] \
+   && [ -n "$release_bump_line" ] \
+   && [ "$release_main_ci_line" -lt "$release_bump_line" ] \
+   && grep -Fq 'commits/${dispatch_sha}/check-runs?filter=latest&per_page=100' "$ROOT/.github/workflows/release.yml" \
+   && grep -Fq 'on dispatch commit $dispatch_sha is not successful' "$ROOT/.github/workflows/release.yml"; then
+  ok "release PR cycle requires every main CI check to pass on the dispatch commit"
+else
+  not_ok "release PR cycle requires every main CI check to pass on the dispatch commit"
+fi
+
 release_validation_line=$(grep -n 'name: Validate release candidate before opening PR' "$ROOT/.github/workflows/release.yml" | cut -d: -f1)
 release_pr_line=$(grep -n 'name: Open release PR' "$ROOT/.github/workflows/release.yml" | cut -d: -f1)
 if [ -n "$release_validation_line" ] \
    && [ -n "$release_pr_line" ] \
    && [ "$release_validation_line" -lt "$release_pr_line" ] \
-   && grep -Fq '/bin/dash tests/run.sh' "$ROOT/.github/workflows/release.yml" \
+   && ! grep -Fq '/bin/dash tests/run.sh' "$ROOT/.github/workflows/release.yml" \
    && grep -Fq 'scripts/validate-plugin-layout.sh --all' "$ROOT/.github/workflows/release.yml" \
    && grep -Fq 'scripts/validate-submission-readiness.sh' "$ROOT/.github/workflows/release.yml" \
    && grep -Fq 'plugins/agent-guard/bin/agent-guard smoke-test' "$ROOT/.github/workflows/release.yml"; then
