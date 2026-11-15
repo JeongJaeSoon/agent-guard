@@ -8,6 +8,7 @@
             "type": "command",
             "command": "/absolute/path/to/agent-guard/plugins/agent-guard/bin/agent-guard hook-pre-tool",
             "timeout": 60,
+            "statusMessage": "agent-guard: checking tool call",
             "onFailure": "block"
           }
         ]
@@ -20,7 +21,8 @@
           {
             "type": "command",
             "command": "/absolute/path/to/agent-guard/plugins/agent-guard/bin/agent-guard hook-post-tool",
-            "timeout": 20
+            "timeout": 20,
+            "statusMessage": "agent-guard: scanning tool output"
           }
         ]
       }
@@ -32,7 +34,8 @@
           {
             "type": "command",
             "command": "/absolute/path/to/agent-guard/plugins/agent-guard/bin/agent-guard hook-post-tool-failure",
-            "timeout": 20
+            "timeout": 20,
+            "statusMessage": "agent-guard: scanning failed tool output"
           }
         ]
       }
@@ -44,7 +47,8 @@
           {
             "type": "command",
             "command": "/absolute/path/to/agent-guard/plugins/agent-guard/bin/agent-guard hook-stop",
-            "timeout": 20
+            "timeout": 20,
+            "statusMessage": "agent-guard: scanning changes"
           }
         ]
       }
@@ -56,7 +60,8 @@
           {
             "type": "command",
             "command": "/absolute/path/to/agent-guard/plugins/agent-guard/bin/agent-guard hook-session-start",
-            "timeout": 5
+            "timeout": 5,
+            "statusMessage": "agent-guard: checking setup"
           }
         ]
       }
@@ -68,7 +73,8 @@
           {
             "type": "command",
             "command": "/absolute/path/to/agent-guard/plugins/agent-guard/bin/agent-guard hook-user-prompt",
-            "timeout": 10
+            "timeout": 10,
+            "statusMessage": "agent-guard: scanning prompt"
           }
         ]
       }

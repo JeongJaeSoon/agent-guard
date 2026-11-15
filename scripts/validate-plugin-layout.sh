@@ -64,6 +64,16 @@ validate_hook_commands() {
     return
   fi
 
+  # Codex lists a hook without statusMessage as "Unnamed hook" in /hooks.
+  if jq -e '[.hooks[][] | .hooks[]? | .statusMessage] as $names
+            | ($names | length) > 0
+              and all($names[]; type == "string" and startswith("agent-guard: "))
+              and ($names | unique | length) == ($names | length)' "$manifest" >/dev/null; then
+    ok "$host hooks each declare a distinct agent-guard statusMessage"
+  else
+    fail "$host hooks each declare a distinct agent-guard statusMessage"
+  fi
+
   while IFS= read -r command; do
     case "$required" in
       PLUGIN_ROOT)
