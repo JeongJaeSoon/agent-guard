@@ -11311,6 +11311,96 @@ trusted_live_probe_replacements() {
     | jq -sc 'unique' 2>/dev/null
 }
 
+# --- Known values from the project's own dotenv files (#445) ------------------
+# A secret under a generic key (APP_SEED=...) has no vendor prefix and no
+# secret-like key name, so no detector below can recognize it in output on its
+# own. In AGENT_GUARD_DENY_READ_MODE=mask, where the user already lets Agent
+# Guard's own process read protected files, the values of the root dotenv
+# files are treated as known secrets: every exact occurrence in output becomes
+# [REDACTED] through the same literal records as any other finding.
+#
+# The one switch point. In `block` mode (the default) no protected file is
+# ever opened. AGENT_GUARD_KNOWN_VALUE_REDACT=off turns it off in mask mode;
+# AGENT_GUARD_OUTPUT_REDACT=off never reaches the detector at all.
+known_value_redact_enabled() {
+  # deny_read_mode's own values, without a command substitution per event:
+  # only an exact `mask` opts in; unset, `block` and invalid values do not.
+  [ "${AGENT_GUARD_DENY_READ_MODE:-block}" = mask ] || return 1
+  case "${AGENT_GUARD_KNOWN_VALUE_REDACT:-on}" in
+    off) return 1 ;;
+  esac
+  return 0
+}
+
+# The directory output masking treats as the project: the PostToolUse event's
+# `cwd`, or for exec the process working directory. Set by the caller.
+ag_known_value_base=
+
+# Print, one per line, the values of the dotenv files directly in the project
+# directory and in its Git top level (no recursion). A file counts when its
+# basename is a deny-read rule (with that rule's template and source-module
+# exemptions, so `.env.example` is skipped) and mask-file reads it as dotenv.
+# Symlinks are skipped. A file mask-file cannot read or parse (unreadable,
+# over 64 KiB, outside its dotenv subset) contributes no values; masking by
+# every other rule continues. Values shorter than 8 bytes, booleans, numbers
+# and empty values are dropped. Nothing is written to disk or to stderr.
+known_env_values() (
+  kv_base=$ag_known_value_base
+  [ -n "$kv_base" ] && [ -d "$kv_base" ] || kv_base=.
+  kv_base=$(CDPATH= cd -- "$kv_base" 2>/dev/null && pwd -P) || exit 0
+  [ -f "$DENY_READ_PATHS" ] || exit 0
+  kv_top=
+  if command -v git >/dev/null 2>&1; then
+    kv_top=$(CDPATH= cd -- "$kv_base" && git rev-parse --show-toplevel 2>/dev/null) \
+      || kv_top=
+    if [ -n "$kv_top" ]; then
+      kv_top=$(CDPATH= cd -- "$kv_top" 2>/dev/null && pwd -P) || kv_top=
+    fi
+    [ "$kv_top" != "$kv_base" ] || kv_top=
+  fi
+  for kv_dir in "$kv_base" ${kv_top:+"$kv_top"}; do
+    for kv_file in "$kv_dir"/.[!.]* "$kv_dir"/..?* "$kv_dir"/*; do
+      kv_name=${kv_file##*/}
+      # A cheap superset of the dotenv names; the deny rules and mask-file
+      # below make the actual decision.
+      case $kv_name in
+        *env*|.dev.vars*) ;;
+        *) continue ;;
+      esac
+      [ -f "$kv_file" ] && [ ! -L "$kv_file" ] || continue
+      [ "$(mask_file_format "$kv_file" 2>/dev/null)" = dotenv ] || continue
+      candidate_matches_deny "$kv_name" || continue
+      mask_file "$kv_file" values 2>/dev/null || :
+    done
+  done | LC_ALL=C awk '
+    length($0) < 8 { next }
+    tolower($0) ~ /^(true|false|yes|no|on|off)$/ { next }
+    /^[-+]?[0-9]+([.][0-9]+)?$/ { next }
+    { print }
+  '
+)
+
+# JSON-string records for the known values that occur in the decoded output
+# strings file $1. Only values present in the output become records, so a
+# large dotenv file cannot push the bundle over its record cap. Literal
+# index() matching: a value is never a regex. A matcher failure fails the
+# detector, and the caller then masks conservatively. Callers check
+# known_value_redact_enabled first, so `block` mode forks nothing here.
+known_env_value_records() (
+  [ -s "$1" ] || exit 0
+  kv_values=$(known_env_values) || kv_values=
+  [ -n "$kv_values" ] || exit 0
+  kv_found=$(printf '%s\n' "$kv_values" | LC_ALL=C awk '
+    NR == FNR { if (!($0 in want)) { want[$0] = 1; n++ }; next }
+    n > 0 {
+      for (v in want)
+        if (index($0, v)) { print v; delete want[v]; n-- }
+    }
+  ' - "$1") || exit 1
+  [ -n "$kv_found" ] || exit 0
+  printf '%s\n' "$kv_found" | jq -Rc 'select(length > 0)' 2>/dev/null
+)
+
 # Collect JSON-string records for the literal secrets present in the response
 # JSON ($1): gitleaks findings plus the env-assignment heuristic and compact
 # token rules. The env heuristic scans each string leaf independently so quote
@@ -11417,6 +11507,12 @@ detect_output_secret_records() (
   jq -Rc 'select(length > 0)' <"$detector_work_b" \
     >"$detector_work_a" 2>/dev/null || detector_fail
   cat "$detector_work_a" >>"$detector_records" || detector_fail
+
+  if known_value_redact_enabled; then
+    known_env_value_records "$detector_strings" \
+      >"$detector_work_b" 2>/dev/null || detector_fail
+    cat "$detector_work_b" >>"$detector_records" || detector_fail
+  fi
 
   cat "$detector_records"
   detector_status=$?
@@ -12755,12 +12851,16 @@ MASK_FILE_MAX_BYTES=65536
 # Shared by the line-oriented formats. mode=paths prints the key path of each
 # masked value instead of the view. mode=reveal shows the value numbered N
 # between show_open and show_close when want_file lists "N<TAB>path" with this
-# read's key path and that path is unambiguous (`amb` unset).
+# read's key path and that path is unambiguous (`amb` unset). mode=values
+# (dotenv only) prints each value the format program left in `val`, one per
+# line, and drops a trailing CR first; it is for known_env_values only.
 MASK_FILE_AWK_LIB='
-function emit_line(s) { if (mode != "paths") print s }
+mode == "values" { sub(/\r$/, "") }
+function emit_line(s) { if (mode != "paths" && mode != "values") print s }
 function emit_masked(prefix, path, amb) {
   nv++
-  if (mode == "paths") print path
+  if (mode == "values") print val
+  else if (mode == "paths") print path
   else if (mode == "reveal" && !amb && (nv in want) && want[nv] == path)
     print prefix show_open substr($0, length(prefix) + 1) show_close
   else print prefix marker
@@ -12806,10 +12906,13 @@ MASK_FILE_AWK_DOTENV='
     e = quoted_end(value, c)
     if (!e || substr(value, e + 1) !~ /^([ \t]*|[ \t]+#.*)$/) exit 1
     word = c == sq ? "" : substr(value, 1, e)
+    val = substr(value, 2, e - 2)
   } else {
     word = value
     if (match(word, /[ \t]#/)) word = substr(word, 1, RSTART - 1)
     if (word ~ /["\\(<]/ || index(word, sq)) exit 1
+    val = word
+    sub(/[ \t]+$/, "", val)
   }
   if (index(word, "`") || index(word, "$(") || index(word, "${") || index(word, "$[")) exit 1
   key = prefix
@@ -13051,12 +13154,13 @@ mask_file_render() {
 # Every failure exits non-zero with empty stdout and a fixed stderr line that
 # names neither the path nor any content. $3 replaces the [MASKED] marker; it
 # must not contain a backslash. $2 = reveal takes the arguments
-# mask_file_render documents and is for masked_view only. A subshell, so its
-# names and those resolve_path sets never reach the caller.
+# mask_file_render documents and is for masked_view only. $2 = values prints
+# each dotenv value, one per line, and is for known_env_values only. A
+# subshell, so its names and those resolve_path sets never reach the caller.
 mask_file() (
   mf_mode=${2:-text}
   mf_marker=${3:-[MASKED]}
-  case $mf_mode in text|paths|reveal) ;; *) die "mask-file: unsupported mode" ;; esac
+  case $mf_mode in text|paths|reveal|values) ;; *) die "mask-file: unsupported mode" ;; esac
   need_cmd awk
   need_cmd jq
   mf_path=$(resolve_path "$1")
@@ -13066,6 +13170,8 @@ mask_file() (
     die_with_status 1 "mask-file: not a readable regular file"
   fi
   mf_format=$(mask_file_format "$mf_path") \
+    || die_with_status 1 "mask-file: unsupported file format"
+  [ "$mf_mode" != values ] || [ "$mf_format" = dotenv ] \
     || die_with_status 1 "mask-file: unsupported file format"
   mf_size=$(wc -c <"$mf_path" 2>/dev/null | tr -d ' \t')
   case $mf_size in
@@ -13914,6 +14020,11 @@ redact_tool_output() {
   output_redact_enabled && secrets_on=1
   [ "$(pii_hook_mode)" = mask ] && pii_on=1
   [ "$secrets_on" -eq 1 ] || [ "$pii_on" -eq 1 ] || return 0
+  ag_known_value_base=
+  if [ "$secrets_on" -eq 1 ] && known_value_redact_enabled; then
+    ag_known_value_base=$(json_value '.cwd // empty' "$input" 2>/dev/null) \
+      || ag_known_value_base=
+  fi
 
   resp=
   if ! resp=$(printf '%s' "$input" | jq -c '.tool_response // empty' 2>/dev/null); then
@@ -15178,6 +15289,8 @@ do_exec() {
   status=$?
 
   masked=$out
+  # Known dotenv values come from the directory exec runs in.
+  ag_known_value_base=
 
   # Secret-literal redaction (AGENT_GUARD_OUTPUT_REDACT, default mask). Fails
   # closed: on any detector error the whole output is replaced with [REDACTED].

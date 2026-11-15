@@ -97,6 +97,10 @@ detect_output_secret_records_fused() (
     <"$detector_work_b" >>"$detector_work_a" 2>/dev/null || detector_fail
   jq -Rc 'select(length > 0)' <"$detector_work_a" \
     >>"$detector_records" 2>/dev/null || detector_fail
+  if known_value_redact_enabled; then
+    known_env_value_records "$detector_strings" \
+      >>"$detector_records" 2>/dev/null || detector_fail
+  fi
 
   cat "$detector_records"
   detector_status=$?

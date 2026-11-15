@@ -1,3 +1,10 @@
+## Unreleased
+
+- feat(redact): `AGENT_GUARD_DENY_READ_MODE=mask`이면 출력 마스킹이 프로젝트 루트 dotenv 파일의 값을 알려진 값으로 보고, 출력에서 그 값과 정확히 같은 부분을 모두 `[REDACTED]`로 바꿉니다. 키 이름이 일반적이고 공급자 접두사도 없는 secret(`APP_SEED=...`, 또는 같은 값이 로그 줄·argv 목록·URL 비밀번호에 그대로 나온 경우)이 그동안 마스킹을 지나가던 #98의 잔여를 줄입니다. Claude·Codex `PostToolUse`와 `agent-guard exec`/`agx`에 똑같이 적용됩니다. (#445)
+  - 동작 변경: 기본값 `block` 모드에서는 바뀌지 않습니다. 출력 마스킹을 위해 dotenv 파일을 열지 않으며 잔여도 그대로입니다. `mask` 모드에서는 이벤트 `cwd`(`exec`는 작업 디렉터리)와 그 Git 최상위 디렉터리 바로 아래 파일 중, 이름이 deny-read 목록에 있고 mask-file이 dotenv로 읽는 파일만 씁니다. 하위 디렉터리, symlink, `.env.example` 같은 템플릿, `.envrc`는 읽지 않습니다. 8바이트보다 짧은 값, 불리언, 숫자, 빈 값은 쓰지 않습니다. 정확히 같은 문자열만 바꾸며 인코딩한 변형은 잡지 않습니다. 읽을 수 없거나 dotenv 부분집합 밖인 파일은 값을 내지 않고, 다른 규칙의 마스킹은 그대로 진행합니다. 값은 한 번의 실행 동안 메모리에만 두며 감사 로그·캐시·경고·오류 메시지에 쓰지 않습니다. `development`·`localhost`처럼 평범한 단어가 값이면 출력 어디서나 그 단어도 마스킹됩니다.
+  - 사용자가 할 일: 없습니다. `mask` 모드에서 끄려면 `AGENT_GUARD_KNOWN_VALUE_REDACT=off`를 설정합니다. `AGENT_GUARD_OUTPUT_REDACT=off`도 이 기능을 끕니다. 루트 dotenv 파일 밖에 있는 secret은 여전히 잡지 않습니다.
+  - 운영자가 할 일: 없습니다.
+
 ## v3.10.0 - 2026-11-15
 
 ### 주요 변경
