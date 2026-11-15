@@ -232,6 +232,36 @@ jobs:
             exit 1
           fi
 
+      # The release PR cycle does not rerun the suite on one serialized runner.
+      # Main push CI already ran the full Linux/macOS matrix on this exact SHA,
+      # and the release PR CI reruns it on the bumped tree before publication.
+      # Missing, pending, or failed main checks stop the release here.
+      - name: Require successful main CI
+        if: steps.state.outputs.skip_pr_cycle != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          dispatch_sha=$(git rev-parse HEAD)
+          required_checks=$'Agent Guard\nTest (ubuntu-latest)\nTest (macos-latest)\nLint\nPlugin Layout\nHOL Plugin Scanner\nNative platform artifacts'
+          main_checks=$(gh api \
+            -H "Accept: application/vnd.github+json" \
+            "repos/${GITHUB_REPOSITORY}/commits/${dispatch_sha}/check-runs?filter=latest&per_page=100")
+          while IFS= read -r check_name; do
+            check_result=$(printf '%s' "$main_checks" | jq -r --arg name "$check_name" '
+              [.check_runs[]
+                | select(.name == $name)]
+              | sort_by(.id)
+              | last
+              | if . == null then "" else (.conclusion // .status // "") end
+            ')
+            if [ "$check_result" != "success" ]; then
+              echo "latest required main check '$check_name' on dispatch commit $dispatch_sha is not successful (got: ${check_result:-missing}); wait for main CI to pass or fix main first"
+              exit 1
+            fi
+          done <<< "$required_checks"
+          echo "all required main checks passed on $dispatch_sha"
+
       # Performance evidence warns and never blocks: before #415, runner noise
       # around the 5% threshold blocked releases without a real regression.
       # The release PR head and the release merge commit (verified to be
@@ -343,7 +373,6 @@ jobs:
         if: steps.state.outputs.skip_pr_cycle != 'true'
         run: |
           set -euo pipefail
-          /bin/dash tests/run.sh
           scripts/validate-plugin-layout.sh --all
           scripts/validate-submission-readiness.sh
           plugins/agent-guard/bin/agent-guard smoke-test

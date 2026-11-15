@@ -5,6 +5,21 @@
   - 사용자가 할 일: 없습니다.
   - 운영자가 할 일: 없습니다.
 
+## v3.11.1 - 2026-11-15
+
+v3.11.0은 릴리스 머지 뒤 main이 움직여 태그를 발행하지 못했고, 같은 내용이 이 버전에 포함된다.
+
+- ci: native platform 워크플로를 실제로 실행하는 테스트 변경에만 PR에서 기동 (#474)
+- ci: 릴리스 시 직렬 전체 테스트를 main CI 성공 확인으로 대체 (#473)
+- release: v3.11.0 (#472)
+- fix(mcp): Figma MCP 도구의 fileKey·file_key 파일 키를 비밀값으로 보지 않는다 (#466)
+- fix(hooks): 훅마다 statusMessage 이름을 붙여 Codex /hooks의 Unnamed hook을 없앤다 (#465)
+- fix(bash): grep 앞 구간 판정이 믿는 위치의 jq·sed에도 필터 예외를 적용한다 (#464)
+- fix(bash): sed s 명령의 정규식을 보호 경로 검사에서 뺀다 (#463)
+- feat(redact): deny-read mask 모드에서 루트 dotenv 값을 출력에서 마스킹한다 (#460)
+- feat(hooks): Claude PostToolUseFailure의 실패 출력에서 secret을 찾아 마스킹되지 않았음을 알린다 (#461)
+- fix(bash): jq 필터의 env 멤버 이름을 보호 경로 검사에서 뺀다 (#462)
+
 ## v3.11.0 - 2026-11-15
 
 - fix(mcp): Figma MCP 도구의 fileKey·file_key 파일 키를 비밀값으로 보지 않는다 (#466)

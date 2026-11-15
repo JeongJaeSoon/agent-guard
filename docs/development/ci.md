@@ -3,7 +3,10 @@
 CI runs on pull requests and pushes to `main`: the first validates a proposed
 change, the second validates the merged tree. Plugin Validation and HOL scan
 have the same triggers but own different checks; they are not duplicate suite
-runs. The release workflow also relies on the existing check names.
+runs. The release workflow also relies on the existing check names: it does
+not rerun the suite itself. Before opening a release PR it requires every
+required check on the dispatched `main` commit to have succeeded, and before
+publishing it requires them on the release PR head and its merge commit.
 Manual dispatch runs the full Linux/macOS matrix on the selected ref, so the
 main/release matrix can be verified before merging a CI change.
 
