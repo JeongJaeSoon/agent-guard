@@ -81,6 +81,9 @@ allow openssl genrsa -out fresh.key 2048
 allow sed 's/^d2-gate\t[^\t]*\t//' notes.txt
 allow cut -c1-40 notes.txt | sed -E 's/^([^\t]*)\t[^\t]*/\1/' | head -3
 allow sed -n 's/.env/x/p' list.txt
+allow echo x; sed 's/^d2-gate\t[^\t]*\t//' notes.txt
+allow ls -a . && sed -n 's/.env/x/p' list.txt
+allow echo x; jq -n '{a: 1} | .tls.key'
 read cat .env
 read grep -E '^VALUE=' .env
 read cut -d= -f2 state.env
@@ -94,6 +97,8 @@ read grep -f list.txt .env
 read grep VALUE < .env
 read sed 's/^x\t[^\t]*//' .env
 read sed 's/.env/x/' list.txt .env
+read echo x; sed 's/^x\t[^\t]*//' .env
+read echo x; jq -R . tls.key
 held grep -f .env list.txt
 held grep --file=.env list.txt
 held grep pat list.txt -e .env
@@ -150,6 +155,10 @@ held sed -f list.txt 's/.env/x/'
 held sed 's/.env/x/' -e p
 held sed 's/.env/x/w .env' notes.txt
 held sed '/.env/r .env' list.txt
+held cp notes.txt n2.txt; sed 's/.env/x/' n2.txt
+held S=a; sed 's/.env/x/' list.txt
+held echo $S; sed 's/.env/x/' list.txt
+held gh api x; jq -n '.tls.key'
 held git restore . && grep .env
 held echo x >p; grep .env
 held cat list.txt >p | grep .env

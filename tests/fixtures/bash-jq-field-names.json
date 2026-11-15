@@ -308,6 +308,160 @@
     "command": "gh api x > a.json && jq '.key' a.json"
   },
   {
+    "id": "jq-after-inert-command",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a jq after an inert command of the grep segment check is filter text",
+    "command": "echo start; jq -r '.key' data.json"
+  },
+  {
+    "id": "jq-after-inert-and",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a jq after && and an inert command is filter text",
+    "command": "ls -a . && jq '.data.key' data.json"
+  },
+  {
+    "id": "jq-in-later-pipeline",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a jq in a later pipeline whose earlier elements are inert is filter text",
+    "command": "grep -c ok a.log; cat a.json | jq -r '.items[].key'"
+  },
+  {
+    "id": "jq-after-jq",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "both filters of two sequenced jq commands are filter text",
+    "command": "jq -r '.key' a.json; jq -r '.data.key' b.json"
+  },
+  {
+    "id": "jq-after-locale-prefixed-command",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a locale assignment prefix on an inert command loads no code",
+    "command": "LC_ALL=C cat a.json; jq '.key' a.json"
+  },
+  {
+    "id": "jq-after-assignment-segment",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "an assignment-only segment before jq stops the segment check",
+    "command": "S=a.json; jq '.key' a.json"
+  },
+  {
+    "id": "jq-after-file-writing-command",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a command that can write files may create the file a PATH entry resolves jq to",
+    "command": "cp a.json b.json; jq '.key' b.json"
+  },
+  {
+    "id": "jq-after-gh",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "gh is not on the inert list",
+    "command": "gh api x; jq '.key' a.json"
+  },
+  {
+    "id": "jq-after-git",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "git is not on the inert list",
+    "command": "git status; jq '.key' a.json"
+  },
+  {
+    "id": "jq-after-redirect",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a redirection before jq can write a file",
+    "command": "echo x > a.json; jq '.key' a.json"
+  },
+  {
+    "id": "jq-after-alias",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "an alias definition before jq can redefine it",
+    "command": "alias jq=cat; jq '.key' a.json"
+  },
+  {
+    "id": "jq-after-eval",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "eval before jq can redefine it",
+    "command": "eval x; jq '.key' a.json"
+  },
+  {
+    "id": "jq-after-function-definition",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a function definition before jq can redefine it",
+    "command": "jq() { cat \"$@\"; }; jq '.key' a.json"
+  },
+  {
+    "id": "jq-after-dynamic-command-name",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "an expanded command name before jq can be anything",
+    "command": "$c x; jq '.key' a.json"
+  },
+  {
+    "id": "jq-after-path-assignment",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a PATH assignment before jq can pick another jq",
+    "command": "PATH=d; jq '.key' a.json"
+  },
+  {
+    "id": "jq-after-preload-prefix",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "an assignment prefix other than a locale can make an inert command run code",
+    "command": "LD_PRELOAD=x.so cat a.json; jq '.key' a.json"
+  },
+  {
+    "id": "jq-after-command-substitution",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a command substitution before jq stops the segment check",
+    "command": "x=$(cat a.json); jq '.key' a.json"
+  },
+  {
+    "id": "jq-after-expanded-argument",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "an expansion anywhere before jq stops the jq and sed rewrite",
+    "command": "echo $x; jq '.key' a.json"
+  },
+  {
+    "id": "jq-after-hash",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "hash before jq can rebind its name",
+    "command": "hash -p /bin/cat jq; jq '.key' a.json"
+  },
+  {
+    "id": "jq-after-sed",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "sed can write files and is not on the inert list",
+    "command": "sed -n p a.log; jq '.key' a.json"
+  },
+  {
+    "id": "later-jq-file-operand",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a later trusted jq still has its file operands checked",
+    "command": "echo x; jq '.key' server.key"
+  },
+  {
+    "id": "later-jq-filter-file",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a later trusted jq with -f keeps its words unchanged",
+    "command": "echo x; jq -f prog.jq '.key' a.json"
+  },
+  {
     "id": "jq-after-tilde-command-name",
     "expected_status": 2,
     "classification": "must-block",
