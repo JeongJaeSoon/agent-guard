@@ -10932,24 +10932,31 @@ secretish_env_values() {
     # cursor names in a JSON/YAML `:` field are exempt, matched with case and
     # a key boundary: `PAGE_TOKEN=` and `FB_PAGE_TOKEN` name a real page
     # access token, and `homepage_token` or `next_page_token_id` are other keys.
-    # Prose names a setter or field that ends in Secret, then a colon and the
-    # issue-tracker id it tracks (`setClientSecret: ABC-123 의 조건`). Exempt
-    # only that id shape: a colon field, an uppercase team key of up to ten
-    # characters, and a number of up to six digits with no leading zero, after
-    # a trailing comma or Korean particle comes off. Unquoted or in markdown
-    # backticks only; the `=` form, a JSON string, lowercase or mixed-case
-    # words, and longer digit runs still mask.
-    function issue_reference(assignment, value, v, dash) {
-      if (assignment !~ /:$/ || value ~ /[a-z]/) return 0
+    function page_cursor(assignment) {
+      return assignment ~ /(^|[^A-Za-z0-9_.-])["'\''`]?((next|prev|previous)(PageToken|_page_token)|pageToken|page_token)["'\''`]?[ \t]*:$/
+    }
+    # A prose line names a camelCase setter or field that ends in Secret, then
+    # a colon, the issue-tracker id it tracks, and more prose
+    # (`setClientSecret: ABC-123 의 조건`). Exempt only that whole shape. The
+    # key is camelCase (a lowercase letter or digit right before `Secret`), so
+    # `secret:`, `api_secret:` and `CLIENT_SECRET:` and every password, token
+    # or key field still mask. The id is an uppercase team key of up to ten
+    # characters (Linear keys may start with a digit) and a number of up to six
+    # digits with no leading zero, after a trailing comma or Korean particle
+    # comes off. Text must follow on the same line and must not be a `#`
+    # comment, which is what separates prose from a YAML scalar. Unquoted or
+    # in markdown backticks only; the `=` form, a JSON string, lowercase or
+    # mixed-case words, and longer digit runs still mask.
+    function issue_reference(assignment, value, tail, v, dash) {
+      if (assignment !~ /[a-z0-9]Secret`?[ \t]*:$/ || value ~ /[a-z]/) return 0
+      sub(/^[ \t\r]+/, "", tail)
+      if (tail == "" || substr(tail, 1, 1) == "#") return 0
       v = value
       sub(/[`,]+$/, "", v)
       sub(/(가|이|은|는|을|를|의|도|에|에서|로|으로|와|과|만)$/, "", v)
       if (v !~ /^[A-Z0-9]*[A-Z][A-Z0-9]*-[1-9][0-9]*$/) return 0
       dash = index(v, "-")
       return dash <= 11 && length(v) - dash <= 6
-    }
-    function page_cursor(assignment) {
-      return assignment ~ /(^|[^A-Za-z0-9_.-])["'\''`]?((next|prev|previous)(PageToken|_page_token)|pageToken|page_token)["'\''`]?[ \t]*:$/
     }
     # A draft read from a document tool returns a `d<n>:`-prefixed base64 snapshot
     # token for optimistic locking; the next update must echo it verbatim, so
@@ -11042,7 +11049,7 @@ secretish_env_values() {
         # one. Internal whitespace is untouched, so prose still reads as prose.
         if (require_credential && !credential_shaped(edge_trim(value))) return 0
         if (version_reference(assignment, value)) return 0
-        if (quote == "`" && issue_reference(assignment, value)) return 0
+        if (quote == "`" && issue_reference(assignment, value, substr(raw, end + 1))) return 0
         if (page_cursor(assignment)) return 0
         if (snapshot_handle(assignment, value)) return 0
         if (interpolated_reference(value)) return 0
@@ -11102,7 +11109,7 @@ secretish_env_values() {
         if (secret_object_name(assignment, value)) return 0
         if (looks_like_reference(value, assignment, leading)) return 0
         if (version_reference(assignment, value)) return 0
-        if (issue_reference(assignment, value)) return 0
+        if (issue_reference(assignment, value, substr(raw, length(token) + 1))) return 0
         if (page_cursor(assignment)) return 0
         if (snapshot_handle(assignment, value)) return 0
         if (config_literal(value)) return 0

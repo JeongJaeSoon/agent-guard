@@ -1,7 +1,7 @@
 ## Unreleased
 
 - fix(redact): 이름이 Secret으로 끝나는 함수나 필드 뒤에 콜론과 이슈 트래커 id가 오는 글(`- setClientSecret: ABC-123 조건을 따른다`)을 프롬프트 가드가 더는 막지 않고, 출력 마스킹도 그 id를 가리지 않습니다. 대입문 probe가 콜론 뒤 4자 넘는 값을 모두 비밀값으로 보던 탓입니다.
-  - 동작 변경: 예외는 콜론 형태에서 따옴표 없이 또는 백틱 안에 온 대문자 이슈 id 하나뿐입니다. 팀 키는 영문 대문자·숫자 10자 이하이고, `-` 뒤 숫자는 0으로 시작하지 않는 6자리 이하입니다. 끝의 쉼표와 한국어 조사는 떼고 판정합니다. `KEY=ABC-123` 같은 `=` 대입, JSON 문자열, 소문자나 대소문자가 섞인 값, 더 긴 숫자는 계속 막고 가립니다. gitleaks 규칙은 바뀌지 않습니다.
+  - 동작 변경: 예외는 세 조건을 모두 갖춘 경우뿐입니다. 키는 `Secret` 바로 앞에 소문자나 숫자가 오는 camelCase 이름(`clientSecret`, `setClientSecret`)입니다. 값은 콜론 뒤에 따옴표 없이 또는 백틱 안에 온 대문자 이슈 id입니다. 같은 줄에서 값 뒤에 글이 이어지며, `#` 주석은 글로 치지 않습니다. 이슈 id의 팀 키는 영문 대문자·숫자 10자 이하이고(숫자로 시작해도 됨), `-` 뒤 숫자는 0으로 시작하지 않는 6자리 이하입니다. 끝의 쉼표와 한국어 조사는 떼고 판정합니다. `secret:`·`api_secret:`·`CLIENT_SECRET:`와 password·token·key 키, 줄 끝에서 끝나는 YAML 값, `=` 대입, JSON 문자열, 소문자나 대소문자가 섞인 값, 더 긴 숫자는 계속 막고 가립니다. gitleaks 규칙은 바뀌지 않으므로, 엔트로피가 높은 id는 gitleaks가 여전히 잡을 수 있습니다.
   - 사용자가 할 일: 없습니다.
   - 운영자가 할 일: 없습니다.
 - feat(hooks): Claude Code에서 도구 호출이 실패하면 `PostToolUse` 대신 `PostToolUseFailure`가 실행됩니다. Claude 플러그인 manifest와 `examples/claude/settings.project.json`이 이 event를 `PostToolUse`와 같은 matcher·20초 timeout으로 등록하고, 새 subcommand `hook-post-tool-failure`가 실패 출력(`error`)을 성공 출력 마스킹과 같은 detector로 검사합니다. (#444, #461)

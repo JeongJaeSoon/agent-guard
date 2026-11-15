@@ -4,9 +4,11 @@ set -u
 # A prose line can name a function that ends in Secret, then a colon and an
 # issue-tracker id (`ABC-123`, `94S-1654`). The id is a reference, not a
 # credential, so the prompt guard must pass it and the output masker must keep
-# it. The exemption is colon-form, unquoted and uppercase only: the same id
-# after `=` or in a quoted field, a lowercase or longer id, and random or
-# vendor-prefixed values after the same key stay blocked and masked.
+# it. The exemption needs a camelCase Secret name, a colon, an unquoted or
+# backticked uppercase id, and prose after it: the same id under another
+# credential key, as a YAML scalar, after `=` or in a quoted field, a
+# lowercase or longer id, and random or vendor-prefixed values after the same
+# key stay blocked and masked.
 # Kept out of tests/run.sh: the monolith is already near ShellCheck's memory
 # limit in CI, so each added line there risks the Lint job.
 
@@ -40,6 +42,7 @@ pat="$(printf '%s%s' gh p_)${rnd}${rnd}abcd"
 pw=$(printf '%s%s' pass word)
 env_key=$(printf '%s%s' CLIENT _SECRET)
 json_key=$(printf '%s%s' client Secret)
+setter=$(printf '%s%s' setClient Secret)
 pass=0
 fail=0
 
@@ -84,6 +87,11 @@ prompt_case 0 'getter name, team key, Korean prose' '- getSecret: PROJ-42 이슈
 prompt_case 0 'ticket id with a particle' '- setClientSecret: 94S-1654의 수용 조건'
 prompt_case 0 'ticket id before a comma' 'rotateSecret: ABC-123, then deploy'
 prompt_case 0 'backticked ticket id' 'clientSecret: `WERFT-9` follow-up'
+# The passing side of each limit, so an off-by-one tightening shows up.
+prompt_case 0 'ten-character team key' "${setter}: WORKSPACES-12 참고"
+prompt_case 0 'six-digit number' "${setter}: AB-123456 참고"
+prompt_case 0 'two-syllable particle' "${setter}: AB-12에서 확인"
+prompt_case 0 'backticked id with a trailing comma' "${setter}: \`AB-12,\` 참고"
 
 # Must still block: real secret shapes after the same key, and id-shaped values
 # outside the narrow colon form.
@@ -98,11 +106,25 @@ prompt_case 2 'mixed-case id-shaped value' "${pw}: Hunter-1234"
 prompt_case 2 'id with a long digit run' "${pw}: AB-12345678"
 prompt_case 2 'id with a long prefix' "${pw}: ABCDEFGHIJK-12"
 prompt_case 2 'id with a trailing letter' "${pw}: ABC-123x"
-prompt_case 2 'id with a leading zero number' "${pw}: ABC-0123"
+prompt_case 2 'id with a leading zero number' "${pw}: ABC-0123 참고"
+# The id shape alone is not enough: only a camelCase Secret name followed by
+# prose qualifies. Other credential keys, and a YAML scalar, stay blocked.
+prompt_case 2 'id shape under a password key, YAML scalar' "${pw}: ABC-2024"
+prompt_case 2 'id shape under a password key, then prose' "${pw}: ABC-2024 참고"
+prompt_case 2 'id shape under an env-style key in YAML' "  ${env_key}: ABC-2024"
+prompt_case 2 'id shape under a lowercase secret key' "${json_key%Secret}_secret: ABC-2024 참고"
+prompt_case 2 'id shape under a Secret name at line end' 'setClientSecret: ABC-2024'
+prompt_case 2 'id shape under a Secret name before a comment' 'clientSecret: ABC-2024 # rotate'
+prompt_case 2 'backticked id shape under a password key' "${pw}: \`ABC-2024\` 참고"
 
 mask_case 'ticket id stays, real value is masked' \
   "setClientSecret: 94S-1654 adds a check
 api_secret: ${rnd}Zq" '94S-1654' "${rnd}Zq"
+mask_case 'backticked ticket id stays, real value is masked' \
+  "clientSecret: \`WERFT-9\` follow-up
+api_secret: ${rnd}Zq" 'WERFT-9' "${rnd}Zq"
+mask_case 'id shape in a YAML password field is masked' \
+  "${pw}: ABC-2024" '' 'ABC-2024'
 mask_case 'env assignment of an id-shaped value is masked' \
   "${env_key}=ABC-1234" '' 'ABC-1234'
 
