@@ -8,6 +8,10 @@
   - 동작 변경: 기본값 `block` 모드에서는 바뀌지 않습니다. 출력 마스킹을 위해 dotenv 파일을 열지 않으며 잔여도 그대로입니다. `mask` 모드에서는 이벤트 `cwd`(`exec`는 작업 디렉터리)와 그 Git 최상위 디렉터리 바로 아래 파일 중, 이름이 deny-read 목록에 있고 mask-file이 dotenv로 읽는 파일만 씁니다. 하위 디렉터리, symlink, `.env.example` 같은 템플릿, `.envrc`는 읽지 않습니다. 8바이트보다 짧은 값, 불리언, 숫자, 빈 값, 그리고 영문자·숫자·기타 문자 중 두 종류 이상을 섞지 않은 값(`development`·`localhost` 같은 평범한 단어)은 쓰지 않습니다. 따라서 영문자로만 된 긴 secret은 잡지 않습니다. 정확히 같은 문자열만 바꾸며 인코딩한 변형은 잡지 않습니다. 읽을 수 없거나 dotenv 부분집합 밖인 파일은 값을 내지 않고(`${VAR}` 참조·백틱·여러 줄 값이 한 줄이라도 있으면 그 파일 전체가 해당), 다른 규칙의 마스킹은 그대로 진행합니다. 값은 한 번의 실행 동안 메모리에만 두며 감사 로그·캐시·경고·오류 메시지에 쓰지 않습니다. 필터를 통과한 값은 secret으로 쓰이지 않은 곳(예: `db.example.com` 같은 호스트 이름)에서도 출력 어디서나 마스킹됩니다.
   - 사용자가 할 일: 없습니다. `mask` 모드에서 끄려면 `AGENT_GUARD_KNOWN_VALUE_REDACT=off`를 설정합니다. `AGENT_GUARD_OUTPUT_REDACT=off`도 이 기능을 끕니다. 루트 dotenv 파일 밖에 있는 secret은 여전히 잡지 않습니다.
   - 운영자가 할 일: 없습니다.
+- fix(hooks): hook마다 `statusMessage` 이름을 붙여, Codex `/hooks` 화면에서 agent-guard hook 5개가 "Unnamed hook"이 아니라 `agent-guard: checking tool call`처럼 보입니다. Claude manifest의 hook 6개(`PostToolUseFailure` 포함)에도 같은 이름을 붙였고, Claude와 Codex 모두 hook이 도는 동안 이 글을 상태 표시로 보여 줍니다. - fix(hooks): hook마다 `statusMessage` 이름을 붙여, Codex `/hooks` 화면에서 agent-guard hook 5개가 "Unnamed hook"이 아니라 `agent-guard: checking tool call`처럼 보입니다. Claude manifest의 hook 6개(`PostToolUseFailure` 포함)에도 같은 이름을 붙였고, Claude와 Codex 모두 hook이 도는 동안 이 글을 상태 표시로 보여 줍니다. hook 명령·matcher·timeout은 바뀌지 않습니다. (#465)
+  - 동작 변경: hook이 도는 동안 보이는 상태 글만 바뀝니다. 막기·스캔 결과와 종료 코드는 같습니다.
+  - 사용자가 할 일: Codex는 hook 항목과 플러그인 내용으로 trust를 검사합니다. 그래서 hook을 직접 trust해 둔 설치는 이 버전으로 갱신하면 agent-guard hook이 모두 `modified`가 되고, 다시 trust할 때까지 실행되지 않습니다. 관리형(managed) trust로 받는 설치는 그 설정을 따릅니다. 갱신 뒤 `agent-guard doctor`를 실행하고, 안내대로 TUI의 "Hooks need review"에서 다시 trust합니다. Claude는 할 일이 없습니다. `examples/`의 hook 설정을 복사해 쓰는 독립 설치는 이름이 필요할 때 `statusMessage`를 직접 더합니다.
+  - 운영자가 할 일: 없습니다.
 
 ## v3.10.0 - 2026-11-15
 

@@ -1,9 +1,12 @@
 #!/usr/bin/env sh
 # Render every committed hook manifest from ONE set of tables.
 #
-# Every event's matcher, timeout, and hook subcommand must agree across all four
-# manifests; only the command string, the Claude-only PreToolUse onFailure key,
-# and the Claude-only PostToolUseFailure event legitimately differ. Editing them by hand
+# Every event's matcher, timeout, statusMessage, and hook subcommand must agree
+# across all four manifests; only the command string, the Claude-only
+# PreToolUse onFailure key, and the Claude-only PostToolUseFailure event
+# legitimately differ. Codex titles each hook in `/hooks` with statusMessage
+# ("Unnamed hook" without it); both hosts also show it while the hook runs.
+# Editing them by hand
 # meant twenty copies kept in lockstep, so this script is the single source of
 # truth: edit the tables below, run it, and commit the result.
 #
@@ -103,22 +106,28 @@ render_manifest() { # $1 = root env var, $2 = host tag, $3/$4 = pre/post matcher
     --arg prompt "$prompt" \
     '{hooks: ({
        PreToolUse: [{matcher: $pre_matcher,
-                     hooks: [{type: "command", command: $pre, timeout: 60}
+                     hooks: [{type: "command", command: $pre, timeout: 60,
+                              statusMessage: "agent-guard: checking tool call"}
                              + (if $pre_on_failure == "" then {}
                                 else {onFailure: $pre_on_failure} end)]}],
        PostToolUse: [{matcher: $post_matcher,
-                      hooks: [{type: "command", command: $post, timeout: 20}]}]}
+                      hooks: [{type: "command", command: $post, timeout: 20,
+                               statusMessage: "agent-guard: scanning tool output"}]}]}
      + (if $failure == "" then {}
         else {PostToolUseFailure: [{matcher: $post_matcher,
                                     hooks: [{type: "command", command: $failure,
-                                             timeout: 20}]}]} end)
+                                             timeout: 20,
+                                             statusMessage: "agent-guard: scanning failed tool output"}]}]} end)
      + {
        Stop: [{matcher: "",
-               hooks: [{type: "command", command: $stop, timeout: 20}]}],
+               hooks: [{type: "command", command: $stop, timeout: 20,
+                        statusMessage: "agent-guard: scanning changes"}]}],
        SessionStart: [{matcher: "startup|resume|clear|compact",
-                       hooks: [{type: "command", command: $session, timeout: 5}]}],
+                       hooks: [{type: "command", command: $session, timeout: 5,
+                                statusMessage: "agent-guard: checking setup"}]}],
        UserPromptSubmit: [{matcher: "",
-                           hooks: [{type: "command", command: $prompt, timeout: 10}]}]
+                           hooks: [{type: "command", command: $prompt, timeout: 10,
+                                    statusMessage: "agent-guard: scanning prompt"}]}]
      })}'
 }
 
