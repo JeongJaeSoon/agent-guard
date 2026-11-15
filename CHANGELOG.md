@@ -1,3 +1,10 @@
+## Unreleased
+
+- fix(redact): 이름이 Secret으로 끝나는 함수나 필드 뒤에 콜론과 이슈 트래커 id가 오는 글(`- setClientSecret: ABC-123 조건을 따른다`)을 프롬프트 가드가 더는 막지 않고, 출력 마스킹도 그 id를 가리지 않습니다. 대입문 probe가 콜론 뒤 4자 넘는 값을 모두 비밀값으로 보던 탓입니다. (#471)
+  - 동작 변경: 예외는 세 조건을 모두 갖춘 경우뿐입니다. 키는 `Secret` 바로 앞 글자가 소문자나 숫자인 이름입니다(`clientSecret`, `setClientSecret`; `jwtSecret`·`webhookSecret` 같은 설정 키도 해당). 값은 콜론 뒤에 따옴표 없이 또는 백틱 안에 온 대문자 이슈 id입니다. 같은 줄에서 값 뒤에 영문자나 한글 음절로 시작하는 낱말이 이어져야 합니다. 그래서 줄 끝, 쉼표 뒤 다음 키(YAML flow mapping), `#`·`//`·`;` 주석, 숫자나 기호(줄표 같은 비ASCII 기호 포함)로 시작하는 꼬리는 예외가 아닙니다. 이슈 id의 팀 키는 영문 대문자·숫자 10자 이하이고, 대문자가 하나 이상 있어야 합니다(숫자로 시작해도 됨). `-` 뒤 숫자는 0으로 시작하지 않는 6자리 이하입니다. 끝의 한국어 조사 하나(백틱 안에서는 쉼표도)는 떼고 판정합니다. `secret:`·`api_secret:`·`CLIENT_SECRET:`와 password·token·key 키, 줄 끝에서 끝나는 YAML 값, `=` 대입, JSON 문자열, 소문자나 대소문자가 섞인 값, 더 긴 숫자는 계속 막고 가립니다. gitleaks 규칙은 바뀌지 않으므로, 엔트로피가 높은 id는 gitleaks가 여전히 잡을 수 있습니다. 반대로 위 세 조건을 갖춘 자리에서는, 사람이 고른 엔트로피 낮은 `대문자 단어-숫자` 모양 값(예: 계절 이름과 연도)이 이슈 id와 모양으로 구별되지 않아 이제 막히지도 가려지지도 않습니다.
+  - 사용자가 할 일: 없습니다.
+  - 운영자가 할 일: 없습니다.
+
 ## v3.11.0 - 2026-11-15
 
 - fix(mcp): Figma MCP 도구의 fileKey·file_key 파일 키를 비밀값으로 보지 않는다 (#466)
@@ -10,10 +17,6 @@
 
 ## Unreleased
 
-- fix(redact): 이름이 Secret으로 끝나는 함수나 필드 뒤에 콜론과 이슈 트래커 id가 오는 글(`- setClientSecret: ABC-123 조건을 따른다`)을 프롬프트 가드가 더는 막지 않고, 출력 마스킹도 그 id를 가리지 않습니다. 대입문 probe가 콜론 뒤 4자 넘는 값을 모두 비밀값으로 보던 탓입니다. (#471)
-  - 동작 변경: 예외는 세 조건을 모두 갖춘 경우뿐입니다. 키는 `Secret` 바로 앞 글자가 소문자나 숫자인 이름입니다(`clientSecret`, `setClientSecret`; `jwtSecret`·`webhookSecret` 같은 설정 키도 해당). 값은 콜론 뒤에 따옴표 없이 또는 백틱 안에 온 대문자 이슈 id입니다. 같은 줄에서 값 뒤에 영문자나 한글 음절로 시작하는 낱말이 이어져야 합니다. 그래서 줄 끝, 쉼표 뒤 다음 키(YAML flow mapping), `#`·`//`·`;` 주석, 숫자나 기호(줄표 같은 비ASCII 기호 포함)로 시작하는 꼬리는 예외가 아닙니다. 이슈 id의 팀 키는 영문 대문자·숫자 10자 이하이고, 대문자가 하나 이상 있어야 합니다(숫자로 시작해도 됨). `-` 뒤 숫자는 0으로 시작하지 않는 6자리 이하입니다. 끝의 한국어 조사 하나(백틱 안에서는 쉼표도)는 떼고 판정합니다. `secret:`·`api_secret:`·`CLIENT_SECRET:`와 password·token·key 키, 줄 끝에서 끝나는 YAML 값, `=` 대입, JSON 문자열, 소문자나 대소문자가 섞인 값, 더 긴 숫자는 계속 막고 가립니다. gitleaks 규칙은 바뀌지 않으므로, 엔트로피가 높은 id는 gitleaks가 여전히 잡을 수 있습니다. 반대로 위 세 조건을 갖춘 자리에서는, 사람이 고른 엔트로피 낮은 `대문자 단어-숫자` 모양 값(예: 계절 이름과 연도)이 이슈 id와 모양으로 구별되지 않아 이제 막히지도 가려지지도 않습니다.
-  - 사용자가 할 일: 없습니다.
-  - 운영자가 할 일: 없습니다.
 - feat(hooks): Claude Code에서 도구 호출이 실패하면 `PostToolUse` 대신 `PostToolUseFailure`가 실행됩니다. Claude 플러그인 manifest와 `examples/claude/settings.project.json`이 이 event를 `PostToolUse`와 같은 matcher·20초 timeout으로 등록하고, 새 subcommand `hook-post-tool-failure`가 실패 출력(`error`)을 성공 출력 마스킹과 같은 detector로 검사합니다. (#444, #461)
   - 동작 변경: host가 이 event에 `additionalContext`만 허용하므로 실패 출력은 마스킹되지 않고 그대로 모델에 갑니다(`updatedToolOutput`, `decision: "block"`, exit 2 모두 error 글을 바꾸지 못합니다. host 쪽 요청: anthropics/claude-code#97278). secret 모양 값을 찾으면 값은 적지 않고 종류만 밝혀, 마스킹되지 않았다는 것과 그 값을 되풀이하거나 쓰지 말고 사용자에게 교체가 필요할 수 있다고 알리라는 내용을 `additionalContext`로 보냅니다. `logs export`에는 `hook-post-tool-failure` 기록이 outcome `warned`로 남습니다. 깨끗하면 아무것도 출력하지 않습니다. 검사를 못 하면 깨끗하다고 하지 않고 `AGENT_GUARD_INFRA_FAILURE_MODE=open`에서는 세션마다 한 번, `closed`에서는 매번 알립니다. 막을 수 있는 것이 없으므로 두 모드 모두 exit 0입니다. JSON 객체가 아니거나 `error`가 없는 입력은 그대로 통과합니다. `AGENT_GUARD_OUTPUT_REDACT=off`면 검사하지 않습니다. Codex manifest는 바뀌지 않습니다.
   - 사용자가 할 일: Claude Code 플러그인을 갱신하고 플러그인을 다시 읽습니다. 경고가 나오면 그 자격 증명을 교체합니다.
