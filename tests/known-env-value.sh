@@ -137,7 +137,10 @@ if [ "$(id -u)" -ne 0 ]; then
   mkdir "$UNREADABLE"
   printf 'APP_SEED=%s\n' "$seed" >"$UNREADABLE/.env"
   chmod 000 "$UNREADABLE/.env"
-  out=$(printf 'seed %s DB_PASSWORD=%s\n' "$seed" "$seed" \
+  # A different DB_PASSWORD value: a masked assignment also masks its literal
+  # everywhere in the output, which would hide whether the seed was learned.
+  pw=$(printf '%s%s' unread-fake '-Pw58kD')
+  out=$(printf 'seed %s DB_PASSWORD=%s\n' "$seed" "$pw" \
     | (cd "$UNREADABLE" && "$GUARD" exec -- cat) 2>"$CASE/stderr") \
     || fail 'unreadable dotenv exec status'
   chmod 600 "$UNREADABLE/.env"
