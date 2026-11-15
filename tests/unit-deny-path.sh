@@ -152,7 +152,12 @@ done <<'CASES'
 select(.key|test("^AG_"))	select(.|test("^AG_"))
 .[] | {name: .name, key: .key}	.[] | {name: ., key: .}
 .items[0].key, .meta?.key	.[0]., .?.
-env.AWS_REGION	env.AWS_REGION
+env.AWS_REGION	env
+{v: env.HOME}	{v: env}
+"\(env.HOME)/x"	"\(env)/x"
+myenv.HOME	myenv.HOME
+$env.HOME	$env.HOME
+"env.HOME"	"env.HOME"
 $ENV.HOME	$ENV.HOME
 $x.key	$x.key
 "server.key"	"server.key"
