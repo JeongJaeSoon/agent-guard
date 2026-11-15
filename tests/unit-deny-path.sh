@@ -167,5 +167,14 @@ import ".env" as $x; $x.key	import ".env" as $x; $x.key
 "\(.key) \"q\" .key" | .key	"\(.) \"q\" .key" | .
 .a # "x" .key	. # "x" .key
 CASES
+# A comment in an interpolation can hide its ")"; the filter stays unchanged.
+filter='"\(1 # ) "
+)env.local" | .key'
+actual=$(jq_filter_without_field_names "$filter" 2>"$CASE/err")
+if [ "$actual" = "$filter" ] && [ ! -s "$CASE/err" ]; then
+  ok "jq filter field names: a comment in an interpolation"
+else
+  bad "jq filter field names: a comment in an interpolation (got $actual)"
+fi
 printf 'passed: %s\nfailed: %s\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

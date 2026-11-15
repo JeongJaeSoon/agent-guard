@@ -6779,11 +6779,13 @@ jq_filter_without_field_names() {
       }
       return 0
     }
-    # k is just past a "("; return the index of the matching ")", or 0.
+    # k is just past a "("; return the index of the matching ")", or 0. A
+    # comment can hide a ")" up to its line end, so it returns 0 too.
     function matchparen(t, k,   m, c, d, e) {
       m = length(t); d = 1
       for (; k <= m; k++) {
         c = substr(t, k, 1)
+        if (c == "#") return 0
         if (c == "\"") {
           e = skipstr(t, k)
           if (!e) return 0
