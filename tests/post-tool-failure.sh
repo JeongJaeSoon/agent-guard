@@ -112,9 +112,11 @@ for kind in no-error null-error empty-error array scalar text empty; do
   fi
 done
 
+# Prefix assignments on a function call persist after it in some sh (macOS
+# /bin/sh is bash 3.2 in POSIX mode), so each such call runs in a subshell.
 status=0
-AGENT_GUARD_OUTPUT_REDACT=off run_hook redact-off \
-  "$(failure_payload "$SECRET" redact-off)" || status=$?
+(AGENT_GUARD_OUTPUT_REDACT=off run_hook redact-off \
+  "$(failure_payload "$SECRET" redact-off)") || status=$?
 if [ "$status" -eq 0 ] && [ ! -s "$CASE/out" ] && [ ! -s "$CASE/err" ]; then
   ok "AGENT_GUARD_OUTPUT_REDACT=off skips the failure scan"
 else
@@ -126,11 +128,12 @@ fi
 for policy in open closed; do
   for attempt in 1 2; do
     status=0
-    AGENT_GUARD_INFRA_FAILURE_MODE=$policy \
+    payload=$(failure_payload "$SECRET" "unavailable-$policy")
+    (AGENT_GUARD_INFRA_FAILURE_MODE=$policy \
       AGENT_GUARD_GITLEAKS_BIN="$CASE/no-scanner" \
       AGENT_GUARD_GITLEAKS_BIN_DIR="$CASE/no-private-bin" \
       PATH="$CASE/no-path:$(dirname "$(command -v jq)"):/usr/bin:/bin" \
-      run_hook "unavailable-$policy" "$(failure_payload "$SECRET" "unavailable-$policy")" \
+      run_hook "unavailable-$policy" "$payload") \
       || status=$?
     case "$policy:$attempt" in
       open:1) expect=context want='AGENT_GUARD_INFRA_FAILURE_MODE=open' ;;
