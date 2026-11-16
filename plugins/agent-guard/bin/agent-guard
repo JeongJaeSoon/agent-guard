@@ -10961,6 +10961,34 @@ secretish_env_values() {
       dash = index(v, "-")
       return dash <= 11 && length(v) - dash <= 6
     }
+    # A prose line can describe a secret by the endpoint that sets it
+    # (`client secret: `PUT /v1/providers/:id/client-secret``). An HTTP method
+    # and a path, or a path of two or more segments, names a route, not a
+    # value. Colon form only, unquoted or in backticks, like issue_reference.
+    # Every segment is judged on its own, so a credential-shaped segment, or a
+    # long digit run that can be a numeric secret, still masks the whole value.
+    function route_reference(assignment, value, v, minimum, n, segs, i, s, count) {
+      if (assignment !~ /:$/) return 0
+      v = value
+      minimum = 2
+      if (v ~ /^(GET|HEAD|POST|PUT|PATCH|DELETE|OPTIONS) \//) {
+        v = substr(v, index(v, " ") + 1)
+        minimum = 1
+      }
+      if (v !~ /^(\/[A-Za-z0-9._~:{}-]+)+\/?$/) return 0
+      n = split(substr(v, 2), segs, "/")
+      count = 0
+      for (i = 1; i <= n; i++) {
+        s = segs[i]
+        if (s == "") continue
+        count++
+        sub(/^:/, "", s)
+        if (s ~ /^\{[^{}]+\}$/) s = substr(s, 2, length(s) - 2)
+        if (credential_shaped(s) || s ~ /[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]/)
+          return 0
+      }
+      return count >= minimum
+    }
     # A draft read from a document tool returns a `d<n>:`-prefixed base64 snapshot
     # token for optimistic locking; the next update must echo it verbatim, so
     # masking it made every draft update fail. Exempt only that value shape
@@ -11053,6 +11081,7 @@ secretish_env_values() {
         if (require_credential && !credential_shaped(edge_trim(value))) return 0
         if (version_reference(assignment, value)) return 0
         if (quote == "`" && issue_reference(assignment, value, substr(raw, end + 1))) return 0
+        if (quote == "`" && route_reference(assignment, value)) return 0
         if (page_cursor(assignment)) return 0
         if (snapshot_handle(assignment, value)) return 0
         if (interpolated_reference(value)) return 0
@@ -11113,6 +11142,7 @@ secretish_env_values() {
         if (looks_like_reference(value, assignment, leading)) return 0
         if (version_reference(assignment, value)) return 0
         if (issue_reference(assignment, value, substr(raw, length(token) + 1))) return 0
+        if (route_reference(assignment, value)) return 0
         if (page_cursor(assignment)) return 0
         if (snapshot_handle(assignment, value)) return 0
         if (config_literal(value)) return 0
