@@ -36,6 +36,8 @@ fi
 # credential-shaped literal here. Nothing below prints these values.
 hex=$(od -An -N20 -tx1 /dev/urandom | tr -d ' \n')
 b64=$(head -c 24 /dev/urandom | base64 | tr -d '+/=\n')
+low=$(od -An -N28 -tu1 /dev/urandom \
+  | awk '{ for (i = 1; i <= NF; i++) printf "%c", 97 + $i % 26 }')
 word=$(printf '%s%s' sec ret)
 key="client ${word}"
 snake_key="client_${word}"
@@ -82,6 +84,7 @@ mask_case() {
 # below prove nothing.
 case "$b64" in *[a-z]*[A-Z]*|*[A-Z]*[a-z]*) ;; *) bad "generated value is not mixed case"; exit 1 ;; esac
 [ "${#hex}" -eq 40 ] || { bad "generated hex value is short"; exit 1; }
+[ "${#low}" -eq 28 ] || { bad "generated letter run is short"; exit 1; }
 
 prompt_case 0 'reported line: method and path after a secret label' "$(cat "$FIXTURE")"
 prompt_case 0 'POST and a one-segment path' "${key}: \`POST /users\` creates it"
@@ -99,6 +102,12 @@ prompt_case 2 'mixed-case random path segment' "${key}: /v1/${b64} sets it"
 prompt_case 2 'random value as a brace parameter' "${key}: \`PUT /v1/{${hex}}\`"
 prompt_case 2 'random value after a colon parameter' "${key}: \`PUT /v1/:${b64}\`"
 prompt_case 2 'random value in a query string' "${key}: \`PUT /v1/providers?k=${hex}\`"
+prompt_case 2 'word value in a query string' "${key}: \`GET /v1/callback?state=rotation\`"
+# A long single-case letter run is only credential-shaped without the
+# parameter decoration, so these fail if the decoration is judged as is.
+prompt_case 2 'lowercase run as a path segment' "${key}: \`PUT /v1/${low}\`"
+prompt_case 2 'lowercase run after a colon parameter' "${key}: \`PUT /v1/:${low}\`"
+prompt_case 2 'lowercase run as a brace parameter' "${key}: \`PUT /v1/{${low}}\`"
 prompt_case 2 'random value after the method' "${key}: \`PUT ${hex}\`"
 # Boundaries of the route shape: loosening any one of them fails here.
 prompt_case 2 'one-segment path without a method' "${key}: \`/rotation\` is set"
