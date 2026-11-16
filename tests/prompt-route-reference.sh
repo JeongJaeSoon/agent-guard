@@ -90,6 +90,10 @@ prompt_case 0 'reported line: method and path after a secret label' "$(cat "$FIX
 prompt_case 0 'POST and a one-segment path' "${key}: \`POST /users\` creates it"
 prompt_case 0 'path with a brace parameter' "${key}: \`PATCH /v2/apps/{app_id}/${word}\` rotates it"
 prompt_case 0 'unquoted path of two segments' "${key}: /v1/login-providers/:id/client-${word} sets it"
+prompt_case 0 'unquoted PATCH and a path' "${key}: PATCH /v1/providers/:id rotates it"
+prompt_case 0 'unquoted DELETE and a path' "${key}: DELETE /v1/providers/:id/client-${word} removes it"
+prompt_case 0 'unquoted OPTIONS and a path at line end' "${key}: OPTIONS /v1/providers"
+prompt_case 0 'unquoted POST and a path before a comma' "${key}: POST /v1/providers, then GET"
 prompt_case 0 'backticked path with a trailing slash' "${key}: \`/api/providers/\` lists them"
 prompt_case 0 'redaction placeholder' "${key}: \`[REDACTED]\` must store the new value"
 
@@ -109,6 +113,11 @@ prompt_case 2 'lowercase run as a path segment' "${key}: \`PUT /v1/${low}\`"
 prompt_case 2 'lowercase run after a colon parameter' "${key}: \`PUT /v1/:${low}\`"
 prompt_case 2 'lowercase run as a brace parameter' "${key}: \`PUT /v1/{${low}}\`"
 prompt_case 2 'random value after the method' "${key}: \`PUT ${hex}\`"
+prompt_case 2 'unquoted method, random path segment' "${key}: PATCH /v1/providers/${hex} rotates it"
+prompt_case 2 'unquoted method, random query value' "${key}: DELETE /v1/providers?k=${b64}"
+prompt_case 2 'unquoted method, one word after it' "${key}: PATCH rotation"
+prompt_case 2 'unquoted method after a tab' "${key}: PATCH	/v1/providers"
+prompt_case 2 'unquoted method word with a closer' "${key}: PATCH) /v1/providers"
 # Boundaries of the route shape: loosening any one of them fails here.
 prompt_case 2 'one-segment path without a method' "${key}: \`/rotation\` is set"
 prompt_case 2 'lowercase method' "${key}: \`put /v1/providers\`"
@@ -121,6 +130,9 @@ prompt_case 2 'two methods' "${key}: \`PUT PUT /v1/providers\`"
 mask_case 'route stays, real value is masked' \
   "${key}: \`PUT /v1/login-providers/:id/client-${word}\` sets it
 api_${word}: ${hex}" '/v1/login-providers/:id/client-' "${hex}"
+mask_case 'unquoted method stays, real value is masked' \
+  "${key}: OPTIONS /v1/providers/:id lists it
+api_${word}: ${hex}" 'OPTIONS /v1/providers/:id' "${hex}"
 mask_case 'path with a random segment is masked' \
   "${key}: \`PUT /v1/providers/${hex}\`" '' "${hex}"
 
