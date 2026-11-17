@@ -16262,7 +16262,11 @@ EOF
   esac
   # Command wrapping is shell-agnostic (plain functions), so it is emitted after
   # the shell-specific hook wiring for any target unless explicitly disabled.
-  [ "$command_wrapping" = 1 ] && shell_init_command_wrapping
+  # An `if`, not `&&`: the opt-out must still return 0, or the bootstrap file
+  # reads the failed status as "no snippet" and loads nothing at all.
+  if [ "$command_wrapping" = 1 ]; then
+    shell_init_command_wrapping
+  fi
 }
 
 # Write (or replace in place) the managed block in ONE rc file. Split out of

@@ -107,6 +107,26 @@ if grep -Fq '~/.agent-guard/shell-init-no-wrapping.sh' "$ss_off" 2>/dev/null \
 else
   not_ok "setup-shell persists the command-wrapping opt-out in its own resolver file"
 fi
+# The opt-out drops the command wrappers only: agx and the marker must still
+# load. shell-init once ended on a false test for this target, and the
+# bootstrap took that status as "nothing to load".
+ss_off_status=0
+ag shell-init --no-command-wrapping >"$CASE_ROOT/off-snippet" 2>"$ERR" || ss_off_status=$?
+if [ "$ss_off_status" -eq 0 ] && grep -q '^agx() {' "$CASE_ROOT/off-snippet" \
+   && ! grep -q '^__agentguard_wrap_command() {' "$CASE_ROOT/off-snippet"; then
+  ok "shell-init --no-command-wrapping exits 0 with agx and without the wrappers"
+else
+  not_ok "shell-init --no-command-wrapping exits 0 with agx and without the wrappers (status $ss_off_status)"
+fi
+for ss_off_shell in sh bash; do
+  command -v "$ss_off_shell" >/dev/null 2>&1 || continue
+  ss_off_loaded=$(loads "$ss_off_shell" "$PLUGIN_ROOT/bin:$PATH" "$ss_off")
+  if [ "$ss_off_loaded" = INSTALLED ]; then
+    ok "the opt-out rc still defines agx in $ss_off_shell"
+  else
+    not_ok "the opt-out rc still defines agx in $ss_off_shell (got ${ss_off_loaded:-nothing})"
+  fi
+done
 
 # The resolver file is a frozen copy, so its first line is a format stamp that
 # doctor compares with the CLI. The pinned body checksums belong to
