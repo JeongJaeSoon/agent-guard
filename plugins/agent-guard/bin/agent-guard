@@ -15700,6 +15700,13 @@ redact_plaintext_literal() {
   return "$status"
 }
 
+# Fail closed for exec: the whole output becomes [REDACTED]. Same shell, so
+# both names reach do_exec.
+exec_mask_all() {
+  masked='[REDACTED]'
+  output_fully_masked=1
+}
+
 do_exec() {
   [ "${1:-}" = "--" ] && shift
   if [ "$#" -eq 0 ]; then
@@ -15740,8 +15747,7 @@ do_exec() {
     # Avoid materializing oversized plaintext as JSON or invoking any detector;
     # match PostToolUse by conservatively masking it before bounded scan work.
     if output_scan_input_exceeds_cap "$masked"; then
-      masked='[REDACTED]'
-      output_fully_masked=1
+      exec_mask_all
     else
       # Keep detection input tied to the original capture. The raw assignment
       # pass below may insert [REDACTED], which must not become a new candidate.
@@ -15755,14 +15761,12 @@ do_exec() {
       if [ "$decoded" != "$masked" ]; then
         invalid_output=1
         if printenv_requests_secretish_name "$@"; then
-          masked='[REDACTED]'
-          output_fully_masked=1
+          exec_mask_all
         else
           raw_bytes=$(printf '%s' "$masked" | LC_ALL=C wc -c | tr -d ' ')
           case "$raw_bytes" in
             ''|*[!0-9]*)
-              masked='[REDACTED]'
-              output_fully_masked=1
+              exec_mask_all
               ;;
             *)
               if [ "$raw_bytes" -gt 65536 ]; then
@@ -15772,14 +15776,12 @@ do_exec() {
                 raw_probe_result=$(printf '%s' "$masked" \
                   | secretish_env_values probe_raw 2>/dev/null) || raw_probe_status=$?
                 if [ "$raw_probe_status" -ne 0 ] || [ -n "$raw_probe_result" ]; then
-                  masked='[REDACTED]'
-                  output_fully_masked=1
+                  exec_mask_all
                 fi
               else
                 raw_secret_file=$(mktemp_file) || raw_secret_file=''
                 if [ -z "$raw_secret_file" ]; then
-                  masked='[REDACTED]'
-                  output_fully_masked=1
+                  exec_mask_all
                 else
                   # Check the producer before invoking the detector: POSIX
                   # pipelines otherwise hide an empty or partial framing error.
@@ -15788,16 +15790,14 @@ do_exec() {
                     | frame_plaintext_leaf 2>/dev/null) \
                     || ! printf '%s' "$raw_framed" \
                       | secretish_env_values framed >"$raw_secret_file" 2>/dev/null; then
-                    masked='[REDACTED]'
-                    output_fully_masked=1
+                    exec_mask_all
                   elif [ -s "$raw_secret_file" ]; then
                     if r=$(redact_plaintext_framed \
                       "$masked" "$raw_secret_file" 2>/dev/null) \
                       && [ -n "$r" ]; then
                       masked=$r
                     else
-                      masked='[REDACTED]'
-                      output_fully_masked=1
+                      exec_mask_all
                     fi
                   fi
                   rm -f "$raw_secret_file"
@@ -15816,26 +15816,21 @@ do_exec() {
       # detector and bundler stage atomic.
       if ! secret_bundle=$(detect_exec_secret_bundle \
         "$response" "$invalid_output" "$@"); then
-        masked='[REDACTED]'
-        output_fully_masked=1
+        exec_mask_all
         secret_bundle=''
       fi
     fi
     if [ -n "$secret_bundle" ]; then
-      if ! classify_secret_bundle "$secret_bundle"; then
-        masked='[REDACTED]'
-        output_fully_masked=1
-      elif [ "$BUNDLE_MODE" = whole_leaf ]; then
-        masked='[REDACTED]'
-        output_fully_masked=1
+      if ! classify_secret_bundle "$secret_bundle" \
+          || [ "$BUNDLE_MODE" = whole_leaf ]; then
+        exec_mask_all
       elif [ "$BUNDLE_SECRETS" != '[]' ]; then
         secrets=$BUNDLE_SECRETS
         if r=$(redact_plaintext_literal "$masked" "$secrets" 2>/dev/null) \
           && [ -n "$r" ]; then
           masked=$r
         else
-          masked='[REDACTED]'
-          output_fully_masked=1
+          exec_mask_all
         fi
       fi
     fi
