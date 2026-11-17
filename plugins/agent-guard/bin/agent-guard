@@ -7477,14 +7477,12 @@ bash_neutralize_runtime_globals() (
 # background on the line, a body with no terminator, an unquoted delimiter whose
 # body expands something, or a line the command gate does not read the same
 # way after the rewrite (a later `sh`, `.` or `eval` may run what was written).
-bash_strip_heredoc_bodies() (
-  set -f
-  hd_cmd=$1
-  case "$hd_cmd" in
-    *'<<'*) ;;
-    *) printf '%s' "$hd_cmd"; exit 0 ;;
-  esac
-  hd_new=$(printf '%s\n' "$hd_cmd" | LC_ALL=C awk '
+# heredoc_body_rewrite reads the text on stdin and holds that decision; with
+# $1 set to 1 it prints, for a text it accepts, the whole text with only a
+# backquote or `$(` in each body line replaced (see
+# bash_neutralize_literal_substitutions) instead of the text without bodies.
+heredoc_body_rewrite() {
+  LC_ALL=C awk -v neutral="${1:-0}" '
     function reject() { bad = 1; exit 1 }
     # The words of s, quoted text replaced by Q, in w[1..]; returns the count.
     function words(s, w) {
@@ -7536,12 +7534,14 @@ bash_strip_heredoc_bodies() (
     delim != "" {
       line = $0
       if (strip) sub(/^\t+/, "", line)
-      if (line == delim) { delim = ""; kept[++nk] = $0; if (msg) mend = nk; next }
+      if (line == delim) { delim = ""; kept[++nk] = $0; ntext = ntext $0 "\n"; if (msg) mend = nk; next }
       if (!quoted && $0 ~ /[$`\\]/) reject()
+      line = $0; gsub(/`/, "_", line); gsub(/\$\(/, "_(", line)
+      ntext = ntext line "\n"
       next
     }
     {
-      kept[++nk] = $0
+      kept[++nk] = $0; ntext = ntext $0 "\n"
       if (index($0, "<<") == 0) next
       rest = $0
       if (rest ~ /<<</ || rest ~ /\\/) reject()
@@ -7610,9 +7610,19 @@ bash_strip_heredoc_bodies() (
         if (c > 1) exit 1
       }
       if (text ~ /(^|[^A-Za-z0-9_.-])(python[0-9.]*|node|nodejs|ruby|perl|php|lua|deno|bun|awk|gawk|mawk|osascript|tclsh|Rscript|swift|java|jshell)([^A-Za-z0-9_-]|$)/) exit 1
-      printf "%s", text
+      printf "%s", (neutral == 1 ? ntext : text)
     }
-  ') || { printf '%s' "$hd_cmd"; exit 0; }
+  '
+}
+
+bash_strip_heredoc_bodies() (
+  set -f
+  hd_cmd=$1
+  case "$hd_cmd" in
+    *'<<'*) ;;
+    *) printf '%s' "$hd_cmd"; exit 0 ;;
+  esac
+  hd_new=$(printf '%s\n' "$hd_cmd" | heredoc_body_rewrite) || { printf '%s' "$hd_cmd"; exit 0; }
   if [ "$hd_new" = "$hd_cmd" ]; then
     printf '%s' "$hd_cmd"
     exit 0
@@ -7624,6 +7634,144 @@ bash_strip_heredoc_bodies() (
   else
     printf '%s' "$hd_cmd"
   fi
+)
+
+# Succeed when every command in the git_command_records stream $1 only treats
+# the text it is given as data, so a literal backquote or `$(` handed to it
+# runs nothing: its name is literal and on the inert list message_value_records
+# and search_operand_spans share (cd only when PATH holds no relative entry),
+# every word is literal or a bare parameter reference, and nothing on the line
+# is a redirection, a group, a subshell, a background job, a substitution or a
+# word the tokenizer could not read. With $2 set to heredoc, a segment holding
+# a `<<` word may also be the cat, tee, gh or git command that
+# bash_strip_heredoc_bodies accepted, with its redirections, and mkdir or git
+# may come before or after it; none of them can change what that command
+# runs. Anything else fails, so a shell, eval, ssh, xargs, trap, an
+# interpreter, an assignment prefix, a function or alias definition or a pipe
+# into any of them keeps the whole line in the scan.
+literal_consumers_inert() {
+  printf '%s\n' "$1" | LC_ALL=C awk -v cd_ok="$(path_entries_absolute && echo 1)" -v mode="${2-}" '
+    # An exit with no status in END keeps 0, so give it one.
+    function bail() { failed = 1; exit 1 }
+    function plain(k, v) {
+      if (k == "0") return 1
+      if (k != "4" || v ~ /\$[A-Za-z_][A-Za-z0-9_]*\[/) return 0
+      gsub(/\$\{[A-Za-z_][A-Za-z0-9_]*\}/, "", v)
+      gsub(/\$[A-Za-z_][A-Za-z0-9_]*/, "", v)
+      return v !~ /[$`]/
+    }
+    function finish(   j, hd, redir) {
+      if (n == 0) return
+      if (kind[1] != "0") bail()
+      hd = 0; redir = 0
+      for (j = 1; j <= n; j++) {
+        if (word[j] ~ /^<</) hd = 1
+        if (word[j] ~ /[<>]/) redir = 1
+      }
+      if (hd) {
+        if (mode != "heredoc" || word[1] !~ /^(cat|tee|gh|git)$/) bail()
+      } else {
+        if (redir) bail()
+        if (word[1] !~ /^(grep|egrep|fgrep|ls|cat|head|tail|wc|cut|tr|echo|true|false|pwd|cd|jq|diff|comm|basename|dirname|date|sleep)$/ \
+          && !(mode == "heredoc" && word[1] ~ /^(mkdir|git)$/)) bail()
+        if (word[1] == "cd" && cd_ok != "1") bail()
+      }
+      n = 0
+    }
+    {
+      r = $0; k = substr(r, 1, 1); v = substr(r, 2)
+      if (r == "0;" || r == "0&&" || r == "0||" || r == "0|") { finish(); next }
+      if (!plain(k, v)) bail()
+      n++; kind[n] = k; word[n] = v
+    }
+    END { if (!failed) finish(); exit failed }
+  '
+}
+
+# Print $1 with each backquote and `$(` that the shell reads as text, and that
+# only a command literal_consumers_inert accepts receives, replaced by `_` (the
+# `(` stays), so the deny patterns do not read it as a command substitution.
+# Two places qualify: the body of a quoted-delimiter here-document that
+# bash_strip_heredoc_bodies leaves out (cat, tee, a gh or git commit message
+# from stdin), and a single-quoted word on a line with no here-document.
+# Every other character stays, so a body or argument that names an
+# environment dump (`printenv`, `env | ...`) or any other deny-listed command
+# is still read; a double-quoted word, an unquoted delimiter, `$'...'`, a
+# backslash-quoted or partly quoted delimiter, a here-string and anything
+# outside the quotes keep their backquotes. Re-tokenizing a single-quoted
+# rewrite must show the same records with nothing but those characters
+# changed. Whenever any check fails, $1 is printed unchanged.
+bash_neutralize_literal_substitutions() (
+  set -f
+  ln_cmd=$1
+  case "$ln_cmd" in
+    *'`'*|*'$('*) ;;
+    *) printf '%s' "$ln_cmd"; exit 0 ;;
+  esac
+  case "$ln_cmd" in
+    *'<<'*)
+      ln_strip=$(bash_strip_heredoc_bodies "$ln_cmd")
+      if [ "$ln_strip" != "$ln_cmd" ] \
+        && literal_consumers_inert "$(git_command_records "$ln_strip")" heredoc \
+        && ln_new=$(printf '%s\n' "$ln_cmd" | heredoc_body_rewrite 1) \
+        && [ -n "$ln_new" ]; then
+        printf '%s' "$ln_new"
+      else
+        printf '%s' "$ln_cmd"
+      fi
+      exit 0
+      ;;
+    *"'"*) ;;
+    *) printf '%s' "$ln_cmd"; exit 0 ;;
+  esac
+  ln_records=$(git_command_records "$ln_cmd")
+  literal_consumers_inert "$ln_records" || { printf '%s' "$ln_cmd"; exit 0; }
+  ln_new=$(LN_CMD=$ln_cmd LC_ALL=C awk 'BEGIN {
+    s = ENVIRON["LN_CMD"]; n = length(s); out = ""; q = ""; started = 0
+    for (i = 1; i <= n; i++) {
+      c = substr(s, i, 1)
+      if (q == "s") {
+        if (c == "\047") q = ""
+        else if (c == "`" || c == "$" && substr(s, i + 1, 1) == "(") c = "_"
+        out = out c; continue
+      }
+      if (q == "d") {
+        if (c == "\\") { out = out c substr(s, i + 1, 1); i++; continue }
+        if (c == "\"") q = ""
+        out = out c; continue
+      }
+      if (c == "\\") { out = out c substr(s, i + 1, 1); i++; started = 1; continue }
+      # A comment runs to the end of its line and is copied as written.
+      if (c == "#" && !started) {
+        k = index(substr(s, i), "\n")
+        if (!k) { out = out substr(s, i); break }
+        out = out substr(s, i, k - 1); i += k - 2; continue
+      }
+      if (c == "\047") q = "s"
+      else if (c == "\"") q = "d"
+      started = index(" \t\n;&|()<>", c) == 0
+      out = out c
+    }
+    if (q != "") exit 1
+    printf "%s", out
+  }') || { printf '%s' "$ln_cmd"; exit 0; }
+  if [ "$ln_new" = "$ln_cmd" ]; then
+    printf '%s' "$ln_cmd"
+    exit 0
+  fi
+  LN_OLD=$ln_records LN_NEW=$(git_command_records "$ln_new") LC_ALL=C awk 'BEGIN {
+    a = split(ENVIRON["LN_OLD"], old, "\n"); b = split(ENVIRON["LN_NEW"], new, "\n")
+    if (a != b) exit 1
+    for (k = 1; k <= a; k++) {
+      if (old[k] == new[k]) continue
+      if (substr(old[k], 1, 1) != substr(new[k], 1, 1) || length(old[k]) != length(new[k])) exit 1
+      for (j = 1; j <= length(old[k]); j++) {
+        x = substr(old[k], j, 1); y = substr(new[k], j, 1)
+        if (x != y && !(y == "_" && (x == "`" || x == "$" && substr(old[k], j + 1, 1) == "("))) exit 1
+      }
+    }
+  }' || { printf '%s' "$ln_cmd"; exit 0; }
+  printf '%s' "$ln_new"
 )
 
 # Private variable name; see check_bash_command (#127).
@@ -10130,6 +10278,23 @@ check_bash_command() {
     if env_stripped=$(bash_strip_safe_env_lookups "$pattern_cmd"); then
       pattern_cmd=$env_stripped
     fi
+    # A backquote or `$(` in a single-quoted word or a quoted-delimiter
+    # here-document body is text, so when only echo, cat or a message command
+    # receives it the patterns must not read it as a substitution (94S-1712).
+    # Only such a command line pays for the check; this runs before the
+    # quote-removed copy below so that copy reads the rewrite too.
+    case "$pattern_cmd" in
+      *'`'*|*'$('*)
+        case "$pattern_cmd" in
+          *"'"*|*'<<'*)
+            if literal_cmd=$(bash_neutralize_literal_substitutions "$pattern_cmd") \
+              && [ -n "$literal_cmd" ]; then
+              pattern_cmd=$literal_cmd
+            fi
+            ;;
+        esac
+        ;;
+    esac
     # The shell removes quotes before it runs a word, so `c'u'rl` and
     # `"https"://user:pw@host` reach the process as the name or URL the
     # patterns know. Read that copy too, after the same exemptions; the text
