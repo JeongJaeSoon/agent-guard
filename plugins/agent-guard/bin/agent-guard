@@ -14758,6 +14758,25 @@ scan_write_target_path() {
   return "$target_status"
 }
 
+# Scan one written target from the tool's workdir in a subshell, so the cd and
+# every exit stay local: 0 = clean, 1 = findings, anything else = not scanned.
+post_tool_scan_target() (  # $1 = target, $2 = workdir, $3 = trust_git_backstop
+  [ -z "$2" ] || CDPATH= cd -- "$2" 2>/dev/null \
+    || exit "$SCAN_STATUS_UNAVAILABLE"
+  scanned_root=
+  [ "$3" -eq 1 ] && scanned_root=$(git rev-parse --show-toplevel 2>/dev/null) || scanned_root=
+  scan_write_target_path "$1" "$scanned_root"
+)
+
+# The working-tree backstop from the tool's workdir, with the same status
+# contract; outside a repository there is nothing to scan (clean).
+scan_working_tree_in() (  # $1 = workdir
+  [ -z "$1" ] || CDPATH= cd -- "$1" 2>/dev/null \
+    || exit "$SCAN_STATUS_UNAVAILABLE"
+  inside_git_repo || exit 0
+  scan_working_tree
+)
+
 scan_post_tool_write_target() {
   input=$1
   tool=$2
@@ -14782,13 +14801,7 @@ scan_post_tool_write_target() {
         return 0
       fi
       [ -n "$target" ] || return 0
-      (
-        [ -z "$workdir" ] || CDPATH= cd -- "$workdir" 2>/dev/null \
-          || exit "$SCAN_STATUS_UNAVAILABLE"
-        scanned_root=
-        [ "$trust_git_backstop" -eq 1 ] && scanned_root=$(git rev-parse --show-toplevel 2>/dev/null) || scanned_root=
-        scan_write_target_path "$target" "$scanned_root"
-      )
+      post_tool_scan_target "$target" "$workdir" "$trust_git_backstop"
       case "$?" in
         0) return 0 ;;
         1) info "$PROGRAM: the file this tool call wrote contains secret-like values"; return 1 ;;
@@ -14800,7 +14813,7 @@ scan_post_tool_write_target() {
       esac
       ;;
   esac
-  targets=$(post_tool_write_target "$input" "$2")
+  targets=$(post_tool_write_target "$input" "$tool")
   target_extract_status=$?
   [ "$target_extract_status" -eq 0 ] || {
     handle_git_infrastructure_failure "$input" \
@@ -14857,13 +14870,7 @@ scan_post_tool_write_target() {
       [ "$target_result" -eq 0 ] && target_result="$SCAN_STATUS_UNAVAILABLE"
       continue
     fi
-    (
-      [ -z "$workdir" ] || CDPATH= cd -- "$workdir" 2>/dev/null \
-        || exit "$SCAN_STATUS_UNAVAILABLE"
-      scanned_root=
-      [ "$trust_git_backstop" -eq 1 ] && scanned_root=$(git rev-parse --show-toplevel 2>/dev/null) || scanned_root=
-      scan_write_target_path "$target" "$scanned_root"
-    )
+    post_tool_scan_target "$target" "$workdir" "$trust_git_backstop"
     target_status=$?
     case "$target_status" in
       0) ;;
@@ -14934,12 +14941,7 @@ hook_post_tool() {
       handle_git_infrastructure_failure "$input" \
         "$PROGRAM: git is unavailable, so changed files could not be scanned;"
     else
-      (
-        [ -z "$workdir" ] || CDPATH= cd -- "$workdir" 2>/dev/null \
-          || exit "$SCAN_STATUS_UNAVAILABLE"
-        inside_git_repo || exit 0
-        scan_working_tree
-      )
+      scan_working_tree_in "$workdir"
       status=$?
       case "$status" in
         0) git_backstop_ok=1 ;;
@@ -15082,12 +15084,7 @@ hook_stop() {
     return 0
   fi
   workdir=$(json_value '.tool_input.workdir // .tool_input.cwd // .cwd // empty' "$input")
-  (
-    [ -z "$workdir" ] || CDPATH= cd -- "$workdir" 2>/dev/null \
-      || exit "$SCAN_STATUS_UNAVAILABLE"
-    inside_git_repo || exit 0
-    scan_working_tree
-  )
+  scan_working_tree_in "$workdir"
   status=$?
   case "$status" in
     0) return 0 ;;
