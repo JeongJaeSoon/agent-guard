@@ -6339,6 +6339,43 @@ bash_strip_safe_env_lookups() {
   ' </dev/null
 }
 
+# Cheap gate for bash_join_quoted_words: 0 when that awk pass could change $1.
+# The pass only rewrites a word that mixes quoted, escaped and plain parts, or
+# a quoted word where a command starts. One plain command whose quotes each
+# wrap a whole argument (`printf 'build passed'`, `grep "foo" src`) has
+# neither, so it skips the awk run. Every doubtful shape answers 0;
+# tests/unit-quoted-words.sh pins that a 1 here means the pass changes nothing.
+bash_quoting_may_hide_name() {
+  case "$1" in
+    *[\'\"\\]*) ;;
+    *) return 1 ;;
+  esac
+  case "$1" in
+    # An escape, another command, a redirection, a group, an assignment or a
+    # line break: a later word may start a command.
+    *[\\\`\;\|\&\(\)\<\>\{\}\!=]*|*'
+'*) return 0 ;;
+    # A quote or a blank where the first command word starts.
+    [\'\"[:space:]]*) return 0 ;;
+    # A word that leaves the next word in command position.
+    *sudo*|*command*|*builtin*|*exec*|*nohup*|*nice*|*time*|*then*|*do*|*else*|*elif*) return 0 ;;
+    # A quote with text on both sides sits inside a word.
+    *[![:space:]][\'\"][![:space:]]*) return 0 ;;
+    # With both kinds present, one may be plain text inside the other.
+    *\'*\"*|*\"*\'*) return 0 ;;
+  esac
+  # An odd count leaves the last quote open, and the pass closes it at the end
+  # of the text, which can join it to the word before it.
+  qh_rest=$1 qh_open=0
+  while :; do
+    case "$qh_rest" in
+      *[\'\"]*) qh_rest=${qh_rest#*[\'\"]} qh_open=$((1 - qh_open)) ;;
+      *) break ;;
+    esac
+  done
+  return "$((1 - qh_open))"
+}
+
 # Print $1 with shell quote removal applied to the words whose quoting only
 # hides a name from the deny patterns: a word split into several quoted,
 # escaped or plain parts (`c'u'rl`, `"https"://`, `cu\rl`, `$'sec'urity`), and
@@ -10097,15 +10134,12 @@ check_bash_command() {
     # `"https"://user:pw@host` reach the process as the name or URL the
     # patterns know. Read that copy too, after the same exemptions; the text
     # as written is still read, so a failed rewrite only loses the extra copy.
-    case "$pattern_cmd" in
-      *[\'\"\\]*)
-        if joined_cmd=$(bash_join_quoted_words "$pattern_cmd") \
-          && [ "$joined_cmd" != "$pattern_cmd" ]; then
-          pattern_cmd="$pattern_cmd
+    if bash_quoting_may_hide_name "$pattern_cmd" \
+      && joined_cmd=$(bash_join_quoted_words "$pattern_cmd") \
+      && [ "$joined_cmd" != "$pattern_cmd" ]; then
+      pattern_cmd="$pattern_cmd
 $joined_cmd"
-        fi
-        ;;
-    esac
+    fi
     printf '%s\n' "$pattern_cmd" | grep -E -q -f "$patterns"
     grep_status=$?
     rm -f "$patterns"

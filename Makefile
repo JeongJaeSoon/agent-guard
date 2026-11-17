@@ -41,6 +41,7 @@ test-unit:
 	@sh tests/unit-status-label.sh
 	@sh tests/redaction-plan.sh
 	@sh tests/unit-nul-redaction.sh
+	@sh tests/unit-quoted-words.sh
 
 test-pleno-integration:
 	@tests/run-pleno-integration.sh
