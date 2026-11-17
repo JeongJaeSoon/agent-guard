@@ -16321,6 +16321,17 @@ $end"
 # The rc block only sources this file, so the validating resolver lives outside
 # the rc. It names `current` and the cache base, never a version directory, so a
 # plugin update does not require rewriting either file.
+#
+# The file is a frozen copy: a resolver fix reaches it only when setup-shell
+# reruns. Its first line carries this format number so doctor can report a copy
+# written by an older setup-shell. Bump SHELL_INIT_BOOTSTRAP_FORMAT whenever
+# shell_init_resolver or the bootstrap body do_setup_shell assembles changes;
+# tests/setup-shell.sh pins a hash of the body for the current number and fails
+# when the body changes without a bump.
+SHELL_INIT_BOOTSTRAP_FORMAT=1
+SHELL_INIT_BOOTSTRAP_STAMP_PREFIX='# agent-guard shell-init bootstrap v'
+SHELL_INIT_BOOTSTRAP_STAMP="$SHELL_INIT_BOOTSTRAP_STAMP_PREFIX$SHELL_INIT_BOOTSTRAP_FORMAT (managed by agent-guard setup-shell; rerun it to regenerate)"
+
 setup_shell_write_bootstrap() {  # $1 = bootstrap path, $2 = file content
   bootstrap_dir=${1%/*}
   # `mv` onto a directory (or a link to one) would move the file inside it.
@@ -16484,7 +16495,7 @@ fi
   bootstrap=$HOME/$bootstrap_rel
   # Clear an inherited marker first: shell-init re-exports it only when it
   # loads, so a missing binary must not look protected to SessionStart.
-  setup_shell_write_bootstrap "$bootstrap" "# Managed by 'agent-guard setup-shell' and sourced from your shell rc. Rerun setup-shell to regenerate.
+  setup_shell_write_bootstrap "$bootstrap" "$SHELL_INIT_BOOTSTRAP_STAMP
 unset AGENT_GUARD_SHELL_INIT_VERSION
 ${path_line:+$path_line
 }$line"
@@ -16527,11 +16538,65 @@ homebrew_managed_install() {
   grep -Eq '"tap"[[:space:]]*:[[:space:]]*"jeongjaesoon/tap"' "$receipt"
 }
 
+# Prints " --no-command-wrapping" or nothing when rc file $1 has a balanced
+# managed block that still carries the resolver inline: the pre-v3.9 `_agbin='`
+# form, which still loads (shell_init_rc_block_state reads it too) but is about
+# 155 lines where setup-shell now writes one. Returns 1 for any other rc.
+shell_init_rc_inline_block() {
+  [ -f "$1" ] && [ -r "$1" ] || return 1
+  awk -v b="$SHELL_INIT_BLOCK_BEGIN" -v e="$SHELL_INIT_BLOCK_END" '
+    $0 == b { inb = 1; inline = off = 0; next }
+    $0 == e && inb { if (inline) { found = 1; if (off) found_off = 1 } inb = 0; next }
+    inb && index($0, "_agbin=\047") { inline = 1 }
+    inb && index($0, "shell-init --no-command-wrapping") { off = 1 }
+    END { if (!found) exit 1; if (found_off) printf " --no-command-wrapping" }
+  ' "$1" 2>/dev/null
+}
+
+# 0 when bootstrap file $1 starts with this CLI's format stamp or a newer one
+# (rerunning an older setup-shell would only downgrade it); 1 when the stamp is
+# missing or older.
+shell_init_bootstrap_current() {
+  sb_line=
+  IFS= read -r sb_line <"$1" || [ -n "$sb_line" ] || return 1
+  case $sb_line in
+    "$SHELL_INIT_BOOTSTRAP_STAMP") return 0 ;;
+    "$SHELL_INIT_BOOTSTRAP_STAMP_PREFIX"[0-9]*) ;;
+    *) return 1 ;;
+  esac
+  sb_format=${sb_line#"$SHELL_INIT_BOOTSTRAP_STAMP_PREFIX"}
+  sb_format=${sb_format%%[!0-9]*}
+  [ "${#sb_format}" -le 9 ] && [ "$sb_format" -gt "$SHELL_INIT_BOOTSTRAP_FORMAT" ]
+}
+
+# Informational only: never changes doctor's status and never rewrites a file.
+# Kept out of SessionStart, whose output reaches the model context, because a
+# stale copy that still loads is not a protection gap.
+doctor_shell_integration_report() {
+  [ -n "${HOME:-}" ] || return 0
+  # Name the rc's shell: a bare setup-shell writes only the detected shell's rc.
+  for dsi_sh in zsh bash; do
+    dsi_rc=$HOME/.${dsi_sh}rc
+    dsi_flag=$(shell_init_rc_inline_block "$dsi_rc") || continue
+    info "$PROGRAM: shell integration: $dsi_rc still has the pre-v3.9 inline agent-guard block; rerun agent-guard setup-shell --$dsi_sh$dsi_flag (or /agent-guard:setup-shell) to replace it with one line"
+  done
+  for dsi_name in shell-init.sh shell-init-no-wrapping.sh; do
+    dsi_init=$HOME/.agent-guard/$dsi_name
+    [ -f "$dsi_init" ] && [ -r "$dsi_init" ] || continue
+    shell_init_bootstrap_current "$dsi_init" && continue
+    dsi_flag=
+    [ "$dsi_name" = shell-init.sh ] || dsi_flag=' --no-command-wrapping'
+    info "$PROGRAM: shell integration: $dsi_init was written by an older agent-guard setup-shell; rerun agent-guard setup-shell$dsi_flag (or /agent-guard:setup-shell) to regenerate it"
+  done
+  return 0
+}
+
 # doctor is setup plus a release-staleness line; the setup status is returned
 # unchanged so a failed lookup never turns a healthy doctor red.
 do_doctor() {
   do_setup "$@"
   doctor_status=$?
+  doctor_shell_integration_report
   if command -v codex >/dev/null 2>&1; then
     doctor_here=$(pwd -P 2>/dev/null) || doctor_here=$PWD
     codex_trust_probe "$doctor_here"
