@@ -287,6 +287,202 @@
     "command": "echo x; sed 's/^x\\t[^\\t]*//' .terraformrc"
   },
   {
+    "id": "python-program-bracket-star-regex",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a bracket-star regex in a python -c program is not a shell glob",
+    "command": "python3 -c 'import re; print(re.findall(r\"id[a-z_]*\", \"x\"))'"
+  },
+  {
+    "id": "python-program-star-string",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a prefix-star string in a python -c program is not a shell glob",
+    "command": "python3 -c 'print(\"id_*\")'"
+  },
+  {
+    "id": "node-program-bracket-star-regex",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a bracket-star regex in a node -e program is not a shell glob",
+    "command": "node -e 'console.log(\"x\".match(/id[_a-z]*/))'"
+  },
+  {
+    "id": "jq-filter-bracket-star-string",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a bracket-star regex in a piped jq filter string is not a shell glob",
+    "command": "printf x | jq -R 'select(test(\"id[_a-z]*\"))'"
+  },
+  {
+    "id": "awk-program-bracket-star-regex",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "awk regexes with a bracket-star or a question mark are not shell globs",
+    "command": "awk -F: '/id_r?a/ || /id[_a-z]*/ {print $1}' log.txt"
+  },
+  {
+    "id": "bracket-star-glob-operand",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "an unquoted bracket-star glob that expands to a key file is blocked",
+    "command": "cat ~/.ssh/id[_r]*"
+  },
+  {
+    "id": "bracket-star-glob-jq-operand",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a bracket-star glob is blocked as a jq file operand",
+    "command": "jq . ~/.ssh/id[_r]*"
+  },
+  {
+    "id": "bracket-star-glob-awk-operand",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a bracket-star glob is blocked as an awk file operand",
+    "command": "awk 1 id[_r]*"
+  },
+  {
+    "id": "bracket-star-glob-after-node-program",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "an unquoted glob after a node -e program is still a shell glob",
+    "command": "node -e 'console.log(1)' id[_r]*"
+  },
+  {
+    "id": "jq-from-file-quoted-glob",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a quoted word after jq -f is a file operand, not a filter",
+    "command": "jq -f 'id[_r]*' x.json"
+  },
+  {
+    "id": "awk-program-pipes-to-command",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "an awk program that pipes to a command lets the shell expand the glob",
+    "command": "awk '{print | \"cat id[_r]*\"}' log.txt"
+  },
+  {
+    "id": "python-program-globs",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a python -c program that globs reads the pattern as a glob",
+    "command": "python3 -c 'import glob; print(glob.glob(\"id[_r]*\"))'"
+  },
+  {
+    "id": "jq-filter-glob-output-to-text-filter",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a jq filter whose output only reaches text filters is not a shell glob",
+    "command": "printf x | jq -R 'select(test(\"id[_a-z]*\"))' | sort | head -5"
+  },
+  {
+    "id": "python-program-output-to-scheduler",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a program whose output goes to a command that may run it through a shell is still a glob",
+    "command": "python3 -c 'print(\"cat id[_r]*\")' | at now"
+  },
+  {
+    "id": "python-program-in-group-on-piped-names",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a python -c program in a group fed through a pipe may open the names it reads",
+    "command": "ls | (python3 -c 'import io,sys,re; [print(io.FileIO(p.strip()).readall()) for p in sys.stdin if re.fullmatch(\"id[_a-z]*\",p.strip())]')"
+  },
+  {
+    "id": "node-program-on-stderr-pipe",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a node -e program fed through |& may open the names it reads",
+    "command": "ls |& node -e 'console.log(/id[_r]*/)'"
+  },
+  {
+    "id": "python-program-fileio-on-piped-names",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a python -c program fed names through a pipe may open them with any file API",
+    "command": "ls | python3 -c 'import io,sys,re; [print(io.FileIO(p.strip()).readall()) for p in sys.stdin if re.fullmatch(\"id[_a-z]*\",p.strip())]'"
+  },
+  {
+    "id": "python-program-fileio-on-names-from-file",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a python -c program that opens names read from a file with io.FileIO can match its pattern against them",
+    "command": "python3 -c 'import io,re; [print(io.FileIO(n).readall()) for n in io.FileIO(\"names.txt\").readall().decode().split() if re.fullmatch(\"id[_a-z]*\",n)]'"
+  },
+  {
+    "id": "python-program-imported-fileio",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a python -c program that opens files through an imported FileIO alias can match its pattern against names",
+    "command": "python3 -c 'from io import FileIO as F; import re; [print(F(n).readall()) for n in F(\"names.txt\").readall().decode().split() if re.fullmatch(\"id[_a-z]*\",n)]'"
+  },
+  {
+    "id": "python-program-c-level-fileio",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a python -c program that opens files through _io.FileIO can match its pattern against names",
+    "command": "python3 -c 'import _io,re; [print(_io.FileIO(n).readall()) for n in [\"a\"] if re.fullmatch(\"id[_a-z]*\",n)]'"
+  },
+  {
+    "id": "python-program-gzipfile-raw-read",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a python -c program that reads a file raw through gzip.GzipFile can match its pattern against names",
+    "command": "python3 -c 'import gzip,re; [print(gzip.GzipFile(n).fileobj.read()) for n in gzip.GzipFile(\"names.gz\").read().decode().split() if re.fullmatch(\"id[_a-z]*\",n)]'"
+  },
+  {
+    "id": "python-program-bz2file",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a python -c program that opens files through bz2.BZ2File can match its pattern against names",
+    "command": "python3 -c 'import bz2,re; [print(bz2.BZ2File(n).read()) for n in [\"a\"] if re.fullmatch(\"id[_a-z]*\",n)]'"
+  },
+  {
+    "id": "python-program-lzmafile",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a python -c program that opens files through lzma.LZMAFile can match its pattern against names",
+    "command": "python3 -c 'import lzma,re; [print(lzma.LZMAFile(n).read()) for n in [\"a\"] if re.fullmatch(\"id[_a-z]*\",n)]'"
+  },
+  {
+    "id": "python-program-aliased-file-class",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a python -c program that imports a file class under an alias can match its pattern against names",
+    "command": "python3 -c 'from gzip import GzipFile as G; import re; [print(G(n).fileobj.read()) for n in [\"a\"] if re.fullmatch(\"id[_a-z]*\",n)]'"
+  },
+  {
+    "id": "awk-program-argv-on-piped-names",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "an awk program that adds piped names to ARGV reads those files",
+    "command": "ls | awk '/id[_r]*/ {ARGV[ARGC++]=$0}'"
+  },
+  {
+    "id": "node-program-lists-directory",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a node -e program that lists a directory can match its pattern against names",
+    "command": "node -e 'console.log(require(\"fs\").readdirSync(\".\").filter(f => /id[_r]*/.test(f)))'"
+  },
+  {
+    "id": "python-program-opens-piped-names",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a python -c program that opens names piped to it can match its pattern against them",
+    "command": "ls | python3 -c 'import sys,re; [print(open(l.strip()).read()) for l in sys.stdin if re.match(\"id[_r]*\", l)]'"
+  },
+  {
+    "id": "node-program-output-as-shell-words",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a program whose output the shell expands is still a glob",
+    "command": "cat $(node -e 'console.log(\"id[_r]*\")')"
+  },
+  {
     "id": "pattern-text-in-quoted-argument",
     "expected_status": 2,
     "classification": "known-limitation",
