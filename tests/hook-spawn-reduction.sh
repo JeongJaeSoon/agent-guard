@@ -18,8 +18,8 @@ check() { label=$1; shift; if "$@"; then ok "$label"; else bad "$label"; fi; }
 
 mkdir -p "$CASE/fn" "$CASE/bin" "$CASE/home" "$CASE/repo" "$CASE/out"
 sh "$ROOT/tests/helpers/extract-functions.sh" "$GUARD" "$CASE/fn" \
-  json_value json_value_prime json_input_is_primed_object \
-  rundir_temp_file scan_file_bytes || exit 1
+  json_value json_value_cached json_value_to json_value_prime \
+  json_input_is_primed_object rundir_temp_file scan_file_bytes || exit 1
 for f in "$CASE/fn"/*.sh; do
   # shellcheck disable=SC1090
   . "$f"
@@ -82,6 +82,17 @@ while IFS= read -r doc; do
   printf '%s\n' "$EXPRS" | while IFS= read -r expr; do
     v=$(json_value "$expr" "$doc"); printf '[%s]\n' "$v"
   done >"$CASE/primed-sub" 2>&1
+  # json_value_to holds what the substitution holds, with the same status.
+  printf '%s\n' "$EXPRS" | while IFS= read -r expr; do
+    json_value_to "$expr" "$doc"; printf '%s[%s]\n' "$?" "$jv_out"
+  done >"$CASE/primed-to" 2>&1
+  printf '%s\n' "$EXPRS" | while IFS= read -r expr; do
+    v=$(json_value "$expr" "$doc"); printf '%s[%s]\n' "$?" "$v"
+  done >"$CASE/primed-sub-status" 2>&1
+  cmp -s "$CASE/primed-sub-status" "$CASE/primed-to" || {
+    jv_mismatch=1
+    printf '  json_value_to mismatch for %s\n' "$doc"
+  }
   saved=$JV_CACHE_INPUT
   JV_CACHE_INPUT=
   printf '%s\n' "$EXPRS" | while IFS= read -r expr; do
@@ -399,6 +410,60 @@ for host in claude codex; do
   check "$host: a quote-split protected path is still denied with logging off" [ "$?" -eq 2 ]
 done
 rm -f "$CASE/bin/grep"
+
+# With logging off the combined protected-path regex is built in every Bash
+# PreToolUse, and each entry's regex used to be compiled in two command
+# substitutions (about 240 shells for `printf 'build passed'`, of some 350).
+# Each word and each command name also cost a shell or three. Shells are
+# counted as the distinct process ids in a bash trace of one hook run; the
+# trace goes through a FIFO because the scanner probe limits file sizes.
+XTRACE_BASH=
+for b in "$(command -v bash 2>/dev/null)" /opt/homebrew/bin/bash /usr/local/bin/bash; do
+  [ -n "$b" ] && [ -x "$b" ] || continue
+  # BASH_XTRACEFD needs bash 4.1.
+  "$b" -c '[ "${BASH_VERSINFO[0]}" -gt 4 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -ge 1 ]; }' \
+    2>/dev/null && { XTRACE_BASH=$b; break; }
+done
+printf '%s\n' 'PS4='\''+$BASHPID '\''; set -x' >"$CASE/xtrace.env"
+printf '0\n' >"$CASE/xtrace.session"
+shell_count() { # $1 log mode, $2 Bash command -> shells forked by one PreToolUse
+  rm -f "$CASE/xtrace.fifo" "$CASE/xtrace"
+  mkfifo "$CASE/xtrace.fifo" || return 1
+  cat "$CASE/xtrace.fifo" >"$CASE/xtrace" &
+  sc_reader=$!
+  # A fresh session each time: a degraded notice is shown once per session.
+  sc_session=$(($(cat "$CASE/xtrace.session") + 1))
+  printf '%s\n' "$sc_session" >"$CASE/xtrace.session"
+  jq -nc --arg c "$2" --arg s "shells-$sc_session" '{session_id:$s,tool_name:"Bash",tool_input:{command:$c}}' \
+    | (cd "$CASE/repo" && AGENT_GUARD_LOG_MODE=$1 BASH_ENV="$CASE/xtrace.env" BASH_XTRACEFD=7 \
+        sh -c 'exec 7>"$1"; shift; exec "$@"' _ "$CASE/xtrace.fifo" \
+        "$XTRACE_BASH" "$GUARD" hook-pre-tool >"$CASE/out/stdout" 2>"$CASE/out/stderr")
+  sc_status=$?
+  wait "$sc_reader"
+  # A degraded scanner adds a notice and skips work, which proves nothing.
+  [ "$sc_status" -eq 0 ] && [ ! -s "$CASE/out/stdout" ] && [ ! -s "$CASE/out/stderr" ] || return 1
+  sed -n 's/^+* *\([0-9][0-9]*\) .*/\1/p' "$CASE/xtrace" | sort -u | wc -l | tr -d ' '
+}
+if [ -z "$XTRACE_BASH" ]; then
+  ok 'Bash PreToolUse shell counts # SKIP no bash 4.1 or later'
+else
+  for c in 'ls -la src' "printf 'build passed'" 'ls -la src | head -5' 'git status'; do
+    got=$(shell_count off "$c")
+    check "with logging off, '$c' forks at most 125 shells (got ${got:-none})" \
+      [ "${got:-999}" -le 125 ]
+  done
+  shell_count on 'ls -la src' >/dev/null
+  at_most() { [ -n "$1" ] && [ -n "$2" ] && [ "$1" -le "$2" ]; }
+  for log in off on; do
+    one=$(shell_count "$log" 'ls a')
+    got=$(shell_count "$log" 'ls a b c d e f g h')
+    check "logging $log: seven more words fork no more shells (one ${one:-none}, got ${got:-none})" \
+      at_most "$got" "$one"
+    got=$(shell_count "$log" 'ls a | head | tail')
+    check "logging $log: two more piped commands fork at most one more shell (one ${one:-none}, got ${got:-none})" \
+      at_most "$got" "$((${one:-0} + 1))"
+  done
+fi
 
 printf '%s passed, %s failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

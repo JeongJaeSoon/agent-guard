@@ -141,7 +141,7 @@ partial_status=$(
   . "$CASE/deny_path_cache_complete.sh"
   DENY_READ_PATHS="$CASE/partial-list" AG_STATE_DIR="$CASE/store"
   dpc_file="$CASE/store/published"
-  deny_path_command_regex() { echo "$1"; }
+  deny_path_command_regex_set() { dcr_regex=$1; }
   printf() { [ "${2-}" != beta ] || return 1; command printf "$@"; }
   deny_path_cache_store literal
   echo $?
@@ -155,7 +155,7 @@ gen_status=$(
   . "$CASE/deny_path_cache_complete.sh"
   DENY_READ_PATHS="$CASE/partial-list" AG_STATE_DIR="$CASE/store"
   dpc_file="$CASE/store/published"
-  deny_path_command_regex() { [ "$1" != beta ] || return 1; echo "$1"; }
+  deny_path_command_regex_set() { [ "$1" != beta ] || return 1; dcr_regex=$1; }
   deny_path_cache_store literal
   echo $?
 )
@@ -171,7 +171,7 @@ read_status=$(
   . "$CASE/deny_path_cache_complete.sh"
   DENY_READ_PATHS="$CASE/padded-list" AG_STATE_DIR="$CASE/store"
   dpc_file="$CASE/store/published"
-  deny_path_command_regex() { echo "$1"; }
+  deny_path_command_regex_set() { dcr_regex=$1; }
   reads=0
   read() { reads=$((reads + 1)); [ "$reads" -le 1 ] || { dpc_entry=; return 1; }; command read "$@"; }
   deny_path_cache_store literal
@@ -186,7 +186,7 @@ ok_status=$(
   . "$CASE/deny_path_cache_complete.sh"
   DENY_READ_PATHS="$CASE/partial-list" AG_STATE_DIR="$CASE/store"
   dpc_file="$CASE/store/published"
-  deny_path_command_regex() { echo "$1"; }
+  deny_path_command_regex_set() { dcr_regex=$1; }
   deny_path_cache_store literal
   echo $?
 )
@@ -322,7 +322,7 @@ rules_out() {
     . "$CASE/deny_path_cache_complete.sh"
     AG_STATE_DIR= DENY_READ_PATHS="$CASE/two-list" AGENT_GUARD_RUNDIR=$1
     DENY_PATH_RUNDIR_CACHE=on
-    deny_path_command_regex() { [ -z "${FAIL_ENTRY:-}" ] || [ "$1" != "$FAIL_ENTRY" ] || return 1; echo "$1"; }
+    deny_path_command_regex_set() { [ -z "${FAIL_ENTRY:-}" ] || [ "$1" != "$FAIL_ENTRY" ] || return 1; dcr_regex=$1; }
     deny_path_cache_rules_out "$2" literal
     echo "$?:$DENY_PATH_RUNDIR_CACHE"
   )

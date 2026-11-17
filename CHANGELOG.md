@@ -1,3 +1,8 @@
+## Unreleased
+
+- perf(hook): 진단 로그를 끈 상태(`AGENT_GUARD_LOG_MODE=off`)의 Bash PreToolUse가 프로세스를 약 350번에서 약 105번만 fork합니다. 이 모드는 보호 경로 검사용 합친 정규식을 호출마다 새로 만드는데(#488), deny 목록 항목 60개 × 모드 2개의 정규식을 각각 명령 치환 두 겹(`$(deny_path_command_regex …)` 안의 `$(deny_path_regex_fragment …)`)으로 만들어서 깨끗한 명령 하나에 서브셸 약 240개가 들었습니다. 프로그램은 하나도 실행하지 않는 fork가 전체의 약 70%였습니다. 같은 경로에서 낱말마다 서브셸 하나(`env_exception_literal_shell_token`), 명령 이름마다 서브셸과 `tr` 파이프(`bash_strip_exclusion_operands`), 미리 읽어 둔 입력 필드마다 서브셸 하나(`json_value`)도 들었습니다.
+  - 동작 변경: 판정과 출력은 바뀌지 않습니다. 정규식 생성 함수는 값을 출력 대신 변수로 돌려주고, 합친 파일은 모드마다 서브셸 하나 안에서 씁니다. 파일 내용은 바이트 단위로 같습니다. 영문자·숫자·`._+-`로만 된 명령 이름은 지울 따옴표가 없으므로 `tr`을 건너뛰고, 미리 읽어 둔 필드는 명령 치환과 같은 값(끝 줄바꿈 제거)을 변수로 받습니다. 그 밖의 경우는 지금 경로를 그대로 탑니다. 테스트 fixture와 `tests/run.sh`의 hook 입력 806개를 Claude·Codex × 로그 켬·끔 × infra open·closed 8가지 설정에서 v3.11.6과 비교해 종료 코드·stdout·stderr 차이 0건을 확인했습니다. 이 머신에서 측정한 결과(31쌍 중앙값, CPU user+sys): 로그 끔·스텁 스캐너에서 `printf 'build passed'` fork 365번 → 117번, CPU 700ms → 550ms(-21%), `ls -la src`·`git status`·두 명령 파이프라인은 fork 약 355번 → 105번, CPU -29%. gitleaks 8.30.1에서는 같은 명령들의 CPU가 6~12% 줄었습니다. 로그 켬(캐시가 데워진 상태)은 fork 약 10번, CPU 0~6% 줄었고, Read·Edit·Write·PostToolUse·UserPromptSubmit은 fork 0~3번 차이로 CPU 차이가 측정 잡음 안입니다.
+
 ## v3.11.7 - 2026-11-18
 
 - fix(bash): 명령이 파일로 열지 않는 데이터 속 보호 파일 이름 때문에 Bash 명령이 `bash_protected_path_text_match`로 막히던 오탐을 고칩니다. `sed -n '/secrets.json/,+5p' types.d.ts`, `sed -n '1,50p' f | grep -n secrets.json`, `cat > note.md <<EOF` 본문의 `$obj.env`, `echo 'const m = obj.env;' > note.md`가 막혔습니다. 차단 메시지도 걸린 규칙과 대신 쓸 도구를 알려 줍니다. (#494, #496)
