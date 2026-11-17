@@ -10396,9 +10396,11 @@ is_mutation_tool() {
 # `hookSpecificOutput.updatedToolOutput`; Codex blocks the original result and
 # receives a sanitized replacement in `additionalContext`.
 #
-# Fail-safe: this path runs for (potentially) every tool result, so any error
-# emits NOTHING and lets the original output through unchanged. A redaction bug
-# must never corrupt a tool result.
+# Fail-closed: this path runs for (potentially) every tool result, and a
+# detector, parser or rewrite failure never publishes a partial rewrite. Masking
+# then falls back to the conservative whole-leaf rewrite, and when even that
+# cannot be serialized the original result is blocked with a secret-free
+# replacement. Every replacement keeps the tool's native output shape.
 
 output_redact_enabled() {
   case "${AGENT_GUARD_OUTPUT_REDACT:-mask}" in
