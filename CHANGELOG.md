@@ -1,3 +1,8 @@
+## v3.11.5 - 2026-11-17
+
+- perf(bash): 로그를 끈 Bash PreToolUse도 합친 보호 경로 정규식을 쓴다 (#488)
+- refactor: hook 명령을 launcher 한 줄로 줄이고 CLI의 중복·낡은 주석을 정리한다 (#482)
+
 ## Unreleased
 
 - perf(bash): 진단 로그를 끈 상태(`AGENT_GUARD_LOG_MODE=off`)의 Bash PreToolUse가 보호 경로 검사에서 deny 목록 항목마다 grep을 따로 띄우지 않습니다. 합친 정규식 파일은 상태 디렉터리에만 두었기 때문에, 상태 디렉터리가 없는 off 모드에서는 한 번도 쓰이지 않았습니다. 그래서 `printf 'build passed'` 같은 깨끗한 명령 하나에 항목 60개 × 검사 4번 = grep 240번과 정규식 생성용 서브셸 약 1,000개가 들었고, nightly 성능 측정의 `pre-bash-clean`(homebrew, off)이 v3.7.0 기준 5%를 다시 넘었습니다. (#477)
