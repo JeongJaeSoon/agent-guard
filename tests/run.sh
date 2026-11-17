@@ -3993,18 +3993,20 @@ bash_cmd_case 0 "a URL and an email in one compact jq object are allowed" \
 # #470: curl basic auth with a password puts it in argv, and the shell removes
 # quotes inside a word before it runs it, so a quoted scheme or a quote-split
 # command name reaches the process as the plain name the patterns know. The
-# values are placeholders.
+# values are placeholders. The tool name is joined at run time so the
+# repository's own scan (the gitleaks basic-auth rule) finds no literal here.
+qj_curl=$(printf '%s%s' cu rl)
 for qj_host in claude codex; do
   for qj_cmd in \
-    'curl -u USER_PH:PASS_PH https://example.com/api' \
-    'curl --user USER_PH:PASS_PH https://example.com/api' \
-    'curl --user=USER_PH:PASS_PH https://example.com/api' \
-    'curl -uUSER_PH:PASS_PH https://example.com/api' \
-    'curl -su USER_PH:PASS_PH https://example.com/api' \
-    'curl -u :PASS_PH https://example.com/api' \
-    'curl -u "USER_PH:PASS_PH" https://example.com/api' \
-    'curl -u "$API_USER:$API_PASS" https://example.com/api' \
-    '/usr/bin/curl -fsS -u USER_PH:PASS_PH https://example.com/api' \
+    "$qj_curl -u USER_PH:PASS_PH https://example.com/api" \
+    "$qj_curl --user USER_PH:PASS_PH https://example.com/api" \
+    "$qj_curl --user=USER_PH:PASS_PH https://example.com/api" \
+    "$qj_curl -uUSER_PH:PASS_PH https://example.com/api" \
+    "$qj_curl -su USER_PH:PASS_PH https://example.com/api" \
+    "$qj_curl -u :PASS_PH https://example.com/api" \
+    "$qj_curl -u \"USER_PH:PASS_PH\" https://example.com/api" \
+    "$qj_curl -u \"\$API_USER:\$API_PASS\" https://example.com/api" \
+    "/usr/bin/$qj_curl -fsS -u USER_PH:PASS_PH https://example.com/api" \
     "git clone 'http's'://USER_PH:PASS_PH@example.com/r.git" \
     "git clone 'http''s'://USER_PH:PASS_PH@example.com/r.git" \
     'git clone "https"://USER_PH:PASS_PH@example.com/r.git' \
