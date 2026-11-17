@@ -1,5 +1,9 @@
 ## Unreleased
 
+- perf(bash): 진단 로그를 끈 상태(`AGENT_GUARD_LOG_MODE=off`)의 Bash PreToolUse가 보호 경로 검사에서 deny 목록 항목마다 grep을 따로 띄우지 않습니다. 합친 정규식 파일은 상태 디렉터리에만 두었기 때문에, 상태 디렉터리가 없는 off 모드에서는 한 번도 쓰이지 않았습니다. 그래서 `printf 'build passed'` 같은 깨끗한 명령 하나에 항목 60개 × 검사 4번 = grep 240번과 정규식 생성용 서브셸 약 1,000개가 들었고, nightly 성능 측정의 `pre-bash-clean`(homebrew, off)이 v3.7.0 기준 5%를 다시 넘었습니다. (#477)
+  - 동작 변경: 상태 디렉터리가 없으면 합친 정규식을 그 호출의 비공개 실행 디렉터리(`mktemp -d`로 만든 mode 700 디렉터리, 종료할 때 함께 지움)에 모드마다 한 번 만들고, 같은 호출의 모든 검사가 그 파일을 씁니다. 판정은 바뀌지 않습니다. 합친 파일은 "어느 항목과도 맞지 않음"일 때만 믿습니다. 맞는 줄이 있거나, grep이 실패하거나, 파일이 항목 수만큼 완성되지 않았거나, 실행 디렉터리가 없거나 심볼릭 링크이거나 쓸 수 없으면 지금처럼 항목별 검사가 판정합니다. 상태 디렉터리를 쓰는 로그 켬 모드의 캐시(이름에 든 식별자, 오래된 파일 정리)는 그대로입니다. 이 머신에서 측정한 결과(40쌍 중앙값, CPU user+sys): 깨끗한 Bash PreToolUse 한 번의 grep이 242번에서 10번, fork가 약 1,090번에서 약 380번으로 줄었고, CPU는 v3.7.0보다 gitleaks 8.30.1로 25~27%, 스텁 스캐너로 43~45% 적습니다(변경 전에는 각각 +1~4%, +4~7%). CI 성능 게이트 통과 여부는 performance workflow에서 확인해야 합니다.
+  - 사용자가 할 일: 없습니다.
+  - 운영자가 할 일: 없습니다.
 - feat(doctor): `agent-guard doctor`가 오래된 셸 연동을 알려 줍니다. v3.9.0 전에 `setup-shell`을 실행한 `~/.zshrc`·`~/.bashrc`에는 marker 사이에 resolver 전체(약 155줄)가 그대로 남아 있고, `~/.agent-guard/shell-init.sh`(`--no-command-wrapping`이면 `shell-init-no-wrapping.sh`)는 `setup-shell`을 실행한 시점의 resolver 사본이라 이후 resolver 수정이 반영되지 않는데, 지금까지는 어느 쪽도 알려 주지 않았습니다.
   - 동작 변경: `setup-shell`이 쓰는 resolver 파일의 첫 줄이 `# agent-guard shell-init bootstrap v1 (managed by agent-guard setup-shell; rerun it to regenerate)` 형식 줄로 바뀝니다. `doctor`는 `~/.zshrc`나 `~/.bashrc`에 v3.9 이전 인라인 블록이 있거나, resolver 파일에 형식 줄이 없거나 더 오래된 형식 줄이 있으면 `shell integration:`으로 시작하는 안내 줄을 출력합니다. 안내만 하므로 종료 코드는 바뀌지 않고, 어떤 파일도 고치지 않습니다. 현재 형태면 아무것도 출력하지 않습니다. SessionStart 출력(모델 context)과 `setup` 출력은 바뀌지 않고, 예전 블록과 파일도 지금처럼 로드됩니다. `--rc`로 고른 rc 파일은 확인하지 않습니다.
   - 사용자가 할 일: `doctor`가 안내하면 안내된 `agent-guard setup-shell` 명령(플러그인 설치는 `/agent-guard:setup-shell`)을 다시 실행합니다. rc 블록은 한 줄로 바뀌고 resolver 파일은 새로 써집니다. 그 뒤 셸과 그 셸에서 띄운 세션을 다시 시작합니다.

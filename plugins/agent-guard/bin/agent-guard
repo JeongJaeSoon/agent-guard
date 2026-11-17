@@ -5343,12 +5343,34 @@ bash_shell_expanded_match_is_pinned() {
 # per-entry loop below, which names the entry and applies the pin check.
 # The file name carries the identity (device, inode, size, mtime, ctime) of the
 # deny list and of this script, so editing either one misses the cache. The
-# file lives in the private state directory audit_begin validated; without one
-# (diagnostics, AGENT_GUARD_LOG_MODE=off) nothing is cached.
+# file lives in the private state directory audit_begin validated.
+#
+# Without a state directory (diagnostics, AGENT_GUARD_LOG_MODE=off) the file is
+# built in this invocation's run directory instead and reused only by the
+# passes of this invocation, which see the same deny list, script and locale;
+# the exit trap removes it with the directory. mktemp -d made that directory
+# (mode 700) for this process alone, so no other writer can supply the file. A
+# run directory that is missing, a symlink or not writable, or a build that
+# failed once, leaves every pass on the per-entry loop, as before.
+#
+# Why a clean "no match" is sound: every line of the file is the regex the
+# per-entry loop builds for one active entry, written by the same
+# deny_path_command_regex, and deny_path_cache_complete checks that each
+# active entry wrote exactly one line. `grep -E -f` exits 1 only when no line
+# matches, so every per-entry grep of the loop would also have exited 1 and
+# the loop would have blocked nothing.
 DENY_PATH_CACHE_ID=
+DENY_PATH_RUNDIR_CACHE=on
 
 deny_path_cache_file() {
-  [ -n "$AG_STATE_DIR" ] || return 1
+  if [ -z "$AG_STATE_DIR" ]; then
+    [ "$DENY_PATH_RUNDIR_CACHE" = on ] || return 1
+    [ -n "${AGENT_GUARD_RUNDIR:-}" ] && [ -d "$AGENT_GUARD_RUNDIR" ] \
+      && [ ! -L "$AGENT_GUARD_RUNDIR" ] && [ -w "$AGENT_GUARD_RUNDIR" ] || return 1
+    dpc_file="$AGENT_GUARD_RUNDIR/deny-path-regex-$1"
+    [ ! -L "$dpc_file" ] && [ ! -d "$dpc_file" ]
+    return
+  fi
   if [ -z "$DENY_PATH_CACHE_ID" ]; then
     dpc_nl='
 '
@@ -5400,7 +5422,10 @@ deny_path_cache_store() {
     rm -f "$dpc_tmp" 2>/dev/null || :
     return 1
   fi
-  # Files of other list, script or locale keys stay until a handful pile up.
+  # Only the shared state directory holds files of other list, script or
+  # locale keys; they stay until a handful pile up.
+  [ -n "$AG_STATE_DIR" ] || return 0
+  case "$dpc_file" in "$AG_STATE_DIR"/*) ;; *) return 0 ;; esac
   dpc_count=0
   for dpc_old in "$AG_STATE_DIR/deny-path-regex-$dpc_mode-"*; do
     [ -f "$dpc_old" ] && dpc_count=$((dpc_count + 1))
@@ -5416,7 +5441,13 @@ deny_path_cache_store() {
 # Return 0 only when no deny-list entry can match $1 in mode $2.
 deny_path_cache_rules_out() {
   deny_path_cache_file "$2" || return 1
-  [ -s "$dpc_file" ] && [ -f "$dpc_file" ] || deny_path_cache_store "$2" || return 1
+  if ! { [ -s "$dpc_file" ] && [ -f "$dpc_file" ]; }; then
+    deny_path_cache_store "$2" || {
+      # A run-directory build that failed would fail again in the next pass.
+      [ -n "$AG_STATE_DIR" ] || DENY_PATH_RUNDIR_CACHE=off
+      return 1
+    }
+  fi
   printf '%s\n' "$1" | grep -Eq -f "$dpc_file"
   [ "$?" -eq 1 ]
 }
