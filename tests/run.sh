@@ -3989,6 +3989,62 @@ bash_cmd_case 0 "a URL and a later email in one compact JSON word are allowed" \
 bash_cmd_case 0 "a URL and an email in one compact jq object are allowed" \
   "jq -n '{\"homepage\":\"https://example.com\",\"author\":\"alice@example.com\"}'"
 
+# #470: curl basic auth with a password puts it in argv, and the shell removes
+# quotes inside a word before it runs it, so a quoted scheme or a quote-split
+# command name reaches the process as the plain name the patterns know. The
+# values are placeholders.
+for qj_host in claude codex; do
+  for qj_cmd in \
+    'curl -u USER_PH:PASS_PH https://example.com/api' \
+    'curl --user USER_PH:PASS_PH https://example.com/api' \
+    'curl --user=USER_PH:PASS_PH https://example.com/api' \
+    'curl -uUSER_PH:PASS_PH https://example.com/api' \
+    'curl -su USER_PH:PASS_PH https://example.com/api' \
+    'curl -u :PASS_PH https://example.com/api' \
+    'curl -u "USER_PH:PASS_PH" https://example.com/api' \
+    'curl -u "$API_USER:$API_PASS" https://example.com/api' \
+    '/usr/bin/curl -fsS -u USER_PH:PASS_PH https://example.com/api' \
+    "git clone 'http's'://USER_PH:PASS_PH@example.com/r.git" \
+    "git clone 'http''s'://USER_PH:PASS_PH@example.com/r.git" \
+    'git clone "https"://USER_PH:PASS_PH@example.com/r.git' \
+    'git clone https://USER_PH:"$GIT_PW"@example.com/r.git' \
+    "c'u'rl -H \"Authorization: Bearer \$API_TOKEN\" https://example.com" \
+    'cu\rl -H "Authorization: Bearer $API_TOKEN" https://example.com' \
+    '"sec"urity dump-keychain' \
+    "s'ecurity' find-generic-password -s x -w" \
+    '"security" dump-keychain' \
+    "cd /tmp && 'security' find-internet-password -s example.com" \
+    "\$'sec'urity dump-keychain"
+  do
+    bash_cmd_host_case "$qj_host" 2 "blocked: $qj_cmd" "$qj_cmd"
+  done
+  for qj_cmd in \
+    'curl -u alice https://example.com/api' \
+    'curl -u alice https://example.com:8443/api' \
+    'curl --user alice https://example.com/api' \
+    'curl -u alice: https://example.com/api' \
+    'curl --negotiate -u : https://example.com/api' \
+    'curl -u "$CREDS" https://example.com/api' \
+    'sort -u a:b file' \
+    "curl -H 'Accept: application/json' https://example.com/api" \
+    "curl -d '{\"callback\":\"http://localhost:3000\",\"email\":\"alice@example.com\"}' https://example.com/hooks" \
+    'curl -d "{\"callback\":\"http://localhost:3000\",\"email\":\"alice@example.com\"}" https://example.com/hooks' \
+    'grep -rn "printenv" src' \
+    "grep -E 'a|env|b' file" \
+    'grep -w "set" file' \
+    'echo "load the env"' \
+    "echo 'use (env)'" \
+    "echo it's fine" \
+    "find . -name '*.sh' -exec grep -l x {} \\;" \
+    "jq -r '.env' package.json" \
+    'FOO="bar" ls' \
+    "my-'security' find-generic-password" \
+    "git commit -m \"docs: c'u'rl and \\\"sec\\\"urity dump-keychain are denied\""
+  do
+    bash_cmd_host_case "$qj_host" 0 "allowed: $qj_cmd" "$qj_cmd"
+  done
+done
+
 expect_json_status 2 "gcloud auth print-refresh-token is blocked" \
   '{"tool_name":"Bash","tool_input":{"command":"gcloud auth print-refresh-token"}}' \
   hook-pre-tool

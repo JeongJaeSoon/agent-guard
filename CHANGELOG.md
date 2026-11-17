@@ -1,5 +1,9 @@
 ## Unreleased
 
+- fix(bash): Bash 명령의 `curl -u 이름:비밀번호`·`--user 이름:비밀번호`를 deny 패턴으로 막고, 따옴표로 감싼 URL scheme(`git clone "https"://…`)과 따옴표·백슬래시로 쪼갠 명령 이름(`c'u'rl`, `"sec"urity`, `s'ecurity'`)도 같은 deny 줄로 막습니다. 셸은 실행 전에 따옴표를 지우므로, 원문 글만 보던 패턴이 놓치던 우회입니다. (#470)
+  - 동작 변경: `-u`/`--user` 값에 `:` 뒤 비밀번호가 있으면 막습니다(`-uuser:pw`, `--user=user:pw`, `-su user:pw`, 빈 사용자 `-u :pw`, 따옴표 값, `-u "$U:$P"` 같은 변수 쌍 포함). 이름만 주는 `-u user`(비밀번호를 대화형으로 받음), 빈 비밀번호 `-u user:`·`-u :`, 쌍 전체를 변수 하나로 주는 `-u "$CREDS"`는 통과합니다. deny 패턴은 원문 글에 더해 따옴표를 지운 사본도 검사합니다. 사본에서 따옴표를 지우는 단어는 여러 조각으로 쪼갠 단어와 명령 자리의 따옴표 단어뿐이고, 따옴표 안에 공백·줄바꿈·`;`·`|`·`&`·`(`·`)`·`<`·`>`·백틱이 있으면 그대로 둡니다. 그래서 `grep "printenv" src`, `'a|env|b'`, `echo "load the env"`, JSON 본문처럼 따옴표로 감싼 인자 하나는 이전과 같이 판정합니다. 커밋·PR 메시지 값 예외와 `ORCA_*` 변수 조회 예외는 사본에도 똑같이 적용됩니다. URL 안 비밀번호를 큰따옴표로 감싼 `https://u:"$PW"@host`도 이제 막습니다. 알려진 잔여: `$'\x63url'` 같은 ANSI-C escape, `sh -c`·변수로 명령을 나눈 경우, URL 안에서 `$(<file)`로 읽은 비밀번호, `curl --proxy-user`/`-U`, `wget --user`/`--password`(대문자 `PASSWORD` 글자가 없을 때)는 막지 않습니다. 닫히지 않은 따옴표는 글 끝에서 닫힌 것으로 읽습니다(셸은 그런 명령을 실행하지 않습니다). 따옴표로 쪼갠 단어가 그대로 deny 줄과 맞으면, 그 단어가 `echo` 인자 같은 데이터여도 막힙니다(따옴표 없이 쓴 같은 글이 이미 막히는 것과 같습니다).
+  - 사용자가 할 일: curl에 basic 인증이 필요하면 `-u 이름`만 주어 비밀번호를 대화형으로 받거나, `--netrc-file`·`-K` 설정 파일을 쓰세요.
+  - 운영자가 할 일: 없습니다.
 - fix(bash): keychain을 읽는 `security find-generic-password`·`find-internet-password` deny 줄이 `dump-keychain` 줄과 같은 왼쪽 경계를 씁니다. 그래서 이름이 `security`로 끝나는 다른 명령(`my-security`, `mysecurity`, `my_security`)의 `find-*-password`는 더는 막지 않습니다. (#469)
   - 동작 변경: `security ...`, `/usr/bin/security ...`, 줄 처음이나 `;`·`&&`·`|`·공백 뒤의 `security find-*-password`는 이전과 같이 막습니다. 바로 앞 글자가 영문자·숫자·`_`·`.`·`-`인 경우만 다른 명령 이름의 일부로 보고 통과시킵니다.
   - 사용자가 할 일: 없습니다.

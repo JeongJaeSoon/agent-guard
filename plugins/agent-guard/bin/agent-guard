@@ -6339,6 +6339,87 @@ bash_strip_safe_env_lookups() {
   ' </dev/null
 }
 
+# Print $1 with shell quote removal applied to the words whose quoting only
+# hides a name from the deny patterns: a word split into several quoted,
+# escaped or plain parts (`c'u'rl`, `"https"://`, `cu\rl`, `$'sec'urity`), and
+# a quoted word where a command starts (`"security" dump-keychain`). The text
+# of a `'...'` or `$'...'` part is kept as written (no ANSI-C decoding), a
+# `"..."` part drops only the backslash before `$`, backquote, `"`, `\` and a
+# newline, and an unquoted backslash keeps the character after it. Every other
+# word stays exactly as written, so a quoted argument such as `"load the env"`,
+# `'a|env|b'` or a JSON body is still read with its quotes. A word whose quoted
+# or escaped text holds a blank, a newline or one of ; | & ( ) < > backquote
+# also stays as written: removing those quotes would end the word where the
+# shell does not. An unclosed quote runs to the end of the text, as if closed
+# there (the shell refuses such a command, so reading it either way is safe).
+# The deny patterns read this copy in addition to the text, never instead.
+bash_join_quoted_words() {
+  QJ_TEXT=$1 LC_ALL=C awk '
+    function isdelim(ch) { return ch != "" && index(" \t\n;|&()<>`", ch) > 0 }
+    function unsafe(seg) { return seg ~ /[ \t\n;|&()<>`]/ }
+    BEGIN {
+      t = ENVIRON["QJ_TEXT"]; n = length(t); out = ""; i = 1; cmdpos = 1
+      while (i <= n) {
+        c = substr(t, i, 1)
+        if (isdelim(c)) {
+          out = out c
+          if (index("\n;|&(`", c)) cmdpos = 1
+          i++
+          continue
+        }
+        raw = ""; val = ""; parts = 0; quoted = 0; bad = 0; plain = 0
+        while (i <= n) {
+          c = substr(t, i, 1)
+          if (isdelim(c)) break
+          if (c == "\\") {
+            d = substr(t, i + 1, 1)
+            if (d == "") { raw = raw c; val = val c; i++; plain = 0; continue }
+            raw = raw c d; quoted = 1; parts++; plain = 0; i += 2
+            if (d == "\n") continue
+            if (unsafe(d) || d == "\"" || d == "\047") bad = 1
+            val = val d
+            continue
+          }
+          q = c; start = i
+          if (c == "$" && (substr(t, i + 1, 1) == "\047" || substr(t, i + 1, 1) == "\"")) {
+            q = substr(t, i + 1, 1); i++
+          }
+          if (q == "\047") {
+            j = index(substr(t, i + 1), "\047")
+            if (j) { seg = substr(t, i + 1, j - 1); i += j + 1 }
+            else { seg = substr(t, i + 1); i = n + 1 }
+          } else if (q == "\"") {
+            seg = ""; j = i + 1
+            while (j <= n) {
+              d = substr(t, j, 1)
+              if (d == "\"") break
+              if (d == "\\" && index("$`\"\\\n", substr(t, j + 1, 1))) {
+                if (substr(t, j + 1, 1) != "\n") seg = seg substr(t, j + 1, 1)
+                j += 2
+                continue
+              }
+              seg = seg d; j++
+            }
+            i = j + 1
+          } else {
+            raw = raw c; val = val c; i++
+            if (!plain) { parts++; plain = 1 }
+            continue
+          }
+          raw = raw substr(t, start, i - start); val = val seg
+          quoted = 1; parts++; plain = 0
+          if (unsafe(seg)) bad = 1
+        }
+        out = out ((quoted && !bad && (parts > 1 || cmdpos)) ? val : raw)
+        # An assignment, a reserved word or a wrapper keeps the next word in
+        # command position.
+        if (!(raw ~ /^[A-Za-z_][A-Za-z0-9_]*=/ || val ~ /^(!|\{|then|do|else|elif|time|command|builtin|exec|nohup|nice|sudo)$/)) cmdpos = 0
+      }
+      printf "%s", out
+    }
+  ' </dev/null
+}
+
 MESSAGE_HEREDOC_PLACEHOLDER=agent_guard_heredoc_message
 
 # Print $1 with every word of the form
@@ -10012,6 +10093,19 @@ check_bash_command() {
     if env_stripped=$(bash_strip_safe_env_lookups "$pattern_cmd"); then
       pattern_cmd=$env_stripped
     fi
+    # The shell removes quotes before it runs a word, so `c'u'rl` and
+    # `"https"://user:pw@host` reach the process as the name or URL the
+    # patterns know. Read that copy too, after the same exemptions; the text
+    # as written is still read, so a failed rewrite only loses the extra copy.
+    case "$pattern_cmd" in
+      *[\'\"\\]*)
+        if joined_cmd=$(bash_join_quoted_words "$pattern_cmd") \
+          && [ "$joined_cmd" != "$pattern_cmd" ]; then
+          pattern_cmd="$pattern_cmd
+$joined_cmd"
+        fi
+        ;;
+    esac
     printf '%s\n' "$pattern_cmd" | grep -E -q -f "$patterns"
     grep_status=$?
     rm -f "$patterns"
