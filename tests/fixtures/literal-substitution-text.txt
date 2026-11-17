@@ -1,0 +1,85 @@
+# Cases for tests/literal-substitution-text.sh: status|label|command.
+# The command is assembled at run time: {BT} is a backquote, {DP} is a dollar
+# sign and an opening parenthesis, {E} and {PE} are the two environment-dump
+# command names, {DOT} is a dot, {NL} a newline and {TAB} a tab. None of these
+# commands is executed.
+#
+# The owner's table (94S-1712).
+0|quoted-delimiter heredoc body read by cat|cat <<'EOF'{NL}see {BT}@next/{E}{BT} here{NL}EOF
+0|double-quoted delimiter heredoc body read by cat|cat <<"EOF"{NL}see {BT}@next/{E}{BT} here{NL}EOF
+0|single-quoted echo argument|echo 'see {BT}@next/{E}{BT} here'
+2|unquoted delimiter: the shell substitutes in the body|cat <<EOF{NL}see {BT}@next/{E}{BT} here{NL}EOF
+2|double-quoted echo argument: the shell substitutes|echo "see {BT}@next/{E}{BT} here"
+0|gh message value in single quotes|gh pr comment 1 --body 'see {BT}@next/{E}{BT} here'
+# Other shapes the same rule covers.
+0|gh body read from a quoted heredoc|gh issue comment 1 --body-file - <<'EOF'{NL}see {BT}@next/{E}{BT} here{NL}EOF
+0|git commit message read from a quoted heredoc|git commit -F - <<'EOF'{NL}fix: see {BT}@next/{E}{BT}{NL}EOF
+0|cat writes a quoted heredoc to a file|cat > notes.md <<'EOF'{NL}see {BT}@next/{E}{BT} here{NL}EOF
+0|tee writes a quoted heredoc to a file|tee notes.md <<'EOF'{NL}see {BT}@next/{E}{BT} here{NL}EOF
+0|mkdir before a quoted heredoc written by cat|mkdir -p doc && cat > doc/n.md <<'EOF'{NL}see {BT}@next/{E}{BT} here{NL}EOF
+0|dash form strips tabs from the terminator|cat <<-'EOF'{NL}{TAB}see {BT}@next/{E}{BT} here{NL}{TAB}EOF
+0|dollar-parenthesis in a quoted heredoc body|cat <<'EOF'{NL}run {DP}{E}) never{NL}EOF
+0|two quoted heredocs one after the other|cat > a.md <<'A'{NL}{BT}{E}{BT}{NL}A{NL}cat > b.md <<'B'{NL}{BT}{E}{BT}{NL}B
+0|a body line that only looks like the terminator|cat <<'EOF'{NL}EOF  {NL}see {BT}@next/{E}{BT}{NL}EOF
+0|dollar-parenthesis in a single-quoted echo argument|echo 'run {DP}{E}) never'
+0|single-quoted argument piped between inert commands|echo 'see {BT}@next/{E}{BT}' | cat
+0|single-quoted grep pattern|grep -n 'see {BT}@next/{E}{BT}' notes.md
+0|single-quoted argument next to a plain parameter|echo "$HOME" 'see {BT}@next/{E}{BT}'
+0|two inert commands with single-quoted arguments|echo 'a {BT}{E}{BT}'; echo 'b {DP}{E})'
+#
+# Controls that stay blocked.
+2|bare env dump|{E}
+2|bare printenv|{PE}
+2|backquoted env|echo {BT}{E}{BT}
+2|dollar-parenthesis env|echo {DP}{E})
+2|dotenv read|cat {DOT}{E}
+2|double-quoted gh message value substitutes|gh pr comment 1 --body "see {BT}@next/{E}{BT}"
+#
+# A quoted body or a single-quoted argument that something else runs.
+2|sh reads a quoted heredoc|sh <<'EOF'{NL}echo {BT}{E}{BT}{NL}EOF
+2|bash -s reads a quoted heredoc|bash -s <<'EOF'{NL}echo {BT}{E}{BT}{NL}EOF
+2|sudo sh reads a quoted heredoc|sudo sh <<'EOF'{NL}echo {BT}{E}{BT}{NL}EOF
+2|ssh sends a quoted heredoc to a remote shell|ssh host <<'EOF'{NL}echo {BT}{E}{BT}{NL}EOF
+2|python reads a quoted heredoc|python3 - <<'EOF'{NL}import os; os.system('echo {BT}{E}{BT}'){NL}EOF
+2|xargs sh reads a quoted heredoc|xargs sh -c <<'EOF'{NL}echo {BT}{E}{BT}{NL}EOF
+2|quoted heredoc piped to sh|cat <<'EOF' | sh{NL}echo {BT}{E}{BT}{NL}EOF
+2|quoted heredoc written then run|cat > x.sh <<'EOF'{NL}echo {BT}{E}{BT}{NL}EOF{NL}sh x.sh
+2|cat redefined as a function before the heredoc|cat() { sh; }; cat <<'EOF'{NL}echo {BT}{E}{BT}{NL}EOF
+2|cat redefined as a function on an earlier line|cat() { sh; }{NL}cat <<'EOF'{NL}echo {BT}{E}{BT}{NL}EOF
+2|alias on an earlier line|alias cat=sh{NL}cat <<'EOF'{NL}echo {BT}{E}{BT}{NL}EOF
+2|PATH assignment on an earlier line|PATH=/tmp/x{NL}cat <<'EOF'{NL}echo {BT}{E}{BT}{NL}EOF
+2|PATH prefix on the heredoc command|PATH=/tmp/x cat <<'EOF'{NL}echo {BT}{E}{BT}{NL}EOF
+2|sh -c runs a single-quoted argument|sh -c 'echo {BT}{E}{BT}'
+2|bash -c runs a single-quoted argument|bash -c 'echo {BT}{E}{BT}'
+2|eval runs a single-quoted argument|eval 'echo {BT}{E}{BT}'
+2|ssh runs a single-quoted argument remotely|ssh host 'echo {BT}{E}{BT}'
+2|xargs sh -c runs a single-quoted argument|xargs sh -c 'echo {BT}{E}{BT}'
+2|xargs -I sh -c runs a single-quoted argument|echo x | xargs -I{} sh -c 'echo {BT}{E}{BT}'
+2|trap runs a single-quoted argument|trap 'echo {BT}{E}{BT}' EXIT
+2|watch runs a single-quoted argument|watch 'echo {BT}{E}{BT}'
+2|find -exec sh -c runs a single-quoted argument|find . -exec sh -c 'echo {BT}{E}{BT}' \;
+2|su -c runs a single-quoted argument|su -c 'echo {BT}{E}{BT}'
+2|docker exec sh -c runs a single-quoted argument|docker exec box sh -c 'echo {BT}{E}{BT}'
+2|git alias runs a single-quoted argument|git config alias.x '!echo {BT}{E}{BT}'
+2|awk system runs a single-quoted argument|awk 'BEGIN{system("echo {BT}{E}{BT}")}'
+2|perl system runs a single-quoted argument|perl -e 'system("echo {BT}{E}{BT}")'
+2|echoed text piped to sh|echo 'echo {BT}{E}{BT}' | sh
+2|echoed text written to a file|echo 'echo {BT}{E}{BT}' > x.sh
+2|echo backgrounded beside another command|echo 'a {BT}{E}{BT}' & sh x.sh
+2|an assignment prefix on echo|FOO=1 echo 'a {BT}{E}{BT}'
+2|a command substitution elsewhere on the line|echo 'a {BT}{E}{BT}' "{DP}date)"
+2|a real dump after a literal|echo 'a {BT}{E}{BT}'; {E}
+2|a shell after a literal|echo 'a {BT}{E}{BT}'; sh -c 'id'
+#
+# Here-document edge cases left blocked or kept checked.
+2|backslash-quoted delimiter is not classified|cat <<\EOF{NL}see {BT}@next/{E}{BT}{NL}EOF
+2|partly quoted delimiter is not classified|cat <<E'O'F{NL}see {BT}@next/{E}{BT}{NL}EOF
+2|two heredocs on one line are not classified|cat <<'A' <<'B'{NL}{BT}{E}{BT}{NL}A{NL}{BT}{E}{BT}{NL}B
+2|a heredoc whose terminator never appears|cat <<'EOF'{NL}see {BT}@next/{E}{BT}
+2|a terminator with trailing blanks is not the terminator|cat <<'EOF'{NL}x{NL}EOF  {NL}echo {BT}{E}{BT}
+2|here-string is not classified|cat <<< 'see {BT}@next/{E}{BT}'
+2|printenv on a line after a quoted heredoc|cat <<'EOF'{NL}see {BT}@next/{E}{BT}{NL}EOF{NL}{PE}
+2|backquoted env on a line after a quoted heredoc|cat <<'EOF'{NL}see {BT}@next/{E}{BT}{NL}EOF{NL}echo {BT}{E}{BT}
+2|backquoted env before a quoted heredoc|echo {BT}{E}{BT}; cat <<'EOF'{NL}x{NL}EOF
+2|quoted heredoc inside a command substitution|echo "{DP}cat <<'EOF'{NL}{BT}{E}{BT}{NL}EOF{NL})"
+2|unquoted heredoc read by gh substitutes|gh issue comment 1 --body-file - <<EOF{NL}see {BT}@next/{E}{BT}{NL}EOF
