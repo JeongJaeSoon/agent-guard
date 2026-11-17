@@ -9050,6 +9050,107 @@ git_gate_sh_runner_code() {
   fi
 }
 
+# Succeed when record $2, a word after git subcommand $1 (commit or push),
+# disables hooks or signing. git_skip_state holds what the words before it
+# leave: v when an option's value comes next, e past `--`; callers empty it
+# at the subcommand. Git takes a unique prefix of a long option, and
+# --no-ver is still ambiguous with --no-verbose. Only commit reads -n as
+# --no-verify, and in a cluster the rest of the word after -m, -F, -c, -C,
+# -t, -S or -u is that option's value.
+git_skip_flag() {
+  case "$git_skip_state" in
+    v) git_skip_state=; return 1 ;;
+    e) return 1 ;;
+  esac
+  # In `-a>/dev/null` the shell takes the redirection off the word.
+  case "$2" in
+    0*[\<\>]*) set -- "$1" "${2%%[<>]*}" ;;
+  esac
+  case "$2" in
+    0--) git_skip_state=e; return 1 ;;
+    0--no-veri|0--no-verif|0--no-verify) return 0 ;;
+    0--no-g|0--no-gp|0--no-gpg|0--no-gpg-|0--no-gpg-s|0--no-gpg-si|0--no-gpg-sig|0--no-gpg-sign) return 0 ;;
+  esac
+  [ "$1" = commit ] || return 1
+  case "$2" in
+    0--file|0--author|0--date|0--message|0--reedit-message|0--reuse-message|0--fixup|0--squash|0--trailer|0--template|0--cleanup|0--pathspec-from-file)
+      git_skip_state=v
+      return 1
+      ;;
+    0-[!-]*) gsf_rest=${2#0-} ;;
+    *) return 1 ;;
+  esac
+  while [ -n "$gsf_rest" ]; do
+    gsf_char=${gsf_rest%"${gsf_rest#?}"}
+    gsf_rest=${gsf_rest#?}
+    case "$gsf_char" in
+      n) return 0 ;;
+      [mFcCt]) [ -n "$gsf_rest" ] || git_skip_state=v; return 1 ;;
+      [Su]) return 1 ;;
+    esac
+  done
+  return 1
+}
+
+# Succeed when git configuration $1 (KEY=VALUE, or KEY), given to one git
+# command, moves its hooks or turns commit signing off. Keys are
+# case-insensitive.
+git_config_skips_hooks() {
+  case "${1%%=*}" in
+    [Cc][Oo][Rr][Ee].[Hh][Oo][Oo][Kk][Ss][Pp][Aa][Tt][Hh]) return 0 ;;
+    [Cc][Oo][Mm][Mm][Ii][Tt].[Gg][Pp][Gg][Ss][Ii][Gg][Nn]) ;;
+    *) return 1 ;;
+  esac
+  case "$1" in
+    *=*) ;;
+    *) return 1 ;;
+  esac
+  case "${1#*=}" in
+    [Tt][Rr][Uu][Ee]|[Yy][Ee][Ss]|[Oo][Nn]|1) return 1 ;;
+  esac
+  return 0
+}
+
+# Succeed when assignment $1 in the environment of a git command switches
+# its hooks off: through git configuration, or through the switch that
+# turns husky, lefthook or overcommit off as a whole. A variable that skips
+# some of their hooks (pre-commit's SKIP, LEFTHOOK_EXCLUDE) leaves the rest.
+git_env_skips_hooks() {
+  case "$1" in
+    HUSKY=0|HUSKY_SKIP_HOOKS=*|LEFTHOOK=0|LEFTHOOK=false|OVERCOMMIT_DISABLE=*) return 0 ;;
+    GIT_CONFIG_KEY_*=*) git_config_skips_hooks "${1#*=}" ;;
+    GIT_CONFIG_PARAMETERS=*[Hh][Oo][Oo][Kk][Ss][Pp][Aa][Tt][Hh]*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# Succeed when git config arguments $@, up to the end of the command, set or
+# remove core.hooksPath. Reading it, with the key alone, does not.
+git_config_sets_hooks() {
+  gch_key=0
+  gch_unset=0
+  gch_skip=0
+  for gch_word in "$@"; do
+    case "$gch_word" in
+      3*|0';'|0'&&'|0'||'|0'|') break ;;
+    esac
+    if [ "$gch_skip" -eq 1 ]; then
+      gch_skip=0
+      continue
+    fi
+    case "$gch_word" in
+      0[0-9]*'>'|0[0-9]*'<'|0'>'|0'>>'|0'<') gch_skip=1; continue ;;
+      0[0-9]*'>'*|0[0-9]*'<'*|0'>'*|0'<'*) continue ;;
+    esac
+    [ "$gch_key" -eq 0 ] || return 0
+    case "${gch_word#?}" in
+      [Cc][Oo][Rr][Ee].[Hh][Oo][Oo][Kk][Ss][Pp][Aa][Tt][Hh]) gch_key=1 ;;
+      --unset|--unset-all|unset) gch_unset=1 ;;
+    esac
+  done
+  [ "$gch_key$gch_unset" = 11 ]
+}
+
 # The fallback for a command name the gate does not know. Given the records
 # of one simple command from its name on ($1 is 1) or of a whole code string
 # ($1 is 0), set git_fb_found to 1 when it may run git commit or push: a word
@@ -9065,6 +9166,7 @@ git_gate_fallback_scan() {
   gfb_skip=0
   gfb_git=0
   gfb_hit=0
+  gfb_off=0
   gfb_prev=
   gfb_text=
   while [ "$#" -gt 0 ]; do
@@ -9083,6 +9185,7 @@ git_gate_fallback_scan() {
         gfb_skip=0
         gfb_git=0
         gfb_hit=0
+        gfb_off=0
         gfb_prev=
         continue
         ;;
@@ -9092,6 +9195,9 @@ git_gate_fallback_scan() {
       gfb_text="$gfb_text $gfb_word"
       continue
     fi
+    # A wrapper the gate does not know may pass an assignment on, as env does.
+    [ "$gfb_kind" != 0 ] || ! is_assignment_token "$gfb_word" \
+      || ! git_env_skips_hooks "$gfb_word" || gfb_off=1
     if [ "$gfb_head" -eq 1 ]; then
       is_assignment_token "$gfb_word" && continue
       gfb_head=0
@@ -9119,9 +9225,7 @@ git_gate_fallback_scan() {
       fi
     fi
     if [ "$gfb_hit" -eq 1 ]; then
-      case "$gfb_kind$gfb_word" in
-        0--no-verify|0--no-gpg-sign) git_fb_flag=1 ;;
-      esac
+      git_skip_flag "$gfb_sub" "$gfb_kind$gfb_word" && git_fb_flag=1
     fi
     case "$gfb_prev:$gfb_word" in
       -c:*|--command:*|-Command:*|-command:*) git_gate_fallback_code "$gfb_word" ;;
@@ -9129,12 +9233,30 @@ git_gate_fallback_scan() {
     esac
     gfb_prev=$gfb_word
     case "$gfb_git" in
-      2) gfb_git=1; continue ;;
+      2)
+        case "$gfb_opt" in
+          -c|--config-env) git_config_skips_hooks "$gfb_word" && gfb_off=1 ;;
+        esac
+        gfb_git=1
+        continue
+        ;;
       1)
         case "$gfb_kind$gfb_word" in
-          0commit|0push|[!0]*) git_fb_found=1; gfb_hit=1; gfb_git=0; continue ;;
+          0commit|0push|[!0]*)
+            git_fb_found=1
+            gfb_hit=1
+            gfb_git=0
+            gfb_sub=$gfb_word
+            git_skip_state=
+            [ "$gfb_off" -eq 0 ] || git_fb_flag=1
+            continue
+            ;;
+          0--config-env=*)
+            git_config_skips_hooks "${gfb_word#--config-env=}" && gfb_off=1
+            continue
+            ;;
           0-*)
-            if git_option_takes_value "$gfb_word"; then gfb_git=2; fi
+            if git_option_takes_value "$gfb_word"; then gfb_git=2; gfb_opt=$gfb_word; fi
             continue
             ;;
         esac
@@ -9862,6 +9984,11 @@ is_git_commit_or_push() {
     git_env_changed=0
     git_env_args=
     git_env_dynamic=0
+    # The git command at hand runs without its hooks or signing through its
+    # environment or options (git_hooks_off), or after an earlier git config
+    # on the line moved its hooks (git_hooks_moved).
+    git_hooks_off=0
+    git_hooks_moved=0
     # The same for GIT_DIR and GIT_WORK_TREE, which choose the repository a
     # commit or push uses.
     git_target_changed=0
@@ -10054,6 +10181,7 @@ is_git_commit_or_push() {
     # $1 is a NAME=value record before a command name. A tilde in it expands.
     git_env_assignment() {
       git_env_name=${1#?}
+      git_env_skips_hooks "$git_env_name" && git_hooks_off=1
       case "$git_env_name" in
         GIT_DIR=*|GIT_WORK_TREE=*) git_target_value "${git_env_name%%=*}" "${1%"$git_env_name"}${1#*=}" ;;
       esac
@@ -10489,6 +10617,7 @@ $effective_c_dirs" "$git_config_args" "$git_env_args"
               git_fb_flag=0
               [ "$#" -lt 2 ] || git_gate_fallback_code "${2#?}"
               if [ "$git_fb_found" -eq 1 ]; then
+                [ "$git_hooks_off" -eq 0 ] || git_fb_flag=1
                 git_gate_fallback_emit flock
                 matched=0
               fi
@@ -10536,6 +10665,9 @@ $effective_c_dirs" "$git_config_args" "$git_env_args"
                 --config-env) git_config_dynamic=1 ;;
               esac
               case "$token" in
+                -c|--config-env) git_config_skips_hooks "${git_value#?}" && git_hooks_off=1 ;;
+              esac
+              case "$token" in
                 --git-dir) git_target_value GIT_DIR "$git_value" ;;
                 --work-tree) git_target_value GIT_WORK_TREE "$git_value" ;;
               esac
@@ -10549,6 +10681,9 @@ $effective_c_dirs" "$git_config_args" "$git_env_args"
                 0--git-dir=*|0--bare) git_config_args="$git_config_args$token
 " ;;
                 0--config-env=*|4--git-dir=*|4--config-env=*) git_config_dynamic=1 ;;
+              esac
+              case "$token" in
+                --config-env=*) git_config_skips_hooks "${token#--config-env=}" && git_hooks_off=1 ;;
               esac
               case "$token" in
                 --git-dir=*) git_target_value GIT_DIR "${record%"$token"}${token#*=}" ;;
@@ -10596,12 +10731,15 @@ $effective_c_dirs" "$git_config_args" "$git_env_args"
                 [ -n "$git_target_args" ] && printf '%s' "$git_target_args" | sed 's/^/E/'
                 # N: a flag that disables hooks or signing, also from code
                 # that is_git_hook_bypass cannot see in the command line.
-                for git_arg in "$@"; do
-                  case "$git_arg" in
+                git_skip_state=
+                for git_word in "$@"; do
+                  case "$git_word" in
                     3*|0';'|0'&&'|0'||'|0'|') break ;;
-                    0--no-verify|0--no-gpg-sign) printf 'N\n' ;;
                   esac
+                  git_arg_record "$git_word"
+                  git_skip_flag "$token" "$git_arg" && git_hooks_off=1
                 done
+                [ "$git_hooks_off$git_hooks_moved" = 00 ] || printf 'N\n'
                 if [ "$token" = commit ]; then
                   [ "$xargs_wrapped" -eq 1 ] && printf 'I\n'
                   [ "$git_index_changed" -eq 1 ] && printf 'I\n'
@@ -10624,6 +10762,7 @@ $effective_c_dirs" "$git_config_args" "$git_env_args"
               # It may define an alias a later git command runs.
               config)
                 git_config_mutable=1
+                git_config_sets_hooks "$@" && git_hooks_moved=1
                 break
                 ;;
               *)
@@ -10654,6 +10793,7 @@ $effective_c_dirs" "$git_config_args" "$git_env_args"
             esac
           done
           git_env_args=
+          git_hooks_off=0
           # A command other than git may also relink a path a later cd uses.
           [ "$git_head_unknown" -eq 0 ] || shell_cd_mutable=1
           git_head_unknown=0
@@ -10680,6 +10820,7 @@ $effective_c_dirs" "$git_config_args" "$git_env_args"
                   git_fb_flag=0
                   git_gate_fallback_scan 1 "$@"
                   if [ "$git_fb_found" -eq 1 ]; then
+                    [ "$git_hooks_off" -eq 0 ] || git_fb_flag=1
                     git_gate_fallback_emit "${token##*/}"
                     matched=0
                   fi
@@ -10731,6 +10872,7 @@ $effective_c_dirs" "$git_config_args" "$git_env_args"
         [ -z "$git_env_args" ] && [ "$git_env_dynamic" -eq 0 ] || git_env_changed=1
         git_env_args=
         git_env_dynamic=0
+        git_hooks_off=0
         [ -z "$git_target_args" ] && [ "$git_target_dynamic" -eq 0 ] || git_target_changed=1
         git_target_args=
         git_target_dynamic=0
