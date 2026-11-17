@@ -301,5 +301,31 @@ check "a secret added to a tracked file is still blocked" [ "$?" -eq 2 ]
 hook hook-post-tool '{"session_id":"s","tool_name":"Edit","tool_input":{"file_path":"README.md"}}'
 check "a secret staged and reverted on disk is still blocked" [ "$?" -eq 2 ]
 
+# #477: the jq/sed rewrite path is gated by a cheap name check. The letters
+# "sed" inside an ordinary word must not open it: a clean command such as
+# `printf 'build passed'` has to cost the same awk runs as `printf 'build ok'`.
+REAL_AWK=$(command -v awk)
+cat >"$CASE/bin/awk" <<EOF
+#!/bin/sh
+printf '%s\n' x >>"$CASE/awk-calls"
+exec "$REAL_AWK" "\$@"
+EOF
+chmod 755 "$CASE/bin/awk"
+awk_runs() { # $1 Bash command -> number of awk processes one PreToolUse starts
+  : >"$CASE/awk-calls"
+  hook hook-pre-tool "$(jq -nc --arg c "$1" '{session_id:"s",tool_name:"Bash",tool_input:{command:$c}}')" || return 1
+  wc -l <"$CASE/awk-calls" | tr -d ' '
+}
+plain=$(awk_runs "printf 'build ok'")
+check "a clean Bash command is allowed with awk counted" [ -n "$plain" ]
+for word in passed used closed released; do
+  got=$(awk_runs "printf 'build $word'")
+  check "the letters sed inside '$word' start no extra awk (plain $plain, got ${got:-none})" \
+    [ "${got:-x}" = "$plain" ]
+done
+got=$(awk_runs "sed -n 1p README.md")
+check "a real sed command still reaches the rewrite path (plain $plain, got ${got:-none})" \
+  [ "${got:-0}" -gt "$plain" ]
+
 printf '%s passed, %s failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

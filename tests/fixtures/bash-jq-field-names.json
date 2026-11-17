@@ -698,5 +698,19 @@
     "classification": "must-block",
     "description": "a jq started by xargs is not classified, so its filter remains checked",
     "command": "xargs jq -r '.a.key' < list.txt"
+  },
+  {
+    "id": "jq-split-name-with-sed-letters-in-operand",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "the letters sed inside another word (passed.json) do not open the rewrite path, so a quote-split jq keeps its filter checked",
+    "command": "j''q -r .key passed.json"
+  },
+  {
+    "id": "sed-letters-in-word-with-protected-operand",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a word that merely holds the letters sed leaves a protected operand checked",
+    "command": "printf 'build passed' && cat release.key"
   }
 ]

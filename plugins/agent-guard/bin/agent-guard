@@ -6932,7 +6932,12 @@ sed_script_without_regex() {
 bash_neutralize_jq_field_names() (
   set -f
   nj_cmd=$1
-  case "$nj_cmd" in *jq*|*sed*) ;; *) printf '%s' "$nj_cmd"; exit 0 ;; esac
+  # sed counts only as a whole name, as in jq_names_tool below: a rewrite
+  # needs a `sed` command word, and words such as "passed" hold the letters.
+  case "$nj_cmd" in
+    *jq*|sed|sed[!A-Za-z0-9_]*|*[!A-Za-z0-9_]sed|*[!A-Za-z0-9_]sed[!A-Za-z0-9_]*) ;;
+    *) printf '%s' "$nj_cmd"; exit 0 ;;
+  esac
   case "$nj_cmd" in
     *PATH*|*path=*|*path+=*|*'path['*) printf '%s' "$nj_cmd"; exit 0 ;;
   esac

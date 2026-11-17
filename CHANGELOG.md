@@ -1,5 +1,9 @@
 ## Unreleased
 
+- perf(bash): `printf 'build passed'`처럼 `sed` 글자가 다른 낱말 안에 들어 있을 뿐인 Bash 명령은 더는 jq·sed 필터 예외 경로를 돌지 않습니다. 이 경로의 사전 검사가 `sed`를 낱말 경계 없이 찾아서, `passed`·`used`·`closed`·`released` 같은 낱말이 있는 깨끗한 명령마다 PreToolUse가 awk를 3번 더 실행했고, nightly 성능 측정의 `pre-bash-clean`(homebrew, off)이 v3.7.0 기준 5%를 넘었습니다. (#477)
+  - 동작 변경: 사전 검사가 `sed`를 온전한 이름일 때만 인정합니다(같은 함수의 `jq_names_tool`과 같은 규칙). 막는 범위는 줄지 않습니다. 사전 검사는 예외 경로로 들어갈지만 정하므로, 건너뛰면 명령 전체가 그대로 보호 경로 검사를 받습니다. 달라지는 판정은 한 가지로, #463 이후 우연히 통과하던 `j''q -r .key passed.json`(따옴표로 쪼갠 jq 이름과 `sed` 글자가 든 다른 낱말이 함께 있는 명령)이 다시 막힙니다. `sed -n 1p file`처럼 실제 sed 명령과 jq 명령의 예외는 그대로입니다.
+  - 사용자가 할 일: 없습니다.
+  - 운영자가 할 일: 없습니다.
 - fix(redact): `client secret: must be rotated monthly`·`- password: should not be logged anywhere`처럼 비밀값 이름 뒤 콜론에 그 값을 어떻게 다루는지 설명하는 영어 문장이 오는 글을 프롬프트 가드가 더는 막지 않고, 출력 마스킹도 그 문장을 가리지 않습니다. 대입문 probe가 콜론 뒤 첫 낱말(`must`)을 비밀값으로 보던 탓입니다.
   - 동작 변경: 예외는 콜론 형태에서 따옴표·백틱 없이 온 값의 첫 낱말이 `must`·`should`·`shall`·`will`·`would`·`might`·`needs`·`when` 중 하나(소문자만)이고, 그 뒤로 같은 줄 끝까지 영문 소문자로만 된 낱말이 둘 이상 공백 한 칸씩(탭·연속 공백 제외) 이어질 때뿐입니다. 줄 끝의 마침표 하나와 그 뒤 공백만 떼고 판정하므로, 쉼표·세미콜론·마침표 둘 이상 같은 기호, 숫자, 대문자, 한글이 줄 안 어디에든 있으면 값은 계속 막고 가립니다. 뒤따르는 낱말은 하나씩 따로 판정해 비밀값 모양(24자 이상 소문자 연속 등)이면 값 전체를 계속 막고 가립니다. 키를 따옴표로 감싼 JSON 모양이면 예외가 아닙니다. 백틱이나 큰따옴표·작은따옴표 안 문장, `=` 대입, 목록에 없는 낱말로 시작하는 문장(`client secret: rotated monthly`), 대문자로 시작하는 `Must`, 낱말 하나뿐인 값(뒤에 `#` 주석이 붙어도), `passphrase: correct horse battery staple`(따옴표 없이와 백틱 안 모두)은 바뀌지 않습니다. 목록 낱말은 EFF large·short 단어 목록에 없는 것만 골랐지만, 원래 Diceware 목록에는 `must`·`shall`·`will`·`would`·`might`·`when`이 있습니다. 그래서 목록 낱말로 시작하고 소문자 낱말 둘 이상이 이어지는 따옴표 없는 패스프레이즈(예: `passphrase: must have more coffee`)는 이제 막히지도 가려지지도 않습니다. 같은 모양으로 줄 끝까지 가는 YAML 값도 마찬가지입니다. gitleaks 규칙은 바뀌지 않습니다.
   - 사용자가 할 일: 없습니다.
