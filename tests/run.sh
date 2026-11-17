@@ -204,6 +204,8 @@ for file in \
   "$ROOT/githooks/pre-commit" \
   "$PLUGIN_ROOT/scripts/gitleaks-checksum.sh" \
   "$ROOT/tests/hook-outcome-contract.sh" \
+  "$ROOT/tests/hook-launcher.sh" \
+  "$ROOT/plugins/agent-guard/hooks/launch.sh" \
   "$ROOT/tests/deny-read-mask.sh" \
   "$ROOT/tests/deny-read-mask-rules.sh" \
   "$ROOT/tests/deny-read-mask-allow.sh" \
@@ -237,6 +239,8 @@ fi
 run_expect 0 "private metadata-only audit logging contract" sh "$ROOT/tests/audit-log.sh"
 run_expect 0 "failed tool output is reported, not masked, on PostToolUseFailure" \
   sh "$ROOT/tests/post-tool-failure.sh"
+run_expect 0 "plugin hook launcher selects a complete root and applies the infrastructure policy" \
+  sh "$ROOT/tests/hook-launcher.sh"
 run_expect 0 "portable audit retention contract" sh "$ROOT/tests/unit-audit-retention.sh"
 run_expect 0 "NUL redaction preserves clean leaves" sh "$ROOT/tests/unit-nul-redaction.sh"
 run_expect 0 "quote gate skips only texts the quote pass leaves unchanged" sh "$ROOT/tests/unit-quoted-words.sh"

@@ -109,6 +109,24 @@ validate_hook_commands() {
   done <"$command_list"
 }
 
+# Both hosts' manifest commands exec this launcher, so it must ship as a plain
+# file the host's `sh` can parse. A symlink could point outside the plugin
+# payload that Codex hashes for trust.
+validate_hook_launcher() {
+  launcher="$PLUGIN_ROOT/hooks/launch.sh"
+  if [ -f "$launcher" ] && [ ! -L "$launcher" ]; then
+    ok "$1 hook launcher hooks/launch.sh is a regular file"
+  else
+    fail "$1 hook launcher hooks/launch.sh is a regular file"
+    return
+  fi
+  if sh -n "$launcher"; then
+    ok "$1 hook launcher passes sh -n"
+  else
+    fail "$1 hook launcher passes sh -n"
+  fi
+}
+
 validate_archive_contains() {
   archive=$1
   path=$2
@@ -246,6 +264,7 @@ validate_codex() {
   fi
 
   validate_hook_commands "$PLUGIN_ROOT/hooks.json" "Codex" "PLUGIN_ROOT"
+  validate_hook_launcher Codex
 }
 
 validate_claude() {
@@ -259,6 +278,7 @@ validate_claude() {
     fail "Claude manifest uses the additive default skills directory"
   fi
   validate_hook_commands "$PLUGIN_ROOT/hooks/hooks.json" "Claude" "CLAUDE_PLUGIN_ROOT"
+  validate_hook_launcher Claude
 
   command_count=0
   for command_file in "$PLUGIN_ROOT"/commands/*.md; do
@@ -325,6 +345,7 @@ validate_archive() {
   validate_archive_contains "$archive" ".claude-plugin/plugin.json"
   validate_archive_contains "$archive" "hooks.json"
   validate_archive_contains "$archive" "hooks/hooks.json"
+  validate_archive_contains "$archive" "hooks/launch.sh"
   validate_archive_contains "$archive" "README.md"
   validate_archive_contains "$archive" "LICENSE"
   validate_archive_contains "$archive" "PRIVACY.md"
