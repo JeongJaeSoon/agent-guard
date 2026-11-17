@@ -2,9 +2,15 @@
 # The Bash protected-path scan compiles one regex per deny-list entry. The
 # combined regex file that skips that work may only ever rule a command out; it
 # must never change a verdict. Every status below is compared with a run that
-# has no cache at all (logging off), and the blocked shapes are asserted
-# outright. A cache the scan cannot trust (a line matching everything, a
-# directory in its place, a stale name) costs time, not protection.
+# has no cache at all, and the blocked shapes are asserted outright. A cache
+# the scan cannot trust (a line matching everything, a directory in its place,
+# a stale name) costs time, not protection.
+#
+# The no-cache reference is a copy of the plugin built here whose
+# deny_path_cache_rules_out always declines, so every pass runs the per-entry
+# loop. The shipped CLI has no switch for that: with logging on the combined
+# file lives in the state directory, and with logging off (#477) in the run
+# directory of one invocation.
 set -u
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 GUARD=${AGENT_GUARD_TEST_BINARY:-$ROOT/plugins/agent-guard/bin/agent-guard}
@@ -23,15 +29,29 @@ ok() { pass=$((pass + 1)); printf 'ok - %s\n' "$*"; }
 bad() { fail=$((fail + 1)); printf 'not ok - %s\n' "$*"; }
 check() { label=$1; shift; if "$@"; then ok "$label"; else bad "$label"; fi; }
 
-# $1 command; the log mode in LOG is the only difference between two runs.
-LOG=on
+# The reference plugin: identical except that the combined file is never used.
+cp -R "$ROOT/plugins/agent-guard" "$CASE/ref" || exit 1
+awk '
+  $0 == "deny_path_cache_rules_out() {" { print; print "  return 1"; skipping = 1; patched++; next }
+  skipping && $0 == "}" { skipping = 0 }
+  skipping { next }
+  { print }
+  END { if (patched != 1 || skipping) exit 1 }
+' "$GUARD" >"$CASE/ref/bin/agent-guard" || { echo 'not ok - cannot build the reference CLI'; exit 1; }
+REF="$CASE/ref/bin/agent-guard"
+
+# $1 command; LOG (log mode), BIN (CLI) and HOST are the only differences
+# between two runs.
+LOG=on BIN=$GUARD HOST=claude
 status_of() {
   jq -nc --arg c "$1" --arg d "$CASE/w" --arg s "deny-cache-$$" \
     '{tool_name:"Bash",tool_input:{command:$c},cwd:$d,session_id:$s}' \
-    | AGENT_GUARD_LOG_MODE=$LOG AGENT_GUARD_HOOK_HOST=claude "$GUARD" hook-pre-tool \
+    | AGENT_GUARD_LOG_MODE=$LOG AGENT_GUARD_HOOK_HOST=$HOST "$BIN" hook-pre-tool \
       >/dev/null 2>"$CASE/err"
   echo $?
 }
+# Every status of a command list, one per line.
+statuses() { while IFS= read -r c; do status_of "$c"; done <"$1"; }
 cache_files() { ls "$STATE" 2>/dev/null | grep -c '^deny-path-regex-'; }
 
 CASES="$CASE/cases"
@@ -54,15 +74,24 @@ grep -r token .
 echo .environment-notes
 EOF
 
-LOG=off
-expected=$(while IFS= read -r c; do status_of "$c"; done <"$CASES")
-LOG=on
+LOG=off BIN=$REF
+expected=$(statuses "$CASES")
+LOG=on BIN=$GUARD
 rm -rf "$STATE"
-cold=$(while IFS= read -r c; do status_of "$c"; done <"$CASES")
-warm=$(while IFS= read -r c; do status_of "$c"; done <"$CASES")
+cold=$(statuses "$CASES")
+warm=$(statuses "$CASES")
 check 'a cold cache gives the verdicts of a run without one' test "$cold" = "$expected"
 check 'a warm cache gives the verdicts of a run without one' test "$warm" = "$expected"
 check 'both modes are cached' test "$(cache_files)" -eq 2
+LOG=off
+rm -rf "$STATE"
+check 'a run-directory cache gives the verdicts of a run without one' \
+  test "$(statuses "$CASES")" = "$expected"
+HOST=codex
+check 'the same holds for Codex' test "$(statuses "$CASES")" = "$expected"
+LOG=off BIN=$REF
+check 'the Codex reference agrees with the Claude one' test "$(statuses "$CASES")" = "$expected"
+LOG=on BIN=$GUARD HOST=claude
 check 'the plain listing passes' test "$(status_of 'ls -la')" = 0
 check 'a protected file is still blocked with a warm cache' test "$(status_of 'cat ./.env')" = 2
 check 'a wildcard spelling is still blocked with a warm cache' test "$(status_of 'cat .e?v')" = 2
@@ -210,12 +239,120 @@ check 'a pile of old cache files is pruned to the current one' \
 printf 'a\\\n' >"$CASE/deny2.txt"
 export AGENT_GUARD_DENY_READ_PATHS="$CASE/deny2.txt"
 rm -rf "$STATE"
-LOG=off
+LOG=off BIN=$REF
 bare=$(status_of 'ls -la')
-LOG=on
+LOG=on BIN=$GUARD
 check 'the broken entry is refused without a cache' test "$bare" = 2
 check 'a broken entry gives the same verdict cold as without a cache' test "$(status_of 'ls -la')" = "$bare"
 check 'a broken entry gives the same verdict warm as without a cache' test "$(status_of 'ls -la')" = "$bare"
+LOG=off
+check 'a broken entry gives the same verdict with a run-directory cache' test "$(status_of 'ls -la')" = "$bare"
+LOG=on
+unset AGENT_GUARD_DENY_READ_PATHS
+
+# --- #477: logging off, the combined file in the run directory ---------------
+# Every Bash command of the deny-path fixtures gets the verdict of the
+# per-entry loop.
+CORPUS="$CASE/corpus"
+{
+  for fixture in ambiguous-bash-protected-path bash-jq-field-names bash-star-stand-in; do
+    jq -r '.. | objects | select(has("command")) | .command | select(test("\n") | not)' \
+      "$ROOT/tests/fixtures/$fixture.json" || exit 1
+  done
+  cat "$CASES"
+} >"$CORPUS"
+check 'the fixture corpus is not empty' test "$(wc -l <"$CORPUS" | tr -d ' ')" -gt 100
+LOG=off BIN=$REF
+corpus_expected=$(statuses "$CORPUS")
+BIN=$GUARD
+corpus_got=$(statuses "$CORPUS")
+LOG=on
+check 'the run-directory cache gives the per-entry verdict for every fixture command' \
+  test "$corpus_got" = "$corpus_expected"
+check 'the fixture corpus has both verdicts' \
+  sh -c 'printf "%s\n" "$1" | grep -qx 0 && printf "%s\n" "$1" | grep -qx 2' _ "$corpus_expected"
+
+# The point: a quoted command reads both modes twice, but each mode is built
+# once and no pass compiles entries one by one. (The build's own trace goes to
+# /dev/null with its stderr, so it is counted by its calls; the grep count is
+# pinned in hook-spawn-reduction.sh.) $1 CLI, $2 command ->
+# "<per-entry compiles> <builds>".
+trace_off() {
+  jq -nc --arg c "$2" --arg d "$CASE/w" --arg s "deny-cache-$$" \
+    '{tool_name:"Bash",tool_input:{command:$c},cwd:$d,session_id:$s}' \
+    | AGENT_GUARD_LOG_MODE=off AGENT_GUARD_HOOK_HOST=claude sh -x "$1" hook-pre-tool \
+      >/dev/null 2>"$CASE/trace"
+  printf '%s %s\n' "$(grep -c '^+* deny_path_regex_fragment ' "$CASE/trace")" \
+    "$(grep -c '^+* deny_path_cache_store ' "$CASE/trace")"
+}
+entries=$(grep -Evc '^(#|$)' "$ROOT/plugins/agent-guard/config/deny-read-paths.txt")
+got=$(trace_off "$REF" "printf 'build passed'")
+check "without a cache a quoted command compiles every entry in four passes (got $got)" \
+  test "$got" = "$((4 * entries)) 0"
+got=$(trace_off "$GUARD" "printf 'build passed'")
+check "with logging off a quoted command builds each mode once and compiles nothing per pass (got $got)" \
+  test "$got" = "0 2"
+
+# The file goes away with the run directory, verdict or not.
+mkdir "$CASE/tmp"
+for c in 'ls -la' 'cat ./.env'; do
+  jq -nc --arg c "$c" '{tool_name:"Bash",tool_input:{command:$c}}' \
+    | TMPDIR="$CASE/tmp" AGENT_GUARD_LOG_MODE=off AGENT_GUARD_HOOK_HOST=claude "$GUARD" hook-pre-tool \
+      >/dev/null 2>&1
+done
+check 'the hook leaves nothing in its temp directory' test -z "$(ls -A "$CASE/tmp")"
+
+# Function level: a run directory the cache cannot trust leaves the per-entry
+# loop in charge (deny_path_cache_rules_out returns 1) and writes nothing.
+sh "$ROOT/tests/helpers/extract-functions.sh" "$GUARD" "$CASE" \
+  deny_path_cache_file deny_path_cache_rules_out || exit 1
+printf 'alpha\nbeta\n' >"$CASE/two-list"
+mkdir "$CASE/real-run"
+ln -s "$CASE/real-run" "$CASE/link-run"
+: >"$CASE/file-run"
+mkdir "$CASE/locked-run"
+chmod 500 "$CASE/locked-run"
+# $1 run directory, $2 command -> status of deny_path_cache_rules_out, then
+# whether the cache is still enabled for later passes.
+rules_out() {
+  (
+    . "$CASE/deny_path_cache_file.sh"
+    . "$CASE/deny_path_cache_rules_out.sh"
+    . "$CASE/deny_path_cache_store.sh"
+    . "$CASE/deny_path_cache_complete.sh"
+    AG_STATE_DIR= DENY_READ_PATHS="$CASE/two-list" AGENT_GUARD_RUNDIR=$1
+    DENY_PATH_RUNDIR_CACHE=on
+    deny_path_command_regex() { [ -z "${FAIL_ENTRY:-}" ] || [ "$1" != "$FAIL_ENTRY" ] || return 1; echo "$1"; }
+    deny_path_cache_rules_out "$2" literal
+    echo "$?:$DENY_PATH_RUNDIR_CACHE"
+  )
+}
+check 'a usable run directory rules a clean command out' test "$(rules_out "$CASE/real-run" gamma)" = 0:on
+check 'the run-directory file holds one regex per entry' \
+  test "$(cat "$CASE/real-run/deny-path-regex-literal" 2>/dev/null)" = "$(printf 'alpha\nbeta')"
+check 'a matching command is not ruled out' test "$(rules_out "$CASE/real-run" 'cat beta')" = 1:on
+printf '.\n' >"$CASE/real-run/deny-path-regex-literal"
+check 'a match-all line in the run-directory file is not trusted' test "$(rules_out "$CASE/real-run" gamma)" = 1:on
+rm -f "$CASE/real-run/deny-path-regex-literal"
+mkdir "$CASE/real-run/deny-path-regex-literal"
+check 'a directory in place of the run-directory file is not followed' test "$(rules_out "$CASE/real-run" gamma)" = 1:on
+rmdir "$CASE/real-run/deny-path-regex-literal"
+check 'a symlinked run directory is not used' test "$(rules_out "$CASE/link-run" gamma)" = 1:on
+check 'a run directory that is a file is not used' test "$(rules_out "$CASE/file-run" gamma)" = 1:on
+check 'a missing run directory is not used' test "$(rules_out "$CASE/no-such-run" gamma)" = 1:on
+check 'an empty run directory name is not used' test "$(rules_out '' gamma)" = 1:on
+check 'the refused run directories hold no cache file' \
+  test -z "$(ls -A "$CASE/real-run")" -a ! -e "$CASE/no-such-run"
+if [ "$(id -u)" -ne 0 ]; then
+  check 'an unwritable run directory is not used' test "$(rules_out "$CASE/locked-run" gamma)" = 1:on
+else
+  ok 'an unwritable run directory is not used # SKIP root ignores directory modes'
+fi
+check 'an unwritable run directory holds no cache file' test -z "$(ls -A "$CASE/locked-run")"
+chmod 700 "$CASE/locked-run"
+got=$(FAIL_ENTRY=beta rules_out "$CASE/real-run" gamma)
+check 'an incomplete build is refused and turns the run-directory cache off' test "$got" = 1:off
+check 'an incomplete build publishes no file' test -z "$(ls -A "$CASE/real-run")"
 
 printf '1..%s\n' "$((pass + fail))"
 printf '# pass %s fail %s\n' "$pass" "$fail"

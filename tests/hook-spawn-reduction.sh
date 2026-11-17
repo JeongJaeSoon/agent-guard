@@ -367,5 +367,38 @@ got=$(awk_runs "echo 'see ${bq}x${bq} here'")
 check "a backquote in a single-quoted word reaches the check (${quoted:-none}, got ${got:-none})" \
   [ "${got:-0}" -gt "$quoted" ]
 
+# #477: with logging off there is no state directory, and the protected-path
+# scan used to run one grep per deny-list entry in each of its four passes
+# (242 greps for `printf 'build passed'`). The combined regex now lives in the
+# run directory for one invocation, so a clean quoted command needs a handful.
+# The limits leave room for one or two more checks, not for the old loop.
+REAL_GREP=$(command -v grep)
+cat >"$CASE/bin/grep" <<EOF
+#!/bin/sh
+printf '%s\n' x >>"$CASE/grep-calls"
+exec "$REAL_GREP" "\$@"
+EOF
+chmod 755 "$CASE/bin/grep"
+grep_runs() { # $1 log mode, $2 host -> grep processes of one clean PreToolUse
+  : >"$CASE/grep-calls"
+  AGENT_GUARD_LOG_MODE=$1 AGENT_GUARD_HOOK_HOST=$2 \
+    hook hook-pre-tool '{"session_id":"s","tool_name":"Bash","tool_input":{"command":"printf '\''build passed'\''"}}' \
+    || return 1
+  "$REAL_GREP" -c '' "$CASE/grep-calls"
+}
+for host in claude codex; do
+  got=$(grep_runs off "$host")
+  check "$host: a clean quoted Bash command with logging off starts at most 12 greps (got ${got:-none})" \
+    [ "${got:-99}" -le 12 ]
+  grep_runs on "$host" >/dev/null
+  got=$(grep_runs on "$host")
+  check "$host: the same command with logging on and a warm cache starts at most 8 greps (got ${got:-none})" \
+    [ "${got:-99}" -le 8 ]
+  AGENT_GUARD_LOG_MODE=off AGENT_GUARD_HOOK_HOST=$host \
+    hook hook-pre-tool '{"session_id":"s","tool_name":"Bash","tool_input":{"command":"cat '\''.e'\''nv"}}'
+  check "$host: a quote-split protected path is still denied with logging off" [ "$?" -eq 2 ]
+done
+rm -f "$CASE/bin/grep"
+
 printf '%s passed, %s failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
