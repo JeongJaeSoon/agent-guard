@@ -1,4 +1,4 @@
-<!-- translated-from: docs/installation.md; source-blob: 38bcfe365b7e08d76709320974d20d7808b71b41 -->
+<!-- translated-from: docs/installation.md; source-blob: 2eb81b8e78ff56a230bb1f66ccf15d519c3c4c3e -->
 
 <a id="installing-agent-guard"></a>
 
@@ -196,6 +196,8 @@ Codex向けの `plugin status`、`plugin install`、`plugin update` も同じ確
 ```
 
 ファイルがない場合、この行は何もせず終了ステータス0で終わります。どちらもキャッシュの `current` リンク経由で解決されるため、プラグインの更新後に `setup-shell` を再実行する必要はありません。再実行すると、以前のブロックを同じ位置でこのブロックに置き換えます。
+
+resolverファイルは `setup-shell` を実行した時点のコピーで、先頭行にファイル形式を記録します。`~/.zshrc` または `~/.bashrc` にv3.9.0より前の `setup-shell` が書いたインラインブロックが残っている場合や、`~/.agent-guard/shell-init*.sh` ファイルに形式行がないか古い形式行がある場合、`agent-guard doctor` は `shell integration:` 行を出力します。その行の案内どおりに `setup-shell` を再実行すると、ブロックは上の1行に置き換わり、ファイルは書き直されます。この行は `doctor` の終了ステータスを変えず、`doctor` はどちらのファイルも編集しません。それまでは古い2つの形式もそのまま読み込まれます。`--rc` で選んだrcファイルは `doctor` の確認対象外です。
 
 スタンドアロンCLIの更新では、既存のインストールの隣に候補を準備してから
 置き換えます。チェックサム・展開・置換の失敗時は以前のインストールを維持

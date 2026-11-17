@@ -310,6 +310,16 @@ resolve through the cache's `current` link, so `setup-shell` does not need to
 be rerun after a plugin update. Rerunning it replaces an older block in place
 with this one.
 
+The resolver file is a copy made when `setup-shell` ran, and its first line
+records its format. `agent-guard doctor` prints a `shell integration:` line
+when `~/.zshrc` or `~/.bashrc` still has the inline block that `setup-shell`
+wrote before v3.9.0, or when a `~/.agent-guard/shell-init*.sh` file has no
+format line or an older one. Rerun `setup-shell` as the line says to replace
+the block with the one line above and rewrite the file. These lines do not
+change the exit status of `doctor`, and `doctor` does not edit either file.
+Both old forms still load until then. `doctor` does not check an rc file
+chosen with `--rc`.
+
 Standalone updates are staged beside the current installation before replacement.
 Checksum, extraction and commit failures leave or restore the previous install;
 unrelated local files are preserved. If power loss or an unhandled termination
