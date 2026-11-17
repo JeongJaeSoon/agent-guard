@@ -19,7 +19,7 @@ check() { label=$1; shift; if "$@"; then ok "$label"; else bad "$label"; fi; }
 mkdir -p "$CASE/fn" "$CASE/bin" "$CASE/home" "$CASE/repo" "$CASE/out"
 sh "$ROOT/tests/helpers/extract-functions.sh" "$GUARD" "$CASE/fn" \
   json_value json_value_prime json_input_is_primed_object \
-  rundir_temp_file || exit 1
+  rundir_temp_file scan_file_bytes || exit 1
 for f in "$CASE/fn"/*.sh; do
   # shellcheck disable=SC1090
   . "$f"
@@ -222,6 +222,23 @@ if rundir_temp_file >/dev/null 2>&1; then bad "without a saved umask the shortcu
 AG_UMASK=$(umask)
 AGENT_GUARD_RUNDIR=
 if rundir_temp_file >/dev/null 2>&1; then bad "without a rundir the shortcut declines"; else ok "without a rundir the shortcut declines"; fi
+
+# --- scan_file_bytes: wc without tr, failing closed on anything else ---------
+printf 'abcdef' >"$CASE/six-bytes"
+check "the byte count of a file is exact" \
+  sh -c '. "$1"; scan_file_bytes "$2" && [ "$scan_byte_count" = 6 ]' _ \
+  "$CASE/fn/scan_file_bytes.sh" "$CASE/six-bytes"
+check "BSD wc blank padding is trimmed as tr would" \
+  sh -c '. "$1"; wc() { printf "      42\n"; }; scan_file_bytes "$2" && [ "$scan_byte_count" = 42 ]' _ \
+  "$CASE/fn/scan_file_bytes.sh" "$CASE/six-bytes"
+for wc_out in '' '4 2' '42x' '-1'; do
+  check "a wc answer of '$wc_out' fails closed" \
+    sh -c '. "$1"; wc() { printf "%s\n" "$2"; }; ! scan_file_bytes "$3"' _ \
+    "$CASE/fn/scan_file_bytes.sh" "$wc_out" "$CASE/six-bytes"
+done
+check "an unreadable file fails closed" \
+  sh -c '. "$1"; ! scan_file_bytes "$2"' _ \
+  "$CASE/fn/scan_file_bytes.sh" "$CASE/no-such-file"
 
 # --- hooks: the replaced jq runs are gone and every verdict stays ------------
 REAL_JQ=$(command -v jq)

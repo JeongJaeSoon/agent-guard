@@ -4327,6 +4327,23 @@ require_git_repo() {
   return "$SCAN_STATUS_UNAVAILABLE"
 }
 
+# Set scan_byte_count to the size of file $1 in bytes, for the two bounded
+# scan producers. BSD wc pads the count with blanks; they are trimmed by the
+# shell instead of piping through tr (#407). Anything else that is not a plain
+# number (wc failed, the file is unreadable) returns 1 so the caller fails closed.
+scan_file_bytes() {
+  scan_byte_count=$(LC_ALL=C wc -c <"$1" 2>/dev/null)
+  while :; do
+    case "$scan_byte_count" in
+      [[:space:]]*) scan_byte_count=${scan_byte_count#?} ;;
+      *) break ;;
+    esac
+  done
+  case "$scan_byte_count" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+}
+
 extract_git_diff_added() {
   diff_file=$(mktemp_file) || return "$SCAN_STATUS_UNAVAILABLE"
   diff_status_file=$(mktemp_file) || { rm -f "$diff_file"; return "$SCAN_STATUS_UNAVAILABLE"; }
@@ -4354,18 +4371,11 @@ extract_git_diff_added() {
   diff_status=
   { IFS= read -r diff_status <"$diff_status_file"; } 2>/dev/null || :
   rm -f "$diff_status_file"
-  diff_bytes=$(LC_ALL=C wc -c <"$diff_file" 2>/dev/null)
-  # BSD wc pads the count with blanks. Trim them here instead of piping through
-  # tr (#407); anything else that is not a plain number still fails closed below.
-  while :; do
-    case "$diff_bytes" in
-      [[:space:]]*) diff_bytes=${diff_bytes#?} ;;
-      *) break ;;
-    esac
-  done
-  case "$diff_bytes" in
-    ''|*[!0-9]*) rm -f "$diff_file" "$diff_err_file"; return "$SCAN_STATUS_UNAVAILABLE" ;;
-  esac
+  scan_file_bytes "$diff_file" || {
+    rm -f "$diff_file" "$diff_err_file"
+    return "$SCAN_STATUS_UNAVAILABLE"
+  }
+  diff_bytes=$scan_byte_count
   # `head` closes the pipe at the sentinel byte, so git may report SIGPIPE (or
   # never reach its status write) for an over-budget diff; the byte count, not
   # that status, is authoritative here. `scan_untracked_files` bounds its own
@@ -4525,13 +4535,13 @@ scan_untracked_files() {
     2>/dev/null \
     | head -c $((SCAN_COMPONENT_MAX_BYTES + 1)) >"$blob"
   pipe_status=$?
-  prepare_status=$(sed -n '1p' "$prepare_status_file" 2>/dev/null)
+  # The first line, read by the shell instead of a sed process (#407).
+  prepare_status=
+  { IFS= read -r prepare_status <"$prepare_status_file"; } 2>/dev/null || :
   rm -f "$prepare_status_file"
   rm -f "$list"
-  blob_bytes=$(LC_ALL=C wc -c <"$blob" 2>/dev/null | tr -d '[:space:]')
-  case "$blob_bytes" in
-    ''|*[!0-9]*) rm -f "$blob"; return "$SCAN_STATUS_UNAVAILABLE" ;;
-  esac
+  scan_file_bytes "$blob" || { rm -f "$blob"; return "$SCAN_STATUS_UNAVAILABLE"; }
+  blob_bytes=$scan_byte_count
   # `head` deliberately closes the pipe after the sentinel byte. The producer
   # may therefore report SIGPIPE (or never reach its status write) for an
   # over-budget stream; the byte count is the authoritative outcome in that
