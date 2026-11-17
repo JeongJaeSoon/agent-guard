@@ -3359,7 +3359,8 @@ expect_json_status 2 "Bash cat .env.tpl.bak (tpl marker not final) is blocked" \
 # positive stays, and the read stays blocked.
 #
 # One deliberate exception: bash_neutralize_jq_field_names drops field names
-# from the filter of a plain `jq` in a fully literal command (its fixture is
+# from the filter of a plain `jq` (also `command jq` or a jq under a fixed
+# system directory such as /usr/bin) in a fully literal command (its fixture is
 # tests/fixtures/bash-jq-field-names.json). It does not drop an operand; every
 # other word, the jq file operands included, is still checked, and any
 # redefinition of jq in the command text keeps the old block. What it cannot

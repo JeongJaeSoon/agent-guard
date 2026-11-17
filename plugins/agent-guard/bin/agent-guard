@@ -7006,7 +7006,7 @@ $jq_records
   }
   jq_end_segment() {
     [ "$jq_state:$jq_seg_bad" = after:0 ] && jq_try_rewrite
-    jq_state=start
+    jq_state=start jq_cmdw=
   }
   jq_bail() {
     printf '%s' "$jq_orig"
@@ -7017,7 +7017,7 @@ $jq_records
 '
   # shellcheck disable=SC2086
   set -- $jq_records
-  jq_i=0 jq_state=start jq_need=0 jq_seg_bad=0 jq_prev=
+  jq_i=0 jq_state=start jq_need=0 jq_seg_bad=0 jq_prev= jq_cmdw=
   for jq_rec in "$@"; do
     jq_i=$((jq_i + 1))
     case "$jq_prev:$jq_rec" in "3(:3)") jq_bail ;; esac
@@ -7064,10 +7064,19 @@ $jq_records
       # A glob can expand to a command name such as eval (`ev?l`); zsh
       # extended glob adds `#` and `^`.
       case "$jq_word" in *[\*?[#^]*) jq_bail ;; esac
-      case "$jq_rec" in
-        0jq|0sed) jq_tool=$jq_word jq_state=opt jq_need=0 jq_seg_bad=0 jq_e=0 ;;
+      # `command jq` skips shell functions and aliases, and a system path
+      # skips the PATH lookup; either still runs jq itself. Only a bare
+      # `command` directly before the tool name qualifies (`command -v jq`
+      # prints a path), and only the system directories below, not a jq the
+      # session could have written itself.
+      case "$jq_cmdw:$jq_rec" in
+        :0command) jq_cmdw=1; continue ;;
+        *:0jq|*:0sed|:0/usr/bin/jq|:0/bin/jq|:0/usr/local/bin/jq|:0/opt/homebrew/bin/jq|\
+        :0/usr/bin/sed|:0/bin/sed|:0/usr/local/bin/sed|:0/opt/homebrew/bin/sed)
+          jq_tool=${jq_word##*/} jq_state=opt jq_need=0 jq_seg_bad=0 jq_e=0 ;;
         *) jq_state=other ;;
       esac
+      jq_cmdw=
       if [ "$jq_state" != opt ] && jq_names_tool "$jq_word"; then jq_bail; fi
       continue
     fi

@@ -1,3 +1,10 @@
+## Unreleased
+
+- fix(bash): `command jq -r '.a.key' s.json`, `/usr/bin/jq -r .a.key s.json`처럼 `command` builtin이나 시스템 경로로 실행한 jq의 필드 선택자(`.a.key`·`.b.p8`·`.c.env`)를 deny-read 경로로 보고 막던 오탐을 고칩니다. 이슈의 `jq -r '.a.key' s.json`, `jq -r '.a.key, .b.p8, .c.env' s.json`은 #462·#464 이후 main에서 이미 통과하며, 이번에 회귀 시험으로 고정합니다. (#468)
+  - 동작 변경: jq 필터 예외(필터의 필드 이름만 지우고 다른 단어는 그대로 검사)가 맨 jq뿐 아니라 옵션 없는 `command jq`와 `/usr/bin/jq`·`/bin/jq`·`/usr/local/bin/jq`·`/opt/homebrew/bin/jq`에도 적용됩니다(sed도 같은 위치 규칙). 첫 번째 비옵션 인자만 필터로 보고, `-f`가 있거나 `--arg`·`--rawfile`·`--slurpfile` 값, 그 뒤 파일 피연산자, 리다이렉션은 계속 검사하므로 `jq . .env`, `jq -r .a.key x.key`, `command jq --rawfile v x.key '.a' s.json`은 계속 막힙니다. `command -v jq`, `./jq` 같은 다른 경로의 jq, `xargs jq`, 그리고 `cat s.json && command jq '.a.key' s.json`처럼 첫 파이프라인 뒤 구간의 `command jq`·시스템 경로 jq는 바뀌지 않고 계속 막힙니다(그 위치의 맨 jq는 #464대로 예외를 받습니다).
+  - 사용자가 할 일: 없습니다.
+  - 운영자가 할 일: 없습니다.
+
 ## v3.11.3 - 2026-11-17
 
 - fix(redact): `client secret: `PUT /v1/login-providers/:id/client-secret`` 처럼 비밀값 이름 뒤 콜론에 HTTP 메서드와 경로가 오는 설명문을 프롬프트 가드가 더는 막지 않고, 출력 마스킹도 그 경로를 가리지 않습니다. 대입문 probe가 백틱 안 값 전체를 비밀값으로 보던 탓입니다. (#479)
