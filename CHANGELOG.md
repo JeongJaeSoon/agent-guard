@@ -1,3 +1,8 @@
+## v3.11.4 - 2026-11-17
+
+- fix(bash): 작은따옴표 인자와 따옴표 heredoc 본문의 백틱을 명령 치환으로 읽지 않는다 (#485)
+- fix: 열린 이슈 오탐·우회 수정 묶음 (#468, #469, #470, #477, #478, 94S-1705) (#481)
+
 ## Unreleased
 
 - fix(bash): 검증 메모를 남기는 Bash 명령의 본문에 `` `@next/env` `` 같은 백틱 글이 있으면, `env`를 실행하는 명령 치환으로 읽는 deny 줄(`deny-bash-patterns.txt` 19번째 줄) 때문에 "blocked risky shell command by deny pattern"으로 막히던 오탐을 고칩니다. 작은따옴표 단어와 따옴표로 감싼 delimiter의 here-document 본문 안에서는 셸이 `` `…` ``·`$(…)`를 치환하지 않습니다. deny 목록 자체는 바꾸지 않았습니다. (94S-1712)
