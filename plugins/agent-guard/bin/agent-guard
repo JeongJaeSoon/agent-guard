@@ -47,9 +47,7 @@ script_dir() {
 
 BIN_DIR=$(script_dir)
 ROOT_DIR=$(CDPATH= cd -- "$BIN_DIR/.." && pwd -P)
-# Absolute path of THIS binary. Baked into the shell-init snippet so the wrappers
-# can find agent-guard even when it is NOT on $PATH (e.g. a plugin-only install,
-# where the binary lives in the plugin cache and is never symlinked onto PATH).
+# Resolved absolute path of THIS binary, for self re-exec and cache identity.
 SELF_BIN="$BIN_DIR/agent-guard"
 
 
@@ -149,6 +147,10 @@ refresh_plugin_current_link() {
 }
 
 refresh_plugin_current_link || :
+# Baked into the shell-init snippet so the wrappers can find agent-guard even
+# when it is NOT on $PATH (e.g. a plugin-only install, where the binary lives in
+# the plugin cache and is never symlinked onto PATH). For a plugin install it
+# names the cache's `current` link, so the snippet survives plugin updates.
 STABLE_BIN=$SELF_BIN
 [ -n "$PLUGIN_CACHE_BASE" ] && STABLE_BIN="$PLUGIN_CACHE_BASE/current/bin/agent-guard"
 
@@ -1198,8 +1200,8 @@ audit_stat() {
 audit_directory() (
   ag_dir=$(audit_location)
   case "$ag_dir" in /*) ;; *) return 1 ;; esac
-  # A shell pattern instead of a printf|grep pipeline on every hook (#407). It
-  # also refuses a newline, which grep's line splitting let through.
+  # A shell pattern keeps this check free of processes on every hook (#407).
+  # It also refuses a newline, which a line-oriented grep would let through.
   case "$ag_dir" in *[[:cntrl:]]*) return 1 ;; esac
   ag_prefix=
   ag_rest=${ag_dir#/}
@@ -1277,7 +1279,7 @@ audit_prune() (
     | while IFS= read -r ag_old; do
         ag_old_id=${ag_old##*/event-}
         # The run-id grammar ^[0-9]{1,12}-[A-Za-z0-9]{6}$, checked with shell
-        # patterns instead of a printf|grep pipeline per pruned file (#407).
+        # patterns so a pruned file costs no process (#407).
         # The classes are spelled out so no locale can widen a range.
         ag_id_time=${ag_old_id%%-*}
         ag_id_rand=${ag_old_id#*-}
@@ -1971,7 +1973,7 @@ gitleaks_probe_cache_store() {
 # change to any one of them misses. Findings, scanner errors, signals, and
 # could-not-run states are never stored, and every doubt (no hash tool, no
 # native-binary identity from the probe cache, an ignore file, an extended
-# config file, a stale, foreign or unreadable entry) runs the scan as before.
+# config file, a stale, foreign or unreadable entry) runs the scan uncached.
 # Entries hold only hashes and a time, never the text. They live in a 0700
 # directory inside the private state directory audit_begin validated, so
 # diagnostics and AGENT_GUARD_LOG_MODE=off never cache. The TTL matches the
@@ -2990,9 +2992,9 @@ smoke_test() {
 mktemp_file() {
   # Every scan temp file lands under the per-invocation rundir (created once at
   # dispatch) so the single EXIT/INT/TERM trap removes all of them even when a
-  # scan is interrupted mid-run. The fallback preserves the original per-file
-  # behavior when there is no rundir — sourced in tests, or its creation failed —
-  # so temp allocation never hard-fails.
+  # scan is interrupted mid-run. When there is no rundir — sourced in tests, or
+  # its creation failed — the fallback makes a standalone mktemp file, so temp
+  # allocation never hard-fails.
   if [ -n "${AGENT_GUARD_RUNDIR:-}" ] && [ -d "$AGENT_GUARD_RUNDIR" ]; then
     rundir_temp_file && return 0
     mktemp "$AGENT_GUARD_RUNDIR/agent-guard.XXXXXX" 2>/dev/null && return 0
@@ -3012,7 +3014,7 @@ mktemp_file() {
 #   - the file is created under umask 077 (mode 600, as mktemp makes it) and
 #     the caller's umask and noclobber setting are restored afterwards.
 # Any doubt -- no saved umask, a symlinked rundir, no free name in a bounded
-# number of tries -- returns 1 and mktemp_file runs mktemp as before.
+# number of tries -- returns 1 and mktemp_file falls back to mktemp.
 rundir_temp_file() {
   rt_dir=${AGENT_GUARD_RUNDIR:-}
   [ -n "$rt_dir" ] && [ -d "$rt_dir" ] && [ ! -L "$rt_dir" ] || return 1
@@ -3174,7 +3176,7 @@ BEGIN {
   # awk cannot start match() at an offset, so mask_re walks a sliding window
   # rather than re-slicing the whole remainder after every candidate — that
   # copy is per-candidate and turns one long line of card-shaped rejects
-  # quadratic, past the 10s PreToolUse timeout in hooks/hooks.json.
+  # quadratic, past the host hook timeouts in hooks/hooks.json.
   # PII_MARGIN must exceed the longest text any pattern can match (19 digits
   # plus three separators), so a match landing clear of the margin is whole.
   PII_WIN = 512
