@@ -15359,15 +15359,28 @@ hook_user_prompt() {
 #
 # Env inheritance (verified against the Claude Code hooks docs): a command hook
 # inherits the `claude` process env, which inherits the launching shell's
-# exported vars — so the rc-set marker reaches this hook. Since 2.x an absent marker
-# triggers Claude-only setup guidance because command wrapping is default-on;
-# Codex remains silent because it does not use this shell boundary.
+# exported vars — so the rc-set marker reaches this hook.
 #
 # SessionStart is non-mutating: it reports missing dependencies and directs the
 # host to the approval-gated setup skill. Claude also reports shell-wrapper
 # version drift; Codex ignores that unrelated shell boundary. The Codex variant
 # duplicates host-independent warnings in additionalContext so the model can act
 # on them; both hosts receive a user-facing systemMessage.
+
+# Read one sh_squote word from $1, the text right after its opening quote, into
+# $unsquoted. Fails when the word never closes.
+shell_init_unsquote() {
+  us_rest=$1 unsquoted=
+  while :; do
+    case "$us_rest" in *"'"*) ;; *) return 1 ;; esac
+    unsquoted=$unsquoted${us_rest%%"'"*}
+    us_rest=${us_rest#*"'"}
+    case "$us_rest" in
+      "\\''"*) unsquoted="$unsquoted'"; us_rest=${us_rest#"\\''"} ;;
+      *) return 0 ;;
+    esac
+  done
+}
 
 # Classify `setup-shell`'s managed block in one rc file: 0 = the block is there
 # AND can still load, 2 = the block is there but the binary it resolves is gone,
@@ -15385,22 +15398,6 @@ hook_user_prompt() {
 # resolution order against the paths it baked in: the stable/self path, then the
 # newest versioned binary under the plugin cache base, then `agent-guard` on
 # $PATH. All stat-level; nothing is executed and no subshell is forked.
-#
-# Read one sh_squote word from $1, the text right after its opening quote, into
-# $unsquoted. Fails when the word never closes.
-shell_init_unsquote() {
-  us_rest=$1 unsquoted=
-  while :; do
-    case "$us_rest" in *"'"*) ;; *) return 1 ;; esac
-    unsquoted=$unsquoted${us_rest%%"'"*}
-    us_rest=${us_rest#*"'"}
-    case "$us_rest" in
-      "\\''"*) unsquoted="$unsquoted'"; us_rest=${us_rest#"\\''"} ;;
-      *) return 0 ;;
-    esac
-  done
-}
-
 shell_init_rc_block_state() {
   rc_probe=$1
   # Both delimiters must be present, or the block is not a block (setup-shell
@@ -15849,7 +15846,7 @@ do_exec() {
 }
 
 # --- shell-init: emit `agx`, a warn-only nudge, and default command wrapping ---
-# `eval "$(agent-guard shell-init)"` in the user's shell rc defines `agx` (an
+# The snippet, eval'd by the file setup-shell writes, defines `agx` (an
 # alias for `agent-guard exec --`) and a NON-BLOCKING preexec/DEBUG nudge that
 # reminds the user to wrap known secret-loading idioms with `agx` so their output
 # is masked before the model sees it.
@@ -16270,7 +16267,7 @@ EOF
 
 # Write (or replace in place) the managed block in ONE rc file. Split out of
 # do_setup_shell so a fish login shell can install into both POSIX rc files.
-setup_shell_write_rc() {  # $1 = rc path, $2 = the eval line to manage
+setup_shell_write_rc() {  # $1 = rc path, $2 = the line to manage
   rc=$1 line=$2
   begin=$SHELL_INIT_BLOCK_BEGIN
   end=$SHELL_INIT_BLOCK_END
@@ -16338,12 +16335,6 @@ setup_shell_write_bootstrap() {  # $1 = bootstrap path, $2 = file content
   info "$PROGRAM: shell resolver written to $1"
 }
 
-# `setup-shell` — write the `eval "$(... shell-init ...)"` line into the user's
-# shell rc so the wrappers load in every new shell (hence every Claude Code shell
-# snapshot). This is the one manual step a plugin-only install needs: a plugin
-# cannot edit your rc, so run this once (by absolute path if agent-guard is not
-# yet on $PATH). Idempotent — re-running replaces the managed block in place.
-#
 # The setup skill itself runs through an agent Bash tool, where $SHELL can name
 # the bash/zsh snapshot instead of the user's account login shell. Query the
 # account database as a second signal: getent covers NSS-backed Linux systems,
@@ -16382,6 +16373,13 @@ setup_shell_account_shell() (
   esac
 )
 
+# `setup-shell` — write ~/.agent-guard/shell-init.sh (the validating resolver
+# that evals `shell-init`) and a managed rc block that only sources it, so the
+# wrappers load in every new shell (hence every Claude Code shell snapshot).
+# This is the one manual step a plugin-only install needs: a plugin cannot edit
+# your rc, so run this once (by absolute path if agent-guard is not yet on
+# $PATH). Idempotent — re-running rewrites the file and replaces the managed
+# block in place, including an older inline block.
 do_setup_shell() {
   sh_target= rc= wrapping= want_help=0
   # Parse every argument before acting on --help, matching shell-init: a
