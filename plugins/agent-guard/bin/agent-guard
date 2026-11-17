@@ -3538,17 +3538,14 @@ check_pii_hook_input() {
       content=$(json_value '.tool_input.command // .tool_input.cmd // empty' "$input")
       block_on_pii_text "Bash command" "$content"
       ;;
-    WebFetch|WebSearch)
+    WebFetch|WebSearch|Agent|Task|mcp__*)
+      case "$tool" in
+        Agent|Task) pii_input_label='subagent delegation input' ;;
+        mcp__*) pii_input_label='MCP tool input' ;;
+        *) pii_input_label="$tool input" ;;
+      esac
       content=$(printf '%s' "$input" | jq -r '.tool_input // {} | .. | strings')
-      block_on_pii_text "$tool input" "$content"
-      ;;
-    Agent|Task)
-      content=$(printf '%s' "$input" | jq -r '.tool_input // {} | .. | strings')
-      block_on_pii_text "subagent delegation input" "$content"
-      ;;
-    mcp__*)
-      content=$(printf '%s' "$input" | jq -r '.tool_input // {} | .. | strings')
-      block_on_pii_text "MCP tool input" "$content"
+      block_on_pii_text "$pii_input_label" "$content"
       ;;
   esac
 }
