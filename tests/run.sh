@@ -2909,8 +2909,41 @@ expect_json_status 2 "assignment-prefixed git --no-verify is blocked" \
   '{"tool_name":"Bash","tool_input":{"command":"FOO=bar git commit --no-verify -m x"}}' \
   hook-pre-tool
 
-# The flag inside code another shell or env -S runs is still the flag.
-for nv_command in "bash -c 'git commit --no-verify -m x'" "env -S 'git push --no-verify'"; do
+# The flag inside code another shell or env -S runs is still the flag, and so
+# is the flag behind any wrapper, option grammar, code runner or command name
+# the gate does not know (#483, #484).
+for nv_command in "bash -c 'git commit --no-verify -m x'" "env -S 'git push --no-verify'" \
+  "sudo -n git commit --no-verify -m x" "sudo -S git commit --no-verify -m x" \
+  "sudo -g wheel git commit --no-verify -m x" "sudo --user root git commit --no-verify -m x" \
+  "sudo --user=root git commit --no-verify -m x" "sudo -nu root git commit --no-verify -m x" \
+  "sudo -u root git commit --no-verify -m x" "sudo git commit --no-verify -m x" \
+  "xargs -P 2 git commit --no-verify -m x" "xargs -n 1 git commit --no-verify -m x" \
+  "nice -n 5 git commit --no-verify -m x" "nice git commit --no-verify -m x" \
+  "nice -5 git commit --no-verify -m x" "nice --adjustment=5 git commit --no-verify -m x" \
+  "env -i git commit --no-verify -m x" "env -u X git commit --no-verify -m x" \
+  "env -iu X git commit --no-verify -m x" "env -C /tmp git commit --no-verify -m x" \
+  "nohup git commit --no-verify -m x" "command git commit --no-verify -m x" \
+  "command -p git commit --no-verify -m x" "time git commit --no-verify -m x" \
+  "time -p git commit --no-verify -m x" "builtin command git commit --no-verify -m x" \
+  "timeout 10 git commit --no-verify -m x" "timeout 10 git push --no-verify" \
+  "timeout -s KILL 10 git commit --no-verify -m x" "timeout -- 10 git commit --no-verify -m x" \
+  "/usr/bin/timeout 10 git commit --no-verify -m x" "doas git commit --no-verify -m x" \
+  "stdbuf -oL git commit --no-verify -m x" "ionice -c 3 git commit --no-verify -m x" \
+  "setsid git commit --no-verify -m x" "chronic git commit --no-verify -m x" \
+  "unbuffer git commit --no-verify -m x" "exec git commit --no-verify -m x" \
+  "flock /tmp/l git commit --no-verify -m x" "flock /tmp/l -c 'git commit --no-verify -m x'" \
+  "caffeinate git commit --no-verify -m x" "nsenter -t 1 git commit --no-verify -m x" \
+  "chroot / git commit --no-verify -m x" "taskset 1 git commit --no-verify -m x" \
+  "sudo timeout 5 git commit --no-verify -m x" "timeout 5 sudo git commit --no-verify -m x" \
+  "busybox sh -c 'git commit --no-verify -m x'" "script -c 'git commit --no-verify -m x' /dev/null" \
+  "su -c 'git commit --no-verify -m x'" "su root -c 'git commit --no-verify -m x'" \
+  "watch git commit --no-verify -m x" "parallel git commit --no-verify -m x ::: a" \
+  "fish -c 'git commit --no-verify -m x'" "fish --command 'git commit --no-verify -m x'" \
+  "nu -c 'git commit --no-verify -m x'" "pwsh -c 'git commit --no-verify -m x'" \
+  "pwsh -Command 'git push --no-verify'" "find . -exec git commit --no-verify {} ;" \
+  "sh -c 'git commit --no-verify -m x'" "dash -c 'git commit --no-verify -m x'" \
+  "ksh -c 'git commit --no-verify -m x'" "zsh -c 'git commit --no-verify -m x'" \
+  "mksh -c 'git commit --no-verify -m x'" "eval 'git commit --no-verify -m x'"; do
   for nv_host in claude codex; do
     jq -nc --arg c "$nv_command" '{tool_name:"Bash",tool_input:{command:$c}}' \
       | AGENT_GUARD_HOOK_HOST=$nv_host "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
@@ -4983,6 +5016,90 @@ else
   not_ok "env-wrapped git status (not commit/push) is allowed (expected 0, got $status)"
   sed 's/^/  stderr: /' "$ERR"
 fi
+
+# #483, #484: each wrapper reads its own option grammar and operands, so the
+# git behind it still reaches the staged scan; a git commit or push the gate
+# cannot follow, behind a code runner or a command name it does not know,
+# goes to the infrastructure policy and the scan of the hook's directory.
+GATE_CLEAN="$TMP_ROOT/gitgate-clean"
+mkdir -p "$GATE_CLEAN"
+(
+  cd "$GATE_CLEAN" || exit 2
+  git init -q
+  printf 'clean\n' > a.txt
+  git add a.txt
+)
+# A warning directory per call: the open policy warns once per session.
+gate_n=0
+gate_hook() {
+  gate_n=$((gate_n + 1))
+  jq -nc --arg c "$4" --arg d "$3" '{tool_name:"Bash",cwd:$d,tool_input:{command:$c,workdir:$d}}' \
+    | (cd "$3" && AGENT_GUARD_HOOK_HOST=$1 AGENT_GUARD_INFRA_FAILURE_MODE=$2 \
+        AGENT_GUARD_WARNING_DIR="$TMP_ROOT/gitgate-warn.$gate_n" \
+        "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool) >"$OUT" 2>"$ERR"
+}
+for gate_host in claude codex; do
+  for gate_command in "timeout 10 git commit -m leak" "timeout 10 git push" \
+    "/usr/bin/timeout 10 git commit -m leak" "timeout -s KILL 10 git commit -m leak" \
+    "doas git commit -m leak" "stdbuf -oL git commit -m leak" "stdbuf -o L git commit -m leak" \
+    "sudo -n git commit -m leak" "sudo -g wheel git commit -m leak" "sudo --user root git commit -m leak" \
+    "xargs -P 2 git commit -m leak" "ionice -c 3 git commit -m leak" "setsid git commit -m leak" \
+    "exec git commit -m leak" "chronic git commit -m leak" "unbuffer git commit -m leak" \
+    "flock /tmp/l git commit -m leak" "taskset 1 git commit -m leak" "caffeinate -t 5 git commit -m leak" \
+    "sudo timeout 5 git commit -m leak" "timeout 5 sudo git commit -m leak" \
+    "busybox timeout 5 git commit -m leak" "fish -c 'git commit -m leak'" \
+    "nu -c 'git commit -m leak'" "watch git commit -m leak" "chroot / git commit -m leak"; do
+    gate_hook "$gate_host" open "$TEST_REPO" "$gate_command"
+    status=$?
+    if [ "$status" -eq 2 ] && grep -q 'secret-like values' "$ERR"; then
+      ok "[$gate_host] $gate_command reaches the staged scan"
+    else
+      not_ok "[$gate_host] $gate_command reaches the staged scan (expected 2, got $status)"
+      sed 's/^/  stderr: /' "$ERR"
+    fi
+  done
+  for gate_command in "fish -c 'git commit -m x'" "fish --command 'git push'" "nu -c 'git commit -m x'" \
+    "pwsh -c 'git commit -m x'" "su -c 'git commit -m x'" "su root -c 'git push'" \
+    "script -c 'git commit -m x' /dev/null" "watch git commit -m x" "parallel git commit -m x ::: a" \
+    "flock /tmp/l -c 'git commit -m x'" "find . -exec git commit -m x {} ;" "ssh host git push" \
+    "chroot / git commit -m x" "nsenter -t 1 git commit -m x" "sudo -R / git commit -m x" \
+    "sudo -D /tmp git commit -m x" "env -iC /tmp git commit -m x" "timeout \$T git commit -m x"; do
+    gate_hook "$gate_host" closed "$GATE_CLEAN" "$gate_command"
+    status=$?
+    if [ "$status" -eq 2 ] && grep -q 'could not be resolved safely' "$ERR"; then
+      ok "[$gate_host] closed policy blocks the unresolved $gate_command"
+    else
+      not_ok "[$gate_host] closed policy blocks the unresolved $gate_command (expected 2, got $status)"
+      sed 's/^/  stderr: /' "$ERR"
+    fi
+    gate_hook "$gate_host" open "$GATE_CLEAN" "$gate_command"
+    status=$?
+    if [ "$status" -eq 0 ] && grep -q 'could not be resolved safely' "$ERR" \
+      && grep -q 'continuing because AGENT_GUARD_INFRA_FAILURE_MODE=open' "$ERR"; then
+      ok "[$gate_host] open policy warns about the unresolved $gate_command"
+    else
+      not_ok "[$gate_host] open policy warns about the unresolved $gate_command (expected 0 and a warning, got $status)"
+      sed 's/^/  stderr: /' "$ERR"
+    fi
+  done
+  for gate_command in "git commit -m x" "timeout 5 git commit -m x" "sudo -n git commit -m x" \
+    "xargs -P 2 git commit -m x" "stdbuf -oL git commit -m x" "doas git commit -m x" \
+    "timeout 5 git status" "fish -c 'echo hi'" "echo 'git commit --no-verify'" \
+    "grep -r \"git commit\" ." "printf '%s\\n' git commit" \
+    "git commit -m 'docs: never run git push --no-verify'" \
+    "timeout 5 git commit -m 'docs: never run git push --no-verify'" \
+    "gh pr view 1 --json body" "for w in git commit; do echo \$w; done" \
+    "su -c \"echo 'git commit'\"" "make && git status"; do
+    gate_hook "$gate_host" closed "$GATE_CLEAN" "$gate_command"
+    status=$?
+    if [ "$status" -eq 0 ] && ! grep -q 'agent-guard' "$ERR"; then
+      ok "[$gate_host] clean $gate_command passes"
+    else
+      not_ok "[$gate_host] clean $gate_command passes (expected 0, got $status)"
+      sed 's/^/  stderr: /' "$ERR"
+    fi
+  done
+done
 
 run_expect 0 "deny-read mask allow list shows only allowed values from a private user file" sh "$ROOT/tests/deny-read-mask-allow.sh"
 # The owner and permission checks differ by platform; keep their lines in the log.

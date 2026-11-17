@@ -8733,14 +8733,225 @@ is_noop_wrapper() {
   esac
 }
 
-# Wrapper options that consume the next token as a value (env -u NAME, env -C
-# DIR, nice -n N, …). Kept to unambiguous flags so the wrapped command head is
-# not misread as an option value.
-wrapper_option_takes_value() {
+# The wrappers the commit/push gate reads through: is_noop_wrapper's, and
+# those that run the command after their options and the operands
+# git_gate_wrapper_operands counts. is_noop_wrapper also names command heads
+# for path policy, so it does not grow with this list.
+is_git_gate_wrapper() {
   case "$1" in
-    -u|--unset|-C|--chdir|-S|--split-string|-n) return 0 ;;
+    env|command|sudo|nice|nohup|time|xargs) return 0 ;;
+    timeout|doas|stdbuf|ionice|setsid|chronic|flock|taskset|chroot|nsenter|caffeinate|unbuffer|exec|busybox) return 0 ;;
     *) return 1 ;;
   esac
+}
+
+git_gate_wrapper_operands() {
+  case "$1" in
+    timeout|flock|taskset|chroot) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
+# Succeed when option $2 of wrapper $1 consumes the next word as its value.
+# wrapper_value_option is then the option that takes a value (a letter, or a
+# long name), and wrapper_value_glued its value when $2 itself holds it. An
+# option missing here reads as a flag: its value becomes the command name,
+# which the gate's fallback reads; a flag read as taking a value would hide
+# the command instead.
+wrapper_option_takes_value() {
+  wrapper_value_option=
+  wrapper_value_glued=
+  case "$1" in
+    env) wov_short=uCSa; wov_long=' --unset --chdir --split-string --argv0 ' ;;
+    sudo) wov_short=ugChDprtURTca; wov_long=' --user --group --close-from --host --chdir --prompt --role --type --other-user --chroot --command-timeout --login-class --auth-type ' ;;
+    doas) wov_short=aCu; wov_long=' ' ;;
+    nice) wov_short=n; wov_long=' --adjustment ' ;;
+    time) wov_short=fo; wov_long=' --format --output ' ;;
+    xargs) wov_short=nLPsIdEa; wov_long=' --max-args --max-procs --max-chars --delimiter --arg-file --process-slot-var ' ;;
+    timeout) wov_short=sk; wov_long=' --signal --kill-after ' ;;
+    stdbuf) wov_short=ioe; wov_long=' --input --output --error ' ;;
+    ionice) wov_short=cnpPu; wov_long=' --class --classdata --pid --pgid --uid ' ;;
+    flock) wov_short=wE; wov_long=' --timeout --wait --conflict-exit-code ' ;;
+    chroot) wov_short=; wov_long=' --userspec --groups ' ;;
+    nsenter) wov_short=tSGWN; wov_long=' --target --setuid --setgid --wdns --net-socket ' ;;
+    caffeinate) wov_short=tw; wov_long=' ' ;;
+    exec) wov_short=a; wov_long=' ' ;;
+    *) wov_short=; wov_long=' ' ;;
+  esac
+  case "$2" in
+    --*=*)
+      case "$wov_long" in
+        *" ${2%%=*} "*) wrapper_value_option=${2%%=*}; wrapper_value_glued=${2#*=} ;;
+      esac
+      return 1
+      ;;
+    --*)
+      case "$wov_long" in
+        *" $2 "*) wrapper_value_option=$2; return 0 ;;
+      esac
+      return 1
+      ;;
+  esac
+  wov_rest=${2#-}
+  while [ -n "$wov_rest" ]; do
+    wov_letter=${wov_rest%"${wov_rest#?}"}
+    wov_rest=${wov_rest#?}
+    case "$wov_short" in
+      *"$wov_letter"*)
+        wrapper_value_option=$wov_letter
+        wrapper_value_glued=$wov_rest
+        [ -z "$wov_rest" ]
+        return
+        ;;
+    esac
+  done
+  return 1
+}
+
+# Names whose arguments the commit/push gate reads as text, never as a command.
+git_gate_inert_head() {
+  case "$1" in
+    echo|printf|pwd|ls|cat|head|tail|wc|true|false|:|test|'['|'[['|which|type|date|whoami|id|uname|grep|rg|sleep|wait|jq|sort|uniq|diff|stat|basename|dirname|realpath|readlink) return 0 ;;
+    # Shell state only; `set -P` is caught when the scan resolves `..`.
+    set|export|read|local|declare|typeset|readonly|shift|printenv) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# Commands that run their arguments, or one of them, as code in a language
+# the gate does not parse.
+git_gate_code_runner() {
+  case "$1" in
+    su|script|watch|parallel|fish|nu|pwsh|powershell) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# The fallback for a command name the gate does not know. Given the records
+# of one simple command from its name on ($1 is 1) or of a whole code string
+# ($1 is 0), set git_fb_found to 1 when it may run git commit or push: a word
+# git followed, past git's own options, by commit, push or a word only run
+# time knows, or code that a code runner, or a word after -c or --command,
+# runs. git_fb_flag is 1 when a flag that disables hooks or signing follows
+# that git in the same simple command. A name in git_gate_inert_head starts a
+# simple command whose words are text.
+git_gate_fallback_scan() {
+  gfb_one=$1
+  shift
+  gfb_head=1
+  gfb_skip=0
+  gfb_git=0
+  gfb_hit=0
+  gfb_prev=
+  while [ "$#" -gt 0 ]; do
+    gfb_kind=${1%"${1#?}"}
+    gfb_word=${1#?}
+    shift
+    case "$gfb_kind$gfb_word" in
+      0';'|0'&&'|0'||'|0'|'|3'('|3')'|3'&')
+        case "$gfb_kind$gfb_word:$gfb_prev" in
+          '3&:'*'>'|'3&:'*'<') continue ;;
+        esac
+        [ "$gfb_one" -eq 0 ] || return 0
+        gfb_head=1
+        gfb_skip=0
+        gfb_git=0
+        gfb_hit=0
+        gfb_prev=
+        continue
+        ;;
+      3*) continue ;;
+    esac
+    [ "$gfb_skip" -eq 0 ] || continue
+    if [ "$gfb_head" -eq 1 ]; then
+      is_assignment_token "$gfb_word" && continue
+      gfb_head=0
+      if [ "$gfb_kind" = 0 ] && git_gate_inert_head "${gfb_word##*/}"; then
+        gfb_skip=1
+        continue
+      fi
+      if git_gate_code_runner "${gfb_word##*/}"; then
+        gfb_code=
+        while [ "$#" -gt 0 ]; do
+          case "$1" in
+            0';'|0'&&'|0'||'|0'|'|3*) break ;;
+          esac
+          gfb_code="$gfb_code ${1#?}"
+          shift
+        done
+        git_gate_fallback_code "$gfb_code"
+        continue
+      fi
+    fi
+    if [ "$gfb_hit" -eq 1 ]; then
+      case "$gfb_kind$gfb_word" in
+        0--no-verify|0--no-gpg-sign) git_fb_flag=1 ;;
+      esac
+    fi
+    case "$gfb_prev:$gfb_word" in
+      -c:*|--command:*|-Command:*|-command:*) git_gate_fallback_code "$gfb_word" ;;
+      *:--command=*) git_gate_fallback_code "${gfb_word#--command=}" ;;
+    esac
+    gfb_prev=$gfb_word
+    case "$gfb_git" in
+      2) gfb_git=1; continue ;;
+      1)
+        case "$gfb_kind$gfb_word" in
+          0commit|0push|[!0]*) git_fb_found=1; gfb_hit=1; gfb_git=0; continue ;;
+          0-*)
+            if git_option_takes_value "$gfb_word"; then gfb_git=2; fi
+            continue
+            ;;
+        esac
+        gfb_git=0
+        ;;
+    esac
+    case "$gfb_kind${gfb_word##*/}" in
+      0[Gg][Ii][Tt]) gfb_git=1 ;;
+    esac
+  done
+}
+
+# git_gate_fallback_scan for code string $1, in a subshell: its words are
+# read as shell words, which is all the fallback needs of any language.
+git_gate_fallback_code() {
+  case "$1" in
+    *[Gg][Ii][Tt]*) ;;
+    *) return 0 ;;
+  esac
+  if [ "${git_fb_depth:-0}" -ge 4 ]; then
+    git_fb_found=1
+    return 0
+  fi
+  (
+    set -f
+    git_fb_depth=$((${git_fb_depth:-0} + 1))
+    git_fb_found=0
+    git_fb_flag=0
+    gfb_records=$(git_command_records "$1")
+    gfb_ifs=$IFS
+    IFS='
+'
+    # shellcheck disable=SC2086
+    set -- $gfb_records
+    IFS=$gfb_ifs
+    git_gate_fallback_scan 0 "$@"
+    exit $((git_fb_found + git_fb_flag))
+  )
+  case "$?" in
+    1) git_fb_found=1 ;;
+    2) git_fb_found=1; git_fb_flag=1 ;;
+  esac
+}
+
+# The groups for a git commit or push the fallback found behind command $1:
+# one the policy decides, and one that still scans the index of the hook's
+# directory, where that git most likely runs.
+git_gate_fallback_emit() {
+  printf 'G\n'
+  [ "$git_fb_flag" -eq 0 ] || printf 'N\n'
+  git_unresolved "git commit or push runs through $(git_reason_word "$1"), whose arguments or code the scan does not follow"
+  printf 'G\n'
 }
 
 long_option_abbreviates() {
@@ -9434,6 +9645,11 @@ is_git_commit_or_push() {
     effective_c_dirs=
     effective_c_dynamic=0
     xargs_wrapped=0
+    # Why a wrapper runs git in another root or directory the scan does not
+    # follow.
+    git_root_moved=
+    # A for or select loop names its words; they are not a command.
+    git_fb_skip=0
     git_index_changed=0
     git_index_forced=0
     matched=1
@@ -9800,6 +10016,9 @@ $effective_c_dirs" "$git_config_args" "$git_env_args"
           if|then|else|elif|fi|do|done|while|until|for|case|esac|select|function|coproc|'!')
             shell_cd_untrusted=1
             shift
+            case "$token" in
+              for|select) git_fb_skip=1 ;;
+            esac
             # `case WORD in` matches WORD, but expands it first. Parameter
             # transformations (e.g. Bash ${X@P}) and arithmetic can execute
             # stored code without a lexical command substitution. Keep those
@@ -9882,16 +10101,21 @@ $effective_c_dirs" "$git_config_args" "$git_env_args"
             continue
             ;;
         esac
-        if is_noop_wrapper "${token##*/}"; then
+        if is_git_gate_wrapper "${token##*/}"; then
           wrapper=${token##*/}
           shell_cd_wrapped=1
           # xargs appends words read from stdin, which may be any argument.
           [ "$wrapper" = xargs ] && xargs_wrapped=1
-          # sudo may run git with another HOME, and without GIT_DIR.
-          if [ "$wrapper" = sudo ]; then
-            git_env_dynamic=1
-            [ -z "$git_target_args${GIT_DIR:-}${GIT_WORK_TREE:-}" ] || git_target_dynamic=1
-          fi
+          # sudo and doas may run git with another HOME, and without GIT_DIR.
+          case "$wrapper" in
+            sudo|doas)
+              git_env_dynamic=1
+              [ -z "$git_target_args${GIT_DIR:-}${GIT_WORK_TREE:-}" ] || git_target_dynamic=1
+              ;;
+            chroot|nsenter) git_root_moved="$wrapper runs git under another root or namespace" ;;
+          esac
+          git_gate_wrapper_operands "$wrapper"
+          wrapper_operands=$?
           shift
           while [ "$#" -gt 0 ]; do
             record=$1
@@ -9934,6 +10158,23 @@ $effective_c_dirs" "$git_config_args" "$git_env_args"
                     ;;
                   *) env_split= ;;
                 esac
+                wrapper_value=
+                wrapper_takes=1
+                if [ -z "$env_split" ]; then
+                  wrapper_option_takes_value "$wrapper" "$token" && wrapper_takes=0
+                  [ -z "$wrapper_value_glued" ] || wrapper_value=$record_kind$wrapper_value_glued
+                  if [ "$wrapper_takes" -eq 0 ]; then
+                    shift
+                    wrapper_value=${1-}
+                  fi
+                  # A cluster such as env -iS or -iC, and the options of sudo
+                  # that move the command.
+                  case "$wrapper:$wrapper_value_option" in
+                    env:S) env_split=$wrapper_value ;;
+                    env:C|sudo:D|sudo:--chdir) git_root_moved="$wrapper changes the directory git runs in" ;;
+                    sudo:R|sudo:--chroot) git_root_moved="sudo --chroot runs git under another root" ;;
+                  esac
+                fi
                 if [ -n "$env_split" ]; then
                   shift
                   # env -S splits at any whitespace and has escapes of its
@@ -9958,8 +10199,7 @@ $effective_c_dirs" "$git_config_args" "$git_env_args"
                 fi
                 # A word that may split, or be -C, may move the command.
                 [ "$record_kind" = 0 ] || effective_c_dynamic=1
-                if wrapper_option_takes_value "$token"; then
-                  shift
+                if [ "$wrapper_takes" -eq 0 ]; then
                   case "${1-}" in
                     1*|2*) effective_c_dynamic=1 ;;
                   esac
@@ -9978,6 +10218,31 @@ $effective_c_dirs" "$git_config_args" "$git_env_args"
                 ;;
             esac
           done
+          # timeout's duration, flock's lock file, taskset's mask and chroot's
+          # new root come before the command.
+          while [ "$wrapper_operands" -gt 0 ] && [ "$#" -gt 0 ]; do
+            case "$1" in
+              0';'|0'&&'|0'||'|0'|'|3*) break ;;
+              0*|4*) ;;
+              *) effective_c_dynamic=1 ;;
+            esac
+            wrapper_operands=$((wrapper_operands - 1))
+            shift
+          done
+          # `flock FILE -c CODE` runs CODE with sh -c.
+          case "$wrapper:${1-}" in
+            flock:0-c|flock:0--command)
+              git_fb_found=0
+              git_fb_flag=0
+              [ "$#" -lt 2 ] || git_gate_fallback_code "${2#?}"
+              if [ "$git_fb_found" -eq 1 ]; then
+                git_gate_fallback_emit flock
+                matched=0
+              fi
+              shift
+              [ "$#" -gt 0 ] && shift
+              ;;
+          esac
           continue
         fi
         if [ "${token##*/}" = git ]; then
@@ -10061,6 +10326,9 @@ $effective_c_dirs" "$git_config_args" "$git_env_args"
             esac
             case "$token" in
               commit|push)
+                # A root or directory the scan cannot follow gets a group of
+                # its own, so that the work tree is still scanned as before.
+                [ -z "$git_root_moved" ] || { printf 'G\n'; git_unresolved "$git_root_moved"; }
                 # One G-led group per git command: a later `git commit -a`
                 # in the same command line must not hide behind an earlier
                 # plain commit or push.
@@ -10138,6 +10406,7 @@ $effective_c_dirs" "$git_config_args" "$git_env_args"
           git_env_dynamic=0
           git_target_args=
           git_target_dynamic=0
+          git_root_moved=
           command_start=0
           continue
         fi
@@ -10146,22 +10415,35 @@ $effective_c_dirs" "$git_config_args" "$git_env_args"
         # unknown. These cannot; redirections write regular files only.
         case "$record_kind$token" in
           3*|0';'|0'&&'|0'||'|0'|') ;;
-          0echo|0printf|0pwd|0ls|0cat|0head|0tail|0wc|0true|0false|0:|0test|0'['|0'[['|0which|0type|0date|0whoami|0id|0uname|0grep|0rg|0sleep|0wait|0jq|0sort|0uniq|0diff|0stat|0basename|0dirname|0realpath|0readlink) ;;
-          # Shell state only; `set -P` is caught when the scan resolves `..`.
-          0set|0export|0read|0local|0declare|0typeset|0readonly|0shift|0printenv) ;;
-          # gh subcommands that only talk to the API; checkout, clone,
-          # download, extension and alias may write or relink local paths.
           *)
-            case "$record_kind${token##*/} ${2-} ${3-}" in
-              '0gh 0auth 0status'|'0gh 0api '*|'0gh 0search '*|'0gh 0status '*) ;;
-              '0gh 0pr 0view'|'0gh 0pr 0list'|'0gh 0pr 0checks'|'0gh 0pr 0diff'|'0gh 0pr 0status'|'0gh 0pr 0edit'|'0gh 0pr 0comment') ;;
-              '0gh 0issue 0view'|'0gh 0issue 0list'|'0gh 0issue 0comment'|'0gh 0run 0view'|'0gh 0run 0list'|'0gh 0run 0watch') ;;
-              '0gh 0repo 0view'|'0gh 0release 0view'|'0gh 0release 0list') ;;
-              *)
-                shell_cd_mutable=1
-                [ -n "$shell_cd_mutable_by" ] || shell_cd_mutable_by=${token##*/}
-                ;;
-            esac
+            if [ "$record_kind" != 0 ] || ! git_gate_inert_head "$token"; then
+              # A command the gate does not know may still run git commit or
+              # push from its arguments. A quoted NAME=value word (5) names
+              # no command that exists.
+              case "$record_kind$git_fb_skip:$cmd" in
+                00:*[Gg][Ii][Tt]*)
+                  git_fb_found=0
+                  git_fb_flag=0
+                  git_gate_fallback_scan 1 "$@"
+                  if [ "$git_fb_found" -eq 1 ]; then
+                    git_gate_fallback_emit "${token##*/}"
+                    matched=0
+                  fi
+                  ;;
+              esac
+              # gh subcommands that only talk to the API; checkout, clone,
+              # download, extension and alias may write or relink local paths.
+              case "$record_kind${token##*/} ${2-} ${3-}" in
+                '0gh 0auth 0status'|'0gh 0api '*|'0gh 0search '*|'0gh 0status '*) ;;
+                '0gh 0pr 0view'|'0gh 0pr 0list'|'0gh 0pr 0checks'|'0gh 0pr 0diff'|'0gh 0pr 0status'|'0gh 0pr 0edit'|'0gh 0pr 0comment') ;;
+                '0gh 0issue 0view'|'0gh 0issue 0list'|'0gh 0issue 0comment'|'0gh 0run 0view'|'0gh 0run 0list'|'0gh 0run 0watch') ;;
+                '0gh 0repo 0view'|'0gh 0release 0view'|'0gh 0release 0list') ;;
+                *)
+                  shell_cd_mutable=1
+                  [ -n "$shell_cd_mutable_by" ] || shell_cd_mutable_by=${token##*/}
+                  ;;
+              esac
+            fi
             ;;
         esac
       fi
@@ -10187,6 +10469,8 @@ $effective_c_dirs" "$git_config_args" "$git_env_args"
         effective_c_dirs=
         effective_c_dynamic=0
         xargs_wrapped=0
+        git_root_moved=
+        git_fb_skip=0
         git_head_sub=0
         # An assignment no git command took may stay in the environment.
         [ -z "$git_env_args" ] && [ "$git_env_dynamic" -eq 0 ] || git_env_changed=1
