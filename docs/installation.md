@@ -274,6 +274,20 @@ When Codex reports an agent-guard hook as needing review or turned off,
    `agent-guard@agent-guard` and its command is expected.
 4. Restart running Codex sessions.
 
+The expected command is one line that runs the plugin's `hooks/launch.sh`
+with `codex` and the event's hook subcommand. Only that subcommand differs
+between the agent-guard hooks. For `Stop` it is:
+
+```sh
+sh -c 'r=${PLUGIN_ROOT:-}; [ -n "$r" ] && for q in "$r" "${r%/*}/current" "${r%/*}"/[0-9]*.[0-9]*.[0-9]*; do [ -f "$q/hooks/launch.sh" ] && exec sh "$q/hooks/launch.sh" codex hook-stop "$r"; done; while read -r l; do :; done; case ${AGENT_GUARD_INFRA_FAILURE_MODE:-open} in closed) m=closed a=blocking ;; *) m=open a=continuing ;; esac; echo "agent-guard: PLUGIN_ROOT env not set or no hook launcher was found; $a because AGENT_GUARD_INFRA_FAILURE_MODE=$m" >&2; [ "$m" = closed ] && exit 2; exit 0'
+```
+
+The other hooks use `hook-pre-tool`, `hook-post-tool`, `hook-session-start`,
+and `hook-user-prompt`. The launcher is part of the plugin content Codex
+trusts. It checks that the selected version is complete before it runs
+`bin/agent-guard`, and applies `AGENT_GUARD_INFRA_FAILURE_MODE` when no binary
+can be found.
+
 `plugin status`, `plugin install`, and `plugin update` for Codex print the same
 check without changing
 their exit status. A reply that cannot be read is reported as unverified, never

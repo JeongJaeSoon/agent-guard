@@ -735,11 +735,13 @@ codex_ss_matcher=$(jq -r '.hooks.SessionStart[0].matcher' "$PLUGIN_ROOT/hooks.js
 # --check assertion below: the degraded-setup warning is host-neutral, and both
 # examples are rendered from the same table as the plugin manifests, so an
 # example cannot lose the event without the check failing.
+# Root selection itself lives in hooks/launch.sh (tests/hook-launcher.sh); the
+# command must hand the launcher the ORIGINAL host-selected root.
 case "$ss_hook_command" in
-  *'CLAUDE_PLUGIN_ROOT'*'root_ok'*'r/bin/agent-guard'*'hook-session-start'*)
-    ok "SessionStart command prefers the host-selected complete plugin root" ;;
+  *'r=${CLAUDE_PLUGIN_ROOT:-};'*'for q in "$r" '*'exec sh "$q/hooks/launch.sh" claude hook-session-start "$r"'*)
+    ok "SessionStart command delegates to the launcher with the host-selected plugin root" ;;
   *)
-    not_ok "SessionStart command prefers the host-selected complete plugin root (got: $ss_hook_command)" ;;
+    not_ok "SessionStart command delegates to the launcher with the host-selected plugin root (got: $ss_hook_command)" ;;
 esac
 if [ "$ss_hook_timeout" = 5 ]; then
   ok "SessionStart timeout is 5 in hooks/hooks.json"
@@ -748,33 +750,34 @@ else
 fi
 
 claude_pre_tool_command=$(jq -r '.hooks.PreToolUse[0].hooks[0].command' "$PLUGIN_ROOT/hooks/hooks.json")
-if printf '%s' "$claude_pre_tool_command" | grep -Fq 'CLAUDE_PLUGIN_ROOT' \
-   && printf '%s' "$claude_pre_tool_command" | grep -Fq 'root_ok "$r" "$v"' \
-   && printf '%s' "$claude_pre_tool_command" | grep -Fq 'x="$r/bin/agent-guard"' \
-   && printf '%s' "$claude_pre_tool_command" | grep -Fq 'root_ok "$q" "$v"' \
-   && printf '%s' "$claude_pre_tool_command" | grep -Fq 'sort -t.'; then
-  ok "Claude hook command prefers the selected root with a complete-cache recovery fallback"
+# The selected-root preference and the complete-cache recovery moved into
+# hooks/launch.sh (pinned by tests/hook-launcher.sh and the HOOK_CACHE cases
+# below). The command must try the host root, then current, then semver
+# siblings, and always pass the ORIGINAL root so the launcher can refuse an
+# existing incomplete root.
+if printf '%s' "$claude_pre_tool_command" | grep -Fq 'r=${CLAUDE_PLUGIN_ROOT:-};' \
+   && printf '%s' "$claude_pre_tool_command" | grep -Fq 'for q in "$r" "${r%/*}/current" "${r%/*}"/[0-9]*.[0-9]*.[0-9]*;' \
+   && printf '%s' "$claude_pre_tool_command" | grep -Fq 'exec sh "$q/hooks/launch.sh" claude hook-pre-tool "$r";'; then
+  ok "Claude hook command delegates the selected root and its recovery candidates to the launcher"
 else
-  not_ok "Claude hook command prefers the selected root with a complete-cache recovery fallback"
+  not_ok "Claude hook command delegates the selected root and its recovery candidates to the launcher"
 fi
 case "$claude_pre_tool_command" in
-  *'CODEX_PLUGIN_ROOT'*|*'${PLUGIN_ROOT'*)
-    not_ok "Claude hook command does not depend on Codex or generic plugin root env vars"
+  *'CODEX_PLUGIN_ROOT'*|*'${PLUGIN_ROOT'*|*'${CLAUDE_PLUGIN_ROOT}'*)
+    not_ok "Claude hook command does not depend on Codex or generic plugin root env vars or host text substitution"
     ;;
   *)
-    ok "Claude hook command does not depend on Codex or generic plugin root env vars"
+    ok "Claude hook command does not depend on Codex or generic plugin root env vars or host text substitution"
     ;;
 esac
 
 codex_pre_tool_command=$(jq -r '.hooks.PreToolUse[0].hooks[0].command' "$PLUGIN_ROOT/hooks.json")
-if printf '%s' "$codex_pre_tool_command" | grep -Fq 'PLUGIN_ROOT' \
-   && printf '%s' "$codex_pre_tool_command" | grep -Fq 'root_ok "$r" "$v"' \
-   && printf '%s' "$codex_pre_tool_command" | grep -Fq 'x="$r/bin/agent-guard"' \
-   && printf '%s' "$codex_pre_tool_command" | grep -Fq 'root_ok "$q" "$v"' \
-   && printf '%s' "$codex_pre_tool_command" | grep -Fq 'sort -t.'; then
-  ok "Codex hook command prefers the selected root with a complete-cache recovery fallback"
+if printf '%s' "$codex_pre_tool_command" | grep -Fq 'r=${PLUGIN_ROOT:-};' \
+   && printf '%s' "$codex_pre_tool_command" | grep -Fq 'for q in "$r" "${r%/*}/current" "${r%/*}"/[0-9]*.[0-9]*.[0-9]*;' \
+   && printf '%s' "$codex_pre_tool_command" | grep -Fq 'exec sh "$q/hooks/launch.sh" codex hook-pre-tool "$r";'; then
+  ok "Codex hook command delegates the selected root and its recovery candidates to the launcher"
 else
-  not_ok "Codex hook command prefers the selected root with a complete-cache recovery fallback"
+  not_ok "Codex hook command delegates the selected root and its recovery candidates to the launcher"
 fi
 case "$codex_pre_tool_command" in
   *'CLAUDE_PLUGIN_ROOT'*|*'CODEX_PLUGIN_ROOT'*)
@@ -785,38 +788,48 @@ case "$codex_pre_tool_command" in
     ;;
 esac
 
-# The inline hook commands are ONE generic resolver rendered once per host.
-# Only three host tokens may differ: the plugin-root env var, the warning
-# manifest tag, and the AGENT_GUARD_HOOK_HOST pin. Normalize those and require
-# byte-identical commands, so a fix applied to one host's resolver cannot
-# silently miss the other.
-for event in PreToolUse PostToolUse Stop SessionStart UserPromptSubmit; do
-  claude_cmd=$(jq -r ".hooks.${event}[0].hooks[0].command" "$PLUGIN_ROOT/hooks/hooks.json")
-  codex_cmd=$(jq -r ".hooks.${event}[0].hooks[0].command" "$PLUGIN_ROOT/hooks.json")
-  case "$claude_cmd" in
-    *'AGENT_GUARD_HOOK_HOST=claude'*) ok "$event Claude hook command pins AGENT_GUARD_HOOK_HOST=claude" ;;
-    *) not_ok "$event Claude hook command pins AGENT_GUARD_HOOK_HOST=claude" ;;
+# Every plugin hook command is ONE short launcher line rendered per host and
+# event. Only the plugin-root env var, the launcher's host argument and the
+# subcommand may differ: normalize those and require one byte-identical shape
+# for every event on both hosts, so a fix applied to one copy cannot miss
+# another and the line Codex users review stays the same. The launcher pins
+# AGENT_GUARD_HOOK_HOST from the host argument (tests/hook-launcher.sh).
+hook_line_shape=
+for manifest_host in claude codex; do
+  case "$manifest_host" in
+    claude) manifest_file="$PLUGIN_ROOT/hooks/hooks.json"; manifest_root=CLAUDE_PLUGIN_ROOT ;;
+    *) manifest_file="$PLUGIN_ROOT/hooks.json"; manifest_root=PLUGIN_ROOT ;;
   esac
-  case "$codex_cmd" in
-    *'AGENT_GUARD_HOOK_HOST=codex'*) ok "$event Codex hook command pins AGENT_GUARD_HOOK_HOST=codex" ;;
-    *) not_ok "$event Codex hook command pins AGENT_GUARD_HOOK_HOST=codex" ;;
-  esac
-  claude_norm=$(printf '%s' "$claude_cmd" | sed \
-    -e 's/CLAUDE_PLUGIN_ROOT/__HOST_ROOT__/g' \
-    -e 's/manifest-claude/manifest-__HOST__/g' \
-    -e 's/AGENT_GUARD_HOOK_HOST=claude/AGENT_GUARD_HOOK_HOST=__HOST__/g')
-  codex_norm=$(printf '%s' "$codex_cmd" | sed \
-    -e 's/PLUGIN_ROOT/__HOST_ROOT__/g' \
-    -e 's/manifest-codex/manifest-__HOST__/g' \
-    -e 's/AGENT_GUARD_HOOK_HOST=codex/AGENT_GUARD_HOOK_HOST=__HOST__/g')
-  if [ "$claude_norm" = "$codex_norm" ]; then
-    ok "$event hook resolver is identical across hosts after host-token normalization"
-  else
-    not_ok "$event hook resolver is identical across hosts after host-token normalization"
-    printf '%s\n' "$claude_norm" >"$TESTTMP/claude_norm"
-    printf '%s\n' "$codex_norm" >"$TESTTMP/codex_norm"
-    diff "$TESTTMP/claude_norm" "$TESTTMP/codex_norm" | sed 's/^/  diff: /'
-  fi
+  for event in $(jq -r '.hooks | keys[]' "$manifest_file"); do
+    manifest_cmd=$(jq -r ".hooks.${event}[0].hooks[0].command" "$manifest_file")
+    manifest_sub=$(printf '%s' "$manifest_cmd" | sed -n 's/.* \(hook-[a-z-]*\) "\$r".*/\1/p')
+    manifest_bytes=$(printf '%s' "$manifest_cmd" | wc -c | tr -d ' ')
+    if [ "$manifest_bytes" -le 600 ]; then
+      ok "$manifest_host $event hook command stays within 600 bytes ($manifest_bytes)"
+    else
+      not_ok "$manifest_host $event hook command stays within 600 bytes ($manifest_bytes)"
+    fi
+    case "$manifest_cmd" in
+      *" $manifest_host $manifest_sub \"\$r\""*)
+        ok "$manifest_host $event hook command passes host $manifest_host to the launcher" ;;
+      *) not_ok "$manifest_host $event hook command passes host $manifest_host to the launcher" ;;
+    esac
+    manifest_norm=$(printf '%s' "$manifest_cmd" | sed \
+      -e "s/$manifest_root/__ROOT__/g" \
+      -e "s/ $manifest_host hook-/ __HOST__ hook-/g" \
+      -e "s/ $manifest_sub \"/ __SUB__ \"/g")
+    if [ -z "$hook_line_shape" ]; then
+      hook_line_shape=$manifest_norm
+    fi
+    if [ "$manifest_norm" = "$hook_line_shape" ]; then
+      ok "$manifest_host $event hook command matches the single launcher line after normalization"
+    else
+      not_ok "$manifest_host $event hook command matches the single launcher line after normalization"
+      printf '%s\n' "$hook_line_shape" >"$TESTTMP/hook_line_shape"
+      printf '%s\n' "$manifest_norm" >"$TESTTMP/hook_line_norm"
+      diff "$TESTTMP/hook_line_shape" "$TESTTMP/hook_line_norm" | sed 's/^/  diff: /'
+    fi
+  done
 done
 
 # All four manifests (two plugin, two example) are rendered artifacts:
@@ -828,6 +841,18 @@ if sh "$ROOT/scripts/render-hook-manifests.sh" --check >/dev/null 2>&1; then
 else
   not_ok "hook manifests match scripts/render-hook-manifests.sh output"
 fi
+
+# Codex users are told to trust a hook only when its command is expected; the
+# installation guides show that command, so it must be the shipped one.
+jq -r '.hooks.Stop[0].hooks[0].command' "$PLUGIN_ROOT/hooks.json" >"$TESTTMP/codex_stop_command"
+for guide in installation.md installation.ko.md installation.ja.md; do
+  if [ -s "$TESTTMP/codex_stop_command" ] \
+     && grep -Fxqf "$TESTTMP/codex_stop_command" "$ROOT/docs/$guide"; then
+    ok "docs/$guide shows the shipped Codex Stop hook command"
+  else
+    not_ok "docs/$guide shows the shipped Codex Stop hook command"
+  fi
+done
 
 # Must-fail control for the check above: a passing --check is only evidence if
 # --check can fail. A renderer that silently stopped covering one of the four
@@ -894,12 +919,12 @@ for other in awk_kind find_names allowlist; do
 done
 
 read_env_payload='{"tool_name":"Read","tool_input":{"file_path":".env"}}'
-# Each invocation that must WARN gets its own TMPDIR: the resolver's warn-once
+# Each invocation that must WARN gets its own TMPDIR: the launcher's warn-once
 # marker would otherwise live in the persistent default
-# /tmp/agent-guard-warnings-$UID, where a marker left by a previous run (or an
-# earlier case in this run, under PID reuse) silently suppresses the warning
-# these greps assert on. TMPDIR (not AGENT_GUARD_WARNING_DIR) keeps the
-# resolver's default warning-dir derivation itself under test.
+# /tmp/agent-guard-warnings-$(id -u), where a marker left by a previous run (or
+# an earlier case in this run, under PID reuse) silently suppresses the warning
+# these greps assert on. With the root unset the command never reaches a
+# launcher, so its inline fallback (no marker) answers.
 printf '%s' "$read_env_payload" \
   | (cd "$PLUGIN_ROOT" && TMPDIR="$TESTTMP/rootvar-claude-unset" env -u CLAUDE_PLUGIN_ROOT -u CODEX_PLUGIN_ROOT sh -c "$claude_pre_tool_command") \
   >"$OUT" 2>"$ERR"
@@ -1013,10 +1038,12 @@ fi
 
 # A stale hook can retain a removed version directory in PLUGIN_ROOT. Recovery
 # may select the highest complete semantic version, but an existing complete
-# host-selected root remains authoritative.
+# host-selected root remains authoritative. Every version directory ships the
+# hook launcher, as a real plugin cache does.
 HOOK_CACHE="$TESTTMP/hook-cache"
 for hook_ver in 3.0.9 3.0.10 99.0.0beta; do
-  mkdir -p "$HOOK_CACHE/$hook_ver/bin"
+  mkdir -p "$HOOK_CACHE/$hook_ver/bin" "$HOOK_CACHE/$hook_ver/hooks"
+  cp "$PLUGIN_ROOT/hooks/launch.sh" "$HOOK_CACHE/$hook_ver/hooks/launch.sh"
   cat >"$HOOK_CACHE/$hook_ver/bin/agent-guard" <<EOF
 #!/usr/bin/env sh
 VERSION=$hook_ver
@@ -1057,7 +1084,8 @@ else
   sed 's/^/  stderr: /' "$ERR"
 fi
 
-mkdir -p "$HOOK_CACHE/4.0.0/bin"
+mkdir -p "$HOOK_CACHE/4.0.0/bin" "$HOOK_CACHE/4.0.0/hooks"
+cp "$PLUGIN_ROOT/hooks/launch.sh" "$HOOK_CACHE/4.0.0/hooks/launch.sh"
 cat >"$HOOK_CACHE/4.0.0/bin/agent-guard" <<'EOF'
 #!/usr/bin/env sh
 VERSION=4.0.0
@@ -1077,6 +1105,50 @@ else
   sed 's/^/  stdout: /' "$OUT"
   sed 's/^/  stderr: /' "$ERR"
 fi
+
+# The same recovery and refusal through both hosts' commands: a dangling
+# current falls to the highest complete sibling, and an existing root that
+# lacks even the launcher (interrupted update) borrows a sibling's launcher,
+# which still refuses to substitute a sibling binary for it.
+mkdir -p "$HOOK_CACHE/4.0.1/bin"
+cat >"$HOOK_CACHE/4.0.1/bin/agent-guard" <<'EOF'
+#!/usr/bin/env sh
+VERSION=4.0.1
+printf '%s\n' selected-incomplete-without-launcher
+EOF
+chmod +x "$HOOK_CACHE/4.0.1/bin/agent-guard"
+ln -s 2.0.0 "$HOOK_CACHE/current"
+for manifest_host in codex claude; do
+  case "$manifest_host" in
+    codex) manifest_file="$PLUGIN_ROOT/hooks.json"; manifest_root=PLUGIN_ROOT ;;
+    *) manifest_file="$PLUGIN_ROOT/hooks/hooks.json"; manifest_root=CLAUDE_PLUGIN_ROOT ;;
+  esac
+  manifest_command=$(jq -r '.hooks.Stop[0].hooks[0].command' "$manifest_file")
+  printf '%s' '{"session_id":"dangling-current"}' \
+    | env "$manifest_root=$HOOK_CACHE/3.0.0" sh -c "$manifest_command" >"$OUT" 2>"$ERR"
+  status=$?
+  if [ "$status" -eq 0 ] && grep -qx 'selected-3.0.10' "$OUT"; then
+    ok "$manifest_host manifest recovers a deleted root past a dangling current to the highest complete sibling"
+  else
+    not_ok "$manifest_host manifest recovers a deleted root past a dangling current to the highest complete sibling"
+    sed 's/^/  stdout: /' "$OUT"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+  printf '%s' '{"session_id":"no-launcher-root"}' \
+    | env "$manifest_root=$HOOK_CACHE/4.0.1" \
+        AGENT_GUARD_WARNING_DIR="$TESTTMP/no-launcher-root-$manifest_host" \
+        sh -c "$manifest_command" >"$OUT" 2>"$ERR"
+  status=$?
+  if [ "$status" -eq 0 ] && [ ! -s "$OUT" ] \
+     && grep -q 'selected root was incomplete' "$ERR"; then
+    ok "$manifest_host manifest borrows a sibling launcher for a root without one and still refuses substitution"
+  else
+    not_ok "$manifest_host manifest borrows a sibling launcher for a root without one and still refuses substitution (status $status)"
+    sed 's/^/  stdout: /' "$OUT"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+done
+rm -f "$HOOK_CACHE/current"
 
 cat >"$HOOK_CACHE/3.0.10/bin/agent-guard" <<'EOF'
 #!/usr/bin/env sh
@@ -1109,8 +1181,12 @@ for manifest_utility in sh awk sort tail cut cksum mkdir; do
   ln -s "$manifest_utility_path" "$MANIFEST_NO_JQ_PATH/$manifest_utility"
 done
 
-# When no binary resolves, every event shares one best-effort host/session
-# marker. The warning names the selected policy, including closed mode.
+# When a launcher exists but no binary resolves, every event shares one
+# best-effort host/session marker. The warning names the selected policy,
+# including closed mode. launcher-only/9.9.9 holds only hooks/launch.sh, so the
+# deleted 0.0.0 root reaches a launcher that finds no complete binary.
+mkdir -p "$TESTTMP/launcher-only/9.9.9/hooks"
+cp "$PLUGIN_ROOT/hooks/launch.sh" "$TESTTMP/launcher-only/9.9.9/hooks/launch.sh"
 for manifest_host in codex claude; do
   case "$manifest_host" in
     codex) manifest_file="$PLUGIN_ROOT/hooks.json"; manifest_root=PLUGIN_ROOT ;;
@@ -1121,7 +1197,7 @@ for manifest_host in codex claude; do
   for manifest_event in PreToolUse PostToolUse Stop SessionStart; do
     manifest_command=$(jq -r --arg event "$manifest_event" '.hooks[$event][0].hooks[0].command' "$manifest_file")
     printf '%s' '{"session_id":"manifest-session"}' \
-      | env "$manifest_root=$TESTTMP/missing-plugin/0.0.0" \
+      | env "$manifest_root=$TESTTMP/launcher-only/0.0.0" \
           AGENT_GUARD_WARNING_DIR="$manifest_warning_dir" \
           sh -c "$manifest_command; :" >/dev/null 2>>"$ERR"
   done
@@ -1137,7 +1213,7 @@ for manifest_host in codex claude; do
   for override_event in PreToolUse PostToolUse; do
     manifest_command=$(jq -r --arg event "$override_event" '.hooks[$event][0].hooks[0].command' "$manifest_file")
     printf '{"session_id":"payload-%s"}' "$override_event" \
-      | env "$manifest_root=$TESTTMP/missing-plugin/0.0.0" \
+      | env "$manifest_root=$TESTTMP/launcher-only/0.0.0" \
           AGENT_GUARD_SESSION_ID=manifest-override \
           AGENT_GUARD_WARNING_DIR="$TESTTMP/manifest-override-$manifest_host" \
           sh -c "$manifest_command; :" >/dev/null 2>>"$ERR"
@@ -1155,7 +1231,7 @@ for manifest_host in codex claude; do
     manifest_command=$(jq -r --arg event "$no_jq_event" '.hooks[$event][0].hooks[0].command' "$manifest_file")
     printf '%s' '{"session_id":"manifest-no-jq"}' \
       | env PATH="$MANIFEST_NO_JQ_PATH" \
-          "$manifest_root=$TESTTMP/missing-plugin/0.0.0" \
+          "$manifest_root=$TESTTMP/launcher-only/0.0.0" \
           AGENT_GUARD_WARNING_DIR="$TESTTMP/manifest-no-jq-$manifest_host" \
           /bin/sh -c "$manifest_command; :" >/dev/null 2>>"$ERR"
   done
@@ -1169,7 +1245,7 @@ for manifest_host in codex claude; do
 
   manifest_command=$(jq -r '.hooks.PostToolUse[0].hooks[0].command' "$manifest_file")
   printf '%s' '{}' \
-    | env "$manifest_root=$TESTTMP/missing-plugin/0.0.0" \
+    | env "$manifest_root=$TESTTMP/launcher-only/0.0.0" \
         AGENT_GUARD_WARNING_DIR="$TESTTMP/manifest-closed-$manifest_host" \
         AGENT_GUARD_INFRA_FAILURE_MODE=closed \
         sh -c "$manifest_command" >"$OUT" 2>"$ERR"
@@ -1186,7 +1262,7 @@ for manifest_host in codex claude; do
   manifest_command=$(jq -r '.hooks.PreToolUse[0].hooks[0].command' "$manifest_file")
   for attempt in first second; do
     printf '%s' '{"session_id":"manifest-closed-repeat"}' \
-      | env "$manifest_root=$TESTTMP/missing-plugin/0.0.0" \
+      | env "$manifest_root=$TESTTMP/launcher-only/0.0.0" \
           AGENT_GUARD_WARNING_DIR="$TESTTMP/manifest-closed-repeat-$manifest_host" \
           AGENT_GUARD_INFRA_FAILURE_MODE=closed \
           sh -c "$manifest_command" >"$OUT" 2>"$ERR"
@@ -1206,7 +1282,7 @@ for manifest_host in codex claude; do
     mkdir -p "$manifest_ro_dir"
     chmod 0500 "$manifest_ro_dir"
     printf '%s' '{"session_id":"manifest-readonly"}' \
-      | env "$manifest_root=$TESTTMP/missing-plugin/0.0.0" \
+      | env "$manifest_root=$TESTTMP/launcher-only/0.0.0" \
           AGENT_GUARD_WARNING_DIR="$manifest_ro_dir" \
           sh -c "$manifest_command" >"$OUT" 2>"$ERR"
     status=$?
@@ -1219,6 +1295,42 @@ for manifest_host in codex claude; do
     fi
   fi
 done
+
+# With no launcher anywhere (whole cache gone), the command's own inline
+# fallback answers. It keeps no marker: open warns on every call, and closed
+# blocks with the reason every time.
+for manifest_host in codex claude; do
+  case "$manifest_host" in
+    codex) manifest_file="$PLUGIN_ROOT/hooks.json"; manifest_root=PLUGIN_ROOT ;;
+    *) manifest_file="$PLUGIN_ROOT/hooks/hooks.json"; manifest_root=CLAUDE_PLUGIN_ROOT ;;
+  esac
+  manifest_command=$(jq -r '.hooks.PreToolUse[0].hooks[0].command' "$manifest_file")
+  for fallback_mode in open closed; do
+    : >"$ERR"
+    fallback_statuses=
+    for attempt in first second; do
+      printf '%s' '{"session_id":"fallback-repeat"}' \
+        | env "$manifest_root=$TESTTMP/missing-plugin/0.0.0" \
+            AGENT_GUARD_WARNING_DIR="$TESTTMP/fallback-$manifest_host-$fallback_mode" \
+            AGENT_GUARD_INFRA_FAILURE_MODE="$fallback_mode" \
+            sh -c "$manifest_command" >"$OUT" 2>>"$ERR"
+      fallback_statuses="$fallback_statuses$?"
+    done
+    case "$fallback_mode" in
+      open) expected_statuses=00; fallback_action='continuing because AGENT_GUARD_INFRA_FAILURE_MODE=open' ;;
+      *) expected_statuses=22; fallback_action='blocking because AGENT_GUARD_INFRA_FAILURE_MODE=closed' ;;
+    esac
+    if [ "$fallback_statuses" = "$expected_statuses" ] \
+       && [ "$(grep -c "agent-guard: $manifest_root env not set or no hook launcher was found; $fallback_action" "$ERR")" -eq 2 ] \
+       && [ ! -e "$TESTTMP/fallback-$manifest_host-$fallback_mode" ]; then
+      ok "$manifest_host manifest without any launcher explains every $fallback_mode call"
+    else
+      not_ok "$manifest_host manifest without any launcher explains every $fallback_mode call (statuses $fallback_statuses)"
+      sed 's/^/  stderr: /' "$ERR"
+    fi
+  done
+done
+
 
 # Pinned gitleaks default version is duplicated across three surfaces (the
 # CLI's setup --install default, the checksum helper's lookup default, and

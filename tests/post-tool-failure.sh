@@ -174,7 +174,7 @@ for manifest in "$ROOT/plugins/agent-guard/hooks/hooks.json" \
   if jq -e '.hooks.PostToolUseFailure[0].matcher == .hooks.PostToolUse[0].matcher
             and .hooks.PostToolUseFailure[0].hooks[0].timeout == .hooks.PostToolUse[0].hooks[0].timeout
             and (.hooks.PostToolUseFailure[0].hooks[0].command | endswith(" hook-post-tool-failure")
-                 or endswith(" hook-post-tool-failure'"'"'"))' "$manifest" >/dev/null 2>&1; then
+                 or contains(" claude hook-post-tool-failure \"$r\""))' "$manifest" >/dev/null 2>&1; then
     ok "PostToolUseFailure is registered like PostToolUse in $manifest"
   else
     bad "PostToolUseFailure is registered like PostToolUse in $manifest"

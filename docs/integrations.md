@@ -223,6 +223,19 @@ Hook timeouts in every shipped manifest:
 decide and return exit status 2 in time. A non-empty payload that is not a JSON
 object is rejected regardless of that mode; empty stdin passes with status 0.
 
+Each plugin hook command is one short line that runs the plugin's
+`hooks/launch.sh` with the host name, the hook subcommand and the plugin
+directory the host selected. The launcher runs that directory's
+`bin/agent-guard` when the directory is complete. If a plugin update deleted
+the directory during a session, it uses `current` or the newest complete
+installed version instead; it never substitutes another version for a
+directory that still exists but is incomplete. When no binary can be found,
+the launcher applies `AGENT_GUARD_INFRA_FAILURE_MODE`: `closed` blocks with the
+reason on every call and `open` warns once per session. When no launcher can be
+found at all, for example because the host did not set its plugin-root
+variable, the command line applies the same mode itself and warns on every
+call.
+
 A Claude `PreToolUse` hook that the host kills at its timeout, cannot start,
 exits with a status other than 0 or 2, or prints stdout that is not one valid
 JSON object, blocks the tool call: the

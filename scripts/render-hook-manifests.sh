@@ -32,12 +32,22 @@ CLAUDE_PRE_MATCHER='Write|Edit|MultiEdit|NotebookEdit|Read|NotebookRead|Grep|Glo
 # explicit; no tool is covered only because its name contains a listed token.
 CLAUDE_POST_MATCHER='^(Write|Edit|MultiEdit|NotebookEdit|Bash|PowerShell|apply_patch|Read|NotebookRead|Grep|Glob|WebFetch|WebSearch|Agent|Task|Skill|Monitor|LSP|ListMcpResourcesTool|ReadMcpResourceTool|mcp__.*)$'
 
-# Plugin command: the host exports a versioned plugin-cache root, so the hook has
-# to resolve a complete, executable payload itself before dispatching.
+# Plugin command: the host exports a versioned plugin-cache root. The command
+# only finds a v1 launcher (hooks/launch.sh) in that root, then in `current`,
+# then in any semver sibling, and execs it with the ORIGINAL root: the launcher
+# owns root selection, deleted-root recovery, the no-substitution rule for an
+# existing incomplete root, the host pin and the once-per-session warning.
+# The inline policy runs only when no launcher exists anywhere (root unset or
+# cache gone): it drains stdin, warns on EVERY call in open mode, and exits 2
+# with the reason in closed mode. Keep `${@ROOT_VAR@:-}`: Claude substitutes
+# the exact text `${CLAUDE_PLUGIN_ROOT}` before running the command, and the
+# `:-` form never matches it, so the path arrives only through the environment
+# and cannot break the single-quoted script. Every hop is exec, so the command
+# adds no process.
 # @ROOT_VAR@ = plugin-root env var the host exports, @HOST@ = hook-contract
 # host tag, @SUB@ = agent-guard hook subcommand for the event.
 PLUGIN_TEMPLATE=$(cat <<'EOF'
-sh -c 'r=${@ROOT_VAR@:-}; b=${r%/*}; x=; semver() { case ${1:-} in ""|*[!0-9.]*) return 1 ;; esac; o=$IFS; IFS=.; set -- $1; IFS=$o; [ "$#" -eq 3 ] && [ -n "$1" ] && [ -n "$2" ] && [ -n "$3" ]; }; root_ok() { q=$1; e=${2:-}; z="$q/bin/agent-guard"; [ -x "$z" ] && [ -r "$q/config/gitleaks.toml" ] && [ -r "$q/config/deny-read-paths.txt" ] && [ -r "$q/config/deny-bash-patterns.txt" ] || return 1; u=; while IFS= read -r l; do case "$l" in VERSION=*) u=${l#VERSION=}; break ;; esac; done <"$z"; [ -n "$u" ] && { [ -z "$e" ] || [ "$u" = "$e" ]; }; }; if [ -n "$r" ]; then v=${r##*/}; semver "$v" || v=; if root_ok "$r" "$v"; then x="$r/bin/agent-guard"; elif [ ! -e "$r" ]; then c="$b/current"; t=; [ -L "$c" ] && t=$(readlink "$c" 2>/dev/null) || :; if semver "$t" && root_ok "$c" "$t"; then x="$c/bin/agent-guard"; else x=$(for z in "$b"/*/bin/agent-guard; do [ -x "$z" ] || continue; q=${z%/bin/agent-guard}; v=${q##*/}; semver "$v" || continue; root_ok "$q" "$v" || continue; printf "%s\\t%s\\n" "$v" "$z"; done | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1 | cut -f 2-); fi; fi; fi; if [ ! -x "$x" ]; then mode=${AGENT_GUARD_INFRA_FAILURE_MODE:-open}; case "$mode" in closed) action=blocking ;; *) mode=open; action=continuing ;; esac; d=${AGENT_GUARD_WARNING_DIR:-${TMPDIR:-/tmp}/agent-guard-warnings-${UID:-user}}; p=; while IFS= read -r line || [ -n "$line" ]; do p=$p$line; done; i=${AGENT_GUARD_SESSION_ID:-}; if [ -z "$i" ] && command -v jq >/dev/null 2>&1; then i=$(printf %s "$p" | jq -r ".session_id // empty" 2>/dev/null); fi; if [ -z "$i" ]; then case "$p" in *\"session_id\":\"*) i=${p#*\"session_id\":\"}; i=${i%%\"*}; case "$i" in ""|*[!A-Za-z0-9._:-]*) i= ;; esac ;; esac; fi; if [ -n "$i" ]; then i=$(printf %s "$i" | cksum); else i=ppid-${PPID:-0}; fi; k="$d/manifest-@HOST@-$i-$mode"; warn=1; if [ "$mode" = open ] && mkdir -p "$d" 2>/dev/null; then (umask 077; set -C; : >"$k") 2>/dev/null || { [ -e "$k" ] && warn=0; }; fi; [ "$warn" -eq 0 ] || echo "agent-guard: @ROOT_VAR@ env not set, selected root was incomplete, or no installed binary was found; $action because AGENT_GUARD_INFRA_FAILURE_MODE=$mode" >&2; [ "$mode" = closed ] && exit 2; exit 0; fi; AGENT_GUARD_HOOK_HOST=@HOST@ "$x" @SUB@'
+sh -c 'r=${@ROOT_VAR@:-}; [ -n "$r" ] && for q in "$r" "${r%/*}/current" "${r%/*}"/[0-9]*.[0-9]*.[0-9]*; do [ -f "$q/hooks/launch.sh" ] && exec sh "$q/hooks/launch.sh" @HOST@ @SUB@ "$r"; done; while read -r l; do :; done; case ${AGENT_GUARD_INFRA_FAILURE_MODE:-open} in closed) m=closed a=blocking ;; *) m=open a=continuing ;; esac; echo "agent-guard: @ROOT_VAR@ env not set or no hook launcher was found; $a because AGENT_GUARD_INFRA_FAILURE_MODE=$m" >&2; [ "$m" = closed ] && exit 2; exit 0'
 EOF
 )
 

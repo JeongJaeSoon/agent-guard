@@ -2504,8 +2504,9 @@ hook_host() {
 }
 
 # Claude Code renders an exit-2 block as "[<hooks.json command>]: <stderr>"
-# unless stdout carries a JSON reason, which buries the reason under the ~2 KB
-# inline resolver (#294), and it echoes a blocked prompt back as "Original
+# unless stdout carries a JSON reason, which puts the hook command line before
+# the reason (#294; the line is now the ~500-byte launcher command rather than
+# the old ~2 KB inline resolver), and it echoes a blocked prompt back as "Original
 # prompt:" unless suppressOriginalPrompt is set (#297). Exit 2 stays the block
 # signal; the JSON only reshapes the message. Before Claude Code 2.1.214 an
 # exit-2 hook whose JSON failed schema validation could stop blocking, so the

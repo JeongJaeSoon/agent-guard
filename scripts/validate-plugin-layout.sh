@@ -75,6 +75,18 @@ validate_hook_commands() {
   fi
 
   while IFS= read -r command; do
+    # One short reviewable line that hands the host-selected root to the
+    # shipped launcher; the resolver and policy live in hooks/launch.sh.
+    case "$command" in
+      *'exec sh "$q/hooks/launch.sh" '*' "$r";'*)
+        ok "$host hook command delegates to hooks/launch.sh" ;;
+      *) fail "$host hook command delegates to hooks/launch.sh" ;;
+    esac
+    if [ "$(printf '%s' "$command" | wc -c | tr -d ' ')" -le 600 ]; then
+      ok "$host hook command stays within 600 bytes"
+    else
+      fail "$host hook command stays within 600 bytes"
+    fi
     case "$required" in
       PLUGIN_ROOT)
         if contains_shell_variable_reference "$command" PLUGIN_ROOT; then

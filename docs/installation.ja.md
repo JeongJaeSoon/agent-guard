@@ -1,4 +1,4 @@
-<!-- translated-from: docs/installation.md; source-blob: 164e2cfc8c8b81516f4bca90639eec4745a36add -->
+<!-- translated-from: docs/installation.md; source-blob: 38bcfe365b7e08d76709320974d20d7808b71b41 -->
 
 <a id="installing-agent-guard"></a>
 
@@ -176,6 +176,14 @@ Codexがagent-guardのhookを再確認待ちまたは無効と報告した場合
 2. **Hooks need review** で **Review hooks** を選びます。
 3. 各hookのSourceが `agent-guard@agent-guard` で、コマンドが想定どおりであることを確認してから信頼します。
 4. 実行中のCodexセッションを再起動します。
+
+想定どおりのコマンドは、プラグインの `hooks/launch.sh` を `codex` とそのイベントのhook subcommandで実行する1行です。agent-guardのhook同士で異なるのはこのsubcommandだけです。`Stop` のコマンドは次のとおりです。
+
+```sh
+sh -c 'r=${PLUGIN_ROOT:-}; [ -n "$r" ] && for q in "$r" "${r%/*}/current" "${r%/*}"/[0-9]*.[0-9]*.[0-9]*; do [ -f "$q/hooks/launch.sh" ] && exec sh "$q/hooks/launch.sh" codex hook-stop "$r"; done; while read -r l; do :; done; case ${AGENT_GUARD_INFRA_FAILURE_MODE:-open} in closed) m=closed a=blocking ;; *) m=open a=continuing ;; esac; echo "agent-guard: PLUGIN_ROOT env not set or no hook launcher was found; $a because AGENT_GUARD_INFRA_FAILURE_MODE=$m" >&2; [ "$m" = closed ] && exit 2; exit 0'
+```
+
+ほかのhookは `hook-pre-tool`、`hook-post-tool`、`hook-session-start`、`hook-user-prompt` を使います。launcherはCodexが信頼するプラグイン内容の一部です。launcherは `bin/agent-guard` を実行する前に選ばれたバージョンが完全かどうかを確かめ、実行ファイルが見つからない場合は `AGENT_GUARD_INFRA_FAILURE_MODE` を適用します。
 
 Codex向けの `plugin status`、`plugin install`、`plugin update` も同じ確認結果を表示しますが、終了コードは変えません。読み取れない応答はokではなくunverifiedとして報告します。okは新しいCodexプロセスが読む設定がそうなっているという意味であり、hookの実際の実行を観測したという意味ではありません。この確認はCodexのapp serverを起動するため、通常のCodex起動と同じくネットワークに接続したり、Codex自身のキャッシュを更新したりすることがあります。省略するには `AGENT_GUARD_CODEX_TRUST_CHECK=off` を設定します。
 
