@@ -274,6 +274,20 @@ When Codex reports an agent-guard hook as needing review or turned off,
    `agent-guard@agent-guard` and its command is expected.
 4. Restart running Codex sessions.
 
+The expected command is one line that runs the plugin's `hooks/launch.sh`
+with `codex` and the event's hook subcommand. Only that subcommand differs
+between the agent-guard hooks. For `Stop` it is:
+
+```sh
+sh -c 'r=${PLUGIN_ROOT:-}; [ -n "$r" ] && for q in "$r" "${r%/*}/current" "${r%/*}"/[0-9]*.[0-9]*.[0-9]*; do [ -f "$q/hooks/launch.sh" ] && exec sh "$q/hooks/launch.sh" codex hook-stop "$r"; done; while read -r l; do :; done; case ${AGENT_GUARD_INFRA_FAILURE_MODE:-open} in closed) m=closed a=blocking ;; *) m=open a=continuing ;; esac; echo "agent-guard: PLUGIN_ROOT env not set or no hook launcher was found; $a because AGENT_GUARD_INFRA_FAILURE_MODE=$m" >&2; [ "$m" = closed ] && exit 2; exit 0'
+```
+
+The other hooks use `hook-pre-tool`, `hook-post-tool`, `hook-session-start`,
+and `hook-user-prompt`. The launcher is part of the plugin content Codex
+trusts. It checks that the selected version is complete before it runs
+`bin/agent-guard`, and applies `AGENT_GUARD_INFRA_FAILURE_MODE` when no binary
+can be found.
+
 `plugin status`, `plugin install`, and `plugin update` for Codex print the same
 check without changing
 their exit status. A reply that cannot be read is reported as unverified, never
@@ -295,6 +309,16 @@ When the file is missing, the line does nothing and still exits 0. Both
 resolve through the cache's `current` link, so `setup-shell` does not need to
 be rerun after a plugin update. Rerunning it replaces an older block in place
 with this one.
+
+The resolver file is a copy made when `setup-shell` ran, and its first line
+records its format. `agent-guard doctor` prints a `shell integration:` line
+when `~/.zshrc` or `~/.bashrc` still has the inline block that `setup-shell`
+wrote before v3.9.0, or when a `~/.agent-guard/shell-init*.sh` file has no
+format line or an older one. Rerun `setup-shell` as the line says to replace
+the block with the one line above and rewrite the file. These lines do not
+change the exit status of `doctor`, and `doctor` does not edit either file.
+Both old forms still load until then. `doctor` does not check an rc file
+chosen with `--rc`.
 
 Standalone updates are staged beside the current installation before replacement.
 Checksum, extraction and commit failures leave or restore the previous install;

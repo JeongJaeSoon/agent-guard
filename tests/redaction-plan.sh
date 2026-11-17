@@ -5,9 +5,11 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 SOURCE=${AGENT_GUARD_UNIT_SOURCE:-"$ROOT/plugins/agent-guard/bin/agent-guard"}
 CASE=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-redaction-plan.XXXXXX")
 trap 'rm -rf "$CASE"' 0
-sh "$ROOT/tests/helpers/extract-functions.sh" "$SOURCE" "$CASE" redact_tool_response_json
+sh "$ROOT/tests/helpers/extract-functions.sh" "$SOURCE" "$CASE" \
+  select_rust_redactor redact_tool_response_json
 sed -n "/^JQ_SHAPE_SAFE_WALK='/,/^'$/p" "$SOURCE" >"$CASE/walk.sh"
 . "$CASE/walk.sh"
+. "$CASE/select_rust_redactor.sh"
 . "$CASE/redact_tool_response_json.sh"
 count=0
 check() {

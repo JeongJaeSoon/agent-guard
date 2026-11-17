@@ -47,9 +47,7 @@ script_dir() {
 
 BIN_DIR=$(script_dir)
 ROOT_DIR=$(CDPATH= cd -- "$BIN_DIR/.." && pwd -P)
-# Absolute path of THIS binary. Baked into the shell-init snippet so the wrappers
-# can find agent-guard even when it is NOT on $PATH (e.g. a plugin-only install,
-# where the binary lives in the plugin cache and is never symlinked onto PATH).
+# Resolved absolute path of THIS binary, for self re-exec and cache identity.
 SELF_BIN="$BIN_DIR/agent-guard"
 
 
@@ -149,6 +147,10 @@ refresh_plugin_current_link() {
 }
 
 refresh_plugin_current_link || :
+# Baked into the shell-init snippet so the wrappers can find agent-guard even
+# when it is NOT on $PATH (e.g. a plugin-only install, where the binary lives in
+# the plugin cache and is never symlinked onto PATH). For a plugin install it
+# names the cache's `current` link, so the snippet survives plugin updates.
 STABLE_BIN=$SELF_BIN
 [ -n "$PLUGIN_CACHE_BASE" ] && STABLE_BIN="$PLUGIN_CACHE_BASE/current/bin/agent-guard"
 
@@ -398,19 +400,8 @@ codex_trust_probe() {
     # app-server's own state is not this probe's to place; run it outside the
     # project so the cwd cannot select a different Codex home or config.
     cd "$ct_dir" || exit 125
-    case "$GITLEAKS_PROBE_LAUNCHER" in
-      setsid)
-        exec "$GITLEAKS_PROBE_LAUNCHER_BIN" sh -c "$CODEX_TRUST_CLIENT" agent-guard-codex-trust \
-          "$ct_codex" "$ct_out" "$CODEX_TRUST_CWD" "$ct_limit" "$VERSION"
-        ;;
-      perl)
-        exec "$GITLEAKS_PROBE_LAUNCHER_BIN" -MPOSIX \
-          -e 'POSIX::setsid() >= 0 or exit 125; exec @ARGV; exit 126' \
-          sh -c "$CODEX_TRUST_CLIENT" agent-guard-codex-trust \
-          "$ct_codex" "$ct_out" "$CODEX_TRUST_CWD" "$ct_limit" "$VERSION"
-        ;;
-      *) exit 125 ;;
-    esac
+    exec_in_new_session sh -c "$CODEX_TRUST_CLIENT" agent-guard-codex-trust \
+      "$ct_codex" "$ct_out" "$CODEX_TRUST_CWD" "$ct_limit" "$VERSION"
   ) </dev/null >/dev/null 2>&1 &
   CODEX_TRUST_PROBE_PID=$!
   CODEX_TRUST_GROUP=$CODEX_TRUST_PROBE_PID
@@ -808,6 +799,8 @@ plugin_read_state() {
   esac
 }
 
+# Every exit from plugin_for_host_body is a return, so the wrapper removes the
+# state directory once. A path that has already removed it clears plugin_tmp.
 plugin_for_host() {
   plugin_action=$1
   plugin_host=$2
@@ -816,11 +809,52 @@ plugin_for_host() {
     printf '%s\n' "$PROGRAM: could not create plugin status directory" >&2
     return 2
   }
+  plugin_for_host_body
+  plugin_status=$?
+  [ -z "$plugin_tmp" ] || rm -rf "$plugin_tmp"
+  return "$plugin_status"
+}
+
+plugin_set_retry() {
+  plugin_retry="$PROGRAM plugin $1 --host $plugin_host"
+  if [ "$plugin_host" = claude ] && [ "$plugin_scope" != user ]; then
+    plugin_retry="$plugin_retry --scope $plugin_scope"
+  fi
+}
+
+# Refuse an Agent Guard marketplace that is not pinned to this release. $1 is
+# the refusal clause for the current action.
+plugin_require_release_pin() {
+  plugin_marketplace_matches=0
+  case "$plugin_host" in
+    claude)
+      claude_marketplace_matches_release "$plugin_marketplaces" \
+        && plugin_marketplace_matches=1
+      ;;
+    codex)
+      codex plugin marketplace add "JeongJaeSoon/agent-guard@v$VERSION" \
+        && plugin_marketplace_matches=1
+      ;;
+  esac
+  [ "$plugin_marketplace_matches" -eq 0 ] || return 0
+  if [ "$plugin_host" = claude ]; then
+    plugin_actual_ref=$(claude_marketplace_ref "$plugin_marketplaces")
+    plugin_remove="claude plugin marketplace remove agent-guard --scope $plugin_scope"
+  else
+    plugin_actual_ref='unverified or different ref'
+    plugin_remove='codex plugin marketplace remove agent-guard'
+  fi
+  plugin_set_retry install
+  printf '%s\n' "$PROGRAM: $plugin_host marketplace 'agent-guard' is '$plugin_actual_ref', expected 'v$VERSION'; $1" >&2
+  printf '%s\n' "$PROGRAM: run '$plugin_remove', then '$plugin_retry'; marketplace removal also removes its installed plugin" >&2
+  return 2
+}
+
+plugin_for_host_body() {
   plugin_marketplaces="$plugin_tmp/marketplaces.json"
   plugin_plugins="$plugin_tmp/plugins.json"
 
   if ! plugin_read_state "$plugin_host" "$plugin_marketplaces" "$plugin_plugins"; then
-    rm -rf "$plugin_tmp"
     printf '%s\n' "$PROGRAM: $plugin_host plugin manager could not report its state" >&2
     return 1
   fi
@@ -835,7 +869,6 @@ plugin_for_host() {
     fi
   fi
   if [ "$plugin_managed_state" -eq 2 ]; then
-    rm -rf "$plugin_tmp"
     if [ "$plugin_action" = status ]; then
       printf '%s\n' "$PROGRAM: Claude managed settings could not be read or safely parsed; plugin ownership cannot be determined" >&2
     else
@@ -844,22 +877,18 @@ plugin_for_host() {
     return 2
   fi
   if [ "$plugin_managed_state" -eq 3 ]; then
-    rm -rf "$plugin_tmp"
     printf '%s\n' "$PROGRAM: Claude policyHelper replaces file-based managed settings; plugin ownership cannot be determined, so lifecycle changes are refused" >&2
     return 2
   fi
   if [ "$plugin_managed_state" -eq 0 ]; then
     if [ "$plugin_action" = status ]; then
       claude_managed_status "$plugin_plugins"
-      rm -rf "$plugin_tmp"
       return 0
     fi
-    rm -rf "$plugin_tmp"
     printf '%s\n' "$PROGRAM: Claude Agent Guard is managed by Jamf/managed settings; ask the administrator to change the pinned marketplace ref instead of using '$PROGRAM plugin $plugin_action'" >&2
     return 2
   fi
   if [ "$plugin_managed_state" -ne 1 ]; then
-    rm -rf "$plugin_tmp"
     printf '%s\n' "$PROGRAM: Claude managed settings inspection was interrupted; refusing plugin lifecycle changes" >&2
     return 2
   fi
@@ -936,53 +965,20 @@ plugin_for_host() {
       ;;
     install)
       if [ "$plugin_marketplace_source" = conflict ]; then
-        rm -rf "$plugin_tmp"
         printf '%s\n' "$PROGRAM: $plugin_host marketplace 'agent-guard' has a different source; refusing to replace it" >&2
         return 2
       fi
       if [ "$plugin_marketplace_source" = agent-guard ]; then
-        plugin_marketplace_matches=0
-        case "$plugin_host" in
-          claude)
-            claude_marketplace_matches_release "$plugin_marketplaces" \
-              && plugin_marketplace_matches=1
-            ;;
-          codex)
-            codex plugin marketplace add "JeongJaeSoon/agent-guard@v$VERSION" \
-              && plugin_marketplace_matches=1
-            ;;
-        esac
-        if [ "$plugin_marketplace_matches" -eq 0 ]; then
-          if [ "$plugin_host" = claude ]; then
-            plugin_actual_ref=$(claude_marketplace_ref "$plugin_marketplaces")
-            plugin_remove="claude plugin marketplace remove agent-guard --scope $plugin_scope"
-          else
-            plugin_actual_ref='unverified or different ref'
-            plugin_remove='codex plugin marketplace remove agent-guard'
-          fi
-          plugin_retry="$PROGRAM plugin install --host $plugin_host"
-          if [ "$plugin_host" = claude ] && [ "$plugin_scope" != user ]; then
-            plugin_retry="$plugin_retry --scope $plugin_scope"
-          fi
-          rm -rf "$plugin_tmp"
-          printf '%s\n' "$PROGRAM: $plugin_host marketplace 'agent-guard' is '$plugin_actual_ref', expected 'v$VERSION'; refusing to reuse it" >&2
-          printf '%s\n' "$PROGRAM: run '$plugin_remove', then '$plugin_retry'; marketplace removal also removes its installed plugin" >&2
-          return 2
-        fi
+        plugin_require_release_pin 'refusing to reuse it' || return 2
       fi
       if [ "$plugin_has_install" -eq 1 ]; then
         if [ "$plugin_is_enabled" -eq 0 ]; then
           printf '%s\n' "$PROGRAM: $plugin_host agent-guard plugin is installed but disabled; enable it with the $plugin_host plugin manager" >&2
-          rm -rf "$plugin_tmp"
           return 1
         fi
         plugin_installed_version=$(plugin_version "$plugin_host" "$plugin_plugins" "$plugin_scope")
         if [ "$plugin_installed_version" != "$VERSION" ]; then
-          plugin_retry="$PROGRAM plugin update --host $plugin_host"
-          if [ "$plugin_host" = claude ] && [ "$plugin_scope" != user ]; then
-            plugin_retry="$plugin_retry --scope $plugin_scope"
-          fi
-          rm -rf "$plugin_tmp"
+          plugin_set_retry update
           printf '%s\n' "$PROGRAM: $plugin_host agent-guard plugin version is $plugin_installed_version, expected $VERSION; run '$plugin_retry'" >&2
           return 1
         fi
@@ -998,11 +994,7 @@ plugin_for_host() {
           esac
           plugin_add_status=$?
           if [ "$plugin_add_status" -ne 0 ]; then
-            plugin_retry="$PROGRAM plugin install --host $plugin_host"
-            if [ "$plugin_host" = claude ] && [ "$plugin_scope" != user ]; then
-              plugin_retry="$plugin_retry --scope $plugin_scope"
-            fi
-            rm -rf "$plugin_tmp"
+            plugin_set_retry install
             printf '%s\n' "$PROGRAM: $plugin_host could not add marketplace 'agent-guard' pinned to v$VERSION; no plugin installation was attempted and it is safe to retry '$plugin_retry'" >&2
             return 1
           fi
@@ -1014,10 +1006,7 @@ plugin_for_host() {
         esac
         plugin_install_status=$?
         if [ "$plugin_install_status" -ne 0 ] && [ "$plugin_marketplace_added" -eq 1 ]; then
-          plugin_retry="$PROGRAM plugin install --host $plugin_host"
-          if [ "$plugin_host" = claude ] && [ "$plugin_scope" != user ]; then
-            plugin_retry="$plugin_retry --scope $plugin_scope"
-          fi
+          plugin_set_retry install
           printf '%s\n' "$PROGRAM: $plugin_host marketplace 'agent-guard' was added, but plugin installation failed; the marketplace remains configured and it is safe to retry '$plugin_retry'" >&2
         fi
         if [ "$plugin_install_status" -eq 0 ] && [ "$plugin_host" = codex ]; then
@@ -1028,43 +1017,14 @@ plugin_for_host() {
       ;;
     update)
       if [ "$plugin_marketplace_source" = conflict ]; then
-        rm -rf "$plugin_tmp"
         printf '%s\n' "$PROGRAM: $plugin_host marketplace 'agent-guard' has a different source; refusing to replace it" >&2
         return 2
       fi
       if [ "$plugin_has_marketplace" -eq 0 ] || [ "$plugin_has_install" -eq 0 ]; then
         printf '%s\n' "$PROGRAM: $plugin_host plugin is not installed; run '$PROGRAM plugin install --host $plugin_host' first" >&2
-        rm -rf "$plugin_tmp"
         return 1
       fi
-      plugin_marketplace_matches=0
-      case "$plugin_host" in
-        claude)
-          claude_marketplace_matches_release "$plugin_marketplaces" \
-            && plugin_marketplace_matches=1
-          ;;
-        codex)
-          codex plugin marketplace add "JeongJaeSoon/agent-guard@v$VERSION" \
-            && plugin_marketplace_matches=1
-          ;;
-      esac
-      if [ "$plugin_marketplace_matches" -eq 0 ]; then
-        if [ "$plugin_host" = claude ]; then
-          plugin_actual_ref=$(claude_marketplace_ref "$plugin_marketplaces")
-          plugin_remove="claude plugin marketplace remove agent-guard --scope $plugin_scope"
-        else
-          plugin_actual_ref='unverified or different ref'
-          plugin_remove='codex plugin marketplace remove agent-guard'
-        fi
-        plugin_retry="$PROGRAM plugin install --host $plugin_host"
-        if [ "$plugin_host" = claude ] && [ "$plugin_scope" != user ]; then
-          plugin_retry="$plugin_retry --scope $plugin_scope"
-        fi
-        rm -rf "$plugin_tmp"
-        printf '%s\n' "$PROGRAM: $plugin_host marketplace 'agent-guard' is '$plugin_actual_ref', expected 'v$VERSION'; refusing to update through it" >&2
-        printf '%s\n' "$PROGRAM: run '$plugin_remove', then '$plugin_retry'; marketplace removal also removes its installed plugin" >&2
-        return 2
-      fi
+      plugin_require_release_pin 'refusing to update through it' || return 2
       if [ "$plugin_is_enabled" -eq 0 ]; then
         printf '%s\n' "$PROGRAM: $plugin_host agent-guard plugin is installed but disabled; update will keep it disabled" >&2
       fi
@@ -1073,6 +1033,7 @@ plugin_for_host() {
         printf '%s: agent-guard plugin already matches this CLI (version %s, marketplace v%s)\n' \
           "$plugin_host" "$VERSION" "$VERSION"
         rm -rf "$plugin_tmp"
+        plugin_tmp=
         # This binary lives in the cache that marketplace removal deletes, so
         # moving to a newer release is printed for the user, never performed.
         if latest_release_version; then
@@ -1102,10 +1063,7 @@ plugin_for_host() {
       esac
       plugin_update_status=$?
       if [ "$plugin_update_status" -ne 0 ]; then
-        plugin_retry="$PROGRAM plugin update --host $plugin_host"
-        if [ "$plugin_host" = claude ] && [ "$plugin_scope" != user ]; then
-          plugin_retry="$plugin_retry --scope $plugin_scope"
-        fi
+        plugin_set_retry update
         printf '%s\n' "$PROGRAM: $plugin_host update did not complete; the marketplace remains pinned to v$VERSION and it is safe to retry '$plugin_retry'" >&2
       elif [ "$plugin_host" = codex ] && [ "$plugin_is_enabled" -eq 1 ]; then
         # A content change is exactly what invalidates Codex hook trust.
@@ -1115,7 +1073,6 @@ plugin_for_host() {
       ;;
     uninstall)
       if [ "$plugin_marketplace_source" = conflict ]; then
-        rm -rf "$plugin_tmp"
         printf '%s\n' "$PROGRAM: $plugin_host marketplace 'agent-guard' has a different source; refusing plugin lifecycle changes" >&2
         return 2
       fi
@@ -1129,9 +1086,6 @@ plugin_for_host() {
       fi
       ;;
   esac
-  plugin_status=$?
-  rm -rf "$plugin_tmp"
-  return "$plugin_status"
 }
 
 do_plugin() {
@@ -1246,8 +1200,8 @@ audit_stat() {
 audit_directory() (
   ag_dir=$(audit_location)
   case "$ag_dir" in /*) ;; *) return 1 ;; esac
-  # A shell pattern instead of a printf|grep pipeline on every hook (#407). It
-  # also refuses a newline, which grep's line splitting let through.
+  # A shell pattern keeps this check free of processes on every hook (#407).
+  # It also refuses a newline, which a line-oriented grep would let through.
   case "$ag_dir" in *[[:cntrl:]]*) return 1 ;; esac
   ag_prefix=
   ag_rest=${ag_dir#/}
@@ -1325,7 +1279,7 @@ audit_prune() (
     | while IFS= read -r ag_old; do
         ag_old_id=${ag_old##*/event-}
         # The run-id grammar ^[0-9]{1,12}-[A-Za-z0-9]{6}$, checked with shell
-        # patterns instead of a printf|grep pipeline per pruned file (#407).
+        # patterns so a pruned file costs no process (#407).
         # The classes are spelled out so no locale can widen a range.
         ag_id_time=${ag_old_id%%-*}
         ag_id_rand=${ag_old_id#*-}
@@ -1487,15 +1441,19 @@ audit_export_to_file() (
   printf 'agent-guard: exported metadata-only support log to %s\n' "$ag_output" >&2
 )
 
+audit_logs_usage() {
+  printf '%s\n' 'Usage: agent-guard logs [status|export [--output FILE]]' >&2
+}
+
 audit_logs() {
   case "${1:-status}" in
     -h|--help|help)
-      [ "$#" -eq 1 ] || { printf '%s\n' 'Usage: agent-guard logs [status|export [--output FILE]]' >&2; return 2; }
-      printf '%s\n' 'Usage: agent-guard logs [status|export [--output FILE]]' >&2
+      [ "$#" -eq 1 ] || { audit_logs_usage; return 2; }
+      audit_logs_usage
       return 0
       ;;
     status)
-      case "$#:${1:-}" in 0:|1:status) ;; *) printf '%s\n' 'Usage: agent-guard logs [status|export [--output FILE]]' >&2; return 2 ;; esac
+      case "$#:${1:-}" in 0:|1:status) ;; *) audit_logs_usage; return 2 ;; esac
       case "${AGENT_GUARD_LOG_MODE:-on}" in on|off) ag_mode=${AGENT_GUARD_LOG_MODE:-on} ;; *) ag_mode=invalid ;; esac
       printf 'Local diagnostic logging: %s\nDirectory: ${XDG_STATE_HOME:-~/.local/state}/agent-guard\nRetention target: 7 days, 1000 invocations; bounded cleanup runs at start, so concurrency or externally added files can exceed this.\n' "$ag_mode"
       if audit_directory >/dev/null; then printf 'Storage: private directory ready\n'; else printf 'Storage: not created or unavailable\n'; fi
@@ -1504,11 +1462,11 @@ audit_logs() {
       shift
       case "$#" in
         0) audit_export ;;
-        2) [ "$1" = --output ] || { printf '%s\n' 'Usage: agent-guard logs [status|export [--output FILE]]' >&2; return 2; }; audit_export_to_file "$2" ;;
-        *) printf '%s\n' 'Usage: agent-guard logs [status|export [--output FILE]]' >&2; return 2 ;;
+        2) [ "$1" = --output ] || { audit_logs_usage; return 2; }; audit_export_to_file "$2" ;;
+        *) audit_logs_usage; return 2 ;;
       esac
       ;;
-    *) printf '%s\n' 'Usage: agent-guard logs [status|export [--output FILE]]' >&2; return 2 ;;
+    *) audit_logs_usage; return 2 ;;
   esac
 }
 
@@ -1731,6 +1689,20 @@ select_gitleaks_probe_launcher() {
   return 1
 }
 
+# Replace the calling subshell with "$@" as the leader of a new session, so a
+# watchdog can kill the whole process group. Call only from a subshell after
+# select_gitleaks_probe_launcher has succeeded; it never returns.
+exec_in_new_session() {
+  case "$GITLEAKS_PROBE_LAUNCHER" in
+    setsid) exec "$GITLEAKS_PROBE_LAUNCHER_BIN" "$@" ;;
+    perl)
+      exec "$GITLEAKS_PROBE_LAUNCHER_BIN" -MPOSIX \
+        -e 'POSIX::setsid() >= 0 or exit 125; exec @ARGV; exit 126' "$@"
+      ;;
+    *) exit 125 ;;
+  esac
+}
+
 probe_gitleaks() {
   ag_gl_probe_bin=$1
   GITLEAKS_PROBE_STATE=missing
@@ -1771,15 +1743,7 @@ probe_gitleaks() {
     # POSIX ulimit -f uses 512-byte blocks. Bounding the regular output file
     # prevents a broken version command from filling memory before parsing.
     ulimit -f 16 >/dev/null 2>&1 || exit 125
-    case "$GITLEAKS_PROBE_LAUNCHER" in
-      setsid) exec "$GITLEAKS_PROBE_LAUNCHER_BIN" "$ag_gl_probe_bin" version ;;
-      perl)
-        exec "$GITLEAKS_PROBE_LAUNCHER_BIN" -MPOSIX \
-          -e 'POSIX::setsid() >= 0 or exit 125; exec @ARGV; exit 126' \
-          "$ag_gl_probe_bin" version
-        ;;
-      *) exit 125 ;;
-    esac
+    exec_in_new_session "$ag_gl_probe_bin" version
   ) >"$ag_gl_probe_output" 2>&1 &
   AG_GITLEAKS_PROBE_PID=$!
   AG_GITLEAKS_PROBE_GROUP=$AG_GITLEAKS_PROBE_PID
@@ -2009,7 +1973,7 @@ gitleaks_probe_cache_store() {
 # change to any one of them misses. Findings, scanner errors, signals, and
 # could-not-run states are never stored, and every doubt (no hash tool, no
 # native-binary identity from the probe cache, an ignore file, an extended
-# config file, a stale, foreign or unreadable entry) runs the scan as before.
+# config file, a stale, foreign or unreadable entry) runs the scan uncached.
 # Entries hold only hashes and a time, never the text. They live in a 0700
 # directory inside the private state directory audit_begin validated, so
 # diagnostics and AGENT_GUARD_LOG_MODE=off never cache. The TTL matches the
@@ -2540,8 +2504,9 @@ hook_host() {
 }
 
 # Claude Code renders an exit-2 block as "[<hooks.json command>]: <stderr>"
-# unless stdout carries a JSON reason, which buries the reason under the ~2 KB
-# inline resolver (#294), and it echoes a blocked prompt back as "Original
+# unless stdout carries a JSON reason, which puts the hook command line before
+# the reason (#294; the line is now the ~500-byte launcher command rather than
+# the old ~2 KB inline resolver), and it echoes a blocked prompt back as "Original
 # prompt:" unless suppressOriginalPrompt is set (#297). Exit 2 stays the block
 # signal; the JSON only reshapes the message. Before Claude Code 2.1.214 an
 # exit-2 hook whose JSON failed schema validation could stop blocking, so the
@@ -2748,27 +2713,17 @@ setup_jq_lookbehind_status_line() {
   return 0
 }
 
-setup_suggest_jq_install() {
+# $1 is the package name and $2 the download page when no known package
+# manager is available.
+setup_suggest_pkg_install() {
   if command -v brew >/dev/null 2>&1; then
-    info "  brew install jq"
+    info "  brew install $1"
   elif command -v apt-get >/dev/null 2>&1; then
-    info "  sudo apt-get install -y jq"
+    info "  sudo apt-get install -y $1"
   elif command -v dnf >/dev/null 2>&1; then
-    info "  sudo dnf install -y jq"
+    info "  sudo dnf install -y $1"
   else
-    info "  https://stedolan.github.io/jq/download/"
-  fi
-}
-
-setup_suggest_git_install() {
-  if command -v brew >/dev/null 2>&1; then
-    info "  brew install git"
-  elif command -v apt-get >/dev/null 2>&1; then
-    info "  sudo apt-get install -y git"
-  elif command -v dnf >/dev/null 2>&1; then
-    info "  sudo dnf install -y git"
-  else
-    info "  https://git-scm.com/downloads"
+    info "  $2"
   fi
 }
 
@@ -2920,11 +2875,11 @@ EOF
     fi
     if [ "$jq_ok" -eq 0 ]; then
       info "$PROGRAM: jq is not auto-installed; use your system package manager:"
-      setup_suggest_jq_install
+      setup_suggest_pkg_install jq https://stedolan.github.io/jq/download/
     fi
     if [ "$git_ok" -eq 0 ]; then
       info "$PROGRAM: git is not auto-installed; use your system package manager:"
-      setup_suggest_git_install
+      setup_suggest_pkg_install git https://git-scm.com/downloads
     fi
     [ "$jq_ok" -eq 1 ] && [ "$git_ok" -eq 1 ] \
       && [ "$gitleaks_runtime_ok" -eq 1 ]
@@ -2935,11 +2890,11 @@ EOF
     info ""
     if [ "$jq_ok" -eq 0 ]; then
       info "$PROGRAM: install jq with your package manager:"
-      setup_suggest_jq_install
+      setup_suggest_pkg_install jq https://stedolan.github.io/jq/download/
     fi
     if [ "$git_ok" -eq 0 ]; then
       info "$PROGRAM: install git with your package manager:"
-      setup_suggest_git_install
+      setup_suggest_pkg_install git https://git-scm.com/downloads
     fi
     if [ "$gitleaks_ok" -eq 0 ]; then
       if ! setup_suggest_gitleaks_runtime_repair; then
@@ -3002,11 +2957,8 @@ smoke_test() {
     | smoke_expect 0 "pii-filter runs with the regex provider" pii_filter
 
   write_payload=$(mktemp_file) || die "smoke: failed to create temp file"
-  {
-    printf '%s' '{"tool_name":"Write","tool_input":{"file_path":"guard-fixture.txt","content":"'
-    sed 's/\\/\\\\/g; s/"/\\"/g; s/$/\\n/' "$tmp/dirty/private-key-fixture.txt" | tr -d '\n'
-    printf '%s\n' '"}}'
-  } >"$write_payload"
+  jq -c -R -s '{tool_name: "Write", tool_input: {file_path: "guard-fixture.txt", content: .}}' \
+    <"$tmp/dirty/private-key-fixture.txt" >"$write_payload"
   smoke_expect 2 "hook-pre-tool blocks secret-like writes" hook_pre_tool <"$write_payload"
   rm -f "$write_payload"
 
@@ -3024,7 +2976,7 @@ smoke_test() {
     mkdir -p githooks
     {
       printf '%s\n' '#!/usr/bin/env sh'
-      printf 'exec "%s" scan-staged\n' "$BIN_DIR/agent-guard"
+      printf 'exec %s scan-staged\n' "$(sh_squote "$SELF_BIN")"
     } >githooks/pre-commit
     chmod +x githooks/pre-commit || exit 2
     git config core.hooksPath githooks || exit 2
@@ -3041,9 +2993,9 @@ smoke_test() {
 mktemp_file() {
   # Every scan temp file lands under the per-invocation rundir (created once at
   # dispatch) so the single EXIT/INT/TERM trap removes all of them even when a
-  # scan is interrupted mid-run. The fallback preserves the original per-file
-  # behavior when there is no rundir — sourced in tests, or its creation failed —
-  # so temp allocation never hard-fails.
+  # scan is interrupted mid-run. When there is no rundir — sourced in tests, or
+  # its creation failed — the fallback makes a standalone mktemp file, so temp
+  # allocation never hard-fails.
   if [ -n "${AGENT_GUARD_RUNDIR:-}" ] && [ -d "$AGENT_GUARD_RUNDIR" ]; then
     rundir_temp_file && return 0
     mktemp "$AGENT_GUARD_RUNDIR/agent-guard.XXXXXX" 2>/dev/null && return 0
@@ -3063,7 +3015,7 @@ mktemp_file() {
 #   - the file is created under umask 077 (mode 600, as mktemp makes it) and
 #     the caller's umask and noclobber setting are restored afterwards.
 # Any doubt -- no saved umask, a symlinked rundir, no free name in a bounded
-# number of tries -- returns 1 and mktemp_file runs mktemp as before.
+# number of tries -- returns 1 and mktemp_file falls back to mktemp.
 rundir_temp_file() {
   rt_dir=${AGENT_GUARD_RUNDIR:-}
   [ -n "$rt_dir" ] && [ -d "$rt_dir" ] && [ ! -L "$rt_dir" ] || return 1
@@ -3225,7 +3177,7 @@ BEGIN {
   # awk cannot start match() at an offset, so mask_re walks a sliding window
   # rather than re-slicing the whole remainder after every candidate — that
   # copy is per-candidate and turns one long line of card-shaped rejects
-  # quadratic, past the 10s PreToolUse timeout in hooks/hooks.json.
+  # quadratic, past the host hook timeouts in hooks/hooks.json.
   # PII_MARGIN must exceed the longest text any pattern can match (19 digits
   # plus three separators), so a match landing clear of the margin is whole.
   PII_WIN = 512
@@ -3580,17 +3532,14 @@ check_pii_hook_input() {
       content=$(json_value '.tool_input.command // .tool_input.cmd // empty' "$input")
       block_on_pii_text "Bash command" "$content"
       ;;
-    WebFetch|WebSearch)
+    WebFetch|WebSearch|Agent|Task|mcp__*)
+      case "$tool" in
+        Agent|Task) pii_input_label='subagent delegation input' ;;
+        mcp__*) pii_input_label='MCP tool input' ;;
+        *) pii_input_label="$tool input" ;;
+      esac
       content=$(printf '%s' "$input" | jq -r '.tool_input // {} | .. | strings')
-      block_on_pii_text "$tool input" "$content"
-      ;;
-    Agent|Task)
-      content=$(printf '%s' "$input" | jq -r '.tool_input // {} | .. | strings')
-      block_on_pii_text "subagent delegation input" "$content"
-      ;;
-    mcp__*)
-      content=$(printf '%s' "$input" | jq -r '.tool_input // {} | .. | strings')
-      block_on_pii_text "MCP tool input" "$content"
+      block_on_pii_text "$pii_input_label" "$content"
       ;;
   esac
 }
@@ -4245,7 +4194,8 @@ scan_file_fragment_direct() {
   scan_text_direct "$label" "$text"
 }
 
-# Scan status protocol, shared by every scan_* function and this dispatcher:
+# Scan status protocol, shared by every scan_* function and by
+# block_on_scan_status:
 #   0 clean, 1 a secret was found, 3 the scan could not run, other scanner error.
 # 3 exists because "I found a secret in your staged changes" and "I never got to
 # look" are different facts and an operator has to be able to act on the right
@@ -4378,6 +4328,23 @@ require_git_repo() {
   return "$SCAN_STATUS_UNAVAILABLE"
 }
 
+# Set scan_byte_count to the size of file $1 in bytes, for the two bounded
+# scan producers. BSD wc pads the count with blanks; they are trimmed by the
+# shell instead of piping through tr (#407). Anything else that is not a plain
+# number (wc failed, the file is unreadable) returns 1 so the caller fails closed.
+scan_file_bytes() {
+  scan_byte_count=$(LC_ALL=C wc -c <"$1" 2>/dev/null)
+  while :; do
+    case "$scan_byte_count" in
+      [[:space:]]*) scan_byte_count=${scan_byte_count#?} ;;
+      *) break ;;
+    esac
+  done
+  case "$scan_byte_count" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+}
+
 extract_git_diff_added() {
   diff_file=$(mktemp_file) || return "$SCAN_STATUS_UNAVAILABLE"
   diff_status_file=$(mktemp_file) || { rm -f "$diff_file"; return "$SCAN_STATUS_UNAVAILABLE"; }
@@ -4405,18 +4372,11 @@ extract_git_diff_added() {
   diff_status=
   { IFS= read -r diff_status <"$diff_status_file"; } 2>/dev/null || :
   rm -f "$diff_status_file"
-  diff_bytes=$(LC_ALL=C wc -c <"$diff_file" 2>/dev/null)
-  # BSD wc pads the count with blanks. Trim them here instead of piping through
-  # tr (#407); anything else that is not a plain number still fails closed below.
-  while :; do
-    case "$diff_bytes" in
-      [[:space:]]*) diff_bytes=${diff_bytes#?} ;;
-      *) break ;;
-    esac
-  done
-  case "$diff_bytes" in
-    ''|*[!0-9]*) rm -f "$diff_file" "$diff_err_file"; return "$SCAN_STATUS_UNAVAILABLE" ;;
-  esac
+  scan_file_bytes "$diff_file" || {
+    rm -f "$diff_file" "$diff_err_file"
+    return "$SCAN_STATUS_UNAVAILABLE"
+  }
+  diff_bytes=$scan_byte_count
   # `head` closes the pipe at the sentinel byte, so git may report SIGPIPE (or
   # never reach its status write) for an over-budget diff; the byte count, not
   # that status, is authoritative here. `scan_untracked_files` bounds its own
@@ -4445,13 +4405,35 @@ extract_git_diff_added() {
   return "$status"
 }
 
-scan_staged() {
+# Preflight shared by the repository-wide scans: a missing git or gitleaks
+# exits with the unavailable status, and repo_root is left set for the caller.
+git_scan_prepare() {
   need_cmd git "$SCAN_STATUS_UNAVAILABLE"
   need_gitleaks "$SCAN_STATUS_UNAVAILABLE"
   require_git_repo || return $?
   repo_root=$(git rev-parse --show-toplevel 2>/dev/null) \
     || return "$SCAN_STATUS_UNAVAILABLE"
-  added=$(CDPATH= cd -- "$repo_root" && extract_git_diff_added --cached --unified=0 --no-ext-diff -- .)
+}
+
+# The added lines of a root-relative `git diff "$@" -- .`. It changes directory
+# in the calling shell, so call it only inside a command substitution.
+repo_diff_added() {
+  CDPATH= cd -- "$repo_root" && extract_git_diff_added "$@" -- .
+}
+
+# Fold one scan status into $result: a finding outranks everything, and an
+# unavailable or failed scan outranks only a clean one.
+merge_scan_status() {
+  case "$1" in
+    0) ;;
+    1) result=1 ;;
+    *) [ "$result" -eq 0 ] && result="$SCAN_STATUS_UNAVAILABLE" ;;
+  esac
+}
+
+scan_staged() {
+  git_scan_prepare || return $?
+  added=$(repo_diff_added --cached --unified=0 --no-ext-diff)
   status=$?
   [ "$status" -eq 0 ] || return "$status"
   [ -n "$added" ] || return 0
@@ -4463,18 +4445,15 @@ scan_staged() {
 # --interactive ($1 = 1), or those under the pathspecs in $3... (relative to
 # the command cwd, as Git reads them). --interactive can also add untracked
 # files ($2 = 1), and a same-command `git add -f` even ignored ones ($2 = 2),
-# which may exceed the scan budget and then reports unavailable. A diff against HEAD is used instead of staging into a scratch
-# index so the scan writes neither the index nor the object store.
+# which may exceed the scan budget and then reports unavailable. A diff against
+# HEAD is used instead of staging into a scratch index so the scan writes
+# neither the index nor the object store.
 scan_commit_candidate() {
   stage_all=$1
   stage_untracked=$2
   shift 2
-  need_cmd git "$SCAN_STATUS_UNAVAILABLE"
-  need_gitleaks "$SCAN_STATUS_UNAVAILABLE"
-  require_git_repo || return $?
-  repo_root=$(git rev-parse --show-toplevel 2>/dev/null) \
-    || return "$SCAN_STATUS_UNAVAILABLE"
-  added=$(CDPATH= cd -- "$repo_root" && extract_git_diff_added --cached --unified=0 --no-ext-diff -- .)
+  git_scan_prepare || return $?
+  added=$(repo_diff_added --cached --unified=0 --no-ext-diff)
   status=$?
   [ "$status" -eq 0 ] || return "$status"
   if [ "$stage_all" -eq 1 ] || [ "$#" -gt 0 ]; then
@@ -4483,8 +4462,7 @@ scan_commit_candidate() {
     stage_base=
     git rev-parse --verify --quiet HEAD >/dev/null 2>&1 && stage_base=HEAD
     if [ "$stage_all" -eq 1 ]; then
-      staged_by_git=$(CDPATH= cd -- "$repo_root" \
-        && extract_git_diff_added --unified=0 --no-ext-diff ${stage_base:+"$stage_base"} -- .)
+      staged_by_git=$(repo_diff_added --unified=0 --no-ext-diff ${stage_base:+"$stage_base"})
     else
       staged_by_git=$(extract_git_diff_added --unified=0 --no-ext-diff ${stage_base:+"$stage_base"} -- "$@")
     fi
@@ -4559,13 +4537,13 @@ scan_untracked_files() {
     2>/dev/null \
     | head -c $((SCAN_COMPONENT_MAX_BYTES + 1)) >"$blob"
   pipe_status=$?
-  prepare_status=$(sed -n '1p' "$prepare_status_file" 2>/dev/null)
+  # The first line, read by the shell instead of a sed process (#407).
+  prepare_status=
+  { IFS= read -r prepare_status <"$prepare_status_file"; } 2>/dev/null || :
   rm -f "$prepare_status_file"
   rm -f "$list"
-  blob_bytes=$(LC_ALL=C wc -c <"$blob" 2>/dev/null | tr -d '[:space:]')
-  case "$blob_bytes" in
-    ''|*[!0-9]*) rm -f "$blob"; return "$SCAN_STATUS_UNAVAILABLE" ;;
-  esac
+  scan_file_bytes "$blob" || { rm -f "$blob"; return "$SCAN_STATUS_UNAVAILABLE"; }
+  blob_bytes=$scan_byte_count
   # `head` deliberately closes the pipe after the sentinel byte. The producer
   # may therefore report SIGPIPE (or never reach its status write) for an
   # over-budget stream; the byte count is the authoritative outcome in that
@@ -4594,11 +4572,7 @@ scan_untracked_files() {
 }
 
 scan_working_tree() {
-  need_cmd git "$SCAN_STATUS_UNAVAILABLE"
-  need_gitleaks "$SCAN_STATUS_UNAVAILABLE"
-  require_git_repo || return $?
-  repo_root=$(git rev-parse --show-toplevel 2>/dev/null) \
-    || return "$SCAN_STATUS_UNAVAILABLE"
+  git_scan_prepare || return $?
 
   # Two diffs, and with a HEAD both are taken AGAINST HEAD (#224). `git diff
   # HEAD` alone compares only the worktree, so a secret staged and then reverted
@@ -4612,20 +4586,20 @@ scan_working_tree() {
   first=
   second=
   if git -C "$repo_root" rev-parse --verify HEAD >/dev/null 2>&1; then
-    first=$(CDPATH= cd -- "$repo_root" && extract_git_diff_added --unified=0 --no-ext-diff HEAD -- .)
+    first=$(repo_diff_added --unified=0 --no-ext-diff HEAD)
     status=$?
     [ "$status" -eq 0 ] || result="$SCAN_STATUS_UNAVAILABLE"
-    second=$(CDPATH= cd -- "$repo_root" && extract_git_diff_added --cached --unified=0 --no-ext-diff -- .)
+    second=$(repo_diff_added --cached --unified=0 --no-ext-diff)
     status=$?
     [ "$status" -eq 0 ] || result="$SCAN_STATUS_UNAVAILABLE"
   else
     # No HEAD: `--cached` compares against the empty tree and the plain diff
     # carries unstaged edits. Nothing is committed yet, so neither can re-report
     # history and there is no HEAD to diff against.
-    first=$(CDPATH= cd -- "$repo_root" && extract_git_diff_added --cached --unified=0 --no-ext-diff -- .)
+    first=$(repo_diff_added --cached --unified=0 --no-ext-diff)
     status=$?
     [ "$status" -eq 0 ] || result="$SCAN_STATUS_UNAVAILABLE"
-    second=$(CDPATH= cd -- "$repo_root" && extract_git_diff_added --unified=0 --no-ext-diff -- .)
+    second=$(repo_diff_added --unified=0 --no-ext-diff)
     status=$?
     [ "$status" -eq 0 ] || result="$SCAN_STATUS_UNAVAILABLE"
   fi
@@ -4640,20 +4614,12 @@ $second"
   if [ -n "$tracked" ]; then
     scan_text_direct "working tree added lines" "$tracked"
     status=$?
-    case "$status" in
-      0) ;;
-      1) result=1 ;;
-      *) [ "$result" -eq 0 ] && result="$SCAN_STATUS_UNAVAILABLE" ;;
-    esac
+    merge_scan_status "$status"
   fi
 
   (CDPATH= cd -- "$repo_root" && scan_untracked_files)
   status=$?
-  case "$status" in
-    0) ;;
-    1) result=1 ;;
-    *) [ "$result" -eq 0 ] && result="$SCAN_STATUS_UNAVAILABLE" ;;
-  esac
+  merge_scan_status "$status"
 
   return "$result"
 }
@@ -4699,11 +4665,12 @@ scan_path() {
   return "$result"
 }
 
-# Every hook used to start one jq process (plus the pipeline and command
-# substitution around it) per field it read from its own input: the object
-# check, `.tool_input | type`, the tool name, the command, the path... (#407).
-# json_value_prime reads those fields in one jq run, and json_value answers
-# them from shell variables only while it is handed that exact input text.
+# A hook reads several fields of its own input: the object check,
+# `.tool_input | type`, the tool name, the command, the path... This cache
+# (#407) saves one jq process per field, plus the pipeline and command
+# substitution around it: json_value_prime reads those fields in one jq run,
+# and json_value answers them from shell variables only while it is handed
+# that exact input text.
 #
 # A field is cached only when `jq -r EXPR` provably prints the same bytes: the
 # expression yields exactly one string without a NUL byte (printed with a
@@ -5900,23 +5867,24 @@ env_exception_literal_shell_token() {
   printf '%s' "$literal_env_value"
 }
 
-# Drop tokens that name an allowed `.env` template (e.g. `.env.example`) before
-# the whole-command deny regex runs, so `cat .env.example` is allowed while
-# `cat .env.example .env` still blocks on the bare `.env` token. Globbing is
-# disabled inside a subshell so a stray `*` in the command is not expanded
-# against the real filesystem during word splitting. A template *name* that is
-# actually a symlink to a deny-listed secret is NOT stripped: mirroring the Read
-# path (matches_deny_path), the token is resolved and kept when its target is
-# itself deny-listed, so the whole-command deny gate still blocks it. A genuine
-# template file resolves to a same-named target and is still stripped. When the
-# command changes cwd once to a static directory, a relative token must pass
-# this check from both the event workdir and that directory.
+# A template *name* that is actually a symlink to a deny-listed secret is NOT
+# stripped: mirroring the Read path (matches_deny_path), the token is resolved
+# and kept when its target is itself deny-listed, so the whole-command deny gate
+# still blocks it. A genuine template file resolves to a same-named target and
+# is still stripped. When the command changes cwd once to a static directory, a
+# relative token must pass this check from both the event workdir and that
+# directory.
 bash_env_exception_path_is_safe() {
   candidate_matches_deny "$1" && return 1
   env_exception_resolved=$(resolve_path "$1")
   [ "$env_exception_resolved" = "$1" ] || ! candidate_matches_deny "$env_exception_resolved"
 }
 
+# Drop tokens that name an allowed `.env` template (e.g. `.env.example`) before
+# the whole-command deny regex runs, so `cat .env.example` is allowed while
+# `cat .env.example .env` still blocks on the bare `.env` token. Globbing is
+# disabled inside a subshell so a stray `*` in the command is not expanded
+# against the real filesystem during word splitting.
 bash_strip_allowed_tokens() {
   (
     set -f
@@ -6019,6 +5987,20 @@ bash_strip_source_module_prose() (
   printf '%s' "$prose_result"
 )
 
+# Succeed when every PATH entry is absolute; an empty entry means the current
+# directory, so a cd could change what a later command name runs.
+path_entries_absolute() {
+  case ":${PATH-}:" in *::*|*:[!/]*) return 1 ;; esac
+}
+
+# The commands message_value_records and search_operand_spans accept before a
+# later command name: none of them can rebind a name (no builtin that assigns,
+# no loop variable) or write a file a PATH entry resolves it to. Both pass it
+# to awk with -v and match it as a dynamic regex; it holds no backslash, so -v
+# escape processing leaves it unchanged, and an empty value accepts nothing
+# rather than everything. cd qualifies only while path_entries_absolute holds.
+INERT_SEGMENT_COMMANDS_ERE='^(grep|egrep|fgrep|ls|cat|head|tail|wc|cut|tr|echo|true|false|pwd|cd|jq|diff|comm|basename|dirname|date|sleep)$'
+
 # Print the record numbers (git_command_records) of message values the
 # command sends as data: the subject and body of `orca orchestration
 # send|reply|ask` (and the question of `ask`), the title and body of `gh pr|issue create|comment|edit` and
@@ -6028,14 +6010,9 @@ bash_strip_source_module_prose() (
 # command name and every segment before it is an inert command without a
 # redirection, so nothing earlier on the line can change what the name runs.
 # Prints nothing when the line may hide a command (heredoc, group, eval).
-# Succeed when every PATH entry is absolute; an empty entry means the current
-# directory, so a cd could change what a later command name runs.
-path_entries_absolute() {
-  case ":${PATH-}:" in *::*|*:[!/]*) return 1 ;; esac
-}
-
 message_value_records() {
-  printf '%s\n' "$1" | LC_ALL=C awk -v cd_ok="$(path_entries_absolute && echo 1)" '
+  printf '%s\n' "$1" | LC_ALL=C awk -v cd_ok="$(path_entries_absolute && echo 1)" \
+    -v inert_names="$INERT_SEGMENT_COMMANDS_ERE" '
     function bail() { failed = 1; exit }
     function boundary(r) { return r == "0;" || r == "0&&" || r == "0||" || r == "0|" }
     # Every word of a simple command is expanded before its name is looked
@@ -6058,10 +6035,11 @@ message_value_records() {
       return w ~ /^-[aqsvne]+$/ || w ~ /^--[a-z-]+=/ \
         || w ~ /^--(all|quiet|verbose|signoff|no-signoff|edit|no-edit|amend|allow-empty|allow-empty-message|only|include|dry-run|reset-author|status|no-status|no-gpg-sign|short|porcelain|long)$/
     }
-    # The same list as search_operand_spans; a redirection may write a file a
-    # command name resolves to, and cd moves what a relative PATH entry names.
+    # inert_names is INERT_SEGMENT_COMMANDS_ERE; a redirection may write a
+    # file a command name resolves to, and cd moves what a relative PATH entry
+    # names.
     function inert(   j) {
-      if (kind[1] != "0" || word[1] !~ /^(grep|egrep|fgrep|ls|cat|head|tail|wc|cut|tr|echo|true|false|pwd|cd|jq|diff|comm|basename|dirname|date|sleep)$/) return 0
+      if (inert_names == "" || kind[1] != "0" || word[1] !~ inert_names) return 0
       if (word[1] == "cd" && cd_ok != "1") return 0
       for (j = 1; j <= n; j++) if (word[j] ~ /[<>]/) return 0
       return 1
@@ -6654,7 +6632,8 @@ bash_strip_literal_message_values() (
 # word that same segment check reaches; there an expansion or unsafe word
 # anywhere in an earlier segment also stops it.
 search_operand_spans() {
-  printf '%s\n' "$1" | LC_ALL=C awk -v grep_env="${GREP_OPTIONS-}" -v cd_ok="$(path_entries_absolute && echo 1)" -v mode="${2-}" '
+  printf '%s\n' "$1" | LC_ALL=C awk -v grep_env="${GREP_OPTIONS-}" -v cd_ok="$(path_entries_absolute && echo 1)" -v mode="${2-}" \
+    -v inert_names="$INERT_SEGMENT_COMMANDS_ERE" '
     function bail() { failed = 1; exit }
     function start_word() {
       if (inword) return
@@ -6808,7 +6787,7 @@ search_operand_spans() {
         # LD_PRELOAD can make any listed command run code; a locale name
         # without a path loads no code.
         for (r = a; r < h; r++) if (wv[r] !~ /^(LC_[A-Z]+|LANG|LANGUAGE|TZ)=[A-Za-z0-9_.@:+-]*$/) exit 0
-        if (wv[h] !~ /^(grep|egrep|fgrep|ls|cat|head|tail|wc|cut|tr|echo|true|false|pwd|cd|jq|diff|comm|basename|dirname|date|sleep)$/) exit 0
+        if (inert_names == "" || wv[h] !~ inert_names) exit 0
         if (wv[h] == "cd" && cd_ok != "1") exit 0
       }
     }
@@ -9432,12 +9411,8 @@ is_git_commit_or_push() {
         1*|0'~'*) effective_c_dynamic=1 ;;
         0*)
           dir=${record#?}
-          if [ -n "$effective_c_dirs" ]; then
-            effective_c_dirs="$effective_c_dirs
-$dir"
-          else
-            effective_c_dirs=$dir
-          fi
+          effective_c_dirs="${effective_c_dirs:+$effective_c_dirs
+}$dir"
           ;;
         *) effective_c_dynamic=1 ;;
       esac
@@ -9642,12 +9617,8 @@ $effective_c_dirs" "$git_config_args" "$git_env_args"
               && [ "$shell_cd_mutable" -eq 0 ] \
               && [ "$shell_cd_braces" -eq 0 ] \
               && shell_cd_dir=$(shell_cd_target "$@"); then
-              if [ -n "$shell_cd_dirs" ]; then
-                shell_cd_dirs="$shell_cd_dirs
-$shell_cd_dir"
-              else
-                shell_cd_dirs=$shell_cd_dir
-              fi
+              shell_cd_dirs="${shell_cd_dirs:+$shell_cd_dirs
+}$shell_cd_dir"
               shell_cd_count=$((shell_cd_count + 1))
               shell_cd_in_list=1
               [ "$shell_cd_cond" -eq 0 ] || shell_cd_pending=1
@@ -10613,9 +10584,11 @@ is_mutation_tool() {
 # `hookSpecificOutput.updatedToolOutput`; Codex blocks the original result and
 # receives a sanitized replacement in `additionalContext`.
 #
-# Fail-safe: this path runs for (potentially) every tool result, so any error
-# emits NOTHING and lets the original output through unchanged. A redaction bug
-# must never corrupt a tool result.
+# Fail-closed: this path runs for (potentially) every tool result, and a
+# detector, parser or rewrite failure never publishes a partial rewrite. Masking
+# then falls back to the conservative whole-leaf rewrite, and when even that
+# cannot be serialized the original result is blocked with a secret-free
+# replacement. Every replacement keeps the tool's native output shape.
 
 output_redact_enabled() {
   case "${AGENT_GUARD_OUTPUT_REDACT:-mask}" in
@@ -11752,17 +11725,22 @@ secretish_env_values() {
   '
 }
 
+# Set output_bytes to the byte length of $1. Returns 1 when wc yields no
+# well-formed count; each caller decides what a malformed count means. The count
+# is returned in a variable, not on stdout, so callers spawn no extra subshell.
+output_byte_count() {
+  output_bytes=$(printf '%s' "$1" | LC_ALL=C wc -c | tr -d '[:space:]')
+  case "$output_bytes" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+}
+
 # Treat malformed byte counts as over-cap so callers fail closed. Keeping the
 # limit in one helper aligns PostToolUse, gitleaks, and exec preflights.
 OUTPUT_SCAN_MAX_BYTES=327680
 output_scan_input_exceeds_cap() {
-  output_scan_input=$1
-  output_scan_bytes=$(printf '%s' "$output_scan_input" \
-    | LC_ALL=C wc -c | tr -d '[:space:]')
-  case "$output_scan_bytes" in
-    ''|*[!0-9]*) return 0 ;;
-  esac
-  [ "$output_scan_bytes" -gt "$OUTPUT_SCAN_MAX_BYTES" ]
+  output_byte_count "$1" || return 0
+  [ "$output_bytes" -gt "$OUTPUT_SCAN_MAX_BYTES" ]
 }
 
 # Bind the live post-tool probe's replacement to this invocation's diagnostic
@@ -11997,6 +11975,29 @@ known_env_value_records() (
   printf '%s\n' "$kv_found" | jq -Rc 'select(length > 0)' 2>/dev/null
 )
 
+# mktemp_files VAR...: assign each named variable its own mktemp_file path. If
+# an allocation fails, remove the files this call already made (in one rm) and
+# return 1, so the caller fails closed with nothing left behind. Each path is
+# still allocated through $(...): rundir_temp_file changes umask and noclobber
+# in the shell that runs it. The arguments are fixed variable names in code,
+# never input, which is what makes the eval safe. Allocated paths rotate onto
+# the end of the positional list, so a failure can drop the names not yet
+# assigned and pass exactly the allocated paths to rm.
+mktemp_files() {
+  mktemp_files_left=$#
+  while [ "$mktemp_files_left" -gt 0 ]; do
+    mktemp_files_path=$(mktemp_file) || {
+      shift "$mktemp_files_left"
+      [ "$#" -eq 0 ] || rm -f "$@"
+      return 1
+    }
+    eval "$1=\$mktemp_files_path"
+    shift
+    set -- "$@" "$mktemp_files_path"
+    mktemp_files_left=$((mktemp_files_left - 1))
+  done
+}
+
 # Collect JSON-string records for the literal secrets present in the response
 # JSON ($1): gitleaks findings plus the env-assignment heuristic and compact
 # token rules. The env heuristic scans each string leaf independently so quote
@@ -12018,24 +12019,8 @@ detect_output_secret_records() (
   fi
   response=$1
   env_records=${2:-yes}
-  detector_input=$(mktemp_file) || exit 1
-  detector_strings=$(mktemp_file) || {
-    rm -f "$detector_input"
-    exit 1
-  }
-  detector_records=$(mktemp_file) || {
-    rm -f "$detector_input" "$detector_strings"
-    exit 1
-  }
-  detector_work_a=$(mktemp_file) || {
-    rm -f "$detector_input" "$detector_strings" "$detector_records"
-    exit 1
-  }
-  detector_work_b=$(mktemp_file) || {
-    rm -f "$detector_input" "$detector_strings" "$detector_records" \
-      "$detector_work_a"
-    exit 1
-  }
+  mktemp_files detector_input detector_strings detector_records \
+    detector_work_a detector_work_b || exit 1
   detector_cleanup() {
     rm -f "$detector_input" "$detector_strings" "$detector_records" \
       "$detector_work_a" "$detector_work_b" ${detector_report:+"$detector_report"}
@@ -12066,14 +12051,14 @@ detect_output_secret_records() (
       detector_status=$?
       case "$detector_status" in 0|1) ;; *) detector_fail ;; esac
       [ -s "$detector_report" ] || detector_fail
-      # Validate and extract in one parser invocation. Stage output privately:
-      # a parser error after partial records must still fail the detector.
+      # Validate and extract in one parser invocation. Partial records a
+      # parser error leaves in the private records file are never printed:
+      # detector_fail discards the file before the final cat.
       jq -sc 'if length == 0 or any(.[]; type != "array")
               then error("invalid scanner report") else .[] end
              | .[]? | (.Secret // empty)
              | select(type == "string" and length > 0)' \
-        "$detector_report" >"$detector_work_a" 2>/dev/null || detector_fail
-      cat "$detector_work_a" >>"$detector_records" || detector_fail
+        "$detector_report" >>"$detector_records" 2>/dev/null || detector_fail
       rm -f "$detector_report"
       detector_report=
   fi
@@ -12082,8 +12067,7 @@ detect_output_secret_records() (
     frame_json_string_leaves <"$detector_input" \
       >"$detector_work_a" 2>/dev/null || detector_fail
     secretish_env_values <"$detector_work_a" \
-      >"$detector_work_b" 2>/dev/null || detector_fail
-    cat "$detector_work_b" >>"$detector_records" || detector_fail
+      >>"$detector_records" 2>/dev/null || detector_fail
   fi
 
   grep -Eo 'eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+' \
@@ -12091,8 +12075,7 @@ detect_output_secret_records() (
   detector_status=$?
   case "$detector_status" in 0|1) ;; *) detector_fail ;; esac
   jq -Rc 'select(length > 0)' <"$detector_work_a" \
-    >"$detector_work_b" 2>/dev/null || detector_fail
-  cat "$detector_work_b" >>"$detector_records" || detector_fail
+    >>"$detector_records" 2>/dev/null || detector_fail
 
   grep -Eio 'bearer[ \t]+[-A-Za-z0-9._~+/=]+' \
     <"$detector_strings" >"$detector_work_a" 2>/dev/null
@@ -12101,13 +12084,11 @@ detect_output_secret_records() (
   awk '{ tok = $2; if (length(tok) >= 8) print tok }' \
     <"$detector_work_a" >"$detector_work_b" 2>/dev/null || detector_fail
   jq -Rc 'select(length > 0)' <"$detector_work_b" \
-    >"$detector_work_a" 2>/dev/null || detector_fail
-  cat "$detector_work_a" >>"$detector_records" || detector_fail
+    >>"$detector_records" 2>/dev/null || detector_fail
 
   if known_value_redact_enabled; then
     known_env_value_records "$detector_strings" \
-      >"$detector_work_b" 2>/dev/null || detector_fail
-    cat "$detector_work_b" >>"$detector_records" || detector_fail
+      >>"$detector_records" 2>/dev/null || detector_fail
   fi
 
   cat "$detector_records"
@@ -12126,15 +12107,7 @@ bundle_secret_records() (
     bundle_secret_records_fused "$@"
     exit $?
   fi
-  bundle_input=$(mktemp_file) || exit 1
-  bundle_records=$(mktemp_file) || {
-    rm -f "$bundle_input"
-    exit 1
-  }
-  bundle_output=$(mktemp_file) || {
-    rm -f "$bundle_input" "$bundle_records"
-    exit 1
-  }
+  mktemp_files bundle_input bundle_records bundle_output || exit 1
   if ! cat >"$bundle_input" \
     || ! LC_ALL=C awk '
         BEGIN {
@@ -12177,11 +12150,7 @@ detect_output_secret_bundle() (
     exit $?
   fi
   bundle_response=$1
-  bundle_raw=$(mktemp_file) || exit 1
-  bundle_json=$(mktemp_file) || {
-    rm -f "$bundle_raw"
-    exit 1
-  }
+  mktemp_files bundle_raw bundle_json || exit 1
   if ! detect_output_secret_records "$bundle_response" >"$bundle_raw" \
     || ! bundle_secret_records <"$bundle_raw" >"$bundle_json"; then
     rm -f "$bundle_raw" "$bundle_json"
@@ -12200,11 +12169,7 @@ classify_secret_bundle() {
   classify_bundle_value=$1
   BUNDLE_MODE=
   BUNDLE_SECRETS=
-  classify_bundle_input=$(mktemp_file) || return 1
-  classify_bundle_output=$(mktemp_file) || {
-    rm -f "$classify_bundle_input"
-    return 1
-  }
+  mktemp_files classify_bundle_input classify_bundle_output || return 1
   if ! printf '%s' "$classify_bundle_value" >"$classify_bundle_input" \
     || ! jq -jr '
       if type != "object"
@@ -12250,6 +12215,12 @@ classify_secret_bundle() {
   return 1
 }
 
+# Remove the four work files of detect_printenv_argument_secret_records.
+printenv_detect_cleanup() {
+  rm -f "$printenv_args_file" "$printenv_entries_file" \
+    "$printenv_work_a" "$printenv_work_b"
+}
+
 # `printenv NAME` prints only the value, so the output loses the secret-bearing
 # variable name that secretish_env_values needs as context. Reconstruct that
 # context from simple variable-name arguments, then emit only the detected
@@ -12267,19 +12238,8 @@ detect_printenv_argument_secret_records() {
   shift
   [ "${1:-}" = "--" ] && shift
   [ "$#" -gt 0 ] || return 0
-  printenv_args_file=$(mktemp_file) || return 1
-  printenv_entries_file=$(mktemp_file) || {
-    rm -f "$printenv_args_file"
-    return 1
-  }
-  printenv_work_a=$(mktemp_file) || {
-    rm -f "$printenv_args_file" "$printenv_entries_file"
-    return 1
-  }
-  printenv_work_b=$(mktemp_file) || {
-    rm -f "$printenv_args_file" "$printenv_entries_file" "$printenv_work_a"
-    return 1
-  }
+  mktemp_files printenv_args_file printenv_entries_file \
+    printenv_work_a printenv_work_b || return 1
 
   # Do not replay the complete printenv argument list into a second process
   # argv: the original command can fit while jq's extra argv entries cross
@@ -12326,8 +12286,7 @@ detect_printenv_argument_secret_records() {
       <"$printenv_work_b" >"$printenv_work_a" 2>/dev/null \
     || ! jq -sc 'reduce .[] as $probe ({}; .[$probe] = true)' \
       "$printenv_work_a" >"$printenv_work_b" 2>/dev/null; then
-    rm -f "$printenv_args_file" "$printenv_entries_file" \
-      "$printenv_work_a" "$printenv_work_b"
+    printenv_detect_cleanup
     return 1
   fi
 
@@ -12335,16 +12294,14 @@ detect_printenv_argument_secret_records() {
   # documents. Generated JSON can expand far beyond Linux MAX_ARG_STRLEN even
   # though the original plaintext remains under the output cap.
   : >"$printenv_work_a" || {
-    rm -f "$printenv_args_file" "$printenv_entries_file" \
-      "$printenv_work_a" "$printenv_work_b"
+    printenv_detect_cleanup
     return 1
   }
   if ! cat "$printenv_entries_file" >>"$printenv_work_a" \
     || ! printf '\n' >>"$printenv_work_a" \
     || ! cat "$printenv_work_b" >>"$printenv_work_a" \
     || ! printf '\n%s\n' "$response" >>"$printenv_work_a"; then
-    rm -f "$printenv_args_file" "$printenv_entries_file" \
-      "$printenv_work_a" "$printenv_work_b"
+    printenv_detect_cleanup
     return 1
   fi
 
@@ -12421,8 +12378,7 @@ detect_printenv_argument_secret_records() {
     | select(. as $value | $output | contains($value))
   ' "$printenv_work_a" 2>/dev/null
   printenv_detect_status=$?
-  rm -f "$printenv_args_file" "$printenv_entries_file" \
-    "$printenv_work_a" "$printenv_work_b"
+  printenv_detect_cleanup
   return "$printenv_detect_status"
 }
 
@@ -12430,11 +12386,7 @@ detect_exec_secret_bundle() (
   exec_bundle_response=$1
   exec_bundle_invalid=$2
   shift 2
-  exec_bundle_records=$(mktemp_file) || exit 1
-  exec_bundle_json=$(mktemp_file) || {
-    rm -f "$exec_bundle_records"
-    exit 1
-  }
+  mktemp_files exec_bundle_records exec_bundle_json || exit 1
   : >"$exec_bundle_records" || {
     rm -f "$exec_bundle_records" "$exec_bundle_json"
     exit 1
@@ -12494,6 +12446,52 @@ printenv_requests_secretish_name() {
     | grep -q .
 }
 
+# Set rust_core to the native redactor redact_tool_response_json may run: an
+# explicit AGENT_GUARD_RUST_CORE_BIN, the unsuffixed packaged helper, or the
+# packaged helper for the running architecture when its shipped checksum
+# matches. Empty when nothing is configured or no architecture helper
+# qualifies; the caller runs it only when it is an absolute executable path.
+select_rust_redactor() {
+  rust_core=${AGENT_GUARD_RUST_CORE_BIN:-}
+  if [ -z "$rust_core" ] && [ -n "${ROOT_DIR:-}" ]; then
+    rust_core="$ROOT_DIR/libexec/agent-guard-redact"
+  fi
+  # Explicit developer overrides retain their trusted-executable contract.
+  # Packaged helpers are selected only for the running architecture and must
+  # match the checksum shipped inside the checksum-verified release archive.
+  if [ -z "${AGENT_GUARD_RUST_CORE_BIN:-}" ] && [ -n "${ROOT_DIR:-}" ] \
+      && [ -d "$ROOT_DIR/libexec" ] && [ ! -e "$rust_core" ]; then
+    rust_target=
+    case "$(uname -s):$(uname -m)" in
+      Linux:x86_64|Linux:amd64) rust_target=x86_64-unknown-linux-musl ;;
+      Linux:aarch64|Linux:arm64) rust_target=aarch64-unknown-linux-musl ;;
+      # Intel macOS has no helper after v3.8.2; a leftover one stays unused.
+      Darwin:arm64) rust_target=aarch64-apple-darwin ;;
+    esac
+    rust_name="agent-guard-redact-$rust_target"
+    rust_core="$ROOT_DIR/libexec/$rust_name"
+    if [ -n "$rust_target" ] && [ -f "$rust_core" ] && [ ! -L "$rust_core" ] \
+        && [ -f "$rust_core.sha256" ] && [ ! -L "$rust_core.sha256" ] \
+        && rust_expected=$(cat "$rust_core.sha256" 2>/dev/null) \
+        && rust_actual=$(
+          CDPATH='' cd -- "$ROOT_DIR/libexec" || exit 1
+          # Avoid starting Perl for each Linux invocation. Both tools emit
+          # the same SHA-256/name record; macOS keeps its system shasum.
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "$rust_name" 2>/dev/null
+          else
+            shasum -a 256 "$rust_name" 2>/dev/null
+          fi
+        ) \
+        && [ "$rust_expected" = "$rust_actual" ]; then
+      :
+    else
+      rust_core=
+    fi
+    unset rust_target rust_name rust_expected rust_actual
+  fi
+}
+
 # Replace every detected secret literal with a placeholder inside ANY string leaf
 # of the tool_response JSON ($1), preserving the original shape exactly
 # (updatedToolOutput must match the tool's native output shape). $2 is a JSON
@@ -12505,44 +12503,7 @@ redact_tool_response_json() {
   # Prefer the qualified packaged helper. Explicit shell/empty selections keep
   # the established jq contract; failed/partial helper stdout is never published.
   if [ "${AGENT_GUARD_EXPERIMENTAL_REDACTOR-rust}" = rust ]; then
-    rust_core=${AGENT_GUARD_RUST_CORE_BIN:-}
-    if [ -z "$rust_core" ] && [ -n "${ROOT_DIR:-}" ]; then
-      rust_core="$ROOT_DIR/libexec/agent-guard-redact"
-    fi
-    # Explicit developer overrides retain their trusted-executable contract.
-    # Packaged helpers are selected only for the running architecture and must
-    # match the checksum shipped inside the checksum-verified release archive.
-    if [ -z "${AGENT_GUARD_RUST_CORE_BIN:-}" ] && [ -n "${ROOT_DIR:-}" ] \
-        && [ -d "$ROOT_DIR/libexec" ] && [ ! -e "$rust_core" ]; then
-      rust_target=
-      case "$(uname -s):$(uname -m)" in
-        Linux:x86_64|Linux:amd64) rust_target=x86_64-unknown-linux-musl ;;
-        Linux:aarch64|Linux:arm64) rust_target=aarch64-unknown-linux-musl ;;
-        # Intel macOS has no helper after v3.8.2; a leftover one stays unused.
-        Darwin:arm64) rust_target=aarch64-apple-darwin ;;
-      esac
-      rust_name="agent-guard-redact-$rust_target"
-      rust_core="$ROOT_DIR/libexec/$rust_name"
-      if [ -n "$rust_target" ] && [ -f "$rust_core" ] && [ ! -L "$rust_core" ] \
-          && [ -f "$rust_core.sha256" ] && [ ! -L "$rust_core.sha256" ] \
-          && rust_expected=$(cat "$rust_core.sha256" 2>/dev/null) \
-          && rust_actual=$(
-            CDPATH='' cd -- "$ROOT_DIR/libexec" || exit 1
-            # Avoid starting Perl for each Linux invocation. Both tools emit
-            # the same SHA-256/name record; macOS keeps its system shasum.
-            if command -v sha256sum >/dev/null 2>&1; then
-              sha256sum "$rust_name" 2>/dev/null
-            else
-              shasum -a 256 "$rust_name" 2>/dev/null
-            fi
-          ) \
-          && [ "$rust_expected" = "$rust_actual" ]; then
-        :
-      else
-        rust_core=
-      fi
-      unset rust_target rust_name rust_expected rust_actual
-    fi
+    select_rust_redactor
     case "$rust_core" in
       /*)
         if [ -x "$rust_core" ] && rust_result=$(
@@ -12660,15 +12621,13 @@ redact_nul_response_json() {
 # Large, high-cardinality assignment dumps can exhaust the host timeout while
 # the ordinary detector collects every unique literal. Probe them in one
 # streaming pass first; only a confirmed secret-bearing assignment takes the
-# conservative whole-leaf path. Large clean output still uses normal detection.
+# conservative whole-leaf path. Large clean output still uses normal detection,
+# and so does a response whose size cannot be counted: this is only a precheck.
+OUTPUT_LARGE_PROBE_BYTES=262144
 large_response_has_secretish_assignment() {
   large_probe_response=$1
-  large_probe_bytes=$(printf '%s' "$large_probe_response" \
-    | wc -c | tr -d '[:space:]')
-  case "$large_probe_bytes" in
-    ''|*[!0-9]*) return 1 ;;
-  esac
-  [ "$large_probe_bytes" -gt 262144 ] || return 1
+  output_byte_count "$large_probe_response" || return 1
+  [ "$output_bytes" -gt "$OUTPUT_LARGE_PROBE_BYTES" ] || return 1
   printf '%s' "$large_probe_response" \
     | frame_json_string_leaves 2>/dev/null \
     | secretish_env_values probe \
@@ -13744,6 +13703,16 @@ mask_file_render() {
   esac
 }
 
+# Runs "$@" and prints a trailing x, keeping its exit status, so that
+# v=$(capture_keep_newlines cmd) keeps cmd's final newlines once ${v%x} strips
+# the x. Redirections on the call apply to cmd.
+capture_keep_newlines() {
+  "$@"
+  ckn_status=$?
+  printf x
+  return "$ckn_status"
+}
+
 # Prints the masked view of file $1, or with $2 = paths the key path of every
 # masked value, one per line: dotenv KEY, ini section.key (key outside a
 # section), json and yaml keys joined by `.` with array indexes as numbers.
@@ -13775,14 +13744,12 @@ mask_file() (
   esac
   [ "$mf_size" -le "$MASK_FILE_MAX_BYTES" ] \
     || die_with_status 1 "mask-file: file is larger than 64 KiB"
-  # Buffered so a failure partway through prints nothing; the trailing x keeps
-  # $( ) from dropping final newlines. Parser stderr is dropped because jq and
-  # awk may quote the input in their errors.
-  mf_out=$(mask_file_render "$mf_format" "$mf_mode" "$mf_marker" "${4:-}" "${5:-}" "${6:-}" \
-    2>/dev/null <"$mf_path"
-    mf_status=$?
-    printf x
-    exit "$mf_status") \
+  # Buffered so a failure partway through prints nothing; capture_keep_newlines
+  # keeps $( ) from dropping final newlines. Parser stderr is dropped because jq
+  # and awk may quote the input in their errors.
+  mf_out=$(capture_keep_newlines \
+    mask_file_render "$mf_format" "$mf_mode" "$mf_marker" "${4:-}" "${5:-}" "${6:-}" \
+    2>/dev/null <"$mf_path") \
     || die_with_status 1 "mask-file: content is outside the supported $mf_format subset"
   printf '%s' "${mf_out%x}"
 )
@@ -13846,11 +13813,20 @@ MASK_RULES_MAX=64
 MASK_RULES_MAX_BYTES=256
 MASK_RULES_TIMEOUT_SECONDS=2
 
-# Every program reads rules as "label<TAB>line<TAB>rule".
+# Every program reads rules as "label<TAB>line<TAB>rule". unmark turns each
+# one-time `marker` back into [MASKED] for the programs that render with one.
 MASK_RULES_AWK_LIB='
 function parse_rule(s,   t) {
   t = index(s, "\t"); label = substr(s, 1, t - 1); s = substr(s, t + 1)
   t = index(s, "\t"); line = substr(s, 1, t - 1); rule = substr(s, t + 1)
+}
+function unmark(s,   p, out) {
+  out = ""
+  while ((p = index(s, marker)) > 0) {
+    out = out substr(s, 1, p - 1) "[MASKED]"
+    s = substr(s, p + length(marker))
+  }
+  return out s
 }
 '
 
@@ -13960,14 +13936,6 @@ function outside(s, r,   p) {
     s = substr(s, p + length(marker))
   }
   return s != "" && match(s, r)
-}
-function unmark(s,   p, out) {
-  out = ""
-  while ((p = index(s, marker)) > 0) {
-    out = out substr(s, 1, p - 1) "[MASKED]"
-    s = substr(s, p + length(marker))
-  }
-  return out s
 }
 function mark(i, r,   s, off, st, ones) {
   s = lines[i]
@@ -14125,6 +14093,16 @@ mask_deny_rules() (
   printf '%s' "$md_list"
 )
 
+# Sets mask_token to 24 hex digits from /dev/urandom, or returns 1. It sets a
+# name rather than printing, so a caller needs no extra command substitution.
+mask_random_token() {
+  mask_token=$(od -An -N12 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')
+  case $mask_token in
+    ????????????????????????) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 # Applies the deny-value rules to masked view $2 of file $1. With rules, the
 # file is masked again with a random marker so text in it that reads
 # "[MASKED]" cannot pass for a value. Prints the view, or a reason with no
@@ -14139,20 +14117,14 @@ mask_deny_values() (
   md_out=$(mask_rules_check "$md_rules")
   md_status=$?
   if [ "$md_status" -eq 0 ]; then
-    md_marker=$(od -An -N12 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')
-    case $md_marker in
-      ????????????????????????) md_marker="[MASKED:$md_marker]" ;;
-      *) md_status=2 ;;
-    esac
+    mask_random_token && md_marker="[MASKED:$mask_token]" || md_status=2
   fi
   if [ "$md_status" -eq 0 ]; then
     mask_file "$1" text "$md_marker" >"$md_view" 2>/dev/null || md_status=2
   fi
   if [ "$md_status" -eq 0 ]; then
-    md_out=$(mask_rules_apply "$md_rules" "$(mask_file_format "$1")" "$md_view" "$md_marker"
-      md_status=$?
-      printf x
-      exit "$md_status")
+    md_out=$(capture_keep_newlines \
+      mask_rules_apply "$md_rules" "$(mask_file_format "$1")" "$md_view" "$md_marker")
     md_status=$?
     md_out=${md_out%x}
   fi
@@ -14206,14 +14178,6 @@ FILENAME == rules_file {
 # json shows a value as a json string holding its json text. Exits 4 when the
 # two views do not line up.
 MASK_ALLOW_AWK_MERGE='
-function unmark(s,   p, out) {
-  out = ""
-  while ((p = index(s, marker)) > 0) {
-    out = out substr(s, 1, p - 1) "[MASKED]"
-    s = substr(s, p + length(marker))
-  }
-  return out s
-}
 # Undoes the json string escaping of json text, which only escapes " and \.
 function unquote(s,   i, c, out) {
   out = ""
@@ -14287,6 +14251,33 @@ mask_allow_acl() (
 # writable by no one else. Otherwise prints the reason and returns 1.
 mask_allow_source() (
   ma_unchecked='mask-allow-keys.txt could not be checked'
+  # Returns 0 when $1 or a directory above it holds a .git entry.
+  ma_git_above() {
+    ma_up=$1
+    while :; do
+      if [ -e "$ma_up/.git" ] || [ -L "$ma_up/.git" ]; then
+        return 0
+      fi
+      [ -n "$ma_up" ] && [ "$ma_up" != / ] || return 1
+      ma_up=${ma_up%/*}
+    done
+  }
+  # Sets ma_owner and ma_mode for node $1 after its ACL check, or prints the
+  # reason and returns 1. The owner and mode policy stays with each caller.
+  ma_node_facts() {
+    mask_allow_acl "$1"
+    case $? in
+      0) ;;
+      1) printf '%s' "$ma_acl"; return 1 ;;
+      *) printf '%s' "$ma_unchecked"; return 1 ;;
+    esac
+    ma_stat=$(audit_stat "$1")
+    ma_owner=${ma_stat%%:*}
+    ma_mode=${ma_stat#*:}
+    case $ma_owner:$ma_mode in
+      :*|*:|*[!0-9:]*|*:*:*) printf '%s' "$ma_unchecked"; return 1 ;;
+    esac
+  }
   ma_real=$(resolve_path "$1")
   # resolve_path falls back to the name it was given; check that the path is
   # the physical one.
@@ -14301,15 +14292,10 @@ mask_allow_source() (
   ma_inside='mask-allow-keys.txt is inside the repository or the working directory'
   # The agent can run a tool from any directory, so the workdir alone cannot
   # tell a HOME that a project setting moved into a repository.
-  ma_up=$ma_dir
-  while :; do
-    if [ -e "$ma_up/.git" ] || [ -L "$ma_up/.git" ]; then
-      printf '%s' "$ma_inside"
-      exit 1
-    fi
-    [ -n "$ma_up" ] && [ "$ma_up" != / ] || break
-    ma_up=${ma_up%/*}
-  done
+  if ma_git_above "$ma_dir"; then
+    printf '%s' "$ma_inside"
+    exit 1
+  fi
   ma_work=${2:-.}
   ma_work=$(CDPATH= cd -P -- "$ma_work" 2>/dev/null && pwd -P) \
     || { printf '%s' "$ma_unchecked"; exit 1; }
@@ -14320,16 +14306,9 @@ mask_allow_source() (
   if [ -n "$ma_top" ]; then
     ma_top=$(CDPATH= cd -P -- "$ma_top" 2>/dev/null && pwd -P) \
       || { printf '%s' "$ma_unchecked"; exit 1; }
-  else
-    ma_up=$ma_work
-    while :; do
-      if [ -e "$ma_up/.git" ] || [ -L "$ma_up/.git" ]; then
-        printf '%s' "$ma_unchecked"
-        exit 1
-      fi
-      [ -n "$ma_up" ] && [ "$ma_up" != / ] || break
-      ma_up=${ma_up%/*}
-    done
+  elif ma_git_above "$ma_work"; then
+    printf '%s' "$ma_unchecked"
+    exit 1
   fi
   for ma_root in "$ma_work" ${ma_top:+"$ma_top"}; do
     case $ma_real in
@@ -14342,18 +14321,7 @@ mask_allow_source() (
   ma_uid=$(id -u 2>/dev/null) || { printf '%s' "$ma_unchecked"; exit 1; }
   ma_acl='an access control list on mask-allow-keys.txt or a directory above it lets others write'
   for ma_node in "$ma_real" "$ma_dir"; do
-    mask_allow_acl "$ma_node"
-    case $? in
-      0) ;;
-      1) printf '%s' "$ma_acl"; exit 1 ;;
-      *) printf '%s' "$ma_unchecked"; exit 1 ;;
-    esac
-    ma_stat=$(audit_stat "$ma_node")
-    ma_owner=${ma_stat%%:*}
-    ma_mode=${ma_stat#*:}
-    case $ma_owner:$ma_mode in
-      :*|*:|*[!0-9:]*|*:*:*) printf '%s' "$ma_unchecked"; exit 1 ;;
-    esac
+    ma_node_facts "$ma_node" || exit 1
     [ "$ma_owner" = "$ma_uid" ] || {
       printf 'mask-allow-keys.txt or its directory is not owned by the current user'
       exit 1
@@ -14373,18 +14341,7 @@ mask_allow_source() (
   while [ -n "$ma_up" ] && [ "$ma_up" != / ]; do
     ma_up=${ma_up%/*}
     ma_node=${ma_up:-/}
-    mask_allow_acl "$ma_node"
-    case $? in
-      0) ;;
-      1) printf '%s' "$ma_acl"; exit 1 ;;
-      *) printf '%s' "$ma_unchecked"; exit 1 ;;
-    esac
-    ma_stat=$(audit_stat "$ma_node")
-    ma_owner=${ma_stat%%:*}
-    ma_mode=${ma_stat#*:}
-    case $ma_owner:$ma_mode in
-      :*|*:|*[!0-9:]*|*:*:*) printf '%s' "$ma_unchecked"; exit 1 ;;
-    esac
+    ma_node_facts "$ma_node" || exit 1
     if [ "$ma_owner" != "$ma_uid" ] && [ "$ma_owner" != 0 ]; then
       printf 'a directory above mask-allow-keys.txt belongs to another user'
       exit 1
@@ -14442,11 +14399,8 @@ mask_allow_keys() (
     printf '%s\n' "$ma_deny_list" >"$ma_deny"
     mask_rules_check "$ma_deny" >/dev/null || { mask_allow_warn "$ma_failed"; exit 1; }
   fi
-  ma_token=$(od -An -N12 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')
-  case $ma_token in
-    ????????????????????????) ;;
-    *) mask_allow_warn "$ma_failed"; exit 1 ;;
-  esac
+  mask_random_token || { mask_allow_warn "$ma_failed"; exit 1; }
+  ma_token=$mask_token
   ma_marker="[MASKED:$ma_token]"
   ma_open="[SHOW:$ma_token:"
   ma_close=":$ma_token:SHOW]"
@@ -14467,17 +14421,11 @@ mask_allow_keys() (
 # the cap and the rescan always see the view that is returned. The cap also
 # runs first: awk time on user rules grows with the view.
 masked_view() (
-  mv_view=$(mask_file "$1" text 2>/dev/null
-    mv_status=$?
-    printf x
-    exit "$mv_status") || exit 10
+  mv_view=$(capture_keep_newlines mask_file "$1" text 2>/dev/null) || exit 10
   mv_view=${mv_view%x}
   masked_view_fits "$mv_view"
   case $? in 0) ;; 1) exit 11 ;; *) exit 10 ;; esac
-  mv_view=$(mask_deny_values "$1" "$mv_view"
-    mv_status=$?
-    printf x
-    exit "$mv_status")
+  mv_view=$(capture_keep_newlines mask_deny_values "$1" "$mv_view")
   mv_status=$?
   mv_view=${mv_view%x}
   [ "$mv_status" -eq 0 ] || { printf '%s' "$mv_view"; exit 14; }
@@ -14485,10 +14433,7 @@ masked_view() (
   case $? in 0) ;; 1) exit 11 ;; *) exit 10 ;; esac
   # The view with allowed values shown gets the first of at most two scans;
   # the view with every value masked gets the second.
-  if mv_shown=$(mask_allow_keys "$1" "$mv_view" "${2:-}"
-    mv_status=$?
-    printf x
-    exit "$mv_status"); then
+  if mv_shown=$(capture_keep_newlines mask_allow_keys "$1" "$mv_view" "${2:-}"); then
     mv_shown=${mv_shown%x}
     if ! masked_view_fits "$mv_shown"; then
       mask_allow_warn 'the view showing the mask-allow-keys.txt values is too large'
@@ -14511,10 +14456,7 @@ masked_view() (
 # $2 is the hook workdir; empty means the current directory.
 deny_read_masked_block() {
   info "$PROGRAM: blocked sensitive file access: $1"
-  dr_view=$(masked_view "$1" "${2:-}"
-    dr_status=$?
-    printf x
-    exit "$dr_status")
+  dr_view=$(capture_keep_newlines masked_view "$1" "${2:-}")
   case $? in
     0)
       info "$PROGRAM: masked view follows (values replaced with [MASKED]; the file itself was not read by the tool)"
@@ -14639,6 +14581,11 @@ redact_tool_output() {
     ''|null) return 0 ;;
   esac
 
+  # A quote-free JSON value is ASCII and has no string or binary payload. Its
+  # character count is its byte count. Above the existing cap it must take the
+  # conservative path anyway; do so before another large copy and NUL walk.
+  # The same validated fallback and failure recovery remain authoritative.
+  #
   # Only quote-free oversized JSON enters this scope. Such a value has no
   # strings or binary payload and is ASCII; byte and character semantics agree.
   # Older macOS shells otherwise spend substantial CPU expanding these large
@@ -14654,7 +14601,7 @@ redact_tool_output() {
           ag_output_lc_all_saved=${LC_ALL-}
           LC_ALL=C
           export LC_ALL
-          redact_tool_output_response
+          redact_tool_output_response conservative
           ag_output_response_status=$?
           if [ "$ag_output_lc_all_set" = x ]; then
             LC_ALL=$ag_output_lc_all_saved
@@ -14669,33 +14616,30 @@ redact_tool_output() {
   redact_tool_output_response
 }
 
-redact_tool_output_response() {
+# Same shell, never $( ): the conservative rewrite may end the hook itself
+# (recovery `exit 0` or block_failed_output_rewrite).
+rewrite_out_conservatively() {
+  rewrite_response_conservatively "$out"
+  out=$SAFE_REWRITE
+  conservative_done=1
+}
 
+# $1 = conservative when the caller found $resp quote-free and over the scan cap.
+redact_tool_output_response() {
+  resp_full=''
+  conservative_done=0
+  if [ "${1:-}" = conservative ]; then
+    whole_leaf_response=$resp
+    rewrite_current_response_conservatively
+    resp=$SAFE_REWRITE
+    conservative_done=1
+  fi
   # Image and PDF payloads are lifted out before every pass below and put back
   # afterwards: a text scanner cannot read pixels, the host forwards the bytes
   # rather than showing them to the model, and one screenshot alone crosses
   # the scan cap. Every pass preserves structure, so the paths collected here
   # are still valid on the rewritten result. The token gate spares large
   # high-cardinality output the path collection.
-  resp_full=''
-  conservative_done=0
-  # A quote-free JSON value is ASCII and has no string or binary payload. Its
-  # character count is its byte count. Above the existing cap it must take the
-  # conservative path anyway; do so before another large copy and NUL walk.
-  # The same validated fallback and failure recovery remain authoritative.
-  if [ "$secrets_on" -eq 1 ]; then
-    case "$resp" in
-      *'"'*) ;;
-      *)
-        if [ "${#resp}" -gt "$OUTPUT_SCAN_MAX_BYTES" ]; then
-          whole_leaf_response=$resp
-          rewrite_current_response_conservatively
-          resp=$SAFE_REWRITE
-          conservative_done=1
-        fi
-        ;;
-    esac
-  fi
   case "$resp" in
     *base64*|*mimeType*)
       r=
@@ -14723,24 +14667,15 @@ redact_tool_output_response() {
     r=
     if ! r=$(redact_nul_response_json "$out"); then
       r=
-      rewrite_response_conservatively "$out"
-      out=$SAFE_REWRITE
-      conservative_done=1
-      did_secret=1
+      rewrite_out_conservatively; did_secret=1
     elif [ -n "$r" ] && [ "$r" != "$out" ]; then
       out=$r
       did_secret=1
     fi
-    if [ "$conservative_done" -eq 0 ] && output_scan_input_exceeds_cap "$out"; then
-      rewrite_response_conservatively "$out"
-      out=$SAFE_REWRITE
-      conservative_done=1
-      did_secret=1
-    elif [ "$conservative_done" -eq 0 ] && large_response_has_secretish_assignment "$out"; then
-      rewrite_response_conservatively "$out"
-      out=$SAFE_REWRITE
-      conservative_done=1
-      did_secret=1
+    if [ "$conservative_done" -eq 0 ] \
+        && { output_scan_input_exceeds_cap "$out" \
+          || large_response_has_secretish_assignment "$out"; }; then
+      rewrite_out_conservatively; did_secret=1
     elif [ "$conservative_done" -eq 0 ]; then
       secret_bundle=
       secret_scan_view=$out
@@ -14749,21 +14684,11 @@ redact_tool_output_response() {
       fi
       if ! secret_bundle=$(detect_output_secret_bundle "$secret_scan_view"); then
         secret_bundle=
-        rewrite_response_conservatively "$out"
-        out=$SAFE_REWRITE
-        conservative_done=1
-        did_secret=1
+        rewrite_out_conservatively; did_secret=1
       elif [ -n "$secret_bundle" ]; then
-        if ! classify_secret_bundle "$secret_bundle"; then
-          rewrite_response_conservatively "$out"
-          out=$SAFE_REWRITE
-          conservative_done=1
-          did_secret=1
-        elif [ "$BUNDLE_MODE" = whole_leaf ]; then
-          rewrite_response_conservatively "$out"
-          out=$SAFE_REWRITE
-          conservative_done=1
-          did_secret=1
+        if ! classify_secret_bundle "$secret_bundle" \
+            || [ "$BUNDLE_MODE" = whole_leaf ]; then
+          rewrite_out_conservatively; did_secret=1
         elif [ "$BUNDLE_SECRETS" != '[]' ]; then
           secrets=$BUNDLE_SECRETS
           r=
@@ -14790,10 +14715,7 @@ redact_tool_output_response() {
     r=
     if ! r=$(mask_pii_response_json "$out" "$trusted"); then
       r=
-      rewrite_response_conservatively "$out"
-      out=$SAFE_REWRITE
-      conservative_done=1
-      did_pii=1
+      rewrite_out_conservatively; did_pii=1
     elif [ -n "$r" ] && [ "$r" != "$out" ]; then
       out=$r
       did_pii=1
@@ -14829,10 +14751,7 @@ redact_tool_output_response() {
       fi
     fi
     if [ "$live_failed" -eq 1 ]; then
-      rewrite_response_conservatively "$out"
-      out=$SAFE_REWRITE
-      conservative_done=1
-      did_secret=1
+      rewrite_out_conservatively; did_secret=1
     elif [ -n "$r" ] && [ "$r" != "$out" ]; then
       out=$r
       did_secret=1
@@ -14987,6 +14906,25 @@ scan_write_target_path() {
   return "$target_status"
 }
 
+# Scan one written target from the tool's workdir in a subshell, so the cd and
+# every exit stay local: 0 = clean, 1 = findings, anything else = not scanned.
+post_tool_scan_target() (  # $1 = target, $2 = workdir, $3 = trust_git_backstop
+  [ -z "$2" ] || CDPATH= cd -- "$2" 2>/dev/null \
+    || exit "$SCAN_STATUS_UNAVAILABLE"
+  scanned_root=
+  [ "$3" -eq 1 ] && scanned_root=$(git rev-parse --show-toplevel 2>/dev/null) || scanned_root=
+  scan_write_target_path "$1" "$scanned_root"
+)
+
+# The working-tree backstop from the tool's workdir, with the same status
+# contract; outside a repository there is nothing to scan (clean).
+scan_working_tree_in() (  # $1 = workdir
+  [ -z "$1" ] || CDPATH= cd -- "$1" 2>/dev/null \
+    || exit "$SCAN_STATUS_UNAVAILABLE"
+  inside_git_repo || exit 0
+  scan_working_tree
+)
+
 scan_post_tool_write_target() {
   input=$1
   tool=$2
@@ -15011,13 +14949,7 @@ scan_post_tool_write_target() {
         return 0
       fi
       [ -n "$target" ] || return 0
-      (
-        [ -z "$workdir" ] || CDPATH= cd -- "$workdir" 2>/dev/null \
-          || exit "$SCAN_STATUS_UNAVAILABLE"
-        scanned_root=
-        [ "$trust_git_backstop" -eq 1 ] && scanned_root=$(git rev-parse --show-toplevel 2>/dev/null) || scanned_root=
-        scan_write_target_path "$target" "$scanned_root"
-      )
+      post_tool_scan_target "$target" "$workdir" "$trust_git_backstop"
       case "$?" in
         0) return 0 ;;
         1) info "$PROGRAM: the file this tool call wrote contains secret-like values"; return 1 ;;
@@ -15029,7 +14961,7 @@ scan_post_tool_write_target() {
       esac
       ;;
   esac
-  targets=$(post_tool_write_target "$input" "$2")
+  targets=$(post_tool_write_target "$input" "$tool")
   target_extract_status=$?
   [ "$target_extract_status" -eq 0 ] || {
     handle_git_infrastructure_failure "$input" \
@@ -15086,13 +15018,7 @@ scan_post_tool_write_target() {
       [ "$target_result" -eq 0 ] && target_result="$SCAN_STATUS_UNAVAILABLE"
       continue
     fi
-    (
-      [ -z "$workdir" ] || CDPATH= cd -- "$workdir" 2>/dev/null \
-        || exit "$SCAN_STATUS_UNAVAILABLE"
-      scanned_root=
-      [ "$trust_git_backstop" -eq 1 ] && scanned_root=$(git rev-parse --show-toplevel 2>/dev/null) || scanned_root=
-      scan_write_target_path "$target" "$scanned_root"
-    )
+    post_tool_scan_target "$target" "$workdir" "$trust_git_backstop"
     target_status=$?
     case "$target_status" in
       0) ;;
@@ -15163,12 +15089,7 @@ hook_post_tool() {
       handle_git_infrastructure_failure "$input" \
         "$PROGRAM: git is unavailable, so changed files could not be scanned;"
     else
-      (
-        [ -z "$workdir" ] || CDPATH= cd -- "$workdir" 2>/dev/null \
-          || exit "$SCAN_STATUS_UNAVAILABLE"
-        inside_git_repo || exit 0
-        scan_working_tree
-      )
+      scan_working_tree_in "$workdir"
       status=$?
       case "$status" in
         0) git_backstop_ok=1 ;;
@@ -15311,12 +15232,7 @@ hook_stop() {
     return 0
   fi
   workdir=$(json_value '.tool_input.workdir // .tool_input.cwd // .cwd // empty' "$input")
-  (
-    [ -z "$workdir" ] || CDPATH= cd -- "$workdir" 2>/dev/null \
-      || exit "$SCAN_STATUS_UNAVAILABLE"
-    inside_git_repo || exit 0
-    scan_working_tree
-  )
+  scan_working_tree_in "$workdir"
   status=$?
   case "$status" in
     0) return 0 ;;
@@ -15608,15 +15524,28 @@ hook_user_prompt() {
 #
 # Env inheritance (verified against the Claude Code hooks docs): a command hook
 # inherits the `claude` process env, which inherits the launching shell's
-# exported vars — so the rc-set marker reaches this hook. Since 2.x an absent marker
-# triggers Claude-only setup guidance because command wrapping is default-on;
-# Codex remains silent because it does not use this shell boundary.
+# exported vars — so the rc-set marker reaches this hook.
 #
 # SessionStart is non-mutating: it reports missing dependencies and directs the
 # host to the approval-gated setup skill. Claude also reports shell-wrapper
 # version drift; Codex ignores that unrelated shell boundary. The Codex variant
 # duplicates host-independent warnings in additionalContext so the model can act
 # on them; both hosts receive a user-facing systemMessage.
+
+# Read one sh_squote word from $1, the text right after its opening quote, into
+# $unsquoted. Fails when the word never closes.
+shell_init_unsquote() {
+  us_rest=$1 unsquoted=
+  while :; do
+    case "$us_rest" in *"'"*) ;; *) return 1 ;; esac
+    unsquoted=$unsquoted${us_rest%%"'"*}
+    us_rest=${us_rest#*"'"}
+    case "$us_rest" in
+      "\\''"*) unsquoted="$unsquoted'"; us_rest=${us_rest#"\\''"} ;;
+      *) return 0 ;;
+    esac
+  done
+}
 
 # Classify `setup-shell`'s managed block in one rc file: 0 = the block is there
 # AND can still load, 2 = the block is there but the binary it resolves is gone,
@@ -15634,22 +15563,6 @@ hook_user_prompt() {
 # resolution order against the paths it baked in: the stable/self path, then the
 # newest versioned binary under the plugin cache base, then `agent-guard` on
 # $PATH. All stat-level; nothing is executed and no subshell is forked.
-#
-# Read one sh_squote word from $1, the text right after its opening quote, into
-# $unsquoted. Fails when the word never closes.
-shell_init_unsquote() {
-  us_rest=$1 unsquoted=
-  while :; do
-    case "$us_rest" in *"'"*) ;; *) return 1 ;; esac
-    unsquoted=$unsquoted${us_rest%%"'"*}
-    us_rest=${us_rest#*"'"}
-    case "$us_rest" in
-      "\\''"*) unsquoted="$unsquoted'"; us_rest=${us_rest#"\\''"} ;;
-      *) return 0 ;;
-    esac
-  done
-}
-
 shell_init_rc_block_state() {
   rc_probe=$1
   # Both delimiters must be present, or the block is not a block (setup-shell
@@ -15949,6 +15862,13 @@ redact_plaintext_literal() {
   return "$status"
 }
 
+# Fail closed for exec: the whole output becomes [REDACTED]. Same shell, so
+# both names reach do_exec.
+exec_mask_all() {
+  masked='[REDACTED]'
+  output_fully_masked=1
+}
+
 do_exec() {
   [ "${1:-}" = "--" ] && shift
   if [ "$#" -eq 0 ]; then
@@ -15989,8 +15909,7 @@ do_exec() {
     # Avoid materializing oversized plaintext as JSON or invoking any detector;
     # match PostToolUse by conservatively masking it before bounded scan work.
     if output_scan_input_exceeds_cap "$masked"; then
-      masked='[REDACTED]'
-      output_fully_masked=1
+      exec_mask_all
     else
       # Keep detection input tied to the original capture. The raw assignment
       # pass below may insert [REDACTED], which must not become a new candidate.
@@ -16004,14 +15923,12 @@ do_exec() {
       if [ "$decoded" != "$masked" ]; then
         invalid_output=1
         if printenv_requests_secretish_name "$@"; then
-          masked='[REDACTED]'
-          output_fully_masked=1
+          exec_mask_all
         else
           raw_bytes=$(printf '%s' "$masked" | LC_ALL=C wc -c | tr -d ' ')
           case "$raw_bytes" in
             ''|*[!0-9]*)
-              masked='[REDACTED]'
-              output_fully_masked=1
+              exec_mask_all
               ;;
             *)
               if [ "$raw_bytes" -gt 65536 ]; then
@@ -16021,14 +15938,12 @@ do_exec() {
                 raw_probe_result=$(printf '%s' "$masked" \
                   | secretish_env_values probe_raw 2>/dev/null) || raw_probe_status=$?
                 if [ "$raw_probe_status" -ne 0 ] || [ -n "$raw_probe_result" ]; then
-                  masked='[REDACTED]'
-                  output_fully_masked=1
+                  exec_mask_all
                 fi
               else
                 raw_secret_file=$(mktemp_file) || raw_secret_file=''
                 if [ -z "$raw_secret_file" ]; then
-                  masked='[REDACTED]'
-                  output_fully_masked=1
+                  exec_mask_all
                 else
                   # Check the producer before invoking the detector: POSIX
                   # pipelines otherwise hide an empty or partial framing error.
@@ -16037,16 +15952,14 @@ do_exec() {
                     | frame_plaintext_leaf 2>/dev/null) \
                     || ! printf '%s' "$raw_framed" \
                       | secretish_env_values framed >"$raw_secret_file" 2>/dev/null; then
-                    masked='[REDACTED]'
-                    output_fully_masked=1
+                    exec_mask_all
                   elif [ -s "$raw_secret_file" ]; then
                     if r=$(redact_plaintext_framed \
                       "$masked" "$raw_secret_file" 2>/dev/null) \
                       && [ -n "$r" ]; then
                       masked=$r
                     else
-                      masked='[REDACTED]'
-                      output_fully_masked=1
+                      exec_mask_all
                     fi
                   fi
                   rm -f "$raw_secret_file"
@@ -16065,26 +15978,21 @@ do_exec() {
       # detector and bundler stage atomic.
       if ! secret_bundle=$(detect_exec_secret_bundle \
         "$response" "$invalid_output" "$@"); then
-        masked='[REDACTED]'
-        output_fully_masked=1
+        exec_mask_all
         secret_bundle=''
       fi
     fi
     if [ -n "$secret_bundle" ]; then
-      if ! classify_secret_bundle "$secret_bundle"; then
-        masked='[REDACTED]'
-        output_fully_masked=1
-      elif [ "$BUNDLE_MODE" = whole_leaf ]; then
-        masked='[REDACTED]'
-        output_fully_masked=1
+      if ! classify_secret_bundle "$secret_bundle" \
+          || [ "$BUNDLE_MODE" = whole_leaf ]; then
+        exec_mask_all
       elif [ "$BUNDLE_SECRETS" != '[]' ]; then
         secrets=$BUNDLE_SECRETS
         if r=$(redact_plaintext_literal "$masked" "$secrets" 2>/dev/null) \
           && [ -n "$r" ]; then
           masked=$r
         else
-          masked='[REDACTED]'
-          output_fully_masked=1
+          exec_mask_all
         fi
       fi
     fi
@@ -16103,30 +16011,10 @@ do_exec() {
 }
 
 # --- shell-init: emit `agx`, a warn-only nudge, and default command wrapping ---
-# `eval "$(agent-guard shell-init)"` in the user's shell rc defines `agx` (an
+# The snippet, eval'd by the file setup-shell writes, defines `agx` (an
 # alias for `agent-guard exec --`) and a NON-BLOCKING preexec/DEBUG nudge that
 # reminds the user to wrap known secret-loading idioms with `agx` so their output
 # is masked before the model sees it.
-shell_init_target() {
-  # Default to `auto`: emit a snippet that picks the hook at SOURCE time in the
-  # user's interactive shell. We cannot detect the parent shell here — this
-  # script runs under its own `#!/usr/bin/env sh` interpreter, and $ZSH_VERSION
-  # / $BASH_VERSION are non-exported shell parameters invisible to a child
-  # process. `--bash` / `--zsh` force a single hook for users who prefer it.
-  target=auto
-  while [ "$#" -gt 0 ]; do
-    case "$1" in
-      --bash) target=bash ;;
-      --zsh) target=zsh ;;
-      --no-command-wrapping) : ;;
-      -h|--help) target=help ;;
-      *) die "shell-init: unknown argument: $1 (expected --bash, --zsh, or --no-command-wrapping)" ;;
-    esac
-    shift
-  done
-  printf '%s' "$target"
-}
-
 # Emit the zsh preexec hook. add-zsh-hook chains onto any existing preexec
 # rather than clobbering it; the plain-function fallback is only for ancient zsh.
 shell_init_zsh_hook() {
@@ -16392,15 +16280,24 @@ EOF
 }
 
 shell_init() {
-  # Propagate a die from inside the command substitution: without this an
-  # unknown argument printed its error but still emitted the full snippet with
-  # exit 0, so a stale rc line kept eval-ing a half-understood invocation.
-  target=$(shell_init_target "$@") || exit 2
+  # Default to `auto`: emit a snippet that picks the hook at SOURCE time in the
+  # user's interactive shell. We cannot detect the parent shell here — this
+  # script runs under its own `#!/usr/bin/env sh` interpreter, and $ZSH_VERSION
+  # / $BASH_VERSION are non-exported shell parameters invisible to a child
+  # process. `--bash` / `--zsh` force a single hook for users who prefer it.
+  # Every argument is parsed before anything is printed, so an unknown one
+  # exits 2 with no snippet rather than a half-understood invocation.
+  target=auto
   command_wrapping=1
-  for __ag_arg in "$@"; do
-    case "$__ag_arg" in
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --bash) target=bash ;;
+      --zsh) target=zsh ;;
       --no-command-wrapping) command_wrapping=0 ;;
+      -h|--help) target=help ;;
+      *) die "shell-init: unknown argument: $1 (expected --bash, --zsh, or --no-command-wrapping)" ;;
     esac
+    shift
   done
   if [ "$target" = help ]; then
     {
@@ -16530,12 +16427,16 @@ EOF
   esac
   # Command wrapping is shell-agnostic (plain functions), so it is emitted after
   # the shell-specific hook wiring for any target unless explicitly disabled.
-  [ "$command_wrapping" = 1 ] && shell_init_command_wrapping
+  # An `if`, not `&&`: the opt-out must still return 0, or the bootstrap file
+  # reads the failed status as "no snippet" and loads nothing at all.
+  if [ "$command_wrapping" = 1 ]; then
+    shell_init_command_wrapping
+  fi
 }
 
 # Write (or replace in place) the managed block in ONE rc file. Split out of
 # do_setup_shell so a fish login shell can install into both POSIX rc files.
-setup_shell_write_rc() {  # $1 = rc path, $2 = the eval line to manage
+setup_shell_write_rc() {  # $1 = rc path, $2 = the line to manage
   rc=$1 line=$2
   begin=$SHELL_INIT_BLOCK_BEGIN
   end=$SHELL_INIT_BLOCK_END
@@ -16589,6 +16490,17 @@ $end"
 # The rc block only sources this file, so the validating resolver lives outside
 # the rc. It names `current` and the cache base, never a version directory, so a
 # plugin update does not require rewriting either file.
+#
+# The file is a frozen copy: a resolver fix reaches it only when setup-shell
+# reruns. Its first line carries this format number so doctor can report a copy
+# written by an older setup-shell. Bump SHELL_INIT_BOOTSTRAP_FORMAT whenever
+# shell_init_resolver or the bootstrap body do_setup_shell assembles changes;
+# tests/setup-shell.sh pins a hash of the body for the current number and fails
+# when the body changes without a bump.
+SHELL_INIT_BOOTSTRAP_FORMAT=1
+SHELL_INIT_BOOTSTRAP_STAMP_PREFIX='# agent-guard shell-init bootstrap v'
+SHELL_INIT_BOOTSTRAP_STAMP="$SHELL_INIT_BOOTSTRAP_STAMP_PREFIX$SHELL_INIT_BOOTSTRAP_FORMAT (managed by agent-guard setup-shell; rerun it to regenerate)"
+
 setup_shell_write_bootstrap() {  # $1 = bootstrap path, $2 = file content
   bootstrap_dir=${1%/*}
   # `mv` onto a directory (or a link to one) would move the file inside it.
@@ -16603,12 +16515,6 @@ setup_shell_write_bootstrap() {  # $1 = bootstrap path, $2 = file content
   info "$PROGRAM: shell resolver written to $1"
 }
 
-# `setup-shell` — write the `eval "$(... shell-init ...)"` line into the user's
-# shell rc so the wrappers load in every new shell (hence every Claude Code shell
-# snapshot). This is the one manual step a plugin-only install needs: a plugin
-# cannot edit your rc, so run this once (by absolute path if agent-guard is not
-# yet on $PATH). Idempotent — re-running replaces the managed block in place.
-#
 # The setup skill itself runs through an agent Bash tool, where $SHELL can name
 # the bash/zsh snapshot instead of the user's account login shell. Query the
 # account database as a second signal: getent covers NSS-backed Linux systems,
@@ -16647,6 +16553,13 @@ setup_shell_account_shell() (
   esac
 )
 
+# `setup-shell` — write ~/.agent-guard/shell-init.sh (the validating resolver
+# that evals `shell-init`) and a managed rc block that only sources it, so the
+# wrappers load in every new shell (hence every Claude Code shell snapshot).
+# This is the one manual step a plugin-only install needs: a plugin cannot edit
+# your rc, so run this once (by absolute path if agent-guard is not yet on
+# $PATH). Idempotent — re-running rewrites the file and replaces the managed
+# block in place, including an older inline block.
 do_setup_shell() {
   sh_target= rc= wrapping= want_help=0
   # Parse every argument before acting on --help, matching shell-init: a
@@ -16751,7 +16664,7 @@ fi
   bootstrap=$HOME/$bootstrap_rel
   # Clear an inherited marker first: shell-init re-exports it only when it
   # loads, so a missing binary must not look protected to SessionStart.
-  setup_shell_write_bootstrap "$bootstrap" "# Managed by 'agent-guard setup-shell' and sourced from your shell rc. Rerun setup-shell to regenerate.
+  setup_shell_write_bootstrap "$bootstrap" "$SHELL_INIT_BOOTSTRAP_STAMP
 unset AGENT_GUARD_SHELL_INIT_VERSION
 ${path_line:+$path_line
 }$line"
@@ -16794,11 +16707,65 @@ homebrew_managed_install() {
   grep -Eq '"tap"[[:space:]]*:[[:space:]]*"jeongjaesoon/tap"' "$receipt"
 }
 
+# Prints " --no-command-wrapping" or nothing when rc file $1 has a balanced
+# managed block that still carries the resolver inline: the pre-v3.9 `_agbin='`
+# form, which still loads (shell_init_rc_block_state reads it too) but is about
+# 155 lines where setup-shell now writes one. Returns 1 for any other rc.
+shell_init_rc_inline_block() {
+  [ -f "$1" ] && [ -r "$1" ] || return 1
+  awk -v b="$SHELL_INIT_BLOCK_BEGIN" -v e="$SHELL_INIT_BLOCK_END" '
+    $0 == b { inb = 1; inline = off = 0; next }
+    $0 == e && inb { if (inline) { found = 1; if (off) found_off = 1 } inb = 0; next }
+    inb && index($0, "_agbin=\047") { inline = 1 }
+    inb && index($0, "shell-init --no-command-wrapping") { off = 1 }
+    END { if (!found) exit 1; if (found_off) printf " --no-command-wrapping" }
+  ' "$1" 2>/dev/null
+}
+
+# 0 when bootstrap file $1 starts with this CLI's format stamp or a newer one
+# (rerunning an older setup-shell would only downgrade it); 1 when the stamp is
+# missing or older.
+shell_init_bootstrap_current() {
+  sb_line=
+  IFS= read -r sb_line <"$1" || [ -n "$sb_line" ] || return 1
+  case $sb_line in
+    "$SHELL_INIT_BOOTSTRAP_STAMP") return 0 ;;
+    "$SHELL_INIT_BOOTSTRAP_STAMP_PREFIX"[0-9]*) ;;
+    *) return 1 ;;
+  esac
+  sb_format=${sb_line#"$SHELL_INIT_BOOTSTRAP_STAMP_PREFIX"}
+  sb_format=${sb_format%%[!0-9]*}
+  [ "${#sb_format}" -le 9 ] && [ "$sb_format" -gt "$SHELL_INIT_BOOTSTRAP_FORMAT" ]
+}
+
+# Informational only: never changes doctor's status and never rewrites a file.
+# Kept out of SessionStart, whose output reaches the model context, because a
+# stale copy that still loads is not a protection gap.
+doctor_shell_integration_report() {
+  [ -n "${HOME:-}" ] || return 0
+  # Name the rc's shell: a bare setup-shell writes only the detected shell's rc.
+  for dsi_sh in zsh bash; do
+    dsi_rc=$HOME/.${dsi_sh}rc
+    dsi_flag=$(shell_init_rc_inline_block "$dsi_rc") || continue
+    info "$PROGRAM: shell integration: $dsi_rc still has the pre-v3.9 inline agent-guard block; rerun agent-guard setup-shell --$dsi_sh$dsi_flag (or /agent-guard:setup-shell) to replace it with one line"
+  done
+  for dsi_name in shell-init.sh shell-init-no-wrapping.sh; do
+    dsi_init=$HOME/.agent-guard/$dsi_name
+    [ -f "$dsi_init" ] && [ -r "$dsi_init" ] || continue
+    shell_init_bootstrap_current "$dsi_init" && continue
+    dsi_flag=
+    [ "$dsi_name" = shell-init.sh ] || dsi_flag=' --no-command-wrapping'
+    info "$PROGRAM: shell integration: $dsi_init was written by an older agent-guard setup-shell; rerun agent-guard setup-shell$dsi_flag (or /agent-guard:setup-shell) to regenerate it"
+  done
+  return 0
+}
+
 # doctor is setup plus a release-staleness line; the setup status is returned
 # unchanged so a failed lookup never turns a healthy doctor red.
 do_doctor() {
   do_setup "$@"
   doctor_status=$?
+  doctor_shell_integration_report
   if command -v codex >/dev/null 2>&1; then
     doctor_here=$(pwd -P 2>/dev/null) || doctor_here=$PWD
     codex_trust_probe "$doctor_here"

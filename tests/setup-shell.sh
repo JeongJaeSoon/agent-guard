@@ -107,6 +107,171 @@ if grep -Fq '~/.agent-guard/shell-init-no-wrapping.sh' "$ss_off" 2>/dev/null \
 else
   not_ok "setup-shell persists the command-wrapping opt-out in its own resolver file"
 fi
+# The opt-out drops the command wrappers only: agx and the marker must still
+# load. shell-init once ended on a false test for this target, and the
+# bootstrap took that status as "nothing to load".
+ss_off_status=0
+ag shell-init --no-command-wrapping >"$CASE_ROOT/off-snippet" 2>"$ERR" || ss_off_status=$?
+if [ "$ss_off_status" -eq 0 ] && grep -q '^agx() {' "$CASE_ROOT/off-snippet" \
+   && ! grep -q '^__agentguard_wrap_command() {' "$CASE_ROOT/off-snippet"; then
+  ok "shell-init --no-command-wrapping exits 0 with agx and without the wrappers"
+else
+  not_ok "shell-init --no-command-wrapping exits 0 with agx and without the wrappers (status $ss_off_status)"
+fi
+for ss_off_shell in sh bash; do
+  command -v "$ss_off_shell" >/dev/null 2>&1 || continue
+  ss_off_loaded=$(loads "$ss_off_shell" "$PLUGIN_ROOT/bin:$PATH" "$ss_off")
+  if [ "$ss_off_loaded" = INSTALLED ]; then
+    ok "the opt-out rc still defines agx in $ss_off_shell"
+  else
+    not_ok "the opt-out rc still defines agx in $ss_off_shell (got ${ss_off_loaded:-nothing})"
+  fi
+done
+
+# The resolver file is a frozen copy, so its first line is a format stamp that
+# doctor compares with the CLI. The pinned body checksums belong to
+# SS_BOOTSTRAP_FORMAT: a change to the body (or to shell_init_resolver, which
+# it embeds) without a bump of SHELL_INIT_BOOTSTRAP_FORMAT fails here, because
+# doctor could not tell such a copy from a current one. Bump both together.
+SS_BOOTSTRAP_FORMAT=1
+SS_BOOTSTRAP_BODY_CKSUM='463095475 5953'
+SS_BOOTSTRAP_OFF_BODY_CKSUM='3404244926 5997'
+ss_stamp="# agent-guard shell-init bootstrap v$SS_BOOTSTRAP_FORMAT (managed by agent-guard setup-shell; rerun it to regenerate)"
+bootstrap_body_cksum() {  # the body without its stamp and install-specific paths
+  sed -e 1d -e "s/^_agbin=.*/_agbin=X/" -e "s/^_agbase=.*/_agbase=X/" \
+    -e '/^case :\$PATH: in /d' "$1" | cksum
+}
+if [ "$(sed -n 1p "$INIT")" = "$ss_stamp" ] && [ "$(sed -n 1p "$ss_off_init")" = "$ss_stamp" ]; then
+  ok "setup-shell stamps both resolver files with the bootstrap format"
+else
+  not_ok "setup-shell stamps both resolver files (got: $(sed -n 1p "$INIT"))"
+fi
+if [ "$(grep -c '^SHELL_INIT_BOOTSTRAP_FORMAT=' "$PLUGIN_ROOT/bin/agent-guard")" = 1 ] \
+   && grep -q "^SHELL_INIT_BOOTSTRAP_FORMAT=$SS_BOOTSTRAP_FORMAT\$" "$PLUGIN_ROOT/bin/agent-guard" \
+   && grep -Fq 'setup_shell_write_bootstrap "$bootstrap" "$SHELL_INIT_BOOTSTRAP_STAMP' "$PLUGIN_ROOT/bin/agent-guard" \
+   && grep -Fq '"$SHELL_INIT_BOOTSTRAP_STAMP") return 0' "$PLUGIN_ROOT/bin/agent-guard"; then
+  ok "the resolver-file writer and the doctor check share one format constant"
+else
+  not_ok "the resolver-file writer and the doctor check share one format constant"
+fi
+ss_body_cksum=$(bootstrap_body_cksum "$INIT")
+ss_off_body_cksum=$(bootstrap_body_cksum "$ss_off_init")
+if [ "$ss_body_cksum" = "$SS_BOOTSTRAP_BODY_CKSUM" ] \
+   && [ "$ss_off_body_cksum" = "$SS_BOOTSTRAP_OFF_BODY_CKSUM" ]; then
+  ok "resolver-file body matches the checksum pinned for format v$SS_BOOTSTRAP_FORMAT"
+else
+  not_ok "resolver-file body changed without a SHELL_INIT_BOOTSTRAP_FORMAT bump (got: $ss_body_cksum / $ss_off_body_cksum)"
+fi
+
+# doctor reports a pre-v3.9 inline rc block and a resolver file without the
+# current stamp, prints nothing for current ones, never rewrites either file,
+# and keeps its exit status.
+ss_doc_home="$CASE_ROOT/doctor-home"
+ss_doc_init="$ss_doc_home/.agent-guard/shell-init.sh"
+ss_doc_off_init="$ss_doc_home/.agent-guard/shell-init-no-wrapping.sh"
+mkdir -p "$ss_doc_home"
+doctor_run() {  # leaves the shell-integration lines in $ss_doc_notes
+  env HOME="$ss_doc_home" SHELL=/bin/zsh AGENT_GUARD_RELEASE_CHECK=off \
+    "$PLUGIN_ROOT/bin/agent-guard" doctor >"$CASE_ROOT/doctor.out" 2>&1
+  ss_doc_status=$?
+  ss_doc_notes=$(grep 'shell integration:' "$CASE_ROOT/doctor.out")
+}
+restamp() {  # $1 = file, $2 = new first line
+  { printf '%s\n' "$2"; sed 1d "$1"; } >"$1.new" && mv "$1.new" "$1"
+}
+doctor_run
+ss_doc_base=$ss_doc_status
+if [ -z "$ss_doc_notes" ]; then
+  ok "doctor prints no shell-integration notice without shell integration"
+else
+  not_ok "doctor without shell integration: $ss_doc_notes"
+fi
+env HOME="$ss_doc_home" SHELL=/bin/zsh "$PLUGIN_ROOT/bin/agent-guard" setup-shell --zsh >/dev/null 2>&1
+env HOME="$ss_doc_home" SHELL=/bin/zsh "$PLUGIN_ROOT/bin/agent-guard" setup-shell --bash --no-command-wrapping >/dev/null 2>&1
+doctor_run
+if [ -z "$ss_doc_notes" ] && [ "$ss_doc_status" -eq "$ss_doc_base" ]; then
+  ok "doctor stays quiet for current rc blocks and resolver files"
+else
+  not_ok "doctor with current shell integration (status $ss_doc_status, base $ss_doc_base): $ss_doc_notes"
+fi
+# The pre-v3.9 rc block carried the resolver inline: the eval body that now
+# lives in the resolver file, between the same markers. Must-pass control:
+# the fixture still loads, so the notice is about size, not protection.
+for ss_legacy in zsh:"$ss_doc_init" bash:"$ss_doc_off_init"; do
+  {
+    printf '%s\n' "export AG_LEGACY_KEEP=1" "$BEGIN" \
+      "# Managed by 'agent-guard setup-shell' — remove this block to disable."
+    sed -n '/^eval "\$($/,$p' "${ss_legacy#*:}"
+    printf '%s\n' "$END"
+  } >"$ss_doc_home/.${ss_legacy%%:*}rc"
+done
+cp "$ss_doc_home/.zshrc" "$CASE_ROOT/legacy.zshrc"
+if grep -q "^_agbin='" "$ss_doc_home/.zshrc" && grep -q 'shell-init --no-command-wrapping' "$ss_doc_home/.bashrc" \
+   && [ "$(loads /bin/sh /usr/bin:/bin "$ss_doc_home/.zshrc" "$ss_doc_home")" = INSTALLED ]; then
+  ok "legacy inline rc fixture has the pre-v3.9 shape and still loads"
+else
+  not_ok "legacy inline rc fixture has the pre-v3.9 shape and still loads"
+fi
+doctor_run
+case "$ss_doc_notes" in
+  *"$ss_doc_home/.zshrc still has the pre-v3.9 inline agent-guard block; rerun agent-guard setup-shell --zsh (or /agent-guard:setup-shell) to replace it with one line"*)
+    ok "doctor reports a pre-v3.9 inline block in .zshrc" ;;
+  *) not_ok "doctor reports a pre-v3.9 inline block in .zshrc: $ss_doc_notes" ;;
+esac
+case "$ss_doc_notes" in
+  *"$ss_doc_home/.bashrc still has the pre-v3.9 inline agent-guard block; rerun agent-guard setup-shell --bash --no-command-wrapping (or /agent-guard:setup-shell)"*)
+    ok "doctor keeps the command-wrapping opt-out in the inline-block advice" ;;
+  *) not_ok "doctor keeps the command-wrapping opt-out in the inline-block advice: $ss_doc_notes" ;;
+esac
+if [ "$ss_doc_status" -eq "$ss_doc_base" ] && cmp -s "$CASE_ROOT/legacy.zshrc" "$ss_doc_home/.zshrc"; then
+  ok "doctor keeps its exit status and leaves a legacy rc untouched"
+else
+  not_ok "doctor with a legacy rc block (status $ss_doc_status, base $ss_doc_base)"
+fi
+env HOME="$ss_doc_home" SHELL=/bin/zsh "$PLUGIN_ROOT/bin/agent-guard" setup-shell --zsh >/dev/null 2>&1
+env HOME="$ss_doc_home" SHELL=/bin/zsh "$PLUGIN_ROOT/bin/agent-guard" setup-shell --bash --no-command-wrapping >/dev/null 2>&1
+doctor_run
+if [ -z "$ss_doc_notes" ] && grep -q 'export AG_LEGACY_KEEP=1' "$ss_doc_home/.zshrc"; then
+  ok "rerunning setup-shell clears the inline-block notice"
+else
+  not_ok "rerunning setup-shell clears the inline-block notice: $ss_doc_notes"
+fi
+# A resolver file from before the stamp starts with the old comment line.
+restamp "$ss_doc_init" "# Managed by 'agent-guard setup-shell' and sourced from your shell rc. Rerun setup-shell to regenerate."
+cp "$ss_doc_init" "$CASE_ROOT/unstamped.init"
+doctor_run
+case "$ss_doc_notes" in
+  *"$ss_doc_init was written by an older agent-guard setup-shell; rerun agent-guard setup-shell (or /agent-guard:setup-shell) to regenerate it"*)
+    if [ "$ss_doc_status" -eq "$ss_doc_base" ] && cmp -s "$CASE_ROOT/unstamped.init" "$ss_doc_init"; then
+      ok "doctor reports a resolver file without a format stamp, status and file unchanged"
+    else
+      not_ok "doctor with an unstamped resolver file (status $ss_doc_status, base $ss_doc_base)"
+    fi ;;
+  *) not_ok "doctor reports a resolver file without a format stamp: $ss_doc_notes" ;;
+esac
+env HOME="$ss_doc_home" SHELL=/bin/zsh "$PLUGIN_ROOT/bin/agent-guard" setup-shell --zsh >/dev/null 2>&1
+restamp "$ss_doc_off_init" "# agent-guard shell-init bootstrap v0 (managed by agent-guard setup-shell; rerun it to regenerate)"
+doctor_run
+case "$ss_doc_notes" in
+  *"$ss_doc_off_init was written by an older agent-guard setup-shell; rerun agent-guard setup-shell --no-command-wrapping (or /agent-guard:setup-shell) to regenerate it"*)
+    case "$ss_doc_notes" in
+      *"$ss_doc_init "*) not_ok "doctor reports only the resolver file with the older stamp: $ss_doc_notes" ;;
+      *) if [ "$ss_doc_status" -eq "$ss_doc_base" ]; then
+           ok "doctor reports an older format stamp on the opt-out resolver file"
+         else
+           not_ok "doctor with an older format stamp (status $ss_doc_status, base $ss_doc_base)"
+         fi ;;
+    esac ;;
+  *) not_ok "doctor reports an older format stamp on the opt-out resolver file: $ss_doc_notes" ;;
+esac
+# A newer setup-shell wrote it; this older CLI must not advise a downgrade.
+restamp "$ss_doc_off_init" "# agent-guard shell-init bootstrap v$((SS_BOOTSTRAP_FORMAT + 1)) (managed by agent-guard setup-shell; rerun it to regenerate)"
+doctor_run
+if [ -z "$ss_doc_notes" ] && [ "$ss_doc_status" -eq "$ss_doc_base" ]; then
+  ok "doctor stays quiet for a resolver file with a newer format stamp"
+else
+  not_ok "doctor with a newer format stamp: $ss_doc_notes"
+fi
 
 # An older inline block is replaced where it stands, so rc lines after it keep
 # their order; a second run is byte-identical.

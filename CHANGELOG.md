@@ -1,3 +1,18 @@
+## Unreleased
+
+- feat(doctor): `agent-guard doctor`가 오래된 셸 연동을 알려 줍니다. v3.9.0 전에 `setup-shell`을 실행한 `~/.zshrc`·`~/.bashrc`에는 marker 사이에 resolver 전체(약 155줄)가 그대로 남아 있고, `~/.agent-guard/shell-init.sh`(`--no-command-wrapping`이면 `shell-init-no-wrapping.sh`)는 `setup-shell`을 실행한 시점의 resolver 사본이라 이후 resolver 수정이 반영되지 않는데, 지금까지는 어느 쪽도 알려 주지 않았습니다.
+  - 동작 변경: `setup-shell`이 쓰는 resolver 파일의 첫 줄이 `# agent-guard shell-init bootstrap v1 (managed by agent-guard setup-shell; rerun it to regenerate)` 형식 줄로 바뀝니다. `doctor`는 `~/.zshrc`나 `~/.bashrc`에 v3.9 이전 인라인 블록이 있거나, resolver 파일에 형식 줄이 없거나 더 오래된 형식 줄이 있으면 `shell integration:`으로 시작하는 안내 줄을 출력합니다. 안내만 하므로 종료 코드는 바뀌지 않고, 어떤 파일도 고치지 않습니다. 현재 형태면 아무것도 출력하지 않습니다. SessionStart 출력(모델 context)과 `setup` 출력은 바뀌지 않고, 예전 블록과 파일도 지금처럼 로드됩니다. `--rc`로 고른 rc 파일은 확인하지 않습니다.
+  - 사용자가 할 일: `doctor`가 안내하면 안내된 `agent-guard setup-shell` 명령(플러그인 설치는 `/agent-guard:setup-shell`)을 다시 실행합니다. rc 블록은 한 줄로 바뀌고 resolver 파일은 새로 써집니다. 그 뒤 셸과 그 셸에서 띄운 세션을 다시 시작합니다.
+  - 운영자가 할 일: 없습니다.
+- fix(shell-init): `setup-shell --no-command-wrapping`로 설치한 셸 연동이 아무것도 불러오지 못하던 문제를 고칩니다. `shell-init --no-command-wrapping`이 snippet을 다 출력하고도 종료 코드 1로 끝나서, `~/.agent-guard/shell-init-no-wrapping.sh`가 그 결과를 "불러올 것 없음"으로 읽고 버렸습니다. 그래서 opt-out으로 설치한 셸에는 `agx`도, SessionStart가 확인하는 버전 표시도 없었습니다.
+  - 동작 변경: `shell-init --no-command-wrapping`이 종료 코드 0으로 끝나고, opt-out rc를 불러온 셸에 `agx`와 nudge, 버전 표시가 생깁니다. 명령 wrapper(`cat`·`env` 등 감싸기)는 여전히 만들지 않습니다. 기본 설치(`setup-shell`)가 출력하는 내용은 바뀌지 않습니다.
+  - 사용자가 할 일: `--no-command-wrapping`으로 설치했다면 업데이트 뒤 새 셸을 엽니다. rc와 resolver 파일을 다시 쓸 필요는 없습니다.
+  - 운영자가 할 일: 없습니다.
+- refactor(hooks): 플러그인 hook 명령마다 들어 있던 약 2.2 KB inline resolver와 infrastructure-failure 정책을 플러그인에 함께 실리는 `hooks/launch.sh` 하나로 옮겼습니다. 이제 Claude·Codex hook 명령은 이벤트마다 subcommand만 다른 약 500바이트 한 줄입니다(`sh -c 'r=${PLUGIN_ROOT:-}; [ -n "$r" ] && for q in "$r" "${r%/*}/current" "${r%/*}"/[0-9]*.[0-9]*.[0-9]*; do [ -f "$q/hooks/launch.sh" ] && exec sh "$q/hooks/launch.sh" codex hook-stop "$r"; done; ...'`, Claude는 `CLAUDE_PLUGIN_ROOT`와 `claude`). Claude Code가 차단 이유 앞에 붙여 보여 주던 2 KB 명령(#294)도 이 한 줄로 줄어듭니다.
+  - 동작 변경: host가 고른 완전한 버전 디렉터리 우선, 세션 중 삭제된 디렉터리의 `current`·가장 높은 완전한 semver 형제 복구, 존재하지만 불완전한 디렉터리에 형제를 대신 쓰지 않는 규칙, closed의 매번 이유 출력, open의 세션당 한 번 경고, `AGENT_GUARD_HOOK_HOST` 고정, stdin 전달은 그대로 launcher가 지킵니다. 달라지는 점은 셋뿐입니다. (1) launcher를 어디에서도 찾지 못하면(plugin-root 변수가 없거나 캐시 전체가 사라진 경우) 명령 줄 자체의 fallback이 open 모드에서 세션당 한 번이 아니라 호출마다 경고합니다. closed는 전처럼 매번 이유와 함께 exit 2입니다. (2) 세션 중 디렉터리가 삭제됐을 때 launcher가 없는 이전 버전 형제로는 복구하지 않습니다(다운그레이드와 세션 중 삭제가 겹칠 때만 해당). (3) 경고 marker 디렉터리 기본값이 CLI와 같은 `${TMPDIR:-/tmp}/agent-guard-warnings-$(id -u)`가 되고 umask 077로 만들어집니다. dash처럼 `$UID`가 없는 셸에서는 지금까지 모든 계정이 `agent-guard-warnings-user`를 함께 썼으므로, 업데이트 직후 경고가 한 번 더 보일 수 있습니다.
+  - 사용자가 할 일: Codex 사용자는 업데이트 뒤 agent-guard hook을 한 번 다시 신뢰해야 합니다. 검토할 명령은 이제 위의 짧은 launcher 한 줄이며, `agent-guard doctor`가 다시 신뢰가 필요한 상태와 절차를 알려 줍니다. 앞으로 resolver 수정은 `hooks/launch.sh`에만 들어가므로 hook 명령 문구는 바뀌지 않습니다(Codex는 플러그인 내용으로도 신뢰하므로 플러그인 업데이트마다 다시 신뢰하는 것은 그대로입니다). Claude Code 사용자는 할 일이 없습니다.
+  - 운영자가 할 일: 없습니다.
+
 ## v3.11.4 - 2026-11-17
 
 - fix(bash): 검증 메모를 남기는 Bash 명령의 본문에 `` `@next/env` `` 같은 백틱 글이 있으면, `env`를 실행하는 명령 치환으로 읽는 deny 줄(`deny-bash-patterns.txt` 19번째 줄) 때문에 "blocked risky shell command by deny pattern"으로 막히던 오탐을 고칩니다. 작은따옴표 단어와 따옴표로 감싼 delimiter의 here-document 본문 안에서는 셸이 `` `…` ``·`$(…)`를 치환하지 않습니다. deny 목록 자체는 바꾸지 않았습니다. (94S-1712, #485)
