@@ -13640,11 +13640,20 @@ MASK_RULES_MAX=64
 MASK_RULES_MAX_BYTES=256
 MASK_RULES_TIMEOUT_SECONDS=2
 
-# Every program reads rules as "label<TAB>line<TAB>rule".
+# Every program reads rules as "label<TAB>line<TAB>rule". unmark turns each
+# one-time `marker` back into [MASKED] for the programs that render with one.
 MASK_RULES_AWK_LIB='
 function parse_rule(s,   t) {
   t = index(s, "\t"); label = substr(s, 1, t - 1); s = substr(s, t + 1)
   t = index(s, "\t"); line = substr(s, 1, t - 1); rule = substr(s, t + 1)
+}
+function unmark(s,   p, out) {
+  out = ""
+  while ((p = index(s, marker)) > 0) {
+    out = out substr(s, 1, p - 1) "[MASKED]"
+    s = substr(s, p + length(marker))
+  }
+  return out s
 }
 '
 
@@ -13754,14 +13763,6 @@ function outside(s, r,   p) {
     s = substr(s, p + length(marker))
   }
   return s != "" && match(s, r)
-}
-function unmark(s,   p, out) {
-  out = ""
-  while ((p = index(s, marker)) > 0) {
-    out = out substr(s, 1, p - 1) "[MASKED]"
-    s = substr(s, p + length(marker))
-  }
-  return out s
 }
 function mark(i, r,   s, off, st, ones) {
   s = lines[i]
@@ -13919,6 +13920,16 @@ mask_deny_rules() (
   printf '%s' "$md_list"
 )
 
+# Sets mask_token to 24 hex digits from /dev/urandom, or returns 1. It sets a
+# name rather than printing, so a caller needs no extra command substitution.
+mask_random_token() {
+  mask_token=$(od -An -N12 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')
+  case $mask_token in
+    ????????????????????????) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 # Applies the deny-value rules to masked view $2 of file $1. With rules, the
 # file is masked again with a random marker so text in it that reads
 # "[MASKED]" cannot pass for a value. Prints the view, or a reason with no
@@ -13933,11 +13944,7 @@ mask_deny_values() (
   md_out=$(mask_rules_check "$md_rules")
   md_status=$?
   if [ "$md_status" -eq 0 ]; then
-    md_marker=$(od -An -N12 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')
-    case $md_marker in
-      ????????????????????????) md_marker="[MASKED:$md_marker]" ;;
-      *) md_status=2 ;;
-    esac
+    mask_random_token && md_marker="[MASKED:$mask_token]" || md_status=2
   fi
   if [ "$md_status" -eq 0 ]; then
     mask_file "$1" text "$md_marker" >"$md_view" 2>/dev/null || md_status=2
@@ -14000,14 +14007,6 @@ FILENAME == rules_file {
 # json shows a value as a json string holding its json text. Exits 4 when the
 # two views do not line up.
 MASK_ALLOW_AWK_MERGE='
-function unmark(s,   p, out) {
-  out = ""
-  while ((p = index(s, marker)) > 0) {
-    out = out substr(s, 1, p - 1) "[MASKED]"
-    s = substr(s, p + length(marker))
-  }
-  return out s
-}
 # Undoes the json string escaping of json text, which only escapes " and \.
 function unquote(s,   i, c, out) {
   out = ""
@@ -14229,11 +14228,8 @@ mask_allow_keys() (
     printf '%s\n' "$ma_deny_list" >"$ma_deny"
     mask_rules_check "$ma_deny" >/dev/null || { mask_allow_warn "$ma_failed"; exit 1; }
   fi
-  ma_token=$(od -An -N12 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')
-  case $ma_token in
-    ????????????????????????) ;;
-    *) mask_allow_warn "$ma_failed"; exit 1 ;;
-  esac
+  mask_random_token || { mask_allow_warn "$ma_failed"; exit 1; }
+  ma_token=$mask_token
   ma_marker="[MASKED:$ma_token]"
   ma_open="[SHOW:$ma_token:"
   ma_close=":$ma_token:SHOW]"
