@@ -1,5 +1,9 @@
 ## Unreleased
 
+- feat(doctor): `agent-guard doctor`가 오래된 셸 연동을 알려 줍니다. v3.9.0 전에 `setup-shell`을 실행한 `~/.zshrc`·`~/.bashrc`에는 marker 사이에 resolver 전체(약 155줄)가 그대로 남아 있고, `~/.agent-guard/shell-init.sh`(`--no-command-wrapping`이면 `shell-init-no-wrapping.sh`)는 `setup-shell`을 실행한 시점의 resolver 사본이라 이후 resolver 수정이 반영되지 않는데, 지금까지는 어느 쪽도 알려 주지 않았습니다.
+  - 동작 변경: `setup-shell`이 쓰는 resolver 파일의 첫 줄이 `# agent-guard shell-init bootstrap v1 (managed by agent-guard setup-shell; rerun it to regenerate)` 형식 줄로 바뀝니다. `doctor`는 `~/.zshrc`나 `~/.bashrc`에 v3.9 이전 인라인 블록이 있거나, resolver 파일에 형식 줄이 없거나 더 오래된 형식 줄이 있으면 `shell integration:`으로 시작하는 안내 줄을 출력합니다. 안내만 하므로 종료 코드는 바뀌지 않고, 어떤 파일도 고치지 않습니다. 현재 형태면 아무것도 출력하지 않습니다. SessionStart 출력(모델 context)과 `setup` 출력은 바뀌지 않고, 예전 블록과 파일도 지금처럼 로드됩니다. `--rc`로 고른 rc 파일은 확인하지 않습니다.
+  - 사용자가 할 일: `doctor`가 안내하면 안내된 `agent-guard setup-shell` 명령(플러그인 설치는 `/agent-guard:setup-shell`)을 다시 실행합니다. rc 블록은 한 줄로 바뀌고 resolver 파일은 새로 써집니다. 그 뒤 셸과 그 셸에서 띄운 세션을 다시 시작합니다.
+  - 운영자가 할 일: 없습니다.
 - fix(shell-init): `setup-shell --no-command-wrapping`로 설치한 셸 연동이 아무것도 불러오지 못하던 문제를 고칩니다. `shell-init --no-command-wrapping`이 snippet을 다 출력하고도 종료 코드 1로 끝나서, `~/.agent-guard/shell-init-no-wrapping.sh`가 그 결과를 "불러올 것 없음"으로 읽고 버렸습니다. 그래서 opt-out으로 설치한 셸에는 `agx`도, SessionStart가 확인하는 버전 표시도 없었습니다.
   - 동작 변경: `shell-init --no-command-wrapping`이 종료 코드 0으로 끝나고, opt-out rc를 불러온 셸에 `agx`와 nudge, 버전 표시가 생깁니다. 명령 wrapper(`cat`·`env` 등 감싸기)는 여전히 만들지 않습니다. 기본 설치(`setup-shell`)가 출력하는 내용은 바뀌지 않습니다.
   - 사용자가 할 일: `--no-command-wrapping`으로 설치했다면 업데이트 뒤 새 셸을 엽니다. rc와 resolver 파일을 다시 쓸 필요는 없습니다.
@@ -78,10 +82,6 @@ v3.11.0은 릴리스 머지 뒤 main이 움직여 태그를 발행하지 못했�
 
 ## Unreleased
 
-- feat(doctor): `agent-guard doctor`가 오래된 셸 연동을 알려 줍니다. v3.9.0 전에 `setup-shell`을 실행한 `~/.zshrc`·`~/.bashrc`에는 marker 사이에 resolver 전체(약 155줄)가 그대로 남아 있고, `~/.agent-guard/shell-init.sh`(`--no-command-wrapping`이면 `shell-init-no-wrapping.sh`)는 `setup-shell`을 실행한 시점의 resolver 사본이라 이후 resolver 수정이 반영되지 않는데, 지금까지는 어느 쪽도 알려 주지 않았습니다.
-  - 동작 변경: `setup-shell`이 쓰는 resolver 파일의 첫 줄이 `# agent-guard shell-init bootstrap v1 (managed by agent-guard setup-shell; rerun it to regenerate)` 형식 줄로 바뀝니다. `doctor`는 `~/.zshrc`나 `~/.bashrc`에 v3.9 이전 인라인 블록이 있거나, resolver 파일에 형식 줄이 없거나 더 오래된 형식 줄이 있으면 `shell integration:`으로 시작하는 안내 줄을 출력합니다. 안내만 하므로 종료 코드는 바뀌지 않고, 어떤 파일도 고치지 않습니다. 현재 형태면 아무것도 출력하지 않습니다. SessionStart 출력(모델 context)과 `setup` 출력은 바뀌지 않고, 예전 블록과 파일도 지금처럼 로드됩니다. `--rc`로 고른 rc 파일은 확인하지 않습니다.
-  - 사용자가 할 일: `doctor`가 안내하면 안내된 `agent-guard setup-shell` 명령(플러그인 설치는 `/agent-guard:setup-shell`)을 다시 실행합니다. rc 블록은 한 줄로 바뀌고 resolver 파일은 새로 써집니다. 그 뒤 셸과 그 셸에서 띄운 세션을 다시 시작합니다.
-  - 운영자가 할 일: 없습니다.
 - feat(hooks): Claude Code에서 도구 호출이 실패하면 `PostToolUse` 대신 `PostToolUseFailure`가 실행됩니다. Claude 플러그인 manifest와 `examples/claude/settings.project.json`이 이 event를 `PostToolUse`와 같은 matcher·20초 timeout으로 등록하고, 새 subcommand `hook-post-tool-failure`가 실패 출력(`error`)을 성공 출력 마스킹과 같은 detector로 검사합니다. (#444, #461)
   - 동작 변경: host가 이 event에 `additionalContext`만 허용하므로 실패 출력은 마스킹되지 않고 그대로 모델에 갑니다(`updatedToolOutput`, `decision: "block"`, exit 2 모두 error 글을 바꾸지 못합니다. host 쪽 요청: anthropics/claude-code#97278). secret 모양 값을 찾으면 값은 적지 않고 종류만 밝혀, 마스킹되지 않았다는 것과 그 값을 되풀이하거나 쓰지 말고 사용자에게 교체가 필요할 수 있다고 알리라는 내용을 `additionalContext`로 보냅니다. `logs export`에는 `hook-post-tool-failure` 기록이 outcome `warned`로 남습니다. 깨끗하면 아무것도 출력하지 않습니다. 검사를 못 하면 깨끗하다고 하지 않고 `AGENT_GUARD_INFRA_FAILURE_MODE=open`에서는 세션마다 한 번, `closed`에서는 매번 알립니다. 막을 수 있는 것이 없으므로 두 모드 모두 exit 0입니다. JSON 객체가 아니거나 `error`가 없는 입력은 그대로 통과합니다. `AGENT_GUARD_OUTPUT_REDACT=off`면 검사하지 않습니다. Codex manifest는 바뀌지 않습니다.
   - 사용자가 할 일: Claude Code 플러그인을 갱신하고 플러그인을 다시 읽습니다. 경고가 나오면 그 자격 증명을 교체합니다.
