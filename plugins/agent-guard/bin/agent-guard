@@ -13538,6 +13538,16 @@ mask_file_render() {
   esac
 }
 
+# Runs "$@" and prints a trailing x, keeping its exit status, so that
+# v=$(capture_keep_newlines cmd) keeps cmd's final newlines once ${v%x} strips
+# the x. Redirections on the call apply to cmd.
+capture_keep_newlines() {
+  "$@"
+  ckn_status=$?
+  printf x
+  return "$ckn_status"
+}
+
 # Prints the masked view of file $1, or with $2 = paths the key path of every
 # masked value, one per line: dotenv KEY, ini section.key (key outside a
 # section), json and yaml keys joined by `.` with array indexes as numbers.
@@ -13569,14 +13579,12 @@ mask_file() (
   esac
   [ "$mf_size" -le "$MASK_FILE_MAX_BYTES" ] \
     || die_with_status 1 "mask-file: file is larger than 64 KiB"
-  # Buffered so a failure partway through prints nothing; the trailing x keeps
-  # $( ) from dropping final newlines. Parser stderr is dropped because jq and
-  # awk may quote the input in their errors.
-  mf_out=$(mask_file_render "$mf_format" "$mf_mode" "$mf_marker" "${4:-}" "${5:-}" "${6:-}" \
-    2>/dev/null <"$mf_path"
-    mf_status=$?
-    printf x
-    exit "$mf_status") \
+  # Buffered so a failure partway through prints nothing; capture_keep_newlines
+  # keeps $( ) from dropping final newlines. Parser stderr is dropped because jq
+  # and awk may quote the input in their errors.
+  mf_out=$(capture_keep_newlines \
+    mask_file_render "$mf_format" "$mf_mode" "$mf_marker" "${4:-}" "${5:-}" "${6:-}" \
+    2>/dev/null <"$mf_path") \
     || die_with_status 1 "mask-file: content is outside the supported $mf_format subset"
   printf '%s' "${mf_out%x}"
 )
@@ -13950,10 +13958,8 @@ mask_deny_values() (
     mask_file "$1" text "$md_marker" >"$md_view" 2>/dev/null || md_status=2
   fi
   if [ "$md_status" -eq 0 ]; then
-    md_out=$(mask_rules_apply "$md_rules" "$(mask_file_format "$1")" "$md_view" "$md_marker"
-      md_status=$?
-      printf x
-      exit "$md_status")
+    md_out=$(capture_keep_newlines \
+      mask_rules_apply "$md_rules" "$(mask_file_format "$1")" "$md_view" "$md_marker")
     md_status=$?
     md_out=${md_out%x}
   fi
@@ -14250,17 +14256,11 @@ mask_allow_keys() (
 # the cap and the rescan always see the view that is returned. The cap also
 # runs first: awk time on user rules grows with the view.
 masked_view() (
-  mv_view=$(mask_file "$1" text 2>/dev/null
-    mv_status=$?
-    printf x
-    exit "$mv_status") || exit 10
+  mv_view=$(capture_keep_newlines mask_file "$1" text 2>/dev/null) || exit 10
   mv_view=${mv_view%x}
   masked_view_fits "$mv_view"
   case $? in 0) ;; 1) exit 11 ;; *) exit 10 ;; esac
-  mv_view=$(mask_deny_values "$1" "$mv_view"
-    mv_status=$?
-    printf x
-    exit "$mv_status")
+  mv_view=$(capture_keep_newlines mask_deny_values "$1" "$mv_view")
   mv_status=$?
   mv_view=${mv_view%x}
   [ "$mv_status" -eq 0 ] || { printf '%s' "$mv_view"; exit 14; }
@@ -14268,10 +14268,7 @@ masked_view() (
   case $? in 0) ;; 1) exit 11 ;; *) exit 10 ;; esac
   # The view with allowed values shown gets the first of at most two scans;
   # the view with every value masked gets the second.
-  if mv_shown=$(mask_allow_keys "$1" "$mv_view" "${2:-}"
-    mv_status=$?
-    printf x
-    exit "$mv_status"); then
+  if mv_shown=$(capture_keep_newlines mask_allow_keys "$1" "$mv_view" "${2:-}"); then
     mv_shown=${mv_shown%x}
     if ! masked_view_fits "$mv_shown"; then
       mask_allow_warn 'the view showing the mask-allow-keys.txt values is too large'
@@ -14294,10 +14291,7 @@ masked_view() (
 # $2 is the hook workdir; empty means the current directory.
 deny_read_masked_block() {
   info "$PROGRAM: blocked sensitive file access: $1"
-  dr_view=$(masked_view "$1" "${2:-}"
-    dr_status=$?
-    printf x
-    exit "$dr_status")
+  dr_view=$(capture_keep_newlines masked_view "$1" "${2:-}")
   case $? in
     0)
       info "$PROGRAM: masked view follows (values replaced with [MASKED]; the file itself was not read by the tool)"
