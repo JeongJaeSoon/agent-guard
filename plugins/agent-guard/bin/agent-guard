@@ -12250,6 +12250,52 @@ printenv_requests_secretish_name() {
     | grep -q .
 }
 
+# Set rust_core to the native redactor redact_tool_response_json may run: an
+# explicit AGENT_GUARD_RUST_CORE_BIN, the unsuffixed packaged helper, or the
+# packaged helper for the running architecture when its shipped checksum
+# matches. Empty when nothing is configured or no architecture helper
+# qualifies; the caller runs it only when it is an absolute executable path.
+select_rust_redactor() {
+  rust_core=${AGENT_GUARD_RUST_CORE_BIN:-}
+  if [ -z "$rust_core" ] && [ -n "${ROOT_DIR:-}" ]; then
+    rust_core="$ROOT_DIR/libexec/agent-guard-redact"
+  fi
+  # Explicit developer overrides retain their trusted-executable contract.
+  # Packaged helpers are selected only for the running architecture and must
+  # match the checksum shipped inside the checksum-verified release archive.
+  if [ -z "${AGENT_GUARD_RUST_CORE_BIN:-}" ] && [ -n "${ROOT_DIR:-}" ] \
+      && [ -d "$ROOT_DIR/libexec" ] && [ ! -e "$rust_core" ]; then
+    rust_target=
+    case "$(uname -s):$(uname -m)" in
+      Linux:x86_64|Linux:amd64) rust_target=x86_64-unknown-linux-musl ;;
+      Linux:aarch64|Linux:arm64) rust_target=aarch64-unknown-linux-musl ;;
+      # Intel macOS has no helper after v3.8.2; a leftover one stays unused.
+      Darwin:arm64) rust_target=aarch64-apple-darwin ;;
+    esac
+    rust_name="agent-guard-redact-$rust_target"
+    rust_core="$ROOT_DIR/libexec/$rust_name"
+    if [ -n "$rust_target" ] && [ -f "$rust_core" ] && [ ! -L "$rust_core" ] \
+        && [ -f "$rust_core.sha256" ] && [ ! -L "$rust_core.sha256" ] \
+        && rust_expected=$(cat "$rust_core.sha256" 2>/dev/null) \
+        && rust_actual=$(
+          CDPATH='' cd -- "$ROOT_DIR/libexec" || exit 1
+          # Avoid starting Perl for each Linux invocation. Both tools emit
+          # the same SHA-256/name record; macOS keeps its system shasum.
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "$rust_name" 2>/dev/null
+          else
+            shasum -a 256 "$rust_name" 2>/dev/null
+          fi
+        ) \
+        && [ "$rust_expected" = "$rust_actual" ]; then
+      :
+    else
+      rust_core=
+    fi
+    unset rust_target rust_name rust_expected rust_actual
+  fi
+}
+
 # Replace every detected secret literal with a placeholder inside ANY string leaf
 # of the tool_response JSON ($1), preserving the original shape exactly
 # (updatedToolOutput must match the tool's native output shape). $2 is a JSON
@@ -12261,44 +12307,7 @@ redact_tool_response_json() {
   # Prefer the qualified packaged helper. Explicit shell/empty selections keep
   # the established jq contract; failed/partial helper stdout is never published.
   if [ "${AGENT_GUARD_EXPERIMENTAL_REDACTOR-rust}" = rust ]; then
-    rust_core=${AGENT_GUARD_RUST_CORE_BIN:-}
-    if [ -z "$rust_core" ] && [ -n "${ROOT_DIR:-}" ]; then
-      rust_core="$ROOT_DIR/libexec/agent-guard-redact"
-    fi
-    # Explicit developer overrides retain their trusted-executable contract.
-    # Packaged helpers are selected only for the running architecture and must
-    # match the checksum shipped inside the checksum-verified release archive.
-    if [ -z "${AGENT_GUARD_RUST_CORE_BIN:-}" ] && [ -n "${ROOT_DIR:-}" ] \
-        && [ -d "$ROOT_DIR/libexec" ] && [ ! -e "$rust_core" ]; then
-      rust_target=
-      case "$(uname -s):$(uname -m)" in
-        Linux:x86_64|Linux:amd64) rust_target=x86_64-unknown-linux-musl ;;
-        Linux:aarch64|Linux:arm64) rust_target=aarch64-unknown-linux-musl ;;
-        # Intel macOS has no helper after v3.8.2; a leftover one stays unused.
-        Darwin:arm64) rust_target=aarch64-apple-darwin ;;
-      esac
-      rust_name="agent-guard-redact-$rust_target"
-      rust_core="$ROOT_DIR/libexec/$rust_name"
-      if [ -n "$rust_target" ] && [ -f "$rust_core" ] && [ ! -L "$rust_core" ] \
-          && [ -f "$rust_core.sha256" ] && [ ! -L "$rust_core.sha256" ] \
-          && rust_expected=$(cat "$rust_core.sha256" 2>/dev/null) \
-          && rust_actual=$(
-            CDPATH='' cd -- "$ROOT_DIR/libexec" || exit 1
-            # Avoid starting Perl for each Linux invocation. Both tools emit
-            # the same SHA-256/name record; macOS keeps its system shasum.
-            if command -v sha256sum >/dev/null 2>&1; then
-              sha256sum "$rust_name" 2>/dev/null
-            else
-              shasum -a 256 "$rust_name" 2>/dev/null
-            fi
-          ) \
-          && [ "$rust_expected" = "$rust_actual" ]; then
-        :
-      else
-        rust_core=
-      fi
-      unset rust_target rust_name rust_expected rust_actual
-    fi
+    select_rust_redactor
     case "$rust_core" in
       /*)
         if [ -x "$rust_core" ] && rust_result=$(
