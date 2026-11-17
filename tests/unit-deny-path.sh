@@ -204,9 +204,20 @@ s/a/\//	s//\//
 s/a/b/w out	!
 s/a/b/e	!
 r x	!
-p	!
-/a/s/b/c/	!
-s/a/b/;p	!
+p	p
+/a/s/b/c/	//s//c/
+s/a/b/;p	s//b/;p
+1,50p	1,50p
+/secrets.json/,+5p	//,+5p
+/a/,/b/d	//,//d
+$=	$=
+/a/w out	!
+/a/r x	!
+/a/!d	!
+/a/I p	!
+1,	!
+/[/]/p	!
+/a	!
 s/[/]//	!
 s/[\]]//	!
 s/[[:/:]]//	!
