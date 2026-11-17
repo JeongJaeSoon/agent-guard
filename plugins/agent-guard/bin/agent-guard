@@ -2954,11 +2954,8 @@ smoke_test() {
     | smoke_expect 0 "pii-filter runs with the regex provider" pii_filter
 
   write_payload=$(mktemp_file) || die "smoke: failed to create temp file"
-  {
-    printf '%s' '{"tool_name":"Write","tool_input":{"file_path":"guard-fixture.txt","content":"'
-    sed 's/\\/\\\\/g; s/"/\\"/g; s/$/\\n/' "$tmp/dirty/private-key-fixture.txt" | tr -d '\n'
-    printf '%s\n' '"}}'
-  } >"$write_payload"
+  jq -c -R -s '{tool_name: "Write", tool_input: {file_path: "guard-fixture.txt", content: .}}' \
+    <"$tmp/dirty/private-key-fixture.txt" >"$write_payload"
   smoke_expect 2 "hook-pre-tool blocks secret-like writes" hook_pre_tool <"$write_payload"
   rm -f "$write_payload"
 
@@ -2976,7 +2973,7 @@ smoke_test() {
     mkdir -p githooks
     {
       printf '%s\n' '#!/usr/bin/env sh'
-      printf 'exec "%s" scan-staged\n' "$BIN_DIR/agent-guard"
+      printf 'exec %s scan-staged\n' "$(sh_squote "$SELF_BIN")"
     } >githooks/pre-commit
     chmod +x githooks/pre-commit || exit 2
     git config core.hooksPath githooks || exit 2
