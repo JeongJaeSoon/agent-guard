@@ -2909,41 +2909,8 @@ expect_json_status 2 "assignment-prefixed git --no-verify is blocked" \
   '{"tool_name":"Bash","tool_input":{"command":"FOO=bar git commit --no-verify -m x"}}' \
   hook-pre-tool
 
-# The flag inside code another shell or env -S runs is still the flag, and so
-# is the flag behind any wrapper, option grammar, code runner or command name
-# the gate does not know (#483, #484).
-for nv_command in "bash -c 'git commit --no-verify -m x'" "env -S 'git push --no-verify'" \
-  "sudo -n git commit --no-verify -m x" "sudo -S git commit --no-verify -m x" \
-  "sudo -g wheel git commit --no-verify -m x" "sudo --user root git commit --no-verify -m x" \
-  "sudo --user=root git commit --no-verify -m x" "sudo -nu root git commit --no-verify -m x" \
-  "sudo -u root git commit --no-verify -m x" "sudo git commit --no-verify -m x" \
-  "xargs -P 2 git commit --no-verify -m x" "xargs -n 1 git commit --no-verify -m x" \
-  "nice -n 5 git commit --no-verify -m x" "nice git commit --no-verify -m x" \
-  "nice -5 git commit --no-verify -m x" "nice --adjustment=5 git commit --no-verify -m x" \
-  "env -i git commit --no-verify -m x" "env -u X git commit --no-verify -m x" \
-  "env -iu X git commit --no-verify -m x" "env -C /tmp git commit --no-verify -m x" \
-  "nohup git commit --no-verify -m x" "command git commit --no-verify -m x" \
-  "command -p git commit --no-verify -m x" "time git commit --no-verify -m x" \
-  "time -p git commit --no-verify -m x" "builtin command git commit --no-verify -m x" \
-  "timeout 10 git commit --no-verify -m x" "timeout 10 git push --no-verify" \
-  "timeout -s KILL 10 git commit --no-verify -m x" "timeout -- 10 git commit --no-verify -m x" \
-  "/usr/bin/timeout 10 git commit --no-verify -m x" "doas git commit --no-verify -m x" \
-  "stdbuf -oL git commit --no-verify -m x" "ionice -c 3 git commit --no-verify -m x" \
-  "setsid git commit --no-verify -m x" "chronic git commit --no-verify -m x" \
-  "unbuffer git commit --no-verify -m x" "exec git commit --no-verify -m x" \
-  "flock /tmp/l git commit --no-verify -m x" "flock /tmp/l -c 'git commit --no-verify -m x'" \
-  "caffeinate git commit --no-verify -m x" "nsenter -t 1 git commit --no-verify -m x" \
-  "chroot / git commit --no-verify -m x" "taskset 1 git commit --no-verify -m x" \
-  "sudo timeout 5 git commit --no-verify -m x" "timeout 5 sudo git commit --no-verify -m x" \
-  "busybox sh -c 'git commit --no-verify -m x'" "script -c 'git commit --no-verify -m x' /dev/null" \
-  "su -c 'git commit --no-verify -m x'" "su root -c 'git commit --no-verify -m x'" \
-  "watch git commit --no-verify -m x" "parallel git commit --no-verify -m x ::: a" \
-  "fish -c 'git commit --no-verify -m x'" "fish --command 'git commit --no-verify -m x'" \
-  "nu -c 'git commit --no-verify -m x'" "pwsh -c 'git commit --no-verify -m x'" \
-  "pwsh -Command 'git push --no-verify'" "find . -exec git commit --no-verify {} ;" \
-  "sh -c 'git commit --no-verify -m x'" "dash -c 'git commit --no-verify -m x'" \
-  "ksh -c 'git commit --no-verify -m x'" "zsh -c 'git commit --no-verify -m x'" \
-  "mksh -c 'git commit --no-verify -m x'" "eval 'git commit --no-verify -m x'"; do
+# The flag inside code another shell or env -S runs is still the flag.
+for nv_command in "bash -c 'git commit --no-verify -m x'" "env -S 'git push --no-verify'"; do
   for nv_host in claude codex; do
     jq -nc --arg c "$nv_command" '{tool_name:"Bash",tool_input:{command:$c}}' \
       | AGENT_GUARD_HOOK_HOST=$nv_host "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
@@ -5039,6 +5006,49 @@ gate_hook() {
         "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool) >"$OUT" 2>"$ERR"
 }
 for gate_host in claude codex; do
+  # The flag behind any wrapper, option grammar, code runner or command name
+  # the gate does not know is still the flag.
+  for gate_command in \
+    "sudo -n git commit --no-verify -m x" "sudo -S git commit --no-verify -m x" \
+    "sudo -g wheel git commit --no-verify -m x" "sudo --user root git commit --no-verify -m x" \
+    "sudo --user=root git commit --no-verify -m x" "sudo -nu root git commit --no-verify -m x" \
+    "sudo -u root git commit --no-verify -m x" "sudo git commit --no-verify -m x" \
+    "xargs -P 2 git commit --no-verify -m x" "xargs -n 1 git commit --no-verify -m x" \
+    "nice -n 5 git commit --no-verify -m x" "nice git commit --no-verify -m x" \
+    "nice -5 git commit --no-verify -m x" "nice --adjustment=5 git commit --no-verify -m x" \
+    "env -i git commit --no-verify -m x" "env -u X git commit --no-verify -m x" \
+    "env -iu X git commit --no-verify -m x" "env -C /tmp git commit --no-verify -m x" \
+    "nohup git commit --no-verify -m x" "command git commit --no-verify -m x" \
+    "command -p git commit --no-verify -m x" "time git commit --no-verify -m x" \
+    "time -p git commit --no-verify -m x" "builtin command git commit --no-verify -m x" \
+    "timeout 10 git commit --no-verify -m x" "timeout 10 git push --no-verify" \
+    "timeout -s KILL 10 git commit --no-verify -m x" "timeout -- 10 git commit --no-verify -m x" \
+    "/usr/bin/timeout 10 git commit --no-verify -m x" "doas git commit --no-verify -m x" \
+    "stdbuf -oL git commit --no-verify -m x" "ionice -c 3 git commit --no-verify -m x" \
+    "setsid git commit --no-verify -m x" "chronic git commit --no-verify -m x" \
+    "unbuffer git commit --no-verify -m x" "exec git commit --no-verify -m x" \
+    "flock /tmp/l git commit --no-verify -m x" "flock /tmp/l -c 'git commit --no-verify -m x'" \
+    "caffeinate git commit --no-verify -m x" "nsenter -t 1 git commit --no-verify -m x" \
+    "chroot / git commit --no-verify -m x" "taskset 1 git commit --no-verify -m x" \
+    "sudo timeout 5 git commit --no-verify -m x" "timeout 5 sudo git commit --no-verify -m x" \
+    "busybox sh -c 'git commit --no-verify -m x'" "script -c 'git commit --no-verify -m x' /dev/null" \
+    "su -c 'git commit --no-verify -m x'" "su root -c 'git commit --no-verify -m x'" \
+    "watch git commit --no-verify -m x" "parallel git commit --no-verify -m x ::: a" \
+    "fish -c 'git commit --no-verify -m x'" "fish --command 'git commit --no-verify -m x'" \
+    "nu -c 'git commit --no-verify -m x'" "pwsh -c 'git commit --no-verify -m x'" \
+    "pwsh -Command 'git push --no-verify'" "find . -exec git commit --no-verify {} ;" \
+    "sh -c 'git commit --no-verify -m x'" "dash -c 'git commit --no-verify -m x'" \
+    "ksh -c 'git commit --no-verify -m x'" "zsh -c 'git commit --no-verify -m x'" \
+    "mksh -c 'git commit --no-verify -m x'" "eval 'git commit --no-verify -m x'"; do
+    gate_hook "$gate_host" open "$GATE_CLEAN" "$gate_command"
+    status=$?
+    if [ "$status" -eq 2 ] && grep -q 'disables hooks/signing' "$ERR"; then
+      ok "[$gate_host] $gate_command is blocked"
+    else
+      not_ok "[$gate_host] $gate_command is blocked (got $status)"
+      sed 's/^/  stderr: /' "$ERR"
+    fi
+  done
   for gate_command in "timeout 10 git commit -m leak" "timeout 10 git push" \
     "/usr/bin/timeout 10 git commit -m leak" "timeout -s KILL 10 git commit -m leak" \
     "doas git commit -m leak" "stdbuf -oL git commit -m leak" "stdbuf -o L git commit -m leak" \
