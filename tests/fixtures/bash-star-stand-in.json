@@ -567,6 +567,139 @@
     "command": "cat $(node -e 'console.log(\"id[_r]*\")')"
   },
   {
+    "id": "python-program-polars-reader-glob",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a python program that imports polars may expand its pattern argument itself",
+    "command": "python3 -c 'import polars as pl; print(pl.read_csv(\"d/id_[r]*\"))'"
+  },
+  {
+    "id": "python-program-dask-reader-glob",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a dotted import such as dask.dataframe keeps the glob scan",
+    "command": "python3 -c 'import dask.dataframe as dd; print(dd.read_csv(\"d/id_[r]*\").compute())'"
+  },
+  {
+    "id": "python-program-duckdb-reader-glob",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a python program that imports duckdb may expand its pattern argument itself",
+    "command": "python3 -c 'import duckdb; print(duckdb.read_csv(\"d/id_[r]*\"))'"
+  },
+  {
+    "id": "python-program-datasets-reader-glob",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a python program that imports datasets may expand its data_files pattern",
+    "command": "python3 -c 'import datasets; print(datasets.load_dataset(\"text\", data_files=\"d/id_[r]*\"))'"
+  },
+  {
+    "id": "python-program-pyspark-from-import-glob",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a from-import of an outside module keeps the glob scan",
+    "command": "python3 -c 'from pyspark.sql import SparkSession as S; print(S.builder.getOrCreate().read.text(\"d/id_[r]*\").collect())'"
+  },
+  {
+    "id": "python-program-from-import-reader-glob",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a from x import y of an outside module after an allowed one keeps the glob scan",
+    "command": "python3 -c 'from re import sub; from polars import read_csv; print(read_csv(\"d/id_[r]*\"))'"
+  },
+  {
+    "id": "python-program-outside-module-aliased-as-allowed",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "an outside module imported under an allowed module's name keeps the glob scan",
+    "command": "python3 -c 'import polars as re; print(re.read_csv(\"d/id_[r]*\"))'"
+  },
+  {
+    "id": "python-program-outside-module-after-allowed",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "an outside module listed after an allowed one in the same import keeps the glob scan",
+    "command": "python3 -c 'import re, polars; print(polars.read_csv(\"d/id_[r]*\"))'"
+  },
+  {
+    "id": "python-program-import-inside-compound-statement",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "an import that does not open a statement is not read and keeps the glob scan",
+    "command": "python3 -c 'if 1: import polars as pl; print(pl.read_csv(\"d/id_[r]*\"))'"
+  },
+  {
+    "id": "python-program-regex-pattern-to-reader",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a regex whose .re.pattern reaches an outside reader keeps the glob scan",
+    "command": "python3 -c 'import polars as pl, re; print(pl.read_csv(re.search(\"d/id_[r]*\", \"x\").re.pattern))'"
+  },
+  {
+    "id": "node-program-shelljs-reader-glob",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a node program that requires a module may expand its pattern argument",
+    "command": "node -e 'console.log(require(\"shelljs\").cat(\"d/id_[r]*\").toString())'"
+  },
+  {
+    "id": "node-program-regex-source-to-reader",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a regex source handed to a required module keeps the glob scan",
+    "command": "node -e 'console.log(require(\"shelljs\").cat(/id_[r]*/.source).toString())'"
+  },
+  {
+    "id": "node-program-dynamic-import-glob",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a node program that loads a module with import() keeps the glob scan",
+    "command": "node -e 'import(\"shelljs\").then(s => console.log(s.cat(\"d/id_[r]*\").toString()))'"
+  },
+  {
+    "id": "bun-program-require-glob",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a bun program that requires a module keeps the glob scan",
+    "command": "bun -e 'console.log(require(\"shelljs\").cat(\"d/id_[r]*\").toString())'"
+  },
+  {
+    "id": "python-program-imports-re-regex",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a python program that imports only re keeps its regex text out of the glob scan",
+    "command": "python3 -c 'import re; print(re.findall(r\"id[a-z_]*\", \"x\"))'"
+  },
+  {
+    "id": "python-program-imports-re-sys-regex",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "an import list of allowed modules, one aliased, keeps the exception",
+    "command": "python3 -c 'import re, sys as s; print(re.findall(r\"id[a-z_]*\", s.argv[0]))'"
+  },
+  {
+    "id": "python-program-from-collections-regex",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a from-import of an allowed module keeps the exception",
+    "command": "python3 -c 'from collections import Counter; import re; print(Counter(re.findall(r\"id[a-z_]*\", \"x\")))'"
+  },
+  {
+    "id": "python-program-import-json-alias-star",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "an allowed module imported under an alias keeps the exception",
+    "command": "python3 -c 'import json as j; print(j.dumps(\"id_[r]*\"))'"
+  },
+  {
+    "id": "node-program-no-module-regex",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a node program that loads no module keeps its regex text out of the glob scan",
+    "command": "node -e 'const r = /id[_a-z]*/; console.log(r.test(\"x\"))'"
+  },
+  {
     "id": "pattern-text-in-quoted-argument",
     "expected_status": 2,
     "classification": "known-limitation",
