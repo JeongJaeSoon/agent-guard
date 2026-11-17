@@ -14468,6 +14468,14 @@ redact_tool_output() {
   redact_tool_output_response
 }
 
+# Same shell, never $( ): the conservative rewrite may end the hook itself
+# (recovery `exit 0` or block_failed_output_rewrite).
+rewrite_out_conservatively() {
+  rewrite_response_conservatively "$out"
+  out=$SAFE_REWRITE
+  conservative_done=1
+}
+
 # $1 = conservative when the caller found $resp quote-free and over the scan cap.
 redact_tool_output_response() {
   resp_full=''
@@ -14511,24 +14519,15 @@ redact_tool_output_response() {
     r=
     if ! r=$(redact_nul_response_json "$out"); then
       r=
-      rewrite_response_conservatively "$out"
-      out=$SAFE_REWRITE
-      conservative_done=1
-      did_secret=1
+      rewrite_out_conservatively; did_secret=1
     elif [ -n "$r" ] && [ "$r" != "$out" ]; then
       out=$r
       did_secret=1
     fi
-    if [ "$conservative_done" -eq 0 ] && output_scan_input_exceeds_cap "$out"; then
-      rewrite_response_conservatively "$out"
-      out=$SAFE_REWRITE
-      conservative_done=1
-      did_secret=1
-    elif [ "$conservative_done" -eq 0 ] && large_response_has_secretish_assignment "$out"; then
-      rewrite_response_conservatively "$out"
-      out=$SAFE_REWRITE
-      conservative_done=1
-      did_secret=1
+    if [ "$conservative_done" -eq 0 ] \
+        && { output_scan_input_exceeds_cap "$out" \
+          || large_response_has_secretish_assignment "$out"; }; then
+      rewrite_out_conservatively; did_secret=1
     elif [ "$conservative_done" -eq 0 ]; then
       secret_bundle=
       secret_scan_view=$out
@@ -14537,21 +14536,11 @@ redact_tool_output_response() {
       fi
       if ! secret_bundle=$(detect_output_secret_bundle "$secret_scan_view"); then
         secret_bundle=
-        rewrite_response_conservatively "$out"
-        out=$SAFE_REWRITE
-        conservative_done=1
-        did_secret=1
+        rewrite_out_conservatively; did_secret=1
       elif [ -n "$secret_bundle" ]; then
-        if ! classify_secret_bundle "$secret_bundle"; then
-          rewrite_response_conservatively "$out"
-          out=$SAFE_REWRITE
-          conservative_done=1
-          did_secret=1
-        elif [ "$BUNDLE_MODE" = whole_leaf ]; then
-          rewrite_response_conservatively "$out"
-          out=$SAFE_REWRITE
-          conservative_done=1
-          did_secret=1
+        if ! classify_secret_bundle "$secret_bundle" \
+            || [ "$BUNDLE_MODE" = whole_leaf ]; then
+          rewrite_out_conservatively; did_secret=1
         elif [ "$BUNDLE_SECRETS" != '[]' ]; then
           secrets=$BUNDLE_SECRETS
           r=
@@ -14578,10 +14567,7 @@ redact_tool_output_response() {
     r=
     if ! r=$(mask_pii_response_json "$out" "$trusted"); then
       r=
-      rewrite_response_conservatively "$out"
-      out=$SAFE_REWRITE
-      conservative_done=1
-      did_pii=1
+      rewrite_out_conservatively; did_pii=1
     elif [ -n "$r" ] && [ "$r" != "$out" ]; then
       out=$r
       did_pii=1
@@ -14617,10 +14603,7 @@ redact_tool_output_response() {
       fi
     fi
     if [ "$live_failed" -eq 1 ]; then
-      rewrite_response_conservatively "$out"
-      out=$SAFE_REWRITE
-      conservative_done=1
-      did_secret=1
+      rewrite_out_conservatively; did_secret=1
     elif [ -n "$r" ] && [ "$r" != "$out" ]; then
       out=$r
       did_secret=1
