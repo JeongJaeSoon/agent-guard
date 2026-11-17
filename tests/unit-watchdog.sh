@@ -8,10 +8,12 @@ trap 'rm -rf "$CASE"' 0
 REAL_SLEEP=$(command -v sleep)
 export CASE REAL_SLEEP
 sh "$ROOT/tests/helpers/extract-functions.sh" "$SOURCE" "$CASE" \
-  probe_gitleaks kill_gitleaks_probe_group select_gitleaks_probe_launcher
+  probe_gitleaks kill_gitleaks_probe_group select_gitleaks_probe_launcher \
+  exec_in_new_session
 . "$CASE/probe_gitleaks.sh"
 . "$CASE/kill_gitleaks_probe_group.sh"
 . "$CASE/select_gitleaks_probe_launcher.sh"
+. "$CASE/exec_in_new_session.sh"
 mkdir "$CASE/bin"
 cat >"$CASE/bin/sleep" <<'SLEEP'
 #!/bin/sh

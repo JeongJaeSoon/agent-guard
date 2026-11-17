@@ -398,19 +398,8 @@ codex_trust_probe() {
     # app-server's own state is not this probe's to place; run it outside the
     # project so the cwd cannot select a different Codex home or config.
     cd "$ct_dir" || exit 125
-    case "$GITLEAKS_PROBE_LAUNCHER" in
-      setsid)
-        exec "$GITLEAKS_PROBE_LAUNCHER_BIN" sh -c "$CODEX_TRUST_CLIENT" agent-guard-codex-trust \
-          "$ct_codex" "$ct_out" "$CODEX_TRUST_CWD" "$ct_limit" "$VERSION"
-        ;;
-      perl)
-        exec "$GITLEAKS_PROBE_LAUNCHER_BIN" -MPOSIX \
-          -e 'POSIX::setsid() >= 0 or exit 125; exec @ARGV; exit 126' \
-          sh -c "$CODEX_TRUST_CLIENT" agent-guard-codex-trust \
-          "$ct_codex" "$ct_out" "$CODEX_TRUST_CWD" "$ct_limit" "$VERSION"
-        ;;
-      *) exit 125 ;;
-    esac
+    exec_in_new_session sh -c "$CODEX_TRUST_CLIENT" agent-guard-codex-trust \
+      "$ct_codex" "$ct_out" "$CODEX_TRUST_CWD" "$ct_limit" "$VERSION"
   ) </dev/null >/dev/null 2>&1 &
   CODEX_TRUST_PROBE_PID=$!
   CODEX_TRUST_GROUP=$CODEX_TRUST_PROBE_PID
@@ -1694,6 +1683,20 @@ select_gitleaks_probe_launcher() {
   return 1
 }
 
+# Replace the calling subshell with "$@" as the leader of a new session, so a
+# watchdog can kill the whole process group. Call only from a subshell after
+# select_gitleaks_probe_launcher has succeeded; it never returns.
+exec_in_new_session() {
+  case "$GITLEAKS_PROBE_LAUNCHER" in
+    setsid) exec "$GITLEAKS_PROBE_LAUNCHER_BIN" "$@" ;;
+    perl)
+      exec "$GITLEAKS_PROBE_LAUNCHER_BIN" -MPOSIX \
+        -e 'POSIX::setsid() >= 0 or exit 125; exec @ARGV; exit 126' "$@"
+      ;;
+    *) exit 125 ;;
+  esac
+}
+
 probe_gitleaks() {
   ag_gl_probe_bin=$1
   GITLEAKS_PROBE_STATE=missing
@@ -1734,15 +1737,7 @@ probe_gitleaks() {
     # POSIX ulimit -f uses 512-byte blocks. Bounding the regular output file
     # prevents a broken version command from filling memory before parsing.
     ulimit -f 16 >/dev/null 2>&1 || exit 125
-    case "$GITLEAKS_PROBE_LAUNCHER" in
-      setsid) exec "$GITLEAKS_PROBE_LAUNCHER_BIN" "$ag_gl_probe_bin" version ;;
-      perl)
-        exec "$GITLEAKS_PROBE_LAUNCHER_BIN" -MPOSIX \
-          -e 'POSIX::setsid() >= 0 or exit 125; exec @ARGV; exit 126' \
-          "$ag_gl_probe_bin" version
-        ;;
-      *) exit 125 ;;
-    esac
+    exec_in_new_session "$ag_gl_probe_bin" version
   ) >"$ag_gl_probe_output" 2>&1 &
   AG_GITLEAKS_PROBE_PID=$!
   AG_GITLEAKS_PROBE_GROUP=$AG_GITLEAKS_PROBE_PID
