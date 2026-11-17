@@ -1,3 +1,15 @@
+## v3.11.6 - 2026-11-17
+
+- fix(bash): 인터프리터 heredoc 본문의 런타임 전역 이름을 `.env*` 파일로 읽던 오탐을 고칩니다. 명령에 `<<`가 있으면 런타임 전역 예외(`process.env.X` 등)를 통째로 건너뛰었기 때문에, `node <<'EOF'`나 `python3 - <<EOF` 본문의 `process.env.ROUTE`가 `*.env.*`에 걸렸습니다. (#487)
+  - 동작 변경: `<<`가 있는 명령은 줄 단위로 읽고, 그 줄에 인터프리터 하나만 있는 heredoc(`node <<'EOF'`, `python3 - <<EOF`, `bun run -`, `deno run -`)의 본문에서만 런타임 전역 이름을 경로로 읽지 않습니다. 문자열 리터럴 안의 이름, 이름과 `/`가 같은 줄에 있는 경우, 문자열이 닫히지 않은 줄, 따옴표 없는 구분자 본문의 `$(`·백틱, 다른 형태의 heredoc, 본문 밖의 이름, 같은 이름의 실제 파일이 있는 경우는 지금처럼 막습니다.
+  - 사용자가 할 일: 없습니다.
+  - 운영자가 할 일: 없습니다.
+- fix(bash): 작은따옴표로 감싼 프로그램 단어 안의 정규식 글을 셸 glob으로 읽던 오탐을 고칩니다. `python3 -c`, `node -e`, jq 필터, awk 프로그램 안의 `id[_a-z]*`, `id_*`, `/id_r?a/`가 shell-expanded 검사에서 `id_rsa`로 펼쳐질 수 있는 glob으로 읽혔습니다. (#487)
+  - 동작 변경: 프로그램 단어 전체의 `[ ] * ?`를 shell-expanded 검사용 사본에서만 글자로 읽습니다. literal 검사는 원문을 그대로 읽습니다. 조건이 있습니다. python·node는 같은 줄 앞에 파이프가 없어야 하고, awk는 `getline`·`ARGV`·명령 파이프가 없어야 합니다. 어느 프로그램이든 `open`, `File`이 든 이름(`FileIO`, `GzipFile`, `readFileSync` 등), `readdir`, `Glob`을 쓰지 않아야 하고, 출력은 `wc`·`head`·`sort`·`grep` 같은 텍스트 필터로만 가야 합니다. `cat ~/.ssh/id[_r]*`, `jq . ~/.ssh/id[_r]*`, `awk 1 id[_r]*`처럼 프로그램 밖의 glob 피연산자는 그대로 막습니다. 알려진 한계 두 가지가 있습니다. jq 필터에서 `(` 바로 뒤에 필드 접근이 오는 형태(`select(.name | test("id[_a-z]*"))`)는 아직 막힙니다(#491). `polars.read_csv("d/id_[a-z]*")`처럼 패턴 인자를 스스로 펼치는 서드파티 reader는 이 예외로 통과합니다(#492).
+  - 사용자가 할 일: 없습니다. #491의 형태가 막히면 `.["name"]`이나 `(.name)`으로 쓰면 됩니다.
+  - 운영자가 할 일: 없습니다.
+- ci(native): Native redactor contracts 시간 제한을 25분으로 올린다 (#490)
+
 ## v3.11.5 - 2026-11-17
 
 - perf(bash): 진단 로그를 끈 상태(`AGENT_GUARD_LOG_MODE=off`)의 Bash PreToolUse가 보호 경로 검사에서 deny 목록 항목마다 grep을 따로 띄우지 않습니다. 합친 정규식 파일은 상태 디렉터리에만 두었기 때문에, 상태 디렉터리가 없는 off 모드에서는 한 번도 쓰이지 않았습니다. 그래서 `printf 'build passed'` 같은 깨끗한 명령 하나에 항목 60개 × 검사 4번 = grep 240번과 정규식 생성용 서브셸 약 1,000개가 들었고, nightly 성능 측정의 `pre-bash-clean`(homebrew, off)이 v3.7.0 기준 5%를 다시 넘었습니다. (#477, #488)
