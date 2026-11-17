@@ -11537,17 +11537,22 @@ secretish_env_values() {
   '
 }
 
+# Set output_bytes to the byte length of $1. Returns 1 when wc yields no
+# well-formed count; each caller decides what a malformed count means. The count
+# is returned in a variable, not on stdout, so callers spawn no extra subshell.
+output_byte_count() {
+  output_bytes=$(printf '%s' "$1" | LC_ALL=C wc -c | tr -d '[:space:]')
+  case "$output_bytes" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+}
+
 # Treat malformed byte counts as over-cap so callers fail closed. Keeping the
 # limit in one helper aligns PostToolUse, gitleaks, and exec preflights.
 OUTPUT_SCAN_MAX_BYTES=327680
 output_scan_input_exceeds_cap() {
-  output_scan_input=$1
-  output_scan_bytes=$(printf '%s' "$output_scan_input" \
-    | LC_ALL=C wc -c | tr -d '[:space:]')
-  case "$output_scan_bytes" in
-    ''|*[!0-9]*) return 0 ;;
-  esac
-  [ "$output_scan_bytes" -gt "$OUTPUT_SCAN_MAX_BYTES" ]
+  output_byte_count "$1" || return 0
+  [ "$output_bytes" -gt "$OUTPUT_SCAN_MAX_BYTES" ]
 }
 
 # Bind the live post-tool probe's replacement to this invocation's diagnostic
@@ -12419,15 +12424,13 @@ redact_nul_response_json() {
 # Large, high-cardinality assignment dumps can exhaust the host timeout while
 # the ordinary detector collects every unique literal. Probe them in one
 # streaming pass first; only a confirmed secret-bearing assignment takes the
-# conservative whole-leaf path. Large clean output still uses normal detection.
+# conservative whole-leaf path. Large clean output still uses normal detection,
+# and so does a response whose size cannot be counted: this is only a precheck.
+OUTPUT_LARGE_PROBE_BYTES=262144
 large_response_has_secretish_assignment() {
   large_probe_response=$1
-  large_probe_bytes=$(printf '%s' "$large_probe_response" \
-    | wc -c | tr -d '[:space:]')
-  case "$large_probe_bytes" in
-    ''|*[!0-9]*) return 1 ;;
-  esac
-  [ "$large_probe_bytes" -gt 262144 ] || return 1
+  output_byte_count "$large_probe_response" || return 1
+  [ "$output_bytes" -gt "$OUTPUT_LARGE_PROBE_BYTES" ] || return 1
   printf '%s' "$large_probe_response" \
     | frame_json_string_leaves 2>/dev/null \
     | secretish_env_values probe \
