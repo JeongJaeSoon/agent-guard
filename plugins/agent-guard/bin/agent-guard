@@ -5613,9 +5613,10 @@ shell_neutralize_quoted_brackets_for_policy() {
     # to list, so it may not read names from a pipe; awk opens files only
     # through getline and ARGV; jq opens none. None may list or glob a
     # directory, nor (awk) pipe to a command, and the output may only reach
-    # plain text filters.
+    # plain text filters. Any File substring (FileIO, GzipFile, readFileSync,
+    # the source name of an imported alias) counts as opening a file.
     function progneutral_ok(w, pre, r, isawk, isjq,   t, segs, k, m, wd) {
-      if (w ~ /open|FileIO|read[A-Za-z]*File|ReadStream|readdir|readDir|Glob|Bun\.file|getline|ARGV/) return 0
+      if (w ~ /open|File|ReadStream|readdir|readDir|Glob|Bun\.file|getline|ARGV/) return 0
       # Any pipe earlier on the line may feed the program (`| (`, `|&`).
       t = pre; gsub(/\|\|/, "", t)
       if (!isawk && !isjq && index(t, "|")) return 0

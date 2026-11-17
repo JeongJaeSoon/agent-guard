@@ -427,6 +427,34 @@
     "command": "python3 -c 'import _io,re; [print(_io.FileIO(n).readall()) for n in [\"a\"] if re.fullmatch(\"id[_a-z]*\",n)]'"
   },
   {
+    "id": "python-program-gzipfile-raw-read",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a python -c program that reads a file raw through gzip.GzipFile can match its pattern against names",
+    "command": "python3 -c 'import gzip,re; [print(gzip.GzipFile(n).fileobj.read()) for n in gzip.GzipFile(\"names.gz\").read().decode().split() if re.fullmatch(\"id[_a-z]*\",n)]'"
+  },
+  {
+    "id": "python-program-bz2file",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a python -c program that opens files through bz2.BZ2File can match its pattern against names",
+    "command": "python3 -c 'import bz2,re; [print(bz2.BZ2File(n).read()) for n in [\"a\"] if re.fullmatch(\"id[_a-z]*\",n)]'"
+  },
+  {
+    "id": "python-program-lzmafile",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a python -c program that opens files through lzma.LZMAFile can match its pattern against names",
+    "command": "python3 -c 'import lzma,re; [print(lzma.LZMAFile(n).read()) for n in [\"a\"] if re.fullmatch(\"id[_a-z]*\",n)]'"
+  },
+  {
+    "id": "python-program-aliased-file-class",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a python -c program that imports a file class under an alias can match its pattern against names",
+    "command": "python3 -c 'from gzip import GzipFile as G; import re; [print(G(n).fileobj.read()) for n in [\"a\"] if re.fullmatch(\"id[_a-z]*\",n)]'"
+  },
+  {
     "id": "awk-program-argv-on-piped-names",
     "expected_status": 2,
     "classification": "must-fail",
