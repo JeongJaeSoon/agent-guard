@@ -10506,6 +10506,13 @@ secretish_env_values() {
       # Closed on purpose: any other bare argument may be the literal value.
       sub_n = split("token create get read show print generate new login auth value secret key decrypt export", sub_words, " ")
       for (sub_i = 1; sub_i <= sub_n; sub_i++) subcommand_word[sub_words[sub_i]] = 1
+      # Modal and subordinator words that open a prose sentence about a value
+      # (`client secret: must be rotated monthly`). Closed on purpose and
+      # checked against passphrase wordlists: none is in the EFF large or
+      # short lists, and none is a common config value. Words of three letters
+      # or fewer, and `cannot`, already pass on their own.
+      lead_n = split("must should shall will would might needs when", lead_words, " ")
+      for (lead_i = 1; lead_i <= lead_n; lead_i++) prose_lead_word[lead_words[lead_i]] = 1
     }
     function quoted_end(raw, quote, i, slash_count, ch) {
       slash_count = 0
@@ -10998,6 +11005,27 @@ secretish_env_values() {
       }
       return count >= minimum
     }
+    # A prose line can say what happens to a secret instead of giving it
+    # (`client secret: must be rotated monthly`). Colon form only, unquoted
+    # only: the token is a word from the closed prose_lead_word list, and the
+    # rest of the line is that word and at least two more lowercase ASCII words,
+    # one space apart, with at most one final `.` before trailing whitespace.
+    # A quoted key, a backticked or quoted value, a tab or a double space, a
+    # digit, an uppercase letter or any other symbol anywhere in the tail keeps
+    # masking. Each following word is judged on its own, like a route segment,
+    # so a credential-shaped word masks the whole value.
+    function prose_reference(assignment, value, raw, v, n, words, i) {
+      if (assignment !~ /:$/ || assignment ~ /["'\'']/) return 0
+      if (!(value in prose_lead_word)) return 0
+      v = raw
+      sub(/[ \t\r]+$/, "", v)
+      sub(/\.$/, "", v)
+      if (v !~ /^[a-z]+ [a-z]+ [a-z]+( [a-z]+)*$/) return 0
+      n = split(v, words, " ")
+      for (i = 2; i <= n; i++)
+        if (credential_shaped(words[i])) return 0
+      return 1
+    }
     # A draft read from a document tool returns a `d<n>:`-prefixed base64 snapshot
     # token for optimistic locking; the next update must echo it verbatim, so
     # masking it made every draft update fail. Exempt only that value shape
@@ -11159,6 +11187,7 @@ secretish_env_values() {
           sub(/[ \t,;].*$/, "", route)
           if (route_reference(assignment, value " " route)) return 0
         }
+        if (prose_reference(assignment, value, raw)) return 0
         if (page_cursor(assignment)) return 0
         if (snapshot_handle(assignment, value)) return 0
         if (config_literal(value)) return 0

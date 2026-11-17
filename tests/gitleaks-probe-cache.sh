@@ -172,6 +172,9 @@ check 'issue ids after a Secret-suffixed name pass while secret shapes stay bloc
 check 'HTTP routes after a secret label pass while secret shapes stay blocked' \
   env -u AGENT_GUARD_GITLEAKS_BIN AGENT_GUARD_TEST_REAL_GITLEAKS="$REAL_GITLEAKS" \
   sh "$ROOT/tests/prompt-route-reference.sh"
+check 'modal prose after a secret label passes while secret shapes stay blocked' \
+  env -u AGENT_GUARD_GITLEAKS_BIN AGENT_GUARD_TEST_REAL_GITLEAKS="$REAL_GITLEAKS" \
+  sh "$ROOT/tests/prompt-prose-reference.sh"
 check 'prefixed-UUID keys are found while sdk- package names stay clean' \
   env -u AGENT_GUARD_GITLEAKS_BIN AGENT_GUARD_TEST_REAL_GITLEAKS="$REAL_GITLEAKS" \
   sh "$ROOT/tests/prefixed-uuid-key.sh"
