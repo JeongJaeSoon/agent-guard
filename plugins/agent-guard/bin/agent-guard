@@ -11782,6 +11782,29 @@ known_env_value_records() (
   printf '%s\n' "$kv_found" | jq -Rc 'select(length > 0)' 2>/dev/null
 )
 
+# mktemp_files VAR...: assign each named variable its own mktemp_file path. If
+# an allocation fails, remove the files this call already made (in one rm) and
+# return 1, so the caller fails closed with nothing left behind. Each path is
+# still allocated through $(...): rundir_temp_file changes umask and noclobber
+# in the shell that runs it. The arguments are fixed variable names in code,
+# never input, which is what makes the eval safe. Allocated paths rotate onto
+# the end of the positional list, so a failure can drop the names not yet
+# assigned and pass exactly the allocated paths to rm.
+mktemp_files() {
+  mktemp_files_left=$#
+  while [ "$mktemp_files_left" -gt 0 ]; do
+    mktemp_files_path=$(mktemp_file) || {
+      shift "$mktemp_files_left"
+      [ "$#" -eq 0 ] || rm -f "$@"
+      return 1
+    }
+    eval "$1=\$mktemp_files_path"
+    shift
+    set -- "$@" "$mktemp_files_path"
+    mktemp_files_left=$((mktemp_files_left - 1))
+  done
+}
+
 # Collect JSON-string records for the literal secrets present in the response
 # JSON ($1): gitleaks findings plus the env-assignment heuristic and compact
 # token rules. The env heuristic scans each string leaf independently so quote
@@ -11803,24 +11826,8 @@ detect_output_secret_records() (
   fi
   response=$1
   env_records=${2:-yes}
-  detector_input=$(mktemp_file) || exit 1
-  detector_strings=$(mktemp_file) || {
-    rm -f "$detector_input"
-    exit 1
-  }
-  detector_records=$(mktemp_file) || {
-    rm -f "$detector_input" "$detector_strings"
-    exit 1
-  }
-  detector_work_a=$(mktemp_file) || {
-    rm -f "$detector_input" "$detector_strings" "$detector_records"
-    exit 1
-  }
-  detector_work_b=$(mktemp_file) || {
-    rm -f "$detector_input" "$detector_strings" "$detector_records" \
-      "$detector_work_a"
-    exit 1
-  }
+  mktemp_files detector_input detector_strings detector_records \
+    detector_work_a detector_work_b || exit 1
   detector_cleanup() {
     rm -f "$detector_input" "$detector_strings" "$detector_records" \
       "$detector_work_a" "$detector_work_b" ${detector_report:+"$detector_report"}
@@ -11907,15 +11914,7 @@ bundle_secret_records() (
     bundle_secret_records_fused "$@"
     exit $?
   fi
-  bundle_input=$(mktemp_file) || exit 1
-  bundle_records=$(mktemp_file) || {
-    rm -f "$bundle_input"
-    exit 1
-  }
-  bundle_output=$(mktemp_file) || {
-    rm -f "$bundle_input" "$bundle_records"
-    exit 1
-  }
+  mktemp_files bundle_input bundle_records bundle_output || exit 1
   if ! cat >"$bundle_input" \
     || ! LC_ALL=C awk '
         BEGIN {
@@ -11958,11 +11957,7 @@ detect_output_secret_bundle() (
     exit $?
   fi
   bundle_response=$1
-  bundle_raw=$(mktemp_file) || exit 1
-  bundle_json=$(mktemp_file) || {
-    rm -f "$bundle_raw"
-    exit 1
-  }
+  mktemp_files bundle_raw bundle_json || exit 1
   if ! detect_output_secret_records "$bundle_response" >"$bundle_raw" \
     || ! bundle_secret_records <"$bundle_raw" >"$bundle_json"; then
     rm -f "$bundle_raw" "$bundle_json"
@@ -11981,11 +11976,7 @@ classify_secret_bundle() {
   classify_bundle_value=$1
   BUNDLE_MODE=
   BUNDLE_SECRETS=
-  classify_bundle_input=$(mktemp_file) || return 1
-  classify_bundle_output=$(mktemp_file) || {
-    rm -f "$classify_bundle_input"
-    return 1
-  }
+  mktemp_files classify_bundle_input classify_bundle_output || return 1
   if ! printf '%s' "$classify_bundle_value" >"$classify_bundle_input" \
     || ! jq -jr '
       if type != "object"
@@ -12031,6 +12022,12 @@ classify_secret_bundle() {
   return 1
 }
 
+# Remove the four work files of detect_printenv_argument_secret_records.
+printenv_detect_cleanup() {
+  rm -f "$printenv_args_file" "$printenv_entries_file" \
+    "$printenv_work_a" "$printenv_work_b"
+}
+
 # `printenv NAME` prints only the value, so the output loses the secret-bearing
 # variable name that secretish_env_values needs as context. Reconstruct that
 # context from simple variable-name arguments, then emit only the detected
@@ -12048,19 +12045,8 @@ detect_printenv_argument_secret_records() {
   shift
   [ "${1:-}" = "--" ] && shift
   [ "$#" -gt 0 ] || return 0
-  printenv_args_file=$(mktemp_file) || return 1
-  printenv_entries_file=$(mktemp_file) || {
-    rm -f "$printenv_args_file"
-    return 1
-  }
-  printenv_work_a=$(mktemp_file) || {
-    rm -f "$printenv_args_file" "$printenv_entries_file"
-    return 1
-  }
-  printenv_work_b=$(mktemp_file) || {
-    rm -f "$printenv_args_file" "$printenv_entries_file" "$printenv_work_a"
-    return 1
-  }
+  mktemp_files printenv_args_file printenv_entries_file \
+    printenv_work_a printenv_work_b || return 1
 
   # Do not replay the complete printenv argument list into a second process
   # argv: the original command can fit while jq's extra argv entries cross
@@ -12107,8 +12093,7 @@ detect_printenv_argument_secret_records() {
       <"$printenv_work_b" >"$printenv_work_a" 2>/dev/null \
     || ! jq -sc 'reduce .[] as $probe ({}; .[$probe] = true)' \
       "$printenv_work_a" >"$printenv_work_b" 2>/dev/null; then
-    rm -f "$printenv_args_file" "$printenv_entries_file" \
-      "$printenv_work_a" "$printenv_work_b"
+    printenv_detect_cleanup
     return 1
   fi
 
@@ -12116,16 +12101,14 @@ detect_printenv_argument_secret_records() {
   # documents. Generated JSON can expand far beyond Linux MAX_ARG_STRLEN even
   # though the original plaintext remains under the output cap.
   : >"$printenv_work_a" || {
-    rm -f "$printenv_args_file" "$printenv_entries_file" \
-      "$printenv_work_a" "$printenv_work_b"
+    printenv_detect_cleanup
     return 1
   }
   if ! cat "$printenv_entries_file" >>"$printenv_work_a" \
     || ! printf '\n' >>"$printenv_work_a" \
     || ! cat "$printenv_work_b" >>"$printenv_work_a" \
     || ! printf '\n%s\n' "$response" >>"$printenv_work_a"; then
-    rm -f "$printenv_args_file" "$printenv_entries_file" \
-      "$printenv_work_a" "$printenv_work_b"
+    printenv_detect_cleanup
     return 1
   fi
 
@@ -12202,8 +12185,7 @@ detect_printenv_argument_secret_records() {
     | select(. as $value | $output | contains($value))
   ' "$printenv_work_a" 2>/dev/null
   printenv_detect_status=$?
-  rm -f "$printenv_args_file" "$printenv_entries_file" \
-    "$printenv_work_a" "$printenv_work_b"
+  printenv_detect_cleanup
   return "$printenv_detect_status"
 }
 
@@ -12211,11 +12193,7 @@ detect_exec_secret_bundle() (
   exec_bundle_response=$1
   exec_bundle_invalid=$2
   shift 2
-  exec_bundle_records=$(mktemp_file) || exit 1
-  exec_bundle_json=$(mktemp_file) || {
-    rm -f "$exec_bundle_records"
-    exit 1
-  }
+  mktemp_files exec_bundle_records exec_bundle_json || exit 1
   : >"$exec_bundle_records" || {
     rm -f "$exec_bundle_records" "$exec_bundle_json"
     exit 1
