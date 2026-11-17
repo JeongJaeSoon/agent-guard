@@ -3913,6 +3913,38 @@ bash_cmd_case 2 "security dump-keychain by absolute path is blocked" \
   "/usr/bin/security dump-keychain"
 bash_cmd_case 2 "security find-generic-password without -w stays blocked" \
   "security find-generic-password -s svc"
+
+# Both keychain lines share one left boundary (#469): a longer command name
+# that only ends in `security` is another program. Both hosts read the same
+# boundary.
+bash_cmd_host_case() { # $1 host, $2 expected status, $3 name, $4 command
+  jq -nc --arg c "$4" '{tool_name:"Bash",tool_input:{command:$c}}' \
+    | AGENT_GUARD_HOOK_HOST="$1" "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+  status=$?
+  if [ "$status" -eq "$2" ]; then
+    ok "$1: $3"
+  else
+    not_ok "$1: $3 (expected $2, got $status)"
+    sed 's/^/  stdout: /' "$OUT"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+}
+for keychain_host in claude codex; do
+  bash_cmd_host_case "$keychain_host" 2 "security find-generic-password -w is blocked" \
+    "security find-generic-password -s svc -w"
+  bash_cmd_host_case "$keychain_host" 2 "security find-generic-password by absolute path is blocked" \
+    "/usr/bin/security find-generic-password -s svc -w"
+  bash_cmd_host_case "$keychain_host" 2 "security find-internet-password after a separator is blocked" \
+    "cd /tmp && security find-internet-password -s example.com"
+  bash_cmd_host_case "$keychain_host" 0 "my-security find-generic-password is another command" \
+    "my-security find-generic-password"
+  bash_cmd_host_case "$keychain_host" 0 "mysecurity find-generic-password is another command" \
+    "mysecurity find-generic-password -s svc -w"
+  bash_cmd_host_case "$keychain_host" 0 "my_security find-internet-password is another command" \
+    "my_security find-internet-password"
+  bash_cmd_host_case "$keychain_host" 0 "my-security dump-keychain is another command" \
+    "my-security dump-keychain"
+done
 bash_cmd_case 0 "security list-keychains is allowed" "security list-keychains"
 bash_cmd_case 0 "security dump-trust-settings is allowed" "security dump-trust-settings"
 bash_cmd_case 0 "security find-certificate is allowed" "security find-certificate -c acme"

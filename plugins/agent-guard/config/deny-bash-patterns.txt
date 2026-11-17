@@ -42,7 +42,9 @@
 # shell variable ($$, $BASHPID) the deny-read glob cannot match, so accept any
 # non-space, non-slash segment here.
 /proc/[^[:space:]/]+/environ
-security([[:space:]]+-[^[:space:]]+)*[[:space:]]+find-(generic|internet)-password
+# Both keychain reads share one left boundary: `security` and `/usr/bin/security`
+# match, a longer name ending in it (`my-security`, `mysecurity`) does not.
+(^|[^[:alnum:]_.-])security([[:space:]]+-[^[:space:]]+)*[[:space:]]+find-(generic|internet)-password
 (^|[^[:alnum:]_.-])security([[:space:]]+-[^[:space:]]+)*[[:space:]]+dump-keychain
 # A password in a URL's userinfo (`scheme://user:password@host`, the user may be
 # empty) lands in argv, the process list and the transcript. A variable for the

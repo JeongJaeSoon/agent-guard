@@ -1,5 +1,9 @@
 ## Unreleased
 
+- fix(bash): keychain을 읽는 `security find-generic-password`·`find-internet-password` deny 줄이 `dump-keychain` 줄과 같은 왼쪽 경계를 씁니다. 그래서 이름이 `security`로 끝나는 다른 명령(`my-security`, `mysecurity`, `my_security`)의 `find-*-password`는 더는 막지 않습니다. (#469)
+  - 동작 변경: `security ...`, `/usr/bin/security ...`, 줄 처음이나 `;`·`&&`·`|`·공백 뒤의 `security find-*-password`는 이전과 같이 막습니다. 바로 앞 글자가 영문자·숫자·`_`·`.`·`-`인 경우만 다른 명령 이름의 일부로 보고 통과시킵니다.
+  - 사용자가 할 일: 없습니다.
+  - 운영자가 할 일: 없습니다.
 - perf(bash): `printf 'build passed'`처럼 `sed` 글자가 다른 낱말 안에 들어 있을 뿐인 Bash 명령은 더는 jq·sed 필터 예외 경로를 돌지 않습니다. 이 경로의 사전 검사가 `sed`를 낱말 경계 없이 찾아서, `passed`·`used`·`closed`·`released` 같은 낱말이 있는 깨끗한 명령마다 PreToolUse가 awk를 3번 더 실행했고, nightly 성능 측정의 `pre-bash-clean`(homebrew, off)이 v3.7.0 기준 5%를 넘었습니다. (#477)
   - 동작 변경: 사전 검사가 `sed`를 온전한 이름일 때만 인정합니다(같은 함수의 `jq_names_tool`과 같은 규칙). 막는 범위는 줄지 않습니다. 사전 검사는 예외 경로로 들어갈지만 정하므로, 건너뛰면 명령 전체가 그대로 보호 경로 검사를 받습니다. 달라지는 판정은 한 가지로, #463 이후 우연히 통과하던 `j''q -r .key passed.json`(따옴표로 쪼갠 jq 이름과 `sed` 글자가 든 다른 낱말이 함께 있는 명령)이 다시 막힙니다. `sed -n 1p file`처럼 실제 sed 명령과 jq 명령의 예외는 그대로입니다.
   - 사용자가 할 일: 없습니다.
