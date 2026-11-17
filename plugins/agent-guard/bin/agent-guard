@@ -5991,6 +5991,14 @@ path_entries_absolute() {
   case ":${PATH-}:" in *::*|*:[!/]*) return 1 ;; esac
 }
 
+# The commands message_value_records and search_operand_spans accept before a
+# later command name: none of them can rebind a name (no builtin that assigns,
+# no loop variable) or write a file a PATH entry resolves it to. Both pass it
+# to awk with -v and match it as a dynamic regex; it holds no backslash, so -v
+# escape processing leaves it unchanged, and an empty value accepts nothing
+# rather than everything. cd qualifies only while path_entries_absolute holds.
+INERT_SEGMENT_COMMANDS_ERE='^(grep|egrep|fgrep|ls|cat|head|tail|wc|cut|tr|echo|true|false|pwd|cd|jq|diff|comm|basename|dirname|date|sleep)$'
+
 # Print the record numbers (git_command_records) of message values the
 # command sends as data: the subject and body of `orca orchestration
 # send|reply|ask` (and the question of `ask`), the title and body of `gh pr|issue create|comment|edit` and
@@ -6001,7 +6009,8 @@ path_entries_absolute() {
 # redirection, so nothing earlier on the line can change what the name runs.
 # Prints nothing when the line may hide a command (heredoc, group, eval).
 message_value_records() {
-  printf '%s\n' "$1" | LC_ALL=C awk -v cd_ok="$(path_entries_absolute && echo 1)" '
+  printf '%s\n' "$1" | LC_ALL=C awk -v cd_ok="$(path_entries_absolute && echo 1)" \
+    -v inert_names="$INERT_SEGMENT_COMMANDS_ERE" '
     function bail() { failed = 1; exit }
     function boundary(r) { return r == "0;" || r == "0&&" || r == "0||" || r == "0|" }
     # Every word of a simple command is expanded before its name is looked
@@ -6024,10 +6033,11 @@ message_value_records() {
       return w ~ /^-[aqsvne]+$/ || w ~ /^--[a-z-]+=/ \
         || w ~ /^--(all|quiet|verbose|signoff|no-signoff|edit|no-edit|amend|allow-empty|allow-empty-message|only|include|dry-run|reset-author|status|no-status|no-gpg-sign|short|porcelain|long)$/
     }
-    # The same list as search_operand_spans; a redirection may write a file a
-    # command name resolves to, and cd moves what a relative PATH entry names.
+    # inert_names is INERT_SEGMENT_COMMANDS_ERE; a redirection may write a
+    # file a command name resolves to, and cd moves what a relative PATH entry
+    # names.
     function inert(   j) {
-      if (kind[1] != "0" || word[1] !~ /^(grep|egrep|fgrep|ls|cat|head|tail|wc|cut|tr|echo|true|false|pwd|cd|jq|diff|comm|basename|dirname|date|sleep)$/) return 0
+      if (inert_names == "" || kind[1] != "0" || word[1] !~ inert_names) return 0
       if (word[1] == "cd" && cd_ok != "1") return 0
       for (j = 1; j <= n; j++) if (word[j] ~ /[<>]/) return 0
       return 1
@@ -6620,7 +6630,8 @@ bash_strip_literal_message_values() (
 # word that same segment check reaches; there an expansion or unsafe word
 # anywhere in an earlier segment also stops it.
 search_operand_spans() {
-  printf '%s\n' "$1" | LC_ALL=C awk -v grep_env="${GREP_OPTIONS-}" -v cd_ok="$(path_entries_absolute && echo 1)" -v mode="${2-}" '
+  printf '%s\n' "$1" | LC_ALL=C awk -v grep_env="${GREP_OPTIONS-}" -v cd_ok="$(path_entries_absolute && echo 1)" -v mode="${2-}" \
+    -v inert_names="$INERT_SEGMENT_COMMANDS_ERE" '
     function bail() { failed = 1; exit }
     function start_word() {
       if (inword) return
@@ -6774,7 +6785,7 @@ search_operand_spans() {
         # LD_PRELOAD can make any listed command run code; a locale name
         # without a path loads no code.
         for (r = a; r < h; r++) if (wv[r] !~ /^(LC_[A-Z]+|LANG|LANGUAGE|TZ)=[A-Za-z0-9_.@:+-]*$/) exit 0
-        if (wv[h] !~ /^(grep|egrep|fgrep|ls|cat|head|tail|wc|cut|tr|echo|true|false|pwd|cd|jq|diff|comm|basename|dirname|date|sleep)$/) exit 0
+        if (inert_names == "" || wv[h] !~ inert_names) exit 0
         if (wv[h] == "cd" && cd_ok != "1") exit 0
       }
     }
