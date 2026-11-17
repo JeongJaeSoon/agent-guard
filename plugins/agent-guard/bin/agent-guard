@@ -4445,8 +4445,9 @@ scan_staged() {
 # --interactive ($1 = 1), or those under the pathspecs in $3... (relative to
 # the command cwd, as Git reads them). --interactive can also add untracked
 # files ($2 = 1), and a same-command `git add -f` even ignored ones ($2 = 2),
-# which may exceed the scan budget and then reports unavailable. A diff against HEAD is used instead of staging into a scratch
-# index so the scan writes neither the index nor the object store.
+# which may exceed the scan budget and then reports unavailable. A diff against
+# HEAD is used instead of staging into a scratch index so the scan writes
+# neither the index nor the object store.
 scan_commit_candidate() {
   stage_all=$1
   stage_untracked=$2
@@ -4664,11 +4665,12 @@ scan_path() {
   return "$result"
 }
 
-# Every hook used to start one jq process (plus the pipeline and command
-# substitution around it) per field it read from its own input: the object
-# check, `.tool_input | type`, the tool name, the command, the path... (#407).
-# json_value_prime reads those fields in one jq run, and json_value answers
-# them from shell variables only while it is handed that exact input text.
+# A hook reads several fields of its own input: the object check,
+# `.tool_input | type`, the tool name, the command, the path... This cache
+# (#407) saves one jq process per field, plus the pipeline and command
+# substitution around it: json_value_prime reads those fields in one jq run,
+# and json_value answers them from shell variables only while it is handed
+# that exact input text.
 #
 # A field is cached only when `jq -r EXPR` provably prints the same bytes: the
 # expression yields exactly one string without a NUL byte (printed with a
