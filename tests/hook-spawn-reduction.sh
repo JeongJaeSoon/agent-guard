@@ -344,5 +344,28 @@ got=$(awk_runs "sed -n 1p README.md")
 check "a real sed command still reaches the rewrite path (plain $plain, got ${got:-none})" \
   [ "${got:-0}" -gt "$plain" ]
 
+# 94S-1712: the literal-substitution check runs only for a backquote or `$(`
+# next to a single quote or a here-document. Another quoted word and a `$`
+# without `(` cost what they cost before; a backquote in a single-quoted word
+# or a here-document body opens it.
+quoted=$(awk_runs "echo 'see x here'")
+got=$(awk_runs "echo 'see x here' 'and y'")
+check "a second single-quoted word starts no extra awk (one $quoted, got ${got:-none})" \
+  [ "${got:-x}" = "${quoted:-y}" ]
+dollar=$(awk_runs "echo 'see \$HOME here'")
+got=$(awk_runs "echo 'see \$USER here'")
+check "a dollar sign without a parenthesis keeps the check closed (${dollar:-none}, got ${got:-none})" \
+  [ "${got:-x}" = "${dollar:-y}" ]
+hd_nl='
+'
+bq=$(printf '\140')
+hd=$(awk_runs "cat <<'EOF'${hd_nl}build ok${hd_nl}EOF")
+got=$(awk_runs "cat <<'EOF'${hd_nl}build ${bq}ok${bq}${hd_nl}EOF")
+check "only a here-document with a backquote reaches the check (${hd:-none}, got ${got:-none})" \
+  [ "${got:-0}" -gt "${hd:-99}" ]
+got=$(awk_runs "echo 'see ${bq}x${bq} here'")
+check "a backquote in a single-quoted word reaches the check (${quoted:-none}, got ${got:-none})" \
+  [ "${got:-0}" -gt "$quoted" ]
+
 printf '%s passed, %s failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

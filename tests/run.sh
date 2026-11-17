@@ -3031,6 +3031,8 @@ run_expect 0 "hook process shortcuts answer exactly as the processes they replac
   sh "$ROOT/tests/hook-spawn-reduction.sh"
 run_expect 0 "cat/tee here-document bodies leave out no protected read" \
   sh "$ROOT/tests/heredoc-body-text.sh"
+run_expect 0 "literal backquotes in quoted text read by echo or cat pass, runnable ones stay blocked" \
+  sh "$ROOT/tests/literal-substitution-text.sh"
 run_expect 0 "a failed quoted-bracket normalization keeps the protected-path verdict" \
   sh "$ROOT/tests/quoted-bracket-fallback.sh"
 run_expect 0 "status words and named placeholders are prose, real values still block" \
