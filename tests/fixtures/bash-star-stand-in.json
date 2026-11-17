@@ -406,6 +406,27 @@
     "command": "ls | python3 -c 'import io,sys,re; [print(io.FileIO(p.strip()).readall()) for p in sys.stdin if re.fullmatch(\"id[_a-z]*\",p.strip())]'"
   },
   {
+    "id": "python-program-fileio-on-names-from-file",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a python -c program that opens names read from a file with io.FileIO can match its pattern against them",
+    "command": "python3 -c 'import io,re; [print(io.FileIO(n).readall()) for n in io.FileIO(\"names.txt\").readall().decode().split() if re.fullmatch(\"id[_a-z]*\",n)]'"
+  },
+  {
+    "id": "python-program-imported-fileio",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a python -c program that opens files through an imported FileIO alias can match its pattern against names",
+    "command": "python3 -c 'from io import FileIO as F; import re; [print(F(n).readall()) for n in F(\"names.txt\").readall().decode().split() if re.fullmatch(\"id[_a-z]*\",n)]'"
+  },
+  {
+    "id": "python-program-c-level-fileio",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a python -c program that opens files through _io.FileIO can match its pattern against names",
+    "command": "python3 -c 'import _io,re; [print(_io.FileIO(n).readall()) for n in [\"a\"] if re.fullmatch(\"id[_a-z]*\",n)]'"
+  },
+  {
     "id": "awk-program-argv-on-piped-names",
     "expected_status": 2,
     "classification": "must-fail",
