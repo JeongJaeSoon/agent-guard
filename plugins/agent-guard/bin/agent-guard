@@ -1439,15 +1439,19 @@ audit_export_to_file() (
   printf 'agent-guard: exported metadata-only support log to %s\n' "$ag_output" >&2
 )
 
+audit_logs_usage() {
+  printf '%s\n' 'Usage: agent-guard logs [status|export [--output FILE]]' >&2
+}
+
 audit_logs() {
   case "${1:-status}" in
     -h|--help|help)
-      [ "$#" -eq 1 ] || { printf '%s\n' 'Usage: agent-guard logs [status|export [--output FILE]]' >&2; return 2; }
-      printf '%s\n' 'Usage: agent-guard logs [status|export [--output FILE]]' >&2
+      [ "$#" -eq 1 ] || { audit_logs_usage; return 2; }
+      audit_logs_usage
       return 0
       ;;
     status)
-      case "$#:${1:-}" in 0:|1:status) ;; *) printf '%s\n' 'Usage: agent-guard logs [status|export [--output FILE]]' >&2; return 2 ;; esac
+      case "$#:${1:-}" in 0:|1:status) ;; *) audit_logs_usage; return 2 ;; esac
       case "${AGENT_GUARD_LOG_MODE:-on}" in on|off) ag_mode=${AGENT_GUARD_LOG_MODE:-on} ;; *) ag_mode=invalid ;; esac
       printf 'Local diagnostic logging: %s\nDirectory: ${XDG_STATE_HOME:-~/.local/state}/agent-guard\nRetention target: 7 days, 1000 invocations; bounded cleanup runs at start, so concurrency or externally added files can exceed this.\n' "$ag_mode"
       if audit_directory >/dev/null; then printf 'Storage: private directory ready\n'; else printf 'Storage: not created or unavailable\n'; fi
@@ -1456,11 +1460,11 @@ audit_logs() {
       shift
       case "$#" in
         0) audit_export ;;
-        2) [ "$1" = --output ] || { printf '%s\n' 'Usage: agent-guard logs [status|export [--output FILE]]' >&2; return 2; }; audit_export_to_file "$2" ;;
-        *) printf '%s\n' 'Usage: agent-guard logs [status|export [--output FILE]]' >&2; return 2 ;;
+        2) [ "$1" = --output ] || { audit_logs_usage; return 2; }; audit_export_to_file "$2" ;;
+        *) audit_logs_usage; return 2 ;;
       esac
       ;;
-    *) printf '%s\n' 'Usage: agent-guard logs [status|export [--output FILE]]' >&2; return 2 ;;
+    *) audit_logs_usage; return 2 ;;
   esac
 }
 
