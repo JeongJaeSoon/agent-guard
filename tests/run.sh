@@ -5099,7 +5099,8 @@ for gate_host in claude codex; do
     "git commit -m 'docs: never run git push --no-verify'" \
     "timeout 5 git commit -m 'docs: never run git push --no-verify'" \
     "gh pr view 1 --json body" "for w in git commit; do echo \$w; done" \
-    "su -c \"echo 'git commit'\"" "make && git status"; do
+    "su -c \"echo 'git commit'\"" "make && git status" \
+    "man git commit" "man git push" "tldr git commit" "info git commit"; do
     gate_hook "$gate_host" closed "$GATE_CLEAN" "$gate_command"
     status=$?
     if [ "$status" -eq 0 ] && ! grep -q 'agent-guard' "$ERR"; then

@@ -8818,6 +8818,16 @@ git_gate_inert_head() {
   esac
 }
 
+# Documentation readers: their operands name a page, so `man git commit`
+# runs no git. Kept apart from git_gate_inert_head, which also decides
+# whether a later cd can still be resolved.
+git_gate_doc_head() {
+  case "$1" in
+    man|info|tldr|apropos|whatis|help) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 # Commands that run their arguments, or one of them, as code in a language
 # the gate does not parse.
 git_gate_code_runner() {
@@ -8866,7 +8876,8 @@ git_gate_fallback_scan() {
     if [ "$gfb_head" -eq 1 ]; then
       is_assignment_token "$gfb_word" && continue
       gfb_head=0
-      if [ "$gfb_kind" = 0 ] && git_gate_inert_head "${gfb_word##*/}"; then
+      if [ "$gfb_kind" = 0 ] && { git_gate_inert_head "${gfb_word##*/}" \
+        || git_gate_doc_head "${gfb_word##*/}"; }; then
         gfb_skip=1
         continue
       fi
