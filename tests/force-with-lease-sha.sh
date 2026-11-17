@@ -6,7 +6,11 @@ set -u
 # the ref name holds a keyword such as `access` or `token`, generic-api-key
 # reads `<ref>:<id>` as a labelled secret (#478). Only that exact shape, on a
 # line with no other assignment, may pass the Bash PreToolUse check and the
-# prompt guard, on Claude and Codex. A longer hex run, uppercase hex, quoted or
+# prompt guard, on Claude and Codex. A conventional-commit message before the
+# push (`git commit -m "fix(scope): a, b" && git push --force-with-lease=...`)
+# passes too, because a separator there is followed only by short words; a
+# separator followed by a value-length token run (a real-looking value inside
+# the message, a later assignment, an API-key header) keeps the findings. A longer hex run, uppercase hex, quoted or
 # two-argument spellings, and a real keyword assignment (alone or on the same
 # line as a lease) keep their findings.
 # Kept out of tests/run.sh: the monolith is already near ShellCheck's memory
@@ -57,6 +61,7 @@ if [ "${#SHA1}" -ne 40 ] || [ "${#SHA2}" -ne 64 ] || [ "${#OTHER}" -ne 40 ]; the
 fi
 UPPER=$(printf '%s' "$SHA1" | tr 'a-f' 'A-F')
 TAIL10=$(printf '%s' "$OTHER" | cut -c1-10)
+TEN=$(printf "%s%s" abcdef 1234)
 ACC=agent-access-team-only
 TOK=api-token-rotation
 P=$(printf '%s%s' to ken)
@@ -106,6 +111,12 @@ for host in claude codex; do
   both "$host" 0 'lease at the end of the line' "git push origin HEAD --force-with-lease=$TOK:$SHA1"
   both "$host" 0 'lease after a commit without assignments' "git commit -m wip && $LEASE=$ACC:$SHA1 origin HEAD"
   both "$host" 0 'lease with a slash in the ref name' "$LEASE=team/$ACC:$SHA1 origin HEAD"
+  both "$host" 0 'conventional commit and lease' "git commit -m \"fix: tighten lease check\" && $LEASE=$ACC:$SHA1 origin HEAD"
+  both "$host" 0 'git add, commit and lease' "git add -A && git commit -m \"fix: tighten lease check\" && $LEASE=$ACC:$SHA1 origin HEAD"
+  both "$host" 0 'two -m messages and lease' "git commit -m \"fix: tighten\" -m \"body: more detail here\" && $LEASE=$TOK:$SHA1 origin HEAD"
+  both "$host" 0 'scoped commit message and lease' "git commit -m \"fix(scope): tighten lease check\" && $LEASE=$ACC:$SHA2 origin HEAD"
+  both "$host" 0 'commit message with a comma and lease' "git commit -m \"fix(scope): tighten, then check\" && $LEASE=$ACC:$SHA1 origin HEAD"
+  both "$host" 0 'lease then prose with a colon' "$LEASE=$ACC:$SHA1 origin HEAD && echo done: ok, yes"
 
   both "$host" 2 'access_token: hex' "access_$P: $OTHER"
   both "$host" 2 'api_token=hex' "api_$P=$OTHER"
@@ -113,6 +124,10 @@ for host in claude codex; do
   both "$host" 2 'lease then a keyword assignment on the same line' "$LEASE=$ACC:$SHA1 origin HEAD; api_$P=$OTHER"
   both "$host" 2 'keyword assignment then a lease on the same line' "api_$P=$OTHER; $LEASE=$ACC:$SHA1 origin HEAD"
   both "$host" 2 'lease then a colon-form keyword assignment' "$LEASE=$ACC:$SHA1 origin HEAD && echo access_$P: $OTHER"
+  both "$host" 2 'commit, assignment before the push, and lease' "git commit -m \"fix: x\" && api_$P=$OTHER $LEASE=$ACC:$SHA1 origin HEAD"
+  both "$host" 2 'real-looking value inside the commit message' "git commit -m \"$P: $OTHER\" && $LEASE=$ACC:$SHA1 origin HEAD"
+  both "$host" 2 'lease then a header with a key' "git commit -m \"fix: x\" && $LEASE=$ACC:$SHA1 origin HEAD && curl -H \"X-Api-Key: $OTHER\" https://example.invalid"
+  both "$host" 2 'comma form after a commit message' "git commit -m \"fix: $P, $OTHER\" && $LEASE=$ACC:$SHA1 origin HEAD"
 done
 
 # Shape boundaries go through scan-path with the real scanner: the hooks let
@@ -135,6 +150,17 @@ scan_case 0 'lease with a 64-hex id (SHA-256 repository)' "$LEASE=$TOK:$SHA2 ori
 scan_case 0 'lease at the end of the line' "git push origin HEAD --force-with-lease=$TOK:$SHA1"
 scan_case 0 'lease line followed by an unrelated line' "$LEASE=$ACC:$SHA1 origin HEAD
 echo done"
+scan_case 0 'conventional commit and lease' "git commit -m \"fix(scope): tighten, then check\" && $LEASE=$ACC:$SHA1 origin HEAD"
+scan_case 0 'git add, commit with two -m, and lease' "git add -A && git commit -m \"fix: a\" -m \"body: more\" && $LEASE=$TOK:$SHA2 origin HEAD"
+scan_case 1 'ten-character value after a separator before the lease' "git commit -m \"fix\" && api_$P=$TEN && $LEASE=$ACC:$SHA1 origin HEAD"
+scan_case 1 'twelve-character base64 value after a separator' "git commit -m \"fix\" && api_$P=Ab3+Cd4/Ef5g && $LEASE=$ACC:$SHA1 origin HEAD"
+scan_case 1 'value after five fill quotes' "git commit -m \"fix\" && api_$P=\"\"\"\"\"$OTHER && $LEASE=$ACC:$SHA1 origin HEAD"
+scan_case 1 'value after => ' "git commit -m \"fix\" && api_$P=>\"$OTHER\" && $LEASE=$ACC:$SHA1 origin HEAD"
+scan_case 1 'value after a bare comma' "git commit -m \"fix\" && echo $P, $OTHER && $LEASE=$ACC:$SHA1 origin HEAD"
+scan_case 1 'value after || ' "git commit -m \"fix\" && api_$P || $OTHER && $LEASE=$ACC:$SHA1 origin HEAD"
+scan_case 1 'assignment before the push on the same command' "git commit -m \"fix: x\" && api_$P=$OTHER $LEASE=$ACC:$SHA1"
+scan_case 1 'real-looking value inside the commit message' "git commit -m \"$P: $OTHER\" && $LEASE=$ACC:$SHA1 origin HEAD"
+scan_case 1 'header with a key after the lease' "git commit -m \"fix: x\" && $LEASE=$ACC:$SHA1 && curl -H \"X-Api-Key: $OTHER\" https://example.invalid"
 scan_case 1 'lease line followed by a keyword assignment line' "$LEASE=$ACC:$SHA1 origin HEAD
 api_$P=$OTHER"
 scan_case 1 'access_token: hex' "access_$P: $OTHER"
