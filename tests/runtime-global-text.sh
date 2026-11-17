@@ -85,6 +85,74 @@ EOF
 cat Bun.env.x"
 check 2 "$W" "cat process.env.PORT"
 check 2 "$W" "echo process.env.PORT"
+
+# The body of a heredoc that is an interpreter's program is program text.
+check 0 "$W" "node <<'EOF'
+console.log(process.env.ROUTE)
+EOF"
+check 0 "$W" "node - <<EOF
+const r = process.env.ROUTE ?? 'home';
+console.log(r, process.env['PORT'])
+EOF"
+check 0 "$W" "bun run - <<'EOF'
+console.log(Bun.env.PORT, import.meta.env.DEV)
+EOF"
+check 0 "$W" "deno run - <<-'EOF'
+	console.log(Deno.env.get('HOME'))
+	EOF
+ls"
+check 0 "$W" "python3 - <<'EOF'
+print(1 if process.env.ROUTE else 0)
+EOF"
+# Controls: a real file of that name, a quoted or path-shaped name in the body,
+# a whole-environment dump, a body that runs a substitution, a heredoc that is
+# not the program of an interpreter alone on its line, and any name outside
+# the body stay blocked.
+check 2 "$X" "node <<'EOF'
+console.log(process.env.local)
+EOF"
+check 2 "$W" "node <<'EOF'
+require('fs').readFileSync('process.env.local')
+EOF"
+check 2 "$W" "node <<'EOF'
+require('fs').readFileSync('/tmp/x/ process.env.ROUTE', 'utf8')
+EOF"
+check 2 "$W" "node <<'EOF'
+const p = \`/tmp/x/ process.env.ROUTE\`
+EOF"
+check 2 "$W" "node <<'EOF'
+// it's process.env.ROUTE
+EOF"
+check 2 "$W" "node <<'EOF'
+/\"/; require('fs').readFileSync(\"/tmp/x/ process.env.PORT\"); /\"/
+EOF"
+check 2 "$W" "node <<'EOF'
+require('fs').readFileSync('./process.env.local')
+EOF"
+check 2 "$W" "node <<'EOF'
+console.log(JSON.stringify(process.env))
+EOF"
+check 2 "$W" "node <<EOF
+console.log(process.env.A, \"\$(cat process.env.B)\")
+EOF"
+check 2 "$W" "node app.js <<'EOF'
+process.env.PORT
+EOF"
+check 2 "$W" "node <<'EOF' > out.js
+console.log(process.env.PORT)
+EOF"
+check 2 "$W" "cat <<'EOF' | sh
+cat process.env.PORT
+EOF"
+check 2 "$W" "node <<'EOF'
+console.log(process.env.PORT)
+EOF
+cat process.env.PORT"
+check 2 "$W" "cat process.env.PORT; node <<'EOF'
+console.log(process.env.PORT)
+EOF"
+check 2 "$W" "node <<'EOF'
+console.log(process.env.PORT)"
 check 0 "$W" "node -e 'console.log(process.env[\"NODE_ENV\"])'"
 check 0 "$W" "bun -e 'console.log(Bun.env.PORT)'"
 check 0 "$W" "deno eval 'console.log(Deno.env.get(\"HOME\"))'"
