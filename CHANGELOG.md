@@ -1,3 +1,30 @@
+## Unreleased
+
+- fix(scan): `git push --force-with-lease=agent-access-team-only:<커밋 SHA>` 처럼 브랜치 이름에 `access`·`token` 같은 키워드가 든 force-with-lease 기대값의 커밋 SHA를 generic-api-key가 비밀값으로 잡아, Bash PreToolUse 검사가 명령을 막고 UserPromptSubmit 검사가 보고문을 버리던 문제를 고칩니다. (#478)
+  - 동작 변경: gitleaks.toml에 generic-api-key만 대상으로 하는 줄 단위 예외를 추가했습니다. 줄이 `--force-with-lease=<ref>:<소문자 hex 40자 또는 64자>` 하나를 갖고, 그 뒤가 공백이나 줄 끝일 때만 면제합니다. `<ref>`는 영문자·숫자·`._/@+-`만 허용합니다. 같은 줄의 나머지에서는 generic-api-key의 구분자 `=`, `:`, `>`, `,`, `|`, `?` 뒤에 공백·따옴표·백틱이 오고, 그 뒤가 토큰 문자(`[\w.=+/-]`) 9자 이하이거나 토큰 문자가 아닌 문자여야 합니다. 그래서 `git add -A && git commit -m "fix(scope): tighten, then check" && git push --force-with-lease=...`처럼 커밋 메시지의 콜론·쉼표 뒤에 짧은 낱말만 오는 한 줄 명령은 이제 통과합니다. 구분자 뒤에 값 길이(10자 이상)의 토큰 문자열이 오면 줄 전체가 면제되지 않아 두 값 모두 계속 막힙니다. 예: `api_token=<hex>`, 메시지 안의 `token: <hex>`, 뒤따르는 `curl -H "X-Api-Key: <hex>"`. 콜론이나 쉼표 바로 뒤에 10자 이상 붙은 낱말(`docs: restructure-readme`)이나 같은 줄의 두 번째 lease가 있으면 계속 막히니, 메시지를 줄이거나 커밋과 푸시를 줄을 나눠 실행해야 합니다. 41자 이상 hex, 대문자 hex, 따옴표로 감싼 값, 값 뒤에 토큰 문자가 붙은 경우, git이 받지 않는 `--force-with-lease <ref>:<sha>` 두 인자 표기, 다른 옵션은 면제하지 않습니다. `access_token: <hex>`, `api_token=<hex>`, `ACCESS_KEY="<hex>"` 같은 키워드 대입과 접두사 없는 `access-token:<hex>`는 계속 막힙니다. 벤더 규칙은 바뀌지 않습니다.
+  - 사용자가 할 일: 없습니다.
+  - 운영자가 할 일: 없습니다.
+- fix(bash): Bash 명령의 `curl -u 이름:비밀번호`·`--user 이름:비밀번호`를 deny 패턴으로 막고, 따옴표로 감싼 URL scheme(`git clone "https"://…`)과 따옴표·백슬래시로 쪼갠 명령 이름(`c'u'rl`, `"sec"urity`, `s'ecurity'`)도 같은 deny 줄로 막습니다. 셸은 실행 전에 따옴표를 지우므로, 원문 글만 보던 패턴이 놓치던 우회입니다. (#470)
+  - 동작 변경: `-u`/`--user` 값에 `:` 뒤 비밀번호가 있으면 막습니다(`-uuser:pw`, `--user=user:pw`, `-su user:pw`, 빈 사용자 `-u :pw`, 따옴표 값, `-u "$U:$P"` 같은 변수 쌍 포함). 이름만 주는 `-u user`(비밀번호를 대화형으로 받음), 빈 비밀번호 `-u user:`·`-u :`, 쌍 전체를 변수 하나로 주는 `-u "$CREDS"`는 통과합니다. deny 패턴은 원문 글에 더해 따옴표를 지운 사본도 검사합니다. 사본에서 따옴표를 지우는 단어는 여러 조각으로 쪼갠 단어와 명령 자리의 따옴표 단어뿐이고, 따옴표 안에 공백·줄바꿈·`;`·`|`·`&`·`(`·`)`·`<`·`>`·백틱이 있으면 그대로 둡니다. 그래서 `grep "printenv" src`, `'a|env|b'`, `echo "load the env"`, JSON 본문처럼 따옴표로 감싼 인자 하나는 이전과 같이 판정합니다. 커밋·PR 메시지 값 예외와 `ORCA_*` 변수 조회 예외는 사본에도 똑같이 적용됩니다. URL 안 비밀번호를 큰따옴표로 감싼 `https://u:"$PW"@host`도 이제 막습니다. 알려진 잔여: `$'\x63url'` 같은 ANSI-C escape, `sh -c`·변수로 명령을 나눈 경우, URL 안에서 `$(<file)`로 읽은 비밀번호, `curl --proxy-user`/`-U`, `wget --user`/`--password`(대문자 `PASSWORD` 글자가 없을 때)는 막지 않습니다. 닫히지 않은 따옴표는 글 끝에서 닫힌 것으로 읽습니다(셸은 그런 명령을 실행하지 않습니다). 따옴표로 쪼갠 단어가 그대로 deny 줄과 맞으면, 그 단어가 `echo` 인자 같은 데이터여도 막힙니다(따옴표 없이 쓴 같은 글이 이미 막히는 것과 같습니다).
+  - 사용자가 할 일: curl에 basic 인증이 필요하면 `-u 이름`만 주어 비밀번호를 대화형으로 받거나, `--netrc-file`·`-K` 설정 파일을 쓰세요.
+  - 운영자가 할 일: 없습니다.
+- fix(bash): keychain을 읽는 `security find-generic-password`·`find-internet-password` deny 줄이 `dump-keychain` 줄과 같은 왼쪽 경계를 씁니다. 그래서 이름이 `security`로 끝나는 다른 명령(`my-security`, `mysecurity`, `my_security`)의 `find-*-password`는 더는 막지 않습니다. (#469)
+  - 동작 변경: `security ...`, `/usr/bin/security ...`, 줄 처음이나 `;`·`&&`·`|`·공백 뒤의 `security find-*-password`는 이전과 같이 막습니다. 바로 앞 글자가 영문자·숫자·`_`·`.`·`-`인 경우만 다른 명령 이름의 일부로 보고 통과시킵니다.
+  - 사용자가 할 일: 없습니다.
+  - 운영자가 할 일: 없습니다.
+- perf(bash): `printf 'build passed'`처럼 `sed` 글자가 다른 낱말 안에 들어 있을 뿐인 Bash 명령은 더는 jq·sed 필터 예외 경로를 돌지 않습니다. 이 경로의 사전 검사가 `sed`를 낱말 경계 없이 찾아서, `passed`·`used`·`closed`·`released` 같은 낱말이 있는 깨끗한 명령마다 PreToolUse가 awk를 3번 더 실행했고, nightly 성능 측정의 `pre-bash-clean`(homebrew, off)이 v3.7.0 기준 5%를 넘었습니다. (#477)
+  - 동작 변경: 사전 검사가 `sed`를 온전한 이름일 때만 인정합니다(같은 함수의 `jq_names_tool`과 같은 규칙). 막는 범위는 줄지 않습니다. 사전 검사는 예외 경로로 들어갈지만 정하므로, 건너뛰면 명령 전체가 그대로 보호 경로 검사를 받습니다. 달라지는 판정은 한 가지로, #463 이후 우연히 통과하던 `j''q -r .key passed.json`(따옴표로 쪼갠 jq 이름과 `sed` 글자가 든 다른 낱말이 함께 있는 명령)이 다시 막힙니다. `sed -n 1p file`처럼 실제 sed 명령과 jq 명령의 예외는 그대로입니다.
+  - 사용자가 할 일: 없습니다.
+  - 운영자가 할 일: 없습니다.
+- fix(redact): `client secret: must be rotated monthly`·`- password: should not be logged anywhere`처럼 비밀값 이름 뒤 콜론에 그 값을 어떻게 다루는지 설명하는 영어 문장이 오는 글을 프롬프트 가드가 더는 막지 않고, 출력 마스킹도 그 문장을 가리지 않습니다. 대입문 probe가 콜론 뒤 첫 낱말(`must`)을 비밀값으로 보던 탓입니다.
+  - 동작 변경: 예외는 콜론 형태에서 따옴표·백틱 없이 온 값의 첫 낱말이 `must`·`should`·`shall`·`will`·`would`·`might`·`needs`·`when` 중 하나(소문자만)이고, 그 뒤로 같은 줄 끝까지 영문 소문자로만 된 낱말이 둘 이상 공백 한 칸씩(탭·연속 공백 제외) 이어질 때뿐입니다. 줄 끝의 마침표 하나와 그 뒤 공백만 떼고 판정하므로, 쉼표·세미콜론·마침표 둘 이상 같은 기호, 숫자, 대문자, 한글이 줄 안 어디에든 있으면 값은 계속 막고 가립니다. 뒤따르는 낱말은 하나씩 따로 판정해 비밀값 모양(24자 이상 소문자 연속 등)이면 값 전체를 계속 막고 가립니다. 키를 따옴표로 감싼 JSON 모양이면 예외가 아닙니다. 백틱이나 큰따옴표·작은따옴표 안 문장, `=` 대입, 목록에 없는 낱말로 시작하는 문장(`client secret: rotated monthly`), 대문자로 시작하는 `Must`, 낱말 하나뿐인 값(뒤에 `#` 주석이 붙어도), `passphrase: correct horse battery staple`(따옴표 없이와 백틱 안 모두)은 바뀌지 않습니다. 목록 낱말은 EFF large·short 단어 목록에 없는 것만 골랐지만, 원래 Diceware 목록에는 `must`·`shall`·`will`·`would`·`might`·`when`이 있습니다. 그래서 목록 낱말로 시작하고 소문자 낱말 둘 이상이 이어지는 따옴표 없는 패스프레이즈(예: `passphrase: must have more coffee`)는 이제 막히지도 가려지지도 않습니다. 같은 모양으로 줄 끝까지 가는 YAML 값도 마찬가지입니다. gitleaks 규칙은 바뀌지 않습니다.
+  - 사용자가 할 일: 없습니다.
+  - 운영자가 할 일: 없습니다.
+- fix(bash): `command jq -r '.a.key' s.json`, `/usr/bin/jq -r .a.key s.json`처럼 `command` builtin이나 시스템 경로로 실행한 jq의 필드 선택자(`.a.key`·`.b.p8`·`.c.env`)를 deny-read 경로로 보고 막던 오탐을 고칩니다. 이슈의 `jq -r '.a.key' s.json`, `jq -r '.a.key, .b.p8, .c.env' s.json`은 #462·#464 이후 main에서 이미 통과하며, 이번에 회귀 시험으로 고정합니다. (#468)
+  - 동작 변경: jq 필터 예외(필터의 필드 이름만 지우고 다른 단어는 그대로 검사)가 맨 jq뿐 아니라 옵션 없는 `command jq`와 `/usr/bin/jq`·`/bin/jq`·`/usr/local/bin/jq`·`/opt/homebrew/bin/jq`에도 적용됩니다(sed도 같은 위치 규칙). 첫 번째 비옵션 인자만 필터로 보고, `-f`가 있거나 `--arg`·`--rawfile`·`--slurpfile` 값, 그 뒤 파일 피연산자, 리다이렉션은 계속 검사하므로 `jq . .env`, `jq -r .a.key x.key`, `command jq --rawfile v x.key '.a' s.json`은 계속 막힙니다. `command -v jq`, `./jq` 같은 다른 경로의 jq, `xargs jq`, 그리고 `cat s.json && command jq '.a.key' s.json`처럼 첫 파이프라인 뒤 구간의 `command jq`·시스템 경로 jq는 바뀌지 않고 계속 막힙니다(그 위치의 맨 jq는 #464대로 예외를 받습니다).
+  - 사용자가 할 일: 없습니다.
+  - 운영자가 할 일: 없습니다.
+
 ## v3.11.3 - 2026-11-17
 
 - fix(redact): `client secret: `PUT /v1/login-providers/:id/client-secret`` 처럼 비밀값 이름 뒤 콜론에 HTTP 메서드와 경로가 오는 설명문을 프롬프트 가드가 더는 막지 않고, 출력 마스킹도 그 경로를 가리지 않습니다. 대입문 probe가 백틱 안 값 전체를 비밀값으로 보던 탓입니다. (#479)

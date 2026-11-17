@@ -586,5 +586,131 @@
     "classification": "must-block",
     "description": "a sourced script can redefine jq, so an env member after it remains blocked",
     "command": ". ./tools.sh; jq -n 'env.HOME'"
+  },
+  {
+    "id": "jq-issue-468-field-chain-file",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a jq field chain ending in a protected extension is filter text when jq reads a JSON file",
+    "command": "jq -r '.a.key' s.json"
+  },
+  {
+    "id": "jq-issue-468-comma-field-chains-file",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "comma-separated jq field chains named key, p8 and env are filter text",
+    "command": "jq -r '.a.key, .b.p8, .c.env' s.json"
+  },
+  {
+    "id": "jq-command-builtin-field-chain",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a jq run through the command builtin still has its filter excluded",
+    "command": "command jq -r '.a.key, .b.p8, .c.env' s.json"
+  },
+  {
+    "id": "jq-system-path-field-chain",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a jq run by its system path still has its filter excluded",
+    "command": "/usr/bin/jq -r .a.key s.json"
+  },
+  {
+    "id": "jq-command-builtin-piped",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a command-wrapped jq reading a pipe has its filter excluded",
+    "command": "cat s.json | command jq -r '.a.key'"
+  },
+  {
+    "id": "jq-dotenv-file-operand",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a dotenv file operand after the identity filter remains blocked",
+    "command": "jq . .env"
+  },
+  {
+    "id": "jq-nested-key-file-operand",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a protected file operand in a subdirectory remains blocked",
+    "command": "jq -r .a ./secrets/x.key"
+  },
+  {
+    "id": "jq-key-filter-and-key-file",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a protected file operand after a filter that also ends in .key remains blocked",
+    "command": "jq -r .a.key x.key"
+  },
+  {
+    "id": "jq-from-file-operand",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "with -f the first operand is a program file, so a protected operand remains blocked",
+    "command": "jq -f prog.jq x.pem"
+  },
+  {
+    "id": "jq-slurpfile-value",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a protected --slurpfile value remains blocked",
+    "command": "jq --slurpfile v x.pem '.a' s.json"
+  },
+  {
+    "id": "jq-command-builtin-file-operand",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a protected file operand of a command-wrapped jq remains blocked",
+    "command": "command jq '.a.key' secrets.key"
+  },
+  {
+    "id": "jq-command-builtin-rawfile",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a protected --rawfile value of a command-wrapped jq remains blocked",
+    "command": "command jq --rawfile v x.key '.a' s.json"
+  },
+  {
+    "id": "jq-system-path-file-operand",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a protected file operand of a jq run by its system path remains blocked",
+    "command": "/usr/bin/jq '.a.key' secrets.key"
+  },
+  {
+    "id": "jq-command-v-not-jq",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "command -v does not run jq, so the word after it is not a filter",
+    "command": "command -v jq .a.key"
+  },
+  {
+    "id": "jq-session-path-not-trusted",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a jq outside the system directories may be any program, so its first operand remains checked",
+    "command": "./jq '.a.key' s.json"
+  },
+  {
+    "id": "jq-xargs-not-classified",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a jq started by xargs is not classified, so its filter remains checked",
+    "command": "xargs jq -r '.a.key' < list.txt"
+  },
+  {
+    "id": "jq-split-name-with-sed-letters-in-operand",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "the letters sed inside another word (passed.json) do not open the rewrite path, so a quote-split jq keeps its filter checked",
+    "command": "j''q -r .key passed.json"
+  },
+  {
+    "id": "sed-letters-in-word-with-protected-operand",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a word that merely holds the letters sed leaves a protected operand checked",
+    "command": "printf 'build passed' && cat release.key"
   }
 ]

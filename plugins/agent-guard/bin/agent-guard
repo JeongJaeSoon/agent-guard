@@ -6339,6 +6339,124 @@ bash_strip_safe_env_lookups() {
   ' </dev/null
 }
 
+# Cheap gate for bash_join_quoted_words: 0 when that awk pass could change $1.
+# The pass only rewrites a word that mixes quoted, escaped and plain parts, or
+# a quoted word where a command starts. One plain command whose quotes each
+# wrap a whole argument (`printf 'build passed'`, `grep "foo" src`) has
+# neither, so it skips the awk run. Every doubtful shape answers 0;
+# tests/unit-quoted-words.sh pins that a 1 here means the pass changes nothing.
+bash_quoting_may_hide_name() {
+  case "$1" in
+    *[\'\"\\]*) ;;
+    *) return 1 ;;
+  esac
+  case "$1" in
+    # An escape, another command, a redirection, a group, an assignment or a
+    # line break: a later word may start a command.
+    *[\\\`\;\|\&\(\)\<\>\{\}\!=]*|*'
+'*) return 0 ;;
+    # A quote or a blank where the first command word starts.
+    [\'\"[:space:]]*) return 0 ;;
+    # A word that leaves the next word in command position.
+    *sudo*|*command*|*builtin*|*exec*|*nohup*|*nice*|*time*|*then*|*do*|*else*|*elif*) return 0 ;;
+    # A quote with text on both sides sits inside a word.
+    *[![:space:]][\'\"][![:space:]]*) return 0 ;;
+    # With both kinds present, one may be plain text inside the other.
+    *\'*\"*|*\"*\'*) return 0 ;;
+  esac
+  # An odd count leaves the last quote open, and the pass closes it at the end
+  # of the text, which can join it to the word before it.
+  qh_rest=$1 qh_open=0
+  while :; do
+    case "$qh_rest" in
+      *[\'\"]*) qh_rest=${qh_rest#*[\'\"]} qh_open=$((1 - qh_open)) ;;
+      *) break ;;
+    esac
+  done
+  return "$((1 - qh_open))"
+}
+
+# Print $1 with shell quote removal applied to the words whose quoting only
+# hides a name from the deny patterns: a word split into several quoted,
+# escaped or plain parts (`c'u'rl`, `"https"://`, `cu\rl`, `$'sec'urity`), and
+# a quoted word where a command starts (`"security" dump-keychain`). The text
+# of a `'...'` or `$'...'` part is kept as written (no ANSI-C decoding), a
+# `"..."` part drops only the backslash before `$`, backquote, `"`, `\` and a
+# newline, and an unquoted backslash keeps the character after it. Every other
+# word stays exactly as written, so a quoted argument such as `"load the env"`,
+# `'a|env|b'` or a JSON body is still read with its quotes. A word whose quoted
+# or escaped text holds a blank, a newline or one of ; | & ( ) < > backquote
+# also stays as written: removing those quotes would end the word where the
+# shell does not. An unclosed quote runs to the end of the text, as if closed
+# there (the shell refuses such a command, so reading it either way is safe).
+# The deny patterns read this copy in addition to the text, never instead.
+bash_join_quoted_words() {
+  QJ_TEXT=$1 LC_ALL=C awk '
+    function isdelim(ch) { return ch != "" && index(" \t\n;|&()<>`", ch) > 0 }
+    function unsafe(seg) { return seg ~ /[ \t\n;|&()<>`]/ }
+    BEGIN {
+      t = ENVIRON["QJ_TEXT"]; n = length(t); out = ""; i = 1; cmdpos = 1
+      while (i <= n) {
+        c = substr(t, i, 1)
+        if (isdelim(c)) {
+          out = out c
+          if (index("\n;|&(`", c)) cmdpos = 1
+          i++
+          continue
+        }
+        raw = ""; val = ""; parts = 0; quoted = 0; bad = 0; plain = 0
+        while (i <= n) {
+          c = substr(t, i, 1)
+          if (isdelim(c)) break
+          if (c == "\\") {
+            d = substr(t, i + 1, 1)
+            if (d == "") { raw = raw c; val = val c; i++; plain = 0; continue }
+            raw = raw c d; quoted = 1; parts++; plain = 0; i += 2
+            if (d == "\n") continue
+            if (unsafe(d) || d == "\"" || d == "\047") bad = 1
+            val = val d
+            continue
+          }
+          q = c; start = i
+          if (c == "$" && (substr(t, i + 1, 1) == "\047" || substr(t, i + 1, 1) == "\"")) {
+            q = substr(t, i + 1, 1); i++
+          }
+          if (q == "\047") {
+            j = index(substr(t, i + 1), "\047")
+            if (j) { seg = substr(t, i + 1, j - 1); i += j + 1 }
+            else { seg = substr(t, i + 1); i = n + 1 }
+          } else if (q == "\"") {
+            seg = ""; j = i + 1
+            while (j <= n) {
+              d = substr(t, j, 1)
+              if (d == "\"") break
+              if (d == "\\" && index("$`\"\\\n", substr(t, j + 1, 1))) {
+                if (substr(t, j + 1, 1) != "\n") seg = seg substr(t, j + 1, 1)
+                j += 2
+                continue
+              }
+              seg = seg d; j++
+            }
+            i = j + 1
+          } else {
+            raw = raw c; val = val c; i++
+            if (!plain) { parts++; plain = 1 }
+            continue
+          }
+          raw = raw substr(t, start, i - start); val = val seg
+          quoted = 1; parts++; plain = 0
+          if (unsafe(seg)) bad = 1
+        }
+        out = out ((quoted && !bad && (parts > 1 || cmdpos)) ? val : raw)
+        # An assignment, a reserved word or a wrapper keeps the next word in
+        # command position.
+        if (!(raw ~ /^[A-Za-z_][A-Za-z0-9_]*=/ || val ~ /^(!|\{|then|do|else|elif|time|command|builtin|exec|nohup|nice|sudo)$/)) cmdpos = 0
+      }
+      printf "%s", out
+    }
+  ' </dev/null
+}
+
 MESSAGE_HEREDOC_PLACEHOLDER=agent_guard_heredoc_message
 
 # Print $1 with every word of the form
@@ -6932,7 +7050,12 @@ sed_script_without_regex() {
 bash_neutralize_jq_field_names() (
   set -f
   nj_cmd=$1
-  case "$nj_cmd" in *jq*|*sed*) ;; *) printf '%s' "$nj_cmd"; exit 0 ;; esac
+  # sed counts only as a whole name, as in jq_names_tool below: a rewrite
+  # needs a `sed` command word, and words such as "passed" hold the letters.
+  case "$nj_cmd" in
+    *jq*|sed|sed[!A-Za-z0-9_]*|*[!A-Za-z0-9_]sed|*[!A-Za-z0-9_]sed[!A-Za-z0-9_]*) ;;
+    *) printf '%s' "$nj_cmd"; exit 0 ;;
+  esac
   case "$nj_cmd" in
     *PATH*|*path=*|*path+=*|*'path['*) printf '%s' "$nj_cmd"; exit 0 ;;
   esac
@@ -7006,7 +7129,7 @@ $jq_records
   }
   jq_end_segment() {
     [ "$jq_state:$jq_seg_bad" = after:0 ] && jq_try_rewrite
-    jq_state=start
+    jq_state=start jq_cmdw=
   }
   jq_bail() {
     printf '%s' "$jq_orig"
@@ -7017,7 +7140,7 @@ $jq_records
 '
   # shellcheck disable=SC2086
   set -- $jq_records
-  jq_i=0 jq_state=start jq_need=0 jq_seg_bad=0 jq_prev=
+  jq_i=0 jq_state=start jq_need=0 jq_seg_bad=0 jq_prev= jq_cmdw=
   for jq_rec in "$@"; do
     jq_i=$((jq_i + 1))
     case "$jq_prev:$jq_rec" in "3(:3)") jq_bail ;; esac
@@ -7064,10 +7187,19 @@ $jq_records
       # A glob can expand to a command name such as eval (`ev?l`); zsh
       # extended glob adds `#` and `^`.
       case "$jq_word" in *[\*?[#^]*) jq_bail ;; esac
-      case "$jq_rec" in
-        0jq|0sed) jq_tool=$jq_word jq_state=opt jq_need=0 jq_seg_bad=0 jq_e=0 ;;
+      # `command jq` skips shell functions and aliases, and a system path
+      # skips the PATH lookup; either still runs jq itself. Only a bare
+      # `command` directly before the tool name qualifies (`command -v jq`
+      # prints a path), and only the system directories below, not a jq the
+      # session could have written itself.
+      case "$jq_cmdw:$jq_rec" in
+        :0command) jq_cmdw=1; continue ;;
+        *:0jq|*:0sed|:0/usr/bin/jq|:0/bin/jq|:0/usr/local/bin/jq|:0/opt/homebrew/bin/jq|\
+        :0/usr/bin/sed|:0/bin/sed|:0/usr/local/bin/sed|:0/opt/homebrew/bin/sed)
+          jq_tool=${jq_word##*/} jq_state=opt jq_need=0 jq_seg_bad=0 jq_e=0 ;;
         *) jq_state=other ;;
       esac
+      jq_cmdw=
       if [ "$jq_state" != opt ] && jq_names_tool "$jq_word"; then jq_bail; fi
       continue
     fi
@@ -9998,6 +10130,16 @@ check_bash_command() {
     if env_stripped=$(bash_strip_safe_env_lookups "$pattern_cmd"); then
       pattern_cmd=$env_stripped
     fi
+    # The shell removes quotes before it runs a word, so `c'u'rl` and
+    # `"https"://user:pw@host` reach the process as the name or URL the
+    # patterns know. Read that copy too, after the same exemptions; the text
+    # as written is still read, so a failed rewrite only loses the extra copy.
+    if bash_quoting_may_hide_name "$pattern_cmd" \
+      && joined_cmd=$(bash_join_quoted_words "$pattern_cmd") \
+      && [ "$joined_cmd" != "$pattern_cmd" ]; then
+      pattern_cmd="$pattern_cmd
+$joined_cmd"
+    fi
     printf '%s\n' "$pattern_cmd" | grep -E -q -f "$patterns"
     grep_status=$?
     rm -f "$patterns"
@@ -10497,6 +10639,13 @@ secretish_env_values() {
       # Closed on purpose: any other bare argument may be the literal value.
       sub_n = split("token create get read show print generate new login auth value secret key decrypt export", sub_words, " ")
       for (sub_i = 1; sub_i <= sub_n; sub_i++) subcommand_word[sub_words[sub_i]] = 1
+      # Modal and subordinator words that open a prose sentence about a value
+      # (`client secret: must be rotated monthly`). Closed on purpose and
+      # checked against passphrase wordlists: none is in the EFF large or
+      # short lists, and none is a common config value. Words of three letters
+      # or fewer, and `cannot`, already pass on their own.
+      lead_n = split("must should shall will would might needs when", lead_words, " ")
+      for (lead_i = 1; lead_i <= lead_n; lead_i++) prose_lead_word[lead_words[lead_i]] = 1
     }
     function quoted_end(raw, quote, i, slash_count, ch) {
       slash_count = 0
@@ -10989,6 +11138,27 @@ secretish_env_values() {
       }
       return count >= minimum
     }
+    # A prose line can say what happens to a secret instead of giving it
+    # (`client secret: must be rotated monthly`). Colon form only, unquoted
+    # only: the token is a word from the closed prose_lead_word list, and the
+    # rest of the line is that word and at least two more lowercase ASCII words,
+    # one space apart, with at most one final `.` before trailing whitespace.
+    # A quoted key, a backticked or quoted value, a tab or a double space, a
+    # digit, an uppercase letter or any other symbol anywhere in the tail keeps
+    # masking. Each following word is judged on its own, like a route segment,
+    # so a credential-shaped word masks the whole value.
+    function prose_reference(assignment, value, raw, v, n, words, i) {
+      if (assignment !~ /:$/ || assignment ~ /["'\'']/) return 0
+      if (!(value in prose_lead_word)) return 0
+      v = raw
+      sub(/[ \t\r]+$/, "", v)
+      sub(/\.$/, "", v)
+      if (v !~ /^[a-z]+ [a-z]+ [a-z]+( [a-z]+)*$/) return 0
+      n = split(v, words, " ")
+      for (i = 2; i <= n; i++)
+        if (credential_shaped(words[i])) return 0
+      return 1
+    }
     # A draft read from a document tool returns a `d<n>:`-prefixed base64 snapshot
     # token for optimistic locking; the next update must echo it verbatim, so
     # masking it made every draft update fail. Exempt only that value shape
@@ -11150,6 +11320,7 @@ secretish_env_values() {
           sub(/[ \t,;].*$/, "", route)
           if (route_reference(assignment, value " " route)) return 0
         }
+        if (prose_reference(assignment, value, raw)) return 0
         if (page_cursor(assignment)) return 0
         if (snapshot_handle(assignment, value)) return 0
         if (config_literal(value)) return 0

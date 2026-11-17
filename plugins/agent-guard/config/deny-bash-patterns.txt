@@ -42,7 +42,9 @@
 # shell variable ($$, $BASHPID) the deny-read glob cannot match, so accept any
 # non-space, non-slash segment here.
 /proc/[^[:space:]/]+/environ
-security([[:space:]]+-[^[:space:]]+)*[[:space:]]+find-(generic|internet)-password
+# Both keychain reads share one left boundary: `security` and `/usr/bin/security`
+# match, a longer name ending in it (`my-security`, `mysecurity`) does not.
+(^|[^[:alnum:]_.-])security([[:space:]]+-[^[:space:]]+)*[[:space:]]+find-(generic|internet)-password
 (^|[^[:alnum:]_.-])security([[:space:]]+-[^[:space:]]+)*[[:space:]]+dump-keychain
 # A password in a URL's userinfo (`scheme://user:password@host`, the user may be
 # empty) lands in argv, the process list and the transcript. A variable for the
@@ -56,8 +58,10 @@ security([[:space:]]+-[^[:space:]]+)*[[:space:]]+find-(generic|internet)-passwor
 # regex such as `https://[^:]+:[^@]+@`, and a container transport reference
 # with a tag and a digest (`docker://alpine:3.19@sha256:...`), and a payload
 # word without double quotes that holds a URL and a later `@`
-# (`url=http://localhost:3000&email=a@b`). Not held: a password in double
-# quotes or read with `$(<file)` inside the URL (`https://u:"$PW"@host`).
+# (`url=http://localhost:3000&email=a@b`). A quoted scheme or password
+# (`"https"://u:p@host`, `https://u:"$PW"@host`) is held through the
+# quote-removed copy (see the note before the package-manager lines). Not held: a password
+# read with `$(<file)` inside the URL (`https://u:"$(<pw)"@host`).
 [[:alpha:]][[:alnum:]+.-]*://[^/?#[:space:]@:"<>]*:[^/?#[:space:]@"<>]+@
 # A word ending in `op` (`stop reading`) is not the 1Password CLI.
 (^|[^[:alnum:]_.-])op[[:space:]]+read
@@ -83,15 +87,29 @@ az[[:space:]]+account[[:space:]]+get-access-token
 kubectl[[:space:]].*get.*[[:space:]]secrets?(/[^[:space:]]+)?[[:space:]].*(-o|--output)[[:space:]=]*(yaml|json|jsonpath|go-template)
 kubectl[[:space:]].*get.*(-o|--output)[[:space:]=]*(yaml|json|jsonpath|go-template).*[[:space:]]secrets?(/[^[:space:]]+)?([[:space:]]|$)
 (curl|wget).*(TOKEN|SECRET|PASSWORD|API[_-]?KEY|ACCESS[_-]?KEY)
+# `curl -u user:password` (also `-uuser:password`, `--user user:password`,
+# `--user=user:password`, an empty user, the value in quotes, or `-u` last in a
+# short option group such as `-su`) puts the password in argv and the
+# transcript. A variable pair (`-u "$U:$P"`) is held too, since curl gets the
+# expanded value in argv. A name alone (`-u user`, curl then asks for the
+# password) or an empty password (`-u user:`, `-u :` for Negotiate) passes, and
+# so does one variable for the whole pair (`-u "$CREDS"`), which cannot be told
+# apart from a name. Not held: `--proxy-user`/`-U` and wget `--user`/`--password`.
+(^|[^[:alnum:]_.-])curl[[:space:]]([^;|]*[[:space:]])?(-[A-Za-z]*u[[:space:]]*|--user([[:space:]]+|=))['"]?([^-[:space:]:'"][^[:space:]:'"]*)?:[^[:space:]'"]
 gh[[:space:]]+auth[[:space:]]+token
 # Package-manager credential dumps: these print stored auth values with no
 # path or token in the command text, so neither the deny-read scan nor the
 # command gitleaks scan can see them. Write forms (`set`/`unset`, and the
 # legacy `config <host> <value>` set) stay allowed because the secret then
 # appears in the command text and is gitleaks-scanned there. Residual, shared
-# with every entry in this file: obfuscation via `sh -c`, escaped command
-# names, or splitting a command across shell variables is out of scope for a
-# line-oriented regex guard.
+# with every entry in this file: obfuscation via `sh -c`, ANSI-C escapes
+# (`$'\x63url'`), or splitting a command across shell variables is out of
+# scope for a line-oriented regex guard. Quotes or backslashes inside one word
+# (`c'u'rl`, `"sec"urity`, `cu\rl`) and a quoted command name (`"security"`)
+# are not: every line also reads a copy of the command with those quotes
+# removed (bash_join_quoted_words in bin/agent-guard). That copy keeps a quoted
+# argument as written (`grep "printenv" src`, `'a|env|b'`, a JSON body), and
+# keeps any word whose quoted text holds a blank or a shell operator.
 # Every pattern below tolerates a run of leading global options (`-x`/`--flag`)
 # between the binary and its subcommand, since agents routinely emit them
 # (`npm --location=user config get`, `bundle config --parseable`).

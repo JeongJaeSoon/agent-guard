@@ -191,6 +191,49 @@ regexes = [
   '''^--key[ \t]+auto-wake:ctx_[0-9a-f]{6,32}[ \t\n;]?$'''
 ]
 
+# `git push --force-with-lease=<ref>:<expect>` carries the object id the remote
+# ref is expected to point at: a 40-hex commit SHA, or 64 hex in a SHA-256
+# repository. When the ref name holds a keyword (`agent-access-team-only`,
+# `api-token-rotation`), generic-api-key reads `<ref>:<id>` as a labelled
+# secret (issue #478). The finding's match starts at the ref name and never
+# includes the flag, and a bare `<name>:<hex>` match is also what a compact
+# `access-token:<hex>` credential looks like, so the match cannot carry this
+# exemption and it has to anchor the LINE. gitleaks applies a line allowlist to
+# every finding on that line, so the line is excused only when it holds nothing
+# that could be a second keyword assignment. generic-api-key reads a value
+# after one of its separators (`=`, `:`, `>`, `,`, `|`, `?`) plus up to five
+# quote, backtick, blank or `=` characters, and the value is at least 10
+# characters of `[\w.=-]` (or 12 of `[a-z0-9+/]`). So outside the one lease
+# expectation, every separator must be followed by blanks or quotes and then a
+# run of at most 9 characters of `[\w.=+/-]`, or by a character outside that
+# set, so prose such as `git commit -m "fix(scope): tighten lease, check" &&`
+# passes while `...:<sha> origin HEAD; api_token=<hex>`, `-m "token: <hex>"`
+# and `curl -H "X-Api-Key: <hex>"` keep their findings. The line is split at
+# separators: the text before the first one is free, and each later piece
+# (`CHUNK` in the regex below, spelled out because RE2 has no lookahead) must
+# be blanks/quotes then at most 9 token characters then a non-token character
+# (or end), or blanks/quotes then a non-token character. The cost is that a
+# prose word of 10 or more token characters right after a colon or comma
+# (`docs: restructure-readme`), or a second separator-heavy construct such as a
+# second lease on the line, keeps the finding; shorten the message or run the
+# commit and the push as separate commands. The expectation is
+# `--force-with-lease=`, a ref name, `:` and
+# exactly 40 or 64 lowercase hex characters, followed by whitespace or the end
+# of the line; a longer hex run, uppercase hex, quotes, or trailing token
+# characters are not excused. Git accepts the optional value only attached
+# with `=` (`--force-with-lease <ref>:<sha>` reads `<ref>:<sha>` as the
+# repository argument), so the two-argument spelling is not excused either.
+# Only generic-api-key is targeted: no vendor rule matches this shape, so a
+# dedicated rule that does fire keeps its finding. A bare 40/64-hex object id
+# with no keyword name in front of it was never a finding.
+[[allowlists]]
+description = "git push --force-with-lease=<ref>:<40 or 64 hex> expectation"
+targetRules = ["generic-api-key"]
+regexTarget = "line"
+regexes = [
+  '''^\n?(?:[^\n=:>,|?]*(?:[=:>,|?][\x60'"\t\f\r ]*(?:[\w.=+/-]{1,9}(?:[^\w.=+/:>,|?\n-][^\n=:>,|?]*)?|(?:[^\w.=+/:>,|?\n\x60'"\t\f\r -][^\n=:>,|?]*)?))*[ \t])?--force-with-lease=[\w.\/@+-]+:(?:[0-9a-f]{40}|[0-9a-f]{64})(?:[ \t][^\n=:>,|?]*(?:[=:>,|?][\x60'"\t\f\r ]*(?:[\w.=+/-]{1,9}(?:[^\w.=+/:>,|?\n-][^\n=:>,|?]*)?|(?:[^\w.=+/:>,|?\n\x60'"\t\f\r -][^\n=:>,|?]*)?))*)?\r?$'''
+]
+
 # Directory scans skip these exact lockfile names, then agent-guard rescans
 # their non-checksum content through stdin. This avoids checksum false positives
 # without allowing credentials elsewhere in a lockfile.

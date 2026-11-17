@@ -37,7 +37,8 @@ Individual documents describe each suite's contracts and evidence and link here.
 | `tests/redaction-plan.sh` | 8 | 4 | Replacement ordering, context and output budgets |
 | `tests/unit-audit-retention.sh` | 10 | 1 | Portable audit filename and retention rules |
 | `tests/unit-nul-redaction.sh` | 3 | 1 | NUL-only masking on supported jq versions |
-| **Total: 9 suites** | **201** | | |
+| `tests/unit-quoted-words.sh` | 16 | 1 | The shell gate skips the quote-removal pass only for texts the pass returns unchanged |
+| **Total: 10 suites** | **217** | | |
 
 `make test` runs each suite once in its assigned partition and retains the full
 integration suite. Each suite contributes one outer assertion, regardless of

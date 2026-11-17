@@ -18,6 +18,7 @@ done
 printf '%s\n' .env x.pem notes VALUE >"$W/list.txt"
 printf 'const p = process.env.PORT\n' >"$W/src/a.ts"
 printf 'see https://example.net/docs\n' >"$W/notes.txt"
+printf '{"a":{"key":1}}\n' >"$W/s.json"
 
 pass=0 fail=0 n=0
 ok() { pass=$((pass + 1)); printf 'ok - %s\n' "$1"; }
@@ -84,6 +85,8 @@ allow sed -n 's/.env/x/p' list.txt
 allow echo x; sed 's/^d2-gate\t[^\t]*\t//' notes.txt
 allow ls -a . && sed -n 's/.env/x/p' list.txt
 allow echo x; jq -n '{a: 1} | .tls.key'
+allow jq -r '.a.key, .b.p8, .c.env' s.json
+allow command jq -r '.tls.key' s.json
 read cat .env
 read grep -E '^VALUE=' .env
 read cut -d= -f2 state.env
@@ -99,6 +102,8 @@ read sed 's/^x\t[^\t]*//' .env
 read sed 's/.env/x/' list.txt .env
 read echo x; sed 's/^x\t[^\t]*//' .env
 read echo x; jq -R . tls.key
+read jq -R '. // .tls.key' tls.key
+read command jq -R . tls.key
 held grep -f .env list.txt
 held grep --file=.env list.txt
 held grep pat list.txt -e .env

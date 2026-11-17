@@ -239,6 +239,7 @@ run_expect 0 "failed tool output is reported, not masked, on PostToolUseFailure"
   sh "$ROOT/tests/post-tool-failure.sh"
 run_expect 0 "portable audit retention contract" sh "$ROOT/tests/unit-audit-retention.sh"
 run_expect 0 "NUL redaction preserves clean leaves" sh "$ROOT/tests/unit-nul-redaction.sh"
+run_expect 0 "quote gate skips only texts the quote pass leaves unchanged" sh "$ROOT/tests/unit-quoted-words.sh"
 run_expect 0 "printenv argument boundaries preserve empty and public values" sh "$ROOT/tests/printenv-argument-contract.sh"
 run_expect 0 "known dotenv values are masked only in deny-read mask mode" sh "$ROOT/tests/known-env-value.sh"
 run_expect 0 "host plugin lifecycle delegates safely" sh "$ROOT/tests/plugin-management.sh"
@@ -3359,7 +3360,8 @@ expect_json_status 2 "Bash cat .env.tpl.bak (tpl marker not final) is blocked" \
 # positive stays, and the read stays blocked.
 #
 # One deliberate exception: bash_neutralize_jq_field_names drops field names
-# from the filter of a plain `jq` in a fully literal command (its fixture is
+# from the filter of a plain `jq` (also `command jq` or a jq under a fixed
+# system directory such as /usr/bin) in a fully literal command (its fixture is
 # tests/fixtures/bash-jq-field-names.json). It does not drop an operand; every
 # other word, the jq file operands included, is still checked, and any
 # redefinition of jq in the command text keeps the old block. What it cannot
@@ -3912,6 +3914,38 @@ bash_cmd_case 2 "security dump-keychain by absolute path is blocked" \
   "/usr/bin/security dump-keychain"
 bash_cmd_case 2 "security find-generic-password without -w stays blocked" \
   "security find-generic-password -s svc"
+
+# Both keychain lines share one left boundary (#469): a longer command name
+# that only ends in `security` is another program. Both hosts read the same
+# boundary.
+bash_cmd_host_case() { # $1 host, $2 expected status, $3 name, $4 command
+  jq -nc --arg c "$4" '{tool_name:"Bash",tool_input:{command:$c}}' \
+    | AGENT_GUARD_HOOK_HOST="$1" "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+  status=$?
+  if [ "$status" -eq "$2" ]; then
+    ok "$1: $3"
+  else
+    not_ok "$1: $3 (expected $2, got $status)"
+    sed 's/^/  stdout: /' "$OUT"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+}
+for keychain_host in claude codex; do
+  bash_cmd_host_case "$keychain_host" 2 "security find-generic-password -w is blocked" \
+    "security find-generic-password -s svc -w"
+  bash_cmd_host_case "$keychain_host" 2 "security find-generic-password by absolute path is blocked" \
+    "/usr/bin/security find-generic-password -s svc -w"
+  bash_cmd_host_case "$keychain_host" 2 "security find-internet-password after a separator is blocked" \
+    "cd /tmp && security find-internet-password -s example.com"
+  bash_cmd_host_case "$keychain_host" 0 "my-security find-generic-password is another command" \
+    "my-security find-generic-password"
+  bash_cmd_host_case "$keychain_host" 0 "mysecurity find-generic-password is another command" \
+    "mysecurity find-generic-password -s svc -w"
+  bash_cmd_host_case "$keychain_host" 0 "my_security find-internet-password is another command" \
+    "my_security find-internet-password"
+  bash_cmd_host_case "$keychain_host" 0 "my-security dump-keychain is another command" \
+    "my-security dump-keychain"
+done
 bash_cmd_case 0 "security list-keychains is allowed" "security list-keychains"
 bash_cmd_case 0 "security dump-trust-settings is allowed" "security dump-trust-settings"
 bash_cmd_case 0 "security find-certificate is allowed" "security find-certificate -c acme"
@@ -3955,6 +3989,64 @@ bash_cmd_case 0 "a URL and a later email in one compact JSON word are allowed" \
   "curl -d '{\"callback\":\"http://localhost:3000\",\"email\":\"alice@example.com\"}' https://example.com/hooks"
 bash_cmd_case 0 "a URL and an email in one compact jq object are allowed" \
   "jq -n '{\"homepage\":\"https://example.com\",\"author\":\"alice@example.com\"}'"
+
+# #470: curl basic auth with a password puts it in argv, and the shell removes
+# quotes inside a word before it runs it, so a quoted scheme or a quote-split
+# command name reaches the process as the plain name the patterns know. The
+# values are placeholders. The tool name is joined at run time so the
+# repository's own scan (the gitleaks basic-auth rule) finds no literal here.
+qj_curl=$(printf '%s%s' cu rl)
+for qj_host in claude codex; do
+  for qj_cmd in \
+    "$qj_curl -u USER_PH:PASS_PH https://example.com/api" \
+    "$qj_curl --user USER_PH:PASS_PH https://example.com/api" \
+    "$qj_curl --user=USER_PH:PASS_PH https://example.com/api" \
+    "$qj_curl -uUSER_PH:PASS_PH https://example.com/api" \
+    "$qj_curl -su USER_PH:PASS_PH https://example.com/api" \
+    "$qj_curl -u :PASS_PH https://example.com/api" \
+    "$qj_curl -u \"USER_PH:PASS_PH\" https://example.com/api" \
+    "$qj_curl -u \"\$API_USER:\$API_PASS\" https://example.com/api" \
+    "/usr/bin/$qj_curl -fsS -u USER_PH:PASS_PH https://example.com/api" \
+    "git clone 'http's'://USER_PH:PASS_PH@example.com/r.git" \
+    "git clone 'http''s'://USER_PH:PASS_PH@example.com/r.git" \
+    'git clone "https"://USER_PH:PASS_PH@example.com/r.git' \
+    'git clone https://USER_PH:"$GIT_PW"@example.com/r.git' \
+    "c'u'rl -H \"Authorization: Bearer \$API_TOKEN\" https://example.com" \
+    'cu\rl -H "Authorization: Bearer $API_TOKEN" https://example.com' \
+    '"sec"urity dump-keychain' \
+    "s'ecurity' find-generic-password -s x -w" \
+    '"security" dump-keychain' \
+    "cd /tmp && 'security' find-internet-password -s example.com" \
+    "\$'sec'urity dump-keychain"
+  do
+    bash_cmd_host_case "$qj_host" 2 "blocked: $qj_cmd" "$qj_cmd"
+  done
+  for qj_cmd in \
+    'curl -u alice https://example.com/api' \
+    'curl -u alice https://example.com:8443/api' \
+    'curl --user alice https://example.com/api' \
+    'curl -u alice: https://example.com/api' \
+    'curl --negotiate -u : https://example.com/api' \
+    'curl -u "$CREDS" https://example.com/api' \
+    'sort -u a:b file' \
+    "curl -H 'Accept: application/json' https://example.com/api" \
+    "curl -d '{\"callback\":\"http://localhost:3000\",\"email\":\"alice@example.com\"}' https://example.com/hooks" \
+    'curl -d "{\"callback\":\"http://localhost:3000\",\"email\":\"alice@example.com\"}" https://example.com/hooks' \
+    'grep -rn "printenv" src' \
+    "grep -E 'a|env|b' file" \
+    'grep -w "set" file' \
+    'echo "load the env"' \
+    "echo 'use (env)'" \
+    "echo it's fine" \
+    "find . -name '*.sh' -exec grep -l x {} \\;" \
+    "jq -r '.env' package.json" \
+    'FOO="bar" ls' \
+    "my-'security' find-generic-password" \
+    "git commit -m \"docs: c'u'rl and \\\"sec\\\"urity dump-keychain are denied\""
+  do
+    bash_cmd_host_case "$qj_host" 0 "allowed: $qj_cmd" "$qj_cmd"
+  done
+done
 
 expect_json_status 2 "gcloud auth print-refresh-token is blocked" \
   '{"tool_name":"Bash","tool_input":{"command":"gcloud auth print-refresh-token"}}' \
@@ -11865,7 +11957,10 @@ BOOL_PAGE_SNAKE=$(printf '%s%s' page _token)
 BOOL_PAGE_ENV=$(printf '%s%s' PAGE _TOKEN)
 BOOL_FB_PAGE=$(printf '%s%s' FB_PAGE _TOKEN)
 BOOL_FB_CAMEL=$(printf '%s%s' fbPage Token)
-BOOL_SECRET=$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')
+# Fixed, not random: gitleaks drops a generic-api-key value that holds one of
+# its stopwords, and a random hex run spells `feed` or `dead` often enough
+# (about 1 run in 200) to turn the must-find cases below into a failure.
+BOOL_SECRET=$(printf '%s%s%s%s%s' 3f9a27c4 b81d 4e60 9c52 7d0e1b46a8f3)
 BOOL_CURSOR=$(printf 'Ci%sQAhgB' "$BOOL_SECRET")
 BOOL_GHP=$(printf '%s%s' ghp_ "$BOOL_SECRET")
 BOOL_JWT=$(printf '%s.%s.%s' eyJhbGciOiJIUzI1NiJ9 eyJzdWIiOiIxMjM0NTY3ODkwIn0 "$BOOL_SECRET")
