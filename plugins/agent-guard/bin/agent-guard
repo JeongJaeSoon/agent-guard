@@ -808,6 +808,8 @@ plugin_read_state() {
   esac
 }
 
+# Every exit from plugin_for_host_body is a return, so the wrapper removes the
+# state directory once. A path that has already removed it clears plugin_tmp.
 plugin_for_host() {
   plugin_action=$1
   plugin_host=$2
@@ -816,11 +818,52 @@ plugin_for_host() {
     printf '%s\n' "$PROGRAM: could not create plugin status directory" >&2
     return 2
   }
+  plugin_for_host_body
+  plugin_status=$?
+  [ -z "$plugin_tmp" ] || rm -rf "$plugin_tmp"
+  return "$plugin_status"
+}
+
+plugin_set_retry() {
+  plugin_retry="$PROGRAM plugin $1 --host $plugin_host"
+  if [ "$plugin_host" = claude ] && [ "$plugin_scope" != user ]; then
+    plugin_retry="$plugin_retry --scope $plugin_scope"
+  fi
+}
+
+# Refuse an Agent Guard marketplace that is not pinned to this release. $1 is
+# the refusal clause for the current action.
+plugin_require_release_pin() {
+  plugin_marketplace_matches=0
+  case "$plugin_host" in
+    claude)
+      claude_marketplace_matches_release "$plugin_marketplaces" \
+        && plugin_marketplace_matches=1
+      ;;
+    codex)
+      codex plugin marketplace add "JeongJaeSoon/agent-guard@v$VERSION" \
+        && plugin_marketplace_matches=1
+      ;;
+  esac
+  [ "$plugin_marketplace_matches" -eq 0 ] || return 0
+  if [ "$plugin_host" = claude ]; then
+    plugin_actual_ref=$(claude_marketplace_ref "$plugin_marketplaces")
+    plugin_remove="claude plugin marketplace remove agent-guard --scope $plugin_scope"
+  else
+    plugin_actual_ref='unverified or different ref'
+    plugin_remove='codex plugin marketplace remove agent-guard'
+  fi
+  plugin_set_retry install
+  printf '%s\n' "$PROGRAM: $plugin_host marketplace 'agent-guard' is '$plugin_actual_ref', expected 'v$VERSION'; $1" >&2
+  printf '%s\n' "$PROGRAM: run '$plugin_remove', then '$plugin_retry'; marketplace removal also removes its installed plugin" >&2
+  return 2
+}
+
+plugin_for_host_body() {
   plugin_marketplaces="$plugin_tmp/marketplaces.json"
   plugin_plugins="$plugin_tmp/plugins.json"
 
   if ! plugin_read_state "$plugin_host" "$plugin_marketplaces" "$plugin_plugins"; then
-    rm -rf "$plugin_tmp"
     printf '%s\n' "$PROGRAM: $plugin_host plugin manager could not report its state" >&2
     return 1
   fi
@@ -835,7 +878,6 @@ plugin_for_host() {
     fi
   fi
   if [ "$plugin_managed_state" -eq 2 ]; then
-    rm -rf "$plugin_tmp"
     if [ "$plugin_action" = status ]; then
       printf '%s\n' "$PROGRAM: Claude managed settings could not be read or safely parsed; plugin ownership cannot be determined" >&2
     else
@@ -844,22 +886,18 @@ plugin_for_host() {
     return 2
   fi
   if [ "$plugin_managed_state" -eq 3 ]; then
-    rm -rf "$plugin_tmp"
     printf '%s\n' "$PROGRAM: Claude policyHelper replaces file-based managed settings; plugin ownership cannot be determined, so lifecycle changes are refused" >&2
     return 2
   fi
   if [ "$plugin_managed_state" -eq 0 ]; then
     if [ "$plugin_action" = status ]; then
       claude_managed_status "$plugin_plugins"
-      rm -rf "$plugin_tmp"
       return 0
     fi
-    rm -rf "$plugin_tmp"
     printf '%s\n' "$PROGRAM: Claude Agent Guard is managed by Jamf/managed settings; ask the administrator to change the pinned marketplace ref instead of using '$PROGRAM plugin $plugin_action'" >&2
     return 2
   fi
   if [ "$plugin_managed_state" -ne 1 ]; then
-    rm -rf "$plugin_tmp"
     printf '%s\n' "$PROGRAM: Claude managed settings inspection was interrupted; refusing plugin lifecycle changes" >&2
     return 2
   fi
@@ -936,53 +974,20 @@ plugin_for_host() {
       ;;
     install)
       if [ "$plugin_marketplace_source" = conflict ]; then
-        rm -rf "$plugin_tmp"
         printf '%s\n' "$PROGRAM: $plugin_host marketplace 'agent-guard' has a different source; refusing to replace it" >&2
         return 2
       fi
       if [ "$plugin_marketplace_source" = agent-guard ]; then
-        plugin_marketplace_matches=0
-        case "$plugin_host" in
-          claude)
-            claude_marketplace_matches_release "$plugin_marketplaces" \
-              && plugin_marketplace_matches=1
-            ;;
-          codex)
-            codex plugin marketplace add "JeongJaeSoon/agent-guard@v$VERSION" \
-              && plugin_marketplace_matches=1
-            ;;
-        esac
-        if [ "$plugin_marketplace_matches" -eq 0 ]; then
-          if [ "$plugin_host" = claude ]; then
-            plugin_actual_ref=$(claude_marketplace_ref "$plugin_marketplaces")
-            plugin_remove="claude plugin marketplace remove agent-guard --scope $plugin_scope"
-          else
-            plugin_actual_ref='unverified or different ref'
-            plugin_remove='codex plugin marketplace remove agent-guard'
-          fi
-          plugin_retry="$PROGRAM plugin install --host $plugin_host"
-          if [ "$plugin_host" = claude ] && [ "$plugin_scope" != user ]; then
-            plugin_retry="$plugin_retry --scope $plugin_scope"
-          fi
-          rm -rf "$plugin_tmp"
-          printf '%s\n' "$PROGRAM: $plugin_host marketplace 'agent-guard' is '$plugin_actual_ref', expected 'v$VERSION'; refusing to reuse it" >&2
-          printf '%s\n' "$PROGRAM: run '$plugin_remove', then '$plugin_retry'; marketplace removal also removes its installed plugin" >&2
-          return 2
-        fi
+        plugin_require_release_pin 'refusing to reuse it' || return 2
       fi
       if [ "$plugin_has_install" -eq 1 ]; then
         if [ "$plugin_is_enabled" -eq 0 ]; then
           printf '%s\n' "$PROGRAM: $plugin_host agent-guard plugin is installed but disabled; enable it with the $plugin_host plugin manager" >&2
-          rm -rf "$plugin_tmp"
           return 1
         fi
         plugin_installed_version=$(plugin_version "$plugin_host" "$plugin_plugins" "$plugin_scope")
         if [ "$plugin_installed_version" != "$VERSION" ]; then
-          plugin_retry="$PROGRAM plugin update --host $plugin_host"
-          if [ "$plugin_host" = claude ] && [ "$plugin_scope" != user ]; then
-            plugin_retry="$plugin_retry --scope $plugin_scope"
-          fi
-          rm -rf "$plugin_tmp"
+          plugin_set_retry update
           printf '%s\n' "$PROGRAM: $plugin_host agent-guard plugin version is $plugin_installed_version, expected $VERSION; run '$plugin_retry'" >&2
           return 1
         fi
@@ -998,11 +1003,7 @@ plugin_for_host() {
           esac
           plugin_add_status=$?
           if [ "$plugin_add_status" -ne 0 ]; then
-            plugin_retry="$PROGRAM plugin install --host $plugin_host"
-            if [ "$plugin_host" = claude ] && [ "$plugin_scope" != user ]; then
-              plugin_retry="$plugin_retry --scope $plugin_scope"
-            fi
-            rm -rf "$plugin_tmp"
+            plugin_set_retry install
             printf '%s\n' "$PROGRAM: $plugin_host could not add marketplace 'agent-guard' pinned to v$VERSION; no plugin installation was attempted and it is safe to retry '$plugin_retry'" >&2
             return 1
           fi
@@ -1014,10 +1015,7 @@ plugin_for_host() {
         esac
         plugin_install_status=$?
         if [ "$plugin_install_status" -ne 0 ] && [ "$plugin_marketplace_added" -eq 1 ]; then
-          plugin_retry="$PROGRAM plugin install --host $plugin_host"
-          if [ "$plugin_host" = claude ] && [ "$plugin_scope" != user ]; then
-            plugin_retry="$plugin_retry --scope $plugin_scope"
-          fi
+          plugin_set_retry install
           printf '%s\n' "$PROGRAM: $plugin_host marketplace 'agent-guard' was added, but plugin installation failed; the marketplace remains configured and it is safe to retry '$plugin_retry'" >&2
         fi
         if [ "$plugin_install_status" -eq 0 ] && [ "$plugin_host" = codex ]; then
@@ -1028,43 +1026,14 @@ plugin_for_host() {
       ;;
     update)
       if [ "$plugin_marketplace_source" = conflict ]; then
-        rm -rf "$plugin_tmp"
         printf '%s\n' "$PROGRAM: $plugin_host marketplace 'agent-guard' has a different source; refusing to replace it" >&2
         return 2
       fi
       if [ "$plugin_has_marketplace" -eq 0 ] || [ "$plugin_has_install" -eq 0 ]; then
         printf '%s\n' "$PROGRAM: $plugin_host plugin is not installed; run '$PROGRAM plugin install --host $plugin_host' first" >&2
-        rm -rf "$plugin_tmp"
         return 1
       fi
-      plugin_marketplace_matches=0
-      case "$plugin_host" in
-        claude)
-          claude_marketplace_matches_release "$plugin_marketplaces" \
-            && plugin_marketplace_matches=1
-          ;;
-        codex)
-          codex plugin marketplace add "JeongJaeSoon/agent-guard@v$VERSION" \
-            && plugin_marketplace_matches=1
-          ;;
-      esac
-      if [ "$plugin_marketplace_matches" -eq 0 ]; then
-        if [ "$plugin_host" = claude ]; then
-          plugin_actual_ref=$(claude_marketplace_ref "$plugin_marketplaces")
-          plugin_remove="claude plugin marketplace remove agent-guard --scope $plugin_scope"
-        else
-          plugin_actual_ref='unverified or different ref'
-          plugin_remove='codex plugin marketplace remove agent-guard'
-        fi
-        plugin_retry="$PROGRAM plugin install --host $plugin_host"
-        if [ "$plugin_host" = claude ] && [ "$plugin_scope" != user ]; then
-          plugin_retry="$plugin_retry --scope $plugin_scope"
-        fi
-        rm -rf "$plugin_tmp"
-        printf '%s\n' "$PROGRAM: $plugin_host marketplace 'agent-guard' is '$plugin_actual_ref', expected 'v$VERSION'; refusing to update through it" >&2
-        printf '%s\n' "$PROGRAM: run '$plugin_remove', then '$plugin_retry'; marketplace removal also removes its installed plugin" >&2
-        return 2
-      fi
+      plugin_require_release_pin 'refusing to update through it' || return 2
       if [ "$plugin_is_enabled" -eq 0 ]; then
         printf '%s\n' "$PROGRAM: $plugin_host agent-guard plugin is installed but disabled; update will keep it disabled" >&2
       fi
@@ -1073,6 +1042,7 @@ plugin_for_host() {
         printf '%s: agent-guard plugin already matches this CLI (version %s, marketplace v%s)\n' \
           "$plugin_host" "$VERSION" "$VERSION"
         rm -rf "$plugin_tmp"
+        plugin_tmp=
         # This binary lives in the cache that marketplace removal deletes, so
         # moving to a newer release is printed for the user, never performed.
         if latest_release_version; then
@@ -1102,10 +1072,7 @@ plugin_for_host() {
       esac
       plugin_update_status=$?
       if [ "$plugin_update_status" -ne 0 ]; then
-        plugin_retry="$PROGRAM plugin update --host $plugin_host"
-        if [ "$plugin_host" = claude ] && [ "$plugin_scope" != user ]; then
-          plugin_retry="$plugin_retry --scope $plugin_scope"
-        fi
+        plugin_set_retry update
         printf '%s\n' "$PROGRAM: $plugin_host update did not complete; the marketplace remains pinned to v$VERSION and it is safe to retry '$plugin_retry'" >&2
       elif [ "$plugin_host" = codex ] && [ "$plugin_is_enabled" -eq 1 ]; then
         # A content change is exactly what invalidates Codex hook trust.
@@ -1115,7 +1082,6 @@ plugin_for_host() {
       ;;
     uninstall)
       if [ "$plugin_marketplace_source" = conflict ]; then
-        rm -rf "$plugin_tmp"
         printf '%s\n' "$PROGRAM: $plugin_host marketplace 'agent-guard' has a different source; refusing plugin lifecycle changes" >&2
         return 2
       fi
@@ -1129,9 +1095,6 @@ plugin_for_host() {
       fi
       ;;
   esac
-  plugin_status=$?
-  rm -rf "$plugin_tmp"
-  return "$plugin_status"
 }
 
 do_plugin() {
