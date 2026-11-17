@@ -178,6 +178,9 @@ check 'modal prose after a secret label passes while secret shapes stay blocked'
 check 'prefixed-UUID keys are found while sdk- package names stay clean' \
   env -u AGENT_GUARD_GITLEAKS_BIN AGENT_GUARD_TEST_REAL_GITLEAKS="$REAL_GITLEAKS" \
   sh "$ROOT/tests/prefixed-uuid-key.sh"
+check 'force-with-lease expectations pass while keyword assignments stay found' \
+  env -u AGENT_GUARD_GITLEAKS_BIN AGENT_GUARD_TEST_REAL_GITLEAKS="$REAL_GITLEAKS" \
+  sh "$ROOT/tests/force-with-lease-sha.sh"
 
 printf '1..%s\n' "$((pass + fail))"
 [ "$fail" -eq 0 ]
