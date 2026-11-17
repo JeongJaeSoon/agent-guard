@@ -1,3 +1,7 @@
+## v3.11.3 - 2026-11-17
+
+- fix(redact): 비밀값 이름 뒤 콜론에 온 HTTP 메서드와 경로를 비밀값으로 보지 않는다 (#479)
+
 ## Unreleased
 
 - fix(redact): `client secret: `PUT /v1/login-providers/:id/client-secret`` 처럼 비밀값 이름 뒤 콜론에 HTTP 메서드와 경로가 오는 설명문을 프롬프트 가드가 더는 막지 않고, 출력 마스킹도 그 경로를 가리지 않습니다. 대입문 probe가 백틱 안 값 전체를 비밀값으로 보던 탓입니다.
