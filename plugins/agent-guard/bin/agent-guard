@@ -6801,14 +6801,21 @@ search_operand_spans() {
       return out
     }
     # `sed -n 1,50p file` only prints lines: with nothing but these flags
-    # (GNU sed reads an option after the script too, so -i, -e or -f anywhere
-    # disqualifies it) and a line-number script, it writes no file and runs
-    # nothing, so it cannot rebind the name of a later command.
+    # (GNU sed reads an option after the script too, so -i, -f or a second
+    # script anywhere disqualifies it) and a line-number script, given as the
+    # first operand or by one -e, it writes no file and runs nothing, so it
+    # cannot rebind the name of a later command.
     function sed_prints_lines(a, b,   k, script) {
       script = 0
       for (k = a + 1; k <= b; k++) {
         if (bad(k)) return 0
         if (wv[k] ~ /^-[nErsuz]+$/) continue
+        if (wv[k] == "-e" && !script && k < b) {
+          k++
+          if (bad(k) || wv[k] !~ /^([0-9]+|\$)(,([0-9]+|\$|[+~][0-9]+))?[pd]$/) return 0
+          script = 1
+          continue
+        }
         if (substr(wv[k], 1, 1) == "-") return 0
         if (!script) {
           if (wv[k] !~ /^([0-9]+|\$)(,([0-9]+|\$|[+~][0-9]+))?[pd]$/) return 0
@@ -7708,7 +7715,9 @@ heredoc_body_rewrite() {
       if (line == delim) { delim = ""; kept[++nk] = $0; ntext = ntext $0 "\n"; if (msg) mend = nk; next }
       if (!quoted) {
         # An unquoted delimiter expands its body. A bare parameter reference
-        # runs nothing and opens no file; a substitution, arithmetic (which
+        # runs nothing and opens no file unless an earlier `declare -n` made
+        # it a name reference; that declaration is itself on the scanned
+        # line, not in the body. A substitution, arithmetic (which
         # evaluates the values of the names it reads), a subscript, any other
         # `${...}` form or a backslash keeps the command in the scan.
         line = $0

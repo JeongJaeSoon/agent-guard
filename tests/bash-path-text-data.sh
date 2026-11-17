@@ -68,7 +68,10 @@ check 2 "sed r command reads a protected file" "sed '/x/r secrets.json' $T"
 check 2 "print-only sed reads a protected file before grep" \
   "sed -n '1,50p' secrets.json | grep -n x"
 check 2 "sed -i before grep keeps the pattern" "sed -i '1,50p' $T | grep -n secrets.json"
-check 2 "sed -e before grep keeps the pattern" "sed -n -e '1,50p' $T | grep -n secrets.json"
+check 0 "grep pattern after a print-only sed -e" "sed -n -e '1,50p' $T | grep -n secrets.json"
+check 2 "a second sed -e before grep keeps the pattern" \
+  "sed -n -e '1,50p' -e '2p' $T | grep -n secrets.json"
+check 2 "sed -f before grep keeps the pattern" "sed -n -f x.sed $T | grep -n secrets.json"
 check 2 "grep after a sed with a regex script keeps the pattern" \
   "sed -n '/x/p' $T | grep -n secrets.json"
 check 2 "cat reads an ssh key" "cat ~/.ssh/id_ed25519"
@@ -83,7 +86,8 @@ check 2 "echo into a dotenv file" "echo 'A=1' > app.env"
 check 2 "echo into a quoted dotenv file" "echo 'A=1' > 'app.env'"
 check 2 "echo piped to xargs cat" "echo 'secrets.json' | xargs cat"
 check 2 "echo then cat" "echo 'x'; cat secrets.json"
-check 2 "echo with an unquoted protected word" "echo secrets.json > $D/n.md"
+check 2 "echo with an unquoted protected word (conservative: only quoted words are data)" \
+  "echo secrets.json > $D/n.md"
 check 2 "echo with a substitution" "echo \"\$(cat secrets.json)\" > $D/n.md"
 check 2 "python edits a source file whose text names a protected file" \
   "python3 - <<'EOF'${NL}from pathlib import Path${NL}p = Path('src/app.py')${NL}p.write_text(p.read_text().replace('secrets.json', 'config.json'))${NL}EOF"
