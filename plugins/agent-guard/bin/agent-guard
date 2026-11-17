@@ -2710,27 +2710,17 @@ setup_jq_lookbehind_status_line() {
   return 0
 }
 
-setup_suggest_jq_install() {
+# $1 is the package name and $2 the download page when no known package
+# manager is available.
+setup_suggest_pkg_install() {
   if command -v brew >/dev/null 2>&1; then
-    info "  brew install jq"
+    info "  brew install $1"
   elif command -v apt-get >/dev/null 2>&1; then
-    info "  sudo apt-get install -y jq"
+    info "  sudo apt-get install -y $1"
   elif command -v dnf >/dev/null 2>&1; then
-    info "  sudo dnf install -y jq"
+    info "  sudo dnf install -y $1"
   else
-    info "  https://stedolan.github.io/jq/download/"
-  fi
-}
-
-setup_suggest_git_install() {
-  if command -v brew >/dev/null 2>&1; then
-    info "  brew install git"
-  elif command -v apt-get >/dev/null 2>&1; then
-    info "  sudo apt-get install -y git"
-  elif command -v dnf >/dev/null 2>&1; then
-    info "  sudo dnf install -y git"
-  else
-    info "  https://git-scm.com/downloads"
+    info "  $2"
   fi
 }
 
@@ -2882,11 +2872,11 @@ EOF
     fi
     if [ "$jq_ok" -eq 0 ]; then
       info "$PROGRAM: jq is not auto-installed; use your system package manager:"
-      setup_suggest_jq_install
+      setup_suggest_pkg_install jq https://stedolan.github.io/jq/download/
     fi
     if [ "$git_ok" -eq 0 ]; then
       info "$PROGRAM: git is not auto-installed; use your system package manager:"
-      setup_suggest_git_install
+      setup_suggest_pkg_install git https://git-scm.com/downloads
     fi
     [ "$jq_ok" -eq 1 ] && [ "$git_ok" -eq 1 ] \
       && [ "$gitleaks_runtime_ok" -eq 1 ]
@@ -2897,11 +2887,11 @@ EOF
     info ""
     if [ "$jq_ok" -eq 0 ]; then
       info "$PROGRAM: install jq with your package manager:"
-      setup_suggest_jq_install
+      setup_suggest_pkg_install jq https://stedolan.github.io/jq/download/
     fi
     if [ "$git_ok" -eq 0 ]; then
       info "$PROGRAM: install git with your package manager:"
-      setup_suggest_git_install
+      setup_suggest_pkg_install git https://git-scm.com/downloads
     fi
     if [ "$gitleaks_ok" -eq 0 ]; then
       if ! setup_suggest_gitleaks_runtime_repair; then
