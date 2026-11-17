@@ -11851,14 +11851,14 @@ detect_output_secret_records() (
       detector_status=$?
       case "$detector_status" in 0|1) ;; *) detector_fail ;; esac
       [ -s "$detector_report" ] || detector_fail
-      # Validate and extract in one parser invocation. Stage output privately:
-      # a parser error after partial records must still fail the detector.
+      # Validate and extract in one parser invocation. Partial records a
+      # parser error leaves in the private records file are never printed:
+      # detector_fail discards the file before the final cat.
       jq -sc 'if length == 0 or any(.[]; type != "array")
               then error("invalid scanner report") else .[] end
              | .[]? | (.Secret // empty)
              | select(type == "string" and length > 0)' \
-        "$detector_report" >"$detector_work_a" 2>/dev/null || detector_fail
-      cat "$detector_work_a" >>"$detector_records" || detector_fail
+        "$detector_report" >>"$detector_records" 2>/dev/null || detector_fail
       rm -f "$detector_report"
       detector_report=
   fi
@@ -11867,8 +11867,7 @@ detect_output_secret_records() (
     frame_json_string_leaves <"$detector_input" \
       >"$detector_work_a" 2>/dev/null || detector_fail
     secretish_env_values <"$detector_work_a" \
-      >"$detector_work_b" 2>/dev/null || detector_fail
-    cat "$detector_work_b" >>"$detector_records" || detector_fail
+      >>"$detector_records" 2>/dev/null || detector_fail
   fi
 
   grep -Eo 'eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+' \
@@ -11876,8 +11875,7 @@ detect_output_secret_records() (
   detector_status=$?
   case "$detector_status" in 0|1) ;; *) detector_fail ;; esac
   jq -Rc 'select(length > 0)' <"$detector_work_a" \
-    >"$detector_work_b" 2>/dev/null || detector_fail
-  cat "$detector_work_b" >>"$detector_records" || detector_fail
+    >>"$detector_records" 2>/dev/null || detector_fail
 
   grep -Eio 'bearer[ \t]+[-A-Za-z0-9._~+/=]+' \
     <"$detector_strings" >"$detector_work_a" 2>/dev/null
@@ -11886,13 +11884,11 @@ detect_output_secret_records() (
   awk '{ tok = $2; if (length(tok) >= 8) print tok }' \
     <"$detector_work_a" >"$detector_work_b" 2>/dev/null || detector_fail
   jq -Rc 'select(length > 0)' <"$detector_work_b" \
-    >"$detector_work_a" 2>/dev/null || detector_fail
-  cat "$detector_work_a" >>"$detector_records" || detector_fail
+    >>"$detector_records" 2>/dev/null || detector_fail
 
   if known_value_redact_enabled; then
     known_env_value_records "$detector_strings" \
-      >"$detector_work_b" 2>/dev/null || detector_fail
-    cat "$detector_work_b" >>"$detector_records" || detector_fail
+      >>"$detector_records" 2>/dev/null || detector_fail
   fi
 
   cat "$detector_records"
