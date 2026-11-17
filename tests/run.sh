@@ -11957,7 +11957,10 @@ BOOL_PAGE_SNAKE=$(printf '%s%s' page _token)
 BOOL_PAGE_ENV=$(printf '%s%s' PAGE _TOKEN)
 BOOL_FB_PAGE=$(printf '%s%s' FB_PAGE _TOKEN)
 BOOL_FB_CAMEL=$(printf '%s%s' fbPage Token)
-BOOL_SECRET=$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')
+# Fixed, not random: gitleaks drops a generic-api-key value that holds one of
+# its stopwords, and a random hex run spells `feed` or `dead` often enough
+# (about 1 run in 200) to turn the must-find cases below into a failure.
+BOOL_SECRET=$(printf '%s%s%s%s%s' 3f9a27c4 b81d 4e60 9c52 7d0e1b46a8f3)
 BOOL_CURSOR=$(printf 'Ci%sQAhgB' "$BOOL_SECRET")
 BOOL_GHP=$(printf '%s%s' ghp_ "$BOOL_SECRET")
 BOOL_JWT=$(printf '%s.%s.%s' eyJhbGciOiJIUzI1NiJ9 eyJzdWIiOiIxMjM0NTY3ODkwIn0 "$BOOL_SECRET")
