@@ -15853,26 +15853,6 @@ do_exec() {
 # alias for `agent-guard exec --`) and a NON-BLOCKING preexec/DEBUG nudge that
 # reminds the user to wrap known secret-loading idioms with `agx` so their output
 # is masked before the model sees it.
-shell_init_target() {
-  # Default to `auto`: emit a snippet that picks the hook at SOURCE time in the
-  # user's interactive shell. We cannot detect the parent shell here — this
-  # script runs under its own `#!/usr/bin/env sh` interpreter, and $ZSH_VERSION
-  # / $BASH_VERSION are non-exported shell parameters invisible to a child
-  # process. `--bash` / `--zsh` force a single hook for users who prefer it.
-  target=auto
-  while [ "$#" -gt 0 ]; do
-    case "$1" in
-      --bash) target=bash ;;
-      --zsh) target=zsh ;;
-      --no-command-wrapping) : ;;
-      -h|--help) target=help ;;
-      *) die "shell-init: unknown argument: $1 (expected --bash, --zsh, or --no-command-wrapping)" ;;
-    esac
-    shift
-  done
-  printf '%s' "$target"
-}
-
 # Emit the zsh preexec hook. add-zsh-hook chains onto any existing preexec
 # rather than clobbering it; the plain-function fallback is only for ancient zsh.
 shell_init_zsh_hook() {
@@ -16138,15 +16118,24 @@ EOF
 }
 
 shell_init() {
-  # Propagate a die from inside the command substitution: without this an
-  # unknown argument printed its error but still emitted the full snippet with
-  # exit 0, so a stale rc line kept eval-ing a half-understood invocation.
-  target=$(shell_init_target "$@") || exit 2
+  # Default to `auto`: emit a snippet that picks the hook at SOURCE time in the
+  # user's interactive shell. We cannot detect the parent shell here — this
+  # script runs under its own `#!/usr/bin/env sh` interpreter, and $ZSH_VERSION
+  # / $BASH_VERSION are non-exported shell parameters invisible to a child
+  # process. `--bash` / `--zsh` force a single hook for users who prefer it.
+  # Every argument is parsed before anything is printed, so an unknown one
+  # exits 2 with no snippet rather than a half-understood invocation.
+  target=auto
   command_wrapping=1
-  for __ag_arg in "$@"; do
-    case "$__ag_arg" in
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --bash) target=bash ;;
+      --zsh) target=zsh ;;
       --no-command-wrapping) command_wrapping=0 ;;
+      -h|--help) target=help ;;
+      *) die "shell-init: unknown argument: $1 (expected --bash, --zsh, or --no-command-wrapping)" ;;
     esac
+    shift
   done
   if [ "$target" = help ]; then
     {
