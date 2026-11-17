@@ -9232,12 +9232,8 @@ is_git_commit_or_push() {
         1*|0'~'*) effective_c_dynamic=1 ;;
         0*)
           dir=${record#?}
-          if [ -n "$effective_c_dirs" ]; then
-            effective_c_dirs="$effective_c_dirs
-$dir"
-          else
-            effective_c_dirs=$dir
-          fi
+          effective_c_dirs="${effective_c_dirs:+$effective_c_dirs
+}$dir"
           ;;
         *) effective_c_dynamic=1 ;;
       esac
@@ -9442,12 +9438,8 @@ $effective_c_dirs" "$git_config_args" "$git_env_args"
               && [ "$shell_cd_mutable" -eq 0 ] \
               && [ "$shell_cd_braces" -eq 0 ] \
               && shell_cd_dir=$(shell_cd_target "$@"); then
-              if [ -n "$shell_cd_dirs" ]; then
-                shell_cd_dirs="$shell_cd_dirs
-$shell_cd_dir"
-              else
-                shell_cd_dirs=$shell_cd_dir
-              fi
+              shell_cd_dirs="${shell_cd_dirs:+$shell_cd_dirs
+}$shell_cd_dir"
               shell_cd_count=$((shell_cd_count + 1))
               shell_cd_in_list=1
               [ "$shell_cd_cond" -eq 0 ] || shell_cd_pending=1
