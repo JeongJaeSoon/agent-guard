@@ -5555,6 +5555,9 @@ shell_dequote_for_policy() {
 # import its way to one (os, pathlib, listdir...), since only such a program
 # can match names against pattern text; one that cannot opens literal names,
 # which the unmodified scan already reads.
+# $2, when set, is the same command before its jq field names were dropped.
+# A dot command is then looked for only there: dropping `.name` from
+# `select(.name | ...)` leaves `(. ` inside the filter, which runs nothing.
 # A `#` that starts a word ends the line for quote tracking, so a comment's
 # apostrophe cannot flip the state for the lines below it.
 # Under the same conditions, every glob character becomes \001 in the whole
@@ -5574,10 +5577,16 @@ shell_neutralize_quoted_brackets_for_policy() {
     *'
 '*) printf '%s\n' "$1"; return ;;
   esac
-  if printf '%s\n' "$1" | grep -Eq \
-    '(^|[^[:alnum:]_.-])(sh|bash|zsh|dash|ksh|ash|csh|tcsh|fish|eval|source|xargs|read|mapfile|readarray|alias|function|os)([^[:alnum:]_.-]|$)|ssh|system|popen|Popen|subprocess|spawn|exec|child_process|glob|fnmatch|listdir|iterdir|scandir|walk|pathlib|Path|shutil|fileinput|__import__|importlib|compile|getattr|globals|builtins|<<|\$\(|`|<\(|>\(|[A-Za-z_][A-Za-z0-9_]*[[:space:]]*\(\)[[:space:]]*[{(]|(^|[[:space:];&|(])\.([[:space:]]|$)|(^|[[:space:];&|(])PATH=|\\[[:space:]]*[;&|(]'; then
-    printf '%s\n' "$1"
-    return
+  nq_bail='(^|[^[:alnum:]_.-])(sh|bash|zsh|dash|ksh|ash|csh|tcsh|fish|eval|source|xargs|read|mapfile|readarray|alias|function|os)([^[:alnum:]_.-]|$)|ssh|system|popen|Popen|subprocess|spawn|exec|child_process|glob|fnmatch|listdir|iterdir|scandir|walk|pathlib|Path|shutil|fileinput|__import__|importlib|compile|getattr|globals|builtins|<<|\$\(|`|<\(|>\(|[A-Za-z_][A-Za-z0-9_]*[[:space:]]*\(\)[[:space:]]*[{(]|(^|[[:space:];&|(])PATH=|\\[[:space:]]*[;&|(]'
+  nq_dot='(^|[[:space:];&|(])\.([[:space:]]|$)'
+  if printf '%s\n' "$1" | grep -Eq "$nq_bail|$nq_dot"; then
+    # The text before field names were dropped must pass the whole test.
+    if [ -z "${2-}" ] ||
+      printf '%s\n' "$1" | grep -Eq "$nq_bail" ||
+      printf '%s\n' "$2" | grep -Eq "$nq_bail|$nq_dot"; then
+      printf '%s\n' "$1"
+      return
+    fi
   fi
   printf '%s\n' "$1" | LC_ALL=C awk '
     function closed(l, p,   r) {
@@ -7916,7 +7925,10 @@ bash_matches_deny_path() {
     deny_stripped=$(bash_strip_message_values "$deny_cmd") && deny_cmd=$deny_stripped
   fi
   deny_stripped=$(bash_strip_non_read_operands "$deny_cmd") && deny_cmd=$deny_stripped
+  deny_pre_jq=$deny_cmd
   deny_cmd=$(bash_neutralize_jq_field_names "$deny_cmd")
+  # Kept only when field names were dropped (see the dot-command test there).
+  [ "$deny_cmd" != "$deny_pre_jq" ] || deny_pre_jq=
   deny_cmd=$(bash_neutralize_runtime_globals "$deny_cmd")
   deny_cmd=$(bash_strip_source_module_prose "$deny_cmd")
   deny_cmd=$(bash_strip_exclusion_operands "$deny_cmd")
@@ -7941,7 +7953,7 @@ bash_matches_deny_path() {
       ;;
   esac
   if [ -n "$neutral_wanted" ]; then
-    neutral_cmd=$(shell_neutralize_quoted_brackets_for_policy "$deny_cmd") || neutral_cmd=
+    neutral_cmd=$(shell_neutralize_quoted_brackets_for_policy "$deny_cmd" "$deny_pre_jq") || neutral_cmd=
     [ -n "$neutral_cmd" ] || neutral_cmd=$deny_cmd
   fi
   bash_matches_deny_path_mode "$neutral_cmd" "shell-expanded" && return 0

@@ -1,3 +1,10 @@
+## Unreleased
+
+- fix(bash): `jq -r '.[] | select(.name | test("id[_a-z]*"))' data.json`처럼 jq 필터에서 `(` 바로 뒤에 필드 접근이 오면, 필터 안의 정규식 글이 셸 glob으로 읽혀 `id_rsa`와 맞아 막히던 오탐을 고칩니다. 보호 경로 검사는 먼저 jq 필드 이름을 지워 `.name`을 `.`으로 바꾸는데, 그 결과 생긴 `(. `가 프로그램 단어의 glob 문자를 글로 읽는 단계(#487)의 dot(`.`) builtin 검사에 걸려 그 단계 전체를 건너뛰었습니다. (#491)
+  - 동작 변경: 필드 이름을 지운 명령에서는 dot builtin 검사를 필드 이름을 지우기 전 글에만 합니다. 다른 bail 조건(`sh`·`eval`·`source`·`xargs`·`$(`·백틱·리다이렉션 뒤 실행 등)은 지금처럼 지운 뒤의 글에도 그대로 적용하고, 지우기 전 글이 어느 bail 조건에라도 걸리면 지금처럼 건너뜁니다. 그래서 `select(.name | test("id[_a-z]*"))`·`select(.path|test("id_r?a"))`·`.files[] | select(.a.b | ...)` 모양이 통과합니다. 계속 막히는 것: 필터 밖의 glob 피연산자(`jq -r 'select(.name | test("x"))' ~/.ssh/id[_r]*`, `jq .name ~/.ssh/id[_r]*`, `--rawfile k ~/.ssh/id[_r]*`), 앞에 실제 dot 명령이 있는 경우(`. ./env.sh; jq …`), 출력이 셸로 가거나 셸 단어가 되는 경우(`| sh`, `cat $(jq …)`), 뒤에 이어지는 glob 읽기(`&& cat ~/.ssh/id[_r]*`). 필터가 직접 쓴 `select(. | test("id[_a-z]*"))`는 계속 보수적으로 막습니다.
+  - 사용자가 할 일: 없습니다. 원문에 `(. `가 있는 필터가 막히면 `select(test("…"))`처럼 `.`을 빼고 쓰세요.
+  - 운영자가 할 일: 없습니다.
+
 ## v3.11.6 - 2026-11-17
 
 - fix(bash): 인터프리터 heredoc 본문의 런타임 전역 이름을 `.env*` 파일로 읽던 오탐을 고칩니다. 명령에 `<<`가 있으면 런타임 전역 예외(`process.env.X` 등)를 통째로 건너뛰었기 때문에, `node <<'EOF'`나 `python3 - <<EOF` 본문의 `process.env.ROUTE`가 `*.env.*`에 걸렸습니다. (#487)
