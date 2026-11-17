@@ -14081,6 +14081,33 @@ mask_allow_acl() (
 # writable by no one else. Otherwise prints the reason and returns 1.
 mask_allow_source() (
   ma_unchecked='mask-allow-keys.txt could not be checked'
+  # Returns 0 when $1 or a directory above it holds a .git entry.
+  ma_git_above() {
+    ma_up=$1
+    while :; do
+      if [ -e "$ma_up/.git" ] || [ -L "$ma_up/.git" ]; then
+        return 0
+      fi
+      [ -n "$ma_up" ] && [ "$ma_up" != / ] || return 1
+      ma_up=${ma_up%/*}
+    done
+  }
+  # Sets ma_owner and ma_mode for node $1 after its ACL check, or prints the
+  # reason and returns 1. The owner and mode policy stays with each caller.
+  ma_node_facts() {
+    mask_allow_acl "$1"
+    case $? in
+      0) ;;
+      1) printf '%s' "$ma_acl"; return 1 ;;
+      *) printf '%s' "$ma_unchecked"; return 1 ;;
+    esac
+    ma_stat=$(audit_stat "$1")
+    ma_owner=${ma_stat%%:*}
+    ma_mode=${ma_stat#*:}
+    case $ma_owner:$ma_mode in
+      :*|*:|*[!0-9:]*|*:*:*) printf '%s' "$ma_unchecked"; return 1 ;;
+    esac
+  }
   ma_real=$(resolve_path "$1")
   # resolve_path falls back to the name it was given; check that the path is
   # the physical one.
@@ -14095,15 +14122,10 @@ mask_allow_source() (
   ma_inside='mask-allow-keys.txt is inside the repository or the working directory'
   # The agent can run a tool from any directory, so the workdir alone cannot
   # tell a HOME that a project setting moved into a repository.
-  ma_up=$ma_dir
-  while :; do
-    if [ -e "$ma_up/.git" ] || [ -L "$ma_up/.git" ]; then
-      printf '%s' "$ma_inside"
-      exit 1
-    fi
-    [ -n "$ma_up" ] && [ "$ma_up" != / ] || break
-    ma_up=${ma_up%/*}
-  done
+  if ma_git_above "$ma_dir"; then
+    printf '%s' "$ma_inside"
+    exit 1
+  fi
   ma_work=${2:-.}
   ma_work=$(CDPATH= cd -P -- "$ma_work" 2>/dev/null && pwd -P) \
     || { printf '%s' "$ma_unchecked"; exit 1; }
@@ -14114,16 +14136,9 @@ mask_allow_source() (
   if [ -n "$ma_top" ]; then
     ma_top=$(CDPATH= cd -P -- "$ma_top" 2>/dev/null && pwd -P) \
       || { printf '%s' "$ma_unchecked"; exit 1; }
-  else
-    ma_up=$ma_work
-    while :; do
-      if [ -e "$ma_up/.git" ] || [ -L "$ma_up/.git" ]; then
-        printf '%s' "$ma_unchecked"
-        exit 1
-      fi
-      [ -n "$ma_up" ] && [ "$ma_up" != / ] || break
-      ma_up=${ma_up%/*}
-    done
+  elif ma_git_above "$ma_work"; then
+    printf '%s' "$ma_unchecked"
+    exit 1
   fi
   for ma_root in "$ma_work" ${ma_top:+"$ma_top"}; do
     case $ma_real in
@@ -14136,18 +14151,7 @@ mask_allow_source() (
   ma_uid=$(id -u 2>/dev/null) || { printf '%s' "$ma_unchecked"; exit 1; }
   ma_acl='an access control list on mask-allow-keys.txt or a directory above it lets others write'
   for ma_node in "$ma_real" "$ma_dir"; do
-    mask_allow_acl "$ma_node"
-    case $? in
-      0) ;;
-      1) printf '%s' "$ma_acl"; exit 1 ;;
-      *) printf '%s' "$ma_unchecked"; exit 1 ;;
-    esac
-    ma_stat=$(audit_stat "$ma_node")
-    ma_owner=${ma_stat%%:*}
-    ma_mode=${ma_stat#*:}
-    case $ma_owner:$ma_mode in
-      :*|*:|*[!0-9:]*|*:*:*) printf '%s' "$ma_unchecked"; exit 1 ;;
-    esac
+    ma_node_facts "$ma_node" || exit 1
     [ "$ma_owner" = "$ma_uid" ] || {
       printf 'mask-allow-keys.txt or its directory is not owned by the current user'
       exit 1
@@ -14167,18 +14171,7 @@ mask_allow_source() (
   while [ -n "$ma_up" ] && [ "$ma_up" != / ]; do
     ma_up=${ma_up%/*}
     ma_node=${ma_up:-/}
-    mask_allow_acl "$ma_node"
-    case $? in
-      0) ;;
-      1) printf '%s' "$ma_acl"; exit 1 ;;
-      *) printf '%s' "$ma_unchecked"; exit 1 ;;
-    esac
-    ma_stat=$(audit_stat "$ma_node")
-    ma_owner=${ma_stat%%:*}
-    ma_mode=${ma_stat#*:}
-    case $ma_owner:$ma_mode in
-      :*|*:|*[!0-9:]*|*:*:*) printf '%s' "$ma_unchecked"; exit 1 ;;
-    esac
+    ma_node_facts "$ma_node" || exit 1
     if [ "$ma_owner" != "$ma_uid" ] && [ "$ma_owner" != 0 ]; then
       printf 'a directory above mask-allow-keys.txt belongs to another user'
       exit 1
