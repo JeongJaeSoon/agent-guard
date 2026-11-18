@@ -8730,9 +8730,10 @@ fi
 # #506: a missing gitleaks or gitleaks config skips only the secret scan. The
 # open policy still runs the protected-path and deny-pattern checks, a block
 # carries no degraded warning, and the first passing call per session warns.
-# The closed policy blocks every call. One row per host and outcome. Rows
-# that share a session run in file order, so a warns-once row follows the row
-# whose warning it expects to be suppressed.
+# The closed policy blocks every call. Stdout is empty or one JSON object,
+# also with Claude block capture on (rows with ai_agent). One row per host
+# and outcome. Rows that share a session run in file order, so a warns-once
+# row follows the row whose warning it expects to be suppressed.
 scanner_unavailable_fixtures="$ROOT/tests/fixtures/scanner-unavailable-pre-tool.json"
 scanner_unavailable_cases="$TESTTMP/scanner-unavailable-pre-tool.cases"
 if jq -e 'type == "array" and length > 0
@@ -8753,6 +8754,7 @@ while IFS= read -r su_row; do
   su_stderr_also=$(printf '%s' "$su_row" | jq -r '.expected_stderr_also // empty')
   su_stdout=$(printf '%s' "$su_row" | jq -r '.expected_stdout // empty')
   su_quiet=$(printf '%s' "$su_row" | jq -r '.expected_quiet // false')
+  su_ai_agent=$(printf '%s' "$su_row" | jq -r '.ai_agent // empty')
   su_gitleaks=/nonexistent/gitleaks
   su_config=$PLUGIN_ROOT/config/gitleaks.toml
   if [ "$(printf '%s' "$su_row" | jq -r '.scanner')" = config-missing ]; then
@@ -8760,7 +8762,8 @@ while IFS= read -r su_row; do
     su_config=$TESTTMP/missing-gitleaks.toml
   fi
   printf '%s' "$su_row" | jq -c '.event + {session_id: .session}' \
-    | AGENT_GUARD_HOOK_HOST="$su_host" \
+    | env ${su_ai_agent:+AI_AGENT="$su_ai_agent"} \
+      AGENT_GUARD_HOOK_HOST="$su_host" \
       AGENT_GUARD_INFRA_FAILURE_MODE="$su_mode" \
       AGENT_GUARD_GITLEAKS_BIN="$su_gitleaks" \
       AGENT_GUARD_GITLEAKS_CONFIG="$su_config" \
@@ -8776,6 +8779,10 @@ while IFS= read -r su_row; do
     su_ok=0
   fi
   if [ "$su_mode" = open ] && [ "$su_status" -eq 2 ] && grep -q DEGRADED "$ERR"; then
+    su_ok=0
+  fi
+  if [ -s "$OUT" ] \
+     && [ "$(jq -s 'map(type) == ["object"]' <"$OUT" 2>/dev/null)" != true ]; then
     su_ok=0
   fi
   if [ "$su_ok" -eq 1 ]; then
