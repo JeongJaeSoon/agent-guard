@@ -6,6 +6,7 @@
   - 동작 변경: 판정과 출력은 바뀌지 않습니다. 항목의 shell-expanded 정규식이 literal 정규식과 다른 곳은 글에 `*`·`?`·`[`·백슬래시(`\xHH`)가 있어야 맞는 대안과, `[`를 앞 글자로 받지 않는 경계뿐입니다. 그래서 항목이 영문자·숫자·`._/~*-`로만 되어 있고(배포 목록이 그렇습니다) 글에 그 네 글자가 없으면, 두 정규식은 같은 글에 맞고 맞은 항목은 모든 글자를 그대로 쓰므로 pin 검사도 통과합니다. 이때만 literal 단계로 읽고, 다른 글자가 든 사용자 deny 목록이나 그 네 글자가 든 명령은 지금처럼 shell-expanded 단계를 탑니다. 배포 목록 60개 항목 × 글 6,736개(하네스 입력의 명령과 항목 이름 변형)에서 두 정규식의 일치 집합이 C·C.UTF-8 로케일, dash·bash 모두 같았습니다. tests/run.sh 다섯 shard가 실제로 보낸 hook 입력과 이전 수집분 3,681개를 Claude·Codex × 로그 켬·끔 × infra open·closed 8가지 설정에서 v3.11.7과 비교해 종료 코드·stdout·stderr 차이가 0건이었고(실행마다 새로 만드는 live probe run_id 4건만 다름), 사용자 deny 목록 세 가지(허용 밖 글자 포함, 잘못된 정규식 항목, 허용 글자만)와 UTF-8 로케일에서도 같았습니다. 이 머신 측정(11쌍 중앙값, CPU user+sys, 스텁 스캐너): 로그 끔 `ls -la src`·`git status` 약 285ms → 110ms(-61%), `printf 'build passed'` 450ms → 120ms(-73%), `jq '.data.key' data.json` 470ms → 150ms(-68%), 로그 켬(캐시가 데워진 상태) -50~-68%. 보호 파일을 읽는 명령(`cat .env`)과 glob이 든 명령은 차이가 측정 잡음 안입니다. 로그 끔 fork/exec는 106/40 → 102/37, 로그 켬은 같습니다.
   - 사용자가 할 일: 없습니다.
   - 운영자가 할 일: 없습니다.
+- test(plugin-management): 응답이 끝나지 않는 malformed·silent Codex app-server 경우는 기존 테스트 시간 제한(`AG_PLUGIN_TEST_CODEX_TRUST_TIMEOUT=3`)을 써서 기본 10초를 다 기다리지 않습니다(이 머신 약 19초 → 5초).
 
 ## v3.11.7 - 2026-11-18
 
