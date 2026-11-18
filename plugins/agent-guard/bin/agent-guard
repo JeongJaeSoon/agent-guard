@@ -9759,6 +9759,9 @@ is_git_commit_or_push() {
     # Why a wrapper runs git in another root or directory the scan does not
     # follow.
     git_root_moved=
+    # A wrapper word only run time knows: like effective_c_dynamic, except
+    # that the git command behind it is still scanned in the hook's directory.
+    git_wrapper_dynamic=0
     # A for or select loop names its words; they are not a command.
     git_fb_skip=0
     git_index_changed=0
@@ -9900,6 +9903,12 @@ is_git_commit_or_push() {
         *) effective_c_dynamic=1 ;;
       esac
     }
+    append_wrapper_c_dir() {
+      case "$1" in
+        0'~'*|[!0]*) git_wrapper_dynamic=1 ;;
+        *) append_effective_c_dir "$1" ;;
+      esac
+    }
     # $1 is GIT_DIR or GIT_WORK_TREE, $2 the record of the path git takes for
     # it. A commit or push is scanned with them, or fails per the policy.
     git_target_value() {
@@ -9953,7 +9962,7 @@ ${2#?}
     # git_alias_lookup; one that only run time knows fails with 2, unless git
     # runs an external command by that name instead.
     git_subcommand_alias() (
-      if [ "$git_config_mutable$git_env_changed$git_env_dynamic$git_config_dynamic$effective_c_dynamic$shell_cd_unknown$shell_cd_lost" = 0000000 ]; then
+      if [ "$git_config_mutable$git_env_changed$git_env_dynamic$git_config_dynamic$effective_c_dynamic$git_wrapper_dynamic$shell_cd_unknown$shell_cd_lost" = 00000000 ]; then
         git_alias_lookup "$1" "$git_alias_workdir" "$shell_cd_dirs
 $effective_c_dirs" "$git_config_args" "$git_env_args"
         git_alias_status=$?
@@ -10181,7 +10190,7 @@ $effective_c_dirs" "$git_config_args" "$git_env_args"
                   shell_code_chdir=$(printf '%s\n' "$effective_c_dirs" \
                     | LC_ALL=C awk '{ print "0cd"; print "0--"; print "0" $0; print "0;" }')
                 fi
-                [ "$effective_c_dynamic" -eq 0 ] || shell_code_chdir="$shell_code_chdir
+                [ "$effective_c_dynamic$git_wrapper_dynamic" = 00 ] || shell_code_chdir="$shell_code_chdir
 0cd
 1\$
 0;"
@@ -10239,17 +10248,17 @@ $effective_c_dirs" "$git_config_args" "$git_env_args"
                   env:-C|env:--chdir)
                     shift
                     [ "$#" -gt 0 ] || break
-                    append_effective_c_dir "$1"
+                    append_wrapper_c_dir "$1"
                     shift
                     continue
                     ;;
                   env:--chdir=*)
-                    append_effective_c_dir "$record_kind${token#--chdir=}"
+                    append_wrapper_c_dir "$record_kind${token#--chdir=}"
                     shift
                     continue
                     ;;
                   env:-C?*)
-                    append_effective_c_dir "$record_kind${token#-C}"
+                    append_wrapper_c_dir "$record_kind${token#-C}"
                     shift
                     continue
                     ;;
@@ -10309,10 +10318,10 @@ $effective_c_dirs" "$git_config_args" "$git_env_args"
                   continue
                 fi
                 # A word that may split, or be -C, may move the command.
-                [ "$record_kind" = 0 ] || effective_c_dynamic=1
+                [ "$record_kind" = 0 ] || git_wrapper_dynamic=1
                 if [ "$wrapper_takes" -eq 0 ]; then
                   case "${1-}" in
-                    1*|2*) effective_c_dynamic=1 ;;
+                    1*|2*) git_wrapper_dynamic=1 ;;
                   esac
                   [ "$#" -gt 0 ] && shift
                 else
@@ -10335,7 +10344,7 @@ $effective_c_dirs" "$git_config_args" "$git_env_args"
             case "$1" in
               0';'|0'&&'|0'||'|0'|'|3*) break ;;
               0*|4*) ;;
-              *) effective_c_dynamic=1 ;;
+              *) git_wrapper_dynamic=1 ;;
             esac
             wrapper_operands=$((wrapper_operands - 1))
             shift
@@ -10440,6 +10449,7 @@ $effective_c_dirs" "$git_config_args" "$git_env_args"
                 # A root or directory the scan cannot follow gets a group of
                 # its own, so that the work tree is still scanned as before.
                 [ -z "$git_root_moved" ] || { printf 'G\n'; git_unresolved "$git_root_moved"; }
+                [ "$git_wrapper_dynamic" -eq 0 ] || { printf 'G\n'; git_unresolved "a wrapper option or operand before git is only known at run time"; }
                 # One G-led group per git command: a later `git commit -a`
                 # in the same command line must not hide behind an earlier
                 # plain commit or push.
@@ -10579,6 +10589,7 @@ $effective_c_dirs" "$git_config_args" "$git_env_args"
         command_start=1
         effective_c_dirs=
         effective_c_dynamic=0
+        git_wrapper_dynamic=0
         xargs_wrapped=0
         git_root_moved=
         git_fb_skip=0

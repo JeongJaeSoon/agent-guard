@@ -5060,7 +5060,10 @@ for gate_host in claude codex; do
     "flock /tmp/l git commit -m leak" "taskset 1 git commit -m leak" "caffeinate -t 5 git commit -m leak" \
     "sudo timeout 5 git commit -m leak" "timeout 5 sudo git commit -m leak" \
     "busybox timeout 5 git commit -m leak" "fish -c 'git commit -m leak'" \
-    "nu -c 'git commit -m leak'" "watch git commit -m leak" "chroot / git commit -m leak"; do
+    "nu -c 'git commit -m leak'" "watch git commit -m leak" "chroot / git commit -m leak" \
+    "timeout \$T git commit -m leak" "timeout \$T git push" "nsenter -t \$P git commit -m leak" \
+    "sudo -D \"\$D\" git commit -m leak" "env -iC \"\$D\" git commit -m leak" \
+    "env -C \"\$D\" git commit -m leak" "nice -n \$N git commit -m leak"; do
     gate_hook "$gate_host" open "$TEST_REPO" "$gate_command"
     status=$?
     if [ "$status" -eq 2 ] && grep -q 'secret-like values' "$ERR"; then
@@ -5075,7 +5078,8 @@ for gate_host in claude codex; do
     "script -c 'git commit -m x' /dev/null" "watch git commit -m x" "parallel git commit -m x ::: a" \
     "flock /tmp/l -c 'git commit -m x'" "find . -exec git commit -m x {} ;" "ssh host git push" \
     "chroot / git commit -m x" "nsenter -t 1 git commit -m x" "sudo -R / git commit -m x" \
-    "sudo -D /tmp git commit -m x" "env -iC /tmp git commit -m x" "timeout \$T git commit -m x"; do
+    "sudo -D /tmp git commit -m x" "env -iC /tmp git commit -m x" "timeout \$T git commit -m x" \
+    "nsenter -t \$P git commit -m x" "sudo -D \"\$D\" git commit -m x" "env -C \"\$D\" git commit -m x"; do
     gate_hook "$gate_host" closed "$GATE_CLEAN" "$gate_command"
     status=$?
     if [ "$status" -eq 2 ] && grep -q 'could not be resolved safely' "$ERR"; then
