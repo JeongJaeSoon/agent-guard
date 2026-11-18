@@ -398,6 +398,26 @@ command -v agent-guard
 readlink "$(command -v agent-guard)"
 ```
 
+Before removing the executable, remove the native Git hook from each
+repository where you ran `install.sh git-hooks`. The hook names the executable
+by absolute path, so once that file is gone the hook blocks every commit in that
+repository:
+
+```sh
+cd <each-repository-with-the-hook>
+git config --get core.hooksPath   # prints githooks while the hook is active
+git config --unset core.hooksPath
+rm githooks/pre-commit
+```
+
+Unsetting `core.hooksPath` makes Git run `.git/hooks` again, so a hook that was
+there before the install (the agent-guard hook chained it) runs on its own
+again. If `githooks/` holds other hooks you still use, keep `core.hooksPath` and
+delete only `githooks/pre-commit`. A hook left behind keeps failing closed: it
+exits 1 and prints the missing path and these commands. Hooks installed by an
+earlier release print only `exec: ... not found`; rerun `install.sh git-hooks`
+from a current release in that repository to add the message.
+
 Do not delete a plugin-manager cache by hand: the host manages its lifecycle.
 After removal, open a new shell and verify `command -v agent-guard` resolves as
 expected. If another installation remains, run its `version`, `doctor`, and

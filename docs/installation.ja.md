@@ -1,4 +1,4 @@
-<!-- translated-from: docs/installation.md; source-blob: 7a3dd8e0936e7271f6c2273a6ef7005bc7415a76 -->
+<!-- translated-from: docs/installation.md; source-blob: 1c5af51bf1a02f47926f5c54e15578a57c052866 -->
 
 <a id="installing-agent-guard"></a>
 
@@ -250,5 +250,16 @@ agent-guard plugin update --host all
 command -v agent-guard
 readlink "$(command -v agent-guard)"
 ```
+
+実行ファイルを削除する前に、`install.sh git-hooks` を実行した各リポジトリからnative Git hookを取り除いてください。hookは実行ファイルを絶対パスで指しているため、そのファイルがなくなるとそのリポジトリのすべてのコミットを止めます。
+
+```sh
+cd <each-repository-with-the-hook>
+git config --get core.hooksPath   # prints githooks while the hook is active
+git config --unset core.hooksPath
+rm githooks/pre-commit
+```
+
+`core.hooksPath` を解除するとGitは再び `.git/hooks` を実行するため、導入前からあったhook（agent-guardのhookが連結して実行していたhook）が再び単独で実行されます。`githooks/` にまだ使う別のhookがある場合は、`core.hooksPath` はそのままにして `githooks/pre-commit` だけを削除してください。取り除かなかったhookはfail-closedのまま動作します。exit 1で終了し、見つからないパスと上記のコマンドを表示します。以前のリリースが導入したhookは `exec: ... not found` だけを表示します。案内を追加するには、そのリポジトリで現在のリリースの `install.sh git-hooks` を実行し直してください。
 
 プラグイン管理ツールのキャッシュを手動で削除しないでください。ライフサイクルはhostが管理します。削除後は新しいshellを開き、`command -v agent-guard` が期待どおりに解決されるか確認してください。別の導入が残っていれば、その `version`、`doctor`、`check` を実行します。

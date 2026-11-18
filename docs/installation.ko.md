@@ -1,4 +1,4 @@
-<!-- translated-from: docs/installation.md; source-blob: 7a3dd8e0936e7271f6c2273a6ef7005bc7415a76 -->
+<!-- translated-from: docs/installation.md; source-blob: 1c5af51bf1a02f47926f5c54e15578a57c052866 -->
 
 <a id="installing-agent-guard"></a>
 
@@ -247,5 +247,16 @@ agent-guard plugin update --host all
 command -v agent-guard
 readlink "$(command -v agent-guard)"
 ```
+
+실행 파일을 지우기 전에, `install.sh git-hooks`를 실행했던 각 저장소에서 native Git hook을 제거하세요. hook은 실행 파일을 절대 경로로 가리키므로, 그 파일이 없어지면 그 저장소의 모든 커밋을 막습니다.
+
+```sh
+cd <each-repository-with-the-hook>
+git config --get core.hooksPath   # prints githooks while the hook is active
+git config --unset core.hooksPath
+rm githooks/pre-commit
+```
+
+`core.hooksPath`를 해제하면 Git이 다시 `.git/hooks`를 실행하므로, 설치 전에 있던 hook(agent-guard hook이 연결해 실행하던 hook)이 다시 단독으로 실행됩니다. `githooks/`에 계속 쓰는 다른 hook이 있다면 `core.hooksPath`는 그대로 두고 `githooks/pre-commit`만 지우세요. 제거하지 않은 hook은 계속 fail-closed로 동작합니다. exit 1로 끝나고, 없는 경로와 위 명령을 출력합니다. 이전 릴리스가 설치한 hook은 `exec: ... not found`만 출력합니다. 안내 문구를 넣으려면 그 저장소에서 현재 릴리스의 `install.sh git-hooks`를 다시 실행하세요.
 
 플러그인 관리 도구의 캐시를 수동으로 삭제하지 마세요. 수명주기는 host가 관리합니다. 제거 후 새 shell을 열어 `command -v agent-guard`가 예상대로 해석되는지 확인하세요. 다른 설치가 남아 있다면 해당 설치의 `version`, `doctor`, `check`를 실행합니다.

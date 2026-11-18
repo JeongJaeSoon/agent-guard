@@ -9031,6 +9031,9 @@ fi
 
 # --- install.sh git-hooks safety ------------------------------------------
 
+run_expect 0 "native git hook fails closed with remedies after agent-guard is removed" \
+  sh "$ROOT/tests/git-hook-missing-cli.sh"
+
 EMPTY_TEMPLATE="$TMP_ROOT/empty-git-template"
 mkdir -p "$EMPTY_TEMPLATE"
 
