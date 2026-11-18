@@ -2398,12 +2398,21 @@ hook_warning_due() {
   case "$warning_now" in
     ''|0|*[!0-9]*) warning_now=$(date +%s 2>/dev/null) || warning_now= ;;
   esac
-  case "$warning_now" in *[!0-9]*|????????????*) warning_now= ;; esac
+  # A leading zero would be read as octal, and a digit 8 or 9 then ends the
+  # shell with exit 2 inside the arithmetic below.
+  case "$warning_now" in 0*|*[!0-9]*|????????????*) warning_now= ;; esac
+  # Never open anything but a regular file: noclobber still opens an existing
+  # FIFO or device, and a planted FIFO would hang the hook until the host
+  # timeout. Such a marker proves nothing, so the notice is due.
+  if [ -L "$warning_marker" ] || { [ -e "$warning_marker" ] && [ ! -f "$warning_marker" ]; }; then
+    return 0
+  fi
   (umask 077; set -C; printf '%s\n' "$warning_now" >"$warning_marker") 2>/dev/null \
     && return 0
   [ -e "$warning_marker" ] || return 0
   [ -n "$warning_now" ] || return 1
-  # Read only our own regular file: a planted FIFO would hang the hook.
+  # Read only our own regular file; the check above narrows, not closes, a
+  # swap, and the read itself is a builtin.
   warning_last=
   if [ -f "$warning_marker" ] && [ ! -L "$warning_marker" ] && [ -O "$warning_marker" ]; then
     IFS= read -r warning_last 2>/dev/null <"$warning_marker" || :
@@ -2411,7 +2420,7 @@ hook_warning_due() {
   # An empty (pre-interval) or unreadable marker, or a time ahead of the
   # clock, is due; otherwise wait out the interval.
   case "$warning_last" in
-    ''|*[!0-9]*|????????????*) ;;
+    ''|0*|*[!0-9]*|????????????*) ;;
     *)
       [ "$warning_last" -gt "$warning_now" ] \
         || [ $((warning_now - warning_last)) -ge "$HOOK_WARNING_INTERVAL_SECONDS" ] \
@@ -2419,7 +2428,9 @@ hook_warning_due() {
       ;;
   esac
   # Replace rather than overwrite, so a marker swapped for a symlink is never
-  # followed; noclobber refuses to write through one.
+  # followed; noclobber refuses to write through one. rm is the only process
+  # this adds, once per interval. If it cannot remove the marker, the notice
+  # stays due on every call: louder, never silent.
   rm -f "$warning_marker" 2>/dev/null || :
   (umask 077; set -C; printf '%s\n' "$warning_now" >"$warning_marker") 2>/dev/null || :
   return 0
@@ -2684,7 +2695,9 @@ degraded_hook_message() {
   # in the host envelope; hook_warning_due decides how often it repeats.
   degraded_probe_reason=
   case "${GITLEAKS_PROBE_STATE:-}" in
-    missing|unparseable|unsupported) degraded_probe_reason=$GITLEAKS_PROBE_STATE ;;
+    # A missing scanner is already named above.
+    missing) [ -n "$dmc" ] || degraded_probe_reason=missing ;;
+    unparseable|unsupported) degraded_probe_reason=$GITLEAKS_PROBE_STATE ;;
     runtime-failure)
       case "${GITLEAKS_PROBE_DETAIL:-}" in
         timeout|output-limit|output-unavailable|command-failed|timer-unavailable|launcher-unavailable|temp-helper-unavailable|temp-unavailable)
@@ -16168,7 +16181,7 @@ hook_stop() {
   fi
 
   if ! command -v git >/dev/null 2>&1; then
-    handle_git_infrastructure_failure "$input" \
+    handle_hook_infrastructure_failure Stop "$input" \
       "$PROGRAM: git is unavailable, so changed files could not be scanned before stop;"
     return 0
   fi
@@ -16179,7 +16192,7 @@ hook_stop() {
     0) return 0 ;;
     1) info "$PROGRAM: changed files contain secret-like values before stop"; exit 2 ;;
     *)
-      handle_git_infrastructure_failure "$input" \
+      handle_hook_infrastructure_failure Stop "$input" \
         "$PROGRAM: changed files could not be scanned before stop;"
       ;;
   esac

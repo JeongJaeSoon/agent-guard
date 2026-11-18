@@ -8768,15 +8768,37 @@ for interval_host in claude codex; do
   done
   # A marker left empty by an older release, or holding a time ahead of the
   # clock, cannot prove a recent notice, so the notice is due.
-  for interval_stale in empty future; do
+  # A zero-led time would be octal arithmetic (0999999999 is a shell error
+  # and exit 2), and a FIFO or symlink must never be opened or followed.
+  for interval_stale in empty future zero-led fifo symlink; do
     interval_session="interval-$interval_host-$interval_stale"
+    interval_marker="$INTERVAL_WARN_DIR/infrastructure-$interval_session"
     case "$interval_stale" in
-      empty) : >"$INTERVAL_WARN_DIR/infrastructure-$interval_session" ;;
-      *) printf '%s\n' "$(( $(date +%s) + 3600 ))" >"$INTERVAL_WARN_DIR/infrastructure-$interval_session" ;;
+      empty) : >"$interval_marker" ;;
+      future) printf '%s\n' "$(( $(date +%s) + 3600 ))" >"$interval_marker" ;;
+      zero-led) printf '%s\n' 0999999999 >"$interval_marker" ;;
+      fifo) mkfifo "$interval_marker" ;;
+      symlink) : >"$TESTTMP/interval-link-target-$interval_host"
+               ln -s "$TESTTMP/interval-link-target-$interval_host" "$interval_marker" ;;
     esac
-    interval_hook "$interval_host" hook-pre-tool "$interval_session" off
-    interval_report "a $interval_stale degraded-notice marker is due ($interval_host)" "$?" interval_notice_shape "$interval_host"
+    # A hang must fail this case, not stall the suite.
+    ( interval_hook "$interval_host" hook-pre-tool "$interval_session" off ) &
+    interval_pid=$!
+    interval_waited=0
+    while kill -0 "$interval_pid" 2>/dev/null && [ "$interval_waited" -lt 30 ]; do
+      sleep 1
+      interval_waited=$((interval_waited + 1))
+    done
+    kill "$interval_pid" 2>/dev/null
+    wait "$interval_pid"
+    interval_status=$?
+    interval_report "a $interval_stale degraded-notice marker is due ($interval_host)" "$interval_status" interval_notice_shape "$interval_host"
   done
+  if [ ! -s "$TESTTMP/interval-link-target-$interval_host" ] && [ -p "$INTERVAL_WARN_DIR/infrastructure-interval-$interval_host-fifo" ]; then
+    ok "degraded-notice markers never write through a symlink or into a FIFO ($interval_host)"
+  else
+    not_ok "degraded-notice markers never write through a symlink or into a FIFO ($interval_host)"
+  fi
   # Every hook that publishes the notice writes it in its single response.
   for interval_cmd in hook-post-tool hook-post-tool-failure hook-user-prompt hook-stop; do
     interval_hook "$interval_host" "$interval_cmd" "interval-$interval_host-$interval_cmd" off
@@ -8795,6 +8817,34 @@ for interval_host in claude codex; do
       interval_report "$interval_cmd writes the degraded notice as one response ($interval_host)" "$interval_status" interval_notice_shape "$interval_host"
     fi
   done
+done
+
+# A Stop whose git backstop cannot run (dependencies ready, git missing) uses
+# the same notice: shown on Claude, stderr-only on Codex, exit 0 on both.
+INTERVAL_NO_GIT_BIN="$TMP_ROOT/interval-no-git-bin"
+mkdir -p "$INTERVAL_NO_GIT_BIN"
+for interval_tool in "$INTERVAL_BIN"/*; do
+  [ "${interval_tool##*/}" = git ] || ln -s "$(readlink "$interval_tool")" "$INTERVAL_NO_GIT_BIN/${interval_tool##*/}"
+done
+for interval_host in claude codex; do
+  printf '%s' '{"session_id":"interval-stop-git-'"$interval_host"'"}' \
+    | env AGENT_GUARD_WARNING_DIR="$INTERVAL_WARN_DIR" AGENT_GUARD_HOOK_HOST="$interval_host" \
+        AGENT_GUARD_LOG_MODE=off AGENT_GUARD_GITLEAKS_BIN="$MOCK_BIN/gitleaks" \
+        PATH="$INTERVAL_NO_GIT_BIN" "$PLUGIN_ROOT/bin/agent-guard" hook-stop >"$OUT" 2>"$ERR"
+  interval_status=$?
+  case "$interval_host" in
+    claude) jq -e -s 'length == 1 and (.[0] | keys == ["systemMessage"])
+                      and (.[0].systemMessage | test("git is unavailable"))' "$OUT" >/dev/null 2>&1 ;;
+    *) [ ! -s "$OUT" ] ;;
+  esac
+  interval_shape=$?
+  if [ "$interval_status" -eq 0 ] && [ "$interval_shape" -eq 0 ] && grep -q 'git is unavailable' "$ERR"; then
+    ok "Stop reports a git backstop that cannot run in its single response ($interval_host)"
+  else
+    not_ok "Stop reports a git backstop that cannot run in its single response ($interval_host, status $interval_status)"
+    sed 's/^/  stdout: /' "$OUT"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
 done
 
 printf '%s' '{"session_id":"degraded-closed","tool_name":"Bash","tool_input":{"command":"echo clean"}}' \

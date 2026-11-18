@@ -23,7 +23,10 @@ scanner error in a lifecycle hook:
 
 Under `open`, a session's first infrastructure failure produces the notice, and
 it repeats at most once every 600 seconds while failures continue; the interval
-is fixed. In Claude Code the notice is a `systemMessage` shown to you on
+is fixed. Every infrastructure notice in a session shares that interval, so a
+degraded-dependency notice can wait behind another failure's notice, such as an
+unresolved `git commit`. A `PostToolUse` git-backstop failure is reported on
+stderr only, because that hook may still have to write its redaction response. In Claude Code the notice is a `systemMessage` shown to you on
 `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `UserPromptSubmit`, and
 `Stop`, and the model receives it as additional context. Codex receives it as
 additional context, and on `Stop` only on stderr; whether Codex shows a
