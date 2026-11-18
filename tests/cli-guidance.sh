@@ -96,6 +96,20 @@ else
 fi
 rm -f "$HOME_DIR/.agent-guard/shell-init.sh"
 
+# A complete cache version whose embedded version matches gets the `current`
+# link; advice then names that stable path, which survives a plugin update.
+CLI_VERSION=$(sed -n 's/^VERSION=//p' "$PLUGIN_ROOT/bin/agent-guard" | head -n 1)
+STABLE_V="$CASE_ROOT/stable cache/agent-guard/agent-guard/$CLI_VERSION"
+mkdir -p "$STABLE_V"
+cp -R "$PLUGIN_ROOT/." "$STABLE_V/"
+ag "$STABLE_V/bin/agent-guard" update >"$CASE_ROOT/out" 2>"$CASE_ROOT/err"
+if [ -L "$CASE_ROOT/stable cache/agent-guard/agent-guard/current" ] \
+   && grep -Fq "run '\"$CASE_ROOT/stable cache/agent-guard/agent-guard/current/bin/agent-guard\" plugin update" "$CASE_ROOT/err"; then
+  ok "advice names the plugin cache current link when it is usable"
+else
+  not_ok "advice names the plugin cache current link: $(cat "$CASE_ROOT/err")"
+fi
+
 # `agent-guard` on PATH that IS this installation keeps the short name.
 mkdir -p "$CASE_ROOT/path-bin"
 ln -s "$AG" "$CASE_ROOT/path-bin/agent-guard"
