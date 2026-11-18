@@ -14530,7 +14530,7 @@ mkdir -p "$FAIL_STAGE_JQ_DIR"
   printf '%s\n' '  detector_leaf:*"join(\"\\n\") end"*) partial_fail ;;'
   printf '%s\n' '  detector_frame:*"\"\\u001e\\n\""*) partial_fail ;;'
   printf '%s\n' '  detector_report:*".Secret // empty"*) partial_fail ;;'
-  printf '%s\n' '  detector_bundle:*"secrets: unique"*) partial_fail ;;'
+  printf '%s\n' '  detector_bundle:*"secrets: settle_extents"*) partial_fail ;;'
   printf '%s\n' '  bundle_classify_true:*"invalid secret bundle"*) printf "true"; exit 2 ;;'
   printf '%s\n' '  bundle_extract_secrets:*"invalid secret bundle"*) printf "[]"; exit 2 ;;'
   printf '%s\n' 'esac'
