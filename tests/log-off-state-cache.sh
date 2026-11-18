@@ -82,6 +82,14 @@ hook-user-prompt	{"prompt":"please use $marker"}
 hook-post-tool	{"tool_name":"Bash","tool_input":{"command":"ls"},"tool_response":{"stdout":"README.md\n","stderr":"","interrupted":false}}
 hook-post-tool	{"tool_name":"Bash","tool_input":{"command":"echo"},"tool_response":{"stdout":"token $marker here\n","stderr":"","interrupted":false}}
 EOF
+# The live post-tool probe sentinel, read from the binary so this file holds no
+# copy: with logging off it must mask to the bare placeholder, cached or not.
+probe=$(sed -n 's/^LIVE_POST_TOOL_PROBE=//p' "$GUARD" | head -n 1)
+probe=${probe#\'}; probe=${probe%\'}
+[ -n "$probe" ] || bad 'the live post-tool sentinel is readable from the binary'
+jq -nc --arg m "$probe" \
+  '{tool_name:"Bash",tool_input:{command:"cat probe.txt"},tool_response:{stdout:($m + "\n"),stderr:"",interrupted:false}}' \
+  | sed 's/^/hook-post-tool	/' >>"$CASE/events"
 
 # Runs every event under host $1 and writes "status", stdout and stderr of
 # each to $2. The cache variable comes from the caller's environment.
@@ -122,7 +130,8 @@ for infra in open closed; do
       test "$(calls version)" -ge 10
     if [ "$tag" = claude/open ]; then
       cmp -s "$CASE/res/$host-$infra-off-unset" "$CASE/res/$host-$infra-off-off" \
-        && cmp -s "$CASE/res/$host-$infra-off-unset" "$CASE/res/$host-$infra-off-1"
+        && cmp -s "$CASE/res/$host-$infra-off-unset" "$CASE/res/$host-$infra-off-1" \
+        && cmp -s "$CASE/res/$host-$infra-off-unset" "$CASE/res/$host-$infra-off-ON"
       check "$tag: the cache variable alone changes no verdict or output with logging off" test "$?" -eq 0
     fi
 
@@ -162,6 +171,22 @@ for infra in open closed; do
   done
 done
 export AGENT_GUARD_INFRA_FAILURE_MODE=open
+
+check 'the live probe sentinel masks to the bare placeholder with the opt-in' \
+  sh -c 'grep -Fq "[REDACTED]" "$1" && ! grep -Fq "live probe run_id=" "$1"' _ "$CASE/res/claude-open-warm"
+
+# The opt-in runs no log retention: an expired event record stays as it was.
+reset
+mkdir -p "$STATE" && chmod 700 "$STATE"
+old="$STATE/event-1000000000-old123"
+(umask 077; printf '%s\n' '{"schema":1}' >"$old")
+mkdir -m 700 "$STATE/live-probe-1000000000-old123"
+AGENT_GUARD_SCAN_CACHE=on run_events claude "$CASE/res/retention"
+check 'the opt-in leaves an expired event record and its sidecar alone' \
+  test -f "$old" -a -d "$STATE/live-probe-1000000000-old123" -a "$(cat "$old")" = '{"schema":1}'
+check 'the opt-in adds no event record beside it' \
+  test "$(tree "$STATE" | grep -c '^\./event-')" = 1
+check 'the opt-in still caches in a directory that holds old records' test -f "$STATE/gitleaks-probe"
 
 # A state directory that fails the checks audit_directory makes is not used:
 # every invocation probes and scans, nothing is written into it or through it,

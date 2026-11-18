@@ -73,20 +73,20 @@ faster and never change a guard decision:
 - `gitleaks-clean/` holds at most 256 entries for repeated Bash command scans
   that finished clean within the last ten minutes. An entry is named by a
   SHA-256 of the scanned command text together with the Agent Guard version,
-  the scan flags, the `gitleaks-probe` record above, and the values of
-  `GITLEAKS_CONFIG` and `GITLEAKS_CONFIG_TOML`. It holds a format number, the
+  the scan flags, the gitleaks path, file identity and version, and the values
+  of `GITLEAKS_CONFIG` and `GITLEAKS_CONFIG_TOML`. It holds a format number, the
   SHA-256 of the gitleaks configuration file, and the time of the scan. Each
   `config-<SHA-256>` marker holds only the Agent Guard version and a format
   number. The scanned text is never stored.
 - `deny-path-regex-<mode>-<key>` files hold the regular expressions built from
   the protected-path deny list. The name holds the Agent Guard version, the
   file identity of the deny list and of the `agent-guard` script, and the
-  values of `LC_ALL`, `LC_CTYPE`, and `LANG`. Older files are removed once more
-  than six pile up for a mode.
+  values of `LC_ALL`, `LC_CTYPE`, and `LANG`. Once more than six pile up for a
+  mode, every file of that mode except the current one is removed.
 
-The caches are used only when the directory is reached without a symlink,
-owned by the current user, and mode 0700; their files are created with mode
-0600. Otherwise each invocation runs without them.
+The caches are used only when the directory path is absolute, contains no
+control characters, is reached without a symlink, and the directory is owned by
+the current user with mode 0700; their files are created with mode 0600. Otherwise each invocation runs without them.
 
 Set `AGENT_GUARD_LOG_MODE=off` to opt out of the log. By default that also
 turns the caches off, so nothing is written to this directory. Every
