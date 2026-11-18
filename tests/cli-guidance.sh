@@ -73,6 +73,14 @@ else
   not_ok "setup-shell option error names the plugin executable (status $status): $(cat "$CASE_ROOT/err")"
 fi
 
+ag env AGENT_GUARD_GITLEAKS_CHECKSUMS_URL="file://$ROOT/tests/fixtures/gitleaks-checksums-mock.txt" \
+  "$AG" checksum 8.30.1 >"$CASE_ROOT/out" 2>&1
+if grep -Fq "  $QUOTED setup --install --gitleaks-checksum" "$CASE_ROOT/out"; then
+  ok "checksum prints a setup --install snippet with the plugin executable"
+else
+  not_ok "checksum prints a setup --install snippet with the plugin executable: $(cat "$CASE_ROOT/out")"
+fi
+
 # SessionStart output reaches the host as JSON; the path must survive it.
 ag env AGENT_GUARD_HOOK_HOST=claude SHELL=/bin/zsh "$AG" hook-session-start </dev/null >"$CASE_ROOT/out" 2>"$CASE_ROOT/err"
 message=$(jq -r .systemMessage "$CASE_ROOT/out" 2>/dev/null) || message=
