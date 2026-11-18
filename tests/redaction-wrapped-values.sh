@@ -83,8 +83,8 @@ while [ "$i" -lt "$count" ]; do
 done
 # Record level, production detector only. A wider extent never goes out as an
 # ordinary literal: JSON records flag it for bundle settlement, and framed
-# records (the exec raw path, whose literals all come from this one run) keep
-# it only when no literal no longer than it can partially overlap it.
+# records (the exec raw path, which applies the bundle literals afterwards)
+# carry none, so that path masks exactly as before.
 SOURCE=${AGENT_GUARD_UNIT_SOURCE:-"$ROOT/plugins/agent-guard/bin/agent-guard"}
 sh "$ROOT/tests/helpers/extract-functions.sh" "$SOURCE" "$CASE_ROOT" \
   secretish_env_values frame_plaintext_leaf || exit 1
@@ -115,19 +115,59 @@ record_check "json flags the angle extent" \
   "$(records json "API_KEY=<hunter2 Summer>")"
 record_check "json gives a spaced placeholder no record" "" \
   "$(records json "API_KEY=<your key>")"
-record_check "framed keeps a non-overlapping extent" \
-  "$(printf 'S<hunter2\nS<hunter2 Summer>' | LC_ALL=C sort)" \
+record_check "framed carries no extent" "S<hunter2" \
   "$(records framed "API_KEY=<hunter2 Summer>" | grep .)"
-# The overlapping secret must be SHORTER than the extent: a longer one applies
-# first and needs no settlement (the next check).
-record_check "framed drops an extent a shorter secret overlaps" \
-  "$(printf 'S<hunter2\nSSumm> q7x9' | LC_ALL=C sort)" \
-  "$(records framed 'password="Summ> q7x9"' 'API_KEY=<hunter2 Summ> q7x9' | grep .)"
-record_check "framed keeps an extent a longer secret overlaps" \
-  "$(printf 'S<hunter2\nS<hunter2 Summ>\nSSumm> %s' "$rnd" | LC_ALL=C sort)" \
-  "$(records framed "password=\"Summ> $rnd\"" "API_KEY=<hunter2 Summ> $rnd" | grep .)"
 record_check "probe answers once for an extent" "x" \
   "$(records probe "token: [$rnd]")"
+
+# `agent-guard exec` masks plaintext through the same bundle, ordered by
+# bytes rather than characters; settlement must hold for that order too.
+exec_check() {
+  checked=$((checked + 1))
+  printf '%s\n' "$2" >"$CASE_ROOT/exec-in"
+  actual=$("$GUARD" exec -- cat "$CASE_ROOT/exec-in" 2>/dev/null)
+  if [ "$actual" = "$3" ]; then
+    printf 'ok - wrapped value %s: exec %s\n' "$checked" "$1"
+  else
+    printf 'not ok - wrapped value %s: exec %s\n  expected: %s\n  actual: %s\n' \
+      "$checked" "$1" "$3" "$actual"
+    failed=$((failed + 1))
+  fi
+}
+exec_check "bracketed status word" 'Token: [hidden]' 'Token: [REDACTED]'
+exec_check "two words in angle brackets" 'API_KEY=<hunter2 Summer>' 'API_KEY=[REDACTED]'
+exec_check "spaced placeholder" 'API_KEY=<your key>' 'API_KEY=<your key>'
+# The password literal has more characters but fewer bytes than the extent.
+wide=$(printf '\303\204\303\204\303\204\303\204\303\204\303\204\303\204\303\204')
+exec_check "shorter secret in byte order keeps the masking of main" \
+  "password=\") q7abcdefgh\"
+token=($wide) q7abcdefgh" \
+  'password="[REDACTED]"
+token=[REDACTED][REDACTED]'
+
+# Settlement is linear in the bundle: a long bracketed value next to another
+# secret masks well inside the PostToolUse budget (20 s) on both hosts. A
+# quadratic overlap test took about 18 s for 30000 characters.
+long=$(od -An -N30000 -tu1 /dev/urandom | awk '{ for (i = 1; i <= NF; i++) printf "%c", 97 + $i % 26 }')
+for host in claude codex; do
+  checked=$((checked + 1))
+  started=$(date +%s)
+  jq -nc --arg s "token=[q7$long]
+password=q7$rnd" \
+    '{session_id:"wrapped",hook_event_name:"PostToolUse",tool_name:"Bash",
+      tool_input:{command:"cat notes.txt"},
+      tool_response:{stdout:$s,stderr:"",interrupted:false}}' \
+    | AGENT_GUARD_HOOK_HOST=$host "$GUARD" hook-post-tool >"$CASE_ROOT/out" 2>"$CASE_ROOT/err"
+  status=$?
+  elapsed=$(( $(date +%s) - started ))
+  if [ "$status" -eq 0 ] && [ "$elapsed" -le 8 ] \
+     && grep -q 'password=\[REDACTED\]' "$CASE_ROOT/out" \
+     && ! grep -q "$rnd" "$CASE_ROOT/out"; then
+    printf 'ok - wrapped value %s: %s long bracketed value masks in %ss\n' "$checked" "$host" "$elapsed"
+  else
+    fail "$host long bracketed value: exit $status after ${elapsed}s"
+  fi
+done
 
 printf '%s wrapped value checks, %s failed\n' "$checked" "$failed"
 [ "$failed" -eq 0 ]

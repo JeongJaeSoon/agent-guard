@@ -48,7 +48,10 @@ jobs:
           sh tests/printenv-argument-contract.sh
           AGENT_GUARD_TEST_AWK=/usr/bin/mawk sh tests/unit-audit-retention.sh
           sh tests/post-tool-serialization-recovery.sh
-          sh tests/redaction-wrapped-values.sh
+          # The detector calls `awk` from PATH; pin it to mawk for this contract.
+          mkdir -p "$RUNNER_TEMP/mawk-bin"
+          ln -sf /usr/bin/mawk "$RUNNER_TEMP/mawk-bin/awk"
+          PATH="$RUNNER_TEMP/mawk-bin:$PATH" sh tests/redaction-wrapped-values.sh
       - name: Verify jq 1.8.1 successful truncation recovery
         run: |
           set -eu
