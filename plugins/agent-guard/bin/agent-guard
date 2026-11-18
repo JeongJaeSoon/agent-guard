@@ -1330,6 +1330,23 @@ audit_reason() {
   return 0
 }
 
+# A run id is "<start seconds>-<mktemp suffix>", the grammar
+# ^[0-9]{1,12}-[A-Za-z0-9]{6}$. The shell check costs no process (#407) and
+# spells the classes out so no locale can widen a range. jq's $ also matches
+# before a final newline, so the jq form anchors with \A and \z.
+AUDIT_RUN_ID_JQ_REGEX='\A[0-9]{1,12}-[A-Za-z0-9]{6}\z'
+
+audit_run_id_valid() {
+  case "$1" in *-*) ;; *) return 1 ;; esac
+  ag_rid_time=${1%%-*}
+  ag_rid_rand=${1#*-}
+  case "$ag_rid_time" in ''|*[!0123456789]*) return 1 ;; esac
+  case "$ag_rid_rand" in
+    ''|*[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789]*) return 1 ;;
+  esac
+  [ "${#ag_rid_time}" -le 12 ] && [ "${#ag_rid_rand}" -eq 6 ]
+}
+
 audit_prune() (
   # Keep housekeeping off the EXIT/signal path. Bound the directory listing
   # before filtering, so unrelated files cannot force an unbounded traversal.
@@ -1356,19 +1373,7 @@ audit_prune() (
       ' \
     | while IFS= read -r ag_old; do
         ag_old_id=${ag_old##*/event-}
-        # The run-id grammar ^[0-9]{1,12}-[A-Za-z0-9]{6}$, checked with shell
-        # patterns so a pruned file costs no process (#407).
-        # The classes are spelled out so no locale can widen a range.
-        ag_id_time=${ag_old_id%%-*}
-        ag_id_rand=${ag_old_id#*-}
-        ag_id_ok=1
-        case "$ag_old_id" in *-*) ;; *) ag_id_ok= ;; esac
-        case "$ag_id_time" in ''|*[!0123456789]*) ag_id_ok= ;; esac
-        case "$ag_id_rand" in
-          ''|*[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789]*) ag_id_ok= ;;
-        esac
-        if [ -n "$ag_id_ok" ] && [ "${#ag_id_time}" -le 12 ] \
-            && [ "${#ag_id_rand}" -eq 6 ]; then
+        if audit_run_id_valid "$ag_old_id"; then
           # A live-probe sidecar is an empty directory by construction. Never
           # recurse or remove a nonempty/tampered marker during retention.
           rmdir "$ag_dir/live-probe-$ag_old_id" 2>/dev/null || :
@@ -1464,9 +1469,9 @@ audit_export() {
     [ "$ag_bytes" -le 2048 ] || continue
     # Rebuild the schema, dropping unknown keys. Validate every field so a
     # manually edited/corrupt log cannot smuggle source data into an export.
-    jq -c '
+    jq -c --arg run_id_re "$AUDIT_RUN_ID_JQ_REGEX" '
       select(type == "object" and .schema == 1)
-      | select(.run_id | type == "string" and test("^[0-9]{1,12}-[A-Za-z0-9]{6}$"))
+      | select(.run_id | type == "string" and test($run_id_re))
       | select(.time | type == "number" and . >= 0 and . <= 9999999999 and floor == .)
       | select(.version | type == "string" and test("^[0-9]{1,5}\\.[0-9]{1,5}\\.[0-9]{1,5}$"))
       | select(.command | IN("hook-pre-tool", "hook-post-tool", "hook-post-tool-failure", "hook-stop", "hook-user-prompt", "hook-session-start", "scan-staged", "scan-working-tree", "scan-path", "exec", "pii-filter"))
@@ -12771,9 +12776,7 @@ output_scan_input_exceeds_cap() {
 # values get masked varies - only this one sentinel's replacement text.
 live_probe_run_id() {
   [ -n "$AG_AUDIT_FILE" ] || return 0
-  case "$AG_AUDIT_ID" in
-    ''|*[!0-9A-Za-z-]*) return 0 ;;
-  esac
+  audit_run_id_valid "$AG_AUDIT_ID" || return 0
   printf '%s' "$AG_AUDIT_ID"
 }
 
@@ -12792,9 +12795,7 @@ live_probe_marker_valid() {
 # fail closed and the replacement stays the bare placeholder.
 audit_mark_live_probe() {
   [ -n "$AG_AUDIT_FILE" ] || return 1
-  case "$AG_AUDIT_ID" in
-    ''|*[!0-9A-Za-z-]*) return 1 ;;
-  esac
+  audit_run_id_valid "$AG_AUDIT_ID" || return 1
   live_probe_dir=$(audit_directory) || return 1
   [ "$AG_AUDIT_FILE" = "$live_probe_dir/event-$AG_AUDIT_ID" ] || return 1
   live_probe_marker="$live_probe_dir/live-probe-$AG_AUDIT_ID"
@@ -12830,8 +12831,7 @@ response_drops_live_probe() {
 live_probe_audit_record_exists() {
   live_probe_id=$1
   live_probe_dir=$2
-  printf '%s' "$live_probe_id" \
-    | LC_ALL=C grep -Eq '^[0-9]{1,12}-[A-Za-z0-9]{6}$' || return 1
+  audit_run_id_valid "$live_probe_id" || return 1
   live_probe_file="$live_probe_dir/event-$live_probe_id"
   [ -f "$live_probe_file" ] && [ ! -L "$live_probe_file" ] || return 1
   [ "$(file_stat access -P "$live_probe_file")" = "$(id -u):600" ] || return 1
@@ -12865,11 +12865,12 @@ trusted_live_probe_replacements() {
     return 0
   }
   live_probe_candidates=$(printf '%s' "$live_probe_response" \
-    | jq -c --arg prefix "$LIVE_POST_TOOL_REPLACEMENT_PREFIX" '
+    | jq -c --arg prefix "$LIVE_POST_TOOL_REPLACEMENT_PREFIX" \
+        --arg run_id_re "$AUDIT_RUN_ID_JQ_REGEX" '
         [.. | strings
          | select(startswith($prefix))
          | .[($prefix | length):] as $id
-         | select($id | test("^[0-9]{1,12}-[A-Za-z0-9]{6}$"))]
+         | select($id | test($run_id_re))]
         | unique | .[:16][]
       ' 2>/dev/null) || {
     printf '%s' '[]'
