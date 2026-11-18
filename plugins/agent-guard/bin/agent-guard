@@ -1236,31 +1236,68 @@ file_stat() {
   fi
 }
 
-# Refuse symlink components and ambiguous relative paths. Existing private
-# directories are never chmodded: an unexpected directory is an error.
+# Succeeds when $1 is absolute, holds no control character, has no empty, `.`
+# or `..` component, and no component is a symlink. Shell tests only, so it
+# costs no process on a hook (#407); a shell pattern, unlike a line-oriented
+# grep, also refuses a newline.
+plain_absolute_path() {
+  case "$1" in /*) ;; *) return 1 ;; esac
+  case "$1" in *[[:cntrl:]]*) return 1 ;; esac
+  ag_pap_prefix=
+  ag_pap_rest=${1#/}
+  while [ -n "$ag_pap_rest" ]; do
+    ag_pap_part=${ag_pap_rest%%/*}
+    case "$ag_pap_part" in ''|.|..) return 1 ;; esac
+    ag_pap_prefix="$ag_pap_prefix/$ag_pap_part"
+    [ ! -L "$ag_pap_prefix" ] || return 1
+    case "$ag_pap_rest" in */*) ag_pap_rest=${ag_pap_rest#*/} ;; *) ag_pap_rest= ;; esac
+  done
+}
+
+# Succeeds when $1 is a directory, not a symlink, this user's, and mode 0700.
+private_dir_ok() {
+  [ -d "$1" ] && [ ! -L "$1" ] \
+    && [ "$(file_stat access -P "$1")" = "${AG_UID:-$(id -u)}:700" ]
+}
+
+# Between private_writes_begin and private_writes_end a redirection creates a
+# file with mode 0600 and never opens an existing name: noclobber makes the
+# open O_EXCL. The caller's umask and noclobber setting come back at the end.
+# Fails, changing nothing, when the saved umask (AG_UMASK) is unknown. A pair
+# does not nest.
+private_writes_begin() {
+  case "${AG_UMASK:-}" in ''|*[!01234567]*|?????*) return 1 ;; esac
+  case $- in *C*) ag_pw_noclobber=1 ;; *) ag_pw_noclobber= ;; esac
+  set -C
+  umask 077
+}
+
+private_writes_end() {
+  umask "$AG_UMASK"
+  [ -n "$ag_pw_noclobber" ] || set +C
+}
+
+# Succeeds when $1, an epoch time a state cache stored, is less than
+# STATE_CACHE_TTL_SECONDS before AG_AUDIT_START and not after it.
+STATE_CACHE_TTL_SECONDS=600
+state_cache_fresh() {
+  # A leading zero would make the arithmetic an octal error that ends the hook.
+  case "$1" in ''|0*|*[!0-9]*|?????????????*) return 1 ;; esac
+  ag_scf_age=$((AG_AUDIT_START - $1))
+  [ "$ag_scf_age" -ge 0 ] && [ "$ag_scf_age" -lt "$STATE_CACHE_TTL_SECONDS" ]
+}
+
+# Existing private directories are never chmodded: an unexpected directory is
+# an error.
 audit_directory() (
   ag_dir=$(audit_location)
-  case "$ag_dir" in /*) ;; *) return 1 ;; esac
-  # A shell pattern keeps this check free of processes on every hook (#407).
-  # It also refuses a newline, which a line-oriented grep would let through.
-  case "$ag_dir" in *[[:cntrl:]]*) return 1 ;; esac
-  ag_prefix=
-  ag_rest=${ag_dir#/}
-  while [ -n "$ag_rest" ]; do
-    ag_part=${ag_rest%%/*}
-    case "$ag_part" in ''|.|..) return 1 ;; esac
-    ag_prefix="$ag_prefix/$ag_part"
-    [ ! -L "$ag_prefix" ] || return 1
-    if [ "$ag_part" = "$ag_rest" ]; then break; fi
-    ag_rest=${ag_rest#*/}
-  done
+  plain_absolute_path "$ag_dir" || return 1
   # mkdir -p leaves an existing directory untouched, so only a missing (or
   # not-yet-plain) directory needs the subshell and the mkdir process (#407).
   if [ "${1:-}" = create ] && { [ ! -d "$ag_dir" ] || [ -L "$ag_dir" ]; }; then
     (umask 077; mkdir -p "$ag_dir") 2>/dev/null || return 1
   fi
-  [ -d "$ag_dir" ] && [ ! -L "$ag_dir" ] || return 1
-  [ "$(file_stat access -P "$ag_dir")" = "${AG_UID:-$(id -u)}:700" ] || return 1
+  private_dir_ok "$ag_dir" || return 1
   printf '%s' "$ag_dir"
 )
 
@@ -1937,7 +1974,6 @@ gitleaks_probe_error() {
 # Only ready verdicts are stored, and any cache problem runs the full probe.
 # The file lives in the private log directory audit_begin validated, so
 # diagnostics (check, doctor, setup) and AGENT_GUARD_LOG_MODE=off always probe.
-GITLEAKS_PROBE_CACHE_TTL_SECONDS=600
 GITLEAKS_PROBE_CACHE_KEY=
 
 gitleaks_probe_cache_lookup() {
@@ -1976,12 +2012,7 @@ gitleaks_probe_cache_lookup() {
       && IFS= read -r ag_gl_cached_version; } <"$ag_gl_cache_file" 2>/dev/null \
     || return 1
   [ "$ag_gl_cached_key" = "$GITLEAKS_PROBE_CACHE_KEY" ] || return 1
-  # A leading zero would make the arithmetic below an octal error that ends
-  # the hook.
-  case "$ag_gl_cached_time" in ''|0*|*[!0-9]*|?????????????*) return 1 ;; esac
-  ag_gl_cache_age=$((AG_AUDIT_START - ag_gl_cached_time))
-  [ "$ag_gl_cache_age" -ge 0 ] \
-    && [ "$ag_gl_cache_age" -lt "$GITLEAKS_PROBE_CACHE_TTL_SECONDS" ] || return 1
+  state_cache_fresh "$ag_gl_cached_time" || return 1
   case "$ag_gl_cached_version" in ''|*[!0-9.]*) return 1 ;; esac
   semver_at_least "$ag_gl_cached_version" "$GITLEAKS_MIN_VERSION" || return 1
   GITLEAKS_PROBE_STATE=ready
@@ -2014,12 +2045,11 @@ gitleaks_probe_cache_store() {
 # config file, a stale, foreign or unreadable entry) runs the scan uncached.
 # Entries hold only hashes and a time, never the text. They live in a 0700
 # directory inside the private state directory audit_begin validated, so
-# diagnostics and AGENT_GUARD_LOG_MODE=off never cache. The TTL matches the
-# probe cache: a version manager that swaps gitleaks behind one file changes
+# diagnostics and AGENT_GUARD_LOG_MODE=off never cache. The TTL is the probe
+# cache's: a version manager that swaps gitleaks behind one file changes
 # the probed version within that window. AGENT_GUARD_SCAN_CACHE=off opts out.
 GITLEAKS_SCAN_FLAGS='--redact --no-banner --no-color --log-level error'
 GITLEAKS_STDIN_SCAN_FLAGS="stdin $GITLEAKS_SCAN_FLAGS --config CONFIG --exit-code 1"
-GITLEAKS_CLEAN_CACHE_TTL_SECONDS=600
 GITLEAKS_CLEAN_CACHE_MAX_ENTRIES=256
 GITLEAKS_CLEAN_CACHE_FORMAT=1
 # Bump when gitleaks_clean_cache_config_cacheable changes, so a config-<hash>
@@ -2224,24 +2254,7 @@ gitleaks_clean_cache_hit() {
     || return 1
   [ "$ag_glc_format" = "$GITLEAKS_CLEAN_CACHE_FORMAT" ] || return 1
   [ "$ag_glc_config" = "$GITLEAKS_CLEAN_CACHE_CONFIG_SUM" ] || return 1
-  # A leading zero would make the arithmetic an octal error that ends the hook.
-  case "$ag_glc_time" in ''|0*|*[!0-9]*|?????????????*) return 1 ;; esac
-  ag_glc_age=$((AG_AUDIT_START - ag_glc_time))
-  [ "$ag_glc_age" -ge 0 ] && [ "$ag_glc_age" -lt "$GITLEAKS_CLEAN_CACHE_TTL_SECONDS" ]
-}
-
-# Succeed when $1 is absolute and no component of it is a symlink (shell tests
-# only, no process).
-gitleaks_clean_cache_plain_path() {
-  case "$1" in /*) ;; *) return 1 ;; esac
-  ag_glc_prefix=
-  ag_glc_rest=${1#/}
-  while [ -n "$ag_glc_rest" ]; do
-    ag_glc_part=${ag_glc_rest%%/*}
-    ag_glc_prefix="$ag_glc_prefix/$ag_glc_part"
-    [ ! -L "$ag_glc_prefix" ] || return 1
-    case "$ag_glc_rest" in */*) ag_glc_rest=${ag_glc_rest#*/} ;; *) ag_glc_rest= ;; esac
-  done
+  state_cache_fresh "$ag_glc_time"
 }
 
 # Called only after run_gitleaks_stdin returned 0: gitleaks exited 0 and
@@ -2256,7 +2269,6 @@ gitleaks_clean_cache_store() {
   # An ignore file that appeared during the scan may have been read by it.
   [ ! -e .gitleaksignore ] && [ ! -L .gitleaksignore ] || return 0
   [ -n "$GITLEAKS_CLEAN_CACHE_HASHER" ] || return 0
-  case "${AG_UMASK:-}" in ''|*[!01234567]*|?????*) return 0 ;; esac
   ag_glc_dir="$AG_STATE_DIR/gitleaks-clean"
   if [ ! -d "$ag_glc_dir" ] && [ ! -L "$ag_glc_dir" ]; then
     (umask 077; mkdir "$ag_glc_dir") 2>/dev/null || return 0
@@ -2276,7 +2288,7 @@ gitleaks_clean_cache_store() {
   case "$ag_glc_config_ctime" in ''|*[!0-9]*|?????????????*) return 0 ;; esac
   ag_glc_config_ctime=${ag_glc_config_ctime#"${ag_glc_config_ctime%%[!0]*}"}
   if [ "${ag_glc_config_ctime:-0}" -ge "$AG_AUDIT_START" ] \
-      || ! gitleaks_clean_cache_plain_path "$GITLEAKS_CONFIG"; then
+      || ! plain_absolute_path "$GITLEAKS_CONFIG"; then
     ag_glc_sums=$(gitleaks_clean_cache_hash "$GITLEAKS_CONFIG" /dev/null 2>/dev/null) \
       || return 0
     gitleaks_clean_cache_sums "$ag_glc_sums" 2 || return 0
@@ -2293,13 +2305,11 @@ gitleaks_clean_cache_store() {
     ag_glc_remark=1
   fi
   [ ! -d "$GITLEAKS_CLEAN_CACHE_FILE" ] || return 0
-  # A new entry is created in place: noclobber makes the open O_EXCL, and a
-  # reader that races the single short write sees too few lines, a short hash
-  # or a short (so expired) time, all of which miss. Replacing an existing
-  # entry goes through a temporary name and one mv.
-  case $- in *C*) ag_glc_noclobber=1 ;; *) ag_glc_noclobber= ;; esac
-  set -C
-  umask 077
+  # A new entry is created in place, and a reader that races the single short
+  # write sees too few lines, a short hash or a short (so expired) time, all
+  # of which miss. Replacing an existing entry goes through a temporary name
+  # and one mv.
+  private_writes_begin || return 0
   ag_glc_tmp=
   ag_glc_wrote=
   if [ -e "$GITLEAKS_CLEAN_CACHE_FILE" ] || [ -L "$GITLEAKS_CLEAN_CACHE_FILE" ]; then
@@ -2321,8 +2331,7 @@ gitleaks_clean_cache_store() {
       { printf '%s:%s\n' "$VERSION" "$GITLEAKS_CLEAN_CACHE_CHECKER_FORMAT" >|"$ag_glc_marker"; } 2>/dev/null || :
     fi
   fi
-  umask "$AG_UMASK"
-  [ -n "$ag_glc_noclobber" ] || set +C
+  private_writes_end
   [ -n "$ag_glc_wrote" ] || return 0
   if [ -n "$ag_glc_tmp" ] && ! mv -f "$ag_glc_tmp" "$GITLEAKS_CLEAN_CACHE_FILE" 2>/dev/null; then
     rm -f "$ag_glc_tmp" 2>/dev/null || :
@@ -2435,11 +2444,7 @@ warning_state_path() {
 private_warning_state_path() {
   private_path=$(warning_state_path "$1" "${2:-}") || return 1
   private_dir=${private_path%/*}
-  [ ! -L "$private_dir" ] && [ -O "$private_dir" ] || return 1
-  case $(ls -ld "$private_dir" 2>/dev/null) in
-    drwx------*) ;;
-    *) return 1 ;;
-  esac
+  private_dir_ok "$private_dir" || return 1
   printf '%s\n' "$private_path"
 }
 
@@ -3024,13 +3029,10 @@ mktemp_file() {
 rundir_temp_file() {
   rt_dir=${AGENT_GUARD_RUNDIR:-}
   [ -n "$rt_dir" ] && [ -d "$rt_dir" ] && [ ! -L "$rt_dir" ] || return 1
-  case "${AG_UMASK:-}" in ''|*[!01234567]*|?????*) return 1 ;; esac
   rt_n=
   { IFS= read -r rt_n <"$rt_dir/.next"; } 2>/dev/null || rt_n=
   case "$rt_n" in ''|0*|*[!0123456789]*|?????????*) rt_n=1 ;; esac
-  case $- in *C*) rt_noclobber=1 ;; *) rt_noclobber= ;; esac
-  set -C
-  umask 077
+  private_writes_begin || return 1
   rt_file=
   rt_tries=0
   while [ -z "$rt_file" ] && [ "$rt_tries" -lt 64 ]; do
@@ -3050,8 +3052,7 @@ rundir_temp_file() {
     fi
     rt_n=$((rt_n + 1))
   done
-  umask "$AG_UMASK"
-  [ -n "$rt_noclobber" ] || set +C
+  private_writes_end
   [ -n "$rt_file" ] || return 1
   { printf '%s\n' "$rt_n" >|"$rt_dir/.next"; } 2>/dev/null || :
   printf '%s\n' "$rt_file"
@@ -12780,8 +12781,7 @@ live_probe_marker_valid() {
   live_probe_id=$1
   live_probe_dir=$2
   live_probe_marker="$live_probe_dir/live-probe-$live_probe_id"
-  [ -d "$live_probe_marker" ] && [ ! -L "$live_probe_marker" ] || return 1
-  [ "$(file_stat access -P "$live_probe_marker")" = "$(id -u):700" ] || return 1
+  private_dir_ok "$live_probe_marker" || return 1
   ! find "$live_probe_marker" -mindepth 1 -maxdepth 1 -print 2>/dev/null \
     | grep -q .
 }

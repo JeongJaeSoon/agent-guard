@@ -19,7 +19,8 @@ check() { label=$1; shift; if "$@"; then ok "$label"; else bad "$label"; fi; }
 mkdir -p "$CASE/fn" "$CASE/bin" "$CASE/home" "$CASE/repo" "$CASE/out"
 sh "$ROOT/tests/helpers/extract-functions.sh" "$GUARD" "$CASE/fn" \
   json_value json_value_cached json_value_to json_value_prime \
-  json_input_is_primed_object rundir_temp_file scan_file_bytes || exit 1
+  json_input_is_primed_object rundir_temp_file private_writes_begin \
+  private_writes_end scan_file_bytes || exit 1
 for f in "$CASE/fn"/*.sh; do
   # shellcheck disable=SC1090
   . "$f"
