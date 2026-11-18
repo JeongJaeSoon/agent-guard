@@ -8937,6 +8937,116 @@ git_gate_code_runner() {
   esac
 }
 
+# Set gsc_code to the code that su -c, script -c or watch ($1) hands to a
+# shell, from the records of its arguments ($2 on), and succeed only when
+# that is certain: every word is literal, every option is one listed here,
+# and no word outside the code names git. Otherwise the caller reads all the
+# words as code. watch stops at its first operand and joins the rest.
+git_gate_sh_runner_code() {
+  gsc_code=
+  case "$1" in
+    su) gsc_flags=lmpfP gsc_values=gGw gsc_long=' --login --preserve-environment --fast --pty ' gsc_vlong=' --group --supp-group --whitelist-environment ' ;;
+    script) gsc_flags=aefq gsc_values=EIOBTmo gsc_long=' --append --return --flush --quiet --timing ' gsc_vlong=' --echo --log-in --log-out --log-io --log-timing --logging-format --output-limit ' ;;
+    watch) gsc_flags=bcCegprtw gsc_values=nq gsc_long=' --beep --color --no-color --differences --errexit --chgexit --precise --no-rerun --no-title --no-wrap ' gsc_vlong=' --interval --equexit ' ;;
+    *) return 1 ;;
+  esac
+  gsc_runner=$1
+  gsc_found=0
+  gsc_next=
+  gsc_options=1
+  gsc_text=
+  shift
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      0';'|0'&&'|0'||'|0'|'|3*) break ;;
+      0*) ;;
+      *) return 1 ;;
+    esac
+    gsc_word=${1#0}
+    shift
+    gsc_text=
+    case "$gsc_next:$gsc_options:$gsc_runner:$gsc_word" in
+      c:*)
+        [ "$gsc_found" -eq 0 ] || return 1
+        gsc_code=$gsc_word
+        gsc_found=1
+        ;;
+      v:*) gsc_text=$gsc_word ;;
+      :1:*:--) gsc_options=0 ;;
+      :1:su:-) ;;
+      :1:su:--command|:1:script:--command) gsc_next=c; continue ;;
+      :1:su:--command=*|:1:script:--command=*)
+        [ "$gsc_found" -eq 0 ] || return 1
+        gsc_code=${gsc_word#--command=}
+        gsc_found=1
+        ;;
+      :1:*:--*=*)
+        case "$gsc_long$gsc_vlong" in
+          *" ${gsc_word%%=*} "*) gsc_text=${gsc_word#*=} ;;
+          *) return 1 ;;
+        esac
+        ;;
+      :1:*:--*)
+        case "$gsc_vlong" in
+          *" $gsc_word "*) gsc_next=v; continue ;;
+        esac
+        case "$gsc_long" in
+          *" $gsc_word "*) ;;
+          *) return 1 ;;
+        esac
+        ;;
+      :1:*:-?*)
+        gsc_rest=${gsc_word#-}
+        while [ -n "$gsc_rest" ]; do
+          gsc_letter=${gsc_rest%"${gsc_rest#?}"}
+          gsc_rest=${gsc_rest#?}
+          case "$gsc_flags" in
+            *"$gsc_letter"*) continue ;;
+          esac
+          case "$gsc_runner:$gsc_letter" in
+            su:c|script:c)
+              [ "$gsc_found" -eq 0 ] || return 1
+              if [ -n "$gsc_rest" ]; then
+                gsc_code=$gsc_rest
+                gsc_found=1
+              else
+                gsc_next=c
+              fi
+              ;;
+            # An optional value is glued to its option.
+            watch:d|script:t) gsc_text=$gsc_rest ;;
+            *)
+              case "$gsc_values" in
+                *"$gsc_letter"*) ;;
+                *) return 1 ;;
+              esac
+              gsc_text=$gsc_rest
+              [ -n "$gsc_rest" ] || gsc_next=v
+              ;;
+          esac
+          break
+        done
+        [ "$gsc_next" != c ] || continue
+        [ "$gsc_next" != v ] || continue
+        ;;
+      :*:watch:*)
+        gsc_options=0
+        gsc_code="${gsc_code:+$gsc_code }$gsc_word"
+        gsc_found=1
+        ;;
+      *) gsc_text=$gsc_word ;;
+    esac
+    gsc_next=
+    case "$gsc_text" in
+      *[Gg][Ii][Tt]*) gsc_code=; return 1 ;;
+    esac
+  done
+  if [ "$gsc_found" -eq 0 ] || [ -n "$gsc_next" ] || [ -z "$gsc_code" ]; then
+    gsc_code=
+    return 1
+  fi
+}
+
 # The fallback for a command name the gate does not know. Given the records
 # of one simple command from its name on ($1 is 1) or of a whole code string
 # ($1 is 0), set git_fb_found to 1 when it may run git commit or push: a word
@@ -8953,6 +9063,7 @@ git_gate_fallback_scan() {
   gfb_git=0
   gfb_hit=0
   gfb_prev=
+  gfb_text=
   while [ "$#" -gt 0 ]; do
     gfb_kind=${1%"${1#?}"}
     gfb_word=${1#?}
@@ -8962,7 +9073,9 @@ git_gate_fallback_scan() {
         case "$gfb_kind$gfb_word:$gfb_prev" in
           '3&:'*'>'|'3&:'*'<') continue ;;
         esac
+        git_gate_fallback_subst "$gfb_text"
         [ "$gfb_one" -eq 0 ] || return 0
+        gfb_text=
         gfb_head=1
         gfb_skip=0
         gfb_git=0
@@ -8972,7 +9085,10 @@ git_gate_fallback_scan() {
         ;;
       3*) continue ;;
     esac
-    [ "$gfb_skip" -eq 0 ] || continue
+    if [ "$gfb_skip" -eq 1 ]; then
+      gfb_text="$gfb_text $gfb_word"
+      continue
+    fi
     if [ "$gfb_head" -eq 1 ]; then
       is_assignment_token "$gfb_word" && continue
       gfb_head=0
@@ -8983,11 +9099,16 @@ git_gate_fallback_scan() {
       fi
       if git_gate_code_runner "${gfb_word##*/}"; then
         gfb_code=
+        gfb_sh=0
+        if git_gate_sh_runner_code "${gfb_word##*/}" "$@"; then
+          gfb_code=$gsc_code
+          gfb_sh=1
+        fi
         while [ "$#" -gt 0 ]; do
           case "$1" in
             0';'|0'&&'|0'||'|0'|'|3*) break ;;
           esac
-          gfb_code="$gfb_code ${1#?}"
+          [ "$gfb_sh" -eq 1 ] || gfb_code="$gfb_code ${1#?}"
           shift
         done
         git_gate_fallback_code "$gfb_code"
@@ -9021,6 +9142,15 @@ git_gate_fallback_scan() {
       0[Gg][Ii][Tt]) gfb_git=1 ;;
     esac
   done
+  git_gate_fallback_subst "$gfb_text"
+}
+
+# The words of a text-only command, $1, as code when a command substitution
+# in them still runs.
+git_gate_fallback_subst() {
+  case "$1" in
+    *'`'*|*'$('*) git_gate_fallback_code "$(printf '%s\n' "$1" | tr '`$()"' '     ')" ;;
+  esac
 }
 
 # git_gate_fallback_scan for code string $1, in a subshell: its words are

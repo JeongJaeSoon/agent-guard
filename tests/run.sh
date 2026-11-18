@@ -5114,7 +5114,10 @@ for gate_command in "fish -c 'git commit -m x'" "fish --command 'git push'" "nu 
   "flock /tmp/l -c 'git commit -m x'" "find . -exec git commit -m x {} ;" "ssh host git push" \
   "chroot / git commit -m x" "nsenter -t 1 git commit -m x" "sudo -R / git commit -m x" \
   "sudo -D /tmp git commit -m x" "env -iC /tmp git commit -m x" "timeout \$T git commit -m x" \
-  "nsenter -t \$P git commit -m x" "sudo -D \"\$D\" git commit -m x" "env -C \"\$D\" git commit -m x"; do
+  "nsenter -t \$P git commit -m x" "sudo -D \"\$D\" git commit -m x" "env -C \"\$D\" git commit -m x" \
+  "su -c 'echo hi; git push'" "su -c 'echo git commit' -s /usr/bin/fish" "su -s /bin/sh -c 'echo git commit'" \
+  "watch -x git commit -m x" "watch 'echo \"\$(git push)\"'" "su -c 'echo \`git push\`'" \
+  "fish -c 'echo git commit'" "parallel -j2 echo {} ::: git commit"; do
   gate_expect_unresolved claude closed "$gate_command"
   gate_expect_unresolved claude open "$gate_command"
 done
@@ -5126,7 +5129,11 @@ for gate_command in "git commit -m x" "sudo -n git commit -m x" \
   "timeout 5 git commit -m 'docs: never run git push --no-verify'" \
   "gh pr view 1 --json body" "for w in git commit; do echo \$w; done" \
   "su -c \"echo 'git commit'\"" "make && git status" \
-  "man git push" "tldr git commit" "info git commit"; do
+  "man git push" "tldr git commit" "info git commit" \
+  "watch -n 5 'echo git push'" "watch -dn5 echo git push" "su -c 'echo git commit'" \
+  "su root -c 'echo git push'" "su -l -c 'printf \"%s\\n\" git push'" \
+  "su -c 'echo git commit --no-verify'" "script -qc 'echo git commit' /dev/null" \
+  "script --command='echo git push'"; do
   gate_expect_clean claude "$gate_command"
 done
 for gate_host in claude codex; do
