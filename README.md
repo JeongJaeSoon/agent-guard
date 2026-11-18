@@ -77,8 +77,9 @@ plugins, the default warns that protection is degraded and lets the command
 continue, and `AGENT_GUARD_INFRA_FAILURE_MODE=closed` blocks it instead (see
 [Configuration](docs/configuration.md)). When only gitleaks or its config is
 unavailable, the default still runs the PreToolUse protected-path and
-deny-pattern checks and skips only the secret scan. The native hook and the
-Action fail on an unavailable scan regardless of that setting. A Claude Code check that times
+deny-pattern checks and skips only their secret scan; the other hooks still
+pass without their checks. The native hook and the Action fail on an
+unavailable scan regardless of that setting. A Claude Code check that times
 out or crashes before it decides blocks the tool call in either mode (Claude
 Code 2.1.295 and later).
 

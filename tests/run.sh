@@ -8717,7 +8717,9 @@ fi
 # #506: a missing gitleaks or gitleaks config skips only the secret scan. The
 # open policy still runs the protected-path and deny-pattern checks, a block
 # carries no degraded warning, and the first passing call per session warns.
-# The closed policy blocks every call. One row per host and outcome.
+# The closed policy blocks every call. One row per host and outcome. Rows
+# that share a session run in file order, so a warns-once row follows the row
+# whose warning it expects to be suppressed.
 scanner_unavailable_fixtures="$ROOT/tests/fixtures/scanner-unavailable-pre-tool.json"
 scanner_unavailable_cases="$TESTTMP/scanner-unavailable-pre-tool.cases"
 if jq -e 'type == "array" and length > 0
@@ -8735,6 +8737,7 @@ while IFS= read -r su_row; do
   su_mode=$(printf '%s' "$su_row" | jq -r '.mode')
   su_expected=$(printf '%s' "$su_row" | jq -r '.expected_status')
   su_stderr=$(printf '%s' "$su_row" | jq -r '.expected_stderr // empty')
+  su_stderr_also=$(printf '%s' "$su_row" | jq -r '.expected_stderr_also // empty')
   su_stdout=$(printf '%s' "$su_row" | jq -r '.expected_stdout // empty')
   su_quiet=$(printf '%s' "$su_row" | jq -r '.expected_quiet // false')
   su_gitleaks=/nonexistent/gitleaks
@@ -8754,6 +8757,7 @@ while IFS= read -r su_row; do
   su_ok=1
   [ "$su_status" -eq "$su_expected" ] || su_ok=0
   [ -z "$su_stderr" ] || grep -Fq -- "$su_stderr" "$ERR" || su_ok=0
+  [ -z "$su_stderr_also" ] || grep -Fq -- "$su_stderr_also" "$ERR" || su_ok=0
   [ -z "$su_stdout" ] || grep -Fq -- "$su_stdout" "$OUT" || su_ok=0
   if [ "$su_quiet" = true ] && { [ -s "$OUT" ] || [ -s "$ERR" ]; }; then
     su_ok=0

@@ -2477,7 +2477,15 @@ INFRA_FAILURE_NOTICE_EMITTED=0
 
 handle_hook_infrastructure_failure() {
   event=$1
-  begin_infrastructure_failure "${2:-}" "$3"
+  hif_detail=$3
+  # Another notice can be the first of the session while the scanner is
+  # missing; carry the scanner notice with it so the marker it creates never
+  # hides that the secret scan did not run.
+  if [ "$HOOK_SCANNER_UNAVAILABLE" = 1 ]; then
+    hif_scanner=$(degraded_hook_message scanner)
+    [ "$hif_detail" = "$hif_scanner" ] || hif_detail="$hif_scanner $hif_detail"
+  fi
+  begin_infrastructure_failure "${2:-}" "$hif_detail"
   [ -n "$INFRA_FAILURE_NOTICE" ] || return 0
   [ "$INFRA_FAILURE_NOTICE_EMITTED" = 0 ] || return 0
   case "$event" in
@@ -4181,6 +4189,7 @@ scan_text_direct() {
 # reports exactly as scan_text_direct does.
 scan_shell_command_text() {
   [ -n "$1" ] || return 0
+  [ "$HOOK_SCANNER_UNAVAILABLE" = 0 ] || return "$SCAN_STATUS_UNAVAILABLE"
   if gitleaks_clean_cache_key "$1"; then
     gitleaks_clean_cache_hit && return 0
   fi
