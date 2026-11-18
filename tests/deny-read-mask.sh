@@ -171,7 +171,7 @@ for cmd in "cat \"$DOT\"" "cat '$DOT'" "cat \$PWD/$DOT" "cat .en*" "cat .en?" \
   hook claude mask "$(bash_json "$cmd")"
   expect_blocked "mask '$cmd' blocks without content and ends with the guidance" "$GUIDE"
 done
-# Codex has no read tool for Agent Guard to check, so its hint names cat only.
+# Codex reads files through shell commands, so its hint names cat only.
 hook codex mask "$(bash_json "cat $DOT | head")"
 expect_blocked "codex: mask 'cat | head' ends with a cat-only guidance" \
   'agent-guard: for a masked view, read the protected file alone with `cat <path>`'
