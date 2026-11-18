@@ -1,4 +1,4 @@
-<!-- translated-from: docs/installation.md; source-blob: 2eb81b8e78ff56a230bb1f66ccf15d519c3c4c3e -->
+<!-- translated-from: docs/installation.md; source-blob: 17125cdeb02b570f1da24c23d82bcd8e508e6d7a -->
 
 <a id="installing-agent-guard"></a>
 
@@ -30,6 +30,8 @@ codex plugin add agent-guard@agent-guard
 ```
 
 プラグインを導入しても `PATH` に `agent-guard` は追加されません。表の `agent-guard plugin update` を使うにはスタンドアロンCLIかHomebrewのCLIが必要です。どちらもなければmarketplaceを削除し、新しいタグで上記のコマンドを再実行して更新してください。marketplaceの削除では、そのプラグインも削除されます。その後hostを再起動します。
+
+プラグインだけを導入した場合は `agent-guard` が `PATH` にないため、プラグインのCLIが出す案内（例: `update`、`check`、`doctor`、SessionStartの通知）はその実行ファイルを引用符で囲んだ絶対パスで示します。例: `"$HOME/.claude/plugins/cache/agent-guard/agent-guard/current/bin/agent-guard" setup`。`PATH` 上の `agent-guard` が同じインストールである場合や、スタンドアロン・Homebrewのインストールでは、案内はこれまでどおり短い `agent-guard` を使います。
 
 <a id="runtime-dependencies"></a>
 

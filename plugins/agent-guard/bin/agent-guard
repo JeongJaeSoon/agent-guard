@@ -162,6 +162,58 @@ sh_squote() {
   printf "'"
 }
 
+# The command word for guidance that asks the user to run this CLI. Keep the
+# short `agent-guard` when that name on PATH is this installation. Standalone
+# and Homebrew installs accept any copy on PATH, because Homebrew's bin entry is
+# a wrapper script rather than this file. A plugin-only install puts nothing on
+# PATH, so name the executable by its quoted absolute path instead: the stable
+# `current` link when it works, so the advice survives the next plugin update.
+# Computed on first use; only paths that print guidance pay for it.
+AG_CLI_REF=
+AG_CLI_REF_JSON=
+cli_ref_init() {
+  [ -z "$AG_CLI_REF" ] || return 0
+  cli_ref_found=$(command -v "$PROGRAM" 2>/dev/null) || cli_ref_found=
+  case $cli_ref_found in
+    /*)
+      if [ -z "$PLUGIN_CACHE_BASE" ] || [ "$cli_ref_found" -ef "$SELF_BIN" ] \
+         || [ "$cli_ref_found" -ef "$STABLE_BIN" ]; then
+        AG_CLI_REF=$PROGRAM
+        AG_CLI_REF_JSON=$PROGRAM
+        return 0
+      fi
+      ;;
+  esac
+  cli_ref_exec=$STABLE_BIN
+  [ -x "$cli_ref_exec" ] || cli_ref_exec=$SELF_BIN
+  # Double quotes read naturally inside the existing 'run ...' wording; a path
+  # that double quotes would not keep literal uses POSIX single quoting.
+  case $cli_ref_exec in
+    *[\"\$\`\\]*) AG_CLI_REF=$(sh_squote "$cli_ref_exec") ;;
+    *) AG_CLI_REF="\"$cli_ref_exec\"" ;;
+  esac
+  # Hook messages are hand-built JSON strings. Escape the two characters JSON
+  # requires; a control character cannot be escaped here, so that rare path
+  # keeps the short name rather than emitting invalid JSON.
+  case $AG_CLI_REF in
+    *[[:cntrl:]]*) AG_CLI_REF_JSON=$PROGRAM; return 0 ;;
+  esac
+  AG_CLI_REF_JSON=
+  cli_ref_rest=$AG_CLI_REF
+  while :; do
+    case $cli_ref_rest in
+      *[\"\\]*)
+        cli_ref_head=${cli_ref_rest%%[\"\\]*}
+        cli_ref_rest=${cli_ref_rest#"$cli_ref_head"}
+        cli_ref_tail=${cli_ref_rest#?}
+        AG_CLI_REF_JSON="$AG_CLI_REF_JSON$cli_ref_head\\${cli_ref_rest%"$cli_ref_tail"}"
+        cli_ref_rest=$cli_ref_tail
+        ;;
+      *) AG_CLI_REF_JSON=$AG_CLI_REF_JSON$cli_ref_rest; return 0 ;;
+    esac
+  done
+}
+
 GITLEAKS_CONFIG=${AGENT_GUARD_GITLEAKS_CONFIG:-"$ROOT_DIR/config/gitleaks.toml"}
 DENY_READ_PATHS_CUSTOM=0
 if [ -n "${AGENT_GUARD_DENY_READ_PATHS:-}" ]; then
@@ -816,7 +868,8 @@ plugin_for_host() {
 }
 
 plugin_set_retry() {
-  plugin_retry="$PROGRAM plugin $1 --host $plugin_host"
+  cli_ref_init
+  plugin_retry="$AG_CLI_REF plugin $1 --host $plugin_host"
   if [ "$plugin_host" = claude ] && [ "$plugin_scope" != user ]; then
     plugin_retry="$plugin_retry --scope $plugin_scope"
   fi
@@ -1021,7 +1074,8 @@ plugin_for_host_body() {
         return 2
       fi
       if [ "$plugin_has_marketplace" -eq 0 ] || [ "$plugin_has_install" -eq 0 ]; then
-        printf '%s\n' "$PROGRAM: $plugin_host plugin is not installed; run '$PROGRAM plugin install --host $plugin_host' first" >&2
+        cli_ref_init
+        printf '%s\n' "$PROGRAM: $plugin_host plugin is not installed; run '$AG_CLI_REF plugin install --host $plugin_host' first" >&2
         return 1
       fi
       plugin_require_release_pin 'refusing to update through it' || return 2
@@ -2352,8 +2406,9 @@ prepare_gitleaks() {
 need_gitleaks() {
   if ! prepare_gitleaks; then
     if [ -z "${GITLEAKS_BIN:-}" ]; then
+      cli_ref_init
       die_with_status "${1:-2}" \
-        "required command not found: gitleaks (run: $PROGRAM setup)"
+        "required command not found: gitleaks (run: $AG_CLI_REF setup)"
     fi
     probe_detail=$(gitleaks_probe_error "$GITLEAKS_BIN")
     die_with_status "${1:-2}" "$probe_detail"
@@ -2599,7 +2654,9 @@ degraded_hook_message() {
   esac
   [ -z "$degraded_probe_reason" ] \
     || printf ' Scanner readiness: %s.' "$degraded_probe_reason"
-  printf ' Run %s (or agent-guard setup), approve any required installation, verify with agent-guard check and smoke-test, then restart the host;' "$setup_ref"
+  cli_ref_init
+  printf ' Run %s (or %s setup), approve any required installation, verify with %s check and smoke-test, then restart the host;' \
+    "$setup_ref" "$AG_CLI_REF_JSON" "$AG_CLI_REF_JSON"
 }
 
 emit_degraded_hook_warning() {
@@ -2728,6 +2785,7 @@ setup_suggest_pkg_install() {
 }
 
 setup_suggest_gitleaks_runtime_repair() {
+  cli_ref_init
   case "$GITLEAKS_PROBE_DETAIL" in
     launcher-unavailable)
       info "$PROGRAM: install a gitleaks process-isolation helper:"
@@ -2738,16 +2796,16 @@ setup_suggest_gitleaks_runtime_repair() {
       elif command -v dnf >/dev/null 2>&1; then
         info "  sudo dnf install -y util-linux"
       else
-        info "  install setsid (util-linux) or Perl, then rerun $PROGRAM doctor"
+        info "  install setsid (util-linux) or Perl, then rerun $AG_CLI_REF doctor"
       fi
       return 0
       ;;
     timer-unavailable)
-      info "$PROGRAM: install the POSIX sleep utility, then rerun $PROGRAM doctor"
+      info "$PROGRAM: install the POSIX sleep utility, then rerun $AG_CLI_REF doctor"
       return 0
       ;;
     temp-helper-unavailable)
-      info "$PROGRAM: install the POSIX mkdir and rmdir utilities, then rerun $PROGRAM doctor"
+      info "$PROGRAM: install the POSIX mkdir and rmdir utilities, then rerun $AG_CLI_REF doctor"
       return 0
       ;;
   esac
@@ -2898,8 +2956,9 @@ EOF
     fi
     if [ "$gitleaks_ok" -eq 0 ]; then
       if ! setup_suggest_gitleaks_runtime_repair; then
+        cli_ref_init
         info "$PROGRAM: install gitleaks (rerun with --install to opt in):"
-        info "  agent-guard setup --install \\"
+        info "  $AG_CLI_REF setup --install \\"
         info "    --gitleaks-version $GITLEAKS_DEFAULT_VERSION \\"
         info "    --gitleaks-checksum <sha256-from-published-checksums.txt>"
         info ""
@@ -16503,7 +16562,8 @@ hook_session_start() {
       ''|[!0-9]*|*[!0-9A-Za-z.+-]*) ;;
       *)
         if [ "$marker" != "$VERSION" ]; then
-          drift="agent-guard plugin hooks are $VERSION but the Claude shell integration masks with $marker. Update whichever is older, then rerun agent-guard setup-shell."
+          cli_ref_init
+          drift="agent-guard plugin hooks are $VERSION but the Claude shell integration masks with $marker. Update whichever is older, then rerun $AG_CLI_REF_JSON setup-shell."
           if [ -n "$message" ]; then message="$message $drift"; else message=$drift; fi
         fi
         ;;
@@ -16527,11 +16587,18 @@ hook_session_start() {
     shell_init_block_state
     block_state=$?
     [ -z "$marker" ] || [ "$block_state" -ne 1 ] || block_state=0
+    # The standalone wording stays when `agent-guard` on PATH is this CLI; a
+    # plugin-only install is told the path that actually runs.
+    setup_shell_alt="$PROGRAM setup-shell for a standalone install"
+    if [ "$block_state" -ne 0 ]; then
+      cli_ref_init
+      [ "$AG_CLI_REF_JSON" = "$PROGRAM" ] || setup_shell_alt="$AG_CLI_REF_JSON setup-shell"
+    fi
     case $block_state in
       0) wrapping_setup= ;;
-      2) wrapping_setup='agent-guard command wrapping is set up in your shell rc but can no longer load: the agent-guard binary that block resolves is gone (plugin cache updated, uninstalled, or the block was edited). Command output is NOT masked. Reinstall or update agent-guard, rerun /agent-guard:setup-shell (or agent-guard setup-shell for a standalone install), then restart the shell and Claude Code.' ;;
-      3) wrapping_setup='agent-guard command wrapping for a fish shell does not cover both .bashrc and .zshrc, so the host snapshot may be unprotected. Command output is NOT masked unless the snapshot chose the surviving rc. Rerun /agent-guard:setup-shell (or agent-guard setup-shell for a standalone install), then restart the shell and Claude Code.' ;;
-      *) wrapping_setup='agent-guard command wrapping is not loaded. Run /agent-guard:setup-shell (or agent-guard setup-shell for a standalone install), then restart the shell and Claude Code. Use setup-shell --no-command-wrapping for a persistent opt-out.' ;;
+      2) wrapping_setup="agent-guard command wrapping is set up in your shell rc but can no longer load: the agent-guard binary that block resolves is gone (plugin cache updated, uninstalled, or the block was edited). Command output is NOT masked. Reinstall or update agent-guard, rerun /agent-guard:setup-shell (or $setup_shell_alt), then restart the shell and Claude Code." ;;
+      3) wrapping_setup="agent-guard command wrapping for a fish shell does not cover both .bashrc and .zshrc, so the host snapshot may be unprotected. Command output is NOT masked unless the snapshot chose the surviving rc. Rerun /agent-guard:setup-shell (or $setup_shell_alt), then restart the shell and Claude Code." ;;
+      *) wrapping_setup="agent-guard command wrapping is not loaded. Run /agent-guard:setup-shell (or $setup_shell_alt), then restart the shell and Claude Code. Use setup-shell --no-command-wrapping for a persistent opt-out." ;;
     esac
     if [ -n "$wrapping_setup" ]; then
       if [ -n "$message" ]; then message="$message $wrapping_setup"; else message=$wrapping_setup; fi
@@ -17417,7 +17484,7 @@ do_setup_shell() {
       --rc) shift; rc=${1:-}; [ -n "$rc" ] || die "setup-shell: --rc requires a path" ;;
       --no-command-wrapping) wrapping=' --no-command-wrapping' ;;
       -h|--help) want_help=1 ;;
-      *) die "setup-shell: unknown option: $1 (see: $PROGRAM setup-shell --help)" ;;
+      *) cli_ref_init; die "setup-shell: unknown option: $1 (see: $AG_CLI_REF setup-shell --help)" ;;
     esac
     shift
   done
@@ -17588,11 +17655,12 @@ shell_init_bootstrap_current() {
 # stale copy that still loads is not a protection gap.
 doctor_shell_integration_report() {
   [ -n "${HOME:-}" ] || return 0
+  cli_ref_init
   # Name the rc's shell: a bare setup-shell writes only the detected shell's rc.
   for dsi_sh in zsh bash; do
     dsi_rc=$HOME/.${dsi_sh}rc
     dsi_flag=$(shell_init_rc_inline_block "$dsi_rc") || continue
-    info "$PROGRAM: shell integration: $dsi_rc still has the pre-v3.9 inline agent-guard block; rerun agent-guard setup-shell --$dsi_sh$dsi_flag (or /agent-guard:setup-shell) to replace it with one line"
+    info "$PROGRAM: shell integration: $dsi_rc still has the pre-v3.9 inline agent-guard block; rerun $AG_CLI_REF setup-shell --$dsi_sh$dsi_flag (or /agent-guard:setup-shell) to replace it with one line"
   done
   for dsi_name in shell-init.sh shell-init-no-wrapping.sh; do
     dsi_init=$HOME/.agent-guard/$dsi_name
@@ -17600,7 +17668,7 @@ doctor_shell_integration_report() {
     shell_init_bootstrap_current "$dsi_init" && continue
     dsi_flag=
     [ "$dsi_name" = shell-init.sh ] || dsi_flag=' --no-command-wrapping'
-    info "$PROGRAM: shell integration: $dsi_init was written by an older agent-guard setup-shell; rerun agent-guard setup-shell$dsi_flag (or /agent-guard:setup-shell) to regenerate it"
+    info "$PROGRAM: shell integration: $dsi_init was written by an older agent-guard setup-shell; rerun $AG_CLI_REF setup-shell$dsi_flag (or /agent-guard:setup-shell) to regenerate it"
   done
   return 0
 }
@@ -17635,7 +17703,8 @@ do_doctor() {
 do_update() {
   [ "$#" -eq 0 ] || die "update: no arguments are accepted"
   if [ -n "$PLUGIN_CACHE_BASE" ]; then
-    die "update is unavailable for plugin installs; run '$PROGRAM plugin update --host claude' (or --host codex) to see the host-manager commands that move to a newer release"
+    cli_ref_init
+    die "update is unavailable for plugin installs; run '$AG_CLI_REF plugin update --host claude' (or --host codex) to see the host-manager commands that move to a newer release"
   fi
   if homebrew_managed_install; then
     die "update is unavailable for Homebrew installs; run: brew upgrade JeongJaeSoon/tap/agent-guard"
@@ -17707,7 +17776,13 @@ case "$cmd" in
   setup) shift; do_setup "$@" ;;
   setup-shell) shift; do_setup_shell "$@" ;;
   smoke-test) smoke_test ;;
-  checksum) shift; exec sh "$ROOT_DIR/scripts/gitleaks-checksum.sh" "$@" ;;
+  checksum)
+    shift
+    cli_ref_init
+    AGENT_GUARD_CLI_REF=$AG_CLI_REF
+    export AGENT_GUARD_CLI_REF
+    exec sh "$ROOT_DIR/scripts/gitleaks-checksum.sh" "$@"
+    ;;
   version) printf '%s %s\n' "$PROGRAM" "$VERSION" ;;
   ''|-h|--help|help) usage; exit 0 ;;
   *) usage; exit 2 ;;

@@ -34,6 +34,13 @@ CLI. Without one, move to a newer release by removing the marketplace and
 repeating the commands above with the new tag; removing the marketplace also
 removes its installed plugin. Restart the host afterwards.
 
+Because `agent-guard` is not on `PATH` after a plugin-only install, advice that
+the plugin's CLI prints (for example from `update`, `check`, `doctor`, or the
+SessionStart notice) names that executable by its quoted absolute path, such
+as `"$HOME/.claude/plugins/cache/agent-guard/agent-guard/current/bin/agent-guard" setup`.
+When the `agent-guard` on `PATH` is the same installation, or for a standalone
+or Homebrew install, the advice keeps the short `agent-guard` name.
+
 ## Optional fused output preparation (v3.8+)
 
 The output-pipeline experiment is opt-in. It combines private staging and JSON

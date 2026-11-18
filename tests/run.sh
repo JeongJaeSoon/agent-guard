@@ -247,6 +247,8 @@ run_expect 0 "quote gate skips only texts the quote pass leaves unchanged" sh "$
 run_expect 0 "printenv argument boundaries preserve empty and public values" sh "$ROOT/tests/printenv-argument-contract.sh"
 run_expect 0 "known dotenv values are masked only in deny-read mask mode" sh "$ROOT/tests/known-env-value.sh"
 run_expect 0 "host plugin lifecycle delegates safely" sh "$ROOT/tests/plugin-management.sh"
+run_expect 0 "CLI guidance names a command that runs for plugin-only installs" \
+  sh "$ROOT/tests/cli-guidance.sh"
 
 run_expect 0 "standalone update preserves executable and link destinations" \
   sh "$ROOT/tests/bootstrap-update.sh"

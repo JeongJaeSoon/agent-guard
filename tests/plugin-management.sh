@@ -36,6 +36,9 @@ new_case() {
   mkdir -p "$case_managed"
   : >"$case_log"
   ln -s "$REAL_JQ" "$case_bin/jq"
+  # The CLI under test is on PATH, as for a standalone install, so its retry
+  # advice keeps the short name (tests/cli-guidance.sh covers plugin-only).
+  ln -s "$GUARD" "$case_bin/agent-guard"
   export AG_PLUGIN_TEST_LOG="$case_log"
   export AG_PLUGIN_TEST_MARKETPLACE=absent
   export AG_PLUGIN_TEST_INSTALLED=0
