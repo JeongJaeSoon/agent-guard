@@ -53,13 +53,11 @@ require_json "$PLUGIN/.claude-plugin/plugin.json"
 require_json "$PLUGIN/hooks/hooks.json"
 require_json "$ENTRY"
 
-for file in LICENSE PRIVACY.md SUPPORT.md THIRD_PARTY_NOTICES.md; do
-  if cmp -s "$ROOT/$file" "$PLUGIN/$file"; then
-    ok "plugin payload $file matches repository policy"
-  else
-    fail "plugin payload $file matches repository policy"
-  fi
-done
+if "$ROOT/scripts/validate-plugin-layout.sh" --disclosures; then
+  ok "plugin payload disclosures match repository policy"
+else
+  fail "plugin payload disclosures match repository policy"
+fi
 
 manifest="$PLUGIN/.claude-plugin/plugin.json"
 if jq -e '
