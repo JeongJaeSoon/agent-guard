@@ -1851,9 +1851,10 @@ expect_json_status 2 "negative glob does not hide a chained denied read" \
   hook-pre-tool
 
 # The Bash path gate stays fail-closed on path-shaped text (#99). What it must
-# not stay is opaque: a block has to name the deny-read entry that matched, the
-# text that matched it, and the fact that a non-path-shaped rewrite is the fix,
-# so a false positive is self-serviceable without weakening the deny list.
+# not stay is opaque: a block has to name the deny-read entry that matched and
+# the host tool for each job, without quoting the command. It must not offer a
+# reworded retry: text rewritten to look unlike a path can still open the
+# protected file (#507).
 expect_stderr_contains() {
   expected_fragment=$1
   name=$2
@@ -1883,8 +1884,10 @@ expect_stderr_contains "matched deny-read-paths entry '*.key'" \
   "Bash path block names the deny-read entry that matched"
 expect_stderr_missing "in scanned text" \
   "Bash path block quotes no raw command text"
-expect_stderr_contains "rewrite" \
-  "Bash path block suggests a non-path-shaped rewrite"
+expect_stderr_missing "rewrite" \
+  "Bash path block does not suggest a reworded retry"
+expect_stderr_contains "Do not weaken the deny list or reshape the command to pass this check." \
+  "Bash path block asks not to reshape the command"
 
 expect_json_status 2 "yq selector false positive reports its deny-read entry" \
   '{"tool_name":"Bash","tool_input":{"command":"yq '\''.key'\'' d.yaml"}}' \

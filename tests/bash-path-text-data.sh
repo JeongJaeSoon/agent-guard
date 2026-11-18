@@ -21,7 +21,7 @@ check() {
   checked=$((checked + 1))
   jq -nc --arg c "$command" --arg w "$CASE_ROOT" \
     '{tool_name:"Bash",tool_input:{command:$c,workdir:$w}}' \
-    | AGENT_GUARD_HOOK_HOST=${HOST:-claude} "$GUARD" hook-pre-tool > "$CASE_ROOT/out" 2> "$CASE_ROOT/err"
+    | AGENT_GUARD_HOOK_HOST=${HOST:-claude} AGENT_GUARD_DENY_READ_MODE=${MODE:-block} "$GUARD" hook-pre-tool > "$CASE_ROOT/out" 2> "$CASE_ROOT/err"
   status=$?
   if [ "$status" -eq "$expected" ]; then
     printf 'ok - path data %s: %s\n' "$checked" "$label"
@@ -107,23 +107,36 @@ says "a path block names the matched entry" "matched deny-read-paths entry 'secr
 # A path block names the tool for each job and never asks for a reworded
 # retry: text rewritten to look unlike a path can still open the file (#507).
 PATH_TOOLS_CLAUDE="agent-guard: for an ordinary file, use the Read, Edit or Write tool; find file names with the Glob tool and search contents with the Grep tool, outside protected paths. The Read tool cannot open a protected file either. A program an interpreter runs (python3 - <<EOF, node -e) stays blocked while its text names a protected file, because the guard cannot tell a string from a path it opens."
-PATH_TOOLS_CODEX="agent-guard: for an ordinary file, edit it with apply_patch and read it with a shell command on that file alone; Codex has no separate search tool, so keep file name and content searches to paths that hold no protected file. A program an interpreter runs (python3 - <<EOF, node -e) stays blocked while its text names a protected file, because the guard cannot tell a string from a path it opens."
+PATH_TOOLS_CODEX="agent-guard: for an ordinary file, edit it with apply_patch and read it with a shell command on that file alone; Codex has no search tool that Agent Guard checks, so keep file name and content searches to paths that hold no protected file. A program an interpreter runs (python3 - <<EOF, node -e) stays blocked while its text names a protected file, because the guard cannot tell a string from a path it opens."
 PATH_LIMITS="agent-guard: checking whether a protected file exists or reading its metadata is not supported; if it is needed, ask the user to run the command themselves. Do not weaken the deny list or reshape the command to pass this check."
-for HOST in claude codex; do
-  for probe in "test -f .env && echo present" "cat .env" "rg 'id_rsa' docs/"; do
-    check 2 "$HOST: path block for: $probe" "$probe"
-    case $HOST in
-      claude) says "$HOST: path block names the Glob, Grep and Read tools" "$PATH_TOOLS_CLAUDE" ;;
-      codex) says "$HOST: path block names apply_patch and shell limits" "$PATH_TOOLS_CODEX"
-        lacks "$HOST: path block names no Claude-only tool" "Glob tool" ;;
-    esac
-    says "$HOST: path block states the unsupported checks and the user fallback" "$PATH_LIMITS"
-    lacks "$HOST: path block does not ask for a rewrite" "rewrite"
-    lacks "$HOST: path block does not ask for a retry" "retry"
-    lacks "$HOST: path block does not mention path-shaped text" "path-shaped"
+# Mask mode can carry a masked view, so it says that instead of "cannot open"
+# and does not call every check unsupported.
+PATH_TOOLS_CLAUDE_MASK="agent-guard: for an ordinary file, use the Read, Edit or Write tool; find file names with the Glob tool and search contents with the Grep tool, outside protected paths. The Read tool shows a protected file only as a masked view. A program an interpreter runs (python3 - <<EOF, node -e) stays blocked while its text names a protected file, because the guard cannot tell a string from a path it opens."
+PATH_LIMITS_MASK="agent-guard: apart from a masked view, checking a protected file or reading its metadata is not supported; if it is needed, ask the user to run the command themselves. Do not weaken the deny list or reshape the command to pass this check."
+for MODE in block mask; do
+  for HOST in claude codex; do
+    for probe in "test -f .env && echo present" "cat .env | head" "rg 'id_rsa' docs/"; do
+      check 2 "$HOST $MODE: path block for: $probe" "$probe"
+      case $HOST.$MODE in
+        claude.block) says "$HOST $MODE: path block names the Glob, Grep and Read tools" "$PATH_TOOLS_CLAUDE" ;;
+        claude.mask) says "$HOST $MODE: path block names the tools and the masked view" "$PATH_TOOLS_CLAUDE_MASK"
+          lacks "$HOST $MODE: path block does not say Read cannot open" "cannot open" ;;
+        codex.*) says "$HOST $MODE: path block names apply_patch and shell limits" "$PATH_TOOLS_CODEX"
+          lacks "$HOST $MODE: path block names no Claude-only tool" "Glob tool"
+          lacks "$HOST $MODE: path block names no Read tool" "read tool" ;;
+      esac
+      case $MODE in
+        block) says "$HOST $MODE: path block states the unsupported checks and the user fallback" "$PATH_LIMITS" ;;
+        mask) says "$HOST $MODE: path block states the unsupported checks and the user fallback" "$PATH_LIMITS_MASK" ;;
+      esac
+      lacks "$HOST $MODE: path block does not ask for a rewrite" "rewrite"
+      lacks "$HOST $MODE: path block does not ask for a retry" "retry"
+      lacks "$HOST $MODE: path block does not mention path-shaped text" "path-shaped"
+    done
   done
 done
 HOST=
+MODE=
 check 2 "python reads a protected file named in its body" \
   "python3 - <<'EOF'${NL}print(open('secrets.json').read())${NL}EOF"
 check 2 "printenv into a variable" "X=\$(docker compose exec -T db printenv DB_PASSWORD)"

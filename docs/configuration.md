@@ -201,6 +201,8 @@ Only two reads get a view:
   paths, pipes, redirections, `;`, `&&`, a newline, an environment prefix,
   `head`, `sed -n` and so on) blocks as in `block` mode, with one more line:
   "for a masked view, read the protected file alone with the read tool or
+  `cat <path>`". On Codex, which has no read tool that Agent Guard checks,
+  the line is "for a masked view, read the protected file alone with
   `cat <path>`".
 
 Before the view is returned, the whole view is scanned again with gitleaks.

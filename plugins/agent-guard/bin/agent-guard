@@ -11171,11 +11171,23 @@ $joined_cmd"
       [ -n "$deny_report" ] && info "$PROGRAM: $deny_report"
       # Name the tool for each job, not a way to reword the command: text
       # rewritten to look unlike a path can still open the protected file.
-      case "$(hook_host)" in
-        codex) info "$PROGRAM: for an ordinary file, edit it with apply_patch and read it with a shell command on that file alone; Codex has no separate search tool, so keep file name and content searches to paths that hold no protected file. A program an interpreter runs (python3 - <<EOF, node -e) stays blocked while its text names a protected file, because the guard cannot tell a string from a path it opens." ;;
-        *) info "$PROGRAM: for an ordinary file, use the Read, Edit or Write tool; find file names with the Glob tool and search contents with the Grep tool, outside protected paths. The Read tool cannot open a protected file either. A program an interpreter runs (python3 - <<EOF, node -e) stays blocked while its text names a protected file, because the guard cannot tell a string from a path it opens." ;;
+      # In mask mode a protected file is still never opened by a tool, but
+      # the block can carry a masked view, so say that instead.
+      case "$dr_mode" in
+        mask)
+          dr_read_note='The Read tool shows a protected file only as a masked view.'
+          dr_limits='apart from a masked view, checking a protected file or reading its metadata is not supported'
+          ;;
+        *)
+          dr_read_note='The Read tool cannot open a protected file either.'
+          dr_limits='checking whether a protected file exists or reading its metadata is not supported'
+          ;;
       esac
-      info "$PROGRAM: checking whether a protected file exists or reading its metadata is not supported; if it is needed, ask the user to run the command themselves. Do not weaken the deny list or reshape the command to pass this check."
+      case "$(hook_host)" in
+        codex) info "$PROGRAM: for an ordinary file, edit it with apply_patch and read it with a shell command on that file alone; Codex has no search tool that Agent Guard checks, so keep file name and content searches to paths that hold no protected file. A program an interpreter runs (python3 - <<EOF, node -e) stays blocked while its text names a protected file, because the guard cannot tell a string from a path it opens." ;;
+        *) info "$PROGRAM: for an ordinary file, use the Read, Edit or Write tool; find file names with the Glob tool and search contents with the Grep tool, outside protected paths. $dr_read_note A program an interpreter runs (python3 - <<EOF, node -e) stays blocked while its text names a protected file, because the guard cannot tell a string from a path it opens." ;;
+      esac
+      info "$PROGRAM: $dr_limits; if it is needed, ask the user to run the command themselves. Do not weaken the deny list or reshape the command to pass this check."
       deny_read_mode_notice "$dr_mode"
       exit 2
       ;;
@@ -15324,7 +15336,12 @@ deny_read_masked_block() {
 
 deny_read_mode_notice() {
   case $1 in
-    mask) info "$PROGRAM: for a masked view, read the protected file alone with the read tool or \`cat <path>\`" ;;
+    mask)
+      case "$(hook_host)" in
+        codex) info "$PROGRAM: for a masked view, read the protected file alone with \`cat <path>\`" ;;
+        *) info "$PROGRAM: for a masked view, read the protected file alone with the read tool or \`cat <path>\`" ;;
+      esac
+      ;;
     invalid) info "$PROGRAM: AGENT_GUARD_DENY_READ_MODE must be block or mask; no masked view" ;;
   esac
 }
