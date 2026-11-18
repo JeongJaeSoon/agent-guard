@@ -50,6 +50,37 @@ ROOT_DIR=$(CDPATH= cd -- "$BIN_DIR/.." && pwd -P)
 # Resolved absolute path of THIS binary, for self re-exec and cache identity.
 SELF_BIN="$BIN_DIR/agent-guard"
 
+# Sets ag_sv_1..3 to the first three dot-separated fields of $1 (a missing or
+# empty field is 0). Fails on any other character or a field of 10+ digits,
+# which test(1) cannot compare.
+semver_fields() {
+  case "$1" in
+    *[!0-9.]*|*[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]*) return 1 ;;
+  esac
+  ag_sv_ifs=$IFS
+  IFS=.
+  # shellcheck disable=SC2086 # split on IFS=. into fields
+  set -- $1
+  IFS=$ag_sv_ifs
+  ag_sv_1=${1:-0} ag_sv_2=${2:-0} ag_sv_3=${3:-0}
+}
+
+# semver_at_least A B succeeds when version A >= B; an unparsable version
+# fails with 2.
+semver_at_least() {
+  semver_fields "$2" || return 2
+  ag_sv_b1=$ag_sv_1 ag_sv_b2=$ag_sv_2 ag_sv_b3=$ag_sv_3
+  semver_fields "$1" || return 2
+  [ "$ag_sv_1" -ne "$ag_sv_b1" ] && { [ "$ag_sv_1" -gt "$ag_sv_b1" ]; return; }
+  [ "$ag_sv_2" -ne "$ag_sv_b2" ] && { [ "$ag_sv_2" -gt "$ag_sv_b2" ]; return; }
+  [ "$ag_sv_3" -ge "$ag_sv_b3" ]
+}
+
+# version_newer A B: succeeds when semver A is strictly greater than B.
+version_newer() {
+  semver_at_least "$2" "$1"
+  [ "$?" -eq 1 ]
+}
 
 # Plugin managers install each release under a version directory. Keep one
 # sibling `current` symlink so shell snapshots and hook manifests never bake a
@@ -135,10 +166,9 @@ refresh_plugin_current_link() {
   # host-selected binary actually runs.
   if [ -L "$current" ]; then
     if is_semver_dir "$current_target" \
-       && plugin_cache_root_usable "$PLUGIN_CACHE_BASE/$current_target" "$current_target"; then
-      newest=$(printf '%s\n%s\n' "$current_target" "$PLUGIN_CACHE_VERSION" \
-        | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1)
-      [ "$newest" = "$current_target" ] && return 0
+       && plugin_cache_root_usable "$PLUGIN_CACHE_BASE/$current_target" "$current_target" \
+       && semver_at_least "$current_target" "$PLUGIN_CACHE_VERSION"; then
+      return 0
     fi
   fi
   # BSD and GNU ln both support -n to replace a symlink-to-directory itself
@@ -254,18 +284,6 @@ latest_release_version() {
     fi
   fi
   [ -n "$LATEST_RELEASE_VERSION" ]
-}
-
-# version_newer A B: succeeds when semver A is strictly greater than B.
-version_newer() {
-  awk -v a="$1" -v b="$2" 'BEGIN {
-    split(a, x, "."); split(b, y, ".")
-    for (i = 1; i <= 3; i++) {
-      if (x[i] + 0 > y[i] + 0) exit 0
-      if (x[i] + 0 < y[i] + 0) exit 1
-    }
-    exit 1
-  }'
 }
 
 # Host-manager commands that move a pinned marketplace to $2 (a tag, or a
@@ -1188,11 +1206,34 @@ audit_location() {
   printf '%s/agent-guard' "${XDG_STATE_HOME:-${HOME:-}/.local/state}"
 }
 
-audit_stat() {
-  case "${AG_OS:-$(uname -s)}" in
-    Darwin) stat -f '%u:%Lp' "$1" 2>/dev/null ;;
-    *) stat -c '%u:%a' "$1" 2>/dev/null ;;
+# file_stat FIELDS FOLLOW FILE... prints one line per FILE through BSD or GNU
+# stat. FOLLOW is -L to follow a symlink or -P not to. FIELDS is one of:
+#   access    uid:mode
+#   entry     uid:mode:links:ctime
+#   identity  dev:inode:size:mtime:ctime, with sub-second times
+# Caches trust identity to notice a rewrite, so it fails where stat is not
+# known to print sub-second times (%F): a same-size rewrite within one second
+# would otherwise keep a stale entry. Those platforms run uncached.
+file_stat() {
+  ag_fs_os=${AG_OS:-$(uname -s)}
+  case "$ag_fs_os:$1" in
+    Darwin:access|*BSD:access|DragonFly:access) ag_fs_format='-f %u:%Lp' ;;
+    Darwin:entry|*BSD:entry|DragonFly:entry) ag_fs_format='-f %u:%Lp:%l:%c' ;;
+    Darwin:identity) ag_fs_format='-f %d:%i:%z:%Fm:%Fc' ;;
+    *BSD:identity|DragonFly:identity) return 1 ;;
+    *:access) ag_fs_format='-c %u:%a' ;;
+    *:entry) ag_fs_format='-c %u:%a:%h:%Z' ;;
+    *:identity) ag_fs_format='-c %d:%i:%s:%y:%z' ;;
+    *) return 1 ;;
   esac
+  ag_fs_follow=$2
+  shift 2
+  # BSD stat wants every option before the operands.
+  if [ "$ag_fs_follow" = -L ]; then
+    stat -L "${ag_fs_format%% *}" "${ag_fs_format#* }" "$@" 2>/dev/null
+  else
+    stat "${ag_fs_format%% *}" "${ag_fs_format#* }" "$@" 2>/dev/null
+  fi
 }
 
 # Refuse symlink components and ambiguous relative paths. Existing private
@@ -1219,7 +1260,7 @@ audit_directory() (
     (umask 077; mkdir -p "$ag_dir") 2>/dev/null || return 1
   fi
   [ -d "$ag_dir" ] && [ ! -L "$ag_dir" ] || return 1
-  [ "$(audit_stat "$ag_dir")" = "${AG_UID:-$(id -u)}:700" ] || return 1
+  [ "$(file_stat access -P "$ag_dir")" = "${AG_UID:-$(id -u)}:700" ] || return 1
   printf '%s' "$ag_dir"
 )
 
@@ -1324,7 +1365,7 @@ audit_begin() {
   fi
   AG_AUDIT_ID=${ag_candidate##*/event-}
   if [ -n "$ag_candidate" ] && [ ! -L "$ag_candidate" ] && [ -f "$ag_candidate" ] \
-      && [ "$(audit_stat "$ag_candidate")" = "${AG_UID:-$(id -u)}:600" ] \
+      && [ "$(file_stat access -P "$ag_candidate")" = "${AG_UID:-$(id -u)}:600" ] \
       && audit_record "$AG_AUDIT_START" started pending null 0 null >>"$ag_candidate"; then
     # A caught signal before this assignment leaves no finish-only event.
     AG_AUDIT_FILE=$ag_candidate
@@ -1368,7 +1409,7 @@ audit_finish() {
     esac
   fi
   if [ ! -L "$AG_AUDIT_FILE" ] && [ -f "$AG_AUDIT_FILE" ] \
-      && [ "$(audit_stat "$AG_AUDIT_FILE")" = "${AG_UID:-$(id -u)}:600" ]; then
+      && [ "$(file_stat access -P "$AG_AUDIT_FILE")" = "${AG_UID:-$(id -u)}:600" ]; then
     audit_record "$ag_end" finished "$ag_outcome" "$ag_exit" "$ag_duration" "$ag_reason" >>"$AG_AUDIT_FILE" 2>/dev/null \
       || printf '%s\n' 'agent-guard: local diagnostic log could not be completed.' >&2
   fi
@@ -1380,7 +1421,7 @@ audit_export() {
   ag_dir=$(audit_directory) || { printf '%s\n' 'agent-guard: no private diagnostic log directory is available.' >&2; return 2; }
   for ag_file in "$ag_dir"/event-*; do
     [ -f "$ag_file" ] && [ ! -L "$ag_file" ] || continue
-    [ "$(audit_stat "$ag_file")" = "$(id -u):600" ] || continue
+    [ "$(file_stat access -P "$ag_file")" = "$(id -u):600" ] || continue
     ag_bytes=$(wc -c <"$ag_file" | tr -d ' ')
     case "$ag_bytes" in ''|*[!0-9]*) continue ;; esac
     [ "$ag_bytes" -le 2048 ] || continue
@@ -1425,7 +1466,7 @@ audit_export_to_file() (
     printf '%s\n' 'agent-guard: could not create a private temporary log export file.' >&2
     return 2
   }
-  if [ ! -f "$ag_tmp" ] || [ -L "$ag_tmp" ] || [ "$(audit_stat "$ag_tmp")" != "$(id -u):600" ]; then
+  if [ ! -f "$ag_tmp" ] || [ -L "$ag_tmp" ] || [ "$(file_stat access -P "$ag_tmp")" != "$(id -u):600" ]; then
     printf '%s\n' 'agent-guard: temporary log export file was not private.' >&2
     return 2
   fi
@@ -1434,7 +1475,7 @@ audit_export_to_file() (
     printf '%s\n' 'agent-guard: refusing to overwrite an existing or invalid log export target.' >&2
     return 2
   }
-  [ -f "$ag_output" ] && [ ! -L "$ag_output" ] && [ "$(audit_stat "$ag_output")" = "$(id -u):600" ] || {
+  [ -f "$ag_output" ] && [ ! -L "$ag_output" ] && [ "$(file_stat access -P "$ag_output")" = "$(id -u):600" ] || {
     printf '%s\n' 'agent-guard: log export target was not a private regular file.' >&2
     return 2
   }
@@ -1926,10 +1967,7 @@ gitleaks_probe_cache_lookup() {
   ag_gl_cache_head=
   IFS= read -r ag_gl_cache_head <"$ag_gl_cache_real" 2>/dev/null || :
   case "$ag_gl_cache_head" in '#!'*) return 1 ;; esac
-  case "${AG_OS:-$(uname -s)}" in
-    Darwin) ag_gl_cache_id=$(stat -L -f '%d:%i:%z:%Fm:%Fc' "$ag_gl_cache_bin" 2>/dev/null) ;;
-    *) ag_gl_cache_id=$(stat -L -c '%d:%i:%s:%y:%z' "$ag_gl_cache_bin" 2>/dev/null) ;;
-  esac || return 1
+  ag_gl_cache_id=$(file_stat identity -L "$ag_gl_cache_bin") || return 1
   [ -n "$ag_gl_cache_id" ] || return 1
   GITLEAKS_PROBE_CACHE_KEY="1 $GITLEAKS_MIN_VERSION $ag_gl_cache_id $ag_gl_cache_bin"
   ag_gl_cache_file="$AG_STATE_DIR/gitleaks-probe"
@@ -2064,19 +2102,6 @@ gitleaks_clean_cache_hash() {
   esac
 }
 
-# Print uid:mode:links:ctime for each operand, one line each, through BSD or
-# GNU stat. $1 is -L to follow symlinks or -P not to; BSD stat wants every
-# option before the operands.
-gitleaks_clean_cache_stat() {
-  case "${AG_OS:-$(uname -s)}" in
-    Darwin|*BSD|DragonFly) ag_glc_follow=$1; shift
-      if [ "$ag_glc_follow" = -L ]; then stat -L -f '%u:%Lp:%l:%c' "$@" 2>/dev/null
-      else stat -f '%u:%Lp:%l:%c' "$@" 2>/dev/null; fi ;;
-    *) ag_glc_follow=$1; shift
-      if [ "$ag_glc_follow" = -L ]; then stat -L -c '%u:%a:%h:%Z' "$@" 2>/dev/null
-      else stat -c '%u:%a:%h:%Z' "$@" 2>/dev/null; fi ;;
-  esac
-}
 
 # $1 holds four stat lines: the hash tool, its directory, the cache directory,
 # and then the entry ($3 = hit) or the config ($3 = store); $2 is this user's
@@ -2191,7 +2216,7 @@ gitleaks_clean_cache_hit() {
   [ -f "$GITLEAKS_CLEAN_CACHE_FILE" ] && [ ! -L "$GITLEAKS_CLEAN_CACHE_FILE" ] || return 1
   # The tool that named the entry, the directory as the store left it, and an
   # entry nobody else could write, in one stat.
-  ag_glc_modes=$(gitleaks_clean_cache_stat -P "$GITLEAKS_CLEAN_CACHE_HASHER" \
+  ag_glc_modes=$(file_stat entry -P "$GITLEAKS_CLEAN_CACHE_HASHER" \
     "${GITLEAKS_CLEAN_CACHE_HASHER%/*}" "$ag_glc_dir" "$GITLEAKS_CLEAN_CACHE_FILE") || return 1
   gitleaks_clean_cache_modes_ok "$ag_glc_modes" "${AG_UID:-$(id -u)}" hit || return 1
   { IFS= read -r ag_glc_format && IFS= read -r ag_glc_config \
@@ -2239,7 +2264,7 @@ gitleaks_clean_cache_store() {
   [ -d "$ag_glc_dir" ] && [ ! -L "$ag_glc_dir" ] || return 0
   # -L: the config is read through any link, as gitleaks reads it. The tool and
   # the directories were checked not to be links.
-  ag_glc_modes=$(gitleaks_clean_cache_stat -L "$GITLEAKS_CLEAN_CACHE_HASHER" \
+  ag_glc_modes=$(file_stat entry -L "$GITLEAKS_CLEAN_CACHE_HASHER" \
     "${GITLEAKS_CLEAN_CACHE_HASHER%/*}" "$ag_glc_dir" "$GITLEAKS_CONFIG") || return 0
   gitleaks_clean_cache_modes_ok "$ag_glc_modes" "${AG_UID:-$(id -u)}" store || return 0
   # The config gitleaks just read must be the one the key hashed. A ctime from
@@ -2530,9 +2555,7 @@ claude_block_json_supported() {
   set -- $cb_version
   IFS=$cb_ifs
   [ "$#" -eq 3 ] && [ -n "$1" ] && [ -n "$2" ] && [ -n "$3" ] || return 1
-  [ "$1" -ne 2 ] && { [ "$1" -gt 2 ]; return; }
-  [ "$2" -ne 1 ] && { [ "$2" -gt 1 ]; return; }
-  [ "$3" -ge 214 ]
+  semver_at_least "$1.$2.$3" 2.1.214
 }
 
 CLAUDE_BLOCK_EVENT=
@@ -2620,24 +2643,6 @@ jq_lookbehind_supported() {
     | jq -e 'test("(?<![0-9])1")' >/dev/null 2>&1
 }
 
-semver_at_least() (
-  actual=$1
-  required=$2
-  old_ifs=$IFS
-  IFS=.
-  # shellcheck disable=SC2086
-  set -- $actual
-  actual_major=${1:-0}; actual_minor=${2:-0}; actual_patch=${3:-0}
-  # shellcheck disable=SC2086
-  set -- $required
-  required_major=${1:-0}; required_minor=${2:-0}; required_patch=${3:-0}
-  IFS=$old_ifs
-  [ "$actual_major" -gt "$required_major" ] && return 0
-  [ "$actual_major" -lt "$required_major" ] && return 1
-  [ "$actual_minor" -gt "$required_minor" ] && return 0
-  [ "$actual_minor" -lt "$required_minor" ] && return 1
-  [ "$actual_patch" -ge "$required_patch" ]
-)
 
 check_deps() {
   need_cmd sh
@@ -5437,10 +5442,7 @@ deny_path_cache_file() {
   if [ -z "$DENY_PATH_CACHE_ID" ]; then
     dpc_nl='
 '
-    case "${AG_OS:-$(uname -s)}" in
-      Darwin) dpc_ids=$(stat -L -f '%d:%i:%z:%Fm:%Fc' "$DENY_READ_PATHS" "$SELF_BIN" 2>/dev/null) || return 1 ;;
-      *) dpc_ids=$(stat -L -c '%d:%i:%s:%y:%z' "$DENY_READ_PATHS" "$SELF_BIN" 2>/dev/null) || return 1 ;;
-    esac
+    dpc_ids=$(file_stat identity -L "$DENY_READ_PATHS" "$SELF_BIN") || return 1
     # The regex splits a multibyte character differently per locale, so the
     # locale that built a file is part of its name.
     dpc_ids="$VERSION:${dpc_ids%%"$dpc_nl"*}:${dpc_ids#*"$dpc_nl"}:L${LC_ALL:-}:${LC_CTYPE:-}:${LANG:-}"
@@ -12779,7 +12781,7 @@ live_probe_marker_valid() {
   live_probe_dir=$2
   live_probe_marker="$live_probe_dir/live-probe-$live_probe_id"
   [ -d "$live_probe_marker" ] && [ ! -L "$live_probe_marker" ] || return 1
-  [ "$(audit_stat "$live_probe_marker")" = "$(id -u):700" ] || return 1
+  [ "$(file_stat access -P "$live_probe_marker")" = "$(id -u):700" ] || return 1
   ! find "$live_probe_marker" -mindepth 1 -maxdepth 1 -print 2>/dev/null \
     | grep -q .
 }
@@ -12832,7 +12834,7 @@ live_probe_audit_record_exists() {
     | LC_ALL=C grep -Eq '^[0-9]{1,12}-[A-Za-z0-9]{6}$' || return 1
   live_probe_file="$live_probe_dir/event-$live_probe_id"
   [ -f "$live_probe_file" ] && [ ! -L "$live_probe_file" ] || return 1
-  [ "$(audit_stat "$live_probe_file")" = "$(id -u):600" ] || return 1
+  [ "$(file_stat access -P "$live_probe_file")" = "$(id -u):600" ] || return 1
   live_probe_marker_valid "$live_probe_id" "$live_probe_dir" || return 1
   live_probe_bytes=$(wc -c <"$live_probe_file" | tr -d '[:space:]')
   case "$live_probe_bytes" in ''|*[!0-9]*) return 1 ;; esac
@@ -15281,7 +15283,7 @@ mask_allow_source() (
       1) printf '%s' "$ma_acl"; return 1 ;;
       *) printf '%s' "$ma_unchecked"; return 1 ;;
     esac
-    ma_stat=$(audit_stat "$1")
+    ma_stat=$(file_stat access -P "$1")
     ma_owner=${ma_stat%%:*}
     ma_mode=${ma_stat#*:}
     case $ma_owner:$ma_mode in
