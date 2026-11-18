@@ -5492,11 +5492,48 @@ deny_path_cache_rules_out() {
   [ "$?" -eq 1 ]
 }
 
+# The shell-expanded regex of an entry differs from its literal regex only in
+# alternatives that need a `*`, `?`, `[` or a backslash (\xHH) in the text,
+# and in a lead class that also refuses `[`; the wrapper and an entry `*` are
+# spelled the same. So for an entry made only of letters, digits and `._/~*-`
+# (each spelled as itself in both modes) and a text without those four
+# characters, both regexes match the same texts, a match needs no pin check
+# (it pins every letter it spells), and the literal pass gives the verdict and
+# the entry it names. Its combined file is a fraction of the shell-expanded one,
+# which costs most of a plain Bash hook to build and to compile in grep.
+# A deny list with any other character keeps every shell-expanded pass.
+DENY_PATH_SX_LITERAL_LIST=
+
+# Return 0 when a shell-expanded pass over $1 may read it in literal mode.
+deny_path_sx_reads_as_literal() {
+  case "$1" in
+    *'*'*|*'?'*|*'['*|*'\'*) return 1 ;;
+  esac
+  if [ -z "$DENY_PATH_SX_LITERAL_LIST" ]; then
+    DENY_PATH_SX_LITERAL_LIST=yes
+    # The entries the scan loop reads. The letters are listed because a range
+    # follows the locale.
+    while IFS= read -r dpl_entry || [ -n "$dpl_entry" ]; do
+      case "$dpl_entry" in
+        ''|\#*) ;;
+        *[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._/~*-]*)
+          DENY_PATH_SX_LITERAL_LIST=no
+          break
+          ;;
+      esac
+    done <"$DENY_READ_PATHS" 2>/dev/null || DENY_PATH_SX_LITERAL_LIST=no
+  fi
+  [ "$DENY_PATH_SX_LITERAL_LIST" = yes ]
+}
+
 # Private variable name; see check_bash_command (#127).
 bash_matches_deny_path_mode() {
   mode_cmd=$1
   mode=$2
   [ -f "$DENY_READ_PATHS" ] || return 1
+  if [ "$mode" = shell-expanded ] && deny_path_sx_reads_as_literal "$mode_cmd"; then
+    mode=literal
+  fi
   ! deny_path_cache_rules_out "$mode_cmd" "$mode" || return 1
   while IFS= read -r entry || [ -n "$entry" ]; do
     case "$entry" in

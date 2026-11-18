@@ -122,11 +122,12 @@ status_of 'ls -la' >/dev/null
 check 'logging off writes no cache' test "$(cache_files)" -eq 0
 LOG=on
 
-# The regexes depend on the locale, so each locale gets its own file.
+# The regexes depend on the locale, so each locale gets its own file. A glob
+# keeps the shell-expanded pass in shell-expanded mode.
 rm -rf "$STATE"
-LC_ALL=C status_of 'ls -la' >/dev/null
+LC_ALL=C status_of 'ls *.txt' >/dev/null
 check 'the C locale caches both modes' test "$(cache_files)" -eq 2
-LC_ALL=en_US.UTF-8 status_of 'ls -la' >/dev/null
+LC_ALL=en_US.UTF-8 status_of 'ls *.txt' >/dev/null
 check 'another locale does not reuse the C locale files' test "$(cache_files)" -eq 4
 
 # A write that fails part way must not publish the regexes written so far: the
@@ -272,7 +273,7 @@ check 'the run-directory cache gives the per-entry verdict for every fixture com
 check 'the fixture corpus has both verdicts' \
   sh -c 'printf "%s\n" "$1" | grep -qx 0 && printf "%s\n" "$1" | grep -qx 2' _ "$corpus_expected"
 
-# The point: a quoted command reads both modes twice, but each mode is built
+# The point: a quoted command with a glob reads both modes twice, but each mode is built
 # once and no pass compiles entries one by one. (The build's own trace goes to
 # /dev/null with its stderr, so it is counted by its calls; the grep count is
 # pinned in hook-spawn-reduction.sh.) $1 CLI, $2 command ->
@@ -286,10 +287,10 @@ trace_off() {
     "$(grep -c '^+* deny_path_cache_store ' "$CASE/trace")"
 }
 entries=$(grep -Evc '^(#|$)' "$ROOT/plugins/agent-guard/config/deny-read-paths.txt")
-got=$(trace_off "$REF" "printf 'build passed'")
+got=$(trace_off "$REF" "printf 'build passed' *.log")
 check "without a cache a quoted command compiles every entry in four passes (got $got)" \
   test "$got" = "$((4 * entries)) 0"
-got=$(trace_off "$GUARD" "printf 'build passed'")
+got=$(trace_off "$GUARD" "printf 'build passed' *.log")
 check "with logging off a quoted command builds each mode once and compiles nothing per pass (got $got)" \
   test "$got" = "0 2"
 

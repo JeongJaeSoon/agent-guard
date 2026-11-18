@@ -409,6 +409,36 @@ for host in claude codex; do
     hook hook-pre-tool '{"session_id":"s","tool_name":"Bash","tool_input":{"command":"cat '\''.e'\''nv"}}'
   check "$host: a quote-split protected path is still denied with logging off" [ "$?" -eq 2 ]
 done
+
+# Without `*`, `?`, `[` or a backslash in the command, the shell-expanded passes
+# read the literal regexes: the shell-expanded combined file, the costliest
+# one to build and for grep to compile, is neither built nor read. A glob
+# still reads it, and so does a protected path spelled with one.
+cat >"$CASE/bin/grep" <<EOF
+#!/bin/sh
+printf '%s\n' "\$*" >>"$CASE/grep-calls"
+exec "$REAL_GREP" "\$@"
+EOF
+sx_reads() { # $1 log mode, $2 Bash command -> greps of the shell-expanded file
+  : >"$CASE/grep-calls"
+  AGENT_GUARD_LOG_MODE=$1 \
+    hook hook-pre-tool "$(jq -nc --arg c "$2" '{session_id:"s",tool_name:"Bash",tool_input:{command:$c}}')"
+  printf '%s:' "$?"
+  "$REAL_GREP" -c 'deny-path-regex-shell-expanded' "$CASE/grep-calls"
+}
+for log in off on; do
+  for c in 'ls -la src' "printf 'build passed'" 'git status' "jq '.data.key' data.json"; do
+    got=$(sx_reads "$log" "$c")
+    check "logging $log: '$c' reads no shell-expanded regex file (got $got)" [ "$got" = 0:0 ]
+  done
+  got=$(sx_reads "$log" 'ls *.txt')
+  case "$got" in 0:[1-9]*) got_ok=1 ;; *) got_ok=0 ;; esac
+  check "logging $log: a glob still reads the shell-expanded regex file (got $got)" \
+    [ "$got_ok" -eq 1 ]
+  got=$(sx_reads "$log" 'cat .e?v')
+  check "logging $log: a protected path spelled with a glob is still denied (got $got)" \
+    [ "${got%%:*}" = 2 ]
+done
 rm -f "$CASE/bin/grep"
 
 # With logging off the combined protected-path regex is built in every Bash
