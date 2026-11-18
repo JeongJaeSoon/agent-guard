@@ -7,6 +7,8 @@ on:
       - 'tests/printenv-argument-contract.sh'
       - 'tests/unit-audit-retention.sh'
       - 'tests/post-tool-serialization-recovery.sh'
+      - 'tests/redaction-wrapped-values.sh'
+      - 'tests/fixtures/redaction-wrapped-values.json'
       - '.github/workflows/legacy-tools.yml'
   push:
     branches: [main]
@@ -16,6 +18,8 @@ on:
       - 'tests/printenv-argument-contract.sh'
       - 'tests/unit-audit-retention.sh'
       - 'tests/post-tool-serialization-recovery.sh'
+      - 'tests/redaction-wrapped-values.sh'
+      - 'tests/fixtures/redaction-wrapped-values.json'
       - '.github/workflows/legacy-tools.yml'
   workflow_dispatch:
 # Replace only obsolete runs of the same PR. Non-PR runs have unique groups,
@@ -44,6 +48,7 @@ jobs:
           sh tests/printenv-argument-contract.sh
           AGENT_GUARD_TEST_AWK=/usr/bin/mawk sh tests/unit-audit-retention.sh
           sh tests/post-tool-serialization-recovery.sh
+          sh tests/redaction-wrapped-values.sh
       - name: Verify jq 1.8.1 successful truncation recovery
         run: |
           set -eu

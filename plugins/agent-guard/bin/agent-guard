@@ -11466,6 +11466,29 @@ JQ_WALK='def walk(f): def w: if type == "object" then map_values(w)
 # `{"type":"pdf","file":{"base64":...}}` with no media type at all. MCP's own
 # image block spells the same thing `mimeType`. Prepend as
 # `jq -c "$JQ_SHAPE_SAFE_WALK"'<program>'`.
+# Resolve the extent records secretish_env_values flags (`agent_guard_extent`)
+# once every detector's literals are in the bundle. Ordinary literals apply
+# longest first, so an extent goes out as a plain literal only when no other
+# ordinary literal no longer than it could partially overlap it: then it
+# cannot consume part of an occurrence another literal would have masked, and
+# it only widens what is masked. Otherwise it is dropped and the shorter
+# literal that recorded the same occurrence masks exactly as before.
+JQ_SETTLE_EXTENTS='def partial_overlap($e; $l):
+      any(range(1; $e | length); ($e[.:]) as $t
+          | ($l | length) > ($t | length) and ($l | startswith($t)))
+      or any(range(1; $l | length); ($l[.:]) as $t
+          | ($e | length) > ($t | length) and ($e | startswith($t)));
+    def settle_extents:
+      map(select(type == "string")) as $plain
+      | map(if type == "object" and .agent_guard_extent == true
+            then .literal as $e
+                 | if ($e | type) != "string"
+                      or any($plain[]; (length <= ($e | length))
+                                       and (. == $e or partial_overlap($e; .)))
+                   then empty else $e end
+            else . end)
+      | unique;'
+
 JQ_SHAPE_SAFE_WALK='def protocol_discriminator($key): . as $v
     | ($key == "type" or $key == "media_type" or $key == "mimeType"
        or $key == "encoding")
@@ -11974,8 +11997,40 @@ secretish_env_values() {
         probe_found = 1
         return
       }
-      if (record_mode == "framed") emit_framed(value, "S")
+      if (record_mode == "framed") {
+        emit_framed(value, "S")
+        framed_literal[value] = 1
+      }
       else print "\"" json_escape(value) "\""
+    }
+    # A wider extent of an occurrence whose own value was already recorded
+    # (`[hidden]` after `[hidden`). Literals apply longest first, so a new
+    # longer literal can consume the start of a SHORTER secret that overlaps
+    # it and leave the tail of that secret visible where it used to be masked. An
+    # extent therefore never goes out as an ordinary literal here: JSON
+    # records carry a flag that bundle settlement resolves against every
+    # detector literal (JQ_SETTLE_EXTENTS), and framed records, whose
+    # only literals come from this run, are settled in END.
+    function emit_extent(value) {
+      if (record_mode == "probe" || record_mode == "probe_raw") return
+      if (record_mode == "framed") framed_extent[value] = 1
+      else print "{\"literal\":\"" json_escape(value) \
+        "\",\"replacement\":\"[REDACTED]\",\"agent_guard_extent\":true}"
+    }
+    # 1 when some text can hold e and l so that they overlap without either
+    # containing the other.
+    function partial_overlap(e, l, k, tail) {
+      for (k = 2; k <= length(e); k++) {
+        tail = substr(e, k)
+        if (length(l) > length(tail) && substr(l, 1, length(tail)) == tail)
+          return 1
+      }
+      for (k = 2; k <= length(l); k++) {
+        tail = substr(l, k)
+        if (length(e) > length(tail) && substr(e, 1, length(tail)) == tail)
+          return 1
+      }
+      return 0
     }
     # A credential-shaped KEY only tells us the assignment is interesting; it
     # says nothing about whether the right-hand side IS a credential. Source that
@@ -12381,7 +12436,7 @@ secretish_env_values() {
           return 0
         }
         if (emit_secret(value, char_length(token)) && extent != "")
-          emit_record(extent)
+          emit_extent(extent)
         return 0
       }
       # emit_captured, not emit_secret: a padded quoted value (`" <secret> "`)
@@ -12615,6 +12670,20 @@ secretish_env_values() {
       # Valid framed input always terminates each leaf with RS. Preserve a final
       # partial record conservatively if a producer ever ends without one.
       if (length(leaf) > 0) scan_leaf(leaf)
+      # Same rule as JQ_SETTLE_EXTENTS: drop an extent that a literal no
+      # longer than it could partially overlap, so it can never change what
+      # those literals mask.
+      for (extent in framed_extent) {
+        if (extent in framed_literal) continue
+        keep = 1
+        for (literal in framed_literal)
+          if (length(literal) <= length(extent) \
+              && partial_overlap(extent, literal)) {
+            keep = 0
+            break
+          }
+        if (keep) emit_framed(extent, "S")
+      }
     }
   '
 }
@@ -13023,10 +13092,10 @@ bundle_secret_records() (
             for (i = 1; i <= record_count; i++) print records[i]
         }
       ' <"$bundle_input" >"$bundle_records" \
-    || ! jq -sc '
+    || ! jq -sc "$JQ_SETTLE_EXTENTS"'
         if any(.[]; type == "object" and .agent_guard_whole_leaf == true)
         then {whole_leaf: true, secrets: []}
-        else {whole_leaf: false, secrets: unique}
+        else {whole_leaf: false, secrets: settle_extents}
         end
       ' <"$bundle_records" >"$bundle_output" 2>/dev/null; then
     rm -f "$bundle_input" "$bundle_records" "$bundle_output"

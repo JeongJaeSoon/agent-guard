@@ -81,5 +81,53 @@ while [ "$i" -lt "$count" ]; do
   done
   i=$((i + 1))
 done
+# Record level, production detector only. A wider extent never goes out as an
+# ordinary literal: JSON records flag it for bundle settlement, and framed
+# records (the exec raw path, whose literals all come from this one run) keep
+# it only when no literal no longer than it can partially overlap it.
+SOURCE=${AGENT_GUARD_UNIT_SOURCE:-"$ROOT/plugins/agent-guard/bin/agent-guard"}
+sh "$ROOT/tests/helpers/extract-functions.sh" "$SOURCE" "$CASE_ROOT" \
+  secretish_env_values frame_plaintext_leaf || exit 1
+. "$CASE_ROOT/secretish_env_values.sh"
+. "$CASE_ROOT/frame_plaintext_leaf.sh"
+records() {
+  mode=$1
+  shift
+  printf '%s\n' "$@" | frame_plaintext_leaf \
+    | secretish_env_values "$mode" 2>/dev/null \
+    | tr '\036' '\n' | LC_ALL=C sort
+}
+record_check() {
+  checked=$((checked + 1))
+  if [ "$2" = "$3" ]; then
+    printf 'ok - wrapped value %s: records %s\n' "$checked" "$1"
+  else
+    printf 'not ok - wrapped value %s: records %s\n' "$checked" "$1"
+    printf '  expected: %s\n  actual: %s\n' "$2" "$3"
+    failed=$((failed + 1))
+  fi
+}
+record_check "json flags the bracket extent" \
+  "$(printf '"[%s"\n{"literal":"[%s]","replacement":"[REDACTED]","agent_guard_extent":true}' "$rnd" "$rnd" | LC_ALL=C sort)" \
+  "$(records json "token: [$rnd]")"
+record_check "json flags the angle extent" \
+  "$(printf '"<hunter2"\n{"literal":"<hunter2 Summer>","replacement":"[REDACTED]","agent_guard_extent":true}' | LC_ALL=C sort)" \
+  "$(records json "API_KEY=<hunter2 Summer>")"
+record_check "json gives a spaced placeholder no record" "" \
+  "$(records json "API_KEY=<your key>")"
+record_check "framed keeps a non-overlapping extent" \
+  "$(printf 'S<hunter2\nS<hunter2 Summer>' | LC_ALL=C sort)" \
+  "$(records framed "API_KEY=<hunter2 Summer>" | grep .)"
+# The overlapping secret must be SHORTER than the extent: a longer one applies
+# first and needs no settlement (the next check).
+record_check "framed drops an extent a shorter secret overlaps" \
+  "$(printf 'S<hunter2\nSSumm> q7x9' | LC_ALL=C sort)" \
+  "$(records framed 'password="Summ> q7x9"' 'API_KEY=<hunter2 Summ> q7x9' | grep .)"
+record_check "framed keeps an extent a longer secret overlaps" \
+  "$(printf 'S<hunter2\nS<hunter2 Summ>\nSSumm> %s' "$rnd" | LC_ALL=C sort)" \
+  "$(records framed "password=\"Summ> $rnd\"" "API_KEY=<hunter2 Summ> $rnd" | grep .)"
+record_check "probe answers once for an extent" "x" \
+  "$(records probe "token: [$rnd]")"
+
 printf '%s wrapped value checks, %s failed\n' "$checked" "$failed"
 [ "$failed" -eq 0 ]
