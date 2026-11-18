@@ -887,42 +887,16 @@ for target in \
 done
 rm -rf "$render_check_tree"
 
-# The five places below are deliberately NOT deduplicated: the awk kind letters
-# also encode whether a format needs whole-file context (go.sum -> g,
-# package-lock -> P), so a shared table would be more machinery than the
-# duplication costs, in a security parser, and the untracked producer tests the
-# basename in its own shell so other files cost no extra process. Assert the
-# sets match instead — adding a sixth lockfile to four of the five lists fails
-# here.
-lockfile_kind_table=$(sed -n '/^filter_lockfile_hashes()/,/^}/p' "$PLUGIN_ROOT/bin/agent-guard" \
-  | sed -n 's/^  *\([A-Za-z0-9.-]*\)) kind=[a-z] ;;$/\1/p' | sort)
-lockfile_awk_kind=$(sed -n "/^AWK_LOCKFILE_KIND=/,/^'\$/p" "$PLUGIN_ROOT/bin/agent-guard" \
-  | sed -n 's/.*name == "\([^"]*\)".*/\1/p' | sort)
-lockfile_find_names=$(sed -n '/^scan_lockfiles_under()/,/^}/p' "$PLUGIN_ROOT/bin/agent-guard" \
-  | grep -oE '\-name [A-Za-z0-9.-]+' | sed 's/^-name //' | sort)
-lockfile_untracked=$(sed -n '/^scan_untracked_files()/,/^}/p' "$PLUGIN_ROOT/bin/agent-guard" \
-  | sed -n 's/^ *\([A-Za-z0-9.|-]*\))$/\1/p' | tr '|' '\n' | sort)
+# gitleaks dir skips the allowlisted lockfiles; the CLI rescans LOCKFILE_TABLE.
+lockfile_table=$(sed -n "/^LOCKFILE_TABLE='/,/'\$/p" "$PLUGIN_ROOT/bin/agent-guard" \
+  | sed -e "s/^LOCKFILE_TABLE='//" -e 's/ .*//' | sort)
 lockfile_allowlist=$(awk -F'[()]' '/\(\^\|\/\)\(/ {print $4}' "$PLUGIN_ROOT/config/gitleaks.toml" \
   | tr '|' '\n' | sed 's/\\//g' | sort)
-
-if [ -n "$lockfile_kind_table" ]; then
-  ok "lockfile kind table is non-empty (extraction still matches the source)"
+if [ -n "$lockfile_table" ] && [ "$lockfile_allowlist" = "$lockfile_table" ]; then
+  ok "gitleaks.toml allowlist covers the same lockfiles as LOCKFILE_TABLE"
 else
-  not_ok "lockfile kind table is non-empty (extraction still matches the source)"
+  not_ok "gitleaks.toml allowlist covers the same lockfiles as LOCKFILE_TABLE (got: $(printf '%s' "$lockfile_allowlist" | tr '\n' ' '))"
 fi
-for other in awk_kind find_names untracked allowlist; do
-  case "$other" in
-    awk_kind) other_set=$lockfile_awk_kind; other_label="awk lockfile_kind()" ;;
-    find_names) other_set=$lockfile_find_names; other_label="scan_lockfiles_under find" ;;
-    untracked) other_set=$lockfile_untracked; other_label="scan_untracked_files case" ;;
-    allowlist) other_set=$lockfile_allowlist; other_label="gitleaks.toml allowlist" ;;
-  esac
-  if [ "$other_set" = "$lockfile_kind_table" ]; then
-    ok "$other_label covers the same lockfiles as filter_lockfile_hashes"
-  else
-    not_ok "$other_label covers the same lockfiles as filter_lockfile_hashes (got: $(printf '%s' "$other_set" | tr '\n' ' '))"
-  fi
-done
 
 read_env_payload='{"tool_name":"Read","tool_input":{"file_path":".env"}}'
 # Each invocation that must WARN gets its own TMPDIR: the launcher's warn-once

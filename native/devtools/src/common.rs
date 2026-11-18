@@ -44,85 +44,43 @@ impl Drop for GroupGuard {
 }
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 pub type Env = BTreeMap<String, String>;
+pub struct Subcommand {
+    pub name: &'static str,
+    /// Value options; `None` passes every argument through positionally.
+    pub options: Option<&'static [&'static str]>,
+    pub flags: &'static [&'static str],
+    pub run: fn(&Args) -> Result<()>,
+}
 pub struct Args {
-    pub command: String,
     pub values: Vec<String>,
 }
 impl Args {
-    pub fn new() -> Result<Self> {
+    pub fn new(commands: &'static [Subcommand]) -> Result<(&'static Subcommand, Self)> {
         let mut values: Vec<_> = std::env::args().skip(1).collect();
         if values.is_empty() {
             return Err("a command is required".into());
         }
         let command = values.remove(0);
-        let commands = "native-redaction, native-integration, scanner-differential, resource-sample, masking-latency, kernel, load, watchdog-orphans, verify, measure-selected-bash, report";
+        let names = commands
+            .iter()
+            .map(|c| c.name)
+            .collect::<Vec<_>>()
+            .join(", ");
         if ["--help", "-h", "help"].contains(&command.as_str()) {
-            println!("Usage: agent-guard-devtools <command> [options]\nCommands: {commands}");
+            println!("Usage: agent-guard-devtools <command> [options]\nCommands: {names}");
             std::process::exit(0);
         }
-        if command == "resource-sample" {
-            // The destination and child argv are positional and must pass through.
+        let Some(spec) = commands.iter().find(|c| c.name == command) else {
+            return Err(format!("unknown command; choose: {names}").into());
+        };
+        let Some(options) = spec.options else {
             if values.len() == 1 && ["--help", "-h"].contains(&values[0].as_str()) {
-                println!(
-                    "Usage: agent-guard-devtools resource-sample destination command [args...]"
-                );
+                println!("Usage: agent-guard-devtools {command} destination command [args...]");
                 std::process::exit(0);
             }
-            return Ok(Self { command, values });
-        }
-        let options: &[&str] = match command.as_str() {
-            "native-redaction" => &["--core", "--source"],
-            "output-prepare" => &["--core"],
-            "native-integration" => &["--core", "--scanner"],
-            "scanner-differential" => &[
-                "--scanner",
-                "--candidate-scanner",
-                "--control-scanner",
-                "--source",
-                "--out",
-            ],
-            "masking-latency" => &[
-                "--binary",
-                "--baseline",
-                "--native-core",
-                "--prepare-core",
-                "--host",
-                "--scanner",
-                "--candidate-scanner",
-                "--audit-state",
-                "--runs",
-                "--timeout",
-                "--case",
-            ],
-            "kernel" => &["--core", "--runs"],
-            "load" => &[
-                "--binary",
-                "--core",
-                "--prepare-core",
-                "--scanner",
-                "--workers",
-                "--requests",
-            ],
-            "watchdog-orphans" => &["--binary", "--baseline", "--scanner", "--runs"],
-            "verify" => &["--out", "--native-core", "--shards"],
-            "report" => &["--results", "--html"],
-            "measure-selected-bash" => &[],
-            _ => return Err(format!("unknown command; choose: {commands}").into()),
+            return Ok((spec, Self { values }));
         };
-        let flags: &[&str] = if command == "masking-latency" {
-            &[
-                "--resources",
-                "--include-boundaries",
-                "--trace-processes",
-                "--packaged-native",
-                "--baseline-packaged-native",
-                "--fused-output",
-            ]
-        } else if command == "load" {
-            &["--packaged-native", "--fused-output"]
-        } else {
-            &[]
-        };
+        let flags = spec.flags;
         if values
             .iter()
             .any(|v| ["--help", "-h"].contains(&v.as_str()))
@@ -164,7 +122,7 @@ impl Args {
             }
             ensure(index > start, format!("option requires a value: {name}"))?;
         }
-        Ok(Self { command, values })
+        Ok((spec, Self { values }))
     }
     pub fn all(&self, name: &str) -> Vec<String> {
         self.values
