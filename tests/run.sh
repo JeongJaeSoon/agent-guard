@@ -2509,7 +2509,7 @@ else
   sed 's/^/  stdout: /' "$OUT"; sed 's/^/  stderr: /' "$ERR"
 fi
 if [ "$(jq -s 'length' <"$OUT" 2>/dev/null)" = 1 ] \
-   && jq -e '.systemMessage | test("PROMPT_GUARD_MODE=warn")' "$OUT" >/dev/null 2>&1 \
+   && jq -e '.systemMessage | test("scanner failed") and test("PROMPT_GUARD_MODE=warn")' "$OUT" >/dev/null 2>&1 \
    && jq -e '.hookSpecificOutput.additionalContext
              | test("scanner failed") and test("PROMPT_GUARD_MODE=warn")' "$OUT" >/dev/null 2>&1; then
   ok "prompt guard emits one response carrying both the infra notice and the warning (claude)"
@@ -8685,12 +8685,117 @@ printf '%s' '{"session_id":"degraded-session","tool_name":"Bash","tool_input":{"
     AGENT_GUARD_GITLEAKS_BIN=/nonexistent/gitleaks PATH="$NO_GITLEAKS_BIN" \
     "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
 status=$?
-if [ "$status" -eq 0 ] && [ ! -s "$ERR" ]; then
-  ok "degraded dependency warning is emitted only once per session"
+if [ "$status" -eq 0 ] && [ ! -s "$ERR" ] && [ ! -s "$OUT" ]; then
+  ok "degraded dependency warning does not repeat within the interval"
 else
-  not_ok "degraded dependency warning is emitted only once per session"
+  not_ok "degraded dependency warning does not repeat within the interval"
+  sed 's/^/  stdout: /' "$OUT"
   sed 's/^/  stderr: /' "$ERR"
 fi
+
+# #509: the open notice repeats once HOOK_WARNING_INTERVAL_SECONDS (600) have
+# passed since the time its marker records, and stays quiet inside that
+# window. The cases rewrite the recorded time instead of waiting for the clock.
+# This PATH keeps jq, git and date but has no gitleaks, so the notice must name
+# gitleaks; Claude must carry it as a user-visible systemMessage in the one
+# JSON object the hook writes, and Codex keeps the model-facing channel only.
+INTERVAL_BIN="$TMP_ROOT/interval-no-gitleaks-bin"
+mkdir -p "$INTERVAL_BIN"
+for interval_tool in sh dirname pwd awk jq git date sleep wc tr rm mkdir rmdir \
+    setsid perl cat mktemp head tail id uname stat sed grep od cut sort xargs find chmod; do
+  interval_tool_path=$(PATH=$ORIGINAL_PATH command -v "$interval_tool" 2>/dev/null || :)
+  [ -n "$interval_tool_path" ] && ln -s "$interval_tool_path" "$INTERVAL_BIN/$interval_tool"
+done
+INTERVAL_WARN_DIR="$TESTTMP/interval-warnings"
+interval_hook() { # $1 host, $2 subcommand, $3 session, $4 log mode
+  case "$2" in
+    hook-pre-tool) interval_json='{"tool_name":"Bash","tool_input":{"command":"echo clean"}}' ;;
+    hook-post-tool) interval_json='{"tool_name":"Bash","tool_input":{"command":"echo clean"},"tool_response":{"stdout":"clean"}}' ;;
+    hook-post-tool-failure) interval_json='{"tool_name":"Bash","tool_input":{"command":"false"},"error":"failed"}' ;;
+    hook-user-prompt) interval_json='{"prompt":"hello"}' ;;
+    *) interval_json='{}' ;;
+  esac
+  printf '%s' "$interval_json" | jq -c --arg s "$3" '. + {session_id: $s}' \
+    | env AGENT_GUARD_WARNING_DIR="$INTERVAL_WARN_DIR" AGENT_GUARD_HOOK_HOST="$1" \
+        AGENT_GUARD_LOG_MODE="$4" XDG_STATE_HOME="$TESTTMP/interval-state" \
+        AGENT_GUARD_GITLEAKS_BIN=/nonexistent/gitleaks PATH="$INTERVAL_BIN" \
+        "$PLUGIN_ROOT/bin/agent-guard" "$2" >"$OUT" 2>"$ERR"
+}
+# The notice must be exactly one JSON document; on Claude it carries a
+# systemMessage equal to the model-facing context, on Codex none.
+interval_notice_shape() { # $1 host
+  [ "$(jq -s 'length' <"$OUT" 2>/dev/null)" = 1 ] || return 1
+  grep -q 'AGENT_GUARD_INFRA_FAILURE_MODE=open' "$ERR" || return 1
+  case "$1" in
+    codex) jq -e 'has("systemMessage") | not' "$OUT" >/dev/null 2>&1 \
+             && jq -e '.hookSpecificOutput.additionalContext
+                       | test("missing or unusable: gitleaks[.]")' "$OUT" >/dev/null 2>&1 ;;
+    *) jq -e '(.systemMessage | test("missing or unusable: gitleaks[.]"))
+              and (.hookSpecificOutput == null
+                   or .hookSpecificOutput.additionalContext == .systemMessage)' "$OUT" >/dev/null 2>&1 ;;
+  esac
+}
+interval_quiet() {
+  [ ! -s "$OUT" ] && [ ! -s "$ERR" ]
+}
+interval_report() { # $1 label, $2 status, $3 check
+  if [ "$2" -eq 0 ] && "$3" "${4:-}"; then
+    ok "$1"
+  else
+    not_ok "$1 (status $2)"
+    sed 's/^/  stdout: /' "$OUT"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+}
+for interval_host in claude codex; do
+  for interval_log in off on; do
+    interval_session="interval-$interval_host-$interval_log"
+    interval_marker="$INTERVAL_WARN_DIR/infrastructure-$interval_session"
+    interval_label="$interval_host, logging $interval_log"
+    interval_hook "$interval_host" hook-pre-tool "$interval_session" "$interval_log"
+    interval_report "degraded notice names gitleaks in one response ($interval_label)" "$?" interval_notice_shape "$interval_host"
+    interval_hook "$interval_host" hook-pre-tool "$interval_session" "$interval_log"
+    interval_report "degraded notice stays quiet right after it was shown ($interval_label)" "$?" interval_quiet
+    # Ten seconds of margin: the hook reads its own clock after this one.
+    printf '%s\n' "$(( $(date +%s) - 590 ))" >"$interval_marker"
+    interval_hook "$interval_host" hook-pre-tool "$interval_session" "$interval_log"
+    interval_report "degraded notice stays quiet inside the 600s interval ($interval_label)" "$?" interval_quiet
+    printf '%s\n' "$(( $(date +%s) - 600 ))" >"$interval_marker"
+    interval_hook "$interval_host" hook-pre-tool "$interval_session" "$interval_log"
+    interval_report "degraded notice repeats once the 600s interval has passed ($interval_label)" "$?" interval_notice_shape "$interval_host"
+    interval_hook "$interval_host" hook-pre-tool "$interval_session" "$interval_log"
+    interval_report "a repeated degraded notice restarts the interval ($interval_label)" "$?" interval_quiet
+  done
+  # A marker left empty by an older release, or holding a time ahead of the
+  # clock, cannot prove a recent notice, so the notice is due.
+  for interval_stale in empty future; do
+    interval_session="interval-$interval_host-$interval_stale"
+    case "$interval_stale" in
+      empty) : >"$INTERVAL_WARN_DIR/infrastructure-$interval_session" ;;
+      *) printf '%s\n' "$(( $(date +%s) + 3600 ))" >"$INTERVAL_WARN_DIR/infrastructure-$interval_session" ;;
+    esac
+    interval_hook "$interval_host" hook-pre-tool "$interval_session" off
+    interval_report "a $interval_stale degraded-notice marker is due ($interval_host)" "$?" interval_notice_shape "$interval_host"
+  done
+  # Every hook that publishes the notice writes it in its single response.
+  for interval_cmd in hook-post-tool hook-post-tool-failure hook-user-prompt hook-stop; do
+    interval_hook "$interval_host" "$interval_cmd" "interval-$interval_host-$interval_cmd" off
+    interval_status=$?
+    if [ "$interval_host:$interval_cmd" = codex:hook-stop ]; then
+      # Codex Stop keeps its stderr-only notice.
+      if [ "$interval_status" -eq 0 ] && [ ! -s "$OUT" ] \
+         && grep -q 'missing or unusable: gitleaks[.]' "$ERR"; then
+        ok "Codex Stop keeps the degraded notice on stderr only"
+      else
+        not_ok "Codex Stop keeps the degraded notice on stderr only (status $interval_status)"
+        sed 's/^/  stdout: /' "$OUT"
+        sed 's/^/  stderr: /' "$ERR"
+      fi
+    else
+      interval_report "$interval_cmd writes the degraded notice as one response ($interval_host)" "$interval_status" interval_notice_shape "$interval_host"
+    fi
+  done
+done
 
 printf '%s' '{"session_id":"degraded-closed","tool_name":"Bash","tool_input":{"command":"echo clean"}}' \
   | AGENT_GUARD_WARNING_DIR="$DEGRADED_WARNING_DIR" \

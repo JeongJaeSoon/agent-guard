@@ -18,8 +18,17 @@ scanner error in a lifecycle hook:
 
 | Value | Behavior |
 | --- | --- |
-| `open` (default) | Continue with one visible degraded-protection notice |
+| `open` (default) | Continue with a degraded-protection notice that names what is missing and repeats every 10 minutes |
 | `closed` | Refuse the hook action with exit status 2 |
+
+Under `open`, a session's first infrastructure failure produces the notice, and
+it repeats at most once every 600 seconds while failures continue; the interval
+is fixed. In Claude Code the notice is a `systemMessage` shown to you on
+`PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `UserPromptSubmit`, and
+`Stop`, and the model receives it as additional context. Codex receives it as
+additional context, and on `Stop` only on stderr; whether Codex shows a
+`systemMessage` from those events has not been verified, so none is sent there.
+`SessionStart` reports degraded setup to both hosts on every start.
 
 This is distinct from a secret finding, which blocks. An invalid value is read
 as `open`; set an explicit valid value in managed environments.

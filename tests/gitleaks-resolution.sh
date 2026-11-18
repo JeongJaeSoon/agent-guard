@@ -775,7 +775,7 @@ for mode in open closed; do
   [ "$mode" = closed ] && expected_status=2
   if [ "$status" -eq "$expected_status" ] \
      && grep -Fq "AGENT_GUARD_INFRA_FAILURE_MODE=$mode" "$CASE_ROOT/err" \
-     && grep -Fq 'setsid or Perl process-isolation helper' "$CASE_ROOT/err" \
+     && grep -Fq 'missing or unusable: setsid or perl (gitleaks process isolation).' "$CASE_ROOT/err" \
      && [ ! -s "$CASE_ROOT/no-launcher-log" ]; then
     ok "missing isolation launcher follows the $mode infrastructure policy"
   else
