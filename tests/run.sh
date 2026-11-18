@@ -8705,6 +8705,62 @@ else
   sed 's/^/  stderr: /' "$ERR"
 fi
 
+# #506: a missing gitleaks or gitleaks config skips only the secret scan. The
+# open policy still runs the protected-path and deny-pattern checks, a block
+# carries no degraded warning, and the first passing call per session warns.
+# The closed policy blocks every call. One row per host and outcome.
+scanner_unavailable_fixtures="$ROOT/tests/fixtures/scanner-unavailable-pre-tool.json"
+scanner_unavailable_cases="$TESTTMP/scanner-unavailable-pre-tool.cases"
+if jq -e 'type == "array" and length > 0
+          and ([.[].host] | index("claude") != null and index("codex") != null)' \
+     "$scanner_unavailable_fixtures" >/dev/null \
+  && jq -c '.[]' "$scanner_unavailable_fixtures" >"$scanner_unavailable_cases"; then
+  ok "scanner-unavailable PreToolUse fixture covers both hosts"
+else
+  not_ok "scanner-unavailable PreToolUse fixture covers both hosts"
+fi
+mkdir -p "$TESTTMP/scanner-unavailable-warnings"
+while IFS= read -r su_row; do
+  su_id=$(printf '%s' "$su_row" | jq -r '.id')
+  su_host=$(printf '%s' "$su_row" | jq -r '.host')
+  su_mode=$(printf '%s' "$su_row" | jq -r '.mode')
+  su_expected=$(printf '%s' "$su_row" | jq -r '.expected_status')
+  su_stderr=$(printf '%s' "$su_row" | jq -r '.expected_stderr // empty')
+  su_stdout=$(printf '%s' "$su_row" | jq -r '.expected_stdout // empty')
+  su_quiet=$(printf '%s' "$su_row" | jq -r '.expected_quiet // false')
+  su_gitleaks=/nonexistent/gitleaks
+  su_config=$PLUGIN_ROOT/config/gitleaks.toml
+  if [ "$(printf '%s' "$su_row" | jq -r '.scanner')" = config-missing ]; then
+    su_gitleaks=$MOCK_BIN/gitleaks
+    su_config=$TESTTMP/missing-gitleaks.toml
+  fi
+  printf '%s' "$su_row" | jq -c '.event + {session_id: .session}' \
+    | AGENT_GUARD_HOOK_HOST="$su_host" \
+      AGENT_GUARD_INFRA_FAILURE_MODE="$su_mode" \
+      AGENT_GUARD_GITLEAKS_BIN="$su_gitleaks" \
+      AGENT_GUARD_GITLEAKS_CONFIG="$su_config" \
+      AGENT_GUARD_WARNING_DIR="$TESTTMP/scanner-unavailable-warnings" \
+      "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+  su_status=$?
+  su_ok=1
+  [ "$su_status" -eq "$su_expected" ] || su_ok=0
+  [ -z "$su_stderr" ] || grep -Fq -- "$su_stderr" "$ERR" || su_ok=0
+  [ -z "$su_stdout" ] || grep -Fq -- "$su_stdout" "$OUT" || su_ok=0
+  if [ "$su_quiet" = true ] && { [ -s "$OUT" ] || [ -s "$ERR" ]; }; then
+    su_ok=0
+  fi
+  if [ "$su_mode" = open ] && [ "$su_status" -eq 2 ] && grep -q DEGRADED "$ERR"; then
+    su_ok=0
+  fi
+  if [ "$su_ok" -eq 1 ]; then
+    ok "scanner unavailable: $su_id"
+  else
+    not_ok "scanner unavailable: $su_id (expected $su_expected, got $su_status)"
+    sed 's/^/  stdout: /' "$OUT"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+done <"$scanner_unavailable_cases"
+
 # Malformed hook input is hostile input, not a scanner outage. jq can still
 # reject it before an unrelated missing scanner or policy takes the default
 # open path, and that rejection must remain visible on every event.

@@ -2371,6 +2371,22 @@ hook_dependencies_ready() {
   [ -f "$DENY_BASH_PATTERNS" ] && policy_file_has_active_rule "$DENY_BASH_PATTERNS" || return 1
 }
 
+# The PreToolUse protected-path and deny-pattern checks need only jq, awk and
+# their two policy files, not gitleaks. When hook_dependencies_ready failed and
+# these are ready, only the secret scanner is missing.
+hook_policy_dependencies_ready() {
+  command -v jq >/dev/null 2>&1 || return 1
+  command -v awk >/dev/null 2>&1 || return 1
+  [ -f "$DENY_READ_PATHS" ] && policy_file_has_active_rule "$DENY_READ_PATHS" || return 1
+  [ -f "$DENY_BASH_PATTERNS" ] && policy_file_has_active_rule "$DENY_BASH_PATTERNS" || return 1
+}
+
+# Set to 1 only by hook_pre_tool, in the open policy, when gitleaks or its
+# config is unavailable but the policy checks can run. Every gitleaks scan then
+# reports "could not run" without probing again, and the hook reports that once
+# through the infrastructure policy instead of treating the scan as clean.
+HOOK_SCANNER_UNAVAILABLE=0
+
 infrastructure_failure_mode() {
   case "${AGENT_GUARD_INFRA_FAILURE_MODE:-open}" in
     open|closed) printf '%s\n' "${AGENT_GUARD_INFRA_FAILURE_MODE:-open}" ;;
@@ -2578,12 +2594,18 @@ claude_block_capture_finish() {
   CLAUDE_BLOCK_EVENT=
 }
 
+# $1 = scanner when only gitleaks or its config is unavailable and PreToolUse
+# still ran its protected-path and deny-pattern checks.
 degraded_hook_message() {
   case "$(hook_host)" in
     codex) setup_ref='$setup-agent-guard' ;;
     *) setup_ref='/agent-guard:setup-agent-guard' ;;
   esac
-  printf 'agent-guard: protection is DEGRADED because jq, awk, git, gitleaks (including its setsid or Perl process-isolation helper), or a policy file is unavailable.'
+  if [ "${1:-}" = scanner ]; then
+    printf 'agent-guard: protection is DEGRADED because gitleaks (including its setsid or Perl process-isolation helper) or its config is unavailable, so the secret scan did not run; protected-path and deny-pattern checks still run.'
+  else
+    printf 'agent-guard: protection is DEGRADED because jq, awk, git, gitleaks (including its setsid or Perl process-isolation helper), or a policy file is unavailable.'
+  fi
   # Fixed diagnostic codes only: never include scanner output, paths or payloads
   # in the host envelope. Keep the existing once-per-session warning boundary.
   degraded_probe_reason=
@@ -3546,6 +3568,7 @@ check_pii_hook_input() {
 
 run_gitleaks_stdin() {
   label=$1
+  [ "$HOOK_SCANNER_UNAVAILABLE" = 0 ] || return "$SCAN_STATUS_UNAVAILABLE"
   need_gitleaks
   out=$(mktemp_file) || die "failed to create temp file"
   "$GITLEAKS_BIN" stdin --redact --no-banner --no-color --log-level error \
@@ -4235,6 +4258,8 @@ block_on_scan_status() {
     0) return 0 ;;
     1) info "$PROGRAM: $message"; exit 2 ;;
     "$SCAN_STATUS_UNAVAILABLE")
+      # hook_pre_tool reports a missing scanner once, after every other check.
+      [ "$HOOK_SCANNER_UNAVAILABLE" = 0 ] || return 0
       handle_hook_infrastructure_failure "${HOOK_EVENT:-PreToolUse}" "${HOOK_INPUT:-}" \
         "$PROGRAM: scanner infrastructure could not verify the command;"
       ;;
@@ -4409,6 +4434,7 @@ extract_git_diff_added() {
 # exits with the unavailable status, and repo_root is left set for the caller.
 git_scan_prepare() {
   need_cmd git "$SCAN_STATUS_UNAVAILABLE"
+  [ "$HOOK_SCANNER_UNAVAILABLE" = 0 ] || return "$SCAN_STATUS_UNAVAILABLE"
   need_gitleaks "$SCAN_STATUS_UNAVAILABLE"
   require_git_repo || return $?
   repo_root=$(git rev-parse --show-toplevel 2>/dev/null) \
@@ -11349,11 +11375,20 @@ hook_pre_tool() {
       || validate_hook_object PreToolUse "$input" || return 0
   fi
   if ! hook_dependencies_ready; then
-    emit_degraded_hook_warning PreToolUse "$input"
-    return 0
+    # A scan that cannot run is not clean, but it does not stop the checks
+    # that need no scanner. The closed policy still blocks every call here.
+    if [ "$(infrastructure_failure_mode)" = closed ] \
+      || ! hook_policy_dependencies_ready; then
+      emit_degraded_hook_warning PreToolUse "$input"
+      return 0
+    fi
+    HOOK_SCANNER_UNAVAILABLE=1
   fi
   need_cmd jq
-  [ -n "$input" ] || return 0
+  if [ -z "$input" ]; then
+    finish_pre_tool_scanner_unavailable
+    return 0
+  fi
 
   # A host may serialize tool_input as a JSON-encoded string instead of an
   # object. When that string decodes to an *object*, the precise-field extractors
@@ -11408,6 +11443,15 @@ hook_pre_tool() {
   esac
 
   check_pii_hook_input "$input" "$tool"
+  finish_pre_tool_scanner_unavailable
+}
+
+# Reached only when no check blocked, so the open warning never shares stdout
+# with a block. Its once-per-session marker is the infrastructure one.
+finish_pre_tool_scanner_unavailable() {
+  [ "$HOOK_SCANNER_UNAVAILABLE" = 1 ] || return 0
+  handle_hook_infrastructure_failure PreToolUse "${HOOK_INPUT:-}" \
+    "$(degraded_hook_message scanner)"
 }
 
 is_mutation_tool() {

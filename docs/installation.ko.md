@@ -1,4 +1,4 @@
-<!-- translated-from: docs/installation.md; source-blob: 2eb81b8e78ff56a230bb1f66ccf15d519c3c4c3e -->
+<!-- translated-from: docs/installation.md; source-blob: 7d857b4de96232a79a0655ebfad14c693c0627d5 -->
 
 <a id="installing-agent-guard"></a>
 
@@ -97,7 +97,7 @@ Linux 치환기는 정적 musl을 사용해 glibc가 필요하지 않으며 Ubun
 
 macOS와 Linux에서 실행하려면 `sh`, `awk`, `git`, `jq`, gitleaks 8.30 이상이 필요합니다. gitleaks 버전 확인을 별도 프로세스 그룹에서 실행하기 위한 `setsid` 또는 Perl도 필요합니다. 이 격리로 버전 확인의 시간 제한과 자식 프로세스 정리를 보장합니다. Linux에서는 `sudo apt-get install -y util-linux` 또는 `sudo dnf install -y util-linux`로 `setsid`를 설치하세요. Homebrew formula는 CLI와 함께 Perl을 설치합니다. macOS에서 수동 설치했고 두 도구가 모두 없다면 `brew install perl`을 사용할 수 있습니다.
 
-격리 도구가 없으면 `agent-guard setup`, `doctor`, `check`는 0이 아닌 종료 상태를 반환합니다. `setup --install`은 다운로드 전에 격리 도구 유무를 확인합니다. 도구가 없으면 gitleaks를 다운로드하거나 덮어쓰지 않고 누락 도구의 설치 명령을 출력하며, 도구를 설치한 뒤 gitleaks가 완전히 준비되었는지 다시 확인합니다. 실행 중인 hook은 이 상태를 정상 검사로 취급하지 않으며 `AGENT_GUARD_INFRA_FAILURE_MODE`의 `open` 또는 `closed` 정책을 적용합니다.
+격리 도구가 없으면 `agent-guard setup`, `doctor`, `check`는 0이 아닌 종료 상태를 반환합니다. `setup --install`은 다운로드 전에 격리 도구 유무를 확인합니다. 도구가 없으면 gitleaks를 다운로드하거나 덮어쓰지 않고 누락 도구의 설치 명령을 출력하며, 도구를 설치한 뒤 gitleaks가 완전히 준비되었는지 다시 확인합니다. 실행 중인 hook은 이 상태를 정상 검사로 취급하지 않으며 `AGENT_GUARD_INFRA_FAILURE_MODE`의 `open` 또는 `closed` 정책을 적용합니다. `open`에서는 gitleaks 없이도 PreToolUse의 보호 경로 검사와 deny 패턴 검사를 계속 실행하고, 비밀 스캔만 건너뜁니다.
 
 독립 CLI 또는 Homebrew 명령으로 `agent-guard`가 이미 설치되어 있다면 공식 host 관리 도구에 플러그인 설치를 위임할 수 있습니다.
 

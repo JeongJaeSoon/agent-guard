@@ -1,0 +1,147 @@
+[
+  {
+    "id": "claude-open-protected-bash",
+    "host": "claude",
+    "mode": "open",
+    "scanner": "missing",
+    "session": "scanner-unavailable-claude",
+    "expected_status": 2,
+    "expected_stderr": "blocked shell command referencing a deny-listed path",
+    "description": "a protected-path Bash read is still blocked when only gitleaks is missing",
+    "event": {"hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": {"command": "cat .env"}}
+  },
+  {
+    "id": "claude-open-protected-read",
+    "host": "claude",
+    "mode": "open",
+    "scanner": "missing",
+    "session": "scanner-unavailable-claude",
+    "expected_status": 2,
+    "expected_stderr": "blocked sensitive file access",
+    "description": "a protected-path Read is still blocked when only gitleaks is missing",
+    "event": {"hook_event_name": "PreToolUse", "tool_name": "Read", "tool_input": {"file_path": ".env"}}
+  },
+  {
+    "id": "claude-open-deny-pattern",
+    "host": "claude",
+    "mode": "open",
+    "scanner": "missing",
+    "session": "scanner-unavailable-claude",
+    "expected_status": 2,
+    "expected_stderr": "blocked risky shell command by deny pattern",
+    "description": "an environment dump is still blocked by deny pattern when only gitleaks is missing",
+    "event": {"hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": {"command": "printenv"}}
+  },
+  {
+    "id": "claude-open-unscanned-write",
+    "host": "claude",
+    "mode": "open",
+    "scanner": "missing",
+    "session": "scanner-unavailable-claude",
+    "expected_status": 0,
+    "expected_stderr": "so the secret scan did not run; protected-path and deny-pattern checks still run.",
+    "expected_stdout": "additionalContext",
+    "description": "content only gitleaks could judge passes with the degraded warning on the first passing call",
+    "event": {"hook_event_name": "PreToolUse", "tool_name": "Write", "tool_input": {"file_path": "notes.txt", "content": "AGENT_GUARD_TEST_SECRET"}}
+  },
+  {
+    "id": "claude-open-warns-once",
+    "host": "claude",
+    "mode": "open",
+    "scanner": "missing",
+    "session": "scanner-unavailable-claude",
+    "expected_status": 0,
+    "expected_quiet": true,
+    "description": "the degraded warning is emitted once per session",
+    "event": {"hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": {"command": "git status"}}
+  },
+  {
+    "id": "claude-open-missing-config",
+    "host": "claude",
+    "mode": "open",
+    "scanner": "config-missing",
+    "session": "scanner-unavailable-claude-config",
+    "expected_status": 2,
+    "expected_stderr": "blocked shell command referencing a deny-listed path",
+    "description": "a missing gitleaks config keeps the protected-path check",
+    "event": {"hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": {"command": "cat .env"}}
+  },
+  {
+    "id": "claude-closed-blocks-all",
+    "host": "claude",
+    "mode": "closed",
+    "scanner": "missing",
+    "session": "scanner-unavailable-claude-closed",
+    "expected_status": 2,
+    "expected_stderr": "Blocking because AGENT_GUARD_INFRA_FAILURE_MODE=closed.",
+    "description": "the closed policy still blocks a command that needs no scanner",
+    "event": {"hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": {"command": "git status"}}
+  },
+  {
+    "id": "codex-open-protected-bash",
+    "host": "codex",
+    "mode": "open",
+    "scanner": "missing",
+    "session": "scanner-unavailable-codex",
+    "expected_status": 2,
+    "expected_stderr": "blocked shell command referencing a deny-listed path",
+    "description": "a protected-path Bash read is still blocked when only gitleaks is missing",
+    "event": {"hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": {"command": "cat .env"}}
+  },
+  {
+    "id": "codex-open-deny-pattern",
+    "host": "codex",
+    "mode": "open",
+    "scanner": "missing",
+    "session": "scanner-unavailable-codex",
+    "expected_status": 2,
+    "expected_stderr": "blocked risky shell command by deny pattern",
+    "description": "an environment dump is still blocked by deny pattern when only gitleaks is missing",
+    "event": {"hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": {"command": "env"}}
+  },
+  {
+    "id": "codex-open-unscanned-patch",
+    "host": "codex",
+    "mode": "open",
+    "scanner": "missing",
+    "session": "scanner-unavailable-codex",
+    "expected_status": 0,
+    "expected_stderr": "so the secret scan did not run; protected-path and deny-pattern checks still run.",
+    "expected_stdout": "additionalContext",
+    "description": "a patch only gitleaks could judge passes with the degraded warning on the first passing call",
+    "event": {"hook_event_name": "PreToolUse", "tool_name": "apply_patch", "tool_input": {"command": "*** Begin Patch\n*** Add File: notes.txt\n+AGENT_GUARD_TEST_SECRET\n*** End Patch"}}
+  },
+  {
+    "id": "codex-open-warns-once",
+    "host": "codex",
+    "mode": "open",
+    "scanner": "missing",
+    "session": "scanner-unavailable-codex",
+    "expected_status": 0,
+    "expected_quiet": true,
+    "description": "the degraded warning is emitted once per session",
+    "event": {"hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": {"command": "git status"}}
+  },
+  {
+    "id": "codex-open-missing-config",
+    "host": "codex",
+    "mode": "open",
+    "scanner": "config-missing",
+    "session": "scanner-unavailable-codex-config",
+    "expected_status": 2,
+    "expected_stderr": "blocked shell command referencing a deny-listed path",
+    "description": "a missing gitleaks config keeps the protected-path check",
+    "event": {"hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": {"command": "cat .env"}}
+  },
+  {
+    "id": "codex-closed-blocks-all",
+    "host": "codex",
+    "mode": "closed",
+    "scanner": "missing",
+    "session": "scanner-unavailable-codex-closed",
+    "expected_status": 2,
+    "expected_stderr": "Blocking because AGENT_GUARD_INFRA_FAILURE_MODE=closed.",
+    "description": "the closed policy still blocks a command that needs no scanner",
+    "event": {"hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": {"command": "git status"}}
+  }
+]

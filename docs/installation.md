@@ -133,7 +133,9 @@ is present. `setup --install` checks for one before downloading anything: with
 no isolation tool it does not download or overwrite gitleaks, prints the install
 command for the missing tool, and re-checks full gitleaks readiness after the
 install. Runtime hooks do not treat this state as a clean scan; they apply the
-`open` or `closed` policy of `AGENT_GUARD_INFRA_FAILURE_MODE`.
+`open` or `closed` policy of `AGENT_GUARD_INFRA_FAILURE_MODE`. Under `open`,
+the PreToolUse protected-path and deny-pattern checks still run without
+gitleaks; only the secret scan is skipped.
 
 If `agent-guard` is already installed as a standalone or Homebrew command, it
 can delegate plugin installation to the official host managers:

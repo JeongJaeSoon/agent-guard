@@ -24,6 +24,17 @@ scanner error in a lifecycle hook:
 This is distinct from a secret finding, which blocks. An invalid value is read
 as `open`; set an explicit valid value in managed environments.
 
+When jq, awk and both path and pattern policy files are ready but gitleaks or
+its config is not, `open` still runs every PreToolUse check that needs no
+scanner: the protected-path checks on Read, Grep, Glob, Bash and network tool
+input, the Bash deny patterns, the `git commit`/`git push` hook-bypass refusal,
+the broad Grep content refusal and the PII input gate. Only the secret scan is
+skipped, so a secret that only gitleaks would find passes. A call that passes
+carries the degraded notice, once per session; a blocked call carries only its
+block reason. `closed` blocks every PreToolUse call, as before. PostToolUse,
+PostToolUseFailure, UserPromptSubmit and Stop still pass without running their
+checks under `open` when gitleaks is unavailable.
+
 Non-empty malformed or non-object PreToolUse, PostToolUse, and Stop input is
 also distinct from unavailable infrastructure. Agent Guard rejects one of
 those events even if infrastructure mode is `open`.
