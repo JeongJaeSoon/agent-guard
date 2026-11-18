@@ -1979,8 +1979,8 @@ gitleaks_probe_cache_store() {
 # diagnostics and AGENT_GUARD_LOG_MODE=off never cache. The TTL matches the
 # probe cache: a version manager that swaps gitleaks behind one file changes
 # the probed version within that window. AGENT_GUARD_SCAN_CACHE=off opts out.
-# Keep GITLEAKS_STDIN_SCAN_FLAGS equal to the flags run_gitleaks_stdin passes.
-GITLEAKS_STDIN_SCAN_FLAGS='stdin --redact --no-banner --no-color --log-level error --config CONFIG --exit-code 1'
+GITLEAKS_SCAN_FLAGS='--redact --no-banner --no-color --log-level error'
+GITLEAKS_STDIN_SCAN_FLAGS="stdin $GITLEAKS_SCAN_FLAGS --config CONFIG --exit-code 1"
 GITLEAKS_CLEAN_CACHE_TTL_SECONDS=600
 GITLEAKS_CLEAN_CACHE_MAX_ENTRIES=256
 GITLEAKS_CLEAN_CACHE_FORMAT=1
@@ -3545,11 +3545,21 @@ check_pii_hook_input() {
 }
 
 run_gitleaks_stdin() {
-  label=$1
   need_gitleaks
+  gitleaks_scan "$1" stdin
+}
+
+# $1 labels the scanned input in messages; the rest is the gitleaks
+# subcommand and its operands. Returns 0 clean, 1 finding, 2 scanner error.
+gitleaks_scan() {
+  label=$1
+  shift
+  ag_gs_ifs=$IFS
+  IFS=' '
+  set -- "$@" $GITLEAKS_SCAN_FLAGS --config "$GITLEAKS_CONFIG" --exit-code 1
+  IFS=$ag_gs_ifs
   out=$(mktemp_file) || die "failed to create temp file"
-  "$GITLEAKS_BIN" stdin --redact --no-banner --no-color --log-level error \
-    --config "$GITLEAKS_CONFIG" --exit-code 1 >"$out" 2>&1
+  "$GITLEAKS_BIN" "$@" >"$out" 2>&1
   status=$?
   if [ "$status" -eq 0 ]; then
     if [ -s "$out" ]; then
@@ -4003,18 +4013,62 @@ filter_lockfile_records() {
 # Gitleaks' bundled defaults skip common lockfiles by path. Agent Guard rescans
 # them through stdin after replacing only exact checksum fields; this both fixes
 # checksum false positives and keeps credentials elsewhere detectable.
+#
+# One row per supported lockfile: basename, kind byte for a whole file, kind
+# byte for a diff fragment. A fragment kind is uppercase when the format needs
+# whole-file context that a hunk lacks (see filter_lockfile_records). The
+# path allowlist in config/gitleaks.toml must name the same files.
+LOCKFILE_TABLE='go.sum g g
+package-lock.json p P
+yarn.lock y y
+Cargo.lock c C
+uv.lock u U'
+
+# Derives, once per process, the space-separated LOCKFILE_NAMES and the awk
+# lockfile_kind() that both diff extractors prepend.
+lockfile_table_load() {
+  ag_ltl_ifs=$IFS
+  IFS=' ''
+'
+  set -- $LOCKFILE_TABLE
+  IFS=$ag_ltl_ifs
+  LOCKFILE_NAMES=
+  AWK_LOCKFILE_KIND='
+    function lockfile_kind(path, parts, count, name) {
+      count = split(path, parts, "/")
+      name = parts[count]'
+  while [ "$#" -ge 3 ]; do
+    LOCKFILE_NAMES="$LOCKFILE_NAMES $1"
+    AWK_LOCKFILE_KIND="$AWK_LOCKFILE_KIND
+      if (name == \"$1\") return \"$3\""
+    shift 3
+  done
+  AWK_LOCKFILE_KIND="$AWK_LOCKFILE_KIND
+      return \"-\"
+    }"
+}
+lockfile_table_load
+
+# Sets kind to the whole-file kind byte for basename $1, or fails.
+lockfile_whole_kind() {
+  ag_lwk_name=$1
+  ag_lwk_ifs=$IFS
+  IFS=' ''
+'
+  set -- $LOCKFILE_TABLE
+  IFS=$ag_lwk_ifs
+  while [ "$#" -ge 3 ]; do
+    [ "$1" = "$ag_lwk_name" ] && { kind=$2; return 0; }
+    shift 3
+  done
+  return 1
+}
+
 filter_lockfile_hashes() {
   path=$1
   original_source=${2:-$path}
   snapshot=
-  case "${path##*/}" in
-    go.sum) kind=g ;;
-    package-lock.json) kind=p ;;
-    yarn.lock) kind=y ;;
-    Cargo.lock) kind=c ;;
-    uv.lock) kind=u ;;
-    *) cat -- "$original_source"; return ;;
-  esac
+  lockfile_whole_kind "${path##*/}" || { cat -- "$original_source"; return; }
 
   # Filter one immutable snapshot for every supported lockfile. Besides closing
   # path-swap races, this lets us reject NUL-bearing input before POSIX awk sees
@@ -4110,10 +4164,12 @@ scan_lockfiles_under() {
   label=$2
   blob=$(mktemp_file) || die "failed to create temp file"
   list=$(mktemp_file) || { rm -f "$blob"; die "failed to create temp file"; }
-  find "$root" -type f \( \
-      -name go.sum -o -name package-lock.json -o -name yarn.lock -o \
-      -name Cargo.lock -o -name uv.lock \
-    \) -print0 >"$list"
+  set --
+  for ag_slu_name in $LOCKFILE_NAMES; do
+    set -- "$@" -o -name "$ag_slu_name"
+  done
+  shift
+  find "$root" -type f \( "$@" \) -print0 >"$list"
   find_status=$?
   if [ "$find_status" -ne 0 ]; then
     rm -f "$blob" "$list"
@@ -4244,20 +4300,6 @@ block_on_scan_status() {
       ;;
   esac
 }
-
-# Shared by both diff extractors below: map a diff path to the (uppercase =
-# fragment-context) lockfile kind byte filter_lockfile_records consumes.
-AWK_LOCKFILE_KIND='
-    function lockfile_kind(path, parts, count, name) {
-      count = split(path, parts, "/")
-      name = parts[count]
-      if (name == "go.sum") return "g"
-      if (name == "package-lock.json") return "P"
-      if (name == "yarn.lock") return "y"
-      if (name == "Cargo.lock") return "C"
-      if (name == "uv.lock") return "U"
-      return "-"
-    }'
 
 # Extract only added diff lines, dropping exact checksum fields only when the
 # diff header identifies one of the supported lockfiles.
@@ -4431,6 +4473,16 @@ merge_scan_status() {
   esac
 }
 
+# scan-path's documented exits differ: a scanner error is 2 and outranks a
+# finding, so the caller sees that part of the tree went unscanned.
+merge_scan_path_status() {
+  case "$1" in
+    0) ;;
+    1) [ "$result" -eq 0 ] && result=1 ;;
+    *) result=2 ;;
+  esac
+}
+
 scan_staged() {
   git_scan_prepare || return $?
   added=$(repo_diff_added --cached --unified=0 --no-ext-diff)
@@ -4526,14 +4578,12 @@ scan_untracked_files() {
     filter=$2
     [ -f "$f" ] || exit 0
     printf "### file: %s\n" "$f"
-    case "${f##*/}" in
-      go.sum|package-lock.json|yarn.lock|Cargo.lock|uv.lock)
-        "$filter" filter-lockfile-hashes "$f" "$f" || exit 1
-        ;;
+    case " $3 " in
+      *" ${f##*/} "*) "$filter" filter-lockfile-hashes "$f" "$f" || exit 1 ;;
       *) cat -- "$f" || exit 1 ;;
     esac
     printf "\n" || exit 1
-  ' "$root" '{}' "$SELF_BIN" <"$list"; printf '%s\n' "$?" >"$prepare_status_file") \
+  ' "$root" '{}' "$SELF_BIN" "$LOCKFILE_NAMES" <"$list"; printf '%s\n' "$?" >"$prepare_status_file") \
     2>/dev/null \
     | head -c $((SCAN_COMPONENT_MAX_BYTES + 1)) >"$blob"
   pipe_status=$?
@@ -4633,34 +4683,10 @@ scan_path() {
   result=0
   for path in "$@"; do
     [ -e "$path" ] || die "path not found: $path"
-    out=$(mktemp_file) || die "failed to create temp file"
-    "$GITLEAKS_BIN" dir "$path" --redact --no-banner --no-color --log-level error \
-      --config "$GITLEAKS_CONFIG" --exit-code 1 >"$out" 2>&1
-    status=$?
-    if [ "$status" -eq 0 ]; then
-      if [ -s "$out" ]; then
-        info "$PROGRAM: gitleaks reported an error while scanning path: $path"
-        sed 's/^/  /' "$out" >&2
-        result=2
-      fi
-    elif [ "$status" -eq 1 ]; then
-      info "$PROGRAM: secret-like value detected in path: $path"
-      sed 's/^/  /' "$out" >&2
-      [ "$result" -eq 0 ] && result=1
-    else
-      info "$PROGRAM: gitleaks failed while scanning path: $path"
-      sed 's/^/  /' "$out" >&2
-      result=2
-    fi
-    rm -f "$out"
-
+    gitleaks_scan "path: $path" dir "$path"
+    merge_scan_path_status "$?"
     scan_lockfiles_under "$path" "path: $path"
-    status=$?
-    case "$status" in
-      0) ;;
-      1) [ "$result" -eq 0 ] && result=1 ;;
-      *) result=2 ;;
-    esac
+    merge_scan_path_status "$?"
   done
   return "$result"
 }
