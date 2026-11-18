@@ -8631,6 +8631,15 @@ run_expect 1 "setup --install still exits 1 when git is missing" \
   env PATH="$NO_GIT_BIN" AGENT_GUARD_GITLEAKS_BIN="$MOCK_BIN/gitleaks" \
   "$PLUGIN_ROOT/bin/agent-guard" setup --install
 
+# Without gitleaks, PreToolUse still runs its path and pattern checks (#506),
+# which use the base POSIX tools every supported machine has. Only gitleaks
+# stays missing from this PATH.
+for no_gitleaks_tool in cat cut date grep ls mktemp od sed sort tail uniq; do
+  no_gitleaks_tool_path=$(command -v "$no_gitleaks_tool" 2>/dev/null || :)
+  [ -n "$no_gitleaks_tool_path" ] \
+    && ln -sf "$no_gitleaks_tool_path" "$NO_GITLEAKS_BIN/$no_gitleaks_tool"
+done
+
 DEGRADED_WARNING_DIR="$TESTTMP/degraded-warnings"
 mkdir -p "$DEGRADED_WARNING_DIR"
 printf '%s' '{"session_id":"degraded-session","tool_name":"Bash","tool_input":{"command":"brew install gitleaks"}}' \
