@@ -15,9 +15,8 @@ v3.7.1 main `d00b488`에서 분리한 실험이다. 기본 경로와 scanner 선
 5. 앞서 단독으로는 기각한 Rust `prepare-v1`을 결합한 후보도 별도로 측정한다.
    탐지·정책·호스트 계약은 기존 셸이 담당하고, Rust는 JSON 문자열 추출·framing만 한다.
 
-`prototype.py`는 첫 셸 후보를 main에서 만든 기록이다. 현재 구현을 재생성하는
-스크립트가 아니며, 이후 수정을 덮어쓰도록 실행하지 않는다. 원래 redactor와
-prepare helper는 별개 실행 파일로 측정해 기존 공개 core를 양쪽에서 유지한다.
+원래 redactor와 prepare helper는 별개 실행 파일로 측정해 기존 공개 core를
+양쪽에서 유지한다.
 
 ## 사전 판정 기준과 비교 조건
 

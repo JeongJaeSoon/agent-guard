@@ -1,57 +1,7 @@
 use crate::common::*;
 use serde_json::json;
-use std::{
-    collections::BTreeSet,
-    path::Path,
-    time::{Duration, Instant},
-};
+use std::{collections::BTreeSet, path::Path};
 
-pub fn watchdog(args: &Args) -> Result<()> {
-    ensure(cfg!(target_os = "linux"), "watchdog-orphans requires Linux")?;
-    let runs = args.positive("--runs", 10)?;
-    #[cfg(target_os = "linux")]
-    ensure(
-        unsafe { libc::prctl(libc::PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0) } == 0,
-        "subreaper unavailable",
-    )?;
-    let env = base_env(&args.get("--scanner")?)?;
-    let binaries = [
-        ("baseline", absolute(args.get("--baseline")?)?),
-        ("candidate", absolute(args.opt("--binary", cli()?))?),
-    ];
-    let mut report = json!({"method":"Linux subreaper; reap adopted descendants after each completed CLI check","runs":runs,"binary_sha256":{},"adopted_children":{}});
-    for (name, binary) in binaries {
-        report["binary_sha256"][name] = json!(hash(&binary)?);
-        let mut samples = Vec::new();
-        for _ in 0..runs {
-            checked(&[binary.clone(), "check".into()], b"", &env, None, 10.0)?;
-            let mut adopted = 0;
-            let start = Instant::now();
-            loop {
-                let pid = unsafe { libc::waitpid(-1, std::ptr::null_mut(), libc::WNOHANG) };
-                if pid < 0 {
-                    ensure(
-                        std::io::Error::last_os_error().raw_os_error() == Some(libc::ECHILD),
-                        "waitpid failed",
-                    )?;
-                    break;
-                }
-                if pid > 0 {
-                    adopted += 1;
-                    continue;
-                }
-                ensure(
-                    start.elapsed().as_secs_f64() < 3.0,
-                    "adopted descendant did not terminate",
-                )?;
-                std::thread::sleep(Duration::from_millis(10));
-            }
-            samples.push(adopted);
-        }
-        report["adopted_children"][name] = json!(samples);
-    }
-    emit(&report)
-}
 pub fn verify(args: &Args) -> Result<()> {
     let out = std::path::PathBuf::from(args.get("--out")?);
     std::fs::create_dir_all(&out)?;
