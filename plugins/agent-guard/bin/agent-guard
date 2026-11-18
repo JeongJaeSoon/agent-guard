@@ -1210,16 +1210,17 @@ audit_location() {
 # stat. FOLLOW is -L to follow a symlink or -P not to. FIELDS is one of:
 #   access    uid:mode
 #   entry     uid:mode:links:ctime
-#   identity  dev:inode:size:mtime:ctime
-# Only macOS stat is known to print sub-second times (%F); other BSDs give
-# identity whole seconds.
+#   identity  dev:inode:size:mtime:ctime, with sub-second times
+# Caches trust identity to notice a rewrite, so it fails where stat is not
+# known to print sub-second times (%F): a same-size rewrite within one second
+# would otherwise keep a stale entry. Those platforms run uncached.
 file_stat() {
   ag_fs_os=${AG_OS:-$(uname -s)}
   case "$ag_fs_os:$1" in
     Darwin:access|*BSD:access|DragonFly:access) ag_fs_format='-f %u:%Lp' ;;
     Darwin:entry|*BSD:entry|DragonFly:entry) ag_fs_format='-f %u:%Lp:%l:%c' ;;
     Darwin:identity) ag_fs_format='-f %d:%i:%z:%Fm:%Fc' ;;
-    *BSD:identity|DragonFly:identity) ag_fs_format='-f %d:%i:%z:%m:%c' ;;
+    *BSD:identity|DragonFly:identity) return 1 ;;
     *:access) ag_fs_format='-c %u:%a' ;;
     *:entry) ag_fs_format='-c %u:%a:%h:%Z' ;;
     *:identity) ag_fs_format='-c %d:%i:%s:%y:%z' ;;
