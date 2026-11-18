@@ -47,7 +47,7 @@ status_of() {
   jq -nc --arg c "$1" --arg d "$CASE/w" --arg s "deny-cache-$$" \
     '{tool_name:"Bash",tool_input:{command:$c},cwd:$d,session_id:$s}' \
     | AGENT_GUARD_LOG_MODE=$LOG AGENT_GUARD_HOOK_HOST=$HOST "$BIN" hook-pre-tool \
-      >/dev/null 2>"$CASE/err"
+      >/dev/null 2>"$CASE/err${ERR_TAG:-}"
   echo $?
 }
 # Every status of a command list, one per line.
@@ -263,10 +263,18 @@ CORPUS="$CASE/corpus"
   cat "$CASES"
 } >"$CORPUS"
 check 'the fixture corpus is not empty' test "$(wc -l <"$CORPUS" | tr -d ' ')" -gt 100
-LOG=off BIN=$REF
-corpus_expected=$(statuses "$CORPUS")
+# With logging off neither CLI keeps state between runs, so the reference runs
+# beside the shipped CLI, with its own stderr file and warning directory.
+LOG=off
+(
+  BIN=$REF ERR_TAG=-ref AGENT_GUARD_WARNING_DIR="$CASE/warnings-ref"
+  statuses "$CORPUS" >"$CASE/corpus-expected"
+) &
+corpus_ref=$!
 BIN=$GUARD
 corpus_got=$(statuses "$CORPUS")
+wait "$corpus_ref" || : >"$CASE/corpus-expected"
+corpus_expected=$(cat "$CASE/corpus-expected")
 LOG=on
 check 'the run-directory cache gives the per-entry verdict for every fixture command' \
   test "$corpus_got" = "$corpus_expected"
