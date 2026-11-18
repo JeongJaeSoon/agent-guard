@@ -1,4 +1,4 @@
-<!-- translated-from: README.md; source-blob: 8224622d83dda9dcc07ddb8ddc242b23b6f94200 -->
+<!-- translated-from: README.md; source-blob: 58d472de7ad3a278b41624fc730823420db73e1c -->
 
 <p align="center">
   <a href="https://github.com/JeongJaeSoon/agent-guard/releases"><img src="docs/assets/icon.png" alt="Agent Guard icon" width="128" height="128"></a>
@@ -40,7 +40,7 @@ Agent Guardは、Claude Code、Codex、Git hook、GitHub Actions、直接実行�
 | ユーザーまたはエージェントによるすべてのローカルコミット | [ネイティブpre-commit hook](docs/integrations.md#native-git-hook)を導入すると、Gitがコミット対象をすべてステージングした後に追加行を検査し、検出時や検査を実行できない場合はコミットを中止します。Gitは `git commit --no-verify` でhookをスキップします。プラグインはエージェントによるそのフラグの使用を拒否し、残りをCIが補います。 |
 | push後のすべての利用者 | [GitHub Action](docs/integrations.md#github-actions)が、実行対象のpushやpull requestでチェックアウトされたファイルを検査し、リポジトリの後段の防御を担います。 |
 
-プラグインはコミットに含まれる内容を検査します。インデックスに加え、`git commit -a`、`--patch`、`git commit <path>` のようなpathspec、`--include`、`--only` でGitが自らステージングする追跡対象の変更と、`--interactive` で追加できる未追跡ファイルも対象です。`git commit $FLAGS` のように引数が実行時に決まる場合や、同じコマンドが先に `git add` を実行する場合は、追跡対象のすべての変更と未追跡ファイルを検査します。`git add -f` で追加する無視対象ファイルも含みます。`bash -c`、`sh -c`、here-string、`env -S`、`eval` に渡されるshellコードもコマンド本体と同じように検査します。Git aliasが展開するコマンドは、その実行で読み込まれる設定から取得して検査します。コード、Gitサブコマンド、alias、作業ディレクトリが実行時にしか決まらない場合はコミット対象を判断できないため、後述のインフラ障害ポリシーを適用します。`!` shell alias、`help.autoCorrect` が実行する可能性のある推測コマンド、同じコマンドの前段で変更された可能性のあるaliasも該当します。
+プラグインはコミットに含まれる内容を検査します。インデックスに加え、`git commit -a`、`--patch`、`git commit <path>` のようなpathspec、`--include`、`--only` でGitが自らステージングする追跡対象の変更と、`--interactive` で追加できる未追跡ファイルも対象です。`git commit $FLAGS` のように引数が実行時に決まる場合や、同じコマンドが先に `git add` を実行する場合は、追跡対象のすべての変更と未追跡ファイルを検査します。`git add -f` で追加する無視対象ファイルも含みます。`bash -c`、`sh -c`、here-string、`env -S`、`eval` に渡されるshellコードもコマンド本体と同じように検査します。Git aliasが展開するコマンドは、その実行で読み込まれる設定から取得して検査します。コード、Gitサブコマンド、alias、作業ディレクトリが実行時にしか決まらない場合はコミット対象を判断できないため、後述のインフラ障害ポリシーを適用します。`!` shell alias、`help.autoCorrect` が実行する可能性のある推測コマンド、同じコマンドの前段で変更された可能性のあるaliasも該当します。`timeout`、`sudo`、`doas`、`env`、`nice`、`nohup`、`stdbuf`、`flock`、`xargs` のような一般的なwrapperの後ろのgitは、gitコマンドまでたどって検査します。`find -exec`、`ssh host git push`、`watch`、`su -c`、`fish -c` のようにプラグインがたどらないコマンドの後ろのcommitやpushでも `--no-verify` は拒否し、それ以外はインフラ障害ポリシーを適用します。openポリシーでも、hookが実行されるディレクトリのステージングされた変更は検査します。`ssh host 'git push'` のように、そうしたコマンドの引用符で囲んだ1つの引数の中にあるgitコマンドは検出できません。
 
 プラグインが検査するのはコマンド開始時点のファイルです。同じコマンドの前段でファイルを書き込んだり別のリポジトリへ移動したりすると、その結果は見えません。ネイティブhookも導入してください。pushの検査対象は既存のコミットではなくステージングされた内容です。これらのhookを経由せずコミットされた秘密情報は、チェックアウトされたツリーに残っている間にCIが検出します。
 

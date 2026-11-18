@@ -1,4 +1,4 @@
-<!-- translated-from: README.md; source-blob: 8224622d83dda9dcc07ddb8ddc242b23b6f94200 -->
+<!-- translated-from: README.md; source-blob: 58d472de7ad3a278b41624fc730823420db73e1c -->
 
 <p align="center">
   <a href="https://github.com/JeongJaeSoon/agent-guard/releases"><img src="docs/assets/icon.png" alt="Agent Guard icon" width="128" height="128"></a>
@@ -40,7 +40,7 @@ Agent Guard는 Claude Code, Codex, Git hook, GitHub Actions와 직접 실행하�
 | 사용자 또는 에이전트가 실행하는 모든 로컬 커밋 | [네이티브 pre-commit hook](docs/integrations.md#native-git-hook)을 설치하면 Git이 커밋 대상 전체를 스테이징한 뒤 추가 줄을 검사하며, 탐지되거나 검사를 실행할 수 없으면 커밋을 중단합니다. Git은 `git commit --no-verify`에서 hook을 건너뜁니다. 플러그인은 에이전트의 해당 플래그 사용을 거부하고, 나머지는 CI가 보완합니다. |
 | 누구든 push한 뒤 | [GitHub Action](docs/integrations.md#github-actions)이 실행 대상 push 또는 pull request에서 체크아웃된 파일을 저장소의 추가 방어 계층으로 검사합니다. |
 
-플러그인은 커밋에 포함될 내용을 검사합니다. 인덱스뿐 아니라 `git commit -a`, `--patch`, `git commit <path>` 같은 pathspec, `--include`, `--only`에서 Git이 직접 스테이징하는 추적 파일 변경과 `--interactive`로 추가할 수 있는 미추적 파일도 포함합니다. `git commit $FLAGS`처럼 인자가 실행 시점에 결정되거나 같은 명령이 먼저 `git add`를 실행하면, 추적 파일의 모든 변경과 미추적 파일을 검사합니다. `git add -f`로 추가하는 무시 파일도 포함합니다. `bash -c`, `sh -c`, here-string, `env -S`, `eval`에 전달한 shell 코드도 명령 자체처럼 검사합니다. Git alias가 확장하는 명령은 해당 실행이 읽을 설정에서 가져와 검사합니다. 코드, Git 하위 명령, alias 또는 작업 디렉터리가 실행 시점에만 결정되면 커밋 대상을 판단할 수 없으므로 아래 인프라 정책을 적용합니다. `!` shell alias, `help.autoCorrect`가 실행할 수 있는 추정 명령, 같은 명령의 앞부분에서 변경했을 수 있는 alias도 여기에 해당합니다.
+플러그인은 커밋에 포함될 내용을 검사합니다. 인덱스뿐 아니라 `git commit -a`, `--patch`, `git commit <path>` 같은 pathspec, `--include`, `--only`에서 Git이 직접 스테이징하는 추적 파일 변경과 `--interactive`로 추가할 수 있는 미추적 파일도 포함합니다. `git commit $FLAGS`처럼 인자가 실행 시점에 결정되거나 같은 명령이 먼저 `git add`를 실행하면, 추적 파일의 모든 변경과 미추적 파일을 검사합니다. `git add -f`로 추가하는 무시 파일도 포함합니다. `bash -c`, `sh -c`, here-string, `env -S`, `eval`에 전달한 shell 코드도 명령 자체처럼 검사합니다. Git alias가 확장하는 명령은 해당 실행이 읽을 설정에서 가져와 검사합니다. 코드, Git 하위 명령, alias 또는 작업 디렉터리가 실행 시점에만 결정되면 커밋 대상을 판단할 수 없으므로 아래 인프라 정책을 적용합니다. `!` shell alias, `help.autoCorrect`가 실행할 수 있는 추정 명령, 같은 명령의 앞부분에서 변경했을 수 있는 alias도 여기에 해당합니다. `timeout`, `sudo`, `doas`, `env`, `nice`, `nohup`, `stdbuf`, `flock`, `xargs` 같은 흔한 wrapper 뒤의 git은 git 명령까지 따라가 검사합니다. `find -exec`, `ssh host git push`, `watch`, `su -c`, `fish -c`처럼 플러그인이 따라가지 않는 명령 뒤의 commit이나 push도 `--no-verify`는 거부하며, 그 밖에는 인프라 정책을 적용합니다. open 정책에서도 hook이 실행되는 디렉터리의 스테이징된 변경은 검사합니다. `ssh host 'git push'`처럼 그런 명령의 따옴표로 묶은 인자 하나 안에 든 git 명령은 보지 못합니다.
 
 플러그인은 명령이 시작될 때의 파일을 검사합니다. 같은 명령의 앞부분에서 파일을 쓰거나 다른 저장소로 이동하면 그 결과를 보지 못하므로 네이티브 hook도 설치하세요. push 검사는 이미 존재하는 커밋 대신 스테이징된 내용을 확인합니다. 이 hook 밖에서 커밋된 비밀 정보는 체크아웃된 트리에 남아 있는 동안 CI가 탐지합니다.
 
