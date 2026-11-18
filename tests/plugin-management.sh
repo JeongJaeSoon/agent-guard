@@ -1080,7 +1080,15 @@ fi
 
 for trust_mode in hang linger spawn; do
   trust_case "doctor_trust_$trust_mode" "$trust_mode"
-  export AG_PLUGIN_TEST_CODEX_TRUST_TIMEOUT=1 AG_PLUGIN_TEST_TRUST_CHILD="$case_dir/child-pid"
+  # The client's deadline is a whole second, so a limit of 1 leaves a server
+  # that does answer anywhere from a full second to none. Only hang has to run
+  # into the limit; linger still ends at limit + 3 (watchdog), inside the bound.
+  case "$trust_mode" in
+    hang) trust_limit=1 ;;
+    linger) trust_limit=2 ;;
+    *) trust_limit=3 ;;
+  esac
+  export AG_PLUGIN_TEST_CODEX_TRUST_TIMEOUT=$trust_limit AG_PLUGIN_TEST_TRUST_CHILD="$case_dir/child-pid"
   case "$trust_mode" in
     hang) want='agent-guard: codex hook trust: unverified (Codex app-server did not initialize)' ;;
     *) want="agent-guard: codex hook trust: ok (agent-guard hooks are trusted and enabled for $(case_cwd); configuration snapshot, not observed dispatch)" ;;
