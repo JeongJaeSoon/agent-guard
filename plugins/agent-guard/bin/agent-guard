@@ -2,7 +2,7 @@
 set -u
 
 PROGRAM=agent-guard
-VERSION=3.11.6
+VERSION=3.11.7
 
 # Resolve the script's own path, following symlinks. The bootstrap installer
 # drops a symlink at ~/.local/bin/agent-guard that points into ~/.agent-guard/
@@ -6800,6 +6800,30 @@ search_operand_spans() {
         }
       return out
     }
+    # `sed -n 1,50p file` only prints lines: with nothing but these flags
+    # (GNU sed reads an option after the script too, so -i, -f or a second
+    # script anywhere disqualifies it) and a line-number script, given as the
+    # first operand or by one -e, it writes no file and runs nothing, so it
+    # cannot rebind the name of a later command.
+    function sed_prints_lines(a, b,   k, script) {
+      script = 0
+      for (k = a + 1; k <= b; k++) {
+        if (bad(k)) return 0
+        if (wv[k] ~ /^-[nErsuz]+$/) continue
+        if (wv[k] == "-e" && !script && k < b) {
+          k++
+          if (bad(k) || wv[k] !~ /^([0-9]+|\$)(,([0-9]+|\$|[+~][0-9]+))?[pd]$/) return 0
+          script = 1
+          continue
+        }
+        if (substr(wv[k], 1, 1) == "-") return 0
+        if (!script) {
+          if (wv[k] !~ /^([0-9]+|\$)(,([0-9]+|\$|[+~][0-9]+))?[pd]$/) return 0
+          script = 1
+        }
+      }
+      return script
+    }
     BEGIN { safe = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_./:@%+,=-" }
     NR > 1 { bail() }
     {
@@ -6868,6 +6892,7 @@ search_operand_spans() {
         # LD_PRELOAD can make any listed command run code; a locale name
         # without a path loads no code.
         for (r = a; r < h; r++) if (wv[r] !~ /^(LC_[A-Z]+|LANG|LANGUAGE|TZ)=[A-Za-z0-9_.@:+-]*$/) exit 0
+        if (wv[h] == "sed" && sed_prints_lines(h, e)) continue
         if (inert_names == "" || wv[h] !~ inert_names) exit 0
         if (wv[h] == "cd" && cd_ok != "1") exit 0
       }
@@ -7033,48 +7058,76 @@ jq_filter_without_field_names() {
     BEGIN { printf "%s", strip(ENVIRON["JQ_FILTER"]) }'
 }
 
-# Print $1, a sed script, with the regex of each s command removed:
-# `s/^a\t[^\t]*//g` becomes `s///g`. sed never opens a file its regex names.
-# Fail unless the script is only s commands joined by `;`, with flags that
-# neither write (w) nor run (e) anything. A delimiter or `\]` inside a bracket
+# Print $1, a sed script, with the regex of each s command and each `/re/`
+# address removed: `s/^a\t[^\t]*//g` becomes `s///g` and `/x/,+5p` becomes
+# `//,+5p`. sed never opens a file its regex names. Fail unless the script is
+# only commands joined by `;`, each an optional line or `/re/` address (or a
+# range of them) and then an s command whose flags neither write (w) nor run
+# (e) anything, or one of p, d, = and q. A delimiter or `\]` inside a bracket
 # expression also fails, since GNU and BSD sed may end such a regex at
 # different places, and so may a newline.
 sed_script_without_regex() {
-  SED_SCRIPT=$1 LC_ALL=C awk 'BEGIN {
+  SED_SCRIPT=$1 LC_ALL=C awk '
+  # t[i] opens a regex delimited by d; move i to its closing delimiter.
+  function skip_re(d,   c, j, k, e) {
+    for (i++; i <= n && (c = substr(t, i, 1)) != d; i++) {
+      if (c == "\n") exit 1
+      if (c == "\\") { i++; if (substr(t, i, 1) == "\n") exit 1; continue }
+      if (c != "[") continue
+      j = i + 1
+      if (substr(t, j, 1) == "^") j++
+      if (substr(t, j, 1) == "]") j++
+      for (; j <= n && (c = substr(t, j, 1)) != "]"; j++) {
+        if (c == d || c == "\n" || substr(t, j, 2) == "\\]") exit 1
+        if (c == "[" && (k = index(":.=", substr(t, j + 1, 1)))) {
+          e = index(substr(t, j + 2), substr(":.=", k, 1) "]")
+          if (e == 0 || index(substr(t, j + 2, e - 1), d)) exit 1
+          j += e + 2
+        }
+      }
+      if (j > n) exit 1
+      i = j
+    }
+    if (i > n) exit 1
+  }
+  # Copy one address at t[i] to out: a line number, `$`, or `/re/` without
+  # its regex; with second set, also `+N` and `~N`. Return 0 when none is there.
+  function address(second,   c) {
+    c = substr(t, i, 1)
+    if (c == "/") { skip_re("/"); out = out "//"; i++; return 1 }
+    if (c == "$") { out = out c; i++; return 1 }
+    if (second && (c == "+" || c == "~")) { out = out c; i++; c = substr(t, i, 1) }
+    if (c !~ /[0-9]/) return 0
+    for (; i <= n && substr(t, i, 1) ~ /[0-9]/; i++) out = out substr(t, i, 1)
+    return 1
+  }
+  BEGIN {
     t = ENVIRON["SED_SCRIPT"]; n = length(t); i = 1; out = ""
     while (1) {
       while (i <= n && substr(t, i, 1) == " ") i++
       if (i > n) break
-      d = substr(t, i + 1, 1)
-      if (substr(t, i, 1) != "s" || d == "" || index("/|#,:@!%", d) == 0) exit 1
-      for (i += 2; i <= n && (c = substr(t, i, 1)) != d; i++) {
-        if (c == "\n") exit 1
-        if (c == "\\") { i++; if (substr(t, i, 1) == "\n") exit 1; continue }
-        if (c != "[") continue
-        j = i + 1
-        if (substr(t, j, 1) == "^") j++
-        if (substr(t, j, 1) == "]") j++
-        for (; j <= n && (c = substr(t, j, 1)) != "]"; j++) {
-          if (c == d || c == "\n" || substr(t, j, 2) == "\\]") exit 1
-          if (c == "[" && (k = index(":.=", substr(t, j + 1, 1)))) {
-            e = index(substr(t, j + 2), substr(":.=", k, 1) "]")
-            if (e == 0 || index(substr(t, j + 2, e - 1), d)) exit 1
-            j += e + 2
-          }
+      if (address(0) && substr(t, i, 1) == ",") {
+        out = out ","; i++
+        if (!address(1)) exit 1
+      }
+      c = substr(t, i, 1)
+      if (c != "" && index("pd=q", c)) {
+        out = out c; i++
+      } else {
+        d = substr(t, i + 1, 1)
+        if (c != "s" || d == "" || index("/|#,:@!%", d) == 0) exit 1
+        i++
+        skip_re(d)
+        out = out "s" d d
+        for (i++; i <= n && (c = substr(t, i, 1)) != d; i++) {
+          if (c == "\n") exit 1
+          if (c == "\\") { out = out c; i++; c = substr(t, i, 1); if (c == "\n") exit 1 }
+          out = out c
         }
-        if (j > n) exit 1
-        i = j
+        if (i > n) exit 1
+        out = out d
+        for (i++; i <= n && substr(t, i, 1) ~ /[gpIiMm0-9]/; i++) out = out substr(t, i, 1)
       }
-      if (i > n) exit 1
-      out = out "s" d d
-      for (i++; i <= n && (c = substr(t, i, 1)) != d; i++) {
-        if (c == "\n") exit 1
-        if (c == "\\") { out = out c; i++; c = substr(t, i, 1); if (c == "\n") exit 1 }
-        out = out c
-      }
-      if (i > n) exit 1
-      out = out d
-      for (i++; i <= n && substr(t, i, 1) ~ /[gpIiMm0-9]/; i++) out = out substr(t, i, 1)
       while (i <= n && substr(t, i, 1) == " ") i++
       if (i > n) break
       if (substr(t, i, 1) != ";") exit 1
@@ -7098,7 +7151,7 @@ sed_script_without_regex() {
 # assignment can pick another jq. Every other word, redirections included,
 # still reaches the deny regex. A rewrite is kept only when re-tokenizing
 # shows that it changed the filter word and nothing else. The script of a sed
-# made only of s commands gets the same treatment under the same rules: its
+# made only of s and print commands gets the same treatment under the same rules: its
 # regexes are dropped (sed_script_without_regex), and -f, -i or an -e after
 # the script word keeps the command unchanged.
 #
@@ -7600,7 +7653,7 @@ bash_neutralize_runtime_globals() (
 # the delimiter line stay. Anything not read with confidence prints $1
 # unchanged: another head (a shell or python runs its body), a pipe, group or
 # background on the line, a body with no terminator, an unquoted delimiter whose
-# body expands something, or a line the command gate does not read the same
+# body expands anything but a bare parameter reference, or a line the command gate does not read the same
 # way after the rewrite (a later `sh`, `.` or `eval` may run what was written).
 # heredoc_body_rewrite reads the text on stdin and holds that decision; with
 # $1 set to 1 it prints, for a text it accepts, the whole text with only a
@@ -7660,7 +7713,19 @@ heredoc_body_rewrite() {
       line = $0
       if (strip) sub(/^\t+/, "", line)
       if (line == delim) { delim = ""; kept[++nk] = $0; ntext = ntext $0 "\n"; if (msg) mend = nk; next }
-      if (!quoted && $0 ~ /[$`\\]/) reject()
+      if (!quoted) {
+        # An unquoted delimiter expands its body. A bare parameter reference
+        # runs nothing and opens no file unless an earlier `declare -n` made
+        # it a name reference; that declaration is itself on the scanned
+        # line, not in the body. A substitution, arithmetic (which
+        # evaluates the values of the names it reads), a subscript, any other
+        # `${...}` form or a backslash keeps the command in the scan.
+        line = $0
+        if (line ~ /[`\\]/ || line ~ /\$[A-Za-z_][A-Za-z0-9_]*\[/) reject()
+        gsub(/\$\{[A-Za-z_][A-Za-z0-9_]*\}/, "", line)
+        gsub(/\$[A-Za-z_][A-Za-z0-9_]*/, "", line)
+        if (index(line, "$")) reject()
+      }
       line = $0; gsub(/`/, "_", line); gsub(/\$\(/, "_(", line)
       ntext = ntext line "\n"
       next
@@ -7899,6 +7964,40 @@ bash_neutralize_literal_substitutions() (
   printf '%s' "$ln_new"
 )
 
+# Print $1 with the text of each single-quoted word replaced by `_` when the
+# whole command is one echo or printf, optionally redirected to one file:
+# `echo 'const m = obj.env;' > note.md`. Those commands only print their
+# words, so a path-shaped word opens nothing. The redirect target keeps its
+# text, and a quote after the `>`, a second redirection, a newline outside the
+# quotes, or any unquoted character that could expand, glob, join another
+# command or open a pipe prints $1 unchanged.
+bash_strip_echo_literal_text() {
+  case "$1" in
+    "echo '"*|"echo -"*|"printf '"*|"printf -"*) ;;
+    *) printf '%s' "$1"; return 0 ;;
+  esac
+  ET_CMD=$1 LC_ALL=C awk 'BEGIN {
+    s = ENVIRON["ET_CMD"]; n = length(s); out = ""; redir = 0
+    for (i = 1; i <= n; i++) {
+      c = substr(s, i, 1)
+      if (c == "\047") {
+        e = index(substr(s, i + 1), "\047")
+        if (e == 0 || redir) exit 1
+        out = out "\047_\047"; i += e; continue
+      }
+      if (c == ">") {
+        if (redir) exit 1
+        redir = 1; out = out c
+        if (substr(s, i + 1, 1) == ">") { out = out c; i++ }
+        continue
+      }
+      if (c != " " && c != "\t" && c !~ /[A-Za-z0-9_.\/:@%+,=-]/) exit 1
+      out = out c
+    }
+    printf "%s", out
+  }' || printf '%s' "$1"
+}
+
 # Private variable name; see check_bash_command (#127).
 bash_matches_deny_path() {
   deny_cmd=$1
@@ -7907,6 +8006,7 @@ bash_matches_deny_path() {
 "*) deny_cmd=$(shell_join_line_continuations "$deny_cmd") ;;
   esac
   deny_cmd=$(bash_strip_heredoc_bodies "$deny_cmd")
+  deny_cmd=$(bash_strip_echo_literal_text "$deny_cmd")
   # A failed rewrite keeps the whole command in the scan.
   # The deny-pattern check already stripped the same text (it depends on
   # nothing but the text), so reuse that result.
@@ -10733,6 +10833,16 @@ $joined_cmd"
     case "$grep_status" in
       0)
         info "$PROGRAM: blocked risky shell command by deny pattern"
+        # Name the first matching line so the reader can tell which idiom
+        # was caught. Only a block pays for this per-line search.
+        dp_hit=$(grep -n -Ev '^[[:space:]]*(#|$)' "$DENY_BASH_PATTERNS" | while IFS= read -r dp_line; do
+          if printf '%s\n' "$pattern_cmd" | grep -E -q -e "${dp_line#*:}"; then
+            printf '%s' "${dp_line%%:*}"
+            break
+          fi
+        done)
+        [ -n "$dp_hit" ] && info "$PROGRAM: matched deny-bash-patterns line $dp_hit ($DENY_BASH_PATTERNS)"
+        info "$PROGRAM: this command prints, captures or sends a secret value (an environment dump, a credential store read, a token in a request); do not retry it in another form. Read files with the Read tool, and let the program that needs a secret read it from its own environment or config."
         exit 2
         ;;
       1) ;;
@@ -10777,6 +10887,7 @@ $joined_cmd"
       info "$PROGRAM: blocked shell command referencing a deny-listed path"
       info "$PROGRAM: reason=bash_protected_path_text_match; raw Bash command text matched a protected-path pattern and may be a file operand or source/search text; command was not executed"
       [ -n "$deny_report" ] && info "$PROGRAM: $deny_report"
+      info "$PROGRAM: to read, edit or write an ordinary file, use the Read, Edit or Write tool instead of a shell command. A program an interpreter runs (python3 - <<EOF, node -e) stays blocked while its text names a protected file, even when it only edits another file, because the guard cannot tell a string from a path it opens."
       info "$PROGRAM: if the command reads no protected file, rewrite the matched text so it is not path-shaped and retry; do not weaken the deny list. Examples: jq '.[\"key\"]' instead of jq '.key'; a commit message that omits the path; a structured Grep pattern instead of an inline shell search."
       deny_read_mode_notice "$dr_mode"
       exit 2
