@@ -136,7 +136,7 @@ for mode in "" block; do
 "
     hook "$host" "$mode" "$(bash_json "cat $DOT")"
     expect_blocked "$host: mode '${mode:-unset}' cat blocks as before without guidance" \
-      "agent-guard: if the command reads no protected file, rewrite the matched text so it is not path-shaped and retry; do not weaken the deny list. Examples: jq '.[\"key\"]' instead of jq '.key'; a commit message that omits the path; a structured Grep pattern instead of an inline shell search."
+      "agent-guard: checking whether a protected file exists or reading its metadata is not supported; if it is needed, ask the user to run the command themselves. Do not weaken the deny list or reshape the command to pass this check."
   done
 done
 
