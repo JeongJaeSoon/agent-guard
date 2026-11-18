@@ -1922,6 +1922,34 @@ probe_gitleaks() {
   return 0
 }
 
+# The runtime-failure details probe_gitleaks reports by name. Prints the
+# message for detail $1 about executable $2; fails for any other detail.
+gitleaks_probe_detail_message() {
+  case "$1" in
+    timeout)
+      printf 'gitleaks version command timed out after %ss: %s' \
+        "$GITLEAKS_PROBE_TIMEOUT_SECONDS" "$2"
+      ;;
+    output-limit)
+      printf 'gitleaks version output exceeded %s bytes: %s' \
+        "$GITLEAKS_PROBE_MAX_BYTES" "$2"
+      ;;
+    timer-unavailable)
+      printf 'gitleaks version timeout helper is unavailable: sleep'
+      ;;
+    launcher-unavailable)
+      printf 'gitleaks version isolation requires setsid or perl'
+      ;;
+    temp-helper-unavailable)
+      printf 'gitleaks version temp fallback requires mkdir and rmdir'
+      ;;
+    output-unavailable|command-failed|temp-unavailable)
+      printf 'gitleaks version command failed: %s' "$2"
+      ;;
+    *) return 1 ;;
+  esac
+}
+
 gitleaks_probe_error() {
   ag_gl_error_bin=$1
   case "$GITLEAKS_PROBE_STATE" in
@@ -1929,26 +1957,8 @@ gitleaks_probe_error() {
       printf 'selected gitleaks is not executable: %s' "$ag_gl_error_bin"
       ;;
     runtime-failure)
-      case "$GITLEAKS_PROBE_DETAIL" in
-        timeout)
-          printf 'gitleaks version command timed out after %ss: %s' \
-            "$GITLEAKS_PROBE_TIMEOUT_SECONDS" "$ag_gl_error_bin"
-          ;;
-        output-limit)
-          printf 'gitleaks version output exceeded %s bytes: %s' \
-            "$GITLEAKS_PROBE_MAX_BYTES" "$ag_gl_error_bin"
-          ;;
-        timer-unavailable)
-          printf 'gitleaks version timeout helper is unavailable: sleep'
-          ;;
-        launcher-unavailable)
-          printf 'gitleaks version isolation requires setsid or perl'
-          ;;
-        temp-helper-unavailable)
-          printf 'gitleaks version temp fallback requires mkdir and rmdir'
-          ;;
-        *) printf 'gitleaks version command failed: %s' "$ag_gl_error_bin" ;;
-      esac
+      gitleaks_probe_detail_message "$GITLEAKS_PROBE_DETAIL" "$ag_gl_error_bin" \
+        || printf 'gitleaks version command failed: %s' "$ag_gl_error_bin"
       ;;
     unparseable)
       printf 'could not parse gitleaks version from %s (required >= %s)' \
@@ -2618,11 +2628,11 @@ degraded_hook_message() {
   case "${GITLEAKS_PROBE_STATE:-}" in
     missing|unparseable|unsupported) degraded_probe_reason=$GITLEAKS_PROBE_STATE ;;
     runtime-failure)
-      case "${GITLEAKS_PROBE_DETAIL:-}" in
-        timeout|output-limit|output-unavailable|command-failed|timer-unavailable|launcher-unavailable|temp-helper-unavailable|temp-unavailable)
-          degraded_probe_reason=$GITLEAKS_PROBE_DETAIL ;;
-        *) degraded_probe_reason=runtime-failure ;;
-      esac
+      if gitleaks_probe_detail_message "${GITLEAKS_PROBE_DETAIL:-}" '' >/dev/null; then
+        degraded_probe_reason=$GITLEAKS_PROBE_DETAIL
+      else
+        degraded_probe_reason=runtime-failure
+      fi
       ;;
   esac
   [ -z "$degraded_probe_reason" ] \
