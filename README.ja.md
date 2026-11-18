@@ -1,4 +1,4 @@
-<!-- translated-from: README.md; source-blob: 480164fbd2cbf9f5f12123e667c7e5f4c33083ec -->
+<!-- translated-from: README.md; source-blob: e11987b0e37cc91e04efde6374cc59509604a5a0 -->
 
 <p align="center">
   <a href="https://github.com/JeongJaeSoon/agent-guard/releases"><img src="docs/assets/icon.png" alt="Agent Guard icon" width="128" height="128"></a>
@@ -36,7 +36,7 @@ Agent Guardは、Claude Code、Codex、Git hook、GitHub Actions、直接実行�
 
 | コミットする主体 | 漏えいを止める仕組み |
 | --- | --- |
-| Claude CodeまたはCodexのエージェント | エージェントの `git commit` や `git push` の前に、ステージングされた追加行を検査し、秘密情報らしい値があればコマンドをブロックします。これらのコマンドでの `--no-verify` と `--no-gpg-sign` も拒否するため、エージェントはフラグで検査を無効にできません。 |
+| Claude CodeまたはCodexのエージェント | エージェントの `git commit` や `git push` の前に、ステージングされた追加行を検査し、秘密情報らしい値があればコマンドをブロックします。これらのコマンドで、リポジトリ自身のGit hookや署名をスキップするオプションも拒否します: `--no-verify`、`--no-gpg-sign`、`git commit -n`、それらの省略形、コマンドに指定した `core.hooksPath`。 |
 | ユーザーまたはエージェントによるすべてのローカルコミット | [ネイティブpre-commit hook](docs/integrations.md#native-git-hook)を導入すると、Gitがコミット対象をすべてステージングした後に追加行を検査し、検出時や検査を実行できない場合はコミットを中止します。Gitは `git commit --no-verify` でhookをスキップします。プラグインはエージェントによるそのフラグの使用を拒否し、残りをCIが補います。 |
 | push後のすべての利用者 | [GitHub Action](docs/integrations.md#github-actions)が、実行対象のpushやpull requestでチェックアウトされたファイルを検査し、リポジトリの後段の防御を担います。 |
 

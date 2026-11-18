@@ -5138,6 +5138,41 @@ for gate_command in "git commit -m x" "sudo -n git commit -m x" \
   "script --command='echo git push'"; do
   gate_expect_clean claude "$gate_command"
 done
+# #499: the other spellings that skip the hooks of a commit or push. A
+# variable that skips only some hooks of a manager is not one of them.
+for gate_command in "git commit -nm x" "git commit -anm x" "git commit -an" \
+  "git commit -m x -n" "git commit --no-veri -m x" "git commit --no-verif -m x" \
+  "git commit --no-g -m x" "git commit --no-gpg-sig -m x" "git push --no-veri" "git push --no-verif" \
+  "git -c core.hooksPath=/dev/null commit -m x" "git -c CORE.HOOKSPATH= commit -m x" \
+  "git --config-env=core.hooksPath=HP push" "git --config-env core.hooksPath=HP commit -m x" \
+  "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0=/dev/null git commit -m x" \
+  "GIT_CONFIG_PARAMETERS=\"'core.hooksPath'='/dev/null'\" git commit -m x" \
+  "git config core.hooksPath /dev/null && git commit -m x" "git config --unset core.hooksPath; git push" \
+  "git -c commit.gpgsign=false commit -m x" "git -c commit.gpgSign= commit -m x" \
+  "HUSKY_SKIP_HOOKS=1 git commit -m x" \
+  "LEFTHOOK=0 git commit -m x" "OVERCOMMIT_DISABLE=1 git commit -m x" "env HUSKY=0 git commit -m x" \
+  "f=--no-verify; git commit \$f -m x" "f=-n; git commit \$f -m x" \
+  "timeout 10 git commit -n -m x" "timeout 5 git -c core.hooksPath=/dev/null commit -m x" \
+  "HUSKY=0 timeout 5 git commit -m x" "fish -c 'git commit -n -m x'" "fish -c 'git push --no-verif'" \
+  "fish -c 'git -c core.hooksPath=/dev/null commit -m x'" "fish -c 'HUSKY=0 git commit -m x'" \
+  "HUSKY=0 fish -c 'git commit -m x'" "ssh host HUSKY=0 git commit -m x" "sh -c 'git commit -anm x'"; do
+  gate_expect_flag claude "$gate_command"
+done
+for gate_command in "git push -n origin main" "git push -nf origin main" \
+  "git cherry-pick -n abc" "git commit -m n" "git commit -mn" "git commit -m \"-n\"" \
+  "git commit -m -n" "git commit -Cn" "git commit -un -m x" "git commit -Sn -m x" \
+  "git commit --message -n" "git commit -m x -- -n" "git commit -m \"use --no-verify never\"" \
+  "git commit --no-edit" "git commit --no-status -m x" "git commit --no-post-rewrite -m x" \
+  "git commit -v" "git commit --no-verbose -m x" "git commit -S -m x" "git log -n 5" \
+  "git add -n ." "git clean -n" "git rm -n x" "git fetch -n" "git commit -a>/dev/null -m x" \
+  "git config core.hooksPath .githooks" "git config --get core.hooksPath && git commit -m x" \
+  "git -c core.pager=cat commit -m x" "git -c user.name=x commit -m x" \
+  "git -c commit.gpgsign=true commit -m x" "git -c core.hooksPath=/dev/null status" \
+  "HUSKY=1 git commit -m x" "HUSKY=0 npm install && git commit -m x" \
+  "PRE_COMMIT_ALLOW_NO_CONFIG=1 git commit -m x" "git commit -m 'HUSKY=0 is bad'" \
+  "SKIP=lint git push" "LEFTHOOK_EXCLUDE=lint git commit -m x"; do
+  gate_expect_clean claude "$gate_command"
+done
 for gate_host in claude codex; do
   gate_expect_flag "$gate_host" "timeout 10 git commit --no-verify -m x"
   gate_expect_flag "$gate_host" "fish -c 'git commit --no-verify -m x'"
@@ -5147,6 +5182,10 @@ for gate_host in claude codex; do
   gate_expect_unresolved "$gate_host" open "watch git commit -m x"
   gate_expect_clean "$gate_host" "timeout 5 git commit -m x"
   gate_expect_clean "$gate_host" "man git commit"
+  gate_expect_flag "$gate_host" "git commit -n -m x"
+  gate_expect_flag "$gate_host" "HUSKY=0 git commit -m x"
+  gate_expect_clean "$gate_host" "git push -n"
+  gate_expect_clean "$gate_host" "SKIP=flake8 git commit -m x"
 done
 
 run_expect 0 "deny-read mask allow list shows only allowed values from a private user file" sh "$ROOT/tests/deny-read-mask-allow.sh"
