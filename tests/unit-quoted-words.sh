@@ -51,13 +51,13 @@ while [ "$depth" -lt 5 ]; do
   mv "$level.next" "$level"
   cat "$level" >>"$texts"
 done
+# `_` stands for the blank so the corpus stays one text per line.
+tr '_' ' ' <"$texts" >"$texts.blank"
 while IFS= read -r text; do
-  # `_` stands for the blank so the corpus stays one text per line.
-  text=$(printf '%s' "$text" | tr '_' ' ')
   probe "$text"
   probe "echo $text"
   probe "echo $text b"
-done <"$texts"
+done <"$texts.blank"
 
 # Shapes with a command position, an operator or an escape in them.
 while IFS= read -r text; do
