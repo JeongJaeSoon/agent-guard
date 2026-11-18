@@ -269,13 +269,19 @@ check 'SIGTERM records interruption' has_outcome interrupted
 new_case
 printf '%s' '{"tool_name":"FutureTool"}' | "$GUARD" hook-pre-tool >/dev/null 2>&1
 event=$(find "$XDG_STATE_HOME/agent-guard" -type f -name 'event-*' | head -1)
-i=0
 now=$(date +%s)
-while [ "$i" -lt 1005 ]; do
-  suffix=$(printf '%06d' "$i")
-  cp "$event" "$XDG_STATE_HOME/agent-guard/event-$now-$suffix"
-  i=$((i + 1))
-done
+# The same bytes and mode cp gives each copy, without a process per file.
+event_bytes=$(cat "$event"; printf x)
+event_bytes=${event_bytes%x}
+(
+  umask 077
+  i=0
+  while [ "$i" -lt 1005 ]; do
+    suffix=$((1000000 + i))
+    printf '%s' "$event_bytes" >"$XDG_STATE_HOME/agent-guard/event-$now-${suffix#1}"
+    i=$((i + 1))
+  done
+)
 old_event="$XDG_STATE_HOME/agent-guard/event-1000000000-old123"
 cp "$event" "$old_event"
 old_probe_marker="$XDG_STATE_HOME/agent-guard/live-probe-1000000000-old123"

@@ -47,7 +47,7 @@ status_of() {
   jq -nc --arg c "$1" --arg d "$CASE/w" --arg s "deny-cache-$$" \
     '{tool_name:"Bash",tool_input:{command:$c},cwd:$d,session_id:$s}' \
     | AGENT_GUARD_LOG_MODE=$LOG AGENT_GUARD_HOOK_HOST=$HOST "$BIN" hook-pre-tool \
-      >/dev/null 2>"$CASE/err"
+      >/dev/null 2>"$CASE/err${ERR_TAG:-}"
   echo $?
 }
 # Every status of a command list, one per line.
@@ -122,11 +122,12 @@ status_of 'ls -la' >/dev/null
 check 'logging off writes no cache' test "$(cache_files)" -eq 0
 LOG=on
 
-# The regexes depend on the locale, so each locale gets its own file.
+# The regexes depend on the locale, so each locale gets its own file. A glob
+# keeps the shell-expanded pass in shell-expanded mode.
 rm -rf "$STATE"
-LC_ALL=C status_of 'ls -la' >/dev/null
+LC_ALL=C status_of 'ls *.txt' >/dev/null
 check 'the C locale caches both modes' test "$(cache_files)" -eq 2
-LC_ALL=en_US.UTF-8 status_of 'ls -la' >/dev/null
+LC_ALL=en_US.UTF-8 status_of 'ls *.txt' >/dev/null
 check 'another locale does not reuse the C locale files' test "$(cache_files)" -eq 4
 
 # A write that fails part way must not publish the regexes written so far: the
@@ -141,7 +142,7 @@ partial_status=$(
   . "$CASE/deny_path_cache_complete.sh"
   DENY_READ_PATHS="$CASE/partial-list" AG_STATE_DIR="$CASE/store"
   dpc_file="$CASE/store/published"
-  deny_path_command_regex() { echo "$1"; }
+  deny_path_command_regex_set() { dcr_regex=$1; }
   printf() { [ "${2-}" != beta ] || return 1; command printf "$@"; }
   deny_path_cache_store literal
   echo $?
@@ -155,7 +156,7 @@ gen_status=$(
   . "$CASE/deny_path_cache_complete.sh"
   DENY_READ_PATHS="$CASE/partial-list" AG_STATE_DIR="$CASE/store"
   dpc_file="$CASE/store/published"
-  deny_path_command_regex() { [ "$1" != beta ] || return 1; echo "$1"; }
+  deny_path_command_regex_set() { [ "$1" != beta ] || return 1; dcr_regex=$1; }
   deny_path_cache_store literal
   echo $?
 )
@@ -171,7 +172,7 @@ read_status=$(
   . "$CASE/deny_path_cache_complete.sh"
   DENY_READ_PATHS="$CASE/padded-list" AG_STATE_DIR="$CASE/store"
   dpc_file="$CASE/store/published"
-  deny_path_command_regex() { echo "$1"; }
+  deny_path_command_regex_set() { dcr_regex=$1; }
   reads=0
   read() { reads=$((reads + 1)); [ "$reads" -le 1 ] || { dpc_entry=; return 1; }; command read "$@"; }
   deny_path_cache_store literal
@@ -186,7 +187,7 @@ ok_status=$(
   . "$CASE/deny_path_cache_complete.sh"
   DENY_READ_PATHS="$CASE/partial-list" AG_STATE_DIR="$CASE/store"
   dpc_file="$CASE/store/published"
-  deny_path_command_regex() { echo "$1"; }
+  deny_path_command_regex_set() { dcr_regex=$1; }
   deny_path_cache_store literal
   echo $?
 )
@@ -262,17 +263,25 @@ CORPUS="$CASE/corpus"
   cat "$CASES"
 } >"$CORPUS"
 check 'the fixture corpus is not empty' test "$(wc -l <"$CORPUS" | tr -d ' ')" -gt 100
-LOG=off BIN=$REF
-corpus_expected=$(statuses "$CORPUS")
+# With logging off neither CLI keeps state between runs, so the reference runs
+# beside the shipped CLI, with its own stderr file and warning directory.
+LOG=off
+(
+  BIN=$REF ERR_TAG=-ref AGENT_GUARD_WARNING_DIR="$CASE/warnings-ref"
+  statuses "$CORPUS" >"$CASE/corpus-expected"
+) &
+corpus_ref=$!
 BIN=$GUARD
 corpus_got=$(statuses "$CORPUS")
+wait "$corpus_ref" || : >"$CASE/corpus-expected"
+corpus_expected=$(cat "$CASE/corpus-expected")
 LOG=on
 check 'the run-directory cache gives the per-entry verdict for every fixture command' \
   test "$corpus_got" = "$corpus_expected"
 check 'the fixture corpus has both verdicts' \
   sh -c 'printf "%s\n" "$1" | grep -qx 0 && printf "%s\n" "$1" | grep -qx 2' _ "$corpus_expected"
 
-# The point: a quoted command reads both modes twice, but each mode is built
+# The point: a quoted command with a glob reads both modes twice, but each mode is built
 # once and no pass compiles entries one by one. (The build's own trace goes to
 # /dev/null with its stderr, so it is counted by its calls; the grep count is
 # pinned in hook-spawn-reduction.sh.) $1 CLI, $2 command ->
@@ -286,10 +295,10 @@ trace_off() {
     "$(grep -c '^+* deny_path_cache_store ' "$CASE/trace")"
 }
 entries=$(grep -Evc '^(#|$)' "$ROOT/plugins/agent-guard/config/deny-read-paths.txt")
-got=$(trace_off "$REF" "printf 'build passed'")
+got=$(trace_off "$REF" "printf 'build passed' *.log")
 check "without a cache a quoted command compiles every entry in four passes (got $got)" \
   test "$got" = "$((4 * entries)) 0"
-got=$(trace_off "$GUARD" "printf 'build passed'")
+got=$(trace_off "$GUARD" "printf 'build passed' *.log")
 check "with logging off a quoted command builds each mode once and compiles nothing per pass (got $got)" \
   test "$got" = "0 2"
 
@@ -322,7 +331,7 @@ rules_out() {
     . "$CASE/deny_path_cache_complete.sh"
     AG_STATE_DIR= DENY_READ_PATHS="$CASE/two-list" AGENT_GUARD_RUNDIR=$1
     DENY_PATH_RUNDIR_CACHE=on
-    deny_path_command_regex() { [ -z "${FAIL_ENTRY:-}" ] || [ "$1" != "$FAIL_ENTRY" ] || return 1; echo "$1"; }
+    deny_path_command_regex_set() { [ -z "${FAIL_ENTRY:-}" ] || [ "$1" != "$FAIL_ENTRY" ] || return 1; dcr_regex=$1; }
     deny_path_cache_rules_out "$2" literal
     echo "$?:$DENY_PATH_RUNDIR_CACHE"
   )

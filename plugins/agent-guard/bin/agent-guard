@@ -4735,11 +4735,12 @@ json_input_is_primed_object() {
     && [ "$1" = "$JV_CACHE_INPUT" ]
 }
 
-json_value() {
-  expr=$1
-  input=$2
-  if [ -n "${JV_CACHE_INPUT:-}" ] && [ "$input" = "$JV_CACHE_INPUT" ]; then
-    case "$expr" in
+# Set jv_set to 0 (primed as no output) or 1 (primed as jv_val) when field $1
+# of input $2 is primed; return 1 otherwise.
+json_value_cached() {
+  jv_set=
+  if [ -n "${JV_CACHE_INPUT:-}" ] && [ "$2" = "$JV_CACHE_INPUT" ]; then
+    case "$1" in
       '.tool_input | type') jv_set=${jv_input_type_set:-} jv_val=${jv_input_type:-} ;;
       '.tool_name // .tool // .name // empty') jv_set=${jv_tool_set:-} jv_val=${jv_tool:-} ;;
       '.tool_input.workdir // .tool_input.cwd // .cwd // empty') jv_set=${jv_workdir_set:-} jv_val=${jv_workdir:-} ;;
@@ -4749,12 +4750,40 @@ json_value() {
       '.tool_input.new_string // empty') jv_set=${jv_new_string_set:-} jv_val=${jv_new_string:-} ;;
       *) jv_set= ;;
     esac
-    case "$jv_set" in
-      0) return 0 ;;
-      1) printf '%s\n' "$jv_val"; return 0 ;;
-    esac
+  fi
+  case "$jv_set" in
+    0|1) return 0 ;;
+  esac
+  return 1
+}
+
+json_value() {
+  expr=$1
+  input=$2
+  if json_value_cached "$expr" "$input"; then
+    [ "$jv_set" = 0 ] || printf '%s\n' "$jv_val"
+    return 0
   fi
   printf '%s' "$input" | jq -r "$expr"
+}
+
+# Set jv_out to what `jv_out=$(json_value "$1" "$2")` would hold and return the
+# same status. Only an unprimed field costs a subshell.
+json_value_to() {
+  if json_value_cached "$1" "$2"; then
+    jv_out=
+    [ "$jv_set" = 0 ] && return 0
+    jv_out=$jv_val
+    while :; do
+      case "$jv_out" in
+        *'
+') jv_out=${jv_out%'
+'} ;;
+        *) return 0 ;;
+      esac
+    done
+  fi
+  jv_out=$(json_value "$1" "$2")
 }
 
 normalize_path() {
@@ -5006,9 +5035,11 @@ check_sensitive_reads() {
 }
 
 deny_path_regex_fragment() {
-  # Convert supported deny-read shell globs to POSIX ERE fragments. The
-  # shell-expanded mode also catches command words that the shell can expand
-  # into a deny-listed path, such as .e[n]v, .e?v, .e*v, or $'.e\x6ev'.
+  # Set dprf_out to the POSIX ERE fragment for a supported deny-read shell
+  # glob. The shell-expanded mode also catches command words that the shell
+  # can expand into a deny-listed path, such as .e[n]v, .e?v, .e*v, or
+  # $'.e\x6ev'. The helpers assign many plain global names, so every caller
+  # runs inside a subshell of its own.
   pattern=$1
   mode=${2:-literal}
   case "$mode" in
@@ -5029,7 +5060,7 @@ deny_path_regex_fragment() {
       *) py=${py}${ch} ;;
     esac
   done
-  printf '%s' "$py"
+  dprf_out=$py
 }
 
 # A shell word reaches an entry in two ways. Position by position, each entry
@@ -5120,9 +5151,9 @@ deny_path_shell_expanded_fragment() {
     sx_i=$((sx_i + 1))
   done
   if [ -n "$sx_alts" ]; then
-    printf '(%s%s)' "$sx_full" "$sx_alts"
+    dprf_out="($sx_full$sx_alts)"
   else
-    printf '%s' "$sx_full"
+    dprf_out=$sx_full
   fi
 }
 
@@ -5248,7 +5279,7 @@ deny_path_char_hex_pattern() {
 
 # Set sx_char rather than spawning a command-substitution shell per character.
 # These helpers share only private output variables; the enclosing fragment
-# conversion already runs in its own command-substitution shell.
+# conversion already runs in a subshell of its own.
 deny_path_shell_expansion_char_pattern() {
   sx_char_input=$1
   case "$sx_char_input" in
@@ -5285,19 +5316,25 @@ deny_path_shell_expansion_char_pattern() {
 }
 
 deny_path_command_regex() {
-  pattern=$1
-  mode=$2
-  converted=$(deny_path_regex_fragment "$pattern" "$mode")
+  deny_path_command_regex_set "$1" "$2" || return 1
+  printf '%s' "$dcr_regex"
+}
+
+# Set dcr_regex to what deny_path_command_regex prints. Like
+# deny_path_regex_fragment, it must run inside a subshell of its own.
+deny_path_command_regex_set() {
+  deny_path_regex_fragment "$1" "$2"
+  converted=$dprf_out
   [ -n "$converted" ] || return 1
   # Catch path arguments and shell words without matching substrings like myenv.
   # A `[` just before an expanded word opens a bracket expression that matches
   # one character, so the word after it is not where a file name starts: CSS
   # selectors such as div[id*="x"] stay allowed.
   dcr_lead='[^[:alnum:]_./~-]'
-  case "$mode" in
+  case "$2" in
     shell-expanded*) dcr_lead='[^[:alnum:][_./~-]' ;;
   esac
-  printf '%s' '(^|'"$dcr_lead"')('"${converted}"'|[^[:space:]<>|;&`$()]*/'"${converted}"')([^[:alnum:]_.-]|$)'
+  dcr_regex='(^|'"$dcr_lead"')('"${converted}"'|[^[:space:]<>|;&`$()]*/'"${converted}"')([^[:alnum:]_.-]|$)'
 }
 
 # Set sx_out to an ERE matching any pin of the entry's letters and digits.
@@ -5404,19 +5441,22 @@ deny_path_cache_store() {
   dpc_tmp=$(umask 077; mktemp "$dpc_file.XXXXXX" 2>/dev/null) || return 1
   # A failed write (a full disk) must not publish the regexes written so far:
   # a file missing an entry would rule that entry's commands out.
-  dpc_failed=
+  # One subshell for the whole list, not one per entry: the regex helpers
+  # assign plain global names.
   if ! {
-    while IFS= read -r dpc_entry || [ -n "$dpc_entry" ]; do
-      case "$dpc_entry" in
-        ''|\#*) continue ;;
-      esac
-      # The scan skips an entry that yields no regex, but a failure here may be
-      # transient, and a file without that entry would rule its commands out.
-      dpc_regex=$(deny_path_command_regex "$dpc_entry" "$dpc_mode") \
-        || { dpc_failed=1; break; }
-      printf '%s\n' "$dpc_regex" || { dpc_failed=1; break; }
-    done <"$DENY_READ_PATHS" >"$dpc_tmp" \
-      && [ -z "$dpc_failed" ] && [ -s "$dpc_tmp" ] \
+    (
+      while IFS= read -r dpc_entry || [ -n "$dpc_entry" ]; do
+        case "$dpc_entry" in
+          ''|\#*) continue ;;
+        esac
+        # The scan skips an entry that yields no regex, but a failure here may
+        # be transient, and a file without that entry would rule its commands
+        # out.
+        deny_path_command_regex_set "$dpc_entry" "$dpc_mode" || exit 1
+        printf '%s\n' "$dcr_regex" || exit 1
+      done
+    ) <"$DENY_READ_PATHS" >"$dpc_tmp" \
+      && [ -s "$dpc_tmp" ] \
       && deny_path_cache_complete "$dpc_tmp" && mv -f "$dpc_tmp" "$dpc_file"
   } 2>/dev/null; then
     rm -f "$dpc_tmp" 2>/dev/null || :
@@ -5452,11 +5492,48 @@ deny_path_cache_rules_out() {
   [ "$?" -eq 1 ]
 }
 
+# The shell-expanded regex of an entry differs from its literal regex only in
+# alternatives that need a `*`, `?`, `[` or a backslash (\xHH) in the text,
+# and in a lead class that also refuses `[`; the wrapper and an entry `*` are
+# spelled the same. So for an entry made only of letters, digits and `._/~*-`
+# (each spelled as itself in both modes) and a text without those four
+# characters, both regexes match the same texts, a match needs no pin check
+# (it pins every letter it spells), and the literal pass gives the verdict and
+# the entry it names. Its combined file is a fraction of the shell-expanded one,
+# which costs most of a plain Bash hook to build and to compile in grep.
+# A deny list with any other character keeps every shell-expanded pass.
+DENY_PATH_SX_LITERAL_LIST=
+
+# Return 0 when a shell-expanded pass over $1 may read it in literal mode.
+deny_path_sx_reads_as_literal() {
+  case "$1" in
+    *'*'*|*'?'*|*'['*|*'\'*) return 1 ;;
+  esac
+  if [ -z "$DENY_PATH_SX_LITERAL_LIST" ]; then
+    DENY_PATH_SX_LITERAL_LIST=yes
+    # The entries the scan loop reads. The letters are listed because a range
+    # follows the locale.
+    while IFS= read -r dpl_entry || [ -n "$dpl_entry" ]; do
+      case "$dpl_entry" in
+        ''|\#*) ;;
+        *[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._/~*-]*)
+          DENY_PATH_SX_LITERAL_LIST=no
+          break
+          ;;
+      esac
+    done <"$DENY_READ_PATHS" 2>/dev/null || DENY_PATH_SX_LITERAL_LIST=no
+  fi
+  [ "$DENY_PATH_SX_LITERAL_LIST" = yes ]
+}
+
 # Private variable name; see check_bash_command (#127).
 bash_matches_deny_path_mode() {
   mode_cmd=$1
   mode=$2
   [ -f "$DENY_READ_PATHS" ] || return 1
+  if [ "$mode" = shell-expanded ] && deny_path_sx_reads_as_literal "$mode_cmd"; then
+    mode=literal
+  fi
   ! deny_path_cache_rules_out "$mode_cmd" "$mode" || return 1
   while IFS= read -r entry || [ -n "$entry" ]; do
     case "$entry" in
@@ -5555,6 +5632,9 @@ shell_dequote_for_policy() {
 # import its way to one (os, pathlib, listdir...), since only such a program
 # can match names against pattern text; one that cannot opens literal names,
 # which the unmodified scan already reads.
+# $2, when set, is the same command before its jq field names were dropped.
+# A dot command is then looked for only there: dropping `.name` from
+# `select(.name | ...)` leaves `(. ` inside the filter, which runs nothing.
 # A `#` that starts a word ends the line for quote tracking, so a comment's
 # apostrophe cannot flip the state for the lines below it.
 # Under the same conditions, every glob character becomes \001 in the whole
@@ -5562,9 +5642,11 @@ shell_dequote_for_policy() {
 # only before it) or awk (only -F options before it): regex text such as
 # id[_a-z]* or /id_r?a/ then no longer reads as a glob that names id_rsa. That
 # needs a program that cannot match names it learns against the pattern and
-# open them: a python or node program with nothing piped into it, an awk
-# program without getline or ARGV, or any jq filter; for awk, also no `|` that
-# pipes to a command; and output that only goes through plain text filters
+# open them, nor hand the pattern to a module that expands it: a python
+# program that imports only a few stdlib modules or a node program that loads
+# none, either with nothing piped into it, an awk program without getline or
+# ARGV, or any jq filter; for awk, also no `|` that pipes to a command; and
+# output that only goes through plain text filters
 # (wc, head, sort, grep...), never to a command that may expand what the
 # program printed. The literal passes still read the unmodified word.
 shell_neutralize_quoted_brackets_for_policy() {
@@ -5574,10 +5656,16 @@ shell_neutralize_quoted_brackets_for_policy() {
     *'
 '*) printf '%s\n' "$1"; return ;;
   esac
-  if printf '%s\n' "$1" | grep -Eq \
-    '(^|[^[:alnum:]_.-])(sh|bash|zsh|dash|ksh|ash|csh|tcsh|fish|eval|source|xargs|read|mapfile|readarray|alias|function|os)([^[:alnum:]_.-]|$)|ssh|system|popen|Popen|subprocess|spawn|exec|child_process|glob|fnmatch|listdir|iterdir|scandir|walk|pathlib|Path|shutil|fileinput|__import__|importlib|compile|getattr|globals|builtins|<<|\$\(|`|<\(|>\(|[A-Za-z_][A-Za-z0-9_]*[[:space:]]*\(\)[[:space:]]*[{(]|(^|[[:space:];&|(])\.([[:space:]]|$)|(^|[[:space:];&|(])PATH=|\\[[:space:]]*[;&|(]'; then
-    printf '%s\n' "$1"
-    return
+  nq_bail='(^|[^[:alnum:]_.-])(sh|bash|zsh|dash|ksh|ash|csh|tcsh|fish|eval|source|xargs|read|mapfile|readarray|alias|function|os)([^[:alnum:]_.-]|$)|ssh|system|popen|Popen|subprocess|spawn|exec|child_process|glob|fnmatch|listdir|iterdir|scandir|walk|pathlib|Path|shutil|fileinput|__import__|importlib|compile|getattr|globals|builtins|<<|\$\(|`|<\(|>\(|[A-Za-z_][A-Za-z0-9_]*[[:space:]]*\(\)[[:space:]]*[{(]|(^|[[:space:];&|(])PATH=|\\[[:space:]]*[;&|(]'
+  nq_dot='(^|[[:space:];&|(])\.([[:space:]]|$)'
+  if printf '%s\n' "$1" | grep -Eq "$nq_bail|$nq_dot"; then
+    # The text before field names were dropped must pass the whole test.
+    if [ -z "${2-}" ] ||
+      printf '%s\n' "$1" | grep -Eq "$nq_bail" ||
+      printf '%s\n' "$2" | grep -Eq "$nq_bail|$nq_dot"; then
+      printf '%s\n' "$1"
+      return
+    fi
   fi
   printf '%s\n' "$1" | LC_ALL=C awk '
     function closed(l, p,   r) {
@@ -5612,9 +5700,15 @@ shell_neutralize_quoted_brackets_for_policy() {
     # through getline and ARGV; jq opens none. None may list or glob a
     # directory, nor (awk) pipe to a command, and the output may only reach
     # plain text filters. Any File substring (FileIO, GzipFile, readFileSync,
-    # the source name of an imported alias) counts as opening a file.
-    function progneutral_ok(w, pre, r, isawk, isjq,   t, segs, k, m, wd) {
+    # the source name of an imported alias) counts as opening a file. An
+    # outside module may expand a pattern argument itself (polars, dask,
+    # shelljs), so a python program may import only the modules pymodok names,
+    # in a shape pyimportsok reads with certainty, and a node or bun program
+    # may load no module at all.
+    function progneutral_ok(w, pre, r, isawk, isjq, ispy,   t, segs, k, m, wd) {
       if (w ~ /open|File|ReadStream|readdir|readDir|Glob|Bun\.file|getline|ARGV/) return 0
+      if (ispy && !pyimportsok(w)) return 0
+      if (!ispy && !isawk && !isjq && w ~ /require|import|binding|mainModule|getBuiltinModule|module/) return 0
       # Any pipe earlier on the line may feed the program (`| (`, `|&`).
       t = pre; gsub(/\|\|/, "", t)
       if (!isawk && !isjq && index(t, "|")) return 0
@@ -5625,6 +5719,35 @@ shell_neutralize_quoted_brackets_for_policy() {
       for (k = 2; k <= m; k++) {
         wd = segs[k]; sub(/^[ \t]+/, "", wd); match(wd, /^[A-Za-z0-9_-]*/)
         if (substr(wd, 1, RLENGTH) !~ /^(wc|head|tail|sort|uniq|tr|cut|nl|grep|column)$/) return 0
+      }
+      return 1
+    }
+    function pymodok(m) {
+      return m ~ /^(re|sys|json|string|math|itertools|collections|functools|textwrap|unicodedata)$/
+    }
+    function pynamesok(l, mods,   p, q, k, nm) {
+      q = split(l, p, ",")
+      for (k = 1; k <= q; k++) {
+        nm = p[k]; sub(/^[ \t]+/, "", nm); sub(/[ \t]+$/, "", nm)
+        sub(/[ \t]+as[ \t]+[A-Za-z_][A-Za-z0-9_]*$/, "", nm)
+        if (nm !~ /^[A-Za-z_][A-Za-z0-9_]*$/ || (mods && !pymodok(nm))) return 0
+      }
+      return q > 0
+    }
+    # Every import token must open a ;-separated statement of one of the two
+    # forms below; one anywhere else (after `if x:`, in a string) fails too.
+    function pyimportsok(w,   s, q, k, t) {
+      q = split(w, s, ";")
+      for (k = 1; k <= q; k++) {
+        t = s[k]; sub(/^[ \t]+/, "", t)
+        if (t ~ /^import[^A-Za-z0-9_]/) {
+          if (!pynamesok(substr(t, 7), 1)) return 0
+        } else if (t ~ /^from[ \t]+[A-Za-z0-9_]+[ \t]+import[ \t]/) {
+          sub(/^from[ \t]+/, "", t); match(t, /^[A-Za-z0-9_]+/)
+          if (!pymodok(substr(t, 1, RLENGTH))) return 0
+          t = substr(t, RLENGTH + 1); sub(/^[ \t]+import/, "", t)
+          if (!pynamesok(t, 0)) return 0
+        } else if (t ~ /(^|[^A-Za-z0-9_])import([^A-Za-z0-9_]|$)/) return 0
       }
       return 1
     }
@@ -5658,7 +5781,7 @@ shell_neutralize_quoted_brackets_for_policy() {
           if (c == "\047" && (out ~ prog || out ~ awkprog)) {
             e = index(substr($0, i + 1), "\047")
             w = substr($0, i + 1, e - 1)
-            if (e > 0 && progneutral_ok(w, out, substr($0, i + e + 1), out ~ awkprog, out ~ jqprog)) w = progneutral(w)
+            if (e > 0 && progneutral_ok(w, out, substr($0, i + e + 1), out ~ awkprog, out ~ jqprog, out ~ pyprog)) w = progneutral(w)
             else if (e > 0 && out ~ pyprog) w = pyneutral(w)
             else e = 0
             if (e > 0) {
@@ -5868,7 +5991,11 @@ bash_strip_exclusion_operands() {
           continue
         fi
         command_name=${token##*/}
-        command_name=$(printf '%s' "$command_name" | tr -d "'\"")
+        case "$command_name" in
+          *[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._+-]*)
+            command_name=$(printf '%s' "$command_name" | tr -d "'\"")
+            ;;
+        esac
         append_policy_token "$token"
         continue
       fi
@@ -5900,9 +6027,10 @@ bash_strip_exclusion_operands() {
   )
 }
 
-# Return a literal shell token suitable for template classification. Fully
-# quoted tokens without expansion syntax are safe to unwrap; partial quoting,
-# double-quoted expansions, and tokens split at whitespace remain conservative.
+# Set env_exception_token to a literal shell token suitable for template
+# classification, or return 1 and leave it unchanged. Fully quoted tokens
+# without expansion syntax are safe to unwrap; partial quoting, double-quoted
+# expansions, and tokens split at whitespace remain conservative.
 env_exception_literal_shell_token() {
   literal_shell_token=$1
   literal_env_unquoted=0
@@ -5945,7 +6073,7 @@ env_exception_literal_shell_token() {
     *'~'*) return 1 ;;
   esac
   case "$literal_env_value" in *[[:space:]]*) return 1 ;; esac
-  printf '%s' "$literal_env_value"
+  env_exception_token=$literal_env_value
 }
 
 # A template *name* that is actually a symlink to a deny-listed secret is NOT
@@ -5980,7 +6108,8 @@ bash_strip_allowed_tokens() {
     set -- $words
     result=
     for token in "$@"; do
-      env_exception_token=$(env_exception_literal_shell_token "$token" 2>/dev/null || true)
+      env_exception_token=
+      env_exception_literal_shell_token "$token" 2>/dev/null || :
       if [ -n "$env_exception_token" ] \
         && candidate_has_default_env_exception "$env_exception_token"; then
         normalized=$(normalize_path "$env_exception_token")
@@ -8016,7 +8145,10 @@ bash_matches_deny_path() {
     deny_stripped=$(bash_strip_message_values "$deny_cmd") && deny_cmd=$deny_stripped
   fi
   deny_stripped=$(bash_strip_non_read_operands "$deny_cmd") && deny_cmd=$deny_stripped
+  deny_pre_jq=$deny_cmd
   deny_cmd=$(bash_neutralize_jq_field_names "$deny_cmd")
+  # Kept only when field names were dropped (see the dot-command test there).
+  [ "$deny_cmd" != "$deny_pre_jq" ] || deny_pre_jq=
   deny_cmd=$(bash_neutralize_runtime_globals "$deny_cmd")
   deny_cmd=$(bash_strip_source_module_prose "$deny_cmd")
   deny_cmd=$(bash_strip_exclusion_operands "$deny_cmd")
@@ -8041,7 +8173,7 @@ bash_matches_deny_path() {
       ;;
   esac
   if [ -n "$neutral_wanted" ]; then
-    neutral_cmd=$(shell_neutralize_quoted_brackets_for_policy "$deny_cmd") || neutral_cmd=
+    neutral_cmd=$(shell_neutralize_quoted_brackets_for_policy "$deny_cmd" "$deny_pre_jq") || neutral_cmd=
     [ -n "$neutral_cmd" ] || neutral_cmd=$deny_cmd
   fi
   bash_matches_deny_path_mode "$neutral_cmd" "shell-expanded" && return 0
@@ -10908,7 +11040,8 @@ GIT_DIR='*|'
 check_bash_command() {
   input=$1
   need_cmd jq
-  cmd=$(json_value '.tool_input.command // .tool_input.cmd // empty' "$input")
+  json_value_to '.tool_input.command // .tool_input.cmd // empty' "$input"
+  cmd=$jv_out
   [ -n "$cmd" ] || return 0
   # POSIX sh has no locals, so a helper that assigns the bare name `cmd` would
   # overwrite the command mid-function. The deny-path helpers also rejoin tokens
@@ -10918,7 +11051,8 @@ check_bash_command() {
   raw_cmd=$cmd
   # Set only by the deny-pattern check below, never from the environment.
   unset mv_strip_in mv_strip_out
-  workdir=$(json_value '.tool_input.workdir // .tool_input.cwd // .cwd // empty' "$input")
+  json_value_to '.tool_input.workdir // .tool_input.cwd // .cwd // empty' "$input"
+  workdir=$jv_out
 
   # A harmless, deterministic sentinel lets setup prove that the host really
   # dispatched PreToolUse without naming or touching any sensitive file. Keep
@@ -11235,13 +11369,15 @@ hook_pre_tool() {
   # (e.g. an mcp__* tool_input of "AGENT_GUARD_TEST_SECRET") through — a
   # regression. Recover-not-block keeps a string-encoding host from being
   # over-blocked.
-  if [ "$(json_value '.tool_input | type' "$input")" = "string" ]; then
+  json_value_to '.tool_input | type' "$input"
+  if [ "$jv_out" = "string" ]; then
     input=$(printf '%s' "$input" \
       | jq -c '(.tool_input | try fromjson catch null) as $decoded
                | if ($decoded | type) == "object" then .tool_input = $decoded else . end')
   fi
 
-  tool=$(json_value '.tool_name // .tool // .name // empty' "$input")
+  json_value_to '.tool_name // .tool // .name // empty' "$input"
+  tool=$jv_out
 
   case "$tool" in
     Write|Edit|MultiEdit|NotebookEdit|apply_patch)
@@ -15775,15 +15911,18 @@ hook_post_tool() {
   # git backstop nor the direct scan. Only an object is substituted, matching
   # PreToolUse: a string that decodes to an array/scalar, or to nothing, is left
   # alone so the generic string-leaf scanners still see it.
-  if [ "$(json_value '.tool_input | type' "$input")" = "string" ]; then
+  json_value_to '.tool_input | type' "$input"
+  if [ "$jv_out" = "string" ]; then
     input=$(printf '%s' "$input" \
       | jq -c '(.tool_input | try fromjson catch null) as $decoded
                | if ($decoded | type) == "object" then .tool_input = $decoded else . end')
     HOOK_INPUT=$input
   fi
 
-  tool=$(json_value '.tool_name // .tool // .name // empty' "$input")
-  workdir=$(json_value '.tool_input.workdir // .tool_input.cwd // .cwd // empty' "$input")
+  json_value_to '.tool_name // .tool // .name // empty' "$input"
+  tool=$jv_out
+  json_value_to '.tool_input.workdir // .tool_input.cwd // .cwd // empty' "$input"
+  workdir=$jv_out
 
   # Mutation tools keep the working-tree backstop. It runs first so a secret
   # written to disk is recorded even when the same event also needs an output
