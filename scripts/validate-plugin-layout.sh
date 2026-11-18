@@ -11,9 +11,10 @@ run_codex=0
 run_claude=0
 run_marketplace=0
 run_archive=0
+run_disclosures=0
 
 usage() {
-  printf 'usage: %s [--all|--codex|--claude|--marketplace|--archive]\n' "$0" >&2
+  printf 'usage: %s [--all|--codex|--claude|--marketplace|--archive|--disclosures]\n' "$0" >&2
 }
 
 ok() {
@@ -332,11 +333,12 @@ validate_marketplace() {
 # disclosures: GitHub reads the root ones, the plugin ships its own so a
 # standalone install is self-contained. They must stay byte-identical — an edit
 # to one and not the other publishes two different policies under one name.
-# SECURITY.md is deliberately NOT in this list: the plugin copy uses absolute
-# GitHub URLs because its relative README anchors do not resolve once the plugin
-# is installed outside the repo.
+# Links in them must be absolute, since the plugin copy is installed outside
+# the repo.
+SHARED_DISCLOSURES='LICENSE PRIVACY.md SECURITY.md SUPPORT.md THIRD_PARTY_NOTICES.md'
+
 validate_shared_disclosures() {
-  for doc in LICENSE PRIVACY.md SUPPORT.md THIRD_PARTY_NOTICES.md; do
+  for doc in $SHARED_DISCLOSURES; do
     if cmp -s "$ROOT/$doc" "$PLUGIN_ROOT/$doc"; then
       ok "$doc is identical at the repo root and in the plugin"
     else
@@ -359,11 +361,9 @@ validate_archive() {
   validate_archive_contains "$archive" "hooks/hooks.json"
   validate_archive_contains "$archive" "hooks/launch.sh"
   validate_archive_contains "$archive" "README.md"
-  validate_archive_contains "$archive" "LICENSE"
-  validate_archive_contains "$archive" "PRIVACY.md"
-  validate_archive_contains "$archive" "SECURITY.md"
-  validate_archive_contains "$archive" "SUPPORT.md"
-  validate_archive_contains "$archive" "THIRD_PARTY_NOTICES.md"
+  for doc in $SHARED_DISCLOSURES; do
+    validate_archive_contains "$archive" "$doc"
+  done
   validate_archive_contains "$archive" "codex-skills/setup-agent-guard/SKILL.md"
   validate_archive_contains "$archive" "codex-skills/setup-agent-guard/agents/openai.yaml"
   validate_archive_contains "$archive" "codex-skills/setup-shell/SKILL.md"
@@ -406,6 +406,7 @@ for mode in "$@"; do
     --claude) run_claude=1 ;;
     --marketplace) run_marketplace=1 ;;
     --archive) run_archive=1 ;;
+    --disclosures) run_disclosures=1 ;;
     -h|--help)
       usage
       exit 0
@@ -421,6 +422,7 @@ done
 [ "$run_claude" -eq 1 ] && validate_claude
 [ "$run_marketplace" -eq 1 ] && validate_marketplace
 [ "$run_archive" -eq 1 ] && validate_archive
+[ "$run_disclosures" -eq 1 ] && [ "$run_archive" -eq 0 ] && validate_shared_disclosures
 
 if [ "$failures" -eq 0 ]; then
   printf 'plugin layout validation passed\n'

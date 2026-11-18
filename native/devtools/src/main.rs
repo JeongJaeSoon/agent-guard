@@ -14,21 +14,109 @@ fn main() {
     }
 }
 
+const COMMANDS: &[Subcommand] = &[
+    Subcommand {
+        name: "native-redaction",
+        options: Some(&["--core", "--source"]),
+        flags: &[],
+        run: contracts::differential,
+    },
+    Subcommand {
+        name: "output-prepare",
+        options: Some(&["--core"]),
+        flags: &[],
+        run: contracts::output_prepare,
+    },
+    Subcommand {
+        name: "native-integration",
+        options: Some(&["--core", "--scanner"]),
+        flags: &[],
+        run: contracts::integration,
+    },
+    Subcommand {
+        name: "scanner-differential",
+        options: Some(&[
+            "--scanner",
+            "--candidate-scanner",
+            "--control-scanner",
+            "--source",
+            "--out",
+        ]),
+        flags: &[],
+        run: scanner::differential,
+    },
+    // The destination and child argv are positional and must pass through.
+    Subcommand {
+        name: "resource-sample",
+        options: None,
+        flags: &[],
+        run: measure::resource_sample,
+    },
+    Subcommand {
+        name: "masking-latency",
+        options: Some(&[
+            "--binary",
+            "--baseline",
+            "--native-core",
+            "--prepare-core",
+            "--host",
+            "--scanner",
+            "--candidate-scanner",
+            "--audit-state",
+            "--runs",
+            "--timeout",
+            "--case",
+        ]),
+        flags: &[
+            "--resources",
+            "--include-boundaries",
+            "--trace-processes",
+            "--packaged-native",
+            "--baseline-packaged-native",
+            "--fused-output",
+        ],
+        run: measure::latency,
+    },
+    Subcommand {
+        name: "kernel",
+        options: Some(&["--core", "--runs"]),
+        flags: &[],
+        run: measure::kernel,
+    },
+    Subcommand {
+        name: "load",
+        options: Some(&[
+            "--binary",
+            "--core",
+            "--prepare-core",
+            "--scanner",
+            "--workers",
+            "--requests",
+        ]),
+        flags: &["--packaged-native", "--fused-output"],
+        run: measure::load,
+    },
+    Subcommand {
+        name: "verify",
+        options: Some(&["--out", "--native-core", "--shards"]),
+        flags: &[],
+        run: verification::verify,
+    },
+    Subcommand {
+        name: "measure-selected-bash",
+        options: Some(&[]),
+        flags: &[],
+        run: verification::selected_bash,
+    },
+    Subcommand {
+        name: "report",
+        options: Some(&["--results", "--html"]),
+        flags: &[],
+        run: report::run,
+    },
+];
+
 fn main_result() -> Result<()> {
-    let args = Args::new()?;
-    match args.command.as_str() {
-        "native-redaction" => contracts::differential(&args),
-        "output-prepare" => contracts::output_prepare(&args),
-        "native-integration" => contracts::integration(&args),
-        "resource-sample" => measure::resource_sample(&args),
-        "scanner-differential" => scanner::differential(&args),
-        "masking-latency" => measure::latency(&args),
-        "kernel" => measure::kernel(&args),
-        "load" => measure::load(&args),
-        "watchdog-orphans" => verification::watchdog(&args),
-        "verify" => verification::verify(&args),
-        "measure-selected-bash" => verification::selected_bash(&args),
-        "report" => report::run(&args),
-        _ => Err("commands: native-redaction, native-integration, scanner-differential, resource-sample, masking-latency, kernel, load, watchdog-orphans, verify, measure-selected-bash, report".into()),
-    }
+    let (command, args) = Args::new(COMMANDS)?;
+    (command.run)(&args)
 }
