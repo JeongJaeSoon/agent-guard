@@ -50,6 +50,37 @@ ROOT_DIR=$(CDPATH= cd -- "$BIN_DIR/.." && pwd -P)
 # Resolved absolute path of THIS binary, for self re-exec and cache identity.
 SELF_BIN="$BIN_DIR/agent-guard"
 
+# Sets ag_sv_1..3 to the first three dot-separated fields of $1 (a missing or
+# empty field is 0). Fails on any other character or a field of 10+ digits,
+# which test(1) cannot compare.
+semver_fields() {
+  case "$1" in
+    *[!0-9.]*|*[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]*) return 1 ;;
+  esac
+  ag_sv_ifs=$IFS
+  IFS=.
+  # shellcheck disable=SC2086 # split on IFS=. into fields
+  set -- $1
+  IFS=$ag_sv_ifs
+  ag_sv_1=${1:-0} ag_sv_2=${2:-0} ag_sv_3=${3:-0}
+}
+
+# semver_at_least A B succeeds when version A >= B; an unparsable version
+# fails with 2.
+semver_at_least() {
+  semver_fields "$2" || return 2
+  ag_sv_b1=$ag_sv_1 ag_sv_b2=$ag_sv_2 ag_sv_b3=$ag_sv_3
+  semver_fields "$1" || return 2
+  [ "$ag_sv_1" -ne "$ag_sv_b1" ] && { [ "$ag_sv_1" -gt "$ag_sv_b1" ]; return; }
+  [ "$ag_sv_2" -ne "$ag_sv_b2" ] && { [ "$ag_sv_2" -gt "$ag_sv_b2" ]; return; }
+  [ "$ag_sv_3" -ge "$ag_sv_b3" ]
+}
+
+# version_newer A B: succeeds when semver A is strictly greater than B.
+version_newer() {
+  semver_at_least "$2" "$1"
+  [ "$?" -eq 1 ]
+}
 
 # Plugin managers install each release under a version directory. Keep one
 # sibling `current` symlink so shell snapshots and hook manifests never bake a
@@ -253,38 +284,6 @@ latest_release_version() {
     fi
   fi
   [ -n "$LATEST_RELEASE_VERSION" ]
-}
-
-# Sets ag_sv_1..3 to the first three dot-separated fields of $1 (a missing or
-# empty field is 0). Fails on any other character or a field of 10+ digits,
-# which test(1) cannot compare.
-semver_fields() {
-  case "$1" in
-    *[!0-9.]*|*[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]*) return 1 ;;
-  esac
-  ag_sv_ifs=$IFS
-  IFS=.
-  # shellcheck disable=SC2086 # split on IFS=. into fields
-  set -- $1
-  IFS=$ag_sv_ifs
-  ag_sv_1=${1:-0} ag_sv_2=${2:-0} ag_sv_3=${3:-0}
-}
-
-# semver_at_least A B succeeds when version A >= B; an unparsable version
-# fails with 2.
-semver_at_least() {
-  semver_fields "$2" || return 2
-  ag_sv_b1=$ag_sv_1 ag_sv_b2=$ag_sv_2 ag_sv_b3=$ag_sv_3
-  semver_fields "$1" || return 2
-  [ "$ag_sv_1" -ne "$ag_sv_b1" ] && { [ "$ag_sv_1" -gt "$ag_sv_b1" ]; return; }
-  [ "$ag_sv_2" -ne "$ag_sv_b2" ] && { [ "$ag_sv_2" -gt "$ag_sv_b2" ]; return; }
-  [ "$ag_sv_3" -ge "$ag_sv_b3" ]
-}
-
-# version_newer A B: succeeds when semver A is strictly greater than B.
-version_newer() {
-  semver_at_least "$2" "$1"
-  [ "$?" -eq 1 ]
 }
 
 # Host-manager commands that move a pinned marketplace to $2 (a tag, or a
