@@ -91,6 +91,11 @@ jq -nc --arg m "$probe" \
   '{tool_name:"Bash",tool_input:{command:"cat probe.txt"},tool_response:{stdout:($m + "\n"),stderr:"",interrupted:false}}' \
   | sed 's/^/hook-post-tool	/' >>"$CASE/events"
 
+# Runs "$@" with AGENT_GUARD_SCAN_CACHE=$1 in a subshell. A prefix assignment
+# before a function call persists after it in some POSIX shells (macOS sh),
+# which would leak the opt-in into the default runs that follow.
+with_cache() { (AGENT_GUARD_SCAN_CACHE=$1; export AGENT_GUARD_SCAN_CACHE; shift; "$@"); }
+
 # Runs every event under host $1 and writes "status", stdout and stderr of
 # each to $2. The cache variable comes from the caller's environment.
 run_events() {
@@ -121,7 +126,7 @@ for infra in open closed; do
       if [ "$cache" = unset ]; then
         run_events "$host" "$CASE/res/$host-$infra-off-$cache"
       else
-        AGENT_GUARD_SCAN_CACHE=$cache run_events "$host" "$CASE/res/$host-$infra-off-$cache"
+        with_cache $cache run_events "$host" "$CASE/res/$host-$infra-off-$cache"
       fi
       check "$tag: logging off with AGENT_GUARD_SCAN_CACHE=$cache creates no state file or directory" \
         test -z "$(tree "$XDG_STATE_HOME")"
@@ -137,10 +142,10 @@ for infra in open closed; do
 
     # The explicit opt-in: caches only, no event log.
     reset
-    AGENT_GUARD_SCAN_CACHE=on run_events "$host" "$CASE/res/$host-$infra-cold"
+    with_cache on run_events "$host" "$CASE/res/$host-$infra-cold"
     cold_version=$(calls version) cold_scans=$(calls stdin)
     : >"$FAKE_GITLEAKS_CALLS"
-    AGENT_GUARD_SCAN_CACHE=on run_events "$host" "$CASE/res/$host-$infra-warm"
+    with_cache on run_events "$host" "$CASE/res/$host-$infra-warm"
     warm_version=$(calls version) warm_scans=$(calls stdin)
     check "$tag: a cold cache answers exactly as no cache" \
       cmp -s "$CASE/res/$host-$infra-off-unset" "$CASE/res/$host-$infra-cold"
@@ -181,7 +186,7 @@ mkdir -p "$STATE" && chmod 700 "$STATE"
 old="$STATE/event-1000000000-old123"
 (umask 077; printf '%s\n' '{"schema":1}' >"$old")
 mkdir -m 700 "$STATE/live-probe-1000000000-old123"
-AGENT_GUARD_SCAN_CACHE=on run_events claude "$CASE/res/retention"
+with_cache on run_events claude "$CASE/res/retention"
 check 'the opt-in leaves an expired event record and its sidecar alone' \
   test -f "$old" -a -d "$STATE/live-probe-1000000000-old123" -a "$(cat "$old")" = '{"schema":1}'
 check 'the opt-in adds no event record beside it' \
@@ -193,7 +198,7 @@ check 'the opt-in still caches in a directory that holds old records' test -f "$
 # and every answer equals the uncached run.
 refused() { # $1 label; the caller has prepared the state directory
   : >"$FAKE_GITLEAKS_CALLS"
-  AGENT_GUARD_SCAN_CACHE=on run_events claude "$CASE/res/refused"
+  with_cache on run_events claude "$CASE/res/refused"
   check "$1: answers exactly as no cache" \
     cmp -s "$CASE/res/claude-open-off-unset" "$CASE/res/refused"
   check "$1: every gitleaks invocation runs its readiness check" \
@@ -241,7 +246,7 @@ fi
 # Cache files inside a valid directory keep their own checks: a symlinked
 # readiness cache or clean-scan directory is never followed.
 reset
-AGENT_GUARD_SCAN_CACHE=on run_events claude "$CASE/res/seed"
+with_cache on run_events claude "$CASE/res/seed"
 rm -f "$STATE/gitleaks-probe"
 printf 'planted\n' >"$CASE/elsewhere/probe"
 ln -s "$CASE/elsewhere/probe" "$STATE/gitleaks-probe"
@@ -249,7 +254,7 @@ rm -rf "$STATE/gitleaks-clean"
 mkdir "$CASE/elsewhere/clean" && chmod 700 "$CASE/elsewhere/clean"
 ln -s "$CASE/elsewhere/clean" "$STATE/gitleaks-clean"
 : >"$FAKE_GITLEAKS_CALLS"
-AGENT_GUARD_SCAN_CACHE=on run_events claude "$CASE/res/linked"
+with_cache on run_events claude "$CASE/res/linked"
 check 'symlinked cache files answer exactly as no cache' \
   cmp -s "$CASE/res/claude-open-off-unset" "$CASE/res/linked"
 check 'a symlinked readiness cache is probed again and replaced, not followed' \
