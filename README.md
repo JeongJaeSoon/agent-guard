@@ -57,6 +57,13 @@ alias, or the working directory is only known at run time, the plugin cannot
 tell what the command commits, and the infrastructure policy below decides.
 That includes a `!` shell alias, a guess `help.autoCorrect` may run, and an
 alias that an earlier part of the same command line may have changed.
+Git behind common wrappers such as `timeout`, `sudo`, `doas`, `env`, `nice`,
+`nohup`, `stdbuf`, `flock`, or `xargs` is followed to the git command. A commit
+or push behind a command the plugin does not follow, such as `find -exec`,
+`ssh host git push`, `watch`, `su -c`, or `fish -c`, still has `--no-verify`
+refused, and otherwise goes to the infrastructure policy; the open policy still
+scans the staged changes of the directory the hook runs in. A git command inside one
+quoted argument of such a command, as in `ssh host 'git push'`, is not seen.
 
 The plugin scans the files as they are when the command starts. If an earlier
 part of the same command writes a file, or changes into another repository,
