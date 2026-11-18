@@ -8965,6 +8965,9 @@ git_gate_sh_runner_code() {
     gsc_word=${1#0}
     shift
     gsc_text=
+    # The word comes last and may hold ':' itself, so every pattern names the
+    # fields before it in full; a '*' there would let the word stand in for
+    # them.
     case "$gsc_next:$gsc_options:$gsc_runner:$gsc_word" in
       c:*)
         [ "$gsc_found" -eq 0 ] || return 1
@@ -8972,7 +8975,7 @@ git_gate_sh_runner_code() {
         gsc_found=1
         ;;
       v:*) gsc_text=$gsc_word ;;
-      :1:*:--) gsc_options=0 ;;
+      :1:"$gsc_runner":--) gsc_options=0 ;;
       :1:su:-) ;;
       :1:su:--command|:1:script:--command) gsc_next=c; continue ;;
       :1:su:--command=*|:1:script:--command=*)
@@ -8980,13 +8983,13 @@ git_gate_sh_runner_code() {
         gsc_code=${gsc_word#--command=}
         gsc_found=1
         ;;
-      :1:*:--*=*)
+      :1:"$gsc_runner":--*=*)
         case "$gsc_long$gsc_vlong" in
           *" ${gsc_word%%=*} "*) gsc_text=${gsc_word#*=} ;;
           *) return 1 ;;
         esac
         ;;
-      :1:*:--*)
+      :1:"$gsc_runner":--*)
         case "$gsc_vlong" in
           *" $gsc_word "*) gsc_next=v; continue ;;
         esac
@@ -8995,7 +8998,7 @@ git_gate_sh_runner_code() {
           *) return 1 ;;
         esac
         ;;
-      :1:*:-?*)
+      :1:"$gsc_runner":-?*)
         gsc_rest=${gsc_word#-}
         while [ -n "$gsc_rest" ]; do
           gsc_letter=${gsc_rest%"${gsc_rest#?}"}
@@ -9029,7 +9032,7 @@ git_gate_sh_runner_code() {
         [ "$gsc_next" != c ] || continue
         [ "$gsc_next" != v ] || continue
         ;;
-      :*:watch:*)
+      :[01]:watch:*)
         gsc_options=0
         gsc_code="${gsc_code:+$gsc_code }$gsc_word"
         gsc_found=1

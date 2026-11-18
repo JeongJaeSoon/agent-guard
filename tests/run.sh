@@ -5090,7 +5090,8 @@ for gate_command in \
   "pwsh -Command 'git push --no-verify'" "find . -exec git commit --no-verify {} ;" \
   "sh -c 'git commit --no-verify -m x'" "dash -c 'git commit --no-verify -m x'" \
   "ksh -c 'git commit --no-verify -m x'" "zsh -c 'git commit --no-verify -m x'" \
-  "mksh -c 'git commit --no-verify -m x'" "eval 'git commit --no-verify -m x'"; do
+  "mksh -c 'git commit --no-verify -m x'" "eval 'git commit --no-verify -m x'" \
+  "watch 'git commit --no-verify -m x #:--' true"; do
   gate_expect_flag claude "$gate_command"
 done
 for gate_command in "timeout 10 git push" \
@@ -5117,7 +5118,8 @@ for gate_command in "fish -c 'git commit -m x'" "fish --command 'git push'" "nu 
   "nsenter -t \$P git commit -m x" "sudo -D \"\$D\" git commit -m x" "env -C \"\$D\" git commit -m x" \
   "su -c 'echo hi; git push'" "su -c 'echo git commit' -s /usr/bin/fish" "su -s /bin/sh -c 'echo git commit'" \
   "watch -x git commit -m x" "watch 'echo \"\$(git push)\"'" "su -c 'echo \`git push\`'" \
-  "fish -c 'echo git commit'" "parallel -j2 echo {} ::: git commit"; do
+  "fish -c 'echo git commit'" "parallel -j2 echo {} ::: git commit" \
+  "watch 'git push #:--' true" "watch -n 5 'git commit -m x #:--' date" "su root 'git push #:watch:x'"; do
   gate_expect_unresolved claude closed "$gate_command"
   gate_expect_unresolved claude open "$gate_command"
 done
