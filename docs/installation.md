@@ -38,8 +38,11 @@ Because `agent-guard` is not on `PATH` after a plugin-only install, advice that
 the plugin's CLI prints (for example from `update`, `check`, `doctor`, or the
 SessionStart notice) names that executable by its quoted absolute path, such
 as `"$HOME/.claude/plugins/cache/agent-guard/agent-guard/current/bin/agent-guard" setup`.
-When the `agent-guard` on `PATH` is the same installation, or for a standalone
-or Homebrew install, the advice keeps the short `agent-guard` name.
+The advice keeps the short `agent-guard` name when the `agent-guard` on `PATH`
+is the same installation, and for a standalone or Homebrew install whenever an
+`agent-guard` is on `PATH`. A standalone CLI run by path while no `agent-guard`
+is on `PATH` (for example `~/.agent-guard/bin/agent-guard` before `~/.local/bin`
+is added) also names its own path.
 
 ## Optional fused output preparation (v3.8+)
 

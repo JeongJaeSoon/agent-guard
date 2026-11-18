@@ -1,4 +1,4 @@
-<!-- translated-from: docs/installation.md; source-blob: 1c5af51bf1a02f47926f5c54e15578a57c052866 -->
+<!-- translated-from: docs/installation.md; source-blob: 98404e03589f5d46c45c4ee05840ee05ca67eb3c -->
 
 <a id="installing-agent-guard"></a>
 
@@ -31,7 +31,7 @@ codex plugin add agent-guard@agent-guard
 
 플러그인을 설치해도 `PATH`에 `agent-guard`가 추가되지는 않습니다. 따라서 표의 `agent-guard plugin update` 경로에는 독립 CLI 또는 Homebrew CLI가 필요합니다. 둘 다 없다면 marketplace를 제거하고 위 명령을 새 태그로 다시 실행해 업데이트하세요. marketplace를 제거하면 설치된 플러그인도 제거됩니다. 완료 후 host를 재시작하세요.
 
-플러그인만 설치하면 `agent-guard`가 `PATH`에 없으므로, 플러그인의 CLI가 출력하는 안내(예: `update`, `check`, `doctor`, SessionStart 알림)는 그 실행 파일을 따옴표로 감싼 절대 경로로 적습니다. 예: `"$HOME/.claude/plugins/cache/agent-guard/agent-guard/current/bin/agent-guard" setup`. `PATH`의 `agent-guard`가 같은 설치이거나 독립·Homebrew 설치라면 안내는 지금처럼 짧은 `agent-guard` 이름을 씁니다.
+플러그인만 설치하면 `agent-guard`가 `PATH`에 없으므로, 플러그인의 CLI가 출력하는 안내(예: `update`, `check`, `doctor`, SessionStart 알림)는 그 실행 파일을 따옴표로 감싼 절대 경로로 적습니다. 예: `"$HOME/.claude/plugins/cache/agent-guard/agent-guard/current/bin/agent-guard" setup`. `PATH`의 `agent-guard`가 같은 설치일 때, 그리고 독립·Homebrew 설치는 `PATH`에 `agent-guard`가 있을 때 안내가 지금처럼 짧은 `agent-guard` 이름을 씁니다. `PATH`에 `agent-guard`가 없는 상태에서 경로로 실행한 독립 CLI(예: `~/.local/bin`을 추가하기 전의 `~/.agent-guard/bin/agent-guard`)도 자기 경로를 적습니다.
 
 <a id="runtime-dependencies"></a>
 

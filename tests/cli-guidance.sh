@@ -38,6 +38,9 @@ mkdir -p "$ROOT_V"
 cp -R "$PLUGIN_ROOT/." "$ROOT_V/"
 AG="$ROOT_V/bin/agent-guard"
 QUOTED="\"$AG\""
+# Hook output is text on stderr, a JSON string, and jq input in closed mode; a
+# single-quoted path reads the same in all of them.
+HOOK_REF="'$AG'"
 ag() { env HOME="$HOME_DIR" PATH="$BASE_PATH" AGENT_GUARD_RELEASE_CHECK=off AGENT_GUARD_LOG_MODE=off "$@"; }
 
 ag "$AG" update >"$CASE_ROOT/out" 2>"$CASE_ROOT/err"
@@ -85,13 +88,51 @@ fi
 ag env AGENT_GUARD_HOOK_HOST=claude SHELL=/bin/zsh "$AG" hook-session-start </dev/null >"$CASE_ROOT/out" 2>"$CASE_ROOT/err"
 message=$(jq -r .systemMessage "$CASE_ROOT/out" 2>/dev/null) || message=
 case "$message" in
-  *"(or $QUOTED setup), approve"*"verify with $QUOTED check and smoke-test"*"/agent-guard:setup-shell (or $QUOTED setup-shell), then restart"*)
+  *"(or $HOOK_REF setup), approve"*"verify with $HOOK_REF check and smoke-test"*"/agent-guard:setup-shell (or $HOOK_REF setup-shell), then restart"*)
     case "$message" in
       *"for a standalone install"*) not_ok "SessionStart drops the standalone-only wording for a plugin path: $message" ;;
       *) ok "SessionStart names the plugin executable in valid JSON" ;;
     esac ;;
   *) not_ok "SessionStart names the plugin executable in valid JSON: $(cat "$CASE_ROOT/out")" ;;
 esac
+# Codex receives the same text in systemMessage and additionalContext.
+ag env AGENT_GUARD_HOOK_HOST=codex SHELL=/bin/zsh "$AG" hook-session-start </dev/null >"$CASE_ROOT/out" 2>"$CASE_ROOT/err"
+if jq -e --arg want "(or $HOOK_REF setup), approve" \
+     '(.systemMessage | contains($want)) and (.hookSpecificOutput.additionalContext | contains($want))' \
+     "$CASE_ROOT/out" >/dev/null 2>&1; then
+  ok "Codex SessionStart names the plugin executable in both fields"
+else
+  not_ok "Codex SessionStart names the plugin executable: $(cat "$CASE_ROOT/out")"
+fi
+
+# The degraded notice is also stderr text and, in closed mode, a deny reason
+# built through jq: the pasted word must be the path, not an escaped string.
+pre_tool() {  # $1 = infrastructure failure mode
+  printf '%s' '{"tool_name":"Bash","tool_input":{"command":"ls"}}' \
+    | ag env AGENT_GUARD_HOOK_HOST=claude AGENT_GUARD_INFRA_FAILURE_MODE="$1" \
+        AGENT_GUARD_WARNING_DIR="$CASE_ROOT/warn-$1" "$AG" hook-pre-tool \
+      >"$CASE_ROOT/out" 2>"$CASE_ROOT/err"
+}
+pre_tool open
+status=$?
+if [ "$status" -eq 0 ] && grep -Fq "(or $HOOK_REF setup), approve" "$CASE_ROOT/err" \
+   && jq -e --arg want "(or $HOOK_REF setup), approve" \
+        '.hookSpecificOutput.additionalContext | contains($want)' "$CASE_ROOT/out" >/dev/null 2>&1 \
+   && ! grep -Fq '\"' "$CASE_ROOT/err"; then
+  ok "open-mode degraded notice names the path on stderr and in JSON"
+else
+  not_ok "open-mode degraded notice (status $status): $(cat "$CASE_ROOT/err"; cat "$CASE_ROOT/out")"
+fi
+pre_tool closed
+status=$?
+reason=$(jq -r '.. | strings' "$CASE_ROOT/out" 2>/dev/null | grep -F 'DEGRADED') || reason=$(cat "$CASE_ROOT/err")
+if [ "$status" -eq 2 ] && grep -Fq "(or $HOOK_REF setup), approve" "$CASE_ROOT/err" \
+   && printf '%s' "$reason" | grep -Fq "(or $HOOK_REF setup), approve" \
+   && ! grep -Fq '\"' "$CASE_ROOT/err"; then
+  ok "closed-mode degraded block names the path, exit 2 unchanged"
+else
+  not_ok "closed-mode degraded block (status $status): $(cat "$CASE_ROOT/err"; cat "$CASE_ROOT/out")"
+fi
 
 # doctor's shell-integration notice for a resolver file without a stamp.
 mkdir -p "$HOME_DIR/.agent-guard"
@@ -170,8 +211,8 @@ esac
 ag env AGENT_GUARD_HOOK_HOST=claude SHELL=/bin/zsh "$ODD" hook-session-start </dev/null >"$CASE_ROOT/out" 2>"$CASE_ROOT/err"
 message=$(jq -r .systemMessage "$CASE_ROOT/out" 2>/dev/null) || message=
 case "$message" in
-  *"(or '$ODD' setup), approve"*) ok "SessionStart JSON escapes a quoted path" ;;
-  *) not_ok "SessionStart JSON escapes a quoted path: $(cat "$CASE_ROOT/out")" ;;
+  *"(or agent-guard setup), approve"*) ok "hook text keeps the short name for a path with a double quote" ;;
+  *) not_ok "hook text keeps the short name for a path with a double quote: $(cat "$CASE_ROOT/out")" ;;
 esac
 
 [ "$fail" -eq 0 ]

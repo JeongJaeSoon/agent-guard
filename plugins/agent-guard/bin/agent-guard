@@ -170,7 +170,7 @@ sh_squote() {
 # `current` link when it works, so the advice survives the next plugin update.
 # Computed on first use; only paths that print guidance pay for it.
 AG_CLI_REF=
-AG_CLI_REF_JSON=
+AG_CLI_REF_HOOK=
 cli_ref_init() {
   [ -z "$AG_CLI_REF" ] || return 0
   cli_ref_found=$(command -v "$PROGRAM" 2>/dev/null) || cli_ref_found=
@@ -179,7 +179,7 @@ cli_ref_init() {
       if [ -z "$PLUGIN_CACHE_BASE" ] || [ "$cli_ref_found" -ef "$SELF_BIN" ] \
          || [ "$cli_ref_found" -ef "$STABLE_BIN" ]; then
         AG_CLI_REF=$PROGRAM
-        AG_CLI_REF_JSON=$PROGRAM
+        AG_CLI_REF_HOOK=$PROGRAM
         return 0
       fi
       ;;
@@ -192,26 +192,15 @@ cli_ref_init() {
     *[\"\$\`\\]*) AG_CLI_REF=$(sh_squote "$cli_ref_exec") ;;
     *) AG_CLI_REF="\"$cli_ref_exec\"" ;;
   esac
-  # Hook messages are hand-built JSON strings. Escape the two characters JSON
-  # requires; a control character cannot be escaped here, so that rare path
-  # keeps the short name rather than emitting invalid JSON.
-  case $AG_CLI_REF in
-    *[[:cntrl:]]*) AG_CLI_REF_JSON=$PROGRAM; return 0 ;;
+  # Hook messages travel as text on stderr, inside hand-built JSON strings, and
+  # through jq in closed mode, so they need a form that is the same in all
+  # three: a single-quoted path, which no JSON or shell layer changes. A path
+  # that holds a quote, a backslash or a control character would need escaping
+  # in one of them; that rare path keeps the short name.
+  case $cli_ref_exec in
+    *[\'\"\\]*|*[[:cntrl:]]*) AG_CLI_REF_HOOK=$PROGRAM ;;
+    *) AG_CLI_REF_HOOK="'$cli_ref_exec'" ;;
   esac
-  AG_CLI_REF_JSON=
-  cli_ref_rest=$AG_CLI_REF
-  while :; do
-    case $cli_ref_rest in
-      *[\"\\]*)
-        cli_ref_head=${cli_ref_rest%%[\"\\]*}
-        cli_ref_rest=${cli_ref_rest#"$cli_ref_head"}
-        cli_ref_tail=${cli_ref_rest#?}
-        AG_CLI_REF_JSON="$AG_CLI_REF_JSON$cli_ref_head\\${cli_ref_rest%"$cli_ref_tail"}"
-        cli_ref_rest=$cli_ref_tail
-        ;;
-      *) AG_CLI_REF_JSON=$AG_CLI_REF_JSON$cli_ref_rest; return 0 ;;
-    esac
-  done
 }
 
 GITLEAKS_CONFIG=${AGENT_GUARD_GITLEAKS_CONFIG:-"$ROOT_DIR/config/gitleaks.toml"}
@@ -2639,8 +2628,10 @@ degraded_hook_message() {
     *) setup_ref='/agent-guard:setup-agent-guard' ;;
   esac
   printf 'agent-guard: protection is DEGRADED because jq, awk, git, gitleaks (including its setsid or Perl process-isolation helper), or a policy file is unavailable.'
-  # Fixed diagnostic codes only: never include scanner output, paths or payloads
-  # in the host envelope. Keep the existing once-per-session warning boundary.
+  # Fixed diagnostic codes only: never include scanner output, scanned paths or
+  # payloads in the host envelope. The one path allowed is this CLI's own
+  # executable (AG_CLI_REF_HOOK), so a plugin-only install is told a command
+  # that runs. Keep the existing once-per-session warning boundary.
   degraded_probe_reason=
   case "${GITLEAKS_PROBE_STATE:-}" in
     missing|unparseable|unsupported) degraded_probe_reason=$GITLEAKS_PROBE_STATE ;;
@@ -2656,7 +2647,7 @@ degraded_hook_message() {
     || printf ' Scanner readiness: %s.' "$degraded_probe_reason"
   cli_ref_init
   printf ' Run %s (or %s setup), approve any required installation, verify with %s check and smoke-test, then restart the host;' \
-    "$setup_ref" "$AG_CLI_REF_JSON" "$AG_CLI_REF_JSON"
+    "$setup_ref" "$AG_CLI_REF_HOOK" "$AG_CLI_REF_HOOK"
 }
 
 emit_degraded_hook_warning() {
@@ -16563,7 +16554,7 @@ hook_session_start() {
       *)
         if [ "$marker" != "$VERSION" ]; then
           cli_ref_init
-          drift="agent-guard plugin hooks are $VERSION but the Claude shell integration masks with $marker. Update whichever is older, then rerun $AG_CLI_REF_JSON setup-shell."
+          drift="agent-guard plugin hooks are $VERSION but the Claude shell integration masks with $marker. Update whichever is older, then rerun $AG_CLI_REF_HOOK setup-shell."
           if [ -n "$message" ]; then message="$message $drift"; else message=$drift; fi
         fi
         ;;
@@ -16592,7 +16583,7 @@ hook_session_start() {
     setup_shell_alt="$PROGRAM setup-shell for a standalone install"
     if [ "$block_state" -ne 0 ]; then
       cli_ref_init
-      [ "$AG_CLI_REF_JSON" = "$PROGRAM" ] || setup_shell_alt="$AG_CLI_REF_JSON setup-shell"
+      [ "$AG_CLI_REF_HOOK" = "$PROGRAM" ] || setup_shell_alt="$AG_CLI_REF_HOOK setup-shell"
     fi
     case $block_state in
       0) wrapping_setup= ;;

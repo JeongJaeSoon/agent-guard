@@ -38,16 +38,16 @@ commit_one() {  # $1 = repo; leaves output in $CASE_ROOT/commit.err
 }
 guard_count() { grep -cxF "$BEGIN" "$1"; }
 
-# 1. A quote, a backslash and a space in the payload path must survive as one
+# 1. A quote, a backslash, a dollar sign and a space in the payload path must survive as one
 # literal word in both the check and the message.
-PAYLOAD="$CASE_ROOT/it's a \\dir/agent-guard"
+PAYLOAD="$CASE_ROOT/it's a \\dir \$x/agent-guard"
 installer_copy "$PAYLOAD"
 REPO="$CASE_ROOT/repo"
 new_repo "$REPO"
 (cd "$REPO" && sh "$PAYLOAD/install.sh" git-hooks) >"$CASE_ROOT/install.out" 2>&1
 HOOK="$REPO/githooks/pre-commit"
 if sh -n "$HOOK" && [ "$(guard_count "$HOOK")" = 1 ] \
-   && [ "$(tail -n 1 "$HOOK")" = "exec '$CASE_ROOT/it'\\''s a \\dir/agent-guard/bin/agent-guard' scan-staged" ]; then
+   && [ "$(tail -n 1 "$HOOK")" = "exec '$CASE_ROOT/it'\\''s a \\dir \$x/agent-guard/bin/agent-guard' scan-staged" ]; then
   ok "fresh hook has one missing-executable check before its exec line"
 else
   not_ok "fresh hook has one missing-executable check: $(cat "$CASE_ROOT/install.out"; cat "$HOOK")"
@@ -60,7 +60,7 @@ fi
 
 # 2. Remove the payload, as the documented uninstall does. The commit stays
 # blocked with exit 1 and the message names the cause and both remedies.
-rm -rf "$CASE_ROOT/it's a \\dir"
+rm -rf "$CASE_ROOT/it's a \\dir \$x"
 before=$(cd "$REPO" && git rev-list --count HEAD)
 (cd "$REPO" && "$HOOK") >/dev/null 2>"$CASE_ROOT/hook.err"
 hook_status=$?
@@ -72,7 +72,7 @@ if [ "$hook_status" -eq 1 ] && [ "$commit_status" -ne 0 ] && [ "$before" = "$aft
 else
   not_ok "missing executable still blocks the commit (hook $hook_status, commit $commit_status, commits $before -> $after)"
 fi
-if grep -Fxq "  $CASE_ROOT/it's a \\dir/agent-guard/bin/agent-guard" "$CASE_ROOT/commit.err" \
+if grep -Fxq "  $CASE_ROOT/it's a \\dir \$x/agent-guard/bin/agent-guard" "$CASE_ROOT/commit.err" \
    && grep -Fq 'commit blocked: the agent-guard executable is missing' "$CASE_ROOT/commit.err" \
    && grep -Fq 'fails closed' "$CASE_ROOT/commit.err" \
    && grep -Fq 'rerun its install.sh git-hooks' "$CASE_ROOT/commit.err" \
@@ -83,12 +83,12 @@ else
   not_ok "missing executable message: $(cat "$CASE_ROOT/commit.err")"
 fi
 # A path that exists but cannot run is not a pass either.
-mkdir -p "$CASE_ROOT/it's a \\dir/agent-guard/bin"
-printf '#!/bin/sh\nexit 0\n' >"$CASE_ROOT/it's a \\dir/agent-guard/bin/agent-guard"
-chmod 644 "$CASE_ROOT/it's a \\dir/agent-guard/bin/agent-guard"
+mkdir -p "$CASE_ROOT/it's a \\dir \$x/agent-guard/bin"
+printf '#!/bin/sh\nexit 0\n' >"$CASE_ROOT/it's a \\dir \$x/agent-guard/bin/agent-guard"
+chmod 644 "$CASE_ROOT/it's a \\dir \$x/agent-guard/bin/agent-guard"
 (cd "$REPO" && "$HOOK") >/dev/null 2>&1
 status=$?
-rm -rf "$CASE_ROOT/it's a \\dir"
+rm -rf "$CASE_ROOT/it's a \\dir \$x"
 if [ "$status" -eq 1 ]; then
   ok "non-executable path blocks with exit 1"
 else

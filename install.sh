@@ -40,7 +40,7 @@ hook_missing_guard() {
     "    printf '%s\\n' 'agent-guard pre-commit: commit blocked: the agent-guard executable is missing:'" \
     "    printf '  %s\\n' $quoted_bin" \
     "    printf '%s\\n' 'agent-guard pre-commit: the staged-secret scan cannot run, so this hook fails closed.'" \
-    "    printf '%s\\n' 'agent-guard pre-commit: reinstall agent-guard and rerun its install.sh git-hooks here, or remove this hook:'" \
+    "    printf '%s\\n' 'agent-guard pre-commit: reinstall agent-guard and rerun its install.sh git-hooks here, or remove this hook from the repository root:'" \
     "    printf '%s\\n' '  git config --unset core.hooksPath && rm githooks/pre-commit'" \
     "    printf '%s\\n' 'agent-guard pre-commit: unsetting core.hooksPath makes git run .git/hooks again.'" \
     '  } >&2' \
