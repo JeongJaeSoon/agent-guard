@@ -5632,6 +5632,9 @@ shell_dequote_for_policy() {
 # import its way to one (os, pathlib, listdir...), since only such a program
 # can match names against pattern text; one that cannot opens literal names,
 # which the unmodified scan already reads.
+# $2, when set, is the same command before its jq field names were dropped.
+# A dot command is then looked for only there: dropping `.name` from
+# `select(.name | ...)` leaves `(. ` inside the filter, which runs nothing.
 # A `#` that starts a word ends the line for quote tracking, so a comment's
 # apostrophe cannot flip the state for the lines below it.
 # Under the same conditions, every glob character becomes \001 in the whole
@@ -5639,9 +5642,11 @@ shell_dequote_for_policy() {
 # only before it) or awk (only -F options before it): regex text such as
 # id[_a-z]* or /id_r?a/ then no longer reads as a glob that names id_rsa. That
 # needs a program that cannot match names it learns against the pattern and
-# open them: a python or node program with nothing piped into it, an awk
-# program without getline or ARGV, or any jq filter; for awk, also no `|` that
-# pipes to a command; and output that only goes through plain text filters
+# open them, nor hand the pattern to a module that expands it: a python
+# program that imports only a few stdlib modules or a node program that loads
+# none, either with nothing piped into it, an awk program without getline or
+# ARGV, or any jq filter; for awk, also no `|` that pipes to a command; and
+# output that only goes through plain text filters
 # (wc, head, sort, grep...), never to a command that may expand what the
 # program printed. The literal passes still read the unmodified word.
 shell_neutralize_quoted_brackets_for_policy() {
@@ -5651,10 +5656,16 @@ shell_neutralize_quoted_brackets_for_policy() {
     *'
 '*) printf '%s\n' "$1"; return ;;
   esac
-  if printf '%s\n' "$1" | grep -Eq \
-    '(^|[^[:alnum:]_.-])(sh|bash|zsh|dash|ksh|ash|csh|tcsh|fish|eval|source|xargs|read|mapfile|readarray|alias|function|os)([^[:alnum:]_.-]|$)|ssh|system|popen|Popen|subprocess|spawn|exec|child_process|glob|fnmatch|listdir|iterdir|scandir|walk|pathlib|Path|shutil|fileinput|__import__|importlib|compile|getattr|globals|builtins|<<|\$\(|`|<\(|>\(|[A-Za-z_][A-Za-z0-9_]*[[:space:]]*\(\)[[:space:]]*[{(]|(^|[[:space:];&|(])\.([[:space:]]|$)|(^|[[:space:];&|(])PATH=|\\[[:space:]]*[;&|(]'; then
-    printf '%s\n' "$1"
-    return
+  nq_bail='(^|[^[:alnum:]_.-])(sh|bash|zsh|dash|ksh|ash|csh|tcsh|fish|eval|source|xargs|read|mapfile|readarray|alias|function|os)([^[:alnum:]_.-]|$)|ssh|system|popen|Popen|subprocess|spawn|exec|child_process|glob|fnmatch|listdir|iterdir|scandir|walk|pathlib|Path|shutil|fileinput|__import__|importlib|compile|getattr|globals|builtins|<<|\$\(|`|<\(|>\(|[A-Za-z_][A-Za-z0-9_]*[[:space:]]*\(\)[[:space:]]*[{(]|(^|[[:space:];&|(])PATH=|\\[[:space:]]*[;&|(]'
+  nq_dot='(^|[[:space:];&|(])\.([[:space:]]|$)'
+  if printf '%s\n' "$1" | grep -Eq "$nq_bail|$nq_dot"; then
+    # The text before field names were dropped must pass the whole test.
+    if [ -z "${2-}" ] ||
+      printf '%s\n' "$1" | grep -Eq "$nq_bail" ||
+      printf '%s\n' "$2" | grep -Eq "$nq_bail|$nq_dot"; then
+      printf '%s\n' "$1"
+      return
+    fi
   fi
   printf '%s\n' "$1" | LC_ALL=C awk '
     function closed(l, p,   r) {
@@ -5689,9 +5700,15 @@ shell_neutralize_quoted_brackets_for_policy() {
     # through getline and ARGV; jq opens none. None may list or glob a
     # directory, nor (awk) pipe to a command, and the output may only reach
     # plain text filters. Any File substring (FileIO, GzipFile, readFileSync,
-    # the source name of an imported alias) counts as opening a file.
-    function progneutral_ok(w, pre, r, isawk, isjq,   t, segs, k, m, wd) {
+    # the source name of an imported alias) counts as opening a file. An
+    # outside module may expand a pattern argument itself (polars, dask,
+    # shelljs), so a python program may import only the modules pymodok names,
+    # in a shape pyimportsok reads with certainty, and a node or bun program
+    # may load no module at all.
+    function progneutral_ok(w, pre, r, isawk, isjq, ispy,   t, segs, k, m, wd) {
       if (w ~ /open|File|ReadStream|readdir|readDir|Glob|Bun\.file|getline|ARGV/) return 0
+      if (ispy && !pyimportsok(w)) return 0
+      if (!ispy && !isawk && !isjq && w ~ /require|import|binding|mainModule|getBuiltinModule|module/) return 0
       # Any pipe earlier on the line may feed the program (`| (`, `|&`).
       t = pre; gsub(/\|\|/, "", t)
       if (!isawk && !isjq && index(t, "|")) return 0
@@ -5702,6 +5719,35 @@ shell_neutralize_quoted_brackets_for_policy() {
       for (k = 2; k <= m; k++) {
         wd = segs[k]; sub(/^[ \t]+/, "", wd); match(wd, /^[A-Za-z0-9_-]*/)
         if (substr(wd, 1, RLENGTH) !~ /^(wc|head|tail|sort|uniq|tr|cut|nl|grep|column)$/) return 0
+      }
+      return 1
+    }
+    function pymodok(m) {
+      return m ~ /^(re|sys|json|string|math|itertools|collections|functools|textwrap|unicodedata)$/
+    }
+    function pynamesok(l, mods,   p, q, k, nm) {
+      q = split(l, p, ",")
+      for (k = 1; k <= q; k++) {
+        nm = p[k]; sub(/^[ \t]+/, "", nm); sub(/[ \t]+$/, "", nm)
+        sub(/[ \t]+as[ \t]+[A-Za-z_][A-Za-z0-9_]*$/, "", nm)
+        if (nm !~ /^[A-Za-z_][A-Za-z0-9_]*$/ || (mods && !pymodok(nm))) return 0
+      }
+      return q > 0
+    }
+    # Every import token must open a ;-separated statement of one of the two
+    # forms below; one anywhere else (after `if x:`, in a string) fails too.
+    function pyimportsok(w,   s, q, k, t) {
+      q = split(w, s, ";")
+      for (k = 1; k <= q; k++) {
+        t = s[k]; sub(/^[ \t]+/, "", t)
+        if (t ~ /^import[^A-Za-z0-9_]/) {
+          if (!pynamesok(substr(t, 7), 1)) return 0
+        } else if (t ~ /^from[ \t]+[A-Za-z0-9_]+[ \t]+import[ \t]/) {
+          sub(/^from[ \t]+/, "", t); match(t, /^[A-Za-z0-9_]+/)
+          if (!pymodok(substr(t, 1, RLENGTH))) return 0
+          t = substr(t, RLENGTH + 1); sub(/^[ \t]+import/, "", t)
+          if (!pynamesok(t, 0)) return 0
+        } else if (t ~ /(^|[^A-Za-z0-9_])import([^A-Za-z0-9_]|$)/) return 0
       }
       return 1
     }
@@ -5735,7 +5781,7 @@ shell_neutralize_quoted_brackets_for_policy() {
           if (c == "\047" && (out ~ prog || out ~ awkprog)) {
             e = index(substr($0, i + 1), "\047")
             w = substr($0, i + 1, e - 1)
-            if (e > 0 && progneutral_ok(w, out, substr($0, i + e + 1), out ~ awkprog, out ~ jqprog)) w = progneutral(w)
+            if (e > 0 && progneutral_ok(w, out, substr($0, i + e + 1), out ~ awkprog, out ~ jqprog, out ~ pyprog)) w = progneutral(w)
             else if (e > 0 && out ~ pyprog) w = pyneutral(w)
             else e = 0
             if (e > 0) {
@@ -8099,7 +8145,10 @@ bash_matches_deny_path() {
     deny_stripped=$(bash_strip_message_values "$deny_cmd") && deny_cmd=$deny_stripped
   fi
   deny_stripped=$(bash_strip_non_read_operands "$deny_cmd") && deny_cmd=$deny_stripped
+  deny_pre_jq=$deny_cmd
   deny_cmd=$(bash_neutralize_jq_field_names "$deny_cmd")
+  # Kept only when field names were dropped (see the dot-command test there).
+  [ "$deny_cmd" != "$deny_pre_jq" ] || deny_pre_jq=
   deny_cmd=$(bash_neutralize_runtime_globals "$deny_cmd")
   deny_cmd=$(bash_strip_source_module_prose "$deny_cmd")
   deny_cmd=$(bash_strip_exclusion_operands "$deny_cmd")
@@ -8124,7 +8173,7 @@ bash_matches_deny_path() {
       ;;
   esac
   if [ -n "$neutral_wanted" ]; then
-    neutral_cmd=$(shell_neutralize_quoted_brackets_for_policy "$deny_cmd") || neutral_cmd=
+    neutral_cmd=$(shell_neutralize_quoted_brackets_for_policy "$deny_cmd" "$deny_pre_jq") || neutral_cmd=
     [ -n "$neutral_cmd" ] || neutral_cmd=$deny_cmd
   fi
   bash_matches_deny_path_mode "$neutral_cmd" "shell-expanded" && return 0
