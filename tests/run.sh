@@ -8707,6 +8707,9 @@ for interval_tool in sh dirname pwd awk jq git date sleep wc tr rm mkdir rmdir \
   [ -n "$interval_tool_path" ] && ln -s "$interval_tool_path" "$INTERVAL_BIN/$interval_tool"
 done
 INTERVAL_WARN_DIR="$TESTTMP/interval-warnings"
+# The support log refuses a state directory with a symlinked component, and the
+# macOS TMPDIR lives under /var -> /private/var; resolve it so logging stays on.
+INTERVAL_STATE_HOME="$(CDPATH= cd -- "$TESTTMP" && pwd -P)/interval-state"
 interval_hook() { # $1 host, $2 subcommand, $3 session, $4 log mode
   case "$2" in
     hook-pre-tool) interval_json='{"tool_name":"Bash","tool_input":{"command":"echo clean"}}' ;;
@@ -8717,7 +8720,7 @@ interval_hook() { # $1 host, $2 subcommand, $3 session, $4 log mode
   esac
   printf '%s' "$interval_json" | jq -c --arg s "$3" '. + {session_id: $s}' \
     | env AGENT_GUARD_WARNING_DIR="$INTERVAL_WARN_DIR" AGENT_GUARD_HOOK_HOST="$1" \
-        AGENT_GUARD_LOG_MODE="$4" XDG_STATE_HOME="$TESTTMP/interval-state" \
+        AGENT_GUARD_LOG_MODE="$4" XDG_STATE_HOME="$INTERVAL_STATE_HOME" \
         AGENT_GUARD_GITLEAKS_BIN=/nonexistent/gitleaks PATH="$INTERVAL_BIN" \
         "$PLUGIN_ROOT/bin/agent-guard" "$2" >"$OUT" 2>"$ERR"
 }
