@@ -22,7 +22,10 @@ For a rollout that prioritizes secret protection, use
 PII is opt-in; do not force an
 endpoint-backed provider without a separate privacy review. Set
 `AGENT_GUARD_LOG_MODE=off` only in a release that contains the log and where
-the metadata-only local support log is not permitted.
+the metadata-only local support log is not permitted. That setting also turns
+off the local caches, so each hook runs gitleaks more often; add
+`AGENT_GUARD_SCAN_CACHE=on` to keep the caches without the log (see
+[PRIVACY.md](../PRIVACY.md) for what they store).
 
 After policy delivery, each developer runs the host setup skill, approves any
 dependency installation, restarts the host/session when asked, and completes

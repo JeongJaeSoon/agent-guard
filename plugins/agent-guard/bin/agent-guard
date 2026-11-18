@@ -1300,10 +1300,20 @@ audit_prune() (
     | xargs -0 rm -f -- 2>/dev/null
 )
 
+# The event log and the caches (gitleaks-probe, gitleaks-clean/,
+# deny-path-regex-*) share the private state directory prepared here. With the
+# log off, nothing is written there unless AGENT_GUARD_SCAN_CACHE=on is set
+# explicitly (#510): then the directory passes the same audit_directory checks
+# and AG_STATE_DIR is set for the caches, but no event file is created, no
+# retention runs and no log message is printed.
 audit_begin() {
-  case "${AGENT_GUARD_LOG_MODE:-on}" in off) return 0 ;; on) ;; *)
-    printf '%s\n' 'agent-guard: local diagnostic logging unavailable (invalid log mode).' >&2
-    return 0 ;;
+  ag_log=on
+  case "${AGENT_GUARD_LOG_MODE:-on}" in
+    off) [ "${AGENT_GUARD_SCAN_CACHE:-}" = on ] || return 0; ag_log=off ;;
+    on) ;;
+    *)
+      printf '%s\n' 'agent-guard: local diagnostic logging unavailable (invalid log mode).' >&2
+      return 0 ;;
   esac
   case "$1" in
     hook-pre-tool|hook-post-tool|hook-post-tool-failure|hook-stop|hook-user-prompt|hook-session-start|scan-staged|scan-working-tree|scan-path|exec|pii-filter) AG_AUDIT_COMMAND=$1 ;;
@@ -1317,6 +1327,11 @@ audit_begin() {
   AG_UID=$(id -u 2>/dev/null) || AG_UID=
   ag_candidate=
   ag_dir=$(audit_directory create) || ag_dir=
+  if [ "$ag_log" = off ]; then
+    # A directory that fails the checks leaves every cache off, as before.
+    AG_STATE_DIR=$ag_dir
+    return 0
+  fi
   if [ -n "$ag_dir" ]; then
     AG_STATE_DIR=$ag_dir
     audit_prune "$ag_dir"
@@ -1894,8 +1909,9 @@ gitleaks_probe_error() {
 # the finest resolution stat reports), so replacing or rewriting the binary
 # misses; the TTL bounds whatever the key cannot see.
 # Only ready verdicts are stored, and any cache problem runs the full probe.
-# The file lives in the private log directory audit_begin validated, so
-# diagnostics (check, doctor, setup) and AGENT_GUARD_LOG_MODE=off always probe.
+# The file lives in the private state directory audit_begin validated, so
+# diagnostics (check, doctor, setup) always probe, and so does
+# AGENT_GUARD_LOG_MODE=off unless AGENT_GUARD_SCAN_CACHE=on is set explicitly.
 GITLEAKS_PROBE_CACHE_TTL_SECONDS=600
 GITLEAKS_PROBE_CACHE_KEY=
 
@@ -1976,7 +1992,8 @@ gitleaks_probe_cache_store() {
 # config file, a stale, foreign or unreadable entry) runs the scan uncached.
 # Entries hold only hashes and a time, never the text. They live in a 0700
 # directory inside the private state directory audit_begin validated, so
-# diagnostics and AGENT_GUARD_LOG_MODE=off never cache. The TTL matches the
+# diagnostics never cache, and AGENT_GUARD_LOG_MODE=off caches only with an
+# explicit AGENT_GUARD_SCAN_CACHE=on. The TTL matches the
 # probe cache: a version manager that swaps gitleaks behind one file changes
 # the probed version within that window. AGENT_GUARD_SCAN_CACHE=off opts out.
 # Keep GITLEAKS_STDIN_SCAN_FLAGS equal to the flags run_gitleaks_stdin passes.
@@ -5382,7 +5399,8 @@ bash_shell_expanded_match_is_pinned() {
 # deny list and of this script, so editing either one misses the cache. The
 # file lives in the private state directory audit_begin validated.
 #
-# Without a state directory (diagnostics, AGENT_GUARD_LOG_MODE=off) the file is
+# Without a state directory (diagnostics, AGENT_GUARD_LOG_MODE=off without an
+# explicit AGENT_GUARD_SCAN_CACHE=on) the file is
 # built in this invocation's run directory instead and reused only by the
 # passes of this invocation, which see the same deny list, script and locale;
 # the exit trap removes it with the directory. mktemp -d made that directory

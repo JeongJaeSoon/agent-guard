@@ -483,6 +483,14 @@ else
       [ "${got:-999}" -le 125 ]
   done
   shell_count on 'ls -la src' >/dev/null
+  # #510: the explicit cache opt-in with logging off prepares the state
+  # directory with the checks logging on makes, and writes no event file, so
+  # a warm run forks no more shells than logging on.
+  logged=$(shell_count on 'ls -la src')
+  (export AGENT_GUARD_SCAN_CACHE=on; shell_count off 'ls -la src') >/dev/null
+  got=$(export AGENT_GUARD_SCAN_CACHE=on; shell_count off 'ls -la src')
+  check "logging off with AGENT_GUARD_SCAN_CACHE=on and a warm cache forks no more shells than logging on (on ${logged:-none}, got ${got:-none})" \
+    [ -n "$logged" ] && [ -n "$got" ] && [ "$got" -le "$logged" ]
   at_most() { [ -n "$1" ] && [ -n "$2" ] && [ "$1" -le "$2" ]; }
   for log in off on; do
     one=$(shell_count "$log" 'ls a')
