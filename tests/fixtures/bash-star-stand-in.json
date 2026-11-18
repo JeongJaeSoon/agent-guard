@@ -218,9 +218,9 @@
   },
   {
     "id": "sed-s-address",
-    "expected_status": 2,
-    "classification": "known-limitation",
-    "description": "a script with an address is not rewritten and is conservatively blocked",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "the regex of an address before an s command is program text too (#494)",
     "command": "sed '/.env/s/a/b/' a.log"
   },
   {
