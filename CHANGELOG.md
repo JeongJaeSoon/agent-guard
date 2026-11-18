@@ -27,6 +27,7 @@
 - test(plugin-management): 응답이 끝나지 않는 malformed·silent Codex app-server 경우는 기존 테스트 시간 제한(`AG_PLUGIN_TEST_CODEX_TRUST_TIMEOUT=3`)을 써서 기본 10초를 다 기다리지 않습니다(이 머신 약 19초 → 5초).
 - test(unit-quoted-words, audit-log): 같은 단언을 프로세스를 덜 띄워 만듭니다. 글 3,905개의 `_`를 글마다 `tr` 대신 한 번에 바꾸고(11.8초 → 4.7초, 출력 바이트 단위 동일), 보존 기한 검사의 이벤트 파일 1,005개를 `cp` 대신 같은 바이트·mode 600으로 셸에서 씁니다.
 - test(deny-path-regex-cache): fixture 명령 약 240개의 per-entry 기준 판정(캐시 없는 참조 CLI)을 배포 CLI 판정과 나란히 돌립니다. 로그를 끈 두 실행은 상태를 나누지 않습니다(이 머신 약 135초 → 97초).
+- test(plugin-management): 응답하는 가짜 Codex app-server 경우(linger, spawn)의 시간 제한을 2초·3초로 둡니다. 클라이언트의 마감은 초 단위라 제한이 1초이면 실제 여유가 0~1초로 흔들려, 바쁜 macOS 러너에서 `hooks/list` 응답을 놓치고 실패했습니다. 제한까지 기다려야 하는 hang 경우는 1초 그대로입니다.
 
 ## v3.11.7 - 2026-11-18
 
