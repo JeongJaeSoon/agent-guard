@@ -8969,7 +8969,7 @@ printf '%s' '{"session_id":"hook-no-awk","tool_name":"Read","tool_input":{}}' \
     "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool >"$OUT" 2>"$ERR"
 hook_no_awk_status=$?
 if [ "$hook_no_awk_status" -eq 0 ] \
-   && grep -q 'jq, awk, git, gitleaks' "$ERR"; then
+   && grep -q 'missing or unusable: awk[,.]' "$ERR"; then
   ok "hook readiness treats the portable fallback awk as a required dependency"
 else
   not_ok "hook readiness ignores a missing portable fallback awk (status $hook_no_awk_status)"
