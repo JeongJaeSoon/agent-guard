@@ -17465,6 +17465,37 @@ setup_shell_account_shell() (
   esac
 )
 
+# Prints the command-wrapping choice an earlier setup-shell recorded, for the
+# rc files given ($@: the files a bare setup-shell would write). The managed
+# block is the record: it sources shell-init-no-wrapping.sh (or, before v3.9,
+# carries `shell-init --no-command-wrapping` inline) only for an opt-out. Prints
+# `off` when every balanced block found is an opt-out, `on` when any block loads
+# wrapping. With no block in those files (setup-shell ran with --rc, or the
+# block was removed), an opt-out resolver file with no default one beside it
+# still reads as `off`. Everything else is the default, `on`. Writes nothing.
+setup_shell_recorded_wrapping() {
+  srw_states=
+  for srw_rc do
+    [ -f "$srw_rc" ] && [ -r "$srw_rc" ] || continue
+    srw_states="$srw_states $(awk -v b="$SHELL_INIT_BLOCK_BEGIN" -v e="$SHELL_INIT_BLOCK_END" '
+      $0 == b { inb = 1; off = on = 0; next }
+      $0 == e && inb { if (off) printf " off"; else if (on) printf " on"; inb = 0; next }
+      inb && (index($0, "shell-init-no-wrapping.sh") || index($0, "shell-init --no-command-wrapping")) { off = 1; next }
+      inb && index($0, "shell-init") { on = 1 }
+    ' "$srw_rc" 2>/dev/null)"
+  done
+  case "$srw_states " in
+    *" on "*) printf '%s\n' on; return 0 ;;
+    *" off "*) printf '%s\n' off; return 0 ;;
+  esac
+  if [ -f "$HOME/.agent-guard/shell-init-no-wrapping.sh" ] \
+     && [ ! -e "$HOME/.agent-guard/shell-init.sh" ]; then
+    printf '%s\n' off
+  else
+    printf '%s\n' on
+  fi
+}
+
 # `setup-shell` — write ~/.agent-guard/shell-init.sh (the validating resolver
 # that evals `shell-init`) and a managed rc block that only sources it, so the
 # wrappers load in every new shell (hence every Claude Code shell snapshot).
@@ -17473,7 +17504,7 @@ setup_shell_account_shell() (
 # $PATH). Idempotent — re-running rewrites the file and replaces the managed
 # block in place, including an older inline block.
 do_setup_shell() {
-  sh_target= rc= wrapping= want_help=0
+  sh_target= rc= wrapping= want_help=0 print_wrapping=0
   # Parse every argument before acting on --help, matching shell-init: a
   # rejected option must fail even when --help precedes it, so no invocation
   # carrying a removed/unknown flag can exit 0.
@@ -17483,14 +17514,19 @@ do_setup_shell() {
       --zsh) sh_target=zsh ;;
       --rc) shift; rc=${1:-}; [ -n "$rc" ] || die "setup-shell: --rc requires a path" ;;
       --no-command-wrapping) wrapping=' --no-command-wrapping' ;;
+      --print-command-wrapping) print_wrapping=1 ;;
       -h|--help) want_help=1 ;;
       *) cli_ref_init; die "setup-shell: unknown option: $1 (see: $AG_CLI_REF setup-shell --help)" ;;
     esac
     shift
   done
+  if [ "$print_wrapping" -eq 1 ] && [ -n "$wrapping" ]; then
+    die "setup-shell: --print-command-wrapping writes nothing and cannot be combined with --no-command-wrapping"
+  fi
   if [ "$want_help" -eq 1 ]; then
     {
       printf '%s\n' "Usage: $PROGRAM setup-shell [--bash|--zsh|--rc FILE] [--no-command-wrapping]"
+      printf '%s\n' "       $PROGRAM setup-shell [--bash|--zsh|--rc FILE] --print-command-wrapping"
       printf '%s\n' "Adds one line to your shell rc that sources ~/.agent-guard/shell-init.sh,"
       printf '%s\n' "and writes that file (idempotent; an older inline block is replaced)."
       printf '%s\n' "Restart your shell and any sessions launched from it afterwards to apply."
@@ -17500,6 +17536,8 @@ do_setup_shell() {
       printf '%s\n' "on macOS); if it fails, setup falls back to the process SHELL."
       printf '%s\n' "Command wrapping is enabled by default. Use --no-command-wrapping for"
       printf '%s\n' "a persistent opt-out, or AGENT_GUARD_COMMAND_WRAPPING=off at runtime."
+      printf '%s\n' "--print-command-wrapping prints on or off: the choice recorded in the rc"
+      printf '%s\n' "files this command would write. It writes nothing; update keeps that choice."
     } >&2
     return 0
   fi
@@ -17538,6 +17576,17 @@ do_setup_shell() {
       esac
     fi
     case "$sh_target" in bash) rc=$HOME/.bashrc ;; fish) rc= ;; *) rc=$HOME/.zshrc ;; esac
+  fi
+
+  # Read the record from exactly the rc files the write below would replace.
+  if [ "$print_wrapping" -eq 1 ]; then
+    [ -n "${HOME:-}" ] || die "setup-shell: HOME is not set"
+    if [ "$sh_target" = fish ]; then
+      setup_shell_recorded_wrapping "$HOME/.bashrc" "$HOME/.zshrc"
+    else
+      setup_shell_recorded_wrapping "$rc"
+    fi
+    return 0
   fi
 
   # Bootstrap through the same validated resolver as a loaded shell. A healthy
@@ -17717,6 +17766,16 @@ do_update() {
   curl -fsSL "https://github.com/JeongJaeSoon/agent-guard/releases/latest/download/bootstrap.sh" \
     -o "$update_script" || die "update: failed to download bootstrap.sh"
   sh -n "$update_script" || die "update: downloaded bootstrap.sh failed syntax validation"
+  # A persistent opt-out lives only in the shell rc, and the updater reruns
+  # setup-shell. Pass the recorded choice unless the caller set one explicitly.
+  update_wrapping=${AGENT_GUARD_COMMAND_WRAPPING:-}
+  if [ -z "$update_wrapping" ]; then
+    update_wrapping=$(do_setup_shell --print-command-wrapping 2>/dev/null) || update_wrapping=
+    case "$update_wrapping" in
+      off) info "$PROGRAM: keeping command wrapping off, as recorded by setup-shell (set AGENT_GUARD_COMMAND_WRAPPING=on to turn it back on)" ;;
+      *) update_wrapping=on ;;
+    esac
+  fi
   # BIN_DIR is the resolved payload directory, not the public symlink's
   # directory. Preserve the invocation location (including custom installs)
   # unless the caller explicitly requests a different link directory.
@@ -17727,6 +17786,7 @@ do_update() {
   fi
   AGENT_GUARD_HOME="$ROOT_DIR" \
     AGENT_GUARD_BIN_DIR="$update_bin_dir" \
+    AGENT_GUARD_COMMAND_WRAPPING="$update_wrapping" \
     sh "$update_script"
 }
 

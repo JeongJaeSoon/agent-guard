@@ -252,6 +252,8 @@ run_expect 0 "CLI guidance names a command that runs for plugin-only installs" \
 
 run_expect 0 "standalone update preserves executable and link destinations" \
   sh "$ROOT/tests/bootstrap-update.sh"
+run_expect 0 "update and reinstall keep a recorded command-wrapping opt-out" \
+  sh "$ROOT/tests/update-command-wrapping.sh"
 run_expect 0 "release archive carries README-linked Markdown guides" \
   sh "$ROOT/tests/release-docs.sh"
 run_expect 0 "release opens a Homebrew tap PR without touching tap main" \

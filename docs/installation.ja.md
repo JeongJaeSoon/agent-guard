@@ -1,4 +1,4 @@
-<!-- translated-from: docs/installation.md; source-blob: 17125cdeb02b570f1da24c23d82bcd8e508e6d7a -->
+<!-- translated-from: docs/installation.md; source-blob: 7a3dd8e0936e7271f6c2273a6ef7005bc7415a76 -->
 
 <a id="installing-agent-guard"></a>
 
@@ -158,6 +158,8 @@ curl -fsSL "https://github.com/JeongJaeSoon/agent-guard/releases/download/v${gua
 ```
 
 コマンドwrappingなしでshell integrationを導入したい場合は、導入時にのみ `AGENT_GUARD_COMMAND_WRAPPING=off` を設定します。
+
+`agent-guard update` とその後のbootstrap実行はこの選択を維持します。`AGENT_GUARD_COMMAND_WRAPPING` が未設定なら、導入済みのCLIに `agent-guard setup-shell --print-command-wrapping` で問い合わせます。このコマンドは、オプションなしの `setup-shell` が書き直すrcファイル（fishでは `~/.bashrc` と `~/.zshrc` の両方）の管理ブロックから `on` または `off` を表示します。`setup-shell --rc FILE` で導入した場合のようにそのファイルにブロックがなければ、既定のresolverファイルがなくopt-outのresolverファイルだけがあるときに `off` と読みます。選択を変えるには、update時に `AGENT_GUARD_COMMAND_WRAPPING=on` または `off` を設定します。この確認がないリリースは `agent-guard update` の途中でコマンドwrappingを再び有効にしていました。すでにそうなっている場合は `agent-guard setup-shell --no-command-wrapping` を一度実行し直してください。`AGENT_GUARD_VERSION` でそのような以前のリリースを固定したbootstrap実行も、`AGENT_GUARD_COMMAND_WRAPPING=off` を設定しなければwrappingを有効にして導入します。
 
 スタンドアロンの導入は次のように更新します。
 

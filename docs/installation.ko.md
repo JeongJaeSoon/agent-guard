@@ -1,4 +1,4 @@
-<!-- translated-from: docs/installation.md; source-blob: 17125cdeb02b570f1da24c23d82bcd8e508e6d7a -->
+<!-- translated-from: docs/installation.md; source-blob: 7a3dd8e0936e7271f6c2273a6ef7005bc7415a76 -->
 
 <a id="installing-agent-guard"></a>
 
@@ -156,6 +156,8 @@ curl -fsSL "https://github.com/JeongJaeSoon/agent-guard/releases/download/v${gua
 ```
 
 명령 wrapping 없이 shell integration만 설치하려면 설치 시에만 `AGENT_GUARD_COMMAND_WRAPPING=off`를 설정하세요.
+
+`agent-guard update`와 이후의 bootstrap 실행은 그 선택을 유지합니다. `AGENT_GUARD_COMMAND_WRAPPING`이 설정되지 않았으면 설치된 CLI에 `agent-guard setup-shell --print-command-wrapping`으로 묻습니다. 이 명령은 옵션 없는 `setup-shell`이 다시 쓸 rc 파일(fish는 `~/.bashrc`와 `~/.zshrc` 둘 다)의 관리 블록을 보고 `on` 또는 `off`를 출력합니다. `setup-shell --rc FILE`로 설치한 경우처럼 그 파일에 블록이 없으면, 기본 resolver 파일 없이 opt-out resolver 파일만 있을 때 `off`로 읽습니다. 선택을 바꾸려면 update할 때 `AGENT_GUARD_COMMAND_WRAPPING=on` 또는 `off`를 설정하세요. 이 확인이 없는 릴리스는 `agent-guard update` 중에 명령 wrapping을 다시 켰습니다. 이미 그렇게 됐다면 `agent-guard setup-shell --no-command-wrapping`을 한 번 다시 실행하세요. `AGENT_GUARD_VERSION`으로 그런 이전 릴리스를 고정한 bootstrap 실행도 `AGENT_GUARD_COMMAND_WRAPPING=off`를 설정하지 않으면 wrapping을 켠 상태로 설치합니다.
 
 독립 설치는 다음과 같이 업데이트합니다.
 

@@ -247,6 +247,19 @@ curl -fsSL "https://github.com/JeongJaeSoon/agent-guard/releases/download/v${gua
 Set `AGENT_GUARD_COMMAND_WRAPPING=off` only when installing if you want the
 shell integration without command wrapping.
 
+`agent-guard update` and a later bootstrap run keep that choice. When
+`AGENT_GUARD_COMMAND_WRAPPING` is unset, they ask the installed CLI with
+`agent-guard setup-shell --print-command-wrapping`, which prints `on` or `off`
+from the managed block in the rc files a bare `setup-shell` would rewrite (both
+`~/.bashrc` and `~/.zshrc` for fish). If those files have no block, as after
+`setup-shell --rc FILE`, an opt-out resolver file without a default one beside
+it reads as `off`. Set `AGENT_GUARD_COMMAND_WRAPPING=on` or `off` for the update
+to change the choice. Releases without this check turned command wrapping back
+on during `agent-guard update`; if that already happened, rerun
+`agent-guard setup-shell --no-command-wrapping` once. A bootstrap run that pins
+such an older release with `AGENT_GUARD_VERSION` also installs it with
+wrapping on unless you set `AGENT_GUARD_COMMAND_WRAPPING=off`.
+
 Update a standalone installation with:
 
 ```sh
