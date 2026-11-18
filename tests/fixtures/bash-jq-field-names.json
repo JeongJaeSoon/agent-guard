@@ -712,5 +712,19 @@
     "classification": "must-block",
     "description": "a word that merely holds the letters sed leaves a protected operand checked",
     "command": "printf 'build passed' && cat release.key"
+  },
+  {
+    "id": "jq-bare-field-glob-operand",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "an unquoted field filter that becomes a lone dot leaves a glob operand checked",
+    "command": "jq .name ~/.ssh/id[_r]*"
+  },
+  {
+    "id": "jq-select-field-rawfile-glob",
+    "expected_status": 2,
+    "classification": "must-block",
+    "description": "a --rawfile glob next to a field-access filter is still checked",
+    "command": "jq -r '.[] | select(.name | test(\"x\"))' --rawfile k ~/.ssh/id[_r]* data.json"
   }
 ]

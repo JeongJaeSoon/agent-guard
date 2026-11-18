@@ -979,6 +979,10 @@ for trust_mode in missing duplicate unknown badtype errors errors-none malformed
     malformed|corrupt-tail) want='unreadable Codex reply' ;;
     init-error|silent) want='Codex app-server did not initialize' ;;
   esac
+  # No reply these servers send completes, so the query lasts its whole limit.
+  case "$trust_mode" in
+    malformed|silent) export AG_PLUGIN_TEST_CODEX_TRUST_TIMEOUT=3 ;;
+  esac
   run_doctor_here
   status=$?
   if [ "$status" -eq 0 ] \
