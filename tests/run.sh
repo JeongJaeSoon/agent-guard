@@ -1973,9 +1973,8 @@ expect_json_status 2 "Read with leading ./ is blocked" \
   '{"tool_name":"Read","tool_input":{"file_path":"./.env"}}' \
   hook-pre-tool
 
-expect_json_status 2 "NotebookRead on sensitive path is blocked" \
-  '{"tool_name":"NotebookRead","tool_input":{"notebook_path":".env"}}' \
-  hook-pre-tool
+run_expect 0 "every tool a shipped PreToolUse matcher sends reaches a check" \
+  sh "$ROOT/tests/tool-coverage.sh"
 
 expect_json_status 2 "Grep on explicit sensitive path is blocked" \
   '{"tool_name":"Grep","tool_input":{"pattern":"API_KEY","path":".env"}}' \
