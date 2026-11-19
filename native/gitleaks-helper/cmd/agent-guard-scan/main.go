@@ -26,6 +26,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -483,16 +484,21 @@ func (c *client) replay(argv []string) int {
 	}()
 	err = cmd.Wait()
 	if err == nil {
-		// A clean exit counts only if all of standard input reached gitleaks.
+		// gitleaks exits 0 after reading to the end of file, which arrives
+		// only once the copy is done, or after it chose to stop reading (a
+		// binary first chunk), as it would without the client. A read error
+		// the copy met is not an end of file: report it.
 		select {
 		case <-copied:
-		case <-time.After(2 * time.Second):
-			fmt.Fprintln(os.Stderr, "agent-guard-scan: standard input was not fully passed to gitleaks")
-			return 2
-		}
-		if input.err != nil {
-			fmt.Fprintln(os.Stderr, "agent-guard-scan: could not read standard input")
-			return 2
+			if input.failed() {
+				fmt.Fprintln(os.Stderr, "agent-guard-scan: could not read standard input")
+				return 2
+			}
+		case <-time.After(200 * time.Millisecond):
+			if input.failed() {
+				fmt.Fprintln(os.Stderr, "agent-guard-scan: could not read standard input")
+				return 2
+			}
 		}
 		return 0
 	}
@@ -638,16 +644,18 @@ func closeInheritedOnExec() (func(), bool) {
 	return restore, true
 }
 
-// recordingReader keeps the first read error other than end of file.
+// recordingReader records whether a read failed other than at end of file.
 type recordingReader struct {
 	r   io.Reader
-	err error
+	bad atomic.Bool
 }
 
 func (r *recordingReader) Read(p []byte) (int, error) {
 	n, err := r.r.Read(p)
-	if err != nil && err != io.EOF && r.err == nil {
-		r.err = err
+	if err != nil && err != io.EOF {
+		r.bad.Store(true)
 	}
 	return n, err
 }
+
+func (r *recordingReader) failed() bool { return r.bad.Load() }

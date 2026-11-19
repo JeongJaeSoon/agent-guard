@@ -202,19 +202,25 @@ chmod +x "$CASE/bin/wrapped-gitleaks"
 st=$?
 expect "a gitleaks without Go build information (a wrapper script) is scanned for real" \
   '[ "$(last_trace)" = real:engine ] && [ "$st" = 1 ]'
-# A Go program that reports the same version but links another regex engine
-# (here: the client itself, built without gore2regex) is refused by the helper
-# and run for real; it is not gitleaks, so that run fails, never clean.
+# A Go program with other build information than the official release (here:
+# the client itself, which links other modules) is run for real without
+# asking the helper; it is not gitleaks, so that run fails, never clean.
 cp "$CLIENT" "$CASE/bin/other-engine"
 : >"$TRACE"
 "$CLIENT" --gitleaks "$CASE/bin/other-engine" --gitleaks-version 8.30.1 --state-dir "$STATE" -- $ARGS_A <"$IN/clean-command" >/dev/null 2>&1
 st=$?
 expect "a gitleaks with other Go build information than the helper is run for real, without asking it" \
   '[ "$(last_trace)" = real:engine ] && [ "$st" != 0 ]'
-# Neither refused setup may start or keep a helper for itself.
-before_helpers=$(helper_pids | wc -l | tr -d ' ')
+# Neither refused setup may start a helper for itself: with none running and
+# no markers, a cold call that is refused leaves the directory empty.
+stop_helpers
+rm -f "$HDIR"/*
 "$CLIENT" --gitleaks "$GL" --gitleaks-version 8.29.0 --state-dir "$STATE" -- $ARGS_A <"$IN/clean-command" >/dev/null 2>&1
-check "a refused version starts no helper" [ "$(helper_pids | wc -l | tr -d ' ')" = "$before_helpers" ]
+"$CLIENT" --gitleaks "$CASE/bin/other-engine" --gitleaks-version 8.30.1 --state-dir "$STATE" -- $ARGS_A <"$IN/clean-command" >/dev/null 2>&1
+sleep 1
+expect "a refused version or engine starts no helper and leaves no socket or marker" \
+  '[ -z "$(helper_pids)" ] && [ -z "$(ls "$HDIR")" ]'
+warm >/dev/null 2>&1
 : >"$TRACE"
 NO_COLOR=1 same_as_real B "$IN/github-pat"; same=$?
 expect "with NO_COLOR set the summary lines are uncoloured, as the real gitleaks prints them" \

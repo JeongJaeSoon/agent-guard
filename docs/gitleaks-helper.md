@@ -174,6 +174,10 @@ it answers.
   error.
 - The helper writes no scanned content to disk or logs; the client writes the
   report file where the real gitleaks would.
+- Another process of the same user can serve the socket path. The peer
+  check keeps other users out; it cannot tell two processes of the same user
+  apart, which is the trust the CLI's clean-scan cache in the same directory
+  already relies on.
 - `AGENT_GUARD_GITLEAKS_HELPER_TRACE`, if it is an absolute path, makes the
   client append one fixed word per scan (`helper`, `spawned` or
   `real:<reason>`) to that file. It is for tests and diagnosis and never
@@ -232,6 +236,11 @@ Off, nothing changes: across 112 hook runs (Claude and Codex, log on and off)
 exit codes, output and the number of programs executed equal main.
 
 ## Known limits
+
+- A helper killed within a minute of starting leaves its start marker, so
+  scans for that key run the real gitleaks until the marker is a minute old.
+- The state directory must be a plain path: a `$XDG_STATE_HOME` ending in `/`
+  makes the CLI skip its private state directory, and with it the helper.
 
 - A helper inherits the resource limits of the hook that started it (for
   example the output detector's 64 KiB file-size limit); it writes no files
