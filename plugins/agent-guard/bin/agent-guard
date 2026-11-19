@@ -11422,7 +11422,11 @@ $joined_cmd"
           fi
         done)
         [ -n "$dp_hit" ] && info "$PROGRAM: matched deny-bash-patterns line $dp_hit ($DENY_BASH_PATTERNS)"
-        info "$PROGRAM: this command prints, captures or sends a secret value (an environment dump, a credential store read, a token in a request); do not retry it in another form. Read files with the Read tool, and let the program that needs a secret read it from its own environment or config."
+        case "$(hook_host)" in
+          codex) dp_read='Read an ordinary file with a shell command on that file alone' ;;
+          *) dp_read='Read files with the Read tool' ;;
+        esac
+        info "$PROGRAM: this command prints, captures or sends a secret value (an environment dump, a credential store read, a token in a request); do not retry it in another form. $dp_read, and let the program that needs a secret read it from its own environment or config."
         exit 2
         ;;
       1) ;;
@@ -11467,8 +11471,25 @@ $joined_cmd"
       info "$PROGRAM: blocked shell command referencing a deny-listed path"
       info "$PROGRAM: reason=bash_protected_path_text_match; raw Bash command text matched a protected-path pattern and may be a file operand or source/search text; command was not executed"
       [ -n "$deny_report" ] && info "$PROGRAM: $deny_report"
-      info "$PROGRAM: to read, edit or write an ordinary file, use the Read, Edit or Write tool instead of a shell command. A program an interpreter runs (python3 - <<EOF, node -e) stays blocked while its text names a protected file, even when it only edits another file, because the guard cannot tell a string from a path it opens."
-      info "$PROGRAM: if the command reads no protected file, rewrite the matched text so it is not path-shaped and retry; do not weaken the deny list. Examples: jq '.[\"key\"]' instead of jq '.key'; a commit message that omits the path; a structured Grep pattern instead of an inline shell search."
+      # Name the tool for each job, not a way to reword the command: text
+      # rewritten to look unlike a path can still open the protected file.
+      # In mask mode the block can carry a masked view instead of the file,
+      # so say that rather than "cannot open".
+      case "$dr_mode" in
+        mask)
+          dr_read_note='The Read tool shows a protected file only as a masked view.'
+          dr_limits='apart from a masked view, checking a protected file or reading its metadata is not supported'
+          ;;
+        *)
+          dr_read_note='The Read tool cannot open a protected file either.'
+          dr_limits='checking whether a protected file exists or reading its metadata is not supported'
+          ;;
+      esac
+      case "$(hook_host)" in
+        codex) info "$PROGRAM: for an ordinary file, edit it with apply_patch and read it with a shell command on that file alone; Codex searches run as shell commands, so keep file name and content searches to paths that hold no protected file. A program an interpreter runs (python3 - <<EOF, node -e) stays blocked while its text names a protected file, because the guard cannot tell a string from a path it opens." ;;
+        *) info "$PROGRAM: for an ordinary file, use the Read, Edit or Write tool; find file names with the Glob tool and search contents with the Grep tool, outside protected paths. $dr_read_note A program an interpreter runs (python3 - <<EOF, node -e) stays blocked while its text names a protected file, because the guard cannot tell a string from a path it opens." ;;
+      esac
+      info "$PROGRAM: $dr_limits; if it is needed, ask the user to run the command themselves. Do not weaken the deny list or reshape the command to pass this check."
       deny_read_mode_notice "$dr_mode"
       exit 2
       ;;
@@ -15619,7 +15640,12 @@ deny_read_masked_block() {
 
 deny_read_mode_notice() {
   case $1 in
-    mask) info "$PROGRAM: for a masked view, read the protected file alone with the read tool or \`cat <path>\`" ;;
+    mask)
+      case "$(hook_host)" in
+        codex) info "$PROGRAM: for a masked view, read the protected file alone with \`cat <path>\`" ;;
+        *) info "$PROGRAM: for a masked view, read the protected file alone with the read tool or \`cat <path>\`" ;;
+      esac
+      ;;
     invalid) info "$PROGRAM: AGENT_GUARD_DENY_READ_MODE must be block or mask; no masked view" ;;
   esac
 }
