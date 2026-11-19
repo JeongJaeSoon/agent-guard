@@ -24,6 +24,17 @@ scanner error in a lifecycle hook:
 This is distinct from a secret finding, which blocks. An invalid value is read
 as `open`; set an explicit valid value in managed environments.
 
+When jq, awk and both path and pattern policy files are ready but gitleaks or
+its config is not, `open` still runs every PreToolUse check that needs no
+scanner: the protected-path checks on Read, Grep, Glob, Bash and network tool
+input, the Bash deny patterns, the `git commit`/`git push` hook-bypass refusal,
+the broad Grep content refusal and the PII input gate. Only the secret scan is
+skipped, so a secret that only gitleaks would find passes. The first notice of
+the session that a passing call carries includes the degraded notice; a
+blocked call carries only its block reason. `closed` blocks every PreToolUse call, as before. PostToolUse,
+PostToolUseFailure, UserPromptSubmit and Stop still pass without running their
+checks under `open` when gitleaks is unavailable.
+
 Non-empty malformed or non-object PreToolUse, PostToolUse, and Stop input is
 also distinct from unavailable infrastructure. Agent Guard rejects one of
 those events even if infrastructure mode is `open`.
@@ -201,6 +212,8 @@ Only two reads get a view:
   paths, pipes, redirections, `;`, `&&`, a newline, an environment prefix,
   `head`, `sed -n` and so on) blocks as in `block` mode, with one more line:
   "for a masked view, read the protected file alone with the read tool or
+  `cat <path>`". On Codex, which reads files through shell commands, the
+  line is "for a masked view, read the protected file alone with
   `cat <path>`".
 
 Before the view is returned, the whole view is scanned again with gitleaks.
