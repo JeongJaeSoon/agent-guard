@@ -1,0 +1,84 @@
+name: Hook instruction count
+# Measurement only: it never fails because a count rose. It compares the
+# shell instructions a few synthetic hook events cost on the PR base and head
+# and writes the table to the job summary. Performance evidence does not run
+# on hook-only PRs, so this is the PR-time view of hook cost; the job fails
+# only when it could not measure.
+on:
+  pull_request:
+    paths:
+      - 'plugins/agent-guard/bin/agent-guard'
+      - 'plugins/agent-guard/hooks/**'
+      - 'plugins/agent-guard/config/**'
+      - 'bench/instruction-count/**'
+      - 'bench/process-count/fake-gitleaks.c'
+      - '.github/workflows/hook-instruction-count.yml'
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  count:
+    name: Hook instruction count (base vs head)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          path: head
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: base
+      - name: Refresh Linux package metadata
+        timeout-minutes: 4
+        run: |
+          sudo apt-get -o Acquire::Retries=0 \
+            -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 \
+            -o DPkg::Lock::Timeout=30 update --error-on=any
+      - name: Install valgrind
+        timeout-minutes: 4
+        run: |
+          sudo apt-get -o Acquire::Retries=0 \
+            -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 \
+            -o DPkg::Lock::Timeout=30 install -y --no-install-recommends valgrind
+      - name: Count base and head hook instructions
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          tsv="$RUNNER_TEMP/instruction-count.tsv"
+          started=$(date +%s)
+          status=0
+          sh head/bench/instruction-count/run.sh base head "$tsv" || status=$?
+          elapsed=$(( $(date +%s) - started ))
+          {
+            printf '### Hook instruction count\n\n'
+            # The default checkout is the PR merged into base, so the change is the PR's own.
+            printf -- '- base `%s`, head: PR `%s`를 base에 merge한 `%s`\n' "$BASE_SHA" "$PR_HEAD_SHA" "$GITHUB_SHA"
+            printf -- '- /bin/sh: `%s`, %s\n' "$(readlink -f /bin/sh)" "$(valgrind --version 2>/dev/null || printf 'valgrind missing')"
+            printf -- '- 측정 시간: %s초(두 트리, 이벤트 6개, 각 1회)\n\n' "$elapsed"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$status" -ne 0 ]; then
+            printf '측정하지 못했습니다(종료 코드 %s). 이 job의 로그를 확인하세요. 변화 없음이라는 뜻이 아닙니다.\n' "$status" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          sh head/bench/instruction-count/run.sh --render "$tsv" > "$RUNNER_TEMP/table.md" || exit 1
+          {
+            cat "$RUNNER_TEMP/table.md"
+            printf '\n'
+            printf -- '- 셸(dash)이 실행한 명령어 수입니다. fork한 subshell은 세고, exec한 jq·awk·git·gitleaks는 세지 않습니다.\n'
+            printf -- '- 스크립트 크기 몫: hook마다 스크립트 전체를 읽으므로, 바뀐 코드를 타지 않는 hook도 스크립트가 커지면 늡니다. `version`의 차이로 추정합니다.\n'
+            printf -- '- 분류: 나머지가 base의 0.05%%(최소 2만) 안이면 스크립트 크기만입니다. 판정이 아니라 측정이고, 늘어도 job은 실패하지 않습니다.\n'
+            printf -- '- native 출력 redactor 없이 셸 경로만 잽니다. Performance evidence의 packaged 측정을 대신하지 않습니다.\n'
+          } >> "$GITHUB_STEP_SUMMARY"
+          cat "$RUNNER_TEMP/table.md"
+          if grep -Fq '**실행 코드 증가**' "$RUNNER_TEMP/table.md"; then
+            echo '::warning title=Hook instruction count::An event runs more shell instructions beyond the script-size share; see the job summary.'
+          fi
+          if grep -Fq '**다름**' "$RUNNER_TEMP/table.md"; then
+            echo '::warning title=Hook instruction count::An event exits or prints differently on head; see the job summary.'
+          fi
