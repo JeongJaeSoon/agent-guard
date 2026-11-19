@@ -7529,7 +7529,8 @@ $jq_records
       ghopt)
         if [ "$jq_ghnext" = 1 ]; then
           jq_ghnext=0
-          continue
+          # A redirection is no filter word: it goes on to the checks below.
+          case "$jq_word" in *'<'*|*'>'*) ;; *) continue ;; esac
         fi
         jq_ghn=$((jq_ghn + 1))
         case "$jq_ghn" in
