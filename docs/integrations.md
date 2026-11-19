@@ -70,6 +70,22 @@ test -x githooks/pre-commit
 The expected hooks path is `githooks`. A hook can be bypassed by someone who
 can alter local Git configuration, so it complements rather than replaces CI.
 
+The hook names the agent-guard executable by absolute path. If that file is
+removed or moved, the hook still blocks the commit (exit 1), because the
+staged-secret scan cannot run, and prints the missing path with the fix:
+rerun `install.sh git-hooks` from the new installation, or remove the hook.
+Rerunning `install.sh git-hooks` also adds this message to a hook installed by
+an earlier release, which otherwise fails with `exec: ... not found`. To remove
+the hook, run in the repository:
+
+```sh
+git config --unset core.hooksPath
+rm githooks/pre-commit
+```
+
+Git then runs `.git/hooks` again, including a hook the installer had chained.
+See [Removing an installation](installation.md#removing-an-installation).
+
 ## GitHub Actions
 
 Use the Action on pull requests and pushes to scan a checkout in CI. It is the

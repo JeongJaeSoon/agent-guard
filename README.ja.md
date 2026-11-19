@@ -1,4 +1,4 @@
-<!-- translated-from: README.md; source-blob: af6a4454cab97040780b81623b5f538a523a0367 -->
+<!-- translated-from: README.md; source-blob: cc6ff4dcc81742631d55c68772f635e451bbc414 -->
 
 <p align="center">
   <a href="https://github.com/JeongJaeSoon/agent-guard/releases"><img src="docs/assets/icon.png" alt="Agent Guard icon" width="128" height="128"></a>
@@ -45,7 +45,7 @@ Agent Guardは、Claude Code、Codex、Git hook、GitHub Actions、直接実行�
 
 プラグインが検査するのはコマンド開始時点のファイルです。同じコマンドの前段でファイルを書き込んだり別のリポジトリへ移動したりすると、その結果は見えません。ネイティブhookも導入してください。pushの検査対象は既存のコミットではなくステージングされた内容です。これらのhookを経由せずコミットされた秘密情報は、チェックアウトされたツリーに残っている間にCIが検出します。
 
-検査を実行できなかった状態を正常とは扱いません。Claude CodeとCodexプラグインの既定では、保護の低下を警告して何が欠けているかを示し、コマンドを続行します。問題が続く間、警告は10分ごとに再表示されます。`AGENT_GUARD_INFRA_FAILURE_MODE=closed` を設定するとブロックします（[設定](docs/configuration.md)を参照）。ネイティブhookとActionはこの設定にかかわらず、検査不能なら失敗します。Claude Code 2.1.295以降では、判断前のタイムアウトや異常終了も、どちらのモードでもツール呼び出しをブロックします。
+検査を実行できなかった状態を正常とは扱いません。Claude CodeとCodexプラグインの既定では、保護の低下を警告して何が欠けているかを示し、コマンドを続行します。問題が続く間、警告は10分ごとに再表示されます。`AGENT_GUARD_INFRA_FAILURE_MODE=closed` を設定するとブロックします（[設定](docs/configuration.md)を参照）。gitleaksまたはその設定ファイルだけが使えない場合、既定ではPreToolUseの保護パス検査とdenyパターン検査を続けて実行し、そこでの秘密スキャンだけを省きます。ほかのhookはこれまでどおり検査なしで通過します。ネイティブhookとActionはこの設定にかかわらず、検査不能なら失敗します。Claude Code 2.1.295以降では、判断前のタイムアウトや異常終了も、どちらのモードでもツール呼び出しをブロックします。
 
 <a id="choose-your-path"></a>
 

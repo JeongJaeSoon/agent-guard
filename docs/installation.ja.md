@@ -1,4 +1,4 @@
-<!-- translated-from: docs/installation.md; source-blob: 2eb81b8e78ff56a230bb1f66ccf15d519c3c4c3e -->
+<!-- translated-from: docs/installation.md; source-blob: 4ac29011f0c96d88e846caf6e21d013eb23f210a -->
 
 <a id="installing-agent-guard"></a>
 
@@ -30,6 +30,8 @@ codex plugin add agent-guard@agent-guard
 ```
 
 プラグインを導入しても `PATH` に `agent-guard` は追加されません。表の `agent-guard plugin update` を使うにはスタンドアロンCLIかHomebrewのCLIが必要です。どちらもなければmarketplaceを削除し、新しいタグで上記のコマンドを再実行して更新してください。marketplaceの削除では、そのプラグインも削除されます。その後hostを再起動します。
+
+プラグインだけを導入した場合は `agent-guard` が `PATH` にないため、プラグインのCLIが出す案内（例: `update`、`check`、`doctor`、SessionStartの通知）はその実行ファイルを引用符で囲んだ絶対パスで示します。例: `"$HOME/.claude/plugins/cache/agent-guard/agent-guard/current/bin/agent-guard" setup`。`PATH` 上の `agent-guard` が同じインストールである場合と、スタンドアロン・Homebrewのインストールで `PATH` に `agent-guard` がある場合は、案内はこれまでどおり短い `agent-guard` を使います。`PATH` に `agent-guard` がない状態でパスを指定して実行したスタンドアロンCLI（例: `~/.local/bin` を追加する前の `~/.agent-guard/bin/agent-guard`）も自身のパスを示します。
 
 <a id="runtime-dependencies"></a>
 
@@ -99,7 +101,7 @@ Linuxヘルパーは静的muslを使うためglibcは不要で、Ubuntu 24.04で
 
 macOSとLinuxでの実行には `sh`、`awk`、`git`、`jq`、gitleaks 8.30以降が必要です。gitleaksのバージョン確認を独立したプロセスグループで実行するため、`setsid` またはPerlも必要です。この隔離によって、確認処理の時間制限と子プロセスの後処理が可能になります。Linuxでは `sudo apt-get install -y util-linux` または `sudo dnf install -y util-linux` で `setsid` を導入してください。HomebrewのformulaはCLIとともにPerlを導入します。macOSの手動導入でどちらもない場合は `brew install perl` を使えます。
 
-隔離ツールがないと、`agent-guard setup`、`doctor`、`check` は非ゼロの終了ステータスを返します。`setup --install` はダウンロード前に隔離ツールを確認します。ツールがなければgitleaksをダウンロードも上書きもせず、不足するツールの導入コマンドを表示します。導入後はgitleaksが十分に準備できているか再確認します。実行時のhookはこの状態を正常な検査とは扱わず、`AGENT_GUARD_INFRA_FAILURE_MODE` の `open` または `closed` ポリシーを適用します。
+隔離ツールがないと、`agent-guard setup`、`doctor`、`check` は非ゼロの終了ステータスを返します。`setup --install` はダウンロード前に隔離ツールを確認します。ツールがなければgitleaksをダウンロードも上書きもせず、不足するツールの導入コマンドを表示します。導入後はgitleaksが十分に準備できているか再確認します。実行時のhookはこの状態を正常な検査とは扱わず、`AGENT_GUARD_INFRA_FAILURE_MODE` の `open` または `closed` ポリシーを適用します。`open` では、gitleaksがなくてもPreToolUseの保護パス検査とdenyパターン検査を続けて実行し、そこでの秘密スキャンだけを省きます。ほかのhookはこれまでどおり検査なしで通過します。
 
 スタンドアロンまたはHomebrewのコマンドとして `agent-guard` を導入済みなら、公式のhost管理ツールにプラグインの導入を委ねられます。
 
@@ -156,6 +158,8 @@ curl -fsSL "https://github.com/JeongJaeSoon/agent-guard/releases/download/v${gua
 ```
 
 コマンドwrappingなしでshell integrationを導入したい場合は、導入時にのみ `AGENT_GUARD_COMMAND_WRAPPING=off` を設定します。
+
+`agent-guard update` とその後のbootstrap実行はこの選択を維持します。`AGENT_GUARD_COMMAND_WRAPPING` が未設定なら、導入済みのCLIに `agent-guard setup-shell --print-command-wrapping` で問い合わせます。このコマンドは、オプションなしの `setup-shell` が書き直すrcファイル（fishでは `~/.bashrc` と `~/.zshrc` の両方）の管理ブロックから `on` または `off` を表示します。`setup-shell --rc FILE` で導入した場合のようにそのファイルにブロックがなければ、既定のresolverファイルがなくopt-outのresolverファイルだけがあるときに `off` と読みます。選択を変えるには、update時に `AGENT_GUARD_COMMAND_WRAPPING=on` または `off` を設定します。この確認がないリリースは `agent-guard update` の途中でコマンドwrappingを再び有効にしていました。すでにそうなっている場合は `agent-guard setup-shell --no-command-wrapping` を一度実行し直してください。`AGENT_GUARD_VERSION` でそのような以前のリリースを固定したbootstrap実行も、`AGENT_GUARD_COMMAND_WRAPPING=off` を設定しなければwrappingを有効にして導入します。
 
 スタンドアロンの導入は次のように更新します。
 
@@ -246,5 +250,16 @@ agent-guard plugin update --host all
 command -v agent-guard
 readlink "$(command -v agent-guard)"
 ```
+
+実行ファイルを削除する前に、`install.sh git-hooks` を実行した各リポジトリからnative Git hookを取り除いてください。hookは実行ファイルを絶対パスで指しているため、そのファイルがなくなるとそのリポジトリのすべてのコミットを止めます。
+
+```sh
+cd <each-repository-with-the-hook>
+git config --get core.hooksPath   # prints githooks while the hook is active
+git config --unset core.hooksPath
+rm githooks/pre-commit
+```
+
+`core.hooksPath` を解除するとGitは再び `.git/hooks` を実行するため、導入前からあったhook（agent-guardのhookが連結して実行していたhook）が再び単独で実行されます。`githooks/` にまだ使う別のhookがある場合は、`core.hooksPath` はそのままにして `githooks/pre-commit` だけを削除してください。取り除かなかったhookはfail-closedのまま動作します。exit 1で終了し、見つからないパスと上記のコマンドを表示します。以前のリリースが導入したhookは `exec: ... not found` だけを表示します。案内を追加するには、そのリポジトリで現在のリリースの `install.sh git-hooks` を実行し直してください。
 
 プラグイン管理ツールのキャッシュを手動で削除しないでください。ライフサイクルはhostが管理します。削除後は新しいshellを開き、`command -v agent-guard` が期待どおりに解決されるか確認してください。別の導入が残っていれば、その `version`、`doctor`、`check` を実行します。

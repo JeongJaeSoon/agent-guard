@@ -34,6 +34,16 @@ CLI. Without one, move to a newer release by removing the marketplace and
 repeating the commands above with the new tag; removing the marketplace also
 removes its installed plugin. Restart the host afterwards.
 
+Because `agent-guard` is not on `PATH` after a plugin-only install, advice that
+the plugin's CLI prints (for example from `update`, `check`, `doctor`, or the
+SessionStart notice) names that executable by its quoted absolute path, such
+as `"$HOME/.claude/plugins/cache/agent-guard/agent-guard/current/bin/agent-guard" setup`.
+The advice keeps the short `agent-guard` name when the `agent-guard` on `PATH`
+is the same installation, and for a standalone or Homebrew install whenever an
+`agent-guard` is on `PATH`. A standalone CLI run by path while no `agent-guard`
+is on `PATH` (for example `~/.agent-guard/bin/agent-guard` before `~/.local/bin`
+is added) also names its own path.
+
 ## Optional fused output preparation (v3.8+)
 
 The output-pipeline experiment is opt-in. It combines private staging and JSON
@@ -133,7 +143,10 @@ is present. `setup --install` checks for one before downloading anything: with
 no isolation tool it does not download or overwrite gitleaks, prints the install
 command for the missing tool, and re-checks full gitleaks readiness after the
 install. Runtime hooks do not treat this state as a clean scan; they apply the
-`open` or `closed` policy of `AGENT_GUARD_INFRA_FAILURE_MODE`.
+`open` or `closed` policy of `AGENT_GUARD_INFRA_FAILURE_MODE`. Under `open`,
+the PreToolUse protected-path and deny-pattern checks still run without
+gitleaks and only their secret scan is skipped; the other hooks still pass
+without their checks.
 
 If `agent-guard` is already installed as a standalone or Homebrew command, it
 can delegate plugin installation to the official host managers:
@@ -239,6 +252,19 @@ curl -fsSL "https://github.com/JeongJaeSoon/agent-guard/releases/download/v${gua
 
 Set `AGENT_GUARD_COMMAND_WRAPPING=off` only when installing if you want the
 shell integration without command wrapping.
+
+`agent-guard update` and a later bootstrap run keep that choice. When
+`AGENT_GUARD_COMMAND_WRAPPING` is unset, they ask the installed CLI with
+`agent-guard setup-shell --print-command-wrapping`, which prints `on` or `off`
+from the managed block in the rc files a bare `setup-shell` would rewrite (both
+`~/.bashrc` and `~/.zshrc` for fish). If those files have no block, as after
+`setup-shell --rc FILE`, an opt-out resolver file without a default one beside
+it reads as `off`. Set `AGENT_GUARD_COMMAND_WRAPPING=on` or `off` for the update
+to change the choice. Releases without this check turned command wrapping back
+on during `agent-guard update`; if that already happened, rerun
+`agent-guard setup-shell --no-command-wrapping` once. A bootstrap run that pins
+such an older release with `AGENT_GUARD_VERSION` also installs it with
+wrapping on unless you set `AGENT_GUARD_COMMAND_WRAPPING=off`.
 
 Update a standalone installation with:
 
@@ -377,6 +403,26 @@ directory only after confirming their paths:
 command -v agent-guard
 readlink "$(command -v agent-guard)"
 ```
+
+Before removing the executable, remove the native Git hook from each
+repository where you ran `install.sh git-hooks`. The hook names the executable
+by absolute path, so once that file is gone the hook blocks every commit in that
+repository:
+
+```sh
+cd <each-repository-with-the-hook>
+git config --get core.hooksPath   # prints githooks while the hook is active
+git config --unset core.hooksPath
+rm githooks/pre-commit
+```
+
+Unsetting `core.hooksPath` makes Git run `.git/hooks` again, so a hook that was
+there before the install (the agent-guard hook chained it) runs on its own
+again. If `githooks/` holds other hooks you still use, keep `core.hooksPath` and
+delete only `githooks/pre-commit`. A hook left behind keeps failing closed: it
+exits 1 and prints the missing path and these commands. Hooks installed by an
+earlier release print only `exec: ... not found`; rerun `install.sh git-hooks`
+from a current release in that repository to add the message.
 
 Do not delete a plugin-manager cache by hand: the host manages its lifecycle.
 After removal, open a new shell and verify `command -v agent-guard` resolves as
