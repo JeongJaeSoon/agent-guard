@@ -6837,7 +6837,7 @@ else
   sed 's/^/  stdout: /' "$OUT"
 fi
 
-# `die` inside $(pii_provider) only exits the subshell, so a rejected provider
+# `die` inside $( ) only exits the subshell, so a rejected provider
 # used to be reported three times — twice named and once with an empty name.
 count=$(grep -c 'unsupported provider' "$ERR")
 if [ "$count" -eq 1 ]; then
@@ -15539,72 +15539,10 @@ else
   sed 's/^/  stderr: /' "$ERR"
 fi
 
-# A Tier-2 name is refused loudly rather than silently ignored: a user who wrote
-# it is expecting cards to pass, and must be told the knob does not do that.
-for skip_bad in CREDIT_CARD SSN KR_RRN BOGUS ip_address; do
-  printf '%s' 'x' \
-    | env AGENT_GUARD_PII_SKIP="$skip_bad" "$PLUGIN_ROOT/bin/agent-guard" pii-filter \
-      >/dev/null 2>"$ERR"
-  status=$?
-  if [ "$status" -eq 2 ] && grep -q 'AGENT_GUARD_PII_SKIP' "$ERR"; then
-    ok "PII skip rejects $skip_bad"
-  else
-    not_ok "PII skip rejects $skip_bad (expected 2, got $status)"
-    sed 's/^/  stderr: /' "$ERR"
-  fi
-done
+run_expect 0 "PII settings the guard cannot honor stop every entry point" \
+  sh "$ROOT/tests/pii-config.sh"
 
-# The same refusal must reach every hook, not just the CLI — a hook that
-# swallowed it would silently mask (or not mask) against the user's intent.
-pii_skip_gate CREDIT_CARD mask 'const n = 42;'
-status=$?
-if [ "$status" -eq 2 ] && grep -q 'AGENT_GUARD_PII_SKIP' "$ERR"; then
-  ok "PII skip rejection reaches hook-pre-tool"
-else
-  not_ok "PII skip rejection reaches hook-pre-tool (expected 2, got $status)"
-  sed 's/^/  stderr: /' "$ERR"
-fi
-
-printf '%s' '{"tool_name":"Read","tool_input":{"file_path":"m"},"tool_response":"x"}' \
-  | env AGENT_GUARD_PII_SKIP=CREDIT_CARD AGENT_GUARD_PII_HOOK_MODE=mask \
-    "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool >/dev/null 2>"$ERR"
-status=$?
-if [ "$status" -eq 2 ] && grep -q 'AGENT_GUARD_PII_SKIP' "$ERR"; then
-  ok "PII skip rejection reaches hook-post-tool"
-else
-  not_ok "PII skip rejection reaches hook-post-tool (expected 2, got $status)"
-  sed 's/^/  stderr: /' "$ERR"
-fi
-
-printf '{"session_id":"t","prompt":"hello"}' \
-  | env AGENT_GUARD_PII_SKIP=CREDIT_CARD AGENT_GUARD_PII_HOOK_MODE=mask \
-    "$PLUGIN_ROOT/bin/agent-guard" hook-user-prompt >/dev/null 2>"$ERR"
-status=$?
-if [ "$status" -eq 2 ] && grep -q 'AGENT_GUARD_PII_SKIP' "$ERR"; then
-  ok "PII skip rejection reaches hook-user-prompt"
-else
-  not_ok "PII skip rejection reaches hook-user-prompt (expected 2, got $status)"
-  sed 's/^/  stderr: /' "$ERR"
-fi
-
-# An endpoint provider redacts server-side and never receives the skip set, so
-# accepting one would leave a switch that silently does nothing on every path
-# that goes through the provider (CLI, exec, and block-mode input gating).
-for skip_prov in http pleno; do
-  printf '%s' 'x' \
-    | env AGENT_GUARD_PII_SKIP=IP_ADDRESS AGENT_GUARD_PII_PROVIDER="$skip_prov" \
-      AGENT_GUARD_PII_REDACT_URL=http://127.0.0.1:1 \
-      "$PLUGIN_ROOT/bin/agent-guard" pii-filter >/dev/null 2>"$ERR"
-  status=$?
-  if [ "$status" -eq 2 ] && grep -q 'AGENT_GUARD_PII_SKIP' "$ERR"; then
-    ok "PII skip is refused with the $skip_prov provider"
-  else
-    not_ok "PII skip is refused with the $skip_prov provider (want exit 2 naming AGENT_GUARD_PII_SKIP, got $status)"
-    sed 's/^/  stderr: /' "$ERR"
-  fi
-done
-
-# …and an empty skip set must leave endpoint providers exactly as they were:
+# An empty skip set must leave endpoint providers exactly as they were:
 # reaching the request (and failing on the unreachable URL) proves the new
 # validation did not start rejecting a configuration that used to work.
 printf '%s' 'x' \
@@ -15616,41 +15554,6 @@ if [ "$status" -eq 2 ] && grep -q 'provider request failed' "$ERR"; then
 else
   not_ok "an empty PII skip set leaves endpoint providers untouched (expected 2, got $status)"
   sed 's/^/  stderr: /' "$ERR"
-fi
-
-# --check is the health check people run to validate their configuration, so it
-# must refuse a skip set that every real run would refuse.
-env AGENT_GUARD_PII_SKIP=CREDIT_CARD "$PLUGIN_ROOT/bin/agent-guard" pii-filter --check \
-  >/dev/null 2>"$ERR"
-status=$?
-if [ "$status" -eq 2 ] && grep -q 'AGENT_GUARD_PII_SKIP' "$ERR"; then
-  ok "PII skip rejection reaches pii-filter --check"
-else
-  not_ok "PII skip rejection reaches pii-filter --check (expected 2, got $status)"
-  sed 's/^/  stderr: /' "$ERR"
-fi
-
-# exec pipes the masker with stderr suppressed, so only the up-front validation
-# in its main shell can surface a bad skip set — without it the run would just
-# quietly leave the output unmasked.
-env AGENT_GUARD_PII_SKIP=CREDIT_CARD AGENT_GUARD_PII_HOOK_MODE=mask \
-  "$PLUGIN_ROOT/bin/agent-guard" exec -- printf 'x\n' >/dev/null 2>"$ERR"
-status=$?
-if [ "$status" -eq 2 ] && grep -q 'AGENT_GUARD_PII_SKIP' "$ERR"; then
-  ok "PII skip rejection reaches agent-guard exec"
-else
-  not_ok "PII skip rejection reaches agent-guard exec (expected 2, got $status)"
-  sed 's/^/  stderr: /' "$ERR"
-fi
-
-# exec masks through the same adapter, so a skipped type must survive there too.
-skip_exec=$(env AGENT_GUARD_PII_SKIP=IP_ADDRESS AGENT_GUARD_PII_HOOK_MODE=mask \
-  "$PLUGIN_ROOT/bin/agent-guard" exec -- printf 'ip 8.8.8.8 mail x@y.io\n' 2>/dev/null)
-if [ "$skip_exec" = 'ip 8.8.8.8 mail [PII:EMAIL]' ]; then
-  ok "PII skip applies to agent-guard exec output"
-else
-  not_ok "PII skip applies to agent-guard exec output"
-  printf '%s\n' "  out : $skip_exec"
 fi
 
 # --- agent-guard exec (shell-escape output masking) --------------------------
