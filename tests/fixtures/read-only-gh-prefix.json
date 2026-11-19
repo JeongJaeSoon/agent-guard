@@ -1,0 +1,240 @@
+[
+  {
+    "id": "case9-log-chain",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "case 9: saved CI log filtered by grep, a tab-stripping sed and tail",
+    "command": "gh run view 1907 --log > /tmp/ci-1907.log; grep -E '(FAIL|ERROR|not ok)' /tmp/ci-1907.log | sed -E 's/^[^\\t]*\\t[^\\t]*\\t//' | tail -20"
+  },
+  {
+    "id": "case9-sed-after-save",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "case 9: sed script after gh writes the log it reads",
+    "command": "gh run view 1907 --log > /tmp/ci-1907.log; sed -E 's/^[^\\t]*\\t[^\\t]*\\t//' /tmp/ci-1907.log"
+  },
+  {
+    "id": "case17-count-and-sed",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "case 17: failure count from a saved log after gh writes it",
+    "command": "gh run view 530 --log-failed > /tmp/ci-530.log 2>&1; grep -c '^not ok' /tmp/ci-530.log; sed -n 's/[^t]*t[^t]*//p' /tmp/ci-530.log"
+  },
+  {
+    "id": "append-and-dup",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "append redirect and 2>&1 on the gh segment",
+    "command": "gh run view 1907 --log >> /tmp/ci.log 2>&1; sed 's/[^t]*t[^t]*//' /tmp/ci.log"
+  },
+  {
+    "id": "stderr-null",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "stderr to /dev/null and stdout to a log",
+    "command": "gh run view 1907 --log 2>/dev/null >/tmp/ci.log && sed 's/[^t]*t[^t]*//' /tmp/ci.log"
+  },
+  {
+    "id": "pr-checks-grep",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "grep pattern after gh pr checks writes its report",
+    "command": "gh pr checks 530 > /tmp/checks.txt; grep -E 'fail[^t]*t[^t]*' /tmp/checks.txt"
+  },
+  {
+    "id": "graphql-then-jq",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "jq field filter after a saved graphql response",
+    "command": "gh api graphql -f query='query { repository(owner: \"o\", name: \"r\") { pullRequest(number: 530) { reviewThreads(first: 100) { nodes { isResolved path } } } } }' > /tmp/threads.json; jq -r '.data.repository.pullRequest.reviewThreads.nodes[] | .key' /tmp/threads.json"
+  },
+  {
+    "id": "issue-view-sed",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "sed script after gh issue view",
+    "command": "gh issue view 502 --json body --jq .body > /tmp/i502.md; sed 's/[^t]*t[^t]*//' /tmp/i502.md"
+  },
+  {
+    "id": "case5-body-arg",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "case 5: environment-variable reference inside --body",
+    "command": "gh issue create --repo o/r --title 'guard blocks hand-back' --body 'The worker reads process.env.API_BASE and import.meta.env.VITE_URL; values are not quoted.'"
+  },
+  {
+    "id": "case5-body-heredoc",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "case 5: the same text through --body \"$(cat <<'EOF' ... EOF)\"",
+    "command": "gh issue create --repo o/r --title 'guard blocks hand-back' --body \"$(cat <<'EOF'\nThe worker reads process.env.API_BASE.\nNames only, path:line only.\nEOF\n)\""
+  },
+  {
+    "id": "case17-graphql-pipe",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "case 17: review thread count piped straight to the jq option",
+    "command": "grep -c '^not ok' /tmp/ci-530.log; gh api graphql -f query='query { repository(owner: \"o\", name: \"r\") { pullRequest(number: 530) { reviewThreads(first: 100) { nodes { isResolved path } } } } }' --jq '[.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved | not)] | length'"
+  },
+  {
+    "id": "target-named-like-tool",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a redirect target named like the trusted tool may replace it",
+    "command": "gh run view 1907 --log > /tmp/bin/sed; sed 's/[^t]*t[^t]*//' /tmp/ci.log"
+  },
+  {
+    "id": "target-named-like-inert",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a redirect target named like a later inert command",
+    "command": "gh run view 1907 --log > /tmp/bin/cat; cat /tmp/ci.log | sed 's/[^t]*t[^t]*//'"
+  },
+  {
+    "id": "target-relative",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a relative redirect target stays outside the trusted prefix",
+    "command": "gh run view 1907 --log > ci.log; sed 's/[^t]*t[^t]*//' ci.log"
+  },
+  {
+    "id": "target-tilde",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a tilde redirect target is an expansion",
+    "command": "gh run view 1907 --log > ~/ci.log; sed 's/[^t]*t[^t]*//' /tmp/ci.log"
+  },
+  {
+    "id": "target-variable",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a variable redirect target is an expansion",
+    "command": "gh run view 1907 --log > \"$LOG\"; sed 's/[^t]*t[^t]*//' /tmp/ci.log"
+  },
+  {
+    "id": "second-target-tool",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a second redirect target named like the tool",
+    "command": "gh run view 1907 --log > /tmp/a.log 2> /tmp/bin/sed; sed 's/[^t]*t[^t]*//' /tmp/a.log"
+  },
+  {
+    "id": "clobber-redirect",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "an unlisted redirect operator",
+    "command": "gh run view 1907 --log >| /tmp/ci.log; sed 's/[^t]*t[^t]*//' /tmp/ci.log"
+  },
+  {
+    "id": "fd-close",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "an fd close is not a listed redirect",
+    "command": "gh run view 1907 --log 2>&- > /tmp/ci.log; sed 's/[^t]*t[^t]*//' /tmp/ci.log"
+  },
+  {
+    "id": "run-download",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "gh run download writes files",
+    "command": "gh run download 1907 -D /tmp/x; sed 's/[^t]*t[^t]*//' /tmp/ci.log"
+  },
+  {
+    "id": "release-download",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "gh release download writes files",
+    "command": "gh release download v1 -D /tmp/bin; sed 's/[^t]*t[^t]*//' /tmp/ci.log"
+  },
+  {
+    "id": "extension-install",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "gh extension install writes an executable",
+    "command": "gh extension install o/gh-x; sed 's/[^t]*t[^t]*//' /tmp/ci.log"
+  },
+  {
+    "id": "alias-set",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "gh alias set is not a read-only subcommand",
+    "command": "gh alias set rv 'run view'; sed 's/[^t]*t[^t]*//' /tmp/ci.log"
+  },
+  {
+    "id": "repo-clone",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "gh repo clone writes files",
+    "command": "gh repo clone o/r /tmp/r; sed 's/[^t]*t[^t]*//' /tmp/ci.log"
+  },
+  {
+    "id": "gh-env-prefix",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "an assignment prefix on gh",
+    "command": "GH_PAGER=x gh run view 1907 --log > /tmp/ci.log; sed 's/[^t]*t[^t]*//' /tmp/ci.log"
+  },
+  {
+    "id": "shell-alias-before",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a shell alias before the gh segment",
+    "command": "alias sed=cat; gh run view 1907 --log > /tmp/ci.log; sed 's/[^t]*t[^t]*//' /tmp/ci.log"
+  },
+  {
+    "id": "gh-piped-to-sh",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "gh output piped to a shell",
+    "command": "gh run view 1907 --log | sh; sed 's/[^t]*t[^t]*//' /tmp/ci.log"
+  },
+  {
+    "id": "read-protected-after",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a protected read after the gh segment",
+    "command": "gh run view 1907 --log > /tmp/ci.log; cat ~/.terraformrc"
+  },
+  {
+    "id": "sed-operand-protected",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a protected sed operand",
+    "command": "gh run view 1907 --log > /tmp/ci.log; sed -n 1p terraform.rc"
+  },
+  {
+    "id": "sed-w-flag",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a sed w flag writes the named file",
+    "command": "gh run view 1907 --log > /tmp/ci.log; sed 's/x/y/w terraform.rc' /tmp/ci.log"
+  },
+  {
+    "id": "sed-script-file",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "sed -f reads the named file",
+    "command": "gh run view 1907 --log > /tmp/ci.log; sed -f terraform.rc /tmp/ci.log"
+  },
+  {
+    "id": "jq-operand-protected",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a protected jq operand",
+    "command": "gh run view 1907 --log > /tmp/ci.log; jq . /tmp/terraform.rc"
+  },
+  {
+    "id": "gh-writes-protected",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "gh writes into a protected name",
+    "command": "gh run view 1907 --log > /tmp/terraform.rc; sed 's/[^t]*t[^t]*//' /tmp/ci.log"
+  },
+  {
+    "id": "gh-api-input-protected",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "gh api reads a protected input file",
+    "command": "gh api repos/o/r/issues --input /tmp/terraform.rc > /tmp/o.json; sed 's/[^t]*t[^t]*//' /tmp/o.json"
+  }
+]
