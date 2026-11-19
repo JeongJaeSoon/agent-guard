@@ -1,6 +1,6 @@
 ## Unreleased
 
-- fix(redact): mawk에서 한 줄에 키가 둘 이상이면 출력 마스킹이 앞의 할당 값을 놓치던 문제를 고칩니다. 출력 값 토크나이저(`secretish_env_values`)는 할당 위치를 awk `match()`로 찾는데, Debian·Ubuntu의 기본 awk인 mawk 1.3.4의 `match()`는 가장 왼쪽 일치 대신 더 오른쪽의 더 긴 일치를 돌려줄 때가 있습니다. 그래서 `log password: <값1> [refresh_token: <값2>]` 같은 줄에서 mawk는 `<값2>`만 가렸고, gawk와 busybox awk는 둘 다 가렸습니다. 합성 입력 5,462개 중 13개에서 mawk만 값을 덜 찾았고(측정), 그 13개는 PostToolUse 출력에서도 앞의 값이 그대로 나갔습니다(측정, Claude·Codex). (#549)
+- fix(redact): mawk에서 한 줄에 키가 둘 이상이면 출력 마스킹이 앞의 할당 값을 놓치던 문제를 고칩니다. 출력 값 토크나이저(`secretish_env_values`)는 할당 위치를 awk `match()`로 찾는데, Debian·Ubuntu의 기본 awk인 mawk 1.3.4의 `match()`는 가장 왼쪽 일치 대신 더 오른쪽의 더 긴 일치를 돌려줄 때가 있습니다. 그래서 `log password: <값1> [refresh_token: <값2>]` 같은 줄에서 mawk는 `<값2>`만 가렸고, gawk와 busybox awk는 둘 다 가렸습니다. 합성 입력 5,462개 중 13개에서 mawk만 값을 덜 찾았고(측정), 그 13개는 PostToolUse 출력에서도 앞의 값이 그대로 나갔습니다(측정, Claude·Codex). (#549, #551)
   - 동작 변경: 할당 탐색이 `match()`가 돌려준 일치보다 앞에서 끝나는 일치가 없을 때까지 그 앞부분을 다시 확인합니다. 무엇을 비밀 값으로 보는지는 바뀌지 않습니다. gawk와 busybox awk의 결과는 그대로이고(5,462개 입력 × 5가지 입력 방식에서 수정 전 gawk와 차이 0건, 측정), mawk는 이제 같은 결과를 냅니다. mawk를 쓰는 환경에서는 지금까지 가려지지 않던 앞의 값이 `[REDACTED]`로 바뀝니다. 지금까지 가려지던 값은 모두 계속 가려집니다.
   - 사용자가 할 일: 없습니다.
   - 운영자가 할 일: 없습니다.
