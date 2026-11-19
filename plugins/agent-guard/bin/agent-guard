@@ -13674,11 +13674,12 @@ redact_nul_response_json() {
 # streaming pass first; only a confirmed secret-bearing assignment takes the
 # conservative whole-leaf path. Large clean output still uses normal detection,
 # and so does a response whose size cannot be counted: this is only a precheck.
+# $2 is the output_byte_count of $1 that output_scan_input_exceeds_cap took; a
+# count that failed made that check true, so this one never runs on it.
 OUTPUT_LARGE_PROBE_BYTES=262144
 large_response_has_secretish_assignment() {
   large_probe_response=$1
-  output_byte_count "$large_probe_response" || return 1
-  [ "$output_bytes" -gt "$OUTPUT_LARGE_PROBE_BYTES" ] || return 1
+  [ "$2" -gt "$OUTPUT_LARGE_PROBE_BYTES" ] || return 1
   printf '%s' "$large_probe_response" \
     | frame_json_string_leaves 2>/dev/null \
     | secretish_env_values probe \
@@ -15726,7 +15727,7 @@ redact_tool_output_response() {
     fi
     if [ "$conservative_done" -eq 0 ] \
         && { output_scan_input_exceeds_cap "$out" \
-          || large_response_has_secretish_assignment "$out"; }; then
+          || large_response_has_secretish_assignment "$out" "$output_bytes"; }; then
       rewrite_out_conservatively; did_secret=1
     elif [ "$conservative_done" -eq 0 ]; then
       secret_bundle=
