@@ -2436,6 +2436,22 @@ hook_dependencies_ready() {
   ! hook_policy_unusable >/dev/null
 }
 
+# The PreToolUse protected-path and deny-pattern checks need only jq, awk and
+# their two policy files, not gitleaks. When hook_dependencies_ready failed and
+# these are ready, only the secret scanner is missing.
+hook_policy_dependencies_ready() {
+  command -v jq >/dev/null 2>&1 || return 1
+  command -v awk >/dev/null 2>&1 || return 1
+  [ -f "$DENY_READ_PATHS" ] && policy_file_has_active_rule "$DENY_READ_PATHS" || return 1
+  [ -f "$DENY_BASH_PATTERNS" ] && policy_file_has_active_rule "$DENY_BASH_PATTERNS" || return 1
+}
+
+# Set to 1 only by hook_pre_tool, in the open policy, when gitleaks or its
+# config is unavailable but the policy checks can run. Every gitleaks scan then
+# reports "could not run" without probing again, and the hook reports that once
+# through the infrastructure policy instead of treating the scan as clean.
+HOOK_SCANNER_UNAVAILABLE=0
+
 infrastructure_failure_mode() {
   case "${AGENT_GUARD_INFRA_FAILURE_MODE:-open}" in
     open|closed) printf '%s\n' "${AGENT_GUARD_INFRA_FAILURE_MODE:-open}" ;;
@@ -2522,7 +2538,15 @@ INFRA_FAILURE_NOTICE_EMITTED=0
 
 handle_hook_infrastructure_failure() {
   event=$1
-  begin_infrastructure_failure "${2:-}" "$3"
+  hif_detail=$3
+  # Another notice can be the first of the session while the scanner is
+  # missing; carry the scanner notice with it so the marker it creates never
+  # hides that the secret scan did not run.
+  if [ "$HOOK_SCANNER_UNAVAILABLE" = 1 ]; then
+    hif_scanner=$(degraded_hook_message scanner)
+    [ "$hif_detail" = "$hif_scanner" ] || hif_detail="$hif_scanner $hif_detail"
+  fi
+  begin_infrastructure_failure "${2:-}" "$hif_detail"
   [ -n "$INFRA_FAILURE_NOTICE" ] || return 0
   [ "$INFRA_FAILURE_NOTICE_EMITTED" = 0 ] || return 0
   case "$event" in
@@ -2637,12 +2661,18 @@ claude_block_capture_finish() {
   CLAUDE_BLOCK_EVENT=
 }
 
+# $1 = scanner when only gitleaks or its config is unavailable and PreToolUse
+# still ran its protected-path and deny-pattern checks.
 degraded_hook_message() {
   case "$(hook_host)" in
     codex) setup_ref='$setup-agent-guard' ;;
     *) setup_ref='/agent-guard:setup-agent-guard' ;;
   esac
-  printf 'agent-guard: protection is DEGRADED because jq, awk, git, gitleaks (including its setsid or Perl process-isolation helper), or a policy file is unavailable.'
+  if [ "${1:-}" = scanner ]; then
+    printf 'agent-guard: protection is DEGRADED because gitleaks (including its setsid or Perl process-isolation helper) or its config is unavailable, so the secret scan did not run; protected-path and deny-pattern checks still run.'
+  else
+    printf 'agent-guard: protection is DEGRADED because jq, awk, git, gitleaks (including its setsid or Perl process-isolation helper), or a policy file is unavailable.'
+  fi
   # Fixed diagnostic codes only: never include scanner output, paths or payloads
   # in the host envelope. Keep the existing once-per-session warning boundary.
   degraded_probe_reason=
@@ -3536,6 +3566,47 @@ block_on_pii_text() {
   esac
 }
 
+# The tools that propose file content, read the same way by the PII gate, the
+# secret gate and the post-tool target scan. The jq expressions are the
+# json_value_cached keys, so they must stay byte-identical to that table.
+
+# tool_patch_text INPUT prints the apply_patch body from whichever field the
+# host put it in.
+tool_patch_text() {
+  printf '%s' "$1" | jq -r '
+    .tool_input.command // .tool_input.patch // .tool_input.input //
+    .tool_input.diff // .tool_input.content // empty |
+    if type == "string" then . else tojson end
+  '
+}
+
+# tool_write_path INPUT TOOL prints the file a Write, Edit, MultiEdit or
+# NotebookEdit call targets.
+tool_write_path() {
+  case "$2" in
+    Write|Edit|MultiEdit)
+      json_value '.tool_input.file_path // .tool_input.path // empty' "$1" ;;
+    NotebookEdit)
+      json_value '.tool_input.notebook_path // .tool_input.file_path // empty' "$1" ;;
+  esac
+}
+
+# tool_proposed_text INPUT TOOL prints the text the call would write; for
+# apply_patch, only the lines it adds.
+tool_proposed_text() {
+  case "$2" in
+    Write) json_value '.tool_input.content // empty' "$1" ;;
+    Edit) json_value '.tool_input.new_string // empty' "$1" ;;
+    MultiEdit)
+      printf '%s' "$1" | jq -r '[.tool_input.edits[]?.new_string // empty] | join("\n")' ;;
+    NotebookEdit) json_value '.tool_input.new_source // empty' "$1" ;;
+    apply_patch)
+      tool_patch=$(tool_patch_text "$1")
+      printf '%s\n' "$tool_patch" | extract_patch_added_lines
+      ;;
+  esac
+}
+
 check_pii_hook_input() {
   input=$1
   tool=$2
@@ -3545,29 +3616,13 @@ check_pii_hook_input() {
   need_cmd jq
 
   case "$tool" in
-    Write)
-      content=$(json_value '.tool_input.content // empty' "$input")
-      block_on_pii_text "proposed Write content" "$content"
-      ;;
-    Edit)
-      content=$(json_value '.tool_input.new_string // empty' "$input")
-      block_on_pii_text "proposed Edit content" "$content"
-      ;;
-    MultiEdit)
-      content=$(printf '%s' "$input" | jq -r '[.tool_input.edits[]?.new_string // empty] | join("\n")')
-      block_on_pii_text "proposed MultiEdit content" "$content"
-      ;;
-    NotebookEdit)
-      content=$(json_value '.tool_input.new_source // empty' "$input")
-      block_on_pii_text "proposed NotebookEdit content" "$content"
+    Write|Edit|MultiEdit|NotebookEdit)
+      content=$(tool_proposed_text "$input" "$tool")
+      block_on_pii_text "proposed $tool content" "$content"
       ;;
     apply_patch)
-      patch=$(printf '%s' "$input" | jq -r '
-        .tool_input.command // .tool_input.patch // .tool_input.input // .tool_input.diff // .tool_input.content // empty
-        | if type == "string" then . else tojson end
-      ')
-      added=$(printf '%s\n' "$patch" | extract_patch_added_lines)
-      block_on_pii_text "proposed apply_patch added lines" "$added"
+      content=$(tool_proposed_text "$input" "$tool")
+      block_on_pii_text "proposed apply_patch added lines" "$content"
       ;;
     Bash)
       content=$(json_value '.tool_input.command // .tool_input.cmd // empty' "$input")
@@ -3586,6 +3641,7 @@ check_pii_hook_input() {
 }
 
 run_gitleaks_stdin() {
+  [ "$HOOK_SCANNER_UNAVAILABLE" = 0 ] || return "$SCAN_STATUS_UNAVAILABLE"
   need_gitleaks
   gitleaks_scan "$1" stdin
 }
@@ -4255,6 +4311,7 @@ scan_text_direct() {
 # reports exactly as scan_text_direct does.
 scan_shell_command_text() {
   [ -n "$1" ] || return 0
+  [ "$HOOK_SCANNER_UNAVAILABLE" = 0 ] || return "$SCAN_STATUS_UNAVAILABLE"
   if gitleaks_clean_cache_key "$1"; then
     gitleaks_clean_cache_hit && return 0
   fi
@@ -4332,6 +4389,8 @@ block_on_scan_status() {
     0) return 0 ;;
     1) info "$PROGRAM: $message"; exit 2 ;;
     "$SCAN_STATUS_UNAVAILABLE")
+      # hook_pre_tool reports a missing scanner once, after every other check.
+      [ "$HOOK_SCANNER_UNAVAILABLE" = 0 ] || return 0
       handle_hook_infrastructure_failure "${HOOK_EVENT:-PreToolUse}" "${HOOK_INPUT:-}" \
         "$PROGRAM: scanner infrastructure could not verify the command;"
       ;;
@@ -4492,6 +4551,7 @@ extract_git_diff_added() {
 # exits with the unavailable status, and repo_root is left set for the caller.
 git_scan_prepare() {
   need_cmd git "$SCAN_STATUS_UNAVAILABLE"
+  [ "$HOOK_SCANNER_UNAVAILABLE" = 0 ] || return "$SCAN_STATUS_UNAVAILABLE"
   need_gitleaks "$SCAN_STATUS_UNAVAILABLE"
   require_git_repo || return $?
   repo_root=$(git rev-parse --show-toplevel 2>/dev/null) \
@@ -11471,40 +11531,21 @@ scan_proposed_write() {
   need_cmd jq
 
   case "$tool" in
-    Write)
-      path=$(json_value '.tool_input.file_path // .tool_input.path // empty' "$input")
-      content=$(json_value '.tool_input.content // empty' "$input")
-      scan_file_text_direct "proposed Write content" "$path" "$content"
-      block_on_scan_status "$?" "proposed Write contains secret-like values"
-      ;;
-    Edit)
-      path=$(json_value '.tool_input.file_path // .tool_input.path // empty' "$input")
-      content=$(json_value '.tool_input.new_string // empty' "$input")
-      scan_file_fragment_direct "proposed Edit content" "$path" "$content"
-      block_on_scan_status "$?" "proposed Edit contains secret-like values"
-      ;;
-    MultiEdit)
-      path=$(json_value '.tool_input.file_path // .tool_input.path // empty' "$input")
-      content=$(printf '%s' "$input" | jq -r '[.tool_input.edits[]?.new_string // empty] | join("\n")')
-      scan_file_fragment_direct "proposed MultiEdit content" "$path" "$content"
-      block_on_scan_status "$?" "proposed MultiEdit contains secret-like values"
-      ;;
-    NotebookEdit)
-      path=$(json_value '.tool_input.notebook_path // .tool_input.file_path // empty' "$input")
-      content=$(json_value '.tool_input.new_source // empty' "$input")
-      scan_file_fragment_direct "proposed NotebookEdit content" "$path" "$content"
-      block_on_scan_status "$?" "proposed NotebookEdit contains secret-like values"
-      ;;
-    apply_patch)
-      patch=$(printf '%s' "$input" | jq -r '
-        .tool_input.command // .tool_input.patch // .tool_input.input // .tool_input.diff // .tool_input.content // empty
-        | if type == "string" then . else tojson end
-      ')
-      added=$(printf '%s\n' "$patch" | extract_patch_added_lines)
-      scan_text_direct "proposed apply_patch added lines" "$added"
-      block_on_scan_status "$?" "proposed apply_patch contains secret-like values"
-      ;;
+    Write|Edit|MultiEdit|NotebookEdit|apply_patch) ;;
+    *) return 0 ;;
   esac
+  content=$(tool_proposed_text "$input" "$tool")
+  case "$tool" in
+    apply_patch)
+      scan_text_direct "proposed apply_patch added lines" "$content" ;;
+    Write)
+      path=$(tool_write_path "$input" "$tool")
+      scan_file_text_direct "proposed Write content" "$path" "$content" ;;
+    *)
+      path=$(tool_write_path "$input" "$tool")
+      scan_file_fragment_direct "proposed $tool content" "$path" "$content" ;;
+  esac
+  block_on_scan_status "$?" "proposed $tool contains secret-like values"
 }
 
 is_broad_search_path() {
@@ -11562,11 +11603,20 @@ hook_pre_tool() {
       || validate_hook_object PreToolUse "$input" || return 0
   fi
   if ! hook_dependencies_ready; then
-    emit_degraded_hook_warning PreToolUse "$input"
-    return 0
+    # A scan that cannot run is not clean, but it does not stop the checks
+    # that need no scanner. The closed policy still blocks every call here.
+    if [ "$(infrastructure_failure_mode)" = closed ] \
+      || ! hook_policy_dependencies_ready; then
+      emit_degraded_hook_warning PreToolUse "$input"
+      return 0
+    fi
+    HOOK_SCANNER_UNAVAILABLE=1
   fi
   need_cmd jq
-  [ -n "$input" ] || return 0
+  if [ -z "$input" ]; then
+    finish_pre_tool_scanner_unavailable
+    return 0
+  fi
 
   # A host may serialize tool_input as a JSON-encoded string instead of an
   # object. When that string decodes to an *object*, the precise-field extractors
@@ -11621,6 +11671,15 @@ hook_pre_tool() {
   esac
 
   check_pii_hook_input "$input" "$tool"
+  finish_pre_tool_scanner_unavailable
+}
+
+# Reached only when no check blocked, so the open warning never shares stdout
+# with a block. Its once-per-session marker is the infrastructure one.
+finish_pre_tool_scanner_unavailable() {
+  [ "$HOOK_SCANNER_UNAVAILABLE" = 1 ] || return 0
+  handle_hook_infrastructure_failure PreToolUse "${HOOK_INPUT:-}" \
+    "$(degraded_hook_message scanner)"
 }
 
 is_mutation_tool() {
@@ -15896,16 +15955,10 @@ POST_TOOL_PATH_SCAN_MAX_BYTES=$SCAN_INPUT_MAX_BYTES
 
 post_tool_write_target() {
   case "$2" in
-    Write|Edit|MultiEdit)
-      json_value '.tool_input.file_path // .tool_input.path // empty' "$1" ;;
-    NotebookEdit)
-      json_value '.tool_input.notebook_path // .tool_input.file_path // empty' "$1" ;;
+    Write|Edit|MultiEdit|NotebookEdit)
+      tool_write_path "$1" "$2" ;;
     apply_patch)
-      patch=$(printf '%s' "$1" | jq -r '
-        .tool_input.command // .tool_input.patch // .tool_input.input //
-        .tool_input.diff // .tool_input.content // empty |
-        if type == "string" then . else tojson end
-      ' 2>/dev/null) || return "$SCAN_STATUS_UNAVAILABLE"
+      patch=$(tool_patch_text "$1" 2>/dev/null) || return "$SCAN_STATUS_UNAVAILABLE"
       [ -n "$patch" ] || return "$SCAN_STATUS_UNAVAILABLE"
       printf '%s\n' "$patch" | LC_ALL=C awk '
         /^\*\*\* Delete File:/ { valid=1; next }
