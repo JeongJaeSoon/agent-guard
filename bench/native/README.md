@@ -99,10 +99,9 @@ the locked release binary before running. The Docker image provides the same
 `agent-guard-devtools` executable without Python or matplotlib. The installed
 shell CLI does not invoke Cargo or the developer binary.
 
-Commands: `native-redaction`, `native-integration`, `measure-selected-bash`,
-`resource-sample`, `watchdog-orphans`, `masking-latency`, `kernel`, `load`, `verify`,
-`report`. Options retain the former scripts' meanings. Run regression partitions
-with `verify --out /absolute/results --native-core /build/target/release/agent-guard-redact`.
+`agent-guard-devtools --help` lists the commands, and `<command> --help` lists
+each command's options. Options retain the former scripts' meanings. Run
+regression partitions with `verify --out /absolute/results --native-core /build/target/release/agent-guard-redact`.
 
 The 1,013 valid differential inputs are frozen in
 `tests/fixtures/native-contracts.json` from Python seed 60261104. Eleven malformed

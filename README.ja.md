@@ -1,4 +1,4 @@
-<!-- translated-from: README.md; source-blob: e11987b0e37cc91e04efde6374cc59509604a5a0 -->
+<!-- translated-from: README.md; source-blob: af6a4454cab97040780b81623b5f538a523a0367 -->
 
 <p align="center">
   <a href="https://github.com/JeongJaeSoon/agent-guard/releases"><img src="docs/assets/icon.png" alt="Agent Guard icon" width="128" height="128"></a>
@@ -10,6 +10,7 @@
   <a href="https://github.com/JeongJaeSoon/agent-guard/actions/workflows/ci.yml"><img src="https://github.com/JeongJaeSoon/agent-guard/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/JeongJaeSoon/agent-guard/releases/latest"><img src="https://img.shields.io/github/v/release/JeongJaeSoon/agent-guard" alt="Latest release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/JeongJaeSoon/agent-guard" alt="MIT license"></a>
+  <a href="https://pickaplugin.com/p/agent-guard"><img src="https://pickaplugin.com/badge/agent-guard.svg" alt="PickAPlugin 編集部のおすすめ"></a>
 </p>
 
 [English](README.md) · [한국어](README.ko.md) · 日本語

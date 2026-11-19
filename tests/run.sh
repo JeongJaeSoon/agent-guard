@@ -886,42 +886,16 @@ for target in \
 done
 rm -rf "$render_check_tree"
 
-# The five places below are deliberately NOT deduplicated: the awk kind letters
-# also encode whether a format needs whole-file context (go.sum -> g,
-# package-lock -> P), so a shared table would be more machinery than the
-# duplication costs, in a security parser, and the untracked producer tests the
-# basename in its own shell so other files cost no extra process. Assert the
-# sets match instead — adding a sixth lockfile to four of the five lists fails
-# here.
-lockfile_kind_table=$(sed -n '/^filter_lockfile_hashes()/,/^}/p' "$PLUGIN_ROOT/bin/agent-guard" \
-  | sed -n 's/^  *\([A-Za-z0-9.-]*\)) kind=[a-z] ;;$/\1/p' | sort)
-lockfile_awk_kind=$(sed -n "/^AWK_LOCKFILE_KIND=/,/^'\$/p" "$PLUGIN_ROOT/bin/agent-guard" \
-  | sed -n 's/.*name == "\([^"]*\)".*/\1/p' | sort)
-lockfile_find_names=$(sed -n '/^scan_lockfiles_under()/,/^}/p' "$PLUGIN_ROOT/bin/agent-guard" \
-  | grep -oE '\-name [A-Za-z0-9.-]+' | sed 's/^-name //' | sort)
-lockfile_untracked=$(sed -n '/^scan_untracked_files()/,/^}/p' "$PLUGIN_ROOT/bin/agent-guard" \
-  | sed -n 's/^ *\([A-Za-z0-9.|-]*\))$/\1/p' | tr '|' '\n' | sort)
+# gitleaks dir skips the allowlisted lockfiles; the CLI rescans LOCKFILE_TABLE.
+lockfile_table=$(sed -n "/^LOCKFILE_TABLE='/,/'\$/p" "$PLUGIN_ROOT/bin/agent-guard" \
+  | sed -e "s/^LOCKFILE_TABLE='//" -e 's/ .*//' | sort)
 lockfile_allowlist=$(awk -F'[()]' '/\(\^\|\/\)\(/ {print $4}' "$PLUGIN_ROOT/config/gitleaks.toml" \
   | tr '|' '\n' | sed 's/\\//g' | sort)
-
-if [ -n "$lockfile_kind_table" ]; then
-  ok "lockfile kind table is non-empty (extraction still matches the source)"
+if [ -n "$lockfile_table" ] && [ "$lockfile_allowlist" = "$lockfile_table" ]; then
+  ok "gitleaks.toml allowlist covers the same lockfiles as LOCKFILE_TABLE"
 else
-  not_ok "lockfile kind table is non-empty (extraction still matches the source)"
+  not_ok "gitleaks.toml allowlist covers the same lockfiles as LOCKFILE_TABLE (got: $(printf '%s' "$lockfile_allowlist" | tr '\n' ' '))"
 fi
-for other in awk_kind find_names untracked allowlist; do
-  case "$other" in
-    awk_kind) other_set=$lockfile_awk_kind; other_label="awk lockfile_kind()" ;;
-    find_names) other_set=$lockfile_find_names; other_label="scan_lockfiles_under find" ;;
-    untracked) other_set=$lockfile_untracked; other_label="scan_untracked_files case" ;;
-    allowlist) other_set=$lockfile_allowlist; other_label="gitleaks.toml allowlist" ;;
-  esac
-  if [ "$other_set" = "$lockfile_kind_table" ]; then
-    ok "$other_label covers the same lockfiles as filter_lockfile_hashes"
-  else
-    not_ok "$other_label covers the same lockfiles as filter_lockfile_hashes (got: $(printf '%s' "$other_set" | tr '\n' ' '))"
-  fi
-done
 
 read_env_payload='{"tool_name":"Read","tool_input":{"file_path":".env"}}'
 # Each invocation that must WARN gets its own TMPDIR: the launcher's warn-once
@@ -6863,7 +6837,7 @@ else
   sed 's/^/  stdout: /' "$OUT"
 fi
 
-# `die` inside $(pii_provider) only exits the subshell, so a rejected provider
+# `die` inside $( ) only exits the subshell, so a rejected provider
 # used to be reported three times — twice named and once with an empty name.
 count=$(grep -c 'unsupported provider' "$ERR")
 if [ "$count" -eq 1 ]; then
@@ -15723,72 +15697,10 @@ else
   sed 's/^/  stderr: /' "$ERR"
 fi
 
-# A Tier-2 name is refused loudly rather than silently ignored: a user who wrote
-# it is expecting cards to pass, and must be told the knob does not do that.
-for skip_bad in CREDIT_CARD SSN KR_RRN BOGUS ip_address; do
-  printf '%s' 'x' \
-    | env AGENT_GUARD_PII_SKIP="$skip_bad" "$PLUGIN_ROOT/bin/agent-guard" pii-filter \
-      >/dev/null 2>"$ERR"
-  status=$?
-  if [ "$status" -eq 2 ] && grep -q 'AGENT_GUARD_PII_SKIP' "$ERR"; then
-    ok "PII skip rejects $skip_bad"
-  else
-    not_ok "PII skip rejects $skip_bad (expected 2, got $status)"
-    sed 's/^/  stderr: /' "$ERR"
-  fi
-done
+run_expect 0 "PII settings the guard cannot honor stop every entry point" \
+  sh "$ROOT/tests/pii-config.sh"
 
-# The same refusal must reach every hook, not just the CLI — a hook that
-# swallowed it would silently mask (or not mask) against the user's intent.
-pii_skip_gate CREDIT_CARD mask 'const n = 42;'
-status=$?
-if [ "$status" -eq 2 ] && grep -q 'AGENT_GUARD_PII_SKIP' "$ERR"; then
-  ok "PII skip rejection reaches hook-pre-tool"
-else
-  not_ok "PII skip rejection reaches hook-pre-tool (expected 2, got $status)"
-  sed 's/^/  stderr: /' "$ERR"
-fi
-
-printf '%s' '{"tool_name":"Read","tool_input":{"file_path":"m"},"tool_response":"x"}' \
-  | env AGENT_GUARD_PII_SKIP=CREDIT_CARD AGENT_GUARD_PII_HOOK_MODE=mask \
-    "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool >/dev/null 2>"$ERR"
-status=$?
-if [ "$status" -eq 2 ] && grep -q 'AGENT_GUARD_PII_SKIP' "$ERR"; then
-  ok "PII skip rejection reaches hook-post-tool"
-else
-  not_ok "PII skip rejection reaches hook-post-tool (expected 2, got $status)"
-  sed 's/^/  stderr: /' "$ERR"
-fi
-
-printf '{"session_id":"t","prompt":"hello"}' \
-  | env AGENT_GUARD_PII_SKIP=CREDIT_CARD AGENT_GUARD_PII_HOOK_MODE=mask \
-    "$PLUGIN_ROOT/bin/agent-guard" hook-user-prompt >/dev/null 2>"$ERR"
-status=$?
-if [ "$status" -eq 2 ] && grep -q 'AGENT_GUARD_PII_SKIP' "$ERR"; then
-  ok "PII skip rejection reaches hook-user-prompt"
-else
-  not_ok "PII skip rejection reaches hook-user-prompt (expected 2, got $status)"
-  sed 's/^/  stderr: /' "$ERR"
-fi
-
-# An endpoint provider redacts server-side and never receives the skip set, so
-# accepting one would leave a switch that silently does nothing on every path
-# that goes through the provider (CLI, exec, and block-mode input gating).
-for skip_prov in http pleno; do
-  printf '%s' 'x' \
-    | env AGENT_GUARD_PII_SKIP=IP_ADDRESS AGENT_GUARD_PII_PROVIDER="$skip_prov" \
-      AGENT_GUARD_PII_REDACT_URL=http://127.0.0.1:1 \
-      "$PLUGIN_ROOT/bin/agent-guard" pii-filter >/dev/null 2>"$ERR"
-  status=$?
-  if [ "$status" -eq 2 ] && grep -q 'AGENT_GUARD_PII_SKIP' "$ERR"; then
-    ok "PII skip is refused with the $skip_prov provider"
-  else
-    not_ok "PII skip is refused with the $skip_prov provider (want exit 2 naming AGENT_GUARD_PII_SKIP, got $status)"
-    sed 's/^/  stderr: /' "$ERR"
-  fi
-done
-
-# …and an empty skip set must leave endpoint providers exactly as they were:
+# An empty skip set must leave endpoint providers exactly as they were:
 # reaching the request (and failing on the unreachable URL) proves the new
 # validation did not start rejecting a configuration that used to work.
 printf '%s' 'x' \
@@ -15800,41 +15712,6 @@ if [ "$status" -eq 2 ] && grep -q 'provider request failed' "$ERR"; then
 else
   not_ok "an empty PII skip set leaves endpoint providers untouched (expected 2, got $status)"
   sed 's/^/  stderr: /' "$ERR"
-fi
-
-# --check is the health check people run to validate their configuration, so it
-# must refuse a skip set that every real run would refuse.
-env AGENT_GUARD_PII_SKIP=CREDIT_CARD "$PLUGIN_ROOT/bin/agent-guard" pii-filter --check \
-  >/dev/null 2>"$ERR"
-status=$?
-if [ "$status" -eq 2 ] && grep -q 'AGENT_GUARD_PII_SKIP' "$ERR"; then
-  ok "PII skip rejection reaches pii-filter --check"
-else
-  not_ok "PII skip rejection reaches pii-filter --check (expected 2, got $status)"
-  sed 's/^/  stderr: /' "$ERR"
-fi
-
-# exec pipes the masker with stderr suppressed, so only the up-front validation
-# in its main shell can surface a bad skip set — without it the run would just
-# quietly leave the output unmasked.
-env AGENT_GUARD_PII_SKIP=CREDIT_CARD AGENT_GUARD_PII_HOOK_MODE=mask \
-  "$PLUGIN_ROOT/bin/agent-guard" exec -- printf 'x\n' >/dev/null 2>"$ERR"
-status=$?
-if [ "$status" -eq 2 ] && grep -q 'AGENT_GUARD_PII_SKIP' "$ERR"; then
-  ok "PII skip rejection reaches agent-guard exec"
-else
-  not_ok "PII skip rejection reaches agent-guard exec (expected 2, got $status)"
-  sed 's/^/  stderr: /' "$ERR"
-fi
-
-# exec masks through the same adapter, so a skipped type must survive there too.
-skip_exec=$(env AGENT_GUARD_PII_SKIP=IP_ADDRESS AGENT_GUARD_PII_HOOK_MODE=mask \
-  "$PLUGIN_ROOT/bin/agent-guard" exec -- printf 'ip 8.8.8.8 mail x@y.io\n' 2>/dev/null)
-if [ "$skip_exec" = 'ip 8.8.8.8 mail [PII:EMAIL]' ]; then
-  ok "PII skip applies to agent-guard exec output"
-else
-  not_ok "PII skip applies to agent-guard exec output"
-  printf '%s\n' "  out : $skip_exec"
 fi
 
 # --- agent-guard exec (shell-escape output masking) --------------------------

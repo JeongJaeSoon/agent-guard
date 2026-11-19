@@ -9,9 +9,12 @@ trap 'rm -rf "$CASE"' 0
 
 # Fail on missing/duplicate definitions or a changed extraction boundary.
 # Only these named bodies are sourced: the CLI has initialization side effects.
-sh "$ROOT/tests/helpers/extract-functions.sh" "$SOURCE" "$CASE" sh_squote version_newer
+sh "$ROOT/tests/helpers/extract-functions.sh" "$SOURCE" "$CASE" sh_squote version_newer \
+  semver_at_least semver_fields
 . "$CASE/sh_squote.sh"
 . "$CASE/version_newer.sh"
+. "$CASE/semver_at_least.sh"
+. "$CASE/semver_fields.sh"
 pass=0
 fail=0
 ok() { pass=$((pass + 1)); printf 'ok - %s\n' "$1"; }
@@ -44,6 +47,7 @@ done <<'CASES'
 0 1.2.10 1.2.9
 1 1.2.9 1.2.10
 1 01.02.003 1.2.3
+1 10000000000.0.0 1.0.0
 CASES
 
 # Exact output checks are independent of a shell round trip.
