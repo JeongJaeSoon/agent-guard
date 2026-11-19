@@ -1,4 +1,4 @@
-<!-- translated-from: docs/installation.md; source-blob: b6cc258adad31f61150f5ed860871542c9f601ea -->
+<!-- translated-from: docs/installation.md; source-blob: a73300206f8df8f8c8415fd40f26c5d3f8507e2c -->
 
 <a id="installing-agent-guard"></a>
 
@@ -30,6 +30,8 @@ codex plugin add agent-guard@agent-guard
 ```
 
 플러그인을 설치해도 `PATH`에 `agent-guard`가 추가되지는 않습니다. 따라서 표의 `agent-guard plugin update` 경로에는 독립 CLI 또는 Homebrew CLI가 필요합니다. 둘 다 없다면 marketplace를 제거하고 위 명령을 새 태그로 다시 실행해 업데이트하세요. marketplace를 제거하면 설치된 플러그인도 제거됩니다. 완료 후 host를 재시작하세요.
+
+플러그인만 설치하면 `agent-guard`가 `PATH`에 없으므로, 플러그인의 CLI가 출력하는 안내(예: `update`, `check`, `doctor`, SessionStart 알림)는 그 실행 파일을 따옴표로 감싼 절대 경로로 적습니다. 예: `"$HOME/.claude/plugins/cache/agent-guard/agent-guard/current/bin/agent-guard" setup`. `PATH`의 `agent-guard`가 같은 설치일 때, 그리고 독립·Homebrew 설치는 `PATH`에 `agent-guard`가 있을 때 안내가 지금처럼 짧은 `agent-guard` 이름을 씁니다. `PATH`에 `agent-guard`가 없는 상태에서 경로로 실행한 독립 CLI(예: `~/.local/bin`을 추가하기 전의 `~/.agent-guard/bin/agent-guard`)도 자기 경로를 적습니다.
 
 <a id="runtime-dependencies"></a>
 
@@ -104,6 +106,8 @@ curl -fsSL "https://github.com/JeongJaeSoon/agent-guard/releases/download/v${gua
 ```
 
 명령 wrapping 없이 shell integration만 설치하려면 설치 시에만 `AGENT_GUARD_COMMAND_WRAPPING=off`를 설정하세요.
+
+`agent-guard update`와 이후의 bootstrap 실행은 그 선택을 유지합니다. `AGENT_GUARD_COMMAND_WRAPPING`이 설정되지 않았으면 설치된 CLI에 `agent-guard setup-shell --print-command-wrapping`으로 묻습니다. 이 명령은 옵션 없는 `setup-shell`이 다시 쓸 rc 파일(fish는 `~/.bashrc`와 `~/.zshrc` 둘 다)의 관리 블록을 보고 `on` 또는 `off`를 출력합니다. `setup-shell --rc FILE`로 설치한 경우처럼 그 파일에 블록이 없으면, 기본 resolver 파일 없이 opt-out resolver 파일만 있을 때 `off`로 읽습니다. 선택을 바꾸려면 update할 때 `AGENT_GUARD_COMMAND_WRAPPING=on` 또는 `off`를 설정하세요. 이 확인이 없는 릴리스는 `agent-guard update` 중에 명령 wrapping을 다시 켰습니다. 이미 그렇게 됐다면 `agent-guard setup-shell --no-command-wrapping`을 한 번 다시 실행하세요. `AGENT_GUARD_VERSION`으로 그런 이전 릴리스를 고정한 bootstrap 실행도 `AGENT_GUARD_COMMAND_WRAPPING=off`를 설정하지 않으면 wrapping을 켠 상태로 설치합니다.
 
 독립 설치는 다음과 같이 업데이트합니다.
 
@@ -193,5 +197,16 @@ agent-guard plugin update --host all
 command -v agent-guard
 readlink "$(command -v agent-guard)"
 ```
+
+실행 파일을 지우기 전에, `install.sh git-hooks`를 실행했던 각 저장소에서 native Git hook을 제거하세요. hook은 실행 파일을 절대 경로로 가리키므로, 그 파일이 없어지면 그 저장소의 모든 커밋을 막습니다.
+
+```sh
+cd <each-repository-with-the-hook>
+git config --get core.hooksPath   # prints githooks while the hook is active
+git config --unset core.hooksPath
+rm githooks/pre-commit
+```
+
+`core.hooksPath`를 해제하면 Git이 다시 `.git/hooks`를 실행하므로, 설치 전에 있던 hook(agent-guard hook이 연결해 실행하던 hook)이 다시 단독으로 실행됩니다. `githooks/`에 계속 쓰는 다른 hook이 있다면 `core.hooksPath`는 그대로 두고 `githooks/pre-commit`만 지우세요. 제거하지 않은 hook은 계속 fail-closed로 동작합니다. exit 1로 끝나고, 없는 경로와 위 명령을 출력합니다. 이전 릴리스가 설치한 hook은 `exec: ... not found`만 출력합니다. 안내 문구를 넣으려면 그 저장소에서 현재 릴리스의 `install.sh git-hooks`를 다시 실행하세요.
 
 플러그인 관리 도구의 캐시를 수동으로 삭제하지 마세요. 수명주기는 host가 관리합니다. 제거 후 새 shell을 열어 `command -v agent-guard`가 예상대로 해석되는지 확인하세요. 다른 설치가 남아 있다면 해당 설치의 `version`, `doctor`, `check`를 실행합니다.
