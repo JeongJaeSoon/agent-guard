@@ -1293,11 +1293,29 @@ audit_directory() (
   printf '%s' "$ag_dir"
 )
 
+# The audit log vocabulary. The writer records and the exporter accepts only
+# these words, so the two cannot drift apart.
+AUDIT_COMMANDS='hook-pre-tool hook-post-tool hook-post-tool-failure hook-stop hook-user-prompt hook-session-start scan-staged scan-working-tree scan-path exec pii-filter'
+# Outcomes a run can note, lowest precedence first: when several were noted,
+# the last one in this list is recorded.
+AUDIT_NOTES='warned masked error degraded blocked'
+# Fixed codes for why an invocation blocked. A host can drop the block reason
+# a hook prints (codex exec shows only "hook: UserPromptSubmit Blocked"), so
+# the metadata log keeps the code. Never a value, path, or rule text.
+AUDIT_REASONS='secret-rule secret-assignment pii pii-detector-failure infra-failure-closed'
+
+# Succeeds when $1 is one word of the space-separated list $2.
+audit_word_in() {
+  case "$1" in ''|*[!abcdefghijklmnopqrstuvwxyz-]*) return 1 ;; esac
+  case " $2 " in *" $1 "*) return 0 ;; esac
+  return 1
+}
+
 audit_note() {
   [ -n "$AG_AUDIT_FILE" ] && [ -n "${AGENT_GUARD_RUNDIR:-}" ] || return 0
-  case "$1" in blocked|degraded|masked|error|warned)
-    (umask 077; : >"$AGENT_GUARD_RUNDIR/audit-$1") 2>/dev/null || : ;;
-  esac
+  if audit_word_in "$1" "$AUDIT_NOTES"; then
+    (umask 077; : >"$AGENT_GUARD_RUNDIR/audit-$1") 2>/dev/null || :
+  fi
   return 0
 }
 
@@ -1307,14 +1325,9 @@ audit_record() {
     "$AG_AUDIT_ID" "$1" "$VERSION" "$AG_AUDIT_COMMAND" "$AG_AUDIT_HOST" "$2" "$3" "$4" "$5" "${6:-null}"
 }
 
-# Fixed codes for why an invocation blocked. A host can drop the block reason
-# a hook prints (codex exec shows only "hook: UserPromptSubmit Blocked"), so
-# the metadata log keeps the code. Never a value, path, or rule text.
-AUDIT_REASONS='secret-rule secret-assignment pii pii-detector-failure infra-failure-closed'
-
 audit_reason() {
   [ -n "$AG_AUDIT_FILE" ] && [ -n "${AGENT_GUARD_RUNDIR:-}" ] || return 0
-  case " $AUDIT_REASONS " in *" $1 "*) ;; *) return 0 ;; esac
+  audit_word_in "$1" "$AUDIT_REASONS" || return 0
   # The first reason wins: a later infrastructure note must not replace the
   # verdict that actually decided the block.
   [ ! -e "$AGENT_GUARD_RUNDIR/audit-reason" ] || return 0
@@ -1380,10 +1393,8 @@ audit_begin() {
     printf '%s\n' 'agent-guard: local diagnostic logging unavailable (invalid log mode).' >&2
     return 0 ;;
   esac
-  case "$1" in
-    hook-pre-tool|hook-post-tool|hook-post-tool-failure|hook-stop|hook-user-prompt|hook-session-start|scan-staged|scan-working-tree|scan-path|exec|pii-filter) AG_AUDIT_COMMAND=$1 ;;
-    *) return 0 ;;
-  esac
+  audit_word_in "$1" "$AUDIT_COMMANDS" || return 0
+  AG_AUDIT_COMMAND=$1
   case "${AGENT_GUARD_HOOK_HOST:-claude}" in codex) AG_AUDIT_HOST=codex ;; *) AG_AUDIT_HOST=claude ;; esac
   case "$AG_AUDIT_COMMAND" in hook-*) ;; *) AG_AUDIT_HOST=cli ;; esac
   AG_AUDIT_START=$(date +%s 2>/dev/null) || AG_AUDIT_START=0
@@ -1427,9 +1438,13 @@ audit_finish() {
       esac ;;
   esac
   if [ -n "${AGENT_GUARD_RUNDIR:-}" ]; then
-    for ag_flag in warned masked error degraded blocked; do
+    # This can run from a signal trap inside code that changed IFS.
+    ag_finish_ifs=$IFS
+    IFS=' '
+    for ag_flag in $AUDIT_NOTES; do
       [ ! -f "$AGENT_GUARD_RUNDIR/audit-$ag_flag" ] || ag_outcome=$ag_flag
     done
+    IFS=$ag_finish_ifs
   fi
   case "$ag_exit" in 130|143) ag_outcome=interrupted ;; esac
   ag_reason=null
@@ -1438,9 +1453,7 @@ audit_finish() {
   if [ "$ag_exit" != 0 ] && [ -n "${AGENT_GUARD_RUNDIR:-}" ] \
       && [ -f "$AGENT_GUARD_RUNDIR/audit-reason" ]; then
     IFS= read -r ag_reason_code <"$AGENT_GUARD_RUNDIR/audit-reason" 2>/dev/null || ag_reason_code=
-    case " $AUDIT_REASONS " in
-      *" $ag_reason_code "*) [ -z "$ag_reason_code" ] || ag_reason="\"$ag_reason_code\"" ;;
-    esac
+    ! audit_word_in "$ag_reason_code" "$AUDIT_REASONS" || ag_reason="\"$ag_reason_code\""
   fi
   if [ ! -L "$AG_AUDIT_FILE" ] && [ -f "$AG_AUDIT_FILE" ] \
       && [ "$(file_stat access -P "$AG_AUDIT_FILE")" = "${AG_UID:-$(id -u)}:600" ]; then
@@ -1461,18 +1474,20 @@ audit_export() {
     [ "$ag_bytes" -le 2048 ] || continue
     # Rebuild the schema, dropping unknown keys. Validate every field so a
     # manually edited/corrupt log cannot smuggle source data into an export.
-    jq -c --arg run_id_re "$AUDIT_RUN_ID_JQ_REGEX" '
+    jq -c --arg run_id_re "$AUDIT_RUN_ID_JQ_REGEX" --arg commands "$AUDIT_COMMANDS" \
+        --arg notes "$AUDIT_NOTES" --arg reasons "$AUDIT_REASONS" '
+      def words($list): $list | split(" ")[];
       select(type == "object" and .schema == 1)
       | select(.run_id | type == "string" and test($run_id_re))
       | select(.time | type == "number" and . >= 0 and . <= 9999999999 and floor == .)
       | select(.version | type == "string" and test("^[0-9]{1,5}\\.[0-9]{1,5}\\.[0-9]{1,5}$"))
-      | select(.command | IN("hook-pre-tool", "hook-post-tool", "hook-post-tool-failure", "hook-stop", "hook-user-prompt", "hook-session-start", "scan-staged", "scan-working-tree", "scan-path", "exec", "pii-filter"))
+      | select(.command | IN(words($commands)))
       | select(.host | IN("claude", "codex", "cli"))
       | select(.phase | IN("started", "finished"))
-      | select(.outcome | IN("pending", "pass", "blocked", "masked", "degraded", "error", "interrupted", "warned"))
+      | select(.outcome | IN("pending", "pass", "interrupted", words($notes)))
       | select(.exit_code == null or (.exit_code | type == "number" and . >= 0 and . <= 255 and floor == .))
       | select(.duration_seconds | type == "number" and . >= 0 and . <= 9999999999 and floor == .)
-      | select(.reason == null or (.reason | IN("secret-rule", "secret-assignment", "pii", "pii-detector-failure", "infra-failure-closed")))
+      | select(.reason == null or (.reason | IN(words($reasons))))
       | {schema,run_id,time,version,command,host,phase,outcome,exit_code,duration_seconds,reason}
     ' "$ag_file" 2>/dev/null || :
   done
