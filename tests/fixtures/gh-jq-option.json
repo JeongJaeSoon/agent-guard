@@ -229,5 +229,47 @@
     "classification": "must-fail",
     "description": "a swallowed --jq before a later jq",
     "command": "gh gist create -d --jq .env | jq ."
+  },
+  {
+    "id": "gate-unknown-subcommand",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "an alias or extension subcommand keeps the later jq unrewritten",
+    "command": "gh rd --jq .a | jq .key"
+  },
+  {
+    "id": "gate-double-dash",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "--jq after -- is not the option and keeps the later jq unrewritten",
+    "command": "gh api -- --jq .a | jq .key"
+  },
+  {
+    "id": "gate-value-option",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a value-taking option before --jq keeps the later jq unrewritten",
+    "command": "gh api x -X --jq .a | jq .key"
+  },
+  {
+    "id": "gate-swallow-gist",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "gh gist create -d swallows --jq and keeps the later jq unrewritten",
+    "command": "gh gist create -d --jq x | jq .key"
+  },
+  {
+    "id": "redirect-after-jq",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a redirection right after --jq is not a filter word",
+    "command": "gh api x --jq >jq | jq .key"
+  },
+  {
+    "id": "fd-redirect-after-jq",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "an fd redirection right after --jq is not a filter word",
+    "command": "gh api x --jq 2>jq | jq .key"
   }
 ]
