@@ -1496,9 +1496,8 @@ expect_json_status 2 "Codex apply_patch added secret is blocked" \
   '{"tool_name":"apply_patch","tool_input":{"patch":"*** Begin Patch\n*** Add File: x\n+AGENT_GUARD_TEST_SECRET\n*** End Patch"}}' \
   hook-pre-tool
 
-expect_json_status 2 "Codex canonical apply_patch command field is scanned" \
-  '{"tool_name":"apply_patch","tool_input":{"command":"*** Begin Patch\n*** Add File: x\n+AGENT_GUARD_TEST_SECRET\n*** End Patch"}}' \
-  hook-pre-tool
+run_expect 0 "every file-writing tool shape reaches the secret gate, the PII gate and the post-tool target scan" \
+  sh "$ROOT/tests/tool-input-extract.sh"
 
 expect_json_status 0 "Codex apply_patch deleted secret is allowed" \
   '{"tool_name":"apply_patch","tool_input":{"patch":"*** Begin Patch\n*** Update File: x\n-AGENT_GUARD_TEST_SECRET\n+example_token\n*** End Patch"}}' \

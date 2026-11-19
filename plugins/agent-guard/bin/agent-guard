@@ -3536,6 +3536,47 @@ block_on_pii_text() {
   esac
 }
 
+# The tools that propose file content, read the same way by the PII gate, the
+# secret gate and the post-tool target scan. The jq expressions are the
+# json_value_cached keys, so they must stay byte-identical to that table.
+
+# tool_patch_text INPUT prints the apply_patch body from whichever field the
+# host put it in.
+tool_patch_text() {
+  printf '%s' "$1" | jq -r '
+    .tool_input.command // .tool_input.patch // .tool_input.input //
+    .tool_input.diff // .tool_input.content // empty |
+    if type == "string" then . else tojson end
+  '
+}
+
+# tool_write_path INPUT TOOL prints the file a Write, Edit, MultiEdit or
+# NotebookEdit call targets.
+tool_write_path() {
+  case "$2" in
+    Write|Edit|MultiEdit)
+      json_value '.tool_input.file_path // .tool_input.path // empty' "$1" ;;
+    NotebookEdit)
+      json_value '.tool_input.notebook_path // .tool_input.file_path // empty' "$1" ;;
+  esac
+}
+
+# tool_proposed_text INPUT TOOL prints the text the call would write; for
+# apply_patch, only the lines it adds.
+tool_proposed_text() {
+  case "$2" in
+    Write) json_value '.tool_input.content // empty' "$1" ;;
+    Edit) json_value '.tool_input.new_string // empty' "$1" ;;
+    MultiEdit)
+      printf '%s' "$1" | jq -r '[.tool_input.edits[]?.new_string // empty] | join("\n")' ;;
+    NotebookEdit) json_value '.tool_input.new_source // empty' "$1" ;;
+    apply_patch)
+      tool_patch=$(tool_patch_text "$1")
+      printf '%s\n' "$tool_patch" | extract_patch_added_lines
+      ;;
+  esac
+}
+
 check_pii_hook_input() {
   input=$1
   tool=$2
@@ -3545,29 +3586,13 @@ check_pii_hook_input() {
   need_cmd jq
 
   case "$tool" in
-    Write)
-      content=$(json_value '.tool_input.content // empty' "$input")
-      block_on_pii_text "proposed Write content" "$content"
-      ;;
-    Edit)
-      content=$(json_value '.tool_input.new_string // empty' "$input")
-      block_on_pii_text "proposed Edit content" "$content"
-      ;;
-    MultiEdit)
-      content=$(printf '%s' "$input" | jq -r '[.tool_input.edits[]?.new_string // empty] | join("\n")')
-      block_on_pii_text "proposed MultiEdit content" "$content"
-      ;;
-    NotebookEdit)
-      content=$(json_value '.tool_input.new_source // empty' "$input")
-      block_on_pii_text "proposed NotebookEdit content" "$content"
+    Write|Edit|MultiEdit|NotebookEdit)
+      content=$(tool_proposed_text "$input" "$tool")
+      block_on_pii_text "proposed $tool content" "$content"
       ;;
     apply_patch)
-      patch=$(printf '%s' "$input" | jq -r '
-        .tool_input.command // .tool_input.patch // .tool_input.input // .tool_input.diff // .tool_input.content // empty
-        | if type == "string" then . else tojson end
-      ')
-      added=$(printf '%s\n' "$patch" | extract_patch_added_lines)
-      block_on_pii_text "proposed apply_patch added lines" "$added"
+      content=$(tool_proposed_text "$input" "$tool")
+      block_on_pii_text "proposed apply_patch added lines" "$content"
       ;;
     Bash)
       content=$(json_value '.tool_input.command // .tool_input.cmd // empty' "$input")
@@ -11471,40 +11496,21 @@ scan_proposed_write() {
   need_cmd jq
 
   case "$tool" in
-    Write)
-      path=$(json_value '.tool_input.file_path // .tool_input.path // empty' "$input")
-      content=$(json_value '.tool_input.content // empty' "$input")
-      scan_file_text_direct "proposed Write content" "$path" "$content"
-      block_on_scan_status "$?" "proposed Write contains secret-like values"
-      ;;
-    Edit)
-      path=$(json_value '.tool_input.file_path // .tool_input.path // empty' "$input")
-      content=$(json_value '.tool_input.new_string // empty' "$input")
-      scan_file_fragment_direct "proposed Edit content" "$path" "$content"
-      block_on_scan_status "$?" "proposed Edit contains secret-like values"
-      ;;
-    MultiEdit)
-      path=$(json_value '.tool_input.file_path // .tool_input.path // empty' "$input")
-      content=$(printf '%s' "$input" | jq -r '[.tool_input.edits[]?.new_string // empty] | join("\n")')
-      scan_file_fragment_direct "proposed MultiEdit content" "$path" "$content"
-      block_on_scan_status "$?" "proposed MultiEdit contains secret-like values"
-      ;;
-    NotebookEdit)
-      path=$(json_value '.tool_input.notebook_path // .tool_input.file_path // empty' "$input")
-      content=$(json_value '.tool_input.new_source // empty' "$input")
-      scan_file_fragment_direct "proposed NotebookEdit content" "$path" "$content"
-      block_on_scan_status "$?" "proposed NotebookEdit contains secret-like values"
-      ;;
-    apply_patch)
-      patch=$(printf '%s' "$input" | jq -r '
-        .tool_input.command // .tool_input.patch // .tool_input.input // .tool_input.diff // .tool_input.content // empty
-        | if type == "string" then . else tojson end
-      ')
-      added=$(printf '%s\n' "$patch" | extract_patch_added_lines)
-      scan_text_direct "proposed apply_patch added lines" "$added"
-      block_on_scan_status "$?" "proposed apply_patch contains secret-like values"
-      ;;
+    Write|Edit|MultiEdit|NotebookEdit|apply_patch) ;;
+    *) return 0 ;;
   esac
+  content=$(tool_proposed_text "$input" "$tool")
+  case "$tool" in
+    apply_patch)
+      scan_text_direct "proposed apply_patch added lines" "$content" ;;
+    Write)
+      path=$(tool_write_path "$input" "$tool")
+      scan_file_text_direct "proposed Write content" "$path" "$content" ;;
+    *)
+      path=$(tool_write_path "$input" "$tool")
+      scan_file_fragment_direct "proposed $tool content" "$path" "$content" ;;
+  esac
+  block_on_scan_status "$?" "proposed $tool contains secret-like values"
 }
 
 is_broad_search_path() {
@@ -15862,16 +15868,10 @@ POST_TOOL_PATH_SCAN_MAX_BYTES=$SCAN_INPUT_MAX_BYTES
 
 post_tool_write_target() {
   case "$2" in
-    Write|Edit|MultiEdit)
-      json_value '.tool_input.file_path // .tool_input.path // empty' "$1" ;;
-    NotebookEdit)
-      json_value '.tool_input.notebook_path // .tool_input.file_path // empty' "$1" ;;
+    Write|Edit|MultiEdit|NotebookEdit)
+      tool_write_path "$1" "$2" ;;
     apply_patch)
-      patch=$(printf '%s' "$1" | jq -r '
-        .tool_input.command // .tool_input.patch // .tool_input.input //
-        .tool_input.diff // .tool_input.content // empty |
-        if type == "string" then . else tojson end
-      ' 2>/dev/null) || return "$SCAN_STATUS_UNAVAILABLE"
+      patch=$(tool_patch_text "$1" 2>/dev/null) || return "$SCAN_STATUS_UNAVAILABLE"
       [ -n "$patch" ] || return "$SCAN_STATUS_UNAVAILABLE"
       printf '%s\n' "$patch" | LC_ALL=C awk '
         /^\*\*\* Delete File:/ { valid=1; next }
