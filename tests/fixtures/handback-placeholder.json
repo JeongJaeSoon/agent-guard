@@ -1,0 +1,128 @@
+[
+  {
+    "id": "redacted-word",
+    "expected": "pass",
+    "classification": "must-pass",
+    "description": "a value another report already redacted",
+    "text": "SESSION_SECRET=REDACTED"
+  },
+  {
+    "id": "redacted-colon",
+    "expected": "pass",
+    "classification": "must-pass",
+    "description": "a redacted value after a colon",
+    "text": "- API_KEY: redacted (see vault)"
+  },
+  {
+    "id": "changeme",
+    "expected": "pass",
+    "classification": "must-pass",
+    "description": "a documented change-me default",
+    "text": "JWT_SECRET=changeme"
+  },
+  {
+    "id": "change-me-hyphen",
+    "expected": "pass",
+    "classification": "must-pass",
+    "description": "the hyphenated change-me default",
+    "text": "DB_PASSWORD=change-me"
+  },
+  {
+    "id": "your-here",
+    "expected": "pass",
+    "classification": "must-pass",
+    "description": "a your-...-here template value",
+    "text": "CLIENT_SECRET=your-client-secret-here"
+  },
+  {
+    "id": "your-here-underscore",
+    "expected": "pass",
+    "classification": "must-pass",
+    "description": "an underscore your_..._here template value",
+    "text": "OPENAI_API_KEY=your_api_key_here"
+  },
+  {
+    "id": "your-here-colon",
+    "expected": "pass",
+    "classification": "must-pass",
+    "description": "a your-...-here value after a colon",
+    "text": "token: your-token-here"
+  },
+  {
+    "id": "angle-redacted",
+    "expected": "pass",
+    "classification": "must-pass",
+    "description": "regression: <redacted> already passes",
+    "text": "SESSION_SECRET=<redacted>"
+  },
+  {
+    "id": "stars",
+    "expected": "pass",
+    "classification": "must-pass",
+    "description": "regression: a run of mask characters already passes",
+    "text": "API_KEY=*** (masked)"
+  },
+  {
+    "id": "redacted-glued",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "text glued to the redaction word",
+    "text": "SESSION_SECRET=REDACTED{{SECRET}}"
+  },
+  {
+    "id": "redacted-prefix",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a redaction word as a prefix",
+    "text": "SESSION_SECRET=redacted-{{SECRET}}"
+  },
+  {
+    "id": "changeme-digits",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "digits glued to change-me",
+    "text": "JWT_SECRET=changeme{{DIGITS}}"
+  },
+  {
+    "id": "your-here-value",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a real value inside the your-...-here frame",
+    "text": "CLIENT_SECRET=your-{{SECRET}}-here"
+  },
+  {
+    "id": "your-here-suffix",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "text after the here word",
+    "text": "API_KEY=your-api-key-here-{{SECRET}}"
+  },
+  {
+    "id": "your-here-unknown-word",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a word outside the placeholder list",
+    "text": "API_KEY=your-prod-billing-key-here"
+  },
+  {
+    "id": "my-here",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a template that does not start with your",
+    "text": "API_KEY=my-real-key-here"
+  },
+  {
+    "id": "placeholder-then-value",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a placeholder does not hide the next assignment",
+    "text": "JWT_SECRET=changeme\nSTRIPE_SECRET_KEY={{SECRET}}"
+  },
+  {
+    "id": "weak-password",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a short real password",
+    "text": "PASSWORD=hunter{{DIGITS}}"
+  }
+]
