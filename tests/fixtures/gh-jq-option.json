@@ -152,5 +152,68 @@
     "classification": "must-fail",
     "description": "an unquoted --jq value with a glob may expand to file names",
     "command": "gh api x --jq .k[e]y"
+  },
+  {
+    "id": "gist-d-swallows",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "an option value (-d) swallows --jq, so the next word is a file gh uploads",
+    "command": "gh gist create -d --jq .env"
+  },
+  {
+    "id": "release-notes-swallows",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "gh release create -n takes --jq as its value and uploads the next file",
+    "command": "gh release create v1 -n --jq .env"
+  },
+  {
+    "id": "ssh-key-title-swallows",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "gh ssh-key add -t takes --jq as its value and reads the next file",
+    "command": "gh ssh-key add -t --jq .pem"
+  },
+  {
+    "id": "api-header-swallows",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "an api option that takes a value before --jq",
+    "command": "gh api -H --jq .env"
+  },
+  {
+    "id": "json-swallows",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "--json takes --jq as its field list",
+    "command": "gh pr view 5 --json --jq .env"
+  },
+  {
+    "id": "double-dash",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "after -- the --jq word is a positional argument",
+    "command": "gh gist create -- --jq .env"
+  },
+  {
+    "id": "unknown-subcommand",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "an alias or extension may run --jq and its operand as shell",
+    "command": "gh rd --jq .env"
+  },
+  {
+    "id": "command-unknown-subcommand",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "command gh with an unknown subcommand",
+    "command": "command gh rd --jq .npmrc"
+  },
+  {
+    "id": "piped-swallow",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a swallowed --jq before a later jq",
+    "command": "gh gist create -d --jq .env | jq ."
   }
 ]
