@@ -29,10 +29,11 @@
   },
   {
     "id": "paren-empty-location",
-    "expected": "pass",
-    "classification": "must-pass",
-    "description": "an empty value with a location note",
-    "text": "API_KEY= (empty in .env.example:3)"
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "the in <path> note is not read as empty: a path slot can hold a value",
+    "text": "API_KEY= (empty in .env.example:3)",
+    "prompt_only": true
   },
   {
     "id": "paren-not-set",
@@ -188,6 +189,21 @@
     "expected": "pass",
     "classification": "must-pass",
     "description": "regression: a CRLF line end after an empty value still passes",
-    "text": "- `API_KEY=` is read at src/config.ts:12\r\nAPI_KEY= (empty)\r\n"
+    "text": "- `API_KEY=` is read at src/config.ts:12\r\nAPI_KEY= (empty)\r\n- WORKER_TOKEN= (not set by default)\r\n"
+  },
+  {
+    "id": "paren-digit-path",
+    "expected": "block",
+    "classification": "must-fail",
+    "prompt_only": true,
+    "description": "a digit-only path segment keeps the prompt blocked",
+    "text": "API_KEY= (empty in /{{DIGITS}}{{DIGITS}}{{DIGITS}})"
+  },
+  {
+    "id": "quote-cr-space-value",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a carriage return inside the line, then a space, then a value",
+    "text": "- `API_KEY=`\r {{SECRET}}"
   }
 ]
