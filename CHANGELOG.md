@@ -1,3 +1,21 @@
+## v3.12.0 - 2026-11-19
+
+- fix(deps): check와 setup이 훅과 같은 의존성을 확인한다 (#530)
+- refactor(audit): 감사 로그 어휘를 기록과 내보내기가 함께 쓰는 목록으로 정의한다 (#529)
+- refactor(plugin): 저장소와 플러그인 id를 한 번만 정의하고 플러그인 행 jq를 공유한다 (#527)
+- refactor(audit): run id 문법을 한 곳에서 정의한다 (#526)
+- refactor(cli): gitleaks 프로브 상세 코드를 한 표에서 정의한다 (#524)
+- refactor(state): check private paths, writes and cache age through shared helpers (#523)
+- refactor(platform): 버전 비교와 파일 메타데이터 읽기를 함수 하나씩으로 모은다 (#522)
+- refactor(scan): run gitleaks through one runner and derive lockfile names from one table (#521)
+- refactor(devtools): devtools 명령을 한 표로 모으고 공개 문서 사본 검사를 한 목록으로 합친다 (#517)
+- fix(git): git commit -n·옵션 약어·core.hooksPath 재지정도 hook 우회로 거부한다 (#504)
+- fix(git): wrapper·셸 뒤의 git commit/push가 hook 우회 검사와 staged 스캔을 건너뛰지 않게 한다 (#498)
+- fix(bash): jq 필드 접근 뒤 정규식 글 오탐을 고치고, 바깥 모듈을 불러오는 프로그램에는 glob 예외를 주지 않는다 (#495)
+- perf(hook): 깨끗한 Bash PreToolUse의 fork와 CPU를 줄이고 core 테스트 시간을 줄인다 (#505)
+- release: v3.11.7 (#501)
+- fix(bash): sed 주소 정규식·echo 인자·heredoc 매개변수 참조 속 보호 파일 이름을 경로로 읽지 않는다 (#496)
+
 ## Unreleased
 
 - fix(git): `git commit --no-verify`와 같은 효과를 내는 다른 표기가 hook 우회 플래그 거부를 통과하던 문제를 고칩니다. git gate는 commit/push 뒤의 단어가 정확히 `--no-verify`나 `--no-gpg-sign`일 때만 거부했기 때문에, `git commit -n`·`-anm x`, git이 받는 약어(`--no-verif`), `git -c core.hooksPath=/dev/null commit`, `HUSKY=0 git commit`은 깨끗한 index에서 exit 0으로 통과했고 사용자의 git hook(lint·테스트·다른 스캐너·agent-guard native pre-commit hook)이 꺼졌습니다. staged 비밀 스캔은 PreToolUse에서 돌기 때문에 원래 꺼지지 않았습니다. (#499)
