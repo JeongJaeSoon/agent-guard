@@ -1,3 +1,10 @@
+## Unreleased
+
+- fix(hook): gitleaks나 그 설정만 없을 때 `AGENT_GUARD_INFRA_FAILURE_MODE=open`(기본값)의 PreToolUse가 보호 경로 검사와 deny 패턴 검사까지 건너뛰고 모든 도구 호출을 경고만 남긴 채 통과시키던 문제를 고칩니다. hook 의존성 gate(`hook_dependencies_ready`)가 jq·awk·deny 목록과 gitleaks를 한 조건으로 묶었기 때문에, gitleaks 하나가 없으면 gitleaks가 필요 없는 검사도 돌지 않았습니다. (#506)
+  - 동작 변경: open 모드에서 jq·awk·`deny-read-paths`·`deny-bash-patterns`가 모두 준비되어 있고 gitleaks(setsid·Perl 격리 도우미 포함)나 그 설정만 없으면, PreToolUse가 보호 경로 검사(Read·Grep·Glob·Bash·네트워크 입력), Bash deny 패턴과 live probe, git hook 우회 플래그 거부, 넓은 Grep 내용 검색 거부, PII 입력 gate를 그대로 돌리고 비밀 스캔만 건너뜁니다. 스캔을 건너뛴 호출은 지금처럼 세션당 한 번 경고하고 통과하며, 경고 문구는 "the secret scan did not run; protected-path and deny-pattern checks still run"으로 바뀌었습니다. closed 모드, jq·awk나 deny 목록이 없는 경우, gitleaks가 있는 경우의 판정과 출력은 바뀌지 않습니다. PostToolUse·PostToolUseFailure·UserPromptSubmit·Stop은 지금처럼 open에서 검사 없이 통과합니다. 그래서 gitleaks 없이 open으로 돌던 환경에서는 gitleaks가 있을 때 막히던 명령이 다시 막힙니다. `tests/run.sh`와 fixture의 hook 입력 4,720개를 Claude·Codex × open·closed × gitleaks 있음·없음에서 main과 비교한 결과, gitleaks가 있거나 closed인 설정은 종료 코드·stdout·stderr 차이 0건이었고, gitleaks 없는 open에서 새로 막힌 PreToolUse 1,948건(deny 목록 경로를 가리키는 Bash 1,291건, deny 패턴 401건, 보호 파일 접근 157건, git hook 우회 76건, PII 20건, 넓은 Grep 2건, live probe 1건)은 모두 gitleaks가 있는 main에서도 막히는 입력이었습니다. 새로 통과한 입력은 없습니다. gitleaks가 있는 main에서 막히던 기존 보호 경로 오탐도 이 설정에서 다시 막힙니다.
+  - 사용자가 할 일: 없습니다. gitleaks 없이 쓰던 환경에서 정상 명령이 보호 경로·deny 패턴으로 막히면, gitleaks가 있는 환경과 같은 안내(Read·Edit·Write 도구 사용 등)를 따르세요.
+  - 운영자가 할 일: 없습니다. 비밀 스캔까지 받으려면 지금처럼 gitleaks를 설치하세요.
+
 ## v3.12.0 - 2026-11-19
 
 v3.11.7은 게시되지 않았습니다. 그 릴리스의 변경(#496)도 이 릴리스에 들어 있습니다.
