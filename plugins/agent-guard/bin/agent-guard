@@ -2418,13 +2418,22 @@ need_gitleaks() {
     || die_with_status "${1:-2}" "gitleaks config not found: $GITLEAKS_CONFIG"
 }
 
+# Every hook needs each policy file present with at least one active rule.
+# Prints the first file that is not, and fails when all are usable.
+hook_policy_unusable() {
+  for hook_policy in "$GITLEAKS_CONFIG" "$DENY_READ_PATHS" "$DENY_BASH_PATTERNS"; do
+    [ -f "$hook_policy" ] && policy_file_has_active_rule "$hook_policy" && continue
+    printf '%s' "$hook_policy"
+    return 0
+  done
+  return 1
+}
+
 hook_dependencies_ready() {
   command -v jq >/dev/null 2>&1 || return 1
   command -v awk >/dev/null 2>&1 || return 1
   prepare_gitleaks || return 1
-  [ -f "$GITLEAKS_CONFIG" ] && policy_file_has_active_rule "$GITLEAKS_CONFIG" || return 1
-  [ -f "$DENY_READ_PATHS" ] && policy_file_has_active_rule "$DENY_READ_PATHS" || return 1
-  [ -f "$DENY_BASH_PATTERNS" ] && policy_file_has_active_rule "$DENY_BASH_PATTERNS" || return 1
+  ! hook_policy_unusable >/dev/null
 }
 
 infrastructure_failure_mode() {
@@ -2679,6 +2688,10 @@ check_deps() {
   need_gitleaks
   [ -f "$DENY_READ_PATHS" ] || die "deny read policy not found: $DENY_READ_PATHS"
   [ -f "$DENY_BASH_PATTERNS" ] || die "deny bash policy not found: $DENY_BASH_PATTERNS"
+  # Never report ok for a state in which hooks would run degraded.
+  if check_policy=$(hook_policy_unusable); then
+    die "policy file has no active rule: $check_policy"
+  fi
   info "$PROGRAM: dependencies ok"
   if jq_lookbehind_supported; then
     info "$PROGRAM: jq regex lookbehind supported"
@@ -2693,9 +2706,10 @@ SETUP_INSTALL_DIR=$GITLEAKS_PRIVATE_BIN_DIR
 setup_status_line() {
   name=$1
   if command -v "$name" >/dev/null 2>&1; then
-    ver=$($name --version 2>/dev/null | head -1)
+    # stdin closed: `awk version` is an awk program that would read the terminal.
+    ver=$($name --version </dev/null 2>/dev/null | head -1)
     if [ -z "$ver" ]; then
-      ver=$($name version 2>/dev/null | head -1)
+      ver=$($name version </dev/null 2>/dev/null | head -1)
     fi
     info "$PROGRAM: $name  ok  (${ver:-installed})"
     return 0
@@ -2876,9 +2890,10 @@ EOF
     shift
   done
 
-  jq_ok=1; git_ok=1; gitleaks_ok=1
+  jq_ok=1; awk_ok=1; git_ok=1; gitleaks_ok=1
   setup_status_line jq       || jq_ok=0
   [ "$jq_ok" -eq 0 ] || setup_jq_lookbehind_status_line
+  setup_status_line awk      || awk_ok=0
   setup_status_line git      || git_ok=0
   setup_gitleaks_status_line || gitleaks_ok=0
   # setup and doctor can establish only local dependencies.
@@ -2909,20 +2924,29 @@ EOF
       info "$PROGRAM: jq is not auto-installed; use your system package manager:"
       setup_suggest_pkg_install jq https://stedolan.github.io/jq/download/
     fi
+    if [ "$awk_ok" -eq 0 ]; then
+      info "$PROGRAM: awk is not auto-installed; use your system package manager:"
+      setup_suggest_pkg_install gawk https://www.gnu.org/software/gawk/
+    fi
     if [ "$git_ok" -eq 0 ]; then
       info "$PROGRAM: git is not auto-installed; use your system package manager:"
       setup_suggest_pkg_install git https://git-scm.com/downloads
     fi
-    [ "$jq_ok" -eq 1 ] && [ "$git_ok" -eq 1 ] \
+    [ "$jq_ok" -eq 1 ] && [ "$awk_ok" -eq 1 ] && [ "$git_ok" -eq 1 ] \
       && [ "$gitleaks_runtime_ok" -eq 1 ]
     return $?
   fi
 
-  if [ "$jq_ok" -eq 0 ] || [ "$git_ok" -eq 0 ] || [ "$gitleaks_ok" -eq 0 ]; then
+  if [ "$jq_ok" -eq 0 ] || [ "$awk_ok" -eq 0 ] || [ "$git_ok" -eq 0 ] \
+      || [ "$gitleaks_ok" -eq 0 ]; then
     info ""
     if [ "$jq_ok" -eq 0 ]; then
       info "$PROGRAM: install jq with your package manager:"
       setup_suggest_pkg_install jq https://stedolan.github.io/jq/download/
+    fi
+    if [ "$awk_ok" -eq 0 ]; then
+      info "$PROGRAM: install awk with your package manager:"
+      setup_suggest_pkg_install gawk https://www.gnu.org/software/gawk/
     fi
     if [ "$git_ok" -eq 0 ]; then
       info "$PROGRAM: install git with your package manager:"

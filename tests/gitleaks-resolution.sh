@@ -934,5 +934,59 @@ for capability_cmd in check doctor; do
   fi
 done
 
+# check must not report ok for a state in which hooks would run degraded.
+make_scanner "$STATE_BIN/gitleaks" 'gitleaks version 8.30.1' 0
+RULELESS_POLICY="$CASE_ROOT/ruleless-deny-bash.txt"
+printf '%s\n' '# every rule commented out' '   ' '  # indented comment' >"$RULELESS_POLICY"
+for policy_case in shipped ruleless; do
+  policy_file="$ROOT/plugins/agent-guard/config/deny-bash-patterns.txt"
+  [ "$policy_case" = shipped ] || policy_file=$RULELESS_POLICY
+  AGENT_GUARD_DENY_BASH_PATTERNS=$policy_file
+  export AGENT_GUARD_DENY_BASH_PATTERNS
+  run_check "$EMPTY_PRIVATE" "$ORIGINAL_PATH" "$STATE_BIN/gitleaks"
+  status=$?
+  unset AGENT_GUARD_DENY_BASH_PATTERNS
+  if [ "$policy_case" = shipped ] && [ "$status" -eq 0 ] \
+      && grep -Fq 'dependencies ok' "$CASE_ROOT/err"; then
+    ok "check accepts the shipped policy files"
+  elif [ "$policy_case" = ruleless ] && [ "$status" -eq 2 ] \
+      && grep -Fq "policy file has no active rule: $RULELESS_POLICY" "$CASE_ROOT/err" \
+      && ! grep -Fq 'dependencies ok' "$CASE_ROOT/err"; then
+    ok "check rejects a policy file with no active rule, as hooks do"
+  else
+    not_ok "check policy readiness ($policy_case, status $status)"
+  fi
+done
+
+# setup reports awk because every hook degrades without it.
+NO_AWK_BIN="$CASE_ROOT/no-awk-bin"
+mkdir -p "$NO_AWK_BIN"
+for no_awk_tool in sh dirname pwd jq git mktemp rm mkdir rmdir wc tr sleep head grep sed cat chmod setsid perl id uname date; do
+  no_awk_path=$(command -v "$no_awk_tool" 2>/dev/null || true)
+  [ -n "$no_awk_path" ] && ln -s "$no_awk_path" "$NO_AWK_BIN/$no_awk_tool"
+done
+for awk_case in present missing; do
+  awk_path=$ORIGINAL_PATH
+  [ "$awk_case" = present ] || awk_path=$NO_AWK_BIN
+  env AGENT_GUARD_LOG_MODE=off \
+    AGENT_GUARD_GITLEAKS_BIN="$STATE_BIN/gitleaks" \
+    PATH="$awk_path" \
+    "$GUARD" setup </dev/null >"$CASE_ROOT/out" 2>"$CASE_ROOT/err"
+  status=$?
+  if [ "$awk_case" = present ] && [ "$status" -eq 0 ] \
+      && grep -Fq 'awk  ok' "$CASE_ROOT/err" \
+      && grep -Fq 'setup ok' "$CASE_ROOT/err"; then
+    ok "setup reports an available awk"
+  elif [ "$awk_case" = missing ] && [ "$status" -eq 1 ] \
+      && grep -Fq 'awk  missing' "$CASE_ROOT/err" \
+      && grep -Fq 'install awk with your package manager' "$CASE_ROOT/err" \
+      && ! grep -Fq 'setup ok' "$CASE_ROOT/err"; then
+    ok "setup fails and explains a missing awk"
+  else
+    not_ok "setup awk readiness ($awk_case, status $status)"
+    sed 's/^/  stderr: /' "$CASE_ROOT/err"
+  fi
+done
+
 printf '%s passed, %s failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
