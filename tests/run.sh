@@ -1496,9 +1496,8 @@ expect_json_status 2 "Codex apply_patch added secret is blocked" \
   '{"tool_name":"apply_patch","tool_input":{"patch":"*** Begin Patch\n*** Add File: x\n+AGENT_GUARD_TEST_SECRET\n*** End Patch"}}' \
   hook-pre-tool
 
-expect_json_status 2 "Codex canonical apply_patch command field is scanned" \
-  '{"tool_name":"apply_patch","tool_input":{"command":"*** Begin Patch\n*** Add File: x\n+AGENT_GUARD_TEST_SECRET\n*** End Patch"}}' \
-  hook-pre-tool
+run_expect 0 "every file-writing tool shape reaches the secret gate, the PII gate and the post-tool target scan" \
+  sh "$ROOT/tests/tool-input-extract.sh"
 
 expect_json_status 0 "Codex apply_patch deleted secret is allowed" \
   '{"tool_name":"apply_patch","tool_input":{"patch":"*** Begin Patch\n*** Update File: x\n-AGENT_GUARD_TEST_SECRET\n+example_token\n*** End Patch"}}' \
@@ -1825,9 +1824,10 @@ expect_json_status 2 "negative glob does not hide a chained denied read" \
   hook-pre-tool
 
 # The Bash path gate stays fail-closed on path-shaped text (#99). What it must
-# not stay is opaque: a block has to name the deny-read entry that matched, the
-# text that matched it, and the fact that a non-path-shaped rewrite is the fix,
-# so a false positive is self-serviceable without weakening the deny list.
+# not stay is opaque: a block has to name the deny-read entry that matched and
+# the host tool for each job, without quoting the command. It must not offer a
+# reworded retry: text rewritten to look unlike a path can still open the
+# protected file (#507).
 expect_stderr_contains() {
   expected_fragment=$1
   name=$2
@@ -1857,8 +1857,10 @@ expect_stderr_contains "matched deny-read-paths entry '*.key'" \
   "Bash path block names the deny-read entry that matched"
 expect_stderr_missing "in scanned text" \
   "Bash path block quotes no raw command text"
-expect_stderr_contains "rewrite" \
-  "Bash path block suggests a non-path-shaped rewrite"
+expect_stderr_missing "rewrite" \
+  "Bash path block does not suggest a reworded retry"
+expect_stderr_contains "Do not weaken the deny list or reshape the command to pass this check." \
+  "Bash path block asks not to reshape the command"
 
 expect_json_status 2 "yq selector false positive reports its deny-read entry" \
   '{"tool_name":"Bash","tool_input":{"command":"yq '\''.key'\'' d.yaml"}}' \
@@ -1967,9 +1969,8 @@ expect_json_status 2 "Read with leading ./ is blocked" \
   '{"tool_name":"Read","tool_input":{"file_path":"./.env"}}' \
   hook-pre-tool
 
-expect_json_status 2 "NotebookRead on sensitive path is blocked" \
-  '{"tool_name":"NotebookRead","tool_input":{"notebook_path":".env"}}' \
-  hook-pre-tool
+run_expect 0 "every tool a shipped PreToolUse matcher sends reaches a check" \
+  sh "$ROOT/tests/tool-coverage.sh"
 
 expect_json_status 2 "Grep on explicit sensitive path is blocked" \
   '{"tool_name":"Grep","tool_input":{"pattern":"API_KEY","path":".env"}}' \
@@ -8644,6 +8645,15 @@ run_expect 1 "setup --install still exits 1 when git is missing" \
   env PATH="$NO_GIT_BIN" AGENT_GUARD_GITLEAKS_BIN="$MOCK_BIN/gitleaks" \
   "$PLUGIN_ROOT/bin/agent-guard" setup --install
 
+# Without gitleaks, PreToolUse still runs its path and pattern checks (#506),
+# which use the base POSIX tools every supported machine has. Only gitleaks
+# stays missing from this PATH.
+for no_gitleaks_tool in cat cut date grep ls mktemp od sed sort tail uniq; do
+  no_gitleaks_tool_path=$(command -v "$no_gitleaks_tool" 2>/dev/null || :)
+  [ -n "$no_gitleaks_tool_path" ] \
+    && ln -sf "$no_gitleaks_tool_path" "$NO_GITLEAKS_BIN/$no_gitleaks_tool"
+done
+
 DEGRADED_WARNING_DIR="$TESTTMP/degraded-warnings"
 mkdir -p "$DEGRADED_WARNING_DIR"
 printf '%s' '{"session_id":"degraded-session","tool_name":"Bash","tool_input":{"command":"brew install gitleaks"}}' \
@@ -8717,6 +8727,73 @@ else
   not_ok "missing hook dependencies follow the opt-in closed infrastructure policy (expected 2, got $status)"
   sed 's/^/  stderr: /' "$ERR"
 fi
+
+# #506: a missing gitleaks or gitleaks config skips only the secret scan. The
+# open policy still runs the protected-path and deny-pattern checks, a block
+# carries no degraded warning, and the first passing call per session warns.
+# The closed policy blocks every call. Stdout is empty or one JSON object,
+# also with Claude block capture on (rows with ai_agent). One row per host
+# and outcome. Rows that share a session run in file order, so a warns-once
+# row follows the row whose warning it expects to be suppressed.
+scanner_unavailable_fixtures="$ROOT/tests/fixtures/scanner-unavailable-pre-tool.json"
+scanner_unavailable_cases="$TESTTMP/scanner-unavailable-pre-tool.cases"
+if jq -e 'type == "array" and length > 0
+          and ([.[].host] | index("claude") != null and index("codex") != null)' \
+     "$scanner_unavailable_fixtures" >/dev/null \
+  && jq -c '.[]' "$scanner_unavailable_fixtures" >"$scanner_unavailable_cases"; then
+  ok "scanner-unavailable PreToolUse fixture covers both hosts"
+else
+  not_ok "scanner-unavailable PreToolUse fixture covers both hosts"
+fi
+mkdir -p "$TESTTMP/scanner-unavailable-warnings"
+while IFS= read -r su_row; do
+  su_id=$(printf '%s' "$su_row" | jq -r '.id')
+  su_host=$(printf '%s' "$su_row" | jq -r '.host')
+  su_mode=$(printf '%s' "$su_row" | jq -r '.mode')
+  su_expected=$(printf '%s' "$su_row" | jq -r '.expected_status')
+  su_stderr=$(printf '%s' "$su_row" | jq -r '.expected_stderr // empty')
+  su_stderr_also=$(printf '%s' "$su_row" | jq -r '.expected_stderr_also // empty')
+  su_stdout=$(printf '%s' "$su_row" | jq -r '.expected_stdout // empty')
+  su_quiet=$(printf '%s' "$su_row" | jq -r '.expected_quiet // false')
+  su_ai_agent=$(printf '%s' "$su_row" | jq -r '.ai_agent // empty')
+  su_gitleaks=/nonexistent/gitleaks
+  su_config=$PLUGIN_ROOT/config/gitleaks.toml
+  if [ "$(printf '%s' "$su_row" | jq -r '.scanner')" = config-missing ]; then
+    su_gitleaks=$MOCK_BIN/gitleaks
+    su_config=$TESTTMP/missing-gitleaks.toml
+  fi
+  printf '%s' "$su_row" | jq -c '.event + {session_id: .session}' \
+    | env ${su_ai_agent:+AI_AGENT="$su_ai_agent"} \
+      AGENT_GUARD_HOOK_HOST="$su_host" \
+      AGENT_GUARD_INFRA_FAILURE_MODE="$su_mode" \
+      AGENT_GUARD_GITLEAKS_BIN="$su_gitleaks" \
+      AGENT_GUARD_GITLEAKS_CONFIG="$su_config" \
+      AGENT_GUARD_WARNING_DIR="$TESTTMP/scanner-unavailable-warnings" \
+      "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
+  su_status=$?
+  su_ok=1
+  [ "$su_status" -eq "$su_expected" ] || su_ok=0
+  [ -z "$su_stderr" ] || grep -Fq -- "$su_stderr" "$ERR" || su_ok=0
+  [ -z "$su_stderr_also" ] || grep -Fq -- "$su_stderr_also" "$ERR" || su_ok=0
+  [ -z "$su_stdout" ] || grep -Fq -- "$su_stdout" "$OUT" || su_ok=0
+  if [ "$su_quiet" = true ] && { [ -s "$OUT" ] || [ -s "$ERR" ]; }; then
+    su_ok=0
+  fi
+  if [ "$su_mode" = open ] && [ "$su_status" -eq 2 ] && grep -q DEGRADED "$ERR"; then
+    su_ok=0
+  fi
+  if [ -s "$OUT" ] \
+     && [ "$(jq -s 'map(type) == ["object"]' <"$OUT" 2>/dev/null)" != true ]; then
+    su_ok=0
+  fi
+  if [ "$su_ok" -eq 1 ]; then
+    ok "scanner unavailable: $su_id"
+  else
+    not_ok "scanner unavailable: $su_id (expected $su_expected, got $su_status)"
+    sed 's/^/  stdout: /' "$OUT"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+done <"$scanner_unavailable_cases"
 
 # Malformed hook input is hostile input, not a scanner outage. jq can still
 # reject it before an unrelated missing scanner or policy takes the default
