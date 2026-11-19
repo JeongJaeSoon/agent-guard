@@ -15,16 +15,16 @@
   },
   {
     "id": "changeme",
-    "expected": "pass",
-    "classification": "must-pass",
-    "description": "a documented change-me default",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "change-me is also a real default password, so it stays a value",
     "text": "JWT_SECRET=changeme"
   },
   {
     "id": "change-me-hyphen",
-    "expected": "pass",
-    "classification": "must-pass",
-    "description": "the hyphenated change-me default",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "the hyphenated change-me default stays a value too",
     "text": "DB_PASSWORD=change-me"
   },
   {
@@ -116,7 +116,7 @@
     "expected": "block",
     "classification": "must-fail",
     "description": "a placeholder does not hide the next assignment",
-    "text": "JWT_SECRET=changeme\nSTRIPE_SECRET_KEY={{SECRET}}"
+    "text": "SESSION_SECRET=REDACTED\nSTRIPE_SECRET_KEY={{SECRET}}"
   },
   {
     "id": "weak-password",

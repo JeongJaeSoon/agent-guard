@@ -11959,7 +11959,7 @@ secretish_env_values() {
       v = prose_core(value)
       return v ~ /^(example|dummy)[_-]?(token|key|secret|password)$/ \
           || v ~ /^not[-_ ]?a[-_ ]?real[-_ ]?(token|key|secret|password)$/ \
-          || v ~ /^(redacted|change[-_]?me)$/ \
+          || v ~ /^redacted$/ \
           || your_here_placeholder(v) \
           || angle_placeholder(v)
     }
