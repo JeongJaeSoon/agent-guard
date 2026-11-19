@@ -108,10 +108,10 @@ while IFS= read -r doc; do
 done <"$CASE/all-inputs"
 check "primed json_value prints the same bytes and status as jq -r" [ "$jv_mismatch" -eq 0 ]
 
-# Unprimed, json_value_to must hold what the substitution held before it ran jq
-# directly, and neither reader may pass the input to json_value_cached: that
-# argument copies the whole input, and a PostToolUse output (hundreds of KiB)
-# is never primed (94S-1831).
+# Unprimed, json_value_to must hold what `$(json_value ...)` holds, with the
+# same status, and neither reader may pass the input to json_value_cached: that
+# argument copies the whole input, and an input over 256 Ki characters (a large
+# PostToolUse tool output) is never primed (94S-1831).
 jv_unprimed_mismatch=0
 while IFS= read -r doc; do
   JV_CACHE_INPUT=
@@ -119,14 +119,14 @@ while IFS= read -r doc; do
     json_value_to "$expr" "$doc"; printf '%s[%s]\n' "$?" "$jv_out"
   done >"$CASE/unprimed-to" 2>&1
   printf '%s\n' "$EXPRS" | while IFS= read -r expr; do
-    v=$(printf '%s' "$doc" | jq -r "$expr"); printf '%s[%s]\n' "$?" "$v"
+    v=$(json_value "$expr" "$doc"); printf '%s[%s]\n' "$?" "$v"
   done >"$CASE/unprimed-jq-status" 2>&1
   cmp -s "$CASE/unprimed-jq-status" "$CASE/unprimed-to" || {
     jv_unprimed_mismatch=1
     printf '  unprimed json_value_to mismatch for %s\n' "$doc"
   }
 done <"$CASE/all-inputs"
-check "unprimed json_value_to holds the same value and status as jq -r in a substitution" \
+check "unprimed json_value_to holds the same value and status as a json_value substitution" \
   [ "$jv_unprimed_mismatch" -eq 0 ]
 (
   json_value_cached() { printf 'called\n' >>"$CASE/jv-cached-calls"; return 1; }

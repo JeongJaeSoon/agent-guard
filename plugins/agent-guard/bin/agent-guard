@@ -4836,9 +4836,10 @@ json_value_cached() {
 }
 
 # Both readers consult json_value_cached only while a cache is primed. Passing
-# the input as an argument copies it in the shell, and a PostToolUse output is
-# never primed, so an unconditional lookup copied a large tool output once per
-# field for an answer that was always "not cached".
+# the input as an argument copies it in the shell, and an input over the 256 Ki
+# character priming limit (a large PostToolUse tool output) is never primed, so
+# an unconditional lookup copied that whole input once per field for an answer
+# that was always "not cached".
 json_value() {
   expr=$1
   input=$2
