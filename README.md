@@ -8,6 +8,7 @@
   <a href="https://github.com/JeongJaeSoon/agent-guard/actions/workflows/ci.yml"><img src="https://github.com/JeongJaeSoon/agent-guard/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/JeongJaeSoon/agent-guard/releases/latest"><img src="https://img.shields.io/github/v/release/JeongJaeSoon/agent-guard" alt="Latest release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/JeongJaeSoon/agent-guard" alt="MIT license"></a>
+  <a href="https://pickaplugin.com/p/agent-guard"><img src="https://pickaplugin.com/badge/agent-guard.svg" alt="Editor’s pick on PickAPlugin"></a>
 </p>
 
 English · [한국어](README.ko.md) · [日本語](README.ja.md)
