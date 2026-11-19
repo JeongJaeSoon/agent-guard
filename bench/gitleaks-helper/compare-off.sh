@@ -47,6 +47,11 @@ run() { # $1 cli, $2 fixture, $3 host, $4 log mode, $5 helper env, $6 out prefix
   # A watchdog's sleep may be killed before it execs; count every other program.
   grep 'execve("' "$6.trace" | grep -vc 'execve("[^"]*/sleep"' >"$6.execs"
 }
+# The first hook run in the fresh work tree also refreshes its Git index; run
+# each CLI once first so every measured run starts from the same tree state.
+run "$BASE" "$CASE/fx/1" claude on "" "$CASE/warm"
+run "$ROOT" "$CASE/fx/1" claude on "" "$CASE/warm"
+programs() { grep 'execve("' "$1" | grep -v 'execve("[^"]*/sleep"' | sed 's/^[0-9]* *execve("\([^"]*\)".*/\1/' | sort | uniq -c; }
 total=0 differ=0 base_execs=0 head_execs=0
 for f in "$CASE"/fx/*; do
   for host in claude codex; do
@@ -62,6 +67,7 @@ for f in "$CASE"/fx/*; do
             differ=$((differ + 1))
             printf 'DIFFER %s fixture %s host %s log %s helper %s: %s\n' "$part" "${f##*/}" "$host" "$log" "${helper:-unset}" \
               "$(cat "$CASE/b.$part" | head -c 200) / $(cat "$CASE/h.$part" | head -c 200)"
+            [ "$part" != execs ] || { programs "$CASE/b.trace" >"$CASE/b.programs"; programs "$CASE/h.trace" >"$CASE/h.programs"; diff "$CASE/b.programs" "$CASE/h.programs" | sed 's/^/  /'; }
             break
           fi
         done
