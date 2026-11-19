@@ -13158,7 +13158,7 @@ for display_case in \
 done
 
 # Pure classification variants are table-driven in unit-status-label.sh.
-# Keep five CLI representatives here; see docs/development/status-label-tests.md for mapping.
+# Keep five CLI representatives here.
 # #156: a status label alone must not buy a pass. The label is identical in
 # `error: password: authentication is disabled` (prose, covered above) and in
 # `error: password: <credential>`, so the VALUE decides. These values are the

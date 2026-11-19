@@ -1,6 +1,6 @@
 /*
- * Process-free stand-in for gitleaks, used only by bench/process-count/run.sh
- * and tests/gitleaks-clean-cache.sh.
+ * Process-free stand-in for gitleaks, used by bench/process-count/run.sh and
+ * tests/gitleaks-clean-cache.sh.
  *
  * It implements the same contract as tests/fixtures/mock-gitleaks (stdin, dir
  * and version modes; AGENT_GUARD_TEST_SECRET or "PRIVATE KEY" is a finding)

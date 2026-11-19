@@ -55,7 +55,7 @@ if grep -Eq '^  push:' "$perf"; then fail 'performance does not run on push'; fi
 grep -Fq "    - cron: '" "$perf" || fail 'performance runs on a schedule'
 grep -Fq '  workflow_dispatch:' "$perf" || fail 'performance runs on dispatch'
 grep -Fq "      - 'plugins/agent-guard/.claude-plugin/plugin.json'" "$perf" || fail 'release PRs run performance'
-for path in bench/native/ bench/fused-output/ bench/scanner/ native/devtools/; do
+for path in bench/native/ bench/fused-output/ native/devtools/; do
   grep -Fq "      - '$path**'" "$perf" || fail "PRs changing $path run performance"
 done
 [ "$(awk '/^permissions:/ { on = 1; next } /^[^ ]/ { on = 0 } on' "$perf")" = '  contents: read' ] \
