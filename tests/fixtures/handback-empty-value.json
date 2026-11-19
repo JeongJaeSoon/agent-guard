@@ -103,5 +103,54 @@
     "classification": "must-fail",
     "description": "a parenthetical does not hide the next assignment",
     "text": "API_KEY= (empty) WORKER_TOKEN={{SECRET}}"
+  },
+  {
+    "id": "paren-glued-value",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a value glued right after a listed parenthetical",
+    "text": "API_KEY= (empty){{SECRET}}"
+  },
+  {
+    "id": "paren-none-glued",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a value glued after (none)",
+    "text": "API_KEY= (none){{SECRET}}"
+  },
+  {
+    "id": "paren-required-glued",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a password glued after (required)",
+    "text": "DB_PASSWORD= (required)hunter{{DIGITS}}"
+  },
+  {
+    "id": "quote-comma-glued",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a value glued to a comma after the closing backtick",
+    "text": "- `API_KEY=`,{{SECRET}}"
+  },
+  {
+    "id": "quote-dot-glued",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a value glued to a period after the closing backtick",
+    "text": "- `API_KEY=`.{{SECRET}}"
+  },
+  {
+    "id": "quote-colon-glued",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a value glued to a colon after the closing backtick",
+    "text": "- `API_KEY=`:{{SECRET}}"
+  },
+  {
+    "id": "quote-paren-bang-glued",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a value glued to punctuation after the closing backtick",
+    "text": "- `API_KEY=`)!{{SECRET}}"
   }
 ]
