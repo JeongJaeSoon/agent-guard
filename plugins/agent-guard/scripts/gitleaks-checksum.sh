@@ -91,5 +91,8 @@ printf '  gitleaks-checksum: "%s"\n' "$LINUX_X64"
 if [ -n "$local_sha" ]; then
   printf '\n'
   printf 'agent-guard setup CLI (this machine: %s/%s):\n' "$LOCAL_OS" "$LOCAL_ARCH"
-  printf '  agent-guard setup --install --gitleaks-checksum %s --gitleaks-version %s\n' "$local_sha" "$VERSION"
+  # `agent-guard checksum` passes the command word that runs on this machine
+  # (a quoted path for a plugin-only install); a direct run keeps the name.
+  printf '  %s setup --install --gitleaks-checksum %s --gitleaks-version %s\n' \
+    "${AGENT_GUARD_CLI_REF:-agent-guard}" "$local_sha" "$VERSION"
 fi

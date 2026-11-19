@@ -91,7 +91,9 @@ agent-guard setup-shell --no-command-wrapping
 
 Restart the shell and every Claude Code session launched from it. The default
 installs command wrapping; `--no-command-wrapping` is the persistent opt-out and
-`AGENT_GUARD_COMMAND_WRAPPING=off` is a runtime opt-out. The integration is
+`AGENT_GUARD_COMMAND_WRAPPING=off` is a runtime opt-out. `agent-guard update`
+keeps the persistent opt-out (see `setup-shell --print-command-wrapping` in
+[Installing Agent Guard](installation.md#standalone-cli)). The integration is
 text-only and does not make interactive shell escapes a complete security
 boundary.
 

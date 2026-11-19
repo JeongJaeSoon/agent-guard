@@ -247,9 +247,13 @@ run_expect 0 "quote gate skips only texts the quote pass leaves unchanged" sh "$
 run_expect 0 "printenv argument boundaries preserve empty and public values" sh "$ROOT/tests/printenv-argument-contract.sh"
 run_expect 0 "known dotenv values are masked only in deny-read mask mode" sh "$ROOT/tests/known-env-value.sh"
 run_expect 0 "host plugin lifecycle delegates safely" sh "$ROOT/tests/plugin-management.sh"
+run_expect 0 "CLI guidance names a command that runs for plugin-only installs" \
+  sh "$ROOT/tests/cli-guidance.sh"
 
 run_expect 0 "standalone update preserves executable and link destinations" \
   sh "$ROOT/tests/bootstrap-update.sh"
+run_expect 0 "update and reinstall keep a recorded command-wrapping opt-out" \
+  sh "$ROOT/tests/update-command-wrapping.sh"
 run_expect 0 "release archive carries README-linked Markdown guides" \
   sh "$ROOT/tests/release-docs.sh"
 run_expect 0 "release opens a Homebrew tap PR without touching tap main" \
@@ -9117,6 +9121,9 @@ fi
 
 # --- install.sh git-hooks safety ------------------------------------------
 
+run_expect 0 "native git hook fails closed with remedies after agent-guard is removed" \
+  sh "$ROOT/tests/git-hook-missing-cli.sh"
+
 EMPTY_TEMPLATE="$TMP_ROOT/empty-git-template"
 mkdir -p "$EMPTY_TEMPLATE"
 
@@ -11886,7 +11893,12 @@ else
 fi
 
 mock_checksums_url="file://$ROOT/tests/fixtures/gitleaks-checksums-mock.txt"
-checksum_out=$(AGENT_GUARD_GITLEAKS_CHECKSUMS_URL="$mock_checksums_url" "$PLUGIN_ROOT/bin/agent-guard" checksum 8.30.1 2>&1)
+# With agent-guard on PATH (a standalone install) the snippet keeps the short
+# name; tests/cli-guidance.sh covers the plugin-only path form.
+CHECKSUM_PATH_BIN="$TMP_ROOT/checksum-path-bin"
+mkdir -p "$CHECKSUM_PATH_BIN"
+ln -sf "$PLUGIN_ROOT/bin/agent-guard" "$CHECKSUM_PATH_BIN/agent-guard"
+checksum_out=$(PATH="$CHECKSUM_PATH_BIN:$PATH" AGENT_GUARD_GITLEAKS_CHECKSUMS_URL="$mock_checksums_url" "$PLUGIN_ROOT/bin/agent-guard" checksum 8.30.1 2>&1)
 checksum_status=$?
 if [ "$checksum_status" -eq 0 ] \
    && printf '%s\n' "$checksum_out" | grep -q 'darwin/arm64:' \
@@ -16735,7 +16747,12 @@ else
 fi
 # Like the degraded-dependency guidance, the wrapping nudge must offer the CLI
 # form alongside the plugin command: standalone (settings-based) installs have
-# no /agent-guard:* commands to run.
+# no /agent-guard:* commands to run. A standalone install has agent-guard on
+# PATH, so model that here (tests/cli-guidance.sh covers plugin-only paths).
+SS_STANDALONE_BIN="$TMP_ROOT/session-start-standalone-bin"
+mkdir -p "$SS_STANDALONE_BIN"
+ln -sf "$PLUGIN_ROOT/bin/agent-guard" "$SS_STANDALONE_BIN/agent-guard"
+vd_out=$(run_session_start "" "" "" "$SS_STANDALONE_BIN:$MOCK_BIN:$ORIGINAL_PATH" 2>"$ERR")
 if printf '%s' "$vd_out" | jq -e '.systemMessage | contains("or agent-guard setup-shell")' >/dev/null 2>&1; then
   ok "command-wrapping setup guidance offers the standalone CLI form"
 else
