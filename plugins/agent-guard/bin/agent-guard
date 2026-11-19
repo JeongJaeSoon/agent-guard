@@ -3745,7 +3745,7 @@ tool_patch_text() {
 tool_write_path() {
   case "$2" in
     Write|Edit|MultiEdit)
-      json_value '.tool_input.file_path // .tool_input.path // empty' "$1" ;;
+      json_value "$JV_PATH" "$1" ;;
     NotebookEdit)
       json_value '.tool_input.notebook_path // .tool_input.file_path // empty' "$1" ;;
   esac
@@ -3755,8 +3755,8 @@ tool_write_path() {
 # apply_patch, only the lines it adds.
 tool_proposed_text() {
   case "$2" in
-    Write) json_value '.tool_input.content // empty' "$1" ;;
-    Edit) json_value '.tool_input.new_string // empty' "$1" ;;
+    Write) json_value "$JV_CONTENT" "$1" ;;
+    Edit) json_value "$JV_NEW_STRING" "$1" ;;
     MultiEdit)
       printf '%s' "$1" | jq -r '[.tool_input.edits[]?.new_string // empty] | join("\n")' ;;
     NotebookEdit) json_value '.tool_input.new_source // empty' "$1" ;;
@@ -3785,7 +3785,7 @@ check_pii_hook_input() {
       block_on_pii_text "proposed apply_patch added lines" "$content"
       ;;
     Bash)
-      content=$(json_value '.tool_input.command // .tool_input.cmd // empty' "$input")
+      content=$(json_value "$JV_COMMAND" "$input")
       block_on_pii_text "Bash command" "$content"
       ;;
     WebFetch|WebSearch|Agent|Task|mcp__*)
@@ -4966,7 +4966,15 @@ scan_path() {
 # than 64 Ki characters (quoting a large Write body into the shell would cost
 # more than the jq run it saves) -- is left uncached and
 # json_value runs jq exactly as before, so no value is ever reformatted.
-# Expressions json_value_prime does not list always run jq.
+# Expressions json_value_prime does not list always run jq. The cache is keyed
+# by expression text, so callers name a primed field with these constants.
+JV_INPUT_TYPE='.tool_input | type'
+JV_TOOL='.tool_name // .tool // .name // empty'
+JV_WORKDIR='.tool_input.workdir // .tool_input.cwd // .cwd // empty'
+JV_COMMAND='.tool_input.command // .tool_input.cmd // empty'
+JV_PATH='.tool_input.file_path // .tool_input.path // empty'
+JV_CONTENT='.tool_input.content // empty'
+JV_NEW_STRING='.tool_input.new_string // empty'
 JV_CACHE_INPUT=
 JV_CACHE_OBJECT=
 
@@ -4997,13 +5005,13 @@ json_value_prime() {
     if length == 1 and (.[0] | type) == "object" then
       .[0]
       | "jv_object=1",
-        cached("jv_input_type"; .tool_input | type),
-        cached("jv_tool"; .tool_name // .tool // .name // empty),
-        cached("jv_workdir"; .tool_input.workdir // .tool_input.cwd // .cwd // empty),
-        cached("jv_command"; .tool_input.command // .tool_input.cmd // empty),
-        cached("jv_path"; .tool_input.file_path // .tool_input.path // empty),
-        cached("jv_content"; .tool_input.content // empty),
-        cached("jv_new_string"; .tool_input.new_string // empty)
+        cached("jv_input_type"; '"$JV_INPUT_TYPE"'),
+        cached("jv_tool"; '"$JV_TOOL"'),
+        cached("jv_workdir"; '"$JV_WORKDIR"'),
+        cached("jv_command"; '"$JV_COMMAND"'),
+        cached("jv_path"; '"$JV_PATH"'),
+        cached("jv_content"; '"$JV_CONTENT"'),
+        cached("jv_new_string"; '"$JV_NEW_STRING"')
     else empty end'
   # Slurp so a stream of several documents is seen as such and left uncached.
   jv_assignments=$(printf '%s' "$1" | jq -rs "$jv_program" 2>/dev/null) || return 0
@@ -5028,13 +5036,13 @@ json_value_cached() {
   jv_set=
   if [ -n "${JV_CACHE_INPUT:-}" ] && [ "$2" = "$JV_CACHE_INPUT" ]; then
     case "$1" in
-      '.tool_input | type') jv_set=${jv_input_type_set:-} jv_val=${jv_input_type:-} ;;
-      '.tool_name // .tool // .name // empty') jv_set=${jv_tool_set:-} jv_val=${jv_tool:-} ;;
-      '.tool_input.workdir // .tool_input.cwd // .cwd // empty') jv_set=${jv_workdir_set:-} jv_val=${jv_workdir:-} ;;
-      '.tool_input.command // .tool_input.cmd // empty') jv_set=${jv_command_set:-} jv_val=${jv_command:-} ;;
-      '.tool_input.file_path // .tool_input.path // empty') jv_set=${jv_path_set:-} jv_val=${jv_path:-} ;;
-      '.tool_input.content // empty') jv_set=${jv_content_set:-} jv_val=${jv_content:-} ;;
-      '.tool_input.new_string // empty') jv_set=${jv_new_string_set:-} jv_val=${jv_new_string:-} ;;
+      "$JV_INPUT_TYPE") jv_set=${jv_input_type_set:-} jv_val=${jv_input_type:-} ;;
+      "$JV_TOOL") jv_set=${jv_tool_set:-} jv_val=${jv_tool:-} ;;
+      "$JV_WORKDIR") jv_set=${jv_workdir_set:-} jv_val=${jv_workdir:-} ;;
+      "$JV_COMMAND") jv_set=${jv_command_set:-} jv_val=${jv_command:-} ;;
+      "$JV_PATH") jv_set=${jv_path_set:-} jv_val=${jv_path:-} ;;
+      "$JV_CONTENT") jv_set=${jv_content_set:-} jv_val=${jv_content:-} ;;
+      "$JV_NEW_STRING") jv_set=${jv_new_string_set:-} jv_val=${jv_new_string:-} ;;
       *) jv_set= ;;
     esac
   fi
@@ -5318,7 +5326,7 @@ check_sensitive_reads() {
       dr_mode=$(deny_read_mode) || dr_mode=invalid
       if [ "$dr_mode" = mask ] && dr_target=$(read_mask_target "$input" "$reads_tool"); then
         deny_read_masked_block "$dr_target" \
-          "$(json_value '.tool_input.workdir // .tool_input.cwd // .cwd // empty' "$input")"
+          "$(json_value "$JV_WORKDIR" "$input")"
       fi
       info "$PROGRAM: blocked sensitive file access: $value"
       [ "$dr_mode" = invalid ] && deny_read_mode_notice invalid
@@ -11473,7 +11481,7 @@ GIT_DIR='*|'
 check_bash_command() {
   input=$1
   need_cmd jq
-  json_value_to '.tool_input.command // .tool_input.cmd // empty' "$input"
+  json_value_to "$JV_COMMAND" "$input"
   cmd=$jv_out
   [ -n "$cmd" ] || return 0
   # POSIX sh has no locals, so a helper that assigns the bare name `cmd` would
@@ -11484,7 +11492,7 @@ check_bash_command() {
   raw_cmd=$cmd
   # Set only by the deny-pattern check below, never from the environment.
   unset mv_strip_in mv_strip_out
-  json_value_to '.tool_input.workdir // .tool_input.cwd // .cwd // empty' "$input"
+  json_value_to "$JV_WORKDIR" "$input"
   workdir=$jv_out
 
   # A harmless, deterministic sentinel lets setup prove that the host really
@@ -11813,14 +11821,14 @@ hook_pre_tool() {
   # (e.g. an mcp__* tool_input of "AGENT_GUARD_TEST_SECRET") through — a
   # regression. Recover-not-block keeps a string-encoding host from being
   # over-blocked.
-  json_value_to '.tool_input | type' "$input"
+  json_value_to "$JV_INPUT_TYPE" "$input"
   if [ "$jv_out" = "string" ]; then
     input=$(printf '%s' "$input" \
       | jq -c '(.tool_input | try fromjson catch null) as $decoded
                | if ($decoded | type) == "object" then .tool_input = $decoded else . end')
   fi
 
-  json_value_to '.tool_name // .tool // .name // empty' "$input"
+  json_value_to "$JV_TOOL" "$input"
   tool=$jv_out
 
   case "$tool" in
@@ -14054,14 +14062,10 @@ redact_nonempty_response_strings() {
 # compact jq serialization iteratively with POSIX awk. Output stays in a
 # private temporary file until the complete single document is validated, so a
 # malformed or interrupted transform can never expose a partial replacement.
-redact_response_values_awk() {
-  whole_leaf_response=$1
-  redact_response_values_awk_current
-}
-
-# The conservative caller already owns whole_leaf_response. Read that inherited
-# shell variable inside its command substitution instead of expanding a large
-# JSON value through another function argument and assignment.
+#
+# Callers own whole_leaf_response. Read that inherited shell variable inside
+# their command substitution instead of expanding a large JSON value through
+# another function argument and assignment.
 redact_response_values_awk_current() {
   whole_leaf_tmp=$(mktemp_file) || return 1
   case "$whole_leaf_response" in
@@ -14734,7 +14738,7 @@ recover_post_tool_validation_failure() {
   # Primary JSON processing failed, so no scanner-dependent verdict is trustworthy.
   # Conservatively sanitize the entire response with the independent parser.
   recovery_output=
-  if ! recovery_output=$(redact_response_values_awk "$recovery_response"); then
+  if ! recovery_output=$(whole_leaf_response=$recovery_response; redact_response_values_awk_current); then
     recovery_output=
   fi
   if [ -z "$recovery_output" ]; then
@@ -15969,7 +15973,7 @@ redact_tool_output() {
   [ "$PII_HOOK_MODE" = mask ] && pii_on=1
   [ "$secrets_on" -eq 1 ] || [ "$pii_on" -eq 1 ] || return 0
   redact_figma_tool=0
-  if is_figma_mcp_tool "$(json_value '.tool_name // .tool // .name // empty' "$input" 2>/dev/null)"; then
+  if is_figma_mcp_tool "$(json_value "$JV_TOOL" "$input" 2>/dev/null)"; then
     redact_figma_tool=1
   fi
   ag_known_value_base=
@@ -16473,7 +16477,7 @@ hook_post_tool() {
   # git backstop nor the direct scan. Only an object is substituted, matching
   # PreToolUse: a string that decodes to an array/scalar, or to nothing, is left
   # alone so the generic string-leaf scanners still see it.
-  json_value_to '.tool_input | type' "$input"
+  json_value_to "$JV_INPUT_TYPE" "$input"
   if [ "$jv_out" = "string" ]; then
     input=$(printf '%s' "$input" \
       | jq -c '(.tool_input | try fromjson catch null) as $decoded
@@ -16481,9 +16485,9 @@ hook_post_tool() {
     HOOK_INPUT=$input
   fi
 
-  json_value_to '.tool_name // .tool // .name // empty' "$input"
+  json_value_to "$JV_TOOL" "$input"
   tool=$jv_out
-  json_value_to '.tool_input.workdir // .tool_input.cwd // .cwd // empty' "$input"
+  json_value_to "$JV_WORKDIR" "$input"
   workdir=$jv_out
 
   # Mutation tools keep the working-tree backstop. It runs first so a secret
@@ -16638,7 +16642,7 @@ hook_stop() {
       "$PROGRAM: git is unavailable, so changed files could not be scanned before stop;"
     return 0
   fi
-  workdir=$(json_value '.tool_input.workdir // .tool_input.cwd // .cwd // empty' "$input")
+  workdir=$(json_value "$JV_WORKDIR" "$input")
   scan_working_tree_in "$workdir"
   status=$?
   case "$status" in
