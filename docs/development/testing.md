@@ -34,7 +34,7 @@ Individual documents describe each suite's contracts and evidence and link here.
 | `tests/unit-deny-path.sh` | 97 | 1 | [Deny-path character producers](deny-path-regex.md) |
 | `tests/unit-probe.sh` | 4 | 1 | Probe eligibility |
 | `tests/unit-watchdog.sh` | 2 | 1 | Timer cancellation waits for the child on scanner success and failure |
-| `tests/unit-status-label.sh` | 22 | 1 | [Status-label classification](status-label-tests.md) |
+| `tests/unit-status-label.sh` | 22 | 1 | Status-label classification |
 | `tests/redaction-plan.sh` | 8 | 4 | Replacement ordering, context and output budgets |
 | `tests/unit-audit-retention.sh` | 10 | 1 | Portable audit filename and retention rules |
 | `tests/unit-nul-redaction.sh` | 3 | 1 | NUL-only masking on supported jq versions |
@@ -87,7 +87,7 @@ runner capacity and OS differences and requires its own exact-head evidence.
 ## Coverage we do and do not measure
 
 There is no automatic line/branch coverage collector or percentage gate in
-these workflows. A local [scoped source-line measurement](coverage-core.md)
+these workflows. A local scoped source-line measurement
 retains the historical 4/4 result and records an eight-function observation from 2026-10-20:
 **39/40 predetermined physical Bash source locations**, with a definition-only
 control at **0/40**. This excludes embedded programs and is not whole-file,
@@ -152,8 +152,7 @@ This document introduces no framework, coverage service, credentials, new
 required check or reduction in the existing suite. CI performance changes own
 their test helpers; future unit/module changes should use separate small PRs.
 
-The [status-label family mapping](status-label-tests.md) records the subsequent
-move of pure classification variants to 22 direct assertions, five retained CLI
+A later change moved pure classification variants to 22 direct assertions, five retained CLI
 representatives, equivalence and selected mutation controls. It does not change
 the historical four-suite timing or scoped Bash observation above.
 

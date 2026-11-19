@@ -44,13 +44,13 @@ all security/OS integration assertions and real-scanner gates remain. No runtime
 public API, workflow permission or required-check change is made. Adding tests
 is not evidence of a full-CI speedup.
 
-The [scoped Bash observation](coverage-core.md) retains the previous four-line
+The scoped Bash observation retains the previous four-line
 measurement as historical evidence and now separately observes the shell
 invocation locations of both framing producers. It does not measure the jq/awk
 programs inside them or establish producer branch coverage. Assertions and
 selected mutations remain behavior evidence.
 
-The separate [exec boundary regression](exec-framing-boundary.md) tests caller
+The separate exec boundary regression (`tests/exec-framing-boundary.sh`) tests caller
 failure handling at exactly 65536 captured bytes, with 65535/65537-byte routing
 controls. Direct producer tests alone cannot prove that an enclosing pipeline
 preserves the producer's failure status.

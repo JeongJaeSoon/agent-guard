@@ -25,6 +25,11 @@ for f in "$CASE/fn"/*.sh; do
   # shellcheck disable=SC1090
   . "$f"
 done
+# The cache keys are the JV_* expression constants beside the functions.
+sed -n '/^JV_INPUT_TYPE=/,/^JV_NEW_STRING=/p' "$GUARD" >"$CASE/fn/constants.sh"
+[ "$(grep -c '^JV_' "$CASE/fn/constants.sh")" -eq 7 ] || exit 1
+# shellcheck disable=SC1091
+. "$CASE/fn/constants.sh"
 
 # --- json_value answers primed fields exactly as jq -r does ------------------
 EXPRS='.tool_input | type
