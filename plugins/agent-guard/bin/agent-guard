@@ -11557,6 +11557,7 @@ hook_pre_tool() {
   HOOK_INPUT=$input
   if command -v jq >/dev/null 2>&1 && [ -n "$input" ]; then
     # Refuse an over-limit input before the call copies it ('' resets alike).
+    # Inline, not a helper: in dash each function definition costs every hook.
     if [ "${#input}" -le 262144 ]; then json_value_prime "$input" measured; else json_value_prime ''; fi
     # One primed JSON object is exactly what the jq object check accepts.
     json_input_is_primed_object "$input" \
@@ -13675,7 +13676,8 @@ redact_nul_response_json() {
 # conservative whole-leaf path. Large clean output still uses normal detection,
 # and so does a response whose size cannot be counted: this is only a precheck.
 # $2 is the output_byte_count of $1 that output_scan_input_exceeds_cap took; a
-# count that failed made that check true, so this one never runs on it.
+# count that failed made that check true, so this one never runs on it. It is
+# not recounted: that costs another full copy of a large output.
 OUTPUT_LARGE_PROBE_BYTES=262144
 large_response_has_secretish_assignment() {
   large_probe_response=$1
@@ -15599,7 +15601,8 @@ cat_mask_target() (
 # exit status alone, so mandatory masking has a dependency-independent,
 # shape-preserving fallback and emits one host-valid replacement.
 # $2 is the tool name the caller read from $1 with
-# '.tool_name // .tool // .name // empty'.
+# '.tool_name // .tool // .name // empty'; there is no fallback read, because
+# the only caller has it and re-reading costs a jq run on large outputs.
 redact_tool_output() {
   input=$1
   REDACT_OUTPUT_EMITTED=0
@@ -16101,6 +16104,7 @@ hook_post_tool() {
     # The object check itself still runs here: its failure is what selects the
     # validation-recovery path below, which must stay reachable on its own.
     # Refuse an over-limit input before the call copies it ('' resets alike).
+    # Inline, not a helper: in dash each function definition costs every hook.
     if [ "${#input}" -le 262144 ]; then json_value_prime "$input" measured; else json_value_prime ''; fi
     if ! printf '%s' "$input" | jq -e 'type == "object"' >/dev/null 2>&1; then
       if recover_post_tool_validation_failure "$input"; then
