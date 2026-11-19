@@ -1,10 +1,14 @@
 ## Unreleased
 
-- fix(prompt): 하위 에이전트 보고(hand-back)나 예시 설정을 옮긴 글에 `SESSION_SECRET=REDACTED`, `JWT_SECRET=changeme`, `CLIENT_SECRET=your-client-secret-here`처럼 값 자리를 표시한 글이 있으면 프롬프트 가드가 보고 전체를 막고 Agent 도구 결과에서는 가리던 오탐을 고칩니다. 지금까지 자리표시자로 본 것은 `example_token`·`dummy_secret`·`not-a-real-key`·`<your-api-key>`·`<redacted>`·`***`뿐이었습니다.
+<<<<<<< HEAD
+- fix(prompt): 하위 에이전트 보고(hand-back)나 예시 설정을 옮긴 글에 `SESSION_SECRET=REDACTED`, `JWT_SECRET=changeme`, `CLIENT_SECRET=your-client-secret-here`처럼 값 자리를 표시한 글이 있으면 프롬프트 가드가 보고 전체를 막고 Agent 도구 결과에서는 가리던 오탐을 고칩니다. 지금까지 자리표시자로 본 것은 `example_token`·`dummy_secret`·`not-a-real-key`·`<your-api-key>`·`<redacted>`·`***`뿐이었습니다. (#543)
   - 동작 변경: 값 전체가 `redacted`, `changeme`, `change-me`, `change_me`(대소문자 무관)이거나, `your`와 `here` 사이의 낱말이 모두 기존 자리표시자 낱말 목록(`api`·`client`·`secret`·`token`·`key` 등)에 있는 `your-…-here`·`your_…_here`이면 자리표시자로 보고 막거나 가리지 않습니다. gitleaks 설정의 자리표시자 allowlist에도 같은 두 모양을 값 전체에 고정해 넣었습니다. 지금 gitleaks 규칙도 이 값들을 잡지 않지만, 두 판정이 앞으로 어긋나지 않게 맞춘 것입니다. 계속 막히는 것: 이 낱말에 글이 붙은 값(`REDACTED<값>`, `redacted-<값>`, `changeme123`), 틀 안의 실제 값(`your-<값>-here`), 목록에 없는 낱말(`your-prod-billing-key-here`), `here` 뒤의 글, `your`로 시작하지 않는 틀(`my-real-key-here`), 자리표시자 줄 다음 줄의 실제 값, 짧은 실제 비밀번호.
   - 사용자가 할 일: 없습니다.
   - 운영자가 할 일: 없습니다. `changeme`를 실제 비밀번호로 쓰는 곳이 있으면 이제 가드가 가리지 않으니 바꾸세요.
 - fix(prompt): 하위 에이전트 보고(hand-back)에 `GITHUB_TOKEN=$GITHUB_TOKEN`처럼 따옴표 없는 환경 변수 참조가 있으면, 프롬프트 가드가 보고 전체를 막고 Agent 도구 결과에서는 그 줄을 가리던 오탐을 고칩니다. 같은 참조를 큰따옴표로 감싸면(`"$GITHUB_TOKEN"`) 이미 참조로 보았지만, 따옴표가 없으면 `$`로 시작하는 낱말을 bcrypt 해시(`$2b$12$…`)처럼 값으로 보았습니다.
+=======
+- fix(prompt): 하위 에이전트 보고(hand-back)에 `GITHUB_TOKEN=$GITHUB_TOKEN`처럼 따옴표 없는 환경 변수 참조가 있으면, 프롬프트 가드가 보고 전체를 막고 Agent 도구 결과에서는 그 줄을 가리던 오탐을 고칩니다. 같은 참조를 큰따옴표로 감싸면(`"$GITHUB_TOKEN"`) 이미 참조로 보았지만, 따옴표가 없으면 `$`로 시작하는 낱말을 bcrypt 해시(`$2b$12$…`)처럼 값으로 보았습니다. (#541)
+>>>>>>> fix/1827-handback-bare-reference
   - 동작 변경: 따옴표 없는 값이 `$`와 환경 변수 이름(대문자와 `_`만, 숫자 없음)뿐이면 참조로 보고 막거나 가리지 않습니다. 큰따옴표 안의 참조와 같은 모양입니다. 계속 막히는 것: 실제 값(`GITHUB_TOKEN=<값>`), 이름 뒤에 붙은 글(`$API_KEY<값>`), 소문자나 숫자가 든 `$` 낱말(`$abc…`, `$ABCD123`), bcrypt 꼴(`$2b$12$…`), 참조 줄 다음 줄의 실제 값.
   - 사용자가 할 일: 없습니다.
   - 운영자가 할 일: 없습니다.
