@@ -63,12 +63,13 @@ render() {
           share = d; rest = 0; kind = "스크립트 크기 기준"
         } else {
           share = ref; rest = d - ref
-          # The allowance covers run-to-run noise (a few thousand) and path
-          # work that scales with the parse. An unchanged script (version
-          # within its own noise) is no change, not a script-size cost.
+          # With the script unchanged (version within its own noise), only
+          # run-to-run noise (measured up to about 7,000) is no change; more
+          # is executed code. With a changed script, the share estimate gets
+          # an allowance for path work that scales with the parse.
           tol = b[i] * 0.0005; if (tol < 20000) tol = 20000
-          if (abs(rest) <= tol && abs(ref) <= 100) kind = "변화 없음"
-          else if (abs(rest) <= tol) kind = "스크립트 크기만"
+          if (abs(ref) <= 100 && abs(rest) <= 10000) kind = "변화 없음"
+          else if (abs(ref) > 100 && abs(rest) <= tol) kind = "스크립트 크기만"
           else if (rest > 0) kind = "**실행 코드 증가**"
           else kind = "실행 코드 감소"
         }

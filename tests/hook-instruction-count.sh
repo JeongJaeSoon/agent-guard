@@ -43,6 +43,8 @@ has '| prompt | hook-user-prompt | 71,840,678 | 71,830,000 | -10,678 (-0.01%) | 
   row pre-bash-repeated hook-pre-tool 246760107 246753390 0 0 same
   row post-bash hook-post-tool 92636119 92637051 0 0 same
   row prompt hook-user-prompt 72003893 72103893 0 0 same
+  row dense-controls hook-post-tool 484249311 484449311 0 0 same
+  row pre-edit hook-pre-tool 69463314 69473315 0 0 same
 } > "$case_dir/noise.tsv"
 sh "$bench" --render "$case_dir/noise.tsv" > "$case_dir/table" || fail 'render accepts a same-script TSV'
 has '| version | version | 66,790,467 | 66,790,478 | +11 (+0.00%) | +11 | 0 | 스크립트 크기 기준 | 0 | 같음 |' 'reference within its noise'
@@ -52,6 +54,10 @@ has '| post-bash | hook-post-tool | 92,636,119 | 92,637,051 | +932 (+0.00%) | +1
   'small noise is no change'
 has '| prompt | hook-user-prompt | 72,003,893 | 72,103,893 | +100,000 (+0.14%) | +11 | +99,989 | **실행 코드 증가** | 0 | 같음 |' \
   'a rise without a script change is executed code'
+has '| dense-controls | hook-post-tool | 484,249,311 | 484,449,311 | +200,000 (+0.04%) | +11 | +199,989 | **실행 코드 증가** | 0 | 같음 |' \
+  'a rise inside the script-size allowance is executed code when the script is unchanged'
+has '| pre-edit | hook-pre-tool | 69,463,314 | 69,473,315 | +10,001 (+0.01%) | +11 | +9,990 | 변화 없음 | 0 | 같음 |' \
+  'the no-change bound is 10,000 instructions'
 
 # Without the reference first there is no script-size share to subtract.
 row dense-controls hook-post-tool 1 2 0 0 same > "$case_dir/noref.tsv"
