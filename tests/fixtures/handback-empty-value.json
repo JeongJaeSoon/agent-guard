@@ -152,5 +152,42 @@
     "classification": "must-fail",
     "description": "a value glued to punctuation after the closing backtick",
     "text": "- `API_KEY=`)!{{SECRET}}"
+  },
+  {
+    "id": "paren-cr-glued",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a lone carriage return after the parenthetical does not end the token",
+    "text": "API_KEY= (empty)\r{{SECRET}}"
+  },
+  {
+    "id": "quote-cr-glued",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a lone carriage return after the closing backtick does not end the token",
+    "text": "- `API_KEY=`\r{{SECRET}}"
+  },
+  {
+    "id": "paren-path-value",
+    "expected": "block",
+    "classification": "must-fail",
+    "prompt_only": true,
+    "description": "a credential-shaped word in the in <path> slot keeps the prompt blocked",
+    "text": "API_KEY= (empty in {{SECRET}}.txt)"
+  },
+  {
+    "id": "paren-abs-path-value",
+    "expected": "block",
+    "classification": "must-fail",
+    "prompt_only": true,
+    "description": "a credential-shaped path segment keeps the prompt blocked",
+    "text": "API_KEY= (empty in /{{SECRET}})"
+  },
+  {
+    "id": "crlf-empty",
+    "expected": "pass",
+    "classification": "must-pass",
+    "description": "regression: a CRLF line end after an empty value still passes",
+    "text": "- `API_KEY=` is read at src/config.ts:12\r\nAPI_KEY= (empty)\r\n"
   }
 ]

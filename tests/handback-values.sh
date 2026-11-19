@@ -75,7 +75,12 @@ for fixture in $FIXTURES; do
       '{hook_event_name:"PostToolUse",tool_name:"Agent",tool_input:{subagent_type:"Explore",prompt:"report"},tool_response:{content:[{type:"text",text:$t}]}}' \
       | (cd "$CASE/work" && AGENT_GUARD_HOOK_HOST=claude "$GUARD" hook-post-tool) >"$CASE/out" 2>"$CASE/err"
     status=$?
-    if [ "$expected" = pass ]; then
+    # A prompt_only row checks the prompt verdict alone: main itself leaves
+    # part of that text visible in a tool result, so the result is not held
+    # to a stricter standard than main here.
+    if [ "$(printf '%s' "$row" | jq -r '.prompt_only // false')" = true ]; then
+      result ok "[claude Agent result] $name is not compared (prompt_only)"
+    elif [ "$expected" = pass ]; then
       [ "$status" -eq 0 ] && [ ! -s "$CASE/out" ] && r=ok || r=bad
       result "$r" "[claude Agent result] $name is left unmasked (status $status)"
     else
