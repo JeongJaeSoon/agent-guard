@@ -8,6 +8,7 @@
   <a href="https://github.com/JeongJaeSoon/agent-guard/actions/workflows/ci.yml"><img src="https://github.com/JeongJaeSoon/agent-guard/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/JeongJaeSoon/agent-guard/releases/latest"><img src="https://img.shields.io/github/v/release/JeongJaeSoon/agent-guard" alt="Latest release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/JeongJaeSoon/agent-guard" alt="MIT license"></a>
+  <a href="https://pickaplugin.com/p/agent-guard"><img src="https://pickaplugin.com/badge/agent-guard.svg" alt="Editor’s pick on PickAPlugin"></a>
 </p>
 
 English · [한국어](README.ko.md) · [日本語](README.ja.md)
@@ -39,7 +40,7 @@ with CI behind it as a backstop:
 
 | Who commits | What stops the leak |
 | --- | --- |
-| An agent in Claude Code or Codex | Before the agent's `git commit` or `git push` runs, the plugin scans the staged added lines and blocks the command on a secret-like value. It also refuses `--no-verify` and `--no-gpg-sign` on those commands, so the agent cannot switch the check off with a flag. |
+| An agent in Claude Code or Codex | Before the agent's `git commit` or `git push` runs, the plugin scans the staged added lines and blocks the command on a secret-like value. It also refuses the options that skip the repository's own Git hooks or signing on those commands: `--no-verify`, `--no-gpg-sign`, `git commit -n`, their abbreviations, and a `core.hooksPath` set for the command. |
 | Any local commit, yours or an agent's | Once installed, the [native pre-commit hook](docs/integrations.md#native-git-hook) scans the staged added lines after Git has staged everything the commit will include, and aborts the commit on a finding or when the scan cannot run. Git skips it for `git commit --no-verify`; the plugin refuses that flag for agents, and CI covers the rest. |
 | Anyone, after a push | The [GitHub Action](docs/integrations.md#github-actions) scans the checked-out files of each push or pull request it runs on, as the repository backstop. |
 

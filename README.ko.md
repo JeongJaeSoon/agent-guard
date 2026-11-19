@@ -1,4 +1,4 @@
-<!-- translated-from: README.md; source-blob: 58d472de7ad3a278b41624fc730823420db73e1c -->
+<!-- translated-from: README.md; source-blob: aa8aacd67ff68abbb2aebd8f4ba69e1abdc44f64 -->
 
 <p align="center">
   <a href="https://github.com/JeongJaeSoon/agent-guard/releases"><img src="docs/assets/icon.png" alt="Agent Guard icon" width="128" height="128"></a>
@@ -10,6 +10,7 @@
   <a href="https://github.com/JeongJaeSoon/agent-guard/actions/workflows/ci.yml"><img src="https://github.com/JeongJaeSoon/agent-guard/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/JeongJaeSoon/agent-guard/releases/latest"><img src="https://img.shields.io/github/v/release/JeongJaeSoon/agent-guard" alt="Latest release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/JeongJaeSoon/agent-guard" alt="MIT license"></a>
+  <a href="https://pickaplugin.com/p/agent-guard"><img src="https://pickaplugin.com/badge/agent-guard.svg" alt="PickAPlugin 에디터 추천"></a>
 </p>
 
 [English](README.md) · 한국어 · [日本語](README.ja.md)
@@ -36,7 +37,7 @@ Agent Guard는 Claude Code, Codex, Git hook, GitHub Actions와 직접 실행하�
 
 | 커밋 주체 | 유출을 막는 방식 |
 | --- | --- |
-| Claude Code 또는 Codex의 에이전트 | 에이전트의 `git commit` 또는 `git push` 실행 전에 스테이징된 추가 줄을 검사하고, 비밀 정보로 보이는 값이 있으면 명령을 차단합니다. 해당 명령의 `--no-verify`와 `--no-gpg-sign`도 거부하므로 에이전트가 플래그로 검사를 끌 수 없습니다. |
+| Claude Code 또는 Codex의 에이전트 | 에이전트의 `git commit` 또는 `git push` 실행 전에 스테이징된 추가 줄을 검사하고, 비밀 정보로 보이는 값이 있으면 명령을 차단합니다. 해당 명령에서 저장소 자체의 Git hook이나 서명을 건너뛰는 옵션도 거부합니다: `--no-verify`, `--no-gpg-sign`, `git commit -n`, 그 약어, 명령에 지정한 `core.hooksPath`. |
 | 사용자 또는 에이전트가 실행하는 모든 로컬 커밋 | [네이티브 pre-commit hook](docs/integrations.md#native-git-hook)을 설치하면 Git이 커밋 대상 전체를 스테이징한 뒤 추가 줄을 검사하며, 탐지되거나 검사를 실행할 수 없으면 커밋을 중단합니다. Git은 `git commit --no-verify`에서 hook을 건너뜁니다. 플러그인은 에이전트의 해당 플래그 사용을 거부하고, 나머지는 CI가 보완합니다. |
 | 누구든 push한 뒤 | [GitHub Action](docs/integrations.md#github-actions)이 실행 대상 push 또는 pull request에서 체크아웃된 파일을 저장소의 추가 방어 계층으로 검사합니다. |
 

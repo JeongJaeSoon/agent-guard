@@ -1,6 +1,6 @@
 # Fast core contracts
 
-Run `sh tests/unit-core.sh` for 35 assertions against the production `version_newer`
+Run `sh tests/unit-core.sh` for 36 assertions against the production `version_newer`
 and `sh_squote` function bodies. This component test needs only POSIX shell,
 awk, sed, cmp and ordinary system utilities; it does not initialize the CLI,
 create a Git repository, install a scanner or invoke a host adapter.
@@ -10,19 +10,19 @@ the complete `make test-unit` suite list, assertion counts, and CI partitions.
 See the [layer and cost inventory](testing.md) for the separate failure
 regressions and integration boundaries.
 
-The suite isolates the two named functions using their existing source layout,
+The suite isolates the named functions using their existing source layout,
 rejects missing/duplicate definitions and invalid shell syntax, and sources
 only those bodies. A change to their layout may require updating the extractor.
 The CLI's public API and startup behavior are unchanged.
 
 | Contract | Assertions | What is measured |
 | --- | ---: | --- |
-| Numeric version comparison | 15 | Equal/greater/less, component precedence, multi-digit values, existing leading-zero behavior; exit status and no output |
+| Numeric version comparison | 16 | Equal/greater/less, component precedence, multi-digit values, existing leading-zero behavior, an unparsable 10-digit field is never newer; exit status and no output |
 | Shell single-quote encoding | 10 | Exact expected bytes for empty input, spaces, quotes, backslash, metacharacters, options, Unicode, tab and trailing newlines |
 | Shell argument round trip | 10 | Exactly one literal argument, preserved bytes, no stderr or command-substitution side effect |
 
 `tests/run.sh` runs this component suite once in partition 1, on both existing
-CI operating systems. The 35 internal assertions are represented by one new
+CI operating systems. The 36 internal assertions are represented by one new
 outer assertion. No existing assertion, integration suite, scanner check or
 platform matrix entry is removed. `make test` still runs the full suite.
 
