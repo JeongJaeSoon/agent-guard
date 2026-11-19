@@ -7441,7 +7441,7 @@ $jq_records
     done
   }
   jq_end_segment() {
-    case "$jq_state:$jq_seg_bad" in after:0|ghafter:0) jq_try_rewrite ;; esac
+    [ "$jq_state:$jq_seg_bad" = after:0 ] && jq_try_rewrite
     jq_state=start jq_cmdw=
   }
   jq_bail() {
@@ -7467,7 +7467,7 @@ $jq_records
       3'&')
         case "$jq_state:$jq_before" in
           after:*'>'|after:*'<') continue ;;
-          opt:*|operand:*|after:*|gh*:*) jq_seg_bad=1 ;;
+          opt:*|operand:*|after:*) jq_seg_bad=1 ;;
         esac
         jq_end_segment
         break
@@ -7479,7 +7479,7 @@ $jq_records
       # Inside jq's arguments a `(` is a glob qualifier or a syntax error; a
       # subshell can only open at a command start.
       3'(')
-        case "$jq_state" in opt|operand|after|gh*) jq_seg_bad=1 ;; esac
+        case "$jq_state" in opt|operand|after) jq_seg_bad=1 ;; esac
         jq_end_segment
         continue
         ;;
@@ -7517,23 +7517,18 @@ $jq_records
       if [ "$jq_state" != opt ] && jq_names_tool "$jq_word"; then jq_bail; fi
       continue
     fi
-    # The --jq value of gh is a filter gh runs itself, with no file access,
-    # and --jq is an option of gh, not a command. The word after it is
-    # rewritten as a jq filter, under the same quoting check as a jq filter,
-    # only where --jq is that option for sure: the subcommand is a built-in
-    # one that takes --jq (an alias or extension may run its arguments as
-    # shell, and gh rejects one named after a built-in), no `--` came
-    # before it, and the word before it is no option that may take --jq as
-    # its value (`gh gist create -d --jq .env` uploads .env). Anywhere else
-    # --jq stops the rewrite, as before. Any other glob, redirection or
-    # tilde word in the segment, a second --jq, or the attached --jq=value
-    # form keeps the segment unchanged.
+    # --jq is an option of gh, not a command, so it does not stop the rewrite
+    # of a jq later in this pipeline, where --jq is that option for sure: the
+    # subcommand is a built-in one that takes --jq (an alias or extension may
+    # run its arguments as shell, and gh rejects one named after a built-in),
+    # no `--` came before it, and the word before it is no option that may
+    # take --jq as its value. The gh filter itself is left as written and
+    # stays in the scan, which keeps a gh command at its old cost. Anywhere
+    # else --jq stops the rewrite, as before.
     case "$jq_state" in
-      ghopt|ghafter)
+      ghopt)
         if [ "$jq_ghnext" = 1 ]; then
           jq_ghnext=0
-          [ "$jq_state" = ghopt ] || jq_seg_bad=1
-          jq_tool=jq jq_filter=$jq_word jq_filter_at=$jq_i jq_state=ghafter
           continue
         fi
         jq_ghn=$((jq_ghn + 1))
@@ -7541,7 +7536,6 @@ $jq_records
           1) jq_ghsub=$jq_word ;;
           2) [ "$jq_ghsub" = api ] || jq_ghsub="$jq_ghsub $jq_word" ;;
         esac
-        case "$jq_word" in *[\*?[#^]*|*'<'*|*'>'*|'~'*) jq_seg_bad=1 ;; esac
         [ "$jq_word" != -- ] || jq_ghdd=1
         if [ "$jq_word" = --jq ]; then
           [ "$jq_ghdd" = 0 ] || jq_bail
