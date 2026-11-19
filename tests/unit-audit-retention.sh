@@ -5,7 +5,10 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 SOURCE=${AGENT_GUARD_UNIT_SOURCE:-"$ROOT/plugins/agent-guard/bin/agent-guard"}
 CASE=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-retention.XXXXXX")
 trap 'rm -rf "$CASE"' 0
-sed -n '/^audit_prune() ($/,/^)/p' "$SOURCE" >"$CASE/prune.sh"
+{
+  sed -n '/^audit_run_id_valid() {$/,/^}/p' "$SOURCE"
+  sed -n '/^audit_prune() ($/,/^)/p' "$SOURCE"
+} >"$CASE/prune.sh"
 sh -n "$CASE/prune.sh"
 . "$CASE/prune.sh"
 if [ -n "${AGENT_GUARD_TEST_AWK:-}" ]; then

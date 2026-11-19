@@ -2,7 +2,13 @@
 set -u
 
 PROGRAM=agent-guard
-VERSION=3.11.7
+VERSION=3.12.0
+
+# Where releases are published and what the host plugin managers call them.
+AG_REPO=JeongJaeSoon/agent-guard
+AG_REPO_URL=https://github.com/$AG_REPO
+AG_MARKETPLACE=agent-guard
+AG_PLUGIN_ID=agent-guard@$AG_MARKETPLACE
 
 # Resolve the script's own path, following symlinks. The bootstrap installer
 # drops a symlink at ~/.local/bin/agent-guard that points into ~/.agent-guard/
@@ -50,6 +56,37 @@ ROOT_DIR=$(CDPATH= cd -- "$BIN_DIR/.." && pwd -P)
 # Resolved absolute path of THIS binary, for self re-exec and cache identity.
 SELF_BIN="$BIN_DIR/agent-guard"
 
+# Sets ag_sv_1..3 to the first three dot-separated fields of $1 (a missing or
+# empty field is 0). Fails on any other character or a field of 10+ digits,
+# which test(1) cannot compare.
+semver_fields() {
+  case "$1" in
+    *[!0-9.]*|*[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]*) return 1 ;;
+  esac
+  ag_sv_ifs=$IFS
+  IFS=.
+  # shellcheck disable=SC2086 # split on IFS=. into fields
+  set -- $1
+  IFS=$ag_sv_ifs
+  ag_sv_1=${1:-0} ag_sv_2=${2:-0} ag_sv_3=${3:-0}
+}
+
+# semver_at_least A B succeeds when version A >= B; an unparsable version
+# fails with 2.
+semver_at_least() {
+  semver_fields "$2" || return 2
+  ag_sv_b1=$ag_sv_1 ag_sv_b2=$ag_sv_2 ag_sv_b3=$ag_sv_3
+  semver_fields "$1" || return 2
+  [ "$ag_sv_1" -ne "$ag_sv_b1" ] && { [ "$ag_sv_1" -gt "$ag_sv_b1" ]; return; }
+  [ "$ag_sv_2" -ne "$ag_sv_b2" ] && { [ "$ag_sv_2" -gt "$ag_sv_b2" ]; return; }
+  [ "$ag_sv_3" -ge "$ag_sv_b3" ]
+}
+
+# version_newer A B: succeeds when semver A is strictly greater than B.
+version_newer() {
+  semver_at_least "$2" "$1"
+  [ "$?" -eq 1 ]
+}
 
 # Plugin managers install each release under a version directory. Keep one
 # sibling `current` symlink so shell snapshots and hook manifests never bake a
@@ -135,10 +172,9 @@ refresh_plugin_current_link() {
   # host-selected binary actually runs.
   if [ -L "$current" ]; then
     if is_semver_dir "$current_target" \
-       && plugin_cache_root_usable "$PLUGIN_CACHE_BASE/$current_target" "$current_target"; then
-      newest=$(printf '%s\n%s\n' "$current_target" "$PLUGIN_CACHE_VERSION" \
-        | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1)
-      [ "$newest" = "$current_target" ] && return 0
+       && plugin_cache_root_usable "$PLUGIN_CACHE_BASE/$current_target" "$current_target" \
+       && semver_at_least "$current_target" "$PLUGIN_CACHE_VERSION"; then
+      return 0
     fi
   fi
   # BSD and GNU ln both support -n to replace a symlink-to-directory itself
@@ -243,8 +279,8 @@ latest_release_version() {
     LATEST_RELEASE_LOOKED_UP=1
     if [ "${AGENT_GUARD_RELEASE_CHECK:-on}" != off ] && command -v curl >/dev/null 2>&1; then
       release_url=$(curl -fsSI --max-time 5 -o /dev/null -w '%{redirect_url}' \
-        https://github.com/JeongJaeSoon/agent-guard/releases/latest 2>/dev/null) || release_url=
-      release_prefix='https://github.com/JeongJaeSoon/agent-guard/releases/tag/v'
+        "$AG_REPO_URL/releases/latest" 2>/dev/null) || release_url=
+      release_prefix="$AG_REPO_URL/releases/tag/v"
       case "$release_url" in
         "$release_prefix"*)
           release_tag=${release_url#"$release_prefix"}
@@ -256,18 +292,6 @@ latest_release_version() {
   [ -n "$LATEST_RELEASE_VERSION" ]
 }
 
-# version_newer A B: succeeds when semver A is strictly greater than B.
-version_newer() {
-  awk -v a="$1" -v b="$2" 'BEGIN {
-    split(a, x, "."); split(b, y, ".")
-    for (i = 1; i <= 3; i++) {
-      if (x[i] + 0 > y[i] + 0) exit 0
-      if (x[i] + 0 < y[i] + 0) exit 1
-    }
-    exit 1
-  }'
-}
-
 # Host-manager commands that move a pinned marketplace to $2 (a tag, or a
 # placeholder when the latest release is unknown). Printed to stderr, never run.
 print_release_forward_commands() {
@@ -276,14 +300,14 @@ print_release_forward_commands() {
   forward_scope=$3
   case "$forward_host" in
     claude)
-      printf '  claude plugin marketplace remove agent-guard --scope %s\n' "$forward_scope" >&2
-      printf '  claude plugin marketplace add JeongJaeSoon/agent-guard@%s --scope %s\n' "$forward_tag" "$forward_scope" >&2
-      printf '  claude plugin install agent-guard@agent-guard --scope %s\n' "$forward_scope" >&2
+      printf '  claude plugin marketplace remove %s --scope %s\n' "$AG_MARKETPLACE" "$forward_scope" >&2
+      printf '  claude plugin marketplace add %s@%s --scope %s\n' "$AG_REPO" "$forward_tag" "$forward_scope" >&2
+      printf '  claude plugin install %s --scope %s\n' "$AG_PLUGIN_ID" "$forward_scope" >&2
       ;;
     codex)
-      printf '  codex plugin marketplace remove agent-guard\n' >&2
-      printf '  codex plugin marketplace add JeongJaeSoon/agent-guard@%s\n' "$forward_tag" >&2
-      printf '  codex plugin add agent-guard@agent-guard\n' >&2
+      printf '  codex plugin marketplace remove %s\n' "$AG_MARKETPLACE" >&2
+      printf '  codex plugin marketplace add %s@%s\n' "$AG_REPO" "$forward_tag" >&2
+      printf '  codex plugin add %s\n' "$AG_PLUGIN_ID" >&2
       ;;
   esac
   printf '%s\n' "$PROGRAM: marketplace removal also removes its installed plugin; restart the host afterwards" >&2
@@ -445,7 +469,7 @@ codex_trust_probe() {
     rm -rf "$ct_dir"
     return 0
   fi
-  ct_verdict=$(jq -R -s -r --argjson expected "$CODEX_TRUST_EVENTS" '
+  ct_verdict=$(jq -R -s -r --argjson expected "$CODEX_TRUST_EVENTS" --arg id "$AG_PLUGIN_ID" '
     def names: map(.eventName) | join(", ");
     [splits("\n") | select(length > 0) | (try fromjson catch null)] as $m
     | ($m | map(select(type == "object" and .id == 1))) as $init
@@ -463,7 +487,7 @@ codex_trust_probe() {
         | if ($entry.hooks | type) != "array" or ($entry.errors | type) != "array" then
             "unverified\tunexpected hooks/list reply"
           else
-            ($entry.hooks | map(select(type == "object" and .pluginId == "agent-guard@agent-guard"))) as $ag
+            ($entry.hooks | map(select(type == "object" and .pluginId == $id))) as $ag
             # A hook Codex lists as needing review or turned off is skipped even
             # when other entries failed to load; errors only block absent and ok.
             | if any($ag[]; (.eventName | type) != "string"
@@ -511,7 +535,7 @@ codex_trust_report() {
     review)
       info "$PROGRAM: codex hook trust: needs review for $CODEX_TRUST_CWD ($CODEX_TRUST_DETAIL); Codex skips these agent-guard hooks until they are trusted again"
       info "$PROGRAM: to re-trust, start 'codex' in that directory and choose 'Review hooks' at 'Hooks need review';"
-      info "  trust a hook only after checking that its Source is agent-guard@agent-guard and its command is expected,"
+      info "  trust a hook only after checking that its Source is $AG_PLUGIN_ID and its command is expected,"
       info "  then restart Codex sessions that were already running"
       return 1
       ;;
@@ -539,26 +563,41 @@ plugin_codex_trust() {
   codex_trust_report plugin || :
 }
 
+# jq over a host plugin manager's JSON, with the identity bound. The program
+# may use these definitions. $3 of the callers below is the Claude scope;
+# a row without one is user-scoped.
+PLUGIN_JQ_DEFS='
+  def is_repo_url: . == $url or . == $url + ".git";
+  def marketplace: select(.name == $marketplace);
+  def claude_row($scope):
+    .[] | select((.id // .pluginId // "") == $id and (.scope // "user") == $scope);
+  def codex_row: .installed[] | select(.pluginId == $id and .installed == true);
+  def plugin_row($host; $scope): if $host == "codex" then codex_row else claude_row($scope) end;
+'
+plugin_jq() {
+  plugin_jq_flag=$1
+  plugin_jq_program=$2
+  shift 2
+  jq "$plugin_jq_flag" --arg marketplace "$AG_MARKETPLACE" --arg id "$AG_PLUGIN_ID" \
+    --arg repo "$AG_REPO" --arg url "$AG_REPO_URL" \
+    "$PLUGIN_JQ_DEFS $plugin_jq_program" "$@"
+}
+
 plugin_marketplace_source_is_agent_guard() {
   plugin_host=$1
   plugin_json=$2
   case "$plugin_host" in
     claude)
-      jq -e '.[] | select(.name == "agent-guard")
-        | (((.source // "") == "github" and
-            (.repo // "") == "JeongJaeSoon/agent-guard") or
-           ((.source // "") == "git" and
-            ((.url // "") == "https://github.com/JeongJaeSoon/agent-guard" or
-             (.url // "") == "https://github.com/JeongJaeSoon/agent-guard.git")))' \
+      plugin_jq -e '.[] | marketplace
+        | (((.source // "") == "github" and (.repo // "") == $repo) or
+           ((.source // "") == "git" and (.url // "" | is_repo_url)))' \
         "$plugin_json" >/dev/null 2>&1
       ;;
     codex)
-      jq -e '.marketplaces[] | select(.name == "agent-guard")
+      plugin_jq -e '.marketplaces[] | marketplace
         | (.marketplaceSource.source // "") as $source
         | ((.marketplaceSource.sourceType // "") == "git") and
-          ($source == "JeongJaeSoon/agent-guard" or
-           $source == "https://github.com/JeongJaeSoon/agent-guard" or
-           $source == "https://github.com/JeongJaeSoon/agent-guard.git")' \
+          ($source == $repo or ($source | is_repo_url))' \
         "$plugin_json" >/dev/null 2>&1
       ;;
   esac
@@ -569,62 +608,38 @@ plugin_marketplace_source_is_agent_guard() {
 # official manager's idempotence probe. It succeeds for the same ref and rejects
 # an existing unpinned or different ref without changing host state.
 claude_marketplace_matches_release() {
-  jq -e --arg ref "v$VERSION" '.[] | select(.name == "agent-guard")
-    | (.ref // "") == $ref' "$1" >/dev/null 2>&1
+  plugin_jq -e '.[] | marketplace | (.ref // "") == $ref' \
+    --arg ref "v$VERSION" "$1" >/dev/null 2>&1
 }
 
 claude_marketplace_ref() {
-  jq -r '.[] | select(.name == "agent-guard") | .ref // "unpinned"' "$1" | head -n 1
+  plugin_jq -r '.[] | marketplace | .ref // "unpinned"' "$1" | head -n 1
 }
 
 plugin_marketplace_present() {
-  plugin_host=$1
-  plugin_json=$2
-  case "$plugin_host" in
-    claude) jq -e '.[] | select(.name == "agent-guard")' "$plugin_json" >/dev/null 2>&1 ;;
-    codex) jq -e '.marketplaces[] | select(.name == "agent-guard")' "$plugin_json" >/dev/null 2>&1 ;;
+  case "$1" in
+    claude) plugin_jq -e '.[] | marketplace' "$2" >/dev/null 2>&1 ;;
+    codex) plugin_jq -e '.marketplaces[] | marketplace' "$2" >/dev/null 2>&1 ;;
   esac
 }
 
 plugin_installed() {
-  plugin_host=$1
-  plugin_json=$2
-  plugin_scope=$3
-  case "$plugin_host" in
-    claude) jq -e --arg scope "$plugin_scope" '.[]
-      | select((.id // .pluginId // "") == "agent-guard@agent-guard" and (.scope // "user") == $scope)' "$plugin_json" >/dev/null 2>&1 ;;
-    codex) jq -e '.installed[] | select(.pluginId == "agent-guard@agent-guard" and .installed == true)' "$plugin_json" >/dev/null 2>&1 ;;
-  esac
+  plugin_jq -e 'plugin_row($host; $scope)' \
+    --arg host "$1" --arg scope "$3" "$2" >/dev/null 2>&1
 }
 
 plugin_version() {
-  plugin_host=$1
-  plugin_json=$2
-  plugin_scope=$3
-  case "$plugin_host" in
-    claude) jq -r --arg scope "$plugin_scope" '.[]
-      | select((.id // .pluginId // "") == "agent-guard@agent-guard" and (.scope // "user") == $scope)
-      | .version // "unknown"' "$plugin_json" | head -n 1 ;;
-    codex) jq -r '.installed[] | select(.pluginId == "agent-guard@agent-guard") | .version // "unknown"' "$plugin_json" | head -n 1 ;;
-  esac
+  plugin_jq -r 'plugin_row($host; $scope) | .version // "unknown"' \
+    --arg host "$1" --arg scope "$3" "$2" | head -n 1
 }
 
 plugin_enabled() {
-  plugin_host=$1
-  plugin_json=$2
-  plugin_scope=$3
-  case "$plugin_host" in
-    claude) jq -e --arg scope "$plugin_scope" '.[]
-      | select((.id // .pluginId // "") == "agent-guard@agent-guard" and (.scope // "user") == $scope)
-      | .enabled == true' "$plugin_json" >/dev/null 2>&1 ;;
-    codex) jq -e '.installed[]
-      | select(.pluginId == "agent-guard@agent-guard" and .installed == true)
-      | .enabled == true' "$plugin_json" >/dev/null 2>&1 ;;
-  esac
+  plugin_jq -e 'plugin_row($host; $scope) | .enabled == true' \
+    --arg host "$1" --arg scope "$3" "$2" >/dev/null 2>&1
 }
 
 claude_managed_plugin_present() {
-  jq -e '.[] | select((.id // .pluginId // "") == "agent-guard@agent-guard" and .scope == "managed")' "$1" >/dev/null 2>&1
+  plugin_installed claude "$1" managed
 }
 
 # Claude's marketplace-list JSON intentionally omits settings provenance for
@@ -675,7 +690,7 @@ claude_managed_settings_state() (
     "$managed_fragments"/*.json; do
     [ -e "$managed_file" ] || [ -L "$managed_file" ] || continue
     [ -f "$managed_file" ] && [ -r "$managed_file" ] || return 2
-    jq -c -s '
+    plugin_jq -cs '
       def valid_policy_helper:
         type == "object" and
         (.path | type == "string" and startswith("/")) and
@@ -689,12 +704,11 @@ claude_managed_settings_state() (
                      then .source else "other" end)}
          else {} end) +
         (if has("repo") then
-           {repo: (if .repo == "JeongJaeSoon/agent-guard"
+           {repo: (if .repo == $repo
                    then "agent-guard" else "other" end)}
          else {} end) +
         (if has("url") then
-           {url: (if .url == "https://github.com/JeongJaeSoon/agent-guard" or
-                       .url == "https://github.com/JeongJaeSoon/agent-guard.git"
+           {url: (if .url | is_repo_url
                   then "agent-guard" else "other" end)}
          else {} end);
       def compact_marketplace:
@@ -722,8 +736,8 @@ claude_managed_settings_state() (
             ((.extraKnownMarketplaces // {})
              | with_entries(.value |= compact_marketplace)),
           enabledPlugins:
-            (if ((.enabledPlugins // {}) | has("agent-guard@agent-guard"))
-             then {"agent-guard@agent-guard": true}
+            (if ((.enabledPlugins // {}) | has($id))
+             then {($id): true}
              else {}
              end)
         } + if has("policyHelper") then {policyHelper: true} else {} end)
@@ -731,7 +745,7 @@ claude_managed_settings_state() (
     ' "$managed_file" >>"$managed_summary" 2>/dev/null || return 2
   done
 
-  managed_state=$(jq -r -s '
+  managed_state=$(plugin_jq -rs '
       def agent_guard_source:
         type == "object" and
         ((.source == "github" and .repo == "agent-guard") or
@@ -741,7 +755,7 @@ claude_managed_settings_state() (
       | if has("policyHelper") then "dynamic"
         elif (((.extraKnownMarketplaces // {})
                | any(.[]; (.source? | agent_guard_source))) or
-              ((.enabledPlugins // {}) | has("agent-guard@agent-guard"))) then
+              ((.enabledPlugins // {}) | has($id))) then
           "managed"
         else "unrelated"
         end
@@ -757,12 +771,8 @@ claude_managed_settings_state() (
 claude_managed_status() {
   plugin_plugins=$1
   if claude_managed_plugin_present "$plugin_plugins"; then
-    managed_version=$(jq -r '.[]
-      | select((.id // .pluginId // "") == "agent-guard@agent-guard" and .scope == "managed")
-      | .version // "unknown"' "$plugin_plugins" | head -n 1)
-    if jq -e '.[]
-      | select((.id // .pluginId // "") == "agent-guard@agent-guard" and .scope == "managed")
-      | .enabled == true' "$plugin_plugins" >/dev/null 2>&1; then
+    managed_version=$(plugin_version claude "$plugin_plugins" managed)
+    if plugin_enabled claude "$plugin_plugins" managed; then
       managed_enabled=enabled
     else
       managed_enabled=disabled
@@ -832,20 +842,20 @@ plugin_require_release_pin() {
         && plugin_marketplace_matches=1
       ;;
     codex)
-      codex plugin marketplace add "JeongJaeSoon/agent-guard@v$VERSION" \
+      codex plugin marketplace add "$AG_REPO@v$VERSION" \
         && plugin_marketplace_matches=1
       ;;
   esac
   [ "$plugin_marketplace_matches" -eq 0 ] || return 0
   if [ "$plugin_host" = claude ]; then
     plugin_actual_ref=$(claude_marketplace_ref "$plugin_marketplaces")
-    plugin_remove="claude plugin marketplace remove agent-guard --scope $plugin_scope"
+    plugin_remove="claude plugin marketplace remove $AG_MARKETPLACE --scope $plugin_scope"
   else
     plugin_actual_ref='unverified or different ref'
-    plugin_remove='codex plugin marketplace remove agent-guard'
+    plugin_remove="codex plugin marketplace remove $AG_MARKETPLACE"
   fi
   plugin_set_retry install
-  printf '%s\n' "$PROGRAM: $plugin_host marketplace 'agent-guard' is '$plugin_actual_ref', expected 'v$VERSION'; $1" >&2
+  printf '%s\n' "$PROGRAM: $plugin_host marketplace '$AG_MARKETPLACE' is '$plugin_actual_ref', expected 'v$VERSION'; $1" >&2
   printf '%s\n' "$PROGRAM: run '$plugin_remove', then '$plugin_retry'; marketplace removal also removes its installed plugin" >&2
   return 2
 }
@@ -965,7 +975,7 @@ plugin_for_host_body() {
       ;;
     install)
       if [ "$plugin_marketplace_source" = conflict ]; then
-        printf '%s\n' "$PROGRAM: $plugin_host marketplace 'agent-guard' has a different source; refusing to replace it" >&2
+        printf '%s\n' "$PROGRAM: $plugin_host marketplace '$AG_MARKETPLACE' has a different source; refusing to replace it" >&2
         return 2
       fi
       if [ "$plugin_marketplace_source" = agent-guard ]; then
@@ -989,25 +999,25 @@ plugin_for_host_body() {
         plugin_marketplace_added=0
         if [ "$plugin_has_marketplace" -eq 0 ]; then
           case "$plugin_host" in
-            claude) claude plugin marketplace add "JeongJaeSoon/agent-guard@v$VERSION" --scope "$plugin_scope" ;;
-            codex) codex plugin marketplace add "JeongJaeSoon/agent-guard@v$VERSION" ;;
+            claude) claude plugin marketplace add "$AG_REPO@v$VERSION" --scope "$plugin_scope" ;;
+            codex) codex plugin marketplace add "$AG_REPO@v$VERSION" ;;
           esac
           plugin_add_status=$?
           if [ "$plugin_add_status" -ne 0 ]; then
             plugin_set_retry install
-            printf '%s\n' "$PROGRAM: $plugin_host could not add marketplace 'agent-guard' pinned to v$VERSION; no plugin installation was attempted and it is safe to retry '$plugin_retry'" >&2
+            printf '%s\n' "$PROGRAM: $plugin_host could not add marketplace '$AG_MARKETPLACE' pinned to v$VERSION; no plugin installation was attempted and it is safe to retry '$plugin_retry'" >&2
             return 1
           fi
           plugin_marketplace_added=1
         fi
         case "$plugin_host" in
-          claude) claude plugin install agent-guard@agent-guard --scope "$plugin_scope" ;;
-          codex) codex plugin add agent-guard@agent-guard ;;
+          claude) claude plugin install "$AG_PLUGIN_ID" --scope "$plugin_scope" ;;
+          codex) codex plugin add "$AG_PLUGIN_ID" ;;
         esac
         plugin_install_status=$?
         if [ "$plugin_install_status" -ne 0 ] && [ "$plugin_marketplace_added" -eq 1 ]; then
           plugin_set_retry install
-          printf '%s\n' "$PROGRAM: $plugin_host marketplace 'agent-guard' was added, but plugin installation failed; the marketplace remains configured and it is safe to retry '$plugin_retry'" >&2
+          printf '%s\n' "$PROGRAM: $plugin_host marketplace '$AG_MARKETPLACE' was added, but plugin installation failed; the marketplace remains configured and it is safe to retry '$plugin_retry'" >&2
         fi
         if [ "$plugin_install_status" -eq 0 ] && [ "$plugin_host" = codex ]; then
           plugin_codex_trust
@@ -1017,7 +1027,7 @@ plugin_for_host_body() {
       ;;
     update)
       if [ "$plugin_marketplace_source" = conflict ]; then
-        printf '%s\n' "$PROGRAM: $plugin_host marketplace 'agent-guard' has a different source; refusing to replace it" >&2
+        printf '%s\n' "$PROGRAM: $plugin_host marketplace '$AG_MARKETPLACE' has a different source; refusing to replace it" >&2
         return 2
       fi
       if [ "$plugin_has_marketplace" -eq 0 ] || [ "$plugin_has_install" -eq 0 ]; then
@@ -1046,7 +1056,7 @@ plugin_for_host_body() {
             printf '%s\n' "$PROGRAM: latest release is v$LATEST_RELEASE_VERSION" >&2
           fi
         else
-          printf '%s\n' "$PROGRAM: this CLI is $VERSION and can only pin the marketplace to v$VERSION; the latest release could not be looked up. To move to a newer release v<X.Y.Z> from https://github.com/JeongJaeSoon/agent-guard/releases, run:" >&2
+          printf '%s\n' "$PROGRAM: this CLI is $VERSION and can only pin the marketplace to v$VERSION; the latest release could not be looked up. To move to a newer release v<X.Y.Z> from $AG_REPO_URL/releases, run:" >&2
           print_release_forward_commands "$plugin_host" 'v<X.Y.Z>' "$plugin_scope"
         fi
         if [ "$plugin_host" = codex ] && [ "$plugin_is_enabled" -eq 1 ]; then
@@ -1056,10 +1066,10 @@ plugin_for_host_body() {
       fi
       case "$plugin_host" in
         claude)
-          claude plugin marketplace update agent-guard \
-            && claude plugin update agent-guard@agent-guard --scope "$plugin_scope"
+          claude plugin marketplace update "$AG_MARKETPLACE" \
+            && claude plugin update "$AG_PLUGIN_ID" --scope "$plugin_scope"
           ;;
-        codex) codex plugin marketplace upgrade agent-guard ;;
+        codex) codex plugin marketplace upgrade "$AG_MARKETPLACE" ;;
       esac
       plugin_update_status=$?
       if [ "$plugin_update_status" -ne 0 ]; then
@@ -1073,15 +1083,15 @@ plugin_for_host_body() {
       ;;
     uninstall)
       if [ "$plugin_marketplace_source" = conflict ]; then
-        printf '%s\n' "$PROGRAM: $plugin_host marketplace 'agent-guard' has a different source; refusing plugin lifecycle changes" >&2
+        printf '%s\n' "$PROGRAM: $plugin_host marketplace '$AG_MARKETPLACE' has a different source; refusing plugin lifecycle changes" >&2
         return 2
       fi
       if [ "$plugin_has_install" -eq 0 ]; then
         printf '%s\n' "$plugin_host: agent-guard plugin is not installed"
       else
         case "$plugin_host" in
-          claude) claude plugin uninstall agent-guard@agent-guard --scope "$plugin_scope" ;;
-          codex) codex plugin remove agent-guard@agent-guard ;;
+          claude) claude plugin uninstall "$AG_PLUGIN_ID" --scope "$plugin_scope" ;;
+          codex) codex plugin remove "$AG_PLUGIN_ID" ;;
         esac
       fi
       ;;
@@ -1188,46 +1198,124 @@ audit_location() {
   printf '%s/agent-guard' "${XDG_STATE_HOME:-${HOME:-}/.local/state}"
 }
 
-audit_stat() {
-  case "${AG_OS:-$(uname -s)}" in
-    Darwin) stat -f '%u:%Lp' "$1" 2>/dev/null ;;
-    *) stat -c '%u:%a' "$1" 2>/dev/null ;;
+# file_stat FIELDS FOLLOW FILE... prints one line per FILE through BSD or GNU
+# stat. FOLLOW is -L to follow a symlink or -P not to. FIELDS is one of:
+#   access    uid:mode
+#   entry     uid:mode:links:ctime
+#   identity  dev:inode:size:mtime:ctime, with sub-second times
+# Caches trust identity to notice a rewrite, so it fails where stat is not
+# known to print sub-second times (%F): a same-size rewrite within one second
+# would otherwise keep a stale entry. Those platforms run uncached.
+file_stat() {
+  ag_fs_os=${AG_OS:-$(uname -s)}
+  case "$ag_fs_os:$1" in
+    Darwin:access|*BSD:access|DragonFly:access) ag_fs_format='-f %u:%Lp' ;;
+    Darwin:entry|*BSD:entry|DragonFly:entry) ag_fs_format='-f %u:%Lp:%l:%c' ;;
+    Darwin:identity) ag_fs_format='-f %d:%i:%z:%Fm:%Fc' ;;
+    *BSD:identity|DragonFly:identity) return 1 ;;
+    *:access) ag_fs_format='-c %u:%a' ;;
+    *:entry) ag_fs_format='-c %u:%a:%h:%Z' ;;
+    *:identity) ag_fs_format='-c %d:%i:%s:%y:%z' ;;
+    *) return 1 ;;
   esac
+  ag_fs_follow=$2
+  shift 2
+  # BSD stat wants every option before the operands.
+  if [ "$ag_fs_follow" = -L ]; then
+    stat -L "${ag_fs_format%% *}" "${ag_fs_format#* }" "$@" 2>/dev/null
+  else
+    stat "${ag_fs_format%% *}" "${ag_fs_format#* }" "$@" 2>/dev/null
+  fi
 }
 
-# Refuse symlink components and ambiguous relative paths. Existing private
-# directories are never chmodded: an unexpected directory is an error.
+# Succeeds when $1 is absolute, holds no control character, has no empty, `.`
+# or `..` component, and no component is a symlink. Shell tests only, so it
+# costs no process on a hook (#407); a shell pattern, unlike a line-oriented
+# grep, also refuses a newline.
+plain_absolute_path() {
+  case "$1" in /*) ;; *) return 1 ;; esac
+  case "$1" in *[[:cntrl:]]*) return 1 ;; esac
+  ag_pap_prefix=
+  ag_pap_rest=${1#/}
+  while [ -n "$ag_pap_rest" ]; do
+    ag_pap_part=${ag_pap_rest%%/*}
+    case "$ag_pap_part" in ''|.|..) return 1 ;; esac
+    ag_pap_prefix="$ag_pap_prefix/$ag_pap_part"
+    [ ! -L "$ag_pap_prefix" ] || return 1
+    case "$ag_pap_rest" in */*) ag_pap_rest=${ag_pap_rest#*/} ;; *) ag_pap_rest= ;; esac
+  done
+}
+
+# Succeeds when $1 is a directory, not a symlink, this user's, and mode 0700.
+private_dir_ok() {
+  [ -d "$1" ] && [ ! -L "$1" ] \
+    && [ "$(file_stat access -P "$1")" = "${AG_UID:-$(id -u)}:700" ]
+}
+
+# Between private_writes_begin and private_writes_end a redirection creates a
+# file with mode 0600 and never opens an existing name: noclobber makes the
+# open O_EXCL. The caller's umask and noclobber setting come back at the end.
+# Fails, changing nothing, when the saved umask (AG_UMASK) is unknown. A pair
+# does not nest.
+private_writes_begin() {
+  case "${AG_UMASK:-}" in ''|*[!01234567]*|?????*) return 1 ;; esac
+  case $- in *C*) ag_pw_noclobber=1 ;; *) ag_pw_noclobber= ;; esac
+  set -C
+  umask 077
+}
+
+private_writes_end() {
+  umask "$AG_UMASK"
+  [ -n "$ag_pw_noclobber" ] || set +C
+}
+
+# Succeeds when $1, an epoch time a state cache stored, is less than
+# STATE_CACHE_TTL_SECONDS before AG_AUDIT_START and not after it.
+STATE_CACHE_TTL_SECONDS=600
+state_cache_fresh() {
+  # A leading zero would make the arithmetic an octal error that ends the hook.
+  case "$1" in ''|0*|*[!0-9]*|?????????????*) return 1 ;; esac
+  ag_scf_age=$((AG_AUDIT_START - $1))
+  [ "$ag_scf_age" -ge 0 ] && [ "$ag_scf_age" -lt "$STATE_CACHE_TTL_SECONDS" ]
+}
+
+# Existing private directories are never chmodded: an unexpected directory is
+# an error.
 audit_directory() (
   ag_dir=$(audit_location)
-  case "$ag_dir" in /*) ;; *) return 1 ;; esac
-  # A shell pattern keeps this check free of processes on every hook (#407).
-  # It also refuses a newline, which a line-oriented grep would let through.
-  case "$ag_dir" in *[[:cntrl:]]*) return 1 ;; esac
-  ag_prefix=
-  ag_rest=${ag_dir#/}
-  while [ -n "$ag_rest" ]; do
-    ag_part=${ag_rest%%/*}
-    case "$ag_part" in ''|.|..) return 1 ;; esac
-    ag_prefix="$ag_prefix/$ag_part"
-    [ ! -L "$ag_prefix" ] || return 1
-    if [ "$ag_part" = "$ag_rest" ]; then break; fi
-    ag_rest=${ag_rest#*/}
-  done
+  plain_absolute_path "$ag_dir" || return 1
   # mkdir -p leaves an existing directory untouched, so only a missing (or
   # not-yet-plain) directory needs the subshell and the mkdir process (#407).
   if [ "${1:-}" = create ] && { [ ! -d "$ag_dir" ] || [ -L "$ag_dir" ]; }; then
     (umask 077; mkdir -p "$ag_dir") 2>/dev/null || return 1
   fi
-  [ -d "$ag_dir" ] && [ ! -L "$ag_dir" ] || return 1
-  [ "$(audit_stat "$ag_dir")" = "${AG_UID:-$(id -u)}:700" ] || return 1
+  private_dir_ok "$ag_dir" || return 1
   printf '%s' "$ag_dir"
 )
 
+# The audit log vocabulary. The writer records and the exporter accepts only
+# these words, so the two cannot drift apart.
+AUDIT_COMMANDS='hook-pre-tool hook-post-tool hook-post-tool-failure hook-stop hook-user-prompt hook-session-start scan-staged scan-working-tree scan-path exec pii-filter'
+# Outcomes a run can note, lowest precedence first: when several were noted,
+# the last one in this list is recorded.
+AUDIT_NOTES='warned masked error degraded blocked'
+# Fixed codes for why an invocation blocked. A host can drop the block reason
+# a hook prints (codex exec shows only "hook: UserPromptSubmit Blocked"), so
+# the metadata log keeps the code. Never a value, path, or rule text.
+AUDIT_REASONS='secret-rule secret-assignment pii pii-detector-failure infra-failure-closed'
+
+# Succeeds when $1 is one word of the space-separated list $2.
+audit_word_in() {
+  case "$1" in ''|*[!abcdefghijklmnopqrstuvwxyz-]*) return 1 ;; esac
+  case " $2 " in *" $1 "*) return 0 ;; esac
+  return 1
+}
+
 audit_note() {
   [ -n "$AG_AUDIT_FILE" ] && [ -n "${AGENT_GUARD_RUNDIR:-}" ] || return 0
-  case "$1" in blocked|degraded|masked|error|warned)
-    (umask 077; : >"$AGENT_GUARD_RUNDIR/audit-$1") 2>/dev/null || : ;;
-  esac
+  if audit_word_in "$1" "$AUDIT_NOTES"; then
+    (umask 077; : >"$AGENT_GUARD_RUNDIR/audit-$1") 2>/dev/null || :
+  fi
   return 0
 }
 
@@ -1237,19 +1325,31 @@ audit_record() {
     "$AG_AUDIT_ID" "$1" "$VERSION" "$AG_AUDIT_COMMAND" "$AG_AUDIT_HOST" "$2" "$3" "$4" "$5" "${6:-null}"
 }
 
-# Fixed codes for why an invocation blocked. A host can drop the block reason
-# a hook prints (codex exec shows only "hook: UserPromptSubmit Blocked"), so
-# the metadata log keeps the code. Never a value, path, or rule text.
-AUDIT_REASONS='secret-rule secret-assignment pii pii-detector-failure infra-failure-closed'
-
 audit_reason() {
   [ -n "$AG_AUDIT_FILE" ] && [ -n "${AGENT_GUARD_RUNDIR:-}" ] || return 0
-  case " $AUDIT_REASONS " in *" $1 "*) ;; *) return 0 ;; esac
+  audit_word_in "$1" "$AUDIT_REASONS" || return 0
   # The first reason wins: a later infrastructure note must not replace the
   # verdict that actually decided the block.
   [ ! -e "$AGENT_GUARD_RUNDIR/audit-reason" ] || return 0
   (umask 077; printf '%s\n' "$1" >"$AGENT_GUARD_RUNDIR/audit-reason") 2>/dev/null || :
   return 0
+}
+
+# A run id is "<start seconds>-<mktemp suffix>", the grammar
+# ^[0-9]{1,12}-[A-Za-z0-9]{6}$. The shell check costs no process (#407) and
+# spells the classes out so no locale can widen a range. jq's $ also matches
+# before a final newline, so the jq form anchors with \A and \z.
+AUDIT_RUN_ID_JQ_REGEX='\A[0-9]{1,12}-[A-Za-z0-9]{6}\z'
+
+audit_run_id_valid() {
+  case "$1" in *-*) ;; *) return 1 ;; esac
+  ag_rid_time=${1%%-*}
+  ag_rid_rand=${1#*-}
+  case "$ag_rid_time" in ''|*[!0123456789]*) return 1 ;; esac
+  case "$ag_rid_rand" in
+    ''|*[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789]*) return 1 ;;
+  esac
+  [ "${#ag_rid_time}" -le 12 ] && [ "${#ag_rid_rand}" -eq 6 ]
 }
 
 audit_prune() (
@@ -1278,19 +1378,7 @@ audit_prune() (
       ' \
     | while IFS= read -r ag_old; do
         ag_old_id=${ag_old##*/event-}
-        # The run-id grammar ^[0-9]{1,12}-[A-Za-z0-9]{6}$, checked with shell
-        # patterns so a pruned file costs no process (#407).
-        # The classes are spelled out so no locale can widen a range.
-        ag_id_time=${ag_old_id%%-*}
-        ag_id_rand=${ag_old_id#*-}
-        ag_id_ok=1
-        case "$ag_old_id" in *-*) ;; *) ag_id_ok= ;; esac
-        case "$ag_id_time" in ''|*[!0123456789]*) ag_id_ok= ;; esac
-        case "$ag_id_rand" in
-          ''|*[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789]*) ag_id_ok= ;;
-        esac
-        if [ -n "$ag_id_ok" ] && [ "${#ag_id_time}" -le 12 ] \
-            && [ "${#ag_id_rand}" -eq 6 ]; then
+        if audit_run_id_valid "$ag_old_id"; then
           # A live-probe sidecar is an empty directory by construction. Never
           # recurse or remove a nonempty/tampered marker during retention.
           rmdir "$ag_dir/live-probe-$ag_old_id" 2>/dev/null || :
@@ -1305,10 +1393,8 @@ audit_begin() {
     printf '%s\n' 'agent-guard: local diagnostic logging unavailable (invalid log mode).' >&2
     return 0 ;;
   esac
-  case "$1" in
-    hook-pre-tool|hook-post-tool|hook-post-tool-failure|hook-stop|hook-user-prompt|hook-session-start|scan-staged|scan-working-tree|scan-path|exec|pii-filter) AG_AUDIT_COMMAND=$1 ;;
-    *) return 0 ;;
-  esac
+  audit_word_in "$1" "$AUDIT_COMMANDS" || return 0
+  AG_AUDIT_COMMAND=$1
   case "${AGENT_GUARD_HOOK_HOST:-claude}" in codex) AG_AUDIT_HOST=codex ;; *) AG_AUDIT_HOST=claude ;; esac
   case "$AG_AUDIT_COMMAND" in hook-*) ;; *) AG_AUDIT_HOST=cli ;; esac
   AG_AUDIT_START=$(date +%s 2>/dev/null) || AG_AUDIT_START=0
@@ -1324,7 +1410,7 @@ audit_begin() {
   fi
   AG_AUDIT_ID=${ag_candidate##*/event-}
   if [ -n "$ag_candidate" ] && [ ! -L "$ag_candidate" ] && [ -f "$ag_candidate" ] \
-      && [ "$(audit_stat "$ag_candidate")" = "${AG_UID:-$(id -u)}:600" ] \
+      && [ "$(file_stat access -P "$ag_candidate")" = "${AG_UID:-$(id -u)}:600" ] \
       && audit_record "$AG_AUDIT_START" started pending null 0 null >>"$ag_candidate"; then
     # A caught signal before this assignment leaves no finish-only event.
     AG_AUDIT_FILE=$ag_candidate
@@ -1352,9 +1438,13 @@ audit_finish() {
       esac ;;
   esac
   if [ -n "${AGENT_GUARD_RUNDIR:-}" ]; then
-    for ag_flag in warned masked error degraded blocked; do
+    # This can run from a signal trap inside code that changed IFS.
+    ag_finish_ifs=$IFS
+    IFS=' '
+    for ag_flag in $AUDIT_NOTES; do
       [ ! -f "$AGENT_GUARD_RUNDIR/audit-$ag_flag" ] || ag_outcome=$ag_flag
     done
+    IFS=$ag_finish_ifs
   fi
   case "$ag_exit" in 130|143) ag_outcome=interrupted ;; esac
   ag_reason=null
@@ -1363,12 +1453,10 @@ audit_finish() {
   if [ "$ag_exit" != 0 ] && [ -n "${AGENT_GUARD_RUNDIR:-}" ] \
       && [ -f "$AGENT_GUARD_RUNDIR/audit-reason" ]; then
     IFS= read -r ag_reason_code <"$AGENT_GUARD_RUNDIR/audit-reason" 2>/dev/null || ag_reason_code=
-    case " $AUDIT_REASONS " in
-      *" $ag_reason_code "*) [ -z "$ag_reason_code" ] || ag_reason="\"$ag_reason_code\"" ;;
-    esac
+    ! audit_word_in "$ag_reason_code" "$AUDIT_REASONS" || ag_reason="\"$ag_reason_code\""
   fi
   if [ ! -L "$AG_AUDIT_FILE" ] && [ -f "$AG_AUDIT_FILE" ] \
-      && [ "$(audit_stat "$AG_AUDIT_FILE")" = "${AG_UID:-$(id -u)}:600" ]; then
+      && [ "$(file_stat access -P "$AG_AUDIT_FILE")" = "${AG_UID:-$(id -u)}:600" ]; then
     audit_record "$ag_end" finished "$ag_outcome" "$ag_exit" "$ag_duration" "$ag_reason" >>"$AG_AUDIT_FILE" 2>/dev/null \
       || printf '%s\n' 'agent-guard: local diagnostic log could not be completed.' >&2
   fi
@@ -1380,24 +1468,26 @@ audit_export() {
   ag_dir=$(audit_directory) || { printf '%s\n' 'agent-guard: no private diagnostic log directory is available.' >&2; return 2; }
   for ag_file in "$ag_dir"/event-*; do
     [ -f "$ag_file" ] && [ ! -L "$ag_file" ] || continue
-    [ "$(audit_stat "$ag_file")" = "$(id -u):600" ] || continue
+    [ "$(file_stat access -P "$ag_file")" = "$(id -u):600" ] || continue
     ag_bytes=$(wc -c <"$ag_file" | tr -d ' ')
     case "$ag_bytes" in ''|*[!0-9]*) continue ;; esac
     [ "$ag_bytes" -le 2048 ] || continue
     # Rebuild the schema, dropping unknown keys. Validate every field so a
     # manually edited/corrupt log cannot smuggle source data into an export.
-    jq -c '
+    jq -c --arg run_id_re "$AUDIT_RUN_ID_JQ_REGEX" --arg commands "$AUDIT_COMMANDS" \
+        --arg notes "$AUDIT_NOTES" --arg reasons "$AUDIT_REASONS" '
+      def words($list): $list | split(" ")[];
       select(type == "object" and .schema == 1)
-      | select(.run_id | type == "string" and test("^[0-9]{1,12}-[A-Za-z0-9]{6}$"))
+      | select(.run_id | type == "string" and test($run_id_re))
       | select(.time | type == "number" and . >= 0 and . <= 9999999999 and floor == .)
       | select(.version | type == "string" and test("^[0-9]{1,5}\\.[0-9]{1,5}\\.[0-9]{1,5}$"))
-      | select(.command | IN("hook-pre-tool", "hook-post-tool", "hook-post-tool-failure", "hook-stop", "hook-user-prompt", "hook-session-start", "scan-staged", "scan-working-tree", "scan-path", "exec", "pii-filter"))
+      | select(.command | IN(words($commands)))
       | select(.host | IN("claude", "codex", "cli"))
       | select(.phase | IN("started", "finished"))
-      | select(.outcome | IN("pending", "pass", "blocked", "masked", "degraded", "error", "interrupted", "warned"))
+      | select(.outcome | IN("pending", "pass", "interrupted", words($notes)))
       | select(.exit_code == null or (.exit_code | type == "number" and . >= 0 and . <= 255 and floor == .))
       | select(.duration_seconds | type == "number" and . >= 0 and . <= 9999999999 and floor == .)
-      | select(.reason == null or (.reason | IN("secret-rule", "secret-assignment", "pii", "pii-detector-failure", "infra-failure-closed")))
+      | select(.reason == null or (.reason | IN(words($reasons))))
       | {schema,run_id,time,version,command,host,phase,outcome,exit_code,duration_seconds,reason}
     ' "$ag_file" 2>/dev/null || :
   done
@@ -1425,7 +1515,7 @@ audit_export_to_file() (
     printf '%s\n' 'agent-guard: could not create a private temporary log export file.' >&2
     return 2
   }
-  if [ ! -f "$ag_tmp" ] || [ -L "$ag_tmp" ] || [ "$(audit_stat "$ag_tmp")" != "$(id -u):600" ]; then
+  if [ ! -f "$ag_tmp" ] || [ -L "$ag_tmp" ] || [ "$(file_stat access -P "$ag_tmp")" != "$(id -u):600" ]; then
     printf '%s\n' 'agent-guard: temporary log export file was not private.' >&2
     return 2
   fi
@@ -1434,7 +1524,7 @@ audit_export_to_file() (
     printf '%s\n' 'agent-guard: refusing to overwrite an existing or invalid log export target.' >&2
     return 2
   }
-  [ -f "$ag_output" ] && [ ! -L "$ag_output" ] && [ "$(audit_stat "$ag_output")" = "$(id -u):600" ] || {
+  [ -f "$ag_output" ] && [ ! -L "$ag_output" ] && [ "$(file_stat access -P "$ag_output")" = "$(id -u):600" ] || {
     printf '%s\n' 'agent-guard: log export target was not a private regular file.' >&2
     return 2
   }
@@ -1844,6 +1934,34 @@ probe_gitleaks() {
   return 0
 }
 
+# The runtime-failure details probe_gitleaks reports by name. Prints the
+# message for detail $1 about executable $2; fails for any other detail.
+gitleaks_probe_detail_message() {
+  case "$1" in
+    timeout)
+      printf 'gitleaks version command timed out after %ss: %s' \
+        "$GITLEAKS_PROBE_TIMEOUT_SECONDS" "$2"
+      ;;
+    output-limit)
+      printf 'gitleaks version output exceeded %s bytes: %s' \
+        "$GITLEAKS_PROBE_MAX_BYTES" "$2"
+      ;;
+    timer-unavailable)
+      printf 'gitleaks version timeout helper is unavailable: sleep'
+      ;;
+    launcher-unavailable)
+      printf 'gitleaks version isolation requires setsid or perl'
+      ;;
+    temp-helper-unavailable)
+      printf 'gitleaks version temp fallback requires mkdir and rmdir'
+      ;;
+    output-unavailable|command-failed|temp-unavailable)
+      printf 'gitleaks version command failed: %s' "$2"
+      ;;
+    *) return 1 ;;
+  esac
+}
+
 gitleaks_probe_error() {
   ag_gl_error_bin=$1
   case "$GITLEAKS_PROBE_STATE" in
@@ -1851,26 +1969,8 @@ gitleaks_probe_error() {
       printf 'selected gitleaks is not executable: %s' "$ag_gl_error_bin"
       ;;
     runtime-failure)
-      case "$GITLEAKS_PROBE_DETAIL" in
-        timeout)
-          printf 'gitleaks version command timed out after %ss: %s' \
-            "$GITLEAKS_PROBE_TIMEOUT_SECONDS" "$ag_gl_error_bin"
-          ;;
-        output-limit)
-          printf 'gitleaks version output exceeded %s bytes: %s' \
-            "$GITLEAKS_PROBE_MAX_BYTES" "$ag_gl_error_bin"
-          ;;
-        timer-unavailable)
-          printf 'gitleaks version timeout helper is unavailable: sleep'
-          ;;
-        launcher-unavailable)
-          printf 'gitleaks version isolation requires setsid or perl'
-          ;;
-        temp-helper-unavailable)
-          printf 'gitleaks version temp fallback requires mkdir and rmdir'
-          ;;
-        *) printf 'gitleaks version command failed: %s' "$ag_gl_error_bin" ;;
-      esac
+      gitleaks_probe_detail_message "$GITLEAKS_PROBE_DETAIL" "$ag_gl_error_bin" \
+        || printf 'gitleaks version command failed: %s' "$ag_gl_error_bin"
       ;;
     unparseable)
       printf 'could not parse gitleaks version from %s (required >= %s)' \
@@ -1896,7 +1996,6 @@ gitleaks_probe_error() {
 # Only ready verdicts are stored, and any cache problem runs the full probe.
 # The file lives in the private log directory audit_begin validated, so
 # diagnostics (check, doctor, setup) and AGENT_GUARD_LOG_MODE=off always probe.
-GITLEAKS_PROBE_CACHE_TTL_SECONDS=600
 GITLEAKS_PROBE_CACHE_KEY=
 
 gitleaks_probe_cache_lookup() {
@@ -1926,10 +2025,7 @@ gitleaks_probe_cache_lookup() {
   ag_gl_cache_head=
   IFS= read -r ag_gl_cache_head <"$ag_gl_cache_real" 2>/dev/null || :
   case "$ag_gl_cache_head" in '#!'*) return 1 ;; esac
-  case "${AG_OS:-$(uname -s)}" in
-    Darwin) ag_gl_cache_id=$(stat -L -f '%d:%i:%z:%Fm:%Fc' "$ag_gl_cache_bin" 2>/dev/null) ;;
-    *) ag_gl_cache_id=$(stat -L -c '%d:%i:%s:%y:%z' "$ag_gl_cache_bin" 2>/dev/null) ;;
-  esac || return 1
+  ag_gl_cache_id=$(file_stat identity -L "$ag_gl_cache_bin") || return 1
   [ -n "$ag_gl_cache_id" ] || return 1
   GITLEAKS_PROBE_CACHE_KEY="1 $GITLEAKS_MIN_VERSION $ag_gl_cache_id $ag_gl_cache_bin"
   ag_gl_cache_file="$AG_STATE_DIR/gitleaks-probe"
@@ -1938,12 +2034,7 @@ gitleaks_probe_cache_lookup() {
       && IFS= read -r ag_gl_cached_version; } <"$ag_gl_cache_file" 2>/dev/null \
     || return 1
   [ "$ag_gl_cached_key" = "$GITLEAKS_PROBE_CACHE_KEY" ] || return 1
-  # A leading zero would make the arithmetic below an octal error that ends
-  # the hook.
-  case "$ag_gl_cached_time" in ''|0*|*[!0-9]*|?????????????*) return 1 ;; esac
-  ag_gl_cache_age=$((AG_AUDIT_START - ag_gl_cached_time))
-  [ "$ag_gl_cache_age" -ge 0 ] \
-    && [ "$ag_gl_cache_age" -lt "$GITLEAKS_PROBE_CACHE_TTL_SECONDS" ] || return 1
+  state_cache_fresh "$ag_gl_cached_time" || return 1
   case "$ag_gl_cached_version" in ''|*[!0-9.]*) return 1 ;; esac
   semver_at_least "$ag_gl_cached_version" "$GITLEAKS_MIN_VERSION" || return 1
   GITLEAKS_PROBE_STATE=ready
@@ -1976,12 +2067,11 @@ gitleaks_probe_cache_store() {
 # config file, a stale, foreign or unreadable entry) runs the scan uncached.
 # Entries hold only hashes and a time, never the text. They live in a 0700
 # directory inside the private state directory audit_begin validated, so
-# diagnostics and AGENT_GUARD_LOG_MODE=off never cache. The TTL matches the
-# probe cache: a version manager that swaps gitleaks behind one file changes
+# diagnostics and AGENT_GUARD_LOG_MODE=off never cache. The TTL is the probe
+# cache's: a version manager that swaps gitleaks behind one file changes
 # the probed version within that window. AGENT_GUARD_SCAN_CACHE=off opts out.
 GITLEAKS_SCAN_FLAGS='--redact --no-banner --no-color --log-level error'
 GITLEAKS_STDIN_SCAN_FLAGS="stdin $GITLEAKS_SCAN_FLAGS --config CONFIG --exit-code 1"
-GITLEAKS_CLEAN_CACHE_TTL_SECONDS=600
 GITLEAKS_CLEAN_CACHE_MAX_ENTRIES=256
 GITLEAKS_CLEAN_CACHE_FORMAT=1
 # Bump when gitleaks_clean_cache_config_cacheable changes, so a config-<hash>
@@ -2064,19 +2154,6 @@ gitleaks_clean_cache_hash() {
   esac
 }
 
-# Print uid:mode:links:ctime for each operand, one line each, through BSD or
-# GNU stat. $1 is -L to follow symlinks or -P not to; BSD stat wants every
-# option before the operands.
-gitleaks_clean_cache_stat() {
-  case "${AG_OS:-$(uname -s)}" in
-    Darwin|*BSD|DragonFly) ag_glc_follow=$1; shift
-      if [ "$ag_glc_follow" = -L ]; then stat -L -f '%u:%Lp:%l:%c' "$@" 2>/dev/null
-      else stat -f '%u:%Lp:%l:%c' "$@" 2>/dev/null; fi ;;
-    *) ag_glc_follow=$1; shift
-      if [ "$ag_glc_follow" = -L ]; then stat -L -c '%u:%a:%h:%Z' "$@" 2>/dev/null
-      else stat -c '%u:%a:%h:%Z' "$@" 2>/dev/null; fi ;;
-  esac
-}
 
 # $1 holds four stat lines: the hash tool, its directory, the cache directory,
 # and then the entry ($3 = hit) or the config ($3 = store); $2 is this user's
@@ -2191,7 +2268,7 @@ gitleaks_clean_cache_hit() {
   [ -f "$GITLEAKS_CLEAN_CACHE_FILE" ] && [ ! -L "$GITLEAKS_CLEAN_CACHE_FILE" ] || return 1
   # The tool that named the entry, the directory as the store left it, and an
   # entry nobody else could write, in one stat.
-  ag_glc_modes=$(gitleaks_clean_cache_stat -P "$GITLEAKS_CLEAN_CACHE_HASHER" \
+  ag_glc_modes=$(file_stat entry -P "$GITLEAKS_CLEAN_CACHE_HASHER" \
     "${GITLEAKS_CLEAN_CACHE_HASHER%/*}" "$ag_glc_dir" "$GITLEAKS_CLEAN_CACHE_FILE") || return 1
   gitleaks_clean_cache_modes_ok "$ag_glc_modes" "${AG_UID:-$(id -u)}" hit || return 1
   { IFS= read -r ag_glc_format && IFS= read -r ag_glc_config \
@@ -2199,24 +2276,7 @@ gitleaks_clean_cache_hit() {
     || return 1
   [ "$ag_glc_format" = "$GITLEAKS_CLEAN_CACHE_FORMAT" ] || return 1
   [ "$ag_glc_config" = "$GITLEAKS_CLEAN_CACHE_CONFIG_SUM" ] || return 1
-  # A leading zero would make the arithmetic an octal error that ends the hook.
-  case "$ag_glc_time" in ''|0*|*[!0-9]*|?????????????*) return 1 ;; esac
-  ag_glc_age=$((AG_AUDIT_START - ag_glc_time))
-  [ "$ag_glc_age" -ge 0 ] && [ "$ag_glc_age" -lt "$GITLEAKS_CLEAN_CACHE_TTL_SECONDS" ]
-}
-
-# Succeed when $1 is absolute and no component of it is a symlink (shell tests
-# only, no process).
-gitleaks_clean_cache_plain_path() {
-  case "$1" in /*) ;; *) return 1 ;; esac
-  ag_glc_prefix=
-  ag_glc_rest=${1#/}
-  while [ -n "$ag_glc_rest" ]; do
-    ag_glc_part=${ag_glc_rest%%/*}
-    ag_glc_prefix="$ag_glc_prefix/$ag_glc_part"
-    [ ! -L "$ag_glc_prefix" ] || return 1
-    case "$ag_glc_rest" in */*) ag_glc_rest=${ag_glc_rest#*/} ;; *) ag_glc_rest= ;; esac
-  done
+  state_cache_fresh "$ag_glc_time"
 }
 
 # Called only after run_gitleaks_stdin returned 0: gitleaks exited 0 and
@@ -2231,7 +2291,6 @@ gitleaks_clean_cache_store() {
   # An ignore file that appeared during the scan may have been read by it.
   [ ! -e .gitleaksignore ] && [ ! -L .gitleaksignore ] || return 0
   [ -n "$GITLEAKS_CLEAN_CACHE_HASHER" ] || return 0
-  case "${AG_UMASK:-}" in ''|*[!01234567]*|?????*) return 0 ;; esac
   ag_glc_dir="$AG_STATE_DIR/gitleaks-clean"
   if [ ! -d "$ag_glc_dir" ] && [ ! -L "$ag_glc_dir" ]; then
     (umask 077; mkdir "$ag_glc_dir") 2>/dev/null || return 0
@@ -2239,7 +2298,7 @@ gitleaks_clean_cache_store() {
   [ -d "$ag_glc_dir" ] && [ ! -L "$ag_glc_dir" ] || return 0
   # -L: the config is read through any link, as gitleaks reads it. The tool and
   # the directories were checked not to be links.
-  ag_glc_modes=$(gitleaks_clean_cache_stat -L "$GITLEAKS_CLEAN_CACHE_HASHER" \
+  ag_glc_modes=$(file_stat entry -L "$GITLEAKS_CLEAN_CACHE_HASHER" \
     "${GITLEAKS_CLEAN_CACHE_HASHER%/*}" "$ag_glc_dir" "$GITLEAKS_CONFIG") || return 0
   gitleaks_clean_cache_modes_ok "$ag_glc_modes" "${AG_UID:-$(id -u)}" store || return 0
   # The config gitleaks just read must be the one the key hashed. A ctime from
@@ -2251,7 +2310,7 @@ gitleaks_clean_cache_store() {
   case "$ag_glc_config_ctime" in ''|*[!0-9]*|?????????????*) return 0 ;; esac
   ag_glc_config_ctime=${ag_glc_config_ctime#"${ag_glc_config_ctime%%[!0]*}"}
   if [ "${ag_glc_config_ctime:-0}" -ge "$AG_AUDIT_START" ] \
-      || ! gitleaks_clean_cache_plain_path "$GITLEAKS_CONFIG"; then
+      || ! plain_absolute_path "$GITLEAKS_CONFIG"; then
     ag_glc_sums=$(gitleaks_clean_cache_hash "$GITLEAKS_CONFIG" /dev/null 2>/dev/null) \
       || return 0
     gitleaks_clean_cache_sums "$ag_glc_sums" 2 || return 0
@@ -2268,13 +2327,11 @@ gitleaks_clean_cache_store() {
     ag_glc_remark=1
   fi
   [ ! -d "$GITLEAKS_CLEAN_CACHE_FILE" ] || return 0
-  # A new entry is created in place: noclobber makes the open O_EXCL, and a
-  # reader that races the single short write sees too few lines, a short hash
-  # or a short (so expired) time, all of which miss. Replacing an existing
-  # entry goes through a temporary name and one mv.
-  case $- in *C*) ag_glc_noclobber=1 ;; *) ag_glc_noclobber= ;; esac
-  set -C
-  umask 077
+  # A new entry is created in place, and a reader that races the single short
+  # write sees too few lines, a short hash or a short (so expired) time, all
+  # of which miss. Replacing an existing entry goes through a temporary name
+  # and one mv.
+  private_writes_begin || return 0
   ag_glc_tmp=
   ag_glc_wrote=
   if [ -e "$GITLEAKS_CLEAN_CACHE_FILE" ] || [ -L "$GITLEAKS_CLEAN_CACHE_FILE" ]; then
@@ -2296,8 +2353,7 @@ gitleaks_clean_cache_store() {
       { printf '%s:%s\n' "$VERSION" "$GITLEAKS_CLEAN_CACHE_CHECKER_FORMAT" >|"$ag_glc_marker"; } 2>/dev/null || :
     fi
   fi
-  umask "$AG_UMASK"
-  [ -n "$ag_glc_noclobber" ] || set +C
+  private_writes_end
   [ -n "$ag_glc_wrote" ] || return 0
   if [ -n "$ag_glc_tmp" ] && ! mv -f "$ag_glc_tmp" "$GITLEAKS_CLEAN_CACHE_FILE" 2>/dev/null; then
     rm -f "$ag_glc_tmp" 2>/dev/null || :
@@ -2362,13 +2418,22 @@ need_gitleaks() {
     || die_with_status "${1:-2}" "gitleaks config not found: $GITLEAKS_CONFIG"
 }
 
+# Every hook needs each policy file present with at least one active rule.
+# Prints the first file that is not, and fails when all are usable.
+hook_policy_unusable() {
+  for hook_policy in "$GITLEAKS_CONFIG" "$DENY_READ_PATHS" "$DENY_BASH_PATTERNS"; do
+    [ -f "$hook_policy" ] && policy_file_has_active_rule "$hook_policy" && continue
+    printf '%s' "$hook_policy"
+    return 0
+  done
+  return 1
+}
+
 hook_dependencies_ready() {
   command -v jq >/dev/null 2>&1 || return 1
   command -v awk >/dev/null 2>&1 || return 1
   prepare_gitleaks || return 1
-  [ -f "$GITLEAKS_CONFIG" ] && policy_file_has_active_rule "$GITLEAKS_CONFIG" || return 1
-  [ -f "$DENY_READ_PATHS" ] && policy_file_has_active_rule "$DENY_READ_PATHS" || return 1
-  [ -f "$DENY_BASH_PATTERNS" ] && policy_file_has_active_rule "$DENY_BASH_PATTERNS" || return 1
+  ! hook_policy_unusable >/dev/null
 }
 
 infrastructure_failure_mode() {
@@ -2410,11 +2475,7 @@ warning_state_path() {
 private_warning_state_path() {
   private_path=$(warning_state_path "$1" "${2:-}") || return 1
   private_dir=${private_path%/*}
-  [ ! -L "$private_dir" ] && [ -O "$private_dir" ] || return 1
-  case $(ls -ld "$private_dir" 2>/dev/null) in
-    drwx------*) ;;
-    *) return 1 ;;
-  esac
+  private_dir_ok "$private_dir" || return 1
   printf '%s\n' "$private_path"
 }
 
@@ -2530,9 +2591,7 @@ claude_block_json_supported() {
   set -- $cb_version
   IFS=$cb_ifs
   [ "$#" -eq 3 ] && [ -n "$1" ] && [ -n "$2" ] && [ -n "$3" ] || return 1
-  [ "$1" -ne 2 ] && { [ "$1" -gt 2 ]; return; }
-  [ "$2" -ne 1 ] && { [ "$2" -gt 1 ]; return; }
-  [ "$3" -ge 214 ]
+  semver_at_least "$1.$2.$3" 2.1.214
 }
 
 CLAUDE_BLOCK_EVENT=
@@ -2590,11 +2649,11 @@ degraded_hook_message() {
   case "${GITLEAKS_PROBE_STATE:-}" in
     missing|unparseable|unsupported) degraded_probe_reason=$GITLEAKS_PROBE_STATE ;;
     runtime-failure)
-      case "${GITLEAKS_PROBE_DETAIL:-}" in
-        timeout|output-limit|output-unavailable|command-failed|timer-unavailable|launcher-unavailable|temp-helper-unavailable|temp-unavailable)
-          degraded_probe_reason=$GITLEAKS_PROBE_DETAIL ;;
-        *) degraded_probe_reason=runtime-failure ;;
-      esac
+      if gitleaks_probe_detail_message "${GITLEAKS_PROBE_DETAIL:-}" '' >/dev/null; then
+        degraded_probe_reason=$GITLEAKS_PROBE_DETAIL
+      else
+        degraded_probe_reason=runtime-failure
+      fi
       ;;
   esac
   [ -z "$degraded_probe_reason" ] \
@@ -2620,24 +2679,6 @@ jq_lookbehind_supported() {
     | jq -e 'test("(?<![0-9])1")' >/dev/null 2>&1
 }
 
-semver_at_least() (
-  actual=$1
-  required=$2
-  old_ifs=$IFS
-  IFS=.
-  # shellcheck disable=SC2086
-  set -- $actual
-  actual_major=${1:-0}; actual_minor=${2:-0}; actual_patch=${3:-0}
-  # shellcheck disable=SC2086
-  set -- $required
-  required_major=${1:-0}; required_minor=${2:-0}; required_patch=${3:-0}
-  IFS=$old_ifs
-  [ "$actual_major" -gt "$required_major" ] && return 0
-  [ "$actual_major" -lt "$required_major" ] && return 1
-  [ "$actual_minor" -gt "$required_minor" ] && return 0
-  [ "$actual_minor" -lt "$required_minor" ] && return 1
-  [ "$actual_patch" -ge "$required_patch" ]
-)
 
 check_deps() {
   need_cmd sh
@@ -2647,6 +2688,10 @@ check_deps() {
   need_gitleaks
   [ -f "$DENY_READ_PATHS" ] || die "deny read policy not found: $DENY_READ_PATHS"
   [ -f "$DENY_BASH_PATTERNS" ] || die "deny bash policy not found: $DENY_BASH_PATTERNS"
+  # Never report ok for a state in which hooks would run degraded.
+  if check_policy=$(hook_policy_unusable); then
+    die "policy file has no active rule: $check_policy"
+  fi
   info "$PROGRAM: dependencies ok"
   if jq_lookbehind_supported; then
     info "$PROGRAM: jq regex lookbehind supported"
@@ -2661,9 +2706,10 @@ SETUP_INSTALL_DIR=$GITLEAKS_PRIVATE_BIN_DIR
 setup_status_line() {
   name=$1
   if command -v "$name" >/dev/null 2>&1; then
-    ver=$($name --version 2>/dev/null | head -1)
+    # stdin closed: `awk version` is an awk program that would read the terminal.
+    ver=$($name --version </dev/null 2>/dev/null | head -1)
     if [ -z "$ver" ]; then
-      ver=$($name version 2>/dev/null | head -1)
+      ver=$($name version </dev/null 2>/dev/null | head -1)
     fi
     info "$PROGRAM: $name  ok  (${ver:-installed})"
     return 0
@@ -2844,9 +2890,10 @@ EOF
     shift
   done
 
-  jq_ok=1; git_ok=1; gitleaks_ok=1
+  jq_ok=1; awk_ok=1; git_ok=1; gitleaks_ok=1
   setup_status_line jq       || jq_ok=0
   [ "$jq_ok" -eq 0 ] || setup_jq_lookbehind_status_line
+  setup_status_line awk      || awk_ok=0
   setup_status_line git      || git_ok=0
   setup_gitleaks_status_line || gitleaks_ok=0
   # setup and doctor can establish only local dependencies.
@@ -2877,20 +2924,29 @@ EOF
       info "$PROGRAM: jq is not auto-installed; use your system package manager:"
       setup_suggest_pkg_install jq https://stedolan.github.io/jq/download/
     fi
+    if [ "$awk_ok" -eq 0 ]; then
+      info "$PROGRAM: awk is not auto-installed; use your system package manager:"
+      setup_suggest_pkg_install gawk https://www.gnu.org/software/gawk/
+    fi
     if [ "$git_ok" -eq 0 ]; then
       info "$PROGRAM: git is not auto-installed; use your system package manager:"
       setup_suggest_pkg_install git https://git-scm.com/downloads
     fi
-    [ "$jq_ok" -eq 1 ] && [ "$git_ok" -eq 1 ] \
+    [ "$jq_ok" -eq 1 ] && [ "$awk_ok" -eq 1 ] && [ "$git_ok" -eq 1 ] \
       && [ "$gitleaks_runtime_ok" -eq 1 ]
     return $?
   fi
 
-  if [ "$jq_ok" -eq 0 ] || [ "$git_ok" -eq 0 ] || [ "$gitleaks_ok" -eq 0 ]; then
+  if [ "$jq_ok" -eq 0 ] || [ "$awk_ok" -eq 0 ] || [ "$git_ok" -eq 0 ] \
+      || [ "$gitleaks_ok" -eq 0 ]; then
     info ""
     if [ "$jq_ok" -eq 0 ]; then
       info "$PROGRAM: install jq with your package manager:"
       setup_suggest_pkg_install jq https://stedolan.github.io/jq/download/
+    fi
+    if [ "$awk_ok" -eq 0 ]; then
+      info "$PROGRAM: install awk with your package manager:"
+      setup_suggest_pkg_install gawk https://www.gnu.org/software/gawk/
     fi
     if [ "$git_ok" -eq 0 ]; then
       info "$PROGRAM: install git with your package manager:"
@@ -3019,13 +3075,10 @@ mktemp_file() {
 rundir_temp_file() {
   rt_dir=${AGENT_GUARD_RUNDIR:-}
   [ -n "$rt_dir" ] && [ -d "$rt_dir" ] && [ ! -L "$rt_dir" ] || return 1
-  case "${AG_UMASK:-}" in ''|*[!01234567]*|?????*) return 1 ;; esac
   rt_n=
   { IFS= read -r rt_n <"$rt_dir/.next"; } 2>/dev/null || rt_n=
   case "$rt_n" in ''|0*|*[!0123456789]*|?????????*) rt_n=1 ;; esac
-  case $- in *C*) rt_noclobber=1 ;; *) rt_noclobber= ;; esac
-  set -C
-  umask 077
+  private_writes_begin || return 1
   rt_file=
   rt_tries=0
   while [ -z "$rt_file" ] && [ "$rt_tries" -lt 64 ]; do
@@ -3045,8 +3098,7 @@ rundir_temp_file() {
     fi
     rt_n=$((rt_n + 1))
   done
-  umask "$AG_UMASK"
-  [ -n "$rt_noclobber" ] || set +C
+  private_writes_end
   [ -n "$rt_file" ] || return 1
   { printf '%s\n' "$rt_n" >|"$rt_dir/.next"; } 2>/dev/null || :
   printf '%s\n' "$rt_file"
@@ -3074,14 +3126,6 @@ pii_unsupported_provider() {
   die "pii-filter: unsupported provider: $1 (expected regex, http, or pleno)"
 }
 
-pii_provider() {
-  provider=${AGENT_GUARD_PII_PROVIDER:-regex}
-  case "$provider" in
-    regex|http|pleno) printf '%s' "$provider" ;;
-    *) pii_unsupported_provider "$provider" ;;
-  esac
-}
-
 # Tier-1 types AGENT_GUARD_PII_SKIP may turn off. Tier-2 (credit card, US SSN,
 # KR resident reg. no.) is deliberately absent: masking those is what the
 # mask-mode input hard-block is derived from, and a fail-closed gate must not be
@@ -3089,17 +3133,18 @@ pii_provider() {
 # (`[PII:IP_ADDRESS]`), so what to write is readable off the masked output.
 PII_SKIPPABLE=',EMAIL,PHONE,IP_ADDRESS,'
 
-# Prints the skip set normalized to `,A,B,` so a substring test is an exact name
-# test. Separators are commas and/or spaces. An unknown or Tier-2 name dies
-# rather than being ignored: someone who wrote AGENT_GUARD_PII_SKIP=CREDIT_CARD
-# expects cards to pass and has to be told the knob cannot do that. Callers that
-# read it through $( ) validate it once in the main shell first — otherwise the
-# subshell swallows the die and the misconfiguration runs on silently.
+# Sets PII_SKIP to the skip set normalized to `,A,B,` so a substring test is an
+# exact name test. Separators are commas and/or spaces. An unknown or Tier-2 name
+# dies rather than being ignored: someone who wrote AGENT_GUARD_PII_SKIP=CREDIT_CARD
+# expects cards to pass and has to be told the knob cannot do that. It sets a
+# variable instead of printing because a die inside $( ) would end only the
+# subshell and let the misconfiguration run on.
 pii_skip_set() {
   # skip_-prefixed names throughout: sh has no locals, and this runs in the main
   # shell of callers that hold their own `out` / `name` / `raw`.
+  PII_SKIP=,
   skip_raw=${AGENT_GUARD_PII_SKIP:-}
-  [ -n "$skip_raw" ] || { printf ','; return 0; }
+  [ -n "$skip_raw" ] || return 0
   case $- in *f*) skip_had_noglob=1 ;; *) skip_had_noglob=0 ;; esac
   skip_oifs=$IFS
   IFS=', '
@@ -3122,7 +3167,7 @@ pii_skip_set() {
   # An endpoint provider redacts server-side and never receives the skip set, so
   # accepting one would leave a switch that silently does nothing on every path
   # that goes through the provider. An unknown provider value is left alone here
-  # so pii_provider still reports it as the provider error it is.
+  # so the adapter still reports it as the provider error it is.
   if [ "$skip_out" != , ]; then
     case "${AGENT_GUARD_PII_PROVIDER:-regex}" in
       http|pleno)
@@ -3130,7 +3175,7 @@ pii_skip_set() {
         ;;
     esac
   fi
-  printf '%s' "$skip_out"
+  PII_SKIP=$skip_out
 }
 
 # Held here so the CLI masker and the hook input gate below read the SAME
@@ -3237,14 +3282,21 @@ function mask_tier2(s) {
 }
 '
 
+# pii_awk PROGRAM [awk options...] runs PROGRAM after PII_AWK_LIB in the C
+# locale, with every pattern the library reads already bound.
+pii_awk() {
+  pii_awk_program=$1
+  shift
+  LC_ALL=C awk -v CC16_RE="$PII_CREDIT_CARD_RE" -v CC19_RE="$PII_CREDIT_CARD19_RE" \
+      -v AMEX_RE="$PII_AMEX_RE" -v SSN_RE="$PII_SSN_RE" \
+      -v KR_RRN_RE="$PII_KR_RRN_RE" -v IPV4_RE="$PII_IPV4_RE" \
+      "$@" "$PII_AWK_LIB$pii_awk_program"
+}
+
 pii_regex_byte_stage() {
   # Byte windows can split UTF-8 characters. Numeric patterns use C locale;
   # email classification stays in the caller's locale in the middle pass.
-  LC_ALL=C awk -v STAGE="$1" -v SKIP="$2" \
-      -v CC16_RE="$PII_CREDIT_CARD_RE" -v CC19_RE="$PII_CREDIT_CARD19_RE" \
-      -v AMEX_RE="$PII_AMEX_RE" -v SSN_RE="$PII_SSN_RE" \
-      -v KR_RRN_RE="$PII_KR_RRN_RE" -v IPV4_RE="$PII_IPV4_RE" \
-      "$PII_AWK_LIB"'
+  pii_awk '
     BEGIN {
       kr_mobile = "01[0-9][ -]?[0-9][0-9][0-9][0-9][ -]?[0-9][0-9][0-9][0-9]"
       phone = "([+]?[0-9][ .-]?)?([(][0-9][0-9][0-9][)]|[0-9][0-9][0-9])[ .-]?[0-9][0-9][0-9][ .-]?[0-9][0-9][0-9][0-9]"
@@ -3268,12 +3320,12 @@ pii_regex_byte_stage() {
         printf "%s", line
       }
     }
-  '
+  ' -v STAGE="$1" -v SKIP="$2"
 }
 
 pii_regex_adapter_filter() (
   need_cmd awk
-  pii_skip=$(pii_skip_set) || exit 2
+  pii_skip_set
   umask 077
   pii_work=$(mktemp -d "${AGENT_GUARD_RUNDIR:-${TMPDIR:-/tmp}}/pii.XXXXXX") || exit 2
   trap 'rm -rf "$pii_work"' 0
@@ -3281,15 +3333,15 @@ pii_regex_adapter_filter() (
   trap 'exit 143' TERM
   trap 'exit 129' HUP
   # Buffer each stage and check its status before exposing any final output.
-  pii_regex_byte_stage first "$pii_skip" >"$pii_work/first" || exit "$?"
-  awk -v SKIP="$pii_skip" '
+  pii_regex_byte_stage first "$PII_SKIP" >"$pii_work/first" || exit "$?"
+  awk -v SKIP="$PII_SKIP" '
     BEGIN { email = "[[:alnum:]_%+.-]+@[[:alnum:].-]+[.][[:alpha:]][[:alpha:]][[:alpha:]]*" }
     {
       if (!index(SKIP, ",EMAIL,")) { gsub(email, "[PII:EMAIL]") }
       printf "%s\n", $0
     }
   ' <"$pii_work/first" >"$pii_work/email" || exit "$?"
-  pii_regex_byte_stage last "$pii_skip" <"$pii_work/email" >"$pii_work/last" || exit "$?"
+  pii_regex_byte_stage last "$PII_SKIP" <"$pii_work/email" >"$pii_work/last" || exit "$?"
   cat "$pii_work/last"
 )
 
@@ -3362,13 +3414,7 @@ pii_endpoint_adapter_filter() {
 }
 
 pii_adapter_filter() {
-  if [ "$#" -gt 0 ]; then
-    provider=$1
-  else
-    # `die` inside $( ) only kills the subshell, so propagate its status here
-    # instead of continuing with an empty provider.
-    provider=$(pii_provider) || exit 2
-  fi
+  provider=${1:-${AGENT_GUARD_PII_PROVIDER:-regex}}
   case "$provider" in
     regex) pii_regex_adapter_filter ;;
     http|pleno) pii_endpoint_adapter_filter "$provider" ;;
@@ -3407,10 +3453,10 @@ pii_filter() {
     shift
   done
 
-  provider=$(pii_provider) || exit 2
+  provider=${AGENT_GUARD_PII_PROVIDER:-regex}
   # Validate here, not only inside the adapter: --check never reaches the adapter
   # and would otherwise report "ok" for a skip set every real run refuses.
-  pii_skip_set >/dev/null
+  pii_skip_set
   if [ "$check" -eq 1 ]; then
     pii_adapter_check "$provider"
     return 0
@@ -3427,13 +3473,13 @@ pii_text_has_match() {
   [ "$masked" != "$text" ]
 }
 
+# Sets PII_HOOK_MODE; like pii_skip_set it runs in the caller's shell so an
+# unsupported value stops the hook instead of turning the gate off.
 pii_hook_mode() {
-  mode=${AGENT_GUARD_PII_HOOK_MODE:-off}
-  case "$mode" in
-    off) printf 'off' ;;
-    block) printf 'block' ;;
-    mask) printf 'mask' ;;
-    *) die "unsupported PII hook mode: $mode (expected off, block, or mask)" ;;
+  PII_HOOK_MODE=${AGENT_GUARD_PII_HOOK_MODE:-off}
+  case "$PII_HOOK_MODE" in
+    off|block|mask) ;;
+    *) die "unsupported PII hook mode: $PII_HOOK_MODE (expected off, block, or mask)" ;;
   esac
 }
 
@@ -3448,10 +3494,7 @@ pii_tier2_present() {
   text=$1
   [ -n "$text" ] || return 1
   need_cmd awk
-  printf '%s' "$text" | LC_ALL=C awk -v CC16_RE="$PII_CREDIT_CARD_RE" \
-      -v CC19_RE="$PII_CREDIT_CARD19_RE" -v AMEX_RE="$PII_AMEX_RE" \
-      -v SSN_RE="$PII_SSN_RE" -v KR_RRN_RE="$PII_KR_RRN_RE" \
-      "$PII_AWK_LIB"'
+  printf '%s' "$text" | pii_awk '
     mask_tier2($0) != $0 { found = 1 }
     END { exit (found ? 0 : 1) }
   '
@@ -3463,7 +3506,8 @@ pii_tier2_present() {
 block_on_pii_text() {
   label=$1
   text=$2
-  case "$(pii_hook_mode)" in
+  pii_hook_mode
+  case "$PII_HOOK_MODE" in
     block)
       pii_text_has_match "$text" || return 0
       info "$PROGRAM: blocked PII in $label; run agent-guard pii-filter before using this tool"
@@ -3495,12 +3539,9 @@ block_on_pii_text() {
 check_pii_hook_input() {
   input=$1
   tool=$2
-  # Validate the mode in the main shell first: pii_hook_mode dies on an
-  # unsupported value, but the $(...) reads below would swallow that exit and
-  # silently disable the gate. Running it here (no subshell) fails closed.
-  pii_hook_mode >/dev/null
-  pii_skip_set >/dev/null
-  [ "$(pii_hook_mode)" = off ] && return 0
+  pii_hook_mode
+  pii_skip_set
+  [ "$PII_HOOK_MODE" = off ] && return 0
   need_cmd jq
 
   case "$tool" in
@@ -4783,10 +4824,15 @@ json_value_cached() {
   return 1
 }
 
+# Both readers consult json_value_cached only while a cache is primed. Passing
+# the input as an argument copies it in the shell, and an input over the 256 Ki
+# character priming limit (a large PostToolUse tool output) is never primed, so
+# an unconditional lookup copied that whole input once per field for an answer
+# that was always "not cached".
 json_value() {
   expr=$1
   input=$2
-  if json_value_cached "$expr" "$input"; then
+  if [ -n "${JV_CACHE_INPUT:-}" ] && json_value_cached "$expr" "$input"; then
     [ "$jv_set" = 0 ] || printf '%s\n' "$jv_val"
     return 0
   fi
@@ -4794,9 +4840,11 @@ json_value() {
 }
 
 # Set jv_out to what `jv_out=$(json_value "$1" "$2")` would hold and return the
-# same status. Only an unprimed field costs a subshell.
+# same status. Only an unprimed field costs a subshell. That subshell runs jq
+# directly: json_value would repeat the lookup that just missed for the same
+# arguments and copy the input once more.
 json_value_to() {
-  if json_value_cached "$1" "$2"; then
+  if [ -n "${JV_CACHE_INPUT:-}" ] && json_value_cached "$1" "$2"; then
     jv_out=
     [ "$jv_set" = 0 ] && return 0
     jv_out=$jv_val
@@ -4809,7 +4857,7 @@ json_value_to() {
       esac
     done
   fi
-  jv_out=$(json_value "$1" "$2")
+  jv_out=$(printf '%s' "$2" | jq -r "$1")
 }
 
 normalize_path() {
@@ -5437,10 +5485,7 @@ deny_path_cache_file() {
   if [ -z "$DENY_PATH_CACHE_ID" ]; then
     dpc_nl='
 '
-    case "${AG_OS:-$(uname -s)}" in
-      Darwin) dpc_ids=$(stat -L -f '%d:%i:%z:%Fm:%Fc' "$DENY_READ_PATHS" "$SELF_BIN" 2>/dev/null) || return 1 ;;
-      *) dpc_ids=$(stat -L -c '%d:%i:%s:%y:%z' "$DENY_READ_PATHS" "$SELF_BIN" 2>/dev/null) || return 1 ;;
-    esac
+    dpc_ids=$(file_stat identity -L "$DENY_READ_PATHS" "$SELF_BIN") || return 1
     # The regex splits a multibyte character differently per locale, so the
     # locale that built a file is part of its name.
     dpc_ids="$VERSION:${dpc_ids%%"$dpc_nl"*}:${dpc_ids#*"$dpc_nl"}:L${LC_ALL:-}:${LC_CTYPE:-}:${LANG:-}"
@@ -12875,9 +12920,7 @@ output_scan_input_exceeds_cap() {
 # values get masked varies - only this one sentinel's replacement text.
 live_probe_run_id() {
   [ -n "$AG_AUDIT_FILE" ] || return 0
-  case "$AG_AUDIT_ID" in
-    ''|*[!0-9A-Za-z-]*) return 0 ;;
-  esac
+  audit_run_id_valid "$AG_AUDIT_ID" || return 0
   printf '%s' "$AG_AUDIT_ID"
 }
 
@@ -12885,8 +12928,7 @@ live_probe_marker_valid() {
   live_probe_id=$1
   live_probe_dir=$2
   live_probe_marker="$live_probe_dir/live-probe-$live_probe_id"
-  [ -d "$live_probe_marker" ] && [ ! -L "$live_probe_marker" ] || return 1
-  [ "$(audit_stat "$live_probe_marker")" = "$(id -u):700" ] || return 1
+  private_dir_ok "$live_probe_marker" || return 1
   ! find "$live_probe_marker" -mindepth 1 -maxdepth 1 -print 2>/dev/null \
     | grep -q .
 }
@@ -12897,9 +12939,7 @@ live_probe_marker_valid() {
 # fail closed and the replacement stays the bare placeholder.
 audit_mark_live_probe() {
   [ -n "$AG_AUDIT_FILE" ] || return 1
-  case "$AG_AUDIT_ID" in
-    ''|*[!0-9A-Za-z-]*) return 1 ;;
-  esac
+  audit_run_id_valid "$AG_AUDIT_ID" || return 1
   live_probe_dir=$(audit_directory) || return 1
   [ "$AG_AUDIT_FILE" = "$live_probe_dir/event-$AG_AUDIT_ID" ] || return 1
   live_probe_marker="$live_probe_dir/live-probe-$AG_AUDIT_ID"
@@ -12935,11 +12975,10 @@ response_drops_live_probe() {
 live_probe_audit_record_exists() {
   live_probe_id=$1
   live_probe_dir=$2
-  printf '%s' "$live_probe_id" \
-    | LC_ALL=C grep -Eq '^[0-9]{1,12}-[A-Za-z0-9]{6}$' || return 1
+  audit_run_id_valid "$live_probe_id" || return 1
   live_probe_file="$live_probe_dir/event-$live_probe_id"
   [ -f "$live_probe_file" ] && [ ! -L "$live_probe_file" ] || return 1
-  [ "$(audit_stat "$live_probe_file")" = "$(id -u):600" ] || return 1
+  [ "$(file_stat access -P "$live_probe_file")" = "$(id -u):600" ] || return 1
   live_probe_marker_valid "$live_probe_id" "$live_probe_dir" || return 1
   live_probe_bytes=$(wc -c <"$live_probe_file" | tr -d '[:space:]')
   case "$live_probe_bytes" in ''|*[!0-9]*) return 1 ;; esac
@@ -12970,11 +13009,12 @@ trusted_live_probe_replacements() {
     return 0
   }
   live_probe_candidates=$(printf '%s' "$live_probe_response" \
-    | jq -c --arg prefix "$LIVE_POST_TOOL_REPLACEMENT_PREFIX" '
+    | jq -c --arg prefix "$LIVE_POST_TOOL_REPLACEMENT_PREFIX" \
+        --arg run_id_re "$AUDIT_RUN_ID_JQ_REGEX" '
         [.. | strings
          | select(startswith($prefix))
          | .[($prefix | length):] as $id
-         | select($id | test("^[0-9]{1,12}-[A-Za-z0-9]{6}$"))]
+         | select($id | test($run_id_re))]
         | unique | .[:16][]
       ' 2>/dev/null) || {
     printf '%s' '[]'
@@ -14476,9 +14516,9 @@ recover_post_tool_validation_failure() {
 mask_pii_response_json() {
   resp=$1
   trusted=${2:-[]}
-  skip=$(pii_skip_set) || exit 2
+  pii_skip_set
   printf '%s' "$resp" \
-    | jq -c --arg pii_skip "$skip" --argjson trusted "$trusted" "$JQ_WALK"'
+    | jq -c --arg pii_skip "$PII_SKIP" --argjson trusted "$trusted" "$JQ_WALK"'
     def keep($type): ($pii_skip | contains(",\($type),")) | not;
     def luhn:
       ([gsub("[^0-9]"; "") | explode | .[] | . - 48] | reverse
@@ -15388,7 +15428,7 @@ mask_allow_source() (
       1) printf '%s' "$ma_acl"; return 1 ;;
       *) printf '%s' "$ma_unchecked"; return 1 ;;
     esac
-    ma_stat=$(audit_stat "$1")
+    ma_stat=$(file_stat access -P "$1")
     ma_owner=${ma_stat%%:*}
     ma_mode=${ma_stat#*:}
     case $ma_owner:$ma_mode in
@@ -15666,14 +15706,13 @@ cat_mask_target() (
 redact_tool_output() {
   input=$1
   REDACT_OUTPUT_EMITTED=0
-  # Validate the mode in the main shell (pii_hook_mode dies on an unsupported
-  # value; the $(...) read below would otherwise swallow the exit and silently
-  # leave PII unmasked). A misconfigured mode fails loud instead of fail-open.
-  pii_hook_mode >/dev/null
-  pii_skip_set >/dev/null
+  # Validate the skip set here too: the masker reads it inside $( ), where a
+  # die would only leave the response unmasked.
+  pii_hook_mode
+  pii_skip_set
   secrets_on=0; pii_on=0
   output_redact_enabled && secrets_on=1
-  [ "$(pii_hook_mode)" = mask ] && pii_on=1
+  [ "$PII_HOOK_MODE" = mask ] && pii_on=1
   [ "$secrets_on" -eq 1 ] || [ "$pii_on" -eq 1 ] || return 0
   redact_figma_tool=0
   if is_figma_mcp_tool "$(json_value '.tool_name // .tool // .name // empty' "$input" 2>/dev/null)"; then
@@ -16522,12 +16561,11 @@ hook_user_prompt() {
   input=$(read_stdin)
   HOOK_EVENT=UserPromptSubmit
   HOOK_INPUT=$input
-  # Validate both modes in the main shell (die inside $() would only exit the
-  # subshell and silently fail-open, exactly the hazard check_pii_hook_input
-  # and redact_tool_output guard against).
+  # Validate the prompt mode in the main shell (die inside $() would only exit
+  # the subshell and silently fail-open).
   prompt_guard_mode >/dev/null
-  pii_hook_mode >/dev/null
-  pii_skip_set >/dev/null
+  pii_hook_mode
+  pii_skip_set
   prompt_mode=$(prompt_guard_mode)
   if ! hook_dependencies_ready; then
     emit_degraded_hook_warning UserPromptSubmit "$input"
@@ -17001,15 +17039,15 @@ do_exec() {
     exit 2
   fi
 
-  # Validate the PII mode up front so a misconfiguration fails loud (pii_hook_mode
-  # dies on an unsupported value) instead of silently leaving PII unmasked.
-  pii_hook_mode >/dev/null
-  pii_skip_set >/dev/null
+  # Validate the PII settings before running the command: the masker below runs
+  # inside $( ) and keeps the unmasked text if it fails.
+  pii_hook_mode
+  pii_skip_set
   if output_redact_enabled; then
     need_cmd jq
     need_gitleaks
   fi
-  if [ "$(pii_hook_mode)" = mask ]; then
+  if [ "$PII_HOOK_MODE" = mask ]; then
     need_cmd awk
   fi
 
@@ -17120,7 +17158,7 @@ do_exec() {
 
   # PII masking (AGENT_GUARD_PII_HOOK_MODE=mask), reusing the same CLI masker the
   # pii-filter subcommand uses. Fail-safe: keep the prior text if it errors.
-  if [ "$(pii_hook_mode)" = mask ]; then
+  if [ "$PII_HOOK_MODE" = mask ]; then
     r=$(printf '%s' "$masked" | pii_regex_adapter_filter 2>/dev/null)
     [ -n "$r" ] && masked=$r
   fi
@@ -17920,7 +17958,7 @@ do_update() {
   [ -n "$AGENT_GUARD_RUNDIR" ] \
     || die "update: cannot create a private temporary workspace"
   update_script="$AGENT_GUARD_RUNDIR/bootstrap.sh"
-  curl -fsSL "https://github.com/JeongJaeSoon/agent-guard/releases/latest/download/bootstrap.sh" \
+  curl -fsSL "$AG_REPO_URL/releases/latest/download/bootstrap.sh" \
     -o "$update_script" || die "update: failed to download bootstrap.sh"
   sh -n "$update_script" || die "update: downloaded bootstrap.sh failed syntax validation"
   # BIN_DIR is the resolved payload directory, not the public symlink's

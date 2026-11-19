@@ -60,6 +60,13 @@ check 'clean passthrough status and stdout unchanged' test ! -s "$CASE/out"
 check 'export succeeds' export_logs
 check 'successful invocation has start and finish linked by run ID' jq -es 'length == 2 and .[0].phase == "started" and .[1].phase == "finished" and .[0].run_id == .[1].run_id' "$CASE/export"
 check 'pass does not imply a clean scan' has_outcome pass
+newline_id_event="$XDG_STATE_HOME/agent-guard/event-1000000001-nl0000"
+(umask 077; jq -c '.run_id += "\n"' "$CASE/export" >"$newline_id_event")
+export_logs
+check 'export drops a run ID with a trailing newline' \
+  jq -es 'length == 2 and all(.[]; .run_id | endswith("\n") | not)' "$CASE/export"
+rm -f "$newline_id_event"
+export_logs
 if "$GUARD" logs >"$CASE/default-status.out" 2>"$CASE/default-status.err" \
    && grep -q 'Local diagnostic logging:' "$CASE/default-status.out"; then
   ok 'logs without a subcommand keeps the status default'

@@ -29,7 +29,7 @@ Individual documents describe each suite's contracts and evidence and link here.
 
 | Entry point (also runnable with `sh`) | Inner assertions | `tests/run.sh` partition | Contract details |
 | --- | ---: | ---: | --- |
-| `tests/unit-core.sh` | 35 | 1 | [Version comparison and shell quoting](unit-tests.md) |
+| `tests/unit-core.sh` | 36 | 1 | [Version comparison and shell quoting](unit-tests.md) |
 | `tests/unit-framing.sh` | 20 | 1 | [Framing producers](unit-framing.md) |
 | `tests/unit-deny-path.sh` | 97 | 1 | [Deny-path character producers](deny-path-regex.md) |
 | `tests/unit-probe.sh` | 4 | 1 | Probe eligibility |
@@ -65,7 +65,7 @@ total 140 assertions and about 0.479 seconds in this sample.
 
 | Entry point (`sh tests/…` unless shown) | Inner assertions | Seconds | Main boundary/cost |
 | --- | ---: | ---: | --- |
-| `unit-core.sh` | 35 | 0.184 | Shell quoting and awk version comparison |
+| `unit-core.sh` | 36 | 0.184 | Shell quoting and version comparison |
 | `unit-framing.sh` | 18 | 0.186 | jq/awk producer byte contracts and partial failure |
 | `unit-deny-path.sh` | 83 | 0.062 | Shell character/regex producer contracts |
 | `unit-probe.sh` | 4 | 0.047 | awk eligibility marker contracts |
