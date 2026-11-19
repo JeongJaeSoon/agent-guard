@@ -228,6 +228,14 @@ client peaks at 3.4 MiB (7.7 MiB for a 1 MiB input) for a few milliseconds.
 Off, nothing changes: across 112 hook runs (Claude and Codex, log on and off)
 exit codes, output and the number of programs executed equal main.
 
+## Known limits
+
+- The client connects to the helper before it reads standard input, so a
+  cold call can still `exec` the real gitleaks without copying piped input. A
+  producer that is slow to write therefore holds one of the helper's four
+  connection slots for up to three seconds; other clients then wait, and after
+  three seconds run the real gitleaks. The verdict is unaffected.
+
 ## Not verified
 
 - Behavior inside Claude Code and Codex sandboxes and hosts that kill every

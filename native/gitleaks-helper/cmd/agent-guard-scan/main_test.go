@@ -32,6 +32,10 @@ func TestParseScanArgs(t *testing.T) {
 		"stdin --no-banner --config C --exit-code x",
 		"stdin --no-banner --config C --exit-code",
 		"stdin --no-banner=false --config C",
+		"stdin --no-banner --config C --exit-code 010",
+		"stdin --no-banner --config C --exit-code +1",
+		"stdin --no-banner --config C --exit-code -1",
+		"stdin --no-banner --config C --redact=010",
 		"stdin --no-banner --config C extra",
 	}
 	for _, line := range rejected {

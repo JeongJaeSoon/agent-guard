@@ -151,7 +151,7 @@ for f in "$IN/large-clean" "$IN/large-secret"; do
   : >"$TRACE"
   cat "$f" | "$CLIENT" --gitleaks "$GL" --gitleaks-version 8.30.1 --state-dir "$STATE" -- $ARGS_A >/dev/null 2>&1
   st=$?
-  expect "a piped $(basename "$f") over 64 KiB goes to the real gitleaks with every byte" \
+  expect "a piped $(basename "$f") over 64 KiB goes to the real gitleaks and keeps its verdict" \
     'case "$(last_trace)" in real:large|real:pipe-chunks) ;; *) false ;; esac && [ "$st" = "$(cat "$CASE/r.status")" ]'
 done
 # A producer that writes in two pieces: the real gitleaks may read two chunks,
@@ -209,7 +209,7 @@ cp "$CLIENT" "$CASE/bin/other-engine"
 : >"$TRACE"
 "$CLIENT" --gitleaks "$CASE/bin/other-engine" --gitleaks-version 8.30.1 --state-dir "$STATE" -- $ARGS_A <"$IN/clean-command" >/dev/null 2>&1
 st=$?
-expect "a gitleaks build with another regex engine is refused by the helper and run for real" \
+expect "a gitleaks with other Go build information is refused by the helper and run for real" \
   '[ "$(last_trace)" = real:helper-engine ] && [ "$st" != 0 ]'
 
 # --- a custom config gets its own helper; an extending one is never served ---
@@ -401,7 +401,9 @@ expect "a Claude hook whose output is a pipe ends when the hook ends, though it 
 stop_helpers
 rm -f "$HDIR"/*
 AGENT_GUARD_GITLEAKS_HELPER_IDLE_SECONDS=1 warm
+warm_status=$?
 pid=$(helper_pids)
+expect "a helper for the idle checks started and answered" '[ "$warm_status" = 0 ] && [ -n "$pid" ] && [ "$(last_trace)" = helper ]'
 n=0; while [ -n "$(helper_pids)" ] && [ "$n" -lt 250 ]; do sleep 0.1; n=$((n + 1)); done
 check "an idle helper exits by itself" [ -z "$(helper_pids)" ]
 check "an idle helper leaves no socket or lock behind" sh -c '! ls "$1"/*.sock "$1"/*.lock >/dev/null 2>&1' _ "$HDIR"

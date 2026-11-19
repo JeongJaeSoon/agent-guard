@@ -132,6 +132,9 @@ func parseScanArgs(args []string) (scanArgs, bool) {
 		case "--redact":
 			a.redact = 100
 			if hasValue {
+				if !plainNumber(value) {
+					return a, false
+				}
 				n, err := strconv.ParseUint(value, 10, 32)
 				if err != nil {
 					return a, false
@@ -152,6 +155,9 @@ func parseScanArgs(args []string) (scanArgs, bool) {
 		case "--config":
 			a.config = value
 		case "--exit-code":
+			if !plainNumber(value) {
+				return a, false
+			}
 			n, err := strconv.Atoi(value)
 			if err != nil {
 				return a, false
@@ -181,6 +187,21 @@ func parseScanArgs(args []string) (scanArgs, bool) {
 		return a, false
 	}
 	return a, true
+}
+
+// plainNumber accepts decimal digits without a sign or a leading zero. The
+// real gitleaks parses numeric flags in base 0 (010 is 8), so any other
+// spelling goes to it.
+func plainNumber(v string) bool {
+	if v == "" || len(v) > 9 || (len(v) > 1 && v[0] == '0') {
+		return false
+	}
+	for _, r := range v {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 type client struct {
@@ -453,6 +474,15 @@ func envInt(name string, def, lo, hi int) int {
 func (c *client) spawn(helper, stateDir, key, configPath, configSHA, marker string) {
 	if info, err := os.Lstat(marker); err == nil && time.Since(info.ModTime()) < spawnBackoff && info.ModTime().Before(time.Now().Add(time.Second)) {
 		return
+	}
+	// A helper holding the key's lock is starting or serving; a second one
+	// would only exit at once and linger as a zombie of this process.
+	if held, err := os.OpenFile(filepath.Join(filepath.Dir(marker), strings.TrimSuffix(filepath.Base(marker), ".spawn")+".lock"), os.O_RDONLY|syscall.O_NOFOLLOW, 0); err == nil {
+		locked := syscall.Flock(int(held.Fd()), syscall.LOCK_EX|syscall.LOCK_NB) != nil
+		_ = held.Close()
+		if locked {
+			return
+		}
 	}
 	f, err := os.OpenFile(marker, os.O_WRONLY|os.O_CREATE|syscall.O_NOFOLLOW, 0o600)
 	if err != nil {

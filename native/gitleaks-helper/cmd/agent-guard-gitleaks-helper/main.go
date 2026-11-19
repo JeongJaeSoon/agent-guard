@@ -53,8 +53,9 @@ const (
 	// does not finish in time is not an answer; the client runs the real
 	// gitleaks. The client's own deadline is longer.
 	scanTimeout = 2500 * time.Millisecond
-	// ioTimeout bounds reading a request and writing an answer.
-	ioTimeout = 2 * time.Second
+	// ioTimeout bounds reading a request and writing an answer; it matches
+	// the client's exchange deadline, which starts once its input is read.
+	ioTimeout = 3 * time.Second
 	// tick is how often an idle helper checks that it still owns its socket.
 	tick = 15 * time.Second
 	// largeInput is the size after which the helper returns freed memory to
@@ -454,6 +455,8 @@ func (s *server) handle(conn *net.UnixConn) {
 	s.scanMu.Unlock()
 	_ = conn.SetDeadline(time.Now().Add(ioTimeout))
 	_ = wire.WriteResponse(conn, resp, stdout, stderr, reportBytes)
+	// The report of an unredacted scan holds the secrets it found.
+	clear(reportBytes)
 	if overCap {
 		go s.stop()
 	}
