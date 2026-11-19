@@ -70,6 +70,22 @@ test -x githooks/pre-commit
 The expected hooks path is `githooks`. A hook can be bypassed by someone who
 can alter local Git configuration, so it complements rather than replaces CI.
 
+The hook names the agent-guard executable by absolute path. If that file is
+removed or moved, the hook still blocks the commit (exit 1), because the
+staged-secret scan cannot run, and prints the missing path with the fix:
+rerun `install.sh git-hooks` from the new installation, or remove the hook.
+Rerunning `install.sh git-hooks` also adds this message to a hook installed by
+an earlier release, which otherwise fails with `exec: ... not found`. To remove
+the hook, run in the repository:
+
+```sh
+git config --unset core.hooksPath
+rm githooks/pre-commit
+```
+
+Git then runs `.git/hooks` again, including a hook the installer had chained.
+See [Removing an installation](installation.md#removing-an-installation).
+
 ## GitHub Actions
 
 Use the Action on pull requests and pushes to scan a checkout in CI. It is the
@@ -252,7 +268,9 @@ manifests do not set it. Other events keep the host default: a timed-out
 A `PostToolUseFailure` hook cannot block or mask anything: the tool has already
 failed, and none of `updatedToolOutput`, `decision: "block"`, or exit status 2
 replaces the error text. So a scan that cannot run is reported to the
-model as additional context, never as a clean result: once per session under
-`AGENT_GUARD_INFRA_FAILURE_MODE=open`, and on every failed call under `closed`.
+model as additional context, never as a clean result: under
+`AGENT_GUARD_INFRA_FAILURE_MODE=open` at most once every 10 minutes per
+session, which Claude Code also shows to you as a `systemMessage`, and on every
+failed call under `closed`.
 Input that is not a JSON object, or has no `error` field, passes through with
 no response. `AGENT_GUARD_OUTPUT_REDACT=off` turns this check off as well.

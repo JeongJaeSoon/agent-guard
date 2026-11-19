@@ -130,10 +130,10 @@ bundle_secret_records_fused() (
             for (i = 1; i <= record_count; i++) print records[i]
         }
       ' >"$bundle_records" \
-    || ! jq -sc '
+    || ! jq -sc "$JQ_SETTLE_EXTENTS"'
         if any(.[]; type == "object" and .agent_guard_whole_leaf == true)
         then {whole_leaf: true, secrets: []}
-        else {whole_leaf: false, secrets: unique}
+        else {whole_leaf: false, secrets: settle_extents}
         end
       ' <"$bundle_records" 2>/dev/null; then
     exit 1

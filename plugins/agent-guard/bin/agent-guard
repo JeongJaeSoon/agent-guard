@@ -198,6 +198,47 @@ sh_squote() {
   printf "'"
 }
 
+# The command word for guidance that asks the user to run this CLI. Keep the
+# short `agent-guard` when that name on PATH is this installation. Standalone
+# and Homebrew installs accept any copy on PATH, because Homebrew's bin entry is
+# a wrapper script rather than this file. A plugin-only install puts nothing on
+# PATH, so name the executable by its quoted absolute path instead: the stable
+# `current` link when it works, so the advice survives the next plugin update.
+# Computed on first use; only paths that print guidance pay for it.
+AG_CLI_REF=
+AG_CLI_REF_HOOK=
+cli_ref_init() {
+  [ -z "$AG_CLI_REF" ] || return 0
+  cli_ref_found=$(command -v "$PROGRAM" 2>/dev/null) || cli_ref_found=
+  case $cli_ref_found in
+    /*)
+      if [ -z "$PLUGIN_CACHE_BASE" ] || [ "$cli_ref_found" -ef "$SELF_BIN" ] \
+         || [ "$cli_ref_found" -ef "$STABLE_BIN" ]; then
+        AG_CLI_REF=$PROGRAM
+        AG_CLI_REF_HOOK=$PROGRAM
+        return 0
+      fi
+      ;;
+  esac
+  cli_ref_exec=$STABLE_BIN
+  [ -x "$cli_ref_exec" ] || cli_ref_exec=$SELF_BIN
+  # Double quotes read naturally inside the existing 'run ...' wording; a path
+  # that double quotes would not keep literal uses POSIX single quoting.
+  case $cli_ref_exec in
+    *[\"\$\`\\]*) AG_CLI_REF=$(sh_squote "$cli_ref_exec") ;;
+    *) AG_CLI_REF="\"$cli_ref_exec\"" ;;
+  esac
+  # Hook messages travel as text on stderr, inside hand-built JSON strings, and
+  # through jq in closed mode, so they need a form that is the same in all
+  # three: a single-quoted path, which no JSON or shell layer changes. A path
+  # that holds a quote, a backslash or a control character would need escaping
+  # in one of them; that rare path keeps the short name.
+  case $cli_ref_exec in
+    *[\'\"\\]*|*[[:cntrl:]]*) AG_CLI_REF_HOOK=$PROGRAM ;;
+    *) AG_CLI_REF_HOOK="'$cli_ref_exec'" ;;
+  esac
+}
+
 GITLEAKS_CONFIG=${AGENT_GUARD_GITLEAKS_CONFIG:-"$ROOT_DIR/config/gitleaks.toml"}
 DENY_READ_PATHS_CUSTOM=0
 if [ -n "${AGENT_GUARD_DENY_READ_PATHS:-}" ]; then
@@ -826,7 +867,8 @@ plugin_for_host() {
 }
 
 plugin_set_retry() {
-  plugin_retry="$PROGRAM plugin $1 --host $plugin_host"
+  cli_ref_init
+  plugin_retry="$AG_CLI_REF plugin $1 --host $plugin_host"
   if [ "$plugin_host" = claude ] && [ "$plugin_scope" != user ]; then
     plugin_retry="$plugin_retry --scope $plugin_scope"
   fi
@@ -1031,7 +1073,8 @@ plugin_for_host_body() {
         return 2
       fi
       if [ "$plugin_has_marketplace" -eq 0 ] || [ "$plugin_has_install" -eq 0 ]; then
-        printf '%s\n' "$PROGRAM: $plugin_host plugin is not installed; run '$PROGRAM plugin install --host $plugin_host' first" >&2
+        cli_ref_init
+        printf '%s\n' "$PROGRAM: $plugin_host plugin is not installed; run '$AG_CLI_REF plugin install --host $plugin_host' first" >&2
         return 1
       fi
       plugin_require_release_pin 'refusing to update through it' || return 2
@@ -2424,8 +2467,9 @@ prepare_gitleaks() {
 need_gitleaks() {
   if ! prepare_gitleaks; then
     if [ -z "${GITLEAKS_BIN:-}" ]; then
+      cli_ref_init
       die_with_status "${1:-2}" \
-        "required command not found: gitleaks (run: $PROGRAM setup)"
+        "required command not found: gitleaks (run: $AG_CLI_REF setup)"
     fi
     probe_detail=$(gitleaks_probe_error "$GITLEAKS_BIN")
     die_with_status "${1:-2}" "$probe_detail"
@@ -2452,6 +2496,22 @@ hook_dependencies_ready() {
   ! hook_policy_unusable >/dev/null
 }
 
+# The PreToolUse protected-path and deny-pattern checks need only jq, awk and
+# their two policy files, not gitleaks. When hook_dependencies_ready failed and
+# these are ready, only the secret scanner is missing.
+hook_policy_dependencies_ready() {
+  command -v jq >/dev/null 2>&1 || return 1
+  command -v awk >/dev/null 2>&1 || return 1
+  [ -f "$DENY_READ_PATHS" ] && policy_file_has_active_rule "$DENY_READ_PATHS" || return 1
+  [ -f "$DENY_BASH_PATTERNS" ] && policy_file_has_active_rule "$DENY_BASH_PATTERNS" || return 1
+}
+
+# Set to 1 only by hook_pre_tool, in the open policy, when gitleaks or its
+# config is unavailable but the policy checks can run. Every gitleaks scan then
+# reports "could not run" without probing again, and the hook reports that once
+# through the infrastructure policy instead of treating the scan as clean.
+HOOK_SCANNER_UNAVAILABLE=0
+
 infrastructure_failure_mode() {
   case "${AGENT_GUARD_INFRA_FAILURE_MODE:-open}" in
     open|closed) printf '%s\n' "${AGENT_GUARD_INFRA_FAILURE_MODE:-open}" ;;
@@ -2459,11 +2519,62 @@ infrastructure_failure_mode() {
   esac
 }
 
-hook_warning_once() {
+# Seconds before the open-policy infrastructure notice repeats in one session.
+# Ten minutes matches GITLEAKS_PROBE_CACHE_TTL_SECONDS, the window in which a
+# repaired scanner is picked up anyway, and at the usual pace of tool calls
+# shows the notice a few times an hour rather than on every call. It is fixed
+# on purpose: the notice is the only thing telling the user protection is off.
+HOOK_WARNING_INTERVAL_SECONDS=600
+
+# Whether the open notice is due: on the session's first failure, and again
+# once HOOK_WARNING_INTERVAL_SECONDS have passed since the time the marker
+# records. The clock is the hook start time audit_begin already read; date runs
+# only when logging is off. A marker that cannot be created or read for another
+# reason (full disk, read-only dir, not ours) must still warn. Without a clock
+# the notice stays once per session. Two hooks racing past the interval can
+# both warn; neither can suppress the other.
+hook_warning_due() {
   warning_marker=$(warning_state_path infrastructure "${1:-}") || return 0
-  # Only an existing marker means this session already warned. A create that
-  # fails for another reason (full disk, read-only dir) must still warn.
-  (umask 077; set -C; : >"$warning_marker") 2>/dev/null || [ ! -e "$warning_marker" ]
+  warning_now=$AG_AUDIT_START
+  case "$warning_now" in
+    ''|0|*[!0-9]*) warning_now=$(date +%s 2>/dev/null) || warning_now= ;;
+  esac
+  # A leading zero would be read as octal, and a digit 8 or 9 then ends the
+  # shell with exit 2 inside the arithmetic below.
+  case "$warning_now" in 0*|*[!0-9]*|????????????*) warning_now= ;; esac
+  # Never open anything but a regular file: noclobber still opens an existing
+  # FIFO or device, and a planted FIFO would hang the hook until the host
+  # timeout. Such a marker proves nothing, so the notice is due.
+  if [ -L "$warning_marker" ] || { [ -e "$warning_marker" ] && [ ! -f "$warning_marker" ]; }; then
+    return 0
+  fi
+  (umask 077; set -C; printf '%s\n' "$warning_now" >"$warning_marker") 2>/dev/null \
+    && return 0
+  [ -e "$warning_marker" ] || return 0
+  [ -n "$warning_now" ] || return 1
+  # Read only our own regular file; the check above narrows, not closes, a
+  # swap, and the read itself is a builtin.
+  warning_last=
+  if [ -f "$warning_marker" ] && [ ! -L "$warning_marker" ] && [ -O "$warning_marker" ]; then
+    IFS= read -r warning_last 2>/dev/null <"$warning_marker" || :
+  fi
+  # An empty (pre-interval) or unreadable marker, or a time ahead of the
+  # clock, is due; otherwise wait out the interval.
+  case "$warning_last" in
+    ''|0*|*[!0-9]*|????????????*) ;;
+    *)
+      [ "$warning_last" -gt "$warning_now" ] \
+        || [ $((warning_now - warning_last)) -ge "$HOOK_WARNING_INTERVAL_SECONDS" ] \
+        || return 1
+      ;;
+  esac
+  # Replace rather than overwrite, so a marker swapped for a symlink is never
+  # followed; noclobber refuses to write through one. rm is the only process
+  # this adds, once per interval. If it cannot remove the marker, the notice
+  # stays due on every call: louder, never silent.
+  rm -f "$warning_marker" 2>/dev/null || :
+  (umask 077; set -C; printf '%s\n' "$warning_now" >"$warning_marker") 2>/dev/null || :
+  return 0
 }
 
 # Per-session state file under the private warnings dir. Fails only when the
@@ -2501,9 +2612,10 @@ warning_root() {
 }
 
 # Shared front half of every infrastructure-failure policy: apply the closed
-# policy, warn once per session on stderr, and leave the message a caller
-# may still want to publish in $INFRA_FAILURE_NOTICE (empty when this session
-# already warned). Callers differ only in WHERE that notice goes, because a
+# policy, warn on stderr when hook_warning_due says the open notice is due, and
+# leave the message a caller may still want to publish in $INFRA_FAILURE_NOTICE
+# (empty when this session warned within the interval). Callers differ only in
+# WHERE that notice goes, because a
 # hook may write at most one top-level JSON response: a handler that prints its
 # own object cannot be followed by a second one.
 INFRA_FAILURE_NOTICE=
@@ -2514,7 +2626,7 @@ begin_infrastructure_failure() {
   detail=$2
   INFRA_FAILURE_NOTICE=
   mode=$(infrastructure_failure_mode)
-  # The once-per-session limit applies only to the open warning. Each closed
+  # The repeat interval applies only to the open warning. Each closed
   # block carries its own reason: a bare exit 2 reaches the host as a denial
   # with no verdict or explanation.
   if [ "$mode" = closed ]; then
@@ -2522,7 +2634,7 @@ begin_infrastructure_failure() {
     info "$detail Blocking because AGENT_GUARD_INFRA_FAILURE_MODE=closed."
     exit 2
   fi
-  if hook_warning_once "$input"; then
+  if hook_warning_due "$input"; then
     INFRA_FAILURE_NOTICE="$detail continuing because AGENT_GUARD_INFRA_FAILURE_MODE=open (the default)."
     info "$INFRA_FAILURE_NOTICE"
   fi
@@ -2531,19 +2643,43 @@ begin_infrastructure_failure() {
 
 # Emits the notice immediately. Only safe where the caller returns without
 # writing anything else to stdout; hook-user-prompt defers instead.
-# hook_warning_once repeats when its marker cannot be written, and a second
+# hook_warning_due repeats when its marker cannot be written, and a second
 # JSON object makes the stdout unparseable, which Claude's PreToolUse
 # onFailure "block" turns into a block. So write at most one per process.
+#
+# Claude Code never shows a hook's exit-0 stderr, and additionalContext reaches
+# only the model, so on Claude the same object also carries the notice as
+# systemMessage, which its hook reference documents as a warning shown to the
+# user on these events and on Stop (code.claude.com/docs/en/hooks, JSON
+# output). Codex keeps the model-facing channel only: whether it shows a
+# systemMessage from these events has not been verified.
 INFRA_FAILURE_NOTICE_EMITTED=0
 
 handle_hook_infrastructure_failure() {
   event=$1
-  begin_infrastructure_failure "${2:-}" "$3"
+  hif_detail=$3
+  # Another notice can be the first of the session while the scanner is
+  # missing; carry the scanner notice with it so the marker it creates never
+  # hides that the secret scan did not run.
+  if [ "$HOOK_SCANNER_UNAVAILABLE" = 1 ]; then
+    hif_scanner=$(degraded_hook_message scanner)
+    [ "$hif_detail" = "$hif_scanner" ] || hif_detail="$hif_scanner $hif_detail"
+  fi
+  begin_infrastructure_failure "${2:-}" "$hif_detail"
   [ -n "$INFRA_FAILURE_NOTICE" ] || return 0
   [ "$INFRA_FAILURE_NOTICE_EMITTED" = 0 ] || return 0
-  case "$event" in
-    PreToolUse|PostToolUse|PostToolUseFailure|UserPromptSubmit)
+  case "$(hook_host):$event" in
+    codex:PreToolUse|codex:PostToolUse|codex:PostToolUseFailure|codex:UserPromptSubmit)
       printf '{"hookSpecificOutput":{"hookEventName":"%s","additionalContext":"%s"}}\n' "$event" "$INFRA_FAILURE_NOTICE"
+      INFRA_FAILURE_NOTICE_EMITTED=1
+      ;;
+    codex:*) ;;
+    *:PreToolUse|*:PostToolUse|*:PostToolUseFailure|*:UserPromptSubmit)
+      printf '{"systemMessage":"%s","hookSpecificOutput":{"hookEventName":"%s","additionalContext":"%s"}}\n' "$INFRA_FAILURE_NOTICE" "$event" "$INFRA_FAILURE_NOTICE"
+      INFRA_FAILURE_NOTICE_EMITTED=1
+      ;;
+    *:Stop)
+      printf '{"systemMessage":"%s"}\n' "$INFRA_FAILURE_NOTICE"
       INFRA_FAILURE_NOTICE_EMITTED=1
       ;;
   esac
@@ -2653,17 +2789,66 @@ claude_block_capture_finish() {
   CLAUDE_BLOCK_EVENT=
 }
 
+# What degraded_hook_message names: the checks hook_dependencies_ready makes,
+# plus git, which SessionStart also requires. Fixed labels only, never a path:
+# the message is embedded in hand-built JSON. Shell tests and the probe state
+# prepare_gitleaks left behind answer every question without a new process,
+# and the list is left in $dmc rather than printed to avoid a subshell.
+# hook_dependencies_ready stops at the first failure, so a scanner it never
+# probed (jq or awk missing) is not named yet.
+degraded_missing_components() {
+  dmc=
+  command -v jq >/dev/null 2>&1 || dmc="${dmc:+$dmc, }jq"
+  command -v awk >/dev/null 2>&1 || dmc="${dmc:+$dmc, }awk"
+  command -v git >/dev/null 2>&1 || dmc="${dmc:+$dmc, }git"
+  case "${GITLEAKS_PROBE_STATE:-}" in
+    ''|ready) ;;
+    missing) dmc="${dmc:+$dmc, }gitleaks" ;;
+    runtime-failure)
+      case "${GITLEAKS_PROBE_DETAIL:-}" in
+        launcher-unavailable) dmc="${dmc:+$dmc, }setsid or perl (gitleaks process isolation)" ;;
+        timer-unavailable) dmc="${dmc:+$dmc, }sleep (gitleaks timeout)" ;;
+        temp-helper-unavailable) dmc="${dmc:+$dmc, }mkdir or rmdir (gitleaks temp fallback)" ;;
+        *) dmc="${dmc:+$dmc, }a working gitleaks" ;;
+      esac
+      ;;
+    *) dmc="${dmc:+$dmc, }a supported gitleaks" ;;
+  esac
+  { [ -f "$GITLEAKS_CONFIG" ] && policy_file_has_active_rule "$GITLEAKS_CONFIG"; } \
+    || dmc="${dmc:+$dmc, }policy file gitleaks.toml"
+  { [ -f "$DENY_READ_PATHS" ] && policy_file_has_active_rule "$DENY_READ_PATHS"; } \
+    || dmc="${dmc:+$dmc, }policy file deny-read-paths.txt"
+  { [ -f "$DENY_BASH_PATTERNS" ] && policy_file_has_active_rule "$DENY_BASH_PATTERNS"; } \
+    || dmc="${dmc:+$dmc, }policy file deny-bash-patterns.txt"
+  return 0
+}
+
+# $1 = scanner when only gitleaks or its config is unavailable and PreToolUse
+# still ran its protected-path and deny-pattern checks.
 degraded_hook_message() {
   case "$(hook_host)" in
     codex) setup_ref='$setup-agent-guard' ;;
     *) setup_ref='/agent-guard:setup-agent-guard' ;;
   esac
-  printf 'agent-guard: protection is DEGRADED because jq, awk, git, gitleaks (including its setsid or Perl process-isolation helper), or a policy file is unavailable.'
-  # Fixed diagnostic codes only: never include scanner output, paths or payloads
-  # in the host envelope. Keep the existing once-per-session warning boundary.
+  degraded_missing_components
+  if [ -n "$dmc" ]; then
+    printf 'agent-guard: protection is DEGRADED because these are missing or unusable: %s.' "$dmc"
+    [ "${1:-}" != scanner ] \
+      || printf ' The scanner is unusable, so the secret scan did not run; protected-path and deny-pattern checks still run.'
+  elif [ "${1:-}" = scanner ]; then
+    printf 'agent-guard: protection is DEGRADED because gitleaks (including its setsid or Perl process-isolation helper) or its config is unavailable, so the secret scan did not run; protected-path and deny-pattern checks still run.'
+  else
+    printf 'agent-guard: protection is DEGRADED because jq, awk, git, gitleaks (including its setsid or Perl process-isolation helper), or a policy file is unavailable.'
+  fi
+  # Fixed diagnostic codes only: never include scanner output, scanned paths or
+  # payloads in the host envelope. The one path allowed is this CLI's own
+  # executable (AG_CLI_REF_HOOK), so a plugin-only install is told a command
+  # that runs. hook_warning_due decides how often the notice repeats.
   degraded_probe_reason=
   case "${GITLEAKS_PROBE_STATE:-}" in
-    missing|unparseable|unsupported) degraded_probe_reason=$GITLEAKS_PROBE_STATE ;;
+    # A missing scanner is already named above.
+    missing) [ -n "$dmc" ] || degraded_probe_reason=missing ;;
+    unparseable|unsupported) degraded_probe_reason=$GITLEAKS_PROBE_STATE ;;
     runtime-failure)
       if gitleaks_probe_detail_message "${GITLEAKS_PROBE_DETAIL:-}" '' >/dev/null; then
         degraded_probe_reason=$GITLEAKS_PROBE_DETAIL
@@ -2674,7 +2859,9 @@ degraded_hook_message() {
   esac
   [ -z "$degraded_probe_reason" ] \
     || printf ' Scanner readiness: %s.' "$degraded_probe_reason"
-  printf ' Run %s (or agent-guard setup), approve any required installation, verify with agent-guard check and smoke-test, then restart the host;' "$setup_ref"
+  cli_ref_init
+  printf ' Run %s (or %s setup), approve any required installation, verify with %s check and smoke-test, then restart the host;' \
+    "$setup_ref" "$AG_CLI_REF_HOOK" "$AG_CLI_REF_HOOK"
 }
 
 emit_degraded_hook_warning() {
@@ -2790,6 +2977,7 @@ setup_suggest_pkg_install() {
 }
 
 setup_suggest_gitleaks_runtime_repair() {
+  cli_ref_init
   case "$GITLEAKS_PROBE_DETAIL" in
     launcher-unavailable)
       info "$PROGRAM: install a gitleaks process-isolation helper:"
@@ -2800,16 +2988,16 @@ setup_suggest_gitleaks_runtime_repair() {
       elif command -v dnf >/dev/null 2>&1; then
         info "  sudo dnf install -y util-linux"
       else
-        info "  install setsid (util-linux) or Perl, then rerun $PROGRAM doctor"
+        info "  install setsid (util-linux) or Perl, then rerun $AG_CLI_REF doctor"
       fi
       return 0
       ;;
     timer-unavailable)
-      info "$PROGRAM: install the POSIX sleep utility, then rerun $PROGRAM doctor"
+      info "$PROGRAM: install the POSIX sleep utility, then rerun $AG_CLI_REF doctor"
       return 0
       ;;
     temp-helper-unavailable)
-      info "$PROGRAM: install the POSIX mkdir and rmdir utilities, then rerun $PROGRAM doctor"
+      info "$PROGRAM: install the POSIX mkdir and rmdir utilities, then rerun $AG_CLI_REF doctor"
       return 0
       ;;
   esac
@@ -2970,8 +3158,9 @@ EOF
     fi
     if [ "$gitleaks_ok" -eq 0 ]; then
       if ! setup_suggest_gitleaks_runtime_repair; then
+        cli_ref_init
         info "$PROGRAM: install gitleaks (rerun with --install to opt in):"
-        info "  agent-guard setup --install \\"
+        info "  $AG_CLI_REF setup --install \\"
         info "    --gitleaks-version $GITLEAKS_DEFAULT_VERSION \\"
         info "    --gitleaks-checksum <sha256-from-published-checksums.txt>"
         info ""
@@ -3526,7 +3715,8 @@ block_on_pii_text() {
   case "$PII_HOOK_MODE" in
     block)
       pii_text_has_match "$text" || return 0
-      info "$PROGRAM: blocked PII in $label; run agent-guard pii-filter before using this tool"
+      cli_ref_init
+      info "$PROGRAM: blocked PII in $label; run $AG_CLI_REF_HOOK pii-filter before using this tool"
       audit_reason pii
       exit 2
       ;;
@@ -3552,6 +3742,47 @@ block_on_pii_text() {
   esac
 }
 
+# The tools that propose file content, read the same way by the PII gate, the
+# secret gate and the post-tool target scan. The jq expressions are the
+# json_value_cached keys, so they must stay byte-identical to that table.
+
+# tool_patch_text INPUT prints the apply_patch body from whichever field the
+# host put it in.
+tool_patch_text() {
+  printf '%s' "$1" | jq -r '
+    .tool_input.command // .tool_input.patch // .tool_input.input //
+    .tool_input.diff // .tool_input.content // empty |
+    if type == "string" then . else tojson end
+  '
+}
+
+# tool_write_path INPUT TOOL prints the file a Write, Edit, MultiEdit or
+# NotebookEdit call targets.
+tool_write_path() {
+  case "$2" in
+    Write|Edit|MultiEdit)
+      json_value '.tool_input.file_path // .tool_input.path // empty' "$1" ;;
+    NotebookEdit)
+      json_value '.tool_input.notebook_path // .tool_input.file_path // empty' "$1" ;;
+  esac
+}
+
+# tool_proposed_text INPUT TOOL prints the text the call would write; for
+# apply_patch, only the lines it adds.
+tool_proposed_text() {
+  case "$2" in
+    Write) json_value '.tool_input.content // empty' "$1" ;;
+    Edit) json_value '.tool_input.new_string // empty' "$1" ;;
+    MultiEdit)
+      printf '%s' "$1" | jq -r '[.tool_input.edits[]?.new_string // empty] | join("\n")' ;;
+    NotebookEdit) json_value '.tool_input.new_source // empty' "$1" ;;
+    apply_patch)
+      tool_patch=$(tool_patch_text "$1")
+      printf '%s\n' "$tool_patch" | extract_patch_added_lines
+      ;;
+  esac
+}
+
 check_pii_hook_input() {
   input=$1
   tool=$2
@@ -3561,29 +3792,13 @@ check_pii_hook_input() {
   need_cmd jq
 
   case "$tool" in
-    Write)
-      content=$(json_value '.tool_input.content // empty' "$input")
-      block_on_pii_text "proposed Write content" "$content"
-      ;;
-    Edit)
-      content=$(json_value '.tool_input.new_string // empty' "$input")
-      block_on_pii_text "proposed Edit content" "$content"
-      ;;
-    MultiEdit)
-      content=$(printf '%s' "$input" | jq -r '[.tool_input.edits[]?.new_string // empty] | join("\n")')
-      block_on_pii_text "proposed MultiEdit content" "$content"
-      ;;
-    NotebookEdit)
-      content=$(json_value '.tool_input.new_source // empty' "$input")
-      block_on_pii_text "proposed NotebookEdit content" "$content"
+    Write|Edit|MultiEdit|NotebookEdit)
+      content=$(tool_proposed_text "$input" "$tool")
+      block_on_pii_text "proposed $tool content" "$content"
       ;;
     apply_patch)
-      patch=$(printf '%s' "$input" | jq -r '
-        .tool_input.command // .tool_input.patch // .tool_input.input // .tool_input.diff // .tool_input.content // empty
-        | if type == "string" then . else tojson end
-      ')
-      added=$(printf '%s\n' "$patch" | extract_patch_added_lines)
-      block_on_pii_text "proposed apply_patch added lines" "$added"
+      content=$(tool_proposed_text "$input" "$tool")
+      block_on_pii_text "proposed apply_patch added lines" "$content"
       ;;
     Bash)
       content=$(json_value '.tool_input.command // .tool_input.cmd // empty' "$input")
@@ -3602,6 +3817,7 @@ check_pii_hook_input() {
 }
 
 run_gitleaks_stdin() {
+  [ "$HOOK_SCANNER_UNAVAILABLE" = 0 ] || return "$SCAN_STATUS_UNAVAILABLE"
   need_gitleaks
   gitleaks_scan "$1" stdin
 }
@@ -4271,6 +4487,7 @@ scan_text_direct() {
 # reports exactly as scan_text_direct does.
 scan_shell_command_text() {
   [ -n "$1" ] || return 0
+  [ "$HOOK_SCANNER_UNAVAILABLE" = 0 ] || return "$SCAN_STATUS_UNAVAILABLE"
   if gitleaks_clean_cache_key "$1"; then
     gitleaks_clean_cache_hit && return 0
   fi
@@ -4348,6 +4565,8 @@ block_on_scan_status() {
     0) return 0 ;;
     1) info "$PROGRAM: $message"; exit 2 ;;
     "$SCAN_STATUS_UNAVAILABLE")
+      # hook_pre_tool reports a missing scanner once, after every other check.
+      [ "$HOOK_SCANNER_UNAVAILABLE" = 0 ] || return 0
       handle_hook_infrastructure_failure "${HOOK_EVENT:-PreToolUse}" "${HOOK_INPUT:-}" \
         "$PROGRAM: scanner infrastructure could not verify the command;"
       ;;
@@ -4508,6 +4727,7 @@ extract_git_diff_added() {
 # exits with the unavailable status, and repo_root is left set for the caller.
 git_scan_prepare() {
   need_cmd git "$SCAN_STATUS_UNAVAILABLE"
+  [ "$HOOK_SCANNER_UNAVAILABLE" = 0 ] || return "$SCAN_STATUS_UNAVAILABLE"
   need_gitleaks "$SCAN_STATUS_UNAVAILABLE"
   require_git_repo || return $?
   repo_root=$(git rev-parse --show-toplevel 2>/dev/null) \
@@ -11350,7 +11570,11 @@ $joined_cmd"
           fi
         done)
         [ -n "$dp_hit" ] && info "$PROGRAM: matched deny-bash-patterns line $dp_hit ($DENY_BASH_PATTERNS)"
-        info "$PROGRAM: this command prints, captures or sends a secret value (an environment dump, a credential store read, a token in a request); do not retry it in another form. Read files with the Read tool, and let the program that needs a secret read it from its own environment or config."
+        case "$(hook_host)" in
+          codex) dp_read='Read an ordinary file with a shell command on that file alone' ;;
+          *) dp_read='Read files with the Read tool' ;;
+        esac
+        info "$PROGRAM: this command prints, captures or sends a secret value (an environment dump, a credential store read, a token in a request); do not retry it in another form. $dp_read, and let the program that needs a secret read it from its own environment or config."
         exit 2
         ;;
       1) ;;
@@ -11395,8 +11619,25 @@ $joined_cmd"
       info "$PROGRAM: blocked shell command referencing a deny-listed path"
       info "$PROGRAM: reason=bash_protected_path_text_match; raw Bash command text matched a protected-path pattern and may be a file operand or source/search text; command was not executed"
       [ -n "$deny_report" ] && info "$PROGRAM: $deny_report"
-      info "$PROGRAM: to read, edit or write an ordinary file, use the Read, Edit or Write tool instead of a shell command. A program an interpreter runs (python3 - <<EOF, node -e) stays blocked while its text names a protected file, even when it only edits another file, because the guard cannot tell a string from a path it opens."
-      info "$PROGRAM: if the command reads no protected file, rewrite the matched text so it is not path-shaped and retry; do not weaken the deny list. Examples: jq '.[\"key\"]' instead of jq '.key'; a commit message that omits the path; a structured Grep pattern instead of an inline shell search."
+      # Name the tool for each job, not a way to reword the command: text
+      # rewritten to look unlike a path can still open the protected file.
+      # In mask mode the block can carry a masked view instead of the file,
+      # so say that rather than "cannot open".
+      case "$dr_mode" in
+        mask)
+          dr_read_note='The Read tool shows a protected file only as a masked view.'
+          dr_limits='apart from a masked view, checking a protected file or reading its metadata is not supported'
+          ;;
+        *)
+          dr_read_note='The Read tool cannot open a protected file either.'
+          dr_limits='checking whether a protected file exists or reading its metadata is not supported'
+          ;;
+      esac
+      case "$(hook_host)" in
+        codex) info "$PROGRAM: for an ordinary file, edit it with apply_patch and read it with a shell command on that file alone; Codex searches run as shell commands, so keep file name and content searches to paths that hold no protected file. A program an interpreter runs (python3 - <<EOF, node -e) stays blocked while its text names a protected file, because the guard cannot tell a string from a path it opens." ;;
+        *) info "$PROGRAM: for an ordinary file, use the Read, Edit or Write tool; find file names with the Glob tool and search contents with the Grep tool, outside protected paths. $dr_read_note A program an interpreter runs (python3 - <<EOF, node -e) stays blocked while its text names a protected file, because the guard cannot tell a string from a path it opens." ;;
+      esac
+      info "$PROGRAM: $dr_limits; if it is needed, ask the user to run the command themselves. Do not weaken the deny list or reshape the command to pass this check."
       deny_read_mode_notice "$dr_mode"
       exit 2
       ;;
@@ -11488,40 +11729,21 @@ scan_proposed_write() {
   need_cmd jq
 
   case "$tool" in
-    Write)
-      path=$(json_value '.tool_input.file_path // .tool_input.path // empty' "$input")
-      content=$(json_value '.tool_input.content // empty' "$input")
-      scan_file_text_direct "proposed Write content" "$path" "$content"
-      block_on_scan_status "$?" "proposed Write contains secret-like values"
-      ;;
-    Edit)
-      path=$(json_value '.tool_input.file_path // .tool_input.path // empty' "$input")
-      content=$(json_value '.tool_input.new_string // empty' "$input")
-      scan_file_fragment_direct "proposed Edit content" "$path" "$content"
-      block_on_scan_status "$?" "proposed Edit contains secret-like values"
-      ;;
-    MultiEdit)
-      path=$(json_value '.tool_input.file_path // .tool_input.path // empty' "$input")
-      content=$(printf '%s' "$input" | jq -r '[.tool_input.edits[]?.new_string // empty] | join("\n")')
-      scan_file_fragment_direct "proposed MultiEdit content" "$path" "$content"
-      block_on_scan_status "$?" "proposed MultiEdit contains secret-like values"
-      ;;
-    NotebookEdit)
-      path=$(json_value '.tool_input.notebook_path // .tool_input.file_path // empty' "$input")
-      content=$(json_value '.tool_input.new_source // empty' "$input")
-      scan_file_fragment_direct "proposed NotebookEdit content" "$path" "$content"
-      block_on_scan_status "$?" "proposed NotebookEdit contains secret-like values"
-      ;;
-    apply_patch)
-      patch=$(printf '%s' "$input" | jq -r '
-        .tool_input.command // .tool_input.patch // .tool_input.input // .tool_input.diff // .tool_input.content // empty
-        | if type == "string" then . else tojson end
-      ')
-      added=$(printf '%s\n' "$patch" | extract_patch_added_lines)
-      scan_text_direct "proposed apply_patch added lines" "$added"
-      block_on_scan_status "$?" "proposed apply_patch contains secret-like values"
-      ;;
+    Write|Edit|MultiEdit|NotebookEdit|apply_patch) ;;
+    *) return 0 ;;
   esac
+  content=$(tool_proposed_text "$input" "$tool")
+  case "$tool" in
+    apply_patch)
+      scan_text_direct "proposed apply_patch added lines" "$content" ;;
+    Write)
+      path=$(tool_write_path "$input" "$tool")
+      scan_file_text_direct "proposed Write content" "$path" "$content" ;;
+    *)
+      path=$(tool_write_path "$input" "$tool")
+      scan_file_fragment_direct "proposed $tool content" "$path" "$content" ;;
+  esac
+  block_on_scan_status "$?" "proposed $tool contains secret-like values"
 }
 
 is_broad_search_path() {
@@ -11579,11 +11801,20 @@ hook_pre_tool() {
       || validate_hook_object PreToolUse "$input" || return 0
   fi
   if ! hook_dependencies_ready; then
-    emit_degraded_hook_warning PreToolUse "$input"
-    return 0
+    # A scan that cannot run is not clean, but it does not stop the checks
+    # that need no scanner. The closed policy still blocks every call here.
+    if [ "$(infrastructure_failure_mode)" = closed ] \
+      || ! hook_policy_dependencies_ready; then
+      emit_degraded_hook_warning PreToolUse "$input"
+      return 0
+    fi
+    HOOK_SCANNER_UNAVAILABLE=1
   fi
   need_cmd jq
-  [ -n "$input" ] || return 0
+  if [ -z "$input" ]; then
+    finish_pre_tool_scanner_unavailable
+    return 0
+  fi
 
   # A host may serialize tool_input as a JSON-encoded string instead of an
   # object. When that string decodes to an *object*, the precise-field extractors
@@ -11638,6 +11869,15 @@ hook_pre_tool() {
   esac
 
   check_pii_hook_input "$input" "$tool"
+  finish_pre_tool_scanner_unavailable
+}
+
+# Reached only when no check blocked, so the open warning never shares stdout
+# with a block. Its once-per-session marker is the infrastructure one.
+finish_pre_tool_scanner_unavailable() {
+  [ "$HOOK_SCANNER_UNAVAILABLE" = 1 ] || return 0
+  handle_hook_infrastructure_failure PreToolUse "${HOOK_INPUT:-}" \
+    "$(degraded_hook_message scanner)"
 }
 
 is_mutation_tool() {
@@ -11696,6 +11936,46 @@ JQ_WALK='def walk(f): def w: if type == "object" then map_values(w)
 # `{"type":"pdf","file":{"base64":...}}` with no media type at all. MCP's own
 # image block spells the same thing `mimeType`. Prepend as
 # `jq -c "$JQ_SHAPE_SAFE_WALK"'<program>'`.
+# Resolve the extent records secretish_env_values flags (`agent_guard_extent`)
+# once every detector's literals are in the bundle. An extent (`[hidden]`,
+# `<hunter2 Summer>`) widens a literal of the same occurrence (`[hidden`,
+# `<hunter2`), which is already in the bundle. It goes out as a plain literal
+# only when no other plain literal can partially overlap it in any text; then
+# replacing it cannot change what another literal masks, in any length order
+# a redactor uses (jq and Rust count characters, the exec plaintext path
+# counts bytes). Otherwise it is dropped and masking is exactly as before.
+# A literal that starts inside the extent and runs past its end holds the
+# last character of the extent; that presence test alone drops the extent.
+# A literal that starts before the extent and ends inside it has a proper
+# tail, opening with the first character of the extent, that the extent
+# starts with; those tails are checked exactly (the literal of the same
+# occurrence, `[[x` for `[[x]]`, has such a tail that does not match). More
+# than eight candidate tails count as an overlap, which bounds the cost.
+# split is used rather than indices or rindex, whose string offsets are
+# bytes, not characters, on jq 1.6. Dropping an extent that could never
+# overlap only leaves the old masking in place.
+JQ_SETTLE_EXTENTS='def overlap_from_before($e):
+      ($e[:1]) as $f
+      | split($f) as $parts
+      | ($parts | length) as $n
+      | $n > 9
+        or any(range(1; $n)
+               | select(. > 1 or ($parts[0] | length) > 0);
+               ($f + ($parts[.:] | join($f))) as $tail
+               | ($e | startswith($tail)));
+    def settle_extents:
+      map(select(type == "string")) as $plain
+      | map(if type == "object" and .agent_guard_extent == true
+            then .literal as $e
+                 | if ($e | type) != "string" or ($e | length) < 2
+                      or any($plain[];
+                             . == $e
+                             or index($e[-1:]) != null
+                             or overlap_from_before($e))
+                   then empty else $e end
+            else . end)
+      | unique;'
+
 JQ_SHAPE_SAFE_WALK='def protocol_discriminator($key): . as $v
     | ($key == "type" or $key == "media_type" or $key == "mimeType"
        or $key == "encoding")
@@ -11985,10 +12265,19 @@ secretish_env_values() {
     # A name before a placeholder noun (`<acme-pat>`) is still a placeholder:
     # the last word says it stands for a value. A phrase that ends in any other
     # word stays caught.
-    function angle_placeholder(v, n, i, words) {
+    function angle_placeholder(v, n, words) {
       if (v !~ /^<[a-z][a-z_ .-]*>$/) return 0
       n = split(substr(v, 2, length(v) - 2), words, /[-_ .]+/)
       if (n > 1 && words[n] ~ /^(pat|token|key|secret|password)$/) return 1
+      return angle_placeholder_words(v)
+    }
+    # The stricter half of angle_placeholder: every word is a known
+    # placeholder word. An unquoted `<your key>` is judged by this alone (see
+    # emit_value), so a spaced phrase that merely ends in a placeholder noun
+    # (`<correct horse key>`) is not exempted on the strength of that noun.
+    function angle_placeholder_words(v, n, i, words) {
+      if (v !~ /^<[a-z][a-z_ .-]*>$/) return 0
+      n = split(substr(v, 2, length(v) - 2), words, /[-_ .]+/)
       for (i = 1; i <= n; i++)
         if (!(words[i] in placeholder_word)) return 0
       return n > 0
@@ -12176,14 +12465,20 @@ secretish_env_values() {
       trimmed = edge_trim(v)
       if (trimmed != v) emit_secret(trimmed)
     }
+    # Returns 1 when the value was recorded, so a caller can add a wider
+    # extent of the same occurrence only when the value itself qualified.
     function emit_secret(value, eligible_length) {
-      if (already_redacted(value)) return
-      if (obvious_word_placeholder(value)) return
-      if (config_literal(value)) return
-      if (prose_status_word(value)) return
-      if (masked_placeholder(value)) return
+      if (already_redacted(value)) return 0
+      if (obvious_word_placeholder(value)) return 0
+      if (config_literal(value)) return 0
+      if (prose_status_word(value)) return 0
+      if (masked_placeholder(value)) return 0
       if (eligible_length == 0) eligible_length = char_length(value)
-      if (eligible_length < 4 || length(value) == 0) return
+      if (eligible_length < 4 || length(value) == 0) return 0
+      emit_record(value)
+      return 1
+    }
+    function emit_record(value) {
       if (record_mode == "probe" || record_mode == "probe_raw") {
         if (!probe_found) print "x"
         probe_found = 1
@@ -12191,6 +12486,21 @@ secretish_env_values() {
       }
       if (record_mode == "framed") emit_framed(value, "S")
       else print "\"" json_escape(value) "\""
+    }
+    # A wider extent of an occurrence whose own value was already recorded
+    # (`[hidden]` after `[hidden`). Literals apply longest first, so a new
+    # longer literal could consume the start of another secret that overlaps
+    # it and leave the tail of that secret visible where it used to be masked.
+    # An extent therefore never goes out as an ordinary literal here. JSON
+    # records carry a flag, and bundle settlement (JQ_SETTLE_EXTENTS) keeps
+    # the extent only when no literal from any detector can overlap it.
+    # Framed records feed the exec raw path, which applies the bundle literals
+    # afterwards where no settlement can see them, so they carry no extent and
+    # mask exactly as before.
+    function emit_extent(value) {
+      if (record_mode != "json") return
+      print "{\"literal\":\"" json_escape(value) \
+        "\",\"replacement\":\"[REDACTED]\",\"agent_guard_extent\":true}"
     }
     # A credential-shaped KEY only tells us the assignment is interesting; it
     # says nothing about whether the right-hand side IS a credential. Source that
@@ -12424,7 +12734,8 @@ secretish_env_values() {
     }
     function emit_value(source, start, assignment, require_credential, \
                         raw, leading, quote, end, \
-                        value, token, trailing, ch, route) {
+                        value, token, trailing, ch, route, \
+                        extent, wrap, lead, closer, rest) {
       next_rescan_cover_start = 0
       next_rescan_cover_end = 0
       raw = substr(source, start)
@@ -12470,6 +12781,35 @@ secretish_env_values() {
         value = raw
         sub(/[ \t,;].*$/, "", value)
         if (already_redacted(value)) return 0
+        # An unquoted `<...>` with spaces inside (`<your key>`) is one value,
+        # but the cut above keeps only its first word. That word never passed
+        # the placeholder test, so a placeholder was half-masked
+        # (`[REDACTED] key>`) and a real value showed every word after the
+        # first (`<hunter2 Summer>`). Take the whole span only when it closes
+        # before the token ends, and judge it with the all-placeholder-words
+        # rule. Otherwise the first word still decides exactly as before, and
+        # the span only widens what is masked. A tab separates the words as
+        # well, but the placeholder test admits only spaces, so a tab-bearing
+        # span is always masked whole.
+        extent = ""
+        if (substr(raw, 1, 1) == "<" \
+            && match(raw, /^<[A-Za-z][A-Za-z0-9_ \t.-]*>/) \
+            && substr(raw, 1, RLENGTH) ~ /[ \t]/) {
+          ch = substr(raw, RLENGTH + 1, 1)
+          if (ch == "" || ch == "'\''" || index(" \t\r,;\"`)]}", ch)) {
+            extent = substr(raw, 1, RLENGTH)
+            # Closers and quotes may follow a placeholder (`<your key>)`),
+            # but text after them is a value glued to it
+            # (`<your key>)q7tail`), which the first word decided before and
+            # still does.
+            rest = substr(raw, RLENGTH + 1)
+            sub(/[ \t\r,;].*$/, "", rest)
+            gsub(/[)}"`]/, "", rest)
+            gsub(/\]/, "", rest)
+            gsub(/'\''/, "", rest)
+            if (rest == "" && angle_placeholder_words(tolower(extent))) return 0
+          }
+        }
         token = value
         end = length(value)
         strip_quote = 0
@@ -12515,6 +12855,21 @@ secretish_env_values() {
           break
         }
         value = substr(value, 1, end)
+        # The strip above also takes a closer whose opener STARTS the value, so
+        # `[hidden]` was recorded as `[hidden` and left `[REDACTED]]`. Pair the
+        # leading openers with the closers stripped right after the value,
+        # innermost first. Only the masked extent grows: every check below
+        # still judges the stripped value, as it did before.
+        wrap = 0
+        lead = 0
+        while (lead < end - 1 && index("[({", substr(value, lead + 1, 1))) lead++
+        while (wrap < lead) {
+          ch = substr(value, lead - wrap, 1)
+          closer = (ch == "[") ? "]" : ((ch == "(") ? ")" : "}")
+          if (substr(token, end + wrap + 1, 1) != closer) break
+          wrap++
+        }
+        if (wrap > 0) extent = value substr(token, end + 1, wrap)
         if (type_annotation(assignment, value, token, substr(raw, length(token) + 1, 1), substr(raw, length(token) + 1))) return 0
         if (member_reference(assignment, value, substr(raw, length(token) + 1, 1), substr(raw, length(token) + 1))) return 0
         if (keyword_expression(assignment, value, substr(raw, length(token) + 1))) return 0
@@ -12552,14 +12907,15 @@ secretish_env_values() {
         # other paths is worth more here than containing a bad guess, because a
         # displayed secret costs more than a mangled log line.
         if (char_length(value) < 4 && char_length(token) >= 4) {
-          trailing = substr(token, end + 1)
+          trailing = substr(token, end + wrap + 1)
           emit_mapping(assignment leading token,
                        assignment leading "[REDACTED]" trailing,
                        start + length(leading),
                        length(value))
           return 0
         }
-        emit_secret(value, char_length(token))
+        if (emit_secret(value, char_length(token)) && extent != "")
+          emit_extent(extent)
         return 0
       }
       # emit_captured, not emit_secret: a padded quoted value (`" <secret> "`)
@@ -13196,10 +13552,10 @@ bundle_secret_records() (
             for (i = 1; i <= record_count; i++) print records[i]
         }
       ' <"$bundle_input" >"$bundle_records" \
-    || ! jq -sc '
+    || ! jq -sc "$JQ_SETTLE_EXTENTS"'
         if any(.[]; type == "object" and .agent_guard_whole_leaf == true)
         then {whole_leaf: true, secrets: []}
-        else {whole_leaf: false, secrets: unique}
+        else {whole_leaf: false, secrets: settle_extents}
         end
       ' <"$bundle_records" >"$bundle_output" 2>/dev/null; then
     rm -f "$bundle_input" "$bundle_records" "$bundle_output"
@@ -15540,7 +15896,12 @@ deny_read_masked_block() {
 
 deny_read_mode_notice() {
   case $1 in
-    mask) info "$PROGRAM: for a masked view, read the protected file alone with the read tool or \`cat <path>\`" ;;
+    mask)
+      case "$(hook_host)" in
+        codex) info "$PROGRAM: for a masked view, read the protected file alone with \`cat <path>\`" ;;
+        *) info "$PROGRAM: for a masked view, read the protected file alone with the read tool or \`cat <path>\`" ;;
+      esac
+      ;;
     invalid) info "$PROGRAM: AGENT_GUARD_DENY_READ_MODE must be block or mask; no masked view" ;;
   esac
 }
@@ -15879,16 +16240,10 @@ POST_TOOL_PATH_SCAN_MAX_BYTES=$SCAN_INPUT_MAX_BYTES
 
 post_tool_write_target() {
   case "$2" in
-    Write|Edit|MultiEdit)
-      json_value '.tool_input.file_path // .tool_input.path // empty' "$1" ;;
-    NotebookEdit)
-      json_value '.tool_input.notebook_path // .tool_input.file_path // empty' "$1" ;;
+    Write|Edit|MultiEdit|NotebookEdit)
+      tool_write_path "$1" "$2" ;;
     apply_patch)
-      patch=$(printf '%s' "$1" | jq -r '
-        .tool_input.command // .tool_input.patch // .tool_input.input //
-        .tool_input.diff // .tool_input.content // empty |
-        if type == "string" then . else tojson end
-      ' 2>/dev/null) || return "$SCAN_STATUS_UNAVAILABLE"
+      patch=$(tool_patch_text "$1" 2>/dev/null) || return "$SCAN_STATUS_UNAVAILABLE"
       [ -n "$patch" ] || return "$SCAN_STATUS_UNAVAILABLE"
       printf '%s\n' "$patch" | LC_ALL=C awk '
         /^\*\*\* Delete File:/ { valid=1; next }
@@ -16296,7 +16651,7 @@ hook_stop() {
   fi
 
   if ! command -v git >/dev/null 2>&1; then
-    handle_git_infrastructure_failure "$input" \
+    handle_hook_infrastructure_failure Stop "$input" \
       "$PROGRAM: git is unavailable, so changed files could not be scanned before stop;"
     return 0
   fi
@@ -16307,7 +16662,7 @@ hook_stop() {
     0) return 0 ;;
     1) info "$PROGRAM: changed files contain secret-like values before stop"; exit 2 ;;
     *)
-      handle_git_infrastructure_failure "$input" \
+      handle_hook_infrastructure_failure Stop "$input" \
         "$PROGRAM: changed files could not be scanned before stop;"
       ;;
   esac
@@ -16392,11 +16747,14 @@ injected_prompt_frame() {
 }
 
 # The single hook response, whatever combination of facts produced it. A hook
-# may write at most one top-level JSON object, so the infrastructure notice and
-# the mode-specific message share one: additionalContext (the model-facing
-# channel both hosts document) carries both, and systemMessage — a Claude-only
-# field — carries the mode-specific message, matching how the other hooks
-# report an infrastructure failure to the user on stderr rather than in the UI.
+# may write at most one top-level JSON object, so every notice and the
+# mode-specific message share one: additionalContext (the model-facing channel
+# both hosts document) carries them all, and on Claude systemMessage carries
+# what the user must see: the infrastructure notice ($3) and the mode-specific
+# message. Claude Code shows neither exit-0 stderr nor additionalContext to the
+# user, so this is the same user-facing channel handle_hook_infrastructure_failure
+# uses; Codex keeps additionalContext only (see there). A queued blocked-
+# injection notice is addressed to the model and stays out of systemMessage.
 # Prints nothing when there is nothing to say.
 emit_prompt_response() {
   notice=$1
@@ -16407,8 +16765,14 @@ emit_prompt_response() {
     context="$notice$message"
   fi
   [ -n "$context" ] || return 0
-  if [ -n "$message" ] && [ "$(hook_host)" != codex ]; then
-    jq -nc --arg m "$message" --arg c "$context" \
+  shown=${3:-}
+  if [ -n "$shown" ] && [ -n "$message" ]; then
+    shown="$shown $message"
+  else
+    shown="$shown$message"
+  fi
+  if [ -n "$shown" ] && [ "$(hook_host)" != codex ]; then
+    jq -nc --arg m "$shown" --arg c "$context" \
       '{systemMessage: $m,
         hookSpecificOutput: {hookEventName: "UserPromptSubmit",
                              additionalContext: $c}}'
@@ -16490,7 +16854,7 @@ hook_user_prompt() {
     begin_infrastructure_failure "$input" \
       "$PROGRAM: the prompt hook input could not be parsed;"
     notice=$INFRA_FAILURE_NOTICE
-    emit_prompt_response "$notice" ''
+    emit_prompt_response "$notice" '' "$notice"
     return 0
   fi
   [ -n "$prompt" ] || return 0
@@ -16530,7 +16894,7 @@ hook_user_prompt() {
     # 128KB but ~23s at 874KB), which would burn the 10s host timeout and make
     # the host kill the hook — a silent fail-open. Above the shared scan cap,
     # skip the probe and route through the infra-failure policy instead:
-    # open warns once and keeps the gitleaks verdict; closed blocks.
+    # open warns (at most once per interval) and keeps the gitleaks verdict; closed blocks.
     if output_scan_input_exceeds_cap "$prompt"; then
       begin_infrastructure_failure "$input" \
         "$PROGRAM: the prompt exceeds the assignment-probe scan cap (gitleaks rules were still applied);"
@@ -16549,12 +16913,13 @@ hook_user_prompt() {
       esac
     fi
   fi
+  infra_notice=$notice
   if [ "$found" -ne 1 ] || [ "$prompt_mode" = warn ]; then
     take_blocked_injection_notice "$input"
     notice=$INJECTION_NOTICE${INJECTION_NOTICE:+${notice:+ }}$notice
   fi
   if [ "$found" -ne 1 ]; then
-    emit_prompt_response "$notice" ''
+    emit_prompt_response "$notice" '' "$infra_notice"
     return 0
   fi
 
@@ -16562,7 +16927,8 @@ hook_user_prompt() {
     warn)
       audit_note warned
       emit_prompt_response "$notice" \
-        "$PROGRAM: the submitted prompt contains secret-like values; they were passed through because AGENT_GUARD_PROMPT_GUARD_MODE=warn"
+        "$PROGRAM: the submitted prompt contains secret-like values; they were passed through because AGENT_GUARD_PROMPT_GUARD_MODE=warn" \
+        "$infra_notice"
       return 0
       ;;
   esac
@@ -16726,7 +17092,8 @@ hook_session_start() {
       ''|[!0-9]*|*[!0-9A-Za-z.+-]*) ;;
       *)
         if [ "$marker" != "$VERSION" ]; then
-          drift="agent-guard plugin hooks are $VERSION but the Claude shell integration masks with $marker. Update whichever is older, then rerun agent-guard setup-shell."
+          cli_ref_init
+          drift="agent-guard plugin hooks are $VERSION but the Claude shell integration masks with $marker. Update whichever is older, then rerun $AG_CLI_REF_HOOK setup-shell."
           if [ -n "$message" ]; then message="$message $drift"; else message=$drift; fi
         fi
         ;;
@@ -16750,11 +17117,18 @@ hook_session_start() {
     shell_init_block_state
     block_state=$?
     [ -z "$marker" ] || [ "$block_state" -ne 1 ] || block_state=0
+    # The standalone wording stays when `agent-guard` on PATH is this CLI; a
+    # plugin-only install is told the path that actually runs.
+    setup_shell_alt="$PROGRAM setup-shell for a standalone install"
+    if [ "$block_state" -ne 0 ]; then
+      cli_ref_init
+      [ "$AG_CLI_REF_HOOK" = "$PROGRAM" ] || setup_shell_alt="$AG_CLI_REF_HOOK setup-shell"
+    fi
     case $block_state in
       0) wrapping_setup= ;;
-      2) wrapping_setup='agent-guard command wrapping is set up in your shell rc but can no longer load: the agent-guard binary that block resolves is gone (plugin cache updated, uninstalled, or the block was edited). Command output is NOT masked. Reinstall or update agent-guard, rerun /agent-guard:setup-shell (or agent-guard setup-shell for a standalone install), then restart the shell and Claude Code.' ;;
-      3) wrapping_setup='agent-guard command wrapping for a fish shell does not cover both .bashrc and .zshrc, so the host snapshot may be unprotected. Command output is NOT masked unless the snapshot chose the surviving rc. Rerun /agent-guard:setup-shell (or agent-guard setup-shell for a standalone install), then restart the shell and Claude Code.' ;;
-      *) wrapping_setup='agent-guard command wrapping is not loaded. Run /agent-guard:setup-shell (or agent-guard setup-shell for a standalone install), then restart the shell and Claude Code. Use setup-shell --no-command-wrapping for a persistent opt-out.' ;;
+      2) wrapping_setup="agent-guard command wrapping is set up in your shell rc but can no longer load: the agent-guard binary that block resolves is gone (plugin cache updated, uninstalled, or the block was edited). Command output is NOT masked. Reinstall or update agent-guard, rerun /agent-guard:setup-shell (or $setup_shell_alt), then restart the shell and Claude Code." ;;
+      3) wrapping_setup="agent-guard command wrapping for a fish shell does not cover both .bashrc and .zshrc, so the host snapshot may be unprotected. Command output is NOT masked unless the snapshot chose the surviving rc. Rerun /agent-guard:setup-shell (or $setup_shell_alt), then restart the shell and Claude Code." ;;
+      *) wrapping_setup="agent-guard command wrapping is not loaded. Run /agent-guard:setup-shell (or $setup_shell_alt), then restart the shell and Claude Code. Use setup-shell --no-command-wrapping for a persistent opt-out." ;;
     esac
     if [ -n "$wrapping_setup" ]; then
       if [ -n "$message" ]; then message="$message $wrapping_setup"; else message=$wrapping_setup; fi
@@ -17621,6 +17995,37 @@ setup_shell_account_shell() (
   esac
 )
 
+# Prints the command-wrapping choice an earlier setup-shell recorded, for the
+# rc files given ($@: the files a bare setup-shell would write). The managed
+# block is the record: it sources shell-init-no-wrapping.sh (or, before v3.9,
+# carries `shell-init --no-command-wrapping` inline) only for an opt-out. Prints
+# `off` when every balanced block found is an opt-out, `on` when any block loads
+# wrapping. With no block in those files (setup-shell ran with --rc, or the
+# block was removed), an opt-out resolver file with no default one beside it
+# still reads as `off`. Everything else is the default, `on`. Writes nothing.
+setup_shell_recorded_wrapping() {
+  srw_states=
+  for srw_rc do
+    [ -f "$srw_rc" ] && [ -r "$srw_rc" ] || continue
+    srw_states="$srw_states $(awk -v b="$SHELL_INIT_BLOCK_BEGIN" -v e="$SHELL_INIT_BLOCK_END" '
+      $0 == b { inb = 1; off = on = 0; next }
+      $0 == e && inb { if (off) printf " off"; else if (on) printf " on"; inb = 0; next }
+      inb && (index($0, "shell-init-no-wrapping.sh") || index($0, "shell-init --no-command-wrapping")) { off = 1; next }
+      inb && index($0, "shell-init") { on = 1 }
+    ' "$srw_rc" 2>/dev/null)"
+  done
+  case "$srw_states " in
+    *" on "*) printf '%s\n' on; return 0 ;;
+    *" off "*) printf '%s\n' off; return 0 ;;
+  esac
+  if [ -f "$HOME/.agent-guard/shell-init-no-wrapping.sh" ] \
+     && [ ! -e "$HOME/.agent-guard/shell-init.sh" ]; then
+    printf '%s\n' off
+  else
+    printf '%s\n' on
+  fi
+}
+
 # `setup-shell` — write ~/.agent-guard/shell-init.sh (the validating resolver
 # that evals `shell-init`) and a managed rc block that only sources it, so the
 # wrappers load in every new shell (hence every Claude Code shell snapshot).
@@ -17629,7 +18034,7 @@ setup_shell_account_shell() (
 # $PATH). Idempotent — re-running rewrites the file and replaces the managed
 # block in place, including an older inline block.
 do_setup_shell() {
-  sh_target= rc= wrapping= want_help=0
+  sh_target= rc= wrapping= want_help=0 print_wrapping=0
   # Parse every argument before acting on --help, matching shell-init: a
   # rejected option must fail even when --help precedes it, so no invocation
   # carrying a removed/unknown flag can exit 0.
@@ -17639,14 +18044,19 @@ do_setup_shell() {
       --zsh) sh_target=zsh ;;
       --rc) shift; rc=${1:-}; [ -n "$rc" ] || die "setup-shell: --rc requires a path" ;;
       --no-command-wrapping) wrapping=' --no-command-wrapping' ;;
+      --print-command-wrapping) print_wrapping=1 ;;
       -h|--help) want_help=1 ;;
-      *) die "setup-shell: unknown option: $1 (see: $PROGRAM setup-shell --help)" ;;
+      *) cli_ref_init; die "setup-shell: unknown option: $1 (see: $AG_CLI_REF setup-shell --help)" ;;
     esac
     shift
   done
+  if [ "$print_wrapping" -eq 1 ] && [ -n "$wrapping" ]; then
+    die "setup-shell: --print-command-wrapping writes nothing and cannot be combined with --no-command-wrapping"
+  fi
   if [ "$want_help" -eq 1 ]; then
     {
       printf '%s\n' "Usage: $PROGRAM setup-shell [--bash|--zsh|--rc FILE] [--no-command-wrapping]"
+      printf '%s\n' "       $PROGRAM setup-shell [--bash|--zsh|--rc FILE] --print-command-wrapping"
       printf '%s\n' "Adds one line to your shell rc that sources ~/.agent-guard/shell-init.sh,"
       printf '%s\n' "and writes that file (idempotent; an older inline block is replaced)."
       printf '%s\n' "Restart your shell and any sessions launched from it afterwards to apply."
@@ -17656,6 +18066,8 @@ do_setup_shell() {
       printf '%s\n' "on macOS); if it fails, setup falls back to the process SHELL."
       printf '%s\n' "Command wrapping is enabled by default. Use --no-command-wrapping for"
       printf '%s\n' "a persistent opt-out, or AGENT_GUARD_COMMAND_WRAPPING=off at runtime."
+      printf '%s\n' "--print-command-wrapping prints on or off: the choice recorded in the rc"
+      printf '%s\n' "files this command would write. It writes nothing; update keeps that choice."
     } >&2
     return 0
   fi
@@ -17694,6 +18106,17 @@ do_setup_shell() {
       esac
     fi
     case "$sh_target" in bash) rc=$HOME/.bashrc ;; fish) rc= ;; *) rc=$HOME/.zshrc ;; esac
+  fi
+
+  # Read the record from exactly the rc files the write below would replace.
+  if [ "$print_wrapping" -eq 1 ]; then
+    [ -n "${HOME:-}" ] || die "setup-shell: HOME is not set"
+    if [ "$sh_target" = fish ]; then
+      setup_shell_recorded_wrapping "$HOME/.bashrc" "$HOME/.zshrc"
+    else
+      setup_shell_recorded_wrapping "$rc"
+    fi
+    return 0
   fi
 
   # Bootstrap through the same validated resolver as a loaded shell. A healthy
@@ -17811,11 +18234,12 @@ shell_init_bootstrap_current() {
 # stale copy that still loads is not a protection gap.
 doctor_shell_integration_report() {
   [ -n "${HOME:-}" ] || return 0
+  cli_ref_init
   # Name the rc's shell: a bare setup-shell writes only the detected shell's rc.
   for dsi_sh in zsh bash; do
     dsi_rc=$HOME/.${dsi_sh}rc
     dsi_flag=$(shell_init_rc_inline_block "$dsi_rc") || continue
-    info "$PROGRAM: shell integration: $dsi_rc still has the pre-v3.9 inline agent-guard block; rerun agent-guard setup-shell --$dsi_sh$dsi_flag (or /agent-guard:setup-shell) to replace it with one line"
+    info "$PROGRAM: shell integration: $dsi_rc still has the pre-v3.9 inline agent-guard block; rerun $AG_CLI_REF setup-shell --$dsi_sh$dsi_flag (or /agent-guard:setup-shell) to replace it with one line"
   done
   for dsi_name in shell-init.sh shell-init-no-wrapping.sh; do
     dsi_init=$HOME/.agent-guard/$dsi_name
@@ -17823,7 +18247,7 @@ doctor_shell_integration_report() {
     shell_init_bootstrap_current "$dsi_init" && continue
     dsi_flag=
     [ "$dsi_name" = shell-init.sh ] || dsi_flag=' --no-command-wrapping'
-    info "$PROGRAM: shell integration: $dsi_init was written by an older agent-guard setup-shell; rerun agent-guard setup-shell$dsi_flag (or /agent-guard:setup-shell) to regenerate it"
+    info "$PROGRAM: shell integration: $dsi_init was written by an older agent-guard setup-shell; rerun $AG_CLI_REF setup-shell$dsi_flag (or /agent-guard:setup-shell) to regenerate it"
   done
   return 0
 }
@@ -17858,7 +18282,8 @@ do_doctor() {
 do_update() {
   [ "$#" -eq 0 ] || die "update: no arguments are accepted"
   if [ -n "$PLUGIN_CACHE_BASE" ]; then
-    die "update is unavailable for plugin installs; run '$PROGRAM plugin update --host claude' (or --host codex) to see the host-manager commands that move to a newer release"
+    cli_ref_init
+    die "update is unavailable for plugin installs; run '$AG_CLI_REF plugin update --host claude' (or --host codex) to see the host-manager commands that move to a newer release"
   fi
   if homebrew_managed_install; then
     die "update is unavailable for Homebrew installs; run: brew upgrade JeongJaeSoon/tap/agent-guard"
@@ -17871,6 +18296,9 @@ do_update() {
   curl -fsSL "$AG_REPO_URL/releases/latest/download/bootstrap.sh" \
     -o "$update_script" || die "update: failed to download bootstrap.sh"
   sh -n "$update_script" || die "update: downloaded bootstrap.sh failed syntax validation"
+  # A persistent opt-out lives only in the shell rc. The updater asks the
+  # payload it installs for that choice before it reruns setup-shell, unless
+  # the caller set AGENT_GUARD_COMMAND_WRAPPING, which passes through as is.
   # BIN_DIR is the resolved payload directory, not the public symlink's
   # directory. Preserve the invocation location (including custom installs)
   # unless the caller explicitly requests a different link directory.
@@ -17930,7 +18358,13 @@ case "$cmd" in
   setup) shift; do_setup "$@" ;;
   setup-shell) shift; do_setup_shell "$@" ;;
   smoke-test) smoke_test ;;
-  checksum) shift; exec sh "$ROOT_DIR/scripts/gitleaks-checksum.sh" "$@" ;;
+  checksum)
+    shift
+    cli_ref_init
+    AGENT_GUARD_CLI_REF=$AG_CLI_REF
+    export AGENT_GUARD_CLI_REF
+    exec sh "$ROOT_DIR/scripts/gitleaks-checksum.sh" "$@"
+    ;;
   version) printf '%s %s\n' "$PROGRAM" "$VERSION" ;;
   ''|-h|--help|help) usage; exit 0 ;;
   *) usage; exit 2 ;;
