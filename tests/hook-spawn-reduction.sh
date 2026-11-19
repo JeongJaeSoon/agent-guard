@@ -107,6 +107,42 @@ while IFS= read -r doc; do
   [ -z "$JV_CACHE_INPUT" ] || jv_hits=$((jv_hits + 1))
 done <"$CASE/all-inputs"
 check "primed json_value prints the same bytes and status as jq -r" [ "$jv_mismatch" -eq 0 ]
+
+# Unprimed, json_value_to must hold what the substitution held before it ran jq
+# directly, and neither reader may pass the input to json_value_cached: that
+# argument copies the whole input, and a PostToolUse output (hundreds of KiB)
+# is never primed (94S-1831).
+jv_unprimed_mismatch=0
+while IFS= read -r doc; do
+  JV_CACHE_INPUT=
+  printf '%s\n' "$EXPRS" | while IFS= read -r expr; do
+    json_value_to "$expr" "$doc"; printf '%s[%s]\n' "$?" "$jv_out"
+  done >"$CASE/unprimed-to" 2>&1
+  printf '%s\n' "$EXPRS" | while IFS= read -r expr; do
+    v=$(printf '%s' "$doc" | jq -r "$expr"); printf '%s[%s]\n' "$?" "$v"
+  done >"$CASE/unprimed-jq-status" 2>&1
+  cmp -s "$CASE/unprimed-jq-status" "$CASE/unprimed-to" || {
+    jv_unprimed_mismatch=1
+    printf '  unprimed json_value_to mismatch for %s\n' "$doc"
+  }
+done <"$CASE/all-inputs"
+check "unprimed json_value_to holds the same value and status as jq -r in a substitution" \
+  [ "$jv_unprimed_mismatch" -eq 0 ]
+(
+  json_value_cached() { printf 'called\n' >>"$CASE/jv-cached-calls"; return 1; }
+  : >"$CASE/jv-cached-calls"
+  JV_CACHE_INPUT=
+  doc='{"tool_name":"mcp__x__read","tool_response":"public status"}'
+  json_value_to '.tool_name // .tool // .name // empty' "$doc"
+  [ "$jv_out" = mcp__x__read ] || exit 1
+  [ "$(json_value '.tool_name // "tool"' "$doc")" = mcp__x__read ] || exit 1
+  [ ! -s "$CASE/jv-cached-calls" ] || exit 1
+  # Once primed, the lookup runs again.
+  JV_CACHE_INPUT=$doc
+  json_value_to '.tool_name // .tool // .name // empty' "$doc"
+  [ -s "$CASE/jv-cached-calls" ]
+)
+check "an unprimed input is never handed to json_value_cached" [ "$?" -eq 0 ]
 check "single-object inputs are primed" [ "$jv_hits" -ge 15 ]
 
 json_value_prime '{"a":1} {"b":2}'

@@ -4835,10 +4835,14 @@ json_value_cached() {
   return 1
 }
 
+# Both readers consult json_value_cached only while a cache is primed. Passing
+# the input as an argument copies it in the shell, and a PostToolUse output is
+# never primed, so an unconditional lookup copied a large tool output once per
+# field for an answer that was always "not cached".
 json_value() {
   expr=$1
   input=$2
-  if json_value_cached "$expr" "$input"; then
+  if [ -n "${JV_CACHE_INPUT:-}" ] && json_value_cached "$expr" "$input"; then
     [ "$jv_set" = 0 ] || printf '%s\n' "$jv_val"
     return 0
   fi
@@ -4846,9 +4850,11 @@ json_value() {
 }
 
 # Set jv_out to what `jv_out=$(json_value "$1" "$2")` would hold and return the
-# same status. Only an unprimed field costs a subshell.
+# same status. Only an unprimed field costs a subshell. That subshell runs jq
+# directly: json_value would repeat the lookup that just missed for the same
+# arguments and copy the input once more.
 json_value_to() {
-  if json_value_cached "$1" "$2"; then
+  if [ -n "${JV_CACHE_INPUT:-}" ] && json_value_cached "$1" "$2"; then
     jv_out=
     [ "$jv_set" = 0 ] && return 0
     jv_out=$jv_val
@@ -4861,7 +4867,7 @@ json_value_to() {
       esac
     done
   fi
-  jv_out=$(json_value "$1" "$2")
+  jv_out=$(printf '%s' "$2" | jq -r "$1")
 }
 
 normalize_path() {
