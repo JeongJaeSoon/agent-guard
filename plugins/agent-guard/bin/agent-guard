@@ -12413,6 +12413,25 @@ secretish_env_values() {
       if (length(v) >= 24 && v ~ /^[A-Za-z]+([._-][A-Za-z]+)*$/) return 1
       return 0
     }
+    # An assignment with nothing after `=` names a setting without its value.
+    # Two shapes say so: the quote that opened before the key closes right
+    # after `=` (`` `API_KEY=` is read at x:12 ``), with a space, punctuation or
+    # the line end after it; and a space after `=`, then a parenthetical that
+    # opens with a listed word (`API_KEY= (empty)`, `(not set by default)`).
+    # Text glued to the closing quote (`` `API_KEY=`<value> ``, shell
+    # concatenation) and any other parenthetical still read as a value.
+    function empty_value(assignment, leading, raw, a, q) {
+      if (assignment !~ /=$/) return 0
+      if (leading == "") {
+        a = assignment
+        sub(/^[ \t\r,:{;([]/, "", a)
+        q = substr(a, 1, 1)
+        if (q != "\"" && q != "'\''" && q != "`") return 0
+        if (index(substr(a, 2), q)) return 0
+        return substr(raw, 1, 1) == q && substr(raw, 2, 1) ~ /^([ \t\r,.;:)!?]|)$/
+      }
+      return raw ~ /^\((empty|unset|blank|none|not set|missing|required|optional|unknown)([ \t)]|$)/
+    }
     function emit_value(source, start, assignment, require_credential, \
                         raw, leading, quote, end, \
                         value, token, trailing, ch, route) {
@@ -12422,6 +12441,7 @@ secretish_env_values() {
       match(raw, /^[ \t]*/)
       leading = substr(raw, 1, RLENGTH)
       sub(/^[ \t]+/, "", raw)
+      if (empty_value(assignment, leading, raw)) return 0
       quote = substr(raw, 1, 1)
       if (quote == "\"" || quote == "'\''" || quote == "`") {
         raw = substr(raw, 2)
