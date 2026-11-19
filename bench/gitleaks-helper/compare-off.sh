@@ -52,6 +52,15 @@ run() { # $1 cli, $2 fixture, $3 host, $4 log mode, $5 helper env, $6 out prefix
       "$1/plugins/agent-guard/bin/agent-guard" $cmd >"$6.out" 2>"$6.err")
   set +f
   echo "$?" >"$6.status"
+  # Messages may name the CLI's own absolute path (setup hints); the two trees
+  # live in different directories, so compare that path as one placeholder.
+  for part in out err; do
+    LC_ALL=C awk -v root="$1" '{
+      out = ""
+      while ((at = index($0, root)) > 0) { out = out substr($0, 1, at - 1) "<cli-root>"; $0 = substr($0, at + length(root)) }
+      print out $0
+    }' "$6.$part" >"$6.$part.n" && mv "$6.$part.n" "$6.$part"
+  done
   # A watchdog's sleep may be killed before it execs; count every other program.
   grep 'execve("' "$6.trace" | grep -vc 'execve("[^"]*/sleep"' >"$6.execs"
   # Threads (CLONE_THREAD, e.g. gitleaks's Go runtime) are not processes.
