@@ -204,17 +204,29 @@ func serve(args []string) error {
 		maxRSS:    uint64(maxRSSMiB) << 20,
 		conns:     make(chan struct{}, maxConns),
 	}
-	if s.lock, err = acquireLock(s.paths.Lock); err != nil {
-		// Another helper holds this key; it serves the requests.
-		return nil
+	// A client may hold the lock for a moment to see whether a helper
+	// runs; only a lock still held after that means another helper does.
+	for attempt := 0; ; attempt++ {
+		if s.lock, err = acquireLock(s.paths.Lock); err == nil {
+			break
+		}
+		if attempt == 4 {
+			// Another helper holds this key; it serves the requests.
+			return nil
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 	// The soft limit makes the collector work harder long before the hard cap.
 	debug.SetMemoryLimit(int64(s.maxRSS / 2))
 	logging.Logger = zerolog.New(countingWriter{}).Level(zerolog.InfoLevel)
 
 	if err := s.loadConfig(configPath); err != nil {
+		// Mark only a config that still has the hashed bytes: a read that
+		// failed while the file changed is not a property of the config.
 		if errors.Is(err, errUnsupportedConfig) {
-			markUnsupported(s.paths.Unsupported)
+			if now, hashErr := local.FileSHA256(configPath); hashErr == nil && now == s.configSHA {
+				markUnsupported(s.paths.Unsupported)
+			}
 		}
 		s.release()
 		return err

@@ -471,13 +471,29 @@ func (c *client) replay(argv []string) int {
 		return 2
 	}
 	_ = reader.Close()
+	// A failed read of standard input must not reach gitleaks as an end of
+	// file: it would scan a prefix and could exit 0.
+	input := &recordingReader{r: io.MultiReader(bytes.NewReader(c.data), os.Stdin)}
+	copied := make(chan struct{})
 	go func() {
+		defer close(copied)
 		buf := make([]byte, 1<<20)
-		_, _ = io.CopyBuffer(writer, io.MultiReader(bytes.NewReader(c.data), os.Stdin), buf)
+		_, _ = io.CopyBuffer(writer, input, buf)
 		_ = writer.Close()
 	}()
 	err = cmd.Wait()
 	if err == nil {
+		// A clean exit counts only if all of standard input reached gitleaks.
+		select {
+		case <-copied:
+		case <-time.After(2 * time.Second):
+			fmt.Fprintln(os.Stderr, "agent-guard-scan: standard input was not fully passed to gitleaks")
+			return 2
+		}
+		if input.err != nil {
+			fmt.Fprintln(os.Stderr, "agent-guard-scan: could not read standard input")
+			return 2
+		}
 		return 0
 	}
 	var exitErr *exec.ExitError
@@ -620,4 +636,18 @@ func closeInheritedOnExec() (func(), bool) {
 		marked = append(marked, fd)
 	}
 	return restore, true
+}
+
+// recordingReader keeps the first read error other than end of file.
+type recordingReader struct {
+	r   io.Reader
+	err error
+}
+
+func (r *recordingReader) Read(p []byte) (int, error) {
+	n, err := r.r.Read(p)
+	if err != nil && err != io.EOF && r.err == nil {
+		r.err = err
+	}
+	return n, err
 }

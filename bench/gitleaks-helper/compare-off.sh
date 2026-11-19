@@ -11,7 +11,8 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd -P)
 BASE=${1:?base checkout required}
 REAL=${2:?gitleaks required}
 CASE=$(mktemp -d /tmp/aghoff.XXXXXX) || exit 1
-trap 'rm -rf "$CASE"' 0 HUP INT TERM
+trap 'rm -rf "$CASE"' 0
+trap 'exit 1' HUP INT TERM
 mkdir -p "$CASE/bin" "$CASE/empty" "$CASE/fx" "$CASE/work"
 cp "$REAL" "$CASE/bin/gitleaks"
 export PATH="$CASE/bin:$PATH" AGENT_GUARD_GITLEAKS_BIN_DIR="$CASE/empty" AGENT_GUARD_RELEASE_CHECK=off

@@ -147,7 +147,8 @@ the host's existing timeout and locale contracts before adopting it.
 
 The opt-in warm gitleaks helper is checked against the official gitleaks
 release it links, on the machine that built it. With the build directory and
-the official binary, run its failure-path, host and differential suites:
+the official release binary (not a Homebrew or `go install` build, which the
+helper refuses by design), run its failure-path, host and differential suites:
 
 ```sh
 AGENT_GUARD_TEST_HELPER_DIR="$HOME/.agent-guard/gitleaks-helper" \

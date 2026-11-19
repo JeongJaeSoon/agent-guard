@@ -1,4 +1,4 @@
-<!-- translated-from: docs/verification.md; source-blob: 5062ec0a972c7b171bd87d7fac2fa4ab2f5d0a7f -->
+<!-- translated-from: docs/verification.md; source-blob: f1667998eb2fa12eaf31a2b86d555f4679b8afbf -->
 
 <a id="verification"></a>
 
@@ -125,7 +125,8 @@ RSS 合計の標本値が増える場合があるため、このトレードオ�
 契約を維持する必要があります。
 
 任意のwarm gitleaks helperは、ビルドしたマシン上で、リンクした公式gitleaks
-リリースと比較して検証します。ビルドディレクトリと公式バイナリを使い、失敗経路・
+リリースと比較して検証します。ビルドディレクトリと公式リリースバイナリ（helperが
+意図的に拒否するHomebrewや `go install` のビルドではないもの）を使い、失敗経路・
 host・差分のテストを実行してください。
 
 ```sh

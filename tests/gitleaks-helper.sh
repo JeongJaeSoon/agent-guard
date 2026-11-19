@@ -362,6 +362,22 @@ st=$?
 check "with neither a helper answer nor a runnable gitleaks the client fails (2), never clean" [ "$st" = 2 ]
 "$CLIENT" --bogus <"$IN/clean-command" >/dev/null 2>&1
 check "a malformed client invocation fails (2), never clean" [ "$?" = 2 ]
+# A directory as standard input makes every read() fail. Warm, the client
+# has started reading, so it must report the failure itself (2); the real
+# gitleaks would otherwise see an end of file. Cold, it execs the real
+# gitleaks before reading, which reports the error on stderr; the CLI treats
+# exit 0 with output as a scanner error.
+warm >/dev/null 2>&1
+"$CLIENT" --gitleaks "$GL" --gitleaks-version 8.30.1 --state-dir "$STATE" -- $ARGS_A <"$CASE/work" >/dev/null 2>&1
+check "warm: a standard input that cannot be read is a failure (2), never clean" [ "$?" = 2 ]
+stop_helpers
+rm -f "$HDIR"/*
+"$CLIENT" --gitleaks "$GL" --gitleaks-version 8.30.1 --state-dir "$STATE" -- $ARGS_A <"$CASE/work" >/dev/null 2>"$CASE/dir.err"
+st=$?
+expect "cold: an unreadable standard input reaches the real gitleaks, which reports it" \
+  '[ "$st" != 0 ] || grep -q "could not read file" "$CASE/dir.err"'
+stop_helpers
+rm -f "$HDIR"/*
 
 # --- one helper per user and config; lifetime and memory ----------------------
 stop_helpers
@@ -433,8 +449,12 @@ n=0; while [ -n "$(helper_pids)" ] && [ "$n" -lt 50 ]; do sleep 0.1; n=$((n + 1)
 expect "an oversized report is answered by the real gitleaks, and a helper past its memory cap then exits" \
   '[ -n "$pid" ] && [ "$(cat "$CASE/m.status")" = 1 ] && [ "$(last_trace)" = real:helper-report-size ] && [ -z "$(helper_pids)" ]'
 rm -f "$HDIR"/*.spawn
+: >"$TRACE"
 run_shape client A "$IN/github-pat" "$CASE/c"
-check "the next request after a memory exit starts a fresh helper" [ "$(sed -n '$p' "$TRACE")" = real:cold ]
+memory_trace=$(printf 'spawned\nreal:cold')
+wait_socket
+expect "the next request after a memory exit starts a fresh helper" \
+  '[ "$(cat "$TRACE")" = "$memory_trace" ] && [ -n "$(helper_pids)" ]'
 stop_helpers
 
 # --- the CLI: every supported host through the same boundary ------------------

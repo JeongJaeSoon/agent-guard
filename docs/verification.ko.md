@@ -1,4 +1,4 @@
-<!-- translated-from: docs/verification.md; source-blob: 5062ec0a972c7b171bd87d7fac2fa4ab2f5d0a7f -->
+<!-- translated-from: docs/verification.md; source-blob: f1667998eb2fa12eaf31a2b86d555f4679b8afbf -->
 
 <a id="verification"></a>
 
@@ -120,8 +120,8 @@ sentinel이 들어 있는 파일을 읽는 것도 guard가 보호하는 도구 �
 실패 복귀, 기존 호스트 제한 시간과 locale 계약을 유지해야 합니다.
 
 선택형 warm gitleaks helper는 빌드한 머신에서, 링크한 공식 gitleaks 릴리스와
-비교해 검증합니다. 빌드 디렉터리와 공식 바이너리로 실패 경로·host·차분 테스트를
-실행하세요.
+비교해 검증합니다. 빌드 디렉터리와 공식 릴리스 바이너리(helper가 일부러 거절하는
+Homebrew·`go install` 빌드가 아닌 것)로 실패 경로·host·차분 테스트를 실행하세요.
 
 ```sh
 AGENT_GUARD_TEST_HELPER_DIR="$HOME/.agent-guard/gitleaks-helper" \
