@@ -28,6 +28,8 @@ ok() { pass=$((pass + 1)); printf 'ok - %s\n' "$*"; }
 bad() { fail=$((fail + 1)); printf 'not ok - %s\n' "$*"; }
 check() { label=$1; shift; if "$@"; then ok "$label"; else bad "$label"; fi; }
 # expect LABEL 'CONDITION': CONDITION is shell text, evaluated whole.
+# Settings for one function call go in a subshell with export: macOS's sh
+# (bash in POSIX mode) keeps a `VAR=value function` assignment afterwards.
 expect() { if eval "$2"; then ok "$1"; else bad "$1"; fi; }
 
 helper_pids() { pgrep -f "agent-guard-gitleaks-helper serve --state-dir $STATE" 2>/dev/null; }
@@ -222,7 +224,7 @@ expect "a refused version or engine starts no helper and leaves no socket or mar
   '[ -z "$(helper_pids)" ] && [ -z "$(ls "$HDIR")" ]'
 warm >/dev/null 2>&1
 : >"$TRACE"
-NO_COLOR=1 same_as_real B "$IN/github-pat"; same=$?
+(export NO_COLOR=1; same_as_real B "$IN/github-pat"); same=$?
 expect "with NO_COLOR set the summary lines are uncoloured, as the real gitleaks prints them" \
   '[ "$same" = 0 ] && grep -qx helper "$TRACE" && ! grep -q "$(printf "\033")" "$CASE/c.err"'
 
@@ -430,7 +432,7 @@ expect "a Claude hook whose output is a pipe ends when the hook ends, though it 
   '[ "$took" -lt 15 ] && [ -n "$(helper_pids)" ]'
 stop_helpers
 rm -f "$HDIR"/*
-AGENT_GUARD_GITLEAKS_HELPER_IDLE_SECONDS=1 warm
+(export AGENT_GUARD_GITLEAKS_HELPER_IDLE_SECONDS=1; warm)
 warm_status=$?
 pid=$(helper_pids)
 expect "a helper for the idle checks started and answered" '[ "$warm_status" = 0 ] && [ -n "$pid" ] && [ "$(last_trace)" = helper ]'
@@ -447,8 +449,8 @@ rm -f "$HDIR"/*
 # limit: the helper answers "fallback" (the client scans for real), and the
 # memory it needed puts its peak over the lowest cap, so it then exits.
 awk -v p="$(sed -n 's/^export TOKEN=//p' "$IN/github-pat" | cut -c1-36)" \
-  'BEGIN { for (i = 0; i < 40000; i++) printf "key_%d = %s%04d\n", i, p, i % 9000 }' | head -c 1048000 >"$CASE/dense"
-AGENT_GUARD_GITLEAKS_HELPER_MAX_RSS_MIB=96 warm
+  'BEGIN { for (i = 0; i < 40000; i++) printf "key_%d = %s%04d\n", i, p, i % 9000 }' 2>/dev/null | head -c 1048000 >"$CASE/dense"
+(export AGENT_GUARD_GITLEAKS_HELPER_MAX_RSS_MIB=96; warm)
 pid=$(helper_pids)
 run_shape client B "$CASE/dense" "$CASE/m"
 n=0; while [ -n "$(helper_pids)" ] && [ "$n" -lt 50 ]; do sleep 0.1; n=$((n + 1)); done
