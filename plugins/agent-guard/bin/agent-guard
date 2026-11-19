@@ -3560,7 +3560,8 @@ block_on_pii_text() {
   case "$PII_HOOK_MODE" in
     block)
       pii_text_has_match "$text" || return 0
-      info "$PROGRAM: blocked PII in $label; run agent-guard pii-filter before using this tool"
+      cli_ref_init
+      info "$PROGRAM: blocked PII in $label; run $AG_CLI_REF_HOOK pii-filter before using this tool"
       audit_reason pii
       exit 2
       ;;
@@ -17963,16 +17964,9 @@ do_update() {
   curl -fsSL "$AG_REPO_URL/releases/latest/download/bootstrap.sh" \
     -o "$update_script" || die "update: failed to download bootstrap.sh"
   sh -n "$update_script" || die "update: downloaded bootstrap.sh failed syntax validation"
-  # A persistent opt-out lives only in the shell rc, and the updater reruns
-  # setup-shell. Pass the recorded choice unless the caller set one explicitly.
-  update_wrapping=${AGENT_GUARD_COMMAND_WRAPPING:-}
-  if [ -z "$update_wrapping" ]; then
-    update_wrapping=$(do_setup_shell --print-command-wrapping 2>/dev/null) || update_wrapping=
-    case "$update_wrapping" in
-      off) info "$PROGRAM: keeping command wrapping off, as recorded by setup-shell (set AGENT_GUARD_COMMAND_WRAPPING=on to turn it back on)" ;;
-      *) update_wrapping=on ;;
-    esac
-  fi
+  # A persistent opt-out lives only in the shell rc. The updater asks the
+  # payload it installs for that choice before it reruns setup-shell, unless
+  # the caller set AGENT_GUARD_COMMAND_WRAPPING, which passes through as is.
   # BIN_DIR is the resolved payload directory, not the public symlink's
   # directory. Preserve the invocation location (including custom installs)
   # unless the caller explicitly requests a different link directory.
@@ -17983,7 +17977,6 @@ do_update() {
   fi
   AGENT_GUARD_HOME="$ROOT_DIR" \
     AGENT_GUARD_BIN_DIR="$update_bin_dir" \
-    AGENT_GUARD_COMMAND_WRAPPING="$update_wrapping" \
     sh "$update_script"
 }
 
