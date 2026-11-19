@@ -7,6 +7,8 @@ on:
       - 'tests/printenv-argument-contract.sh'
       - 'tests/unit-audit-retention.sh'
       - 'tests/post-tool-serialization-recovery.sh'
+      - 'tests/assignment-leftmost.sh'
+      - 'tests/fixtures/assignment-leftmost.json'
       - '.github/workflows/legacy-tools.yml'
   push:
     branches: [main]
@@ -16,6 +18,8 @@ on:
       - 'tests/printenv-argument-contract.sh'
       - 'tests/unit-audit-retention.sh'
       - 'tests/post-tool-serialization-recovery.sh'
+      - 'tests/assignment-leftmost.sh'
+      - 'tests/fixtures/assignment-leftmost.json'
       - '.github/workflows/legacy-tools.yml'
   workflow_dispatch:
 # Replace only obsolete runs of the same PR. Non-PR runs have unique groups,
@@ -52,3 +56,23 @@ jobs:
           printf '%s  %s\n' 020468de7539ce70ef1bceaf7cde2e8c4f2ca6c3afb84642aabc5c97d9fc2a0d "$RUNNER_TEMP/jq-1.8.1/jq" | sha256sum -c -
           chmod +x "$RUNNER_TEMP/jq-1.8.1/jq"
           AGENT_GUARD_TEST_JQ="$RUNNER_TEMP/jq-1.8.1/jq" sh tests/post-tool-serialization-recovery.sh
+  awk-implementations:
+    # Separate job: installing gawk repoints the awk alternative, which would
+    # change the awk the contracts job above runs on.
+    name: Same assignments on mawk, gawk and busybox awk
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Install gawk and busybox
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gawk busybox
+      - name: Compare assignment candidates across awk implementations
+        run: |
+          mawk -W version 2>&1 | sed -n 1p
+          gawk --version | sed -n 1p
+          busybox | sed -n 1p
+          AGENT_GUARD_TEST_REQUIRE_AWKS='mawk gawk busybox' sh tests/assignment-leftmost.sh

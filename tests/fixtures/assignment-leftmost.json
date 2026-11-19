@@ -1,0 +1,147 @@
+[
+  {
+    "id": "two-keys-bracket",
+    "input": "log password: hunter2abc [refresh_token: other9val]",
+    "values": [
+      "hunter2abc",
+      "other9val"
+    ],
+    "masked": "log password: [REDACTED] [refresh_token: [REDACTED]]"
+  },
+  {
+    "id": "generated-01",
+    "input": "warning: =AWS_ACCESS_KEY_ID=Zx81qPl0mN # c; \"app.token\" :sk-live-abc123XYZ ${`DB_PASSWORD_HASH`:config.apiKey;",
+    "values": [
+      "sk-live-abc123XYZ",
+      "config.apiKey"
+    ],
+    "masked": "warning: =AWS_ACCESS_KEY_ID=Zx81qPl0mN # c; \"app.token\" :[REDACTED] ${`DB_PASSWORD_HASH`:[REDACTED];"
+  },
+  {
+    "id": "generated-02",
+    "input": "fatal:  { API_KEY_VALUE:not-found}\r`user_pwd`: \" pad9Value7 \", (auth-token :fn(arg))",
+    "values": [
+      " pad9Value7 ",
+      "pad9Value7"
+    ],
+    "masked": "fatal:  { API_KEY_VALUE:not-found}\r`user_pwd`: \"[REDACTED]\", (auth-token :fn(arg))"
+  },
+  {
+    "id": "generated-03",
+    "input": "note:\r\"AWS_ACCESS_KEY_ID\" :'sq8Jn3Hd0w' ] [ 'db-password':\t\"qv7Lm2Kp9s\", ",
+    "values": [
+      "sq8Jn3Hd0w",
+      "qv7Lm2Kp9s"
+    ],
+    "masked": "note:\r\"AWS_ACCESS_KEY_ID\" :'[REDACTED]' ] [ 'db-password':\t\"[REDACTED]\", "
+  },
+  {
+    "id": "generated-04",
+    "input": "log  \"AWS_ACCESS_KEY_ID\"=  abc # c,`private_key`: true\t'token' : 'sq8Jn3Hd0w'  ${`auth-token`:s3cr3t-Value_77]",
+    "values": [
+      "sq8Jn3Hd0w",
+      "s3cr3t-Value_77"
+    ],
+    "masked": "log  \"AWS_ACCESS_KEY_ID\"=  abc # c,`private_key`: true\t'token' : '[REDACTED]'  ${`auth-token`:[REDACTED]]"
+  },
+  {
+    "id": "generated-05",
+    "input": "log ,\"my_secret_2\"=`bt4Rf6Tg1y`; token : \" pad9Value7 \"\"['DB_PASSWORD_HASH':\teyJhbGciOi.payload9.sig8}",
+    "values": [
+      "bt4Rf6Tg1y",
+      " pad9Value7 ",
+      "pad9Value7",
+      "eyJhbGciOi.payload9.sig8"
+    ],
+    "masked": "log ,\"my_secret_2\"=`[REDACTED]`; token : \"[REDACTED]\"\"['DB_PASSWORD_HASH':\t[REDACTED]}"
+  },
+  {
+    "id": "generated-06",
+    "input": "/AWS_ACCESS_KEY_ID=  deadBEEF00112233 # c; 'user_pwd':\thunter2abc ; [client_secret: ${VAULT_TOKEN} ; ",
+    "values": [
+      "hunter2abc"
+    ],
+    "masked": "/AWS_ACCESS_KEY_ID=  deadBEEF00112233 # c; 'user_pwd':\t[REDACTED] ; [client_secret: ${VAULT_TOKEN} ; "
+  },
+  {
+    "id": "generated-07",
+    "input": "error: [ app.token=/path/to/key\"; `apikey`:true\\n,API_KEY_VALUE = \"quoted Val9 x\" ( `auth-token`:Zx81qPl0mN ",
+    "values": [
+      "/path/to/key",
+      "true\\n",
+      "quoted Val9 x",
+      "Zx81qPl0mN"
+    ],
+    "masked": "error: [ app.token=[REDACTED]\"; `apikey`:[REDACTED],API_KEY_VALUE = \"[REDACTED]\" ( `auth-token`:[REDACTED] "
+  },
+  {
+    "id": "generated-08",
+    "input": "2026-08-02 10:00:00 ERROR: /my_secret_2=\" pad9Value7 \" ] user_pwd:`bt4Rf6Tg1y` ; ['DB_PASSWORD_HASH':config.apiKey;}",
+    "values": [
+      "bt4Rf6Tg1y"
+    ],
+    "masked": "2026-08-02 10:00:00 ERROR: /my_secret_2=\" pad9Value7 \" ] user_pwd:`[REDACTED]` ; ['DB_PASSWORD_HASH':config.apiKey;}"
+  },
+  {
+    "id": "generated-09",
+    "input": "response: error: Password: 'sq8Jn3Hd0w' ] xuser_pwd = \"quoted Val9 x\",   auth-token :${NAME:-fallback9x}][\"secret\" = \"must be at least 8 characters\"",
+    "values": [
+      "sq8Jn3Hd0w",
+      "quoted Val9 x",
+      "must be at least 8 characters"
+    ],
+    "masked": "response: error: Password: '[REDACTED]' ] xuser_pwd = \"[REDACTED]\",   auth-token :${NAME:-fallback9x}][\"secret\" = \"[REDACTED]\""
+  },
+  {
+    "id": "generated-10",
+    "input": "response:   'API_KEY_VALUE' : authentication is disabled]x\"AWS_ACCESS_KEY_ID\":\t/path/to/key done${db-password:\tabc, ",
+    "values": [
+      "authentication"
+    ],
+    "masked": "response:   'API_KEY_VALUE' : [REDACTED] is disabled]x\"AWS_ACCESS_KEY_ID\":\t/path/to/key done${db-password:\tabc, "
+  },
+  {
+    "id": "generated-11",
+    "input": "2026-08-02 10:00:00 ERROR: ['bearer=[REDACTED] `my_secret_2: other9val, ${refresh_token: \" pad9Value7 \"",
+    "values": [
+      "other9val",
+      " pad9Value7 ",
+      "pad9Value7"
+    ],
+    "masked": "2026-08-02 10:00:00 ERROR: ['bearer=[REDACTED] `my_secret_2: [REDACTED], ${refresh_token: \"[REDACTED]\""
+  },
+  {
+    "id": "generated-12",
+    "input": "2026-08-02 10:00:00 ERROR: ['Password=  abc \"my_secret_2\" : s3cr3t-Value_77} ${db-password:\"qv7Lm2Kp9s\" ] { user :\"qv7Lm2Kp9s\" # c",
+    "values": [
+      "s3cr3t-Value_77",
+      "qv7Lm2Kp9s"
+    ],
+    "masked": "2026-08-02 10:00:00 ERROR: ['Password=  abc \"my_secret_2\" : [REDACTED]} ${db-password:\"[REDACTED]\" ] { user :\"[REDACTED]\" # c"
+  },
+  {
+    "id": "generated-13",
+    "input": "note:\r credential :other9val ; [ refresh_token:\teyJhbGciOi.payload9.sig8, ",
+    "values": [
+      "other9val",
+      "eyJhbGciOi.payload9.sig8"
+    ],
+    "masked": "note:\r credential :[REDACTED] ; [ refresh_token:\t[REDACTED], "
+  },
+  {
+    "id": "equals-after-equals-opens-no-key",
+    "input": "cfg=password=hunter2abc [refresh_token: other9val]",
+    "values": [
+      "other9val"
+    ],
+    "masked": "cfg=password=hunter2abc [refresh_token: [REDACTED]]"
+  },
+  {
+    "id": "colon-after-colon-opens-no-key",
+    "input": "step:token:Zx81qPl0mN {api_key: s3cr3t-Value_77}",
+    "values": [
+      "s3cr3t-Value_77"
+    ],
+    "masked": "step:token:Zx81qPl0mN {api_key: [REDACTED]}"
+  }
+]

@@ -12558,6 +12558,40 @@ secretish_env_values() {
       next_rescan_cover_end = start + length(leading) + length(value)
       return 0
     }
+    # Set assignment_start/assignment_length to the leftmost assignment in
+    # `low` for one delimiter (`=` or `:`), without depending on which match
+    # the awk implementation reports. POSIX requires match() to return the
+    # leftmost match, but mawk 1.3.4 can return a longer match further right
+    # when the pattern opens with an alternation, which dropped the first of
+    # two assignments on one line from the candidates.
+    #
+    # Each assignment pattern ends in its delimiter and cannot contain it
+    # anywhere else, and neither pattern looks past its last character. Two
+    # matches of one pattern therefore never overlap, and a match that starts
+    # further left ends before the reported one starts and is still a match
+    # when the string is cut there. So re-match the text before the reported
+    # match until nothing is found: the last match found is the leftmost one,
+    # whether match() prefers the leftmost or the longest candidate. Candidates
+    # that end at the same delimiter differ only in where they start, so there
+    # the longest is also the leftmost. Without the delimiter in the text
+    # before the match there is nothing to re-match.
+    #
+    # The patterns stay literal globals at each match() call: gawk recompiles
+    # a pattern that arrives through a function parameter on every call.
+    function assignment_match(text, delimiter) {
+      if (delimiter == "=") return match(text, equals_assignment)
+      return match(text, colon_assignment)
+    }
+    function find_assignment(low, delimiter, before) {
+      assignment_start = 0
+      assignment_length = -1
+      if (!assignment_match(low, delimiter)) return
+      do {
+        assignment_start = RSTART
+        assignment_length = RLENGTH
+        before = substr(low, 1, assignment_start - 1)
+      } while (index(before, delimiter) > 0 && assignment_match(before, delimiter))
+    }
     function scan_line(line, rest, end, low, eq_start, eq_length, \
                        colon_start, colon_length, start, matched_length, \
                        chose_colon, skip, status_guard, first, expansion, \
@@ -12597,12 +12631,12 @@ secretish_env_values() {
       }
       while (length(rest) > 0) {
         low = tolower(rest)
-        match(low, equals_assignment)
-        eq_start = RSTART
-        eq_length = RLENGTH
-        match(low, colon_assignment)
-        colon_start = RSTART
-        colon_length = RLENGTH
+        find_assignment(low, "=")
+        eq_start = assignment_start
+        eq_length = assignment_length
+        find_assignment(low, ":")
+        colon_start = assignment_start
+        colon_length = assignment_length
 
         start = eq_start
         matched_length = eq_length
