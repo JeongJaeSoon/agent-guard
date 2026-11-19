@@ -128,7 +128,7 @@ it answers.
 | Stale socket file from a killed helper | Connection refused: real gitleaks; the next helper removes the file | same |
 | Helper closes, sends a short, corrupt or unexpected answer | Real gitleaks | same, with a fake helper |
 | Helper does not answer within 3 s | Real gitleaks | same |
-| Helper answers "fallback" (version, regex engine, config, log event, scan error, timeout) | Real gitleaks | same |
+| Helper answers "fallback" (version, regex engine, config, log event, scan error, timeout) | Real gitleaks | same, with a fake helper; the helper's own refusals in `go test` |
 | Selected gitleaks has no Go build information or another regex engine | Real gitleaks | same |
 | Socket served by another user | Not trusted, even if the answer looks clean: real gitleaks | same (needs root or sudo) |
 | Private directory missing, wrong mode or owner, or a symlink | Real gitleaks; nothing is repaired | same |
@@ -191,7 +191,8 @@ Scanned text passes through the helper's memory, which lives longer than one
 hook. The helper overwrites its request buffer after each scan, but gitleaks
 keeps copies as Go strings that the collector frees without overwriting, so
 scanned bytes can remain in the helper's memory until it is reused or the
-helper exits (at most the idle time after the last scan). Nothing is written
+helper exits (about the idle time after the last scan; the idle check runs
+every 15 seconds). Nothing is written
 to disk or sent over the network. See [PRIVACY.md](../PRIVACY.md).
 
 ## Why a compiled helper
@@ -232,10 +233,17 @@ PostToolUse hook with a changed tree runs three in a row. The helper holds
 after inputs of 1 MiB and dense 300 KB secrets (its peak was 77 MiB), and
 65 MiB while four sessions scanned through it at once, still one process. The
 client peaks at 3.4 MiB (7.7 MiB for a 1 MiB input) for a few milliseconds.
-Off, nothing changes: across 112 hook runs (Claude and Codex, log on and off)
-exit codes, output and the number of programs executed equal main.
+Off, nothing changes: across 128 runs (14 hook fixtures, `scan-staged` and
+`scan-path`; Claude and Codex; log on and off) exit codes, output, the number
+of programs executed and the number of processes forked equal main
+(`bench/gitleaks-helper/compare-off.sh`, also run in CI).
 
 ## Known limits
+
+- A helper that is alive but stopped (for example by SIGSTOP) keeps its
+  socket: every scan then waits for the three-second deadline before running
+  the real gitleaks, until the helper is resumed or killed.
+- The helper's own peer-uid refusal is not tested; only the client's is.
 
 - A helper killed within a minute of starting leaves its start marker, so
   scans for that key run the real gitleaks until the marker is a minute old.

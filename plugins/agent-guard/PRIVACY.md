@@ -77,8 +77,8 @@ scanned content to disk or logs and makes no network connections; it starts
 with no environment variables. It overwrites its own request buffer after each
 scan, but copies gitleaks keeps as Go strings are freed without being
 overwritten, so scanned bytes can stay in the helper's memory until reused or
-until it exits, at most `AGENT_GUARD_GITLEAKS_HELPER_IDLE_SECONDS` (default ten
-minutes) after the last scan. Unset the variable to stop using it. See
+until it exits, about `AGENT_GUARD_GITLEAKS_HELPER_IDLE_SECONDS` (default ten
+minutes, checked every 15 seconds) after the last scan. Unset the variable to stop using it. See
 [the helper guide](https://github.com/JeongJaeSoon/agent-guard/blob/main/docs/gitleaks-helper.md).
 
 ## Network behavior
