@@ -394,6 +394,18 @@ check "a secret added to a tracked file is still blocked" [ "$?" -eq 2 ]
 hook hook-post-tool '{"session_id":"s","tool_name":"Edit","tool_input":{"file_path":"README.md"}}'
 check "a secret staged and reverted on disk is still blocked" [ "$?" -eq 2 ]
 
+# An assignment dump over the 256 KiB probe threshold but under the output scan
+# cap takes the large-output precheck, which reuses the cap check's byte count.
+# It must still mask every leaf whole, and the shell must report no error.
+mid_dump=$(jq -nc '[range(0; 7000) | "PASSWORD=value-detection-\(.)-abcdefgh"] as $o
+  | {session_id:"s",tool_name:"Read",tool_input:{file_path:"dump.json"},tool_response:$o}')
+hook hook-post-tool "$mid_dump"
+check "a ${#mid_dump}-byte assignment dump is masked with success" [ "$?" -eq 0 ]
+check "the large-output precheck masks every leaf of the dump whole" \
+  jq -e '.hookSpecificOutput.updatedToolOutput | length == 7000 and all(. == "[REDACTED]")' "$CASE/out/stdout"
+check "the large-output precheck reports no shell error" \
+  sh -c '! grep -Eq "^[^ ]*: [0-9]+: " "$1"' _ "$CASE/out/stderr"
+
 # #477: the jq/sed rewrite path is gated by a cheap name check. The letters
 # "sed" inside an ordinary word must not open it: a clean command such as
 # `printf 'build passed'` has to cost the same awk runs as `printf 'build ok'`.
