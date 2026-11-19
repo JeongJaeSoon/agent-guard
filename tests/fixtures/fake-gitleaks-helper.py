@@ -62,6 +62,8 @@ def main():
     server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     server.bind(path)
     if mode == "otheruid":
+        # Let the test user connect, so the peer uid check is what refuses.
+        os.chmod(path, 0o666)
         os.setgid(65534)
         os.setuid(65534)
     server.listen(16)
