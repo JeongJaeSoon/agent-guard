@@ -8,6 +8,8 @@
   [JeongJaeSoon on GitHub](https://github.com/JeongJaeSoon)
 - Sensitive security reports: follow the private process in
   [SECURITY.md](SECURITY.md). Do not disclose a vulnerability in a public issue.
+- Contribution rules for code and documentation changes:
+  [AGENTS.md](AGENTS.md)
 
 When reporting a problem, include the Agent Guard version, host (Claude Code,
 Codex, CLI, Git hook, or GitHub Actions), operating system and architecture,
