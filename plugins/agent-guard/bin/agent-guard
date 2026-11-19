@@ -13698,14 +13698,10 @@ redact_nonempty_response_strings() {
 # compact jq serialization iteratively with POSIX awk. Output stays in a
 # private temporary file until the complete single document is validated, so a
 # malformed or interrupted transform can never expose a partial replacement.
-redact_response_values_awk() {
-  whole_leaf_response=$1
-  redact_response_values_awk_current
-}
-
-# The conservative caller already owns whole_leaf_response. Read that inherited
-# shell variable inside its command substitution instead of expanding a large
-# JSON value through another function argument and assignment.
+#
+# Callers own whole_leaf_response. Read that inherited shell variable inside
+# their command substitution instead of expanding a large JSON value through
+# another function argument and assignment.
 redact_response_values_awk_current() {
   whole_leaf_tmp=$(mktemp_file) || return 1
   case "$whole_leaf_response" in
@@ -14378,7 +14374,7 @@ recover_post_tool_validation_failure() {
   # Primary JSON processing failed, so no scanner-dependent verdict is trustworthy.
   # Conservatively sanitize the entire response with the independent parser.
   recovery_output=
-  if ! recovery_output=$(redact_response_values_awk "$recovery_response"); then
+  if ! recovery_output=$(whole_leaf_response=$recovery_response; redact_response_values_awk_current); then
     recovery_output=
   fi
   if [ -z "$recovery_output" ]; then

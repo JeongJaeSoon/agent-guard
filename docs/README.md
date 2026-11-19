@@ -18,10 +18,7 @@ have separate homes so that completed investigations do not obscure setup help.
 - [Test layers and current contract inventory](development/testing.md)
 - [CI partitions and historical scheduling evidence](development/ci.md)
 - [Core contracts](development/unit-tests.md), [framing](development/unit-framing.md),
-  [deny-path regex](development/deny-path-regex.md), and
-  [status-label classification](development/status-label-tests.md)
-- [Exec framing failure regression](development/exec-framing-boundary.md)
-- [Scoped Bash source observations](development/coverage-core.md)
+  and [deny-path regex](development/deny-path-regex.md)
 - [Rust helper, platform support and fallback](native-redactor.md)
 
 ## Measurements
