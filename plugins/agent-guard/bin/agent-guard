@@ -12257,6 +12257,14 @@ secretish_env_values() {
         return 0
       return accessor_chain(v)
     }
+    # An unquoted shell variable with an environment-variable name
+    # (`GITHUB_TOKEN=$GITHUB_TOKEN`) reads a value, as the same word in double
+    # quotes does in interpolated_reference. The same shape only: a digit, a
+    # lowercase letter, a second `$` (bcrypt `$2b$12$...`) or any text glued
+    # to the name keeps masking.
+    function bare_variable_reference(value) {
+      return value ~ /^\$[A-Z]+(_[A-Z]+)*$/
+    }
     # A key ending in `token` also names opaque version handles: an MCP page
     # read returns `"snapshotToken": "v:10"` for optimistic concurrency, and
     # masking it makes every update past version 9 fail as stale (#303). Only
@@ -12503,6 +12511,7 @@ secretish_env_values() {
         if (keyword_expression(assignment, value, substr(raw, length(token) + 1))) return 0
         if (secret_object_name(assignment, value)) return 0
         if (looks_like_reference(value, assignment, leading)) return 0
+        if (bare_variable_reference(value)) return 0
         if (version_reference(assignment, value)) return 0
         if (issue_reference(assignment, value, substr(raw, length(token) + 1))) return 0
         if (route_reference(assignment, value)) return 0
