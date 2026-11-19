@@ -205,5 +205,28 @@
     "classification": "must-fail",
     "description": "a carriage return inside the line, then a space, then a value",
     "text": "- `API_KEY=`\r {{SECRET}}"
+  },
+  {
+    "id": "paren-space-value",
+    "expected": "block",
+    "classification": "must-fail",
+    "prompt_only": true,
+    "description": "a value later on the same line keeps the prompt blocked, as on main",
+    "text": "API_KEY= (empty) {{SECRET}}"
+  },
+  {
+    "id": "quote-space-value",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a value later on the line after an empty code span",
+    "text": "- `API_KEY=` {{SECRET}}"
+  },
+  {
+    "id": "quote-prose-value",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a value inside the prose after an empty code span; main also leaves it visible in a tool result",
+    "text": "- `OPENAI_API_KEY=` is `{{SECRET}}` in staging",
+    "prompt_only": true
   }
 ]
