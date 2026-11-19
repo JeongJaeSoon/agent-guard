@@ -1,9 +1,9 @@
 #!/bin/sh
 # #537: with the helper off, a hook must answer and start processes exactly as
 # the given base checkout (main) does. Runs each fixture through both CLIs
-# under strace and compares exit code, stdout, stderr and the number of
-# programs executed (a watchdog's sleep excluded: it may be killed before it
-# execs). Linux only (strace 5.2 or later).
+# under strace and compares exit code, stdout, stderr, the number of programs
+# executed (a watchdog's sleep excluded: it may be killed before it execs) and
+# the number of processes forked. Linux only (strace 5.2 or later).
 #
 #   sh bench/gitleaks-helper/compare-off.sh /abs/main-checkout /abs/gitleaks
 set -u
@@ -41,18 +41,20 @@ run() { # $1 cli, $2 fixture, $3 host, $4 log mode, $5 helper env, $6 out prefix
   mkdir -p "$CASE/home" "$CASE/xs"
   cut -f2- "$2" | (cd "$CASE/work" && env HOME="$CASE/home" XDG_STATE_HOME="$CASE/xs" \
     AGENT_GUARD_HOOK_HOST="$3" AGENT_GUARD_LOG_MODE="$4" ${5:+AGENT_GUARD_GITLEAKS_HELPER="$5"} \
-    strace -f -qq -e trace=execve -e status=successful -o "$6.trace" \
+    strace -f -qq -e trace=execve,clone,clone3,fork,vfork -e status=successful -o "$6.trace" \
       "$1/plugins/agent-guard/bin/agent-guard" "$cmd" >"$6.out" 2>"$6.err")
   echo "$?" >"$6.status"
   # A watchdog's sleep may be killed before it execs; count every other program.
   grep 'execve("' "$6.trace" | grep -vc 'execve("[^"]*/sleep"' >"$6.execs"
+  # Threads (CLONE_THREAD, e.g. gitleaks's Go runtime) are not processes.
+  grep -E '(clone3?|v?fork)\(' "$6.trace" | grep -vc CLONE_THREAD >"$6.forks"
 }
 # The first hook run in the fresh work tree also refreshes its Git index; run
 # each CLI once first so every measured run starts from the same tree state.
 run "$BASE" "$CASE/fx/1" claude on "" "$CASE/warm"
 run "$ROOT" "$CASE/fx/1" claude on "" "$CASE/warm"
 programs() { grep 'execve("' "$1" | grep -v 'execve("[^"]*/sleep"' | sed 's/^[0-9]* *execve("\([^"]*\)".*/\1/' | sort | uniq -c; }
-total=0 differ=0 base_execs=0 head_execs=0
+total=0 differ=0 base_execs=0 head_execs=0 base_forks=0 head_forks=0
 for f in "$CASE"/fx/*; do
   for host in claude codex; do
     for log in on off; do
@@ -62,7 +64,9 @@ for f in "$CASE"/fx/*; do
         total=$((total + 1))
         base_execs=$((base_execs + $(cat "$CASE/b.execs")))
         head_execs=$((head_execs + $(cat "$CASE/h.execs")))
-        for part in status out err execs; do
+        base_forks=$((base_forks + $(cat "$CASE/b.forks")))
+        head_forks=$((head_forks + $(cat "$CASE/h.forks")))
+        for part in status out err execs forks; do
           if ! cmp -s "$CASE/b.$part" "$CASE/h.$part"; then
             differ=$((differ + 1))
             printf 'DIFFER %s fixture %s host %s log %s helper %s: %s\n' "$part" "${f##*/}" "$host" "$log" "${helper:-unset}" \
@@ -75,5 +79,6 @@ for f in "$CASE"/fx/*; do
     done
   done
 done
-printf 'runs: %s; differences: %s; programs executed: base %s, this tree %s\n' "$total" "$differ" "$base_execs" "$head_execs"
+printf 'runs: %s; differences: %s; programs executed: base %s, this tree %s; processes forked: base %s, this tree %s\n' \
+  "$total" "$differ" "$base_execs" "$head_execs" "$base_forks" "$head_forks"
 [ "$differ" = 0 ]

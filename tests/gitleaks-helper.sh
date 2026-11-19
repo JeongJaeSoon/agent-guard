@@ -185,8 +185,8 @@ rm -f "$CASE/work/.gitleaksignore"
 : >"$TRACE"
 "$CLIENT" --gitleaks "$GL" --gitleaks-version 8.29.0 --state-dir "$STATE" -- $ARGS_A <"$IN/github-pat" >/dev/null 2>&1
 st=$?
-expect "a different probed gitleaks version is refused by the helper and scanned for real" \
-  '[ "$(last_trace)" = real:helper-version ] && [ "$st" = 1 ]'
+expect "a probed gitleaks version the helper does not link is scanned for real, without asking it" \
+  '[ "$(last_trace)" = real:version ] && [ "$st" = 1 ]'
 : >"$TRACE"
 "$CLIENT" --gitleaks "$GL" --gitleaks-version 8.30.1 --state-dir "$STATE" -- \
   stdin --report-format json --report-path "$CASE/no/such/dir/r.json" --no-banner --config "$CFG" \
@@ -209,8 +209,16 @@ cp "$CLIENT" "$CASE/bin/other-engine"
 : >"$TRACE"
 "$CLIENT" --gitleaks "$CASE/bin/other-engine" --gitleaks-version 8.30.1 --state-dir "$STATE" -- $ARGS_A <"$IN/clean-command" >/dev/null 2>&1
 st=$?
-expect "a gitleaks with other Go build information is refused by the helper and run for real" \
-  '[ "$(last_trace)" = real:helper-engine ] && [ "$st" != 0 ]'
+expect "a gitleaks with other Go build information than the helper is run for real, without asking it" \
+  '[ "$(last_trace)" = real:engine ] && [ "$st" != 0 ]'
+# Neither refused setup may start or keep a helper for itself.
+before_helpers=$(helper_pids | wc -l | tr -d ' ')
+"$CLIENT" --gitleaks "$GL" --gitleaks-version 8.29.0 --state-dir "$STATE" -- $ARGS_A <"$IN/clean-command" >/dev/null 2>&1
+check "a refused version starts no helper" [ "$(helper_pids | wc -l | tr -d ' ')" = "$before_helpers" ]
+: >"$TRACE"
+NO_COLOR=1 same_as_real B "$IN/github-pat"; same=$?
+expect "with NO_COLOR set the summary lines are uncoloured, as the real gitleaks prints them" \
+  '[ "$same" = 0 ] && grep -qx helper "$TRACE" && ! grep -q "$(printf "\033")" "$CASE/c.err"'
 
 # --- a custom config gets its own helper; an extending one is never served ---
 cp "$CFG" "$CASE/custom.toml"

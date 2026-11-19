@@ -59,11 +59,19 @@ detect_output_secret_records_fused() (
         >>"$detector_records" || detector_fail
   else
       detector_report=$detector_dir/report
-      (
-        ulimit -f 128 >/dev/null 2>&1 || exit 2
-        gitleaks_exec "$gl" stdin --report-format json --report-path "$detector_report" \
-          --no-banner --config "$GITLEAKS_CONFIG" <"$detector_strings"
-      ) >/dev/null 2>&1
+      if gitleaks_helper_selected; then
+        (
+          ulimit -f 128 >/dev/null 2>&1 || exit 2
+          gitleaks_exec "$gl" stdin --report-format json --report-path "$detector_report" \
+            --no-banner --config "$GITLEAKS_CONFIG" <"$detector_strings"
+        ) >/dev/null 2>&1
+      else
+        (
+          ulimit -f 128 >/dev/null 2>&1 || exit 2
+          "$gl" stdin --report-format json --report-path "$detector_report" \
+            --no-banner --config "$GITLEAKS_CONFIG" <"$detector_strings"
+        ) >/dev/null 2>&1
+      fi
       detector_status=$?
       case "$detector_status" in 0|1) ;; *) detector_fail ;; esac
       [ -s "$detector_report" ] || detector_fail

@@ -92,7 +92,10 @@ after every scan).
 - It loads the config with the same code path as `gitleaks --config PATH` and
   only when the bytes it parsed hash to the SHA-256 the client sent. Every
   request carries that hash and the probed gitleaks version; a mismatch is
-  answered "fallback".
+  answered "fallback". The client also reads the version and build of the
+  helper binary and of the selected gitleaks first: when they cannot match it
+  neither connects nor starts a helper. Only an answer resets a helper's idle
+  clock.
 - A config with `[extend] path` (another file the hash does not cover), or one
   that makes gitleaks print warnings, is marked unsupported; the client then
   always runs the real gitleaks for it.
@@ -229,6 +232,10 @@ Off, nothing changes: across 112 hook runs (Claude and Codex, log on and off)
 exit codes, output and the number of programs executed equal main.
 
 ## Known limits
+
+- A helper inherits the resource limits of the hook that started it (for
+  example the output detector's 64 KiB file-size limit); it writes no files
+  besides its empty markers, so this changes nothing it does.
 
 - The client connects to the helper before it reads standard input, so a
   cold call can still `exec` the real gitleaks without copying piped input. A

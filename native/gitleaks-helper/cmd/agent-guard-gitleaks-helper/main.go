@@ -443,11 +443,15 @@ func (s *server) handle(conn *net.UnixConn) {
 		return
 	}
 	resp, stdout, stderr, reportBytes := s.scan(req, payload)
+	// Only an answer keeps the helper alive; a client the helper keeps
+	// refusing must not hold it resident.
 	// The request buffer is the helper's own copy of the scanned bytes;
 	// overwrite it now. Copies inside gitleaks are strings the collector
 	// frees but cannot overwrite (see docs/gitleaks-helper.md).
 	clear(payload)
-	s.lastRequest.Store(time.Now().UnixNano())
+	if resp.Status == wire.StatusOK {
+		s.lastRequest.Store(time.Now().UnixNano())
+	}
 	if len(payload) > largeInput {
 		debug.FreeOSMemory()
 	}
@@ -512,7 +516,8 @@ func (s *server) scan(req wire.Request, payload []byte) (wire.Response, []byte, 
 
 	var stderr bytes.Buffer
 	if level <= zerolog.WarnLevel {
-		summary(&stderr, req.NoColor, level, detector.TotalBytes.Load(), len(findings), time.Since(start))
+		zone := time.FixedZone(req.TimeZone, req.TimeOffset)
+		summary(&stderr, req.NoColor, zone, level, detector.TotalBytes.Load(), len(findings), time.Since(start))
 	}
 	var reportBytes []byte
 	if req.ReportFormat == "json" {
@@ -523,6 +528,7 @@ func (s *server) scan(req wire.Request, payload []byte) (wire.Response, []byte, 
 		reportBytes = out.Bytes()
 		// The client refuses larger blobs; let the real gitleaks answer.
 		if len(reportBytes) > wire.MaxBlob {
+			clear(reportBytes)
 			return fallback("report-size")
 		}
 	}
@@ -548,8 +554,8 @@ func logLevel(name string) (zerolog.Level, bool) {
 // summary writes the lines findingSummaryAndExit logs, through the same
 // console writer gitleaks configures. Timestamps and the duration differ
 // between any two real runs too.
-func summary(w io.Writer, noColor bool, level zerolog.Level, totalBytes uint64, count int, elapsed time.Duration) {
-	logger := zerolog.New(zerolog.ConsoleWriter{Out: w, NoColor: noColor}).Level(level).With().Timestamp().Logger()
+func summary(w io.Writer, noColor bool, zone *time.Location, level zerolog.Level, totalBytes uint64, count int, elapsed time.Duration) {
+	logger := zerolog.New(zerolog.ConsoleWriter{Out: w, NoColor: noColor, TimeLocation: zone}).Level(level).With().Timestamp().Logger()
 	logger.Info().Msgf("scanned ~%d bytes (%s) in %s", totalBytes, bytesConvert(totalBytes), formatDuration(elapsed))
 	if count != 0 {
 		logger.Warn().Msgf("leaks found: %d", count)

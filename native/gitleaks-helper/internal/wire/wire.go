@@ -43,6 +43,10 @@ type Request struct {
 	Redact       uint   `json:"redact"`
 	NoColor      bool   `json:"no_color"`
 	LogLevel     string `json:"log_level"`
+	// TimeZone and TimeOffset are the client's local zone, so the summary
+	// lines carry the clock time the real gitleaks would print.
+	TimeZone   string `json:"time_zone"`
+	TimeOffset int    `json:"time_offset"`
 	// ReportFormat is "" (no report) or "json".
 	ReportFormat string `json:"report_format"`
 	PayloadLen   int64  `json:"payload_len"`

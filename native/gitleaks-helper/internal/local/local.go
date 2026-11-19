@@ -198,6 +198,20 @@ func Engine(info *buildinfo.BuildInfo) string {
 	return info.GoVersion + " tags=" + tags + " " + strings.Join(deps, " ")
 }
 
+// LinkedVersion is the version of module path linked into a build, without
+// the leading "v", or "" when it is not linked or is replaced.
+func LinkedVersion(info *buildinfo.BuildInfo, path string) string {
+	if info == nil {
+		return ""
+	}
+	for _, dep := range info.Deps {
+		if dep.Path == path && dep.Replace == nil {
+			return strings.TrimPrefix(dep.Version, "v")
+		}
+	}
+	return ""
+}
+
 // FileEngine reads Engine from an executable's embedded build information.
 func FileEngine(path string) (string, error) {
 	info, err := buildinfo.ReadFile(path)

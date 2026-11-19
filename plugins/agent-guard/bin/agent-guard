@@ -3653,21 +3653,25 @@ run_gitleaks_stdin() {
 # otherwise execs $1 with the same arguments and input, so a helper failure is
 # never a clean scan. An explicit AGENT_GUARD_GITLEAKS_BIN keeps its scanner,
 # and without the private state directory (AGENT_GUARD_LOG_MODE=off) there is
-# no socket directory. Off, this is one case with no process (#407).
+# no socket directory. Off, this is one case with no process (#407). A caller
+# that runs gitleaks as the last command of a subshell tests
+# gitleaks_helper_selected outside it and keeps the plain command otherwise,
+# so the shell still execs gitleaks without another fork.
+gitleaks_helper_selected() {
+  case "${AGENT_GUARD_GITLEAKS_HELPER:-}" in /*) ;; *) return 1 ;; esac
+  [ -z "${AGENT_GUARD_GITLEAKS_BIN:-}" ] && [ -n "$AG_STATE_DIR" ] \
+    && [ -n "${GITLEAKS_PROBE_VERSION:-}" ] \
+    && [ -f "$AGENT_GUARD_GITLEAKS_HELPER" ] && [ -x "$AGENT_GUARD_GITLEAKS_HELPER" ]
+}
+
 gitleaks_exec() {
-  case "${AGENT_GUARD_GITLEAKS_HELPER:-}" in
-    /*)
-      if [ -z "${AGENT_GUARD_GITLEAKS_BIN:-}" ] && [ -n "$AG_STATE_DIR" ] \
-          && [ -n "${GITLEAKS_PROBE_VERSION:-}" ] \
-          && [ -f "$AGENT_GUARD_GITLEAKS_HELPER" ] && [ -x "$AGENT_GUARD_GITLEAKS_HELPER" ]; then
-        ag_gx_bin=$1
-        shift
-        "$AGENT_GUARD_GITLEAKS_HELPER" --gitleaks "$ag_gx_bin" \
-          --gitleaks-version "$GITLEAKS_PROBE_VERSION" --state-dir "$AG_STATE_DIR" -- "$@"
-        return
-      fi
-      ;;
-  esac
+  if gitleaks_helper_selected; then
+    ag_gx_bin=$1
+    shift
+    "$AGENT_GUARD_GITLEAKS_HELPER" --gitleaks "$ag_gx_bin" \
+      --gitleaks-version "$GITLEAKS_PROBE_VERSION" --state-dir "$AG_STATE_DIR" -- "$@"
+    return
+  fi
   "$@"
 }
 
@@ -13177,11 +13181,19 @@ detect_output_secret_records() (
         >>"$detector_records" || detector_fail
   else
       detector_report=$(mktemp_file) || detector_fail
-      (
-        ulimit -f 128 >/dev/null 2>&1 || exit 2
-        gitleaks_exec "$gl" stdin --report-format json --report-path "$detector_report" \
-          --no-banner --config "$GITLEAKS_CONFIG" <"$detector_strings"
-      ) >/dev/null 2>&1
+      if gitleaks_helper_selected; then
+        (
+          ulimit -f 128 >/dev/null 2>&1 || exit 2
+          gitleaks_exec "$gl" stdin --report-format json --report-path "$detector_report" \
+            --no-banner --config "$GITLEAKS_CONFIG" <"$detector_strings"
+        ) >/dev/null 2>&1
+      else
+        (
+          ulimit -f 128 >/dev/null 2>&1 || exit 2
+          "$gl" stdin --report-format json --report-path "$detector_report" \
+            --no-banner --config "$GITLEAKS_CONFIG" <"$detector_strings"
+        ) >/dev/null 2>&1
+      fi
       detector_status=$?
       case "$detector_status" in 0|1) ;; *) detector_fail ;; esac
       [ -s "$detector_report" ] || detector_fail

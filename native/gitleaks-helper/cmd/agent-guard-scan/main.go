@@ -16,6 +16,7 @@ package main
 
 import (
 	"bytes"
+	"debug/buildinfo"
 	"errors"
 	"fmt"
 	"io"
@@ -257,6 +258,18 @@ func run(opts options) int {
 	if err != nil {
 		return c.real("engine")
 	}
+	// The helper refuses another gitleaks version or engine anyway; check it
+	// here first so such a setup neither starts nor keeps a helper running.
+	helperInfo, err := buildinfo.ReadFile(helper)
+	if err != nil {
+		return c.real("helper-missing")
+	}
+	if local.LinkedVersion(helperInfo, "github.com/zricethezav/gitleaks/v8") != opts.version {
+		return c.real("version")
+	}
+	if local.Engine(helperInfo) != engine {
+		return c.real("engine")
+	}
 	key := local.Key(uid, identity, configSHA)
 	paths := local.PathsFor(dir, key)
 	if len(paths.Socket) > local.MaxSocketPath {
@@ -291,6 +304,7 @@ func run(opts options) int {
 		return c.real(reason)
 	}
 	_ = uconn.SetDeadline(time.Now().Add(exchangeTimeout))
+	zone, offset := time.Now().Zone()
 	req := wire.Request{
 		GitleaksVersion: opts.version,
 		Engine:          engine,
@@ -298,9 +312,12 @@ func run(opts options) int {
 		ConfigPath:      scan.config,
 		ExitCode:        scan.exitCode,
 		Redact:          scan.redact,
-		NoColor:         scan.noColor,
-		LogLevel:        scan.logLevel,
-		ReportFormat:    scan.reportFormat,
+		// gitleaks's console writer also drops colour when NO_COLOR is set.
+		NoColor:      scan.noColor || os.Getenv("NO_COLOR") != "",
+		TimeZone:     zone,
+		TimeOffset:   offset,
+		LogLevel:     scan.logLevel,
+		ReportFormat: scan.reportFormat,
 	}
 	if err := wire.WriteRequest(uconn, req, c.data); err != nil {
 		return c.real("send")
@@ -439,11 +456,27 @@ func (c *client) replay(argv []string) int {
 	cmd.Args = argv
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	cmd.Stdin = io.MultiReader(bytes.NewReader(c.data), os.Stdin)
-	// If gitleaks exits before reading everything, do not wait for the
-	// producer to finish writing.
-	cmd.WaitDelay = 2 * time.Second
-	err := cmd.Run()
+	// Feed a pipe in large writes, so gitleaks reads chunks as large as the
+	// pipe allows, as it does from a producer writing directly.
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "agent-guard-scan: cannot run gitleaks: %v\n", err)
+		return 2
+	}
+	cmd.Stdin = reader
+	if err := cmd.Start(); err != nil {
+		_ = reader.Close()
+		_ = writer.Close()
+		fmt.Fprintf(os.Stderr, "agent-guard-scan: cannot run gitleaks: %v\n", err)
+		return 2
+	}
+	_ = reader.Close()
+	go func() {
+		buf := make([]byte, 1<<20)
+		_, _ = io.CopyBuffer(writer, io.MultiReader(bytes.NewReader(c.data), os.Stdin), buf)
+		_ = writer.Close()
+	}()
+	err = cmd.Wait()
 	if err == nil {
 		return 0
 	}
