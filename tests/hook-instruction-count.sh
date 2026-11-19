@@ -18,7 +18,6 @@ row() { printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$@"; }
   row pre-edit hook-pre-tool 69273762 69290013 0 0 same
   row pre-bash-repeated hook-pre-tool 249181358 249500000 0 2 different
   row prompt hook-user-prompt 71840678 71830000 0 0 same
-  row post-bash hook-post-tool 92636119 92636219 0 0 same
 } > "$case_dir/rows.tsv"
 sh "$bench" --render "$case_dir/rows.tsv" > "$case_dir/table" 2> "$case_dir/stderr" \
   || fail 'render accepts a measured TSV'
@@ -35,9 +34,24 @@ has '| pre-bash-repeated | hook-pre-tool | 249,181,358 | 249,500,000 | +318,642 
   'an increase beyond the share, a status change and an output change are all shown'
 has '| prompt | hook-user-prompt | 71,840,678 | 71,830,000 | -10,678 (-0.01%) | +20,000 | -30,678 | 스크립트 크기만 | 0 | 같음 |' \
   'the tolerance scales with the base count'
-has '| post-bash | hook-post-tool | 92,636,119 | 92,636,219 | +100 (+0.00%) | +20,000 | -19,900 | 변화 없음 | 0 | 같음 |' \
-  'run-to-run noise is no change'
-[ "$(grep -c '^| ' "$case_dir/table")" -eq 7 ] || fail 'a header and one row per event'
+[ "$(grep -c '^| ' "$case_dir/table")" -eq 6 ] || fail 'a header and one row per event'
+
+# An unchanged script: event noise of a few thousand is no change, not a
+# script-size cost, while a real rise beyond the allowance still shows.
+{
+  row version version 66790467 66790478 0 0 same
+  row pre-bash-repeated hook-pre-tool 246760107 246753390 0 0 same
+  row post-bash hook-post-tool 92636119 92637051 0 0 same
+  row prompt hook-user-prompt 72003893 72103893 0 0 same
+} > "$case_dir/noise.tsv"
+sh "$bench" --render "$case_dir/noise.tsv" > "$case_dir/table" || fail 'render accepts a same-script TSV'
+has '| version | version | 66,790,467 | 66,790,478 | +11 (+0.00%) | +11 | 0 | 스크립트 크기 기준 | 0 | 같음 |' 'reference within its noise'
+has '| pre-bash-repeated | hook-pre-tool | 246,760,107 | 246,753,390 | -6,717 (-0.00%) | +11 | -6,728 | 변화 없음 | 0 | 같음 |' \
+  'measured run-to-run noise is no change'
+has '| post-bash | hook-post-tool | 92,636,119 | 92,637,051 | +932 (+0.00%) | +11 | +921 | 변화 없음 | 0 | 같음 |' \
+  'small noise is no change'
+has '| prompt | hook-user-prompt | 72,003,893 | 72,103,893 | +100,000 (+0.14%) | +11 | +99,989 | **실행 코드 증가** | 0 | 같음 |' \
+  'a rise without a script change is executed code'
 
 # Without the reference first there is no script-size share to subtract.
 row dense-controls hook-post-tool 1 2 0 0 same > "$case_dir/noref.tsv"

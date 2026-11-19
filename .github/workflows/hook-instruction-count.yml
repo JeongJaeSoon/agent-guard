@@ -3,12 +3,12 @@ name: Hook instruction count
 # shell instructions a few synthetic hook events cost on the PR base and head
 # and writes the table to the job summary. Performance evidence does not run
 # on hook-only PRs, so this is the PR-time view of hook cost; the job fails
-# only when it could not measure.
+# only when it could not measure. It runs bin/agent-guard directly, so a
+# hooks/ (launcher) change is not measured here.
 on:
   pull_request:
     paths:
       - 'plugins/agent-guard/bin/agent-guard'
-      - 'plugins/agent-guard/hooks/**'
       - 'plugins/agent-guard/config/**'
       - 'bench/instruction-count/**'
       - 'bench/process-count/fake-gitleaks.c'
@@ -24,15 +24,15 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
+      # The default checkout is the PR merged into its base; that merge's first
+      # parent is the base, so the measured change is the PR's own.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
+          fetch-depth: 2
           path: head
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          persist-credentials: false
-          ref: ${{ github.event.pull_request.base.sha }}
-          path: base
+      - name: Check out the merge base parent
+        run: git -C head worktree add --detach ../base HEAD^1
       - name: Refresh Linux package metadata
         timeout-minutes: 4
         run: |
@@ -47,7 +47,6 @@ jobs:
             -o DPkg::Lock::Timeout=30 install -y --no-install-recommends valgrind
       - name: Count base and head hook instructions
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           tsv="$RUNNER_TEMP/instruction-count.tsv"
@@ -57,8 +56,8 @@ jobs:
           elapsed=$(( $(date +%s) - started ))
           {
             printf '### Hook instruction count\n\n'
-            # The default checkout is the PR merged into base, so the change is the PR's own.
-            printf -- '- base `%s`, head: PR `%s`를 base에 merge한 `%s`\n' "$BASE_SHA" "$PR_HEAD_SHA" "$GITHUB_SHA"
+            printf -- '- base `%s`(merge의 첫 부모), head: PR `%s`를 base에 merge한 `%s`\n' \
+              "$(git -C base rev-parse HEAD)" "$PR_HEAD_SHA" "$(git -C head rev-parse HEAD)"
             printf -- '- /bin/sh: `%s`, %s\n' "$(readlink -f /bin/sh)" "$(valgrind --version 2>/dev/null || printf 'valgrind missing')"
             printf -- '- 측정 시간: %s초(두 트리, 이벤트 6개, 각 1회)\n\n' "$elapsed"
           } >> "$GITHUB_STEP_SUMMARY"
@@ -72,7 +71,8 @@ jobs:
             printf '\n'
             printf -- '- 셸(dash)이 실행한 명령어 수입니다. fork한 subshell은 세고, exec한 jq·awk·git·gitleaks는 세지 않습니다.\n'
             printf -- '- 스크립트 크기 몫: hook마다 스크립트 전체를 읽으므로, 바뀐 코드를 타지 않는 hook도 스크립트가 커지면 늡니다. `version`의 차이로 추정합니다.\n'
-            printf -- '- 분류: 나머지가 base의 0.05%%(최소 2만) 안이면 스크립트 크기만입니다. 판정이 아니라 측정이고, 늘어도 job은 실패하지 않습니다.\n'
+            printf -- '- 분류: 나머지가 base의 0.05%%(최소 2만) 안이면 `version`이 그대로일 때(±100) 변화 없음, 늘거나 줄었을 때 스크립트 크기만입니다. 같은 트리끼리도 이벤트마다 수천까지 달라집니다. 큰 이벤트에서는 이 허용 폭 안의 실제 증가도 스크립트 크기만으로 보일 수 있습니다.\n'
+            printf -- '- 판정이 아니라 측정입니다. 늘어도 job은 실패하지 않습니다. `bin/agent-guard`를 직접 실행하므로 `hooks/`(launcher)의 변화는 재지 않습니다.\n'
             printf -- '- native 출력 redactor 없이 셸 경로만 잽니다. Performance evidence의 packaged 측정을 대신하지 않습니다.\n'
           } >> "$GITHUB_STEP_SUMMARY"
           cat "$RUNNER_TEMP/table.md"

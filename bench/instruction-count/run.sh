@@ -3,10 +3,12 @@
 #
 # Runs a fixed set of synthetic hook events once per tree under callgrind and
 # records the instructions executed by the shell itself: the top-level shell
-# and every subshell it forks (--dump-before=fork), but not programs it execs
-# (--trace-children=no), so jq, awk, git and gitleaks are not counted. The
-# count is stable between runs to within a few dozen instructions, unlike
-# wall-clock time on a shared runner.
+# and the subshells it forks (--dump-before=fork), but not programs it execs
+# (--trace-children=no), so jq, awk, git and gitleaks are not counted; a
+# forked child that then execs may lose its few instructions before the exec.
+# Measured run to run on one tree: `version` within a dozen instructions,
+# hook events within a few thousand (timing-dependent waits), far below
+# wall-clock noise on a shared runner.
 #
 # The shell parses the whole script for every hook, so a change adds parse
 # cost even to hooks that never run the changed code. The `version` command
@@ -61,10 +63,11 @@ render() {
           share = d; rest = 0; kind = "스크립트 크기 기준"
         } else {
           share = ref; rest = d - ref
-          # Runs differ by a few instructions; the share estimate gets a
-          # small allowance for path work that scales with the parse.
+          # The allowance covers run-to-run noise (a few thousand) and path
+          # work that scales with the parse. An unchanged script (version
+          # within its own noise) is no change, not a script-size cost.
           tol = b[i] * 0.0005; if (tol < 20000) tol = 20000
-          if (abs(d) <= 100) kind = "변화 없음"
+          if (abs(rest) <= tol && abs(ref) <= 100) kind = "변화 없음"
           else if (abs(rest) <= tol) kind = "스크립트 크기만"
           else if (rest > 0) kind = "**실행 코드 증가**"
           else kind = "실행 코드 감소"
