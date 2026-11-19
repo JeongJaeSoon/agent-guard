@@ -116,4 +116,17 @@ printf '%s\n' "$release_perf" | grep -Fq 'for sha in "$RELEASE_HEAD_SHA" "$RELEA
 printf '%s\n' "$release_perf" | grep -Fq '::warning title=Release performance evidence::' \
   || fail 'release warns about performance'
 if printf '%s\n' "$release_perf" | grep -Eq 'exit [1-9]'; then fail 'release performance report never fails'; fi
+# Hook PRs get a base-versus-head instruction count that reports and never
+# gates on a rise; it fails only when it could not measure.
+count="$ROOT/.github/workflows/hook-instruction-count.yml"
+sh "$ROOT/tests/hook-instruction-count.sh" > /dev/null || fail 'hook instruction count fixtures'
+awk '/^  pull_request:$/ { on = 1; next } on && /^    paths:$/ { paths = 1; next } paths && !/^      - / { exit } paths' "$count" \
+  | grep -Fxq "      - 'plugins/agent-guard/bin/agent-guard'" || fail 'hook PRs run the instruction count'
+grep -Fq 'sh head/bench/instruction-count/run.sh base head "$tsv" || status=$?' "$count" \
+  && grep -Fq 'sh head/bench/instruction-count/run.sh --render "$tsv"' "$count" \
+  || fail 'the instruction count runs the tested script'
+grep -Fq '::warning title=Hook instruction count::' "$count" || fail 'an instruction rise is a warning'
+[ "$(grep -Eo 'exit[[:space:]]+[^[:space:];]+' "$count" | tr '\n' ' ')" = 'exit 1 exit 1 ' ] \
+  || fail 'the instruction count fails only when it could not measure'
+grep -Fq 'git -C head worktree add --detach ../base HEAD^1' "$count" || fail 'the instruction count base is the merge parent'
 printf 'CI scope fixtures passed: %s; matrix, aggregate and performance schedule wiring verified\n' "$pass"
