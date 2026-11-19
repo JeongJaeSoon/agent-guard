@@ -491,6 +491,7 @@ hook_same() { # same arguments as hook_case without the mode
 }
 hook_case claude hook-pre-tool pre-clean on "$CASE/x"
 wait_socket
+hook_helper_pid=$(helper_pids)
 for host in claude codex; do
   for spec in hook-pre-tool:pre-secret hook-pre-tool:pre-clean hook-pre-tool:write-secret \
       hook-post-tool:post-secret hook-post-tool:post-clean \
@@ -502,8 +503,20 @@ for host in claude codex; do
     if [ "$used" = yes ] && ! grep -qx helper "$TRACE"; then same=1; fi
     if [ "$used" = no ] && [ -s "$TRACE" ]; then same=1; fi
     check "$host ${spec%%:*} ${spec#*:}: helper on answers byte for byte as off" [ "$same" = 0 ]
+    if [ "$same" != 0 ]; then
+      # Say why: the client's path for each scan, the helper, and any output difference.
+      printf '  trace: %s\n' "$(tr '\n' ' ' <"$TRACE")"
+      printf '  helpers: %s; peak/resident KiB: %s\n' "$(helper_pids | tr '\n' ' ')" \
+        "$(for pid in $(helper_pids); do ps -o rss= -p "$pid"; done | tr '\n' ' ')"
+      for part in status out err; do
+        cmp -s "$CASE/off.$part" "$CASE/on.$part" || { printf '  %s differs:\n' "$part"; diff "$CASE/off.$part" "$CASE/on.$part" | head -10 | sed 's/^/    /'; }
+      done
+    fi
   done
 done
+
+printf '# hook loop: helper %s at start, %s at end, resident KiB %s\n' "$hook_helper_pid" \
+  "$(helper_pids | tr '\n' ' ')" "$(for pid in $(helper_pids); do ps -o rss= -p "$pid"; done | tr '\n' ' ')"
 
 # AGENT_GUARD_GITLEAKS_CONFIG: the custom config's bytes get their own helper.
 jq -nc --arg c "echo $(cat "$CASE/custom-input")" '{hook_event_name:"PreToolUse",tool_name:"Bash",tool_input:{command:$c}}' >"$CASE/pre-custom.json"
