@@ -10,9 +10,9 @@
   },
   {
     "id": "generated-01",
-    "input": "warning: =AWS_ACCESS_KEY_ID=Zx81qPl0mN # c; \"app.token\" :sk-live-abc123XYZ ${`DB_PASSWORD_HASH`:config.apiKey;",
+    "input": "warning: =AWS_ACCESS_KEY_ID=Zx81qPl0mN # c; \"app.token\" :kv-test-abc123XYZ ${`DB_PASSWORD_HASH`:config.apiKey;",
     "values": [
-      "sk-live-abc123XYZ",
+      "kv-test-abc123XYZ",
       "config.apiKey"
     ],
     "masked": "warning: =AWS_ACCESS_KEY_ID=Zx81qPl0mN # c; \"app.token\" :[REDACTED] ${`DB_PASSWORD_HASH`:[REDACTED];"
@@ -46,12 +46,12 @@
   },
   {
     "id": "generated-05",
-    "input": "log ,\"my_secret_2\"=`bt4Rf6Tg1y`; token : \" pad9Value7 \"\"['DB_PASSWORD_HASH':\teyJhbGciOi.payload9.sig8}",
+    "input": "log ,\"my_secret_2\"=`bt4Rf6Tg1y`; token : \" pad9Value7 \"\"['DB_PASSWORD_HASH':\tqy4hbGc1Oi.payload9.sig8}",
     "values": [
       "bt4Rf6Tg1y",
       " pad9Value7 ",
       "pad9Value7",
-      "eyJhbGciOi.payload9.sig8"
+      "qy4hbGc1Oi.payload9.sig8"
     ],
     "masked": "log ,\"my_secret_2\"=`[REDACTED]`; token : \"[REDACTED]\"\"['DB_PASSWORD_HASH':\t[REDACTED]}"
   },
@@ -121,10 +121,10 @@
   },
   {
     "id": "generated-13",
-    "input": "note:\r credential :other9val ; [ refresh_token:\teyJhbGciOi.payload9.sig8, ",
+    "input": "note:\r credential :other9val ; [ refresh_token:\tqy4hbGc1Oi.payload9.sig8, ",
     "values": [
       "other9val",
-      "eyJhbGciOi.payload9.sig8"
+      "qy4hbGc1Oi.payload9.sig8"
     ],
     "masked": "note:\r credential :[REDACTED] ; [ refresh_token:\t[REDACTED], "
   },
