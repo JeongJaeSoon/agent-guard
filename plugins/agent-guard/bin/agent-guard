@@ -7441,7 +7441,7 @@ $jq_records
     done
   }
   jq_end_segment() {
-    [ "$jq_state:$jq_seg_bad" = after:0 ] && jq_try_rewrite
+    case "$jq_state:$jq_seg_bad" in after:0|ghafter:0) jq_try_rewrite ;; esac
     jq_state=start jq_cmdw=
   }
   jq_bail() {
@@ -7466,8 +7466,8 @@ $jq_records
       # more arguments and keeps the command unchanged.
       3'&')
         case "$jq_state:$jq_before" in
-          after:*'>'|after:*'<') continue ;;
-          opt:*|operand:*|after:*) jq_seg_bad=1 ;;
+          after:*'>'|after:*'<'|gh*:*'>'|gh*:*'<') continue ;;
+          opt:*|operand:*|after:*|gh*:*) jq_seg_bad=1 ;;
         esac
         jq_end_segment
         break
@@ -7479,7 +7479,7 @@ $jq_records
       # Inside jq's arguments a `(` is a glob qualifier or a syntax error; a
       # subshell can only open at a command start.
       3'(')
-        case "$jq_state" in opt|operand|after) jq_seg_bad=1 ;; esac
+        case "$jq_state" in opt|operand|after|gh*) jq_seg_bad=1 ;; esac
         jq_end_segment
         continue
         ;;
@@ -7510,12 +7510,30 @@ $jq_records
         *:0jq|*:0sed|:0/usr/bin/jq|:0/bin/jq|:0/usr/local/bin/jq|:0/opt/homebrew/bin/jq|\
         :0/usr/bin/sed|:0/bin/sed|:0/usr/local/bin/sed|:0/opt/homebrew/bin/sed)
           jq_tool=${jq_word##*/} jq_state=opt jq_need=0 jq_seg_bad=0 jq_e=0 ;;
+        *:0gh) jq_state=ghopt jq_seg_bad=0 jq_ghnext=0 ;;
         *) jq_state=other ;;
       esac
       jq_cmdw=
       if [ "$jq_state" != opt ] && jq_names_tool "$jq_word"; then jq_bail; fi
       continue
     fi
+    # The --jq value of gh is a filter gh runs itself, with no file access,
+    # and --jq is an option of gh, not a command. The word after it is
+    # rewritten as a jq filter, under the same quoting check as a jq filter.
+    # Any other glob, redirection or tilde word in the segment, a second
+    # --jq, or the attached --jq=value form keeps the segment unchanged.
+    case "$jq_state" in
+      ghopt|ghafter)
+        if [ "$jq_ghnext" = 1 ]; then
+          jq_ghnext=0
+          [ "$jq_state" = ghopt ] || jq_seg_bad=1
+          jq_tool=jq jq_filter=$jq_word jq_filter_at=$jq_i jq_state=ghafter
+          continue
+        fi
+        case "$jq_word" in *[\*?[#^]*|*'<'*|*'>'*|'~'*) jq_seg_bad=1 ;; esac
+        if [ "$jq_word" = --jq ]; then jq_ghnext=1; continue; fi
+        ;;
+    esac
     if jq_names_tool "$jq_word"; then jq_bail; fi
     # Records drop quoting, so any glob character in an option value or a
     # later operand may expand into several words, or into an -f option

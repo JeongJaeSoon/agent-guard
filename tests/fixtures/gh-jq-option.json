@@ -138,5 +138,19 @@
     "classification": "must-fail",
     "description": "a protected positional of gh",
     "command": "gh api x --jq '.key' secret.key"
+  },
+  {
+    "id": "jq-file-after-gh",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a later jq reads its program from a protected file",
+    "command": "gh api x --jq '.content' | jq -f id.key"
+  },
+  {
+    "id": "gh-bare-glob-filter",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "an unquoted --jq value with a glob may expand to file names",
+    "command": "gh api x --jq .k[e]y"
   }
 ]
