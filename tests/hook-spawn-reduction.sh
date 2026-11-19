@@ -175,6 +175,34 @@ if [ -z "$JV_CACHE_INPUT" ]; then
 else
   bad "an input longer than 256 Ki characters is not primed"
 fi
+# The hooks measure their input first and call json_value_prime "$input"
+# measured within the limit, '' over it. Both must leave exactly the cache
+# state json_value_prime "$input" leaves.
+jv_state() { set | grep -E '^(JV_CACHE_|jv_)' | cksum; }
+prime_states_match() {
+  json_value_prime '{"tool_name":"Edit","tool_input":{"content":"x"}}'
+  json_value_prime "$input"; direct=$(jv_state)
+  json_value_prime '{"tool_name":"Edit","tool_input":{"content":"x"}}'
+  if [ "${#input}" -le 262144 ]; then json_value_prime "$input" measured; else json_value_prime ''; fi
+  [ "$direct" = "$(jv_state)" ]
+}
+edge_body=$(printf '%s' "$huge" | cut -c1-262100)
+edge_head='{"tool_name":"Write","tool_input":{"content":"'
+edge_tail='"}}'
+for edge_len in 262143 262144 262145; do
+  pad=$((edge_len - ${#edge_head} - ${#edge_tail}))
+  input="$edge_head$(printf '%s' "$edge_body" | cut -c1-"$pad")$edge_tail"
+  check "measured priming matches json_value_prime at ${#input} characters" prime_states_match
+done
+for input in "$doc" '{"a":1} {"b":2}' '[1]' "{\"tool_name\":\"Write\",\"tool_input\":{\"content\":\"$huge\"}}"; do
+  check "measured priming matches json_value_prime on a ${#input}-character input" prime_states_match
+done
+measured_sites=$(grep -c "if \[ \"\${#input}\" -le 262144 \]; then json_value_prime \"\$input\" measured; else json_value_prime ''; fi" "$GUARD")
+if [ "$measured_sites" -eq 2 ] && ! grep -q 'json_value_prime "\$input"$' "$GUARD"; then
+  ok "both hooks prime through the measured form"
+else
+  bad "both hooks prime through the measured form"
+fi
 doc='{"tool_name":"Bash","tool_input":{"command":"ls"}}'
 json_value_prime "$doc"
 check "a primed object is recognized only for the same text" json_input_is_primed_object "$doc"

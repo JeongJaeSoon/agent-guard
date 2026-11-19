@@ -4760,7 +4760,7 @@ json_value_prime() {
   [ -n "$1" ] || return 0
   # A large input (a big Write body) costs more to parse and compare once more
   # than the few jq runs the cache saves; leave it to the per-field path.
-  [ "${#1}" -le 262144 ] || return 0
+  [ "${2:-}" = measured ] || [ "${#1}" -le 262144 ] || return 0
   command -v jq >/dev/null 2>&1 || return 0
   jv_program='
     def cached($name; f):
@@ -11556,7 +11556,8 @@ hook_pre_tool() {
   HOOK_EVENT=PreToolUse
   HOOK_INPUT=$input
   if command -v jq >/dev/null 2>&1 && [ -n "$input" ]; then
-    json_value_prime "$input"
+    # Refuse an over-limit input before the call copies it ('' resets alike).
+    if [ "${#input}" -le 262144 ]; then json_value_prime "$input" measured; else json_value_prime ''; fi
     # One primed JSON object is exactly what the jq object check accepts.
     json_input_is_primed_object "$input" \
       || validate_hook_object PreToolUse "$input" || return 0
@@ -16096,7 +16097,8 @@ hook_post_tool() {
   if command -v jq >/dev/null 2>&1 && [ -n "$input" ]; then
     # The object check itself still runs here: its failure is what selects the
     # validation-recovery path below, which must stay reachable on its own.
-    json_value_prime "$input"
+    # Refuse an over-limit input before the call copies it ('' resets alike).
+    if [ "${#input}" -le 262144 ]; then json_value_prime "$input" measured; else json_value_prime ''; fi
     if ! printf '%s' "$input" | jq -e 'type == "object"' >/dev/null 2>&1; then
       if recover_post_tool_validation_failure "$input"; then
         return 0
