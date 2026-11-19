@@ -44,7 +44,7 @@ observation, not evidence of faster full CI: the new checks add work and give a
 fast developer feedback path.
 
 The table describes contracts, not a source-coverage percentage. The separate
-[scoped Bash measurement](coverage-core.md) retains the historical four-line result and adds a separately scoped 40-location observation;
+scoped Bash measurement retains the historical four-line result and adds a separately scoped 40-location observation;
 AWK branches and scanner/host behavior remain unmeasured. See the shared
 [test-layer guide](testing.md) for integration boundaries and remaining gaps.
 Framing producer contracts are implemented in [the framing suite](unit-framing.md).
