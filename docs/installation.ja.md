@@ -1,4 +1,4 @@
-<!-- translated-from: docs/installation.md; source-blob: 2eb81b8e78ff56a230bb1f66ccf15d519c3c4c3e -->
+<!-- translated-from: docs/installation.md; source-blob: 7e01a56894447d52f7b61eaa5b2cd83db76e14c0 -->
 
 <a id="installing-agent-guard"></a>
 
@@ -84,6 +84,30 @@ unset AGENT_GUARD_RUST_CORE_BIN
 `AGENT_GUARD_EXPERIMENTAL_REDACTOR=shell` を使ってください。測定された改善は
 処理内容とscannerによって異なり、標本プロセスRSS合計が増える場合があります。
 適用前に[検証ガイド](verification.ja.md)を確認してください。
+
+<a id="optional-warm-gitleaks-helper"></a>
+
+## 任意のwarm gitleaks helper
+
+スキャンのたびに新しいgitleaksプロセスが起動し、その時間の大半は起動コストです。
+任意のwarm helperは、コンパイル済みのgitleaks 8.30.1 detectorをユーザーと設定ごとに
+1つだけメモリに保持してすべてのセッションで共有し、10分間リクエストがなければ
+自ら終了します。リリースアーカイブには含まれません。Goでソースのcheckoutから
+ビルドし、hostの起動環境がクライアントを指すようにしてください。
+
+```sh
+sh scripts/build-gitleaks-helper.sh "$HOME/.agent-guard/gitleaks-helper"
+export AGENT_GUARD_GITLEAKS_HELPER="$HOME/.agent-guard/gitleaks-helper/agent-guard-scan"
+```
+
+その後ClaudeまたはCodexを再起動してください。判定はすべて引き続きCLIが行います。
+helperが失敗すると実際のgitleaksを実行するため、失敗がクリーンなスキャンとして
+扱われることはありません。`AGENT_GUARD_GITLEAKS_BIN` を設定している場合や
+`AGENT_GUARD_LOG_MODE=off` の場合はhelperを使いません。helperが応答するのは
+公式のgitleaks 8.30.1リリースバイナリだけで、Goの `regexp` でビルドした
+gitleaks（Homebrew、`go install`）は常に実際に実行します。無効にするには変数を削除して
+hostを再起動してください。同じ結果の保証、失敗時の処理、メモリ、プライバシーは
+[warm gitleaks helperガイド（英語）](https://github.com/JeongJaeSoon/agent-guard/blob/main/docs/gitleaks-helper.md)にあります。
 
 ## 実行時の依存関係
 

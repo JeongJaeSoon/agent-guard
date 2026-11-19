@@ -13,7 +13,17 @@ case "$mode" in
       esac
       shift
     done
-    input=$(cat)
+    # tests/gitleaks-helper-corpus.sh sets this to collect every scanned
+    # input of the suite, unchanged, for the warm-helper differential.
+    if [ -n "${AGENT_GUARD_TEST_SCAN_CAPTURE:-}" ]; then
+      capture=$(mktemp "$AGENT_GUARD_TEST_SCAN_CAPTURE/input.XXXXXXXX") || exit 2
+      # Under a caller's `ulimit -f` a large copy fails, and so does this
+      # mock; capture runs report those cases as failures.
+      cat >"$capture" || exit 2
+      input=$(cat "$capture")
+    else
+      input=$(cat)
+    fi
     case "$input" in
       *AGENT_GUARD_TEST_SECRET*|*"PRIVATE KEY"*)
         [ -n "$report_path" ] && printf '%s\n' '[{"Secret":"AGENT_GUARD_TEST_SECRET"}]' >"$report_path"

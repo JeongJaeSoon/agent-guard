@@ -23,6 +23,7 @@ have separate homes so that completed investigations do not obscure setup help.
 - [Exec framing failure regression](development/exec-framing-boundary.md)
 - [Scoped Bash source observations](development/coverage-core.md)
 - [Rust helper, platform support and fallback](native-redactor.md)
+- [Opt-in warm gitleaks helper: equivalence, failures, memory](gitleaks-helper.md)
 
 ## Measurements
 

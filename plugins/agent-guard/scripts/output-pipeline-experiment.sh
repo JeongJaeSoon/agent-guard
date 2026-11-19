@@ -61,7 +61,7 @@ detect_output_secret_records_fused() (
       detector_report=$detector_dir/report
       (
         ulimit -f 128 >/dev/null 2>&1 || exit 2
-        "$gl" stdin --report-format json --report-path "$detector_report" \
+        gitleaks_exec "$gl" stdin --report-format json --report-path "$detector_report" \
           --no-banner --config "$GITLEAKS_CONFIG" <"$detector_strings"
       ) >/dev/null 2>&1
       detector_status=$?

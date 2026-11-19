@@ -3590,6 +3590,31 @@ run_gitleaks_stdin() {
   gitleaks_scan "$1" stdin
 }
 
+# Run the prepared gitleaks $1 with the remaining arguments. When
+# AGENT_GUARD_GITLEAKS_HELPER names an absolute executable scan client, the
+# client runs in its place: it answers from the warm helper only when that
+# helper runs the probed gitleaks version and these exact config bytes, and
+# otherwise execs $1 with the same arguments and input, so a helper failure is
+# never a clean scan. An explicit AGENT_GUARD_GITLEAKS_BIN keeps its scanner,
+# and without the private state directory (AGENT_GUARD_LOG_MODE=off) there is
+# no socket directory. Off, this is one case with no process (#407).
+gitleaks_exec() {
+  case "${AGENT_GUARD_GITLEAKS_HELPER:-}" in
+    /*)
+      if [ -z "${AGENT_GUARD_GITLEAKS_BIN:-}" ] && [ -n "$AG_STATE_DIR" ] \
+          && [ -n "${GITLEAKS_PROBE_VERSION:-}" ] \
+          && [ -f "$AGENT_GUARD_GITLEAKS_HELPER" ] && [ -x "$AGENT_GUARD_GITLEAKS_HELPER" ]; then
+        ag_gx_bin=$1
+        shift
+        "$AGENT_GUARD_GITLEAKS_HELPER" --gitleaks "$ag_gx_bin" \
+          --gitleaks-version "$GITLEAKS_PROBE_VERSION" --state-dir "$AG_STATE_DIR" -- "$@"
+        return
+      fi
+      ;;
+  esac
+  "$@"
+}
+
 # $1 labels the scanned input in messages; the rest is the gitleaks
 # subcommand and its operands. Returns 0 clean, 1 finding, 2 scanner error.
 gitleaks_scan() {
@@ -3600,7 +3625,7 @@ gitleaks_scan() {
   set -- "$@" $GITLEAKS_SCAN_FLAGS --config "$GITLEAKS_CONFIG" --exit-code 1
   IFS=$ag_gs_ifs
   out=$(mktemp_file) || die "failed to create temp file"
-  "$GITLEAKS_BIN" "$@" >"$out" 2>&1
+  gitleaks_exec "$GITLEAKS_BIN" "$@" >"$out" 2>&1
   status=$?
   if [ "$status" -eq 0 ]; then
     if [ -s "$out" ]; then
@@ -13095,7 +13120,7 @@ detect_output_secret_records() (
       detector_report=$(mktemp_file) || detector_fail
       (
         ulimit -f 128 >/dev/null 2>&1 || exit 2
-        "$gl" stdin --report-format json --report-path "$detector_report" \
+        gitleaks_exec "$gl" stdin --report-format json --report-path "$detector_report" \
           --no-banner --config "$GITLEAKS_CONFIG" <"$detector_strings"
       ) >/dev/null 2>&1
       detector_status=$?

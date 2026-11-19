@@ -1,6 +1,6 @@
 # Privacy and Data Handling
 
-Last updated: 2026-11-15
+Last updated: 2026-11-19
 
 Agent Guard is local by default. The project does not operate an Agent Guard
 service, account system, telemetry collector, crash reporter, or analytics
@@ -66,6 +66,20 @@ every invocation. `agent-guard logs status` reports
 local log state and `agent-guard logs export` writes the safe metadata JSONL to
 standard output. Neither command exports inspected content, file paths,
 environment values, host session identifiers, or arbitrary tool names.
+
+## Optional warm gitleaks helper
+
+Off by default. With `AGENT_GUARD_GITLEAKS_HELPER` set, scanned text is sent
+over a private Unix domain socket (a 0700 directory beside the support log,
+socket mode 0600, peer uid checked by the kernel) to one local helper process
+per user and config that outlives a single hook. The helper writes no
+scanned content to disk or logs and makes no network connections; it starts
+with no environment variables. It overwrites its own request buffer after each
+scan, but copies gitleaks keeps as Go strings are freed without being
+overwritten, so scanned bytes can stay in the helper's memory until reused or
+until it exits, at most `AGENT_GUARD_GITLEAKS_HELPER_IDLE_SECONDS` (default ten
+minutes) after the last scan. Unset the variable to stop using it. See
+[the helper guide](https://github.com/JeongJaeSoon/agent-guard/blob/main/docs/gitleaks-helper.md).
 
 ## Network behavior
 

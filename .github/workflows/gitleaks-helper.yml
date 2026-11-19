@@ -1,0 +1,89 @@
+name: Warm gitleaks helper
+# The opt-in helper (#537) is not shipped in any release asset yet. This
+# builds it from source on each platform, checks it links exactly the modules
+# of the official gitleaks release, and runs its failure-path, host and
+# differential tests against that official release.
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/gitleaks-helper.yml'
+      - 'native/gitleaks-helper/**'
+      - 'scripts/build-gitleaks-helper.sh'
+      - 'plugins/agent-guard/bin/agent-guard'
+      - 'plugins/agent-guard/config/gitleaks.toml'
+      - 'plugins/agent-guard/scripts/output-pipeline-experiment.sh'
+      - 'tests/gitleaks-helper*.sh'
+      - 'tests/fixtures/**'
+      - 'bench/gitleaks-helper/**'
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+env:
+  # Keep in lock-step with ci.yml; tests/run.sh checks the helper pins.
+  GITLEAKS_VERSION: "8.30.1"
+jobs:
+  helper:
+    name: Warm gitleaks helper (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            archive: linux_x64
+            checksum: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+          - os: macos-15
+            archive: darwin_arm64
+            checksum: b40ab0ae55c505963e365f271a8d3846efbc170aa17f2607f13df610a9aeb6a5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version-file: native/gitleaks-helper/go.mod
+          cache: false
+      - name: Install the official gitleaks release and an init for process checks
+        env:
+          ARCHIVE: ${{ matrix.archive }}
+          CHECKSUM: ${{ matrix.checksum }}
+        run: |
+          set -eu
+          archive="gitleaks_${GITLEAKS_VERSION}_${ARCHIVE}.tar.gz"
+          mkdir -p "$RUNNER_TEMP/official"
+          curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${archive}" -o "$RUNNER_TEMP/$archive"
+          printf '%s  %s\n' "$CHECKSUM" "$RUNNER_TEMP/$archive" | shasum -a 256 -c -
+          tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP/official" gitleaks
+          if [ "$(uname -s)" = Linux ]; then sudo apt-get install -y tini >/dev/null; fi
+      - name: Unit tests
+        working-directory: native/gitleaks-helper
+        run: |
+          go vet -tags gore2regex ./...
+          go test -tags gore2regex ./...
+      - name: Build and compare linked modules with the official release
+        run: |
+          set -eu
+          sh scripts/build-gitleaks-helper.sh "$RUNNER_TEMP/helper"
+          go version -m "$RUNNER_TEMP/official/gitleaks" \
+            | awk '$1 == "dep" && $2 != "github.com/spf13/cobra" && $2 != "github.com/zricethezav/gitleaks/v8" { print $2, $3, $4 }' \
+            | LC_ALL=C sort > "$RUNNER_TEMP/official-modules.txt"
+          grep -v '^github.com/zricethezav/gitleaks/v8 ' native/gitleaks-helper/release-modules.txt > "$RUNNER_TEMP/expected-modules.txt"
+          diff "$RUNNER_TEMP/expected-modules.txt" "$RUNNER_TEMP/official-modules.txt"
+          go version -m "$RUNNER_TEMP/official/gitleaks" | grep -Fx "$(printf '\tbuild\t-tags=gore2regex')"
+          cat "$RUNNER_TEMP/helper/build.txt"
+      - name: Failure paths, hosts and process lifetime
+        env:
+          AGENT_GUARD_TEST_HELPER_DIR: ${{ runner.temp }}/helper
+          AGENT_GUARD_TEST_REAL_GITLEAKS: ${{ runner.temp }}/official/gitleaks
+        run: sh tests/gitleaks-helper.sh
+      - name: Differential against the official gitleaks
+        env:
+          AGENT_GUARD_TEST_HELPER_DIR: ${{ runner.temp }}/helper
+          AGENT_GUARD_TEST_REAL_GITLEAKS: ${{ runner.temp }}/official/gitleaks
+        run: sh tests/gitleaks-helper-corpus.sh

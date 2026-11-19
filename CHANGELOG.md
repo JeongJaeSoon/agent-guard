@@ -1,3 +1,10 @@
+## Unreleased
+
+- perf(scan): gitleaks를 데워 두는 helper를 켜야 동작하는 선택 기능으로 넣습니다. 스캔마다 새 gitleaks 프로세스가 뜨고, 한 번(약 500~570ms)의 대부분이 정규식 엔진(go-re2/wazero) 초기화와 규칙 224개 컴파일이며 2KB 스캔 자체는 1ms가 안 됩니다. helper(`agent-guard-gitleaks-helper`)는 gitleaks 8.30.1 라이브러리를 공식 릴리스와 같은 빌드 태그(`gore2regex`)와 같은 모듈 버전으로 링크해 detector를 한 번만 컴파일해 두고, CLI는 gitleaks 대신 작은 클라이언트(`agent-guard-scan`)를 실행합니다. 이 머신(4 vCPU)에서 데워진 뒤 hook 지연(중앙값)은 Bash PreToolUse 551→110ms, Edit PreToolUse 487→54ms, UserPromptSubmit 506→61ms, PostToolUse Read 572→128ms, 변경이 있는 작업 트리의 PostToolUse Bash 1,573→200ms, Edit 1,602→215ms입니다. (#537)
+  - 동작 변경: 끈 상태(기본값)에서는 판정·출력·실행 프로그램 수가 바뀌지 않습니다(Claude·Codex × 로그 켬·끔의 hook 112회를 main과 비교해 차이 0건, 실행 프로그램 4,608 = 4,608). `AGENT_GUARD_GITLEAKS_HELPER`가 빌드한 클라이언트의 절대 경로이면, CLI가 쓰는 두 가지 `gitleaks stdin` 호출을 helper가 답합니다. helper는 사용자·helper 바이너리·설정 바이트마다 하나만 뜨고 여러 세션이 함께 쓰며, 600초 동안 요청이 없거나 상주 메모리가 160MiB를 넘으면 스스로 끝납니다. 측정한 상주 메모리는 59~65MiB(1MiB·밀집 300KB 입력 뒤 40~42MiB, 최고 77MiB, 네 세션 동시 사용 중 65MiB)이고, 지금 방식의 gitleaks 한 번은 58~77MiB를 씁니다. helper가 없거나, 응답이 없거나 잘리거나, 다른 버전·설정이거나, 다른 사용자의 소켓이면 실제 gitleaks를 실행하고, 그것도 실패하면 지금의 "실행하지 못함" 경로(`open` 경고, `closed` 차단)입니다. helper 실패가 깨끗한 스캔이 되는 경로는 없습니다. 공식 릴리스와 정규식 엔진이 다른 gitleaks(Homebrew·`go install` 빌드 등 Go `regexp` 빌드), `gitleaks dir`(`scan-path`, GitHub Action), `.gitleaksignore`가 있는 디렉터리, 64KiB를 넘는 파이프 입력, 1MiB를 넘는 파일, `[extend] path` 설정은 계속 실제 gitleaks로 스캔합니다. fixture·upstream testdata·`tests/run.sh` 스캔 입력의 공식 gitleaks 대비 차분에서 종료 코드·stdout·stderr·finding 차이는 0건입니다(finding 순서와 로그의 시각·소요 시간은 공식 gitleaks끼리도 달라 제외).
+  - 사용자가 할 일: 없습니다. 써 보려면 소스 checkout에서 `sh scripts/build-gitleaks-helper.sh "$HOME/.agent-guard/gitleaks-helper"`로 빌드하고(Go 필요), 호스트 시작 환경에 `AGENT_GUARD_GITLEAKS_HELPER="$HOME/.agent-guard/gitleaks-helper/agent-guard-scan"`을 두고 재시작하세요. `AGENT_GUARD_GITLEAKS_BIN`을 설정했거나 `AGENT_GUARD_LOG_MODE=off`이면 쓰지 않습니다. 켜 둔 동안 스캔한 글은 helper 메모리를 지나가며, 마지막 스캔 뒤 최대 유휴 시간까지 남을 수 있습니다(PRIVACY.md).
+  - 운영자가 할 일: 없습니다. 릴리스 아카이브·Homebrew·플러그인에는 아직 들어 있지 않습니다. 샌드박스 안 동작과 Intel macOS·Linux arm64는 확인하지 않았습니다.
+
 ## v3.12.0 - 2026-11-19
 
 v3.11.7은 게시되지 않았습니다. 그 릴리스의 변경(#496)도 이 릴리스에 들어 있습니다.
