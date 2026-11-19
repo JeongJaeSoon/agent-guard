@@ -39,13 +39,34 @@ jobs:
           sudo apt-get -o Acquire::Retries=0 \
             -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 \
             -o DPkg::Lock::Timeout=30 update --error-on=any
+      # A mirror stalled mid-download for the whole 4-minute step once: the
+      # Acquire timeouts did not end it and Retries=0 gave no second try. Each
+      # attempt keeps the shared fail-fast options (Retries=0, 20 s timeouts) and
+      # gets its own 55 s limit, three attempts at most, inside the unchanged
+      # step limit. Only the download is retried and killed: stopping apt during
+      # dpkg could leave the next attempt a broken package state. A runner that
+      # never gets valgrind still fails the job as "could not measure".
+      - name: Download valgrind
+        timeout-minutes: 4
+        run: |
+          fetched=no
+          for attempt in 1 2 3; do
+            if sudo timeout --kill-after=5 55 apt-get -o Acquire::Retries=0 \
+                -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 \
+                -o DPkg::Lock::Timeout=30 install -y --no-install-recommends --download-only valgrind; then
+              fetched=yes
+              break
+            fi
+            echo "::warning title=Hook instruction count::valgrind download attempt $attempt did not finish; retrying up to 3 attempts."
+            [ "$attempt" = 3 ] || sleep 10
+          done
+          [ "$fetched" = yes ]
       - name: Install valgrind
         timeout-minutes: 4
         run: |
-          sudo apt-get -o Acquire::Retries=0 \
-            -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 \
-            -o DPkg::Lock::Timeout=30 install -y --no-install-recommends valgrind
+          sudo apt-get -o DPkg::Lock::Timeout=30 install -y --no-install-recommends --no-download valgrind
       - name: Count base and head hook instructions
+        id: count
         env:
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
@@ -82,3 +103,7 @@ jobs:
           if grep -Fq '**다름**' "$RUNNER_TEMP/table.md"; then
             echo '::warning title=Hook instruction count::An event exits or prints differently on head; see the job summary.'
           fi
+      - name: Report a run that never reached the measurement
+        if: failure() && steps.count.outcome == 'skipped'
+        run: |
+          printf '### Hook instruction count\n\n측정하지 못했습니다: 측정 전 단계(checkout·valgrind 설치)가 실패했습니다. 이 job의 로그를 확인하세요. 변화 없음이라는 뜻이 아닙니다.\n' >> "$GITHUB_STEP_SUMMARY"
