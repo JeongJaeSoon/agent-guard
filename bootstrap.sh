@@ -13,7 +13,9 @@
 #   AGENT_GUARD_REPO      override the source repo (default: JeongJaeSoon/agent-guard).
 #   AGENT_GUARD_COMMAND_WRAPPING
 #                         command wrapping is installed on by default. Set to
-#                         off, false, no, or 0 for a persistent opt-out.
+#                         off, false, no, or 0 for a persistent opt-out. When
+#                         unset, a reinstall or update keeps the choice that an
+#                         earlier setup-shell recorded in the shell rc.
 
 set -eu
 
@@ -207,7 +209,20 @@ main() {
   "$bin_path" setup || true
   info ""
 
-  case "${AGENT_GUARD_COMMAND_WRAPPING:-on}" in
+  # An explicit value wins. Otherwise ask the installed CLI for the choice an
+  # earlier setup-shell recorded, from the same rc files setup-shell would
+  # rewrite, so an update does not silently undo a persistent opt-out. A payload
+  # without the query (a pinned older release) rejects it, which keeps the
+  # default on as before.
+  wrapping=${AGENT_GUARD_COMMAND_WRAPPING:-}
+  if [ -z "$wrapping" ]; then
+    wrapping=$("$bin_path" setup-shell --print-command-wrapping 2>/dev/null) || wrapping=
+    case "$wrapping" in
+      off) info "$prog: keeping command wrapping off, as recorded by setup-shell (set AGENT_GUARD_COMMAND_WRAPPING=on to turn it back on)" ;;
+      *) wrapping=on ;;
+    esac
+  fi
+  case "$wrapping" in
     0|off|OFF|false|FALSE|no|NO)
       info "$prog: installing shell integration with command wrapping off"
       if ! "$bin_path" setup-shell --no-command-wrapping; then

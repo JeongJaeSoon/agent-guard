@@ -170,8 +170,12 @@ ss_doc_home="$CASE_ROOT/doctor-home"
 ss_doc_init="$ss_doc_home/.agent-guard/shell-init.sh"
 ss_doc_off_init="$ss_doc_home/.agent-guard/shell-init-no-wrapping.sh"
 mkdir -p "$ss_doc_home"
+# The CLI is on PATH here, as for a standalone install, so the advice keeps the
+# short name; tests/cli-guidance.sh covers the plugin-only path form.
+mkdir -p "$CASE_ROOT/doctor-bin"
+ln -s "$PLUGIN_ROOT/bin/agent-guard" "$CASE_ROOT/doctor-bin/agent-guard"
 doctor_run() {  # leaves the shell-integration lines in $ss_doc_notes
-  env HOME="$ss_doc_home" SHELL=/bin/zsh AGENT_GUARD_RELEASE_CHECK=off \
+  env HOME="$ss_doc_home" SHELL=/bin/zsh AGENT_GUARD_RELEASE_CHECK=off PATH="$CASE_ROOT/doctor-bin:$PATH" \
     "$PLUGIN_ROOT/bin/agent-guard" doctor >"$CASE_ROOT/doctor.out" 2>&1
   ss_doc_status=$?
   ss_doc_notes=$(grep 'shell integration:' "$CASE_ROOT/doctor.out")
