@@ -12478,7 +12478,7 @@ secretish_env_values() {
     function emit_value(source, start, assignment, require_credential, \
                         raw, leading, quote, end, \
                         value, token, trailing, ch, route, \
-                        extent, wrap, lead, closer) {
+                        extent, wrap, lead, closer, rest) {
       next_rescan_cover_start = 0
       next_rescan_cover_end = 0
       raw = substr(source, start)
@@ -12541,7 +12541,16 @@ secretish_env_values() {
           ch = substr(raw, RLENGTH + 1, 1)
           if (ch == "" || ch == "'\''" || index(" \t\r,;\"`)]}", ch)) {
             extent = substr(raw, 1, RLENGTH)
-            if (angle_placeholder_words(tolower(extent))) return 0
+            # Closers and quotes may follow a placeholder (`<your key>)`),
+            # but text after them is a value glued to it
+            # (`<your key>)q7tail`), which the first word decided before and
+            # still does.
+            rest = substr(raw, RLENGTH + 1)
+            sub(/[ \t\r,;].*$/, "", rest)
+            gsub(/[)}"`]/, "", rest)
+            gsub(/\]/, "", rest)
+            gsub(/'\''/, "", rest)
+            if (rest == "" && angle_placeholder_words(tolower(extent))) return 0
           }
         }
         token = value

@@ -34,6 +34,13 @@
     {"label": "a shorter secret that starts inside the span keeps the masking of main", "stdout": "password=\"Summ> q7x9\"\nAPI_KEY=<hunter2 Summ> q7x9", "masked": "password=\"[REDACTED]\"\nAPI_KEY=[REDACTED] [REDACTED]", "prompt": 2},
     {"label": "a shorter secret that starts inside the brackets keeps the masking of main", "stdout": "password=\"c]] q7x9\"\ntoken=[[q7abc]] q7x9", "masked": "password=\"[REDACTED]\"\ntoken=[[q7ab[REDACTED]", "prompt": 2},
     {"label": "spaced placeholder before a closer", "stdout": "API_KEY=<your key>)", "masked": null, "prompt": 0},
+    {"label": "spaced placeholder before several closers", "stdout": "API_KEY=<your key>)]}", "masked": null, "prompt": 0},
+    {"label": "text after a closing parenthesis is not part of the placeholder", "stdout": "token=<your key>)%R%", "masked": "token=[REDACTED])%R%", "prompt": 2},
+    {"label": "text after a closing brace is not part of the placeholder", "stdout": "token=<your key>}%R%", "masked": "token=[REDACTED]}%R%", "prompt": 2},
+    {"label": "text after closing brackets is not part of the placeholder", "stdout": "token=<your key>]]%R%", "masked": "token=[REDACTED]]]%R%", "prompt": 2},
+    {"label": "text after a single quote is not part of the placeholder", "stdout": "token=<your key>'%R%", "masked": "token=[REDACTED]'%R%", "prompt": 2},
+    {"label": "text after a double quote is not part of the placeholder", "stdout": "token=<your key>\"%R%", "masked": "token=[REDACTED]\"%R%", "prompt": 2},
+    {"label": "text after a backtick is not part of the placeholder", "stdout": "token=<your key>`%R%", "masked": "token=[REDACTED]`%R%", "prompt": 2},
     {"label": "already redacted value stays as is", "stdout": "Token: [REDACTED]", "masked": null, "prompt": 0},
     {"label": "redacted value before a JSON terminator is not re-masked", "stdout": "password=[REDACTED]\"}", "masked": null, "prompt": 0}
   ]
