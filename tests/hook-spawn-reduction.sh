@@ -19,7 +19,8 @@ check() { label=$1; shift; if "$@"; then ok "$label"; else bad "$label"; fi; }
 mkdir -p "$CASE/fn" "$CASE/bin" "$CASE/home" "$CASE/repo" "$CASE/out"
 sh "$ROOT/tests/helpers/extract-functions.sh" "$GUARD" "$CASE/fn" \
   json_value json_value_cached json_value_to json_value_prime \
-  json_input_is_primed_object rundir_temp_file scan_file_bytes || exit 1
+  json_input_is_primed_object rundir_temp_file private_writes_begin \
+  private_writes_end scan_file_bytes || exit 1
 for f in "$CASE/fn"/*.sh; do
   # shellcheck disable=SC1090
   . "$f"
@@ -106,6 +107,42 @@ while IFS= read -r doc; do
   [ -z "$JV_CACHE_INPUT" ] || jv_hits=$((jv_hits + 1))
 done <"$CASE/all-inputs"
 check "primed json_value prints the same bytes and status as jq -r" [ "$jv_mismatch" -eq 0 ]
+
+# Unprimed, json_value_to must hold what `$(json_value ...)` holds, with the
+# same status, and neither reader may pass the input to json_value_cached: that
+# argument copies the whole input, and an input over 256 Ki characters (a large
+# PostToolUse tool output) is never primed (94S-1831).
+jv_unprimed_mismatch=0
+while IFS= read -r doc; do
+  JV_CACHE_INPUT=
+  printf '%s\n' "$EXPRS" | while IFS= read -r expr; do
+    json_value_to "$expr" "$doc"; printf '%s[%s]\n' "$?" "$jv_out"
+  done >"$CASE/unprimed-to" 2>&1
+  printf '%s\n' "$EXPRS" | while IFS= read -r expr; do
+    v=$(json_value "$expr" "$doc"); printf '%s[%s]\n' "$?" "$v"
+  done >"$CASE/unprimed-jq-status" 2>&1
+  cmp -s "$CASE/unprimed-jq-status" "$CASE/unprimed-to" || {
+    jv_unprimed_mismatch=1
+    printf '  unprimed json_value_to mismatch for %s\n' "$doc"
+  }
+done <"$CASE/all-inputs"
+check "unprimed json_value_to holds the same value and status as a json_value substitution" \
+  [ "$jv_unprimed_mismatch" -eq 0 ]
+(
+  json_value_cached() { printf 'called\n' >>"$CASE/jv-cached-calls"; return 1; }
+  : >"$CASE/jv-cached-calls"
+  JV_CACHE_INPUT=
+  doc='{"tool_name":"mcp__x__read","tool_response":"public status"}'
+  json_value_to '.tool_name // .tool // .name // empty' "$doc"
+  [ "$jv_out" = mcp__x__read ] || exit 1
+  [ "$(json_value '.tool_name // "tool"' "$doc")" = mcp__x__read ] || exit 1
+  [ ! -s "$CASE/jv-cached-calls" ] || exit 1
+  # Once primed, the lookup runs again.
+  JV_CACHE_INPUT=$doc
+  json_value_to '.tool_name // .tool // .name // empty' "$doc"
+  [ -s "$CASE/jv-cached-calls" ]
+)
+check "an unprimed input is never handed to json_value_cached" [ "$?" -eq 0 ]
 check "single-object inputs are primed" [ "$jv_hits" -ge 15 ]
 
 json_value_prime '{"a":1} {"b":2}'

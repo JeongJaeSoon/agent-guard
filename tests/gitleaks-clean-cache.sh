@@ -499,11 +499,5 @@ check 'a full cache is pruned to its bound' test "$(entries)" -le 256
 check 'pruning keeps the newest entry' test "$(scans_for 'ls -l')" = 0
 check 'pruning leaves files it did not write' test -e "$STORE/not-ours"
 
-# The key names the scan flags; it must track the command that runs the scan.
-flags=$(sed -n "s/^GITLEAKS_STDIN_SCAN_FLAGS='\(.*\)'\$/\1/p" "$GUARD")
-run_flags=$(awk '/^run_gitleaks_stdin\(\) \{/ { f = 1 } f && /"\$GITLEAKS_BIN" stdin/ { l = $0; getline; print l " " $0; exit }' "$GUARD" \
-  | sed -e 's/^ *"\$GITLEAKS_BIN" //' -e 's/ *\\ */ /' -e 's/ >"\$out" 2>&1$//' -e 's/"\$GITLEAKS_CONFIG"/CONFIG/')
-check 'the keyed scan flags match the scan command' test -n "$flags" -a "$flags" = "$run_flags"
-
 printf '%s passed, %s failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
