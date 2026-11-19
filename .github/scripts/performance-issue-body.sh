@@ -9,7 +9,6 @@ failed=$2
 : "${RUN_URL:?}" "${HEAD_SHA:?}"
 work=$(mktemp -d) || exit 1
 trap 'rm -rf "$work"' 0
-: > "$work/cpus"
 : > "$work/rows"
 
 # Display only: a confirmed latency row whose CPU time rose at most this much
@@ -17,15 +16,13 @@ trap 'rm -rf "$work"' 0
 # time by -5% to +0.6%; the real +4-6% cost moved it by +4% or more.
 noise_cpu_limit=2
 
-# packaged-performance keeps /proc/cpuinfo in cpuinfo.txt; fused artifacts
-# append it to evidence/environment.txt.
+# packaged-performance keeps /proc/cpuinfo in cpuinfo.txt.
 cpu_model() {
-  for file in "$1/cpuinfo.txt" "$1/evidence/environment.txt"; do
-    [ -f "$file" ] || continue
-    model=$(sed -n 's/^model name[[:space:]]*:[[:space:]]*//p' "$file" | sort -u | paste -sd ';' -)
+  if [ -f "$1/cpuinfo.txt" ]; then
+    model=$(sed -n 's/^model name[[:space:]]*:[[:space:]]*//p' "$1/cpuinfo.txt" | sort -u | paste -sd ';' -)
     printf '%s\n' "${model:-읽지 못함}"
     return
-  done
+  fi
   printf '%s\n' '읽지 못함'
 }
 
@@ -38,7 +35,6 @@ if [ -d "$evidence" ]; then
     cpu=$(cpu_model "$dir")
     case "$artifact" in
       packaged-performance) packaged_cpu=$cpu ;;
-      fused-packaged-*) printf '%s\t%s\n' "$cpu" "$artifact" >> "$work/cpus" ;;
     esac
     # Every measurement path writes bench/native/confirm.jq output to a
     # *confirmation.json file; its confirmed rows are the regressions.
@@ -58,17 +54,6 @@ if [ -d "$evidence" ]; then
 fi
 
 echo "러너 CPU(packaged job, cpuinfo.txt): $packaged_cpu"
-echo
-echo 'fused job CPU(environment.txt):'
-echo
-if [ -s "$work/cpus" ]; then
-  sort "$work/cpus" | awk -F '\t' '
-    $1 != cpu { if (NR > 1) print line; cpu = $1; line = "- " $1 ": " $2; next }
-    { line = line ", " $2 }
-    END { print line }'
-else
-  echo '- artifact 없음'
-fi
 echo
 echo "nightly run: $RUN_URL"
 echo "커밋: $HEAD_SHA"

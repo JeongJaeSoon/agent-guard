@@ -140,12 +140,6 @@ break-even invocation count only from comparable measurements of the actual
 workload. Peak memory cannot be amortized by repeated use. Lower latency and CPU
 can coexist with a higher sampled process RSS sum, so report that trade-off too.
 
-The fused output-pipeline candidate remains an explicit experiment, separate
-from the default installation path. A measured improvement does not establish
-release readiness: preserve compiler-free host setup, fallback behavior, and
-the host's existing timeout and locale contracts before adopting it.
-
-
 ```sh
 agent-guard doctor
 agent-guard smoke-test

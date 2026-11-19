@@ -1,4 +1,4 @@
-<!-- translated-from: docs/verification.md; source-blob: 73fa755195b1d930b36a9c1a80d7d9e6fd142232 -->
+<!-- translated-from: docs/verification.md; source-blob: 8fac49b380b13db72b48a5d00ba165dc0944a7b7 -->
 
 <a id="verification"></a>
 
@@ -118,11 +118,6 @@ scanner自体が実験対象の場合は、変更する変数を明示してく�
 同じ条件で測定した結果からのみ、費用を回収する呼び出し回数を計算します。
 最大メモリは繰り返し使用しても相殺できません。遅延・CPU が減ってもプロセス
 RSS 合計の標本値が増える場合があるため、このトレードオフも報告します。
-
-出力パイプラインを統合する候補は、既定のインストール経路から分離した明示的な
-実験です。測定上の改善だけではリリース準備を証明できません。採用前に、
-コンパイラ不要のホスト設定、失敗時の復帰、既存のホストの制限時間と locale の
-契約を維持する必要があります。
 
 ```sh
 agent-guard doctor

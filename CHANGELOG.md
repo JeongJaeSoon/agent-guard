@@ -1,3 +1,10 @@
+## Unreleased
+
+- remove(output): v3.8부터 opt-in 실험으로 제공하던 fused 출력 준비 경로를 제거합니다. v3.8부터 v3.12까지 기본 경로로 채택되지 않았고, 이 경로를 켠 구성에서만 출력 hook이 빨라졌습니다(Homebrew 측정에서 15~21%, 표본 RSS 합은 약 12% 증가). CLI의 실험 분기, `scripts/output-pipeline-experiment.sh` 모듈, Rust helper의 `prepare-v1` 명령, 실험용 측정 스크립트(`bench/fused-output/`, `bench/scanner/`의 남은 두 파일)와 workflow(`fused-output.yml`, `performance.yml`의 fused 측정 job), 설치 문서의 "Optional fused output preparation" 절을 지웁니다.
+  - 동작 변경: `AGENT_GUARD_EXPERIMENTAL_OUTPUT_PIPELINE`과 `AGENT_GUARD_EXPERIMENTAL_OUTPUT_PREPARE_BIN`은 이제 읽지 않습니다. 설정돼 있어도 경고 없이 기본 출력 경로로 동작하고, 탐지·가리기 판정과 hook 출력은 기본 경로와 같습니다. 이 실험을 켜 두었던 환경에서는 출력 hook 시간이 실험 이전 수준으로 돌아갑니다. Rust 리터럴 redactor의 기본 선택과 `AGENT_GUARD_RUST_CORE_BIN`·`AGENT_GUARD_EXPERIMENTAL_REDACTOR`는 바뀌지 않습니다. Rust helper는 `redact-v1`만 받고 `prepare-v1`은 실패(exit 1)로 거부합니다.
+  - 사용자가 할 일: 없습니다. 두 환경 변수를 설정해 두었다면 셸 설정에서 지워도 됩니다(남겨 두어도 동작은 같습니다).
+  - 운영자가 할 일: 없습니다. `performance.yml`의 fused 측정 job이 없어지므로, nightly 성능 감시는 packaged 측정 job만 남습니다.
+
 ## v3.12.0 - 2026-11-19
 
 v3.11.7은 게시되지 않았습니다. 그 릴리스의 변경(#496)도 이 릴리스에 들어 있습니다.

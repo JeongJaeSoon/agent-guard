@@ -7,7 +7,6 @@ on:
       - '.github/workflows/native-platforms.yml'
       - 'native/**'
       - 'bench/native/**'
-      - 'bench/fused-output/**'
       - 'plugins/agent-guard/**'
       - 'scripts/**'
       # Only the test files these jobs execute or read, directly or through
@@ -15,7 +14,6 @@ on:
       - 'tests/fixtures/**'
       - 'tests/helpers/**'
       - 'tests/native-*.sh'
-      - 'tests/fused-packaged.sh'
       - 'tests/audit-log.sh'
       - 'tests/redaction-plan.sh'
       - 'tests/packaged-performance-gate.sh'
@@ -172,7 +170,6 @@ jobs:
             *) exit 2 ;;
           esac
           sh tests/native-packaged.sh "$RUNNER_TEMP/native/agent-guard-redact-$target" "$RUNNER_TEMP/test-bin/gitleaks" > "$RUNNER_TEMP/install-evidence/fallback.log" 2>&1
-          sh tests/fused-packaged.sh "$RUNNER_TEMP/native/agent-guard-redact-$target" "$RUNNER_TEMP/test-bin/gitleaks" > "$RUNNER_TEMP/install-evidence/fused-packaged.log" 2>&1
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:

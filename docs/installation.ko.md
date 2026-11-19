@@ -1,4 +1,4 @@
-<!-- translated-from: docs/installation.md; source-blob: 2eb81b8e78ff56a230bb1f66ccf15d519c3c4c3e -->
+<!-- translated-from: docs/installation.md; source-blob: 8288706cdcc96be854565f88e853ca34cb2597a9 -->
 
 <a id="installing-agent-guard"></a>
 
@@ -32,56 +32,6 @@ codex plugin add agent-guard@agent-guard
 플러그인을 설치해도 `PATH`에 `agent-guard`가 추가되지는 않습니다. 따라서 표의 `agent-guard plugin update` 경로에는 독립 CLI 또는 Homebrew CLI가 필요합니다. 둘 다 없다면 marketplace를 제거하고 위 명령을 새 태그로 다시 실행해 업데이트하세요. marketplace를 제거하면 설치된 플러그인도 제거됩니다. 완료 후 host를 재시작하세요.
 
 <a id="runtime-dependencies"></a>
-
-## 선택형 출력 준비 통합(v3.8+)
-
-출력 파이프라인 실험은 명시적으로 선택합니다. 기존 scanner·규칙·정책·호스트
-출력 계약을 유지하며 private 중간 파일과 JSON 준비를 통합합니다. 같은 릴리스의
-사전 빌드 core를 설치하세요. 기존 core 파일이 준비와 치환을 모두 지원하므로
-두 번째 helper나 컴파일러가 필요하지 않습니다. Git marketplace 설치에서도
-호스트 캐시를 수정하지 않고 독립 설치의 helper를 사용할 수 있습니다.
-
-Linux x64에서는 설치된 helper를 검증하고 파이프라인의 두 설정을 호스트 시작 환경에 노출합니다.
-
-```sh
-target=x86_64-unknown-linux-musl
-native_root="$HOME/.agent-guard/libexec"
-if (cd "$native_root" && shasum -a 256 -c "agent-guard-redact-$target.sha256"); then
-  export AGENT_GUARD_EXPERIMENTAL_OUTPUT_PIPELINE=fused
-  export AGENT_GUARD_EXPERIMENTAL_OUTPUT_PREPARE_BIN="$native_root/agent-guard-redact-$target"
-fi
-```
-
-플랫폼에 맞는 target은 [네이티브 helper 안내(영어)](https://github.com/JeongJaeSoon/agent-guard/blob/v3.8.0/docs/native-redactor.md)에서 선택하세요.
-Homebrew에서는 `native_root="$(brew --prefix agent-guard)/libexec/libexec"`로 설정합니다.
-독립 설치와 Homebrew는 체크섬을 검증한 치환기를 자동 선택합니다.
-소스만 있는 Git marketplace 플러그인은 치환도 같은 검증된 core에 연결하세요.
-
-```sh
-if (cd "$native_root" && shasum -a 256 -c "agent-guard-redact-$target.sha256"); then
-  export AGENT_GUARD_RUST_CORE_BIN="$native_root/agent-guard-redact-$target"
-fi
-```
-
-이 명시적 경로는 신뢰하는 실행 파일 재정의이므로 검증된 설치만 지정하세요.
-준비 경로만 설정하면 해당 플러그인의 치환은 셸에 남으므로, 측정한 공유 core 구성과 다릅니다.
-준비 helper가 없거나 실패하면 원래 jq 단계로 복귀하고, 실험 모듈이 없으면
-원래 출력 파이프라인으로 복귀합니다. scanner와 준비 제한 시간은 바뀌지 않습니다.
-
-시작 환경을 바꾼 뒤 Claude 또는 Codex를 재시작하세요. 기존 플러그인 설치·업데이트
-명령은 같습니다. 기본 출력 파이프라인으로 복구하려면 다음 설정을 지우고 호스트를
-재시작합니다.
-
-```sh
-unset AGENT_GUARD_EXPERIMENTAL_OUTPUT_PIPELINE
-unset AGENT_GUARD_EXPERIMENTAL_OUTPUT_PREPARE_BIN
-unset AGENT_GUARD_RUST_CORE_BIN
-```
-
-기존 기본 문자열 치환기 선택으로 돌아갑니다. 해당 native helper도 끄려면
-`AGENT_GUARD_EXPERIMENTAL_REDACTOR=shell`을 사용하세요. 측정된 이득은 작업과
-scanner에 따라 다르며 표본 프로세스 RSS 합이 늘 수 있습니다. 적용 전
-[검증 안내](verification.ko.md)를 확인하세요.
 
 ## 실행 의존성
 

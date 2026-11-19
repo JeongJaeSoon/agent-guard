@@ -13055,18 +13055,7 @@ mktemp_files() {
 # Materialize every detector stage before consuming its output. POSIX pipelines
 # expose only their final command status, so a producer that writes a prefix and
 # then fails must never be indistinguishable from a successful empty detector.
-use_fused_output_pipeline() {
-  [ "${AGENT_GUARD_EXPERIMENTAL_OUTPUT_PIPELINE:-}" = fused ] || return 1
-  [ "${AG_FUSED_PIPELINE_LOADED:-}" = 1 ] && return 0
-  [ -n "${ROOT_DIR:-}" ] && [ -f "$ROOT_DIR/scripts/output-pipeline-experiment.sh" ] || return 1
-  . "$ROOT_DIR/scripts/output-pipeline-experiment.sh"
-}
-
 detect_output_secret_records() (
-  if use_fused_output_pipeline; then
-    detect_output_secret_records_fused "$@"
-    exit $?
-  fi
   response=$1
   env_records=${2:-yes}
   mktemp_files detector_input detector_strings detector_records \
@@ -13153,10 +13142,6 @@ detect_output_secret_records() (
 # prove that later records contain no new secret. Callers fail closed when
 # either cap is crossed.
 bundle_secret_records() (
-  if use_fused_output_pipeline; then
-    bundle_secret_records_fused "$@"
-    exit $?
-  fi
   mktemp_files bundle_input bundle_records bundle_output || exit 1
   if ! cat >"$bundle_input" \
     || ! LC_ALL=C awk '
@@ -13195,10 +13180,6 @@ bundle_secret_records() (
 )
 
 detect_output_secret_bundle() (
-  if use_fused_output_pipeline; then
-    detect_output_secret_bundle_fused "$@"
-    exit $?
-  fi
   bundle_response=$1
   mktemp_files bundle_raw bundle_json || exit 1
   if ! detect_output_secret_records "$bundle_response" >"$bundle_raw" \
