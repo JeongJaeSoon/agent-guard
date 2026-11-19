@@ -1,0 +1,142 @@
+[
+  {
+    "id": "case12-content-pipe",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "case 12: a gh --jq filter before a jq pipeline that reads .key",
+    "command": "gh api repos/o/r/contents/fixtures/main.json --jq '.content' | base64 -d | jq '.entries | map(.key)'"
+  },
+  {
+    "id": "gh-jq-key",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "the --jq filter of gh api names a .key field",
+    "command": "gh api repos/o/r/contents/x.json --jq '.key'"
+  },
+  {
+    "id": "gh-jq-object",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "object construction in the gh --jq filter",
+    "command": "gh api repos/o/r/releases/1/assets --jq '.[] | {name, key: .key}'"
+  },
+  {
+    "id": "gh-pr-view-jq-sort",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "gh pr view --json --jq then sort",
+    "command": "gh pr view 5 --json files --jq '.files[] | .key' | sort"
+  },
+  {
+    "id": "command-gh",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "command gh still runs gh",
+    "command": "command gh api x --jq '.data.key'"
+  },
+  {
+    "id": "gh-run-list-select",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a select over branch names in gh run list",
+    "command": "gh run list --json databaseId,headBranch --jq '.[] | select(.headBranch|test(\"key\")) | .key' | head -5"
+  },
+  {
+    "id": "gh-q-short",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "regression: the -q short form already passes",
+    "command": "gh api x -q '.content' | jq '.key'"
+  },
+  {
+    "id": "gh-input-protected",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "gh api --input reads a protected file",
+    "command": "gh api repos/o/r/issues --jq '.key' --input secret.key"
+  },
+  {
+    "id": "gh-field-file-protected",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "gh api -F @file reads a protected file",
+    "command": "gh api -F 'note=@secret.key' repos/o/r/issues --jq '.key'"
+  },
+  {
+    "id": "gh-redirect-protected",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "the output goes to a protected name",
+    "command": "gh api x --jq '.key' > out.key"
+  },
+  {
+    "id": "gh-jq-expansion",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "an expansion in the --jq value",
+    "command": "gh api x --jq \".key$F\""
+  },
+  {
+    "id": "gh-two-jq",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "two --jq values",
+    "command": "gh api x --jq '.key' --jq '.key'"
+  },
+  {
+    "id": "gh-jq-attached",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "the attached --jq=value form is left unchanged",
+    "command": "gh api x --jq=.key"
+  },
+  {
+    "id": "alias-before-gh",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "an alias defined before gh",
+    "command": "alias gh=cat; gh api x --jq '.key'"
+  },
+  {
+    "id": "function-before-gh",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a function defined before gh",
+    "command": "gh() { cat \"$@\"; }; gh api x --jq '.key'"
+  },
+  {
+    "id": "xargs-gh",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "gh run by xargs",
+    "command": "printf x | xargs gh api --jq '.key'"
+  },
+  {
+    "id": "sudo-gh",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "gh behind sudo",
+    "command": "sudo gh api x --jq '.key'"
+  },
+  {
+    "id": "read-after-gh",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a protected read after gh",
+    "command": "gh api x --jq '.key' && cat id.key"
+  },
+  {
+    "id": "gh-glob-word",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a glob word in the gh segment",
+    "command": "gh api * --jq '.key'"
+  },
+  {
+    "id": "gh-positional-protected",
+    "expected_status": 2,
+    "classification": "must-fail",
+    "description": "a protected positional of gh",
+    "command": "gh api x --jq '.key' secret.key"
+  }
+]
