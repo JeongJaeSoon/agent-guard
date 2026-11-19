@@ -3126,14 +3126,6 @@ pii_unsupported_provider() {
   die "pii-filter: unsupported provider: $1 (expected regex, http, or pleno)"
 }
 
-pii_provider() {
-  provider=${AGENT_GUARD_PII_PROVIDER:-regex}
-  case "$provider" in
-    regex|http|pleno) printf '%s' "$provider" ;;
-    *) pii_unsupported_provider "$provider" ;;
-  esac
-}
-
 # Tier-1 types AGENT_GUARD_PII_SKIP may turn off. Tier-2 (credit card, US SSN,
 # KR resident reg. no.) is deliberately absent: masking those is what the
 # mask-mode input hard-block is derived from, and a fail-closed gate must not be
@@ -3141,17 +3133,18 @@ pii_provider() {
 # (`[PII:IP_ADDRESS]`), so what to write is readable off the masked output.
 PII_SKIPPABLE=',EMAIL,PHONE,IP_ADDRESS,'
 
-# Prints the skip set normalized to `,A,B,` so a substring test is an exact name
-# test. Separators are commas and/or spaces. An unknown or Tier-2 name dies
-# rather than being ignored: someone who wrote AGENT_GUARD_PII_SKIP=CREDIT_CARD
-# expects cards to pass and has to be told the knob cannot do that. Callers that
-# read it through $( ) validate it once in the main shell first — otherwise the
-# subshell swallows the die and the misconfiguration runs on silently.
+# Sets PII_SKIP to the skip set normalized to `,A,B,` so a substring test is an
+# exact name test. Separators are commas and/or spaces. An unknown or Tier-2 name
+# dies rather than being ignored: someone who wrote AGENT_GUARD_PII_SKIP=CREDIT_CARD
+# expects cards to pass and has to be told the knob cannot do that. It sets a
+# variable instead of printing because a die inside $( ) would end only the
+# subshell and let the misconfiguration run on.
 pii_skip_set() {
   # skip_-prefixed names throughout: sh has no locals, and this runs in the main
   # shell of callers that hold their own `out` / `name` / `raw`.
+  PII_SKIP=,
   skip_raw=${AGENT_GUARD_PII_SKIP:-}
-  [ -n "$skip_raw" ] || { printf ','; return 0; }
+  [ -n "$skip_raw" ] || return 0
   case $- in *f*) skip_had_noglob=1 ;; *) skip_had_noglob=0 ;; esac
   skip_oifs=$IFS
   IFS=', '
@@ -3174,7 +3167,7 @@ pii_skip_set() {
   # An endpoint provider redacts server-side and never receives the skip set, so
   # accepting one would leave a switch that silently does nothing on every path
   # that goes through the provider. An unknown provider value is left alone here
-  # so pii_provider still reports it as the provider error it is.
+  # so the adapter still reports it as the provider error it is.
   if [ "$skip_out" != , ]; then
     case "${AGENT_GUARD_PII_PROVIDER:-regex}" in
       http|pleno)
@@ -3182,7 +3175,7 @@ pii_skip_set() {
         ;;
     esac
   fi
-  printf '%s' "$skip_out"
+  PII_SKIP=$skip_out
 }
 
 # Held here so the CLI masker and the hook input gate below read the SAME
@@ -3289,14 +3282,21 @@ function mask_tier2(s) {
 }
 '
 
+# pii_awk PROGRAM [awk options...] runs PROGRAM after PII_AWK_LIB in the C
+# locale, with every pattern the library reads already bound.
+pii_awk() {
+  pii_awk_program=$1
+  shift
+  LC_ALL=C awk -v CC16_RE="$PII_CREDIT_CARD_RE" -v CC19_RE="$PII_CREDIT_CARD19_RE" \
+      -v AMEX_RE="$PII_AMEX_RE" -v SSN_RE="$PII_SSN_RE" \
+      -v KR_RRN_RE="$PII_KR_RRN_RE" -v IPV4_RE="$PII_IPV4_RE" \
+      "$@" "$PII_AWK_LIB$pii_awk_program"
+}
+
 pii_regex_byte_stage() {
   # Byte windows can split UTF-8 characters. Numeric patterns use C locale;
   # email classification stays in the caller's locale in the middle pass.
-  LC_ALL=C awk -v STAGE="$1" -v SKIP="$2" \
-      -v CC16_RE="$PII_CREDIT_CARD_RE" -v CC19_RE="$PII_CREDIT_CARD19_RE" \
-      -v AMEX_RE="$PII_AMEX_RE" -v SSN_RE="$PII_SSN_RE" \
-      -v KR_RRN_RE="$PII_KR_RRN_RE" -v IPV4_RE="$PII_IPV4_RE" \
-      "$PII_AWK_LIB"'
+  pii_awk '
     BEGIN {
       kr_mobile = "01[0-9][ -]?[0-9][0-9][0-9][0-9][ -]?[0-9][0-9][0-9][0-9]"
       phone = "([+]?[0-9][ .-]?)?([(][0-9][0-9][0-9][)]|[0-9][0-9][0-9])[ .-]?[0-9][0-9][0-9][ .-]?[0-9][0-9][0-9][0-9]"
@@ -3320,12 +3320,12 @@ pii_regex_byte_stage() {
         printf "%s", line
       }
     }
-  '
+  ' -v STAGE="$1" -v SKIP="$2"
 }
 
 pii_regex_adapter_filter() (
   need_cmd awk
-  pii_skip=$(pii_skip_set) || exit 2
+  pii_skip_set
   umask 077
   pii_work=$(mktemp -d "${AGENT_GUARD_RUNDIR:-${TMPDIR:-/tmp}}/pii.XXXXXX") || exit 2
   trap 'rm -rf "$pii_work"' 0
@@ -3333,15 +3333,15 @@ pii_regex_adapter_filter() (
   trap 'exit 143' TERM
   trap 'exit 129' HUP
   # Buffer each stage and check its status before exposing any final output.
-  pii_regex_byte_stage first "$pii_skip" >"$pii_work/first" || exit "$?"
-  awk -v SKIP="$pii_skip" '
+  pii_regex_byte_stage first "$PII_SKIP" >"$pii_work/first" || exit "$?"
+  awk -v SKIP="$PII_SKIP" '
     BEGIN { email = "[[:alnum:]_%+.-]+@[[:alnum:].-]+[.][[:alpha:]][[:alpha:]][[:alpha:]]*" }
     {
       if (!index(SKIP, ",EMAIL,")) { gsub(email, "[PII:EMAIL]") }
       printf "%s\n", $0
     }
   ' <"$pii_work/first" >"$pii_work/email" || exit "$?"
-  pii_regex_byte_stage last "$pii_skip" <"$pii_work/email" >"$pii_work/last" || exit "$?"
+  pii_regex_byte_stage last "$PII_SKIP" <"$pii_work/email" >"$pii_work/last" || exit "$?"
   cat "$pii_work/last"
 )
 
@@ -3414,13 +3414,7 @@ pii_endpoint_adapter_filter() {
 }
 
 pii_adapter_filter() {
-  if [ "$#" -gt 0 ]; then
-    provider=$1
-  else
-    # `die` inside $( ) only kills the subshell, so propagate its status here
-    # instead of continuing with an empty provider.
-    provider=$(pii_provider) || exit 2
-  fi
+  provider=${1:-${AGENT_GUARD_PII_PROVIDER:-regex}}
   case "$provider" in
     regex) pii_regex_adapter_filter ;;
     http|pleno) pii_endpoint_adapter_filter "$provider" ;;
@@ -3459,10 +3453,10 @@ pii_filter() {
     shift
   done
 
-  provider=$(pii_provider) || exit 2
+  provider=${AGENT_GUARD_PII_PROVIDER:-regex}
   # Validate here, not only inside the adapter: --check never reaches the adapter
   # and would otherwise report "ok" for a skip set every real run refuses.
-  pii_skip_set >/dev/null
+  pii_skip_set
   if [ "$check" -eq 1 ]; then
     pii_adapter_check "$provider"
     return 0
@@ -3479,13 +3473,13 @@ pii_text_has_match() {
   [ "$masked" != "$text" ]
 }
 
+# Sets PII_HOOK_MODE; like pii_skip_set it runs in the caller's shell so an
+# unsupported value stops the hook instead of turning the gate off.
 pii_hook_mode() {
-  mode=${AGENT_GUARD_PII_HOOK_MODE:-off}
-  case "$mode" in
-    off) printf 'off' ;;
-    block) printf 'block' ;;
-    mask) printf 'mask' ;;
-    *) die "unsupported PII hook mode: $mode (expected off, block, or mask)" ;;
+  PII_HOOK_MODE=${AGENT_GUARD_PII_HOOK_MODE:-off}
+  case "$PII_HOOK_MODE" in
+    off|block|mask) ;;
+    *) die "unsupported PII hook mode: $PII_HOOK_MODE (expected off, block, or mask)" ;;
   esac
 }
 
@@ -3500,10 +3494,7 @@ pii_tier2_present() {
   text=$1
   [ -n "$text" ] || return 1
   need_cmd awk
-  printf '%s' "$text" | LC_ALL=C awk -v CC16_RE="$PII_CREDIT_CARD_RE" \
-      -v CC19_RE="$PII_CREDIT_CARD19_RE" -v AMEX_RE="$PII_AMEX_RE" \
-      -v SSN_RE="$PII_SSN_RE" -v KR_RRN_RE="$PII_KR_RRN_RE" \
-      "$PII_AWK_LIB"'
+  printf '%s' "$text" | pii_awk '
     mask_tier2($0) != $0 { found = 1 }
     END { exit (found ? 0 : 1) }
   '
@@ -3515,7 +3506,8 @@ pii_tier2_present() {
 block_on_pii_text() {
   label=$1
   text=$2
-  case "$(pii_hook_mode)" in
+  pii_hook_mode
+  case "$PII_HOOK_MODE" in
     block)
       pii_text_has_match "$text" || return 0
       info "$PROGRAM: blocked PII in $label; run agent-guard pii-filter before using this tool"
@@ -3547,12 +3539,9 @@ block_on_pii_text() {
 check_pii_hook_input() {
   input=$1
   tool=$2
-  # Validate the mode in the main shell first: pii_hook_mode dies on an
-  # unsupported value, but the $(...) reads below would swallow that exit and
-  # silently disable the gate. Running it here (no subshell) fails closed.
-  pii_hook_mode >/dev/null
-  pii_skip_set >/dev/null
-  [ "$(pii_hook_mode)" = off ] && return 0
+  pii_hook_mode
+  pii_skip_set
+  [ "$PII_HOOK_MODE" = off ] && return 0
   need_cmd jq
 
   case "$tool" in
@@ -4835,10 +4824,15 @@ json_value_cached() {
   return 1
 }
 
+# Both readers consult json_value_cached only while a cache is primed. Passing
+# the input as an argument copies it in the shell, and an input over the 256 Ki
+# character priming limit (a large PostToolUse tool output) is never primed, so
+# an unconditional lookup copied that whole input once per field for an answer
+# that was always "not cached".
 json_value() {
   expr=$1
   input=$2
-  if json_value_cached "$expr" "$input"; then
+  if [ -n "${JV_CACHE_INPUT:-}" ] && json_value_cached "$expr" "$input"; then
     [ "$jv_set" = 0 ] || printf '%s\n' "$jv_val"
     return 0
   fi
@@ -4846,9 +4840,11 @@ json_value() {
 }
 
 # Set jv_out to what `jv_out=$(json_value "$1" "$2")` would hold and return the
-# same status. Only an unprimed field costs a subshell.
+# same status. Only an unprimed field costs a subshell. That subshell runs jq
+# directly: json_value would repeat the lookup that just missed for the same
+# arguments and copy the input once more.
 json_value_to() {
-  if json_value_cached "$1" "$2"; then
+  if [ -n "${JV_CACHE_INPUT:-}" ] && json_value_cached "$1" "$2"; then
     jv_out=
     [ "$jv_set" = 0 ] && return 0
     jv_out=$jv_val
@@ -4861,7 +4857,7 @@ json_value_to() {
       esac
     done
   fi
-  jv_out=$(json_value "$1" "$2")
+  jv_out=$(printf '%s' "$2" | jq -r "$1")
 }
 
 normalize_path() {
@@ -14413,9 +14409,9 @@ recover_post_tool_validation_failure() {
 mask_pii_response_json() {
   resp=$1
   trusted=${2:-[]}
-  skip=$(pii_skip_set) || exit 2
+  pii_skip_set
   printf '%s' "$resp" \
-    | jq -c --arg pii_skip "$skip" --argjson trusted "$trusted" "$JQ_WALK"'
+    | jq -c --arg pii_skip "$PII_SKIP" --argjson trusted "$trusted" "$JQ_WALK"'
     def keep($type): ($pii_skip | contains(",\($type),")) | not;
     def luhn:
       ([gsub("[^0-9]"; "") | explode | .[] | . - 48] | reverse
@@ -15603,14 +15599,13 @@ cat_mask_target() (
 redact_tool_output() {
   input=$1
   REDACT_OUTPUT_EMITTED=0
-  # Validate the mode in the main shell (pii_hook_mode dies on an unsupported
-  # value; the $(...) read below would otherwise swallow the exit and silently
-  # leave PII unmasked). A misconfigured mode fails loud instead of fail-open.
-  pii_hook_mode >/dev/null
-  pii_skip_set >/dev/null
+  # Validate the skip set here too: the masker reads it inside $( ), where a
+  # die would only leave the response unmasked.
+  pii_hook_mode
+  pii_skip_set
   secrets_on=0; pii_on=0
   output_redact_enabled && secrets_on=1
-  [ "$(pii_hook_mode)" = mask ] && pii_on=1
+  [ "$PII_HOOK_MODE" = mask ] && pii_on=1
   [ "$secrets_on" -eq 1 ] || [ "$pii_on" -eq 1 ] || return 0
   redact_figma_tool=0
   if is_figma_mcp_tool "$(json_value '.tool_name // .tool // .name // empty' "$input" 2>/dev/null)"; then
@@ -16459,12 +16454,11 @@ hook_user_prompt() {
   input=$(read_stdin)
   HOOK_EVENT=UserPromptSubmit
   HOOK_INPUT=$input
-  # Validate both modes in the main shell (die inside $() would only exit the
-  # subshell and silently fail-open, exactly the hazard check_pii_hook_input
-  # and redact_tool_output guard against).
+  # Validate the prompt mode in the main shell (die inside $() would only exit
+  # the subshell and silently fail-open).
   prompt_guard_mode >/dev/null
-  pii_hook_mode >/dev/null
-  pii_skip_set >/dev/null
+  pii_hook_mode
+  pii_skip_set
   prompt_mode=$(prompt_guard_mode)
   if ! hook_dependencies_ready; then
     emit_degraded_hook_warning UserPromptSubmit "$input"
@@ -16938,15 +16932,15 @@ do_exec() {
     exit 2
   fi
 
-  # Validate the PII mode up front so a misconfiguration fails loud (pii_hook_mode
-  # dies on an unsupported value) instead of silently leaving PII unmasked.
-  pii_hook_mode >/dev/null
-  pii_skip_set >/dev/null
+  # Validate the PII settings before running the command: the masker below runs
+  # inside $( ) and keeps the unmasked text if it fails.
+  pii_hook_mode
+  pii_skip_set
   if output_redact_enabled; then
     need_cmd jq
     need_gitleaks
   fi
-  if [ "$(pii_hook_mode)" = mask ]; then
+  if [ "$PII_HOOK_MODE" = mask ]; then
     need_cmd awk
   fi
 
@@ -17057,7 +17051,7 @@ do_exec() {
 
   # PII masking (AGENT_GUARD_PII_HOOK_MODE=mask), reusing the same CLI masker the
   # pii-filter subcommand uses. Fail-safe: keep the prior text if it errors.
-  if [ "$(pii_hook_mode)" = mask ]; then
+  if [ "$PII_HOOK_MODE" = mask ]; then
     r=$(printf '%s' "$masked" | pii_regex_adapter_filter 2>/dev/null)
     [ -n "$r" ] && masked=$r
   fi
