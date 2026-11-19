@@ -10,7 +10,9 @@ out=${1:?output directory required}
 mkdir -p "$out"
 out=$(CDPATH= cd -- "$out" && pwd -P)
 GITLEAKS_VERSION=8.30.1
-export CGO_ENABLED=0 GOFLAGS=-mod=readonly
+# The helper must match the official release toolchain too (the engine check
+# compares it), so a newer installed Go fetches this one.
+export CGO_ENABLED=0 GOFLAGS=-mod=readonly GOTOOLCHAIN=go1.24.11
 (
   cd "$SRC"
   go build -trimpath -buildvcs=false -tags gore2regex \

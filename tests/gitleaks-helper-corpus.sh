@@ -94,8 +94,10 @@ AGENT_GUARD_GITLEAKS_HELPER_TRACE="$w/ta" client $A <"$input" >"$w/ca.out" 2>"$w
 [ "$ra" = "$ca" ] && cmp -s "$w/ra.out" "$w/ca.out" && cmp -s "$w/ra.err" "$w/ca.err" || result="differ-A($ra/$ca)"
 size=$(wc -c <"$input" | tr -d ' ')
 if [ "$size" -le 65536 ]; then
+  # Both read the same bytes from a pipe.
+  cat "$input" | "$gl" $A >"$w/rp.out" 2>"$w/rp.err"; rp=$?
   cat "$input" | AGENT_GUARD_GITLEAKS_HELPER_TRACE="$w/tp" client $A >"$w/cp.out" 2>"$w/cp.err"; cp=$?
-  [ "$ra" = "$cp" ] && cmp -s "$w/ra.out" "$w/cp.out" && cmp -s "$w/ra.err" "$w/cp.err" || result="differ-pipe($ra/$cp)"
+  [ "$rp" = "$cp" ] && cmp -s "$w/rp.out" "$w/cp.out" && cmp -s "$w/rp.err" "$w/cp.err" || result="differ-pipe($rp/$cp)"
 else
   printf 'real:large\n' >"$w/tp"
 fi

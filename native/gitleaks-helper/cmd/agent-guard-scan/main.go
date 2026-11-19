@@ -329,12 +329,40 @@ func (c *client) readInput() string {
 		limit = wire.MaxPayload
 	}
 	c.read = true
-	c.data, err = io.ReadAll(io.LimitReader(os.Stdin, limit+1))
-	if err != nil {
+	if c.regular {
+		c.data, err = io.ReadAll(io.LimitReader(os.Stdin, limit+1))
+		if err != nil {
+			return "stdin"
+		}
+		if int64(len(c.data)) > limit {
+			return "large"
+		}
+		return ""
+	}
+	// The real gitleaks makes one chunk of each read() of a pipe. Answer
+	// only input that one read returned whole, so the helper's single chunk
+	// is the chunk the real gitleaks would have read; anything that arrives
+	// in pieces is replayed to the real gitleaks.
+	buf := make([]byte, limit+1)
+	n, err := os.Stdin.Read(buf)
+	c.data = buf[:n]
+	if err != nil && err != io.EOF {
 		return "stdin"
 	}
-	if int64(len(c.data)) > limit {
+	if int64(n) > limit {
 		return "large"
+	}
+	if err == io.EOF || n == 0 {
+		return ""
+	}
+	var probe [1]byte
+	more, err := os.Stdin.Read(probe[:])
+	if more > 0 {
+		c.data = append(c.data, probe[:more]...)
+		return "pipe-chunks"
+	}
+	if err != io.EOF {
+		return "stdin"
 	}
 	return ""
 }
@@ -391,6 +419,9 @@ func (c *client) replay(argv []string) int {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = io.MultiReader(bytes.NewReader(c.data), os.Stdin)
+	// If gitleaks exits before reading everything, do not wait for the
+	// producer to finish writing.
+	cmd.WaitDelay = 2 * time.Second
 	err := cmd.Run()
 	if err == nil {
 		return 0
@@ -442,15 +473,19 @@ func (c *client) spawn(helper, stateDir, key, configPath, configSHA, marker stri
 	}
 	defer devnull.Close()
 	idle := envInt("AGENT_GUARD_GITLEAKS_HELPER_IDLE_SECONDS", defaultIdle, 1, 86400)
-	maxRSS := envInt("AGENT_GUARD_GITLEAKS_HELPER_MAX_RSS_MIB", defaultRSS, 32, 4096)
+	maxRSS := envInt("AGENT_GUARD_GITLEAKS_HELPER_MAX_RSS_MIB", defaultRSS, 96, 4096)
 	// The hook may hold the host's stdout and stderr on other descriptors
 	// without close-on-exec (the CLI saves them on 8 and 9). The helper
 	// outlives the hook and must not keep them open, or the host would wait
 	// for its end of file. Mark every inherited descriptor above 2
 	// close-on-exec for the spawn only, then restore it for the gitleaks this
 	// process execs next.
-	restore := closeInheritedOnExec()
+	restore, ok := closeInheritedOnExec()
 	defer restore()
+	if !ok {
+		c.note("no-spawn")
+		return
+	}
 	proc, err := os.StartProcess(helper, []string{helper, "serve",
 		"--state-dir", stateDir, "--key", key, "--config", absConfig, "--config-sha256", configSHA,
 		"--idle-seconds", strconv.Itoa(idle), "--max-rss-mib", strconv.Itoa(maxRSS)},
@@ -470,34 +505,56 @@ func (c *client) spawn(helper, stateDir, key, configPath, configSHA, marker stri
 }
 
 // closeInheritedOnExec sets close-on-exec on every open descriptor above 2
-// that lacks it and returns a function that clears it again.
-func closeInheritedOnExec() func() {
+// that lacks it and returns a function that clears it again. It reports false
+// when it could not list or mark every descriptor; the caller then starts no
+// helper, because a helper holding a hook's pipe would make the host wait.
+func closeInheritedOnExec() (func(), bool) {
 	var marked []int
-	dir, err := os.Open("/dev/fd")
-	if err != nil {
-		return func() {}
-	}
-	names, _ := dir.Readdirnames(-1)
-	own := int(dir.Fd())
-	for _, name := range names {
-		fd, err := strconv.Atoi(name)
-		if err != nil || fd <= 2 || fd == own {
-			continue
-		}
-		flags, err := unix.FcntlInt(uintptr(fd), unix.F_GETFD, 0)
-		if err != nil || flags&unix.FD_CLOEXEC != 0 {
-			continue
-		}
-		if _, err := unix.FcntlInt(uintptr(fd), unix.F_SETFD, flags|unix.FD_CLOEXEC); err == nil {
-			marked = append(marked, fd)
-		}
-	}
-	_ = dir.Close()
-	return func() {
+	restore := func() {
 		for _, fd := range marked {
 			if flags, err := unix.FcntlInt(uintptr(fd), unix.F_GETFD, 0); err == nil {
 				_, _ = unix.FcntlInt(uintptr(fd), unix.F_SETFD, flags&^unix.FD_CLOEXEC)
 			}
 		}
 	}
+	var fds []int
+	if dir, err := os.Open("/dev/fd"); err == nil {
+		names, err := dir.Readdirnames(-1)
+		own := int(dir.Fd())
+		_ = dir.Close()
+		if err != nil {
+			return restore, false
+		}
+		for _, name := range names {
+			if fd, err := strconv.Atoi(name); err == nil && fd > 2 && fd != own {
+				fds = append(fds, fd)
+			}
+		}
+	} else {
+		// No /dev/fd (Linux without /proc): try every possible descriptor.
+		var limit unix.Rlimit
+		if unix.Getrlimit(unix.RLIMIT_NOFILE, &limit) != nil || limit.Cur > 1<<16 {
+			return restore, false
+		}
+		for fd := 3; fd < int(limit.Cur); fd++ {
+			fds = append(fds, fd)
+		}
+	}
+	for _, fd := range fds {
+		flags, err := unix.FcntlInt(uintptr(fd), unix.F_GETFD, 0)
+		if err == unix.EBADF {
+			continue
+		}
+		if err != nil {
+			return restore, false
+		}
+		if flags&unix.FD_CLOEXEC != 0 {
+			continue
+		}
+		if _, err := unix.FcntlInt(uintptr(fd), unix.F_SETFD, flags|unix.FD_CLOEXEC); err != nil {
+			return restore, false
+		}
+		marked = append(marked, fd)
+	}
+	return restore, true
 }

@@ -13,6 +13,8 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"syscall"
 )
 
@@ -157,14 +159,20 @@ func SameUser(conn *net.UnixConn) error {
 	return nil
 }
 
-// EngineModules are the modules that make up gitleaks's regex engine. A
-// gitleaks built without the gore2regex tag uses Go's regexp instead and
-// links neither.
-var EngineModules = []string{"github.com/wasilibs/go-re2", "github.com/tetratelabs/wazero"}
+// engineExcluded are modules a gitleaks build and the helper may differ in
+// without running a different detector: the command-line framework only the
+// gitleaks CLI links, the gitleaks module itself (version-checked separately;
+// the official binary is built inside it), and the helper's own module.
+var engineExcluded = map[string]bool{
+	"github.com/spf13/cobra":                                     true,
+	"github.com/zricethezav/gitleaks/v8":                         true,
+	"github.com/JeongJaeSoon/agent-guard/native/gitleaks-helper": true,
+}
 
-// Engine describes the regex engine of a Go build: the -tags setting and the
-// versions of EngineModules. Two builds with the same Engine and gitleaks
-// version run the same detector.
+// Engine describes what a Go build of gitleaks runs: its toolchain, its
+// -tags setting (gore2regex selects go-re2 over Go's regexp) and every
+// linked module version except engineExcluded. Two builds with the same
+// Engine and gitleaks version run the same detector code.
 func Engine(info *buildinfo.BuildInfo) string {
 	if info == nil {
 		return ""
@@ -175,20 +183,19 @@ func Engine(info *buildinfo.BuildInfo) string {
 			tags = setting.Value
 		}
 	}
-	out := "tags=" + tags
-	for _, module := range EngineModules {
-		version := "none"
-		for _, dep := range info.Deps {
-			if dep.Path == module {
-				version = dep.Version
-				if dep.Replace != nil {
-					version = "replaced"
-				}
-			}
+	var deps []string
+	for _, dep := range info.Deps {
+		if engineExcluded[dep.Path] {
+			continue
 		}
-		out += " " + module + "@" + version
+		version := dep.Version + " " + dep.Sum
+		if dep.Replace != nil {
+			version = "replaced"
+		}
+		deps = append(deps, dep.Path+"@"+version)
 	}
-	return out
+	sort.Strings(deps)
+	return info.GoVersion + " tags=" + tags + " " + strings.Join(deps, " ")
 }
 
 // FileEngine reads Engine from an executable's embedded build information.

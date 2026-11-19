@@ -166,7 +166,7 @@ func serve(args []string) error {
 	if err != nil {
 		return err
 	}
-	maxRSSMiB, err := boundedInt(values["--max-rss-mib"], 32, 4096)
+	maxRSSMiB, err := boundedInt(values["--max-rss-mib"], 96, 4096)
 	if err != nil {
 		return err
 	}
@@ -322,6 +322,11 @@ func cleanStale(dir, own string) {
 		}
 		seen[key] = true
 		paths := local.PathsFor(dir, key)
+		// A fresh spawn marker means a helper for that key may be starting;
+		// taking its lock now would make that helper give up.
+		if info, err := os.Lstat(paths.Spawn); err == nil && time.Since(info.ModTime()) < time.Minute {
+			continue
+		}
 		lock, err := acquireLock(paths.Lock)
 		if err != nil {
 			continue
@@ -445,7 +450,7 @@ func (s *server) handle(conn *net.UnixConn) {
 	if len(payload) > largeInput {
 		debug.FreeOSMemory()
 	}
-	overCap := rss() > s.maxRSS
+	overCap := peakRSS() > s.maxRSS
 	s.scanMu.Unlock()
 	_ = conn.SetDeadline(time.Now().Add(ioTimeout))
 	_ = wire.WriteResponse(conn, resp, stdout, stderr, reportBytes)
@@ -513,6 +518,10 @@ func (s *server) scan(req wire.Request, payload []byte) (wire.Response, []byte, 
 			return fallback("report")
 		}
 		reportBytes = out.Bytes()
+		// The client refuses larger blobs; let the real gitleaks answer.
+		if len(reportBytes) > wire.MaxBlob {
+			return fallback("report-size")
+		}
 	}
 	exit := 0
 	if len(findings) != 0 {
@@ -583,20 +592,11 @@ func formatDuration(d time.Duration) string {
 	return d.Round(scale / 100).String()
 }
 
-// rss is the resident set size in bytes: current on Linux, the peak on
-// macOS, where no current value is available without cgo. A peak only makes
-// the cap trigger earlier.
-func rss() uint64 {
-	if runtime.GOOS == "linux" {
-		if data, err := os.ReadFile("/proc/self/statm"); err == nil {
-			fields := strings.Fields(string(data))
-			if len(fields) > 1 {
-				if pages, err := strconv.ParseUint(fields[1], 10, 64); err == nil {
-					return pages * uint64(os.Getpagesize())
-				}
-			}
-		}
-	}
+// peakRSS is the process's peak resident set size in bytes. The cap is
+// checked against the peak, the same way on Linux and macOS, so a request
+// that briefly needed more memory than the cap ends this helper even after
+// the memory was returned.
+func peakRSS() uint64 {
 	var usage syscall.Rusage
 	if syscall.Getrusage(syscall.RUSAGE_SELF, &usage) != nil {
 		return ^uint64(0)

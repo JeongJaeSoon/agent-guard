@@ -152,8 +152,15 @@ for f in "$IN/large-clean" "$IN/large-secret"; do
   cat "$f" | "$CLIENT" --gitleaks "$GL" --gitleaks-version 8.30.1 --state-dir "$STATE" -- $ARGS_A >/dev/null 2>&1
   st=$?
   expect "a piped $(basename "$f") over 64 KiB goes to the real gitleaks with every byte" \
-    '[ "$(last_trace)" = real:large ] && [ "$st" = "$(cat "$CASE/r.status")" ]'
+    'case "$(last_trace)" in real:large|real:pipe-chunks) ;; *) false ;; esac && [ "$st" = "$(cat "$CASE/r.status")" ]'
 done
+# A producer that writes in two pieces: the real gitleaks may read two chunks,
+# so the client replays the input to it.
+: >"$TRACE"
+{ printf 'export TOKEN='; sleep 0.3; sed 's/^export TOKEN=//' "$IN/github-pat"; } \
+  | "$CLIENT" --gitleaks "$GL" --gitleaks-version 8.30.1 --state-dir "$STATE" -- $ARGS_A >/dev/null 2>&1
+st=$?
+expect "piped input that arrives in pieces is replayed to the real gitleaks" '[ "$(last_trace)" = real:pipe-chunks ] && [ "$st" = 1 ]'
 awk 'BEGIN { for (i = 0; i < 40000; i++) printf "padding line %d of a very large clean file\n", i }' >"$CASE/huge"
 cat "$IN/aws" >>"$CASE/huge"
 : >"$TRACE"
@@ -404,10 +411,17 @@ else
   ok "the exited helper was reaped${AG_HELPER_TEST_INIT:+ (under $AG_HELPER_TEST_INIT)}"
 fi
 rm -f "$HDIR"/*
-AGENT_GUARD_GITLEAKS_HELPER_MAX_RSS_MIB=32 warm
-st=$(cat "$CASE/w.status")
+# A 1 MiB input dense with findings builds a report over the 16 MiB answer
+# limit: the helper answers "fallback" (the client scans for real), and the
+# memory it needed puts its peak over the lowest cap, so it then exits.
+awk -v p="$(sed -n 's/^export TOKEN=//p' "$IN/github-pat" | cut -c1-36)" \
+  'BEGIN { for (i = 0; i < 40000; i++) printf "key_%d = %s%04d\n", i, p, i % 9000 }' | head -c 1048000 >"$CASE/dense"
+AGENT_GUARD_GITLEAKS_HELPER_MAX_RSS_MIB=96 warm
+pid=$(helper_pids)
+run_shape client B "$CASE/dense" "$CASE/m"
 n=0; while [ -n "$(helper_pids)" ] && [ "$n" -lt 50 ]; do sleep 0.1; n=$((n + 1)); done
-expect "a helper over its memory cap answers, then exits" '[ "$st" = 0 ] && [ "$(last_trace)" = helper ] && [ -z "$(helper_pids)" ]'
+expect "an oversized report is answered by the real gitleaks, and a helper past its memory cap then exits" \
+  '[ -n "$pid" ] && [ "$(cat "$CASE/m.status")" = 1 ] && [ "$(last_trace)" = real:helper-report-size ] && [ -z "$(helper_pids)" ]'
 rm -f "$HDIR"/*.spawn
 run_shape client A "$IN/github-pat" "$CASE/c"
 check "the next request after a memory exit starts a fresh helper" [ "$(sed -n '$p' "$TRACE")" = real:cold ]

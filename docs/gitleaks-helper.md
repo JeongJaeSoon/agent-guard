@@ -68,15 +68,19 @@ The helper is not used when:
   for the socket);
 - the socket path would exceed 103 bytes (`$XDG_STATE_HOME`, or
   `~/.local/state`, is very deep);
-- the gitleaks the CLI selected is not a Go build with the same regex engine
-  as the official release (the `gore2regex` build tag and the same go-re2 and
-  wazero versions, read from its embedded build information). A gitleaks
-  8.30.1 built with Go's `regexp`, such as a Homebrew or `go install` build,
-  is therefore always run for real.
+- the gitleaks the CLI selected is not built like the official release: the
+  client reads its embedded Go build information and the helper compares the
+  toolchain, the `gore2regex` tag (go-re2 instead of Go's `regexp`) and every
+  linked module version with its own. A gitleaks 8.30.1 built with Go's
+  `regexp`, such as a Homebrew or `go install` build, is therefore always run
+  for real. A patched build with the same version, tag and modules is not
+  detected; `AGENT_GUARD_GITLEAKS_BIN` keeps such a scanner on its own.
 
 Two advanced settings are read when a helper starts:
 `AGENT_GUARD_GITLEAKS_HELPER_IDLE_SECONDS` (default `600`, 1 to 86400) and
-`AGENT_GUARD_GITLEAKS_HELPER_MAX_RSS_MIB` (default `160`, 32 to 4096).
+`AGENT_GUARD_GITLEAKS_HELPER_MAX_RSS_MIB` (default `160`, 96 to 4096; a
+started helper alone uses about 60 MiB, so a lower cap would only restart it
+after every scan).
 
 ## Same scanner
 
@@ -97,14 +101,19 @@ Two advanced settings are read when a helper starts:
 - Any log event the gitleaks library emits during a scan (the real gitleaks
   would print it), a scan error, or a scan over 2.5 s is answered "fallback".
 - Standard input from a regular file is read in fixed 100 KB chunks by the
-  real gitleaks and by the helper alike. From a pipe, the real gitleaks
-  chunks at each `read()`, which depends on the writer's timing, so the client
-  only sends piped input that fits one pipe buffer (64 KiB). Larger piped
-  input, and regular files over 1 MiB, go to the real gitleaks.
+  real gitleaks and by the helper alike. From a pipe, the real gitleaks makes
+  a chunk of each `read()`, which depends on how the writer wrote. The client
+  sends piped input to the helper only when one `read()` returned all of it
+  (then end of file), which is at most one pipe buffer (64 KiB): that is the
+  single chunk the real gitleaks reads in the same situation. Input that
+  arrives in pieces, and regular files over 1 MiB, go to the real gitleaks.
+- A report larger than 16 MiB (a large input dense with findings) is answered
+  "fallback".
 
 The real gitleaks reports findings in rule-map order, which changes from run
 to run, and logs a clock time and a duration. Apart from those, the helper's
-exit code, stdout, stderr and report are the real gitleaks's.
+exit code, stdout, stderr and report are the real gitleaks's for every input
+it answers.
 
 ## Failure is never "clean"
 
@@ -121,7 +130,8 @@ exit code, stdout, stderr and report are the real gitleaks's.
 | Socket served by another user | Not trusted, even if the answer looks clean: real gitleaks | same (needs root or sudo) |
 | Private directory missing, wrong mode or owner, or a symlink | Real gitleaks; nothing is repaired | same |
 | Unwritable report path | Real gitleaks, which reports its own error | same |
-| Input over the size limits, unknown flags, `.gitleaksignore` | Real gitleaks | same |
+| Input over the size limits, piped input that arrives in pieces, a report over 16 MiB, unknown flags, `.gitleaksignore` | Real gitleaks | same |
+| The hook's other descriptors cannot be listed or marked close-on-exec | No helper is started; the scan runs the real gitleaks | not tested (needs a system without `/dev/fd`) |
 | Real gitleaks cannot run either | Client exits 2: the CLI's existing "could not scan" path (`open` warns, `closed` blocks); never cached as clean | `tests/gitleaks-helper-routing.sh` |
 | Sandbox without Unix sockets or background processes | The helper cannot start; every call runs the real gitleaks at today's speed | not measured |
 
@@ -132,18 +142,17 @@ exit code, stdout, stderr and report are the real gitleaks's.
 - It exits after `AGENT_GUARD_GITLEAKS_HELPER_IDLE_SECONDS` without a request,
   checked every 15 s or every idle period if shorter (default 600 s, the same ten minutes as the CLI's readiness and clean-scan
   caches: a user who returns later pays one ordinary scan).
-- After each request it checks its resident memory and exits once that is
-  over
-  `AGENT_GUARD_GITLEAKS_HELPER_MAX_RSS_MIB` (Linux: current RSS; macOS: peak
-  RSS); the next request starts a fresh one. The check is not a hard limit
-  during a scan. The Go heap gets a soft limit
+- After each request it checks its peak resident memory (Linux and macOS
+  alike) and exits once that is over `AGENT_GUARD_GITLEAKS_HELPER_MAX_RSS_MIB`;
+  the next request starts a fresh one. The check is not a hard limit during a
+  scan: a 1 MiB input dense with findings peaked at 115 MiB. The Go heap gets a soft limit
   of half the cap, freed memory is returned to the system after inputs over
   256 KiB, at most four requests are read at a time, and one is scanned at a
   time.
 - It runs in its own session with no environment variables and `/dev/null`
   for standard streams, and the client marks the hook's other inherited
-  descriptors close-on-exec before starting it, so it holds no session's
-  variables or pipes. It removes its socket and lock when it exits; files left
+  descriptors close-on-exec before starting it (and starts none if it cannot),
+  so it holds no session's variables or pipes. It removes its socket and lock when it exits; files left
   by a killed helper are removed by the next one.
 - The helper starts as a child of the client, which then becomes the real
   gitleaks for that scan; when that gitleaks exits the helper is reparented
