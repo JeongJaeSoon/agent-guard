@@ -15597,6 +15597,8 @@ cat_mask_target() (
 # the one rewrite slot. PostToolUse cannot retract a completed tool result with
 # exit status alone, so mandatory masking has a dependency-independent,
 # shape-preserving fallback and emits one host-valid replacement.
+# $2 is the tool name the caller read from $1 with
+# '.tool_name // .tool // .name // empty'.
 redact_tool_output() {
   input=$1
   REDACT_OUTPUT_EMITTED=0
@@ -15609,7 +15611,7 @@ redact_tool_output() {
   [ "$PII_HOOK_MODE" = mask ] && pii_on=1
   [ "$secrets_on" -eq 1 ] || [ "$pii_on" -eq 1 ] || return 0
   redact_figma_tool=0
-  if is_figma_mcp_tool "$(json_value '.tool_name // .tool // .name // empty' "$input" 2>/dev/null)"; then
+  if is_figma_mcp_tool "$2"; then
     redact_figma_tool=1
   fi
   ag_known_value_base=
@@ -16169,7 +16171,7 @@ hook_post_tool() {
 
   # All matched tools: mask secret-like values (and PII, when
   # AGENT_GUARD_PII_HOOK_MODE=mask) using the selected host's output contract.
-  redact_tool_output "$input"
+  redact_tool_output "$input" "$tool"
   if [ "$post_tool_disk_finding" -eq 1 ] \
     && [ "$REDACT_OUTPUT_EMITTED" -eq 0 ]; then
     exit 2
