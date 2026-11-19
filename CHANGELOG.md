@@ -1,3 +1,10 @@
+## Unreleased
+
+- fix(bash): `gh run view 1907 --log > /tmp/ci.log; sed -E 's/^[^\t]*\t//' /tmp/ci.log`처럼 GitHub에서 읽기만 하는 `gh` 조회가 로그를 파일에 저장한 뒤 이어지는 `sed` 스크립트·`jq` 필터·`grep` 패턴이 보호 경로 이름으로 읽혀 막히던 오탐을 고칩니다. 이 글들은 앞 구간이 inert 목록의 명령이고 리다이렉션이 없을 때만 프로그램 글로 읽었기 때문에, 앞에 `gh`나 `> 파일`이 있으면 작은따옴표 안의 `[^\t]*\t` 같은 정규식이 셸 glob으로 읽혀 `terraform.rc`와 맞았습니다. (#502)
+  - 동작 변경: (1) `gh api`, `gh run view|list|watch`, `gh pr view|checks|diff|list|status`, `gh issue view|list|status`는 파일을 쓰지 않고 셸을 바꾸지 못하므로 inert 목록의 명령처럼 다룹니다. gh는 자기 명령 이름의 alias와 extension을 받지 않습니다. 파일을 쓰는 하위 명령(`gh run download`, `gh release download`, `gh repo clone`, `gh extension`, `gh alias`)과 앞에 붙은 환경 변수(`GH_PAGER=x gh …`)는 지금처럼 신뢰를 끊습니다. (2) 앞 구간의 리다이렉션 중 `>`·`>>`(fd 1·2 포함)로 리터럴 절대 경로에 쓰는 것과 `2>&1`·`>&2`는, 대상의 base name이 그 줄의 어떤 명령 이름과도 같지 않으면 신뢰를 끊지 않습니다. 셸은 명령을 정확한 이름으로 찾으므로 다른 이름의 파일을 써서는 명령을 바꿀 수 없습니다. 상대 경로·`~`·변수 대상, `>|`, `2>&-`, 명령 이름과 같은 base name(`> /tmp/bin/sed; sed …`)은 지금처럼 신뢰를 끊습니다. 계속 막히는 것: 보호 파일을 읽는 피연산자(`cat ~/.terraformrc`, `sed -n 1p terraform.rc`, `jq . terraform.rc`), sed의 `w` 플래그와 `-f`, 보호 이름으로 쓰는 리다이렉션, `gh api --input <보호 파일>`, 앞선 셸 alias·`| sh`.
+  - 사용자가 할 일: 없습니다.
+  - 운영자가 할 일: 없습니다.
+
 ## v3.12.0 - 2026-11-19
 
 v3.11.7은 게시되지 않았습니다. 그 릴리스의 변경(#496)도 이 릴리스에 들어 있습니다.

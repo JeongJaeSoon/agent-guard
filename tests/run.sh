@@ -3007,6 +3007,8 @@ run_expect 0 "cat/tee here-document bodies leave out no protected read" \
   sh "$ROOT/tests/heredoc-body-text.sh"
 run_expect 0 "sed addresses, echo words and plain heredoc expansions are data; real reads stay blocked" \
   sh "$ROOT/tests/bash-path-text-data.sh"
+run_expect 0 "program text after a read-only gh query or a safe redirect is data; real reads stay blocked" \
+  sh "$ROOT/tests/read-only-gh-prefix.sh"
 run_expect 0 "literal backquotes in quoted text read by echo or cat pass, runnable ones stay blocked" \
   sh "$ROOT/tests/literal-substitution-text.sh"
 run_expect 0 "a failed quoted-bracket normalization keeps the protected-path verdict" \
