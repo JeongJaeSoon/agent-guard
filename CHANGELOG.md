@@ -1,5 +1,9 @@
 ## Unreleased
 
+- fix(prompt): 하위 에이전트 보고(hand-back)나 예시 설정을 옮긴 글에 `SESSION_SECRET=REDACTED`, `JWT_SECRET=changeme`, `CLIENT_SECRET=your-client-secret-here`처럼 값 자리를 표시한 글이 있으면 프롬프트 가드가 보고 전체를 막고 Agent 도구 결과에서는 가리던 오탐을 고칩니다. 지금까지 자리표시자로 본 것은 `example_token`·`dummy_secret`·`not-a-real-key`·`<your-api-key>`·`<redacted>`·`***`뿐이었습니다.
+  - 동작 변경: 값 전체가 `redacted`, `changeme`, `change-me`, `change_me`(대소문자 무관)이거나, `your`와 `here` 사이의 낱말이 모두 기존 자리표시자 낱말 목록(`api`·`client`·`secret`·`token`·`key` 등)에 있는 `your-…-here`·`your_…_here`이면 자리표시자로 보고 막거나 가리지 않습니다. gitleaks 설정의 자리표시자 allowlist에도 같은 두 모양을 값 전체에 고정해 넣었습니다. 계속 막히는 것: 이 낱말에 글이 붙은 값(`REDACTED<값>`, `redacted-<값>`, `changeme123`), 틀 안의 실제 값(`your-<값>-here`), 목록에 없는 낱말(`your-prod-billing-key-here`), `here` 뒤의 글, `your`로 시작하지 않는 틀(`my-real-key-here`), 자리표시자 줄 다음 줄의 실제 값, 짧은 실제 비밀번호.
+  - 사용자가 할 일: 없습니다.
+  - 운영자가 할 일: 없습니다. `changeme`를 실제 비밀번호로 쓰는 곳이 있으면 이제 가드가 가리지 않으니 바꾸세요.
 - fix(prompt): 하위 에이전트 보고(hand-back)에 값이 빈 설정을 적은 줄이 있으면 프롬프트 가드가 보고 전체를 막고, Agent 도구 결과에서는 그 줄 뒤의 산문까지 가리던 오탐을 고칩니다. `` `API_KEY=` is read at src/config.ts:12 ``는 key 앞에서 열린 백틱이 `=` 바로 뒤에서 닫히는데, 이 백틱을 값의 여는 따옴표로 읽어 줄 끝까지 값으로 잡았습니다. `API_KEY= (empty)`는 괄호 설명을 값으로 읽었습니다.
   - 동작 변경: 두 모양만 빈 값으로 봅니다. (1) key 앞에서 연 따옴표(`` ` ``·`"`·`'`)가 `=` 바로 뒤에서 닫히고, 그 뒤가 공백·`,.;:)!?`·줄 끝인 경우. (2) `=` 뒤에 공백이 있고, 괄호 설명이 `empty`·`unset`·`blank`·`none`·`not set`·`missing`·`required`·`optional`·`unknown`으로 시작하는 경우. 계속 막히는 것: 닫는 따옴표 바로 뒤에 붙은 값(`` `API_KEY=`<값> ``, `export 'API_KEY='<값>`), 닫힌 key의 따옴표 값(`"API_KEY"="<값>"`), 다른 괄호 값(`API_KEY= (<값>)`), 같은 줄 뒤쪽의 다른 할당(`API_KEY= (empty) WORKER_TOKEN=<값>`).
   - 사용자가 할 일: 없습니다.

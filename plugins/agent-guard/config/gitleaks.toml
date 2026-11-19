@@ -102,6 +102,8 @@ regexes = [
   '''(?i)^[a-z0-9]*example[_-]?(token|key|secret|password)[a-z0-9]*$''',
   '''(?i)^[a-z0-9]*dummy[_-]?(token|key|secret|password)[a-z0-9]*$''',
   '''(?i)^not[-_ ]?a[-_ ]?real[-_ ]?(token|key|secret|password)$''',
+  '''(?i)^(redacted|change[-_]?me)$''',
+  '''(?i)^your(?:[-_](?:your|my|the|a|an|api|access|auth|bearer|client|app|user|id|key|keys|pass|password|secret|secrets|token|tokens|value|personal|private|refresh|session|here))+[-_]here$''',
   '''(?i)^[A-Za-z0-9]*x{12,}[A-Za-z0-9]*$''',
   '''^0{12,}$'''
 ]
