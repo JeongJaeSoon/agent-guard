@@ -53,6 +53,9 @@ check_awk() {
       ok "$impl values $id"
     else
       not_ok "$impl values $id (status $status)"
+      # Fixture values are synthetic, so the difference is safe to print.
+      sed 's/^/# expected: /' "$CASE/values.$i"
+      sed 's/^/# actual: /' "$CASE/actual"
     fi
     for host in claude codex; do
       status=0
