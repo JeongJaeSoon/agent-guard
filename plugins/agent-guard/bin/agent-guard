@@ -12414,13 +12414,21 @@ secretish_env_values() {
       return 0
     }
     # An assignment with nothing after `=` names a setting without its value.
-    # Two shapes say so: the quote that opened before the key closes right
-    # after `=` (`` `API_KEY=` is read at x:12 ``), with a space, punctuation or
-    # the line end after it; and a space after `=`, then a parenthetical that
-    # opens with a listed word (`API_KEY= (empty)`, `(not set by default)`).
-    # Text glued to the closing quote (`` `API_KEY=`<value> ``, shell
-    # concatenation) and any other parenthetical still read as a value.
-    function empty_value(assignment, leading, raw, a, q) {
+    # The rule holds only when no character that could be a value follows in
+    # the same token, so the rest of the token up to whitespace or the line
+    # end may hold only `,.;:!?` (end_of_empty_token). Two shapes qualify:
+    # the quote that opened before the key closes right after `=`
+    # (`` `API_KEY=` is read at x:12 ``), and a space after `=`, then a
+    # closed parenthetical made of a listed word, optionally `by default` or
+    # `in <path>[:<line>]` with a `.` or `/` in the path (`API_KEY= (empty)`,
+    # `(empty in .env.example:3)`). Anything glued to the closing quote or
+    # parenthesis (`` `API_KEY=`,<value> ``, `(empty)<value>`), any other word
+    # inside the parenthesis, and shell concatenation still read as a value.
+    function end_of_empty_token(rest) {
+      sub(/[ \t\r].*$/, "", rest)
+      return rest == "" || rest ~ /^[,.;:!?]+$/
+    }
+    function empty_value(assignment, leading, raw, a, q, note) {
       if (assignment !~ /=$/) return 0
       if (leading == "") {
         a = assignment
@@ -12428,9 +12436,17 @@ secretish_env_values() {
         q = substr(a, 1, 1)
         if (q != "\"" && q != "'\''" && q != "`") return 0
         if (index(substr(a, 2), q)) return 0
-        return substr(raw, 1, 1) == q && substr(raw, 2, 1) ~ /^([ \t\r,.;:)!?]|)$/
+        return substr(raw, 1, 1) == q && end_of_empty_token(substr(raw, 2))
       }
-      return raw ~ /^\((empty|unset|blank|none|not set|missing|required|optional|unknown)([ \t)]|$)/
+      if (!match(raw, /^\([a-z ]+( in [A-Za-z0-9_.\/-]+(:[0-9]+)?)?\)/)) return 0
+      note = substr(raw, 2, RLENGTH - 2)
+      if (!end_of_empty_token(substr(raw, RLENGTH + 1))) return 0
+      if (index(note, " in ")) {
+        if (substr(note, index(note, " in ") + 4) !~ /[.\/]/) return 0
+        note = substr(note, 1, index(note, " in ") - 1)
+      }
+      sub(/ by default$/, "", note)
+      return note ~ /^(empty|unset|blank|none|not set|missing|required|optional|unknown)$/
     }
     function emit_value(source, start, assignment, require_credential, \
                         raw, leading, quote, end, \
