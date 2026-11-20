@@ -90,7 +90,7 @@ while IFS= read -r row; do
   for host in $hosts; do
     case "$tool:$host" in
       Bash:codex) shape='{tool_name:"Bash",tool_input:({command:.command} + (if .workdir == "" then {} else {workdir:.workdir} end))}' ;;
-      Bash:*) shape='{hook_event_name:"PreToolUse",tool_name:"Bash",tool_input:({command:.command} + (if .inner_workdir then {workdir:.inner_workdir} else {} end))} + (if .workdir == "" then {} else {cwd:.workdir} end)' ;;
+      Bash:*) shape='{hook_event_name:"PreToolUse",tool_name:"Bash",tool_input:({command:.command} + (if .inner_workdir != null then {workdir:.inner_workdir} else {} end))} + (if .workdir == "" then {} else {cwd:.workdir} end)' ;;
       Read:*) shape='{hook_event_name:"PreToolUse",tool_name:"Read",tool_input:({file_path:.path} + (if .inner_workdir then {cwd:.inner_workdir} else {} end)),cwd:.workdir}' ;;
       NotebookRead:*) shape='{hook_event_name:"PreToolUse",tool_name:"NotebookRead",tool_input:{notebook_path:.path},cwd:.workdir}' ;;
       Grep:*) shape='{hook_event_name:"PreToolUse",tool_name:"Grep",tool_input:({pattern:"placeholder",path:.path} + (if .glob then {glob:.glob} else {} end)),cwd:.workdir}' ;;

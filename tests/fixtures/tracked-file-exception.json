@@ -164,6 +164,51 @@
     "command": "cat @OTHER@/settings.env"
   },
   {
+    "id": "diff-file-and-directory",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "diff pairs a committed file with the same name in a directory operand",
+    "command": "diff config/staging.env @OUTSIDE@"
+  },
+  {
+    "id": "uniq-output-operand",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "the second operand of uniq is written",
+    "command": "uniq README.md settings.env"
+  },
+  {
+    "id": "tail-follow",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "tail -F reopens the name later",
+    "command": "tail -F config/staging.env"
+  },
+  {
+    "id": "sleep-then-cat",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a wait before the read widens the gap between check and read",
+    "command": "sleep 5; cat config/staging.env"
+  },
+  {
+    "id": "bash-empty-inner-workdir",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "an empty tool_input workdir leaves the scan in the hook directory while the event names another",
+    "command": "cat settings.env",
+    "inner_workdir": "",
+    "workdir": "@OUTSIDE@"
+  },
+  {
+    "id": "bash-relative-event-cwd",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a relative event cwd",
+    "command": "cat config/staging.env",
+    "workdir": "."
+  },
+  {
     "id": "cd-inside-then-cat",
     "expected_status": 0,
     "classification": "must-pass",

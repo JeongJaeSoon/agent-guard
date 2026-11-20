@@ -479,23 +479,27 @@ entry does not block it. The exception applies only when all of these hold:
 - no deny-read entry that names a directory matches it (`.aws/credentials`,
   `.ssh/id_*` and similar stay blocked wherever they are, tracked or not);
 - for a shell command, the word is a literal operand of `cat`, `head`,
-  `tail`, `wc`, `cut`, `nl`, `tac`, `sort`, `uniq`, `stat`, `file`, `ls`,
-  `diff`, `comm`, `cmp`, `grep`, `egrep`, `fgrep`, `sed` or `jq`; every word of
-  that command is literal, with no redirection and no `&`; its options are
-  plain flags from a short built-in table (an option such as `--include`,
-  `--files0-from`, `-r`, `-f` or `-i` keeps the block); and every command
-  before it on the line is one that cannot change what that name runs. Any
-  other command keeps the block: `git` (its operands also select revisions,
-  the index and wildcard pathspecs, so it can show bytes the work tree does
-  not hold), a pager, a test runner, `ssh`, `docker exec`, `find`, `sudo`, an
-  inline script. The `Read`, `NotebookRead` and `Grep` tools get the same
-  exception for their own path field (`file_path`, `notebook_path`, `path`)
-  only; a Grep `glob` stays checked by name.
-- the directory relative paths are placed in is the event's own `cwd`. A
-  `workdir` or `cwd` inside `tool_input` counts only when the event has no
-  `cwd` (the Codex shell shape) or names the same directory; otherwise, and
-  when the event names no directory at all, the block stands. On Codex the
-  shell's working directory is chosen per command, so "the current
+  `tail`, `wc`, `cut`, `nl`, `tac`, `sort`, `stat`, `file`, `grep`, `egrep`,
+  `fgrep`, `sed` or `jq`: commands that open each file they are given, for
+  reading, and no other file because of it. Every word of that command must
+  be literal, with no redirection and no `&`; its options must be plain flags
+  from a short built-in table (`grep -r`, `grep -f`, `grep --include`,
+  `sort -o`, `sort --files0-from`, `sed -i`, `sed -f`, `tail -f` and any long
+  option keep the block); and every command before it on the line must be one
+  that cannot change what that name runs, and not `sleep`. Any other command
+  keeps the block: `git` (its operands also select revisions, the index and
+  wildcard pathspecs), `diff` and `comm` (a directory operand makes them open
+  a same-named file there), `uniq` (its second operand is written), a pager,
+  a test runner, `ssh`, `docker exec`, `find`, `sudo`, an inline script. The
+  `Read`, `NotebookRead` and `Grep` tools get the same exception for their
+  own path field (`file_path`, `notebook_path`, `path`) only; a Grep `glob`
+  stays checked by name.
+- the directory relative paths are placed in is the event's own absolute
+  `cwd`. A `workdir` or `cwd` inside `tool_input` counts only when the event
+  has no `cwd` (the Codex shell shape) or names the same directory; for a
+  shell command it must also be the directory the check itself runs in.
+  Otherwise, and when the event names no directory, the block stands. On
+  Codex the shell's working directory is chosen per command, so "the current
   repository" is the one that directory is in.
 
 Git is asked only when a block is already pending, so a command that passes
@@ -505,7 +509,11 @@ stands.
 What an agent can read this way is content the repository already holds at
 `HEAD`. This adds no new way to reach a file an agent commits itself: a
 command such as `git show HEAD` already prints whatever was just committed,
-and the commit gate, not this exception, is what scans staged content. A file whose working copy differs from the commit is blocked by its
+and the commit gate, not this exception, is what scans staged content. The
+check describes the file at the moment the hook runs: a process started
+earlier that replaces the file or a directory above it before the command
+reads it is not seen. A tracked file inside a directory whose name matches a
+name-only entry (`.env.d/notes.txt`) is opened too. A file whose working copy differs from the commit is blocked by its
 name until the change is committed; the file is compared without git filters,
 so a checkout that rewrites line endings or uses a clean/smudge filter keeps
 the block. Set `AGENT_GUARD_TRACKED_FILE_EXCEPTION=off` to restore the

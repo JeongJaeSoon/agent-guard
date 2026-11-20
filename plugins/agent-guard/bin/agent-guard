@@ -5318,6 +5318,17 @@ EXCEPTION_WORKDIR_JQ='
      else "" end) as $dir
   | . as $in | $dir'
 
+# The Bash scan already runs in the directory the hook took from the event.
+# The exception applies only when that is the absolute directory
+# exception_workdir names: an empty or stray tool_input field can leave the
+# scan in the hook's own directory, where a relative word means another file.
+exception_workdir_is_here() {
+  ewh_dir=$(exception_workdir "$1") || return 1
+  case "$ewh_dir" in /*) ;; *) return 1 ;; esac
+  ewh_real=$(CDPATH= cd -P -- "$ewh_dir" 2>/dev/null && pwd -P) || return 1
+  [ "$ewh_real" = "$(pwd -P)" ]
+}
+
 # $1 is a path a file tool was given, $2 the hook input and $3 the jq path of
 # the tool's own path field. Only that field qualifies, compared as a whole
 # string: a Grep glob is a name filter applied under the path, any other
@@ -5326,7 +5337,8 @@ EXCEPTION_WORKDIR_JQ='
 # workdir in the event the path cannot be placed, and the block stands.
 tool_path_tracked_exception() (
   [ "${AGENT_GUARD_TRACKED_FILE_EXCEPTION-on}" = on ] || exit 1
-  tpt_workdir=$(exception_workdir "$2" "$1" "(\$in | $3) == \$v") && [ -n "$tpt_workdir" ] || exit 1
+  tpt_workdir=$(exception_workdir "$2" "$1" "(\$in | $3) == \$v") || exit 1
+  case "$tpt_workdir" in /*) ;; *) exit 1 ;; esac
   CDPATH= cd -- "$tpt_workdir" 2>/dev/null || exit 1
   tracked_file_exception_applies "$(normalize_path "$1")"
 )
@@ -7298,20 +7310,20 @@ search_operand_spans() {
     # of the segment must be literal (a lone `&` or a redirection hides
     # another command or a write), and every option must be on the short
     # table below: none of them takes a name filter or a list of files as
-    # its value (`--include`, `--files0-from`, `-f`), so a word that is not
-    # an option is either a path the command opens or a value it never opens.
+    # its value (`grep --include`, `sort --files0-from`, `grep -f`), so a word
+    # that is not an option is either a path the command opens or a value it
+    # never opens.
     function tracked_scan(a, b,   k, v, h, opts, out) {
       h = wv[a]
+      # Each of these opens every operand it is given, for reading, and no
+      # other file because of one: diff and comm pair an operand with a
+      # same-named file in a directory operand, uniq writes its second
+      # operand, and a pager or `tail -f` reopens a name later.
       if (h == "cat") opts = "^-[AbeEnstTuv]+$"
-      else if (h == "head" || h == "tail") opts = "^-([0-9]+|[nc]|[nc][+-]?[0-9]+|[qvfF]+)$"
+      else if (h == "head" || h == "tail") opts = "^-([0-9]+|[nc]|[nc][+-]?[0-9]+|[qv]+)$"
       else if (h == "wc") opts = "^-[clmwL]+$"
       else if (h == "cut") opts = "^-[dfcbsz]"
       else if (h == "sort") opts = "^-[bdfgiMhnRrVsuz]+$"
-      else if (h == "uniq") opts = "^-[cdiuz]+$"
-      else if (h == "ls") opts = "^-[alhAFd1trS]+$"
-      else if (h == "diff") opts = "^-([uwbBiNqy]+|U[0-9]+)$"
-      else if (h == "comm") opts = "^-[123]+$"
-      else if (h == "cmp") opts = "^-[ls]+$"
       else if (h ~ /^(grep|egrep|fgrep)$/) opts = "^-([EFGPHhilLnoqsvwxcaIzZbTy]+|[ABCm][0-9]*|e)$"
       else if (h == "sed") opts = "^-([nErsuz]+|e)$"
       else if (h == "jq") opts = "^-[nRscrjaSCMe]+$"
@@ -7423,6 +7435,8 @@ search_operand_spans() {
         if (wv[h] == "sed" && sed_prints_lines(h, e)) continue
         if (inert_names == "" || wv[h] !~ inert_names) exit 0
         if (wv[h] == "cd" && cd_ok != "1") exit 0
+        # Waiting between the check and the read gives time to swap the file.
+        if (mode == "tracked" && wv[h] == "sleep") exit 0
       }
     }
   '
@@ -8702,7 +8716,7 @@ bash_matches_deny_path() {
   # block is pending. Without a workdir a relative word cannot be placed (the
   # hook's own directory need not be the shell's), and the block stands.
   if [ "${AGENT_GUARD_TRACKED_FILE_EXCEPTION-on}" = on ] && [ -n "${2-}" ] \
-    && [ -n "$(exception_workdir "$2")" ]; then
+    && exception_workdir_is_here "$2"; then
     tfx_cmd=$(bash_strip_tracked_file_operands "$1") || tfx_cmd=$1
     if [ -n "$tfx_cmd" ] && [ "$tfx_cmd" != "$1" ]; then
       deny_path_report=
