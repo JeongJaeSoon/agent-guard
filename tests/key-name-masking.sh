@@ -25,13 +25,15 @@ export AGENT_GUARD_GITLEAKS_CONFIG="$ROOT/plugins/agent-guard/config/gitleaks.to
 unset AGENT_GUARD_OUTPUT_REDACT AGENT_GUARD_KEY_NAME_REDACT AI_AGENT
 # Assembled at run time so the repository's own scan finds no
 # credential-shaped literal here. Nothing below prints these values.
-rnd=$(od -An -N12 -tu1 /dev/urandom | awk '{ printf "q7"; for (i = 1; i <= NF; i++) printf "%c", 97 + $i % 26 }')
-hex=$(od -An -N20 -tx1 /dev/urandom | tr -d ' \n')
-vendor=$(printf '%s_%s' ghp "$(od -An -N36 -tu1 /dev/urandom \
-  | awk '{ for (i = 1; i <= NF; i++) printf "%c", ($i % 36 < 10 ? 48 + $i % 36 : 87 + $i % 36) }' | tr -d '\n')")
+# `tr` under LC_ALL=C reads the random bytes one at a time on GNU, BSD and
+# busybox alike. An od-and-awk pipeline produced values of the wrong length
+# on macOS; the length check below reports each length if that recurs.
+draw() { LC_ALL=C tr -dc "$1" </dev/urandom | head -c "$2"; }
+rnd=q7$(draw a-z 12)
+hex=$(draw a-f0-9 40)
+vendor=$(printf '%s_%s' ghp "$(draw a-z0-9 36)")
 weak=$(printf '%s%s' hunter 2)
-long=my$(printf '%s%s' Pass word)$(od -An -N80 -tu1 /dev/urandom \
-  | awk '{ for (i = 1; i <= NF; i++) printf "%c", 97 + $i % 26 }' | tr -d '\n')
+long=my$(printf '%s%s' Pass word)$(draw a-z 80)
 marker=$(printf '%s_%s_%s_%s' AGENT GUARD TEST SECRET)
 failed=0
 checked=0
@@ -43,7 +45,7 @@ fail() {
 }
 [ "${#rnd}" -eq 14 ] && [ "${#hex}" -eq 40 ] && [ "${#vendor}" -eq 40 ] \
   && [ "${#long}" -eq 90 ] \
-  || { fail "generated values have the wrong length"; exit 1; }
+  || { fail "generated values have the wrong length: ${#rnd} ${#hex} ${#vendor} ${#long}"; exit 1; }
 
 # $1 host, $2 label, $3 text, $4 expected stdout (empty: left untouched).
 post_case() {
