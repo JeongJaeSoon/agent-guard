@@ -1,0 +1,23 @@
+diff --git a/src/authz/decision.ts b/src/authz/decision.ts
+index 3f1c2aa..9b7d0e4 100644
+--- a/src/authz/decision.ts
++++ b/src/authz/decision.ts
+@@ -12,9 +12,16 @@ export const decisionSchema = z.object({
+   subject: subjectSchema,
+-  credential: z.string(),
++  credential: credentialSchema,
+   reason: z.string().optional(),
+ });
+ 
+ export interface Decision {
+   subject: Subject;
++  credential: Credential | null;
++  token: Promise<Token>;
+ }
++
++export function toRow(input: Decision, data: Row) {
++  return {
++    credential: input.credential ?? null,
++    credential_id: data.credential_id,
++  };
++}

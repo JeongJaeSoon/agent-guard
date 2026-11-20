@@ -85,6 +85,13 @@ unavailable scan regardless of that setting. A Claude Code check that times
 out or crashes before it decides blocks the tool call in either mode (Claude
 Code 2.1.295 and later).
 
+Output masking does not mask on a credential-like key name alone. A field
+whose value is an identifier that repeats the field name, as in a diff line
+`credential: CredentialSchema,`, stays readable; a quoted string or a bare
+value such as `password=hunter2` is still masked. Set
+`AGENT_GUARD_KEY_NAME_REDACT=on` to mask those identifiers as well (see
+[Configuration](docs/configuration.md#output-and-prompt-handling)).
+
 ## Choose your path
 
 | I need to… | Start here |
