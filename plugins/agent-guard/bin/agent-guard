@@ -6520,8 +6520,9 @@ path_entries_absolute() {
 }
 
 # The commands message_value_records and search_operand_spans accept before a
-# later command name: none of them can rebind a name (no builtin that assigns,
-# no loop variable) or write a file a PATH entry resolves it to. Both pass it
+# later command name, and literal_consumers_inert accepts as text consumers:
+# none of them can rebind a name (no builtin that assigns, no loop variable)
+# or write a file a PATH entry resolves it to. All three pass it
 # to awk with -v and match it as a dynamic regex; it holds no backslash, so -v
 # escape processing leaves it unchanged, and an empty value accepts nothing
 # rather than everything. cd qualifies only while path_entries_absolute holds.
@@ -8325,7 +8326,8 @@ bash_strip_heredoc_bodies() (
 # interpreter, an assignment prefix, a function or alias definition or a pipe
 # into any of them keeps the whole line in the scan.
 literal_consumers_inert() {
-  printf '%s\n' "$1" | LC_ALL=C awk -v cd_ok="$(path_entries_absolute && echo 1)" -v mode="${2-}" '
+  printf '%s\n' "$1" | LC_ALL=C awk -v cd_ok="$(path_entries_absolute && echo 1)" -v mode="${2-}" \
+    -v inert_names="$INERT_SEGMENT_COMMANDS_ERE" '
     # An exit with no status in END keeps 0, so give it one.
     function bail() { failed = 1; exit 1 }
     function plain(k, v) {
@@ -8347,7 +8349,7 @@ literal_consumers_inert() {
         if (mode != "heredoc" || word[1] !~ /^(cat|tee|gh|git)$/) bail()
       } else {
         if (redir) bail()
-        if (word[1] !~ /^(grep|egrep|fgrep|ls|cat|head|tail|wc|cut|tr|echo|true|false|pwd|cd|jq|diff|comm|basename|dirname|date|sleep)$/ \
+        if ((inert_names == "" || word[1] !~ inert_names) \
           && !(mode == "heredoc" && word[1] ~ /^(mkdir|git)$/)) bail()
         if (word[1] == "cd" && cd_ok != "1") bail()
       }
@@ -9013,6 +9015,56 @@ bash_command_sources_script() (
   return 1
 )
 
+# Classify word $1 of a command whose -C or -D option owner is $2 by how it
+# moves the cwd later relative operands resolve against, in cwd_change:
+#   cd     the next word is the directory (cd, pushd)
+#   next   an option whose next word is the directory
+#   value  an option holding the directory, set in cwd_change_value
+#   owner  a command whose -C or -D option changes directory
+#   any    a change no static word names (popd, chroot, find -execdir)
+#   empty  none
+# Command names match by file name, options as the whole word: the value of
+# `--chdir=/srv/app` or `-C/srv/app` holds a slash. A word that is no option
+# but whose file name looks like one stays an unknown change, as before.
+bash_cwd_change() {
+  cwd_change=
+  cwd_change_value=
+  case "${1##*/}" in
+    cd|pushd) cwd_change=cd; return 0 ;;
+    popd|chroot) cwd_change=any; return 0 ;;
+    env|tar|git|make|ninja|cmake|sudo|find) cwd_change=owner; return 0 ;;
+  esac
+  case "$1" in
+    -execdir|-execdir=*) cwd_change=any ;;
+    --chdir|--directory) cwd_change=next ;;
+    --chdir=*|--directory=*)
+      cwd_change=value
+      cwd_change_value=${1#*=}
+      ;;
+    -C|-C?*|-D|-D?*)
+      case "${1%"${1#-?}"}:$2" in
+        -C:env|-C:tar|-C:git|-C:make|-C:ninja|-C:cmake|-D:sudo) ;;
+        *) return 0 ;;
+      esac
+      case "$1" in
+        -?) cwd_change=next ;;
+        *)
+          cwd_change=value
+          cwd_change_value=${1#-?}
+          ;;
+      esac
+      ;;
+    */*)
+      case "${1##*/}" in
+        -execdir|-execdir=*|--chdir|--chdir=*|--directory|--directory=*) cwd_change=any ;;
+        -C|-C?*) case "$2" in env|tar|git|make|ninja|cmake) cwd_change=any ;; esac ;;
+        -D|-D?*) [ "$2" = sudo ] && cwd_change=any ;;
+      esac
+      ;;
+  esac
+  return 0
+}
+
 # A relative template token can be resolved safely only when the command keeps
 # the event workdir as its path base. Refuse the exception when shell syntax is
 # dynamic or a command can rebase later relative operands (`cd`, `env -C`,
@@ -9050,21 +9102,13 @@ bash_command_may_rebase_relative_paths() (
           && bash_command_may_rebase_relative_paths "$cwd_token" && return 0
         ;;
     esac
-    cwd_token_name=${cwd_token##*/}
-    case "$cwd_token_name" in
+    case "${cwd_token##*/}" in
       ';'|'&&'|'||'|'|') cwd_option_owner=; continue ;;
-      cd|pushd|popd|chroot) return 0 ;;
-      env|tar|git|make|ninja|cmake|sudo|find)
-        cwd_option_owner=$cwd_token_name
-        ;;
-      -execdir|-execdir=*) return 0 ;;
-      --chdir|--chdir=*|--directory|--directory=*) return 0 ;;
-      -C|-C?*)
-        case "$cwd_option_owner" in
-          env|tar|git|make|ninja|cmake) return 0 ;;
-        esac
-        ;;
-      -D|-D?*) [ "$cwd_option_owner" = sudo ] && return 0 ;;
+    esac
+    bash_cwd_change "$cwd_token" "$cwd_option_owner"
+    case "$cwd_change" in
+      owner) cwd_option_owner=${cwd_token##*/} ;;
+      ?*) return 0 ;;
     esac
   done
   return 1
@@ -9116,29 +9160,18 @@ bash_command_rebase_target() (
     esac
     case "${rebase_token##*/}" in
       ';'|'&&'|'||'|'|') rebase_owner=; continue ;;
-      cd|pushd) rebase_expect=cd ;;
-      popd|chroot|-execdir|-execdir=*) return 1 ;;
-      env|tar|git|make|ninja|cmake|sudo|find) rebase_owner=${rebase_token##*/} ;;
-      --chdir|--directory) rebase_expect=option ;;
-      --chdir=*|--directory=*)
-        rebase_target=${rebase_token#*=}
+    esac
+    bash_cwd_change "$rebase_token" "$rebase_owner"
+    case "$cwd_change" in
+      cd) rebase_expect=cd ;;
+      next) rebase_expect=option ;;
+      value)
+        rebase_target=$cwd_change_value
         rebase_target_kind=option
         rebase_count=$((rebase_count + 1))
         ;;
-      -C|-C?*|-D|-D?*)
-        case "${rebase_token%"${rebase_token#-?}"}:$rebase_owner" in
-          -C:env|-C:tar|-C:git|-C:make|-C:ninja|-C:cmake|-D:sudo) ;;
-          *) continue ;;
-        esac
-        case "$rebase_token" in
-          -?) rebase_expect=option ;;
-          *)
-            rebase_target=${rebase_token#-?}
-            rebase_target_kind=option
-            rebase_count=$((rebase_count + 1))
-            ;;
-        esac
-        ;;
+      owner) rebase_owner=${rebase_token##*/} ;;
+      any) return 1 ;;
     esac
   done
   [ -z "$rebase_expect" ] && [ "$rebase_count" -eq 1 ] || return 1
@@ -12642,6 +12675,14 @@ secretish_env_values() {
         return 0
       return accessor_chain(v)
     }
+    # An unquoted shell variable with an environment-variable name
+    # (`GITHUB_TOKEN=$GITHUB_TOKEN`) reads a value, as the same word in double
+    # quotes does in interpolated_reference. The same shape only: a digit, a
+    # lowercase letter, a second `$` (bcrypt `$2b$12$...`) or any text glued
+    # to the name keeps masking.
+    function bare_variable_reference(value) {
+      return value ~ /^\$[A-Z]+(_[A-Z]+)*$/
+    }
     # A key ending in `token` also names opaque version handles: an MCP page
     # read returns `"snapshotToken": "v:10"` for optimistic concurrency, and
     # masking it makes every update past version 9 fail as stale (#303). Only
@@ -13021,6 +13062,7 @@ secretish_env_values() {
         if (keyword_expression(assignment, value, substr(raw, length(token) + 1))) return 0
         if (secret_object_name(assignment, value)) return 0
         if (looks_like_reference(value, assignment, leading)) return 0
+        if (bare_variable_reference(value)) return 0
         if (version_reference(assignment, value)) return 0
         if (issue_reference(assignment, value, substr(raw, length(token) + 1))) return 0
         if (route_reference(assignment, value)) return 0
