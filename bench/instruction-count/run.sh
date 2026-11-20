@@ -26,8 +26,13 @@
 #
 # Usage: sh bench/instruction-count/run.sh BASE_ROOT HEAD_ROOT OUT_TSV
 #        sh bench/instruction-count/run.sh --render TSV
+#        sh bench/instruction-count/run.sh --check TSV PERCENT
 # BASE_ROOT and HEAD_ROOT are repository checkouts. --render prints the
 # Markdown table for a TSV this script wrote (or a synthetic one in tests).
+# --check is the gate Performance evidence uses: it exits 1 when an event's
+# change beyond the script-size share exceeds PERCENT of its base count, 0
+# when none does, and 3 when the TSV is not a complete measurement (missing
+# reference, non-numeric counts, or an event that exits differently on head).
 set -u
 
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd -P)
@@ -80,6 +85,39 @@ render() {
     }
   ' "$1"
 }
+
+# Same TSV and the same script-size share as render. Prints one line per
+# event over the limit; never treats a malformed TSV as a pass.
+check() {
+  awk -F '\t' -v limit="$2" '
+    function isnum(v) { return v ~ /^[0-9]+$/ }
+    NF != 7 || !isnum($3) || !isnum($4) || $3 == 0 { bad = 1; exit }
+    NR == 1 && $1 != "version" { bad = 1; exit }
+    # A head that exits differently ran a different path, often far fewer
+    # instructions; that is not a measurement of the same work.
+    $5 != $6 { printf "check: %s exited %s on base but %s on head\n", $1, $5, $6 > "/dev/stderr"; bad = 1; exit }
+    NR == 1 { ref = $4 - $3; next }
+    {
+      n++
+      rest = ($4 - $3) - ref
+      if (100 * rest > limit * $3) {
+        over++
+        printf "%s (%s): +%.2f%% beyond the script-size share (%d of base %d)\n", $1, $2, 100 * rest / $3, rest, $3
+      }
+    }
+    END {
+      if (bad || NR < 2) { print "check: the TSV is not a complete measurement" > "/dev/stderr"; exit 3 }
+      exit over ? 1 : 0
+    }
+  ' "$1"
+}
+
+if [ "${1:-}" = --check ]; then
+  [ "$#" -eq 3 ] && [ -f "$2" ] && printf '%s' "$3" | grep -Eq '^[0-9]+([.][0-9]+)?$' \
+    || { echo "usage: run.sh --check TSV PERCENT" >&2; exit 2; }
+  check "$2" "$3"
+  exit $?
+fi
 
 if [ "${1:-}" = --render ]; then
   [ "$#" -eq 2 ] && [ -f "$2" ] || { echo "usage: run.sh --render TSV" >&2; exit 2; }

@@ -68,7 +68,7 @@ printf '%s\n' "$notify" | grep -Fq "always() && github.event_name == 'schedule'"
 if awk '/^jobs:/ { on = 1 } /^  notify:/ { on = 0 } on' "$perf" | grep -Fq 'continue-on-error'; then
   fail 'measurement failures reach notify'
 fi
-printf '%s\n' "$notify" | grep -Fxq '    needs: [build, performance, fused-performance]' || fail 'notify waits for every measurement'
+printf '%s\n' "$notify" | grep -Fxq '    needs: [build, instruction-count, performance, fused-performance]' || fail 'notify waits for every measurement'
 for result in failure cancelled skipped; do
   printf '%s\n' "$notify" | grep -Fq "contains(needs.*.result, '$result')" || fail "notify reports a $result measurement"
 done
@@ -91,6 +91,27 @@ printf '%s\n' "$notify" | awk '/^          body="\$RUNNER_TEMP\/issue.md"$/ { on
   || { rm -rf "$fallback"; fail 'a body script failure still opens the issue with the run, commit and jobs'; }
 rm -rf "$fallback"
 sh "$ROOT/tests/performance-issue-body.sh" > /dev/null || fail 'nightly issue body fixtures'
+# Performance evidence gates shell instructions against the latest release:
+# a 5% rise beyond the script-size share, or no measurement, fails the job.
+shell_gate=$(awk '/^  instruction-count:$/ { on = 1 } on && /^  [a-z-]+:$/ && !/^  instruction-count:$/ { exit } on' "$perf")
+[ -n "$shell_gate" ] || fail 'performance evidence has the shell instruction count job'
+printf '%s\n' "$shell_gate" | grep -Fq 'name: Shell instruction count against the latest release' \
+  && printf '%s\n' "$shell_gate" | grep -Fq "git -C head tag --merged HEAD --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname" \
+  && printf '%s\n' "$shell_gate" | grep -Fq 'git -C head worktree add --detach ../base "$tag"' \
+  || fail 'the shell gate measures against the latest release tag other than the measured commit'
+printf '%s\n' "$shell_gate" | grep -Fq 'sh head/bench/instruction-count/run.sh base head "$tsv" || status=$?' \
+  && printf '%s\n' "$shell_gate" | grep -Fq 'sh head/bench/instruction-count/run.sh --check "$tsv" 5 > "$out/over-limit.txt" || gate=$?' \
+  && printf '%s\n' "$shell_gate" | grep -Fxq '          [ "$gate" -eq 0 ]' \
+  || fail 'the shell gate fails above 5% with the tested script'
+printf '%s\n' "$shell_gate" | grep -Fq "if: failure() && steps.count.outcome == 'skipped'" \
+  && printf '%s\n' "$shell_gate" | grep -Fq 'uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9' \
+  && printf '%s\n' "$shell_gate" | grep -Fq 'sudo timeout --kill-after=5 55 apt-get' \
+  && printf '%s\n' "$shell_gate" | grep -Fq 'timeout-minutes: 10' \
+  || fail 'the shell gate reports a run that never measured and reuses the valgrind cache'
+if printf '%s\n' "$shell_gate" | grep -Eq '^    if:|continue-on-error'; then fail 'the shell gate runs and gates on every event'; fi
+grep -Fq '    needs: [build, instruction-count, performance' "$perf" \
+  && grep -Fq '          name: instruction-count' "$perf" \
+  || fail 'the nightly issue waits for and reads the shell gate'
 grep -Fq 'name: Packaged performance evidence' "$perf" || fail 'packaged measurement moved'
 grep -Fq 'name: Fused packaged performance (' "$perf" || fail 'fused measurement moved'
 for text in 'Packaged performance evidence' 'Fused packaged performance' 'continue-on-error: true'; do
