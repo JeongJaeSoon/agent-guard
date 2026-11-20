@@ -473,8 +473,8 @@ entry does not block it. The exception applies only when all of these hold:
   inside the work tree of the repository that holds the event working
   directory;
 - `git ls-files` reports it as tracked, and the file on disk is byte for byte
-  the blob committed at `HEAD` under that path. A file that is untracked,
-  ignored, only staged, or changed since the last commit stays blocked, so a
+  the blob committed at `HEAD` under that path. A file that is untracked
+  (ignored or not), only staged, or changed since the last commit stays blocked, so a
   file committed with placeholder values and filled in locally is not opened;
 - no deny-read entry that names a directory matches it (`.aws/credentials`,
   `.ssh/id_*` and similar stay blocked wherever they are, tracked or not);
@@ -482,7 +482,8 @@ entry does not block it. The exception applies only when all of these hold:
   `tail`, `wc`, `cut`, `nl`, `tac`, `sort`, `stat`, `file`, `grep`, `egrep` or
   `fgrep`: commands that open each file they are given, for reading, and no
   other file because of it. Every word of that command must
-  be literal, with no redirection and no `&`; its options must be plain flags
+  be literal, with no redirection and no `&`, and the whole line must hold no
+  `$` expansion; its options must be plain flags
   from a short built-in table (`grep -r`, `grep -f`, `grep --include`,
   `sort -o`, `sort --files0-from`, `tail -f` and any long option keep the
   block); and the command must be the first on the

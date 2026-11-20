@@ -7423,6 +7423,9 @@ search_operand_spans() {
       # between the check and the read.
       if (mode == "tracked") {
         if (nw == 0) exit 0
+        # An expansion anywhere on the line can reuse the operand under
+        # another name (`cat /repo/a.env; cat $_.local`).
+        for (r = 1; r <= nw; r++) if (wdyn[r]) exit 0
         for (e = 1; e < nw && wseg[e + 1] == wseg[1]; e++) ;
         k = 1
         if (wv[1] == "cd" && e == 2 && !bad(1) && !bad(2) && cd_ok == "1" && e < nw) {

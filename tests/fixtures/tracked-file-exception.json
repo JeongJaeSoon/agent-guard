@@ -272,6 +272,13 @@
     "command": "true; cat config/staging.env"
   },
   {
+    "id": "later-expansion-reuses-operand",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a later command reuses the committed operand through $_ under another name",
+    "command": "cat @REPO@/config/staging.env; cat $_.local"
+  },
+  {
     "id": "cd-inside-then-cat",
     "expected_status": 0,
     "classification": "must-pass",
