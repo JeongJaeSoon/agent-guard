@@ -279,6 +279,20 @@
     "command": "cat @REPO@/config/staging.env; cat $_.local"
   },
   {
+    "id": "pipe-to-shell-consumer",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "what the pipe feeds runs beside the reader and could swap the file first",
+    "command": "cat config/staging.env | sh -c 'mv config config.bak; cat'"
+  },
+  {
+    "id": "pipe-to-git-consumer",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a pipeline consumer that can rewrite the work tree",
+    "command": "cat config/staging.env | git stash pop"
+  },
+  {
     "id": "cd-inside-then-cat",
     "expected_status": 0,
     "classification": "must-pass",

@@ -7392,7 +7392,9 @@ search_operand_spans() {
         }
         if (c == " " || c == "\t") { flush_word(); continue }
         if (c == ";" || c == "|" || c == "&" && substr(s, i + 1, 1) == "&") {
-          flush_word(); nseg++
+          flush_word()
+          segpipe[nseg] = (c == "|" && substr(s, i + 1, 1) != "|")
+          nseg++
           if (c != ";" && substr(s, i + 1, 1) == c) i++
           continue
         }
@@ -7431,6 +7433,18 @@ search_operand_spans() {
         if (wv[1] == "cd" && e == 2 && !bad(1) && !bad(2) && cd_ok == "1" && e < nw) {
           k = 3
           for (e = k; e < nw && wseg[e + 1] == wseg[k]; e++) ;
+        }
+        # What the pipeline of the reader feeds runs at the same time as the
+        # reader, so it must be a plain text filter that cannot touch the
+        # file before the reader opens it.
+        for (j = wseg[k]; segpipe[j]; j++) {
+          f = 0
+          for (r = 1; r <= nw; r++) {
+            if (wseg[r] != j + 1) continue
+            if (!f) { f = r; if (wv[r] !~ /^(wc|head|tail|sort|uniq|tr|cut|nl|grep|egrep|fgrep|column|cat)$/) exit 0 }
+            if (bad(r) || substr(wv[r], 1, 2) == "--" || wv[f] == "sort" && wv[r] ~ /^-[A-Za-z]*o/) exit 0
+          }
+          if (!f) exit 0
         }
         if (!bad(k)) printf "%s", tracked_scan(k, e)
         exit 0
@@ -8640,8 +8654,10 @@ tracked_file_exception_applies() (
   unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
     GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_NAMESPACE GIT_CEILING_DIRECTORIES \
     GIT_DISCOVERY_ACROSS_FILESYSTEM GIT_CONFIG
-  GIT_OPTIONAL_LOCKS=0 GIT_NO_LAZY_FETCH=1
-  export GIT_OPTIONAL_LOCKS GIT_NO_LAZY_FETCH
+  # Replace refs can make HEAD:<path> name an object that was never committed.
+  unset GIT_REPLACE_REF_BASE
+  GIT_OPTIONAL_LOCKS=0 GIT_NO_LAZY_FETCH=1 GIT_NO_REPLACE_OBJECTS=1
+  export GIT_OPTIONAL_LOCKS GIT_NO_LAZY_FETCH GIT_NO_REPLACE_OBJECTS
   tfe_top=$(git rev-parse --show-toplevel 2>/dev/null) || exit 1
   tfe_top=$(CDPATH= cd -P -- "$tfe_top" 2>/dev/null && pwd -P) || exit 1
   case "$(pwd -P)/" in

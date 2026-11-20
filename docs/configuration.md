@@ -482,8 +482,9 @@ entry does not block it. The exception applies only when all of these hold:
   `tail`, `wc`, `cut`, `nl`, `tac`, `sort`, `stat`, `file`, `grep`, `egrep` or
   `fgrep`: commands that open each file they are given, for reading, and no
   other file because of it. Every word of that command must
-  be literal, with no redirection and no `&`, and the whole line must hold no
-  `$` expansion; its options must be plain flags
+  be literal, with no redirection and no `&`, the whole line must hold no
+  `$` expansion, and anything its output is piped to must be a plain text
+  filter (`head`, `grep`, `sort`, `wc` and the like, without long options); its options must be plain flags
   from a short built-in table (`grep -r`, `grep -f`, `grep --include`,
   `sort -o`, `sort --files0-from`, `tail -f` and any long option keep the
   block); and the command must be the first on the
