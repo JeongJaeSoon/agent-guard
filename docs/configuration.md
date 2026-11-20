@@ -427,6 +427,7 @@ reads it.
 | --- | --- |
 | `AGENT_GUARD_DENY_READ_PATHS` | Override the deny-read policy file. |
 | `AGENT_GUARD_DENY_READ_MODE` | `block` (default) or `mask`; `mask` adds a masked view to the reason of a blocked `Read` or `cat` of a protected file. |
+| `AGENT_GUARD_TRACKED_FILE_EXCEPTION` | `on` (default) or `off`. `on` lets a file committed to the current repository be read even when its name is on the deny-read list ([Committed files](#committed-files)). Any other value, an empty one included, counts as `off`. |
 | `AGENT_GUARD_MASK_DENY_VALUES` | A file of extra deny-value rules for `mask` mode, used together with `$HOME/.config/agent-guard/mask-deny-values.txt`. |
 | `AGENT_GUARD_DENY_BASH_PATTERNS` | Override the risky-shell-command policy file. |
 | `AGENT_GUARD_GITLEAKS_CONFIG` | Override the gitleaks configuration file. |
@@ -462,6 +463,74 @@ The bundled deny-read-paths, deny-Bash-patterns, and gitleaks files define the
 default policy. Do not loosen them only to silence a false positive; first
 confirm whether the operation is actually benign and use a structurally clear
 alternative where possible.
+
+### Committed files
+
+A deny-read entry without a `/` (`*.env`, `secrets.yaml`, `*.key`) protects a
+file by its name alone. A file that is committed to the repository an agent is
+working in is already part of what that agent may read, so by default such an
+entry does not block it. The exception applies only when all of these hold:
+
+- the path is a regular file, not a symlink, written without a symlinked
+  directory, `.` or `..` part, and inside the work tree of the repository
+  that holds the event working directory;
+- `git ls-files` reports it as tracked, and the file on disk is byte for byte
+  the blob committed at `HEAD` under that path. A file that is untracked
+  (ignored or not), only staged, or changed since the last commit stays blocked, so a
+  file committed with placeholder values and filled in locally is not opened;
+- no deny-read entry that names a directory matches it (`.aws/credentials`,
+  `.ssh/id_*` and similar stay blocked wherever they are, tracked or not);
+- for a shell command, the word is a literal operand of `cat`, `head`,
+  `tail`, `wc`, `cut`, `nl`, `tac`, `sort`, `stat`, `file`, `grep`, `egrep` or
+  `fgrep`: commands that open each file they are given, for reading, and no
+  other file because of it. Every word of that command must
+  be literal, with no redirection and no `&`, the whole line must hold no
+  `$` expansion, and anything its output is piped to must be a plain text
+  filter (`head`, `grep`, `sort`, `wc` and the like, without long options); its options must be plain flags
+  from a short built-in table (`grep -r`, `grep -f`, `grep --include`,
+  `sort -o`, `sort --files0-from`, `tail -f` and any long option keep the
+  block); and the command must be the first on the
+  line, or come right after one leading `cd ./DIR` or `cd /ABS/DIR` with a
+  single operand and no `..` (a bare `cd DIR` can land elsewhere through
+  `CDPATH`, so it keeps the block, as does a loop, a condition or any other
+  command before the read). Any other command
+  keeps the block: `git` (its operands also select revisions, the index and
+  wildcard pathspecs), `diff` and `comm` (a directory operand makes them open
+  a same-named file there), `uniq` (its second operand is written), `sed`
+  and `jq` (their script word is program text that can name another file), a
+  pager,
+  a test runner, `ssh`, `docker exec`, `find`, `sudo`, an inline script. The
+  `Read`, `NotebookRead` and `Grep` tools get the same exception for their
+  own path field (`file_path`, `notebook_path`, `path`) only; a Grep `glob`
+  stays checked by name, and so does a tool path with a `..` part, a
+  `file://` prefix, a leading `~`, a blank or any character outside
+  `A-Za-z0-9_./@%+,=-`.
+- the directory relative paths are placed in is the event's own absolute
+  `cwd`. A `workdir` or `cwd` inside `tool_input` counts only when the event
+  has no `cwd` (the Codex shell shape) or names the same directory; for a
+  shell command it must also be the directory the check itself runs in.
+  Otherwise, and when the event names no directory, the block stands. On
+  Codex the shell's working directory is chosen per command, so "the current
+  repository" is the one that directory is in.
+
+Git is asked only when a block is already pending, so a command that passes
+costs what it did before. If git is missing or cannot answer, the block
+stands.
+
+What an agent can read this way is content the repository already holds at
+`HEAD`. This adds no new way to reach a file an agent commits itself: a
+command such as `git show HEAD` already prints whatever was just committed,
+and the commit gate, not this exception, is what scans staged content. The
+check describes the file at the moment the hook runs: a process started
+earlier that replaces the file or a directory above it before the command
+reads it is not seen. A tracked file inside a directory whose name matches a
+name-only entry (`.env.d/notes.txt`) is opened too. A file whose working copy differs from the commit is blocked by its
+name until the change is committed; the file is compared without git filters,
+so a checkout that rewrites line endings or uses a clean/smudge filter keeps
+the block. Set `AGENT_GUARD_TRACKED_FILE_EXCEPTION=off` to restore the
+name-only block for committed files too; an empty value or anything other
+than `on` does the same. With `AGENT_GUARD_DENY_READ_MODE=mask`, a file under
+this exception is read as it is, not as a masked view.
 
 `setup-shell` installs an explicit one-line shell-rc block that sources
 `~/.agent-guard/shell-init.sh` (`shell-init-no-wrapping.sh` for the opt-out),

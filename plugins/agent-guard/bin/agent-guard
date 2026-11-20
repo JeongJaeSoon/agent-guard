@@ -5333,6 +5333,57 @@ matches_deny_path() {
   return 1
 }
 
+# Print the directory the tracked-file exception places relative paths in,
+# or nothing. The host's own `cwd` is the authority. A directory inside
+# tool_input counts only when the event has no `cwd` (the Codex shell shape)
+# or names the same one: a file tool takes no such parameter, so a stray
+# `tool_input.cwd` must not move "the current repository" elsewhere.
+exception_workdir() {
+  printf '%s' "$1" | jq -r --arg v "${2-}" "$EXCEPTION_WORKDIR_JQ"' | if '"${3:-true}"' then . else "" end' 2>/dev/null
+}
+EXCEPTION_WORKDIR_JQ='
+  ((.cwd // "") as $event
+   | (.tool_input.workdir? // .tool_input.cwd? // "") as $inner
+   | if ($event | type) != "string" or ($inner | type) != "string" then ""
+     elif $event == "" then $inner
+     elif $inner == "" or $inner == $event then $event
+     else "" end) as $dir
+  | . as $in | if ($dir | test("\n")) then "" else $dir end'
+
+# The Bash scan already runs in the directory the hook took from the event.
+# The exception applies only when that is the absolute directory
+# exception_workdir names: an empty or stray tool_input field can leave the
+# scan in the hook's own directory, where a relative word means another file.
+exception_workdir_is_here() {
+  ewh_dir=$(exception_workdir "$1") || return 1
+  case "$ewh_dir" in /*) ;; *) return 1 ;; esac
+  ewh_real=$(CDPATH= cd -P -- "$ewh_dir" 2>/dev/null && pwd -P) || return 1
+  [ "$ewh_real" = "$(pwd -P)" ]
+}
+
+# $1 is a path a file tool was given, $2 the hook input and $3 the jq path of
+# the tool's own path field. Only that field qualifies, compared as a whole
+# string: a Grep glob is a name filter applied under the path, any other
+# field is not known to be a path, and a path with a newline is a different
+# file from the line read here. One jq run answers both questions. Without a
+# workdir in the event the path cannot be placed, and the block stands.
+tool_path_tracked_exception() (
+  [ "${AGENT_GUARD_TRACKED_FILE_EXCEPTION-on}" = on ] || exit 1
+  # The host opens the path as written, after collapsing `..` by name; the
+  # check below follows symlinks. A path with a `..` part, a URL prefix or a
+  # tilde could therefore mean two different files, and keeps the block. A
+  # file tool takes no directory of its own, so only the event cwd counts.
+  case "/$1/" in */../*|/file:*|/'~'*) exit 1 ;; esac
+  # The host may also trim blanks and normalise Unicode before it opens the
+  # path, so only plain path characters qualify.
+  case "$1" in *[!A-Za-z0-9_./@%+,=-]*) exit 1 ;; esac
+  tpt_workdir=$(exception_workdir "$2" "$1" \
+    "(\$in | $3) == \$v and (\$in.cwd | type) == \"string\" and \$in.cwd != \"\"") || exit 1
+  case "$tpt_workdir" in /*) ;; *) exit 1 ;; esac
+  CDPATH= cd -- "$tpt_workdir" 2>/dev/null || exit 1
+  tracked_file_exception_applies "$1"
+)
+
 check_sensitive_reads() {
   input=$1
   # POSIX sh has no locals: do not reuse the caller's `tool` here, it is still
@@ -5370,6 +5421,18 @@ check_sensitive_reads() {
   while IFS= read -r value; do
     [ -n "$value" ] || continue
     if matches_deny_path "$value"; then
+      # A file tool reads the one path it is given from the event workdir, so
+      # a file under the tracked-file exception is not blocked by its name.
+      case "$reads_tool" in
+        Read) tool_path_field='.tool_input.file_path' ;;
+        NotebookRead) tool_path_field='.tool_input.notebook_path' ;;
+        Grep) tool_path_field='.tool_input.path' ;;
+        *) tool_path_field= ;;
+      esac
+      if [ -n "$tool_path_field" ] \
+        && tool_path_tracked_exception "$value" "$input" "$tool_path_field"; then
+        continue
+      fi
       rm -f "$tmp"
       dr_mode=$(deny_read_mode) || dr_mode=invalid
       if [ "$dr_mode" = mask ] && dr_target=$(read_mask_target "$input" "$reads_tool"); then
@@ -5906,7 +5969,8 @@ bash_matches_deny_path_mode() {
         # userinfo field or a directory component), so the excerpt can carry a
         # credential, and this branch blocks before any scanner runs, leaving
         # nothing downstream to redact it.
-        printf "matched deny-read-paths entry '%s'\n" "$entry"
+        # The caller prints it once the block is final.
+        deny_path_report="matched deny-read-paths entry '$entry'"
         return 0
         ;;
       1) ;;
@@ -7199,7 +7263,9 @@ bash_strip_literal_message_values() (
 # whose command is not on the inert list below are left alone too. With
 # `trusted` as $2, print instead the start offset of each jq or sed command
 # word that same segment check reaches; there an expansion or unsafe word
-# anywhere in an earlier segment also stops it.
+# anywhere in an earlier segment also stops it. With `tracked` as $2, print
+# instead (as `T start end value`) each literal operand of a command that
+# opens the paths it is given (tracked_scan), under the same segment check.
 search_operand_spans() {
   printf '%s\n' "$1" | LC_ALL=C awk -v grep_env="${GREP_OPTIONS-}" -v cd_ok="$(path_entries_absolute && echo 1)" -v mode="${2-}" \
     -v inert_names="$INERT_SEGMENT_COMMANDS_ERE" '
@@ -7288,6 +7354,45 @@ search_operand_spans() {
         }
       return out
     }
+    # The operand words of a command that reads the paths it is given from
+    # the directory it runs in: no remote host, container or archive, no name
+    # pattern applied to another directory, no wrapped command. git is not
+    # one: its operands also select revisions, the index and pathspec
+    # wildcards, so it can show bytes the work tree does not hold. Every word
+    # of the segment must be literal (a lone `&` or a redirection hides
+    # another command or a write), and every option must be on the short
+    # table below: none of them takes a name filter or a list of files as
+    # its value (`grep --include`, `sort --files0-from`, `grep -f`), so a word
+    # that is not an option is either a path the command opens or a value it
+    # never opens.
+    function tracked_scan(a, b,   k, v, h, opts, out) {
+      h = wv[a]
+      # Each of these opens every operand it is given, for reading, and no
+      # other file because of one: diff and comm pair an operand with a
+      # same-named file in a directory operand, uniq writes its second
+      # operand, a pager or `tail -f` reopens a name later, and the script
+      # word of sed or jq is program text that can name another file
+      # (`sed r.env`), not a path.
+      if (h == "cat") opts = "^-[AbeEnstTuv]+$"
+      else if (h == "head" || h == "tail") opts = "^-([0-9]+|[nc]|[nc][+-]?[0-9]+|[qv]+)$"
+      else if (h == "wc") opts = "^-[clmwL]+$"
+      else if (h == "cut") opts = "^-[dfcbsz]"
+      else if (h == "sort") opts = "^-[bdfgiMhnRrVsuz]+$"
+      else if (h ~ /^(grep|egrep|fgrep)$/) opts = "^-([EFGPHhilLnoqsvwxcaIzZbTy]+|[ABCm][0-9]*|e)$"
+      else if (h ~ /^(nl|tac|stat|file)$/) opts = "^$"
+      else return ""
+      out = ""
+      for (k = a + 1; k <= b; k++) {
+        v = wv[k]
+        if (bad(k)) return ""
+        if (v == "--") continue
+        if (substr(v, 1, 1) == "-") { if (v !~ opts) return ""; continue }
+        # `tail +1f` is the old spelling of -n +1 -f.
+        if (substr(v, 1, 1) == "+") return ""
+        if (v != "") out = out "T " ws[k] " " we[k] " " v "\n"
+      }
+      return out
+    }
     # `sed -n 1,50p file` only prints lines: with nothing but these flags
     # (GNU sed reads an option after the script too, so -i, -f or a second
     # script anywhere disqualifies it) and a line-number script, given as the
@@ -7329,7 +7434,9 @@ search_operand_spans() {
         }
         if (c == " " || c == "\t") { flush_word(); continue }
         if (c == ";" || c == "|" || c == "&" && substr(s, i + 1, 1) == "&") {
-          flush_word(); nseg++
+          flush_word()
+          segpipe[nseg] = (c == "|" && substr(s, i + 1, 1) != "|")
+          nseg++
           if (c != ";" && substr(s, i + 1, 1) == c) i++
           continue
         }
@@ -7354,6 +7461,36 @@ search_operand_spans() {
     }
     END {
       if (failed) exit 1
+      # Tracked mode reads one command only: the first on the line, or the
+      # one right after a leading `cd DIR`. A loop, a condition or any other
+      # earlier command could run the cd or the read more than once, or wait
+      # between the check and the read.
+      if (mode == "tracked") {
+        if (nw == 0) exit 0
+        # An expansion anywhere on the line can reuse the operand under
+        # another name (`cat /repo/a.env; cat $_.local`).
+        for (r = 1; r <= nw; r++) if (wdyn[r]) exit 0
+        for (e = 1; e < nw && wseg[e + 1] == wseg[1]; e++) ;
+        k = 1
+        if (wv[1] == "cd" && e == 2 && !bad(1) && !bad(2) && cd_ok == "1" && e < nw) {
+          k = 3
+          for (e = k; e < nw && wseg[e + 1] == wseg[k]; e++) ;
+        }
+        # What the pipeline of the reader feeds runs at the same time as the
+        # reader, so it must be a plain text filter that cannot touch the
+        # file before the reader opens it.
+        for (j = wseg[k]; segpipe[j]; j++) {
+          f = 0
+          for (r = 1; r <= nw; r++) {
+            if (wseg[r] != j + 1) continue
+            if (!f) { f = r; if (wv[r] !~ /^(wc|head|tail|sort|tr|cut|nl|grep|egrep|fgrep|column|cat)$/) exit 0 }
+            if (bad(r) || substr(wv[r], 1, 2) == "--" || wv[f] == "sort" && wv[r] ~ /^-[A-Za-z]*o/) exit 0
+          }
+          if (!f) exit 0
+        }
+        if (!bad(k)) printf "%s", tracked_scan(k, e)
+        exit 0
+      }
       for (k = 1; k <= nw; k = e + 1) {
         for (e = k; e < nw && wseg[e + 1] == wseg[k]; e++) ;
         if (!bad(k)) {
@@ -8521,7 +8658,178 @@ bash_strip_echo_literal_text() {
 }
 
 # Private variable name; see check_bash_command (#127).
+# The tracked-file exception: what is committed to the repository that holds
+# the event workdir is not secret from an agent working in that repository,
+# so a name pattern alone does not protect it. Return 0 only when $1, read
+# from the current directory, is all of: a regular file that is not a symlink;
+# inside that repository's work tree by its physical path, so no symlinked
+# directory leads out of it; in the index (git ls-files); byte for byte the
+# blob committed at HEAD under that path, so the read shows nothing the
+# repository does not already hold (a file committed with placeholders and
+# filled in locally, or one that is only staged, stays blocked); and matched
+# by no deny entry that names a directory (`.aws/credentials`, `.ssh/id_*`),
+# which stays protected wherever it is. Anything else, a git that fails or is
+# missing included, returns 1 and the block stands. Git variables are dropped
+# so the answer describes the work tree on disk, and the file is hashed
+# without filters, so no configured filter command runs.
+tracked_file_exception_applies() (
+  [ "${AGENT_GUARD_TRACKED_FILE_EXCEPTION-on}" = on ] || exit 1
+  tfe_path=$1
+  case "$tfe_path" in
+    ''|*'
+'*) exit 1 ;;
+  esac
+  [ -f "$tfe_path" ] && [ ! -L "$tfe_path" ] || exit 1
+  case "$tfe_path" in
+    */*) tfe_dir=${tfe_path%/*}; [ -n "$tfe_dir" ] || tfe_dir=/ ;;
+    *) tfe_dir=. ;;
+  esac
+  tfe_dir=$(CDPATH= cd -P -- "$tfe_dir" 2>/dev/null && pwd -P) || exit 1
+  tfe_real=${tfe_dir%/}/${tfe_path##*/}
+  # The path as written must be that same location for every process that
+  # opens it: no symlink, `.` or `..` part on the way. `/proc/self/cwd/x` is
+  # one file for this check and another for a command that has changed
+  # directory.
+  case "$tfe_path" in
+    /*) tfe_written=$tfe_path ;;
+    *) tfe_written=$(pwd -P)/${tfe_path#./} ;;
+  esac
+  [ "$tfe_written" = "$tfe_real" ] || exit 1
+  unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
+    GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_NAMESPACE GIT_CEILING_DIRECTORIES \
+    GIT_DISCOVERY_ACROSS_FILESYSTEM GIT_CONFIG
+  # Replace refs can make HEAD:<path> name an object that was never committed.
+  unset GIT_REPLACE_REF_BASE
+  GIT_OPTIONAL_LOCKS=0 GIT_NO_LAZY_FETCH=1 GIT_NO_REPLACE_OBJECTS=1
+  export GIT_OPTIONAL_LOCKS GIT_NO_LAZY_FETCH GIT_NO_REPLACE_OBJECTS
+  tfe_top=$(git rev-parse --show-toplevel 2>/dev/null) || exit 1
+  tfe_top=$(CDPATH= cd -P -- "$tfe_top" 2>/dev/null && pwd -P) || exit 1
+  case "$(pwd -P)/" in
+    "${tfe_top%/}"/*) ;;
+    *) exit 1 ;;
+  esac
+  case "$tfe_real" in
+    "${tfe_top%/}"/*) ;;
+    *) exit 1 ;;
+  esac
+  tfe_rel=${tfe_real#"${tfe_top%/}"/}
+  [ -f "$DENY_READ_PATHS" ] || exit 1
+  while IFS= read -r tfe_entry || [ -n "$tfe_entry" ]; do
+    case "$tfe_entry" in
+      ''|\#*) continue ;;
+      */*)
+        # shellcheck disable=SC2254
+        case "$tfe_real" in
+          $tfe_entry|*/$tfe_entry|*/$tfe_entry/*) exit 1 ;;
+        esac
+        # The path as written too: a symlinked directory can carry the name.
+        # shellcheck disable=SC2254
+        case "/$tfe_path" in
+          */$tfe_entry|*/$tfe_entry/*) exit 1 ;;
+        esac
+        ;;
+    esac
+  done <"$DENY_READ_PATHS"
+  git -c core.fsmonitor=false --literal-pathspecs -C "$tfe_top" \
+    ls-files --error-unmatch -- "$tfe_rel" >/dev/null 2>&1 || exit 1
+  # ls-tree, not HEAD:<path>: the revision parser would read a name ending in
+  # -g<hex> as an object id. Exactly one regular-file entry under that path.
+  tfe_tree=$(git --literal-pathspecs -C "$tfe_top" ls-tree --full-tree HEAD -- "$tfe_rel" 2>/dev/null) \
+    && [ -n "$tfe_tree" ] || exit 1
+  case "$tfe_tree" in
+    *'
+'*) exit 1 ;;
+    '100644 blob '*"	$tfe_rel"|'100755 blob '*"	$tfe_rel") ;;
+    *) exit 1 ;;
+  esac
+  tfe_head=${tfe_tree#?????? blob }
+  tfe_head=${tfe_head%%"	"*}
+  tfe_disk=$(git -C "$tfe_top" hash-object --no-filters -- "$tfe_real" 2>/dev/null) || exit 1
+  [ "$tfe_disk" = "$tfe_head" ]
+)
+
+# Replace with `_` each operand word (search_operand_spans, tracked mode)
+# that names a file under the tracked-file exception, keeping every other
+# byte, so the scan that follows still reads every other word. A relative
+# word is read from the event workdir or from the one static directory the
+# command may change to: it qualifies only when, at each of the two, the path
+# is either such a file or absent, and at one of them it is such a file. An
+# unknown directory change leaves relative words alone.
+bash_strip_tracked_file_operands() (
+  set -f
+  tf_cmd=$1
+  tf_spans=$(search_operand_spans "$tf_cmd" tracked) && [ -n "$tf_spans" ] || {
+    printf '%s' "$tf_cmd"
+    exit 0
+  }
+  tf_rebase_known=1 tf_rebase=
+  if bash_command_may_rebase_relative_paths "$tf_cmd"; then
+    tf_rebase=$(bash_command_rebase_target "$tf_cmd") || tf_rebase_known=0
+  fi
+  tf_keep=
+  tf_ifs=$IFS
+  IFS='
+'
+  for tf_span in $tf_spans; do
+    IFS=$tf_ifs
+    tf_rest=${tf_span#T }
+    tf_start=${tf_rest%% *}; tf_rest=${tf_rest#* }
+    tf_end=${tf_rest%% *}; tf_path=${tf_rest#* }
+    case "$tf_path" in
+      /*) set -- "$tf_path" ;;
+      *)
+        [ "$tf_rebase_known" -eq 1 ] || continue
+        set -- "$tf_path"
+        [ -z "$tf_rebase" ] || set -- "$tf_path" "$tf_rebase/$tf_path"
+        ;;
+    esac
+    tf_tracked=0 tf_other=0
+    for tf_target in "$@"; do
+      if tracked_file_exception_applies "$tf_target"; then
+        tf_tracked=1
+      elif [ -e "$tf_target" ] || [ -L "$tf_target" ]; then
+        tf_other=1
+      fi
+    done
+    [ "$tf_tracked" -eq 1 ] && [ "$tf_other" -eq 0 ] || continue
+    tf_keep="$tf_keep $tf_start $tf_end"
+  done
+  IFS=$tf_ifs
+  [ -n "$tf_keep" ] || { printf '%s' "$tf_cmd"; exit 0; }
+  printf '%s\n' "$tf_cmd" | LC_ALL=C awk -v spans="$tf_keep" '
+    {
+      m = split(spans, p, " "); out = ""; at = 1
+      for (k = 1; k < m; k += 2) {
+        out = out substr($0, at, p[k] - at) "_"
+        at = p[k + 1] + 1
+      }
+      printf "%s", out substr($0, at)
+    }'
+)
+
+# Return 0 and print the matched entry when the command names a protected
+# path. Git is asked about tracked files only here, once a block is already
+# pending, so a command that passes costs what it did before. The rescan reads
+# the command with those operands replaced, and every other word as written.
 bash_matches_deny_path() {
+  deny_path_report=
+  bash_deny_path_scan "$1" || return "$?"
+  # $2 is the hook input. It is read for the event workdir only here, once a
+  # block is pending. Without a workdir a relative word cannot be placed (the
+  # hook's own directory need not be the shell's), and the block stands.
+  if [ "${AGENT_GUARD_TRACKED_FILE_EXCEPTION-on}" = on ] && [ -n "${2-}" ] \
+    && exception_workdir_is_here "$2"; then
+    tfx_cmd=$(bash_strip_tracked_file_operands "$1") || tfx_cmd=$1
+    if [ -n "$tfx_cmd" ] && [ "$tfx_cmd" != "$1" ]; then
+      deny_path_report=
+      bash_deny_path_scan "$tfx_cmd" || return "$?"
+    fi
+  fi
+  [ -z "$deny_path_report" ] || printf '%s\n' "$deny_path_report"
+  return 0
+}
+
+bash_deny_path_scan() {
   deny_cmd=$1
   case "$deny_cmd" in
     *"\\
@@ -11724,7 +12032,7 @@ $joined_cmd"
   deny_report=$(
     [ -n "$workdir" ] && { CDPATH= cd -- "$workdir" 2>/dev/null \
       || die "hook workdir is not accessible: $workdir"; }
-    bash_matches_deny_path "$raw_cmd"
+    bash_matches_deny_path "$raw_cmd" "$input"
   )
   case "$?" in
     0)

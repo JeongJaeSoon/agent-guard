@@ -1,0 +1,614 @@
+[
+  {
+    "id": "cat-tracked-yaml",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "cat of a committed test fixture whose name is on the deny list",
+    "command": "cat tests/fixtures/secrets.yaml"
+  },
+  {
+    "id": "cat-untracked",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "cat of an untracked env-shaped file",
+    "command": "cat local.env"
+  },
+  {
+    "id": "head-tracked-env",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "head of a committed env-shaped file",
+    "command": "head -n 5 config/staging.env"
+  },
+  {
+    "id": "cat-ignored",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "cat of an ignored dotenv file",
+    "command": "cat .env"
+  },
+  {
+    "id": "grep-tracked-json",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "grep in a committed test file named like a credential store",
+    "command": "grep -n name tests/credentials.json"
+  },
+  {
+    "id": "cat-staged-only",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a file that is staged but not committed is not at HEAD",
+    "command": "cat staged.env"
+  },
+  {
+    "id": "cat-modified-tracked",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a committed file whose working copy was changed after the commit",
+    "command": "cat modified.env"
+  },
+  {
+    "id": "tail-tracked-quoted",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "tail of a quoted committed path",
+    "command": "tail -n 5 \"tests/app.env.test\""
+  },
+  {
+    "id": "cat-tracked-symlink",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a committed symlink that points outside the repository",
+    "command": "cat link.env"
+  },
+  {
+    "id": "git-diff-tracked",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "git operands also select revisions and the index, so git gets no exception",
+    "command": "git diff -- config/staging.env"
+  },
+  {
+    "id": "git-dash-c-other",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "git with a global option that moves it to another directory",
+    "command": "git -C ../outside show settings.env"
+  },
+  {
+    "id": "git-log-history",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "git log -p shows earlier revisions of a committed file",
+    "command": "git log -p -- config/staging.env"
+  },
+  {
+    "id": "git-diff-cached",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "git diff --cached shows staged bytes",
+    "command": "git diff --cached -- config/staging.env"
+  },
+  {
+    "id": "git-grep-quoted-glob",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a quoted wildcard pathspec is expanded by git itself",
+    "command": "git grep --untracked name -- '*.env'"
+  },
+  {
+    "id": "bash-no-workdir",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a Bash event without a workdir",
+    "workdir": "",
+    "command": "cat config/staging.env"
+  },
+  {
+    "id": "option-empty",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "the switch set to an empty value",
+    "env": "AGENT_GUARD_TRACKED_FILE_EXCEPTION=",
+    "command": "cat config/staging.env"
+  },
+  {
+    "id": "background-then-git",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a lone & hides a second command behind the reader",
+    "command": "cat README.md & git log -p config/staging.env"
+  },
+  {
+    "id": "background-glued-ssh",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a glued & before a remote command",
+    "command": "cat README.md&ssh build-host cat config/staging.env"
+  },
+  {
+    "id": "grep-include-value",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a committed name as the value of a name filter option",
+    "command": "grep -r --include settings.env name ."
+  },
+  {
+    "id": "sort-files-from",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "an option that reads a list of files",
+    "command": "sort --files0-from config/staging.env"
+  },
+  {
+    "id": "redirect-into-tracked",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a redirection that overwrites a committed file",
+    "command": "cat README.md > config/staging.env"
+  },
+  {
+    "id": "sed-in-place-tracked",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "an in-place edit of a committed file",
+    "command": "sed -i s/a/b/ config/staging.env"
+  },
+  {
+    "id": "bash-inner-workdir-other-repo",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a tool_input workdir that names another repository than the event cwd",
+    "inner_workdir": "@OTHER@",
+    "command": "cat @OTHER@/settings.env"
+  },
+  {
+    "id": "diff-file-and-directory",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "diff pairs a committed file with the same name in a directory operand",
+    "command": "diff config/staging.env @OUTSIDE@"
+  },
+  {
+    "id": "uniq-output-operand",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "the second operand of uniq is written",
+    "command": "uniq README.md settings.env"
+  },
+  {
+    "id": "tail-follow",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "tail -F reopens the name later",
+    "command": "tail -F config/staging.env"
+  },
+  {
+    "id": "sleep-then-cat",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a wait before the read widens the gap between check and read",
+    "command": "sleep 5; cat config/staging.env"
+  },
+  {
+    "id": "bash-empty-inner-workdir",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "an empty tool_input workdir leaves the scan in the hook directory while the event names another",
+    "command": "cat settings.env",
+    "inner_workdir": "",
+    "workdir": "@OUTSIDE@"
+  },
+  {
+    "id": "bash-relative-event-cwd",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a relative event cwd",
+    "command": "cat config/staging.env",
+    "workdir": "."
+  },
+  {
+    "id": "sed-script-word",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "the script word of sed is program text, so sed gets no exception",
+    "command": "sed -n 1,5p config/staging.env"
+  },
+  {
+    "id": "sed-read-script-decoy",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a sed r script glued to a committed name",
+    "command": "sed rsettings.env README.md"
+  },
+  {
+    "id": "jq-file-operand",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "jq gets no exception",
+    "command": "jq . config/staging.env"
+  },
+  {
+    "id": "cd-two-operands",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "cd with two operands goes elsewhere in zsh and ksh",
+    "command": "cd @REPO@ @REPO@/tests && cat settings.env"
+  },
+  {
+    "id": "symlinked-dir-anchored-name",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a symlinked directory whose written name matches a directory-anchored entry",
+    "command": "cat .kube/config"
+  },
+  {
+    "id": "loop-repeats-cd",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a loop runs the one cd more than once",
+    "command": "for i in a b; do cd ./tests; done; cat credentials.json"
+  },
+  {
+    "id": "loop-around-read",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a loop keeps reopening the file after the single check",
+    "command": "while true; do true; cat config/staging.env; done"
+  },
+  {
+    "id": "tail-plus-follow",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "the old tail +Nf spelling follows the file",
+    "command": "tail +1f config/staging.env"
+  },
+  {
+    "id": "inert-command-then-cat",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a read that is not the first command on the line",
+    "command": "true; cat config/staging.env"
+  },
+  {
+    "id": "later-expansion-reuses-operand",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a later command reuses the committed operand through $_ under another name",
+    "command": "cat @REPO@/config/staging.env; cat $_.local"
+  },
+  {
+    "id": "pipe-to-shell-consumer",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "what the pipe feeds runs beside the reader and could swap the file first",
+    "command": "cat config/staging.env | sh -c 'mv config config.bak; cat'"
+  },
+  {
+    "id": "pipe-to-git-consumer",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a pipeline consumer that can rewrite the work tree",
+    "command": "cat config/staging.env | git stash pop"
+  },
+  {
+    "id": "process-relative-path",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a path through /proc/self/cwd names another file once the command has changed directory",
+    "command": "cd @REPO@ && cat /proc/self/cwd/staging.env",
+    "workdir": "@REPO@/config"
+  },
+  {
+    "id": "symlinked-directory-inside",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a path through a symlinked directory inside the repository is not the path as written",
+    "command": "cat cfglink/staging.env"
+  },
+  {
+    "id": "cd-inside-then-cat",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "cd into a directory of the repository, then cat a committed file",
+    "command": "cd ./tests && cat credentials.json"
+  },
+  {
+    "id": "cd-outside-then-cat",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "cd out of the repository, then cat a name that is committed in the workdir",
+    "command": "cd ../outside && cat settings.env"
+  },
+  {
+    "id": "cat-absolute-tracked",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "cat of a committed file by absolute path",
+    "command": "cat @REPO@/config/staging.env"
+  },
+  {
+    "id": "cat-absolute-outside",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "cat of an absolute path outside the repository",
+    "command": "cat @OUTSIDE@/settings.env"
+  },
+  {
+    "id": "cat-tracked-pipe-head",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a committed file read at the head of a pipeline",
+    "command": "cat config/staging.env | head -3"
+  },
+  {
+    "id": "cat-tracked-and-untracked",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a committed file next to an untracked one in the same command",
+    "command": "cat config/staging.env local.env"
+  },
+  {
+    "id": "cat-relative-outside",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a relative path that leaves the repository",
+    "command": "cat ../outside/settings.env"
+  },
+  {
+    "id": "cat-through-symlinked-dir",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a path through a symlinked directory that leaves the repository",
+    "command": "cat linkdir/settings.env"
+  },
+  {
+    "id": "cat-swapped-symlink",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a committed file replaced on disk by a symlink to a file outside",
+    "command": "cat swapped.env"
+  },
+  {
+    "id": "cat-dir-anchored",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a committed file at a directory-anchored protected location",
+    "command": "cat .aws/credentials"
+  },
+  {
+    "id": "cd-other-repo-then-cat",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a file committed in another repository, not the one that holds the workdir",
+    "command": "cd @OTHER@ && cat settings.env"
+  },
+  {
+    "id": "ssh-remote-cat",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a remote command that names a path committed locally",
+    "command": "ssh build-host cat config/staging.env"
+  },
+  {
+    "id": "docker-exec-cat",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a container command that names a path committed locally",
+    "command": "docker exec api cat config/staging.env"
+  },
+  {
+    "id": "find-name",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a name pattern applied to another directory",
+    "command": "find / -name settings.env"
+  },
+  {
+    "id": "sudo-cat",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a wrapped command",
+    "command": "sudo cat config/staging.env"
+  },
+  {
+    "id": "alias-then-cat",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a command sequenced before the reader can rebind its name",
+    "command": "alias cat=tac; cat config/staging.env"
+  },
+  {
+    "id": "substitution-operand",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a command substitution on the line",
+    "command": "cat $(echo config/staging.env)"
+  },
+  {
+    "id": "inline-script-open",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "an inline script that names a committed path",
+    "command": "python3 -c \"print(open('config/staging.env').read())\""
+  },
+  {
+    "id": "second-segment-untracked",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a committed file in one segment and an untracked one in the next",
+    "command": "cat config/staging.env; cat local.env"
+  },
+  {
+    "id": "option-off",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "the exception switched off",
+    "env": "AGENT_GUARD_TRACKED_FILE_EXCEPTION=off",
+    "command": "cat config/staging.env"
+  },
+  {
+    "id": "option-invalid",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "an unknown value of the switch disables the exception",
+    "env": "AGENT_GUARD_TRACKED_FILE_EXCEPTION=yes",
+    "command": "cat config/staging.env"
+  },
+  {
+    "id": "git-fails",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "git cannot answer",
+    "git": "fails",
+    "command": "cat config/staging.env"
+  },
+  {
+    "id": "workdir-not-a-repo",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "the event workdir is not inside a repository",
+    "workdir": "@OUTSIDE@",
+    "command": "cat settings.env"
+  },
+  {
+    "id": "read-tool-tracked",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "the Read tool on a committed env-shaped file",
+    "tool": "Read",
+    "path": "@REPO@/config/staging.env"
+  },
+  {
+    "id": "read-tool-untracked",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "the Read tool on an untracked env-shaped file",
+    "tool": "Read",
+    "path": "@REPO@/local.env"
+  },
+  {
+    "id": "read-tool-relative-tracked",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "the Read tool on a committed file by relative path",
+    "tool": "Read",
+    "path": "tests/fixtures/secrets.yaml"
+  },
+  {
+    "id": "read-tool-dir-anchored",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "the Read tool on a committed file at a directory-anchored location",
+    "tool": "Read",
+    "path": "@REPO@/.aws/credentials"
+  },
+  {
+    "id": "grep-tool-tracked",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "the Grep tool on a committed file",
+    "tool": "Grep",
+    "path": "@REPO@/tests/credentials.json"
+  },
+  {
+    "id": "grep-tool-outside",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "the Grep tool on a file outside the repository",
+    "tool": "Grep",
+    "path": "@OUTSIDE@/settings.env"
+  },
+  {
+    "id": "read-tool-modified",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "the Read tool on a committed file changed after the commit",
+    "tool": "Read",
+    "path": "@REPO@/modified.env"
+  },
+  {
+    "id": "read-tool-off",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "the Read tool with the exception switched off",
+    "env": "AGENT_GUARD_TRACKED_FILE_EXCEPTION=off",
+    "tool": "Read",
+    "path": "@REPO@/config/staging.env"
+  },
+  {
+    "id": "grep-tool-glob-leaf",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a Grep glob that equals a committed path, searched under a directory outside",
+    "tool": "Grep",
+    "path": "@OUTSIDE@",
+    "glob": "settings.env"
+  },
+  {
+    "id": "notebookread-tool-tracked",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "the NotebookRead tool on a committed file",
+    "tool": "NotebookRead",
+    "path": "@REPO@/config/staging.env"
+  },
+  {
+    "id": "notebookread-tool-untracked",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "the NotebookRead tool on an untracked file",
+    "tool": "NotebookRead",
+    "path": "@REPO@/local.env"
+  },
+  {
+    "id": "read-tool-inner-cwd-other-repo",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "the Read tool with a tool_input cwd that names another repository",
+    "tool": "Read",
+    "path": "@OTHER@/settings.env",
+    "inner_workdir": "@OTHER@"
+  },
+  {
+    "id": "read-tool-dotdot",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a tool path with a .. part, which the host collapses by name",
+    "tool": "Read",
+    "path": "@REPO@/tests/../config/staging.env"
+  },
+  {
+    "id": "read-tool-file-url",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a tool path with a URL prefix",
+    "tool": "Read",
+    "path": "file://@REPO@/config/staging.env"
+  },
+  {
+    "id": "read-tool-leading-space",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a committed file whose name starts with a blank, which the host may trim to another file",
+    "tool": "Read",
+    "path": " lead.env"
+  },
+  {
+    "id": "read-tool-symlinked-dir-anchored",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "the Read tool through a symlinked directory named like a directory-anchored entry",
+    "tool": "Read",
+    "path": "@REPO@/.kube/config"
+  },
+  {
+    "id": "read-tool-process-relative",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "the Read tool on a path through /proc/self/cwd",
+    "tool": "Read",
+    "path": "/proc/self/cwd/config/staging.env"
+  }
+]
