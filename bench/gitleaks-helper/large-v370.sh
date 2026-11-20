@@ -16,6 +16,7 @@ set -eu
 V370=$1 BRANCH=$2 GL=$3 HDIR=$4
 CASE=$(mktemp -d /tmp/aglv.XXXXXX)
 trap 'pkill -f "$CASE/lib/agent-guard-gitleaks-helper" 2>/dev/null || true; rm -rf "$CASE"' 0
+trap 'exit 1' HUP INT TERM
 mkdir -p "$CASE/bin" "$CASE/lib" "$CASE/empty" "$CASE/work"
 cp "$GL" "$CASE/bin/gitleaks"
 cp "$HDIR/agent-guard-scan" "$HDIR/agent-guard-gitleaks-helper" "$CASE/lib/"
@@ -43,12 +44,15 @@ run_one() { # $1 variant, $2 fixture, $3 home -> runs once
   case "$1" in v370) cli=$V370/bin/agent-guard ;; off) cli=$BRANCH/plugins/agent-guard/bin/agent-guard ;;
     warm) cli=$BRANCH/plugins/agent-guard/bin/agent-guard helper=$CASE/lib/agent-guard-scan ;; esac
   (cd "$CASE/work" && env HOME="$3/home" XDG_STATE_HOME="$3/xs" AGENT_GUARD_HOOK_HOST=claude \
-    ${helper:+AGENT_GUARD_GITLEAKS_HELPER="$helper"} "$cli" "$(hookcmd "$2")" <"$CASE/$2.json" >"$3/out" 2>"$3/err")
-  echo $? >"$3/status"
+    ${helper:+AGENT_GUARD_GITLEAKS_HELPER="$helper"} "$cli" "$(hookcmd "$2")" <"$CASE/$2.json" >"$3/out" 2>"$3/err") \
+    && echo 0 >"$3/status" || echo "$?" >"$3/status"
 }
-printf 'variant\tfixture\tstatus\tmedian_ms\tbytes_rw_MiB\tprograms\n'
+printf 'variant\tfixture\tstatus\tmedian_ms\tbytes_rw_MiB\tof_which_helper_MiB\tprograms\n'
 for fx in pre-300k pre-1m post-300k post-1m; do
   for v in v370 off warm; do
+    # One helper at a time: stop the previous case's before its state goes.
+    pkill -f "$CASE/lib/agent-guard-gitleaks-helper" 2>/dev/null || true
+    sleep 0.2
     H=$CASE/h-$v; rm -rf "$H"; mkdir -p "$H/home" "$H/xs"; chmod 700 "$H/xs"
     run_one "$v" "$fx" "$H"; run_one "$v" "$fx" "$H"   # warm caches (and the helper) first
     [ "$v" != warm ] || sleep 1
@@ -58,6 +62,20 @@ for fx in pre-300k pre-1m post-300k post-1m; do
       times="$times $(( (t1 - t0) / 1000000 ))"
     done
     med=$(printf '%s\n' $times | sort -n | sed -n 4p)
+    # The warm helper runs outside the hook's process tree (an earlier hook
+    # started it), so trace it too while the counted hook runs.
+    helper_pid=
+    if [ "$v" = warm ]; then
+      # Matched by its state directory. None runs when the hook calls no
+      # gitleaks (an output over the scan cap takes the whole-output path).
+      helper_pid=$(pgrep -f -- "--state-dir $H/xs/" | head -n 1 || true)
+      if [ -n "$helper_pid" ]; then
+        strace -qq -p "$helper_pid" -e trace=read,write,pread64,pwrite64,readv,writev -e status=successful \
+          -o "$H/trace.helper" 2>/dev/null &
+        tracer=$!
+        sleep 0.5
+      fi
+    fi
     strace_run() {
       helper=
       case "$v" in v370) cli=$V370/bin/agent-guard ;; off) cli=$BRANCH/plugins/agent-guard/bin/agent-guard ;;
@@ -68,8 +86,18 @@ for fx in pre-300k pre-1m post-300k post-1m; do
         "$cli" "$(hookcmd "$fx")" <"$CASE/$fx.json" >/dev/null 2>&1) || true
     }
     strace_run
-    bytes=$(awk '/^[0-9]+ +(read|write|pread64|pwrite64|readv|writev)\(/ { n = $NF; if (n ~ /^[0-9]+$/) s += n } END { printf "%.1f", s / 1048576 }' "$H/trace")
+    : >"$H/trace.helper.done"
+    if [ -n "$helper_pid" ]; then
+      sleep 0.5
+      kill "$tracer" 2>/dev/null || true
+      wait "$tracer" 2>/dev/null || true
+      cat "$H/trace.helper" >"$H/trace.helper.done" 2>/dev/null || true
+    fi
+    # Every process: the hook's tree plus, when warm, the helper. A trace line
+    # of the attached helper has no pid column, so match both forms.
+    bytes=$(cat "$H/trace" "$H/trace.helper.done" | awk '/^([0-9]+ +)?(read|write|pread64|pwrite64|readv|writev)\(/ { n = $NF; if (n ~ /^[0-9]+$/) s += n } END { printf "%.1f", s / 1048576 }')
+    helper_bytes=$(awk '/^(read|write|pread64|pwrite64|readv|writev)\(/ { n = $NF; if (n ~ /^[0-9]+$/) s += n } END { printf "%.2f", s / 1048576 }' "$H/trace.helper.done")
     progs=$(grep -c 'execve("' "$H/trace" || true)
-    printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$v" "$fx" "$(cat "$H/status")" "$med" "$bytes" "$progs"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$v" "$fx" "$(cat "$H/status")" "$med" "$bytes" "$helper_bytes" "$progs"
   done
 done
