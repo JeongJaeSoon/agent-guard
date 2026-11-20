@@ -173,7 +173,10 @@ it answers.
 - Every frame has a bounded header and payload (1 MiB); a short frame is an
   error.
 - The helper writes no scanned content to disk or logs; the client writes the
-  report file where the real gitleaks would.
+  report into the file the CLI created, through one handle, so the file keeps
+  its private mode and is never removed and recreated. (The real gitleaks
+  removes and recreates the report path with the umask's mode; the CLI's
+  report file normally sits in its private run directory.)
 - Another process of the same user can serve the socket path. The peer
   check keeps other users out; it cannot tell two processes of the same user
   apart, which is the trust the CLI's clean-scan cache in the same directory
@@ -234,7 +237,8 @@ after inputs of 1 MiB and dense 300 KB secrets (its peak was 77 MiB), and
 65 MiB while four sessions scanned through it at once, still one process. The
 client peaks at 3.4 MiB (7.7 MiB for a 1 MiB input) for a few milliseconds.
 Off, nothing changes: across 128 runs (14 hook fixtures, `scan-staged` and
-`scan-path`; Claude and Codex; log on and off) exit codes, output, the number
+`scan-path`; Claude and Codex; log on and off; the variable unset and pointing
+at a missing client) exit codes, output, the number
 of programs executed and the number of processes forked equal main
 (`bench/gitleaks-helper/compare-off.sh`, also run in CI).
 

@@ -292,14 +292,19 @@ func run(opts options) int {
 	if err := local.SameUser(uconn); err != nil {
 		return c.real("peer")
 	}
-	// gitleaks checks the report path is writable before it scans.
+	// gitleaks checks the report path is writable before it scans. Open it
+	// once and keep the handle: the CLI's report file is a private mktemp
+	// file (it can live in a shared TMPDIR), so it is never removed or
+	// recreated here. Writing through the same handle keeps its mode and
+	// leaves no moment where another user could claim the name.
+	var report *os.File
 	if scan.reportPath != "" {
-		f, err := os.Create(scan.reportPath)
+		f, err := os.OpenFile(scan.reportPath, os.O_WRONLY|os.O_CREATE, 0o666)
 		if err != nil {
 			return c.real("report-path")
 		}
-		_ = f.Close()
-		_ = os.Remove(scan.reportPath)
+		report = f
+		defer report.Close()
 	}
 	if reason := c.readInput(); reason != "" {
 		return c.real(reason)
@@ -333,9 +338,9 @@ func run(opts options) int {
 	if resp.ExitCode != 0 && resp.ExitCode != scan.exitCode {
 		return c.real("answer")
 	}
-	if scan.reportPath != "" {
-		if len(reportBytes) == 0 || os.WriteFile(scan.reportPath, reportBytes, 0o666) != nil {
-			_ = os.Remove(scan.reportPath)
+	if report != nil {
+		if len(reportBytes) == 0 || !writeReport(report, reportBytes) {
+			// The real gitleaks truncates and rewrites the same path.
 			return c.real("report-write")
 		}
 	}
@@ -404,6 +409,16 @@ func (c *client) readInput() string {
 		return "stdin"
 	}
 	return ""
+}
+
+// writeReport replaces the report file's content through the handle opened
+// before the scan, as gitleaks's own truncate-and-write does.
+func writeReport(f *os.File, data []byte) bool {
+	if err := f.Truncate(0); err != nil {
+		return false
+	}
+	_, err := f.WriteAt(data, 0)
+	return err == nil
 }
 
 func safeReason(reason string) string {

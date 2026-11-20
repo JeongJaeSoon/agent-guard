@@ -8,7 +8,7 @@
 #   sh bench/gitleaks-helper/compare-off.sh /abs/main-checkout /abs/gitleaks
 set -u
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd -P)
-BASE=${1:?base checkout required}
+BASE=$(CDPATH= cd -- "${1:?base checkout required}" && pwd -P) || exit 1
 REAL=${2:?gitleaks required}
 CASE=$(mktemp -d /tmp/aghoff.XXXXXX) || exit 1
 trap 'rm -rf "$CASE"' 0
@@ -54,8 +54,10 @@ run() { # $1 cli, $2 fixture, $3 host, $4 log mode, $5 helper env, $6 out prefix
   echo "$?" >"$6.status"
   # Messages may name the CLI's own absolute path (setup hints); the two trees
   # live in different directories, so compare that path as one placeholder.
+  # Files without the path stay byte for byte as written.
   for part in out err; do
-    LC_ALL=C awk -v root="$1" '{
+    grep -qF -- "$1" "$6.$part" || continue
+    CLI_ROOT=$1 LC_ALL=C awk 'BEGIN { root = ENVIRON["CLI_ROOT"] } {
       out = ""
       while ((at = index($0, root)) > 0) { out = out substr($0, 1, at - 1) "<cli-root>"; $0 = substr($0, at + length(root)) }
       print out $0
