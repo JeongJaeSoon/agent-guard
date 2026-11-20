@@ -292,9 +292,10 @@ func run(opts options) int {
 	if err := local.SameUser(uconn); err != nil {
 		return c.real("peer")
 	}
-	// gitleaks checks the report path is writable before it scans (os.Create:
-	// read-write, so a FIFO or write-only file fails alike). Open it once and
-	// keep the handle: the CLI's report file is a private mktemp
+	// gitleaks checks the report path is writable before it scans; open it
+	// read-write as its os.Create does, so a write-only file is refused alike
+	// (a FIFO opens but cannot be truncated, which also falls back). Open it
+	// once and keep the handle: the CLI's report file is a private mktemp
 	// file (it can live in a shared TMPDIR), so it is never removed or
 	// recreated here. Writing through the same handle keeps its mode and
 	// leaves no moment where another user could claim the name.

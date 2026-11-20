@@ -159,8 +159,29 @@ helper_case pull_request ubuntu-24.04 'bench/gitleaks-helper/compare-off.sh'
 helper_case pull_request ubuntu-24.04 'docs/native/gitleaks-helper/notes.md'
 helper_case pull_request ubuntu-24.04 ''
 helper_wf="$ROOT/.github/workflows/gitleaks-helper.yml"
+# Run the workflow's own diff command on a real history: a helper file moved
+# out of the helper tree, and a non-ASCII helper path, still select macOS.
+helper_diff=$(sed -n 's/^ *\(git -c core.quotePath=false diff [^>]*\) > "\$RUNNER_TEMP\/changed"$/\1/p' "$helper_wf")
+[ -n "$helper_diff" ] || fail 'the helper workflow lists changed paths with one git diff command'
+moves=$(mktemp -d)
+for change in rename unicode; do
+  rm -rf "$moves/repo"
+  git init -q "$moves/repo"
+  mkdir -p "$moves/repo/native/gitleaks-helper"
+  printf 'package x\n' >"$moves/repo/native/gitleaks-helper/a.go"
+  git -C "$moves/repo" add . && git -C "$moves/repo" -c user.email=t@example.test -c user.name=t commit -qm base
+  case $change in
+    rename) git -C "$moves/repo" mv native/gitleaks-helper/a.go moved.go ;;
+    unicode) printf 'package x\n' >"$moves/repo/native/gitleaks-helper/é.go" && git -C "$moves/repo" add . ;;
+  esac
+  git -C "$moves/repo" -c user.email=t@example.test -c user.name=t commit -qm change
+  got=$(cd "$moves/repo" && eval "$helper_diff" | helper_scope pull_request) || { rm -rf "$moves"; fail "helper scope after a $change"; }
+  [ "$got" = "$both" ] || { rm -rf "$moves"; fail "a helper $change selects macOS: got '$got'"; }
+  pass=$((pass + 1))
+done
+rm -rf "$moves"
 grep -Fq 'matrix: ${{ fromJSON(needs.scope.outputs.matrix) }}' "$helper_wf" \
-  && grep -Fq 'git diff --name-only HEAD^1 HEAD > "$RUNNER_TEMP/changed"' "$helper_wf" \
+  && grep -Fq 'git -c core.quotePath=false diff --no-renames --name-only HEAD^1 HEAD > "$RUNNER_TEMP/changed"' "$helper_wf" \
   && grep -Fq 'sh .github/scripts/gitleaks-helper-scope.sh "$EVENT_NAME" < "$RUNNER_TEMP/changed" >> "$GITHUB_OUTPUT"' "$helper_wf" \
   && grep -Fq "      - '.github/scripts/gitleaks-helper-scope.sh'" "$helper_wf" \
   || fail 'the helper workflow takes its platforms from the tested scope script'

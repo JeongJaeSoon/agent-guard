@@ -50,7 +50,9 @@ jobs:
         run: |
           set -eu
           if [ "$EVENT_NAME" = pull_request ]; then
-            git diff --name-only HEAD^1 HEAD > "$RUNNER_TEMP/changed"
+            # Both sides of a rename, and paths unquoted, so a file moving out
+            # of the helper tree still counts as a helper change.
+            git -c core.quotePath=false diff --no-renames --name-only HEAD^1 HEAD > "$RUNNER_TEMP/changed"
           else
             : > "$RUNNER_TEMP/changed"
           fi
