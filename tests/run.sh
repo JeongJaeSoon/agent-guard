@@ -528,7 +528,7 @@ if grep -Fxq 'disable-model-invocation: true' "$setup_skill" \
    && grep -Fq 'run in a separate terminal' "$setup_skill" \
    && grep -Fq 'gitleaks version isolation requires' "$setup_skill" \
    && grep -Fq '`util-linux`' "$setup_skill" \
-   && grep -Fq 'gitleaks를 다시 설치하지 마세요' "$setup_skill" \
+   && grep -Fq 'do not reinstall gitleaks' "$setup_skill" \
    && grep -Fq 'rerun the read-only' "$setup_skill" \
    && grep -Fq 'They do not prove that the host is dispatching plugin hooks' "$setup_skill"; then
   ok "Claude explicit-only and Codex explicit-policy setup entries share canonical host guidance"
