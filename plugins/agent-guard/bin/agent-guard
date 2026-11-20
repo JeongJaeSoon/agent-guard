@@ -2622,20 +2622,18 @@ INFRA_FAILURE_NOTICE=
 
 begin_infrastructure_failure() {
   audit_note degraded
-  input=${1:-}
-  detail=$2
+  bif_detail=$2
   INFRA_FAILURE_NOTICE=
-  mode=$(infrastructure_failure_mode)
   # The repeat interval applies only to the open warning. Each closed
   # block carries its own reason: a bare exit 2 reaches the host as a denial
   # with no verdict or explanation.
-  if [ "$mode" = closed ]; then
+  if [ "$(infrastructure_failure_mode)" = closed ]; then
     audit_reason infra-failure-closed
-    info "$detail Blocking because AGENT_GUARD_INFRA_FAILURE_MODE=closed."
+    info "$bif_detail Blocking because AGENT_GUARD_INFRA_FAILURE_MODE=closed."
     exit 2
   fi
-  if hook_warning_due "$input"; then
-    INFRA_FAILURE_NOTICE="$detail continuing because AGENT_GUARD_INFRA_FAILURE_MODE=open (the default)."
+  if hook_warning_due "${1:-}"; then
+    INFRA_FAILURE_NOTICE="$bif_detail continuing because AGENT_GUARD_INFRA_FAILURE_MODE=open (the default)."
     info "$INFRA_FAILURE_NOTICE"
   fi
   return 0
@@ -2656,7 +2654,7 @@ begin_infrastructure_failure() {
 INFRA_FAILURE_NOTICE_EMITTED=0
 
 handle_hook_infrastructure_failure() {
-  event=$1
+  hif_event=$1
   hif_detail=$3
   # Another notice can be the first of the session while the scanner is
   # missing; carry the scanner notice with it so the marker it creates never
@@ -2668,14 +2666,14 @@ handle_hook_infrastructure_failure() {
   begin_infrastructure_failure "${2:-}" "$hif_detail"
   [ -n "$INFRA_FAILURE_NOTICE" ] || return 0
   [ "$INFRA_FAILURE_NOTICE_EMITTED" = 0 ] || return 0
-  case "$(hook_host):$event" in
+  case "$(hook_host):$hif_event" in
     codex:PreToolUse|codex:PostToolUse|codex:PostToolUseFailure|codex:UserPromptSubmit)
-      printf '{"hookSpecificOutput":{"hookEventName":"%s","additionalContext":"%s"}}\n' "$event" "$INFRA_FAILURE_NOTICE"
+      printf '{"hookSpecificOutput":{"hookEventName":"%s","additionalContext":"%s"}}\n' "$hif_event" "$INFRA_FAILURE_NOTICE"
       INFRA_FAILURE_NOTICE_EMITTED=1
       ;;
     codex:*) ;;
     *:PreToolUse|*:PostToolUse|*:PostToolUseFailure|*:UserPromptSubmit)
-      printf '{"systemMessage":"%s","hookSpecificOutput":{"hookEventName":"%s","additionalContext":"%s"}}\n' "$INFRA_FAILURE_NOTICE" "$event" "$INFRA_FAILURE_NOTICE"
+      printf '{"systemMessage":"%s","hookSpecificOutput":{"hookEventName":"%s","additionalContext":"%s"}}\n' "$INFRA_FAILURE_NOTICE" "$hif_event" "$INFRA_FAILURE_NOTICE"
       INFRA_FAILURE_NOTICE_EMITTED=1
       ;;
     *:Stop)
@@ -2692,18 +2690,16 @@ handle_hook_infrastructure_failure() {
 # runs after the tool, so its exit is only an explicit diagnostic after the
 # valid-envelope recovery path has failed. Do not deduplicate the diagnostic.
 validate_hook_object() {
-  event=$1
-  input=${2:-}
-  if printf '%s' "$input" | jq -e 'type == "object"' >/dev/null 2>&1; then
+  if printf '%s' "${2:-}" | jq -e 'type == "object"' >/dev/null 2>&1; then
     return 0
   fi
   audit_note blocked
-  case "$event" in
+  case "$1" in
     PostToolUse)
-      info "$PROGRAM: the $event hook input was not a JSON object; rejecting malformed input, but the host may retain an already-completed tool result"
+      info "$PROGRAM: the $1 hook input was not a JSON object; rejecting malformed input, but the host may retain an already-completed tool result"
       ;;
     *)
-      info "$PROGRAM: the $event hook input was not a JSON object; blocking because malformed hook input cannot be inspected safely"
+      info "$PROGRAM: the $1 hook input was not a JSON object; blocking because malformed hook input cannot be inspected safely"
       ;;
   esac
   exit 2
@@ -2865,9 +2861,7 @@ degraded_hook_message() {
 }
 
 emit_degraded_hook_warning() {
-  event=$1
-  input=${2:-}
-  handle_hook_infrastructure_failure "$event" "$input" "$(degraded_hook_message)"
+  handle_hook_infrastructure_failure "$1" "${2:-}" "$(degraded_hook_message)"
 }
 
 # PostToolUse may still emit one redaction response after an open git-backstop
