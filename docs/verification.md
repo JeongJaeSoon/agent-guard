@@ -140,11 +140,21 @@ break-even invocation count only from comparable measurements of the actual
 workload. Peak memory cannot be amortized by repeated use. Lower latency and CPU
 can coexist with a higher sampled process RSS sum, so report that trade-off too.
 
-The fused output-pipeline candidate remains an explicit experiment, separate
-from the default installation path. A measured improvement does not establish
-release readiness: preserve compiler-free host setup, fallback behavior, and
-the host's existing timeout and locale contracts before adopting it.
+The opt-in warm gitleaks helper is checked against the official gitleaks
+release it links, on the machine that built it. With the build directory and
+the official release binary (not a Homebrew or `go install` build, which the
+helper refuses by design), run its failure-path, host and differential suites:
 
+```sh
+AGENT_GUARD_TEST_HELPER_DIR="$HOME/.agent-guard/gitleaks-helper" \
+AGENT_GUARD_TEST_REAL_GITLEAKS="$(command -v gitleaks)" sh tests/gitleaks-helper.sh
+AGENT_GUARD_TEST_HELPER_DIR="$HOME/.agent-guard/gitleaks-helper" \
+AGENT_GUARD_TEST_REAL_GITLEAKS="$(command -v gitleaks)" sh tests/gitleaks-helper-corpus.sh
+```
+
+While it is on, a running helper appears as one `agent-guard-gitleaks-helper
+serve` process with a socket under `$XDG_STATE_HOME/agent-guard/gitleaks-helper`
+(or `~/.local/state/...`). Its absence only means scans run the real gitleaks.
 
 ```sh
 agent-guard doctor

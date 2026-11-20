@@ -1,0 +1,143 @@
+name: Warm gitleaks helper
+# The opt-in helper (#537) is not shipped in any release asset yet. This
+# builds it from source on each platform, checks it links exactly the modules
+# of the official gitleaks release, and runs its failure-path, host and
+# differential tests against that official release.
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/gitleaks-helper.yml'
+      - '.github/scripts/gitleaks-helper-scope.sh'
+      - 'native/gitleaks-helper/**'
+      - 'scripts/build-gitleaks-helper.sh'
+      - 'plugins/agent-guard/bin/agent-guard'
+      - 'plugins/agent-guard/config/gitleaks.toml'
+      - 'tests/gitleaks-helper*.sh'
+      - 'tests/fixtures/**'
+      - 'bench/gitleaks-helper/**'
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+env:
+  # Keep in lock-step with ci.yml; tests/run.sh checks the helper pins.
+  GITLEAKS_VERSION: "8.30.1"
+jobs:
+  scope:
+    # macOS runners are scarce: a pull request runs the macOS helper job only
+    # when the helper itself changes (see the script). Pushes and manual runs
+    # use both.
+    name: Warm gitleaks helper platforms
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.pick.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          # A pull request checks out its merge commit; its first parent is
+          # the base, so the two commits give the pull request's changes.
+          fetch-depth: 2
+      - name: Choose platforms
+        id: pick
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -eu
+          if [ "$EVENT_NAME" = pull_request ]; then
+            # Both sides of a rename, so a file moving out of the helper tree
+            # still counts; non-ASCII paths unquoted (a path git still quotes
+            # selects both platforms in the script).
+            git -c core.quotePath=false diff --no-renames --name-only HEAD^1 HEAD > "$RUNNER_TEMP/changed"
+          else
+            : > "$RUNNER_TEMP/changed"
+          fi
+          sh .github/scripts/gitleaks-helper-scope.sh "$EVENT_NAME" < "$RUNNER_TEMP/changed" >> "$GITHUB_OUTPUT"
+  helper:
+    name: Warm gitleaks helper (${{ matrix.os }})
+    needs: scope
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.scope.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version-file: native/gitleaks-helper/go.mod
+          cache: false
+      - name: Install the official gitleaks release and an init for process checks
+        env:
+          ARCHIVE: ${{ matrix.archive }}
+          CHECKSUM: ${{ matrix.checksum }}
+        run: |
+          set -eu
+          archive="gitleaks_${GITLEAKS_VERSION}_${ARCHIVE}.tar.gz"
+          mkdir -p "$RUNNER_TEMP/official"
+          curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${archive}" -o "$RUNNER_TEMP/$archive"
+          printf '%s  %s\n' "$CHECKSUM" "$RUNNER_TEMP/$archive" | shasum -a 256 -c -
+          tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP/official" gitleaks
+          if [ "$(uname -s)" = Linux ]; then sudo apt-get update -q >/dev/null && sudo apt-get install -y tini >/dev/null; fi
+      - name: Unit tests
+        working-directory: native/gitleaks-helper
+        run: |
+          go vet -tags gore2regex ./...
+          go test -tags gore2regex ./...
+      - name: Build and compare linked modules with the official release
+        run: |
+          set -eu
+          sh scripts/build-gitleaks-helper.sh "$RUNNER_TEMP/helper"
+          go version -m "$RUNNER_TEMP/official/gitleaks" \
+            | awk '$1 == "dep" && $2 != "github.com/spf13/cobra" && $2 != "github.com/zricethezav/gitleaks/v8" { print $2, $3, $4 }' \
+            | LC_ALL=C sort > "$RUNNER_TEMP/official-modules.txt"
+          grep -v '^github.com/zricethezav/gitleaks/v8 ' native/gitleaks-helper/release-modules.txt > "$RUNNER_TEMP/expected-modules.txt"
+          diff "$RUNNER_TEMP/expected-modules.txt" "$RUNNER_TEMP/official-modules.txt"
+          go version -m "$RUNNER_TEMP/official/gitleaks" | grep -Fx "$(printf '\tbuild\t-tags=gore2regex')"
+          cat "$RUNNER_TEMP/helper/build.txt"
+      - name: Failure paths, hosts and process lifetime
+        env:
+          AGENT_GUARD_TEST_HELPER_DIR: ${{ runner.temp }}/helper
+          AGENT_GUARD_TEST_REAL_GITLEAKS: ${{ runner.temp }}/official/gitleaks
+        run: sh tests/gitleaks-helper.sh
+      - name: Differential against the official gitleaks
+        env:
+          AGENT_GUARD_TEST_HELPER_DIR: ${{ runner.temp }}/helper
+          AGENT_GUARD_TEST_REAL_GITLEAKS: ${{ runner.temp }}/official/gitleaks
+        run: sh tests/gitleaks-helper-corpus.sh
+  off-state:
+    # With the helper off, every hook must answer and execute programs exactly
+    # as the base branch does (strace counts the programs).
+    name: Helper off equals the base branch
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          # The tested tree is the pull request's merge commit; its first
+          # parent is the exact base it was merged onto.
+          fetch-depth: 2
+      - name: Install the official gitleaks release and strace
+        run: |
+          set -eu
+          archive="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          mkdir -p "$RUNNER_TEMP/official"
+          curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${archive}" -o "$RUNNER_TEMP/$archive"
+          printf '%s  %s\n' 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb "$RUNNER_TEMP/$archive" | shasum -a 256 -c -
+          tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP/official" gitleaks
+          sudo apt-get update -q >/dev/null && sudo apt-get install -y strace >/dev/null
+      - name: Check out the merge parent as the base
+        # The event's base SHA can be older than the main tip GitHub merged
+        # the pull request onto; that would compare against the wrong main.
+        run: git worktree add --detach base-checkout HEAD^1
+      - name: Compare hooks with the helper off against the base branch
+        run: sh bench/gitleaks-helper/compare-off.sh "$GITHUB_WORKSPACE/base-checkout" "$RUNNER_TEMP/official/gitleaks"
