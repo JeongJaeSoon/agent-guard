@@ -215,6 +215,9 @@ for file in \
   "$ROOT/tests/log-off-state-cache.sh" \
   "$ROOT/tests/deny-path-regex-cache.sh" \
   "$ROOT/tests/hook-spawn-reduction.sh" \
+  "$ROOT/tests/gitleaks-helper.sh" \
+  "$ROOT/tests/gitleaks-helper-routing.sh" \
+  "$ROOT/scripts/build-gitleaks-helper.sh" \
   "$ROOT/tests/post-tool-failure.sh" \
   "$ROOT/tests/run.sh"; do
   run_expect 0 "shell syntax: $file" sh -n "$file"
@@ -1341,6 +1344,18 @@ if [ -n "$bin_ver" ] && [ "$bin_ver" = "$script_ver" ] && [ "$bin_ver" = "$actio
   ok "gitleaks default version in sync across bin/agent-guard, gitleaks-checksum.sh, action.yml, and the CI and release workflows ($bin_ver)"
 else
   not_ok "gitleaks default version drift: bin=$bin_ver script=$script_ver action=$action_ver ci=$ci_ver release=$release_ver"
+fi
+# The opt-in warm helper (#537) links the gitleaks library; it must link the
+# same release the CLI installs, or every warm answer is refused.
+helper_build_ver=$(awk -F= '/^GITLEAKS_VERSION=/ {print $2; exit}' "$ROOT/scripts/build-gitleaks-helper.sh")
+helper_mod_ver=$(awk '$1 == "github.com/zricethezav/gitleaks/v8" { sub(/^v/, "", $2); print $2; exit }' "$ROOT/native/gitleaks-helper/go.mod")
+helper_release_ver=$(awk '$1 == "github.com/zricethezav/gitleaks/v8" { sub(/^v/, "", $2); print $2; exit }' "$ROOT/native/gitleaks-helper/release-modules.txt")
+helper_ci_ver=$(awk '/^  GITLEAKS_VERSION:/ { gsub(/"/, "", $2); print $2; exit }' "$ROOT/.github/workflows/gitleaks-helper.yml")
+if [ -n "$bin_ver" ] && [ "$helper_build_ver" = "$bin_ver" ] && [ "$helper_mod_ver" = "$bin_ver" ] \
+  && [ "$helper_release_ver" = "$bin_ver" ] && [ "$helper_ci_ver" = "$bin_ver" ]; then
+  ok "warm gitleaks helper links the pinned gitleaks release ($bin_ver)"
+else
+  not_ok "warm gitleaks helper version drift: bin=$bin_ver build=$helper_build_ver go.mod=$helper_mod_ver release-modules=$helper_release_ver workflow=$helper_ci_ver"
 fi
 
 # Release version is consumed independently by both plugin hosts and the Claude
@@ -8586,6 +8601,8 @@ run_expect 0 "gitleaks clean-verdict cache skips only an identical clean scan (#
   "$REAL_SH" "$ROOT/tests/gitleaks-clean-cache.sh"
 run_expect 0 "logging off writes no state unless AGENT_GUARD_SCAN_CACHE=on, which caches without an event log (#510)" \
   "$REAL_SH" "$ROOT/tests/log-off-state-cache.sh"
+run_expect 0 "the opt-in warm-helper client gets every scan only when enabled, and a failing client is never clean (#537)" \
+  "$REAL_SH" "$ROOT/tests/gitleaks-helper-routing.sh"
 run_expect 0 "setup and manifest hook outcome contracts" \
   "$REAL_SH" "$ROOT/tests/hook-outcome-contract.sh"
 
