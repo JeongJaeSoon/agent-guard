@@ -129,4 +129,42 @@ grep -Fq '::warning title=Hook instruction count::' "$count" || fail 'an instruc
 [ "$(grep -Eo 'exit[[:space:]]+[^[:space:];]+' "$count" | tr '\n' ' ')" = 'exit 1 exit 1 ' ] \
   || fail 'the instruction count fails only when it could not measure'
 grep -Fq 'git -C head worktree add --detach ../base HEAD^1' "$count" || fail 'the instruction count base is the merge parent'
+# The warm gitleaks helper (#537) runs its macOS job on a pull request only
+# when the helper itself changes; pushes and manual runs use both platforms.
+helper_scope() { # $1 event, stdin changed paths -> the platform list
+  sh "$ROOT/.github/scripts/gitleaks-helper-scope.sh" "$1" | sed -n 's/^matrix=//p' | jq -r '[.include[].os] | join(" ")'
+}
+helper_case() { # $1 event, $2 expected platforms, $3 changed paths (newline separated)
+  got=$(printf '%s' "$3" | helper_scope "$1") || fail "helper scope runs for $1"
+  [ "$got" = "$2" ] || fail "helper scope for $1 [$3]: got '$got', want '$2'"
+  pass=$((pass + 1))
+}
+both='ubuntu-24.04 macos-15'
+helper_case push "$both" ''
+helper_case workflow_dispatch "$both" ''
+helper_case pull_request "$both" 'native/gitleaks-helper/cmd/agent-guard-scan/main.go'
+helper_case pull_request "$both" 'scripts/build-gitleaks-helper.sh'
+helper_case pull_request "$both" 'tests/gitleaks-helper.sh'
+helper_case pull_request "$both" 'tests/gitleaks-helper-corpus.sh'
+helper_case pull_request "$both" 'tests/fixtures/fake-gitleaks-helper.py'
+helper_case pull_request "$both" '.github/workflows/gitleaks-helper.yml'
+helper_case pull_request "$both" '.github/scripts/gitleaks-helper-scope.sh'
+helper_case pull_request "$both" "plugins/agent-guard/bin/agent-guard
+native/gitleaks-helper/go.sum"
+helper_case pull_request ubuntu-24.04 'plugins/agent-guard/bin/agent-guard'
+helper_case pull_request ubuntu-24.04 'tests/fixtures/mock-gitleaks'
+helper_case pull_request ubuntu-24.04 'plugins/agent-guard/config/gitleaks.toml'
+helper_case pull_request ubuntu-24.04 'tests/gitleaks-helper-routing.sh'
+helper_case pull_request ubuntu-24.04 'bench/gitleaks-helper/compare-off.sh'
+helper_case pull_request ubuntu-24.04 'docs/native/gitleaks-helper/notes.md'
+helper_case pull_request ubuntu-24.04 ''
+helper_wf="$ROOT/.github/workflows/gitleaks-helper.yml"
+grep -Fq 'matrix: ${{ fromJSON(needs.scope.outputs.matrix) }}' "$helper_wf" \
+  && grep -Fq 'git diff --name-only HEAD^1 HEAD > "$RUNNER_TEMP/changed"' "$helper_wf" \
+  && grep -Fq 'sh .github/scripts/gitleaks-helper-scope.sh "$EVENT_NAME" < "$RUNNER_TEMP/changed" >> "$GITHUB_OUTPUT"' "$helper_wf" \
+  && grep -Fq "      - '.github/scripts/gitleaks-helper-scope.sh'" "$helper_wf" \
+  || fail 'the helper workflow takes its platforms from the tested scope script'
+# The off-state comparison stays a Linux job on every CLI change.
+awk '/^  off-state:/ { on = 1 } on' "$helper_wf" | grep -Fq 'runs-on: ubuntu-24.04' \
+  || fail 'the helper-off comparison runs on Linux'
 printf 'CI scope fixtures passed: %s; matrix, aggregate and performance schedule wiring verified\n' "$pass"

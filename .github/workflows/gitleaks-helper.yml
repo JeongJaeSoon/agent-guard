@@ -7,6 +7,7 @@ on:
   pull_request:
     paths:
       - '.github/workflows/gitleaks-helper.yml'
+      - '.github/scripts/gitleaks-helper-scope.sh'
       - 'native/gitleaks-helper/**'
       - 'scripts/build-gitleaks-helper.sh'
       - 'plugins/agent-guard/bin/agent-guard'
@@ -27,20 +28,41 @@ env:
   # Keep in lock-step with ci.yml; tests/run.sh checks the helper pins.
   GITLEAKS_VERSION: "8.30.1"
 jobs:
+  scope:
+    # macOS runners are scarce: a pull request runs the macOS helper job only
+    # when the helper itself changes (see the script). Pushes run both.
+    name: Warm gitleaks helper platforms
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.pick.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          # A pull request checks out its merge commit; its first parent is
+          # the base, so the two commits give the pull request's changes.
+          fetch-depth: 2
+      - name: Choose platforms
+        id: pick
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -eu
+          if [ "$EVENT_NAME" = pull_request ]; then
+            git diff --name-only HEAD^1 HEAD > "$RUNNER_TEMP/changed"
+          else
+            : > "$RUNNER_TEMP/changed"
+          fi
+          sh .github/scripts/gitleaks-helper-scope.sh "$EVENT_NAME" < "$RUNNER_TEMP/changed" >> "$GITHUB_OUTPUT"
   helper:
     name: Warm gitleaks helper (${{ matrix.os }})
+    needs: scope
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-24.04
-            archive: linux_x64
-            checksum: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
-          - os: macos-15
-            archive: darwin_arm64
-            checksum: b40ab0ae55c505963e365f271a8d3846efbc170aa17f2607f13df610a9aeb6a5
+      matrix: ${{ fromJSON(needs.scope.outputs.matrix) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
