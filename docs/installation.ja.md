@@ -1,4 +1,4 @@
-<!-- translated-from: docs/installation.md; source-blob: a73300206f8df8f8c8415fd40f26c5d3f8507e2c -->
+<!-- translated-from: docs/installation.md; source-blob: a696ae9e5e2699a7541ea843cadbc98a8f0ace12 -->
 
 <a id="installing-agent-guard"></a>
 
@@ -34,6 +34,30 @@ codex plugin add agent-guard@agent-guard
 プラグインだけを導入した場合は `agent-guard` が `PATH` にないため、プラグインのCLIが出す案内（例: `update`、`check`、`doctor`、SessionStartの通知）はその実行ファイルを引用符で囲んだ絶対パスで示します。例: `"$HOME/.claude/plugins/cache/agent-guard/agent-guard/current/bin/agent-guard" setup`。`PATH` 上の `agent-guard` が同じインストールである場合と、スタンドアロン・Homebrewのインストールで `PATH` に `agent-guard` がある場合は、案内はこれまでどおり短い `agent-guard` を使います。`PATH` に `agent-guard` がない状態でパスを指定して実行したスタンドアロンCLI（例: `~/.local/bin` を追加する前の `~/.agent-guard/bin/agent-guard`）も自身のパスを示します。
 
 <a id="runtime-dependencies"></a>
+
+<a id="optional-warm-gitleaks-helper"></a>
+
+## 任意のwarm gitleaks helper
+
+スキャンのたびに新しいgitleaksプロセスが起動し、その時間の大半は起動コストです。
+任意のwarm helperは、コンパイル済みのgitleaks 8.30.1 detectorをユーザーと設定ごとに
+1つだけメモリに保持してすべてのセッションで共有し、10分間リクエストがなければ
+自ら終了します。リリースアーカイブには含まれません。Goでソースのcheckoutから
+ビルドし、hostの起動環境がクライアントを指すようにしてください。
+
+```sh
+sh scripts/build-gitleaks-helper.sh "$HOME/.agent-guard/gitleaks-helper"
+export AGENT_GUARD_GITLEAKS_HELPER="$HOME/.agent-guard/gitleaks-helper/agent-guard-scan"
+```
+
+その後ClaudeまたはCodexを再起動してください。判定はすべて引き続きCLIが行います。
+helperが失敗すると実際のgitleaksを実行するため、失敗がクリーンなスキャンとして
+扱われることはありません。`AGENT_GUARD_GITLEAKS_BIN` を設定している場合や
+`AGENT_GUARD_LOG_MODE=off` の場合はhelperを使いません。helperが応答するのは
+公式のgitleaks 8.30.1リリースバイナリだけで、Goの `regexp` でビルドした
+gitleaks（Homebrew、`go install`）は常に実際に実行します。無効にするには変数を削除して
+hostを再起動してください。同じ結果の保証、失敗時の処理、メモリ、プライバシーは
+[warm gitleaks helperガイド（英語）](https://github.com/JeongJaeSoon/agent-guard/blob/main/docs/gitleaks-helper.md)にあります。
 
 ## 実行時の依存関係
 

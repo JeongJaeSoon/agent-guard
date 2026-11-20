@@ -20,6 +20,7 @@ have separate homes so that completed investigations do not obscure setup help.
 - [Core contracts](development/unit-tests.md), [framing](development/unit-framing.md),
   and [deny-path regex](development/deny-path-regex.md)
 - [Rust helper, platform support and fallback](native-redactor.md)
+- [Opt-in warm gitleaks helper: equivalence, failures, memory](gitleaks-helper.md)
 
 ## Measurements
 

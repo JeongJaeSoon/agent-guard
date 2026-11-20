@@ -44,6 +44,30 @@ is the same installation, and for a standalone or Homebrew install whenever an
 is on `PATH` (for example `~/.agent-guard/bin/agent-guard` before `~/.local/bin`
 is added) also names its own path.
 
+<a id="optional-warm-gitleaks-helper"></a>
+
+## Optional warm gitleaks helper
+
+Each scan normally starts a new gitleaks process, and most of its time is
+start-up. The opt-in warm helper keeps one compiled gitleaks 8.30.1 detector
+in memory per user and config, shared by all sessions, and exits after ten
+idle minutes. It is not in any release archive; build it from a source
+checkout with Go and point the host's launch environment at the client:
+
+```sh
+sh scripts/build-gitleaks-helper.sh "$HOME/.agent-guard/gitleaks-helper"
+export AGENT_GUARD_GITLEAKS_HELPER="$HOME/.agent-guard/gitleaks-helper/agent-guard-scan"
+```
+
+Restart Claude or Codex afterwards. The CLI still makes every decision; any
+helper failure runs the real gitleaks, so it is never treated as a clean scan.
+The helper is skipped when `AGENT_GUARD_GITLEAKS_BIN` is set or
+`AGENT_GUARD_LOG_MODE=off`, and it answers only for the official gitleaks
+8.30.1 release binary; a gitleaks built with Go's `regexp` (Homebrew, `go
+install`) is always run for real. To turn it off, unset the variable and restart the
+host. The [warm gitleaks helper guide (English)](https://github.com/JeongJaeSoon/agent-guard/blob/main/docs/gitleaks-helper.md) covers
+equivalence, failure handling, memory and privacy.
+
 ## Runtime dependencies
 
 Release archives and Homebrew packages from v3.7 include Rust literal-replacement
