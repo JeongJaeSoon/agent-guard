@@ -21,6 +21,7 @@ row() { jq -nc --arg name "$1" --argjson lat "$2" --argjson cpu "$3" '{host:"cla
 render "$case_dir/absent"
 has '러너 CPU(packaged job, cpuinfo.txt): artifact 없음' 'missing packaged artifact is named'
 has '- artifact 없음' 'missing fused artifacts are named'
+[ "$(grep -c -Fx -- '- artifact 없음' "$case_dir/body")" -eq 2 ] || fail 'a missing instruction count artifact is named too'
 has 'nightly run: https://example.invalid/run' 'run link is kept'
 has '확인된 회귀 행이 없습니다. 목표 미달, 출력 검증 실패, 측정 미완료나 미실행으로도 job이 실패합니다. run artifact를 확인하세요.' 'no rows means no table'
 [ "$(head -n 1 "$case_dir/body")" = '러너 CPU(packaged job, cpuinfo.txt): artifact 없음' ] || fail 'runner CPU is the first line'
@@ -44,7 +45,14 @@ printf '{not json' > "$evidence/fused-packaged-homebrew-cold/evidence/confirmati
 {
   row fused-stall 6 1; row fused-cost 6 6
 } | jq -s '{complete:true,confirmed:.}' > "$evidence/fused-packaged-homebrew-warm/evidence/confirmation.json"
+mkdir -p "$evidence/instruction-count"
+printf '%s\n' '### Shell instruction count against the latest release' '' '- base: 릴리스 태그 `v0.0.0`' \
+  '판정: **실패**. synthetic' > "$evidence/instruction-count/summary.md"
 render "$evidence"
+has '셸 명령어 수(최근 릴리스 태그 대비, Shell instruction count job):' 'the instruction count has its own section'
+has '- base: 릴리스 태그 `v0.0.0`' 'the instruction count summary is included'
+has '판정: **실패**. synthetic' 'the instruction count verdict is included'
+lacks '### Shell instruction count against the latest release' 'the summary heading is not repeated'
 
 has '러너 CPU(packaged job, cpuinfo.txt): Synthetic CPU A' 'packaged CPU comes from cpuinfo.txt, once per model'
 has '- Synthetic CPU B: fused-packaged-homebrew-cold, fused-packaged-official-off' 'fused jobs on one CPU share a line'

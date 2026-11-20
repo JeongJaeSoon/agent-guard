@@ -32,6 +32,37 @@ reject output-mismatch '.[0].cases[0].verified=false'
 reject ineffective-limits '.[7].container_cgroup["cpu.max"]="max 100000"'
 reject wrong-dispatch '.[1].native_dispatch="explicit-override"'
 
+# The public v3.7.0 comparison (bench/native/public-default-gate.jq) runs the
+# case list run-packaged.sh declares, PostToolUse output included.
+public_cases=$(sed -n "s/^public_cases='\\(.*\\)'$/\\1/p" "$ROOT/bench/native/run-packaged.sh")
+for name in small-clean dense-controls exec-clean exec-multiline exec-long-quoted-secret pre-unknown-tool; do
+  case " $public_cases " in *" $name "*) ;; *) echo "public comparison lacks $name" >&2; exit 1 ;; esac
+done
+public_names=$(printf '%s\n' $public_cases | jq -R . | jq -sc .)
+jq -n --argjson names "$public_names" '
+  def n($v): [range(0;9) | $v];
+  def usage($cpu): {user_cpu_seconds:{samples:n($cpu)},system_cpu_seconds:{samples:n(1)}};
+  def row($name): {name:$name,verified:true,
+    seconds:{baseline:{median:10},candidate:{median:10.5}},
+    resource_usage:{baseline:usage(3),candidate:usage(3.2)}};
+  {runs:9,cases:[$names[] | row(.)]}' > "$case_dir/public.json"
+public() {
+  jq "$2" "$case_dir/public.json" > "$case_dir/public-changed.json"
+  got=$(jq --argjson names "$public_names" --argjson complete_only "$3" -f "$ROOT/bench/native/public-default-gate.jq" \
+    "$case_dir/public-changed.json" 2>/dev/null || printf 'error')
+  [ "$got" = "$4" ] || { echo "public comparison $1: expected $4, got $got" >&2; exit 1; }
+  printf 'ok - synthetic public comparison %s gives %s\n' "$1" "$4"
+}
+public at-the-limit . false true
+public dense-controls-latency '(.cases[] | select(.name == "dense-controls") | .seconds.candidate.median) = 10.51' false false
+public small-clean-cpu '(.cases[] | select(.name == "small-clean") | .resource_usage.candidate.user_cpu_seconds.samples) |= map(3.3)' false false
+public missing-dense-controls '.cases |= map(select(.name != "dense-controls"))' false false
+public extra-case '.cases += [.cases[0] | .name = "many-lines"]' false false
+public unverified '.cases[5].verified = false' false false
+public short-screening '.runs = 21' false false
+public complete-despite-regression '(.cases[] | select(.name == "dense-controls") | .seconds.candidate.median) = 12' true true
+public incomplete-for-confirmation '.cases |= map(select(.name != "small-clean"))' true false
+
 # Confirmation of screened regressions (bench/native/confirm.jq and the fused
 # finalize step): fresh 21-pair rows decide, and incomplete evidence never passes.
 jq -n '
