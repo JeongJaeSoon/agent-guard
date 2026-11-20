@@ -485,6 +485,41 @@
    "label": "listed words past 80 bytes",
    "stdout": "  password: userPasswordValidatorFactoryBuilderContextControllerRepositoryComponentAttributePropertyHandler,",
    "masked": "  password: [REDACTED],"
+  },
+  {
+   "label": "command word before an env assignment",
+   "stdout": "echo password=password;",
+   "masked": "echo [REDACTED]=[REDACTED];"
+  },
+  {
+   "label": "prose word before the field",
+   "stdout": "the password: Password,",
+   "masked": "the password: [REDACTED],"
+  },
+  {
+   "label": "capitalized key word under a longer key",
+   "stdout": "db_password: Password,",
+   "masked": "db_password: [REDACTED],"
+  },
+  {
+   "label": "arithmetic operator after the value",
+   "stdout": "  password: Password + null,",
+   "masked": "  password: [REDACTED] + null,"
+  },
+  {
+   "label": "ternary after the value",
+   "stdout": "  password: Password ? null : undefined,",
+   "masked": "  password: [REDACTED] ? null : undefined,"
+  },
+  {
+   "label": "member of a name that only ends in self",
+   "stdout": "myself.password = password",
+   "masked": "myself.[REDACTED] = [REDACTED]"
+  },
+  {
+   "label": "listed words just past 80 bytes",
+   "stdout": "  password: userPasswordValidatorFactoryBuilderContextControllerRepositoryComponentPropertyIds,",
+   "masked": "  password: [REDACTED],"
   }
  ]
 }
