@@ -22,37 +22,37 @@
   },
   {
     "id": "gh-jq-key",
-    "expected_status": 2,
-    "classification": "residual",
-    "description": "the --jq filter of gh api names a .key field (gh's own filter is not rewritten, so its field name is still scanned; kept to hold hook cost)",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "the --jq filter of gh api names a .key field (the filter is read as program text once a block is pending, so a passing gh command costs what it did)",
     "command": "gh api repos/o/r/contents/x.json --jq '.key'"
   },
   {
     "id": "gh-jq-object",
-    "expected_status": 2,
-    "classification": "residual",
-    "description": "object construction in the gh --jq filter (gh's own filter is not rewritten, so its field name is still scanned; kept to hold hook cost)",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "object construction in the gh --jq filter (the filter is read as program text once a block is pending, so a passing gh command costs what it did)",
     "command": "gh api repos/o/r/releases/1/assets --jq '.[] | {name, key: .key}'"
   },
   {
     "id": "gh-pr-view-jq-sort",
-    "expected_status": 2,
-    "classification": "residual",
-    "description": "gh pr view --json --jq then sort (gh's own filter is not rewritten, so its field name is still scanned; kept to hold hook cost)",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "gh pr view --json --jq then sort (the filter is read as program text once a block is pending, so a passing gh command costs what it did)",
     "command": "gh pr view 5 --json files --jq '.files[] | .key' | sort"
   },
   {
     "id": "command-gh",
     "expected_status": 2,
     "classification": "residual",
-    "description": "command gh still runs gh (gh's own filter is not rewritten, so its field name is still scanned; kept to hold hook cost)",
+    "description": "command gh still runs gh (the second reading knows only a bare gh command word, so this filter is still scanned)",
     "command": "command gh api x --jq '.data.key'"
   },
   {
     "id": "gh-run-list-select",
-    "expected_status": 2,
-    "classification": "residual",
-    "description": "a select over branch names in gh run list (gh's own filter is not rewritten, so its field name is still scanned; kept to hold hook cost)",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a select over branch names in gh run list (the filter is read as program text once a block is pending, so a passing gh command costs what it did)",
     "command": "gh run list --json databaseId,headBranch --jq '.[] | select(.headBranch|test(\"key\")) | .key' | head -5"
   },
   {

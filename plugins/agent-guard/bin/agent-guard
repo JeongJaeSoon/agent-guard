@@ -7224,6 +7224,11 @@ bash_strip_literal_message_values() (
 # anywhere in an earlier segment also stops it. With `tracked` as $2, print
 # instead (as `T start end value`) each literal operand of a command that
 # opens the paths it is given (tracked_scan), under the same segment check.
+# With `program` as $2, print the grep and rg pattern spans and, as
+# `P kind start end value`, the program word of jq, sed, awk, an inline
+# python, node, perl or ruby script and gh --jq (program_scan); there a gh
+# query counts as an inert earlier segment, and a segment qualifies only
+# when everything its pipeline feeds is a plain text filter (sink_ok).
 search_operand_spans() {
   printf '%s\n' "$1" | LC_ALL=C awk -v grep_env="${GREP_OPTIONS-}" -v cd_ok="$(path_entries_absolute && echo 1)" -v mode="${2-}" \
     -v inert_names="$INERT_SEGMENT_COMMANDS_ERE" '
@@ -7351,6 +7356,147 @@ search_operand_spans() {
       }
       return out
     }
+    # Program mode. A word that a known tool reads as program text, never as
+    # a path: `P kind start end value`. Every word of the segment must be
+    # literal, and the options before the program word must be ones this
+    # table knows, so no option can take that word as its value or turn it
+    # into a file operand (-f).
+    function pline(kind, j) { return "P " kind " " ws[pw[j]] " " we[pw[j]] " " wv[pw[j]] "\n" }
+    # pw[1..pn] are the words of the segment, the command name first, without
+    # the redirections that name no file (`2>&1`, `2>/dev/null`). Any other
+    # redirection or non-literal word gives the segment up: a `<` word would
+    # shift which word is the program.
+    function program_scan(a, b,   k, j, v, h, out, sawe, script, prev, wasi) {
+      pn = 0
+      for (k = a; k <= b; k++) {
+        if (wv[k] ~ /^(2>&1|[12]?>\/dev\/null)$/ && !wdyn[k] && k > a) continue
+        if (bad(k)) return ""
+        pw[++pn] = k
+      }
+      h = wv[a]
+      # The command name as written, with no quoting or escape in it.
+      if (we[a] - ws[a] + 1 != length(h)) return ""
+      if (h == "jq") {
+        if (nojq) return ""
+        for (j = 2; j <= pn; j++) if (wv[pw[j]] ~ /^-[A-Za-z]*f/ || wv[pw[j]] == "--from-file") return ""
+        for (j = 2; j <= pn; j++) {
+          v = wv[pw[j]]
+          if (v ~ /^--(arg|argjson|slurpfile|rawfile)$/) { j += 2; continue }
+          if (v == "--indent" || v == "-L") { j++; continue }
+          if (v ~ /^-[nRscrjaSCMe]+$/ || v ~ /^--(null-input|raw-input|slurp|compact-output|raw-output|raw-output0|join-output|ascii-output|sort-keys|color-output|monochrome-output|tab|unbuffered|exit-status|stream|stream-errors|seq|args|jsonargs)$/) continue
+          if (substr(v, 1, 1) == "-") return ""
+          return pline("jq", j)
+        }
+        return ""
+      }
+      if (h == "sed") {
+        out = ""; sawe = 0; script = 0; wasi = 0
+        for (j = 2; j <= pn; j++) {
+          v = wv[pw[j]]
+          if (v == "--expression" || v ~ /^-[nErsuz]*e$/) {
+            if (++j > pn) return ""
+            out = out pline("sed", j); sawe = 1; wasi = 0
+            continue
+          }
+          # -i may take the next word as its suffix (BSD): an empty one is
+          # that suffix under BSD and an empty script under GNU, never a file.
+          if (v ~ /^-[nErsuz]*i/ || v == "--in-place" || v ~ /^--in-place=/) { wasi = 1; continue }
+          if (v == "" && wasi) { wasi = 0; continue }
+          wasi = 0
+          if (v ~ /^-[nErsuz]+$/ || v ~ /^--(quiet|silent|regexp-extended|separate|unbuffered|null-data|posix)$/) continue
+          if (substr(v, 1, 1) == "-") return ""
+          if (!script) script = j
+        }
+        if (sawe) return out
+        return script ? pline("sed", script) : ""
+      }
+      if (h ~ /^(awk|gawk|mawk)$/) {
+        for (j = 2; j <= pn; j++) {
+          v = wv[pw[j]]
+          if (v == "-F" || v == "-v") { j++; continue }
+          if (v ~ /^-F./ || v ~ /^-v[A-Za-z_]/) continue
+          if (substr(v, 1, 1) == "-") return ""
+          return pline("awk", j)
+        }
+        return ""
+      }
+      if (h ~ /^python(3(\.[0-9]+)?)?$/) {
+        for (j = 2; j <= pn; j++) {
+          v = wv[pw[j]]
+          if (v ~ /^-[bBdEIOqsSuvx]*c$/) return j < pn ? pline("py", j + 1) : ""
+          if (v !~ /^-[bBdEIOqsSuvx]+$/) return ""
+        }
+        return ""
+      }
+      if (h ~ /^(node|nodejs)$/)
+        return pn >= 3 && wv[pw[2]] ~ /^(-e|--eval|-p|--print|-pe)$/ ? pline("js", 3) : ""
+      if (h == "perl") {
+        for (j = 2; j <= pn; j++) {
+          v = wv[pw[j]]
+          if (v ~ /^-[lnpaw0-9]*[eE]$/) return j < pn ? pline("pl", j + 1) : ""
+          if (v !~ /^-(l|n|p|a|w|0[0-7]*)$/) return ""
+        }
+        return ""
+      }
+      if (h == "ruby") {
+        for (j = 2; j <= pn; j++) {
+          v = wv[pw[j]]
+          if (v ~ /^-[nplaw]*e$/) return j < pn ? pline("rb", j + 1) : ""
+          if (v !~ /^-(n|p|l|a|w)$/) return ""
+        }
+        return ""
+      }
+      if (h == "gh" && !nojq && (k = gh_jq_option(a, b))) return "P jq " ws[k + 1] " " we[k + 1] " " wv[k + 1] "\n"
+      return ""
+    }
+    # The index of the --jq word of a built-in gh query when it is that
+    # option for sure, as in bash_neutralize_first_pipeline: every word
+    # literal, no `--` before it, and the word before it no option that could
+    # take --jq as its value. Its value, the next word, is a jq filter gh
+    # runs itself. 0 otherwise.
+    function gh_jq_option(a, b,   k, prev) {
+      if (!gh_query(a, b, 1)) return 0
+      for (k = a + 2; k < b; k++) {
+        if (wv[k] == "--") return 0
+        if (wv[k] != "--jq") continue
+        prev = wv[k - 1]
+        if (substr(prev, 1, 1) == "-" && prev !~ /^(--paginate|--slurp|--include|-i|--silent|--verbose)$/) return 0
+        return k
+      }
+      return 0
+    }
+    # A gh subcommand that only queries: it writes no file and changes no
+    # shell state, and gh accepts no alias or extension named after a
+    # built-in. With jq set, the built-ins that take --jq instead.
+    function gh_query(a, b, jq,   k, sub1) {
+      if (wv[a] != "gh" || a + 1 > b) return 0
+      for (k = a; k <= b; k++) if (bad(k)) return 0
+      sub1 = wv[a + 1]
+      if (sub1 != "api") sub1 = sub1 " " (a + 2 <= b ? wv[a + 2] : "")
+      if (jq) return sub1 ~ /^(api|run view|run list|pr view|pr list|pr checks|pr status|issue view|issue list|issue status|release view|release list|repo view|repo list)$/
+      return sub1 ~ /^(api|run view|run list|run watch|pr view|pr list|pr checks|pr diff|pr status|issue view|issue list|issue status)$/
+    }
+    # Program text can reach the output (a string a jq filter prints, the
+    # matched text of grep -o), so every command its pipeline feeds must be a
+    # plain text filter: none that runs or opens what it reads (sh, xargs, a
+    # pager with shell escapes).
+    function sink_ok(k,   j, f, g) {
+      for (j = wseg[k]; segpipe[j]; j++) {
+        if (!((j + 1) in segfirst)) return 0
+        f = segfirst[j + 1]
+        if (bad(f)) return 0
+        if (wv[f] == "sed") {
+          # sed can run what it reads (the e command and flag); a line print cannot.
+          for (g = f; g < nw && wseg[g + 1] == wseg[f]; g++) ;
+          if (!sed_prints_lines(f, g)) return 0
+        } else if (wv[f] !~ /^(wc|head|tail|sort|uniq|tr|cut|nl|grep|egrep|fgrep|column|cat|jq)$/) return 0
+        # A long option or sort -o can make a filter open a list of files it
+        # reads (--files0-from) or write one; every word must be literal.
+        for (g = f; g <= nw && wseg[g] == wseg[f]; g++)
+          if (bad(g) || substr(wv[g], 1, 2) == "--" || wv[f] == "sort" && wv[g] ~ /^-[A-Za-z]*o/) return 0
+      }
+      return 1
+    }
     # `sed -n 1,50p file` only prints lines: with nothing but these flags
     # (GNU sed reads an option after the script too, so -i, -f or a second
     # script anywhere disqualifies it) and a line-number script, given as the
@@ -7449,10 +7595,26 @@ search_operand_spans() {
         if (!bad(k)) printf "%s", tracked_scan(k, e)
         exit 0
       }
+      for (k = 1; k <= nw; k++) if (!(wseg[k] in segfirst)) segfirst[wseg[k]] = k
+      # As in bash_neutralize_first_pipeline, a word that holds "jq" anywhere
+      # but at a command start may run or redefine jq, unless it is the
+      # certain --jq option of a gh query: then no jq filter is rewritten.
+      if (mode == "program") for (k = 1; k <= nw; k = e + 1) {
+        for (e = k; e < nw && wseg[e + 1] == wseg[k]; e++) ;
+        c = wv[k] == "gh" ? gh_jq_option(k, e) : 0
+        for (r = k + 1; r <= e; r++) if (wv[r] ~ /jq/ && r != c) nojq = 1
+      }
       for (k = 1; k <= nw; k = e + 1) {
         for (e = k; e < nw && wseg[e + 1] == wseg[k]; e++) ;
         if (!bad(k)) {
           if (mode == "trusted") { if (wv[k] ~ /^(jq|sed)$/) print ws[k] }
+          else if (mode == "program") {
+            if (sink_ok(k)) {
+              if (wv[k] ~ /^(grep|egrep|fgrep)$/) printf "%s", grep_scan(k, e, 0)
+              else if (wv[k] == "rg") printf "%s", grep_scan(k, e, 1)
+              else printf "%s", program_scan(k, e)
+            }
+          }
           else if (wv[k] ~ /^(grep|egrep|fgrep)$/) printf "%s", grep_scan(k, e, 0)
           else if (wv[k] == "rg") printf "%s", grep_scan(k, e, 1)
           else if (wv[k] == "openssl") printf "%s", openssl_scan(k, e)
@@ -7476,8 +7638,16 @@ search_operand_spans() {
         # without a path loads no code.
         for (r = a; r < h; r++) if (wv[r] !~ /^(LC_[A-Z]+|LANG|LANGUAGE|TZ)=[A-Za-z0-9_.@:+-]*$/) exit 0
         if (wv[h] == "sed" && sed_prints_lines(h, e)) continue
+        # A gh query that feeds a pipe runs in a subshell and writes no file,
+        # so it cannot change what the next command name runs. Sequenced with
+        # `;` or `&&` it stays outside the inert list, as before.
+        if (mode == "program" && a == h && segpipe[wseg[k]] && gh_query(h, e, 0)) continue
         if (inert_names == "" || wv[h] !~ inert_names) exit 0
         if (wv[h] == "cd" && cd_ok != "1") exit 0
+        # In program mode a loop or condition could run a cd more than once,
+        # and `cd old new` goes elsewhere in zsh and ksh: the directory the
+        # program reads relative names from must be certain.
+        if (mode == "program" && (wv[k] ~ /^(do|then|else|elif|if|while|until|done|fi|for|!)$/ || wv[h] == "cd" && e - h != 1)) exit 0
       }
     }
   '
@@ -8772,23 +8942,256 @@ bash_strip_tracked_file_operands() (
     }'
 )
 
+# Print the deny-read suffixes that name no file by themselves: `.p8` for the
+# entry `*.p8`. Such a word in program text is an extension being mentioned
+# (endswith(".p8"), /\.key$/), not a path, unless a file of exactly that name
+# exists where the command reads relative names ($@: the event workdir is
+# the current directory; the arguments are further base directories). A
+# suffix that another entry also matches as a whole name (`.env` under
+# `.env*`) is a file name and is never listed.
+program_text_bare_suffixes() (
+  [ -f "$DENY_READ_PATHS" ] || exit 0
+  bs_out=
+  while IFS= read -r bs_entry || [ -n "$bs_entry" ]; do
+    case "$bs_entry" in
+      '*.'?*) bs_suffix=${bs_entry#\*} ;;
+      *) continue ;;
+    esac
+    case "${bs_suffix#.}" in *[!A-Za-z0-9_]*) continue ;; esac
+    bs_bare=1
+    while IFS= read -r bs_other || [ -n "$bs_other" ]; do
+      case "$bs_other" in ''|\#*) continue ;; esac
+      # shellcheck disable=SC2254
+      case "$bs_suffix" in
+        $bs_other) [ "$bs_other" = "*$bs_suffix" ] || { bs_bare=0; break; } ;;
+      esac
+    done <"$DENY_READ_PATHS"
+    [ "$bs_bare" -eq 1 ] || continue
+    for bs_dir in . "$@"; do
+      if [ -e "$bs_dir/$bs_suffix" ] || [ -L "$bs_dir/$bs_suffix" ]; then bs_bare=0; fi
+    done
+    [ "$bs_bare" -eq 1 ] && bs_out="$bs_out $bs_suffix"
+  done <"$DENY_READ_PATHS"
+  printf '%s' "$bs_out"
+)
+
+# Print program text $2 of kind $1 without the parts that cannot name a file
+# the program opens; $3 is the list from program_text_bare_suffixes. Every
+# string literal, path part and glob stays as written for the scan.
+# - jq: the field names of the filter (jq_filter_without_field_names).
+# - sed: the regexes of a script made only of s and print commands
+#   (sed_script_without_regex); any other script keeps its text.
+# - py, js: member names in code outside string literals (`row.key`,
+#   `process.env.PORT`). Only where the quoting can be followed for sure: a
+#   python program without a comment or a triple quote, a node program
+#   without a `/` (regex, comment) or a backquote outside strings.
+# - every kind: a bare suffix that is only mentioned (mention_ok), unless
+#   the text can change directory, since the suffix was only checked where
+#   the command starts.
+program_text_residual() {
+  pr_text=$2
+  case "$1" in
+    jq) pr_text=$(jq_filter_without_field_names "$pr_text") || return 1 ;;
+    # A script outside that grammar may run a command (the e command and
+    # flag) or name a file (r, w): it keeps every byte.
+    sed) pr_text=$(sed_script_without_regex "$pr_text") || return 1 ;;
+  esac
+  PT_TEXT=$pr_text LC_ALL=C awk -v kind="$1" -v suffixes="$3" '
+    function chains(t,   out, n, i, c, q, p) {
+      # The environment objects (process.env, os.environ) keep their names:
+      # the bare object is a dump of every variable, and the scan decides
+      # which member accesses are safe.
+      if (t ~ /(^|[^A-Za-z0-9_])(env|environ|ENV)([^A-Za-z0-9_]|$)/) return t
+      out = ""; n = length(t); q = ""
+      for (i = 1; i <= n; i++) {
+        c = substr(t, i, 1)
+        if (q != "") {
+          out = out c
+          if (c == "\\") { i++; out = out substr(t, i, 1) }
+          else if (c == q) {
+            q = ""
+            # Text glued to a closing quote is no code this scan can read.
+            if (substr(t, i + 1, 1) ~ /[A-Za-z0-9_]/) return t
+          }
+          continue
+        }
+        if (c == "\047" || c == "\"") {
+          if (kind == "py" && substr(t, i, 3) == c c c) return t
+          # An f-string or t-string may nest quotes, which this scan cannot follow.
+          if (kind == "py" && substr(t, (i > 2 ? i - 2 : 1), (i > 2 ? 2 : i - 1)) ~ /[fFtT]$|[fFtT][rR]$/) return t
+          q = c; out = out c
+          continue
+        }
+        if (c == "]" && substr(t, i + 1, 1) ~ /[A-Za-z0-9_]/) return t
+        if (kind == "py" && c == "#") return t
+        if (kind == "js" && (c == "/" || c == "`")) return t
+        if (c == "." && substr(t, i + 1, 1) ~ /[A-Za-z_]/ && i > 1 && substr(t, i - 1, 1) ~ /[])A-Za-z0-9_]/) {
+          for (i++; i <= n && substr(t, i, 1) ~ /[A-Za-z0-9_]/; i++) ;
+          i--
+          continue
+        }
+        out = out c
+      }
+      return q == "" ? out : t
+    }
+    # A bare suffix is dropped only where it cannot be the end of a name the
+    # program builds: as regex text after a backslash (`\.key$`); as the whole
+    # string literal handed to a suffix test or a comparison, whose result is
+    # a boolean (`endswith(".p8")`, `ext == ".p8"`); or inside a longer
+    # literal, with other text on both sides (`"keys (.p8) stay out"`). A literal that is
+    # only the suffix anywhere else (`name + ".key"`, awk `$1".key"`) and a
+    # suffix that ends a literal (`"\(.name).key"`, `"cat .key"`) stay.
+    # A suffix is dropped only from a program that can neither open a file,
+    # list a directory, read names from its input nor run a command: there a
+    # suffix test only filters text the program was given. Any other program
+    # could pick the files to open with it, or cut the suffix out of a
+    # longer literal, so it keeps every suffix (tier 0).
+    function tier(t,   u) {
+      if (kind == "jq" || kind == "sed") return 2
+      if (kind == "awk") return t ~ /getline|system|ARGV|ENVIRON|FILENAME|close|[|]/ ? 0 : 2
+      if (kind == "py") {
+        u = t
+        gsub(/import[ \t]+(sys|re|json|string|math|itertools|collections|functools|textwrap|unicodedata)([ \t]*,[ \t]*(sys|re|json|string|math|itertools|collections|functools|textwrap|unicodedata))*/, "", u)
+        if (u ~ /import|exec|eval|compile|__|getattr|globals|locals|vars|modules|breakpoint|input|stdin/) return 0
+        return u ~ /open/ ? 0 : 2
+      }
+      if (kind == "js") return t ~ /require|import|binding|module|eval|Function|global|child|stdin|process\.[a-z]*[A-Z(]/ ? 0 : 2
+      # perl and ruby have too many ways to run a command or open a file
+      # (readpipe, qx, %x, open modes, -n/-p) for a word list to rule out.
+      return 0
+    }
+    function mention_ok(t, p, len,   before, after, head, tail) {
+      before = p > 1 ? substr(t, p - 1, 1) : ""
+      after = substr(t, p + len, 1)
+      if (before ~ name_before || after ~ name_after) return 0
+      if (before == "\\") return 1
+      if (before ~ quote) {
+        if (after != before) return 0
+        head = substr(t, 1, p - 2); tail = substr(t, p + len + 1)
+        sub(/[ \t]+$/, "", head); sub(/^[ \t]+/, "", tail)
+        return head ~ /(endswith|endsWith|end_with\?|ends_with|hasSuffix|HasSuffix)\($|[=!]=$/ || tail ~ /^[=!]=/
+      }
+      # Inside a longer literal: a character that is neither blank nor a
+      # quote must stand on each side, so no trimming leaves the bare suffix.
+      head = substr(t, 1, p - 1); tail = substr(t, p + len)
+      sub(/[ \t]+$/, "", head); sub(/^[ \t]+/, "", tail)
+      return head != "" && tail != "" && substr(head, length(head)) !~ quote && substr(tail, 1, 1) !~ quote
+    }
+    function mentions(t,   m, k, sfx, out, p, rest, at) {
+      if (t ~ /chdir|cwd|pushd|(^|[^A-Za-z0-9_])cd[ \t]/) return t
+      level = tier(t)
+      if (level == 0) return t
+      m = split(suffixes, sfx, " ")
+      for (k = 1; k <= m; k++) {
+        out = ""; at = 1
+        while ((p = index(substr(t, at), sfx[k])) > 0) {
+          p += at - 1
+          if (mention_ok(t, p, length(sfx[k]))) {
+            t = substr(t, 1, p - 1) "_" substr(t, p + length(sfx[k]))
+            at = p + 1
+          } else at = p + length(sfx[k])
+        }
+      }
+      return t
+    }
+    BEGIN {
+      name_before = "[]A-Za-z0-9_./~*?-]"; name_after = "[[A-Za-z0-9_.*?-]"; quote = "[\047\"`]"
+      # Mentions first: the suffix test is recognized by its method name.
+      t = mentions(ENVIRON["PT_TEXT"])
+      if (kind == "py" || kind == "js") t = chains(t)
+      printf "%s", t
+    }'
+}
+
+# The second reading of a command that is about to be blocked: print $1 with
+# the program text of known tools (search_operand_spans, program mode)
+# reduced to what can still name a file (program_text_residual), and each
+# grep or rg pattern there replaced with `_`. Every other byte stays, so the
+# scan that follows reads each file operand, option value, redirection and
+# string literal as written. A program word that itself names an existing
+# path is left alone, and so is everything when the directory the command
+# reads from is not known.
+bash_strip_program_text() (
+  set -f
+  pt_cmd=$1
+  pt_spans=$(search_operand_spans "$pt_cmd" program) && [ -n "$pt_spans" ] || {
+    printf '%s' "$pt_cmd"
+    exit 0
+  }
+  pt_spans=$(printf '%s\n' "$pt_spans" | LC_ALL=C awk '
+    /^P / { n = $3; sub(/^P /, ""); print n " " $0; next }
+    /^[0-9]/ { print $1 " pat " $0 }' | sort -rn)
+  # Where the shell reads relative names from is decided without the program
+  # words: a `$1` or a `cd` in awk or python text moves nothing in the shell,
+  # and text that changes the program's own directory keeps its suffixes
+  # (program_text_residual).
+  pt_shape=$(printf '%s\n' "$pt_spans" | PT_CMD=$pt_cmd LC_ALL=C awk '
+    { s = NR == 1 ? ENVIRON["PT_CMD"] : s; a = $3; b = $4; s = substr(s, 1, a - 1) "_" substr(s, b + 1) }
+    END { printf "%s", s }')
+  pt_rebase=
+  if bash_command_may_rebase_relative_paths "$pt_shape"; then
+    pt_rebase=$(bash_command_rebase_target "$pt_shape") || { printf '%s' "$pt_cmd"; exit 0; }
+  fi
+  # shellcheck disable=SC2086
+  pt_suffixes=$(program_text_bare_suffixes ${pt_rebase:+"$pt_rebase"})
+  pt_ifs=$IFS
+  IFS='
+'
+  for pt_span in $pt_spans; do
+    IFS=$pt_ifs
+    pt_rest=${pt_span#* }
+    pt_kind=${pt_rest%% *}; pt_rest=${pt_rest#* }
+    pt_start=${pt_rest%% *}; pt_rest=${pt_rest#* }
+    case "$pt_kind" in
+      pat) pt_end=$pt_rest pt_new=_ ;;
+      *)
+        pt_end=${pt_rest%% *}; pt_value=${pt_rest#* }
+        [ "$pt_end" != "$pt_rest" ] || continue
+        pt_exists=0
+        for pt_dir in . ${pt_rebase:+"$pt_rebase"}; do
+          if [ -e "$pt_dir/$pt_value" ] || [ -L "$pt_dir/$pt_value" ]; then pt_exists=1; fi
+        done
+        case "$pt_value" in /*) [ ! -e "$pt_value" ] && [ ! -L "$pt_value" ] || pt_exists=1 ;; esac
+        [ "$pt_exists" -eq 0 ] || continue
+        pt_new=$(program_text_residual "$pt_kind" "$pt_value" "$pt_suffixes") || continue
+        [ "$pt_new" != "$pt_value" ] || continue
+        ;;
+    esac
+    pt_next=$(PT_CMD=$pt_cmd PT_NEW=$pt_new LC_ALL=C awk -v a="$pt_start" -v b="$pt_end" -v kind="$pt_kind" 'BEGIN {
+      s = ENVIRON["PT_CMD"]; t = ENVIRON["PT_NEW"]
+      if (kind != "pat") { gsub(/\047/, "\047\\\047\047", t); t = "\047" t "\047" }
+      printf "%s", substr(s, 1, a - 1) t substr(s, b + 1)
+    }') && [ -n "$pt_next" ] || continue
+    pt_cmd=$pt_next
+  done
+  IFS=$pt_ifs
+  printf '%s' "$pt_cmd"
+)
+
 # Return 0 and print the matched entry when the command names a protected
-# path. Git is asked about tracked files only here, once a block is already
-# pending, so a command that passes costs what it did before. The rescan reads
-# the command with those operands replaced, and every other word as written.
+# path. A command that passes costs what it did before: only once a block is
+# pending is the command read a second time, with the operands that name a
+# committed file replaced (git is asked only here) and the program text of
+# known tools reduced to what can name a file. The rescan reads every other
+# word as written.
 bash_matches_deny_path() {
   deny_path_report=
   bash_deny_path_scan "$1" || return "$?"
   # $2 is the hook input. It is read for the event workdir only here, once a
   # block is pending. Without a workdir a relative word cannot be placed (the
   # hook's own directory need not be the shell's), and the block stands.
-  if [ "${AGENT_GUARD_TRACKED_FILE_EXCEPTION-on}" = on ] && [ -n "${2-}" ] \
-    && exception_workdir_is_here "$2"; then
-    tfx_cmd=$(bash_strip_tracked_file_operands "$1") || tfx_cmd=$1
-    if [ -n "$tfx_cmd" ] && [ "$tfx_cmd" != "$1" ]; then
-      deny_path_report=
-      bash_deny_path_scan "$tfx_cmd" || return "$?"
-    fi
+  if [ -z "${2-}" ] || ! exception_workdir_is_here "$2"; then
+    printf '%s\n' "$deny_path_report"
+    return 0
+  fi
+  tfx_cmd=$1
+  if [ "${AGENT_GUARD_TRACKED_FILE_EXCEPTION-on}" = on ]; then
+    tfx_cmd=$(bash_strip_tracked_file_operands "$1") && [ -n "$tfx_cmd" ] || tfx_cmd=$1
+  fi
+  tfx_text=$(bash_strip_program_text "$tfx_cmd") && [ -n "$tfx_text" ] || tfx_text=$tfx_cmd
+  if [ "$tfx_text" != "$1" ]; then
+    deny_path_report=
+    bash_deny_path_scan "$tfx_text" || return "$?"
   fi
   [ -z "$deny_path_report" ] || printf '%s\n' "$deny_path_report"
   return 0

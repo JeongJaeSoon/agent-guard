@@ -3017,6 +3017,8 @@ run_expect 0 "a gh --jq value is a jq filter and does not stop a later jq rewrit
   sh "$ROOT/tests/gh-jq-option.sh"
 run_expect 0 "a committed file is not blocked by its name; untracked, linked, outside and remote paths stay blocked" \
   sh "$ROOT/tests/tracked-file-exception.sh"
+run_expect 0 "program text of known tools is not a path operand; operands, literals that name a file and shell code stay blocked" \
+  sh "$ROOT/tests/path-operands-only.sh"
 run_expect 0 "literal backquotes in quoted text read by echo or cat pass, runnable ones stay blocked" \
   sh "$ROOT/tests/literal-substitution-text.sh"
 run_expect 0 "a failed quoted-bracket normalization keeps the protected-path verdict" \
