@@ -1,4 +1,4 @@
-<!-- translated-from: README.md; source-blob: aa8aacd67ff68abbb2aebd8f4ba69e1abdc44f64 -->
+<!-- translated-from: README.md; source-blob: cc6ff4dcc81742631d55c68772f635e451bbc414 -->
 
 <p align="center">
   <a href="https://github.com/JeongJaeSoon/agent-guard/releases"><img src="docs/assets/icon.png" alt="Agent Guard icon" width="128" height="128"></a>
@@ -45,7 +45,7 @@ Agent Guard는 Claude Code, Codex, Git hook, GitHub Actions와 직접 실행하�
 
 플러그인은 명령이 시작될 때의 파일을 검사합니다. 같은 명령의 앞부분에서 파일을 쓰거나 다른 저장소로 이동하면 그 결과를 보지 못하므로 네이티브 hook도 설치하세요. push 검사는 이미 존재하는 커밋 대신 스테이징된 내용을 확인합니다. 이 hook 밖에서 커밋된 비밀 정보는 체크아웃된 트리에 남아 있는 동안 CI가 탐지합니다.
 
-검사를 실행하지 못한 상태를 정상으로 취급하지 않습니다. Claude Code와 Codex 플러그인의 기본 동작은 보호 수준 저하를 경고한 뒤 명령을 계속 실행하는 것이며, `AGENT_GUARD_INFRA_FAILURE_MODE=closed`를 설정하면 차단합니다([설정](docs/configuration.md) 참고). 네이티브 hook과 Action은 이 설정과 무관하게 검사를 실행할 수 없으면 실패합니다. Claude Code 2.1.295 이상에서는 검사 결정 전에 hook이 시간 초과되거나 비정상 종료되어도 두 모드 모두 도구 호출을 차단합니다.
+검사를 실행하지 못한 상태를 정상으로 취급하지 않습니다. Claude Code와 Codex 플러그인의 기본 동작은 보호 수준 저하를 경고하고 무엇이 없는지 알려 준 뒤 명령을 계속 실행하는 것이며, 문제가 계속되는 동안 경고는 10분마다 다시 나옵니다. `AGENT_GUARD_INFRA_FAILURE_MODE=closed`를 설정하면 명령을 차단합니다([설정](docs/configuration.md) 참고). gitleaks나 그 설정 파일만 없을 때 기본 동작은 PreToolUse의 보호 경로 검사와 deny 패턴 검사를 계속 실행하고 그 비밀 스캔만 건너뜁니다. 다른 hook은 지금처럼 검사 없이 통과합니다. 네이티브 hook과 Action은 이 설정과 무관하게 검사를 실행할 수 없으면 실패합니다. Claude Code 2.1.295 이상에서는 검사 결정 전에 hook이 시간 초과되거나 비정상 종료되어도 두 모드 모두 도구 호출을 차단합니다.
 
 <a id="choose-your-path"></a>
 

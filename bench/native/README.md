@@ -14,15 +14,11 @@ Do not run builds, regression suites or other benchmarks simultaneously.
 ```sh
 sh bench/native/run.sh /absolute/path/to/gitleaks \
   16075762fa528f071f01f9c1998083b30aaca116 \
-  "$PWD/bench/results/rust-experiment"
-sh scripts/devtools.sh report --results bench/results/rust-experiment
+  "$PWD/bench/local/rust-experiment"
 ```
 
-The Rust report generator requires Rust 1.85.1+ only for building. It emits a standalone
-Korean HTML file and exportable SVG charts, with no external web dependencies.
-The report also reads `verification.json` and `ci.json`; preserve the actual
-validation results for the measured CLI SHA-256 rather than borrowing a passing
-status from different runtime code.
+The recorded v3.6.14 comparison and the report generator that rendered it are
+no longer tracked; they remain available at the `v3.6.14` tag.
 
 The runner normally builds the image. `AGENT_GUARD_BENCH_CA_BUNDLE` can select
 a build-time proxy CA bundle. To reuse a previously verified image without
@@ -81,20 +77,16 @@ performance, macOS/ARM performance or production packaging readiness.
 
 ## Artifact policy
 
-`bench/results/rust-experiment/` is the recorded comparison that the devtools
-tests read; do not add new runs to it. Use ignored `bench/local/` for new
-exploratory runs so they cannot overwrite that comparison by accident. Build logs
-and CLI progress logs are reproducible and ignored; unit and audit evidence
-remain tracked. Charts are embedded in the standalone HTML. The generator also
-exports SVG copies under `docs/assets/`, but those copies are not tracked.
+Measurement results are not tracked. Use ignored `bench/local/` for new runs,
+or keep them in a release asset or CI artifact.
 Cargo build directories, local caches and generated release archives are ignored;
-Cargo lockfiles and the curated measurement JSON remain tracked. `.dockerignore`
+Cargo lockfiles remain tracked. `.dockerignore`
 keeps these local artifacts out of the benchmark image build context.
 
 ## Developer tool migration
 
-`native/devtools` replaces all ten former Python verification, measurement and
-report scripts. Use `sh scripts/devtools.sh <command> [options]` locally; it builds
+`native/devtools` replaces the former Python verification and measurement
+scripts. Use `sh scripts/devtools.sh <command> [options]` locally; it builds
 the locked release binary before running. The Docker image provides the same
 `agent-guard-devtools` executable without Python or matplotlib. The installed
 shell CLI does not invoke Cargo or the developer binary.
@@ -106,10 +98,6 @@ regression partitions with `verify --out /absolute/results --native-core /build/
 The 1,013 valid differential inputs are frozen in
 `tests/fixtures/native-contracts.json` from Python seed 60261104. Eleven malformed
 inputs are checked separately. Fixture hashes preserve all 21 masking/boundary
-inputs and full expected values. Unit tests compare 1,000 CPython random draws
-and every retained report interval and paired CPU median. `tests/devtools.sh`
-compares the complete historical assessment, rejection gates, child resource
-exit status and source-location observation without a Python interpreter.
-The old performance JSON and HTML remain historical evidence; migration smoke
-measurements belong in a separate result directory. SVG rendering is now native
-and deterministic; historical matplotlib SVGs need not be byte-identical.
+inputs and full expected values. `tests/devtools.sh`
+checks option parsing, child resource exit status, the source-location
+observation and failed-partition reporting without a Python interpreter.

@@ -136,7 +136,7 @@ for mode in "" block; do
 "
     hook "$host" "$mode" "$(bash_json "cat $DOT")"
     expect_blocked "$host: mode '${mode:-unset}' cat blocks as before without guidance" \
-      "agent-guard: if the command reads no protected file, rewrite the matched text so it is not path-shaped and retry; do not weaken the deny list. Examples: jq '.[\"key\"]' instead of jq '.key'; a commit message that omits the path; a structured Grep pattern instead of an inline shell search."
+      "agent-guard: checking whether a protected file exists or reading its metadata is not supported; if it is needed, ask the user to run the command themselves. Do not weaken the deny list or reshape the command to pass this check."
   done
 done
 
@@ -171,6 +171,10 @@ for cmd in "cat \"$DOT\"" "cat '$DOT'" "cat \$PWD/$DOT" "cat .en*" "cat .en?" \
   hook claude mask "$(bash_json "$cmd")"
   expect_blocked "mask '$cmd' blocks without content and ends with the guidance" "$GUIDE"
 done
+# Codex reads files through shell commands, so its hint names cat only.
+hook codex mask "$(bash_json "cat $DOT | head")"
+expect_blocked "codex: mask 'cat | head' ends with a cat-only guidance" \
+  'agent-guard: for a masked view, read the protected file alone with `cat <path>`'
 
 for tool in Grep Glob NotebookRead; do
   hook claude mask "$(jq -nc --arg t "$tool" --arg p "$W/$DOT" '{tool_name:$t,tool_input:{path:$p,notebook_path:$p,pattern:"x"}}')"

@@ -25,6 +25,11 @@ for f in "$CASE/fn"/*.sh; do
   # shellcheck disable=SC1090
   . "$f"
 done
+# The cache keys are the JV_* expression constants beside the functions.
+sed -n '/^JV_INPUT_TYPE=/,/^JV_NEW_STRING=/p' "$GUARD" >"$CASE/fn/constants.sh"
+[ "$(grep -c '^JV_' "$CASE/fn/constants.sh")" -eq 7 ] || exit 1
+# shellcheck disable=SC1091
+. "$CASE/fn/constants.sh"
 
 # --- json_value answers primed fields exactly as jq -r does ------------------
 EXPRS='.tool_input | type
@@ -174,6 +179,34 @@ if [ -z "$JV_CACHE_INPUT" ]; then
   ok "an input longer than 256 Ki characters is not primed"
 else
   bad "an input longer than 256 Ki characters is not primed"
+fi
+# The hooks measure their input first and call json_value_prime "$input"
+# measured within the limit, '' over it. Both must leave exactly the cache
+# state json_value_prime "$input" leaves.
+jv_state() { set | grep -E '^(JV_CACHE_|jv_)' | cksum; }
+prime_states_match() {
+  json_value_prime '{"tool_name":"Edit","tool_input":{"content":"x"}}'
+  json_value_prime "$input"; direct=$(jv_state)
+  json_value_prime '{"tool_name":"Edit","tool_input":{"content":"x"}}'
+  if [ "${#input}" -le 262144 ]; then json_value_prime "$input" measured; else json_value_prime ''; fi
+  [ "$direct" = "$(jv_state)" ]
+}
+edge_body=$(printf '%s' "$huge" | cut -c1-262100)
+edge_head='{"tool_name":"Write","tool_input":{"content":"'
+edge_tail='"}}'
+for edge_len in 262143 262144 262145; do
+  pad=$((edge_len - ${#edge_head} - ${#edge_tail}))
+  input="$edge_head$(printf '%s' "$edge_body" | cut -c1-"$pad")$edge_tail"
+  check "measured priming matches json_value_prime at ${#input} characters" prime_states_match
+done
+for input in "$doc" '{"a":1} {"b":2}' '[1]' "{\"tool_name\":\"Write\",\"tool_input\":{\"content\":\"$huge\"}}"; do
+  check "measured priming matches json_value_prime on a ${#input}-character input" prime_states_match
+done
+measured_sites=$(grep -c "if \[ \"\${#input}\" -le 262144 \]; then json_value_prime \"\$input\" measured; else json_value_prime ''; fi" "$GUARD")
+if [ "$measured_sites" -eq 2 ] && ! grep -q 'json_value_prime "\$input"$' "$GUARD"; then
+  ok "both hooks prime through the measured form"
+else
+  bad "both hooks prime through the measured form"
 fi
 doc='{"tool_name":"Bash","tool_input":{"command":"ls"}}'
 json_value_prime "$doc"
@@ -366,6 +399,18 @@ check "a secret added to a tracked file is still blocked" [ "$?" -eq 2 ]
 hook hook-post-tool '{"session_id":"s","tool_name":"Edit","tool_input":{"file_path":"README.md"}}'
 check "a secret staged and reverted on disk is still blocked" [ "$?" -eq 2 ]
 
+# An assignment dump over the 256 KiB probe threshold but under the output scan
+# cap takes the large-output precheck, which reuses the cap check's byte count.
+# It must still mask every leaf whole, and the shell must report no error.
+mid_dump=$(jq -nc '[range(0; 7000) | "PASSWORD=value-detection-\(.)-abcdefgh"] as $o
+  | {session_id:"s",tool_name:"Read",tool_input:{file_path:"dump.json"},tool_response:$o}')
+hook hook-post-tool "$mid_dump"
+check "a ${#mid_dump}-byte assignment dump is masked with success" [ "$?" -eq 0 ]
+check "the large-output precheck masks every leaf of the dump whole" \
+  jq -e '.hookSpecificOutput.updatedToolOutput | length == 7000 and all(. == "[REDACTED]")' "$CASE/out/stdout"
+check "the large-output precheck reports no shell error" \
+  sh -c '! grep -Eq "^[^ ]*: [0-9]+: " "$1"' _ "$CASE/out/stderr"
+
 # #477: the jq/sed rewrite path is gated by a cheap name check. The letters
 # "sed" inside an ordinary word must not open it: a clean command such as
 # `printf 'build passed'` has to cost the same awk runs as `printf 'build ok'`.
@@ -521,6 +566,14 @@ else
   done
   shell_count on 'ls -la src' >/dev/null
   at_most() { [ -n "$1" ] && [ -n "$2" ] && [ "$1" -le "$2" ]; }
+  # #510: the explicit cache opt-in with logging off prepares the state
+  # directory with the checks logging on makes, and writes no event file, so
+  # a warm run forks no more shells than logging on.
+  logged=$(shell_count on 'ls -la src')
+  (export AGENT_GUARD_SCAN_CACHE=on; shell_count off 'ls -la src') >/dev/null
+  got=$(export AGENT_GUARD_SCAN_CACHE=on; shell_count off 'ls -la src')
+  check "logging off with AGENT_GUARD_SCAN_CACHE=on and a warm cache forks no more shells than logging on (on ${logged:-none}, got ${got:-none})" \
+    at_most "$got" "$logged"
   for log in off on; do
     one=$(shell_count "$log" 'ls a')
     got=$(shell_count "$log" 'ls a b c d e f g h')

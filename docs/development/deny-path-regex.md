@@ -38,7 +38,7 @@ validation and independent differential/mutation evidence.
 The historical 136 count above predates the four probe assertions and is retained
 with its original measurement. Current entry points, costs and integration
 regressions are listed in [testing.md](testing.md). The selected Bash observation
-in [coverage-core.md](coverage-core.md) measures physical shell locations in the
+(`tests/selected-bash-locations.json`) measures physical shell locations in the
 three character helpers, not regex semantics, complete case-arm coverage or
 filesystem policy enforcement. In particular, multiple hex cases share a
 physical source line. Full deny-read-mask CLI/OS contracts remain necessary.
