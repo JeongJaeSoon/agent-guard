@@ -12339,7 +12339,20 @@ secretish_env_values() {
       v = prose_core(value)
       return v ~ /^(example|dummy)[_-]?(token|key|secret|password)$/ \
           || v ~ /^not[-_ ]?a[-_ ]?real[-_ ]?(token|key|secret|password)$/ \
+          || v ~ /^redacted$/ \
+          || your_here_placeholder(v) \
           || angle_placeholder(v)
+    }
+    # A sample config writes `your-client-secret-here` or `your_api_key_here`
+    # for a value to fill in. Every word between `your` and `here` must be a
+    # known placeholder word, as in angle_placeholder, so a real value inside
+    # the frame (`your-<value>-here`) or an unlisted word still masks.
+    function your_here_placeholder(v, n, i, words) {
+      if (v !~ /^your([-_][a-z]+)+[-_]here$/) return 0
+      n = split(v, words, /[-_]/)
+      for (i = 2; i < n; i++)
+        if (!(words[i] in placeholder_word)) return 0
+      return 1
     }
     # Heuristic only, gitleaks has no rule that matches it: `<token>` and
     # `<your-api-key>` stand for a value in prose. Every word must be a known
