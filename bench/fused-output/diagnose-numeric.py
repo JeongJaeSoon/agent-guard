@@ -47,8 +47,11 @@ if os.environ.get("AG_NUMERIC_TIME_CHILDREN") == "1":
 text = (source / "bin/agent-guard").read_text()
 functions = ["redact_tool_output", "redact_nul_response_json",
              "rewrite_response_conservatively", "redact_response_whole_leaf_fail_closed",
-             "redact_nonempty_response_strings", "redact_response_values_awk",
+             "redact_nonempty_response_strings",
              "emit_post_tool_replacement", "output_scan_input_exceeds_cap"]
+# Released versions keep a two-line wrapper that the candidate no longer has.
+if re.search(r"^redact_response_values_awk\(\)", text, re.M):
+    functions.append("redact_response_values_awk")
 if re.search(r"^redact_response_values_awk_current\(\)", text, re.M):
     functions.append("redact_response_values_awk_current")
 if re.search(r"^rewrite_current_response_conservatively\(\)", text, re.M):

@@ -240,11 +240,18 @@ jobs:
           # added, and five had already fallen out of it.
           #
           # One process per file: a single invocation over every script peaked
-          # at 13.6 GiB resident memory (OOM on the runner); `xargs -n 1`
-          # peaked at 1.8 GiB. xargs exits 123 when any invocation fails, and
-          # pipefail propagates that.
+          # at 13.6 GiB resident memory (OOM on the runner). xargs exits 123
+          # when any invocation fails, and pipefail propagates that.
+          #
+          # --extended-analysis=false: the dataflow analysis is what grows with
+          # file size. On tests/run.sh alone it passed 13 GiB (measured,
+          # ShellCheck 0.11.0), and the runner was shut down mid-step with no
+          # diagnostics once that file grew a little more. Without it the same
+          # file takes 0.3 GiB and 7 s. This step gates on error-severity
+          # findings only, and on the other 114 scripts the two modes print
+          # the same result (measured).
           { git ls-files -z '*.sh'; printf '%s\0' plugins/agent-guard/bin/agent-guard githooks/pre-commit; } \
-            | xargs -0 -n 1 shellcheck --severity=error
+            | xargs -0 -n 1 shellcheck --severity=error --extended-analysis=false
 
       - name: actionlint workflows
         # actionlint auto-discovers every workflow under .github/workflows and

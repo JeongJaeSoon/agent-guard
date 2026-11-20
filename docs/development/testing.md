@@ -14,7 +14,7 @@ units, not security tiers or test-pyramid layers.
 | Focused failure regressions | `prompt-assignment-failure.sh`, `exec-raw-probe-failure.sh`, `exec-framing-boundary.sh` | Prompt direct/host-policy regressions 34; raw exec regressions 7; bounded exec framing regressions 24. These are separate from the direct function contract total |
 | Scanner report validation | `tests/scanner-report.sh` | Eight CLI checks: empty/whitespace/malformed/non-array reports and scanner failure stay fail-closed; clean arrays and precise findings retain their output |
 | Narrow component comparisons | `tests/framed-leaves.sh` | Framing fast path versus byte-decoder reference, escaping, byte boundaries and explicit detector expectations |
-| CLI contracts | `tests/deny-read-mask*.sh`, `source-module-prose.sh`, `hook-outcome-contract.sh`, `gitleaks-resolution.sh`, `audit-log.sh` | Exit status, host payloads, diagnostics, masking and infrastructure policy through the CLI |
+| CLI contracts | `tests/deny-read-mask*.sh`, `source-module-prose.sh`, `hook-outcome-contract.sh`, `gitleaks-resolution.sh`, `audit-log.sh`, `redaction-wrapped-values.sh` | Exit status, host payloads, diagnostics, masking and infrastructure policy through the CLI. `redaction-wrapped-values.sh` runs every row of `tests/fixtures/redaction-wrapped-values.json` through Claude and Codex PostToolUse and UserPromptSubmit |
 | Plugin hook launcher | `tests/hook-launcher.sh` (partition 1) | `plugins/agent-guard/hooks/launch.sh` driven directly for Claude and Codex under `sh`, `dash` and `bash` over a fake plugin cache: authoritative complete root, deleted-root recovery through `current` or the highest complete semver sibling, no substitution for an incomplete root, closed blocks with a reason every time, once-per-session open warning, stdin pass-through and invalid-argument refusal. Not host dispatch |
 | OS/tool integration | Git fixtures in `tests/run.sh`, permission/ACL/symlink/signal cases, `pii-utf8.sh`, Linux real-gitleaks block | Actual filesystem, Git and process behavior; Apple awk and scanner differences |
 | Deployment and service integration | `make smoke-test`, archive/Homebrew validation, opt-in `make test-pleno-integration` | Real scanner/tool dependencies, installation and configured service boundaries |
@@ -34,7 +34,7 @@ Individual documents describe each suite's contracts and evidence and link here.
 | `tests/unit-deny-path.sh` | 97 | 1 | [Deny-path character producers](deny-path-regex.md) |
 | `tests/unit-probe.sh` | 4 | 1 | Probe eligibility |
 | `tests/unit-watchdog.sh` | 2 | 1 | Timer cancellation waits for the child on scanner success and failure |
-| `tests/unit-status-label.sh` | 22 | 1 | [Status-label classification](status-label-tests.md) |
+| `tests/unit-status-label.sh` | 22 | 1 | Status-label classification |
 | `tests/redaction-plan.sh` | 8 | 4 | Replacement ordering, context and output budgets |
 | `tests/unit-audit-retention.sh` | 10 | 1 | Portable audit filename and retention rules |
 | `tests/unit-nul-redaction.sh` | 3 | 1 | NUL-only masking on supported jq versions |
@@ -87,7 +87,7 @@ runner capacity and OS differences and requires its own exact-head evidence.
 ## Coverage we do and do not measure
 
 There is no automatic line/branch coverage collector or percentage gate in
-these workflows. A local [scoped source-line measurement](coverage-core.md)
+these workflows. A local scoped source-line measurement
 retains the historical 4/4 result and records an eight-function observation from 2026-10-20:
 **39/40 predetermined physical Bash source locations**, with a definition-only
 control at **0/40**. This excludes embedded programs and is not whole-file,
@@ -152,8 +152,7 @@ This document introduces no framework, coverage service, credentials, new
 required check or reduction in the existing suite. CI performance changes own
 their test helpers; future unit/module changes should use separate small PRs.
 
-The [status-label family mapping](status-label-tests.md) records the subsequent
-move of pure classification variants to 22 direct assertions, five retained CLI
+A later change moved pure classification variants to 22 direct assertions, five retained CLI
 representatives, equivalence and selected mutation controls. It does not change
 the historical four-suite timing or scoped Bash observation above.
 

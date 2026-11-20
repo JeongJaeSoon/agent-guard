@@ -1,0 +1,157 @@
+name: Hook instruction count
+# Measurement only: it never fails because a count rose. It compares the
+# shell instructions a few synthetic hook events cost on the PR base and head
+# and writes the table to the job summary. Performance evidence does not run
+# on hook-only PRs, so this is the PR-time view of hook cost; the job fails
+# only when it could not measure. It runs bin/agent-guard directly, so a
+# hooks/ (launcher) change is not measured here.
+on:
+  pull_request:
+    paths:
+      - 'plugins/agent-guard/bin/agent-guard'
+      - 'plugins/agent-guard/config/**'
+      - 'bench/instruction-count/**'
+      - 'bench/process-count/fake-gitleaks.c'
+      - '.github/workflows/hook-instruction-count.yml'
+  # Caches made on a PR run are visible to that PR only; a main run with the
+  # same paths stores the valgrind packages where every PR can restore them.
+  push:
+    branches: [main]
+    paths:
+      - 'plugins/agent-guard/bin/agent-guard'
+      - 'plugins/agent-guard/config/**'
+      - 'bench/instruction-count/**'
+      - 'bench/process-count/fake-gitleaks.c'
+      - '.github/workflows/hook-instruction-count.yml'
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  count:
+    name: Hook instruction count (base vs head)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      # The default checkout is the PR merged into its base; that merge's first
+      # parent is the base, so the measured change is the PR's own.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+          path: head
+      - name: Check out the merge base parent
+        run: git -C head worktree add --detach ../base HEAD^1
+      - name: Refresh Linux package metadata
+        timeout-minutes: 4
+        run: |
+          sudo apt-get -o Acquire::Retries=0 \
+            -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 \
+            -o DPkg::Lock::Timeout=30 update --error-on=any
+      # The mirror has served valgrind and the glibc packages it pulls in
+      # (35.5 MB) at about 50 kB/s, which no retry inside the 4-minute step can
+      # finish, so the packages are cached. The key is the exact list of
+      # package URIs apt plans to fetch on this runner, so a new runner image or
+      # package version makes a new key; an older cache still seeds the apt
+      # archive and only changed files are fetched.
+      - name: Plan valgrind packages
+        id: plan
+        run: |
+          uris="$RUNNER_TEMP/valgrind-uris"
+          sudo apt-get -o DPkg::Lock::Timeout=30 install -qq --print-uris --no-install-recommends valgrind > "$uris"
+          printf 'key=valgrind-debs-%s-%s-%s\n' "$RUNNER_OS" "$RUNNER_ARCH" "$(sha256sum "$uris" | cut -c1-16)" >> "$GITHUB_OUTPUT"
+          mkdir -p "$HOME/valgrind-debs"
+      - name: Restore valgrind packages
+        id: restore
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/valgrind-debs
+          key: ${{ steps.plan.outputs.key }}
+          restore-keys: valgrind-debs-${{ runner.os }}-${{ runner.arch }}-
+      # A download that stops is retried: each attempt keeps the shared
+      # fail-fast options (Retries=0, 20 s timeouts), gets its own 55 s limit
+      # and resumes the partial file (apt sends a Range request), three attempts
+      # at most inside the unchanged step limit. Only the download is retried
+      # and killed: stopping apt during dpkg could leave the next attempt a
+      # broken package state. A runner that never gets valgrind still fails the
+      # job as "could not measure".
+      - name: Download valgrind
+        timeout-minutes: 4
+        run: |
+          if ls "$HOME"/valgrind-debs/*.deb > /dev/null 2>&1; then
+            sudo cp "$HOME"/valgrind-debs/*.deb /var/cache/apt/archives/
+          fi
+          fetched=no
+          for attempt in 1 2 3; do
+            if sudo timeout --kill-after=5 55 apt-get -o Acquire::Retries=0 \
+                -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 \
+                -o DPkg::Lock::Timeout=30 install -y --no-install-recommends --download-only valgrind; then
+              fetched=yes
+              break
+            fi
+            echo "::warning title=Hook instruction count::valgrind download attempt $attempt did not finish; retrying up to 3 attempts."
+            [ "$attempt" = 3 ] || sleep 10
+          done
+          [ "$fetched" = yes ]
+          awk '{ print $2 }' "$RUNNER_TEMP/valgrind-uris" | while read -r deb; do
+            cp "/var/cache/apt/archives/$deb" "$HOME/valgrind-debs/"
+          done
+      - name: Save valgrind packages
+        if: steps.restore.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/valgrind-debs
+          key: ${{ steps.plan.outputs.key }}
+      - name: Install valgrind
+        timeout-minutes: 4
+        run: |
+          sudo apt-get -o DPkg::Lock::Timeout=30 install -y --no-install-recommends --no-download valgrind
+      - name: Count base and head hook instructions
+        id: count
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          tsv="$RUNNER_TEMP/instruction-count.tsv"
+          started=$(date +%s)
+          status=0
+          sh head/bench/instruction-count/run.sh base head "$tsv" || status=$?
+          elapsed=$(( $(date +%s) - started ))
+          {
+            printf '### Hook instruction count\n\n'
+            if [ "$EVENT_NAME" = pull_request ]; then
+              printf -- '- base `%s`(merge의 첫 부모), head: PR `%s`를 base에 merge한 `%s`\n' \
+                "$(git -C base rev-parse HEAD)" "$PR_HEAD_SHA" "$(git -C head rev-parse HEAD)"
+            else
+              printf -- '- base `%s`(첫 부모), head: main 커밋 `%s`\n' \
+                "$(git -C base rev-parse HEAD)" "$(git -C head rev-parse HEAD)"
+            fi
+            printf -- '- /bin/sh: `%s`, %s\n' "$(readlink -f /bin/sh)" "$(valgrind --version 2>/dev/null || printf 'valgrind missing')"
+            printf -- '- 측정 시간: %s초(두 트리, 이벤트 6개, 각 1회)\n\n' "$elapsed"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$status" -ne 0 ]; then
+            printf '측정하지 못했습니다(종료 코드 %s). 이 job의 로그를 확인하세요. 변화 없음이라는 뜻이 아닙니다.\n' "$status" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          sh head/bench/instruction-count/run.sh --render "$tsv" > "$RUNNER_TEMP/table.md" || exit 1
+          {
+            cat "$RUNNER_TEMP/table.md"
+            printf '\n'
+            printf -- '- 셸(dash)이 실행한 명령어 수입니다. fork한 subshell은 세고, exec한 jq·awk·git·gitleaks는 세지 않습니다.\n'
+            printf -- '- 스크립트 크기 몫: hook마다 스크립트 전체를 읽으므로, 바뀐 코드를 타지 않는 hook도 스크립트가 커지면 늡니다. `version`의 차이로 추정합니다.\n'
+            printf -- '- 분류: `version`이 그대로(±100)이면 나머지가 1만 안일 때 변화 없음, 그보다 크면 실행 코드 증가·감소입니다. 같은 트리끼리도 이벤트마다 수천까지 달라집니다. `version`이 바뀌었으면 나머지가 base의 0.05%%(최소 2만) 안일 때 스크립트 크기만입니다. 큰 이벤트에서는 이 허용 폭 안의 실제 증가도 스크립트 크기만으로 보일 수 있습니다.\n'
+            printf -- '- 판정이 아니라 측정입니다. 늘어도 job은 실패하지 않습니다. `bin/agent-guard`를 직접 실행하므로 `hooks/`(launcher)의 변화는 재지 않습니다.\n'
+            printf -- '- native 출력 redactor 없이 셸 경로만 잽니다. Performance evidence의 packaged 측정을 대신하지 않습니다.\n'
+          } >> "$GITHUB_STEP_SUMMARY"
+          cat "$RUNNER_TEMP/table.md"
+          if grep -Fq '**실행 코드 증가**' "$RUNNER_TEMP/table.md"; then
+            echo '::warning title=Hook instruction count::An event runs more shell instructions beyond the script-size share; see the job summary.'
+          fi
+          if grep -Fq '**다름**' "$RUNNER_TEMP/table.md"; then
+            echo '::warning title=Hook instruction count::An event exits or prints differently on head; see the job summary.'
+          fi
+      - name: Report a run that never reached the measurement
+        if: failure() && steps.count.outcome == 'skipped'
+        run: |
+          printf '### Hook instruction count\n\n측정하지 못했습니다: 측정 전 단계(checkout·valgrind 설치)가 실패했습니다. 이 job의 로그를 확인하세요. 변화 없음이라는 뜻이 아닙니다.\n' >> "$GITHUB_STEP_SUMMARY"
