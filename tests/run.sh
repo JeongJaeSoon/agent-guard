@@ -3041,8 +3041,6 @@ run_expect 0 "status words and named placeholders are prose, real values still b
   sh "$ROOT/tests/prompt-prose-placeholder.sh"
 run_expect 0 "bracketed values mask whole and spaced angle placeholders are judged as one value on both hosts" \
   sh "$ROOT/tests/redaction-wrapped-values.sh"
-run_expect 0 "a field value that repeats the field name is code on both hosts; config literals stay masked" \
-  sh "$ROOT/tests/key-name-masking.sh"
 run_expect 0 "hand-back reports that name credential settings without values pass, real values still block" \
   sh "$ROOT/tests/handback-values.sh"
 ambiguous_bash_fixtures="$ROOT/tests/fixtures/ambiguous-bash-protected-path.json"
@@ -5599,6 +5597,13 @@ else
   not_ok "a failing command-variable resolver is reported as an awk failure (got $varcmd_status)"
   sed 's/^/  stderr: /' "$ERR"
 fi
+
+# Runs here rather than beside the other redaction suites in partition 1: the
+# core runner runs partitions 1 and 3 side by side, and on macOS partition 1
+# was within a minute of the job limit before this suite (about 550 hook
+# runs) was added.
+run_expect 0 "a field value that repeats the field name is code on both hosts; config literals stay masked" \
+  sh "$ROOT/tests/key-name-masking.sh"
 
 fi # end of shard 3
 
