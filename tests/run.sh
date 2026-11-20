@@ -3015,14 +3015,10 @@ expect_json_status 0 "env VAR=x cmd piped (wrapped command, not bare env) is all
 # none of the embedded commands is executed. The ground-truth script runs them.
 run_expect 0 "grep/rg search patterns and new openssl outputs leave out no protected read" \
   sh "$ROOT/tests/search-operand-ground-truth.sh"
-run_expect 0 "orca/gh/git message values leave out no protected read" \
-  sh "$ROOT/tests/message-value-prose.sh"
 run_expect 0 "runtime environment objects and jq interpolation leave out no protected read" \
   sh "$ROOT/tests/runtime-global-text.sh"
 run_expect 0 "ORCA_ and CLAUDE_JOB_DIR lookups pass while secret dumps stay blocked" \
   sh "$ROOT/tests/env-lookup-allowlist.sh"
-run_expect 0 "the protected-path regex cache only rules commands out and never changes a verdict" \
-  sh "$ROOT/tests/deny-path-regex-cache.sh"
 run_expect 0 "hook process shortcuts answer exactly as the processes they replace (#407)" \
   sh "$ROOT/tests/hook-spawn-reduction.sh"
 run_expect 0 "cat/tee here-document bodies leave out no protected read" \
@@ -3031,6 +3027,10 @@ run_expect 0 "sed addresses, echo words and plain heredoc expansions are data; r
   sh "$ROOT/tests/bash-path-text-data.sh"
 run_expect 0 "a gh --jq value is a jq filter and does not stop a later jq rewrite; real reads stay blocked" \
   sh "$ROOT/tests/gh-jq-option.sh"
+run_expect 0 "a committed file is not blocked by its name; untracked, linked, outside and remote paths stay blocked" \
+  sh "$ROOT/tests/tracked-file-exception.sh"
+run_expect 0 "program text of known tools is not a path operand; operands, literals that name a file and shell code stay blocked" \
+  sh "$ROOT/tests/path-operands-only.sh"
 run_expect 0 "literal backquotes in quoted text read by echo or cat pass, runnable ones stay blocked" \
   sh "$ROOT/tests/literal-substitution-text.sh"
 run_expect 0 "a failed quoted-bracket normalization keeps the protected-path verdict" \
@@ -5197,6 +5197,17 @@ grep -E 'mode [0-9]|owned|owner|access control|directory above|work tree|HOME in
 fi # end of shard 2
 
 if in_shard 3; then
+# These two fixture suites run here rather than beside the other
+# protected-path suites in partition 1. On macOS each partition has a runner
+# of its own, and partition 1 alone took 20 minutes 37 seconds of the 25
+# allowed while partition 3 took under seven. The two are the slowest suites
+# of partition 1: about a quarter of its run time between them, measured in
+# a Linux container.
+run_expect 0 "the protected-path regex cache only rules commands out and never changes a verdict" \
+  sh "$ROOT/tests/deny-path-regex-cache.sh"
+run_expect 0 "orca/gh/git message values leave out no protected read" \
+  sh "$ROOT/tests/message-value-prose.sh"
+
 # `git commit -a`, a pathspec, --include and --only make Git stage tracked
 # work-tree changes after PreToolUse has run. The gate must scan what the
 # commit would record (must-fail), allow the same shapes when the unstaged
@@ -5596,17 +5607,13 @@ else
   sed 's/^/  stderr: /' "$ERR"
 fi
 
-# These three fixture suites run here rather than beside the other redaction
-# and protected-path suites in partition 1: the core runner runs partitions 1
-# and 3 side by side, and on macOS partition 1 came within a minute of the job
-# limit with the two path suites in it. Together they make about 1,400 hook
-# runs (key names about 640, the two path suites about 740).
+# Runs here rather than beside the other redaction suites in partition 1.
+# It makes several hundred hook runs, and the run time of partitions 1 and 3
+# sets the time of the core jobs (one job on Linux, one each on macOS), so
+# it goes where there is room: see docs/development/ci.md for the measured
+# job times.
 run_expect 0 "a field value that repeats the field name is code on both hosts; config literals stay masked" \
   sh "$ROOT/tests/key-name-masking.sh"
-run_expect 0 "a committed file is not blocked by its name; untracked, linked, outside and remote paths stay blocked" \
-  sh "$ROOT/tests/tracked-file-exception.sh"
-run_expect 0 "program text of known tools is not a path operand; operands, literals that name a file and shell code stay blocked" \
-  sh "$ROOT/tests/path-operands-only.sh"
 
 fi # end of shard 3
 
