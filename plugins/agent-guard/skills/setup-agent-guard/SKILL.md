@@ -30,12 +30,13 @@ Make Agent Guard operational without silently changing the machine. Diagnose fir
 3. If `jq` is missing, identify the available system package manager and show the exact install command. Ask for explicit user approval before running it. Do not use `sudo` unless the user explicitly approves elevated installation.
 
 4. If `setup` reports `gitleaks version isolation requires setsid or perl`
-   rather than a missing gitleaks, do not reinstall gitleaks. Show the exact
-   command that installs `util-linux` (which provides `setsid`) on Linux, or
-   Perl in a Homebrew environment, and ask for explicit approval before running
-   it. `setup --install` does not install this helper tool either: without it,
-   `setup --install` stops before the gitleaks download and keeps exiting
-   nonzero until the tool is restored.
+   rather than a missing gitleaks, or `setup --install` stops with
+   `install a gitleaks process-isolation helper:`, do not reinstall gitleaks.
+   Show the exact command that installs `util-linux` (which provides `setsid`)
+   on Linux, or Perl in a Homebrew environment, and ask for explicit approval
+   before running it. `setup --install` does not automatically install this
+   helper tool either: without it, `setup --install` stops before the gitleaks
+   download and keeps exiting nonzero until the tool is installed.
 
 5. If `gitleaks` is missing, prefer Agent Guard's private, checksum-pinned installer:
    - Determine the target OS and architecture.
