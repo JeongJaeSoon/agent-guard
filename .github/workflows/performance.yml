@@ -57,7 +57,9 @@ jobs:
           path: ${{ runner.temp }}/artifacts/
           if-no-files-found: error
 
-  # Wall-clock jobs dilute a shell regression with gitleaks and jq time (#505
+  # Runs wherever this workflow runs (nightly, release PRs, manual runs and
+  # PRs that change the measurement). Wall-clock jobs dilute a shell
+  # regression with gitleaks and jq time (#505
   # added 21% shell work to dense-controls but about +3% latency), so this job
   # counts the shell's own instructions against the latest release tag. It
   # fails when an event's change beyond the script-size share exceeds 5% of
@@ -138,7 +140,7 @@ jobs:
               fetched=yes
               break
             fi
-            echo "::warning title=Hook instruction count::valgrind download attempt $attempt did not finish; retrying up to 3 attempts."
+            echo "::warning title=Shell instruction count::valgrind download attempt $attempt did not finish; retrying up to 3 attempts."
             [ "$attempt" = 3 ] || sleep 10
           done
           [ "$fetched" = yes ]
@@ -188,7 +190,7 @@ jobs:
               0) printf '판정: 통과. 어떤 이벤트도 스크립트 크기 몫을 뺀 나머지가 릴리스의 +5%%를 넘지 않았습니다.\n' ;;
               1) printf '판정: **실패**. 스크립트 크기 몫을 뺀 나머지가 릴리스의 +5%%를 넘은 이벤트:\n\n'
                  sed 's/^/- /' "$out/over-limit.txt" ;;
-              *) printf '판정: 측정 결과를 읽지 못했습니다(종료 코드 %s). 변화 없음이라는 뜻이 아닙니다.\n' "$gate" ;;
+              *) printf '판정: 측정이 완전하지 않습니다(종료 코드 %s: 빠진 값, 또는 base와 head에서 hook 종료 코드가 다름. job 로그 참고). 변화 없음이라는 뜻이 아닙니다.\n' "$gate" ;;
             esac
             printf '\n- 셸(dash)이 실행한 명령어 수입니다. native 출력 redactor 없이 셸 경로만 재고, gitleaks·jq 시간은 세지 않습니다.\n'
             printf -- '- 릴리스 사이에 +5%% 미만으로 쌓이는 증가는 잡지 못합니다. 기능 추가로 일이 실제로 늘어도 실패하며, 그때는 유지관리자가 판단합니다.\n'

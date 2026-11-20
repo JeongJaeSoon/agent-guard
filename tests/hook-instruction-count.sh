@@ -111,8 +111,9 @@ row pre-edit hook-pre-tool 2000000 2200001 0 0 same >> "$case_dir/limit.tsv"
 status=0
 sh "$bench" --check "$case_dir/limit.tsv" 5 > /dev/null || status=$?
 [ "$status" -eq 1 ] || fail 'one instruction over the limit fails'
-for bad in noref truncated text; do
+for bad in noref truncated text status; do
   case "$bad" in
+    status) row version version 100 100 0 0 different; row dense-controls hook-post-tool 491200297 1000 0 2 different ;;
     noref) row dense-controls hook-post-tool 1 2 0 0 same ;;
     truncated) row version version 1 1 0 0 same ;;
     text) printf 'version\tversion\tx\t1\t0\t0\tsame\ndense\thook\t1\t1\t0\t0\tsame\n' ;;

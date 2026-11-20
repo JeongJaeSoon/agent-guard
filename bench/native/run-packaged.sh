@@ -103,8 +103,9 @@ if [ "$legacy_status" -ne 0 ] && legacy_screened=$(jq -ce '
 fi
 public_status=0
 # Ordinary default dispatch against the public v3.7.0 payload. small-clean and
-# dense-controls are PostToolUse output: a large one (280 KB of control
-# characters) and a common small one, so output masking is compared too.
+# dense-controls are PostToolUse output: a common small one and a large one
+# (40,000 "a" + U+001F pairs, about 280 KB as JSON input), so output masking
+# is compared too.
 public_cases='exec-clean exec-multiline exec-long-quoted-secret pre-unknown-tool small-clean dense-controls'
 public_names=$(printf '%s\n' $public_cases | jq -R . | jq -sc .)
 set --

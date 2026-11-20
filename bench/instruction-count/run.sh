@@ -31,7 +31,8 @@
 # Markdown table for a TSV this script wrote (or a synthetic one in tests).
 # --check is the gate Performance evidence uses: it exits 1 when an event's
 # change beyond the script-size share exceeds PERCENT of its base count, 0
-# when none does, and 3 when the TSV is not a complete measurement.
+# when none does, and 3 when the TSV is not a complete measurement (missing
+# reference, non-numeric counts, or an event that exits differently on head).
 set -u
 
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd -P)
@@ -92,6 +93,9 @@ check() {
     function isnum(v) { return v ~ /^[0-9]+$/ }
     NF != 7 || !isnum($3) || !isnum($4) || $3 == 0 { bad = 1; exit }
     NR == 1 && $1 != "version" { bad = 1; exit }
+    # A head that exits differently ran a different path, often far fewer
+    # instructions; that is not a measurement of the same work.
+    $5 != $6 { printf "check: %s exited %s on base but %s on head\n", $1, $5, $6 > "/dev/stderr"; bad = 1; exit }
     NR == 1 { ref = $4 - $3; next }
     {
       n++
