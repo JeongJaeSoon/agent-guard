@@ -12258,6 +12258,8 @@ secretish_env_values() {
       for (lead_i = 1; lead_i <= lead_n; lead_i++) prose_lead_word[lead_words[lead_i]] = 1
       # Credential words a key and an identifier can share, compared after
       # case and separators come off (`api_key`, `apiKey` -> `apikey`).
+      consonant = "[bcdfghjklmnpqrstvwxz]"
+      consonant_run = consonant consonant consonant consonant consonant
       name_stem_n = split("password passwd passphrase secret token credential apikey accesskey privatekey signingkey encryptionkey sessionkey bearer webhook", name_stem, " ")
     }
     function quoted_end(raw, quote, i, slash_count, ch) {
@@ -12896,7 +12898,9 @@ secretish_env_values() {
     # - Unquoted only, and the complete token is the value: a digit-free
     #   identifier or dotted chain of at most 80 bytes, with an optional
     #   leading `$` or one simple generic argument. A digit, a quote or any
-    #   other symbol keeps masking. A dotted chain must start at an object
+    #   other symbol keeps masking. It must read as words (reads_as_words),
+    #   so a random letters-only value keeps masking even when it carries the
+    #   key word. A dotted chain must start at an object
     #   name source code reads from (the closed root list member_reference
     #   uses), because letters and dots are also what a passphrase of words
     #   looks like.
@@ -12921,12 +12925,40 @@ secretish_env_values() {
     # or snake_case one that contains the key word (`password: MyPassword,`),
     # reads the same way, with or without a leading `$`. So does such a
     # password assigned to a `self.`/`this.` key with nothing after it.
+    # An identifier is made of words. Split the value where a capital follows
+    # a lowercase letter, where an acronym ends (`HTTPCredential`), and at
+    # `_`, `.`, `$`, `<` and `>`; a value does not
+    # read as words when one of them holds five consonants in a row (`y`
+    # counts as a vowel) or when three or more are two letters or shorter.
+    # That is what a random letters-only value looks like even when it
+    # carries the key word (`SecretQzxvWplmKdjfhgTyur`), so it keeps masking.
+    function reads_as_words(value, v, i, ch, prev, out, n, words, short) {
+      out = ""
+      prev = ""
+      for (i = 1; i <= length(value); i++) {
+        ch = substr(value, i, 1)
+        if (ch ~ /[A-Z]/ && (prev ~ /[a-z]/ \
+            || (prev ~ /[A-Z]/ && substr(value, i + 1, 1) ~ /[a-z]/)))
+          out = out " "
+        out = out ch
+        prev = ch
+      }
+      n = split(tolower(out), words, /[ _.$<>]+/)
+      short = 0
+      for (i = 1; i <= n; i++) {
+        if (words[i] == "") continue
+        if (words[i] ~ consonant_run) return 0
+        if (length(words[i]) <= 2 && ++short >= 3) return 0
+      }
+      return 1
+    }
     function self_named_reference(assignment, value, token, term, tail, \
                                   k, v, leaf, arg, i) {
       if (!key_line_start) return 0
       sub(/\r$/, "", token)
       if (token != value || length(value) > 80) return 0
       if (value !~ /^\$?[A-Za-z_]+(\.[A-Za-z_]+)*(<[A-Za-z_.]+>)?$/) return 0
+      if (!reads_as_words(value)) return 0
       if (term == "," || term == ";") {
         if (substr(tail, 2) !~ /^[ \t\r]*$/) return 0
       } else if (term == " " || term == "\t") {

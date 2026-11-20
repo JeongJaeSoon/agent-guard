@@ -91,7 +91,10 @@ return status 0 with no response. See [Output masking coverage](integrations.md#
   - The whole unquoted value is an identifier or a dotted chain of at most 80
     bytes with no digit; one leading `$` and one simple generic argument
     after a capitalized name (`Promise<Token>`) are allowed. A dotted chain starts at a common object
-    name (`input`, `config`, `self`, `this`, ...).
+    name (`input`, `config`, `self`, `this`, ...). The value must also read
+    as words: split at capitals, `_` and `.`, no word has five consonants in
+    a row and fewer than three words are two letters or shorter, so a random
+    letters-only value (`secret: SecretQzxvWplmKdjfhgTyur,`) stays masked.
   - A `,` or `;` ends the line. After a colon field the value may first
     continue with `|`, `||`, `??`, `&&` or `=`, each followed by one more
     digit-free identifier (`Credential | null;`). A `self.` or `this.` member

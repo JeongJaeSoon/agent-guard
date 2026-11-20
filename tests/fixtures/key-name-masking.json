@@ -112,6 +112,34 @@
    "legacy": "  secret: [REDACTED],",
    "mask": "  secret: %G%,",
    "masked": "  secret: [REDACTED],"
+  },
+  {
+   "label": "PascalCase words",
+   "pass": "  credential: CredentialInput,",
+   "legacy": "  credential: [REDACTED],",
+   "mask": "  secret: SecretQzxvWplmKdjfhgTyur,",
+   "masked": "  secret: [REDACTED],"
+  },
+  {
+   "label": "camelCase words",
+   "pass": "  password: passwordStrength,",
+   "legacy": "  password: [REDACTED],",
+   "mask": "  token: tokenAbCdEfGhIjKlMnOpQrStUvWx;",
+   "masked": "  token: [REDACTED];"
+  },
+  {
+   "label": "short last word",
+   "pass": "  api_key: apiKeyId,",
+   "legacy": "  api_key: [REDACTED],",
+   "mask": "  api_key: apiKeyIdQzXv,",
+   "masked": "  api_key: [REDACTED],"
+  },
+  {
+   "label": "acronym before the field name",
+   "pass": "  credential: HTTPCredential,",
+   "legacy": "  credential: [REDACTED],",
+   "mask": "  credential: credentialkdjfhgqz,",
+   "masked": "  credential: [REDACTED],"
   }
  ],
  "still_masked": [
@@ -299,6 +327,16 @@
    "label": "second key after an empty assignment",
    "stdout": "api_key= password: MyPassword,",
    "masked": "api_key= [REDACTED] [REDACTED],"
+  },
+  {
+   "label": "consonant run in a snake_case value",
+   "stdout": "  secret: secret_kdjfhgqz,",
+   "masked": "  secret: [REDACTED],"
+  },
+  {
+   "label": "two-letter words in a snake_case value",
+   "stdout": "  password: Password_Qz_Xv_Wp,",
+   "masked": "  password: [REDACTED],"
   }
  ]
 }
