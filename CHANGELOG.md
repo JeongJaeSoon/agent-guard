@@ -91,6 +91,10 @@
   - 문서: `README.md`(한국어·일본어 번역 포함)와 `docs/configuration.md`에 동작과 설정을 적었습니다.
   - 사용자가 할 일: 없습니다. 이전 동작이 필요하면 `AGENT_GUARD_KEY_NAME_REDACT=on`을 설정하세요.
   - 운영자가 할 일: 없습니다. 출력이나 프롬프트에서 위 식별자 줄이 가려지거나 막히는 것에 기대는 정책이 있으면 `AGENT_GUARD_KEY_NAME_REDACT=on`을 배포 환경에 설정하세요.
+- ci(test): `legacy-tools.yml`의 awk 구현 비교 job에서 키 이름 스위트를 두 job으로 나눕니다. 한 job이 hook 실행 약 630회와 awk 구현 간 기록 비교를 함께 돌려, 느린 runner에서 5분 제한을 1.5초 남기고 테스트를 끝낸 뒤 job이 취소됐습니다(#578). 제한 시간은 그대로 5분이고 실행하는 테스트도 같습니다.
+  - 동작 변경: `tests/key-name-masking.sh`가 `AGENT_GUARD_TEST_KEY_NAME_PART=hooks`(두 host의 hook 실행)와 `=records`(mawk·gawk·busybox awk 기록 비교) 중 하나만 돌릴 수 있습니다. 설정하지 않으면 지금처럼 둘 다 돌리고(`tests/run.sh`), 다른 값이면 실패합니다. `Same assignments on mawk, gawk and busybox awk` job은 기록 비교만, 새 job `Key-name masking hooks on mawk`가 hook 실행을 맡습니다. 두 half의 검사 수 합은 나누기 전과 같습니다.
+  - 사용자가 할 일: 없습니다.
+  - 운영자가 할 일: 없습니다. 새 job은 branch protection의 필수 검사가 아닙니다.
 
 ## v3.12.0 - 2026-11-19
 

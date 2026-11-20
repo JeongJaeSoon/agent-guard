@@ -106,6 +106,18 @@ else
   exit 1
 fi
 
+# The suite has two halves. `hooks` drives the real hook entry points on both
+# hosts; `records` compares the detector records across awk implementations.
+# AGENT_GUARD_TEST_KEY_NAME_PART picks one half so that a CI job with a short
+# limit can run each half on its own runner. Unset runs both, as tests/run.sh
+# does. Any other value fails: a typo must not run nothing and pass.
+part=${AGENT_GUARD_TEST_KEY_NAME_PART:-all}
+case $part in
+  all|hooks|records) ;;
+  *) fail "AGENT_GUARD_TEST_KEY_NAME_PART must be hooks or records, got: $part"; exit 1 ;;
+esac
+
+if [ "$part" != records ]; then
 count=$(jq '.pairs | length' "$FIXTURE") || exit 1
 i=0
 while [ "$i" -lt "$count" ]; do
@@ -192,7 +204,9 @@ if "$GUARD" exec -- cat "$CASE_ROOT/exec-in" 2>/dev/null | grep -Fq -- "$weak"; 
 else
   ok "exec masks the password literal next to the schema diff"
 fi
+fi # end of the hooks half
 
+if [ "$part" != hooks ]; then
 # Record level, production detector only: mawk, gawk and busybox awk must
 # give the same records for every fixture line, in both settings. The
 # detector calls `awk` from PATH, so each variant is pinned through a shim.
@@ -251,6 +265,7 @@ printf '# awk variants compared: %s\n' "$compared"
 if [ "${AGENT_GUARD_TEST_REQUIRE_AWK_VARIANTS:-0}" = 1 ] && [ "$compared" -ne 3 ]; then
   fail "expected mawk, gawk and busybox awk, compared $compared"
 fi
+fi # end of the records half
 
 printf '1..%s\n' "$checked"
 [ "$failed" -eq 0 ]
