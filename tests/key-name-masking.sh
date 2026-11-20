@@ -109,8 +109,9 @@ fi
 # The suite has two halves. `hooks` drives the real hook entry points on both
 # hosts; `records` compares the detector records across awk implementations.
 # AGENT_GUARD_TEST_KEY_NAME_PART picks one half so that a CI job with a short
-# limit can run each half on its own runner. Unset runs both, as tests/run.sh
-# does. Any other value fails: a typo must not run nothing and pass.
+# limit can run each half on its own runner. Unset or empty runs both, as
+# tests/run.sh does. Any other value fails: a typo must not run nothing and
+# pass. Both halves run the fixture pairing check above.
 part=${AGENT_GUARD_TEST_KEY_NAME_PART:-all}
 case $part in
   all|hooks|records) ;;

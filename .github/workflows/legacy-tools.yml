@@ -103,8 +103,9 @@ jobs:
             PATH="$RUNNER_TEMP/mawk-bin:$PATH" sh tests/key-name-masking.sh
   key-name-hooks:
     # The hook half of the key-name suite under this runner's mawk. It ran in
-    # the job above until the two halves together came within seconds of that
-    # job's five minutes on a slow runner. Same limit, one runner each.
+    # the job above until the two halves together ran into that job's five
+    # minutes on a slow runner and the job was cancelled. Same limit, one
+    # runner each.
     name: Key-name masking hooks on mawk
     runs-on: ubuntu-22.04
     timeout-minutes: 5
