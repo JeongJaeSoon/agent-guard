@@ -100,8 +100,10 @@ return status 0 with no response. See [Output masking coverage](integrations.md#
     follows a small letter, and where an acronym ends (`HTTPCredential`).
     Any other word keeps the value masked, so random letters cannot pass by
     carrying the key word (`secret: SecretQzxvWplm,`), and neither can a
-    password built around it (`password: MyPassword,`). The same holds for
-    each operand after an operator (`Credential | null;`).
+    password built around it (`password: MyPassword,`). Each operand after
+    an operator is a keyword or builtin type (`null`, `undefined`, `None`,
+    `string`, ...) or names the field itself with listed words
+    (`?? credentialOverride,`); `password: Password ?? admin,` stays masked.
   - A `,` or `;` ends the line. After a colon field the value may first
     continue with `|`, `||`, `??`, `&&` or `=`, each followed by one more
     digit-free identifier (`Credential | null;`). A `self.` or `this.` member
@@ -115,8 +117,8 @@ return status 0 with no response. See [Output masking coverage](integrations.md#
   What this cannot tell apart, and so leaves readable: at the start of a line
   and before a line-ending `,` or `;`, a digit-free password that is its own
   key name in any case (`PASSWORD=password;`, `password: Password,`), or one
-  made only of the key word and listed words (`password: userPassword,`,
-  `password: adminPassword;`), each with or without a leading `$` or a
+  made only of words of the field name and listed words
+  (`password: userPassword,`, `password: defaultPassword;`), each with or without a leading `$` or a
   generic argument after a capitalized name. The same goes for a value equal
   to its key name under a `self.` or `this.` key with nothing after it
   (`self.password = password`). In the other direction, an identifier with a

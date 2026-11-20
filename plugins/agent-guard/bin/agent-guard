@@ -12572,8 +12572,11 @@ secretish_env_values() {
       # The closed list of words an identifier may add to the name of its
       # field (`hashedPassword`, `CredentialSchema`, `Promise<Token>`). Any
       # other word keeps masking, so no run of random letters can pass.
-      ident_n = split("schema schemas input inputs output type types value values hash hashed hasher id ids name names strength length field fields ref refs provider providers service manager mgr config cfg options opts props params args state store storage data info dto model entity request req response res payload body encrypted decrypted plain raw new old current next prev previous last first user client server refresh auth http https db database admin default test mock fake dummy stub expected actual valid invalid is has get set with from to for of by env var file path url uri header headers cookie basic oauth jwt csrf validator validation verify verified generator generated create created update updated reset change confirm confirmation repeat check checker encoder policy rule rules error exception handler helper util utils factory builder context ctx form column attr attribute property prop element component view controller repository repo record row table index count size max min limit expiry expires expiration expired ttl at time date timestamp salt digest cipher algorithm encoded decoded string str text bytes buffer object obj map list array enum class interface struct optional nullable required masked redacted hidden label placeholder hint message msg title description promise async null undefined none nil this self override overrides source target temp tmp local remote global shared base parent child root app application system internal external primary secondary ssh tls ssl rsa aws gcp sdk smtp imap ldap sso mfa otp totp proxy xml json html grpc rest api", ident_list, " ")
+      ident_n = split("schema schemas input inputs output type types value values hash hashed hasher id ids name names strength length field fields ref refs provider providers service manager mgr config cfg options opts props params args state store storage data info dto model entity request req response res payload body encrypted decrypted plain raw new old current next prev previous last first user client server refresh auth http https db database default test mock fake dummy stub expected actual valid invalid is has get set with from to for of by env var file path url uri header headers cookie basic oauth jwt csrf validator validation verify verified generator generated create created update updated reset change confirm confirmation repeat check checker encoder policy rule rules error exception handler helper util utils factory builder context ctx form column attr attribute property prop element component view controller repository repo record row table index count size max min limit expiry expires expiration expired ttl at time date timestamp salt digest cipher algorithm encoded decoded string str text bytes buffer object obj map list array enum class interface struct optional nullable required masked redacted hidden label placeholder hint message msg title description promise async null undefined none nil this self override overrides source target temp tmp local remote global shared base parent child app application system internal external primary secondary ssh tls ssl rsa aws gcp sdk smtp imap ldap sso mfa otp totp proxy xml json html grpc rest api", ident_list, " ")
       for (ident_i = 1; ident_i <= ident_n; ident_i++) ident_word[ident_list[ident_i]] = 1
+      # What may stand alone after an operator: a keyword or a builtin type.
+      operand_n = split("null undefined none nil true false string str number int integer float bool boolean any unknown never void object optional", operand_list, " ")
+      for (ident_i = 1; ident_i <= operand_n; ident_i++) operand_word[operand_list[ident_i]] = 1
       name_stem_n = split("password passwd passphrase secret token credential apikey accesskey privatekey signingkey encryptionkey sessionkey bearer webhook", name_stem, " ")
     }
     function quoted_end(raw, quote, i, slash_count, ch) {
@@ -13263,10 +13266,10 @@ secretish_env_values() {
       if (out == "") return 0
       return split(tolower(out), words, " ")
     }
-    # 1 when every word of text is a word of the field name key (its plural
-    # or singular too) or a listed word, and, with need_named, at least one
-    # is a word of the field name. Anything else, a random run above all,
-    # is 0.
+    # 1 when every word of text is a word of the field name key (any word of
+    # it, its plural or singular too) or a listed word, and, with need_named,
+    # at least one is a word of the field name. Anything else, a random run
+    # above all, is 0.
     function names_field(text, key, need_named,   kw, kn, vw, vn, i, j, hit, named) {
       kn = ident_split(key, kw)
       vn = ident_split(text, vw)
@@ -13298,12 +13301,14 @@ secretish_env_values() {
         if (assignment !~ /:$/ \
             || tail !~ /^((\|\|?|\?\?|&&|=)[ \t]+[A-Za-z_$][A-Za-z_$.]*[ \t]*)+[,;][ \t\r]*$/)
           return 0
-        # Each operand after an operator is a type, a keyword or a default
-        # written with known words too (`| null;`, `?? credentialOverride,`).
+        # Each operand after an operator is a keyword or builtin type
+        # (`| null;`, `= None,`) or names the field itself with known words
+        # (`?? credentialOverride,`). A lone listed word does not qualify:
+        # `password: Password ?? admin,` keeps masking.
         gsub(/[^A-Za-z_$.]+/, " ", tail)
         n = split(tail, operand, " ")
         for (i = 1; i <= n; i++)
-          if (!names_field(operand[i], key, 0)) return 0
+          if (!(tolower(operand[i]) in operand_word) && !names_field(operand[i], key, 1)) return 0
       } else if (term != "" \
                  || assignment !~ /(^|[^A-Za-z0-9_.-])(self|this)\.[A-Za-z_]+[ \t]*=$/) {
         return 0

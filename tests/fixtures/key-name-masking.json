@@ -357,17 +357,17 @@
    "masked": "api_key= [REDACTED] [REDACTED],"
   },
   {
-   "label": "consonant run in a snake_case value",
+   "label": "unlisted word in a snake_case value",
    "stdout": "  secret: secret_kdjfhgqz,",
    "masked": "  secret: [REDACTED],"
   },
   {
-   "label": "two-letter words in a snake_case value",
+   "label": "unlisted short words in a snake_case value",
    "stdout": "  password: Password_Qz_Xv_Wp,",
    "masked": "  password: [REDACTED],"
   },
   {
-   "label": "acronym piece with five consonants before the field name",
+   "label": "unlisted word after an acronym and the field name",
    "stdout": "  credential: HTTPSCredentialQx,",
    "masked": "  credential: [REDACTED],"
   },
@@ -395,6 +395,26 @@
    "label": "capitalized password that splits into unlisted words",
    "stdout": "  password: PassWord,",
    "masked": "  password: [REDACTED],"
+  },
+  {
+   "label": "listed word alone after an operator",
+   "stdout": "  password: Password ?? admin,",
+   "masked": "  password: [REDACTED] ?? admin,"
+  },
+  {
+   "label": "unlisted word alone after an operator",
+   "stdout": "  password: Password || hunter;",
+   "masked": "  password: [REDACTED] || hunter;"
+  },
+  {
+   "label": "default-account word around the field name",
+   "stdout": "  password: adminPassword,",
+   "masked": "  password: [REDACTED],"
+  },
+  {
+   "label": "default-account word around the field name, PascalCase",
+   "stdout": "  password: RootPassword;",
+   "masked": "  password: [REDACTED];"
   }
  ]
 }
