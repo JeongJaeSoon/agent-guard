@@ -48,6 +48,8 @@
   - 운영자가 할 일: 로그를 금지해 `AGENT_GUARD_LOG_MODE=off`를 배포하는 곳은, 캐시 파일(해시, gitleaks 경로·파일 identity·버전, deny 목록 정규식)이 허용되는지 확인한 뒤에만 `AGENT_GUARD_SCAN_CACHE=on`을 함께 배포하세요.
 - docs(skill): `setup-agent-guard` 스킬의 4단계(`gitleaks version isolation requires setsid or perl` 대응)가 한국어로만 적혀 있던 것을 영어로 고칩니다. 스킬의 나머지 단계가 모두 영어인 것에 맞춘 것입니다. `/doctor prompt-audit`로 플러그인의 스킬 2개, Codex 스킬 2개, 명령 2개를 점검했고 다른 지적은 없었습니다. (#565)
   - 동작 변경: CLI 동작은 바뀌지 않습니다. 지침의 내용(gitleaks를 다시 설치하지 않는다, `util-linux` 또는 Perl 설치 명령을 보여 주고 승인을 받는다, `setup --install`도 이 도구를 자동으로 설치하지 않는다)은 그대로이고, 한 가지를 더했습니다. gitleaks와 이 도구가 둘 다 없으면 `setup`은 위 문구를 내지 않고 `setup --install`이 `install a gitleaks process-isolation helper:`로 멈추므로, 이 문구로 멈췄을 때도 같은 단계를 따르게 했습니다.
+  - 사용자가 할 일: 없습니다.
+  - 운영자가 할 일: 없습니다.
 - ci(perf): hook을 바꾸는 PR에서 base와 head의 셸 명령어 수를 비교해 job summary에 표로 남기는 비차단 job(`Hook instruction count`)을 더합니다. Performance evidence는 경로 필터 때문에 hook만 바꾼 PR에서 돌지 않아, hook 비용 변화가 머지 뒤 nightly에서야 보였습니다. (#553)
   - 동작 변경: 제품 동작은 바뀌지 않습니다. `bin/agent-guard`·`config/`를 바꾸는 PR에서 PR을 merge한 결과와 그 첫 부모(base)로 합성 이벤트 6개(dense-controls, Edit PreToolUse, 제어 연산자로 이은 Bash PreToolUse, Bash PostToolUse, UserPromptSubmit, 기준용 `version`)를 callgrind로 한 번씩 실행해, dash가 실행한 명령어 수(exec한 jq·awk·git·gitleaks 제외)와 `version` 차이로 추정한 스크립트 크기 몫, 종료 코드·출력 차이를 보입니다. 늘어도 job은 실패하지 않고 warning만 남기며, 측정하지 못했을 때만 실패합니다. 같은 트리끼리도 이벤트마다 수천까지 달라지므로, `version`이 그대로(±100)이고 나머지가 1만 안이면 "변화 없음"으로 보이고, `version`이 바뀌었으면 나머지가 base의 0.05%(최소 2만) 안일 때 "스크립트 크기만"으로 보입니다. native 출력 redactor 없이 셸 경로만 재고 `bin/agent-guard`를 직접 실행하므로, Performance evidence와 `hooks/` launcher의 비용을 대신하지 않습니다. 로컬에서는 측정이 약 20초 걸렸습니다.
   - 사용자가 할 일: 없습니다.
