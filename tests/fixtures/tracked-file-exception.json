@@ -49,11 +49,11 @@
     "command": "cat modified.env"
   },
   {
-    "id": "sed-tracked-quoted",
+    "id": "tail-tracked-quoted",
     "expected_status": 0,
     "classification": "must-pass",
-    "description": "sed line print of a quoted committed path",
-    "command": "sed -n 1,5p \"tests/app.env.test\""
+    "description": "tail of a quoted committed path",
+    "command": "tail -n 5 \"tests/app.env.test\""
   },
   {
     "id": "cat-tracked-symlink",
@@ -207,6 +207,27 @@
     "description": "a relative event cwd",
     "command": "cat config/staging.env",
     "workdir": "."
+  },
+  {
+    "id": "sed-script-word",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "the script word of sed is program text, so sed gets no exception",
+    "command": "sed -n 1,5p config/staging.env"
+  },
+  {
+    "id": "sed-read-script-decoy",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a sed r script glued to a committed name",
+    "command": "sed rsettings.env README.md"
+  },
+  {
+    "id": "jq-file-operand",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "jq gets no exception",
+    "command": "jq . config/staging.env"
   },
   {
     "id": "cd-inside-then-cat",
@@ -471,5 +492,21 @@
     "tool": "Read",
     "path": "@OTHER@/settings.env",
     "inner_workdir": "@OTHER@"
+  },
+  {
+    "id": "read-tool-dotdot",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a tool path with a .. part, which the host collapses by name",
+    "tool": "Read",
+    "path": "@REPO@/tests/../config/staging.env"
+  },
+  {
+    "id": "read-tool-file-url",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a tool path with a URL prefix",
+    "tool": "Read",
+    "path": "file://@REPO@/config/staging.env"
   }
 ]

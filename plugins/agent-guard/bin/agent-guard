@@ -5316,7 +5316,7 @@ EXCEPTION_WORKDIR_JQ='
      elif $event == "" then $inner
      elif $inner == "" or $inner == $event then $event
      else "" end) as $dir
-  | . as $in | $dir'
+  | . as $in | if ($dir | test("\n")) then "" else $dir end'
 
 # The Bash scan already runs in the directory the hook took from the event.
 # The exception applies only when that is the absolute directory
@@ -5337,10 +5337,16 @@ exception_workdir_is_here() {
 # workdir in the event the path cannot be placed, and the block stands.
 tool_path_tracked_exception() (
   [ "${AGENT_GUARD_TRACKED_FILE_EXCEPTION-on}" = on ] || exit 1
-  tpt_workdir=$(exception_workdir "$2" "$1" "(\$in | $3) == \$v") || exit 1
+  # The host opens the path as written, after collapsing `..` by name; the
+  # check below follows symlinks. A path with a `..` part, a URL prefix or a
+  # tilde could therefore mean two different files, and keeps the block. A
+  # file tool takes no directory of its own, so only the event cwd counts.
+  case "/$1/" in */../*|/file:*|/'~'*) exit 1 ;; esac
+  tpt_workdir=$(exception_workdir "$2" "$1" \
+    "(\$in | $3) == \$v and (\$in.cwd | type) == \"string\" and \$in.cwd != \"\"") || exit 1
   case "$tpt_workdir" in /*) ;; *) exit 1 ;; esac
   CDPATH= cd -- "$tpt_workdir" 2>/dev/null || exit 1
-  tracked_file_exception_applies "$(normalize_path "$1")"
+  tracked_file_exception_applies "$1"
 )
 
 check_sensitive_reads() {
@@ -7318,15 +7324,15 @@ search_operand_spans() {
       # Each of these opens every operand it is given, for reading, and no
       # other file because of one: diff and comm pair an operand with a
       # same-named file in a directory operand, uniq writes its second
-      # operand, and a pager or `tail -f` reopens a name later.
+      # operand, a pager or `tail -f` reopens a name later, and the script
+      # word of sed or jq is program text that can name another file
+      # (`sed r.env`), not a path.
       if (h == "cat") opts = "^-[AbeEnstTuv]+$"
       else if (h == "head" || h == "tail") opts = "^-([0-9]+|[nc]|[nc][+-]?[0-9]+|[qv]+)$"
       else if (h == "wc") opts = "^-[clmwL]+$"
       else if (h == "cut") opts = "^-[dfcbsz]"
       else if (h == "sort") opts = "^-[bdfgiMhnRrVsuz]+$"
       else if (h ~ /^(grep|egrep|fgrep)$/) opts = "^-([EFGPHhilLnoqsvwxcaIzZbTy]+|[ABCm][0-9]*|e)$"
-      else if (h == "sed") opts = "^-([nErsuz]+|e)$"
-      else if (h == "jq") opts = "^-[nRscrjaSCMe]+$"
       else if (h ~ /^(nl|tac|stat|file)$/) opts = "^$"
       else return ""
       out = ""

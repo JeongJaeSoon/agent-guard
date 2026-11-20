@@ -479,21 +479,24 @@ entry does not block it. The exception applies only when all of these hold:
 - no deny-read entry that names a directory matches it (`.aws/credentials`,
   `.ssh/id_*` and similar stay blocked wherever they are, tracked or not);
 - for a shell command, the word is a literal operand of `cat`, `head`,
-  `tail`, `wc`, `cut`, `nl`, `tac`, `sort`, `stat`, `file`, `grep`, `egrep`,
-  `fgrep`, `sed` or `jq`: commands that open each file they are given, for
-  reading, and no other file because of it. Every word of that command must
+  `tail`, `wc`, `cut`, `nl`, `tac`, `sort`, `stat`, `file`, `grep`, `egrep` or
+  `fgrep`: commands that open each file they are given, for reading, and no
+  other file because of it. Every word of that command must
   be literal, with no redirection and no `&`; its options must be plain flags
   from a short built-in table (`grep -r`, `grep -f`, `grep --include`,
-  `sort -o`, `sort --files0-from`, `sed -i`, `sed -f`, `tail -f` and any long
-  option keep the block); and every command before it on the line must be one
+  `sort -o`, `sort --files0-from`, `tail -f` and any long option keep the
+  block); and every command before it on the line must be one
   that cannot change what that name runs, and not `sleep`. Any other command
   keeps the block: `git` (its operands also select revisions, the index and
   wildcard pathspecs), `diff` and `comm` (a directory operand makes them open
-  a same-named file there), `uniq` (its second operand is written), a pager,
+  a same-named file there), `uniq` (its second operand is written), `sed`
+  and `jq` (their script word is program text that can name another file), a
+  pager,
   a test runner, `ssh`, `docker exec`, `find`, `sudo`, an inline script. The
   `Read`, `NotebookRead` and `Grep` tools get the same exception for their
   own path field (`file_path`, `notebook_path`, `path`) only; a Grep `glob`
-  stays checked by name.
+  stays checked by name, and so does a tool path with a `..` part, a
+  `file://` prefix or a leading `~`.
 - the directory relative paths are placed in is the event's own absolute
   `cwd`. A `workdir` or `cwd` inside `tool_input` counts only when the event
   has no `cwd` (the Codex shell shape) or names the same directory; for a
