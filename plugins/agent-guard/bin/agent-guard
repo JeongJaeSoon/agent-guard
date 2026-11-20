@@ -13311,10 +13311,6 @@ use_fused_output_pipeline() {
 }
 
 detect_output_secret_records() (
-  if use_fused_output_pipeline; then
-    detect_output_secret_records_fused "$@"
-    exit $?
-  fi
   response=$1
   env_records=${2:-yes}
   mktemp_files detector_input detector_strings detector_records \
@@ -13330,8 +13326,14 @@ detect_output_secret_records() (
 
   : >"$detector_records" || detector_fail
   printf '%s' "$response" >"$detector_input" || detector_fail
-  jq -rj 'if type == "string" then . else [.. | strings] | join("\n") end' \
-    <"$detector_input" >"$detector_strings" 2>/dev/null || detector_fail
+  detector_prepared=no
+  if [ "$env_records" = yes ] && use_fused_output_pipeline \
+      && output_prepare_fused "$detector_input" "$detector_strings" "$detector_work_a"; then
+    detector_prepared=yes
+  else
+    jq -rj 'if type == "string" then . else [.. | strings] | join("\n") end' \
+      <"$detector_input" >"$detector_strings" 2>/dev/null || detector_fail
+  fi
 
   gl=${GITLEAKS_READY_BIN:-}
   [ -n "$gl" ] && [ -x "$gl" ] || detector_fail
@@ -13362,8 +13364,10 @@ detect_output_secret_records() (
   fi
 
   if [ "$env_records" = yes ]; then
-    frame_json_string_leaves <"$detector_input" \
-      >"$detector_work_a" 2>/dev/null || detector_fail
+    if [ "$detector_prepared" = no ]; then
+      frame_json_string_leaves <"$detector_input" \
+        >"$detector_work_a" 2>/dev/null || detector_fail
+    fi
     secretish_env_values <"$detector_work_a" \
       >>"$detector_records" 2>/dev/null || detector_fail
   fi
@@ -13401,10 +13405,6 @@ detect_output_secret_records() (
 # prove that later records contain no new secret. Callers fail closed when
 # either cap is crossed.
 bundle_secret_records() (
-  if use_fused_output_pipeline; then
-    bundle_secret_records_fused "$@"
-    exit $?
-  fi
   mktemp_files bundle_input bundle_records bundle_output || exit 1
   if ! cat >"$bundle_input" \
     || ! LC_ALL=C awk '
@@ -13443,10 +13443,6 @@ bundle_secret_records() (
 )
 
 detect_output_secret_bundle() (
-  if use_fused_output_pipeline; then
-    detect_output_secret_bundle_fused "$@"
-    exit $?
-  fi
   bundle_response=$1
   mktemp_files bundle_raw bundle_json || exit 1
   if ! detect_output_secret_records "$bundle_response" >"$bundle_raw" \
