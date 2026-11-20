@@ -478,6 +478,8 @@ reads it.
 | `AGENT_GUARD_GITLEAKS_CONFIG` | Override the gitleaks configuration file. |
 | `AGENT_GUARD_GITLEAKS_BIN` | Select a gitleaks executable. |
 | `AGENT_GUARD_GITLEAKS_BIN_DIR` or `AGENT_GUARD_BIN_DIR` | Select the private gitleaks install directory. |
+| `AGENT_GUARD_GITLEAKS_HELPER` | Unset (default). An absolute path to a built `agent-guard-scan` turns on the opt-in [warm gitleaks helper](https://github.com/JeongJaeSoon/agent-guard/blob/main/docs/gitleaks-helper.md); ignored when `AGENT_GUARD_GITLEAKS_BIN` is set or `AGENT_GUARD_LOG_MODE=off`. A helper failure runs the real gitleaks. |
+| `AGENT_GUARD_GITLEAKS_HELPER_IDLE_SECONDS` / `AGENT_GUARD_GITLEAKS_HELPER_MAX_RSS_MIB` | Read when a warm helper starts: idle exit time (default `600`) and peak resident-memory cap (default `160` MiB, at least `96`). |
 | `AGENT_GUARD_INFRA_FAILURE_MODE` | `open` (default) or `closed` for hook infrastructure failures. |
 | `AGENT_GUARD_SCAN_INPUT_MAX_BYTES` | Positive integer `>= 10485760`; default `10485760` (10 MiB, split into thirds per producer, so `scan-staged` and each `scan-working-tree` component get 3495253 bytes by default). It can only raise the budget: smaller, non-numeric, or overlong (19+ digit) values keep the default. A larger budget scans more input; it never excludes anything from scanning. |
 | `AGENT_GUARD_OUTPUT_REDACT` | Output secret masking; set `off` only with deliberate acceptance of the reduced protection. |

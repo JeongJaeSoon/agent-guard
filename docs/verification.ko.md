@@ -1,4 +1,4 @@
-<!-- translated-from: docs/verification.md; source-blob: 73fa755195b1d930b36a9c1a80d7d9e6fd142232 -->
+<!-- translated-from: docs/verification.md; source-blob: f1667998eb2fa12eaf31a2b86d555f4679b8afbf -->
 
 <a id="verification"></a>
 
@@ -118,6 +118,22 @@ sentinel이 들어 있는 파일을 읽는 것도 guard가 보호하는 도구 �
 출력 파이프라인 통합 후보는 기본 설치 경로와 분리된 명시적 실험입니다. 측정된
 개선만으로 배포 준비를 입증하지 않습니다. 채택 전에 컴파일러 없는 호스트 설정,
 실패 복귀, 기존 호스트 제한 시간과 locale 계약을 유지해야 합니다.
+
+선택형 warm gitleaks helper는 빌드한 머신에서, 링크한 공식 gitleaks 릴리스와
+비교해 검증합니다. 빌드 디렉터리와 공식 릴리스 바이너리(helper가 일부러 거절하는
+Homebrew·`go install` 빌드가 아닌 것)로 실패 경로·host·차분 테스트를 실행하세요.
+
+```sh
+AGENT_GUARD_TEST_HELPER_DIR="$HOME/.agent-guard/gitleaks-helper" \
+AGENT_GUARD_TEST_REAL_GITLEAKS="$(command -v gitleaks)" sh tests/gitleaks-helper.sh
+AGENT_GUARD_TEST_HELPER_DIR="$HOME/.agent-guard/gitleaks-helper" \
+AGENT_GUARD_TEST_REAL_GITLEAKS="$(command -v gitleaks)" sh tests/gitleaks-helper-corpus.sh
+```
+
+켜져 있는 동안 실행 중인 helper는 `agent-guard-gitleaks-helper serve` 프로세스
+하나와 `$XDG_STATE_HOME/agent-guard/gitleaks-helper`(또는 `~/.local/state/...`)
+아래의 소켓으로 보입니다. 이것이 없다는 것은 스캔이 실제 gitleaks로 돈다는 뜻일
+뿐입니다.
 
 ```sh
 agent-guard doctor
