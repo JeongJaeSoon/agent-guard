@@ -415,6 +415,76 @@
    "label": "default-account word around the field name, PascalCase",
    "stdout": "  password: RootPassword;",
    "masked": "  password: [REDACTED];"
+  },
+  {
+   "label": "listed word alone after an operator, not naming the field",
+   "stdout": "  password: Password ?? user,",
+   "masked": "  password: [REDACTED] ?? user,"
+  },
+  {
+   "label": "dotted chain under a listed word that is not a root object",
+   "stdout": "  password: form.password,",
+   "masked": "  password: [REDACTED],"
+  },
+  {
+   "label": "dotted chain under another listed word",
+   "stdout": "  password: test.password;",
+   "masked": "  password: [REDACTED];"
+  },
+  {
+   "label": "env assignment of the key word with a listed word",
+   "stdout": "password=userPassword,",
+   "masked": "password=[REDACTED],"
+  },
+  {
+   "label": "env assignment in capitals with a listed word",
+   "stdout": "PASSWORD=defaultPassword;",
+   "masked": "PASSWORD=[REDACTED];"
+  },
+  {
+   "label": "operator with a keyword after an env assignment",
+   "stdout": "PASSWORD=password || true;",
+   "masked": "PASSWORD=[REDACTED] || true;"
+  },
+  {
+   "label": "union with a keyword after an env assignment",
+   "stdout": "credential=credential | null,",
+   "masked": "[REDACTED]=[REDACTED] | null,"
+  },
+  {
+   "label": "plain key word under a longer key",
+   "stdout": "db_password: password,",
+   "masked": "db_[REDACTED]: [REDACTED],"
+  },
+  {
+   "label": "key word inside a reopened quote after a status label",
+   "stdout": "error: token: \"token: Token,\nfoo bar baz\" tail",
+   "masked": "error: token: \"token: [REDACTED],\nfoo bar baz\" tail"
+  },
+  {
+   "label": "random run glued to the key word next to a listed word",
+   "stdout": "  token: user_tokenxkqwzp,",
+   "masked": "  token: [REDACTED],"
+  },
+  {
+   "label": "listed words that share no credential word with the key",
+   "stdout": "  client_secret: clientId,",
+   "masked": "  client_secret: [REDACTED],"
+  },
+  {
+   "label": "generic argument naming the field after a lowercase listed name",
+   "stdout": "  password: user<Password>,",
+   "masked": "  password: [REDACTED],"
+  },
+  {
+   "label": "two diff markers before the field",
+   "stdout": "++  password: Password,",
+   "masked": "++  password: [REDACTED],"
+  },
+  {
+   "label": "listed words past 80 bytes",
+   "stdout": "  password: userPasswordValidatorFactoryBuilderContextControllerRepositoryComponentAttributePropertyHandler,",
+   "masked": "  password: [REDACTED],"
   }
  ]
 }

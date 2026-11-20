@@ -88,7 +88,10 @@ return status 0 with no response. See [Output masking coverage](integrations.md#
 
   All of these must hold:
   - The field starts its line: only indentation, one diff marker (`+`, `-`)
-    and declaration keywords such as `const` or `export` come before it.
+    and declaration keywords such as `const` or `export` come before it. The
+    key itself may carry `-`, `.`, `$` or quotes, so `--password=...`,
+    `spring.datasource.password=...` and `"password": ...` at the start of a
+    line count as well.
   - The whole unquoted value is an identifier or a dotted chain of at most 80
     bytes with no digit; one leading `$` and one simple generic argument
     after a capitalized name (`Promise<Token>`) are allowed. A dotted chain starts at a common object
@@ -96,7 +99,8 @@ return status 0 with no response. See [Output masking coverage](integrations.md#
   - Every word of the value is a word of the field name (`api` and `key`
     for `api_key`; its plural or singular too) or a word from a closed list
     of identifier words (`schema`, `input`, `hashed`, `user`, `promise`,
-    `null`, ...). Words end at `_`, `.`, `$`, `<` and `>`, where a capital
+    `null`, ...), which includes the common object names a dotted chain may
+    start at (`settings`, `conf`, `process`, ...). Words end at `_`, `.`, `$`, `<` and `>`, where a capital
     follows a small letter, and where an acronym ends (`HTTPCredential`).
     Any other word keeps the value masked, so random letters cannot pass by
     carrying the key word (`secret: SecretQzxvWplm,`), and neither can a
@@ -116,10 +120,15 @@ return status 0 with no response. See [Output masking coverage](integrations.md#
 
   What this cannot tell apart, and so leaves readable: at the start of a line
   and before a line-ending `,` or `;`, a digit-free password that is its own
-  key name in any case (`PASSWORD=password;`, `password: Password,`), or one
-  made only of words of the field name and listed words
-  (`password: userPassword,`, `password: defaultPassword;`), each with or without a leading `$` or a
-  generic argument after a capitalized name. The same goes for a value equal
+  key name in lower case, capitalized or all capitals (`PASSWORD=password;`,
+  `password: Password,`; mixed case such as `PASSWORD=PaSsWoRd;` splits into
+  other words and stays masked), or one made only of words of the field name
+  and listed words (`password: userPassword,`, `password: defaultPassword;`),
+  each with or without a leading `$` or a generic argument after a
+  capitalized name. Lines that are not source code have this shape too when
+  the key starts the line: `--password=password;`,
+  `spring.datasource.password=password;`, `"password": Password,` and a YAML
+  list item `- password: Password,` (read as a diff marker). The same goes for a value equal
   to its key name under a `self.` or `this.` key with nothing after it
   (`self.password = password`). In the other direction, an identifier with a
   word outside the list stays masked as before (`password: legacyPassword,`).
