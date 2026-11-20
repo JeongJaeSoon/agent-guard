@@ -90,7 +90,7 @@ return status 0 with no response. See [Output masking coverage](integrations.md#
     and declaration keywords such as `const` or `export` come before it.
   - The whole unquoted value is an identifier or a dotted chain of at most 80
     bytes with no digit; one leading `$` and one simple generic argument
-    (`Promise<Token>`) are allowed. A dotted chain starts at a common object
+    after a capitalized name (`Promise<Token>`) are allowed. A dotted chain starts at a common object
     name (`input`, `config`, `self`, `this`, ...).
   - A `,` or `;` ends the line. After a colon field the value may first
     continue with `|`, `||`, `??`, `&&` or `=`, each followed by one more
@@ -106,8 +106,11 @@ return status 0 with no response. See [Output masking coverage](integrations.md#
   and before a line-ending `,` or `;`, a digit-free password that is its own
   key name in any case (`PASSWORD=password;`, `password: Password,`), or after
   a colon a camelCase, PascalCase or snake_case password that contains the key
-  word (`password: MyPassword,`, `secret: top_secret;`). gitleaks findings
-  are masked regardless.
+  word (`password: MyPassword,`, `secret: top_secret;`), each with or without
+  a leading `$` or a generic argument after a capitalized name. The same goes
+  for a value equal to its key name under a `self.` or `this.` key with
+  nothing after it (`self.password = password`). gitleaks findings are masked
+  regardless.
   `AGENT_GUARD_KEY_NAME_REDACT=on` turns this exemption off, so the left-hand
   column is masked again as it was before; any value other than unset, empty
   or `off` counts as `on` (including `0` and `false`). The prompt guard uses

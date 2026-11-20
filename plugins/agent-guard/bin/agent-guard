@@ -12316,7 +12316,11 @@ secretish_env_values() {
       open_guard = 0
       if (guard_rescan) return
       guard_rescan = 1
+      # The capture began after an opening quote, so its first line does not
+      # start a physical line (see key_line_start in scan_line).
+      rescan_head = 1
       scan_leaf(v)
+      rescan_head = 0
       guard_rescan = 0
     }
     # `\r` counts as edge whitespace: scan_leaf splits on `\n` and keeps the
@@ -12883,7 +12887,8 @@ secretish_env_values() {
     # `,` or `;`, a digit-free password that is its own key name in any
     # case (`PASSWORD=password;`), or after a colon a camelCase, PascalCase
     # or snake_case one that contains the key word (`password: MyPassword,`),
-    # reads the same way.
+    # reads the same way, with or without a leading `$`. So does such a
+    # password assigned to a `self.`/`this.` key with nothing after it.
     function self_named_reference(assignment, value, token, term, tail, \
                                   k, v, leaf, arg, i) {
       if (!key_line_start) return 0
@@ -12922,6 +12927,8 @@ secretish_env_values() {
       if (k == "" || leaf == "") return 0
       if (index(v, ".") && !(substr(v, 1, index(v, ".") - 1) in root_word))
         return 0
+      # A generic argument belongs to a type, and a type name is capitalized.
+      if (arg != "" && v !~ /^[A-Z]/) return 0
       if (leaf == k || arg == k) return 1
       if (assignment !~ /:$/) return 0
       if (substr(v, 2) !~ /[A-Z_.]/) return 0
@@ -13137,7 +13144,8 @@ secretish_env_values() {
                        chose_colon, skip, status_guard, first, expansion, \
                        closed_value, key_opener, advance, advanced, head) {
       rest = line
-      advanced = 0
+      advanced = rescan_head
+      rescan_head = 0
       rescan_cover_start = 0
       rescan_cover_end = 0
       if (open_quote != "") {
