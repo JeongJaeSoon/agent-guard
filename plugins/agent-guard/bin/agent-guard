@@ -9015,6 +9015,56 @@ bash_command_sources_script() (
   return 1
 )
 
+# Classify word $1 of a command whose -C or -D option owner is $2 by how it
+# moves the cwd later relative operands resolve against, in cwd_change:
+#   cd     the next word is the directory (cd, pushd)
+#   next   an option whose next word is the directory
+#   value  an option holding the directory, set in cwd_change_value
+#   owner  a command whose -C or -D option changes directory
+#   any    a change no static word names (popd, chroot, find -execdir)
+#   empty  none
+# Command names match by file name, options as the whole word: the value of
+# `--chdir=/srv/app` or `-C/srv/app` holds a slash. A word that is no option
+# but whose file name looks like one stays an unknown change, as before.
+bash_cwd_change() {
+  cwd_change=
+  cwd_change_value=
+  case "${1##*/}" in
+    cd|pushd) cwd_change=cd; return 0 ;;
+    popd|chroot) cwd_change=any; return 0 ;;
+    env|tar|git|make|ninja|cmake|sudo|find) cwd_change=owner; return 0 ;;
+  esac
+  case "$1" in
+    -execdir|-execdir=*) cwd_change=any ;;
+    --chdir|--directory) cwd_change=next ;;
+    --chdir=*|--directory=*)
+      cwd_change=value
+      cwd_change_value=${1#*=}
+      ;;
+    -C|-C?*|-D|-D?*)
+      case "${1%"${1#-?}"}:$2" in
+        -C:env|-C:tar|-C:git|-C:make|-C:ninja|-C:cmake|-D:sudo) ;;
+        *) return 0 ;;
+      esac
+      case "$1" in
+        -?) cwd_change=next ;;
+        *)
+          cwd_change=value
+          cwd_change_value=${1#-?}
+          ;;
+      esac
+      ;;
+    */*)
+      case "${1##*/}" in
+        -execdir|-execdir=*|--chdir|--chdir=*|--directory|--directory=*) cwd_change=any ;;
+        -C|-C?*) case "$2" in env|tar|git|make|ninja|cmake) cwd_change=any ;; esac ;;
+        -D|-D?*) [ "$2" = sudo ] && cwd_change=any ;;
+      esac
+      ;;
+  esac
+  return 0
+}
+
 # A relative template token can be resolved safely only when the command keeps
 # the event workdir as its path base. Refuse the exception when shell syntax is
 # dynamic or a command can rebase later relative operands (`cd`, `env -C`,
@@ -9052,21 +9102,13 @@ bash_command_may_rebase_relative_paths() (
           && bash_command_may_rebase_relative_paths "$cwd_token" && return 0
         ;;
     esac
-    cwd_token_name=${cwd_token##*/}
-    case "$cwd_token_name" in
+    case "${cwd_token##*/}" in
       ';'|'&&'|'||'|'|') cwd_option_owner=; continue ;;
-      cd|pushd|popd|chroot) return 0 ;;
-      env|tar|git|make|ninja|cmake|sudo|find)
-        cwd_option_owner=$cwd_token_name
-        ;;
-      -execdir|-execdir=*) return 0 ;;
-      --chdir|--chdir=*|--directory|--directory=*) return 0 ;;
-      -C|-C?*)
-        case "$cwd_option_owner" in
-          env|tar|git|make|ninja|cmake) return 0 ;;
-        esac
-        ;;
-      -D|-D?*) [ "$cwd_option_owner" = sudo ] && return 0 ;;
+    esac
+    bash_cwd_change "$cwd_token" "$cwd_option_owner"
+    case "$cwd_change" in
+      owner) cwd_option_owner=${cwd_token##*/} ;;
+      ?*) return 0 ;;
     esac
   done
   return 1
@@ -9118,29 +9160,18 @@ bash_command_rebase_target() (
     esac
     case "${rebase_token##*/}" in
       ';'|'&&'|'||'|'|') rebase_owner=; continue ;;
-      cd|pushd) rebase_expect=cd ;;
-      popd|chroot|-execdir|-execdir=*) return 1 ;;
-      env|tar|git|make|ninja|cmake|sudo|find) rebase_owner=${rebase_token##*/} ;;
-      --chdir|--directory) rebase_expect=option ;;
-      --chdir=*|--directory=*)
-        rebase_target=${rebase_token#*=}
+    esac
+    bash_cwd_change "$rebase_token" "$rebase_owner"
+    case "$cwd_change" in
+      cd) rebase_expect=cd ;;
+      next) rebase_expect=option ;;
+      value)
+        rebase_target=$cwd_change_value
         rebase_target_kind=option
         rebase_count=$((rebase_count + 1))
         ;;
-      -C|-C?*|-D|-D?*)
-        case "${rebase_token%"${rebase_token#-?}"}:$rebase_owner" in
-          -C:env|-C:tar|-C:git|-C:make|-C:ninja|-C:cmake|-D:sudo) ;;
-          *) continue ;;
-        esac
-        case "$rebase_token" in
-          -?) rebase_expect=option ;;
-          *)
-            rebase_target=${rebase_token#-?}
-            rebase_target_kind=option
-            rebase_count=$((rebase_count + 1))
-            ;;
-        esac
-        ;;
+      owner) rebase_owner=${rebase_token##*/} ;;
+      any) return 1 ;;
     esac
   done
   [ -z "$rebase_expect" ] && [ "$rebase_count" -eq 1 ] || return 1
@@ -12308,7 +12339,20 @@ secretish_env_values() {
       v = prose_core(value)
       return v ~ /^(example|dummy)[_-]?(token|key|secret|password)$/ \
           || v ~ /^not[-_ ]?a[-_ ]?real[-_ ]?(token|key|secret|password)$/ \
+          || v ~ /^redacted$/ \
+          || your_here_placeholder(v) \
           || angle_placeholder(v)
+    }
+    # A sample config writes `your-client-secret-here` or `your_api_key_here`
+    # for a value to fill in. Every word between `your` and `here` must be a
+    # known placeholder word, as in angle_placeholder, so a real value inside
+    # the frame (`your-<value>-here`) or an unlisted word still masks.
+    function your_here_placeholder(v, n, i, words) {
+      if (v !~ /^your([-_][a-z]+)+[-_]here$/) return 0
+      n = split(v, words, /[-_]/)
+      for (i = 2; i < n; i++)
+        if (!(words[i] in placeholder_word)) return 0
+      return 1
     }
     # Heuristic only, gitleaks has no rule that matches it: `<token>` and
     # `<your-api-key>` stand for a value in prose. Every word must be a known
