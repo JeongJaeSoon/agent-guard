@@ -6575,6 +6575,12 @@ AWK_PLAIN_WORD='
       return v !~ /[$`]/
     }'
 
+# An awk function prepended to programs that read git_command_records: true
+# for the record of an unquoted `;`, `&&`, `||` or `|`, which ends a simple
+# command. A quoted operator is kind 4.
+AWK_RECORD_SEPARATOR='
+    function record_separator(r) { return r == "0;" || r == "0&&" || r == "0||" || r == "0|" }'
+
 # Print the record numbers (git_command_records) of message values the
 # command sends as data: the subject and body of `orca orchestration
 # send|reply|ask` (and the question of `ask`), the title and body of `gh pr|issue create|comment|edit` and
@@ -6586,9 +6592,8 @@ AWK_PLAIN_WORD='
 # Prints nothing when the line may hide a command (heredoc, group, eval).
 message_value_records() {
   printf '%s\n' "$1" | LC_ALL=C awk -v cd_ok="$(path_entries_absolute && echo 1)" \
-    -v inert_names="$INERT_SEGMENT_COMMANDS_ERE" "$AWK_PLAIN_WORD"'
+    -v inert_names="$INERT_SEGMENT_COMMANDS_ERE" "$AWK_PLAIN_WORD$AWK_RECORD_SEPARATOR"'
     function bail() { failed = 1; exit }
-    function boundary(r) { return r == "0;" || r == "0&&" || r == "0||" || r == "0|" }
     # git commit operands are pathspecs it reads, so pair a message option
     # only through options known to take no separate value; `--` or anything
     # else ends the search.
@@ -6641,7 +6646,7 @@ message_value_records() {
       # before the command it sits in, so it can replace what the name runs.
       if (r ~ /^3[][(){}]$/ || k == "2") bail()
       if (k == "0" && v ~ /^(eval|alias|function|trap|source|\.)$/) bail()
-      if (boundary(r)) { finish(r); next }
+      if (record_separator(r)) { finish(r); next }
       # The `&` of `2>&1`; a backgrounding `&` after it comes as a second one.
       if (r == "3&" && n > 0 && word[n] ~ /[<>]$/ && dup != NR - 1) { dup = NR; next }
       # A backgrounded command (or `|&`) runs alongside whatever follows.
@@ -8361,7 +8366,7 @@ bash_strip_heredoc_bodies() (
 # into any of them keeps the whole line in the scan.
 literal_consumers_inert() {
   printf '%s\n' "$1" | LC_ALL=C awk -v cd_ok="$(path_entries_absolute && echo 1)" -v mode="${2-}" \
-    -v inert_names="$INERT_SEGMENT_COMMANDS_ERE" "$AWK_PLAIN_WORD"'
+    -v inert_names="$INERT_SEGMENT_COMMANDS_ERE" "$AWK_PLAIN_WORD$AWK_RECORD_SEPARATOR"'
     # An exit with no status in END keeps 0, so give it one.
     function bail() { failed = 1; exit 1 }
     function finish(   j, hd, redir) {
@@ -8384,7 +8389,7 @@ literal_consumers_inert() {
     }
     {
       r = $0; k = substr(r, 1, 1); v = substr(r, 2)
-      if (r == "0;" || r == "0&&" || r == "0||" || r == "0|") { finish(); next }
+      if (record_separator(r)) { finish(); next }
       if (!plain_word(k, v)) bail()
       n++; kind[n] = k; word[n] = v
     }
@@ -8905,14 +8910,14 @@ git_gate_records() (
   # knows, or a path whose file name another word of the line also names, as
   # the file a here-document is written to is. Code a shell or a git alias
   # runs (gate_child_code) may follow a script the outer line wrote.
-  printf '%s\n' "$gate_records" | LC_ALL=C awk -v runner="${gate_child_code:-0}" '
+  printf '%s\n' "$gate_records" | LC_ALL=C awk -v runner="${gate_child_code:-0}" "$AWK_RECORD_SEPARATOR"'
     { rec[++n] = $0 }
     END {
       # File names the line gives as words other than a command name.
       head = 1
       for (k = 1; k <= n; k++) {
         r = rec[k]; t = substr(r, 2)
-        if (r == "0;" || r == "0&&" || r == "0||" || r == "0|" || r ~ /^3/) { head = 1; continue }
+        if (record_separator(r) || r ~ /^3/) { head = 1; continue }
         if (head && t !~ /^[A-Za-z_][A-Za-z0-9_]*=/) { head = 0; continue }
         sub(/^[0-9]*[<>&|]+/, "", t); sub(/.*\//, "", t)
         named[tolower(t)]++
@@ -8923,7 +8928,7 @@ git_gate_records() (
         if (r == "3[") { body++; continue }
         if (r == "3]") { body--; continue }
         if (body) continue
-        if (r == "0;" || r == "0&&" || r == "0||" || r == "0|" || kind == "3") { head = 1; continue }
+        if (record_separator(r) || kind == "3") { head = 1; continue }
         if (!head || kind ~ /[014]/ && t ~ /^[A-Za-z_][A-Za-z0-9_]*=/) continue
         head = 0
         b = t; sub(/.*\//, "", b)
@@ -10283,7 +10288,7 @@ shell_command_code() {
 # brace: an unquoted $NAME git argument, or a $NAME shell operand, in this
 # shell is that word.
 git_gate_command_vars() {
-  printf '%s\n' "$2" | GGCV_CMD=$1 LC_ALL=C awk '
+  printf '%s\n' "$2" | GGCV_CMD=$1 LC_ALL=C awk "$AWK_RECORD_SEPARATOR"'
     function base(t) { sub(/.*\//, "", t); return t }
     function delim(c) { return c == "" || c ~ /[ \t\n;&|()<>]/ }
     # The word from s to e - 1 is not glued to a neighbour, also across a
@@ -10352,7 +10357,7 @@ git_gate_command_vars() {
         # A here-document body is tokenized like the line, so a ) in it reads
         # as a closing paren; depth after it says nothing.
         if (index(t, "<<")) blocked = 1
-        if (r == "0;" || r == "0&&" || r == "0||" || r == "0|" || kind == "3") {
+        if (record_separator(r) || kind == "3") {
           # A subshell or substitution that has closed leaves the assignments
           # after it unconditional and in this shell. Braces are not counted:
           # an argument } is emitted as 3} too, so it would close a group
