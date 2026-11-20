@@ -268,7 +268,9 @@ manifests do not set it. Other events keep the host default: a timed-out
 A `PostToolUseFailure` hook cannot block or mask anything: the tool has already
 failed, and none of `updatedToolOutput`, `decision: "block"`, or exit status 2
 replaces the error text. So a scan that cannot run is reported to the
-model as additional context, never as a clean result: once per session under
-`AGENT_GUARD_INFRA_FAILURE_MODE=open`, and on every failed call under `closed`.
+model as additional context, never as a clean result: under
+`AGENT_GUARD_INFRA_FAILURE_MODE=open` at most once every 10 minutes per
+session, which Claude Code also shows to you as a `systemMessage`, and on every
+failed call under `closed`.
 Input that is not a JSON object, or has no `error` field, passes through with
 no response. `AGENT_GUARD_OUTPUT_REDACT=off` turns this check off as well.

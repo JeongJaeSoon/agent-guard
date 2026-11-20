@@ -2503,11 +2503,62 @@ infrastructure_failure_mode() {
   esac
 }
 
-hook_warning_once() {
+# Seconds before the open-policy infrastructure notice repeats in one session.
+# Ten minutes matches GITLEAKS_PROBE_CACHE_TTL_SECONDS, the window in which a
+# repaired scanner is picked up anyway, and at the usual pace of tool calls
+# shows the notice a few times an hour rather than on every call. It is fixed
+# on purpose: the notice is the only thing telling the user protection is off.
+HOOK_WARNING_INTERVAL_SECONDS=600
+
+# Whether the open notice is due: on the session's first failure, and again
+# once HOOK_WARNING_INTERVAL_SECONDS have passed since the time the marker
+# records. The clock is the hook start time audit_begin already read; date runs
+# only when logging is off. A marker that cannot be created or read for another
+# reason (full disk, read-only dir, not ours) must still warn. Without a clock
+# the notice stays once per session. Two hooks racing past the interval can
+# both warn; neither can suppress the other.
+hook_warning_due() {
   warning_marker=$(warning_state_path infrastructure "${1:-}") || return 0
-  # Only an existing marker means this session already warned. A create that
-  # fails for another reason (full disk, read-only dir) must still warn.
-  (umask 077; set -C; : >"$warning_marker") 2>/dev/null || [ ! -e "$warning_marker" ]
+  warning_now=$AG_AUDIT_START
+  case "$warning_now" in
+    ''|0|*[!0-9]*) warning_now=$(date +%s 2>/dev/null) || warning_now= ;;
+  esac
+  # A leading zero would be read as octal, and a digit 8 or 9 then ends the
+  # shell with exit 2 inside the arithmetic below.
+  case "$warning_now" in 0*|*[!0-9]*|????????????*) warning_now= ;; esac
+  # Never open anything but a regular file: noclobber still opens an existing
+  # FIFO or device, and a planted FIFO would hang the hook until the host
+  # timeout. Such a marker proves nothing, so the notice is due.
+  if [ -L "$warning_marker" ] || { [ -e "$warning_marker" ] && [ ! -f "$warning_marker" ]; }; then
+    return 0
+  fi
+  (umask 077; set -C; printf '%s\n' "$warning_now" >"$warning_marker") 2>/dev/null \
+    && return 0
+  [ -e "$warning_marker" ] || return 0
+  [ -n "$warning_now" ] || return 1
+  # Read only our own regular file; the check above narrows, not closes, a
+  # swap, and the read itself is a builtin.
+  warning_last=
+  if [ -f "$warning_marker" ] && [ ! -L "$warning_marker" ] && [ -O "$warning_marker" ]; then
+    IFS= read -r warning_last 2>/dev/null <"$warning_marker" || :
+  fi
+  # An empty (pre-interval) or unreadable marker, or a time ahead of the
+  # clock, is due; otherwise wait out the interval.
+  case "$warning_last" in
+    ''|0*|*[!0-9]*|????????????*) ;;
+    *)
+      [ "$warning_last" -gt "$warning_now" ] \
+        || [ $((warning_now - warning_last)) -ge "$HOOK_WARNING_INTERVAL_SECONDS" ] \
+        || return 1
+      ;;
+  esac
+  # Replace rather than overwrite, so a marker swapped for a symlink is never
+  # followed; noclobber refuses to write through one. rm is the only process
+  # this adds, once per interval. If it cannot remove the marker, the notice
+  # stays due on every call: louder, never silent.
+  rm -f "$warning_marker" 2>/dev/null || :
+  (umask 077; set -C; printf '%s\n' "$warning_now" >"$warning_marker") 2>/dev/null || :
+  return 0
 }
 
 # Per-session state file under the private warnings dir. Fails only when the
@@ -2545,9 +2596,10 @@ warning_root() {
 }
 
 # Shared front half of every infrastructure-failure policy: apply the closed
-# policy, warn once per session on stderr, and leave the message a caller
-# may still want to publish in $INFRA_FAILURE_NOTICE (empty when this session
-# already warned). Callers differ only in WHERE that notice goes, because a
+# policy, warn on stderr when hook_warning_due says the open notice is due, and
+# leave the message a caller may still want to publish in $INFRA_FAILURE_NOTICE
+# (empty when this session warned within the interval). Callers differ only in
+# WHERE that notice goes, because a
 # hook may write at most one top-level JSON response: a handler that prints its
 # own object cannot be followed by a second one.
 INFRA_FAILURE_NOTICE=
@@ -2558,7 +2610,7 @@ begin_infrastructure_failure() {
   detail=$2
   INFRA_FAILURE_NOTICE=
   mode=$(infrastructure_failure_mode)
-  # The once-per-session limit applies only to the open warning. Each closed
+  # The repeat interval applies only to the open warning. Each closed
   # block carries its own reason: a bare exit 2 reaches the host as a denial
   # with no verdict or explanation.
   if [ "$mode" = closed ]; then
@@ -2566,7 +2618,7 @@ begin_infrastructure_failure() {
     info "$detail Blocking because AGENT_GUARD_INFRA_FAILURE_MODE=closed."
     exit 2
   fi
-  if hook_warning_once "$input"; then
+  if hook_warning_due "$input"; then
     INFRA_FAILURE_NOTICE="$detail continuing because AGENT_GUARD_INFRA_FAILURE_MODE=open (the default)."
     info "$INFRA_FAILURE_NOTICE"
   fi
@@ -2575,9 +2627,16 @@ begin_infrastructure_failure() {
 
 # Emits the notice immediately. Only safe where the caller returns without
 # writing anything else to stdout; hook-user-prompt defers instead.
-# hook_warning_once repeats when its marker cannot be written, and a second
+# hook_warning_due repeats when its marker cannot be written, and a second
 # JSON object makes the stdout unparseable, which Claude's PreToolUse
 # onFailure "block" turns into a block. So write at most one per process.
+#
+# Claude Code never shows a hook's exit-0 stderr, and additionalContext reaches
+# only the model, so on Claude the same object also carries the notice as
+# systemMessage, which its hook reference documents as a warning shown to the
+# user on these events and on Stop (code.claude.com/docs/en/hooks, JSON
+# output). Codex keeps the model-facing channel only: whether it shows a
+# systemMessage from these events has not been verified.
 INFRA_FAILURE_NOTICE_EMITTED=0
 
 handle_hook_infrastructure_failure() {
@@ -2593,9 +2652,18 @@ handle_hook_infrastructure_failure() {
   begin_infrastructure_failure "${2:-}" "$hif_detail"
   [ -n "$INFRA_FAILURE_NOTICE" ] || return 0
   [ "$INFRA_FAILURE_NOTICE_EMITTED" = 0 ] || return 0
-  case "$event" in
-    PreToolUse|PostToolUse|PostToolUseFailure|UserPromptSubmit)
+  case "$(hook_host):$event" in
+    codex:PreToolUse|codex:PostToolUse|codex:PostToolUseFailure|codex:UserPromptSubmit)
       printf '{"hookSpecificOutput":{"hookEventName":"%s","additionalContext":"%s"}}\n' "$event" "$INFRA_FAILURE_NOTICE"
+      INFRA_FAILURE_NOTICE_EMITTED=1
+      ;;
+    codex:*) ;;
+    *:PreToolUse|*:PostToolUse|*:PostToolUseFailure|*:UserPromptSubmit)
+      printf '{"systemMessage":"%s","hookSpecificOutput":{"hookEventName":"%s","additionalContext":"%s"}}\n' "$INFRA_FAILURE_NOTICE" "$event" "$INFRA_FAILURE_NOTICE"
+      INFRA_FAILURE_NOTICE_EMITTED=1
+      ;;
+    *:Stop)
+      printf '{"systemMessage":"%s"}\n' "$INFRA_FAILURE_NOTICE"
       INFRA_FAILURE_NOTICE_EMITTED=1
       ;;
   esac
@@ -2705,6 +2773,40 @@ claude_block_capture_finish() {
   CLAUDE_BLOCK_EVENT=
 }
 
+# What degraded_hook_message names: the checks hook_dependencies_ready makes,
+# plus git, which SessionStart also requires. Fixed labels only, never a path:
+# the message is embedded in hand-built JSON. Shell tests and the probe state
+# prepare_gitleaks left behind answer every question without a new process,
+# and the list is left in $dmc rather than printed to avoid a subshell.
+# hook_dependencies_ready stops at the first failure, so a scanner it never
+# probed (jq or awk missing) is not named yet.
+degraded_missing_components() {
+  dmc=
+  command -v jq >/dev/null 2>&1 || dmc="${dmc:+$dmc, }jq"
+  command -v awk >/dev/null 2>&1 || dmc="${dmc:+$dmc, }awk"
+  command -v git >/dev/null 2>&1 || dmc="${dmc:+$dmc, }git"
+  case "${GITLEAKS_PROBE_STATE:-}" in
+    ''|ready) ;;
+    missing) dmc="${dmc:+$dmc, }gitleaks" ;;
+    runtime-failure)
+      case "${GITLEAKS_PROBE_DETAIL:-}" in
+        launcher-unavailable) dmc="${dmc:+$dmc, }setsid or perl (gitleaks process isolation)" ;;
+        timer-unavailable) dmc="${dmc:+$dmc, }sleep (gitleaks timeout)" ;;
+        temp-helper-unavailable) dmc="${dmc:+$dmc, }mkdir or rmdir (gitleaks temp fallback)" ;;
+        *) dmc="${dmc:+$dmc, }a working gitleaks" ;;
+      esac
+      ;;
+    *) dmc="${dmc:+$dmc, }a supported gitleaks" ;;
+  esac
+  { [ -f "$GITLEAKS_CONFIG" ] && policy_file_has_active_rule "$GITLEAKS_CONFIG"; } \
+    || dmc="${dmc:+$dmc, }policy file gitleaks.toml"
+  { [ -f "$DENY_READ_PATHS" ] && policy_file_has_active_rule "$DENY_READ_PATHS"; } \
+    || dmc="${dmc:+$dmc, }policy file deny-read-paths.txt"
+  { [ -f "$DENY_BASH_PATTERNS" ] && policy_file_has_active_rule "$DENY_BASH_PATTERNS"; } \
+    || dmc="${dmc:+$dmc, }policy file deny-bash-patterns.txt"
+  return 0
+}
+
 # $1 = scanner when only gitleaks or its config is unavailable and PreToolUse
 # still ran its protected-path and deny-pattern checks.
 degraded_hook_message() {
@@ -2712,7 +2814,12 @@ degraded_hook_message() {
     codex) setup_ref='$setup-agent-guard' ;;
     *) setup_ref='/agent-guard:setup-agent-guard' ;;
   esac
-  if [ "${1:-}" = scanner ]; then
+  degraded_missing_components
+  if [ -n "$dmc" ]; then
+    printf 'agent-guard: protection is DEGRADED because these are missing or unusable: %s.' "$dmc"
+    [ "${1:-}" != scanner ] \
+      || printf ' The scanner is unusable, so the secret scan did not run; protected-path and deny-pattern checks still run.'
+  elif [ "${1:-}" = scanner ]; then
     printf 'agent-guard: protection is DEGRADED because gitleaks (including its setsid or Perl process-isolation helper) or its config is unavailable, so the secret scan did not run; protected-path and deny-pattern checks still run.'
   else
     printf 'agent-guard: protection is DEGRADED because jq, awk, git, gitleaks (including its setsid or Perl process-isolation helper), or a policy file is unavailable.'
@@ -2720,10 +2827,12 @@ degraded_hook_message() {
   # Fixed diagnostic codes only: never include scanner output, scanned paths or
   # payloads in the host envelope. The one path allowed is this CLI's own
   # executable (AG_CLI_REF_HOOK), so a plugin-only install is told a command
-  # that runs. Keep the existing once-per-session warning boundary.
+  # that runs. hook_warning_due decides how often the notice repeats.
   degraded_probe_reason=
   case "${GITLEAKS_PROBE_STATE:-}" in
-    missing|unparseable|unsupported) degraded_probe_reason=$GITLEAKS_PROBE_STATE ;;
+    # A missing scanner is already named above.
+    missing) [ -n "$dmc" ] || degraded_probe_reason=missing ;;
+    unparseable|unsupported) degraded_probe_reason=$GITLEAKS_PROBE_STATE ;;
     runtime-failure)
       if gitleaks_probe_detail_message "${GITLEAKS_PROBE_DETAIL:-}" '' >/dev/null; then
         degraded_probe_reason=$GITLEAKS_PROBE_DETAIL
@@ -4908,7 +5017,7 @@ json_value_prime() {
   [ -n "$1" ] || return 0
   # A large input (a big Write body) costs more to parse and compare once more
   # than the few jq runs the cache saves; leave it to the per-field path.
-  [ "${#1}" -le 262144 ] || return 0
+  [ "${2:-}" = measured ] || [ "${#1}" -le 262144 ] || return 0
   command -v jq >/dev/null 2>&1 || return 0
   jv_program='
     def cached($name; f):
@@ -11706,7 +11815,9 @@ hook_pre_tool() {
   HOOK_EVENT=PreToolUse
   HOOK_INPUT=$input
   if command -v jq >/dev/null 2>&1 && [ -n "$input" ]; then
-    json_value_prime "$input"
+    # Refuse an over-limit input before the call copies it ('' resets alike).
+    # Inline, not a helper: in dash each function definition costs every hook.
+    if [ "${#input}" -le 262144 ]; then json_value_prime "$input" measured; else json_value_prime ''; fi
     # One primed JSON object is exactly what the jq object check accepts.
     json_input_is_primed_object "$input" \
       || validate_hook_object PreToolUse "$input" || return 0
@@ -11847,6 +11958,46 @@ JQ_WALK='def walk(f): def w: if type == "object" then map_values(w)
 # `{"type":"pdf","file":{"base64":...}}` with no media type at all. MCP's own
 # image block spells the same thing `mimeType`. Prepend as
 # `jq -c "$JQ_SHAPE_SAFE_WALK"'<program>'`.
+# Resolve the extent records secretish_env_values flags (`agent_guard_extent`)
+# once every detector's literals are in the bundle. An extent (`[hidden]`,
+# `<hunter2 Summer>`) widens a literal of the same occurrence (`[hidden`,
+# `<hunter2`), which is already in the bundle. It goes out as a plain literal
+# only when no other plain literal can partially overlap it in any text; then
+# replacing it cannot change what another literal masks, in any length order
+# a redactor uses (jq and Rust count characters, the exec plaintext path
+# counts bytes). Otherwise it is dropped and masking is exactly as before.
+# A literal that starts inside the extent and runs past its end holds the
+# last character of the extent; that presence test alone drops the extent.
+# A literal that starts before the extent and ends inside it has a proper
+# tail, opening with the first character of the extent, that the extent
+# starts with; those tails are checked exactly (the literal of the same
+# occurrence, `[[x` for `[[x]]`, has such a tail that does not match). More
+# than eight candidate tails count as an overlap, which bounds the cost.
+# split is used rather than indices or rindex, whose string offsets are
+# bytes, not characters, on jq 1.6. Dropping an extent that could never
+# overlap only leaves the old masking in place.
+JQ_SETTLE_EXTENTS='def overlap_from_before($e):
+      ($e[:1]) as $f
+      | split($f) as $parts
+      | ($parts | length) as $n
+      | $n > 9
+        or any(range(1; $n)
+               | select(. > 1 or ($parts[0] | length) > 0);
+               ($f + ($parts[.:] | join($f))) as $tail
+               | ($e | startswith($tail)));
+    def settle_extents:
+      map(select(type == "string")) as $plain
+      | map(if type == "object" and .agent_guard_extent == true
+            then .literal as $e
+                 | if ($e | type) != "string" or ($e | length) < 2
+                      or any($plain[];
+                             . == $e
+                             or index($e[-1:]) != null
+                             or overlap_from_before($e))
+                   then empty else $e end
+            else . end)
+      | unique;'
+
 JQ_SHAPE_SAFE_WALK='def protocol_discriminator($key): . as $v
     | ($key == "type" or $key == "media_type" or $key == "mimeType"
        or $key == "encoding")
@@ -12136,10 +12287,19 @@ secretish_env_values() {
     # A name before a placeholder noun (`<acme-pat>`) is still a placeholder:
     # the last word says it stands for a value. A phrase that ends in any other
     # word stays caught.
-    function angle_placeholder(v, n, i, words) {
+    function angle_placeholder(v, n, words) {
       if (v !~ /^<[a-z][a-z_ .-]*>$/) return 0
       n = split(substr(v, 2, length(v) - 2), words, /[-_ .]+/)
       if (n > 1 && words[n] ~ /^(pat|token|key|secret|password)$/) return 1
+      return angle_placeholder_words(v)
+    }
+    # The stricter half of angle_placeholder: every word is a known
+    # placeholder word. An unquoted `<your key>` is judged by this alone (see
+    # emit_value), so a spaced phrase that merely ends in a placeholder noun
+    # (`<correct horse key>`) is not exempted on the strength of that noun.
+    function angle_placeholder_words(v, n, i, words) {
+      if (v !~ /^<[a-z][a-z_ .-]*>$/) return 0
+      n = split(substr(v, 2, length(v) - 2), words, /[-_ .]+/)
       for (i = 1; i <= n; i++)
         if (!(words[i] in placeholder_word)) return 0
       return n > 0
@@ -12327,14 +12487,20 @@ secretish_env_values() {
       trimmed = edge_trim(v)
       if (trimmed != v) emit_secret(trimmed)
     }
+    # Returns 1 when the value was recorded, so a caller can add a wider
+    # extent of the same occurrence only when the value itself qualified.
     function emit_secret(value, eligible_length) {
-      if (already_redacted(value)) return
-      if (obvious_word_placeholder(value)) return
-      if (config_literal(value)) return
-      if (prose_status_word(value)) return
-      if (masked_placeholder(value)) return
+      if (already_redacted(value)) return 0
+      if (obvious_word_placeholder(value)) return 0
+      if (config_literal(value)) return 0
+      if (prose_status_word(value)) return 0
+      if (masked_placeholder(value)) return 0
       if (eligible_length == 0) eligible_length = char_length(value)
-      if (eligible_length < 4 || length(value) == 0) return
+      if (eligible_length < 4 || length(value) == 0) return 0
+      emit_record(value)
+      return 1
+    }
+    function emit_record(value) {
       if (record_mode == "probe" || record_mode == "probe_raw") {
         if (!probe_found) print "x"
         probe_found = 1
@@ -12342,6 +12508,21 @@ secretish_env_values() {
       }
       if (record_mode == "framed") emit_framed(value, "S")
       else print "\"" json_escape(value) "\""
+    }
+    # A wider extent of an occurrence whose own value was already recorded
+    # (`[hidden]` after `[hidden`). Literals apply longest first, so a new
+    # longer literal could consume the start of another secret that overlaps
+    # it and leave the tail of that secret visible where it used to be masked.
+    # An extent therefore never goes out as an ordinary literal here. JSON
+    # records carry a flag, and bundle settlement (JQ_SETTLE_EXTENTS) keeps
+    # the extent only when no literal from any detector can overlap it.
+    # Framed records feed the exec raw path, which applies the bundle literals
+    # afterwards where no settlement can see them, so they carry no extent and
+    # mask exactly as before.
+    function emit_extent(value) {
+      if (record_mode != "json") return
+      print "{\"literal\":\"" json_escape(value) \
+        "\",\"replacement\":\"[REDACTED]\",\"agent_guard_extent\":true}"
     }
     # A credential-shaped KEY only tells us the assignment is interesting; it
     # says nothing about whether the right-hand side IS a credential. Source that
@@ -12575,7 +12756,8 @@ secretish_env_values() {
     }
     function emit_value(source, start, assignment, require_credential, \
                         raw, leading, quote, end, \
-                        value, token, trailing, ch, route) {
+                        value, token, trailing, ch, route, \
+                        extent, wrap, lead, closer, rest) {
       next_rescan_cover_start = 0
       next_rescan_cover_end = 0
       raw = substr(source, start)
@@ -12621,6 +12803,35 @@ secretish_env_values() {
         value = raw
         sub(/[ \t,;].*$/, "", value)
         if (already_redacted(value)) return 0
+        # An unquoted `<...>` with spaces inside (`<your key>`) is one value,
+        # but the cut above keeps only its first word. That word never passed
+        # the placeholder test, so a placeholder was half-masked
+        # (`[REDACTED] key>`) and a real value showed every word after the
+        # first (`<hunter2 Summer>`). Take the whole span only when it closes
+        # before the token ends, and judge it with the all-placeholder-words
+        # rule. Otherwise the first word still decides exactly as before, and
+        # the span only widens what is masked. A tab separates the words as
+        # well, but the placeholder test admits only spaces, so a tab-bearing
+        # span is always masked whole.
+        extent = ""
+        if (substr(raw, 1, 1) == "<" \
+            && match(raw, /^<[A-Za-z][A-Za-z0-9_ \t.-]*>/) \
+            && substr(raw, 1, RLENGTH) ~ /[ \t]/) {
+          ch = substr(raw, RLENGTH + 1, 1)
+          if (ch == "" || ch == "'\''" || index(" \t\r,;\"`)]}", ch)) {
+            extent = substr(raw, 1, RLENGTH)
+            # Closers and quotes may follow a placeholder (`<your key>)`),
+            # but text after them is a value glued to it
+            # (`<your key>)q7tail`), which the first word decided before and
+            # still does.
+            rest = substr(raw, RLENGTH + 1)
+            sub(/[ \t\r,;].*$/, "", rest)
+            gsub(/[)}"`]/, "", rest)
+            gsub(/\]/, "", rest)
+            gsub(/'\''/, "", rest)
+            if (rest == "" && angle_placeholder_words(tolower(extent))) return 0
+          }
+        }
         token = value
         end = length(value)
         strip_quote = 0
@@ -12666,6 +12877,21 @@ secretish_env_values() {
           break
         }
         value = substr(value, 1, end)
+        # The strip above also takes a closer whose opener STARTS the value, so
+        # `[hidden]` was recorded as `[hidden` and left `[REDACTED]]`. Pair the
+        # leading openers with the closers stripped right after the value,
+        # innermost first. Only the masked extent grows: every check below
+        # still judges the stripped value, as it did before.
+        wrap = 0
+        lead = 0
+        while (lead < end - 1 && index("[({", substr(value, lead + 1, 1))) lead++
+        while (wrap < lead) {
+          ch = substr(value, lead - wrap, 1)
+          closer = (ch == "[") ? "]" : ((ch == "(") ? ")" : "}")
+          if (substr(token, end + wrap + 1, 1) != closer) break
+          wrap++
+        }
+        if (wrap > 0) extent = value substr(token, end + 1, wrap)
         if (type_annotation(assignment, value, token, substr(raw, length(token) + 1, 1), substr(raw, length(token) + 1))) return 0
         if (member_reference(assignment, value, substr(raw, length(token) + 1, 1), substr(raw, length(token) + 1))) return 0
         if (keyword_expression(assignment, value, substr(raw, length(token) + 1))) return 0
@@ -12703,14 +12929,15 @@ secretish_env_values() {
         # other paths is worth more here than containing a bad guess, because a
         # displayed secret costs more than a mangled log line.
         if (char_length(value) < 4 && char_length(token) >= 4) {
-          trailing = substr(token, end + 1)
+          trailing = substr(token, end + wrap + 1)
           emit_mapping(assignment leading token,
                        assignment leading "[REDACTED]" trailing,
                        start + length(leading),
                        length(value))
           return 0
         }
-        emit_secret(value, char_length(token))
+        if (emit_secret(value, char_length(token)) && extent != "")
+          emit_extent(extent)
         return 0
       }
       # emit_captured, not emit_secret: a padded quoted value (`" <secret> "`)
@@ -13355,10 +13582,10 @@ bundle_secret_records() (
             for (i = 1; i <= record_count; i++) print records[i]
         }
       ' <"$bundle_input" >"$bundle_records" \
-    || ! jq -sc '
+    || ! jq -sc "$JQ_SETTLE_EXTENTS"'
         if any(.[]; type == "object" and .agent_guard_whole_leaf == true)
         then {whole_leaf: true, secrets: []}
-        else {whole_leaf: false, secrets: unique}
+        else {whole_leaf: false, secrets: settle_extents}
         end
       ' <"$bundle_records" >"$bundle_output" 2>/dev/null; then
     rm -f "$bundle_input" "$bundle_records" "$bundle_output"
@@ -13845,11 +14072,13 @@ redact_nul_response_json() {
 # streaming pass first; only a confirmed secret-bearing assignment takes the
 # conservative whole-leaf path. Large clean output still uses normal detection,
 # and so does a response whose size cannot be counted: this is only a precheck.
+# $2 is the output_byte_count of $1 that output_scan_input_exceeds_cap took; a
+# count that failed made that check true, so this one never runs on it. It is
+# not recounted: that costs another full copy of a large output.
 OUTPUT_LARGE_PROBE_BYTES=262144
 large_response_has_secretish_assignment() {
   large_probe_response=$1
-  output_byte_count "$large_probe_response" || return 1
-  [ "$output_bytes" -gt "$OUTPUT_LARGE_PROBE_BYTES" ] || return 1
+  [ "$2" -gt "$OUTPUT_LARGE_PROBE_BYTES" ] || return 1
   printf '%s' "$large_probe_response" \
     | frame_json_string_leaves 2>/dev/null \
     | secretish_env_values probe \
@@ -15769,6 +15998,9 @@ cat_mask_target() (
 # the one rewrite slot. PostToolUse cannot retract a completed tool result with
 # exit status alone, so mandatory masking has a dependency-independent,
 # shape-preserving fallback and emits one host-valid replacement.
+# $2 is the tool name the caller read from $1 with $JV_TOOL; there is no
+# fallback read, because the only caller has it and re-reading costs a jq run
+# on large outputs.
 redact_tool_output() {
   input=$1
   REDACT_OUTPUT_EMITTED=0
@@ -15781,7 +16013,7 @@ redact_tool_output() {
   [ "$PII_HOOK_MODE" = mask ] && pii_on=1
   [ "$secrets_on" -eq 1 ] || [ "$pii_on" -eq 1 ] || return 0
   redact_figma_tool=0
-  if is_figma_mcp_tool "$(json_value "$JV_TOOL" "$input" 2>/dev/null)"; then
+  if is_figma_mcp_tool "$2"; then
     redact_figma_tool=1
   fi
   ag_known_value_base=
@@ -15896,7 +16128,7 @@ redact_tool_output_response() {
     fi
     if [ "$conservative_done" -eq 0 ] \
         && { output_scan_input_exceeds_cap "$out" \
-          || large_response_has_secretish_assignment "$out"; }; then
+          || large_response_has_secretish_assignment "$out" "$output_bytes"; }; then
       rewrite_out_conservatively; did_secret=1
     elif [ "$conservative_done" -eq 0 ]; then
       secret_bundle=
@@ -16263,7 +16495,9 @@ hook_post_tool() {
   if command -v jq >/dev/null 2>&1 && [ -n "$input" ]; then
     # The object check itself still runs here: its failure is what selects the
     # validation-recovery path below, which must stay reachable on its own.
-    json_value_prime "$input"
+    # Refuse an over-limit input before the call copies it ('' resets alike).
+    # Inline, not a helper: in dash each function definition costs every hook.
+    if [ "${#input}" -le 262144 ]; then json_value_prime "$input" measured; else json_value_prime ''; fi
     if ! printf '%s' "$input" | jq -e 'type == "object"' >/dev/null 2>&1; then
       if recover_post_tool_validation_failure "$input"; then
         return 0
@@ -16334,7 +16568,7 @@ hook_post_tool() {
 
   # All matched tools: mask secret-like values (and PII, when
   # AGENT_GUARD_PII_HOOK_MODE=mask) using the selected host's output contract.
-  redact_tool_output "$input"
+  redact_tool_output "$input" "$tool"
   if [ "$post_tool_disk_finding" -eq 1 ] \
     && [ "$REDACT_OUTPUT_EMITTED" -eq 0 ]; then
     exit 2
@@ -16446,7 +16680,7 @@ hook_stop() {
   fi
 
   if ! command -v git >/dev/null 2>&1; then
-    handle_git_infrastructure_failure "$input" \
+    handle_hook_infrastructure_failure Stop "$input" \
       "$PROGRAM: git is unavailable, so changed files could not be scanned before stop;"
     return 0
   fi
@@ -16457,7 +16691,7 @@ hook_stop() {
     0) return 0 ;;
     1) info "$PROGRAM: changed files contain secret-like values before stop"; exit 2 ;;
     *)
-      handle_git_infrastructure_failure "$input" \
+      handle_hook_infrastructure_failure Stop "$input" \
         "$PROGRAM: changed files could not be scanned before stop;"
       ;;
   esac
@@ -16542,11 +16776,14 @@ injected_prompt_frame() {
 }
 
 # The single hook response, whatever combination of facts produced it. A hook
-# may write at most one top-level JSON object, so the infrastructure notice and
-# the mode-specific message share one: additionalContext (the model-facing
-# channel both hosts document) carries both, and systemMessage — a Claude-only
-# field — carries the mode-specific message, matching how the other hooks
-# report an infrastructure failure to the user on stderr rather than in the UI.
+# may write at most one top-level JSON object, so every notice and the
+# mode-specific message share one: additionalContext (the model-facing channel
+# both hosts document) carries them all, and on Claude systemMessage carries
+# what the user must see: the infrastructure notice ($3) and the mode-specific
+# message. Claude Code shows neither exit-0 stderr nor additionalContext to the
+# user, so this is the same user-facing channel handle_hook_infrastructure_failure
+# uses; Codex keeps additionalContext only (see there). A queued blocked-
+# injection notice is addressed to the model and stays out of systemMessage.
 # Prints nothing when there is nothing to say.
 emit_prompt_response() {
   notice=$1
@@ -16557,8 +16794,14 @@ emit_prompt_response() {
     context="$notice$message"
   fi
   [ -n "$context" ] || return 0
-  if [ -n "$message" ] && [ "$(hook_host)" != codex ]; then
-    jq -nc --arg m "$message" --arg c "$context" \
+  shown=${3:-}
+  if [ -n "$shown" ] && [ -n "$message" ]; then
+    shown="$shown $message"
+  else
+    shown="$shown$message"
+  fi
+  if [ -n "$shown" ] && [ "$(hook_host)" != codex ]; then
+    jq -nc --arg m "$shown" --arg c "$context" \
       '{systemMessage: $m,
         hookSpecificOutput: {hookEventName: "UserPromptSubmit",
                              additionalContext: $c}}'
@@ -16640,7 +16883,7 @@ hook_user_prompt() {
     begin_infrastructure_failure "$input" \
       "$PROGRAM: the prompt hook input could not be parsed;"
     notice=$INFRA_FAILURE_NOTICE
-    emit_prompt_response "$notice" ''
+    emit_prompt_response "$notice" '' "$notice"
     return 0
   fi
   [ -n "$prompt" ] || return 0
@@ -16680,7 +16923,7 @@ hook_user_prompt() {
     # 128KB but ~23s at 874KB), which would burn the 10s host timeout and make
     # the host kill the hook — a silent fail-open. Above the shared scan cap,
     # skip the probe and route through the infra-failure policy instead:
-    # open warns once and keeps the gitleaks verdict; closed blocks.
+    # open warns (at most once per interval) and keeps the gitleaks verdict; closed blocks.
     if output_scan_input_exceeds_cap "$prompt"; then
       begin_infrastructure_failure "$input" \
         "$PROGRAM: the prompt exceeds the assignment-probe scan cap (gitleaks rules were still applied);"
@@ -16699,12 +16942,13 @@ hook_user_prompt() {
       esac
     fi
   fi
+  infra_notice=$notice
   if [ "$found" -ne 1 ] || [ "$prompt_mode" = warn ]; then
     take_blocked_injection_notice "$input"
     notice=$INJECTION_NOTICE${INJECTION_NOTICE:+${notice:+ }}$notice
   fi
   if [ "$found" -ne 1 ]; then
-    emit_prompt_response "$notice" ''
+    emit_prompt_response "$notice" '' "$infra_notice"
     return 0
   fi
 
@@ -16712,7 +16956,8 @@ hook_user_prompt() {
     warn)
       audit_note warned
       emit_prompt_response "$notice" \
-        "$PROGRAM: the submitted prompt contains secret-like values; they were passed through because AGENT_GUARD_PROMPT_GUARD_MODE=warn"
+        "$PROGRAM: the submitted prompt contains secret-like values; they were passed through because AGENT_GUARD_PROMPT_GUARD_MODE=warn" \
+        "$infra_notice"
       return 0
       ;;
   esac
