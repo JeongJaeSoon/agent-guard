@@ -36,7 +36,7 @@ CLIENT="$CASE/lib/agent-guard-scan"
 export HOME="$CASE/home" XDG_STATE_HOME="$CASE/xs" PATH="$CASE/bin:$PATH" AG_ROUTING_CALLS="$CALLS"
 export AGENT_GUARD_GITLEAKS_BIN_DIR="$CASE/empty" AGENT_GUARD_RELEASE_CHECK=off
 unset AGENT_GUARD_GITLEAKS_BIN AGENT_GUARD_GITLEAKS_CONFIG AGENT_GUARD_LOG_MODE AGENT_GUARD_GITLEAKS_HELPER \
-  AGENT_GUARD_EXPERIMENTAL_OUTPUT_PIPELINE AGENT_GUARD_INFRA_FAILURE_MODE
+  AGENT_GUARD_INFRA_FAILURE_MODE
 STATE="$CASE/xs/agent-guard"
 secret=AGENT_GUARD_TEST_SECRET
 pre() { jq -nc --arg c "$1" '{hook_event_name:"PreToolUse",tool_name:"Bash",tool_input:{command:$c}}'; }
@@ -73,10 +73,6 @@ expect "on: a clean command gets the same allow as off" 'same_as pre-clean'
 hook hook-post-tool "$(post "token $secret")" AGENT_GUARD_GITLEAKS_HELPER="$CLIENT"
 expect "on: tool output is masked as off" 'same_as post-secret'
 expect "on: the output detector's report scan goes through the client" \
-  'grep -q -- "|--|stdin|--report-format|json|--report-path|.*|--no-banner|--config|$CFG|$" "$CALLS"'
-: >"$CALLS"
-hook hook-post-tool "$(post "token $secret")" AGENT_GUARD_GITLEAKS_HELPER="$CLIENT" AGENT_GUARD_EXPERIMENTAL_OUTPUT_PIPELINE=fused
-expect "on: the fused output pipeline's report scan goes through the client" \
   'grep -q -- "|--|stdin|--report-format|json|--report-path|.*|--no-banner|--config|$CFG|$" "$CALLS"'
 
 # AGENT_GUARD_GITLEAKS_CONFIG reaches the client as --config, so the helper

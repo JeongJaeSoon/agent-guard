@@ -55,7 +55,7 @@ if grep -Eq '^  push:' "$perf"; then fail 'performance does not run on push'; fi
 grep -Fq "    - cron: '" "$perf" || fail 'performance runs on a schedule'
 grep -Fq '  workflow_dispatch:' "$perf" || fail 'performance runs on dispatch'
 grep -Fq "      - 'plugins/agent-guard/.claude-plugin/plugin.json'" "$perf" || fail 'release PRs run performance'
-for path in bench/native/ bench/fused-output/ native/devtools/; do
+for path in bench/native/ native/devtools/; do
   grep -Fq "      - '$path**'" "$perf" || fail "PRs changing $path run performance"
 done
 [ "$(awk '/^permissions:/ { on = 1; next } /^[^ ]/ { on = 0 } on' "$perf")" = '  contents: read' ] \
@@ -68,7 +68,7 @@ printf '%s\n' "$notify" | grep -Fq "always() && github.event_name == 'schedule'"
 if awk '/^jobs:/ { on = 1 } /^  notify:/ { on = 0 } on' "$perf" | grep -Fq 'continue-on-error'; then
   fail 'measurement failures reach notify'
 fi
-printf '%s\n' "$notify" | grep -Fxq '    needs: [build, instruction-count, performance, fused-performance]' || fail 'notify waits for every measurement'
+printf '%s\n' "$notify" | grep -Fxq '    needs: [build, instruction-count, performance]' || fail 'notify waits for every measurement'
 for result in failure cancelled skipped; do
   printf '%s\n' "$notify" | grep -Fq "contains(needs.*.result, '$result')" || fail "notify reports a $result measurement"
 done
@@ -113,8 +113,7 @@ grep -Fq '    needs: [build, instruction-count, performance' "$perf" \
   && grep -Fq '          name: instruction-count' "$perf" \
   || fail 'the nightly issue waits for and reads the shell gate'
 grep -Fq 'name: Packaged performance evidence' "$perf" || fail 'packaged measurement moved'
-grep -Fq 'name: Fused packaged performance (' "$perf" || fail 'fused measurement moved'
-for text in 'Packaged performance evidence' 'Fused packaged performance' 'continue-on-error: true'; do
+for text in 'Packaged performance evidence' 'continue-on-error: true'; do
   if grep -Fq "$text" "$native"; then fail "native qualification has no $text"; fi
 done
 grep -Fq 'needs: [platform, installation]' "$native" || fail 'native aggregate waits only for qualification'

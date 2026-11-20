@@ -1,4 +1,4 @@
-<!-- translated-from: docs/installation.md; source-blob: f11e349ccc3a591c7f896d0c989665753543fdbc -->
+<!-- translated-from: docs/installation.md; source-blob: a696ae9e5e2699a7541ea843cadbc98a8f0ace12 -->
 
 <a id="installing-agent-guard"></a>
 
@@ -34,58 +34,6 @@ codex plugin add agent-guard@agent-guard
 プラグインだけを導入した場合は `agent-guard` が `PATH` にないため、プラグインのCLIが出す案内（例: `update`、`check`、`doctor`、SessionStartの通知）はその実行ファイルを引用符で囲んだ絶対パスで示します。例: `"$HOME/.claude/plugins/cache/agent-guard/agent-guard/current/bin/agent-guard" setup`。`PATH` 上の `agent-guard` が同じインストールである場合と、スタンドアロン・Homebrewのインストールで `PATH` に `agent-guard` がある場合は、案内はこれまでどおり短い `agent-guard` を使います。`PATH` に `agent-guard` がない状態でパスを指定して実行したスタンドアロンCLI（例: `~/.local/bin` を追加する前の `~/.agent-guard/bin/agent-guard`）も自身のパスを示します。
 
 <a id="runtime-dependencies"></a>
-
-## 任意の出力準備統合（v3.8以降）
-
-出力パイプラインの実験は明示的に選択します。既存のscanner・規則・policy・hostの
-出力契約を維持し、privateな中間ファイルとJSON準備を統合します。同じリリースの
-ビルド済みcoreをインストールしてください。既存のcoreファイルが準備と置換の両方を
-サポートするため、2つ目のhelperやコンパイラは不要です。Git marketplaceからの
-インストールでも、hostキャッシュを変更せずスタンドアロン版のhelperを利用できます。
-
-Linux x64ではインストール済みhelperを検証し、パイプラインの2つの設定をhostの起動環境に渡します。
-
-```sh
-target=x86_64-unknown-linux-musl
-native_root="$HOME/.agent-guard/libexec"
-if (cd "$native_root" && shasum -a 256 -c "agent-guard-redact-$target.sha256"); then
-  export AGENT_GUARD_EXPERIMENTAL_OUTPUT_PIPELINE=fused
-  export AGENT_GUARD_EXPERIMENTAL_OUTPUT_PREPARE_BIN="$native_root/agent-guard-redact-$target"
-fi
-```
-
-プラットフォームに対応するtargetは[ネイティブhelperガイド（英語）](https://github.com/JeongJaeSoon/agent-guard/blob/v3.8.0/docs/native-redactor.md)で確認してください。
-Homebrewでは `native_root="$(brew --prefix agent-guard)/libexec/libexec"` を設定します。
-スタンドアロン版とHomebrew版はチェックサムを検証した置換helperを自動選択します。
-ソースのみのGit marketplaceプラグインでは、置換も同じ検証済みcoreに接続してください。
-
-```sh
-if (cd "$native_root" && shasum -a 256 -c "agent-guard-redact-$target.sha256"); then
-  export AGENT_GUARD_RUST_CORE_BIN="$native_root/agent-guard-redact-$target"
-fi
-```
-
-この明示的なパスは信頼する実行ファイルの上書き指定です。検証済みのインストールだけを
-指定してください。準備パスだけを設定すると、ソースのみのプラグインの置換は
-シェルのままとなり、測定した共有core構成とは異なります。
-準備helperがない、または失敗した場合は元のjq処理に戻り、実験用
-モジュールがない場合は元の出力パイプラインに戻ります。scannerと準備の制限時間は
-変わりません。
-
-起動環境を変更した後はClaudeまたはCodexを再起動してください。既存のプラグイン
-インストール・更新コマンドは同じです。既定の出力パイプラインに戻すには、次の設定を
-解除してhostを再起動します。
-
-```sh
-unset AGENT_GUARD_EXPERIMENTAL_OUTPUT_PIPELINE
-unset AGENT_GUARD_EXPERIMENTAL_OUTPUT_PREPARE_BIN
-unset AGENT_GUARD_RUST_CORE_BIN
-```
-
-既定の文字列置換helperの選択に戻ります。そのnative helperも無効にする場合は、
-`AGENT_GUARD_EXPERIMENTAL_REDACTOR=shell` を使ってください。測定された改善は
-処理内容とscannerによって異なり、標本プロセスRSS合計が増える場合があります。
-適用前に[検証ガイド](verification.ja.md)を確認してください。
 
 <a id="optional-warm-gitleaks-helper"></a>
 

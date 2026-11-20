@@ -1,4 +1,4 @@
-<!-- translated-from: docs/verification.md; source-blob: f1667998eb2fa12eaf31a2b86d555f4679b8afbf -->
+<!-- translated-from: docs/verification.md; source-blob: 2cc9e59fcad2055e3691d6f505e1ebf67f2566e9 -->
 
 <a id="verification"></a>
 
@@ -114,10 +114,6 @@ sentinel이 들어 있는 파일을 읽는 것도 guard가 보호하는 도구 �
 컴파일러를 요구하지 않습니다. 실제 작업의 비교 가능한 측정으로만 손익분기 호출
 횟수를 계산하세요. 최대 메모리는 반복 사용으로 상쇄되지 않습니다. 지연·CPU가
 감소해도 표본 프로세스 RSS 합은 증가할 수 있으므로 이 절충도 보고합니다.
-
-출력 파이프라인 통합 후보는 기본 설치 경로와 분리된 명시적 실험입니다. 측정된
-개선만으로 배포 준비를 입증하지 않습니다. 채택 전에 컴파일러 없는 호스트 설정,
-실패 복귀, 기존 호스트 제한 시간과 locale 계약을 유지해야 합니다.
 
 선택형 warm gitleaks helper는 빌드한 머신에서, 링크한 공식 gitleaks 릴리스와
 비교해 검증합니다. 빌드 디렉터리와 공식 릴리스 바이너리(helper가 일부러 거절하는
