@@ -148,9 +148,8 @@ The per-suite summary reports only test execution, excluding queue and setup.
 
 Linux의 core runner는 partition 1과 3을 동시에 실행한다. 두 partition의 실행 시간이
 job 시간을 정하므로, hook을 여러 번 실행하는 무거운 fixture 테스트는 여유가 있는
-쪽에 둔다. `tests/key-name-masking.sh`(hook 약 550회)는 그래서 partition 3에서
-실행한다. macOS에서 partition 1이 25분 제한에 1분 안쪽으로 다가온 적이 있다
-(#566의 macOS core job 24분 8초). 시간 제한은 올리지 않는다. command policies는
+쪽에 둔다. `tests/key-name-masking.sh`(hook 약 640회)는 그래서 partition 3에서
+실행한다. 시간 제한은 올리지 않는다. command policies는
 partition 2, scanner는 partition 4를 각각 실행한다. 가장 오래 걸리는 shell
 navigation은 Claude와 Codex의 호스트 계약별 runner로 나눈다. 두 호스트는
 입력의 cwd/workdir 위치와 응답 계약이 다르며, 각 worker는 자신이 맡은 호스트의
@@ -170,6 +169,12 @@ partition 1에서 가장 느린 fixture 스위트 둘(`tests/deny-path-regex-cac
 `tests/message-value-prose.sh`. Linux 컨테이너에서 partition 1 실행 시간 604초 중
 158초)을 partition 3의 맨 앞으로 옮겼다. 스위트를 옮길 때는 두 partition의 macOS
 job 시간을 함께 본다.
+
+옮긴 뒤의 측정은 partition 1이 11분 18초, partition 3이 14분 11초다. 경로 fixture
+스위트 둘(`tests/tracked-file-exception.sh`, `tests/path-operands-only.sh`. 합쳐
+hook 약 740회)은 그래서 다른 protected-path 스위트 옆인 partition 1에 둔다.
+runner를 나누기 전에는 이 둘이 partition 1에 있을 때 macOS core job이 24분 8초로
+끝났다.
 
 전체 matrix에서는 각 OS의 navigation 두 worker 합집합이 기존 378개 assertion과 같다.
 호스트 공통 assertion 5개는 Claude worker가 한 번 실행한다. fixture의 저장소,
