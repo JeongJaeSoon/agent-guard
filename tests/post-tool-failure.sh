@@ -59,6 +59,18 @@ single_context() {
          and (.additionalContext | contains($want)))' "$CASE/out" >/dev/null 2>&1
 }
 
+# The open infrastructure notice (#509): on Claude the same single object also
+# shows it to the user as systemMessage, identical to the model's context.
+single_notice() {
+  jq -se --arg want "$1" 'length == 1
+    and (.[0] | keys == ["hookSpecificOutput", "systemMessage"])
+    and (.[0].hookSpecificOutput | keys == ["additionalContext", "hookEventName"]
+         and .hookEventName == "PostToolUseFailure"
+         and (.additionalContext | contains($want)))
+    and .[0].systemMessage == .[0].hookSpecificOutput.additionalContext' \
+    "$CASE/out" >/dev/null 2>&1
+}
+
 # Findings: gitleaks rule and assignment probe, as a string and as a non-string
 # error value. The context names the category and the host limit, never a value.
 for kind in rule assignment structured; do
@@ -124,7 +136,8 @@ else
 fi
 
 # A scan that could not run is never reported as clean. Open warns once per
-# session, closed warns every time; neither can block, so both exit 0.
+# interval (600s, so twice in a row stays quiet), closed warns every time;
+# neither can block, so both exit 0.
 for policy in open closed; do
   for attempt in 1 2; do
     status=0
@@ -136,7 +149,7 @@ for policy in open closed; do
       run_hook "unavailable-$policy" "$payload") \
       || status=$?
     case "$policy:$attempt" in
-      open:1) expect=context want='AGENT_GUARD_INFRA_FAILURE_MODE=open' ;;
+      open:1) expect=notice want='AGENT_GUARD_INFRA_FAILURE_MODE=open' ;;
       open:2) expect=silent want= ;;
       closed:*) expect=context want='was NOT checked for secret-like values' ;;
     esac
@@ -144,6 +157,7 @@ for policy in open closed; do
     [ "$status" -eq 0 ] || matched=no
     case $expect in
       context) single_context "$want" || matched=no ;;
+      notice) single_notice "$want" || matched=no ;;
       silent) [ ! -s "$CASE/out" ] || matched=no ;;
     esac
     ! leaks_value || matched=no

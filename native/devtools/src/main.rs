@@ -1,7 +1,6 @@
 mod common;
 mod contracts;
 mod measure;
-mod report;
 mod scanner;
 mod verification;
 use common::*;
@@ -92,12 +91,6 @@ const COMMANDS: &[Subcommand] = &[
         options: Some(&[]),
         flags: &[],
         run: verification::selected_bash,
-    },
-    Subcommand {
-        name: "report",
-        options: Some(&["--results", "--html"]),
-        flags: &[],
-        run: report::run,
     },
 ];
 

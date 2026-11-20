@@ -12,6 +12,7 @@ on:
     paths:
       - '.github/workflows/performance.yml'
       - 'bench/native/**'
+      - 'bench/instruction-count/**'
       - 'native/devtools/**'
       - 'scripts/build-native-artifact.sh'
       - 'scripts/install-native-test-tools.sh'
@@ -55,6 +56,160 @@ jobs:
           path: ${{ runner.temp }}/artifacts/
           if-no-files-found: error
 
+  # Runs wherever this workflow runs (nightly, release PRs, manual runs and
+  # PRs that change the measurement). Wall-clock jobs dilute a shell
+  # regression with gitleaks and jq time (#505
+  # added 21% shell work to dense-controls but about +3% latency), so this job
+  # counts the shell's own instructions against the latest release tag. It
+  # fails when an event's change beyond the script-size share exceeds 5% of
+  # the release, or when it could not measure. The PR-time Hook instruction
+  # count job reports the same numbers without failing.
+  instruction-count:
+    name: Shell instruction count against the latest release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          path: head
+      # The newest release tag reachable from the measured commit, other than
+      # one on that commit itself; a fork or checkout without tags fails here.
+      - name: Check out the latest release tag
+        id: base
+        run: |
+          head_sha=$(git -C head rev-parse HEAD)
+          tag=
+          for candidate in $(git -C head tag --merged HEAD --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname); do
+            [ "$(git -C head rev-parse "$candidate^{commit}")" != "$head_sha" ] || continue
+            tag=$candidate
+            break
+          done
+          if [ -z "$tag" ]; then
+            echo '::error title=Shell instruction count::No release tag is reachable from the measured commit.'
+            false
+          fi
+          git -C head worktree add --detach ../base "$tag"
+          printf 'tag=%s\n' "$tag" >> "$GITHUB_OUTPUT"
+      - name: Refresh Linux package metadata
+        timeout-minutes: 4
+        run: |
+          sudo apt-get -o Acquire::Retries=0 \
+            -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 \
+            -o DPkg::Lock::Timeout=30 update --error-on=any
+      # The mirror has served valgrind and the glibc packages it pulls in
+      # (35.5 MB) at about 50 kB/s, which no retry inside the 4-minute step can
+      # finish, so the packages are cached. The key is the exact list of
+      # package URIs apt plans to fetch on this runner, so a new runner image or
+      # package version makes a new key; an older cache still seeds the apt
+      # archive and only changed files are fetched.
+      - name: Plan valgrind packages
+        id: plan
+        run: |
+          uris="$RUNNER_TEMP/valgrind-uris"
+          sudo apt-get -o DPkg::Lock::Timeout=30 install -qq --print-uris --no-install-recommends valgrind > "$uris"
+          printf 'key=valgrind-debs-%s-%s-%s\n' "$RUNNER_OS" "$RUNNER_ARCH" "$(sha256sum "$uris" | cut -c1-16)" >> "$GITHUB_OUTPUT"
+          mkdir -p "$HOME/valgrind-debs"
+      - name: Restore valgrind packages
+        id: restore
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/valgrind-debs
+          key: ${{ steps.plan.outputs.key }}
+          restore-keys: valgrind-debs-${{ runner.os }}-${{ runner.arch }}-
+      # A download that stops is retried: each attempt keeps the shared
+      # fail-fast options (Retries=0, 20 s timeouts), gets its own 55 s limit
+      # and resumes the partial file (apt sends a Range request), three attempts
+      # at most inside the unchanged step limit. Only the download is retried
+      # and killed: stopping apt during dpkg could leave the next attempt a
+      # broken package state. A runner that never gets valgrind still fails the
+      # job as "could not measure".
+      - name: Download valgrind
+        timeout-minutes: 4
+        run: |
+          if ls "$HOME"/valgrind-debs/*.deb > /dev/null 2>&1; then
+            sudo cp "$HOME"/valgrind-debs/*.deb /var/cache/apt/archives/
+          fi
+          fetched=no
+          for attempt in 1 2 3; do
+            if sudo timeout --kill-after=5 55 apt-get -o Acquire::Retries=0 \
+                -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 \
+                -o DPkg::Lock::Timeout=30 install -y --no-install-recommends --download-only valgrind; then
+              fetched=yes
+              break
+            fi
+            echo "::warning title=Shell instruction count::valgrind download attempt $attempt did not finish; retrying up to 3 attempts."
+            [ "$attempt" = 3 ] || sleep 10
+          done
+          [ "$fetched" = yes ]
+          awk '{ print $2 }' "$RUNNER_TEMP/valgrind-uris" | while read -r deb; do
+            cp "/var/cache/apt/archives/$deb" "$HOME/valgrind-debs/"
+          done
+      - name: Save valgrind packages
+        if: steps.restore.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/valgrind-debs
+          key: ${{ steps.plan.outputs.key }}
+      - name: Install valgrind
+        timeout-minutes: 4
+        run: |
+          sudo apt-get -o DPkg::Lock::Timeout=30 install -y --no-install-recommends --no-download valgrind
+      - name: Count and gate the release and head shell instructions
+        id: count
+        env:
+          BASE_TAG: ${{ steps.base.outputs.tag }}
+        run: |
+          out="$RUNNER_TEMP/instruction-count"
+          mkdir -p "$out"
+          tsv="$out/instruction-count.tsv"
+          started=$(date +%s)
+          status=0
+          sh head/bench/instruction-count/run.sh base head "$tsv" || status=$?
+          elapsed=$(( $(date +%s) - started ))
+          {
+            printf '### Shell instruction count against the latest release\n\n'
+            printf -- '- base: 릴리스 태그 `%s`(`%s`), head: `%s`\n' \
+              "$BASE_TAG" "$(git -C base rev-parse HEAD)" "$(git -C head rev-parse HEAD)"
+            printf -- '- /bin/sh: `%s`, %s\n' "$(readlink -f /bin/sh)" "$(valgrind --version 2>/dev/null || printf 'valgrind missing')"
+            printf -- '- 측정 시간: %s초(두 트리, 이벤트 6개, 각 1회)\n\n' "$elapsed"
+          } > "$out/summary.md"
+          if [ "$status" -ne 0 ]; then
+            printf '측정하지 못했습니다(종료 코드 %s). 변화 없음이라는 뜻이 아닙니다.\n' "$status" >> "$out/summary.md"
+            cat "$out/summary.md" >> "$GITHUB_STEP_SUMMARY"
+            false
+          fi
+          sh head/bench/instruction-count/run.sh --render "$tsv" >> "$out/summary.md"
+          gate=0
+          sh head/bench/instruction-count/run.sh --check "$tsv" 5 > "$out/over-limit.txt" || gate=$?
+          {
+            printf '\n'
+            case "$gate" in
+              0) printf '판정: 통과. 어떤 이벤트도 스크립트 크기 몫을 뺀 나머지가 릴리스의 +5%%를 넘지 않았습니다.\n' ;;
+              1) printf '판정: **실패**. 스크립트 크기 몫을 뺀 나머지가 릴리스의 +5%%를 넘은 이벤트:\n\n'
+                 sed 's/^/- /' "$out/over-limit.txt" ;;
+              *) printf '판정: 측정이 완전하지 않습니다(종료 코드 %s: 빠진 값, 또는 base와 head에서 hook 종료 코드가 다름. job 로그 참고). 변화 없음이라는 뜻이 아닙니다.\n' "$gate" ;;
+            esac
+            printf '\n- 셸(dash)이 실행한 명령어 수입니다. native 출력 redactor 없이 셸 경로만 재고, gitleaks·jq 시간은 세지 않습니다.\n'
+            printf -- '- 릴리스 사이에 +5%% 미만으로 쌓이는 증가는 잡지 못합니다. 기능 추가로 일이 실제로 늘어도 실패하며, 그때는 유지관리자가 판단합니다.\n'
+          } >> "$out/summary.md"
+          cat "$out/summary.md" >> "$GITHUB_STEP_SUMMARY"
+          cat "$out/summary.md"
+          [ "$gate" -eq 0 ]
+      - name: Report a run that never reached the measurement
+        if: failure() && steps.count.outcome == 'skipped'
+        run: |
+          mkdir -p "$RUNNER_TEMP/instruction-count"
+          printf '### Shell instruction count against the latest release\n\n측정하지 못했습니다: 측정 전 단계(checkout·릴리스 태그·valgrind 설치)가 실패했습니다. 이 job의 로그를 확인하세요. 변화 없음이라는 뜻이 아닙니다.\n' \
+            | tee -a "$GITHUB_STEP_SUMMARY" > "$RUNNER_TEMP/instruction-count/summary.md"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: instruction-count
+          path: ${{ runner.temp }}/instruction-count/
+          if-no-files-found: warn
+
   # A screened 5% regression must also repeat in a 21-pair confirmation
   # (bench/native/confirm.jq) before a job fails.
   performance:
@@ -93,7 +248,7 @@ jobs:
       always() && github.event_name == 'schedule'
       && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
           || contains(needs.*.result, 'skipped'))
-    needs: [build, performance]
+    needs: [build, instruction-count, performance]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -113,6 +268,12 @@ jobs:
         with:
           pattern: '*packaged*'
           path: ${{ runner.temp }}/evidence
+      - name: Download the shell instruction count
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: instruction-count
+          path: ${{ runner.temp }}/evidence/instruction-count
       - name: Open or update the nightly performance issue
         env:
           GH_TOKEN: ${{ github.token }}

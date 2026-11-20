@@ -18,8 +18,20 @@ scanner error in a lifecycle hook:
 
 | Value | Behavior |
 | --- | --- |
-| `open` (default) | Continue with one visible degraded-protection notice |
+| `open` (default) | Continue with a degraded-protection notice that names what is missing and repeats every 10 minutes |
 | `closed` | Refuse the hook action with exit status 2 |
+
+Under `open`, a session's first infrastructure failure produces the notice, and
+it repeats at most once every 600 seconds while failures continue; the interval
+is fixed. Every infrastructure notice in a session shares that interval, so a
+degraded-dependency notice can wait behind another failure's notice, such as an
+unresolved `git commit`. A `PostToolUse` git-backstop failure is reported on
+stderr only, because that hook may still have to write its redaction response. In Claude Code the notice is a `systemMessage` shown to you on
+`PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `UserPromptSubmit`, and
+`Stop`, and the model receives it as additional context. Codex receives it as
+additional context, and on `Stop` only on stderr; whether Codex shows a
+`systemMessage` from those events has not been verified, so none is sent there.
+`SessionStart` reports degraded setup to both hosts on every start.
 
 This is distinct from a secret finding, which blocks. An invalid value is read
 as `open`; set an explicit valid value in managed environments.
@@ -431,8 +443,8 @@ reads it.
 | `AGENT_GUARD_PII_SKIP` | Local-regex opt-out for `EMAIL`, `PHONE`, and `IP_ADDRESS` only. |
 | `AGENT_GUARD_PII_LANGUAGE` / `AGENT_GUARD_PII_TIMEOUT_SECONDS` | Provider language and positive timeout control. |
 | `AGENT_GUARD_COMMAND_WRAPPING` | `off` disables shell command wrapping for the current process. For `agent-guard update` and the bootstrap installer, `on` or `off` overrides the choice recorded in the shell rc. |
-| `AGENT_GUARD_LOG_MODE` | The post-v3.3.0 metadata log is on by default; set `off` to opt out. |
-| `AGENT_GUARD_SCAN_CACHE` | `on` (default) or `off`. When on, the PreToolUse Bash command-text scan (the one that repeats, such as `ls -la` or `git status`) skips gitleaks only for a command that was already scanned clean within the last 10 minutes under the same gitleaks executable (a native binary, not a script shim), configuration file contents, `GITLEAKS_CONFIG`/`GITLEAKS_CONFIG_TOML`, scan flags, and agent-guard version. Prompts, file edits, patches, MCP and network input, and `scan-staged`/`scan-working-tree` are always scanned directly. Entries are SHA-256 hashes in the private state directory, at most 256 of them; the scanned text is never stored. Findings, scanner errors, and scans that could not run are never cached. A `.gitleaksignore` in the scan directory, a configuration that names `extend` anywhere except a plain `[extend]` table holding only `useDefault` and a one-line `disabledRules` with no multiline string before or inside it, a configuration with a double-quoted key or table name, `AGENT_GUARD_LOG_MODE=off`, no root-owned, non-writable `/usr/bin/sha256sum`, `/bin/sha256sum`, or `/usr/bin/shasum` (the hash tool is never taken from `PATH`) or one that fails a known-answer check, and any value other than `on` disable it. |
+| `AGENT_GUARD_LOG_MODE` | The post-v3.3.0 metadata log is on by default; set `off` to opt out. `off` also turns off the local caches in the private state directory (the gitleaks readiness cache, the clean-scan cache below, and the shared protected-path regex cache, which is then rebuilt in every invocation) unless `AGENT_GUARD_SCAN_CACHE=on` is set explicitly. Without them every hook runs the gitleaks readiness check and scans a repeated Bash command again, usually one or two more gitleaks runs per hook. With `AGENT_GUARD_LOG_MODE=off` and `AGENT_GUARD_SCAN_CACHE=on`, the caches are written and no event record is. See [PRIVACY.md](../PRIVACY.md) for what each cache file holds. |
+| `AGENT_GUARD_SCAN_CACHE` | `on` (default) or `off`; with `AGENT_GUARD_LOG_MODE=off` the default is off and only an explicit `on` enables it. When on, the PreToolUse Bash command-text scan (the one that repeats, such as `ls -la` or `git status`) skips gitleaks only for a command that was already scanned clean within the last 10 minutes under the same gitleaks executable (a native binary, not a script shim), configuration file contents, `GITLEAKS_CONFIG`/`GITLEAKS_CONFIG_TOML`, scan flags, and agent-guard version. Prompts, file edits, patches, MCP and network input, and `scan-staged`/`scan-working-tree` are always scanned directly. Entries are SHA-256 hashes in the private state directory, at most 256 of them; the scanned text is never stored. Findings, scanner errors, and scans that could not run are never cached. A `.gitleaksignore` in the scan directory, a configuration that names `extend` anywhere except a plain `[extend]` table holding only `useDefault` and a one-line `disabledRules` with no multiline string before or inside it, a configuration with a double-quoted key or table name, `AGENT_GUARD_LOG_MODE=off` without an explicit `AGENT_GUARD_SCAN_CACHE=on`, no root-owned, non-writable `/usr/bin/sha256sum`, `/bin/sha256sum`, or `/usr/bin/shasum` (the hash tool is never taken from `PATH`) or one that fails a known-answer check, and any value other than `on` disable it. With logging on, `off` disables only this cache. With `AGENT_GUARD_LOG_MODE=off`, only an explicit `on` prepares the private state directory, under the same ownership, mode, and symlink checks, and enables this cache together with the readiness and protected-path regex caches; no event record is written. An `AGENT_GUARD_LOG_MODE` value other than `on` or `off` leaves all three caches off whatever this variable says. |
 | `AGENT_GUARD_RELEASE_CHECK` | `on` (default) or `off`; `doctor`, `plugin status`, and the `plugin update` no-op skip the latest-release lookup when off. |
 | `AGENT_GUARD_CODEX_TRUST_CHECK` | `on` (default) or `off`; when off, `doctor` and the Codex `plugin status`/`install`/`update` output skip the `codex app-server` hook-trust query and report it as unverified. |
 

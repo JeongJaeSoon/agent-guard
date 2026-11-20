@@ -212,6 +212,7 @@ for file in \
   "$ROOT/tests/gitleaks-resolution.sh" \
   "$ROOT/tests/gitleaks-probe-cache.sh" \
   "$ROOT/tests/gitleaks-clean-cache.sh" \
+  "$ROOT/tests/log-off-state-cache.sh" \
   "$ROOT/tests/deny-path-regex-cache.sh" \
   "$ROOT/tests/hook-spawn-reduction.sh" \
   "$ROOT/tests/post-tool-failure.sh" \
@@ -2488,7 +2489,7 @@ else
   sed 's/^/  stdout: /' "$OUT"; sed 's/^/  stderr: /' "$ERR"
 fi
 if [ "$(jq -s 'length' <"$OUT" 2>/dev/null)" = 1 ] \
-   && jq -e '.systemMessage | test("PROMPT_GUARD_MODE=warn")' "$OUT" >/dev/null 2>&1 \
+   && jq -e '.systemMessage | test("scanner failed") and test("PROMPT_GUARD_MODE=warn")' "$OUT" >/dev/null 2>&1 \
    && jq -e '.hookSpecificOutput.additionalContext
              | test("scanner failed") and test("PROMPT_GUARD_MODE=warn")' "$OUT" >/dev/null 2>&1; then
   ok "prompt guard emits one response carrying both the infra notice and the warning (claude)"
@@ -3012,12 +3013,18 @@ run_expect 0 "cat/tee here-document bodies leave out no protected read" \
   sh "$ROOT/tests/heredoc-body-text.sh"
 run_expect 0 "sed addresses, echo words and plain heredoc expansions are data; real reads stay blocked" \
   sh "$ROOT/tests/bash-path-text-data.sh"
+run_expect 0 "a gh --jq value is a jq filter and does not stop a later jq rewrite; real reads stay blocked" \
+  sh "$ROOT/tests/gh-jq-option.sh"
 run_expect 0 "literal backquotes in quoted text read by echo or cat pass, runnable ones stay blocked" \
   sh "$ROOT/tests/literal-substitution-text.sh"
 run_expect 0 "a failed quoted-bracket normalization keeps the protected-path verdict" \
   sh "$ROOT/tests/quoted-bracket-fallback.sh"
 run_expect 0 "status words and named placeholders are prose, real values still block" \
   sh "$ROOT/tests/prompt-prose-placeholder.sh"
+run_expect 0 "bracketed values mask whole and spaced angle placeholders are judged as one value on both hosts" \
+  sh "$ROOT/tests/redaction-wrapped-values.sh"
+run_expect 0 "hand-back reports that name credential settings without values pass, real values still block" \
+  sh "$ROOT/tests/handback-values.sh"
 ambiguous_bash_fixtures="$ROOT/tests/fixtures/ambiguous-bash-protected-path.json"
 ambiguous_bash_cases="$TESTTMP/ambiguous-bash-protected-path.cases"
 if jq -e 'type == "array" and length > 0' "$ambiguous_bash_fixtures" >/dev/null \
@@ -6588,32 +6595,8 @@ if [ -L "$TEMPLATE_SYMLINK_REPO/.env.example" ]; then
     sed 's/^/  stderr: /' "$ERR"
   fi
 
-  payload=$(jq -nc --arg workdir "$TEMPLATE_SYMLINK_REPO" \
-    '{tool_name:"Bash",tool_input:{command:"env -C nested cat template.env",workdir:$workdir}}')
-  printf '%s' "$payload" \
-    | "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
-  status=$?
-  if [ "$status" -eq 2 ]; then
-    ok "Bash wrapper cwd change cannot hide a relative template symlink"
-  else
-    not_ok "Bash wrapper cwd change cannot hide a relative template symlink (expected 2, got $status)"
-    sed 's/^/  stderr: /' "$ERR"
-  fi
-
-  # A path-qualified wrapper is the same executable and must retain the same
-  # cwd-rebasing semantics during policy classification.
-  env_command=$(command -v env)
-  payload=$(jq -nc --arg workdir "$TEMPLATE_SYMLINK_REPO" --arg env_command "$env_command" \
-    '{tool_name:"Bash",tool_input:{command:($env_command + " -C nested cat template.env"),workdir:$workdir}}')
-  printf '%s' "$payload" \
-    | "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
-  status=$?
-  if [ "$status" -eq 2 ]; then
-    ok "Bash path-qualified wrapper cwd change cannot hide a relative template symlink"
-  else
-    not_ok "Bash path-qualified wrapper cwd change cannot hide a relative template symlink (expected 2, got $status)"
-    sed 's/^/  stderr: /' "$ERR"
-  fi
+  run_expect 0 "every cwd option form keeps a relative template symlink blocked" \
+    sh "$ROOT/tests/cwd-option-template.sh"
 
   # Direct relative paths still resolve against the event workdir and remain
   # usable when they point to a genuine template.
@@ -8601,6 +8584,8 @@ run_expect 0 "gitleaks readiness cache reuses only a fresh verdict for the same 
   "$REAL_SH" "$ROOT/tests/gitleaks-probe-cache.sh"
 run_expect 0 "gitleaks clean-verdict cache skips only an identical clean scan (#407)" \
   "$REAL_SH" "$ROOT/tests/gitleaks-clean-cache.sh"
+run_expect 0 "logging off writes no state unless AGENT_GUARD_SCAN_CACHE=on, which caches without an event log (#510)" \
+  "$REAL_SH" "$ROOT/tests/log-off-state-cache.sh"
 run_expect 0 "setup and manifest hook outcome contracts" \
   "$REAL_SH" "$ROOT/tests/hook-outcome-contract.sh"
 
@@ -8712,12 +8697,170 @@ printf '%s' '{"session_id":"degraded-session","tool_name":"Bash","tool_input":{"
     AGENT_GUARD_GITLEAKS_BIN=/nonexistent/gitleaks PATH="$NO_GITLEAKS_BIN" \
     "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
 status=$?
-if [ "$status" -eq 0 ] && [ ! -s "$ERR" ]; then
-  ok "degraded dependency warning is emitted only once per session"
+if [ "$status" -eq 0 ] && [ ! -s "$ERR" ] && [ ! -s "$OUT" ]; then
+  ok "degraded dependency warning does not repeat within the interval"
 else
-  not_ok "degraded dependency warning is emitted only once per session"
+  not_ok "degraded dependency warning does not repeat within the interval"
+  sed 's/^/  stdout: /' "$OUT"
   sed 's/^/  stderr: /' "$ERR"
 fi
+
+# #509: the open notice repeats once HOOK_WARNING_INTERVAL_SECONDS (600) have
+# passed since the time its marker records, and stays quiet inside that
+# window. The cases rewrite the recorded time instead of waiting for the clock.
+# This PATH keeps jq, git and date but has no gitleaks, so the notice must name
+# gitleaks; Claude must carry it as a user-visible systemMessage in the one
+# JSON object the hook writes, and Codex keeps the model-facing channel only.
+INTERVAL_BIN="$TMP_ROOT/interval-no-gitleaks-bin"
+mkdir -p "$INTERVAL_BIN"
+for interval_tool in sh dirname pwd awk jq git date sleep wc tr rm mkdir rmdir \
+    setsid perl cat mktemp head tail id uname stat sed grep od cut sort xargs find chmod; do
+  interval_tool_path=$(PATH=$ORIGINAL_PATH command -v "$interval_tool" 2>/dev/null || :)
+  [ -n "$interval_tool_path" ] && ln -s "$interval_tool_path" "$INTERVAL_BIN/$interval_tool"
+done
+INTERVAL_WARN_DIR="$TESTTMP/interval-warnings"
+# The support log refuses a state directory with a symlinked component, and the
+# macOS TMPDIR lives under /var -> /private/var; resolve it so logging stays on.
+INTERVAL_STATE_HOME="$(CDPATH= cd -- "$TESTTMP" && pwd -P)/interval-state"
+interval_hook() { # $1 host, $2 subcommand, $3 session, $4 log mode
+  case "$2" in
+    hook-pre-tool) interval_json='{"tool_name":"Bash","tool_input":{"command":"echo clean"}}' ;;
+    hook-post-tool) interval_json='{"tool_name":"Bash","tool_input":{"command":"echo clean"},"tool_response":{"stdout":"clean"}}' ;;
+    hook-post-tool-failure) interval_json='{"tool_name":"Bash","tool_input":{"command":"false"},"error":"failed"}' ;;
+    hook-user-prompt) interval_json='{"prompt":"hello"}' ;;
+    *) interval_json='{}' ;;
+  esac
+  printf '%s' "$interval_json" | jq -c --arg s "$3" '. + {session_id: $s}' \
+    | env AGENT_GUARD_WARNING_DIR="$INTERVAL_WARN_DIR" AGENT_GUARD_HOOK_HOST="$1" \
+        AGENT_GUARD_LOG_MODE="$4" XDG_STATE_HOME="$INTERVAL_STATE_HOME" \
+        AGENT_GUARD_GITLEAKS_BIN=/nonexistent/gitleaks PATH="$INTERVAL_BIN" \
+        "$PLUGIN_ROOT/bin/agent-guard" "$2" >"$OUT" 2>"$ERR"
+}
+# The notice must be exactly one JSON document; on Claude it carries a
+# systemMessage equal to the model-facing context, on Codex none.
+interval_notice_shape() { # $1 host
+  [ "$(jq -s 'length' <"$OUT" 2>/dev/null)" = 1 ] || return 1
+  grep -q 'AGENT_GUARD_INFRA_FAILURE_MODE=open' "$ERR" || return 1
+  case "$1" in
+    codex) jq -e 'has("systemMessage") | not' "$OUT" >/dev/null 2>&1 \
+             && jq -e '.hookSpecificOutput.additionalContext
+                       | test("missing or unusable: gitleaks[.]")' "$OUT" >/dev/null 2>&1 ;;
+    *) jq -e '(.systemMessage | test("missing or unusable: gitleaks[.]"))
+              and (.hookSpecificOutput == null
+                   or .hookSpecificOutput.additionalContext == .systemMessage)' "$OUT" >/dev/null 2>&1 ;;
+  esac
+}
+interval_quiet() {
+  [ ! -s "$OUT" ] && [ ! -s "$ERR" ]
+}
+interval_report() { # $1 label, $2 status, $3 check
+  if [ "$2" -eq 0 ] && "$3" "${4:-}"; then
+    ok "$1"
+  else
+    not_ok "$1 (status $2)"
+    sed 's/^/  stdout: /' "$OUT"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+}
+for interval_host in claude codex; do
+  for interval_log in off on; do
+    interval_session="interval-$interval_host-$interval_log"
+    interval_marker="$INTERVAL_WARN_DIR/infrastructure-$interval_session"
+    interval_label="$interval_host, logging $interval_log"
+    interval_hook "$interval_host" hook-pre-tool "$interval_session" "$interval_log"
+    interval_report "degraded notice names gitleaks in one response ($interval_label)" "$?" interval_notice_shape "$interval_host"
+    interval_hook "$interval_host" hook-pre-tool "$interval_session" "$interval_log"
+    interval_report "degraded notice stays quiet right after it was shown ($interval_label)" "$?" interval_quiet
+    # Ten seconds of margin: the hook reads its own clock after this one.
+    printf '%s\n' "$(( $(date +%s) - 590 ))" >"$interval_marker"
+    interval_hook "$interval_host" hook-pre-tool "$interval_session" "$interval_log"
+    interval_report "degraded notice stays quiet inside the 600s interval ($interval_label)" "$?" interval_quiet
+    printf '%s\n' "$(( $(date +%s) - 600 ))" >"$interval_marker"
+    interval_hook "$interval_host" hook-pre-tool "$interval_session" "$interval_log"
+    interval_report "degraded notice repeats once the 600s interval has passed ($interval_label)" "$?" interval_notice_shape "$interval_host"
+    interval_hook "$interval_host" hook-pre-tool "$interval_session" "$interval_log"
+    interval_report "a repeated degraded notice restarts the interval ($interval_label)" "$?" interval_quiet
+  done
+  # A marker left empty by an older release, or holding a time ahead of the
+  # clock, cannot prove a recent notice, so the notice is due.
+  # A zero-led time would be octal arithmetic (0999999999 is a shell error
+  # and exit 2), and a FIFO or symlink must never be opened or followed.
+  for interval_stale in empty future zero-led fifo symlink; do
+    interval_session="interval-$interval_host-$interval_stale"
+    interval_marker="$INTERVAL_WARN_DIR/infrastructure-$interval_session"
+    case "$interval_stale" in
+      empty) : >"$interval_marker" ;;
+      future) printf '%s\n' "$(( $(date +%s) + 3600 ))" >"$interval_marker" ;;
+      zero-led) printf '%s\n' 0999999999 >"$interval_marker" ;;
+      fifo) mkfifo "$interval_marker" ;;
+      symlink) : >"$TESTTMP/interval-link-target-$interval_host"
+               ln -s "$TESTTMP/interval-link-target-$interval_host" "$interval_marker" ;;
+    esac
+    # A hang must fail this case, not stall the suite.
+    ( interval_hook "$interval_host" hook-pre-tool "$interval_session" off ) &
+    interval_pid=$!
+    interval_waited=0
+    while kill -0 "$interval_pid" 2>/dev/null && [ "$interval_waited" -lt 30 ]; do
+      sleep 1
+      interval_waited=$((interval_waited + 1))
+    done
+    kill "$interval_pid" 2>/dev/null
+    wait "$interval_pid"
+    interval_status=$?
+    interval_report "a $interval_stale degraded-notice marker is due ($interval_host)" "$interval_status" interval_notice_shape "$interval_host"
+  done
+  if [ ! -s "$TESTTMP/interval-link-target-$interval_host" ] && [ -p "$INTERVAL_WARN_DIR/infrastructure-interval-$interval_host-fifo" ]; then
+    ok "degraded-notice markers never write through a symlink or into a FIFO ($interval_host)"
+  else
+    not_ok "degraded-notice markers never write through a symlink or into a FIFO ($interval_host)"
+  fi
+  # Every hook that publishes the notice writes it in its single response.
+  for interval_cmd in hook-post-tool hook-post-tool-failure hook-user-prompt hook-stop; do
+    interval_hook "$interval_host" "$interval_cmd" "interval-$interval_host-$interval_cmd" off
+    interval_status=$?
+    if [ "$interval_host:$interval_cmd" = codex:hook-stop ]; then
+      # Codex Stop keeps its stderr-only notice.
+      if [ "$interval_status" -eq 0 ] && [ ! -s "$OUT" ] \
+         && grep -q 'missing or unusable: gitleaks[.]' "$ERR"; then
+        ok "Codex Stop keeps the degraded notice on stderr only"
+      else
+        not_ok "Codex Stop keeps the degraded notice on stderr only (status $interval_status)"
+        sed 's/^/  stdout: /' "$OUT"
+        sed 's/^/  stderr: /' "$ERR"
+      fi
+    else
+      interval_report "$interval_cmd writes the degraded notice as one response ($interval_host)" "$interval_status" interval_notice_shape "$interval_host"
+    fi
+  done
+done
+
+# A Stop whose git backstop cannot run (dependencies ready, git missing) uses
+# the same notice: shown on Claude, stderr-only on Codex, exit 0 on both.
+INTERVAL_NO_GIT_BIN="$TMP_ROOT/interval-no-git-bin"
+mkdir -p "$INTERVAL_NO_GIT_BIN"
+for interval_tool in "$INTERVAL_BIN"/*; do
+  [ "${interval_tool##*/}" = git ] || ln -s "$(readlink "$interval_tool")" "$INTERVAL_NO_GIT_BIN/${interval_tool##*/}"
+done
+for interval_host in claude codex; do
+  printf '%s' '{"session_id":"interval-stop-git-'"$interval_host"'"}' \
+    | env AGENT_GUARD_WARNING_DIR="$INTERVAL_WARN_DIR" AGENT_GUARD_HOOK_HOST="$interval_host" \
+        AGENT_GUARD_LOG_MODE=off AGENT_GUARD_GITLEAKS_BIN="$MOCK_BIN/gitleaks" \
+        PATH="$INTERVAL_NO_GIT_BIN" "$PLUGIN_ROOT/bin/agent-guard" hook-stop >"$OUT" 2>"$ERR"
+  interval_status=$?
+  case "$interval_host" in
+    claude) jq -e -s 'length == 1 and (.[0] | keys == ["systemMessage"])
+                      and (.[0].systemMessage | test("git is unavailable"))' "$OUT" >/dev/null 2>&1 ;;
+    *) [ ! -s "$OUT" ] ;;
+  esac
+  interval_shape=$?
+  if [ "$interval_status" -eq 0 ] && [ "$interval_shape" -eq 0 ] && grep -q 'git is unavailable' "$ERR"; then
+    ok "Stop reports a git backstop that cannot run in its single response ($interval_host)"
+  else
+    not_ok "Stop reports a git backstop that cannot run in its single response ($interval_host, status $interval_status)"
+    sed 's/^/  stdout: /' "$OUT"
+    sed 's/^/  stderr: /' "$ERR"
+  fi
+done
 
 printf '%s' '{"session_id":"degraded-closed","tool_name":"Bash","tool_input":{"command":"echo clean"}}' \
   | AGENT_GUARD_WARNING_DIR="$DEGRADED_WARNING_DIR" \
@@ -8908,7 +9051,7 @@ printf '%s' '{"session_id":"hook-no-awk","tool_name":"Read","tool_input":{}}' \
     "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool >"$OUT" 2>"$ERR"
 hook_no_awk_status=$?
 if [ "$hook_no_awk_status" -eq 0 ] \
-   && grep -q 'jq, awk, git, gitleaks' "$ERR"; then
+   && grep -q 'missing or unusable: awk[,.]' "$ERR"; then
   ok "hook readiness treats the portable fallback awk as a required dependency"
 else
   not_ok "hook readiness ignores a missing portable fallback awk (status $hook_no_awk_status)"
@@ -14630,7 +14773,7 @@ mkdir -p "$FAIL_STAGE_JQ_DIR"
   printf '%s\n' '  detector_leaf:*"join(\"\\n\") end"*) partial_fail ;;'
   printf '%s\n' '  detector_frame:*"\"\\u001e\\n\""*) partial_fail ;;'
   printf '%s\n' '  detector_report:*".Secret // empty"*) partial_fail ;;'
-  printf '%s\n' '  detector_bundle:*"secrets: unique"*) partial_fail ;;'
+  printf '%s\n' '  detector_bundle:*"secrets: settle_extents"*) partial_fail ;;'
   printf '%s\n' '  bundle_classify_true:*"invalid secret bundle"*) printf "true"; exit 2 ;;'
   printf '%s\n' '  bundle_extract_secrets:*"invalid secret bundle"*) printf "[]"; exit 2 ;;'
   printf '%s\n' 'esac'
