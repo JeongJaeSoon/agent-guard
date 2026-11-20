@@ -96,12 +96,14 @@ return status 0 with no response. See [Output masking coverage](integrations.md#
     `grep -n`, `rg`, `git grep -n`, `cat -n` and `nl` print one:
     `src/schema.ts:14:`, `14:`, the context forms `src/schema.ts-14-` and
     `14-`, or a padded number and a tab. The locator must carry the line
-    number and start the line, and its path part is made of letters, digits
-    and `_ . / @ + ~ -` with at least one letter. `src/schema.ts:` alone, a
-    clock time (`12:34:`), a date (`2024-01-15:`), an address and port
-    (`10.0.0.1:5432:`), a line and column pair (`src/a.ts:14:9:`) and the
-    tail of other text (`Server=db;Database=app:1:`, `level=info|req=42:7:`)
-    do not count.
+    number and start the line, with the same separator on both sides of the
+    number. Its path part is made of letters, digits and `_ . / @ + ~ -`
+    with at least one letter, and does not start with `+` or `-`.
+    `src/schema.ts:` alone, a clock time (`12:34:`), a date (`2024-01-15:`),
+    an address and port (`10.0.0.1:5432:`), a host or pod name
+    (`web-1:`), a line and column pair (`src/a.ts:14:9:`), a diff marker
+    glued to the path (`+src/schema.ts:14:`) and the tail of other text
+    (`Server=db;Database=app:1:`, `level=info|req=42:7:`) do not count.
   - The whole unquoted value is an identifier or a dotted chain of at most 80
     bytes with no digit; one leading `$` and one simple generic argument
     after a capitalized name (`Promise<Token>`) are allowed. A dotted chain starts at a common object
@@ -139,7 +141,8 @@ return status 0 with no response. See [Output masking coverage](integrations.md#
   the key starts the line: `--password=password;`,
   `spring.datasource.password=password;`, `"password": Password,` and a YAML
   list item `- password: Password,` (read as a diff marker). A log line that
-  opens like a locator has it as well (`db-host:22: password: Password,`). The same goes for a value equal
+  opens like a locator has it as well (`db-host:22: password: Password,`,
+  `2024-01-15T12:34: password: Password,`). The same goes for a value equal
   to its key name under a `self.` or `this.` key with nothing after it
   (`self.password = password`). In the other direction, an identifier with a
   word outside the list stays masked as before (`password: legacyPassword,`).

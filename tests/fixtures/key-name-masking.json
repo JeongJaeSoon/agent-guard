@@ -602,11 +602,6 @@
    "masked": "--  credential: [REDACTED],"
   },
   {
-   "label": "locator closed by another character",
-   "stdout": "src/schema.ts:14=  credential: CredentialSchema,",
-   "masked": "src/schema.ts:14=  credential: [REDACTED],"
-  },
-  {
    "label": "connection string tail shaped like a locator",
    "stdout": "Server=db;Database=app:1: Password=Password;",
    "masked": "Server=db;Database=app:1: [REDACTED]=[REDACTED];"
@@ -620,6 +615,31 @@
    "label": "address and port are not a locator",
    "stdout": "10.0.0.1:5432: password: Password,",
    "masked": "10.0.0.1:5432: password: [REDACTED],"
+  },
+  {
+   "label": "host name and number, separators differ",
+   "stdout": "web-1: password: Password,",
+   "masked": "web-1: password: [REDACTED],"
+  },
+  {
+   "label": "locator whose two separators differ",
+   "stdout": "src/schema.ts:14-  credential: CredentialSchema,",
+   "masked": "src/schema.ts:14-  credential: [REDACTED],"
+  },
+  {
+   "label": "diff marker glued to the locator",
+   "stdout": "+src/schema.ts:14:  credential: CredentialSchema,",
+   "masked": "+src/schema.ts:14:  credential: [REDACTED],"
+  },
+  {
+   "label": "path without a line number between its separators",
+   "stdout": "src/schema.ts::  credential: CredentialSchema,",
+   "masked": "src/schema.ts::  credential: [REDACTED],"
+  },
+  {
+   "label": "tab without a number before the diff marker",
+   "stdout": "\t+  credential: CredentialSchema,",
+   "masked": "\t+  credential: [REDACTED],"
   }
  ]
 }
