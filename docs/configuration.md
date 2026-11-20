@@ -84,6 +84,7 @@ return status 0 with no response. See [Output masking coverage](integrations.md#
   | `credential=credential,`, `api_key=self.api_key,` | `credential=myCredential,`, `api_key=other_key,` |
   | `self.credential = credential`, `this.credential = credential;` | `password = password`, `this.credential = "..."` |
   | `password: userPassword;` at the start of a line | `Server=db;Password=userPassword;`, `user: bob \| password: MyPassword \| host: db` |
+  | `password: HTTPSProxyPassword,`, `password: DATABASE_PASSWORD,` | `password: MyPassword,`, `secret: SecretQzxvWplm,`, `token: Promise<XkqWzp>;` (a word outside the list) |
 
   All of these must hold:
   - The field starts its line: only indentation, one diff marker (`+`, `-`)
@@ -91,12 +92,16 @@ return status 0 with no response. See [Output masking coverage](integrations.md#
   - The whole unquoted value is an identifier or a dotted chain of at most 80
     bytes with no digit; one leading `$` and one simple generic argument
     after a capitalized name (`Promise<Token>`) are allowed. A dotted chain starts at a common object
-    name (`input`, `config`, `self`, `this`, ...). The value must also read
-    as words: split where a capital follows a small letter, where an acronym
-    ends, and at `_`, `.`, `$`, `<` and `>`, no word has five consonants in
-    a row and fewer than three words are two letters or shorter. This is a
-    heuristic: it masks most random letters-only values that contain the key
-    word (`secret: SecretQzxvWplmKdjfhgTyur,`), not all of them.
+    name (`input`, `config`, `self`, `this`, ...).
+  - Every word of the value is a word of the field name (`api` and `key`
+    for `api_key`; its plural or singular too) or a word from a closed list
+    of identifier words (`schema`, `input`, `hashed`, `user`, `promise`,
+    `null`, ...). Words end at `_`, `.`, `$`, `<` and `>`, where a capital
+    follows a small letter, and where an acronym ends (`HTTPCredential`).
+    Any other word keeps the value masked, so random letters cannot pass by
+    carrying the key word (`secret: SecretQzxvWplm,`), and neither can a
+    password built around it (`password: MyPassword,`). The same holds for
+    each operand after an operator (`Credential | null;`).
   - A `,` or `;` ends the line. After a colon field the value may first
     continue with `|`, `||`, `??`, `&&` or `=`, each followed by one more
     digit-free identifier (`Credential | null;`). A `self.` or `this.` member
@@ -109,17 +114,14 @@ return status 0 with no response. See [Output masking coverage](integrations.md#
 
   What this cannot tell apart, and so leaves readable: at the start of a line
   and before a line-ending `,` or `;`, a digit-free password that is its own
-  key name in any case (`PASSWORD=password;`, `password: Password,`), or after
-  a colon a camelCase, PascalCase or snake_case password that contains the key
-  word (`password: MyPassword,`, `secret: top_secret;`), each with or without
-  a leading `$` or a generic argument after a capitalized name. The same goes
-  for a value equal to its key name under a `self.` or `this.` key with
-  nothing after it (`self.password = password`). A random letters-only value
-  that contains its key word can also read as words by chance: a short random
-  tail, syllables, or pieces with at most four consonants in a row
-  (`secret: SecretKolabaminoTuvela,`). In a measurement with random letters
-  after `Secret`, about a third of 12-letter tails and about 4% of 24-letter
-  tails were left readable. gitleaks findings are masked regardless.
+  key name in any case (`PASSWORD=password;`, `password: Password,`), or one
+  made only of the key word and listed words (`password: userPassword,`,
+  `password: adminPassword;`), each with or without a leading `$` or a
+  generic argument after a capitalized name. The same goes for a value equal
+  to its key name under a `self.` or `this.` key with nothing after it
+  (`self.password = password`). In the other direction, an identifier with a
+  word outside the list stays masked as before (`password: legacyPassword,`).
+  gitleaks findings are masked regardless.
   `AGENT_GUARD_KEY_NAME_REDACT=on` turns this exemption off, so the left-hand
   column is masked again as it was before; any value other than unset, empty
   or `off` counts as `on` (including `0` and `false`). The prompt guard uses

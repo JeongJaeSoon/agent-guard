@@ -140,6 +140,34 @@
    "legacy": "  credential: [REDACTED],",
    "mask": "  credential: credentialkdjfhgqz,",
    "masked": "  credential: [REDACTED],"
+  },
+  {
+   "label": "acronym and listed words around the field name",
+   "pass": "  password: HTTPSProxyPassword,",
+   "legacy": "  password: [REDACTED],",
+   "mask": "  password: MyPassword,",
+   "masked": "  password: [REDACTED],"
+  },
+  {
+   "label": "constant in capitals",
+   "pass": "  password: DATABASE_PASSWORD,",
+   "legacy": "  password: [REDACTED],",
+   "mask": "  secret: top_secret;",
+   "masked": "  secret: [REDACTED];"
+  },
+  {
+   "label": "operand after an operator is a listed word",
+   "pass": "  credential: Credential | undefined;",
+   "legacy": "  credential: [REDACTED] | undefined;",
+   "mask": "  credential: Credential | XkqWzpVbnQrt;",
+   "masked": "  credential: [REDACTED] | XkqWzpVbnQrt;"
+  },
+  {
+   "label": "plural of the field name",
+   "pass": "  credential: credentialsProvider,",
+   "legacy": "  credential: [REDACTED],",
+   "mask": "  credential: credentialsVault,",
+   "masked": "  credential: [REDACTED],"
   }
  ],
  "still_masked": [
@@ -342,6 +370,31 @@
    "label": "acronym piece with five consonants before the field name",
    "stdout": "  credential: HTTPSCredentialQx,",
    "masked": "  credential: [REDACTED],"
+  },
+  {
+   "label": "pronounceable random run after the key word",
+   "stdout": "  secret: SecretBakoTemiRuda,",
+   "masked": "  secret: [REDACTED],"
+  },
+  {
+   "label": "short random run after the key word",
+   "stdout": "  token: tokenXkqWzpVbnQrt;",
+   "masked": "  token: [REDACTED];"
+  },
+  {
+   "label": "random segment inside a dotted chain",
+   "stdout": "  secret: this.xkqWzpVbn.secret,",
+   "masked": "  secret: [REDACTED],"
+  },
+  {
+   "label": "random type name around the field name",
+   "stdout": "  token: XkqWzpVbn<Token>;",
+   "masked": "  token: [REDACTED];"
+  },
+  {
+   "label": "capitalized password that splits into unlisted words",
+   "stdout": "  password: PassWord,",
+   "masked": "  password: [REDACTED],"
   }
  ]
 }
