@@ -91,10 +91,10 @@
   - 문서: `README.md`(한국어·일본어 번역 포함)와 `docs/configuration.md`에 동작과 설정을 적었습니다.
   - 사용자가 할 일: 없습니다. 이전 동작이 필요하면 `AGENT_GUARD_KEY_NAME_REDACT=on`을 설정하세요.
   - 운영자가 할 일: 없습니다. 출력이나 프롬프트에서 위 식별자 줄이 가려지거나 막히는 것에 기대는 정책이 있으면 `AGENT_GUARD_KEY_NAME_REDACT=on`을 배포 환경에 설정하세요.
-- ci(test): `legacy-tools.yml`의 awk 구현 비교 job에서 키 이름 스위트를 두 job으로 나눕니다. 한 job이 hook 실행 약 630회와 awk 구현 간 기록 비교를 함께 돌려, 느린 runner에서 5분 제한을 1.5초 남기고 테스트를 끝낸 뒤 job이 취소됐습니다(#578). 제한 시간은 그대로 5분이고 실행하는 테스트도 같습니다.
-  - 동작 변경: `tests/key-name-masking.sh`가 `AGENT_GUARD_TEST_KEY_NAME_PART=hooks`(두 host의 hook 실행)와 `=records`(mawk·gawk·busybox awk 기록 비교) 중 하나만 돌릴 수 있습니다. 설정하지 않거나 빈 값이면 지금처럼 둘 다 돌리고(`tests/run.sh`), 그 밖의 값이면 실패합니다. `Same assignments on mawk, gawk and busybox awk` job은 기록 비교만, 새 job `Key-name masking hooks on mawk`가 hook 실행을 맡습니다. 나누기 전의 검사는 모두 어느 한 half에서 돌고, fixture의 쌍이 완결됐는지 보는 첫 검사 하나만 두 half 모두에서 돕니다.
+- ci(test): 제한 시간에 걸리던 CI job 두 개를 runner별로 나눕니다. 제한 시간은 그대로이고 실행하는 테스트도 같습니다. (1) macOS의 `Core, host adapters and Git` job(제한 25분)은 partition 1과 3을 한 runner(3 core)에서 나란히 돌렸는데, fixture 스위트가 늘어난 뒤 22분에서 23분 반이 걸렸고 main과 같은 테스트로 돈 실행 하나가 제한에서 취소됐습니다(#579). (2) `legacy-tools.yml`의 awk 구현 비교 job(제한 5분)은 키 이름 스위트의 hook 실행 약 630회와 awk 구현 간 기록 비교를 함께 돌려, 느린 runner에서 테스트를 끝내고 1.5초 뒤에 취소됐습니다(#578).
+  - 동작 변경: macOS에서는 partition 1과 3이 runner 하나씩에서 돕니다. partition 1은 기존 이름 `Core, host adapters and Git (macos-latest)`로, partition 3은 새 이름 `Core, host adapters and Git (partition 3) (macos-latest)`로 보입니다. Linux는 그대로 한 job입니다. `tests/key-name-masking.sh`는 `AGENT_GUARD_TEST_KEY_NAME_PART=hooks`(두 host의 hook 실행)와 `=records`(mawk·gawk·busybox awk 기록 비교) 중 하나만 돌릴 수 있습니다. 설정하지 않거나 빈 값이면 지금처럼 둘 다 돌리고(`tests/run.sh`), 그 밖의 값이면 실패합니다. `Same assignments on mawk, gawk and busybox awk` job은 기록 비교만, 새 job `Key-name masking hooks on mawk`가 hook 실행을 맡습니다. 나누기 전의 검사는 모두 어느 한 half에서 돌고, fixture의 쌍이 완결됐는지 보는 첫 검사 하나만 두 half 모두에서 돕니다.
   - 사용자가 할 일: 없습니다.
-  - 운영자가 할 일: 없습니다. 새 job은 branch protection의 필수 검사가 아닙니다.
+  - 운영자가 할 일: branch protection의 필수 검사 `Core, host adapters and Git (macos-latest)`는 이제 partition 1만 뜻합니다. partition 3의 실패는 집계 검사(`PR subset test (macos-latest)`, `Test (macos-latest)`)가 잡습니다. 새 job 둘을 필수 검사에 넣을지는 운영자가 정합니다.
 
 ## v3.12.0 - 2026-11-19
 

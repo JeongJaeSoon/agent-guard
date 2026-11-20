@@ -25,7 +25,7 @@ The numbers are execution partitions, not security tiers or sequential stages.
 `tests/run.sh` without `AGENT_GUARD_TEST_SHARD` runs them all in order. CI runs
 them all on Linux for every PR and on both operating systems for main pushes
 and PRs whose source branch starts with `release/`. Other PRs also run partitions
-1 and 3 on macOS. Shard 1 checks that every
+1 and 3 on macOS, each on its own runner. Shard 1 checks that every
 partition is present in the matrix. Fixtures remain local to each partition.
 The internal IDs select execution partitions; Actions displays descriptive names:
 
@@ -155,6 +155,14 @@ partition 2, scanner는 partition 4를 각각 실행한다. 가장 오래 걸리
 navigation은 Claude와 Codex의 호스트 계약별 runner로 나눈다. 두 호스트는
 입력의 cwd/workdir 위치와 응답 계약이 다르며, 각 worker는 자신이 맡은 호스트의
 실제 hook·Bash·Git 검증 전체를 실행한다. 테스트 목록을 번호나 개수로 자르지 않는다.
+
+macOS에서는 partition 1과 3을 runner 하나씩에서 실행한다. 한 runner(3 core)에서
+둘을 나란히 돌리면 fixture 스위트가 늘어난 뒤로 25분 제한에 닿았다. main과 같은
+테스트로 돈 #579의 실행이 제한에서 취소됐고, 다른 실행도 22분에서 23분 반이
+걸렸다. partition 1은 기존 이름 `Core, host adapters and Git (macos-latest)`로,
+partition 3은 `Core, host adapters and Git (partition 3) (macos-latest)`로
+보인다. Linux runner는 두 partition을 계속 한 job에서 실행한다. 시간 제한과
+테스트 목록은 그대로다.
 
 전체 matrix에서는 각 OS의 navigation 두 worker 합집합이 기존 378개 assertion과 같다.
 호스트 공통 assertion 5개는 Claude worker가 한 번 실행한다. fixture의 저장소,

@@ -79,12 +79,21 @@ jobs:
           - bundle: scanner
             suite: CLI, scanner and output
             shards: '4'
-          # Merges into main/release's existing macOS core job; otherwise
-          # creates a job that must supply every bundle field itself.
+          # macOS runs each core partition on a runner of its own. Side by
+          # side on one three-core runner the two came to the job limit as
+          # the fixture suites grew: a run with the same tests as main was
+          # cancelled at 25 minutes (#579), and others took 22 to 23.5.
+          # The first entry merges into main/release's existing macOS core
+          # job and keeps its check name; on other PRs each entry creates a
+          # job that must supply every bundle field itself.
           - os: macos-latest
             bundle: core
             suite: Core, host adapters and Git
-            shards: '1 3'
+            shards: '1'
+          - os: macos-latest
+            bundle: core-partition-3
+            suite: Core, host adapters and Git (partition 3)
+            shards: '3'
     runs-on: ${{ matrix.os }}
     # Keep a bounded runner lifetime. Partitions are balanced by measured
     # test time, not assertion count; see docs/development/ci.md for mapping and evidence.
