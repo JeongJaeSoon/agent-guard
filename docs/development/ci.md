@@ -164,6 +164,13 @@ partition 3은 `Core, host adapters and Git (partition 3) (macos-latest)`로
 보인다. Linux runner는 두 partition을 계속 한 job에서 실행한다. 시간 제한과
 테스트 목록은 그대로다.
 
+나눈 뒤의 첫 실행에서 partition 1은 단독으로 20분 37초, partition 3은 6분 34초가
+걸렸다. 느린 쪽은 두 partition의 경합이 아니라 partition 1의 양이었다. 그래서
+partition 1에서 가장 느린 fixture 스위트 둘(`tests/deny-path-regex-cache.sh`,
+`tests/message-value-prose.sh`. Linux 컨테이너에서 partition 1 실행 시간 604초 중
+158초)을 partition 3의 맨 앞으로 옮겼다. 스위트를 옮길 때는 두 partition의 macOS
+job 시간을 함께 본다.
+
 전체 matrix에서는 각 OS의 navigation 두 worker 합집합이 기존 378개 assertion과 같다.
 호스트 공통 assertion 5개는 Claude worker가 한 번 실행한다. fixture의 저장소,
 TMPDIR, 출력 파일은 worker마다 격리한다. 기본 `tests/run.sh`는 여전히 모든
