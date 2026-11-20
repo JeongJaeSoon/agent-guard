@@ -373,6 +373,11 @@ func (c *client) readInput() string {
 	limit := int64(pipeLimit)
 	if c.regular {
 		limit = wire.MaxPayload
+	} else if waiting, err := local.PipeWaiting(int(os.Stdin.Fd())); err == nil && int64(waiting) >= limit {
+		// A pipe that already holds as much as the helper can take is a
+		// large input: hand it to the real gitleaks before reading a byte,
+		// so it is not copied once more through a replay.
+		return "large"
 	}
 	c.read = true
 	if c.regular {

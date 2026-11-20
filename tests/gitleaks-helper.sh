@@ -170,6 +170,18 @@ for f in "$IN/large-clean" "$IN/large-secret"; do
   st=$?
   expect "a piped $(basename "$f") over 64 KiB goes to the real gitleaks and keeps its verdict" \
     'case "$(last_trace)" in real:large|real:pipe-chunks) ;; *) false ;; esac && [ "$st" = "$(cat "$CASE/r.status")" ]'
+  # A pipe already full when the client starts is handed over unread, so the
+  # input is not copied once more through a replay (#537 criterion 5).
+  : >"$TRACE"
+  cat "$f" | { sleep 0.5; "$CLIENT" --gitleaks "$GL" --gitleaks-version 8.30.1 --state-dir "$STATE" -- $ARGS_A >/dev/null 2>&1; }
+  st=$?
+  # Linux pipes hold 64 KiB; a macOS pipe may still be at its 16 KiB start
+  # size, which the client cannot tell from a small input, so there the input
+  # may take the (equally correct) replay path.
+  full_trace='[ "$(last_trace)" = real:large ]'
+  [ "$(uname -s)" = Linux ] || full_trace='case "$(last_trace)" in real:large|real:pipe-chunks) ;; *) false ;; esac'
+  expect "a full pipe ($(basename "$f")) goes to the real gitleaks before a byte is read" \
+    "$full_trace"' && [ "$st" = "$(cat "$CASE/r.status")" ]'
 done
 # A producer that writes in two pieces: the real gitleaks may read two chunks,
 # so the client replays the input to it.
