@@ -17,7 +17,10 @@ macos='{"os":"macos-15","archive":"darwin_arm64","checksum":"b40ab0ae55c505963e3
 platforms=both
 if [ "${1:?event name required}" = pull_request ]; then
   platforms=linux
-  if grep -Eq '^(native/gitleaks-helper/.+|scripts/build-gitleaks-helper\.sh|tests/gitleaks-helper\.sh|tests/gitleaks-helper-corpus\.sh|tests/fixtures/fake-gitleaks-helper\.py|\.github/workflows/gitleaks-helper\.yml|\.github/scripts/gitleaks-helper-scope\.sh)$'; then
+  # Git still C-quotes a path holding a quote, backslash, tab or newline even
+  # with core.quotePath=false; such a line cannot be matched safely, so it
+  # selects both platforms rather than risk dropping a helper change.
+  if grep -Eq '^("|(native/gitleaks-helper/.+|scripts/build-gitleaks-helper\.sh|tests/gitleaks-helper\.sh|tests/gitleaks-helper-corpus\.sh|tests/fixtures/fake-gitleaks-helper\.py|\.github/workflows/gitleaks-helper\.yml|\.github/scripts/gitleaks-helper-scope\.sh)$)'; then
     platforms=both
   fi
 fi

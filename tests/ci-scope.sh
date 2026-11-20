@@ -152,6 +152,8 @@ helper_case pull_request "$both" '.github/scripts/gitleaks-helper-scope.sh'
 helper_case pull_request "$both" "plugins/agent-guard/bin/agent-guard
 native/gitleaks-helper/go.sum"
 helper_case pull_request ubuntu-24.04 'plugins/agent-guard/bin/agent-guard'
+# A path git still quotes cannot be matched; it fails safe to both platforms.
+helper_case pull_request "$both" '"native/gitleaks-helper/a\tb.txt"'
 helper_case pull_request ubuntu-24.04 'tests/fixtures/mock-gitleaks'
 helper_case pull_request ubuntu-24.04 'plugins/agent-guard/config/gitleaks.toml'
 helper_case pull_request ubuntu-24.04 'tests/gitleaks-helper-routing.sh'
@@ -164,7 +166,11 @@ helper_wf="$ROOT/.github/workflows/gitleaks-helper.yml"
 helper_diff=$(sed -n 's/^ *\(git -c core.quotePath=false diff [^>]*\) > "\$RUNNER_TEMP\/changed"$/\1/p' "$helper_wf")
 [ -n "$helper_diff" ] || fail 'the helper workflow lists changed paths with one git diff command'
 moves=$(mktemp -d)
-for change in rename unicode; do
+trap 'rm -rf "$moves"' 0
+# The throwaway repositories must not read the user's or system git config.
+(
+export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_CONFIG_NOSYSTEM=1
+for change in rename unicode tab; do
   rm -rf "$moves/repo"
   git init -q "$moves/repo"
   mkdir -p "$moves/repo/native/gitleaks-helper"
@@ -173,13 +179,16 @@ for change in rename unicode; do
   case $change in
     rename) git -C "$moves/repo" mv native/gitleaks-helper/a.go moved.go ;;
     unicode) printf 'package x\n' >"$moves/repo/native/gitleaks-helper/é.go" && git -C "$moves/repo" add . ;;
+    tab) printf 'x\n' >"$moves/repo/native/gitleaks-helper/a	b.txt" && git -C "$moves/repo" add . ;;
   esac
   git -C "$moves/repo" -c user.email=t@example.test -c user.name=t commit -qm change
-  got=$(cd "$moves/repo" && eval "$helper_diff" | helper_scope pull_request) || { rm -rf "$moves"; fail "helper scope after a $change"; }
-  [ "$got" = "$both" ] || { rm -rf "$moves"; fail "a helper $change selects macOS: got '$got'"; }
-  pass=$((pass + 1))
+  got=$(cd "$moves/repo" && eval "$helper_diff" | helper_scope pull_request) || fail "helper scope after a $change"
+  [ "$got" = "$both" ] || fail "a helper $change selects macOS: got '$got'"
 done
+) || exit 1
+pass=$((pass + 3))
 rm -rf "$moves"
+trap - 0
 grep -Fq 'matrix: ${{ fromJSON(needs.scope.outputs.matrix) }}' "$helper_wf" \
   && grep -Fq 'git -c core.quotePath=false diff --no-renames --name-only HEAD^1 HEAD > "$RUNNER_TEMP/changed"' "$helper_wf" \
   && grep -Fq 'sh .github/scripts/gitleaks-helper-scope.sh "$EVENT_NAME" < "$RUNNER_TEMP/changed" >> "$GITHUB_OUTPUT"' "$helper_wf" \
