@@ -5307,20 +5307,26 @@ matches_deny_path() {
 # or names the same one: a file tool takes no such parameter, so a stray
 # `tool_input.cwd` must not move "the current repository" elsewhere.
 exception_workdir() {
-  printf '%s' "$1" | jq -r '
-    (.cwd // "") as $event
-    | (.tool_input.workdir? // .tool_input.cwd? // "") as $inner
-    | if ($event | type) != "string" or ($inner | type) != "string" then ""
-      elif $event == "" then $inner
-      elif $inner == "" or $inner == $event then $event
-      else "" end' 2>/dev/null
+  printf '%s' "$1" | jq -r --arg v "${2-}" "$EXCEPTION_WORKDIR_JQ"' | if '"${3:-true}"' then . else "" end' 2>/dev/null
 }
+EXCEPTION_WORKDIR_JQ='
+  ((.cwd // "") as $event
+   | (.tool_input.workdir? // .tool_input.cwd? // "") as $inner
+   | if ($event | type) != "string" or ($inner | type) != "string" then ""
+     elif $event == "" then $inner
+     elif $inner == "" or $inner == $event then $event
+     else "" end) as $dir
+  | . as $in | $dir'
 
-# $1 is a path a file tool was given and $2 the hook input. Without a workdir
-# in the event the path cannot be placed, and the block stands.
+# $1 is a path a file tool was given, $2 the hook input and $3 the jq path of
+# the tool's own path field. Only that field qualifies, compared as a whole
+# string: a Grep glob is a name filter applied under the path, any other
+# field is not known to be a path, and a path with a newline is a different
+# file from the line read here. One jq run answers both questions. Without a
+# workdir in the event the path cannot be placed, and the block stands.
 tool_path_tracked_exception() (
   [ "${AGENT_GUARD_TRACKED_FILE_EXCEPTION-on}" = on ] || exit 1
-  tpt_workdir=$(exception_workdir "$2") && [ -n "$tpt_workdir" ] || exit 1
+  tpt_workdir=$(exception_workdir "$2" "$1" "(\$in | $3) == \$v") && [ -n "$tpt_workdir" ] || exit 1
   CDPATH= cd -- "$tpt_workdir" 2>/dev/null || exit 1
   tracked_file_exception_applies "$(normalize_path "$1")"
 )
@@ -5364,20 +5370,14 @@ check_sensitive_reads() {
     if matches_deny_path "$value"; then
       # A file tool reads the one path it is given from the event workdir, so
       # a file under the tracked-file exception is not blocked by its name.
-      # Only the tool's own path field qualifies: a Grep glob is a name
-      # filter applied under the path, and any other field is not known to
-      # be a path at all.
       case "$reads_tool" in
         Read) tool_path_field='.tool_input.file_path' ;;
         NotebookRead) tool_path_field='.tool_input.notebook_path' ;;
         Grep) tool_path_field='.tool_input.path' ;;
         *) tool_path_field= ;;
       esac
-      # Compared inside jq, on the whole string: a path with a newline is a
-      # different file from the line read here.
       if [ -n "$tool_path_field" ] \
-        && printf '%s' "$input" | jq -e --arg v "$value" "($tool_path_field) == \$v" >/dev/null 2>&1 \
-        && tool_path_tracked_exception "$value" "$input"; then
+        && tool_path_tracked_exception "$value" "$input" "$tool_path_field"; then
         continue
       fi
       rm -f "$tmp"
@@ -8698,9 +8698,11 @@ bash_strip_tracked_file_operands() (
 bash_matches_deny_path() {
   deny_path_report=
   bash_deny_path_scan "$1" || return "$?"
-  # $2 is the event workdir. Without one a relative word cannot be placed
-  # (the hook's own directory need not be the shell's), and the block stands.
-  if [ -n "${2-}" ] && [ "${AGENT_GUARD_TRACKED_FILE_EXCEPTION-on}" = on ]; then
+  # $2 is the hook input. It is read for the event workdir only here, once a
+  # block is pending. Without a workdir a relative word cannot be placed (the
+  # hook's own directory need not be the shell's), and the block stands.
+  if [ "${AGENT_GUARD_TRACKED_FILE_EXCEPTION-on}" = on ] && [ -n "${2-}" ] \
+    && [ -n "$(exception_workdir "$2")" ]; then
     tfx_cmd=$(bash_strip_tracked_file_operands "$1") || tfx_cmd=$1
     if [ -n "$tfx_cmd" ] && [ "$tfx_cmd" != "$1" ]; then
       deny_path_report=
@@ -11883,7 +11885,7 @@ $joined_cmd"
   deny_report=$(
     [ -n "$workdir" ] && { CDPATH= cd -- "$workdir" 2>/dev/null \
       || die "hook workdir is not accessible: $workdir"; }
-    bash_matches_deny_path "$raw_cmd" "$(exception_workdir "$input")"
+    bash_matches_deny_path "$raw_cmd" "$input"
   )
   case "$?" in
     0)
