@@ -7344,6 +7344,8 @@ search_operand_spans() {
         if (bad(k)) return ""
         if (v == "--") continue
         if (substr(v, 1, 1) == "-") { if (v !~ opts) return ""; continue }
+        # `tail +1f` is the old spelling of -n +1 -f.
+        if (substr(v, 1, 1) == "+") return ""
         if (v != "") out = out "T " ws[k] " " we[k] " " v "\n"
       }
       return out
@@ -7414,11 +7416,25 @@ search_operand_spans() {
     }
     END {
       if (failed) exit 1
+      # Tracked mode reads one command only: the first on the line, or the
+      # one right after a leading `cd DIR`. A loop, a condition or any other
+      # earlier command could run the cd or the read more than once, or wait
+      # between the check and the read.
+      if (mode == "tracked") {
+        if (nw == 0) exit 0
+        for (e = 1; e < nw && wseg[e + 1] == wseg[1]; e++) ;
+        k = 1
+        if (wv[1] == "cd" && e == 2 && !bad(1) && !bad(2) && cd_ok == "1" && e < nw) {
+          k = 3
+          for (e = k; e < nw && wseg[e + 1] == wseg[k]; e++) ;
+        }
+        if (!bad(k)) printf "%s", tracked_scan(k, e)
+        exit 0
+      }
       for (k = 1; k <= nw; k = e + 1) {
         for (e = k; e < nw && wseg[e + 1] == wseg[k]; e++) ;
         if (!bad(k)) {
           if (mode == "trusted") { if (wv[k] ~ /^(jq|sed)$/) print ws[k] }
-          else if (mode == "tracked") printf "%s", tracked_scan(k, e)
           else if (wv[k] ~ /^(grep|egrep|fgrep)$/) printf "%s", grep_scan(k, e, 0)
           else if (wv[k] == "rg") printf "%s", grep_scan(k, e, 1)
           else if (wv[k] == "openssl") printf "%s", openssl_scan(k, e)
@@ -7444,11 +7460,6 @@ search_operand_spans() {
         if (wv[h] == "sed" && sed_prints_lines(h, e)) continue
         if (inert_names == "" || wv[h] !~ inert_names) exit 0
         if (wv[h] == "cd" && cd_ok != "1") exit 0
-        # Waiting between the check and the read gives time to swap the file.
-        if (mode == "tracked" && wv[h] == "sleep") exit 0
-        # `cd old new` goes somewhere else in zsh and ksh, so only a cd with
-        # exactly one operand names the directory the next command reads from.
-        if (mode == "tracked" && wv[h] == "cd" && e - h != 1) exit 0
       }
     }
   '

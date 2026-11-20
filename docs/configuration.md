@@ -485,8 +485,9 @@ entry does not block it. The exception applies only when all of these hold:
   be literal, with no redirection and no `&`; its options must be plain flags
   from a short built-in table (`grep -r`, `grep -f`, `grep --include`,
   `sort -o`, `sort --files0-from`, `tail -f` and any long option keep the
-  block); and every command before it on the line must be one
-  that cannot change what that name runs, and not `sleep`. Any other command
+  block); and the command must be the first on the
+  line, or come right after one leading `cd DIR` with a single operand (a
+  loop, a condition or any other command before the read keeps the block). Any other command
   keeps the block: `git` (its operands also select revisions, the index and
   wildcard pathspecs), `diff` and `comm` (a directory operand makes them open
   a same-named file there), `uniq` (its second operand is written), `sed`

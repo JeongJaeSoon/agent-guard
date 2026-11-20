@@ -244,6 +244,34 @@
     "command": "cat .kube/config"
   },
   {
+    "id": "loop-repeats-cd",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a loop runs the one cd more than once",
+    "command": "for i in a b; do cd ./tests; done; cat credentials.json"
+  },
+  {
+    "id": "loop-around-read",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a loop keeps reopening the file after the single check",
+    "command": "while true; do true; cat config/staging.env; done"
+  },
+  {
+    "id": "tail-plus-follow",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "the old tail +Nf spelling follows the file",
+    "command": "tail +1f config/staging.env"
+  },
+  {
+    "id": "inert-command-then-cat",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a read that is not the first command on the line",
+    "command": "true; cat config/staging.env"
+  },
+  {
     "id": "cd-inside-then-cat",
     "expected_status": 0,
     "classification": "must-pass",
