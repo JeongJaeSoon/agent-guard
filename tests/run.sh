@@ -212,6 +212,7 @@ for file in \
   "$ROOT/tests/gitleaks-resolution.sh" \
   "$ROOT/tests/gitleaks-probe-cache.sh" \
   "$ROOT/tests/gitleaks-clean-cache.sh" \
+  "$ROOT/tests/log-off-state-cache.sh" \
   "$ROOT/tests/deny-path-regex-cache.sh" \
   "$ROOT/tests/hook-spawn-reduction.sh" \
   "$ROOT/tests/post-tool-failure.sh" \
@@ -8605,6 +8606,8 @@ run_expect 0 "gitleaks readiness cache reuses only a fresh verdict for the same 
   "$REAL_SH" "$ROOT/tests/gitleaks-probe-cache.sh"
 run_expect 0 "gitleaks clean-verdict cache skips only an identical clean scan (#407)" \
   "$REAL_SH" "$ROOT/tests/gitleaks-clean-cache.sh"
+run_expect 0 "logging off writes no state unless AGENT_GUARD_SCAN_CACHE=on, which caches without an event log (#510)" \
+  "$REAL_SH" "$ROOT/tests/log-off-state-cache.sh"
 run_expect 0 "setup and manifest hook outcome contracts" \
   "$REAL_SH" "$ROOT/tests/hook-outcome-contract.sh"
 
