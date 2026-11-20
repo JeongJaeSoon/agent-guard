@@ -4879,7 +4879,7 @@ json_value_prime() {
   [ -n "$1" ] || return 0
   # A large input (a big Write body) costs more to parse and compare once more
   # than the few jq runs the cache saves; leave it to the per-field path.
-  [ "${#1}" -le 262144 ] || return 0
+  [ "${2:-}" = measured ] || [ "${#1}" -le 262144 ] || return 0
   command -v jq >/dev/null 2>&1 || return 0
   jv_program='
     def cached($name; f):
@@ -11677,7 +11677,9 @@ hook_pre_tool() {
   HOOK_EVENT=PreToolUse
   HOOK_INPUT=$input
   if command -v jq >/dev/null 2>&1 && [ -n "$input" ]; then
-    json_value_prime "$input"
+    # Refuse an over-limit input before the call copies it ('' resets alike).
+    # Inline, not a helper: in dash each function definition costs every hook.
+    if [ "${#input}" -le 262144 ]; then json_value_prime "$input" measured; else json_value_prime ''; fi
     # One primed JSON object is exactly what the jq object check accepts.
     json_input_is_primed_object "$input" \
       || validate_hook_object PreToolUse "$input" || return 0
@@ -13808,11 +13810,13 @@ redact_nul_response_json() {
 # streaming pass first; only a confirmed secret-bearing assignment takes the
 # conservative whole-leaf path. Large clean output still uses normal detection,
 # and so does a response whose size cannot be counted: this is only a precheck.
+# $2 is the output_byte_count of $1 that output_scan_input_exceeds_cap took; a
+# count that failed made that check true, so this one never runs on it. It is
+# not recounted: that costs another full copy of a large output.
 OUTPUT_LARGE_PROBE_BYTES=262144
 large_response_has_secretish_assignment() {
   large_probe_response=$1
-  output_byte_count "$large_probe_response" || return 1
-  [ "$output_bytes" -gt "$OUTPUT_LARGE_PROBE_BYTES" ] || return 1
+  [ "$2" -gt "$OUTPUT_LARGE_PROBE_BYTES" ] || return 1
   printf '%s' "$large_probe_response" \
     | frame_json_string_leaves 2>/dev/null \
     | secretish_env_values probe \
@@ -15732,6 +15736,9 @@ cat_mask_target() (
 # the one rewrite slot. PostToolUse cannot retract a completed tool result with
 # exit status alone, so mandatory masking has a dependency-independent,
 # shape-preserving fallback and emits one host-valid replacement.
+# $2 is the tool name the caller read from $1 with $JV_TOOL; there is no
+# fallback read, because the only caller has it and re-reading costs a jq run
+# on large outputs.
 redact_tool_output() {
   input=$1
   REDACT_OUTPUT_EMITTED=0
@@ -15744,7 +15751,7 @@ redact_tool_output() {
   [ "$PII_HOOK_MODE" = mask ] && pii_on=1
   [ "$secrets_on" -eq 1 ] || [ "$pii_on" -eq 1 ] || return 0
   redact_figma_tool=0
-  if is_figma_mcp_tool "$(json_value "$JV_TOOL" "$input" 2>/dev/null)"; then
+  if is_figma_mcp_tool "$2"; then
     redact_figma_tool=1
   fi
   ag_known_value_base=
@@ -15859,7 +15866,7 @@ redact_tool_output_response() {
     fi
     if [ "$conservative_done" -eq 0 ] \
         && { output_scan_input_exceeds_cap "$out" \
-          || large_response_has_secretish_assignment "$out"; }; then
+          || large_response_has_secretish_assignment "$out" "$output_bytes"; }; then
       rewrite_out_conservatively; did_secret=1
     elif [ "$conservative_done" -eq 0 ]; then
       secret_bundle=
@@ -16226,7 +16233,9 @@ hook_post_tool() {
   if command -v jq >/dev/null 2>&1 && [ -n "$input" ]; then
     # The object check itself still runs here: its failure is what selects the
     # validation-recovery path below, which must stay reachable on its own.
-    json_value_prime "$input"
+    # Refuse an over-limit input before the call copies it ('' resets alike).
+    # Inline, not a helper: in dash each function definition costs every hook.
+    if [ "${#input}" -le 262144 ]; then json_value_prime "$input" measured; else json_value_prime ''; fi
     if ! printf '%s' "$input" | jq -e 'type == "object"' >/dev/null 2>&1; then
       if recover_post_tool_validation_failure "$input"; then
         return 0
@@ -16297,7 +16306,7 @@ hook_post_tool() {
 
   # All matched tools: mask secret-like values (and PII, when
   # AGENT_GUARD_PII_HOOK_MODE=mask) using the selected host's output contract.
-  redact_tool_output "$input"
+  redact_tool_output "$input" "$tool"
   if [ "$post_tool_disk_finding" -eq 1 ] \
     && [ "$REDACT_OUTPUT_EMITTED" -eq 0 ]; then
     exit 2
