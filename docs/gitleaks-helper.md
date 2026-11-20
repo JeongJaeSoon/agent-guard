@@ -243,6 +243,16 @@ at a missing client) exit codes, output, the number
 of programs executed and the number of processes forked equal main
 (`bench/gitleaks-helper/compare-off.sh`, also run in CI).
 
+Large inputs copy no more than v3.7.0 did. With 300 KiB and 1 MiB clean
+inputs through a Write PreToolUse and a Bash PostToolUse, the bytes every
+process read and wrote were within 3% of the published v3.7.0 release with the
+helper off and with it warm (for example 19.8, 20.0 and 20.1 MiB for a 1 MiB
+Write), and no case was slower (`bench/gitleaks-helper/large-v370.sh`, Linux;
+`bench/fused-output/run-constrained.sh` needs Docker with enforced cgroup
+limits and was not run). A pipe that already holds as much as the helper can
+take goes to the real gitleaks before the client reads a byte, so a large
+piped input is not copied once more through a replay.
+
 ## Known limits
 
 - A helper that is alive but stopped (for example by SIGSTOP) keeps its
