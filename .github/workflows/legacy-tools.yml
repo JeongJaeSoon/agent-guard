@@ -93,8 +93,30 @@ jobs:
       - name: Compare key-name records across awk implementations
         run: |
           # The detector calls `awk` from PATH; start from mawk, and the test
-          # repeats itself under gawk and busybox awk.
+          # repeats itself under gawk and busybox awk. Only the records half
+          # runs here: the hook half has its own job below, so that neither
+          # has to fit beside the other in this job's limit.
           mkdir -p "$RUNNER_TEMP/mawk-bin"
           ln -sf /usr/bin/mawk "$RUNNER_TEMP/mawk-bin/awk"
           AGENT_GUARD_TEST_REQUIRE_AWK_VARIANTS=1 \
+            AGENT_GUARD_TEST_KEY_NAME_PART=records \
+            PATH="$RUNNER_TEMP/mawk-bin:$PATH" sh tests/key-name-masking.sh
+  key-name-hooks:
+    # The hook half of the key-name suite under this runner's mawk. It ran in
+    # the job above until the two halves together ran into that job's five
+    # minutes on a slow runner and the job was cancelled. Same limit, one
+    # runner each.
+    name: Key-name masking hooks on mawk
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Run the key-name hook cases under mawk
+        run: |
+          mawk -W version 2>&1 | sed -n 1p
+          mkdir -p "$RUNNER_TEMP/mawk-bin"
+          ln -sf /usr/bin/mawk "$RUNNER_TEMP/mawk-bin/awk"
+          AGENT_GUARD_TEST_KEY_NAME_PART=hooks \
             PATH="$RUNNER_TEMP/mawk-bin:$PATH" sh tests/key-name-masking.sh
