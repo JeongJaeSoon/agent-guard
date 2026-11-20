@@ -6560,6 +6560,21 @@ path_entries_absolute() {
 # rather than everything. cd qualifies only while path_entries_absolute holds.
 INERT_SEGMENT_COMMANDS_ERE='^(grep|egrep|fgrep|ls|cat|head|tail|wc|cut|tr|echo|true|false|pwd|cd|jq|diff|comm|basename|dirname|date|sleep)$'
 
+# awk function message_value_records and literal_consumers_inert put before
+# their program. plain_word(k, v) succeeds for a git_command_records word v of
+# kind k that is literal, or whose expansions are bare parameter references:
+# every word of a simple command is expanded before its name is looked up, and
+# an expansion can assign (`${PWD:PATH=0}` evaluates PATH=0). zsh evaluates
+# `$x[...]` as a subscript.
+AWK_PLAIN_WORD='
+    function plain_word(k, v) {
+      if (k == "0") return 1
+      if (k != "4" || v ~ /\$[A-Za-z_][A-Za-z0-9_]*\[/) return 0
+      gsub(/\$\{[A-Za-z_][A-Za-z0-9_]*\}/, "", v)
+      gsub(/\$[A-Za-z_][A-Za-z0-9_]*/, "", v)
+      return v !~ /[$`]/
+    }'
+
 # Print the record numbers (git_command_records) of message values the
 # command sends as data: the subject and body of `orca orchestration
 # send|reply|ask` (and the question of `ask`), the title and body of `gh pr|issue create|comment|edit` and
@@ -6571,22 +6586,9 @@ INERT_SEGMENT_COMMANDS_ERE='^(grep|egrep|fgrep|ls|cat|head|tail|wc|cut|tr|echo|t
 # Prints nothing when the line may hide a command (heredoc, group, eval).
 message_value_records() {
   printf '%s\n' "$1" | LC_ALL=C awk -v cd_ok="$(path_entries_absolute && echo 1)" \
-    -v inert_names="$INERT_SEGMENT_COMMANDS_ERE" '
+    -v inert_names="$INERT_SEGMENT_COMMANDS_ERE" "$AWK_PLAIN_WORD"'
     function bail() { failed = 1; exit }
     function boundary(r) { return r == "0;" || r == "0&&" || r == "0||" || r == "0|" }
-    # Every word of a simple command is expanded before its name is looked
-    # up, and an expansion can assign (`${PWD:PATH=0}` evaluates PATH=0), so
-    # a word is plain only when it is literal or its expansions are bare
-    # parameter references. zsh evaluates `$x[...]` as a subscript.
-    function plain(j,   v) {
-      if (kind[j] == "0") return 1
-      if (kind[j] != "4") return 0
-      v = word[j]
-      if (v ~ /\$[A-Za-z_][A-Za-z0-9_]*\[/) return 0
-      gsub(/\$\{[A-Za-z_][A-Za-z0-9_]*\}/, "", v)
-      gsub(/\$[A-Za-z_][A-Za-z0-9_]*/, "", v)
-      return v !~ /[$`]/
-    }
     # git commit operands are pathspecs it reads, so pair a message option
     # only through options known to take no separate value; `--` or anything
     # else ends the search.
@@ -6606,7 +6608,7 @@ message_value_records() {
     function finish(bound,   j, w, opts, all, before) {
       if (n == 0) return
       all = 1
-      for (j = 1; j <= n; j++) if (!plain(j)) all = 0
+      for (j = 1; j <= n; j++) if (!plain_word(kind[j], word[j])) all = 0
       # The commands of a pipeline start together, so one piped after a
       # message command may replace it before it runs.
       if (pipe_target && !(all && inert())) bail()
@@ -8359,16 +8361,9 @@ bash_strip_heredoc_bodies() (
 # into any of them keeps the whole line in the scan.
 literal_consumers_inert() {
   printf '%s\n' "$1" | LC_ALL=C awk -v cd_ok="$(path_entries_absolute && echo 1)" -v mode="${2-}" \
-    -v inert_names="$INERT_SEGMENT_COMMANDS_ERE" '
+    -v inert_names="$INERT_SEGMENT_COMMANDS_ERE" "$AWK_PLAIN_WORD"'
     # An exit with no status in END keeps 0, so give it one.
     function bail() { failed = 1; exit 1 }
-    function plain(k, v) {
-      if (k == "0") return 1
-      if (k != "4" || v ~ /\$[A-Za-z_][A-Za-z0-9_]*\[/) return 0
-      gsub(/\$\{[A-Za-z_][A-Za-z0-9_]*\}/, "", v)
-      gsub(/\$[A-Za-z_][A-Za-z0-9_]*/, "", v)
-      return v !~ /[$`]/
-    }
     function finish(   j, hd, redir) {
       if (n == 0) return
       if (kind[1] != "0") bail()
@@ -8390,7 +8385,7 @@ literal_consumers_inert() {
     {
       r = $0; k = substr(r, 1, 1); v = substr(r, 2)
       if (r == "0;" || r == "0&&" || r == "0||" || r == "0|") { finish(); next }
-      if (!plain(k, v)) bail()
+      if (!plain_word(k, v)) bail()
       n++; kind[n] = k; word[n] = v
     }
     END { if (!failed) finish(); exit failed }
