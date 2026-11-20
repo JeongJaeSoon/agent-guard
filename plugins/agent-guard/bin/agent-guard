@@ -5342,6 +5342,9 @@ tool_path_tracked_exception() (
   # tilde could therefore mean two different files, and keeps the block. A
   # file tool takes no directory of its own, so only the event cwd counts.
   case "/$1/" in */../*|/file:*|/'~'*) exit 1 ;; esac
+  # The host may also trim blanks and normalise Unicode before it opens the
+  # path, so only plain path characters qualify.
+  case "$1" in *[!A-Za-z0-9_./@%+,=-]*) exit 1 ;; esac
   tpt_workdir=$(exception_workdir "$2" "$1" \
     "(\$in | $3) == \$v and (\$in.cwd | type) == \"string\" and \$in.cwd != \"\"") || exit 1
   case "$tpt_workdir" in /*) ;; *) exit 1 ;; esac
@@ -7443,6 +7446,9 @@ search_operand_spans() {
         if (wv[h] == "cd" && cd_ok != "1") exit 0
         # Waiting between the check and the read gives time to swap the file.
         if (mode == "tracked" && wv[h] == "sleep") exit 0
+        # `cd old new` goes somewhere else in zsh and ksh, so only a cd with
+        # exactly one operand names the directory the next command reads from.
+        if (mode == "tracked" && wv[h] == "cd" && e - h != 1) exit 0
       }
     }
   '
@@ -8639,6 +8645,11 @@ tracked_file_exception_applies() (
         # shellcheck disable=SC2254
         case "$tfe_real" in
           $tfe_entry|*/$tfe_entry|*/$tfe_entry/*) exit 1 ;;
+        esac
+        # The path as written too: a symlinked directory can carry the name.
+        # shellcheck disable=SC2254
+        case "/$tfe_path" in
+          */$tfe_entry|*/$tfe_entry/*) exit 1 ;;
         esac
         ;;
     esac

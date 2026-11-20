@@ -496,7 +496,8 @@ entry does not block it. The exception applies only when all of these hold:
   `Read`, `NotebookRead` and `Grep` tools get the same exception for their
   own path field (`file_path`, `notebook_path`, `path`) only; a Grep `glob`
   stays checked by name, and so does a tool path with a `..` part, a
-  `file://` prefix or a leading `~`.
+  `file://` prefix, a leading `~`, a blank or any character outside
+  `A-Za-z0-9_./@%+,=-`.
 - the directory relative paths are placed in is the event's own absolute
   `cwd`. A `workdir` or `cwd` inside `tool_input` counts only when the event
   has no `cwd` (the Codex shell shape) or names the same directory; for a

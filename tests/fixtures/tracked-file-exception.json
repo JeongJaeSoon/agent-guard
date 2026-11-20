@@ -230,6 +230,20 @@
     "command": "jq . config/staging.env"
   },
   {
+    "id": "cd-two-operands",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "cd with two operands goes elsewhere in zsh and ksh",
+    "command": "cd @REPO@ @REPO@/tests && cat settings.env"
+  },
+  {
+    "id": "symlinked-dir-anchored-name",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a symlinked directory whose written name matches a directory-anchored entry",
+    "command": "cat .kube/config"
+  },
+  {
     "id": "cd-inside-then-cat",
     "expected_status": 0,
     "classification": "must-pass",
@@ -508,5 +522,21 @@
     "description": "a tool path with a URL prefix",
     "tool": "Read",
     "path": "file://@REPO@/config/staging.env"
+  },
+  {
+    "id": "read-tool-leading-space",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a committed file whose name starts with a blank, which the host may trim to another file",
+    "tool": "Read",
+    "path": " lead.env"
+  },
+  {
+    "id": "read-tool-symlinked-dir-anchored",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "the Read tool through a symlinked directory named like a directory-anchored entry",
+    "tool": "Read",
+    "path": "@REPO@/.kube/config"
   }
 ]

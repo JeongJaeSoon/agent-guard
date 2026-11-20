@@ -23,7 +23,7 @@ unset AGENT_GUARD_TRACKED_FILE_EXCEPTION AGENT_GUARD_DENY_READ_MODE
 REPO=$CASE_ROOT/repo
 OUTSIDE=$CASE_ROOT/outside
 OTHER=$CASE_ROOT/other
-mkdir -p "$HOME" "$REPO/tests/fixtures" "$REPO/config" "$REPO/.aws" "$OUTSIDE" "$OTHER" "$CASE_ROOT/nogit"
+mkdir -p "$HOME" "$REPO/tests/fixtures" "$REPO/config" "$REPO/.aws" "$REPO/k8s" "$OUTSIDE" "$OTHER" "$CASE_ROOT/nogit"
 
 git_quiet() {
   git -c user.name=fixture -c user.email=fixture@example.invalid \
@@ -35,7 +35,8 @@ placeholder() {
   done
 }
 
-placeholder "$OUTSIDE/settings.env" "$OTHER/settings.env" "$REPO/README.md" \
+ln -s k8s "$REPO/.kube"
+placeholder "$OUTSIDE/settings.env" "$OTHER/settings.env" "$REPO/README.md" "$REPO/k8s/config" "$REPO/ lead.env" \
   "$REPO/tests/fixtures/secrets.yaml" "$REPO/config/staging.env" \
   "$REPO/tests/credentials.json" "$REPO/tests/app.env.test" \
   "$REPO/settings.env" "$REPO/swapped.env" "$REPO/modified.env" "$REPO/.aws/credentials" \
@@ -44,7 +45,7 @@ printf '.env\n' >"$REPO/.gitignore"
 ln -s ../outside/settings.env "$REPO/link.env"
 (
   cd "$REPO" && git_quiet init -q . \
-    && git_quiet add .gitignore README.md tests config settings.env swapped.env modified.env .aws link.env \
+    && git_quiet add .gitignore README.md k8s .kube " lead.env" tests config settings.env swapped.env modified.env .aws link.env \
     && git_quiet commit -q -m fixture \
     && git_quiet add staged.env
 ) || { printf 'not ok - could not build the fixture repository\n'; exit 1; }
