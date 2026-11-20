@@ -8624,16 +8624,16 @@ shell_command_words() {
 # or 1 for one whose expansion may split into several words, or into none;
 # malformed input is emitted as 2. A quoted or escaped `;`, `&&`, `||` or `|`
 # is a 4 too, so that no caller mistakes it for the operator. With $2 set to
-# tilde, so is a word after a `cd` or `pushd` command name (past any
+# gate (the commit/push gate, git_gate_code_records), so is a word after a `cd` or `pushd` command name (past any
 # assignment-shaped words, quoted or not) that starts with `~` and has a
 # quoted or escaped part before its first unquoted `/`: only an unquoted tilde
 # prefix expands to $HOME alike in every shell (zsh expands `~"/x"`). Also with
-# tilde, a command-position word shaped like `NAME=value` with a quoted or
+# gate, a command-position word shaped like `NAME=value` with a quoted or
 # escaped part before its first unquoted `=` is emitted as 5: the shell runs
 # it as a command name, not an assignment, and whatever it expands to still
 # starts with that literal `NAME=`. It is a 6 instead when an unquoted
 # expansion or glob character may make it no word at all (nullglob). With
-# tilde, the code of each command substitution inside double quotes in a word
+# gate, the code of each command substitution inside double quotes in a word
 # follows that word as one record with prefix 7, each substitution's code
 # wrapped as `( code` and `)` lines and every newline written as \034; only
 # git_gate_records reads it. Unquoted substitutions, in a word or in a
@@ -8643,14 +8643,14 @@ shell_command_words() {
 # they make the affected token dynamic and therefore subject to infra policy.
 # Comments are dropped. A here-document body is still tokenized, since it may
 # be code for another shell, but is wrapped in `3(` and `3)`: nothing in it
-# runs in this shell. With tilde, a body that cat, tee, python, gh or git
+# runs in this shell. With gate, a body that cat, tee, python, gh or git
 # commit reads, and nothing else on the line can, is wrapped in `3[` and `3]`
 # instead: none of them runs it as shell code. Behind an unquoted delimiter
 # the code of its substitutions follows the body as 7 records, since this
 # shell runs it either way. Python code is outside the gate already, as `python3 -c` and
 # `python3 script.py` are. git_gate_records decides what such a body is.
 git_command_records() {
-  printf '%s\n' "$1" | LC_ALL=C awk -v tilde="${2:-}" '
+  printf '%s\n' "$1" | LC_ALL=C awk -v gate="${2:-}" '
     BEGIN { heredoc_next = 1 }
     # A pipe, a subshell or a background job on the line may hand a
     # here-document to a shell after all.
@@ -8683,15 +8683,15 @@ git_command_records() {
           # JSON input, except for a --shell alias, and git commit as a
           # message.
           hb = head; sub(/.*\//, "", hb)
-          heredoc_inert[heredoc_count + 1] = tilde != "" && (hb ~ /^(cat|tee|python|python3|gh)$/ && head_sub != "alias" || head_sub == "commit") ? (heredoc_quoted ? 1 : 2) : 0
+          heredoc_inert[heredoc_count + 1] = gate != "" && (hb ~ /^(cat|tee|python|python3|gh)$/ && head_sub != "alias" || head_sub == "commit") ? (heredoc_quoted ? 1 : 2) : 0
           heredoc_quoted = 0
           heredoc_delim[++heredoc_count] = delim
           heredoc_strip[heredoc_count] = heredoc_dash
           heredoc_expect = 0
         }
       }
-      if (tilde != "" && !at_word && name_quoted && word ~ /^[A-Za-z_][A-Za-z0-9_]*=/) print (splits || globbed ? "6" : "5") word
-      else print (splits ? "1" : dynamic || word ~ /^(;|&&|\|\||\|)$/ || tilde != "" && cd_args && quoted && word ~ /^~/ ? "4" : "0") word
+      if (gate != "" && !at_word && name_quoted && word ~ /^[A-Za-z_][A-Za-z0-9_]*=/) print (splits || globbed ? "6" : "5") word
+      else print (splits ? "1" : dynamic || word ~ /^(;|&&|\|\||\|)$/ || gate != "" && cd_args && quoted && word ~ /^~/ ? "4" : "0") word
       if (code != "") {
         if (heredoc_open && heredoc_inert[heredoc_next] == 2) body_code = body_code "7" code "\n"
         else print "7" code
@@ -8709,7 +8709,7 @@ git_command_records() {
     # A backslash-newline outside quotes and here-documents joins two lines.
     NR > 1 && !joined {
       if (quote == "") { emit(); print "0;"; cd_args = 0; at_word = 0; head = ""; head_sub = "" }
-      else { stdin_shared(); word = word (tilde != "" && quote ~ /^(double|subst)$/ ? "\034" : " "); dynamic = 1 }
+      else { stdin_shared(); word = word (gate != "" && quote ~ /^(double|subst)$/ ? "\034" : " "); dynamic = 1 }
       heredoc_expect = 0; heredoc_quoted = 0
       line_heredocs = heredoc_count
     }
@@ -8747,7 +8747,7 @@ git_command_records() {
           continue
         }
         # Inside a command substitution (in double quotes, or unquoted in
-        # tilde mode): quoting, nesting, a case pattern and a here-document
+        # gate mode): quoting, nesting, a case pattern and a here-document
         # follow shell rules, so that the substitution ends where the shell
         # ends it.
         if (quote ~ /^(double|subst)$/ && nest != "") {
@@ -8794,7 +8794,7 @@ git_command_records() {
           if (c == "\\" && n ~ /^["\\$`]$/) {
             word = word n; started = 1; i++; continue
           }
-          if (tilde != "" && (c == "`" || c == "$" && n == "(")) {
+          if (gate != "" && (c == "`" || c == "$" && n == "(")) {
             word = word c
             if (c == "$") { word = word n; i++ }
             nest = c == "`" ? "b" : "p"
@@ -8812,7 +8812,7 @@ git_command_records() {
         if (c == " " || c == "\t") { emit(); continue }
         # Unquoted, a substitution splits into words and its code is hoisted
         # as in double quotes; the word stays an argument of its command.
-        if (tilde != "" && (c == "`" || c == "$" && n == "(")) {
+        if (gate != "" && (c == "`" || c == "$" && n == "(")) {
           word = word c
           if (c == "$") { word = word n; i++ }
           nest = c == "`" ? "b" : "p"; quote = "subst"
@@ -8889,7 +8889,7 @@ git_command_records() {
   '
 }
 
-# The records of $1 for the commit/push gate: git_command_records in tilde
+# The records of $1 for the commit/push gate: git_command_records in gate
 # mode, where the code of each command substitution inside a quoted word, as
 # in `echo "$(git commit)"`, runs in a ( ) subshell placed before the command
 # that word belongs to. Code that cannot be read back runs as a command only
@@ -8956,7 +8956,7 @@ git_gate_records() (
 # line.
 git_gate_code_records() (
   set -f
-  gate_records=$(git_command_records "$1" tilde)
+  gate_records=$(git_command_records "$1" gate)
   case "$gate_records" in
     7*|*'
 7'*) ;;
