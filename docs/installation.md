@@ -44,61 +44,29 @@ is the same installation, and for a standalone or Homebrew install whenever an
 is on `PATH` (for example `~/.agent-guard/bin/agent-guard` before `~/.local/bin`
 is added) also names its own path.
 
-## Optional fused output preparation (v3.8+)
+<a id="optional-warm-gitleaks-helper"></a>
 
-The output-pipeline experiment is opt-in. It combines private staging and JSON
-preparation while keeping the existing scanner, rules, policies and host output
-contracts. Install the same release's prebuilt core; the existing core file
-supports both preparation and redaction, so a second helper or compiler is not
-required. Git marketplace installations can use the standalone helper without
-editing host caches.
+## Optional warm gitleaks helper
 
-For Linux x64, verify the installed helper and expose both pipeline settings to the host's
-launch environment:
+Each scan normally starts a new gitleaks process, and most of its time is
+start-up. The opt-in warm helper keeps one compiled gitleaks 8.30.1 detector
+in memory per user and config, shared by all sessions, and exits after ten
+idle minutes. It is not in any release archive; build it from a source
+checkout with Go and point the host's launch environment at the client:
 
 ```sh
-target=x86_64-unknown-linux-musl
-native_root="$HOME/.agent-guard/libexec"
-if (cd "$native_root" && shasum -a 256 -c "agent-guard-redact-$target.sha256"); then
-  export AGENT_GUARD_EXPERIMENTAL_OUTPUT_PIPELINE=fused
-  export AGENT_GUARD_EXPERIMENTAL_OUTPUT_PREPARE_BIN="$native_root/agent-guard-redact-$target"
-fi
+sh scripts/build-gitleaks-helper.sh "$HOME/.agent-guard/gitleaks-helper"
+export AGENT_GUARD_GITLEAKS_HELPER="$HOME/.agent-guard/gitleaks-helper/agent-guard-scan"
 ```
 
-Choose the matching target for your platform from the [native helper guide
-(English)](https://github.com/JeongJaeSoon/agent-guard/blob/v3.8.0/docs/native-redactor.md).
-For Homebrew, set `native_root="$(brew --prefix agent-guard)/libexec/libexec"`.
-Standalone and Homebrew installations select their checksum-verified redactor
-automatically. For source-only Git marketplace plugins, also connect redaction to
-the same verified core:
-
-```sh
-if (cd "$native_root" && shasum -a 256 -c "agent-guard-redact-$target.sha256"); then
-  export AGENT_GUARD_RUST_CORE_BIN="$native_root/agent-guard-redact-$target"
-fi
-```
-
-These explicit paths are trusted executable overrides; only use a verified
-installation. Setting only the preparation path leaves source-only plugins using
-shell redaction, which differs from the measured shared-core configuration.
-Missing or failing preparation falls back to the original jq
-stages. A missing experimental module falls back to the original output pipeline.
-The scanner and its readiness deadline do not change.
-
-Restart Claude or Codex after changing the launch environment. Existing plugin
-install/update commands remain the same. To restore the default output pipeline,
-unset these settings and restart the host:
-
-```sh
-unset AGENT_GUARD_EXPERIMENTAL_OUTPUT_PIPELINE
-unset AGENT_GUARD_EXPERIMENTAL_OUTPUT_PREPARE_BIN
-unset AGENT_GUARD_RUST_CORE_BIN
-```
-
-This restores the existing default literal redactor selection. To disable
-that native helper too, use `AGENT_GUARD_EXPERIMENTAL_REDACTOR=shell`.
-The measured gain depends on the workload and scanner; it can come with a larger
-sampled process RSS sum. See [verification](verification.md) before rollout.
+Restart Claude or Codex afterwards. The CLI still makes every decision; any
+helper failure runs the real gitleaks, so it is never treated as a clean scan.
+The helper is skipped when `AGENT_GUARD_GITLEAKS_BIN` is set or
+`AGENT_GUARD_LOG_MODE=off`, and it answers only for the official gitleaks
+8.30.1 release binary; a gitleaks built with Go's `regexp` (Homebrew, `go
+install`) is always run for real. To turn it off, unset the variable and restart the
+host. The [warm gitleaks helper guide (English)](https://github.com/JeongJaeSoon/agent-guard/blob/main/docs/gitleaks-helper.md) covers
+equivalence, failure handling, memory and privacy.
 
 ## Runtime dependencies
 

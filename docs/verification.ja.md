@@ -1,4 +1,4 @@
-<!-- translated-from: docs/verification.md; source-blob: 73fa755195b1d930b36a9c1a80d7d9e6fd142232 -->
+<!-- translated-from: docs/verification.md; source-blob: 2cc9e59fcad2055e3691d6f505e1ebf67f2566e9 -->
 
 <a id="verification"></a>
 
@@ -119,10 +119,22 @@ scanner自体が実験対象の場合は、変更する変数を明示してく�
 最大メモリは繰り返し使用しても相殺できません。遅延・CPU が減ってもプロセス
 RSS 合計の標本値が増える場合があるため、このトレードオフも報告します。
 
-出力パイプラインを統合する候補は、既定のインストール経路から分離した明示的な
-実験です。測定上の改善だけではリリース準備を証明できません。採用前に、
-コンパイラ不要のホスト設定、失敗時の復帰、既存のホストの制限時間と locale の
-契約を維持する必要があります。
+任意のwarm gitleaks helperは、ビルドしたマシン上で、リンクした公式gitleaks
+リリースと比較して検証します。ビルドディレクトリと公式リリースバイナリ（helperが
+意図的に拒否するHomebrewや `go install` のビルドではないもの）を使い、失敗経路・
+host・差分のテストを実行してください。
+
+```sh
+AGENT_GUARD_TEST_HELPER_DIR="$HOME/.agent-guard/gitleaks-helper" \
+AGENT_GUARD_TEST_REAL_GITLEAKS="$(command -v gitleaks)" sh tests/gitleaks-helper.sh
+AGENT_GUARD_TEST_HELPER_DIR="$HOME/.agent-guard/gitleaks-helper" \
+AGENT_GUARD_TEST_REAL_GITLEAKS="$(command -v gitleaks)" sh tests/gitleaks-helper-corpus.sh
+```
+
+有効な間、実行中のhelperは `agent-guard-gitleaks-helper serve` プロセス1つと、
+`$XDG_STATE_HOME/agent-guard/gitleaks-helper`（または `~/.local/state/...`）
+配下のソケットとして見えます。これがないことは、スキャンが実際のgitleaksで
+実行されていることを意味するだけです。
 
 ```sh
 agent-guard doctor

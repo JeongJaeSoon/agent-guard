@@ -1,6 +1,6 @@
 # Privacy and Data Handling
 
-Last updated: 2026-11-15
+Last updated: 2026-11-19
 
 Agent Guard is local by default. The project does not operate an Agent Guard
 service, account system, telemetry collector, crash reporter, or analytics
@@ -94,6 +94,20 @@ invocation then runs the gitleaks readiness check, and a repeated Bash
 command is scanned again: usually one or two more gitleaks runs per hook. To
 keep the caches without the log, set `AGENT_GUARD_SCAN_CACHE=on` explicitly
 as well; the caches above are then written, and no event record is.
+
+## Optional warm gitleaks helper
+
+Off by default. With `AGENT_GUARD_GITLEAKS_HELPER` set, scanned text is sent
+over a private Unix domain socket (a 0700 directory beside the support log,
+socket mode 0600, peer uid checked by the kernel) to one local helper process
+per user and config that outlives a single hook. The helper writes no
+scanned content to disk or logs and makes no network connections; it starts
+with no environment variables. It overwrites its own request buffer after each
+scan, but copies gitleaks keeps as Go strings are freed without being
+overwritten, so scanned bytes can stay in the helper's memory until reused or
+until it exits, about `AGENT_GUARD_GITLEAKS_HELPER_IDLE_SECONDS` (default ten
+minutes, checked every 15 seconds) after the last scan. Unset the variable to stop using it. See
+[the helper guide](https://github.com/JeongJaeSoon/agent-guard/blob/main/docs/gitleaks-helper.md).
 
 ## Network behavior
 

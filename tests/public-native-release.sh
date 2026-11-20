@@ -70,8 +70,4 @@ esac
 # Test the downloaded CLI and helper together, not the checkout's CLI.
 AGENT_GUARD_TEST_PAYLOAD="$AGENT_GUARD_HOME" sh "$ROOT/tests/native-packaged.sh" \
   "$AGENT_GUARD_HOME/libexec/agent-guard-redact-$target" "$(command -v gitleaks)" > "$out/fallback.log"
-if [ -f "$AGENT_GUARD_HOME/scripts/output-pipeline-experiment.sh" ]; then
-  AGENT_GUARD_TEST_PAYLOAD="$AGENT_GUARD_HOME" sh "$ROOT/tests/fused-packaged.sh" \
-    "$AGENT_GUARD_HOME/libexec/agent-guard-redact-$target" "$(command -v gitleaks)" > "$out/fused-packaged.log"
-fi
 printf 'passed: public assets, fresh install, %s update, scanner and host fallback\n' "$previous"
