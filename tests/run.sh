@@ -5600,8 +5600,8 @@ fi
 
 # Runs here rather than beside the other redaction suites in partition 1: the
 # core runner runs partitions 1 and 3 side by side, and on macOS partition 1
-# was within a minute of the job limit before this suite (about 550 hook
-# runs) was added.
+# has come within a minute of the job limit. This suite makes about 550 hook
+# runs, so it goes where there is room.
 run_expect 0 "a field value that repeats the field name is code on both hosts; config literals stay masked" \
   sh "$ROOT/tests/key-name-masking.sh"
 

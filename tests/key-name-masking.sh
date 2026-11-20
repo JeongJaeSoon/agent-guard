@@ -26,9 +26,12 @@ unset AGENT_GUARD_OUTPUT_REDACT AGENT_GUARD_KEY_NAME_REDACT AI_AGENT
 # Assembled at run time so the repository's own scan finds no
 # credential-shaped literal here. Nothing below prints these values.
 # `tr` under LC_ALL=C reads the random bytes one at a time on GNU, BSD and
-# busybox alike. An od-and-awk pipeline produced values of the wrong length
-# on macOS; the length check below reports each length if that recurs.
-draw() { LC_ALL=C tr -dc "$1" </dev/urandom | head -c "$2"; }
+# busybox alike. Its input is a fixed 8 KiB, so the pipeline ends even where
+# SIGPIPE is ignored: reading /dev/urandom directly left `tr` running on the
+# macOS runner after `head` had what it needed, and the job hit its limit.
+# 8 KiB gives several hundred characters of the narrowest set; the length
+# check below reports each length if a value comes up short.
+draw() { head -c 8192 /dev/urandom | LC_ALL=C tr -dc "$1" 2>/dev/null | head -c "$2"; }
 rnd=q7$(draw a-z 12)
 hex=$(draw a-f0-9 40)
 vendor=$(printf '%s_%s' ghp "$(draw a-z0-9 36)")

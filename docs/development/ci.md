@@ -149,9 +149,8 @@ The per-suite summary reports only test execution, excluding queue and setup.
 core runner는 partition 1과 3을 동시에 실행한다. 두 partition의 실행 시간이
 job 시간을 정하므로, hook을 여러 번 실행하는 무거운 fixture 테스트는 여유가 있는
 쪽에 둔다. `tests/key-name-masking.sh`(hook 약 550회)는 그래서 partition 3에서
-실행한다. macOS에서 partition 1이 25분 제한에 1분 안쪽으로 다가와 있었고
-(#566의 macOS core job 24분 8초), 이 테스트를 partition 1에 두면 제한을 넘었다.
-시간 제한은 올리지 않는다. command policies는
+실행한다. macOS에서 partition 1이 25분 제한에 1분 안쪽으로 다가온 적이 있다
+(#566의 macOS core job 24분 8초). 시간 제한은 올리지 않는다. command policies는
 partition 2, scanner는 partition 4를 각각 실행한다. 가장 오래 걸리는 shell
 navigation은 Claude와 Codex의 호스트 계약별 runner로 나눈다. 두 호스트는
 입력의 cwd/workdir 위치와 응답 계약이 다르며, 각 worker는 자신이 맡은 호스트의
