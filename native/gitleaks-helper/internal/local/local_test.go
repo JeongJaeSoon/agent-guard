@@ -6,6 +6,31 @@ import (
 	"testing"
 )
 
+func TestPipeWaiting(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	defer w.Close()
+	if n, err := PipeWaiting(int(r.Fd())); err != nil || n != 0 {
+		t.Fatalf("empty pipe: %d, %v", n, err)
+	}
+	if _, err := w.Write([]byte("0123456789")); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := PipeWaiting(int(r.Fd())); err != nil || n != 10 {
+		t.Fatalf("pipe holding 10 bytes: %d, %v", n, err)
+	}
+	var buf [4]byte
+	if _, err := r.Read(buf[:]); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := PipeWaiting(int(r.Fd())); err != nil || n != 6 {
+		t.Fatalf("after reading 4 bytes: %d, %v", n, err)
+	}
+}
+
 func TestKey(t *testing.T) {
 	a := Key(501, "1:2:3:4", "aa")
 	if !ValidKey(a) || a == Key(502, "1:2:3:4", "aa") || a == Key(501, "1:2:3:5", "aa") || a == Key(501, "1:2:3:4", "ab") {
