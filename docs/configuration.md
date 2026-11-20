@@ -478,24 +478,34 @@ entry does not block it. The exception applies only when all of these hold:
   file committed with placeholder values and filled in locally is not opened;
 - no deny-read entry that names a directory matches it (`.aws/credentials`,
   `.ssh/id_*` and similar stay blocked wherever they are, tracked or not);
-- for a shell command, the event carries a working directory and the word is
-  a literal operand of `cat`, `head`, `tail`, `wc`, `cut`, `nl`, `tac`, `sort`,
-  `uniq`, `less`, `more`, `stat`, `file`, `ls`, `diff`, `comm`, `cmp`, `grep`,
-  `egrep`, `fgrep`, `sed` or `jq`, and every command before it on the line is
-  one that cannot change what that name runs. Any other command keeps the
-  block: `git` (its operands also select revisions, the index and wildcard
-  pathspecs, so it can show bytes the work tree does not hold), a test
-  runner, `ssh`, `docker exec`, `find`, `sudo`, an inline script. The `Read`,
-  `NotebookRead` and `Grep` tools get the same exception for their own path
-  field (`file_path`, `notebook_path`, `path`) only; a Grep `glob` stays
-  checked by name.
+- for a shell command, the word is a literal operand of `cat`, `head`,
+  `tail`, `wc`, `cut`, `nl`, `tac`, `sort`, `uniq`, `stat`, `file`, `ls`,
+  `diff`, `comm`, `cmp`, `grep`, `egrep`, `fgrep`, `sed` or `jq`; every word of
+  that command is literal, with no redirection and no `&`; its options are
+  plain flags from a short built-in table (an option such as `--include`,
+  `--files0-from`, `-r`, `-f` or `-i` keeps the block); and every command
+  before it on the line is one that cannot change what that name runs. Any
+  other command keeps the block: `git` (its operands also select revisions,
+  the index and wildcard pathspecs, so it can show bytes the work tree does
+  not hold), a pager, a test runner, `ssh`, `docker exec`, `find`, `sudo`, an
+  inline script. The `Read`, `NotebookRead` and `Grep` tools get the same
+  exception for their own path field (`file_path`, `notebook_path`, `path`)
+  only; a Grep `glob` stays checked by name.
+- the directory relative paths are placed in is the event's own `cwd`. A
+  `workdir` or `cwd` inside `tool_input` counts only when the event has no
+  `cwd` (the Codex shell shape) or names the same directory; otherwise, and
+  when the event names no directory at all, the block stands. On Codex the
+  shell's working directory is chosen per command, so "the current
+  repository" is the one that directory is in.
 
 Git is asked only when a block is already pending, so a command that passes
 costs what it did before. If git is missing or cannot answer, the block
 stands.
 
 What an agent can read this way is content the repository already holds at
-`HEAD`. A file whose working copy differs from the commit is blocked by its
+`HEAD`. This adds no new way to reach a file an agent commits itself: a
+command such as `git show HEAD` already prints whatever was just committed,
+and the commit gate, not this exception, is what scans staged content. A file whose working copy differs from the commit is blocked by its
 name until the change is committed; the file is compared without git filters,
 so a checkout that rewrites line endings or uses a clean/smudge filter keeps
 the block. Set `AGENT_GUARD_TRACKED_FILE_EXCEPTION=off` to restore the

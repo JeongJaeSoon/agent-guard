@@ -114,6 +114,56 @@
     "command": "cat config/staging.env"
   },
   {
+    "id": "background-then-git",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a lone & hides a second command behind the reader",
+    "command": "cat README.md & git log -p config/staging.env"
+  },
+  {
+    "id": "background-glued-ssh",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a glued & before a remote command",
+    "command": "cat README.md&ssh build-host cat config/staging.env"
+  },
+  {
+    "id": "grep-include-value",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a committed name as the value of a name filter option",
+    "command": "grep -r --include settings.env name ."
+  },
+  {
+    "id": "sort-files-from",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "an option that reads a list of files",
+    "command": "sort --files0-from config/staging.env"
+  },
+  {
+    "id": "redirect-into-tracked",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a redirection that overwrites a committed file",
+    "command": "cat README.md > config/staging.env"
+  },
+  {
+    "id": "sed-in-place-tracked",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "an in-place edit of a committed file",
+    "command": "sed -i s/a/b/ config/staging.env"
+  },
+  {
+    "id": "bash-inner-workdir-other-repo",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a tool_input workdir that names another repository than the event cwd",
+    "inner_workdir": "@OTHER@",
+    "command": "cat @OTHER@/settings.env"
+  },
+  {
     "id": "cd-inside-then-cat",
     "expected_status": 0,
     "classification": "must-pass",
@@ -367,5 +417,14 @@
     "description": "the NotebookRead tool on an untracked file",
     "tool": "NotebookRead",
     "path": "@REPO@/local.env"
+  },
+  {
+    "id": "read-tool-inner-cwd-other-repo",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "the Read tool with a tool_input cwd that names another repository",
+    "tool": "Read",
+    "path": "@OTHER@/settings.env",
+    "inner_workdir": "@OTHER@"
   }
 ]
