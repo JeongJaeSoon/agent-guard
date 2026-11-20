@@ -10,7 +10,7 @@ set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 SOURCE=${AGENT_GUARD_UNIT_SOURCE:-"$ROOT/plugins/agent-guard/bin/agent-guard"}
 CLI=${AGENT_GUARD_TEST_CLI:-"$ROOT/plugins/agent-guard/bin/agent-guard"}
-FIXTURE="$ROOT/tests/fixtures/assignment-leftmost.json"
+FIXTURE_SOURCE="$ROOT/tests/fixtures/assignment-leftmost.json"
 CASE=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-assignment-leftmost.XXXXXX")
 trap 'rm -rf "$CASE"' 0
 sh "$ROOT/tests/helpers/extract-functions.sh" "$SOURCE" "$CASE" secretish_env_values
@@ -21,6 +21,12 @@ pass=0 fail=0
 ok() { pass=$((pass + 1)); printf 'ok - %s\n' "$1"; }
 not_ok() { fail=$((fail + 1)); printf 'not ok - %s\n' "$1"; }
 
+# %R% becomes a random letter-and-digit run each test, so the fixture holds no
+# literal that reads as a quoted password.
+rnd=$(od -An -N8 -tu1 /dev/urandom | awk '{ printf "q7"; for (i = 1; i <= NF; i++) printf "%c", 97 + $i % 26 }')
+FIXTURE="$CASE/fixture.json"
+jq --arg r "$rnd" 'map(.input |= gsub("%R%"; $r) | .values |= map(gsub("%R%"; $r)))' \
+  "$FIXTURE_SOURCE" >"$FIXTURE"
 count=$(jq 'length' "$FIXTURE")
 [ "$count" -gt 0 ]
 i=0
