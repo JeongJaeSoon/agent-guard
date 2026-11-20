@@ -469,9 +469,9 @@ file by its name alone. A file that is committed to the repository an agent is
 working in is already part of what that agent may read, so by default such an
 entry does not block it. The exception applies only when all of these hold:
 
-- the path is a regular file, not a symlink, and its physical location is
-  inside the work tree of the repository that holds the event working
-  directory;
+- the path is a regular file, not a symlink, written without a symlinked
+  directory, `.` or `..` part, and inside the work tree of the repository
+  that holds the event working directory;
 - `git ls-files` reports it as tracked, and the file on disk is byte for byte
   the blob committed at `HEAD` under that path. A file that is untracked
   (ignored or not), only staged, or changed since the last commit stays blocked, so a

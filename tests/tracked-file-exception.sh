@@ -52,6 +52,7 @@ ln -s ../outside/settings.env "$REPO/link.env"
 (cd "$OTHER" && git_quiet init -q . && git_quiet add settings.env && git_quiet commit -q -m fixture) \
   || { printf 'not ok - could not build the second fixture repository\n'; exit 1; }
 ln -s ../outside "$REPO/linkdir"
+ln -s config "$REPO/cfglink"
 printf 'name: filled in locally\n' >"$REPO/modified.env"
 rm -f "$REPO/swapped.env" && ln -s ../outside/settings.env "$REPO/swapped.env"
 # A git that cannot answer: the first PATH entry of the `git: fails` cases.

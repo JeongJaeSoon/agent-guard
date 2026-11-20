@@ -7441,7 +7441,7 @@ search_operand_spans() {
           f = 0
           for (r = 1; r <= nw; r++) {
             if (wseg[r] != j + 1) continue
-            if (!f) { f = r; if (wv[r] !~ /^(wc|head|tail|sort|uniq|tr|cut|nl|grep|egrep|fgrep|column|cat)$/) exit 0 }
+            if (!f) { f = r; if (wv[r] !~ /^(wc|head|tail|sort|tr|cut|nl|grep|egrep|fgrep|column|cat)$/) exit 0 }
             if (bad(r) || substr(wv[r], 1, 2) == "--" || wv[f] == "sort" && wv[r] ~ /^-[A-Za-z]*o/) exit 0
           }
           if (!f) exit 0
@@ -8651,6 +8651,15 @@ tracked_file_exception_applies() (
   esac
   tfe_dir=$(CDPATH= cd -P -- "$tfe_dir" 2>/dev/null && pwd -P) || exit 1
   tfe_real=${tfe_dir%/}/${tfe_path##*/}
+  # The path as written must be that same location for every process that
+  # opens it: no symlink, `.` or `..` part on the way. `/proc/self/cwd/x` is
+  # one file for this check and another for a command that has changed
+  # directory.
+  case "$tfe_path" in
+    /*) tfe_written=$tfe_path ;;
+    *) tfe_written=$(pwd -P)/${tfe_path#./} ;;
+  esac
+  [ "$tfe_written" = "$tfe_real" ] || exit 1
   unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
     GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_NAMESPACE GIT_CEILING_DIRECTORIES \
     GIT_DISCOVERY_ACROSS_FILESYSTEM GIT_CONFIG
@@ -8688,9 +8697,18 @@ tracked_file_exception_applies() (
   done <"$DENY_READ_PATHS"
   git -c core.fsmonitor=false --literal-pathspecs -C "$tfe_top" \
     ls-files --error-unmatch -- "$tfe_rel" >/dev/null 2>&1 || exit 1
-  tfe_head=$(git -C "$tfe_top" rev-parse -q --verify "HEAD:$tfe_rel" 2>/dev/null) \
-    && [ -n "$tfe_head" ] || exit 1
-  [ "$(git -C "$tfe_top" cat-file -t "$tfe_head" 2>/dev/null)" = blob ] || exit 1
+  # ls-tree, not HEAD:<path>: the revision parser would read a name ending in
+  # -g<hex> as an object id. Exactly one regular-file entry under that path.
+  tfe_tree=$(git --literal-pathspecs -C "$tfe_top" ls-tree --full-tree HEAD -- "$tfe_rel" 2>/dev/null) \
+    && [ -n "$tfe_tree" ] || exit 1
+  case "$tfe_tree" in
+    *'
+'*) exit 1 ;;
+    '100644 blob '*"	$tfe_rel"|'100755 blob '*"	$tfe_rel") ;;
+    *) exit 1 ;;
+  esac
+  tfe_head=${tfe_tree#?????? blob }
+  tfe_head=${tfe_head%%"	"*}
   tfe_disk=$(git -C "$tfe_top" hash-object --no-filters -- "$tfe_real" 2>/dev/null) || exit 1
   [ "$tfe_disk" = "$tfe_head" ]
 )

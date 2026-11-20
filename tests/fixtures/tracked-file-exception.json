@@ -293,6 +293,21 @@
     "command": "cat config/staging.env | git stash pop"
   },
   {
+    "id": "process-relative-path",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a path through /proc/self/cwd names another file once the command has changed directory",
+    "command": "cd @REPO@ && cat /proc/self/cwd/staging.env",
+    "workdir": "@REPO@/config"
+  },
+  {
+    "id": "symlinked-directory-inside",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a path through a symlinked directory inside the repository is not the path as written",
+    "command": "cat cfglink/staging.env"
+  },
+  {
     "id": "cd-inside-then-cat",
     "expected_status": 0,
     "classification": "must-pass",
@@ -587,5 +602,13 @@
     "description": "the Read tool through a symlinked directory named like a directory-anchored entry",
     "tool": "Read",
     "path": "@REPO@/.kube/config"
+  },
+  {
+    "id": "read-tool-process-relative",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "the Read tool on a path through /proc/self/cwd",
+    "tool": "Read",
+    "path": "/proc/self/cwd/config/staging.env"
   }
 ]
