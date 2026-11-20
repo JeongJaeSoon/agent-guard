@@ -77,6 +77,15 @@ echo '통과하지 못한 job(최신 attempt):'
 echo
 printf '%s\n' "$failed"
 echo
+# The instruction-count job writes its own summary: base tag, table, verdict.
+echo '셸 명령어 수(최근 릴리스 태그 대비, Shell instruction count job):'
+echo
+if [ -s "$evidence/instruction-count/summary.md" ]; then
+  sed '1{/^### /d;}' "$evidence/instruction-count/summary.md"
+else
+  echo '- artifact 없음'
+fi
+echo
 if [ -s "$work/rows" ]; then
   echo '새 21쌍 확인에서도 5%를 넘은 행(candidate 대 baseline 중앙값):'
   echo

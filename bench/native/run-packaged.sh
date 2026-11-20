@@ -102,26 +102,28 @@ if [ "$legacy_status" -ne 0 ] && legacy_screened=$(jq -ce '
   jq -e '.passed' "$out/legacy-confirmation.json" && legacy_status=0
 fi
 public_status=0
+# Ordinary default dispatch against the public v3.7.0 payload. small-clean and
+# dense-controls are PostToolUse output: a common small one and a large one
+# (40,000 "a" + U+001F pairs, about 280 KB as JSON input), so output masking
+# is compared too.
+public_cases='exec-clean exec-multiline exec-long-quoted-secret pre-unknown-tool small-clean dense-controls'
+public_names=$(printf '%s\n' $public_cases | jq -R . | jq -sc .)
+set --
+for name in $public_cases; do
+  set -- "$@" --case "$name"
+done
 run agent-guard-devtools masking-latency --baseline /public/bin/agent-guard \
   --baseline-packaged-native --native-core "$core" --packaged-native \
   --scanner /scanner/gitleaks --runs 9 --resources --include-boundaries \
-  --case exec-clean --case exec-multiline --case exec-long-quoted-secret \
-  --case pre-unknown-tool > "$out/cli-public-default.json" 2> "$out/cli-public-default.log" || public_status=$?
+  "$@" > "$out/cli-public-default.json" 2> "$out/cli-public-default.log" || public_status=$?
 if [ "$public_status" -eq 0 ]; then
-jq -e '
-  def median: sort | .[length / 2 | floor];
-  def cpu($arm): .resource_usage[$arm] as $r
-    | [range(0; $r.user_cpu_seconds.samples | length) as $i
-       | $r.user_cpu_seconds.samples[$i] + $r.system_cpu_seconds.samples[$i]] | median;
-  .runs == 9 and (.cases | length) == 4 and all(.cases[];
-    .verified and .seconds.candidate.median <= .seconds.baseline.median * 1.05
-    and cpu("candidate") <= cpu("baseline") * 1.05)
-' "$out/cli-public-default.json" > "$out/public-default-gate.txt" || public_status=$?
+  jq -e --argjson names "$public_names" --argjson complete_only false -f bench/native/public-default-gate.jq \
+    "$out/cli-public-default.json" > "$out/public-default-gate.txt" || public_status=$?
 fi
 # The same confirmation for the public-default comparison, after a complete and
 # verified screening only.
 if [ "$public_status" -ne 0 ] \
-  && jq -e '.runs == 9 and (.cases | length) == 4 and all(.cases[]; .verified == true)' \
+  && jq -e --argjson names "$public_names" --argjson complete_only true -f bench/native/public-default-gate.jq \
     "$out/cli-public-default.json" > /dev/null 2>&1 \
   && public_screened=$(jq -n --argjson screened '[]' --argjson check_cpu true -f bench/native/confirm.jq \
       "$out/cli-public-default.json" < /dev/null \
