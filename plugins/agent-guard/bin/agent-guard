@@ -1324,6 +1324,13 @@ state_cache_fresh() {
   [ "$ag_scf_age" -ge 0 ] && [ "$ag_scf_age" -lt "$STATE_CACHE_TTL_SECONDS" ]
 }
 
+# Succeeds when audit_begin validated a private state directory and read the
+# clock, so a state cache has a home and a time to store.
+state_cache_ready() {
+  [ -n "$AG_STATE_DIR" ] || return 1
+  case "$AG_AUDIT_START" in ''|0|*[!0-9]*) return 1 ;; esac
+}
+
 # Existing private directories are never chmodded: an unexpected directory is
 # an error.
 audit_directory() (
@@ -2058,8 +2065,7 @@ GITLEAKS_PROBE_CACHE_KEY=
 
 gitleaks_probe_cache_lookup() {
   GITLEAKS_PROBE_CACHE_KEY=
-  [ -n "$AG_STATE_DIR" ] || return 1
-  case "$AG_AUDIT_START" in ''|0|*[!0-9]*) return 1 ;; esac
+  state_cache_ready || return 1
   ag_gl_cache_bin=$1
   case "$ag_gl_cache_bin" in /*) ;; *) return 1 ;; esac
   case "$ag_gl_cache_bin" in *[[:cntrl:]]*) return 1 ;; esac
@@ -2145,8 +2151,7 @@ gitleaks_clean_cache_key() {
   GITLEAKS_CLEAN_CACHE_FILE=
   GITLEAKS_CLEAN_CACHE_CONFIG_SUM=
   [ "${AGENT_GUARD_SCAN_CACHE:-on}" = on ] || return 1
-  [ -n "$AG_STATE_DIR" ] || return 1
-  case "$AG_AUDIT_START" in ''|0|*[!0-9]*) return 1 ;; esac
+  state_cache_ready || return 1
   # The probe cache's identity of a native executable; a script shim has none.
   [ -n "$GITLEAKS_PROBE_CACHE_KEY" ] && [ "$GITLEAKS_PROBE_STATE" = ready ] \
     && [ -n "$GITLEAKS_READY_BIN" ] || return 1
