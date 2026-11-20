@@ -3015,6 +3015,8 @@ run_expect 0 "sed addresses, echo words and plain heredoc expansions are data; r
   sh "$ROOT/tests/bash-path-text-data.sh"
 run_expect 0 "a gh --jq value is a jq filter and does not stop a later jq rewrite; real reads stay blocked" \
   sh "$ROOT/tests/gh-jq-option.sh"
+run_expect 0 "a committed file is not blocked by its name; untracked, linked, outside and remote paths stay blocked" \
+  sh "$ROOT/tests/tracked-file-exception.sh"
 run_expect 0 "literal backquotes in quoted text read by echo or cat pass, runnable ones stay blocked" \
   sh "$ROOT/tests/literal-substitution-text.sh"
 run_expect 0 "a failed quoted-bracket normalization keeps the protected-path verdict" \
