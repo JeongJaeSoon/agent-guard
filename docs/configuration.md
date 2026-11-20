@@ -69,6 +69,31 @@ return status 0 with no response. See [Output masking coverage](integrations.md#
   turns off the Claude `PostToolUseFailure` check, which reports secret-like
   values in a failed tool's output but cannot mask them
   ([Integrations](integrations.md#output-masking-coverage)).
+- A credential-like key name alone does not mask a value. The assignment
+  heuristic (`password=...`, `token: ...`) still masks a quoted string and a
+  bare value, whatever its entropy: `password=hunter2`, `password: admin`, a
+  connection string segment. It leaves a value that is an identifier repeating
+  the field name and is followed by code punctuation, because that is source
+  code naming the field again, not a credential:
+
+  | Left readable | Still masked |
+  | --- | --- |
+  | `credential: Credential;`, `credential: Credential \| null;` | `credential: Credential` (nothing after it, as in YAML) |
+  | `credential: CredentialSchema,`, `password: hashedPassword,` | `credential: mypassword,`, `password: hashedPassword1,` |
+  | `credential: input.credential,` | `credential: input.credential, port: 3306` |
+  | `credential=credential,`, `api_key=self.api_key,` | `credential=hunter2,`, `api_key=other_key,` |
+  | `self.credential = credential`, `this.credential = credential;` | `password = password`, `this.credential = "..."` |
+
+  The identifier has no digit, a dotted chain starts at a common object name
+  (`input`, `config`, `self`, `this`, ...), the `,` or `;` ends the line (or a `|`, `??`,
+  `||`, `&&` or `=` follows after a colon field), and after `=` the value must
+  be the field name itself. A password that is its own key name and is
+  followed by a line-ending `,` or `;` (`password=password,`) reads the same
+  way and is left readable too. gitleaks findings are masked regardless.
+  `AGENT_GUARD_KEY_NAME_REDACT=on` turns this exemption off, so the left-hand
+  column is masked again as it was before; any value other than unset, empty
+  or `off` counts as `on`. The prompt guard
+  uses the same detector, so the same lines pass or block there.
 - A tool result too large to scan is masked fail-closed: every nonempty string
   in it is replaced. Anthropic content-block discriminators (`type`,
   `source.type`, `media_type`) survive that rewrite when the value is exactly a
@@ -435,6 +460,7 @@ reads it.
 | `AGENT_GUARD_INFRA_FAILURE_MODE` | `open` (default) or `closed` for hook infrastructure failures. |
 | `AGENT_GUARD_SCAN_INPUT_MAX_BYTES` | Positive integer `>= 10485760`; default `10485760` (10 MiB, split into thirds per producer, so `scan-staged` and each `scan-working-tree` component get 3495253 bytes by default). It can only raise the budget: smaller, non-numeric, or overlong (19+ digit) values keep the default. A larger budget scans more input; it never excludes anything from scanning. |
 | `AGENT_GUARD_OUTPUT_REDACT` | Output secret masking; set `off` only with deliberate acceptance of the reduced protection. |
+| `AGENT_GUARD_KEY_NAME_REDACT` | `off` (default) or `on`. `on` also masks, and blocks in a prompt, an identifier that repeats a credential-like field name (`credential: CredentialSchema,`); see [Output and prompt handling](#output-and-prompt-handling). Any value other than unset, empty or `off` counts as `on`. |
 | `AGENT_GUARD_KNOWN_VALUE_REDACT` | `on` (default) or `off`. Only with `AGENT_GUARD_DENY_READ_MODE=mask`: output masking also masks the values of the project's root dotenv files ([Known dotenv values in output](#known-dotenv-values-in-output)). `off` skips it. |
 | `AGENT_GUARD_PROMPT_GUARD_MODE` | `block` (default), `warn`, `off`, or the currently blocking `mask` fallback. |
 | `AGENT_GUARD_PII_HOOK_MODE` | `off` (default), `block`, or `mask`. |

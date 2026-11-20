@@ -3023,6 +3023,8 @@ run_expect 0 "status words and named placeholders are prose, real values still b
   sh "$ROOT/tests/prompt-prose-placeholder.sh"
 run_expect 0 "bracketed values mask whole and spaced angle placeholders are judged as one value on both hosts" \
   sh "$ROOT/tests/redaction-wrapped-values.sh"
+run_expect 0 "a field value that repeats the field name is code on both hosts; config literals stay masked" \
+  sh "$ROOT/tests/key-name-masking.sh"
 ambiguous_bash_fixtures="$ROOT/tests/fixtures/ambiguous-bash-protected-path.json"
 ambiguous_bash_cases="$TESTTMP/ambiguous-bash-protected-path.cases"
 if jq -e 'type == "array" and length > 0' "$ambiguous_bash_fixtures" >/dev/null \

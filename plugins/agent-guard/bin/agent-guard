@@ -12124,6 +12124,11 @@ secretish_env_values() {
   record_mode=${1:-json}
   LC_ALL=C awk -v record_mode="$record_mode" '
     BEGIN {
+      # AGENT_GUARD_KEY_NAME_REDACT. Only an unset, empty or exact `off` value
+      # keeps the default. Any other value, a typo included, selects the
+      # stricter masking by key name (see self_named_reference).
+      key_name_redact = ENVIRON["AGENT_GUARD_KEY_NAME_REDACT"]
+      key_name_redact = !(key_name_redact == "" || key_name_redact == "off")
       core = "password|passwd|passphrase|db[_-]?pass(word)?|secret|secret[_-]?key|token|refresh[_-]?token|auth[_-]?token|session[_-]?key|api[_-]?key|access[_-]?key|private[_-]?key|signing[_-]?key|encryption[_-]?key|credential|client[_-]?secret|bearer|webhook"
       # Match assignment keys whose secret-bearing term is terminal or carries
       # only a bounded qualifier suffix (AWS_ACCESS_KEY_ID, API_KEY_VALUE,
@@ -12186,6 +12191,9 @@ secretish_env_values() {
       # or fewer, and `cannot`, already pass on their own.
       lead_n = split("must should shall will would might needs when", lead_words, " ")
       for (lead_i = 1; lead_i <= lead_n; lead_i++) prose_lead_word[lead_words[lead_i]] = 1
+      # Credential words a key and an identifier can share, compared after
+      # case and separators come off (`api_key`, `apiKey` -> `apikey`).
+      name_stem_n = split("password passwd passphrase secret token credential apikey accesskey privatekey signingkey encryptionkey sessionkey bearer webhook", name_stem, " ")
     }
     function quoted_end(raw, quote, i, slash_count, ch) {
       slash_count = 0
@@ -12782,6 +12790,77 @@ secretish_env_values() {
       if (length(v) >= 24 && v ~ /^[A-Za-z]+([._-][A-Za-z]+)*$/) return 1
       return 0
     }
+    # A credential-named field whose value is an identifier that repeats the
+    # name of the field is source code naming the same thing again
+    # (`credential: CredentialSchema,`, `credential: input.credential,`,
+    # `credential=credential,`, `this.credential = credential;`), not a value.
+    # Emitting it made the field name itself a global literal, so every
+    # occurrence of the word in a diff was masked.
+    # AGENT_GUARD_KEY_NAME_REDACT turns this exemption off.
+    #
+    # All of these must hold, so that a config literal keeps masking:
+    # - Unquoted only, and the complete token is the value: a digit-free
+    #   identifier or dotted chain, with an optional leading `$` or one simple
+    #   generic argument. A digit, a quote or any other symbol keeps masking.
+    #   A dotted chain must start at an object name source code reads from
+    #   (the closed root list member_reference uses), because letters and
+    #   dots are also what a passphrase of words looks like.
+    # - Code follows it. A `,` or `;` that ends the line; or, after a colon
+    #   field, a union, logical, nullish or default operator after a space;
+    #   or nothing at all, only for a `self.`/`this.` member assigned with a
+    #   spaced `=`. A bare word at the end of any other line is what an env,
+    #   YAML or INI file writes, and text after the `,` or `;` is a flow
+    #   mapping, a log line or a connection string; both keep masking.
+    # - The value names the field. After `=` its last segment must be the
+    #   field name itself (`api_key=self.api_key,`). After a colon a type or
+    #   a schema is named after the field rather than equal to it, so it is
+    #   enough that both share a credential word (`password: hashedPassword,`)
+    #   when the value is also written as an identifier: a capital or an
+    #   underscore past its first character, a dotted chain, or a leading `$`.
+    #   A plain word that is not the field name (`mypassword,`) keeps masking.
+    # Residual, accepted: a digit-free password that is its own key name, or
+    # after a colon a camelCase or snake_case one that contains it, reads the
+    # same way when a line-ending `,` or `;` follows.
+    function self_named_reference(assignment, value, token, term, tail, \
+                                  k, v, leaf, i) {
+      sub(/\r$/, "", token)
+      if (token != value) return 0
+      if (value !~ /^\$?[A-Za-z_]+(\.[A-Za-z_]+)*(<[A-Za-z_.]+>)?$/) return 0
+      if (term == "," || term == ";") {
+        if (substr(tail, 2) !~ /^[ \t\r]*$/) return 0
+      } else if (term == " " || term == "\t") {
+        sub(/^[ \t]+/, "", tail)
+        if (assignment !~ /:$/ || tail !~ /^(\|\|?|\?\?|&&|=)[ \t]/) return 0
+      } else if (term != "" \
+                 || assignment !~ /(^|[^A-Za-z0-9_.-])(self|this)\.[A-Za-z_]+[ \t]+=$/) {
+        return 0
+      }
+      k = assignment
+      sub(/[ \t]*[:=]$/, "", k)
+      gsub(/["'\''`]/, "", k)
+      sub(/^.*[^A-Za-z0-9_-]/, "", k)
+      k = tolower(k)
+      gsub(/[^a-z]/, "", k)
+      leaf = value
+      sub(/<.*$/, "", leaf)
+      sub(/^.*\./, "", leaf)
+      leaf = tolower(leaf)
+      gsub(/[^a-z]/, "", leaf)
+      if (k == "" || leaf == "") return 0
+      if (index(value, ".")) {
+        v = substr(value, 1, index(value, ".") - 1)
+        sub(/^\$/, "", v)
+        if (!(v in root_word)) return 0
+      }
+      if (leaf == k) return 1
+      if (assignment !~ /:$/) return 0
+      if (substr(value, 1, 1) != "$" && substr(value, 2) !~ /[A-Z_.]/) return 0
+      v = tolower(value)
+      gsub(/[^a-z]/, "", v)
+      for (i = 1; i <= name_stem_n; i++)
+        if (index(k, name_stem[i]) && index(v, name_stem[i])) return 1
+      return 0
+    }
     function emit_value(source, start, assignment, require_credential, \
                         raw, leading, quote, end, \
                         value, token, trailing, ch, route, \
@@ -12920,6 +12999,7 @@ secretish_env_values() {
           wrap++
         }
         if (wrap > 0) extent = value substr(token, end + 1, wrap)
+        if (!key_name_redact && self_named_reference(assignment, value, token, substr(raw, length(token) + 1, 1), substr(raw, length(token) + 1))) return 0
         if (type_annotation(assignment, value, token, substr(raw, length(token) + 1, 1), substr(raw, length(token) + 1))) return 0
         if (member_reference(assignment, value, substr(raw, length(token) + 1, 1), substr(raw, length(token) + 1))) return 0
         if (keyword_expression(assignment, value, substr(raw, length(token) + 1))) return 0

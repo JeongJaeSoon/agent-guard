@@ -9,6 +9,9 @@ on:
       - 'tests/post-tool-serialization-recovery.sh'
       - 'tests/redaction-wrapped-values.sh'
       - 'tests/fixtures/redaction-wrapped-values.json'
+      - 'tests/key-name-masking.sh'
+      - 'tests/fixtures/key-name-masking.json'
+      - 'tests/fixtures/key-name-masking-diff.txt'
       - '.github/workflows/legacy-tools.yml'
   push:
     branches: [main]
@@ -20,6 +23,9 @@ on:
       - 'tests/post-tool-serialization-recovery.sh'
       - 'tests/redaction-wrapped-values.sh'
       - 'tests/fixtures/redaction-wrapped-values.json'
+      - 'tests/key-name-masking.sh'
+      - 'tests/fixtures/key-name-masking.json'
+      - 'tests/fixtures/key-name-masking-diff.txt'
       - '.github/workflows/legacy-tools.yml'
   workflow_dispatch:
 # Replace only obsolete runs of the same PR. Non-PR runs have unique groups,
@@ -52,6 +58,13 @@ jobs:
           mkdir -p "$RUNNER_TEMP/mawk-bin"
           ln -sf /usr/bin/mawk "$RUNNER_TEMP/mawk-bin/awk"
           PATH="$RUNNER_TEMP/mawk-bin:$PATH" sh tests/redaction-wrapped-values.sh
+          # mawk, gawk and busybox awk must agree on the key-name records.
+          command -v gawk >/dev/null && command -v busybox >/dev/null \
+            || { sudo apt-get update && sudo apt-get install -y gawk busybox; }
+          gawk --version | head -n 1
+          busybox | head -n 1
+          AGENT_GUARD_TEST_REQUIRE_AWK_VARIANTS=1 \
+            PATH="$RUNNER_TEMP/mawk-bin:$PATH" sh tests/key-name-masking.sh
       - name: Verify jq 1.8.1 successful truncation recovery
         run: |
           set -eu
