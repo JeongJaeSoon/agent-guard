@@ -93,6 +93,10 @@ hook hook-pre-tool "$(pre "echo $secret")" AGENT_GUARD_GITLEAKS_HELPER="$CLIENT"
 expect "an explicit AGENT_GUARD_GITLEAKS_BIN keeps its scanner without the client" '[ ! -s "$CALLS" ] && same_as pre-secret'
 hook hook-pre-tool "$(pre "echo $secret")" AGENT_GUARD_GITLEAKS_HELPER="$CLIENT" AGENT_GUARD_LOG_MODE=off
 expect "without the private state directory the client is not used" '[ ! -s "$CALLS" ] && [ "$(cat "$CASE/h.status")" = 2 ]'
+# Log-off mode with the scan cache kept (#520) has a state directory, but the
+# helper still stays off there.
+hook hook-pre-tool "$(pre "echo $secret")" AGENT_GUARD_GITLEAKS_HELPER="$CLIENT" AGENT_GUARD_LOG_MODE=off AGENT_GUARD_SCAN_CACHE=on
+expect "logging off keeps the client unused even with AGENT_GUARD_SCAN_CACHE=on" '[ ! -s "$CALLS" ] && [ "$(cat "$CASE/h.status")" = 2 ]'
 for value in lib/agent-guard-scan "$CASE/lib/missing" "$CASE/lib"; do
   hook hook-pre-tool "$(pre "echo $secret")" AGENT_GUARD_GITLEAKS_HELPER="$value"
   expect "a relative, missing or non-file AGENT_GUARD_GITLEAKS_HELPER ($value) is ignored" '[ ! -s "$CALLS" ] && same_as pre-secret'

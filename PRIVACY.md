@@ -57,15 +57,43 @@ once at invocation start, examines at most 2,000 top-level entries, and only
 removes generated event names. Concurrent runs or externally populated storage
 can exceed that target; cleanup remains bounded. No cleanup runs
 on the signal/exit path. Logging is best-effort and never changes a guard decision.
-The same directory holds `gitleaks-probe`, which records the resolved gitleaks
-path, its file identity and version after a successful readiness check, so later
-invocations within ten minutes can skip rerunning `gitleaks version`. Every
-invocation still runs its own scan.
-Set `AGENT_GUARD_LOG_MODE=off` to opt out; the readiness check then runs in
-every invocation. `agent-guard logs status` reports
+`agent-guard logs status` reports
 local log state and `agent-guard logs export` writes the safe metadata JSONL to
 standard output. Neither command exports inspected content, file paths,
 environment values, host session identifiers, or arbitrary tool names.
+
+The same directory holds three local caches. They only make repeated hooks
+faster and never change a guard decision:
+
+- `gitleaks-probe` records, after a successful readiness check, the resolved
+  gitleaks path, that file's identity (device, inode, size, modification and
+  change times), the minimum supported gitleaks version, the time of the check,
+  and the gitleaks version, so invocations within ten minutes can skip
+  rerunning `gitleaks version`. Every invocation still runs its own scan.
+- `gitleaks-clean/` holds at most 256 entries for repeated Bash command scans
+  that finished clean within the last ten minutes. An entry is named by a
+  SHA-256 of the scanned command text together with the Agent Guard version,
+  the scan flags, the gitleaks path, file identity and version, and the values
+  of `GITLEAKS_CONFIG` and `GITLEAKS_CONFIG_TOML`. It holds a format number, the
+  SHA-256 of the gitleaks configuration file, and the time of the scan. Each
+  `config-<SHA-256>` marker holds only the Agent Guard version and a format
+  number. The scanned text is never stored.
+- `deny-path-regex-<mode>-<key>` files hold the regular expressions built from
+  the protected-path deny list. The name holds the Agent Guard version, the
+  file identity of the deny list and of the `agent-guard` script, and the
+  values of `LC_ALL`, `LC_CTYPE`, and `LANG`. Once more than six pile up for a
+  mode, every file of that mode except the current one is removed.
+
+The caches are used only when the directory path is absolute, contains no
+control characters, is reached without a symlink, and the directory is owned by
+the current user with mode 0700; their files are created with mode 0600. Otherwise each invocation runs without them.
+
+Set `AGENT_GUARD_LOG_MODE=off` to opt out of the log. By default that also
+turns the caches off, so nothing is written to this directory. Every
+invocation then runs the gitleaks readiness check, and a repeated Bash
+command is scanned again: usually one or two more gitleaks runs per hook. To
+keep the caches without the log, set `AGENT_GUARD_SCAN_CACHE=on` explicitly
+as well; the caches above are then written, and no event record is.
 
 ## Optional warm gitleaks helper
 

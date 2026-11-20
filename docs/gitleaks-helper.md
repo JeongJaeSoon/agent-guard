@@ -64,8 +64,9 @@ it is idle).
 The helper is not used when:
 
 - `AGENT_GUARD_GITLEAKS_BIN` is set (you chose a specific scanner);
-- `AGENT_GUARD_LOG_MODE=off` (there is no validated private state directory
-  for the socket);
+- `AGENT_GUARD_LOG_MODE=off`, even with `AGENT_GUARD_SCAN_CACHE=on` keeping
+  the state directory for the caches (log-off mode keeps the helper off for
+  now);
 - the socket path would exceed 103 bytes (`$XDG_STATE_HOME`, or
   `~/.local/state`, is very deep);
 - the gitleaks the CLI selected is not built like the official release: the
