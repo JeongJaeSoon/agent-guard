@@ -140,9 +140,10 @@ rm -f "$rp"
 (umask 077 && : >"$rp")
 rp_inode=$(ls -i "$rp" | awk '{ print $1 }')
 : >"$TRACE"
-"$CLIENT" --gitleaks "$GL" --gitleaks-version 8.30.1 --state-dir "$STATE" -- \
+# A permissive umask makes a recreated file visibly lose its 0600 mode.
+(umask 022 && "$CLIENT" --gitleaks "$GL" --gitleaks-version 8.30.1 --state-dir "$STATE" -- \
   stdin --report-format json --report-path "$rp" --no-banner --config "$CFG" \
-  <"$IN/github-pat" >/dev/null 2>&1
+  <"$IN/github-pat" >/dev/null 2>&1)
 st=$?
 expect "a helper report fills the CLI's own file: same file, mode kept, finding present" \
   '[ "$(last_trace)" = helper ] && [ "$st" = 1 ] && [ "$(ls -l "$rp" | cut -c1-10)" = -rw------- ] && [ "$(ls -i "$rp" | awk "{ print \$1 }")" = "$rp_inode" ] && jq -e "length > 0" "$rp" >/dev/null'

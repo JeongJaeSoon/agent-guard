@@ -164,7 +164,12 @@ grep -Fq 'matrix: ${{ fromJSON(needs.scope.outputs.matrix) }}' "$helper_wf" \
   && grep -Fq 'sh .github/scripts/gitleaks-helper-scope.sh "$EVENT_NAME" < "$RUNNER_TEMP/changed" >> "$GITHUB_OUTPUT"' "$helper_wf" \
   && grep -Fq "      - '.github/scripts/gitleaks-helper-scope.sh'" "$helper_wf" \
   || fail 'the helper workflow takes its platforms from the tested scope script'
-# The off-state comparison stays a Linux job on every CLI change.
-awk '/^  off-state:/ { on = 1 } on' "$helper_wf" | grep -Fq 'runs-on: ubuntu-24.04' \
+# The off-state comparison stays a Linux job on every CLI change, and its base
+# is the merge parent, never the event's possibly stale base SHA.
+off_job=$(awk '/^  off-state:/ { on = 1 } on' "$helper_wf")
+printf '%s\n' "$off_job" | grep -Fq 'runs-on: ubuntu-24.04' \
   || fail 'the helper-off comparison runs on Linux'
+printf '%s\n' "$off_job" | grep -Fq 'run: git worktree add --detach base-checkout HEAD^1' \
+  && ! printf '%s\n' "$off_job" | grep -Fq 'pull_request.base.sha' \
+  || fail 'the helper-off comparison base is the merge parent'
 printf 'CI scope fixtures passed: %s; matrix, aggregate and performance schedule wiring verified\n' "$pass"

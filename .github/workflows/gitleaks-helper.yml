@@ -120,6 +120,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
+          # The tested tree is the pull request's merge commit; its first
+          # parent is the exact base it was merged onto.
+          fetch-depth: 2
       - name: Install the official gitleaks release and strace
         run: |
           set -eu
@@ -129,10 +132,9 @@ jobs:
           printf '%s  %s\n' 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb "$RUNNER_TEMP/$archive" | shasum -a 256 -c -
           tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP/official" gitleaks
           sudo apt-get update -q >/dev/null && sudo apt-get install -y strace >/dev/null
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          persist-credentials: false
-          ref: ${{ github.event.pull_request.base.sha }}
-          path: base-checkout
+      - name: Check out the merge parent as the base
+        # The event's base SHA can be older than the main tip GitHub merged
+        # the pull request onto; that would compare against the wrong main.
+        run: git worktree add --detach base-checkout HEAD^1
       - name: Compare hooks with the helper off against the base branch
         run: sh bench/gitleaks-helper/compare-off.sh "$GITHUB_WORKSPACE/base-checkout" "$RUNNER_TEMP/official/gitleaks"
