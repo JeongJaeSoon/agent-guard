@@ -1,0 +1,93 @@
+[
+  {
+    "id": "bare-reference",
+    "expected": "pass",
+    "classification": "must-pass",
+    "description": "an unquoted environment-variable reference",
+    "text": "GITHUB_TOKEN=$GITHUB_TOKEN"
+  },
+  {
+    "id": "bare-reference-prose",
+    "expected": "pass",
+    "classification": "must-pass",
+    "description": "a reference followed by prose in a report bullet",
+    "text": "- GITHUB_TOKEN=$GITHUB_TOKEN is passed to the worker (scripts/run.sh:40)"
+  },
+  {
+    "id": "bare-reference-backticks",
+    "expected": "pass",
+    "classification": "must-pass",
+    "description": "a reference inside backticks",
+    "text": "- `WORKER_TOKEN=$WORKER_TOKEN` is exported before the worker starts"
+  },
+  {
+    "id": "export-other-name",
+    "expected": "pass",
+    "classification": "must-pass",
+    "description": "an export that copies another variable",
+    "text": "export ANTHROPIC_API_KEY=$CLAUDE_API_KEY"
+  },
+  {
+    "id": "colon-reference",
+    "expected": "pass",
+    "classification": "must-pass",
+    "description": "a YAML-style field that reads a variable",
+    "text": "password: $DB_PASSWORD"
+  },
+  {
+    "id": "braced-reference",
+    "expected": "pass",
+    "classification": "must-pass",
+    "description": "regression: a braced reference already passes",
+    "text": "API_TOKEN=${API_TOKEN}"
+  },
+  {
+    "id": "quoted-reference",
+    "expected": "pass",
+    "classification": "must-pass",
+    "description": "regression: a double-quoted reference already passes",
+    "text": "WORKER_TOKEN=\"$WORKER_TOKEN\""
+  },
+  {
+    "id": "literal-value",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a real value",
+    "text": "GITHUB_TOKEN={{SECRET}}"
+  },
+  {
+    "id": "reference-with-suffix",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "text glued to the variable name",
+    "text": "API_KEY=$API_KEY{{SECRET}}"
+  },
+  {
+    "id": "dollar-lowercase",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a lowercase word after a dollar sign is a value",
+    "text": "DB_PASSWORD=${{SECRET}}"
+  },
+  {
+    "id": "dollar-digits",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a dollar word with digits is a value",
+    "text": "SECRET_KEY=$ABCD{{DIGITS}}"
+  },
+  {
+    "id": "bcrypt-like",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a bcrypt-style hash keeps masking",
+    "text": "PASSWORD=$2b$12${{SECRET}}"
+  },
+  {
+    "id": "reference-then-value",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a reference does not hide a real value on the next line",
+    "text": "GITHUB_TOKEN=$GITHUB_TOKEN\nNPM_TOKEN={{SECRET}}"
+  }
+]
