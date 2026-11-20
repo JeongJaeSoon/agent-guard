@@ -87,4 +87,42 @@ PATH="$case_dir/bin" "$(command -v sh)" "$bench" "$ROOT" "$ROOT" "$case_dir/out.
 grep -Fxq 'bench: valgrind is required' "$case_dir/stderr" || fail 'missing valgrind is named'
 [ ! -e "$case_dir/out.tsv" ] || fail 'no TSV is written without valgrind'
 
+# The Performance evidence gate: the change beyond the script-size share,
+# as a percent of the base count, must stay within the limit.
+{
+  row version version 63835995 64088200 0 0 same
+  row dense-controls hook-post-tool 491200297 594011885 0 0 same
+  row prompt hook-user-prompt 68962077 69234745 0 0 same
+} > "$case_dir/r505.tsv"
+status=0
+sh "$bench" --check "$case_dir/r505.tsv" 5 > "$case_dir/over" 2> "$case_dir/stderr" || status=$?
+[ "$status" -eq 1 ] || fail 'the #505 shell regression fails the gate'
+grep -Fxq 'dense-controls (hook-post-tool): +20.88% beyond the script-size share (102559383 of base 491200297)' "$case_dir/over" \
+  || fail 'the gate names the event and its share'
+[ "$(wc -l < "$case_dir/over")" -eq 1 ] || fail 'only events over the limit are named'
+{
+  row version version 1000000 1100000 0 0 same
+  row pre-edit hook-pre-tool 2000000 2200000 0 0 same
+  row post-bash hook-post-tool 2000000 2100000 0 0 different
+} > "$case_dir/limit.tsv"
+sh "$bench" --check "$case_dir/limit.tsv" 5 > "$case_dir/over" || fail 'exactly +5% beyond the share passes'
+[ ! -s "$case_dir/over" ] || fail 'a pass names no event'
+row pre-edit hook-pre-tool 2000000 2200001 0 0 same >> "$case_dir/limit.tsv"
+status=0
+sh "$bench" --check "$case_dir/limit.tsv" 5 > /dev/null || status=$?
+[ "$status" -eq 1 ] || fail 'one instruction over the limit fails'
+for bad in noref truncated text; do
+  case "$bad" in
+    noref) row dense-controls hook-post-tool 1 2 0 0 same ;;
+    truncated) row version version 1 1 0 0 same ;;
+    text) printf 'version\tversion\tx\t1\t0\t0\tsame\ndense\thook\t1\t1\t0\t0\tsame\n' ;;
+  esac > "$case_dir/$bad.tsv"
+  status=0
+  sh "$bench" --check "$case_dir/$bad.tsv" 5 > /dev/null 2>&1 || status=$?
+  [ "$status" -eq 3 ] || fail "an incomplete measurement ($bad) is not a pass"
+done
+status=0
+sh "$bench" --check "$case_dir/r505.tsv" > /dev/null 2>&1 || status=$?
+[ "$status" -eq 2 ] || fail 'the gate needs a limit'
+
 printf 'hook instruction count fixtures passed\n'
