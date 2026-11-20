@@ -14,7 +14,7 @@ main/release matrix can be verified before merging a CI change.
 | --- | --- |
 | Agent Guard | Real scanner against the checked-out tree |
 | Named suites (ubuntu-latest) | All suite partitions on Linux; real scanner integration and smoke test in shard 4 |
-| Named suites (macos-latest) | Core, host adapters and Git on every PR; all partitions on main and `release/` PRs, with the mock scanner |
+| Named suites (macos-latest) | Core, host adapters and Git on every PR, as two jobs (partition 1 under that name, partition 3 as `Core, host adapters and Git (partition 3)`); all partitions on main and `release/` PRs, with the mock scanner |
 | Test (ubuntu-latest), Test (macos-latest) | Full-matrix aggregate on main, release PRs and manual dispatch; names consumed by release |
 | PR subset test (ubuntu-latest), PR subset test (macos-latest) | Ordinary PR aggregate of every selected shard, including cancelled/failed jobs |
 | Lint | ShellCheck on tracked shell scripts and actionlint on workflows |
@@ -25,21 +25,21 @@ The numbers are execution partitions, not security tiers or sequential stages.
 `tests/run.sh` without `AGENT_GUARD_TEST_SHARD` runs them all in order. CI runs
 them all on Linux for every PR and on both operating systems for main pushes
 and PRs whose source branch starts with `release/`. Other PRs also run partitions
-1 and 3 on macOS. Shard 1 checks that every
+1 and 3 on macOS, each on its own runner. Shard 1 checks that every
 partition is present in the matrix. Fixtures remain local to each partition.
 The internal IDs select execution partitions; Actions displays descriptive names:
 
 | Internal ID | Actions suite | Change from the previous layout |
 | --- | --- | --- |
-| 1 | Core, host adapters and Git (with 3) | Unchanged |
+| 1 | Core, host adapters and Git (with 3 on Linux; alone on macOS) | Unchanged |
 | 2 | Command policies | Adds git aliases and three mask suites previously in 3 |
-| 3 | Core, host adapters and Git (with 1) | Retains auto-staging regression cases |
+| 3 | Core, host adapters and Git (with 1 on Linux; `Core, host adapters and Git (partition 3)` on macOS) | Retains auto-staging regression cases |
 | 4 | CLI, scanner and output | Retains scanner integration; adds original 5 output, PII and shell-setup cases |
 | 5 | Shell navigation | Runs shell-navigation cases previously in 4 |
 
 Regression assertion bodies and their unpartitioned execution order stay
-identical; the matrix-coverage assertion counts both core entries and the two
-navigation hosts. Moved groups initialize their own repositories, configuration and
+identical; the matrix-coverage assertion counts partitions 1 and 3 twice each
+(the Linux bundle and the two macOS entries) and the two navigation hosts. Moved groups initialize their own repositories, configuration and
 sessions. Full-matrix aggregate names remain unchanged; the release workflow
 consumes those aggregates, not the child names. Reduced PR runs use distinct
 aggregate names, so a later subset success on the same SHA cannot replace full
@@ -146,7 +146,7 @@ The per-suite summary reports only test execution, excluding queue and setup.
 
 ## 호스트 계약별 병렬 실행
 
-core runner는 partition 1과 3을 동시에 실행한다. 두 partition의 실행 시간이
+Linux의 core runner는 partition 1과 3을 동시에 실행한다. 두 partition의 실행 시간이
 job 시간을 정하므로, hook을 여러 번 실행하는 무거운 fixture 테스트는 여유가 있는
 쪽에 둔다. `tests/key-name-masking.sh`(hook 약 550회)는 그래서 partition 3에서
 실행한다. macOS에서 partition 1이 25분 제한에 1분 안쪽으로 다가온 적이 있다
@@ -156,14 +156,29 @@ navigation은 Claude와 Codex의 호스트 계약별 runner로 나눈다. 두 �
 입력의 cwd/workdir 위치와 응답 계약이 다르며, 각 worker는 자신이 맡은 호스트의
 실제 hook·Bash·Git 검증 전체를 실행한다. 테스트 목록을 번호나 개수로 자르지 않는다.
 
+macOS에서는 partition 1과 3을 runner 하나씩에서 실행한다. 한 runner(3 core)에서
+둘을 나란히 돌리면 fixture 스위트가 늘어난 뒤로 25분 제한에 닿았다. main과 같은
+테스트로 돈 #579의 실행이 제한에서 취소됐고, 다른 실행도 22분에서 23분 반이
+걸렸다. partition 1은 기존 이름 `Core, host adapters and Git (macos-latest)`로,
+partition 3은 `Core, host adapters and Git (partition 3) (macos-latest)`로
+보인다. Linux runner는 두 partition을 계속 한 job에서 실행한다. 시간 제한과
+테스트 목록은 그대로다.
+
+나눈 뒤의 첫 실행에서 partition 1은 단독으로 20분 37초, partition 3은 6분 34초가
+걸렸다. 느린 쪽은 두 partition의 경합이 아니라 partition 1의 양이었다. 그래서
+partition 1에서 가장 느린 fixture 스위트 둘(`tests/deny-path-regex-cache.sh`,
+`tests/message-value-prose.sh`. Linux 컨테이너에서 partition 1 실행 시간 604초 중
+158초)을 partition 3의 맨 앞으로 옮겼다. 스위트를 옮길 때는 두 partition의 macOS
+job 시간을 함께 본다.
+
 전체 matrix에서는 각 OS의 navigation 두 worker 합집합이 기존 378개 assertion과 같다.
 호스트 공통 assertion 5개는 Claude worker가 한 번 실행한다. fixture의 저장소,
 TMPDIR, 출력 파일은 worker마다 격리한다. 기본 `tests/run.sh`는 여전히 모든
 호스트를 실행하고, 호스트 선택은 navigation partition에만 허용한다.
 잘못된 호스트나 다른 partition과의 조합은 오류로 종료한다. core의 matrix 검증은
-core 항목 2개와 일반 partition의 단일 항목, Claude/Codex navigation 항목의 누락·중복을 확인한다.
+partition 1과 3이 각각 두 번(Linux 묶음과 macOS 항목 둘) 나오는지와 일반 partition의 단일 항목, Claude/Codex navigation 항목의 누락·중복을 확인한다.
 
-따라서 전체 matrix의 test job은 10개이고 일반 PR은 Linux 5개와 macOS core 1개다.
+따라서 전체 matrix의 test job은 11개이고 일반 PR은 Linux 5개와 macOS core 2개(partition 1, partition 3)다.
 main과 release PR의 OS/partition/host 전체 검증 범위, 모든 실행의 aggregate job
 2개 이름과 fail-closed 의존성은 유지한다. scanner의 실제 설치,
 no-skip gate와 smoke test도 그대로다. core의 parent는 모든 child를 기다리고,
