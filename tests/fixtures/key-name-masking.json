@@ -640,6 +640,26 @@
    "label": "tab without a number before the diff marker",
    "stdout": "\t+  credential: CredentialSchema,",
    "masked": "\t+  credential: [REDACTED],"
+  },
+  {
+   "label": "diff marker glued to a context locator",
+   "stdout": "+src/schema.ts-14-  credential: CredentialSchema,",
+   "masked": "+src/schema.ts-14-  credential: [REDACTED],"
+  },
+  {
+   "label": "date in front of a dash is not a context locator",
+   "stdout": "2024-01-15-  password: Password,",
+   "masked": "2024-01-15-  password: [REDACTED],"
+  },
+  {
+   "label": "key=value log text shaped like a context locator",
+   "stdout": "level=info|req=42-7- password: Password,",
+   "masked": "level=info|req=42-7- password: [REDACTED],"
+  },
+  {
+   "label": "diff marker before the numbered tab",
+   "stdout": "+14\t  credential: CredentialSchema,",
+   "masked": "+14\t  credential: [REDACTED],"
   }
  ]
 }

@@ -142,7 +142,8 @@ return status 0 with no response. See [Output masking coverage](integrations.md#
   `spring.datasource.password=password;`, `"password": Password,` and a YAML
   list item `- password: Password,` (read as a diff marker). A log line that
   opens like a locator has it as well (`db-host:22: password: Password,`,
-  `2024-01-15T12:34: password: Password,`). The same goes for a value equal
+  `2024-01-15T12:34: password: Password,`, and `web-1- password: Password,`,
+  which reads as a context line of a file named `web`). The same goes for a value equal
   to its key name under a `self.` or `this.` key with nothing after it
   (`self.password = password`). In the other direction, an identifier with a
   word outside the list stays masked as before (`password: legacyPassword,`).
