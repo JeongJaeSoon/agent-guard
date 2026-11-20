@@ -13,11 +13,21 @@ on:
       - 'bench/instruction-count/**'
       - 'bench/process-count/fake-gitleaks.c'
       - '.github/workflows/hook-instruction-count.yml'
+  # Caches made on a PR run are visible to that PR only; a main run with the
+  # same paths stores the valgrind packages where every PR can restore them.
+  push:
+    branches: [main]
+    paths:
+      - 'plugins/agent-guard/bin/agent-guard'
+      - 'plugins/agent-guard/config/**'
+      - 'bench/instruction-count/**'
+      - 'bench/process-count/fake-gitleaks.c'
+      - '.github/workflows/hook-instruction-count.yml'
 permissions:
   contents: read
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   count:
     name: Hook instruction count (base vs head)
@@ -39,16 +49,39 @@ jobs:
           sudo apt-get -o Acquire::Retries=0 \
             -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 \
             -o DPkg::Lock::Timeout=30 update --error-on=any
-      # A mirror stalled mid-download for the whole 4-minute step once: the
-      # Acquire timeouts did not end it and Retries=0 gave no second try. Each
-      # attempt keeps the shared fail-fast options (Retries=0, 20 s timeouts) and
-      # gets its own 55 s limit, three attempts at most, inside the unchanged
-      # step limit. Only the download is retried and killed: stopping apt during
-      # dpkg could leave the next attempt a broken package state. A runner that
-      # never gets valgrind still fails the job as "could not measure".
+      # The mirror has served valgrind and the glibc packages it pulls in
+      # (35.5 MB) at about 50 kB/s, which no retry inside the 4-minute step can
+      # finish, so the packages are cached. The key is the exact list of
+      # package URIs apt plans to fetch on this runner, so a new runner image or
+      # package version makes a new key; an older cache still seeds the apt
+      # archive and only changed files are fetched.
+      - name: Plan valgrind packages
+        id: plan
+        run: |
+          uris="$RUNNER_TEMP/valgrind-uris"
+          sudo apt-get -o DPkg::Lock::Timeout=30 install -qq --print-uris --no-install-recommends valgrind > "$uris"
+          printf 'key=valgrind-debs-%s-%s-%s\n' "$RUNNER_OS" "$RUNNER_ARCH" "$(sha256sum "$uris" | cut -c1-16)" >> "$GITHUB_OUTPUT"
+          mkdir -p "$HOME/valgrind-debs"
+      - name: Restore valgrind packages
+        id: restore
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/valgrind-debs
+          key: ${{ steps.plan.outputs.key }}
+          restore-keys: valgrind-debs-${{ runner.os }}-${{ runner.arch }}-
+      # A download that stops is retried: each attempt keeps the shared
+      # fail-fast options (Retries=0, 20 s timeouts), gets its own 55 s limit
+      # and resumes the partial file (apt sends a Range request), three attempts
+      # at most inside the unchanged step limit. Only the download is retried
+      # and killed: stopping apt during dpkg could leave the next attempt a
+      # broken package state. A runner that never gets valgrind still fails the
+      # job as "could not measure".
       - name: Download valgrind
         timeout-minutes: 4
         run: |
+          if ls "$HOME"/valgrind-debs/*.deb > /dev/null 2>&1; then
+            sudo cp "$HOME"/valgrind-debs/*.deb /var/cache/apt/archives/
+          fi
           fetched=no
           for attempt in 1 2 3; do
             if sudo timeout --kill-after=5 55 apt-get -o Acquire::Retries=0 \
@@ -61,6 +94,15 @@ jobs:
             [ "$attempt" = 3 ] || sleep 10
           done
           [ "$fetched" = yes ]
+          awk '{ print $2 }' "$RUNNER_TEMP/valgrind-uris" | while read -r deb; do
+            cp "/var/cache/apt/archives/$deb" "$HOME/valgrind-debs/"
+          done
+      - name: Save valgrind packages
+        if: steps.restore.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/valgrind-debs
+          key: ${{ steps.plan.outputs.key }}
       - name: Install valgrind
         timeout-minutes: 4
         run: |
@@ -69,6 +111,7 @@ jobs:
         id: count
         env:
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
           tsv="$RUNNER_TEMP/instruction-count.tsv"
           started=$(date +%s)
@@ -77,8 +120,13 @@ jobs:
           elapsed=$(( $(date +%s) - started ))
           {
             printf '### Hook instruction count\n\n'
-            printf -- '- base `%s`(merge의 첫 부모), head: PR `%s`를 base에 merge한 `%s`\n' \
-              "$(git -C base rev-parse HEAD)" "$PR_HEAD_SHA" "$(git -C head rev-parse HEAD)"
+            if [ "$EVENT_NAME" = pull_request ]; then
+              printf -- '- base `%s`(merge의 첫 부모), head: PR `%s`를 base에 merge한 `%s`\n' \
+                "$(git -C base rev-parse HEAD)" "$PR_HEAD_SHA" "$(git -C head rev-parse HEAD)"
+            else
+              printf -- '- base `%s`(첫 부모), head: main 커밋 `%s`\n' \
+                "$(git -C base rev-parse HEAD)" "$(git -C head rev-parse HEAD)"
+            fi
             printf -- '- /bin/sh: `%s`, %s\n' "$(readlink -f /bin/sh)" "$(valgrind --version 2>/dev/null || printf 'valgrind missing')"
             printf -- '- 측정 시간: %s초(두 트리, 이벤트 6개, 각 1회)\n\n' "$elapsed"
           } >> "$GITHUB_STEP_SUMMARY"

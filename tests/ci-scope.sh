@@ -133,4 +133,11 @@ grep -Fq 'sudo timeout --kill-after=5 55 apt-get' "$count" && grep -Fq 'for atte
   && grep -Fq 'install -y --no-install-recommends --no-download valgrind' "$count" \
   || fail 'the valgrind download is retried with a per-attempt limit and installed without a download'
 grep -Fq "if: failure() && steps.count.outcome == 'skipped'" "$count" || fail 'a run that never measured says so'
+grep -Fq 'uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9' "$count" \
+  && grep -Fq 'uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9' "$count" \
+  && grep -Fq "if: steps.restore.outputs.cache-hit != 'true'" "$count" \
+  && grep -Fq 'install -qq --print-uris --no-install-recommends valgrind' "$count" \
+  || fail 'the valgrind packages are cached under a key from the planned package list'
+awk '/^  push:$/ { on = 1; next } on && /^    branches: \[main\]$/ { ok = 1 } on && /^[a-z]/ { exit } END { exit !ok }' "$count" \
+  || fail 'main runs store the valgrind cache every PR can restore'
 printf 'CI scope fixtures passed: %s; matrix, aggregate and performance schedule wiring verified\n' "$pass"
