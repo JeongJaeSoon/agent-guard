@@ -70,10 +70,13 @@ for fx in pre-300k pre-1m post-300k post-1m; do
       # gitleaks (an output over the scan cap takes the whole-output path).
       helper_pid=$(pgrep -f -- "--state-dir $H/xs/" | head -n 1 || true)
       if [ -n "$helper_pid" ]; then
-        strace -qq -p "$helper_pid" -e trace=read,write,pread64,pwrite64,readv,writev -e status=successful \
-          -o "$H/trace.helper" 2>/dev/null &
+        # -f: a Go program does its socket I/O on other threads than the main
+        # one, which a plain -p attach would not see.
+        strace -f -qq -p "$helper_pid" -e trace=read,write,pread64,pwrite64,readv,writev -e status=successful \
+          -o "$H/trace.helper" 2>"$H/trace.helper.err" &
         tracer=$!
         sleep 0.5
+        kill -0 "$tracer" 2>/dev/null || { echo "cannot trace the warm helper ($fx): $(cat "$H/trace.helper.err")" >&2; exit 1; }
       fi
     fi
     strace_run() {
@@ -83,7 +86,7 @@ for fx in pre-300k pre-1m post-300k post-1m; do
       (cd "$CASE/work" && env HOME="$H/home" XDG_STATE_HOME="$H/xs" AGENT_GUARD_HOOK_HOST=claude \
         ${helper:+AGENT_GUARD_GITLEAKS_HELPER="$helper"} \
         strace -f -qq -e trace=read,write,pread64,pwrite64,readv,writev,execve -e status=successful -o "$H/trace" \
-        "$cli" "$(hookcmd "$fx")" <"$CASE/$fx.json" >/dev/null 2>&1) || true
+        "$cli" "$(hookcmd "$fx")" <"$CASE/$fx.json" >/dev/null 2>&1) && echo 0 >"$H/status" || echo "$?" >"$H/status"
     }
     strace_run
     : >"$H/trace.helper.done"
@@ -93,10 +96,16 @@ for fx in pre-300k pre-1m post-300k post-1m; do
       wait "$tracer" 2>/dev/null || true
       cat "$H/trace.helper" >"$H/trace.helper.done" 2>/dev/null || true
     fi
-    # Every process: the hook's tree plus, when warm, the helper. A trace line
-    # of the attached helper has no pid column, so match both forms.
-    bytes=$(cat "$H/trace" "$H/trace.helper.done" | awk '/^([0-9]+ +)?(read|write|pread64|pwrite64|readv|writev)\(/ { n = $NF; if (n ~ /^[0-9]+$/) s += n } END { printf "%.1f", s / 1048576 }')
-    helper_bytes=$(awk '/^(read|write|pread64|pwrite64|readv|writev)\(/ { n = $NF; if (n ~ /^[0-9]+$/) s += n } END { printf "%.2f", s / 1048576 }' "$H/trace.helper.done")
+    # Every process: the hook's tree plus, when warm, the helper. The status
+    # column is the counted (traced) run's exit status.
+    sum_io='/^([0-9]+ +)?(read|write|pread64|pwrite64|readv|writev)\(/ { n = $NF; if (n ~ /^[0-9]+$/) s += n } END { printf "%.2f", s / 1048576 }'
+    bytes=$(cat "$H/trace" "$H/trace.helper.done" | awk "$sum_io")
+    if [ -n "$helper_pid" ]; then
+      [ -s "$H/trace.helper.done" ] || { echo "the warm helper trace is empty ($fx)" >&2; exit 1; }
+      helper_bytes=$(awk "$sum_io" "$H/trace.helper.done")
+    else
+      helper_bytes=-   # no helper: this hook ran no gitleaks
+    fi
     progs=$(grep -c 'execve("' "$H/trace" || true)
     printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$v" "$fx" "$(cat "$H/status")" "$med" "$bytes" "$helper_bytes" "$progs"
   done

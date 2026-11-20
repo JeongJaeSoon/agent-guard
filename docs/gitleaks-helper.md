@@ -245,10 +245,11 @@ of programs executed and the number of processes forked equal main
 
 Large inputs copy about as much as v3.7.0 did. With 300 KiB and 1 MiB clean
 inputs through a Write PreToolUse and a Bash PostToolUse, the bytes read and
-written by every process, the warm helper included, were within 0.3 MiB (about
-3%) of the published v3.7.0 release with the helper off and with it warm (for
-example 19.8, 20.0 and 20.1 MiB for a 1 MiB Write), and no case was slower
-(measured on Linux with `bench/gitleaks-helper/large-v370.sh`;
+written by every process, the warm helper included (traced with all its
+threads), were at most 0.3 MiB more than with the published v3.7.0 release,
+helper off or warm (for example 19.8, 20.0 and 20.1 MiB for a 1 MiB Write).
+Wall time stayed within this VM's run-to-run noise of about 10% (measured on
+Linux with `bench/gitleaks-helper/large-v370.sh`;
 `bench/fused-output/run-constrained.sh` needs Docker with enforced cgroup
 limits and was not run). A pipe that already holds as much as the helper can
 take (64 KiB) goes to the real gitleaks before the client reads a byte, so a
