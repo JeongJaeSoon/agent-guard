@@ -10,6 +10,9 @@
 # the CLI is also covered by tests/gitleaks-helper-routing.sh. Every other
 # event (push to main, manual runs) runs both platforms and reads no input.
 set -eu
+# Match bytes, not characters: git prints a name that is not valid UTF-8 as
+# raw bytes, which a UTF-8 locale's '.' would not match.
+export LC_ALL=C
 
 linux='{"os":"ubuntu-24.04","archive":"linux_x64","checksum":"551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"}'
 macos='{"os":"macos-15","archive":"darwin_arm64","checksum":"b40ab0ae55c505963e365f271a8d3846efbc170aa17f2607f13df610a9aeb6a5"}'

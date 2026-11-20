@@ -164,6 +164,13 @@ helper_case pull_request "$both" "plugins/agent-guard/bin/agent-guard
 native/gitleaks-helper/go.sum"
 helper_case pull_request ubuntu-24.04 'plugins/agent-guard/bin/agent-guard'
 # A path git still quotes cannot be matched; it fails safe to both platforms.
+# A name that is not valid UTF-8 comes out raw; it must match in any locale.
+# (Passed as bytes: macOS cannot create such a file.)
+for locale in C.UTF-8 en_US.UTF-8; do
+  got=$(printf 'native/gitleaks-helper/ff\377\n' | LC_ALL=$locale helper_scope pull_request) \
+    && [ "$got" = "$both" ] || fail "a helper path that is not UTF-8 selects macOS under $locale: got '$got'"
+  pass=$((pass + 1))
+done
 helper_case pull_request "$both" '"native/gitleaks-helper/a\tb.txt"'
 helper_case pull_request ubuntu-24.04 'tests/fixtures/mock-gitleaks'
 helper_case pull_request ubuntu-24.04 'plugins/agent-guard/config/gitleaks.toml'
@@ -173,31 +180,36 @@ helper_case pull_request ubuntu-24.04 'docs/native/gitleaks-helper/notes.md'
 helper_case pull_request ubuntu-24.04 ''
 helper_wf="$ROOT/.github/workflows/gitleaks-helper.yml"
 # Run the workflow's own diff command on a real history: a helper file moved
-# out of the helper tree, and a non-ASCII helper path, still select macOS.
+# out of the helper tree, a non-ASCII helper path and a path git quotes (a
+# tab) still select macOS.
 helper_diff=$(sed -n 's/^ *\(git -c core.quotePath=false diff [^>]*\) > "\$RUNNER_TEMP\/changed"$/\1/p' "$helper_wf")
 [ -n "$helper_diff" ] || fail 'the helper workflow lists changed paths with one git diff command'
+helper_moves='rename unicode tab'
 moves=$(mktemp -d)
 trap 'rm -rf "$moves"' 0
 # The throwaway repositories must not read the user's or system git config.
 (
-export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_CONFIG_NOSYSTEM=1
-for change in rename unicode tab; do
+# The subshell runs under '|| exit 1', which turns errexit off inside it, so
+# every git step fails it explicitly; it never climbs into an outer repo.
+export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_CONFIG_NOSYSTEM=1 GIT_CEILING_DIRECTORIES="$moves"
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
+for change in $helper_moves; do
   rm -rf "$moves/repo"
-  git init -q "$moves/repo"
-  mkdir -p "$moves/repo/native/gitleaks-helper"
-  printf 'package x\n' >"$moves/repo/native/gitleaks-helper/a.go"
-  git -C "$moves/repo" add . && git -C "$moves/repo" -c user.email=t@example.test -c user.name=t commit -qm base
+  git init -q "$moves/repo" || exit 1
+  mkdir -p "$moves/repo/native/gitleaks-helper" || exit 1
+  printf 'package x\n' >"$moves/repo/native/gitleaks-helper/a.go" || exit 1
+  git -C "$moves/repo" add . && git -C "$moves/repo" -c user.email=t@example.test -c user.name=t commit -qm base || exit 1
   case $change in
     rename) git -C "$moves/repo" mv native/gitleaks-helper/a.go moved.go ;;
     unicode) printf 'package x\n' >"$moves/repo/native/gitleaks-helper/é.go" && git -C "$moves/repo" add . ;;
     tab) printf 'x\n' >"$moves/repo/native/gitleaks-helper/a	b.txt" && git -C "$moves/repo" add . ;;
-  esac
-  git -C "$moves/repo" -c user.email=t@example.test -c user.name=t commit -qm change
+  esac || exit 1
+  git -C "$moves/repo" -c user.email=t@example.test -c user.name=t commit -qm change || exit 1
   got=$(cd "$moves/repo" && eval "$helper_diff" | helper_scope pull_request) || fail "helper scope after a $change"
   [ "$got" = "$both" ] || fail "a helper $change selects macOS: got '$got'"
 done
 ) || exit 1
-pass=$((pass + 3))
+pass=$((pass + $(set -- $helper_moves; echo $#)))
 rm -rf "$moves"
 trap - 0
 grep -Fq 'matrix: ${{ fromJSON(needs.scope.outputs.matrix) }}' "$helper_wf" \
