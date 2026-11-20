@@ -17,7 +17,13 @@ case $1 in
       shift
     done
     cat >/dev/null
-    [ -z "$report" ] || cp "$REPORT_FIXTURE" "$report"
+    # Like gitleaks, remove the report path and create it again, so the new
+    # file takes this process's umask; record the mode it ends up with.
+    if [ -n "$report" ]; then
+      rm -f "$report"
+      cp "$REPORT_FIXTURE" "$report"
+      ls -l "$report" | cut -c1-10 >"$REPORT_MODE"
+    fi
     exit "$REPORT_STATUS"
     ;;
   *) exit 2 ;;
@@ -28,7 +34,7 @@ export AGENT_GUARD_GITLEAKS_BIN="$CASE/scanner"
 export AGENT_GUARD_GITLEAKS_CONFIG="$ROOT/plugins/agent-guard/config/gitleaks.toml"
 export AGENT_GUARD_LOG_MODE=off AGENT_GUARD_RELEASE_CHECK=off
 export AGENT_GUARD_HOOK_HOST=claude AGENT_GUARD_PII_HOOK_MODE=off AGENT_GUARD_OUTPUT_REDACT=mask
-export REPORT_FIXTURE="$CASE/report" REPORT_STATUS=0
+export REPORT_FIXTURE="$CASE/report" REPORT_STATUS=0 REPORT_MODE="$CASE/mode"
 unset AI_AGENT
 pass=0 fail=0
 check() {
@@ -65,5 +71,22 @@ REPORT_STATUS=1
 check 'valid finding keeps precise replacement' '[{"Secret":"report-synthetic-value"}]' precise
 REPORT_STATUS=2
 check 'scanner failure fails closed with a valid empty array' '[]' whole
+# The report holds the found values unredacted, and the scanner recreates the
+# file under its own umask (#559): with a permissive caller umask the file
+# the scanner leaves is still readable by its owner only.
+REPORT_STATUS=1
+printf '%s' '[{"Secret":"report-synthetic-value"}]' >"$REPORT_FIXTURE"
+chmod 644 "$REPORT_FIXTURE"
+: >"$REPORT_MODE"
+(
+  umask 022
+  printf '%s' '{"tool_name":"mcp__report__read","tool_response":{"type":"text","text":"before report-synthetic-value after"}}' \
+    | "$GUARD" hook-post-tool >"$CASE/out" 2>"$CASE/err"
+) || :
+if [ "$(cat "$REPORT_MODE")" = '-rw-------' ]; then
+  pass=$((pass + 1)); printf 'ok - %s\n' 'the recreated report file is private under a permissive umask'
+else
+  fail=$((fail + 1)); printf 'not ok - %s (mode %s)\n' 'the recreated report file is private under a permissive umask' "$(cat "$REPORT_MODE")"
+fi
 printf 'passed: %s\nfailed: %s\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

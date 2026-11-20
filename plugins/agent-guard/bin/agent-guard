@@ -13934,15 +13934,21 @@ detect_output_secret_records() (
         >>"$detector_records" || detector_fail
   else
       detector_report=$(mktemp_file) || detector_fail
+      # gitleaks removes the report path and creates it again, so the file
+      # takes the scanner's umask, not the mode mktemp gave it. The report
+      # holds the found values unredacted: keep it private even when the
+      # temp file had to land outside the run directory (#559).
       if gitleaks_helper_selected; then
         (
           ulimit -f 128 >/dev/null 2>&1 || exit 2
+          umask 077
           gitleaks_exec "$gl" stdin --report-format json --report-path "$detector_report" \
             --no-banner --config "$GITLEAKS_CONFIG" <"$detector_strings"
         ) >/dev/null 2>&1
       else
         (
           ulimit -f 128 >/dev/null 2>&1 || exit 2
+          umask 077
           "$gl" stdin --report-format json --report-path "$detector_report" \
             --no-banner --config "$GITLEAKS_CONFIG" <"$detector_strings"
         ) >/dev/null 2>&1
