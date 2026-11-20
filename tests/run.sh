@@ -17493,6 +17493,7 @@ else
   not_ok "normal hook completion leaves no leftover scan temp: $norm_leftover"
 fi
 rm -rf "$NORM_PARENT"
+run_expect 0 "smoke-test keeps the process EXIT trap and leaves no temp directory" sh "$ROOT/tests/exit-trap-cleanup.sh"
 
 # --- pilot security: bounded tree scans and Codex write targets ------------
 # Assemble the test-only sentinel so source scans never see the matched value.
