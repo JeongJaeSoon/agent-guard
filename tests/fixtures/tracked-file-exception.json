@@ -64,9 +64,9 @@
   },
   {
     "id": "git-diff-tracked",
-    "expected_status": 0,
-    "classification": "must-pass",
-    "description": "git diff of a committed env-shaped file",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "git operands also select revisions and the index, so git gets no exception",
     "command": "git diff -- config/staging.env"
   },
   {
@@ -75,6 +75,43 @@
     "classification": "must-still-block",
     "description": "git with a global option that moves it to another directory",
     "command": "git -C ../outside show settings.env"
+  },
+  {
+    "id": "git-log-history",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "git log -p shows earlier revisions of a committed file",
+    "command": "git log -p -- config/staging.env"
+  },
+  {
+    "id": "git-diff-cached",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "git diff --cached shows staged bytes",
+    "command": "git diff --cached -- config/staging.env"
+  },
+  {
+    "id": "git-grep-quoted-glob",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a quoted wildcard pathspec is expanded by git itself",
+    "command": "git grep --untracked name -- '*.env'"
+  },
+  {
+    "id": "bash-no-workdir",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a Bash event without a workdir",
+    "workdir": "",
+    "command": "cat config/staging.env"
+  },
+  {
+    "id": "option-empty",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "the switch set to an empty value",
+    "env": "AGENT_GUARD_TRACKED_FILE_EXCEPTION=",
+    "command": "cat config/staging.env"
   },
   {
     "id": "cd-inside-then-cat",
@@ -305,5 +342,30 @@
     "env": "AGENT_GUARD_TRACKED_FILE_EXCEPTION=off",
     "tool": "Read",
     "path": "@REPO@/config/staging.env"
+  },
+  {
+    "id": "grep-tool-glob-leaf",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a Grep glob that equals a committed path, searched under a directory outside",
+    "tool": "Grep",
+    "path": "@OUTSIDE@",
+    "glob": "settings.env"
+  },
+  {
+    "id": "notebookread-tool-tracked",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "the NotebookRead tool on a committed file",
+    "tool": "NotebookRead",
+    "path": "@REPO@/config/staging.env"
+  },
+  {
+    "id": "notebookread-tool-untracked",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "the NotebookRead tool on an untracked file",
+    "tool": "NotebookRead",
+    "path": "@REPO@/local.env"
   }
 ]

@@ -427,7 +427,7 @@ reads it.
 | --- | --- |
 | `AGENT_GUARD_DENY_READ_PATHS` | Override the deny-read policy file. |
 | `AGENT_GUARD_DENY_READ_MODE` | `block` (default) or `mask`; `mask` adds a masked view to the reason of a blocked `Read` or `cat` of a protected file. |
-| `AGENT_GUARD_TRACKED_FILE_EXCEPTION` | `on` (default) or `off`. `on` lets a file committed to the current repository be read even when its name is on the deny-read list ([Committed files](#committed-files)). Any other value counts as `off`. |
+| `AGENT_GUARD_TRACKED_FILE_EXCEPTION` | `on` (default) or `off`. `on` lets a file committed to the current repository be read even when its name is on the deny-read list ([Committed files](#committed-files)). Any other value, an empty one included, counts as `off`. |
 | `AGENT_GUARD_MASK_DENY_VALUES` | A file of extra deny-value rules for `mask` mode, used together with `$HOME/.config/agent-guard/mask-deny-values.txt`. |
 | `AGENT_GUARD_DENY_BASH_PATTERNS` | Override the risky-shell-command policy file. |
 | `AGENT_GUARD_GITLEAKS_CONFIG` | Override the gitleaks configuration file. |
@@ -478,16 +478,17 @@ entry does not block it. The exception applies only when all of these hold:
   file committed with placeholder values and filled in locally is not opened;
 - no deny-read entry that names a directory matches it (`.aws/credentials`,
   `.ssh/id_*` and similar stay blocked wherever they are, tracked or not);
-- for a shell command, the word is an operand of `cat`, `head`, `tail`, `wc`,
-  `cut`, `nl`, `tac`, `sort`, `uniq`, `less`, `more`, `stat`, `file`, `ls`,
-  `diff`, `comm`, `cmp`, `grep`, `egrep`, `fgrep`, `sed`, `jq`, or of `git add`,
-  `blame`, `checkout`, `commit`, `diff`, `grep`, `log`, `ls-files`, `mv`,
-  `restore`, `rm`, `show`, `stash` or `status` without a global option, and
-  every command before it on the line is one that cannot change what that name
-  runs. Any other command (a test runner, `ssh`, `docker exec`, `find`,
-  `sudo`, an inline script) keeps the block, because the guard cannot tell
-  that it opens that path from that directory. The `Read`, `NotebookRead` and
-  `Grep` tools get the same exception for the path they are given.
+- for a shell command, the event carries a working directory and the word is
+  a literal operand of `cat`, `head`, `tail`, `wc`, `cut`, `nl`, `tac`, `sort`,
+  `uniq`, `less`, `more`, `stat`, `file`, `ls`, `diff`, `comm`, `cmp`, `grep`,
+  `egrep`, `fgrep`, `sed` or `jq`, and every command before it on the line is
+  one that cannot change what that name runs. Any other command keeps the
+  block: `git` (its operands also select revisions, the index and wildcard
+  pathspecs, so it can show bytes the work tree does not hold), a test
+  runner, `ssh`, `docker exec`, `find`, `sudo`, an inline script. The `Read`,
+  `NotebookRead` and `Grep` tools get the same exception for their own path
+  field (`file_path`, `notebook_path`, `path`) only; a Grep `glob` stays
+  checked by name.
 
 Git is asked only when a block is already pending, so a command that passes
 costs what it did before. If git is missing or cannot answer, the block
@@ -498,7 +499,9 @@ What an agent can read this way is content the repository already holds at
 name until the change is committed; the file is compared without git filters,
 so a checkout that rewrites line endings or uses a clean/smudge filter keeps
 the block. Set `AGENT_GUARD_TRACKED_FILE_EXCEPTION=off` to restore the
-name-only block for committed files too.
+name-only block for committed files too; an empty value or anything other
+than `on` does the same. With `AGENT_GUARD_DENY_READ_MODE=mask`, a file under
+this exception is read as it is, not as a masked view.
 
 `setup-shell` installs an explicit one-line shell-rc block that sources
 `~/.agent-guard/shell-init.sh` (`shell-init-no-wrapping.sh` for the opt-out),

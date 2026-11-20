@@ -62,15 +62,17 @@ jq -e 'type == "array" and length > 0' "$FIXTURE" >/dev/null || {
   printf 'not ok - %s is not a non-empty array\n' "$FIXTURE"
   exit 1
 }
-# Every must-pass fixture is followed by a must-still-block one somewhere.
-jq -e '[.[].classification] | (index("must-pass") != null) and (index("must-still-block") != null)
-       and all(.[]; . == "must-pass" or . == "must-still-block")' "$FIXTURE" >/dev/null || {
-  printf 'not ok - %s needs must-pass and must-still-block cases only\n' "$FIXTURE"
+# Every must-pass case is followed directly by a must-still-block case.
+jq -e '. as $all | all(range(0; length); . as $i
+         | $all[$i].classification == "must-still-block"
+           or ($all[$i].classification == "must-pass"
+               and ($all[$i + 1].classification // "") == "must-still-block"))' "$FIXTURE" >/dev/null || {
+  printf 'not ok - every must-pass case in %s needs a must-still-block case right after it\n' "$FIXTURE"
   exit 1
 }
 jq -c --arg repo "$REPO" --arg outside "$OUTSIDE" --arg other "$OTHER" '
   def fill: gsub("@REPO@"; $repo) | gsub("@OUTSIDE@"; $outside) | gsub("@OTHER@"; $other);
-  .[] | .workdir = ((.workdir // "@REPO@") | fill)
+  .[] | .workdir = ((if .workdir == null then "@REPO@" else .workdir end) | fill)
       | if .command then .command |= fill else . end
       | if .path then .path |= fill else . end' "$FIXTURE" >"$CASE_ROOT/cases" || exit 1
 while IFS= read -r row; do
@@ -86,15 +88,16 @@ while IFS= read -r row; do
   esac
   for host in $hosts; do
     case "$tool:$host" in
-      Bash:codex) shape='{tool_name:"Bash",tool_input:{command:.command,workdir:.workdir}}' ;;
-      Bash:*) shape='{hook_event_name:"PreToolUse",tool_name:"Bash",tool_input:{command:.command},cwd:.workdir}' ;;
+      Bash:codex) shape='{tool_name:"Bash",tool_input:({command:.command} + (if .workdir == "" then {} else {workdir:.workdir} end))}' ;;
+      Bash:*) shape='{hook_event_name:"PreToolUse",tool_name:"Bash",tool_input:{command:.command}} + (if .workdir == "" then {} else {cwd:.workdir} end)' ;;
       Read:*) shape='{hook_event_name:"PreToolUse",tool_name:"Read",tool_input:{file_path:.path},cwd:.workdir}' ;;
-      Grep:*) shape='{hook_event_name:"PreToolUse",tool_name:"Grep",tool_input:{pattern:"placeholder",path:.path},cwd:.workdir}' ;;
+      NotebookRead:*) shape='{hook_event_name:"PreToolUse",tool_name:"NotebookRead",tool_input:{notebook_path:.path},cwd:.workdir}' ;;
+      Grep:*) shape='{hook_event_name:"PreToolUse",tool_name:"Grep",tool_input:({pattern:"placeholder",path:.path} + (if .glob then {glob:.glob} else {} end)),cwd:.workdir}' ;;
       *) printf 'not ok - %s: unknown tool %s\n' "$name" "$tool"; failed=$((failed + 1)); continue ;;
     esac
     checked=$((checked + 1))
     printf '%s' "$row" | jq -c "$shape" \
-      | env "$case_env" PATH="$case_path" AGENT_GUARD_HOOK_HOST=$host "$GUARD" hook-pre-tool \
+      | (cd "$REPO" && env "$case_env" PATH="$case_path" AGENT_GUARD_HOOK_HOST=$host "$GUARD" hook-pre-tool) \
         >"$CASE_ROOT/out" 2>"$CASE_ROOT/err"
     status=$?
     if [ "$status" -eq "$expected" ]; then

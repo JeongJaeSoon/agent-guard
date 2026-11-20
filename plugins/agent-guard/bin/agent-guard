@@ -5304,7 +5304,7 @@ matches_deny_path() {
 # $1 is a path a file tool was given and $2 the hook input. Without a workdir
 # in the event the path cannot be placed, and the block stands.
 tool_path_tracked_exception() (
-  [ "${AGENT_GUARD_TRACKED_FILE_EXCEPTION:-on}" = on ] || exit 1
+  [ "${AGENT_GUARD_TRACKED_FILE_EXCEPTION-on}" = on ] || exit 1
   tpt_workdir=$(json_value "$JV_WORKDIR" "$2") && [ -n "$tpt_workdir" ] || exit 1
   CDPATH= cd -- "$tpt_workdir" 2>/dev/null || exit 1
   tracked_file_exception_applies "$(normalize_path "$1")"
@@ -5349,13 +5349,20 @@ check_sensitive_reads() {
     if matches_deny_path "$value"; then
       # A file tool reads the one path it is given from the event workdir, so
       # a file under the tracked-file exception is not blocked by its name.
+      # Only the tool's own path field qualifies: a Grep glob is a name
+      # filter applied under the path, and any other field is not known to
+      # be a path at all.
       case "$reads_tool" in
-        Read|NotebookRead|Grep)
-          if tool_path_tracked_exception "$value" "$input"; then
-            continue
-          fi
-          ;;
+        Read) tool_path_field='.tool_input.file_path' ;;
+        NotebookRead) tool_path_field='.tool_input.notebook_path' ;;
+        Grep) tool_path_field='.tool_input.path' ;;
+        *) tool_path_field= ;;
       esac
+      if [ -n "$tool_path_field" ] \
+        && [ "$(printf '%s' "$input" | jq -r "$tool_path_field | strings" 2>/dev/null)" = "$value" ] \
+        && tool_path_tracked_exception "$value" "$input"; then
+        continue
+      fi
       rm -f "$tmp"
       dr_mode=$(deny_read_mode) || dr_mode=invalid
       if [ "$dr_mode" = mask ] && dr_target=$(read_mask_target "$input" "$reads_tool"); then
@@ -7266,19 +7273,15 @@ search_operand_spans() {
         }
       return out
     }
-    # The operand words of a command that opens exactly the paths it is given,
-    # from the directory it runs in: no remote host, container or archive, no
-    # name pattern applied to another directory, no wrapped command. For git
-    # that needs a built-in subcommand as the second word, so no global option
-    # (-C, --git-dir, -c) and no alias stands between them.
+    # The operand words of a command that reads the paths it is given from
+    # the directory it runs in: no remote host, container or archive, no name
+    # pattern applied to another directory, no wrapped command. git is not
+    # one: its operands also select revisions, the index and pathspec
+    # wildcards, so it can show bytes the work tree does not hold.
     function tracked_scan(a, b,   k, out) {
-      k = a + 1
-      if (wv[a] == "git") {
-        if (k > b || bad(k) || wv[k] !~ /^(add|blame|checkout|commit|diff|grep|log|ls-files|mv|restore|rm|show|stash|status)$/) return ""
-        k++
-      } else if (wv[a] !~ /^(cat|head|tail|wc|cut|nl|tac|sort|uniq|less|more|stat|file|ls|diff|comm|cmp|grep|egrep|fgrep|sed|jq)$/) return ""
+      if (wv[a] !~ /^(cat|head|tail|wc|cut|nl|tac|sort|uniq|less|more|stat|file|ls|diff|comm|cmp|grep|egrep|fgrep|sed|jq)$/) return ""
       out = ""
-      for (; k <= b; k++)
+      for (k = a + 1; k <= b; k++)
         if (!bad(k) && wv[k] != "" && substr(wv[k], 1, 1) != "-") out = out "T " ws[k] " " we[k] " " wv[k] "\n"
       return out
     }
@@ -8537,7 +8540,7 @@ bash_strip_echo_literal_text() {
 # so the answer describes the work tree on disk, and the file is hashed
 # without filters, so no configured filter command runs.
 tracked_file_exception_applies() (
-  [ "${AGENT_GUARD_TRACKED_FILE_EXCEPTION:-on}" = on ] || exit 1
+  [ "${AGENT_GUARD_TRACKED_FILE_EXCEPTION-on}" = on ] || exit 1
   tfe_path=$1
   case "$tfe_path" in
     ''|*'
@@ -8653,7 +8656,9 @@ bash_strip_tracked_file_operands() (
 bash_matches_deny_path() {
   deny_path_report=
   bash_deny_path_scan "$1" || return "$?"
-  if [ "${AGENT_GUARD_TRACKED_FILE_EXCEPTION:-on}" = on ]; then
+  # $2 is the event workdir. Without one a relative word cannot be placed
+  # (the hook's own directory need not be the shell's), and the block stands.
+  if [ -n "${2-}" ] && [ "${AGENT_GUARD_TRACKED_FILE_EXCEPTION-on}" = on ]; then
     tfx_cmd=$(bash_strip_tracked_file_operands "$1") || tfx_cmd=$1
     if [ -n "$tfx_cmd" ] && [ "$tfx_cmd" != "$1" ]; then
       deny_path_report=
@@ -11836,7 +11841,7 @@ $joined_cmd"
   deny_report=$(
     [ -n "$workdir" ] && { CDPATH= cd -- "$workdir" 2>/dev/null \
       || die "hook workdir is not accessible: $workdir"; }
-    bash_matches_deny_path "$raw_cmd"
+    bash_matches_deny_path "$raw_cmd" "$workdir"
   )
   case "$?" in
     0)
