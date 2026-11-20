@@ -6575,11 +6575,15 @@ AWK_PLAIN_WORD='
       return v !~ /[$`]/
     }'
 
-# An awk function prepended to programs that read git_command_records: true
-# for the record of an unquoted `;`, `&&`, `||` or `|`, which ends a simple
-# command. A quoted operator is kind 4.
+# awk functions prepended to programs that read git_command_records.
+# record_separator is true for the record of an unquoted `;`, `&&`, `||` or
+# `|`, which ends a simple command. A quoted operator is kind 4.
 AWK_RECORD_SEPARATOR='
-    function record_separator(r) { return r == "0;" || r == "0&&" || r == "0||" || r == "0|" }'
+    function record_separator(r) { return r == "0;" || r == "0&&" || r == "0||" || r == "0|" }
+    # The `&` of `2>&1` or `0<&3`: git_command_records emits it as a `3&`
+    # right after the word that ends in the operator, and a backgrounding `&`
+    # after that word as a second `3&`. prev is the record before r.
+    function fd_dup_amp(r, prev) { return r == "3&" && prev ~ /[<>]$/ }'
 
 # Print the record numbers (git_command_records) of message values the
 # command sends as data: the subject and body of `orca orchestration
@@ -6641,14 +6645,13 @@ message_value_records() {
     }
     BEGIN { ok = 1; n = 0 }
     {
-      r = $0; k = substr(r, 1, 1); v = substr(r, 2)
+      prev = r; r = $0; k = substr(r, 1, 1); v = substr(r, 2)
       # A subshell or a process substitution (`<(`, `>(`, zsh `=(`) runs
       # before the command it sits in, so it can replace what the name runs.
       if (r ~ /^3[][(){}]$/ || k == "2") bail()
       if (k == "0" && v ~ /^(eval|alias|function|trap|source|\.)$/) bail()
       if (record_separator(r)) { finish(r); next }
-      # The `&` of `2>&1`; a backgrounding `&` after it comes as a second one.
-      if (r == "3&" && n > 0 && word[n] ~ /[<>]$/ && dup != NR - 1) { dup = NR; next }
+      if (fd_dup_amp(r, prev)) next
       # A backgrounded command (or `|&`) runs alongside whatever follows.
       if (r == "3&") { finish(r); if (out != "") bail(); ok = 0; next }
       if (k == "3") { ok = 0; next }
@@ -8867,9 +8870,9 @@ git_command_records() {
           emit()
           redirect = c == "&" && redir_at == NR ":" (i - 1)
           if (c == "(" || c == ")" || c == "&" && !redirect) stdin_shared()
-          # Consumers read a `&` after a word ending in > or < as the `&` of
-          # `2>&1`; after a quoted or escaped > it backgrounds, so it gets a
-          # second one.
+          # fd_dup_amp reads a `&` after a word ending in > or < as the `&`
+          # of `2>&1`; after a quoted or escaped > it backgrounds, so it gets
+          # a second one.
           if (c == "&" && !redirect && last_word ~ /[<>]$/) print "3&"
           print "3" c; cd_args = 0; at_word = 0; head = ""; head_sub = ""; continue
         }
@@ -10353,7 +10356,7 @@ git_gate_command_vars() {
       head = 1; wrapped = 0; namer = ""; blocked = 0; depth = 0; varhead = 0
       for (k = 1; k <= n; k++) {
         r = rec[k]; kind = substr(r, 1, 1); t = substr(r, 2)
-        if (r == "3&" && rec[k - 1] ~ />$/) continue
+        if (fd_dup_amp(r, rec[k - 1])) continue
         # A here-document body is tokenized like the line, so a ) in it reads
         # as a closing paren; depth after it says nothing.
         if (index(t, "<<")) blocked = 1
