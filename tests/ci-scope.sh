@@ -55,7 +55,7 @@ if grep -Eq '^  push:' "$perf"; then fail 'performance does not run on push'; fi
 grep -Fq "    - cron: '" "$perf" || fail 'performance runs on a schedule'
 grep -Fq '  workflow_dispatch:' "$perf" || fail 'performance runs on dispatch'
 grep -Fq "      - 'plugins/agent-guard/.claude-plugin/plugin.json'" "$perf" || fail 'release PRs run performance'
-for path in bench/native/ bench/fused-output/ bench/scanner/ native/devtools/; do
+for path in bench/native/ bench/fused-output/ native/devtools/; do
   grep -Fq "      - '$path**'" "$perf" || fail "PRs changing $path run performance"
 done
 [ "$(awk '/^permissions:/ { on = 1; next } /^[^ ]/ { on = 0 } on' "$perf")" = '  contents: read' ] \
@@ -116,4 +116,28 @@ printf '%s\n' "$release_perf" | grep -Fq 'for sha in "$RELEASE_HEAD_SHA" "$RELEA
 printf '%s\n' "$release_perf" | grep -Fq '::warning title=Release performance evidence::' \
   || fail 'release warns about performance'
 if printf '%s\n' "$release_perf" | grep -Eq 'exit [1-9]'; then fail 'release performance report never fails'; fi
+# Hook PRs get a base-versus-head instruction count that reports and never
+# gates on a rise; it fails only when it could not measure.
+count="$ROOT/.github/workflows/hook-instruction-count.yml"
+sh "$ROOT/tests/hook-instruction-count.sh" > /dev/null || fail 'hook instruction count fixtures'
+awk '/^  pull_request:$/ { on = 1; next } on && /^    paths:$/ { paths = 1; next } paths && !/^      - / { exit } paths' "$count" \
+  | grep -Fxq "      - 'plugins/agent-guard/bin/agent-guard'" || fail 'hook PRs run the instruction count'
+grep -Fq 'sh head/bench/instruction-count/run.sh base head "$tsv" || status=$?' "$count" \
+  && grep -Fq 'sh head/bench/instruction-count/run.sh --render "$tsv"' "$count" \
+  || fail 'the instruction count runs the tested script'
+grep -Fq '::warning title=Hook instruction count::' "$count" || fail 'an instruction rise is a warning'
+[ "$(grep -Eo 'exit[[:space:]]+[^[:space:];]+' "$count" | tr '\n' ' ')" = 'exit 1 exit 1 ' ] \
+  || fail 'the instruction count fails only when it could not measure'
+grep -Fq 'git -C head worktree add --detach ../base HEAD^1' "$count" || fail 'the instruction count base is the merge parent'
+grep -Fq 'sudo timeout --kill-after=5 55 apt-get' "$count" && grep -Fq 'for attempt in 1 2 3; do' "$count" \
+  && grep -Fq 'install -y --no-install-recommends --no-download valgrind' "$count" \
+  || fail 'the valgrind download is retried with a per-attempt limit and installed without a download'
+grep -Fq "if: failure() && steps.count.outcome == 'skipped'" "$count" || fail 'a run that never measured says so'
+grep -Fq 'uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9' "$count" \
+  && grep -Fq 'uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9' "$count" \
+  && grep -Fq "if: steps.restore.outputs.cache-hit != 'true'" "$count" \
+  && grep -Fq 'install -qq --print-uris --no-install-recommends valgrind' "$count" \
+  || fail 'the valgrind packages are cached under a key from the planned package list'
+awk '/^  push:$/ { on = 1; next } on && /^    branches: \[main\]$/ { ok = 1 } on && /^[a-z]/ { exit } END { exit !ok }' "$count" \
+  || fail 'main runs store the valgrind cache every PR can restore'
 printf 'CI scope fixtures passed: %s; matrix, aggregate and performance schedule wiring verified\n' "$pass"

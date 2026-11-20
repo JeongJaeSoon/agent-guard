@@ -22,6 +22,33 @@ shell_quote() {
   printf "'"
 }
 
+HOOK_GUARD_BEGIN='# >>> agent-guard missing-executable check >>>'
+HOOK_GUARD_END='# <<< agent-guard missing-executable check <<<'
+
+# Print the block placed before the hook's exec line. When the executable is
+# gone (agent-guard removed or moved) it explains why the commit failed and how
+# to fix or remove the hook, then still exits 1: the staged-secret scan could
+# not run, so the hook fails closed exactly as the bare exec did.
+hook_missing_guard() {
+  quoted_bin=$(shell_quote "$1")
+  # Each message line is a fixed single-quoted word; only the path varies, and
+  # shell_quote keeps it one literal word.
+  printf '%s\n' \
+    "$HOOK_GUARD_BEGIN" \
+    "if [ ! -x $quoted_bin ]; then" \
+    '  {' \
+    "    printf '%s\\n' 'agent-guard pre-commit: commit blocked: the agent-guard executable is missing:'" \
+    "    printf '  %s\\n' $quoted_bin" \
+    "    printf '%s\\n' 'agent-guard pre-commit: the staged-secret scan cannot run, so this hook fails closed.'" \
+    "    printf '%s\\n' 'agent-guard pre-commit: reinstall agent-guard and rerun its install.sh git-hooks here, or remove this hook from the repository root:'" \
+    "    printf '%s\\n' '  git config --unset core.hooksPath && rm githooks/pre-commit'" \
+    "    printf '%s\\n' 'agent-guard pre-commit: unsetting core.hooksPath makes git run .git/hooks again.'" \
+    '  } >&2' \
+    '  exit 1' \
+    'fi' \
+    "$HOOK_GUARD_END"
+}
+
 resolve_agent_guard_bin() {
   if [ -x "$SCRIPT_DIR/plugins/agent-guard/bin/agent-guard" ]; then
     printf '%s\n' "$SCRIPT_DIR/plugins/agent-guard/bin/agent-guard"
@@ -90,16 +117,39 @@ install_git_hooks() {
     # comment, so a hand-crafted hook could pair an `agent-guard` comment with an
     # unrelated `exec /other/scanner scan-staged`; matching on `agent-guard`
     # avoids silently rewriting that, and the count refuses an ambiguous hook.
-    if awk -v newexec="exec $(shell_quote "$agent_guard_bin") scan-staged" '
-          /^exec .*agent-guard.*scan-staged$/ { print newexec; seen++; next }
+    # The missing-executable check names the same path, so drop any earlier
+    # copy between its delimiters and write the current one just before that
+    # line; a hook from before the check gains it here. Unbalanced delimiters
+    # are refused rather than guessed at. The values travel through ENVIRON
+    # because `awk -v` would interpret backslashes in a path.
+    hook_guard=$(hook_missing_guard "$agent_guard_bin") \
+      || die "failed to render the missing-executable check"
+    hook_status=0
+    AG_HOOK_EXEC="exec $(shell_quote "$agent_guard_bin") scan-staged" \
+    AG_HOOK_GUARD=$hook_guard \
+    AG_HOOK_GUARD_BEGIN=$HOOK_GUARD_BEGIN \
+    AG_HOOK_GUARD_END=$HOOK_GUARD_END \
+      awk '
+          $0 == ENVIRON["AG_HOOK_GUARD_BEGIN"] { if (inguard) bad = 1; inguard = 1; next }
+          $0 == ENVIRON["AG_HOOK_GUARD_END"] { if (!inguard) bad = 1; inguard = 0; next }
+          inguard { next }
+          /^exec .*agent-guard.*scan-staged$/ {
+            print ENVIRON["AG_HOOK_GUARD"]; print ENVIRON["AG_HOOK_EXEC"]; seen++; next
+          }
           { print }
-          END { exit (seen == 1) ? 0 : 3 }
-        ' "$hook_path" >"$hook_tmp"; then
-      mv "$hook_tmp" "$hook_path" || die "failed to refresh $hook_path"
-    else
-      rm -f "$hook_tmp"
-      die "githooks/pre-commit carries the agent-guard marker but has no unique 'exec … agent-guard … scan-staged' line; refusing to rewrite it"
-    fi
+          END { if (bad || inguard) exit 4; exit (seen == 1) ? 0 : 3 }
+        ' "$hook_path" >"$hook_tmp" || hook_status=$?
+    case "$hook_status" in
+      0) mv "$hook_tmp" "$hook_path" || die "failed to refresh $hook_path" ;;
+      4)
+        rm -f "$hook_tmp"
+        die "githooks/pre-commit has an unbalanced agent-guard missing-executable check; refusing to rewrite it"
+        ;;
+      *)
+        rm -f "$hook_tmp"
+        die "githooks/pre-commit carries the agent-guard marker but has no unique 'exec … agent-guard … scan-staged' line; refusing to rewrite it"
+        ;;
+    esac
   else
     # Fresh install: generate the whole body, chaining a pre-existing native hook
     # if one was found above.
@@ -114,6 +164,7 @@ install_git_hooks() {
         printf 'fi\n'
         printf '\n'
       fi
+      hook_missing_guard "$agent_guard_bin"
       printf 'exec %s scan-staged\n' "$(shell_quote "$agent_guard_bin")"
     } >"$hook_path" || die "failed to write $hook_path"
   fi
