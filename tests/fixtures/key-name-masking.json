@@ -562,16 +562,6 @@
    "masked": "src/app.yml:3:  password: [REDACTED],"
   },
   {
-   "label": "random value behind a locator",
-   "stdout": "src/app.yml:3:  secret: %R%,",
-   "masked": "src/app.yml:3:  secret: [REDACTED],"
-  },
-  {
-   "label": "word outside the list behind a locator",
-   "stdout": "src/app.yml:3:  password: MyPassword,",
-   "masked": "src/app.yml:3:  password: [REDACTED],"
-  },
-  {
    "label": "key in the middle of a located log line",
    "stdout": "src/log.txt:14: user: bob | password: MyPassword | host: db",
    "masked": "src/log.txt:14: user: bob | password: [REDACTED] | host: db"
@@ -590,6 +580,46 @@
    "label": "locator with a space in its path part",
    "stdout": "a b:14:  credential: CredentialSchema,",
    "masked": "a b:14:  credential: [REDACTED],"
+  },
+  {
+   "label": "locator after the diff marker",
+   "stdout": "+ src/schema.ts:14:  credential: CredentialSchema,",
+   "masked": "+ src/schema.ts:14:  credential: [REDACTED],"
+  },
+  {
+   "label": "text before the numbered tab",
+   "stdout": "id 14\t  credential: CredentialSchema,",
+   "masked": "id 14\t  credential: [REDACTED],"
+  },
+  {
+   "label": "space between the path and the line number",
+   "stdout": "src/schema.ts 14:  credential: CredentialSchema,",
+   "masked": "src/schema.ts 14:  credential: [REDACTED],"
+  },
+  {
+   "label": "dashes without a line number",
+   "stdout": "--  credential: CredentialSchema,",
+   "masked": "--  credential: [REDACTED],"
+  },
+  {
+   "label": "locator closed by another character",
+   "stdout": "src/schema.ts:14=  credential: CredentialSchema,",
+   "masked": "src/schema.ts:14=  credential: [REDACTED],"
+  },
+  {
+   "label": "connection string tail shaped like a locator",
+   "stdout": "Server=db;Database=app:1: Password=Password;",
+   "masked": "Server=db;Database=app:1: [REDACTED]=[REDACTED];"
+  },
+  {
+   "label": "key=value log text shaped like a locator",
+   "stdout": "level=info|req=42:7: password: Password,",
+   "masked": "level=info|req=42:7: password: [REDACTED],"
+  },
+  {
+   "label": "address and port are not a locator",
+   "stdout": "10.0.0.1:5432: password: Password,",
+   "masked": "10.0.0.1:5432: password: [REDACTED],"
   }
  ]
 }

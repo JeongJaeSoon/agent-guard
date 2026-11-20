@@ -13206,7 +13206,8 @@ secretish_env_values() {
     # All of these must hold, so that a config literal keeps masking:
     # - The field starts its line (key_line_start, set by scan_line): only
     #   indentation, one diff marker and declaration keywords come before
-    #   it. A key in the middle of a line is a log line, a table row, a flow
+    #   it, after an optional line locator of a search tool (`path:14:`).
+    #   A key in the middle of a line is a log line, a table row, a flow
     #   mapping or a connection string, and keeps masking.
     # - Unquoted only, and the complete token is the value: a digit-free
     #   identifier or dotted chain of at most 80 bytes, with an optional
@@ -13690,14 +13691,17 @@ secretish_env_values() {
         # A line locator may come first, as grep -n, rg, git grep -n, cat -n
         # and nl print one: `path:14:`, `14:`, the context forms `path-14-`
         # and `14-`, or a padded number and a tab. It must carry the line
-        # number, since a bare `name:` is a key of its own (`user: bob`), and
-        # its path part must hold a letter, `_`, `/` or `.`, since digits
-        # alone are a clock time or a date (`12:34: password: ...`).
+        # number, since a bare `name:` is a key of its own (`user: bob`). Its
+        # path part is made of file path characters only, so that the tail of
+        # a connection string or of `key=value` log text is not one
+        # (`Server=db;Database=app:1: Password=...`), and holds a letter,
+        # since digits and dots alone are a clock time, a date or an address
+        # (`12:34: password: ...`, `10.0.0.1:5432: ...`).
         key_line_start = 0
         if (!key_name_redact && !advanced && !skip) {
           head = substr(rest, 1, start + matched_length - 1)
           sub(/["'\''`]?[A-Za-z0-9_.$-]+["'\''`]?[ \t]*[:=]$/, "", head)
-          sub(/^(([^ \t:]*[A-Za-z_\/.][^ \t:]*[:-])?[0-9]+[:-]|[ \t]*[0-9]+\t)/, "", head)
+          sub(/^(([A-Za-z0-9_.\/@+~-]*[A-Za-z][A-Za-z0-9_.\/@+~-]*[:-])?[0-9]+[:-]|[ \t]*[0-9]+\t)/, "", head)
           key_line_start = (head ~ /^[+-]?[ \t\r]*((export|const|let|var|public|private|protected|readonly|static)[ \t]+)*$/)
         }
         if (!skip &&

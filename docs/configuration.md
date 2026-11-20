@@ -96,10 +96,12 @@ return status 0 with no response. See [Output masking coverage](integrations.md#
     `grep -n`, `rg`, `git grep -n`, `cat -n` and `nl` print one:
     `src/schema.ts:14:`, `14:`, the context forms `src/schema.ts-14-` and
     `14-`, or a padded number and a tab. The locator must carry the line
-    number, and its path part has no space and holds a letter, `_`, `/` or
-    `.`: `src/schema.ts:` alone, a clock time (`12:34:`), a date
-    (`2024-01-15:`) and a line and column pair (`src/a.ts:14:9:`) do not
-    count.
+    number and start the line, and its path part is made of letters, digits
+    and `_ . / @ + ~ -` with at least one letter. `src/schema.ts:` alone, a
+    clock time (`12:34:`), a date (`2024-01-15:`), an address and port
+    (`10.0.0.1:5432:`), a line and column pair (`src/a.ts:14:9:`) and the
+    tail of other text (`Server=db;Database=app:1:`, `level=info|req=42:7:`)
+    do not count.
   - The whole unquoted value is an identifier or a dotted chain of at most 80
     bytes with no digit; one leading `$` and one simple generic argument
     after a capitalized name (`Promise<Token>`) are allowed. A dotted chain starts at a common object
