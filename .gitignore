@@ -8,17 +8,9 @@ bench/results.tsv
 .DS_Store
 
 # Local measurements and raw results are not committed. Keep them in bench/local/,
-# a release asset or a CI artifact. Only the recorded comparison read by
-# tests/devtools.sh is tracked.
+# a release asset or a CI artifact.
 /bench/local/
-/bench/results/*
-!/bench/results/rust-experiment/
-/bench/results/**/build.log
-/bench/results/**/cli-*.log
-
-# Output of `devtools report`: the generated HTML and its chart exports.
-/docs/rust-*.html
-/docs/assets/rust-*.svg
+/bench/results/
 
 # Release assets are built locally or attached to GitHub Releases.
 /agent-guard-*.tar.gz
