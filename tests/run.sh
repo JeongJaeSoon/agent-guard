@@ -3018,6 +3018,8 @@ run_expect 0 "a failed quoted-bracket normalization keeps the protected-path ver
   sh "$ROOT/tests/quoted-bracket-fallback.sh"
 run_expect 0 "status words and named placeholders are prose, real values still block" \
   sh "$ROOT/tests/prompt-prose-placeholder.sh"
+run_expect 0 "bracketed values mask whole and spaced angle placeholders are judged as one value on both hosts" \
+  sh "$ROOT/tests/redaction-wrapped-values.sh"
 ambiguous_bash_fixtures="$ROOT/tests/fixtures/ambiguous-bash-protected-path.json"
 ambiguous_bash_cases="$TESTTMP/ambiguous-bash-protected-path.cases"
 if jq -e 'type == "array" and length > 0' "$ambiguous_bash_fixtures" >/dev/null \
@@ -14788,7 +14790,7 @@ mkdir -p "$FAIL_STAGE_JQ_DIR"
   printf '%s\n' '  detector_leaf:*"join(\"\\n\") end"*) partial_fail ;;'
   printf '%s\n' '  detector_frame:*"\"\\u001e\\n\""*) partial_fail ;;'
   printf '%s\n' '  detector_report:*".Secret // empty"*) partial_fail ;;'
-  printf '%s\n' '  detector_bundle:*"secrets: unique"*) partial_fail ;;'
+  printf '%s\n' '  detector_bundle:*"secrets: settle_extents"*) partial_fail ;;'
   printf '%s\n' '  bundle_classify_true:*"invalid secret bundle"*) printf "true"; exit 2 ;;'
   printf '%s\n' '  bundle_extract_secrets:*"invalid secret bundle"*) printf "[]"; exit 2 ;;'
   printf '%s\n' 'esac'
