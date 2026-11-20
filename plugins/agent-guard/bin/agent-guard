@@ -2503,11 +2503,62 @@ infrastructure_failure_mode() {
   esac
 }
 
-hook_warning_once() {
+# Seconds before the open-policy infrastructure notice repeats in one session.
+# Ten minutes matches GITLEAKS_PROBE_CACHE_TTL_SECONDS, the window in which a
+# repaired scanner is picked up anyway, and at the usual pace of tool calls
+# shows the notice a few times an hour rather than on every call. It is fixed
+# on purpose: the notice is the only thing telling the user protection is off.
+HOOK_WARNING_INTERVAL_SECONDS=600
+
+# Whether the open notice is due: on the session's first failure, and again
+# once HOOK_WARNING_INTERVAL_SECONDS have passed since the time the marker
+# records. The clock is the hook start time audit_begin already read; date runs
+# only when logging is off. A marker that cannot be created or read for another
+# reason (full disk, read-only dir, not ours) must still warn. Without a clock
+# the notice stays once per session. Two hooks racing past the interval can
+# both warn; neither can suppress the other.
+hook_warning_due() {
   warning_marker=$(warning_state_path infrastructure "${1:-}") || return 0
-  # Only an existing marker means this session already warned. A create that
-  # fails for another reason (full disk, read-only dir) must still warn.
-  (umask 077; set -C; : >"$warning_marker") 2>/dev/null || [ ! -e "$warning_marker" ]
+  warning_now=$AG_AUDIT_START
+  case "$warning_now" in
+    ''|0|*[!0-9]*) warning_now=$(date +%s 2>/dev/null) || warning_now= ;;
+  esac
+  # A leading zero would be read as octal, and a digit 8 or 9 then ends the
+  # shell with exit 2 inside the arithmetic below.
+  case "$warning_now" in 0*|*[!0-9]*|????????????*) warning_now= ;; esac
+  # Never open anything but a regular file: noclobber still opens an existing
+  # FIFO or device, and a planted FIFO would hang the hook until the host
+  # timeout. Such a marker proves nothing, so the notice is due.
+  if [ -L "$warning_marker" ] || { [ -e "$warning_marker" ] && [ ! -f "$warning_marker" ]; }; then
+    return 0
+  fi
+  (umask 077; set -C; printf '%s\n' "$warning_now" >"$warning_marker") 2>/dev/null \
+    && return 0
+  [ -e "$warning_marker" ] || return 0
+  [ -n "$warning_now" ] || return 1
+  # Read only our own regular file; the check above narrows, not closes, a
+  # swap, and the read itself is a builtin.
+  warning_last=
+  if [ -f "$warning_marker" ] && [ ! -L "$warning_marker" ] && [ -O "$warning_marker" ]; then
+    IFS= read -r warning_last 2>/dev/null <"$warning_marker" || :
+  fi
+  # An empty (pre-interval) or unreadable marker, or a time ahead of the
+  # clock, is due; otherwise wait out the interval.
+  case "$warning_last" in
+    ''|0*|*[!0-9]*|????????????*) ;;
+    *)
+      [ "$warning_last" -gt "$warning_now" ] \
+        || [ $((warning_now - warning_last)) -ge "$HOOK_WARNING_INTERVAL_SECONDS" ] \
+        || return 1
+      ;;
+  esac
+  # Replace rather than overwrite, so a marker swapped for a symlink is never
+  # followed; noclobber refuses to write through one. rm is the only process
+  # this adds, once per interval. If it cannot remove the marker, the notice
+  # stays due on every call: louder, never silent.
+  rm -f "$warning_marker" 2>/dev/null || :
+  (umask 077; set -C; printf '%s\n' "$warning_now" >"$warning_marker") 2>/dev/null || :
+  return 0
 }
 
 # Per-session state file under the private warnings dir. Fails only when the
@@ -2545,9 +2596,10 @@ warning_root() {
 }
 
 # Shared front half of every infrastructure-failure policy: apply the closed
-# policy, warn once per session on stderr, and leave the message a caller
-# may still want to publish in $INFRA_FAILURE_NOTICE (empty when this session
-# already warned). Callers differ only in WHERE that notice goes, because a
+# policy, warn on stderr when hook_warning_due says the open notice is due, and
+# leave the message a caller may still want to publish in $INFRA_FAILURE_NOTICE
+# (empty when this session warned within the interval). Callers differ only in
+# WHERE that notice goes, because a
 # hook may write at most one top-level JSON response: a handler that prints its
 # own object cannot be followed by a second one.
 INFRA_FAILURE_NOTICE=
@@ -2558,7 +2610,7 @@ begin_infrastructure_failure() {
   detail=$2
   INFRA_FAILURE_NOTICE=
   mode=$(infrastructure_failure_mode)
-  # The once-per-session limit applies only to the open warning. Each closed
+  # The repeat interval applies only to the open warning. Each closed
   # block carries its own reason: a bare exit 2 reaches the host as a denial
   # with no verdict or explanation.
   if [ "$mode" = closed ]; then
@@ -2566,7 +2618,7 @@ begin_infrastructure_failure() {
     info "$detail Blocking because AGENT_GUARD_INFRA_FAILURE_MODE=closed."
     exit 2
   fi
-  if hook_warning_once "$input"; then
+  if hook_warning_due "$input"; then
     INFRA_FAILURE_NOTICE="$detail continuing because AGENT_GUARD_INFRA_FAILURE_MODE=open (the default)."
     info "$INFRA_FAILURE_NOTICE"
   fi
@@ -2575,9 +2627,16 @@ begin_infrastructure_failure() {
 
 # Emits the notice immediately. Only safe where the caller returns without
 # writing anything else to stdout; hook-user-prompt defers instead.
-# hook_warning_once repeats when its marker cannot be written, and a second
+# hook_warning_due repeats when its marker cannot be written, and a second
 # JSON object makes the stdout unparseable, which Claude's PreToolUse
 # onFailure "block" turns into a block. So write at most one per process.
+#
+# Claude Code never shows a hook's exit-0 stderr, and additionalContext reaches
+# only the model, so on Claude the same object also carries the notice as
+# systemMessage, which its hook reference documents as a warning shown to the
+# user on these events and on Stop (code.claude.com/docs/en/hooks, JSON
+# output). Codex keeps the model-facing channel only: whether it shows a
+# systemMessage from these events has not been verified.
 INFRA_FAILURE_NOTICE_EMITTED=0
 
 handle_hook_infrastructure_failure() {
@@ -2593,9 +2652,18 @@ handle_hook_infrastructure_failure() {
   begin_infrastructure_failure "${2:-}" "$hif_detail"
   [ -n "$INFRA_FAILURE_NOTICE" ] || return 0
   [ "$INFRA_FAILURE_NOTICE_EMITTED" = 0 ] || return 0
-  case "$event" in
-    PreToolUse|PostToolUse|PostToolUseFailure|UserPromptSubmit)
+  case "$(hook_host):$event" in
+    codex:PreToolUse|codex:PostToolUse|codex:PostToolUseFailure|codex:UserPromptSubmit)
       printf '{"hookSpecificOutput":{"hookEventName":"%s","additionalContext":"%s"}}\n' "$event" "$INFRA_FAILURE_NOTICE"
+      INFRA_FAILURE_NOTICE_EMITTED=1
+      ;;
+    codex:*) ;;
+    *:PreToolUse|*:PostToolUse|*:PostToolUseFailure|*:UserPromptSubmit)
+      printf '{"systemMessage":"%s","hookSpecificOutput":{"hookEventName":"%s","additionalContext":"%s"}}\n' "$INFRA_FAILURE_NOTICE" "$event" "$INFRA_FAILURE_NOTICE"
+      INFRA_FAILURE_NOTICE_EMITTED=1
+      ;;
+    *:Stop)
+      printf '{"systemMessage":"%s"}\n' "$INFRA_FAILURE_NOTICE"
       INFRA_FAILURE_NOTICE_EMITTED=1
       ;;
   esac
@@ -2705,6 +2773,40 @@ claude_block_capture_finish() {
   CLAUDE_BLOCK_EVENT=
 }
 
+# What degraded_hook_message names: the checks hook_dependencies_ready makes,
+# plus git, which SessionStart also requires. Fixed labels only, never a path:
+# the message is embedded in hand-built JSON. Shell tests and the probe state
+# prepare_gitleaks left behind answer every question without a new process,
+# and the list is left in $dmc rather than printed to avoid a subshell.
+# hook_dependencies_ready stops at the first failure, so a scanner it never
+# probed (jq or awk missing) is not named yet.
+degraded_missing_components() {
+  dmc=
+  command -v jq >/dev/null 2>&1 || dmc="${dmc:+$dmc, }jq"
+  command -v awk >/dev/null 2>&1 || dmc="${dmc:+$dmc, }awk"
+  command -v git >/dev/null 2>&1 || dmc="${dmc:+$dmc, }git"
+  case "${GITLEAKS_PROBE_STATE:-}" in
+    ''|ready) ;;
+    missing) dmc="${dmc:+$dmc, }gitleaks" ;;
+    runtime-failure)
+      case "${GITLEAKS_PROBE_DETAIL:-}" in
+        launcher-unavailable) dmc="${dmc:+$dmc, }setsid or perl (gitleaks process isolation)" ;;
+        timer-unavailable) dmc="${dmc:+$dmc, }sleep (gitleaks timeout)" ;;
+        temp-helper-unavailable) dmc="${dmc:+$dmc, }mkdir or rmdir (gitleaks temp fallback)" ;;
+        *) dmc="${dmc:+$dmc, }a working gitleaks" ;;
+      esac
+      ;;
+    *) dmc="${dmc:+$dmc, }a supported gitleaks" ;;
+  esac
+  { [ -f "$GITLEAKS_CONFIG" ] && policy_file_has_active_rule "$GITLEAKS_CONFIG"; } \
+    || dmc="${dmc:+$dmc, }policy file gitleaks.toml"
+  { [ -f "$DENY_READ_PATHS" ] && policy_file_has_active_rule "$DENY_READ_PATHS"; } \
+    || dmc="${dmc:+$dmc, }policy file deny-read-paths.txt"
+  { [ -f "$DENY_BASH_PATTERNS" ] && policy_file_has_active_rule "$DENY_BASH_PATTERNS"; } \
+    || dmc="${dmc:+$dmc, }policy file deny-bash-patterns.txt"
+  return 0
+}
+
 # $1 = scanner when only gitleaks or its config is unavailable and PreToolUse
 # still ran its protected-path and deny-pattern checks.
 degraded_hook_message() {
@@ -2712,7 +2814,12 @@ degraded_hook_message() {
     codex) setup_ref='$setup-agent-guard' ;;
     *) setup_ref='/agent-guard:setup-agent-guard' ;;
   esac
-  if [ "${1:-}" = scanner ]; then
+  degraded_missing_components
+  if [ -n "$dmc" ]; then
+    printf 'agent-guard: protection is DEGRADED because these are missing or unusable: %s.' "$dmc"
+    [ "${1:-}" != scanner ] \
+      || printf ' The scanner is unusable, so the secret scan did not run; protected-path and deny-pattern checks still run.'
+  elif [ "${1:-}" = scanner ]; then
     printf 'agent-guard: protection is DEGRADED because gitleaks (including its setsid or Perl process-isolation helper) or its config is unavailable, so the secret scan did not run; protected-path and deny-pattern checks still run.'
   else
     printf 'agent-guard: protection is DEGRADED because jq, awk, git, gitleaks (including its setsid or Perl process-isolation helper), or a policy file is unavailable.'
@@ -2720,10 +2827,12 @@ degraded_hook_message() {
   # Fixed diagnostic codes only: never include scanner output, scanned paths or
   # payloads in the host envelope. The one path allowed is this CLI's own
   # executable (AG_CLI_REF_HOOK), so a plugin-only install is told a command
-  # that runs. Keep the existing once-per-session warning boundary.
+  # that runs. hook_warning_due decides how often the notice repeats.
   degraded_probe_reason=
   case "${GITLEAKS_PROBE_STATE:-}" in
-    missing|unparseable|unsupported) degraded_probe_reason=$GITLEAKS_PROBE_STATE ;;
+    # A missing scanner is already named above.
+    missing) [ -n "$dmc" ] || degraded_probe_reason=missing ;;
+    unparseable|unsupported) degraded_probe_reason=$GITLEAKS_PROBE_STATE ;;
     runtime-failure)
       if gitleaks_probe_detail_message "${GITLEAKS_PROBE_DETAIL:-}" '' >/dev/null; then
         degraded_probe_reason=$GITLEAKS_PROBE_DETAIL
@@ -16418,7 +16527,7 @@ hook_stop() {
   fi
 
   if ! command -v git >/dev/null 2>&1; then
-    handle_git_infrastructure_failure "$input" \
+    handle_hook_infrastructure_failure Stop "$input" \
       "$PROGRAM: git is unavailable, so changed files could not be scanned before stop;"
     return 0
   fi
@@ -16429,7 +16538,7 @@ hook_stop() {
     0) return 0 ;;
     1) info "$PROGRAM: changed files contain secret-like values before stop"; exit 2 ;;
     *)
-      handle_git_infrastructure_failure "$input" \
+      handle_hook_infrastructure_failure Stop "$input" \
         "$PROGRAM: changed files could not be scanned before stop;"
       ;;
   esac
@@ -16514,11 +16623,14 @@ injected_prompt_frame() {
 }
 
 # The single hook response, whatever combination of facts produced it. A hook
-# may write at most one top-level JSON object, so the infrastructure notice and
-# the mode-specific message share one: additionalContext (the model-facing
-# channel both hosts document) carries both, and systemMessage — a Claude-only
-# field — carries the mode-specific message, matching how the other hooks
-# report an infrastructure failure to the user on stderr rather than in the UI.
+# may write at most one top-level JSON object, so every notice and the
+# mode-specific message share one: additionalContext (the model-facing channel
+# both hosts document) carries them all, and on Claude systemMessage carries
+# what the user must see: the infrastructure notice ($3) and the mode-specific
+# message. Claude Code shows neither exit-0 stderr nor additionalContext to the
+# user, so this is the same user-facing channel handle_hook_infrastructure_failure
+# uses; Codex keeps additionalContext only (see there). A queued blocked-
+# injection notice is addressed to the model and stays out of systemMessage.
 # Prints nothing when there is nothing to say.
 emit_prompt_response() {
   notice=$1
@@ -16529,8 +16641,14 @@ emit_prompt_response() {
     context="$notice$message"
   fi
   [ -n "$context" ] || return 0
-  if [ -n "$message" ] && [ "$(hook_host)" != codex ]; then
-    jq -nc --arg m "$message" --arg c "$context" \
+  shown=${3:-}
+  if [ -n "$shown" ] && [ -n "$message" ]; then
+    shown="$shown $message"
+  else
+    shown="$shown$message"
+  fi
+  if [ -n "$shown" ] && [ "$(hook_host)" != codex ]; then
+    jq -nc --arg m "$shown" --arg c "$context" \
       '{systemMessage: $m,
         hookSpecificOutput: {hookEventName: "UserPromptSubmit",
                              additionalContext: $c}}'
@@ -16612,7 +16730,7 @@ hook_user_prompt() {
     begin_infrastructure_failure "$input" \
       "$PROGRAM: the prompt hook input could not be parsed;"
     notice=$INFRA_FAILURE_NOTICE
-    emit_prompt_response "$notice" ''
+    emit_prompt_response "$notice" '' "$notice"
     return 0
   fi
   [ -n "$prompt" ] || return 0
@@ -16652,7 +16770,7 @@ hook_user_prompt() {
     # 128KB but ~23s at 874KB), which would burn the 10s host timeout and make
     # the host kill the hook — a silent fail-open. Above the shared scan cap,
     # skip the probe and route through the infra-failure policy instead:
-    # open warns once and keeps the gitleaks verdict; closed blocks.
+    # open warns (at most once per interval) and keeps the gitleaks verdict; closed blocks.
     if output_scan_input_exceeds_cap "$prompt"; then
       begin_infrastructure_failure "$input" \
         "$PROGRAM: the prompt exceeds the assignment-probe scan cap (gitleaks rules were still applied);"
@@ -16671,12 +16789,13 @@ hook_user_prompt() {
       esac
     fi
   fi
+  infra_notice=$notice
   if [ "$found" -ne 1 ] || [ "$prompt_mode" = warn ]; then
     take_blocked_injection_notice "$input"
     notice=$INJECTION_NOTICE${INJECTION_NOTICE:+${notice:+ }}$notice
   fi
   if [ "$found" -ne 1 ]; then
-    emit_prompt_response "$notice" ''
+    emit_prompt_response "$notice" '' "$infra_notice"
     return 0
   fi
 
@@ -16684,7 +16803,8 @@ hook_user_prompt() {
     warn)
       audit_note warned
       emit_prompt_response "$notice" \
-        "$PROGRAM: the submitted prompt contains secret-like values; they were passed through because AGENT_GUARD_PROMPT_GUARD_MODE=warn"
+        "$PROGRAM: the submitted prompt contains secret-like values; they were passed through because AGENT_GUARD_PROMPT_GUARD_MODE=warn" \
+        "$infra_notice"
       return 0
       ;;
   esac
