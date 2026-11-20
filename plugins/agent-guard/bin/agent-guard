@@ -6520,8 +6520,9 @@ path_entries_absolute() {
 }
 
 # The commands message_value_records and search_operand_spans accept before a
-# later command name: none of them can rebind a name (no builtin that assigns,
-# no loop variable) or write a file a PATH entry resolves it to. Both pass it
+# later command name, and literal_consumers_inert accepts as text consumers:
+# none of them can rebind a name (no builtin that assigns, no loop variable)
+# or write a file a PATH entry resolves it to. All three pass it
 # to awk with -v and match it as a dynamic regex; it holds no backslash, so -v
 # escape processing leaves it unchanged, and an empty value accepts nothing
 # rather than everything. cd qualifies only while path_entries_absolute holds.
@@ -8325,7 +8326,8 @@ bash_strip_heredoc_bodies() (
 # interpreter, an assignment prefix, a function or alias definition or a pipe
 # into any of them keeps the whole line in the scan.
 literal_consumers_inert() {
-  printf '%s\n' "$1" | LC_ALL=C awk -v cd_ok="$(path_entries_absolute && echo 1)" -v mode="${2-}" '
+  printf '%s\n' "$1" | LC_ALL=C awk -v cd_ok="$(path_entries_absolute && echo 1)" -v mode="${2-}" \
+    -v inert_names="$INERT_SEGMENT_COMMANDS_ERE" '
     # An exit with no status in END keeps 0, so give it one.
     function bail() { failed = 1; exit 1 }
     function plain(k, v) {
@@ -8347,7 +8349,7 @@ literal_consumers_inert() {
         if (mode != "heredoc" || word[1] !~ /^(cat|tee|gh|git)$/) bail()
       } else {
         if (redir) bail()
-        if (word[1] !~ /^(grep|egrep|fgrep|ls|cat|head|tail|wc|cut|tr|echo|true|false|pwd|cd|jq|diff|comm|basename|dirname|date|sleep)$/ \
+        if ((inert_names == "" || word[1] !~ inert_names) \
           && !(mode == "heredoc" && word[1] ~ /^(mkdir|git)$/)) bail()
         if (word[1] == "cd" && cd_ok != "1") bail()
       }
