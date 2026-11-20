@@ -62,13 +62,6 @@ jobs:
           mkdir -p "$RUNNER_TEMP/mawk-bin"
           ln -sf /usr/bin/mawk "$RUNNER_TEMP/mawk-bin/awk"
           PATH="$RUNNER_TEMP/mawk-bin:$PATH" sh tests/redaction-wrapped-values.sh
-          # mawk, gawk and busybox awk must agree on the key-name records.
-          command -v gawk >/dev/null && command -v busybox >/dev/null \
-            || { sudo apt-get update && sudo apt-get install -y gawk busybox; }
-          gawk --version | head -n 1
-          busybox | head -n 1
-          AGENT_GUARD_TEST_REQUIRE_AWK_VARIANTS=1 \
-            PATH="$RUNNER_TEMP/mawk-bin:$PATH" sh tests/key-name-masking.sh
       - name: Verify jq 1.8.1 successful truncation recovery
         run: |
           set -eu
@@ -97,3 +90,11 @@ jobs:
           gawk --version | sed -n 1p
           busybox | sed -n 1p
           AGENT_GUARD_TEST_REQUIRE_AWKS='mawk gawk busybox' sh tests/assignment-leftmost.sh
+      - name: Compare key-name records across awk implementations
+        run: |
+          # The detector calls `awk` from PATH; start from mawk, and the test
+          # repeats itself under gawk and busybox awk.
+          mkdir -p "$RUNNER_TEMP/mawk-bin"
+          ln -sf /usr/bin/mawk "$RUNNER_TEMP/mawk-bin/awk"
+          AGENT_GUARD_TEST_REQUIRE_AWK_VARIANTS=1 \
+            PATH="$RUNNER_TEMP/mawk-bin:$PATH" sh tests/key-name-masking.sh

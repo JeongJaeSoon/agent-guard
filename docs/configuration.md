@@ -92,9 +92,11 @@ return status 0 with no response. See [Output masking coverage](integrations.md#
     bytes with no digit; one leading `$` and one simple generic argument
     after a capitalized name (`Promise<Token>`) are allowed. A dotted chain starts at a common object
     name (`input`, `config`, `self`, `this`, ...). The value must also read
-    as words: split at capitals, `_` and `.`, no word has five consonants in
-    a row and fewer than three words are two letters or shorter, so a random
-    letters-only value (`secret: SecretQzxvWplmKdjfhgTyur,`) stays masked.
+    as words: split where a capital follows a small letter, where an acronym
+    ends, and at `_`, `.`, `$`, `<` and `>`, no word has five consonants in
+    a row and fewer than three words are two letters or shorter. This is a
+    heuristic: it masks most random letters-only values that contain the key
+    word (`secret: SecretQzxvWplmKdjfhgTyur,`), not all of them.
   - A `,` or `;` ends the line. After a colon field the value may first
     continue with `|`, `||`, `??`, `&&` or `=`, each followed by one more
     digit-free identifier (`Credential | null;`). A `self.` or `this.` member
@@ -112,8 +114,12 @@ return status 0 with no response. See [Output masking coverage](integrations.md#
   word (`password: MyPassword,`, `secret: top_secret;`), each with or without
   a leading `$` or a generic argument after a capitalized name. The same goes
   for a value equal to its key name under a `self.` or `this.` key with
-  nothing after it (`self.password = password`). gitleaks findings are masked
-  regardless.
+  nothing after it (`self.password = password`). A random letters-only value
+  that contains its key word can also read as words by chance: a short random
+  tail, syllables, or pieces with at most four consonants in a row
+  (`secret: SecretKolabaminoTuvela,`). In a measurement with random letters
+  after `Secret`, about a third of 12-letter tails and about 4% of 24-letter
+  tails were left readable. gitleaks findings are masked regardless.
   `AGENT_GUARD_KEY_NAME_REDACT=on` turns this exemption off, so the left-hand
   column is masked again as it was before; any value other than unset, empty
   or `off` counts as `on` (including `0` and `false`). The prompt guard uses
