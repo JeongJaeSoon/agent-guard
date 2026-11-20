@@ -9,6 +9,9 @@ on:
       - 'tests/post-tool-serialization-recovery.sh'
       - 'tests/redaction-wrapped-values.sh'
       - 'tests/fixtures/redaction-wrapped-values.json'
+      - 'tests/key-name-masking.sh'
+      - 'tests/fixtures/key-name-masking.json'
+      - 'tests/fixtures/key-name-masking-diff.txt'
       - 'tests/assignment-leftmost.sh'
       - 'tests/fixtures/assignment-leftmost.json'
       - '.github/workflows/legacy-tools.yml'
@@ -22,6 +25,9 @@ on:
       - 'tests/post-tool-serialization-recovery.sh'
       - 'tests/redaction-wrapped-values.sh'
       - 'tests/fixtures/redaction-wrapped-values.json'
+      - 'tests/key-name-masking.sh'
+      - 'tests/fixtures/key-name-masking.json'
+      - 'tests/fixtures/key-name-masking-diff.txt'
       - 'tests/assignment-leftmost.sh'
       - 'tests/fixtures/assignment-leftmost.json'
       - '.github/workflows/legacy-tools.yml'
@@ -38,7 +44,7 @@ jobs:
   contracts:
     name: Legacy jq and awk contracts
     runs-on: ubuntu-22.04
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -84,3 +90,11 @@ jobs:
           gawk --version | sed -n 1p
           busybox | sed -n 1p
           AGENT_GUARD_TEST_REQUIRE_AWKS='mawk gawk busybox' sh tests/assignment-leftmost.sh
+      - name: Compare key-name records across awk implementations
+        run: |
+          # The detector calls `awk` from PATH; start from mawk, and the test
+          # repeats itself under gawk and busybox awk.
+          mkdir -p "$RUNNER_TEMP/mawk-bin"
+          ln -sf /usr/bin/mawk "$RUNNER_TEMP/mawk-bin/awk"
+          AGENT_GUARD_TEST_REQUIRE_AWK_VARIANTS=1 \
+            PATH="$RUNNER_TEMP/mawk-bin:$PATH" sh tests/key-name-masking.sh

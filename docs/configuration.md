@@ -69,6 +69,74 @@ return status 0 with no response. See [Output masking coverage](integrations.md#
   turns off the Claude `PostToolUseFailure` check, which reports secret-like
   values in a failed tool's output but cannot mask them
   ([Integrations](integrations.md#output-masking-coverage)).
+- A credential-like key name alone does not mask a value. The assignment
+  heuristic (`password=...`, `token: ...`) still masks a quoted string and a
+  bare value, whatever its entropy: `password=hunter2`, `password: admin`, a
+  connection string segment. It leaves a value that is an identifier repeating
+  the field name in a line of source code, because that names the field
+  again and is not a credential:
+
+  | Left readable | Still masked |
+  | --- | --- |
+  | `credential: Credential;`, `credential: Credential \| null;` | `credential: Credential` (nothing after it, as in YAML), `credential: Credential \| hunter2` |
+  | `credential: CredentialSchema,`, `password: hashedPassword,` | `credential: mycredential,`, `password: SummerRain,`, `password: hashedPassword1,` |
+  | `credential: input.credential,` | `credential: input.credential, port: 3306`, `password: winter.coldPassword,` |
+  | `credential=credential,`, `api_key=self.api_key,` | `credential=myCredential,`, `api_key=other_key,` |
+  | `self.credential = credential`, `this.credential = credential;` | `password = password`, `this.credential = "..."` |
+  | `password: userPassword;` at the start of a line | `Server=db;Password=userPassword;`, `user: bob \| password: MyPassword \| host: db` |
+  | `password: HTTPSProxyPassword,`, `password: DATABASE_PASSWORD,` | `password: MyPassword,`, `secret: SecretQzxvWplm,`, `token: Promise<XkqWzp>;` (a word outside the list) |
+
+  All of these must hold:
+  - The field starts its line: only indentation, one diff marker (`+`, `-`)
+    and declaration keywords such as `const` or `export` come before it. The
+    key itself may carry `-`, `.`, `$` or quotes, so `--password=...`,
+    `spring.datasource.password=...` and `"password": ...` at the start of a
+    line count as well.
+  - The whole unquoted value is an identifier or a dotted chain of at most 80
+    bytes with no digit; one leading `$` and one simple generic argument
+    after a capitalized name (`Promise<Token>`) are allowed. A dotted chain starts at a common object
+    name (`input`, `config`, `self`, `this`, ...).
+  - Every word of the value is a word of the field name (`api` and `key`
+    for `api_key`; its plural or singular too) or a word from a closed list
+    of identifier words (`schema`, `input`, `hashed`, `user`, `promise`,
+    `null`, ...), which includes the common object names a dotted chain may
+    start at (`settings`, `conf`, `process`, ...). Words end at `_`, `.`, `$`, `<` and `>`, where a capital
+    follows a small letter, and where an acronym ends (`HTTPCredential`).
+    Any other word keeps the value masked, so random letters cannot pass by
+    carrying the key word (`secret: SecretQzxvWplm,`), and neither can a
+    password built around it (`password: MyPassword,`). Each operand after
+    an operator is a keyword or builtin type (`null`, `undefined`, `None`,
+    `string`, ...) or names the field itself with listed words
+    (`?? credentialOverride,`); `password: Password ?? admin,` stays masked.
+  - A `,` or `;` ends the line. After a colon field the value may first
+    continue with `|`, `||`, `??`, `&&` or `=`, each followed by one more
+    digit-free identifier (`Credential | null;`). A `self.` or `this.` member
+    assigned with `=` may also end the line with nothing.
+  - The value names the field, compared without case, digits and separators.
+    After `=` the last segment of the value must be the field name. After a
+    colon it is enough that both contain the same credential word when the
+    value is also written as an identifier: a capital, an underscore or a
+    dot past its first character.
+
+  What this cannot tell apart, and so leaves readable: at the start of a line
+  and before a line-ending `,` or `;`, a digit-free password that is its own
+  key name in lower case, capitalized or all capitals (`PASSWORD=password;`,
+  `password: Password,`; mixed case such as `PASSWORD=PaSsWoRd;` splits into
+  other words and stays masked), or one made only of words of the field name
+  and listed words (`password: userPassword,`, `password: defaultPassword;`),
+  each with or without a leading `$` or a generic argument after a
+  capitalized name. Lines that are not source code have this shape too when
+  the key starts the line: `--password=password;`,
+  `spring.datasource.password=password;`, `"password": Password,` and a YAML
+  list item `- password: Password,` (read as a diff marker). The same goes for a value equal
+  to its key name under a `self.` or `this.` key with nothing after it
+  (`self.password = password`). In the other direction, an identifier with a
+  word outside the list stays masked as before (`password: legacyPassword,`).
+  gitleaks findings are masked regardless.
+  `AGENT_GUARD_KEY_NAME_REDACT=on` turns this exemption off, so the left-hand
+  column is masked again as it was before; any value other than unset, empty
+  or `off` counts as `on` (including `0` and `false`). The prompt guard uses
+  the same detector, so the same lines pass or block there.
 - A tool result too large to scan is masked fail-closed: every nonempty string
   in it is replaced. Anthropic content-block discriminators (`type`,
   `source.type`, `media_type`) survive that rewrite when the value is exactly a
@@ -438,6 +506,7 @@ reads it.
 | `AGENT_GUARD_INFRA_FAILURE_MODE` | `open` (default) or `closed` for hook infrastructure failures. |
 | `AGENT_GUARD_SCAN_INPUT_MAX_BYTES` | Positive integer `>= 10485760`; default `10485760` (10 MiB, split into thirds per producer, so `scan-staged` and each `scan-working-tree` component get 3495253 bytes by default). It can only raise the budget: smaller, non-numeric, or overlong (19+ digit) values keep the default. A larger budget scans more input; it never excludes anything from scanning. |
 | `AGENT_GUARD_OUTPUT_REDACT` | Output secret masking; set `off` only with deliberate acceptance of the reduced protection. |
+| `AGENT_GUARD_KEY_NAME_REDACT` | `off` (default) or `on`. `on` also masks, and blocks in a prompt, an identifier that repeats a credential-like field name (`credential: CredentialSchema,`); see [Output and prompt handling](#output-and-prompt-handling). Any value other than unset, empty or `off` counts as `on`. |
 | `AGENT_GUARD_KNOWN_VALUE_REDACT` | `on` (default) or `off`. Only with `AGENT_GUARD_DENY_READ_MODE=mask`: output masking also masks the values of the project's root dotenv files ([Known dotenv values in output](#known-dotenv-values-in-output)). `off` skips it. |
 | `AGENT_GUARD_PROMPT_GUARD_MODE` | `block` (default), `warn`, `off`, or the currently blocking `mask` fallback. |
 | `AGENT_GUARD_PII_HOOK_MODE` | `off` (default), `block`, or `mask`. |

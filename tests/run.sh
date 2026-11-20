@@ -5596,10 +5596,13 @@ else
   sed 's/^/  stderr: /' "$ERR"
 fi
 
-# These two fixture suites (about 740 hook runs together) run here rather
-# than beside the other protected-path suites in partition 1: the core runner
-# runs partitions 1 and 3 side by side, and on macOS partition 1 came within
-# a minute of the job limit with them in it.
+# These three fixture suites run here rather than beside the other redaction
+# and protected-path suites in partition 1: the core runner runs partitions 1
+# and 3 side by side, and on macOS partition 1 came within a minute of the job
+# limit with the two path suites in it. Together they make about 1,400 hook
+# runs (key names about 640, the two path suites about 740).
+run_expect 0 "a field value that repeats the field name is code on both hosts; config literals stay masked" \
+  sh "$ROOT/tests/key-name-masking.sh"
 run_expect 0 "a committed file is not blocked by its name; untracked, linked, outside and remote paths stay blocked" \
   sh "$ROOT/tests/tracked-file-exception.sh"
 run_expect 0 "program text of known tools is not a path operand; operands, literals that name a file and shell code stay blocked" \
@@ -17500,6 +17503,7 @@ else
   not_ok "normal hook completion leaves no leftover scan temp: $norm_leftover"
 fi
 rm -rf "$NORM_PARENT"
+run_expect 0 "smoke-test keeps the process EXIT trap and leaves no temp directory" sh "$ROOT/tests/exit-trap-cleanup.sh"
 
 # --- pilot security: bounded tree scans and Codex write targets ------------
 # Assemble the test-only sentinel so source scans never see the matched value.

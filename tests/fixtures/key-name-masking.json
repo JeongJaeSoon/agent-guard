@@ -1,0 +1,525 @@
+{
+ "comment": "Synthetic text for 94S-1888. Each pair holds a `pass` line, where a credential-named field is followed by an identifier that repeats the field name, and the nearest `mask` line that must stay masked: the same field with one condition of the exemption broken. %R% becomes a random letter-and-digit run each test, %H% a random 40-digit hex run, %V% a vendor-shaped token, %W% a short human password, %L% a 90-letter camelCase word that contains the key word and %G% the marker the bundled mock scanner reports, all assembled at run time so no literal here looks like a credential. `masked` is the stdout agent-guard returns and applies to both hosts: Claude rewrites updatedToolOutput, Codex blocks and carries the same text in additionalContext. A `pass` line is left untouched and passes the prompt guard; a `mask` line and every `still_masked` line is rewritten and blocks at the prompt guard. `legacy` is what a `pass` line becomes with AGENT_GUARD_KEY_NAME_REDACT=on.",
+ "pairs": [
+  {
+   "label": "type named after the field",
+   "pass": "  credential: Credential;",
+   "legacy": "  credential: [REDACTED];",
+   "mask": "  credential: %R%;",
+   "masked": "  credential: [REDACTED];"
+  },
+  {
+   "label": "union type",
+   "pass": "  credential: Credential | null;",
+   "legacy": "  credential: [REDACTED] | null;",
+   "mask": "  credential: Credential | %R%;",
+   "masked": "  credential: [REDACTED] | %R%;"
+  },
+  {
+   "label": "schema identifier",
+   "pass": "  credential: CredentialSchema,",
+   "legacy": "  credential: [REDACTED],",
+   "mask": "  credential: mycredential,",
+   "masked": "  credential: [REDACTED],"
+  },
+  {
+   "label": "camelCase identifier",
+   "pass": "  password: hashedPassword,",
+   "legacy": "  password: [REDACTED],",
+   "mask": "  password: SummerRain,",
+   "masked": "  password: [REDACTED],"
+  },
+  {
+   "label": "member reference",
+   "pass": "  credential: input.credential,",
+   "legacy": "  credential: [REDACTED],",
+   "mask": "  credential: input.credential, port: 3306",
+   "masked": "  credential: [REDACTED], port: 3306"
+  },
+  {
+   "label": "nullish fallback",
+   "pass": "  credential: credentialOverride ?? null,",
+   "legacy": "  credential: [REDACTED] ?? null,",
+   "mask": "  credential: credentialOverride ?? %W%,",
+   "masked": "  credential: [REDACTED] ?? %W%,"
+  },
+  {
+   "label": "variable reference",
+   "pass": "  credential: $credential,",
+   "legacy": "  credential: [REDACTED],",
+   "mask": "  credential: $%R%,",
+   "masked": "  credential: [REDACTED],"
+  },
+  {
+   "label": "generic type",
+   "pass": "  token: Promise<Token>;",
+   "legacy": "  token: [REDACTED];",
+   "mask": "  token: Promise<%R%>;",
+   "masked": "  token: [REDACTED];"
+  },
+  {
+   "label": "default after a type",
+   "pass": "    credential: Credential = None,",
+   "legacy": "    credential: [REDACTED] = None,",
+   "mask": "    credential: Credential = None",
+   "masked": "    credential: [REDACTED] = None"
+  },
+  {
+   "label": "keyword argument",
+   "pass": "        credential=credential,",
+   "legacy": "        [REDACTED]=[REDACTED],",
+   "mask": "        credential=myCredential,",
+   "masked": "        credential=[REDACTED],"
+  },
+  {
+   "label": "keyword argument from a member",
+   "pass": "        api_key=self.api_key,",
+   "legacy": "        api_key=[REDACTED],",
+   "mask": "        api_key=other_key,",
+   "masked": "        api_key=[REDACTED],"
+  },
+  {
+   "label": "member assignment",
+   "pass": "        self.credential = credential",
+   "legacy": "        self.[REDACTED] = [REDACTED]",
+   "mask": "password = password",
+   "masked": "[REDACTED] = [REDACTED]"
+  },
+  {
+   "label": "member assignment statement",
+   "pass": "  this.credential = credential;",
+   "legacy": "  this.[REDACTED] = [REDACTED];",
+   "mask": "  this.credential = \"%R%\";",
+   "masked": "  this.credential = \"[REDACTED]\";"
+  },
+  {
+   "label": "declaration",
+   "pass": "  const credential = credential;",
+   "legacy": "  const [REDACTED] = [REDACTED];",
+   "mask": "  const credential = credential",
+   "masked": "  const [REDACTED] = [REDACTED]"
+  },
+  {
+   "label": "field at the start of a line",
+   "pass": "  password: userPassword;",
+   "legacy": "  password: [REDACTED];",
+   "mask": "Server=db;Password=userPassword;",
+   "masked": "Server=db;Password=[REDACTED];"
+  },
+  {
+   "label": "scanner finding under a matching name",
+   "pass": "  secret: client_secret,",
+   "legacy": "  secret: [REDACTED],",
+   "mask": "  secret: %G%,",
+   "masked": "  secret: [REDACTED],"
+  },
+  {
+   "label": "PascalCase words",
+   "pass": "  credential: CredentialInput,",
+   "legacy": "  credential: [REDACTED],",
+   "mask": "  secret: SecretQzxvWplmKdjfhgTyur,",
+   "masked": "  secret: [REDACTED],"
+  },
+  {
+   "label": "camelCase words",
+   "pass": "  password: passwordStrength,",
+   "legacy": "  password: [REDACTED],",
+   "mask": "  token: tokenAbCdEfGhIjKlMnOpQrStUvWx;",
+   "masked": "  token: [REDACTED];"
+  },
+  {
+   "label": "short last word",
+   "pass": "  api_key: apiKeyId,",
+   "legacy": "  api_key: [REDACTED],",
+   "mask": "  api_key: apiKeyIdQzXv,",
+   "masked": "  api_key: [REDACTED],"
+  },
+  {
+   "label": "acronym before the field name",
+   "pass": "  credential: HTTPCredential,",
+   "legacy": "  credential: [REDACTED],",
+   "mask": "  credential: credentialkdjfhgqz,",
+   "masked": "  credential: [REDACTED],"
+  },
+  {
+   "label": "acronym and listed words around the field name",
+   "pass": "  password: HTTPSProxyPassword,",
+   "legacy": "  password: [REDACTED],",
+   "mask": "  password: MyPassword,",
+   "masked": "  password: [REDACTED],"
+  },
+  {
+   "label": "constant in capitals",
+   "pass": "  password: DATABASE_PASSWORD,",
+   "legacy": "  password: [REDACTED],",
+   "mask": "  secret: top_secret;",
+   "masked": "  secret: [REDACTED];"
+  },
+  {
+   "label": "operand after an operator is a listed word",
+   "pass": "  credential: Credential | undefined;",
+   "legacy": "  credential: [REDACTED] | undefined;",
+   "mask": "  credential: Credential | XkqWzpVbnQrt;",
+   "masked": "  credential: [REDACTED] | XkqWzpVbnQrt;"
+  },
+  {
+   "label": "plural of the field name",
+   "pass": "  credential: credentialsProvider,",
+   "legacy": "  credential: [REDACTED],",
+   "mask": "  credential: credentialsVault,",
+   "masked": "  credential: [REDACTED],"
+  }
+ ],
+ "still_masked": [
+  {
+   "label": "env password, short human value",
+   "stdout": "password=%W%",
+   "masked": "password=[REDACTED]"
+  },
+  {
+   "label": "quoted password",
+   "stdout": "password: \"%W%\"",
+   "masked": "password: \"[REDACTED]\""
+  },
+  {
+   "label": "YAML password word",
+   "stdout": "password: admin",
+   "masked": "password: [REDACTED]"
+  },
+  {
+   "label": "env password, capitalized word",
+   "stdout": "PASSWORD=ChangeMe",
+   "masked": "PASSWORD=[REDACTED]"
+  },
+  {
+   "label": "flow mapping",
+   "stdout": "{user: root, password: mypassword, port: 3306}",
+   "masked": "{user: root, password: [REDACTED], port: 3306}"
+  },
+  {
+   "label": "log line",
+   "stdout": "user=admin, password=mypassword, host=db",
+   "masked": "user=admin, password=[REDACTED], host=db"
+  },
+  {
+   "label": "vendor-shaped token in an object field",
+   "stdout": "  token: %V%,",
+   "masked": "  token: [REDACTED],"
+  },
+  {
+   "label": "vendor-shaped token in env form",
+   "stdout": "GITHUB_TOKEN=%V%",
+   "masked": "GITHUB_TOKEN=[REDACTED]"
+  },
+  {
+   "label": "dotted words under another head",
+   "stdout": "  password: winter.coldPassword,",
+   "masked": "  password: [REDACTED],"
+  },
+  {
+   "label": "random hex in an object field",
+   "stdout": "  credential: %H%,",
+   "masked": "  credential: [REDACTED],"
+  },
+  {
+   "label": "random hex in env form",
+   "stdout": "API_KEY=%H%",
+   "masked": "API_KEY=[REDACTED]"
+  },
+  {
+   "label": "random value after a type default",
+   "stdout": "    credential: %R% = None",
+   "masked": "    credential: [REDACTED] = None"
+  },
+  {
+   "label": "quoted string in schema code",
+   "stdout": "  credential: \"%R%\",",
+   "masked": "  credential: \"[REDACTED]\","
+  },
+  {
+   "label": "value with a digit",
+   "stdout": "  password: hashedPassword1,",
+   "masked": "  password: [REDACTED],"
+  },
+  {
+   "label": "connection string",
+   "stdout": "Password=MyPassword;Server=db",
+   "masked": "Password=[REDACTED];Server=db"
+  },
+  {
+   "label": "connection string ending in a semicolon",
+   "stdout": "Server=db;Password=Password;",
+   "masked": "Server=db;[REDACTED]=[REDACTED];"
+  },
+  {
+   "label": "pipe-separated log line",
+   "stdout": "user: bob | password: MyPassword | host: db",
+   "masked": "user: bob | password: [REDACTED] | host: db"
+  },
+  {
+   "label": "table row",
+   "stdout": "| password: MyPassword | host: db |",
+   "masked": "| password: [REDACTED] | host: db |"
+  },
+  {
+   "label": "shell operator after the value",
+   "stdout": "password: MyPassword && echo done",
+   "masked": "password: [REDACTED] && echo done"
+  },
+  {
+   "label": "prose after the value",
+   "stdout": "password: Password is wrong",
+   "masked": "password: [REDACTED] is wrong"
+  },
+  {
+   "label": "log line ending in a comma",
+   "stdout": "user=admin, password=password,",
+   "masked": "user=admin, [REDACTED]=[REDACTED],"
+  },
+  {
+   "label": "open flow mapping",
+   "stdout": "{user: root, password: myPassword,",
+   "masked": "{user: root, password: [REDACTED],"
+  },
+  {
+   "label": "command line option",
+   "stdout": "mysql -u root --password=password;",
+   "masked": "mysql -u root --[REDACTED]=[REDACTED];"
+  },
+  {
+   "label": "literal after a logical operator",
+   "stdout": "  credential: Credential || %W%",
+   "masked": "  credential: [REDACTED] || %W%"
+  },
+  {
+   "label": "camelCase value after an env assignment",
+   "stdout": "password=myPassword,",
+   "masked": "password=[REDACTED],"
+  },
+  {
+   "label": "plain word after a colon",
+   "stdout": "password: mypassword,",
+   "masked": "password: [REDACTED],"
+  },
+  {
+   "label": "operator after an env assignment",
+   "stdout": "credential=credential | other,",
+   "masked": "[REDACTED]=[REDACTED] | other,"
+  },
+  {
+   "label": "closer after the value",
+   "stdout": "  password: userPassword),",
+   "masked": "  password: [REDACTED]),"
+  },
+  {
+   "label": "identifier longer than 80 bytes",
+   "stdout": "  password: %L%,",
+   "masked": "  password: [REDACTED],"
+  },
+  {
+   "label": "key inside a reopened quote after a status label",
+   "stdout": "error: token: \"token: MyToken,\nfoo bar baz\" tail",
+   "masked": "error: token: \"token: [REDACTED],\nfoo bar baz\" tail"
+  },
+  {
+   "label": "generic argument that is not the field name",
+   "stdout": "  password: Map<MyPassword>,",
+   "masked": "  password: [REDACTED],"
+  },
+  {
+   "label": "generic argument after a lowercase name",
+   "stdout": "  token: hunter<Token>,",
+   "masked": "  token: [REDACTED],"
+  },
+  {
+   "label": "key after a closed multiline capture, colon",
+   "stdout": "token: \"abcd%R%\nxyz%R%\" password: MyPassword,",
+   "masked": "token: \"[REDACTED]\" password: [REDACTED],"
+  },
+  {
+   "label": "key after a closed multiline capture, equals",
+   "stdout": "token: \"abcd%R%\nxyz%R%\" password=password;",
+   "masked": "token: \"[REDACTED]\" [REDACTED]=[REDACTED];"
+  },
+  {
+   "label": "second key on a line",
+   "stdout": "secret: token: MyToken,",
+   "masked": "secret: [REDACTED] [REDACTED],"
+  },
+  {
+   "label": "second key after a status label",
+   "stdout": "error: password: token: MyToken,",
+   "masked": "error: password: token: [REDACTED],"
+  },
+  {
+   "label": "second key after an empty assignment",
+   "stdout": "api_key= password: MyPassword,",
+   "masked": "api_key= [REDACTED] [REDACTED],"
+  },
+  {
+   "label": "unlisted word in a snake_case value",
+   "stdout": "  secret: secret_kdjfhgqz,",
+   "masked": "  secret: [REDACTED],"
+  },
+  {
+   "label": "unlisted short words in a snake_case value",
+   "stdout": "  password: Password_Qz_Xv_Wp,",
+   "masked": "  password: [REDACTED],"
+  },
+  {
+   "label": "unlisted word after an acronym and the field name",
+   "stdout": "  credential: HTTPSCredentialQx,",
+   "masked": "  credential: [REDACTED],"
+  },
+  {
+   "label": "pronounceable random run after the key word",
+   "stdout": "  secret: SecretBakoTemiRuda,",
+   "masked": "  secret: [REDACTED],"
+  },
+  {
+   "label": "short random run after the key word",
+   "stdout": "  token: tokenXkqWzpVbnQrt;",
+   "masked": "  token: [REDACTED];"
+  },
+  {
+   "label": "random segment inside a dotted chain",
+   "stdout": "  secret: this.xkqWzpVbn.secret,",
+   "masked": "  secret: [REDACTED],"
+  },
+  {
+   "label": "random type name around the field name",
+   "stdout": "  token: XkqWzpVbn<Token>;",
+   "masked": "  token: [REDACTED];"
+  },
+  {
+   "label": "capitalized password that splits into unlisted words",
+   "stdout": "  password: PassWord,",
+   "masked": "  password: [REDACTED],"
+  },
+  {
+   "label": "listed word alone after an operator",
+   "stdout": "  password: Password ?? admin,",
+   "masked": "  password: [REDACTED] ?? admin,"
+  },
+  {
+   "label": "unlisted word alone after an operator",
+   "stdout": "  password: Password || hunter;",
+   "masked": "  password: [REDACTED] || hunter;"
+  },
+  {
+   "label": "default-account word around the field name",
+   "stdout": "  password: adminPassword,",
+   "masked": "  password: [REDACTED],"
+  },
+  {
+   "label": "default-account word around the field name, PascalCase",
+   "stdout": "  password: RootPassword;",
+   "masked": "  password: [REDACTED];"
+  },
+  {
+   "label": "listed word alone after an operator, not naming the field",
+   "stdout": "  password: Password ?? user,",
+   "masked": "  password: [REDACTED] ?? user,"
+  },
+  {
+   "label": "dotted chain under a listed word that is not a root object",
+   "stdout": "  password: form.password,",
+   "masked": "  password: [REDACTED],"
+  },
+  {
+   "label": "dotted chain under another listed word",
+   "stdout": "  password: test.password;",
+   "masked": "  password: [REDACTED];"
+  },
+  {
+   "label": "env assignment of the key word with a listed word",
+   "stdout": "password=userPassword,",
+   "masked": "password=[REDACTED],"
+  },
+  {
+   "label": "env assignment in capitals with a listed word",
+   "stdout": "PASSWORD=defaultPassword;",
+   "masked": "PASSWORD=[REDACTED];"
+  },
+  {
+   "label": "operator with a keyword after an env assignment",
+   "stdout": "PASSWORD=password || true;",
+   "masked": "PASSWORD=[REDACTED] || true;"
+  },
+  {
+   "label": "union with a keyword after an env assignment",
+   "stdout": "credential=credential | null,",
+   "masked": "[REDACTED]=[REDACTED] | null,"
+  },
+  {
+   "label": "plain key word under a longer key",
+   "stdout": "db_password: password,",
+   "masked": "db_[REDACTED]: [REDACTED],"
+  },
+  {
+   "label": "key word inside a reopened quote after a status label",
+   "stdout": "error: token: \"token: Token,\nfoo bar baz\" tail",
+   "masked": "error: token: \"token: [REDACTED],\nfoo bar baz\" tail"
+  },
+  {
+   "label": "random run glued to the key word next to a listed word",
+   "stdout": "  token: user_tokenxkqwzp,",
+   "masked": "  token: [REDACTED],"
+  },
+  {
+   "label": "listed words that share no credential word with the key",
+   "stdout": "  client_secret: clientId,",
+   "masked": "  client_secret: [REDACTED],"
+  },
+  {
+   "label": "generic argument naming the field after a lowercase listed name",
+   "stdout": "  password: user<Password>,",
+   "masked": "  password: [REDACTED],"
+  },
+  {
+   "label": "two diff markers before the field",
+   "stdout": "++  password: Password,",
+   "masked": "++  password: [REDACTED],"
+  },
+  {
+   "label": "listed words past 80 bytes",
+   "stdout": "  password: userPasswordValidatorFactoryBuilderContextControllerRepositoryComponentAttributePropertyHandler,",
+   "masked": "  password: [REDACTED],"
+  },
+  {
+   "label": "command word before an env assignment",
+   "stdout": "echo password=password;",
+   "masked": "echo [REDACTED]=[REDACTED];"
+  },
+  {
+   "label": "prose word before the field",
+   "stdout": "the password: Password,",
+   "masked": "the password: [REDACTED],"
+  },
+  {
+   "label": "capitalized key word under a longer key",
+   "stdout": "db_password: Password,",
+   "masked": "db_password: [REDACTED],"
+  },
+  {
+   "label": "arithmetic operator after the value",
+   "stdout": "  password: Password + null,",
+   "masked": "  password: [REDACTED] + null,"
+  },
+  {
+   "label": "ternary after the value",
+   "stdout": "  password: Password ? null : undefined,",
+   "masked": "  password: [REDACTED] ? null : undefined,"
+  },
+  {
+   "label": "member of a name that only ends in self",
+   "stdout": "myself.password = password",
+   "masked": "myself.[REDACTED] = [REDACTED]"
+  },
+  {
+   "label": "listed words just past 80 bytes",
+   "stdout": "  password: userPasswordValidatorFactoryBuilderContextControllerRepositoryComponentPropertyIds,",
+   "masked": "  password: [REDACTED],"
+  }
+ ]
+}
