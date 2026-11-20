@@ -261,11 +261,6 @@
    "masked": "  password: [REDACTED],"
   },
   {
-   "label": "key after a closed multiline quote",
-   "stdout": "k: \"a\nb\" password: MyPassword,",
-   "masked": "k: \"a\nb\" password: [REDACTED],"
-  },
-  {
    "label": "key inside a reopened quote after a status label",
    "stdout": "error: token: \"token: MyToken,\nfoo bar baz\" tail",
    "masked": "error: token: \"token: [REDACTED],\nfoo bar baz\" tail"
@@ -279,6 +274,31 @@
    "label": "generic argument after a lowercase name",
    "stdout": "  token: hunter<Token>,",
    "masked": "  token: [REDACTED],"
+  },
+  {
+   "label": "key after a closed multiline capture, colon",
+   "stdout": "token: \"abcd%R%\nxyz%R%\" password: MyPassword,",
+   "masked": "token: \"[REDACTED]\" password: [REDACTED],"
+  },
+  {
+   "label": "key after a closed multiline capture, equals",
+   "stdout": "token: \"abcd%R%\nxyz%R%\" password=password;",
+   "masked": "token: \"[REDACTED]\" [REDACTED]=[REDACTED];"
+  },
+  {
+   "label": "second key on a line",
+   "stdout": "secret: token: MyToken,",
+   "masked": "secret: [REDACTED] [REDACTED],"
+  },
+  {
+   "label": "second key after a status label",
+   "stdout": "error: password: token: MyToken,",
+   "masked": "error: password: token: [REDACTED],"
+  },
+  {
+   "label": "second key after an empty assignment",
+   "stdout": "api_key= password: MyPassword,",
+   "masked": "api_key= [REDACTED] [REDACTED],"
   }
  ]
 }
