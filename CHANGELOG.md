@@ -54,6 +54,10 @@
   - 동작 변경: CLI 동작은 바뀌지 않습니다. 지침의 내용(gitleaks를 다시 설치하지 않는다, `util-linux` 또는 Perl 설치 명령을 보여 주고 승인을 받는다, `setup --install`도 이 도구를 자동으로 설치하지 않는다)은 그대로이고, 한 가지를 더했습니다. gitleaks와 이 도구가 둘 다 없으면 `setup`은 위 문구를 내지 않고 `setup --install`이 `install a gitleaks process-isolation helper:`로 멈추므로, 이 문구로 멈췄을 때도 같은 단계를 따르게 했습니다.
   - 사용자가 할 일: 없습니다.
   - 운영자가 할 일: 없습니다.
+- fix(scan): 출력 가리기가 gitleaks에 넘기는 보고서 파일을 소유자만 읽을 수 있게 유지합니다. 이 보고서에는 찾은 값이 가려지지 않은 채 들어갑니다. gitleaks는 `--report-path` 파일을 지우고 다시 만들기 때문에, CLI가 0600으로 만들어 둔 권한 대신 호출한 프로세스의 umask가 적용됐습니다(umask 022에서 `-rw-r--r--`). (#559)
+  - 동작 변경: 보고서를 쓰는 gitleaks 호출을 `umask 077` 아래에서 실행합니다. 판정·출력·실행 프로그램 수는 바뀌지 않습니다. 임시 파일은 보통 호출마다 만드는 run 디렉터리(0700) 안에 있어 영향이 없었고, run 디렉터리를 만들지 못해 공유 `TMPDIR`에 파일이 놓인 경우에만 다른 사용자가 읽을 수 있었습니다. warm gitleaks helper를 켠 경로는 이미 CLI가 만든 파일에 그대로 씁니다.
+  - 사용자가 할 일: 없습니다.
+  - 운영자가 할 일: 없습니다.
 - ci(perf): hook을 바꾸는 PR에서 base와 head의 셸 명령어 수를 비교해 job summary에 표로 남기는 비차단 job(`Hook instruction count`)을 더합니다. Performance evidence는 경로 필터 때문에 hook만 바꾼 PR에서 돌지 않아, hook 비용 변화가 머지 뒤 nightly에서야 보였습니다. (#553)
   - 동작 변경: 제품 동작은 바뀌지 않습니다. `bin/agent-guard`·`config/`를 바꾸는 PR에서 PR을 merge한 결과와 그 첫 부모(base)로 합성 이벤트 6개(dense-controls, Edit PreToolUse, 제어 연산자로 이은 Bash PreToolUse, Bash PostToolUse, UserPromptSubmit, 기준용 `version`)를 callgrind로 한 번씩 실행해, dash가 실행한 명령어 수(exec한 jq·awk·git·gitleaks 제외)와 `version` 차이로 추정한 스크립트 크기 몫, 종료 코드·출력 차이를 보입니다. 늘어도 job은 실패하지 않고 warning만 남기며, 측정하지 못했을 때만 실패합니다. 같은 트리끼리도 이벤트마다 수천까지 달라지므로, `version`이 그대로(±100)이고 나머지가 1만 안이면 "변화 없음"으로 보이고, `version`이 바뀌었으면 나머지가 base의 0.05%(최소 2만) 안일 때 "스크립트 크기만"으로 보입니다. native 출력 redactor 없이 셸 경로만 재고 `bin/agent-guard`를 직접 실행하므로, Performance evidence와 `hooks/` launcher의 비용을 대신하지 않습니다. 로컬에서는 측정이 약 20초 걸렸습니다.
   - 사용자가 할 일: 없습니다.
