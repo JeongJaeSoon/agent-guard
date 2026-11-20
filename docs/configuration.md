@@ -84,6 +84,7 @@ return status 0 with no response. See [Output masking coverage](integrations.md#
   | `credential=credential,`, `api_key=self.api_key,` | `credential=myCredential,`, `api_key=other_key,` |
   | `self.credential = credential`, `this.credential = credential;` | `password = password`, `this.credential = "..."` |
   | `password: userPassword;` at the start of a line | `Server=db;Password=userPassword;`, `user: bob \| password: MyPassword \| host: db` |
+  | `src/schema.ts:14:  credential: CredentialSchema,` (`grep -n` output) | `src/schema.ts:  credential: CredentialSchema,` (no line number), `12:34: password: Password,` |
   | `password: HTTPSProxyPassword,`, `password: DATABASE_PASSWORD,` | `password: MyPassword,`, `secret: SecretQzxvWplm,`, `token: Promise<XkqWzp>;` (a word outside the list) |
 
   All of these must hold:
@@ -91,7 +92,14 @@ return status 0 with no response. See [Output masking coverage](integrations.md#
     and declaration keywords such as `const` or `export` come before it. The
     key itself may carry `-`, `.`, `$` or quotes, so `--password=...`,
     `spring.datasource.password=...` and `"password": ...` at the start of a
-    line count as well.
+    line count as well. A line locator may come before all of that, as
+    `grep -n`, `rg`, `git grep -n`, `cat -n` and `nl` print one:
+    `src/schema.ts:14:`, `14:`, the context forms `src/schema.ts-14-` and
+    `14-`, or a padded number and a tab. The locator must carry the line
+    number, and its path part has no space and holds a letter, `_`, `/` or
+    `.`: `src/schema.ts:` alone, a clock time (`12:34:`), a date
+    (`2024-01-15:`) and a line and column pair (`src/a.ts:14:9:`) do not
+    count.
   - The whole unquoted value is an identifier or a dotted chain of at most 80
     bytes with no digit; one leading `$` and one simple generic argument
     after a capitalized name (`Promise<Token>`) are allowed. A dotted chain starts at a common object
@@ -128,7 +136,8 @@ return status 0 with no response. See [Output masking coverage](integrations.md#
   capitalized name. Lines that are not source code have this shape too when
   the key starts the line: `--password=password;`,
   `spring.datasource.password=password;`, `"password": Password,` and a YAML
-  list item `- password: Password,` (read as a diff marker). The same goes for a value equal
+  list item `- password: Password,` (read as a diff marker). A log line that
+  opens like a locator has it as well (`db-host:22: password: Password,`). The same goes for a value equal
   to its key name under a `self.` or `this.` key with nothing after it
   (`self.password = password`). In the other direction, an identifier with a
   word outside the list stays masked as before (`password: legacyPassword,`).

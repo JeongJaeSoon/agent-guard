@@ -13687,10 +13687,17 @@ secretish_env_values() {
         # self_named_reference only applies to a field that starts its line.
         # Nothing of the line may have been consumed yet, and what precedes
         # the key is indentation, one diff marker and declaration keywords.
+        # A line locator may come first, as grep -n, rg, git grep -n, cat -n
+        # and nl print one: `path:14:`, `14:`, the context forms `path-14-`
+        # and `14-`, or a padded number and a tab. It must carry the line
+        # number, since a bare `name:` is a key of its own (`user: bob`), and
+        # its path part must hold a letter, `_`, `/` or `.`, since digits
+        # alone are a clock time or a date (`12:34: password: ...`).
         key_line_start = 0
         if (!key_name_redact && !advanced && !skip) {
           head = substr(rest, 1, start + matched_length - 1)
           sub(/["'\''`]?[A-Za-z0-9_.$-]+["'\''`]?[ \t]*[:=]$/, "", head)
+          sub(/^(([^ \t:]*[A-Za-z_\/.][^ \t:]*[:-])?[0-9]+[:-]|[ \t]*[0-9]+\t)/, "", head)
           key_line_start = (head ~ /^[+-]?[ \t\r]*((export|const|let|var|public|private|protected|readonly|static)[ \t]+)*$/)
         }
         if (!skip &&

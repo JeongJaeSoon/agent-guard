@@ -91,6 +91,13 @@
   - 문서: `README.md`(한국어·일본어 번역 포함)와 `docs/configuration.md`에 동작과 설정을 적었습니다.
   - 사용자가 할 일: 없습니다. 이전 동작이 필요하면 `AGENT_GUARD_KEY_NAME_REDACT=on`을 설정하세요.
   - 운영자가 할 일: 없습니다. 출력이나 프롬프트에서 위 식별자 줄이 가려지거나 막히는 것에 기대는 정책이 있으면 `AGENT_GUARD_KEY_NAME_REDACT=on`을 배포 환경에 설정하세요.
+- fix(redact): `grep -n`·`cat -n`처럼 줄 번호가 앞에 붙은 출력에서도 필드 이름을 되풀이하는 식별자 줄을 가리지 않습니다. 키 이름 예외는 필드가 줄 맨 앞에 있을 때만 적용되는데, `src/schema.ts:14:  credential: CredentialSchema,`처럼 검색 도구가 붙인 위치 표시가 앞에 오면 줄 중간으로 보아 계속 가렸고, Codex에서는 그 출력의 도구 호출이 막혔습니다. (94S-1888)
+  - 동작 변경: 줄 맨 앞 판정에서 위치 표시 하나를 건너뜁니다. 받는 꼴은 `경로:14:`, `14:`, 문맥 줄의 `경로-14-`·`14-`, 그리고 `cat -n`·`nl`의 "숫자와 탭"입니다. 경로 부분에는 공백이 없고 글자·`_`·`/`·`.` 중 하나가 있어야 합니다. 나머지 조건(값의 낱말, 줄 끝의 `,`·`;` 등)은 그대로입니다.
+  - 계속 가리는 것: 줄 번호가 없는 `경로:`만 붙은 줄(`src/schema.ts:  credential: CredentialSchema,`), 시각(`12:34: password: Password,`)과 날짜(`2024-01-15: password: Password,`), 줄·열 쌍(`src/a.ts:14:9:`), 위치 표시 뒤에 다른 글이 먼저 오는 줄(`src/log.txt:14: user: bob | password: MyPassword | host: db`), 위치 표시 뒤의 리터럴 값(`src/app.yml:3:  password: hunter2,`, 목록 밖 낱말, 무작위 값).
+  - 남는 한계: 위치 표시처럼 시작하는 로그 줄에서 값이 자기 키 이름과 같으면 보입니다(`db-host:22: password: Password,`). 기존 한계(줄 맨 앞, 줄 끝 `,`·`;`, 필드 이름과 목록의 낱말만으로 된 값)와 같은 범위입니다.
+  - 설정: `AGENT_GUARD_KEY_NAME_REDACT=on`이면 이 줄들도 이전처럼 가립니다.
+  - 사용자가 할 일: 없습니다.
+  - 운영자가 할 일: 없습니다.
 
 ## v3.12.0 - 2026-11-19
 
