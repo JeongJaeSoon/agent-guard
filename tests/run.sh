@@ -5525,6 +5525,7 @@ for varcmd_locale in C C.UTF-8 en_US.UTF-8 ja_JP.UTF-8; do
     'X="$(date)"; T="mytool"; $T run' \
     'X=$((1+2)); T="mytool"; $T run' \
     'diff <(echo a) <(echo b); T="mytool"; $T run' \
+    'cat 0<&0 2>&1; T="mytool"; $T run' \
     "T=\"mytool\"; \$T click --selector '.card >> nth=0 >> img[src*=\"icon_v2\"]'" \
     'T="mytool"; $T call --data "{\"email\":\"${EMAIL}\",\"password\":\"${PASS}\"}"' \
     "T=\"mytool\"; \$T fill 'input[autocomplete=\"cc-number\"]' \"4242424242424242\"" \

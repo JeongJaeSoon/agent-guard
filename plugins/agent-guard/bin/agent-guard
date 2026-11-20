@@ -6560,6 +6560,31 @@ path_entries_absolute() {
 # rather than everything. cd qualifies only while path_entries_absolute holds.
 INERT_SEGMENT_COMMANDS_ERE='^(grep|egrep|fgrep|ls|cat|head|tail|wc|cut|tr|echo|true|false|pwd|cd|jq|diff|comm|basename|dirname|date|sleep)$'
 
+# awk function message_value_records and literal_consumers_inert put before
+# their program. plain_word(k, v) succeeds for a git_command_records word v of
+# kind k that is literal, or whose expansions are bare parameter references:
+# every word of a simple command is expanded before its name is looked up, and
+# an expansion can assign (`${PWD:PATH=0}` evaluates PATH=0). zsh evaluates
+# `$x[...]` as a subscript.
+AWK_PLAIN_WORD='
+    function plain_word(k, v) {
+      if (k == "0") return 1
+      if (k != "4" || v ~ /\$[A-Za-z_][A-Za-z0-9_]*\[/) return 0
+      gsub(/\$\{[A-Za-z_][A-Za-z0-9_]*\}/, "", v)
+      gsub(/\$[A-Za-z_][A-Za-z0-9_]*/, "", v)
+      return v !~ /[$`]/
+    }'
+
+# awk functions prepended to programs that read git_command_records.
+# record_separator is true for the record of an unquoted `;`, `&&`, `||` or
+# `|`, which ends a simple command. A quoted operator is kind 4.
+AWK_RECORD_SEPARATOR='
+    function record_separator(r) { return r == "0;" || r == "0&&" || r == "0||" || r == "0|" }
+    # The `&` of `2>&1` or `0<&3`: git_command_records emits it as a `3&`
+    # right after the word that ends in the operator, and a backgrounding `&`
+    # after that word as a second `3&`. prev is the record before r.
+    function fd_dup_amp(r, prev) { return r == "3&" && prev ~ /[<>]$/ }'
+
 # Print the record numbers (git_command_records) of message values the
 # command sends as data: the subject and body of `orca orchestration
 # send|reply|ask` (and the question of `ask`), the title and body of `gh pr|issue create|comment|edit` and
@@ -6571,22 +6596,8 @@ INERT_SEGMENT_COMMANDS_ERE='^(grep|egrep|fgrep|ls|cat|head|tail|wc|cut|tr|echo|t
 # Prints nothing when the line may hide a command (heredoc, group, eval).
 message_value_records() {
   printf '%s\n' "$1" | LC_ALL=C awk -v cd_ok="$(path_entries_absolute && echo 1)" \
-    -v inert_names="$INERT_SEGMENT_COMMANDS_ERE" '
+    -v inert_names="$INERT_SEGMENT_COMMANDS_ERE" "$AWK_PLAIN_WORD$AWK_RECORD_SEPARATOR"'
     function bail() { failed = 1; exit }
-    function boundary(r) { return r == "0;" || r == "0&&" || r == "0||" || r == "0|" }
-    # Every word of a simple command is expanded before its name is looked
-    # up, and an expansion can assign (`${PWD:PATH=0}` evaluates PATH=0), so
-    # a word is plain only when it is literal or its expansions are bare
-    # parameter references. zsh evaluates `$x[...]` as a subscript.
-    function plain(j,   v) {
-      if (kind[j] == "0") return 1
-      if (kind[j] != "4") return 0
-      v = word[j]
-      if (v ~ /\$[A-Za-z_][A-Za-z0-9_]*\[/) return 0
-      gsub(/\$\{[A-Za-z_][A-Za-z0-9_]*\}/, "", v)
-      gsub(/\$[A-Za-z_][A-Za-z0-9_]*/, "", v)
-      return v !~ /[$`]/
-    }
     # git commit operands are pathspecs it reads, so pair a message option
     # only through options known to take no separate value; `--` or anything
     # else ends the search.
@@ -6606,7 +6617,7 @@ message_value_records() {
     function finish(bound,   j, w, opts, all, before) {
       if (n == 0) return
       all = 1
-      for (j = 1; j <= n; j++) if (!plain(j)) all = 0
+      for (j = 1; j <= n; j++) if (!plain_word(kind[j], word[j])) all = 0
       # The commands of a pipeline start together, so one piped after a
       # message command may replace it before it runs.
       if (pipe_target && !(all && inert())) bail()
@@ -6634,14 +6645,13 @@ message_value_records() {
     }
     BEGIN { ok = 1; n = 0 }
     {
-      r = $0; k = substr(r, 1, 1); v = substr(r, 2)
+      prev = r; r = $0; k = substr(r, 1, 1); v = substr(r, 2)
       # A subshell or a process substitution (`<(`, `>(`, zsh `=(`) runs
       # before the command it sits in, so it can replace what the name runs.
       if (r ~ /^3[][(){}]$/ || k == "2") bail()
       if (k == "0" && v ~ /^(eval|alias|function|trap|source|\.)$/) bail()
-      if (boundary(r)) { finish(r); next }
-      # The `&` of `2>&1`; a backgrounding `&` after it comes as a second one.
-      if (r == "3&" && n > 0 && word[n] ~ /[<>]$/ && dup != NR - 1) { dup = NR; next }
+      if (record_separator(r)) { finish(r); next }
+      if (fd_dup_amp(r, prev)) next
       # A backgrounded command (or `|&`) runs alongside whatever follows.
       if (r == "3&") { finish(r); if (out != "") bail(); ok = 0; next }
       if (k == "3") { ok = 0; next }
@@ -8359,16 +8369,9 @@ bash_strip_heredoc_bodies() (
 # into any of them keeps the whole line in the scan.
 literal_consumers_inert() {
   printf '%s\n' "$1" | LC_ALL=C awk -v cd_ok="$(path_entries_absolute && echo 1)" -v mode="${2-}" \
-    -v inert_names="$INERT_SEGMENT_COMMANDS_ERE" '
+    -v inert_names="$INERT_SEGMENT_COMMANDS_ERE" "$AWK_PLAIN_WORD$AWK_RECORD_SEPARATOR"'
     # An exit with no status in END keeps 0, so give it one.
     function bail() { failed = 1; exit 1 }
-    function plain(k, v) {
-      if (k == "0") return 1
-      if (k != "4" || v ~ /\$[A-Za-z_][A-Za-z0-9_]*\[/) return 0
-      gsub(/\$\{[A-Za-z_][A-Za-z0-9_]*\}/, "", v)
-      gsub(/\$[A-Za-z_][A-Za-z0-9_]*/, "", v)
-      return v !~ /[$`]/
-    }
     function finish(   j, hd, redir) {
       if (n == 0) return
       if (kind[1] != "0") bail()
@@ -8389,8 +8392,8 @@ literal_consumers_inert() {
     }
     {
       r = $0; k = substr(r, 1, 1); v = substr(r, 2)
-      if (r == "0;" || r == "0&&" || r == "0||" || r == "0|") { finish(); next }
-      if (!plain(k, v)) bail()
+      if (record_separator(r)) { finish(); next }
+      if (!plain_word(k, v)) bail()
       n++; kind[n] = k; word[n] = v
     }
     END { if (!failed) finish(); exit failed }
@@ -8624,16 +8627,16 @@ shell_command_words() {
 # or 1 for one whose expansion may split into several words, or into none;
 # malformed input is emitted as 2. A quoted or escaped `;`, `&&`, `||` or `|`
 # is a 4 too, so that no caller mistakes it for the operator. With $2 set to
-# tilde, so is a word after a `cd` or `pushd` command name (past any
+# gate (the commit/push gate, git_gate_code_records), so is a word after a `cd` or `pushd` command name (past any
 # assignment-shaped words, quoted or not) that starts with `~` and has a
 # quoted or escaped part before its first unquoted `/`: only an unquoted tilde
 # prefix expands to $HOME alike in every shell (zsh expands `~"/x"`). Also with
-# tilde, a command-position word shaped like `NAME=value` with a quoted or
+# gate, a command-position word shaped like `NAME=value` with a quoted or
 # escaped part before its first unquoted `=` is emitted as 5: the shell runs
 # it as a command name, not an assignment, and whatever it expands to still
 # starts with that literal `NAME=`. It is a 6 instead when an unquoted
 # expansion or glob character may make it no word at all (nullglob). With
-# tilde, the code of each command substitution inside double quotes in a word
+# gate, the code of each command substitution inside double quotes in a word
 # follows that word as one record with prefix 7, each substitution's code
 # wrapped as `( code` and `)` lines and every newline written as \034; only
 # git_gate_records reads it. Unquoted substitutions, in a word or in a
@@ -8643,14 +8646,14 @@ shell_command_words() {
 # they make the affected token dynamic and therefore subject to infra policy.
 # Comments are dropped. A here-document body is still tokenized, since it may
 # be code for another shell, but is wrapped in `3(` and `3)`: nothing in it
-# runs in this shell. With tilde, a body that cat, tee, python, gh or git
+# runs in this shell. With gate, a body that cat, tee, python, gh or git
 # commit reads, and nothing else on the line can, is wrapped in `3[` and `3]`
 # instead: none of them runs it as shell code. Behind an unquoted delimiter
 # the code of its substitutions follows the body as 7 records, since this
 # shell runs it either way. Python code is outside the gate already, as `python3 -c` and
 # `python3 script.py` are. git_gate_records decides what such a body is.
 git_command_records() {
-  printf '%s\n' "$1" | LC_ALL=C awk -v tilde="${2:-}" '
+  printf '%s\n' "$1" | LC_ALL=C awk -v gate="${2:-}" '
     BEGIN { heredoc_next = 1 }
     # A pipe, a subshell or a background job on the line may hand a
     # here-document to a shell after all.
@@ -8683,15 +8686,15 @@ git_command_records() {
           # JSON input, except for a --shell alias, and git commit as a
           # message.
           hb = head; sub(/.*\//, "", hb)
-          heredoc_inert[heredoc_count + 1] = tilde != "" && (hb ~ /^(cat|tee|python|python3|gh)$/ && head_sub != "alias" || head_sub == "commit") ? (heredoc_quoted ? 1 : 2) : 0
+          heredoc_inert[heredoc_count + 1] = gate != "" && (hb ~ /^(cat|tee|python|python3|gh)$/ && head_sub != "alias" || head_sub == "commit") ? (heredoc_quoted ? 1 : 2) : 0
           heredoc_quoted = 0
           heredoc_delim[++heredoc_count] = delim
           heredoc_strip[heredoc_count] = heredoc_dash
           heredoc_expect = 0
         }
       }
-      if (tilde != "" && !at_word && name_quoted && word ~ /^[A-Za-z_][A-Za-z0-9_]*=/) print (splits || globbed ? "6" : "5") word
-      else print (splits ? "1" : dynamic || word ~ /^(;|&&|\|\||\|)$/ || tilde != "" && cd_args && quoted && word ~ /^~/ ? "4" : "0") word
+      if (gate != "" && !at_word && name_quoted && word ~ /^[A-Za-z_][A-Za-z0-9_]*=/) print (splits || globbed ? "6" : "5") word
+      else print (splits ? "1" : dynamic || word ~ /^(;|&&|\|\||\|)$/ || gate != "" && cd_args && quoted && word ~ /^~/ ? "4" : "0") word
       if (code != "") {
         if (heredoc_open && heredoc_inert[heredoc_next] == 2) body_code = body_code "7" code "\n"
         else print "7" code
@@ -8709,7 +8712,7 @@ git_command_records() {
     # A backslash-newline outside quotes and here-documents joins two lines.
     NR > 1 && !joined {
       if (quote == "") { emit(); print "0;"; cd_args = 0; at_word = 0; head = ""; head_sub = "" }
-      else { stdin_shared(); word = word (tilde != "" && quote ~ /^(double|subst)$/ ? "\034" : " "); dynamic = 1 }
+      else { stdin_shared(); word = word (gate != "" && quote ~ /^(double|subst)$/ ? "\034" : " "); dynamic = 1 }
       heredoc_expect = 0; heredoc_quoted = 0
       line_heredocs = heredoc_count
     }
@@ -8747,7 +8750,7 @@ git_command_records() {
           continue
         }
         # Inside a command substitution (in double quotes, or unquoted in
-        # tilde mode): quoting, nesting, a case pattern and a here-document
+        # gate mode): quoting, nesting, a case pattern and a here-document
         # follow shell rules, so that the substitution ends where the shell
         # ends it.
         if (quote ~ /^(double|subst)$/ && nest != "") {
@@ -8794,7 +8797,7 @@ git_command_records() {
           if (c == "\\" && n ~ /^["\\$`]$/) {
             word = word n; started = 1; i++; continue
           }
-          if (tilde != "" && (c == "`" || c == "$" && n == "(")) {
+          if (gate != "" && (c == "`" || c == "$" && n == "(")) {
             word = word c
             if (c == "$") { word = word n; i++ }
             nest = c == "`" ? "b" : "p"
@@ -8812,7 +8815,7 @@ git_command_records() {
         if (c == " " || c == "\t") { emit(); continue }
         # Unquoted, a substitution splits into words and its code is hoisted
         # as in double quotes; the word stays an argument of its command.
-        if (tilde != "" && (c == "`" || c == "$" && n == "(")) {
+        if (gate != "" && (c == "`" || c == "$" && n == "(")) {
           word = word c
           if (c == "$") { word = word n; i++ }
           nest = c == "`" ? "b" : "p"; quote = "subst"
@@ -8867,9 +8870,9 @@ git_command_records() {
           emit()
           redirect = c == "&" && redir_at == NR ":" (i - 1)
           if (c == "(" || c == ")" || c == "&" && !redirect) stdin_shared()
-          # Consumers read a `&` after a word ending in > or < as the `&` of
-          # `2>&1`; after a quoted or escaped > it backgrounds, so it gets a
-          # second one.
+          # fd_dup_amp reads a `&` after a word ending in > or < as the `&`
+          # of `2>&1`; after a quoted or escaped > it backgrounds, so it gets
+          # a second one.
           if (c == "&" && !redirect && last_word ~ /[<>]$/) print "3&"
           print "3" c; cd_args = 0; at_word = 0; head = ""; head_sub = ""; continue
         }
@@ -8889,7 +8892,7 @@ git_command_records() {
   '
 }
 
-# The records of $1 for the commit/push gate: git_command_records in tilde
+# The records of $1 for the commit/push gate: git_command_records in gate
 # mode, where the code of each command substitution inside a quoted word, as
 # in `echo "$(git commit)"`, runs in a ( ) subshell placed before the command
 # that word belongs to. Code that cannot be read back runs as a command only
@@ -8910,14 +8913,14 @@ git_gate_records() (
   # knows, or a path whose file name another word of the line also names, as
   # the file a here-document is written to is. Code a shell or a git alias
   # runs (gate_child_code) may follow a script the outer line wrote.
-  printf '%s\n' "$gate_records" | LC_ALL=C awk -v runner="${gate_child_code:-0}" '
+  printf '%s\n' "$gate_records" | LC_ALL=C awk -v runner="${gate_child_code:-0}" "$AWK_RECORD_SEPARATOR"'
     { rec[++n] = $0 }
     END {
       # File names the line gives as words other than a command name.
       head = 1
       for (k = 1; k <= n; k++) {
         r = rec[k]; t = substr(r, 2)
-        if (r == "0;" || r == "0&&" || r == "0||" || r == "0|" || r ~ /^3/) { head = 1; continue }
+        if (record_separator(r) || r ~ /^3/) { head = 1; continue }
         if (head && t !~ /^[A-Za-z_][A-Za-z0-9_]*=/) { head = 0; continue }
         sub(/^[0-9]*[<>&|]+/, "", t); sub(/.*\//, "", t)
         named[tolower(t)]++
@@ -8928,7 +8931,7 @@ git_gate_records() (
         if (r == "3[") { body++; continue }
         if (r == "3]") { body--; continue }
         if (body) continue
-        if (r == "0;" || r == "0&&" || r == "0||" || r == "0|" || kind == "3") { head = 1; continue }
+        if (record_separator(r) || kind == "3") { head = 1; continue }
         if (!head || kind ~ /[014]/ && t ~ /^[A-Za-z_][A-Za-z0-9_]*=/) continue
         head = 0
         b = t; sub(/.*\//, "", b)
@@ -8956,7 +8959,7 @@ git_gate_records() (
 # line.
 git_gate_code_records() (
   set -f
-  gate_records=$(git_command_records "$1" tilde)
+  gate_records=$(git_command_records "$1" gate)
   case "$gate_records" in
     7*|*'
 7'*) ;;
@@ -10288,7 +10291,7 @@ shell_command_code() {
 # brace: an unquoted $NAME git argument, or a $NAME shell operand, in this
 # shell is that word.
 git_gate_command_vars() {
-  printf '%s\n' "$2" | GGCV_CMD=$1 LC_ALL=C awk '
+  printf '%s\n' "$2" | GGCV_CMD=$1 LC_ALL=C awk "$AWK_RECORD_SEPARATOR"'
     function base(t) { sub(/.*\//, "", t); return t }
     function delim(c) { return c == "" || c ~ /[ \t\n;&|()<>]/ }
     # The word from s to e - 1 is not glued to a neighbour, also across a
@@ -10353,11 +10356,11 @@ git_gate_command_vars() {
       head = 1; wrapped = 0; namer = ""; blocked = 0; depth = 0; varhead = 0
       for (k = 1; k <= n; k++) {
         r = rec[k]; kind = substr(r, 1, 1); t = substr(r, 2)
-        if (r == "3&" && rec[k - 1] ~ />$/) continue
+        if (fd_dup_amp(r, rec[k - 1])) continue
         # A here-document body is tokenized like the line, so a ) in it reads
         # as a closing paren; depth after it says nothing.
         if (index(t, "<<")) blocked = 1
-        if (r == "0;" || r == "0&&" || r == "0||" || r == "0|" || kind == "3") {
+        if (record_separator(r) || kind == "3") {
           # A subshell or substitution that has closed leaves the assignments
           # after it unconditional and in this shell. Braces are not counted:
           # an argument } is emitted as 3} too, so it would close a group
@@ -13713,13 +13716,6 @@ mktemp_files() {
 # Materialize every detector stage before consuming its output. POSIX pipelines
 # expose only their final command status, so a producer that writes a prefix and
 # then fails must never be indistinguishable from a successful empty detector.
-use_fused_output_pipeline() {
-  [ "${AGENT_GUARD_EXPERIMENTAL_OUTPUT_PIPELINE:-}" = fused ] || return 1
-  [ "${AG_FUSED_PIPELINE_LOADED:-}" = 1 ] && return 0
-  [ -n "${ROOT_DIR:-}" ] && [ -f "$ROOT_DIR/scripts/output-pipeline-experiment.sh" ] || return 1
-  . "$ROOT_DIR/scripts/output-pipeline-experiment.sh"
-}
-
 detect_output_secret_records() (
   response=$1
   env_records=${2:-yes}
@@ -13736,14 +13732,8 @@ detect_output_secret_records() (
 
   : >"$detector_records" || detector_fail
   printf '%s' "$response" >"$detector_input" || detector_fail
-  detector_prepared=no
-  if [ "$env_records" = yes ] && use_fused_output_pipeline \
-      && output_prepare_fused "$detector_input" "$detector_strings" "$detector_work_a"; then
-    detector_prepared=yes
-  else
-    jq -rj 'if type == "string" then . else [.. | strings] | join("\n") end' \
-      <"$detector_input" >"$detector_strings" 2>/dev/null || detector_fail
-  fi
+  jq -rj 'if type == "string" then . else [.. | strings] | join("\n") end' \
+    <"$detector_input" >"$detector_strings" 2>/dev/null || detector_fail
 
   gl=${GITLEAKS_READY_BIN:-}
   [ -n "$gl" ] && [ -x "$gl" ] || detector_fail
@@ -13782,10 +13772,8 @@ detect_output_secret_records() (
   fi
 
   if [ "$env_records" = yes ]; then
-    if [ "$detector_prepared" = no ]; then
-      frame_json_string_leaves <"$detector_input" \
-        >"$detector_work_a" 2>/dev/null || detector_fail
-    fi
+    frame_json_string_leaves <"$detector_input" \
+      >"$detector_work_a" 2>/dev/null || detector_fail
     secretish_env_values <"$detector_work_a" \
       >>"$detector_records" 2>/dev/null || detector_fail
   fi

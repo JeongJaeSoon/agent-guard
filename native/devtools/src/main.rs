@@ -21,12 +21,6 @@ const COMMANDS: &[Subcommand] = &[
         run: contracts::differential,
     },
     Subcommand {
-        name: "output-prepare",
-        options: Some(&["--core"]),
-        flags: &[],
-        run: contracts::output_prepare,
-    },
-    Subcommand {
         name: "native-integration",
         options: Some(&["--core", "--scanner"]),
         flags: &[],
@@ -57,7 +51,6 @@ const COMMANDS: &[Subcommand] = &[
             "--binary",
             "--baseline",
             "--native-core",
-            "--prepare-core",
             "--host",
             "--scanner",
             "--candidate-scanner",
@@ -72,7 +65,6 @@ const COMMANDS: &[Subcommand] = &[
             "--trace-processes",
             "--packaged-native",
             "--baseline-packaged-native",
-            "--fused-output",
         ],
         run: measure::latency,
     },
@@ -84,15 +76,8 @@ const COMMANDS: &[Subcommand] = &[
     },
     Subcommand {
         name: "load",
-        options: Some(&[
-            "--binary",
-            "--core",
-            "--prepare-core",
-            "--scanner",
-            "--workers",
-            "--requests",
-        ]),
-        flags: &["--packaged-native", "--fused-output"],
+        options: Some(&["--binary", "--core", "--scanner", "--workers", "--requests"]),
+        flags: &["--packaged-native"],
         run: measure::load,
     },
     Subcommand {

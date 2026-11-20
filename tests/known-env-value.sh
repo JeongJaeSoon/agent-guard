@@ -164,13 +164,6 @@ out=$(printf 'a %s b %s\n' "$seed" "$other" \
 [ ! -s "$CASE/stderr" ] || fail 'mixed dotenv: unexpected stderr'
 ok 'an unparsable dotenv is skipped while the other root file still masks'
 
-# --- the experimental fused detector gets the same records --------------------
-out=$(printf 'seed %s\n' "$seed" \
-  | (cd "$PROJECT" && AGENT_GUARD_EXPERIMENTAL_OUTPUT_PIPELINE=fused \
-      "$GUARD" exec -- cat)) || fail 'fused exec status'
-[ "$out" = 'seed [REDACTED]' ] || fail "fused pipeline: got [$out]"
-ok 'the fused output pipeline masks known values too'
-
 # --- values never reach the audit log or a leftover temp file -----------------
 LOGCASE="$CASE/log"
 mkdir -p "$LOGCASE/tmp"
