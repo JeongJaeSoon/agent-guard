@@ -30,6 +30,8 @@ hex=$(od -An -N20 -tx1 /dev/urandom | tr -d ' \n')
 vendor=$(printf '%s_%s' ghp "$(od -An -N36 -tu1 /dev/urandom \
   | awk '{ for (i = 1; i <= NF; i++) printf "%c", ($i % 36 < 10 ? 48 + $i % 36 : 87 + $i % 36) }' | tr -d '\n')")
 weak=$(printf '%s%s' hunter 2)
+long=my$(printf '%s%s' Pass word)$(od -An -N80 -tu1 /dev/urandom \
+  | awk '{ for (i = 1; i <= NF; i++) printf "%c", 97 + $i % 26 }' | tr -d '\n')
 marker=$(printf '%s_%s_%s_%s' AGENT GUARD TEST SECRET)
 failed=0
 checked=0
@@ -40,6 +42,7 @@ fail() {
   printf 'not ok - key name %s: %s\n' "$checked" "$1"
 }
 [ "${#rnd}" -eq 14 ] && [ "${#hex}" -eq 40 ] && [ "${#vendor}" -eq 40 ] \
+  && [ "${#long}" -eq 90 ] \
   || { fail "generated values have the wrong length"; exit 1; }
 
 # $1 host, $2 label, $3 text, $4 expected stdout (empty: left untouched).
@@ -81,8 +84,9 @@ prompt_case() {
 }
 fill() {
   jq -r --arg r "$rnd" --arg h "$hex" --arg v "$vendor" --arg w "$weak" --arg g "$marker" \
+    --arg l "$long" \
     "$1"' | gsub("%R%"; $r) | gsub("%H%"; $h) | gsub("%V%"; $v)
-        | gsub("%W%"; $w) | gsub("%G%"; $g)' "$FIXTURE"
+        | gsub("%W%"; $w) | gsub("%G%"; $g) | gsub("%L%"; $l)' "$FIXTURE"
 }
 
 # Every must-pass line has a must-still-mask line beside it.

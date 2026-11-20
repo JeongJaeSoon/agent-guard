@@ -12799,40 +12799,52 @@ secretish_env_values() {
     # AGENT_GUARD_KEY_NAME_REDACT turns this exemption off.
     #
     # All of these must hold, so that a config literal keeps masking:
+    # - The field starts its line (key_line_start, set by scan_line): only
+    #   indentation, one diff marker and declaration keywords come before
+    #   it. A key in the middle of a line is a log line, a table row, a flow
+    #   mapping or a connection string, and keeps masking.
     # - Unquoted only, and the complete token is the value: a digit-free
-    #   identifier or dotted chain, with an optional leading `$` or one simple
-    #   generic argument. A digit, a quote or any other symbol keeps masking.
-    #   A dotted chain must start at an object name source code reads from
-    #   (the closed root list member_reference uses), because letters and
-    #   dots are also what a passphrase of words looks like.
-    # - Code follows it. A `,` or `;` that ends the line; or, after a colon
-    #   field, a union, logical, nullish or default operator after a space;
-    #   or nothing at all, only for a `self.`/`this.` member assigned with a
-    #   spaced `=`. A bare word at the end of any other line is what an env,
-    #   YAML or INI file writes, and text after the `,` or `;` is a flow
-    #   mapping, a log line or a connection string; both keep masking.
-    # - The value names the field. After `=` its last segment must be the
-    #   field name itself (`api_key=self.api_key,`). After a colon a type or
-    #   a schema is named after the field rather than equal to it, so it is
-    #   enough that both share a credential word (`password: hashedPassword,`)
-    #   when the value is also written as an identifier: a capital or an
-    #   underscore past its first character, a dotted chain, or a leading `$`.
-    #   A plain word that is not the field name (`mypassword,`) keeps masking.
-    # Residual, accepted: a digit-free password that is its own key name, or
-    # after a colon a camelCase or snake_case one that contains it, reads the
-    # same way when a line-ending `,` or `;` follows.
+    #   identifier or dotted chain of at most 80 bytes, with an optional
+    #   leading `$` or one simple generic argument. A digit, a quote or any
+    #   other symbol keeps masking. A dotted chain must start at an object
+    #   name source code reads from (the closed root list member_reference
+    #   uses), because letters and dots are also what a passphrase of words
+    #   looks like.
+    # - Code follows it and a `,` or `;` ends the line. After a colon field
+    #   the value may first continue with union, logical, nullish or default
+    #   operators, each followed by one digit-free identifier or chain
+    #   (`Credential | null;`); any other text after the value keeps masking.
+    #   A `self.`/`this.` member assigned with `=` may also end the line with
+    #   nothing. A bare word at the end of any other line is what an env,
+    #   YAML or INI file writes, and keeps masking.
+    # - The value names the field. Names are compared after case, digits and
+    #   separators come off. After `=` the last segment must be the field
+    #   name (`api_key=self.api_key,`). After a colon a type or a schema is
+    #   named after the field rather than equal to it, so it is enough that
+    #   both share a credential word (`password: hashedPassword,`) when the
+    #   value is also written as an identifier: a capital, an underscore or
+    #   a dot past its first character. A plain word that is not the field
+    #   name (`mypassword,`) keeps masking.
+    # Residual, accepted: at the start of a line and before a line-ending
+    # `,` or `;`, a digit-free password that is its own key name in any
+    # case (`PASSWORD=password;`), or after a colon a camelCase, PascalCase
+    # or snake_case one that contains the key word (`password: MyPassword,`),
+    # reads the same way.
     function self_named_reference(assignment, value, token, term, tail, \
-                                  k, v, leaf, i) {
+                                  k, v, leaf, arg, i) {
+      if (!key_line_start) return 0
       sub(/\r$/, "", token)
-      if (token != value) return 0
+      if (token != value || length(value) > 80) return 0
       if (value !~ /^\$?[A-Za-z_]+(\.[A-Za-z_]+)*(<[A-Za-z_.]+>)?$/) return 0
       if (term == "," || term == ";") {
         if (substr(tail, 2) !~ /^[ \t\r]*$/) return 0
       } else if (term == " " || term == "\t") {
         sub(/^[ \t]+/, "", tail)
-        if (assignment !~ /:$/ || tail !~ /^(\|\|?|\?\?|&&|=)[ \t]/) return 0
+        if (assignment !~ /:$/ \
+            || tail !~ /^((\|\|?|\?\?|&&|=)[ \t]+[A-Za-z_$][A-Za-z_$.]*[ \t]*)+[,;][ \t\r]*$/)
+          return 0
       } else if (term != "" \
-                 || assignment !~ /(^|[^A-Za-z0-9_.-])(self|this)\.[A-Za-z_]+[ \t]+=$/) {
+                 || assignment !~ /(^|[^A-Za-z0-9_.-])(self|this)\.[A-Za-z_]+[ \t]*=$/) {
         return 0
       }
       k = assignment
@@ -12841,21 +12853,25 @@ secretish_env_values() {
       sub(/^.*[^A-Za-z0-9_-]/, "", k)
       k = tolower(k)
       gsub(/[^a-z]/, "", k)
-      leaf = value
-      sub(/<.*$/, "", leaf)
+      v = value
+      sub(/^\$/, "", v)
+      arg = ""
+      if (index(v, "<")) {
+        arg = tolower(substr(v, index(v, "<") + 1))
+        gsub(/[^a-z]/, "", arg)
+        v = substr(v, 1, index(v, "<") - 1)
+      }
+      leaf = v
       sub(/^.*\./, "", leaf)
       leaf = tolower(leaf)
       gsub(/[^a-z]/, "", leaf)
       if (k == "" || leaf == "") return 0
-      if (index(value, ".")) {
-        v = substr(value, 1, index(value, ".") - 1)
-        sub(/^\$/, "", v)
-        if (!(v in root_word)) return 0
-      }
-      if (leaf == k) return 1
+      if (index(v, ".") && !(substr(v, 1, index(v, ".") - 1) in root_word))
+        return 0
+      if (leaf == k || arg == k) return 1
       if (assignment !~ /:$/) return 0
-      if (substr(value, 1, 1) != "$" && substr(value, 2) !~ /[A-Z_.]/) return 0
-      v = tolower(value)
+      if (substr(v, 2) !~ /[A-Z_.]/) return 0
+      v = tolower(v)
       gsub(/[^a-z]/, "", v)
       for (i = 1; i <= name_stem_n; i++)
         if (index(k, name_stem[i]) && index(v, name_stem[i])) return 1
@@ -13064,8 +13080,9 @@ secretish_env_values() {
     function scan_line(line, rest, end, low, eq_start, eq_length, \
                        colon_start, colon_length, start, matched_length, \
                        chose_colon, skip, status_guard, first, expansion, \
-                       closed_value, key_opener, advance) {
+                       closed_value, key_opener, advance, advanced, head) {
       rest = line
+      advanced = 0
       rescan_cover_start = 0
       rescan_cover_end = 0
       if (open_quote != "") {
@@ -13085,6 +13102,7 @@ secretish_env_values() {
           open_value = ""
           open_guard = 0
           rest = substr(rest, end + 1)
+          advanced = 1
         } else {
           # The capture scans forward for ANY matching quote, so the one it
           # closed on often belongs to something else entirely — typically the
@@ -13170,6 +13188,15 @@ secretish_env_values() {
         # leaving adjacent status text untouched.
         next_rescan_cover_start = 0
         next_rescan_cover_end = 0
+        # self_named_reference only applies to a field that starts its line.
+        # Nothing of the line may have been consumed yet, and what precedes
+        # the key is indentation, one diff marker and declaration keywords.
+        key_line_start = 0
+        if (!key_name_redact && !advanced && !skip) {
+          head = substr(rest, 1, start + matched_length - 1)
+          sub(/["'\''`]?[A-Za-z0-9_.$-]+["'\''`]?[ \t]*[:=]$/, "", head)
+          key_line_start = (head ~ /^[+-]?[ \t\r]*((export|const|let|var|public|private|protected|readonly|static)[ \t]+)*$/)
+        }
         if (!skip &&
             emit_value(rest, start + matched_length,
                        substr(rest, start, matched_length), status_guard)) break
@@ -13186,6 +13213,7 @@ secretish_env_values() {
           }
         }
         rest = substr(rest, advance + 1)
+        advanced = 1
       }
     }
     function scan_leaf(value, newline, line) {

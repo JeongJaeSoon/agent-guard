@@ -73,27 +73,45 @@ return status 0 with no response. See [Output masking coverage](integrations.md#
   heuristic (`password=...`, `token: ...`) still masks a quoted string and a
   bare value, whatever its entropy: `password=hunter2`, `password: admin`, a
   connection string segment. It leaves a value that is an identifier repeating
-  the field name and is followed by code punctuation, because that is source
-  code naming the field again, not a credential:
+  the field name in a line of source code, because that names the field
+  again and is not a credential:
 
   | Left readable | Still masked |
   | --- | --- |
-  | `credential: Credential;`, `credential: Credential \| null;` | `credential: Credential` (nothing after it, as in YAML) |
-  | `credential: CredentialSchema,`, `password: hashedPassword,` | `credential: mypassword,`, `password: hashedPassword1,` |
-  | `credential: input.credential,` | `credential: input.credential, port: 3306` |
-  | `credential=credential,`, `api_key=self.api_key,` | `credential=hunter2,`, `api_key=other_key,` |
+  | `credential: Credential;`, `credential: Credential \| null;` | `credential: Credential` (nothing after it, as in YAML), `credential: Credential \| hunter2` |
+  | `credential: CredentialSchema,`, `password: hashedPassword,` | `credential: mycredential,`, `password: SummerRain,`, `password: hashedPassword1,` |
+  | `credential: input.credential,` | `credential: input.credential, port: 3306`, `password: winter.coldPassword,` |
+  | `credential=credential,`, `api_key=self.api_key,` | `credential=myCredential,`, `api_key=other_key,` |
   | `self.credential = credential`, `this.credential = credential;` | `password = password`, `this.credential = "..."` |
+  | `password: userPassword;` at the start of a line | `Server=db;Password=userPassword;`, `user: bob \| password: MyPassword \| host: db` |
 
-  The identifier has no digit, a dotted chain starts at a common object name
-  (`input`, `config`, `self`, `this`, ...), the `,` or `;` ends the line (or a `|`, `??`,
-  `||`, `&&` or `=` follows after a colon field), and after `=` the value must
-  be the field name itself. A password that is its own key name and is
-  followed by a line-ending `,` or `;` (`password=password,`) reads the same
-  way and is left readable too. gitleaks findings are masked regardless.
+  All of these must hold:
+  - The field starts its line: only indentation, one diff marker (`+`, `-`)
+    and declaration keywords such as `const` or `export` come before it.
+  - The whole unquoted value is an identifier or a dotted chain of at most 80
+    bytes with no digit; one leading `$` and one simple generic argument
+    (`Promise<Token>`) are allowed. A dotted chain starts at a common object
+    name (`input`, `config`, `self`, `this`, ...).
+  - A `,` or `;` ends the line. After a colon field the value may first
+    continue with `|`, `||`, `??`, `&&` or `=`, each followed by one more
+    digit-free identifier (`Credential | null;`). A `self.` or `this.` member
+    assigned with `=` may also end the line with nothing.
+  - The value names the field, compared without case, digits and separators.
+    After `=` the last segment of the value must be the field name. After a
+    colon it is enough that both contain the same credential word when the
+    value is also written as an identifier: a capital, an underscore or a
+    dot past its first character.
+
+  What this cannot tell apart, and so leaves readable: at the start of a line
+  and before a line-ending `,` or `;`, a digit-free password that is its own
+  key name in any case (`PASSWORD=password;`, `password: Password,`), or after
+  a colon a camelCase, PascalCase or snake_case password that contains the key
+  word (`password: MyPassword,`, `secret: top_secret;`). gitleaks findings
+  are masked regardless.
   `AGENT_GUARD_KEY_NAME_REDACT=on` turns this exemption off, so the left-hand
   column is masked again as it was before; any value other than unset, empty
-  or `off` counts as `on`. The prompt guard
-  uses the same detector, so the same lines pass or block there.
+  or `off` counts as `on` (including `0` and `false`). The prompt guard uses
+  the same detector, so the same lines pass or block there.
 - A tool result too large to scan is masked fail-closed: every nonempty string
   in it is replaced. Anthropic content-block discriminators (`type`,
   `source.type`, `media_type`) survive that rewrite when the value is exactly a
