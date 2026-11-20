@@ -6618,11 +6618,14 @@ path_entries_absolute() {
 # The commands message_value_records and search_operand_spans accept before a
 # later command name, and literal_consumers_inert accepts as text consumers:
 # none of them can rebind a name (no builtin that assigns, no loop variable)
-# or write a file a PATH entry resolves it to. All three pass it
-# to awk with -v and match it as a dynamic regex; it holds no backslash, so -v
-# escape processing leaves it unchanged, and an empty value accepts nothing
-# rather than everything. cd qualifies only while path_entries_absolute holds.
+# or write a file a PATH entry resolves it to. All three prepend
+# AWK_INERT_COMMAND and pass the list and path_entries_absolute to awk as
+# -v inert_names and -v cd_ok="1"; it holds no backslash, so -v escape
+# processing leaves it unchanged. cd qualifies only while path_entries_absolute
+# holds, and an awk program given neither variable finds no command inert.
 INERT_SEGMENT_COMMANDS_ERE='^(grep|egrep|fgrep|ls|cat|head|tail|wc|cut|tr|echo|true|false|pwd|cd|jq|diff|comm|basename|dirname|date|sleep)$'
+AWK_INERT_COMMAND='
+    function inert_command(w) { return inert_names != "" && w ~ inert_names && (w != "cd" || cd_ok == "1") }'
 
 # awk function message_value_records and literal_consumers_inert put before
 # their program. plain_word(k, v) succeeds for a git_command_records word v of
@@ -6660,7 +6663,7 @@ AWK_RECORD_SEPARATOR='
 # Prints nothing when the line may hide a command (heredoc, group, eval).
 message_value_records() {
   printf '%s\n' "$1" | LC_ALL=C awk -v cd_ok="$(path_entries_absolute && echo 1)" \
-    -v inert_names="$INERT_SEGMENT_COMMANDS_ERE" "$AWK_PLAIN_WORD$AWK_RECORD_SEPARATOR"'
+    -v inert_names="$INERT_SEGMENT_COMMANDS_ERE" "$AWK_PLAIN_WORD$AWK_RECORD_SEPARATOR$AWK_INERT_COMMAND"'
     function bail() { failed = 1; exit }
     # git commit operands are pathspecs it reads, so pair a message option
     # only through options known to take no separate value; `--` or anything
@@ -6669,12 +6672,9 @@ message_value_records() {
       return w ~ /^-[aqsvne]+$/ || w ~ /^--[a-z-]+=/ \
         || w ~ /^--(all|quiet|verbose|signoff|no-signoff|edit|no-edit|amend|allow-empty|allow-empty-message|only|include|dry-run|reset-author|status|no-status|no-gpg-sign|short|porcelain|long)$/
     }
-    # inert_names is INERT_SEGMENT_COMMANDS_ERE; a redirection may write a
-    # file a command name resolves to, and cd moves what a relative PATH entry
-    # names.
+    # A redirection may write a file a command name resolves to.
     function inert(   j) {
-      if (inert_names == "" || kind[1] != "0" || word[1] !~ inert_names) return 0
-      if (word[1] == "cd" && cd_ok != "1") return 0
+      if (kind[1] != "0" || !inert_command(word[1])) return 0
       for (j = 1; j <= n; j++) if (word[j] ~ /[<>]/) return 0
       return 1
     }
@@ -7268,7 +7268,7 @@ bash_strip_literal_message_values() (
 # opens the paths it is given (tracked_scan), under the same segment check.
 search_operand_spans() {
   printf '%s\n' "$1" | LC_ALL=C awk -v grep_env="${GREP_OPTIONS-}" -v cd_ok="$(path_entries_absolute && echo 1)" -v mode="${2-}" \
-    -v inert_names="$INERT_SEGMENT_COMMANDS_ERE" '
+    -v inert_names="$INERT_SEGMENT_COMMANDS_ERE" "$AWK_INERT_COMMAND"'
     function bail() { failed = 1; exit }
     function start_word() {
       if (inword) return
@@ -7518,8 +7518,7 @@ search_operand_spans() {
         # without a path loads no code.
         for (r = a; r < h; r++) if (wv[r] !~ /^(LC_[A-Z]+|LANG|LANGUAGE|TZ)=[A-Za-z0-9_.@:+-]*$/) exit 0
         if (wv[h] == "sed" && sed_prints_lines(h, e)) continue
-        if (inert_names == "" || wv[h] !~ inert_names) exit 0
-        if (wv[h] == "cd" && cd_ok != "1") exit 0
+        if (!inert_command(wv[h])) exit 0
       }
     }
   '
@@ -8506,7 +8505,7 @@ bash_strip_heredoc_bodies() (
 # into any of them keeps the whole line in the scan.
 literal_consumers_inert() {
   printf '%s\n' "$1" | LC_ALL=C awk -v cd_ok="$(path_entries_absolute && echo 1)" -v mode="${2-}" \
-    -v inert_names="$INERT_SEGMENT_COMMANDS_ERE" "$AWK_PLAIN_WORD$AWK_RECORD_SEPARATOR"'
+    -v inert_names="$INERT_SEGMENT_COMMANDS_ERE" "$AWK_PLAIN_WORD$AWK_RECORD_SEPARATOR$AWK_INERT_COMMAND"'
     # An exit with no status in END keeps 0, so give it one.
     function bail() { failed = 1; exit 1 }
     function finish(   j, hd, redir) {
@@ -8521,9 +8520,7 @@ literal_consumers_inert() {
         if (mode != "heredoc" || word[1] !~ /^(cat|tee|gh|git)$/) bail()
       } else {
         if (redir) bail()
-        if ((inert_names == "" || word[1] !~ inert_names) \
-          && !(mode == "heredoc" && word[1] ~ /^(mkdir|git)$/)) bail()
-        if (word[1] == "cd" && cd_ok != "1") bail()
+        if (!inert_command(word[1]) && !(mode == "heredoc" && word[1] ~ /^(mkdir|git)$/)) bail()
       }
       n = 0
     }
