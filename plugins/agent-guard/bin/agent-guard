@@ -13722,6 +13722,11 @@ secretish_env_values() {
           || (length(w) >= 4 && w ~ /^[A-Za-z0-9]+$/ \
               && (w ~ /[0-9][A-Za-z]/ || w ~ /[A-Za-z][0-9]/))
     }
+    # The line below the one being scanned, in the same leaf.
+    function next_leaf_line(nl) {
+      nl = index(leaf_tail, "\n")
+      return nl ? substr(leaf_tail, 1, nl - 1) : leaf_tail
+    }
     # A Korean word, an English word of one or two letters, or a word for an
     # empty value. A passphrase of dictionary words has none of them.
     function note_marked(text, n, words, i, w) {
@@ -13833,7 +13838,7 @@ secretish_env_values() {
     # masked as well. Raw exec probes cannot see the next line and keep the
     # old reading.
     function empty_note(assignment, leading, raw, \
-                        opener, closer, e, inner, after, next_line, nl, \
+                        opener, closer, e, inner, after, next_line, \
                         marked) {
       if (record_mode == "probe_raw" || assignment !~ /=$/) return 0
       opener = substr(raw, 1, 1)
@@ -13855,8 +13860,7 @@ secretish_env_values() {
         return 0
       }
       after = substr(raw, e + 1)
-      nl = index(leaf_tail, "\n")
-      next_line = nl ? substr(leaf_tail, 1, nl - 1) : leaf_tail
+      next_line = next_leaf_line()
       if (marked && closed_off(after) && prose_words(inner) >= 0 \
           && prose_words(after) >= 0 && prose_words(next_line) >= 0)
         return 1
@@ -13897,6 +13901,11 @@ secretish_env_values() {
         if (word_core(w) ~ /^[A-Za-z][A-Za-z]?$/) marker = 1
       }
       if (count < 3 || !marker) return 0
+      # The first word is what the old reading takes as the value, so it
+      # must be a word of letters: a password of digits or symbols, however
+      # short, keeps that reading, which leaves the residual below.
+      if (word_core(words[1]) !~ /^([A-Za-z]|[\352-\355][\200-\277][\200-\277])+$/)
+        found = 1
       # A sentence but for its value words: those are masked along with the
       # first word the old reading takes.
       if (found) {
@@ -14633,8 +14642,10 @@ secretish_env_values() {
         # The placeholder does not hide a value later on the line, which the
         # old reading blocked the prompt for.
         if (spaced_angle(value)) {
-          if (prose_words(substr(raw, end + 1)) >= 0) return 0
-          refused_span = substr(raw, end + 1)
+          # The line below too: the old reading blocked the prompt for a
+          # value there as well.
+          refused_span = substr(raw, end + 1) "\n" next_leaf_line()
+          if (prose_words(refused_span) >= 0) return 0
         }
       } else {
         if (empty_note(assignment, leading, raw)) return 0
@@ -14673,9 +14684,10 @@ secretish_env_values() {
             # Any other spaced span is a placeholder too, unless a word in
             # it or after it on the line is a value word; then the first
             # word decides as before and those words are masked with it.
-            if (rest == "" && spaced_angle(extent) \
-                && prose_words(refused_span) >= 0)
-              return 0
+            if (rest == "" && spaced_angle(extent)) {
+              refused_span = refused_span "\n" next_leaf_line()
+              if (prose_words(refused_span) >= 0) return 0
+            }
           }
         }
         token = value
