@@ -21,7 +21,7 @@ while :; do
     gh api --paginate --slurp "repos/$repo/actions/workflows/$workflow/runs?head_sha=$sha&per_page=100" > "$work/$workflow"
   done
   pending=false
-  while IFS="$(printf '\t')" read -r workflow name; do
+  while IFS="$(printf '\t')" read -r workflow name || [ -n "$workflow" ]; do
     suite=$(jq -r --arg sha "$sha" --arg path ".github/workflows/$workflow" '
       [.[].workflow_runs[] | select(.head_sha == $sha and .path == $path)]
       | max_by(.id)
