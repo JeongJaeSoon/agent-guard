@@ -23,6 +23,7 @@ case " $* " in
       mv "$RELEASE_FIXTURE_DIR/after-checks.json" "$RELEASE_FIXTURE_DIR/checks.json"
     fi ;;
   *actions/workflows/performance.yml/runs*) cat "$RELEASE_FIXTURE_DIR/performance.json" ;;
+  *actions/runs/*/jobs*) cat "$RELEASE_FIXTURE_DIR/jobs.json" ;;
   *actions/workflows/*.yml/runs*)
     [ ! -f "$RELEASE_FIXTURE_DIR/workflow-api-error" ] || exit 1
     for arg in "$@"; do
@@ -220,11 +221,37 @@ jq -n --arg head "$head" '{workflow_runs:[{head_sha:$head,id:1,status:"completed
 for artifact in packaged-performance instruction-count; do
   printf 'passed\n' > "$case_dir/evidence/$artifact/verdict.txt"
 done
+for pair in packaged-performance:101 instruction-count:102; do
+  EVIDENCE_JOB_CONTEXT="{\"check_run_id\":${pair#*:}}" GITHUB_RUN_ID=1 GITHUB_RUN_ATTEMPT=1 GITHUB_SHA="$head" \
+    sh "$ROOT/.github/scripts/write-performance-source.sh" "$case_dir/evidence/${pair%:*}"
+done
+jq -n --arg head "$head" '[{jobs:[
+  {id:1,name:"Packaged performance evidence",head_sha:$head,run_id:1,run_attempt:1,
+   status:"completed",conclusion:"success",check_run_url:"https://example.invalid/check-runs/101"},
+  {id:2,name:"Shell instruction count against the latest release",head_sha:$head,run_id:1,run_attempt:1,
+   status:"completed",conclusion:"success",check_run_url:"https://example.invalid/check-runs/102"}
+]}]' > "$case_dir/jobs.json"
 perf() { sh "$ROOT/.github/scripts/release-performance.sh" "$head" 0; }
 perf
 printf 'threshold_exceeded\n' > "$case_dir/evidence/packaged-performance/verdict.txt"
+jq '.[0].jobs[0].conclusion="failure"' "$case_dir/jobs.json" > "$case_dir/changed"
+mv "$case_dir/changed" "$case_dir/jobs.json"
 perf > "$case_dir/warning"
 grep -Fq '::warning' "$case_dir/warning" || fail 'completed threshold excess warns'
+cp "$case_dir/jobs.json" "$case_dir/fresh-jobs.json"
+jq '.[0].jobs[0].check_run_url="https://example.invalid/check-runs/201"' "$case_dir/fresh-jobs.json" > "$case_dir/jobs.json"
+reject perf
+grep -Fq 'evidence link check_mismatch' "$case_dir/rejected.err" || fail 'check link failure is visible'
+jq '.[0].jobs[0].run_attempt=2' "$case_dir/fresh-jobs.json" > "$case_dir/jobs.json"
+reject perf
+grep -Fq 'evidence link attempt_mismatch' "$case_dir/rejected.err" || fail 'attempt link failure is visible'
+jq '.[0].jobs[0] |= (.check_run_url="https://example.invalid/check-runs/201" | .run_attempt=2 | .conclusion="cancelled")' \
+  "$case_dir/fresh-jobs.json" > "$case_dir/jobs.json"
+reject perf
+grep -Fq 'evidence link job_cancelled' "$case_dir/rejected.err" || fail 'cancelled latest job is visible'
+grep -Fq 'did not finish or failed validation' "$case_dir/rejected.err" || fail 'stale artifact cannot hide a cancelled latest job'
+cp "$case_dir/fresh-jobs.json" "$case_dir/jobs.json"
+printf 'ok - fresh job evidence passes or warns; stale check, attempt and cancelled evidence block\n'
 printf 'measurement_error\n' > "$case_dir/evidence/packaged-performance/verdict.txt"
 printf 'measurement timed out\n' > "$case_dir/evidence/packaged-performance/errors.txt"
 reject perf

@@ -59,16 +59,20 @@ echo "nightly run: $RUN_URL"
 echo "커밋: $HEAD_SHA"
 echo
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
-verdict=$(sh "$script_dir/performance-verdict.sh" "$evidence")
+verdict=$(sh "$script_dir/performance-verdict.sh" "$evidence" "$HEAD_SHA" 2> "$work/verdict-errors")
+cat "$work/verdict-errors" >&2
 case "$verdict" in
   passed) echo '판정: 측정 완료, 기준 통과.' ;;
   threshold_exceeded) echo '판정: 측정 완료, 성능 기준 초과.' ;;
   *) echo '판정: 측정 미완료 또는 출력 검증 실패. 성능 기준 초과와 구별하며 릴리스를 막습니다.' ;;
 esac
 echo
+echo '최신 job의 check·run·attempt·커밋 연결을 확인하지 못한 artifact는 현재 측정 증거로 인정하지 않습니다.'
+echo
 echo '측정 도구 오류(stderr 원문):'
 echo
 echo '```text'
+cat "$work/verdict-errors"
 for artifact in packaged-performance instruction-count; do
   if [ -s "$evidence/$artifact/errors.txt" ]; then
     cat "$evidence/$artifact/errors.txt"

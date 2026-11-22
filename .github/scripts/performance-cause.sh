@@ -5,7 +5,7 @@ evidence=${1:?evidence directory required}
 failed=${2:?failed jobs required}
 root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd -P)
 {
-  sh "$root/.github/scripts/performance-verdict.sh" "$evidence"
+  sh "$root/.github/scripts/performance-verdict.sh" "$evidence" "${HEAD_SHA:-}" 2>&1
   printf '%s\n' "$failed" | sort
   for artifact in packaged-performance instruction-count; do
     dir="$evidence/$artifact"

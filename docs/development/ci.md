@@ -49,6 +49,15 @@ candidate branch, request `replace_stale_branch`; replacement is refused while
 an open PR exists and uses a lease on the observed branch SHA.
 
 Performance jobs preserve `verdict.txt` and tool stderr in their artifacts.
+Each artifact also records its job's check run ID, workflow run ID, attempt,
+and head SHA in `source.json`. The
+[GitHub job context](https://docs.github.com/en/actions/reference/workflows-and-actions/contexts#job-context)
+provides the check identity without an extra API permission on measurement jobs.
+The shared verdict accepts an artifact only when all identities match the latest
+completed job and its conclusion. A missing, stale, cancelled or ambiguous
+match is not measured, even if an earlier complete measurement exists for the
+same SHA. Partial reruns with ambiguous cached job metadata may require a fresh
+full performance run.
 The shared `performance-verdict.sh` classifies both release and nightly evidence:
 completed 5% threshold excess warns; absent, unfinished or invalid measurements
 block publication. Required adoption improvement and correctness validation
