@@ -6,25 +6,49 @@ on:
   schedule:
     - cron: '23 17 * * *'
   workflow_dispatch:
-  # Release PRs always bump this manifest, so they measure the exact tree they
-  # release; PRs changing the measurement itself also run it.
+  # Every pull request, so the shell instruction count exists on each one and
+  # can be a required check. .github/scripts/performance-scope.sh decides
+  # what a pull request measures: release PRs always bump plugin.json, so they
+  # measure the exact tree they release.
   pull_request:
-    paths:
-      - '.github/workflows/performance.yml'
-      - 'bench/native/**'
-      - 'bench/instruction-count/**'
-      - 'native/devtools/**'
-      - 'scripts/build-native-artifact.sh'
-      - 'scripts/install-native-test-tools.sh'
-      - 'plugins/agent-guard/.claude-plugin/plugin.json'
 permissions:
   contents: read
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
+  # Only the packaged jobs depend on this; the shell instruction count decides
+  # for itself, so a failed scope cannot skip a required check into success.
+  scope:
+    name: Performance evidence scope
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      packaged: ${{ steps.pick.outputs.packaged }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          # A pull request checks out its merge commit; its first parent is
+          # the base, so the two commits give the pull request's changes.
+          fetch-depth: 2
+      - name: Choose the measurements
+        id: pick
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -eu
+          if [ "$EVENT_NAME" = pull_request ]; then
+            git -c core.quotePath=false diff --no-renames --name-only HEAD^1 HEAD > "$RUNNER_TEMP/changed"
+          else
+            : > "$RUNNER_TEMP/changed"
+          fi
+          sh .github/scripts/performance-scope.sh "$EVENT_NAME" < "$RUNNER_TEMP/changed" >> "$GITHUB_OUTPUT"
+
   build:
     name: Linux musl core
+    needs: scope
+    if: needs.scope.outputs.packaged == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -56,14 +80,15 @@ jobs:
           path: ${{ runner.temp }}/artifacts/
           if-no-files-found: error
 
-  # Runs wherever this workflow runs (nightly, release PRs, manual runs and
-  # PRs that change the measurement). Wall-clock jobs dilute a shell
+  # Runs on every event, so it can be a required check. A pull request whose
+  # changes cannot reach the measured path passes at once and says so; every
+  # other run measures. Wall-clock jobs dilute a shell
   # regression with gitleaks and jq time (#505
   # added 21% shell work to dense-controls but about +3% latency), so this job
   # counts the shell's own instructions against the latest release tag. It
   # fails when an event's change beyond the script-size share exceeds 5% of
   # the release, or when it could not measure. The PR-time Hook instruction
-  # count job reports the same numbers without failing.
+  # count job reports base-versus-merge-parent numbers without failing.
   instruction-count:
     name: Shell instruction count against the latest release
     runs-on: ubuntu-24.04
@@ -74,10 +99,30 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
           path: head
+      # Same decision as the scope job, made here so this job never depends on
+      # another one. A diff that cannot run fails the job.
+      - name: Decide whether the change reaches the measured path
+        id: scope
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -eu
+          if [ "$EVENT_NAME" = pull_request ]; then
+            git -C head -c core.quotePath=false diff --no-renames --name-only HEAD^1 HEAD > "$RUNNER_TEMP/changed"
+          else
+            : > "$RUNNER_TEMP/changed"
+          fi
+          sh head/.github/scripts/performance-scope.sh "$EVENT_NAME" < "$RUNNER_TEMP/changed" > "$RUNNER_TEMP/scope"
+          cat "$RUNNER_TEMP/scope" >> "$GITHUB_OUTPUT"
+          if grep -Fxq instruction_count=false "$RUNNER_TEMP/scope"; then
+            printf '### Shell instruction count against the latest release\n\n측정하지 않고 통과합니다: 이 PR은 측정 경로(%s의 instruction_count 목록)에 닿는 파일을 바꾸지 않았습니다.\n' \
+              '.github/scripts/performance-scope.sh' >> "$GITHUB_STEP_SUMMARY"
+          fi
       # The newest release tag reachable from the measured commit, other than
       # one on that commit itself; a fork or checkout without tags fails here.
       - name: Check out the latest release tag
         id: base
+        if: steps.scope.outputs.instruction_count == 'true'
         run: |
           head_sha=$(git -C head rev-parse HEAD)
           tag=
@@ -93,6 +138,7 @@ jobs:
           git -C head worktree add --detach ../base "$tag"
           printf 'tag=%s\n' "$tag" >> "$GITHUB_OUTPUT"
       - name: Refresh Linux package metadata
+        if: steps.scope.outputs.instruction_count == 'true'
         timeout-minutes: 4
         run: |
           sudo apt-get -o Acquire::Retries=0 \
@@ -106,6 +152,7 @@ jobs:
       # archive and only changed files are fetched.
       - name: Plan valgrind packages
         id: plan
+        if: steps.scope.outputs.instruction_count == 'true'
         run: |
           uris="$RUNNER_TEMP/valgrind-uris"
           sudo apt-get -o DPkg::Lock::Timeout=30 install -qq --print-uris --no-install-recommends valgrind > "$uris"
@@ -113,6 +160,7 @@ jobs:
           mkdir -p "$HOME/valgrind-debs"
       - name: Restore valgrind packages
         id: restore
+        if: steps.scope.outputs.instruction_count == 'true'
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/valgrind-debs
@@ -126,6 +174,7 @@ jobs:
       # broken package state. A runner that never gets valgrind still fails the
       # job as "could not measure".
       - name: Download valgrind
+        if: steps.scope.outputs.instruction_count == 'true'
         timeout-minutes: 4
         run: |
           if ls "$HOME"/valgrind-debs/*.deb > /dev/null 2>&1; then
@@ -147,17 +196,19 @@ jobs:
             cp "/var/cache/apt/archives/$deb" "$HOME/valgrind-debs/"
           done
       - name: Save valgrind packages
-        if: steps.restore.outputs.cache-hit != 'true'
+        if: steps.scope.outputs.instruction_count == 'true' && steps.restore.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/valgrind-debs
           key: ${{ steps.plan.outputs.key }}
       - name: Install valgrind
+        if: steps.scope.outputs.instruction_count == 'true'
         timeout-minutes: 4
         run: |
           sudo apt-get -o DPkg::Lock::Timeout=30 install -y --no-install-recommends --no-download valgrind
       - name: Count and gate the release and head shell instructions
         id: count
+        if: steps.scope.outputs.instruction_count == 'true'
         env:
           BASE_TAG: ${{ steps.base.outputs.tag }}
           EVIDENCE_JOB_CONTEXT: ${{ toJSON(job) }}
@@ -219,8 +270,9 @@ jobs:
           fi
           printf '### Shell instruction count against the latest release\n\n측정하지 못했습니다: 측정 전 단계(checkout·릴리스 태그·valgrind 설치)가 실패했습니다. 이 job의 로그를 확인하세요. 변화 없음이라는 뜻이 아닙니다.\n' \
             | tee -a "$GITHUB_STEP_SUMMARY" > "$RUNNER_TEMP/instruction-count/summary.md"
+      # Every run except a pull request that was found not to need one.
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
-        if: always()
+        if: always() && steps.scope.outputs.instruction_count != 'false'
         with:
           name: instruction-count
           path: ${{ runner.temp }}/instruction-count/
