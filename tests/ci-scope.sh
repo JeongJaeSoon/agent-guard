@@ -80,6 +80,9 @@ for variant in mawk gawk busybox; do
   check=$(printf 'ci.yml\tLarge hook inputs (%s)' "$variant")
   grep -Fxq "$check" "$ROOT/.github/release-checks.tsv" || fail 'release requires all three awk timings'
 done
+check=$(printf 'ci.yml\tCore, host adapters and Git (partition 3) (macos-latest)')
+grep -Fxq "$check" "$ROOT/.github/release-checks.tsv" || fail 'release requires the macOS partition 3 check'
+pass=$((pass + 1))
 grep -Fq 'env AGENT_GUARD_TEST_REQUIRE_AWKS= AGENT_GUARD_TEST_LONG_INPUT_AWKS=default sh' "$ROOT/tests/run.sh" \
   || fail 'the default-awk subset clears inherited implementation requirements'
 perf="$ROOT/.github/workflows/performance.yml"
