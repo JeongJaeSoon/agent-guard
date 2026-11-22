@@ -13710,6 +13710,15 @@ secretish_env_values() {
       sub(/[]`'\''"()[{}<>,.;:!?]+$/, "", w)
       return w
     }
+    # What prose puts around a word, for the checks that let a word read as
+    # prose: opening brackets or quotes before it, closing ones and at most
+    # one sentence mark after it. Any other mark stays part of the word, so
+    # a password with a symbol at its edge is not a word of letters.
+    function edge_core(w) {
+      sub(/^[[(`'\''"{<]+/, "", w)
+      sub(/[]`'\''")}>]*[.,;:]?[]`'\''")}>]*$/, "", w)
+      return w
+    }
     # A word that could itself be a value: its core is credential shaped or
     # holds a run of ten digits, the numeric-secret test route_reference
     # uses.
@@ -13767,7 +13776,7 @@ secretish_env_values() {
         if (value_word(words[i])) return -1
         if (words[i] !~ /[A-Za-z0-9\200-\377]/) continue
         count++
-        w = word_core(words[i])
+        w = edge_core(words[i])
         # A dash or another mark of its own is not a word.
         if (w !~ /[A-Za-z0-9]/ && w !~ /[\352-\355]/) continue
         if (w ~ /^([A-Za-z]|[\352-\355][\200-\277][\200-\277])+(['\''-]([A-Za-z]|[\352-\355][\200-\277][\200-\277])+)*$/) continue
@@ -13936,8 +13945,11 @@ secretish_env_values() {
       # The first word is what the old reading takes as the value, so it
       # must be a word of letters: a password of digits or symbols, however
       # short, keeps that reading, which leaves the residual below.
-      if (word_core(words[1]) !~ /^([A-Za-z]|[\352-\355][\200-\277][\200-\277])+$/)
+      if (edge_core(words[1]) !~ /^([A-Za-z]|[\352-\355][\200-\277][\200-\277])+$/)
         found = 1
+      # Every other word as in a closed-key span: a password of digits or
+      # symbols later in the sentence keeps the old reading too.
+      if (span_words(raw) < 0) found = 1
       # A sentence but for its value words: those are masked along with the
       # first word the old reading takes.
       if (found) {
