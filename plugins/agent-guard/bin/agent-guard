@@ -13535,6 +13535,12 @@ secretish_env_values() {
       operand_n = split("null undefined none nil true false string str number int integer float bool boolean any unknown never void object optional", operand_list, " ")
       for (ident_i = 1; ident_i <= operand_n; ident_i++) operand_word[operand_list[ident_i]] = 1
       name_stem_n = split("password passwd passphrase secret token credential apikey accesskey privatekey signingkey encryptionkey sessionkey bearer webhook", name_stem, " ")
+      # A Hangul syllable, U+AC00 to U+D7A3, as UTF-8 bytes.
+      hangul = "(\352[\260-\277]|[\353\354][\200-\277]|\355[\200-\236])[\200-\277]"
+      # Measurement switch for #587, flipped only by tests. Unset keeps the
+      # strict reading: every line below an exempt token is read word by
+      # word.
+      lookahead_mode = ENVIRON["AGENT_GUARD_TEST_LOOKAHEAD"]
     }
     function quoted_end(raw, quote, i, slash_count, ch) {
       slash_count = 0
@@ -13586,6 +13592,10 @@ secretish_env_values() {
     # prefix. Suppress only that scanner occurrence; an identical short value
     # elsewhere still needs its own contextual mapping and must remain emitted.
     function emit_mapping(literal, replacement, value_start, value_length) {
+      if (main_reading) {
+        dry_found = 1
+        return
+      }
       if (record_mode == "probe" || record_mode == "probe_raw") {
         if (!probe_found) print "x"
         probe_found = 1
@@ -13731,20 +13741,19 @@ secretish_env_values() {
           || (length(w) >= 4 && w ~ /^[A-Za-z0-9]+$/ \
               && (w ~ /[0-9][A-Za-z]/ || w ~ /[A-Za-z][0-9]/))
     }
-    # The line below the one being scanned, in the same leaf.
-    function next_leaf_line(nl) {
-      nl = index(leaf_tail, "\n")
-      return nl ? substr(leaf_tail, 1, nl - 1) : leaf_tail
+    # A word that marks text as prose about a value rather than a
+    # passphrase: a Korean word, a word for an empty value, or one of the
+    # modal and subordinator words of prose_lead_word. Short English words
+    # do not count, since a passphrase can hold one (#587).
+    function marker_word(w) {
+      w = tolower(word_core(w))
+      return w ~ hangul || w ~ /^(empty|unset|blank)$/ \
+          || w in prose_lead_word
     }
-    # A Korean word, an English word of one or two letters, or a word for an
-    # empty value. A passphrase of dictionary words has none of them.
-    function note_marked(text, n, words, i, w) {
+    function note_marked(text, n, words, i) {
       n = split(text, words, /[ \t]+/)
-      for (i = 1; i <= n; i++) {
-        w = tolower(word_core(words[i]))
-        if (w ~ /^[a-z][a-z]?$/ || w ~ /[\352-\355]/ \
-            || w ~ /^(empty|unset|blank)$/) return 1
-      }
+      for (i = 1; i <= n; i++)
+        if (marker_word(words[i])) return 1
       return 0
     }
     # The number of words in text, or -1 when any of them is a value word.
@@ -13758,46 +13767,75 @@ secretish_env_values() {
       }
       return count
     }
-    # prose_words for the text the old reading took whole as the value: a
-    # closed-key span or a note. Beyond the value words, a word with a digit
-    # or a symbol refuses too, unless it is a source path or locator
-    # (`src/config.ts:12`), a short dotted version (`3.13.0`) or a short
-    # issue reference (`#587`), each of which has passed the same value
-    # checks first. So a password of digits or symbols in prose keeps the
-    # old reading however short; what can still read as prose there is a
-    # word of letters, with an apostrophe or hyphen inside.
+    # prose_words for the text the old reading took whole as the value (a
+    # closed-key span, a note, a sentence) and for the text after an exempt
+    # token. Beyond the value words, every word must be a word of Latin
+    # letters or Hangul syllables, a short dotted version (`3.13.0`) or a
+    # short issue reference (`#587`); a mark standing alone is not a word.
+    # So a password of digits, symbols, path characters or another script
+    # keeps the old reading however short, and so does a hyphenated or
+    # apostrophised word, which a passphrase can be as well.
     #
     # Residual, accepted: a secret shaped exactly like a short dotted
-    # version or a short issue reference reads as prose there.
+    # version or a short issue reference reads as prose there, and so do a
+    # value of letters only with one sentence mark at its end (`word,`),
+    # as a short password of letters does, and a value shaped like a path
+    # whose parts are letters only (`word/word`).
     function span_words(text, n, words, i, w, count) {
       n = split(text, words, /[ \t\r\n]+/)
       count = 0
       for (i = 1; i <= n; i++) {
         if (value_word(words[i])) return -1
-        if (words[i] !~ /[A-Za-z0-9\200-\377]/) continue
-        count++
         w = edge_core(words[i])
-        # A dash or another mark of its own is not a word.
-        if (w !~ /[A-Za-z0-9]/ && w !~ /[\352-\355]/) continue
-        if (w ~ /^([A-Za-z]|[\352-\355][\200-\277][\200-\277])+(['\''-]([A-Za-z]|[\352-\355][\200-\277][\200-\277])+)*$/) continue
-        if (w ~ /^[A-Za-z0-9._\/-]+(:[0-9]+)*$/ && w ~ /[A-Za-z]/ \
-            && (w ~ /\// || w ~ /\.[A-Za-z]/)) continue
+        if (w == "" || prose_mark(w)) continue
+        count++
+        if (w ~ ("^([A-Za-z]|" hangul ")+$")) continue
+        # An empty key of its own (`API_KEY=`, a key on a line below): the
+        # scan reads that key when it reaches it, with its own exemption.
+        if (tolower(w) ~ ("^" key "=?$")) continue
+        # A source path or locator (`tests/run.sh`, `src/db.ts:12`): parts
+        # of letters split by a slash, a dot or a hyphen, with a slash or a
+        # dot among them. Digits appear only in a line and column at the
+        # end, or in a known file extension.
+        if (w ~ /[\/.]/ \
+            && w ~ /^(\.\.?\/|\/)?[A-Za-z]+([\/.-][A-Za-z]+)*(\.(mp3|mp4|sha256|x509))?(:[0-9]+(:[0-9]+)?)?$/)
+          continue
         # Three or four parts of one to three digits, or a number sign and
-        # one to six digits; word_core has already cut closing marks off.
+        # one to six digits; edge_core has already cut closing marks off.
         if (w ~ /^v?[0-9][0-9]?[0-9]?\.[0-9][0-9]?[0-9]?\.[0-9][0-9]?[0-9]?(\.[0-9][0-9]?[0-9]?)?$/) continue
         if (w ~ /^#[0-9][0-9]?[0-9]?[0-9]?[0-9]?[0-9]?$/) continue
         return -1
       }
       return count
     }
+    # A mark that stands as a word of its own in prose: one ASCII mark, an
+    # ellipsis, or a dash, an arrow or a bullet.
+    function prose_mark(w) {
+      return (length(w) == 1 && w ~ /[!-~]/ && w !~ /[A-Za-z0-9]/) \
+          || w ~ /^\.\.\.?$/ || w == "\342\200\224" || w == "\342\200\223" \
+          || w == "\342\206\222" || w == "\342\200\242" || w == "\342\200\246"
+    }
     # Record the value words of text. Called only once the line has already
     # recorded a value of its own, so it masks more of a line that is masked
-    # anyway and never blocks a line that passed.
-    function emit_value_words(text, n, words, i) {
+    # anyway and never blocks a line that passed. The value already recorded
+    # and a key with the word after it are left out: the scan records those
+    # itself when it reaches them.
+    function emit_value_words(text, recorded, n, words, i, owned) {
       if (text == "") return
       n = split(text, words, /[ \t\r\n]+/)
-      for (i = 1; i <= n; i++)
-        if (value_word(words[i])) emit_secret(word_core(words[i]))
+      owned = 0
+      for (i = 1; i <= n; i++) {
+        if (tolower(words[i]) ~ ("^[[(`'\''\"{<]*" key "[\"'\''`]?[=:]")) {
+          owned = (tolower(words[i]) ~ /[=:]$/)
+          continue
+        }
+        if (owned) {
+          owned = 0
+          continue
+        }
+        if (value_word(words[i]) && word_core(words[i]) != recorded)
+          emit_secret(word_core(words[i]))
+      }
     }
     # A value ends where it is closed off from what follows: at the end of
     # the line, before a space or a tab, or after closing punctuation or a
@@ -13810,6 +13848,54 @@ secretish_env_values() {
         rest = substr(rest, RLENGTH + 1)
       ch = substr(rest, 1, 1)
       return rest == "" || rest == "\r" || ch == " " || ch == "\t"
+    }
+    # Whether the old reading takes a value from tail once the exempt token
+    # before it is gone, so that tail follows the key and delimiter
+    # directly. Every exemption is off and nothing is recorded: the probe
+    # only notes that a record, or a quote left open, would have been made.
+    function main_value(assignment, tail, \
+                        s_quote, s_open, s_guard, s_span, s_start, s_end, \
+                        s_strip, s_rstart, s_rlength, found) {
+      s_quote = open_quote
+      s_open = open_value
+      s_guard = open_guard
+      s_span = refused_span
+      s_start = next_rescan_cover_start
+      s_end = next_rescan_cover_end
+      s_strip = strip_quote
+      s_rstart = RSTART
+      s_rlength = RLENGTH
+      open_quote = ""
+      main_reading = 1
+      dry_found = 0
+      emit_value(assignment tail, length(assignment) + 1, assignment, 0)
+      found = dry_found || open_quote != ""
+      main_reading = 0
+      open_quote = s_quote
+      open_value = s_open
+      open_guard = s_guard
+      refused_span = s_span
+      next_rescan_cover_start = s_start
+      next_rescan_cover_end = s_end
+      strip_quote = s_strip
+      RSTART = s_rstart
+      RLENGTH = s_rlength
+      return found
+    }
+    # Whether a value may follow an exempt token. The old reading took the
+    # token as the value and blocked the prompt, which also covered anything
+    # after it, so: text glued to the token is read as the old reading
+    # would read it once the token is gone, the rest of the line is read
+    # word by word, and so is every line below it in the leaf.
+    function exempt_tail(assignment, tail, glued) {
+      # Quotes and brackets that close around the token (a code span, a
+      # note) come off first: the old reading would not open a value there.
+      glued = tail
+      sub(/^[]`'\''")}>]+/, "", glued)
+      if (glued ~ /^[^ \t\r]/ && main_value(assignment, glued)) return 1
+      if (span_words(tail) < 0) return 1
+      if (lookahead_mode == "value") return prose_words(leaf_tail) < 0
+      return span_words(leaf_tail) < 0
     }
     # A quote right after the delimiter can close a quote that opened before
     # the key instead of opening a value: `` `API_KEY=` is read at ... ``,
@@ -13852,15 +13938,13 @@ secretish_env_values() {
       if (gsub(quote, quote, before) % 2 == 0) return 0
       after = substr(raw, 2)
       if (!closed_off(after)) return 0
-      if (index(after, quote)) span = after
-      else {
-        q = index(leaf_tail, quote)
-        span = after "\n" (q ? substr(leaf_tail, 1, q - 1) : leaf_tail)
-      }
-      n = span_words(span)
+      n = span_words(after)
       # The old reading may take only the text up to the next quote; the
       # value words after it are masked along with it.
-      if (n < 0) refused_span = span
+      if (n < 0 || exempt_tail(assignment, after)) {
+        refused_span = after "\n" leaf_tail
+        return 0
+      }
       return n == 0 || n > 1
     }
     # A note in brackets or parentheses after `=` that says the value is not
@@ -13874,14 +13958,14 @@ secretish_env_values() {
     # The old reading took the first word of the note as the value and
     # blocked the whole prompt, which also covered a value after the note.
     # So nothing may be glued to the closer, and the rest of the line and the
-    # next line may hold no value word. When one does, the old reading
+    # lines below may hold no value (exempt_tail). When one does, the old reading
     # stands and refused_span carries the text so its value words are
     # masked as well. Raw exec probes cannot see the next line and keep the
     # old reading.
     function empty_note(assignment, leading, raw, \
-                        opener, closer, e, inner, after, next_line, \
-                        marked) {
-      if (record_mode == "probe_raw" || assignment !~ /=$/) return 0
+                        opener, closer, e, inner, after, marked) {
+      if (main_reading || record_mode == "probe_raw" || assignment !~ /=$/)
+        return 0
       opener = substr(raw, 1, 1)
       if (opener == "(") closer = ")"
       else if (opener == "[") closer = "]"
@@ -13901,19 +13985,18 @@ secretish_env_values() {
         return 0
       }
       after = substr(raw, e + 1)
-      next_line = next_leaf_line()
       if (marked && closed_off(after) && span_words(inner) >= 0 \
-          && span_words(after) >= 0 && span_words(next_line) >= 0)
+          && !exempt_tail(assignment, after))
         return 1
-      refused_span = raw "\n" next_line
+      refused_span = raw "\n" leaf_tail
       return 0
     }
     # A sentence after an unquoted key, a colon and a space
-    # (`webhook secret: is set by the deploy job`, `secret: 배포 단계에서
+    # (`webhook secret: will be set by the deploy job`, `secret: 배포 단계에서
     # 넣는다 나중에`) is not a value. It needs three or more words, at least
-    # one of them a Korean word or an English word of one or two letters:
-    # a passphrase of dictionary words has none (the EFF lists hold no word
-    # shorter than three letters), so it keeps its value reading. A value
+    # one of them a marker_word: a passphrase of dictionary words has none,
+    # so it keeps its value reading. An English sentence without one blocks
+    # as it did before #587. A value
     # word anywhere on the rest of the line, a quoted key, a flow mapping or
     # argument list (`{key: ...}`) and a `#` or `//` comment keep the old
     # reading as well; a comment marks a config line whose first word is the
@@ -13923,7 +14006,7 @@ secretish_env_values() {
     # sentence (`password: <word> is the default`) reads as prose.
     function prose_sentence(assignment, leading, raw, \
                             n, words, i, w, count, marker, found) {
-      if (assignment !~ /:$/ || assignment ~ /["'\''`]/) return 0
+      if (main_reading || assignment !~ /:$/ || assignment ~ /["'\''`]/) return 0
       if (substr(assignment, 1, 1) ~ /[,{([]/) return 0
       if (substr(leading, 1, 1) != " ") return 0
       n = split(raw, words, /[ \t\r]+/)
@@ -13938,44 +14021,53 @@ secretish_env_values() {
         # dash or another symbol on its own is not one.
         if (w !~ /[A-Za-z\352-\355]/) continue
         count++
-        if (w ~ /[\352-\355]/) marker = 1
-        if (word_core(w) ~ /^[A-Za-z][A-Za-z]?$/) marker = 1
+        if (marker_word(w)) marker = 1
       }
-      if (count < 3 || !marker) return 0
+      if (count < 3) return 0
+      # Not prose: the old reading takes the first word, and the value words
+      # after it are masked along with it.
+      if (!marker) {
+        refused_span = raw
+        return 0
+      }
       # The first word is what the old reading takes as the value, so it
       # must be a word of letters: a password of digits or symbols, however
       # short, keeps that reading, which leaves the residual below.
-      if (edge_core(words[1]) !~ /^([A-Za-z]|[\352-\355][\200-\277][\200-\277])+$/)
-        found = 1
+      if (edge_core(words[1]) !~ ("^([A-Za-z]|" hangul ")+$")) found = 1
       # Every other word as in a closed-key span: a password of digits or
       # symbols later in the sentence keeps the old reading too.
       if (span_words(raw) < 0) found = 1
       # A sentence but for its value words: those are masked along with the
       # first word the old reading takes.
-      if (found) {
-        refused_span = raw
+      if (found || exempt_tail(assignment, "")) {
+        refused_span = raw "\n" leaf_tail
         return 0
       }
       return 1
     }
     # An angle-bracketed value with whitespace inside (`<set in deployment>`)
-    # is a placeholder, as long as no word inside it is a value word and one
-    # word marks it as a phrase: a placeholder word, a Korean word, or an
-    # English word of one or two letters, as prose_sentence asks. A
+    # is a placeholder, as long as every part inside it is a word of letters
+    # and one word marks it as a phrase: a placeholder word or a
+    # marker_word, as prose_sentence asks. A
     # passphrase of dictionary words in angle brackets
     # (`<correct horse battery>`) has none of them and keeps masking. Only a
     # quoted value can hold Korean here; the unquoted span is ASCII.
-    function spaced_angle(v, n, words, i) {
+    function spaced_angle(v, n, words, i, marked) {
+      if (main_reading) return 0
       if (v !~ /^<[A-Za-z\352-\355][A-Za-z0-9_ \t.\200-\277\352-\355-]*>$/ \
           || v !~ /[ \t]/)
         return 0
       if (prose_words(substr(v, 2, length(v) - 2)) < 0) return 0
       n = split(tolower(substr(v, 2, length(v) - 2)), words, /[-_ \t.]+/)
-      for (i = 1; i <= n; i++)
-        if (words[i] in placeholder_word || words[i] ~ /^[a-z][a-z]?$/ \
-            || words[i] ~ /[\352-\355]/)
-          return 1
-      return 0
+      marked = 0
+      for (i = 1; i <= n; i++) {
+        if (words[i] == "") continue
+        # Every part a word of letters: a part with a digit is a value.
+        if (words[i] !~ ("^([a-z]|" hangul ")+$")) return 0
+        if (words[i] in placeholder_word || marker_word(words[i]))
+          marked = 1
+      }
+      return marked
     }
     # A markdown label such as `**Repo secret**: **cannot verify**` has a
     # secret-bearing key and a status word for a value. Whole core only, after
@@ -14106,9 +14198,9 @@ secretish_env_values() {
       return 1
     }
     # A quoted value made of nothing but one expansion or template reference
-    # holds no credential text: a shell variable (in braces, with or without
-    # an operator whose operand is empty such as `${NAME:?}`, `${NAME:-}` or
-    # `${NAME-}`, or bare with an environment-variable name), a command
+    # holds no credential text: a shell variable (in braces, or bare with an
+    # environment-variable name; see operator_reference for one with an
+    # operator), a command
     # substitution that passes the test
     # above, a GitHub Actions expression that reads a secret, variable
     # or input, or a Go/Helm template that reads a value (`.Values.x`) with
@@ -14118,11 +14210,17 @@ secretish_env_values() {
     # lowercase or digit-bearing bare dollar word keeps masking.
     function interpolated_reference(value) {
       return value ~ /^\$\{[A-Za-z_][A-Za-z0-9_]*\}$/ \
-          || value ~ /^\$\{[A-Za-z_][A-Za-z0-9_]*:?[-=?+]\}$/ \
           || value ~ /^\$[A-Z]+(_[A-Z]+)*$/ \
           || command_substitution_reference(value) \
           || value ~ /^\$\{\{[ \t]*(secrets|vars|env|inputs)\.[A-Za-z_][A-Za-z0-9_]*[ \t]*\}\}$/ \
           || value ~ /^\{\{-?[ \t]*\.[A-Za-z_][A-Za-z0-9_.]*([ \t]*\|[ \t]*[A-Za-z_][A-Za-z0-9_]*)*[ \t]*-?\}\}$/
+    }
+    # A shell variable with an operator whose operand is empty (`${NAME:?}`,
+    # `${NAME:-}`, `${NAME-}`) reads the variable and adds no default. The
+    # old reading blocked the prompt for it, which also covered a value
+    # after it, so emit_value asks exempt_tail about the text that follows.
+    function operator_reference(value) {
+      return value ~ /^\$\{[A-Za-z_][A-Za-z0-9_]*:?[-=?+]\}$/
     }
     # Helm charts name an existing Kubernetes Secret, and the data key inside
     # it, under `existingSecret` style keys. Those values are object names,
@@ -14178,6 +14276,10 @@ secretish_env_values() {
       return 1
     }
     function emit_record(value) {
+      if (main_reading) {
+        dry_found = 1
+        return
+      }
       if (record_mode == "probe" || record_mode == "probe_raw") {
         if (!probe_found) print "x"
         probe_found = 1
@@ -14197,7 +14299,7 @@ secretish_env_values() {
     # afterwards where no settlement can see them, so they carry no extent and
     # mask exactly as before.
     function emit_extent(value) {
-      if (record_mode != "json") return
+      if (main_reading || record_mode != "json") return
       print "{\"literal\":\"" json_escape(value) \
         "\",\"replacement\":\"[REDACTED]\",\"agent_guard_extent\":true}"
     }
@@ -14647,7 +14749,7 @@ secretish_env_values() {
       sub(/^[ \t]+/, "", raw)
       quote = substr(raw, 1, 1)
       if (quote == "\"" || quote == "'\''" || quote == "`") {
-        if (leading == "" \
+        if (leading == "" && !main_reading \
             && closed_key_quote(source, start, assignment, raw, quote))
           return 0
         raw = substr(raw, 2)
@@ -14682,14 +14784,22 @@ secretish_env_values() {
         if (page_cursor(assignment)) return 0
         if (snapshot_handle(assignment, value)) return 0
         if (interpolated_reference(value)) return 0
+        if (!main_reading && operator_reference(value)) {
+          if (!exempt_tail(assignment, substr(raw, end + 1))) return 0
+          refused_span = substr(raw, end + 1) "\n" leaf_tail
+        }
         if (secret_object_name(assignment, value)) return 0
         # The placeholder does not hide a value later on the line, which the
         # old reading blocked the prompt for.
+        # A spaced angle that is refused still has its value words after it
+        # masked, as a refused exemption does.
+        if (value ~ /^<[^>]*[ \t][^>]*>$/)
+          refused_span = substr(raw, end + 1) "\n" leaf_tail
         if (spaced_angle(value)) {
           # The line below too: the old reading blocked the prompt for a
           # value there as well.
-          refused_span = substr(raw, end + 1) "\n" next_leaf_line()
-          if (prose_words(refused_span) >= 0) return 0
+          if (!exempt_tail(assignment, substr(raw, end + 1))) return 0
+          refused_span = substr(raw, end + 1) "\n" leaf_tail
         }
       } else {
         if (empty_note(assignment, leading, raw)) return 0
@@ -14729,8 +14839,8 @@ secretish_env_values() {
             # it or after it on the line is a value word; then the first
             # word decides as before and those words are masked with it.
             if (rest == "" && spaced_angle(extent)) {
-              refused_span = refused_span "\n" next_leaf_line()
-              if (prose_words(refused_span) >= 0) return 0
+              if (!exempt_tail(assignment, refused_span)) return 0
+              refused_span = refused_span "\n" leaf_tail
             }
           }
         }
@@ -14838,12 +14948,12 @@ secretish_env_values() {
                        assignment leading "[REDACTED]" trailing,
                        start + length(leading),
                        length(value))
-          emit_value_words(refused_span)
+          emit_value_words(refused_span, value)
           return 0
         }
         if (emit_secret(value, char_length(token))) {
           if (extent != "") emit_extent(extent)
-          emit_value_words(refused_span)
+          emit_value_words(refused_span, value)
         }
         return 0
       }
@@ -14851,7 +14961,7 @@ secretish_env_values() {
       # is classified on its trimmed copy just above, so recording only the
       # padded literal left a bare recurrence of the same credential further
       # down unmasked. Record both forms, exactly as the multiline close does.
-      if (emit_captured(value)) emit_value_words(refused_span)
+      if (emit_captured(value)) emit_value_words(refused_span, value)
       # Coordinates are relative to this scan_line source. Once scan_line
       # advances past the assignment delimiter it translates them to the new
       # `rest`, allowing only mappings from this exact emitted value occurrence
