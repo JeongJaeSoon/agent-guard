@@ -12,31 +12,42 @@ struct Spec {
 }
 
 fn protected(key: Option<&str>, text: &str) -> bool {
-    matches!(key, Some("type" | "media_type" | "mimeType" | "encoding"))
-        && matches!(
-            text,
-            "text"
-                | "image"
-                | "document"
-                | "search_result"
-                | "browser_state"
-                | "tool_reference"
-                | "tool_use"
-                | "tool_result"
-                | "thinking"
-                | "redacted_thinking"
-                | "base64"
-                | "url"
-                | "file"
-                | "content"
-                | "pdf"
-                | "image/png"
-                | "image/jpeg"
-                | "image/gif"
-                | "image/webp"
-                | "application/pdf"
-                | "text/plain"
-        )
+    matches!(
+        key,
+        Some("type" | "media_type" | "mimeType" | "mediaType" | "encoding" | "mode" | "cell_type")
+    ) && matches!(
+        text,
+        "text"
+            | "image"
+            | "document"
+            | "search_result"
+            | "browser_state"
+            | "tool_reference"
+            | "tool_use"
+            | "tool_result"
+            | "thinking"
+            | "redacted_thinking"
+            | "base64"
+            | "url"
+            | "file"
+            | "content"
+            | "pdf"
+            | "image/png"
+            | "image/jpeg"
+            | "image/gif"
+            | "image/webp"
+            | "application/pdf"
+            | "text/plain"
+            | "notebook"
+            | "parts"
+            | "file_unchanged"
+            | "create"
+            | "update"
+            | "files_with_matches"
+            | "count"
+            | "code"
+            | "markdown"
+    )
 }
 
 fn string_work(value: &Value) -> usize {

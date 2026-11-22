@@ -124,9 +124,13 @@ JQ_SHAPE='def shape: if type == "object" then with_entries(.value |= shape)
 def swap($s): if type == "object" then with_entries(.value |= swap($s))
   elif type == "array" then map(swap($s))
   elif type == "string" then (split($s) | join("[REDACTED]")) else . end;
-def withheld($key): if type == "object" then with_entries(.key as $k | .value |= withheld($k))
-  elif type == "array" then map(withheld(null))
-  elif type == "string" and length > 0 and (($key == "type" and . == "text") | not)
+def withheld($key; $own): if type == "object"
+  then with_entries(.key as $k | .value |= withheld($k; $own))
+  elif type == "array" then map(withheld(null; $own))
+  elif type == "string" and length > 0
+       and ((["type", "mode", "cell_type"] | index([$key])) == null)
+       and (. as $v | (["filePath", "notebook_path"] | index([$key])) == null
+            or ($own | index([$v])) == null)
   then "[REDACTED]" else . end;'
 
 # One Claude response on stdout whose replacement keeps the event's shape and
@@ -196,9 +200,10 @@ for host in claude codex; do
     fi
 
     # No scanner under the closed policy: Claude takes a replacement beside
-    # exit 2, so the unchecked output is withheld in its shape. A block type
-    # the host reads stays, since changing it would make the host drop the
-    # replacement. Codex takes none, and its exit 2 stays as it was.
+    # exit 2, so the unchecked output is withheld in its shape. A field the
+    # host reads as one of a few words stays, since changing it would make the
+    # host drop the replacement, and so does the path the model asked for.
+    # Codex takes none, and its exit 2 stays as it was.
     event=$(post_event "$name" "tool-coverage-$host-$name-closed")
     run_post "$host" "$event" AGENT_GUARD_INFRA_FAILURE_MODE=closed \
       AGENT_GUARD_GITLEAKS_BIN="$CASE/no-gitleaks"
@@ -207,7 +212,8 @@ for host in claude codex; do
       claude)
         [ "$status" -eq 2 ] && claude_replaced_in_shape "$event" \
           && jq -e -n --argjson event "$event" --slurpfile out "$CASE/out" "$JQ_SHAPE"'
-               $out[0].hookSpecificOutput.updatedToolOutput == ($event.tool_response | withheld(null))
+               ([$event.tool_input | objects | .file_path, .notebook_path | strings]) as $own
+               | $out[0].hookSpecificOutput.updatedToolOutput == ($event.tool_response | withheld(null; $own))
              ' >/dev/null 2>&1 \
           && grep -Fq 'AGENT_GUARD_INFRA_FAILURE_MODE=closed' "$CASE/err"
         ;;
@@ -328,6 +334,12 @@ for name in $fixed_tools WebSearch; do
   fi
 done
 if [ "$count" -ge 11 ]; then ok; else not_ok "outputs fixture lists $count tools with a fixed replacement"; fi
+
+# Each rewrite path keeps the fields the host checks in built-in tool outputs.
+if sh "$ROOT/tests/output-shape.sh" >"$CASE/shape" 2>&1; then ok; else
+  not_ok "built-in tool outputs keep their shape when masked"
+  sed 's/^/  /' "$CASE/shape"
+fi
 
 printf 'tool coverage assertions: %s passed, %s failed\n' "$passed" "$failed"
 test "$failed" -eq 0
