@@ -120,10 +120,13 @@ def main():
         driver.write_text('. "$1/secretish_env_values.sh"\nsecretish_env_values\n')
         home = case / "home"
         home.mkdir()
+        child_tmp = case / "tmp"
+        child_tmp.mkdir()
         env = os.environ.copy()
         for name in ("AI_AGENT", "AGENT_GUARD_OUTPUT_REDACT", "AGENT_GUARD_KEY_NAME_REDACT"):
             env.pop(name, None)
-        env.update(HOME=str(home), AGENT_GUARD_LOG_MODE="off", AGENT_GUARD_RELEASE_CHECK="off",
+        env.update(HOME=str(home), TMPDIR=str(child_tmp),
+                   AGENT_GUARD_LOG_MODE="off", AGENT_GUARD_RELEASE_CHECK="off",
                    AGENT_GUARD_PII_HOOK_MODE="off", AGENT_GUARD_PROMPT_GUARD_MODE="block",
                    AGENT_GUARD_INFRA_FAILURE_MODE="closed",
                    AGENT_GUARD_GITLEAKS_BIN=str(ROOT / "tests/fixtures/mock-gitleaks"),
