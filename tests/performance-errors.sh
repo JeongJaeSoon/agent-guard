@@ -40,12 +40,30 @@ for cause in 'package mirror unavailable' 'Dockerfile COPY missing source'; do
     sh "$ROOT/.github/scripts/performance-issue-body.sh" "$case_dir/evidence" '- Packaged performance evidence: failure' > "$case_dir/body"
   grep -Fxq "$cause" "$case_dir/body" || { echo 'Docker build stderr was missing from issue body' >&2; exit 1; }
 done
-printf 'measurement timed out\n' > "$case_dir/evidence/packaged-performance/errors.txt"
-identity=$(sh "$ROOT/.github/scripts/performance-cause.sh" "$case_dir/evidence" '- Packaged performance evidence: failure')
-printf '%s\n' 'integration end: host=claude fixture=0 seconds=0.497 status=exit status: 0' \
-  'baseline long-line 0.706s' 'candidate long-line 0.689s' 'measurement timed out' \
-  > "$case_dir/evidence/packaged-performance/errors.txt"
-with_progress=$(sh "$ROOT/.github/scripts/performance-cause.sh" "$case_dir/evidence" '- Packaged performance evidence: failure')
-[ "$identity" = "$with_progress" ] || { echo 'sample timing jitter changed the failure identity' >&2; exit 1; }
+cause_for() {
+  printf '%s\n' "$@" > "$case_dir/evidence/packaged-performance/errors.txt"
+  sh "$ROOT/.github/scripts/performance-cause.sh" "$case_dir/evidence" '- Packaged performance evidence: failure'
+}
+first=$(cause_for 'integration start: host=claude fixture=0 variant=shell' \
+  'integration end: host=claude fixture=0 variant=shell seconds=0.497 status=exit status: 0' \
+  'baseline long-line 0.706s' 'candidate long-line 0.689s' 'measurement timed out')
+same=$(cause_for 'integration start: host=claude fixture=0 variant=shell' \
+  'integration end: host=claude fixture=0 variant=shell seconds=1.234 status=exit status: 0' \
+  'baseline long-line 2.123s' 'candidate long-line 3.456s' 'measurement timed out')
+[ "$first" = "$same" ] || { echo 'sample timing jitter changed the failure identity' >&2; exit 1; }
+different=$(cause_for 'integration start: host=codex fixture=1 variant=shell' \
+  'baseline dense-controls 0.706s' 'candidate dense-controls 0.689s' 'measurement timed out')
+[ "$first" != "$different" ] || { echo 'distinct timeout locations shared an identity' >&2; exit 1; }
+[ "$(cause_for 'cli-claude.log:' 'measurement timed out')" != "$(cause_for 'cli-codex.log:' 'measurement timed out')" ] \
+  || { echo 'distinct measurement tools shared a timeout identity' >&2; exit 1; }
+[ "$(cause_for 'candidate long-line 1.234s' 'measurement timed out')" != \
+  "$(cause_for 'candidate long-line 2.345s' 'output validation failed')" ] \
+  || { echo 'different measurement errors shared an identity after normalization' >&2; exit 1; }
+[ "$(cause_for '#5 0.123 ERROR: package mirror unavailable' '#5 DONE 1.2s' 'sha256:synthetic 0.2s done')" = \
+  "$(cause_for '#5 1.234 ERROR: package mirror unavailable' '#5 DONE 2.3s' 'sha256:synthetic 1.3s done')" ] \
+  || { echo 'Docker progress timing changed the failure identity' >&2; exit 1; }
+[ "$(cause_for 'host/fallback mismatch: claude, fixture=1, baseline_seconds=1.234, candidate_seconds=2.345, output=bad')" = \
+  "$(cause_for 'host/fallback mismatch: claude, fixture=1, baseline_seconds=2.345, candidate_seconds=3.456, output=bad')" ] \
+  || { echo 'fallback timing changed the failure identity' >&2; exit 1; }
 printf 'ok - distinct Docker build failures preserve stderr and issue identity\n'
-printf 'ok - measurement progress timing does not change the failure cause\n'
+printf 'ok - timing jitter is normalized while timeout locations and errors stay distinct\n'

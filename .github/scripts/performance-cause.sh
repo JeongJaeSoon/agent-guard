@@ -9,10 +9,15 @@ root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd -P)
   printf '%s\n' "$failed" | sort
   for artifact in packaged-performance instruction-count; do
     dir="$evidence/$artifact"
-    # Tool stderr also contains per-sample progress. Timing jitter is not a
-    # new failure cause; keep the original text untouched in the issue body.
+    # Keep host/case/fixture context so different timeouts remain distinct.
+    # Only timing jitter is removed; the issue body keeps the original text.
     if [ -f "$dir/errors.txt" ]; then
-      sed -E '/^integration (start|end):/d; /^(baseline|candidate) [^ ]+ [0-9.]+s$/d; s/^(#[0-9]+) [0-9.]+ /\1 /' "$dir/errors.txt"
+      sed -E '
+        s/((baseline_|candidate_)?seconds=)[-+0-9.eE]+/\1#/g
+        s/^((baseline|candidate) [^ ]+) [-+0-9.eE]+s$/\1 #s/
+        s/^(#[0-9]+) [0-9.]+ /\1 /
+        s/ [0-9.]+s( done)?$/ #s\1/
+      ' "$dir/errors.txt"
     fi
     [ ! -f "$dir/over-limit.txt" ] || sed 's/[0-9][0-9.]*/#/g' "$dir/over-limit.txt"
     for file in "$dir"/*confirmation.json; do

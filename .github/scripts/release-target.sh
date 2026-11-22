@@ -7,6 +7,7 @@ dry_run=${3:-false}
 case "$number" in *[!0-9]*|'') exit 2 ;; esac
 printf '%s\n' "$version" | grep -Eq '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' || exit 2
 repo=${GITHUB_REPOSITORY:?}
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
 work=$(mktemp -d)
 trap 'rm -rf "$work"' 0
 gh api "repos/$repo/pulls/$number" > "$work/pr"
@@ -38,10 +39,16 @@ if [ "$head_tree" = "$release_tree" ]; then
     same_tree=true
   else
     base=$(jq -r '.base.sha' "$work/pr")
-    gh api "repos/$repo/commits/$release" > "$work/merge"
-    if [ "$head" != "$release" ] && jq -e --arg base "$base" '.parents | length == 1 and .[0].sha == $base' "$work/merge" >/dev/null; then
+    if [ "$head" != "$release" ] \
+      && gh api "repos/$repo/commits/$release" > "$work/merge" \
+      && jq -e --arg base "$base" '.parents | length == 1 and .[0].sha == $base' "$work/merge" >/dev/null; then
       same_tree=true
     fi
+  fi
+fi
+if [ "$same_tree" = true ] && [ "$dry_run" != true ]; then
+  if ! sh "$script_dir/release-checks.sh" "$head" 0 >&2; then
+    same_tree=false
   fi
 fi
 if [ "$same_tree" = true ]; then
@@ -49,6 +56,6 @@ if [ "$same_tree" = true ]; then
   echo "Reusing required checks from identical PR tree $head_tree" >&2
 else
   source=$release
-  echo 'Tree or squash evidence differs; requiring all checks on the exact merge commit' >&2
+  echo 'PR evidence is unavailable or differs; requiring all checks on the exact merge commit' >&2
 fi
 printf 'release_sha=%s\nrelease_head_sha=%s\nsource_sha=%s\n' "$release" "$head" "$source"
