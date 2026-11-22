@@ -23,13 +23,16 @@ has '러너 CPU(packaged job, cpuinfo.txt): artifact 없음' 'missing packaged a
 has '- artifact 없음' 'a missing instruction count artifact is named'
 [ "$(grep -c -Fx -- '- artifact 없음' "$case_dir/body")" -eq 1 ] || fail 'the missing instruction count artifact is named once'
 has 'nightly run: https://example.invalid/run' 'run link is kept'
-has '확인된 회귀 행이 없습니다. 목표 미달, 출력 검증 실패, 측정 미완료나 미실행으로도 job이 실패합니다. run artifact를 확인하세요.' 'no rows means no table'
+has '확인된 회귀 행이 없습니다. 위 판정과 측정 도구 오류를 확인하세요. 행이 없다는 사실은 측정 성공의 근거가 아닙니다.' 'no rows never implies a completed measurement'
+has '판정: 측정 미완료 또는 출력 검증 실패. 성능 기준 초과와 구별하며 릴리스를 막습니다.' 'missing evidence is a measurement failure'
 [ "$(head -n 1 "$case_dir/body")" = '러너 CPU(packaged job, cpuinfo.txt): artifact 없음' ] || fail 'runner CPU is the first line'
 
 evidence="$case_dir/evidence"
 packaged="$evidence/packaged-performance"
 other="$evidence/other-packaged"
 mkdir -p "$packaged" "$other"
+printf 'threshold_exceeded\n' > "$packaged/verdict.txt"
+printf 'measurement timed out\n' > "$packaged/errors.txt"
 printf 'processor\t: 0\nmodel name\t: Synthetic CPU A\nprocessor\t: 1\nmodel name\t: Synthetic CPU A\n' > "$packaged/cpuinfo.txt"
 {
   row stall 10.34 -0.8; row boundary 7 2; row cpu-rose 9 2.01; row cpu-confirmed 3 8; row stall-cpu-fell 12 -24
@@ -41,6 +44,7 @@ mkdir -p "$evidence/instruction-count"
 printf '%s\n' '### Shell instruction count against the latest release' '' '- base: 릴리스 태그 `v0.0.0`' \
   '판정: **실패**. synthetic' > "$evidence/instruction-count/summary.md"
 render "$evidence"
+has 'measurement timed out' 'measurement tool stderr is preserved verbatim'
 has '셸 명령어 수(최근 릴리스 태그 대비, Shell instruction count job):' 'the instruction count has its own section'
 has '- base: 릴리스 태그 `v0.0.0`' 'the instruction count summary is included'
 has '판정: **실패**. synthetic' 'the instruction count verdict is included'
@@ -61,4 +65,7 @@ lacks 'claude/cpu-missing' 'a row without CPU time is never marked'
 [ "$(grep -c "$note" "$case_dir/body")" -eq 3 ] || fail 'exactly the latency-only rows are marked'
 has '| Artifact | 러너 CPU | 파일 | Host/case | Latency | CPU 시간 | 판단 |' 'table names the CPU time column'
 [ "$(head -n 1 "$case_dir/body")" = '러너 CPU(packaged job, cpuinfo.txt): Synthetic CPU A' ] || fail 'runner CPU is the first line'
+printf 'passed\n' > "$evidence/instruction-count/verdict.txt"
+render "$evidence"
+has '판정: 측정 완료, 성능 기준 초과.' 'completed thresholds are distinct from failed measurement'
 printf 'ok - nightly performance issue body fixtures passed\n'

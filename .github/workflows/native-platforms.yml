@@ -32,7 +32,26 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
+  release-evidence:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: read
+      pull-requests: read
+    outputs:
+      reuse: ${{ steps.evidence.outputs.reuse }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: sh .github/scripts/reuse-release-tree.sh >> "$GITHUB_OUTPUT"
   platform:
+    needs: release-evidence
+    if: needs.release-evidence.outputs.reuse != 'true'
     name: Native execution (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
@@ -181,11 +200,18 @@ jobs:
     if: always()
     # Performance measurement runs in performance.yml (nightly, manual and
     # release PRs), so this run's conclusion is the release qualification.
-    needs: [platform, installation]
+    needs: [platform, installation, release-evidence]
     runs-on: ubuntu-latest
     steps:
       - name: Require all three native executions
         env:
           RESULT: ${{ needs.platform.result }}
           INSTALL: ${{ needs.installation.result }}
-        run: test "$RESULT" = success && test "$INSTALL" = success
+          REUSED: ${{ needs.release-evidence.outputs.reuse }}
+          EVIDENCE_RESULT: ${{ needs.release-evidence.result }}
+        run: |
+          if [ "$REUSED" = true ] && [ "$EVIDENCE_RESULT" = success ]; then
+            echo 'Native artifacts qualified on the identical reviewed release tree'
+          else
+            test "$RESULT" = success && test "$INSTALL" = success
+          fi

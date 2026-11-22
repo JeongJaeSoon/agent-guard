@@ -37,7 +37,7 @@ check release v1.2.3 full
 # Pin the wiring as well as the producer: no event-specific name fallback.
 grep -Fq 'os: ${{ fromJSON(needs.secret-guard.outputs.oses) }}' "$ROOT/.github/workflows/ci.yml"
 grep -Fq 'name: ${{ needs.secret-guard.outputs.check_prefix }} (${{ matrix.os }})' "$ROOT/.github/workflows/ci.yml"
-grep -Fq 'needs: [secret-guard, test-shard]' "$ROOT/.github/workflows/ci.yml"
+grep -Fq 'needs: [secret-guard, test-shard, release-evidence]' "$ROOT/.github/workflows/ci.yml"
 grep -Fq 'oses: ${{ steps.scope.outputs.oses }}' "$ROOT/.github/workflows/ci.yml"
 grep -Fq 'check_prefix: ${{ steps.scope.outputs.check_prefix }}' "$ROOT/.github/workflows/ci.yml"
 
@@ -99,8 +99,8 @@ printf '%s\n' "$shell_gate" | grep -Fq 'name: Shell instruction count against th
   && printf '%s\n' "$shell_gate" | grep -Fq "git -C head tag --merged HEAD --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname" \
   && printf '%s\n' "$shell_gate" | grep -Fq 'git -C head worktree add --detach ../base "$tag"' \
   || fail 'the shell gate measures against the latest release tag other than the measured commit'
-printf '%s\n' "$shell_gate" | grep -Fq 'sh head/bench/instruction-count/run.sh base head "$tsv" || status=$?' \
-  && printf '%s\n' "$shell_gate" | grep -Fq 'sh head/bench/instruction-count/run.sh --check "$tsv" 5 > "$out/over-limit.txt" || gate=$?' \
+printf '%s\n' "$shell_gate" | grep -Fq 'sh head/bench/instruction-count/run.sh base head "$tsv" 2> "$out/errors.txt" || status=$?' \
+  && printf '%s\n' "$shell_gate" | grep -Fq 'sh head/bench/instruction-count/run.sh --check "$tsv" 5 > "$out/over-limit.txt" 2>> "$out/errors.txt" || gate=$?' \
   && printf '%s\n' "$shell_gate" | grep -Fxq '          [ "$gate" -eq 0 ]' \
   || fail 'the shell gate fails above 5% with the tested script'
 printf '%s\n' "$shell_gate" | grep -Fq "if: failure() && steps.count.outcome == 'skipped'" \
@@ -116,7 +116,7 @@ grep -Fq 'name: Packaged performance evidence' "$perf" || fail 'packaged measure
 for text in 'Packaged performance evidence' 'continue-on-error: true'; do
   if grep -Fq "$text" "$native"; then fail "native qualification has no $text"; fi
 done
-grep -Fq 'needs: [platform, installation]' "$native" || fail 'native aggregate waits only for qualification'
+grep -Fq 'needs: [platform, installation, release-evidence]' "$native" || fail 'native aggregate waits for qualification or verified reuse'
 # PRs trigger native qualification only for the test files it runs; a script
 # the workflow executes must stay inside that filter.
 native_tests=$(sed -n 's/.*sh tests\/\([A-Za-z0-9_-]*\.sh\).*/\1/p' "$native" | sort -u)
@@ -128,14 +128,15 @@ for script in $native_tests; do
   esac || fail "PRs changing tests/$script run native qualification"
 done
 if grep -Fq "      - 'tests/**'" "$native"; then fail 'native qualification skips unrelated test changes'; fi
-release_perf=$(awk '/- name: Report release performance evidence/ { on = 1; print; next } on && /^      - / { exit } on' \
-  "$ROOT/.github/workflows/release.yml")
-printf '%s\n' "$release_perf" | grep -Fq 'for sha in "$RELEASE_HEAD_SHA" "$RELEASE_SHA"; do' \
-  && printf '%s\n' "$release_perf" | grep -Fq 'actions/workflows/performance.yml/runs?head_sha=${sha}' \
-  || fail 'release reads the performance runs of the released tree'
-printf '%s\n' "$release_perf" | grep -Fq '::warning title=Release performance evidence::' \
-  || fail 'release warns about performance'
-if printf '%s\n' "$release_perf" | grep -Eq 'exit [1-9]'; then fail 'release performance report never fails'; fi
+grep -Fq 'sh .github/scripts/release-performance.sh "$SOURCE_SHA"' "$ROOT/.github/workflows/release.yml" \
+  || fail 'release requires the shared performance classification'
+grep -Fq 'performance-verdict.sh' "$ROOT/.github/scripts/release-performance.sh" \
+  && grep -Fq 'threshold_exceeded)' "$ROOT/.github/scripts/release-performance.sh" \
+  && grep -Fq 'exit 1' "$ROOT/.github/scripts/release-performance.sh" \
+  || fail 'only completed threshold excess warns; failed measurement blocks'
+grep -Fq 'performance-cause.sh' "$perf" \
+  && grep -Fq 'contains($marker)' "$perf" \
+  || fail 'different nightly causes receive separate issues'
 # Hook PRs get a base-versus-head instruction count that reports and never
 # gates on a rise; it fails only when it could not measure.
 count="$ROOT/.github/workflows/hook-instruction-count.yml"
