@@ -16,7 +16,7 @@ Change the tag only through an intentional, reviewed rollout.
 
 The example intentionally has no `env` block. The product defaults are
 `AGENT_GUARD_INFRA_FAILURE_MODE=open` and `AGENT_GUARD_PII_HOOK_MODE=off`. The
-metadata-only local support log is available and default-on in v3.4.0 and later.
+metadata-only local support log is on by default.
 For a rollout that prioritizes secret protection, use
 `AGENT_GUARD_INFRA_FAILURE_MODE=closed`.
 PII is opt-in; do not force an

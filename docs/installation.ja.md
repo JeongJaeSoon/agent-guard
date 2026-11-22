@@ -1,4 +1,4 @@
-<!-- translated-from: docs/installation.md; source-blob: 6d81fd2b7d834f9829b184caaf891599502cae18 -->
+<!-- translated-from: docs/installation.md; source-blob: bd394896c44feb96d1374fa6dcc0ecdce07c17ea -->
 
 <a id="installing-agent-guard"></a>
 
@@ -61,13 +61,13 @@ hostを再起動してください。同じ結果の保証、失敗時の処理�
 
 ## 実行時の依存関係
 
-v3.7以降のリリースアーカイブとHomebrewパッケージには、Linux x64/arm64とmacOS arm64用のRust文字列置換ヘルパーが含まれます。v3.7.0からv3.8.2まではmacOS x64用ヘルパーも含んでいました。Rustコンパイラーは不要です。CLIは対象プラットフォームのチェックサムを検証したヘルパーを既定で使用し、不在や失敗時はshell/jqへ戻ります。検出・ポリシー・PII・host adapterはshellに残るため、以下の依存関係は引き続き必要です。shellを明示的に選択するには次を設定してください。
+リリースアーカイブとHomebrewパッケージには、Linux x64/arm64とmacOS arm64用のRust文字列置換ヘルパーが含まれます。Rustコンパイラーは不要です。CLIは対象プラットフォームのチェックサムを検証したヘルパーを既定で使用し、不在や失敗時はshell/jqへ戻ります。検出・ポリシー・PII・host adapterはshellに残るため、以下の依存関係は引き続き必要です。shellを明示的に選択するには次を設定してください。
 
 ```sh
 export AGENT_GUARD_EXPERIMENTAL_REDACTOR=shell
 ```
 
-Linuxヘルパーは静的muslを使うためglibcは不要で、Ubuntu 24.04で実行を検証します。macOSヘルパーのdeployment targetはmacOS 14以降で、macOS 15 arm64で検証します。Intel Mac(x86_64)のサポートはv3.8.2で終了しました。以降のリリースはIntel用ヘルパーを配布せず、Intelでは検証しないため、Intel環境ではshell/jqへのフォールバックを使います。スタンドアロンのインストーラーはIntelでこの案内を表示し、更新時に古いIntel用ヘルパーを削除します。最後のサポート版に留まるには、インストーラーを `AGENT_GUARD_VERSION=3.8.2` で実行してください。deployment targetの設定だけでは、すべての古いOS・カーネルで動作する証拠にはなりません。未対応環境ではshellへのフォールバックを維持します。配布チェックサムは破損を検出しますが、バイナリとチェックサムの両方が悪意をもって置き換えられた場合の認証にはなりません。
+Linuxヘルパーは静的muslを使うためglibcは不要で、Ubuntu 24.04で実行を検証します。macOSヘルパーのdeployment targetはmacOS 14以降で、macOS 15 arm64で検証します。Intel Mac(x86_64)には対応していません。リリースはIntel用ヘルパーを配布せず、Intelでは検証しないため、Intel環境ではshell/jqへのフォールバックを使います。スタンドアロンのインストーラーはIntelでこの案内を表示し、更新時に残っているIntel用ヘルパーを削除します。Intel用ヘルパーを含む最後のリリースは3.8.2です。そのリリースに留まるには、インストーラーを `AGENT_GUARD_VERSION=3.8.2` で実行してください。deployment targetの設定だけでは、すべての古いOS・カーネルで動作する証拠にはなりません。未対応環境ではshellへのフォールバックを維持します。配布チェックサムは破損を検出しますが、バイナリとチェックサムの両方が悪意をもって置き換えられた場合の認証にはなりません。
 
 ソースアーカイブとhost管理のGit marketplaceプラグインにはバイナリがないため、既存の `AGENT_GUARD_RUST_CORE_BIN` で信頼できるビルド済みヘルパーを指定しなければshellを使います。スタンドアロン版のヘルパーを使えばhostのキャッシュを編集する必要はありません。選択・チェックサム検証・開発者の上書き設定は[ネイティブヘルパーガイド（英語）](https://github.com/JeongJaeSoon/agent-guard/blob/v3.8.0/docs/native-redactor.md)を参照してください。
 
@@ -175,7 +175,7 @@ Codex向けの `plugin status`、`plugin install`、`plugin update` も同じ確
 
 ファイルがない場合、この行は何もせず終了ステータス0で終わります。どちらもキャッシュの `current` リンク経由で解決されるため、プラグインの更新後に `setup-shell` を再実行する必要はありません。再実行すると、以前のブロックを同じ位置でこのブロックに置き換えます。
 
-resolverファイルは `setup-shell` を実行した時点のコピーで、先頭行にファイル形式を記録します。`~/.zshrc` または `~/.bashrc` にv3.9.0より前の `setup-shell` が書いたインラインブロックが残っている場合や、`~/.agent-guard/shell-init*.sh` ファイルに形式行がないか古い形式行がある場合、`agent-guard doctor` は `shell integration:` 行を出力します。その行の案内どおりに `setup-shell` を再実行すると、ブロックは上の1行に置き換わり、ファイルは書き直されます。この行は `doctor` の終了ステータスを変えず、`doctor` はどちらのファイルも編集しません。それまでは古い2つの形式もそのまま読み込まれます。`--rc` で選んだrcファイルは `doctor` の確認対象外です。
+resolverファイルは `setup-shell` を実行した時点のコピーで、先頭行にファイル形式を記録します。`~/.zshrc` または `~/.bashrc` に以前の `setup-shell` が書いたインラインブロックが残っている場合や、`~/.agent-guard/shell-init*.sh` ファイルに形式行がないか古い形式行がある場合、`agent-guard doctor` は `shell integration:` 行を出力します。その行の案内どおりに `setup-shell` を再実行すると、ブロックは上の1行に置き換わり、ファイルは書き直されます。この行は `doctor` の終了ステータスを変えず、`doctor` はどちらのファイルも編集しません。それまでは古い2つの形式もそのまま読み込まれます。`--rc` で選んだrcファイルは `doctor` の確認対象外です。
 
 スタンドアロンCLIの更新では、既存のインストールの隣に候補を準備してから
 置き換えます。チェックサム・展開・置換の失敗時は以前のインストールを維持

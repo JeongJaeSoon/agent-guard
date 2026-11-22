@@ -1,4 +1,4 @@
-<!-- translated-from: docs/installation.md; source-blob: 6d81fd2b7d834f9829b184caaf891599502cae18 -->
+<!-- translated-from: docs/installation.md; source-blob: bd394896c44feb96d1374fa6dcc0ecdce07c17ea -->
 
 <a id="installing-agent-guard"></a>
 
@@ -60,13 +60,13 @@ Go `regexp`로 빌드한 gitleaks(Homebrew, `go install`)는 늘 실제로 실�
 
 ## 실행 의존성
 
-v3.7 이후 릴리스 아카이브와 Homebrew 패키지에는 Linux x64/arm64와 macOS arm64용 Rust 문자열 치환기가 포함됩니다. v3.7.0부터 v3.8.2까지는 macOS x64용 치환기도 포함했습니다. Rust 컴파일러는 필요하지 않습니다. CLI는 해당 플랫폼의 체크섬을 검증한 치환기를 기본으로 사용하며, 바이너리가 없거나 실패하면 셸/jq로 복귀합니다. 탐지·정책·PII·호스트 어댑터는 셸에 남으므로 아래 의존성은 계속 필요합니다. 셸을 명시적으로 선택하려면 다음을 설정하세요.
+릴리스 아카이브와 Homebrew 패키지에는 Linux x64/arm64와 macOS arm64용 Rust 문자열 치환기가 포함됩니다. Rust 컴파일러는 필요하지 않습니다. CLI는 해당 플랫폼의 체크섬을 검증한 치환기를 기본으로 사용하며, 바이너리가 없거나 실패하면 셸/jq로 복귀합니다. 탐지·정책·PII·호스트 어댑터는 셸에 남으므로 아래 의존성은 계속 필요합니다. 셸을 명시적으로 선택하려면 다음을 설정하세요.
 
 ```sh
 export AGENT_GUARD_EXPERIMENTAL_REDACTOR=shell
 ```
 
-Linux 치환기는 정적 musl을 사용해 glibc가 필요하지 않으며 Ubuntu 24.04에서 실제 실행을 검사합니다. macOS 치환기의 배포 대상은 macOS 14 이상이며 macOS 15 arm64에서 검사합니다. Intel Mac(x86_64) 지원은 v3.8.2에서 끝났습니다. 이후 릴리스는 Intel용 치환기를 배포하지 않으며 Intel에서 검사하지 않으므로, Intel 설치는 셸/jq 복귀를 사용합니다. 독립 설치 스크립트는 Intel에서 이 안내를 출력하고 업데이트 때 이전 Intel 치환기를 지웁니다. 마지막 지원 릴리스에 머무르려면 설치 스크립트를 `AGENT_GUARD_VERSION=3.8.2`로 실행하세요. 배포 대상 설정만으로 모든 이전 OS·커널의 실행이 입증되지는 않습니다. 미지원 환경은 셸 복귀를 유지합니다. 배포 체크섬은 손상을 탐지하며 바이너리와 체크섬이 함께 악의적으로 교체된 경우를 인증하지는 않습니다.
+Linux 치환기는 정적 musl을 사용해 glibc가 필요하지 않으며 Ubuntu 24.04에서 실제 실행을 검사합니다. macOS 치환기의 배포 대상은 macOS 14 이상이며 macOS 15 arm64에서 검사합니다. Intel Mac(x86_64)은 지원하지 않습니다. 릴리스는 Intel용 치환기를 배포하지 않으며 Intel에서 검사하지 않으므로, Intel 설치는 셸/jq 복귀를 사용합니다. 독립 설치 스크립트는 Intel에서 이 안내를 출력하고 업데이트 때 남아 있는 Intel 치환기를 지웁니다. Intel용 치환기가 포함된 마지막 릴리스는 3.8.2입니다. 그 릴리스에 머무르려면 설치 스크립트를 `AGENT_GUARD_VERSION=3.8.2`로 실행하세요. 배포 대상 설정만으로 모든 이전 OS·커널의 실행이 입증되지는 않습니다. 미지원 환경은 셸 복귀를 유지합니다. 배포 체크섬은 손상을 탐지하며 바이너리와 체크섬이 함께 악의적으로 교체된 경우를 인증하지는 않습니다.
 
 소스 아카이브와 호스트가 관리하는 Git marketplace 플러그인에는 바이너리가 없으므로 기존 `AGENT_GUARD_RUST_CORE_BIN`으로 신뢰하는 사전 빌드 치환기를 지정하지 않으면 셸을 사용합니다. 독립 설치의 치환기를 사용하면 호스트 캐시를 수정할 필요가 없습니다. 선택·체크섬 검증·개발자 재정의는 [네이티브 치환기 안내(영어)](https://github.com/JeongJaeSoon/agent-guard/blob/v3.8.0/docs/native-redactor.md)를 참고하세요.
 
@@ -174,7 +174,7 @@ Codex용 `plugin status`, `plugin install`, `plugin update`도 같은 확인 결
 
 파일이 없으면 이 줄은 아무것도 하지 않고 종료 상태 0으로 끝납니다. 둘 다 캐시의 `current` 링크를 통해 실행 파일을 찾으므로 플러그인 업데이트 후 `setup-shell`을 다시 실행할 필요가 없습니다. 다시 실행하면 예전 블록을 같은 자리에서 이 블록으로 바꿉니다.
 
-resolver 파일은 `setup-shell`을 실행한 시점의 사본이며, 첫 줄에 파일 형식을 기록합니다. `~/.zshrc`나 `~/.bashrc`에 v3.9.0 이전 `setup-shell`이 쓴 인라인 블록이 남아 있거나, `~/.agent-guard/shell-init*.sh` 파일에 형식 줄이 없거나 더 오래된 형식 줄이 있으면 `agent-guard doctor`가 `shell integration:` 줄을 출력합니다. 그 줄이 안내하는 대로 `setup-shell`을 다시 실행하면 블록이 위의 한 줄로 바뀌고 파일이 새로 써집니다. 이 줄은 `doctor`의 종료 상태를 바꾸지 않으며, `doctor`는 두 파일 모두 고치지 않습니다. 그때까지 예전 두 형태도 그대로 로드됩니다. `--rc`로 고른 rc 파일은 `doctor`가 확인하지 않습니다.
+resolver 파일은 `setup-shell`을 실행한 시점의 사본이며, 첫 줄에 파일 형식을 기록합니다. `~/.zshrc`나 `~/.bashrc`에 예전 `setup-shell`이 쓴 인라인 블록이 남아 있거나, `~/.agent-guard/shell-init*.sh` 파일에 형식 줄이 없거나 더 오래된 형식 줄이 있으면 `agent-guard doctor`가 `shell integration:` 줄을 출력합니다. 그 줄이 안내하는 대로 `setup-shell`을 다시 실행하면 블록이 위의 한 줄로 바뀌고 파일이 새로 써집니다. 이 줄은 `doctor`의 종료 상태를 바꾸지 않으며, `doctor`는 두 파일 모두 고치지 않습니다. 그때까지 예전 두 형태도 그대로 로드됩니다. `--rc`로 고른 rc 파일은 `doctor`가 확인하지 않습니다.
 
 독립 CLI 업데이트는 기존 설치 옆에 후보를 준비한 뒤 교체합니다. 체크섬·추출·
 교체 실패 시 이전 설치를 유지하거나 복구하며, 관련 없는 로컬 파일도 보존합니다.

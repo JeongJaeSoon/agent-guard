@@ -1,11 +1,11 @@
 # Privacy and Data Handling
 
-Last updated: 2026-11-19
+Last updated: 2026-11-23
 
 Agent Guard is local by default. The project does not operate an Agent Guard
 service, account system, telemetry collector, crash reporter, or analytics
 endpoint. Default hook processing does not transmit inspected data. It does not
-retain it after the hook or command finishes. Since v3.4.0 it maintains a
+retain it after the hook or command finishes. It maintains a
 default-on, metadata-only local support log; the log records no inspected
 content.
 
@@ -38,7 +38,6 @@ outputs under its own privacy policy.
 
 ## Local support log
 
-The metadata log is available in v3.4.0 and later; it is not present in v3.3.0.
 Agent Guard writes metadata-only JSONL records under
 `$XDG_STATE_HOME/agent-guard` or, when that variable is unset,
 `~/.local/state/agent-guard`. It creates a start record and completes it with
