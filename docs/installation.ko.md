@@ -1,4 +1,4 @@
-<!-- translated-from: docs/installation.md; source-blob: a696ae9e5e2699a7541ea843cadbc98a8f0ace12 -->
+<!-- translated-from: docs/installation.md; source-blob: 6d81fd2b7d834f9829b184caaf891599502cae18 -->
 
 <a id="installing-agent-guard"></a>
 
@@ -88,6 +88,8 @@ agent-guard plugin install --host codex
 agent-guard plugin update --host all
 agent-guard plugin uninstall --host claude
 ```
+
+`plugin status`는 버전이 어긋나도 종료 코드 0을 반환하므로 기존 스크립트는 그대로 동작합니다. drift를 감지하려면 `--check`를 추가하세요. `agent-guard plugin status --check --host all`은 marketplace 고정 태그나 설치된 플러그인 버전이 이 CLI와 다르면(`status`가 출력하는 drift와 같습니다) 1을 반환합니다. `--check`는 `status`에만 적용됩니다. `plugin update`가 2로 종료하면 사용자 조치가 필요하다는 뜻입니다. 예를 들어 다른 릴리스에 고정된 marketplace는 host 관리 도구로 제거한 뒤 다시 추가해야 하며, 명령이 정확한 절차를 출력합니다.
 
 이 명령은 원격 `JeongJaeSoon/agent-guard@v<CLI version>` marketplace를 사용하며 host CLI를 직접 호출합니다. 플러그인 캐시나 host 설정 파일을 직접 쓰지 않고, `sudo`를 호출하거나 host의 확인 절차를 우회하지 않습니다. 변경한 각 host를 재시작한 후 hook을 검증하세요.
 

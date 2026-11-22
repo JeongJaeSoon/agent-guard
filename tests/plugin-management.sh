@@ -1206,5 +1206,60 @@ else
   not_ok "the expected Codex trust events match the shipped Codex hooks manifest ($expected_events vs $manifest_events)"
 fi
 
+# --- status --check: exit 1 only on version or marketplace-pin drift ---
+
+for check_host in claude codex; do
+  new_case "${check_host}_check_no_drift"
+  add_host "$check_host"
+  export AG_PLUGIN_TEST_MARKETPLACE=ok AG_PLUGIN_TEST_INSTALLED=1
+  if run_guard plugin status --check --host "$check_host"; then
+    ok "$check_host status --check exits 0 without drift"
+  else
+    not_ok "$check_host status --check exits 0 without drift"
+  fi
+
+  new_case "${check_host}_check_drift"
+  add_host "$check_host"
+  export AG_PLUGIN_TEST_MARKETPLACE=ok AG_PLUGIN_TEST_INSTALLED=old
+  if run_guard plugin status --check --host "$check_host"; then
+    not_ok "$check_host status --check exits 1 on version drift"
+  elif [ "$?" -eq 1 ] && grep -q "expected $CLI_VERSION" "$case_dir/out"; then
+    ok "$check_host status --check exits 1 on version drift"
+  else
+    not_ok "$check_host status --check exits 1 on version drift"
+  fi
+
+  new_case "${check_host}_drift_without_check"
+  add_host "$check_host"
+  export AG_PLUGIN_TEST_MARKETPLACE=ok AG_PLUGIN_TEST_INSTALLED=old
+  if run_guard plugin status --host "$check_host" \
+     && grep -q "expected $CLI_VERSION" "$case_dir/out"; then
+    ok "$check_host status without --check keeps exit 0 on drift"
+  else
+    not_ok "$check_host status without --check keeps exit 0 on drift"
+  fi
+done
+
+new_case claude_check_marketplace_drift
+add_host claude
+export AG_PLUGIN_TEST_MARKETPLACE=old AG_PLUGIN_TEST_INSTALLED=1
+if run_guard plugin status --check --host claude; then
+  not_ok 'Claude status --check exits 1 on marketplace pin drift'
+elif [ "$?" -eq 1 ] && grep -q 'marketplace drift:' "$case_dir/out"; then
+  ok 'Claude status --check exits 1 on marketplace pin drift'
+else
+  not_ok 'Claude status --check exits 1 on marketplace pin drift'
+fi
+
+new_case check_rejected_for_install
+add_host claude
+if run_guard plugin install --check --host claude; then
+  not_ok 'install rejects --check'
+elif [ "$?" -eq 2 ] && [ ! -s "$case_log" ]; then
+  ok 'install rejects --check before calling a host manager'
+else
+  not_ok 'install rejects --check'
+fi
+
 printf 'plugin management: %s passed, %s failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

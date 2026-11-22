@@ -1,4 +1,4 @@
-<!-- translated-from: docs/installation.md; source-blob: a696ae9e5e2699a7541ea843cadbc98a8f0ace12 -->
+<!-- translated-from: docs/installation.md; source-blob: 6d81fd2b7d834f9829b184caaf891599502cae18 -->
 
 <a id="installing-agent-guard"></a>
 
@@ -89,6 +89,8 @@ agent-guard plugin install --host codex
 agent-guard plugin update --host all
 agent-guard plugin uninstall --host claude
 ```
+
+`plugin status` はバージョンが食い違っても終了コード0を返すため、既存のスクリプトはそのまま動きます。driftを検出するには `--check` を付けます。`agent-guard plugin status --check --host all` は、marketplaceの固定タグまたは導入済みプラグインのバージョンがこのCLIと異なる場合（`status` が表示するdriftと同じです）に1を返します。`--check` は `status` のみに適用されます。`plugin update` が2で終了した場合は、ユーザーの操作が必要という意味です。たとえば別のリリースに固定されたmarketplaceは、host管理ツールで削除して追加し直す必要があり、コマンドが正確な手順を表示します。
 
 これらのコマンドはリモートの `JeongJaeSoon/agent-guard@v<CLI version>` marketplaceを使い、host CLIを直接呼び出します。プラグインキャッシュやhost設定ファイルを自分で書き換えず、`sudo` の実行やhostの確認プロンプトの回避もしません。変更した各hostを再起動してからhookを検証してください。
 

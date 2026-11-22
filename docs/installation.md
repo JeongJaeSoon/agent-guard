@@ -140,6 +140,14 @@ agent-guard plugin update --host all
 agent-guard plugin uninstall --host claude
 ```
 
+`plugin status` exits 0 even when versions disagree, so existing scripts keep
+working. Add `--check` to make drift detectable: `agent-guard plugin status
+--check --host all` exits 1 when the marketplace pin or the installed plugin
+version differs from this CLI, which is the same drift `status` prints. `--check`
+applies to `status` only. `plugin update` exits 2 when user action is needed:
+for example, a marketplace pinned to another release must be removed and
+re-added with the host manager, and the command prints the exact steps.
+
 These commands use the remote `JeongJaeSoon/agent-guard@v<CLI version>` marketplace
 and call the host CLIs directly. They do not write plugin caches or host
 configuration files themselves, do not invoke `sudo`, and do not bypass host

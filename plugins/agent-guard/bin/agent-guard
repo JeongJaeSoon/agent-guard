@@ -280,7 +280,7 @@ Usage:
   agent-guard setup [--install --gitleaks-checksum SHA [--gitleaks-version X.Y.Z]]
   agent-guard doctor
   agent-guard logs [status|export [--output FILE]]
-  agent-guard plugin status|install|update|uninstall [--host claude|codex|all] [--scope user|project|local]
+  agent-guard plugin status|install|update|uninstall [--host claude|codex|all] [--scope user|project|local] [--check]
   agent-guard update
   agent-guard smoke-test
   agent-guard checksum [VERSION]
@@ -292,6 +292,7 @@ plugin_usage() {
   cat >&2 <<'EOF'
 Usage:
   agent-guard plugin status|install|update|uninstall [--host claude|codex|all] [--scope user|project|local]
+  agent-guard plugin status --check
 
 If --host is omitted, exactly one of claude or codex must be available. Claude
 Code defaults to user scope. Codex supports user scope only.
@@ -299,6 +300,11 @@ Code defaults to user scope. Codex supports user scope only.
 Marketplaces are pinned to the release tag matching this CLI. If status reports
 marketplace drift, remove that marketplace with the host manager and run install
 again. Host marketplace removal also removes plugins installed from it.
+
+status --check exits 1 when the marketplace pin or the installed plugin version
+differs from this CLI (the drift status prints); without --check status exits 0
+for drift. plugin update exits 2 when user action is needed (for example a
+marketplace pinned to another release that must be removed and re-added).
 
 status looks up the latest GitHub release only for an Agent Guard marketplace,
 and update does so only when the installed plugin already matches this CLI
@@ -821,6 +827,7 @@ claude_managed_status() {
     if [ "$managed_version" = "$VERSION" ]; then
       managed_version_status="version $managed_version"
     else
+      plugin_drift=1
       managed_version_status="version $managed_version, expected $VERSION"
     fi
     printf 'claude: managed by Jamf/managed settings (plugin installed, %s, %s)\n' \
@@ -856,12 +863,16 @@ plugin_for_host() {
   plugin_action=$1
   plugin_host=$2
   plugin_scope=$3
+  plugin_drift=0
   plugin_tmp=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-plugin.XXXXXX") || {
     printf '%s\n' "$PROGRAM: could not create plugin status directory" >&2
     return 2
   }
   plugin_for_host_body
   plugin_status=$?
+  if [ "$plugin_status" -eq 0 ] && [ "$plugin_check" -eq 1 ] && [ "$plugin_drift" -eq 1 ]; then
+    plugin_status=1
+  fi
   [ -z "$plugin_tmp" ] || rm -rf "$plugin_tmp"
   return "$plugin_status"
 }
@@ -976,6 +987,7 @@ plugin_for_host_body() {
             if claude_marketplace_matches_release "$plugin_marketplaces"; then
               plugin_marketplace_status="configured at v$VERSION"
             else
+              plugin_drift=1
               plugin_marketplace_status="drift: $(claude_marketplace_ref "$plugin_marketplaces"), expected v$VERSION"
             fi
           else
@@ -990,6 +1002,7 @@ plugin_for_host_body() {
         if [ "$plugin_installed_version" = "$VERSION" ]; then
           plugin_version_status="version $plugin_installed_version"
         else
+          plugin_drift=1
           plugin_version_status="version $plugin_installed_version, expected $VERSION"
         fi
         printf '%s: installed, %s (%s, marketplace %s)\n' \
@@ -1150,6 +1163,7 @@ do_plugin() {
   esac
   plugin_host=
   plugin_scope=user
+  plugin_check=0
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --host)
@@ -1162,10 +1176,15 @@ do_plugin() {
         plugin_scope=$2
         shift 2
         ;;
+      --check)
+        plugin_check=1
+        shift
+        ;;
       -h|--help) plugin_usage; return 0 ;;
       *) plugin_usage; return 2 ;;
     esac
   done
+  [ "$plugin_check" -eq 0 ] || [ "$plugin_action" = status ] || { plugin_usage; return 2; }
   case "$plugin_host" in ''|claude|codex|all) ;; *) plugin_usage; return 2 ;; esac
   case "$plugin_scope" in user|project|local) ;; *) plugin_usage; return 2 ;; esac
   command -v jq >/dev/null 2>&1 || {
