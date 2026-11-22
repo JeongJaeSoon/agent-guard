@@ -18,8 +18,23 @@ cat > "$case_dir/bin/gh" <<'MOCK'
 case " $* " in
   *check-runs*)
     [ ! -f "$RELEASE_FIXTURE_DIR/api-error" ] || exit 1
-    cat "$RELEASE_FIXTURE_DIR/checks.json" ;;
+    cat "$RELEASE_FIXTURE_DIR/checks.json"
+    if [ -f "$RELEASE_FIXTURE_DIR/after-checks.json" ]; then
+      mv "$RELEASE_FIXTURE_DIR/after-checks.json" "$RELEASE_FIXTURE_DIR/checks.json"
+    fi ;;
   *actions/workflows/performance.yml/runs*) cat "$RELEASE_FIXTURE_DIR/performance.json" ;;
+  *actions/workflows/*.yml/runs*)
+    [ ! -f "$RELEASE_FIXTURE_DIR/workflow-api-error" ] || exit 1
+    for arg in "$@"; do
+      case "$arg" in
+        repos/*/actions/workflows/*)
+          workflow=${arg##*/workflows/}
+          workflow=${workflow%%/*}
+          cat "$RELEASE_FIXTURE_DIR/$workflow.json"
+          exit ;;
+      esac
+    done
+    exit 2 ;;
   *commits/*/pulls*) cat "$RELEASE_FIXTURE_DIR/prs.json" ;;
   *pulls/1*) cat "$RELEASE_FIXTURE_DIR/pr.json" ;;
   *commits/*) cat "$RELEASE_FIXTURE_DIR/merge.json" ;;
@@ -37,7 +52,8 @@ case " $* " in
   *) exit 2 ;;
 esac
 MOCK
-chmod 755 "$case_dir/bin/git" "$case_dir/bin/gh"
+printf '#!/bin/sh\nprintf "waited\\n" >> "$RELEASE_FIXTURE_DIR/sleep.log"\n' > "$case_dir/bin/sleep"
+chmod 755 "$case_dir/bin/git" "$case_dir/bin/gh" "$case_dir/bin/sleep"
 export PATH="$case_dir/bin:$PATH"
 fail() { printf 'not ok - %s\n' "$1" >&2; exit 1; }
 reject() {
@@ -68,7 +84,15 @@ pr() {
   jq -n --arg base "$base" '{parents:[{sha:$base}]}' > "$case_dir/merge.json"
 }
 checks() {
-  cut -f2 "$ROOT/.github/release-checks.tsv" | jq -Rn '[inputs | {id:1,name:.,app:{slug:"github-actions"},status:"completed",conclusion:"success",details_url:"https://example.invalid/check"}] | [{check_runs:.}]' > "$case_dir/checks.json"
+  : > "$case_dir/check-rows"
+  while IFS="$(printf '\t')" read -r workflow name; do
+    suite=$(printf '%s' "$workflow" | cksum | cut -d ' ' -f1)
+    jq -nc --arg name "$name" --arg sha "$head" --argjson suite "$suite" \
+      '{id:1,name:$name,head_sha:$sha,check_suite:{id:$suite},app:{slug:"github-actions"},status:"completed",conclusion:"success",details_url:"https://example.invalid/check"}' >> "$case_dir/check-rows"
+    jq -nc --arg workflow "$workflow" --arg sha "$head" --argjson suite "$suite" \
+      '[{workflow_runs:[{id:1,event:"workflow_dispatch",head_sha:$sha,path:(".github/workflows/"+$workflow),check_suite_id:$suite}]}]' > "$case_dir/$workflow.json"
+  done < "$ROOT/.github/release-checks.tsv"
+  jq -s '[{check_runs:.}]' "$case_dir/check-rows" > "$case_dir/checks.json"
 }
 target() { sh "$ROOT/.github/scripts/release-target.sh" 1 1.0.1 "${1:-false}"; }
 reuse() { sh "$ROOT/.github/scripts/reuse-release-tree.sh"; }
@@ -95,6 +119,28 @@ reuse | grep -Fxq reuse=false || fail 'different parent runs full main CI'
 pr
 printf 'ok - two parents or a parent differing from reviewed base require main CI\n'
 
+jq '.[0].check_runs[0].check_suite.id=42' "$case_dir/checks.json" > "$case_dir/changed"
+mv "$case_dir/changed" "$case_dir/checks.json"
+reject sh "$ROOT/.github/scripts/release-checks.sh" "$head" 0
+reuse | grep -Fxq reuse=false || fail 'same-named check from another workflow is not evidence'
+checks
+jq '.[0].workflow_runs[0].path=".github/workflows/unrelated.yml"' "$case_dir/ci.yml.json" > "$case_dir/changed"
+mv "$case_dir/changed" "$case_dir/ci.yml.json"
+reject sh "$ROOT/.github/scripts/release-checks.sh" "$head" 0
+checks
+jq '.[0].workflow_runs[0].head_sha="0000000000000000000000000000000000000000"' "$case_dir/ci.yml.json" > "$case_dir/changed"
+mv "$case_dir/changed" "$case_dir/ci.yml.json"
+reject sh "$ROOT/.github/scripts/release-checks.sh" "$head" 0
+checks
+printf 'ok - check suite, workflow path and run SHA must match the required workflow\n'
+
+cp "$case_dir/checks.json" "$case_dir/after-checks.json"
+jq '.[0].check_runs[0].status="queued"' "$case_dir/checks.json" > "$case_dir/changed"
+mv "$case_dir/changed" "$case_dir/checks.json"
+sh "$ROOT/.github/scripts/release-checks.sh" "$head" 60 > "$case_dir/waited"
+grep -Fxq waited "$case_dir/sleep.log" || fail 'unfinished checks are awaited'
+printf 'ok - queued checks are awaited until they succeed\n'
+
 jq '.[0].check_runs |= .[1:]' "$case_dir/checks.json" > "$case_dir/changed"
 mv "$case_dir/changed" "$case_dir/checks.json"
 reject sh "$ROOT/.github/scripts/release-checks.sh" "$head" 0
@@ -114,6 +160,9 @@ checks
 touch "$case_dir/api-error"
 reuse | grep -Fxq reuse=false || fail 'API error runs full main CI'
 rm "$case_dir/api-error"
+touch "$case_dir/workflow-api-error"
+reuse | grep -Fxq reuse=false || fail 'workflow lookup error runs full main CI'
+rm "$case_dir/workflow-api-error"
 printf 'ok - missing, failed, unfinished and unreadable checks fail closed\n'
 
 jq '.labels=[]' "$case_dir/pr.json" > "$case_dir/changed"

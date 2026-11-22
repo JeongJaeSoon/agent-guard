@@ -20,7 +20,7 @@ while :; do
   [ "$status" != completed ] || break
   echo "Performance evidence on $sha: $status"
   [ "$(date +%s)" -lt "$deadline" ] || { echo 'Performance measurement did not finish before deadline' >&2; exit 1; }
-  sleep 20
+  sleep 30
 done
 for artifact in packaged-performance instruction-count; do
   gh run download "$id" --repo "$repo" --name "$artifact" --dir "$work/$artifact"

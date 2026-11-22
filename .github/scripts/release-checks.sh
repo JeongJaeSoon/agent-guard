@@ -13,18 +13,27 @@ trap 'rm -rf "$work"' 0
 deadline=$(( $(date +%s) + limit ))
 while :; do
   gh api --paginate --slurp "repos/$repo/commits/$sha/check-runs?filter=latest&per_page=100" > "$work/checks"
+  cut -f1 "$root/.github/release-checks.tsv" | sort -u | while IFS= read -r workflow; do
+    gh api --paginate --slurp "repos/$repo/actions/workflows/$workflow/runs?head_sha=$sha&per_page=100" > "$work/$workflow"
+  done
   pending=false
   while IFS="$(printf '\t')" read -r workflow name; do
-    result=$(jq -r --arg name "$name" '
-      [.[].check_runs[] | select(.name == $name and .app.slug == "github-actions")]
+    suite=$(jq -r --arg sha "$sha" --arg path ".github/workflows/$workflow" '
+      [.[].workflow_runs[] | select(.head_sha == $sha and .path == $path)]
+      | max_by(.id)
+      | if .event == "push" or .event == "workflow_dispatch" then (.check_suite_id // 0) else 0 end' "$work/$workflow")
+    result=$(jq -r --arg name "$name" --arg sha "$sha" --argjson suite "$suite" '
+      [.[].check_runs[] | select(.name == $name and .app.slug == "github-actions"
+         and .head_sha == $sha and .check_suite.id == $suite and $suite != 0)]
       | max_by(.id) | if . == null then "missing"
         elif .status != "completed" then .status else (.conclusion // "missing") end
       ' "$work/checks")
     case "$result" in
       success)
         if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
-          jq -r --arg name "$name" '
-            [.[].check_runs[] | select(.name == $name and .app.slug == "github-actions")]
+          jq -r --arg name "$name" --arg sha "$sha" --argjson suite "$suite" '
+            [.[].check_runs[] | select(.name == $name and .app.slug == "github-actions"
+               and .head_sha == $sha and .check_suite.id == $suite)]
             | max_by(.id) | "- [\(.name)](\(.details_url))"' "$work/checks" >> "$GITHUB_STEP_SUMMARY"
         fi ;;
       missing|queued|in_progress|waiting|pending|requested)
@@ -35,5 +44,5 @@ while :; do
   done < "$root/.github/release-checks.tsv"
   [ "$pending" = true ] || { echo "All required checks passed on $sha"; exit 0; }
   [ "$(date +%s)" -lt "$deadline" ] || { echo 'Timed out waiting for missing or unfinished required checks' >&2; exit 1; }
-  sleep 20
+  sleep 30
 done
