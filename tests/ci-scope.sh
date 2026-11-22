@@ -85,16 +85,54 @@ grep -Fxq "$check" "$ROOT/.github/release-checks.tsv" || fail 'release requires 
 pass=$((pass + 1))
 grep -Fq 'env AGENT_GUARD_TEST_REQUIRE_AWKS= AGENT_GUARD_TEST_LONG_INPUT_AWKS=default sh' "$ROOT/tests/run.sh" \
   || fail 'the default-awk subset clears inherited implementation requirements'
-perf="$ROOT/.github/workflows/performance.yml"
+# Overridable so a must-fail control can point the checks at a mutated copy.
+perf=${CI_SCOPE_PERFORMANCE_WORKFLOW:-$ROOT/.github/workflows/performance.yml}
+perf_scope=${CI_SCOPE_PERFORMANCE_SCOPE:-$ROOT/.github/scripts/performance-scope.sh}
 native="$ROOT/.github/workflows/native-platforms.yml"
 [ -f "$perf" ] || fail 'performance workflow exists'
 if grep -Eq '^  push:' "$perf"; then fail 'performance does not run on push'; fi
 grep -Fq "    - cron: '" "$perf" || fail 'performance runs on a schedule'
 grep -Fq '  workflow_dispatch:' "$perf" || fail 'performance runs on dispatch'
-grep -Fq "      - 'plugins/agent-guard/.claude-plugin/plugin.json'" "$perf" || fail 'release PRs run performance'
-for path in bench/native/ native/devtools/; do
-  grep -Fq "      - '$path**'" "$perf" || fail "PRs changing $path run performance"
-done
+# Every pull request runs the workflow, so the shell instruction count exists
+# on each one and can be required; the scope script picks what it measures.
+awk '/^on:$/ { on = 1; next } on && /^[a-z]/ { exit } on' "$perf" | grep -Fxq '  pull_request:' \
+  || fail 'performance runs on pull requests'
+if awk '/^on:$/ { on = 1; next } on && /^[a-z]/ { exit } on' "$perf" | grep -Eq '^    (paths|paths-ignore|branches):'; then
+  fail 'no pull request filter can keep the shell instruction count off a pull request'
+fi
+perf_case() { # $1 event, $2 packaged, $3 instruction_count, $4 changed paths (newline separated)
+  got=$(printf '%s' "$4" | sh "$perf_scope" "$1" | tr '\n' ' ') \
+    || fail "performance scope runs for $1"
+  [ "$got" = "packaged=$2 instruction_count=$3 " ] || fail "performance scope for $1 [$4]: got '$got'"
+  pass=$((pass + 1))
+}
+perf_case schedule true true ''
+perf_case workflow_dispatch true true ''
+perf_case pull_request true true 'plugins/agent-guard/.claude-plugin/plugin.json'
+perf_case pull_request true true '.github/workflows/performance.yml'
+perf_case pull_request true true '.github/scripts/performance-scope.sh'
+perf_case pull_request true true 'bench/instruction-count/run.sh'
+perf_case pull_request true false 'bench/native/run-packaged.sh'
+perf_case pull_request true false 'native/devtools/src/main.rs'
+perf_case pull_request true false 'scripts/build-native-artifact.sh'
+perf_case pull_request true false 'scripts/install-native-test-tools.sh'
+perf_case pull_request false true 'plugins/agent-guard/bin/agent-guard'
+perf_case pull_request false true 'plugins/agent-guard/config/gitleaks.toml'
+perf_case pull_request false true 'plugins/agent-guard/hooks/hooks.json'
+perf_case pull_request false true 'bench/process-count/fake-gitleaks.c'
+perf_case pull_request false true 'tests/fixtures/mock-gitleaks'
+perf_case pull_request false true '.github/scripts/write-performance-source.sh'
+perf_case pull_request false true "README.md
+plugins/agent-guard/bin/agent-guard"
+# A path git still quotes cannot be matched; it counts as relevant to both.
+perf_case pull_request true true '"plugins/agent-guard/a\tb"'
+perf_case pull_request false false 'README.md'
+perf_case pull_request false false 'docs/installation.ko.md'
+perf_case pull_request false false 'tests/run.sh'
+perf_case pull_request false false 'tests/fixtures/mock-gitleaks-extra'
+perf_case pull_request false false 'xplugins/agent-guard/bin/agent-guard'
+perf_case pull_request false false 'bench/process-count/run.sh'
+perf_case pull_request false false ''
 [ "$(awk '/^permissions:/ { on = 1; next } /^[^ ]/ { on = 0 } on' "$perf")" = '  contents: read' ] \
   || fail 'performance workflow token is read-only'
 [ "$(grep -c 'issues: write' "$perf")" -eq 1 ] || fail 'one job writes issues'
@@ -145,7 +183,78 @@ printf '%s\n' "$shell_gate" | grep -Fq "if: failure() && steps.count.outcome == 
   && printf '%s\n' "$shell_gate" | grep -Fq 'sudo timeout --kill-after=5 55 apt-get' \
   && printf '%s\n' "$shell_gate" | grep -Fq 'timeout-minutes: 10' \
   || fail 'the shell gate reports a run that never measured and reuses the valgrind cache'
-if printf '%s\n' "$shell_gate" | grep -Eq '^    if:|continue-on-error'; then fail 'the shell gate runs and gates on every event'; fi
+if printf '%s\n' "$shell_gate" | grep -Eq '^    (if|needs):|continue-on-error'; then fail 'the shell gate runs and gates on every event'; fi
+awk '/^  build:$/ { on = 1; next } on && /^  [a-z-]+:$/ { exit } on' "$perf" | grep -Fxq "    if: needs.scope.outputs.packaged == 'true'" \
+  || fail 'the packaged jobs run only when the scope selects them'
+# Each step after the scope decision measures only when the change reaches the
+# measured path; the setup-failure report and the evidence upload still run
+# when the decision itself failed.
+gate_steps=$(printf '%s\n' "$shell_gate" | awk '
+  /^      - / { if (s != "") print s "|" g; s = $0; g = "none"; next }
+  /^        if: / { g = substr($0, 13) }
+  END { if (s != "") print s "|" g }')
+[ "$(printf '%s\n' "$gate_steps" | sed -n 2p)" = '      - name: Decide whether the change reaches the measured path|none' ] \
+  || fail 'the shell gate decides its scope right after the checkout'
+printf '%s\n' "$gate_steps" | sed -n '3,$p' | while IFS= read -r step; do
+  case $step in
+    *"|steps.scope.outputs.instruction_count == 'true'"|*"|steps.scope.outputs.instruction_count == 'true' && "*) ;;
+    *'Report a run that never reached the measurement|'"failure() && steps.count.outcome == 'skipped'") ;;
+    *"upload-artifact@"*"|always() && steps.scope.outputs.instruction_count != 'false'") ;;
+    *) fail "the shell gate step is not scoped: $step" ;;
+  esac
+done || exit 1
+[ "$(printf '%s\n' "$gate_steps" | wc -l | tr -d ' ')" -ge 11 ] || fail 'the shell gate keeps its measuring steps'
+# Run the job's own scope step on a real history: a docs-only change passes
+# at once with a summary that says so, and a CLI change runs the measurement.
+scope_step=$(printf '%s\n' "$shell_gate" | awk '
+  /^      - name: Decide whether the change reaches the measured path$/ { on = 1; next }
+  on && /^      - / { exit }
+  on && /^        run: \|$/ { run = 1; next }
+  run && /^          / { print substr($0, 11) }')
+[ -n "$scope_step" ] || fail 'the shell gate scope step has a run block'
+gate_tmp=$(mktemp -d)
+trap 'rm -rf "$gate_tmp"' 0
+(
+export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_CONFIG_NOSYSTEM=1 GIT_CEILING_DIRECTORIES="$gate_tmp"
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
+printf '%s\n' "$scope_step" > "$gate_tmp/scope.sh" || exit 1
+for change in docs cli; do
+  run="$gate_tmp/$change"
+  mkdir -p "$run/head/.github/scripts" "$run/head/plugins/agent-guard/bin" "$run/temp" || exit 1
+  cp "$perf_scope" "$run/head/.github/scripts/" || exit 1
+  printf '#!/bin/sh\n' > "$run/head/plugins/agent-guard/bin/agent-guard" && printf '# demo\n' > "$run/head/README.md" || exit 1
+  git init -q "$run/head" && git -C "$run/head" add . \
+    && git -C "$run/head" -c user.email=t@example.test -c user.name=t commit -qm base || exit 1
+  case $change in
+    docs) printf 'more\n' >> "$run/head/README.md" ;;
+    cli) printf ':\n' >> "$run/head/plugins/agent-guard/bin/agent-guard" ;;
+  esac || exit 1
+  git -C "$run/head" -c user.email=t@example.test -c user.name=t commit -qam "$change" || exit 1
+  : > "$run/output" && : > "$run/summary" && cp "$gate_tmp/scope.sh" "$run/" || exit 1
+  (cd "$run" && EVENT_NAME=pull_request RUNNER_TEMP="$run/temp" GITHUB_OUTPUT="$run/output" \
+    GITHUB_STEP_SUMMARY="$run/summary" sh -e scope.sh) < /dev/null \
+    || fail "the shell gate scope step runs on a $change change"
+  case $change in
+    docs)
+      grep -Fxq instruction_count=false "$run/output" || fail 'a docs-only change skips the measurement'
+      grep -Fq '측정하지 않고 통과합니다' "$run/summary" || fail 'a skipped measurement says so in the summary' ;;
+    cli)
+      grep -Fxq instruction_count=true "$run/output" || fail 'a CLI change runs the measurement'
+      [ ! -s "$run/summary" ] || fail 'a measured change writes no skip summary' ;;
+  esac
+done
+# A diff that cannot run fails the step rather than skip the measurement.
+run="$gate_tmp/nohistory"
+mkdir -p "$run/head" "$run/temp" && git init -q "$run/head" || exit 1
+cp "$gate_tmp/scope.sh" "$run/" || exit 1
+if (cd "$run" && EVENT_NAME=pull_request RUNNER_TEMP="$run/temp" GITHUB_OUTPUT="$run/output" \
+    GITHUB_STEP_SUMMARY="$run/summary" sh -e scope.sh) > /dev/null 2>&1 < /dev/null; then
+  fail 'a scope diff that cannot run fails the shell gate'
+fi
+) || exit 1
+rm -rf "$gate_tmp"
+trap - 0
+pass=$((pass + 3))
 grep -Fq '    needs: [build, instruction-count, performance' "$perf" \
   && grep -Fq '          name: instruction-count' "$perf" \
   || fail 'the nightly issue waits for and reads the shell gate'
