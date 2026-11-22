@@ -6389,16 +6389,16 @@ bash_strip_exclusion_operands() {
     is_negative_glob_value() {
       value=$1
       case "$value" in
-        *"$SHELL_WORD_NL"*) return 1 ;;
-        \'*\')
-          value=${value#\'}; value=${value%\'}
-          case "$value" in *\'*) return 1 ;; esac
-          ;;
-        \"*\")
-          value=${value#\"}; value=${value%\"}
-          case "$value" in *\"*|*'$'*|*'`'*|*\\*) return 1 ;; esac
-          ;;
-        *\'*|*\"*|*'$'*|*'`'*|*\\*|*'{'*|*'}'*) return 1 ;;
+        \'*\') value=${value#\'}; value=${value%\'} ;;
+        \"*\") value=${value#\"}; value=${value%\"} ;;
+        *'{'*|*'}'*) return 1 ;;
+      esac
+      # Where shell_command_words reads quotes unlike the shell, the quoted
+      # value is shell code; without blanks, operators, expansions or quotes
+      # it cannot run anything.
+      case "$value" in
+        *[[:space:]]*|*\'*|*\"*|*'$'*|*'`'*|*\\*|*';'*|*'|'*|*'&'*|\
+        *'<'*|*'>'*|*'('*|*')'*|*"$SHELL_WORD_NL"*) return 1 ;;
       esac
       case "$value" in !*) return 0 ;; *) return 1 ;; esac
     }
@@ -9362,6 +9362,8 @@ shell_command_words() {
           }
           if ((top == "S" || top == "A") && c == "\047" || top == "Q" && c == "`" || top == "D" && c == "\"") {
             st = substr(st, 1, length(st) - 1)
+          } else if (top == "D" && c == "$" && nx == "$") {
+            w = w c nx; i++; continue
           } else if (top == "D" && c == "$" && (nx == "(" || nx == "{")) {
             push(nx == "(" ? "P" : "B"); w = w c nx; i++; continue
           } else if (top == "D" && c == "`") push("Q")
@@ -9380,6 +9382,8 @@ shell_command_words() {
         else if (top == "P" && c == ")" || top == "B" && c == "}") st = substr(st, 1, length(st) - 1)
         else if (top == "P" && c == "(") push("P")
         if (c == "\\" && i < n) { w = w c (nx == "\n" ? nl : nx); i++; continue }
+        # `$$` is one parameter: `$$'...'` is a plain quote.
+        if (c == "$" && nx == "$") { w = w c nx; i++; continue }
         if (c == "$" && nx == "\047") { push("A"); w = w c nx; i++; continue }
         if ((c == "$" || c == "<" || c == ">") && nx == "(" || c == "$" && nx == "{") {
           push(nx == "(" ? "P" : "B"); w = w c nx; i++; continue

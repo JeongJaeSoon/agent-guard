@@ -18,6 +18,7 @@ printf 'MARK_PEM\n' > "$W/!secret.pem"
 printf 'MARK_RSA\n' > "$W/id_rsa"
 printf 'MARK_ENV\n' > "$W/.env"
 printf 'X=1\n' > "$W/.env.example"
+printf 'MARK_KEY\n' > "$W/secret.pem"
 for f in 'x;rg' 'x|rg' 'x&&rg' x foo src; do printf 'plain\n' > "$W/$f"; done
 NL='
 '
@@ -70,6 +71,14 @@ case_run 2 "an unspaced & ends an env template word" "cat .env&x.env.example"
 # normalization still sees the second line.
 case_run 2 "a second line keeps a python glob in the scan" \
   "python3 -c 'print(\"cat id_r?a\")' | sort -o c${NL}\$SHELL c"
+# Where this splitter and the shell could disagree about quoting, a quoted
+# exclusion value may be shell code: it must hold no blank or operator.
+case_run 2 "\$\$ before a quote is no ANSI-C string" \
+  "echo \$\$'\\' ' ; rg -g '!;cat secret.pem;x=' '"
+case_run 2 "a comment inside \$(...) with an apostrophe" \
+  "x=\$(: #it's${NL}) ; y=') ; rg -g '!;cat secret.pem;y=' '"
+case_run 2 "a comment after ) with an apostrophe" \
+  "(:)#it's${NL}:; y=' ; rg -g '!;cat secret.pem;y=' '"
 # Brace expansion turns the exclusion value into a second word rg opens.
 case_run 2 "a brace exclusion value names a second operand" "rg MARK -g !{x,secret}.pem"
 # Controls that were blocked before this change and must stay blocked.
@@ -87,6 +96,7 @@ case_run 2 "a dotenv read after a comment line naming a template" "# see .env.ex
 # Must pass: ordinary quoted, multi-line and redirected commands keep both
 # exceptions.
 case_run 0 "rg negative glob" "rg -g '!*.pem' MARK_PEM ."
+case_run 0 "quoted rg negative glob with braces and a directory" "rg -g '!*.{pem,key}' -g '!node_modules/**' MARK_PEM ."
 case_run 0 "rg negative glob after a quoted operand with two blanks" "rg -g '!*.pem' \"two  words\" foo src"
 case_run 0 "rg negative glob after ;" "echo a; rg -g '!secret.pem' MARK_PEM foo"
 case_run 0 "rg negative glob on a second line" "echo a${NL}rg -g '!*.pem' MARK_PEM ."
