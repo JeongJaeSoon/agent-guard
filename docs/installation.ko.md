@@ -1,4 +1,4 @@
-<!-- translated-from: docs/installation.md; source-blob: bd394896c44feb96d1374fa6dcc0ecdce07c17ea -->
+<!-- translated-from: docs/installation.md; source-blob: 557cb1615ea118bdaf0e0ef8caac745ab9f88985 -->
 
 <a id="installing-agent-guard"></a>
 
@@ -68,7 +68,16 @@ export AGENT_GUARD_EXPERIMENTAL_REDACTOR=shell
 
 Linux 치환기는 정적 musl을 사용해 glibc가 필요하지 않으며 Ubuntu 24.04에서 실제 실행을 검사합니다. macOS 치환기의 배포 대상은 macOS 14 이상이며 macOS 15 arm64에서 검사합니다. Intel Mac(x86_64)은 지원하지 않습니다. 릴리스는 Intel용 치환기를 배포하지 않으며 Intel에서 검사하지 않으므로, Intel 설치는 셸/jq 복귀를 사용합니다. 독립 설치 스크립트는 Intel에서 이 안내를 출력하고 업데이트 때 남아 있는 Intel 치환기를 지웁니다. Intel용 치환기가 포함된 마지막 릴리스는 3.8.2입니다. 그 릴리스에 머무르려면 설치 스크립트를 `AGENT_GUARD_VERSION=3.8.2`로 실행하세요. 배포 대상 설정만으로 모든 이전 OS·커널의 실행이 입증되지는 않습니다. 미지원 환경은 셸 복귀를 유지합니다. 배포 체크섬은 손상을 탐지하며 바이너리와 체크섬이 함께 악의적으로 교체된 경우를 인증하지는 않습니다.
 
-소스 아카이브와 호스트가 관리하는 Git marketplace 플러그인에는 바이너리가 없으므로 기존 `AGENT_GUARD_RUST_CORE_BIN`으로 신뢰하는 사전 빌드 치환기를 지정하지 않으면 셸을 사용합니다. 독립 설치의 치환기를 사용하면 호스트 캐시를 수정할 필요가 없습니다. 선택·체크섬 검증·개발자 재정의는 [네이티브 치환기 안내(영어)](https://github.com/JeongJaeSoon/agent-guard/blob/v3.8.0/docs/native-redactor.md)를 참고하세요.
+소스 아카이브와 호스트가 관리하는 Git marketplace 플러그인에는 바이너리가 없으므로 `AGENT_GUARD_RUST_CORE_BIN`으로 신뢰하는 사전 빌드 치환기를 지정하지 않으면 셸을 사용합니다. 독립 설치의 치환기를 사용하면 호스트 캐시를 수정할 필요가 없습니다. 같은 버전의 독립 설치 릴리스를 설치하고 그 치환기를 검증한 뒤, 호스트를 실행하는 환경에 재정의를 설정하세요. 플랫폼에 맞는 대상(`x86_64-unknown-linux-musl`, `aarch64-unknown-linux-musl`, `aarch64-apple-darwin`)을 고르세요. 다음은 Linux x64 예시입니다.
+
+```sh
+target=x86_64-unknown-linux-musl
+native_root="$HOME/.agent-guard/libexec"
+(cd "$native_root" && shasum -a 256 -c "agent-guard-redact-$target.sha256") &&
+  export AGENT_GUARD_RUST_CORE_BIN="$native_root/agent-guard-redact-$target"
+```
+
+Homebrew의 치환기 디렉터리는 `$(brew --prefix agent-guard)/libexec/libexec`입니다. 그 환경으로 호스트를 다시 시작하세요. 이 설정은 hook을 등록하거나 바꾸지 않습니다. 재정의 값은 실행 가능한 파일의 절대 경로여야 하며 요청마다 체크섬을 다시 확인하지 않으므로, 신뢰하는 설치만 가리키세요. 설정을 지우면 패키지에 포함된 치환기로 돌아가고, `AGENT_GUARD_EXPERIMENTAL_REDACTOR=shell`을 설정하면 네이티브 실행을 끕니다.
 
 macOS와 Linux에서 실행하려면 `sh`, `awk`, `git`, `jq`, gitleaks 8.30 이상이 필요합니다. gitleaks 버전 확인을 별도 프로세스 그룹에서 실행하기 위한 `setsid` 또는 Perl도 필요합니다. 이 격리로 버전 확인의 시간 제한과 자식 프로세스 정리를 보장합니다. Linux에서는 `sudo apt-get install -y util-linux` 또는 `sudo dnf install -y util-linux`로 `setsid`를 설치하세요. Homebrew formula는 CLI와 함께 Perl을 설치합니다. macOS에서 수동 설치했고 두 도구가 모두 없다면 `brew install perl`을 사용할 수 있습니다.
 
