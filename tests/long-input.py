@@ -35,20 +35,30 @@ def event(entry, text, control=False):
     }
 
 
-def measure(command, data, env, limit):
+def measure(command, data, env, limit, deadline):
     start = time.monotonic()
+    limit = min(limit, deadline - start)
+    if limit <= 0:
+        raise SystemExit("not ok - long-input suite time budget exhausted")
     with subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                           stderr=subprocess.PIPE, env=env, start_new_session=True) as proc:
         try:
             out, err = proc.communicate(data, timeout=limit)
         except subprocess.TimeoutExpired:
-            os.killpg(proc.pid, signal.SIGKILL)
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
             proc.communicate()
+            if time.monotonic() >= deadline:
+                raise SystemExit("not ok - long-input suite time budget exhausted")
             return None, time.monotonic() - start, b"", b""
+        if time.monotonic() >= deadline:
+            raise SystemExit("not ok - long-input suite time budget exhausted")
         return proc.returncode, time.monotonic() - start, out, err
 
 
-def correct(entry, host, text, result):
+def correct(entry, host, text, result, whole_leaf=False):
     status, _, out, err = result
     if entry == "assignment":
         return status == 0 and out.decode().splitlines() == [json.dumps(VALUE)] and not err
@@ -62,9 +72,9 @@ def correct(entry, host, text, result):
         return False
     try:
         obj = json.loads(out)
-        # Large secret-bearing responses deliberately mask the whole leaf;
-        # every other response field must survive unchanged.
-        response = {"stdout": "[REDACTED]", "stderr": "", "interrupted": False}
+        # Only the large fixtures take the deliberate whole-leaf mask path.
+        masked = "[REDACTED]" if whole_leaf else text.replace(VALUE, "[REDACTED]")
+        response = {"stdout": masked, "stderr": "", "interrupted": False}
         if host == "claude":
             return obj == {"hookSpecificOutput": {
                 "hookEventName": "PostToolUse", "updatedToolOutput": response}}
@@ -82,8 +92,20 @@ def correct(entry, host, text, result):
         return False
 
 
+def inputs(entry, shape, size):
+    if entry == "protected-path":
+        tail = "/." + "env"
+        candidate = (" " if shape == "whitespace" else "a") * (size - len(tail)) + tail
+        control = candidate
+    else:
+        candidate = (" " if shape == "whitespace" else "a") * (size - len(SUFFIX)) + SUFFIX
+        control = (("a" * 1100 + "\n") * (size // 1101 + 1))[:size - len(SUFFIX)] + SUFFIX
+    assert len(candidate.encode()) == size == len(control.encode())
+    return candidate, control
+
+
 def main():
-    failed = 0
+    deadline = time.monotonic() + 90
     required = os.environ.get("AGENT_GUARD_TEST_REQUIRE_AWKS", "").split()
     variants = os.environ.get("AGENT_GUARD_TEST_LONG_INPUT_AWKS", "default mawk gawk busybox").split()
     if (not variants or len(set(variants)) != len(variants)
@@ -93,7 +115,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix="agent-guard-long-input-") as directory:
         case = Path(directory)
         subprocess.run(["sh", str(ROOT / "tests/helpers/extract-functions.sh"), str(CLI),
-                        directory, "secretish_env_values"], check=True)
+                        directory, "secretish_env_values"], check=True, timeout=10)
         driver = case / "assignment.sh"
         driver.write_text('. "$1/secretish_env_values.sh"\nsecretish_env_values\n')
         home = case / "home"
@@ -113,7 +135,8 @@ def main():
                 mandatory = variant in required
                 print(f"{'not ok' if mandatory else 'ok'} - {variant} unavailable"
                       + ("" if mandatory else " # SKIP"), flush=True)
-                failed += mandatory
+                if mandatory:
+                    return 1
                 continue
             bindir = case / variant
             bindir.mkdir()
@@ -126,14 +149,7 @@ def main():
                 hosts = ("claude",) if entry == "assignment" else ("claude", "codex")
                 for host in hosts:
                     for shape in ("line", "whitespace"):
-                        if entry == "protected-path":
-                            tail = "/." + "env"
-                            candidate = (" " if shape == "whitespace" else "a") * (SIZE - len(tail)) + tail
-                            control = candidate
-                        else:
-                            candidate = (" " if shape == "whitespace" else "a") * (SIZE - len(SUFFIX)) + SUFFIX
-                            control = (("a" * 1100 + "\n") * (SIZE // 1101 + 1))[:SIZE - len(SUFFIX)] + SUFFIX
-                        assert len(candidate.encode()) == SIZE == len(control.encode())
+                        candidate, control = inputs(entry, shape, SIZE)
                         if entry == "output":
                             for text in (candidate, control):
                                 response = event(entry, text)[1]["tool_response"]
@@ -146,28 +162,47 @@ def main():
                             subcommand, _ = event(entry, candidate)
                             command = [str(CLI), subcommand]
                             encode = lambda text, control=False: json.dumps(event(entry, text, control)[1]).encode()
-                        baseline = measure(command, encode(control, True), env, 10)
                         label = f"{variant} {host} {entry} {shape} {SIZE} bytes"
-                        if not correct(entry, host, control, baseline):
-                            print(f"not ok - {label}: control failed (exit {baseline[0]})", flush=True)
-                            failed += 1
-                            continue
-                        # Match #584's runner-relative allowance; the watchdog bounds
-                        # regressions without leaving a detector child behind.
-                        limit = baseline[1] * 3 + 5
-                        result = measure(command, encode(candidate), env, limit)
-                        valid = correct(entry, host, candidate, result)
-                        slow = result[0] is None or result[1] > limit
+                        _, small_control = inputs(entry, shape, SIZE // 4)
+                        small = measure(command, encode(small_control, True), env, 10, deadline)
+                        if not correct(entry, host, small_control, small):
+                            print(f"not ok - {label}: small control failed (exit {small[0]})", flush=True)
+                            return 1
+                        # Four times the bytes may cost at most twice as much
+                        # per byte, plus one second for process-start noise.
+                        scaling_limit = small[1] * 8 + 1
+                        baseline = measure(command, encode(control, True), env, scaling_limit, deadline)
+                        if (not correct(entry, host, control, baseline, whole_leaf=True)
+                                or baseline[1] > scaling_limit):
+                            print(f"not ok - {label}: large control exceeds scaling budget or has wrong output "
+                                  f"({baseline[1]:.3f}s / small {small[1]:.3f}s / limit {scaling_limit:.3f}s, "
+                                  f"exit {baseline[0]})", flush=True)
+                            return 1
                         known = shape == "whitespace" and entry != "protected-path"
-                        timing = f"{result[1]:.3f}s / control {baseline[1]:.3f}s / limit {limit:.3f}s"
+                        if known:
+                            short, _ = inputs(entry, shape, 2048)
+                            short_result = measure(command, encode(short), env, small[1] * 8 + 1, deadline)
+                            if not correct(entry, host, short, short_result):
+                                print(f"not ok - {label}: small whitespace verdict failed "
+                                      f"(exit {short_result[0]})", flush=True)
+                                return 1
+                            print(f"ok - {variant} {host} {entry} small whitespace verdict", flush=True)
+                        limit = baseline[1] * 3 + 1
+                        if known:
+                            limit = min(limit, 2)
+                        result = measure(command, encode(candidate), env, limit, deadline)
+                        valid = correct(entry, host, candidate, result, whole_leaf=True)
+                        slow = result[0] is None or result[1] > limit
+                        timing = (f"{result[1]:.3f}s / control {baseline[1]:.3f}s / limit {limit:.3f}s "
+                                  f"/ small {small[1]:.3f}s / scaling limit {scaling_limit:.3f}s")
                         if slow and known:
                             print(f"not ok - {label}: {timing} # TODO https://github.com/JeongJaeSoon/agent-guard/issues/585", flush=True)
                         elif slow or not valid:
                             print(f"not ok - {label}: {timing}, exit {result[0]}, valid={valid}", flush=True)
-                            failed += 1
+                            return 1
                         else:
                             print(f"ok - {label}: {timing}", flush=True)
-    return bool(failed)
+    return 0
 
 
 if __name__ == "__main__":
