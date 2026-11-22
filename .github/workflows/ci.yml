@@ -199,9 +199,9 @@ jobs:
 
   test:
     # Only full coverage may produce the names release.yml consumes.
-    # Any selected shard failure still fails both aggregate checks.
+    # Any shard or awk timing failure fails both aggregate checks.
     name: ${{ needs.secret-guard.outputs.check_prefix }} (${{ matrix.os }})
-    needs: [secret-guard, test-shard, release-evidence]
+    needs: [secret-guard, test-shard, release-evidence, long-input]
     if: always()
     strategy:
       matrix:
@@ -212,9 +212,14 @@ jobs:
       - name: Require every test shard to pass
         env:
           SHARDS_RESULT: ${{ needs.test-shard.result }}
+          LONG_INPUT_RESULT: ${{ needs.long-input.result }}
           REUSED: ${{ needs.release-evidence.outputs.reuse }}
           EVIDENCE_RESULT: ${{ needs.release-evidence.result }}
         run: |
+          if [ "$LONG_INPUT_RESULT" != success ]; then
+            echo "::error::large hook inputs finished with: $LONG_INPUT_RESULT" >&2
+            exit 1
+          fi
           if [ "$REUSED" = true ] && [ "$EVIDENCE_RESULT" = success ]; then
             echo 'Required checks passed on the identical reviewed release tree'
             exit 0
@@ -223,6 +228,28 @@ jobs:
             echo "::error::test shards finished with: $SHARDS_RESULT" >&2
             exit 1
           fi
+
+  long-input:
+    name: Large hook inputs (${{ matrix.awk }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        awk: [mawk, gawk, busybox]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the selected awk
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ${{ matrix.awk }}
+      - name: Compare large inputs with controls
+        env:
+          AGENT_GUARD_TEST_LONG_INPUT_AWKS: ${{ matrix.awk }}
+          AGENT_GUARD_TEST_REQUIRE_AWKS: ${{ matrix.awk }}
+        run: sh tests/long-input.sh
 
   lint:
     name: Lint

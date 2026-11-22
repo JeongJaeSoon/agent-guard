@@ -37,7 +37,7 @@ check release v1.2.3 full
 # Pin the wiring as well as the producer: no event-specific name fallback.
 grep -Fq 'os: ${{ fromJSON(needs.secret-guard.outputs.oses) }}' "$ROOT/.github/workflows/ci.yml"
 grep -Fq 'name: ${{ needs.secret-guard.outputs.check_prefix }} (${{ matrix.os }})' "$ROOT/.github/workflows/ci.yml"
-grep -Fq 'needs: [secret-guard, test-shard, release-evidence]' "$ROOT/.github/workflows/ci.yml"
+grep -Fq 'needs: [secret-guard, test-shard, release-evidence, long-input]' "$ROOT/.github/workflows/ci.yml"
 grep -Fq 'oses: ${{ steps.scope.outputs.oses }}' "$ROOT/.github/workflows/ci.yml"
 grep -Fq 'check_prefix: ${{ steps.scope.outputs.check_prefix }}' "$ROOT/.github/workflows/ci.yml"
 
@@ -48,6 +48,43 @@ fail() {
   printf 'not ok - %s\n' "$1"
   exit 1
 }
+# Execute the aggregate's real shell block: a missing, skipped or failed
+# timing matrix must not be hidden by successful ordinary shards.
+aggregate=$(awk '/^  test:$/ { on = 1; next } on && /^  [a-z-]+:/ { exit } on' "$ROOT/.github/workflows/ci.yml")
+printf '%s\n' "$aggregate" | grep -Fq 'LONG_INPUT_RESULT: ${{ needs.long-input.result }}' \
+  || fail 'the aggregate receives the timing matrix result'
+aggregate_tmp=$(mktemp -d)
+trap 'rm -rf "$aggregate_tmp"' 0
+printf '%s\n' "$aggregate" | awk '/^        run: \|$/ { on = 1; next } on && /^          / { print substr($0, 11) }' \
+  >"$aggregate_tmp/check.sh"
+[ -s "$aggregate_tmp/check.sh" ] || fail 'the aggregate has an executable result check'
+REUSED=false EVIDENCE_RESULT=skipped SHARDS_RESULT=success LONG_INPUT_RESULT=success sh "$aggregate_tmp/check.sh" || fail 'both successful inputs pass'
+for result in failure cancelled skipped ''; do
+  if REUSED=false EVIDENCE_RESULT=skipped SHARDS_RESULT=success LONG_INPUT_RESULT="$result" sh "$aggregate_tmp/check.sh" >/dev/null 2>&1; then
+    fail 'a non-successful timing matrix fails the aggregate'
+  fi
+  if REUSED=false EVIDENCE_RESULT=skipped SHARDS_RESULT="$result" LONG_INPUT_RESULT=success sh "$aggregate_tmp/check.sh" >/dev/null 2>&1; then
+    fail 'a non-successful shard fails the aggregate'
+  fi
+  if REUSED=true EVIDENCE_RESULT=success SHARDS_RESULT=skipped LONG_INPUT_RESULT="$result" sh "$aggregate_tmp/check.sh" >/dev/null 2>&1; then
+    fail 'reused release evidence cannot hide a non-successful timing matrix'
+  fi
+done
+REUSED=true EVIDENCE_RESULT=success SHARDS_RESULT=skipped LONG_INPUT_RESULT=success sh "$aggregate_tmp/check.sh" \
+  || fail 'verified release evidence can replace ordinary shards when timings pass'
+rm -rf "$aggregate_tmp"
+trap - 0
+pass=$((pass + 14))
+# Publication and release-tree reuse share the required-check manifest.
+for variant in mawk gawk busybox; do
+  check=$(printf 'ci.yml\tLarge hook inputs (%s)' "$variant")
+  grep -Fxq "$check" "$ROOT/.github/release-checks.tsv" || fail 'release requires all three awk timings'
+done
+check=$(printf 'ci.yml\tCore, host adapters and Git (partition 3) (macos-latest)')
+grep -Fxq "$check" "$ROOT/.github/release-checks.tsv" || fail 'release requires the macOS partition 3 check'
+pass=$((pass + 1))
+grep -Fq 'env AGENT_GUARD_TEST_REQUIRE_AWKS= AGENT_GUARD_TEST_LONG_INPUT_AWKS=default sh' "$ROOT/tests/run.sh" \
+  || fail 'the default-awk subset clears inherited implementation requirements'
 perf="$ROOT/.github/workflows/performance.yml"
 native="$ROOT/.github/workflows/native-platforms.yml"
 [ -f "$perf" ] || fail 'performance workflow exists'
