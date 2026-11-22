@@ -18,6 +18,34 @@ test "$status" = 7
 jq -e '.wall_seconds >= 0 and .user_cpu_seconds >= 0 and .system_cpu_seconds >= 0 and .max_child_peak_rss_kib > 0' "$CASE/resources.json" >/dev/null
 "$TOOLS" measure-selected-bash >"$CASE/locations.json"
 jq -e '.denominator > 0 and .observed > 0 and .definition_only_observed == 0' "$CASE/locations.json" >/dev/null
+# Refresh only a disposable repository, never the checked-in pin during tests.
+mkdir -p "$CASE/pins/plugins/agent-guard/bin" "$CASE/pins/tests/helpers"
+cp tests/helpers/extract-functions.sh "$CASE/pins/tests/helpers/"
+printf 'sample() {\n  :\n}\n' >"$CASE/pins/plugins/agent-guard/bin/agent-guard"
+printf '{"sample":{"relative_lines":[2],"body_sha256":"stale","note":"keep"}}\n' >"$CASE/pins/tests/selected-bash-locations.json"
+cp "$CASE/pins/tests/selected-bash-locations.json" "$CASE/before.json"
+if (cd "$CASE/pins" && "$TOOLS" measure-selected-bash) >"$CASE/stale-output" 2>"$CASE/stale-error"; then
+  echo 'measurement accepted a stale pin' >&2; exit 1
+fi
+grep -F 'sh scripts/devtools.sh refresh-selected-bash' "$CASE/stale-error"
+cmp "$CASE/before.json" "$CASE/pins/tests/selected-bash-locations.json"
+if (cd "$CASE/pins" && CI=true "$TOOLS" refresh-selected-bash) >"$CASE/ci-output" 2>"$CASE/ci-error"; then
+  echo 'refresh was allowed in CI' >&2; exit 1
+fi
+cmp "$CASE/before.json" "$CASE/pins/tests/selected-bash-locations.json"
+(unset CI; cd "$CASE/pins" && "$TOOLS" refresh-selected-bash)
+sh tests/helpers/extract-functions.sh "$CASE/pins/plugins/agent-guard/bin/agent-guard" "$CASE" sample
+expected=$(shasum -a 256 "$CASE/sample.sh" | awk '{ print $1 }')
+jq -e --arg expected "$expected" '.sample.body_sha256 == $expected and .sample.relative_lines == [2] and .sample.note == "keep"' "$CASE/pins/tests/selected-bash-locations.json" >/dev/null
+cp "$CASE/pins/tests/selected-bash-locations.json" "$CASE/refreshed.json"
+(unset CI; cd "$CASE/pins" && "$TOOLS" refresh-selected-bash)
+cmp "$CASE/refreshed.json" "$CASE/pins/tests/selected-bash-locations.json"
+# Extraction failure leaves every original pin intact.
+printf 'missing() {\n  :\n}\n' >"$CASE/pins/plugins/agent-guard/bin/agent-guard"
+if (unset CI; cd "$CASE/pins" && "$TOOLS" refresh-selected-bash) >"$CASE/missing-output" 2>"$CASE/missing-error"; then
+  echo 'refresh accepted a missing selected function' >&2; exit 1
+fi
+cmp "$CASE/refreshed.json" "$CASE/pins/tests/selected-bash-locations.json"
 # A failing partition must keep both logs and a failed machine-readable report.
 mkdir -p "$CASE/failure/plugins/agent-guard/bin" "$CASE/failure/tests"
 printf 'frozen source\n' >"$CASE/failure/plugins/agent-guard/bin/agent-guard"

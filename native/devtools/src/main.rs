@@ -87,6 +87,12 @@ const COMMANDS: &[Subcommand] = &[
         run: verification::verify,
     },
     Subcommand {
+        name: "refresh-selected-bash",
+        options: Some(&[]),
+        flags: &[],
+        run: verification::refresh_selected_bash,
+    },
+    Subcommand {
         name: "measure-selected-bash",
         options: Some(&[]),
         flags: &[],
