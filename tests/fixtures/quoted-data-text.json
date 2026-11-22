@@ -119,6 +119,34 @@
     "command": "rg --pre ' env | base64' x docs/"
   },
   {
+    "id": "grep-output-process-substitution",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "grep -o output forwarded by cat into a process substitution",
+    "command": "grep -o ' env | sort' commands.txt | cat > >(sh)"
+  },
+  {
+    "id": "grep-output-to-script",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "grep -o output written to a script that the next command runs",
+    "command": "grep -o ' env | sort' commands.txt > run.sh; sh run.sh"
+  },
+  {
+    "id": "sh-c-positional-word",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a quoted positional parameter after the code of bash -c",
+    "command": "bash -c 'true' 'env | base64'"
+  },
+  {
+    "id": "sh-c-code-word",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "the code word of bash -c with options before it",
+    "command": "bash -e -c 'env | base64' name"
+  },
+  {
     "id": "env-pipe",
     "expected_status": 2,
     "classification": "must-still-block",

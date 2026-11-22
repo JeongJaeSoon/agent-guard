@@ -9388,11 +9388,15 @@ bash_neutralize_search_words() {
         e--
         if (e < s) continue
         if (!(w[s] ~ /^(grep|egrep|fgrep|rg)$/ || w[s] == "git" && s < e && w[s + 1] == "grep")) continue
-        # Follow the pipeline to its end.
+        # The output may not reach a file or another process: no word of
+        # the segment redirects anything but stderr, and each command down
+        # the pipeline is a plain text filter given plain words only.
         ok = 1
-        for (j = e + 1; j <= n && w[j] == "|"; j = f) {
+        for (k = s; k <= e; k++) if (w[k] ~ /[<>]/ && !literal(w[k]) && w[k] !~ /^2>(&1|\/dev\/null)$/) ok = 0
+        for (j = e + 1; ok && j <= n && w[j] == "|"; j = f) {
           if (j + 1 > n || w[j + 1] !~ /^(wc|head|tail|sort|uniq|tr|cut|nl|grep|egrep|fgrep|column|cat)$/) { ok = 0; break }
-          for (f = j + 1; f <= n && !sep(w[f]); f++) ;
+          for (f = j + 1; f <= n && !sep(w[f]); f++)
+            if (w[f] !~ /^[A-Za-z0-9_.\/:@%+,=-]+$/ && w[f] !~ /^2>(&1|\/dev\/null)$/) ok = 0
         }
         if (!ok) continue
         for (k = e; k > s; k--) if (literal(w[k]) && before_ok(w[k - 1])) { w[k] = "\047\047"; changed = 1 }
@@ -9412,7 +9416,7 @@ bash_neutralize_search_words() {
 # Print, one per line, the text of each wholly quoted word in a command that
 # hands such a word to a shell: a segment naming sh, bash, zsh, dash or ksh
 # (`bash -c`, `xargs sh -c`, `find -exec sh -c`), eval, ssh, trap, watch or
-# su. The deny patterns anchor a command at a blank or an operator, so they
+# su; after a shell's `-c`, only the word that follows it. The deny patterns anchor a command at a blank or an operator, so they
 # cannot see one that starts right after a quote. Double-quoted text loses
 # the backslash of an escaped `"`, `$`, backquote or backslash.
 bash_shell_program_texts() {
@@ -9428,8 +9432,13 @@ bash_shell_program_texts() {
       }
       return r
     }
-    function flush(   k, v) {
+    function flush(   k, v, only) {
+      # After `sh -c` only the next word is code; the words after it are
+      # its positional parameters.
+      only = 0
+      for (k = shell + 1; shell && k < m; k++) if (seg[k] ~ /^-[A-Za-z]*c$/) { only = k + 1; break }
       if (runner) for (k = 1; k <= m; k++) {
+        if (only && k != only) continue
         v = seg[k]
         if (v ~ /^\047[^\047]*\047$/) v = substr(v, 2, length(v) - 2)
         else if (v ~ /^"([^"\\]|\\.)*"$/) v = unescape(substr(v, 2, length(v) - 2))
@@ -9437,13 +9446,14 @@ bash_shell_program_texts() {
         gsub(/\034/, "\n", v)
         print v
       }
-      m = 0; runner = 0
+      m = 0; runner = 0; shell = 0
     }
     {
       if ($0 == ";" || $0 == "&&" || $0 == "||" || $0 == "|" || $0 == "&" || $0 == "\034") { flush(); next }
       seg[++m] = $0
       b = $0; gsub(/["\047\\]/, "", b); sub(/.*\//, "", b)
       if (b ~ /^(sh|bash|zsh|dash|ksh|eval|ssh|trap|watch|su)$/) runner = 1
+      if (b ~ /^(sh|bash|zsh|dash|ksh)$/ && !shell) shell = m
     }
     END { flush() }
   '
