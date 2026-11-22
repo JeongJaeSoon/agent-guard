@@ -206,8 +206,8 @@ else
   ok "exec masks the password literal next to the schema diff"
 fi
 
-# A field far into its line is in mid-line, so the exemption stops at 1024
-# bytes of text before the value. The limit also bounds the work: without it
+# A field far into its line is in mid-line, so the exemption stops when the
+# key's delimiter ends more than 1024 bytes into the line. The limit also bounds the work: without it
 # the line-start pattern tried every start position of a long line, and one
 # 260 KB line kept the hook busy for minutes instead of well under a second.
 near=$(printf '%1000s' '')
@@ -275,6 +275,9 @@ fi
 # length of the prompt hook's whole budget. The control has the same lines
 # with the value past the limit, where the test does not run at all. Both
 # are timed the same way, so the comparison does not depend on the runner.
+# The quadratic cost shows under mawk (the awk of the Linux jobs and of the
+# legacy key-name job); gawk hides most of it, and the 260 KB line above is
+# what catches a tree that has lost the limit itself.
 awk -v v="$rnd" 'BEGIN {
   under = sprintf("%1014s", ""); gsub(/ /, "a", under)
   over = sprintf("%1100s", ""); gsub(/ /, "a", over)

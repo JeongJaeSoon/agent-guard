@@ -14157,11 +14157,13 @@ secretish_env_values() {
         # host or pod name in front of a log line, not a locator.
         #
         # A field that starts its line has little in front of it, so when
-        # more than 1024 bytes precede the value the field is in mid-line and
-        # none of this runs. Below the limit the key and the locator are cut
-        # off by without_key_tail and locator_length, each in one pass over
-        # the text: as patterns they took quadratic time on a long run of
-        # name or path characters, and one 260 KB line took minutes.
+        # its `:` or `=` ends more than 1024 bytes into the line the field is
+        # in mid-line and none of this runs. Below the limit the key and the
+        # locator are cut off by without_key_tail and locator_length, each in
+        # one pass over the text: as patterns they took quadratic time on a
+        # long run of name or path characters, and one 260 KB line took
+        # minutes. The limit also bounds those walks under busybox awk, whose
+        # substr() costs time in proportion to the string it reads from.
         key_line_start = 0
         if (!key_name_redact && !advanced && !skip \
             && start + matched_length - 1 <= 1024) {
