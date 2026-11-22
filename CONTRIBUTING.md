@@ -228,7 +228,8 @@ head and any release or main evidence still needed for publication.
 ## Reading test results
 
 Each partition prints its execution seconds and passed/failed counts in the
-Actions job summary. The Run tests step groups the full assertion stream, with
+Actions job summary, followed by every suite's seconds and exit status (slowest
+first) and the job's elapsed time against its limit, with a warning above 80%. The Run tests step groups the full assertion stream, with
 failures and final counts repeated outside the group; expand the **full test
 assertions** group for all diagnostics. The original output also stays in the
 runner's `test-output.txt` for the Linux real-scanner presence gate. Every
