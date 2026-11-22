@@ -61,6 +61,12 @@ awk -v names="$names" -v helper_functions="$helper_functions" -v helper_definiti
     if (level == "full" || scope == "none") scope = level
     print level ": " why > hits
   }
+  function defname(line,   d) {
+    d = line; sub(/^[-+]/, "", d)
+    if (d !~ /^[A-Za-z_][A-Za-z0-9_]*\(\)/) return ""
+    sub(/\(\).*/, "", d)
+    return d
+  }
   /^diff --git / { inhunk = 0; next }
   /^@@ / {
     inhunk = 1; fn = ""; head = $0
@@ -72,6 +78,7 @@ awk -v names="$names" -v helper_functions="$helper_functions" -v helper_definiti
   inhunk && /^[-+]/ {
     if ($0 ~ /(^[-+][ \t]*|[;&|({][ \t]*|[ \t](then|do|else)[ \t]+)(\.|source)[ \t]+[^ \t]/) raise("full", "sourcing line: " $0)
     else if ($0 ~ helper_definition) raise("full", "helper function definition: " $0)
+    else if (defname($0) in caller) raise("cost", "caller function definition: " $0)
     else if ($0 ~ names) {
       if (fn == "" || fn ~ helper_functions) raise("full", "outside the callers: " $0)
       else raise("cost", "in " fn ": " $0)
