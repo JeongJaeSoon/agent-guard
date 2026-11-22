@@ -40,4 +40,12 @@ for cause in 'package mirror unavailable' 'Dockerfile COPY missing source'; do
     sh "$ROOT/.github/scripts/performance-issue-body.sh" "$case_dir/evidence" '- Packaged performance evidence: failure' > "$case_dir/body"
   grep -Fxq "$cause" "$case_dir/body" || { echo 'Docker build stderr was missing from issue body' >&2; exit 1; }
 done
+printf 'measurement timed out\n' > "$case_dir/evidence/packaged-performance/errors.txt"
+identity=$(sh "$ROOT/.github/scripts/performance-cause.sh" "$case_dir/evidence" '- Packaged performance evidence: failure')
+printf '%s\n' 'integration end: host=claude fixture=0 seconds=0.497 status=exit status: 0' \
+  'baseline long-line 0.706s' 'candidate long-line 0.689s' 'measurement timed out' \
+  > "$case_dir/evidence/packaged-performance/errors.txt"
+with_progress=$(sh "$ROOT/.github/scripts/performance-cause.sh" "$case_dir/evidence" '- Packaged performance evidence: failure')
+[ "$identity" = "$with_progress" ] || { echo 'sample timing jitter changed the failure identity' >&2; exit 1; }
 printf 'ok - distinct Docker build failures preserve stderr and issue identity\n'
+printf 'ok - measurement progress timing does not change the failure cause\n'
