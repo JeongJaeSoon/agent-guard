@@ -6751,7 +6751,8 @@ AWK_RECORD_SEPARATOR='
 
 # Print the record numbers (git_command_records) of message values the
 # command sends as data: the subject and body of `orca orchestration
-# send|reply|ask` (and the question of `ask`), the title and body of `gh pr|issue create|comment|edit` and
+# send|reply|ask` (and the question of `ask`), the text options of `orca bot
+# item set` (its `-file` twins and `--file` are not listed), the title and body of `gh pr|issue create|comment|edit` and
 # `gh pr review`, and the message of `git commit`. These CLIs open no file the
 # text names; their file-taking forms (--body-file, -F) are not listed. As in
 # search_operand_spans, a segment qualifies only when it starts with the bare
@@ -6786,6 +6787,7 @@ message_value_records() {
       if (all && ok && kind[1] == "0") {
         if (word[1] == "orca" && word[2] == "orchestration" && word[3] ~ /^(send|reply)$/) opts = "|--subject|--body|"
         else if (word[1] == "orca" && word[2] == "orchestration" && word[3] == "ask") opts = "|--subject|--body|--question|"
+        else if (word[1] == "orca" && word[2] == "bot" && word[3] == "item" && word[4] == "set") opts = "|--comment|--title|--description|--done-means|--note|--reason|--ask|--option|"
         else if (word[1] == "gh" && (word[2] ~ /^(pr|issue)$/ && word[3] ~ /^(create|comment|edit)$/ || word[2] == "pr" && word[3] == "review")) opts = "|-t|--title|-b|--body|"
         else if (word[1] == "git" && word[2] == "commit") opts = "|-m|--message|"
         for (j = (opts ~ /-m\|/ ? 3 : 2); opts != "" && j <= n; j++) {
@@ -7287,7 +7289,7 @@ bash_strip_message_values() (
   set -f
   mv_cmd=$1
   # Every message option starts with `-` and follows the command words.
-  case "$mv_cmd" in *orca*orchestration*-*|*gh*-*|*git*commit*-*) ;; *) printf '%s' "$mv_cmd"; exit 0 ;; esac
+  case "$mv_cmd" in *orca*orchestration*-*|*orca*bot*item*-*|*gh*-*|*git*commit*-*) ;; *) printf '%s' "$mv_cmd"; exit 0 ;; esac
   case "$mv_cmd" in
     *'"$('*cat*'<<'*)
       if mv_masked=$(message_heredoc_placeholders "$mv_cmd") \

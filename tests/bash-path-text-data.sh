@@ -181,6 +181,16 @@ else
   failed=$((failed + 1))
 fi
 
+# Tracked env example files, and text that only names one.
+checked=$((checked + 1))
+if sh "$ROOT/tests/env-example-files.sh" > "$CASE_ROOT/example" 2>&1; then
+  printf 'ok - path data %s: env example files\n' "$checked"
+else
+  printf 'not ok - path data %s: env example files\n' "$checked"
+  grep '^not ok' "$CASE_ROOT/example" | sed 's/^/#   /'
+  failed=$((failed + 1))
+fi
+
 # Word splitting for the env-template and rg exclusion exceptions.
 checked=$((checked + 1))
 if sh "$ROOT/tests/shell-command-words.sh"; then
