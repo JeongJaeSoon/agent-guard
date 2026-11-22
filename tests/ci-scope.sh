@@ -237,12 +237,82 @@ grep -Fq 'matrix: ${{ fromJSON(needs.scope.outputs.matrix) }}' "$helper_wf" \
   && grep -Fq 'sh .github/scripts/gitleaks-helper-scope.sh "$EVENT_NAME" < "$RUNNER_TEMP/changed" >> "$GITHUB_OUTPUT"' "$helper_wf" \
   && grep -Fq "      - '.github/scripts/gitleaks-helper-scope.sh'" "$helper_wf" \
   || fail 'the helper workflow takes its platforms from the tested scope script'
-# The off-state comparison stays a Linux job on every CLI change, and its base
-# is the merge parent, never the event's possibly stale base SHA.
+# The off-state comparison puts an unusable helper beside the unset state in
+# one tree, and adds the base only when the diff touches the helper call sites.
 off_job=$(awk '/^  off-state:/ { on = 1 } on' "$helper_wf")
 printf '%s\n' "$off_job" | grep -Fq 'runs-on: ubuntu-24.04' \
   || fail 'the helper-off comparison runs on Linux'
-printf '%s\n' "$off_job" | grep -Fq 'run: git worktree add --detach base-checkout HEAD^1' \
+printf '%s\n' "$off_job" | grep -Fxq '    name: Unusable helper equals unset in the same tree' \
+  && printf '%s\n' "$off_job" | grep -Fxq '    timeout-minutes: 20' \
+  || fail 'the helper-off job is named for what it compares, with the original time limit'
+printf '%s\n' "$off_job" | grep -Fxq '          fetch-depth: 2' \
+  && printf '%s\n' "$off_job" | grep -Fxq '        run: sh .github/scripts/helper-call-sites.sh HEAD^1 HEAD >> "$GITHUB_OUTPUT"' \
+  || fail 'the helper-off job asks the call-site script about the merge parent'
+printf '%s\n' "$off_job" | grep -Fq 'git worktree add --detach base-checkout HEAD^1' \
+  && printf '%s\n' "$off_job" | grep -Fq 'compare-off.sh "$RUNNER_TEMP/official/gitleaks" "$GITHUB_WORKSPACE/base-checkout" "$SITES_SCOPE"' \
   && ! printf '%s\n' "$off_job" | grep -Fq 'pull_request.base.sha' \
   || fail 'the helper-off comparison base is the merge parent'
+printf '%s\n' "$off_job" | grep -Fxq '              sh bench/gitleaks-helper/compare-off.sh "$RUNNER_TEMP/official/gitleaks"' \
+  && printf '%s\n' "$off_job" | grep -Fq 'exit 1' \
+  || fail 'the helper-off comparison runs without a base when untouched and fails without an answer'
+for path in plugins/agent-guard/bin/agent-guard bench/gitleaks-helper/compare-off.sh .github/scripts/helper-call-sites.sh; do
+  grep -Fxq "      - '$path'" "$helper_wf" || fail "helper PR filter includes $path"
+done
+if grep -Fq "      - 'bench/gitleaks-helper/**'" "$helper_wf"; then
+  fail 'the helper workflow skips benchmarks it does not run'
+fi
+# The call-site script on real diffs of the CLI: the variants a same-tree
+# comparison misses (work added where both states run, a plain branch folded
+# into the wrapper, a wrapper call dropped) are found, a change unrelated to
+# the helper is not, and a diff that cannot run is an error, not "none".
+sites_script="$ROOT/.github/scripts/helper-call-sites.sh"
+sites_cli=plugins/agent-guard/bin/agent-guard
+sites_tmp=$(mktemp -d)
+trap 'rm -rf "$sites_tmp"' 0
+(
+export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_CONFIG_NOSYSTEM=1 GIT_CEILING_DIRECTORIES="$sites_tmp"
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
+repo="$sites_tmp/repo"
+git init -q "$repo" && mkdir -p "$repo/plugins/agent-guard/bin" && cp "$ROOT/$sites_cli" "$repo/$sites_cli" \
+  && git -C "$repo" add . && git -C "$repo" -c user.email=t@example.test -c user.name=t commit -qm base || exit 1
+base_rev=$(git -C "$repo" rev-parse HEAD) || exit 1
+sites_case() { # $1 description, $2 expected output, $3 awk program applied to the CLI, $4 .gitattributes
+  rm -f "$repo/.gitattributes"
+  git -C "$repo" checkout -q "$base_rev" -- . || exit 1
+  awk "$3" "$ROOT/$sites_cli" >"$repo/$sites_cli.new" && mv "$repo/$sites_cli.new" "$repo/$sites_cli" || exit 1
+  [ -z "${4:-}" ] || { printf '%s\n' "$4" >"$repo/.gitattributes" && git -C "$repo" add .gitattributes || exit 1; }
+  git -C "$repo" diff --quiet "$base_rev" -- . && fail "the $1 variant changes the CLI"
+  git -C "$repo" -c user.email=t@example.test -c user.name=t commit -qam "$1" || exit 1
+  got=$(cd "$repo" && sh "$sites_script" "$base_rev" HEAD 2>/dev/null) || fail "call-site script on the $1 variant"
+  [ "$got" = "$2" ] || fail "the $1 variant gives '$got', not '$2'"
+}
+sites_case 'work before the helper case' scope=full '{ print } /^gitleaks_helper_selected\(\) \{/ { print "  jq -n null >/dev/null" }'
+sites_case 'plain branch through the wrapper' scope=cost '/^          "\$gl" stdin --report-format json/ && !done { sub(/"\$gl"/, "gitleaks_exec \"$gl\""); done = 1 } { print }'
+sites_case 'wrapper call dropped' scope=cost '/gitleaks_exec "\$GITLEAKS_BIN" "\$@"/ && !done { sub(/gitleaks_exec /, ""); done = 1 } { print }'
+sites_case 'work in a function that calls the wrapper' scope=cost '{ print } /^gitleaks_scan\(\) \{/ { print "  jq -n null >/dev/null" }'
+sites_case 'output change in a function that calls the wrapper' scope=cost '{ sub(/secret-like value detected in/, "secret-like value found in") } { print }'
+sites_case 'file sourced from an unrelated function' scope=full '{ print } /^block_on_scan_status\(\) \{/ { print "  . ./extra.sh" }'
+sites_case 'helper function definition line' scope=full '{ sub(/^gitleaks_helper_selected\(\) \{/, "gitleaks_helper_selected() { :;") } { print }'
+sites_case 'work on the definition line of a caller function' scope=cost '/^detect_output_secret_records\(\) \(/ { sub(/\(\) \(/, "() ( jq -n null >/dev/null;") } { print }'
+sites_case 'helper function defined with a space before the parentheses' scope=full '/^block_on_scan_status\(\) \{/ { print "gitleaks_helper_extra () {\n  :\n}\n" } { print }'
+sites_case 'indented helper function inside a caller' scope=full '{ print } /^gitleaks_scan\(\) \{/ { print "  gitleaks_helper_extra() { :; }" }'
+sites_case 'work before the helper case, file marked -diff' scope=full '{ print } /^gitleaks_helper_selected\(\) \{/ { print "  jq -n null >/dev/null" }' 'plugins/agent-guard/bin/agent-guard -diff'
+sites_case 'work in a caller, file given another diff driver' scope=cost '{ print } /^gitleaks_scan\(\) \{/ { print "  jq -n null >/dev/null" }' 'plugins/agent-guard/bin/agent-guard diff=cpp'
+sites_case 'conditional sourcing in an unrelated function' scope=full '{ print } /^block_on_scan_status\(\) \{/ { print "  if [ -r ./extra.sh ]; then . ./extra.sh; fi" }'
+sites_case 'change unrelated to the helper' scope=none '{ print } /^block_on_scan_status\(\) \{/ { print "  jq -n null >/dev/null" }'
+git -C "$repo" checkout -q "$base_rev" -- . || exit 1
+got=$(cd "$repo" && sh "$sites_script" "$base_rev" HEAD) && [ "$got" = scope=none ] || fail 'no change leaves the call sites untouched'
+# No function names the helper in either revision: the callers list is empty.
+mini="$sites_tmp/mini"
+git init -q "$mini" && mkdir -p "$mini/plugins/agent-guard/bin" && printf 'f() {\n  echo a\n}\n' >"$mini/$sites_cli" \
+  && git -C "$mini" add . && git -C "$mini" -c user.email=t@example.test -c user.name=t commit -qm base || exit 1
+mini_base=$(git -C "$mini" rev-parse HEAD) || exit 1
+printf 'f() {\n  . ./extra.sh\n  echo a\n}\n' >"$mini/$sites_cli" \
+  && git -C "$mini" -c user.email=t@example.test -c user.name=t commit -qam sourcing || exit 1
+got=$(cd "$mini" && sh "$sites_script" "$mini_base" HEAD 2>/dev/null) && [ "$got" = scope=full ] || fail 'sourcing is found when no function names the helper'
+if (cd "$repo" && sh "$sites_script" no-such-revision HEAD >/dev/null 2>&1); then fail 'a diff that cannot run is an error'; fi
+) || exit 1
+pass=$((pass + 17))
+rm -rf "$sites_tmp"
+trap - 0
 printf 'CI scope fixtures passed: %s; matrix, aggregate and performance schedule wiring verified\n' "$pass"

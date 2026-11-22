@@ -237,11 +237,34 @@ PostToolUse hook with a changed tree runs three in a row. The helper holds
 after inputs of 1 MiB and dense 300 KB secrets (its peak was 77 MiB), and
 65 MiB while four sessions scanned through it at once, still one process. The
 client peaks at 3.4 MiB (7.7 MiB for a 1 MiB input) for a few milliseconds.
-Off, nothing changes: across 128 runs (14 hook fixtures, `scan-staged` and
-`scan-path`; Claude and Codex; log on and off; the variable unset and pointing
-at a missing client) exit codes, output, the number
-of programs executed and the number of processes forked equal main
-(`bench/gitleaks-helper/compare-off.sh`, also run in CI).
+With an unusable helper, nothing changes: across 64 comparisons (14 hook
+fixtures, `scan-staged` and `scan-path`; Claude and Codex; log on and off),
+the same CLI with the helper variable unset and pointing at a missing client
+must match in exit codes, output, the number of programs executed and the
+number of processes forked (`bench/gitleaks-helper/compare-off.sh`, also run
+in CI). This compares two states in the pull request's tree, so intentional
+hook changes unrelated to the helper do not fail the check. Only a missing
+client path is tried as unusable; a relative path, a file without execute
+permission and `AGENT_GUARD_GITLEAKS_BIN` are not compared.
+
+That comparison cannot see helper code that adds the same work to both states.
+`.github/scripts/helper-call-sites.sh` therefore reads the diff of
+`plugins/agent-guard` (not file paths) and sets how far CI also compares the
+default path, helper unset, with the base, in the same 64 comparisons:
+
+| The diff changes | Compared with the base |
+| --- | --- |
+| a line outside any function, or in `gitleaks_helper*` or `gitleaks_exec`, or a line that sources a file | exit codes, output, programs executed and processes forked |
+| a function that calls the wrapper (`gitleaks_scan`, the prompt-guard detector), or a line there naming `AGENT_GUARD_GITLEAKS_HELPER`, `gitleaks_helper*` or `gitleaks_exec` | programs executed and processes forked only |
+| nothing that names the helper | nothing: a hook change unrelated to the helper is free |
+
+A function spans from its definition to the next one, so the code between two
+functions counts with the first and the match errs toward the wider
+comparison. A function that calls the wrapper may change its output, but a
+pull request that changes how many processes it starts fails, and its author
+explains why in the pull request. The `Hook instruction count (base vs
+head)` job reports cost changes against the base branch, but it does not fail
+on an increase and does not count the programs the hook executes.
 
 Large inputs copy about as much as v3.7.0 did. With 300 KiB and 1 MiB clean
 inputs through a Write PreToolUse and a Bash PostToolUse, the bytes read and
