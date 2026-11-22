@@ -9,7 +9,11 @@ root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd -P)
   printf '%s\n' "$failed" | sort
   for artifact in packaged-performance instruction-count; do
     dir="$evidence/$artifact"
-    [ ! -f "$dir/errors.txt" ] || cat "$dir/errors.txt"
+    # Tool stderr also contains per-sample progress. Timing jitter is not a
+    # new failure cause; keep the original text untouched in the issue body.
+    if [ -f "$dir/errors.txt" ]; then
+      sed -E '/^integration (start|end):/d; /^(baseline|candidate) [^ ]+ [0-9.]+s$/d; s/^(#[0-9]+) [0-9.]+ /\1 /' "$dir/errors.txt"
+    fi
     [ ! -f "$dir/over-limit.txt" ] || sed 's/[0-9][0-9.]*/#/g' "$dir/over-limit.txt"
     for file in "$dir"/*confirmation.json; do
       [ ! -f "$file" ] || jq -c '[.confirmed[] | {host,name}] | sort_by(.host,.name)' "$file"
