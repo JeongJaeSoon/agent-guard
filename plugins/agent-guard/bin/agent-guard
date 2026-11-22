@@ -14104,8 +14104,16 @@ secretish_env_values() {
         # with `+` or `-`, which would be a diff marker glued to it. Both
         # separators are the same, as the tools print them: `web-1:` is a
         # host or pod name in front of a log line, not a locator.
+        #
+        # A field that starts its line has little in front of it, so one that
+        # sits more than 1024 bytes into the line is in mid-line and none of
+        # this runs. The limit also keeps the patterns below off long lines:
+        # the first is anchored only at its end, and on a long run of name
+        # characters it tries every start position. A single 260 KB line took
+        # minutes that way.
         key_line_start = 0
-        if (!key_name_redact && !advanced && !skip) {
+        if (!key_name_redact && !advanced && !skip \
+            && start + matched_length - 1 <= 1024) {
           head = substr(rest, 1, start + matched_length - 1)
           sub(/["'\''`]?[A-Za-z0-9_.$-]+["'\''`]?[ \t]*[:=]$/, "", head)
           sub(/^((([A-Za-z0-9_.\/@~][A-Za-z0-9_.\/@+~-]*)?[A-Za-z][A-Za-z0-9_.\/@+~-]*:)?[0-9]+:|(([A-Za-z0-9_.\/@~][A-Za-z0-9_.\/@+~-]*)?[A-Za-z][A-Za-z0-9_.\/@+~-]*-)?[0-9]+-|[ \t]*[0-9]+\t)/, "", head)

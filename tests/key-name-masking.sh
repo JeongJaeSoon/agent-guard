@@ -205,6 +205,69 @@ if "$GUARD" exec -- cat "$CASE_ROOT/exec-in" 2>/dev/null | grep -Fq -- "$weak"; 
 else
   ok "exec masks the password literal next to the schema diff"
 fi
+
+# A field far into its line is in mid-line, so the exemption stops at 1024
+# bytes of text before the value. The limit also bounds the work: without it
+# the line-start pattern tried every start position of a long line, and one
+# 260 KB line kept the hook busy for minutes instead of well under a second.
+near=$(printf '%1000s' '')
+far=$(printf '%1100s' '')
+for host in claude codex; do
+  post_case "$host" "field 1,000 bytes into its line" "${near}credential: CredentialSchema," ""
+  post_case "$host" "field 1,100 bytes into its line" \
+    "${far}credential: CredentialSchema," "${far}credential: [REDACTED],"
+done
+# The line goes through files: one argument cannot hold 260 KB.
+head -c 260000 /dev/zero | LC_ALL=C tr '\0' a >"$CASE_ROOT/long-line"
+[ "$(wc -c <"$CASE_ROOT/long-line" | tr -d ' ')" -eq 260000 ] \
+  || { fail "long line has the wrong length"; exit 1; }
+{ cat "$CASE_ROOT/long-line"; printf ' API_KEY=%s' "$rnd"; } >"$CASE_ROOT/long-in"
+{ cat "$CASE_ROOT/long-line"; printf ' API_KEY=[REDACTED]'; } >"$CASE_ROOT/long-want"
+jq -nc --rawfile t "$CASE_ROOT/long-in" \
+  '{session_id:"key-name",hook_event_name:"PostToolUse",tool_name:"Bash",
+    tool_input:{command:"cat bundle.min.js"},
+    tool_response:{stdout:$t,stderr:"",interrupted:false}}' >"$CASE_ROOT/long-event"
+long_start=$(date +%s)
+long_ok=1
+for host in claude codex; do
+  AGENT_GUARD_HOOK_HOST=$host "$GUARD" hook-post-tool \
+    <"$CASE_ROOT/long-event" >"$CASE_ROOT/out" 2>"$CASE_ROOT/err"
+  status=$?
+  if [ "$host" = claude ]; then
+    jq -e --rawfile m "$CASE_ROOT/long-want" \
+      '.hookSpecificOutput.updatedToolOutput.stdout == $m' "$CASE_ROOT/out" >/dev/null 2>&1
+  else
+    jq -e --rawfile m "$CASE_ROOT/long-want" \
+      '.decision == "block"
+       and ((.hookSpecificOutput.additionalContext
+             | sub("^Agent Guard sanitized tool output:\n"; "")
+             | fromjson | .stdout) == $m)' "$CASE_ROOT/out" >/dev/null 2>&1
+  fi
+  if [ $? -eq 0 ] && [ "$status" -eq 0 ]; then
+    ok "$host post-tool assignment at the end of a 260 KB line is masked"
+  else
+    long_ok=0
+    fail "$host post-tool assignment at the end of a 260 KB line: exit $status or masked text differs"
+  fi
+done
+# The prompt guard reads the same line through the same detector.
+jq -nc --rawfile p "$CASE_ROOT/long-in" \
+  '{session_id:"key-name",hook_event_name:"UserPromptSubmit",prompt:$p}' >"$CASE_ROOT/long-prompt"
+AGENT_GUARD_HOOK_HOST=claude "$GUARD" hook-user-prompt \
+  <"$CASE_ROOT/long-prompt" >"$CASE_ROOT/out" 2>"$CASE_ROOT/err"
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "claude prompt assignment at the end of a 260 KB line exits 2"
+else
+  long_ok=0
+  fail "claude prompt assignment at the end of a 260 KB line: expected 2 got $status"
+fi
+long_elapsed=$(( $(date +%s) - long_start ))
+if [ "$long_ok" -eq 1 ] && [ "$long_elapsed" -le 30 ]; then
+  ok "a 260 KB line is handled by both hooks within 30 seconds (${long_elapsed}s)"
+else
+  fail "a 260 KB line took ${long_elapsed}s over three hook runs (at most 30 expected) or was not handled"
+fi
 fi # end of the hooks half
 
 if [ "$part" != hooks ]; then

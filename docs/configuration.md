@@ -89,7 +89,8 @@ return status 0 with no response. See [Output masking coverage](integrations.md#
 
   All of these must hold:
   - The field starts its line: only indentation, one diff marker (`+`, `-`)
-    and declaration keywords such as `const` or `export` come before it. The
+    and declaration keywords such as `const` or `export` come before it. A
+    field more than 1024 bytes into its line is never one that starts it. The
     key itself may carry `-`, `.`, `$` or quotes, so `--password=...`,
     `spring.datasource.password=...` and `"password": ...` at the start of a
     line count as well. A line locator may come before all of that, as
