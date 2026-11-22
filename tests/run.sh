@@ -570,7 +570,7 @@ fi
 expected_codex_pre='Bash|apply_patch|Agent|Task|mcp__.*'
 expected_codex_post='Bash|apply_patch|Agent|Task|mcp__.*'
 expected_claude_pre='Write|Edit|MultiEdit|NotebookEdit|Read|NotebookRead|Grep|Glob|Bash|WebFetch|WebSearch|apply_patch|Agent|Task|mcp__.*'
-expected_claude_post='^(Write|Edit|MultiEdit|NotebookEdit|Bash|PowerShell|apply_patch|Read|NotebookRead|Grep|Glob|WebFetch|WebSearch|Agent|Task|Skill|Monitor|LSP|ListMcpResourcesTool|ReadMcpResourceTool|mcp__.*)$'
+expected_claude_post='^(Write|Edit|MultiEdit|NotebookEdit|Bash|PowerShell|apply_patch|Read|NotebookRead|Grep|Glob|WebFetch|WebSearch|Agent|Task|Skill|Monitor|LSP|ListMcpResourcesTool|ReadMcpResourceTool|REPL|Poll|mcp__.*)$'
 
 assert_manifest_matchers() {
   matcher_file=$1
@@ -603,7 +603,7 @@ assert_manifest_matchers "$ROOT/examples/claude/settings.project.json" "Claude e
 claude_post_matcher=$(jq -r '.hooks.PostToolUse[0].matcher' "$PLUGIN_ROOT/hooks/hooks.json")
 for structural_tool in \
   PowerShell Skill Monitor LSP ListMcpResourcesTool \
-  ReadMcpResourceTool mcp__server__tool; do
+  ReadMcpResourceTool REPL Poll mcp__server__tool; do
   if jq -n -e --arg matcher "$claude_post_matcher" --arg tool "$structural_tool" \
       '$tool | test($matcher)' >/dev/null; then
     ok "Claude PostToolUse matcher structurally covers $structural_tool"
@@ -613,7 +613,7 @@ for structural_tool in \
 done
 for structural_unknown in \
   FutureTool SkillManager MonitorStatus MyLSPClient TodoWrite \
-  NotASkill xReadMcpResourceTool Bashful; do
+  NotASkill xReadMcpResourceTool Bashful REPLica Polling; do
   if jq -n -e --arg matcher "$claude_post_matcher" --arg tool "$structural_unknown" \
       '$tool | test($matcher) | not' >/dev/null; then
     ok "Claude PostToolUse matcher structural approximation passes through unrelated $structural_unknown"
@@ -630,8 +630,8 @@ if command -v node >/dev/null 2>&1; then
       if (!positives.every((name) => pattern.test(name))) process.exit(1);
       if (!negatives.every((name) => !pattern.test(name))) process.exit(1);
     ' "$claude_post_matcher" \
-      'PowerShell,Skill,Monitor,LSP,ListMcpResourcesTool,ReadMcpResourceTool,mcp__server__tool' \
-      'FutureTool,SkillManager,MonitorStatus,MyLSPClient,TodoWrite,NotASkill,xReadMcpResourceTool,Bashful'; then
+      'PowerShell,Skill,Monitor,LSP,ListMcpResourcesTool,ReadMcpResourceTool,REPL,Poll,mcp__server__tool' \
+      'FutureTool,SkillManager,MonitorStatus,MyLSPClient,TodoWrite,NotASkill,xReadMcpResourceTool,Bashful,REPLica,Polling'; then
     ok "Claude PostToolUse matcher passes the actual JavaScript RegExp contract"
   else
     not_ok "Claude PostToolUse matcher failed the JavaScript RegExp contract"
@@ -15075,7 +15075,7 @@ else
 fi
 
 partial_primary_expected="$TESTTMP/partial-primary-expected"
-printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PostToolUse","updatedToolOutput":"[REDACTED]"}}' \
+printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PostToolUse","updatedToolOutput":{"type":"text","file":{"filePath":"[REDACTED]","content":"[REDACTED]","numLines":1,"startLine":1,"totalLines":1}}}}' \
   >"$partial_primary_expected"
 printf '%s' "$large_gitleaks_input" \
   | (cd "$TMP_ROOT" \

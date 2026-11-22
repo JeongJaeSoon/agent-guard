@@ -186,6 +186,7 @@ as covered is a candidate: prove it on your install with the live probes in
 | --- | --- | --- | --- |
 | Claude | Successful `PostToolUse` of `Write`, `Edit`, `MultiEdit`, `NotebookEdit`, `Bash`, `PowerShell`, `apply_patch`, `Read`, `NotebookRead`, `Grep`, `Glob`, `WebFetch`, `WebSearch`, `Agent`, `Task`, `Skill`, `Monitor`, `LSP`, `ListMcpResourcesTool`, `ReadMcpResourceTool` | Covered | The matcher is anchored to these exact names. |
 | Claude | `mcp__*` tools | Covered | MCP results skip the built-in output schema check. |
+| Claude | Code Mode results: `REPL` when a script ends or throws, `Poll` when its output is delivered | Covered | The calls a script makes are covered under their own names above. These two routes carry what the script hands back to the model, including the failed call the host appends to a thrown error. Shapes and replacement acceptance were captured on 2.1.330. The script itself still receives a failed call's output, and the part of a successful output past about 30,000 characters, unmasked (host limits). Probe: [Verification](verification.md#claude-code-code-mode). |
 | Claude | Failed tool calls (`PostToolUseFailure`) | Detected, not masked (host limit) | Same matcher as `PostToolUse`. The host lets this event add context only, so the failure output reaches the model unchanged. On a finding, the hook names the category, never the value, and tells the model not to repeat or use it and to tell the user it may need rotating. `logs export` records `hook-post-tool-failure` with outcome `warned`. Host-side fix request: [anthropics/claude-code#97278](https://github.com/anthropics/claude-code/issues/97278). |
 | Claude | Any other tool name | Not covered | The hook never starts. |
 | Claude | A `!` shell escape you type yourself | Not covered | Outside the tool-hook boundary; use `agent-guard exec` / `agx`. |
@@ -213,8 +214,14 @@ What masking cannot do on either host:
   Keep the Git hook and CI backstops.
 - Force acceptance. If a Claude built-in replacement does not match the tool's
   output schema, the host may keep the original. Agent Guard preserves the
-  original JSON shape whenever it can; the last-resort fixed `[REDACTED]` string
-  is the known exception.
+  original JSON shape whenever it can. The last-resort fixed replacement, used
+  when no parser can rewrite the response, has the tool's shape for `Bash`,
+  `Read`, `Write`, `Edit`, `NotebookEdit`, `Grep`, `Glob`, `Skill`,
+  `Monitor`, `REPL` and `Poll`. Claude Code 2.1.330 was observed to accept
+  the `Bash`, `REPL` and `Poll` shapes; the others follow the structure
+  that version records for the tool and are not yet confirmed on a live host.
+  Every other tool still gets a bare `[REDACTED]` string there, which a
+  built-in tool's schema check drops: that is the known exception.
 - Recognize a secret that has no secret-like shape. A value under a generic
   key name with no vendor prefix (`APP_SEED=...`, or the same value bare in a
   log line, an argv list or a URL password) passes the detectors. With
@@ -238,6 +245,16 @@ Hook timeouts in every shipped manifest:
 `AGENT_GUARD_INFRA_FAILURE_MODE=closed` applies when Agent Guard itself can
 decide and return exit status 2 in time. A non-empty payload that is not a JSON
 object is rejected regardless of that mode; empty stdin passes with status 0.
+
+On a Claude `PostToolUse`, exit status 2 only shows the reason: the tool has
+run and its output still reaches the model. So when the hook cannot check an
+output under `closed` (no scanner, no usable policy file, a written path it
+cannot scan), it also prints a replacement in which every non-empty string is
+`[REDACTED]` and the shape is unchanged, and Claude Code applies it beside the
+exit status 2 (checked on 2.1.330 for `Bash`, `REPL` and `Poll`).
+`AGENT_GUARD_OUTPUT_REDACT=off` turns that off together with output masking.
+Two cases stay as they were: when no binary can be found, the launcher has no
+parser and can only exit 2, and Codex takes no replacement.
 
 Each plugin hook command is one short line that runs the plugin's
 `hooks/launch.sh` with the host name, the hook subcommand and the plugin

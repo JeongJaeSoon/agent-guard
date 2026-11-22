@@ -19,7 +19,7 @@ scanner error in a lifecycle hook:
 | Value | Behavior |
 | --- | --- |
 | `open` (default) | Continue with a degraded-protection notice that names what is missing and repeats every 10 minutes |
-| `closed` | Refuse the hook action with exit status 2 |
+| `closed` | Refuse the hook action with exit status 2. A Claude `PostToolUse` hook also withholds the output it could not check |
 
 Under `open`, a session's first infrastructure failure produces the notice, and
 it repeats at most once every 600 seconds while failures continue; the interval

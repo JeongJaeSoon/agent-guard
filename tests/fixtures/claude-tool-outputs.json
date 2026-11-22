@@ -1,0 +1,208 @@
+{
+  "comment": "Output shapes of Claude Code built-in tools for #599, one per tool that has a fixed last-resort replacement. Bash, REPL and Poll are what Claude Code 2.1.330 sent to a live PostToolUse hook; the others are the structure of results that version recorded in session logs, with every value a stand-in. {{SECRET}} becomes the planted marker when the test runs. `fixed` is the replacement the guard prints when no parser can rewrite the response: same keys, same kinds of value, and the same word in a field the host reads as one of a few (`type`, `mode`, `cell_type`, `edit_mode`). Host acceptance of `fixed` was observed for Bash, REPL and Poll only.",
+  "tools": {
+    "Bash": {
+      "output": {
+        "stdout": "{{SECRET}}",
+        "stderr": "",
+        "interrupted": false,
+        "isImage": false,
+        "noOutputExpected": false
+      },
+      "fixed": {
+        "stdout": "[REDACTED]",
+        "stderr": "",
+        "interrupted": false,
+        "isImage": false,
+        "noOutputExpected": false
+      }
+    },
+    "Read": {
+      "output": {
+        "type": "text",
+        "file": {
+          "filePath": "a.txt",
+          "content": "{{SECRET}}",
+          "numLines": 1,
+          "startLine": 1,
+          "totalLines": 1
+        }
+      },
+      "fixed": {
+        "type": "text",
+        "file": {
+          "filePath": "[REDACTED]",
+          "content": "[REDACTED]",
+          "numLines": 1,
+          "startLine": 1,
+          "totalLines": 1
+        }
+      }
+    },
+    "Write": {
+      "output": {
+        "type": "create",
+        "filePath": "absent.ts",
+        "content": "{{SECRET}}",
+        "structuredPatch": [],
+        "originalFile": null,
+        "userModified": false
+      },
+      "fixed": {
+        "type": "create",
+        "filePath": "[REDACTED]",
+        "content": "[REDACTED]",
+        "structuredPatch": [],
+        "originalFile": null,
+        "userModified": false
+      }
+    },
+    "Edit": {
+      "output": {
+        "filePath": "absent.ts",
+        "oldString": "x",
+        "newString": "{{SECRET}}",
+        "originalFile": null,
+        "structuredPatch": [
+          {
+            "oldStart": 1,
+            "oldLines": 1,
+            "newStart": 1,
+            "newLines": 1,
+            "lines": [
+              "-x",
+              "+{{SECRET}}"
+            ]
+          }
+        ],
+        "userModified": false,
+        "replaceAll": false
+      },
+      "fixed": {
+        "filePath": "[REDACTED]",
+        "oldString": "[REDACTED]",
+        "newString": "[REDACTED]",
+        "originalFile": null,
+        "structuredPatch": [],
+        "userModified": false,
+        "replaceAll": false
+      }
+    },
+    "NotebookEdit": {
+      "output": {
+        "new_source": "{{SECRET}}",
+        "old_source": "print(1)",
+        "cell_type": "code",
+        "language": "python",
+        "edit_mode": "replace",
+        "cell_id": "c1",
+        "error": "",
+        "notebook_path": "absent.ipynb",
+        "original_file": "{}",
+        "updated_file": "{}"
+      },
+      "fixed": {
+        "new_source": "[REDACTED]",
+        "old_source": "[REDACTED]",
+        "cell_type": "code",
+        "language": "python",
+        "edit_mode": "replace",
+        "cell_id": "[REDACTED]",
+        "error": "",
+        "notebook_path": "[REDACTED]",
+        "original_file": "[REDACTED]",
+        "updated_file": "[REDACTED]"
+      }
+    },
+    "Grep": {
+      "output": {
+        "mode": "content",
+        "numFiles": 0,
+        "filenames": [],
+        "content": "a.ts:1:{{SECRET}}",
+        "numLines": 1,
+        "totalLines": 1
+      },
+      "fixed": {
+        "mode": "content",
+        "numFiles": 0,
+        "filenames": [],
+        "content": "[REDACTED]",
+        "numLines": 0,
+        "totalLines": 0
+      }
+    },
+    "Glob": {
+      "output": {
+        "filenames": [
+          "{{SECRET}}"
+        ],
+        "durationMs": 1,
+        "numFiles": 1,
+        "truncated": false,
+        "totalMatches": 1,
+        "countIsComplete": true
+      },
+      "fixed": {
+        "filenames": [],
+        "durationMs": 0,
+        "numFiles": 0,
+        "truncated": false,
+        "totalMatches": 0,
+        "countIsComplete": true
+      }
+    },
+    "Skill": {
+      "output": {
+        "success": true,
+        "commandName": "{{SECRET}}"
+      },
+      "fixed": {
+        "success": true,
+        "commandName": "[REDACTED]"
+      }
+    },
+    "Monitor": {
+      "output": {
+        "taskId": "{{SECRET}}",
+        "timeoutMs": 1000,
+        "persistent": false
+      },
+      "fixed": {
+        "taskId": "[REDACTED]",
+        "timeoutMs": 0,
+        "persistent": false
+      }
+    },
+    "REPL": {
+      "output": {
+        "code": "await run()",
+        "result": "{{SECRET}}",
+        "stdout": "",
+        "stderr": ""
+      },
+      "fixed": {
+        "code": "[REDACTED]",
+        "result": "[REDACTED]",
+        "stdout": "[REDACTED]",
+        "stderr": "[REDACTED]"
+      }
+    },
+    "Poll": {
+      "output": {
+        "content": "<event>{{SECRET}}</event>",
+        "eventCount": 1,
+        "remainingWakeCount": 0,
+        "provenance": [
+          null
+        ]
+      },
+      "fixed": {
+        "content": "[REDACTED]",
+        "eventCount": 0,
+        "remainingWakeCount": 0,
+        "provenance": []
+      }
+    }
+  }
+}

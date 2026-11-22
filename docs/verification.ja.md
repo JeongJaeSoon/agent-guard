@@ -1,4 +1,4 @@
-<!-- translated-from: docs/verification.md; source-blob: 2cc9e59fcad2055e3691d6f505e1ebf67f2566e9 -->
+<!-- translated-from: docs/verification.md; source-blob: b375644be200d1517bf5f4d29db363c2e4e89b38 -->
 
 <a id="verification"></a>
 
@@ -61,6 +61,30 @@ sentinelに認証情報は含まれません。検査するのはhookの呼び�
 
 sentinelを含むファイルの読み取り自体もguardの対象となるツール呼び出しです。そのため、セットアップスキル自身のプローブ行も置換済みで返されます。これはhookが動作した結果であり、リポジトリにplaceholderがコミットされているわけではありません。確認が必要なら、その行とplaceholderのバイト長を比較してください。
 
+<a id="claude-code-code-mode"></a>
+
+## Claude Code Code Mode
+
+Code ModeではClaudeがJavaScriptを書き、1回で複数のツールを呼び出します。コードが呼び出すツールはそれぞれの名前で `PreToolUse` と `PostToolUse` を通るため、上のプローブで確認できます。コードが返す値は、上のプローブでは通らない2つの経路でモデルに届きます。コードが終了または例外を投げたときの `REPL` と、その出力が届けられるときの `Poll` です。Claude Code 2.1.330で確認しました。
+
+1. Claudeに、ツール実行後のプローブを失敗する呼び出しとしてコードから実行するよう依頼します。hostは失敗した呼び出しの出力をどのhookにも置換させないため、コードは生のsentinelを受け取ります。それがモデルに届くのを防げるのは `REPL` または `Poll` のhookだけです。
+
+   ```js
+   const guard = '/absolute/path/to/bin/agent-guard';
+   const probe = await $`sed -n 's/^LIVE_POST_TOOL_PROBE=//p' ${guard} | head -1; exit 3`.nothrow();
+   probe.stdout
+   ```
+
+   上の手順4と同じ置換結果になるはずです。生のsentinelが見えた場合は、どちらのhookも実行されていません。インストールされた `PostToolUse` のmatcherに `REPL` と `Poll` があるか確認してください。
+
+2. 同じコマンドを `.nothrow()` なしで実行し、コードに例外を投げさせます。Claudeが読むエラーには、hostが追記する失敗した呼び出しの出力も含めて、置換結果が入っている必要があります。
+
+3. 報告されたrun idは、上の手順5と同じ方法で照合します。
+
+コードが受け取った値をディスク上のファイルと比べるときは、`wc -c < file` や `shasum < file` のように、シェル統合がラップしないコマンドで期待するサイズやハッシュを計算してください。Claude Code内では `cat` と `head` がマスク済みの結果を返し、マスク済みの結果どうしは常に一致します。
+
+これらのプローブが示すのは、コードが返した値がマスクされることです。hostの2つの制約は変わりません。失敗した呼び出しの出力と、成功した出力のうち約30,000文字を超える部分は、マスクされずにコードに渡されます。コードが保持した値は、コードがそれを返すか別のツール呼び出しに渡したときにだけ、あらためて検査されます。
+
 <a id="read-results-correctly"></a>
 
 ## 結果を正しく読む
@@ -76,7 +100,7 @@ sentinelを含むファイルの読み取り自体もguardの対象となるツ�
   非対応バージョンやprobeの失敗を区別します。診断にはscannerの出力や入力
   パスを含めません。timeoutコードは失敗した段階を示し、遅延の原因まで
   説明するものではありません。
-- インフラ障害時の `open` モードは、目に見える一度限りの警告後に続行し、`closed` はブロックします。このポリシーはインフラ障害に適用され、秘密情報の検出時はブロックします。空ではなく、形式が不正またはオブジェクトでないPreToolUse・Stop入力は、インフラモードと無関係にブロックされます。PostToolUseはまず独立したparserで有効なhost envelopeを復元し、保守的な置換を出力します。空ではなく、形式が不正またはオブジェクトでないPostToolUse envelopeに対する終了ステータス2は可視の診断であり、完了済みのツール結果を撤回できません。空のstdinは文書化された例外であり、PreToolUse、PostToolUse、Stopはいずれも応答なしでステータス0を返します。拒否したイベントはすべて報告します。
+- インフラ障害時の `open` モードは、目に見える一度限りの警告後に続行し、`closed` はブロックします。このポリシーはインフラ障害に適用され、秘密情報の検出時はブロックします。空ではなく、形式が不正またはオブジェクトでないPreToolUse・Stop入力は、インフラモードと無関係にブロックされます。PostToolUseはまず独立したparserで有効なhost envelopeを復元し、保守的な置換を出力します。空ではなく、形式が不正またはオブジェクトでないPostToolUse envelopeに対する終了ステータス2は可視の診断であり、完了済みのツール結果を撤回できません。`closed` では、出力を検査できなかったClaudeのPostToolUse hookが、その出力の空でない文字列をすべて置換し、構造は保ちます。終了ステータス2だけでは出力がそのままモデルに届くためです。空のstdinは文書化された例外であり、PreToolUse、PostToolUse、Stopはいずれも応答なしでステータス0を返します。拒否したイベントはすべて報告します。
 - hostが時間制限に達したhookを終了すると、hookが判断を返せないことがあります。Claude Code 2.1.295以降は `PreToolUse` hookのタイムアウトや異常終了時にツール呼び出しをブロックします。ほかのイベントやhostには当てはまりません。GitとCIによる後段の防御を有効にしてください。
 
 直接の検査コマンド（`scan-staged`、`scan-working-tree`、`scan-path`）は、インフラ障害ポリシーを適用せず、呼び出し元に終了ステータスを返します。
