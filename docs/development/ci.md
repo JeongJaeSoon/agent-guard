@@ -4,11 +4,57 @@ CI runs on pull requests and pushes to `main`: the first validates a proposed
 change, the second validates the merged tree. Plugin Validation and HOL scan
 have the same triggers but own different checks; they are not duplicate suite
 runs. The release workflow also relies on the existing check names: it does
-not rerun the suite itself. Before opening a release PR it requires every
-required check on the dispatched `main` commit to have succeeded, and before
-publishing it requires them on the release PR head and its merge commit.
+not rerun the suite itself. The required check/workflow mapping lives in
+`.github/release-checks.tsv`; dispatch and publication both read it.
+The release candidate runs the full matrix once. Publication reuses those
+results only for an identical, reviewed release tree with a single merge
+parent equal to the PR base. Otherwise it requires checks on the merge commit.
 Manual dispatch runs the full Linux/macOS matrix on the selected ref, so the
 main/release matrix can be verified before merging a CI change.
+
+## One dispatch and one approval
+
+Dispatch `release.yml` on current `main` with the bump or explicit version.
+The preparation job opens a release PR. The verification job dispatches each
+required workflow with the built-in token and waits up to an hour for missing or unfinished checks.
+Failed checks fail immediately. It also waits for performance evidence.
+The verification job alone holds the Actions dispatch permission; workflow
+defaults remain read-only. No additional credential or repository setting is
+needed.
+
+Human PR merge is the publication approval. A closed, merged, release-labelled
+bot PR starts the publication path automatically. The release branch and
+manifest version must match, and the merge must still be current `main`.
+For a reviewed single-commit merge tree identical to the PR head, CI and native qualification
+reuse that head's successful checks instead of rerunning their expensive jobs.
+The merge must have one parent equal to the reviewed PR base. A squash or a
+single-commit rebase satisfying that proof is equally eligible. An API error,
+missing check, different tree, or ordinary main push keeps full
+main coverage. The evidence summary records the source head and check run links.
+Native artifacts must have been executed successfully on all three platforms
+at that source SHA; checksums and source metadata are verified before packaging.
+Publication rechecks current main before touching tags.
+
+Use `dry_run` to exercise candidate creation, CI dispatch, waiting, tree
+comparison, and the same asset qualification job on a branch. These candidates
+use isolated release branches and an explicit dry-run marker; their merge
+cannot authorize publication. Tags, releases and the tap are skipped. Close
+the test candidate and remove its branch after verification. Merge-trigger
+conditions and different-tree fallbacks are covered by `tests/release-flow.sh`;
+a dry run does not prove a real merge or publication happened.
+
+An explicit version retries a merged, unpublished release without a second
+preparation PR. An existing published release is immutable. To replace a stale
+candidate branch, request `replace_stale_branch`; replacement is refused while
+an open PR exists and uses a lease on the observed branch SHA.
+
+Performance jobs preserve `verdict.txt` and tool stderr in their artifacts.
+The shared `performance-verdict.sh` classifies both release and nightly evidence:
+completed 5% threshold excess warns; absent, unfinished or invalid measurements
+block publication. Required adoption improvement and correctness validation
+still fail closed. Nightly issue bodies include the tool errors verbatim and
+use a failure-cause fingerprint, so different causes open separate issues.
+Runner CPU alone does not change issue identity.
 
 | Check | Coverage |
 | --- | --- |
