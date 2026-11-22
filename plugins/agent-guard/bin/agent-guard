@@ -16044,7 +16044,8 @@ emit_post_tool_replacement() {
 # whether the replacement keeps every key, every value type and every field
 # the walk above leaves as a protocol word. Callers then do not report masking
 # that the host would throw away. Other tools, and a check jq cannot run, leave
-# the replacement as it is and the flag empty. Reads the caller's replacement.
+# the replacement as it is and the flag empty. Reads and may set the caller's
+# replacement.
 claude_post_tool_shape() {
   POST_TOOL_SHAPE_KEPT=
   cps_tool=${tool:-}
@@ -16070,10 +16071,11 @@ claude_post_tool_shape() {
           | ["type","media_type","mimeType","mediaType","encoding","mode",
              "cell_type"] | index([$k]) != null;
         if length != 2 then error("two documents expected") else . end
+        | .[1] as $replacement
         | .[0].tool_response as $orig
         | ([.[0].tool_input | objects | .file_path, .notebook_path
             | strings | select(length > 0)]) as $own
-        | (reduce ($orig | paths(type == "string")) as $p (.[1];
+        | (reduce ($orig | paths(type == "string")) as $p ($replacement;
              if ($p[-1] == "filePath" or $p[-1] == "notebook_path")
                 and ($own | index([$orig | getpath($p)])) != null
                 and (at($p) | type) == "string"
@@ -16082,12 +16084,21 @@ claude_post_tool_shape() {
            and all($orig | paths(type == "string");
                    . as $p | ($p[-1] | type) == "string" and ($p[-1] | word_key)
                    | not or ($new | at($p)) == ($orig | getpath($p))))
-        | (if . then "k" else "c" end) + ($new | tojson)
+        | (if . then "k" else "c" end)
+          + (if $new == $replacement then "" else ($new | tojson) end)
       ' 2>/dev/null) || cps_out=
   case "$cps_out" in
-    k*) POST_TOOL_SHAPE_KEPT=1; replacement=${cps_out#?} ;;
-    c*) POST_TOOL_SHAPE_KEPT=0; replacement=${cps_out#?} ;;
+    k*) POST_TOOL_SHAPE_KEPT=1 ;;
+    c*) POST_TOOL_SHAPE_KEPT=0 ;;
+    *) cps_out= ;;
   esac
+  # Only a restored path takes jq's serialization, and only once it parses:
+  # some jq builds print deep JSON truncated to a marker and still exit 0.
+  cps_out=${cps_out#?}
+  if [ -n "$cps_out" ] && { printf '%s' "$cps_out"; } 2>/dev/null \
+      | jq -e 'true' >/dev/null 2>&1; then
+    replacement=$cps_out
+  fi
   cps_out=
 }
 
