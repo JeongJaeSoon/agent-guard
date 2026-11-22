@@ -1,0 +1,781 @@
+[
+  {
+    "id": "jq-suffix-test",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a jq filter that tests a name for a key file suffix",
+    "command": "jq '.[] | select(.name | endswith(\".p8\"))' data.json"
+  },
+  {
+    "id": "jq-file-operand",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a protected file as the file operand of jq",
+    "command": "jq . secrets.json"
+  },
+  {
+    "id": "jq-regex-suffix",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a jq regex with an escaped key file suffix",
+    "command": "jq '.[] | select(.name | test(\"\\\\.key$\"))' data.json"
+  },
+  {
+    "id": "jq-substitution-filter",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a command substitution that reads a protected file in the filter position",
+    "command": "jq \"$(cat .env)\" data.json"
+  },
+  {
+    "id": "jq-suffix-stderr-head",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a jq suffix test with stderr dropped, piped to a text filter",
+    "command": "jq -r '.[] | select(.name | endswith(\".pem\")) | .name' data.json 2>/dev/null | head -5"
+  },
+  {
+    "id": "jq-redirect-to-file",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "an output redirection to a file leaves the segment unread",
+    "command": "jq -r '.[] | select(.name | endswith(\".pem\")) | .name' data.json > names.txt"
+  },
+  {
+    "id": "jq-suffix-to-xargs",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "the same filter when its output feeds a command that opens what it reads",
+    "command": "jq -r '.[] | select(.name | endswith(\".p8\")) | .name' data.json | xargs cat"
+  },
+  {
+    "id": "jq-suffix-to-sh",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "the same filter when its output feeds a shell",
+    "command": "jq -r '.[] | select(.name | endswith(\".p8\")) | .cmd' data.json | sh"
+  },
+  {
+    "id": "gh-jq-path-to-sort-files",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "field names printed by a gh --jq filter and handed to sort as a list of files",
+    "command": "gh api x --jq 'path(.server.key) | join(\".\")' | tr '\\n' '\\0' | sort --files0-from=-"
+  },
+  {
+    "id": "jq-concat-suffix",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a jq filter that builds a key file name from a suffix literal",
+    "command": "jq -r '.name + \".key\"' data.json"
+  },
+  {
+    "id": "jq-interpolated-suffix",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a jq string that ends in a key file suffix after an interpolation",
+    "command": "jq -r '\"\\(.name).key\"' data.json"
+  },
+  {
+    "id": "jq-from-file",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "jq -f reads its filter from a protected file",
+    "command": "jq -f filter.key data.json"
+  },
+  {
+    "id": "jq-rawfile",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "jq --rawfile reads a protected file",
+    "command": "jq --rawfile x .env '.a' data.json"
+  },
+  {
+    "id": "jq-redirect-glued",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a glued input redirection before the filter",
+    "command": "jq <.key ."
+  },
+  {
+    "id": "jq-redirect-spaced",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "an input redirection whose target sits where the filter would",
+    "command": "jq < .key ."
+  },
+  {
+    "id": "gh-jq-field",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "the --jq filter of a gh query names a .key field",
+    "command": "gh api repos/o/r/contents/x.json --jq '.key'"
+  },
+  {
+    "id": "gh-jq-alias",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "--jq after a gh alias or extension, which may run its arguments",
+    "command": "gh mine --jq .env"
+  },
+  {
+    "id": "gh-jq-value-of-option",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "--jq swallowed as the value of another gh option",
+    "command": "gh gist create -d --jq .env"
+  },
+  {
+    "id": "gh-jq-after-dashdash",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "--jq after `--` is an operand",
+    "command": "gh api x -- --jq .env"
+  },
+  {
+    "id": "gh-input-file",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a protected file as the value of gh --input",
+    "command": "gh api x --input secret.key --jq '.a'"
+  },
+  {
+    "id": "py-suffix-endswith",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "an inline python script that only mentions a key file suffix",
+    "command": "python3 -c \"import sys; print([a for a in sys.argv if a.endswith('.p8')])\" a b"
+  },
+  {
+    "id": "py-open-dotenv",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "an inline python script that opens a dotenv file",
+    "command": "python3 -c \"print(open('.env').read())\""
+  },
+  {
+    "id": "py-listdir-endswith",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a script that lists a directory and opens what a suffix test selects",
+    "command": "python3 -c \"import os; [print(open(f).read()) for f in os.listdir('.') if f.endswith('.pem')]\""
+  },
+  {
+    "id": "py-iterdir-regex",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a script that lists a directory and opens what a suffix regex selects",
+    "command": "python3 -c \"import pathlib,re; [print(p.read_text()) for p in pathlib.Path('.').iterdir() if re.search(r'\\.key$', p.name)]\""
+  },
+  {
+    "id": "py-stdin-names",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a script that opens the names a suffix test selects from its input",
+    "command": "ls | python3 -c \"import sys; [print(open(l.strip()).read()) for l in sys.stdin if l.strip().endswith('.pem')]\""
+  },
+  {
+    "id": "py-open-argv-endswith",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a script that opens the arguments a suffix test selects",
+    "command": "python3 -c \"import sys; [print(open(a).read()) for a in sys.argv[1:] if a.endswith('.pem')]\" a b"
+  },
+  {
+    "id": "py-find-string",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a shell command string with a bare suffix as a find name",
+    "command": "python3 -c \"import os; os.system('find . -name .key | xargs cat')\""
+  },
+  {
+    "id": "py-suffix-file-exists",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "the suffix mention when a file of exactly that name exists in the workdir",
+    "workdir": "@SUFFIXDIR@",
+    "command": "python3 -c \"import sys; print([a for a in sys.argv if a.endswith('.p8')])\" a b"
+  },
+  {
+    "id": "py-suffix-prose-print",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "an inline python script that prints a sentence mentioning a key file suffix",
+    "command": "python3 -c \"print('keys (.p8) stay out of the repository')\""
+  },
+  {
+    "id": "py-suffix-prose",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a script that can open files keeps every suffix, also inside a longer literal",
+    "command": "python3 -c \"p='docs/decisions/x.md'; s=open(p).read(); s=s.replace('old', 'keys (.p8) stay out'); open(p,'w').write(s)\""
+  },
+  {
+    "id": "py-open-carved-suffix",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a suffix cut out of a longer literal by a script that opens files",
+    "command": "python3 -c \"print(open('server' + '(.key)'.strip('()')).read())\""
+  },
+  {
+    "id": "py-open-key",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "an inline python script that opens a key file by name",
+    "command": "python3 -c \"print(open('server.key').read())\""
+  },
+  {
+    "id": "py-open-absolute",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "an inline python script that opens an absolute protected location",
+    "command": "python3 -c \"print(open('/home/dev/.aws/credentials').read())\""
+  },
+  {
+    "id": "py-suffix-compare",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "an inline python script that compares an extension with a suffix literal",
+    "command": "python3 -c \"import sys; print([a for a in sys.argv if a[-4:] == '.pem'])\" a b"
+  },
+  {
+    "id": "py-suffix-compare-os",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "the same comparison in a script that imports a module able to list directories",
+    "command": "python3 -c \"import os,sys; print([a for a in sys.argv if os.path.splitext(a)[1] == '.pem'])\" a b"
+  },
+  {
+    "id": "py-concat-suffix",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "an inline python script that builds a key file name from a suffix literal",
+    "command": "python3 -c \"print(open('server' + '.key').read())\""
+  },
+  {
+    "id": "py-join-suffix",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a suffix literal joined to a directory",
+    "command": "python3 -c \"import os; print(open(os.path.join('certs', '.key')).read())\""
+  },
+  {
+    "id": "py-with-suffix",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a suffix literal handed to a path builder",
+    "command": "python3 -c \"import pathlib; print(pathlib.Path('server').with_suffix('.key').read_text())\""
+  },
+  {
+    "id": "py-shell-string",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a shell command string that ends in a suffix",
+    "command": "python3 -c \"import os; os.system('cat .key')\""
+  },
+  {
+    "id": "py-shell-string-cd",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a shell command string that changes directory before the suffix",
+    "command": "python3 -c \"import os; os.system('cd certs; cat .key | head')\""
+  },
+  {
+    "id": "py-padded-suffix",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a suffix literal padded with blanks that the program can trim",
+    "command": "python3 -c \"import os; print(open(os.path.join('certs', ' .key '.strip())).read())\""
+  },
+  {
+    "id": "py-member-name",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "an inline python script whose code reads a .key attribute",
+    "command": "python3 -c 'import json,sys; d=json.load(sys.stdin); print([e.key for e in d])'"
+  },
+  {
+    "id": "py-fstring-name",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "an f-string that builds a key file name",
+    "command": "python3 -c \"n='server'; print(open(f'{n}.key').read())\""
+  },
+  {
+    "id": "py-nested-fstring",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "an f-string with nested quotes, which the scan does not follow",
+    "command": "python3 -c 'import re,pathlib;[print(p.read_text()) for p in pathlib.Path(\".\").iterdir() if re.fullmatch(f\"{\"e[\"\"n\"\"]v.production\"}\",p.name)]'"
+  },
+  {
+    "id": "py-format-name",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a format string that builds a key file name",
+    "command": "python3 -c \"print(open('%s.key' % 'server').read())\""
+  },
+  {
+    "id": "py-triple-quote",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a triple-quoted literal, where quoting is not followed",
+    "command": "python3 -c 'print(open(\"\"\"server.key\"\"\").read())'"
+  },
+  {
+    "id": "py-shell-variable",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a shell expansion inside the script word",
+    "command": "python3 -c \"print(open('$HOME/.netrc').read())\""
+  },
+  {
+    "id": "py-substitution-body",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a command substitution that reads a protected file as the script",
+    "command": "python3 -c \"$(cat .env)\""
+  },
+  {
+    "id": "py-argv-operand",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a protected file as an argument after the script",
+    "command": "python3 -c 'import sys; print(open(sys.argv[1]).read())' .env"
+  },
+  {
+    "id": "py-stdin-redirect",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a protected file redirected into the script",
+    "command": "python3 -c 'import sys; print(sys.stdin.read())' < .env"
+  },
+  {
+    "id": "py-redirect-shift",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a redirection between -c and the script",
+    "command": "python3 -c <.env 'import sys; d.key'"
+  },
+  {
+    "id": "node-member-name",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "an inline node script whose code reads a .key property",
+    "command": "node -e 'const d=JSON.parse(process.argv[1]); console.log(d.key)' '{}'"
+  },
+  {
+    "id": "node-read-dotenv",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "an inline node script that reads a dotenv file",
+    "command": "node -e \"console.log(require('fs').readFileSync('.env','utf8'))\""
+  },
+  {
+    "id": "node-env-dump",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "the whole environment object printed by an inline node script",
+    "command": "node -e 'console.log(process.env)'"
+  },
+  {
+    "id": "node-env-destructure",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "the environment object destructured by an inline node script",
+    "command": "node -e 'const {PORT} = process.env; console.log(PORT)'"
+  },
+  {
+    "id": "node-require-endswith",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a node script that lists a directory and reads what a suffix test selects",
+    "command": "node -e \"const fs=require('fs'); fs.readdirSync('.').filter(f => f.endsWith('.pem')).forEach(f => console.log(fs.readFileSync(f,'utf8')))\""
+  },
+  {
+    "id": "node-suffix-endswith",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "an inline node script that only mentions a certificate suffix",
+    "command": "node -e \"console.log(process.argv.filter(a => a.endsWith('.pem')))\""
+  },
+  {
+    "id": "node-regex-source",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a regex literal used as a string, where quoting is not followed",
+    "command": "node -e \"console.log(require('fs').readFileSync(/server.key/.source,'utf8'))\""
+  },
+  {
+    "id": "node-template-name",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a template literal that builds a key file name",
+    "command": "node -e 'const n=\"server\"; console.log(require(\"fs\").readFileSync(`${n}.key`,\"utf8\"))'"
+  },
+  {
+    "id": "node-concat-suffix",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "an inline node script that builds a key file name from a suffix literal",
+    "command": "node -e \"console.log(require('fs').readFileSync('server' + '.key','utf8'))\""
+  },
+  {
+    "id": "perl-regex-suffix",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a perl one-liner that matches lines against an escaped suffix (perl and ruby programs keep every suffix)",
+    "command": "perl -ne 'print if /\\.p8$/' list.txt"
+  },
+  {
+    "id": "perl-open-dotenv",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a perl one-liner that opens a dotenv file",
+    "command": "perl -e 'open(F, \"<\", \".env\"); print <F>'"
+  },
+  {
+    "id": "perl-readpipe",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a perl one-liner that runs a shell command through readpipe",
+    "command": "perl -e 'print readpipe(\"cat .key z\")'"
+  },
+  {
+    "id": "perl-glob-regex",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a perl one-liner that globs and opens what a suffix regex selects",
+    "command": "perl -e 'for (glob \"*\") { if (/\\.p8$/) { open F, $_; print <F> } }'"
+  },
+  {
+    "id": "perl-q-operator",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a perl q() literal that names a key file",
+    "command": "perl -e 'open(F, \"<\", q(server.key)); print <F>'"
+  },
+  {
+    "id": "ruby-suffix-end-with",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a ruby one-liner that only mentions a key file suffix (perl and ruby programs keep every suffix)",
+    "command": "ruby -e 'puts ARGV.select { |a| a.end_with?(\".p8\") }' a b"
+  },
+  {
+    "id": "ruby-read-dotenv",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a ruby one-liner that reads a dotenv file",
+    "command": "ruby -e 'puts File.read(\".env\")'"
+  },
+  {
+    "id": "ruby-dir-end-with",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a ruby one-liner that lists a directory and reads what a suffix test selects",
+    "command": "ruby -e 'Dir.children(\".\").select { |f| f.end_with?(\".p8\") }.each { |f| puts File.read(f) }'"
+  },
+  {
+    "id": "ruby-concat-suffix",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a ruby one-liner that builds a key file name from a suffix literal",
+    "command": "ruby -e 'puts File.read(\"server\" + \".key\")'"
+  },
+  {
+    "id": "awk-regex-suffix",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "an awk program that matches a field against an escaped suffix",
+    "command": "awk '{ if ($1 ~ /\\.key$/) print $2 }' list.txt"
+  },
+  {
+    "id": "awk-concat-suffix",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "an awk program that builds key file names from a suffix literal",
+    "command": "awk -F. '{print $1\".key\"}' list.txt"
+  },
+  {
+    "id": "awk-getline-dotenv",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "an awk program that reads a dotenv file with getline",
+    "command": "awk 'BEGIN { while ((getline l < \".env\") > 0) print l }'"
+  },
+  {
+    "id": "awk-getline-regex",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "an awk program that reads the files a suffix regex selects from its input",
+    "command": "ls | awk '/\\.key$/ { while ((getline l < $0) > 0) print l }'"
+  },
+  {
+    "id": "awk-system",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "an awk program that runs a shell command on a dotenv file",
+    "command": "awk 'BEGIN { system(\"cat .env\") }'"
+  },
+  {
+    "id": "awk-program-file",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "awk -f reads its program from a protected file",
+    "command": "awk -f prog.key list.txt"
+  },
+  {
+    "id": "awk-file-operand",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a protected file as the file operand of awk",
+    "command": "awk '{print}' server.key"
+  },
+  {
+    "id": "sed-in-place-regex",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "an in-place sed whose regex names a .key member",
+    "command": "sed -i 's/item.key/item.id/' src/a.ts"
+  },
+  {
+    "id": "sed-in-place-file",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "an in-place sed on a dotenv file",
+    "command": "sed -i 's/a/b/' .env"
+  },
+  {
+    "id": "sed-in-place-bsd",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "the BSD form with an empty in-place suffix",
+    "command": "sed -i '' 's/item.key/item.id/' src/a.ts"
+  },
+  {
+    "id": "sed-read-command",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a sed r command that reads a dotenv file",
+    "command": "sed -i 'r .env' notes.txt"
+  },
+  {
+    "id": "sed-exec-command",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a sed e command whose shell text names a key file with an escaped dot",
+    "command": "sed '1e cat server\\.key' notes.txt"
+  },
+  {
+    "id": "sed-exec-flag",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a sed s command with the e flag",
+    "command": "sed 's/.*/cat server\\.key/e' notes.txt"
+  },
+  {
+    "id": "sed-two-expressions",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "two -e scripts whose regexes look like protected names",
+    "command": "sed -e 's/a.key/b/' -e 's/c.env/d/' src/a.ts"
+  },
+  {
+    "id": "sed-expression-file-operand",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a protected file as the file operand after -e",
+    "command": "sed -e 's/a/b/' server.key"
+  },
+  {
+    "id": "sed-write-command",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a sed w command that names a key file",
+    "command": "sed -n 'w out.key' notes.txt"
+  },
+  {
+    "id": "sed-script-file",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "sed -f reads its script from a protected file",
+    "command": "sed -f script.key notes.txt"
+  },
+  {
+    "id": "sed-replacement-to-sh",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a sed replacement that names a key file, piped to a shell",
+    "command": "sed 's/x/cat server.key/' notes.txt | sh"
+  },
+  {
+    "id": "sed-file-operand",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a protected file as the file operand of sed",
+    "command": "sed -n 1,5p server.key"
+  },
+  {
+    "id": "gh-log-grep-pattern",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a CI log from a gh query searched with a regex that names a dotenv suffix",
+    "command": "gh run view 1907 --log | grep -iE 'error|fail|\\.env|timeout'"
+  },
+  {
+    "id": "gh-log-grep-pattern-file",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "grep -f reads its patterns from a dotenv file",
+    "command": "gh run view 1907 --log | grep -f .env"
+  },
+  {
+    "id": "gh-log-grep-name",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a CI log searched for a file name, piped to a text filter",
+    "command": "gh run view --log 1907 | grep -n 'credentials.json' | head -20"
+  },
+  {
+    "id": "gh-log-grep-o-xargs",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "matched text handed to a command that opens it",
+    "command": "gh run view 1907 --log | grep -o 'server.key' | xargs cat"
+  },
+  {
+    "id": "jq-suffix-to-sed-exec",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "program output piped to a sed that can run what it reads",
+    "command": "jq -r '.[] | select(.name | endswith(\".p8\")) | .cmd' data.json | sed e"
+  },
+  {
+    "id": "gh-log-cat-file",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a protected file read next to the piped log",
+    "command": "gh run view 1907 --log | cat - .env"
+  },
+  {
+    "id": "gh-download-then-grep",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a gh subcommand that writes files before the grep",
+    "command": "gh run download 1907 | grep .env"
+  },
+  {
+    "id": "gh-redirect-then-sed",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a redirection before a later command may replace what its name runs",
+    "command": "gh run view 1907 --log > /tmp/sed; sed 'cat .env'"
+  },
+  {
+    "id": "gh-then-jq-field",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a gh query sequenced with ; is not on the inert list, so the later jq is not trusted",
+    "command": "gh pr view 12 --json files; jq '.files[] | .key' out.json"
+  },
+  {
+    "id": "alias-then-gh-grep",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "an alias before the pipeline may rebind grep",
+    "command": "alias grep=cat; gh run view 1 --log | grep .env"
+  },
+  {
+    "id": "alias-python",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "an alias may make the interpreter name another command",
+    "command": "alias python3=cat; python3 -c d.key"
+  },
+  {
+    "id": "quoted-command-name",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a command name written with quotes is not taken as the known tool",
+    "command": "j''q -r .key passed.json"
+  },
+  {
+    "id": "tracked-test-file-read",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "reading a committed test fixture whose name is on the deny list",
+    "command": "cat tests/fixtures/secrets.yaml"
+  },
+  {
+    "id": "protected-file-cat",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "cat of a real protected file",
+    "command": "cat .env"
+  },
+  {
+    "id": "no-workdir-program-text",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "an event without a workdir gets no second reading",
+    "workdir": "",
+    "command": "jq '.[] | select(.name | endswith(\".p8\"))' data.json"
+  },
+  {
+    "id": "tracked-file-with-grep-pattern",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a grep pattern that looks like a key file name, on a committed test fixture",
+    "command": "grep -n 'row.key' tests/fixtures/secrets.yaml | head -5"
+  },
+  {
+    "id": "protected-file-redirect",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a protected file read through a redirection",
+    "command": "while read l; do echo \"$l\"; done < .env"
+  },
+  {
+    "id": "sh-c-body",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "the body of sh -c is shell code and its operands are judged",
+    "command": "sh -c 'cat .env'"
+  },
+  {
+    "id": "bash-c-body",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "the body of bash -c is shell code even when it runs an interpreter",
+    "command": "bash -c \"python3 -c 'print(1)'; cat .env\""
+  },
+  {
+    "id": "eval-body",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "the body of eval is shell code",
+    "command": "eval 'cat .env'"
+  },
+  {
+    "id": "unknown-command-filter",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a command not known to take program text keeps every argument as a path",
+    "command": "mytool --filter '.key' data.json"
+  },
+  {
+    "id": "unknown-command-yq",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "yq is not on the list of known program-text tools",
+    "command": "yq '.items[].key' data.yaml"
+  },
+  {
+    "id": "sudo-interpreter",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "an interpreter behind a wrapper, with a protected file argument",
+    "command": "sudo python3 -c \"print(open('x').read())\" .env"
+  }
+]

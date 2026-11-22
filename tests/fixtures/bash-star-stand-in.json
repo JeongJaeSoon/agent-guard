@@ -246,9 +246,9 @@
   },
   {
     "id": "sed-s-in-place",
-    "expected_status": 2,
-    "classification": "known-limitation",
-    "description": "an in-place sed is not rewritten and is conservatively blocked",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "an in-place sed opens no file its regex names (read as program text once a block is pending)",
     "command": "sed -i 's/.env/x/' a.log"
   },
   {

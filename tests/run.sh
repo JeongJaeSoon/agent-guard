@@ -3029,6 +3029,8 @@ run_expect 0 "a gh --jq value is a jq filter and does not stop a later jq rewrit
   sh "$ROOT/tests/gh-jq-option.sh"
 run_expect 0 "a committed file is not blocked by its name; untracked, linked, outside and remote paths stay blocked" \
   sh "$ROOT/tests/tracked-file-exception.sh"
+run_expect 0 "program text of known tools is not a path operand; operands, literals that name a file and shell code stay blocked" \
+  sh "$ROOT/tests/path-operands-only.sh"
 run_expect 0 "literal backquotes in quoted text read by echo or cat pass, runnable ones stay blocked" \
   sh "$ROOT/tests/literal-substitution-text.sh"
 run_expect 0 "a failed quoted-bracket normalization keeps the protected-path verdict" \
@@ -5199,7 +5201,8 @@ if in_shard 3; then
 # protected-path suites in partition 1. On macOS each partition has a runner
 # of its own, and partition 1 alone took 20 minutes 37 seconds of the 25
 # allowed while partition 3 took under seven. The two are the slowest suites
-# of partition 1: about a quarter of its run time between them.
+# of partition 1: about a quarter of its run time between them, measured in
+# a Linux container.
 run_expect 0 "the protected-path regex cache only rules commands out and never changes a verdict" \
   sh "$ROOT/tests/deny-path-regex-cache.sh"
 run_expect 0 "orca/gh/git message values leave out no protected read" \
@@ -5604,10 +5607,11 @@ else
   sed 's/^/  stderr: /' "$ERR"
 fi
 
-# Runs here rather than beside the other redaction suites in partition 1: the
-# core runner runs partitions 1 and 3 side by side, and on macOS partition 1
-# has come within a minute of the job limit. This suite makes about 550 hook
-# runs, so it goes where there is room.
+# Runs here rather than beside the other redaction suites in partition 1.
+# It makes several hundred hook runs, and the run time of partitions 1 and 3
+# sets the time of the core jobs (one job on Linux, one each on macOS), so
+# it goes where there is room: see docs/development/ci.md for the measured
+# job times.
 run_expect 0 "a field value that repeats the field name is code on both hosts; config literals stay masked" \
   sh "$ROOT/tests/key-name-masking.sh"
 
