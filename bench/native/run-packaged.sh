@@ -22,7 +22,11 @@ tar -xzf "$case_dir/public.tar.gz" -C "$case_dir/public"
 chmod -R a+rX "$case_dir/public"
 image=agent-guard-packaged-qualification
 docker build --secret id=proxy_ca,src=/etc/ssl/certs/ca-certificates.crt \
-  -f bench/native/Dockerfile -t "$image" . > "$out/build.log" 2>&1
+  -f bench/native/Dockerfile -t "$image" . > "$out/build.log" 2>&1 || {
+    status=$?
+    cat "$out/build.log" >&2
+    exit "$status"
+  }
 docker image inspect "$image" --format '{{.Id}}' > "$out/image-id.txt"
 docker info --format '{{json .}}' > "$out/docker-info.json"
 run() {
