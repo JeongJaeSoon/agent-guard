@@ -58,6 +58,30 @@ echo
 echo "nightly run: $RUN_URL"
 echo "커밋: $HEAD_SHA"
 echo
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
+verdict=$(sh "$script_dir/performance-verdict.sh" "$evidence" "$HEAD_SHA" 2> "$work/verdict-errors")
+cat "$work/verdict-errors" >&2
+case "$verdict" in
+  passed) echo '판정: 측정 완료, 기준 통과.' ;;
+  threshold_exceeded) echo '판정: 측정 완료, 성능 기준 초과.' ;;
+  *) echo '판정: 측정 미완료 또는 출력 검증 실패. 성능 기준 초과와 구별하며 릴리스를 막습니다.' ;;
+esac
+echo
+echo '최신 job의 check·run·attempt·커밋 연결을 확인하지 못한 artifact는 현재 측정 증거로 인정하지 않습니다.'
+echo
+echo '측정 도구 오류(stderr 원문):'
+echo
+echo '```text'
+cat "$work/verdict-errors"
+for artifact in packaged-performance instruction-count; do
+  if [ -s "$evidence/$artifact/errors.txt" ]; then
+    cat "$evidence/$artifact/errors.txt"
+  else
+    printf '%s: 오류 artifact 없음 또는 stderr 없음\n' "$artifact"
+  fi
+done
+echo '```'
+echo
 echo '통과하지 못한 job(최신 attempt):'
 echo
 printf '%s\n' "$failed"
@@ -80,5 +104,5 @@ if [ -s "$work/rows" ]; then
   echo
   echo "노이즈 의심은 latency가 5%를 넘었지만 CPU 시간이 +${noise_cpu_limit}% 이하로 오른 행입니다. 공유 러너의 off-CPU 정지(#446)와 같은 모양입니다. sleep이나 I/O 대기처럼 CPU를 쓰지 않는 실제 회귀도 같은 모양이라 표시일 뿐이고, job 결론은 바뀌지 않습니다. artifact의 원시 표본을 함께 확인하세요."
 else
-  echo '확인된 회귀 행이 없습니다. 목표 미달, 출력 검증 실패, 측정 미완료나 미실행으로도 job이 실패합니다. run artifact를 확인하세요.'
+  echo '확인된 회귀 행이 없습니다. 위 판정과 측정 도구 오류를 확인하세요. 행이 없다는 사실은 측정 성공의 근거가 아닙니다.'
 fi

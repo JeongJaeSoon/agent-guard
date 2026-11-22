@@ -22,7 +22,11 @@ tar -xzf "$case_dir/public.tar.gz" -C "$case_dir/public"
 chmod -R a+rX "$case_dir/public"
 image=agent-guard-packaged-qualification
 docker build --secret id=proxy_ca,src=/etc/ssl/certs/ca-certificates.crt \
-  -f bench/native/Dockerfile -t "$image" . > "$out/build.log" 2>&1
+  -f bench/native/Dockerfile -t "$image" . > "$out/build.log" 2>&1 || {
+    status=$?
+    cat "$out/build.log" >&2
+    exit "$status"
+  }
 docker image inspect "$image" --format '{{.Id}}' > "$out/image-id.txt"
 docker info --format '{{json .}}' > "$out/docker-info.json"
 run() {
@@ -140,4 +144,19 @@ if [ "$public_status" -ne 0 ] \
     "$out/public-default-confirm.json" < /dev/null > "$out/public-default-confirmation.json"
   jq -e '.passed' "$out/public-default-confirmation.json" && public_status=0
 fi
-[ "$legacy_status" -eq 0 ] && [ "$public_status" -eq 0 ]
+# Only complete, verified measurements may become a threshold warning.
+jq -e --argjson names "$public_names" --argjson complete_only true -f bench/native/public-default-gate.jq \
+  "$out/cli-public-default.json" >/dev/null || exit 2
+jq -e '[.evaluated_cli[] | select(.name == "many-replacement-leaves")] as $hot
+  | ($hot | length) == 2 and all($hot[]; .latency_change_percent <= -10 or .cpu_change_percent <= -10)' \
+  "$out/assessment.json" >/dev/null || { echo 'Required target improvement not achieved' >&2; exit 2; }
+for confirmation in "$out"/*confirmation.json; do
+  [ -f "$confirmation" ] || continue
+  jq -e '.complete == true' "$confirmation" >/dev/null || exit 2
+done
+if [ "$legacy_status" -eq 0 ] && [ "$public_status" -eq 0 ]; then
+  printf 'passed\n' > "$out/verdict.txt"
+else
+  printf 'threshold_exceeded\n' > "$out/verdict.txt"
+  exit 1
+fi
