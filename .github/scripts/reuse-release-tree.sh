@@ -20,16 +20,11 @@ qualify() {
       and (.body | contains("<!-- agent-guard-release:publish -->")))]
     | select(length == 1) | .[0].number' "$work/prs") || return 1
   version=$(jq -r --argjson number "$number" '.[] | select(.number == $number) | .head.ref | sub("^release/v"; "")' "$work/prs") || return 1
-  # One commit based on the reviewed base, with an identical checked tree, is
-  # safe for squash and single-commit rebase alike. Two parents never qualify.
-  gh api "repos/$repo/commits/$sha" > "$work/merge" || return 1
-  base=$(jq -r --argjson number "$number" '.[] | select(.number == $number) | .base.sha' "$work/prs") || return 1
-  jq -e --arg base "$base" '.parents | length == 1 and .[0].sha == $base' "$work/merge" >/dev/null || return 1
+  # Publication and main CI consume the same parent/tree/check proof.
   GITHUB_REPOSITORY="$repo" sh "$root/.github/scripts/release-target.sh" "$number" "$version" false > "$work/target" || return 1
   source=$(sed -n 's/^source_sha=//p' "$work/target")
   head=$(sed -n 's/^release_head_sha=//p' "$work/target")
   [ "$source" = "$head" ] && [ "$head" != "$sha" ] || return 1
-  sh "$root/.github/scripts/release-checks.sh" "$head" 0 >&2 || return 1
   if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
     {
       printf '### Reused release tree\n\nSource head: %s\n\n' "$head"

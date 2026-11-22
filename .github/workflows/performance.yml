@@ -253,7 +253,10 @@ jobs:
           [ -f "$RUNNER_TEMP/performance/verdict.txt" ] || printf 'measurement_error\n' > "$RUNNER_TEMP/performance/verdict.txt"
           cat "$errors" > "$RUNNER_TEMP/performance/errors.txt"
           for log in "$RUNNER_TEMP/performance"/cli-*.log "$RUNNER_TEMP/performance"/*confirm*.log; do
-            [ ! -f "$log" ] || cat "$log" >> "$RUNNER_TEMP/performance/errors.txt"
+            if [ -f "$log" ]; then
+              printf '\n%s:\n' "${log##*/}" >> "$RUNNER_TEMP/performance/errors.txt"
+              cat "$log" >> "$RUNNER_TEMP/performance/errors.txt"
+            fi
           done
           cat "$RUNNER_TEMP/performance/errors.txt" >&2
           exit "$status"
