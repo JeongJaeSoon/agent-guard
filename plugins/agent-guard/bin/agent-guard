@@ -6500,7 +6500,8 @@ bash_strip_exclusion_operands() {
       fi
       # git_state: empty at the word after `git`, then `sub` for a
       # subcommand whose words after `--` are pathspecs, `dd` past that
-      # `--`, and `off` for the rest of the segment otherwise.
+      # `--`, `no` for the rest of another segment, and `off` for the rest
+      # of the command.
       case $command_name:$git_state in
         git:)
           case $token in
@@ -6508,8 +6509,20 @@ bash_strip_exclusion_operands() {
             *) git_state=no ;;
           esac
           ;;
-        git:sub) case $token in --) git_state=dd ;; esac ;;
-        git:dd) is_exclude_pathspec_value "$token" && continue ;;
+        git:sub)
+          case $token in
+            --) git_state=dd ;;
+            *'<'*|*'>'*) git_state=off ;;
+          esac
+          ;;
+        git:dd)
+          # A word after a redirection is a file, and one after an option may
+          # be its value (`-e -- -f NAME` makes `--` the pattern).
+          case $token in
+            -*|*'<'*|*'>'*) git_state=off ;;
+            *) is_exclude_pathspec_value "$token" && continue ;;
+          esac
+          ;;
       esac
       shell_words_append "$token"
     done
@@ -9338,7 +9351,8 @@ bash_strip_program_text() (
 # as one single-quoted part, or one double-quoted part holding no `$`,
 # backquote or backslash; the command name must be the first word of its
 # segment, and everything its pipeline feeds a plain text filter, since
-# `grep -o` prints the pattern's text. Returns 1, and the caller keeps $1,
+# `grep -o` prints the pattern's text. A word that starts with `-`, or that
+# follows an option not known to take no value, stays. Returns 1, and the caller keeps $1,
 # when no word qualifies, when PATH holds a relative entry, or when the
 # command defines or rebinds a name (a function, an alias, eval, trap,
 # source, export, a PATH assignment): the search command may then be
@@ -9352,8 +9366,16 @@ bash_neutralize_search_words() {
   printf '%s\n' "$sw_words" | LC_ALL=C awk '
     function sep(v) { return v == ";" || v == "&&" || v == "||" || v == "|" || v == "&" || v == nl }
     function literal(v) {
-      if (index(v, nl)) return 0
+      if (index(v, nl) || substr(v, 2, 1) == "-") return 0
       return v ~ /^\047[^\047]+\047$/ || v ~ /^"[^"$`\\]+"$/
+    }
+    # The word before a data word: an operand, `--`, a pattern option, or an
+    # option known to take no value. Any other option may take the word as a
+    # command it runs (`git grep -O`, `rg --pre`) or a file it reads (-f).
+    function before_ok(p) {
+      if (substr(p, 1, 1) != "-" || p == "--" || p == "--regexp" || p ~ /^--[a-z-]+=/) return 1
+      if (p ~ /^--(extended-regexp|fixed-strings|perl-regexp|basic-regexp|ignore-case|line-number|files-with-matches|count|only-matching|word-regexp|recursive|invert-match|no-config|hidden)$/) return 1
+      return p ~ /^-[EFGPHhilLnoqsvwxcrRaIzZbTySNuUp0]*e?$/
     }
     BEGIN { nl = "\034" }
     { w[NR] = $0 }
@@ -9373,7 +9395,7 @@ bash_neutralize_search_words() {
           for (f = j + 1; f <= n && !sep(w[f]); f++) ;
         }
         if (!ok) continue
-        for (k = s + 1; k <= e; k++) if (literal(w[k])) { w[k] = "\047\047"; changed = 1 }
+        for (k = e; k > s; k--) if (literal(w[k]) && before_ok(w[k - 1])) { w[k] = "\047\047"; changed = 1 }
       }
       if (!changed) exit 1
       out = ""; fresh = 1

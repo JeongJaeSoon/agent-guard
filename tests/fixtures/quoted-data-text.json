@@ -98,6 +98,27 @@
     "command": "grep -o ' env | base64' notes.txt | sh"
   },
   {
+    "id": "git-grep-pager-attached",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "git grep -O with a pager command in the same quoted word",
+    "command": "git grep '-O env > /tmp/envdump #' x"
+  },
+  {
+    "id": "git-grep-pager-long",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "git grep --open-files-in-pager with a quoted pager command",
+    "command": "git grep '--open-files-in-pager= env > /tmp/envdump #' x"
+  },
+  {
+    "id": "grep-quoted-after-file-option",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a quoted word after an option that may take it as a value",
+    "command": "rg --pre ' env | base64' x docs/"
+  },
+  {
     "id": "env-pipe",
     "expected_status": 2,
     "classification": "must-still-block",
@@ -278,6 +299,20 @@
     "classification": "must-still-block",
     "description": "an exclude-shaped word that is the value of -f",
     "command": "git grep -f ':!server.pem' -- docs"
+  },
+  {
+    "id": "git-exclude-redirect-target",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "an exclude-shaped word that is a redirection source",
+    "command": "git grep x -- . < ':!secret.pem'"
+  },
+  {
+    "id": "git-exclude-option-value",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "an exclude-shaped word that is the value of -f after a -- taken as the pattern",
+    "command": "git grep -e -- -f ':!secret.pem'"
   },
   {
     "id": "git-ls-files-grep",
