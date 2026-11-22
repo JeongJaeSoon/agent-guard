@@ -8,12 +8,12 @@ on:
     paths:
       - '.github/workflows/gitleaks-helper.yml'
       - '.github/scripts/gitleaks-helper-scope.sh'
+      - '.github/scripts/helper-call-sites.sh'
       - 'native/gitleaks-helper/**'
       - 'scripts/build-gitleaks-helper.sh'
       - 'plugins/agent-guard/bin/agent-guard'
       - 'plugins/agent-guard/config/gitleaks.toml'
       - 'tests/gitleaks-helper*.sh'
-      - 'tests/ci-scope.sh'
       - 'tests/fixtures/**'
       - 'bench/gitleaks-helper/compare-off.sh'
   push:
@@ -115,8 +115,11 @@ jobs:
         run: sh tests/gitleaks-helper-corpus.sh
   off-state:
     # An unusable helper must match the same CLI with the helper variable
-    # unset, including its process counts (strace counts the programs).
-    name: Helper off equals unset in the same tree
+    # unset, including its process counts (strace counts the programs). That
+    # comparison cannot see helper code that adds work to both states, so when
+    # the pull request touches the helper call sites the default path is also
+    # compared with the base. Only a missing helper path is tried as unusable.
+    name: Unusable helper equals unset in the same tree
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -124,6 +127,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
+          # The tested tree is the pull request's merge commit; its first
+          # parent is the exact base it was merged onto.
+          fetch-depth: 2
       - name: Install the official gitleaks release and strace
         run: |
           set -eu
@@ -133,5 +139,26 @@ jobs:
           printf '%s  %s\n' 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb "$RUNNER_TEMP/$archive" | shasum -a 256 -c -
           tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP/official" gitleaks
           sudo apt-get update -q >/dev/null && sudo apt-get install -y strace >/dev/null
-      - name: Compare unset and unusable helper states in the same tree
-        run: sh bench/gitleaks-helper/compare-off.sh "$RUNNER_TEMP/official/gitleaks"
+      - name: Find out whether the helper call sites changed
+        id: sites
+        run: sh .github/scripts/helper-call-sites.sh HEAD^1 HEAD >> "$GITHUB_OUTPUT"
+      - name: Compare unset and unusable helper states, and the base when call sites changed
+        env:
+          SITES_TOUCHED: ${{ steps.sites.outputs.touched }}
+        run: |
+          set -eu
+          case "$SITES_TOUCHED" in
+            true)
+              # The event's base SHA can be older than the main tip GitHub
+              # merged the pull request onto; the merge parent is the base.
+              git worktree add --detach base-checkout HEAD^1
+              sh bench/gitleaks-helper/compare-off.sh "$RUNNER_TEMP/official/gitleaks" "$GITHUB_WORKSPACE/base-checkout"
+              ;;
+            false)
+              sh bench/gitleaks-helper/compare-off.sh "$RUNNER_TEMP/official/gitleaks"
+              ;;
+            *)
+              echo "helper call-site check gave no answer: '$SITES_TOUCHED'" >&2
+              exit 1
+              ;;
+          esac

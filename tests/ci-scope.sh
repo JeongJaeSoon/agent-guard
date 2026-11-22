@@ -237,20 +237,62 @@ grep -Fq 'matrix: ${{ fromJSON(needs.scope.outputs.matrix) }}' "$helper_wf" \
   && grep -Fq 'sh .github/scripts/gitleaks-helper-scope.sh "$EVENT_NAME" < "$RUNNER_TEMP/changed" >> "$GITHUB_OUTPUT"' "$helper_wf" \
   && grep -Fq "      - '.github/scripts/gitleaks-helper-scope.sh'" "$helper_wf" \
   || fail 'the helper workflow takes its platforms from the tested scope script'
-# The off-state comparison uses one tree, including on CLI-only changes.
+# The off-state comparison puts an unusable helper beside the unset state in
+# one tree, and adds the base only when the diff touches the helper call sites.
 off_job=$(awk '/^  off-state:/ { on = 1 } on' "$helper_wf")
 printf '%s\n' "$off_job" | grep -Fq 'runs-on: ubuntu-24.04' \
   || fail 'the helper-off comparison runs on Linux'
-printf '%s\n' "$off_job" | grep -Fxq '    timeout-minutes: 20' \
-  && printf '%s\n' "$off_job" | grep -Fxq '        run: sh bench/gitleaks-helper/compare-off.sh "$RUNNER_TEMP/official/gitleaks"' \
-  || fail 'the helper-off comparison uses one tree with the original time limit'
-if printf '%s\n' "$off_job" | grep -Eq 'base-checkout|fetch-depth:|worktree add'; then
-  fail 'the helper-off comparison does not check out a base tree'
-fi
-for path in plugins/agent-guard/bin/agent-guard bench/gitleaks-helper/compare-off.sh tests/ci-scope.sh; do
+printf '%s\n' "$off_job" | grep -Fxq '    name: Unusable helper equals unset in the same tree' \
+  && printf '%s\n' "$off_job" | grep -Fxq '    timeout-minutes: 20' \
+  || fail 'the helper-off job is named for what it compares, with the original time limit'
+printf '%s\n' "$off_job" | grep -Fxq '          fetch-depth: 2' \
+  && printf '%s\n' "$off_job" | grep -Fxq '        run: sh .github/scripts/helper-call-sites.sh HEAD^1 HEAD >> "$GITHUB_OUTPUT"' \
+  || fail 'the helper-off job asks the call-site script about the merge parent'
+printf '%s\n' "$off_job" | grep -Fq 'git worktree add --detach base-checkout HEAD^1' \
+  && printf '%s\n' "$off_job" | grep -Fq 'compare-off.sh "$RUNNER_TEMP/official/gitleaks" "$GITHUB_WORKSPACE/base-checkout"' \
+  && ! printf '%s\n' "$off_job" | grep -Fq 'pull_request.base.sha' \
+  || fail 'the helper-off comparison base is the merge parent'
+printf '%s\n' "$off_job" | grep -Fxq '              sh bench/gitleaks-helper/compare-off.sh "$RUNNER_TEMP/official/gitleaks"' \
+  && printf '%s\n' "$off_job" | grep -Fq 'exit 1' \
+  || fail 'the helper-off comparison runs without a base when untouched and fails without an answer'
+for path in plugins/agent-guard/bin/agent-guard bench/gitleaks-helper/compare-off.sh .github/scripts/helper-call-sites.sh; do
   grep -Fxq "      - '$path'" "$helper_wf" || fail "helper PR filter includes $path"
 done
 if grep -Fq "      - 'bench/gitleaks-helper/**'" "$helper_wf"; then
   fail 'the helper workflow skips benchmarks it does not run'
 fi
+# The call-site script on real diffs of the CLI: the variants a same-tree
+# comparison misses (work added where both states run, a plain branch folded
+# into the wrapper, a wrapper call dropped) are found, a change unrelated to
+# the helper is not, and a diff that cannot run is an error, not "untouched".
+sites_script="$ROOT/.github/scripts/helper-call-sites.sh"
+sites_cli=plugins/agent-guard/bin/agent-guard
+sites_tmp=$(mktemp -d)
+trap 'rm -rf "$sites_tmp"' 0
+(
+export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_CONFIG_NOSYSTEM=1 GIT_CEILING_DIRECTORIES="$sites_tmp"
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
+repo="$sites_tmp/repo"
+git init -q "$repo" && mkdir -p "$repo/plugins/agent-guard/bin" && cp "$ROOT/$sites_cli" "$repo/$sites_cli" \
+  && git -C "$repo" add . && git -C "$repo" -c user.email=t@example.test -c user.name=t commit -qm base || exit 1
+base_rev=$(git -C "$repo" rev-parse HEAD) || exit 1
+sites_case() { # $1 description, $2 expected output, $3 awk program applied to the CLI
+  git -C "$repo" checkout -q "$base_rev" -- . || exit 1
+  awk "$3" "$ROOT/$sites_cli" >"$repo/$sites_cli.new" && mv "$repo/$sites_cli.new" "$repo/$sites_cli" || exit 1
+  git -C "$repo" diff --quiet "$base_rev" -- . && fail "the $1 variant changes the CLI"
+  git -C "$repo" -c user.email=t@example.test -c user.name=t commit -qam "$1" || exit 1
+  got=$(cd "$repo" && sh "$sites_script" "$base_rev" HEAD 2>/dev/null) || fail "call-site script on the $1 variant"
+  [ "$got" = "$2" ] || fail "the $1 variant gives '$got', not '$2'"
+}
+sites_case 'work before the helper case' touched=true '{ print } /^gitleaks_helper_selected\(\) \{/ { print "  jq -n null >/dev/null" }'
+sites_case 'plain branch through the wrapper' touched=true '/^          "\$gl" stdin --report-format json/ && !done { sub(/"\$gl"/, "gitleaks_exec \"$gl\""); done = 1 } { print }'
+sites_case 'wrapper call dropped' touched=true '/gitleaks_exec "\$GITLEAKS_BIN" "\$@"/ && !done { sub(/gitleaks_exec /, ""); done = 1 } { print }'
+sites_case 'change unrelated to the helper' touched=false '{ print } /^block_on_scan_status\(\) \{/ { print "  jq -n null >/dev/null" }'
+git -C "$repo" checkout -q "$base_rev" -- . || exit 1
+got=$(cd "$repo" && sh "$sites_script" "$base_rev" HEAD) && [ "$got" = touched=false ] || fail 'no change leaves the call sites untouched'
+if (cd "$repo" && sh "$sites_script" no-such-revision HEAD >/dev/null 2>&1); then fail 'a diff that cannot run is an error'; fi
+) || exit 1
+pass=$((pass + 6))
+rm -rf "$sites_tmp"
+trap - 0
 printf 'CI scope fixtures passed: %s; matrix, aggregate and performance schedule wiring verified\n' "$pass"

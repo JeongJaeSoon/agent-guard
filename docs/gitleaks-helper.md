@@ -243,9 +243,21 @@ the same CLI with the helper variable unset and pointing at a missing client
 must match in exit codes, output, the number of programs executed and the
 number of processes forked (`bench/gitleaks-helper/compare-off.sh`, also run
 in CI). This compares two states in the pull request's tree, so intentional
-hook changes unrelated to the helper do not fail the check. The separate
-`Hook instruction count (base vs head)` job reports cost changes against the
-base branch.
+hook changes unrelated to the helper do not fail the check. Only a missing
+client path is tried as unusable; a relative path, a file without execute
+permission and `AGENT_GUARD_GITLEAKS_BIN` are not compared.
+
+That comparison cannot see helper code that adds the same work to both states.
+When a pull request's diff of `plugins/agent-guard` changes a line, or sits
+in a function, that names `AGENT_GUARD_GITLEAKS_HELPER`, `gitleaks_helper*`
+or `gitleaks_exec` (`.github/scripts/helper-call-sites.sh` decides from the
+diff, not from file paths), CI also runs the default path, helper unset,
+against the base: the same 64 comparisons must match in exit codes, output,
+programs executed and processes forked. A pull request that changes these
+call sites therefore keeps the default path as it was; a behavior change
+belongs in a separate pull request. The `Hook instruction count (base vs
+head)` job reports cost changes against the base branch, but it does not fail
+on an increase and does not count the programs the hook executes.
 
 Large inputs copy about as much as v3.7.0 did. With 300 KiB and 1 MiB clean
 inputs through a Write PreToolUse and a Bash PostToolUse, the bytes read and

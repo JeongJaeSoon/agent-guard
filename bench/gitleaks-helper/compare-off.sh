@@ -1,14 +1,27 @@
 #!/bin/sh
-# With an unusable helper, a hook must answer and start processes exactly as
-# the same CLI with no helper variable. Runs each fixture through both states
-# under strace and compares exit code, stdout, stderr, the number of programs
-# executed (a watchdog's sleep excluded: it may be killed before it execs) and
-# the number of processes forked. Linux only (strace 5.2 or later).
+# The hook must answer and start processes the same way whatever the state of
+# the opt-in warm gitleaks helper (#537, #581). Runs each fixture under strace
+# and compares exit code, stdout, stderr, the number of programs executed (a
+# watchdog's sleep excluded: it may be killed before it execs) and the number
+# of processes forked. Linux only (strace 5.2 or later).
 #
-#   sh bench/gitleaks-helper/compare-off.sh /abs/gitleaks
+# Always: this tree with AGENT_GUARD_GITLEAKS_HELPER unset against this tree
+# with it pointing at a missing client. A change to the hook that has nothing
+# to do with the helper changes both runs alike and passes.
+#
+# With a base checkout: also this tree against the base, both with the helper
+# unset. The default path must cost what it did, so a change that adds work
+# there fails. The caller passes a base only when the pull request touches the
+# helper call sites (.github/scripts/helper-call-sites.sh).
+#
+#   sh bench/gitleaks-helper/compare-off.sh /abs/gitleaks [/abs/base-checkout]
 set -u
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd -P)
 REAL=${1:?gitleaks required}
+BASE=
+if [ -n "${2:-}" ]; then
+  BASE=$(CDPATH= cd -- "$2" && pwd -P) || exit 1
+fi
 for tool in strace jq git; do
   command -v "$tool" >/dev/null 2>&1 || { printf 'required tool missing: %s\n' "$tool" >&2; exit 1; }
 done
@@ -55,40 +68,62 @@ run() { # $1 cli, $2 fixture, $3 host, $4 log mode, $5 helper env, $6 out prefix
   status=$?
   set +f
   echo "$status" >"$6.status"
+  # Messages may name the CLI's own absolute path (setup hints); the base and
+  # this tree live in different directories, so compare that path as one
+  # placeholder. Files without the path stay byte for byte as written.
+  for part in out err; do
+    grep -qF -- "$1" "$6.$part" || continue
+    CLI_ROOT=$1 LC_ALL=C awk 'BEGIN { root = ENVIRON["CLI_ROOT"] } {
+      out = ""
+      while ((at = index($0, root)) > 0) { out = out substr($0, 1, at - 1) "<cli-root>"; $0 = substr($0, at + length(root)) }
+      print out $0
+    }' "$6.$part" >"$6.$part.n" && mv "$6.$part.n" "$6.$part"
+  done
   # A watchdog's sleep may be killed before it execs; count every other program.
   grep 'execve("' "$6.trace" | grep -vc 'execve("[^"]*/sleep"' >"$6.execs"
   [ "$(cat "$6.execs")" -gt 0 ] || { printf 'no programs traced: %s\n' "$6" >&2; exit 1; }
   # Threads (CLONE_THREAD, e.g. gitleaks's Go runtime) are not processes.
   grep -E '(clone3?|v?fork)\(' "$6.trace" | grep -vc CLONE_THREAD >"$6.forks"
 }
+programs() { grep 'execve("' "$1" | grep -v 'execve("[^"]*/sleep"' | sed 's/^[0-9]* *execve("\([^"]*\)".*/\1/' | sort | uniq -c | sed "s|$2|<cli-root>|"; }
 # The first hook run in the fresh work tree also refreshes its Git index; run
-# the CLI once first so every measured run starts from the same tree state.
+# each CLI once first so every measured run starts from the same tree state.
 run "$ROOT" "$CASE/fx/1" claude on "" "$CASE/warm"
-programs() { grep 'execve("' "$1" | grep -v 'execve("[^"]*/sleep"' | sed 's/^[0-9]* *execve("\([^"]*\)".*/\1/' | sort | uniq -c; }
-total=0 differ=0 unset_execs=0 unusable_execs=0 unset_forks=0 unusable_forks=0
-helper="$CASE/missing-client"
-for f in "$CASE"/fx/*; do
-  for host in claude codex; do
-    for log in on off; do
-      run "$ROOT" "$f" "$host" "$log" "" "$CASE/b"
-      run "$ROOT" "$f" "$host" "$log" "$helper" "$CASE/h"
-      total=$((total + 1))
-      unset_execs=$((unset_execs + $(cat "$CASE/b.execs")))
-      unusable_execs=$((unusable_execs + $(cat "$CASE/h.execs")))
-      unset_forks=$((unset_forks + $(cat "$CASE/b.forks")))
-      unusable_forks=$((unusable_forks + $(cat "$CASE/h.forks")))
-      for part in status out err execs forks; do
-        if ! cmp -s "$CASE/b.$part" "$CASE/h.$part"; then
-          differ=$((differ + 1))
-          printf 'DIFFER %s fixture %s host %s log %s helper %s: %s\n' "$part" "${f##*/}" "$host" "$log" "${helper:-unset}" \
-            "$(cat "$CASE/b.$part" | head -c 200) / $(cat "$CASE/h.$part" | head -c 200)"
-          [ "$part" != execs ] || { programs "$CASE/b.trace" >"$CASE/b.programs"; programs "$CASE/h.trace" >"$CASE/h.programs"; diff "$CASE/b.programs" "$CASE/h.programs" | sed 's/^/  /'; }
-          break
-        fi
+[ -z "$BASE" ] || run "$BASE" "$CASE/fx/1" claude on "" "$CASE/warm"
+# $1 titles the comparison; the other six name the two sides, each as a
+# label, a CLI checkout and a helper variable. Returns 1 on any difference.
+compare() {
+  title=$1 a_name=$2 a_cli=$3 a_helper=$4 b_name=$5 b_cli=$6 b_helper=$7
+  total=0 differ=0 a_execs=0 b_execs=0 a_forks=0 b_forks=0
+  for f in "$CASE"/fx/*; do
+    for host in claude codex; do
+      for log in on off; do
+        run "$a_cli" "$f" "$host" "$log" "$a_helper" "$CASE/a"
+        run "$b_cli" "$f" "$host" "$log" "$b_helper" "$CASE/b"
+        total=$((total + 1))
+        a_execs=$((a_execs + $(cat "$CASE/a.execs")))
+        b_execs=$((b_execs + $(cat "$CASE/b.execs")))
+        a_forks=$((a_forks + $(cat "$CASE/a.forks")))
+        b_forks=$((b_forks + $(cat "$CASE/b.forks")))
+        for part in status out err execs forks; do
+          if ! cmp -s "$CASE/a.$part" "$CASE/b.$part"; then
+            differ=$((differ + 1))
+            printf 'DIFFER %s fixture %s host %s log %s (%s / %s): %s / %s\n' "$part" "${f##*/}" "$host" "$log" "$a_name" "$b_name" \
+              "$(head -c 200 "$CASE/a.$part")" "$(head -c 200 "$CASE/b.$part")"
+            [ "$part" != execs ] || { programs "$CASE/a.trace" "$a_cli" >"$CASE/a.programs"; programs "$CASE/b.trace" "$b_cli" >"$CASE/b.programs"; diff "$CASE/a.programs" "$CASE/b.programs" | sed 's/^/  /'; }
+            break
+          fi
+        done
       done
     done
   done
-done
-printf 'comparisons: %s; differences: %s; programs executed: unset %s, unusable %s; processes forked: unset %s, unusable %s\n' \
-  "$total" "$differ" "$unset_execs" "$unusable_execs" "$unset_forks" "$unusable_forks"
-[ "$differ" = 0 ]
+  printf '%s: comparisons: %s; differences: %s; programs executed: %s %s, %s %s; processes forked: %s %s, %s %s\n' \
+    "$title" "$total" "$differ" "$a_name" "$a_execs" "$b_name" "$b_execs" "$a_name" "$a_forks" "$b_name" "$b_forks"
+  [ "$differ" = 0 ]
+}
+rc=0
+compare 'same tree' unset "$ROOT" '' unusable "$ROOT" "$CASE/missing-client" || rc=1
+if [ -n "$BASE" ]; then
+  compare 'base and this tree, helper unset' base "$BASE" '' 'this tree' "$ROOT" '' || rc=1
+fi
+exit "$rc"
