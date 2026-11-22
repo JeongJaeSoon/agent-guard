@@ -13,8 +13,9 @@ on:
       - 'plugins/agent-guard/bin/agent-guard'
       - 'plugins/agent-guard/config/gitleaks.toml'
       - 'tests/gitleaks-helper*.sh'
+      - 'tests/ci-scope.sh'
       - 'tests/fixtures/**'
-      - 'bench/gitleaks-helper/**'
+      - 'bench/gitleaks-helper/compare-off.sh'
   push:
     branches: [main]
   workflow_dispatch:
@@ -113,9 +114,9 @@ jobs:
           AGENT_GUARD_TEST_REAL_GITLEAKS: ${{ runner.temp }}/official/gitleaks
         run: sh tests/gitleaks-helper-corpus.sh
   off-state:
-    # With the helper off, every hook must answer and execute programs exactly
-    # as the base branch does (strace counts the programs).
-    name: Helper off equals the base branch
+    # An unusable helper must match the same CLI with the helper variable
+    # unset, including its process counts (strace counts the programs).
+    name: Helper off equals unset in the same tree
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -123,9 +124,6 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-          # The tested tree is the pull request's merge commit; its first
-          # parent is the exact base it was merged onto.
-          fetch-depth: 2
       - name: Install the official gitleaks release and strace
         run: |
           set -eu
@@ -135,9 +133,5 @@ jobs:
           printf '%s  %s\n' 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb "$RUNNER_TEMP/$archive" | shasum -a 256 -c -
           tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP/official" gitleaks
           sudo apt-get update -q >/dev/null && sudo apt-get install -y strace >/dev/null
-      - name: Check out the merge parent as the base
-        # The event's base SHA can be older than the main tip GitHub merged
-        # the pull request onto; that would compare against the wrong main.
-        run: git worktree add --detach base-checkout HEAD^1
-      - name: Compare hooks with the helper off against the base branch
-        run: sh bench/gitleaks-helper/compare-off.sh "$GITHUB_WORKSPACE/base-checkout" "$RUNNER_TEMP/official/gitleaks"
+      - name: Compare unset and unusable helper states in the same tree
+        run: sh bench/gitleaks-helper/compare-off.sh "$RUNNER_TEMP/official/gitleaks"

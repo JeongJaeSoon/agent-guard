@@ -237,12 +237,20 @@ grep -Fq 'matrix: ${{ fromJSON(needs.scope.outputs.matrix) }}' "$helper_wf" \
   && grep -Fq 'sh .github/scripts/gitleaks-helper-scope.sh "$EVENT_NAME" < "$RUNNER_TEMP/changed" >> "$GITHUB_OUTPUT"' "$helper_wf" \
   && grep -Fq "      - '.github/scripts/gitleaks-helper-scope.sh'" "$helper_wf" \
   || fail 'the helper workflow takes its platforms from the tested scope script'
-# The off-state comparison stays a Linux job on every CLI change, and its base
-# is the merge parent, never the event's possibly stale base SHA.
+# The off-state comparison uses one tree, including on CLI-only changes.
 off_job=$(awk '/^  off-state:/ { on = 1 } on' "$helper_wf")
 printf '%s\n' "$off_job" | grep -Fq 'runs-on: ubuntu-24.04' \
   || fail 'the helper-off comparison runs on Linux'
-printf '%s\n' "$off_job" | grep -Fq 'run: git worktree add --detach base-checkout HEAD^1' \
-  && ! printf '%s\n' "$off_job" | grep -Fq 'pull_request.base.sha' \
-  || fail 'the helper-off comparison base is the merge parent'
+printf '%s\n' "$off_job" | grep -Fxq '    timeout-minutes: 20' \
+  && printf '%s\n' "$off_job" | grep -Fxq '        run: sh bench/gitleaks-helper/compare-off.sh "$RUNNER_TEMP/official/gitleaks"' \
+  || fail 'the helper-off comparison uses one tree with the original time limit'
+if printf '%s\n' "$off_job" | grep -Eq 'base-checkout|fetch-depth:|worktree add'; then
+  fail 'the helper-off comparison does not check out a base tree'
+fi
+for path in plugins/agent-guard/bin/agent-guard bench/gitleaks-helper/compare-off.sh tests/ci-scope.sh; do
+  grep -Fxq "      - '$path'" "$helper_wf" || fail "helper PR filter includes $path"
+done
+if grep -Fq "      - 'bench/gitleaks-helper/**'" "$helper_wf"; then
+  fail 'the helper workflow skips benchmarks it does not run'
+fi
 printf 'CI scope fixtures passed: %s; matrix, aggregate and performance schedule wiring verified\n' "$pass"

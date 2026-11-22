@@ -237,11 +237,15 @@ PostToolUse hook with a changed tree runs three in a row. The helper holds
 after inputs of 1 MiB and dense 300 KB secrets (its peak was 77 MiB), and
 65 MiB while four sessions scanned through it at once, still one process. The
 client peaks at 3.4 MiB (7.7 MiB for a 1 MiB input) for a few milliseconds.
-Off, nothing changes: across 128 runs (14 hook fixtures, `scan-staged` and
-`scan-path`; Claude and Codex; log on and off; the variable unset and pointing
-at a missing client) exit codes, output, the number
-of programs executed and the number of processes forked equal main
-(`bench/gitleaks-helper/compare-off.sh`, also run in CI).
+With an unusable helper, nothing changes: across 64 comparisons (14 hook
+fixtures, `scan-staged` and `scan-path`; Claude and Codex; log on and off),
+the same CLI with the helper variable unset and pointing at a missing client
+must match in exit codes, output, the number of programs executed and the
+number of processes forked (`bench/gitleaks-helper/compare-off.sh`, also run
+in CI). This compares two states in the pull request's tree, so intentional
+hook changes unrelated to the helper do not fail the check. The separate
+`Hook instruction count (base vs head)` job reports cost changes against the
+base branch.
 
 Large inputs copy about as much as v3.7.0 did. With 300 KiB and 1 MiB clean
 inputs through a Write PreToolUse and a Bash PostToolUse, the bytes read and
