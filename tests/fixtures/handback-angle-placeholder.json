@@ -1,79 +1,19 @@
 [
-  {
-    "id": "angle-no-space-word",
-    "expected": "block",
-    "classification": "must-fail",
-    "description": "an angle value without whitespace keeps today's value reading",
-    "text": "JWT_SECRET=<qwzxkvplmn>"
-  },
-  {
-    "id": "angle-no-space-value",
-    "expected": "block",
-    "classification": "must-fail",
-    "description": "a value in angle brackets",
-    "text": "API_KEY=<{{SECRET}}>"
-  },
-  {
-    "id": "angle-glued",
-    "expected": "block",
-    "classification": "must-fail",
-    "description": "a value glued after a spaced angle placeholder",
-    "text": "API_KEY=<set in deployment>{{SECRET}}"
-  },
-  {
-    "id": "angle-value-after",
-    "expected": "block",
-    "classification": "must-fail",
-    "description": "a token shape outside the angle on the same line keeps blocking",
-    "text": "API_KEY=<set in deployment> {{SECRET}}"
-  },
-  {
-    "id": "angle-value-inside",
-    "expected": "block",
-    "classification": "must-fail",
-    "description": "a token shape among the words inside the angle keeps blocking",
-    "text": "API_KEY=<{{SECRET}} in deployment>"
-  },
-  {
-    "id": "angle-then-assignment",
-    "expected": "block",
-    "classification": "must-fail",
-    "description": "a spaced angle placeholder does not hide the next assignment",
-    "text": "API_KEY=<set in deployment> WORKER_TOKEN={{SECRET}}"
-  },
-  {
-    "id": "angle-quoted-value-after",
-    "expected": "block",
-    "classification": "must-fail",
-    "description": "a quoted spaced angle placeholder does not hide a value after it",
-    "text": "API_KEY=\"<set in deployment>\" {{SECRET}}"
-  },
-  {
-    "id": "angle-diceware",
-    "expected": "block",
-    "classification": "must-fail",
-    "description": "a passphrase of dictionary words in angle brackets has no marker word and stays a value",
-    "text": "DB_PASSWORD=<plaza fence orbit candle>"
-  },
-  {
-    "id": "angle-diceware-quoted",
-    "expected": "block",
-    "classification": "must-fail",
-    "description": "a quoted passphrase of dictionary words in angle brackets stays a value",
-    "text": "DB_PASSWORD=\"<plaza fence orbit candle>\""
-  },
-  {
-    "id": "angle-diceware-report",
-    "expected": "block",
-    "classification": "must-fail",
-    "description": "a passphrase in angle brackets in a report bullet stays a value",
-    "text": "- SESSION_SECRET=<correct horse battery staple> (src/app.ts:4)"
-  },
-  {
-    "id": "angle-short-word",
-    "expected": "block",
-    "classification": "must-fail",
-    "description": "regression: a short angle value keeps today's value reading",
-    "text": "JWT_SECRET=<hunter>"
-  }
+  {"id": "angle-no-space-word", "expected": "block", "classification": "must-fail", "description": "an angle value without whitespace keeps today's value reading", "text": "JWT_SECRET=<qwzxkvplmn>"},
+  {"id": "angle-no-space-value", "expected": "block", "classification": "must-fail", "description": "a value in angle brackets", "text": "API_KEY=<{{SECRET}}>"},
+  {"id": "angle-glued", "expected": "block", "classification": "must-fail", "description": "a value glued after a spaced angle placeholder", "text": "API_KEY=<set in deployment>{{SECRET}}"},
+  {"id": "angle-value-after", "expected": "block", "classification": "must-fail", "description": "a token shape outside the angle on the same line keeps blocking", "text": "API_KEY=<set in deployment> {{SECRET}}"},
+  {"id": "angle-value-inside", "expected": "block", "classification": "must-fail", "description": "a token shape among the words inside the angle keeps blocking", "text": "API_KEY=<{{SECRET}} in deployment>"},
+  {"id": "angle-then-assignment", "expected": "block", "classification": "must-fail", "description": "a spaced angle placeholder does not hide the next assignment", "text": "API_KEY=<set in deployment> WORKER_TOKEN={{SECRET}}"},
+  {"id": "angle-quoted-value-after", "expected": "block", "classification": "must-fail", "description": "a quoted spaced angle placeholder does not hide a value after it", "text": "API_KEY=\"<set in deployment>\" {{SECRET}}"},
+  {"id": "angle-diceware", "expected": "block", "classification": "must-fail", "description": "a passphrase of dictionary words in angle brackets has no marker word and stays a value", "text": "DB_PASSWORD=<plaza fence orbit candle>"},
+  {"id": "angle-diceware-quoted", "expected": "block", "classification": "must-fail", "description": "a quoted passphrase of dictionary words in angle brackets stays a value", "text": "DB_PASSWORD=\"<plaza fence orbit candle>\""},
+  {"id": "angle-diceware-report", "expected": "block", "classification": "must-fail", "description": "a passphrase in angle brackets in a report bullet stays a value", "text": "- SESSION_SECRET=<correct horse battery staple> (src/app.ts:4)"},
+  {"id": "angle-short-word", "expected": "block", "classification": "must-fail", "description": "regression: a short angle value keeps today's value reading", "text": "JWT_SECRET=<hunter>"},
+  {"id": "angle-spaced", "expected": "pass", "classification": "must-pass", "description": "shape 4: an angle placeholder with spaces", "text": "SESSION_SECRET=<set in deployment>"},
+  {"id": "angle-spaced-report", "expected": "pass", "classification": "must-pass", "description": "shape 4 in a report bullet followed by a location", "text": "- DB_PASSWORD=<ask the owner> (src/db.ts:12)"},
+  {"id": "angle-spaced-quoted", "expected": "pass", "classification": "must-pass", "description": "shape 4 in double quotes", "text": "API_KEY=\"<set in deployment>\""},
+  {"id": "angle-placeholder-noun", "expected": "pass", "classification": "must-pass", "description": "shape 4: a spaced phrase with a placeholder word", "text": "WEBHOOK_SECRET=<signing key from the dashboard>"},
+  {"id": "angle-korean-quoted", "expected": "pass", "classification": "must-pass", "description": "shape 4: a quoted angle placeholder in Korean", "text": "API_KEY=\"<배포 단계에서 넣음>\""},
+  {"id": "angle-spaced-colon", "expected": "pass", "classification": "must-pass", "description": "shape 4 after a colon", "text": "client_secret: <from the vault at deploy time>"}
 ]
