@@ -1,7 +1,7 @@
 # Documentation
 
-Start with the user guides. Developer contracts and historical measurements
-have separate homes so that completed investigations do not obscure setup help.
+Start with the user guides. Test layers, CI partitions and the contributor
+workflow are in [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 ## Use and operate Agent Guard
 
@@ -15,10 +15,7 @@ have separate homes so that completed investigations do not obscure setup help.
 
 ## Develop and validate
 
-- [Test layers and current contract inventory](development/testing.md)
-- [CI partitions and historical scheduling evidence](development/ci.md)
-- [Core contracts](development/unit-tests.md), [framing](development/unit-framing.md),
-  and [deny-path regex](development/deny-path-regex.md)
+- [Test layers, CI checks and partitions](../CONTRIBUTING.md)
 - [Rust helper, platform support and fallback](native-redactor.md)
 - [Opt-in warm gitleaks helper: equivalence, failures, memory](gitleaks-helper.md)
 
@@ -38,5 +35,5 @@ commit generated reports, raw measurement output, goal or plan notes: write them
 to the ignored `bench/local/` directory, a release asset or a CI artifact.
 Git history retains earlier discussion.
 
-Standalone releases contain the user guides above. This index and the developer
-notes are repository documentation.
+Standalone releases contain the user guides above. This index, CONTRIBUTING.md
+and the developer guides are repository documentation.

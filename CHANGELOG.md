@@ -419,7 +419,7 @@ v3.11.0은 릴리스 머지 뒤 main이 움직여 태그를 발행하지 못했�
 - 공식 scanner의 같은 목표: 지연 2.93~5.82%, CPU 3.88~6.19% 감소. 모든 설치나 작업에 10% 개선을 주장하지 않습니다.
 - Claude/Homebrew 부하 검사에서 동시 4요청 처리량은 6.02→7.34 req/s, CPU는 2.652→2.261초/8요청이었지만, 표본 RSS 합은 214.35→236.98MiB로 증가했습니다. 최대 자식 RSS와 공유 페이지를 중복 집계할 수 있는 표본 RSS 합은 구분합니다. 메모리 절감은 입증하지 않았습니다.
 
-위 원인별 실험은 공개 redactor를 양쪽에 유지하고 prepare helper를 분리한 구성입니다. 실제 설치의 공유 core 구성도 공식/Homebrew와 audit 세 상태에서 별도로 측정하며, 독립 출력·일반 경로 회귀·Homebrew 목표 개선을 배포 관문으로 검사합니다. 숫자 fallback의 단일 진단 시간을 평균 성능으로 사용하지 않습니다. 설치 비용과 반복 사용의 손익, 실패한 후보 및 최종 설치 구성의 원시는 [상세 보고서](https://github.com/JeongJaeSoon/agent-guard/blob/codex/fused-output-evidence/bench/results/fused-output/README.ko.md)에서 구분합니다.
+위 원인별 실험은 공개 redactor를 양쪽에 유지하고 prepare helper를 분리한 구성입니다. 실제 설치의 공유 core 구성도 공식/Homebrew와 audit 세 상태에서 별도로 측정하며, 독립 출력·일반 경로 회귀·Homebrew 목표 개선을 배포 관문으로 검사합니다. 숫자 fallback의 단일 진단 시간을 평균 성능으로 사용하지 않습니다. 설치 비용과 반복 사용의 손익, 실패한 후보 및 최종 설치 구성의 원시는 [상세 보고서](https://github.com/JeongJaeSoon/agent-guard/blob/b0fac5c79ccd8666bbe237182f19f1b0aae6b060/bench/results/fused-output/README.ko.md)에서 구분합니다.
 
 호환성을 깨야 할 필요성은 확인하지 못했습니다. v4.0.0을 위한 불필요한 계약 변경을 만들지 않고 선택형 기능을 v3.x에 추가합니다. 공식 scanner의 의존성 실험을 전체 설치에 적용하면 Homebrew에서 회귀하므로 scanner 일괄 교체는 계속 기각합니다.
 

@@ -5632,8 +5632,7 @@ fi
 # Runs here rather than beside the other redaction suites in partition 1.
 # It makes several hundred hook runs, and the run time of partitions 1 and 3
 # sets the time of the core jobs (one job on Linux, one each on macOS), so
-# it goes where there is room: see docs/development/ci.md for the measured
-# job times.
+# it goes where there is room: see CONTRIBUTING.md#test-partitions.
 run_expect 0 "a field value that repeats the field name is code on both hosts; config literals stay masked" \
   sh "$ROOT/tests/key-name-masking.sh"
 

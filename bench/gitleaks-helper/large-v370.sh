@@ -5,8 +5,8 @@
 # of 7 runs, and from one strace run the bytes every process read and wrote
 # (the copy cost) and the programs executed. Synthetic clean inputs only, under
 # a temporary HOME.
-# bench/fused-output/run-constrained.sh needs Docker with enforced cgroup limits;
-# this runs the same public v3.7.0 release directly, Linux with strace.
+# It needs no Docker cgroup limits: it runs the public v3.7.0 release directly,
+# on Linux with strace.
 #
 #   sh bench/gitleaks-helper/large-v370.sh /abs/v3.7.0-tarball-root /abs/checkout \
 #     /abs/gitleaks /abs/helper-build-dir

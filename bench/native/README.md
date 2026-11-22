@@ -57,19 +57,11 @@ pre-exec forked memory can give Python-launched small programs an approximately
 11 MiB RSS floor here. Kernel RSS is therefore not used to claim a native-core
 memory saving; the full CLI scanner peak is above that floor.
 
-## Recorded environment limitation
-
-The recorded run requested two CPUs and 1 GiB per Docker container, but the
-managed environment's rootless Docker uses the `none` cgroup driver. These
-per-container limits were **not enforced**. Both implementations shared the
-parent environment's four-CPU quota and 16 GiB memory limit. No other local
-test/build job ran during performance sampling; the CPUs were not dedicated.
-
-The visible cgroup memory peak belongs to the parent environment and must not
-be plotted as container memory. The report uses sampled process RSS instead.
-Raw counters are retained with `cgroup_isolated: false`. A future isolated
-runner should enforce and verify cgroup limits before extending these results
-to constrained production deployments.
+`run.sh` records `cgroup_isolated` in the `load-*.json` results: a rootless Docker with the `none` cgroup
+driver does not enforce the requested per-container CPU and memory limits, so
+the parent environment's cgroup memory peak is not container memory. Use
+sampled process RSS instead, and use `run-packaged.sh`, which refuses to
+measure without enforced limits, for constrained-deployment claims.
 
 The CLI workloads use synthetic output, cold readiness caches and PII off.
 They do not establish model latency, remote PII latency, repository scanning
