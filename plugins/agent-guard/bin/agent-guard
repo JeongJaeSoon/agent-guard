@@ -7356,7 +7356,7 @@ bash_strip_literal_message_values() (
 # query counts as an inert earlier segment, and a segment qualifies only
 # when everything its pipeline feeds is a plain text filter (sink_ok).
 search_operand_spans() {
-  printf '%s\n' "$1" | LC_ALL=C awk -v grep_env="${GREP_OPTIONS-}" -v rg_env="${RIPGREP_CONFIG_PATH-}" -v cd_ok="$(path_entries_absolute && echo 1)" -v mode="${2-}" \
+  printf '%s\n' "$1" | LC_ALL=C awk -v grep_env="${GREP_OPTIONS-}" -v cd_ok="$(path_entries_absolute && echo 1)" -v mode="${2-}" \
     -v inert_names="$INERT_SEGMENT_COMMANDS_ERE" "$AWK_INERT_COMMAND"'
     function bail() { failed = 1; exit }
     function start_word() {
@@ -7425,10 +7425,9 @@ search_operand_spans() {
         }
       }
       # Options from the environment come before these words and can turn the
-      # pattern into a file: a ripgrep config file, which rg reads only when
-      # RIPGREP_CONFIG_PATH names one and --no-config is not given, and
-      # GREP_OPTIONS, which BSD grep still reads.
-      if (rg ? !noconf && rg_env != "" : grep_env != "") return ""
+      # pattern into a file: a ripgrep config file unless --no-config is
+      # given, and GREP_OPTIONS, which BSD grep still reads.
+      if (rg ? !noconf : grep_env != "") return ""
       return out
     }
     # A value moved off its option by a valueless one before it would be a
@@ -9470,6 +9469,79 @@ bash_match_words() {
   esac
 }
 
+# Print, one per line, each segment of the one-line command $1 that is a
+# plain cp, mv or mkdir: the name, single-letter options and relative operands
+# made of name characters and brace groups, between `&&` or `;` on both
+# sides, with no redirection. Such a command cannot put a file where a later
+# command name is looked up: PATH holds only absolute entries, none of them
+# under the directory the scan runs in, nothing on the line changes
+# directory, and no operand is absolute or can reach a parent directory (a
+# brace group can spell `..` from two single dots, so a dot next to a brace
+# or comma is refused). Returns 1 when there is none.
+bash_file_mover_segments() {
+  case "$1" in
+    *'
+'*|*'<<'*) return 1 ;;
+  esac
+  case "$1" in *'&&'*|*';'*) ;; *) return 1 ;; esac
+  case "$1" in *'cp '*|*'mv '*|*'mkdir '*) ;; *) return 1 ;; esac
+  path_entries_absolute || return 1
+  case ":$PATH:" in *":$PWD:"*|*":$PWD/"*) return 1 ;; esac
+  shell_words_marker "$1"
+  fm_words=$(shell_command_words "$1") || return 1
+  printf '%s\n' "$fm_words" | LC_ALL=C awk '
+    function ok_word(v) {
+      if (v !~ /^[A-Za-z0-9_.\/@%+,{}-]+$/) return 0
+      if (substr(v, 1, 1) == "-") return v ~ /^-[A-Za-z]+$/
+      return !(substr(v, 1, 1) == "/" || v ~ /\.[{},]*\./ || v ~ /[{,][.\/]/ || v ~ /\.[,}]/)
+    }
+    function sep(v) { return v == ";" || v == "&&" || v == "||" || v == "|" || v == "&" }
+    { w[NR] = $0 }
+    END {
+      for (k = 1; k <= NR; k++) if (w[k] ~ /^(cd|pushd|popd)$/) exit 1
+      # No operand may hold the name of a command the line runs, as the file
+      # `cp tool bin/grep` writes would.
+      for (k = 1; k <= NR; k++) if (k == 1 || sep(w[k - 1])) { v = w[k]; sub(/.*\//, "", v); head[v] = 1 }
+      found = 0
+      for (s = 1; s <= NR; s = e + 2) {
+        for (e = s; e <= NR && !sep(w[e]); e++) ;
+        e--
+        if (e <= s || w[s] !~ /^(cp|mv|mkdir)$/) continue
+        if (e + 1 > NR || w[e + 1] != "&&" && w[e + 1] != ";") continue
+        if (s > 1 && w[s - 1] != "&&" && w[s - 1] != ";") continue
+        good = 1; line = w[s]
+        for (k = s + 1; k <= e; k++) {
+          if (!ok_word(w[k])) good = 0
+          m = split(w[k], part, /[\/{},]/)
+          for (j = 1; j <= m; j++) if (part[j] in head) good = 0
+          line = line " " w[k]
+        }
+        if (good) { print line; found = 1 }
+      }
+      exit !found
+    }
+  '
+}
+
+# Print $1 with each segment of $2 (bash_file_mover_segments) replaced by a
+# `true` command carrying a marker word ($3 = out), or with those markers
+# replaced by the segments again ($3 = in). Returns 1 when a segment or a
+# marker is not found as written.
+bash_file_mover_swap() {
+  FM_CMD=$1 FM_SEGMENTS=$2 LC_ALL=C awk -v dir="$3" 'BEGIN {
+    s = ENVIRON["FM_CMD"]; n = split(ENVIRON["FM_SEGMENTS"], seg, "\n")
+    for (k = 1; k <= n; k++) {
+      mark = "true agent-guard-file-mover-" k
+      from = dir == "out" ? seg[k] : mark
+      to = dir == "out" ? mark : seg[k]
+      p = index(s, from)
+      if (!p) exit 1
+      s = substr(s, 1, p - 1) to substr(s, p + length(from))
+    }
+    printf "%s", s
+  }'
+}
+
 # Print the pending deny-path report, with the place of the match in command
 # $1 when it can be found there.
 deny_path_report_print() {
@@ -9511,6 +9583,17 @@ bash_deny_path_scan() {
   esac
   deny_cmd=$(bash_strip_heredoc_bodies "$deny_cmd")
   deny_cmd=$(bash_strip_echo_literal_text "$deny_cmd")
+  # A plain cp, mv or mkdir before a search or message command stands aside
+  # as `true` while the two exemptions below decide what is data, and comes
+  # back right after them, so its own operands are scanned as written.
+  deny_movers=
+  if deny_movers=$(bash_file_mover_segments "$deny_cmd") && [ -n "$deny_movers" ]; then
+    deny_with_movers=$deny_cmd
+    deny_cmd=$(bash_file_mover_swap "$deny_cmd" "$deny_movers" out) \
+      || { deny_cmd=$deny_with_movers; deny_movers=; }
+  else
+    deny_movers=
+  fi
   # A failed rewrite keeps the whole command in the scan.
   # The deny-pattern check already stripped the same text (it depends on
   # nothing but the text), so reuse that result.
@@ -9520,6 +9603,9 @@ bash_deny_path_scan() {
     deny_stripped=$(bash_strip_message_values "$deny_cmd") && deny_cmd=$deny_stripped
   fi
   deny_stripped=$(bash_strip_non_read_operands "$deny_cmd") && deny_cmd=$deny_stripped
+  if [ -n "$deny_movers" ]; then
+    deny_cmd=$(bash_file_mover_swap "$deny_cmd" "$deny_movers" in) || deny_cmd=$deny_with_movers
+  fi
   deny_pre_jq=$deny_cmd
   deny_cmd=$(bash_neutralize_jq_field_names "$deny_cmd")
   # Kept only when field names were dropped (see the dot-command test there).

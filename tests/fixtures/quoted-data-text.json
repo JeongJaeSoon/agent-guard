@@ -311,8 +311,8 @@
     "id": "rg-pattern",
     "expected_status": 0,
     "classification": "must-pass",
-    "description": "an rg pattern that names dotenv files",
-    "command": "rg -n '\\.env' docs/"
+    "description": "an rg pattern that names dotenv files, with no config file read",
+    "command": "rg --no-config -n '\\.env' docs/"
   },
   {
     "id": "rg-protected-operand",
@@ -322,11 +322,74 @@
     "command": "rg -n 'x' .env"
   },
   {
-    "id": "cp-brace-chain",
+    "id": "cp-brace-chain-grep",
     "expected_status": 0,
     "classification": "must-pass",
-    "description": "a cp brace group chained with && to a listing",
-    "command": "mkdir -p out && cp docs/{notes,rules}.md out/ && ls out"
+    "description": "a cp brace group of ordinary files, then && and a grep whose pattern names a secrets file",
+    "command": "cp docs/{notes,rules}.md out/ && grep -n 'secrets.yaml' out/notes.md"
+  },
+  {
+    "id": "cp-protected-source",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "cp with a protected source before the same grep",
+    "command": "cp .env out/ && grep -n 'secrets.yaml' out/notes.md"
+  },
+  {
+    "id": "cp-brace-chain-commit",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "the same cp, then a commit whose message names a secrets file",
+    "command": "cp docs/{notes,rules}.md out/ && git commit -m \"docs: say why secrets.yaml is blocked\""
+  },
+  {
+    "id": "cp-absolute-destination",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "cp to an absolute destination before the grep",
+    "command": "cp docs/{notes,rules}.md /usr/local/bin/ && grep -n 'secrets.yaml' docs/notes.md"
+  },
+  {
+    "id": "mkdir-cp-chain",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "mkdir, cp and a listing before the grep",
+    "command": "mkdir -p out && cp docs/{notes,rules}.md out/ && ls out && grep -n 'secrets.yaml' out/notes.md"
+  },
+  {
+    "id": "cp-parent-destination",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "cp to a parent directory before the grep",
+    "command": "cp docs/{notes,rules}.md ../bin/ && grep -n 'secrets.yaml' docs/notes.md"
+  },
+  {
+    "id": "cp-redirection",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "cp with a redirection before the grep",
+    "command": "cp docs/{notes,rules}.md out/ > log.txt && grep -n 'secrets.yaml' docs/notes.md"
+  },
+  {
+    "id": "cp-brace-parent",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a brace group that spells a parent directory",
+    "command": "cp docs/notes.md .{,}./bin/grep && grep -n 'secrets.yaml' docs/notes.md"
+  },
+  {
+    "id": "cp-writes-command-name",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "cp writes a file named like the later command",
+    "command": "cp tools/shim bin/grep && grep -n 'secrets.yaml' docs/notes.md"
+  },
+  {
+    "id": "cd-cp-chain",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "cp after a directory change",
+    "command": "cd /opt/tools/bin && cp sub/x grep && grep -n 'secrets.yaml' notes.md"
   },
   {
     "id": "cp-brace-protected",

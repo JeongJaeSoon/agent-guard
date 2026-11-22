@@ -146,8 +146,8 @@ PATTERNS=$ROOT/plugins/agent-guard/config/deny-bash-patterns.txt
 line_of() { grep -n -F -- "$1" "$PATTERNS" | sed -n '1s/:.*//p'; }
 says "a pattern block names the printenv line" \
   "matched deny-bash-patterns line $(line_of '/)?printenv(') "
-says "a pattern block says which word matched" ") at word 8 of the command"
-says "a pattern block shows the entry" "deny-bash-patterns entry: (^|[[:space:];|&(`])"
+says "a pattern block says which word matched" ") at word 1 of the command"
+says "a pattern block shows the entry" 'deny-bash-patterns entry: (^|[[:space:];|&(`])'
 says "a pattern block says not to retry" "do not retry it in another form"
 says "a claude pattern block names the Read tool" "Read files with the Read tool, and let"
 says "a claude pattern block names the Write and Grep tools" "write the file with the Write tool or search with the Grep tool; if a secret value itself is needed, ask the user."
