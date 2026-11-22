@@ -55,7 +55,7 @@ while IFS= read -r path; do
       END { for (n in hit) print n }' >>"$tmp/callers"
   done
 done <"$tmp/paths"
-awk -v names="$names" -v helper_functions="$helper_functions" -v hits="$tmp/hits" -v callers_file="$tmp/callers" '
+awk -v names="$names" -v helper_functions="$helper_functions" -v helper_definition="^[-+](gitleaks_helper|gitleaks_exec)[A-Za-z0-9_]*[(]" -v hits="$tmp/hits" -v callers_file="$tmp/callers" '
   FILENAME == callers_file { caller[$0] = 1; next }
   function raise(level, why) {
     if (level == "full" || scope == "none") scope = level
@@ -71,6 +71,7 @@ awk -v names="$names" -v helper_functions="$helper_functions" -v hits="$tmp/hits
   }
   inhunk && /^[-+]/ {
     if ($0 ~ /(^[-+][ \t]*|[;&|({][ \t]*|[ \t](then|do|else)[ \t]+)(\.|source)[ \t]+[^ \t]/) raise("full", "sourcing line: " $0)
+    else if ($0 ~ helper_definition) raise("full", "helper function definition: " $0)
     else if ($0 ~ names) {
       if (fn == "" || fn ~ helper_functions) raise("full", "outside the callers: " $0)
       else raise("cost", "in " fn ": " $0)
