@@ -287,12 +287,14 @@ sites_case() { # $1 description, $2 expected output, $3 awk program applied to t
 sites_case 'work before the helper case' touched=true '{ print } /^gitleaks_helper_selected\(\) \{/ { print "  jq -n null >/dev/null" }'
 sites_case 'plain branch through the wrapper' touched=true '/^          "\$gl" stdin --report-format json/ && !done { sub(/"\$gl"/, "gitleaks_exec \"$gl\""); done = 1 } { print }'
 sites_case 'wrapper call dropped' touched=true '/gitleaks_exec "\$GITLEAKS_BIN" "\$@"/ && !done { sub(/gitleaks_exec /, ""); done = 1 } { print }'
+sites_case 'work in a function that calls the wrapper' touched=true '{ print } /^gitleaks_scan\(\) \{/ { print "  jq -n null >/dev/null" }'
+sites_case 'file sourced from an unrelated function' touched=true '{ print } /^block_on_scan_status\(\) \{/ { print "  . ./extra.sh" }'
 sites_case 'change unrelated to the helper' touched=false '{ print } /^block_on_scan_status\(\) \{/ { print "  jq -n null >/dev/null" }'
 git -C "$repo" checkout -q "$base_rev" -- . || exit 1
 got=$(cd "$repo" && sh "$sites_script" "$base_rev" HEAD) && [ "$got" = touched=false ] || fail 'no change leaves the call sites untouched'
 if (cd "$repo" && sh "$sites_script" no-such-revision HEAD >/dev/null 2>&1); then fail 'a diff that cannot run is an error'; fi
 ) || exit 1
-pass=$((pass + 6))
+pass=$((pass + 8))
 rm -rf "$sites_tmp"
 trap - 0
 printf 'CI scope fixtures passed: %s; matrix, aggregate and performance schedule wiring verified\n' "$pass"
