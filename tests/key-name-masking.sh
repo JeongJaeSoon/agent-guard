@@ -205,6 +205,122 @@ if "$GUARD" exec -- cat "$CASE_ROOT/exec-in" 2>/dev/null | grep -Fq -- "$weak"; 
 else
   ok "exec masks the password literal next to the schema diff"
 fi
+
+# A field far into its line is in mid-line, so the exemption stops when the
+# key's delimiter ends more than 1024 bytes into the line. The limit also bounds the work: without it
+# the line-start pattern tried every start position of a long line, and one
+# 260 KB line kept the hook busy for minutes instead of well under a second.
+near=$(printf '%1000s' '')
+far=$(printf '%1100s' '')
+for host in claude codex; do
+  post_case "$host" "field 1,000 bytes into its line" "${near}credential: CredentialSchema," ""
+  post_case "$host" "field 1,100 bytes into its line" \
+    "${far}credential: CredentialSchema," "${far}credential: [REDACTED],"
+done
+# The line goes through files: one argument cannot hold 260 KB.
+head -c 260000 /dev/zero | LC_ALL=C tr '\0' a >"$CASE_ROOT/long-line"
+[ "$(wc -c <"$CASE_ROOT/long-line" | tr -d ' ')" -eq 260000 ] \
+  || { fail "long line has the wrong length"; exit 1; }
+{ cat "$CASE_ROOT/long-line"; printf ' API_KEY=%s' "$rnd"; } >"$CASE_ROOT/long-in"
+{ cat "$CASE_ROOT/long-line"; printf ' API_KEY=[REDACTED]'; } >"$CASE_ROOT/long-want"
+jq -nc --rawfile t "$CASE_ROOT/long-in" \
+  '{session_id:"key-name",hook_event_name:"PostToolUse",tool_name:"Bash",
+    tool_input:{command:"cat bundle.min.js"},
+    tool_response:{stdout:$t,stderr:"",interrupted:false}}' >"$CASE_ROOT/long-event"
+long_start=$(date +%s)
+long_ok=1
+for host in claude codex; do
+  AGENT_GUARD_HOOK_HOST=$host "$GUARD" hook-post-tool \
+    <"$CASE_ROOT/long-event" >"$CASE_ROOT/out" 2>"$CASE_ROOT/err"
+  status=$?
+  if [ "$host" = claude ]; then
+    jq -e --rawfile m "$CASE_ROOT/long-want" \
+      '.hookSpecificOutput.updatedToolOutput.stdout == $m' "$CASE_ROOT/out" >/dev/null 2>&1
+  else
+    jq -e --rawfile m "$CASE_ROOT/long-want" \
+      '.decision == "block"
+       and ((.hookSpecificOutput.additionalContext
+             | sub("^Agent Guard sanitized tool output:\n"; "")
+             | fromjson | .stdout) == $m)' "$CASE_ROOT/out" >/dev/null 2>&1
+  fi
+  if [ $? -eq 0 ] && [ "$status" -eq 0 ]; then
+    ok "$host post-tool assignment at the end of a 260 KB line is masked"
+  else
+    long_ok=0
+    fail "$host post-tool assignment at the end of a 260 KB line: exit $status or masked text differs"
+  fi
+done
+# The prompt guard reads the same line through the same detector.
+jq -nc --rawfile p "$CASE_ROOT/long-in" \
+  '{session_id:"key-name",hook_event_name:"UserPromptSubmit",prompt:$p}' >"$CASE_ROOT/long-prompt"
+AGENT_GUARD_HOOK_HOST=claude "$GUARD" hook-user-prompt \
+  <"$CASE_ROOT/long-prompt" >"$CASE_ROOT/out" 2>"$CASE_ROOT/err"
+status=$?
+if [ "$status" -eq 2 ]; then
+  ok "claude prompt assignment at the end of a 260 KB line exits 2"
+else
+  long_ok=0
+  fail "claude prompt assignment at the end of a 260 KB line: expected 2 got $status"
+fi
+long_elapsed=$(( $(date +%s) - long_start ))
+if [ "$long_ok" -eq 1 ] && [ "$long_elapsed" -le 30 ]; then
+  ok "a 260 KB line is handled by both hooks within 30 seconds (${long_elapsed}s)"
+else
+  fail "a 260 KB line took ${long_elapsed}s over three hook runs (at most 30 expected) or was not handled"
+fi
+
+# Many lines that each stay under the limit. The line-start test runs on
+# every one of them, so it has to be linear in the line: as two patterns it
+# was quadratic under mawk, and 310 such lines took ten seconds a hook, the
+# length of the prompt hook's whole budget. The control has the same lines
+# with the value past the limit, where the test does not run at all. Both
+# are timed the same way, so the comparison does not depend on the runner.
+# The quadratic cost shows under mawk (the awk of the Linux jobs and of the
+# legacy key-name job); gawk hides most of it, and the 260 KB line above is
+# what catches a tree that has lost the limit itself.
+awk -v v="$rnd" 'BEGIN {
+  under = sprintf("%1014s", ""); gsub(/ /, "a", under)
+  over = sprintf("%1100s", ""); gsub(/ /, "a", over)
+  for (i = 0; i < 280; i++) {
+    printf "%s API_KEY=%s\n", under, v > ARGV[1]
+    printf "%s API_KEY=%s\n", over, v > ARGV[2]
+  }
+}' "$CASE_ROOT/under-in" "$CASE_ROOT/over-in"
+many_seconds() {
+  jq -nc --rawfile t "$1" \
+    '{session_id:"key-name",hook_event_name:"PostToolUse",tool_name:"Bash",
+      tool_input:{command:"cat dump.txt"},
+      tool_response:{stdout:$t,stderr:"",interrupted:false}}' >"$CASE_ROOT/many-event"
+  jq -nc --rawfile p "$1" \
+    '{session_id:"key-name",hook_event_name:"UserPromptSubmit",prompt:$p}' >"$CASE_ROOT/many-prompt"
+  many_start=$(date +%s)
+  many_ok=1
+  for many_round in 1 2; do
+    AGENT_GUARD_HOOK_HOST=claude "$GUARD" hook-post-tool \
+      <"$CASE_ROOT/many-event" >"$CASE_ROOT/out" 2>"$CASE_ROOT/err" || many_ok=0
+    jq -e --arg r "$rnd" \
+      '.hookSpecificOutput.updatedToolOutput.stdout | contains($r) | not' \
+      "$CASE_ROOT/out" >/dev/null 2>&1 || many_ok=0
+    AGENT_GUARD_HOOK_HOST=claude "$GUARD" hook-user-prompt \
+      <"$CASE_ROOT/many-prompt" >"$CASE_ROOT/out" 2>"$CASE_ROOT/err"
+    [ $? -eq 2 ] || many_ok=0
+  done
+  many_elapsed=$(( $(date +%s) - many_start ))
+}
+many_seconds "$CASE_ROOT/over-in"
+control_ok=$many_ok
+control_elapsed=$many_elapsed
+many_seconds "$CASE_ROOT/under-in"
+if [ "$control_ok" -eq 1 ] && [ "$many_ok" -eq 1 ]; then
+  ok "280 long lines are masked and blocked on both sides of the limit"
+else
+  fail "280 long lines: a value stayed visible or a prompt passed (control $control_ok, under the limit $many_ok)"
+fi
+if [ "$many_elapsed" -le $(( control_elapsed * 3 + 5 )) ]; then
+  ok "280 lines under the limit cost about what the control costs (${many_elapsed}s against ${control_elapsed}s)"
+else
+  fail "280 lines under the limit took ${many_elapsed}s against ${control_elapsed}s for the control"
+fi
 fi # end of the hooks half
 
 if [ "$part" != hooks ]; then
