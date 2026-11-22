@@ -17,6 +17,8 @@
   {"id": "note-paren-required-glued", "expected": "block", "classification": "must-fail", "description": "a password glued after a parenthesized status word", "text": "DB_PASSWORD= (required)hunter{{DIGITS}}"},
   {"id": "note-shell-array", "expected": "block", "classification": "must-fail", "description": "a shell array with a value is not a note", "text": "API_KEY=({{SECRET}} other)"},
   {"id": "note-shell-array-words", "expected": "block", "classification": "must-fail", "description": "a shell array of words needs a space after the equals sign to read as a note", "text": "API_KEY=(qwzxkv plmnbv)"},
+  {"id": "note-bracket-diceware", "expected": "block", "classification": "must-fail", "description": "a bracketed passphrase of dictionary words is not a note", "text": "DB_PASSWORD= [correct horse battery staple]", "gone": "correct"},
+  {"id": "note-paren-diceware", "expected": "block", "classification": "must-fail", "description": "a parenthesized passphrase of dictionary words is not a note", "text": "API_KEY= (correct horse battery staple)", "gone": "correct"},
   {"id": "note-bracket-none", "expected": "pass", "classification": "must-pass", "description": "shape 1: an equals sign, a space, then a bracketed none", "text": "API_KEY= [none]"},
   {"id": "note-bracket-empty", "expected": "pass", "classification": "must-pass", "description": "shape 1: a bracketed empty marker", "text": "- WORKER_TOKEN= [empty]"},
   {"id": "note-bracket-required", "expected": "pass", "classification": "must-pass", "description": "shape 1: a bracketed status word", "text": "DB_PASSWORD= [required]"},

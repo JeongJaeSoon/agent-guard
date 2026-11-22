@@ -13,6 +13,8 @@
   {"id": "sentence-korean-token", "expected": "block", "classification": "must-fail", "description": "a token shape inside a Korean sentence", "text": "webhook secret: 비밀번호는 배포 단계에서 {{SECRET}} 값을 넣는다"},
   {"id": "sentence-comment", "expected": "block", "classification": "must-fail", "description": "a config value with a trailing comment is not a sentence", "text": "password: qwzxkvplmn # it is set by CI"},
   {"id": "sentence-flow-mapping", "expected": "block", "classification": "must-fail", "description": "a flow mapping is not a sentence", "text": "{password: qwzxkvplmn is it}"},
+  {"id": "sentence-short-mixed", "expected": "block", "classification": "must-fail", "description": "a four-character password of letters and digits before a qualifying sentence", "text": "password: qx47 is the default", "gone": "qx47"},
+  {"id": "sentence-five-mixed", "expected": "block", "classification": "must-fail", "description": "a five-character password of letters and digits before a qualifying sentence", "text": "client secret: k9vq2 is set by the deploy job", "gone": "k9vq2"},
   {"id": "sentence-english", "expected": "pass", "classification": "must-pass", "description": "shape 6: an English sentence after the colon", "text": "the webhook secret: comes from the deploy job and is never logged"},
   {"id": "sentence-english-short", "expected": "pass", "classification": "must-pass", "description": "shape 6: three words with a two-letter word", "text": "GitHub webhook secret: followed by prose"},
   {"id": "sentence-korean", "expected": "pass", "classification": "must-pass", "description": "shape 6: a Korean sentence after the colon", "text": "webhook secret: 비밀번호는 배포 단계에서 넣는다"},
