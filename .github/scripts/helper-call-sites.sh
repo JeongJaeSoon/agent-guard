@@ -36,7 +36,7 @@ trap 'exit 1' HUP INT TERM
 # function definitions instead.
 printf '* diff=agfunc\n' >"$tmp/attributes"
 gitdiff() {
-  git -c core.attributesFile="$tmp/attributes" -c core.quotePath=false -c 'diff.agfunc.xfuncname=^[A-Za-z_][A-Za-z0-9_]*\(\)' \
+  git -c core.attributesFile="$tmp/attributes" -c core.quotePath=false -c 'diff.agfunc.xfuncname=^[A-Za-z_][A-Za-z0-9_]*[[:space:]]*\(\)' \
     diff --no-renames "$@" "$from" "$to" -- plugins/agent-guard
 }
 gitdiff -U0 >"$tmp/diff"
@@ -50,12 +50,12 @@ while IFS= read -r path; do
   for rev in "$from" "$to"; do
     git cat-file -e "$rev:$path" 2>/dev/null || continue
     git show "$rev:$path" | awk -v names="$names" '
-      /^[A-Za-z_][A-Za-z0-9_]*\(\)/ { name = $0; sub(/\(\).*/, "", name) }
+      /^[A-Za-z_][A-Za-z0-9_]*[ \t]*\(\)/ { name = $0; sub(/[ \t]*\(\).*/, "", name) }
       name != "" && $0 ~ names { hit[name] = 1 }
       END { for (n in hit) print n }' >>"$tmp/callers"
   done
 done <"$tmp/paths"
-awk -v names="$names" -v helper_functions="$helper_functions" -v helper_definition="^[-+](gitleaks_helper|gitleaks_exec)[A-Za-z0-9_]*[(]" -v hits="$tmp/hits" -v callers_file="$tmp/callers" '
+awk -v names="$names" -v helper_functions="$helper_functions" -v helper_definition="^[-+](gitleaks_helper|gitleaks_exec)[A-Za-z0-9_]*[ \t]*[(]" -v hits="$tmp/hits" -v callers_file="$tmp/callers" '
   FILENAME == callers_file { caller[$0] = 1; next }
   function raise(level, why) {
     if (level == "full" || scope == "none") scope = level
@@ -63,14 +63,14 @@ awk -v names="$names" -v helper_functions="$helper_functions" -v helper_definiti
   }
   function defname(line,   d) {
     d = line; sub(/^[-+]/, "", d)
-    if (d !~ /^[A-Za-z_][A-Za-z0-9_]*\(\)/) return ""
-    sub(/\(\).*/, "", d)
+    if (d !~ /^[A-Za-z_][A-Za-z0-9_]*[ \t]*\(\)/) return ""
+    sub(/[ \t]*\(\).*/, "", d)
     return d
   }
   /^diff --git / { inhunk = 0; next }
   /^@@ / {
     inhunk = 1; fn = ""; head = $0
-    if (sub(/^@@ [^@]*@@ /, "", head) && head ~ /^[A-Za-z_][A-Za-z0-9_]*\(\)/) { fn = head; sub(/\(\).*/, "", fn) }
+    if (sub(/^@@ [^@]*@@ /, "", head) && head ~ /^[A-Za-z_][A-Za-z0-9_]*[ \t]*\(\)/) { fn = head; sub(/[ \t]*\(\).*/, "", fn) }
     if (fn ~ helper_functions && fn != "") raise("full", "hunk in " fn)
     else if (fn in caller) raise("cost", "hunk in " fn)
     next
