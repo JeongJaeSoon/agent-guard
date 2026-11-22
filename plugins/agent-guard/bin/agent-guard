@@ -13618,7 +13618,7 @@ secretish_env_values() {
     # guard_rescan makes that single-pass: during a re-scan the status path
     # falls back to the old skip instead of opening another capture, so this
     # cannot nest or loop.
-    function guard_rescan_leaf(v, saved_tail) {
+    function guard_rescan_leaf(v, saved_tail, saved_source) {
       open_quote = ""
       open_value = ""
       open_guard = 0
@@ -13630,8 +13630,10 @@ secretish_env_values() {
       # The re-scan is a leaf of its own; the lines below the current one
       # still follow it once it returns.
       saved_tail = leaf_tail
+      saved_source = key_scan_source
       scan_leaf(v)
       leaf_tail = saved_tail
+      key_scan_source = saved_source
       rescan_head = 0
       guard_rescan = 0
     }
@@ -13756,8 +13758,11 @@ secretish_env_values() {
     #
     # That reading also protected a value placed after the empty key, on the
     # same line or on a later one, so the empty reading is taken only when
-    # none can be there. The same quote occurs before the key on the line,
-    # the key is not closed by a quote of its own, and nothing is glued to
+    # none can be there. The same quote is still open before the key on the
+    # line: it occurs an odd number of times there, and the last one starts
+    # a word, so a closed string or an apostrophe earlier on the line does
+    # not turn the opening quote of a value into a closing one. The key is
+    # not closed by a quote of its own, and nothing is glued to
     # the closing quote. Every word from it to the end of what the old
     # reading took as the value is checked, through the end of the line, or
     # up to the next such quote in the leaf (to the end of the leaf without
@@ -13770,10 +13775,20 @@ secretish_env_values() {
     # closed key among other words reads as prose, as credential_shaped
     # already accepts on the status-label path.
     function closed_key_quote(source, start, assignment, raw, quote, \
-                              after, span, q, n) {
+                              after, span, q, n, before) {
       if (record_mode == "probe_raw") return 0
       if (assignment ~ /["'\''`][ \t]*[:=]$/) return 0
-      if (!index(substr(source, 1, start - 1), quote)) return 0
+      # source is a tail of key_scan_source, so this is all of the line
+      # before the value, not only the text after the last assignment.
+      before = substr(key_scan_source, 1, \
+                      length(key_scan_source) - length(source) + start - 1)
+      # An apostrophe inside an English word is not a quote; the same length
+      # keeps the positions. A quote glued to Korean text still counts.
+      if (quote == "'\''")
+        gsub(/[A-Za-z0-9]'\''[A-Za-z0-9]/, "a_a", before)
+      if (!match(before, quote "[^" quote "]*$")) return 0
+      if (RSTART > 1 && substr(before, RSTART - 1, 1) !~ /[ \t([{*>]/) return 0
+      if (gsub(quote, quote, before) % 2 == 0) return 0
       after = substr(raw, 2)
       if (!closed_off(after)) return 0
       if (index(after, quote)) span = after
@@ -14844,6 +14859,9 @@ secretish_env_values() {
           rest = ""
         }
       }
+      # What closed_key_quote reads before a key: the line, without the
+      # end of a value that opened on a line above.
+      key_scan_source = rest
       while (length(rest) > 0) {
         low = tolower(rest)
         find_assignment(low, "=")
