@@ -5990,6 +5990,7 @@ bash_matches_deny_path_mode() {
         # nothing downstream to redact it.
         # The caller prints it once the block is final.
         deny_path_report="matched deny-read-paths entry '$entry'"
+        deny_path_regex=$regex
         return 0
         ;;
       1) ;;
@@ -6403,7 +6404,33 @@ bash_strip_exclusion_operands() {
     # shellcheck disable=SC2086
     set -- $words
     unset IFS
-    result= shell_words_nl= command_name= pending_glob=
+    result= shell_words_nl= command_name= pending_glob= git_state=
+    # A literal-pathspec setting makes `:!name` the name of a file.
+    case "$* ${GIT_LITERAL_PATHSPECS+GIT_LITERAL_PATHSPECS}" in
+      *GIT_LITERAL_PATHSPECS*|*--literal-pathspecs*|*--no-index*) git_state=off ;;
+    esac
+
+    # A git pathspec that only leaves paths out (`:!name`, `:^name`,
+    # `:(exclude)name`) can make git read nothing more. The same limits as
+    # for a negative glob apply to what follows the prefix.
+    is_exclude_pathspec_value() {
+      value=$1
+      case "$value" in
+        \'*\') value=${value#\'}; value=${value%\'} ;;
+        \"*\") value=${value#\"}; value=${value%\"} ;;
+        *'{'*|*'}'*) return 1 ;;
+      esac
+      case "$value" in
+        ':!'*|':^'*) value=${value#:?} ;;
+        ':(exclude)'*) value=${value#':(exclude)'} ;;
+        *) return 1 ;;
+      esac
+      case "$value" in
+        *[[:space:]]*|*\'*|*\"*|*'$'*|*'`'*|*\\*|*';'*|*'|'*|*'&'*|\
+        *'<'*|*'>'*|*'('*|*')'*|*"$SHELL_WORD_NL"*) return 1 ;;
+      esac
+      return 0
+    }
 
     is_negative_glob_value() {
       value=$1
@@ -6431,6 +6458,7 @@ bash_strip_exclusion_operands() {
           pending_glob=
           shell_words_append "$token"
           command_name=
+          case $git_state in off) ;; *) git_state= ;; esac
           continue
           ;;
       esac
@@ -6470,6 +6498,19 @@ bash_strip_exclusion_operands() {
             ;;
         esac
       fi
+      # git_state: empty at the word after `git`, then `sub` for a
+      # subcommand whose words after `--` are pathspecs, `dd` past that
+      # `--`, and `off` for the rest of the segment otherwise.
+      case $command_name:$git_state in
+        git:)
+          case $token in
+            grep|diff|log|show|status|ls-files|add) git_state=sub ;;
+            *) git_state=no ;;
+          esac
+          ;;
+        git:sub) case $token in --) git_state=dd ;; esac ;;
+        git:dd) is_exclude_pathspec_value "$token" && continue ;;
+      esac
       shell_words_append "$token"
     done
     [ -n "$pending_glob" ] && shell_words_append "$pending_glob"
@@ -7315,7 +7356,7 @@ bash_strip_literal_message_values() (
 # query counts as an inert earlier segment, and a segment qualifies only
 # when everything its pipeline feeds is a plain text filter (sink_ok).
 search_operand_spans() {
-  printf '%s\n' "$1" | LC_ALL=C awk -v grep_env="${GREP_OPTIONS-}" -v cd_ok="$(path_entries_absolute && echo 1)" -v mode="${2-}" \
+  printf '%s\n' "$1" | LC_ALL=C awk -v grep_env="${GREP_OPTIONS-}" -v rg_env="${RIPGREP_CONFIG_PATH-}" -v cd_ok="$(path_entries_absolute && echo 1)" -v mode="${2-}" \
     -v inert_names="$INERT_SEGMENT_COMMANDS_ERE" "$AWK_INERT_COMMAND"'
     function bail() { failed = 1; exit }
     function start_word() {
@@ -7384,9 +7425,10 @@ search_operand_spans() {
         }
       }
       # Options from the environment come before these words and can turn the
-      # pattern into a file: a ripgrep config file unless --no-config is
-      # given, and GREP_OPTIONS, which BSD grep still reads.
-      if (rg ? !noconf : grep_env != "") return ""
+      # pattern into a file: a ripgrep config file, which rg reads only when
+      # RIPGREP_CONFIG_PATH names one and --no-config is not given, and
+      # GREP_OPTIONS, which BSD grep still reads.
+      if (rg ? !noconf && rg_env != "" : grep_env != "") return ""
       return out
     }
     # A value moved off its option by a valueless one before it would be a
@@ -7561,6 +7603,11 @@ search_operand_spans() {
       if (jq) return sub1 ~ /^(api|run view|run list|pr view|pr list|pr checks|pr status|issue view|issue list|issue status|release view|release list|repo view|repo list)$/
       return sub1 ~ /^(api|run view|run list|run watch|pr view|pr list|pr checks|pr diff|pr status|issue view|issue list|issue status)$/
     }
+    function git_lists_files(a, b,   k) {
+      if (wv[a] != "git" || a + 1 > b || wv[a + 1] != "ls-files") return 0
+      for (k = a; k <= b; k++) if (bad(k)) return 0
+      return 1
+    }
     # Program text can reach the output (a string a jq filter prints, the
     # matched text of grep -o), so every command its pipeline feeds must be a
     # plain text filter: none that runs or opens what it reads (sh, xargs, a
@@ -7700,8 +7747,11 @@ search_operand_spans() {
               else printf "%s", program_scan(k, e)
             }
           }
-          else if (wv[k] ~ /^(grep|egrep|fgrep)$/) printf "%s", grep_scan(k, e, 0)
-          else if (wv[k] == "rg") printf "%s", grep_scan(k, e, 1)
+          # A pattern selects the lines a later command receives, so what the
+          # pipeline feeds must be a plain text filter here too: `xargs cat`
+          # would open the names the pattern picked.
+          else if (wv[k] ~ /^(grep|egrep|fgrep)$/) { if (sink_ok(k)) printf "%s", grep_scan(k, e, 0) }
+          else if (wv[k] == "rg") { if (sink_ok(k)) printf "%s", grep_scan(k, e, 1) }
           else if (wv[k] == "openssl") printf "%s", openssl_scan(k, e)
         }
         # A later command name means what it says only while every segment
@@ -7727,6 +7777,9 @@ search_operand_spans() {
         # so it cannot change what the next command name runs. Sequenced with
         # `;` or `&&` it stays outside the inert list, as before.
         if (mode == "program" && a == h && segpipe[wseg[k]] && gh_query(h, e, 0)) continue
+        # So does `git ls-files` that feeds a pipe: it prints the names of
+        # tracked files and opens none of them.
+        if (a == h && segpipe[wseg[k]] && git_lists_files(h, e)) continue
         if (!inert_command(wv[h])) exit 0
         # In program mode a loop or condition could run a cd more than once,
         # and `cd old new` goes elsewhere in zsh and ksh: the directory the
@@ -8612,6 +8665,17 @@ heredoc_body_rewrite() {
       if (index($0, "<<") == 0) next
       rest = $0
       if (rest ~ /<<</ || rest ~ /\\/) reject()
+      # cat with a quoted delimiter piped to `gh ... --body-file -`: cat only passes the body on and
+      # the message command reads it as data, under the limits of a body it
+      # reads straight from stdin.
+      piped = ""
+      if (match(rest, /^[ \t]*cat[ \t]*<<-?[ \t]*\047[A-Za-z_][A-Za-z0-9_]*\047[ \t]*\|/) && substr(rest, RLENGTH + 1) !~ /[|()`<>]/) {
+        piped = substr(rest, RLENGTH + 1)
+        rest = substr(rest, 1, RLENGTH - 1)
+        t = piped; gsub(/&&/, "", t)
+        q = piped
+        if (t ~ /&/ || gsub(/\047/, "", q) % 2 || gsub(/"/, "", q) % 2) reject()
+      }
       pre = substr(rest, 1, index(rest, "<<") - 1)
       post = substr(rest, index(rest, "<<") + 2)
       if (index(post, "<<") > 0) reject()
@@ -8647,6 +8711,10 @@ heredoc_body_rewrite() {
         if (!quoted || NR != 1 || !message_stdin(pre post) || !lead_inert(lead) || !tail_inert(post)) reject()
         msg = 1
       }
+      if (piped != "") {
+        if (NR != 1 || !message_stdin(piped) || !tail_inert(piped)) reject()
+        msg = 1
+      }
       # Name what the line writes: a word after > or >>, and the operands of tee.
       m = split(rest, w, /[ \t]+/); tee = 0
       for (k = 1; k <= m; k++) {
@@ -8678,6 +8746,8 @@ heredoc_body_rewrite() {
       }
       if (text ~ /(^|[^A-Za-z0-9_.-])(python[0-9.]*|node|nodejs|ruby|perl|php|lua|deno|bun|awk|gawk|mawk|osascript|tclsh|Rscript|swift|java|jshell)([^A-Za-z0-9_-]|$)/) exit 1
       printf "%s", (neutral == 1 ? ntext : text)
+      # 3: accepted as a body piped from cat to a message command.
+      if (piped != "") exit 3
     }
   '
 }
@@ -8689,9 +8759,22 @@ bash_strip_heredoc_bodies() (
     *'<<'*) ;;
     *) printf '%s' "$hd_cmd"; exit 0 ;;
   esac
-  hd_new=$(printf '%s\n' "$hd_cmd" | heredoc_body_rewrite) || { printf '%s' "$hd_cmd"; exit 0; }
+  hd_new=$(printf '%s\n' "$hd_cmd" | heredoc_body_rewrite)
+  hd_status=$?
+  case "$hd_status" in
+    0|3) ;;
+    *) printf '%s' "$hd_cmd"; exit 0 ;;
+  esac
   if [ "$hd_new" = "$hd_cmd" ]; then
     printf '%s' "$hd_cmd"
+    exit 0
+  fi
+  # The command gate reads a body on a line with a pipe as code, whatever
+  # reads it, so its records cannot vouch for this form. It was accepted
+  # only as the whole command: cat, one message command reading stdin, and
+  # at most a `git push` after it.
+  if [ "$hd_status" -eq 3 ]; then
+    printf '%s' "$hd_new"
     exit 0
   fi
   hd_before=$(git_gate_records "$hd_cmd")
@@ -9249,6 +9332,154 @@ bash_strip_program_text() (
 # committed file replaced (git is asked only here) and the program text of
 # known tools reduced to what can name a file. The rescan reads every other
 # word as written.
+# Print $1 for the deny patterns with each wholly quoted literal word of a
+# grep, egrep, fgrep, rg or `git grep` command replaced by `''`: a search
+# pattern or a file name that such a command is given runs nothing, so an
+# `env|` inside a regex alternation is not a pipeline. A word qualifies only
+# as one single-quoted part, or one double-quoted part holding no `$`,
+# backquote or backslash; the command name must be the first word of its
+# segment, and everything its pipeline feeds a plain text filter, since
+# `grep -o` prints the pattern's text. Returns 1, and the caller keeps $1,
+# when no word qualifies, when PATH holds a relative entry, or when the
+# command defines or rebinds a name (a function, an alias, eval, trap,
+# source, export, a PATH assignment): the search command may then be
+# something else. Words are those of shell_command_words; one blank joins
+# them again, which no pattern can tell from the original spacing.
+bash_neutralize_search_words() {
+  case "$1" in *"'"*|*'"'*) ;; *) return 1 ;; esac
+  path_entries_absolute || return 1
+  shell_words_marker "$1"
+  sw_words=$(shell_command_words "$1") || return 1
+  printf '%s\n' "$sw_words" | LC_ALL=C awk '
+    function sep(v) { return v == ";" || v == "&&" || v == "||" || v == "|" || v == "&" || v == nl }
+    function literal(v) {
+      if (index(v, nl)) return 0
+      return v ~ /^\047[^\047]+\047$/ || v ~ /^"[^"$`\\]+"$/
+    }
+    BEGIN { nl = "\034" }
+    { w[NR] = $0 }
+    END {
+      n = NR; changed = 0
+      for (k = 1; k <= n; k++)
+        if (w[k] ~ /^(eval|alias|function|trap|source|\.|export|hash|enable|command|builtin|exec)$/ || w[k] ~ /\(\)/ || w[k] ~ /^PATH=/) exit 1
+      for (s = 1; s <= n; s = e + 2) {
+        for (e = s; e <= n && !sep(w[e]); e++) ;
+        e--
+        if (e < s) continue
+        if (!(w[s] ~ /^(grep|egrep|fgrep|rg)$/ || w[s] == "git" && s < e && w[s + 1] == "grep")) continue
+        # Follow the pipeline to its end.
+        ok = 1
+        for (j = e + 1; j <= n && w[j] == "|"; j = f) {
+          if (j + 1 > n || w[j + 1] !~ /^(wc|head|tail|sort|uniq|tr|cut|nl|grep|egrep|fgrep|column|cat)$/) { ok = 0; break }
+          for (f = j + 1; f <= n && !sep(w[f]); f++) ;
+        }
+        if (!ok) continue
+        for (k = s + 1; k <= e; k++) if (literal(w[k])) { w[k] = "\047\047"; changed = 1 }
+      }
+      if (!changed) exit 1
+      out = ""; fresh = 1
+      for (k = 1; k <= n; k++) {
+        if (w[k] == nl) { out = out "\n"; fresh = 1; continue }
+        v = w[k]; gsub(/\034/, "\n", v)
+        out = out (fresh ? "" : " ") v; fresh = 0
+      }
+      printf "%s", out
+    }
+  '
+}
+
+# Print, one per line, the text of each wholly quoted word in a command that
+# hands such a word to a shell: a segment naming sh, bash, zsh, dash or ksh
+# (`bash -c`, `xargs sh -c`, `find -exec sh -c`), eval, ssh, trap, watch or
+# su. The deny patterns anchor a command at a blank or an operator, so they
+# cannot see one that starts right after a quote. Double-quoted text loses
+# the backslash of an escaped `"`, `$`, backquote or backslash.
+bash_shell_program_texts() {
+  shell_words_marker "$1"
+  pt_words=$(shell_command_words "$1") || return 1
+  printf '%s\n' "$pt_words" | LC_ALL=C awk '
+    function unescape(v,   r, i, c) {
+      r = ""
+      for (i = 1; i <= length(v); i++) {
+        c = substr(v, i, 1)
+        if (c == "\\" && index("\"$`\\", substr(v, i + 1, 1))) { i++; c = substr(v, i, 1) }
+        r = r c
+      }
+      return r
+    }
+    function flush(   k, v) {
+      if (runner) for (k = 1; k <= m; k++) {
+        v = seg[k]
+        if (v ~ /^\047[^\047]*\047$/) v = substr(v, 2, length(v) - 2)
+        else if (v ~ /^"([^"\\]|\\.)*"$/) v = unescape(substr(v, 2, length(v) - 2))
+        else continue
+        gsub(/\034/, "\n", v)
+        print v
+      }
+      m = 0; runner = 0
+    }
+    {
+      if ($0 == ";" || $0 == "&&" || $0 == "||" || $0 == "|" || $0 == "&" || $0 == "\034") { flush(); next }
+      seg[++m] = $0
+      b = $0; gsub(/["\047\\]/, "", b); sub(/.*\//, "", b)
+      if (b ~ /^(sh|bash|zsh|dash|ksh|eval|ssh|trap|watch|su)$/) runner = 1
+    }
+    END { flush() }
+  '
+}
+
+# Print where ERE $2 matches in command $1, as `word N` or `words N, M`
+# (three at most): the shell words of $1 counted from 1, an operator such as
+# `|` or `&&` counting as a word. A position says where to look and shows no
+# text of the command. Returns 1 when the match cannot be placed (no grep -o,
+# or the pattern only matches after quote removal or expansion).
+bash_match_words() {
+  mw_offsets=$(printf '%s\n' "$1" | grep -n -o -E -e "$2" 2>/dev/null | MW_CMD=$1 LC_ALL=C awk '
+    BEGIN {
+      n = split(ENVIRON["MW_CMD"], L, "\n"); base[1] = 0
+      for (k = 1; k <= n; k++) base[k + 1] = base[k] + length(L[k]) + 1
+    }
+    {
+      c = index($0, ":"); ln = substr($0, 1, c - 1) + 0; m = substr($0, c + 1)
+      if (ln < 1 || ln > n || m == "") next
+      if (ln != last) { from = 1; last = ln }
+      p = index(substr(L[ln], from), m)
+      if (!p) next
+      p += from - 1; from = p + length(m)
+      # The first character of the match that belongs to a word.
+      for (j = 1; j <= length(m) && index(" \t;|&(`", substr(m, j, 1)); j++) ;
+      if (j > length(m)) j = 1
+      print base[ln] + p + j - 1
+      if (++shown == 3) exit
+    }') || return 1
+  [ -n "$mw_offsets" ] || return 1
+  shell_words_marker "$1"
+  mw_list= mw_count=0
+  for mw_offset in $mw_offsets; do
+    mw_prefix=$(MW_CMD=$1 LC_ALL=C awk -v n="$mw_offset" 'BEGIN { printf "%s", substr(ENVIRON["MW_CMD"], 1, n) }')
+    mw_word=$(shell_command_words "$mw_prefix" | LC_ALL=C awk '$0 != "\034" { n++ } END { print n + 0 }') || return 1
+    case ", $mw_list," in
+      *", $mw_word,"*) ;;
+      *) mw_list=${mw_list:+"$mw_list, "}$mw_word; mw_count=$((mw_count + 1)) ;;
+    esac
+  done
+  case "$mw_count" in
+    0) return 1 ;;
+    1) printf 'word %s' "$mw_list" ;;
+    *) printf 'words %s' "$mw_list" ;;
+  esac
+}
+
+# Print the pending deny-path report, with the place of the match in command
+# $1 when it can be found there.
+deny_path_report_print() {
+  [ -n "$deny_path_report" ] || return 0
+  if [ -n "${deny_path_regex-}" ] && deny_path_where=$(bash_match_words "$1" "$deny_path_regex"); then
+    deny_path_report="$deny_path_report at $deny_path_where of the command"
+  fi
+  printf '%s\n' "$deny_path_report"
+}
+
 bash_matches_deny_path() {
   deny_path_report=
   bash_deny_path_scan "$1" || return "$?"
@@ -9256,7 +9487,7 @@ bash_matches_deny_path() {
   # block is pending. Without a workdir a relative word cannot be placed (the
   # hook's own directory need not be the shell's), and the block stands.
   if [ -z "${2-}" ] || ! exception_workdir_is_here "$2"; then
-    printf '%s\n' "$deny_path_report"
+    deny_path_report_print "$1"
     return 0
   fi
   tfx_cmd=$1
@@ -9268,7 +9499,7 @@ bash_matches_deny_path() {
     deny_path_report=
     bash_deny_path_scan "$tfx_text" || return "$?"
   fi
-  [ -z "$deny_path_report" ] || printf '%s\n' "$deny_path_report"
+  deny_path_report_print "$1"
   return 0
 }
 
@@ -12489,6 +12720,7 @@ check_bash_command() {
     # `"https"://user:pw@host` reach the process as the name or URL the
     # patterns know. Read that copy too, after the same exemptions; the text
     # as written is still read, so a failed rewrite only loses the extra copy.
+    dp_base=$pattern_cmd
     if bash_quoting_may_hide_name "$pattern_cmd" \
       && joined_cmd=$(bash_join_quoted_words "$pattern_cmd") \
       && [ "$joined_cmd" != "$pattern_cmd" ]; then
@@ -12497,6 +12729,47 @@ $joined_cmd"
     fi
     printf '%s\n' "$pattern_cmd" | grep -E -q -f "$patterns"
     grep_status=$?
+    # Where a block is reported: the command as written, unless an exemption
+    # above already changed its words.
+    dp_where_text=$cmd
+    # A hit may sit in a quoted word that a search command only reads (a
+    # regex alternation ending in `env|`). Only a hit pays for the second
+    # look, without those words.
+    if [ "$grep_status" -eq 0 ] && dp_view=$(bash_neutralize_search_words "$dp_base") \
+      && [ -n "$dp_view" ]; then
+      pattern_cmd=$dp_view
+      if bash_quoting_may_hide_name "$dp_view" \
+        && joined_cmd=$(bash_join_quoted_words "$dp_view") \
+        && [ "$joined_cmd" != "$dp_view" ]; then
+        pattern_cmd="$dp_view
+$joined_cmd"
+      fi
+      printf '%s\n' "$pattern_cmd" | grep -E -q -f "$patterns"
+      grep_status=$?
+      [ "$dp_base" != "$cmd" ] || dp_where_text=$dp_view
+    fi
+    # A quoted word that a shell runs (`bash -c 'env | ...'`, eval, ssh) is
+    # a command line of its own. Only a command that may hold one pays.
+    if [ "$grep_status" -eq 1 ]; then
+      case "$dp_base" in
+        *[\'\"]*)
+          case "$dp_base" in
+            *sh[[:space:]]*|*eval[[:space:]]*|*trap[[:space:]]*|*watch[[:space:]]*|*su[[:space:]]*)
+              if dp_program=$(bash_shell_program_texts "$dp_base") && [ -n "$dp_program" ]; then
+                printf '%s\n' "$dp_program" | grep -E -q -f "$patterns"
+                grep_status=$?
+                if [ "$grep_status" -eq 0 ]; then
+                  pattern_cmd=$dp_program
+                  dp_where_text=
+                elif [ "$grep_status" -ne 1 ]; then
+                  grep_status=2
+                fi
+              fi
+              ;;
+          esac
+          ;;
+      esac
+    fi
     rm -f "$patterns"
     case "$grep_status" in
       0)
@@ -12509,12 +12782,32 @@ $joined_cmd"
             break
           fi
         done)
-        [ -n "$dp_hit" ] && info "$PROGRAM: matched deny-bash-patterns line $dp_hit ($DENY_BASH_PATTERNS)"
+        if [ -n "$dp_hit" ]; then
+          # The entry is policy text, not a secret; the command's own text is
+          # not shown, only where the entry matched. A long entry is cut.
+          dp_entry=$(sed -n "${dp_hit}p" "$DENY_BASH_PATTERNS")
+          dp_where=
+          if [ -z "$dp_where_text" ]; then
+            dp_where=' in quoted text that a shell runs'
+          elif dp_words=$(bash_match_words "$dp_where_text" "$dp_entry"); then
+            dp_where=" at $dp_words of the command"
+          fi
+          info "$PROGRAM: matched deny-bash-patterns line $dp_hit ($DENY_BASH_PATTERNS)$dp_where"
+          [ "${#dp_entry}" -le 120 ] || dp_entry=$(printf '%s' "$dp_entry" | cut -c 1-117)...
+          info "$PROGRAM: deny-bash-patterns entry: $dp_entry"
+        fi
         case "$(hook_host)" in
-          codex) dp_read='Read an ordinary file with a shell command on that file alone' ;;
-          *) dp_read='Read files with the Read tool' ;;
+          codex)
+            dp_read='Read an ordinary file with a shell command on that file alone'
+            dp_next='If the text was only a document body, write the file with apply_patch'
+            ;;
+          *)
+            dp_read='Read files with the Read tool'
+            dp_next='If the text was only a document body or a search pattern, write the file with the Write tool or search with the Grep tool'
+            ;;
         esac
         info "$PROGRAM: this command prints, captures or sends a secret value (an environment dump, a credential store read, a token in a request); do not retry it in another form. $dp_read, and let the program that needs a secret read it from its own environment or config."
+        info "$PROGRAM: $dp_next; if a secret value itself is needed, ask the user."
         exit 2
         ;;
       1) ;;
@@ -12575,9 +12868,9 @@ $joined_cmd"
       esac
       case "$(hook_host)" in
         codex) info "$PROGRAM: for an ordinary file, edit it with apply_patch and read it with a shell command on that file alone; Codex searches run as shell commands, so keep file name and content searches to paths that hold no protected file. A program an interpreter runs (python3 - <<EOF, node -e) stays blocked while its text names a protected file, because the guard cannot tell a string from a path it opens." ;;
-        *) info "$PROGRAM: for an ordinary file, use the Read, Edit or Write tool; find file names with the Glob tool and search contents with the Grep tool, outside protected paths. $dr_read_note A program an interpreter runs (python3 - <<EOF, node -e) stays blocked while its text names a protected file, because the guard cannot tell a string from a path it opens." ;;
+        *) info "$PROGRAM: for an ordinary file, use the Read, Edit or Write tool (write a document body with the Write tool, not a here-document); find file names with the Glob tool and search contents with the Grep tool, outside protected paths. $dr_read_note A program an interpreter runs (python3 - <<EOF, node -e) stays blocked while its text names a protected file, because the guard cannot tell a string from a path it opens." ;;
       esac
-      info "$PROGRAM: $dr_limits; if it is needed, ask the user to run the command themselves. Do not weaken the deny list or reshape the command to pass this check."
+      info "$PROGRAM: $dr_limits; if that or the content of a protected file is needed, ask the user. Do not weaken the deny list or reshape the command to pass this check."
       deny_read_mode_notice "$dr_mode"
       exit 2
       ;;
