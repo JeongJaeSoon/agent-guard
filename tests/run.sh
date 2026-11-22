@@ -344,6 +344,7 @@ else
 fi
 
 run_expect 0 "release flow verifies exact trees, check failures and performance causes" sh "$ROOT/tests/release-flow.sh"
+run_expect 0 "packaged measurement exposes distinct Docker build failures" sh "$ROOT/tests/performance-errors.sh"
 
 if grep -Fq 'types: [closed]' "$ROOT/.github/workflows/release.yml" \
    && grep -Fq "contains(github.event.pull_request.labels.*.name, 'release')" "$ROOT/.github/workflows/release.yml" \
