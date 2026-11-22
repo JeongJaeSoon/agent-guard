@@ -72,6 +72,47 @@ so the setup skill's own probe line comes back already replaced. That is the
 hook working, not a placeholder committed to the repository. Compare the line's
 byte length with the placeholder's if you need to confirm it.
 
+## Claude Code Code Mode
+
+In Code Mode Claude writes JavaScript that makes several tool calls in one
+step. Each call the code makes passes `PreToolUse` and `PostToolUse` under the
+tool's own name, so the probes above cover it. What the code returns reaches
+the model on two more routes that those probes do not exercise: `REPL` when
+the code ends or throws, and `Poll` when its output is delivered. Checked on
+Claude Code 2.1.330.
+
+1. Ask Claude to run the post-tool probe as code, through a call that fails.
+   The host lets no hook rewrite a failed call's output, so the code receives
+   the raw sentinel and only the `REPL` or `Poll` hook can keep it from the
+   model:
+
+   ```js
+   const guard = '/absolute/path/to/bin/agent-guard';
+   const probe = await $`sed -n 's/^LIVE_POST_TOOL_PROBE=//p' ${guard} | head -1; exit 3`.nothrow();
+   probe.stdout
+   ```
+
+   Expect the same replacement as in step 4 above. A raw sentinel means neither
+   hook ran: check that the installed `PostToolUse` matcher lists `REPL` and
+   `Poll`.
+
+2. Run the same command without `.nothrow()`, so the code throws. The error
+   Claude reads, including the failed call the host appends to it, must carry
+   the replacement.
+
+3. Look each reported run id up as in step 5 above.
+
+When you compare what the code received with a file on disk, compute the
+expected size or hash with a command the shell integration does not wrap, such
+as `wc -c < file` or `shasum < file`. Inside Claude Code `cat` and `head`
+return the masked view, and two masked views always agree.
+
+These probes show that a returned value is masked. They do not change two host
+limits: the code itself receives a failed call's output, and the part of a
+successful output past about 30,000 characters, without masking. A value the
+code keeps is checked again only when the code returns it or passes it to
+another tool call.
+
 ## Read results correctly
 
 - A successful JSON-tool exit does not always mean its serialized output is
@@ -93,7 +134,10 @@ byte length with the placeholder's if you need to confirm it.
   recovers a valid host envelope with its independent parser and emits a
   conservative replacement; exit status 2 for a non-empty malformed or
   non-object PostToolUse envelope is a visible diagnostic and cannot retract
-  the completed tool result. Empty stdin is the documented exception:
+  the completed tool result. Under `closed`, a Claude PostToolUse hook that
+  could not check an output also replaces every non-empty string in it and
+  keeps its shape, because exit status 2 alone leaves the output with the
+  model. Empty stdin is the documented exception:
   PreToolUse, PostToolUse, and Stop return status 0 with no response. Every
   rejected event is reported.
 - A host that kills a hook at its timeout can prevent that hook from deciding.

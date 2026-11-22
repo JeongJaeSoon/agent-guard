@@ -30,7 +30,9 @@ CLAUDE_PRE_MATCHER='Write|Edit|MultiEdit|NotebookEdit|Read|NotebookRead|Grep|Glo
 # Anchors keep Claude in JavaScript-regex mode while restricting coverage to
 # exact built-in names plus the MCP namespace. Every relied-on built-in is
 # explicit; no tool is covered only because its name contains a listed token.
-CLAUDE_POST_MATCHER='^(Write|Edit|MultiEdit|NotebookEdit|Bash|PowerShell|apply_patch|Read|NotebookRead|Grep|Glob|WebFetch|WebSearch|Agent|Task|Skill|Monitor|LSP|ListMcpResourcesTool|ReadMcpResourceTool|mcp__.*)$'
+# REPL and Poll are the Code Mode tools whose result is what the model reads:
+# REPL fires when a script ends or throws, Poll when its output is delivered.
+CLAUDE_POST_MATCHER='^(Write|Edit|MultiEdit|NotebookEdit|Bash|PowerShell|apply_patch|Read|NotebookRead|Grep|Glob|WebFetch|WebSearch|Agent|Task|Skill|Monitor|LSP|ListMcpResourcesTool|ReadMcpResourceTool|REPL|Poll|mcp__.*)$'
 
 # Plugin command: the host exports a versioned plugin-cache root. The command
 # only finds a v1 launcher (hooks/launch.sh) in that root, then in `current`,

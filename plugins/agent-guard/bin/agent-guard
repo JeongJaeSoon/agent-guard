@@ -2654,6 +2654,7 @@ begin_infrastructure_failure() {
   if [ "$(infrastructure_failure_mode)" = closed ]; then
     audit_reason infra-failure-closed
     info "$bif_detail Blocking because AGENT_GUARD_INFRA_FAILURE_MODE=closed."
+    withhold_post_tool_output
     exit 2
   fi
   if hook_warning_due "${1:-}"; then
@@ -15938,7 +15939,42 @@ emit_secret_free_post_tool_replacement() {
       printf '%s\n' '{"decision":"block","reason":"Agent Guard blocked the original tool output because a sanitized replacement could not be serialized.","hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"Agent Guard blocked a sensitive tool output; the sanitized replacement could not be serialized safely."}}'
       ;;
     *)
-      printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PostToolUse","updatedToolOutput":"[REDACTED]"}}'
+      # Claude Code drops a replacement that does not match a built-in tool's
+      # output shape and gives the model the original, so a bare string hides
+      # nothing there. Each tool below gets a fixed object in the shape Claude
+      # Code 2.1.330 returns for it; a field the host reads as one of a few
+      # words keeps a valid one. The host was seen to accept the Bash, REPL
+      # and Poll shapes. The others follow recorded results and are not yet
+      # confirmed on a live host; a shape it rejects fares no worse than the
+      # string. A tool with no recorded result keeps the string. The envelope
+      # may be what failed to parse, so the compact field backs up jq.
+      esf_tool=
+      if command -v jq >/dev/null 2>&1; then
+        esf_tool=$({ printf '%s' "${HOOK_INPUT:-}"; } 2>/dev/null \
+          | jq -r '.tool_name // empty' 2>/dev/null) || esf_tool=
+      fi
+      if [ -z "$esf_tool" ]; then
+        for esf_name in REPL Poll Bash Read Write Edit NotebookEdit Grep Glob Skill Monitor; do
+          case "${HOOK_INPUT:-}" in
+            *"\"tool_name\":\"$esf_name\""*) esf_tool=$esf_name; break ;;
+          esac
+        done
+      fi
+      case "$esf_tool" in
+        REPL) esf_shape='{"code":"[REDACTED]","result":"[REDACTED]","stdout":"[REDACTED]","stderr":"[REDACTED]"}' ;;
+        Poll) esf_shape='{"content":"[REDACTED]","eventCount":0,"remainingWakeCount":0,"provenance":[]}' ;;
+        Bash) esf_shape='{"stdout":"[REDACTED]","stderr":"","interrupted":false,"isImage":false,"noOutputExpected":false}' ;;
+        Read) esf_shape='{"type":"text","file":{"filePath":"[REDACTED]","content":"[REDACTED]","numLines":1,"startLine":1,"totalLines":1}}' ;;
+        Write) esf_shape='{"type":"create","filePath":"[REDACTED]","content":"[REDACTED]","structuredPatch":[],"originalFile":null,"userModified":false}' ;;
+        Edit) esf_shape='{"filePath":"[REDACTED]","oldString":"[REDACTED]","newString":"[REDACTED]","originalFile":null,"structuredPatch":[],"userModified":false,"replaceAll":false}' ;;
+        NotebookEdit) esf_shape='{"new_source":"[REDACTED]","old_source":"[REDACTED]","cell_type":"code","language":"python","edit_mode":"replace","cell_id":"[REDACTED]","error":"","notebook_path":"[REDACTED]","original_file":"[REDACTED]","updated_file":"[REDACTED]"}' ;;
+        Grep) esf_shape='{"mode":"content","numFiles":0,"filenames":[],"content":"[REDACTED]","numLines":0,"totalLines":0}' ;;
+        Glob) esf_shape='{"filenames":[],"durationMs":0,"numFiles":0,"truncated":false,"totalMatches":0,"countIsComplete":true}' ;;
+        Skill) esf_shape='{"success":true,"commandName":"[REDACTED]"}' ;;
+        Monitor) esf_shape='{"taskId":"[REDACTED]","timeoutMs":0,"persistent":false}' ;;
+        *) esf_shape='"[REDACTED]"' ;;
+      esac
+      printf '{"hookSpecificOutput":{"hookEventName":"PostToolUse","updatedToolOutput":%s}}\n' "$esf_shape"
       ;;
   esac
 }
@@ -15979,6 +16015,60 @@ emit_post_tool_replacement() {
       printf '%s\n' '}}'
       ;;
   esac
+}
+
+# PostToolUse runs after the tool, so the closed policy's exit 2 only shows its
+# reason: the output that could not be checked still reaches the model. Before
+# that exit, replace every non-empty string in the response and keep its shape.
+# Claude Code applies a replacement printed beside exit 2 (verified on 2.1.330
+# for Bash, REPL and Poll). jq does the rewrite when it works and the
+# independent awk parser otherwise, so a missing scanner or jq does not stop
+# it; image and PDF bytes pass as they do through the output rewriter. Every
+# caller runs in the hook's own shell, so the emitted flag is enough to keep
+# stdout to one object. Codex takes no replacement and is left as it was.
+withhold_post_tool_output() {
+  [ "${HOOK_EVENT:-}" = PostToolUse ] || return 0
+  [ "$(hook_host)" != codex ] || return 0
+  [ "${REDACT_OUTPUT_EMITTED:-0}" = 0 ] && [ "$INFRA_FAILURE_NOTICE_EMITTED" = 0 ] || return 0
+  [ -n "${HOOK_INPUT:-}" ] || return 0
+  # The switches that turn the output rewrite off turn this off too.
+  output_redact_enabled || [ "${AGENT_GUARD_PII_HOOK_MODE:-off}" = mask ] || return 0
+  wpo_response=
+  wpo_response=$(extract_post_tool_response_awk "$HOOK_INPUT") || wpo_response=
+  case "$wpo_response" in
+    '')
+      # A readable envelope with no response has no output to withhold.
+      if command -v jq >/dev/null 2>&1 \
+          && { printf '%s' "$HOOK_INPUT"; } 2>/dev/null \
+            | jq -e 'type == "object" and (has("tool_response") | not)' >/dev/null 2>&1; then
+        return 0
+      fi
+      ;;
+    null) return 0 ;;
+  esac
+  wpo_out=
+  if [ -n "$wpo_response" ]; then
+    if command -v jq >/dev/null 2>&1; then
+      wpo_out=$({ printf '%s' "$wpo_response"; } 2>/dev/null \
+        | jq -c "$JQ_SHAPE_SAFE_WALK"'
+          . as $orig | strip_binary_payloads
+          | shape_safe_walk(if type == "string" and length > 0
+                            then "[REDACTED]" else . end)
+          | restore_binary_payloads($orig)
+        ' 2>/dev/null) || wpo_out=
+    fi
+    if [ -z "$wpo_out" ]; then
+      whole_leaf_response=$wpo_response
+      wpo_out=$(redact_response_values_awk_current) || wpo_out=
+    fi
+  fi
+  if [ -n "$wpo_out" ]; then
+    emit_post_tool_replacement "$wpo_out"
+  else
+    emit_secret_free_post_tool_replacement
+  fi
+  REDACT_OUTPUT_EMITTED=1
+  info "$PROGRAM: withheld the tool output because it could not be checked for secret-like values"
 }
 
 recover_post_tool_validation_failure() {
