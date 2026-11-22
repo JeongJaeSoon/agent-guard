@@ -13671,6 +13671,57 @@ secretish_env_values() {
     # it, its plural or singular too) or a listed word, and, with need_named,
     # at least one is a word of the field name. Anything else, a random run
     # above all, is 0.
+    # head without the key and delimiter it ends with: the cut that
+    # sub(/["'\''`]?[A-Za-z0-9_.$-]+["'\''`]?[ \t]*[:=]$/, "", head) makes,
+    # walked back from the end. That pattern is anchored only at its end, so
+    # sub() tries it from every position of a run of name characters, which
+    # is quadratic in the length of the run.
+    function without_key_tail(head,   p, q, c) {
+      p = length(head)
+      c = substr(head, p, 1)
+      if (c != ":" && c != "=") return head
+      p--
+      while (p > 0 && ((c = substr(head, p, 1)) == " " || c == "\t")) p--
+      if (p > 0 && index("\"'\''`", substr(head, p, 1))) p--
+      q = p
+      while (p > 0 && substr(head, p, 1) ~ /^[A-Za-z0-9_.$-]$/) p--
+      if (p == q) return head
+      if (p > 0 && index("\"'\''`", substr(head, p, 1))) p--
+      return substr(head, 1, p)
+    }
+    # Length of the line locator head starts with, or 0. It is the cut of
+    # one pattern, ^((PATH:)?[0-9]+:|(PATH-)?[0-9]+-|[ \t]*[0-9]+\t), where
+    # PATH is a run of path characters that does not start with `+` or `-`
+    # and holds a letter. The forms are looked for one at a time, each in a
+    # single pass: written as one pattern, mawk took quadratic time on a
+    # long run of path characters, since `-` and digits are path characters
+    # too and every split of the run had to be tried.
+    function locator_length(head,   best, n, w, i, j) {
+      best = 0
+      if (match(head, /^[ \t]*[0-9]+\t/)) best = RLENGTH
+      if (match(head, /^[0-9]+[:-]/) && RLENGTH > best) best = RLENGTH
+      if (!match(head, /^[A-Za-z0-9_.\/@~][A-Za-z0-9_.\/@+~-]*/)) return best
+      n = RLENGTH
+      w = substr(head, 1, n)
+      if (w !~ /[A-Za-z]/) return best
+      # `path:14:`. A colon is not a path character, so the path is all of w.
+      if (match(substr(head, n + 1), /^:[0-9]+:/) && n + RLENGTH > best)
+        best = n + RLENGTH
+      # `path-14-`. The last `-digits-` in w gives the longest cut; the path
+      # is what precedes it, and a shorter path could not hold a letter that
+      # the longest one lacks.
+      for (i = n; i > 3; i--) {
+        if (substr(w, i, 1) != "-") continue
+        j = i - 1
+        while (j > 0 && substr(w, j, 1) ~ /^[0-9]$/) j--
+        if (j < i - 1 && j > 1 && substr(w, j, 1) == "-") {
+          if (i > best && substr(w, 1, j - 1) ~ /[A-Za-z]/) best = i
+          break
+        }
+        i = j + 1
+      }
+      return best
+    }
     function names_field(text, key, need_named,   kw, kn, vw, vn, i, j, hit, named) {
       kn = ident_split(key, kw)
       vn = ident_split(text, vw)
@@ -14105,18 +14156,17 @@ secretish_env_values() {
         # separators are the same, as the tools print them: `web-1:` is a
         # host or pod name in front of a log line, not a locator.
         #
-        # A field that starts its line has little in front of it, so one that
-        # sits more than 1024 bytes into the line is in mid-line and none of
-        # this runs. The limit also keeps the patterns below off long lines:
-        # the first is anchored only at its end, and on a long run of name
-        # characters it tries every start position. A single 260 KB line took
-        # minutes that way.
+        # A field that starts its line has little in front of it, so when
+        # more than 1024 bytes precede the value the field is in mid-line and
+        # none of this runs. Below the limit the key and the locator are cut
+        # off by without_key_tail and locator_length, each in one pass over
+        # the text: as patterns they took quadratic time on a long run of
+        # name or path characters, and one 260 KB line took minutes.
         key_line_start = 0
         if (!key_name_redact && !advanced && !skip \
             && start + matched_length - 1 <= 1024) {
-          head = substr(rest, 1, start + matched_length - 1)
-          sub(/["'\''`]?[A-Za-z0-9_.$-]+["'\''`]?[ \t]*[:=]$/, "", head)
-          sub(/^((([A-Za-z0-9_.\/@~][A-Za-z0-9_.\/@+~-]*)?[A-Za-z][A-Za-z0-9_.\/@+~-]*:)?[0-9]+:|(([A-Za-z0-9_.\/@~][A-Za-z0-9_.\/@+~-]*)?[A-Za-z][A-Za-z0-9_.\/@+~-]*-)?[0-9]+-|[ \t]*[0-9]+\t)/, "", head)
+          head = without_key_tail(substr(rest, 1, start + matched_length - 1))
+          head = substr(head, locator_length(head) + 1)
           key_line_start = (head ~ /^[+-]?[ \t\r]*((export|const|let|var|public|private|protected|readonly|static)[ \t]+)*$/)
         }
         if (!skip &&

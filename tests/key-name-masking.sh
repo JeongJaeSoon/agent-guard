@@ -268,6 +268,56 @@ if [ "$long_ok" -eq 1 ] && [ "$long_elapsed" -le 30 ]; then
 else
   fail "a 260 KB line took ${long_elapsed}s over three hook runs (at most 30 expected) or was not handled"
 fi
+
+# Many lines that each stay under the limit. The line-start test runs on
+# every one of them, so it has to be linear in the line: as two patterns it
+# was quadratic under mawk, and 310 such lines took ten seconds a hook, the
+# length of the prompt hook's whole budget. The control has the same lines
+# with the value past the limit, where the test does not run at all. Both
+# are timed the same way, so the comparison does not depend on the runner.
+awk -v v="$rnd" 'BEGIN {
+  under = sprintf("%1014s", ""); gsub(/ /, "a", under)
+  over = sprintf("%1100s", ""); gsub(/ /, "a", over)
+  for (i = 0; i < 280; i++) {
+    printf "%s API_KEY=%s\n", under, v > ARGV[1]
+    printf "%s API_KEY=%s\n", over, v > ARGV[2]
+  }
+}' "$CASE_ROOT/under-in" "$CASE_ROOT/over-in"
+many_seconds() {
+  jq -nc --rawfile t "$1" \
+    '{session_id:"key-name",hook_event_name:"PostToolUse",tool_name:"Bash",
+      tool_input:{command:"cat dump.txt"},
+      tool_response:{stdout:$t,stderr:"",interrupted:false}}' >"$CASE_ROOT/many-event"
+  jq -nc --rawfile p "$1" \
+    '{session_id:"key-name",hook_event_name:"UserPromptSubmit",prompt:$p}' >"$CASE_ROOT/many-prompt"
+  many_start=$(date +%s)
+  many_ok=1
+  for many_round in 1 2; do
+    AGENT_GUARD_HOOK_HOST=claude "$GUARD" hook-post-tool \
+      <"$CASE_ROOT/many-event" >"$CASE_ROOT/out" 2>"$CASE_ROOT/err" || many_ok=0
+    jq -e --arg r "$rnd" \
+      '.hookSpecificOutput.updatedToolOutput.stdout | contains($r) | not' \
+      "$CASE_ROOT/out" >/dev/null 2>&1 || many_ok=0
+    AGENT_GUARD_HOOK_HOST=claude "$GUARD" hook-user-prompt \
+      <"$CASE_ROOT/many-prompt" >"$CASE_ROOT/out" 2>"$CASE_ROOT/err"
+    [ $? -eq 2 ] || many_ok=0
+  done
+  many_elapsed=$(( $(date +%s) - many_start ))
+}
+many_seconds "$CASE_ROOT/over-in"
+control_ok=$many_ok
+control_elapsed=$many_elapsed
+many_seconds "$CASE_ROOT/under-in"
+if [ "$control_ok" -eq 1 ] && [ "$many_ok" -eq 1 ]; then
+  ok "280 long lines are masked and blocked on both sides of the limit"
+else
+  fail "280 long lines: a value stayed visible or a prompt passed (control $control_ok, under the limit $many_ok)"
+fi
+if [ "$many_elapsed" -le $(( control_elapsed * 3 + 5 )) ]; then
+  ok "280 lines under the limit cost about what the control costs (${many_elapsed}s against ${control_elapsed}s)"
+else
+  fail "280 lines under the limit took ${many_elapsed}s against ${control_elapsed}s for the control"
+fi
 fi # end of the hooks half
 
 if [ "$part" != hooks ]; then
