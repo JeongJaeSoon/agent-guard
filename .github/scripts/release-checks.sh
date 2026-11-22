@@ -7,6 +7,10 @@ case "$sha" in *[!0-9a-f]*|'') exit 2 ;; esac
 [ "${#sha}" -eq 40 ] || exit 2
 case "$limit" in *[!0-9]*|'') exit 2 ;; esac
 root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd -P)
+awk -F '\t' '
+  NF != 2 || $1 !~ /^[a-z0-9-]+[.]yml$/ || $2 == "" || seen[$2]++ { bad = 1 }
+  END { exit bad || NR == 0 }
+' "$root/.github/release-checks.tsv" || { echo 'Invalid required check manifest' >&2; exit 2; }
 repo=${GITHUB_REPOSITORY:?}
 work=$(mktemp -d)
 trap 'rm -rf "$work"' 0

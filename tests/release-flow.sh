@@ -98,6 +98,13 @@ target() { sh "$ROOT/.github/scripts/release-target.sh" 1 1.0.1 "${1:-false}"; }
 reuse() { sh "$ROOT/.github/scripts/reuse-release-tree.sh"; }
 pr
 checks
+mkdir -p "$case_dir/empty-policy/.github/scripts"
+cp "$ROOT/.github/scripts/release-checks.sh" "$case_dir/empty-policy/.github/scripts/"
+: > "$case_dir/empty-policy/.github/release-checks.tsv"
+reject sh "$case_dir/empty-policy/.github/scripts/release-checks.sh" "$head" 0
+grep -Fq 'Invalid required check manifest' "$case_dir/rejected.err" || fail 'empty policy fails closed'
+printf 'not a workflow or tab-separated check\n' > "$case_dir/empty-policy/.github/release-checks.tsv"
+reject sh "$case_dir/empty-policy/.github/scripts/release-checks.sh" "$head" 0
 sh "$ROOT/.github/scripts/release-checks.sh" "$head" 0
 target > "$case_dir/target"
 grep -Fxq "source_sha=$head" "$case_dir/target" || fail 'identical reviewed tree is reused'
@@ -145,6 +152,8 @@ jq '.[0].check_runs |= .[1:]' "$case_dir/checks.json" > "$case_dir/changed"
 mv "$case_dir/changed" "$case_dir/checks.json"
 reject sh "$ROOT/.github/scripts/release-checks.sh" "$head" 0
 reuse | grep -Fxq reuse=false || fail 'missing check runs full main CI'
+target > "$case_dir/target"
+grep -Fxq "source_sha=$merge" "$case_dir/target" || fail 'publication falls back to exact merge checks when head evidence is missing'
 grep -Fq missing "$case_dir/rejected.out" || fail 'missing is named separately'
 checks
 jq '.[0].check_runs[0].conclusion="failure"' "$case_dir/checks.json" > "$case_dir/changed"
