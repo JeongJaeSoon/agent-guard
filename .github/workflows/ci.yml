@@ -61,6 +61,7 @@ jobs:
       matrix:
         os: ${{ fromJSON(needs.secret-guard.outputs.oses) }}
         bundle: [core, commands, navigation-claude, navigation-codex, scanner]
+        timeout_minutes: [25]
         include:
           - bundle: core
             suite: Core, host adapters and Git
@@ -90,10 +91,12 @@ jobs:
           # field itself.
           - os: macos-latest
             bundle: core
+            timeout_minutes: 25
             suite: Core, host adapters and Git
             shards: '1'
           - os: macos-latest
             bundle: core-partition-3
+            timeout_minutes: 25
             suite: Core, host adapters and Git (partition 3)
             shards: '3'
     runs-on: ${{ matrix.os }}
@@ -101,8 +104,11 @@ jobs:
     # test time, not assertion count; see docs/development/ci.md for mapping and evidence.
     # The earlier ~14-minute partition 5 measurement was a child sharing one
     # runner with partition 2, not an independent runner duration.
-    timeout-minutes: 25
+    timeout-minutes: ${{ matrix.timeout_minutes }}
     steps:
+      - name: Record test job start
+        run: echo "TEST_JOB_STARTED=$(date +%s)" >> "$GITHUB_ENV"
+
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -165,6 +171,12 @@ jobs:
       - name: Smoke test (real git/jq/gitleaks E2E)
         if: runner.os == 'Linux' && matrix.bundle == 'scanner'
         run: make smoke-test
+
+      - name: Summarize suite timings and job time budget
+        if: always()
+        env:
+          TEST_JOB_TIMEOUT_MINUTES: ${{ matrix.timeout_minutes }}
+        run: sh .github/scripts/test-timing-summary.sh
 
   test:
     # Only full coverage may produce the names release.yml consumes.
