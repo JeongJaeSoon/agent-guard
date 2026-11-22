@@ -254,7 +254,11 @@ cannot scan), it also prints a replacement in which every non-empty string is
 exit status 2 (checked on 2.1.330 for `Bash`, `REPL` and `Poll`).
 `AGENT_GUARD_OUTPUT_REDACT=off` turns that off together with output masking.
 Two cases stay as they were: when no binary can be found, the launcher has no
-parser and can only exit 2, and Codex takes no replacement.
+parser and can only exit 2, and Codex takes no replacement. One case is open:
+the replacement also changes a field the host reads as one of a few words,
+such as `type` in a `Write` result or `mode` in a `Grep` result, and
+whether the host then keeps the replacement for those tools has not been
+checked.
 
 Each plugin hook command is one short line that runs the plugin's
 `hooks/launch.sh` with the host name, the hook subcommand and the plugin
