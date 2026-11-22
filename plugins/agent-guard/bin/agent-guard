@@ -6367,28 +6367,45 @@ shell_join_line_continuations() {
 # file to read. This is intentionally narrow: globally dropping `!*.pem` would
 # turn a literal path such as `cat '!secret.pem'` into a policy bypass. Ripgrep's
 # negative glob is common in repository scans and has an unambiguous grammar.
+#
+# The value must be one literal word: a single-quoted part holding no quote, a
+# double-quoted part holding no quote, `$`, backquote or backslash, or an
+# unquoted word holding none of those nor a brace. Anything else may expand
+# into a command substitution that reads a file, or (`!{a,b}.pem`) into a
+# second word that rg opens.
 bash_strip_exclusion_operands() {
   (
     set -f
-    words=$(shell_command_words "$1")
+    shell_words_marker "$1"
+    words=$(shell_command_words "$1") || { printf '%s' "$1"; exit 0; }
+    IFS='
+'
     # shellcheck disable=SC2086
     set -- $words
-    result= command_name= pending_glob=
+    unset IFS
+    result= shell_words_nl= command_name= pending_glob=
 
-    append_policy_token() {
-      if [ -z "$result" ]; then result=$1; else result="$result $1"; fi
-    }
+    append_policy_token() { shell_words_append "$1"; }
     is_negative_glob_value() {
       value=$1
       case "$value" in
         \'*\') value=${value#\'}; value=${value%\'} ;;
         \"*\") value=${value#\"}; value=${value%\"} ;;
+        *'{'*|*'}'*) return 1 ;;
+      esac
+      # Where shell_command_words reads quotes unlike the shell, the quoted
+      # value is shell code; without blanks, operators, expansions or quotes
+      # it cannot run anything.
+      case "$value" in
+        *[[:space:]]*|*\'*|*\"*|*'$'*|*'`'*|*\\*|*';'*|*'|'*|*'&'*|\
+        *'<'*|*'>'*|*'('*|*')'*|*"$SHELL_WORD_NL"*) return 1 ;;
       esac
       case "$value" in !*) return 0 ;; *) return 1 ;; esac
     }
 
     for token in "$@"; do
-      if is_shell_command_separator "$token"; then
+      if is_shell_command_separator "$token" || [ "$token" = '&' ] \
+        || [ "$token" = "$SHELL_WORD_NL" ]; then
         [ -n "$pending_glob" ] && append_policy_token "$pending_glob"
         pending_glob=
         append_policy_token "$token"
@@ -6434,7 +6451,7 @@ bash_strip_exclusion_operands() {
       append_policy_token "$token"
     done
     [ -n "$pending_glob" ] && append_policy_token "$pending_glob"
-    printf '%s' "$result"
+    shell_words_print "$result"
   )
 }
 
@@ -6445,6 +6462,11 @@ bash_strip_exclusion_operands() {
 env_exception_literal_shell_token() {
   literal_shell_token=$1
   literal_env_unquoted=0
+  # A quoted word from shell_command_words may hold an operator or a newline,
+  # which `eval` would run as a command boundary.
+  case "$literal_shell_token" in
+    *';'*|*'|'*|*'&'*|*"$SHELL_WORD_NL"*) return 1 ;;
+  esac
   case "$literal_shell_token" in
     \'*\')
       literal_env_value=${literal_shell_token#\'}
@@ -6514,10 +6536,14 @@ bash_strip_allowed_tokens() {
       bash_rebase_target=$(bash_command_rebase_target "$1") \
         || bash_relative_env_exception_safe=0
     fi
-    words=$(shell_command_words "$1")
+    shell_words_marker "$1"
+    words=$(shell_command_words "$1") || { printf '%s' "$1"; exit 0; }
+    IFS='
+'
     # shellcheck disable=SC2086
     set -- $words
-    result=
+    unset IFS
+    result= shell_words_nl=
     for token in "$@"; do
       env_exception_token=
       env_exception_literal_shell_token "$token" 2>/dev/null || :
@@ -6540,13 +6566,9 @@ bash_strip_allowed_tokens() {
           continue
         fi
       fi
-      if [ -z "$result" ]; then
-        result=$token
-      else
-        result="$result $token"
-      fi
+      shell_words_append "$token"
     done
-    printf '%s' "$result"
+    shell_words_print "$result"
   )
 }
 
@@ -9299,32 +9321,102 @@ is_shell_command_separator() {
   esac
 }
 
+# Set SHELL_WORD_NL to the byte shell_command_words writes for a newline in
+# $1. Text without a newline yields no such byte, so a newline, which no word
+# holds, stands in for it there and costs no process.
+shell_words_marker() {
+  SHELL_WORD_NL='
+'
+  case "$1" in *"$SHELL_WORD_NL"*) SHELL_WORD_NL=$(printf '\034') ;; esac
+}
+
+# Print the words of $1 one per line, split where the shell splits them: at
+# blanks and at the operators `;`, `|`, `||`, `&&` and a lone `&` (not the
+# `&` of `2>&1` or `&>`), each printed as a word of its own. Quotes, a
+# backslash escape and `$(...)`, `${...}`, `<(...)`, `>(...)` or backquotes
+# stay inside their word as written. A comment splits only at blanks, so its
+# apostrophes and operators change nothing. An unquoted newline is the word "$SHELL_WORD_NL", and a newline
+# inside a word is written as that byte too. An unclosed quote runs to the
+# end. Returns 1 when $1 already holds that byte. Callers set the byte with
+# shell_words_marker first.
 shell_command_words() {
   printf '%s\n' "$1" | LC_ALL=C awk '
-    {
-      out = ""
-      for (i = 1; i <= length($0); i++) {
-        c = substr($0, i, 1)
-        n = substr($0, i + 1, 1)
-        if (c == "&" && n == "&") {
-          out = out " && "
-          i++
+    function flush() { if (w != "") print w; w = "" }
+    function push(k) { st = st k }
+    { t = (NR == 1) ? $0 : t "\n" $0 }
+    END {
+      n = length(t); nl = "\034"; w = ""; st = ""
+      if (index(t, nl)) exit 1
+      for (i = 1; i <= n; i++) {
+        c = substr(t, i, 1); nx = substr(t, i + 1, 1); top = substr(st, length(st))
+        if (cm) {
+          if (c == "\n") { cm = 0; flush(); print nl }
+          else if (c == " " || c == "\t") flush()
+          else w = w c
           continue
         }
-        if (c == "|" && n == "|") {
-          out = out " || "
-          i++
+        if (top == "S" || top == "A" || top == "Q" || top == "D") {
+          if (c == "\n") c = nl
+          if (top != "S" && c == "\\" && i < n) {
+            w = w c (nx == "\n" ? nl : nx); i++; continue
+          }
+          if ((top == "S" || top == "A") && c == "\047" || top == "Q" && c == "`" || top == "D" && c == "\"") {
+            st = substr(st, 1, length(st) - 1)
+          } else if (top == "D" && c == "$" && nx == "$") {
+            w = w c nx; i++; continue
+          } else if (top == "D" && c == "$" && (nx == "(" || nx == "{")) {
+            push(nx == "(" ? "P" : "B"); w = w c nx; i++; continue
+          } else if (top == "D" && c == "`") push("Q")
+          w = w c
           continue
         }
-        if (c == ";" || c == "|") {
-          out = out " " c " "
-          continue
+        if (top == "") {
+          if (c == " " || c == "\t") { flush(); continue }
+          if (c == "\n") { flush(); print nl; continue }
+          if (c == ";") { flush(); print c; continue }
+          if (c == "|") { flush(); if (nx == "|") { print "||"; i++ } else print c; continue }
+          if (c == "&" && nx == "&") { flush(); print "&&"; i++; continue }
+          if (c == "&" && nx != ">" && w !~ /[<>]$/) { flush(); print c; continue }
+          if (c == "#" && w == "") { cm = 1; w = c; continue }
+        } else if (c == "\n") c = nl
+        else if (top == "P" && c == ")" || top == "B" && c == "}") st = substr(st, 1, length(st) - 1)
+        else if (top == "P" && c == "(") push("P")
+        if (c == "\\" && i < n) { w = w c (nx == "\n" ? nl : nx); i++; continue }
+        # `$$` is one parameter: `$$'...'` is a plain quote.
+        if (c == "$" && nx == "$") { w = w c nx; i++; continue }
+        if (c == "$" && nx == "\047") { push("A"); w = w c nx; i++; continue }
+        if ((c == "$" || c == "<" || c == ">") && nx == "(" || c == "$" && nx == "{") {
+          push(nx == "(" ? "P" : "B"); w = w c nx; i++; continue
         }
-        out = out c
+        if (c == "\047") push("S")
+        else if (c == "\"") push("D")
+        else if (c == "`") push("Q")
+        w = w c
       }
-      print out
+      flush()
     }
   '
+}
+
+# Append word $1 of shell_command_words to $result, after a blank unless it
+# is the first word or a newline word is on either side; shell_words_nl
+# carries that between calls.
+shell_words_append() {
+  if [ "$1" = "$SHELL_WORD_NL" ] || [ -z "$result" ] || [ -n "$shell_words_nl" ]; then
+    result=$result$1
+  else
+    result="$result $1"
+  fi
+  shell_words_nl=
+  [ "$1" != "$SHELL_WORD_NL" ] || shell_words_nl=1
+}
+
+# Print a result of shell_words_append with its newlines restored.
+shell_words_print() {
+  case "$1" in
+    *"$SHELL_WORD_NL"*) printf '%s' "$1" | tr '\034' '\n' ;;
+    *) printf '%s' "$1" ;;
+  esac
 }
 
 # Tokenize only enough POSIX shell syntax to locate git and its cwd-changing
