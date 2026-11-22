@@ -92,10 +92,26 @@ detect corruption, not a malicious replacement of both the binary and checksum.
 
 Source archives and host-managed Git marketplace plugins contain no binaries
 and therefore use shell unless a trusted prebuilt helper is configured through
-the existing `AGENT_GUARD_RUST_CORE_BIN` override. The standalone installation
-can supply that helper without editing host caches. See the [native helper
-guide](https://github.com/JeongJaeSoon/agent-guard/blob/v3.8.0/docs/native-redactor.md)
-for selection, checksum verification and developer overrides.
+the `AGENT_GUARD_RUST_CORE_BIN` override. The standalone installation can
+supply that helper without editing host caches: install the standalone release
+of the same version, verify its helper, then set the override in the
+environment that launches the host. Pick the target for your platform
+(`x86_64-unknown-linux-musl`, `aarch64-unknown-linux-musl` or
+`aarch64-apple-darwin`); this example is Linux x64:
+
+```sh
+target=x86_64-unknown-linux-musl
+native_root="$HOME/.agent-guard/libexec"
+(cd "$native_root" && shasum -a 256 -c "agent-guard-redact-$target.sha256") &&
+  export AGENT_GUARD_RUST_CORE_BIN="$native_root/agent-guard-redact-$target"
+```
+
+For Homebrew the helper directory is `$(brew --prefix agent-guard)/libexec/libexec`.
+Restart the host with that environment; this does not register or replace its
+hooks. The override must be an absolute path to an executable and is not
+rechecked against its checksum on every request, so point it only at a trusted
+installation. Unset it to return to the packaged helper, or set
+`AGENT_GUARD_EXPERIMENTAL_REDACTOR=shell` to turn native execution off.
 
 The runtime on macOS and Linux needs `sh`, `awk`, `git`, `jq`, and gitleaks
 8.30 or newer. It also needs one of `setsid` or Perl to run the gitleaks version

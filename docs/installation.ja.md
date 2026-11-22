@@ -1,4 +1,4 @@
-<!-- translated-from: docs/installation.md; source-blob: bd394896c44feb96d1374fa6dcc0ecdce07c17ea -->
+<!-- translated-from: docs/installation.md; source-blob: 557cb1615ea118bdaf0e0ef8caac745ab9f88985 -->
 
 <a id="installing-agent-guard"></a>
 
@@ -69,7 +69,16 @@ export AGENT_GUARD_EXPERIMENTAL_REDACTOR=shell
 
 Linuxヘルパーは静的muslを使うためglibcは不要で、Ubuntu 24.04で実行を検証します。macOSヘルパーのdeployment targetはmacOS 14以降で、macOS 15 arm64で検証します。Intel Mac(x86_64)には対応していません。リリースはIntel用ヘルパーを配布せず、Intelでは検証しないため、Intel環境ではshell/jqへのフォールバックを使います。スタンドアロンのインストーラーはIntelでこの案内を表示し、更新時に残っているIntel用ヘルパーを削除します。Intel用ヘルパーを含む最後のリリースは3.8.2です。そのリリースに留まるには、インストーラーを `AGENT_GUARD_VERSION=3.8.2` で実行してください。deployment targetの設定だけでは、すべての古いOS・カーネルで動作する証拠にはなりません。未対応環境ではshellへのフォールバックを維持します。配布チェックサムは破損を検出しますが、バイナリとチェックサムの両方が悪意をもって置き換えられた場合の認証にはなりません。
 
-ソースアーカイブとhost管理のGit marketplaceプラグインにはバイナリがないため、既存の `AGENT_GUARD_RUST_CORE_BIN` で信頼できるビルド済みヘルパーを指定しなければshellを使います。スタンドアロン版のヘルパーを使えばhostのキャッシュを編集する必要はありません。選択・チェックサム検証・開発者の上書き設定は[ネイティブヘルパーガイド（英語）](https://github.com/JeongJaeSoon/agent-guard/blob/v3.8.0/docs/native-redactor.md)を参照してください。
+ソースアーカイブとhost管理のGit marketplaceプラグインにはバイナリがないため、`AGENT_GUARD_RUST_CORE_BIN` で信頼できるビルド済みヘルパーを指定しなければshellを使います。スタンドアロン版のヘルパーを使えばhostのキャッシュを編集する必要はありません。同じバージョンのスタンドアロンリリースをインストールし、そのヘルパーを検証してから、hostを起動する環境に上書き設定を追加してください。プラットフォームに合うターゲット(`x86_64-unknown-linux-musl`、`aarch64-unknown-linux-musl`、`aarch64-apple-darwin`)を選びます。次はLinux x64の例です。
+
+```sh
+target=x86_64-unknown-linux-musl
+native_root="$HOME/.agent-guard/libexec"
+(cd "$native_root" && shasum -a 256 -c "agent-guard-redact-$target.sha256") &&
+  export AGENT_GUARD_RUST_CORE_BIN="$native_root/agent-guard-redact-$target"
+```
+
+Homebrewのヘルパーディレクトリは `$(brew --prefix agent-guard)/libexec/libexec` です。その環境でhostを再起動してください。この設定はhookを登録・置換しません。上書き値は実行可能ファイルの絶対パスである必要があり、リクエストごとにチェックサムを再確認しないため、信頼できるインストールだけを指定してください。設定を外すと同梱ヘルパーに戻り、`AGENT_GUARD_EXPERIMENTAL_REDACTOR=shell` を設定するとネイティブ実行を無効にします。
 
 macOSとLinuxでの実行には `sh`、`awk`、`git`、`jq`、gitleaks 8.30以降が必要です。gitleaksのバージョン確認を独立したプロセスグループで実行するため、`setsid` またはPerlも必要です。この隔離によって、確認処理の時間制限と子プロセスの後処理が可能になります。Linuxでは `sudo apt-get install -y util-linux` または `sudo dnf install -y util-linux` で `setsid` を導入してください。HomebrewのformulaはCLIとともにPerlを導入します。macOSの手動導入でどちらもない場合は `brew install perl` を使えます。
 

@@ -10,7 +10,8 @@ Every Agent Guard scan starts a new gitleaks process. Almost all of its time
 engine's WebAssembly runtime and the compilation of 224 rules. The scan itself
 takes under a millisecond for a 2 KB input. The opt-in warm helper pays the
 start-up once and keeps one compiled gitleaks detector in memory; hooks reach
-it through a small client.
+it through a small client. On that VM, hooks that took about 0.5 to 1.6
+seconds took about 0.05 to 0.2 seconds with a warm helper.
 
 It is off by default and not included in any release archive, Homebrew
 formula or plugin. You build it from source and turn it on with one
@@ -198,88 +199,6 @@ scanned bytes can remain in the helper's memory until it is reused or the
 helper exits (about the idle time after the last scan; the idle check runs
 every 15 seconds). Nothing is written
 to disk or sent over the network. See [PRIVACY.md](../PRIVACY.md).
-
-## Why a compiled helper
-
-Agent Guard adds code only when reuse, POSIX tools and host features cannot
-give the required guarantee (see `AGENTS.md`). Here:
-
-- gitleaks has no server mode, and its start-up cost is in its own process;
-  no option or POSIX tool keeps a compiled detector alive between hooks.
-- A shell cannot talk to a Unix socket portably (`nc -U` and `socat` are not
-  on every macOS and Linux system) and cannot check the peer's uid.
-- Another scanner or a rewritten engine would not be the same detector. The
-  helper links gitleaks itself, so detection is the official release's.
-
-The only new dependency is the gitleaks module and its own dependencies, at
-the versions of the official release. The client uses the Go standard library
-and `golang.org/x/sys`.
-
-## Measurements
-
-Measured on 2026-11-20 with the helper as released in v3.13.0 (#548, #568).
-One 4-vCPU Linux VM, official gitleaks 8.30.1, medians of 9 runs of each hook
-with synthetic inputs (`bench/gitleaks-helper/measure.py`). "Cold" is the hook
-that finds no helper running: its scans run the real gitleaks and it starts
-the helper, which can already answer the later scans of a PostToolUse hook.
-
-| Hook (ms) | Off | On, cold | On, warm |
-| --- | ---: | ---: | ---: |
-| Bash PreToolUse (new command) | 551 | 546 | 110 |
-| Edit PreToolUse | 487 | 496 | 54 |
-| UserPromptSubmit | 506 | 498 | 61 |
-| PostToolUse Read (clean tree) | 572 | 588 | 128 |
-| PostToolUse Bash (changed tree) | 1,573 | 656 | 200 |
-| PostToolUse Edit (changed tree) | 1,602 | 651 | 215 |
-
-Memory: each real gitleaks run peaks at 58 to 77 MiB resident and a
-PostToolUse hook with a changed tree runs three in a row. The helper holds
-59 MiB right after starting, 64 MiB after 50 small scans, 40 to 42 MiB
-after inputs of 1 MiB and dense 300 KB secrets (its peak was 77 MiB), and
-65 MiB while four sessions scanned through it at once, still one process. The
-client peaks at 3.4 MiB (7.7 MiB for a 1 MiB input) for a few milliseconds.
-With an unusable helper, nothing changes: across 64 comparisons (14 hook
-fixtures, `scan-staged` and `scan-path`; Claude and Codex; log on and off),
-the same CLI with the helper variable unset and pointing at a missing client
-must match in exit codes, output, the number of programs executed and the
-number of processes forked (`bench/gitleaks-helper/compare-off.sh`, also run
-in CI). This compares two states in the pull request's tree, so intentional
-hook changes unrelated to the helper do not fail the check. Only a missing
-client path is tried as unusable; a relative path, a file without execute
-permission and `AGENT_GUARD_GITLEAKS_BIN` are not compared.
-
-That comparison cannot see helper code that adds the same work to both states.
-`.github/scripts/helper-call-sites.sh` therefore reads the diff of
-`plugins/agent-guard` (not file paths) and sets how far CI also compares the
-default path, helper unset, with the base, in the same 64 comparisons:
-
-| The diff changes | Compared with the base |
-| --- | --- |
-| a line outside any function, or in `gitleaks_helper*` or `gitleaks_exec`, or a line that sources a file | exit codes, output, programs executed and processes forked |
-| a function that calls the wrapper (`gitleaks_scan`, the prompt-guard detector), or a line there naming `AGENT_GUARD_GITLEAKS_HELPER`, `gitleaks_helper*` or `gitleaks_exec` | programs executed and processes forked only |
-| nothing that names the helper | nothing: a hook change unrelated to the helper is free |
-
-A function spans from its definition to the next one, so the code between two
-functions counts with the first and the match errs toward the wider
-comparison. A function that calls the wrapper may change its output, but a
-pull request that changes how many processes it starts fails, and its author
-explains why in the pull request. The `Hook instruction count (base vs
-head)` job reports cost changes against the base branch, but it does not fail
-on an increase and does not count the programs the hook executes.
-
-Large inputs copy about as much as v3.7.0 did. With 300 KiB and 1 MiB clean
-inputs through a Write PreToolUse and a Bash PostToolUse, the bytes read and
-written by every process, the warm helper included (traced with all its
-threads), were at most 0.3 MiB more than with the published v3.7.0 release,
-helper off or warm (for example 19.8, 20.0 and 20.1 MiB for a 1 MiB Write).
-Wall time stayed within this VM's run-to-run noise of about 10% (measured on
-Linux with `bench/gitleaks-helper/large-v370.sh`, without Docker cgroup
-limits). A pipe that already holds as much as the helper can
-take (64 KiB) goes to the real gitleaks before the client reads a byte, so a
-large piped input is not copied once more through a replay. This depends on
-the writer having filled the pipe when the client looks; otherwise, and on
-macOS, whose pipes start at 16 KiB, the input may still be replayed, as
-before.
 
 ## Known limits
 

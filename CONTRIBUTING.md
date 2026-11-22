@@ -224,8 +224,8 @@ configuration and sessions.
 
 Partitions are balanced by measured macOS job time, not assertion count. On
 Linux one core runner runs partitions 1 and 3 side by side, so the slower of
-the two sets the job time; on macOS each runs on its own runner, because both
-on one three-core runner reached the 25-minute job limit. Heavy fixture suites
+the two sets the job time; on macOS each runs on its own runner to stay under
+the 25-minute job limit. Heavy fixture suites
 that run the hook hundreds of times go where there is room:
 `tests/key-name-masking.sh`, `tests/deny-path-regex-cache.sh` and
 `tests/message-value-prose.sh` run in partition 3, while
@@ -297,5 +297,4 @@ time alone does not establish lower billed cost.
 Benchmark tools live under `bench/`. Do not commit generated reports, raw
 measurement output, or goal and plan notes: write them to the ignored
 `bench/local/` directory, a release asset or a CI artifact. Update the
-relevant guide instead of adding one document per PR; Git history keeps
-earlier discussion.
+relevant guide instead of adding one document per PR.
