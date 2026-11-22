@@ -65,5 +65,10 @@ different=$(cause_for 'integration start: host=codex fixture=1 variant=shell' \
 [ "$(cause_for 'host/fallback mismatch: claude, fixture=1, baseline_seconds=1.234, candidate_seconds=2.345, output=bad')" = \
   "$(cause_for 'host/fallback mismatch: claude, fixture=1, baseline_seconds=2.345, candidate_seconds=3.456, output=bad')" ] \
   || { echo 'fallback timing changed the failure identity' >&2; exit 1; }
+[ "$(cause_for '#6 sha256:synthetic 10.49MB / 29.15MB 0.6s' '#6 sha256:synthetic 20.49MB / 29.15MB 1.6s' '#6 transferring context: 12.34MB' 'ERROR: build failed')" = \
+  "$(cause_for '#6 sha256:synthetic 25.49MB / 29.15MB 2.6s' '#6 transferring context: 23.45MB' 'ERROR: build failed')" ] \
+  || { echo 'Docker download progress changed the failure identity' >&2; exit 1; }
+[ "$(cause_for 'measurement timed out after 30s')" != "$(cause_for 'measurement timed out after 60s')" ] \
+  || { echo 'different timeout diagnostics shared an identity' >&2; exit 1; }
 printf 'ok - distinct Docker build failures preserve stderr and issue identity\n'
 printf 'ok - timing jitter is normalized while timeout locations and errors stay distinct\n'

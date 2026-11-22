@@ -16,8 +16,14 @@ root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd -P)
         s/((baseline_|candidate_)?seconds=)[-+0-9.eE]+/\1#/g
         s/^((baseline|candidate) [^ ]+) [-+0-9.eE]+s$/\1 #s/
         s/^(#[0-9]+) [0-9.]+ /\1 /
-        s/ [0-9.]+s( done)?$/ #s\1/
-      ' "$dir/errors.txt"
+        /^(#[0-9]+ (DONE |sha256:|extracting |transferring )|sha256:)/ {
+          s/[0-9]+([.][0-9]+)?([kMGT]?B)/#\2/g
+          s/ [0-9.]+s( done)?$/ #s\1/
+        }
+      ' "$dir/errors.txt" | awk '
+        /^(#[0-9]+ (DONE |sha256:|extracting |transferring )|sha256:)/ { if (seen[$0]++) next }
+        { print }
+      '
     fi
     [ ! -f "$dir/over-limit.txt" ] || sed 's/[0-9][0-9.]*/#/g' "$dir/over-limit.txt"
     for file in "$dir"/*confirmation.json; do

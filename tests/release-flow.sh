@@ -105,6 +105,12 @@ reject sh "$case_dir/empty-policy/.github/scripts/release-checks.sh" "$head" 0
 grep -Fq 'Invalid required check manifest' "$case_dir/rejected.err" || fail 'empty policy fails closed'
 printf 'not a workflow or tab-separated check\n' > "$case_dir/empty-policy/.github/release-checks.tsv"
 reject sh "$case_dir/empty-policy/.github/scripts/release-checks.sh" "$head" 0
+printf 'ci.yml\tAgent Guard\nci.yml\tLint' > "$case_dir/empty-policy/.github/release-checks.tsv"
+jq '(.[0].check_runs[] | select(.name == "Lint")).conclusion="failure"' "$case_dir/checks.json" > "$case_dir/changed"
+mv "$case_dir/changed" "$case_dir/checks.json"
+reject sh "$case_dir/empty-policy/.github/scripts/release-checks.sh" "$head" 0
+grep -Fq "'Lint'" "$case_dir/rejected.err" || fail 'unterminated final check is still mandatory'
+checks
 sh "$ROOT/.github/scripts/release-checks.sh" "$head" 0
 target > "$case_dir/target"
 grep -Fxq "source_sha=$head" "$case_dir/target" || fail 'identical reviewed tree is reused'
