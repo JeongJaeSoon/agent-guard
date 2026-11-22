@@ -9,8 +9,10 @@
 # helper code that adds work there must fail even though it adds the same work
 # to the unusable-helper state, which a same-tree comparison cannot see.
 #   full  a changed line sits outside any function or in a helper function
-#         (gitleaks_helper*, gitleaks_exec), or a sourcing line changed, which
-#         this check cannot read: compare exit code, output, programs and forks.
+#         (gitleaks_helper*, gitleaks_exec), or a changed line sources a file
+#         (at the start of a command: after ;, &, |, (, {, then, do or else),
+#         which this check cannot read: compare exit code, output, programs
+#         and forks.
 #   cost  only functions that call the wrapper changed (a hunk in one, or a
 #         changed line naming the helper inside one): compare programs and forks
 #         only, so an intended output change there still passes.
@@ -53,8 +55,8 @@ while IFS= read -r path; do
       END { for (n in hit) print n }' >>"$tmp/callers"
   done
 done <"$tmp/paths"
-awk -v names="$names" -v helper_functions="$helper_functions" -v hits="$tmp/hits" '
-  FNR == NR { caller[$0] = 1; next }
+awk -v names="$names" -v helper_functions="$helper_functions" -v hits="$tmp/hits" -v callers_file="$tmp/callers" '
+  FILENAME == callers_file { caller[$0] = 1; next }
   function raise(level, why) {
     if (level == "full" || scope == "none") scope = level
     print level ": " why > hits
@@ -68,7 +70,7 @@ awk -v names="$names" -v helper_functions="$helper_functions" -v hits="$tmp/hits
     next
   }
   inhunk && /^[-+]/ {
-    if ($0 ~ /^[-+][ \t]*(\.|source)[ \t]/) raise("full", "sourcing line: " $0)
+    if ($0 ~ /(^[-+][ \t]*|[;&|({][ \t]*|[ \t](then|do|else)[ \t]+)(\.|source)[ \t]+[^ \t]/) raise("full", "sourcing line: " $0)
     else if ($0 ~ names) {
       if (fn == "" || fn ~ helper_functions) raise("full", "outside the callers: " $0)
       else raise("cost", "in " fn ": " $0)

@@ -290,12 +290,21 @@ sites_case 'wrapper call dropped' scope=cost '/gitleaks_exec "\$GITLEAKS_BIN" "\
 sites_case 'work in a function that calls the wrapper' scope=cost '{ print } /^gitleaks_scan\(\) \{/ { print "  jq -n null >/dev/null" }'
 sites_case 'output change in a function that calls the wrapper' scope=cost '{ sub(/secret-like value detected in/, "secret-like value found in") } { print }'
 sites_case 'file sourced from an unrelated function' scope=full '{ print } /^block_on_scan_status\(\) \{/ { print "  . ./extra.sh" }'
+sites_case 'conditional sourcing in an unrelated function' scope=full '{ print } /^block_on_scan_status\(\) \{/ { print "  if [ -r ./extra.sh ]; then . ./extra.sh; fi" }'
 sites_case 'change unrelated to the helper' scope=none '{ print } /^block_on_scan_status\(\) \{/ { print "  jq -n null >/dev/null" }'
 git -C "$repo" checkout -q "$base_rev" -- . || exit 1
 got=$(cd "$repo" && sh "$sites_script" "$base_rev" HEAD) && [ "$got" = scope=none ] || fail 'no change leaves the call sites untouched'
+# No function names the helper in either revision: the callers list is empty.
+mini="$sites_tmp/mini"
+git init -q "$mini" && mkdir -p "$mini/plugins/agent-guard/bin" && printf 'f() {\n  echo a\n}\n' >"$mini/$sites_cli" \
+  && git -C "$mini" add . && git -C "$mini" -c user.email=t@example.test -c user.name=t commit -qm base || exit 1
+mini_base=$(git -C "$mini" rev-parse HEAD) || exit 1
+printf 'f() {\n  . ./extra.sh\n  echo a\n}\n' >"$mini/$sites_cli" \
+  && git -C "$mini" -c user.email=t@example.test -c user.name=t commit -qam sourcing || exit 1
+got=$(cd "$mini" && sh "$sites_script" "$mini_base" HEAD 2>/dev/null) && [ "$got" = scope=full ] || fail 'sourcing is found when no function names the helper'
 if (cd "$repo" && sh "$sites_script" no-such-revision HEAD >/dev/null 2>&1); then fail 'a diff that cannot run is an error'; fi
 ) || exit 1
-pass=$((pass + 9))
+pass=$((pass + 11))
 rm -rf "$sites_tmp"
 trap - 0
 printf 'CI scope fixtures passed: %s; matrix, aggregate and performance schedule wiring verified\n' "$pass"
