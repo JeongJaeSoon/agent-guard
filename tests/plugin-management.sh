@@ -1251,14 +1251,28 @@ else
   not_ok 'Claude status --check exits 1 on marketplace pin drift'
 fi
 
-new_case check_rejected_for_install
+for check_action in install update uninstall; do
+  new_case "check_rejected_for_$check_action"
+  add_host claude
+  if run_guard plugin "$check_action" --check --host claude; then
+    not_ok "$check_action rejects --check"
+  elif [ "$?" -eq 2 ] && [ ! -s "$case_log" ]; then
+    ok "$check_action rejects --check before calling a host manager"
+  else
+    not_ok "$check_action rejects --check"
+  fi
+done
+
+new_case check_all_mixed_drift
 add_host claude
-if run_guard plugin install --check --host claude; then
-  not_ok 'install rejects --check'
-elif [ "$?" -eq 2 ] && [ ! -s "$case_log" ]; then
-  ok 'install rejects --check before calling a host manager'
+add_host codex
+export AG_PLUGIN_TEST_MARKETPLACE=ok AG_PLUGIN_TEST_INSTALLED=old
+if run_guard plugin status --check --host all; then
+  not_ok 'status --check --host all exits 1 when hosts drift'
+elif [ "$?" -eq 1 ] && [ "$(grep -c "expected $CLI_VERSION" "$case_dir/out")" -ge 2 ]; then
+  ok 'status --check --host all reports every host and exits 1 on drift'
 else
-  not_ok 'install rejects --check'
+  not_ok 'status --check --host all exits 1 when hosts drift'
 fi
 
 printf 'plugin management: %s passed, %s failed\n' "$pass" "$fail"
