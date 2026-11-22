@@ -1,0 +1,95 @@
+{
+  "comment": "Claude Code 2.1.330 built-in tool outputs whose fields the host checks, for #612. The Read union (text, image, notebook, pdf, parts), Write's `type`, Grep's `mode` and NotebookEdit's `cell_type` follow that version's output schema; the Read `parts` case with `pages` is the shape a live PostToolUse hook received for a PDF read with a page range. Paths, sizes and image bytes are stand-ins. {{SECRET}} becomes the planted marker when the test runs, and only content-bearing fields carry it. `words` lists the paths of the fields the host reads as one of a few values; a replacement must keep them as they were, keep the type of every value, keep every number and keep a file path that equals the one in tool_input.",
+  "cases": [
+    {
+      "label": "Read text file",
+      "tool": "Read",
+      "tool_input": {"file_path": "/work/notes.txt"},
+      "words": [["type"]],
+      "output": {
+        "type": "text",
+        "file": {"filePath": "/work/notes.txt", "content": "line one\n{{SECRET}}\n", "numLines": 2, "startLine": 1, "totalLines": 2}
+      }
+    },
+    {
+      "label": "Read image",
+      "tool": "Read",
+      "tool_input": {"file_path": "/work/shot.png"},
+      "words": [["type"], ["file", "type"]],
+      "output": {
+        "type": "image",
+        "file": {"base64": "iVBORw0KGgo=", "type": "image/png", "originalSize": 8, "dimensions": {"originalWidth": 1, "originalHeight": 1, "displayWidth": 1, "displayHeight": 1}}
+      }
+    },
+    {
+      "label": "Read notebook",
+      "tool": "Read",
+      "tool_input": {"file_path": "/work/lab.ipynb"},
+      "words": [["type"]],
+      "output": {
+        "type": "notebook",
+        "file": {"filePath": "/work/lab.ipynb", "cells": [{"cellType": "code", "source": "print('{{SECRET}}')", "execution_count": 1, "cell_id": "cell-0", "language": "python", "outputs": [{"output_type": "stream", "text": "{{SECRET}}\n"}]}]}
+      }
+    },
+    {
+      "label": "Read whole PDF",
+      "tool": "Read",
+      "tool_input": {"file_path": "/work/doc.pdf"},
+      "words": [["type"]],
+      "output": {
+        "type": "pdf",
+        "file": {"filePath": "/work/doc.pdf", "base64": "JVBERi0xLjQK", "originalSize": 9}
+      }
+    },
+    {
+      "label": "Read PDF pages",
+      "tool": "Read",
+      "tool_input": {"file_path": "/work/doc.pdf", "pages": "1-2"},
+      "words": [["type"], ["pages", 0, "mediaType"], ["pages", 1, "mediaType"]],
+      "output": {
+        "type": "parts",
+        "file": {"filePath": "/work/doc.pdf", "originalSize": 190162, "outputDir": "/work/tool-results/pdf-0001", "count": 2},
+        "firstPage": 1,
+        "pages": [
+          {"base64": "/9j/4AAQSkZJRgABAQ==", "mediaType": "image/jpeg"},
+          {"base64": "", "mediaType": "image/jpeg", "error": "page 2: {{SECRET}}"}
+        ]
+      }
+    },
+    {
+      "label": "Write updates a file",
+      "tool": "Write",
+      "tool_input": {"file_path": "/work/app.ts"},
+      "words": [["type"]],
+      "output": {
+        "type": "update",
+        "filePath": "/work/app.ts",
+        "content": "{{SECRET}}",
+        "structuredPatch": [{"oldStart": 1, "oldLines": 1, "newStart": 1, "newLines": 1, "lines": ["-x", "+{{SECRET}}"]}],
+        "originalFile": "x",
+        "userModified": false
+      }
+    },
+    {
+      "label": "Grep lists files",
+      "tool": "Grep",
+      "tool_input": {"pattern": "TODO"},
+      "words": [["mode"]],
+      "output": {"mode": "files_with_matches", "numFiles": 1, "filenames": ["src/{{SECRET}}.ts"]}
+    },
+    {
+      "label": "Grep counts matches",
+      "tool": "Grep",
+      "tool_input": {"pattern": "TODO", "output_mode": "count"},
+      "words": [["mode"]],
+      "output": {"mode": "count", "numFiles": 1, "filenames": [], "content": "src/a.ts:{{SECRET}}", "numMatches": 1}
+    },
+    {
+      "label": "NotebookEdit inserts a markdown cell",
+      "tool": "NotebookEdit",
+      "tool_input": {"notebook_path": "/work/lab.ipynb", "new_source": "x"},
+      "words": [["cell_type"]],
+      "output": {"new_source": "{{SECRET}}", "cell_type": "markdown", "language": "python", "edit_mode": "insert", "cell_id": "cell-1", "error": "", "notebook_path": "/work/lab.ipynb", "original_file": "{}", "updated_file": "{}"}
+    }
+  ]
+}

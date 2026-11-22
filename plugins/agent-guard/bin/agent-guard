@@ -13306,7 +13306,10 @@ JQ_WALK='def walk(f): def w: if type == "object" then map_values(w)
 # token — Claude Code's Read returns `{"type":"image","file":{"type":
 # "image/png",...}}`, a media type under a plain `type`, and tags a PDF read
 # `{"type":"pdf","file":{"base64":...}}` with no media type at all. MCP's own
-# image block spells the same thing `mimeType`. Prepend as
+# image block spells the same thing `mimeType`. Claude Code's built-in tools add
+# words of their own that it checks before taking a replacement (#612): Read's
+# `notebook` and `parts` and its PDF pages' `mediaType`, Write's `create`
+# and `update`, Grep's `mode` and NotebookEdit's `cell_type`. Prepend as
 # `jq -c "$JQ_SHAPE_SAFE_WALK"'<program>'`.
 # Resolve the extent records secretish_env_values flags (`agent_guard_extent`)
 # once every detector's literals are in the bundle. An extent (`[hidden]`,
@@ -13350,12 +13353,15 @@ JQ_SETTLE_EXTENTS='def overlap_from_before($e):
 
 JQ_SHAPE_SAFE_WALK='def protocol_discriminator($key): . as $v
     | ($key == "type" or $key == "media_type" or $key == "mimeType"
-       or $key == "encoding")
+       or $key == "mediaType" or $key == "encoding" or $key == "mode"
+       or $key == "cell_type")
       and (["text","image","document","search_result","browser_state",
             "tool_reference","tool_use","tool_result","thinking",
             "redacted_thinking","base64","url","file","content","pdf",
             "image/png","image/jpeg","image/gif","image/webp",
-            "application/pdf","text/plain"]
+            "application/pdf","text/plain",
+            "notebook","parts","file_unchanged","create","update",
+            "files_with_matches","count","code","markdown"]
            | map(. == $v) | any);
 def shape_safe_walk(f): def w($key):
       if type == "object"
@@ -13384,10 +13390,13 @@ def binary_block:
                and (.file.base64 | type) == "string")
            or (.type == "image"
                and (.data | type) == "string"
-               and (.mimeType | binary_media_type)));
+               and (.mimeType | binary_media_type))
+           or ((.base64 | type) == "string"
+               and (.mediaType | binary_media_type)));
 def binary_payload_path:
       if has("source") then ["source", "data"]
       elif has("file") then ["file", "base64"]
+      elif has("mediaType") then ["base64"]
       else ["data"]
       end;
 def binary_payload_paths: . as $root
@@ -15891,7 +15900,8 @@ redact_response_values_awk_current() {
       json_fail()
     }
     function protocol_discriminator(key, value) {
-      if (!(key == "type" || key == "media_type" || key == "mimeType" || key == "encoding")) return 0
+      if (!(key == "type" || key == "media_type" || key == "mimeType" || key == "mediaType" \
+            || key == "encoding" || key == "mode" || key == "cell_type")) return 0
       return value == "text" || value == "image" || value == "document" \
         || value == "search_result" || value == "browser_state" \
         || value == "tool_reference" || value == "tool_use" \
@@ -15901,7 +15911,10 @@ redact_response_values_awk_current() {
         || value == "pdf" || value == "image/png" \
         || value == "image/jpeg" || value == "image/gif" \
         || value == "image/webp" || value == "application/pdf" \
-        || value == "text/plain"
+        || value == "text/plain" || value == "notebook" || value == "parts" \
+        || value == "file_unchanged" || value == "create" || value == "update" \
+        || value == "files_with_matches" || value == "count" \
+        || value == "code" || value == "markdown"
     }
     function accept_value() {
       if (depth == 0) {
@@ -16404,6 +16417,11 @@ emit_secret_free_post_tool_replacement() {
         Monitor) esf_shape='{"taskId":"[REDACTED]","timeoutMs":0,"persistent":false}' ;;
         *) esf_shape='"[REDACTED]"' ;;
       esac
+      # Only the Bash, REPL and Poll objects are known to pass the host check.
+      case "$esf_tool" in
+        Bash|REPL|Poll|mcp__*) ;;
+        *) POST_TOOL_SHAPE_KEPT=0 ;;
+      esac
       printf '{"hookSpecificOutput":{"hookEventName":"PostToolUse","updatedToolOutput":%s}}\n' "$esf_shape"
       ;;
   esac
@@ -16440,11 +16458,78 @@ emit_post_tool_replacement() {
       fi
       ;;
     *)
+      claude_post_tool_shape
       printf '%s' '{"hookSpecificOutput":{"hookEventName":"PostToolUse","updatedToolOutput":'
       printf '%s' "$replacement"
       printf '%s\n' '}}'
       ;;
   esac
+}
+
+# Claude Code checks a built-in tool's replacement against that tool's output
+# schema and, on a mismatch, gives the model the original output (#612). For
+# the built-in tools whose output carries a host-checked field or the path the
+# model asked for, put back a path equal to the one in tool_input (the model
+# wrote it, so it reveals nothing new) and record in POST_TOOL_SHAPE_KEPT
+# whether the replacement keeps every key, every value type and every field
+# the walk above leaves as a protocol word. Callers then do not report masking
+# that the host would throw away. Other tools, and a check jq cannot run, leave
+# the replacement as it is and the flag empty. Reads and may set the caller's
+# replacement.
+claude_post_tool_shape() {
+  POST_TOOL_SHAPE_KEPT=
+  cps_tool=${tool:-}
+  if [ -z "$cps_tool" ]; then
+    for cps_name in Read Write Edit MultiEdit NotebookEdit Grep; do
+      case "${HOOK_INPUT:-}" in
+        *"\"tool_name\":\"$cps_name\""*|*"\"tool_name\": \"$cps_name\""*)
+          cps_tool=$cps_name; break ;;
+      esac
+    done
+  fi
+  case "$cps_tool" in
+    Read|Write|Edit|MultiEdit|NotebookEdit|Grep) ;;
+    *) return 0 ;;
+  esac
+  cps_out=
+  cps_out=$({ printf '%s\n' "${HOOK_INPUT:-}"; printf '%s\n' "$replacement"; } 2>/dev/null \
+    | jq -rsc '
+        def kinds: if type == "object" then with_entries(.value |= kinds)
+          elif type == "array" then map(kinds) else type end;
+        def at($p): try getpath($p) catch null;
+        def word_key: . as $k
+          | ["type","media_type","mimeType","mediaType","encoding","mode",
+             "cell_type"] | index([$k]) != null;
+        if length != 2 then error("two documents expected") else . end
+        | .[1] as $replacement
+        | .[0].tool_response as $orig
+        | ([.[0].tool_input | objects | .file_path, .notebook_path
+            | strings | select(length > 0)]) as $own
+        | (reduce ($orig | paths(type == "string")) as $p ($replacement;
+             if ($p[-1] == "filePath" or $p[-1] == "notebook_path")
+                and ($own | index([$orig | getpath($p)])) != null
+                and (at($p) | type) == "string"
+             then setpath($p; $orig | getpath($p)) else . end)) as $new
+        | (($new | kinds) == ($orig | kinds)
+           and all($orig | paths(type == "string");
+                   . as $p | ($p[-1] | type) == "string" and ($p[-1] | word_key)
+                   | not or ($new | at($p)) == ($orig | getpath($p))))
+        | (if . then "k" else "c" end)
+          + (if $new == $replacement then "" else ($new | tojson) end)
+      ' 2>/dev/null) || cps_out=
+  case "$cps_out" in
+    k*) POST_TOOL_SHAPE_KEPT=1 ;;
+    c*) POST_TOOL_SHAPE_KEPT=0 ;;
+    *) cps_out= ;;
+  esac
+  # Only a restored path takes jq's serialization, and only once it parses:
+  # some jq builds print deep JSON truncated to a marker and still exit 0.
+  cps_out=${cps_out#?}
+  if [ -n "$cps_out" ] && { printf '%s' "$cps_out"; } 2>/dev/null \
+      | jq -e 'true' >/dev/null 2>&1; then
+    replacement=$cps_out
+  fi
+  cps_out=
 }
 
 # PostToolUse runs after the tool, so the closed policy's exit 2 only shows its
@@ -16498,7 +16583,11 @@ withhold_post_tool_output() {
     emit_secret_free_post_tool_replacement
   fi
   REDACT_OUTPUT_EMITTED=1
-  info "$PROGRAM: withheld the tool output because it could not be checked for secret-like values"
+  if [ "${POST_TOOL_SHAPE_KEPT:-}" = 0 ]; then
+    info "$PROGRAM: tried to withhold the tool output because it could not be checked for secret-like values, but the replacement changes a field the host checks; the host may reject it and pass the original output unchanged"
+  else
+    info "$PROGRAM: withheld the tool output because it could not be checked for secret-like values"
+  fi
 }
 
 recover_post_tool_validation_failure() {
@@ -17973,7 +18062,9 @@ redact_tool_output_response() {
   if ! tool=$(json_value '.tool_name // "tool"' "$input"); then
     tool=tool
   fi
-  if [ "$did_secret" -eq 1 ] && [ "$did_pii" -eq 1 ]; then
+  if [ "${POST_TOOL_SHAPE_KEPT:-}" = 0 ]; then
+    info "$PROGRAM: replaced $tool output to hide sensitive values, but the replacement changes a field the host checks; the host may reject it and pass the original output unchanged"
+  elif [ "$did_secret" -eq 1 ] && [ "$did_pii" -eq 1 ]; then
     info "$PROGRAM: masked secret-like values and PII in $tool output"
   elif [ "$did_pii" -eq 1 ]; then
     info "$PROGRAM: masked PII in $tool output"

@@ -156,9 +156,16 @@ return status 0 with no response. See [Output masking coverage](integrations.md#
   the same detector, so the same lines pass or block there.
 - A tool result too large to scan is masked fail-closed: every nonempty string
   in it is replaced. Anthropic content-block discriminators (`type`,
-  `source.type`, `media_type`) survive that rewrite when the value is exactly a
-  known protocol token, so the sanitized result still parses as the block shape
-  the host sent. Any other string is masked, including under those keys. A
+  `source.type`, `media_type`) and the fields Claude Code checks in built-in
+  tool output (`Read`'s `type` and page `mediaType`, `Write`'s `type`,
+  `Grep`'s `mode`, `NotebookEdit`'s `cell_type`) survive that rewrite when
+  the value is exactly a known protocol token, so the sanitized result still
+  parses as the shape the host sent. Any other string is masked, including
+  under those keys. On Claude Code, a `filePath` or `notebook_path` equal to
+  the path in the tool input is kept too: the model wrote it. When a rewrite
+  still changes a field the host checks, the hook does not report the output
+  as masked, because Claude Code rejects such a replacement and passes the
+  original output on unchanged. A
   portable secondary serializer preserves object keys, order, containers, and
   scalar types if the primary JSON rewrite cannot run; it neutralizes numeric
   and true-valued leaves while producing one host-valid replacement. This
@@ -166,8 +173,8 @@ return status 0 with no response. See [Output masking coverage](integrations.md#
   status alone cannot retract the original result.
 - Base64 image and PDF blocks (`media_type` of `image/png`, `image/jpeg`,
   `image/gif`, `image/webp` or `application/pdf`, in the Anthropic `source`
-  shape, MCP's native `data`/`mimeType` shape or Claude Code's `Read` `file`
-  shape) are not inspected: the scanner cannot read pixels. Their payload is
+  shape, MCP's native `data`/`mimeType` shape, Claude Code's `Read` `file`
+  shape or its PDF page images, `base64` with `mediaType`) are not inspected: the scanner cannot read pixels. Their payload is
   excluded from the size cap while text siblings in the same result are still
   scanned and masked. A normal rewrite restores the original binary bytes
   unchanged after scanning. If the final restore serializer fails, Agent Guard
