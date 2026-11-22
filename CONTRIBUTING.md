@@ -132,9 +132,11 @@ CI runs on pull requests and pushes to `main`: the first validates a proposed
 change, the second validates the merged tree. Plugin Validation and HOL scan
 have the same triggers but own different checks; they are not duplicate suite
 runs. The release workflow relies on the existing check names and does not
-rerun the suite itself. Before opening a release PR it requires every required
-check on the dispatched `main` commit to have succeeded, and before publishing
-it requires them on the release PR head and its merge commit. Manual dispatch
+rerun the suite itself. The required check/workflow mapping lives in
+`.github/release-checks.tsv`; dispatch and publication both read it.
+The release candidate runs the full matrix once. Publication reuses those
+results only for an identical, reviewed release tree with one merge parent
+equal to the PR base. Otherwise it requires checks on the merge commit. Manual dispatch
 runs the full Linux/macOS matrix on the selected ref, so the main/release
 matrix can be verified before merging a CI change.
 
@@ -153,6 +155,55 @@ Only Linux partition 4 installs the pinned, checksum-verified real scanner; the
 other partitions use the suite's mock. No cache is used: downloading the small
 pinned archive keeps checksum verification at the point of use. Plugin Layout
 runs the validator's `--all` mode; submission validation stays separate.
+
+## One dispatch and one approval
+
+Dispatch `release.yml` on current `main` with the bump or explicit version.
+Preparation opens a release PR. Verification dispatches the required workflows
+with the built-in token and waits up to an hour for missing or unfinished
+checks. Failed checks fail immediately. It also waits for performance evidence.
+Only verification holds the Actions dispatch permission; workflow defaults
+remain read-only. No additional credential or repository setting is needed.
+
+Human PR merge approves publication. A merged, release-labelled bot PR starts
+publication automatically. The branch and manifest version must match, and
+the merge must still be current `main`. CI and native qualification reuse the
+head's successful checks only when the merge has the same tree and one parent
+equal to the reviewed PR base. Squash and single-commit rebase merges satisfying
+that proof are eligible. API errors, missing checks, different trees and
+ordinary main pushes keep full main coverage. Job summaries record the source
+head and check links. Native artifacts must have executed successfully on all
+three platforms at that source SHA; packaging verifies checksums and source
+metadata. Publication rechecks current main before touching tags.
+
+Use `dry_run` on a branch to exercise candidate creation, CI dispatch, waiting,
+tree comparison and the same asset qualification job. Candidates use isolated
+branches and an explicit marker; their merge cannot authorize publication.
+Tags, releases and the tap are skipped. Close the test candidate and remove its
+branch afterward. `tests/release-flow.sh` covers merge-trigger conditions and
+different-tree fallbacks; dry runs do not prove real merge or publication.
+
+An explicit version retries a merged, unpublished release without another PR.
+Published releases are immutable. `replace_stale_branch` explicitly replaces
+a stale candidate only when no open PR exists and a lease matches the observed
+branch SHA.
+
+Performance artifacts preserve `verdict.txt`, tool stderr and `source.json`.
+The source records the job's check run ID, workflow run ID, attempt and head
+SHA. The [GitHub job context](https://docs.github.com/en/actions/reference/workflows-and-actions/contexts#job-context)
+provides the check identity without extra API permissions on measurement jobs.
+The shared verdict accepts evidence only when these identities match the latest
+completed job and its conclusion. Missing, stale, cancelled or ambiguous
+evidence counts as not measured, even when earlier complete evidence exists for
+the same SHA. Partial reruns with ambiguous cached metadata may need a fresh
+full performance run.
+
+`performance-verdict.sh` classifies release and nightly evidence alike.
+Completed threshold excess warns; absent, unfinished or invalid measurements
+block publication. Required adoption improvement and correctness validation
+still fail closed. Nightly issue bodies preserve tool errors verbatim and use
+a cause fingerprint so different failures open separate issues. Runner CPU
+alone does not change the issue identity.
 
 ## Test partitions
 

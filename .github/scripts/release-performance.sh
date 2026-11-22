@@ -25,7 +25,8 @@ done
 for artifact in packaged-performance instruction-count; do
   gh run download "$id" --repo "$repo" --name "$artifact" --dir "$work/$artifact"
 done
-verdict=$(sh "$root/.github/scripts/performance-verdict.sh" "$work")
+gh api --paginate --slurp "repos/$repo/actions/runs/$id/jobs?filter=all&per_page=100" > "$work/jobs.json"
+verdict=$(sh "$root/.github/scripts/performance-verdict.sh" "$work" "$sha")
 url="https://github.com/$repo/actions/runs/$id"
 for artifact in packaged-performance instruction-count; do
   [ ! -f "$work/$artifact/errors.txt" ] || cat "$work/$artifact/errors.txt" >&2

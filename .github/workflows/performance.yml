@@ -160,6 +160,7 @@ jobs:
         id: count
         env:
           BASE_TAG: ${{ steps.base.outputs.tag }}
+          EVIDENCE_JOB_CONTEXT: ${{ toJSON(job) }}
         run: |
           out="$RUNNER_TEMP/instruction-count"
           mkdir -p "$out"
@@ -168,6 +169,8 @@ jobs:
           started=$(date +%s)
           status=0
           printf 'measurement_error\n' > "$out/verdict.txt"
+          : > "$out/errors.txt"
+          sh head/.github/scripts/write-performance-source.sh "$out" 2>> "$out/errors.txt"
           sh head/bench/instruction-count/run.sh base head "$tsv" 2> "$out/errors.txt" || status=$?
           elapsed=$(( $(date +%s) - started ))
           {
@@ -205,10 +208,15 @@ jobs:
           [ "$gate" -eq 0 ]
       - name: Report a run that never reached the measurement
         if: failure() && steps.count.outcome == 'skipped'
+        env:
+          EVIDENCE_JOB_CONTEXT: ${{ toJSON(job) }}
         run: |
           mkdir -p "$RUNNER_TEMP/instruction-count"
           printf 'measurement_error\n' > "$RUNNER_TEMP/instruction-count/verdict.txt"
           printf 'Measurement setup failed before instruction counting\n' > "$RUNNER_TEMP/instruction-count/errors.txt"
+          if [ -f head/.github/scripts/write-performance-source.sh ]; then
+            sh head/.github/scripts/write-performance-source.sh "$RUNNER_TEMP/instruction-count" 2>> "$RUNNER_TEMP/instruction-count/errors.txt"
+          fi
           printf '### Shell instruction count against the latest release\n\n측정하지 못했습니다: 측정 전 단계(checkout·릴리스 태그·valgrind 설치)가 실패했습니다. 이 job의 로그를 확인하세요. 변화 없음이라는 뜻이 아닙니다.\n' \
             | tee -a "$GITHUB_STEP_SUMMARY" > "$RUNNER_TEMP/instruction-count/summary.md"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
@@ -235,6 +243,8 @@ jobs:
           name: native-x86_64-unknown-linux-musl
           path: ${{ runner.temp }}/native-performance
       - name: Measure the packaged binary under enforced cgroup limits
+        env:
+          EVIDENCE_JOB_CONTEXT: ${{ toJSON(job) }}
         run: |
           set -uo pipefail
           errors="$RUNNER_TEMP/packaged-errors.txt"
@@ -251,6 +261,10 @@ jobs:
           bash -e -c measure 2> "$errors" || status=$?
           mkdir -p "$RUNNER_TEMP/performance"
           [ -f "$RUNNER_TEMP/performance/verdict.txt" ] || printf 'measurement_error\n' > "$RUNNER_TEMP/performance/verdict.txt"
+          if ! sh .github/scripts/write-performance-source.sh "$RUNNER_TEMP/performance" 2>> "$errors"; then
+            printf 'measurement_error\n' > "$RUNNER_TEMP/performance/verdict.txt"
+            status=2
+          fi
           cat "$errors" > "$RUNNER_TEMP/performance/errors.txt"
           for log in "$RUNNER_TEMP/performance"/cli-*.log "$RUNNER_TEMP/performance"/*confirm*.log; do
             if [ -f "$log" ]; then
@@ -322,6 +336,8 @@ jobs:
           else
             failed='- 이 run의 job 결론을 읽지 못했습니다.'
           fi
+          mkdir -p "$RUNNER_TEMP/evidence"
+          cp "$jobs" "$RUNNER_TEMP/evidence/jobs.json"
           body="$RUNNER_TEMP/issue.md"
           if ! sh .github/scripts/performance-issue-body.sh "$RUNNER_TEMP/evidence" "$failed" > "$body"; then
             printf '%s\n' "nightly run: $RUN_URL" "커밋: $HEAD_SHA" '' \

@@ -66,6 +66,21 @@ lacks 'claude/cpu-missing' 'a row without CPU time is never marked'
 has '| Artifact | 러너 CPU | 파일 | Host/case | Latency | CPU 시간 | 판단 |' 'table names the CPU time column'
 [ "$(head -n 1 "$case_dir/body")" = '러너 CPU(packaged job, cpuinfo.txt): Synthetic CPU A' ] || fail 'runner CPU is the first line'
 printf 'passed\n' > "$evidence/instruction-count/verdict.txt"
+for pair in packaged-performance:101 instruction-count:102; do
+  EVIDENCE_JOB_CONTEXT="{\"check_run_id\":${pair#*:}}" GITHUB_RUN_ID=1 GITHUB_RUN_ATTEMPT=1 GITHUB_SHA=synthetic-sha \
+    sh "$ROOT/.github/scripts/write-performance-source.sh" "$evidence/${pair%:*}"
+done
+jq -n '[{jobs:[
+  {id:1,name:"Packaged performance evidence",head_sha:"synthetic-sha",run_id:1,run_attempt:1,
+   status:"completed",conclusion:"failure",check_run_url:"https://example.invalid/check-runs/101"},
+  {id:2,name:"Shell instruction count against the latest release",head_sha:"synthetic-sha",run_id:1,run_attempt:1,
+   status:"completed",conclusion:"success",check_run_url:"https://example.invalid/check-runs/102"}
+]}]' > "$evidence/jobs.json"
 render "$evidence"
 has '판정: 측정 완료, 성능 기준 초과.' 'completed thresholds are distinct from failed measurement'
+jq '.[0].jobs[0] |= (.run_attempt=2 | .conclusion="cancelled")' "$evidence/jobs.json" > "$case_dir/changed"
+mv "$case_dir/changed" "$evidence/jobs.json"
+render "$evidence"
+has '판정: 측정 미완료 또는 출력 검증 실패. 성능 기준 초과와 구별하며 릴리스를 막습니다.' 'an older threshold artifact cannot hide a cancelled latest job'
+has 'packaged-performance: evidence link job_cancelled' 'the issue names the failed evidence link'
 printf 'ok - nightly performance issue body fixtures passed\n'
