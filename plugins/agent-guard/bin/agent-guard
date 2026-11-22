@@ -13713,10 +13713,25 @@ secretish_env_values() {
     # A word that could itself be a value: its core is credential shaped or
     # holds a run of ten digits, the numeric-secret test route_reference
     # uses.
+    # Below the six characters credential_shaped needs, a short password of
+    # letters and digits is still the value the old reading took.
     function value_word(w) {
       w = word_core(w)
       return credential_shaped(w) \
-          || w ~ /[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]/
+          || w ~ /[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]/ \
+          || (length(w) >= 4 && w ~ /^[A-Za-z0-9]+$/ \
+              && (w ~ /[0-9][A-Za-z]/ || w ~ /[A-Za-z][0-9]/))
+    }
+    # A Korean word, an English word of one or two letters, or a word for an
+    # empty value. A passphrase of dictionary words has none of them.
+    function note_marked(text, n, words, i, w) {
+      n = split(text, words, /[ \t]+/)
+      for (i = 1; i <= n; i++) {
+        w = tolower(word_core(words[i]))
+        if (w ~ /^[a-z][a-z]?$/ || w ~ /[\352-\355]/ \
+            || w ~ /^(empty|unset|blank)$/) return 1
+      }
+      return 0
     }
     # The number of words in text, or -1 when any of them is a value word.
     # Punctuation alone, such as a list marker, is not a word.
@@ -13807,7 +13822,8 @@ secretish_env_values() {
     # injects it)`. A single word inside passes when the bare word would
     # (`none`, `required`, `redacted`) or says the value is empty (`empty`,
     # `unset`, `blank`). Several words need a space after `=`, since
-    # `NAME=(a b)` is a shell array, and pass when none is a value word.
+    # `NAME=(a b)` is a shell array, and pass when none is a value word and
+    # note_marked finds one, so a bracketed passphrase stays a value.
     #
     # The old reading took the first word of the note as the value and
     # blocked the whole prompt, which also covered a value after the note.
@@ -13817,7 +13833,8 @@ secretish_env_values() {
     # masked as well. Raw exec probes cannot see the next line and keep the
     # old reading.
     function empty_note(assignment, leading, raw, \
-                        opener, closer, e, inner, after, next_line, nl) {
+                        opener, closer, e, inner, after, next_line, nl, \
+                        marked) {
       if (record_mode == "probe_raw" || assignment !~ /=$/) return 0
       opener = substr(raw, 1, 1)
       if (opener == "(") closer = ")"
@@ -13827,8 +13844,10 @@ secretish_env_values() {
       if (e < 3) return 0
       inner = substr(raw, 2, e - 2)
       if (inner ~ /[][()]/ || inner ~ /^[ \t]/) return 0
+      marked = 1
       if (inner ~ /[ \t]/) {
         if (leading == "") return 0
+        marked = note_marked(inner)
       } else if (!(config_literal(inner) || prose_status_word(inner) \
                    || obvious_word_placeholder(inner) \
                    || masked_placeholder(inner) \
@@ -13838,7 +13857,7 @@ secretish_env_values() {
       after = substr(raw, e + 1)
       nl = index(leaf_tail, "\n")
       next_line = nl ? substr(leaf_tail, 1, nl - 1) : leaf_tail
-      if (closed_off(after) && prose_words(inner) >= 0 \
+      if (marked && closed_off(after) && prose_words(inner) >= 0 \
           && prose_words(after) >= 0 && prose_words(next_line) >= 0)
         return 1
       refused_span = raw "\n" next_line
