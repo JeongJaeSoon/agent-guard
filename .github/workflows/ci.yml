@@ -224,6 +224,28 @@ jobs:
             exit 1
           fi
 
+  long-input:
+    name: Large hook inputs (${{ matrix.awk }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        awk: [mawk, gawk, busybox]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the selected awk
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ${{ matrix.awk }}
+      - name: Compare large inputs with controls
+        env:
+          AGENT_GUARD_TEST_LONG_INPUT_AWKS: ${{ matrix.awk }}
+          AGENT_GUARD_TEST_REQUIRE_AWKS: ${{ matrix.awk }}
+        run: sh tests/long-input.sh
+
   lint:
     name: Lint
     needs: release-evidence
