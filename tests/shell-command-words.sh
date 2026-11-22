@@ -81,6 +81,8 @@ case_run 2 "a dotenv read next to a template" "cat .env.example .env"
 case_run 2 "a dotenv read on its own line" "cat .env.example${NL}cat .env"
 case_run 2 "a spaced & before a dotenv read" "cat .env & x.env.example"
 case_run 2 "a direct sort of the exclusion value" "sort -g '!secret.pem'"
+case_run 2 "a dotenv read before a comment naming a template" "cat .env # .env.example"
+case_run 2 "a dotenv read after a comment line naming a template" "# see .env.example${NL}cat .env"
 
 # Must pass: ordinary quoted, multi-line and redirected commands keep both
 # exceptions.
@@ -93,6 +95,7 @@ case_run 0 "env template" "cat .env.example"
 case_run 0 "quoted env template" "cat \".env.example\""
 case_run 0 "env template on a second line" "echo hi${NL}cat .env.example"
 case_run 0 "env template after a comment with an apostrophe" "# don't${NL}cat .env.example"
+case_run 0 "env template named again in a comment" "cat .env.example # inspect .env.example"
 case_run 0 "env template after a tab" "cat${TAB}.env.example"
 case_run 0 "env template after ;" "echo a ;cat .env.example"
 case_run 0 "env template with 2>&1" "cat .env.example 2>&1 | head -1"
