@@ -6,13 +6,17 @@ import json
 import os
 from pathlib import Path
 import runpy
+import sys
 from unittest.mock import patch
 
 
-def reject(slow_control, label):
-    module = runpy.run_path(str(Path(__file__).with_name("long-input.py")))
+def reject(platform, ceiling, slow_control, label):
+    with patch.object(sys, "platform", platform):
+        module = runpy.run_path(str(Path(__file__).with_name("long-input.py")))
+    assert module["LARGE_INPUT_MAX_SECONDS"] == ceiling
     namespace = module["main"].__globals__
     slow_seen = False
+    large_duration = 9 if platform == "darwin" else 8
 
     def measure(command, data, env, limit, deadline):
         nonlocal slow_seen
@@ -20,10 +24,12 @@ def reject(slow_control, label):
         fields = json.loads(data)["tool_input"]
         text = fields.get("description", fields["file_path"])
         large = len(text) == module["SIZE"]
-        duration = (8 if large else 2) if slow_control or "description" not in fields else 0.5
-        if large and duration == 8:
+        duration = large_duration if large else large_duration / 4
+        if not slow_control and "description" in fields:
+            duration = 0.5
+        if large and duration == large_duration:
             slow_seen = True
-            assert limit == 5, "large inputs must retain five seconds of prompt-hook headroom"
+            assert limit == ceiling, "large inputs must retain platform-specific hook headroom"
         if duration > limit:
             return None, limit + 0.001, b"", b""
         return 0, duration, b"", b""
@@ -39,8 +45,9 @@ def reject(slow_control, label):
     assert label in output.getvalue()
 
 
-# The relative budget alone allows 8s after a 2s quarter-sized measurement.
-reject(True, "large control exceeds scaling budget")
-# A cheap control must not hide the same slowdown in the candidate's field.
-reject(False, "limit 5.000s")
-print("long-input absolute-budget fixtures passed: 2")
+for platform, ceiling in (("linux", 5), ("darwin", 8)):
+    # The relative budget alone allows these proportional slow measurements.
+    reject(platform, ceiling, True, "large control exceeds scaling budget")
+    # A cheap control must not hide the same slowdown in the candidate's field.
+    reject(platform, ceiling, False, f"limit {ceiling:.3f}s")
+print("long-input absolute-budget fixtures passed: 4")

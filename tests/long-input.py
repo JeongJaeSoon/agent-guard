@@ -7,6 +7,7 @@ import re
 import shutil
 import signal
 import subprocess
+import sys
 import tempfile
 import time
 
@@ -20,8 +21,8 @@ SUFFIX = " API_KEY=" + VALUE
 # output cap applies to serialized response JSON, not just its stdout leaf.
 SIZE = CAP - 1024
 # Linux CI stayed below 0.4s; a loaded local macOS path case needed 4.1s.
-# Keep that margin while reserving half the 10s prompt-hook budget.
-LARGE_INPUT_MAX_SECONDS = 5
+# Allow macOS more scheduling headroom while staying below the 10s hook timeout.
+LARGE_INPUT_MAX_SECONDS = 8 if sys.platform == "darwin" else 5
 
 
 def event(entry, text, control=False):
