@@ -52,23 +52,32 @@ def correct(entry, host, text, result):
     status, _, out, err = result
     if entry == "assignment":
         return status == 0 and out.decode().splitlines() == [json.dumps(VALUE)] and not err
+    if VALUE.encode() in out + err:
+        return False
     if entry == "protected-path":
         return status == 2 and b"blocked sensitive file access" in err
     if entry == "prompt":
-        return status == 2 and not out and bool(err)
+        return status == 2 and not out and b"blocked user prompt: it contains secret-like values" in err
     if status != 0:
         return False
     try:
         obj = json.loads(out)
+        # Large secret-bearing responses deliberately mask the whole leaf;
+        # every other response field must survive unchanged.
+        response = {"stdout": "[REDACTED]", "stderr": "", "interrupted": False}
         if host == "claude":
-            masked = obj["hookSpecificOutput"]["updatedToolOutput"]["stdout"]
+            return obj == {"hookSpecificOutput": {
+                "hookEventName": "PostToolUse", "updatedToolOutput": response}}
         else:
-            if obj["decision"] != "block":
-                return False
             context = obj["hookSpecificOutput"]["additionalContext"]
-            masked = json.loads(context.removeprefix("Agent Guard sanitized tool output:\n"))["stdout"]
-        # Large secret-bearing responses deliberately mask the whole leaf.
-        return masked == "[REDACTED]"
+            prefix = "Agent Guard sanitized tool output:\n"
+            return (context.startswith(prefix)
+                    and json.loads(context[len(prefix):]) == response
+                    and obj == {
+                        "decision": "block",
+                        "reason": "Agent Guard blocked the original tool output because it contained sensitive values; use the sanitized replacement in additionalContext.",
+                        "hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": context},
+                    })
     except (ValueError, KeyError, TypeError):
         return False
 
@@ -77,6 +86,10 @@ def main():
     failed = 0
     required = os.environ.get("AGENT_GUARD_TEST_REQUIRE_AWKS", "").split()
     variants = os.environ.get("AGENT_GUARD_TEST_LONG_INPUT_AWKS", "default mawk gawk busybox").split()
+    if (not variants or len(set(variants)) != len(variants)
+            or set(variants) - {"default", "mawk", "gawk", "busybox"}
+            or set(required) - set(variants)):
+        raise SystemExit("invalid or incomplete awk selection")
     with tempfile.TemporaryDirectory(prefix="agent-guard-long-input-") as directory:
         case = Path(directory)
         subprocess.run(["sh", str(ROOT / "tests/helpers/extract-functions.sh"), str(CLI),
