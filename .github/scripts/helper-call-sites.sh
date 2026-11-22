@@ -29,18 +29,33 @@ to=${2:?head revision required}
 names='GITLEAKS_HELPER|gitleaks_helper|gitleaks_exec'
 helper_functions='^gitleaks_(helper|exec)'
 tmp=$(mktemp -d) || exit 1
-trap 'rm -rf "$tmp"' 0
-trap 'exit 1' HUP INT TERM
 # Git's default hunk header takes any line that starts with a letter, so an
 # `esac` or `fi` in column 0 would hide the function a hunk sits in. Name the
-# function definitions instead.
-printf '* diff=agfunc\n' >"$tmp/attributes"
+# function definitions instead. A .gitattributes in the change could give the
+# file another diff driver or mark it binary, so the line goes in
+# $GIT_DIR/info/attributes, which outranks every .gitattributes, and the diff
+# is forced to text.
+attributes=$(git rev-parse --git-path info/attributes) || exit 1
+mkdir -p "$(dirname "$attributes")" || exit 1
+if [ -e "$attributes" ]; then cp "$attributes" "$tmp/attributes.orig" || exit 1; fi
+cleanup() {
+  if [ -e "$tmp/attributes.orig" ]; then cp "$tmp/attributes.orig" "$attributes"; else rm -f "$attributes"; fi
+  rm -rf "$tmp"
+}
+trap cleanup 0
+trap 'exit 1' HUP INT TERM
+printf '* diff=agfunc\n' >>"$attributes"
 gitdiff() {
-  git -c core.attributesFile="$tmp/attributes" -c core.quotePath=false -c 'diff.agfunc.xfuncname=^[A-Za-z_][A-Za-z0-9_]*[[:space:]]*\(\)' \
-    diff --no-renames "$@" "$from" "$to" -- plugins/agent-guard
+  git -c core.quotePath=false -c 'diff.agfunc.xfuncname=^[A-Za-z_][A-Za-z0-9_]*[[:space:]]*\(\)' \
+    diff --text --no-renames "$@" "$from" "$to" -- plugins/agent-guard
 }
 gitdiff -U0 >"$tmp/diff"
 gitdiff --name-only >"$tmp/paths"
+if grep -q '^Binary files ' "$tmp/diff"; then
+  printf 'a binary diff cannot be read\n' >&2
+  printf 'scope=full\n'
+  exit 0
+fi
 # The functions that name the helper, in either revision of every changed file.
 : >"$tmp/callers"
 while IFS= read -r path; do
