@@ -101,7 +101,7 @@ jobs:
             shards: '3'
     runs-on: ${{ matrix.os }}
     # Keep a bounded runner lifetime. Partitions are balanced by measured
-    # test time, not assertion count; see docs/development/ci.md for mapping and evidence.
+    # test time, not assertion count; see CONTRIBUTING.md#test-partitions for the mapping.
     # The earlier ~14-minute partition 5 measurement was a child sharing one
     # runner with partition 2, not an independent runner duration.
     timeout-minutes: ${{ matrix.timeout_minutes }}

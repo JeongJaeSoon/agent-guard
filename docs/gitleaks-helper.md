@@ -217,6 +217,7 @@ and `golang.org/x/sys`.
 
 ## Measurements
 
+Measured on 2026-11-20 with the helper as released in v3.13.0 (#548, #568).
 One 4-vCPU Linux VM, official gitleaks 8.30.1, medians of 9 runs of each hook
 with synthetic inputs (`bench/gitleaks-helper/measure.py`). "Cold" is the hook
 that finds no helper running: its scans run the real gitleaks and it starts
@@ -272,9 +273,8 @@ written by every process, the warm helper included (traced with all its
 threads), were at most 0.3 MiB more than with the published v3.7.0 release,
 helper off or warm (for example 19.8, 20.0 and 20.1 MiB for a 1 MiB Write).
 Wall time stayed within this VM's run-to-run noise of about 10% (measured on
-Linux with `bench/gitleaks-helper/large-v370.sh`;
-`bench/fused-output/run-constrained.sh` needs Docker with enforced cgroup
-limits and was not run). A pipe that already holds as much as the helper can
+Linux with `bench/gitleaks-helper/large-v370.sh`, without Docker cgroup
+limits). A pipe that already holds as much as the helper can
 take (64 KiB) goes to the real gitleaks before the client reads a byte, so a
 large piped input is not copied once more through a replay. This depends on
 the writer having filled the pipe when the client looks; otherwise, and on
