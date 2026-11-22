@@ -19,8 +19,8 @@ SUFFIX = " API_KEY=" + VALUE
 # Leave room for response-object framing and escaped control newlines: the
 # output cap applies to serialized response JSON, not just its stdout leaf.
 SIZE = CAP - 1024
-# CI normal cases stayed below 2.3s, including the macOS path case. Keep
-# margin for that platform while reserving half the 10s prompt-hook budget.
+# Linux CI stayed below 0.4s; a loaded local macOS path case needed 4.1s.
+# Keep that margin while reserving half the 10s prompt-hook budget.
 LARGE_INPUT_MAX_SECONDS = 5
 
 
