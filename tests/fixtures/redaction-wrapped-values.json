@@ -23,7 +23,7 @@
     {"label": "two words in angle brackets separated by a tab", "stdout": "API_KEY=<hunter2\tSummer>", "masked": "API_KEY=[REDACTED]", "prompt": 2},
     {"label": "first word of the span still masks where it recurs", "stdout": "API_KEY=<hunter2 Summer> and <hunter2 again", "masked": "API_KEY=[REDACTED] and [REDACTED] again", "prompt": 2},
     {"label": "passphrase in angle brackets", "stdout": "API_KEY=<correct horse battery>", "masked": "API_KEY=[REDACTED]", "prompt": 2},
-    {"label": "spaced phrase ending in a placeholder noun", "stdout": "API_KEY=<correct horse key>", "masked": null, "prompt": 0},
+    {"label": "spaced phrase ending in a placeholder noun", "stdout": "API_KEY=<correct horse key>", "masked": "API_KEY=[REDACTED]", "prompt": 2},
     {"label": "random words in angle brackets", "stdout": "API_KEY=<%R% %R%>", "masked": "API_KEY=[REDACTED]", "prompt": 2},
     {"label": "tab-separated placeholder words", "stdout": "API_KEY=<your\tkey>", "masked": null, "prompt": 0},
     {"label": "unclosed span keeps the first-word cut", "stdout": "API_KEY=<your key", "masked": "API_KEY=[REDACTED] key", "prompt": 2},
