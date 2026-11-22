@@ -1,0 +1,100 @@
+[
+  {
+    "id": "sentence-one-word",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a single word after the colon is still a value",
+    "text": "the webhook secret: qwzxkvplmn"
+  },
+  {
+    "id": "sentence-one-word-korean",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a single Korean word after the colon is still a value",
+    "text": "webhook secret: 비밀번호입니다"
+  },
+  {
+    "id": "sentence-token-then-prose",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a token shape followed by prose words is still a value",
+    "text": "the webhook secret: {{SECRET}} is used by the deploy job"
+  },
+  {
+    "id": "sentence-prose-then-token",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a token shape inside the sentence keeps the line blocked",
+    "text": "the webhook secret: rotated last week to {{SECRET}} by the owner"
+  },
+  {
+    "id": "sentence-weak-then-prose",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a short real password followed by prose words is still a value",
+    "text": "db password: hunter{{DIGITS}} is the default"
+  },
+  {
+    "id": "sentence-two-words",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "two words are not a sentence, so the first stays a value",
+    "text": "api token: qwzxkvplmn here"
+  },
+  {
+    "id": "sentence-next-assignment",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a sentence does not hide the next assignment",
+    "text": "the webhook secret: is set by the deploy job; WORKER_TOKEN={{SECRET}}"
+  },
+  {
+    "id": "sentence-quoted-key",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a quoted key keeps today's value reading",
+    "text": "\"client_secret\": qwzxkvplmn is the staging value"
+  },
+  {
+    "id": "sentence-equals",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "the equals form keeps today's value reading",
+    "text": "client_secret= qwzxkvplmn is the staging value"
+  },
+  {
+    "id": "sentence-diceware",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a passphrase of dictionary words has no short word and stays a value",
+    "text": "db password: plaza fence orbit candle"
+  },
+  {
+    "id": "sentence-qualifying-token",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a token shape inside an otherwise qualifying sentence",
+    "text": "the webhook secret: comes to us as {{SECRET}} by mail"
+  },
+  {
+    "id": "sentence-korean-token",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a token shape inside a Korean sentence",
+    "text": "webhook secret: 비밀번호는 배포 단계에서 {{SECRET}} 값을 넣는다"
+  },
+  {
+    "id": "sentence-comment",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a config value with a trailing comment is not a sentence",
+    "text": "password: qwzxkvplmn # it is set by CI"
+  },
+  {
+    "id": "sentence-flow-mapping",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a flow mapping is not a sentence",
+    "text": "{password: qwzxkvplmn is it}"
+  }
+]

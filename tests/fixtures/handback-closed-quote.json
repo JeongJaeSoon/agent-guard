@@ -1,0 +1,205 @@
+[
+  {
+    "id": "cq-next-line-value",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "the #542 bypass: a closed empty key, then the value on the next line",
+    "text": "`API_KEY=`\n{{SECRET}}"
+  },
+  {
+    "id": "cq-next-line-indented",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "the #542 bypass in a list item with an indented value line",
+    "text": "- `API_KEY=`\n  {{SECRET}}"
+  },
+  {
+    "id": "cq-two-lines-down",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "the value two lines below a closed empty key",
+    "text": "`API_KEY=`\n\n{{SECRET}}"
+  },
+  {
+    "id": "cq-next-line-prose-value",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "prose after the closed key, then a value inside the next line",
+    "text": "`API_KEY=` is below\nthe value is {{SECRET}} for now"
+  },
+  {
+    "id": "cq-single-next-line",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a single-quoted colon key closed on its line, then the value on the next line",
+    "text": "'client_secret:'\n{{SECRET}}"
+  },
+  {
+    "id": "cq-double-next-line",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a double-quoted equals key closed on its line, then the value on the next line",
+    "text": "\"SESSION_SECRET=\"\n{{SECRET}}"
+  },
+  {
+    "id": "cq-backtick-glued",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a value glued after the closing backtick",
+    "text": "- `API_KEY=`{{SECRET}}"
+  },
+  {
+    "id": "cq-single-glued",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a value glued after a closing single quote and a colon",
+    "text": "'client_secret:'{{SECRET}}"
+  },
+  {
+    "id": "cq-double-glued",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a value glued after a closing double quote",
+    "text": "\"API_KEY=\"{{SECRET}}"
+  },
+  {
+    "id": "cq-shell-concatenation",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a quoted key and a value concatenated in shell",
+    "text": "export 'API_KEY='{{SECRET}}"
+  },
+  {
+    "id": "cq-closed-key-quoted-value",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a closed quoted key and a quoted value",
+    "text": "\"API_KEY\"=\"{{SECRET}}\""
+  },
+  {
+    "id": "cq-comma-glued",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a value glued to a comma after the closing backtick",
+    "text": "- `API_KEY=`,{{SECRET}}"
+  },
+  {
+    "id": "cq-dot-glued",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a value glued to a period after the closing backtick",
+    "text": "- `API_KEY=`.{{SECRET}}"
+  },
+  {
+    "id": "cq-colon-glued",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a value glued to a colon after the closing backtick",
+    "text": "- `API_KEY=`:{{SECRET}}"
+  },
+  {
+    "id": "cq-paren-bang-glued",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a value glued to punctuation after the closing backtick",
+    "text": "- `API_KEY=`)!{{SECRET}}"
+  },
+  {
+    "id": "cq-cr-glued",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a lone carriage return after the closing backtick does not end the token",
+    "text": "- `API_KEY=`\r{{SECRET}}"
+  },
+  {
+    "id": "cq-cr-space-value",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a carriage return inside the line, then a space, then a value",
+    "text": "- `API_KEY=`\r {{SECRET}}"
+  },
+  {
+    "id": "cq-space-value",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a value later on the line after a closed empty key",
+    "text": "- `API_KEY=` {{SECRET}}"
+  },
+  {
+    "id": "cq-single-space-value",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a value after a closed single-quoted colon key",
+    "text": "'client_secret:' {{SECRET}}"
+  },
+  {
+    "id": "cq-code-span-value",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a value in a later code span on the same line",
+    "text": "- `OPENAI_API_KEY=` is `{{SECRET}}` in staging"
+  },
+  {
+    "id": "cq-prose-then-value",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a value inside the prose that follows a closed empty key",
+    "text": "- `API_KEY=` is set to {{SECRET}} in staging"
+  },
+  {
+    "id": "cq-korean-then-value",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a value inside Korean prose after a closed colon key",
+    "text": "봇은 'secret:' 값으로 {{SECRET}} 을 쓴다"
+  },
+  {
+    "id": "cq-hangul-glued-value",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a Korean particle glued after the closing quote does not hide a value after it",
+    "text": "'secret:'처럼 {{SECRET}} 도 쓴다"
+  },
+  {
+    "id": "cq-lone-word",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a single word after a closed empty key is still read as the value",
+    "text": "- `DB_PASSWORD=` qwzxkv"
+  },
+  {
+    "id": "cq-weak-password",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a short real password after a closed empty key",
+    "text": "- `DB_PASSWORD=` hunter{{DIGITS}} is the default"
+  },
+  {
+    "id": "cq-digit-run",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a long digit run after a closed empty key",
+    "text": "`API_KEY=` is {{DIGITS}}{{DIGITS}} today"
+  },
+  {
+    "id": "cq-padded-quoted-value",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a padded quoted value is still a value",
+    "text": "the \"name\" and password:\" {{SECRET}}\""
+  },
+  {
+    "id": "cq-empty-then-assignment",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a closed empty key does not hide the next assignment",
+    "text": "- `API_KEY=` is empty; TOKEN={{SECRET}}"
+  },
+  {
+    "id": "cq-prose-then-next-assignment",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "prose after a closed empty key does not hide an assignment on the next line",
+    "text": "- `API_KEY=` is read at src/config.ts:12\nWORKER_TOKEN={{SECRET}}"
+  }
+]

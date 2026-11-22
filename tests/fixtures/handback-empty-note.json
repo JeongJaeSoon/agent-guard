@@ -1,0 +1,128 @@
+[
+  {
+    "id": "note-next-line-value",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a parenthetical note does not hide a value on the next line",
+    "text": "API_KEY= (not set here, the deploy step injects it)\n{{SECRET}}"
+  },
+  {
+    "id": "note-paren-value",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a value in parentheses",
+    "text": "API_KEY= ({{SECRET}})"
+  },
+  {
+    "id": "note-paren-word-value",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a short password in parentheses",
+    "text": "DB_PASSWORD= (hunter{{DIGITS}})"
+  },
+  {
+    "id": "note-paren-value-in-prose",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a value among the words of a parenthetical",
+    "text": "API_KEY= (still {{SECRET}} for now)"
+  },
+  {
+    "id": "note-paren-then-value",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a parenthetical does not hide the next assignment",
+    "text": "API_KEY= (not set yet) WORKER_TOKEN={{SECRET}}"
+  },
+  {
+    "id": "note-paren-space-value",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a value later on the line after a parenthetical",
+    "text": "API_KEY= (not set yet) {{SECRET}}"
+  },
+  {
+    "id": "note-paren-glued",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a value glued after a parenthetical",
+    "text": "API_KEY= (not set yet){{SECRET}}"
+  },
+  {
+    "id": "note-paren-cr-glued",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a lone carriage return after the parenthetical does not end the token",
+    "text": "API_KEY= (not set yet)\r{{SECRET}}"
+  },
+  {
+    "id": "note-paren-path-value",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a credential-shaped word in a path inside the parenthetical",
+    "text": "API_KEY= (empty in {{SECRET}}.txt)"
+  },
+  {
+    "id": "note-paren-abs-path-value",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a credential-shaped path segment inside the parenthetical",
+    "text": "API_KEY= (empty in /{{SECRET}})"
+  },
+  {
+    "id": "note-paren-digit-path",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a digit-only path segment inside the parenthetical",
+    "text": "API_KEY= (empty in /{{DIGITS}}{{DIGITS}}{{DIGITS}})"
+  },
+  {
+    "id": "note-bracket-random-word",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a random word in square brackets is still a value",
+    "text": "API_KEY= [qwzxkv]"
+  },
+  {
+    "id": "note-bare-random-word",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a random word after an equals sign and a space is still a value",
+    "text": "API_KEY= qwzxkv"
+  },
+  {
+    "id": "note-bracket-glued",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a value glued after a bracketed placeholder",
+    "text": "API_KEY= [none]{{SECRET}}"
+  },
+  {
+    "id": "note-bracket-value-in-words",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a value among the words of a bracketed note",
+    "text": "API_KEY= [set to {{SECRET}}]"
+  },
+  {
+    "id": "note-paren-required-glued",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a password glued after a parenthesized status word",
+    "text": "DB_PASSWORD= (required)hunter{{DIGITS}}"
+  },
+  {
+    "id": "note-shell-array",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a shell array with a value is not a note",
+    "text": "API_KEY=({{SECRET}} other)"
+  },
+  {
+    "id": "note-shell-array-words",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a shell array of words needs a space after the equals sign to read as a note",
+    "text": "API_KEY=(qwzxkv plmnbv)"
+  }
+]

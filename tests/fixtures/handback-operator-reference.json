@@ -1,0 +1,44 @@
+[
+  {
+    "id": "op-default-value",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a quoted reference whose default is a value",
+    "text": "API_KEY=\"${API_KEY:-{{SECRET}}}\""
+  },
+  {
+    "id": "op-default-weak",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a single-quoted reference whose default is a short password",
+    "text": "DB_PASSWORD='${DB_PASSWORD:-hunter{{DIGITS}}}'"
+  },
+  {
+    "id": "op-dash-value",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "a dash-only operator with a value after it",
+    "text": "API_TOKEN=\"${API_TOKEN-{{SECRET}}}\""
+  },
+  {
+    "id": "op-suffix",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "text glued after an operator reference",
+    "text": "API_KEY=\"${API_KEY:?}{{SECRET}}\""
+  },
+  {
+    "id": "op-prefix",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "text before an operator reference",
+    "text": "API_KEY=\"{{SECRET}}${API_KEY:-}\""
+  },
+  {
+    "id": "op-assign-value",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "an assign operator with a value",
+    "text": "SECRET_KEY=\"${SECRET_KEY:={{SECRET}}}\""
+  }
+]
