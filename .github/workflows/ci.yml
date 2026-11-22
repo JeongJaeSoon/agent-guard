@@ -199,9 +199,9 @@ jobs:
 
   test:
     # Only full coverage may produce the names release.yml consumes.
-    # Any selected shard failure still fails both aggregate checks.
+    # Any shard or awk timing failure fails both aggregate checks.
     name: ${{ needs.secret-guard.outputs.check_prefix }} (${{ matrix.os }})
-    needs: [secret-guard, test-shard, release-evidence]
+    needs: [secret-guard, test-shard, release-evidence, long-input]
     if: always()
     strategy:
       matrix:
@@ -212,9 +212,14 @@ jobs:
       - name: Require every test shard to pass
         env:
           SHARDS_RESULT: ${{ needs.test-shard.result }}
+          LONG_INPUT_RESULT: ${{ needs.long-input.result }}
           REUSED: ${{ needs.release-evidence.outputs.reuse }}
           EVIDENCE_RESULT: ${{ needs.release-evidence.result }}
         run: |
+          if [ "$LONG_INPUT_RESULT" != success ]; then
+            echo "::error::large hook inputs finished with: $LONG_INPUT_RESULT" >&2
+            exit 1
+          fi
           if [ "$REUSED" = true ] && [ "$EVIDENCE_RESULT" = success ]; then
             echo 'Required checks passed on the identical reviewed release tree'
             exit 0

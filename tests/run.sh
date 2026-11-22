@@ -182,7 +182,7 @@ run_expect 0 "probe eligibility contracts" sh "$ROOT/tests/unit-probe.sh"
 run_expect 0 "watchdog timer cleanup contracts" sh "$ROOT/tests/unit-watchdog.sh"
 run_expect 0 "status-label classification contracts" sh "$ROOT/tests/unit-status-label.sh"
 run_expect 0 "leftmost assignment is a candidate on every installed awk" sh "$ROOT/tests/assignment-leftmost.sh"
-run_expect 0 "large hook inputs stay within a control-relative budget" env AGENT_GUARD_TEST_LONG_INPUT_AWKS=default sh "$ROOT/tests/long-input.sh"
+run_expect 0 "large hook inputs stay within a control-relative budget" env AGENT_GUARD_TEST_REQUIRE_AWKS= AGENT_GUARD_TEST_LONG_INPUT_AWKS=default sh "$ROOT/tests/long-input.sh"
 suite_shards=$(sed -n 's/^if in_shard \([0-9]*\); then$/\1/p' "$ROOT/tests/run.sh" | sort -u | tr '\n' ' ')
 ci_shards=$(sed -n "s/^ *shards: '\([0-9 ][0-9 ]*\)'$/\1/p" "$ROOT/.github/workflows/ci.yml" | tr ' ' '\n' | sort | tr '\n' ' ')
 ci_navigation_hosts=$(awk '$1 == "navigation_host:" { print $2 }' "$ROOT/.github/workflows/ci.yml" | sort | tr '\n' ' ')

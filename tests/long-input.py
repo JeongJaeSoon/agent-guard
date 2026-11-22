@@ -19,6 +19,9 @@ SUFFIX = " API_KEY=" + VALUE
 # Leave room for response-object framing and escaped control newlines: the
 # output cap applies to serialized response JSON, not just its stdout leaf.
 SIZE = CAP - 1024
+# CI normal cases stayed below 2.3s, including the macOS path case. Keep
+# margin for that platform while reserving half the 10s prompt-hook budget.
+LARGE_INPUT_MAX_SECONDS = 5
 
 
 def event(entry, text, control=False):
@@ -173,7 +176,7 @@ def main():
                             return 1
                         # Four times the bytes may cost at most twice as much
                         # per byte, plus one second for process-start noise.
-                        scaling_limit = small[1] * 8 + 1
+                        scaling_limit = min(small[1] * 8 + 1, LARGE_INPUT_MAX_SECONDS)
                         baseline = measure(command, encode(control, True), env, scaling_limit, deadline)
                         if (not correct(entry, host, control, baseline, whole_leaf=True)
                                 or baseline[1] > scaling_limit):
@@ -200,7 +203,7 @@ def main():
                                 print(f"not ok - {label}: small candidate failed (exit {sample[0]})", flush=True)
                                 return 1
                             candidate_small_time = sample[1]
-                            limit = candidate_small_time * 8 + 1
+                            limit = min(candidate_small_time * 8 + 1, LARGE_INPUT_MAX_SECONDS)
                         result = measure(command, encode(candidate), env, limit, deadline)
                         valid = correct(entry, host, candidate, result, whole_leaf=True)
                         slow = result[0] is None or result[1] > limit
