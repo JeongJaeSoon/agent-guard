@@ -12,9 +12,12 @@
 # With a base checkout: also this tree against the base, both with the helper
 # unset. The default path must cost what it did, so a change that adds work
 # there fails. The caller passes a base only when the pull request touches the
-# helper call sites (.github/scripts/helper-call-sites.sh).
+# helper call sites (.github/scripts/helper-call-sites.sh), and its scope:
+# full compares exit code, output, programs and forks; cost compares programs
+# and forks only, for a change in a function that merely calls the helper
+# wrapper, where an intended output change must still pass.
 #
-#   sh bench/gitleaks-helper/compare-off.sh /abs/gitleaks [/abs/base-checkout]
+#   sh bench/gitleaks-helper/compare-off.sh /abs/gitleaks [/abs/base-checkout [full|cost]]
 set -u
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd -P)
 REAL=${1:?gitleaks required}
@@ -22,6 +25,11 @@ BASE=
 if [ -n "${2:-}" ]; then
   BASE=$(CDPATH= cd -- "$2" && pwd -P) || exit 1
 fi
+case "${3:-full}" in
+  full) base_parts='status out err execs forks' base_title='base and this tree, helper unset' ;;
+  cost) base_parts='execs forks' base_title='base and this tree, helper unset, programs and forks only' ;;
+  *) printf 'unknown scope: %s\n' "$3" >&2; exit 1 ;;
+esac
 for tool in strace jq git; do
   command -v "$tool" >/dev/null 2>&1 || { printf 'required tool missing: %s\n' "$tool" >&2; exit 1; }
 done
@@ -90,10 +98,11 @@ programs() { grep 'execve("' "$1" | grep -v 'execve("[^"]*/sleep"' | sed 's/^[0-
 # each CLI once first so every measured run starts from the same tree state.
 run "$ROOT" "$CASE/fx/1" claude on "" "$CASE/warm"
 [ -z "$BASE" ] || run "$BASE" "$CASE/fx/1" claude on "" "$CASE/warm"
-# $1 titles the comparison; the other six name the two sides, each as a
-# label, a CLI checkout and a helper variable. Returns 1 on any difference.
+# $1 titles the comparison; the next six name the two sides, each as a
+# label, a CLI checkout and a helper variable; $8 lists what to compare.
+# Returns 1 on any difference.
 compare() {
-  title=$1 a_name=$2 a_cli=$3 a_helper=$4 b_name=$5 b_cli=$6 b_helper=$7
+  title=$1 a_name=$2 a_cli=$3 a_helper=$4 b_name=$5 b_cli=$6 b_helper=$7 parts=$8
   total=0 differ=0 a_execs=0 b_execs=0 a_forks=0 b_forks=0
   for f in "$CASE"/fx/*; do
     for host in claude codex; do
@@ -105,7 +114,7 @@ compare() {
         b_execs=$((b_execs + $(cat "$CASE/b.execs")))
         a_forks=$((a_forks + $(cat "$CASE/a.forks")))
         b_forks=$((b_forks + $(cat "$CASE/b.forks")))
-        for part in status out err execs forks; do
+        for part in $parts; do
           if ! cmp -s "$CASE/a.$part" "$CASE/b.$part"; then
             differ=$((differ + 1))
             printf 'DIFFER %s fixture %s host %s log %s (%s / %s): %s / %s\n' "$part" "${f##*/}" "$host" "$log" "$a_name" "$b_name" \
@@ -122,8 +131,8 @@ compare() {
   [ "$differ" = 0 ]
 }
 rc=0
-compare 'same tree' unset "$ROOT" '' unusable "$ROOT" "$CASE/missing-client" || rc=1
+compare 'same tree' unset "$ROOT" '' unusable "$ROOT" "$CASE/missing-client" 'status out err execs forks' || rc=1
 if [ -n "$BASE" ]; then
-  compare 'base and this tree, helper unset' base "$BASE" '' 'this tree' "$ROOT" '' || rc=1
+  compare "$base_title" base "$BASE" '' 'this tree' "$ROOT" '' "$base_parts" || rc=1
 fi
 exit "$rc"

@@ -249,7 +249,7 @@ printf '%s\n' "$off_job" | grep -Fxq '          fetch-depth: 2' \
   && printf '%s\n' "$off_job" | grep -Fxq '        run: sh .github/scripts/helper-call-sites.sh HEAD^1 HEAD >> "$GITHUB_OUTPUT"' \
   || fail 'the helper-off job asks the call-site script about the merge parent'
 printf '%s\n' "$off_job" | grep -Fq 'git worktree add --detach base-checkout HEAD^1' \
-  && printf '%s\n' "$off_job" | grep -Fq 'compare-off.sh "$RUNNER_TEMP/official/gitleaks" "$GITHUB_WORKSPACE/base-checkout"' \
+  && printf '%s\n' "$off_job" | grep -Fq 'compare-off.sh "$RUNNER_TEMP/official/gitleaks" "$GITHUB_WORKSPACE/base-checkout" "$SITES_SCOPE"' \
   && ! printf '%s\n' "$off_job" | grep -Fq 'pull_request.base.sha' \
   || fail 'the helper-off comparison base is the merge parent'
 printf '%s\n' "$off_job" | grep -Fxq '              sh bench/gitleaks-helper/compare-off.sh "$RUNNER_TEMP/official/gitleaks"' \
@@ -264,7 +264,7 @@ fi
 # The call-site script on real diffs of the CLI: the variants a same-tree
 # comparison misses (work added where both states run, a plain branch folded
 # into the wrapper, a wrapper call dropped) are found, a change unrelated to
-# the helper is not, and a diff that cannot run is an error, not "untouched".
+# the helper is not, and a diff that cannot run is an error, not "none".
 sites_script="$ROOT/.github/scripts/helper-call-sites.sh"
 sites_cli=plugins/agent-guard/bin/agent-guard
 sites_tmp=$(mktemp -d)
@@ -284,17 +284,18 @@ sites_case() { # $1 description, $2 expected output, $3 awk program applied to t
   got=$(cd "$repo" && sh "$sites_script" "$base_rev" HEAD 2>/dev/null) || fail "call-site script on the $1 variant"
   [ "$got" = "$2" ] || fail "the $1 variant gives '$got', not '$2'"
 }
-sites_case 'work before the helper case' touched=true '{ print } /^gitleaks_helper_selected\(\) \{/ { print "  jq -n null >/dev/null" }'
-sites_case 'plain branch through the wrapper' touched=true '/^          "\$gl" stdin --report-format json/ && !done { sub(/"\$gl"/, "gitleaks_exec \"$gl\""); done = 1 } { print }'
-sites_case 'wrapper call dropped' touched=true '/gitleaks_exec "\$GITLEAKS_BIN" "\$@"/ && !done { sub(/gitleaks_exec /, ""); done = 1 } { print }'
-sites_case 'work in a function that calls the wrapper' touched=true '{ print } /^gitleaks_scan\(\) \{/ { print "  jq -n null >/dev/null" }'
-sites_case 'file sourced from an unrelated function' touched=true '{ print } /^block_on_scan_status\(\) \{/ { print "  . ./extra.sh" }'
-sites_case 'change unrelated to the helper' touched=false '{ print } /^block_on_scan_status\(\) \{/ { print "  jq -n null >/dev/null" }'
+sites_case 'work before the helper case' scope=full '{ print } /^gitleaks_helper_selected\(\) \{/ { print "  jq -n null >/dev/null" }'
+sites_case 'plain branch through the wrapper' scope=cost '/^          "\$gl" stdin --report-format json/ && !done { sub(/"\$gl"/, "gitleaks_exec \"$gl\""); done = 1 } { print }'
+sites_case 'wrapper call dropped' scope=cost '/gitleaks_exec "\$GITLEAKS_BIN" "\$@"/ && !done { sub(/gitleaks_exec /, ""); done = 1 } { print }'
+sites_case 'work in a function that calls the wrapper' scope=cost '{ print } /^gitleaks_scan\(\) \{/ { print "  jq -n null >/dev/null" }'
+sites_case 'output change in a function that calls the wrapper' scope=cost '{ sub(/secret-like value detected in/, "secret-like value found in") } { print }'
+sites_case 'file sourced from an unrelated function' scope=full '{ print } /^block_on_scan_status\(\) \{/ { print "  . ./extra.sh" }'
+sites_case 'change unrelated to the helper' scope=none '{ print } /^block_on_scan_status\(\) \{/ { print "  jq -n null >/dev/null" }'
 git -C "$repo" checkout -q "$base_rev" -- . || exit 1
-got=$(cd "$repo" && sh "$sites_script" "$base_rev" HEAD) && [ "$got" = touched=false ] || fail 'no change leaves the call sites untouched'
+got=$(cd "$repo" && sh "$sites_script" "$base_rev" HEAD) && [ "$got" = scope=none ] || fail 'no change leaves the call sites untouched'
 if (cd "$repo" && sh "$sites_script" no-such-revision HEAD >/dev/null 2>&1); then fail 'a diff that cannot run is an error'; fi
 ) || exit 1
-pass=$((pass + 8))
+pass=$((pass + 9))
 rm -rf "$sites_tmp"
 trap - 0
 printf 'CI scope fixtures passed: %s; matrix, aggregate and performance schedule wiring verified\n' "$pass"

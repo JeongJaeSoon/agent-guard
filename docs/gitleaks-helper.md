@@ -248,14 +248,21 @@ client path is tried as unusable; a relative path, a file without execute
 permission and `AGENT_GUARD_GITLEAKS_BIN` are not compared.
 
 That comparison cannot see helper code that adds the same work to both states.
-When a pull request's diff of `plugins/agent-guard` changes a line, or sits
-in a function, that names `AGENT_GUARD_GITLEAKS_HELPER`, `gitleaks_helper*`
-or `gitleaks_exec` (`.github/scripts/helper-call-sites.sh` decides from the
-diff, not from file paths), CI also runs the default path, helper unset,
-against the base: the same 64 comparisons must match in exit codes, output,
-programs executed and processes forked. A pull request that changes these
-call sites therefore keeps the default path as it was; a behavior change
-belongs in a separate pull request. The `Hook instruction count (base vs
+`.github/scripts/helper-call-sites.sh` therefore reads the diff of
+`plugins/agent-guard` (not file paths) and sets how far CI also compares the
+default path, helper unset, with the base, in the same 64 comparisons:
+
+| The diff changes | Compared with the base |
+| --- | --- |
+| a line outside any function, or in `gitleaks_helper*` or `gitleaks_exec`, or a line that sources a file | exit codes, output, programs executed and processes forked |
+| a function that calls the wrapper (`gitleaks_scan`, the prompt-guard detector), or a line there naming `AGENT_GUARD_GITLEAKS_HELPER`, `gitleaks_helper*` or `gitleaks_exec` | programs executed and processes forked only |
+| nothing that names the helper | nothing: a hook change unrelated to the helper is free |
+
+A function spans from its definition to the next one, so the code between two
+functions counts with the first and the match errs toward the wider
+comparison. A function that calls the wrapper may change its output, but a
+pull request that changes how many processes it starts fails, and its author
+explains why in the pull request. The `Hook instruction count (base vs
 head)` job reports cost changes against the base branch, but it does not fail
 on an increase and does not count the programs the hook executes.
 
