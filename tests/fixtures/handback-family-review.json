@@ -1,0 +1,86 @@
+[
+  {
+    "id": "fam-closed-key-note-glued-punctuation",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "family review (#587): a run of symbols glued to a closed key or a note, then prose",
+    "text": "`API_KEY=`;;; is set here"
+  },
+  {
+    "id": "fam-closed-key-quote-scan-cutoff",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "family review (#587): a closed empty key, then a value on a line below",
+    "text": "\"API_KEY=\" is absent\n\"j9k5o9k9c5w7l9n1T6\""
+  },
+  {
+    "id": "fam-multiword-passphrase-marker",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "family review (#587): a long passphrase that holds a short English word",
+    "text": "API_KEY=<qmnrfqxrqd qmnrfqxrqd in qmnrfqxrqd>"
+  },
+  {
+    "id": "fam-note-angle-lookahead-one-line",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "family review (#587): a value two lines below a note or an angle placeholder",
+    "text": "API_KEY= [empty]\n\no1R5y8t6T1Z5a6p1I6"
+  },
+  {
+    "id": "fam-operator-reference-tail",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "family review (#587): a value after the closing quote of an empty operator reference",
+    "text": "API_KEY=\"${API_KEY-}\"i2x0n5J8V9c1A4T1i3"
+  },
+  {
+    "id": "fam-prose-sentence-next-line",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "family review (#587): a value on a line below a sentence after a colon",
+    "text": "password: rotated by the deploy job\nj9k5o9k9c5w7l9n1T6"
+  },
+  {
+    "id": "fam-quoted-angle-glued-tail",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "family review (#587): a value glued to the closing quote of a spaced angle placeholder",
+    "text": "API_KEY=\"<set in deployment>\"786384"
+  },
+  {
+    "id": "fam-spaced-angle-interior-value",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "family review (#587): a value inside a spaced angle placeholder",
+    "text": "API_KEY=<qmnrfqxrqd-qmnrfqxrqd in deployment>"
+  },
+  {
+    "id": "fam-spaced-angle-tail-value",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "family review (#587): a value after a spaced angle placeholder",
+    "text": "API_KEY=<set in deployment> 485762"
+  },
+  {
+    "id": "fam-span-hyphen-apostrophe-value",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "family review (#587): a value joined by a hyphen or an apostrophe in prose after an exempt token",
+    "text": "`API_KEY=` is set to qmnrfqxrqd-qmnrfqxrqd"
+  },
+  {
+    "id": "fam-span-non-hangul-unicode-symbol",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "family review (#587): a value of another script and symbols in prose after an exempt token",
+    "text": "`API_KEY=` is 密碼玄! here"
+  },
+  {
+    "id": "fam-span-symbol-only-value",
+    "expected": "block",
+    "classification": "must-fail",
+    "description": "family review (#587): a value made only of symbols in prose after an exempt token",
+    "text": "`API_KEY=` is set to !@%&"
+  }
+]

@@ -122,12 +122,15 @@ prompt_case 2 'flow mapping' "{${pw}: must be rotated monthly}"
 # Only one sentence mark comes off the edge of a word, so a word that ends
 # in two keeps a mark and is not a word of letters (#587).
 prompt_case 2 'two final periods' "${key}: must be rotated monthly.."
-# Three or more words with one of two letters or fewer read as a sentence
-# whatever the lead word (#587 shape 6), so these loosened shapes pass too.
-prompt_case 0 'no listed lead word' "${key}: rotated monthly by the team"
+# A sentence needs a marker word (#587 shape 6): a word of two letters or
+# fewer is not one, since a passphrase can hold it.
+prompt_case 2 'no listed lead word' "${key}: rotated monthly by the team"
+# A hyphenated word is not a word of letters, as a passphrase can be one.
+prompt_case 2 'symbol in a following word' "${key}: must be rotated-now monthly"
+# Three or more words with a marker word read as a sentence (#587 shape 6),
+# so these loosened shapes pass too.
 prompt_case 0 'capitalized lead word' "${key}: Must be rotated monthly"
 prompt_case 0 'uppercase in a following word' "${key}: must be Rotated monthly"
-prompt_case 0 'symbol in a following word' "${key}: must be rotated-now monthly"
 prompt_case 0 'comma before more text' "${key}: must be rotated monthly, then logged"
 prompt_case 0 'double space' "${key}: must be  rotated monthly"
 prompt_case 0 'tab between words' "${key}: must be	rotated monthly"
