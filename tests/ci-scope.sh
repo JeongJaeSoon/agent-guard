@@ -293,6 +293,7 @@ sites_case 'file sourced from an unrelated function' scope=full '{ print } /^blo
 sites_case 'helper function definition line' scope=full '{ sub(/^gitleaks_helper_selected\(\) \{/, "gitleaks_helper_selected() { :;") } { print }'
 sites_case 'work on the definition line of a caller function' scope=cost '/^detect_output_secret_records\(\) \(/ { sub(/\(\) \(/, "() ( jq -n null >/dev/null;") } { print }'
 sites_case 'helper function defined with a space before the parentheses' scope=full '/^block_on_scan_status\(\) \{/ { print "gitleaks_helper_extra () {\n  :\n}\n" } { print }'
+sites_case 'indented helper function inside a caller' scope=full '{ print } /^gitleaks_scan\(\) \{/ { print "  gitleaks_helper_extra() { :; }" }'
 sites_case 'conditional sourcing in an unrelated function' scope=full '{ print } /^block_on_scan_status\(\) \{/ { print "  if [ -r ./extra.sh ]; then . ./extra.sh; fi" }'
 sites_case 'change unrelated to the helper' scope=none '{ print } /^block_on_scan_status\(\) \{/ { print "  jq -n null >/dev/null" }'
 git -C "$repo" checkout -q "$base_rev" -- . || exit 1
@@ -307,7 +308,7 @@ printf 'f() {\n  . ./extra.sh\n  echo a\n}\n' >"$mini/$sites_cli" \
 got=$(cd "$mini" && sh "$sites_script" "$mini_base" HEAD 2>/dev/null) && [ "$got" = scope=full ] || fail 'sourcing is found when no function names the helper'
 if (cd "$repo" && sh "$sites_script" no-such-revision HEAD >/dev/null 2>&1); then fail 'a diff that cannot run is an error'; fi
 ) || exit 1
-pass=$((pass + 14))
+pass=$((pass + 15))
 rm -rf "$sites_tmp"
 trap - 0
 printf 'CI scope fixtures passed: %s; matrix, aggregate and performance schedule wiring verified\n' "$pass"

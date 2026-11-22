@@ -55,7 +55,7 @@ while IFS= read -r path; do
       END { for (n in hit) print n }' >>"$tmp/callers"
   done
 done <"$tmp/paths"
-awk -v names="$names" -v helper_functions="$helper_functions" -v helper_definition="^[-+](gitleaks_helper|gitleaks_exec)[A-Za-z0-9_]*[ \t]*[(]" -v hits="$tmp/hits" -v callers_file="$tmp/callers" '
+awk -v names="$names" -v helper_functions="$helper_functions" -v helper_definition="^[-+][ \t]*(gitleaks_helper|gitleaks_exec)[A-Za-z0-9_]*[ \t]*[(]" -v hits="$tmp/hits" -v callers_file="$tmp/callers" '
   FILENAME == callers_file { caller[$0] = 1; next }
   function raise(level, why) {
     if (level == "full" || scope == "none") scope = level
