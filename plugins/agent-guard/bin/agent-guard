@@ -6404,7 +6404,6 @@ bash_strip_exclusion_operands() {
     unset IFS
     result= shell_words_nl= command_name= pending_glob=
 
-    append_policy_token() { shell_words_append "$1"; }
     is_negative_glob_value() {
       value=$1
       case "$value" in
@@ -6423,18 +6422,21 @@ bash_strip_exclusion_operands() {
     }
 
     for token in "$@"; do
-      if is_shell_command_separator "$token" || [ "$token" = '&' ] \
-        || [ "$token" = "$SHELL_WORD_NL" ]; then
-        [ -n "$pending_glob" ] && append_policy_token "$pending_glob"
-        pending_glob=
-        append_policy_token "$token"
-        command_name=
-        continue
-      fi
+      # is_shell_command_separator, a lone `&` and the newline word, matched
+      # inline because this runs once per word (#595).
+      case $token in
+        ';'|'&&'|'||'|'|'|'&'|"$SHELL_WORD_NL")
+          [ -n "$pending_glob" ] && shell_words_append "$pending_glob"
+          pending_glob=
+          shell_words_append "$token"
+          command_name=
+          continue
+          ;;
+      esac
 
       if [ -z "$command_name" ]; then
         if is_assignment_token "$token" || is_noop_wrapper "${token##*/}"; then
-          append_policy_token "$token"
+          shell_words_append "$token"
           continue
         fi
         command_name=${token##*/}
@@ -6443,7 +6445,7 @@ bash_strip_exclusion_operands() {
             command_name=$(printf '%s' "$command_name" | tr -d "'\"")
             ;;
         esac
-        append_policy_token "$token"
+        shell_words_append "$token"
         continue
       fi
 
@@ -6453,7 +6455,7 @@ bash_strip_exclusion_operands() {
             pending_glob=
             continue
           fi
-          append_policy_token "$pending_glob"
+          shell_words_append "$pending_glob"
           pending_glob=
         fi
         case "$token" in
@@ -6467,9 +6469,9 @@ bash_strip_exclusion_operands() {
             ;;
         esac
       fi
-      append_policy_token "$token"
+      shell_words_append "$token"
     done
-    [ -n "$pending_glob" ] && append_policy_token "$pending_glob"
+    [ -n "$pending_glob" ] && shell_words_append "$pending_glob"
     shell_words_print "$result"
   )
 }
@@ -9419,15 +9421,18 @@ shell_command_words() {
 
 # Append word $1 of shell_command_words to $result, after a blank unless it
 # is the first word or a newline word is on either side; shell_words_nl
-# carries that between calls.
+# carries that between calls. It runs once per word, so it uses case and
+# parameter expansion: a `[` per word cost the Bash pre-tool path 6% (#595).
 shell_words_append() {
-  if [ "$1" = "$SHELL_WORD_NL" ] || [ -z "$result" ] || [ -n "$shell_words_nl" ]; then
-    result=$result$1
-  else
-    result="$result $1"
-  fi
-  shell_words_nl=
-  [ "$1" != "$SHELL_WORD_NL" ] || shell_words_nl=1
+  case $1 in
+    "$SHELL_WORD_NL") result=$result$1 shell_words_nl=1 ;;
+    *)
+      case $shell_words_nl in
+        1) result=$result$1 shell_words_nl= ;;
+        *) result=${result:+"$result "}$1 ;;
+      esac
+      ;;
+  esac
 }
 
 # Print a result of shell_words_append with its newlines restored.
