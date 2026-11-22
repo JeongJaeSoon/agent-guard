@@ -166,7 +166,7 @@ def main():
                             command = [str(CLI), subcommand]
                             encode = lambda text, control=False: json.dumps(event(entry, text, control)[1]).encode()
                         label = f"{variant} {host} {entry} {shape} {SIZE} bytes"
-                        _, small_control = inputs(entry, shape, SIZE // 4)
+                        small_candidate, small_control = inputs(entry, shape, SIZE // 4)
                         small = measure(command, encode(small_control, True), env, 10, deadline)
                         if not correct(entry, host, small_control, small):
                             print(f"not ok - {label}: small control failed (exit {small[0]})", flush=True)
@@ -182,6 +182,7 @@ def main():
                                   f"exit {baseline[0]})", flush=True)
                             return 1
                         known = shape == "whitespace" and entry != "protected-path"
+                        candidate_small_time = None
                         if known:
                             short, _ = inputs(entry, shape, 2048)
                             short_result = measure(command, encode(short), env, small[1] * 8 + 1, deadline)
@@ -190,14 +191,23 @@ def main():
                                       f"(exit {short_result[0]})", flush=True)
                                 return 1
                             print(f"ok - {variant} {host} {entry} small whitespace verdict", flush=True)
-                        limit = baseline[1] * 3 + 1
-                        if known:
-                            limit = min(limit, 2)
+                            limit = min(baseline[1] * 3 + 1, 2)
+                        else:
+                            # A real file_path costs more than ignored metadata.
+                            # Retain the candidate's hook, input field and shape.
+                            sample = measure(command, encode(small_candidate), env, scaling_limit, deadline)
+                            if not correct(entry, host, small_candidate, sample):
+                                print(f"not ok - {label}: small candidate failed (exit {sample[0]})", flush=True)
+                                return 1
+                            candidate_small_time = sample[1]
+                            limit = candidate_small_time * 8 + 1
                         result = measure(command, encode(candidate), env, limit, deadline)
                         valid = correct(entry, host, candidate, result, whole_leaf=True)
                         slow = result[0] is None or result[1] > limit
                         timing = (f"{result[1]:.3f}s / control {baseline[1]:.3f}s / limit {limit:.3f}s "
                                   f"/ small {small[1]:.3f}s / scaling limit {scaling_limit:.3f}s")
+                        if candidate_small_time is not None:
+                            timing += f" / candidate small {candidate_small_time:.3f}s"
                         if slow and known:
                             print(f"not ok - {label}: {timing} # TODO https://github.com/JeongJaeSoon/agent-guard/issues/585", flush=True)
                         elif slow or not valid:
