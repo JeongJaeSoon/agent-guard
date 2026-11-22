@@ -68,14 +68,15 @@ run_post() {
     <"$CASE/event" >"$CASE/out" 2>"$CASE/err"
 }
 
-# kept_shape WORDS reads the event and the guard's stdout and is true when the
-# replacement keeps the output's shape as the header describes. WORDS is the
-# case's JSON array of host-read field paths.
+# kept_shape OUT WORDS reads the event and the guard's stdout OUT and is true
+# when the replacement keeps the output's shape as the header describes. WORDS
+# is the case's JSON array of host-read field paths. Both documents ride files:
+# a large one exceeds Linux's per-argument limit.
 KEPT='def kinds: if type == "object" then with_entries(.value |= kinds)
     elif type == "array" then map(kinds) else type end;
-  ($ev.tool_response) as $o
+  ($ev[0].tool_response) as $o
   | ($out[0].hookSpecificOutput.updatedToolOutput) as $u
-  | ([$ev.tool_input.file_path, $ev.tool_input.notebook_path]
+  | ([$ev[0].tool_input.file_path, $ev[0].tool_input.notebook_path]
      | map(select(type == "string"))) as $inputs
   | ($out | length) == 1
     and ($u | kinds) == ($o | kinds)
@@ -91,7 +92,7 @@ KEPT='def kinds: if type == "object" then with_entries(.value |= kinds)
     and (($o | tojson | contains($s) | not) or ($u | tojson | contains("[REDACTED]")))'
 
 kept_shape() {
-  jq -e -n --slurpfile out "$1" --argjson ev "$(cat "$CASE/event")" \
+  jq -e -n --slurpfile out "$1" --slurpfile ev "$CASE/event" \
     --argjson words "$2" --arg s "$S" "$KEPT" >/dev/null 2>&1
 }
 
