@@ -9350,7 +9350,8 @@ bash_strip_program_text() (
 # `env|` inside a regex alternation is not a pipeline. A word qualifies only
 # as one single-quoted part, or one double-quoted part holding no `$`,
 # backquote or backslash; the command name must be the first word of its
-# segment, and everything its pipeline feeds a plain text filter, since
+# segment, every command before it inert, and everything its pipeline feeds
+# a plain text filter that writes no file, since
 # `grep -o` prints the pattern's text. A word that starts with `-`, or that
 # follows an option not known to take no value, stays. Returns 1, and the caller keeps $1,
 # when no word qualifies, when PATH holds a relative entry, or when the
@@ -9377,6 +9378,16 @@ bash_neutralize_search_words() {
       if (p ~ /^--(extended-regexp|fixed-strings|perl-regexp|basic-regexp|ignore-case|line-number|files-with-matches|count|only-matching|word-regexp|recursive|invert-match|no-config|hidden)$/) return 1
       return p ~ /^-[EFGPHhilLnoqsvwxcrRaIzZbTySNuUp0]*e?$/
     }
+    function plain(v) { return v ~ /^[A-Za-z0-9_.\/:@%+,=-]+$/ || v ~ /^2>(&1|\/dev\/null)$/ }
+    # A later search command means what it says only while every command
+    # before it is one that cannot change how the shell looks up names, as
+    # in search_operand_spans: an inert command given plain or quoted
+    # literal words, or `git ls-files` feeding a pipe.
+    function inert_segment(a, b,   k) {
+      for (k = a + 1; k <= b; k++) if (!plain(w[k]) && w[k] != "\047\047" && !literal(w[k])) return 0
+      if (w[a] == "git") return a < b && w[a + 1] == "ls-files" && b < n && w[b + 1] == "|"
+      return w[a] ~ /^(grep|egrep|fgrep|ls|cat|head|tail|wc|cut|tr|echo|true|false|pwd|jq|diff|comm|basename|dirname|date|sleep)$/
+    }
     BEGIN { nl = "\034" }
     { w[NR] = $0 }
     END {
@@ -9387,7 +9398,10 @@ bash_neutralize_search_words() {
         for (e = s; e <= n && !sep(w[e]); e++) ;
         e--
         if (e < s) continue
-        if (!(w[s] ~ /^(grep|egrep|fgrep|rg)$/ || w[s] == "git" && s < e && w[s + 1] == "grep")) continue
+        if (!(w[s] ~ /^(grep|egrep|fgrep|rg)$/ || w[s] == "git" && s < e && w[s + 1] == "grep")) {
+          if (!inert_segment(s, e)) break
+          continue
+        }
         # The output may not reach a file or another process: no word of
         # the segment redirects anything but stderr, and each command down
         # the pipeline is a plain text filter given plain words only.
@@ -9395,11 +9409,12 @@ bash_neutralize_search_words() {
         for (k = s; k <= e; k++) if (w[k] ~ /[<>]/ && !literal(w[k]) && w[k] !~ /^2>(&1|\/dev\/null)$/) ok = 0
         for (j = e + 1; ok && j <= n && w[j] == "|"; j = f) {
           if (j + 1 > n || w[j + 1] !~ /^(wc|head|tail|sort|uniq|tr|cut|nl|grep|egrep|fgrep|column|cat)$/) { ok = 0; break }
+          # As in sink_ok of search_operand_spans: no long option, no sort -o.
           for (f = j + 1; f <= n && !sep(w[f]); f++)
-            if (w[f] !~ /^[A-Za-z0-9_.\/:@%+,=-]+$/ && w[f] !~ /^2>(&1|\/dev\/null)$/) ok = 0
+            if (!plain(w[f]) || substr(w[f], 1, 2) == "--" || w[j + 1] == "sort" && w[f] ~ /^-[A-Za-z]*o/) ok = 0
         }
-        if (!ok) continue
-        for (k = e; k > s; k--) if (literal(w[k]) && before_ok(w[k - 1])) { w[k] = "\047\047"; changed = 1 }
+        if (ok) for (k = e; k > s; k--) if (literal(w[k]) && before_ok(w[k - 1])) { w[k] = "\047\047"; changed = 1 }
+        if (!inert_segment(s, e)) break
       }
       if (!changed) exit 1
       out = ""; fresh = 1
@@ -9414,9 +9429,9 @@ bash_neutralize_search_words() {
 }
 
 # Print, one per line, the text of each wholly quoted word in a command that
-# hands such a word to a shell: a segment naming sh, bash, zsh, dash or ksh
-# (`bash -c`, `xargs sh -c`, `find -exec sh -c`), eval, ssh, trap, watch or
-# su; after a shell's `-c`, only the word that follows it. The deny patterns anchor a command at a blank or an operator, so they
+# hands such a word to a shell: the word after the `-c` of sh, bash, zsh,
+# dash or ksh (`bash -c`, `xargs sh -c`, `find -exec sh -c`), and every
+# word of an eval, ssh, trap, watch or su command. The deny patterns anchor a command at a blank or an operator, so they
 # cannot see one that starts right after a quote. Double-quoted text loses
 # the backslash of an escaped `"`, `$`, backquote or backslash.
 bash_shell_program_texts() {
@@ -9432,13 +9447,20 @@ bash_shell_program_texts() {
       }
       return r
     }
-    function flush(   k, v, only) {
-      # After `sh -c` only the next word is code; the words after it are
-      # its positional parameters.
-      only = 0
-      for (k = shell + 1; shell && k < m; k++) if (seg[k] ~ /^-[A-Za-z]*c$/) { only = k + 1; break }
-      if (runner) for (k = 1; k <= m; k++) {
-        if (only && k != only) continue
+    function base(v) { gsub(/["\047\\]/, "", v); sub(/.*\//, "", v); return v }
+    function flush(   i, j, k, v, only, all) {
+      # eval, ssh, trap, watch and su run their words when they are the
+      # command of the segment, past assignments and wrappers. A shell name
+      # anywhere (`xargs sh -c`, `find -exec sh -c`) counts only with its
+      # `-c`, and then only the next word is code: the words after it are
+      # positional parameters.
+      only = 0; all = 0
+      for (i = 1; i <= m && (seg[i] ~ /^[A-Za-z_][A-Za-z0-9_]*=/ || base(seg[i]) ~ /^(sudo|command|exec|time|nohup|nice|env|builtin)$/); i++) ;
+      if (i <= m && base(seg[i]) ~ /^(eval|ssh|trap|watch|su)$/) all = 1
+      for (k = 1; k <= m && !only; k++) if (base(seg[k]) ~ /^(sh|bash|zsh|dash|ksh)$/)
+        for (j = k + 1; j <= m && substr(seg[j], 1, 1) == "-"; j++) if (seg[j] ~ /^-[A-Za-z]*c$/) { only = j + 1; break }
+      if (all || only) for (k = 1; k <= m; k++) {
+        if (!all && k != only) continue
         v = seg[k]
         if (v ~ /^\047[^\047]*\047$/) v = substr(v, 2, length(v) - 2)
         else if (v ~ /^"([^"\\]|\\.)*"$/) v = unescape(substr(v, 2, length(v) - 2))
@@ -9446,14 +9468,11 @@ bash_shell_program_texts() {
         gsub(/\034/, "\n", v)
         print v
       }
-      m = 0; runner = 0; shell = 0
+      m = 0
     }
     {
       if ($0 == ";" || $0 == "&&" || $0 == "||" || $0 == "|" || $0 == "&" || $0 == "\034") { flush(); next }
       seg[++m] = $0
-      b = $0; gsub(/["\047\\]/, "", b); sub(/.*\//, "", b)
-      if (b ~ /^(sh|bash|zsh|dash|ksh|eval|ssh|trap|watch|su)$/) runner = 1
-      if (b ~ /^(sh|bash|zsh|dash|ksh)$/ && !shell) shell = m
     }
     END { flush() }
   '

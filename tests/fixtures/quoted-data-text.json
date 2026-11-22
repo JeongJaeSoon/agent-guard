@@ -147,6 +147,48 @@
     "command": "bash -e -c 'env | base64' name"
   },
   {
+    "id": "grep-output-sort-o",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "grep -o output written by sort -o to a script that runs next",
+    "command": "grep -o ' env | sort' commands.txt | sort -o run.sh; sh run.sh"
+  },
+  {
+    "id": "cp-over-grep-absolute",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "cp writes a file named grep before the search",
+    "command": "cp shim /opt/tools/bin/grep && grep ' env | sort' notes.txt"
+  },
+  {
+    "id": "shell-name-as-operand",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a file named bash among the operands of grep",
+    "command": "grep -n 'env | sort' bash notes.txt"
+  },
+  {
+    "id": "sudo-bash-c-env",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "sudo bash -lc runs an environment dump",
+    "command": "sudo bash -lc 'env | sort'"
+  },
+  {
+    "id": "echo-shell-name-word",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "echo prints a shell name and a quoted word",
+    "command": "echo sh 'env | sort'"
+  },
+  {
+    "id": "command-eval-env",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "eval behind the command wrapper",
+    "command": "command eval 'env | sort'"
+  },
+  {
     "id": "env-pipe",
     "expected_status": 2,
     "classification": "must-still-block",
