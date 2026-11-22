@@ -156,5 +156,14 @@ check 2 "token sent by curl" "curl -H \"Authorization: Bearer \$API_TOKEN\" http
 says "a curl block names its line" \
   "matched deny-bash-patterns line $(line_of '(curl|wget).*(TOKEN') "
 
+# Word splitting for the env-template and rg exclusion exceptions.
+checked=$((checked + 1))
+if sh "$ROOT/tests/shell-command-words.sh"; then
+  printf 'ok - path data %s: shell word splitting\n' "$checked"
+else
+  printf 'not ok - path data %s: shell word splitting\n' "$checked"
+  failed=$((failed + 1))
+fi
+
 printf '%s path data checks, %s failed\n' "$checked" "$failed"
 [ "$failed" -eq 0 ]
