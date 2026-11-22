@@ -168,6 +168,41 @@
    "legacy": "  credential: [REDACTED],",
    "mask": "  credential: credentialsVault,",
    "masked": "  credential: [REDACTED],"
+  },
+  {
+   "label": "grep -n locator before the field",
+   "pass": "src/schema.ts:14:  credential: CredentialSchema,",
+   "legacy": "src/schema.ts:14:  credential: [REDACTED],",
+   "mask": "src/schema.ts:  credential: CredentialSchema,",
+   "masked": "src/schema.ts:  credential: [REDACTED],"
+  },
+  {
+   "label": "bare line number before the field",
+   "pass": "14:  credential: CredentialSchema,",
+   "legacy": "14:  credential: [REDACTED],",
+   "mask": "14:30:  credential: CredentialSchema,",
+   "masked": "14:30:  credential: [REDACTED],"
+  },
+  {
+   "label": "grep context locator before the field",
+   "pass": "src/schema.ts-14-  credential: CredentialSchema,",
+   "legacy": "src/schema.ts-14-  credential: [REDACTED],",
+   "mask": "src/schema.ts-14  credential: CredentialSchema,",
+   "masked": "src/schema.ts-14  credential: [REDACTED],"
+  },
+  {
+   "label": "cat -n number and tab before the field",
+   "pass": "    14\t  credential: CredentialSchema,",
+   "legacy": "    14\t  credential: [REDACTED],",
+   "mask": "    14  credential: CredentialSchema,",
+   "masked": "    14  credential: [REDACTED],"
+  },
+  {
+   "label": "locator before a declaration",
+   "pass": "src/config.ts:7:export const password = password;",
+   "legacy": "src/config.ts:7:export const [REDACTED] = [REDACTED];",
+   "mask": "src/config.ts:7:9:export const password = password;",
+   "masked": "src/config.ts:7:9:export const [REDACTED] = [REDACTED];"
   }
  ],
  "still_masked": [
@@ -520,6 +555,111 @@
    "label": "listed words just past 80 bytes",
    "stdout": "  password: userPasswordValidatorFactoryBuilderContextControllerRepositoryComponentPropertyIds,",
    "masked": "  password: [REDACTED],"
+  },
+  {
+   "label": "short human value behind a locator",
+   "stdout": "src/app.yml:3:  password: %W%,",
+   "masked": "src/app.yml:3:  password: [REDACTED],"
+  },
+  {
+   "label": "key in the middle of a located log line",
+   "stdout": "src/log.txt:14: user: bob | password: MyPassword | host: db",
+   "masked": "src/log.txt:14: user: bob | password: [REDACTED] | host: db"
+  },
+  {
+   "label": "clock time is not a locator",
+   "stdout": "12:34: password: Password,",
+   "masked": "12:34: password: [REDACTED],"
+  },
+  {
+   "label": "date is not a locator",
+   "stdout": "2024-01-15: password: Password,",
+   "masked": "2024-01-15: password: [REDACTED],"
+  },
+  {
+   "label": "locator with a space in its path part",
+   "stdout": "a b:14:  credential: CredentialSchema,",
+   "masked": "a b:14:  credential: [REDACTED],"
+  },
+  {
+   "label": "locator after the diff marker",
+   "stdout": "+ src/schema.ts:14:  credential: CredentialSchema,",
+   "masked": "+ src/schema.ts:14:  credential: [REDACTED],"
+  },
+  {
+   "label": "text before the numbered tab",
+   "stdout": "id 14\t  credential: CredentialSchema,",
+   "masked": "id 14\t  credential: [REDACTED],"
+  },
+  {
+   "label": "space between the path and the line number",
+   "stdout": "src/schema.ts 14:  credential: CredentialSchema,",
+   "masked": "src/schema.ts 14:  credential: [REDACTED],"
+  },
+  {
+   "label": "dashes without a line number",
+   "stdout": "--  credential: CredentialSchema,",
+   "masked": "--  credential: [REDACTED],"
+  },
+  {
+   "label": "connection string tail shaped like a locator",
+   "stdout": "Server=db;Database=app:1: Password=Password;",
+   "masked": "Server=db;Database=app:1: [REDACTED]=[REDACTED];"
+  },
+  {
+   "label": "key=value log text shaped like a locator",
+   "stdout": "level=info|req=42:7: password: Password,",
+   "masked": "level=info|req=42:7: password: [REDACTED],"
+  },
+  {
+   "label": "address and port are not a locator",
+   "stdout": "10.0.0.1:5432: password: Password,",
+   "masked": "10.0.0.1:5432: password: [REDACTED],"
+  },
+  {
+   "label": "host name and number, separators differ",
+   "stdout": "web-1: password: Password,",
+   "masked": "web-1: password: [REDACTED],"
+  },
+  {
+   "label": "locator whose two separators differ",
+   "stdout": "src/schema.ts:14-  credential: CredentialSchema,",
+   "masked": "src/schema.ts:14-  credential: [REDACTED],"
+  },
+  {
+   "label": "diff marker glued to the locator",
+   "stdout": "+src/schema.ts:14:  credential: CredentialSchema,",
+   "masked": "+src/schema.ts:14:  credential: [REDACTED],"
+  },
+  {
+   "label": "path without a line number between its separators",
+   "stdout": "src/schema.ts::  credential: CredentialSchema,",
+   "masked": "src/schema.ts::  credential: [REDACTED],"
+  },
+  {
+   "label": "tab without a number before the diff marker",
+   "stdout": "\t+  credential: CredentialSchema,",
+   "masked": "\t+  credential: [REDACTED],"
+  },
+  {
+   "label": "diff marker glued to a context locator",
+   "stdout": "+src/schema.ts-14-  credential: CredentialSchema,",
+   "masked": "+src/schema.ts-14-  credential: [REDACTED],"
+  },
+  {
+   "label": "date in front of a dash is not a context locator",
+   "stdout": "2024-01-15-  password: Password,",
+   "masked": "2024-01-15-  password: [REDACTED],"
+  },
+  {
+   "label": "key=value log text shaped like a context locator",
+   "stdout": "level=info|req=42-7- password: Password,",
+   "masked": "level=info|req=42-7- password: [REDACTED],"
+  },
+  {
+   "label": "diff marker before the numbered tab",
+   "stdout": "+14\t  credential: CredentialSchema,",
+   "masked": "+14\t  credential: [REDACTED],"
   }
  ]
 }
