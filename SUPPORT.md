@@ -16,7 +16,7 @@ summary. Never include live credentials, private keys, prompts, transcripts,
 raw stderr, full hook payloads, paths, environment variables, session IDs, or
 unredacted personal data.
 
-In v3.4.1 and later, create one private support file instead of attaching raw
+Create one private support file instead of attaching raw
 diagnostic output:
 
 ```sh
