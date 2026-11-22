@@ -13537,6 +13537,9 @@ secretish_env_values() {
       name_stem_n = split("password passwd passphrase secret token credential apikey accesskey privatekey signingkey encryptionkey sessionkey bearer webhook", name_stem, " ")
       # A Hangul syllable, U+AC00 to U+D7A3, as UTF-8 bytes.
       hangul = "(\352[\260-\277][\200-\277]|[\353\354][\200-\277][\200-\277]|\355[\200-\235][\200-\277]|\355\236[\200-\243])"
+      # A generated passphrase is four to seven words of letters, so English
+      # text after an exempt token reads as prose from this many words on.
+      prose_tail_words = 8
       # An empty secret key standing as a word (`API_KEY=`, `client_secret:`):
       # parts of letters before the secret-bearing term, no qualifier after.
       empty_key = "^(([a-z]+[_.-])*(" core ")|([a-z]+[_.-])+(pat|pwd))[=:]$"
@@ -13806,7 +13809,14 @@ secretish_env_values() {
         w = edge_core(words[i])
         if (w == "") return -1
         count++
-        if (w ~ ("^([A-Za-z]|" hangul ")+$")) continue
+        if (w ~ ("^([A-Za-z]|" hangul ")+$")) {
+          # A word set off by a quote or a bracket (`(value)`, `"value",`)
+          # can be a value quoted in the prose, so of those only a Korean
+          # word, or a short word as in the residual above, reads as prose.
+          if (words[i] ~ /[][(){}<>`'\''"]/ && w !~ hangul && length(w) > 6)
+            return -1
+          continue
+        }
         # A source path or locator (`tests/run.sh`, `src/db.ts:12`): parts
         # of letters split by a slash, a dot or a hyphen, with a slash or a
         # dot among them. Digits appear only in a line and column at the
@@ -13899,8 +13909,8 @@ secretish_env_values() {
     # Whether a value may follow an exempt token. The old reading took the
     # token as the value and blocked the prompt, which also covered anything
     # after it, so: text glued to the token is read as the old reading
-    # would read it once the token is gone, the rest of the line is read
-    # word by word, and so is every line below it in the leaf.
+    # would read it once the token is gone, and the rest of the line and the
+    # lines below it in the leaf must each be prose_tail.
     function exempt_tail(assignment, tail, glued) {
       # One quote or bracket that closes around the token (a code span, a
       # note) comes off first: the old reading would not open a value there.
@@ -13909,8 +13919,23 @@ secretish_env_values() {
       sub(/^[]`'\''")}>]/, "", glued)
       if (glued ~ /^[]`'\''")}>]/) return 1
       if (glued ~ /^[^ \t\r]/ && main_value(assignment, glued)) return 1
-      if (span_words(glued) < 0) return 1
-      return span_words(leaf_tail) < 0
+      return !prose_tail(glued) || !prose_tail(leaf_tail)
+    }
+    # Whether text after an exempt token, on its line or on the lines below,
+    # is prose: no word fails span_words, and it holds a Korean word, at
+    # least prose_tail_words words of letters, or no word of letters at all
+    # (`#587`). A shorter English run can be a generated passphrase, so it
+    # keeps the old reading.
+    function prose_tail(text, n, words, i, w, letters) {
+      if (span_words(text) < 0) return 0
+      n = split(text, words, /[ \t\r\n]+/)
+      letters = 0
+      for (i = 1; i <= n; i++) {
+        w = edge_core(words[i])
+        if (w ~ hangul) return 1
+        if (w ~ /^[A-Za-z]+$/) letters++
+      }
+      return letters == 0 || letters >= prose_tail_words
     }
     # A quote right after the delimiter can close a quote that opened before
     # the key instead of opening a value: `` `API_KEY=` is read at ... ``,

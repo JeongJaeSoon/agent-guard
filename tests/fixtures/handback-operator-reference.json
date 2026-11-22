@@ -11,5 +11,5 @@
   {"id": "op-required-single", "expected": "pass", "classification": "must-pass", "description": "shape 3: a single-quoted required-variable reference", "text": "AWS_SECRET_ACCESS_KEY='${AWS_SECRET_ACCESS_KEY:?}'"},
   {"id": "op-default-empty-single", "expected": "pass", "classification": "must-pass", "description": "shape 3: a single-quoted reference with an empty default", "text": "TOKEN=\u0027${TOKEN:-}'"},
   {"id": "op-dash-single", "expected": "pass", "classification": "must-pass", "description": "shape 3: a single-quoted dash-only reference", "text": "TOKEN=\u0027${TOKEN-}'"},
-  {"id": "op-in-report", "expected": "pass", "classification": "must-pass", "description": "shape 3 inside a report bullet", "text": "- `export GITHUB_TOKEN=\"${GITHUB_TOKEN:?}\"` is set in scripts/run.sh:12"}
+  {"id": "op-in-report", "expected": "block", "classification": "must-fail", "description": "shape 3 inside a report bullet, then an English tail of fewer than eight words (#587 round 7)", "text": "- `export GITHUB_TOKEN=\"${GITHUB_TOKEN:?}\"` is set in scripts/run.sh:12"}
 ]
