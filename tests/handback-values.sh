@@ -56,6 +56,9 @@ for fixture in $FIXTURES; do
     name=$(printf '%s' "$row" | jq -r '.id + " (" + .classification + "): " + .description')
     text=$(printf '%s' "$row" | jq -r --arg s "$secret" --arg d "$digits" \
       '.text | gsub("\\{\\{SECRET\\}\\}"; $s) | gsub("\\{\\{DIGITS\\}\\}"; $d)')
+    # A must-fail value that is not a generated token names the text that
+    # must not survive the Agent result masking.
+    gone=$(printf '%s' "$row" | jq -r '.gone // empty')
     case "$expected" in pass) want=0 ;; *) want=2 ;; esac
 
     jq -nc --arg p "$(printf '<agent-message from="a1b2c3d4">\n[Subagent hand-back] The report follows:\n%s\n' "$text")" \
@@ -79,7 +82,8 @@ for fixture in $FIXTURES; do
       [ "$status" -eq 0 ] && [ ! -s "$CASE/out" ] && r=ok || r=bad
       result "$r" "[claude Agent result] $name is left unmasked (status $status)"
     else
-      [ "$status" -eq 0 ] && [ -s "$CASE/out" ] && ! grep -Fq -- "$secret" "$CASE/out" && r=ok || r=bad
+      [ "$status" -eq 0 ] && [ -s "$CASE/out" ] && ! grep -Fq -- "$secret" "$CASE/out" \
+        && { [ -z "$gone" ] || ! grep -Fq -- "$gone" "$CASE/out"; } && r=ok || r=bad
       result "$r" "[claude Agent result] $name is masked (status $status)"
     fi
   done <"$CASE/rows"
