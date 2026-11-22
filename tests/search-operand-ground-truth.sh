@@ -71,6 +71,8 @@ allow grep -E '\.pem$' list.txt
 allow grep -oE 'example\.net[a-z]*' notes.txt
 allow for c in a b; do echo "== $c"; done; ls -a . | grep -E '^\.env'
 allow grep -e '\.env' -e '\.pem' list.txt
+allow mkdir -p d; grep .env
+allow cp notes.txt n2.txt && grep -E '\.pem$' list.txt
 allow grep --regexp='\.env' list.txt
 allow grep -rn --include='*.ts' -A3 'process\.env' src 2>/dev/null | head
 allow LC_ALL=C cat list.txt | grep -c -- '\.env'
@@ -169,7 +171,8 @@ held echo x >p; grep .env
 held cat list.txt >p | grep .env
 held touch p; grep .env
 held sort -o p list.txt; grep .env
-held mkdir -p d; grep .env
+held cp shim pbin/grep; grep .env
+held cp notes.txt /tmp/n2.txt; grep .env
 held find . -name p -delete; grep .env
 CASES
 
