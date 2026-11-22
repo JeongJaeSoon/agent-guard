@@ -129,12 +129,12 @@ if TAP_FAIL_READS=1 publish 3.6.0 "$CASE/new.rb"; then fail 'an unreadable tap c
 [ "$(mutations)" = 0 ] || fail 'an unreadable tap was written to'
 
 wf="$ROOT/.github/workflows/release.yml"
-publish_line=$(grep -n 'name: Tag and publish release' "$wf" | cut -d: -f1)
+publish_line=$(grep -n 'name: Qualify and publish the reviewed tree' "$wf" | cut -d: -f1)
 tap_line=$(grep -n 'name: Open Homebrew tap PR' "$wf" | cut -d: -f1)
 [ -n "$tap_line" ] && [ "$tap_line" -gt "$publish_line" ] \
   || fail 'release workflow does not open the tap PR after publishing'
 sed -n "${tap_line},\$p" "$wf" >"$CASE/step"
-grep -Fq "if: \${{ steps.state.outputs.publish_ready == 'true' && !inputs.dry_run }}" "$CASE/step" \
+grep -Fq "if: \${{ needs.plan.outputs.dry_run != 'true' }}" "$CASE/step" \
   || fail 'tap step is not gated like the publish step'
 grep -Fq 'GH_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}' "$CASE/step" \
   || fail 'tap step does not use the tap token'

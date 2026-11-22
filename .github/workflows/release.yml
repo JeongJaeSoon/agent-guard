@@ -1,5 +1,4 @@
 name: release
-
 on:
   workflow_dispatch:
     inputs:
@@ -8,70 +7,86 @@ on:
         required: true
         default: patch
         type: choice
-        options:
-          - patch
-          - minor
-          - major
+        options: [patch, minor, major]
       version:
-        description: "Explicit X.Y.Z version. Overrides bump. Use to retry a failed release at the same version."
+        description: "Explicit X.Y.Z version; also resumes a merged release at the same version"
         required: false
         default: ""
         type: string
       dry_run:
-        description: "Prepare the release PR or validate a resume, but never tag or publish"
+        description: "Exercise preparation, dispatched CI and asset qualification without publishing"
         required: false
         default: false
         type: boolean
-
+      replace_stale_branch:
+        description: "Replace a different candidate only when its release branch has no open PR"
+        required: false
+        default: false
+        type: boolean
+  pull_request:
+    types: [closed]
+    branches: [main]
 permissions:
   actions: read
   checks: read
-  contents: write
-  pull-requests: write
-
+  contents: read
+  pull-requests: read
 env:
   GITLEAKS_VERSION: "8.30.1"
   GITLEAKS_CHECKSUM_LINUX_X64: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
-
 concurrency:
   group: release
   cancel-in-progress: false
-
 jobs:
-  release:
+  plan:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.pull_request.merged == true &&
+       contains(github.event.pull_request.labels.*.name, 'release'))
     runs-on: ubuntu-latest
+    outputs:
+      mode: ${{ steps.plan.outputs.mode }}
+      version: ${{ steps.ver.outputs.version }}
+      major: ${{ steps.ver.outputs.major }}
+      branch: ${{ steps.ver.outputs.branch }}
+      previous: ${{ steps.ver.outputs.previous }}
+      pr: ${{ steps.plan.outputs.pr }}
+      dry_run: ${{ steps.plan.outputs.dry_run }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 0
-
-      - name: Require an exact main dispatch
+          ref: ${{ github.event_name == 'pull_request' && 'main' || github.ref }}
+          persist-credentials: false
+      - name: Require current main for publication
         env:
+          EVENT_NAME: ${{ github.event_name }}
           DISPATCH_REF: ${{ github.ref }}
+          DRY_RUN: ${{ inputs.dry_run }}
         run: |
           set -euo pipefail
-          if [ "$DISPATCH_REF" != "refs/heads/main" ]; then
-            echo "release workflow must be dispatched from refs/heads/main (got: $DISPATCH_REF)"
-            exit 1
-          fi
           git fetch origin main
-          checkout_sha=$(git rev-parse HEAD)
-          main_sha=$(git rev-parse origin/main)
-          if [ "$checkout_sha" != "$main_sha" ]; then
-            echo "checked out $checkout_sha but origin/main is $main_sha; restart the dispatch from current main"
-            exit 1
+          if [ "$EVENT_NAME" = workflow_dispatch ] && [ "$DRY_RUN" = true ]; then
+            echo 'Branch dispatch is allowed only for a dry run'
+          else
+            [ "$EVENT_NAME" = pull_request ] || [ "$DISPATCH_REF" = refs/heads/main ]
+            [ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" ] || {
+              echo 'Checkout is not current main; restart from current main' >&2
+              exit 1
+            }
           fi
-
       - name: Compute next version
         id: ver
         env:
           # Pass the free-form input through the environment, never interpolated
           # into the script body — `${{ inputs.version }}` inlined into `run:`
           # executes as shell before the X.Y.Z check below can reject it.
-          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_VERSION: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || inputs.version }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
           set -euo pipefail
           explicit="$INPUT_VERSION"
+          if [ "$EVENT_NAME" = pull_request ]; then explicit=${explicit##*/v}; fi
           cur=$(git tag --sort=-version:refname --list 'v*' \
             | grep -E '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' \
             | head -n1 | sed 's/^v//' || true)
@@ -99,214 +114,74 @@ jobs:
           echo "branch=release/v${v}" >> "$GITHUB_OUTPUT"
           echo "previous=${cur}"      >> "$GITHUB_OUTPUT"
 
-      - name: Detect resume state
-        id: state
+      - name: Select preparation or reviewed publication
+        id: plan
         env:
           GH_TOKEN: ${{ github.token }}
-          INPUT_VERSION: ${{ inputs.version }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_PR: ${{ github.event.pull_request.number }}
           RELEASE_VERSION: ${{ steps.ver.outputs.version }}
-          PREVIOUS_VERSION: ${{ steps.ver.outputs.previous }}
+          INPUT_VERSION: ${{ inputs.version }}
+          DRY_RUN: ${{ inputs.dry_run }}
         run: |
           set -euo pipefail
-          v="$RELEASE_VERSION"
-
-          # Has the reviewed release PR for v$v already been merged into main?
-          # The manifest selects the resume path; the merged PR commit check
-          # below proves that origin/main has not advanced past that review.
-          git fetch origin main >/dev/null
-          checkout_sha=$(git rev-parse HEAD)
-          fetched_main_sha=$(git rev-parse origin/main)
-          if [ "$checkout_sha" != "$fetched_main_sha" ]; then
-            echo "origin/main advanced from $checkout_sha to $fetched_main_sha during release preparation; restart the dispatch"
-            exit 1
-          fi
-          main_version=""
-          if git show "origin/main:plugins/agent-guard/.claude-plugin/plugin.json" >/dev/null 2>&1; then
-            main_version=$(git show "origin/main:plugins/agent-guard/.claude-plugin/plugin.json" \
-              | jq -r '.version // ""')
-          fi
-          if [ "$main_version" = "$v" ]; then
-            if [ -z "$INPUT_VERSION" ]; then
-              echo "publishing v${v} requires a second dispatch with version=${v} explicitly set"
-              exit 1
-            fi
-            release_branch="release/v${v}"
-            release_pr_number=$(gh pr list \
-              --state merged \
-              --base main \
-              --head "$release_branch" \
-              --limit 100 \
-              --json number,mergedAt \
-              --jq 'sort_by(.mergedAt) | last | .number // ""')
-            if [ -z "$release_pr_number" ]; then
-              echo "no merged release PR found for ${release_branch}; refusing to publish"
-              exit 1
-            fi
-            release_pr=$(gh pr view "$release_pr_number" \
-              --json headRefOid,mergeCommit)
-            release_sha=$(printf '%s' "$release_pr" | jq -r '.mergeCommit.oid // ""')
-            release_head_sha=$(printf '%s' "$release_pr" | jq -r '.headRefOid // ""')
-            main_sha=$(git rev-parse origin/main)
-            if [ -z "$release_sha" ] || [ -z "$release_head_sha" ]; then
-              echo "release PR ${release_pr_number} is missing a merge or head commit; refusing to publish"
-              exit 1
-            fi
-            if [ "$release_sha" != "$main_sha" ]; then
-              echo "release PR merged at $release_sha but origin/main is $main_sha; refusing to tag a later commit"
-              exit 1
-            fi
-            required_checks=$'Agent Guard\nTest (ubuntu-latest)\nTest (macos-latest)\nLint\nPlugin Layout\nHOL Plugin Scanner\nNative platform artifacts'
-            release_head_checks=$(gh api \
-              -H "Accept: application/vnd.github+json" \
-              "repos/${GITHUB_REPOSITORY}/commits/${release_head_sha}/check-runs?filter=latest&per_page=100")
-            while IFS= read -r check_name; do
-              check_result=$(printf '%s' "$release_head_checks" | jq -r --arg name "$check_name" '
-                [.check_runs[]
-                  | select(.name == $name)]
-                | sort_by(.id)
-                | last
-                | if . == null then "" else (.conclusion // .status // "") end
-              ')
-              if [ "$check_result" != "success" ]; then
-                echo "latest required check '$check_name' on release head $release_head_sha is not successful (got: ${check_result:-missing})"
-                exit 1
-              fi
-            done <<< "$required_checks"
-            release_commit_checks=$(gh api \
-              -H "Accept: application/vnd.github+json" \
-              "repos/${GITHUB_REPOSITORY}/commits/${release_sha}/check-runs?filter=latest&per_page=100")
-            while IFS= read -r check_name; do
-              check_result=$(printf '%s' "$release_commit_checks" | jq -r --arg name "$check_name" '
-                [.check_runs[]
-                  | select(.name == $name)]
-                | sort_by(.id)
-                | last
-                | if . == null then "" else (.conclusion // .status // "") end
-              ')
-              if [ "$check_result" != "success" ]; then
-                echo "latest required main check '$check_name' on release merge $release_sha is not successful (got: ${check_result:-missing})"
-                exit 1
-              fi
-            done <<< "$required_checks"
-            echo "skip_pr_cycle=true" >> "$GITHUB_OUTPUT"
-            echo "publish_ready=true" >> "$GITHUB_OUTPUT"
-            echo "release_sha=$release_sha" >> "$GITHUB_OUTPUT"
-            echo "release_head_sha=$release_head_sha" >> "$GITHUB_OUTPUT"
-            echo "manifests on origin/main are at explicitly requested v${v}; release is ready to publish"
-          else
-            IFS=. read -r v_major v_minor v_patch <<<"$v"
-            IFS=. read -r p_major p_minor p_patch <<<"$PREVIOUS_VERSION"
-            if ! { [ "$v_major" -gt "$p_major" ] \
-              || { [ "$v_major" -eq "$p_major" ] && [ "$v_minor" -gt "$p_minor" ]; } \
-              || { [ "$v_major" -eq "$p_major" ] && [ "$v_minor" -eq "$p_minor" ] && [ "$v_patch" -gt "$p_patch" ]; }; }; then
-              echo "release candidate v${v} must be greater than latest strict semver tag v${PREVIOUS_VERSION}"
-              exit 1
-            fi
-            echo "skip_pr_cycle=false" >> "$GITHUB_OUTPUT"
-            echo "publish_ready=false" >> "$GITHUB_OUTPUT"
-            echo "origin/main is not at v${v}; this dispatch may only open the release PR"
-          fi
-
-          # Does origin already carry tag v$v, and if so, is it on origin/main HEAD?
-          remote_tag_sha=$(git ls-remote --tags origin "v${v}" \
-            | awk -v t="refs/tags/v${v}" '$2==t {print $1}' \
-            | head -n1)
-          main_sha=$(git ls-remote origin main | awk '{print $1; exit}')
-          if [ -n "$remote_tag_sha" ]; then
-            if [ "$remote_tag_sha" = "$main_sha" ]; then
-              echo "skip_tag=true" >> "$GITHUB_OUTPUT"
-              echo "tag v${v} already at origin/main HEAD; skipping tag create"
-            else
-              echo "tag v${v} exists at $remote_tag_sha but origin/main HEAD is $main_sha"
-              echo "refusing to retag at a different commit; delete the tag or pick another version"
-              exit 1
-            fi
-          else
-            echo "skip_tag=false" >> "$GITHUB_OUTPUT"
-          fi
-
-          # A published version is immutable for this workflow. Recovery must
-          # never silently replace previously distributed binaries/checksums.
-          if gh release view "v${v}" >/dev/null 2>&1; then
-            echo "release v${v} already exists; refusing to replace published assets"
-            exit 1
-          fi
-
-      # The release PR cycle does not rerun the suite on one serialized runner.
-      # Main push CI already ran the full Linux/macOS matrix on this exact SHA,
-      # and the release PR CI reruns it on the bumped tree before publication.
-      # Missing, pending, or failed main checks stop the release here.
-      - name: Require successful main CI
-        if: steps.state.outputs.skip_pr_cycle != 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          dispatch_sha=$(git rev-parse HEAD)
-          required_checks=$'Agent Guard\nTest (ubuntu-latest)\nTest (macos-latest)\nLint\nPlugin Layout\nHOL Plugin Scanner\nNative platform artifacts'
-          main_checks=$(gh api \
-            -H "Accept: application/vnd.github+json" \
-            "repos/${GITHUB_REPOSITORY}/commits/${dispatch_sha}/check-runs?filter=latest&per_page=100")
-          while IFS= read -r check_name; do
-            check_result=$(printf '%s' "$main_checks" | jq -r --arg name "$check_name" '
-              [.check_runs[]
-                | select(.name == $name)]
-              | sort_by(.id)
-              | last
-              | if . == null then "" else (.conclusion // .status // "") end
-            ')
-            if [ "$check_result" != "success" ]; then
-              echo "latest required main check '$check_name' on dispatch commit $dispatch_sha is not successful (got: ${check_result:-missing}); wait for main CI to pass or fix main first"
-              exit 1
-            fi
-          done <<< "$required_checks"
-          echo "all required main checks passed on $dispatch_sha"
-
-      # Performance evidence warns and never blocks: before #415, runner noise
-      # around the 5% threshold blocked releases without a real regression.
-      # The release PR head and the release merge commit (verified to be
-      # origin/main) hold the exact tree this dispatch publishes; the latest
-      # run on either counts, so a dispatch on main can supply missing evidence.
-      - name: Report release performance evidence
-        if: steps.state.outputs.publish_ready == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_HEAD_SHA: ${{ steps.state.outputs.release_head_sha }}
-          RELEASE_SHA: ${{ steps.state.outputs.release_sha }}
-        run: |
-          set -uo pipefail
-          runs="$RUNNER_TEMP/performance-runs.json"
-          : > "$runs"
-          read_ok=true
-          for sha in "$RELEASE_HEAD_SHA" "$RELEASE_SHA"; do
-            gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/performance.yml/runs?head_sha=${sha}&per_page=100" >> "$runs" \
-              || read_ok=false
-          done
-          subject="release head ${RELEASE_HEAD_SHA} or release commit ${RELEASE_SHA}"
-          if [ "$read_ok" != true ] \
-            || ! latest=$(jq -rs '[.[].workflow_runs[]] | sort_by(.id) | last
-                | if . == null then "missing" else "\(.status) \(.conclusion // "none") \(.html_url)" end' "$runs"); then
-            message="could not read Performance evidence runs for $subject"
-          else
-            read -r status conclusion url <<< "$latest"
-            if [ "$status" = missing ]; then
-              message="no Performance evidence run for $subject; run 'gh workflow run performance.yml --ref main' to measure it"
-            elif [ "$status" != completed ]; then
-              message="Performance evidence for $subject has not finished: $url"
-            elif [ "$conclusion" != success ]; then
-              message="Performance evidence for $subject concluded $conclusion: $url"
-            else
-              echo "Performance evidence passed for $subject: $url"
+          echo "dry_run=${DRY_RUN:-false}" >> "$GITHUB_OUTPUT"
+          if [ "$EVENT_NAME" = pull_request ]; then
+            body=$(gh pr view "$EVENT_PR" --json body --jq .body)
+            if ! printf '%s' "$body" | grep -Fq '<!-- agent-guard-release:publish -->'; then
+              echo 'Closed PR is not a publishable release candidate'
+              echo 'mode=none' >> "$GITHUB_OUTPUT"
               exit 0
             fi
+            echo "pr=$EVENT_PR" >> "$GITHUB_OUTPUT"
+            echo 'mode=publish' >> "$GITHUB_OUTPUT"
+          elif [ "$(jq -r .version plugins/agent-guard/.claude-plugin/plugin.json)" = "$RELEASE_VERSION" ]; then
+            [ -n "$INPUT_VERSION" ] || { echo 'Same-version retry requires explicit version' >&2; exit 1; }
+            number=$(gh pr list --state merged --base main --head "release/v$RELEASE_VERSION" --json number,mergedAt --jq 'sort_by(.mergedAt) | last | .number // empty')
+            [ -n "$number" ] || { echo 'No merged release PR for same-version retry' >&2; exit 1; }
+            echo "pr=$number" >> "$GITHUB_OUTPUT"
+            echo 'mode=publish' >> "$GITHUB_OUTPUT"
+          else
+            echo 'mode=prepare' >> "$GITHUB_OUTPUT"
           fi
-          echo "::warning title=Release performance evidence::$message"
-          printf '### Release performance evidence\n\n%s\n\nThis does not block the release.\n' "$message" >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Bump version in tracked files
-        if: steps.state.outputs.skip_pr_cycle != 'true'
+  prepare:
+    needs: plan
+    if: needs.plan.outputs.mode == 'prepare'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      pr: ${{ steps.pr.outputs.number }}
+      branch: ${{ steps.pr.outputs.branch }}
+      sha: ${{ steps.pr.outputs.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+      - name: Check candidate version and immutable publication
         env:
-          RELEASE_VERSION: ${{ steps.ver.outputs.version }}
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ needs.plan.outputs.version }}
+          PREVIOUS_VERSION: ${{ needs.plan.outputs.previous }}
+        run: |
+          set -euo pipefail
+          IFS=. read -r ma mi pa <<< "$RELEASE_VERSION"
+          IFS=. read -r old_ma old_mi old_pa <<< "$PREVIOUS_VERSION"
+          if ! { [ "$ma" -gt "$old_ma" ] ||
+            { [ "$ma" -eq "$old_ma" ] && [ "$mi" -gt "$old_mi" ]; } ||
+            { [ "$ma" -eq "$old_ma" ] && [ "$mi" -eq "$old_mi" ] && [ "$pa" -gt "$old_pa" ]; }; }; then
+            echo 'Candidate must be greater than latest strict semver tag' >&2
+            exit 1
+          fi
+          if gh release view "v$RELEASE_VERSION" >/dev/null 2>&1; then
+            echo 'Release already exists; refusing to replace published assets' >&2
+            exit 1
+          fi
+      - name: Bump version in tracked files
+        env:
+          RELEASE_VERSION: ${{ needs.plan.outputs.version }}
         run: |
           set -euo pipefail
           v="$RELEASE_VERSION"
@@ -336,9 +211,8 @@ jobs:
           sed -i -E "s|^VERSION=[0-9]+\.[0-9]+\.[0-9]+$|VERSION=${v}|" plugins/agent-guard/bin/agent-guard
 
       - name: Build CHANGELOG entry
-        if: steps.state.outputs.skip_pr_cycle != 'true'
         env:
-          RELEASE_VERSION: ${{ steps.ver.outputs.version }}
+          RELEASE_VERSION: ${{ needs.plan.outputs.version }}
         run: |
           set -euo pipefail
           v="$RELEASE_VERSION"
@@ -355,7 +229,6 @@ jobs:
           mv CHANGELOG.new CHANGELOG.md
 
       - name: Install pinned gitleaks for release validation
-        if: steps.state.outputs.skip_pr_cycle != 'true'
         run: |
           set -euo pipefail
           archive="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
@@ -370,7 +243,6 @@ jobs:
           echo "${RUNNER_TEMP}/agent-guard-bin" >> "$GITHUB_PATH"
 
       - name: Validate release candidate before opening PR
-        if: steps.state.outputs.skip_pr_cycle != 'true'
         run: |
           set -euo pipefail
           scripts/validate-plugin-layout.sh --all
@@ -379,85 +251,174 @@ jobs:
 
       - name: Open release PR
         id: pr
-        if: steps.state.outputs.skip_pr_cycle != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_VERSION: ${{ steps.ver.outputs.version }}
-          RELEASE_BRANCH: ${{ steps.ver.outputs.branch }}
-          PREVIOUS_VERSION: ${{ steps.ver.outputs.previous }}
+          RELEASE_VERSION: ${{ needs.plan.outputs.version }}
+          RELEASE_BRANCH: ${{ needs.plan.outputs.branch }}
+          DRY_RUN: ${{ needs.plan.outputs.dry_run }}
+          REPLACE_STALE_BRANCH: ${{ inputs.replace_stale_branch }}
         run: |
           set -euo pipefail
           v="$RELEASE_VERSION"
           br="$RELEASE_BRANCH"
-          git config user.name  "github-actions[bot]"
+          marker=publish
+          if [ "$DRY_RUN" = true ]; then
+            br="release/dry-run-${GITHUB_RUN_ID}/v$v"
+            marker=dry-run
+          fi
+          git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -b "$br"
           git add -A
-          if git diff --cached --quiet; then
-            echo "no changes to commit - aborting"
-            exit 1
-          fi
-          git commit -m "chore(release): v${v}"
+          git commit -m "chore(release): v$v"
           local_tree=$(git rev-parse 'HEAD^{tree}')
-          remote_sha=$(git ls-remote --heads origin "refs/heads/${br}" | awk '{print $1; exit}')
+          remote_sha=$(git ls-remote --heads origin "refs/heads/$br" | awk '{print $1; exit}')
+          open_prs=$(gh pr list --state open --base main --head "$br" --json number,url)
+          [ "$(printf '%s' "$open_prs" | jq length)" -le 1 ]
+          url=$(printf '%s' "$open_prs" | jq -r '.[0].url // empty')
           if [ -n "$remote_sha" ]; then
             git fetch origin "$br"
             remote_tree=$(git rev-parse 'FETCH_HEAD^{tree}')
             if [ "$remote_tree" != "$local_tree" ]; then
-              echo "remote ${br} has tree $remote_tree but this release candidate has $local_tree; refusing to overwrite"
-              exit 1
+              if [ -n "$url" ] || [ "$REPLACE_STALE_BRANCH" != true ]; then
+                echo 'Different remote candidate; replacement needs replace_stale_branch and no open PR' >&2
+                exit 1
+              fi
+              git push --force-with-lease="refs/heads/$br:$remote_sha" origin "HEAD:refs/heads/$br"
+            else
+              git checkout --detach "$remote_sha"
             fi
-            echo "remote ${br} already has the same tree; reusing it"
           else
             git push -u origin "$br"
           fi
-          printf -v body 'v%s 릴리스 준비 PR입니다.\n\nworkflow_dispatch 실행자: @%s\n이전 태그: %s\n버전 증가: %s\nDry run: %s\n\n이 PR은 자동 병합되지 않으며, 이 실행에서는 태그 생성이나 릴리스 발행도 수행하지 않습니다.\n\nGitHub Actions의 GITHUB_TOKEN으로 만든 PR은 일반 PR CI를 자동 기동하지 않습니다. 병합 전에 maintainer 개인 토큰으로 인증된 로컬 git/gh 세션에서 아래 명령으로 같은 브랜치에 빈 커밋을 push하세요(GITHUB_TOKEN 사용 금지).\n\n```sh\ngit fetch origin %s\ngit switch %s 2>/dev/null || git switch --track origin/%s\ngit pull --ff-only origin %s\ngit commit --allow-empty -m "ci: trigger release verification"\ngit push origin %s\n```\n\n다음 필수 checks가 모두 SUCCESS인지 확인한 뒤 사람이 병합하세요: Agent Guard, Test (ubuntu-latest), Test (macos-latest), Lint, Plugin Layout, HOL Plugin Scanner.\n\n같은 push로 Performance evidence 워크플로도 이 PR head를 측정합니다. 릴리스를 막지는 않지만 병합 전에 결과를 확인하세요. 발행 dispatch도 결과를 경고로 남깁니다.\n\n병합 후 version에 %s를 명시하여 release workflow를 다시 실행하면 origin/main의 버전, 병합 PR의 exact head SHA에 연결된 필수 checks, 병합 commit을 검증한 뒤 태그와 릴리스를 발행합니다.\n' \
-            "$v" \
-            "${{ github.actor }}" \
-            "$PREVIOUS_VERSION" \
-            "${{ inputs.bump }}" \
-            "${{ inputs.dry_run }}" \
-            "$br" \
-            "$br" \
-            "$br" \
-            "$br" \
-            "$br" \
-            "$v"
-          open_prs=$(gh pr list --state open --base main --head "$br" --json url)
-          open_pr_count=$(printf '%s' "$open_prs" | jq 'length')
-          if [ "$open_pr_count" -gt 1 ]; then
-            echo "multiple open PRs found for ${br}; refusing ambiguous reuse"
-            exit 1
-          fi
-          url=$(printf '%s' "$open_prs" | jq -r '.[0].url // ""')
+          body="$RUNNER_TEMP/release-pr.md"
+          {
+            printf '<!-- agent-guard-release:%s -->\n\n' "$marker"
+            printf 'v%s 릴리스 준비 PR입니다.\n\n' "$v"
+            printf 'CI는 workflow가 직접 실행하고 필수 검사와 성능 측정 완료를 기다립니다.\n'
+            printf '이 PR은 자동 병합되지 않으며, 사람의 병합이 유일한 게시 승인입니다.\n'
+            printf '동일한 tree의 필수 검사 결과를 재사용하고, tree가 다르면 main 검사를 요구합니다.\n'
+            printf '성능 기준 초과는 경고이며 측정 미완료·출력 검증 실패는 게시를 막습니다.\n'
+            printf '\nDry run: %s. dry_run 후보는 병합해도 게시하지 않습니다.\n' "$DRY_RUN"
+            printf '\n실행: %s/%s/actions/runs/%s\n' "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID"
+          } > "$body"
           if [ -n "$url" ]; then
-            gh pr edit "$url" --title "release: v${v}" --body "$body" --add-label release
-            echo "Reused: $url"
+            gh pr edit "$url" --title "release: v$v" --body-file "$body" --add-label release
           else
-            url=$(gh pr create \
-              --title "release: v${v}" \
-              --body "$body" \
-              --label release \
-              --base main --head "$br")
-            echo "Opened: $url"
+            url=$(gh pr create --title "release: v$v" --body-file "$body" --label release --base main --head "$br")
           fi
-          echo "url=$url" >> "$GITHUB_OUTPUT"
-
-      - name: Tag and publish release
-        if: ${{ steps.state.outputs.publish_ready == 'true' && !inputs.dry_run }}
+          number=$(gh pr view "$url" --json number --jq .number)
+          echo "number=$number" >> "$GITHUB_OUTPUT"
+          echo "branch=$br" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          printf 'Candidate: %s\n' "$url" >> "$GITHUB_STEP_SUMMARY"
+  verify:
+    needs: [plan, prepare]
+    if: >-
+      always() && needs.plan.result == 'success' &&
+      (needs.plan.outputs.mode == 'publish' || needs.prepare.result == 'success')
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      actions: write
+      checks: read
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'pull_request' && 'main' || github.ref }}
+          persist-credentials: false
+      - name: Resolve verification source
+        id: source
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_VERSION: ${{ steps.ver.outputs.version }}
-          RELEASE_MAJOR: ${{ steps.ver.outputs.major }}
+          MODE: ${{ needs.plan.outputs.mode }}
+          CANDIDATE_SHA: ${{ needs.prepare.outputs.sha }}
+          PR_NUMBER: ${{ needs.plan.outputs.pr }}
+          RELEASE_VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          if [ "$MODE" = prepare ]; then
+            echo "source_sha=$CANDIDATE_SHA" >> "$GITHUB_OUTPUT"
+          else
+            sh .github/scripts/release-target.sh "$PR_NUMBER" "$RELEASE_VERSION" false >> "$GITHUB_OUTPUT"
+          fi
+      - name: Dispatch candidate verification or changed-tree measurement
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_BRANCH: ${{ needs.prepare.outputs.branch || 'main' }}
+          MODE: ${{ needs.plan.outputs.mode }}
+          SOURCE_SHA: ${{ steps.source.outputs.source_sha }}
+          RELEASE_SHA: ${{ steps.source.outputs.release_sha }}
+        run: |
+          set -euo pipefail
+          if [ "$MODE" = prepare ]; then
+            cut -f1 .github/release-checks.tsv | sort -u | while IFS= read -r workflow; do
+              gh workflow run "$workflow" --ref "$RELEASE_BRANCH"
+            done
+            gh workflow run performance.yml --ref "$RELEASE_BRANCH"
+          elif [ "$SOURCE_SHA" = "$RELEASE_SHA" ]; then
+            git fetch origin main
+            [ "$(git rev-parse origin/main)" = "$SOURCE_SHA" ] || exit 1
+            gh workflow run performance.yml --ref main
+          fi
+      - name: Wait for candidate checks and measurement
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_HEAD_SHA: ${{ steps.source.outputs.source_sha }}
+        run: |
+          sh .github/scripts/release-checks.sh "$RELEASE_HEAD_SHA"
+          sh .github/scripts/release-performance.sh "$RELEASE_HEAD_SHA"
+  publish:
+    needs: [plan, prepare, verify]
+    if: >-
+      always() && needs.plan.result == 'success' && needs.verify.result == 'success' &&
+      (needs.plan.outputs.mode == 'publish' ||
+       (needs.prepare.result == 'success' && needs.plan.outputs.dry_run == 'true'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      actions: read
+      checks: read
+      contents: write
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'pull_request' && 'main' || github.ref }}
+      - name: Resolve reviewed release tree
+        id: target
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ needs.plan.outputs.pr || needs.prepare.outputs.pr }}
+          RELEASE_VERSION: ${{ needs.plan.outputs.version }}
+          CANDIDATE: ${{ needs.plan.outputs.mode == 'prepare' }}
+        run: |
+          sh .github/scripts/release-target.sh "$PR_NUMBER" "$RELEASE_VERSION" "$CANDIDATE" >> "$GITHUB_OUTPUT"
+      - name: Require checks and completed performance evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ steps.target.outputs.source_sha }}
+        run: |
+          sh .github/scripts/release-checks.sh "$SOURCE_SHA"
+          sh .github/scripts/release-performance.sh "$SOURCE_SHA"
+      - name: Qualify and publish the reviewed tree
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ needs.plan.outputs.version }}
+          RELEASE_MAJOR: ${{ needs.plan.outputs.major }}
+          RELEASE_SHA: ${{ steps.target.outputs.release_sha }}
+          SOURCE_SHA: ${{ steps.target.outputs.source_sha }}
+          DRY_RUN: ${{ needs.plan.outputs.dry_run }}
         run: |
           set -euo pipefail
           v="$RELEASE_VERSION"
           maj="$RELEASE_MAJOR"
           git fetch origin main --tags
-          git checkout main
-          git pull --ff-only origin main
-
-          expected_release_sha="${{ steps.state.outputs.release_sha }}"
+          expected_release_sha="$RELEASE_SHA"
+          git checkout --detach "$expected_release_sha"
           head_sha=$(git rev-parse HEAD)
           if [ -z "$expected_release_sha" ] || [ "$head_sha" != "$expected_release_sha" ]; then
             echo "validated release commit was $expected_release_sha but origin/main is now $head_sha; refusing to publish"
@@ -491,9 +452,9 @@ jobs:
 
           # Qualify and assemble everything before creating any version tag.
           # These artifacts were executed on all three native platforms at this
-          # exact main SHA; a cross-build or another commit is not accepted.
+          # checked source SHA; reuse requires an identical release tree.
           native_release_dir="$RUNNER_TEMP/qualified-native"
-          sh scripts/prepare-native-release.sh "$head_sha" "$native_release_dir"
+          sh scripts/prepare-native-release.sh "$SOURCE_SHA" "$native_release_dir" "$head_sha"
           tarball_tmp=$(mktemp -d)/agent-guard-${v}.tar.gz
           AGENT_GUARD_NATIVE_ARTIFACT_DIR="$native_release_dir" \
             scripts/build-release-tarball.sh "$v" "$tarball_tmp"
@@ -501,6 +462,20 @@ jobs:
           sha256sum "agent-guard-${v}.tar.gz" > "agent-guard-${v}.tar.gz.sha256"
           tarball_sha=$(awk '{print $1}' "agent-guard-${v}.tar.gz.sha256")
           scripts/render-homebrew-formula.sh "$v" "$tarball_sha" > agent-guard.rb
+
+          if [ "$DRY_RUN" = true ]; then
+            echo "Dry run qualified the reviewed tree and release assets; publication skipped"
+            exit 0
+          fi
+          git fetch origin main
+          [ "$(git rev-parse origin/main)" = "$expected_release_sha" ] || {
+            echo 'Main advanced during qualification; refusing to publish' >&2
+            exit 1
+          }
+          if gh release view "v$v" >/dev/null 2>&1; then
+            echo 'Release already exists; refusing to replace published assets' >&2
+            exit 1
+          fi
 
           # Releasing a new major line must not move an older major's compatibility
           # tag. Capture v1 before publishing v2+ and prove it is unchanged after
@@ -559,10 +534,10 @@ jobs:
       # it. The release is already public when this runs; a failure here leaves
       # only the tap behind, and the error says how to catch it up by hand.
       - name: Open Homebrew tap PR
-        if: ${{ steps.state.outputs.publish_ready == 'true' && !inputs.dry_run }}
+        if: ${{ needs.plan.outputs.dry_run != 'true' }}
         env:
           GH_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
-          RELEASE_VERSION: ${{ steps.ver.outputs.version }}
+          RELEASE_VERSION: ${{ needs.plan.outputs.version }}
         run: |
           set -euo pipefail
           if [ -z "$GH_TOKEN" ]; then

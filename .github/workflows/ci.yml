@@ -28,6 +28,23 @@ env:
   GITLEAKS_CHECKSUM_LINUX_X64: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
 
 jobs:
+  release-evidence:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: read
+      pull-requests: read
+    outputs:
+      reuse: ${{ steps.evidence.outputs.reuse }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: sh .github/scripts/reuse-release-tree.sh >> "$GITHUB_OUTPUT"
   secret-guard:
     name: Agent Guard
     runs-on: ubuntu-latest
@@ -55,7 +72,8 @@ jobs:
 
   test-shard:
     name: ${{ matrix.suite }} (${{ matrix.os }})
-    needs: secret-guard
+    needs: [secret-guard, release-evidence]
+    if: needs.release-evidence.outputs.reuse != 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -182,7 +200,7 @@ jobs:
     # Only full coverage may produce the names release.yml consumes.
     # Any selected shard failure still fails both aggregate checks.
     name: ${{ needs.secret-guard.outputs.check_prefix }} (${{ matrix.os }})
-    needs: [secret-guard, test-shard]
+    needs: [secret-guard, test-shard, release-evidence]
     if: always()
     strategy:
       matrix:
@@ -193,7 +211,13 @@ jobs:
       - name: Require every test shard to pass
         env:
           SHARDS_RESULT: ${{ needs.test-shard.result }}
+          REUSED: ${{ needs.release-evidence.outputs.reuse }}
+          EVIDENCE_RESULT: ${{ needs.release-evidence.result }}
         run: |
+          if [ "$REUSED" = true ] && [ "$EVIDENCE_RESULT" = success ]; then
+            echo 'Required checks passed on the identical reviewed release tree'
+            exit 0
+          fi
           if [ "$SHARDS_RESULT" != success ]; then
             echo "::error::test shards finished with: $SHARDS_RESULT" >&2
             exit 1
@@ -201,6 +225,8 @@ jobs:
 
   lint:
     name: Lint
+    needs: release-evidence
+    if: needs.release-evidence.outputs.reuse != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:

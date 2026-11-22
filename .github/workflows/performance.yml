@@ -1,6 +1,6 @@
 name: Performance evidence
-# Measurement only: no release reads this workflow's conclusion, and the release
-# workflow only warns about it. It lives apart from native-platforms.yml so a
+# Complete threshold failures warn; missing/invalid measurements block release.
+# It lives apart from native-platforms.yml so a
 # nightly run never adds a `Native platform artifacts` check to a main commit.
 on:
   schedule:
@@ -163,10 +163,12 @@ jobs:
         run: |
           out="$RUNNER_TEMP/instruction-count"
           mkdir -p "$out"
+          trap 'cat "$out/errors.txt" >&2' EXIT
           tsv="$out/instruction-count.tsv"
           started=$(date +%s)
           status=0
-          sh head/bench/instruction-count/run.sh base head "$tsv" || status=$?
+          printf 'measurement_error\n' > "$out/verdict.txt"
+          sh head/bench/instruction-count/run.sh base head "$tsv" 2> "$out/errors.txt" || status=$?
           elapsed=$(( $(date +%s) - started ))
           {
             printf '### Shell instruction count against the latest release\n\n'
@@ -180,9 +182,13 @@ jobs:
             cat "$out/summary.md" >> "$GITHUB_STEP_SUMMARY"
             false
           fi
-          sh head/bench/instruction-count/run.sh --render "$tsv" >> "$out/summary.md"
+          sh head/bench/instruction-count/run.sh --render "$tsv" >> "$out/summary.md" 2>> "$out/errors.txt"
           gate=0
-          sh head/bench/instruction-count/run.sh --check "$tsv" 5 > "$out/over-limit.txt" || gate=$?
+          sh head/bench/instruction-count/run.sh --check "$tsv" 5 > "$out/over-limit.txt" 2>> "$out/errors.txt" || gate=$?
+          case "$gate" in
+            0) printf 'passed\n' > "$out/verdict.txt" ;;
+            1) printf 'threshold_exceeded\n' > "$out/verdict.txt" ;;
+          esac
           {
             printf '\n'
             case "$gate" in
@@ -201,6 +207,8 @@ jobs:
         if: failure() && steps.count.outcome == 'skipped'
         run: |
           mkdir -p "$RUNNER_TEMP/instruction-count"
+          printf 'measurement_error\n' > "$RUNNER_TEMP/instruction-count/verdict.txt"
+          printf 'Measurement setup failed before instruction counting\n' > "$RUNNER_TEMP/instruction-count/errors.txt"
           printf '### Shell instruction count against the latest release\n\n측정하지 못했습니다: 측정 전 단계(checkout·릴리스 태그·valgrind 설치)가 실패했습니다. 이 job의 로그를 확인하세요. 변화 없음이라는 뜻이 아닙니다.\n' \
             | tee -a "$GITHUB_STEP_SUMMARY" > "$RUNNER_TEMP/instruction-count/summary.md"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
@@ -228,11 +236,27 @@ jobs:
           path: ${{ runner.temp }}/native-performance
       - name: Measure the packaged binary under enforced cgroup limits
         run: |
+          set -uo pipefail
+          errors="$RUNNER_TEMP/packaged-errors.txt"
+          status=0
+          measure() {
           mkdir -p plugins/agent-guard/libexec
           cp "$RUNNER_TEMP/native-performance/agent-guard-redact-x86_64-unknown-linux-musl"* plugins/agent-guard/libexec/
           chmod 755 plugins/agent-guard/libexec/agent-guard-redact-x86_64-unknown-linux-musl
           sh scripts/install-native-test-tools.sh "$RUNNER_TEMP/test-bin"
           sh bench/native/run-packaged.sh "$RUNNER_TEMP/test-bin/gitleaks" 9a0ee9eb2eed1e60b78d4404f985b077149c675d "$RUNNER_TEMP/performance"
+          }
+          # Run in a fresh errexit shell so a failed setup cannot fall through.
+          export -f measure
+          bash -e -c measure 2> "$errors" || status=$?
+          mkdir -p "$RUNNER_TEMP/performance"
+          [ -f "$RUNNER_TEMP/performance/verdict.txt" ] || printf 'measurement_error\n' > "$RUNNER_TEMP/performance/verdict.txt"
+          cat "$errors" > "$RUNNER_TEMP/performance/errors.txt"
+          for log in "$RUNNER_TEMP/performance"/cli-*.log "$RUNNER_TEMP/performance"/*confirm*.log; do
+            [ ! -f "$log" ] || cat "$log" >> "$RUNNER_TEMP/performance/errors.txt"
+          done
+          cat "$RUNNER_TEMP/performance/errors.txt" >&2
+          exit "$status"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:
@@ -240,8 +264,7 @@ jobs:
           path: ${{ runner.temp }}/performance/
           if-no-files-found: error
 
-  # Nobody watches nightly runs, so a nightly that did not pass opens one issue
-  # and later ones comment on it. People close it; a passing night does not.
+  # Group only the same failure cause; a different cause opens a new issue.
   notify:
     name: Nightly performance issue
     if: >-
@@ -302,13 +325,17 @@ jobs:
               '이슈 본문을 만들지 못했습니다. run 로그와 artifact를 확인하세요.' '' \
               '통과하지 못한 job(최신 attempt):' '' "$failed" > "$body"
           fi
-          # The title stays the same for every runner CPU, so a night on any
-          # CPU comments on the one open issue instead of opening another.
+          if ! cause=$(sh .github/scripts/performance-cause.sh "$RUNNER_TEMP/evidence" "$failed"); then
+            cause=$(printf '%s\n' "$failed" | shasum -a 256 | cut -d ' ' -f1)
+          fi
+          marker="<!-- agent-guard-performance-cause:$cause -->"
+          printf '\n%s\n' "$marker" >> "$body"
           oldest_open_issue() {
             # Command substitution drops -e in bash, so fail explicitly.
             gh api --paginate --slurp "repos/$REPO/issues?state=open&per_page=100" > "$RUNNER_TEMP/open-issues.json" || return 1
-            jq -r --arg title "$TITLE" '
+            jq -r --arg title "$TITLE" --arg marker "$marker" '
               [.[][] | select(.pull_request == null and .title == $title
+                              and (.body // "" | contains($marker))
                               and .user.login == "github-actions[bot]")]
               | sort_by(.number) | first | .number // empty' "$RUNNER_TEMP/open-issues.json"
           }
