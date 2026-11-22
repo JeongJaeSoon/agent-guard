@@ -1,6 +1,6 @@
 [
   {"id": "op-default-value", "expected": "block", "classification": "must-fail", "description": "a quoted reference whose default is a value", "text": "API_KEY=\"${API_KEY:-{{SECRET}}}\""},
-  {"id": "op-default-weak", "expected": "block", "classification": "must-fail", "description": "a single-quoted reference whose default is a short password", "text": "DB_PASSWORD='${DB_PASSWORD:-hunter{{DIGITS}}}'"},
+  {"id": "op-default-weak", "expected": "block", "classification": "must-fail", "description": "a single-quoted reference whose default is a short password", "text": "DB_PASSWORD=\u0027${DB_PASSWORD:-hunter{{DIGITS}}}'"},
   {"id": "op-dash-value", "expected": "block", "classification": "must-fail", "description": "a dash-only operator with a value after it", "text": "API_TOKEN=\"${API_TOKEN-{{SECRET}}}\""},
   {"id": "op-suffix", "expected": "block", "classification": "must-fail", "description": "text glued after an operator reference", "text": "API_KEY=\"${API_KEY:?}{{SECRET}}\""},
   {"id": "op-prefix", "expected": "block", "classification": "must-fail", "description": "text before an operator reference", "text": "API_KEY=\"{{SECRET}}${API_KEY:-}\""},
@@ -9,7 +9,7 @@
   {"id": "op-default-empty-double", "expected": "pass", "classification": "must-pass", "description": "shape 3: a double-quoted reference with an empty default", "text": "TOKEN=\"${TOKEN:-}\""},
   {"id": "op-dash-double", "expected": "pass", "classification": "must-pass", "description": "shape 3: a double-quoted dash-only reference", "text": "API_TOKEN=\"${API_TOKEN-}\""},
   {"id": "op-required-single", "expected": "pass", "classification": "must-pass", "description": "shape 3: a single-quoted required-variable reference", "text": "AWS_SECRET_ACCESS_KEY='${AWS_SECRET_ACCESS_KEY:?}'"},
-  {"id": "op-default-empty-single", "expected": "pass", "classification": "must-pass", "description": "shape 3: a single-quoted reference with an empty default", "text": "TOKEN='${TOKEN:-}'"},
-  {"id": "op-dash-single", "expected": "pass", "classification": "must-pass", "description": "shape 3: a single-quoted dash-only reference", "text": "TOKEN='${TOKEN-}'"},
+  {"id": "op-default-empty-single", "expected": "pass", "classification": "must-pass", "description": "shape 3: a single-quoted reference with an empty default", "text": "TOKEN=\u0027${TOKEN:-}'"},
+  {"id": "op-dash-single", "expected": "pass", "classification": "must-pass", "description": "shape 3: a single-quoted dash-only reference", "text": "TOKEN=\u0027${TOKEN-}'"},
   {"id": "op-in-report", "expected": "pass", "classification": "must-pass", "description": "shape 3 inside a report bullet", "text": "- `export GITHUB_TOKEN=\"${GITHUB_TOKEN:?}\"` is set in scripts/run.sh:12"}
 ]
