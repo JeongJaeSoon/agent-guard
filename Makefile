@@ -1,32 +1,18 @@
-# Agent Guard — discoverability layer for the existing scripts.
+# Agent Guard — make targets for the test suite, CI and marketplace submission.
 # Each target is a thin pass-through to an existing script or the CLI.
 
-.PHONY: help check install test test-unit test-pleno-integration smoke-test bench bench-masking scan scan-staged checksum formula submission-check submission-artifact
+.PHONY: help test test-unit test-pleno-integration smoke-test submission-check submission-artifact
 
 help:
 	@printf 'Agent Guard — make targets\n'
 	@printf '\n'
 	@printf '  make help          Show this list (default).\n'
-	@printf '  make check         Verify deps and print installed gitleaks version.\n'
-	@printf '  make install       Configure the native git pre-commit hook.\n'
 	@printf '  make test          Run the test suite (uses a mock gitleaks).\n'
 	@printf '  make test-unit     Run fast direct contracts (suite inventory: CONTRIBUTING.md).\n'
 	@printf '  make test-pleno-integration  Run opt-in tests against a real pleno endpoint.\n'
 	@printf '  make smoke-test    Run real git/jq/gitleaks end-to-end checks.\n'
-	@printf '  make bench         Run the leak-prevention channel-coverage benchmark (real gitleaks).\n'
-	@printf '  make bench-masking Run verified masking latency samples (Rust devtools, real gitleaks).\n'
-	@printf '  make scan          Scan the working tree for secrets.\n'
-	@printf '  make scan-staged   Scan staged changes only.\n'
-	@printf '  make checksum [VERSION=X.Y.Z]   Fetch gitleaks-checksum for every supported OS/arch (CI typically picks linux/x64).\n'
-	@printf '  make formula VERSION=X.Y.Z SHA=<tarball-sha256>  Render a Homebrew formula for a tap.\n'
 	@printf '  make submission-check  Validate plugin disclosures and marketplace metadata.\n'
 	@printf '  make submission-artifact SHA=<merged-main-sha>  Render an optional SHA-pinned marketplace entry.\n'
-
-check:
-	@./install.sh check
-
-install:
-	@./install.sh git-hooks
 
 test:
 	@tests/run.sh
@@ -48,24 +34,6 @@ test-pleno-integration:
 
 smoke-test:
 	@plugins/agent-guard/bin/agent-guard smoke-test
-
-bench:
-	@sh bench/run.sh
-
-bench-masking:
-	@sh scripts/devtools.sh masking-latency
-
-scan:
-	@plugins/agent-guard/bin/agent-guard scan-working-tree
-
-scan-staged:
-	@plugins/agent-guard/bin/agent-guard scan-staged
-
-checksum:
-	@sh plugins/agent-guard/scripts/gitleaks-checksum.sh $(VERSION)
-
-formula:
-	@sh scripts/render-homebrew-formula.sh $(VERSION) $(SHA)
 
 submission-check:
 	@scripts/validate-submission-readiness.sh

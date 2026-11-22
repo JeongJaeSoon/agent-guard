@@ -77,9 +77,7 @@ replace a real OS boundary with a mock merely to shorten the suite.
 ## Coverage limits
 
 There is no automatic line or branch coverage collector or percentage gate.
-`bench/run.sh` reports behavior on synthetic leak-prevention channels; its
-detection and false-positive metrics are not source coverage. Assertion
-inventory comparisons detect omitted or duplicated cases, but do not prove
+Assertion inventory comparisons detect omitted or duplicated cases, but do not prove
 every branch ran or every security behavior was asserted.
 
 A coverage experiment must state its exact interpreter, source files,
