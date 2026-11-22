@@ -37,7 +37,7 @@ changes.
 | --- | ---: | ---: | --- |
 | `tests/unit-core.sh` | 36 | 1 | Numeric version comparison (`version_newer`) and shell single-quote encoding and round trip (`sh_squote`) |
 | `tests/unit-framing.sh` | 20 | 1 | JSON and plaintext framing producers: exact RS/US/LF bytes, Unicode and invalid bytes, jq/awk failure after partial output keeps exit 23 |
-| `tests/unit-deny-path.sh` | 97 | 1 | Deny-path character producers (`sx_hex`, `sx_char`, `sx_pin`): the ASCII hex table, unsupported-input reset, pin patterns, no output and caller variables preserved |
+| `tests/unit-deny-path.sh` | 139 | 1 | Deny-path character producers (`sx_hex`, `sx_char`, `sx_pin`): the ASCII hex table, unsupported-input reset, pin patterns, no output and caller variables preserved |
 | `tests/unit-probe.sh` | 4 | 1 | Probe eligibility |
 | `tests/unit-watchdog.sh` | 2 | 1 | Timer cancellation waits for the child on scanner success and failure |
 | `tests/unit-status-label.sh` | 22 | 1 | Status-label classification |
@@ -45,7 +45,7 @@ changes.
 | `tests/unit-audit-retention.sh` | 10 | 1 | Portable audit filename and retention rules |
 | `tests/unit-nul-redaction.sh` | 3 | 1 | NUL-only masking on supported jq versions |
 | `tests/unit-quoted-words.sh` | 16 | 1 | The shell gate skips the quote-removal pass only for texts the pass returns unchanged |
-| **Total: 10 suites** | **217** | | |
+| **Total: 10 suites** | **260** | | |
 
 The suites extract the named functions from the CLI's source layout, reject
 missing or duplicate definitions and invalid shell syntax, and source only
