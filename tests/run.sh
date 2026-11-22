@@ -65,8 +65,29 @@ run_expect() {
   expected=$1
   name=$2
   shift 2
+  run_suite=
+  case "${1:-}" in
+    "$ROOT"/tests/*.sh) run_suite=${1##*/} ;;
+  esac
+  run_previous=
+  for run_argument do
+    case "${run_previous##*/}:$run_argument" in
+      sh:"$ROOT"/tests/*.sh) run_suite=${run_argument##*/}; break ;;
+    esac
+    run_previous=$run_argument
+  done
+  if [ -n "${AGENT_GUARD_TEST_TIMINGS:-}" ] && [ -n "$run_suite" ]; then
+    run_started=$(date +%s)
+  fi
   "$@" >"$OUT" 2>"$ERR"
   status=$?
+  if [ -n "${AGENT_GUARD_TEST_TIMINGS:-}" ] && [ -n "$run_suite" ]; then
+    run_elapsed=$(( $(date +%s) - run_started ))
+    printf '%s\t%s\t%s\n' "$run_elapsed" "$status" "$run_suite" >>"$AGENT_GUARD_TEST_TIMINGS" || exit 1
+    if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+      printf '| %s | %s | %s | %s |\n' "${AGENT_GUARD_TEST_SHARD:-all}" "$run_suite" "$run_elapsed" "$status" >>"$GITHUB_STEP_SUMMARY" || exit 1
+    fi
+  fi
   if [ "$status" -eq "$expected" ]; then
     ok "$name"
   else
@@ -153,6 +174,7 @@ in_navigation_host() {
 
 if in_shard 1; then
 run_expect 0 "CI scope keeps reduced checks separate from release evidence" sh "$ROOT/tests/ci-scope.sh"
+run_expect 0 "CI records completed suite timings and warns on job time budget" sh "$ROOT/tests/ci-timing.sh"
 run_expect 0 "core function contracts" sh "$ROOT/tests/unit-core.sh"
 run_expect 0 "framing producer contracts" sh "$ROOT/tests/unit-framing.sh"
 run_expect 0 "deny-path character producer contracts" sh "$ROOT/tests/unit-deny-path.sh"

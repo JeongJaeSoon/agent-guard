@@ -11,6 +11,7 @@ for shard in "$@"; do
   seen="$seen$shard "
 done
 : "${RUNNER_TEMP:?}" "${GITHUB_STEP_SUMMARY:?}"
+printf '### Completed suites (completion order)\n\n| Partition | Suite | Seconds | Exit |\n| --- | --- | ---: | ---: |\n' >>"$GITHUB_STEP_SUMMARY" || exit 1
 pids=()
 logs=()
 times=()
@@ -28,10 +29,12 @@ for shard in "$@"; do
   index=$((index + 1))
   log="$RUNNER_TEMP/test-partition-$shard.txt"
   timing="$RUNNER_TEMP/test-partition-$shard.seconds"
+  suites="$RUNNER_TEMP/test-partition-$shard.suites.tsv"
   (
+    : >"$suites" || exit 1
     started=$SECONDS
     result=0
-    TMPDIR="$temporary" AGENT_GUARD_TEST_SHARD="$shard" tests/run.sh >"$log" 2>&1 || result=$?
+    TMPDIR="$temporary" AGENT_GUARD_TEST_SHARD="$shard" AGENT_GUARD_TEST_TIMINGS="$suites" tests/run.sh >"$log" 2>&1 || result=$?
     printf '%s\n' "$((SECONDS - started))" >"$timing" || result=1
     exit "$result"
   ) &
@@ -40,11 +43,16 @@ for shard in "$@"; do
   times+=("$timing")
 done
 status=0
+results=()
 for ((index=0; index<${#pids[@]}; index++)); do
-  shard=${shards[$index]}
   result=0
   wait "${pids[$index]}" || result=$?
+  results+=("$result")
   [ "$result" -eq 0 ] || status=$result
+done
+for ((index=0; index<${#pids[@]}; index++)); do
+  shard=${shards[$index]}
+  result=${results[$index]}
   echo "::group::Partition $shard — full test assertions"
   cat "${logs[$index]}" || status=1
   echo '::endgroup::'

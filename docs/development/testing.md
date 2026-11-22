@@ -127,6 +127,19 @@ which behavior the faster test preserves and which integration case remains.
 
 ## Red, green, then refactor
 
+When `measure-selected-bash` reports a changed selected function, review its
+`relative_lines` in `tests/selected-bash-locations.json`, then explicitly run:
+
+```sh
+sh scripts/devtools.sh refresh-selected-bash
+```
+
+This recomputes only `body_sha256` with the measurement's function extractor.
+It preserves the selected lines and other metadata, and refuses to run when
+`CI` is set. Measurement remains read-only and fails on a stale pin; CI never
+refreshes the repository's pins. The command requires the existing Rust
+developer toolchain.
+
 For a bug or behavior change:
 
 1. Add an independently specified regression and record it failing on the

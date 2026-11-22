@@ -58,13 +58,10 @@ pub fn verify(args: &Args) -> Result<()> {
         "regression verification failed",
     )
 }
-pub fn selected_bash(_args: &Args) -> Result<()> {
-    let root = root()?;
-    let source = Path::new(&root).join("plugins/agent-guard/bin/agent-guard");
-    let manifest = read_json(root.join("tests/selected-bash-locations.json"))?;
-    let manifest = manifest.as_object().ok_or("invalid manifest")?;
-    let source_text = std::fs::read_to_string(&source)?;
-    let source_lines: Vec<_> = source_text.lines().collect();
+fn selected_functions(
+    root: &Path,
+    manifest: &serde_json::Map<String, serde_json::Value>,
+) -> Result<tempfile::TempDir> {
     let dir = tempfile::tempdir()?;
     let functions = dir.path().join("functions");
     std::fs::create_dir(&functions)?;
@@ -73,16 +70,62 @@ pub fn selected_bash(_args: &Args) -> Result<()> {
         root.join("tests/helpers/extract-functions.sh")
             .display()
             .to_string(),
-        source.display().to_string(),
+        root.join("plugins/agent-guard/bin/agent-guard")
+            .display()
+            .to_string(),
         functions.display().to_string(),
     ];
     command.extend(manifest.keys().cloned());
     checked(&command, b"", &Env::new(), None, 30.0)?;
+    Ok(dir)
+}
+
+pub fn refresh_selected_bash(_args: &Args) -> Result<()> {
+    ensure(
+        std::env::var_os("CI").is_none(),
+        "refresh-selected-bash is a manual command; do not run it in CI",
+    )?;
+    let root = root()?;
+    let path = root.join("tests/selected-bash-locations.json");
+    let mut manifest = read_json(&path)?;
+    let entries = manifest.as_object_mut().ok_or("invalid manifest")?;
+    let dir = selected_functions(&root, entries)?;
+    for (name, entry) in entries {
+        ensure(
+            entry["body_sha256"].is_string(),
+            format!("missing body_sha256: {name}"),
+        )?;
+        entry["body_sha256"] = json!(hash(
+            dir.path().join("functions").join(format!("{name}.sh"))
+        )?);
+    }
+    let temporary =
+        tempfile::NamedTempFile::new_in(path.parent().ok_or("missing manifest directory")?)?;
+    let mut bytes = serde_json::to_vec_pretty(&manifest)?;
+    bytes.push(b'\n');
+    std::fs::write(temporary.path(), bytes)?;
+    std::fs::set_permissions(temporary.path(), std::fs::metadata(&path)?.permissions())?;
+    temporary.persist(&path)?;
+    println!(
+        "Updated tests/selected-bash-locations.json; review selected lines before committing."
+    );
+    Ok(())
+}
+
+pub fn selected_bash(_args: &Args) -> Result<()> {
+    let root = root()?;
+    let source = Path::new(&root).join("plugins/agent-guard/bin/agent-guard");
+    let manifest = read_json(root.join("tests/selected-bash-locations.json"))?;
+    let manifest = manifest.as_object().ok_or("invalid manifest")?;
+    let source_text = std::fs::read_to_string(&source)?;
+    let source_lines: Vec<_> = source_text.lines().collect();
+    let dir = selected_functions(&root, manifest)?;
+    let functions = dir.path().join("functions");
     let mut locations = Vec::new();
     for (name, entry) in manifest {
         ensure(
             json!(hash(functions.join(format!("{name}.sh")))?) == entry["body_sha256"],
-            format!("selected function changed; review denominator: {name}"),
+            format!("selected function changed; review denominator: {name}; then run: sh scripts/devtools.sh refresh-selected-bash"),
         )?;
         let start = source_lines
             .iter()
