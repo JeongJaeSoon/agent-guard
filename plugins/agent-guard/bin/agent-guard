@@ -13749,6 +13749,38 @@ secretish_env_values() {
       }
       return count
     }
+    # prose_words for the text the old reading took whole as the value: a
+    # closed-key span or a note. Beyond the value words, a word with a digit
+    # or a symbol refuses too, unless it is a source path or locator
+    # (`src/config.ts:12`), a short dotted version (`3.13.0`) or a short
+    # issue reference (`#587`), each of which has passed the same value
+    # checks first. So a password of digits or symbols in prose keeps the
+    # old reading however short; what can still read as prose there is a
+    # word of letters, with an apostrophe or hyphen inside.
+    #
+    # Residual, accepted: a secret shaped exactly like a short dotted
+    # version or a short issue reference reads as prose there.
+    function span_words(text, n, words, i, w, count) {
+      n = split(text, words, /[ \t\r\n]+/)
+      count = 0
+      for (i = 1; i <= n; i++) {
+        if (value_word(words[i])) return -1
+        if (words[i] !~ /[A-Za-z0-9\200-\377]/) continue
+        count++
+        w = word_core(words[i])
+        # A dash or another mark of its own is not a word.
+        if (w !~ /[A-Za-z0-9]/ && w !~ /[\352-\355]/) continue
+        if (w ~ /^([A-Za-z]|[\352-\355][\200-\277][\200-\277])+(['\''-]([A-Za-z]|[\352-\355][\200-\277][\200-\277])+)*$/) continue
+        if (w ~ /^[A-Za-z0-9._\/-]+(:[0-9]+)*$/ && w ~ /[A-Za-z]/ \
+            && (w ~ /\// || w ~ /\.[A-Za-z]/)) continue
+        # Three or four parts of one to three digits, or a number sign and
+        # one to six digits; word_core has already cut closing marks off.
+        if (w ~ /^v?[0-9][0-9]?[0-9]?\.[0-9][0-9]?[0-9]?\.[0-9][0-9]?[0-9]?(\.[0-9][0-9]?[0-9]?)?$/) continue
+        if (w ~ /^#[0-9][0-9]?[0-9]?[0-9]?[0-9]?[0-9]?$/) continue
+        return -1
+      }
+      return count
+    }
     # Record the value words of text. Called only once the line has already
     # recorded a value of its own, so it masks more of a line that is masked
     # anyway and never blocks a line that passed.
@@ -13816,7 +13848,7 @@ secretish_env_values() {
         q = index(leaf_tail, quote)
         span = after "\n" (q ? substr(leaf_tail, 1, q - 1) : leaf_tail)
       }
-      n = prose_words(span)
+      n = span_words(span)
       # The old reading may take only the text up to the next quote; the
       # value words after it are masked along with it.
       if (n < 0) refused_span = span
@@ -13861,8 +13893,8 @@ secretish_env_values() {
       }
       after = substr(raw, e + 1)
       next_line = next_leaf_line()
-      if (marked && closed_off(after) && prose_words(inner) >= 0 \
-          && prose_words(after) >= 0 && prose_words(next_line) >= 0)
+      if (marked && closed_off(after) && span_words(inner) >= 0 \
+          && span_words(after) >= 0 && span_words(next_line) >= 0)
         return 1
       refused_span = raw "\n" next_line
       return 0
