@@ -15074,9 +15074,14 @@ else
   sed 's/^/  err: /' "$ERR"
 fi
 
+# The awk fallback rewrites this string response in place; only the fixed
+# response, used when that fallback fails too, takes the tool's own shape.
 partial_primary_expected="$TESTTMP/partial-primary-expected"
-printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PostToolUse","updatedToolOutput":{"type":"text","file":{"filePath":"[REDACTED]","content":"[REDACTED]","numLines":1,"startLine":1,"totalLines":1}}}}' \
+printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PostToolUse","updatedToolOutput":"[REDACTED]"}}' \
   >"$partial_primary_expected"
+partial_fallback_expected="$TESTTMP/partial-fallback-expected"
+printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PostToolUse","updatedToolOutput":{"type":"text","file":{"filePath":"[REDACTED]","content":"[REDACTED]","numLines":1,"startLine":1,"totalLines":1}}}}' \
+  >"$partial_fallback_expected"
 printf '%s' "$large_gitleaks_input" \
   | (cd "$TMP_ROOT" \
       && PATH="$FAIL_WHOLE_JQ_DIR:$PATH" \
@@ -15113,7 +15118,7 @@ printf '%s' "$large_gitleaks_input" \
          "$PLUGIN_ROOT/bin/agent-guard" hook-post-tool) >"$OUT" 2>"$ERR"
 partial_fallback_status=$?
 if [ "$partial_fallback_status" -eq 0 ] \
-   && cmp -s "$partial_primary_expected" "$OUT"; then
+   && cmp -s "$partial_fallback_expected" "$OUT"; then
   ok "whole-leaf rewrite discards a partial nonzero fallback and emits one fixed response"
 else
   not_ok "whole-leaf rewrite exposes partial nonzero fallback output (status $partial_fallback_status)"
