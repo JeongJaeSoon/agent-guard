@@ -2984,6 +2984,8 @@ expect_json_status 0 "env VAR=x cmd piped (wrapped command, not bare env) is all
 # a new openssl output path are left out. These policy-only fixtures verify both
 # the actionable diagnosis and the supported structured/script alternatives;
 # none of the embedded commands is executed. The ground-truth script runs them.
+run_expect 0 "grep/rg search patterns and new openssl outputs leave out no protected read" \
+  sh "$ROOT/tests/search-operand-ground-truth.sh"
 run_expect 0 "runtime environment objects and jq interpolation leave out no protected read" \
   sh "$ROOT/tests/runtime-global-text.sh"
 run_expect 0 "ORCA_ and CLAUDE_JOB_DIR lookups pass while secret dumps stay blocked" \
@@ -5166,18 +5168,16 @@ grep -E 'mode [0-9]|owned|owner|access control|directory above|work tree|HOME in
 fi # end of shard 2
 
 if in_shard 3; then
-# These fixture suites run here rather than beside the other
+# These two fixture suites run here rather than beside the other
 # protected-path suites in partition 1. On macOS each partition has a runner
 # of its own, and partition 1 alone took 20 minutes 37 seconds of the 25
-# allowed while partition 3 took under seven. The first two were the slowest
+# allowed while partition 3 took under seven. The two are the slowest suites
 # of partition 1: about a quarter of its run time between them, measured in
 # a Linux container.
 run_expect 0 "the protected-path regex cache only rules commands out and never changes a verdict" \
   sh "$ROOT/tests/deny-path-regex-cache.sh"
 run_expect 0 "orca/gh/git message values leave out no protected read" \
   sh "$ROOT/tests/message-value-prose.sh"
-run_expect 0 "grep/rg search patterns and new openssl outputs leave out no protected read" \
-  sh "$ROOT/tests/search-operand-ground-truth.sh"
 
 # `git commit -a`, a pathspec, --include and --only make Git stage tracked
 # work-tree changes after PreToolUse has run. The gate must scan what the

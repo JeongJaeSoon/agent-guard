@@ -251,9 +251,8 @@ Linux one core runner runs partitions 1 and 3 side by side, so the slower of
 the two sets the job time; on macOS each runs on its own runner to stay under
 the 25-minute job limit. Heavy fixture suites
 that run the hook hundreds of times go where there is room:
-`tests/key-name-masking.sh`, `tests/deny-path-regex-cache.sh`,
-`tests/message-value-prose.sh` and `tests/search-operand-ground-truth.sh`
-run in partition 3, while
+`tests/key-name-masking.sh`, `tests/deny-path-regex-cache.sh` and
+`tests/message-value-prose.sh` run in partition 3, while
 `tests/tracked-file-exception.sh` and `tests/path-operands-only.sh` stay in
 partition 1 beside the other protected-path suites. When you move a suite,
 compare the macOS job times of both partitions. Do not raise the timeout, and
