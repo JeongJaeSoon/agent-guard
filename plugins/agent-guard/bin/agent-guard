@@ -10135,6 +10135,12 @@ AWK_READ_OPERAND_RECORDS='
     }
     return 0
   }
+  # The assignment table as one T record, for the code of a substitution.
+  function tabrec(   k, s) {
+    s = ""
+    for (k in tab) s = s k "\003" tab[k] "\004"
+    print "T" s
+  }
   # An S record for each substitution in w, or U for one that never closes.
   function subs(w,   i, c, sq, dq, j) {
     sq = 0; dq = 0
@@ -10147,13 +10153,13 @@ AWK_READ_OPERAND_RECORDS='
       if (c == "`") {
         j = tick(w, i)
         if (!j) { print "U"; return }
-        print "S" substr(w, i + 1, j - i - 1); i = j; continue
+        tabrec(); print "S" substr(w, i + 1, j - i - 1); i = j; continue
       }
       if (c ~ /[$<>]/ && substr(w, i + 1, 1) == "(") {
         if (c == "$" && substr(w, i + 2, 1) == "(") continue
         j = closer(w, i + 1)
         if (!j) { print "U"; return }
-        print "S" substr(w, i + 2, j - i - 2); i = j
+        tabrec(); print "S" substr(w, i + 2, j - i - 2); i = j
       }
     }
   }
@@ -10273,7 +10279,7 @@ AWK_READ_OPERAND_RECORDS='
     vopt["sed"] = " -e --expression -l "
     vopt["awk"] = vopt["gawk"] = vopt["mawk"] = vopt["nawk"] = " -F -v --field-separator --assign "
     vopt["cut"] = " -d -f -c -b --delimiter --fields --characters --bytes "
-    vopt["sort"] = " -k -t -o -S -T --key --field-separator --output --buffer-size --temporary-directory "
+    vopt["sort"] = " -k -t -o -S -T --key --field-separator --output --buffer-size --temporary-directory --parallel --batch-size --compress-program --random-source "
     vopt["uniq"] = " -f -s -w "
     vopt["nl"] = " -s -w -b -v -i -n "
     vopt["fold"] = " -w "; vopt["paste"] = " -d "; vopt["tac"] = " -s "
@@ -10287,6 +10293,7 @@ AWK_READ_OPERAND_RECORDS='
     # Options whose value is a file the program reads.
     fopt["grep"] = fopt["egrep"] = fopt["fgrep"] = " -f --file --exclude-from "
     fopt["rg"] = " -f --file --ignore-file "; fopt["sed"] = " -f --file "
+    fopt["sort"] = " --files0-from "
     fopt["awk"] = fopt["gawk"] = fopt["mawk"] = fopt["nawk"] = " -f --file "
     fopt["jq"] = " -f --from-file "; fopt["hexdump"] = " -f "
     fopt["base64"] = fopt["base32"] = " -i --input "
@@ -10295,6 +10302,8 @@ AWK_READ_OPERAND_RECORDS='
     popt["sed"] = " -e -f --expression --file "
     popt["awk"] = popt["gawk"] = popt["mawk"] = popt["nawk"] = " -f --file "
     popt["jq"] = " -f --from-file "
+    m = split(ENVIRON["UO_TAB"], a, "\004")
+    for (k = 1; k <= m; k++) if (index(a[k], "\003")) tab[substr(a[k], 1, index(a[k], "\003") - 1)] = substr(a[k], index(a[k], "\003") + 1)
     end_segment()
   }
   {
@@ -10377,7 +10386,8 @@ AWK_READ_OPERAND_RECORDS='
 # $2 is the nesting depth; past 8 the command is treated as unresolved.
 # $PWD and $(pwd) with no arguments name the hook workdir, the directory
 # the scan runs in, until the command changes directory (cd, pushd, popd, or
-# code the scan does not follow); $3 carries that change into nested code.
+# code the scan does not follow); $3 carries that change into nested code,
+# and $4 the literal assignments known where the nested code starts.
 # Known limit: a protected directory name hidden inside the variable itself
 # ("$D/config" with D pointing into a key directory) is not seen.
 bash_unresolved_read_operand() (
@@ -10393,7 +10403,8 @@ bash_unresolved_read_operand() (
   shell_words_marker "$uo_text"
   uo_words=$(shell_command_words "$uo_text") || exit 0
   uo_moved=${3:-0}
-  uo_records=$(printf '%s\n' "$uo_words" | LC_ALL=C awk -v moved="$uo_moved" "$AWK_READ_OPERAND_RECORDS") || exit 0
+  uo_records=$(printf '%s\n' "$uo_words" | UO_TAB=${4-} LC_ALL=C awk -v moved="$uo_moved" "$AWK_READ_OPERAND_RECORDS") || exit 0
+  uo_tab=
   uo_nl='
 '
   while [ -n "$uo_records" ]; do
@@ -10405,6 +10416,7 @@ bash_unresolved_read_operand() (
     case "$uo_record" in
       U) exit 0 ;;
       M) uo_moved=1 ;;
+      T*) uo_tab=${uo_record#T} ;;
       V*)
         uo_value="cat ${uo_record#V}"
         if bash_matches_deny_path_mode "$uo_value" literal \
@@ -10415,7 +10427,7 @@ bash_unresolved_read_operand() (
         ;;
       S*)
         uo_body=$(printf '%s' "${uo_record#S}" | tr '\034' '\n')
-        bash_unresolved_read_operand "$uo_body" "$((uo_depth + 1))" "$uo_moved" && exit 0
+        bash_unresolved_read_operand "$uo_body" "$((uo_depth + 1))" "$uo_moved" "$uo_tab" && exit 0
         ;;
     esac
   done
