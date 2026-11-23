@@ -7595,9 +7595,13 @@ search_operand_spans() {
       return h
     }
     # The `done` or `fi` at word k sends its output nowhere but to
-    # plain text filters.
+    # plain text filters. Input read from a file is no output.
     function close_ok(k, e,   r) {
-      for (r = k + 1; r <= e; r++) if (!quiet(r)) return 0
+      for (r = k + 1; r <= e; r++) {
+        if (quiet(r) || raw(r) ~ /^0?<[^<>&(]+$/) continue
+        if (raw(r) ~ /^0?<$/ && r < e) { r++; continue }
+        return 0
+      }
       return sink_ok(k)
     }
     # Every condition open after word e closes that way.
