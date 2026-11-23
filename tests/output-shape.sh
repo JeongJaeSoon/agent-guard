@@ -181,7 +181,8 @@ fi
 # An enum value the guard does not know in a Code Mode result is masked with
 # the rest of a large output, so stderr must say the original may get through.
 for unknown in 'Poll delivers events from each authority|.tool_response.provenance[0].authority = "brand-new-authority"' \
-               'REPL stopped by a refusal|.tool_response.stoppedBy = "brand-new-reason"'; do
+               'REPL stopped by a refusal|.tool_response.stoppedBy = "brand-new-reason"' \
+               'Bash commits, rebases and sets a PR to auto-merge|.tool_response.gitOperation.pr.action = "brand-new-action"'; do
   index=$(jq --arg l "${unknown%%|*}" '[.cases[].label] | index($l)' "$FIXTURE")
   event "$index" output-shape-unknown-word large
   jq -c "${unknown#*|}" "$CASE/event" >"$CASE/event.new" && mv "$CASE/event.new" "$CASE/event" || exit 1

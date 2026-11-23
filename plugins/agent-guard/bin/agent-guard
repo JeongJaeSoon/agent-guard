@@ -17308,7 +17308,15 @@ claude_post_tool_shape() {
     done
   fi
   case "$cps_tool" in
-    Read|Write|Edit|MultiEdit|NotebookEdit|Grep|Glob|Skill|Monitor|Bash|REPL|Eval|Poll) ;;
+    Read|Write|Edit|MultiEdit|NotebookEdit|Grep|Glob|Skill|Monitor|REPL|Eval|Poll) ;;
+    # Bash's only checked words sit under gitOperation; skip the jq run (and
+    # its cost on every masked command) when the response has none.
+    Bash)
+      case "${HOOK_INPUT:-}" in
+        *'"gitOperation"'*) ;;
+        *) return 0 ;;
+      esac
+      ;;
     *) return 0 ;;
   esac
   # REPL's `result` is the script's own value (`any` in the output schema), so
