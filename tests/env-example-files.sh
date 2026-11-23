@@ -83,6 +83,7 @@ shell 0 "an item comment that quotes a deny entry" \
 shell 0 "a needs-you item with a question and options" \
   'orca bot item set 135 --status needs-you --comment "the .env.example file is ready" --ask "Copy it to .env.local?" --option "Yes" --option "No"'
 shell 2 "an item comment read from a real env file" 'orca bot item set 135 --comment-file .env'
+shell 2 "a quoted item comment file that is a real env file" "orca bot item set 135 --comment-file '.env'"
 shell 2 "a real env file attached to an item comment" 'orca bot item set 135 --comment "see attachment" --file .env'
 shell 2 "an item comment built from a real env file" 'orca bot item set 135 --comment "$(cat .env)"'
 shell 2 "a read after the item comment" 'orca bot item set 135 --comment "checked .env.example"; cat .env'

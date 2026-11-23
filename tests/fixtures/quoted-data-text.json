@@ -600,5 +600,33 @@
     "classification": "must-still-block",
     "description": "eval reads a protected file",
     "command": "eval 'cat .env'"
+  },
+  {
+    "id": "grep-env-alternation-into-xargs",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "the quoted grep pattern stays in the deny scan when its output feeds xargs (#590 mutation bash-neutralize-pipe-xargs)",
+    "command": "grep -n -E 'Read env|never print values' SOUL.md | xargs cat"
+  },
+  {
+    "id": "grep-env-then-path-assignment",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a PATH assignment anywhere in the command turns the search exemption off (#590 mutation bash-neutralize-path-assign)",
+    "command": "grep -n 'Read env; then stop' SOUL.md; PATH=./bin"
+  },
+  {
+    "id": "git-config-before-grep-env",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "only git ls-files into a pipe counts as inert before a search; git config does not (#590 mutation bash-git-ls-files-any)",
+    "command": "git config core.pager cat && grep -n -E 'Read env|never print values' SOUL.md"
+  },
+  {
+    "id": "git-exclude-ifs-split",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "an unquoted $IFS splits an exclude pathspec into a positive one that git reads (#590 mutation bash-exclude-expansion)",
+    "command": "git grep -n VALUE -- :!$IFS.env"
   }
 ]

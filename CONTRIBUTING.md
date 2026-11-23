@@ -109,6 +109,32 @@ It preserves the selected lines and other metadata, and refuses to run when
 refreshes the repository's pins. The command requires the existing Rust
 developer toolchain.
 
+## Rule mutation check
+
+`tests/mutations.json` lists hand-written mutants of the core detection rules:
+each entry is one literal edit (`old` occurs exactly once in
+`plugins/agent-guard/bin/agent-guard` and becomes `new`) that loosens one
+rule, and the test files that must catch it. Run:
+
+```sh
+sh tests/mutation-check.sh            # every mutation
+sh tests/mutation-check.sh ID...      # only these
+```
+
+The script copies the tree to a temporary directory and never edits the
+checkout. It first requires the listed tests to pass on the unmutated copy,
+then requires at least one of them to fail on each mutant. It exits 1 and
+prints the id and rule of a surviving mutant, and exits 2 when it cannot
+judge (an edit that no longer applies, a failing baseline).
+`AGENT_GUARD_MUTATION_JOBS` sets how many copies run side by side.
+
+When you change a listed rule, update its mutation so that it still applies.
+When a review finds a loosened copy of a rule that passes the suite, add the
+missing test row and the mutant. Never weaken a mutant to make it pass. The
+`Rule mutation check` workflow runs on pull requests that touch the bin, the
+list or a listed test; `tests/run.sh` checks that the workflow lists every
+test file the list names.
+
 ## Red, green, then refactor
 
 For a bug or behavior change:

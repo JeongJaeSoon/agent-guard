@@ -1,0 +1,69 @@
+name: Rule mutation check
+
+# Hand-written mutants of the core detection rules (tests/mutations.json) must
+# each fail a listed test (#590). It is not a required check.
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - plugins/agent-guard/bin/agent-guard
+      - tests/mutations.json
+      - tests/mutation-check.sh
+      - tests/fixtures/**
+      - .github/workflows/mutation-check.yml
+      - tests/bash-path-text-data.sh
+      - tests/handback-values.sh
+      - tests/heredoc-body-text.sh
+      - tests/key-name-masking.sh
+      - tests/message-value-prose.sh
+      - tests/prompt-prose-placeholder.sh
+      - tests/prompt-prose-reference.sh
+      - tests/search-operand-ground-truth.sh
+      - tests/unit-core.sh
+      - tests/unit-deny-path.sh
+      - tests/unit-framing.sh
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  mutation-check:
+    name: Rule mutations fail a test (${{ matrix.group }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        # Every id falls in exactly one group: handback-*, bash-* split in
+        # two by position, and everything else in core.
+        group: [core, handback, bash-1, bash-2]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Run the mutation check
+        env:
+          GROUP: ${{ matrix.group }}
+          AGENT_GUARD_MUTATION_JOBS: '4'
+        run: |
+          set -eu
+          ids=$(jq -r --arg g "$GROUP" '
+            map(.id) as $all
+            | if $g == "core" then $all[] | select((startswith("handback-") or startswith("bash-")) | not)
+              elif $g == "handback" then $all[] | select(startswith("handback-"))
+              else [$all[] | select(startswith("bash-"))] | to_entries[]
+                | select(.key % 2 == ($g | ltrimstr("bash-") | tonumber) - 1) | .value
+              end
+          ' tests/mutations.json)
+          if [ -z "$ids" ]; then
+            echo "::error::no mutation in group $GROUP" >&2
+            exit 1
+          fi
+          # shellcheck disable=SC2086
+          sh tests/mutation-check.sh $ids

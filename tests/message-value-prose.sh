@@ -429,6 +429,7 @@ check 2 "export \"ORCA_CLI_COMM\"\"AND=/bin/cat\"; $OW bot item comment 1 --text
 check 2 "read ORCA_CLI_COMMAND < f; $OW bot item comment 1 --text '.env'"
 check 2 "unset ORCA_CLI_COMMAND; $OW bot item comment 1 --text '.env'"
 check 2 ": \"\${ORCA_CLI_COMMAND:=cat}\"; $OW bot item comment 1 --text '.env'"
+check 2 "$OW bot item comment 1 --text '.env' \"\$ORCA_CLI_COMMAND\""
 check 2 "orca() { cat \"\$6\"; }; $OW bot item comment 1 --text '.env'"
 check 2 "$OW bot item comment 1 --text-file .env"
 check 2 "$OW bot item comment 1 --text \"\$(cat .env)\""
