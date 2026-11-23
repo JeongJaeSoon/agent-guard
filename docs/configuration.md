@@ -174,8 +174,13 @@ return status 0 with no response. See [Output masking coverage](integrations.md#
   tool output (`Read`'s `type` and page `mediaType`, `Write`'s `type`,
   `Grep`'s `mode`, `NotebookEdit`'s `cell_type`) survive that rewrite when
   the value is exactly a known protocol token, so the sanitized result still
-  parses as the shape the host sent. Any other string is masked, including
-  under those keys. On Claude Code, a `filePath` or `notebook_path` equal to
+  parses as the shape the host sent. Claude Code's other enum fields survive
+  only at the top-level path the output schema gives them and only with a
+  value that schema allows: `stoppedBy` and `neverRan` (`REPL`), `status`
+  (`Skill`), `gitDiff.status` (`Write`, `Edit`), `provenance[].authority`
+  (`Poll`), and `gitOperation.*.kind` and `.action` (`Bash`). The same
+  key anywhere else, such as inside the value a Code Mode script returns, is
+  ordinary data. Any other string is masked, including under those keys. On Claude Code, a `filePath` or `notebook_path` equal to
   the path in the tool input is kept too: the model wrote it. When a rewrite
   still changes a field the host checks, the hook does not report the output
   as masked, because Claude Code rejects such a replacement and passes the

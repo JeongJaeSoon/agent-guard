@@ -1,5 +1,5 @@
 {
-  "comment": "Output shapes of Claude Code built-in tools for #599, one per tool that has a fixed last-resort replacement. Bash, REPL and Poll are what Claude Code 2.1.330 sent to a live PostToolUse hook; the others are the structure of results that version recorded in session logs, with every value a stand-in. {{SECRET}} becomes the planted marker when the test runs. `fixed` is the replacement the guard prints when no parser can rewrite the response: same keys, same kinds of value, and the same word in a field the host reads as one of a few (`type`, `mode`, `cell_type`, `edit_mode`). Host acceptance of `fixed` was observed for Bash, REPL and Poll only.",
+  "comment": "Output shapes of Claude Code built-in tools for #599, one per tool that has a fixed last-resort replacement. Bash, REPL and Poll are what Claude Code 2.1.330 sent to a live PostToolUse hook; the others are the structure of results that version recorded in session logs, with every value a stand-in. {{SECRET}} becomes the planted marker when the test runs. `fixed` is the replacement the guard prints when no parser can rewrite the response: same keys, same kinds of value, and the same word in a field the host reads as one of a few (`type`, `mode`, `cell_type`, `edit_mode`). Host acceptance of `fixed` was observed for Bash, REPL and Poll only. Eval is the REPL tool under the other name Claude Code 2.1.330 accepts for it, so it has the REPL shapes.",
   "tools": {
     "Bash": {
       "output": {
@@ -175,6 +175,20 @@
       }
     },
     "REPL": {
+      "output": {
+        "code": "await run()",
+        "result": "{{SECRET}}",
+        "stdout": "",
+        "stderr": ""
+      },
+      "fixed": {
+        "code": "[REDACTED]",
+        "result": "[REDACTED]",
+        "stdout": "[REDACTED]",
+        "stderr": "[REDACTED]"
+      }
+    },
+    "Eval": {
       "output": {
         "code": "await run()",
         "result": "{{SECRET}}",

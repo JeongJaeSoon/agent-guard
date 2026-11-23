@@ -13618,7 +13618,11 @@ JQ_WALK='def walk(f): def w: if type == "object" then map_values(w)
 # image block spells the same thing `mimeType`. Claude Code's built-in tools add
 # words of their own that it checks before taking a replacement (#612): Read's
 # `notebook` and `parts` and its PDF pages' `mediaType`, Write's `create`
-# and `update`, Grep's `mode` and NotebookEdit's `cell_type`. Prepend as
+# and `update`, Grep's `mode` and NotebookEdit's `cell_type`. Code Mode and
+# the 2.1.330 output schemas add more (#599): REPL's `stoppedBy` and
+# `neverRan`, Poll's `provenance[].authority` (the host also reads it to tell
+# the user's events from others), the `gitDiff.status` of Write and Edit,
+# Skill's `status` and Bash's `gitOperation` `kind` and `action`. Prepend as
 # `jq -c "$JQ_SHAPE_SAFE_WALK"'<program>'`.
 # Resolve the extent records secretish_env_values flags (`agent_guard_extent`)
 # once every detector's literals are in the bundle. An extent (`[hidden]`,
@@ -13672,14 +13676,39 @@ JQ_SHAPE_SAFE_WALK='def protocol_discriminator($key): . as $v
             "notebook","parts","file_unchanged","create","update",
             "files_with_matches","count","code","markdown"]
            | map(. == $v) | any);
-def shape_safe_walk(f): def w($key):
+def host_enum_word($p): . as $v
+    | ($p | length) as $n
+    | def one_of($w): ($w | map(. == $v) | any);
+      if $n == 1 then
+        ($p[0] == "stoppedBy" and one_of(["user","refusal"]))
+        or ($p[0] == "neverRan" and one_of(["person","other"]))
+        or ($p[0] == "status" and one_of(["inline","forked"]))
+      elif $n == 2 then
+        $p[0] == "gitDiff" and $p[1] == "status" and one_of(["modified","added"])
+      elif $n == 3 then
+        ($p[0] == "provenance" and ($p[1] | type) == "number"
+         and $p[2] == "authority"
+         and one_of(["human-principal","human-other","peer-agent","world-event"]))
+        or ($p[0] == "gitOperation" and ($p[1] | type) == "string"
+            and (($p[2] == "kind"
+                  and one_of(["committed","amended","cherry-picked"]))
+                 or ($p[2] == "action"
+                     and one_of(["merged","rebased","created","edited",
+                                 "commented","closed","reopened","ready",
+                                 "draft","auto-merge-enabled",
+                                 "auto-merge-disabled"]))))
+      else false end;
+def shape_safe_walk(f): def w($path):
       if type == "object"
-      then with_entries(. as $e | .value = ($e.value | w($e.key)))
-      elif type == "array" then map(w(null))
-      elif type == "string" and protocol_discriminator($key) then .
+      then with_entries(. as $e | .value = ($e.value | w($path + [$e.key])))
+      elif type == "array"
+      then [range(length) as $i | .[$i] | w($path + [$i])]
+      elif type == "string"
+           and (protocol_discriminator($path[-1]) or host_enum_word($path))
+      then .
       else f
       end;
-    w(null);
+    w([]);
 def binary_media_type: . as $v
     | (["image/png","image/jpeg","image/gif","image/webp","application/pdf"]
        | map(. == $v) | any);
@@ -16687,6 +16716,33 @@ redact_response_values_awk_current() {
         || value == "files_with_matches" || value == "count" \
         || value == "code" || value == "markdown"
     }
+    # The value being read sits at depth; object_key[d] and container[d] give
+    # its path from the root, as JQ_SHAPE_SAFE_WALK host_enum_word reads it.
+    function host_enum_word(value,    key) {
+      if (container[1] != "object") return 0
+      if (depth == 1) {
+        key = object_key[1]
+        return (key == "stoppedBy" && (value == "user" || value == "refusal")) \
+          || (key == "neverRan" && (value == "person" || value == "other")) \
+          || (key == "status" && (value == "inline" || value == "forked"))
+      }
+      if (depth == 2)
+        return object_key[1] == "gitDiff" && container[2] == "object" \
+          && object_key[2] == "status" && (value == "modified" || value == "added")
+      if (depth != 3 || container[3] != "object") return 0
+      key = object_key[3]
+      if (object_key[1] == "provenance" && container[2] == "array")
+        return key == "authority" && (value == "human-principal" \
+          || value == "human-other" || value == "peer-agent" || value == "world-event")
+      if (object_key[1] != "gitOperation" || container[2] != "object") return 0
+      if (key == "kind")
+        return value == "committed" || value == "amended" || value == "cherry-picked"
+      return key == "action" && (value == "merged" || value == "rebased" \
+        || value == "created" || value == "edited" || value == "commented" \
+        || value == "closed" || value == "reopened" || value == "ready" \
+        || value == "draft" || value == "auto-merge-enabled" \
+        || value == "auto-merge-disabled")
+    }
     function accept_value() {
       if (depth == 0) {
         if (root_done) json_fail()
@@ -16804,7 +16860,7 @@ redact_response_values_awk_current() {
             direct_key = ""
             if (depth > 0 && container[depth] == "object" && state[depth] == "value") direct_key = object_key[depth]
             accept_value()
-            if (token_raw == "\"\"" || (candidate_valid && protocol_discriminator(direct_key, candidate))) emit(token_raw)
+            if (token_raw == "\"\"" || (candidate_valid && (protocol_discriminator(direct_key, candidate) || host_enum_word(candidate)))) emit(token_raw)
             else emit("\"[REDACTED]\"")
           }
           i = token_end + 1
@@ -17168,14 +17224,14 @@ emit_secret_free_post_tool_replacement() {
           | jq -r '.tool_name // empty' 2>/dev/null) || esf_tool=
       fi
       if [ -z "$esf_tool" ]; then
-        for esf_name in REPL Poll Bash Read Write Edit NotebookEdit Grep Glob Skill Monitor; do
+        for esf_name in REPL Eval Poll Bash Read Write Edit NotebookEdit Grep Glob Skill Monitor; do
           case "${HOOK_INPUT:-}" in
             *"\"tool_name\":\"$esf_name\""*) esf_tool=$esf_name; break ;;
           esac
         done
       fi
       case "$esf_tool" in
-        REPL) esf_shape='{"code":"[REDACTED]","result":"[REDACTED]","stdout":"[REDACTED]","stderr":"[REDACTED]"}' ;;
+        REPL|Eval) esf_shape='{"code":"[REDACTED]","result":"[REDACTED]","stdout":"[REDACTED]","stderr":"[REDACTED]"}' ;;
         Poll) esf_shape='{"content":"[REDACTED]","eventCount":0,"remainingWakeCount":0,"provenance":[]}' ;;
         Bash) esf_shape='{"stdout":"[REDACTED]","stderr":"","interrupted":false,"isImage":false,"noOutputExpected":false}' ;;
         Read) esf_shape='{"type":"text","file":{"filePath":"[REDACTED]","content":"[REDACTED]","numLines":1,"startLine":1,"totalLines":1}}' ;;
@@ -17189,8 +17245,9 @@ emit_secret_free_post_tool_replacement() {
         *) esf_shape='"[REDACTED]"' ;;
       esac
       # Only the Bash, REPL and Poll objects are known to pass the host check.
+      # Eval is the REPL tool under another name.
       case "$esf_tool" in
-        Bash|REPL|Poll|mcp__*) ;;
+        Bash|REPL|Eval|Poll|mcp__*) ;;
         *) POST_TOOL_SHAPE_KEPT=0 ;;
       esac
       printf '{"hookSpecificOutput":{"hookEventName":"PostToolUse","updatedToolOutput":%s}}\n' "$esf_shape"
@@ -17251,7 +17308,7 @@ claude_post_tool_shape() {
   POST_TOOL_SHAPE_KEPT=
   cps_tool=${tool:-}
   if [ -z "$cps_tool" ]; then
-    for cps_name in Read Write Edit MultiEdit NotebookEdit Grep; do
+    for cps_name in Read Write Edit MultiEdit NotebookEdit Grep Glob Skill Monitor Bash REPL Eval Poll; do
       case "${HOOK_INPUT:-}" in
         *"\"tool_name\":\"$cps_name\""*|*"\"tool_name\": \"$cps_name\""*)
           cps_tool=$cps_name; break ;;
@@ -17259,18 +17316,40 @@ claude_post_tool_shape() {
     done
   fi
   case "$cps_tool" in
-    Read|Write|Edit|MultiEdit|NotebookEdit|Grep) ;;
+    Read|Write|Edit|MultiEdit|NotebookEdit|Grep|Glob|Skill|Monitor|REPL|Eval|Poll) ;;
+    # Bash's only checked words sit under gitOperation; skip the jq run (and
+    # its cost on every masked command) when the response has none.
+    Bash)
+      case "${HOOK_INPUT:-}" in
+        *'"gitOperation"'*) ;;
+        *) return 0 ;;
+      esac
+      ;;
     *) return 0 ;;
   esac
+  # REPL's `result` is the script's own value (`any` in the output schema), so
+  # a word key inside it is data, not a field the host checks.
   cps_out=
   cps_out=$({ printf '%s\n' "${HOOK_INPUT:-}"; printf '%s\n' "$replacement"; } 2>/dev/null \
-    | jq -rsc '
+    | jq -rsc --arg tool "$cps_tool" '
         def kinds: if type == "object" then with_entries(.value |= kinds)
           elif type == "array" then map(kinds) else type end;
         def at($p): try getpath($p) catch null;
         def word_key: . as $k
           | ["type","media_type","mimeType","mediaType","encoding","mode",
              "cell_type"] | index([$k]) != null;
+        def enum_path: length as $n
+          | ($n == 1 and (.[0] == "stoppedBy" or .[0] == "neverRan"
+                          or .[0] == "status"))
+            or ($n == 2 and .[0] == "gitDiff" and .[1] == "status")
+            or ($n == 3 and .[0] == "provenance" and (.[1] | type) == "number"
+                and .[2] == "authority")
+            or ($n == 3 and .[0] == "gitOperation" and (.[1] | type) == "string"
+                and (.[2] == "kind" or .[2] == "action"));
+        def host_word: enum_path
+          or ((.[-1] | type) == "string" and (.[-1] | word_key)
+              and ((($tool == "REPL" or $tool == "Eval") and .[0] == "result")
+                   | not));
         if length != 2 then error("two documents expected") else . end
         | .[1] as $replacement
         | .[0].tool_response as $orig
@@ -17283,8 +17362,7 @@ claude_post_tool_shape() {
              then setpath($p; $orig | getpath($p)) else . end)) as $new
         | (($new | kinds) == ($orig | kinds)
            and all($orig | paths(type == "string");
-                   . as $p | ($p[-1] | type) == "string" and ($p[-1] | word_key)
-                   | not or ($new | at($p)) == ($orig | getpath($p))))
+                   . as $p | host_word | not or ($new | at($p)) == ($orig | getpath($p))))
         | (if . then "k" else "c" end)
           + (if $new == $replacement then "" else ($new | tojson) end)
       ' 2>/dev/null) || cps_out=
