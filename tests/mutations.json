@@ -611,8 +611,8 @@
   {
     "id": "bash-secret-write-redirect-ignored",
     "rule": "bash_file_write_env_names: a > or >> redirect to a file marks the pipeline",
-    "old": "          if (t !~ /^\\/dev\\/(null|stdout|stderr|tty|fd\\/[0-9]+)$/) seg_redirect = 1\n",
-    "new": "          if (t ~ /^\\/dev\\//) seg_redirect = 1\n",
+    "old": "          if (t !~ /^\\/dev\\/(null|stdout|stderr|tty|fd\\/[0-9]+)$/) { redirect[d] = 1; any_redirect = 1 }\n",
+    "new": "          if (t ~ /^\\/dev\\//) { redirect[d] = 1; any_redirect = 1 }\n",
     "tests": [
       "tests/secret-env-file-write.sh"
     ]
@@ -665,8 +665,8 @@
   {
     "id": "bash-secret-write-shell-program-skipped",
     "rule": "check_bash_command: the program of bash -c is read for secret variable writes",
-    "old": "          [ -z \"$sw_program\" ] || sw_texts=\"$raw_cmd\n$sw_program\"\n",
-    "new": "          :\n",
+    "old": "            sw_texts=\"$raw_cmd\n$sw_program\"\n",
+    "new": "            :\n",
     "tests": [
       "tests/secret-env-file-write.sh"
     ]
@@ -674,8 +674,35 @@
   {
     "id": "bash-secret-write-devnull-is-file",
     "rule": "bash_file_write_env_names: a redirect to /dev/null writes no file",
-    "old": "          if (t !~ /^\\/dev\\/(null|stdout|stderr|tty|fd\\/[0-9]+)$/) seg_redirect = 1\n",
-    "new": "          seg_redirect = 1\n",
+    "old": "          if (t !~ /^\\/dev\\/(null|stdout|stderr|tty|fd\\/[0-9]+)$/) { redirect[d] = 1; any_redirect = 1 }\n",
+    "new": "          if (1) { redirect[d] = 1; any_redirect = 1 }\n",
+    "tests": [
+      "tests/secret-env-file-write.sh"
+    ]
+  },
+  {
+    "id": "bash-secret-write-outer-redirect-skipped",
+    "rule": "check_bash_command: a redirect outside a bash -c word covers the names its program expands",
+    "old": "              *'>'*) sw_extra=$(printf '%s\\n' \"$sw_inner\" | grep -v '^>$') ;;\n",
+    "new": "              *'>'*) ;;\n",
+    "tests": [
+      "tests/secret-env-file-write.sh"
+    ]
+  },
+  {
+    "id": "bash-secret-write-group-drops-names",
+    "rule": "bash_file_write_env_names: a group passes its names to the command around it",
+    "old": "      names[d] = names[d] all\n",
+    "new": "\n",
+    "tests": [
+      "tests/secret-env-file-write.sh"
+    ]
+  },
+  {
+    "id": "bash-secret-write-heredoc-null-ignored",
+    "rule": "bash_file_write_env_names: a here-document read by a /dev/null command writes no file",
+    "old": "          for (h = 1; h <= hd_n; h++) hd_null[h] = devnull[d] && !redirect[d]\n",
+    "new": "          for (h = 1; h <= hd_n; h++) hd_null[h] = 1\n",
     "tests": [
       "tests/secret-env-file-write.sh"
     ]

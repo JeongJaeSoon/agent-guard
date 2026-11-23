@@ -89,6 +89,14 @@ B'
 check 2 'echo "$EXAMPLE_SECRET_TOKEN" |
   cat > notes/note.md'
 check 2 'bash -c '"'"'echo "$EXAMPLE_SECRET_TOKEN" > notes/note.md'"'"
+check 2 'bash -c '"'"'echo "$EXAMPLE_SECRET_TOKEN"'"'"' > notes/note.md'
+check 2 '(echo "$EXAMPLE_SECRET_TOKEN";) > notes/note.md'
+check 2 '{ echo "$EXAMPLE_SECRET_TOKEN"; } > notes/note.md'
+check 2 'for i in 1; do echo "$EXAMPLE_SECRET_TOKEN"; done > notes/note.md'
+check 2 'if true; then
+  echo "$EXAMPLE_SECRET_TOKEN"
+fi > notes/note.md'
+check 2 'echo "$(printf %s "$EXAMPLE_SECRET_TOKEN")" > notes/note.md'
 check 2 'cat > notes/a.md <<A; cat > notes/b.md <<'"'"'B'"'"'
 $EXAMPLE_SECRET_TOKEN
 A
@@ -124,9 +132,15 @@ check 0 'echo "EXAMPLE_SECRET_TOKEN is set" > notes/note.md'
 check 0 'echo "$EXAMPLE_SECRET_TOKEN" 2> notes/err.log'
 check 0 'echo ok > "notes/a b"; echo '"'"'$EXAMPLE_SECRET_TOKEN'"'"
 check 0 'bash -c '"'"'echo "$EXAMPLE_NOTE" > notes/note.md'"'"
+check 0 'cat >/dev/null <<EOF
+$EXAMPLE_SECRET_TOKEN
+EOF'
+check 0 '{ echo "$EXAMPLE_NOTE"; } > notes/note.md'
+check 0 '(echo "$EXAMPLE_SECRET_TOKEN"; echo hi) 2> notes/err.log'
+check 0 'bash -c '"'"'echo "$EXAMPLE_SECRET_TOKEN"'"'"' 2>/dev/null'
 
 printf '# blocked=%s allowed=%s\n' "$blocked" "$allowed"
 # Both control groups must have run, or the comparison proved nothing.
-[ "$blocked" -ge 15 ] && [ "$allowed" -ge 12 ] || bad "control groups too small: blocked=$blocked allowed=$allowed"
+[ "$blocked" -ge 25 ] && [ "$allowed" -ge 20 ] || bad "control groups too small: blocked=$blocked allowed=$allowed"
 printf '# pass=%s fail=%s\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
