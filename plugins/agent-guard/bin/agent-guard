@@ -10223,7 +10223,7 @@ AWK_READ_OPERAND_RECORDS='
   }
   function operand(w,   v, t) {
     v = value(w)
-    if (index(v, "\002") == 0) { if (subst) print "V" v; return }
+    if (index(v, "\002") == 0) { if (subst || forcev) print "V" v; return }
     t = v; sub(/.*\002/, "", t)
     if (!tail_ok(t)) { print "U"; return }
     print "V" t
@@ -10415,11 +10415,14 @@ AWK_READ_OPERAND_RECORDS='
     if (prog == "") next
     if (skipn) { skipn--; next }
     if (fnext) { fnext = 0; operand(w); next }
-    # A fully literal word is read without its quotes ("-e" is -e).
+    # A word with a known value is read as that value ("-e" or "$opt" is -e);
+    # a file attached to a replaced option is then matched as resolved text.
     ow = value(w)
-    if (index(ow, "\002") || subst) ow = w
-    if (!ddash && ow == "--") { ddash = 1; next }
-    if (!ddash && ow ~ /^-./) { option(ow); next }
+    if (index(ow, "\002")) ow = w
+    else forcev = subst
+    if (!ddash && ow == "--") { forcev = 0; ddash = 1; next }
+    if (!ddash && ow ~ /^-./) { option(ow); forcev = 0; next }
+    forcev = 0
     if (patfirst[prog] && !patdone) { patdone = 1; next }
     # After jq --args or --jsonargs, the words after the filter are data.
     if (jqdata) next
@@ -10482,20 +10485,13 @@ bash_unresolved_read_operand() (
       M) uo_moved=1 ;;
       T*) uo_tab=${uo_record#T} ;;
       V*)
-        uo_value="cat ${uo_record#V}"
-        if bash_matches_deny_path_mode "$uo_value" literal \
-          || bash_matches_deny_path_mode "$uo_value" shell-expanded; then
-          printf '%s\n' "$deny_path_report"
-          exit 0
-        fi
+        # The full path policy, with its template and tracked-file exceptions;
+        # it prints its own report. ${input-} is the hook event, when set.
+        bash_matches_deny_path "cat $(sh_squote "${uo_record#V}")" "${input-}" && exit 0
         ;;
       C*)
         uo_body=$(printf '%s' "${uo_record#C}" | tr '\034' '\n')
-        deny_path_report=
-        if bash_deny_path_scan "$uo_body"; then
-          printf '%s\n' "$deny_path_report"
-          exit 0
-        fi
+        bash_matches_deny_path "$uo_body" "${input-}" && exit 0
         ;;
       S*)
         uo_body=$(printf '%s' "${uo_record#S}" | tr '\034' '\n')

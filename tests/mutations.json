@@ -629,8 +629,8 @@
   {
     "id": "bash-unresolved-operand-value-unmatched",
     "rule": "bash_unresolved_read_operand: a resolved assignment value is matched against the deny list",
-    "old": "        if bash_matches_deny_path_mode \"$uo_value\" literal \\\n          || bash_matches_deny_path_mode \"$uo_value\" shell-expanded; then",
-    "new": "        if false; then",
+    "old": "        bash_matches_deny_path \"cat $(sh_squote \"${uo_record#V}\")\" \"${input-}\" && exit 0\n",
+    "new": "",
     "tests": [
       "tests/unresolved-read-operand.sh"
     ]
@@ -738,6 +738,15 @@
     "id": "bash-unresolved-operand-code-unscanned",
     "rule": "bash_unresolved_read_operand: eval or sh -c code built from a known value is scanned as text",
     "old": "    if (subst) print \"C\" v\n",
+    "new": "",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-resolved-option-file",
+    "rule": "bash_unresolved_read_operand: a file attached to a resolved option is matched against the deny list",
+    "old": "    else forcev = subst\n",
     "new": "",
     "tests": [
       "tests/unresolved-read-operand.sh"
