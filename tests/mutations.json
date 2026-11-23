@@ -710,7 +710,7 @@
   {
     "id": "bash-secret-write-dup-ignored",
     "rule": "bash_file_write_env_names: >&2 sends standard output where descriptor 2 points",
-    "old": "            if (m != \"\") { set_fd(fd, fdk[d, m]); i = j; continue }\n",
+    "old": "            if (m != \"\") { kind = (((d, m) in fdk) ? fdk[d, m] : \"\"); set_fd(fd, kind); i = j; continue }\n",
     "new": "            if (m != \"\") { set_fd(fd, \"null\"); i = j; continue }\n",
     "tests": [
       "tests/secret-env-file-write.sh"
