@@ -15171,7 +15171,11 @@ secretish_env_values() {
         # same key, with every gate an unquoted value has.
         glued = start + length(leading) + end + 1
         if (substr(source, glued, 1) ~ /^[A-Za-z0-9_$]$/) {
+          # A short tail maps in context, and the context must be the text
+          # the line holds: the key, then the quotes before the tail.
+          glued_prefix = substr(source, start, glued - start)
           emit_value(source, glued, assignment, require_credential)
+          glued_prefix = ""
           next_rescan_cover_start = 0
           next_rescan_cover_end = 0
           refused_span = ""
@@ -15348,8 +15352,8 @@ secretish_env_values() {
         # displayed secret costs more than a mangled log line.
         if (char_length(value) < 4 && char_length(token) >= 4) {
           trailing = substr(token, end + wrap + 1)
-          emit_mapping(assignment leading token,
-                       assignment leading "[REDACTED]" trailing,
+          emit_mapping(assignment glued_prefix leading token,
+                       assignment glued_prefix leading "[REDACTED]" trailing,
                        start + length(leading),
                        length(value))
           emit_value_words(refused_span, value)
