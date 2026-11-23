@@ -7525,9 +7525,11 @@ bash_strip_literal_message_values() (
 
 # Print the start and end offsets of words in $1 that name no file the command
 # reads: the search pattern of grep, egrep, fgrep, rg and `git grep`, the
-# name a find expression leaves out (`-not -path V`, find_scan), and (as `O
-# start end value`) the output path of an openssl key or certificate
-# generator. A word qualifies only in a segment whose command is that one,
+# name a find expression leaves out (`-not -path V`, find_scan) or a grep
+# --exclude option gives, the search words of a gh query (gh_search_scan),
+# and (as `O start end value`) the output path of an openssl key or
+# certificate generator. A word qualifies only in a segment whose command is
+# that one,
 # as its first word or after `do`, `then` or another keyword, and whose
 # words match the option tables below; an unknown option, an expansion, a
 # glob or a redirection before the pattern leaves the segment alone, and so
@@ -7719,8 +7721,12 @@ search_operand_spans() {
             out = out span(k); sawe = 1; continue
           }
           # The value of a name filter may be an unquoted glob: whatever it
-          # expands to still starts with the option.
-          if (v ~ longv) continue
+          # expands to still starts with the option. A filter that leaves
+          # names out makes grep open none of them.
+          if (v ~ longv) {
+            if (rg == 0 && v ~ /^--exclude(-dir)?=/) out = out span(k)
+            continue
+          }
           if (!wuns[k] && v ~ longs) continue
           return ""
         }
@@ -7922,6 +7928,26 @@ search_operand_spans() {
       if (sub1 != "api") sub1 = sub1 " " (a + 2 <= b ? wv[a + 2] : "")
       if (jq) return sub1 ~ /^(api|run view|run list|pr view|pr list|pr checks|pr status|issue view|issue list|issue status|release view|release list|repo view|repo list)$/
       return sub1 ~ /^(api|run view|run list|run watch|pr view|pr list|pr checks|pr diff|pr status|issue view|issue list|issue status)$/
+    }
+    # The search words of a gh query, which gh sends to GitHub and never
+    # opens: the value of --search or -S of `gh issue list` and `gh pr list`,
+    # and every word of `gh search KIND` that is no option. No option of
+    # those subcommands reads a file, so a value moved off its option is
+    # still no path; every word must be literal.
+    function gh_search_scan(a, b,   k, out, list) {
+      if (raw(a) != "gh" || a + 2 > b) return ""
+      for (k = a; k <= b; k++) if (bad(k) && !quiet(k)) return ""
+      list = wv[a + 1] ~ /^(issue|pr)$/ && wv[a + 2] == "list"
+      if (!list && (wv[a + 1] != "search" || wv[a + 2] !~ /^(code|commits|issues|prs|repos)$/)) return ""
+      out = ""
+      for (k = a + 3; k <= b; k++) {
+        if (quiet(k)) continue
+        if (list) {
+          if (wv[k] ~ /^--search=/) out = out span(k)
+          else if ((wv[k] == "--search" || wv[k] == "-S") && k < b && !quiet(k + 1)) out = out span(++k)
+        } else if (substr(wv[k], 1, 1) != "-") out = out span(k)
+      }
+      return out
     }
     function git_lists_files(a, b,   k) {
       if (wv[a] != "git" || a + 1 > b || wv[a + 1] != "ls-files") return 0
@@ -8234,6 +8260,7 @@ search_operand_spans() {
           else if (wv[hd] == "rg") { if (sink_ok(hd)) known = (got = grep_scan(hd, e, 1)) != "" && plain_words(hd, e) }
           else if (git_grep(hd, e)) { if (sink_ok(hd)) known = (got = grep_scan(hd + 1, e, 2)) != "" && plain_words(hd, e) }
           else if (wv[hd] == "find") { if (sink_ok(hd)) known = (got = find_scan(hd, e)) != "" }
+          else if (wv[hd] == "gh") { if (sink_ok(hd)) got = gh_search_scan(hd, e) }
           else if (wv[k] == "openssl") got = openssl_scan(k, e)
         }
         if (mode == "" && cdepth > 0) held = held got

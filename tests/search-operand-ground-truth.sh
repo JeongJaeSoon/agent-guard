@@ -243,6 +243,7 @@ allow for d in src sub; do grep -c "\.env" "$d/a b" list.txt; done
 allow D=src; rg --no-config -n 'process' $D; grep -c '\.env' list.txt
 allow a=src; grep -n '\.env' "$PWD/$a/a.ts"
 allow a=src; grep -n '\.env' $a-old/a.ts list.txt
+allow grep -rn --exclude='*.env' --exclude-dir=.git VALUE g
 read cd g && git grep -n VALUE -- .env
 read cd g && git grep -h -e VALUE .env
 held cd g && git grep .env -e VALUE
@@ -305,6 +306,9 @@ read grep .env "$UNSETVAR9-e" VALUE
 read grep .env $UNSETVAR9-e VALUE
 read a=e; grep .env "$UNSETVAR9-$a" VALUE
 held grep .env "$1"-e VALUE
+held grep -rn --exclude-from=.env VALUE .
+held gh api search/code -F q=@.env
+held gh issue list --search "a.env"; cat .env
 CASES
 
 # Options from the environment come first and can make the pattern a file.

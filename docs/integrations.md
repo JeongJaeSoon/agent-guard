@@ -161,7 +161,7 @@ gitleaks config instead of the bundled one.
   path lets the original output through on an error, and the file has already
   been read by then.
 - Shell blocking is pattern-based. Search patterns of plain `grep`,
-  `git grep` and `rg --no-config` commands, names a `find` expression leaves out and new `openssl` key output paths are left out of the path match
+  `git grep` and `rg --no-config` commands, names a `find` expression or a grep `--exclude` option leaves out, the search words of a `gh` query and new `openssl` key output paths are left out of the path match
   ([operations](operations.md)), but it can still block other benign
   path-shaped text, and an
   actively evasive command can avoid a fixed pattern list.

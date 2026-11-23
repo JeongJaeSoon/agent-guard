@@ -271,5 +271,75 @@
     "classification": "must-still-block",
     "description": "an operand that starts with an expansion and then a dash, which is an option when the expansion is empty",
     "command": "grep .env \"$UNSET_PREFIX-e\" VALUE"
+  },
+  {
+    "id": "gh-search-word",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "the search words of a gh issue list",
+    "command": "gh issue list --repo o/r --state all --search \"process.env in:body\" --json number,title | head -5"
+  },
+  {
+    "id": "gh-search-then-read",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a gh search, then a command that reads a dotenv file",
+    "command": "gh issue list --search \"process.env\"; cat .env"
+  },
+  {
+    "id": "gh-search-query",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "the query words of gh search",
+    "command": "gh search code \"process.env\" --repo o/r --limit 5"
+  },
+  {
+    "id": "gh-api-field-from-file",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a gh api field that reads its value from a dotenv file",
+    "command": "gh api search/code -F q=@.env"
+  },
+  {
+    "id": "gh-search-to-shell",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "gh search output piped to a shell",
+    "command": "gh search code \"x.env\" --repo o/r | sh"
+  },
+  {
+    "id": "gh-search-last-argument",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "the last-argument variable after a gh search",
+    "command": "gh issue list --search \"a.env\"; cat $_"
+  },
+  {
+    "id": "grep-exclude-value",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a grep name filter that leaves dotenv files out",
+    "command": "grep -rn --exclude='*.env' --exclude-dir=node_modules word docs/"
+  },
+  {
+    "id": "grep-include-value",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a grep name filter that selects dotenv files",
+    "command": "grep -rn --include='*.env' VALUE ."
+  },
+  {
+    "id": "rg-glob-selects",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "an rg glob that selects key files to search",
+    "command": "rg --no-config -n --glob '*.pem' word docs/"
+  },
+  {
+    "id": "grep-exclude-from-file",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a grep that reads its exclusions from a dotenv file",
+    "command": "grep -rn --exclude-from=.env word docs/"
   }
 ]
