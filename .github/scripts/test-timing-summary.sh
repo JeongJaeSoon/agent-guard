@@ -15,4 +15,13 @@ limit=$((TEST_JOB_TIMEOUT_MINUTES * 60))
     partition=${partition%%.*}
     awk -F '\t' -v partition="$partition" '{ print $1 "\t" $2 "\tPartition " partition ": " $3 }' "$file"
   done | LC_ALL=C sort -k1,1nr | awk -F '\t' '{ printf "| %s | %s | %s |\n", $1, $2, $3 }'
-} >>"$GITHUB_STEP_SUMMARY"
+  printf '\n'
+  for file in "$RUNNER_TEMP"/test-partition-*.suites.tsv; do
+    [ -f "$file" ] || continue
+    partition=${file##*/test-partition-}
+    partition=${partition%%.*}
+    total=unknown
+    [ ! -f "$RUNNER_TEMP/test-partition-$partition.seconds" ] || total=$(cat "$RUNNER_TEMP/test-partition-$partition.seconds")
+    awk -F '\t' -v partition="$partition" -v total="$total" '{ sum += $1 } END { printf "Partition %s: %s seconds in total, %d in timed suites\n", partition, total, sum }' "$file"
+  done
+} | tee -a "$GITHUB_STEP_SUMMARY"
