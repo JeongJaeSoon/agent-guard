@@ -41,6 +41,10 @@ for target in x86_64-unknown-linux-musl aarch64-unknown-linux-musl aarch64-apple
   curl -fsSL "$base/$name.sha256" -o "$case_dir/download/$name.sha256"
   (cd "$case_dir/download" && shasum -a 256 -c "$name.sha256") >> "$out/native-checksums.txt"
   cmp "$case_dir/download/$name" "$case_dir/payload/libexec/$name"
+  helper="agent-guard-gitleaks-helper-$target.tar.gz"
+  curl -fsSL "$base/$helper" -o "$case_dir/download/$helper"
+  curl -fsSL "$base/$helper.sha256" -o "$case_dir/download/$helper.sha256"
+  (cd "$case_dir/download" && shasum -a 256 -c "$helper.sha256") >> "$out/native-checksums.txt"
 done
 archive_sha=$(awk '{print $1}' "$case_dir/download/agent-guard-$version.tar.gz.sha256")
 grep -F "sha256 \"$archive_sha\"" "$case_dir/download/agent-guard.rb" > "$out/formula-checksum.txt"
@@ -49,6 +53,14 @@ export AGENT_GUARD_HOME="$case_dir/fresh" AGENT_GUARD_BIN_DIR="$case_dir/fresh-b
 AGENT_GUARD_VERSION="$version" sh "$case_dir/download/bootstrap.sh" > "$out/fresh.log" 2>&1
 "$AGENT_GUARD_BIN_DIR/agent-guard" version | grep -F "agent-guard $version"
 "$AGENT_GUARD_BIN_DIR/agent-guard" smoke-test >> "$out/fresh.log" 2>&1
+# The published warm gitleaks helper installs under the pins of the published
+# CLI. This checks the download and the install; whether it answers scans is
+# covered by the release workflow's own run from the same archive.
+AGENT_GUARD_LOG_MODE=on XDG_STATE_HOME="$case_dir/home/state" \
+  "$AGENT_GUARD_BIN_DIR/agent-guard" setup --install-gitleaks-helper > "$out/gitleaks-helper.log" 2>&1
+grep -F 'gitleaks helper  installed' "$out/gitleaks-helper.log"
+# The helper goes beside the private gitleaks, which follows AGENT_GUARD_BIN_DIR here.
+(cd "$AGENT_GUARD_BIN_DIR/gitleaks-helper" && shasum -a 256 -c SHA256SUMS) >> "$out/gitleaks-helper.log"
 curl -fsSL "https://github.com/JeongJaeSoon/agent-guard/releases/download/v$previous/bootstrap.sh" -o "$case_dir/old-bootstrap.sh"
 printf '%s  %s\n' "$previous_bootstrap_sha" "$case_dir/old-bootstrap.sh" | shasum -a 256 -c -
 export AGENT_GUARD_HOME="$case_dir/upgrade" AGENT_GUARD_BIN_DIR="$case_dir/upgrade-bin"

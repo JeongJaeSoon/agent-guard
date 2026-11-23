@@ -112,5 +112,88 @@ hook hook-pre-tool "$(pre 'ls -la src')" AGENT_GUARD_GITLEAKS_HELPER="$CLIENT" A
 expect "a failing client follows the closed infrastructure policy (deny)" '[ "$(cat "$CASE/h.status")" = 2 ]'
 expect "a failed scan is not stored as a clean verdict" '[ ! -d "$STATE/gitleaks-clean" ] || [ -z "$(ls "$STATE/gitleaks-clean")" ]'
 
+# Preload by default (#569): a helper installed beside the private gitleaks by
+# `setup --install-gitleaks-helper` is used with the variable unset, but only
+# when the checksums it recorded are the ones this CLI pins for one platform.
+PINS="$ROOT/plugins/agent-guard/config/gitleaks-helper.sha256"
+INST="$CASE/empty/gitleaks-helper"
+# $1 names a target of the pin file: an installed helper recording its sums.
+install_fixture() {
+  rm -rf "$INST"
+  mkdir -p "$INST"
+  cp "$CLIENT" "$INST/agent-guard-scan"
+  : >"$INST/agent-guard-gitleaks-helper"
+  awk -v target="$1" 'index($2, target "/") == 1 { sub(/^.*\//, "", $2); print $1 "  " $2 }' "$PINS" >"$INST/SHA256SUMS"
+}
+default_hook() { # a secret command with the variable unset, then any VAR=value settings
+  rm -rf "$STATE/gitleaks-clean"
+  : >"$CALLS"
+  hook hook-pre-tool "$(pre "echo $secret")" AG_X=1 "$@"
+}
+targets=$(awk '!/^#/ && NF == 2 { sub(/\/.*/, "", $2); print $2 }' "$PINS" | sort -u)
+expect "the pin file names the three released platforms" '[ "$(printf "%s\n" "$targets" | grep -c .)" = 3 ]'
+for target in $targets; do
+  install_fixture "$target"
+  default_hook
+  expect "default: an installed helper with this CLI's pins ($target) gets the scan, with the same deny" \
+    'grep -qF -- "--gitleaks|$GL|--gitleaks-version|8.30.1|--state-dir|$STATE|--|stdin|" "$CALLS" && same_as pre-secret'
+done
+: >"$CALLS"
+hook hook-post-tool "$(post "token $secret")" AG_X=1
+expect "default: the output detector's report scan goes through the installed helper" \
+  'grep -q -- "|--|stdin|--report-format|json|--report-path|" "$CALLS" && same_as post-secret'
+for value in off 0 false; do
+  default_hook AGENT_GUARD_GITLEAKS_HELPER="$value"
+  expect "off switch: AGENT_GUARD_GITLEAKS_HELPER=$value keeps an installed helper unused" '[ ! -s "$CALLS" ] && same_as pre-secret'
+done
+default_hook AGENT_GUARD_GITLEAKS_BIN="$GL"
+expect "an explicit AGENT_GUARD_GITLEAKS_BIN keeps an installed helper unused" '[ ! -s "$CALLS" ] && same_as pre-secret'
+default_hook AGENT_GUARD_LOG_MODE=off AGENT_GUARD_SCAN_CACHE=on
+expect "logging off keeps an installed helper unused" '[ ! -s "$CALLS" ] && [ "$(cat "$CASE/h.status")" = 2 ]'
+# Installed for another Agent Guard version, or not completely: not run.
+first_target=$(printf '%s\n' "$targets" | sed -n 1p)
+last_target=$(printf '%s\n' "$targets" | sed -n '$p')
+install_fixture "$first_target"
+sed '1s/^[0-9a-f]/z/' "$INST/SHA256SUMS" >"$INST/sums" && mv "$INST/sums" "$INST/SHA256SUMS"
+default_hook
+expect "missing: a helper whose recorded sums are not this CLI's pins is not run" '[ ! -s "$CALLS" ] && same_as pre-secret'
+install_fixture "$first_target"
+{ sed -n 1p "$INST/SHA256SUMS"; awk -v target="$last_target" 'index($2, target "/agent-guard-scan") == 1 { print $1 "  agent-guard-scan" }' "$PINS"; } >"$INST/sums" \
+  && mv "$INST/sums" "$INST/SHA256SUMS"
+default_hook
+expect "missing: recorded sums of two different platforms are not one pinned helper" '[ ! -s "$CALLS" ] && same_as pre-secret'
+install_fixture "$first_target"
+rm "$INST/SHA256SUMS"
+default_hook
+expect "missing: an installed helper without its recorded sums is not run" '[ ! -s "$CALLS" ] && same_as pre-secret'
+install_fixture "$first_target"
+chmod -x "$INST/agent-guard-scan"
+default_hook
+expect "missing: a non-executable installed client is not run" '[ ! -s "$CALLS" ] && same_as pre-secret'
+# An explicit path is the user's own build: it runs whatever is installed.
+default_hook AGENT_GUARD_GITLEAKS_HELPER="$CLIENT"
+expect "an explicit client path is used beside an unusable installed helper" \
+  'grep -qF -- "--gitleaks|$GL|" "$CALLS" && same_as pre-secret'
+rm -rf "$INST"
+default_hook
+expect "missing: with no installed helper the scan runs gitleaks as before" '[ ! -s "$CALLS" ] && same_as pre-secret'
+
+# Installing the released helper (#569).
+# Always the stand-in archive here: the released one runs in its own job.
+if (unset AGENT_GUARD_NATIVE_ARTIFACT_DIR AGENT_GUARD_TEST_REAL_GITLEAKS; sh "$ROOT/tests/gitleaks-helper-install.sh") >"$CASE/install.log" 2>&1; then
+  ok "setup --install-gitleaks-helper installs only a helper that matches the pins ($(grep -c '^ok ' "$CASE/install.log") checks)"
+else
+  bad "setup --install-gitleaks-helper installs only a helper that matches the pins"
+  sed 's/^/  /' "$CASE/install.log"
+fi
+
+# The license notices of the released archives (#569): no Go, no network.
+if sh "$ROOT/tests/gitleaks-helper-notices.sh" >"$CASE/notices.log" 2>&1; then
+  ok "every module linked into the released helper has a license notice ($(grep -c '^ok ' "$CASE/notices.log") checks)"
+else
+  bad "every module linked into the released helper has a license notice"
+  sed 's/^/  /' "$CASE/notices.log"
+fi
+
 printf '\npassed: %s\nfailed: %s\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

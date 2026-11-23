@@ -175,6 +175,7 @@ in_navigation_host() {
 if in_shard 1; then
 run_expect 0 "CI scope keeps reduced checks separate from release evidence" sh "$ROOT/tests/ci-scope.sh"
 run_expect 0 "CI records completed suite timings and warns on job time budget" sh "$ROOT/tests/ci-timing.sh"
+run_expect 0 "the suites moved off partition 1 to balance the macOS jobs still run in partition 2" sh "$ROOT/tests/partition-membership.sh"
 run_expect 0 "core function contracts" sh "$ROOT/tests/unit-core.sh"
 run_expect 0 "rule mutation list and its workflow paths are valid" sh "$ROOT/tests/mutation-check.sh" --lint
 run_expect 0 "framing producer contracts" sh "$ROOT/tests/unit-framing.sh"
@@ -519,7 +520,7 @@ fi
 expected_codex_pre='Bash|apply_patch|Agent|Task|mcp__.*'
 expected_codex_post='Bash|apply_patch|Agent|Task|mcp__.*'
 expected_claude_pre='Write|Edit|MultiEdit|NotebookEdit|Read|NotebookRead|Grep|Glob|Bash|WebFetch|WebSearch|apply_patch|Agent|Task|mcp__.*'
-expected_claude_post='^(Write|Edit|MultiEdit|NotebookEdit|Bash|PowerShell|apply_patch|Read|NotebookRead|Grep|Glob|WebFetch|WebSearch|Agent|Task|Skill|Monitor|LSP|ListMcpResourcesTool|ReadMcpResourceTool|REPL|Poll|mcp__.*)$'
+expected_claude_post='^(Write|Edit|MultiEdit|NotebookEdit|Bash|PowerShell|apply_patch|Read|NotebookRead|Grep|Glob|WebFetch|WebSearch|Agent|Task|Skill|Monitor|LSP|ListMcpResourcesTool|ReadMcpResourceTool|REPL|Eval|Poll|mcp__.*)$'
 
 assert_manifest_matchers() {
   matcher_file=$1
@@ -552,7 +553,7 @@ assert_manifest_matchers "$ROOT/examples/claude/settings.project.json" "Claude e
 claude_post_matcher=$(jq -r '.hooks.PostToolUse[0].matcher' "$PLUGIN_ROOT/hooks/hooks.json")
 for structural_tool in \
   PowerShell Skill Monitor LSP ListMcpResourcesTool \
-  ReadMcpResourceTool REPL Poll mcp__server__tool; do
+  ReadMcpResourceTool REPL Eval Poll mcp__server__tool; do
   if jq -n -e --arg matcher "$claude_post_matcher" --arg tool "$structural_tool" \
       '$tool | test($matcher)' >/dev/null; then
     ok "Claude PostToolUse matcher structurally covers $structural_tool"
@@ -562,7 +563,7 @@ for structural_tool in \
 done
 for structural_unknown in \
   FutureTool SkillManager MonitorStatus MyLSPClient TodoWrite \
-  NotASkill xReadMcpResourceTool Bashful REPLica Polling; do
+  NotASkill xReadMcpResourceTool Bashful REPLica Evaluate Polling; do
   if jq -n -e --arg matcher "$claude_post_matcher" --arg tool "$structural_unknown" \
       '$tool | test($matcher) | not' >/dev/null; then
     ok "Claude PostToolUse matcher structural approximation passes through unrelated $structural_unknown"
@@ -579,8 +580,8 @@ if command -v node >/dev/null 2>&1; then
       if (!positives.every((name) => pattern.test(name))) process.exit(1);
       if (!negatives.every((name) => !pattern.test(name))) process.exit(1);
     ' "$claude_post_matcher" \
-      'PowerShell,Skill,Monitor,LSP,ListMcpResourcesTool,ReadMcpResourceTool,REPL,Poll,mcp__server__tool' \
-      'FutureTool,SkillManager,MonitorStatus,MyLSPClient,TodoWrite,NotASkill,xReadMcpResourceTool,Bashful,REPLica,Polling'; then
+      'PowerShell,Skill,Monitor,LSP,ListMcpResourcesTool,ReadMcpResourceTool,REPL,Eval,Poll,mcp__server__tool' \
+      'FutureTool,SkillManager,MonitorStatus,MyLSPClient,TodoWrite,NotASkill,xReadMcpResourceTool,Bashful,REPLica,Evaluate,Polling'; then
     ok "Claude PostToolUse matcher passes the actual JavaScript RegExp contract"
   else
     not_ok "Claude PostToolUse matcher failed the JavaScript RegExp contract"
@@ -2994,24 +2995,14 @@ run_expect 0 "hook process shortcuts answer exactly as the processes they replac
   sh "$ROOT/tests/hook-spawn-reduction.sh"
 run_expect 0 "cat/tee here-document bodies leave out no protected read" \
   sh "$ROOT/tests/heredoc-body-text.sh"
-run_expect 0 "sed addresses, echo words and plain heredoc expansions are data; real reads stay blocked" \
-  sh "$ROOT/tests/bash-path-text-data.sh"
 run_expect 0 "a gh --jq value is a jq filter and does not stop a later jq rewrite; real reads stay blocked" \
   sh "$ROOT/tests/gh-jq-option.sh"
-run_expect 0 "a committed file is not blocked by its name; untracked, linked, outside and remote paths stay blocked" \
-  sh "$ROOT/tests/tracked-file-exception.sh"
-run_expect 0 "program text of known tools is not a path operand; operands, literals that name a file and shell code stay blocked" \
-  sh "$ROOT/tests/path-operands-only.sh"
 run_expect 0 "literal backquotes in quoted text read by echo or cat pass, runnable ones stay blocked" \
   sh "$ROOT/tests/literal-substitution-text.sh"
 run_expect 0 "a failed quoted-bracket normalization keeps the protected-path verdict" \
   sh "$ROOT/tests/quoted-bracket-fallback.sh"
 run_expect 0 "status words and named placeholders are prose, real values still block" \
   sh "$ROOT/tests/prompt-prose-placeholder.sh"
-run_expect 0 "bracketed values mask whole and spaced angle placeholders are judged as one value on both hosts" \
-  sh "$ROOT/tests/redaction-wrapped-values.sh"
-run_expect 0 "hand-back reports that name credential settings without values pass, real values still block" \
-  sh "$ROOT/tests/handback-values.sh"
 ambiguous_bash_fixtures="$ROOT/tests/fixtures/ambiguous-bash-protected-path.json"
 ambiguous_bash_cases="$TESTTMP/ambiguous-bash-protected-path.cases"
 if jq -e 'type == "array" and length > 0' "$ambiguous_bash_fixtures" >/dev/null \
@@ -5588,6 +5579,18 @@ run_expect 0 "a field value that repeats the field name is code on both hosts; c
 fi # end of shard 3
 
 if in_shard 2; then
+# Moved here from partition 1, which alone took 24 to 25 minutes on macOS.
+# tests/partition-membership.sh keeps them in this partition.
+run_expect 0 "sed addresses, echo words and plain heredoc expansions are data; real reads stay blocked" \
+  sh "$ROOT/tests/bash-path-text-data.sh"
+run_expect 0 "a committed file is not blocked by its name; untracked, linked, outside and remote paths stay blocked" \
+  sh "$ROOT/tests/tracked-file-exception.sh"
+run_expect 0 "program text of known tools is not a path operand; operands, literals that name a file and shell code stay blocked" \
+  sh "$ROOT/tests/path-operands-only.sh"
+run_expect 0 "bracketed values mask whole and spaced angle placeholders are judged as one value on both hosts" \
+  sh "$ROOT/tests/redaction-wrapped-values.sh"
+run_expect 0 "hand-back reports that name credential settings without values pass, real values still block" \
+  sh "$ROOT/tests/handback-values.sh"
 # A git alias runs the git command it expands to, read from the configuration
 # that command reads: its -c options and GIT_CONFIG_* variables, the repository
 # it runs in, include files and the global file. The hook runs with cwd=a and

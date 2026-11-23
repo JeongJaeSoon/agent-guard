@@ -127,6 +127,8 @@ another tool call.
   probe that timed out; other fixed readiness codes distinguish an unsupported
   version or a failed probe. These diagnostics include no scanner output or
   input paths. A timeout code identifies the failed stage, not why it was slow.
+  Every hook except SessionStart retries a timed-out version probe once, so
+  there the code means that two probes in a row timed out.
 - `open` infrastructure mode continues after a visible one-time warning;
   `closed` blocks. This policy applies to infrastructure failures, while a
   secret detection blocks. Non-empty malformed or non-object PreToolUse and
@@ -160,19 +162,28 @@ Treat `2` and `3` as "not scanned", never as clean.
 
 ## Routine checks
 
-The opt-in warm gitleaks helper is checked against the official gitleaks
-release it links, on the machine that built it. With the build directory and
-the official release binary (not a Homebrew or `go install` build, which the
-helper refuses by design), run its failure-path, host and differential suites:
+The warm gitleaks helper is checked against the official gitleaks release it
+links. The release workflow runs its failure-path, host and differential
+suites from each platform's release archive and publishes an archive only when
+its two binaries match the SHA-256 values in
+`plugins/agent-guard/config/gitleaks-helper.sha256`, the values
+`agent-guard setup --install-gitleaks-helper` requires. The build is
+reproducible: `sh scripts/build-gitleaks-helper.sh --print-pins` in a source
+checkout prints those lines. To check an installed helper yourself, compare it
+with its recorded sums, and from a source checkout run the suites with the
+official release binary (not a Homebrew or `go install` build, which the
+helper refuses by design):
 
 ```sh
-AGENT_GUARD_TEST_HELPER_DIR="$HOME/.agent-guard/gitleaks-helper" \
+(cd "$HOME/.agent-guard/bin/gitleaks-helper" && shasum -a 256 -c SHA256SUMS)
+AGENT_GUARD_TEST_HELPER_DIR="$HOME/.agent-guard/bin/gitleaks-helper" \
 AGENT_GUARD_TEST_REAL_GITLEAKS="$(command -v gitleaks)" sh tests/gitleaks-helper.sh
-AGENT_GUARD_TEST_HELPER_DIR="$HOME/.agent-guard/gitleaks-helper" \
+AGENT_GUARD_TEST_HELPER_DIR="$HOME/.agent-guard/bin/gitleaks-helper" \
 AGENT_GUARD_TEST_REAL_GITLEAKS="$(command -v gitleaks)" sh tests/gitleaks-helper-corpus.sh
 ```
 
-While it is on, a running helper appears as one `agent-guard-gitleaks-helper
+`agent-guard setup` prints whether a helper is installed. While it is in use, a running
+helper appears as one `agent-guard-gitleaks-helper
 serve` process with a socket under `$XDG_STATE_HOME/agent-guard/gitleaks-helper`
 (or `~/.local/state/...`). Its absence only means scans run the real gitleaks.
 

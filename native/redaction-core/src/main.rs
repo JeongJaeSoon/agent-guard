@@ -50,6 +50,45 @@ fn protected(key: Option<&str>, text: &str) -> bool {
     )
 }
 
+enum Step<'a> {
+    Key(&'a str),
+    Index,
+}
+
+// Words Claude Code checks only at the paths its output schemas give them,
+// as JQ_SHAPE_SAFE_WALK host_enum_word reads them.
+fn host_enum_word(path: &[Step], text: &str) -> bool {
+    use Step::{Index, Key};
+    match path {
+        [Key("stoppedBy")] => matches!(text, "user" | "refusal"),
+        [Key("neverRan")] => matches!(text, "person" | "other"),
+        [Key("status")] => matches!(text, "inline" | "forked"),
+        [Key("gitDiff"), Key("status")] => matches!(text, "modified" | "added"),
+        [Key("provenance"), Index, Key("authority")] => matches!(
+            text,
+            "human-principal" | "human-other" | "peer-agent" | "world-event"
+        ),
+        [Key("gitOperation"), Key(_), Key("kind")] => {
+            matches!(text, "committed" | "amended" | "cherry-picked")
+        }
+        [Key("gitOperation"), Key(_), Key("action")] => matches!(
+            text,
+            "merged"
+                | "rebased"
+                | "created"
+                | "edited"
+                | "commented"
+                | "closed"
+                | "reopened"
+                | "ready"
+                | "draft"
+                | "auto-merge-enabled"
+                | "auto-merge-disabled"
+        ),
+        _ => false,
+    }
+}
+
 fn string_work(value: &Value) -> usize {
     match value {
         Value::String(s) => s.chars().count().saturating_add(1),
@@ -76,19 +115,33 @@ fn replace_context(text: &str, spec: &Spec) -> String {
     out
 }
 
-fn walk(value: &mut Value, key: Option<&str>, specs: &[Spec], whole: bool) {
+fn walk<'a>(value: &'a mut Value, path: &mut Vec<Step<'a>>, specs: &[Spec], whole: bool) {
     match value {
         Value::Object(o) => {
             for (k, v) in o.iter_mut() {
-                walk(v, Some(k), specs, whole);
+                path.push(Step::Key(k));
+                walk(v, path, specs, whole);
+                path.pop();
             }
         }
         Value::Array(a) => {
             for v in a {
-                walk(v, None, specs, whole);
+                path.push(Step::Index);
+                walk(v, path, specs, whole);
+                path.pop();
             }
         }
-        Value::String(s) if !s.is_empty() && !protected(key, s) => {
+        Value::String(s)
+            if !s.is_empty()
+                && !protected(
+                    match path.last() {
+                        Some(Step::Key(k)) => Some(k),
+                        _ => None,
+                    },
+                    s,
+                )
+                && !host_enum_word(path, s) =>
+        {
             if whole {
                 *s = MASK.to_owned();
                 return;
@@ -145,7 +198,7 @@ fn redact(mut request: Value) -> Result<Value, ()> {
             std::cmp::Reverse(s.order),
         )
     });
-    walk(&mut response, None, &specs, whole);
+    walk(&mut response, &mut Vec::new(), &specs, whole);
     Ok(response)
 }
 

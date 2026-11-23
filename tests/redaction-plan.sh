@@ -41,6 +41,33 @@ check 'equal length contextual order remains stable across leaves' \
   '[{"literal":"aaaa","replacement":"bbbb","contextual":true},{"literal":"bbbb","replacement":"done","contextual":true}]' \
   '["bbbb done",{"s":"bbbb"}]'
 check 'empty literal does not insert replacements' '["",null,false,"clean"]' '[""]' '["",null,false,"clean"]'
+# #599: the Code Mode and git words Claude Code checks stay only at the paths
+# its output schemas give them (REPL's stoppedBy and neverRan, Skill's status,
+# gitDiff.status, provenance[].authority, gitOperation.*.kind and .action) and
+# only as an allowed value. The same words elsewhere, such as in REPL's free
+# `result`, are data and are masked when detected.
+host_words='{"stoppedBy":"user","neverRan":"other","status":"inline",
+  "gitDiff":{"status":"added"},"provenance":[{"authority":"peer-agent"}],
+  "gitOperation":{"pr":{"action":"closed"},"commit":{"kind":"committed"}},
+  "result":{"status":"closed","kind":"committed","action":"draft",
+    "stoppedBy":"user","authority":"peer-agent","type":"user",
+    "gitDiff":{"status":"added"}}}'
+host_kept='{"stoppedBy":"user","neverRan":"other","status":"inline",
+  "gitDiff":{"status":"added"},"provenance":[{"authority":"peer-agent"}],
+  "gitOperation":{"pr":{"action":"closed"},"commit":{"kind":"committed"}},
+  "result":{"status":"[REDACTED]","kind":"[REDACTED]","action":"[REDACTED]",
+    "stoppedBy":"[REDACTED]","authority":"[REDACTED]","type":"[REDACTED]",
+    "gitDiff":{"status":"[REDACTED]"}}}'
+check 'host enum words are kept only at their schema paths' \
+  "$host_words" '["user","other","inline","added","peer-agent","closed","committed","draft"]' \
+  "$host_kept"
+check 'a word outside its field enum is masked at a host path' \
+  '{"stoppedBy":"closed","neverRan":"user","status":"added","gitDiff":{"status":"inline"}}' \
+  '["closed","user","added","inline"]' \
+  '{"stoppedBy":"[REDACTED]","neverRan":"[REDACTED]","status":"[REDACTED]","gitDiff":{"status":"[REDACTED]"}}'
+specs=$(jq -nc '[range(257) | "literal-" + tostring]')
+check 'the whole-response walk keeps host words only at their schema paths' \
+  "$host_words" "$specs" "$host_kept"
 specs=$(jq -nc '[range(257) | "literal-" + tostring]')
 check 'record budget preserves conservative shape' \
   '{"type":"text","text":"clean","empty":"","n":7}' "$specs" \
@@ -48,4 +75,21 @@ check 'record budget preserves conservative shape' \
 response=$(jq -nc '[range(500) | {type:"text",text:"abcd-long abcd"}]')
 expected=$(jq -nc '[range(500) | {type:"text",text:"[REDACTED] [REDACTED]"}]')
 check 'one plan applies to every leaf' "$response" '["abcd","abcd-long"]' "$expected"
+# The whole-leaf fallbacks (jq, then the awk parser when jq cannot) follow the
+# same paths.
+sh "$ROOT/tests/helpers/extract-functions.sh" "$SOURCE" "$CASE" \
+  mktemp_file redact_nonempty_response_strings redact_response_values_awk_current
+. "$CASE/mktemp_file.sh"
+. "$CASE/redact_nonempty_response_strings.sh"
+. "$CASE/redact_response_values_awk_current.sh"
+printf '%s' "$host_kept" | jq -cS . >"$CASE/expected"
+redact_nonempty_response_strings "$host_words" | jq -cS . >"$CASE/normalized"
+cmp "$CASE/expected" "$CASE/normalized"
+count=$((count + 1))
+printf 'ok - %s\n' 'jq whole-leaf walk keeps host words only at their schema paths'
+whole_leaf_response=$(printf '%s' "$host_words" | jq -c .)
+redact_response_values_awk_current | jq -cS . >"$CASE/normalized"
+cmp "$CASE/expected" "$CASE/normalized"
+count=$((count + 1))
+printf 'ok - %s\n' 'awk whole-leaf parser keeps host words only at their schema paths'
 printf 'passed: %s\n' "$count"

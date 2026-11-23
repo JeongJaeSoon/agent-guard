@@ -278,6 +278,7 @@ Usage:
   agent-guard scan-path PATH...
   agent-guard check
   agent-guard setup [--install --gitleaks-checksum SHA [--gitleaks-version X.Y.Z]]
+  agent-guard setup --install-gitleaks-helper
   agent-guard doctor
   agent-guard logs [status|export [--output FILE]]
   agent-guard plugin status|install|update|uninstall [--host claude|codex|all] [--scope user|project|local] [--check]
@@ -2513,10 +2514,18 @@ hook_policy_unusable() {
   return 1
 }
 
+# A stalled machine can miss the version probe's deadline once: at load 40, 4
+# of 2,400 probes took over 2s and no two in a row did (#617). So a timeout,
+# and only a timeout, gets one more probe. $1 = once skips it for SessionStart,
+# whose 5s host timeout cannot hold two deadlines.
 hook_dependencies_ready() {
   command -v jq >/dev/null 2>&1 || return 1
   command -v awk >/dev/null 2>&1 || return 1
-  prepare_gitleaks || return 1
+  if ! prepare_gitleaks; then
+    [ "${1:-}" != once ] \
+      && [ "$GITLEAKS_PROBE_STATE:$GITLEAKS_PROBE_DETAIL" = runtime-failure:timeout ] \
+      && prepare_gitleaks || return 1
+  fi
   ! hook_policy_unusable >/dev/null
 }
 
@@ -3076,8 +3085,140 @@ setup_install_gitleaks() {
   esac
 }
 
+# Install the released warm gitleaks helper for this platform (#569). Both
+# binaries must match the checksums this CLI pins in
+# config/gitleaks-helper.sha256 before anything is installed, so a release
+# asset that was replaced is refused. They go beside the private gitleaks,
+# where gitleaks_helper_installed finds them. Any failure leaves an earlier
+# installed helper as it was.
+setup_install_gitleaks_helper() {
+  case "$(uname -s):$(uname -m)" in
+    Linux:x86_64|Linux:amd64) helper_target=x86_64-unknown-linux-musl ;;
+    Linux:aarch64|Linux:arm64) helper_target=aarch64-unknown-linux-musl ;;
+    Darwin:arm64) helper_target=aarch64-apple-darwin ;;
+    *) die "setup: no warm gitleaks helper is released for this platform ($(uname -s) $(uname -m))" ;;
+  esac
+  need_cmd curl
+  need_cmd shasum
+  need_cmd tar
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-setup.XXXXXX") || die "setup: failed to create temp dir"
+  AG_EXIT_TMP_DIR=$tmp
+  # The two pinned sums as a shasum list, helper first: the order
+  # gitleaks_helper_installed reads back.
+  awk -v target="$helper_target" '
+    NF == 2 && length($1) == 64 && $1 !~ /[^0-9a-f]/ {
+      if ($2 == target "/agent-guard-gitleaks-helper") helper = $1
+      if ($2 == target "/agent-guard-scan") client = $1
+    }
+    END {
+      if (helper == "" || client == "") exit 1
+      print helper "  agent-guard-gitleaks-helper"
+      print client "  agent-guard-scan"
+    }' "$ROOT_DIR/config/gitleaks-helper.sha256" >"$tmp/SHA256SUMS" 2>/dev/null \
+    || die "setup: this Agent Guard version pins no warm gitleaks helper for $helper_target"
+  helper_asset=agent-guard-gitleaks-helper-$helper_target.tar.gz
+  helper_url=$AG_REPO_URL/releases/download/v$VERSION/$helper_asset
+  info "$PROGRAM: downloading $helper_asset"
+  curl -fsSL "$helper_url" -o "$tmp/$helper_asset" || die "setup: download failed: $helper_url"
+  # Only the two named members leave the archive, and each must be a regular
+  # file: a link could stand in for a file the sums were never taken from.
+  mkdir "$tmp/helper" || die "setup: failed to create temp dir"
+  tar -xzf "$tmp/$helper_asset" -C "$tmp/helper" agent-guard-gitleaks-helper agent-guard-scan \
+    || die "setup: extraction failed for $helper_asset"
+  for helper_file in agent-guard-gitleaks-helper agent-guard-scan; do
+    [ -f "$tmp/helper/$helper_file" ] && [ ! -L "$tmp/helper/$helper_file" ] \
+      || die "setup: $helper_asset holds no regular file $helper_file"
+  done
+  info "$PROGRAM: verifying sha256 against the checksums built into this version"
+  (CDPATH='' cd -- "$tmp/helper" && shasum -a 256 -c ../SHA256SUMS >&2) \
+    || die "setup: checksum verification failed for $helper_asset; nothing was installed"
+  helper_dir=$SETUP_INSTALL_DIR/gitleaks-helper
+  [ ! -L "$helper_dir" ] || die "setup: $helper_dir is a symlink; remove it and run this again"
+  mkdir -p "$SETUP_INSTALL_DIR" || die "setup: cannot create install dir: $SETUP_INSTALL_DIR"
+  # mktemp -d makes the directory private (0700). Stage beside the final
+  # place so the renames stay on one filesystem.
+  helper_stage=$(mktemp -d "$SETUP_INSTALL_DIR/.gitleaks-helper.XXXXXX") \
+    || die "setup: cannot stage the helper in $SETUP_INSTALL_DIR"
+  if ! { chmod 755 "$tmp/helper/agent-guard-gitleaks-helper" "$tmp/helper/agent-guard-scan" \
+      && mv "$tmp/helper/agent-guard-gitleaks-helper" "$tmp/helper/agent-guard-scan" "$helper_stage/" \
+      && cp "$tmp/SHA256SUMS" "$helper_stage/SHA256SUMS"; }; then
+    rm -rf "$helper_stage"
+    die "setup: failed to stage the helper"
+  fi
+  # A hook that runs between the two renames finds no helper and runs
+  # gitleaks itself; a helper process started from the replaced binary serves
+  # no new request (its key names the old file) and ends when idle.
+  rm -rf "$helper_dir.previous"
+  if [ -e "$helper_dir" ] && ! mv "$helper_dir" "$helper_dir.previous"; then
+    rm -rf "$helper_stage"
+    die "setup: cannot replace $helper_dir"
+  fi
+  if ! mv "$helper_stage" "$helper_dir"; then
+    [ ! -e "$helper_dir.previous" ] || mv "$helper_dir.previous" "$helper_dir"
+    rm -rf "$helper_stage"
+    die "setup: cannot install the helper at $helper_dir"
+  fi
+  rm -rf "$helper_dir.previous" "$tmp"
+  AG_EXIT_TMP_DIR=
+  unset AG_GITLEAKS_HELPER_INSTALLED
+  info "$PROGRAM: installed the warm gitleaks helper at $helper_dir"
+  info "$PROGRAM: scans use it from now on; AGENT_GUARD_GITLEAKS_HELPER=off turns it off"
+}
+
+# One line on the warm gitleaks helper, from files and variables only. It
+# never runs the client: a status line must not start a resident process, and
+# a client that fails or hangs must not stall setup or doctor. So it says
+# which client scans are handed to, not whether a helper answers; the client
+# decides that per scan and runs the real gitleaks otherwise. The helper is
+# optional, so this never fails setup.
+setup_gitleaks_helper_status_line() {
+  helper_client=
+  case "${AGENT_GUARD_GITLEAKS_HELPER:-}" in
+    /*)
+      if [ -f "$AGENT_GUARD_GITLEAKS_HELPER" ] && [ -x "$AGENT_GUARD_GITLEAKS_HELPER" ]; then
+        helper_client=$AGENT_GUARD_GITLEAKS_HELPER
+      else
+        info "$PROGRAM: gitleaks helper  missing  (AGENT_GUARD_GITLEAKS_HELPER is not an executable file: $AGENT_GUARD_GITLEAKS_HELPER)"
+        return 0
+      fi
+      ;;
+    '')
+      if gitleaks_helper_installed; then
+        helper_client=$AG_GITLEAKS_HELPER_CLIENT
+      else
+        cli_ref_init
+        if [ -e "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks-helper" ]; then
+          info "$PROGRAM: gitleaks helper  not used  (installed for another Agent Guard version; run: $AG_CLI_REF setup --install-gitleaks-helper)"
+        else
+          info "$PROGRAM: gitleaks helper  not installed  (optional; keeps gitleaks loaded between scans: $AG_CLI_REF setup --install-gitleaks-helper)"
+        fi
+        return 0
+      fi
+      ;;
+    *)
+      info "$PROGRAM: gitleaks helper  off  (AGENT_GUARD_GITLEAKS_HELPER is not an absolute path)"
+      return 0
+      ;;
+  esac
+  if [ -n "${AGENT_GUARD_GITLEAKS_BIN:-}" ]; then
+    info "$PROGRAM: gitleaks helper  not used  (AGENT_GUARD_GITLEAKS_BIN selects the scanner)"
+    return 0
+  fi
+  if [ "${AGENT_GUARD_LOG_MODE:-on}" = off ]; then
+    info "$PROGRAM: gitleaks helper  not used  (AGENT_GUARD_LOG_MODE=off)"
+    return 0
+  fi
+  if [ -n "${AGENT_GUARD_GITLEAKS_HELPER:-}" ]; then
+    info "$PROGRAM: gitleaks helper  selected  (AGENT_GUARD_GITLEAKS_HELPER: $helper_client)"
+  else
+    info "$PROGRAM: gitleaks helper  installed  ($helper_client; it answers when the selected gitleaks is the official gitleaks $GITLEAKS_DEFAULT_VERSION release build, and gitleaks runs itself otherwise)"
+  fi
+  return 0
+}
+
 do_setup() {
   install=0
+  helper_install=0
   version=$GITLEAKS_DEFAULT_VERSION
   checksum=""
   while [ $# -gt 0 ]; do
@@ -3095,16 +3236,23 @@ do_setup() {
         checksum=$1
         ;;
       --gitleaks-checksum=*) checksum=${1#--gitleaks-checksum=} ;;
+      --install-gitleaks-helper) helper_install=1 ;;
       -h|--help)
         cat >&2 <<'EOF'
 Usage:
   agent-guard setup
   agent-guard setup --install --gitleaks-checksum SHA [--gitleaks-version X.Y.Z]
+  agent-guard setup --install-gitleaks-helper
 
 Default behavior is opt-in: setup only reports the dependency status.
 Pass --install to download gitleaks. The checksum is required and must
 match the published value at:
   https://github.com/gitleaks/gitleaks/releases/download/vX.Y.Z/gitleaks_X.Y.Z_checksums.txt
+
+Pass --install-gitleaks-helper to download this version's warm gitleaks
+helper for this platform from the Agent Guard release. It is installed only
+when it matches the checksums built into this CLI, and scans then use it
+without further setup. AGENT_GUARD_GITLEAKS_HELPER=off turns it off.
 EOF
         return 0
         ;;
@@ -3124,6 +3272,8 @@ EOF
   # protection can be observed; never imply that this CLI has inspected that
   # boundary or authenticated a host decision.
   info "$PROGRAM: host hook protection: unverified (dependency checks do not observe tool dispatch)"
+  [ "$helper_install" -eq 0 ] || setup_install_gitleaks_helper
+  setup_gitleaks_helper_status_line
 
   if [ "$install" -eq 1 ]; then
     gitleaks_runtime_ok=1
@@ -3841,32 +3991,85 @@ run_gitleaks_stdin() {
   gitleaks_scan "$1" stdin
 }
 
-# Run the prepared gitleaks $1 with the remaining arguments. When
-# AGENT_GUARD_GITLEAKS_HELPER names an absolute executable scan client, the
-# client runs in its place: it answers from the warm helper only when that
+# The warm gitleaks helper that `setup --install-gitleaks-helper` put beside
+# the private gitleaks (#569). Sets AG_GITLEAKS_HELPER_CLIENT to its scan
+# client when the checksums recorded at install are the ones this CLI pins
+# for one platform in config/gitleaks-helper.sha256, so a helper another
+# Agent Guard version installed is not run. The binaries were verified against
+# those pins when they were installed and are not hashed again for each scan:
+# they have the trust of the gitleaks binary in the same directory. Reads two
+# small files with no process (#407), once per invocation.
+gitleaks_helper_installed() {
+  if [ -z "${AG_GITLEAKS_HELPER_INSTALLED+set}" ]; then
+    AG_GITLEAKS_HELPER_INSTALLED=
+    ag_gh_dir=$GITLEAKS_PRIVATE_BIN_DIR/gitleaks-helper
+    ag_gh_helper=
+    ag_gh_client=
+    if [ -f "$ag_gh_dir/agent-guard-scan" ] && [ -f "$ag_gh_dir/SHA256SUMS" ] \
+        && [ -f "$ROOT_DIR/config/gitleaks-helper.sha256" ] \
+        && { IFS= read -r ag_gh_helper && IFS= read -r ag_gh_client; } \
+          2>/dev/null <"$ag_gh_dir/SHA256SUMS"; then
+      case "$ag_gh_helper" in
+        *'  agent-guard-gitleaks-helper') ag_gh_helper=${ag_gh_helper%%  *} ;;
+        *) ag_gh_helper= ;;
+      esac
+      case "$ag_gh_client" in
+        *'  agent-guard-scan') ag_gh_client=${ag_gh_client%%  *} ;;
+        *) ag_gh_client= ;;
+      esac
+      ag_gh_target=
+      if [ "${#ag_gh_helper}" -eq 64 ] && [ "${#ag_gh_client}" -eq 64 ]; then
+        while IFS= read -r ag_gh_line; do
+          case "$ag_gh_line" in
+            "$ag_gh_helper  "*/agent-guard-gitleaks-helper)
+              ag_gh_target=${ag_gh_line#*  }
+              ag_gh_target=${ag_gh_target%/agent-guard-gitleaks-helper}
+              ;;
+            "$ag_gh_client  $ag_gh_target/agent-guard-scan")
+              [ -z "$ag_gh_target" ] || AG_GITLEAKS_HELPER_INSTALLED=$ag_gh_dir/agent-guard-scan
+              ;;
+          esac
+        done 2>/dev/null <"$ROOT_DIR/config/gitleaks-helper.sha256"
+      fi
+    fi
+  fi
+  [ -n "$AG_GITLEAKS_HELPER_INSTALLED" ] || return 1
+  AG_GITLEAKS_HELPER_CLIENT=$AG_GITLEAKS_HELPER_INSTALLED
+}
+
+# Run the prepared gitleaks $1 with the remaining arguments. When a scan
+# client is selected, it runs in gitleaks's place. The client is the installed
+# helper's (gitleaks_helper_installed) when AGENT_GUARD_GITLEAKS_HELPER is
+# unset, the file that variable names when it is an absolute path, and none
+# for any other value (`off`). The client answers from the warm helper only when that
 # helper runs the probed gitleaks version and these exact config bytes, and
 # otherwise execs $1 with the same arguments and input, so a helper failure is
 # never a clean scan. An explicit AGENT_GUARD_GITLEAKS_BIN keeps its scanner,
 # and AGENT_GUARD_LOG_MODE=off never uses it: without the private state
 # directory there is no socket directory, and with one kept only for
 # AGENT_GUARD_SCAN_CACHE=on the helper stays off until log-off mode decides
-# otherwise (#537, #520). Off, this is one case with no process (#407). A caller
+# otherwise (#537, #520). With no helper this costs no process (#407). A caller
 # that runs gitleaks as the last command of a subshell tests
 # gitleaks_helper_selected outside it and keeps the plain command otherwise,
 # so the shell still execs gitleaks without another fork.
 gitleaks_helper_selected() {
-  case "${AGENT_GUARD_GITLEAKS_HELPER:-}" in /*) ;; *) return 1 ;; esac
+  case "${AGENT_GUARD_GITLEAKS_HELPER:-}" in /*|'') ;; *) return 1 ;; esac
   [ -z "${AGENT_GUARD_GITLEAKS_BIN:-}" ] && [ -n "$AG_STATE_DIR" ] \
     && [ "${AGENT_GUARD_LOG_MODE:-on}" != off ] \
-    && [ -n "${GITLEAKS_PROBE_VERSION:-}" ] \
-    && [ -f "$AGENT_GUARD_GITLEAKS_HELPER" ] && [ -x "$AGENT_GUARD_GITLEAKS_HELPER" ]
+    && [ -n "${GITLEAKS_PROBE_VERSION:-}" ] || return 1
+  if [ -n "${AGENT_GUARD_GITLEAKS_HELPER:-}" ]; then
+    AG_GITLEAKS_HELPER_CLIENT=$AGENT_GUARD_GITLEAKS_HELPER
+  else
+    gitleaks_helper_installed || return 1
+  fi
+  [ -f "$AG_GITLEAKS_HELPER_CLIENT" ] && [ -x "$AG_GITLEAKS_HELPER_CLIENT" ]
 }
 
 gitleaks_exec() {
   if gitleaks_helper_selected; then
     ag_gx_bin=$1
     shift
-    "$AGENT_GUARD_GITLEAKS_HELPER" --gitleaks "$ag_gx_bin" \
+    "$AG_GITLEAKS_HELPER_CLIENT" --gitleaks "$ag_gx_bin" \
       --gitleaks-version "$GITLEAKS_PROBE_VERSION" --state-dir "$AG_STATE_DIR" -- "$@"
     return
   fi
@@ -13598,7 +13801,7 @@ hook_pre_tool() {
 # with a block. Its once-per-session marker is the infrastructure one.
 finish_pre_tool_scanner_unavailable() {
   [ "$HOOK_SCANNER_UNAVAILABLE" = 1 ] || return 0
-  handle_hook_infrastructure_failure PreToolUse "${HOOK_INPUT:-}" \
+  handle_hook_infrastructure_failure "${HOOK_EVENT:-PreToolUse}" "${HOOK_INPUT:-}" \
     "$(degraded_hook_message scanner)"
 }
 
@@ -13659,7 +13862,11 @@ JQ_WALK='def walk(f): def w: if type == "object" then map_values(w)
 # image block spells the same thing `mimeType`. Claude Code's built-in tools add
 # words of their own that it checks before taking a replacement (#612): Read's
 # `notebook` and `parts` and its PDF pages' `mediaType`, Write's `create`
-# and `update`, Grep's `mode` and NotebookEdit's `cell_type`. Prepend as
+# and `update`, Grep's `mode` and NotebookEdit's `cell_type`. Code Mode and
+# the 2.1.330 output schemas add more (#599): REPL's `stoppedBy` and
+# `neverRan`, Poll's `provenance[].authority` (the host also reads it to tell
+# the user's events from others), the `gitDiff.status` of Write and Edit,
+# Skill's `status` and Bash's `gitOperation` `kind` and `action`. Prepend as
 # `jq -c "$JQ_SHAPE_SAFE_WALK"'<program>'`.
 # Resolve the extent records secretish_env_values flags (`agent_guard_extent`)
 # once every detector's literals are in the bundle. An extent (`[hidden]`,
@@ -13713,14 +13920,39 @@ JQ_SHAPE_SAFE_WALK='def protocol_discriminator($key): . as $v
             "notebook","parts","file_unchanged","create","update",
             "files_with_matches","count","code","markdown"]
            | map(. == $v) | any);
-def shape_safe_walk(f): def w($key):
+def host_enum_word($p): . as $v
+    | ($p | length) as $n
+    | def one_of($w): ($w | map(. == $v) | any);
+      if $n == 1 then
+        ($p[0] == "stoppedBy" and one_of(["user","refusal"]))
+        or ($p[0] == "neverRan" and one_of(["person","other"]))
+        or ($p[0] == "status" and one_of(["inline","forked"]))
+      elif $n == 2 then
+        $p[0] == "gitDiff" and $p[1] == "status" and one_of(["modified","added"])
+      elif $n == 3 then
+        ($p[0] == "provenance" and ($p[1] | type) == "number"
+         and $p[2] == "authority"
+         and one_of(["human-principal","human-other","peer-agent","world-event"]))
+        or ($p[0] == "gitOperation" and ($p[1] | type) == "string"
+            and (($p[2] == "kind"
+                  and one_of(["committed","amended","cherry-picked"]))
+                 or ($p[2] == "action"
+                     and one_of(["merged","rebased","created","edited",
+                                 "commented","closed","reopened","ready",
+                                 "draft","auto-merge-enabled",
+                                 "auto-merge-disabled"]))))
+      else false end;
+def shape_safe_walk(f): def w($path):
       if type == "object"
-      then with_entries(. as $e | .value = ($e.value | w($e.key)))
-      elif type == "array" then map(w(null))
-      elif type == "string" and protocol_discriminator($key) then .
+      then with_entries(. as $e | .value = ($e.value | w($path + [$e.key])))
+      elif type == "array"
+      then [range(length) as $i | .[$i] | w($path + [$i])]
+      elif type == "string"
+           and (protocol_discriminator($path[-1]) or host_enum_word($path))
+      then .
       else f
       end;
-    w(null);
+    w([]);
 def binary_media_type: . as $v
     | (["image/png","image/jpeg","image/gif","image/webp","application/pdf"]
        | map(. == $v) | any);
@@ -16728,6 +16960,33 @@ redact_response_values_awk_current() {
         || value == "files_with_matches" || value == "count" \
         || value == "code" || value == "markdown"
     }
+    # The value being read sits at depth; object_key[d] and container[d] give
+    # its path from the root, as JQ_SHAPE_SAFE_WALK host_enum_word reads it.
+    function host_enum_word(value,    key) {
+      if (container[1] != "object") return 0
+      if (depth == 1) {
+        key = object_key[1]
+        return (key == "stoppedBy" && (value == "user" || value == "refusal")) \
+          || (key == "neverRan" && (value == "person" || value == "other")) \
+          || (key == "status" && (value == "inline" || value == "forked"))
+      }
+      if (depth == 2)
+        return object_key[1] == "gitDiff" && container[2] == "object" \
+          && object_key[2] == "status" && (value == "modified" || value == "added")
+      if (depth != 3 || container[3] != "object") return 0
+      key = object_key[3]
+      if (object_key[1] == "provenance" && container[2] == "array")
+        return key == "authority" && (value == "human-principal" \
+          || value == "human-other" || value == "peer-agent" || value == "world-event")
+      if (object_key[1] != "gitOperation" || container[2] != "object") return 0
+      if (key == "kind")
+        return value == "committed" || value == "amended" || value == "cherry-picked"
+      return key == "action" && (value == "merged" || value == "rebased" \
+        || value == "created" || value == "edited" || value == "commented" \
+        || value == "closed" || value == "reopened" || value == "ready" \
+        || value == "draft" || value == "auto-merge-enabled" \
+        || value == "auto-merge-disabled")
+    }
     function accept_value() {
       if (depth == 0) {
         if (root_done) json_fail()
@@ -16845,7 +17104,7 @@ redact_response_values_awk_current() {
             direct_key = ""
             if (depth > 0 && container[depth] == "object" && state[depth] == "value") direct_key = object_key[depth]
             accept_value()
-            if (token_raw == "\"\"" || (candidate_valid && protocol_discriminator(direct_key, candidate))) emit(token_raw)
+            if (token_raw == "\"\"" || (candidate_valid && (protocol_discriminator(direct_key, candidate) || host_enum_word(candidate)))) emit(token_raw)
             else emit("\"[REDACTED]\"")
           }
           i = token_end + 1
@@ -17209,14 +17468,14 @@ emit_secret_free_post_tool_replacement() {
           | jq -r '.tool_name // empty' 2>/dev/null) || esf_tool=
       fi
       if [ -z "$esf_tool" ]; then
-        for esf_name in REPL Poll Bash Read Write Edit NotebookEdit Grep Glob Skill Monitor; do
+        for esf_name in REPL Eval Poll Bash Read Write Edit NotebookEdit Grep Glob Skill Monitor; do
           case "${HOOK_INPUT:-}" in
             *"\"tool_name\":\"$esf_name\""*) esf_tool=$esf_name; break ;;
           esac
         done
       fi
       case "$esf_tool" in
-        REPL) esf_shape='{"code":"[REDACTED]","result":"[REDACTED]","stdout":"[REDACTED]","stderr":"[REDACTED]"}' ;;
+        REPL|Eval) esf_shape='{"code":"[REDACTED]","result":"[REDACTED]","stdout":"[REDACTED]","stderr":"[REDACTED]"}' ;;
         Poll) esf_shape='{"content":"[REDACTED]","eventCount":0,"remainingWakeCount":0,"provenance":[]}' ;;
         Bash) esf_shape='{"stdout":"[REDACTED]","stderr":"","interrupted":false,"isImage":false,"noOutputExpected":false}' ;;
         Read) esf_shape='{"type":"text","file":{"filePath":"[REDACTED]","content":"[REDACTED]","numLines":1,"startLine":1,"totalLines":1}}' ;;
@@ -17230,8 +17489,9 @@ emit_secret_free_post_tool_replacement() {
         *) esf_shape='"[REDACTED]"' ;;
       esac
       # Only the Bash, REPL and Poll objects are known to pass the host check.
+      # Eval is the REPL tool under another name.
       case "$esf_tool" in
-        Bash|REPL|Poll|mcp__*) ;;
+        Bash|REPL|Eval|Poll|mcp__*) ;;
         *) POST_TOOL_SHAPE_KEPT=0 ;;
       esac
       printf '{"hookSpecificOutput":{"hookEventName":"PostToolUse","updatedToolOutput":%s}}\n' "$esf_shape"
@@ -17292,7 +17552,7 @@ claude_post_tool_shape() {
   POST_TOOL_SHAPE_KEPT=
   cps_tool=${tool:-}
   if [ -z "$cps_tool" ]; then
-    for cps_name in Read Write Edit MultiEdit NotebookEdit Grep; do
+    for cps_name in Read Write Edit MultiEdit NotebookEdit Grep Glob Skill Monitor Bash REPL Eval Poll; do
       case "${HOOK_INPUT:-}" in
         *"\"tool_name\":\"$cps_name\""*|*"\"tool_name\": \"$cps_name\""*)
           cps_tool=$cps_name; break ;;
@@ -17300,18 +17560,40 @@ claude_post_tool_shape() {
     done
   fi
   case "$cps_tool" in
-    Read|Write|Edit|MultiEdit|NotebookEdit|Grep) ;;
+    Read|Write|Edit|MultiEdit|NotebookEdit|Grep|Glob|Skill|Monitor|REPL|Eval|Poll) ;;
+    # Bash's only checked words sit under gitOperation; skip the jq run (and
+    # its cost on every masked command) when the response has none.
+    Bash)
+      case "${HOOK_INPUT:-}" in
+        *'"gitOperation"'*) ;;
+        *) return 0 ;;
+      esac
+      ;;
     *) return 0 ;;
   esac
+  # REPL's `result` is the script's own value (`any` in the output schema), so
+  # a word key inside it is data, not a field the host checks.
   cps_out=
   cps_out=$({ printf '%s\n' "${HOOK_INPUT:-}"; printf '%s\n' "$replacement"; } 2>/dev/null \
-    | jq -rsc '
+    | jq -rsc --arg tool "$cps_tool" '
         def kinds: if type == "object" then with_entries(.value |= kinds)
           elif type == "array" then map(kinds) else type end;
         def at($p): try getpath($p) catch null;
         def word_key: . as $k
           | ["type","media_type","mimeType","mediaType","encoding","mode",
              "cell_type"] | index([$k]) != null;
+        def enum_path: length as $n
+          | ($n == 1 and (.[0] == "stoppedBy" or .[0] == "neverRan"
+                          or .[0] == "status"))
+            or ($n == 2 and .[0] == "gitDiff" and .[1] == "status")
+            or ($n == 3 and .[0] == "provenance" and (.[1] | type) == "number"
+                and .[2] == "authority")
+            or ($n == 3 and .[0] == "gitOperation" and (.[1] | type) == "string"
+                and (.[2] == "kind" or .[2] == "action"));
+        def host_word: enum_path
+          or ((.[-1] | type) == "string" and (.[-1] | word_key)
+              and ((($tool == "REPL" or $tool == "Eval") and .[0] == "result")
+                   | not));
         if length != 2 then error("two documents expected") else . end
         | .[1] as $replacement
         | .[0].tool_response as $orig
@@ -17324,8 +17606,7 @@ claude_post_tool_shape() {
              then setpath($p; $orig | getpath($p)) else . end)) as $new
         | (($new | kinds) == ($orig | kinds)
            and all($orig | paths(type == "string");
-                   . as $p | ($p[-1] | type) == "string" and ($p[-1] | word_key)
-                   | not or ($new | at($p)) == ($orig | getpath($p))))
+                   . as $p | host_word | not or ($new | at($p)) == ($orig | getpath($p))))
         | (if . then "k" else "c" end)
           + (if $new == $replacement then "" else ($new | tojson) end)
       ' 2>/dev/null) || cps_out=
@@ -19511,8 +19792,15 @@ hook_user_prompt() {
   pii_skip_set
   prompt_mode=$(prompt_guard_mode)
   if ! hook_dependencies_ready; then
-    emit_degraded_hook_warning UserPromptSubmit "$input"
-    return 0
+    # The assignment check below needs only jq and awk, so a scanner that
+    # could not start must not skip it too (#617). As in hook_pre_tool, the
+    # gitleaks scan then reports "could not run" and the open policy says so.
+    if [ "$(infrastructure_failure_mode)" = closed ] || [ -z "$input" ] \
+      || ! command -v jq >/dev/null 2>&1 || ! command -v awk >/dev/null 2>&1; then
+      emit_degraded_hook_warning UserPromptSubmit "$input"
+      return 0
+    fi
+    HOOK_SCANNER_UNAVAILABLE=1
   fi
   need_cmd jq
   [ -n "$input" ] || return 0
@@ -19526,14 +19814,14 @@ hook_user_prompt() {
     emit_prompt_response "$notice" '' "$notice"
     return 0
   fi
-  [ -n "$prompt" ] || return 0
+  [ -n "$prompt" ] || { finish_pre_tool_scanner_unavailable; return 0; }
 
   # The PII input gate is governed by AGENT_GUARD_PII_HOOK_MODE alone and stays
   # active even when the secret guard is off: block mode blocks any PII; mask
   # mode hard-blocks Tier-2. Tier-1 PII cannot be masked in a prompt (no host
   # rewrite exists), a documented limitation.
   block_on_pii_text "user prompt" "$prompt"
-  [ "$prompt_mode" != off ] || return 0
+  [ "$prompt_mode" != off ] || { finish_pre_tool_scanner_unavailable; return 0; }
 
   # An infrastructure notice raised here is ACCUMULATED, not printed: warn mode
   # still has its own response to write, and two concatenated top-level objects
@@ -19543,13 +19831,20 @@ hook_user_prompt() {
   notice=
   found=0
   found_reason=
+  # begin_infrastructure_failure leaves its reason here; empty at the end
+  # means every check ran.
+  bif_detail=
   scan_text_direct "user prompt" "$prompt"
   case $? in
     0) ;;
     1) found=1; found_by='a value matching a gitleaks rule'; found_reason=secret-rule ;;
     "$SCAN_STATUS_UNAVAILABLE")
-      begin_infrastructure_failure "$input" \
-        "$PROGRAM: scanner infrastructure could not verify the prompt;"
+      if [ "$HOOK_SCANNER_UNAVAILABLE" = 1 ]; then
+        begin_infrastructure_failure "$input" "$(degraded_hook_message scanner)"
+      else
+        begin_infrastructure_failure "$input" \
+          "$PROGRAM: scanner infrastructure could not verify the prompt;"
+      fi
       notice=$INFRA_FAILURE_NOTICE
       ;;
     *)
@@ -19588,6 +19883,11 @@ hook_user_prompt() {
     notice=$INJECTION_NOTICE${INJECTION_NOTICE:+${notice:+ }}$notice
   fi
   if [ "$found" -ne 1 ]; then
+    # The open notice repeats once per interval, and without it this pass
+    # looks like a clean scan (#617). The notice already goes to stderr when
+    # due, so every other pass that skipped a check says so there too.
+    [ -z "$bif_detail" ] || [ -n "$infra_notice" ] \
+      || info "$bif_detail continuing because AGENT_GUARD_INFRA_FAILURE_MODE=open (the default)."
     emit_prompt_response "$notice" '' "$infra_notice"
     return 0
   fi
@@ -19748,7 +20048,7 @@ shell_init_block_state() {
 
 hook_session_start() {
   message=
-  if ! hook_dependencies_ready || ! command -v git >/dev/null 2>&1; then
+  if ! hook_dependencies_ready once || ! command -v git >/dev/null 2>&1; then
     message=$(degraded_hook_message)
   fi
 

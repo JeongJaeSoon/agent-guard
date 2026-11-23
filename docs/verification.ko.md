@@ -1,4 +1,4 @@
-<!-- translated-from: docs/verification.md; source-blob: a606e38a8def52a89e7fb65f73202663fe6acb1b -->
+<!-- translated-from: docs/verification.md; source-blob: 430d0cf7d223cd0df704094e5988c8c5db4f684e -->
 
 <a id="verification"></a>
 
@@ -99,6 +99,8 @@ Code Mode에서는 Claude가 JavaScript를 작성해 한 번에 여러 도구를
   초과된 것입니다. 다른 고정 준비 코드는 지원하지 않는 버전이나 probe 실패를
   구분합니다. 진단에는 scanner 출력이나 입력 경로를 넣지 않습니다. timeout
   코드는 실패한 단계를 알려 주며, 느려진 원인까지 설명하지는 않습니다.
+  SessionStart를 제외한 hook은 시간 초과된 버전 확인을 한 번 다시 시도합니다.
+  따라서 그 hook에서 이 코드는 버전 확인이 연속 두 번 시간 초과했다는 뜻입니다.
 - `open` 인프라 모드는 눈에 보이는 일회성 경고 후 계속 실행하며 `closed`는 차단합니다. 이는 인프라 장애에 대한 정책이며 비밀 정보를 탐지하면 차단합니다. 비어 있지 않으면서 형식이 잘못되었거나 객체가 아닌 PreToolUse·Stop 입력은 인프라 모드와 무관하게 차단합니다. PostToolUse는 먼저 독립된 parser로 유효한 host envelope를 복구하고 보수적인 치환 결과를 출력합니다. 비어 있지 않으면서 형식이 잘못되었거나 객체가 아닌 PostToolUse envelope의 종료 상태 2는 눈에 보이는 진단이며, 이미 완료된 도구 결과를 되돌릴 수는 없습니다. `closed`에서는 출력을 검사하지 못한 Claude의 PostToolUse hook이 그 출력의 비어 있지 않은 문자열을 모두 치환하고 구조는 유지합니다. 종료 상태 2만으로는 출력이 모델에 그대로 전달되기 때문입니다. 빈 stdin은 문서화된 예외입니다. PreToolUse, PostToolUse, Stop 모두 응답 없이 종료 상태 0을 반환합니다. 거부한 이벤트는 모두 보고합니다.
 - host가 시간 제한에 도달한 hook을 종료하면 hook이 판단하지 못할 수 있습니다. Claude Code 2.1.295 이상은 `PreToolUse` hook의 시간 초과나 비정상 종료 시 도구 호출을 차단합니다. 다른 이벤트와 host에는 해당하지 않습니다. Git과 CI의 추가 방어를 유지하세요.
 
@@ -117,18 +119,26 @@ Code Mode에서는 Claude가 JavaScript를 작성해 한 번에 여러 도구를
 
 ## 정기 확인
 
-선택형 warm gitleaks helper는 빌드한 머신에서, 링크한 공식 gitleaks 릴리스와
-비교해 검증합니다. 빌드 디렉터리와 공식 릴리스 바이너리(helper가 일부러 거절하는
-Homebrew·`go install` 빌드가 아닌 것)로 실패 경로·host·차분 테스트를 실행하세요.
+warm gitleaks helper는 링크한 공식 gitleaks 릴리스와 비교해 검증합니다. 릴리스
+workflow는 플랫폼별 릴리스 아카이브로 실패 경로·host·차분 테스트를 돌리고, 두
+바이너리가 `plugins/agent-guard/config/gitleaks-helper.sha256`의 SHA-256 값과
+맞을 때만 아카이브를 게시합니다. 이 값은
+`agent-guard setup --install-gitleaks-helper`가 요구하는 값입니다. 빌드는 재현할
+수 있어서, 소스 checkout에서 `sh scripts/build-gitleaks-helper.sh --print-pins`를
+실행하면 같은 줄이 나옵니다. 설치된 helper를 직접 확인하려면 기록된 checksum과
+비교하고, 소스 checkout에서 공식 릴리스 바이너리(helper가 일부러 거절하는
+Homebrew·`go install` 빌드가 아닌 것)로 테스트를 실행하세요.
 
 ```sh
-AGENT_GUARD_TEST_HELPER_DIR="$HOME/.agent-guard/gitleaks-helper" \
+(cd "$HOME/.agent-guard/bin/gitleaks-helper" && shasum -a 256 -c SHA256SUMS)
+AGENT_GUARD_TEST_HELPER_DIR="$HOME/.agent-guard/bin/gitleaks-helper" \
 AGENT_GUARD_TEST_REAL_GITLEAKS="$(command -v gitleaks)" sh tests/gitleaks-helper.sh
-AGENT_GUARD_TEST_HELPER_DIR="$HOME/.agent-guard/gitleaks-helper" \
+AGENT_GUARD_TEST_HELPER_DIR="$HOME/.agent-guard/bin/gitleaks-helper" \
 AGENT_GUARD_TEST_REAL_GITLEAKS="$(command -v gitleaks)" sh tests/gitleaks-helper-corpus.sh
 ```
 
-켜져 있는 동안 실행 중인 helper는 `agent-guard-gitleaks-helper serve` 프로세스
+helper가 설치되어 있는지는 `agent-guard setup`이 출력합니다. 쓰이는 동안 실행 중인 helper는
+`agent-guard-gitleaks-helper serve` 프로세스
 하나와 `$XDG_STATE_HOME/agent-guard/gitleaks-helper`(또는 `~/.local/state/...`)
 아래의 소켓으로 보입니다. 이것이 없다는 것은 스캔이 실제 gitleaks로 돈다는 뜻일
 뿐입니다.
