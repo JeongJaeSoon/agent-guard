@@ -164,6 +164,48 @@ hook hook-pre-tool closed "$GOOD" "$unresolved"
 check 'explicit closed blocks an unresolved git command' \
   sh -c 'test "$1" -eq 2 && grep -Fq "Blocking because AGENT_GUARD_INFRA_FAILURE_MODE=closed." "$2"' _ "$s" "$CASE/err"
 
+# The commit gate: a scanner that fails is blocked, because a push cannot be
+# taken back; a directory that is no repository is not a missing scan (the
+# commit fails there by itself).
+git -C "$CASE/w" -c user.name=t -c user.email=t@example.invalid commit -q --allow-empty -m base || exit 1
+printf 'plain words\n' >"$CASE/w/staged.txt"
+git -C "$CASE/w" add staged.txt || exit 1
+commit='{"tool_name":"Bash","tool_input":{"command":"git commit -m note"}}'
+hook hook-pre-tool unset "$GOOD" "$commit"
+check 'control: a clean staged change passes the commit gate' test "$s" -eq 0
+hook hook-pre-tool unset "$SCANFAIL" "$commit"
+check 'the commit gate is blocked by default when its gitleaks scan fails' \
+  sh -c 'test "$1" -eq 2 && grep -Fq "scanner infrastructure failed before it could verify" "$2" && grep -Fq "$3" "$2"' \
+  _ "$s" "$CASE/err" "$default_block"
+hook hook-pre-tool open "$SCANFAIL" "$commit"
+check 'explicit open passes a commit whose gitleaks scan fails' test "$s" -eq 0
+mkdir -p "$CASE/plain"
+norepo=$(jq -nc --arg d "$CASE/plain" '{tool_name:"Bash",tool_input:{command:"git commit -m note"},cwd:$d}')
+seq_n=$((seq_n + 1))
+printf '%s' "$norepo" | jq -c --arg s "scan-default-$seq_n" '. + {session_id: $s}' \
+  | (cd "$CASE/plain" && AGENT_GUARD_GITLEAKS_BIN="$GOOD" AGENT_GUARD_HOOK_HOST=claude "$GUARD" hook-pre-tool \
+      >"$CASE/out" 2>"$CASE/err")
+s=$?
+check 'a commit in a directory that is no repository still continues by default' \
+  sh -c 'test "$1" -eq 0 && grep -Fq "is not a git repository" "$2" && grep -Fq "continuing because AGENT_GUARD_INFRA_FAILURE_MODE=open (the default)." "$2"' \
+  _ "$s" "$CASE/err"
+
+# The disk backstops after a tool call keep the open default: withholding the
+# output would do nothing for a file on disk.
+big="$CASE/w/big.bin"
+post_write=$(jq -nc --arg p "$big" '{tool_name:"Write",tool_input:{file_path:$p,content:"plain"},
+  tool_response:{type:"create",filePath:$p,content:"plain",structuredPatch:[],originalFile:null,userModified:false}}')
+printf '%s\n' '*.bin' >"$CASE/w/.gitignore"
+# An ignored file over the 10 MiB scan budget: the written-file scan cannot run.
+dd if=/dev/zero of="$big" bs=1048576 count=11 2>/dev/null || exit 1
+hook hook-post-tool unset "$GOOD" "$post_write"
+check 'a written file the backstop cannot scan still continues by default' \
+  sh -c 'test "$1" -eq 0 && grep -Fq "could not be scanned" "$2" && grep -Fq "continuing because AGENT_GUARD_INFRA_FAILURE_MODE=open (the default)." "$2" && ! grep -Fq REDACTED "$3"' \
+  _ "$s" "$CASE/err" "$CASE/out"
+hook hook-post-tool closed "$GOOD" "$post_write"
+check 'explicit closed blocks a written file the backstop cannot scan' test "$s" -eq 2
+rm -f "$big"
+
 # Codex takes no replacement; the default still blocks and names the reason.
 HOST=codex hook hook-pre-tool unset "$MISSING" "$bash_clean"
 check 'Codex PreToolUse is blocked by default when gitleaks is missing' \

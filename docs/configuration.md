@@ -22,17 +22,21 @@ scanner error in a lifecycle hook:
 | `open` | Continue with a degraded-protection notice that names what is missing and repeats every 10 minutes |
 | `closed` | Refuse the hook action with exit status 2. A Claude `PostToolUse` hook also withholds the output it could not check |
 
-A secret scan that did not run means text nobody checked would reach the
-agent, a file or a commit, and text the agent has read cannot be taken back.
-That covers:
+A secret scan that did not run means text nobody checked would cross the
+agent's boundary, and text the agent has read cannot be taken back. That
+covers:
 
-- gitleaks missing, older than the supported version, failing, or not
-  answering its version check in time (see the retry and the readiness cache
-  below);
-- jq, awk or a policy file missing, since then no check runs at all;
-- a scan that started and errored;
-- input over a scan cap, such as a prompt too large for the assignment check
-  or a written file over `AGENT_GUARD_SCAN_INPUT_MAX_BYTES`.
+- a hook that could not start its checks: gitleaks missing, older than the
+  supported version, failing, or not answering its version check in time (see
+  the retry and the readiness cache below), or jq, awk or a policy file
+  missing, since then no check runs at all;
+- the text that crosses the boundary in this event, which is PreToolUse tool
+  input, the prompt and PostToolUse output: a scan of it that started and
+  errored, or input over a scan cap, such as a prompt too large for the
+  assignment check;
+- the `git commit` and `git push` gate when gitleaks itself fails on the
+  staged change. A push cannot be taken back, and the gate may be the only
+  check before it.
 
 Each default block names what failed and the fix: `agent-guard doctor` to see
 the failure, `agent-guard setup` (which prints the `setup --install` command)
@@ -40,10 +44,17 @@ or the setup skill to install or repair gitleaks, a retry for a version check
 that only timed out, or a smaller input for a scan cap. The block does not
 name the setting that would let the call through, because the model reads it.
 
-Every other infrastructure failure keeps the open default: a `git commit` or
-`git push` whose directory or arguments cannot be resolved, a commit in a
-directory that is not a repository yet, a written path that cannot be
-determined, or git itself missing.
+Every other infrastructure failure keeps the open default:
+
+- the commit gate when the directory or arguments cannot be resolved, the
+  directory is not a repository, or the staged change is over the scan cap;
+- the disk backstops after a tool call and at Stop: changed files or a
+  written file that could not be scanned, a written path that could not be
+  determined, or git itself missing. Withholding the tool output would do
+  nothing for a file already on disk, and a change over the scan cap would
+  otherwise block every call in that work tree until it is split.
+
+Set `closed` to block those too.
 
 Under `open`, a session's first infrastructure failure produces the notice, and
 it repeats at most once every 600 seconds while failures continue; the interval
@@ -78,7 +89,7 @@ passes, and stderr says on every such pass that the scan did not run, while the
 notice keeps its interval. `closed`, and the default, block every prompt.
 PostToolUse, PostToolUseFailure and Stop pass without running their checks
 under `open` when gitleaks is unavailable. By default PostToolUse and Stop
-block, and PostToolUseFailure, which cannot block, reports the unchecked
+block then, and PostToolUseFailure, which cannot block, reports the unchecked
 failure on every call.
 
 Every hook except SessionStart retries a gitleaks version probe that timed out

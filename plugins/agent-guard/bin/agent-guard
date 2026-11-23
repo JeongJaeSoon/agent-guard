@@ -2578,10 +2578,15 @@ hook_policy_dependencies_ready() {
 # through the infrastructure policy instead of treating the scan as clean.
 HOOK_SCANNER_UNAVAILABLE=0
 
-# $1 = scan when the failure is a secret scan that did not run: text nobody
-# checked would otherwise reach the agent, a file or a commit, and that cannot
-# be taken back. With the variable unset that case is closed and every other
-# infrastructure failure is open; open or closed, once set, applies to both.
+# $1 = scan when no secret scan ran on text crossing the agent's boundary in
+# this event (tool input, the prompt, tool output), or when a hook could not
+# start its checks at all: text the agent has read cannot be taken back. With
+# the variable unset that case is closed and every other infrastructure
+# failure is open: the changed-file and written-file scans after a tool call,
+# Stop, and a commit the gate could not resolve or whose diff is over the scan
+# cap. Withholding output does nothing for files on disk, and an over-cap diff
+# would block every call until it is split. open or closed, once set, applies
+# to both.
 infrastructure_failure_mode() {
   case "${AGENT_GUARD_INFRA_FAILURE_MODE:-}" in
     open|closed) printf '%s\n' "$AGENT_GUARD_INFRA_FAILURE_MODE" ;;
@@ -4864,6 +4869,12 @@ esac
 # untracked content. Giving each one third keeps their aggregate under the budget.
 SCAN_COMPONENT_MAX_BYTES=$((SCAN_INPUT_MAX_BYTES / 3))
 
+# $3 is the failure kind infrastructure_failure_mode takes for a scan that
+# could not run; left out, it is scan, for text on its way into or out of the
+# agent. The git gate passes an empty one: there "could not run" is a directory
+# that is no repository, or a diff over the scan cap, which lasts until the
+# change is split. A scanner that ran and failed is scan for every caller: the
+# gate is the last check before a push, and a push cannot be taken back.
 block_on_scan_status() {
   status=$1
   message=$2
@@ -4874,7 +4885,7 @@ block_on_scan_status() {
       # hook_pre_tool reports a missing scanner once, after every other check.
       [ "$HOOK_SCANNER_UNAVAILABLE" = 0 ] || return 0
       handle_hook_infrastructure_failure "${HOOK_EVENT:-PreToolUse}" "${HOOK_INPUT:-}" \
-        "$PROGRAM: scanner infrastructure could not verify the command;" scan
+        "$PROGRAM: scanner infrastructure could not verify the command;" "${3-scan}"
       ;;
     *)
       handle_hook_infrastructure_failure "${HOOK_EVENT:-PreToolUse}" "${HOOK_INPUT:-}" \
@@ -13284,7 +13295,7 @@ U
         "$PROGRAM: a git commit or push runs in a directory that does not exist or is not a git repository when the hook runs, such as one this command creates, so what it commits could not be scanned; create the repository in one Bash call and commit or push in the next;"
       return $?
     fi
-    block_on_scan_status "$git_scan_status" "$git_scan_message"
+    block_on_scan_status "$git_scan_status" "$git_scan_message" ''
   fi
 }
 
@@ -19327,7 +19338,7 @@ scan_post_tool_write_target() {
         1) info "$PROGRAM: the file this tool call wrote contains secret-like values"; return 1 ;;
         *)
           handle_git_infrastructure_failure "$input" \
-            "$PROGRAM: the file this tool call wrote could not be scanned;" scan
+            "$PROGRAM: the file this tool call wrote could not be scanned;"
           return 0
           ;;
       esac
@@ -19343,13 +19354,13 @@ scan_post_tool_write_target() {
   [ -n "$targets" ] || return 0
   targets_file=$(mktemp_file) || {
     handle_git_infrastructure_failure "$input" \
-      "$PROGRAM: the file paths written by this tool call could not be scanned;" scan
+      "$PROGRAM: the file paths written by this tool call could not be scanned;"
     return 0
   }
   printf '%s\n' "$targets" >"$targets_file" || {
     rm -f "$targets_file"
     handle_git_infrastructure_failure "$input" \
-      "$PROGRAM: the file paths written by this tool call could not be scanned;" scan
+      "$PROGRAM: the file paths written by this tool call could not be scanned;"
     return 0
   }
   target_result=0
@@ -19407,7 +19418,7 @@ scan_post_tool_write_target() {
       ;;
     *)
       handle_git_infrastructure_failure "$input" \
-        "$PROGRAM: the file this tool call wrote could not be scanned;" scan
+        "$PROGRAM: the file this tool call wrote could not be scanned;"
       ;;
   esac
 }
@@ -19477,7 +19488,7 @@ hook_post_tool() {
           ;;
         *)
           handle_git_infrastructure_failure "$input" \
-            "$PROGRAM: changed files could not be scanned after tool execution;" scan
+            "$PROGRAM: changed files could not be scanned after tool execution;"
           ;;
       esac
     fi
@@ -19616,7 +19627,7 @@ hook_stop() {
     1) info "$PROGRAM: changed files contain secret-like values before stop"; exit 2 ;;
     *)
       handle_hook_infrastructure_failure Stop "$input" \
-        "$PROGRAM: changed files could not be scanned before stop;" scan
+        "$PROGRAM: changed files could not be scanned before stop;"
       ;;
   esac
 }
