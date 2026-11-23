@@ -225,6 +225,12 @@ regexes = [
 # characters are not excused. Git accepts the optional value only attached
 # with `=` (`--force-with-lease <ref>:<sha>` reads `<ref>:<sha>` as the
 # repository argument), so the two-argument spelling is not excused either.
+# Right after the expectation, one `<remote> HEAD:<ref>` refspec (optionally
+# `+HEAD:`) is free of the 9-character limit (#503): a remote name holds no
+# separator, so a URL remote and its credential still go through the chunks,
+# and the ref ends at a blank or the line end, so `HEAD:<ref>:<value>` or a
+# keyword source (`<name>:<value>`) keeps the finding. RE2 has no
+# backreference, so the ref need not equal the lease's.
 # Only generic-api-key is targeted: no vendor rule matches this shape, so a
 # dedicated rule that does fire keeps its finding. A bare 40/64-hex object id
 # with no keyword name in front of it was never a finding.
@@ -233,7 +239,7 @@ description = "git push --force-with-lease=<ref>:<40 or 64 hex> expectation"
 targetRules = ["generic-api-key"]
 regexTarget = "line"
 regexes = [
-  '''^\n?(?:[^\n=:>,|?]*(?:[=:>,|?][\x60'"\t\f\r ]*(?:[\w.=+/-]{1,9}(?:[^\w.=+/:>,|?\n-][^\n=:>,|?]*)?|(?:[^\w.=+/:>,|?\n\x60'"\t\f\r -][^\n=:>,|?]*)?))*[ \t])?--force-with-lease=[\w.\/@+-]+:(?:[0-9a-f]{40}|[0-9a-f]{64})(?:[ \t][^\n=:>,|?]*(?:[=:>,|?][\x60'"\t\f\r ]*(?:[\w.=+/-]{1,9}(?:[^\w.=+/:>,|?\n-][^\n=:>,|?]*)?|(?:[^\w.=+/:>,|?\n\x60'"\t\f\r -][^\n=:>,|?]*)?))*)?\r?$'''
+  '''^\n?(?:[^\n=:>,|?]*(?:[=:>,|?][\x60'"\t\f\r ]*(?:[\w.=+/-]{1,9}(?:[^\w.=+/:>,|?\n-][^\n=:>,|?]*)?|(?:[^\w.=+/:>,|?\n\x60'"\t\f\r -][^\n=:>,|?]*)?))*[ \t])?--force-with-lease=[\w.\/@+-]+:(?:[0-9a-f]{40}|[0-9a-f]{64})(?:[ \t]+[\w.-]+[ \t]+\+?HEAD:[\w.\/@+-]+)?(?:[ \t][^\n=:>,|?]*(?:[=:>,|?][\x60'"\t\f\r ]*(?:[\w.=+/-]{1,9}(?:[^\w.=+/:>,|?\n-][^\n=:>,|?]*)?|(?:[^\w.=+/:>,|?\n\x60'"\t\f\r -][^\n=:>,|?]*)?))*)?\r?$'''
 ]
 
 # Directory scans skip these exact lockfile names, then agent-guard rescans

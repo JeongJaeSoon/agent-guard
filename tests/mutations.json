@@ -580,5 +580,23 @@
       "tests/heredoc-body-text.sh",
       "tests/message-value-prose.sh"
     ]
+  },
+  {
+    "id": "git-commit-edit-flag-ignored",
+    "rule": "message_value_records: git commit -e/--edit keeps the message in the scan",
+    "old": "        if (commit && git_edits()) out = substr(out, 1, before)\n",
+    "new": "",
+    "tests": [
+      "tests/message-value-prose.sh"
+    ]
+  },
+  {
+    "id": "git-global-c-alias-taken",
+    "rule": "message_value_records: git -c alias.* before commit gets no message exemption",
+    "old": " || word[j] == \"-c\" && tolower(word[j + 1]) ~ /^alias\\./) return 0",
+    "new": ") return 0",
+    "tests": [
+      "tests/message-value-prose.sh"
+    ]
   }
 ]
