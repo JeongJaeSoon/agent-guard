@@ -598,5 +598,14 @@
     "tests": [
       "tests/message-value-prose.sh"
     ]
+  },
+  {
+    "id": "colon-assignment-no-walk-back",
+    "rule": "find_assignment: a colon assignment after a whitespace run starts where the run starts",
+    "old": "      if (delimiter == \":\")\n        while (assignment_start > 1",
+    "new": "      if (0)\n        while (assignment_start > 1",
+    "tests": [
+      "tests/colon-assignment-equivalence.sh"
+    ]
   }
 ]
