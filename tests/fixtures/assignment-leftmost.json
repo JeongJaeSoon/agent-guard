@@ -281,5 +281,11 @@
    "%R%"
   ],
   "masked": "{\"text\":\"password: \\\"[REDACTED]\\\"\"}"
+ },
+ {
+  "id": "json-string-key-closes-with-escaped-quotes-elsewhere",
+  "input": "{\"text\":\"password:\",    \"other\":\"say \\\"hello\\\"\"}",
+  "values": [],
+  "masked": "{\"text\":\"password:\",    \"other\":\"say \\\"hello\\\"\"}"
  }
 ]
