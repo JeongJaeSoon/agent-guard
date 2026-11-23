@@ -127,6 +127,8 @@ another tool call.
   probe that timed out; other fixed readiness codes distinguish an unsupported
   version or a failed probe. These diagnostics include no scanner output or
   input paths. A timeout code identifies the failed stage, not why it was slow.
+  Every hook except SessionStart retries a timed-out version probe once, so
+  there the code means that two probes in a row timed out.
 - `open` infrastructure mode continues after a visible one-time warning;
   `closed` blocks. This policy applies to infrastructure failures, while a
   secret detection blocks. Non-empty malformed or non-object PreToolUse and

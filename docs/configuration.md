@@ -43,9 +43,21 @@ input, the Bash deny patterns, the `git commit`/`git push` hook-bypass refusal,
 the broad Grep content refusal and the PII input gate. Only the secret scan is
 skipped, so a secret that only gitleaks would find passes. The first notice of
 the session that a passing call carries includes the degraded notice; a
-blocked call carries only its block reason. `closed` blocks every PreToolUse call, as before. PostToolUse,
-PostToolUseFailure, UserPromptSubmit and Stop still pass without running their
+blocked call carries only its block reason. `closed` blocks every PreToolUse call, as before.
+
+UserPromptSubmit needs only jq and awk for its PII input gate and its check for
+secret-like `KEY=value` and `key: value` assignments, so under `open` both
+still run when gitleaks is unavailable and a prompt they find is blocked. Only
+the gitleaks rule scan is skipped: a secret that only gitleaks would find
+passes, and stderr says on every such pass that the scan did not run, while the
+notice keeps its interval. `closed` blocks every prompt, as before.
+PostToolUse, PostToolUseFailure and Stop still pass without running their
 checks under `open` when gitleaks is unavailable.
+
+Every hook except SessionStart retries a gitleaks version probe that timed out
+once before it treats gitleaks as unavailable, because a loaded machine can
+miss the two-second deadline once. SessionStart probes once: its host timeout
+is five seconds.
 
 Non-empty malformed or non-object PreToolUse, PostToolUse, and Stop input is
 also distinct from unavailable infrastructure. Agent Guard rejects one of
