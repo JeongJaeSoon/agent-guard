@@ -15,6 +15,11 @@
 # .build.txt (#569). --print-pins cross-builds every target without running
 # it and prints the lines of that pin file; the build is reproducible, so the
 # release build on each platform must produce the same bytes.
+#
+# Every build also writes THIRD_PARTY_LICENSES.txt, the license notices of
+# everything linked into the two binaries, and fails when a linked module has
+# no reviewed license or no license file (scripts/gitleaks-helper-notices.sh).
+# The archive carries it.
 set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 SRC="$ROOT/native/gitleaks-helper"
@@ -92,6 +97,15 @@ client_modules=$(go version -m "$client" | awk '$1 == "dep" { print $2 }')
   go version -m "$client"
 } >"$out/build.txt"
 sums "$out" >"$out/SHA256SUMS"
+# The notices come from what these two binaries record, not from go.mod.
+go version -m "$client" | awk '$1 == "dep" { print $2, $3, $4 }' | LC_ALL=C sort >"$out/client-modules.txt"
+go_version=$(go version "$helper" | awk '{ print $NF }')
+[ "$(go version "$client" | awk '{ print $NF }')" = "$go_version" ] || {
+  echo 'helper and client were built by different Go versions' >&2
+  exit 1
+}
+sh "$ROOT/scripts/gitleaks-helper-notices.sh" "$out/helper-modules.txt" "$out/client-modules.txt" "$go_version" \
+  >"$out/THIRD_PARTY_LICENSES.txt"
 
 [ -n "$target" ] || exit 0
 # The CLI installs a released helper only when it matches these pins, so a
@@ -109,9 +123,10 @@ artifacts=$(CDPATH= cd -- "$artifacts" && pwd -P)
 name="agent-guard-gitleaks-helper-$target"
 stage=$(mktemp -d)
 trap 'rm -rf "$stage"' 0
-cp "$helper" "$client" "$out/SHA256SUMS" "$ROOT/THIRD_PARTY_NOTICES.md" "$stage/"
+cp "$helper" "$client" "$out/SHA256SUMS" "$out/THIRD_PARTY_LICENSES.txt" "$ROOT/THIRD_PARTY_NOTICES.md" "$ROOT/LICENSE" "$stage/"
 chmod 755 "$stage/agent-guard-gitleaks-helper" "$stage/agent-guard-scan"
-tar -C "$stage" -czf "$artifacts/$name.tar.gz" agent-guard-gitleaks-helper agent-guard-scan SHA256SUMS THIRD_PARTY_NOTICES.md
+tar -C "$stage" -czf "$artifacts/$name.tar.gz" agent-guard-gitleaks-helper agent-guard-scan SHA256SUMS \
+  THIRD_PARTY_LICENSES.txt THIRD_PARTY_NOTICES.md LICENSE
 (cd "$artifacts" && shasum -a 256 "$name.tar.gz" >"$name.tar.gz.sha256")
 {
   git -C "$ROOT" rev-parse HEAD

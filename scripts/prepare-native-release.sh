@@ -54,6 +54,17 @@ for target in x86_64-unknown-linux-musl aarch64-unknown-linux-musl aarch64-apple
   [ "$(grep -c . "$tmp/$target/helper-pins")" = 2 ] \
     && (CDPATH= cd -- "$tmp/$target/helper" && shasum -a 256 -c ../helper-pins >/dev/null) \
     || { echo "helper binaries differ from the pinned checksums: $target" >&2; exit 2; }
+  # Binaries are published only with their license notices: the archive's
+  # file must have a section for every module the license table names, which
+  # are the modules the build links (tests/gitleaks-helper-notices.sh).
+  tar -xzf "$tmp/$target/$helper.tar.gz" -C "$tmp/$target/helper" THIRD_PARTY_LICENSES.txt LICENSE 2>/dev/null \
+    || { echo "helper archive carries no license notices: $target" >&2; exit 2; }
+  awk '!/^#/ && NF { print "## " $1 " " $2 }' "$ROOT/native/gitleaks-helper/module-licenses.txt" > "$tmp/$target/helper-headings"
+  [ -s "$tmp/$target/helper-headings" ] || { echo 'the helper license table is empty' >&2; exit 2; }
+  while IFS= read -r heading; do
+    grep -Fxq -- "$heading" "$tmp/$target/helper/THIRD_PARTY_LICENSES.txt" \
+      || { echo "helper license notices lack ${heading#\#\# }: $target" >&2; exit 2; }
+  done < "$tmp/$target/helper-headings"
   cp "$tmp/$target/$helper.tar.gz" "$tmp/$target/$helper.tar.gz.sha256" "$out/"
 done
 jq -n --arg sha "$release_sha" --arg source "$sha" --arg repo "$repo" --argjson run "$run" \

@@ -22,13 +22,27 @@ not imply endorsement.
 ## Optional warm gitleaks helper (separate release asset)
 
 `native/gitleaks-helper` is published as a separate per-platform release
-asset, `agent-guard-gitleaks-helper-<target>.tar.gz`, which carries this file
-and is downloaded only by `agent-guard setup --install-gitleaks-helper`; no
-helper binary is included in the repository, plugin or release archive. The helper links the
-gitleaks 8.30.1 Go module (MIT License) and the modules it depends on at the
-versions of the official gitleaks release, listed in
-`native/gitleaks-helper/release-modules.txt`, each under its own license. Two
-small formatting functions are copied from gitleaks 8.30.1 `cmd/root.go`
+asset, `agent-guard-gitleaks-helper-<target>.tar.gz`, which is downloaded only
+by `agent-guard setup --install-gitleaks-helper`; no helper binary is included
+in the repository, plugin or release archive.
+
+Each archive carries `THIRD_PARTY_LICENSES.txt`: the name, version, license
+and full license text of every Go module linked into its two binaries, of the
+Go standard library and runtime, and of the code compiled into the WebAssembly
+regular-expression engine that the go-re2 module carries (RE2, Abseil and the
+wasi-sdk runtime libraries). The build writes that file from the modules
+recorded in the built binaries and fails when one of them has no license
+recorded or no license file, and a release publishes an archive only when its
+file names every module. The archive also carries this file and Agent Guard's
+`LICENSE`.
+
+The helper links the gitleaks 8.30.1 Go module (MIT License) and the modules
+it depends on at the versions of the official gitleaks release. The license
+of each is listed in
+[`native/gitleaks-helper/module-licenses.txt`](https://github.com/JeongJaeSoon/agent-guard/blob/main/native/gitleaks-helper/module-licenses.txt),
+and the notices for the WebAssembly engine are in
+[`native/gitleaks-helper/embedded-licenses.txt`](https://github.com/JeongJaeSoon/agent-guard/blob/main/native/gitleaks-helper/embedded-licenses.txt).
+Two small formatting functions are copied from gitleaks 8.30.1 `cmd/root.go`
 under its MIT License. The client links only the Go standard library and
 `golang.org/x/sys` (BSD-3-Clause).
 

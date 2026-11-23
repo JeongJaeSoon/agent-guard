@@ -187,5 +187,13 @@ else
   sed 's/^/  /' "$CASE/install.log"
 fi
 
+# The license notices of the released archives (#569): no Go, no network.
+if sh "$ROOT/tests/gitleaks-helper-notices.sh" >"$CASE/notices.log" 2>&1; then
+  ok "every module linked into the released helper has a license notice ($(grep -c '^ok ' "$CASE/notices.log") checks)"
+else
+  bad "every module linked into the released helper has a license notice"
+  sed 's/^/  /' "$CASE/notices.log"
+fi
+
 printf '\npassed: %s\nfailed: %s\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

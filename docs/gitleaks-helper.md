@@ -97,7 +97,11 @@ export AGENT_GUARD_GITLEAKS_HELPER="$HOME/.agent-guard/gitleaks-helper/agent-gua
 
 The build fails if any module the helper links differs from the official
 gitleaks 8.30.1 release (`native/gitleaks-helper/release-modules.txt`). It
-writes `build.txt` (toolchain and build information) and `SHA256SUMS`. Keep
+writes `build.txt` (toolchain and build information), `SHA256SUMS` and
+`THIRD_PARTY_LICENSES.txt`: the license and license text of every module
+linked into the two binaries, which each released archive carries. The build
+fails when a linked module has no license recorded in
+`native/gitleaks-helper/module-licenses.txt`. Keep
 `agent-guard-scan` and `agent-guard-gitleaks-helper` in the same directory.
 An absolute path in the variable selects that client instead of an installed
 helper and is not compared with the pins: it is your own build. The released

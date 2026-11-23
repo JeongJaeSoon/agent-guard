@@ -35,8 +35,17 @@ write_run() {
 write_run "$sha" success
 # The script reads the helper pins of its own tree; run a copy beside pins
 # that name the stand-in helper binaries below.
-mkdir -p "$case_dir/tree/scripts" "$case_dir/tree/plugins/agent-guard/config" "$case_dir/helper"
+mkdir -p "$case_dir/tree/scripts" "$case_dir/tree/plugins/agent-guard/config" "$case_dir/tree/native/gitleaks-helper" "$case_dir/helper"
 cp "$ROOT/scripts/prepare-native-release.sh" "$case_dir/tree/scripts/"
+# It also reads the license table of its own tree: a helper archive must carry
+# a notice for every module that table names.
+licenses="$case_dir/tree/native/gitleaks-helper/module-licenses.txt"
+cp "$ROOT/native/gitleaks-helper/module-licenses.txt" "$licenses"
+notices="$case_dir/helper/THIRD_PARTY_LICENSES.txt"
+write_notices() { awk '!/^#/ && NF { print "## " $1 " " $2 }' "$licenses" > "$notices"; }
+write_notices
+[ "$(grep -c . "$notices")" -gt 60 ]
+printf 'stand-in license\n' > "$case_dir/helper/LICENSE"
 prepare="$case_dir/tree/scripts/prepare-native-release.sh"
 pins="$case_dir/tree/plugins/agent-guard/config/gitleaks-helper.sha256"
 printf '#!/bin/sh\nexit 0\n' > "$case_dir/helper/agent-guard-gitleaks-helper"
@@ -44,7 +53,7 @@ printf '#!/bin/sh\nexit 1\n' > "$case_dir/helper/agent-guard-scan"
 # $1 target: its stand-in helper archive, checksum, source record and test logs.
 write_helper() {
   helper="agent-guard-gitleaks-helper-$1"
-  tar -C "$case_dir/helper" -czf "$case_dir/artifacts/native-$1/$helper.tar.gz" agent-guard-gitleaks-helper agent-guard-scan
+  tar -C "$case_dir/helper" -czf "$case_dir/artifacts/native-$1/$helper.tar.gz" agent-guard-gitleaks-helper agent-guard-scan THIRD_PARTY_LICENSES.txt LICENSE
   (cd "$case_dir/artifacts/native-$1" && shasum -a 256 "$helper.tar.gz" > "$helper.tar.gz.sha256")
   printf '%s\n' "$sha" > "$case_dir/artifacts/native-$1/$helper.build.txt"
   printf 'passed: 9\nfailed: 0\n' > "$case_dir/artifacts/native-$1/gitleaks-helper.log"
@@ -111,6 +120,28 @@ printf '#!/bin/sh\nexit 3\n' > "$case_dir/helper/agent-guard-scan"
 write_helper "$target"
 reject helper-binaries-the-cli-does-not-pin
 printf '#!/bin/sh\nexit 1\n' > "$case_dir/helper/agent-guard-scan"
+# A sound archive whose notices lack one module the helper links.
+grep -Fxv '## golang.org/x/sys v0.30.0' "$notices" > "$notices.short"
+[ "$(grep -c . "$notices.short")" = "$(($(grep -c . "$notices") - 1))" ]
+mv "$notices.short" "$notices"
+write_helper "$target"
+reject helper-notices-without-a-linked-module
+grep -Fq 'lack golang.org/x/sys v0.30.0' "$case_dir/err"
+# One that lacks the Go standard library the binaries are built from.
+write_notices
+grep -v '^## std ' "$notices" > "$notices.short"
+[ "$(grep -c . "$notices.short")" = "$(($(grep -c . "$notices") - 1))" ]
+mv "$notices.short" "$notices"
+write_helper "$target"
+reject helper-notices-without-the-go-standard-library
+grep -Fq 'lack std go' "$case_dir/err"
+write_notices
+# A sound archive with no notices file at all.
+write_helper "$target"
+tar -C "$case_dir/helper" -czf "$dir/$helper.tar.gz" agent-guard-gitleaks-helper agent-guard-scan LICENSE
+(cd "$dir" && shasum -a 256 "$helper.tar.gz" > "$helper.tar.gz.sha256")
+reject helper-archive-without-license-notices
+grep -Fq 'carries no license notices' "$case_dir/err"
 write_helper "$target"
 # Control: with every stand-in restored the same artifacts are accepted again,
 # so each rejection above came from its one change.
