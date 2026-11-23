@@ -120,6 +120,32 @@ check 2 "g\"it\" commit -m 'id_rsa'"
 check 2 "\$G commit -m 'id_rsa'"
 check 2 "git -c alias.commit='!cat' commit -m 'id_rsa'"
 check 2 "git --exec-path=/tmp/x commit -m 'id_rsa'"
+# `git -C <dir>` before commit only moves git into that directory, so the
+# message stays data (#500): prose whose line ends in "env" is not the bare
+# env command. Everything outside the message is still read.
+check 0 "git -C \"$W\" commit -m \"fix: keep the lock while deploying${nl}${nl}The deploy step reads the token from env${nl}then writes the lock.\""
+check 0 "git -C /tmp/x/repo commit -m 'drop state.env reads'"
+check 0 "git -C a -C b commit -am 'docs: .env guide'"
+check 2 "git -C \"$W\" commit -m 'x' && env"
+check 2 "git -C \"$W\" commit -m 'msg' .env"
+check 2 "git -C \"\$(cp /bin/cat ~/bin/git)\" commit -m '.env'"
+check 2 "git --exec-path=/tmp/x -C /tmp/x/repo commit -m 'id_rsa'"
+check 2 "git -C commit -m 'id_rsa'"
+# An editor runs on the message file: with core.editor=sh, `commit -e -m`
+# executes the message as a script, so an edit flag keeps it in the scan.
+check 2 "git -c core.editor=sh commit -e -m 'cat .env'"
+check 2 "git -C /tmp/x/repo commit -m 'cat .env' --edit"
+check 2 "git commit -ae -m 'cat .env'"
+check 2 "git -C /tmp/x/repo commit --edi -m 'cat .env'"
+check 2 "git -C /tmp/x/repo commit -m 'cat .env' a.txt -e"
+# `-c <name>=<value>` sets one config value for the run; it gets the same
+# treatment, except an alias, which the line does not read through.
+check 0 "git -c user.name=x -C /tmp/x/repo commit -m \"reads the token from env${nl}then writes the lock\""
+check 0 "git -c user.email=t@example.invalid commit -m 'drop state.env reads'"
+check 2 "git -C /tmp/x/repo -c alias.commit='!cat' commit -m 'id_rsa'"
+check 2 "git -c Alias.Commit='!cat' commit -m 'id_rsa'"
+check 2 "git -c core.editor=sh -C /tmp/x/repo commit -m 'cat .env' -e"
+check 2 "git -c core.hooksPath=x commit -m 'x' && env"
 # Every word is expanded before the name is looked up; an expansion that is
 # not a bare parameter reference may assign PATH (arithmetic in an offset).
 check 2 "echo \"\${PWD:PATH=0}\"; orca orchestration send --body '.env'"
@@ -601,6 +627,14 @@ if command -v git >/dev/null 2>&1; then
     || bad "git sandbox setup commit"
   printf 'VALUE=%s\n' "$canary" >"$W/.env"
   run_git 0 "git commit -q -m 'see .env and state.env'" no
+  printf 'b1\n' >>"$W/a.txt" && (cd "$W" && git add a.txt)
+  run_git 0 "git -C \"$W\" -c user.name=t commit -q -m 'see .env and state.env'" no
+  # Editor control: with core.editor=sh, `-e` runs the message as a script,
+  # which here writes the canary into the commit message.
+  printf 'b3\n' >>"$W/a.txt" && (cd "$W" && git add a.txt)
+  unset GIT_EDITOR
+  run_git 2 "git -c core.editor=sh commit -q -e -m 'cat .env > .git/COMMIT_EDITMSG'" yes
+  export GIT_EDITOR=true
   printf 'b2\n' >>"$W/a.txt" && (cd "$W" && git add a.txt)
   run_git 0 "git commit -q -m $(hd EOF 'see .env, run `cat .env` (not done)')" no
   if [ "$(cd "$W" && git log -1 --format=%B)" = 'see .env, run `cat .env` (not done)' ]; then

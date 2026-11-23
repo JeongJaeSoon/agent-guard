@@ -1,5 +1,5 @@
 {
-  "comment": "Claude Code 2.1.330 built-in tool outputs whose fields the host checks, for #612. The Read union (text, image, notebook, pdf, parts), Write's `type`, Grep's `mode` and NotebookEdit's `cell_type` follow that version's output schema; the Read `parts` case with `pages` is the shape a live PostToolUse hook received for a PDF read with a page range. Paths, sizes and image bytes are stand-ins. {{SECRET}} becomes the planted marker when the test runs, and only content-bearing fields carry it. `words` lists the paths of the fields the host reads as one of a few values; a replacement must keep them as they were, keep the type of every value, keep every number and keep a file path that equals the one in tool_input.",
+  "comment": "Claude Code 2.1.330 built-in tool outputs whose fields the host checks, for #612. The Read union (text, image, notebook, pdf, parts), Write's `type`, Grep's `mode` and NotebookEdit's `cell_type` follow that version's output schema, as do the enums added for #599: REPL's `stoppedBy` and `neverRan`, Poll's `provenance[].authority`, the `gitDiff.status` of Write and Edit, Skill's `status` and Bash's `gitOperation` kinds and actions. `Eval` is the REPL name the bundle also accepts (`li()`); no recorded transcript has an Eval event yet; the Read `parts` case with `pages` is the shape a live PostToolUse hook received for a PDF read with a page range. Paths, sizes and image bytes are stand-ins. {{SECRET}} becomes the planted marker when the test runs, and only content-bearing fields carry it. `words` lists the paths of the fields the host reads as one of a few values; a replacement must keep them as they were, keep the type of every value, keep every number and keep a file path that equals the one in tool_input. `schemas` is the 2.1.330 output schema of each tool with a fixed last-resort replacement in claude-tool-outputs.json: a dotted path to its kind (`any` takes every kind) and, under `words`, the values the schema allows for an enum field.",
   "cases": [
     {
       "label": "Read text file",
@@ -90,6 +90,112 @@
       "tool_input": {"notebook_path": "/work/lab.ipynb", "new_source": "x"},
       "words": [["cell_type"]],
       "output": {"new_source": "{{SECRET}}", "cell_type": "markdown", "language": "python", "edit_mode": "insert", "cell_id": "cell-1", "error": "", "notebook_path": "/work/lab.ipynb", "original_file": "{}", "updated_file": "{}"}
+    },
+    {
+      "label": "REPL stopped by a refusal",
+      "tool": "REPL",
+      "tool_input": {"code": "await run()"},
+      "words": [["stoppedBy"]],
+      "output": {"code": "await run()", "result": "{{SECRET}}", "stdout": "", "stderr": "", "stoppedBy": "refusal", "evalId": 3, "ms": 12}
+    },
+    {
+      "label": "REPL stopped by the user, with an image",
+      "tool": "REPL",
+      "tool_input": {"code": "await shot()"},
+      "words": [["stoppedBy"], ["images", 0, "mediaType"]],
+      "output": {"code": "await shot()", "stdout": "{{SECRET}}\n", "stderr": "", "stoppedBy": "user", "late": false, "images": [{"base64": "iVBORw0KGgo=", "mediaType": "image/png"}]}
+    },
+    {
+      "label": "REPL never ran",
+      "tool": "REPL",
+      "tool_input": {"code": "await run()"},
+      "words": [["neverRan"]],
+      "output": {"code": "await run()", "stdout": "", "stderr": "", "error": "denied: {{SECRET}}", "neverRan": "person"}
+    },
+    {
+      "label": "Eval, the REPL alias, never ran",
+      "tool": "Eval",
+      "tool_input": {"code": "await run()"},
+      "words": [["neverRan"]],
+      "output": {"code": "await run()", "result": {"rows": ["{{SECRET}}"], "count": 1}, "stdout": "", "stderr": "", "neverRan": "other"}
+    },
+    {
+      "label": "Poll delivers events from each authority",
+      "tool": "Poll",
+      "tool_input": {},
+      "words": [["provenance", 0, "authority"], ["provenance", 1, "authority"], ["provenance", 2, "authority"], ["provenance", 3, "authority"], ["media", 0, 0, "type"], ["media", 0, 0, "source", "type"], ["media", 0, 0, "source", "media_type"]],
+      "output": {
+        "content": "<event kind=\"repl-eval\">{{SECRET}}</event>",
+        "eventCount": 5,
+        "remainingWakeCount": 0,
+        "media": [[{"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "iVBORw0KGgo="}}], [], [], [], []],
+        "toolsUsed": ["Bash"],
+        "provenance": [{"authority": "human-principal", "senderText": "use {{SECRET}}"}, {"authority": "human-other", "senderId": "queue"}, {"authority": "peer-agent", "senderId": "session-2"}, {"authority": "world-event"}, null],
+        "declared": [{"kind": "note", "at": "2026-11-23T00:00:00Z", "fields": {"body": "{{SECRET}}"}}, null, null, null, null],
+        "rows": [null, null, null, null, null]
+      }
+    },
+    {
+      "label": "Write creates a tracked file",
+      "tool": "Write",
+      "tool_input": {"file_path": "/work/new.ts"},
+      "words": [["type"], ["gitDiff", "status"]],
+      "output": {"type": "create", "filePath": "/work/new.ts", "content": "{{SECRET}}", "structuredPatch": [], "originalFile": null, "gitDiff": {"filename": "new.ts", "status": "added", "additions": 1, "deletions": 0, "changes": 1, "patch": "+{{SECRET}}", "repository": null}, "userModified": false}
+    },
+    {
+      "label": "Edit changes a tracked file",
+      "tool": "Edit",
+      "tool_input": {"file_path": "/work/app.ts"},
+      "words": [["gitDiff", "status"]],
+      "output": {"filePath": "/work/app.ts", "oldString": "x", "newString": "{{SECRET}}", "originalFile": "x", "structuredPatch": [{"oldStart": 1, "oldLines": 1, "newStart": 1, "newLines": 1, "lines": ["-x", "+{{SECRET}}"]}], "userModified": false, "replaceAll": false, "gitDiff": {"filename": "app.ts", "status": "modified", "additions": 1, "deletions": 1, "changes": 2, "patch": "-x\n+{{SECRET}}", "repository": "owner/repo"}}
+    },
+    {
+      "label": "Skill runs inline",
+      "tool": "Skill",
+      "tool_input": {"skill": "review"},
+      "words": [["status"]],
+      "output": {"success": true, "commandName": "{{SECRET}}", "status": "inline", "allowedTools": ["Read"]}
+    },
+    {
+      "label": "Skill runs forked",
+      "tool": "Skill",
+      "tool_input": {"skill": "review"},
+      "words": [["status"]],
+      "output": {"success": true, "commandName": "review", "status": "forked", "agentId": "agent-1", "result": "{{SECRET}}"}
+    },
+    {
+      "label": "Glob lists files",
+      "tool": "Glob",
+      "tool_input": {"pattern": "src/*.ts"},
+      "words": [],
+      "output": {"durationMs": 3, "numFiles": 1, "filenames": ["src/{{SECRET}}.ts"], "truncated": false, "totalMatches": 1, "countIsComplete": true}
+    },
+    {
+      "label": "Monitor starts a watch",
+      "tool": "Monitor",
+      "tool_input": {},
+      "words": [],
+      "output": {"taskId": "{{SECRET}}", "timeoutMs": 1000, "persistent": true}
+    },
+    {
+      "label": "Bash commits, rebases and sets a PR to auto-merge",
+      "tool": "Bash",
+      "tool_input": {"command": "git commit"},
+      "words": [["gitOperation", "commit", "kind"], ["gitOperation", "branch", "action"], ["gitOperation", "pr", "action"]],
+      "output": {"stdout": "{{SECRET}}", "stderr": "", "interrupted": false, "isImage": false, "gitOperation": {"commit": {"sha": "abc1234", "kind": "cherry-picked", "branch": "main"}, "branch": {"ref": "main", "action": "rebased"}, "pr": {"number": 7, "url": "https://example.invalid/pr/7", "action": "auto-merge-enabled"}}}
     }
-  ]
+  ],
+  "schemas": {
+    "Bash": {"required": {"stdout": "string", "stderr": "string", "interrupted": "boolean"}, "optional": {"isImage": "boolean", "noOutputExpected": "boolean", "persistedOutputPath": "string", "persistedOutputSize": "number", "gitOperation": "object"}},
+    "Read": {"required": {"type": "string", "file": "object", "file.filePath": "string", "file.content": "string", "file.numLines": "number", "file.startLine": "number", "file.totalLines": "number"}, "optional": {}, "words": {"type": ["text"]}},
+    "Write": {"required": {"type": "string", "filePath": "string", "content": "string", "structuredPatch": "array", "originalFile": "string|null"}, "optional": {"userModified": "boolean", "gitDiff": "object", "staged": "boolean"}, "words": {"type": ["create", "update"]}},
+    "Edit": {"required": {"filePath": "string", "oldString": "string", "newString": "string", "originalFile": "string|null", "structuredPatch": "array", "userModified": "boolean", "replaceAll": "boolean"}, "optional": {"gitDiff": "object", "staged": "boolean"}},
+    "NotebookEdit": {"required": {"new_source": "string", "cell_type": "string", "language": "string", "edit_mode": "string", "notebook_path": "string", "original_file": "string", "updated_file": "string"}, "optional": {"old_source": "string", "cell_id": "string", "error": "string"}, "words": {"cell_type": ["code", "markdown"]}},
+    "Grep": {"required": {"numFiles": "number", "filenames": "array"}, "optional": {"mode": "string", "content": "string", "numLines": "number", "numMatches": "number", "totalFiles": "number", "totalLines": "number", "appliedLimit": "number", "appliedOffset": "number", "timedOut": "boolean"}, "words": {"mode": ["content", "files_with_matches", "count"]}},
+    "Glob": {"required": {"durationMs": "number", "numFiles": "number", "filenames": "array", "truncated": "boolean"}, "optional": {"totalMatches": "number", "countIsComplete": "boolean", "timedOut": "boolean"}},
+    "Skill": {"required": {"success": "boolean", "commandName": "string"}, "optional": {"allowedTools": "array", "model": "string", "status": "string", "readOnly": "boolean"}, "words": {"status": ["inline"]}},
+    "Monitor": {"required": {"taskId": "string", "timeoutMs": "number"}, "optional": {"persistent": "boolean", "keptInSandboxByCheck": "boolean"}},
+    "REPL": {"required": {"code": "string", "stdout": "string", "stderr": "string"}, "optional": {"result": "any", "error": "string", "stoppedBy": "string", "neverRan": "string"}, "words": {"stoppedBy": ["user", "refusal"], "neverRan": ["person", "other"]}},
+    "Poll": {"required": {"content": "string", "eventCount": "number", "remainingWakeCount": "number"}, "optional": {"provenance": "array", "toolsUsed": "array", "media": "array", "declared": "array", "rows": "array"}}
+  }
 }

@@ -1,4 +1,4 @@
-<!-- translated-from: docs/installation.md; source-blob: 557cb1615ea118bdaf0e0ef8caac745ab9f88985 -->
+<!-- translated-from: docs/installation.md; source-blob: bfa631b864a8f2e3e127dcfe20565b47b3ddca81 -->
 
 <a id="installing-agent-guard"></a>
 
@@ -40,23 +40,38 @@ codex plugin add agent-guard@agent-guard
 ## 任意のwarm gitleaks helper
 
 スキャンのたびに新しいgitleaksプロセスが起動し、その時間の大半は起動コストです。
-任意のwarm helperは、コンパイル済みのgitleaks 8.30.1 detectorをユーザーと設定ごとに
+warm helperは、コンパイル済みのgitleaks 8.30.1 detectorをユーザーと設定ごとに
 1つだけメモリに保持してすべてのセッションで共有し、10分間リクエストがなければ
-自ら終了します。リリースアーカイブには含まれません。Goでソースのcheckoutから
-ビルドし、hostの起動環境がクライアントを指すようにしてください。
+自ら終了します。Linux x64/arm64とmacOS arm64向けの別のリリースassetで、リリース
+アーカイブ、Homebrewパッケージ、プラグインには含まれません。プラグイン、Homebrew、
+単独インストールのいずれでも、コマンド1つで取得します。
 
 ```sh
-sh scripts/build-gitleaks-helper.sh "$HOME/.agent-guard/gitleaks-helper"
-export AGENT_GUARD_GITLEAKS_HELPER="$HOME/.agent-guard/gitleaks-helper/agent-guard-scan"
+agent-guard setup --install-gitleaks-helper
 ```
 
-その後ClaudeまたはCodexを再起動してください。判定はすべて引き続きCLIが行います。
-helperが失敗すると実際のgitleaksを実行するため、失敗がクリーンなスキャンとして
-扱われることはありません。`AGENT_GUARD_GITLEAKS_BIN` を設定している場合や
-`AGENT_GUARD_LOG_MODE=off` の場合はhelperを使いません。helperが応答するのは
-公式のgitleaks 8.30.1リリースバイナリだけで、Goの `regexp` でビルドした
-gitleaks（Homebrew、`go install`）は常に実際に実行します。無効にするには変数を削除して
-hostを再起動してください。同じ結果の保証、失敗時の処理、メモリ、プライバシーは
+このコマンドは、2つのバイナリがこのAgent Guardバージョンに組み込まれたSHA-256値と
+どちらも一致する場合にだけhelperをインストールします。場所はprivateなgitleaks
+（既定では `~/.agent-guard/bin`）の隣の `gitleaks-helper` です。インストールすると既定で
+使われます。変数は不要で、実行中のhostも次のスキャンから使います。Agent Guardを
+更新した後はコマンドをもう一度実行してください。別のバージョン用にインストール
+されたhelperは使われません。無効にするには次のようにします。
+
+```sh
+export AGENT_GUARD_GITLEAKS_HELPER=off
+```
+
+判定はすべて引き続きCLIが行います。helperが失敗すると実際のgitleaksを実行する
+ため、失敗がクリーンなスキャンとして扱われることはありません。
+`AGENT_GUARD_GITLEAKS_BIN` を設定している場合や `AGENT_GUARD_LOG_MODE=off` の場合は
+helperを使いません。helperが応答するのは `agent-guard setup --install` が
+インストールする公式のgitleaks 8.30.1リリースバイナリだけで、Goの `regexp` で
+ビルドしたgitleaks（Homebrew、`go install`）は常に実際に実行します。
+`agent-guard setup` が表示するのはhelperがインストールされているかどうかで、
+使用中のgitleaksにhelperが応答するかどうかではありません。自分でソースから
+ビルドしたものを使うには、
+`AGENT_GUARD_GITLEAKS_HELPER` をその `agent-guard-scan` の絶対パスにしてください。
+同じ結果の保証、失敗時の処理、メモリ、プライバシーは
 [warm gitleaks helperガイド（英語）](https://github.com/JeongJaeSoon/agent-guard/blob/main/docs/gitleaks-helper.md)にあります。
 
 ## 実行時の依存関係

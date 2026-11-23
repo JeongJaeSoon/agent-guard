@@ -43,9 +43,21 @@ input, the Bash deny patterns, the `git commit`/`git push` hook-bypass refusal,
 the broad Grep content refusal and the PII input gate. Only the secret scan is
 skipped, so a secret that only gitleaks would find passes. The first notice of
 the session that a passing call carries includes the degraded notice; a
-blocked call carries only its block reason. `closed` blocks every PreToolUse call, as before. PostToolUse,
-PostToolUseFailure, UserPromptSubmit and Stop still pass without running their
+blocked call carries only its block reason. `closed` blocks every PreToolUse call, as before.
+
+UserPromptSubmit needs only jq and awk for its PII input gate and its check for
+secret-like `KEY=value` and `key: value` assignments, so under `open` both
+still run when gitleaks is unavailable and a prompt they find is blocked. Only
+the gitleaks rule scan is skipped: a secret that only gitleaks would find
+passes, and stderr says on every such pass that the scan did not run, while the
+notice keeps its interval. `closed` blocks every prompt, as before.
+PostToolUse, PostToolUseFailure and Stop still pass without running their
 checks under `open` when gitleaks is unavailable.
+
+Every hook except SessionStart retries a gitleaks version probe that timed out
+once before it treats gitleaks as unavailable, because a loaded machine can
+miss the two-second deadline once. SessionStart probes once: its host timeout
+is five seconds.
 
 Non-empty malformed or non-object PreToolUse, PostToolUse, and Stop input is
 also distinct from unavailable infrastructure. Agent Guard rejects one of
@@ -162,8 +174,13 @@ return status 0 with no response. See [Output masking coverage](integrations.md#
   tool output (`Read`'s `type` and page `mediaType`, `Write`'s `type`,
   `Grep`'s `mode`, `NotebookEdit`'s `cell_type`) survive that rewrite when
   the value is exactly a known protocol token, so the sanitized result still
-  parses as the shape the host sent. Any other string is masked, including
-  under those keys. On Claude Code, a `filePath` or `notebook_path` equal to
+  parses as the shape the host sent. Claude Code's other enum fields survive
+  only at the top-level path the output schema gives them and only with a
+  value that schema allows: `stoppedBy` and `neverRan` (`REPL`), `status`
+  (`Skill`), `gitDiff.status` (`Write`, `Edit`), `provenance[].authority`
+  (`Poll`), and `gitOperation.*.kind` and `.action` (`Bash`). The same
+  key anywhere else, such as inside the value a Code Mode script returns, is
+  ordinary data. Any other string is masked, including under those keys. On Claude Code, a `filePath` or `notebook_path` equal to
   the path in the tool input is kept too: the model wrote it. When a rewrite
   still changes a field the host checks, the hook does not report the output
   as masked, because Claude Code rejects such a replacement and passes the
@@ -527,7 +544,7 @@ reads it.
 | `AGENT_GUARD_GITLEAKS_CONFIG` | Override the gitleaks configuration file. |
 | `AGENT_GUARD_GITLEAKS_BIN` | Select a gitleaks executable. |
 | `AGENT_GUARD_GITLEAKS_BIN_DIR` or `AGENT_GUARD_BIN_DIR` | Select the private gitleaks install directory. |
-| `AGENT_GUARD_GITLEAKS_HELPER` | Unset (default). An absolute path to a built `agent-guard-scan` turns on the opt-in [warm gitleaks helper](https://github.com/JeongJaeSoon/agent-guard/blob/main/docs/gitleaks-helper.md); ignored when `AGENT_GUARD_GITLEAKS_BIN` is set or `AGENT_GUARD_LOG_MODE=off`. A helper failure runs the real gitleaks. |
+| `AGENT_GUARD_GITLEAKS_HELPER` | Unset (default): use the [warm gitleaks helper](https://github.com/JeongJaeSoon/agent-guard/blob/main/docs/gitleaks-helper.md) when `agent-guard setup --install-gitleaks-helper` installed it. `off` (any value that is not an absolute path) never uses it. An absolute path selects your own built `agent-guard-scan`. Ignored when `AGENT_GUARD_GITLEAKS_BIN` is set or `AGENT_GUARD_LOG_MODE=off`. A helper failure runs the real gitleaks. |
 | `AGENT_GUARD_GITLEAKS_HELPER_IDLE_SECONDS` / `AGENT_GUARD_GITLEAKS_HELPER_MAX_RSS_MIB` | Read when a warm helper starts: idle exit time (default `600`) and peak resident-memory cap (default `160` MiB, at least `96`). |
 | `AGENT_GUARD_INFRA_FAILURE_MODE` | `open` (default) or `closed` for hook infrastructure failures. |
 | `AGENT_GUARD_SCAN_INPUT_MAX_BYTES` | Positive integer `>= 10485760`; default `10485760` (10 MiB, split into thirds per producer, so `scan-staged` and each `scan-working-tree` component get 3495253 bytes by default). It can only raise the budget: smaller, non-numeric, or overlong (19+ digit) values keep the default. A larger budget scans more input; it never excludes anything from scanning. |
