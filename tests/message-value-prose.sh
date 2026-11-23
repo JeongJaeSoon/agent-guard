@@ -530,6 +530,45 @@ orca_env ./orca 2 "$OW bot item comment 1 --text '.env'"
 orca_env bin/orca 2 "$OW bot item comment 1 --text '.env'"
 orca_env 'orca --text-file' 2 "$OU bot item comment 1 --text '.env'"
 orca_env /tmp/orca/cat 2 "$OW bot item comment 1 --text '.env'"
+# The commit/push gate reads the Orca CLI word the same way, so a message
+# command called through it is not a command name only run time knows. The
+# closed policy blocks such a name, so each row runs under it, on both hosts.
+gate_closed() { # $1 ORCA_CLI_COMMAND in the hook's environment (- for unset), $2 expected status, $3 command
+  for gate_host in claude codex; do
+    (
+      if [ "$1" = - ]; then unset ORCA_CLI_COMMAND; else ORCA_CLI_COMMAND=$1; export ORCA_CLI_COMMAND; fi
+      AGENT_GUARD_INFRA_FAILURE_MODE=closed AGENT_GUARD_HOOK_HOST=$gate_host
+      export AGENT_GUARD_INFRA_FAILURE_MODE AGENT_GUARD_HOOK_HOST
+      gate "$3"
+    )
+    status=$?
+    n=$((n + 1))
+    if [ "$status" -eq "$2" ]; then
+      ok "[$gate_host] closed gate, ORCA_CLI_COMMAND=$1: expected $2: $3"
+    else
+      bad "[$gate_host] closed gate, ORCA_CLI_COMMAND=$1: expected $2 got $status: $3"
+      sed 's/^/  stderr: /' "$CASE/err"
+    fi
+  done
+}
+gate_closed - 0 "orca orchestration send --to lead --body 'done'"
+gate_closed - 0 "$OW orchestration send --to lead --body 'done'"
+gate_closed - 0 "$OU orchestration send --to lead --body 'done'"
+gate_closed - 0 "$OW orchestration ask --question 'what should pass?'"
+gate_closed - 0 "$OW orchestration reply --run r1 --id m1 --body 'ok' && $OW orchestration send --to lead --body 'done'"
+gate_closed - 0 "$OW bot item comment 1 --text 'note'"
+gate_closed orca 0 "$OW orchestration send --to lead --body 'done'"
+gate_closed /Applications/Orca.app/Contents/Resources/bin/orca 0 "$OW orchestration send --to lead --body 'done'"
+gate_closed git 2 "$OW orchestration send --to lead --body 'done'"
+gate_closed ./orca 2 "$OW orchestration send --to lead --body 'done'"
+gate_closed - 2 "$OW commit --no-verify -m x"
+gate_closed - 2 "$OW orchestration send --to lead --body 'done'; git commit --no-verify -m x"
+gate_closed - 2 "$OW orchestration send --to lead --body \"\$(git commit --no-verify -m x)\""
+gate_closed - 2 "O=$OW; \$O orchestration send --to lead --body 'done'"
+gate_closed - 2 "env $OW orchestration send --to lead --body 'done'"
+gate_closed - 2 "ORCA_CLI_COMMAND=git; $OW orchestration send --to lead --body 'done'"
+# A command the message table does not hold keeps the name unknown.
+gate_closed - 2 "$OW orchestration check --terminal t1"
 # Ground truth: with the variable unset each shell at hand runs the orca on
 # PATH, which only echoes its words here; a value from the environment or an
 # assignment in the command runs that program instead, and the reader control

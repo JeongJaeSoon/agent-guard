@@ -12971,7 +12971,11 @@ is_git_hook_bypass() {
 }
 
 check_git_command() {
-  cmd=$1
+  # The Orca CLI word names orca wherever the message check reads it so
+  # (orca_cli_words_as_orca); anywhere else it stays a name only run time
+  # knows.
+  cmd=$(orca_cli_words_as_orca "$1")
+  [ "$cmd" != "$1" ] || cmd=$(orca_cli_words_as_orca "$1" heredoc)
   workdir=${2:-}
   git_c_records=$(is_git_commit_or_push "$cmd" "$workdir")
   git_command_status=$?
