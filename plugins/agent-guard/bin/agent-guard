@@ -10299,7 +10299,7 @@ AWK_READ_OPERAND_RECORDS='
     wvopt["env"] = " -u -C --unset --chdir "; wvopt["stdbuf"] = " -i -o -e "; wvopt["exec"] = " -a "
     # Options whose value is not a file.
     vopt["head"] = vopt["tail"] = " -n -c --lines --bytes "
-    vopt["grep"] = vopt["egrep"] = vopt["fgrep"] = " -e -m -A -B -C -D -d --regexp --max-count --context --after-context --before-context --label --include --exclude --exclude-dir "
+    vopt["grep"] = vopt["egrep"] = vopt["fgrep"] = " -e -m -A -B -C -D -d --regexp --max-count --context --after-context --before-context --label --include --exclude --exclude-dir --binary-files --directories --devices "
     vopt["rg"] = " -e -m -A -B -C -g -t -T -M -j -E --regexp --max-count --glob --iglob --type --type-not --context --after-context --before-context --max-columns --threads --sort --sortr --encoding -r --replace --pre --pre-glob -d --max-depth --color --colors --context-separator --field-context-separator --field-match-separator --path-separator --dfa-size-limit --regex-size-limit --max-filesize --engine --type-add --type-clear --hostname-bin --hyperlink-format --generate "
     vopt["sed"] = " -e --expression -l "
     vopt["awk"] = vopt["gawk"] = vopt["mawk"] = vopt["nawk"] = " -F -v --field-separator --assign "
@@ -10312,6 +10312,7 @@ AWK_READ_OPERAND_RECORDS='
     vopt["xxd"] = " -l -s -c -g -o "; vopt["od"] = " -A -t -N -j -w "
     vopt["hexdump"] = " -n -s -e "; vopt["strings"] = " -n -t "
     vopt["base64"] = vopt["base32"] = " -w -b -o "
+    vopt["cmp"] = " -i -n --ignore-initial --bytes "
     vopt["diff"] = " -U -C -L -x -I -F --label --exclude --ignore-matching-lines --show-function-line --horizon-lines "; vopt["cp"] = " -t -S --target-directory --suffix "
     vopt["bat"] = vopt["batcat"] = " -l -H -r --language --line-range --highlight-line --style --theme "
     vopt["jq"] = " --indent "
@@ -10405,7 +10406,9 @@ AWK_READ_OPERAND_RECORDS='
     # export and readonly without a value keep the value; local and declare may reset it.
     if (mode == "decl") { if (w ~ /^[A-Za-z_][A-Za-z0-9_]*\+?=/) assign(w, 1); else if (w !~ /^-/ && decl !~ /^(export|readonly)$/) delete tab[name_of(w)]; next }
     if (mode == "forget") { if (w !~ /^-/) delete tab[name_of(w)]; next }
-    if (mode == "printf") { if (w == "-v") mode = "forget"; next }
+    # printf -v sets only the variable named next; the rest is data.
+    if (mode == "printf") { if (w == "-v") mode = "printfv"; next }
+    if (mode == "printfv") { delete tab[name_of(w)]; mode = "skip"; next }
     if (prog == "") next
     if (skipn) { skipn--; next }
     if (fnext) { fnext = 0; operand(w); next }
@@ -10533,8 +10536,14 @@ bash_read_operand_heredoc_view() {
         if (qh) {
           t = l
           if (dash[qh]) sub(/^\t+/, "", t)
-          if (t == delim[qh]) { if (++qh > nq) { qh = 0; nq = 0 } ; continue }
-          if (!quoted[qh]) subs(l)
+          if (t == delim[qh]) {
+            # A substitution in the body may span lines, so read it whole.
+            if (!quoted[qh]) subs(body)
+            body = ""
+            if (++qh > nq) { qh = 0; nq = 0 }
+            continue
+          }
+          body = body (body == "" ? "" : "\n") l
           continue
         }
         print l

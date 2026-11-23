@@ -116,6 +116,8 @@ check 2 "a reader right before a line continuation" "cat\\${NL} $S"
 check 2 "awk file operand after an assignment operand" 'awk 1 v=1 "$F"'
 check 2 "diff exclude list from a variable" 'diff -X "$F" a b'
 check 2 "a redirect after a [[ ]] test" '[[ "$a" < "$b" ]] && cat < "$F"'
+check 2 "a multi-line substitution in a heredoc body reads a variable" "cat <<EOF${NL}\$(${NL}cat \"\$F\"${NL})${NL}EOF"
+check 2 "printf -v forgets only its target" 'f=README.md; printf -v f %s x; cat "$f"'
 check 2 "rg search root from a substitution" 'rg -n x "$(git rev-parse --show-toplevel)"'
 check 2 "the working directory before a protected name" 'cat "$(pwd)/.e""nv"'
 check 2 "PWD before a protected name" 'cat "$PWD/.e""nv"'
@@ -160,6 +162,10 @@ check 0 "bash -s passes its arguments to the script" "bash -s -- \"\$ARG\" <<'EO
 MODES=
 check 0 "diff exclude pattern from a variable" 'diff -x "$PAT" dir1 dir2'
 check 0 "diff ignored lines from a variable" 'diff -I "$PAT" a b'
+check 0 "grep binary-files mode from a variable" 'grep --binary-files "$MODE" "$PAT" README.md'
+check 0 "cmp skip count from a variable" 'cmp -i "$SKIP" README.md LICENSE'
+check 0 "a multi-line substitution in a heredoc body" "cat <<EOF${NL}\$(${NL}printf hello${NL})${NL}EOF"
+check 0 "printf -v data does not forget other names" 'f=README.md; printf -v out %s f; cat "$f"'
 check 0 "nice with a literal read" 'nice -n 5 cat README.md'
 check 0 "head count attached to -n" 'head -n"$N" README.md'
 check 0 "a literal assignment of an ordinary file" 'f=README.md; cat "$f"'
