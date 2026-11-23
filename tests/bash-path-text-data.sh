@@ -181,6 +181,17 @@ else
   failed=$((failed + 1))
 fi
 
+# Orca bot message text, documents sent as a body file and an awk line
+# filter after a search, through both hosts (the Orca CLI variable is unset).
+checked=$((checked + 1))
+if ORCA_CLI_COMMAND= AGENT_GUARD_TEST_FIXTURE="$ROOT/tests/fixtures/orca-message-text.json" sh "$ROOT/tests/path-operands-only.sh" > "$CASE_ROOT/orca" 2>&1; then
+  printf 'ok - path data %s: orca message text\n' "$checked"
+else
+  printf 'not ok - path data %s: orca message text\n' "$checked"
+  grep '^not ok' "$CASE_ROOT/orca" | sed 's/^/#   /'
+  failed=$((failed + 1))
+fi
+
 # Tracked env example files, and text that only names one.
 checked=$((checked + 1))
 if sh "$ROOT/tests/env-example-files.sh" > "$CASE_ROOT/example" 2>&1; then
