@@ -679,5 +679,50 @@
     "tests": [
       "tests/unresolved-read-operand.sh"
     ]
+  },
+  {
+    "id": "bash-unresolved-operand-append-kept",
+    "rule": "bash_unresolved_read_operand: NAME+=value changes the known value",
+    "old": "    if (add) v = (v != \"\\002\" && known(nm)) ? lv v : \"\\002\"\n",
+    "new": "",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-attached-subshell",
+    "rule": "bash_unresolved_read_operand: a ( attached to the command word opens a subshell",
+    "old": "      while (w ~ /^\\(/ && w !~ /^\\(\\(/) { depth++; w = substr(w, 2) }\n",
+    "new": "",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-wrapper-value",
+    "rule": "bash_unresolved_read_operand: a wrapper option value is not the command name",
+    "old": "      if (w ~ /^-/ && index(wvopt[wrap], \" \" w \" \")) { skipw = 1; next }\n",
+    "new": "",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-shell-code",
+    "rule": "bash_unresolved_read_operand: the code of sh -c is read",
+    "old": "      if (ow ~ /^-[A-Za-z]*c[A-Za-z]*$/) { mode = \"evalnext\"; next }\n",
+    "new": "",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-no-join",
+    "rule": "bash_unresolved_read_operand: line continuations are joined before reading words",
+    "old": "\"*) uo_text=$(shell_join_line_continuations \"$uo_text\") ;;",
+    "new": "\"*) ;;",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
   }
 ]

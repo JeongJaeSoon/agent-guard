@@ -10251,6 +10251,14 @@ AWK_READ_OPERAND_RECORDS='
       if (index(vopt[prog], " " ch " ")) { if (rest == "") skipn = 1; return }
     }
   }
+  # Code run by eval, sh -c or env -S, as an S record. A part only known at
+  # run time stands as an unknown parameter, so an operand built from it is
+  # unresolved, while code that is dynamic as a whole names no reader.
+  function code(w,   v) {
+    v = value(w)
+    gsub(/\002/, "\"$__agent_guard_unknown\"", v)
+    tabrec(); print "S" v
+  }
   function name_of(w,   n) {
     n = w; gsub(/["\047]/, "", n); sub(/^\\/, "", n); sub(/.*\//, "", n)
     return n
@@ -10264,13 +10272,19 @@ AWK_READ_OPERAND_RECORDS='
     }
     if (prog == "cp" && cppend != "" && cpt) operand(cppend)
     for (k in ptab) delete ptab[k]
+    if (mode == "eval" && evalcode != "") code(evalcode)
+    if (clearafter) for (k in tab) delete tab[k]
+    clearafter = 0
     npa = 0; cpos = 1; cmdseen = 0; prog = ""; mode = ""; ddash = 0; patdone = 0
     skipn = 0; fnext = 0; redir = 0; skipw = 0; cppend = ""; cpt = 0; wrap = ""; gotone = 0; jqdata = 0
   }
-  function assign(w, now,   nm, v) {
+  function assign(w, now,   nm, v, add) {
     nm = substr(w, 1, index(w, "=") - 1); sub(/\[.*/, "", nm)
+    add = (nm ~ /\+$/); sub(/\+$/, "", nm)
     v = value(substr(w, index(w, "=") + 1))
     if (index(v, "\002")) v = "\002"
+    # NAME+=value appends to the value it already has.
+    if (add) v = (v != "\002" && known(nm)) ? lv v : "\002"
     if (!now) { npa++; pan[npa] = nm; pav[npa] = v; ptab[nm] = v; return }
     if (cond || depth || v == "\002") delete tab[nm]
     else tab[nm] = v
@@ -10280,6 +10294,9 @@ AWK_READ_OPERAND_RECORDS='
     for (k in a) reader[a[k]] = 1
     split("grep egrep fgrep rg sed awk gawk mawk nawk jq", a, " ")
     for (k in a) patfirst[a[k]] = 1
+    wvopt["nice"] = " -n "; wvopt["timeout"] = " -s -k --signal --kill-after "
+    wvopt["sudo"] = wvopt["doas"] = " -u -g -C -D -h -p -r -t -U -T "
+    wvopt["env"] = " -u -C --unset --chdir "; wvopt["stdbuf"] = " -i -o -e "; wvopt["exec"] = " -a "
     # Options whose value is not a file.
     vopt["head"] = vopt["tail"] = " -n -c --lines --bytes "
     vopt["grep"] = vopt["egrep"] = vopt["fgrep"] = " -e -m -A -B -C -D -d --regexp --max-count --context --after-context --before-context --label --include --exclude --exclude-dir "
@@ -10342,9 +10359,14 @@ AWK_READ_OPERAND_RECORDS='
       if (w ~ /^(for|select)$/) { depth++; mode = "for"; cpos = 0; next }
       if (w == "case") { depth++; mode = "case"; cpos = 0; next }
       if (incase && w ~ /\)$/) next
-      if (wrap == "" && w ~ /^[A-Za-z_][A-Za-z0-9_]*(\[[^]]*\])?=/) { assign(w, 0); next }
+      # A subshell may open in the same word as the command (`(cat`).
+      while (w ~ /^\(/ && w !~ /^\(\(/) { depth++; w = substr(w, 2) }
+      if (w == "") next
+      if (wrap == "" && w ~ /^[A-Za-z_][A-Za-z0-9_]*(\[[^]]*\])?\+?=/) { assign(w, 0); next }
       if (wrap == "env" && (w ~ /^-/ || w ~ /=/)) next
-      if (wrap == "sudo" && w ~ /^-[ug]$/) { skipw = 1; next }
+      # Options of a wrapper that take the next word as their value.
+      if (w ~ /^-/ && index(wvopt[wrap], " " w " ")) { skipw = 1; next }
+      if (wrap == "env" && w == "-S") { mode = "evalnext"; cpos = 0; cmdseen = 1; next }
       if (wrap != "" && w ~ /^-/) next
       if (wrap == "timeout") { wrap = "timeout1"; next }
       n = name_of(w)
@@ -10353,17 +10375,30 @@ AWK_READ_OPERAND_RECORDS='
       if (w ~ /[$`]/) next
       if (n ~ /^(export|readonly|local|declare|typeset)$/) { mode = "decl"; decl = n; next }
       if (n ~ /^(unset|read|mapfile|readarray|getopts)$/) { mode = "forget"; next }
-      if (n ~ /^(eval|source|\.)$/) for (k in tab) delete tab[k]
+      # Code that eval or sh -c runs is read like a substitution; source and
+      # eval may set any variable, so known values end with the segment.
+      if (n ~ /^(eval|source|\.)$/) clearafter = 1
+      if (n == "eval") { mode = "eval"; evalcode = ""; next }
+      if (n ~ /^(sh|bash|zsh|dash|ksh|ash|mksh|posh)$/) { mode = "shell"; next }
       if (n ~ /^(cd|pushd|popd|eval|source|\.)$/ && !moved) { moved = 1; print "M" }
       if (n == "printf") mode = "printf"
       if (n in reader) prog = n
       next
     }
+    if (mode == "evalnext") { code(w); mode = "skip"; next }
+    if (mode == "eval") { evalcode = evalcode (evalcode == "" ? "" : " ") w; next }
+    if (mode == "shell") {
+      ow = value(w); if (index(ow, "\002") || subst) ow = w
+      if (ow ~ /^-[A-Za-z]*c[A-Za-z]*$/) { mode = "evalnext"; next }
+      if (ow ~ /^[-+]/) { if (ow ~ /^[-+]o$/) skipw = 1; next }
+      # A script file the shell reads.
+      operand(w); mode = "skip"; next
+    }
     if (mode == "for") { delete tab[name_of(w)]; mode = "skip"; next }
     if (mode == "skip") next
     if (mode == "case") { if (w == "in") { incase = 1; cpos = 1; mode = "" } ; next }
     # export and readonly without a value keep the value; local and declare may reset it.
-    if (mode == "decl") { if (w ~ /^[A-Za-z_][A-Za-z0-9_]*=/) assign(w, 1); else if (w !~ /^-/ && decl !~ /^(export|readonly)$/) delete tab[name_of(w)]; next }
+    if (mode == "decl") { if (w ~ /^[A-Za-z_][A-Za-z0-9_]*\+?=/) assign(w, 1); else if (w !~ /^-/ && decl !~ /^(export|readonly)$/) delete tab[name_of(w)]; next }
     if (mode == "forget") { if (w !~ /^-/) delete tab[name_of(w)]; next }
     if (mode == "printf") { if (w == "-v") mode = "forget"; next }
     if (prog == "") next
@@ -10377,6 +10412,8 @@ AWK_READ_OPERAND_RECORDS='
     if (patfirst[prog] && !patdone) { patdone = 1; next }
     # After jq --args or --jsonargs, the words after the filter are data.
     if (jqdata) next
+    # awk reads a NAME=value operand as an assignment, not a file.
+    if (prog ~ /awk$/ && w ~ /^[A-Za-z_][A-Za-z0-9_]*=/) next
     if (prog == "cp" && !cpt) { if (cppend != "") operand(cppend); cppend = w; next }
     # uniq and xxd write a second operand; source passes the rest to the script.
     if (prog ~ /^(uniq|xxd|source|\.)$/) { if (gotone) next; gotone = 1 }
@@ -10411,6 +10448,10 @@ bash_unresolved_read_operand() (
   [ "$uo_depth" -lt 8 ] || exit 0
   case "$uo_text" in
     *'<<'*) uo_text=$(printf '%s\n' "$uo_text" | bash_read_operand_heredoc_view) || uo_text=$1 ;;
+  esac
+  case "$uo_text" in
+    *"\\
+"*) uo_text=$(shell_join_line_continuations "$uo_text") ;;
   esac
   shell_words_marker "$uo_text"
   uo_words=$(shell_command_words "$uo_text") || exit 0

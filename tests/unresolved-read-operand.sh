@@ -102,6 +102,18 @@ check 2 "sort file list from a variable" 'sort --files0-from "$F"'
 check 2 "a quoted -- ends the options" 'cat "--" "$F"'
 check 2 "local without a value resets a variable" 'f=README.md; local f; cat "$f"'
 check 2 "an environment-only chain stays unresolved" 'f=README.md g=$f cat "$g"'
+check 2 "a compound assignment changes the value" 'f=.e; f+=nv; cat "$f"'
+check 2 "a subshell attached to the reader" "(cat $S)"
+check 2 "a line continuation after the reader" "cat \\${NL} $S"
+check 2 "nice with a priority value" "nice -n 5 cat $S"
+check 2 "timeout with a signal and a duration" "timeout -s KILL 5 cat $S"
+check 2 "sudo with a user" "sudo -u root cat $S"
+check 2 "sh -c program text" "sh -c 'cat \"\$F\"'"
+check 2 "bash -c program text after options" "bash -e -c 'cat \"\$F\"'"
+check 2 "eval of a reader" "eval 'cat \"\$F\"'"
+check 2 "sh -c program with a variable operand" 'sh -c "cat $F"'
+check 2 "a reader right before a line continuation" "cat\\${NL} $S"
+check 2 "awk file operand after an assignment operand" 'awk 1 v=1 "$F"'
 check 2 "rg search root from a substitution" 'rg -n x "$(git rev-parse --show-toplevel)"'
 check 2 "the working directory before a protected name" 'cat "$(pwd)/.e""nv"'
 check 2 "PWD before a protected name" 'cat "$PWD/.e""nv"'
@@ -133,6 +145,12 @@ check 0 "a quoted -e option" 'grep "-e" "$PAT" README.md'
 check 0 "export without a value keeps the value" 'f=README.md; export f; cat "$f"'
 check 0 "readonly without a value keeps the value" 'f=README.md; readonly f; cat "$f"'
 check 0 "an assignment chain on one line" 'f=README.md g=$f; cat "$g"'
+check 0 "a compound assignment of an ordinary name" 'f=READ; f+=ME.md; cat "$f"'
+check 0 "a literal assignment reaches source" 'f=./script.sh; source "$f"'
+check 0 "a literal assignment reaches the dot command" 'f=./script.sh; . "$f"'
+check 0 "awk assignment operand from a variable" "awk '{print v}' v=\"\$VALUE\" README.md"
+check 0 "sh -c program with a literal read" "sh -c 'cat README.md'"
+check 0 "nice with a literal read" 'nice -n 5 cat README.md'
 check 0 "head count attached to -n" 'head -n"$N" README.md'
 check 0 "a literal assignment of an ordinary file" 'f=README.md; cat "$f"'
 check 0 "an exported literal assignment of an ordinary file" 'export f=README.md; cat "$f"'
