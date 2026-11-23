@@ -179,7 +179,8 @@ default_hook
 expect "missing: with no installed helper the scan runs gitleaks as before" '[ ! -s "$CALLS" ] && same_as pre-secret'
 
 # Installing the released helper (#569).
-if sh "$ROOT/tests/gitleaks-helper-install.sh" >"$CASE/install.log" 2>&1; then
+# Always the stand-in archive here: the released one runs in its own job.
+if (unset AGENT_GUARD_NATIVE_ARTIFACT_DIR AGENT_GUARD_TEST_REAL_GITLEAKS; sh "$ROOT/tests/gitleaks-helper-install.sh") >"$CASE/install.log" 2>&1; then
   ok "setup --install-gitleaks-helper installs only a helper that matches the pins ($(grep -c '^ok ' "$CASE/install.log") checks)"
 else
   bad "setup --install-gitleaks-helper installs only a helper that matches the pins"

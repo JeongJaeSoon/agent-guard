@@ -19,10 +19,12 @@ No gitleaks or jq executable is included in the Agent Guard repository, plugin,
 or release archive. Their names and links are provided for attribution and do
 not imply endorsement.
 
-## Optional warm gitleaks helper (source only)
+## Optional warm gitleaks helper (separate release asset)
 
-`native/gitleaks-helper` is built only by users who opt in; no binary is
-included in the repository, plugin or release archive. The helper links the
+`native/gitleaks-helper` is published as a separate per-platform release
+asset, `agent-guard-gitleaks-helper-<target>.tar.gz`, which carries this file
+and is downloaded only by `agent-guard setup --install-gitleaks-helper`; no
+helper binary is included in the repository, plugin or release archive. The helper links the
 gitleaks 8.30.1 Go module (MIT License) and the modules it depends on at the
 versions of the official gitleaks release, listed in
 `native/gitleaks-helper/release-modules.txt`, each under its own license. Two

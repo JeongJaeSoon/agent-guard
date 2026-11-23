@@ -1,8 +1,9 @@
 name: Warm gitleaks helper
-# The opt-in helper (#537) is not shipped in any release asset yet. This
-# builds it from source on each platform, checks it links exactly the modules
-# of the official gitleaks release, and runs its failure-path, host and
-# differential tests against that official release.
+# The helper (#537) is released as a per-platform asset built and tested by
+# native-platforms.yml (#569). This builds it from source on each platform,
+# checks it links exactly the modules of the official gitleaks release, and
+# runs its failure-path, host and differential tests against that official
+# release.
 on:
   pull_request:
     paths:

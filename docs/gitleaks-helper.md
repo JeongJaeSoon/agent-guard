@@ -1,4 +1,4 @@
-# Warm gitleaks helper (opt-in)
+# Warm gitleaks helper
 
 English only. This guide is not translated yet; the
 [installation guide](installation.md#optional-warm-gitleaks-helper) has the
@@ -8,14 +8,15 @@ and [日本語](installation.ja.md#optional-warm-gitleaks-helper).
 Every Agent Guard scan starts a new gitleaks process. Almost all of its time
 (about 570 ms on a 4-vCPU Linux VM) is start-up: the regular-expression
 engine's WebAssembly runtime and the compilation of 224 rules. The scan itself
-takes under a millisecond for a 2 KB input. The opt-in warm helper pays the
+takes under a millisecond for a 2 KB input. The warm helper pays the
 start-up once and keeps one compiled gitleaks detector in memory; hooks reach
 it through a small client. On that VM, hooks that took about 0.5 to 1.6
 seconds took about 0.05 to 0.2 seconds with a warm helper.
+[Measured cost](#measured-cost) has the macOS numbers.
 
-It is off by default and not included in any release archive, Homebrew
-formula or plugin. You build it from source and turn it on with one
-environment variable.
+The helper is a separate release asset for Linux x64/arm64 and macOS arm64. It
+is not part of the release archive, Homebrew formula or plugin, and no hook
+downloads it. Once you install it, scans use it by default.
 
 ## What changes and what does not
 
@@ -36,12 +37,55 @@ working-tree scans, and the output detector's JSON report), it runs the client
 `gitleaks dir` (`scan-path`, the GitHub Action) and every other gitleaks call
 keep running the real gitleaks.
 
-## Turn it on
+## Install it
+
+```sh
+agent-guard setup --install-gitleaks-helper
+```
+
+The command works the same for a plugin, Homebrew or standalone install. It
+downloads `agent-guard-gitleaks-helper-<target>.tar.gz` from the GitHub
+release of the running Agent Guard version, takes the two binaries out of it,
+and installs them only when both match the SHA-256 values that version
+carries in `config/gitleaks-helper.sha256`. A release asset that was replaced
+after publication is therefore refused, and so is one for another version.
+Nothing is installed on any failure, and an earlier installed helper is left
+as it was.
+
+The files go to `gitleaks-helper` beside the private gitleaks
+(`~/.agent-guard/bin`, or `AGENT_GUARD_GITLEAKS_BIN_DIR`), with the two sums
+recorded in `SHA256SUMS`. From then on every scan uses the helper: no
+variable is needed and a running host uses it from its next scan. The CLI
+runs an installed helper only when its recorded sums are the ones the CLI
+pins, so after an Agent Guard update the old helper is not used until you run
+the command again. The CLI does not hash the binaries again for each scan;
+they have the trust of the gitleaks binary in the same directory.
+
+`agent-guard setup` (and `doctor`) prints one line with the helper's state:
+`not installed`, `off`, `on` (`starting` or `answering`), or `not used` with
+the reason, for example a selected gitleaks that is not the official release
+build. For that line it sends one fixed scan through the client, which starts
+a helper if none is running.
+
+The helper links the gitleaks 8.30.1 library; with any other selected
+gitleaks version every request runs the real gitleaks.
+
+## Turn it off
+
+```sh
+export AGENT_GUARD_GITLEAKS_HELPER=off
+```
+
+Set it in the environment that launches Claude Code or Codex. Any value that
+is not an absolute path keeps the helper unused; a running helper exits by
+itself after its idle time. Removing the `gitleaks-helper` directory has the
+same effect.
+
+## Build it yourself
 
 Requirements: Go (the version in `native/gitleaks-helper/go.mod`, fetched
 automatically by a newer Go), and the normal runtime dependencies, including
-gitleaks 8.30.1. The helper links the gitleaks 8.30.1 library; with any other
-installed gitleaks version every request runs the real gitleaks.
+gitleaks 8.30.1.
 
 ```sh
 sh scripts/build-gitleaks-helper.sh "$HOME/.agent-guard/gitleaks-helper"
@@ -52,11 +96,10 @@ The build fails if any module the helper links differs from the official
 gitleaks 8.30.1 release (`native/gitleaks-helper/release-modules.txt`). It
 writes `build.txt` (toolchain and build information) and `SHA256SUMS`. Keep
 `agent-guard-scan` and `agent-guard-gitleaks-helper` in the same directory.
-
-Set the variable in the environment that launches Claude Code or Codex and
-restart the host. The variable must be an absolute path to an executable file.
-To turn it off, unset it; a running helper exits by itself after its idle
-time.
+An absolute path in the variable selects that client instead of an installed
+helper and is not compared with the pins: it is your own build. The released
+binaries are this build, so `sh scripts/build-gitleaks-helper.sh --print-pins`
+prints the pinned sums for every platform.
 
 `AGENT_GUARD_GITLEAKS_CONFIG` works as without the helper: the custom file's
 bytes get their own helper (the default config's helper keeps running until
@@ -64,6 +107,9 @@ it is idle).
 
 The helper is not used when:
 
+- none is installed, or the installed one was recorded for another Agent
+  Guard version;
+- `AGENT_GUARD_GITLEAKS_HELPER` is `off`;
 - `AGENT_GUARD_GITLEAKS_BIN` is set (you chose a specific scanner);
 - `AGENT_GUARD_LOG_MODE=off`, even with `AGENT_GUARD_SCAN_CACHE=on` keeping
   the state directory for the caches (log-off mode keeps the helper off for
@@ -124,7 +170,8 @@ it answers.
 
 | Situation | What happens | Test |
 | --- | --- | --- |
-| Variable unset, relative, missing or not executable | Existing path; no client | `tests/gitleaks-helper-routing.sh` |
+| No helper installed, one installed for another Agent Guard version, the variable `off`, or a path that is not an executable file | Real gitleaks; no client is started | `tests/gitleaks-helper-routing.sh`, `tests/gitleaks-helper-install.sh` |
+| Downloaded helper differs from the pinned checksums, holds a link instead of a file, or the download fails | Nothing is installed; scans run the real gitleaks | `tests/gitleaks-helper-install.sh` |
 | Client present, helper binary missing | Real gitleaks | `tests/gitleaks-helper.sh` |
 | No helper running (first call, or after idle exit) | Real gitleaks; one helper starts in the background (at most one start per minute per key) | same |
 | Stale socket file from a killed helper | Connection refused: real gitleaks; the next helper removes the file | same |
@@ -200,6 +247,66 @@ helper exits (about the idle time after the last scan; the idle check runs
 every 15 seconds). Nothing is written
 to disk or sent over the network. See [PRIVACY.md](../PRIVACY.md).
 
+## Measured cost
+
+macOS 27 on an Apple M5 Max (18 cores), official gitleaks 8.30.1, synthetic
+inputs under a temporary home directory, 30 runs for each hook and mode. Other
+work kept the machine heavily loaded for the whole run (load average 26 at the
+start and 46 to 54 at the end), so wall-clock times were several times what an
+idle machine gives; an idle-machine run is still missing. The table gives CPU
+time instead: the hook's and that of every process it waited for, which
+excludes the helper. Median, in milliseconds:
+
+| Hook | Off | First call | Warm |
+| --- | ---: | ---: | ---: |
+| Bash PreToolUse | 765 | 809 | 497 |
+| Edit PreToolUse | 539 | 551 | 260 |
+| UserPromptSubmit | 590 | 586 | 300 |
+| PostToolUse Read (clean tree) | 804 | 802 | 513 |
+| PostToolUse Bash (changed tree) | 1731 | 1115 | 861 |
+| PostToolUse Edit (changed tree) | 1785 | 1255 | 902 |
+| Write PreToolUse (synthetic secret) | 528 | 523 | 241 |
+
+- Off and warm runs alternated; first calls ran in a separate block. A first
+  call scans with the real gitleaks and starts the helper. In a changed tree
+  its later scans are answered by the helper it just started.
+- One gitleaks start costs about 270 to 290 ms of CPU time here, three of them
+  in a hook that also scans the changed tree.
+- In every hook the warm wall-clock median and 95th percentile were below the
+  off ones. Exit codes were the same in all three modes.
+- Every warm run was answered by the helper, and every first call ran the
+  real gitleaks and started one helper (the client's trace words).
+
+Memory, one helper process:
+
+| State | Resident | Footprint |
+| --- | ---: | ---: |
+| Idle after its first scans | 56.4 MiB | 59.3 MiB |
+| After 50 small scans | 44.7 MiB | 59.3 MiB |
+| After five clean 1 MiB inputs | 42.4 MiB | 41.6 MiB |
+| After three 300 KB inputs dense with findings | 62.6 MiB | 56.1 MiB (peak 71.9 MiB) |
+| While 16 sessions scan at once | 52.4 MiB | 67.4 MiB |
+
+- Without the helper each scan is a gitleaks process that peaks at
+  57.6 to 78.4 MiB and exits. With it each scan is a client that peaks at
+  5.9 MiB, plus the one resident helper.
+- Four sessions and sixteen sessions shared one helper, and sixteen scans that
+  all found no helper at the same moment started exactly one.
+- The helper scans one request at a time. One scan through the warm client
+  took a median of 34.3 ms alone (95th percentile 79 ms), 44.1 ms (191.2 ms) with four
+  sessions scanning without pause and 147.2 ms (588.7 ms) with sixteen, on the
+  loaded machine.
+- With a two-second idle time the helper ended by itself and left no socket,
+  lock or marker.
+
+A Homebrew gitleaks 8.30.1, built with Go's `regexp`, is never answered by
+the helper. With it and an installed helper no helper process was started, and
+hook CPU time was the same as without one within the noise of 15 runs (medians
+20 ms lower to 47 ms higher). A hook with one scan used 210 to 280 ms less
+CPU with that build than with the official build and no helper, so that build
+has little start-up for a helper to save. This is CPU time only, and its runs did not
+alternate with the official build's.
+
 ## Known limits
 
 - A helper that is alive but stopped (for example by SIGSTOP) keeps its
@@ -226,4 +333,6 @@ to disk or sent over the network. See [PRIVACY.md](../PRIVACY.md).
 
 - Behavior inside Claude Code and Codex sandboxes and hosts that kill every
   descendant of a hook (the helper would start and end with each hook).
-- Intel macOS and Linux arm64.
+- Hook latency on an idle macOS machine, and latency and memory on Linux
+  arm64 and WSL.
+- Intel macOS: no helper is released for it.

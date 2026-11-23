@@ -33,23 +33,46 @@ write_run() {
     '{workflow_runs:[{id:1,head_sha:$sha,head_branch:"main",event:"push",status:"completed",conclusion:$conclusion}]}' > "$case_dir/runs.json"
 }
 write_run "$sha" success
+# The script reads the helper pins of its own tree; run a copy beside pins
+# that name the stand-in helper binaries below.
+mkdir -p "$case_dir/tree/scripts" "$case_dir/tree/plugins/agent-guard/config" "$case_dir/helper"
+cp "$ROOT/scripts/prepare-native-release.sh" "$case_dir/tree/scripts/"
+prepare="$case_dir/tree/scripts/prepare-native-release.sh"
+pins="$case_dir/tree/plugins/agent-guard/config/gitleaks-helper.sha256"
+printf '#!/bin/sh\nexit 0\n' > "$case_dir/helper/agent-guard-gitleaks-helper"
+printf '#!/bin/sh\nexit 1\n' > "$case_dir/helper/agent-guard-scan"
+# $1 target: its stand-in helper archive, checksum, source record and test logs.
+write_helper() {
+  helper="agent-guard-gitleaks-helper-$1"
+  tar -C "$case_dir/helper" -czf "$case_dir/artifacts/native-$1/$helper.tar.gz" agent-guard-gitleaks-helper agent-guard-scan
+  (cd "$case_dir/artifacts/native-$1" && shasum -a 256 "$helper.tar.gz" > "$helper.tar.gz.sha256")
+  printf '%s\n' "$sha" > "$case_dir/artifacts/native-$1/$helper.build.txt"
+  printf 'passed: 9\nfailed: 0\n' > "$case_dir/artifacts/native-$1/gitleaks-helper.log"
+  printf 'passed: 9\nfailed: 0\n' > "$case_dir/artifacts/native-$1/gitleaks-helper-corpus.log"
+}
 for target in x86_64-unknown-linux-musl aarch64-unknown-linux-musl aarch64-apple-darwin; do
+  (cd "$case_dir/helper" && shasum -a 256 agent-guard-gitleaks-helper agent-guard-scan) \
+    | awk -v target="$target" '{ print $1 "  " target "/" $2 }' >> "$pins"
   dir="$case_dir/artifacts/native-$target"
   name="agent-guard-redact-$target"
   mkdir "$dir"
+  write_helper "$target"
   printf '#!/bin/sh\nexit 0\n' > "$dir/$name"
   printf '%s\n' "$sha" > "$dir/$name.build.txt"
   (cd "$dir" && shasum -a 256 "$name" > "$name.sha256")
   printf '{"passed":1024,"failed":0}\n' > "$dir/differential.json"
   printf '{"passed":90,"failed":0,"native_invocation_verified":true}\n' > "$dir/integration.json"
 done
-sh "$ROOT/scripts/prepare-native-release.sh" "$sha" "$case_dir/good"
-test "$(find "$case_dir/good" -type f | wc -l | tr -d ' ')" = 7
+sh "$prepare" "$sha" "$case_dir/good"
+test "$(find "$case_dir/good" -type f | wc -l | tr -d ' ')" = 13
+for target in x86_64-unknown-linux-musl aarch64-unknown-linux-musl aarch64-apple-darwin; do
+  (cd "$case_dir/good" && shasum -a 256 -c "agent-guard-gitleaks-helper-$target.tar.gz.sha256" >/dev/null)
+done
 jq -e '.targets == ["x86_64-unknown-linux-musl","aarch64-unknown-linux-musl","aarch64-apple-darwin"]' \
   "$case_dir/good/native-validation.json" >/dev/null
 printf 'ok - exact successful main artifacts are selected\n'
 reject() {
-  if sh "$ROOT/scripts/prepare-native-release.sh" "$sha" "$case_dir/reject-$1" > "$case_dir/out" 2> "$case_dir/err"; then
+  if sh "$prepare" "$sha" "$case_dir/reject-$1" > "$case_dir/out" 2> "$case_dir/err"; then
     echo "release gate accepted $1" >&2; exit 1
   fi
   printf 'ok - release rejects %s\n' "$1"
@@ -71,5 +94,27 @@ printf '{"passed":1024,"failed":0}\n' > "$dir/differential.json"
 printf '{"passed":90,"failed":0,"native_invocation_verified":false}\n' > "$dir/integration.json"
 reject missing-execution-proof
 printf '{"passed":90,"failed":0,"native_invocation_verified":true}\n' > "$dir/integration.json"
+helper="agent-guard-gitleaks-helper-$target"
+printf 'wrong\n' > "$dir/$helper.build.txt"
+reject helper-wrong-build-commit
+write_helper "$target"
+printf 'passed: 8\nfailed: 1\n' > "$dir/gitleaks-helper.log"
+reject helper-test-failure
+write_helper "$target"
+printf 'passed: 0\nfailed: 0\n' > "$dir/gitleaks-helper-corpus.log"
+reject helper-tests-that-did-not-run
+write_helper "$target"
+printf 'x' >> "$dir/$helper.tar.gz"
+reject helper-archive-checksum-mismatch
+# A sound archive whose client is not the one the release's CLI pins.
+printf '#!/bin/sh\nexit 3\n' > "$case_dir/helper/agent-guard-scan"
+write_helper "$target"
+reject helper-binaries-the-cli-does-not-pin
+printf '#!/bin/sh\nexit 1\n' > "$case_dir/helper/agent-guard-scan"
+write_helper "$target"
+# Control: with every stand-in restored the same artifacts are accepted again,
+# so each rejection above came from its one change.
+sh "$prepare" "$sha" "$case_dir/good-again"
+printf 'ok - restored artifacts are selected again\n'
 printf 'corruption\n' >> "$dir/$name"
 reject checksum-mismatch

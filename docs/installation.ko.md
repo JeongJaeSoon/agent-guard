@@ -1,4 +1,4 @@
-<!-- translated-from: docs/installation.md; source-blob: 557cb1615ea118bdaf0e0ef8caac745ab9f88985 -->
+<!-- translated-from: docs/installation.md; source-blob: a7e8e11fdc40e8687f3e5b0a6f62c90f5f6fb96f -->
 
 <a id="installing-agent-guard"></a>
 
@@ -40,22 +40,36 @@ codex plugin add agent-guard@agent-guard
 ## 선택형 warm gitleaks helper
 
 스캔할 때마다 새 gitleaks 프로세스가 뜨고, 그 시간 대부분이 시작 비용입니다.
-선택형 warm helper는 컴파일한 gitleaks 8.30.1 detector 하나를 사용자·설정마다
+warm helper는 컴파일한 gitleaks 8.30.1 detector 하나를 사용자·설정마다
 메모리에 두고 모든 세션이 함께 쓰며, 10분 동안 요청이 없으면 스스로 끝납니다.
-릴리스 아카이브에는 들어 있지 않습니다. Go로 소스 checkout에서 빌드하고 호스트
-시작 환경이 클라이언트를 가리키게 하세요.
+Linux x64/arm64와 macOS arm64용 별도 릴리스 asset이고, 릴리스 아카이브·Homebrew
+패키지·플러그인에는 들어 있지 않습니다. 플러그인·Homebrew·단독 설치 모두 명령
+하나로 받습니다.
 
 ```sh
-sh scripts/build-gitleaks-helper.sh "$HOME/.agent-guard/gitleaks-helper"
-export AGENT_GUARD_GITLEAKS_HELPER="$HOME/.agent-guard/gitleaks-helper/agent-guard-scan"
+agent-guard setup --install-gitleaks-helper
 ```
 
-그다음 Claude 또는 Codex를 재시작하세요. 판정은 모두 CLI가 계속 내립니다.
-helper가 실패하면 실제 gitleaks를 실행하므로, 실패가 깨끗한 스캔으로 처리되지
-않습니다. `AGENT_GUARD_GITLEAKS_BIN`을 설정했거나 `AGENT_GUARD_LOG_MODE=off`이면
-helper를 쓰지 않고, helper는 공식 gitleaks 8.30.1 릴리스 바이너리에만 답합니다.
-Go `regexp`로 빌드한 gitleaks(Homebrew, `go install`)는 늘 실제로 실행합니다. 끄려면 변수를 지우고 호스트를 재시작하세요. 같은 결과
-보장, 실패 처리, 메모리, 개인정보는 [warm gitleaks helper 안내(영어)](https://github.com/JeongJaeSoon/agent-guard/blob/main/docs/gitleaks-helper.md)에
+이 명령은 두 바이너리가 이 Agent Guard 버전에 들어 있는 SHA-256 값과 모두 맞을
+때만 helper를 설치합니다. 위치는 private gitleaks(`~/.agent-guard/bin`) 옆의
+`gitleaks-helper`입니다. 설치하면 기본으로 사용합니다. 변수를 둘 필요가 없고,
+실행 중인 호스트도 다음 스캔부터 씁니다. Agent Guard를 업데이트한 뒤에는 명령을
+다시 실행하세요. 다른 버전용으로 설치된 helper는 쓰지 않습니다. 끄려면 다음과
+같이 합니다.
+
+```sh
+export AGENT_GUARD_GITLEAKS_HELPER=off
+```
+
+판정은 모두 CLI가 계속 내립니다. helper가 실패하면 실제 gitleaks를 실행하므로,
+실패가 깨끗한 스캔으로 처리되지 않습니다. `AGENT_GUARD_GITLEAKS_BIN`을 설정했거나
+`AGENT_GUARD_LOG_MODE=off`이면 helper를 쓰지 않습니다. helper는
+`agent-guard setup --install`이 설치하는 공식 gitleaks 8.30.1 릴리스 바이너리에만
+답하고, Go `regexp`로 빌드한 gitleaks(Homebrew, `go install`)는 늘 실제로
+실행합니다. 어느 경우인지는 `agent-guard setup`이 알려 줍니다. 직접 소스에서
+빌드한 것을 쓰려면 `AGENT_GUARD_GITLEAKS_HELPER`를 그 `agent-guard-scan`의 절대
+경로로 두세요. 같은 결과 보장, 실패 처리, 메모리, 개인정보는
+[warm gitleaks helper 안내(영어)](https://github.com/JeongJaeSoon/agent-guard/blob/main/docs/gitleaks-helper.md)에
 있습니다.
 
 ## 실행 의존성

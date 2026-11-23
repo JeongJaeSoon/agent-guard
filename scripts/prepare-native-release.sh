@@ -1,6 +1,7 @@
 #!/bin/sh
 # Consume qualified artifacts from the checked source tree.
 set -eu
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 sha=${1:?release commit required}
 out=${2:?new native artifact directory required}
 release_sha=${3:-$sha}
@@ -33,6 +34,27 @@ for target in x86_64-unknown-linux-musl aarch64-unknown-linux-musl aarch64-apple
   [ "$expected" = "$actual" ] || { echo "artifact checksum mismatch: $target" >&2; exit 2; }
   cp "$tmp/$target/$name" "$tmp/$target/$name.sha256" "$out/"
   chmod 755 "$out/$name"
+  # The warm gitleaks helper archive of the same run (#569): built from this
+  # commit, tested from the archive, and holding exactly the two binaries the
+  # release's CLI pins, so `setup --install-gitleaks-helper` accepts it.
+  helper="agent-guard-gitleaks-helper-$target"
+  [ "$(head -n 1 "$tmp/$target/$helper.build.txt")" = "$sha" ] \
+    || { echo "helper source does not match release SHA: $target" >&2; exit 2; }
+  for log in gitleaks-helper.log gitleaks-helper-corpus.log; do
+    grep -Eq '^passed: [1-9][0-9]*$' "$tmp/$target/$log" && grep -Fxq 'failed: 0' "$tmp/$target/$log" \
+      || { echo "helper tests did not pass: $target $log" >&2; exit 2; }
+  done
+  expected=$(cat "$tmp/$target/$helper.tar.gz.sha256")
+  actual=$(CDPATH= cd -- "$tmp/$target" && shasum -a 256 "$helper.tar.gz")
+  [ "$expected" = "$actual" ] || { echo "helper archive checksum mismatch: $target" >&2; exit 2; }
+  mkdir "$tmp/$target/helper"
+  tar -xzf "$tmp/$target/$helper.tar.gz" -C "$tmp/$target/helper" agent-guard-gitleaks-helper agent-guard-scan
+  awk -v target="$target" 'NF == 2 && index($2, target "/") == 1 { sub(/^.*\//, "", $2); print $1 "  " $2 }' \
+    "$ROOT/plugins/agent-guard/config/gitleaks-helper.sha256" > "$tmp/$target/helper-pins"
+  [ "$(grep -c . "$tmp/$target/helper-pins")" = 2 ] \
+    && (CDPATH= cd -- "$tmp/$target/helper" && shasum -a 256 -c ../helper-pins >/dev/null) \
+    || { echo "helper binaries differ from the pinned checksums: $target" >&2; exit 2; }
+  cp "$tmp/$target/$helper.tar.gz" "$tmp/$target/$helper.tar.gz.sha256" "$out/"
 done
 jq -n --arg sha "$release_sha" --arg source "$sha" --arg repo "$repo" --argjson run "$run" \
   '{release_sha:$sha,source_sha:$source,native_workflow_url:("https://github.com/"+$repo+"/actions/runs/"+($run|tostring)),targets:["x86_64-unknown-linux-musl","aarch64-unknown-linux-musl","aarch64-apple-darwin"]}' > "$out/native-validation.json"
