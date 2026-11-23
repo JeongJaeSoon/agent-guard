@@ -528,6 +528,7 @@ jobs:
             "agent-guard-${v}.tar.gz.sha256" \
             agent-guard.rb install.sh bootstrap.sh THIRD_PARTY_NOTICES.md \
             "$native_release_dir"/agent-guard-redact-* \
+            "$native_release_dir"/agent-guard-gitleaks-helper-* \
             "$native_release_dir/native-validation.json"
 
       # The tap lives in another repository, so GITHUB_TOKEN cannot write to

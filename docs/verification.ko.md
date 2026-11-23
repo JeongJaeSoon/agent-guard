@@ -1,4 +1,4 @@
-<!-- translated-from: docs/verification.md; source-blob: 3becb316996b46a7a66c73c031a6796cf2a992d8 -->
+<!-- translated-from: docs/verification.md; source-blob: 430d0cf7d223cd0df704094e5988c8c5db4f684e -->
 
 <a id="verification"></a>
 
@@ -119,18 +119,26 @@ Code Mode에서는 Claude가 JavaScript를 작성해 한 번에 여러 도구를
 
 ## 정기 확인
 
-선택형 warm gitleaks helper는 빌드한 머신에서, 링크한 공식 gitleaks 릴리스와
-비교해 검증합니다. 빌드 디렉터리와 공식 릴리스 바이너리(helper가 일부러 거절하는
-Homebrew·`go install` 빌드가 아닌 것)로 실패 경로·host·차분 테스트를 실행하세요.
+warm gitleaks helper는 링크한 공식 gitleaks 릴리스와 비교해 검증합니다. 릴리스
+workflow는 플랫폼별 릴리스 아카이브로 실패 경로·host·차분 테스트를 돌리고, 두
+바이너리가 `plugins/agent-guard/config/gitleaks-helper.sha256`의 SHA-256 값과
+맞을 때만 아카이브를 게시합니다. 이 값은
+`agent-guard setup --install-gitleaks-helper`가 요구하는 값입니다. 빌드는 재현할
+수 있어서, 소스 checkout에서 `sh scripts/build-gitleaks-helper.sh --print-pins`를
+실행하면 같은 줄이 나옵니다. 설치된 helper를 직접 확인하려면 기록된 checksum과
+비교하고, 소스 checkout에서 공식 릴리스 바이너리(helper가 일부러 거절하는
+Homebrew·`go install` 빌드가 아닌 것)로 테스트를 실행하세요.
 
 ```sh
-AGENT_GUARD_TEST_HELPER_DIR="$HOME/.agent-guard/gitleaks-helper" \
+(cd "$HOME/.agent-guard/bin/gitleaks-helper" && shasum -a 256 -c SHA256SUMS)
+AGENT_GUARD_TEST_HELPER_DIR="$HOME/.agent-guard/bin/gitleaks-helper" \
 AGENT_GUARD_TEST_REAL_GITLEAKS="$(command -v gitleaks)" sh tests/gitleaks-helper.sh
-AGENT_GUARD_TEST_HELPER_DIR="$HOME/.agent-guard/gitleaks-helper" \
+AGENT_GUARD_TEST_HELPER_DIR="$HOME/.agent-guard/bin/gitleaks-helper" \
 AGENT_GUARD_TEST_REAL_GITLEAKS="$(command -v gitleaks)" sh tests/gitleaks-helper-corpus.sh
 ```
 
-켜져 있는 동안 실행 중인 helper는 `agent-guard-gitleaks-helper serve` 프로세스
+helper가 설치되어 있는지는 `agent-guard setup`이 출력합니다. 쓰이는 동안 실행 중인 helper는
+`agent-guard-gitleaks-helper serve` 프로세스
 하나와 `$XDG_STATE_HOME/agent-guard/gitleaks-helper`(또는 `~/.local/state/...`)
 아래의 소켓으로 보입니다. 이것이 없다는 것은 스캔이 실제 gitleaks로 돈다는 뜻일
 뿐입니다.

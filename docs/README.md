@@ -12,7 +12,7 @@ are in [CONTRIBUTING.md](../CONTRIBUTING.md).
 | Understand host coverage | [Integrations](integrations.md) |
 | Configure policy and masking | [Configuration](configuration.md) |
 | Deploy or troubleshoot | [Operations](operations.md) |
-| Speed up scans with the opt-in warm gitleaks helper | [Warm gitleaks helper](gitleaks-helper.md) (English) |
+| Speed up scans with the warm gitleaks helper | [Warm gitleaks helper](gitleaks-helper.md) (English) |
 
 ## Keeping this directory useful
 
@@ -21,5 +21,5 @@ commit generated reports, raw measurement output, goal or plan notes: write them
 to the ignored `bench/local/` directory, a release asset or a CI artifact.
 
 Standalone releases contain the user guides in the table above except the warm
-gitleaks helper guide, which source builds use. This index and CONTRIBUTING.md
+gitleaks helper guide, which the installation guide links on GitHub. This index and CONTRIBUTING.md
 are repository documentation.
