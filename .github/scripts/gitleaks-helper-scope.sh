@@ -4,7 +4,7 @@
 #   sh .github/scripts/gitleaks-helper-scope.sh EVENT < changed-paths
 #
 # macOS runners are the scarce resource, so a pull request runs the macOS job
-# only when the helper itself changes: its sources, build script, own tests,
+# only when the helper itself changes: its sources, build scripts, own tests,
 # fake helper fixture, this script or the workflow. A pull request that only
 # touches the CLI or other fixtures runs the Linux job, whose routing through
 # the CLI is also covered by tests/gitleaks-helper-routing.sh. Every other
@@ -23,7 +23,7 @@ if [ "${1:?event name required}" = pull_request ]; then
   # Git still C-quotes a path holding a quote, backslash, tab or newline even
   # with core.quotePath=false; such a line cannot be matched safely, so it
   # selects both platforms rather than risk dropping a helper change.
-  if grep -Eq '^("|(native/gitleaks-helper/.+|scripts/build-gitleaks-helper\.sh|tests/gitleaks-helper\.sh|tests/gitleaks-helper-corpus\.sh|tests/fixtures/fake-gitleaks-helper\.py|\.github/workflows/gitleaks-helper\.yml|\.github/scripts/gitleaks-helper-scope\.sh)$)'; then
+  if grep -Eq '^("|(native/gitleaks-helper/.+|scripts/build-gitleaks-helper\.sh|scripts/gitleaks-helper-notices\.sh|tests/gitleaks-helper\.sh|tests/gitleaks-helper-corpus\.sh|tests/fixtures/fake-gitleaks-helper\.py|\.github/workflows/gitleaks-helper\.yml|\.github/scripts/gitleaks-helper-scope\.sh)$)'; then
     platforms=both
   fi
 fi

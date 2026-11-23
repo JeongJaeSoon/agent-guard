@@ -96,7 +96,9 @@ as well; the caches above are then written, and no event record is.
 
 ## Optional warm gitleaks helper
 
-Off by default. With `AGENT_GUARD_GITLEAKS_HELPER` set, scanned text is sent
+Used once `agent-guard setup --install-gitleaks-helper` has installed it, or
+when `AGENT_GUARD_GITLEAKS_HELPER` names your own build;
+`AGENT_GUARD_GITLEAKS_HELPER=off` keeps it unused. With it, scanned text is sent
 over a private Unix domain socket (a 0700 directory beside the support log,
 socket mode 0600, peer uid checked by the kernel) to one local helper process
 per user and config that outlives a single hook. The helper writes no
@@ -105,7 +107,7 @@ with no environment variables. It overwrites its own request buffer after each
 scan, but copies gitleaks keeps as Go strings are freed without being
 overwritten, so scanned bytes can stay in the helper's memory until reused or
 until it exits, about `AGENT_GUARD_GITLEAKS_HELPER_IDLE_SECONDS` (default ten
-minutes, checked every 15 seconds) after the last scan. Unset the variable to stop using it. See
+minutes, checked every 15 seconds) after the last scan. See
 [the helper guide](https://github.com/JeongJaeSoon/agent-guard/blob/main/docs/gitleaks-helper.md).
 
 ## Network behavior
@@ -121,6 +123,10 @@ The following explicit actions use the network:
 - Approval-gated `agent-guard setup --install` downloads a versioned gitleaks
   archive from GitHub Releases and requires its SHA-256. It sends no project or
   tool content.
+- `agent-guard setup --install-gitleaks-helper` downloads this version's warm
+  gitleaks helper archive for the running platform from this project's GitHub
+  Releases page and installs it only when it matches the SHA-256 values built
+  into the CLI. It sends no project or tool content.
 - The standalone `bootstrap.sh` install path downloads Agent Guard's release
   archive and checksum from this project's GitHub Releases page.
   `agent-guard update` first downloads that `bootstrap.sh` from the latest

@@ -278,6 +278,7 @@ Usage:
   agent-guard scan-path PATH...
   agent-guard check
   agent-guard setup [--install --gitleaks-checksum SHA [--gitleaks-version X.Y.Z]]
+  agent-guard setup --install-gitleaks-helper
   agent-guard doctor
   agent-guard logs [status|export [--output FILE]]
   agent-guard plugin status|install|update|uninstall [--host claude|codex|all] [--scope user|project|local] [--check]
@@ -3084,8 +3085,140 @@ setup_install_gitleaks() {
   esac
 }
 
+# Install the released warm gitleaks helper for this platform (#569). Both
+# binaries must match the checksums this CLI pins in
+# config/gitleaks-helper.sha256 before anything is installed, so a release
+# asset that was replaced is refused. They go beside the private gitleaks,
+# where gitleaks_helper_installed finds them. Any failure leaves an earlier
+# installed helper as it was.
+setup_install_gitleaks_helper() {
+  case "$(uname -s):$(uname -m)" in
+    Linux:x86_64|Linux:amd64) helper_target=x86_64-unknown-linux-musl ;;
+    Linux:aarch64|Linux:arm64) helper_target=aarch64-unknown-linux-musl ;;
+    Darwin:arm64) helper_target=aarch64-apple-darwin ;;
+    *) die "setup: no warm gitleaks helper is released for this platform ($(uname -s) $(uname -m))" ;;
+  esac
+  need_cmd curl
+  need_cmd shasum
+  need_cmd tar
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-setup.XXXXXX") || die "setup: failed to create temp dir"
+  AG_EXIT_TMP_DIR=$tmp
+  # The two pinned sums as a shasum list, helper first: the order
+  # gitleaks_helper_installed reads back.
+  awk -v target="$helper_target" '
+    NF == 2 && length($1) == 64 && $1 !~ /[^0-9a-f]/ {
+      if ($2 == target "/agent-guard-gitleaks-helper") helper = $1
+      if ($2 == target "/agent-guard-scan") client = $1
+    }
+    END {
+      if (helper == "" || client == "") exit 1
+      print helper "  agent-guard-gitleaks-helper"
+      print client "  agent-guard-scan"
+    }' "$ROOT_DIR/config/gitleaks-helper.sha256" >"$tmp/SHA256SUMS" 2>/dev/null \
+    || die "setup: this Agent Guard version pins no warm gitleaks helper for $helper_target"
+  helper_asset=agent-guard-gitleaks-helper-$helper_target.tar.gz
+  helper_url=$AG_REPO_URL/releases/download/v$VERSION/$helper_asset
+  info "$PROGRAM: downloading $helper_asset"
+  curl -fsSL "$helper_url" -o "$tmp/$helper_asset" || die "setup: download failed: $helper_url"
+  # Only the two named members leave the archive, and each must be a regular
+  # file: a link could stand in for a file the sums were never taken from.
+  mkdir "$tmp/helper" || die "setup: failed to create temp dir"
+  tar -xzf "$tmp/$helper_asset" -C "$tmp/helper" agent-guard-gitleaks-helper agent-guard-scan \
+    || die "setup: extraction failed for $helper_asset"
+  for helper_file in agent-guard-gitleaks-helper agent-guard-scan; do
+    [ -f "$tmp/helper/$helper_file" ] && [ ! -L "$tmp/helper/$helper_file" ] \
+      || die "setup: $helper_asset holds no regular file $helper_file"
+  done
+  info "$PROGRAM: verifying sha256 against the checksums built into this version"
+  (CDPATH='' cd -- "$tmp/helper" && shasum -a 256 -c ../SHA256SUMS >&2) \
+    || die "setup: checksum verification failed for $helper_asset; nothing was installed"
+  helper_dir=$SETUP_INSTALL_DIR/gitleaks-helper
+  [ ! -L "$helper_dir" ] || die "setup: $helper_dir is a symlink; remove it and run this again"
+  mkdir -p "$SETUP_INSTALL_DIR" || die "setup: cannot create install dir: $SETUP_INSTALL_DIR"
+  # mktemp -d makes the directory private (0700). Stage beside the final
+  # place so the renames stay on one filesystem.
+  helper_stage=$(mktemp -d "$SETUP_INSTALL_DIR/.gitleaks-helper.XXXXXX") \
+    || die "setup: cannot stage the helper in $SETUP_INSTALL_DIR"
+  if ! { chmod 755 "$tmp/helper/agent-guard-gitleaks-helper" "$tmp/helper/agent-guard-scan" \
+      && mv "$tmp/helper/agent-guard-gitleaks-helper" "$tmp/helper/agent-guard-scan" "$helper_stage/" \
+      && cp "$tmp/SHA256SUMS" "$helper_stage/SHA256SUMS"; }; then
+    rm -rf "$helper_stage"
+    die "setup: failed to stage the helper"
+  fi
+  # A hook that runs between the two renames finds no helper and runs
+  # gitleaks itself; a helper process started from the replaced binary serves
+  # no new request (its key names the old file) and ends when idle.
+  rm -rf "$helper_dir.previous"
+  if [ -e "$helper_dir" ] && ! mv "$helper_dir" "$helper_dir.previous"; then
+    rm -rf "$helper_stage"
+    die "setup: cannot replace $helper_dir"
+  fi
+  if ! mv "$helper_stage" "$helper_dir"; then
+    [ ! -e "$helper_dir.previous" ] || mv "$helper_dir.previous" "$helper_dir"
+    rm -rf "$helper_stage"
+    die "setup: cannot install the helper at $helper_dir"
+  fi
+  rm -rf "$helper_dir.previous" "$tmp"
+  AG_EXIT_TMP_DIR=
+  unset AG_GITLEAKS_HELPER_INSTALLED
+  info "$PROGRAM: installed the warm gitleaks helper at $helper_dir"
+  info "$PROGRAM: scans use it from now on; AGENT_GUARD_GITLEAKS_HELPER=off turns it off"
+}
+
+# One line on the warm gitleaks helper, from files and variables only. It
+# never runs the client: a status line must not start a resident process, and
+# a client that fails or hangs must not stall setup or doctor. So it says
+# which client scans are handed to, not whether a helper answers; the client
+# decides that per scan and runs the real gitleaks otherwise. The helper is
+# optional, so this never fails setup.
+setup_gitleaks_helper_status_line() {
+  helper_client=
+  case "${AGENT_GUARD_GITLEAKS_HELPER:-}" in
+    /*)
+      if [ -f "$AGENT_GUARD_GITLEAKS_HELPER" ] && [ -x "$AGENT_GUARD_GITLEAKS_HELPER" ]; then
+        helper_client=$AGENT_GUARD_GITLEAKS_HELPER
+      else
+        info "$PROGRAM: gitleaks helper  missing  (AGENT_GUARD_GITLEAKS_HELPER is not an executable file: $AGENT_GUARD_GITLEAKS_HELPER)"
+        return 0
+      fi
+      ;;
+    '')
+      if gitleaks_helper_installed; then
+        helper_client=$AG_GITLEAKS_HELPER_CLIENT
+      else
+        cli_ref_init
+        if [ -e "$GITLEAKS_PRIVATE_BIN_DIR/gitleaks-helper" ]; then
+          info "$PROGRAM: gitleaks helper  not used  (installed for another Agent Guard version; run: $AG_CLI_REF setup --install-gitleaks-helper)"
+        else
+          info "$PROGRAM: gitleaks helper  not installed  (optional; keeps gitleaks loaded between scans: $AG_CLI_REF setup --install-gitleaks-helper)"
+        fi
+        return 0
+      fi
+      ;;
+    *)
+      info "$PROGRAM: gitleaks helper  off  (AGENT_GUARD_GITLEAKS_HELPER is not an absolute path)"
+      return 0
+      ;;
+  esac
+  if [ -n "${AGENT_GUARD_GITLEAKS_BIN:-}" ]; then
+    info "$PROGRAM: gitleaks helper  not used  (AGENT_GUARD_GITLEAKS_BIN selects the scanner)"
+    return 0
+  fi
+  if [ "${AGENT_GUARD_LOG_MODE:-on}" = off ]; then
+    info "$PROGRAM: gitleaks helper  not used  (AGENT_GUARD_LOG_MODE=off)"
+    return 0
+  fi
+  if [ -n "${AGENT_GUARD_GITLEAKS_HELPER:-}" ]; then
+    info "$PROGRAM: gitleaks helper  selected  (AGENT_GUARD_GITLEAKS_HELPER: $helper_client)"
+  else
+    info "$PROGRAM: gitleaks helper  installed  ($helper_client; it answers when the selected gitleaks is the official gitleaks $GITLEAKS_DEFAULT_VERSION release build, and gitleaks runs itself otherwise)"
+  fi
+  return 0
+}
+
 do_setup() {
   install=0
+  helper_install=0
   version=$GITLEAKS_DEFAULT_VERSION
   checksum=""
   while [ $# -gt 0 ]; do
@@ -3103,16 +3236,23 @@ do_setup() {
         checksum=$1
         ;;
       --gitleaks-checksum=*) checksum=${1#--gitleaks-checksum=} ;;
+      --install-gitleaks-helper) helper_install=1 ;;
       -h|--help)
         cat >&2 <<'EOF'
 Usage:
   agent-guard setup
   agent-guard setup --install --gitleaks-checksum SHA [--gitleaks-version X.Y.Z]
+  agent-guard setup --install-gitleaks-helper
 
 Default behavior is opt-in: setup only reports the dependency status.
 Pass --install to download gitleaks. The checksum is required and must
 match the published value at:
   https://github.com/gitleaks/gitleaks/releases/download/vX.Y.Z/gitleaks_X.Y.Z_checksums.txt
+
+Pass --install-gitleaks-helper to download this version's warm gitleaks
+helper for this platform from the Agent Guard release. It is installed only
+when it matches the checksums built into this CLI, and scans then use it
+without further setup. AGENT_GUARD_GITLEAKS_HELPER=off turns it off.
 EOF
         return 0
         ;;
@@ -3132,6 +3272,8 @@ EOF
   # protection can be observed; never imply that this CLI has inspected that
   # boundary or authenticated a host decision.
   info "$PROGRAM: host hook protection: unverified (dependency checks do not observe tool dispatch)"
+  [ "$helper_install" -eq 0 ] || setup_install_gitleaks_helper
+  setup_gitleaks_helper_status_line
 
   if [ "$install" -eq 1 ]; then
     gitleaks_runtime_ok=1
@@ -3849,32 +3991,85 @@ run_gitleaks_stdin() {
   gitleaks_scan "$1" stdin
 }
 
-# Run the prepared gitleaks $1 with the remaining arguments. When
-# AGENT_GUARD_GITLEAKS_HELPER names an absolute executable scan client, the
-# client runs in its place: it answers from the warm helper only when that
+# The warm gitleaks helper that `setup --install-gitleaks-helper` put beside
+# the private gitleaks (#569). Sets AG_GITLEAKS_HELPER_CLIENT to its scan
+# client when the checksums recorded at install are the ones this CLI pins
+# for one platform in config/gitleaks-helper.sha256, so a helper another
+# Agent Guard version installed is not run. The binaries were verified against
+# those pins when they were installed and are not hashed again for each scan:
+# they have the trust of the gitleaks binary in the same directory. Reads two
+# small files with no process (#407), once per invocation.
+gitleaks_helper_installed() {
+  if [ -z "${AG_GITLEAKS_HELPER_INSTALLED+set}" ]; then
+    AG_GITLEAKS_HELPER_INSTALLED=
+    ag_gh_dir=$GITLEAKS_PRIVATE_BIN_DIR/gitleaks-helper
+    ag_gh_helper=
+    ag_gh_client=
+    if [ -f "$ag_gh_dir/agent-guard-scan" ] && [ -f "$ag_gh_dir/SHA256SUMS" ] \
+        && [ -f "$ROOT_DIR/config/gitleaks-helper.sha256" ] \
+        && { IFS= read -r ag_gh_helper && IFS= read -r ag_gh_client; } \
+          2>/dev/null <"$ag_gh_dir/SHA256SUMS"; then
+      case "$ag_gh_helper" in
+        *'  agent-guard-gitleaks-helper') ag_gh_helper=${ag_gh_helper%%  *} ;;
+        *) ag_gh_helper= ;;
+      esac
+      case "$ag_gh_client" in
+        *'  agent-guard-scan') ag_gh_client=${ag_gh_client%%  *} ;;
+        *) ag_gh_client= ;;
+      esac
+      ag_gh_target=
+      if [ "${#ag_gh_helper}" -eq 64 ] && [ "${#ag_gh_client}" -eq 64 ]; then
+        while IFS= read -r ag_gh_line; do
+          case "$ag_gh_line" in
+            "$ag_gh_helper  "*/agent-guard-gitleaks-helper)
+              ag_gh_target=${ag_gh_line#*  }
+              ag_gh_target=${ag_gh_target%/agent-guard-gitleaks-helper}
+              ;;
+            "$ag_gh_client  $ag_gh_target/agent-guard-scan")
+              [ -z "$ag_gh_target" ] || AG_GITLEAKS_HELPER_INSTALLED=$ag_gh_dir/agent-guard-scan
+              ;;
+          esac
+        done 2>/dev/null <"$ROOT_DIR/config/gitleaks-helper.sha256"
+      fi
+    fi
+  fi
+  [ -n "$AG_GITLEAKS_HELPER_INSTALLED" ] || return 1
+  AG_GITLEAKS_HELPER_CLIENT=$AG_GITLEAKS_HELPER_INSTALLED
+}
+
+# Run the prepared gitleaks $1 with the remaining arguments. When a scan
+# client is selected, it runs in gitleaks's place. The client is the installed
+# helper's (gitleaks_helper_installed) when AGENT_GUARD_GITLEAKS_HELPER is
+# unset, the file that variable names when it is an absolute path, and none
+# for any other value (`off`). The client answers from the warm helper only when that
 # helper runs the probed gitleaks version and these exact config bytes, and
 # otherwise execs $1 with the same arguments and input, so a helper failure is
 # never a clean scan. An explicit AGENT_GUARD_GITLEAKS_BIN keeps its scanner,
 # and AGENT_GUARD_LOG_MODE=off never uses it: without the private state
 # directory there is no socket directory, and with one kept only for
 # AGENT_GUARD_SCAN_CACHE=on the helper stays off until log-off mode decides
-# otherwise (#537, #520). Off, this is one case with no process (#407). A caller
+# otherwise (#537, #520). With no helper this costs no process (#407). A caller
 # that runs gitleaks as the last command of a subshell tests
 # gitleaks_helper_selected outside it and keeps the plain command otherwise,
 # so the shell still execs gitleaks without another fork.
 gitleaks_helper_selected() {
-  case "${AGENT_GUARD_GITLEAKS_HELPER:-}" in /*) ;; *) return 1 ;; esac
+  case "${AGENT_GUARD_GITLEAKS_HELPER:-}" in /*|'') ;; *) return 1 ;; esac
   [ -z "${AGENT_GUARD_GITLEAKS_BIN:-}" ] && [ -n "$AG_STATE_DIR" ] \
     && [ "${AGENT_GUARD_LOG_MODE:-on}" != off ] \
-    && [ -n "${GITLEAKS_PROBE_VERSION:-}" ] \
-    && [ -f "$AGENT_GUARD_GITLEAKS_HELPER" ] && [ -x "$AGENT_GUARD_GITLEAKS_HELPER" ]
+    && [ -n "${GITLEAKS_PROBE_VERSION:-}" ] || return 1
+  if [ -n "${AGENT_GUARD_GITLEAKS_HELPER:-}" ]; then
+    AG_GITLEAKS_HELPER_CLIENT=$AGENT_GUARD_GITLEAKS_HELPER
+  else
+    gitleaks_helper_installed || return 1
+  fi
+  [ -f "$AG_GITLEAKS_HELPER_CLIENT" ] && [ -x "$AG_GITLEAKS_HELPER_CLIENT" ]
 }
 
 gitleaks_exec() {
   if gitleaks_helper_selected; then
     ag_gx_bin=$1
     shift
-    "$AGENT_GUARD_GITLEAKS_HELPER" --gitleaks "$ag_gx_bin" \
+    "$AG_GITLEAKS_HELPER_CLIENT" --gitleaks "$ag_gx_bin" \
       --gitleaks-version "$GITLEAKS_PROBE_VERSION" --state-dir "$AG_STATE_DIR" -- "$@"
     return
   fi

@@ -14,6 +14,9 @@ on:
       - 'tests/fixtures/**'
       - 'tests/helpers/**'
       - 'tests/native-*.sh'
+      - 'tests/gitleaks-helper.sh'
+      - 'tests/gitleaks-helper-corpus.sh'
+      - 'tests/gitleaks-helper-install.sh'
       - 'tests/audit-log.sh'
       - 'tests/redaction-plan.sh'
       - 'tests/packaged-performance-gate.sh'
@@ -92,7 +95,11 @@ jobs:
         run: |
           sudo apt-get -o Acquire::Retries=0 \
             -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 \
-            -o DPkg::Lock::Timeout=30 install -y musl-tools
+            -o DPkg::Lock::Timeout=30 install -y musl-tools tini
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version-file: native/gitleaks-helper/go.mod
+          cache: false
       - name: Build and execute release artifact
         env:
           TARGET: ${{ matrix.target }}
@@ -100,6 +107,29 @@ jobs:
           sh scripts/build-native-artifact.sh "$TARGET" "$RUNNER_TEMP/artifacts"
           cargo +1.85.1 build --release --locked --manifest-path native/devtools/Cargo.toml
           sh scripts/install-native-test-tools.sh "$RUNNER_TEMP/test-bin"
+      # The warm gitleaks helper is a release asset too (#569). The build
+      # fails unless both binaries equal the checksums the CLI pins, so the
+      # asset users download is the one this commit's CLI accepts.
+      - name: Build the warm gitleaks helper against its pinned checksums
+        env:
+          TARGET: ${{ matrix.target }}
+        run: sh scripts/build-gitleaks-helper.sh "$RUNNER_TEMP/gitleaks-helper-build" "$TARGET" "$RUNNER_TEMP/artifacts"
+      - name: Warm gitleaks helper from the release archive
+        env:
+          TARGET: ${{ matrix.target }}
+          AGENT_GUARD_TEST_HELPER_DIR: ${{ runner.temp }}/gitleaks-helper
+          AGENT_GUARD_TEST_REAL_GITLEAKS: ${{ runner.temp }}/test-bin/gitleaks
+        run: |
+          set -o pipefail
+          # The archive's files, not the build directory: what a user installs.
+          mkdir "$AGENT_GUARD_TEST_HELPER_DIR"
+          tar -xzf "$RUNNER_TEMP/artifacts/agent-guard-gitleaks-helper-$TARGET.tar.gz" -C "$AGENT_GUARD_TEST_HELPER_DIR"
+          export PATH="$RUNNER_TEMP/test-bin:$PATH"
+          date -u
+          sh tests/gitleaks-helper.sh 2>&1 | tee "$RUNNER_TEMP/artifacts/gitleaks-helper.log"
+          date -u
+          sh tests/gitleaks-helper-corpus.sh 2>&1 | tee "$RUNNER_TEMP/artifacts/gitleaks-helper-corpus.log"
+          date -u
       - name: Compiler-free differential
         env:
           TARGET: ${{ matrix.target }}
@@ -165,7 +195,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/native" "$RUNNER_TEMP/install-evidence"
           for target in x86_64-unknown-linux-musl aarch64-unknown-linux-musl aarch64-apple-darwin; do
             dir="$RUNNER_TEMP/downloaded/native-$target"
-            cp "$dir"/agent-guard-redact-* "$RUNNER_TEMP/native/"
+            cp "$dir"/agent-guard-redact-* "$dir"/agent-guard-gitleaks-helper-*.tar.gz* "$RUNNER_TEMP/native/"
           done
           chmod 755 "$RUNNER_TEMP/native"/agent-guard-redact-*
           sh scripts/install-native-test-tools.sh "$RUNNER_TEMP/test-bin"
@@ -183,6 +213,10 @@ jobs:
           sh tests/native-install.sh > "$RUNNER_TEMP/install-evidence/install.log" 2>&1
           sh tests/native-install.sh 3.7.1 > "$RUNNER_TEMP/install-evidence/install-from-3.7.1.log" 2>&1
           sh tests/bootstrap-update.sh > "$RUNNER_TEMP/install-evidence/bootstrap.log" 2>&1
+          # The released helper archive, installed under the pins and
+          # answering a hook: on by default, off by the switch, helper missing.
+          AGENT_GUARD_TEST_REAL_GITLEAKS="$RUNNER_TEMP/test-bin/gitleaks" \
+            sh tests/gitleaks-helper-install.sh > "$RUNNER_TEMP/install-evidence/gitleaks-helper-install.log" 2>&1
           case "$(uname -s):$(uname -m)" in
             Linux:x86_64) target=x86_64-unknown-linux-musl ;;
             Linux:aarch64) target=aarch64-unknown-linux-musl ;;
