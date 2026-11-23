@@ -13933,10 +13933,37 @@ secretish_env_values() {
     # covered by the outer secret. Applying it first strands the inner key
     # prefix. Suppress only that scanner occurrence; an identical short value
     # elsewhere still needs its own contextual mapping and must remain emitted.
-    function emit_mapping(literal, replacement, value_start, value_length) {
+    # text as the line had it, where text starts at position pos of the copy
+    # scan_line reads: each quote the copy unescaped gets its backslash back.
+    function line_text(text, pos,   out, i) {
+      out = ""
+      while ((i = index(text, "\"")) > 0) {
+        out = out substr(text, 1, i - 1) \
+          (((pos + i - 1) in copy_escaped) ? "\\\"" : "\"")
+        pos += i
+        text = substr(text, i + 1)
+      }
+      return out text
+    }
+    function emit_mapping(literal, replacement, value_start, value_length, \
+                          source, prefix_length,   offset, begin, tail) {
       if (main_reading) {
         dry_found = 1
         return
+      }
+      # A mapping the copy scan_line reads made must match the line as it
+      # was, so each quote the copy unescaped gets its backslash back. One
+      # whose place in the copy is unknown is dropped.
+      if (copy_reading && index(literal, "\"")) {
+        offset = length(copy_line) - length(source)
+        if (offset < 0 || substr(copy_line, offset + 1) != source) return
+        begin = offset + value_start - prefix_length
+        tail = length(replacement) - prefix_length - length("[REDACTED]")
+        replacement = line_text(substr(literal, 1, prefix_length), begin) \
+          "[REDACTED]" \
+          line_text(substr(literal, length(literal) - tail + 1), \
+                    begin + length(literal) - tail)
+        literal = line_text(literal, begin)
       }
       if (line_seen("L" literal "\n" replacement)) return
       if (record_mode == "probe" || record_mode == "probe_raw") {
@@ -15355,7 +15382,8 @@ secretish_env_values() {
           emit_mapping(assignment glued_prefix leading token,
                        assignment glued_prefix leading "[REDACTED]" trailing,
                        start + length(leading),
-                       length(value))
+                       length(value), source,
+                       length(assignment glued_prefix leading))
           emit_value_words(refused_span, value)
           return 0
         }
