@@ -13659,30 +13659,48 @@ JQ_SETTLE_EXTENTS='def overlap_from_before($e):
 JQ_SHAPE_SAFE_WALK='def protocol_discriminator($key): . as $v
     | ($key == "type" or $key == "media_type" or $key == "mimeType"
        or $key == "mediaType" or $key == "encoding" or $key == "mode"
-       or $key == "cell_type" or $key == "authority" or $key == "stoppedBy"
-       or $key == "neverRan" or $key == "status" or $key == "kind"
-       or $key == "action")
+       or $key == "cell_type")
       and (["text","image","document","search_result","browser_state",
             "tool_reference","tool_use","tool_result","thinking",
             "redacted_thinking","base64","url","file","content","pdf",
             "image/png","image/jpeg","image/gif","image/webp",
             "application/pdf","text/plain",
             "notebook","parts","file_unchanged","create","update",
-            "files_with_matches","count","code","markdown",
-           "human-principal","human-other","peer-agent","world-event",
-           "user","refusal","person","other","modified","added","inline",
-           "forked","committed","amended","cherry-picked","merged",
-           "rebased","created","edited","commented","closed","reopened",
-           "ready","draft","auto-merge-enabled","auto-merge-disabled"]
+            "files_with_matches","count","code","markdown"]
            | map(. == $v) | any);
-def shape_safe_walk(f): def w($key):
+def host_enum_word($p): . as $v
+    | ($p | length) as $n
+    | def one_of($w): ($w | map(. == $v) | any);
+      if $n == 1 then
+        ($p[0] == "stoppedBy" and one_of(["user","refusal"]))
+        or ($p[0] == "neverRan" and one_of(["person","other"]))
+        or ($p[0] == "status" and one_of(["inline","forked"]))
+      elif $n == 2 then
+        $p[0] == "gitDiff" and $p[1] == "status" and one_of(["modified","added"])
+      elif $n == 3 then
+        ($p[0] == "provenance" and ($p[1] | type) == "number"
+         and $p[2] == "authority"
+         and one_of(["human-principal","human-other","peer-agent","world-event"]))
+        or ($p[0] == "gitOperation" and ($p[1] | type) == "string"
+            and (($p[2] == "kind"
+                  and one_of(["committed","amended","cherry-picked"]))
+                 or ($p[2] == "action"
+                     and one_of(["merged","rebased","created","edited",
+                                 "commented","closed","reopened","ready",
+                                 "draft","auto-merge-enabled",
+                                 "auto-merge-disabled"]))))
+      else false end;
+def shape_safe_walk(f): def w($path):
       if type == "object"
-      then with_entries(. as $e | .value = ($e.value | w($e.key)))
-      elif type == "array" then map(w(null))
-      elif type == "string" and protocol_discriminator($key) then .
+      then with_entries(. as $e | .value = ($e.value | w($path + [$e.key])))
+      elif type == "array"
+      then [range(length) as $i | .[$i] | w($path + [$i])]
+      elif type == "string"
+           and (protocol_discriminator($path[-1]) or host_enum_word($path))
+      then .
       else f
       end;
-    w(null);
+    w([]);
 def binary_media_type: . as $v
     | (["image/png","image/jpeg","image/gif","image/webp","application/pdf"]
        | map(. == $v) | any);
@@ -16675,9 +16693,7 @@ redact_response_values_awk_current() {
     }
     function protocol_discriminator(key, value) {
       if (!(key == "type" || key == "media_type" || key == "mimeType" || key == "mediaType" \
-            || key == "encoding" || key == "mode" || key == "cell_type" \
-            || key == "authority" || key == "stoppedBy" || key == "neverRan" \
-            || key == "status" || key == "kind" || key == "action")) return 0
+            || key == "encoding" || key == "mode" || key == "cell_type")) return 0
       return value == "text" || value == "image" || value == "document" \
         || value == "search_result" || value == "browser_state" \
         || value == "tool_reference" || value == "tool_use" \
@@ -16690,17 +16706,34 @@ redact_response_values_awk_current() {
         || value == "text/plain" || value == "notebook" || value == "parts" \
         || value == "file_unchanged" || value == "create" || value == "update" \
         || value == "files_with_matches" || value == "count" \
-        || value == "code" || value == "markdown" \
-        || value == "human-principal" || value == "human-other" \
-        || value == "peer-agent" || value == "world-event" \
-        || value == "user" || value == "refusal" || value == "person" \
-        || value == "other" || value == "modified" || value == "added" \
-        || value == "inline" || value == "forked" || value == "committed" \
-        || value == "amended" || value == "cherry-picked" || value == "merged" \
-        || value == "rebased" || value == "created" || value == "edited" \
-        || value == "commented" || value == "closed" || value == "reopened" \
-        || value == "ready" || value == "draft" \
-        || value == "auto-merge-enabled" || value == "auto-merge-disabled"
+        || value == "code" || value == "markdown"
+    }
+    # The value being read sits at depth; object_key[d] and container[d] give
+    # its path from the root, as JQ_SHAPE_SAFE_WALK host_enum_word reads it.
+    function host_enum_word(value,    key) {
+      if (container[1] != "object") return 0
+      if (depth == 1) {
+        key = object_key[1]
+        return (key == "stoppedBy" && (value == "user" || value == "refusal")) \
+          || (key == "neverRan" && (value == "person" || value == "other")) \
+          || (key == "status" && (value == "inline" || value == "forked"))
+      }
+      if (depth == 2)
+        return object_key[1] == "gitDiff" && container[2] == "object" \
+          && object_key[2] == "status" && (value == "modified" || value == "added")
+      if (depth != 3 || container[3] != "object") return 0
+      key = object_key[3]
+      if (object_key[1] == "provenance" && container[2] == "array")
+        return key == "authority" && (value == "human-principal" \
+          || value == "human-other" || value == "peer-agent" || value == "world-event")
+      if (object_key[1] != "gitOperation" || container[2] != "object") return 0
+      if (key == "kind")
+        return value == "committed" || value == "amended" || value == "cherry-picked"
+      return key == "action" && (value == "merged" || value == "rebased" \
+        || value == "created" || value == "edited" || value == "commented" \
+        || value == "closed" || value == "reopened" || value == "ready" \
+        || value == "draft" || value == "auto-merge-enabled" \
+        || value == "auto-merge-disabled")
     }
     function accept_value() {
       if (depth == 0) {
@@ -16819,7 +16852,7 @@ redact_response_values_awk_current() {
             direct_key = ""
             if (depth > 0 && container[depth] == "object" && state[depth] == "value") direct_key = object_key[depth]
             accept_value()
-            if (token_raw == "\"\"" || (candidate_valid && protocol_discriminator(direct_key, candidate))) emit(token_raw)
+            if (token_raw == "\"\"" || (candidate_valid && (protocol_discriminator(direct_key, candidate) || host_enum_word(candidate)))) emit(token_raw)
             else emit("\"[REDACTED]\"")
           }
           i = token_end + 1
@@ -17288,11 +17321,19 @@ claude_post_tool_shape() {
         def at($p): try getpath($p) catch null;
         def word_key: . as $k
           | ["type","media_type","mimeType","mediaType","encoding","mode",
-             "cell_type","authority","stoppedBy","neverRan","status","kind",
-             "action"] | index([$k]) != null;
-        def host_word: (.[-1] | type) == "string" and (.[-1] | word_key)
-          and ((($tool == "REPL" or $tool == "Eval") and .[0] == "result")
-               | not);
+             "cell_type"] | index([$k]) != null;
+        def enum_path: length as $n
+          | ($n == 1 and (.[0] == "stoppedBy" or .[0] == "neverRan"
+                          or .[0] == "status"))
+            or ($n == 2 and .[0] == "gitDiff" and .[1] == "status")
+            or ($n == 3 and .[0] == "provenance" and (.[1] | type) == "number"
+                and .[2] == "authority")
+            or ($n == 3 and .[0] == "gitOperation" and (.[1] | type) == "string"
+                and (.[2] == "kind" or .[2] == "action"));
+        def host_word: enum_path
+          or ((.[-1] | type) == "string" and (.[-1] | word_key)
+              and ((($tool == "REPL" or $tool == "Eval") and .[0] == "result")
+                   | not));
         if length != 2 then error("two documents expected") else . end
         | .[1] as $replacement
         | .[0].tool_response as $orig
