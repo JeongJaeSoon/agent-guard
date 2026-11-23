@@ -10214,6 +10214,28 @@ AWK_READ_OPERAND_RECORDS='
     if (!tail_ok(t)) { print "U"; return }
     print "V" t
   }
+  # One option word: --name, --name=value, or a cluster of short options
+  # where a value-taking letter takes the rest of the word (-ex, -f"$F").
+  function option(w,   nm, v, eq, k, ch, rest) {
+    if (w ~ /^--/) {
+      nm = w; eq = index(w, "=")
+      if (eq) { nm = substr(w, 1, eq - 1); v = substr(w, eq + 1) }
+      if (index(popt[prog], " " nm " ")) patdone = 1
+      if (index(fopt[prog], " " nm " ")) { if (eq) operand(v); else fnext = 1; return }
+      if (eq) return
+      if (prog == "jq" && nm ~ /^--(arg|argjson)$/) { skipn = 2; return }
+      if (prog == "jq" && nm ~ /^--(slurpfile|rawfile)$/) { skipn = 1; fnext = 1; return }
+      if (index(vopt[prog], " " nm " ")) skipn = 1
+      return
+    }
+    for (k = 2; k <= length(w); k++) {
+      ch = "-" substr(w, k, 1); rest = substr(w, k + 1)
+      if (index(popt[prog], " " ch " ")) patdone = 1
+      if (index(fopt[prog], " " ch " ")) { if (rest != "") operand(rest); else fnext = 1; return }
+      if (prog == "cp" && ch == "-t") cpt = 1
+      if (index(vopt[prog], " " ch " ")) { if (rest == "") skipn = 1; return }
+    }
+  }
   function name_of(w,   n) {
     n = w; gsub(/["\047]/, "", n); sub(/^\\/, "", n); sub(/.*\//, "", n)
     return n
@@ -10227,7 +10249,7 @@ AWK_READ_OPERAND_RECORDS='
     }
     if (prog == "cp" && cppend != "" && cpt) operand(cppend)
     npa = 0; cpos = 1; cmdseen = 0; prog = ""; mode = ""; ddash = 0; patdone = 0
-    skipn = 0; fnext = 0; redir = 0; skipw = 0; cppend = ""; cpt = 0; wrap = ""
+    skipn = 0; fnext = 0; redir = 0; skipw = 0; cppend = ""; cpt = 0; wrap = ""; gotone = 0
   }
   function assign(w, now,   nm, v) {
     nm = substr(w, 1, index(w, "=") - 1); sub(/\[.*/, "", nm)
@@ -10245,7 +10267,7 @@ AWK_READ_OPERAND_RECORDS='
     # Options whose value is not a file.
     vopt["head"] = vopt["tail"] = " -n -c --lines --bytes "
     vopt["grep"] = vopt["egrep"] = vopt["fgrep"] = " -e -m -A -B -C -D -d --regexp --max-count --context --after-context --before-context --label --include --exclude --exclude-dir "
-    vopt["rg"] = " -e -m -A -B -C -g -t -T -M -j -E --regexp --max-count --glob --iglob --type --type-not --context --after-context --before-context --max-columns --threads --sort --sortr --encoding "
+    vopt["rg"] = " -e -m -A -B -C -g -t -T -M -j -E --regexp --max-count --glob --iglob --type --type-not --context --after-context --before-context --max-columns --threads --sort --sortr --encoding -r --replace --pre --pre-glob "
     vopt["sed"] = " -e --expression -l "
     vopt["awk"] = vopt["gawk"] = vopt["mawk"] = vopt["nawk"] = " -F -v --field-separator --assign "
     vopt["cut"] = " -d -f -c -b --delimiter --fields --characters --bytes "
@@ -10261,7 +10283,8 @@ AWK_READ_OPERAND_RECORDS='
     vopt["bat"] = vopt["batcat"] = " -l -H -r --language --line-range --highlight-line --style --theme "
     vopt["jq"] = " --indent "
     # Options whose value is a file the program reads.
-    fopt["grep"] = fopt["egrep"] = fopt["fgrep"] = fopt["rg"] = fopt["sed"] = " -f --file "
+    fopt["grep"] = fopt["egrep"] = fopt["fgrep"] = " -f --file --exclude-from "
+    fopt["rg"] = " -f --file --ignore-file "; fopt["sed"] = " -f --file "
     fopt["awk"] = fopt["gawk"] = fopt["mawk"] = fopt["nawk"] = " -f --file "
     fopt["jq"] = " -f --from-file "; fopt["hexdump"] = " -f "
     fopt["base64"] = fopt["base32"] = " -i --input "
@@ -10274,6 +10297,10 @@ AWK_READ_OPERAND_RECORDS='
   }
   {
     w = $0
+    # An unquoted word that starts with # opens a comment to the end of the line.
+    if (incomment && w != "" && w != "\034") next
+    incomment = 0
+    if (w ~ /^#/) { incomment = 1; next }
     if (w == "" || w == "\034" || w == ";" || w == "|" || w == "||" || w == "&&" || w == "&") {
       end_segment()
       cond = (w == "|" || w == "||" || w == "&&" || w == "&")
@@ -10323,17 +10350,11 @@ AWK_READ_OPERAND_RECORDS='
     if (skipn) { skipn--; next }
     if (fnext) { fnext = 0; operand(w); next }
     if (!ddash && w == "--") { ddash = 1; next }
-    if (!ddash && w ~ /^-./) {
-      if (index(popt[prog], " " w " ")) patdone = 1
-      if (index(fopt[prog], " " w " ")) { fnext = 1; next }
-      if (prog == "jq" && w ~ /^--(arg|argjson)$/) { skipn = 2; next }
-      if (prog == "jq" && w ~ /^--(slurpfile|rawfile)$/) { skipn = 1; fnext = 1; next }
-      if (prog == "cp" && w == "-t") cpt = 1
-      if (index(vopt[prog], " " w " ")) skipn = 1
-      next
-    }
+    if (!ddash && w ~ /^-./) { option(w); next }
     if (patfirst[prog] && !patdone) { patdone = 1; next }
     if (prog == "cp" && !cpt) { if (cppend != "") operand(cppend); cppend = w; next }
+    # uniq and xxd write a second operand.
+    if (prog ~ /^(uniq|xxd)$/) { if (gotone) next; gotone = 1 }
     operand(w)
   }
   END { end_segment() }

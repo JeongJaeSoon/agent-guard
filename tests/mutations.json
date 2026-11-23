@@ -661,5 +661,23 @@
     "tests": [
       "tests/unresolved-read-operand.sh"
     ]
+  },
+  {
+    "id": "bash-unresolved-operand-attached-file",
+    "rule": "bash_unresolved_read_operand: a file attached to a short option (-f\"$F\") is an operand",
+    "old": "      if (index(fopt[prog], \" \" ch \" \")) { if (rest != \"\") operand(rest); else fnext = 1; return }",
+    "new": "      if (index(fopt[prog], \" \" ch \" \")) { if (rest == \"\") fnext = 1; return }",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-cluster-pattern",
+    "rule": "bash_unresolved_read_operand: a pattern in an option cluster (-ex) makes the first operand a file",
+    "old": "      if (index(popt[prog], \" \" ch \" \")) patdone = 1\n",
+    "new": "",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
   }
 ]
