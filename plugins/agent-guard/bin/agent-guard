@@ -8958,16 +8958,23 @@ heredoc_body_rewrite() {
         if (NR != 1 || !message_stdin(piped) || !tail_inert(piped)) reject()
         msg = 1
       }
-      # Name what the line writes: a word after > or >>, and the operands of tee.
+      # Name what the line writes: a word after > or >>, with or without a
+      # file descriptor number before it, and the operands of tee. Any other
+      # word with a > in it, and a target that holds another redirection,
+      # cannot be named with confidence; /dev/null is no file.
       m = split(rest, w, /[ \t]+/); tee = 0
       for (k = 1; k <= m; k++) {
         name = ""
-        if (w[k] ~ /^>>?$/) name = w[k + 1]
-        else if (w[k] ~ /^>>?[^>]/) { name = w[k]; sub(/^>>?/, "", name) }
+        if (w[k] ~ /^[0-9]*>>?$/) name = w[k + 1]
+        else if (w[k] ~ /^[0-9]*>>?[^>]/) { name = w[k]; sub(/^[0-9]*>>?/, "", name) }
         else if (w[k] == "tee") { tee = 1; continue }
         else if (tee && w[k] !~ /^[-<>&;]/) name = w[k]
+        else if (w[k] ~ />/) reject()
         if (w[k] ~ /^(&&|;)$/) tee = 0
-        gsub(/["\047]/, "", name); sub(/.*\//, "", name)
+        gsub(/["\047]/, "", name); sub(/<<.*/, "", name)
+        if (name ~ /[<>]/) reject()
+        if (name == "/dev/null") continue
+        sub(/.*\//, "", name)
         if (name != "") target[++nt] = name
       }
     }
@@ -10403,8 +10410,10 @@ git_gate_records() (
   # A here-document body in `3[` and `3]` is text unless a command of the
   # line may run what it wrote: a shell, a wrapper, a name only run time
   # knows, or a path whose file name another word of the line also names, as
-  # the file a here-document is written to is. Code a shell or a git alias
-  # runs (gate_child_code) may follow a script the outer line wrote.
+  # the file a here-document is written to is. The command is the first word
+  # of a segment past any reserved word (`do`, `then`, `if`). Code a shell or
+  # a git alias runs (gate_child_code) may follow a script the outer line
+  # wrote.
   printf '%s\n' "$gate_records" | LC_ALL=C awk -v runner="${gate_child_code:-0}" "$AWK_RECORD_SEPARATOR"'
     { rec[++n] = $0 }
     END {
@@ -10413,6 +10422,7 @@ git_gate_records() (
       for (k = 1; k <= n; k++) {
         r = rec[k]; t = substr(r, 2)
         if (record_separator(r) || r ~ /^3/) { head = 1; continue }
+        if (head && r ~ /^0(do|then|else|elif|if|while|until|!)$/) continue
         if (head && t !~ /^[A-Za-z_][A-Za-z0-9_]*=/) { head = 0; continue }
         sub(/^[0-9]*[<>&|]+/, "", t); sub(/.*\//, "", t)
         named[tolower(t)]++
@@ -10425,6 +10435,8 @@ git_gate_records() (
         if (body) continue
         if (record_separator(r) || kind == "3") { head = 1; continue }
         if (!head || kind ~ /[014]/ && t ~ /^[A-Za-z_][A-Za-z0-9_]*=/) continue
+        # A reserved word comes before the command name: `do sh "$f"` runs sh.
+        if (r ~ /^0(do|then|else|elif|if|while|until|!)$/) continue
         head = 0
         b = t; sub(/.*\//, "", b)
         # A shell given a script file no other word names runs that file, not
