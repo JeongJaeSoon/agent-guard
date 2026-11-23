@@ -235,6 +235,7 @@ for file in \
   "$ROOT/tests/deny-read-mask-rules.sh" \
   "$ROOT/tests/deny-read-mask-allow.sh" \
   "$ROOT/tests/gitleaks-resolution.sh" \
+  "$ROOT/tests/scan-failure-default.sh" \
   "$ROOT/tests/gitleaks-probe-cache.sh" \
   "$ROOT/tests/gitleaks-clean-cache.sh" \
   "$ROOT/tests/log-off-state-cache.sh" \
@@ -2520,6 +2521,7 @@ big_prompt_payload=$(LC_ALL=C awk 'BEGIN {
 big_prompt_start=$(date +%s)
 printf '%s' "$big_prompt_payload" \
   | AGENT_GUARD_HOOK_HOST=claude AGENT_GUARD_WARNING_DIR="$TESTTMP/prompt-cap-dir" \
+    AGENT_GUARD_INFRA_FAILURE_MODE=open \
     "$PLUGIN_ROOT/bin/agent-guard" hook-user-prompt >"$OUT" 2>"$ERR"
 big_prompt_status=$?
 big_prompt_elapsed=$(( $(date +%s) - big_prompt_start ))
@@ -8353,10 +8355,10 @@ PATH="$ERROR_BIN:$PATH" sh -c '
       "'"$PLUGIN_ROOT"'/bin/agent-guard" hook-pre-tool
 ' >"$OUT" 2>"$ERR"
 status=$?
-if [ "$status" -eq 0 ] && grep -q 'AGENT_GUARD_INFRA_FAILURE_MODE=open' "$ERR"; then
-  ok "hook-pre-tool follows the default open policy when gitleaks errors"
+if [ "$status" -eq 2 ] && grep -q 'Blocking because the secret scan did not run' "$ERR"; then
+  ok "hook-pre-tool blocks by default when gitleaks errors"
 else
-  not_ok "hook-pre-tool follows the default open policy when gitleaks errors (expected 0, got $status)"
+  not_ok "hook-pre-tool blocks by default when gitleaks errors (expected 2, got $status)"
   sed 's/^/  stderr: /' "$ERR"
 fi
 
@@ -8581,6 +8583,8 @@ run_expect 0 "regular and linked executable paths select the same payload" \
   "$REAL_SH" "$ROOT/tests/script-location.sh"
 run_expect 0 "deterministic gitleaks resolution and capability diagnostics" \
   "$REAL_SH" "$ROOT/tests/gitleaks-resolution.sh"
+run_expect 0 "a secret scan that did not run blocks by default and other infrastructure failures stay open" \
+  "$REAL_SH" "$ROOT/tests/scan-failure-default.sh"
 run_expect 0 "completed scanner probes retain their status after parent scheduling delay" \
   "$REAL_SH" "$ROOT/tests/gitleaks-probe-completion.sh"
 run_expect 0 "unreaped completed scanner probes retain their exit status" \
@@ -8654,7 +8658,7 @@ done
 DEGRADED_WARNING_DIR="$TESTTMP/degraded-warnings"
 mkdir -p "$DEGRADED_WARNING_DIR"
 printf '%s' '{"session_id":"degraded-session","tool_name":"Bash","tool_input":{"command":"brew install gitleaks"}}' \
-  | AGENT_GUARD_WARNING_DIR="$DEGRADED_WARNING_DIR" \
+  | AGENT_GUARD_WARNING_DIR="$DEGRADED_WARNING_DIR" AGENT_GUARD_INFRA_FAILURE_MODE=open \
     AGENT_GUARD_GITLEAKS_BIN=/nonexistent/gitleaks PATH="$NO_GITLEAKS_BIN" \
     "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
 status=$?
@@ -8671,7 +8675,7 @@ codex_setup_ref="\$setup-agent-guard"
 claude_setup_ref='/agent-guard:setup-agent-guard'
 
 printf '%s' '{"tool_name":"Bash","tool_input":{"command":"brew install gitleaks"}}' \
-  | AGENT_GUARD_HOOK_HOST=codex AGENT_GUARD_GITLEAKS_BIN=/nonexistent/gitleaks PATH="$NO_GITLEAKS_BIN" \
+  | AGENT_GUARD_HOOK_HOST=codex AGENT_GUARD_INFRA_FAILURE_MODE=open AGENT_GUARD_GITLEAKS_BIN=/nonexistent/gitleaks PATH="$NO_GITLEAKS_BIN" \
     "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
 status=$?
 if [ "$status" -eq 0 ] \
@@ -8686,7 +8690,7 @@ else
 fi
 
 printf '%s' '{"tool_name":"Bash","tool_input":{"command":"brew install gitleaks"}}' \
-  | AGENT_GUARD_HOOK_HOST=claude AGENT_GUARD_GITLEAKS_BIN=/nonexistent/gitleaks PATH="$NO_GITLEAKS_BIN" \
+  | AGENT_GUARD_HOOK_HOST=claude AGENT_GUARD_INFRA_FAILURE_MODE=open AGENT_GUARD_GITLEAKS_BIN=/nonexistent/gitleaks PATH="$NO_GITLEAKS_BIN" \
     "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
 status=$?
 if [ "$status" -eq 0 ] \
@@ -8701,7 +8705,7 @@ else
 fi
 
 printf '%s' '{"session_id":"degraded-session","tool_name":"Bash","tool_input":{"command":"echo clean"}}' \
-  | AGENT_GUARD_WARNING_DIR="$DEGRADED_WARNING_DIR" \
+  | AGENT_GUARD_WARNING_DIR="$DEGRADED_WARNING_DIR" AGENT_GUARD_INFRA_FAILURE_MODE=open \
     AGENT_GUARD_GITLEAKS_BIN=/nonexistent/gitleaks PATH="$NO_GITLEAKS_BIN" \
     "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
 status=$?
@@ -8741,6 +8745,7 @@ interval_hook() { # $1 host, $2 subcommand, $3 session, $4 log mode
   printf '%s' "$interval_json" | jq -c --arg s "$3" '. + {session_id: $s}' \
     | env AGENT_GUARD_WARNING_DIR="$INTERVAL_WARN_DIR" AGENT_GUARD_HOOK_HOST="$1" \
         AGENT_GUARD_LOG_MODE="$4" XDG_STATE_HOME="$INTERVAL_STATE_HOME" \
+        AGENT_GUARD_INFRA_FAILURE_MODE=open \
         AGENT_GUARD_GITLEAKS_BIN=/nonexistent/gitleaks PATH="$INTERVAL_BIN" \
         "$PLUGIN_ROOT/bin/agent-guard" "$2" >"$OUT" 2>"$ERR"
 }
@@ -9132,8 +9137,8 @@ expect_json_status 2 "MCP input with secret in nested object is blocked" \
 
 # --- "could not scan" is distinguishable from "found a secret" -------------
 # Direct scan commands retain exit 3. At a hook boundary, infrastructure
-# failures follow AGENT_GUARD_INFRA_FAILURE_MODE (open by default, closed when
-# explicitly selected), while a real detection always blocks.
+# failures follow AGENT_GUARD_INFRA_FAILURE_MODE (unset: closed for a secret
+# scan that did not run, open for the rest), while a real detection blocks.
 
 mkdir -p "$TMP_ROOT/not-a-repo"
 # Canonicalize: $TMPDIR often ends in a slash, so "$TMP_ROOT/not-a-repo" can

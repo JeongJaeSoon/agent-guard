@@ -1,4 +1,4 @@
-<!-- translated-from: docs/installation.md; source-blob: bfa631b864a8f2e3e127dcfe20565b47b3ddca81 -->
+<!-- translated-from: docs/installation.md; source-blob: a17305acb585516c83685901e12d1dca402c9d09 -->
 
 <a id="installing-agent-guard"></a>
 
@@ -97,7 +97,7 @@ Homebrewのヘルパーディレクトリは `$(brew --prefix agent-guard)/libex
 
 macOSとLinuxでの実行には `sh`、`awk`、`git`、`jq`、gitleaks 8.30以降が必要です。gitleaksのバージョン確認を独立したプロセスグループで実行するため、`setsid` またはPerlも必要です。この隔離によって、確認処理の時間制限と子プロセスの後処理が可能になります。Linuxでは `sudo apt-get install -y util-linux` または `sudo dnf install -y util-linux` で `setsid` を導入してください。HomebrewのformulaはCLIとともにPerlを導入します。macOSの手動導入でどちらもない場合は `brew install perl` を使えます。
 
-隔離ツールがないと、`agent-guard setup`、`doctor`、`check` は非ゼロの終了ステータスを返します。`setup --install` はダウンロード前に隔離ツールを確認します。ツールがなければgitleaksをダウンロードも上書きもせず、不足するツールの導入コマンドを表示します。導入後はgitleaksが十分に準備できているか再確認します。実行時のhookはこの状態を正常な検査とは扱わず、`AGENT_GUARD_INFRA_FAILURE_MODE` の `open` または `closed` ポリシーを適用します。`open` では、gitleaksがなくてもPreToolUseの保護パス検査とdenyパターン検査を続けて実行し、そこでの秘密スキャンだけを省きます。ほかのhookはこれまでどおり検査なしで通過します。
+隔離ツールがないと、`agent-guard setup`、`doctor`、`check` は非ゼロの終了ステータスを返します。`setup --install` はダウンロード前に隔離ツールを確認します。ツールがなければgitleaksをダウンロードも上書きもせず、不足するツールの導入コマンドを表示します。導入後はgitleaksが十分に準備できているか再確認します。実行時のhookはこの状態を正常な検査とは扱わず、`AGENT_GUARD_INFRA_FAILURE_MODE` のポリシーを適用します。このポリシーは、秘密スキャンを実行できない場合、既定でブロックします。`open` では、gitleaksがなくてもPreToolUseの保護パス検査とdenyパターン検査を続けて実行し、そこでの秘密スキャンだけを省きます。ほかのhookはこれまでどおり検査なしで通過します。
 
 スタンドアロンまたはHomebrewのコマンドとして `agent-guard` を導入済みなら、公式のhost管理ツールにプラグインの導入を委ねられます。
 

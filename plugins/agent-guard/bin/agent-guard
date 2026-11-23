@@ -2578,10 +2578,14 @@ hook_policy_dependencies_ready() {
 # through the infrastructure policy instead of treating the scan as clean.
 HOOK_SCANNER_UNAVAILABLE=0
 
+# $1 = scan when the failure is a secret scan that did not run: text nobody
+# checked would otherwise reach the agent, a file or a commit, and that cannot
+# be taken back. With the variable unset that case is closed and every other
+# infrastructure failure is open; open or closed, once set, applies to both.
 infrastructure_failure_mode() {
-  case "${AGENT_GUARD_INFRA_FAILURE_MODE:-open}" in
-    open|closed) printf '%s\n' "${AGENT_GUARD_INFRA_FAILURE_MODE:-open}" ;;
-    *) printf '%s\n' open ;;
+  case "${AGENT_GUARD_INFRA_FAILURE_MODE:-}" in
+    open|closed) printf '%s\n' "$AGENT_GUARD_INFRA_FAILURE_MODE" ;;
+    *) if [ "${1:-}" = scan ]; then printf '%s\n' closed; else printf '%s\n' open; fi ;;
   esac
 }
 
@@ -2693,14 +2697,23 @@ begin_infrastructure_failure() {
   # The repeat interval applies only to the open warning. Each closed
   # block carries its own reason: a bare exit 2 reaches the host as a denial
   # with no verdict or explanation.
-  if [ "$(infrastructure_failure_mode)" = closed ]; then
+  if [ "$(infrastructure_failure_mode "${3:-}")" = closed ]; then
     audit_reason infra-failure-closed
-    info "$bif_detail Blocking because AGENT_GUARD_INFRA_FAILURE_MODE=closed."
+    # The default block names what did not run, never the setting that would
+    # let it pass: the model reads this message.
+    if [ "${AGENT_GUARD_INFRA_FAILURE_MODE:-}" = closed ]; then
+      info "$bif_detail Blocking because AGENT_GUARD_INFRA_FAILURE_MODE=closed."
+    else
+      info "$bif_detail Blocking because the secret scan did not run (the default when AGENT_GUARD_INFRA_FAILURE_MODE is unset)."
+    fi
     withhold_post_tool_output
     exit 2
   fi
+  bif_open='continuing because AGENT_GUARD_INFRA_FAILURE_MODE=open (the default).'
+  [ "${AGENT_GUARD_INFRA_FAILURE_MODE:-}" != open ] \
+    || bif_open='continuing because AGENT_GUARD_INFRA_FAILURE_MODE=open.'
   if hook_warning_due "${1:-}"; then
-    INFRA_FAILURE_NOTICE="$bif_detail continuing because AGENT_GUARD_INFRA_FAILURE_MODE=open (the default)."
+    INFRA_FAILURE_NOTICE="$bif_detail $bif_open"
     info "$INFRA_FAILURE_NOTICE"
   fi
   return 0
@@ -2730,7 +2743,7 @@ handle_hook_infrastructure_failure() {
     hif_scanner=$(degraded_hook_message scanner)
     [ "$hif_detail" = "$hif_scanner" ] || hif_detail="$hif_scanner $hif_detail"
   fi
-  begin_infrastructure_failure "${2:-}" "$hif_detail"
+  begin_infrastructure_failure "${2:-}" "$hif_detail" "${4:-}"
   [ -n "$INFRA_FAILURE_NOTICE" ] || return 0
   [ "$INFRA_FAILURE_NOTICE_EMITTED" = 0 ] || return 0
   case "$(hook_host):$hif_event" in
@@ -2923,18 +2936,24 @@ degraded_hook_message() {
   [ -z "$degraded_probe_reason" ] \
     || printf ' Scanner readiness: %s.' "$degraded_probe_reason"
   cli_ref_init
-  printf ' Run %s (or %s setup), approve any required installation, verify with %s check and smoke-test, then restart the host;' \
-    "$setup_ref" "$AG_CLI_REF_HOOK" "$AG_CLI_REF_HOOK"
+  # A probe that only missed its deadline needs another try, not an install.
+  if [ "$degraded_probe_reason" = timeout ]; then
+    printf ' gitleaks is installed but did not answer its version check in time, which a heavily loaded machine causes: retry the call, and run %s doctor if it keeps failing;' \
+      "$AG_CLI_REF_HOOK"
+  else
+    printf ' Run %s doctor to see what failed; to install or repair it run %s (or %s setup), approve any required installation (setup --install with the checksum it prints), verify with %s check and smoke-test, then restart the host;' \
+      "$AG_CLI_REF_HOOK" "$setup_ref" "$AG_CLI_REF_HOOK" "$AG_CLI_REF_HOOK"
+  fi
 }
 
 emit_degraded_hook_warning() {
-  handle_hook_infrastructure_failure "$1" "${2:-}" "$(degraded_hook_message)"
+  handle_hook_infrastructure_failure "$1" "${2:-}" "$(degraded_hook_message)" scan
 }
 
 # PostToolUse may still emit one redaction response after an open git-backstop
 # failure. Warn on stderr only here so the hook never emits two JSON responses.
 handle_git_infrastructure_failure() {
-  begin_infrastructure_failure "${1:-}" "$2"
+  begin_infrastructure_failure "${1:-}" "$2" "${3:-}"
   return 0
 }
 
@@ -4855,11 +4874,11 @@ block_on_scan_status() {
       # hook_pre_tool reports a missing scanner once, after every other check.
       [ "$HOOK_SCANNER_UNAVAILABLE" = 0 ] || return 0
       handle_hook_infrastructure_failure "${HOOK_EVENT:-PreToolUse}" "${HOOK_INPUT:-}" \
-        "$PROGRAM: scanner infrastructure could not verify the command;"
+        "$PROGRAM: scanner infrastructure could not verify the command;" scan
       ;;
     *)
       handle_hook_infrastructure_failure "${HOOK_EVENT:-PreToolUse}" "${HOOK_INPUT:-}" \
-        "$PROGRAM: scanner infrastructure failed before it could verify the command;"
+        "$PROGRAM: scanner infrastructure failed before it could verify the command;" scan
       ;;
   esac
 }
@@ -13712,7 +13731,7 @@ hook_pre_tool() {
   if ! hook_dependencies_ready; then
     # A scan that cannot run is not clean, but it does not stop the checks
     # that need no scanner. The closed policy still blocks every call here.
-    if [ "$(infrastructure_failure_mode)" = closed ] \
+    if [ "$(infrastructure_failure_mode scan)" = closed ] \
       || ! hook_policy_dependencies_ready; then
       emit_degraded_hook_warning PreToolUse "$input"
       return 0
@@ -13786,7 +13805,7 @@ hook_pre_tool() {
 finish_pre_tool_scanner_unavailable() {
   [ "$HOOK_SCANNER_UNAVAILABLE" = 1 ] || return 0
   handle_hook_infrastructure_failure "${HOOK_EVENT:-PreToolUse}" "${HOOK_INPUT:-}" \
-    "$(degraded_hook_message scanner)"
+    "$(degraded_hook_message scanner)" scan
 }
 
 is_mutation_tool() {
@@ -19308,7 +19327,7 @@ scan_post_tool_write_target() {
         1) info "$PROGRAM: the file this tool call wrote contains secret-like values"; return 1 ;;
         *)
           handle_git_infrastructure_failure "$input" \
-            "$PROGRAM: the file this tool call wrote could not be scanned;"
+            "$PROGRAM: the file this tool call wrote could not be scanned;" scan
           return 0
           ;;
       esac
@@ -19324,13 +19343,13 @@ scan_post_tool_write_target() {
   [ -n "$targets" ] || return 0
   targets_file=$(mktemp_file) || {
     handle_git_infrastructure_failure "$input" \
-      "$PROGRAM: the file paths written by this tool call could not be scanned;"
+      "$PROGRAM: the file paths written by this tool call could not be scanned;" scan
     return 0
   }
   printf '%s\n' "$targets" >"$targets_file" || {
     rm -f "$targets_file"
     handle_git_infrastructure_failure "$input" \
-      "$PROGRAM: the file paths written by this tool call could not be scanned;"
+      "$PROGRAM: the file paths written by this tool call could not be scanned;" scan
     return 0
   }
   target_result=0
@@ -19388,7 +19407,7 @@ scan_post_tool_write_target() {
       ;;
     *)
       handle_git_infrastructure_failure "$input" \
-        "$PROGRAM: the file this tool call wrote could not be scanned;"
+        "$PROGRAM: the file this tool call wrote could not be scanned;" scan
       ;;
   esac
 }
@@ -19458,7 +19477,7 @@ hook_post_tool() {
           ;;
         *)
           handle_git_infrastructure_failure "$input" \
-            "$PROGRAM: changed files could not be scanned after tool execution;"
+            "$PROGRAM: changed files could not be scanned after tool execution;" scan
           ;;
       esac
     fi
@@ -19499,14 +19518,14 @@ post_tool_failure_context() {
 # reports every unverified failure to the model instead of only the first one
 # per session, which is what the open policy does.
 post_tool_failure_unverified() {
-  if [ "$(infrastructure_failure_mode)" = closed ]; then
+  if [ "$(infrastructure_failure_mode scan)" = closed ]; then
     audit_note degraded
-    unverified_message="$2 the failed tool output was NOT checked for secret-like values and was not masked. A failed tool result cannot be blocked or replaced, so this is reported because AGENT_GUARD_INFRA_FAILURE_MODE=closed."
+    unverified_message="$2 the failed tool output was NOT checked for secret-like values and was not masked. A failed tool result cannot be blocked or replaced, so this is reported each time (AGENT_GUARD_INFRA_FAILURE_MODE is unset or closed)."
     info "$unverified_message"
     post_tool_failure_context "$unverified_message"
     return 0
   fi
-  handle_hook_infrastructure_failure PostToolUseFailure "$1" "$2"
+  handle_hook_infrastructure_failure PostToolUseFailure "$1" "$2" scan
 }
 
 hook_post_tool_failure() {
@@ -19543,7 +19562,7 @@ hook_post_tool_failure() {
   # right for a rewrite, but here it would report an exposure nobody saw.
   if output_scan_input_exceeds_cap "$failure_output"; then
     post_tool_failure_unverified "$input" \
-      "$PROGRAM: the failed tool output exceeds the output scan cap;"
+      "$PROGRAM: the failed tool output is too large to scan (over $OUTPUT_SCAN_MAX_BYTES bytes), so ask for less at a time, such as a smaller read, head or a file range;"
     return 0
   fi
   if is_figma_mcp_tool "$(json_value '.tool_name // empty' "$input" 2>/dev/null)"; then
@@ -19597,7 +19616,7 @@ hook_stop() {
     1) info "$PROGRAM: changed files contain secret-like values before stop"; exit 2 ;;
     *)
       handle_hook_infrastructure_failure Stop "$input" \
-        "$PROGRAM: changed files could not be scanned before stop;"
+        "$PROGRAM: changed files could not be scanned before stop;" scan
       ;;
   esac
 }
@@ -19779,7 +19798,7 @@ hook_user_prompt() {
     # The assignment check below needs only jq and awk, so a scanner that
     # could not start must not skip it too (#617). As in hook_pre_tool, the
     # gitleaks scan then reports "could not run" and the open policy says so.
-    if [ "$(infrastructure_failure_mode)" = closed ] || [ -z "$input" ] \
+    if [ "$(infrastructure_failure_mode scan)" = closed ] || [ -z "$input" ] \
       || ! command -v jq >/dev/null 2>&1 || ! command -v awk >/dev/null 2>&1; then
       emit_degraded_hook_warning UserPromptSubmit "$input"
       return 0
@@ -19793,7 +19812,7 @@ hook_user_prompt() {
   # the default open policy emits one host-shaped notice and returns.
   if ! prompt=$(json_value '.prompt // empty' "$input" 2>/dev/null); then
     begin_infrastructure_failure "$input" \
-      "$PROGRAM: the prompt hook input could not be parsed;"
+      "$PROGRAM: the prompt hook input could not be parsed;" scan
     notice=$INFRA_FAILURE_NOTICE
     emit_prompt_response "$notice" '' "$notice"
     return 0
@@ -19824,16 +19843,16 @@ hook_user_prompt() {
     1) found=1; found_by='a value matching a gitleaks rule'; found_reason=secret-rule ;;
     "$SCAN_STATUS_UNAVAILABLE")
       if [ "$HOOK_SCANNER_UNAVAILABLE" = 1 ]; then
-        begin_infrastructure_failure "$input" "$(degraded_hook_message scanner)"
+        begin_infrastructure_failure "$input" "$(degraded_hook_message scanner)" scan
       else
         begin_infrastructure_failure "$input" \
-          "$PROGRAM: scanner infrastructure could not verify the prompt;"
+          "$PROGRAM: scanner infrastructure could not verify the prompt;" scan
       fi
       notice=$INFRA_FAILURE_NOTICE
       ;;
     *)
       begin_infrastructure_failure "$input" \
-        "$PROGRAM: the prompt scanner failed;"
+        "$PROGRAM: the prompt scanner failed;" scan
       notice=$INFRA_FAILURE_NOTICE
       ;;
   esac
@@ -19845,7 +19864,7 @@ hook_user_prompt() {
     # open warns (at most once per interval) and keeps the gitleaks verdict; closed blocks.
     if output_scan_input_exceeds_cap "$prompt"; then
       begin_infrastructure_failure "$input" \
-        "$PROGRAM: the prompt exceeds the assignment-probe scan cap (gitleaks rules were still applied);"
+        "$PROGRAM: the prompt is too large for the assignment check (over $OUTPUT_SCAN_MAX_BYTES bytes; gitleaks rules were still applied), so send it in smaller parts or point to a file instead of pasting it;" scan
       notice=${notice:-$INFRA_FAILURE_NOTICE}
     else
       prompt_probe_status=0
@@ -19855,7 +19874,7 @@ hook_user_prompt() {
         1) ;;
         *)
           begin_infrastructure_failure "$input" \
-            "$PROGRAM: the prompt assignment probe failed;"
+            "$PROGRAM: the prompt assignment probe failed;" scan
           notice=${notice:-$INFRA_FAILURE_NOTICE}
           ;;
       esac
@@ -19871,7 +19890,7 @@ hook_user_prompt() {
     # looks like a clean scan (#617). The notice already goes to stderr when
     # due, so every other pass that skipped a check says so there too.
     [ -z "$bif_detail" ] || [ -n "$infra_notice" ] \
-      || info "$bif_detail continuing because AGENT_GUARD_INFRA_FAILURE_MODE=open (the default)."
+      || info "$bif_detail $bif_open"
     emit_prompt_response "$notice" '' "$infra_notice"
     return 0
   fi

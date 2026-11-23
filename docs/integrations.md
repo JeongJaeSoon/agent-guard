@@ -243,14 +243,15 @@ Hook timeouts in every shipped manifest:
 | `SessionStart` | 5 s |
 | `UserPromptSubmit` | 10 s |
 
-`AGENT_GUARD_INFRA_FAILURE_MODE=closed` applies when Agent Guard itself can
-decide and return exit status 2 in time. A non-empty payload that is not a JSON
+`AGENT_GUARD_INFRA_FAILURE_MODE=closed`, and the default block for a secret
+scan that did not run, apply when Agent Guard itself can decide and return
+exit status 2 in time. A non-empty payload that is not a JSON
 object is rejected regardless of that mode; empty stdin passes with status 0.
 
 On a Claude `PostToolUse`, exit status 2 only shows the reason: the tool has
 run and its output still reaches the model. So when the hook cannot check an
-output under `closed` (no scanner, no usable policy file, a written path it
-cannot scan), it also prints a replacement in which every non-empty string is
+output under `closed` or by default (no scanner, no usable policy file, a
+written path it cannot scan), it also prints a replacement in which every non-empty string is
 `[REDACTED]` and the shape is unchanged, and Claude Code applies it beside the
 exit status 2 (checked on 2.1.330 for `Bash`, `REPL` and `Poll`).
 `AGENT_GUARD_OUTPUT_REDACT=off` turns that off together with output masking.
@@ -269,7 +270,9 @@ the directory during a session, it uses `current` or the newest complete
 installed version instead; it never substitutes another version for a
 directory that still exists but is incomplete. When no binary can be found,
 the launcher applies `AGENT_GUARD_INFRA_FAILURE_MODE`: `closed` blocks with the
-reason on every call and `open` warns once per session. When no launcher can be
+reason on every call and `open` warns once per session; unset is `open` here,
+because the default block for a missing secret scan is decided by the binary
+that could not be found. When no launcher can be
 found at all, for example because the host did not set its plugin-root
 variable, the command line applies the same mode itself and warns on every
 call.
@@ -293,6 +296,6 @@ replaces the error text. So a scan that cannot run is reported to the
 model as additional context, never as a clean result: under
 `AGENT_GUARD_INFRA_FAILURE_MODE=open` at most once every 10 minutes per
 session, which Claude Code also shows to you as a `systemMessage`, and on every
-failed call under `closed`.
+failed call under `closed` and by default.
 Input that is not a JSON object, or has no `error` field, passes through with
 no response. `AGENT_GUARD_OUTPUT_REDACT=off` turns this check off as well.

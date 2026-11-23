@@ -18,8 +18,32 @@ scanner error in a lifecycle hook:
 
 | Value | Behavior |
 | --- | --- |
-| `open` (default) | Continue with a degraded-protection notice that names what is missing and repeats every 10 minutes |
+| unset (default) | `closed` for a secret scan that did not run, `open` for every other infrastructure failure |
+| `open` | Continue with a degraded-protection notice that names what is missing and repeats every 10 minutes |
 | `closed` | Refuse the hook action with exit status 2. A Claude `PostToolUse` hook also withholds the output it could not check |
+
+A secret scan that did not run means text nobody checked would reach the
+agent, a file or a commit, and text the agent has read cannot be taken back.
+That covers:
+
+- gitleaks missing, older than the supported version, failing, or not
+  answering its version check in time (see the retry and the readiness cache
+  below);
+- jq, awk or a policy file missing, since then no check runs at all;
+- a scan that started and errored;
+- input over a scan cap, such as a prompt too large for the assignment check
+  or a written file over `AGENT_GUARD_SCAN_INPUT_MAX_BYTES`.
+
+Each default block names what failed and the fix: `agent-guard doctor` to see
+the failure, `agent-guard setup` (which prints the `setup --install` command)
+or the setup skill to install or repair gitleaks, a retry for a version check
+that only timed out, or a smaller input for a scan cap. The block does not
+name the setting that would let the call through, because the model reads it.
+
+Every other infrastructure failure keeps the open default: a `git commit` or
+`git push` whose directory or arguments cannot be resolved, a commit in a
+directory that is not a repository yet, a written path that cannot be
+determined, or git itself missing.
 
 Under `open`, a session's first infrastructure failure produces the notice, and
 it repeats at most once every 600 seconds while failures continue; the interval
@@ -34,7 +58,7 @@ additional context, and on `Stop` only on stderr; whether Codex shows a
 `SessionStart` reports degraded setup to both hosts on every start.
 
 This is distinct from a secret finding, which blocks. An invalid value is read
-as `open`; set an explicit valid value in managed environments.
+as unset; set an explicit valid value in managed environments.
 
 When jq, awk and both path and pattern policy files are ready but gitleaks or
 its config is not, `open` still runs every PreToolUse check that needs no
@@ -43,16 +67,19 @@ input, the Bash deny patterns, the `git commit`/`git push` hook-bypass refusal,
 the broad Grep content refusal and the PII input gate. Only the secret scan is
 skipped, so a secret that only gitleaks would find passes. The first notice of
 the session that a passing call carries includes the degraded notice; a
-blocked call carries only its block reason. `closed` blocks every PreToolUse call, as before.
+blocked call carries only its block reason. `closed`, and the default, block
+every PreToolUse call.
 
 UserPromptSubmit needs only jq and awk for its PII input gate and its check for
 secret-like `KEY=value` and `key: value` assignments, so under `open` both
 still run when gitleaks is unavailable and a prompt they find is blocked. Only
 the gitleaks rule scan is skipped: a secret that only gitleaks would find
 passes, and stderr says on every such pass that the scan did not run, while the
-notice keeps its interval. `closed` blocks every prompt, as before.
-PostToolUse, PostToolUseFailure and Stop still pass without running their
-checks under `open` when gitleaks is unavailable.
+notice keeps its interval. `closed`, and the default, block every prompt.
+PostToolUse, PostToolUseFailure and Stop pass without running their checks
+under `open` when gitleaks is unavailable. By default PostToolUse and Stop
+block, and PostToolUseFailure, which cannot block, reports the unchecked
+failure on every call.
 
 Every hook except SessionStart retries a gitleaks version probe that timed out
 once before it treats gitleaks as unavailable, because a loaded machine can
