@@ -598,5 +598,68 @@
     "tests": [
       "tests/message-value-prose.sh"
     ]
+  },
+  {
+    "id": "bash-unresolved-operand-unwired",
+    "rule": "check_bash_command: an operand only known at run time blocks the command",
+    "old": "    bash_unresolved_read_operand \"$raw_cmd\" && exit 3\n",
+    "new": "",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-any-tail",
+    "rule": "bash_unresolved_read_operand: only a literal /name tail after a dynamic part passes",
+    "old": "  function tail_ok(t) { return substr(t, 1, 1) == \"/\" }",
+    "new": "  function tail_ok(t) { return 1 }",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-no-nesting",
+    "rule": "bash_unresolved_read_operand: the code of a command substitution is read too",
+    "old": "        bash_unresolved_read_operand \"$uo_body\" \"$((uo_depth + 1))\" \"$uo_moved\" && exit 0\n",
+    "new": "",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-value-unmatched",
+    "rule": "bash_unresolved_read_operand: a resolved assignment value is matched against the deny list",
+    "old": "        if bash_matches_deny_path_mode \"$uo_value\" literal \\\n          || bash_matches_deny_path_mode \"$uo_value\" shell-expanded; then",
+    "new": "        if false; then",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-no-redirect",
+    "rule": "bash_unresolved_read_operand: an input redirect target is an operand",
+    "old": "    if (redir) { redir = 0; operand(w); next }",
+    "new": "    if (redir) { redir = 0; next }",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-prefix-assignment",
+    "rule": "bash_unresolved_read_operand: an assignment before a command does not resolve its operands",
+    "old": "      if (cmdseen || cond || depth || pav[k] == \"\\002\") delete tab[pan[k]]",
+    "new": "      if (pav[k] == \"\\002\") delete tab[pan[k]]",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-pwd-after-cd",
+    "rule": "bash_unresolved_read_operand: $PWD names the hook workdir only until a cd",
+    "old": "          if (nm == \"PWD\" && !moved && !(nm in tab)) { out = out \".\"; subst = 1 }",
+    "new": "          if (nm == \"PWD\" && !(nm in tab)) { out = out \".\"; subst = 1 }",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
   }
 ]
