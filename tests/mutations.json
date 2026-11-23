@@ -638,8 +638,8 @@
   {
     "id": "bash-unresolved-operand-no-redirect",
     "rule": "bash_unresolved_read_operand: an input redirect target is an operand",
-    "old": "    if (redir) { redir = 0; operand(w); next }",
-    "new": "    if (redir) { redir = 0; next }",
+    "old": "    if (redir) { redir = 0; if (w !~ /^[<>]\\(/) operand(w); return }",
+    "new": "    if (redir) { redir = 0; return }",
     "tests": [
       "tests/unresolved-read-operand.sh"
     ]
@@ -701,7 +701,7 @@
   {
     "id": "bash-unresolved-operand-wrapper-value",
     "rule": "bash_unresolved_read_operand: a wrapper option value is not the command name",
-    "old": "      if (w ~ /^-/ && index(wvopt[wrap], \" \" w \" \")) { skipw = 1; next }\n",
+    "old": "      if (w ~ /^-/ && index(wvopt[wrap], \" \" w \" \")) { skipw = 1; return }\n",
     "new": "",
     "tests": [
       "tests/unresolved-read-operand.sh"
@@ -710,7 +710,7 @@
   {
     "id": "bash-unresolved-operand-shell-code",
     "rule": "bash_unresolved_read_operand: the code of sh -c is read",
-    "old": "      if (ow ~ /^-[A-Za-z]*c[A-Za-z]*$/) { mode = \"evalnext\"; next }\n",
+    "old": "      if (ow ~ /^-[A-Za-z]*c[A-Za-z]*$/) { mode = \"evalnext\"; return }\n",
     "new": "",
     "tests": [
       "tests/unresolved-read-operand.sh"
@@ -727,9 +727,9 @@
   },
   {
     "id": "bash-unresolved-operand-env-value",
-    "rule": "bash_unresolved_read_operand: an env option value is not the command name",
-    "old": "      if (wrap == \"env\" && w ~ /^(-S|--split-string)$/) { mode = \"evalnext\"; cpos = 0; cmdseen = 1; next }\n      if (wrap == \"env\" && (w ~ /^-/ || w ~ /=/)) next",
-    "new": "      if (wrap == \"env\" && (w ~ /^-/ || w ~ /=/)) next\n      if (wrap == \"env\" && w ~ /^(-S|--split-string)$/) { mode = \"evalnext\"; cpos = 0; cmdseen = 1; next }",
+    "rule": "bash_unresolved_read_operand: env -S code is read",
+    "old": "      if (wrap == \"env\" && w ~ /^(-S|--split-string)$/) { mode = \"evalnext\"; cpos = 0; cmdseen = 1; return }\n",
+    "new": "",
     "tests": [
       "tests/unresolved-read-operand.sh"
     ]
@@ -756,6 +756,24 @@
     "id": "bash-unresolved-operand-child-env",
     "rule": "bash_unresolved_read_operand: assignments before a command are not followed into the code it runs",
     "old": "      for (k = 1; k <= npa; k++) delete tab[pan[k]]\n",
+    "new": "",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-attached-redirect",
+    "rule": "bash_unresolved_read_operand: a redirection inside a word is split off",
+    "old": "    if (k > 1) { word(substr($0, 1, k - 1)); word(substr($0, k)) }\n    else word($0)",
+    "new": "    word($0)",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-dynamic-target",
+    "rule": "bash_unresolved_read_operand: a variable named at run time may be any known one",
+    "old": "    if (w ~ /[$`]/) { for (k in tab) delete tab[k]; return }\n",
     "new": "",
     "tests": [
       "tests/unresolved-read-operand.sh"
