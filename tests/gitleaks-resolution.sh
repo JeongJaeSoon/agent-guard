@@ -502,8 +502,9 @@ for mode in open closed; do
   slow_elapsed=$(( $(date +%s) - slow_start ))
   expected_status=0
   [ "$mode" = closed ] && expected_status=2
+  # One retry after a timeout: two 2s deadlines, never the stub's two 6s sleeps.
   if [ "$status" -eq "$expected_status" ] \
-     && [ "$slow_elapsed" -le 5 ] && [ ! -e "$SLOW_SCAN_MARKER" ] \
+     && [ "$slow_elapsed" -le 9 ] && [ ! -e "$SLOW_SCAN_MARKER" ] \
      && grep -Fq 'Scanner readiness: timeout.' "$CASE_ROOT/err" \
      && grep -Fq "AGENT_GUARD_INFRA_FAILURE_MODE=$mode" "$CASE_ROOT/err"; then
     ok "slow version probe follows $mode policy before a scanned route (${slow_elapsed}s)"
@@ -531,6 +532,186 @@ for diagnostic_host in claude codex; do
     not_ok "clean PostToolUse readiness diagnostic ($diagnostic_host, status $status)"
   fi
 done
+
+# The prompt guard's assignment check needs no scanner, so a scanner that
+# cannot start or fails must not let a value that check finds through (#617).
+# The value is generated at run time; the stubs never see a real secret.
+prompt_value=$(od -An -N12 -tx1 /dev/urandom | tr -d ' \n')
+prompt_secret="DB_PASSWORD=$prompt_value"
+READY_BIN="$CASE_ROOT/ready-prompt-bin"
+make_scanner "$READY_BIN/gitleaks" '8.31.0' 0
+FAILING_BIN="$CASE_ROOT/failing-version-bin"
+make_scanner "$FAILING_BIN/gitleaks" '8.31.0' 1
+SCAN_ERROR_BIN="$CASE_ROOT/scan-error-bin"
+mkdir -p "$SCAN_ERROR_BIN"
+cat >"$SCAN_ERROR_BIN/gitleaks" <<'STUB'
+#!/bin/sh
+case "${1:-}" in
+  version) printf '%s\n' '8.31.0'; exit 0 ;;
+  stdin) cat >/dev/null; printf '%s\n' 'synthetic scanner crash'; exit 2 ;;
+  *) exit 0 ;;
+esac
+STUB
+chmod +x "$SCAN_ERROR_BIN/gitleaks"
+# $1 host, $2 policy, $3 scanner, $4 session, $5 prompt
+run_prompt() {
+  (
+    unset AI_AGENT
+    jq -nc --arg p "$5" --arg s "$4" \
+      '{hook_event_name:"UserPromptSubmit",prompt:$p,session_id:$s}' \
+      | env AGENT_GUARD_LOG_MODE=off AGENT_GUARD_HOOK_HOST="$1" \
+          AGENT_GUARD_PROMPT_GUARD_MODE=block AGENT_GUARD_PII_HOOK_MODE=off \
+          AGENT_GUARD_GITLEAKS_BIN="$3" AGENT_GUARD_INFRA_FAILURE_MODE="$2" \
+          AGENT_GUARD_WARNING_DIR="$CASE_ROOT/prompt-warning-$4" \
+          "$GUARD" hook-user-prompt >"$CASE_ROOT/out" 2>"$CASE_ROOT/err"
+  )
+}
+prompt_scanner() {
+  case "$1" in
+    timeout) printf '%s\n' "$SLOW_BIN/gitleaks" ;;
+    failed) printf '%s\n' "$FAILING_BIN/gitleaks" ;;
+    scan-error) printf '%s\n' "$SCAN_ERROR_BIN/gitleaks" ;;
+    ready) printf '%s\n' "$READY_BIN/gitleaks" ;;
+  esac
+}
+# Controls: a working scanner passes a clean prompt silently and the
+# assignment check blocks the value.
+run_prompt claude open "$(prompt_scanner ready)" control-clean 'ordinary benign prompt'
+status=$?
+if [ "$status" -eq 0 ] && [ ! -s "$CASE_ROOT/out" ] && [ ! -s "$CASE_ROOT/err" ]; then
+  ok "clean prompt passes silently with a ready scanner"
+else
+  not_ok "clean prompt control with a ready scanner (status $status)"
+fi
+run_prompt claude open "$(prompt_scanner ready)" control-secret "$prompt_secret"
+status=$?
+if [ "$status" -eq 2 ] && grep -Fq 'contains secret-like values' "$CASE_ROOT/err"; then
+  ok "assignment prompt is blocked with a ready scanner"
+else
+  not_ok "assignment prompt control with a ready scanner (status $status)"
+fi
+for prompt_host in claude codex; do
+  for prompt_case in timeout failed scan-error; do
+    rm -f "$SLOW_SCAN_MARKER"
+    run_prompt "$prompt_host" open "$(prompt_scanner "$prompt_case")" \
+      "$prompt_host-$prompt_case" "$prompt_secret"
+    status=$?
+    if [ "$status" -eq 2 ] && [ ! -s "$CASE_ROOT/out" ] && [ ! -e "$SLOW_SCAN_MARKER" ] \
+       && grep -Fq 'contains secret-like values' "$CASE_ROOT/err" \
+       && ! grep -Fq "$prompt_value" "$CASE_ROOT/out" "$CASE_ROOT/err"; then
+      ok "assignment prompt is blocked in open mode when the scanner is $prompt_case ($prompt_host)"
+    else
+      not_ok "assignment prompt with a $prompt_case scanner in open mode ($prompt_host, expected 2, got $status)"
+    fi
+  done
+done
+run_prompt claude open "$(prompt_scanner failed)" handback-failed \
+  "$(printf '<agent-message from="a1b2c3d4">\n[Subagent hand-back] The report follows:\n- %s\n' "$prompt_secret")"
+status=$?
+if [ "$status" -eq 2 ] && grep -Fq 'blocked a subagent hand-back' "$CASE_ROOT/err" \
+   && ! grep -Fq "$prompt_value" "$CASE_ROOT/out" "$CASE_ROOT/err"; then
+  ok "hand-back with an assignment is blocked in open mode when the scanner failed"
+else
+  not_ok "hand-back with an assignment and a failed scanner (expected 2, got $status)"
+fi
+run_prompt claude closed "$(prompt_scanner failed)" closed-failed 'ordinary benign prompt'
+status=$?
+if [ "$status" -eq 2 ] \
+   && grep -Fq 'Blocking because AGENT_GUARD_INFRA_FAILURE_MODE=closed' "$CASE_ROOT/err"; then
+  ok "closed mode still blocks a prompt when the scanner failed"
+else
+  not_ok "closed mode with a failed scanner (expected 2, got $status)"
+fi
+# A prompt the assignment check passes is still let through in open mode, but
+# never silently: the host notice repeats only once per interval, and stderr
+# says on every pass that the scanner did not run.
+for prompt_host in claude codex; do
+  for prompt_round in first repeat; do
+    run_prompt "$prompt_host" open "$(prompt_scanner timeout)" \
+      "$prompt_host-unscanned" 'ordinary benign prompt'
+    status=$?
+    prompt_shape=no
+    case "$prompt_round" in
+      first)
+        jq -se 'length == 1 and (.[0].hookSpecificOutput
+            | .hookEventName == "UserPromptSubmit"
+              and (.additionalContext | contains("Scanner readiness: timeout.")))' \
+          "$CASE_ROOT/out" >/dev/null 2>&1 && prompt_shape=yes
+        ;;
+      repeat) [ -s "$CASE_ROOT/out" ] || prompt_shape=yes ;;
+    esac
+    if [ "$status" -eq 0 ] && [ "$prompt_shape" = yes ] \
+       && [ "$(grep -c 'Scanner readiness: timeout.' "$CASE_ROOT/err")" -eq 1 ] \
+       && grep -Fq 'the secret scan did not run' "$CASE_ROOT/err" \
+       && grep -Fq 'continuing because AGENT_GUARD_INFRA_FAILURE_MODE=open' "$CASE_ROOT/err"; then
+      ok "unscanned clean prompt passes with a stderr note ($prompt_host, $prompt_round)"
+    else
+      not_ok "unscanned clean prompt stderr note ($prompt_host, $prompt_round, status $status)"
+    fi
+  done
+done
+
+# A version probe that timed out is retried once, except by SessionStart. The
+# stub hangs its first FLAKY_HANGS version calls and records each one, so the
+# counts do not depend on timing. Only the stub's scan flags the marker word.
+FLAKY_BIN="$CASE_ROOT/flaky-version-bin"
+mkdir -p "$FLAKY_BIN"
+sed -e "s|@SLEEP@|$REAL_SLEEP|g" >"$FLAKY_BIN/gitleaks" <<'STUB'
+#!/bin/sh
+case "${1:-}" in
+  version)
+    printf 'version\n' >>"$FLAKY_VERSION_LOG"
+    [ "$(grep -c . "$FLAKY_VERSION_LOG")" -gt "$FLAKY_HANGS" ] || exec '@SLEEP@' 6
+    printf '%s\n' '8.31.0'
+    exit 0
+    ;;
+  stdin)
+    case "$(cat)" in
+      *synthetic-rule-only-marker*) printf '%s\n' 'Finding: synthetic'; exit 1 ;;
+    esac
+    exit 0
+    ;;
+  *) exit 0 ;;
+esac
+STUB
+chmod +x "$FLAKY_BIN/gitleaks"
+FLAKY_VERSION_LOG="$CASE_ROOT/flaky-version-log"
+export FLAKY_VERSION_LOG FLAKY_HANGS
+rule_only_prompt='please review synthetic-rule-only-marker'
+# $1 hangs, $2 expected status, $3 expected version calls, $4 label
+flaky_prompt_case() {
+  FLAKY_HANGS=$1
+  : >"$FLAKY_VERSION_LOG"
+  run_prompt claude open "$FLAKY_BIN/gitleaks" "flaky-$1" "$rule_only_prompt"
+  status=$?
+  flaky_calls=$(grep -c . "$FLAKY_VERSION_LOG")
+  if [ "$status" -eq "$2" ] && [ "$flaky_calls" -eq "$3" ]; then
+    ok "$4 (status $status, $flaky_calls version calls)"
+  else
+    not_ok "$4 (expected status $2 with $3 version calls, got $status with $flaky_calls)"
+  fi
+}
+flaky_prompt_case 0 2 1 "rule-only prompt is blocked by a scanner that answers at once"
+flaky_prompt_case 1 2 2 "rule-only prompt is blocked after one retried version probe"
+flaky_prompt_case 99 0 2 "a scanner that keeps timing out is probed twice, then the open policy applies"
+if grep -Fq 'Scanner readiness: timeout.' "$CASE_ROOT/err"; then
+  ok "the pass after two timed-out probes names the timeout on stderr"
+else
+  not_ok "the pass after two timed-out probes names the timeout on stderr"
+fi
+FLAKY_HANGS=99
+: >"$FLAKY_VERSION_LOG"
+env AGENT_GUARD_LOG_MODE=off AGENT_GUARD_HOOK_HOST=claude \
+  AGENT_GUARD_GITLEAKS_BIN="$FLAKY_BIN/gitleaks" AGENT_GUARD_INFRA_FAILURE_MODE=open \
+  AGENT_GUARD_WARNING_DIR="$CASE_ROOT/flaky-session-start" \
+  "$GUARD" hook-session-start </dev/null >"$CASE_ROOT/out" 2>"$CASE_ROOT/err"
+status=$?
+flaky_calls=$(grep -c . "$FLAKY_VERSION_LOG")
+if [ "$status" -eq 0 ] && [ "$flaky_calls" -eq 1 ]; then
+  ok "SessionStart probes a timing-out scanner once"
+else
+  not_ok "SessionStart probes a timing-out scanner once (status $status, $flaky_calls version calls)"
+fi
 
 NO_SLEEP_BIN="$CASE_ROOT/no-sleep-bin"
 mkdir -p "$NO_SLEEP_BIN"

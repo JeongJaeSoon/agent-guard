@@ -2513,10 +2513,18 @@ hook_policy_unusable() {
   return 1
 }
 
+# A stalled machine can miss the version probe's deadline once: at load 40, 4
+# of 2,400 probes took over 2s and no two in a row did (#617). So a timeout,
+# and only a timeout, gets one more probe. $1 = once skips it for SessionStart,
+# whose 5s host timeout cannot hold two deadlines.
 hook_dependencies_ready() {
   command -v jq >/dev/null 2>&1 || return 1
   command -v awk >/dev/null 2>&1 || return 1
-  prepare_gitleaks || return 1
+  if ! prepare_gitleaks; then
+    [ "${1:-}" != once ] \
+      && [ "$GITLEAKS_PROBE_STATE:$GITLEAKS_PROBE_DETAIL" = runtime-failure:timeout ] \
+      && prepare_gitleaks || return 1
+  fi
   ! hook_policy_unusable >/dev/null
 }
 
@@ -13549,7 +13557,7 @@ hook_pre_tool() {
 # with a block. Its once-per-session marker is the infrastructure one.
 finish_pre_tool_scanner_unavailable() {
   [ "$HOOK_SCANNER_UNAVAILABLE" = 1 ] || return 0
-  handle_hook_infrastructure_failure PreToolUse "${HOOK_INPUT:-}" \
+  handle_hook_infrastructure_failure "${HOOK_EVENT:-PreToolUse}" "${HOOK_INPUT:-}" \
     "$(degraded_hook_message scanner)"
 }
 
@@ -19462,8 +19470,15 @@ hook_user_prompt() {
   pii_skip_set
   prompt_mode=$(prompt_guard_mode)
   if ! hook_dependencies_ready; then
-    emit_degraded_hook_warning UserPromptSubmit "$input"
-    return 0
+    # The assignment check below needs only jq and awk, so a scanner that
+    # could not start must not skip it too (#617). As in hook_pre_tool, the
+    # gitleaks scan then reports "could not run" and the open policy says so.
+    if [ "$(infrastructure_failure_mode)" = closed ] || [ -z "$input" ] \
+      || ! command -v jq >/dev/null 2>&1 || ! command -v awk >/dev/null 2>&1; then
+      emit_degraded_hook_warning UserPromptSubmit "$input"
+      return 0
+    fi
+    HOOK_SCANNER_UNAVAILABLE=1
   fi
   need_cmd jq
   [ -n "$input" ] || return 0
@@ -19477,14 +19492,14 @@ hook_user_prompt() {
     emit_prompt_response "$notice" '' "$notice"
     return 0
   fi
-  [ -n "$prompt" ] || return 0
+  [ -n "$prompt" ] || { finish_pre_tool_scanner_unavailable; return 0; }
 
   # The PII input gate is governed by AGENT_GUARD_PII_HOOK_MODE alone and stays
   # active even when the secret guard is off: block mode blocks any PII; mask
   # mode hard-blocks Tier-2. Tier-1 PII cannot be masked in a prompt (no host
   # rewrite exists), a documented limitation.
   block_on_pii_text "user prompt" "$prompt"
-  [ "$prompt_mode" != off ] || return 0
+  [ "$prompt_mode" != off ] || { finish_pre_tool_scanner_unavailable; return 0; }
 
   # An infrastructure notice raised here is ACCUMULATED, not printed: warn mode
   # still has its own response to write, and two concatenated top-level objects
@@ -19494,13 +19509,20 @@ hook_user_prompt() {
   notice=
   found=0
   found_reason=
+  # begin_infrastructure_failure leaves its reason here; empty at the end
+  # means every check ran.
+  bif_detail=
   scan_text_direct "user prompt" "$prompt"
   case $? in
     0) ;;
     1) found=1; found_by='a value matching a gitleaks rule'; found_reason=secret-rule ;;
     "$SCAN_STATUS_UNAVAILABLE")
-      begin_infrastructure_failure "$input" \
-        "$PROGRAM: scanner infrastructure could not verify the prompt;"
+      if [ "$HOOK_SCANNER_UNAVAILABLE" = 1 ]; then
+        begin_infrastructure_failure "$input" "$(degraded_hook_message scanner)"
+      else
+        begin_infrastructure_failure "$input" \
+          "$PROGRAM: scanner infrastructure could not verify the prompt;"
+      fi
       notice=$INFRA_FAILURE_NOTICE
       ;;
     *)
@@ -19539,6 +19561,11 @@ hook_user_prompt() {
     notice=$INJECTION_NOTICE${INJECTION_NOTICE:+${notice:+ }}$notice
   fi
   if [ "$found" -ne 1 ]; then
+    # The open notice repeats once per interval, and without it this pass
+    # looks like a clean scan (#617). The notice already goes to stderr when
+    # due, so every other pass that skipped a check says so there too.
+    [ -z "$bif_detail" ] || [ -n "$infra_notice" ] \
+      || info "$bif_detail continuing because AGENT_GUARD_INFRA_FAILURE_MODE=open (the default)."
     emit_prompt_response "$notice" '' "$infra_notice"
     return 0
   fi
@@ -19699,7 +19726,7 @@ shell_init_block_state() {
 
 hook_session_start() {
   message=
-  if ! hook_dependencies_ready || ! command -v git >/dev/null 2>&1; then
+  if ! hook_dependencies_ready once || ! command -v git >/dev/null 2>&1; then
     message=$(degraded_hook_message)
   fi
 
