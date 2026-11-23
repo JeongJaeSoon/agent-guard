@@ -724,5 +724,23 @@
     "tests": [
       "tests/unresolved-read-operand.sh"
     ]
+  },
+  {
+    "id": "bash-unresolved-operand-env-value",
+    "rule": "bash_unresolved_read_operand: an env option value is not the command name",
+    "old": "      if (wrap == \"env\" && w ~ /^(-S|--split-string)$/) { mode = \"evalnext\"; cpos = 0; cmdseen = 1; next }\n      if (wrap == \"env\" && (w ~ /^-/ || w ~ /=/)) next",
+    "new": "      if (wrap == \"env\" && (w ~ /^-/ || w ~ /=/)) next\n      if (wrap == \"env\" && w ~ /^(-S|--split-string)$/) { mode = \"evalnext\"; cpos = 0; cmdseen = 1; next }",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-code-unscanned",
+    "rule": "bash_unresolved_read_operand: eval or sh -c code built from a known value is scanned as text",
+    "old": "    if (subst) print \"C\" v\n",
+    "new": "",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
   }
 ]

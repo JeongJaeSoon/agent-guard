@@ -10105,7 +10105,8 @@ deny_path_report_print() {
 # Records of bash_unresolved_read_operand, read from shell_command_words:
 # U for an operand that cannot be resolved, V<text> for a resolved operand (or
 # the literal tail after a dynamic directory) to match against the deny list,
-# S<code> for the code of each command substitution (newlines as \034).
+# S<code> for the code of each command substitution (newlines as \034), and
+# C<code> for eval or sh -c code a known assignment changed, to scan as text.
 AWK_READ_OPERAND_RECORDS='
   # #507: a dynamic front before a literal /name tail passes when that tail
   # matches no deny entry. Return 0 here to block every dynamic operand.
@@ -10257,6 +10258,8 @@ AWK_READ_OPERAND_RECORDS='
   function code(w,   v) {
     v = value(w)
     gsub(/\002/, "\"$__agent_guard_unknown\"", v)
+    # Code with a replaced parameter was never seen by the raw-text scan.
+    if (subst) print "C" v
     tabrec(); print "S" v
   }
   function name_of(w,   n) {
@@ -10369,10 +10372,10 @@ AWK_READ_OPERAND_RECORDS='
       while (w ~ /^\(/ && w !~ /^\(\(/) { depth++; w = substr(w, 2) }
       if (w == "") next
       if (wrap == "" && w ~ /^[A-Za-z_][A-Za-z0-9_]*(\[[^]]*\])?\+?=/) { assign(w, 0); next }
-      if (wrap == "env" && (w ~ /^-/ || w ~ /=/)) next
       # Options of a wrapper that take the next word as their value.
       if (w ~ /^-/ && index(wvopt[wrap], " " w " ")) { skipw = 1; next }
-      if (wrap == "env" && w == "-S") { mode = "evalnext"; cpos = 0; cmdseen = 1; next }
+      if (wrap == "env" && w ~ /^(-S|--split-string)$/) { mode = "evalnext"; cpos = 0; cmdseen = 1; next }
+      if (wrap == "env" && (w ~ /^-/ || w ~ /=/)) next
       if (wrap != "" && w ~ /^-/) next
       if (wrap == "timeout") { wrap = "timeout1"; next }
       n = name_of(w)
@@ -10482,6 +10485,14 @@ bash_unresolved_read_operand() (
         uo_value="cat ${uo_record#V}"
         if bash_matches_deny_path_mode "$uo_value" literal \
           || bash_matches_deny_path_mode "$uo_value" shell-expanded; then
+          printf '%s\n' "$deny_path_report"
+          exit 0
+        fi
+        ;;
+      C*)
+        uo_body=$(printf '%s' "${uo_record#C}" | tr '\034' '\n')
+        deny_path_report=
+        if bash_deny_path_scan "$uo_body"; then
           printf '%s\n' "$deny_path_report"
           exit 0
         fi
