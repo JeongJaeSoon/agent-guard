@@ -395,6 +395,31 @@ if [ -z "$REAL_GITLEAKS" ]; then
      && [ -z "$(find "$P" -name ".gitleaks-helper.*")" ]'
   cp "$CASE/good.tar.gz" "$CASE/download/$asset"
 
+  # A signal during the helper download: the step still removes its own
+  # temporary directory, and setup goes on without the helper.
+  P="$CASE/p-signal"
+  mkdir -p "$CASE/term-bin"
+  cat >"$CASE/term-bin/curl" <<'HTTP'
+#!/bin/sh
+case "$*" in
+  *agent-guard-gitleaks-helper-*)
+    printf '%s\n' "signal" >>"$AG_INSTALL_URLS"
+    kill -TERM "$PPID"
+    sleep 1
+    exit 22
+    ;;
+esac
+exec "$AG_INSTALL_CURL" "$@"
+HTTP
+  chmod 755 "$CASE/term-bin/curl"
+  TOOLS_PATH="$CASE/term-bin:$CASE/http-bin:$CASE/tools"
+  si "$P" AG_INSTALL_CURL="$CASE/http-bin/curl"
+  sleep 2
+  expect "a helper download ended by a signal leaves no temporary directory, and setup still succeeds" \
+    '[ "$(status)" = 0 ] && [ -x "$P/gitleaks" ] && [ ! -e "$P/gitleaks-helper" ] && grep -qx signal "$URLS" \
+     && [ "$(warned)" = 1 ] && no_temp_left'
+  TOOLS_PATH="$CASE/http-bin:$CASE/tools"
+
   # No asset for this platform: quiet.
   P="$CASE/p-platform"
   TOOLS_PATH="$CASE/uname-bin:$CASE/http-bin:$CASE/tools"

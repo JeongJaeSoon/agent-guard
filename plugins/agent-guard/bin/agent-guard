@@ -3202,11 +3202,15 @@ setup_install_gitleaks_helper_with_gitleaks() {
     return 0
   fi
   # In a subshell, so that the installer's fatal errors end only this step.
-  # A subshell does not run this shell's EXIT trap: it removes its own
-  # temporary directory, and leaves this shell's alone.
+  # A subshell starts with this shell's traps reset: it removes its own
+  # temporary directory, also when a signal ends it (without the two signal
+  # traps dash would die there and skip the EXIT trap), and leaves this
+  # shell's directory alone.
   if (
     AG_EXIT_TMP_DIR=
     trap '[ -z "$AG_EXIT_TMP_DIR" ] || rm -rf "$AG_EXIT_TMP_DIR"' 0
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
     setup_install_gitleaks_helper
   ); then
     unset AG_GITLEAKS_HELPER_INSTALLED
