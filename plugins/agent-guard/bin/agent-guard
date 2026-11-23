@@ -10494,12 +10494,18 @@ AWK_READ_OPERAND_RECORDS='
 # and $4 the literal assignments known where the nested code starts.
 # Known limit: a protected directory name hidden inside the variable itself
 # ("$D/config" with D pointing into a key directory) is not seen.
-bash_unresolved_read_operand() (
+bash_unresolved_read_operand() {
+  # Checked before the subshell below, so a command without an expansion
+  # costs no extra process.
+  case "$1" in *'$'*|*'`'*) ;; *) return 1 ;; esac
+  [ -f "$DENY_READ_PATHS" ] || return 1
+  bash_unresolved_read_operand_scan "$@"
+}
+
+bash_unresolved_read_operand_scan() (
   set -f
   uo_text=$1
   uo_depth=${2:-0}
-  case "$uo_text" in *'$'*|*'`'*) ;; *) exit 1 ;; esac
-  [ -f "$DENY_READ_PATHS" ] || exit 1
   [ "$uo_depth" -lt 8 ] || exit 0
   case "$uo_text" in
     *'<<'*) uo_text=$(printf '%s\n' "$uo_text" | bash_read_operand_heredoc_view) || uo_text=$1 ;;

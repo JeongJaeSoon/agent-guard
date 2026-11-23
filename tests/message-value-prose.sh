@@ -492,6 +492,9 @@ check 2 "orca orchestration reply --id m --body 'x' | tail -1; orca orchestratio
 check 2 "git add a.txt && git commit -m '.env' && cat \$_"
 check 2 "orca orchestration send --to a --body '- .env'; cat \$_"
 check 2 "$OW bot item comment 1 --text '.env'; cat \$_"
+# A $_ consumer outside the reading programs of the unresolved-operand check
+# (#507), so only the missing data exemption blocks it.
+check 2 "grep -c -e '.env'; make -f \$_"
 check 2 "orca orchestration send --to a --body 'x; env | sort'; eval \"\$_\""
 check 2 "git commit -m 'x; env | sort'; eval \"\$_\""
 check 2 "grep -c -e ' env | sort'; eval \"\$_\""
