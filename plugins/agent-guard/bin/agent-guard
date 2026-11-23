@@ -14058,7 +14058,7 @@ secretish_env_values() {
       # whitespace form only when the preceding token is a known status word,
       # which marks a prose chain like `error: password: authentication is
       # disabled`.
-      colon_assignment = "(^[+]?[ \t\r]*|[,{([][ \t\r]*|[ \t\r]+)[\"'\''`]?" key "[\"'\''`]?[ \t]*:"
+      colon_assignment = "(^[+]?[ \t\r]*|[,{([][ \t\r]*|[ \t\r])[\"'\''`]?" key "[\"'\''`]?[ \t]*:"
       # Skipping after ANY colon-terminated token also let real structured log
       # lines through unmasked (`response: api_key: <secret>`), so only these
       # status words justify the skip. Deliberately short: an unlisted label
@@ -15602,6 +15602,15 @@ secretish_env_values() {
         assignment_length = RLENGTH
         before = substr(low, 1, assignment_start - 1)
       } while (index(before, delimiter) > 0 && assignment_match(before, delimiter))
+      # colon_assignment takes one whitespace character before the key: taking
+      # the whole run made each start position rescan it, quadratic on a long
+      # run (#585). Walk back to the start of the run, where it used to begin.
+      if (delimiter == ":")
+        while (assignment_start > 1 && index(" \t\r", substr(low, assignment_start, 1)) &&
+               index(" \t\r", substr(low, assignment_start - 1, 1))) {
+          assignment_start--
+          assignment_length++
+        }
     }
     function scan_line(line, rest, end, low, eq_start, eq_length, \
                        colon_start, colon_length, start, matched_length, \

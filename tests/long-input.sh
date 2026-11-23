@@ -3,4 +3,5 @@
 set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 python3 "$ROOT/tests/long-input-budget.py"
+sh "$ROOT/tests/colon-assignment-equivalence.sh"
 exec python3 "$ROOT/tests/long-input.py"
