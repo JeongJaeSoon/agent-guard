@@ -17278,9 +17278,11 @@ claude_post_tool_shape() {
     Read|Write|Edit|MultiEdit|NotebookEdit|Grep|Glob|Skill|Monitor|Bash|REPL|Eval|Poll) ;;
     *) return 0 ;;
   esac
+  # REPL's `result` is the script's own value (`any` in the output schema), so
+  # a word key inside it is data, not a field the host checks.
   cps_out=
   cps_out=$({ printf '%s\n' "${HOOK_INPUT:-}"; printf '%s\n' "$replacement"; } 2>/dev/null \
-    | jq -rsc '
+    | jq -rsc --arg tool "$cps_tool" '
         def kinds: if type == "object" then with_entries(.value |= kinds)
           elif type == "array" then map(kinds) else type end;
         def at($p): try getpath($p) catch null;
@@ -17288,6 +17290,9 @@ claude_post_tool_shape() {
           | ["type","media_type","mimeType","mediaType","encoding","mode",
              "cell_type","authority","stoppedBy","neverRan","status","kind",
              "action"] | index([$k]) != null;
+        def host_word: (.[-1] | type) == "string" and (.[-1] | word_key)
+          and ((($tool == "REPL" or $tool == "Eval") and .[0] == "result")
+               | not);
         if length != 2 then error("two documents expected") else . end
         | .[1] as $replacement
         | .[0].tool_response as $orig
@@ -17300,8 +17305,7 @@ claude_post_tool_shape() {
              then setpath($p; $orig | getpath($p)) else . end)) as $new
         | (($new | kinds) == ($orig | kinds)
            and all($orig | paths(type == "string");
-                   . as $p | ($p[-1] | type) == "string" and ($p[-1] | word_key)
-                   | not or ($new | at($p)) == ($orig | getpath($p))))
+                   . as $p | host_word | not or ($new | at($p)) == ($orig | getpath($p))))
         | (if . then "k" else "c" end)
           + (if $new == $replacement then "" else ($new | tojson) end)
       ' 2>/dev/null) || cps_out=

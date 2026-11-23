@@ -194,6 +194,27 @@ for unknown in 'Poll delivers events from each authority|.tool_response.provenan
   fi
 done
 
+# REPL's `result` is whatever the script returned; the host checks no word in
+# it, so a masked `status` or `kind` there is plain masking, not a changed
+# host field.
+for name in REPL Eval; do
+  for key in status kind action; do
+    jq -nc --arg t "$name" --arg k "$key" --arg s "$S" '
+      {session_id: "output-shape-free-result", hook_event_name: "PostToolUse",
+       tool_name: $t, tool_input: {code: "return data"},
+       tool_response: {code: "return data", stdout: "", stderr: "",
+                       result: {($k): $s}}}' >"$CASE/event" || exit 1
+    run_post
+    status=$?
+    if [ "$status" -eq 0 ] && grep -q '\[REDACTED\]' "$CASE/out" \
+       && ! grep -q "$S" "$CASE/out" \
+       && grep -q 'masked secret-like values' "$CASE/err" \
+       && ! grep -q 'field the host checks' "$CASE/err"; then ok; else
+      not_ok "$name result.$key is masked without a host-field warning (status $status)"
+    fi
+  done
+done
+
 # The fixed replacement for each tool, and the recorded output it stands in
 # for, must fit that tool's 2.1.330 output schema: every required field with
 # its kind, no key the schema lacks, and an allowed value in each enum field.
