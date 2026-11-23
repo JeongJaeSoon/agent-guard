@@ -561,14 +561,64 @@ gate_closed orca 0 "$OW orchestration send --to lead --body 'done'"
 gate_closed /Applications/Orca.app/Contents/Resources/bin/orca 0 "$OW orchestration send --to lead --body 'done'"
 gate_closed git 2 "$OW orchestration send --to lead --body 'done'"
 gate_closed ./orca 2 "$OW orchestration send --to lead --body 'done'"
-gate_closed - 2 "$OW commit --no-verify -m x"
+# The word runs orca whatever follows it, so this is no git command; with
+# another program in the variable it is one.
+gate_closed - 0 "$OW commit --no-verify -m x"
+gate_closed git 2 "$OW commit --no-verify -m x"
 gate_closed - 2 "$OW orchestration send --to lead --body 'done'; git commit --no-verify -m x"
 gate_closed - 2 "$OW orchestration send --to lead --body \"\$(git commit --no-verify -m x)\""
 gate_closed - 2 "O=$OW; \$O orchestration send --to lead --body 'done'"
 gate_closed - 2 "env $OW orchestration send --to lead --body 'done'"
 gate_closed - 2 "ORCA_CLI_COMMAND=git; $OW orchestration send --to lead --body 'done'"
-# A command the message table does not hold keeps the name unknown.
-gate_closed - 2 "$OW orchestration check --terminal t1"
+# The gate asks only what the word runs, so any orca subcommand passes under
+# the same conditions.
+gate_closed - 0 "$OW orchestration check --terminal t1"
+gate_closed - 0 "$OW worktree list --json | jq -r '.[].name'"
+gate_closed - 0 "$OW terminal read --terminal t1 --limit 50"
+gate_closed - 0 "$OW status --json"
+gate_closed - 0 "$OW --help"
+gate_closed - 0 "$OW orchestration worker-list && $OW bot item list"
+gate_closed - 0 "echo start; $OW orchestration task-list --json"
+gate_closed /Applications/Orca.app/Contents/Resources/bin/orca 0 "$OU orchestration check --terminal t1"
+# A subcommand that relays a shell command, code or keystrokes, or runs
+# something by name, keeps the name unknown: what it runs is not read here.
+# The list comes from `orca agent-context --json` (every command with its
+# flags) and the help of each candidate.
+for gate_relay in \
+  "terminal send --terminal t1 --text 'ls' --enter" "terminal create --title x" \
+  "terminal split --terminal t1" "exec --command 'snapshot'" "eval --expression 'document.title'" \
+  "type --input 'hello'" "keypress --key Enter" "fill --element e5 --value 'hello'" \
+  "inserttext --text 'hello'" "find --locator text --value 'Save'" \
+  "emulator exec --command 'tap 0.5 0.7'" "emulator type 'hello'" \
+  "computer type-text --text 'hello'" "computer press-key --key Return" \
+  "computer hotkey --key CmdOrCtrl+A" "computer paste-text --text 'hello'" \
+  "computer set-value --value 'hello'" "automations run --id a1" "workspace cleanup run" \
+  "plugin test ." "plugin check ." "plugin dev hook --name x" "serve --port 4000" \
+  "claude-teams" "orchestration run" "worktree create --name w1 --run-hooks" \
+  "worktree create --name w1 --setup run" "worktree rm --worktree id:w1 --run-hooks" \
+  "--environment remote terminal send --terminal t1 --text 'ls'"; do
+  gate_closed - 2 "$OW $gate_relay"
+done
+# Each condition on the hook's environment and on where the word stands.
+gate_closed git 2 "$OW orchestration check --terminal t1"
+gate_closed ./orca 2 "$OW orchestration check --terminal t1"
+gate_closed '/tmp/my tools/orca' 2 "$OU orchestration check --terminal t1"
+gate_closed - 2 "env $OW orchestration check --terminal t1"
+gate_closed - 2 "time $OW status"
+gate_closed - 2 "make; $OW orchestration check --terminal t1"
+gate_closed - 2 "$OW orchestration check --terminal t1 | sh"
+gate_closed - 2 "$OW orchestration check --terminal \"\$(date)\""
+gate_closed - 2 "echo $OW; $OW status"
+gate_closed - 2 "ORCA_CLI_COMMAND=git; $OW status"
+gate_closed - 2 "$OW worktree list > $CASE/orca; $OW status"
+gate_closed - 2 "$OW status; git commit --no-verify -m x"
+# A here-document that only writes a document stands aside; one that writes a
+# file named like the command a later word runs is read as what may run.
+gate_closed - 0 "cat > $CASE/note.md <<'EOF'${nl}never pass --no-verify to git commit${nl}EOF${nl}$OW orchestration send --to lead --body-file $CASE/note.md"
+gate_closed "$CASE/orca" 2 "cat > $CASE/orca <<'EOF'${nl}git commit --no-verify -m x${nl}EOF${nl}$OW orchestration send --to lead --body 'done'"
+gate_closed - 2 "cat > $CASE/gh <<'EOF'${nl}git commit --no-verify -m x${nl}EOF${nl}gh pr view 5"
+# A body that only mentions the name of a later command is prose.
+gate_closed - 0 "cat > $CASE/note.md <<'EOF'${nl}never use git commit --no-verify${nl}EOF${nl}git status"
 # Ground truth: with the variable unset each shell at hand runs the orca on
 # PATH, which only echoes its words here; a value from the environment or an
 # assignment in the command runs that program instead, and the reader control

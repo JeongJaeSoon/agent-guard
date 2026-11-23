@@ -6777,11 +6777,15 @@ AWK_RECORD_SEPARATOR='
 # --body-file or -F of the gh commands above.
 # With `words` as $2, print nothing and succeed when the word $3 occurs in
 # the text $4, and each occurrence is the command word of a segment either
-# list accepts, read as `orca` (orca_cli_words_as_orca).
+# list accepts, read as `orca` (orca_cli_words_as_orca). With `gate` as $2,
+# the same for the commit/push gate, which only asks what the word runs: the
+# segment may hold any orca subcommand in literal words, behind the same
+# segments, unless it relays what it is given (relays).
 message_value_records() {
   printf '%s\n' "$1" | MV_CLI_WORD=${3-} MV_CLI_TEXT=${4-} LC_ALL=C awk -v cd_ok="$(path_entries_absolute && echo 1)" -v mode="${2-}" \
     -v inert_names="$INERT_SEGMENT_COMMANDS_ERE" "$AWK_PLAIN_WORD$AWK_RECORD_SEPARATOR$AWK_INERT_COMMAND"'
-    function bail() { failed = 1; exit }
+    # In END a bare exit would end with status 0 before the last line there.
+    function bail() { failed = 1; exit (ending && (mode == "words" || mode == "gate")) }
     # git commit operands are pathspecs it reads, so pair a message option
     # only through options known to take no separate value; `--` or anything
     # else ends the search.
@@ -6852,9 +6856,27 @@ message_value_records() {
       }
       return 1
     }
-    function finish(bound,   j, w, topts, fopts, all, lit, before, commit, cli) {
+    # An orca subcommand that hands a shell command, code or keystrokes on
+    # to a terminal, an app, a browser page or an emulator, or runs something
+    # by name: what runs there is not read here. A subcommand behind a
+    # leading option is not located, so it counts too.
+    function relays(   j, p) {
+      if (n > 2 && substr(word[2], 1, 1) == "-") return 1
+      p = " "
+      for (j = 2; j <= n && j <= 5 && substr(word[j], 1, 1) != "-"; j++) {
+        if (word[j] ~ /^(exec|eval|run)$/) return 1
+        p = p word[j] " "
+      }
+      if (p ~ /^ (computer|emulator|serve|claude-teams|type|keypress|fill|inserttext|find) / \
+          || p ~ /^ terminal (send|create|split) / || p ~ /^ plugin (test|check|dev) /) return 1
+      for (j = 2; j <= n; j++)
+        if (word[j] ~ /^--(command|shell|expression|run-hooks)(=|$)/ || word[j] == "--setup=run" \
+            || word[j] == "--setup" && j < n && word[j + 1] == "run") return 1
+      return 0
+    }
+    function finish(bound,   j, w, topts, fopts, all, lit, before, commit, cli, known) {
       if (n == 0) return
-      cli = mode == "words" && kind[1] == "0" && word[1] == ENVIRON["MV_CLI_WORD"]
+      cli = (mode == "words" || mode == "gate") && kind[1] == "0" && word[1] == ENVIRON["MV_CLI_WORD"]
       if (cli) word[1] = "orca"
       all = 1; lit = 1
       for (j = 1; j <= n; j++) {
@@ -6868,8 +6890,10 @@ message_value_records() {
       topts = ""; fopts = ""; gc = git_sub_at()
       if (all && kind[1] == "0") { topts = text_options(); fopts = file_options() }
       commit = topts ~ /-m\|/
+      known = mode == "gate" && cli && all && !relays()
+      if (known && ok) cli_ok++
       if (ok || commit && ok_commit) {
-        if (cli && topts fopts != "") cli_ok++
+        if (cli && mode == "words" && topts fopts != "") cli_ok++
         for (j = (commit ? gc + 1 : 2); topts fopts != "" && j <= n; j++) {
           w = word[j]
           if (w == "--") break
@@ -6889,10 +6913,10 @@ message_value_records() {
       }
       # What this segment leaves for the ones after it.
       if (all && inert()) ;
-      else if (all && kind[1] == "0" && word[1] == "orca" && topts != "" && quiet()) ;
+      else if (all && kind[1] == "0" && word[1] == "orca" && (topts != "" || known) && quiet()) ;
       else if (lit && word[1] == "git" && word[2] ~ /^(add|status)$/ && quiet_none()) ok = 0
       else { ok = 0; ok_commit = 0 }
-      pipe_target = bound == "0|" && (pipe_target || length(out) > before)
+      pipe_target = bound == "0|" && (pipe_target || length(out) > before || known)
       # A shorter segment must not read the words of the one before it.
       n = 0
       split("", dup); split("", word); split("", kind)
@@ -6916,8 +6940,9 @@ message_value_records() {
       n++; kind[n] = k; word[n] = v; rec[n] = NR
     }
     END {
+      ending = 1
       if (!failed) finish("")
-      if (mode == "words") {
+      if (mode == "words" || mode == "gate") {
         s = ENVIRON["MV_CLI_TEXT"]; w = ENVIRON["MV_CLI_WORD"]; total = 0
         while (w != "" && (p = index(s, w)) > 0) { total++; s = substr(s, p + length(w)) }
         exit !(!failed && total > 0 && cli_ok == total)
@@ -6986,7 +7011,8 @@ orca_cli_word_mark() {
 # anywhere else (an argument, a wrapper's operand, inside a substitution, a
 # command that is not on the table) leaves all of them expansions. With
 # `heredoc` as $2 the command is judged as heredoc_body_rewrite's view of it,
-# which exists only when cat or tee writes every here-document.
+# which exists only when cat or tee writes every here-document. $3 names the
+# reading message_value_records makes: `words` unless given.
 orca_cli_words_as_orca() {
   case "$1" in
     *'${ORCA_CLI_COMMAND:-orca}'*) ;;
@@ -7003,7 +7029,7 @@ orca_cli_words_as_orca() {
       fi
     fi
     if [ -n "$oc_text" ] \
-      && message_value_records "$(git_command_records "$oc_text")" words "$ORCA_CLI_WORD_MARK" "$oc_text" \
+      && message_value_records "$(git_command_records "$oc_text")" "${3:-words}" "$ORCA_CLI_WORD_MARK" "$oc_text" \
       && OC_TEXT=$oc_marked LC_ALL=C awk -v mark="$ORCA_CLI_WORD_MARK" 'BEGIN {
         s = ENVIRON["OC_TEXT"]; out = ""
         while ((p = index(s, mark)) > 0) { out = out substr(s, 1, p - 1) "orca"; s = substr(s, p + length(mark)) }
@@ -10409,8 +10435,9 @@ git_gate_records() (
   esac
   # A here-document body in `3[` and `3]` is text unless a command of the
   # line may run what it wrote: a shell, a wrapper, a name only run time
-  # knows, or a path whose file name another word of the line also names, as
-  # the file a here-document is written to is. The command is the first word
+  # knows, or a command whose file name another word of the line also names,
+  # as the file a here-document is written to is, whether the command is
+  # called by a path or, from a PATH directory, by that name alone. The command is the first word
   # of a segment past any reserved word (`do`, `then`, `if`). Code a shell or
   # a git alias runs (gate_child_code) may follow a script the outer line
   # wrote.
@@ -10421,11 +10448,16 @@ git_gate_records() (
       head = 1
       for (k = 1; k <= n; k++) {
         r = rec[k]; t = substr(r, 2)
+        if (r == "3[") inbody++
+        else if (r == "3]") inbody--
         if (record_separator(r) || r ~ /^3/) { head = 1; continue }
         if (head && r ~ /^0(do|then|else|elif|if|while|until|!)$/) continue
         if (head && t !~ /^[A-Za-z_][A-Za-z0-9_]*=/) { head = 0; continue }
         sub(/^[0-9]*[<>&|]+/, "", t); sub(/.*\//, "", t)
         named[tolower(t)]++
+        # The words of the command itself: a body that only mentions a
+        # command name is prose.
+        if (!inbody) written[tolower(t)]++
       }
       head = 1
       for (k = 1; k <= n && runner == 0; k++) {
@@ -10445,7 +10477,7 @@ git_gate_records() (
         nb = substr(rec[k + 1], 2); sub(/.*\//, "", nb)
         if (b ~ /^(sh|bash|dash|zsh|ksh|mksh|ash|yash|posh|csh|tcsh|fish)$/ \
             && rec[k + 1] ~ /^0[^-;&|<>]/ && nb !~ /[*?[{]/ && named[tolower(nb)] == 1) continue
-        if (kind != "0" || t ~ /\// && (named[tolower(b)] || b ~ /[*?[{]/) || b ~ /^(sh|bash|dash|zsh|ksh|mksh|ash|yash|posh|csh|tcsh|fish|eval|source|\.|exec|coproc|trap|alias|env|command|builtin|sudo|doas|su|nice|nohup|time|timeout|xargs|watch|script|parallel)$/) runner = 1
+        if (kind != "0" || t ~ /\// && (named[tolower(b)] || b ~ /[*?[{]/) || t !~ /\// && written[tolower(b)] || b ~ /^(sh|bash|dash|zsh|ksh|mksh|ash|yash|posh|csh|tcsh|fish|eval|source|\.|exec|coproc|trap|alias|env|command|builtin|sudo|doas|su|nice|nohup|time|timeout|xargs|watch|script|parallel)$/) runner = 1
       }
       body = 0
       for (k = 1; k <= n; k++) {
@@ -12971,11 +13003,12 @@ is_git_hook_bypass() {
 }
 
 check_git_command() {
-  # The Orca CLI word names orca wherever the message check reads it so
-  # (orca_cli_words_as_orca); anywhere else it stays a name only run time
-  # knows.
-  cmd=$(orca_cli_words_as_orca "$1")
-  [ "$cmd" != "$1" ] || cmd=$(orca_cli_words_as_orca "$1" heredoc)
+  # The Orca CLI word names orca under the conditions the message check
+  # reads it so (orca_cli_words_as_orca), whatever the subcommand, unless
+  # the subcommand relays a command or keystrokes; anywhere else it stays a
+  # name only run time knows.
+  cmd=$(orca_cli_words_as_orca "$1" "" gate)
+  [ "$cmd" != "$1" ] || cmd=$(orca_cli_words_as_orca "$1" heredoc gate)
   workdir=${2:-}
   git_c_records=$(is_git_commit_or_push "$cmd" "$workdir")
   git_command_status=$?
