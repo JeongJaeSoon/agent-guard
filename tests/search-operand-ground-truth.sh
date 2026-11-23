@@ -19,6 +19,12 @@ printf '%s\n' .env x.pem notes VALUE >"$W/list.txt"
 printf 'const p = process.env.PORT\n' >"$W/src/a.ts"
 printf 'see https://example.net/docs\n' >"$W/notes.txt"
 printf '{"a":{"key":1}}\n' >"$W/s.json"
+printf 'cat .env\n' >"$W/cmds.txt"
+# A repository of its own for the git rows, with a dotenv file in its index.
+mkdir -p "$W/g/src"
+printf 'const p = process.env.PORT\n' >"$W/g/src/a.ts"
+printf 'VALUE=%s\n' "$canary" >"$W/g/.env"
+(cd "$W/g" && git init -q . && git add -f .) >/dev/null 2>&1 || { printf 'not ok - could not build the git fixture\n'; exit 1; }
 
 pass=0 fail=0 n=0
 ok() { pass=$((pass + 1)); printf 'ok - %s\n' "$1"; }
@@ -205,6 +211,63 @@ held sort -o p list.txt; grep .env
 held cp shim pbin/grep; grep .env
 held cp notes.txt /tmp/n2.txt; grep .env
 held find . -name p -delete; grep .env
+allow cd g && git grep -n 'process\.env' -- src
+allow cd g && git grep -n -E 'state\.env|tls\.key' -- src | head -5
+allow cd g && git grep -h -oE 'process\.env\.[A-Z]+' -- src | sort | uniq -c
+allow cd g && git grep -n "process.env" -A2 -- src | head; git grep -c '\.env' -- src
+allow cd g && git diff -U0 -- src | grep -E 'process\.env|tls\.key'
+allow cd g && git diff --stat -- src 2>/dev/null | grep -c '\.env'
+allow for f in src/a.ts notes.txt; do grep -n 'process\.env' $f | head -3; done
+allow for f in src/a.ts notes.txt; do echo "== $f"; grep -c "\.env" "$f"; done
+allow if grep -q '\.env' list.txt; then echo yes; fi
+allow A=src; grep -n "process.env\|x" $A/a.ts | grep -o "process.env" | head -30
+allow D=src; grep -rn 'process\.env' "$D" | head
+allow sed -n 1,3p list.txt | grep -o "\.env" | head; grep -rn "\.pem" -o list.txt | head -20
+allow grep -n "\.env$" list.txt
+allow grep -rli "process.env\|x" --include=*.ts -l . 2>/dev/null | grep -v node_modules | head
+allow ls src sub 2>/dev/null; grep -n "process.env" src/a.ts
+allow find . -maxdepth 2 -not -path "*/.env*" -not -name "*.key" -not -name "*.env" | head -20
+allow for d in src sub; do echo "== $d"; find "$d" -maxdepth 3 -not -path "*/secrets*" -not -name "*.env" | head -20; stat -f "%z" "$d"; done
+allow find src -type f ! -name '*.pem' | wc -l
+read cd g && git grep -n VALUE -- .env
+read cd g && git grep -h -e VALUE .env
+held cd g && git grep .env -e VALUE
+read git diff --no-index /dev/null .env | grep VALUE
+read for f in .env; do grep VALUE $f; done
+read for f in -e; do grep .env $f VALUE; done
+read for f in -e; do true; done; grep .env $f VALUE
+read for i in 1 2; do grep .env $A VALUE; A=-e; done
+read for f in a; do grep -o 'cat \.env' cmds.txt; done | sh
+read if true; then true; grep -o 'cat \.env' cmds.txt; fi | sh
+read A=-e; grep .env $A VALUE
+read A="-e VALUE"; grep .env $A
+read grep .env -f list.txt
+read grep VALUE -r . --include=*.env
+read find . -maxdepth 1 -name ".env" | xargs cat
+read find . -maxdepth 1 ! ! -name .env | xargs cat
+read find . -maxdepth 1 -not -name ".env" | xargs cat
+held cd g && git grep -f .env
+held cd g && git grep -O .env VALUE
+held git -c core.pager=cat grep '\.env'
+held cd g && git grep -l '\.env' | xargs cat
+held cd g && git grep -n -e .env; cat $_
+held git diff --output=p -- src | grep '\.env'
+held git -c diff.external=./shim diff -- src | grep '\.env'
+held for i in 1 2; do grep -e .env list.txt; hash -p /bin/cat grep; done
+held for f in a b; do grep -c '\.env' list.txt; done > p
+held A=x/-e; grep .env $A:t VALUE
+held IFS=x; grep .env list.txt
+held A=$HOME; grep .env $A/list.txt
+held grep -n "$HOME.env" list.txt
+held find . -not -path "*/.env*" -o -name "*.key"
+held find . \( -not -name ".env" \)
+held find . -maxdepth 1 -not -name ".env" -delete
+held find . -newer ! -name .env
+held find $X -maxdepth 1 -not -name .env
+held find . -maxdepth 1 -name ".env" -not -name "*.ts"
+held find . -maxdepth 1 -not -name .env; cat $_
+held A=src; grep -e .env; cat $_
+held ls src 2>/dev/null; grep -e .env; cat "$_"
 CASES
 
 # Options from the environment come first and can make the pattern a file.

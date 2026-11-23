@@ -7524,15 +7524,21 @@ bash_strip_literal_message_values() (
 )
 
 # Print the start and end offsets of words in $1 that name no file the command
-# reads: the search pattern of grep, egrep, fgrep and rg, and (as `O start end
-# value`) the output path of an openssl key or certificate generator. A word
-# qualifies only in a segment whose first word is that command and whose words
-# up to it match the option tables below; an unknown option, an expansion, a
-# glob, a redirection before it, or an option after an operand (GNU grep
-# permutes, BSD grep reads it as a file) leaves the segment alone. The whole
-# line is left alone when it may hide a segment boundary: a newline, a
-# substitution, a here-document, a group or a comment. Segments after one
-# whose command is not on the inert list below are left alone too. With
+# reads: the search pattern of grep, egrep, fgrep, rg and `git grep`, the
+# name a find expression leaves out (`-not -path V`, find_scan), and (as `O
+# start end value`) the output path of an openssl key or certificate
+# generator. A word qualifies only in a segment whose command is that one,
+# as its first word or after `do`, `then` or another keyword, and whose
+# words match the option tables below; an unknown option, an expansion, a
+# glob or a redirection before the pattern leaves the segment alone, and so
+# does an option after it that gives a pattern. A later operand may expand a
+# variable the line sets itself only while every value it can take is one
+# plain word that starts with no dash (var_word). The whole line is left
+# alone when it may hide a segment boundary: a newline, a substitution, a
+# here-document, a group or a comment. Segments after one whose command is
+# not on the inert list below are left alone too, and so is every segment of
+# a loop or condition that holds such a command or whose output is piped.
+# With
 # `trusted` as $2, print instead the start offset of each jq or sed command
 # word that same segment check reaches; there an expansion or unsafe word
 # anywhere in an earlier segment also stops it. With `tracked` as $2, print
@@ -7559,8 +7565,56 @@ search_operand_spans() {
     }
     function bad(k) { return wdyn[k] || wuns[k] || wred[k] }
     function span(k) { return ws[k] " " we[k] "\n" }
+    function stop() { printf "%s", acc; exit 0 }
+    # The word as written, quotes and all.
+    function raw(k) { return substr(s, ws[k], we[k] - ws[k] + 1) }
+    # A redirection that names no file: it writes nothing a later command
+    # name could resolve to.
+    function quiet(k) { return !wdyn[k] && raw(k) ~ /^(2>&1|[12]?>\/dev\/null)$/ }
+    function vnote(name, ok) {
+      if (!(name in vset)) { vset[name] = 1; vsafe[name] = ok; nvset++ }
+      else if (!ok) vsafe[name] = 0
+    }
+    # A word of a `for` list that is one plain word whatever the shell: no
+    # quoting, no expansion, no glob or operator character, no leading dash.
+    # Bytes outside ASCII are name characters.
+    function list_word(k) {
+      return !wdyn[k] && !wred[k] && raw(k) == wv[k] && wv[k] != "" && substr(wv[k], 1, 1) != "-" \
+        && wv[k] !~ /[] \t!"#$&\047()*;<>?[\\^`{|}~]/
+    }
+    # How word k uses the variables this command sets itself (vset). "lit":
+    # no expansion. "env": it names none of them; the word is judged as it
+    # was before the command could set any. "own": plain `$x` references to
+    # safe ones (vsafe) only, next to name characters and inside at most one
+    # pair of double quotes, so the word is one word that starts with no
+    # dash unless it is written with one. "mix": the same, with a variable
+    # the command does not set among them. "no": anything else. A colon or a
+    # bracket after a reference is a zsh modifier or subscript.
+    function var_word(k,   t, name, own, env) {
+      if (!wdyn[k]) return "lit"
+      if (!nvset) return "env"
+      if (wred[k]) return "no"
+      t = raw(k); own = 0; env = 0
+      if (t ~ /^".*"$/) t = substr(t, 2, length(t) - 2)
+      while (match(t, /\$[A-Za-z_][A-Za-z0-9_]*/)) {
+        name = substr(t, RSTART + 1, RLENGTH - 1)
+        if (!(name in vset)) env = 1
+        else if (!vsafe[name]) return "no"
+        else own = 1
+        t = substr(t, 1, RSTART - 1) "/" substr(t, RSTART + RLENGTH)
+      }
+      if (t !~ /^[A-Za-z0-9_.\/@%+,=-]*$/) return "no"
+      return own ? (env ? "mix" : "own") : (env ? "env" : "no")
+    }
     function grep_scan(a, b, rg,   k, v, j, ch, rest, sawe, opnd, dd, noconf, out, noarg, numarg, wordarg, longs, longv) {
-      if (rg) {
+      if (rg == 2) {
+        # git grep. -O opens the matches in a pager, -f reads patterns from
+        # a file, and --and, --or, --not and parentheses build an
+        # expression: none of them is listed.
+        noarg = "nhHiIawvlLocEGPFzqpWr"; numarg = "ABC"; wordarg = ""
+        longs = "^--(cached|untracked|ignore-case|word-regexp|line-number|name-only|files-with-matches|files-without-match|only-matching|count|extended-regexp|basic-regexp|fixed-strings|perl-regexp|invert-match|text|no-color|heading|break|show-function|function-context|full-name|quiet|recursive)$"
+        longv = "^--(max-depth|max-count|threads|color|context|after-context|before-context)="
+      } else if (rg) {
         noarg = "iISsnNlcovwxFUuHLPazqbp0"; numarg = "ABCmjMd"; wordarg = "gtTEr"
         longs = "^--(hidden|no-ignore|no-ignore-vcs|no-ignore-dot|no-ignore-parent|ignore-case|smart-case|case-sensitive|line-number|no-line-number|count|count-matches|files-with-matches|files-without-match|only-matching|fixed-strings|word-regexp|line-regexp|invert-match|no-filename|with-filename|no-heading|heading|column|multiline|multiline-dotall|pcre2|follow|text|vimgrep|trim|no-messages|quiet|null|byte-offset|crlf|unrestricted|json|no-config)$"
         longv = "^--(glob|iglob|type|type-not|max-count|max-depth|context|after-context|before-context|color|colors|encoding|replace|sort|sortr|max-columns|threads|max-filesize)="
@@ -7572,31 +7626,45 @@ search_operand_spans() {
       out = ""; sawe = 0; opnd = 0; dd = 0; noconf = 0
       for (k = a + 1; k <= b; k++) {
         v = wv[k]
-        if (v == "--no-config" && !opnd && !dd) noconf = 1
-        if (opnd) {
-          if (!dd && substr(v, 1, 1) == "-") return ""
-          continue
-        }
-        if (bad(k)) return ""
+        if (v == "--no-config" && !dd) noconf = 1
         if (dd || v == "-" || substr(v, 1, 1) != "-") {
+          if (opnd) {
+            # A later operand may expand a variable this command set only
+            # where it cannot become an option (var_word).
+            if (var_word(k) == "no") return ""
+            continue
+          }
+          if (bad(k)) return ""
           if (!sawe) out = out span(k)
           opnd = 1
           continue
         }
+        # An option. grep and git grep reorder their arguments, so one that
+        # follows an operand is read against the same tables, and one that
+        # gives a pattern there makes the first operand a file.
+        if (wdyn[k] || wred[k]) return ""
         if (v == "--") { dd = 1; continue }
         if (substr(v, 1, 2) == "--") {
           if (v == "--regexp") {
-            if (++k > b || bad(k)) return ""
+            if (opnd || ++k > b || bad(k)) return ""
             out = out span(k); sawe = 1; continue
           }
-          if (v ~ /^--regexp=/) { out = out span(k); sawe = 1; continue }
-          if (v ~ longs || v ~ longv) continue
+          if (v ~ /^--regexp=/) {
+            if (opnd || wuns[k]) return ""
+            out = out span(k); sawe = 1; continue
+          }
+          # The value of a name filter may be an unquoted glob: whatever it
+          # expands to still starts with the option.
+          if (v ~ longv) continue
+          if (!wuns[k] && v ~ longs) continue
           return ""
         }
+        if (wuns[k]) return ""
         for (j = 2; j <= length(v); j++) {
           ch = substr(v, j, 1); rest = substr(v, j + 1)
           if (index(noarg, ch)) continue
           if (ch == "e") {
+            if (opnd) return ""
             if (rest == "") { if (++k > b || bad(k)) return "" }
             out = out span(k); sawe = 1; break
           }
@@ -7605,7 +7673,7 @@ search_operand_spans() {
             if (rest !~ /^[0-9]+$/) return ""
             break
           }
-          if (index(wordarg, ch)) {
+          if (wordarg != "" && index(wordarg, ch)) {
             if (rest == "" && (++k > b || bad(k))) return ""
             break
           }
@@ -7615,7 +7683,7 @@ search_operand_spans() {
       # Options from the environment come before these words and can turn the
       # pattern into a file: a ripgrep config file unless --no-config is
       # given, and GREP_OPTIONS, which BSD grep still reads.
-      if (rg ? !noconf : grep_env != "") return ""
+      if (rg == 1 ? !noconf : rg == 0 && grep_env != "") return ""
       return out
     }
     # A value moved off its option by a valueless one before it would be a
@@ -7784,7 +7852,7 @@ search_operand_spans() {
     # built-in. With jq set, the built-ins that take --jq instead.
     function gh_query(a, b, jq,   k, sub1) {
       if (wv[a] != "gh" || a + 1 > b) return 0
-      for (k = a; k <= b; k++) if (bad(k)) return 0
+      for (k = a; k <= b; k++) if (bad(k) && !quiet(k)) return 0
       sub1 = wv[a + 1]
       if (sub1 != "api") sub1 = sub1 " " (a + 2 <= b ? wv[a + 2] : "")
       if (jq) return sub1 ~ /^(api|run view|run list|pr view|pr list|pr checks|pr status|issue view|issue list|issue status|release view|release list|repo view|repo list)$/
@@ -7792,8 +7860,67 @@ search_operand_spans() {
     }
     function git_lists_files(a, b,   k) {
       if (wv[a] != "git" || a + 1 > b || wv[a + 1] != "ls-files") return 0
-      for (k = a; k <= b; k++) if (bad(k)) return 0
+      for (k = a; k <= b; k++) if (bad(k) && !quiet(k)) return 0
       return 1
+    }
+    # `git diff` whose every word is literal and whose options are on this
+    # list: none names an output file, an order file or a program to run.
+    function git_diff_prints(a, b,   k, dd) {
+      if (wv[a] != "git" || a + 1 > b || wv[a + 1] != "diff") return 0
+      dd = 0
+      for (k = a; k <= b; k++) {
+        if (quiet(k)) continue
+        if (bad(k)) return 0
+        if (k < a + 2 || dd || substr(wv[k], 1, 1) != "-") continue
+        if (wv[k] == "--") { dd = 1; continue }
+        if (wv[k] !~ /^(-U[0-9]+|--unified=[0-9]+|--stat|--numstat|--shortstat|--name-only|--name-status|--cached|--staged|--no-color|--no-ext-diff|--no-textconv|--no-renames|-M|-w|-b|--ignore-all-space|--ignore-space-change|--diff-filter=[A-Za-z]+)$/) return 0
+      }
+      return 1
+    }
+    # `git grep` written as those two bare words: git has no alias or
+    # option between them that could make it another command.
+    function git_grep(a, b) { return a < b && raw(a) == "git" && raw(a + 1) == "grep" }
+    # stat reports on its operands; only the zsh builtin told to fill an
+    # array or a hash (-A, -H) assigns a name. An operand may expand only
+    # variables this command set.
+    function stat_reports(a, b,   k) {
+      for (k = a + 1; k <= b; k++)
+        if (wv[k] ~ /^-[A-Za-z]*[AH]/ || wred[k] && !quiet(k) || wdyn[k] && var_word(k) != "own") return 0
+      return 1
+    }
+    # The word after `-not` or `!` and a name test of find: it leaves names
+    # out, so find lists and opens nothing because of it. That holds only
+    # while the expression is one AND chain of the tests listed here: an
+    # `-o`, a comma, a parenthesis or a second negation can turn an
+    # exclusion into a selection, and -exec, -delete or -fprint act on what
+    # is selected, so any other word gives the segment up. The start paths
+    # come first, each a literal word or one that expands only variables
+    # this command set.
+    function find_scan(a, b,   k, v, out, neg) {
+      if (raw(a) != "find") return ""
+      for (k = a + 1; k <= b && wv[k] != "!" && substr(wv[k], 1, 1) != "-"; k++)
+        if (wred[k] || (wdyn[k] ? var_word(k) != "own" : wuns[k])) return ""
+      if (k == a + 1) return ""
+      out = ""; neg = 0
+      for (; k <= b; k++) {
+        if (quiet(k)) continue
+        if (wdyn[k] || wred[k]) return ""
+        v = wv[k]
+        if (v == "!" || v == "-not") { if (neg) return ""; neg = 1; continue }
+        if (v ~ /^-(name|iname|path|ipath)$/) {
+          # An unquoted pattern could expand to several words.
+          if (++k > b || bad(k) || wv[k] == "") return ""
+          if (neg) out = out span(k)
+          neg = 0; continue
+        }
+        if (v ~ /^-(maxdepth|mindepth|type|mtime|mmin|size)$/) {
+          if (++k > b || bad(k) || wv[k] !~ /^[A-Za-z0-9+-]+$/) return ""
+          neg = 0; continue
+        }
+        if (v ~ /^-(xdev|empty)$/) { neg = 0; continue }
+        if (neg || v !~ /^-(print|a|and)$/) return ""
+      }
+      return neg ? "" : out
     }
     # Program text can reach the output (a string a jq filter prints, the
     # matched text of grep -o), so every command its pipeline feeds must be a
@@ -7875,7 +8002,9 @@ search_operand_spans() {
         if (q == "d") {
           if (c == "\"") { q = ""; continue }
           if (c == "\\" && i < n && index("$`\"\\", substr(s, i + 1, 1))) { i++; val = val substr(s, i, 1); continue }
-          if (c == "$") dyn = 1
+          # A `$` before the closing quote, `)`, `|` or a blank expands nothing
+          # (a regex anchor).
+          if (c == "$" && (i == n || !index("\") |", substr(s, i + 1, 1)))) dyn = 1
           val = val c
           continue
         }
@@ -7939,6 +8068,23 @@ search_operand_spans() {
         exit 0
       }
       for (k = 1; k <= nw; k++) if (!(wseg[k] in segfirst)) segfirst[wseg[k]] = k
+      # The variables the line sets, wherever it sets them: an assignment
+      # word or a `for` list. vsafe holds while every value is one plain
+      # word that starts with no dash, so a reference can become neither an
+      # option nor several words. An assigned name must also be one or two
+      # characters long: no shell reads such a name as a setting (PATH, IFS).
+      for (k = 1; k <= nw; k++) {
+        v = raw(k)
+        if (match(v, /^[A-Za-z_][A-Za-z0-9_]*=/)) {
+          name = substr(v, 1, RLENGTH - 1)
+          vnote(name, name ~ /^[A-Za-z][A-Za-z0-9]?$/ && name != "TZ" && !bad(k) && v == wv[k] \
+            && substr(v, RLENGTH + 1) ~ /^[A-Za-z0-9_.\/:@%+,=][A-Za-z0-9_.\/:@%+,=-]*$/)
+        } else if (wv[k] == "for" && k < nw && wseg[k + 1] == wseg[k]) {
+          c = k + 2 <= nw && wseg[k + 2] == wseg[k] && wv[k + 2] == "in"
+          for (r = k + 3; c && r <= nw && wseg[r] == wseg[k]; r++) if (!list_word(r)) c = 0
+          vnote(wv[k + 1], c)
+        }
+      }
       # As in bash_neutralize_first_pipeline, a word that holds "jq" anywhere
       # but at a command start may run or redefine jq, unless it is the
       # certain --jq option of a gh query: then no jq filter is rewritten.
@@ -7947,56 +8093,91 @@ search_operand_spans() {
         c = wv[k] == "gh" ? gh_jq_option(k, e) : 0
         for (r = k + 1; r <= e; r++) if (wv[r] ~ /jq/ && r != c) nojq = 1
       }
+      acc = ""; held = ""; cdepth = 0
       for (k = 1; k <= nw; k = e + 1) {
         for (e = k; e < nw && wseg[e + 1] == wseg[k]; e++) ;
-        if (!bad(k)) {
-          if (mode == "trusted") { if (wv[k] ~ /^(jq|sed)$/) print ws[k] }
+        # A loop or condition closes or opens here. Words left out inside
+        # one are held until it closes: a loop runs its later segments
+        # before its earlier ones, so every segment in it must qualify, and
+        # its output may be piped or redirected as a whole (`done | sh`).
+        if (!bad(k) && wv[k] ~ /^(done|fi)$/) {
+          if (e > k || segpipe[wseg[k]]) held = ""
+          if (--cdepth < 0) stop()
+          if (cdepth == 0) { acc = acc held; held = "" }
+        }
+        for (hd = k; hd <= e && !bad(hd) && wv[hd] ~ /^(do|then|else|elif|if|while|until)$/; hd++)
+          if (wv[hd] ~ /^(if|while|until)$/) cdepth++
+        if (hd <= e && !bad(hd) && wv[hd] == "for") cdepth++
+        # The command of the segment: past those keywords for the search
+        # commands, the first word for every other reading.
+        if (mode != "" || hd > e) hd = k
+        got = ""; known = 0
+        if (!bad(hd)) {
+          if (mode == "trusted") { if (wv[k] ~ /^(jq|sed)$/) acc = acc ws[k] "\n" }
           else if (mode == "program") {
             if (sink_ok(k)) {
-              if (wv[k] ~ /^(grep|egrep|fgrep)$/) printf "%s", grep_scan(k, e, 0)
-              else if (wv[k] == "rg") printf "%s", grep_scan(k, e, 1)
-              else printf "%s", program_scan(k, e)
+              if (wv[k] ~ /^(grep|egrep|fgrep)$/) got = grep_scan(k, e, 0)
+              else if (wv[k] == "rg") got = grep_scan(k, e, 1)
+              else if (git_grep(k, e)) got = grep_scan(k + 1, e, 2)
+              else got = program_scan(k, e)
             }
           }
           # A pattern selects the lines a later command receives, so what the
           # pipeline feeds must be a plain text filter here too: `xargs cat`
           # would open the names the pattern picked.
-          else if (wv[k] ~ /^(grep|egrep|fgrep)$/) { if (sink_ok(k)) printf "%s", grep_scan(k, e, 0) }
-          else if (wv[k] == "rg") { if (sink_ok(k)) printf "%s", grep_scan(k, e, 1) }
-          else if (wv[k] == "openssl") printf "%s", openssl_scan(k, e)
+          else if (wv[hd] ~ /^(grep|egrep|fgrep)$/) { if (sink_ok(hd)) got = grep_scan(hd, e, 0) }
+          else if (wv[hd] == "rg") { if (sink_ok(hd)) known = (got = grep_scan(hd, e, 1)) != "" }
+          else if (git_grep(hd, e)) { if (sink_ok(hd)) known = (got = grep_scan(hd + 1, e, 2)) != "" }
+          else if (wv[hd] == "find") { if (sink_ok(hd)) known = (got = find_scan(hd, e)) != "" }
+          else if (wv[k] == "openssl") got = openssl_scan(k, e)
         }
+        if (mode == "" && cdepth > 0) held = held got
+        else acc = acc got
         # A later command name means what it says only while every segment
         # before it is a command that cannot change how this shell looks up
         # names: any builtin (`hash`, `read PATH`, `printf -v`, `command
         # export`) or loop variable might rebind it, and a command or
         # redirection that writes files might create or replace the file a
         # PATH entry resolves it to, so list the inert ones.
-        for (r = k; r <= e; r++) if (wred[r] || mode == "trusted" && bad(r)) exit 0
+        for (r = k; r <= e; r++) if (wred[r] && !quiet(r) || mode == "trusted" && bad(r)) stop()
         for (h = k; h <= e && wv[h] ~ /^(do|then|else|elif|if|while|until|done|fi|!)$/ && !bad(h); h++) ;
         for (a = h; h <= e && wv[h] ~ /^[A-Za-z_][A-Za-z0-9_]*=/ && !bad(h); h++) ;
-        if (h > e) { if (a > e) continue; exit 0 }
-        if (bad(h)) exit 0
+        if (h > e) {
+          if (a > e) continue
+          # Assignments alone: each to a variable found safe above.
+          for (r = a; r <= e && mode == ""; r++) {
+            name = raw(r); sub(/=.*/, "", name)
+            if (!vsafe[name]) break
+          }
+          if (mode == "" && r > e) continue
+          stop()
+        }
+        if (bad(h)) stop()
         if (wv[h] == "for" && h + 2 <= e && wv[h + 1] ~ /^[a-z]$/ && wv[h + 2] == "in") continue
         # rg runs programs (--pre, --hostname-bin, RIPGREP_CONFIG_PATH), test
-        # and [ evaluate array subscripts, the zsh stat builtin assigns arrays
-        # (`stat -A path`), and an assignment prefix such as
+        # and [ evaluate array subscripts, and an assignment prefix such as
         # LD_PRELOAD can make any listed command run code; a locale name
         # without a path loads no code.
-        for (r = a; r < h; r++) if (wv[r] !~ /^(LC_[A-Z]+|LANG|LANGUAGE|TZ)=[A-Za-z0-9_.@:+-]*$/) exit 0
+        for (r = a; r < h; r++) if (wv[r] !~ /^(LC_[A-Z]+|LANG|LANGUAGE|TZ)=[A-Za-z0-9_.@:+-]*$/) stop()
+        # rg, git grep or find whose every word was on its table above: it
+        # runs no program and writes no file.
+        if (known) continue
         if (wv[h] == "sed" && sed_prints_lines(h, e)) continue
         # A gh query that feeds a pipe runs in a subshell and writes no file,
         # so it cannot change what the next command name runs. Sequenced with
         # `;` or `&&` it stays outside the inert list, as before.
         if (mode == "program" && a == h && segpipe[wseg[k]] && gh_query(h, e, 0)) continue
-        # So does `git ls-files` that feeds a pipe: it prints the names of
-        # tracked files and opens none of them.
-        if (a == h && segpipe[wseg[k]] && git_lists_files(h, e)) continue
-        if (!inert_command(wv[h])) exit 0
+        # So do `git ls-files` and `git diff` that feed a pipe: they print
+        # names or changed lines and write nothing.
+        if (a == h && segpipe[wseg[k]] && (git_lists_files(h, e) || git_diff_prints(h, e))) continue
+        if (wv[h] == "stat" && stat_reports(h, e)) continue
+        if (!inert_command(wv[h])) stop()
         # In program mode a loop or condition could run a cd more than once,
         # and `cd old new` goes elsewhere in zsh and ksh: the directory the
         # program reads relative names from must be certain.
-        if (mode == "program" && (wv[k] ~ /^(do|then|else|elif|if|while|until|done|fi|for|!)$/ || wv[h] == "cd" && e - h != 1)) exit 0
+        if (mode == "program" && (wv[k] ~ /^(do|then|else|elif|if|while|until|done|fi|for|!)$/ || wv[h] == "cd" && e - h != 1)) stop()
       }
+      printf "%s", acc
     }
   '
 }
@@ -9621,8 +9802,8 @@ bash_strip_program_text() (
 # grep, egrep, fgrep, rg or `git grep` command replaced by `''`: a search
 # pattern or a file name that such a command is given runs nothing, so an
 # `env|` inside a regex alternation is not a pipeline. A word qualifies only
-# as one single-quoted part, or one double-quoted part holding no `$`,
-# backquote or backslash; the command name must be the first word of its
+# as one single-quoted part, or one double-quoted part holding no unescaped
+# `$` or backquote; the command name must be the first word of its
 # segment, every command before it inert, and everything its pipeline feeds
 # a plain text filter that writes no file, since
 # `grep -o` prints the pattern's text. A word that starts with `-`, or that
@@ -9641,7 +9822,7 @@ bash_neutralize_search_words() {
     function sep(v) { return v == ";" || v == "&&" || v == "||" || v == "|" || v == "&" || v == nl }
     function literal(v) {
       if (index(v, nl) || substr(v, 2, 1) == "-") return 0
-      return v ~ /^\047[^\047]+\047$/ || v ~ /^"[^"$`\\]+"$/
+      return v ~ /^\047[^\047]+\047$/ || v ~ /^"([^"$`\\]|\\.)+"$/
     }
     # The word before a data word: an operand, `--`, a pattern option, or an
     # option known to take no value. Any other option may take the word as a
@@ -9659,7 +9840,7 @@ bash_neutralize_search_words() {
     function inert_segment(a, b,   k) {
       for (k = a + 1; k <= b; k++) if (!plain(w[k]) && w[k] != "\047\047" && !literal(w[k])) return 0
       if (w[a] == "git") return a < b && w[a + 1] == "ls-files" && b < n && w[b + 1] == "|"
-      return w[a] ~ /^(grep|egrep|fgrep|ls|cat|head|tail|wc|cut|tr|echo|true|false|pwd|jq|diff|comm|basename|dirname|date|sleep)$/
+      return w[a] ~ /^(grep|egrep|fgrep|ls|cat|head|tail|wc|cut|tr|echo|true|false|pwd|cd|jq|diff|comm|basename|dirname|date|sleep)$/
     }
     BEGIN { nl = "\034" }
     { w[NR] = $0 }
