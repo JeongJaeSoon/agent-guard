@@ -106,6 +106,9 @@ check 2 'echo token="$EXAMPLE_SECRET_TOKEN" > notes/note.md'
 check 2 'eval '"'"'echo "$EXAMPLE_SECRET_TOKEN"'"'"' > notes/note.md'
 check 2 'echo "$EXAMPLE_SECRET_TOKEN" 3> notes/note.md >&3'
 check 2 'trap '"'"'echo "$EXAMPLE_SECRET_TOKEN" > notes/note.md'"'"' EXIT'
+check 2 'case x in x) echo "$EXAMPLE_SECRET_TOKEN";; esac > notes/note.md'
+check 2 'T=$(echo "$EXAMPLE_SECRET_TOKEN" > notes/note.md) true'
+check 2 'echo "$EXAMPLE_SECRET_TOKEN" | cat > notes/note.md | cat'
 check 2 'cat > notes/a.md <<A; cat > notes/b.md <<'"'"'B'"'"'
 $EXAMPLE_SECRET_TOKEN
 A
@@ -145,6 +148,9 @@ check 0 'cat >/dev/null <<EOF
 $EXAMPLE_SECRET_TOKEN
 EOF'
 check 0 '{ echo "$EXAMPLE_NOTE"; } > notes/note.md'
+check 0 'echo "${EXAMPLE_SECRET_TOKEN:+present}" > notes/note.md'
+check 0 'EXAMPLE_TOKEN="$EXAMPLE_SECRET_TOKEN" printf safe > notes/note.md'
+check 0 'echo "$EXAMPLE_SECRET_TOKEN" | cat >/dev/null | cat > notes/note.md'
 check 0 'echo "$EXAMPLE_SECRET_TOKEN" >/dev/null | cat > notes/note.md'
 check 0 'bash -c '"'"'echo "$EXAMPLE_SECRET_TOKEN" > /dev/null'"'"' > notes/note.md'
 check 0 'echo safe > notes/note.md; bash -c '"'"'test -n "$EXAMPLE_SECRET_TOKEN"'"'"

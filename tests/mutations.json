@@ -620,8 +620,8 @@
   {
     "id": "bash-secret-write-no-braced-name",
     "rule": "bash_file_write_env_names: a ${NAME} expansion names its variable",
-    "old": "      if (c == \"{\") {\n        q++\n",
-    "new": "      if (c == \"{\") {\n        return q\n",
+    "old": "      if (braced) {\n        q++\n",
+    "new": "      if (braced) {\n        return q\n",
     "tests": [
       "tests/secret-env-file-write.sh"
     ]
@@ -737,7 +737,16 @@
   {
     "id": "bash-secret-write-null-output-kept",
     "rule": "bash_file_write_env_names: output sent to /dev/null does not reach a later command",
-    "old": "      else if (fdk[d, 1] == \"null\" || fdk[d, 1] == \"dev\") names[d] = substr(names[d], 1, cmd_start[d])\n",
+    "old": "      if (fdk[d, 1] != \"\") names[d] = \"\"\n",
+    "new": "\n",
+    "tests": [
+      "tests/secret-env-file-write.sh"
+    ]
+  },
+  {
+    "id": "bash-secret-write-case-paren-closes",
+    "rule": "bash_file_write_env_names: a ) in a case group ends a pattern, not the group",
+    "old": "        if (c == \")\" && d > 0 && case_group[d]) { flush(); i++; continue }\n",
     "new": "\n",
     "tests": [
       "tests/secret-env-file-write.sh"

@@ -13145,10 +13145,11 @@ bash_file_write_env_names() {
     }
     # Read the expansion whose "$" is at p; record its name; return the
     # position after it.
-    function dollar(s, p, into_out,   q, c, name) {
+    function dollar(s, p, into_out,   q, c, name, braced) {
       q = p + 1
       c = substr(s, q, 1)
-      if (c == "{") {
+      braced = (c == "{")
+      if (braced) {
         q++
         if (substr(s, q, 1) == "#" || substr(s, q, 1) == "!") return q
       } else if (c !~ /[A-Za-z_]/) {
@@ -13159,6 +13160,8 @@ bash_file_write_env_names() {
         name = name substr(s, q, 1)
         q++
       }
+      # ${NAME:+word} and ${NAME+word} give the word, never the value.
+      if (braced && (substr(s, q, 2) == ":+" || substr(s, q, 1) == "+")) return q
       if (name != "") add(name, into_out)
       return q
     }
@@ -13167,31 +13170,31 @@ bash_file_write_env_names() {
       for (k = 1; k <= m; k++) out[a[k]] = 1
     }
     # End one command of a pipeline: its final standard output decides.
-    # Output sent to /dev/null or a device does not reach a later command.
+    # End one command: the names that flowed into it reach a file when its
+    # standard output ends in one, stop at /dev/null or a device, and else
+    # flow on to the next command of the pipeline.
     function end_cmd(   h, f) {
-      if (fdk[d, 1] == "file") redirect[d] = 1
-      else if (fdk[d, 1] == "null" || fdk[d, 1] == "dev") names[d] = substr(names[d], 1, cmd_start[d])
+      if (fdk[d, 1] == "file") emit(names[d])
+      if (fdk[d, 1] != "") names[d] = ""
       for (h = hd_mark + 1; h <= hd_n; h++) hd_null[h] = (fdk[d, 1] == "null")
       hd_mark = hd_n
       for (f = 0; f <= 9; f++) fdk[d, f] = ""
-      cmd_start[d] = length(names[d])
       shell_word[d] = want_prog[d] = eval_word[d] = 0
     }
     # End a pipeline. Inside a group its names wait for the group to close.
     function flush() {
       end_cmd()
-      if (redirect[d]) emit(names[d])
-      else if (d > 0) held[d] = held[d] names[d]
+      if (d > 0) held[d] = held[d] names[d]
       names[d] = ""
-      cmd_start[d] = redirect[d] = 0
       cmdpos = 1
     }
-    function open_group(in_dq,   f) {
+    function open_group(in_dq, kind,   f) {
       d++
       names[d] = held[d] = ""
       for (f = 0; f <= 9; f++) fdk[d, f] = ""
-      cmd_start[d] = redirect[d] = shell_word[d] = want_prog[d] = eval_word[d] = 0
+      shell_word[d] = want_prog[d] = eval_word[d] = 0
       dq_group[d] = in_dq
+      case_group[d] = (kind == "case")
       cmdpos = 1
     }
     function close_group(   all, was_dq) {
@@ -13292,12 +13295,17 @@ bash_file_write_env_names() {
         }
         if (c == "|") { end_cmd(); pipe_open = 1; cmdpos = 1; i++; continue }
         if (c == "(") { open_group(0); i++; continue }
+        # In a case group a ) ends a pattern, not the group.
+        if (c == ")" && d > 0 && case_group[d]) { flush(); i++; continue }
         if (c == ")") { if (close_group()) dq = 1; i++; continue }
         if ((i == 1 || substr(s, i - 1, 1) ~ /[ \t\n;|&()]/) && c ~ /[A-Za-z_.\/{}!-]/) {
           e = word_end(s, i)
           w = substr(s, i, e - i)
           if (cmdpos) {
-            if (w ~ /^(\{|if|while|until|for|case|select)$/) { open_group(0); i = e; continue }
+            if (w ~ /^(\{|if|while|until|for|case|select)$/) { open_group(0, w); i = e; continue }
+            # An assignment before the command goes to its environment, not
+            # its output. One that runs code ($( or a backquote) is read.
+            if (w ~ /^[A-Za-z_][A-Za-z0-9_]*=/ && w !~ /[$]\(|`/) { i = e; continue }
             if (w ~ /^(\}|fi|done|esac)$/) { flush(); close_group(); i = e; continue }
             if (w ~ /^(then|do|else|elif|!)$/) { flush(); i = e; continue }
           }
