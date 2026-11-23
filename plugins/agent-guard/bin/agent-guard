@@ -13763,14 +13763,14 @@ secretish_env_values() {
       # completely — a curl or pip progress meter, a spinner, or classic-Mac
       # line endings all put one there, and `<meter>\rAPI_KEY=<secret>` leaked
       # in full and did not block at the prompt guard.
-      equals_assignment = "(^|[ \t\r,:{;([])[\"'\''`]?" key "[\"'\''`]?[ \t]*="
+      equals_assignment = "(^[+]?|[ \t\r,:{;([])[\"'\''`]?" key "[\"'\''`]?[ \t]*="
       # A colon is ambiguous in prose. Accept it at the start of a YAML field,
       # after a JSON/map/argument delimiter, or after plain whitespace (log lines
       # such as `10:00:00 password: hunter2`); the loop below rejects the
       # whitespace form only when the preceding token is a known status word,
       # which marks a prose chain like `error: password: authentication is
       # disabled`.
-      colon_assignment = "(^[ \t\r]*|[,{([][ \t\r]*|[ \t\r]+)[\"'\''`]?" key "[\"'\''`]?[ \t]*:"
+      colon_assignment = "(^[+]?[ \t\r]*|[,{([][ \t\r]*|[ \t\r]+)[\"'\''`]?" key "[\"'\''`]?[ \t]*:"
       # Skipping after ANY colon-terminated token also let real structured log
       # lines through unmasked (`response: api_key: <secret>`), so only these
       # status words justify the skip. Deliberately short: an unlisted label

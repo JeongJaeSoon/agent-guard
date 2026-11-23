@@ -72,7 +72,9 @@ return status 0 with no response. See [Output masking coverage](integrations.md#
 - A credential-like key name alone does not mask a value. The assignment
   heuristic (`password=...`, `token: ...`) still masks a quoted string and a
   bare value, whatever its entropy: `password=hunter2`, `password: admin`, a
-  connection string segment. It leaves a value that is an identifier repeating
+  connection string segment. A diff marker in front of the key changes nothing:
+  an added line (`+API_KEY=<value>`) is read as the line itself is. It leaves a
+  value that is an identifier repeating
   the field name in a line of source code, because that names the field
   again and is not a credential:
 

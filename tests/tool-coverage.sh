@@ -341,5 +341,11 @@ if sh "$ROOT/tests/output-shape.sh" >"$CASE/shape" 2>&1; then ok; else
   sed 's/^/  /' "$CASE/shape"
 fi
 
+# A line gets the same verdict in each text shape a tool prints it in.
+if sh "$ROOT/tests/output-text-shapes.sh" >"$CASE/text-shape" 2>&1; then ok; else
+  not_ok "output masking gives a line the same verdict in each text shape"
+fi
+sed 's/^/  /' "$CASE/text-shape"
+
 printf 'tool coverage assertions: %s passed, %s failed\n' "$passed" "$failed"
 test "$failed" -eq 0
