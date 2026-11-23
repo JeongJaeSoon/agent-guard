@@ -19634,9 +19634,16 @@ prompt_has_secretish_assignment() {
   # Check each stage before consuming its output: a POSIX pipeline otherwise
   # turns producer/detector failure into grep's ordinary no-match status.
   # Framing ends with RS, so command substitution preserves its trailing LFs.
-  prompt_assignment_framed=$(printf '%s' "$1" | frame_plaintext_leaf 2>/dev/null) || return 2
-  prompt_assignment_result=$(printf '%s' "$prompt_assignment_framed" | secretish_env_values probe) || return 2
-  [ -n "$prompt_assignment_result" ]
+  # A stage that fails is tried once more. On a stalled machine an awk can
+  # fail to start in the same call in which the scanner does not answer, and
+  # then this check is all that keeps a pasted value from the open policy.
+  for prompt_assignment_try in 1 2; do
+    prompt_assignment_framed=$(printf '%s' "$1" | frame_plaintext_leaf 2>/dev/null) || continue
+    prompt_assignment_result=$(printf '%s' "$prompt_assignment_framed" | secretish_env_values probe) || continue
+    [ -n "$prompt_assignment_result" ]
+    return
+  done
+  return 2
 }
 
 # Claude Code also runs UserPromptSubmit on messages nobody typed: a background
@@ -19824,9 +19831,12 @@ hook_user_prompt() {
   notice=
   found=0
   found_reason=
-  # begin_infrastructure_failure leaves its reason here; empty at the end
-  # means every check ran.
+  # begin_infrastructure_failure leaves its reason in bif_detail. A check that
+  # did not run says so on stderr in every call. Its notice goes out once per
+  # interval, and a second failure in the same call gets none, so the reasons
+  # no notice carried are kept in prompt_unsaid for the end.
   bif_detail=
+  prompt_unsaid=
   scan_text_direct "user prompt" "$prompt"
   case $? in
     0) ;;
@@ -19846,6 +19856,8 @@ hook_user_prompt() {
       notice=$INFRA_FAILURE_NOTICE
       ;;
   esac
+  [ -n "$notice" ] || prompt_unsaid=$bif_detail
+  bif_detail=
   if [ "$found" -eq 0 ]; then
     # The assignment probe is super-linear on one large leaf (measured ~0.6s at
     # 128KB but ~23s at 874KB), which would burn the 10s host timeout and make
@@ -19870,6 +19882,8 @@ hook_user_prompt() {
       esac
     fi
   fi
+  [ -z "$bif_detail" ] || [ -n "$INFRA_FAILURE_NOTICE" ] \
+    || prompt_unsaid="${prompt_unsaid:+$prompt_unsaid }$bif_detail"
   infra_notice=$notice
   if [ "$found" -ne 1 ] || [ "$prompt_mode" = warn ]; then
     take_blocked_injection_notice "$input"
@@ -19879,8 +19893,8 @@ hook_user_prompt() {
     # The open notice repeats once per interval, and without it this pass
     # looks like a clean scan (#617). The notice already goes to stderr when
     # due, so every other pass that skipped a check says so there too.
-    [ -z "$bif_detail" ] || [ -n "$infra_notice" ] \
-      || info "$bif_detail continuing because AGENT_GUARD_INFRA_FAILURE_MODE=open (the default)."
+    [ -z "$prompt_unsaid" ] \
+      || info "$prompt_unsaid continuing because AGENT_GUARD_INFRA_FAILURE_MODE=open (the default)."
     emit_prompt_response "$notice" '' "$infra_notice"
     return 0
   fi
