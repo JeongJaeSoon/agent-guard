@@ -13245,6 +13245,7 @@ bash_file_write_env_names() {
       sq = dq = 0
       hd_n = hd_mark = 0
       d = 0
+      for (f = 0; f <= 9; f++) fdk[0, f] = ""
       cmdpos = 1
       i = 1
       while (i <= n) {
@@ -13365,7 +13366,9 @@ bash_file_write_env_names() {
             m = ""
             while (substr(s, j, 1) ~ /[0-9]/) { m = m substr(s, j, 1); j++ }
             if (m == "2" && fd == "1" && fdk[d, 2] == "") { set_fd(1, "inherit2"); i = j; continue }
-            if (m != "") { set_fd(fd, fdk[d, m]); i = j; continue }
+            # gawk aborts when a missing array element is passed to a function
+            # that writes the same array, so copy it first.
+            if (m != "") { kind = (((d, m) in fdk) ? fdk[d, m] : ""); set_fd(fd, kind); i = j; continue }
             if (substr(s, j, 1) == "-") { set_fd(fd, "null"); i = j + 1; continue }
           }
           while (substr(s, j, 1) ~ /[ \t]/) j++
