@@ -115,6 +115,8 @@ read ls -a . | grep -E '^\.env$' | awk '{ while ((getline l < $0) > 0) print l }
 read ls -a . | grep -E '^\.env$' | awk '{ system("cat " $0) }'
 read ls -a . | grep -E '^\.env$' | awk '{ print | "xargs cat" }'
 read ls -a . | grep -E '^\.env$' | awk '{ "cat " $0 | getline l; print l }'
+read ls -a . | grep -E '^\.env$' | awk '{ getline l < $0; print l }'
+held ls -a . | grep -E '^\.env$' | sort -o out.txt
 held ls -a . | grep -E '^\.env$' | awk '{ ARGV[ARGC++] = $0 }'
 held ls -a . | grep -E '^\.env$' | awk -v a=ARGV '{ SYMTAB[a][1] = $0 }'
 held ls -a . | grep -E '^\.env$' | awk '{ SYMTAB["AR" "GV"][1] = $0 }'
