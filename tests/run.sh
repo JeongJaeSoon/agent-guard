@@ -2446,7 +2446,7 @@ run_expect 2 "prompt guard dies loudly on an unsupported PII mode" \
   prompt_guard_case claude '' Bogus '{"prompt":"hello"}'
 
 # A scanner-infrastructure failure must not clobber the configured mode: with a
-# broken gitleaks and the default open policy, warn stays warn (the assignment
+# broken gitleaks and the explicit open policy, warn stays warn (the assignment
 # probe still detects) instead of silently hardening into a block.
 #
 # The same run is the ground truth for the ONE-response rule. This path raises
@@ -2465,6 +2465,7 @@ chmod +x "$MOCK_BIN/gitleaks-broken"
 prompt_infra_case() { # $1 host, $2 warning dir
   printf '%s' "$prompt_guard_env_json" \
     | AGENT_GUARD_HOOK_HOST="$1" AGENT_GUARD_PROMPT_GUARD_MODE=warn \
+      AGENT_GUARD_INFRA_FAILURE_MODE=open \
       AGENT_GUARD_GITLEAKS_BIN="$MOCK_BIN/gitleaks-broken" \
       AGENT_GUARD_WARNING_DIR="$2" \
       "$PLUGIN_ROOT/bin/agent-guard" hook-user-prompt
@@ -2502,6 +2503,7 @@ fi
 # response object on stdout either: exit 2 carries the reason on stderr.
 printf '%s' "$prompt_guard_env_json" \
   | AGENT_GUARD_HOOK_HOST=claude AGENT_GUARD_GITLEAKS_BIN="$MOCK_BIN/gitleaks-broken" \
+    AGENT_GUARD_INFRA_FAILURE_MODE=open \
     AGENT_GUARD_WARNING_DIR="$TESTTMP/prompt-warn-dir-block" \
     "$PLUGIN_ROOT/bin/agent-guard" hook-user-prompt >"$OUT" 2>"$ERR"
 if [ $? -eq 2 ] && [ ! -s "$OUT" ] && grep -q 'scanner failed' "$ERR"; then

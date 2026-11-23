@@ -144,6 +144,14 @@ check 'a prompt is blocked by default when gitleaks is missing' \
 hook hook-user-prompt open "$MISSING" "$prompt_marker"
 check 'explicit open passes a rule-only prompt and says the scan did not run' \
   sh -c 'test "$1" -eq 0 && grep -Fq "secret scan did not run" "$2"' _ "$s" "$CASE/err"
+# Warn mode decides what a finding does, not what a scan that did not run does.
+AGENT_GUARD_PROMPT_GUARD_MODE=warn
+hook hook-user-prompt unset "$SCANFAIL" '{"prompt":"summarise the release notes"}'
+check 'warn mode still blocks a prompt whose scan errored' \
+  sh -c 'test "$1" -eq 2 && grep -Fq "$2" "$3"' _ "$s" "$default_block" "$CASE/err"
+hook hook-user-prompt open "$SCANFAIL" '{"prompt":"summarise the release notes"}'
+check 'warn mode with explicit open passes that prompt' test "$s" -eq 0
+AGENT_GUARD_PROMPT_GUARD_MODE=block
 big_prompt=$(LC_ALL=C awk 'BEGIN {
   for (i = 0; i < 8000; i++)
     printf "line %d of an innocuous log dump with nothing sensitive\n", i
