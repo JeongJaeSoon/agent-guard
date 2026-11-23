@@ -15775,10 +15775,13 @@ secretish_env_values() {
           if (key_opener != "\"" && key_opener != "'\''" && key_opener != "`")
             skip = 1
         }
-        if (chose_colon && start > 1 && index("\"'\''`", first)) {
-          if (substr(rest, start - 1, 1) != ":")
+        if (chose_colon && index("\"'\''`", first)) {
+          if (start > 1 && substr(rest, start - 1, 1) != ":")
             skip = 1
-          else {
+          # Also for a key that the line, or the text after a skipped match,
+          # starts with (`"token:"`), but not for a closed key
+          # (`"password": "<value>"`).
+          else if (substr(rest, start, matched_length) !~ /["'\''`][ \t]*:$/) {
             # The quote that opened the key closes right after the colon
             # (`{"text":"password:"}`): the string ends there with no value,
             # and reading that quote as the opener of a value would swallow the
