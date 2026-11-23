@@ -598,5 +598,59 @@
     "tests": [
       "tests/message-value-prose.sh"
     ]
+  },
+  {
+    "id": "bash-secret-write-heredoc-unscanned",
+    "rule": "bash_file_write_env_names: an unquoted here-document body is read for expansions",
+    "old": "          hd_expand[hd_n] = (w !~ /[\\047\"\\\\]/)\n",
+    "new": "          hd_expand[hd_n] = 0\n",
+    "tests": [
+      "tests/secret-env-file-write.sh"
+    ]
+  },
+  {
+    "id": "bash-secret-write-redirect-ignored",
+    "rule": "bash_file_write_env_names: a > or >> redirect to a file marks the pipeline",
+    "old": "          if (t !~ /^\\/dev\\/(null|stdout|stderr|tty|fd\\/[0-9]+)$/) seg_redirect = 1\n",
+    "new": "          if (t ~ /^\\/dev\\//) seg_redirect = 1\n",
+    "tests": [
+      "tests/secret-env-file-write.sh"
+    ]
+  },
+  {
+    "id": "bash-secret-write-no-braced-name",
+    "rule": "bash_file_write_env_names: a ${NAME} expansion names its variable",
+    "old": "      if (c == \"{\") {\n        q++\n",
+    "new": "      if (c == \"{\") {\n        return q\n",
+    "tests": [
+      "tests/secret-env-file-write.sh"
+    ]
+  },
+  {
+    "id": "bash-secret-write-pipe-splits",
+    "rule": "bash_file_write_env_names: a pipe does not end the unit a redirect covers",
+    "old": " || (c == \"|\" && substr(s, i + 1, 1) == \"|\")) {\n",
+    "new": " || c == \"|\") {\n",
+    "tests": [
+      "tests/secret-env-file-write.sh"
+    ]
+  },
+  {
+    "id": "bash-secret-write-dquote-skipped",
+    "rule": "bash_file_write_env_names: an expansion inside double quotes is read",
+    "old": "          else if (c == \"$\") { i = dollar(s, i, 0); continue }\n",
+    "new": "\n",
+    "tests": [
+      "tests/secret-env-file-write.sh"
+    ]
+  },
+  {
+    "id": "bash-secret-write-not-wired",
+    "rule": "check_bash_command: a secret-named variable written to a file blocks",
+    "old": "    env_names_include_secretish $sw_names\n    case \"$?\" in\n",
+    "new": "    env_names_include_secretish $sw_names\n    case \"1\" in\n",
+    "tests": [
+      "tests/secret-env-file-write.sh"
+    ]
   }
 ]
