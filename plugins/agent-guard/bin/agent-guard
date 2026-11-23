@@ -14025,11 +14025,12 @@ secretish_env_values() {
       # whitespace form only when the preceding token is a known status word,
       # which marks a prose chain like `error: password: authentication is
       # disabled`.
-      # A quote may open the key as well, for the JSON string value that
-      # holds a colon key (`{"text":"password: <value>"}`, #628). scan_line
-      # takes that only right after `:`. The quote is not the delimiter, so
-      # no two matches overlap (see find_assignment).
-      colon_assignment = "(^[+]?[ \t\r]*|[,{([][ \t\r]*|[ \t\r]+|[\"'\''`])[\"'\''`]?" key "[\"'\''`]?[ \t]*:"
+      colon_assignment = "(^[+]?[ \t\r]*|[,{([][ \t\r]*|[ \t\r]+)[\"'\''`]?" key "[\"'\''`]?[ \t]*:"
+      # A colon key may open a JSON string value instead, right after the
+      # colon of its member (`{"text":"password: <value>"}`, #628).
+      # find_quote_colon looks for it apart, so that a line without one
+      # reads exactly as before.
+      quote_colon_assignment = "[\"'\''`][\"'\''`]?" key "[\"'\''`]?[ \t]*:"
       # Skipping after ANY colon-terminated token also let real structured log
       # lines through unmasked (`response: api_key: <secret>`), so only these
       # status words justify the skip. Deliberately short: an unlisted label
@@ -15625,6 +15626,24 @@ secretish_env_values() {
       if (delimiter == "=") return match(text, equals_assignment)
       return match(text, colon_assignment)
     }
+    # The leftmost match of quote_colon_assignment that follows a colon,
+    # in quote_start/quote_length (0 and -1 when there is none). The
+    # pattern does not open with an alternation, so match() reports the
+    # leftmost match on every awk.
+    function find_quote_colon(low,   from, at) {
+      quote_start = 0
+      quote_length = -1
+      from = 1
+      while (match(substr(low, from), quote_colon_assignment)) {
+        at = from + RSTART - 1
+        if (at > 1 && substr(low, at - 1, 1) == ":") {
+          quote_start = at
+          quote_length = RLENGTH
+          return
+        }
+        from = at + 1
+      }
+    }
     function find_assignment(low, delimiter, before) {
       assignment_start = 0
       assignment_length = -1
@@ -15740,6 +15759,11 @@ secretish_env_values() {
         find_assignment(low, ":")
         colon_start = assignment_start
         colon_length = assignment_length
+        find_quote_colon(low)
+        if (quote_start > 0 && (colon_start == 0 || quote_start < colon_start)) {
+          colon_start = quote_start
+          colon_length = quote_length
+        }
 
         start = eq_start
         matched_length = eq_length
@@ -15775,33 +15799,26 @@ secretish_env_values() {
           if (key_opener != "\"" && key_opener != "'\''" && key_opener != "`")
             skip = 1
         }
-        if (chose_colon && index("\"'\''`", first)) {
-          if (start > 1 && substr(rest, start - 1, 1) != ":")
-            skip = 1
-          # Also for a key that the line, or the text after a skipped match,
-          # starts with (`"token:"`), but not for a closed key
-          # (`"password": "<value>"`).
-          else if (substr(rest, start, matched_length) !~ /["'\''`][ \t]*:$/) {
-            # The quote that opened the key closes right after the colon
-            # (`{"text":"password:"}`): the string ends there with no value,
-            # and reading that quote as the opener of a value would swallow the
-            # text after it. In the copy scan_line reads, a quote that was
-            # escaped opens a value (`{"text":"password: \"<value>\""}`);
-            # where the copy is not what is read, the quote ends the string.
-            after_key = substr(rest, start + matched_length)
-            sub(/^[ \t]*/, "", after_key)
-            # Where this string ends, so that a key later in it does not
-            # read that quote as the opener of its value either
-            # (`{"text":"token:password:"}`).
-            string_close = string_end(rest, start + matched_length, first)
-            if (substr(after_key, 1, 1) == first) {
-              quote_at = length(copy_line) - length(rest) \
-                + length(rest) - length(after_key) + 1
-              if (!copy_reading \
-                  || substr(copy_line, length(copy_line) - length(rest) + 1) != rest \
-                  || !(quote_at in copy_escaped))
-                skip = 1
-            }
+        if (chose_colon && start > 1 && index("\"'\''`", first)) {
+          # The quote that opened the key closes right after the colon
+          # (`{"text":"password:"}`): the string ends there with no value,
+          # and reading that quote as the opener of a value would swallow the
+          # text after it. In the copy scan_line reads, a quote that was
+          # escaped opens a value (`{"text":"password: \"<value>\""}`);
+          # where the copy is not what is read, the quote ends the string.
+          after_key = substr(rest, start + matched_length)
+          sub(/^[ \t]*/, "", after_key)
+          # Where this string ends, so that a key later in it does not
+          # read that quote as the opener of its value either
+          # (`{"text":"token:password:"}`).
+          string_close = string_end(rest, start + matched_length, first)
+          if (substr(after_key, 1, 1) == first) {
+            quote_at = length(copy_line) - length(rest) \
+              + length(rest) - length(after_key) + 1
+            if (!copy_reading \
+                || substr(copy_line, length(copy_line) - length(rest) + 1) != rest \
+                || !(quote_at in copy_escaped))
+              skip = 1
           }
         }
         if (!skip && string_close > 0) {
