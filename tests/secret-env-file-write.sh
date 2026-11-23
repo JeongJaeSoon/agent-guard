@@ -86,6 +86,9 @@ A
 cat > notes/b.md <<B
 $EXAMPLE_SECRET_TOKEN
 B'
+check 2 'echo "$EXAMPLE_SECRET_TOKEN" |
+  cat > notes/note.md'
+check 2 'bash -c '"'"'echo "$EXAMPLE_SECRET_TOKEN" > notes/note.md'"'"
 check 2 'cat > notes/a.md <<A; cat > notes/b.md <<'"'"'B'"'"'
 $EXAMPLE_SECRET_TOKEN
 A
@@ -118,6 +121,9 @@ check 0 'echo "$EXAMPLE_SECRET_TOKEN" > /dev/null'
 check 0 'echo "$EXAMPLE_SECRET_TOKEN" >&2'
 check 0 'echo "$EXAMPLE_SECRET_TOKEN" 2>/dev/null'
 check 0 'echo "EXAMPLE_SECRET_TOKEN is set" > notes/note.md'
+check 0 'echo "$EXAMPLE_SECRET_TOKEN" 2> notes/err.log'
+check 0 'echo ok > "notes/a b"; echo '"'"'$EXAMPLE_SECRET_TOKEN'"'"
+check 0 'bash -c '"'"'echo "$EXAMPLE_NOTE" > notes/note.md'"'"
 
 printf '# blocked=%s allowed=%s\n' "$blocked" "$allowed"
 # Both control groups must have run, or the comparison proved nothing.

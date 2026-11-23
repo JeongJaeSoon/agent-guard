@@ -13113,9 +13113,23 @@ GIT_DIR='*|'
 bash_file_write_env_names() {
   printf '%s\n' "$1" | LC_ALL=C awk '
     { text = text (NR > 1 ? "\n" : "") $0 }
-    function word_end(s, p,   c) {
+    # A word ends at an unquoted blank or operator; quotes and escapes keep
+    # their text in the word (> "a b").
+    function word_end(s, p,   c, q) {
       while (p <= length(s)) {
         c = substr(s, p, 1)
+        if (c == "\\") { p += 2; continue }
+        if (c == "\047") {
+          q = index(substr(s, p + 1), "\047")
+          p = q ? p + q + 1 : length(s) + 1
+          continue
+        }
+        if (c == "\"") {
+          for (p++; p <= length(s) && substr(s, p, 1) != "\""; p++)
+            if (substr(s, p, 1) == "\\") p++
+          p++
+          continue
+        }
         if (c ~ /[ \t\n;|&<>()]/) break
         p++
       }
@@ -13185,6 +13199,8 @@ bash_file_write_env_names() {
           i++
           continue
         }
+        # A newline right after a pipe continues the pipeline.
+        if (c != " " && c != "\t" && c != "\n") pipe_open = 0
         if (c == "\047") { sq = 1; i++; continue }
         if (c == "\"") { dq = 1; i++; continue }
         if (c == "$") { i = dollar(s, i, 0); continue }
@@ -13193,7 +13209,7 @@ bash_file_write_env_names() {
           continue
         }
         if (c == "\n") {
-          flush()
+          if (!pipe_open) flush()
           i = hd_n ? bodies(s, i + 1) : i + 1
           continue
         }
@@ -13202,6 +13218,7 @@ bash_file_write_env_names() {
           i += (c != ";" && substr(s, i + 1, 1) == c) ? 2 : 1
           continue
         }
+        if (c == "|") { pipe_open = 1; i++; continue }
         if (c == "<" && substr(s, i, 3) == "<<<") { i += 3; continue }
         if (c == "<" && substr(s, i + 1, 1) == "<") {
           j = i + 2
@@ -13231,6 +13248,14 @@ bash_file_write_env_names() {
           e = word_end(s, j)
           t = substr(s, j, e - j)
           gsub(/[\047"]/, "", t)
+          # Only standard output carries what echo or cat print: a 2> file
+          # receives none of it.
+          fd = ""
+          if (c == ">") {
+            for (b = i - 1; b >= 1 && substr(s, b, 1) ~ /[0-9]/; b--) fd = substr(s, b, 1) fd
+            if (b >= 1 && substr(s, b, 1) !~ /[ \t\n;|&(]/) fd = ""
+          }
+          if (fd != "" && fd != "1") { i = e; continue }
           if (t !~ /^\/dev\/(null|stdout|stderr|tty|fd\/[0-9]+)$/) seg_redirect = 1
           i = e
           continue
@@ -13410,7 +13435,23 @@ $joined_cmd"
 
   # A secret-named variable's value written to a file (#497) is blocked like a
   # printenv of that name: the file can be read back or committed later.
-  sw_names=$(bash_file_write_env_names "$raw_cmd") || {
+  # A quoted word that a shell runs (bash -c '...', eval) is read the same way.
+  sw_texts=$raw_cmd
+  case "$raw_cmd" in
+    *[\'\"]*)
+      case "$raw_cmd" in
+        *sh[[:space:]]*|*eval[[:space:]]*|*trap[[:space:]]*|*watch[[:space:]]*|*su[[:space:]]*)
+          sw_program=$(bash_shell_program_texts "$raw_cmd") || {
+            info "$PROGRAM: secret variable write check failed; refusing to allow command"
+            exit 2
+          }
+          [ -z "$sw_program" ] || sw_texts="$raw_cmd
+$sw_program"
+          ;;
+      esac
+      ;;
+  esac
+  sw_names=$(bash_file_write_env_names "$sw_texts") || {
     info "$PROGRAM: secret variable write check failed; refusing to allow command"
     exit 2
   }

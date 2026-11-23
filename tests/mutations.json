@@ -652,5 +652,32 @@
     "tests": [
       "tests/secret-env-file-write.sh"
     ]
+  },
+  {
+    "id": "bash-secret-write-newline-ends-pipe",
+    "rule": "bash_file_write_env_names: a newline after a pipe continues the pipeline",
+    "old": "          if (!pipe_open) flush()\n",
+    "new": "          flush()\n",
+    "tests": [
+      "tests/secret-env-file-write.sh"
+    ]
+  },
+  {
+    "id": "bash-secret-write-shell-program-skipped",
+    "rule": "check_bash_command: the program of bash -c is read for secret variable writes",
+    "old": "          [ -z \"$sw_program\" ] || sw_texts=\"$raw_cmd\n$sw_program\"\n",
+    "new": "          :\n",
+    "tests": [
+      "tests/secret-env-file-write.sh"
+    ]
+  },
+  {
+    "id": "bash-secret-write-devnull-is-file",
+    "rule": "bash_file_write_env_names: a redirect to /dev/null writes no file",
+    "old": "          if (t !~ /^\\/dev\\/(null|stdout|stderr|tty|fd\\/[0-9]+)$/) seg_redirect = 1\n",
+    "new": "          seg_redirect = 1\n",
+    "tests": [
+      "tests/secret-env-file-write.sh"
+    ]
   }
 ]
