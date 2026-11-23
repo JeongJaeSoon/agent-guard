@@ -39,6 +39,7 @@ marker="AGENT_GUARD_TEST_""SECRET"
 seq_n=0
 # $1 subcommand, $2 policy (unset, or a value for the variable), $3 scanner,
 # $4 event JSON. Leaves the status in s and the streams in $CASE/out and err.
+# SHIM, when set, is a directory put first on PATH for that call.
 hook() {
   seq_n=$((seq_n + 1))
   hook_event=$(printf '%s' "$4" | jq -c --arg s "scan-default-$seq_n" --arg d "$CASE/w" \
@@ -46,6 +47,7 @@ hook() {
   (
     cd "$CASE/w" || exit 99
     [ "$2" = unset ] || export AGENT_GUARD_INFRA_FAILURE_MODE="$2"
+    [ -z "${SHIM:-}" ] || PATH="$SHIM:$PATH"
     printf '%s' "$hook_event" \
       | AGENT_GUARD_GITLEAKS_BIN="$3" AGENT_GUARD_HOOK_HOST="${HOST:-claude}" "$GUARD" "$1" \
         >"$CASE/out" 2>"$CASE/err"
@@ -152,6 +154,37 @@ check 'warn mode still blocks a prompt whose scan errored' \
 hook hook-user-prompt open "$SCANFAIL" '{"prompt":"summarise the release notes"}'
 check 'warn mode with explicit open passes that prompt' test "$s" -eq 0
 AGENT_GUARD_PROMPT_GUARD_MODE=block
+# Both checks down at once, the shape of the load flake seen in #639. The
+# hand-back row below is caught by the scanner alone and by the built-in
+# assignment check alone, so with both gone only the policy decides. The awk
+# stand-in fails in probe mode, as tests/prompt-assignment-failure.sh does.
+mkdir -p "$CASE/shim"
+REAL_AWK=$(command -v awk)
+export REAL_AWK
+printf '%s\n' '#!/bin/sh' 'for arg do' \
+  '  case "$arg" in record_mode=probe) cat >/dev/null; exit 23 ;; esac' \
+  'done' 'exec "$REAL_AWK" "$@"' >"$CASE/shim/awk"
+chmod +x "$CASE/shim/awk"
+handback_value=$(od -An -N18 -tu1 /dev/urandom \
+  | awk '{ for (i = 1; i <= NF; i++) printf "%c", (i % 3 == 0 ? 48 + $i % 10 : (i % 3 == 1 ? 65 : 97) + $i % 26) }')
+handback_prompt=$(jq -c --arg s "$handback_value" \
+  '.[] | select(.id == "cq-double-glued")
+   | {prompt: ("<agent-message from=\"a1b2c3d4\">\n[Subagent hand-back] The report follows:\n"
+       + (.text | gsub("\\{\\{SECRET\\}\\}"; $s)) + "\n")}' \
+  "$ROOT/tests/fixtures/handback-closed-quote.json")
+hook hook-user-prompt open "$GOOD" "$handback_prompt"
+check 'control: the built-in check alone blocks the hand-back row' test "$s" -eq 2
+SHIM="$CASE/shim"
+hook hook-user-prompt open "$GOOD" "$handback_prompt"
+r=no; [ "$s" -eq 0 ] && any_has 'assignment probe failed' && r=yes
+check 'control: explicit open passes the row once the built-in check cannot run' test "$r" = yes
+hook hook-user-prompt unset "$GOOD" "$handback_prompt"
+r=no; [ "$s" -eq 2 ] && any_has 'assignment probe failed' && err_has "$default_block" && r=yes
+check 'the row is blocked by default when the built-in check cannot run' test "$r" = yes
+hook hook-user-prompt unset "$HANG" "$handback_prompt"
+r=no; [ "$s" -eq 2 ] && err_has "$default_block" && r=yes
+check 'the row is blocked by default when the scanner and the built-in check are both down' test "$r" = yes
+SHIM=
 big_prompt=$(LC_ALL=C awk 'BEGIN {
   for (i = 0; i < 8000; i++)
     printf "line %d of an innocuous log dump with nothing sensitive\n", i
