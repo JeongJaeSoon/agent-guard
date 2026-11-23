@@ -10312,13 +10312,13 @@ AWK_READ_OPERAND_RECORDS='
     vopt["xxd"] = " -l -s -c -g -o "; vopt["od"] = " -A -t -N -j -w "
     vopt["hexdump"] = " -n -s -e "; vopt["strings"] = " -n -t "
     vopt["base64"] = vopt["base32"] = " -w -b -o "
-    vopt["diff"] = " -U -C --label "; vopt["cp"] = " -t -S --target-directory --suffix "
+    vopt["diff"] = " -U -C -L -x -I -F --label --exclude --ignore-matching-lines --show-function-line --horizon-lines "; vopt["cp"] = " -t -S --target-directory --suffix "
     vopt["bat"] = vopt["batcat"] = " -l -H -r --language --line-range --highlight-line --style --theme "
     vopt["jq"] = " --indent "
     # Options whose value is a file the program reads.
     fopt["grep"] = fopt["egrep"] = fopt["fgrep"] = " -f --file --exclude-from "
     fopt["rg"] = " -f --file --ignore-file "; fopt["sed"] = " -f --file "
-    fopt["sort"] = " --files0-from "
+    fopt["sort"] = " --files0-from "; fopt["diff"] = " -X --exclude-from --from-file --to-file "
     fopt["awk"] = fopt["gawk"] = fopt["mawk"] = fopt["nawk"] = " -f --file "
     fopt["jq"] = " -f --from-file "; fopt["hexdump"] = " -f "
     fopt["base64"] = fopt["base32"] = " -i --input "
@@ -10343,6 +10343,8 @@ AWK_READ_OPERAND_RECORDS='
       next
     }
     subs(w)
+    if (mode == "cmp") { if (w == "]]") mode = "skip"; next }
+    if (mode == "arith") { if (w ~ /\)\)$/) mode = "skip"; next }
     if (skipw) { skipw--; next }
     if (redir) { redir = 0; operand(w); next }
     if (w ~ /^[0-9]*<<[-<]?$/) { skipw = 1; next }
@@ -10356,6 +10358,9 @@ AWK_READ_OPERAND_RECORDS='
       if (w ~ /^(if|then|else|elif|do|while|until|!|time)$/) { cond = 1; if (w ~ /^(if|while|until)$/) depth++; next }
       if (w ~ /^(fi|done|esac|\}|\))$/) { if (depth) depth--; if (w == "esac") incase = 0; next }
       if (w ~ /^(\{|\()$/) { depth++; next }
+      # < compares inside [[ ]] and (( )); it redirects nothing there.
+      if (w == "[[") { mode = "cmp"; cpos = 0; cmdseen = 1; next }
+      if (w ~ /^\(\(/) { mode = (w ~ /\)\)$/) ? "" : "arith"; cpos = 0; cmdseen = 1; next }
       if (w ~ /^(for|select)$/) { depth++; mode = "for"; cpos = 0; next }
       if (w == "case") { depth++; mode = "case"; cpos = 0; next }
       if (incase && w ~ /\)$/) next
@@ -10390,9 +10395,9 @@ AWK_READ_OPERAND_RECORDS='
     if (mode == "shell") {
       ow = value(w); if (index(ow, "\002") || subst) ow = w
       if (ow ~ /^-[A-Za-z]*c[A-Za-z]*$/) { mode = "evalnext"; next }
-      if (ow ~ /^[-+]/) { if (ow ~ /^[-+]o$/) skipw = 1; next }
-      # A script file the shell reads.
-      operand(w); mode = "skip"; next
+      if (ow ~ /^[-+]/ && ow != "--") { if (ow ~ /^[-+]o$/) skipw = 1; next }
+      # A script operand is outside the reading programs; so is -s input.
+      mode = "skip"; next
     }
     if (mode == "for") { delete tab[name_of(w)]; mode = "skip"; next }
     if (mode == "skip") next

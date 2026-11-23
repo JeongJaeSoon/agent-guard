@@ -18,7 +18,7 @@ check() {
   expected=$1
   label=$2
   command=$3
-  for check_mode in open closed; do
+  for check_mode in ${MODES:-open closed}; do
     checked=$((checked + 1))
     jq -nc --arg c "$command" --arg w "$CASE_ROOT" \
       '{session_id:"unresolved-operand",tool_name:"Bash",tool_input:{command:$c,workdir:$w}}' \
@@ -114,6 +114,8 @@ check 2 "eval of a reader" "eval 'cat \"\$F\"'"
 check 2 "sh -c program with a variable operand" 'sh -c "cat $F"'
 check 2 "a reader right before a line continuation" "cat\\${NL} $S"
 check 2 "awk file operand after an assignment operand" 'awk 1 v=1 "$F"'
+check 2 "diff exclude list from a variable" 'diff -X "$F" a b'
+check 2 "a redirect after a [[ ]] test" '[[ "$a" < "$b" ]] && cat < "$F"'
 check 2 "rg search root from a substitution" 'rg -n x "$(git rev-parse --show-toplevel)"'
 check 2 "the working directory before a protected name" 'cat "$(pwd)/.e""nv"'
 check 2 "PWD before a protected name" 'cat "$PWD/.e""nv"'
@@ -150,6 +152,14 @@ check 0 "a literal assignment reaches source" 'f=./script.sh; source "$f"'
 check 0 "a literal assignment reaches the dot command" 'f=./script.sh; . "$f"'
 check 0 "awk assignment operand from a variable" "awk '{print v}' v=\"\$VALUE\" README.md"
 check 0 "sh -c program with a literal read" "sh -c 'cat README.md'"
+check 0 "a string comparison in [[ ]]" '[[ "$a" < "$b" ]]'
+check 0 "an arithmetic comparison" '(( count < $limit ))'
+# Under the closed policy the git gate blocks shell code read from stdin.
+MODES=open
+check 0 "bash -s passes its arguments to the script" "bash -s -- \"\$ARG\" <<'EOF'${NL}printf '%s\\n' \"\$1\"${NL}EOF"
+MODES=
+check 0 "diff exclude pattern from a variable" 'diff -x "$PAT" dir1 dir2'
+check 0 "diff ignored lines from a variable" 'diff -I "$PAT" a b'
 check 0 "nice with a literal read" 'nice -n 5 cat README.md'
 check 0 "head count attached to -n" 'head -n"$N" README.md'
 check 0 "a literal assignment of an ordinary file" 'f=README.md; cat "$f"'
