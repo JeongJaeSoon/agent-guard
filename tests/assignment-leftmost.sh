@@ -1,7 +1,9 @@
 #!/bin/sh
 # Every assignment on a line is a candidate on every awk. The fixture holds
 # lines where mawk 1.3.4 match() skipped the leftmost assignment, with the
-# values and masked output that gawk and busybox awk already produced.
+# values and masked output that gawk and busybox awk already produced, and
+# lines whose reading must not differ between awks (#555, #580, #628). A line
+# with no values must come back untouched and must not stop the prompt.
 #
 # AGENT_GUARD_TEST_REQUIRE_AWKS names implementations (mawk gawk busybox) that
 # must be installed. A missing one fails instead of being skipped, so a run
@@ -25,7 +27,7 @@ not_ok() { fail=$((fail + 1)); printf 'not ok - %s\n' "$1"; }
 # literal that reads as a quoted password.
 rnd=$(od -An -N8 -tu1 /dev/urandom | awk '{ printf "q7"; for (i = 1; i <= NF; i++) printf "%c", 97 + $i % 26 }')
 FIXTURE="$CASE/fixture.json"
-jq --arg r "$rnd" 'map(.input |= gsub("%R%"; $r) | .values |= map(gsub("%R%"; $r)))' \
+jq --arg r "$rnd" 'map(.input |= gsub("%R%"; $r) | .masked |= gsub("%R%"; $r) | .values |= map(gsub("%R%"; $r)))' \
   "$FIXTURE_SOURCE" >"$FIXTURE"
 count=$(jq 'length' "$FIXTURE")
 [ "$count" -gt 0 ]
@@ -36,11 +38,12 @@ while [ "$i" -lt "$count" ]; do
   jq -r --argjson i "$i" '.[$i].values[] | tojson' "$FIXTURE" >"$CASE/values.$i"
   jq -c --argjson i "$i" '.[$i] | {tool_name:"Bash",tool_input:{command:"run"},tool_response:{stdout:.input,stderr:""}}' \
     "$FIXTURE" >"$CASE/hook.$i"
-  jq -c --argjson i "$i" '.[$i] | {hookSpecificOutput:{hookEventName:"PostToolUse",updatedToolOutput:{stdout:.masked,stderr:""}}}' \
+  jq -c --argjson i "$i" '.[$i] | select(.values != []) | {hookSpecificOutput:{hookEventName:"PostToolUse",updatedToolOutput:{stdout:.masked,stderr:""}}}' \
     "$FIXTURE" >"$CASE/claude.$i"
-  jq -c --argjson i "$i" '.[$i] | {decision:"block",reason:"Agent Guard blocked the original tool output because it contained sensitive values; use the sanitized replacement in additionalContext.",hookSpecificOutput:{hookEventName:"PostToolUse",additionalContext:("Agent Guard sanitized tool output:\n" + ({stdout:.masked,stderr:""} | tojson))}}' \
+  jq -c --argjson i "$i" '.[$i] | select(.values != []) | {decision:"block",reason:"Agent Guard blocked the original tool output because it contained sensitive values; use the sanitized replacement in additionalContext.",hookSpecificOutput:{hookEventName:"PostToolUse",additionalContext:("Agent Guard sanitized tool output:\n" + ({stdout:.masked,stderr:""} | tojson))}}' \
     "$FIXTURE" >"$CASE/codex.$i"
   jq -r --argjson i "$i" '.[$i].id' "$FIXTURE" >"$CASE/id.$i"
+  jq -j --argjson i "$i" 'if .[$i].values == [] then "" else "x\n" end' "$FIXTURE" >"$CASE/probe.$i"
   i=$((i + 1))
 done
 
@@ -62,6 +65,13 @@ check_awk() {
       # Fixture values are synthetic, so the difference is safe to print.
       sed 's/^/# expected: /' "$CASE/values.$i"
       sed 's/^/# actual: /' "$CASE/actual"
+    fi
+    status=0
+    secretish_env_values probe <"$CASE/framed.$i" >"$CASE/actual" 2>"$CASE/error" || status=$?
+    if [ "$status" -eq 0 ] && cmp -s "$CASE/probe.$i" "$CASE/actual"; then
+      ok "$impl prompt probe $id"
+    else
+      not_ok "$impl prompt probe $id (status $status)"
     fi
     for host in claude codex; do
       status=0
