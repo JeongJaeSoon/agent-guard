@@ -537,7 +537,7 @@ done
 # cannot start or fails must not let a value that check finds through (#617).
 # The value is generated at run time; the stubs never see a real secret.
 prompt_value=$(od -An -N12 -tx1 /dev/urandom | tr -d ' \n')
-prompt_secret="DB_PASSWORD=$prompt_value"
+prompt_assignment="DB_PASSWORD=$prompt_value"
 READY_BIN="$CASE_ROOT/ready-prompt-bin"
 make_scanner "$READY_BIN/gitleaks" '8.31.0' 0
 FAILING_BIN="$CASE_ROOT/failing-version-bin"
@@ -583,7 +583,7 @@ if [ "$status" -eq 0 ] && [ ! -s "$CASE_ROOT/out" ] && [ ! -s "$CASE_ROOT/err" ]
 else
   not_ok "clean prompt control with a ready scanner (status $status)"
 fi
-run_prompt claude open "$(prompt_scanner ready)" control-secret "$prompt_secret"
+run_prompt claude open "$(prompt_scanner ready)" control-secret "$prompt_assignment"
 status=$?
 if [ "$status" -eq 2 ] && grep -Fq 'contains secret-like values' "$CASE_ROOT/err"; then
   ok "assignment prompt is blocked with a ready scanner"
@@ -594,7 +594,7 @@ for prompt_host in claude codex; do
   for prompt_case in timeout failed scan-error; do
     rm -f "$SLOW_SCAN_MARKER"
     run_prompt "$prompt_host" open "$(prompt_scanner "$prompt_case")" \
-      "$prompt_host-$prompt_case" "$prompt_secret"
+      "$prompt_host-$prompt_case" "$prompt_assignment"
     status=$?
     if [ "$status" -eq 2 ] && [ ! -s "$CASE_ROOT/out" ] && [ ! -e "$SLOW_SCAN_MARKER" ] \
        && grep -Fq 'contains secret-like values' "$CASE_ROOT/err" \
@@ -606,7 +606,7 @@ for prompt_host in claude codex; do
   done
 done
 run_prompt claude open "$(prompt_scanner failed)" handback-failed \
-  "$(printf '<agent-message from="a1b2c3d4">\n[Subagent hand-back] The report follows:\n- %s\n' "$prompt_secret")"
+  "$(printf '<agent-message from="a1b2c3d4">\n[Subagent hand-back] The report follows:\n- %s\n' "$prompt_assignment")"
 status=$?
 if [ "$status" -eq 2 ] && grep -Fq 'blocked a subagent hand-back' "$CASE_ROOT/err" \
    && ! grep -Fq "$prompt_value" "$CASE_ROOT/out" "$CASE_ROOT/err"; then
