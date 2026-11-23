@@ -7537,9 +7537,9 @@ bash_strip_literal_message_values() (
 # alone when it may hide a segment boundary: a newline, a substitution, a
 # here-document, a group or a comment. Segments after one whose command is
 # not on the inert list below are left alone too, and so is every segment of
-# a loop or condition that holds such a command or whose output is piped.
-# With
-# `trusted` as $2, print instead the start offset of each jq or sed command
+# a loop that holds such a command, and of a loop or condition whose output
+# goes anywhere but to plain text filters. With `trusted` as $2, print
+# instead the start offset of each jq or sed command
 # word that same segment check reaches; there an expansion or unsafe word
 # anywhere in an earlier segment also stops it. With `tracked` as $2, print
 # instead (as `T start end value`) each literal operand of a command that
@@ -7565,15 +7565,51 @@ search_operand_spans() {
     }
     function bad(k) { return wdyn[k] || wuns[k] || wred[k] }
     function span(k) { return ws[k] " " we[k] "\n" }
-    function stop() { printf "%s", acc; exit 0 }
+    # Stop reading: a segment that is not inert comes before whatever
+    # follows. A condition runs each segment once at most, and in order, so
+    # the words held inside one stand while it closes as close_ok asks; a
+    # loop runs this segment before its earlier ones again.
+    function stop() {
+      if (mode == "" && cdepth > 0 && ldepth == 0 && closes_ok(sege)) acc = acc held
+      printf "%s", acc; exit 0
+    }
     # The word as written, quotes and all.
     function raw(k) { return substr(s, ws[k], we[k] - ws[k] + 1) }
     # A redirection that names no file: it writes nothing a later command
     # name could resolve to.
     function quiet(k) { return !wdyn[k] && raw(k) ~ /^(2>&1|[12]?>\/dev\/null)$/ }
-    function vnote(name, ok) {
-      if (!(name in vset)) { vset[name] = 1; vsafe[name] = ok; nvset++ }
-      else if (!ok) vsafe[name] = 0
+    # Word k when it is written bare, as a reserved word has to be: a
+    # quoted or escaped `done` is a command name.
+    function kw(k) { return !bad(k) && raw(k) == wv[k] ? wv[k] : "" }
+    # The reserved words that lead segment k..e: the word after them, and in
+    # dc and dl how many loops and conditions, and how many loops, they open.
+    function lead(k, e,   h) {
+      dc = 0; dl = 0
+      for (h = k; h <= e && kw(h) ~ /^(do|then|else|elif|if|while|until)$/; h++) {
+        if (kw(h) == "if") dc++
+        else if (kw(h) ~ /^(while|until)$/) { dc++; dl++ }
+      }
+      if (h <= e && kw(h) == "for") { dc++; dl++ }
+      return h
+    }
+    # The `done` or `fi` at word k sends its output nowhere but to
+    # plain text filters.
+    function close_ok(k, e,   r) {
+      for (r = k + 1; r <= e; r++) if (!quiet(r)) return 0
+      return sink_ok(k)
+    }
+    # Every condition open after word e closes that way.
+    function closes_ok(e,   k, x, d, low) {
+      d = cdepth; low = cdepth
+      for (k = e + 1; k <= nw && low > 0; k = x + 1) {
+        for (x = k; x < nw && wseg[x + 1] == wseg[k]; x++) ;
+        if (kw(k) ~ /^(done|fi)$/ && --d < low) {
+          low = d
+          if (!close_ok(k, x)) return 0
+        }
+        lead(k, x); d += dc
+      }
+      return low == 0
     }
     # A word of a `for` list that is one plain word whatever the shell: no
     # quoting, no expansion, no glob or operator character, no leading dash.
@@ -7582,31 +7618,58 @@ search_operand_spans() {
       return !wdyn[k] && !wred[k] && raw(k) == wv[k] && wv[k] != "" && substr(wv[k], 1, 1) != "-" \
         && wv[k] !~ /[] \t!"#$&\047()*;<>?[\\^`{|}~]/
     }
-    # How word k uses the variables this command sets itself (vset). "lit":
-    # no expansion. "env": it names none of them; the word is judged as it
+    # How word k uses the variables this command sets itself (vname). "lit":
+    # no expansion. "env": it names none of them, or only ones that may
+    # still hold what the shell inherited (owned); the word is judged as it
     # was before the command could set any. "own": plain `$x` references to
-    # safe ones (vsafe) only, next to name characters and inside at most one
-    # pair of double quotes, so the word is one word that starts with no
-    # dash unless it is written with one. "mix": the same, with a variable
-    # the command does not set among them. "no": anything else. A colon or a
-    # bracket after a reference is a zsh modifier or subscript. Where an
-    # assignment has not run, the variable holds what the shell inherited,
-    # which is judged like any inherited value.
-    function var_word(k,   t, name, own, env) {
+    # variables that hold a plain word of this command, so the word starts
+    # with no dash unless it is written with one, and is one word: next to
+    # name characters only, or inside one pair of double quotes. "mix": the
+    # same, with an inherited variable among them. "no": anything else, and
+    # any word a dash follows its leading expansions in, unless the first of
+    # them is such a variable. A colon or a bracket after a reference is a
+    # zsh modifier or subscript.
+    function var_word(k,   t, u, n, name, own, env, q, nx) {
       if (!wdyn[k]) return "lit"
-      if (!nvset) return "env"
+      t = raw(k)
+      # Expansions that may be empty, then a dash: the word can be an option.
+      u = t; gsub(/["\047\\]/, "", u)
+      for (n = 0; match(u, /^(\$[A-Za-z_][A-Za-z0-9_]*|\$[0-9@*]|\$\{[^}]*\})/); n++) {
+        name = substr(u, 2, RLENGTH - 1)
+        if (!(name in vbad) && owned(name, k)) break
+        u = substr(u, RLENGTH + 1)
+      }
+      if (n && substr(u, 1, 1) == "-") return "no"
+      if (!nvar || !names_var(t)) return "env"
       if (wred[k]) return "no"
-      t = raw(k); own = 0; env = 0
-      if (t ~ /^".*"$/) t = substr(t, 2, length(t) - 2)
+      own = 0; env = 0
+      q = t ~ /^"[^"]*"$/
+      if (q) t = substr(t, 2, length(t) - 2)
       while (match(t, /\$[A-Za-z_][A-Za-z0-9_]*/)) {
         name = substr(t, RSTART + 1, RLENGTH - 1)
-        if (!(name in vset)) env = 1
-        else if (!vsafe[name]) return "no"
-        else own = 1
+        if (name in vbad) return "no"
+        if (name in vname) {
+          nx = substr(t, RSTART + RLENGTH, 1)
+          if (nx == ":" || nx == "[") return "no"
+        }
+        if (owned(name, k)) own = 1
+        else env = 1
         t = substr(t, 1, RSTART - 1) "/" substr(t, RSTART + RLENGTH)
       }
-      if (t !~ /^[A-Za-z0-9_.\/@%+,=-]*$/) return "no"
-      return own ? (env ? "mix" : "own") : (env ? "env" : "no")
+      if (q ? t ~ /[$`\\]/ : t !~ /^[A-Za-z0-9_.\/@%+,=-]*$/) return "no"
+      return own ? (env ? "mix" : "own") : "env"
+    }
+    # The text names a variable of this command, in whatever form.
+    function names_var(t,   n) {
+      for (n in vname) if (match(t, "(^|[^A-Za-z0-9_])" n "([^A-Za-z0-9_]|$)")) return 1
+      return 0
+    }
+    # At word k the variable holds a plain word this command gave it.
+    function owned(name, k,   r) {
+      if (name in vfrom && vfrom[name] < k) return 1
+      for (r = 1; r <= nfor; r++)
+        if (fname[r] == name && ffrom[r] < k && (fdep[r] == 1 || !fto[r] || k < fto[r])) return 1
+      return 0
     }
     function grep_scan(a, b, rg,   k, v, j, ch, rest, sawe, opnd, dd, noconf, out, noarg, numarg, wordarg, longs, longv) {
       if (rg == 2) {
@@ -7886,22 +7949,25 @@ search_operand_spans() {
     # an expansion of variables this command set.
     function plain_words(a, b,   k) {
       for (k = a + 1; k <= b; k++)
-        if (!quiet(k) && (wuns[k] || wred[k] || wdyn[k] && var_word(k) != "own")) return 0
+        if (!quiet(k) && (wred[k] || (wdyn[k] ? var_word(k) != "own" : wuns[k]))) return 0
       return 1
     }
     # sort or uniq given literal words that name no output: no long option,
     # no sort -o, no uniq operand (its second one is written).
     function writes_nothing(a, b,   k) {
       for (k = a + 1; k <= b; k++)
-        if (!quiet(k) && (bad(k) || substr(wv[k], 1, 2) == "--" || wv[a] == "sort" && wv[k] ~ /^-[A-Za-z]*o/             || wv[a] == "uniq" && substr(wv[k], 1, 1) != "-")) return 0
+        if (!quiet(k) && (bad(k) || substr(wv[k], 1, 2) == "--" || wv[a] == "sort" && wv[k] ~ /^-[A-Za-z]*o/ \
+            || wv[a] == "uniq" && substr(wv[k], 1, 1) != "-")) return 0
       return 1
     }
     # stat reports on its operands; only the zsh builtin told to fill an
     # array or a hash (-A, -H) assigns a name. An operand may expand only
-    # variables this command set.
+    # variables this command set, and not behind a dash, where the value
+    # would be read as options.
     function stat_reports(a, b,   k) {
       for (k = a + 1; k <= b; k++)
-        if (wv[k] ~ /^-[A-Za-z]*[AH]/ || wred[k] && !quiet(k) || wdyn[k] && var_word(k) != "own") return 0
+        if (wv[k] ~ /^-[A-Za-z]*[AH]/ || wred[k] && !quiet(k) \
+            || wdyn[k] && (var_word(k) != "own" || raw(k) ~ /^"?-/)) return 0
       return 1
     }
     # The word after `-not` or `!` and a name test of find: it leaves names
@@ -8084,23 +8150,45 @@ search_operand_spans() {
         exit 0
       }
       for (k = 1; k <= nw; k++) if (!(wseg[k] in segfirst)) segfirst[wseg[k]] = k
-      # The variables the line sets, wherever it sets them: an assignment
-      # word or a `for` list. vsafe holds while every value is one plain
-      # word that starts with no dash, so a reference can become neither an
-      # option nor several words. An assigned name must also be one or two
-      # characters long: no shell reads such a name as a setting (PATH, IFS).
-      for (k = 1; k <= nw; k++) {
-        v = raw(k)
-        if (match(v, /^[A-Za-z_][A-Za-z0-9_]*=/)) {
-          name = substr(v, 1, RLENGTH - 1)
-          vnote(name, name ~ /^[A-Za-z][A-Za-z0-9]?$/ && name != "TZ" && !bad(k) && v == wv[k] \
-            && substr(v, RLENGTH + 1) ~ /^[A-Za-z0-9_.\/:@%+,=][A-Za-z0-9_.\/:@%+,=-]*$/)
-        } else if (wv[k] == "for" && k < nw && wseg[k + 1] == wseg[k]) {
-          c = k + 2 <= nw && wseg[k + 2] == wseg[k] && wv[k + 2] == "in"
-          for (r = k + 3; c && r <= nw && wseg[r] == wseg[k]; r++) if (!list_word(r)) c = 0
-          vnote(wv[k + 1], c)
+      # The variables the line sets. vbad: a name some assignment-shaped
+      # word or `for` list may give a value that is not one plain word
+      # starting with no dash, or names in a word that is no assignment of
+      # its own (a prefix, an argument of export): a reference to it is
+      # refused. An assigned name must also be one or two characters long:
+      # no shell reads such a name as a setting (PATH, IFS). vfrom: the first
+      # assignment outside any loop or condition, which has run for every
+      # word after it. A `for` variable holds a list word from its `for`
+      # (ffrom) to its `done` (fto), and after it too when the loop is
+      # inside no other (fdep).
+      d = 0; nvar = 0; nfor = 0
+      for (k = 1; k <= nw; k = e + 1) {
+        for (e = k; e < nw && wseg[e + 1] == wseg[k]; e++) ;
+        if (kw(k) ~ /^(done|fi)$/) {
+          d--
+          for (r = 1; r <= nfor; r++) if (!fto[r] && fdep[r] > d) fto[r] = k
+        }
+        h = lead(k, e); d += dc
+        if (h < e && kw(h) == "for") {
+          name = wv[h + 1]; nvar++; vname[name] = 1
+          c = h + 3 <= e && kw(h + 1) != "" && kw(h + 2) == "in"
+          for (r = h + 3; c && r <= e; r++) if (!list_word(r)) c = 0
+          if (c) { fname[++nfor] = name; ffrom[nfor] = h; fdep[nfor] = d; fto[nfor] = 0 }
+          else vbad[name] = 1
+          continue
+        }
+        for (a = h; a <= e && raw(a) ~ /^[A-Za-z_][A-Za-z0-9_]*=/; a++) ;
+        for (r = k; r <= e; r++) {
+          v = raw(r)
+          if (!match(v, /^[A-Za-z_][A-Za-z0-9_]*=/)) continue
+          name = substr(v, 1, RLENGTH - 1); nvar++; vname[name] = 1
+          if (a <= e || r < h || name !~ /^[A-Za-z][A-Za-z0-9]?$/ || name == "TZ" || bad(r) || v != wv[r] \
+              || substr(v, RLENGTH + 1) !~ /^[A-Za-z0-9_.\/:@%+,=][A-Za-z0-9_.\/:@%+,=-]*$/) vbad[name] = 1
+          else if (d == 0 && !(name in vfrom)) vfrom[name] = r
         }
       }
+      # An expansion can assign as well (${x:=v}, ${x::=v}, $[x=1]), to any
+      # name and any value: then none of the names is known.
+      for (k = 1; k <= nw; k++) if (wdyn[k] && raw(k) ~ /\$\{[^}]*=|\$\[/) for (name in vname) vbad[name] = 1
       # As in bash_neutralize_first_pipeline, a word that holds "jq" anywhere
       # but at a command start may run or redefine jq, unless it is the
       # certain --jq option of a gh query: then no jq filter is rewritten.
@@ -8109,21 +8197,22 @@ search_operand_spans() {
         c = wv[k] == "gh" ? gh_jq_option(k, e) : 0
         for (r = k + 1; r <= e; r++) if (wv[r] ~ /jq/ && r != c) nojq = 1
       }
-      acc = ""; held = ""; cdepth = 0
+      acc = ""; held = ""; cdepth = 0; ldepth = 0
       for (k = 1; k <= nw; k = e + 1) {
         for (e = k; e < nw && wseg[e + 1] == wseg[k]; e++) ;
+        sege = e
         # A loop or condition closes or opens here. Words left out inside
         # one are held until it closes: a loop runs its later segments
         # before its earlier ones, so every segment in it must qualify, and
         # its output may be piped or redirected as a whole (`done | sh`).
-        if (!bad(k) && wv[k] ~ /^(done|fi)$/) {
-          if (e > k || segpipe[wseg[k]]) held = ""
-          if (--cdepth < 0) stop()
+        if (kw(k) ~ /^(done|fi)$/) {
+          if (!close_ok(k, e)) held = ""
+          cdepth--
+          if (kw(k) == "done") ldepth--
+          if (cdepth < 0 || ldepth < 0) stop()
           if (cdepth == 0) { acc = acc held; held = "" }
         }
-        for (hd = k; hd <= e && !bad(hd) && wv[hd] ~ /^(do|then|else|elif|if|while|until)$/; hd++)
-          if (wv[hd] ~ /^(if|while|until)$/) cdepth++
-        if (hd <= e && !bad(hd) && wv[hd] == "for") cdepth++
+        hd = lead(k, e); cdepth += dc; ldepth += dl
         # The command of the segment: past those keywords for the search
         # commands, the first word for every other reading.
         if (mode != "" || hd > e) hd = k
@@ -8156,27 +8245,27 @@ search_operand_spans() {
         # redirection that writes files might create or replace the file a
         # PATH entry resolves it to, so list the inert ones.
         for (r = k; r <= e; r++) if (wred[r] && !quiet(r) || mode == "trusted" && bad(r)) stop()
-        for (h = k; h <= e && wv[h] ~ /^(do|then|else|elif|if|while|until|done|fi|!)$/ && !bad(h); h++) ;
+        for (h = k; h <= e && kw(h) ~ /^(do|then|else|elif|if|while|until|done|fi|!)$/; h++) ;
         for (a = h; h <= e && wv[h] ~ /^[A-Za-z_][A-Za-z0-9_]*=/ && !bad(h); h++) ;
         if (h > e) {
           if (a > e) continue
-          # Assignments alone: each to a variable found safe above.
+          # Assignments alone: each of one plain word to a short name.
           for (r = a; r <= e && mode == ""; r++) {
             name = raw(r); sub(/=.*/, "", name)
-            if (!vsafe[name]) break
+            if (name in vbad) break
           }
           if (mode == "" && r > e) continue
           stop()
         }
         if (bad(h)) stop()
-        if (wv[h] == "for" && h + 2 <= e && wv[h + 1] ~ /^[a-z]$/ && wv[h + 2] == "in") continue
+        if (kw(h) == "for" && h + 2 <= e && wv[h + 1] ~ /^[a-z]$/ && wv[h + 2] == "in") continue
         # rg runs programs (--pre, --hostname-bin, RIPGREP_CONFIG_PATH), test
         # and [ evaluate array subscripts, and an assignment prefix such as
         # LD_PRELOAD can make any listed command run code; a locale name
         # without a path loads no code.
         for (r = a; r < h; r++) if (wv[r] !~ /^(LC_[A-Z]+|LANG|LANGUAGE|TZ)=[A-Za-z0-9_.@:+-]*$/) stop()
         # rg, git grep or find whose every word was on its table above and
-        # is one known word: it runs no program and writes no file. A glob
+        # is one known word: it writes no file and rebinds no name. A glob
         # operand could expand to a file named like an option (--pre=sh).
         if (known) continue
         if (wv[h] == "sed" && sed_prints_lines(h, e)) continue

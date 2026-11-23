@@ -232,6 +232,17 @@ allow find src -type f ! -name '*.pem' | wc -l
 allow ls src | sort | uniq -c | head; grep -n "process.env" src/a.ts
 allow find . -maxdepth 1 -not -name ".env" -print | head
 allow rg --no-config -n 'process\.env' src; grep -c '\.env' list.txt
+allow for f in src/a.ts notes.txt; do echo "== $f"; grep -c "\.env" "$f"; done | head -50
+allow for f in src/a.ts notes.txt; do grep -c "\.env" "$f"; done 2>/dev/null | sort | head
+allow if ls src; then echo x; grep -c '\.env' list.txt; fi | head
+allow if grep -q x list.txt; then echo a; grep -n "\.env" list.txt; git status; fi
+allow if ls src; then echo x; openssl genrsa -out fresh4.key 2048; fi
+allow for f in a b; do echo $f; done; grep -c '\.env' $PWD/*.txt
+allow grep -c "\.env" "$PWD/list.txt"; echo rc=$?
+allow for d in src sub; do grep -c "\.env" "$d/a b" list.txt; done
+allow D=src; rg --no-config -n 'process' $D; grep -c '\.env' list.txt
+allow a=src; grep -n '\.env' "$PWD/$a/a.ts"
+allow a=src; grep -n '\.env' $a-old/a.ts list.txt
 read cd g && git grep -n VALUE -- .env
 read cd g && git grep -h -e VALUE .env
 held cd g && git grep .env -e VALUE
@@ -276,6 +287,24 @@ held find . -maxdepth 1 -name ".env" -not -name "*.ts"
 held find . -maxdepth 1 -not -name .env; cat $_
 held A=src; grep -e .env; cat $_
 held ls src 2>/dev/null; grep -e .env; cat "$_"
+read for f in a; do grep -o 'cat \.env' cmds.txt; 'done'; done | sh
+read if true; then grep -o 'cat \.env' cmds.txt; 'fi'; fi | sh
+read A=e; grep .env "-$A" VALUE
+read A=e; grep .env -$A VALUE
+held for i in 1 2; do grep .env list.txt; 'done'; hash -p /bin/cat grep; done
+held for i in 1 2; do grep .env list.txt; \done; hash -p /bin/cat grep; done
+held for f in a b; do grep -c '\.env' list.txt; git status; done
+held for f in a b; do grep -c '\.env' list.txt; done | tee p
+held A=A; stat -$A path +link lnk; grep .env list.txt
+held A=x; echo ${A::=-e}; grep .env $A VALUE
+held A=x; echo $[A=5]; grep .env $A VALUE
+held find $X -maxdepth 1 -not -name .env; X=a
+held if false; then X=src; fi; find $X -maxdepth 1 -not -name .env
+held echo X=src; find $X -maxdepth 1 -not -name .env
+read grep .env "$UNSETVAR9-e" VALUE
+read grep .env $UNSETVAR9-e VALUE
+read a=e; grep .env "$UNSETVAR9-$a" VALUE
+held grep .env "$1"-e VALUE
 CASES
 
 # Options from the environment come first and can make the pattern a file.

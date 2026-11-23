@@ -222,5 +222,54 @@
     "classification": "must-still-block",
     "description": "the last-argument variable written inside the search pattern",
     "command": "grep -nE \"foo|\\\\\\$_|baz qux set|x-y\" src/tool | head"
+  },
+  {
+    "id": "loop-piped-to-filter",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a grep inside a loop whose output goes to a plain filter",
+    "command": "for f in apps/a.ts apps/b.ts; do echo \"== $f\"; grep -c \"\\.env\" \"$f\"; done | head -50"
+  },
+  {
+    "id": "loop-quoted-done",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a quoted done inside the loop, which is a command name and closes nothing",
+    "command": "for i in 1 2; do grep .env list.txt; 'done'; hash -p /bin/cat grep; done"
+  },
+  {
+    "id": "condition-then-other-command",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a grep inside a condition, with another command after it",
+    "command": "if grep -q foo list.txt; then echo a; grep -n \"\\.env\" list.txt; git status; fi"
+  },
+  {
+    "id": "loop-then-other-command",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a grep inside a loop, where the command after it runs before the next round",
+    "command": "for f in a b; do grep -c '\\.env' list.txt; git status; done"
+  },
+  {
+    "id": "operand-of-inherited-variable",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a later operand that expands a variable the command does not set",
+    "command": "for f in a b; do echo $f; done; grep -c '\\.env' $HOME/notes/*.md"
+  },
+  {
+    "id": "operand-behind-written-dash",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a variable of the command written behind a dash, where its value is an option",
+    "command": "A=e; grep .env \"-$A\" VALUE"
+  },
+  {
+    "id": "operand-dash-after-expansion",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "an operand that starts with an expansion and then a dash, which is an option when the expansion is empty",
+    "command": "grep .env \"$UNSET_PREFIX-e\" VALUE"
   }
 ]
