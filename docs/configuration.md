@@ -160,7 +160,10 @@ return status 0 with no response. See [Output masking coverage](integrations.md#
   in it is replaced. Anthropic content-block discriminators (`type`,
   `source.type`, `media_type`) and the fields Claude Code checks in built-in
   tool output (`Read`'s `type` and page `mediaType`, `Write`'s `type`,
-  `Grep`'s `mode`, `NotebookEdit`'s `cell_type`) survive that rewrite when
+  `Grep`'s `mode`, `NotebookEdit`'s `cell_type`, `REPL`'s `stoppedBy` and
+  `neverRan`, `Poll`'s `provenance[].authority`, the `gitDiff.status` of
+  `Write` and `Edit`, `Skill`'s `status`, and the `kind` and `action` in
+  `Bash`'s `gitOperation`) survive that rewrite when
   the value is exactly a known protocol token, so the sanitized result still
   parses as the shape the host sent. Any other string is masked, including
   under those keys. On Claude Code, a `filePath` or `notebook_path` equal to

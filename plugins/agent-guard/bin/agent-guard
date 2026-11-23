@@ -13610,7 +13610,11 @@ JQ_WALK='def walk(f): def w: if type == "object" then map_values(w)
 # image block spells the same thing `mimeType`. Claude Code's built-in tools add
 # words of their own that it checks before taking a replacement (#612): Read's
 # `notebook` and `parts` and its PDF pages' `mediaType`, Write's `create`
-# and `update`, Grep's `mode` and NotebookEdit's `cell_type`. Prepend as
+# and `update`, Grep's `mode` and NotebookEdit's `cell_type`. Code Mode and
+# the 2.1.330 output schemas add more (#599): REPL's `stoppedBy` and
+# `neverRan`, Poll's `provenance[].authority` (the host also reads it to tell
+# the user's events from others), the `gitDiff.status` of Write and Edit,
+# Skill's `status` and Bash's `gitOperation` `kind` and `action`. Prepend as
 # `jq -c "$JQ_SHAPE_SAFE_WALK"'<program>'`.
 # Resolve the extent records secretish_env_values flags (`agent_guard_extent`)
 # once every detector's literals are in the bundle. An extent (`[hidden]`,
@@ -13655,14 +13659,21 @@ JQ_SETTLE_EXTENTS='def overlap_from_before($e):
 JQ_SHAPE_SAFE_WALK='def protocol_discriminator($key): . as $v
     | ($key == "type" or $key == "media_type" or $key == "mimeType"
        or $key == "mediaType" or $key == "encoding" or $key == "mode"
-       or $key == "cell_type")
+       or $key == "cell_type" or $key == "authority" or $key == "stoppedBy"
+       or $key == "neverRan" or $key == "status" or $key == "kind"
+       or $key == "action")
       and (["text","image","document","search_result","browser_state",
             "tool_reference","tool_use","tool_result","thinking",
             "redacted_thinking","base64","url","file","content","pdf",
             "image/png","image/jpeg","image/gif","image/webp",
             "application/pdf","text/plain",
             "notebook","parts","file_unchanged","create","update",
-            "files_with_matches","count","code","markdown"]
+            "files_with_matches","count","code","markdown",
+           "human-principal","human-other","peer-agent","world-event",
+           "user","refusal","person","other","modified","added","inline",
+           "forked","committed","amended","cherry-picked","merged",
+           "rebased","created","edited","commented","closed","reopened",
+           "ready","draft","auto-merge-enabled","auto-merge-disabled"]
            | map(. == $v) | any);
 def shape_safe_walk(f): def w($key):
       if type == "object"
@@ -16664,7 +16675,9 @@ redact_response_values_awk_current() {
     }
     function protocol_discriminator(key, value) {
       if (!(key == "type" || key == "media_type" || key == "mimeType" || key == "mediaType" \
-            || key == "encoding" || key == "mode" || key == "cell_type")) return 0
+            || key == "encoding" || key == "mode" || key == "cell_type" \
+            || key == "authority" || key == "stoppedBy" || key == "neverRan" \
+            || key == "status" || key == "kind" || key == "action")) return 0
       return value == "text" || value == "image" || value == "document" \
         || value == "search_result" || value == "browser_state" \
         || value == "tool_reference" || value == "tool_use" \
@@ -16677,7 +16690,17 @@ redact_response_values_awk_current() {
         || value == "text/plain" || value == "notebook" || value == "parts" \
         || value == "file_unchanged" || value == "create" || value == "update" \
         || value == "files_with_matches" || value == "count" \
-        || value == "code" || value == "markdown"
+        || value == "code" || value == "markdown" \
+        || value == "human-principal" || value == "human-other" \
+        || value == "peer-agent" || value == "world-event" \
+        || value == "user" || value == "refusal" || value == "person" \
+        || value == "other" || value == "modified" || value == "added" \
+        || value == "inline" || value == "forked" || value == "committed" \
+        || value == "amended" || value == "cherry-picked" || value == "merged" \
+        || value == "rebased" || value == "created" || value == "edited" \
+        || value == "commented" || value == "closed" || value == "reopened" \
+        || value == "ready" || value == "draft" \
+        || value == "auto-merge-enabled" || value == "auto-merge-disabled"
     }
     function accept_value() {
       if (depth == 0) {
@@ -17160,14 +17183,14 @@ emit_secret_free_post_tool_replacement() {
           | jq -r '.tool_name // empty' 2>/dev/null) || esf_tool=
       fi
       if [ -z "$esf_tool" ]; then
-        for esf_name in REPL Poll Bash Read Write Edit NotebookEdit Grep Glob Skill Monitor; do
+        for esf_name in REPL Eval Poll Bash Read Write Edit NotebookEdit Grep Glob Skill Monitor; do
           case "${HOOK_INPUT:-}" in
             *"\"tool_name\":\"$esf_name\""*) esf_tool=$esf_name; break ;;
           esac
         done
       fi
       case "$esf_tool" in
-        REPL) esf_shape='{"code":"[REDACTED]","result":"[REDACTED]","stdout":"[REDACTED]","stderr":"[REDACTED]"}' ;;
+        REPL|Eval) esf_shape='{"code":"[REDACTED]","result":"[REDACTED]","stdout":"[REDACTED]","stderr":"[REDACTED]"}' ;;
         Poll) esf_shape='{"content":"[REDACTED]","eventCount":0,"remainingWakeCount":0,"provenance":[]}' ;;
         Bash) esf_shape='{"stdout":"[REDACTED]","stderr":"","interrupted":false,"isImage":false,"noOutputExpected":false}' ;;
         Read) esf_shape='{"type":"text","file":{"filePath":"[REDACTED]","content":"[REDACTED]","numLines":1,"startLine":1,"totalLines":1}}' ;;
@@ -17181,8 +17204,9 @@ emit_secret_free_post_tool_replacement() {
         *) esf_shape='"[REDACTED]"' ;;
       esac
       # Only the Bash, REPL and Poll objects are known to pass the host check.
+      # Eval is the REPL tool under another name.
       case "$esf_tool" in
-        Bash|REPL|Poll|mcp__*) ;;
+        Bash|REPL|Eval|Poll|mcp__*) ;;
         *) POST_TOOL_SHAPE_KEPT=0 ;;
       esac
       printf '{"hookSpecificOutput":{"hookEventName":"PostToolUse","updatedToolOutput":%s}}\n' "$esf_shape"
@@ -17243,7 +17267,7 @@ claude_post_tool_shape() {
   POST_TOOL_SHAPE_KEPT=
   cps_tool=${tool:-}
   if [ -z "$cps_tool" ]; then
-    for cps_name in Read Write Edit MultiEdit NotebookEdit Grep; do
+    for cps_name in Read Write Edit MultiEdit NotebookEdit Grep Glob Skill Monitor Bash REPL Eval Poll; do
       case "${HOOK_INPUT:-}" in
         *"\"tool_name\":\"$cps_name\""*|*"\"tool_name\": \"$cps_name\""*)
           cps_tool=$cps_name; break ;;
@@ -17251,7 +17275,7 @@ claude_post_tool_shape() {
     done
   fi
   case "$cps_tool" in
-    Read|Write|Edit|MultiEdit|NotebookEdit|Grep) ;;
+    Read|Write|Edit|MultiEdit|NotebookEdit|Grep|Glob|Skill|Monitor|Bash|REPL|Eval|Poll) ;;
     *) return 0 ;;
   esac
   cps_out=
@@ -17262,7 +17286,8 @@ claude_post_tool_shape() {
         def at($p): try getpath($p) catch null;
         def word_key: . as $k
           | ["type","media_type","mimeType","mediaType","encoding","mode",
-             "cell_type"] | index([$k]) != null;
+             "cell_type","authority","stoppedBy","neverRan","status","kind",
+             "action"] | index([$k]) != null;
         if length != 2 then error("two documents expected") else . end
         | .[1] as $replacement
         | .[0].tool_response as $orig

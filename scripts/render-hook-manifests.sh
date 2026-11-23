@@ -32,7 +32,9 @@ CLAUDE_PRE_MATCHER='Write|Edit|MultiEdit|NotebookEdit|Read|NotebookRead|Grep|Glo
 # explicit; no tool is covered only because its name contains a listed token.
 # REPL and Poll are the Code Mode tools whose result is what the model reads:
 # REPL fires when a script ends or throws, Poll when its output is delivered.
-CLAUDE_POST_MATCHER='^(Write|Edit|MultiEdit|NotebookEdit|Bash|PowerShell|apply_patch|Read|NotebookRead|Grep|Glob|WebFetch|WebSearch|Agent|Task|Skill|Monitor|LSP|ListMcpResourcesTool|ReadMcpResourceTool|REPL|Poll|mcp__.*)$'
+# Eval is the REPL tool's other name in Claude Code 2.1.330 (its li() check);
+# no recorded transcript has an Eval event yet.
+CLAUDE_POST_MATCHER='^(Write|Edit|MultiEdit|NotebookEdit|Bash|PowerShell|apply_patch|Read|NotebookRead|Grep|Glob|WebFetch|WebSearch|Agent|Task|Skill|Monitor|LSP|ListMcpResourcesTool|ReadMcpResourceTool|REPL|Eval|Poll|mcp__.*)$'
 
 # Plugin command: the host exports a versioned plugin-cache root. The command
 # only finds a v1 launcher (hooks/launch.sh) in that root, then in `current`,

@@ -14,7 +14,21 @@ struct Spec {
 fn protected(key: Option<&str>, text: &str) -> bool {
     matches!(
         key,
-        Some("type" | "media_type" | "mimeType" | "mediaType" | "encoding" | "mode" | "cell_type")
+        Some(
+            "type"
+                | "media_type"
+                | "mimeType"
+                | "mediaType"
+                | "encoding"
+                | "mode"
+                | "cell_type"
+                | "authority"
+                | "stoppedBy"
+                | "neverRan"
+                | "status"
+                | "kind"
+                | "action"
+        )
     ) && matches!(
         text,
         "text"
@@ -47,6 +61,32 @@ fn protected(key: Option<&str>, text: &str) -> bool {
             | "count"
             | "code"
             | "markdown"
+            | "human-principal"
+            | "human-other"
+            | "peer-agent"
+            | "world-event"
+            | "user"
+            | "refusal"
+            | "person"
+            | "other"
+            | "modified"
+            | "added"
+            | "inline"
+            | "forked"
+            | "committed"
+            | "amended"
+            | "cherry-picked"
+            | "merged"
+            | "rebased"
+            | "created"
+            | "edited"
+            | "commented"
+            | "closed"
+            | "reopened"
+            | "ready"
+            | "draft"
+            | "auto-merge-enabled"
+            | "auto-merge-disabled"
     )
 }
 

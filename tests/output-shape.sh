@@ -10,11 +10,13 @@ set -u
 # the type of every value, those fields, every number and boolean, image bytes
 # and a file path equal to the one in tool_input, and must still drop the
 # planted value. Where a rewrite cannot keep the shape, stderr must not say the
-# output was masked.
+# output was masked. The fixed replacement each tool gets when nothing can
+# rewrite its output must fit that tool's output schema.
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 GUARD=${AGENT_GUARD_TEST_BINARY:-$ROOT/plugins/agent-guard/bin/agent-guard}
 FIXTURE=$ROOT/tests/fixtures/claude-output-shapes.json
+OUTPUTS=$ROOT/tests/fixtures/claude-tool-outputs.json
 CASE=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-output-shape.XXXXXX") || exit 1
 [ -n "$CASE" ] || exit 1
 CASE=$(CDPATH= cd -- "$CASE" && pwd -P) || exit 1
@@ -127,7 +129,7 @@ while [ "$index" -lt "$cases" ]; do
   done
   index=$((index + 1))
 done
-if [ "$cases" -ge 9 ]; then ok; else not_ok "output shape fixture lists $cases cases"; fi
+if [ "$cases" -ge 21 ]; then ok; else not_ok "output shape fixture lists $cases cases"; fi
 
 # The PDF page read that #612 saw: page images over the scan cap. The images
 # pass through like any other image bytes and only the page error is masked.
@@ -175,6 +177,64 @@ status=$?
 if [ "$status" -eq 2 ] && grep -q 'original output unchanged' "$CASE/err"; then ok; else
   not_ok "an unknown Read type under the closed policy: stderr says the original may get through (status $status)"
 fi
+
+# An enum value the guard does not know in a Code Mode result is masked with
+# the rest of a large output, so stderr must say the original may get through.
+for unknown in 'Poll delivers events from each authority|.tool_response.provenance[0].authority = "brand-new-authority"' \
+               'REPL stopped by a refusal|.tool_response.stoppedBy = "brand-new-reason"'; do
+  index=$(jq --arg l "${unknown%%|*}" '[.cases[].label] | index($l)' "$FIXTURE")
+  event "$index" output-shape-unknown-word large
+  jq -c "${unknown#*|}" "$CASE/event" >"$CASE/event.new" && mv "$CASE/event.new" "$CASE/event" || exit 1
+  run_post
+  status=$?
+  if [ "$status" -eq 0 ] && [ -s "$CASE/out" ] \
+     && ! grep -q 'masked secret-like values' "$CASE/err" \
+     && grep -q 'original output unchanged' "$CASE/err"; then ok; else
+    not_ok "${unknown%%|*} with an unknown enum value: stderr does not claim the output was masked (status $status)"
+  fi
+done
+
+# The fixed replacement for each tool, and the recorded output it stands in
+# for, must fit that tool's 2.1.330 output schema: every required field with
+# its kind, no key the schema lacks, and an allowed value in each enum field.
+# Eval is the REPL tool under another name.
+SCHEMA='def kind_ok($k): type as $t | $k == "any" or ($k | split("|") | index([$t])) != null;
+  def has_at($p): ($p | split(".")) as $q
+    | try (getpath($q[:-1]) | type == "object" and has($q[-1])) catch false;
+  def at($p): getpath($p | split("."));
+  . as $f
+  | ($schema.required | to_entries
+     | all(.key as $p | .value as $k | ($f | has_at($p)) and ($f | at($p) | kind_ok($k))))
+  and ($schema.optional | to_entries
+     | all(.key as $p | .value as $k | ($f | has_at($p) | not) or ($f | at($p) | kind_ok($k))))
+  and ($f | keys | all(. as $key | $schema.required + $schema.optional | has($key)))
+  and (($schema.words // {}) | to_entries
+     | all(.key as $p | .value as $vs | ($f | has_at($p) | not) or ($vs | index([$f | at($p)])) != null))'
+
+fits_schema() {  # TOOL JSON
+  jq -e -n --argjson f "$2" --slurpfile fx "$FIXTURE" --arg tool "$1" '
+    $fx[0].schemas[if $tool == "Eval" then "REPL" else $tool end] as $schema
+    | $schema != null and ($f | '"$SCHEMA"')' >/dev/null 2>&1
+}
+
+count=0
+for name in $(jq -r '.tools | keys[]' "$OUTPUTS"); do
+  count=$((count + 1))
+  for part in fixed output; do
+    doc=$(jq -c --arg tool "$name" --arg part "$part" '.tools[$tool][$part]' "$OUTPUTS") || exit 1
+    if fits_schema "$name" "$doc"; then ok; else
+      not_ok "$name $part fits the tool's output schema"
+    fi
+  done
+done
+if [ "$count" -ge 12 ]; then ok; else not_ok "outputs fixture lists $count tools"; fi
+for broken in 'Write|.type = "[REDACTED]"' 'Bash|del(.interrupted)' 'REPL|.stoppedBy = "[REDACTED]"' \
+              'Grep|.numFiles = "0"' 'Poll|.extra = 1'; do
+  doc=$(jq -c --arg tool "${broken%%|*}" ".tools[\$tool].fixed | ${broken#*|}" "$OUTPUTS") || exit 1
+  if fits_schema "${broken%%|*}" "$doc"; then
+    not_ok "the schema check rejects a ${broken%%|*} replacement where ${broken#*|}"
+  else ok; fi
+done
 
 printf 'output shape assertions: %s passed, %s failed\n' "$passed" "$failed"
 test "$failed" -eq 0
