@@ -15419,7 +15419,8 @@ secretish_env_values() {
     # quote state of the leaf is set aside around it, and a record the first
     # reading made is not made again. Only a key can follow the locator, so a
     # date or a clock time (`2026-08-02`, `12:30:00`) is not read twice.
-    function scan_line(line,   whole, n, copy, saved_quote, saved_open, saved_guard) {
+    function scan_line(line,   whole, n, copy, saved_quote, saved_open, saved_guard, \
+                       k, j, p, parts) {
       if (line_depth) { scan_line_once(line); return }
       whole = (open_quote == "" && !rescan_head)
       line_depth = 1
@@ -15428,10 +15429,23 @@ secretish_env_values() {
       line_depth = 0
       if (!whole || probe_found) return
       copy = line
-      n = locator_length(copy)
+      # A locator is short; the cap keeps locator_length off a long line.
+      n = locator_length(substr(copy, 1, 1024))
       if (n > 0 && substr(copy, n + 1, 1) ~ /^[A-Za-z_"'\''`]$/) copy = substr(copy, n + 1)
-      if (index(copy, "\\\"")) gsub(/\\"/, "\"", copy)
+      # Note where each unescaped quote lands in the copy, so that a quote
+      # the line had all along still reads as the end of its string.
+      split("", copy_escaped)
+      if (index(copy, "\\\"")) {
+        k = split(copy, parts, /\\"/)
+        p = 0
+        for (j = 1; j < k; j++) {
+          p += length(parts[j]) + 1
+          copy_escaped[p] = 1
+        }
+        gsub(/\\"/, "\"", copy)
+      }
       if (copy == line) return
+      copy_line = copy
       saved_quote = open_quote
       saved_open = open_value
       saved_guard = open_guard
@@ -15451,7 +15465,7 @@ secretish_env_values() {
                        colon_start, colon_length, start, matched_length, \
                        chose_colon, skip, status_guard, first, expansion, \
                        closed_value, key_opener, advance, advanced, head, \
-                       after_key) {
+                       after_key, quote_at) {
       rest = line
       advanced = rescan_head
       rescan_head = 0
@@ -15541,12 +15555,19 @@ secretish_env_values() {
             # The quote that opened the key closes right after the colon
             # (`{"text":"password:"}`): the string ends there with no value,
             # and reading that quote as the opener of a value would swallow the
-            # text after it. Not in the copy scan_line reads, whose quotes after
-            # the colon were escaped ones that open a value
-            # (`{"text":"password: \"<value>\""}`).
+            # text after it. In the copy scan_line reads, a quote that was
+            # escaped opens a value (`{"text":"password: \"<value>\""}`);
+            # where the copy is not what is read, the quote ends the string.
             after_key = substr(rest, start + matched_length)
             sub(/^[ \t]*/, "", after_key)
-            if (!copy_reading && substr(after_key, 1, 1) == first) skip = 1
+            if (substr(after_key, 1, 1) == first) {
+              quote_at = length(copy_line) - length(rest) \
+                + length(rest) - length(after_key) + 1
+              if (!copy_reading \
+                  || substr(copy_line, length(copy_line) - length(rest) + 1) != rest \
+                  || !(quote_at in copy_escaped))
+                skip = 1
+            }
           }
         }
         if (chose_colon && start > 1) {
