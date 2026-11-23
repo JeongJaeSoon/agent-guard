@@ -2506,9 +2506,11 @@ prepare_gitleaks() {
     # is the proof that gitleaks runs: a scan that fails is reported as a
     # failed scan. Only a timeout qualifies; a probe that ran and failed, or
     # found another version, is believed. Nothing is stored, so the next
-    # process probes again.
+    # process probes again, and the key is dropped so that no cached clean
+    # verdict answers in place of that scan.
     [ "$GITLEAKS_PROBE_STATE:$GITLEAKS_PROBE_DETAIL" = runtime-failure:timeout ] \
       && [ -n "$GITLEAKS_PROBE_CACHE_EXPIRED_VERSION" ] || return 1
+    GITLEAKS_PROBE_CACHE_KEY=
     GITLEAKS_PROBE_STATE=ready
     GITLEAKS_PROBE_VERSION=$GITLEAKS_PROBE_CACHE_EXPIRED_VERSION
     GITLEAKS_PROBE_DETAIL=
