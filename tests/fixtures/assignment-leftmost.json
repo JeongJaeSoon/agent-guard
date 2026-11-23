@@ -287,5 +287,17 @@
   "input": "{\"text\":\"password:\",    \"other\":\"say \\\"hello\\\"\"}",
   "values": [],
   "masked": "{\"text\":\"password:\",    \"other\":\"say \\\"hello\\\"\"}"
+ },
+ {
+  "id": "glued-short-tail-maps-in-context",
+  "input": "build ok\nAPI_KEY=''abc}\nnext step",
+  "values": [
+   {
+    "literal": "API_KEY=''abc}",
+    "replacement": "API_KEY=''[REDACTED]}",
+    "contextual": true
+   }
+  ],
+  "masked": "build ok\nAPI_KEY=''[REDACTED]}\nnext step"
  }
 ]

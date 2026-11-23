@@ -27,7 +27,7 @@ not_ok() { fail=$((fail + 1)); printf 'not ok - %s\n' "$1"; }
 # literal that reads as a quoted password.
 rnd=$(od -An -N8 -tu1 /dev/urandom | awk '{ printf "q7"; for (i = 1; i <= NF; i++) printf "%c", 97 + $i % 26 }')
 FIXTURE="$CASE/fixture.json"
-jq --arg r "$rnd" 'map(.input |= gsub("%R%"; $r) | .masked |= gsub("%R%"; $r) | .values |= map(gsub("%R%"; $r)))' \
+jq --arg r "$rnd" 'map(.input |= gsub("%R%"; $r) | .masked |= gsub("%R%"; $r) | .values |= map(if type == "string" then gsub("%R%"; $r) else . end))' \
   "$FIXTURE_SOURCE" >"$FIXTURE"
 count=$(jq 'length' "$FIXTURE")
 [ "$count" -gt 0 ]
