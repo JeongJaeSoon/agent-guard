@@ -49,23 +49,37 @@ is added) also names its own path.
 ## Optional warm gitleaks helper
 
 Each scan normally starts a new gitleaks process, and most of its time is
-start-up. The opt-in warm helper keeps one compiled gitleaks 8.30.1 detector
-in memory per user and config, shared by all sessions, and exits after ten
-idle minutes. It is not in any release archive; build it from a source
-checkout with Go and point the host's launch environment at the client:
+start-up. The warm helper keeps one compiled gitleaks 8.30.1 detector in
+memory per user and config, shared by all sessions, and exits after ten idle
+minutes. It is a separate release asset for Linux x64/arm64 and macOS arm64,
+not part of the release archive, Homebrew package or plugin. One command
+downloads it, for a plugin, Homebrew or standalone install alike:
 
 ```sh
-sh scripts/build-gitleaks-helper.sh "$HOME/.agent-guard/gitleaks-helper"
-export AGENT_GUARD_GITLEAKS_HELPER="$HOME/.agent-guard/gitleaks-helper/agent-guard-scan"
+agent-guard setup --install-gitleaks-helper
 ```
 
-Restart Claude or Codex afterwards. The CLI still makes every decision; any
-helper failure runs the real gitleaks, so it is never treated as a clean scan.
-The helper is skipped when `AGENT_GUARD_GITLEAKS_BIN` is set or
-`AGENT_GUARD_LOG_MODE=off`, and it answers only for the official gitleaks
-8.30.1 release binary; a gitleaks built with Go's `regexp` (Homebrew, `go
-install`) is always run for real. To turn it off, unset the variable and restart the
-host. The [warm gitleaks helper guide (English)](https://github.com/JeongJaeSoon/agent-guard/blob/main/docs/gitleaks-helper.md) covers
+The command installs the helper only when both of its binaries match the
+SHA-256 values built into this Agent Guard version, into `gitleaks-helper`
+beside the private gitleaks (`~/.agent-guard/bin` by default). Once installed it is used
+by default: no variable is needed, and a running host uses it from its next
+scan. Run the command again after you update Agent Guard; a helper installed
+for another version is not used. To turn it off:
+
+```sh
+export AGENT_GUARD_GITLEAKS_HELPER=off
+```
+
+The CLI still makes every decision; any helper failure runs the real gitleaks,
+so it is never treated as a clean scan. The helper is skipped when
+`AGENT_GUARD_GITLEAKS_BIN` is set or `AGENT_GUARD_LOG_MODE=off`, and it
+answers only for the official gitleaks 8.30.1 release binary, which
+`agent-guard setup --install` installs; a gitleaks built with Go's `regexp`
+(Homebrew, `go install`) is always run for real. `agent-guard setup` reports
+whether a helper is installed, not whether it answers for your gitleaks. To
+use your own source build instead, set
+`AGENT_GUARD_GITLEAKS_HELPER` to the absolute path of its `agent-guard-scan`.
+The [warm gitleaks helper guide (English)](https://github.com/JeongJaeSoon/agent-guard/blob/main/docs/gitleaks-helper.md) covers
 equivalence, failure handling, memory and privacy.
 
 ## Runtime dependencies

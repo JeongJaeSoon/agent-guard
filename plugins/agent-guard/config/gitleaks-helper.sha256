@@ -1,0 +1,11 @@
+# SHA-256 of the warm gitleaks helper binaries this Agent Guard version uses,
+# per platform. `agent-guard setup --install-gitleaks-helper` installs a
+# downloaded helper only when both files match, and the CLI runs an installed
+# helper only when it recorded these sums. The build is reproducible:
+# `sh scripts/build-gitleaks-helper.sh --print-pins` prints these lines.
+4122b23cb215e2b4f6fafeddcdaa5014764e5eb1de7ebae56530bc60a4a8db83  x86_64-unknown-linux-musl/agent-guard-gitleaks-helper
+0a7829d2c3a0f0e97898f8953fde03fea0aea10651d7913937ee484c69594546  x86_64-unknown-linux-musl/agent-guard-scan
+c9b0adb403ccf0d795103f6630990ac63b5c54c9db0e461751ae770462fc7800  aarch64-unknown-linux-musl/agent-guard-gitleaks-helper
+8415bb3e3619ff258c830f85bb745fedc2d298a088256f2c7c79cd3b99fa36c6  aarch64-unknown-linux-musl/agent-guard-scan
+ac42165bdd44bd05cd04c333632105294a9c346043833353448bc185443a82cb  aarch64-apple-darwin/agent-guard-gitleaks-helper
+d3844204356e54c2166cab9670db1201e4186168119a2b4460b3f3809c30fa20  aarch64-apple-darwin/agent-guard-scan
