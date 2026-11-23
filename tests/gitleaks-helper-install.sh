@@ -217,7 +217,9 @@ else
   # An explicit client that only fails, and one that would never return: the
   # status line names the path without running it.
   printf '#!/bin/sh\nprintf x >>"$AG_ROUTING_CALLS"\nexit 2\n' >"$CASE/failing-client"
-  printf '#!/bin/sh\nprintf x >>"$AG_ROUTING_CALLS"\nwhile :; do sleep 1; done\n' >"$CASE/hanging-client"
+  # exec keeps one process, whose ID the stand-in records for the cleanup below.
+  printf '#!/bin/sh\nprintf x >>"$AG_ROUTING_CALLS"\necho "$$" >>"%s"\nexec sleep 600\n' "$CASE/client-pids" >"$CASE/hanging-client"
+  : >"$CASE/client-pids"
   chmod 755 "$CASE/failing-client" "$CASE/hanging-client"
   for client in failing-client hanging-client; do
     : >"$CALLS"
@@ -230,8 +232,10 @@ else
     returned=1
     if kill -0 "$setup_pid" 2>/dev/null; then
       returned=0
-      pkill -f "$CASE/$client" 2>/dev/null
+      # Stop what this test started, by process ID: setup, and the client it
+      # ran (the stand-in records its own ID).
       kill "$setup_pid" 2>/dev/null
+      while IFS= read -r client_pid; do kill "$client_pid" 2>/dev/null; done <"$CASE/client-pids"
     fi
     wait "$setup_pid" 2>/dev/null
     expect "setup with a $client returns without running it and does not call it answering" \
@@ -239,6 +243,28 @@ else
        && grep -q "gitleaks helper  selected  (AGENT_GUARD_GITLEAKS_HELPER: $CASE/$client" "$CASE/s.err" \
        && ! grep -Eq "gitleaks helper  (on|installed)" "$CASE/s.err"'
   done
+fi
+
+# The private directory follows the gitleaks one: AGENT_GUARD_GITLEAKS_BIN_DIR,
+# else AGENT_GUARD_BIN_DIR, else ~/.agent-guard/bin. With only the second set,
+# the helper is installed under it, and found there.
+if [ -z "$REAL_GITLEAKS" ]; then
+  cp "$CASE/good.tar.gz" "$CASE/download/$asset"
+  (
+    unset AGENT_GUARD_GITLEAKS_BIN_DIR
+    export AGENT_GUARD_BIN_DIR="$CASE/other-bin"
+    "$GUARD" setup --install-gitleaks-helper >"$CASE/o.out" 2>"$CASE/o.err"
+    echo "$?" >"$CASE/o.status"
+    : >"$CALLS"
+    (cd "$CASE/work" && pre "echo $secret" | "$GUARD" hook-pre-tool >/dev/null 2>&1)
+    echo "$?" >"$CASE/o.hook"
+  )
+  expect "with only AGENT_GUARD_BIN_DIR set the helper is installed under it, not under the home directory" \
+    '[ "$(cat "$CASE/o.status")" = 0 ] && [ -x "$CASE/other-bin/gitleaks-helper/agent-guard-scan" ] \
+     && (cd "$CASE/other-bin/gitleaks-helper" && shasum -a 256 -c SHA256SUMS >/dev/null 2>&1) \
+     && [ ! -e "$CASE/home/.agent-guard/bin/gitleaks-helper" ]'
+  expect "and scans use the helper installed there, with the same deny" \
+    '[ "$(cat "$CASE/o.hook")" = "$missing_status" ] && grep -qF -- "--gitleaks|$CASE/bin/gitleaks|" "$CALLS"'
 fi
 
 # A later download that fails the pins leaves the installed helper as it was.

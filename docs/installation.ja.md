@@ -1,4 +1,4 @@
-<!-- translated-from: docs/installation.md; source-blob: 98f353b1496296ea71fd10fcaf6f667056590638 -->
+<!-- translated-from: docs/installation.md; source-blob: bfa631b864a8f2e3e127dcfe20565b47b3ddca81 -->
 
 <a id="installing-agent-guard"></a>
 
@@ -52,7 +52,7 @@ agent-guard setup --install-gitleaks-helper
 
 このコマンドは、2つのバイナリがこのAgent Guardバージョンに組み込まれたSHA-256値と
 どちらも一致する場合にだけhelperをインストールします。場所はprivateなgitleaks
-（`~/.agent-guard/bin`）の隣の `gitleaks-helper` です。インストールすると既定で
+（既定では `~/.agent-guard/bin`）の隣の `gitleaks-helper` です。インストールすると既定で
 使われます。変数は不要で、実行中のhostも次のスキャンから使います。Agent Guardを
 更新した後はコマンドをもう一度実行してください。別のバージョン用にインストール
 されたhelperは使われません。無効にするには次のようにします。

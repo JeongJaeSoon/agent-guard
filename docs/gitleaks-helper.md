@@ -52,8 +52,9 @@ after publication is therefore refused, and so is one for another version.
 Nothing is installed on any failure, and an earlier installed helper is left
 as it was.
 
-The files go to `gitleaks-helper` beside the private gitleaks
-(`~/.agent-guard/bin`, or `AGENT_GUARD_GITLEAKS_BIN_DIR`), with the two sums
+The files go to `gitleaks-helper` in the private gitleaks directory
+(`AGENT_GUARD_GITLEAKS_BIN_DIR`, else `AGENT_GUARD_BIN_DIR`, else
+`~/.agent-guard/bin`), with the two sums
 recorded in `SHA256SUMS`. From then on every scan uses the helper: no
 variable is needed and a running host uses it from its next scan. The CLI
 runs an installed helper only when its recorded sums are the ones the CLI

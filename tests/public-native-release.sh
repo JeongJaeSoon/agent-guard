@@ -54,11 +54,13 @@ AGENT_GUARD_VERSION="$version" sh "$case_dir/download/bootstrap.sh" > "$out/fres
 "$AGENT_GUARD_BIN_DIR/agent-guard" version | grep -F "agent-guard $version"
 "$AGENT_GUARD_BIN_DIR/agent-guard" smoke-test >> "$out/fresh.log" 2>&1
 # The published warm gitleaks helper installs under the pins of the published
-# CLI and starts for the official gitleaks on this runner.
+# CLI. This checks the download and the install; whether it answers scans is
+# covered by the release workflow's own run from the same archive.
 AGENT_GUARD_LOG_MODE=on XDG_STATE_HOME="$case_dir/home/state" \
   "$AGENT_GUARD_BIN_DIR/agent-guard" setup --install-gitleaks-helper > "$out/gitleaks-helper.log" 2>&1
 grep -F 'gitleaks helper  installed' "$out/gitleaks-helper.log"
-(cd "$case_dir/home/.agent-guard/bin/gitleaks-helper" && shasum -a 256 -c SHA256SUMS) >> "$out/gitleaks-helper.log"
+# The helper goes beside the private gitleaks, which follows AGENT_GUARD_BIN_DIR here.
+(cd "$AGENT_GUARD_BIN_DIR/gitleaks-helper" && shasum -a 256 -c SHA256SUMS) >> "$out/gitleaks-helper.log"
 curl -fsSL "https://github.com/JeongJaeSoon/agent-guard/releases/download/v$previous/bootstrap.sh" -o "$case_dir/old-bootstrap.sh"
 printf '%s  %s\n' "$previous_bootstrap_sha" "$case_dir/old-bootstrap.sh" | shasum -a 256 -c -
 export AGENT_GUARD_HOME="$case_dir/upgrade" AGENT_GUARD_BIN_DIR="$case_dir/upgrade-bin"

@@ -61,7 +61,7 @@ agent-guard setup --install-gitleaks-helper
 
 The command installs the helper only when both of its binaries match the
 SHA-256 values built into this Agent Guard version, into `gitleaks-helper`
-beside the private gitleaks (`~/.agent-guard/bin`). Once installed it is used
+beside the private gitleaks (`~/.agent-guard/bin` by default). Once installed it is used
 by default: no variable is needed, and a running host uses it from its next
 scan. Run the command again after you update Agent Guard; a helper installed
 for another version is not used. To turn it off:
