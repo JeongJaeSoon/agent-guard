@@ -66,8 +66,11 @@ ACC=agent-access-team-only
 TOK=api-token-rotation
 P=$(printf '%s%s' to ken)
 LEASE="git push --force-with-lease"
+# A keyword branch longer than nine characters, as in #503's report.
+KC=team/keycloak-login-flow
 
-# $1 host, $2 expected status, $3 label, $4 Bash command.
+# $1 host, $2 expected status, $3 label, $4 Bash command, $5 the block
+# message expected (default: the shell command scan's).
 pre_case() {
   n=$((n + 1))
   jq -nc --arg c "$4" --arg d "$CASE/cwd" --arg s "lease-$n" \
@@ -76,8 +79,8 @@ pre_case() {
   status=$?
   if [ "$status" -ne "$2" ]; then
     not_ok "$1 PreToolUse: $3 (expected $2, got $status)"
-  elif [ "$2" -eq 2 ] && ! grep -q 'secret-like value detected in shell command' "$CASE/err"; then
-    not_ok "$1 PreToolUse: $3 (blocked without the shell command scan message)"
+  elif [ "$2" -eq 2 ] && ! grep -q "${5:-secret-like value detected in shell command}" "$CASE/err"; then
+    not_ok "$1 PreToolUse: $3 (blocked without the expected message)"
   else
     ok "$1 PreToolUse: $3"
   fi
@@ -117,6 +120,12 @@ for host in claude codex; do
   both "$host" 0 'scoped commit message and lease' "git commit -m \"fix(scope): tighten lease check\" && $LEASE=$ACC:$SHA2 origin HEAD"
   both "$host" 0 'commit message with a comma and lease' "git commit -m \"fix(scope): tighten, then check\" && $LEASE=$ACC:$SHA1 origin HEAD"
   both "$host" 0 'lease then prose with a colon' "$LEASE=$ACC:$SHA1 origin HEAD && echo done: ok, yes"
+  # The refspec usually pushed with the lease (#503): `<remote> HEAD:<ref>`
+  # right after it, whatever the length of the ref name.
+  both "$host" 0 'lease, remote and HEAD:<keyword branch>' "$LEASE=$KC:$SHA1 origin HEAD:$KC"
+  both "$host" 0 'lease, remote and HEAD:<access branch>' "$LEASE=$ACC:$SHA1 origin HEAD:$ACC"
+  both "$host" 0 'lease, remote and +HEAD:refs/heads/<branch>' "$LEASE=$TOK:$SHA2 origin +HEAD:refs/heads/$TOK"
+  both "$host" 0 'commit, then lease with a refspec' "git commit -m \"fix: tighten lease check\" && $LEASE=$KC:$SHA1 origin HEAD:$KC"
 
   both "$host" 2 'access_token: hex' "access_$P: $OTHER"
   both "$host" 2 'api_token=hex' "api_$P=$OTHER"
@@ -128,6 +137,16 @@ for host in claude codex; do
   both "$host" 2 'real-looking value inside the commit message' "git commit -m \"$P: $OTHER\" && $LEASE=$ACC:$SHA1 origin HEAD"
   both "$host" 2 'lease then a header with a key' "git commit -m \"fix: x\" && $LEASE=$ACC:$SHA1 origin HEAD && curl -H \"X-Api-Key: $OTHER\" https://example.invalid"
   both "$host" 2 'comma form after a commit message' "git commit -m \"fix: $P, $OTHER\" && $LEASE=$ACC:$SHA1 origin HEAD"
+  both "$host" 2 'refspec then a keyword assignment' "$LEASE=$KC:$SHA1 origin HEAD:$KC; api_$P=$OTHER"
+  both "$host" 2 'keyword name and value in the refspec' "$LEASE=$KC:$SHA1 origin access_$P:$OTHER"
+  both "$host" 2 'value after the refspec' "$LEASE=$KC:$SHA1 origin HEAD:$KC $P:$OTHER"
+  # A credential in a URL is the URL deny pattern's to block; the line
+  # allowlist must not reach it.
+  pre_case "$host" 2 'token in the push URL' "git push https://x-access-$P:$OTHER@example.invalid/o/r.git HEAD:$KC" 'by deny pattern'
+  pre_case "$host" 2 'token in the push URL after a lease' "$LEASE=$KC:$SHA1 https://x-access-$P:$OTHER@example.invalid/o/r.git HEAD:$KC" 'by deny pattern'
+  prompt_case "$host" 2 'token in the push URL after a lease' "the subagent ran $LEASE=$KC:$SHA1 https://x-access-$P:$OTHER@example.invalid/o/r.git HEAD:$KC"
+  both "$host" 2 'token in a git -C commit message' "git -C $CASE/cwd commit -m \"fix: rotate api_$P=$OTHER\""
+  both "$host" 2 'token in a git commit message' "git commit -m \"$P: $OTHER\""
 done
 
 # Shape boundaries go through scan-path with the real scanner: the hooks let
@@ -178,6 +197,11 @@ scan_case 1 'two-argument spelling that git does not accept' "$LEASE $ACC:$SHA1 
 scan_case 1 'other flag with a keyword name and hex' "git push --force-if-includes=$ACC:$SHA1 origin HEAD"
 scan_case 1 'keyword name and hex without the flag' "echo $ACC:$SHA1"
 scan_case 1 'compact keyword key and hex' "access-$P:$SHA1"
+scan_case 0 'lease, remote and HEAD:<keyword branch>' "$LEASE=$KC:$SHA1 origin HEAD:$KC"
+scan_case 1 'refspec then a keyword assignment' "$LEASE=$KC:$SHA1 origin HEAD:$KC; api_$P=$OTHER"
+scan_case 1 'keyword name and value in the refspec' "$LEASE=$KC:$SHA1 origin access_$P:$OTHER"
+scan_case 1 'refspec ref with a value after a colon' "$LEASE=$KC:$SHA1 origin HEAD:$KC:$OTHER"
+scan_case 1 'URL remote with a token before HEAD:<ref>' "$LEASE=$KC:$SHA1 https://x-access-$P:$OTHER@example.invalid/r HEAD:$KC"
 
 printf '%s force-with-lease checks, %s failed\n' "$((pass + fail))" "$fail"
 [ "$fail" -eq 0 ]

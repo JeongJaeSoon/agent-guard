@@ -6795,6 +6795,28 @@ message_value_records() {
       for (j = 1; j <= n; j++) if (word[j] ~ /[<>]/) return 0
       return 1
     }
+    # The index of the git subcommand after the global options that only move
+    # git (-C <dir>) or set one config value (-c <name>=<value>) (#500); 0
+    # when another option comes first. An alias is not taken: git ignores one
+    # that hides a builtin, but the line is read as written.
+    function git_sub_at(   j) {
+      if (word[1] != "git") return 0
+      for (j = 2; j < n && word[j] ~ /^-[Cc]$/; j += 2)
+        if (substr(word[j + 1], 1, 1) == "-" || word[j] == "-c" && tolower(word[j + 1]) ~ /^alias\./) return 0
+      return j
+    }
+    # git commit opens the editor on the message for -e or --edit (or an
+    # abbreviation), before or after a pathspec, and an editor such as
+    # core.editor=sh runs that file, so the message is then not data.
+    function git_edits(   j, w) {
+      for (j = gc + 1; j <= n; j++) {
+        w = word[j]
+        if (w == "--") return 0
+        if (w ~ /^(-m|--message)$/ || w ~ /^-[aqsvn]+m$/) { j++; continue }
+        if (w ~ /^--e(d(it?)?)?$/ || w ~ /^-[A-Za-z]*e/) return 1
+      }
+      return 0
+    }
     function gh_message() {
       return word[1] == "gh" && (word[2] ~ /^(pr|issue)$/ && word[3] ~ /^(create|comment|edit)$/ || word[2] == "pr" && word[3] == "review")
     }
@@ -6807,7 +6829,7 @@ message_value_records() {
       if (word[1] == "orca" && word[2] == "bot" && word[3] == "item" && word[4] == "comment") return "|--text|"
       if (word[1] == "orca" && word[2] == "bot" && word[3] == "reply") return "|--text|"
       if (gh_message()) return "|-t|--title|-b|--body|"
-      if (word[1] == "git" && word[2] == "commit") return "|-m|--message|"
+      if (gc && word[gc] == "commit") return "|-m|--message|"
       return ""
     }
     # The options of this segment whose value is a file it sends as a body.
@@ -6843,12 +6865,12 @@ message_value_records() {
       # message command may replace it before it runs.
       if (pipe_target && !(all && inert())) bail()
       before = length(out)
-      topts = ""; fopts = ""
+      topts = ""; fopts = ""; gc = git_sub_at()
       if (all && kind[1] == "0") { topts = text_options(); fopts = file_options() }
       commit = topts ~ /-m\|/
       if (ok || commit && ok_commit) {
         if (cli && topts fopts != "") cli_ok++
-        for (j = (commit ? 3 : 2); topts fopts != "" && j <= n; j++) {
+        for (j = (commit ? gc + 1 : 2); topts fopts != "" && j <= n; j++) {
           w = word[j]
           if (w == "--") break
           if (index(topts, "|" w "|") || commit && w ~ /^-[aqsvn]+m$/) {
@@ -6863,6 +6885,7 @@ message_value_records() {
           }
           if (commit && !git_flag(w)) break
         }
+        if (commit && git_edits()) out = substr(out, 1, before)
       }
       # What this segment leaves for the ones after it.
       if (all && inert()) ;
