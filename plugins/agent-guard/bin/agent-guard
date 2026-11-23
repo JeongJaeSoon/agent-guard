@@ -15450,7 +15450,8 @@ secretish_env_values() {
     function scan_line_once(line, rest, end, low, eq_start, eq_length, \
                        colon_start, colon_length, start, matched_length, \
                        chose_colon, skip, status_guard, first, expansion, \
-                       closed_value, key_opener, advance, advanced, head) {
+                       closed_value, key_opener, advance, advanced, head, \
+                       after_key) {
       rest = line
       advanced = rescan_head
       rescan_head = 0
@@ -15533,9 +15534,21 @@ secretish_env_values() {
           if (key_opener != "\"" && key_opener != "'\''" && key_opener != "`")
             skip = 1
         }
-        if (chose_colon && start > 1 && index("\"'\''`", first) \
-            && substr(rest, start - 1, 1) != ":")
-          skip = 1
+        if (chose_colon && start > 1 && index("\"'\''`", first)) {
+          if (substr(rest, start - 1, 1) != ":")
+            skip = 1
+          else {
+            # The quote that opened the key closes right after the colon
+            # (`{"text":"password:"}`): the string ends there with no value,
+            # and reading that quote as the opener of a value would swallow the
+            # text after it. Not in the copy scan_line reads, whose quotes after
+            # the colon were escaped ones that open a value
+            # (`{"text":"password: \"<value>\""}`).
+            after_key = substr(rest, start + matched_length)
+            sub(/^[ \t]*/, "", after_key)
+            if (!copy_reading && substr(after_key, 1, 1) == first) skip = 1
+          }
+        }
         if (chose_colon && start > 1) {
           # `\r` belongs with space and tab here, or the guard misses the shape
           # the delimiter widening just made reachable: with a carriage return
