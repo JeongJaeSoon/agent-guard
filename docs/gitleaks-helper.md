@@ -253,34 +253,60 @@ to disk or sent over the network. See [PRIVACY.md](../PRIVACY.md).
 ## Measured cost
 
 macOS 27 on an Apple M5 Max (18 cores), official gitleaks 8.30.1, synthetic
-inputs under a temporary home directory, 30 runs for each hook and mode. Other
-work kept the machine heavily loaded for the whole run (load average 26 at the
-start and 46 to 54 at the end), so wall-clock times were several times what an
-idle machine gives; an idle-machine run is still missing. The table gives CPU
-time instead: the hook's and that of every process it waited for, which
-excludes the helper. Median, in milliseconds:
+inputs under a temporary home directory. Other work kept the machine loaded
+for every run (load average 40 to 44 during the latency run), so wall-clock
+times are above what an idle machine gives; an idle-machine run is still
+missing.
+
+Hook latency, 30 iterations for each hook. Each iteration ran the hook with
+the helper off, as a first call (no helper running) and warm, one after the
+other, and the order alternated, so the three modes share the same load.
+Wall-clock milliseconds, median / 95th percentile:
 
 | Hook | Off | First call | Warm |
 | --- | ---: | ---: | ---: |
-| Bash PreToolUse | 765 | 809 | 497 |
-| Edit PreToolUse | 539 | 551 | 260 |
-| UserPromptSubmit | 590 | 586 | 300 |
-| PostToolUse Read (clean tree) | 804 | 802 | 513 |
-| PostToolUse Bash (changed tree) | 1731 | 1115 | 861 |
-| PostToolUse Edit (changed tree) | 1785 | 1255 | 902 |
-| Write PreToolUse (synthetic secret) | 528 | 523 | 241 |
+| Bash PreToolUse | 695 / 1093 | 731 / 995 | 407 / 637 |
+| Edit PreToolUse | 515 / 654 | 530 / 676 | 236 / 353 |
+| UserPromptSubmit | 586 / 725 | 628 / 818 | 269 / 481 |
+| PostToolUse Read (clean tree) | 811 / 1090 | 889 / 1336 | 517 / 931 |
+| PostToolUse Bash (changed tree) | 1886 / 2871 | 1217 / 1684 | 925 / 1195 |
+| PostToolUse Edit (changed tree) | 2869 / 5014 | 1724 / 2801 | 1150 / 1649 |
+| Write PreToolUse (synthetic secret) | 652 / 1268 | 724 / 1286 | 264 / 461 |
 
-- Off and warm runs alternated; first calls ran in a separate block. A first
-  call scans with the real gitleaks and starts the helper. In a changed tree
-  its later scans are answered by the helper it just started.
-- One gitleaks start costs about 270 to 290 ms of CPU time here, three of them
-  in a hook that also scans the changed tree.
-- In every hook the warm wall-clock median and 95th percentile were below the
-  off ones. Exit codes were the same in all three modes.
-- Every warm run was answered by the helper, and every first call ran the
-  real gitleaks and started one helper (the client's trace words).
+The difference to off inside the same iteration (median, milliseconds), and
+in how many of the 30 iterations the mode was slower than off:
 
-Memory, one helper process:
+| Hook | First call | Slower | Warm | Slower |
+| --- | ---: | ---: | ---: | ---: |
+| Bash PreToolUse | -5 | 14 | -309 | 0 |
+| Edit PreToolUse | +19 | 19 | -278 | 0 |
+| UserPromptSubmit | +15 | 18 | -281 | 0 |
+| PostToolUse Read (clean tree) | +71 | 21 | -297 | 2 |
+| PostToolUse Bash (changed tree) | -668 | 1 | -980 | 0 |
+| PostToolUse Edit (changed tree) | -1050 | 1 | -1821 | 0 |
+| Write PreToolUse (synthetic secret) | +4 | 15 | -397 | 0 |
+
+- A first call scans with the real gitleaks and starts the helper in the
+  background; the hook does not wait for it. In a hook with one scan the
+  first call was 5 ms faster to 71 ms slower than off at the median, with
+  single iterations several hundred milliseconds either way. In a changed
+  tree the hook's later scans are answered by the helper it just started, so
+  the first call was already faster than off.
+- Starting a helper costs about one gitleaks start-up of CPU time in the
+  background, once per idle period. It is not in the hook's time.
+- CPU time of the hook and every process it waited for (the helper is not
+  one), median: a warm hook used about 250 ms less than off for each scan
+  (112 to 231 ms instead of 359 to 479 ms with one scan, 384 to 455 ms instead
+  of 1125 to 1240 ms in a changed tree). A first call with one scan used the
+  same as off, within 7 ms.
+- Exit codes were the same in all three modes. Every warm run was answered by
+  the helper, and every first call ran the real gitleaks and started exactly
+  one helper (the client's trace words); no run was left out.
+- An earlier run under heavier load (load average 26 to 54, first calls in a
+  block of their own) had off medians of 1.3 to 8.9 s. Warm was below off
+  there too, at the median and the 95th percentile of every hook.
+
+Memory, one helper process (from the earlier run):
 
 | State | Resident | Footprint |
 | --- | ---: | ---: |
