@@ -10222,7 +10222,9 @@ AWK_READ_OPERAND_RECORDS='
       if (eq) { nm = substr(w, 1, eq - 1); v = substr(w, eq + 1) }
       if (index(popt[prog], " " nm " ")) patdone = 1
       if (index(fopt[prog], " " nm " ")) { if (eq) operand(v); else fnext = 1; return }
+      if (prog == "cp" && nm == "--target-directory") cpt = 1
       if (eq) return
+      if (prog == "jq" && nm ~ /^--(args|jsonargs)$/) { jqdata = 1; return }
       if (prog == "jq" && nm ~ /^--(arg|argjson)$/) { skipn = 2; return }
       if (prog == "jq" && nm ~ /^--(slurpfile|rawfile)$/) { skipn = 1; fnext = 1; return }
       if (index(vopt[prog], " " nm " ")) skipn = 1
@@ -10249,7 +10251,7 @@ AWK_READ_OPERAND_RECORDS='
     }
     if (prog == "cp" && cppend != "" && cpt) operand(cppend)
     npa = 0; cpos = 1; cmdseen = 0; prog = ""; mode = ""; ddash = 0; patdone = 0
-    skipn = 0; fnext = 0; redir = 0; skipw = 0; cppend = ""; cpt = 0; wrap = ""; gotone = 0
+    skipn = 0; fnext = 0; redir = 0; skipw = 0; cppend = ""; cpt = 0; wrap = ""; gotone = 0; jqdata = 0
   }
   function assign(w, now,   nm, v) {
     nm = substr(w, 1, index(w, "=") - 1); sub(/\[.*/, "", nm)
@@ -10267,7 +10269,7 @@ AWK_READ_OPERAND_RECORDS='
     # Options whose value is not a file.
     vopt["head"] = vopt["tail"] = " -n -c --lines --bytes "
     vopt["grep"] = vopt["egrep"] = vopt["fgrep"] = " -e -m -A -B -C -D -d --regexp --max-count --context --after-context --before-context --label --include --exclude --exclude-dir "
-    vopt["rg"] = " -e -m -A -B -C -g -t -T -M -j -E --regexp --max-count --glob --iglob --type --type-not --context --after-context --before-context --max-columns --threads --sort --sortr --encoding -r --replace --pre --pre-glob "
+    vopt["rg"] = " -e -m -A -B -C -g -t -T -M -j -E --regexp --max-count --glob --iglob --type --type-not --context --after-context --before-context --max-columns --threads --sort --sortr --encoding -r --replace --pre --pre-glob -d --max-depth --color --colors --context-separator --field-context-separator --field-match-separator --path-separator --dfa-size-limit --regex-size-limit --max-filesize --engine --type-add --type-clear --hostname-bin --hyperlink-format --generate "
     vopt["sed"] = " -e --expression -l "
     vopt["awk"] = vopt["gawk"] = vopt["mawk"] = vopt["nawk"] = " -F -v --field-separator --assign "
     vopt["cut"] = " -d -f -c -b --delimiter --fields --characters --bytes "
@@ -10279,7 +10281,7 @@ AWK_READ_OPERAND_RECORDS='
     vopt["xxd"] = " -l -s -c -g -o "; vopt["od"] = " -A -t -N -j -w "
     vopt["hexdump"] = " -n -s -e "; vopt["strings"] = " -n -t "
     vopt["base64"] = vopt["base32"] = " -w -b -o "
-    vopt["diff"] = " -U -C --label "; vopt["cp"] = " -t -S "
+    vopt["diff"] = " -U -C --label "; vopt["cp"] = " -t -S --target-directory --suffix "
     vopt["bat"] = vopt["batcat"] = " -l -H -r --language --line-range --highlight-line --style --theme "
     vopt["jq"] = " --indent "
     # Options whose value is a file the program reads.
@@ -10352,9 +10354,11 @@ AWK_READ_OPERAND_RECORDS='
     if (!ddash && w == "--") { ddash = 1; next }
     if (!ddash && w ~ /^-./) { option(w); next }
     if (patfirst[prog] && !patdone) { patdone = 1; next }
+    # After jq --args or --jsonargs, the words after the filter are data.
+    if (jqdata) next
     if (prog == "cp" && !cpt) { if (cppend != "") operand(cppend); cppend = w; next }
-    # uniq and xxd write a second operand.
-    if (prog ~ /^(uniq|xxd)$/) { if (gotone) next; gotone = 1 }
+    # uniq and xxd write a second operand; source passes the rest to the script.
+    if (prog ~ /^(uniq|xxd|source|\.)$/) { if (gotone) next; gotone = 1 }
     operand(w)
   }
   END { end_segment() }
