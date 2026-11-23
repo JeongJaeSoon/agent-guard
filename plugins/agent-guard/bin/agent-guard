@@ -10279,7 +10279,7 @@ AWK_READ_OPERAND_RECORDS='
     if (clearafter) for (k in tab) delete tab[k]
     clearafter = 0
     npa = 0; cpos = 1; cmdseen = 0; prog = ""; mode = ""; ddash = 0; patdone = 0
-    skipn = 0; fnext = 0; redir = 0; skipw = 0; cppend = ""; cpt = 0; wrap = ""; gotone = 0; jqdata = 0
+    skipn = 0; fnext = 0; redir = 0; skipw = 0; cppend = ""; cpt = 0; wrap = ""; gotone = 0; jqdata = 0; sedi = 0
   }
   function assign(w, now,   nm, v, add) {
     nm = substr(w, 1, index(w, "=") - 1); sub(/\[.*/, "", nm)
@@ -10314,7 +10314,7 @@ AWK_READ_OPERAND_RECORDS='
     vopt["column"] = " -s -c -o -N "
     vopt["xxd"] = " -l -s -c -g -o "; vopt["od"] = " -A -t -N -j -w "
     vopt["hexdump"] = " -n -s -e "; vopt["strings"] = " -n -t "
-    vopt["base64"] = vopt["base32"] = " -w -b -o "
+    vopt["base64"] = vopt["base32"] = " -w -b -o --wrap --break --output "
     vopt["cmp"] = " -i -n --ignore-initial --bytes "
     vopt["diff"] = " -U -C -L -x -I -F --label --exclude --ignore-matching-lines --show-function-line --horizon-lines "; vopt["cp"] = " -t -S --target-directory --suffix "
     vopt["bat"] = vopt["batcat"] = " -l -H -r --language --line-range --highlight-line --style --theme "
@@ -10350,7 +10350,7 @@ AWK_READ_OPERAND_RECORDS='
     if (mode == "cmp") { if (w == "]]") mode = "skip"; next }
     if (mode == "arith") { if (w ~ /\)\)$/) mode = "skip"; next }
     if (skipw) { skipw--; next }
-    if (redir) { redir = 0; operand(w); next }
+    if (redir) { redir = 0; if (w !~ /^[<>]\(/) operand(w); next }
     if (w ~ /^[0-9]*<<[-<]?$/) { skipw = 1; next }
     if (w ~ /^[0-9]*<</) next
     if (w ~ /^[0-9]*<>?$/) { redir = 1; next }
@@ -10375,12 +10375,16 @@ AWK_READ_OPERAND_RECORDS='
       # Options of a wrapper that take the next word as their value.
       if (w ~ /^-/ && index(wvopt[wrap], " " w " ")) { skipw = 1; next }
       if (wrap == "env" && w ~ /^(-S|--split-string)$/) { mode = "evalnext"; cpos = 0; cmdseen = 1; next }
+      if (wrap == "env" && w ~ /^[A-Za-z_][A-Za-z0-9_]*=/) { delete tab[substr(w, 1, index(w, "=") - 1)]; next }
       if (wrap == "env" && (w ~ /^-/ || w ~ /=/)) next
       if (wrap != "" && w ~ /^-/) next
       if (wrap == "timeout") { wrap = "timeout1"; next }
       n = name_of(w)
       if (n ~ /^(command|builtin|exec|nohup|sudo|doas|nice|env|stdbuf|timeout)$/) { wrap = n; next }
       cpos = 0; cmdseen = 1; wrap = ""
+      # Assignments before the command are its environment, which code it
+      # runs (sh -c, eval) reads; their values are not followed there.
+      for (k = 1; k <= npa; k++) delete tab[pan[k]]
       if (w ~ /[$`]/) next
       if (n ~ /^(export|readonly|local|declare|typeset)$/) { mode = "decl"; decl = n; next }
       if (n ~ /^(unset|read|mapfile|readarray|getopts)$/) { mode = "forget"; next }
@@ -10421,6 +10425,9 @@ AWK_READ_OPERAND_RECORDS='
     if (index(ow, "\002")) ow = w
     else forcev = subst
     if (!ddash && ow == "--") { forcev = 0; ddash = 1; next }
+    # BSD sed takes the backup suffix of -i as the next word, often ''.
+    if (!ddash && prog == "sed" && ow == "-i") { sedi = 1; forcev = 0; next }
+    if (sedi) { sedi = 0; if (ow == "") next }
     if (!ddash && ow ~ /^-./) { option(ow); forcev = 0; next }
     forcev = 0
     if (patfirst[prog] && !patdone) { patdone = 1; next }

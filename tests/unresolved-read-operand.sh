@@ -123,6 +123,8 @@ check 2 "env -S code with a variable operand" "env -S 'cat \"\$F\"'"
 check 2 "eval code assembled into a protected name" 'f=.e; eval "cat ${f}nv"'
 check 2 "sh -c code assembled into a protected name" 'f=.e; sh -c "cat ${f}nv"'
 check 2 "a resolved option names a protected pattern file" 'o=--file=.e; grep "${o}nv" README.md'
+check 2 "env override reaches nested code" "f=README.md; env f=\"\$X\" sh -c 'cat \"\$f\"'"
+check 2 "a prefix assignment reaches nested code" "f=README.md; f=\"\$X\" sh -c 'cat \"\$f\"'"
 check 2 "rg search root from a substitution" 'rg -n x "$(git rev-parse --show-toplevel)"'
 check 2 "the working directory before a protected name" 'cat "$(pwd)/.e""nv"'
 check 2 "PWD before a protected name" 'cat "$PWD/.e""nv"'
@@ -177,6 +179,9 @@ MODES=
 check 0 "env with an unset option and a literal read" 'env -u OTHER cat README.md'
 check 0 "a resolved name of an env template" 'f=.e; cat "${f}nv.example"'
 check 0 "a resolved option" 'opt=-e; grep "$opt" "$PAT" README.md'
+check 0 "input redirect from a process substitution" "cat < <(printf '%s' \"\$TEXT\")"
+check 0 "BSD sed in-place edit with an empty suffix" "sed -i '' \"\$SCRIPT\" README.md"
+check 0 "base64 wrap width from a variable" 'base64 --wrap "$WIDTH" README.md'
 check 0 "nice with a literal read" 'nice -n 5 cat README.md'
 check 0 "head count attached to -n" 'head -n"$N" README.md'
 check 0 "a literal assignment of an ordinary file" 'f=README.md; cat "$f"'

@@ -751,5 +751,14 @@
     "tests": [
       "tests/unresolved-read-operand.sh"
     ]
+  },
+  {
+    "id": "bash-unresolved-operand-child-env",
+    "rule": "bash_unresolved_read_operand: assignments before a command are not followed into the code it runs",
+    "old": "      for (k = 1; k <= npa; k++) delete tab[pan[k]]\n",
+    "new": "",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
   }
 ]
