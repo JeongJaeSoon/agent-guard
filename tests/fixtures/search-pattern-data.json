@@ -126,6 +126,34 @@
     "command": "sed -n 1,5p .env | grep -o \"x\" | head"
   },
   {
+    "id": "grep-after-sort-uniq",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a grep pattern after a pipeline that ends in sort and uniq",
+    "command": "grep -o -h -E \"x.key\" a.log | sort | uniq -c | head; cd src && grep -rn \"y.key\" lib --include=*.ts -l | head -5"
+  },
+  {
+    "id": "grep-after-sort-output",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a grep pattern after a sort that writes a file",
+    "command": "ls src | sort -o p; grep -n \"x.key\" src/a.ts"
+  },
+  {
+    "id": "rg-then-grep",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a grep pattern after an rg whose every word is literal",
+    "command": "rg --no-config -n 'x\\.key' src; grep -c 'y\\.key' list.txt"
+  },
+  {
+    "id": "rg-glob-operand-then-grep",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a grep pattern after an rg with a glob operand",
+    "command": "rg --no-config VALUE *; grep .env"
+  },
+  {
     "id": "find-exclusion-in-loop",
     "expected_status": 0,
     "classification": "must-pass",

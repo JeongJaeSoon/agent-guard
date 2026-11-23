@@ -229,6 +229,9 @@ allow ls src sub 2>/dev/null; grep -n "process.env" src/a.ts
 allow find . -maxdepth 2 -not -path "*/.env*" -not -name "*.key" -not -name "*.env" | head -20
 allow for d in src sub; do echo "== $d"; find "$d" -maxdepth 3 -not -path "*/secrets*" -not -name "*.env" | head -20; stat -f "%z" "$d"; done
 allow find src -type f ! -name '*.pem' | wc -l
+allow ls src | sort | uniq -c | head; grep -n "process.env" src/a.ts
+allow find . -maxdepth 1 -not -name ".env" -print | head
+allow rg --no-config -n 'process\.env' src; grep -c '\.env' list.txt
 read cd g && git grep -n VALUE -- .env
 read cd g && git grep -h -e VALUE .env
 held cd g && git grep .env -e VALUE
@@ -263,6 +266,11 @@ held find . -not -path "*/.env*" -o -name "*.key"
 held find . \( -not -name ".env" \)
 held find . -maxdepth 1 -not -name ".env" -delete
 held find . -newer ! -name .env
+held find . -print -not -name .env
+held ls src | uniq - p; grep .env list.txt
+held ls src | sort -o p; grep .env list.txt
+held rg --no-config VALUE *; grep .env
+held cd g && git grep -n 'process' -- *; grep .env
 held find $X -maxdepth 1 -not -name .env
 held find . -maxdepth 1 -name ".env" -not -name "*.ts"
 held find . -maxdepth 1 -not -name .env; cat $_
