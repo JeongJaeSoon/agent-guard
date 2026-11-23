@@ -692,7 +692,7 @@
   {
     "id": "bash-secret-write-heredoc-null-ignored",
     "rule": "bash_file_write_env_names: a here-document read by a /dev/null command writes no file",
-    "old": "      for (h = hd_mark + 1; h <= hd_n; h++) hd_null[h] = (so1[d] == \"null\")\n",
+    "old": "      for (h = hd_mark + 1; h <= hd_n; h++) hd_null[h] = (fdk[d, 1] == \"null\")\n",
     "new": "      for (h = hd_mark + 1; h <= hd_n; h++) hd_null[h] = 1\n",
     "tests": [
       "tests/secret-env-file-write.sh"
@@ -710,8 +710,8 @@
   {
     "id": "bash-secret-write-dup-ignored",
     "rule": "bash_file_write_env_names: >&2 sends standard output where descriptor 2 points",
-    "old": "            if (m == \"2\") { set_fd(fd, so2[d]); i = j + 1; continue }\n",
-    "new": "\n",
+    "old": "            if (m != \"\") { set_fd(fd, fdk[d, m]); i = j; continue }\n",
+    "new": "            if (m != \"\") { set_fd(fd, \"null\"); i = j; continue }\n",
     "tests": [
       "tests/secret-env-file-write.sh"
     ]
@@ -720,6 +720,24 @@
     "id": "bash-secret-write-dquote-cmdsub-text",
     "rule": "bash_file_write_env_names: a command substitution inside double quotes is shell code",
     "old": "          else if (c == \"$\" && substr(s, i + 1, 1) == \"(\") { dq = 0; open_group(1); i += 2; continue }\n",
+    "new": "\n",
+    "tests": [
+      "tests/secret-env-file-write.sh"
+    ]
+  },
+  {
+    "id": "bash-secret-write-word-skipped",
+    "rule": "bash_file_write_env_names: an expansion inside a word (token=$X) is read",
+    "old": "          cmdpos = 0\n          i++\n          continue\n        }\n",
+    "new": "          cmdpos = 0\n          i = e\n          continue\n        }\n",
+    "tests": [
+      "tests/secret-env-file-write.sh"
+    ]
+  },
+  {
+    "id": "bash-secret-write-null-output-kept",
+    "rule": "bash_file_write_env_names: output sent to /dev/null does not reach a later command",
+    "old": "      else if (fdk[d, 1] == \"null\" || fdk[d, 1] == \"dev\") names[d] = substr(names[d], 1, cmd_start[d])\n",
     "new": "\n",
     "tests": [
       "tests/secret-env-file-write.sh"

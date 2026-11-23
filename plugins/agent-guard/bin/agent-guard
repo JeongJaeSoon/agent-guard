@@ -13167,12 +13167,15 @@ bash_file_write_env_names() {
       for (k = 1; k <= m; k++) out[a[k]] = 1
     }
     # End one command of a pipeline: its final standard output decides.
-    function end_cmd(   h) {
-      if (so1[d] == "file") redirect[d] = 1
-      for (h = hd_mark + 1; h <= hd_n; h++) hd_null[h] = (so1[d] == "null")
+    # Output sent to /dev/null or a device does not reach a later command.
+    function end_cmd(   h, f) {
+      if (fdk[d, 1] == "file") redirect[d] = 1
+      else if (fdk[d, 1] == "null" || fdk[d, 1] == "dev") names[d] = substr(names[d], 1, cmd_start[d])
+      for (h = hd_mark + 1; h <= hd_n; h++) hd_null[h] = (fdk[d, 1] == "null")
       hd_mark = hd_n
-      so1[d] = so2[d] = ""
-      shell_word[d] = want_prog[d] = 0
+      for (f = 0; f <= 9; f++) fdk[d, f] = ""
+      cmd_start[d] = length(names[d])
+      shell_word[d] = want_prog[d] = eval_word[d] = 0
     }
     # End a pipeline. Inside a group its names wait for the group to close.
     function flush() {
@@ -13180,13 +13183,14 @@ bash_file_write_env_names() {
       if (redirect[d]) emit(names[d])
       else if (d > 0) held[d] = held[d] names[d]
       names[d] = ""
-      redirect[d] = 0
+      cmd_start[d] = redirect[d] = 0
       cmdpos = 1
     }
-    function open_group(in_dq) {
+    function open_group(in_dq,   f) {
       d++
-      names[d] = held[d] = so1[d] = so2[d] = ""
-      redirect[d] = shell_word[d] = want_prog[d] = 0
+      names[d] = held[d] = ""
+      for (f = 0; f <= 9; f++) fdk[d, f] = ""
+      cmd_start[d] = redirect[d] = shell_word[d] = want_prog[d] = eval_word[d] = 0
       dq_group[d] = in_dq
       cmdpos = 1
     }
@@ -13221,11 +13225,9 @@ bash_file_write_env_names() {
       hd_n = hd_mark = 0
       return p
     }
-    # Set descriptor fd of the current command to kind: file, null or dev.
-    function set_fd(fd, kind) {
-      if (fd == "1") so1[d] = kind
-      else if (fd == "2") so2[d] = kind
-    }
+    # Point descriptor fd of the current command at kind: file, null, dev, or
+    # "" for where it pointed when the command started.
+    function set_fd(fd, kind) { fdk[d, fd] = kind }
     END {
       s = text
       n = length(s)
@@ -13247,8 +13249,9 @@ bash_file_write_env_names() {
         }
         # A newline right after a pipe continues the pipeline.
         if (c != " " && c != "\t" && c != "\n") pipe_open = 0
-        if ((c == "\047" || c == "\"") && want_prog[d]) {
-          # The program of sh -c: read its text as a group in place.
+        if ((c == "\047" || c == "\"") && (want_prog[d] || eval_word[d])) {
+          # The program of sh -c or an eval word: read its text as a group in
+          # place.
           if (c == "\047") {
             e = index(substr(s, i + 1), "\047")
             e = e ? i + e : n + 1
@@ -13301,9 +13304,12 @@ bash_file_write_env_names() {
           bw = w
           sub(/.*\//, "", bw)
           if (bw ~ /^(sh|bash|zsh|dash|ksh)$/) shell_word[d] = 1
+          else if (bw == "eval" && cmdpos) eval_word[d] = 1
           else if (shell_word[d] && w ~ /^-[A-Za-z]*c$/) want_prog[d] = 1
+          # Only the first character is read here: the rest of the word may
+          # hold an expansion (token=$X).
           cmdpos = 0
-          i = e
+          i++
           continue
         }
         if (c == "<" && substr(s, i, 3) == "<<<") { i += 3; continue }
@@ -13338,10 +13344,10 @@ bash_file_write_env_names() {
           if (!both && substr(s, j, 1) == "&") {
             # Duplication: >&2 points this descriptor where 2 points now.
             j++
-            m = substr(s, j, 1)
-            if (m == "1") { set_fd(fd, so1[d]); i = j + 1; continue }
-            if (m == "2") { set_fd(fd, so2[d]); i = j + 1; continue }
-            if (m ~ /[0-9-]/) { set_fd(fd, "null"); i = j + 1; continue }
+            m = ""
+            while (substr(s, j, 1) ~ /[0-9]/) { m = m substr(s, j, 1); j++ }
+            if (m != "") { set_fd(fd, fdk[d, m]); i = j; continue }
+            if (substr(s, j, 1) == "-") { set_fd(fd, "null"); i = j + 1; continue }
           }
           while (substr(s, j, 1) ~ /[ \t]/) j++
           e = word_end(s, j)
@@ -13350,7 +13356,7 @@ bash_file_write_env_names() {
           if (t == "/dev/null") kind = "null"
           else if (t ~ /^\/dev\/(stdout|stderr|tty|fd\/[0-9]+)$/) kind = "dev"
           else kind = "file"
-          if (both) { so1[d] = so2[d] = kind }
+          if (both) { fdk[d, 1] = fdk[d, 2] = kind }
           else set_fd(fd, kind)
           i = e
           continue
@@ -13543,7 +13549,7 @@ $joined_cmd"
             info "$PROGRAM: secret variable write check failed; refusing to allow command"
             exit 2
           }
-          # sh -c programs are read in place below; this adds eval, ssh,
+          # sh -c and eval programs are read in place below; this adds ssh,
           # trap, watch and su words, whose own redirects still count.
           [ -z "$sw_program" ] || sw_texts="$raw_cmd
 $sw_program"
