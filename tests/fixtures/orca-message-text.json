@@ -1,0 +1,170 @@
+[
+  {
+    "id": "item-comment-text",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "an item comment whose text lists deny-rule names",
+    "command": "orca bot item comment 133 --text \"deny rules such as secrets.json, *.pem, .ssh/config stay\" ; ps -axo command | grep -c \"agent-guard/3.11.[345]\""
+  },
+  {
+    "id": "item-comment-text-file",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "an item comment read from a dotenv file",
+    "command": "orca bot item comment 133 --text-file .env"
+  },
+  {
+    "id": "item-add-text",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a new item whose title, description and done-means name protected files",
+    "command": "orca bot item add --title 'document .env names' --description 'covers *.pem' --done-means 'secrets.json listed'"
+  },
+  {
+    "id": "item-add-description-file",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a new item whose description is read from a dotenv file",
+    "command": "orca bot item add --title t --description-file .env"
+  },
+  {
+    "id": "bot-reply-text",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a bot reply whose text names a dotenv file",
+    "command": "orca bot reply --text 'the .env rule fired'"
+  },
+  {
+    "id": "bot-reply-note-path",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a bot reply note, which names a path",
+    "command": "orca bot reply --text 'x' --note .env:1:comment"
+  },
+  {
+    "id": "message-chain",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "two orca message commands, each piped to tail",
+    "command": "orca orchestration reply --id m1 --body 'about .env' | tail -1; orca orchestration send --to a --subject 's *.pem' --body 'b secrets.json' | tail -1"
+  },
+  {
+    "id": "message-chain-writes-file",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a message command after one whose output is written to a file",
+    "command": "orca orchestration reply --id m1 --body 'x' > ./orca; orca orchestration send --to a --subject s --body '.env'"
+  },
+  {
+    "id": "git-add-then-commit",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a commit message after git add",
+    "command": "git add a.txt && git commit -q -m 'mention .env and *.pem'"
+  },
+  {
+    "id": "git-add-protected",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "git add of a dotenv file before the commit",
+    "command": "git add .env && git commit -q -m 'add file'"
+  },
+  {
+    "id": "bullet-value",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a message body that starts with a list dash",
+    "command": "orca orchestration send --to run:r1 --type status --subject \"s\" --body \"- one (*.pem etc).\n  path: docs/notes.md\n- two\" --json | head -c 60"
+  },
+  {
+    "id": "option-like-value",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a body value shaped like a file option",
+    "command": "orca orchestration send --to run:r1 --subject s --body '--body-file=.env'"
+  },
+  {
+    "id": "orca-cli-word",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "the Orca CLI word as the command name",
+    "command": "\"${ORCA_CLI_COMMAND:-orca}\" bot item comment 21 --text \"the .env rule and secrets.json\" | tail -1"
+  },
+  {
+    "id": "other-variable-command",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "another variable as the command name",
+    "command": "O=\"${ORCA_CLI_COMMAND:-orca}\"; $O bot item comment 21 --text \"the .env rule\" | tail -1"
+  },
+  {
+    "id": "orca-cli-word-unquoted",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "the unquoted Orca CLI word as the command name",
+    "command": "${ORCA_CLI_COMMAND:-orca} orchestration send --to a --subject s --body 'see .env'"
+  },
+  {
+    "id": "orca-cli-word-assigned",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "the Orca CLI variable assigned in the command",
+    "command": "ORCA_CLI_COMMAND=cat; \"${ORCA_CLI_COMMAND:-orca}\" bot item comment 1 --text '.env'"
+  },
+  {
+    "id": "document-sent",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a document written by cat and sent with --body-file",
+    "command": "cat > /tmp/ag-fixture-notes/r.md <<'EOF'\nnever commit *.pem or .env files\nEOF\ngh pr comment 6 --body-file /tmp/ag-fixture-notes/r.md"
+  },
+  {
+    "id": "document-sent-and-run",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a written file that is sent and then run",
+    "command": "cat > /tmp/ag-fixture-notes/r.md <<'EOF'\ncat .env\nEOF\ngh pr comment 6 --body-file /tmp/ag-fixture-notes/r.md; sh /tmp/ag-fixture-notes/r.md"
+  },
+  {
+    "id": "document-replied",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a document sent as a reply through the Orca CLI word",
+    "command": "cd /tmp; cat > /tmp/ag-fixture-notes/obs.md <<'EOF'\nthe entry .ssh/config matched\nEOF\n\"${ORCA_CLI_COMMAND:-orca}\" orchestration reply --id msg_1 --body-file /tmp/ag-fixture-notes/obs.md 2>&1 | tail -1"
+  },
+  {
+    "id": "document-run-by-renamed-command",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a function that renames the message command and runs the written file",
+    "command": "orca() { sh \"$8\"; }; cat > /tmp/ag-fixture-notes/obs.md <<'EOF'\ncat .env\nEOF\norca orchestration reply --id msg_1 --body-file /tmp/ag-fixture-notes/obs.md"
+  },
+  {
+    "id": "worker-spec-file",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a worker spec written by cat",
+    "command": "cat > /tmp/ag-fixture-notes/spec.md <<'EOF'\nnever read .env, *.pem or *.key files\nEOF\norca orchestration worker-start --item 9 --agent claude --spec-file /tmp/ag-fixture-notes/spec.md"
+  },
+  {
+    "id": "worker-spec-protected",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a worker spec read from a dotenv file",
+    "command": "orca orchestration worker-start --item 9 --agent claude --spec-file .env"
+  },
+  {
+    "id": "grep-sed-awk-filter",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a comment regex piped to a line print and an awk line filter",
+    "command": "grep -n -E '//|/\\*\\*|^\\s*\\* ' src/app.ts | sed -n 1,400p | awk -F: '$1>300'"
+  },
+  {
+    "id": "grep-awk-getline",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a name pattern piped to an awk program that opens each line",
+    "command": "ls -a . | grep -E '^\\.env$' | awk '{ while ((getline l < $0) > 0) print l }'"
+  }
+]

@@ -89,6 +89,11 @@ allow ls -a . && sed -n 's/.env/x/p' list.txt
 allow echo x; jq -n '{a: 1} | .tls.key'
 allow jq -r '.a.key, .b.p8, .c.env' s.json
 allow command jq -r '.tls.key' s.json
+allow grep -n -E '//|/\*\*|^\s*\* ' src/a.ts | sed -n 1,400p | awk -F: '$1>300'
+allow ls -a . | grep -E '^\.env' | awk '{print $1}'
+allow grep -E '\.pem$' list.txt | awk -F. -v n=1 '{ print $n }'
+allow grep -c -- '\.env' list.txt | awk '$1 > 0'
+allow grep -E '\.env' list.txt | awk -F : '{ printf "%s\n", $1 }' | head -3
 read cat .env
 read grep -E '^VALUE=' .env
 read cut -d= -f2 state.env
@@ -106,6 +111,24 @@ read echo x; sed 's/^x\t[^\t]*//' .env
 read echo x; jq -R . tls.key
 read jq -R '. // .tls.key' tls.key
 read command jq -R . tls.key
+read ls -a . | grep -E '^\.env$' | awk '{ while ((getline l < $0) > 0) print l }'
+read ls -a . | grep -E '^\.env$' | awk '{ system("cat " $0) }'
+read ls -a . | grep -E '^\.env$' | awk '{ print | "xargs cat" }'
+read ls -a . | grep -E '^\.env$' | awk '{ "cat " $0 | getline l; print l }'
+held ls -a . | grep -E '^\.env$' | awk '{ ARGV[ARGC++] = $0 }'
+held ls -a . | grep -E '^\.env$' | awk -f prog.awk
+held ls -a . | grep -E '^\.env$' | awk -fprog.awk
+held ls -a . | grep -E '^\.env$' | awk --file=prog.awk
+held ls -a . | grep -E '^\.env$' | awk -i lib '{ print }'
+held ls -a . | grep -E '^\.env$' | awk '@include "lib"; { print }'
+held ls -a . | grep -E '^\.env$' | awk '{ print > $0 }'
+held ls -a . | grep -E '^\.env$' | awk '{ print >> "out" }'
+held ls -a . | grep -E '^\.env$' | awk -F : 'NR>0 { printf "%s\n", $1 }'
+held ls -a . | grep -E '^\.env$' | awk "{ $P }"
+held ls -a . | grep -E '^\.env$' | awk $PROG
+held ls -a . | grep -E '^\.env$' | gawk '{ print }'
+held ls -a . | grep -E '^\.env$' | awk '{ print }' | xargs cat
+held ls -a . | grep -E '^\.env$' | awk
 held grep -f .env list.txt
 held grep --file=.env list.txt
 held grep pat list.txt -e .env
