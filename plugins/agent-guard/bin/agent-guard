@@ -13104,21 +13104,18 @@ GIT_DIR='*|'
 )
 
 # Print, one per line, the variable names whose value a Bash command writes to
-# a file (#497): a $NAME or ${NAME} expansion in a pipeline or command group
-# with a > or >> file redirect, or in the body of a here-document whose
-# delimiter is not quoted and whose command does not send its output to
-# /dev/null. A single-quoted or escaped name is text, ${#NAME} is a length, and
-# a redirect of another descriptor (2> f) or to a descriptor, /dev/null,
-# /dev/stdout, /dev/stderr or /dev/tty writes no file. A pipeline is one unit:
-# in 'echo "$X" | cat > f' the value reaches the file. A group, ( ), { },
-# $( ), if/fi, a loop or case, passes every name inside it to the command
-# around it, so a redirect after the group covers them.
-#
-# Mode "all" prints every expanded name and a ">" line when any file redirect
-# appears: the caller reads the program of a bash -c word that way, because
-# the redirect that captures it sits outside the word.
+# a file (#497): a $NAME or @{NAME} expansion in a pipeline or command group
+# whose standard output ends in a file, or in the body of a here-document
+# whose delimiter is not quoted and whose command does not send its output to
+# /dev/null. A single-quoted or escaped name is text and @{#NAME} is a length.
+# Redirects apply in order (2> f >&2 reaches f; > f >/dev/null does not), and
+# a descriptor, /dev/null, /dev/stdout, /dev/stderr or /dev/tty is no file. A
+# pipeline is one unit: in 'echo "$X" | cat > f' the value reaches the file.
+# A group, ( ), { }, $( ), if/fi, a loop or case, passes every name inside it
+# to the command around it, so a redirect after the group covers them; the
+# program word of sh -c or bash -c is read as such a group.
 bash_file_write_env_names() {
-  printf '%s\n' "$1" | LC_ALL=C awk -v mode="${2:-file}" '
+  printf '%s\n' "$1" | LC_ALL=C awk '
     { text = text (NR > 1 ? "\n" : "") $0 }
     # A word ends at an unquoted blank or operator; quotes and escapes keep
     # their text in the word (> "a b").
@@ -13143,7 +13140,7 @@ bash_file_write_env_names() {
       return p
     }
     function add(name, into_out) {
-      if (mode == "all" || into_out) out[name] = 1
+      if (into_out) out[name] = 1
       else names[d] = names[d] " " name
     }
     # Read the expansion whose "$" is at p; record its name; return the
@@ -13169,28 +13166,39 @@ bash_file_write_env_names() {
       m = split(list, a, " ")
       for (k = 1; k <= m; k++) out[a[k]] = 1
     }
+    # End one command of a pipeline: its final standard output decides.
+    function end_cmd(   h) {
+      if (so1[d] == "file") redirect[d] = 1
+      for (h = hd_mark + 1; h <= hd_n; h++) hd_null[h] = (so1[d] == "null")
+      hd_mark = hd_n
+      so1[d] = so2[d] = ""
+      shell_word[d] = want_prog[d] = 0
+    }
     # End a pipeline. Inside a group its names wait for the group to close.
     function flush() {
+      end_cmd()
       if (redirect[d]) emit(names[d])
       else if (d > 0) held[d] = held[d] names[d]
       names[d] = ""
       redirect[d] = 0
-      devnull[d] = 0
       cmdpos = 1
     }
-    function open_group() {
+    function open_group(in_dq) {
       d++
-      names[d] = held[d] = ""
-      redirect[d] = devnull[d] = 0
+      names[d] = held[d] = so1[d] = so2[d] = ""
+      redirect[d] = shell_word[d] = want_prog[d] = 0
+      dq_group[d] = in_dq
       cmdpos = 1
     }
-    function close_group(   all) {
-      if (d == 0) return
-      all = held[d] names[d]
-      if (redirect[d]) emit(names[d])
+    function close_group(   all, was_dq) {
+      if (d == 0) return 0
+      flush()
+      all = held[d]
+      was_dq = dq_group[d]
       d--
       names[d] = names[d] all
       cmdpos = 0
+      return was_dq
     }
     # Consume the bodies of the queued here-documents from p; return the
     # position after the last delimiter line.
@@ -13210,16 +13218,20 @@ bash_file_write_env_names() {
           }
         }
       }
-      hd_n = 0
+      hd_n = hd_mark = 0
       return p
+    }
+    # Set descriptor fd of the current command to kind: file, null or dev.
+    function set_fd(fd, kind) {
+      if (fd == "1") so1[d] = kind
+      else if (fd == "2") so2[d] = kind
     }
     END {
       s = text
       n = length(s)
       sq = dq = 0
-      hd_n = 0
+      hd_n = hd_mark = 0
       d = 0
-      any_redirect = 0
       cmdpos = 1
       i = 1
       while (i <= n) {
@@ -13228,16 +13240,35 @@ bash_file_write_env_names() {
         if (c == "\\") { i += 2; cmdpos = 0; continue }
         if (dq) {
           if (c == "\"") dq = 0
+          else if (c == "$" && substr(s, i + 1, 1) == "(") { dq = 0; open_group(1); i += 2; continue }
           else if (c == "$") { i = dollar(s, i, 0); continue }
           i++
           continue
         }
         # A newline right after a pipe continues the pipeline.
         if (c != " " && c != "\t" && c != "\n") pipe_open = 0
+        if ((c == "\047" || c == "\"") && want_prog[d]) {
+          # The program of sh -c: read its text as a group in place.
+          if (c == "\047") {
+            e = index(substr(s, i + 1), "\047")
+            e = e ? i + e : n + 1
+            prog = substr(s, i + 1, e - i - 1)
+          } else {
+            prog = ""
+            for (e = i + 1; e <= n && substr(s, e, 1) != "\""; e++) {
+              if (substr(s, e, 1) == "\\" && index("\"$`\\", substr(s, e + 1, 1))) e++
+              prog = prog substr(s, e, 1)
+            }
+          }
+          want_prog[d] = 0
+          s = substr(s, 1, i - 1) "(" prog "\n)" substr(s, e + 1)
+          n = length(s)
+          continue
+        }
         if (c == "\047") { sq = 1; cmdpos = 0; i++; continue }
         if (c == "\"") { dq = 1; cmdpos = 0; i++; continue }
         if (c == "$") {
-          if (substr(s, i + 1, 1) == "(") { open_group(); i += 2; continue }
+          if (substr(s, i + 1, 1) == "(") { open_group(0); i += 2; continue }
           i = dollar(s, i, 0)
           cmdpos = 0
           continue
@@ -13247,9 +13278,6 @@ bash_file_write_env_names() {
           continue
         }
         if (c == "\n") {
-          # A here-document body goes to the command that named it, so a
-          # /dev/null redirect of that command covers it.
-          for (h = 1; h <= hd_n; h++) hd_null[h] = devnull[d] && !redirect[d]
           if (!pipe_open) flush()
           i = hd_n ? bodies(s, i + 1) : i + 1
           continue
@@ -13259,15 +13287,21 @@ bash_file_write_env_names() {
           i += (c != ";" && substr(s, i + 1, 1) == c) ? 2 : 1
           continue
         }
-        if (c == "|") { pipe_open = 1; cmdpos = 1; i++; continue }
-        if (c == "(") { open_group(); i++; continue }
-        if (c == ")") { close_group(); i++; continue }
-        if (cmdpos && c ~ /[A-Za-z{}!]/) {
+        if (c == "|") { end_cmd(); pipe_open = 1; cmdpos = 1; i++; continue }
+        if (c == "(") { open_group(0); i++; continue }
+        if (c == ")") { if (close_group()) dq = 1; i++; continue }
+        if ((i == 1 || substr(s, i - 1, 1) ~ /[ \t\n;|&()]/) && c ~ /[A-Za-z_.\/{}!-]/) {
           e = word_end(s, i)
           w = substr(s, i, e - i)
-          if (w ~ /^(\{|if|while|until|for|case|select)$/) { open_group(); i = e; continue }
-          if (w ~ /^(\}|fi|done|esac)$/) { flush(); close_group(); i = e; continue }
-          if (w ~ /^(then|do|else|elif|!)$/) { flush(); i = e; continue }
+          if (cmdpos) {
+            if (w ~ /^(\{|if|while|until|for|case|select)$/) { open_group(0); i = e; continue }
+            if (w ~ /^(\}|fi|done|esac)$/) { flush(); close_group(); i = e; continue }
+            if (w ~ /^(then|do|else|elif|!)$/) { flush(); i = e; continue }
+          }
+          bw = w
+          sub(/.*\//, "", bw)
+          if (bw ~ /^(sh|bash|zsh|dash|ksh)$/) shell_word[d] = 1
+          else if (shell_word[d] && w ~ /^-[A-Za-z]*c$/) want_prog[d] = 1
           cmdpos = 0
           i = e
           continue
@@ -13283,6 +13317,7 @@ bash_file_write_env_names() {
           hd_n++
           hd_strip[hd_n] = strip
           hd_expand[hd_n] = (w !~ /[\047"\\]/)
+          hd_null[hd_n] = 0
           gsub(/[\047"\\]/, "", w)
           hd_delim[hd_n] = w
           i = e
@@ -13290,27 +13325,33 @@ bash_file_write_env_names() {
         }
         if (c == "&" || c == ">") {
           j = i + 1
-          if (c == "&") j++
+          both = (c == "&")
+          if (both) j++
           else if (substr(s, j, 1) == ">" || substr(s, j, 1) == "|") j++
           if (substr(s, j, 1) == "(") { i = j; continue }
-          if (c == ">" && substr(s, j, 1) == "&") {
+          fd = "1"
+          if (!both) {
+            num = ""
+            for (b = i - 1; b >= 1 && substr(s, b, 1) ~ /[0-9]/; b--) num = substr(s, b, 1) num
+            if (num != "" && (b < 1 || substr(s, b, 1) ~ /[ \t\n;|&(]/)) fd = num
+          }
+          if (!both && substr(s, j, 1) == "&") {
+            # Duplication: >&2 points this descriptor where 2 points now.
             j++
-            if (substr(s, j, 1) ~ /[0-9-]/) { i = j; continue }
+            m = substr(s, j, 1)
+            if (m == "1") { set_fd(fd, so1[d]); i = j + 1; continue }
+            if (m == "2") { set_fd(fd, so2[d]); i = j + 1; continue }
+            if (m ~ /[0-9-]/) { set_fd(fd, "null"); i = j + 1; continue }
           }
           while (substr(s, j, 1) ~ /[ \t]/) j++
           e = word_end(s, j)
           t = substr(s, j, e - j)
           gsub(/[\047"]/, "", t)
-          # Only standard output carries what echo or cat print: a 2> file
-          # receives none of it.
-          fd = ""
-          if (c == ">") {
-            for (b = i - 1; b >= 1 && substr(s, b, 1) ~ /[0-9]/; b--) fd = substr(s, b, 1) fd
-            if (b >= 1 && substr(s, b, 1) !~ /[ \t\n;|&(]/) fd = ""
-          }
-          if (fd != "" && fd != "1") { i = e; continue }
-          if (t !~ /^\/dev\/(null|stdout|stderr|tty|fd\/[0-9]+)$/) { redirect[d] = 1; any_redirect = 1 }
-          else if (t == "/dev/null") devnull[d] = 1
+          if (t == "/dev/null") kind = "null"
+          else if (t ~ /^\/dev\/(stdout|stderr|tty|fd\/[0-9]+)$/) kind = "dev"
+          else kind = "file"
+          if (both) { so1[d] = so2[d] = kind }
+          else set_fd(fd, kind)
           i = e
           continue
         }
@@ -13318,9 +13359,9 @@ bash_file_write_env_names() {
         i++
       }
       flush()
-      while (d > 0) { close_group(); flush() }
+      while (d > 0) close_group()
+      flush()
       for (k in out) if (k != "") print k
-      if (mode == "all" && any_redirect) print ">"
     }
   '
 }
@@ -13494,7 +13535,6 @@ $joined_cmd"
   # printenv of that name: the file can be read back or committed later.
   # A quoted word that a shell runs (bash -c '...', eval) is read the same way.
   sw_texts=$raw_cmd
-  sw_extra=
   case "$raw_cmd" in
     *[\'\"]*)
       case "$raw_cmd" in
@@ -13503,20 +13543,10 @@ $joined_cmd"
             info "$PROGRAM: secret variable write check failed; refusing to allow command"
             exit 2
           }
-          # The redirect that captures a program's output can sit outside
-          # its word (bash -c '...' > f): then every name it expands counts.
-          if [ -n "$sw_program" ]; then
-            sw_texts="$raw_cmd
+          # sh -c programs are read in place below; this adds eval, ssh,
+          # trap, watch and su words, whose own redirects still count.
+          [ -z "$sw_program" ] || sw_texts="$raw_cmd
 $sw_program"
-            sw_outer=$(bash_file_write_env_names "$raw_cmd" all) \
-              && sw_inner=$(bash_file_write_env_names "$sw_program" all) || {
-              info "$PROGRAM: secret variable write check failed; refusing to allow command"
-              exit 2
-            }
-            case "$sw_outer" in
-              *'>'*) sw_extra=$(printf '%s\n' "$sw_inner" | grep -v '^>$') ;;
-            esac
-          fi
           ;;
       esac
       ;;
@@ -13525,9 +13555,6 @@ $sw_program"
     info "$PROGRAM: secret variable write check failed; refusing to allow command"
     exit 2
   }
-  sw_names="$sw_names ${sw_extra:-}"
-  sw_names=${sw_names% }
-  sw_names=${sw_names# }
   if [ -n "$sw_names" ]; then
     # Names hold only [A-Za-z0-9_], so the unquoted list splits safely.
     # shellcheck disable=SC2086

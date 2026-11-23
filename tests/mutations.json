@@ -611,8 +611,8 @@
   {
     "id": "bash-secret-write-redirect-ignored",
     "rule": "bash_file_write_env_names: a > or >> redirect to a file marks the pipeline",
-    "old": "          if (t !~ /^\\/dev\\/(null|stdout|stderr|tty|fd\\/[0-9]+)$/) { redirect[d] = 1; any_redirect = 1 }\n",
-    "new": "          if (t ~ /^\\/dev\\//) { redirect[d] = 1; any_redirect = 1 }\n",
+    "old": "          else kind = \"file\"\n",
+    "new": "          else kind = \"dev\"\n",
     "tests": [
       "tests/secret-env-file-write.sh"
     ]
@@ -665,8 +665,8 @@
   {
     "id": "bash-secret-write-shell-program-skipped",
     "rule": "check_bash_command: the program of bash -c is read for secret variable writes",
-    "old": "            sw_texts=\"$raw_cmd\n$sw_program\"\n",
-    "new": "            :\n",
+    "old": "          [ -z \"$sw_program\" ] || sw_texts=\"$raw_cmd\n$sw_program\"\n",
+    "new": "          :\n",
     "tests": [
       "tests/secret-env-file-write.sh"
     ]
@@ -674,17 +674,8 @@
   {
     "id": "bash-secret-write-devnull-is-file",
     "rule": "bash_file_write_env_names: a redirect to /dev/null writes no file",
-    "old": "          if (t !~ /^\\/dev\\/(null|stdout|stderr|tty|fd\\/[0-9]+)$/) { redirect[d] = 1; any_redirect = 1 }\n",
-    "new": "          if (1) { redirect[d] = 1; any_redirect = 1 }\n",
-    "tests": [
-      "tests/secret-env-file-write.sh"
-    ]
-  },
-  {
-    "id": "bash-secret-write-outer-redirect-skipped",
-    "rule": "check_bash_command: a redirect outside a bash -c word covers the names its program expands",
-    "old": "              *'>'*) sw_extra=$(printf '%s\\n' \"$sw_inner\" | grep -v '^>$') ;;\n",
-    "new": "              *'>'*) ;;\n",
+    "old": "          if (t == \"/dev/null\") kind = \"null\"\n",
+    "new": "          if (t == \"/dev/null\") kind = \"file\"\n",
     "tests": [
       "tests/secret-env-file-write.sh"
     ]
@@ -701,8 +692,35 @@
   {
     "id": "bash-secret-write-heredoc-null-ignored",
     "rule": "bash_file_write_env_names: a here-document read by a /dev/null command writes no file",
-    "old": "          for (h = 1; h <= hd_n; h++) hd_null[h] = devnull[d] && !redirect[d]\n",
-    "new": "          for (h = 1; h <= hd_n; h++) hd_null[h] = 1\n",
+    "old": "      for (h = hd_mark + 1; h <= hd_n; h++) hd_null[h] = (so1[d] == \"null\")\n",
+    "new": "      for (h = hd_mark + 1; h <= hd_n; h++) hd_null[h] = 1\n",
+    "tests": [
+      "tests/secret-env-file-write.sh"
+    ]
+  },
+  {
+    "id": "bash-secret-write-sh-c-program-literal",
+    "rule": "bash_file_write_env_names: the program word of sh -c is read as a group in place",
+    "old": "          else if (shell_word[d] && w ~ /^-[A-Za-z]*c$/) want_prog[d] = 1\n",
+    "new": "\n",
+    "tests": [
+      "tests/secret-env-file-write.sh"
+    ]
+  },
+  {
+    "id": "bash-secret-write-dup-ignored",
+    "rule": "bash_file_write_env_names: >&2 sends standard output where descriptor 2 points",
+    "old": "            if (m == \"2\") { set_fd(fd, so2[d]); i = j + 1; continue }\n",
+    "new": "\n",
+    "tests": [
+      "tests/secret-env-file-write.sh"
+    ]
+  },
+  {
+    "id": "bash-secret-write-dquote-cmdsub-text",
+    "rule": "bash_file_write_env_names: a command substitution inside double quotes is shell code",
+    "old": "          else if (c == \"$\" && substr(s, i + 1, 1) == \"(\") { dq = 0; open_group(1); i += 2; continue }\n",
+    "new": "\n",
     "tests": [
       "tests/secret-env-file-write.sh"
     ]

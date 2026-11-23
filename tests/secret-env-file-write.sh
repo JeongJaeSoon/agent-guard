@@ -97,6 +97,10 @@ check 2 'if true; then
   echo "$EXAMPLE_SECRET_TOKEN"
 fi > notes/note.md'
 check 2 'echo "$(printf %s "$EXAMPLE_SECRET_TOKEN")" > notes/note.md'
+check 2 'echo "$(echo $EXAMPLE_SECRET_TOKEN > notes/note.md)"'
+check 2 'printf %s "$EXAMPLE_SECRET_TOKEN" 2> notes/note.md >&2'
+check 2 'eval '"'"'echo "$EXAMPLE_SECRET_TOKEN" > notes/note.md'"'"
+check 2 'bash -c "echo \"\$EXAMPLE_SECRET_TOKEN\"" > notes/note.md'
 check 2 'cat > notes/a.md <<A; cat > notes/b.md <<'"'"'B'"'"'
 $EXAMPLE_SECRET_TOKEN
 A
@@ -136,6 +140,11 @@ check 0 'cat >/dev/null <<EOF
 $EXAMPLE_SECRET_TOKEN
 EOF'
 check 0 '{ echo "$EXAMPLE_NOTE"; } > notes/note.md'
+check 0 'echo safe > notes/note.md; bash -c '"'"'test -n "$EXAMPLE_SECRET_TOKEN"'"'"
+check 0 'cat >/dev/null <<EOF; echo ok
+$EXAMPLE_SECRET_TOKEN
+EOF'
+check 0 'echo "$EXAMPLE_SECRET_TOKEN" > notes/note.md >/dev/null'
 check 0 '(echo "$EXAMPLE_SECRET_TOKEN"; echo hi) 2> notes/err.log'
 check 0 'bash -c '"'"'echo "$EXAMPLE_SECRET_TOKEN"'"'"' 2>/dev/null'
 
