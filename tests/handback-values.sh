@@ -35,11 +35,23 @@ secret=$(od -An -N18 -tu1 /dev/urandom \
 digits=$(od -An -N6 -tu1 /dev/urandom | awk '{ for (i = 1; i <= NF; i++) printf "%d", $i % 10 }')
 failed=0
 checked=0
+# Why a must-fail row got through, from what the hook said: checks that did
+# not run, which the open policy above lets pass, or else the classification.
+passed_why() {
+  why=
+  for note in 'secret scan did not run' 'assignment probe failed'; do
+    cat "$CASE/out" "$CASE/err" | grep -Fq -- "$note" && why="${why:+$why + }$note"
+  done
+  if [ -n "$why" ]; then printf 'infra: %s' "$why"; else printf 'classification'; fi
+}
 result() {
   checked=$((checked + 1))
   if [ "$1" = ok ]; then printf 'ok - %s\n' "$2"
   else
-    printf 'not ok - %s\n' "$2"
+    case "$expected" in
+      pass) printf 'not ok - %s\n' "$2" ;;
+      *) printf 'not ok - %s: %s\n' "$2" "$(passed_why)" ;;
+    esac
     sed 's/^/#   /' "$CASE/err"
     failed=$((failed + 1))
   fi
