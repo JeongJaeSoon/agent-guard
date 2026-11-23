@@ -3165,24 +3165,12 @@ setup_install_gitleaks_helper() {
   info "$PROGRAM: scans use it from now on; AGENT_GUARD_GITLEAKS_HELPER=off turns it off"
 }
 
-# One fixed, harmless scan through client $1 for gitleaks $2, to learn whether
-# the helper answers for that gitleaks. Prints the last word the client
-# traced: helper, real:cold (a helper is starting), or real:<reason>.
-setup_gitleaks_helper_trial() {
-  helper_state_dir=$(audit_directory create) || return 1
-  helper_trace=$(mktemp_file) || return 1
-  # shellcheck disable=SC2086 # the scan flags are separate words
-  printf '%s\n' 'agent-guard setup' | AGENT_GUARD_GITLEAKS_HELPER_TRACE=$helper_trace "$1" \
-    --gitleaks "$2" --gitleaks-version "$GITLEAKS_PROBE_VERSION" --state-dir "$helper_state_dir" -- \
-    stdin $GITLEAKS_SCAN_FLAGS --config "$GITLEAKS_CONFIG" --exit-code 1 >/dev/null 2>&1
-  helper_word=
-  while IFS= read -r helper_trace_line; do helper_word=$helper_trace_line; done <"$helper_trace"
-  rm -f "$helper_trace"
-  printf '%s' "$helper_word"
-}
-
-# One line on the warm gitleaks helper: whether scans go through it and, if
-# not, why. The helper is optional, so this never fails setup.
+# One line on the warm gitleaks helper, from files and variables only. It
+# never runs the client: a status line must not start a resident process, and
+# a client that fails or hangs must not stall setup or doctor. So it says
+# which client scans are handed to, not whether a helper answers; the client
+# decides that per scan and runs the real gitleaks otherwise. The helper is
+# optional, so this never fails setup.
 setup_gitleaks_helper_status_line() {
   helper_client=
   case "${AGENT_GUARD_GITLEAKS_HELPER:-}" in
@@ -3220,22 +3208,11 @@ setup_gitleaks_helper_status_line() {
     info "$PROGRAM: gitleaks helper  not used  (AGENT_GUARD_LOG_MODE=off)"
     return 0
   fi
-  helper_word=
-  if [ -n "${GITLEAKS_PROBE_VERSION:-}" ] && helper_gitleaks=$(resolve_gitleaks); then
-    helper_word=$(setup_gitleaks_helper_trial "$helper_client" "$helper_gitleaks") || helper_word=
+  if [ -n "${AGENT_GUARD_GITLEAKS_HELPER:-}" ]; then
+    info "$PROGRAM: gitleaks helper  selected  (AGENT_GUARD_GITLEAKS_HELPER: $helper_client)"
+  else
+    info "$PROGRAM: gitleaks helper  installed  ($helper_client; it answers when the selected gitleaks is the official gitleaks $GITLEAKS_DEFAULT_VERSION release build, and gitleaks runs itself otherwise)"
   fi
-  case "$helper_word" in
-    real:engine)
-      info "$PROGRAM: gitleaks helper  not used  (it answers only for the official gitleaks $GITLEAKS_DEFAULT_VERSION release build; the selected gitleaks is another build: $helper_gitleaks)"
-      ;;
-    real:version)
-      info "$PROGRAM: gitleaks helper  not used  (it links gitleaks $GITLEAKS_DEFAULT_VERSION; the selected gitleaks is $GITLEAKS_PROBE_VERSION)"
-      ;;
-    helper) info "$PROGRAM: gitleaks helper  on  (answering; $helper_client)" ;;
-    real:cold) info "$PROGRAM: gitleaks helper  on  (starting; $helper_client)" ;;
-    real:*) info "$PROGRAM: gitleaks helper  not used  (the client ran gitleaks itself: ${helper_word#real:}; $helper_client)" ;;
-    *) info "$PROGRAM: gitleaks helper  on  ($helper_client)" ;;
-  esac
   return 0
 }
 

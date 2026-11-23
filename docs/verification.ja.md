@@ -1,4 +1,4 @@
-<!-- translated-from: docs/verification.md; source-blob: dc328e0916406cfacfd27d5fe19f50cad28df970 -->
+<!-- translated-from: docs/verification.md; source-blob: 430d0cf7d223cd0df704094e5988c8c5db4f684e -->
 
 <a id="verification"></a>
 
@@ -140,7 +140,7 @@ AGENT_GUARD_TEST_HELPER_DIR="$HOME/.agent-guard/bin/gitleaks-helper" \
 AGENT_GUARD_TEST_REAL_GITLEAKS="$(command -v gitleaks)" sh tests/gitleaks-helper-corpus.sh
 ```
 
-helperの状態は `agent-guard setup` が表示します。使われている間、実行中のhelperは
+helperがインストールされているかどうかは `agent-guard setup` が表示します。使われている間、実行中のhelperは
 `agent-guard-gitleaks-helper serve` プロセス1つと、
 `$XDG_STATE_HOME/agent-guard/gitleaks-helper`（または `~/.local/state/...`）
 配下のソケットとして見えます。これがないことは、スキャンが実際のgitleaksで

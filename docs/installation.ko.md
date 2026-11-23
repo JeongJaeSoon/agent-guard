@@ -1,4 +1,4 @@
-<!-- translated-from: docs/installation.md; source-blob: a7e8e11fdc40e8687f3e5b0a6f62c90f5f6fb96f -->
+<!-- translated-from: docs/installation.md; source-blob: 98f353b1496296ea71fd10fcaf6f667056590638 -->
 
 <a id="installing-agent-guard"></a>
 
@@ -66,7 +66,8 @@ export AGENT_GUARD_GITLEAKS_HELPER=off
 `AGENT_GUARD_LOG_MODE=off`이면 helper를 쓰지 않습니다. helper는
 `agent-guard setup --install`이 설치하는 공식 gitleaks 8.30.1 릴리스 바이너리에만
 답하고, Go `regexp`로 빌드한 gitleaks(Homebrew, `go install`)는 늘 실제로
-실행합니다. 어느 경우인지는 `agent-guard setup`이 알려 줍니다. 직접 소스에서
+실행합니다. `agent-guard setup`은 helper가 설치되어 있는지를 알려 줄 뿐, 지금
+쓰는 gitleaks에 helper가 답하는지는 알려 주지 않습니다. 직접 소스에서
 빌드한 것을 쓰려면 `AGENT_GUARD_GITLEAKS_HELPER`를 그 `agent-guard-scan`의 절대
 경로로 두세요. 같은 결과 보장, 실패 처리, 메모리, 개인정보는
 [warm gitleaks helper 안내(영어)](https://github.com/JeongJaeSoon/agent-guard/blob/main/docs/gitleaks-helper.md)에

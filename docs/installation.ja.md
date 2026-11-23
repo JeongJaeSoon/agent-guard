@@ -1,4 +1,4 @@
-<!-- translated-from: docs/installation.md; source-blob: a7e8e11fdc40e8687f3e5b0a6f62c90f5f6fb96f -->
+<!-- translated-from: docs/installation.md; source-blob: 98f353b1496296ea71fd10fcaf6f667056590638 -->
 
 <a id="installing-agent-guard"></a>
 
@@ -66,8 +66,10 @@ export AGENT_GUARD_GITLEAKS_HELPER=off
 `AGENT_GUARD_GITLEAKS_BIN` を設定している場合や `AGENT_GUARD_LOG_MODE=off` の場合は
 helperを使いません。helperが応答するのは `agent-guard setup --install` が
 インストールする公式のgitleaks 8.30.1リリースバイナリだけで、Goの `regexp` で
-ビルドしたgitleaks（Homebrew、`go install`）は常に実際に実行します。どの状態かは
-`agent-guard setup` が表示します。自分でソースからビルドしたものを使うには、
+ビルドしたgitleaks（Homebrew、`go install`）は常に実際に実行します。
+`agent-guard setup` が表示するのはhelperがインストールされているかどうかで、
+使用中のgitleaksにhelperが応答するかどうかではありません。自分でソースから
+ビルドしたものを使うには、
 `AGENT_GUARD_GITLEAKS_HELPER` をその `agent-guard-scan` の絶対パスにしてください。
 同じ結果の保証、失敗時の処理、メモリ、プライバシーは
 [warm gitleaks helperガイド（英語）](https://github.com/JeongJaeSoon/agent-guard/blob/main/docs/gitleaks-helper.md)にあります。

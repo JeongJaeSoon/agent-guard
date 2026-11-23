@@ -61,11 +61,13 @@ pins, so after an Agent Guard update the old helper is not used until you run
 the command again. The CLI does not hash the binaries again for each scan;
 they have the trust of the gitleaks binary in the same directory.
 
-`agent-guard setup` (and `doctor`) prints one line with the helper's state:
-`not installed`, `off`, `on` (`starting` or `answering`), or `not used` with
-the reason, for example a selected gitleaks that is not the official release
-build. For that line it sends one fixed scan through the client, which starts
-a helper if none is running.
+`agent-guard setup` (and `doctor`) prints one line on the helper:
+`not installed`, `installed`, `selected` (your own client), `off`, or
+`not used` with the reason (installed for another version,
+`AGENT_GUARD_GITLEAKS_BIN`, logging off). The line is read from files and
+variables. It does not run the client or start a helper, so it does not tell
+whether the helper answers for your gitleaks: with a build other than the
+official release, `installed` still means every scan runs the real gitleaks.
 
 The helper links the gitleaks 8.30.1 library; with any other selected
 gitleaks version every request runs the real gitleaks.

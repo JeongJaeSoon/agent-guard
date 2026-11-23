@@ -1,4 +1,4 @@
-<!-- translated-from: docs/verification.md; source-blob: dc328e0916406cfacfd27d5fe19f50cad28df970 -->
+<!-- translated-from: docs/verification.md; source-blob: 430d0cf7d223cd0df704094e5988c8c5db4f684e -->
 
 <a id="verification"></a>
 
@@ -137,7 +137,7 @@ AGENT_GUARD_TEST_HELPER_DIR="$HOME/.agent-guard/bin/gitleaks-helper" \
 AGENT_GUARD_TEST_REAL_GITLEAKS="$(command -v gitleaks)" sh tests/gitleaks-helper-corpus.sh
 ```
 
-helper의 상태는 `agent-guard setup`이 출력합니다. 쓰이는 동안 실행 중인 helper는
+helper가 설치되어 있는지는 `agent-guard setup`이 출력합니다. 쓰이는 동안 실행 중인 helper는
 `agent-guard-gitleaks-helper serve` 프로세스
 하나와 `$XDG_STATE_HOME/agent-guard/gitleaks-helper`(또는 `~/.local/state/...`)
 아래의 소켓으로 보입니다. 이것이 없다는 것은 스캔이 실제 gitleaks로 돈다는 뜻일

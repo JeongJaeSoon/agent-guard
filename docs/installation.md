@@ -76,7 +76,8 @@ so it is never treated as a clean scan. The helper is skipped when
 answers only for the official gitleaks 8.30.1 release binary, which
 `agent-guard setup --install` installs; a gitleaks built with Go's `regexp`
 (Homebrew, `go install`) is always run for real. `agent-guard setup` reports
-which of these applies. To use your own source build instead, set
+whether a helper is installed, not whether it answers for your gitleaks. To
+use your own source build instead, set
 `AGENT_GUARD_GITLEAKS_HELPER` to the absolute path of its `agent-guard-scan`.
 The [warm gitleaks helper guide (English)](https://github.com/JeongJaeSoon/agent-guard/blob/main/docs/gitleaks-helper.md) covers
 equivalence, failure handling, memory and privacy.

@@ -167,17 +167,24 @@ expect "the download is this version's release asset for this platform, and noth
 expect "the installed files are regular, private to the user's directory, and match their recorded sums" \
   '[ ! -L "$INST/agent-guard-scan" ] && [ ! -L "$INST/agent-guard-gitleaks-helper" ] \
    && [ "$(ls -ld "$INST" | cut -c1-10)" = drwx------ ] && (cd "$INST" && shasum -a 256 -c SHA256SUMS >/dev/null 2>&1)'
-expect "setup then reports the helper as on" 'grep -q "gitleaks helper  on" "$CASE/s.err"'
+expect "setup then reports the helper as installed, with the condition for its use" \
+  'grep -q "gitleaks helper  installed  (.*official gitleaks .* release build" "$CASE/s.err"'
+# The status line reads files only: setup never runs the client, so a client
+# that hangs or fails cannot stall setup or be reported as answering.
+: >"$CALLS"
+setup
+expect "setup's status line does not run the client or start a helper" \
+  '[ "$(status)" = 0 ] && [ ! -s "$CALLS" ] && [ -z "$(helper_pids)" ] && grep -q "gitleaks helper  installed" "$CASE/s.err"'
 
 # On by default, off by the documented switch.
 if [ -n "$REAL_GITLEAKS" ]; then
   TRACE="$CASE/trace"
-  # setup's status line ran one scan through the client, which found no
-  # helper, ran gitleaks and started one.
+  hook "echo $secret" AGENT_GUARD_GITLEAKS_HELPER_TRACE="$TRACE"
+  expect "on: the first scan runs gitleaks and starts the helper, with the same deny" \
+    '[ "$(cat "$CASE/h.status")" = "$missing_status" ] && grep -qx "spawned" "$TRACE" && grep -qx "real:cold" "$TRACE"'
   n=0
   while ! ls "$CASE/xs/agent-guard/gitleaks-helper"/*.sock >/dev/null 2>&1 && [ "$n" -lt 100 ]; do sleep 0.1; n=$((n + 1)); done
-  expect "on: one helper is running after the install, started by setup's status scan" \
-    '[ "$(helper_pids | grep -c .)" = 1 ] && grep -q "gitleaks helper  on  (starting" "$CASE/s.err"'
+  expect "on: exactly one helper is running" '[ "$(helper_pids | grep -c .)" = 1 ]'
   : >"$TRACE"
   hook "echo $secret again" AGENT_GUARD_GITLEAKS_HELPER_TRACE="$TRACE"
   expect "on: the next scan is answered by the warm helper, with the same deny" \
@@ -205,9 +212,33 @@ else
   hook "echo $secret" AGENT_GUARD_GITLEAKS_HELPER=off
   expect "off: AGENT_GUARD_GITLEAKS_HELPER=off runs gitleaks alone, with the same deny" \
     '[ "$(cat "$CASE/h.status")" = "$missing_status" ] && [ ! -s "$CALLS" ]'
-  setup
   expect "off: setup reports the helper as off" \
     'AGENT_GUARD_GITLEAKS_HELPER=off "$GUARD" setup 2>&1 | grep -q "gitleaks helper  off"'
+  # An explicit client that only fails, and one that would never return: the
+  # status line names the path without running it.
+  printf '#!/bin/sh\nprintf x >>"$AG_ROUTING_CALLS"\nexit 2\n' >"$CASE/failing-client"
+  printf '#!/bin/sh\nprintf x >>"$AG_ROUTING_CALLS"\nwhile :; do sleep 1; done\n' >"$CASE/hanging-client"
+  chmod 755 "$CASE/failing-client" "$CASE/hanging-client"
+  for client in failing-client hanging-client; do
+    : >"$CALLS"
+    # In the background with a deadline: a setup that ran the hanging client
+    # must fail this check, not stall the suite.
+    AGENT_GUARD_GITLEAKS_HELPER="$CASE/$client" "$GUARD" setup >"$CASE/s.out" 2>"$CASE/s.err" &
+    setup_pid=$!
+    n=0
+    while kill -0 "$setup_pid" 2>/dev/null && [ "$n" -lt 300 ]; do sleep 0.2; n=$((n + 1)); done
+    returned=1
+    if kill -0 "$setup_pid" 2>/dev/null; then
+      returned=0
+      pkill -f "$CASE/$client" 2>/dev/null
+      kill "$setup_pid" 2>/dev/null
+    fi
+    wait "$setup_pid" 2>/dev/null
+    expect "setup with a $client returns without running it and does not call it answering" \
+      '[ "$returned" = 1 ] && [ ! -s "$CALLS" ] \
+       && grep -q "gitleaks helper  selected  (AGENT_GUARD_GITLEAKS_HELPER: $CASE/$client" "$CASE/s.err" \
+       && ! grep -Eq "gitleaks helper  (on|installed)" "$CASE/s.err"'
+  done
 fi
 
 # A later download that fails the pins leaves the installed helper as it was.

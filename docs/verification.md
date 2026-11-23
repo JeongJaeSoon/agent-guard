@@ -182,7 +182,7 @@ AGENT_GUARD_TEST_HELPER_DIR="$HOME/.agent-guard/bin/gitleaks-helper" \
 AGENT_GUARD_TEST_REAL_GITLEAKS="$(command -v gitleaks)" sh tests/gitleaks-helper-corpus.sh
 ```
 
-`agent-guard setup` prints the helper's state. While it is in use, a running
+`agent-guard setup` prints whether a helper is installed. While it is in use, a running
 helper appears as one `agent-guard-gitleaks-helper
 serve` process with a socket under `$XDG_STATE_HOME/agent-guard/gitleaks-helper`
 (or `~/.local/state/...`). Its absence only means scans run the real gitleaks.
