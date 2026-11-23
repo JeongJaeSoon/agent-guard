@@ -341,5 +341,54 @@
     "classification": "must-still-block",
     "description": "a grep that reads its exclusions from a dotenv file",
     "command": "grep -rn --exclude-from=.env word docs/"
+  },
+  {
+    "id": "sed-program-after-substituting-sed",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a sed program with an address and port regex, after a pipeline that holds a substituting sed",
+    "command": "grep -c \"create endpoint failed\" app.log; grep \"create endpoint failed\" app.log | sed -E 's/.*time=\"([0-9-]+ [0-9]+:[0-9]).*/\\1/' | uniq -c | tail -12; grep \"create endpoint failed\" app.log | sed -E 's/.*\\[([0-9.]+):([0-9]+)\\].*/\\1:\\2/' | sort | uniq -c | sort -rn | head -5"
+  },
+  {
+    "id": "sed-program-after-writing-sed",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "the same sed program after a sed whose s command writes a file",
+    "command": "grep \"create endpoint failed\" app.log | sed -E 's/a/b/w out.txt' | uniq -c; grep \"create endpoint failed\" app.log | sed -E 's/.*\\[([0-9.]+):([0-9]+)\\].*/\\1:\\2/' | sort"
+  },
+  {
+    "id": "sed-substitute-writes-key-file",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a substituting sed whose s command writes a key file",
+    "command": "grep \"create endpoint failed\" app.log | sed -E 's/a/b/'; grep \"create endpoint failed\" app.log | sed -E 's/a/b/w tls.key'"
+  },
+  {
+    "id": "sed-in-place-dotenv",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a sed that edits a dotenv file in place after a substituting sed",
+    "command": "grep \"create endpoint failed\" app.log | sed -E 's/a/b/'; sed -i -E 's/a/b/' .env"
+  },
+  {
+    "id": "grep-pattern-into-substituting-sed",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a grep pattern whose matches a substituting sed rewrites",
+    "command": "grep -oE 'tls\\.key|x' app.log | sed -E 's/^tls\\.//' | sort | uniq -c"
+  },
+  {
+    "id": "grep-pattern-into-running-sed",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a grep pattern whose matches a sed runs as commands",
+    "command": "grep -oE 'tls\\.key|x' app.log | sed 's/^/cat /e'"
+  },
+  {
+    "id": "sed-substitute-last-argument",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a reader of the last-argument variable after a substituting sed and a grep pattern",
+    "command": "grep \"create endpoint failed\" app.log | sed -E 's/a/b/'; grep -e .env app.log; cat $_"
   }
 ]

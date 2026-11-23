@@ -312,6 +312,36 @@ held gh api search/code -F q=@.env
 held gh issue list --search "a.env"; cat .env
 read for f in a; do grep -o 'cat \.env' cmds.txt; done < list.txt | sh
 held for f in a b; do grep -c '\.env' list.txt; done <> p
+allow grep -c VALUE list.txt; grep VALUE list.txt | sed -E 's/.*time="([0-9-]+ [0-9]+:[0-9]).*/\1/' | uniq -c | tail -12; grep VALUE list.txt | sed -E 's/.*\[([0-9.]+):([0-9]+)\].*/\1:\2/' | sort | uniq -c | sort -rn | head -5
+allow cut -c1-40 notes.txt | sed -E 's/^see //' | head -3; sed -n 's/.env/x/p' list.txt
+allow sed 's/x/y/g' notes.txt; grep .env
+allow grep -oE '\.env|\.pem' list.txt | sed -E 's/^\.//' | sort | uniq -c
+allow grep -E '\.pem$' list.txt | sed 's|x[.]pem|y|' | head -3
+allow sed -n -E 's|x|y|gp' notes.txt list.txt; grep .env
+read grep VALUE list.txt | sed -E 's/V/v/'; sed -E 's/^VALUE=//' .env
+read grep -c VALUE list.txt; grep VALUE list.txt | sed -E 's/.*\[([0-9.]+):([0-9]+)\].*/\1:\2/' .env
+held sed 's/x/y/w p' notes.txt; grep .env
+held sed 's/x/y/e' notes.txt; grep .env
+held sed -i 's/x/y/' notes.txt; grep .env
+held sed -i.bak 's/x/y/' notes.txt; grep .env
+held sed 's/x/y/;w p' notes.txt; grep .env
+held sed -e 's/x/y/' -e 'w p' notes.txt; grep .env
+held sed 's/x/y/' -f cmds.txt notes.txt; grep .env
+held sed 's/x[/]y/z/w p' notes.txt; grep .env
+held sed 's/a\/b/c/w p' notes.txt; grep .env
+held sed "s/x/$S/" notes.txt; grep .env
+held sed 's/x/y/' notes.txt >p; grep .env
+held grep -oE '\.env|x' list.txt | sed 's/^/cat /e'
+held grep -oE '\.env|x' list.txt | sed 's/x/y/w p'
+held grep -oE '\.env|x' list.txt | sed -i 's/x/y/' notes.txt
+held grep VALUE list.txt | sed -E 's/V/v/'; sed -E 's/a/b/w .env' notes.txt
+held grep VALUE list.txt | sed -E 's/V/v/'; sed -i -E 's/a/b/' .env
+held sed -E 's/V/v/' list.txt; grep -e .env list.txt; cat $_
+held sed 's/x/y/ge' notes.txt; grep .env
+held sed -n 's/x/y/pw p' notes.txt; grep .env
+held sed 's/x/y/' -i notes.txt; grep .env
+held sed -ni 's/x/y/p' notes.txt; grep .env
+held sed 's,x,y,;e date' notes.txt; grep .env
 CASES
 
 # Options from the environment come first and can make the pattern a file.
