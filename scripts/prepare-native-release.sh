@@ -40,10 +40,23 @@ for target in x86_64-unknown-linux-musl aarch64-unknown-linux-musl aarch64-apple
   helper="agent-guard-gitleaks-helper-$target"
   [ "$(head -n 1 "$tmp/$target/$helper.build.txt")" = "$sha" ] \
     || { echo "helper source does not match release SHA: $target" >&2; exit 2; }
-  for log in gitleaks-helper.log gitleaks-helper-corpus.log; do
-    grep -Eq '^passed: [1-9][0-9]*$' "$tmp/$target/$log" && grep -Fxq 'failed: 0' "$tmp/$target/$log" \
-      || { echo "helper tests did not pass: $target $log" >&2; exit 2; }
-  done
+  grep -Eq '^passed: [1-9][0-9]*$' "$tmp/$target/gitleaks-helper.log" && grep -Fxq 'failed: 0' "$tmp/$target/gitleaks-helper.log" \
+    || { echo "helper tests did not pass: $target gitleaks-helper.log" >&2; exit 2; }
+  # The corpus suite prints its own result lines; hold them to its own pass
+  # condition: every input compared, no difference, and at least 98 of 100
+  # eligible inputs answered by the warm helper.
+  awk '
+    $1 == "inputs:" && $3 == "of" {
+      compared = $2 + 0; inputs = $4 + 0
+      for (i = 5; i < NF; i++) {
+        if ($i == "answers:") answered = $(i + 1) + 0
+        if ($i == "differences:") { differences = $(i + 1); result = 1 }
+      }
+    }
+    /^eligible for the helper: [0-9]+$/ { eligible = $NF + 0; counted = 1 }
+    END { exit !(result && counted && compared > 0 && compared == inputs && differences == "0" && answered * 100 >= eligible * 98) }
+  ' "$tmp/$target/gitleaks-helper-corpus.log" \
+    || { echo "helper tests did not pass: $target gitleaks-helper-corpus.log" >&2; exit 2; }
   expected=$(cat "$tmp/$target/$helper.tar.gz.sha256")
   actual=$(CDPATH= cd -- "$tmp/$target" && shasum -a 256 "$helper.tar.gz")
   [ "$expected" = "$actual" ] || { echo "helper archive checksum mismatch: $target" >&2; exit 2; }

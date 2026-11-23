@@ -57,8 +57,21 @@ write_helper() {
   (cd "$case_dir/artifacts/native-$1" && shasum -a 256 "$helper.tar.gz" > "$helper.tar.gz.sha256")
   printf '%s\n' "$sha" > "$case_dir/artifacts/native-$1/$helper.build.txt"
   printf 'passed: 9\nfailed: 0\n' > "$case_dir/artifacts/native-$1/gitleaks-helper.log"
-  printf 'passed: 9\nfailed: 0\n' > "$case_dir/artifacts/native-$1/gitleaks-helper-corpus.log"
+  # The corpus suite's own result lines, not the other suite's.
+  corpus_log 9 9 9 0 9 > "$case_dir/artifacts/native-$1/gitleaks-helper-corpus.log"
 }
+# $1 inputs compared, $2 inputs, $3 warm answers, $4 differences, $5 eligible.
+corpus_log() {
+  printf 'comparing %s unique inputs (upstream testdata: 0) with 4 jobs\n' "$2"
+  printf 'inputs: %s of %s; with findings: 1; findings: 2; warm answers: %s; differences: %s\n' "$1" "$2" "$3" "$4"
+  printf 'eligible for the helper: %s\n' "$5"
+}
+# The stand-in logs above are only worth something while the suites print
+# these lines: pin the two producers' formats.
+grep -Fq 'echo "inputs: $(wc -l <"$CASE/results.txt" | tr -d '"' '"') of $total; with findings: $with_findings; findings: $findings; warm answers: $answered; differences: $differ"' \
+  "$ROOT/tests/gitleaks-helper-corpus.sh"
+grep -Fq 'echo "eligible for the helper: $eligible"' "$ROOT/tests/gitleaks-helper-corpus.sh"
+grep -Fq "printf '\\npassed: %s\\nfailed: %s\\n' \"\$pass\" \"\$fail\"" "$ROOT/tests/gitleaks-helper.sh"
 for target in x86_64-unknown-linux-musl aarch64-unknown-linux-musl aarch64-apple-darwin; do
   (cd "$case_dir/helper" && shasum -a 256 agent-guard-gitleaks-helper agent-guard-scan) \
     | awk -v target="$target" '{ print $1 "  " target "/" $2 }' >> "$pins"
@@ -110,8 +123,20 @@ write_helper "$target"
 printf 'passed: 8\nfailed: 1\n' > "$dir/gitleaks-helper.log"
 reject helper-test-failure
 write_helper "$target"
-printf 'passed: 0\nfailed: 0\n' > "$dir/gitleaks-helper-corpus.log"
+printf 'passed: 0\nfailed: 0\n' > "$dir/gitleaks-helper.log"
 reject helper-tests-that-did-not-run
+write_helper "$target"
+corpus_log 0 0 0 0 0 > "$dir/gitleaks-helper-corpus.log"
+reject helper-corpus-that-compared-nothing
+corpus_log 9 9 9 1 9 > "$dir/gitleaks-helper-corpus.log"
+reject helper-corpus-difference
+corpus_log 8 9 8 0 8 > "$dir/gitleaks-helper-corpus.log"
+reject helper-corpus-that-skipped-an-input
+corpus_log 9 9 5 0 9 > "$dir/gitleaks-helper-corpus.log"
+reject helper-corpus-mostly-answered-by-the-real-gitleaks
+# The other suite's result lines are not a corpus result.
+printf 'passed: 9\nfailed: 0\n' > "$dir/gitleaks-helper-corpus.log"
+reject helper-corpus-log-without-its-result
 write_helper "$target"
 printf 'x' >> "$dir/$helper.tar.gz"
 reject helper-archive-checksum-mismatch
