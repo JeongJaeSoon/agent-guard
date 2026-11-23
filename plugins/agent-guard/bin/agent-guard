@@ -8919,7 +8919,9 @@ heredoc_body_rewrite() {
       }
       if (delim == "" || delim ~ /[ \t$`\\\047"]/ || post !~ /^([ \t;&<>]|$)/) reject()
       if (reuse == "view") {
-        if (!writer || piped != "") reject()
+        # Only a writer with plain `>`, `>>` or tee targets stands aside: the
+        # names listed below are then all it writes.
+        if (!writer || piped != "" || rest ~ /[0-9][<>]/ || rest ~ /[<>]&/) reject()
         view[nk] = lead " true" post
       }
       if (!writer) {

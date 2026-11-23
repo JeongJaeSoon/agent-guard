@@ -182,6 +182,10 @@ check 0 "two documents sent by two message commands" \
 check 2 "sent file also run" "${RUN}gh pr comment 5 --body-file $D/r.md; sh $D/r.md"
 check 2 "sent file also sourced" "${RUN}orca orchestration send --to a --subject s --body-file $D/r.md && . $D/r.md"
 check 2 "sent file also an operand" "${RUN}gh pr comment 5 --body-file $D/r.md $D/r.md"
+check 2 "writer with a second, numbered redirection" \
+  "cat > $D/r.md 2>$D/err.log <<'EOF'${NL}cat ./key.p8${NL}EOF${NL}gh pr comment 5 --body-file $D/r.md"
+check 2 "writer whose output is duplicated to another descriptor" \
+  "cat > $D/r.md >&2 <<'EOF'${NL}cat ./key.p8${NL}EOF${NL}gh pr comment 5 --body-file $D/r.md"
 check 2 "sent file handed on as the last argument of the message command" \
   "${RUN}gh pr comment 5 --body-file $D/r.md; make -f \$_"
 check 2 "sent file handed on as the last argument, braced" \
