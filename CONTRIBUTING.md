@@ -241,7 +241,7 @@ configuration and sessions.
 | Internal ID | Actions suite | Contents |
 | --- | --- | --- |
 | 1 | Core, host adapters and Git (with 3 on Linux; alone on macOS) | Core, host adapter and Git contracts, direct unit suites, protected-path fixture suites |
-| 2 | Command policies | Command policies, git aliases and mask suites |
+| 2 | Command policies | Command policies, git aliases and mask suites, plus the Bash text-as-data and operand fixture suites moved from partition 1 |
 | 3 | Core, host adapters and Git (with 1 on Linux; `Core, host adapters and Git (partition 3)` on macOS) | Auto-staging cases and the heaviest hook fixture suites |
 | 4 | CLI, scanner and output | Real scanner integration, output masking, PII and shell setup |
 | 5 | Shell navigation (Claude), Shell navigation (Codex) | Shell navigation, split by host |
@@ -253,8 +253,13 @@ the 25-minute job limit. Heavy fixture suites
 that run the hook hundreds of times go where there is room:
 `tests/key-name-masking.sh`, `tests/deny-path-regex-cache.sh` and
 `tests/message-value-prose.sh` run in partition 3, while
-`tests/tracked-file-exception.sh` and `tests/path-operands-only.sh` stay in
-partition 1 beside the other protected-path suites. When you move a suite,
+`tests/handback-values.sh`, `tests/bash-path-text-data.sh`,
+`tests/path-operands-only.sh`, `tests/redaction-wrapped-values.sh` and
+`tests/tracked-file-exception.sh` run in partition 2, which had room while
+partition 1 alone reached the 25-minute limit on macOS;
+`tests/partition-membership.sh` keeps them there. The CI log of each core job
+prints per-suite seconds and, per partition, the total beside the timed-suite
+sum, so the next move can be chosen from measured numbers. When you move a suite,
 compare the macOS job times of both partitions. Do not raise the timeout, and
 do not move the slowest case to another partition only to move the bottleneck.
 
