@@ -125,9 +125,9 @@ cp "$CASE/download/$asset" "$CASE/good.tar.gz"
 setup
 expect "missing: setup reports the helper as not installed and names the command" \
   'grep -q "gitleaks helper  not installed" "$CASE/s.err" && grep -q "setup --install-gitleaks-helper" "$CASE/s.err"'
-secret="AGENT_GUARD_TEST_""SECRET"
-[ -z "$REAL_GITLEAKS" ] || secret="gh""p_$(printf 'a1B2c3D4e5F6g7H8i9J0a1B2c3D4e5F6g7H8')"
-hook "echo $secret"
+marker="AGENT_GUARD_TEST_""SECRET"
+[ -z "$REAL_GITLEAKS" ] || marker="gh""p_$(printf 'a1B2c3D4e5F6g7H8i9J0a1B2c3D4e5F6g7H8')"
+hook "echo $marker"
 missing_status=$(cat "$CASE/h.status")
 expect "missing: a secret command is denied by gitleaks alone" '[ "$missing_status" = 2 ] && [ ! -s "$CALLS" ]'
 
@@ -179,37 +179,37 @@ expect "setup's status line does not run the client or start a helper" \
 # On by default, off by the documented switch.
 if [ -n "$REAL_GITLEAKS" ]; then
   TRACE="$CASE/trace"
-  hook "echo $secret" AGENT_GUARD_GITLEAKS_HELPER_TRACE="$TRACE"
+  hook "echo $marker" AGENT_GUARD_GITLEAKS_HELPER_TRACE="$TRACE"
   expect "on: the first scan runs gitleaks and starts the helper, with the same deny" \
     '[ "$(cat "$CASE/h.status")" = "$missing_status" ] && grep -qx "spawned" "$TRACE" && grep -qx "real:cold" "$TRACE"'
   n=0
   while ! ls "$CASE/xs/agent-guard/gitleaks-helper"/*.sock >/dev/null 2>&1 && [ "$n" -lt 100 ]; do sleep 0.1; n=$((n + 1)); done
   expect "on: exactly one helper is running" '[ "$(helper_pids | grep -c .)" = 1 ]'
   : >"$TRACE"
-  hook "echo $secret again" AGENT_GUARD_GITLEAKS_HELPER_TRACE="$TRACE"
+  hook "echo $marker again" AGENT_GUARD_GITLEAKS_HELPER_TRACE="$TRACE"
   expect "on: the next scan is answered by the warm helper, with the same deny" \
     '[ "$(cat "$CASE/h.status")" = "$missing_status" ] && [ "$(cat "$TRACE")" = helper ]'
   : >"$TRACE"
   hook "ls -la src" AGENT_GUARD_GITLEAKS_HELPER_TRACE="$TRACE"
   expect "on: a clean command is allowed by the warm helper" '[ "$(cat "$CASE/h.status")" = 0 ] && [ "$(cat "$TRACE")" = helper ]'
   : >"$TRACE"
-  hook "echo $secret off" AGENT_GUARD_GITLEAKS_HELPER_TRACE="$TRACE" AGENT_GUARD_GITLEAKS_HELPER=off
+  hook "echo $marker off" AGENT_GUARD_GITLEAKS_HELPER_TRACE="$TRACE" AGENT_GUARD_GITLEAKS_HELPER=off
   expect "off: AGENT_GUARD_GITLEAKS_HELPER=off runs gitleaks alone, with the same deny" \
     '[ "$(cat "$CASE/h.status")" = "$missing_status" ] && [ ! -s "$TRACE" ]'
   rm "$INST/agent-guard-gitleaks-helper"
   : >"$TRACE"
   rm -f "$CASE/xs/agent-guard/gitleaks-helper"/*
   for pid in $(helper_pids); do kill "$pid" 2>/dev/null; done
-  hook "echo $secret missing" AGENT_GUARD_GITLEAKS_HELPER_TRACE="$TRACE"
+  hook "echo $marker missing" AGENT_GUARD_GITLEAKS_HELPER_TRACE="$TRACE"
   expect "missing: a client without its helper binary runs gitleaks, with the same deny" \
     '[ "$(cat "$CASE/h.status")" = "$missing_status" ] && [ "$(cat "$TRACE")" = real:helper-missing ]'
 else
   : >"$CALLS"
-  hook "echo $secret"
+  hook "echo $marker"
   expect "on: with the variable unset the installed client gets the scan, with the same deny" \
     '[ "$(cat "$CASE/h.status")" = "$missing_status" ] && grep -qF -- "--gitleaks|$CASE/bin/gitleaks|" "$CALLS"'
   : >"$CALLS"
-  hook "echo $secret" AGENT_GUARD_GITLEAKS_HELPER=off
+  hook "echo $marker" AGENT_GUARD_GITLEAKS_HELPER=off
   expect "off: AGENT_GUARD_GITLEAKS_HELPER=off runs gitleaks alone, with the same deny" \
     '[ "$(cat "$CASE/h.status")" = "$missing_status" ] && [ ! -s "$CALLS" ]'
   expect "off: setup reports the helper as off" \
@@ -256,7 +256,7 @@ if [ -z "$REAL_GITLEAKS" ]; then
     "$GUARD" setup --install-gitleaks-helper >"$CASE/o.out" 2>"$CASE/o.err"
     echo "$?" >"$CASE/o.status"
     : >"$CALLS"
-    (cd "$CASE/work" && pre "echo $secret" | "$GUARD" hook-pre-tool >/dev/null 2>&1)
+    (cd "$CASE/work" && pre "echo $marker" | "$GUARD" hook-pre-tool >/dev/null 2>&1)
     echo "$?" >"$CASE/o.hook"
   )
   expect "with only AGENT_GUARD_BIN_DIR set the helper is installed under it, not under the home directory" \
