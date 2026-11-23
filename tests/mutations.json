@@ -751,5 +751,32 @@
     "tests": [
       "tests/secret-env-file-write.sh"
     ]
+  },
+  {
+    "id": "bash-secret-write-inherited-stderr-lost",
+    "rule": "bash_file_write_env_names: >&2 in a group reaches the group's 2> file",
+    "old": "      if (fdk[d, 2] == \"file\") emit(err_names[d])\n",
+    "new": "\n",
+    "tests": [
+      "tests/secret-env-file-write.sh"
+    ]
+  },
+  {
+    "id": "bash-secret-write-null-heredoc-flows",
+    "rule": "bash_file_write_env_names: a here-document read by a /dev/null command adds no name",
+    "old": "          if (!hd_expand[h] || hd_null[h]) continue\n",
+    "new": "          if (!hd_expand[h]) continue\n",
+    "tests": [
+      "tests/secret-env-file-write.sh"
+    ]
+  },
+  {
+    "id": "bash-secret-write-test-prints",
+    "rule": "bash_file_write_env_names: test and [ print nothing of their operands",
+    "old": "          if (cmdpos && bw ~ /^(test|\\[|\\[\\[)$/) no_out[d] = 1\n",
+    "new": "\n",
+    "tests": [
+      "tests/secret-env-file-write.sh"
+    ]
   }
 ]

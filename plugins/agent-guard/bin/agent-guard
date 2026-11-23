@@ -13141,6 +13141,7 @@ bash_file_write_env_names() {
     }
     function add(name, into_out) {
       if (into_out) out[name] = 1
+      else if (no_out[d]) return
       else names[d] = names[d] " " name
     }
     # Read the expansion whose "$" is at p; record its name; return the
@@ -13175,35 +13176,42 @@ bash_file_write_env_names() {
     # flow on to the next command of the pipeline.
     function end_cmd(   h, f) {
       if (fdk[d, 1] == "file") emit(names[d])
+      if (fdk[d, 1] == "inherit2") err_names[d] = err_names[d] names[d]
       if (fdk[d, 1] != "") names[d] = ""
+      # Names sent to the standard error a group inherits (>&2) reach a file
+      # when the command around the group sends its 2 to one.
+      if (fdk[d, 2] == "file") emit(err_names[d])
+      if (fdk[d, 2] != "") err_names[d] = ""
       for (h = hd_mark + 1; h <= hd_n; h++) hd_null[h] = (fdk[d, 1] == "null")
       hd_mark = hd_n
       for (f = 0; f <= 9; f++) fdk[d, f] = ""
-      shell_word[d] = want_prog[d] = eval_word[d] = 0
+      shell_word[d] = want_prog[d] = eval_word[d] = no_out[d] = 0
     }
     # End a pipeline. Inside a group its names wait for the group to close.
     function flush() {
       end_cmd()
-      if (d > 0) held[d] = held[d] names[d]
-      names[d] = ""
+      if (d > 0) { held[d] = held[d] names[d]; held_err[d] = held_err[d] err_names[d] }
+      names[d] = err_names[d] = ""
       cmdpos = 1
     }
     function open_group(in_dq, kind,   f) {
       d++
-      names[d] = held[d] = ""
+      names[d] = held[d] = err_names[d] = held_err[d] = ""
       for (f = 0; f <= 9; f++) fdk[d, f] = ""
-      shell_word[d] = want_prog[d] = eval_word[d] = 0
+      shell_word[d] = want_prog[d] = eval_word[d] = no_out[d] = 0
       dq_group[d] = in_dq
       case_group[d] = (kind == "case")
       cmdpos = 1
     }
-    function close_group(   all, was_dq) {
+    function close_group(   all, err, was_dq) {
       if (d == 0) return 0
       flush()
       all = held[d]
+      err = held_err[d]
       was_dq = dq_group[d]
       d--
       names[d] = names[d] all
+      err_names[d] = err_names[d] err
       cmdpos = 0
       return was_dq
     }
@@ -13218,10 +13226,10 @@ bash_file_write_env_names() {
           cmp = line
           if (hd_strip[h]) sub(/^\t+/, "", cmp)
           if (cmp == hd_delim[h]) break
-          if (!hd_expand[h]) continue
+          if (!hd_expand[h] || hd_null[h]) continue
           for (j = 1; j <= length(line); j++) {
             if (substr(line, j, 1) == "\\") j++
-            else if (substr(line, j, 1) == "$") j = dollar(line, j, !hd_null[h]) - 1
+            else if (substr(line, j, 1) == "$") j = dollar(line, j, 1) - 1
           }
         }
       }
@@ -13298,7 +13306,7 @@ bash_file_write_env_names() {
         # In a case group a ) ends a pattern, not the group.
         if (c == ")" && d > 0 && case_group[d]) { flush(); i++; continue }
         if (c == ")") { if (close_group()) dq = 1; i++; continue }
-        if ((i == 1 || substr(s, i - 1, 1) ~ /[ \t\n;|&()]/) && c ~ /[A-Za-z_.\/{}!-]/) {
+        if ((i == 1 || substr(s, i - 1, 1) ~ /[ \t\n;|&()]/) && c ~ /[A-Za-z_.\/{}!\[-]/) {
           e = word_end(s, i)
           w = substr(s, i, e - i)
           if (cmdpos) {
@@ -13311,6 +13319,8 @@ bash_file_write_env_names() {
           }
           bw = w
           sub(/.*\//, "", bw)
+          # A condition check prints nothing of its operands.
+          if (cmdpos && bw ~ /^(test|\[|\[\[)$/) no_out[d] = 1
           if (bw ~ /^(sh|bash|zsh|dash|ksh)$/) shell_word[d] = 1
           else if (bw == "eval" && cmdpos) eval_word[d] = 1
           else if (shell_word[d] && w ~ /^-[A-Za-z]*c$/) want_prog[d] = 1
@@ -13354,6 +13364,7 @@ bash_file_write_env_names() {
             j++
             m = ""
             while (substr(s, j, 1) ~ /[0-9]/) { m = m substr(s, j, 1); j++ }
+            if (m == "2" && fd == "1" && fdk[d, 2] == "") { set_fd(1, "inherit2"); i = j; continue }
             if (m != "") { set_fd(fd, fdk[d, m]); i = j; continue }
             if (substr(s, j, 1) == "-") { set_fd(fd, "null"); i = j + 1; continue }
           }
