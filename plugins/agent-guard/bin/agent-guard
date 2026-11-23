@@ -10196,7 +10196,7 @@ AWK_READ_OPERAND_RECORDS='
           if (!j) return out "\002"
           inner = substr(w, i + 2, j - 1)
           if (inner == "PWD" && !moved && !("PWD" in tab)) { out = out "."; subst = 1 }
-          else if (inner ~ /^[A-Za-z_][A-Za-z0-9_]*$/ && inner in tab) { out = out tab[inner]; subst = 1 }
+          else if (inner ~ /^[A-Za-z_][A-Za-z0-9_]*$/ && known(inner)) { out = out lv; subst = 1 }
           else out = out "\002"
           i += j + 1; continue
         }
@@ -10204,7 +10204,7 @@ AWK_READ_OPERAND_RECORDS='
           match(substr(w, i + 1), /^[A-Za-z_][A-Za-z0-9_]*/)
           nm = substr(w, i + 1, RLENGTH)
           if (nm == "PWD" && !moved && !(nm in tab)) { out = out "."; subst = 1 }
-          else if (nm in tab) { out = out tab[nm]; subst = 1 } else out = out "\002"
+          else if (known(nm)) { out = out lv; subst = 1 } else out = out "\002"
           i += RLENGTH; continue
         }
         if (n1 ~ /[0-9@*#?$!-]/) { out = out "\002"; i++; continue }
@@ -10212,6 +10212,13 @@ AWK_READ_OPERAND_RECORDS='
       out = out c
     }
     return out
+  }
+  # Whether parameter nm has a known literal value, set in lv. An assignment
+  # earlier in the same list of assignments counts while no command follows.
+  function known(nm) {
+    if (cpos && nm in ptab) { lv = ptab[nm]; return lv != "\002" }
+    if (nm in tab) { lv = tab[nm]; return 1 }
+    return 0
   }
   function operand(w,   v, t) {
     v = value(w)
@@ -10256,6 +10263,7 @@ AWK_READ_OPERAND_RECORDS='
       else tab[pan[k]] = pav[k]
     }
     if (prog == "cp" && cppend != "" && cpt) operand(cppend)
+    for (k in ptab) delete ptab[k]
     npa = 0; cpos = 1; cmdseen = 0; prog = ""; mode = ""; ddash = 0; patdone = 0
     skipn = 0; fnext = 0; redir = 0; skipw = 0; cppend = ""; cpt = 0; wrap = ""; gotone = 0; jqdata = 0
   }
@@ -10263,7 +10271,7 @@ AWK_READ_OPERAND_RECORDS='
     nm = substr(w, 1, index(w, "=") - 1); sub(/\[.*/, "", nm)
     v = value(substr(w, index(w, "=") + 1))
     if (index(v, "\002")) v = "\002"
-    if (!now) { npa++; pan[npa] = nm; pav[npa] = v; return }
+    if (!now) { npa++; pan[npa] = nm; pav[npa] = v; ptab[nm] = v; return }
     if (cond || depth || v == "\002") delete tab[nm]
     else tab[nm] = v
   }
@@ -10343,7 +10351,7 @@ AWK_READ_OPERAND_RECORDS='
       if (n ~ /^(command|builtin|exec|nohup|sudo|doas|nice|env|stdbuf|timeout)$/) { wrap = n; next }
       cpos = 0; cmdseen = 1; wrap = ""
       if (w ~ /[$`]/) next
-      if (n ~ /^(export|readonly|local|declare|typeset)$/) { mode = "decl"; next }
+      if (n ~ /^(export|readonly|local|declare|typeset)$/) { mode = "decl"; decl = n; next }
       if (n ~ /^(unset|read|mapfile|readarray|getopts)$/) { mode = "forget"; next }
       if (n ~ /^(eval|source|\.)$/) for (k in tab) delete tab[k]
       if (n ~ /^(cd|pushd|popd|eval|source|\.)$/ && !moved) { moved = 1; print "M" }
@@ -10354,14 +10362,18 @@ AWK_READ_OPERAND_RECORDS='
     if (mode == "for") { delete tab[name_of(w)]; mode = "skip"; next }
     if (mode == "skip") next
     if (mode == "case") { if (w == "in") { incase = 1; cpos = 1; mode = "" } ; next }
-    if (mode == "decl") { if (w ~ /^[A-Za-z_][A-Za-z0-9_]*=/) assign(w, 1); else if (w !~ /^-/) delete tab[name_of(w)]; next }
+    # export and readonly without a value keep the value; local and declare may reset it.
+    if (mode == "decl") { if (w ~ /^[A-Za-z_][A-Za-z0-9_]*=/) assign(w, 1); else if (w !~ /^-/ && decl !~ /^(export|readonly)$/) delete tab[name_of(w)]; next }
     if (mode == "forget") { if (w !~ /^-/) delete tab[name_of(w)]; next }
     if (mode == "printf") { if (w == "-v") mode = "forget"; next }
     if (prog == "") next
     if (skipn) { skipn--; next }
     if (fnext) { fnext = 0; operand(w); next }
-    if (!ddash && w == "--") { ddash = 1; next }
-    if (!ddash && w ~ /^-./) { option(w); next }
+    # A fully literal word is read without its quotes ("-e" is -e).
+    ow = value(w)
+    if (index(ow, "\002") || subst) ow = w
+    if (!ddash && ow == "--") { ddash = 1; next }
+    if (!ddash && ow ~ /^-./) { option(ow); next }
     if (patfirst[prog] && !patdone) { patdone = 1; next }
     # After jq --args or --jsonargs, the words after the filter are data.
     if (jqdata) next

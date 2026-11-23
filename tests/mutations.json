@@ -620,7 +620,7 @@
   {
     "id": "bash-unresolved-operand-no-nesting",
     "rule": "bash_unresolved_read_operand: the code of a command substitution is read too",
-    "old": "        bash_unresolved_read_operand \"$uo_body\" \"$((uo_depth + 1))\" \"$uo_moved\" && exit 0\n",
+    "old": "        bash_unresolved_read_operand \"$uo_body\" \"$((uo_depth + 1))\" \"$uo_moved\" \"$uo_tab\" && exit 0\n",
     "new": "",
     "tests": [
       "tests/unresolved-read-operand.sh"
