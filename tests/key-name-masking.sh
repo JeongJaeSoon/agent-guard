@@ -163,7 +163,7 @@ done
 [ -s "$DIFF_FIXTURE" ] || { fail "diff fixture is missing"; exit 1; }
 diff_text=$(cat "$DIFF_FIXTURE")
 leak_line="+  credential: \"$rnd\","
-# A context line: the detector does not read a key glued to a diff `+`.
+# A context line. tests/output-text-shapes.sh runs added lines.
 env_line=" PASSWORD=$weak"
 for host in claude codex; do
   post_case "$host" "schema diff" "$diff_text" ""
