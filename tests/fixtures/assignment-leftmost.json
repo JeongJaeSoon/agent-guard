@@ -311,5 +311,14 @@
    }
   ],
   "masked": "prefix: build finished\n{\"text\":\"\\\"password\\\": [REDACTED]}\"}\nsuffix: all tests passed"
+ },
+ {
+  "id": "json-string-chained-colon-keys-close-at-quote",
+  "input": "{\"text\":\"token:password:\"}\nAPI_KEY=%R%\nretry %R%",
+  "values": [
+   "password:",
+   "%R%"
+  ],
+  "masked": "{\"text\":\"token:[REDACTED]\"}\nAPI_KEY=[REDACTED]\nretry [REDACTED]"
  }
 ]
