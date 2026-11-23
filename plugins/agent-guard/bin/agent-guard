@@ -13830,7 +13830,11 @@ secretish_env_values() {
       # whitespace form only when the preceding token is a known status word,
       # which marks a prose chain like `error: password: authentication is
       # disabled`.
-      colon_assignment = "(^[+]?[ \t\r]*|[,{([][ \t\r]*|[ \t\r]+)[\"'\''`]?" key "[\"'\''`]?[ \t]*:"
+      # A quote may open the key as well, for the JSON string value that
+      # holds a colon key (`{"text":"password: <value>"}`, #628). scan_line
+      # takes that only right after `:`. The quote is not the delimiter, so
+      # no two matches overlap (see find_assignment).
+      colon_assignment = "(^[+]?[ \t\r]*|[,{([][ \t\r]*|[ \t\r]+|[\"'\''`])[\"'\''`]?" key "[\"'\''`]?[ \t]*:"
       # Skipping after ANY colon-terminated token also let real structured log
       # lines through unmasked (`response: api_key: <secret>`), so only these
       # status words justify the skip. Deliberately short: an unlisted label
@@ -13934,6 +13938,7 @@ secretish_env_values() {
         dry_found = 1
         return
       }
+      if (line_seen("L" literal "\n" replacement)) return
       if (record_mode == "probe" || record_mode == "probe_raw") {
         if (!probe_found) print "x"
         probe_found = 1
@@ -14646,11 +14651,19 @@ secretish_env_values() {
       emit_record(value)
       return 1
     }
+    # 1 when the copy scan_line reads makes a record the first reading of
+    # the line made already. The first reading notes each of its records.
+    function line_seen(record) {
+      if (copy_reading) return (record in line_record)
+      if (line_depth) line_record[record] = 1
+      return 0
+    }
     function emit_record(value) {
       if (main_reading) {
         dry_found = 1
         return
       }
+      if (line_seen("S" value)) return
       if (record_mode == "probe" || record_mode == "probe_raw") {
         if (!probe_found) print "x"
         probe_found = 1
@@ -14671,6 +14684,7 @@ secretish_env_values() {
     # mask exactly as before.
     function emit_extent(value) {
       if (main_reading || record_mode != "json") return
+      if (line_seen("E" value)) return
       print "{\"literal\":\"" json_escape(value) \
         "\",\"replacement\":\"[REDACTED]\",\"agent_guard_extent\":true}"
     }
@@ -15014,10 +15028,19 @@ secretish_env_values() {
       best = 0
       if (match(head, /^[ \t]*[0-9]+\t/)) best = RLENGTH
       if (match(head, /^[0-9]+[:-]/) && RLENGTH > best) best = RLENGTH
+      # The number and arrow the Read tool prints (U+2192 as UTF-8).
+      if (match(head, /^[ \t]*[0-9]+\342\206\222/) && RLENGTH > best) best = RLENGTH
       if (!match(head, /^[A-Za-z0-9_.\/@~][A-Za-z0-9_.\/@+~-]*/)) return best
       n = RLENGTH
       w = substr(head, 1, n)
       if (w !~ /[A-Za-z]/) return best
+      # `path:` with no line number, as rg --no-heading and grep without -n
+      # print it, only for a file path: a slash, or a dot and an extension
+      # that starts with a letter (#580, #628). A bare word (`note:`,
+      # `label:`, `web-1:`) is not one.
+      if (substr(head, n + 1, 1) == ":" && n + 1 > best \
+          && (index(w, "/") || w ~ /[.][A-Za-z]/))
+        best = n + 1
       # `path:14:`. A colon is not a path character, so the path is all of w.
       if (match(substr(head, n + 1), /^:[0-9]+:/) && n + RLENGTH > best)
         best = n + RLENGTH
@@ -15110,7 +15133,7 @@ secretish_env_values() {
     function emit_value(source, start, assignment, require_credential, \
                         raw, leading, quote, end, \
                         value, token, trailing, ch, route, \
-                        extent, wrap, lead, closer, rest) {
+                        extent, wrap, lead, closer, rest, glued) {
       next_rescan_cover_start = 0
       next_rescan_cover_end = 0
       refused_span = ""
@@ -15142,6 +15165,16 @@ secretish_env_values() {
           open_value = raw
           open_guard = require_credential
           return 1
+        }
+        # Text glued to the closing quote continues the value, as the shell
+        # joins `KEY=''<value>` (#555). Read it as an unquoted value of the
+        # same key, with every gate an unquoted value has.
+        glued = start + length(leading) + end + 1
+        if (substr(source, glued, 1) ~ /^[A-Za-z0-9_$]$/) {
+          emit_value(source, glued, assignment, require_credential)
+          next_rescan_cover_start = 0
+          next_rescan_cover_end = 0
+          refused_span = ""
         }
         value = substr(raw, 1, end - 1)
         # Classify an edge-trimmed copy, replace the original. A quoted value
@@ -15375,7 +15408,46 @@ secretish_env_values() {
         before = substr(low, 1, assignment_start - 1)
       } while (index(before, delimiter) > 0 && assignment_match(before, delimiter))
     }
-    function scan_line(line, rest, end, low, eq_start, eq_length, \
+    # The reading in scan_line_once misses a key glued to a line locator
+    # (`config/app.yml:3:password: <value>`, `3<U+2192>API_KEY=<value>`, #580)
+    # and a line whose quotes are escaped inside a JSON string
+    # (`"text":"\"token\": \"<value>\""`, #628). A second reading of a copy
+    # of the line, without the locator and with `\"` unescaped, finds them.
+    # It only adds records, so what the first reading masks stays masked,
+    # also where a dotted key looks like a locator
+    # (`spring.datasource.password:`). The copy is a line of its own, so the
+    # quote state of the leaf is set aside around it, and a record the first
+    # reading made is not made again. Only a key can follow the locator, so a
+    # date or a clock time (`2026-08-02`, `12:30:00`) is not read twice.
+    function scan_line(line,   whole, n, copy, saved_quote, saved_open, saved_guard) {
+      if (line_depth) { scan_line_once(line); return }
+      whole = (open_quote == "" && !rescan_head)
+      line_depth = 1
+      split("", line_record)
+      scan_line_once(line)
+      line_depth = 0
+      if (!whole || probe_found) return
+      copy = line
+      n = locator_length(copy)
+      if (n > 0 && substr(copy, n + 1, 1) ~ /^[A-Za-z_"'\''`]$/) copy = substr(copy, n + 1)
+      if (index(copy, "\\\"")) gsub(/\\"/, "\"", copy)
+      if (copy == line) return
+      saved_quote = open_quote
+      saved_open = open_value
+      saved_guard = open_guard
+      open_quote = ""
+      open_value = ""
+      open_guard = 0
+      copy_reading = 1
+      line_depth = 1
+      scan_line_once(copy)
+      line_depth = 0
+      copy_reading = 0
+      open_quote = saved_quote
+      open_value = saved_open
+      open_guard = saved_guard
+    }
+    function scan_line_once(line, rest, end, low, eq_start, eq_length, \
                        colon_start, colon_length, start, matched_length, \
                        chose_colon, skip, status_guard, first, expansion, \
                        closed_value, key_opener, advance, advanced, head) {
@@ -15461,6 +15533,9 @@ secretish_env_values() {
           if (key_opener != "\"" && key_opener != "'\''" && key_opener != "`")
             skip = 1
         }
+        if (chose_colon && start > 1 && index("\"'\''`", first) \
+            && substr(rest, start - 1, 1) != ":")
+          skip = 1
         if (chose_colon && start > 1) {
           # `\r` belongs with space and tab here, or the guard misses the shape
           # the delimiter widening just made reachable: with a carriage return
@@ -15495,8 +15570,10 @@ secretish_env_values() {
         # the key is indentation, one diff marker and declaration keywords.
         # A line locator may come first, as grep -n, rg, git grep -n, cat -n
         # and nl print one: `path:14:`, `14:`, the context forms `path-14-`
-        # and `14-`, or a padded number and a tab. It must carry the line
-        # number, since a bare `name:` is a key of its own (`user: bob`). Its
+        # and `14-`, a padded number and a tab, or a number and the Read arrow.
+        # Without a line number it is a file path (`src/a.ts:`, as rg
+        # --no-heading prints it), since a bare `name:` is a key of its own
+        # (`user: bob`). Its
         # path part is made of file path characters only, so that the tail of
         # a connection string or of `key=value` log text is not one
         # (`Server=db;Database=app:1: Password=...`), and holds a letter,
