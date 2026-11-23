@@ -1,0 +1,16 @@
+[
+  {
+    "id": "bot-mail-request",
+    "expected": "pass",
+    "classification": "must-pass",
+    "description": "a whole bot mail that quotes a secret key name ending in a colon before English prose (shape 5); blocked on 3.13.0",
+    "text": "Owner saw a new prompt-guard block in my chat (about 18:34). It was Werft Dev Lead's mail to me, msg_e9bd44cfd047 (read: orca orchestration inbox --full). My session started at 17:03, before your upgrade, so its hook likely still ran the 3.11.6 install path. Find out whether this still happens on 3.13.0: build fixture lines of the shapes in that mail (a line 'GitHub 웹훅 secret:' followed by a placeholder or Korean prose with no value; lines where the word secret sits next to verbs like 만들어 넣는다; the plain https webhook URL line; the whole mail as one prompt) and run them against the 3.11.6 and 3.13.0 hook binaries with the three host shapes. Same rules as before: shapes only in reports, stop on any block. If 3.13.0 still blocks a line not covered by #587, add it to #587 as a comment (shape only). Report the before/after per line.\n"
+  },
+  {
+    "id": "bot-mail-question",
+    "expected": "pass",
+    "classification": "must-pass",
+    "description": "a whole bot mail that quotes a secret key name ending in a colon before Korean prose (shape 5); blocked on 3.13.0",
+    "text": "3.13.0에서도 막히는 오탐 원인을 찾았습니다. 봇 메일 속 'GitHub 웹훅 secret: 뒤에 설명 산문'처럼, 비밀 이름 다음 콜론 뒤에 오는 영어 단어를 값으로 읽습니다(#587 모양 6: https://github.com/JeongJaeSoon/agent-guard/issues/587#issuecomment-7077354422). 이걸 통과시키면 'password: 약한 단어 비밀번호' 같은 진짜 값도 같이 통과할 수 있습니다. 선택지: (a) 그 줄이 문장(산문 단어가 3개 이상 이어짐)이면 값으로 보지 않음. 추천합니다. (b) 지금처럼 막음. 봇은 메일에 'secret:' 대신 '서명 키는' 같은 표현을 쓰도록 안내. (c) 콜론 구분자는 아예 값으로 보지 않음. 가장 느슨해서 비추천입니다.\n"
+  }
+]
