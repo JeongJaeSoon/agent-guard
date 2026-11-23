@@ -182,6 +182,10 @@ check 0 "two documents sent by two message commands" \
 check 2 "sent file also run" "${RUN}gh pr comment 5 --body-file $D/r.md; sh $D/r.md"
 check 2 "sent file also sourced" "${RUN}orca orchestration send --to a --subject s --body-file $D/r.md && . $D/r.md"
 check 2 "sent file also an operand" "${RUN}gh pr comment 5 --body-file $D/r.md $D/r.md"
+check 2 "sent file handed on as the last argument of the message command" \
+  "${RUN}gh pr comment 5 --body-file $D/r.md; make -f \$_"
+check 2 "sent file handed on as the last argument, braced" \
+  "${RUN}orca orchestration reply --id m1 --body-file $D/r.md; busybox sh \"\${_}\""
 check 2 "sent file run under a quoted spelling" "${RUN}gh pr comment 5 --body-file $D/r.md; sh $D/r''.md"
 check 2 "sent file run through a glob" "${RUN}gh pr comment 5 --body-file $D/r.md; bash $D/r.m?"
 check 2 "sent file sourced through a glob" "${RUN}gh pr comment 5 --body-file $D/r.md${NL}. $D/r*"
@@ -220,6 +224,20 @@ check 2 "unquoted delimiter runs a substitution in a sent document" \
   "cat > $D/r.md <<EOF${NL}\$(cat ./key.p8)${NL}EOF${NL}gh pr comment 5 --body-file $D/r.md"
 check 2 "interpreter named next to a sent document" \
   "${SENT}gh pr comment 5 --body-file $D/r.md; python3 -c 'print(1)'"
+check 2 "Orca CLI variable assigned under a quote-split name, file run through a glob" \
+  "export ORCA_CLI_''COMMAND=sh${NL}${RUN}\"\${ORCA_CLI_COMMAND:-orca}\" $D/r.m?"
+check 2 "Orca CLI variable assigned under a built name, file run through a glob" \
+  "x=ORCA_CLI; export \${x}_COMMAND=sh${NL}${RUN}\"\${ORCA_CLI_COMMAND:-orca}\" $D/r.m?"
+check 2 "Orca CLI word as a plain command after a document" \
+  "${RUN}\"\${ORCA_CLI_COMMAND:-orca}\" $D/r.m?"
+check 2 "document sent, then the variable assigned and the file run through a glob" \
+  "${RUN}\"\${ORCA_CLI_COMMAND:-orca}\" orchestration send --to a --subject s --body-file $D/r.md${NL}export ORCA_CLI_''COMMAND=sh; \"\${ORCA_CLI_COMMAND:-orca}\" $D/r.m?"
+check 2 "document sent, then the Orca CLI word under a wrapper" \
+  "${RUN}\"\${ORCA_CLI_COMMAND:-orca}\" orchestration send --to a --subject s --body-file $D/r.md; nohup \"\${ORCA_CLI_COMMAND:-orca}\" $D/r.m?"
+check 2 "document sent, then the Orca CLI word in a substitution" \
+  "${RUN}\"\${ORCA_CLI_COMMAND:-orca}\" orchestration send --to a --subject s --body-file $D/r.md; echo \"\$( \"\${ORCA_CLI_COMMAND:-orca}\" $D/r.m? )\""
+check 0 "document, then an Orca CLI word message command that does not name it" \
+  "${SENT}\"\${ORCA_CLI_COMMAND:-orca}\" bot item comment 9 --text 'wrote the notes'"
 ORCA_CLI_COMMAND=/bin/sh check 2 "the hook's environment names another program for the Orca CLI word" \
   "${RUN}\"\${ORCA_CLI_COMMAND:-orca}\" orchestration send --to a --subject s --body-file $D/r.md"
 

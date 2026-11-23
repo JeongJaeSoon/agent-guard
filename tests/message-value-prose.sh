@@ -368,6 +368,8 @@ check 0 "orca bot item comment 21 --text 'a .env' | tail -1; orca orchestration 
 check 0 "git add a.txt && git commit -q -m 'mention .env and state.env'"
 check 0 "cd /tmp && git status --short && git add a.txt b.txt && git commit -m 'see .env'"
 check 2 "orca orchestration check --terminal t1; orca orchestration reply --id m1 --body 'about .env'"
+check 2 "echo orchestration send; orca; orca orchestration send --to a --body '.env'"
+check 2 "echo x bot item comment; orca terminal; orca bot item comment 1 --text '.env'"
 check 2 "orca orchestration worker-stop --dispatch c1 | grep -o x; orca bot item comment 1 --text '.env'"
 check 2 "docker ps -q; orca orchestration send --to a --body 'see .env'"
 check 2 "orca orchestration send --to a --body 'x' > ~/bin/orca; orca orchestration send --to a --body '.env'"
@@ -435,6 +437,53 @@ check 2 "$OW/x bot item comment 1 --text '.env'"
 check 2 "${OW}x bot item comment 1 --text '.env'"
 check 2 "sh -c '$OW bot item comment 1 --text \".env\"'"
 check 2 "eval $OW bot item comment 1 --text '.env'"
+# A name split by quotes or built from another variable assigns it all the
+# same, and a word that is not itself a message command (an argument, a
+# wrapper's operand, a substitution) may run whatever the variable holds, so
+# one such word keeps every Orca CLI word on the line an expansion.
+check 2 "export ORCA_CLI_''COMMAND=cat; $OW bot item comment 1 --text '.env'"
+check 2 "x=ORCA_CLI; export \${x}_COMMAND=cat; $OW bot item comment 1 --text '.env'"
+check 2 "typeset -x ORCA_CLI_''COMMAND=/bin/cat; $OW bot item comment 1 --text '.env'"
+check 2 "$OW bot item comment 1 --text 'a'; export ORCA_CLI_''COMMAND=cat; $OW bot item comment 2 --text '.env'"
+check 2 "$OW bot item comment 1 --text 'a'; nohup $OW .env"
+check 2 "$OW bot item comment 1 --text 'a'; echo \"\$( $OW .env )\""
+check 2 "$OW orchestration check --terminal t1; $OW bot item comment 1 --text '.env'"
+check 2 "$OW bot item comment 1 --text $OW .env"
+check 0 "$OW bot item comment 1 --text 'a' | tail -1; $OW orchestration send --to x --subject s --body 'see .env' | tail -1"
+check 2 "gh pr comment 5 -F .env --body 'x'"
+check 0 "gh pr comment 5 -F --body 'see .env'"
+# $_ is the last argument of the command before it, so a word an exemption
+# left out as data can come back through it as an operand or a command. A
+# command that uses it gets no data exemption and is read as written.
+check 2 "orca orchestration send --to a --body '.env'; cat \$_"
+check 2 "git commit -m '.env'; cat \$_"
+check 2 "gh pr comment 1 --body '.env'; head \$_"
+check 2 "grep -c -e '.env'; cat \$_"
+check 2 "orca bot item comment 1 --text '.env'; cat \$_"
+check 2 "orca bot reply --text '.env'; cat \"\${_}\""
+check 2 "orca orchestration reply --id m --body 'x' | tail -1; orca orchestration send --to a --body '.env'; cat \$_"
+check 2 "git add a.txt && git commit -m '.env' && cat \$_"
+check 2 "orca orchestration send --to a --body '- .env'; cat \$_"
+check 2 "$OW bot item comment 1 --text '.env'; cat \$_"
+check 2 "orca orchestration send --to a --body 'x; env | sort'; eval \"\$_\""
+check 2 "git commit -m 'x; env | sort'; eval \"\$_\""
+check 2 "grep -c -e ' env | sort'; eval \"\$_\""
+check 0 "orca orchestration send --to a --body 'see .env'; echo done"
+check 0 "orca orchestration send --to a --body 'see .env'; echo \$_x \"\${_y}\""
+# Ground truth: where the shell keeps $_, the reader after a message command
+# prints the canary, so the block above is not a formality.
+mkdir -p "$W/lbin"
+printf '#!/bin/sh\nexit 0\n' >"$W/lbin/orca"
+chmod +x "$W/lbin/orca"
+for la_shell in bash zsh; do
+  command -v "$la_shell" >/dev/null 2>&1 || continue
+  if (cd "$W" && PATH="$W/lbin:$PATH" "$la_shell" -c "orca orchestration send --to a --body .env; cat \$_") 2>/dev/null | grep -q "$canary"; then
+    ok "control: $la_shell hands the message value on as the last argument"
+  else
+    bad "control: $la_shell hands the message value on as the last argument"
+  fi
+done
+rm -rf "$W/lbin"
 orca_env() { # $1 ORCA_CLI_COMMAND in the hook's environment, $2 expected status, $3 command
   (ORCA_CLI_COMMAND=$1; export ORCA_CLI_COMMAND; gate "$3")
   status=$?

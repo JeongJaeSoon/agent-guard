@@ -6775,8 +6775,11 @@ AWK_RECORD_SEPARATOR='
 # the --spec-file of `orca orchestration worker-start`, the --comment-file of
 # `orca bot item set`, the --text-file of `orca bot item comment`, and the
 # --body-file or -F of the gh commands above.
+# With `words` as $2, print nothing and succeed when the word $3 occurs in
+# the text $4, and each occurrence is the command word of a segment either
+# list accepts, read as `orca` (orca_cli_words_as_orca).
 message_value_records() {
-  printf '%s\n' "$1" | LC_ALL=C awk -v cd_ok="$(path_entries_absolute && echo 1)" -v mode="${2-}" \
+  printf '%s\n' "$1" | MV_CLI_WORD=${3-} MV_CLI_TEXT=${4-} LC_ALL=C awk -v cd_ok="$(path_entries_absolute && echo 1)" -v mode="${2-}" \
     -v inert_names="$INERT_SEGMENT_COMMANDS_ERE" "$AWK_PLAIN_WORD$AWK_RECORD_SEPARATOR$AWK_INERT_COMMAND"'
     function bail() { failed = 1; exit }
     # git commit operands are pathspecs it reads, so pair a message option
@@ -6827,8 +6830,10 @@ message_value_records() {
       }
       return 1
     }
-    function finish(bound,   j, w, topts, fopts, all, lit, before, commit) {
+    function finish(bound,   j, w, topts, fopts, all, lit, before, commit, cli) {
       if (n == 0) return
+      cli = mode == "words" && kind[1] == "0" && word[1] == ENVIRON["MV_CLI_WORD"]
+      if (cli) word[1] = "orca"
       all = 1; lit = 1
       for (j = 1; j <= n; j++) {
         if (!plain_word(kind[j], word[j])) all = 0
@@ -6842,6 +6847,7 @@ message_value_records() {
       if (all && kind[1] == "0") { topts = text_options(); fopts = file_options() }
       commit = topts ~ /-m\|/
       if (ok || commit && ok_commit) {
+        if (cli && topts fopts != "") cli_ok++
         for (j = (commit ? 3 : 2); topts fopts != "" && j <= n; j++) {
           w = word[j]
           if (w == "--") break
@@ -6850,8 +6856,8 @@ message_value_records() {
             j++
             continue
           }
-          if (index(fopts, "|" w "|")) {
-            if (mode == "files" && j + 1 <= n && substr(word[j + 1], 1, 1) != "-") out = out rec[j + 1] "\n"
+          if (mode == "files" && index(fopts, "|" w "|")) {
+            if (j + 1 <= n && substr(word[j + 1], 1, 1) != "-") out = out rec[j + 1] "\n"
             j++
             continue
           }
@@ -6864,8 +6870,9 @@ message_value_records() {
       else if (lit && word[1] == "git" && word[2] ~ /^(add|status)$/ && quiet_none()) ok = 0
       else { ok = 0; ok_commit = 0 }
       pipe_target = bound == "0|" && (pipe_target || length(out) > before)
+      # A shorter segment must not read the words of the one before it.
       n = 0
-      split("", dup)
+      split("", dup); split("", word); split("", kind)
     }
     function quiet_none(   j) {
       for (j = 1; j <= n; j++) if (word[j] ~ /[<>]/) return 0
@@ -6885,34 +6892,52 @@ message_value_records() {
       if (k == "3") { ok = 0; ok_commit = 0; next }
       n++; kind[n] = k; word[n] = v; rec[n] = NR
     }
-    END { if (!failed) { finish(""); printf "%s", out } }
+    END {
+      if (!failed) finish("")
+      if (mode == "words") {
+        s = ENVIRON["MV_CLI_TEXT"]; w = ENVIRON["MV_CLI_WORD"]; total = 0
+        while (w != "" && (p = index(s, w)) > 0) { total++; s = substr(s, p + length(w)) }
+        exit !(!failed && total > 0 && cli_ok == total)
+      }
+      if (!failed) printf "%s", out
+    }
   '
 }
 
-# Print $1 with each word that is exactly `"${ORCA_CLI_COMMAND:-orca}"`, with
-# or without the quotes, replaced by `orca`: Orca tells its bots to call the
-# CLI through that word. It stands for orca only while this hook's
-# environment, which the command inherits, leaves ORCA_CLI_COMMAND unset or
-# empty or holds `orca` or an absolute path to a file named orca, and the
-# command names the variable nowhere else (an assignment, unset, read or
-# another expansion would change what the word runs). The unquoted word also
-# needs a value the shell cannot split or expand. In every other case $1 is
-# printed unchanged, and the word stays an expansion that no exemption reads
-# as a command name.
-orca_cli_word_as_orca() {
+# Succeed when $1 uses `$_`, the last argument of the command before it. A
+# word an exemption left out as data can come back through it as an operand
+# or a command name (`git commit -m NAME; cat $_`), so such a command gets
+# no data exemption and is read as written. A longer name that starts with an
+# underscore is another variable.
+bash_uses_last_argument() {
   case "$1" in
-    *'${ORCA_CLI_COMMAND:-orca}'*) ;;
-    *) printf '%s' "$1"; return 0 ;;
+    *'$_'|*'$_'[!A-Za-z0-9_]*|*'${_'[!A-Za-z0-9_]*) return 0 ;;
   esac
+  return 1
+}
+
+# The word that stands for one Orca CLI word while it is being judged.
+ORCA_CLI_WORD_MARK=__agent_guard_orca_cli_word__
+
+# Print $1 with each word that is exactly `"${ORCA_CLI_COMMAND:-orca}"`, with
+# or without the quotes, replaced by $ORCA_CLI_WORD_MARK: Orca tells its bots
+# to call the CLI through that word. Fail unless this hook's environment,
+# which the command inherits, leaves ORCA_CLI_COMMAND unset or empty or holds
+# `orca` or an absolute path to a file named orca, and the command spells the
+# variable's name nowhere else (an assignment, unset, read or another
+# expansion would change what the word runs). The unquoted word also needs a
+# value the shell cannot split or expand.
+orca_cli_word_mark() {
+  case "$1" in *"$ORCA_CLI_WORD_MARK"*) return 1 ;; esac
   oc_bare=1
   case "${ORCA_CLI_COMMAND-}" in
     ''|orca) ;;
     /*/orca|/orca)
       case "$ORCA_CLI_COMMAND" in *[!A-Za-z0-9_./@%+,:=-]*) oc_bare=0 ;; esac
       ;;
-    *) printf '%s' "$1"; return 0 ;;
+    *) return 1 ;;
   esac
-  OC_CMD=$1 LC_ALL=C awk -v bare="$oc_bare" 'BEGIN {
+  OC_CMD=$1 LC_ALL=C awk -v bare="$oc_bare" -v mark="$ORCA_CLI_WORD_MARK" 'BEGIN {
     s = ENVIRON["OC_CMD"]; u = "${ORCA_CLI_COMMAND:-orca}"; out = ""
     while ((p = index(s, u)) > 0) {
       a = p; len = length(u)
@@ -6921,12 +6946,50 @@ orca_cli_word_as_orca() {
       before = a > 1 ? substr(s, a - 1, 1) : (out == "" ? " " : substr(out, length(out), 1))
       after = substr(s, a + len, 1)
       if (before !~ /[ \t\n;&|]/ || after != "" && after !~ /[ \t\n]/) exit 1
-      out = out substr(s, 1, a - 1) "orca"; s = substr(s, a + len)
+      out = out substr(s, 1, a - 1) mark; s = substr(s, a + len)
     }
     out = out s
     if (index(out, "ORCA_CLI_COMMAND")) exit 1
     printf "%s", out
-  }' </dev/null || printf '%s' "$1"
+  }' </dev/null
+}
+
+# Print $1 with the Orca CLI word read as `orca`, or unchanged. The name of
+# the variable can be assigned without being spelled (a name split by quotes
+# or built from another variable), so the word is orca only where nothing
+# before it can have run such an assignment: every one of them on the line
+# must be the command word of a message command message_value_records
+# accepts, which holds only while everything before it is inert. One word
+# anywhere else (an argument, a wrapper's operand, inside a substitution, a
+# command that is not on the table) leaves all of them expansions. With
+# `heredoc` as $2 the command is judged as heredoc_body_rewrite's view of it,
+# which exists only when cat or tee writes every here-document.
+orca_cli_words_as_orca() {
+  case "$1" in
+    *'${ORCA_CLI_COMMAND:-orca}'*) ;;
+    *) printf '%s' "$1"; return 0 ;;
+  esac
+  if oc_marked=$(orca_cli_word_mark "$1"); then
+    oc_text=$oc_marked
+    if [ "${2-}" = heredoc ]; then
+      if oc_text=$(printf '%s\n' "$oc_marked" | heredoc_body_rewrite 0 view); then
+        oc_text=${oc_text#*"
+"}
+      else
+        oc_text=
+      fi
+    fi
+    if [ -n "$oc_text" ] \
+      && message_value_records "$(git_command_records "$oc_text")" words "$ORCA_CLI_WORD_MARK" "$oc_text" \
+      && OC_TEXT=$oc_marked LC_ALL=C awk -v mark="$ORCA_CLI_WORD_MARK" 'BEGIN {
+        s = ENVIRON["OC_TEXT"]; out = ""
+        while ((p = index(s, mark)) > 0) { out = out substr(s, 1, p - 1) "orca"; s = substr(s, p + length(mark)) }
+        printf "%s", out s
+      }' </dev/null; then
+      return 0
+    fi
+  fi
+  printf '%s' "$1"
 }
 
 # Succeed when a command named git, gh or orca holds an unquoted glob
@@ -7395,7 +7458,11 @@ bash_strip_message_values() (
   mv_cmd=$1
   # Every message option starts with `-` and follows the command words.
   case "$mv_cmd" in *orca*orchestration*-*|*orca*bot*-*|*gh*-*|*git*commit*-*) ;; *) printf '%s' "$mv_cmd"; exit 0 ;; esac
-  mv_cmd=$(orca_cli_word_as_orca "$mv_cmd")
+  if bash_uses_last_argument "$mv_cmd"; then
+    printf '%s' "$mv_cmd"
+    exit 0
+  fi
+  mv_cmd=$(orca_cli_words_as_orca "$mv_cmd")
   case "$mv_cmd" in
     *'"$('*cat*'<<'*)
       if mv_masked=$(message_heredoc_placeholders "$mv_cmd") \
@@ -7754,7 +7821,8 @@ search_operand_spans() {
     }
     # awk can open or run what it reads: getline from a file or a command,
     # system(), a pipe, a print redirected to a name, an operand added through
-    # ARGV, a program or library loaded by -f, -i or @. A program given as one
+    # ARGV (or under another name through gawk SYMTAB), a program or library
+    # loaded by -f, -i or @. A program given as one
     # literal word with none of those, behind no option but -F and -v, only
     # filters and prints the lines it is given. A `>` is a comparison unless
     # a print statement can own it, so it is refused only next to one.
@@ -7768,7 +7836,7 @@ search_operand_spans() {
         break
       }
       if (k > b) return 0
-      if (v ~ /getline|system|[|@`]|ARGV|ARGC/ || v ~ />/ && v ~ /print/) return 0
+      if (v ~ /getline|system|[|@`]|ARGV|ARGC|SYMTAB|FUNCTAB/ || v ~ />/ && v ~ /print/) return 0
       for (k++; k <= b; k++) if (bad(k) || substr(wv[k], 1, 1) == "-") return 0
       return 1
     }
@@ -8920,9 +8988,11 @@ heredoc_body_rewrite() {
 # as `true`, so the usual rule holds: nothing before the message command may
 # be able to change what its name runs. Any other mention of the file (an
 # operand, a second option, a later `sh`) fails, as does a value that is not
-# one literal word ending in that name.
+# one literal word ending in that name, or a `$_` anywhere in the command.
 heredoc_reused_as_body_file() {
   case "$1" in *-file*|*' -F '*) ;; *) return 1 ;; esac
+  # `$_` can hand the file on to a later command without naming it.
+  ! bash_uses_last_argument "$1" || return 1
   hr_view=$(printf '%s\n' "$1" | heredoc_body_rewrite 0 view) || return 1
   hr_names=${hr_view%%"
 "*}
@@ -8968,7 +9038,7 @@ bash_strip_heredoc_bodies() (
     *'<<'*) ;;
     *) printf '%s' "$hd_cmd"; exit 0 ;;
   esac
-  hd_cmd=$(orca_cli_word_as_orca "$hd_cmd")
+  hd_cmd=$(orca_cli_words_as_orca "$hd_cmd" heredoc)
   hd_new=$(printf '%s\n' "$hd_cmd" | heredoc_body_rewrite)
   hd_status=$?
   case "$hd_status" in
@@ -9810,7 +9880,7 @@ bash_matches_deny_path() {
   # $2 is the hook input. It is read for the event workdir only here, once a
   # block is pending. Without a workdir a relative word cannot be placed (the
   # hook's own directory need not be the shell's), and the block stands.
-  if [ -z "${2-}" ] || ! exception_workdir_is_here "$2"; then
+  if [ -z "${2-}" ] || ! exception_workdir_is_here "$2" || bash_uses_last_argument "$1"; then
     deny_path_report_print "$1"
     return 0
   fi
@@ -9833,38 +9903,42 @@ bash_deny_path_scan() {
     *"\\
 "*) deny_cmd=$(shell_join_line_continuations "$deny_cmd") ;;
   esac
-  deny_cmd=$(bash_strip_heredoc_bodies "$deny_cmd")
-  deny_cmd=$(bash_strip_echo_literal_text "$deny_cmd")
-  # A plain cp, mv or mkdir before a search or message command stands aside
-  # as `true` while the two exemptions below decide what is data, and comes
-  # back right after them, so its own operands are scanned as written.
-  deny_movers=
-  if deny_movers=$(bash_file_mover_segments "$deny_cmd") && [ -n "$deny_movers" ]; then
-    deny_with_movers=$deny_cmd
-    deny_cmd=$(bash_file_mover_swap "$deny_cmd" "$deny_movers" out) \
-      || { deny_cmd=$deny_with_movers; deny_movers=; }
-  else
+  deny_pre_jq=
+  # Every step in this branch leaves out text it reads as data.
+  if ! bash_uses_last_argument "$deny_cmd"; then
+    deny_cmd=$(bash_strip_heredoc_bodies "$deny_cmd")
+    deny_cmd=$(bash_strip_echo_literal_text "$deny_cmd")
+    # A plain cp, mv or mkdir before a search or message command stands aside
+    # as `true` while the two exemptions below decide what is data, and comes
+    # back right after them, so its own operands are scanned as written.
     deny_movers=
+    if deny_movers=$(bash_file_mover_segments "$deny_cmd") && [ -n "$deny_movers" ]; then
+      deny_with_movers=$deny_cmd
+      deny_cmd=$(bash_file_mover_swap "$deny_cmd" "$deny_movers" out) \
+        || { deny_cmd=$deny_with_movers; deny_movers=; }
+    else
+      deny_movers=
+    fi
+    # A failed rewrite keeps the whole command in the scan.
+    # The deny-pattern check already stripped the same text (it depends on
+    # nothing but the text), so reuse that result.
+    if [ "${mv_strip_in+set}" = set ] && [ "$deny_cmd" = "$mv_strip_in" ]; then
+      deny_cmd=$mv_strip_out
+    else
+      deny_stripped=$(bash_strip_message_values "$deny_cmd") && deny_cmd=$deny_stripped
+    fi
+    deny_stripped=$(bash_strip_non_read_operands "$deny_cmd") && deny_cmd=$deny_stripped
+    if [ -n "$deny_movers" ]; then
+      deny_cmd=$(bash_file_mover_swap "$deny_cmd" "$deny_movers" in) || deny_cmd=$deny_with_movers
+    fi
+    deny_pre_jq=$deny_cmd
+    deny_cmd=$(bash_neutralize_jq_field_names "$deny_cmd")
+    # Kept only when field names were dropped (see the dot-command test there).
+    [ "$deny_cmd" != "$deny_pre_jq" ] || deny_pre_jq=
+    deny_cmd=$(bash_neutralize_runtime_globals "$deny_cmd")
+    deny_cmd=$(bash_strip_source_module_prose "$deny_cmd")
+    deny_cmd=$(bash_strip_exclusion_operands "$deny_cmd")
   fi
-  # A failed rewrite keeps the whole command in the scan.
-  # The deny-pattern check already stripped the same text (it depends on
-  # nothing but the text), so reuse that result.
-  if [ "${mv_strip_in+set}" = set ] && [ "$deny_cmd" = "$mv_strip_in" ]; then
-    deny_cmd=$mv_strip_out
-  else
-    deny_stripped=$(bash_strip_message_values "$deny_cmd") && deny_cmd=$deny_stripped
-  fi
-  deny_stripped=$(bash_strip_non_read_operands "$deny_cmd") && deny_cmd=$deny_stripped
-  if [ -n "$deny_movers" ]; then
-    deny_cmd=$(bash_file_mover_swap "$deny_cmd" "$deny_movers" in) || deny_cmd=$deny_with_movers
-  fi
-  deny_pre_jq=$deny_cmd
-  deny_cmd=$(bash_neutralize_jq_field_names "$deny_cmd")
-  # Kept only when field names were dropped (see the dot-command test there).
-  [ "$deny_cmd" != "$deny_pre_jq" ] || deny_pre_jq=
-  deny_cmd=$(bash_neutralize_runtime_globals "$deny_cmd")
-  deny_cmd=$(bash_strip_source_module_prose "$deny_cmd")
-  deny_cmd=$(bash_strip_exclusion_operands "$deny_cmd")
   deny_cmd=$(bash_strip_allowed_tokens "$deny_cmd")
   bash_matches_deny_path_mode "$deny_cmd" "literal" && return 0
   # Brackets that bash keeps literal are not globs, so both shell-expanded
@@ -13073,7 +13147,8 @@ $joined_cmd"
     # A hit may sit in a quoted word that a search command only reads (a
     # regex alternation ending in `env|`). Only a hit pays for the second
     # look, without those words.
-    if [ "$grep_status" -eq 0 ] && dp_view=$(bash_neutralize_search_words "$dp_base") \
+    if [ "$grep_status" -eq 0 ] && ! bash_uses_last_argument "$dp_base" \
+      && dp_view=$(bash_neutralize_search_words "$dp_base") \
       && [ -n "$dp_view" ]; then
       pattern_cmd=$dp_view
       if bash_quoting_may_hide_name "$dp_view" \

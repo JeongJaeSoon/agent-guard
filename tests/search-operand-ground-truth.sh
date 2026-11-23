@@ -116,6 +116,8 @@ read ls -a . | grep -E '^\.env$' | awk '{ system("cat " $0) }'
 read ls -a . | grep -E '^\.env$' | awk '{ print | "xargs cat" }'
 read ls -a . | grep -E '^\.env$' | awk '{ "cat " $0 | getline l; print l }'
 held ls -a . | grep -E '^\.env$' | awk '{ ARGV[ARGC++] = $0 }'
+held ls -a . | grep -E '^\.env$' | awk -v a=ARGV '{ SYMTAB[a][1] = $0 }'
+held ls -a . | grep -E '^\.env$' | awk '{ SYMTAB["AR" "GV"][1] = $0 }'
 held ls -a . | grep -E '^\.env$' | awk -f prog.awk
 held ls -a . | grep -E '^\.env$' | awk -fprog.awk
 held ls -a . | grep -E '^\.env$' | awk --file=prog.awk
@@ -129,6 +131,10 @@ held ls -a . | grep -E '^\.env$' | awk $PROG
 held ls -a . | grep -E '^\.env$' | gawk '{ print }'
 held ls -a . | grep -E '^\.env$' | awk '{ print }' | xargs cat
 held ls -a . | grep -E '^\.env$' | awk
+held grep -e '\.env' -e VALUE; cat $_
+held ls -a . | grep -E '^\.env$' | awk '{print}'; cat $_
+held jq -n '.env'; cat "${_}"
+held sed -n 's/.env/x/p' list.txt; cat $_.local
 held grep -f .env list.txt
 held grep --file=.env list.txt
 held grep pat list.txt -e .env
