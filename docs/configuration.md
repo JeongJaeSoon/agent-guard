@@ -59,6 +59,16 @@ once before it treats gitleaks as unavailable, because a loaded machine can
 miss the two-second deadline once. SessionStart probes once: its host timeout
 is five seconds.
 
+A probe that timed out does not make gitleaks unavailable when the readiness
+cache still holds a verdict for the same gitleaks file that expired less than
+ten minutes ago. A stalled machine holds the retry as long as it held the first
+probe, so the hook takes the version from that verdict and scans without
+probing again: the scan is then the proof that gitleaks runs, and a scan that
+fails is reported as a failed scan. A probe that ran and failed is never
+replaced this way. The cache lives in the private state directory, so with
+`AGENT_GUARD_LOG_MODE=off` and no `AGENT_GUARD_SCAN_CACHE=on`, and for a
+gitleaks that is a script or a version-manager shim, only the retry applies.
+
 Non-empty malformed or non-object PreToolUse, PostToolUse, and Stop input is
 also distinct from unavailable infrastructure. Agent Guard rejects one of
 those events even if infrastructure mode is `open`.

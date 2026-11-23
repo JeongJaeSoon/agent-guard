@@ -2081,10 +2081,16 @@ gitleaks_probe_error() {
 # The file lives in the private state directory audit_begin validated, so
 # diagnostics (check, doctor, setup) always probe, as does
 # AGENT_GUARD_LOG_MODE=off without AGENT_GUARD_SCAN_CACHE=on.
+#
+# A verdict that expired less than one TTL ago is not a hit, but its version is
+# kept for prepare_gitleaks: the key still names this exact file, so only "can
+# it run now" is unknown.
 GITLEAKS_PROBE_CACHE_KEY=
+GITLEAKS_PROBE_CACHE_EXPIRED_VERSION=
 
 gitleaks_probe_cache_lookup() {
   GITLEAKS_PROBE_CACHE_KEY=
+  GITLEAKS_PROBE_CACHE_EXPIRED_VERSION=
   state_cache_ready || return 1
   ag_gl_cache_bin=$1
   case "$ag_gl_cache_bin" in /*) ;; *) return 1 ;; esac
@@ -2118,9 +2124,18 @@ gitleaks_probe_cache_lookup() {
       && IFS= read -r ag_gl_cached_version; } <"$ag_gl_cache_file" 2>/dev/null \
     || return 1
   [ "$ag_gl_cached_key" = "$GITLEAKS_PROBE_CACHE_KEY" ] || return 1
-  state_cache_fresh "$ag_gl_cached_time" || return 1
   case "$ag_gl_cached_version" in ''|*[!0-9.]*) return 1 ;; esac
   semver_at_least "$ag_gl_cached_version" "$GITLEAKS_MIN_VERSION" || return 1
+  if ! state_cache_fresh "$ag_gl_cached_time"; then
+    # Expired by less than one more TTL: long enough to outlast a stall, and
+    # short enough that a gitleaks which really hangs is reported again.
+    case "$ag_gl_cached_time" in ''|0*|*[!0-9]*|?????????????*) return 1 ;; esac
+    ag_gl_cached_age=$((AG_AUDIT_START - ag_gl_cached_time))
+    [ "$ag_gl_cached_age" -ge 0 ] \
+      && [ "$ag_gl_cached_age" -lt $((STATE_CACHE_TTL_SECONDS * 2)) ] || return 1
+    GITLEAKS_PROBE_CACHE_EXPIRED_VERSION=$ag_gl_cached_version
+    return 1
+  fi
   GITLEAKS_PROBE_STATE=ready
   GITLEAKS_PROBE_VERSION=$ag_gl_cached_version
   GITLEAKS_PROBE_DETAIL=
@@ -2483,7 +2498,23 @@ prepare_gitleaks() {
     GITLEAKS_READY_BIN=$GITLEAKS_BIN
     return 0
   fi
-  probe_gitleaks "$GITLEAKS_BIN" || return 1
+  if ! probe_gitleaks "$GITLEAKS_BIN"; then
+    # A stalled machine holds every process for seconds at a time, so a probe
+    # that missed its deadline says nothing about gitleaks, and a second one
+    # started at once lands in the same stall (#617). When the expired verdict
+    # is for this same file, its version stands in and the scan that follows
+    # is the proof that gitleaks runs: a scan that fails is reported as a
+    # failed scan. Only a timeout qualifies; a probe that ran and failed, or
+    # found another version, is believed. Nothing is stored, so the next
+    # process probes again.
+    [ "$GITLEAKS_PROBE_STATE:$GITLEAKS_PROBE_DETAIL" = runtime-failure:timeout ] \
+      && [ -n "$GITLEAKS_PROBE_CACHE_EXPIRED_VERSION" ] || return 1
+    GITLEAKS_PROBE_STATE=ready
+    GITLEAKS_PROBE_VERSION=$GITLEAKS_PROBE_CACHE_EXPIRED_VERSION
+    GITLEAKS_PROBE_DETAIL=
+    GITLEAKS_READY_BIN=$GITLEAKS_BIN
+    return 0
+  fi
   gitleaks_probe_cache_store
   GITLEAKS_READY_BIN=$GITLEAKS_BIN
   return 0

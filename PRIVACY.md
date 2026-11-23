@@ -61,14 +61,17 @@ local log state and `agent-guard logs export` writes the safe metadata JSONL to
 standard output. Neither command exports inspected content, file paths,
 environment values, host session identifiers, or arbitrary tool names.
 
-The same directory holds three local caches. They only make repeated hooks
-faster and never change a guard decision:
+The same directory holds three local caches. They make repeated hooks faster
+and never stand in for a scan:
 
 - `gitleaks-probe` records, after a successful readiness check, the resolved
   gitleaks path, that file's identity (device, inode, size, modification and
   change times), the minimum supported gitleaks version, the time of the check,
   and the gitleaks version, so invocations within ten minutes can skip
   rerunning `gitleaks version`. Every invocation still runs its own scan.
+  For ten more minutes the record lets a hook whose `gitleaks version` timed
+  out scan with the recorded version instead of reporting gitleaks as
+  unavailable.
 - `gitleaks-clean/` holds at most 256 entries for repeated Bash command scans
   that finished clean within the last ten minutes. An entry is named by a
   SHA-256 of the scanned command text together with the Agent Guard version,
