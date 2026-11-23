@@ -7,6 +7,8 @@
 set -u
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 BIN="$ROOT/plugins/agent-guard/bin/agent-guard"
+# Name the scanner: with none on PATH every call would be blocked as unscanned.
+export AGENT_GUARD_GITLEAKS_BIN="$ROOT/tests/fixtures/mock-gitleaks"
 CASE=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-search-operand.XXXXXX")
 trap 'rm -rf "$CASE"' 0
 W="$CASE/w"
