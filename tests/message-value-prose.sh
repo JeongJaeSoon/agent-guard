@@ -612,6 +612,12 @@ gate_closed - 2 "echo $OW; $OW status"
 gate_closed - 2 "ORCA_CLI_COMMAND=git; $OW status"
 gate_closed - 2 "$OW worktree list > $CASE/orca; $OW status"
 gate_closed - 2 "$OW status; git commit --no-verify -m x"
+# A word that expands is not read as it stands: it may turn out to be the
+# subcommand or an option that hands a command on.
+gate_closed - 2 "$OW terminal \"\$ACTION\" --terminal t1 --text 'ls' --enter"
+gate_closed - 2 "$OW orchestration check --terminal \"\$T\""
+gate_closed - 2 "$OW worktree create --name w1 \"\$FLAG\""
+gate_closed - 0 "$OW orchestration send --to lead --body \"done now\""
 # A here-document that only writes a document stands aside; one that writes a
 # file named like the command a later word runs is read as what may run.
 gate_closed - 0 "cat > $CASE/note.md <<'EOF'${nl}never pass --no-verify to git commit${nl}EOF${nl}$OW orchestration send --to lead --body-file $CASE/note.md"

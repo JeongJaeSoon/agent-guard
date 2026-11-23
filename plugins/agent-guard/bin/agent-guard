@@ -7077,14 +7077,15 @@ message_value_records() {
             || word[j] == "--setup" && j < n && word[j + 1] == "run") return 1
       return 0
     }
-    function finish(bound,   j, w, topts, fopts, all, lit, before, commit, cli, known) {
+    function finish(bound,   j, w, topts, fopts, all, lit, fixed, before, commit, cli, known) {
       if (n == 0) return
       cli = (mode == "words" || mode == "gate") && kind[1] == "0" && word[1] == ENVIRON["MV_CLI_WORD"]
       if (cli) word[1] = "orca"
-      all = 1; lit = 1
+      all = 1; lit = 1; fixed = 1
       for (j = 1; j <= n; j++) {
         if (!plain_word(kind[j], word[j])) all = 0
         if (kind[j] != "0") lit = 0
+        if (kind[j] != "0" && word[j] ~ /[$`]/) fixed = 0
       }
       # The commands of a pipeline start together, so one piped after a
       # message command may replace it before it runs.
@@ -7093,7 +7094,9 @@ message_value_records() {
       topts = ""; fopts = ""; gc = git_sub_at()
       if (all && kind[1] == "0") { topts = text_options(); fopts = file_options() }
       commit = topts ~ /-m\|/
-      known = mode == "gate" && cli && all && !relays()
+      # The gate reads the subcommand and its options as written, so no
+      # word may expand: one could turn out to be either.
+      known = mode == "gate" && cli && all && fixed && !relays()
       if (known && ok) cli_ok++
       if (ok || commit && ok_commit) {
         if (cli && mode == "words" && topts fopts != "") cli_ok++
