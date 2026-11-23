@@ -281,5 +281,165 @@ if [ -z "$REAL_GITLEAKS" ]; then
   expect "setup --help documents the flag" 'grep -q -- "--install-gitleaks-helper" "$CASE/help"'
 fi
 
+# `setup --install` installs the helper too, when the gitleaks it manages is
+# the one scans run: the private gitleaks at the version the helper links.
+# Every branch below; the stand-in curl's URL record shows what was downloaded.
+if [ -z "$REAL_GITLEAKS" ]; then
+  cp "$CASE/good.tar.gz" "$CASE/download/$asset"
+  mkdir -p "$CASE/tools" "$CASE/tmp" "$CASE/gl" "$CASE/path-gl" "$CASE/uname-bin"
+  # No gitleaks on this PATH: only the tools the CLI and the stand-in curl use.
+  for tool in sh dirname basename pwd jq git awk mktemp rm mkdir rmdir wc tr sleep head tail grep sed cat chmod uname shasum \
+      tar gzip mv cp ln ls env date id sort uniq cut od tee expr touch find setsid perl; do
+    tool_path=$(command -v "$tool" 2>/dev/null) || continue
+    case "$tool_path" in /*) ln -s "$tool_path" "$CASE/tools/$tool" ;; esac
+  done
+  TOOLS_PATH="$CASE/http-bin:$CASE/tools"
+  # The gitleaks release archive setup --install downloads, for this platform
+  # and for one that has no helper asset.
+  cp "$ROOT/tests/fixtures/mock-gitleaks" "$CASE/gl/gitleaks"
+  chmod 755 "$CASE/gl/gitleaks"
+  gl_version=$(sed -n 's/^GITLEAKS_DEFAULT_VERSION=//p' "$GUARD")
+  gl_os=$(uname -s | tr '[:upper:]' '[:lower:]')
+  case "$(uname -m)" in x86_64|amd64) gl_arch=x64 ;; *) gl_arch=arm64 ;; esac
+  gl_archive="gitleaks_${gl_version}_${gl_os}_${gl_arch}.tar.gz"
+  tar -C "$CASE/gl" -czf "$CASE/download/$gl_archive" gitleaks
+  cp "$CASE/download/$gl_archive" "$CASE/download/gitleaks_${gl_version}_darwin_x64.tar.gz"
+  gl_sum=$(shasum -a 256 "$CASE/download/$gl_archive" | awk '{ print $1 }')
+  cp "$CASE/gl/gitleaks" "$CASE/path-gl/gitleaks"
+  printf '#!/bin/sh\ncase "$1" in version) echo 8.30.0 ;; esac\nexit 0\n' >"$CASE/old-gitleaks"
+  printf '#!/bin/sh\ncase "$1" in -s) echo Darwin ;; -m) echo x86_64 ;; *) echo Darwin ;; esac\n' >"$CASE/uname-bin/uname"
+  chmod 755 "$CASE/old-gitleaks" "$CASE/uname-bin/uname"
+  # $1 private directory, then VAR=value settings, then -- and setup's
+  # arguments (default: --install with the gitleaks checksum).
+  si() {
+    si_priv=$1
+    shift
+    : >"$URLS"
+    si_env=
+    while [ "$#" -gt 0 ] && [ "$1" != -- ]; do si_env="$si_env $1"; shift; done
+    [ "$#" -eq 0 ] || shift
+    [ "$#" -gt 0 ] || set -- --install --gitleaks-checksum "$gl_sum"
+    # shellcheck disable=SC2086 # settings without spaces, split on purpose
+    env PATH="$TOOLS_PATH" TMPDIR="$CASE/tmp" AGENT_GUARD_GITLEAKS_BIN_DIR="$si_priv" $si_env \
+      "$GUARD" setup "$@" >"$CASE/s.out" 2>"$CASE/s.err"
+    echo "$?" >"$CASE/s.status"
+  }
+  urls() { grep -c . "$URLS"; }
+  helper_url() { grep -c "/$asset\$" "$URLS"; }
+  has_helper() { [ -x "$1/gitleaks-helper/agent-guard-scan" ] && (cd "$1/gitleaks-helper" && shasum -a 256 -c SHA256SUMS >/dev/null 2>&1); }
+  no_temp_left() { [ -z "$(ls -A "$CASE/tmp")" ]; }
+  # A reason line: why setup --install did not install the helper.
+  reason() { grep -c 'gitleaks helper  not installed  (.*only answers' "$CASE/s.err"; }
+  warned() { grep -c 'warning: the warm gitleaks helper was not installed' "$CASE/s.err"; }
+
+  # Installed: no gitleaks anywhere, so gitleaks and then the helper.
+  P="$CASE/p-installed"
+  si "$P"
+  expect "setup --install installs gitleaks and then the helper that matches the pins" \
+    '[ "$(status)" = 0 ] && [ -x "$P/gitleaks" ] && has_helper "$P" && [ "$(urls)" = 2 ] \
+     && [ "$(sed -n 1p "$URLS" | sed "s|.*/||")" = "$gl_archive" ] && [ "$(sed -n 2p "$URLS" | sed "s|.*/||")" = "$asset" ] \
+     && [ "$(reason)" = 0 ] && [ "$(warned)" = 0 ] && no_temp_left'
+  : >"$CALLS"
+  hook "echo $marker" AGENT_GUARD_GITLEAKS_BIN_DIR="$P"
+  expect "and scans then run through that helper with the same deny" \
+    '[ "$(cat "$CASE/h.status")" = "$missing_status" ] && grep -qF -- "--gitleaks|" "$CALLS"'
+
+  # Already installed: nothing is downloaded again.
+  before=$(cd "$P/gitleaks-helper" && shasum -a 256 agent-guard-scan agent-guard-gitleaks-helper SHA256SUMS)
+  si "$P" -- --install
+  expect "with this version's helper already installed, setup --install makes no network call" \
+    '[ "$(status)" = 0 ] && has_helper "$P" && [ "$(urls)" = 0 ] && [ "$(reason)" = 0 ] && [ "$(warned)" = 0 ] \
+     && [ "$before" = "$(cd "$P/gitleaks-helper" && shasum -a 256 agent-guard-scan agent-guard-gitleaks-helper SHA256SUMS)" ]'
+
+  # An existing user: the private gitleaks is there, the helper is not.
+  P="$CASE/p-existing"
+  mkdir -p "$P" && cp "$CASE/gl/gitleaks" "$P/gitleaks"
+  si "$P" -- --install
+  expect "rerunning setup --install with the private gitleaks already there downloads only the helper" \
+    '[ "$(status)" = 0 ] && has_helper "$P" && [ "$(urls)" = 1 ] && [ "$(helper_url)" = 1 ] \
+     && grep -q "gitleaks already available" "$CASE/s.err"'
+
+  # Opted out, with the switch or with the user's own client selected.
+  P="$CASE/p-off"
+  si "$P" AGENT_GUARD_GITLEAKS_HELPER=off
+  expect "AGENT_GUARD_GITLEAKS_HELPER=off at install time installs gitleaks and no helper, without a download" \
+    '[ "$(status)" = 0 ] && [ -x "$P/gitleaks" ] && [ ! -e "$P/gitleaks-helper" ] && [ "$(urls)" = 1 ] \
+     && [ "$(helper_url)" = 0 ] && [ "$(reason)" = 0 ] && [ "$(warned)" = 0 ]'
+  P="$CASE/p-own"
+  si "$P" AGENT_GUARD_GITLEAKS_HELPER="$CASE/payload/agent-guard-scan"
+  expect "a selected client of the user's own is left alone too" \
+    '[ "$(status)" = 0 ] && [ -x "$P/gitleaks" ] && [ ! -e "$P/gitleaks-helper" ] && [ "$(helper_url)" = 0 ]'
+
+  # Download failure: gitleaks is installed, setup succeeds and says so.
+  P="$CASE/p-download"
+  mv "$CASE/download/$asset" "$CASE/download/held"
+  si "$P"
+  expect "a helper download failure leaves gitleaks installed, warns and does not fail setup" \
+    '[ "$(status)" = 0 ] && [ -x "$P/gitleaks" ] && [ ! -e "$P/gitleaks-helper" ] && [ "$(helper_url)" = 1 ] \
+     && [ "$(warned)" = 1 ] && grep -q "setup --install-gitleaks-helper" "$CASE/s.err" && no_temp_left'
+  : >"$CALLS"
+  hook "echo $marker" AGENT_GUARD_GITLEAKS_BIN_DIR="$P"
+  expect "and scans run gitleaks alone, with the same deny" '[ "$(cat "$CASE/h.status")" = "$missing_status" ] && [ ! -s "$CALLS" ]'
+  mv "$CASE/download/held" "$CASE/download/$asset"
+
+  # Checksum mismatch: the same, and nothing of the download is kept.
+  P="$CASE/p-checksum"
+  rm -rf "$CASE/tampered" && mkdir "$CASE/tampered"
+  tar -xzf "$CASE/good.tar.gz" -C "$CASE/tampered"
+  printf 'x' >>"$CASE/tampered/agent-guard-scan"
+  tar -C "$CASE/tampered" -czf "$CASE/download/$asset" agent-guard-gitleaks-helper agent-guard-scan SHA256SUMS
+  si "$P"
+  expect "a helper that does not match the pins is not installed; gitleaks is, and setup does not fail" \
+    '[ "$(status)" = 0 ] && [ -x "$P/gitleaks" ] && [ ! -e "$P/gitleaks-helper" ] && [ "$(warned)" = 1 ] \
+     && grep -q "checksum verification failed" "$CASE/s.err" && no_temp_left \
+     && [ -z "$(find "$P" -name ".gitleaks-helper.*")" ]'
+  cp "$CASE/good.tar.gz" "$CASE/download/$asset"
+
+  # No asset for this platform: quiet.
+  P="$CASE/p-platform"
+  TOOLS_PATH="$CASE/uname-bin:$CASE/http-bin:$CASE/tools"
+  si "$P"
+  expect "on a platform without a released helper setup --install installs gitleaks and says nothing more" \
+    '[ "$(status)" = 0 ] && [ -x "$P/gitleaks" ] && [ ! -e "$P/gitleaks-helper" ] && [ "$(urls)" = 1 ] \
+     && [ "$(sed -n 1p "$URLS" | sed "s|.*/||")" = "gitleaks_${gl_version}_darwin_x64.tar.gz" ] && [ "$(reason)" = 0 ] && [ "$(warned)" = 0 ]'
+  TOOLS_PATH="$CASE/http-bin:$CASE/tools"
+
+  # The selected gitleaks is not the one setup --install manages: one line
+  # says why, nothing is downloaded, and setup does not fail.
+  P="$CASE/p-path"
+  TOOLS_PATH="$CASE/path-gl:$CASE/http-bin:$CASE/tools"
+  si "$P" -- --install
+  expect "a gitleaks from PATH gets one line naming the reason, and no download" \
+    '[ "$(status)" = 0 ] && [ ! -e "$P/gitleaks-helper" ] && [ "$(urls)" = 0 ] && [ "$(reason)" = 1 ] && [ "$(warned)" = 0 ] \
+     && grep "gitleaks helper  not installed" "$CASE/s.err" | grep -q "PATH" && grep -q "setup --install" "$CASE/s.err"'
+  TOOLS_PATH="$CASE/http-bin:$CASE/tools"
+  P="$CASE/p-explicit"
+  mkdir -p "$P" && cp "$CASE/gl/gitleaks" "$P/gitleaks"
+  si "$P" AGENT_GUARD_GITLEAKS_BIN="$CASE/path-gl/gitleaks" -- --install
+  expect "a scanner selected with AGENT_GUARD_GITLEAKS_BIN gets one line naming that variable, and no download" \
+    '[ "$(status)" = 0 ] && [ ! -e "$P/gitleaks-helper" ] && [ "$(urls)" = 0 ] && [ "$(reason)" = 1 ] \
+     && grep "gitleaks helper  not installed" "$CASE/s.err" | grep -q "AGENT_GUARD_GITLEAKS_BIN"'
+  P="$CASE/p-version"
+  mkdir -p "$P" && cp "$CASE/old-gitleaks" "$P/gitleaks"
+  si "$P" -- --install
+  expect "a private gitleaks of another version gets one line naming the version, and no download" \
+    '[ "$(status)" = 0 ] && [ ! -e "$P/gitleaks-helper" ] && [ "$(urls)" = 0 ] && [ "$(reason)" = 1 ] \
+     && grep "gitleaks helper  not installed" "$CASE/s.err" | grep -q "8.30.0"'
+
+  # Both flags: the explicit install stays strict and the helper is fetched once.
+  P="$CASE/p-both"
+  si "$P" -- --install --gitleaks-checksum "$gl_sum" --install-gitleaks-helper
+  expect "with both flags the helper is downloaded once" \
+    '[ "$(status)" = 0 ] && [ -x "$P/gitleaks" ] && has_helper "$P" && [ "$(helper_url)" = 1 ] && [ "$(urls)" = 2 ]'
+  # Control: a gitleaks that fails its checksum still fails setup, before any helper download.
+  P="$CASE/p-gitleaks-bad"
+  si "$P" -- --install --gitleaks-checksum 0000000000000000000000000000000000000000000000000000000000000000
+  expect "a gitleaks download that fails its checksum still fails setup, and no helper is fetched" \
+    '[ "$(status)" != 0 ] && [ ! -e "$P/gitleaks" ] && [ ! -e "$P/gitleaks-helper" ] && [ "$(helper_url)" = 0 ]'
+  "$GUARD" setup --help >"$CASE/help" 2>&1
+  expect "setup --help says that --install installs the helper and how to opt out" \
+    'grep -q "also installs the warm gitleaks helper" "$CASE/help" && grep -q "AGENT_GUARD_GITLEAKS_HELPER=off" "$CASE/help"'
+fi
+
 printf '\npassed: %s\nfailed: %s\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
