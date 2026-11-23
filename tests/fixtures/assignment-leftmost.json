@@ -320,5 +320,29 @@
    "%R%"
   ],
   "masked": "{\"text\":\"token:[REDACTED]\"}\nAPI_KEY=[REDACTED]\nretry [REDACTED]"
+ },
+ {
+  "id": "skipped-quote-match-then-closing-key",
+  "input": "retry %R%\necho '\"password\":\"token:\"'\nAPI_KEY=%R%",
+  "values": [
+   "%R%"
+  ],
+  "masked": "retry [REDACTED]\necho '\"password\":\"token:\"'\nAPI_KEY=[REDACTED]"
+ },
+ {
+  "id": "line-start-key-closes-at-colon",
+  "input": "retry %R%\n'password:'\nAPI_KEY=%R%",
+  "values": [
+   "%R%"
+  ],
+  "masked": "retry [REDACTED]\n'password:'\nAPI_KEY=[REDACTED]"
+ },
+ {
+  "id": "line-start-closed-key-quoted-value",
+  "input": "'password': '%R%'",
+  "values": [
+   "%R%"
+  ],
+  "masked": "'password': '[REDACTED]'"
  }
 ]
