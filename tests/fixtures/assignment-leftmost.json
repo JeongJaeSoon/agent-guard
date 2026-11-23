@@ -257,5 +257,29 @@
    "%R%"
   ],
   "masked": "{\"text\":\"export DB_PASSWORD=\\\"[REDACTED]\\\"\"}"
+ },
+ {
+  "id": "json-string-key-closes-at-colon",
+  "input": "retry %R%\n{\"text\":\"password:\"}\nAPI_KEY=%R%",
+  "values": [
+   "%R%"
+  ],
+  "masked": "retry [REDACTED]\n{\"text\":\"password:\"}\nAPI_KEY=[REDACTED]"
+ },
+ {
+  "id": "json-string-key-closes-after-space",
+  "input": "retry %R%\n{\"text\":\"password: \"}\nAPI_KEY=%R%",
+  "values": [
+   "%R%"
+  ],
+  "masked": "retry [REDACTED]\n{\"text\":\"password: \"}\nAPI_KEY=[REDACTED]"
+ },
+ {
+  "id": "json-string-colon-key-escaped-value",
+  "input": "{\"text\":\"password: \\\"%R%\\\"\"}",
+  "values": [
+   "%R%"
+  ],
+  "masked": "{\"text\":\"password: \\\"[REDACTED]\\\"\"}"
  }
 ]
