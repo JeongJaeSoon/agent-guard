@@ -32,8 +32,13 @@ export GITHUB_STEP_SUMMARY
 export RUNNER_TEMP="$CASE/runner"
 export TEST_JOB_TIMEOUT_MINUTES=1
 export TEST_JOB_STARTED=$(( $(date +%s) - 49 ))
-sh "$PROJECT_ROOT/.github/scripts/test-timing-summary.sh"
+printf '20\n' >"$RUNNER_TEMP/test-partition-1.seconds"
+sh "$PROJECT_ROOT/.github/scripts/test-timing-summary.sh" >"$CASE/stdout"
 grep -F 'more than 80%' "$GITHUB_STEP_SUMMARY"
+# The job log carries the same table, so per-suite seconds survive without the
+# step summary (the API does not serve it).
+grep -F '| 9 | 0 | Partition 1: slow |' "$CASE/stdout"
+grep -F 'Partition 1: 20 seconds in total, 12 in timed suites' "$CASE/stdout"
 grep '^| [0-9]' "$GITHUB_STEP_SUMMARY" >"$CASE/rows"
 tail -n 2 "$CASE/rows" >"$CASE/sorted"
 printf '| 9 | 0 | Partition 1: slow |\n| 3 | 7 | Partition 1: fast failure |\n' >"$CASE/expected"
