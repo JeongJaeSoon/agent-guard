@@ -342,6 +342,16 @@ held sed -n 's/x/y/pw p' notes.txt; grep .env
 held sed 's/x/y/' -i notes.txt; grep .env
 held sed -ni 's/x/y/p' notes.txt; grep .env
 held sed 's,x,y,;e date' notes.txt; grep .env
+allow sed 's/a\/b/c/' notes.txt; grep .env
+held sed 'w/x/y/' notes.txt; grep .env
+held sed 'e/x/y/' notes.txt; grep .env
+held sed 's/Ａ\/a/w p/g' notes.txt; grep .env
+held LC_ALL=zh_TW.Big5 sed 's/Ａ\/a/;e touch /g' notes.txt; grep .env
+allow sed 's/가/x/' notes.txt; grep .env
+allow sed 's/가.env/x/' list.txt
+allow sed -n '/§8.env/,/§9/p' list.txt
+held sed -E 's/가|.env//' list.txt
+held sed 's/Ａ\/aＡ\/;p;#.env/x/' notes.txt
 CASES
 
 # Options from the environment come first and can make the pattern a file.
@@ -371,6 +381,15 @@ gate 'cat shim >pbin/grep; grep .env' || status=$?
 if [ "$status" -eq 2 ]; then ok "pattern kept after a segment that writes a file"; else bad "pattern kept after a segment that writes a file (got $status)"; fi
 (cd "$W" && PATH="$W/pbin:$PATH" sh -c 'cat shim >pbin/grep; grep .env') </dev/null >"$CASE/out" 2>&1
 if grep -Fq "$canary" "$CASE/out"; then ok "control: a rewritten PATH entry makes grep read its pattern"; else bad "control: a rewritten PATH entry makes grep read its pattern"; fi
+
+# The w flag of an s command writes a file as well: a sed that carries one is
+# not an inert earlier segment.
+printf '#!/bin/sh\nexit 0\n' >"$W/pbin/grep"
+status=0
+gate "sed 's/^/&/w pbin/grep' shim; grep .env" || status=$?
+if [ "$status" -eq 2 ]; then ok "pattern kept after a sed that writes a file"; else bad "pattern kept after a sed that writes a file (got $status)"; fi
+(cd "$W" && PATH="$W/pbin:$PATH" sh -c "sed 's/^/&/w pbin/grep' shim; grep .env") </dev/null >"$CASE/out" 2>&1
+if grep -Fq "$canary" "$CASE/out"; then ok "control: a sed w flag rewrites a PATH entry"; else bad "control: a sed w flag rewrites a PATH entry"; fi
 
 printf '%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

@@ -390,5 +390,19 @@
     "classification": "must-still-block",
     "description": "a reader of the last-argument variable after a substituting sed and a grep pattern",
     "command": "grep \"create endpoint failed\" app.log | sed -E 's/a/b/'; grep -e .env app.log; cat $_"
+  },
+  {
+    "id": "sed-write-command-shaped-like-s",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a sed w command written with the delimiters of an s command, before a grep pattern",
+    "command": "sed 'w/x/y/' app.log; grep .env"
+  },
+  {
+    "id": "sed-script-outside-ascii",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a substituting sed whose script holds a byte outside ASCII, before a grep pattern",
+    "command": "sed 's/Ａ\\/a/w p/g' app.log; grep .env"
   }
 ]

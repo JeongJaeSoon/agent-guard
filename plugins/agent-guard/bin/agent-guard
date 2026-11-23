@@ -8110,7 +8110,12 @@ search_operand_spans() {
     # hold its delimiter exactly three times outside a backslash escape, the
     # third followed by nothing but such flags. A sed that reads one of the
     # three as part of a bracket expression finds no complete command and
-    # runs nothing, so where the regex ends need not be known here.
+    # runs nothing, so where the regex ends need not be known here. A byte
+    # outside printable ASCII right before one from "@" to "~" is refused as
+    # in sed_script_without_regex: a sed may count the delimiters
+    # differently there. A script that bash_strip_program_text has already
+    # rewritten arrives here as what that function left of it, which keeps
+    # the same flags.
     function sed_substitutes(a, b,   k, script, t, d, i, c, cnt) {
       script = 0
       for (k = a + 1; k <= b; k++) {
@@ -8119,7 +8124,7 @@ search_operand_spans() {
         if (substr(wv[k], 1, 1) == "-") return 0
         if (script) continue
         script = k; t = wv[k]; d = substr(t, 2, 1); cnt = 0
-        if (substr(t, 1, 1) != "s" || d == "" || !index("/|#,:@!%", d) || index(t, "\n")) return 0
+        if (substr(t, 1, 1) != "s" || d == "" || !index("/|#,:@!%", d) || t ~ /[^ -~\t][@-~]/) return 0
         for (i = 2; i <= length(t) && cnt < 3; i++) {
           c = substr(t, i, 1)
           if (c == "\\") i++
@@ -8511,7 +8516,10 @@ jq_filter_without_field_names() {
 # range of them) and then an s command whose flags neither write (w) nor run
 # (e) anything, or one of p, d, = and q. A delimiter or `\]` inside a bracket
 # expression also fails, since GNU and BSD sed may end such a regex at
-# different places, and so may a newline.
+# different places, and so may a newline. So does a byte outside printable
+# ASCII right before one from "@" to "~" (a letter, a backslash, a bracket,
+# a bar): in some multibyte locales a sed reads the two as one character,
+# and the second no longer escapes, delimits or closes anything.
 sed_script_without_regex() {
   SED_SCRIPT=$1 LC_ALL=C awk '
   # t[i] opens a regex delimited by d; move i to its closing delimiter.
@@ -8549,6 +8557,7 @@ sed_script_without_regex() {
   }
   BEGIN {
     t = ENVIRON["SED_SCRIPT"]; n = length(t); i = 1; out = ""
+    if (t ~ /[^ -~\t\n][@-~]/) exit 1
     while (1) {
       while (i <= n && substr(t, i, 1) == " ") i++
       if (i > n) break
