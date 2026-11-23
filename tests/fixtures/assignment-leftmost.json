@@ -299,5 +299,17 @@
    }
   ],
   "masked": "build ok\nAPI_KEY=''[REDACTED]}\nnext step"
+ },
+ {
+  "id": "json-escaped-short-value-maps-in-context",
+  "input": "prefix: build finished\n{\"text\":\"\\\"password\\\": abc}\"}\nsuffix: all tests passed",
+  "values": [
+   {
+    "literal": "\"\\\"password\\\": abc}\"}",
+    "replacement": "\"\\\"password\\\": [REDACTED]}\"}",
+    "contextual": true
+   }
+  ],
+  "masked": "prefix: build finished\n{\"text\":\"\\\"password\\\": [REDACTED]}\"}\nsuffix: all tests passed"
  }
 ]
