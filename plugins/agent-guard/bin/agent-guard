@@ -16470,9 +16470,8 @@ secretish_env_values() {
         }
         value = substr(raw, 1, end - 1)
         # Empty quotes glued to a word (`""<value>`) are one shell word, and
-        # the word is its value.
-        if (value == "" && substr(raw, end + 1) ~ /^[A-Za-z0-9]/)
-          return emit_value(assignment substr(raw, end + 1), length(assignment) + 1, assignment, require_credential)
+        # the word is its value, which the glued reading above has read.
+        if (value == "" && substr(raw, end + 1) ~ /^[A-Za-z0-9]/) return 0
         # Classify an edge-trimmed copy, replace the original. A quoted value
         # with padding (`" <secret>"`) failed the whitespace-is-prose test on
         # its padding alone, on this single-line path as well as the multiline
