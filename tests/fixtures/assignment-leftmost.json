@@ -273,5 +273,13 @@
    }
   ],
   "masked": "prefix: build finished\n{\"text\":\"\\\"password\\\": [REDACTED]}\"}\nsuffix: all tests passed"
+ },
+ {
+  "id": "json-escaped-quote-inside-value-keeps-spelling",
+  "input": "build ok\n{\"text\":\"\\\"password\\\": 'synth7%R%\\\"tail9'\"}\nnext step",
+  "values": [
+   "synth7%R%\\\"tail9"
+  ],
+  "masked": "build ok\n{\"text\":\"\\\"password\\\": '[REDACTED]'\"}\nnext step"
  }
 ]
