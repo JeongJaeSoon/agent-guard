@@ -312,6 +312,10 @@ check 2 "an export word that holds an assignment" 'f=README.md; kv="f=$X"; expor
 check 2 "a quoted assignment word of declare" 'f=README.md; declare "f=.e"; cat "${f}nv"'
 check 0 "a substitution in an assignment reads an earlier value" 'f=README.md; g=$(cat "$f"); echo "$g"'
 check 0 "an export of another name keeps the value" 'f=README.md; export OTHER="$X"; cat "$f"'
+check 2 "an env override of the loop variable reaches nested code" "for f in a.md; do env f=\"\$X\" sh -c 'cat \"\$f\"'; done"
+check 2 "a prefix assignment of the loop variable reaches nested code" "for f in a.md; do f=\"\$X\" sh -c 'cat \"\$f\"'; done"
+check 2 "a prefix assignment of the loop variable reaches eval code" "for f in a.md; do f=\"\$X\" eval 'cat \"\$f\"'; done"
+check 0 "a loop variable reaches nested shell code" "for f in a.md b.md; do sh -c 'cat \"\$f\"'; done"
 
 HOST=codex
 check 2 "codex: cat of a command substitution" "cat $S"

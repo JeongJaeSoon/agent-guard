@@ -1204,8 +1204,8 @@
   {
     "id": "bash-unresolved-operand-child-env",
     "rule": "bash_unresolved_read_operand: assignments before a command are not followed into the code it runs",
-    "old": "      for (k = 1; k <= npa; k++) delete tab[pan[k]]\n",
-    "new": "",
+    "old": "      for (k = 1; k <= npa; k++) { delete tab[pan[k]]; delete loopv[pan[k]] }\n",
+    "new": "      for (k = 1; k <= npa; k++) delete loopv[pan[k]]\n",
     "tests": [
       "tests/unresolved-read-operand.sh"
     ]
@@ -1512,6 +1512,24 @@
     "rule": "AWK_READ_OPERAND_RECORDS: a quoted assignment word of declare forgets the name before its equals sign",
     "old": "      else if (w !~ /^-/ && (decl !~ /^(export|readonly)$/ || w !~ /^[A-Za-z_][A-Za-z0-9_]*$/)) { n = w; gsub(/[\"\\047\\\\]/, \"\", n); sub(/\\+?=.*/, \"\", n); forget(n) }\n",
     "new": "      else if (w !~ /^-/ && (decl !~ /^(export|readonly)$/ || w !~ /^[A-Za-z_][A-Za-z0-9_]*$/)) { n = w; gsub(/[\"\\047\\\\]/, \"\", n); forget(n) }\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-child-env-loop",
+    "rule": "AWK_READ_OPERAND_RECORDS: a prefix assignment of a loop variable is not passed to the code the command runs",
+    "old": "      for (k = 1; k <= npa; k++) { delete tab[pan[k]]; delete loopv[pan[k]] }\n",
+    "new": "      for (k = 1; k <= npa; k++) delete tab[pan[k]]\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-env-loop",
+    "rule": "AWK_READ_OPERAND_RECORDS: an env assignment of a loop variable is not passed to the code env runs",
+    "old": " delete tab[n]; delete loopv[n]; return }",
+    "new": " delete tab[n]; return }",
     "tests": [
       "tests/unresolved-read-operand.sh"
     ]

@@ -11372,7 +11372,7 @@ AWK_READ_OPERAND_RECORDS='
       # Options of a wrapper that take the return word as their value.
       if (w ~ /^-/ && index(wvopt[wrap], " " w " ")) { skipw = 1; return }
       if (wrap == "env" && w ~ /^(-S|--split-string)$/) { mode = "evalnext"; cpos = 0; cmdseen = 1; return }
-      if (wrap == "env" && w ~ /^[A-Za-z_][A-Za-z0-9_]*=/) { delete tab[substr(w, 1, index(w, "=") - 1)]; return }
+      if (wrap == "env" && w ~ /^[A-Za-z_][A-Za-z0-9_]*=/) { n = substr(w, 1, index(w, "=") - 1); delete tab[n]; delete loopv[n]; return }
       if (wrap == "env" && (w ~ /^-/ || w ~ /=/)) return
       if (wrap != "" && w ~ /^-/) return
       if (wrap == "timeout") { wrap = "timeout1"; return }
@@ -11381,7 +11381,7 @@ AWK_READ_OPERAND_RECORDS='
       cpos = 0; cmdseen = 1; wrap = ""
       # Assignments before the command are its environment, which code it
       # runs (sh -c, eval) reads; their values are not followed there.
-      for (k = 1; k <= npa; k++) delete tab[pan[k]]
+      for (k = 1; k <= npa; k++) { delete tab[pan[k]]; delete loopv[pan[k]] }
       if (w ~ /[$`]/) return
       if (n ~ /^(export|readonly|local|declare|typeset)$/) { mode = "decl"; decl = n; return }
       if (n ~ /^(unset|read|mapfile|readarray|getopts)$/) { mode = "forget"; return }
