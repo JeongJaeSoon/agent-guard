@@ -609,6 +609,118 @@
     ]
   },
   {
+    "id": "perl-sub-eval-flag",
+    "rule": "perl_script_without_regex: the e flag runs the replacement as code",
+    "old": "index(\"gimsx\", substr(t, i, 1))",
+    "new": "index(\"gimsxe\", substr(t, i, 1))",
+    "tests": [
+      "tests/unit-deny-path.sh",
+      "tests/search-operand-ground-truth.sh"
+    ]
+  },
+  {
+    "id": "perl-sub-other-statement",
+    "rule": "perl_script_without_regex: a statement that is not a substitution keeps the whole program",
+    "old": "index(\"/|#,!%\", d) == 0) exit 1",
+    "new": "index(\"/|#,!%\", d) == 0) { printf \"%s\", out substr(t, i); exit 0 }",
+    "tests": [
+      "tests/unit-deny-path.sh",
+      "tests/search-operand-ground-truth.sh"
+    ]
+  },
+  {
+    "id": "perl-sub-colon-delimiter",
+    "rule": "perl_script_without_regex: an escaped `:` delimiter becomes part of a package name",
+    "old": "index(\"/|#,!%\", d)",
+    "new": "index(\"/|#,:!%\", d)",
+    "tests": [
+      "tests/unit-deny-path.sh",
+      "tests/search-operand-ground-truth.sh"
+    ]
+  },
+  {
+    "id": "perl-sub-code-block",
+    "rule": "perl_script_without_regex: a code block in a pattern is code",
+    "old": " || t ~ /\\((\\?+[a-z]*|\\*)\\{/) exit 1",
+    "new": ") exit 1",
+    "tests": [
+      "tests/unit-deny-path.sh"
+    ]
+  },
+  {
+    "id": "perl-sub-pattern-variable",
+    "rule": "perl_script_without_regex: a variable in a pattern is interpolated",
+    "old": "        if (c == \"$\" && x != d && x != \")\" && x != \"|\") exit 1\n",
+    "new": "",
+    "tests": [
+      "tests/unit-deny-path.sh"
+    ]
+  },
+  {
+    "id": "perl-sub-replacement-array",
+    "rule": "perl_script_without_regex: an array in a replacement is interpolated",
+    "old": "x !~ /[1-9]/ || c == \"@\" || c",
+    "new": "x !~ /[1-9]/ || c",
+    "tests": [
+      "tests/unit-deny-path.sh"
+    ]
+  },
+  {
+    "id": "perl-sub-subscript",
+    "rule": "perl_script_without_regex: a subscript after $1 is an expression",
+    "old": "index(\"[{:-0123456789\", substr(t, i + 2, 1))",
+    "new": "index(\":-0123456789\", substr(t, i + 2, 1))",
+    "tests": [
+      "tests/unit-deny-path.sh"
+    ]
+  },
+  {
+    "id": "perl-sub-backref-subscript",
+    "rule": "perl_script_without_regex: perl reads \\1 in a replacement as $1, subscript and all",
+    "old": "(c == \"$\" || c == \"\\\\\" && x ~ /[1-9]/) && index(",
+    "new": "c == \"$\" && index(",
+    "tests": [
+      "tests/unit-deny-path.sh",
+      "tests/search-operand-ground-truth.sh"
+    ]
+  },
+  {
+    "id": "perl-sub-control-escape",
+    "rule": "perl_script_without_regex: \\c takes the next byte, so the escape pairs are off by one",
+    "old": "if (c == \"\\\\\") { if (x == \"c\") exit 1; i++; continue }",
+    "new": "if (c == \"\\\\\") { i++; continue }",
+    "tests": [
+      "tests/unit-deny-path.sh"
+    ]
+  },
+  {
+    "id": "perl-sub-option-after",
+    "rule": "perl_kind: perl reads an option after the program, such as a second -e",
+    "old": "      for (k = j + 2; k <= pn; k++) if (substr(wv[pw[k]], 1, 1) == \"-\") return \"pl\"\n",
+    "new": "",
+    "tests": [
+      "tests/search-operand-ground-truth.sh"
+    ]
+  },
+  {
+    "id": "perl-sub-no-loop",
+    "rule": "perl_kind: only perl -pe and perl -ne qualify",
+    "old": "return loop ? \"pls\" : \"pl\"",
+    "new": "return \"pls\"",
+    "tests": [
+      "tests/search-operand-ground-truth.sh"
+    ]
+  },
+  {
+    "id": "perl-sub-other-option",
+    "rule": "perl_kind: no option but -l, -0 and -C beside -p, -n and -e",
+    "old": "\"^-([lnp]|0[0-7]*|C[0-9IOEioASDLa]*)$\"",
+    "new": "\"^-([lnpw]|0[0-7]*|C[0-9IOEioASDLa]*)$\"",
+    "tests": [
+      "tests/search-operand-ground-truth.sh"
+    ]
+  },
+  {
     "id": "bash-program-cd-home-any-operand",
     "rule": "program text after a home-relative cd (#636): only `~` or `~/literal/path` is read as $HOME",
     "old": "match(s, /[;&|][ \\t]*cd[ \\t]+~(\\/[A-Za-z0-9_.\\/:@%+,=-]*)?([ \\t;&|]|$)/)",
