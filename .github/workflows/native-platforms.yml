@@ -35,7 +35,10 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
+  # macOS and arm runners queue for hours: pull requests run this workflow only
+  # when they are release PRs. Main pushes and manual runs still qualify.
   release-evidence:
+    if: github.event_name != 'pull_request' || startsWith(github.head_ref, 'release/')
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -232,7 +235,7 @@ jobs:
           if-no-files-found: error
   complete:
     name: Native platform artifacts
-    if: always()
+    if: always() && (github.event_name != 'pull_request' || startsWith(github.head_ref, 'release/'))
     # Performance measurement runs in performance.yml (nightly, manual and
     # release PRs), so this run's conclusion is the release qualification.
     needs: [platform, installation, release-evidence]

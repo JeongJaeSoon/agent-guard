@@ -89,6 +89,8 @@ jobs:
 
   developer-tools:
     name: Developer tools (${{ matrix.os }})
+    # macOS runners queue for hours: release PRs, main pushes and manual runs.
+    if: github.event_name != 'pull_request' || startsWith(github.head_ref, 'release/')
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     strategy:

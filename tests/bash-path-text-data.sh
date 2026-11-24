@@ -192,6 +192,18 @@ else
   failed=$((failed + 1))
 fi
 
+# Search patterns behind git grep, git diff, a gh run log, a loop or a
+# variable operand, and the names a find expression leaves out, against the
+# nearest command that reads the file (#626).
+checked=$((checked + 1))
+if AGENT_GUARD_TEST_FIXTURE="$ROOT/tests/fixtures/search-pattern-data.json" sh "$ROOT/tests/path-operands-only.sh" > "$CASE_ROOT/search" 2>&1; then
+  printf 'ok - path data %s: search pattern data\n' "$checked"
+else
+  printf 'not ok - path data %s: search pattern data\n' "$checked"
+  grep '^not ok' "$CASE_ROOT/search" | sed 's/^/#   /'
+  failed=$((failed + 1))
+fi
+
 # Tracked env example files, and text that only names one.
 checked=$((checked + 1))
 if sh "$ROOT/tests/env-example-files.sh" > "$CASE_ROOT/example" 2>&1; then

@@ -600,6 +600,15 @@
     ]
   },
   {
+    "id": "colon-assignment-no-walk-back",
+    "rule": "find_assignment: a colon assignment after a whitespace run starts where the run starts",
+    "old": "      if (delimiter == \":\")\n        while (assignment_start > 1",
+    "new": "      if (0)\n        while (assignment_start > 1",
+    "tests": [
+      "tests/colon-assignment-equivalence.sh"
+    ]
+  },
+  {
     "id": "bash-secret-write-heredoc-unscanned",
     "rule": "bash_file_write_env_names: an unquoted here-document body is read for expansions",
     "old": "          hd_expand[hd_n] = (w !~ /[\\047\"\\\\]/)\n",
