@@ -366,6 +366,19 @@ check u "a quoted declaration word with a splitting expansion flag" 'g=README.md
 check 0 "a quoted declaration word with a substitution and a braced name" 'g=README.md; export "f=$(date) ${HOME}"; cat "$g"'
 check 0 "a dash word as a script argument in a loop" 'for a in --verbose; do source ./script.sh "$a"; done'
 
+# Codex review of the mode change (2026-11-25): a quoted file option keeps its
+# option name, an assignment that runs in a pipeline or in the background does
+# not change the parent shell, and a quoted <( is text.
+check u "a quoted long file option with a variable value" 'grep "--file=$F" README.md'
+check u "a quoted short file option with a variable value" 'grep "-f$F" README.md'
+check 0 "a quoted value option with a variable value" 'grep "--color=$C" x README.md'
+check 0 "a quoted pattern option with a variable value" 'grep "-e$P" README.md'
+check u "an assignment on the left of a pipe" 'f=$X; f=README.md | true; cat "$f"'
+check u "an assignment in the background" 'f=$X; f=README.md & wait; cat "$f"'
+check u "an export on the left of a pipe" 'f=$X; export f=README.md | true; cat "$f"'
+check 0 "an assignment before a pipeline" 'f=README.md; cat "$f" | head -1'
+check 0 "a quoted process substitution is text" 'echo "<(cat $F)"'
+
 # The mode decides only for an operand that stays unknown: one resolved to a
 # protected file blocks with the open policy too, also when an unknown operand
 # comes first, and an explicit open warns like the default.

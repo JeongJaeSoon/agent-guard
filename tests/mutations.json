@@ -1130,6 +1130,42 @@
     ]
   },
   {
+    "id": "bash-unresolved-operand-quoted-option-pattern",
+    "rule": "bash_unresolved_read_operand: a quoted option word with an unknown value stays an option",
+    "old": "    if (index(ow, \"\\005\") || (index(ow, \"\\002\") && ow !~ /^-[^\\002]/)) ow = w\n",
+    "new": "    if (index(ow, \"\\005\") || index(ow, \"\\002\")) ow = w\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-pipe-assignment-kept",
+    "rule": "bash_unresolved_read_operand: an assignment on the left of a pipe or & does not reach the parent",
+    "old": "      bg = (w == \"|\" || w == \"&\")\n",
+    "new": "      bg = 0\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-pipe-export-kept",
+    "rule": "bash_unresolved_read_operand: an export on the left of a pipe does not reach the parent",
+    "old": "    else { tab[nm] = v; segnow[nm] = 1 }\n",
+    "new": "    else tab[nm] = v\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-quoted-procsub-code",
+    "rule": "bash_unresolved_read_operand: a quoted <( is text",
+    "old": "      if (c ~ /[$<>]/ && (c == \"$\" || !dq) && substr(w, i + 1, 1) == \"(\") {\n",
+    "new": "      if (c ~ /[$<>]/ && substr(w, i + 1, 1) == \"(\") {\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
     "id": "bash-unresolved-operand-value-unmatched",
     "rule": "bash_unresolved_read_operand: a resolved assignment value is matched against the deny list",
     "old": "        bash_matches_deny_path \"cat $(sh_squote \"${uo_record#V}\")\" \"${input-}\" && exit 0\n",

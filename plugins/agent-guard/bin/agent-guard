@@ -11068,7 +11068,8 @@ AWK_READ_OPERAND_RECORDS='
         if (!j) { print "U"; return }
         tabrec(); print "S" substr(w, i + 1, j - i - 1); i = j; continue
       }
-      if (c ~ /[$<>]/ && substr(w, i + 1, 1) == "(") {
+      # Inside double quotes only $( starts code; "<(...)" is text.
+      if (c ~ /[$<>]/ && (c == "$" || !dq) && substr(w, i + 1, 1) == "(") {
         if (c == "$" && substr(w, i + 2, 1) == "(") continue
         j = closer(w, i + 1)
         if (!j) { print "U"; return }
@@ -11283,9 +11284,10 @@ AWK_READ_OPERAND_RECORDS='
     if (mode == "eval" && evalcode != "") code(evalcode)
     for (k = 1; k <= npa; k++) {
       delete loopv[pan[k]]
-      if (cmdseen || cond || depth || nofollow || pav[k] == "\002") delete tab[pan[k]]
+      if (cmdseen || cond || bg || depth || nofollow || pav[k] == "\002") delete tab[pan[k]]
       else tab[pan[k]] = pav[k]
     }
+    for (k in segnow) { if (bg) delete tab[k]; delete segnow[k] }
     if (prog == "cp" && cppend != "" && cpt) operand(cppend)
     for (k in ptab) delete ptab[k]
     for (k in ovr) delete ovr[k]
@@ -11306,7 +11308,7 @@ AWK_READ_OPERAND_RECORDS='
     if (now) delete loopv[nm]
     if (!now) { npa++; pan[npa] = nm; pav[npa] = v; ptab[nm] = v; return }
     if (cond || depth || nofollow || v == "\002") delete tab[nm]
-    else tab[nm] = v
+    else { tab[nm] = v; segnow[nm] = 1 }
   }
   BEGIN {
     split("cat tac nl head tail less more bat batcat sed awk gawk mawk nawk grep egrep fgrep rg base64 base32 xxd od hexdump strings cut sort uniq paste fold column diff cmp comm jq cp source .", a, " ")
@@ -11359,7 +11361,11 @@ AWK_READ_OPERAND_RECORDS='
     incomment = 0
     if (w ~ /^#/) { incomment = 1; return }
     if (w == "" || w == "\034" || w == ";" || w == "|" || w == "||" || w == "&&" || w == "&") {
+      # The left side of a pipe or of & runs in a subshell, so its
+      # assignments never reach the shell that runs the next segment.
+      bg = (w == "|" || w == "&")
       end_segment()
+      bg = 0
       cond = (w == "|" || w == "||" || w == "&&" || w == "&")
       return
     }
@@ -11472,7 +11478,9 @@ AWK_READ_OPERAND_RECORDS='
     # word it stands for is still matched as written (--file=<name>). The
     # arguments of a sourced script are data; jq reads options after --args.
     if (!ddash && !(gotone && prog ~ /^(source|\.)$/) && substr(ow, 1, 1) == "\005" && loopopt(ow)) { operand(w); print "U"; return }
-    if (index(ow, "\002") || index(ow, "\005")) ow = w
+    # A word that starts with a literal option name stays an option even
+    # when its value is unknown ("--file=$F", "-f$F").
+    if (index(ow, "\005") || (index(ow, "\002") && ow !~ /^-[^\002]/)) ow = w
     else forcev = subst
     if (!ddash && ow == "--") { forcev = 0; ddash = 1; return }
     # BSD sed takes the backup suffix of -i as the return word, often ''.
