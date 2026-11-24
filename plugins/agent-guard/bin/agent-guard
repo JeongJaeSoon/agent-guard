@@ -8074,6 +8074,21 @@ search_operand_spans() {
     # table knows, so no option can take that word as its value or turn it
     # into a file operand (-f).
     function pline(kind, j) { return "P " kind " " ws[pw[j]] " " we[pw[j]] " " wv[pw[j]] "\n" }
+    # The kind of the perl program word after pw[j], its -e option. "pls"
+    # when the command is perl -pe or perl -ne and its other options are
+    # only -l, -0 and -C: perl then loops over its input, and the program
+    # alone decides what else runs (perl_script_without_regex). perl reads
+    # options after the program as well (-i, a second -e), so none may follow.
+    function perl_kind(j,   k, v, loop) {
+      loop = 0
+      for (k = 2; k <= j; k++) {
+        v = wv[pw[k]]
+        if (v !~ (k < j ? "^-([lnp]|0[0-7]*|C[0-9IOEioASDLa]*)$" : "^-(0[0-7]*)?[lnp]*e$")) return "pl"
+        if (v !~ /^-C/ && v ~ /[np]/) loop = 1
+      }
+      for (k = j + 2; k <= pn; k++) if (substr(wv[pw[k]], 1, 1) == "-") return "pl"
+      return loop ? "pls" : "pl"
+    }
     # pw[1..pn] are the words of the segment, the command name first, without
     # the redirections that name no file (`2>&1`, `2>/dev/null`). Any other
     # redirection or non-literal word gives the segment up: a `<` word would
@@ -8145,8 +8160,8 @@ search_operand_spans() {
       if (h == "perl") {
         for (j = 2; j <= pn; j++) {
           v = wv[pw[j]]
-          if (v ~ /^-[lnpaw0-9]*[eE]$/) return j < pn ? pline("pl", j + 1) : ""
-          if (v !~ /^-(l|n|p|a|w|0[0-7]*)$/) return ""
+          if (v ~ /^-[lnpaw0-9]*[eE]$/) return j < pn ? pline(perl_kind(j), j + 1) : ""
+          if (v !~ /^-(l|n|p|a|w|0[0-7]*|C[0-9IOEioASDLa]*)$/) return ""
         }
         return ""
       }
@@ -8844,6 +8859,63 @@ sed_script_without_regex() {
       out = out ";"
       i++
     }
+    printf "%s", out
+  }'
+}
+
+# Print $1, the program of perl -pe or perl -ne, without its regexes when it
+# is made only of s/regex/replacement/flags statements separated by `;`. Such
+# a program opens no file and runs no command, so its regex text names no
+# path; the replacement stays as written. Return 1, and the caller keeps
+# every byte, for anything else:
+# - a statement that is not a substitution, a comment, a second line;
+# - a delimiter other than the fixed characters below: a bracketing pair
+#   nests, and a quote changes how perl reads the text;
+# - a flag other than g, i, m, s and x: e and ee run the replacement as code;
+# - a code block in a pattern, or a backtick anywhere;
+# - text perl may interpolate. In a pattern `$` stays only where it is an
+#   anchor (before `)`, `|` or the end) and `@` only before a character that
+#   starts no array name there. In a replacement `@` never stays, and `$`
+#   only as $1 to $9 with no subscript, package or digit after it;
+# - `\c`, which takes the next byte even when that is a backslash, so the
+#   escape pairs counted here would be off by one.
+# Bytes are counted as in sed_script_without_regex, with its multibyte
+# refusal.
+perl_script_without_regex() {
+  PERL_SCRIPT=$1 LC_ALL=C awk '
+  BEGIN {
+    t = ENVIRON["PERL_SCRIPT"]; n = length(t); i = 1; out = ""
+    if (t ~ /[^ -~\t\n][@-~]/ || t ~ /[`\n]/ || t ~ /\((\?+[a-z]*|\*)\{/) exit 1
+    while (1) {
+      while (i <= n && substr(t, i, 1) == " ") i++
+      if (i > n) break
+      d = substr(t, i + 1, 1)
+      if (substr(t, i, 1) != "s" || d == "" || index("/|#,:!%", d) == 0) exit 1
+      for (i += 2; i <= n && (c = substr(t, i, 1)) != d; i++) {
+        x = substr(t, i + 1, 1)
+        if (c == "\\") { if (x == "c") exit 1; i++; continue }
+        if (c == "$" && x != d && x != ")" && x != "|") exit 1
+        if (c == "@" && (x ~ /[A-Za-z0-9_:\047{$]/ || x !~ /[ -~]/)) exit 1
+      }
+      if (i > n) exit 1
+      out = out "s" d d
+      for (i++; i <= n && (c = substr(t, i, 1)) != d; i++) {
+        x = substr(t, i + 1, 1)
+        if (c == "\\") { if (x == "c") exit 1; out = out c x; i++; continue }
+        if (c == "@") exit 1
+        if (c == "$" && (x !~ /[1-9]/ || index("[{:-0123456789", substr(t, i + 2, 1)))) exit 1
+        out = out c
+      }
+      if (i > n) exit 1
+      out = out d
+      for (i++; i <= n && index("gimsx", substr(t, i, 1)); i++) out = out substr(t, i, 1)
+      while (i <= n && substr(t, i, 1) == " ") i++
+      if (i > n) break
+      if (substr(t, i, 1) != ";") exit 1
+      out = out ";"
+      i++
+    }
+    if (out == "") exit 1
     printf "%s", out
   }'
 }
@@ -10040,6 +10112,8 @@ program_text_bare_suffixes() (
 # - jq: the field names of the filter (jq_filter_without_field_names).
 # - sed: the regexes of a script made only of s and print commands
 #   (sed_script_without_regex); any other script keeps its text.
+# - pls (perl -pe or -ne, see perl_kind): the regexes of a program made only
+#   of s statements (perl_script_without_regex); any other keeps its text.
 # - py, js: member names in code outside string literals (`row.key`,
 #   `process.env.PORT`). Only where the quoting can be followed for sure: a
 #   python program without a comment or a triple quote, a node program
@@ -10054,6 +10128,7 @@ program_text_residual() {
     # A script outside that grammar may run a command (the e command and
     # flag) or name a file (r, w): it keeps every byte.
     sed) pr_text=$(sed_script_without_regex "$pr_text") || return 1 ;;
+    pls) pr_text=$(perl_script_without_regex "$pr_text") || return 1 ;;
   esac
   PT_TEXT=$pr_text LC_ALL=C awk -v kind="$1" -v suffixes="$3" '
     function chains(t,   out, n, i, c, q, p) {

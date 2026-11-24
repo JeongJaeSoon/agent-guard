@@ -456,6 +456,132 @@
     "command": "perl -e 'open(F, \"<\", q(server.key)); print <F>'"
   },
   {
+    "id": "perl-substitution-ansi",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a perl -pe program made only of s statements; its regexes strip terminal escapes",
+    "command": "perl -pe 's/\\e\\[[0-9;?]*[ -\\/]*[@-~]//g; s/\\e\\][^\\a]*\\a//g; s/\\r/\\n/g' out.log | grep -v '^\\s*$' | sort -u | head -40"
+  },
+  {
+    "id": "perl-substitution-file-operand",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "the same kind of program with a protected file as its file operand",
+    "command": "perl -pe 's/\\e\\[[0-9;]*m//g' .env"
+  },
+  {
+    "id": "perl-substitution-slurp",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "perl -0777 -pe with one s statement",
+    "command": "perl -0777 -pe 's/\\e\\[[0-9;]*[a-zA-Z]//g' out.log"
+  },
+  {
+    "id": "perl-substitution-in-place",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "perl -pi rewrites its operand, so the program keeps every byte",
+    "command": "perl -pi -e 's/\\e\\[[0-9;]*m//g' out.log"
+  },
+  {
+    "id": "perl-substitution-delimiter",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "perl -C -lpe with another fixed delimiter, stderr dropped, piped to head",
+    "command": "perl -C -lpe 's#\\e\\[[0-9;]*m##g' out.log 2>/dev/null | head -5"
+  },
+  {
+    "id": "perl-substitution-bracket-delimiter",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a bracketing delimiter nests, so the program keeps every byte",
+    "command": "perl -pe 's{\\e\\[[0-9;]*m}{}g' out.log"
+  },
+  {
+    "id": "perl-substitution-eval-flag",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "the e flag runs the replacement as code",
+    "command": "perl -pe 's/\\e\\[[0-9;]*m/1 + 1/ge' out.log"
+  },
+  {
+    "id": "perl-substitution-code-block",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a code block inside the pattern",
+    "command": "perl -pe 's/\\e\\[[0-9;]*m(?{ print 1 })//g' out.log"
+  },
+  {
+    "id": "perl-substitution-pattern-variable",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a variable interpolated into the pattern",
+    "command": "perl -pe 's/\\e\\[[0-9;]*m$x//g' out.log"
+  },
+  {
+    "id": "perl-substitution-replacement-code",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "code interpolated into the replacement",
+    "command": "perl -pe 's/\\e\\[[0-9;]*m/@{[ 1 ]}/g' out.log"
+  },
+  {
+    "id": "perl-substitution-other-statement",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a statement that is not a substitution",
+    "command": "perl -pe 's/\\e\\[[0-9;]*m//g; print STDERR $.' out.log"
+  },
+  {
+    "id": "perl-substitution-begin-block",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a BEGIN block before the substitution",
+    "command": "perl -pe 'BEGIN { $| = 1 } s/\\e\\[[0-9;]*m//g' out.log"
+  },
+  {
+    "id": "perl-substitution-no-loop",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "perl -e without -p or -n",
+    "command": "perl -e 's/\\e\\[[0-9;]*m//g' out.log"
+  },
+  {
+    "id": "perl-substitution-other-option",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "an option outside -p, -n, -l, -0 and -C",
+    "command": "perl -w -pe 's/\\e\\[[0-9;]*m//g' out.log"
+  },
+  {
+    "id": "perl-substitution-option-after",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "an option after the program word",
+    "command": "perl -pe 's/\\e\\[[0-9;]*m//g' -i out.log"
+  },
+  {
+    "id": "perl-substitution-replacement-name",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a protected name in the replacement stays in the scan",
+    "command": "perl -pe 's/\\e\\[[0-9;]*m/server.key/' out.log"
+  },
+  {
+    "id": "perl-substitution-to-xargs",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "the same program when its output feeds a command that opens what it reads",
+    "command": "ls -a | perl -pe 's/\\e\\[[0-9;]*m//g' | xargs cat"
+  },
+  {
+    "id": "perl-substitution-after-command",
+    "expected_status": 2,
+    "classification": "must-still-block",
+    "description": "a command that is not inert runs first on the line and could change what perl is",
+    "command": "./run-capture.sh >/dev/null 2>&1; perl -pe 's/\\e\\[[0-9;]*m//g' out.log"
+  },
+  {
     "id": "ruby-suffix-end-with",
     "expected_status": 2,
     "classification": "must-still-block",
