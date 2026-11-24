@@ -2583,8 +2583,8 @@ HOOK_SCANNER_UNAVAILABLE=0
 # start its checks at all: text the agent has read cannot be taken back. With
 # the variable unset that case is closed and every other infrastructure
 # failure is open: the changed-file and written-file scans after a tool call,
-# Stop, and a commit the gate could not resolve or whose diff is over the scan
-# cap. Withholding output does nothing for files on disk, and an over-cap diff
+# Stop, a commit the gate could not resolve or whose diff is over the scan
+# cap, and a Bash read operand only known at run time. Withholding output does nothing for files on disk, and an over-cap diff
 # would block every call until it is split. open or closed, once set, applies
 # to both.
 infrastructure_failure_mode() {

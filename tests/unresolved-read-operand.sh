@@ -37,6 +37,10 @@ check() {
     status=$?
     verdict=ok
     [ "$status" -eq "$want" ] || verdict="expected $want got $status"
+    # The closed policy blocks before the other checks, with the same block.
+    [ "$verdict:$expected:$want" != ok:u:2 ] \
+      || grep -Fq "blocked shell command whose file operand is only known at run time" "$CASE_ROOT/err" \
+      || verdict="not the unresolved-operand block"
     # A pass carries the warning exactly when the operand stayed unknown.
     if [ "$verdict" = ok ] && [ "$want" -eq 0 ]; then
       warned=0

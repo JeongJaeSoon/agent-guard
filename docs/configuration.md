@@ -57,7 +57,16 @@ Every other infrastructure failure keeps the open default:
   written file that could not be scanned, a written path that could not be
   determined, or git itself missing. Withholding the tool output would do
   nothing for a file already on disk, and a change over the scan cap would
-  otherwise block every call in that work tree until it is split.
+  otherwise block every call in that work tree until it is split;
+- a Bash file operand or `<` input of a reading program (`cat`, `head`,
+  `sed`, `base64` and the like) that is built from a command substitution or
+  a variable the protected-path check cannot resolve
+  (`reason=bash_protected_path_unresolved_operand`). The open default runs the
+  command with a notice that says to name the file literally; `closed`
+  blocks it. An operand the check resolves, such as a literal assignment
+  earlier in the same command or a `for` loop over literal words, is matched
+  against the deny list and blocks in every mode when it names a protected
+  file.
 
 Set `closed` to block those too.
 
@@ -65,7 +74,9 @@ Under `open`, a session's first infrastructure failure produces the notice, and
 it repeats at most once every 600 seconds while failures continue; the interval
 is fixed. Every infrastructure notice in a session shares that interval, so a
 degraded-dependency notice can wait behind another failure's notice, such as an
-unresolved `git commit`. A `PostToolUse` git-backstop failure is reported on
+unresolved `git commit`. The unresolved read operand notice keeps its own
+interval, so it never hides another notice; it is added to a notice published
+in the same call. A `PostToolUse` git-backstop failure is reported on
 stderr only, because that hook may still have to write its redaction response. In Claude Code the notice is a `systemMessage` shown to you on
 `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `UserPromptSubmit`, and
 `Stop`, and the model receives it as additional context. Codex receives it as
