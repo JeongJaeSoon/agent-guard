@@ -799,7 +799,8 @@ for manifest_host in claude codex; do
     manifest_norm=$(printf '%s' "$manifest_cmd" | sed \
       -e "s/$manifest_root/__ROOT__/g" \
       -e "s/ $manifest_host hook-/ __HOST__ hook-/g" \
-      -e "s/ $manifest_sub \"/ __SUB__ \"/g")
+      -e "s/ $manifest_sub \"/ __SUB__ \"/g" \
+      -e "s/:$manifest_sub in /:__SUB__ in /")
     if [ -z "$hook_line_shape" ]; then
       hook_line_shape=$manifest_norm
     fi
@@ -890,10 +891,10 @@ printf '%s' "$read_env_payload" \
   | (cd "$PLUGIN_ROOT" && TMPDIR="$TESTTMP/rootvar-claude-unset" env -u CLAUDE_PLUGIN_ROOT -u CODEX_PLUGIN_ROOT sh -c "$claude_pre_tool_command") \
   >"$OUT" 2>"$ERR"
 status=$?
-if [ "$status" -eq 0 ]; then
-  ok "Claude hook command follows the default open infrastructure policy without CLAUDE_PLUGIN_ROOT"
+if [ "$status" -eq 2 ] && grep -q 'blocking because AGENT_GUARD_INFRA_FAILURE_MODE=unset' "$ERR"; then
+  ok "Claude PreToolUse hook command blocks by default without CLAUDE_PLUGIN_ROOT"
 else
-  not_ok "Claude hook command follows the default open infrastructure policy without CLAUDE_PLUGIN_ROOT (expected 0, got $status)"
+  not_ok "Claude PreToolUse hook command blocks by default without CLAUDE_PLUGIN_ROOT (expected 2, got $status)"
   sed 's/^/  stderr: /' "$ERR"
 fi
 if grep -q 'CLAUDE_PLUGIN_ROOT env not set' "$ERR"; then
@@ -940,10 +941,10 @@ printf '%s' "$read_env_payload" \
   | (cd "$PLUGIN_ROOT" && TMPDIR="$TESTTMP/rootvar-codex-unset" env -u PLUGIN_ROOT -u CODEX_PLUGIN_ROOT -u CLAUDE_PLUGIN_ROOT sh -c "$codex_pre_tool_command") \
   >"$OUT" 2>"$ERR"
 status=$?
-if [ "$status" -eq 0 ]; then
-  ok "Codex hook command follows the default open infrastructure policy without PLUGIN_ROOT"
+if [ "$status" -eq 2 ] && grep -q 'blocking because AGENT_GUARD_INFRA_FAILURE_MODE=unset' "$ERR"; then
+  ok "Codex PreToolUse hook command blocks by default without PLUGIN_ROOT"
 else
-  not_ok "Codex hook command follows the default open infrastructure policy without PLUGIN_ROOT (expected 0, got $status)"
+  not_ok "Codex PreToolUse hook command blocks by default without PLUGIN_ROOT (expected 2, got $status)"
   sed 's/^/  stderr: /' "$ERR"
 fi
 if grep -q 'PLUGIN_ROOT env not set' "$ERR"; then
@@ -1058,7 +1059,7 @@ printf '%s' '{"session_id":"incomplete-root","tool_name":"Bash","tool_input":{"c
     AGENT_GUARD_WARNING_DIR="$TESTTMP/incomplete-root-warning" \
     sh -c "$codex_pre_tool_command" >"$OUT" 2>"$ERR"
 status=$?
-if [ "$status" -eq 0 ] && [ ! -s "$OUT" ] \
+if [ "$status" -eq 2 ] && [ ! -s "$OUT" ] \
    && grep -q 'selected root was incomplete' "$ERR"; then
   ok "Codex hook resolver refuses an incomplete selected root without sibling substitution"
 else
@@ -1143,7 +1144,7 @@ for manifest_utility in sh awk sort tail cut cksum mkdir; do
 done
 
 # When a launcher exists but no binary resolves, every event shares one
-# best-effort host/session marker. The warning names the selected policy,
+# best-effort host/session marker under the open policy. The warning names the selected policy,
 # including closed mode. launcher-only/9.9.9 holds only hooks/launch.sh, so the
 # deleted 0.0.0 root reaches a launcher that finds no complete binary.
 mkdir -p "$TESTTMP/launcher-only/9.9.9/hooks"
@@ -1160,6 +1161,7 @@ for manifest_host in codex claude; do
     printf '%s' '{"session_id":"manifest-session"}' \
       | env "$manifest_root=$TESTTMP/launcher-only/0.0.0" \
           AGENT_GUARD_WARNING_DIR="$manifest_warning_dir" \
+          AGENT_GUARD_INFRA_FAILURE_MODE=open \
           sh -c "$manifest_command; :" >/dev/null 2>>"$ERR"
   done
   warning_count=$(grep -c 'no installed binary was found' "$ERR" 2>/dev/null || true)
@@ -1176,6 +1178,7 @@ for manifest_host in codex claude; do
     printf '{"session_id":"payload-%s"}' "$override_event" \
       | env "$manifest_root=$TESTTMP/launcher-only/0.0.0" \
           AGENT_GUARD_SESSION_ID=manifest-override \
+          AGENT_GUARD_INFRA_FAILURE_MODE=open \
           AGENT_GUARD_WARNING_DIR="$TESTTMP/manifest-override-$manifest_host" \
           sh -c "$manifest_command; :" >/dev/null 2>>"$ERR"
   done
@@ -1194,6 +1197,7 @@ for manifest_host in codex claude; do
       | env PATH="$MANIFEST_NO_JQ_PATH" \
           "$manifest_root=$TESTTMP/launcher-only/0.0.0" \
           AGENT_GUARD_WARNING_DIR="$TESTTMP/manifest-no-jq-$manifest_host" \
+          AGENT_GUARD_INFRA_FAILURE_MODE=open \
           /bin/sh -c "$manifest_command; :" >/dev/null 2>>"$ERR"
   done
   no_jq_warning_count=$(grep -c 'no installed binary was found' "$ERR" 2>/dev/null || true)
@@ -1245,6 +1249,7 @@ for manifest_host in codex claude; do
     printf '%s' '{"session_id":"manifest-readonly"}' \
       | env "$manifest_root=$TESTTMP/launcher-only/0.0.0" \
           AGENT_GUARD_WARNING_DIR="$manifest_ro_dir" \
+          AGENT_GUARD_INFRA_FAILURE_MODE=open \
           sh -c "$manifest_command" >"$OUT" 2>"$ERR"
     status=$?
     chmod 0700 "$manifest_ro_dir"

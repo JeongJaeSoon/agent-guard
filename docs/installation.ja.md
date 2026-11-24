@@ -1,4 +1,4 @@
-<!-- translated-from: docs/installation.md; source-blob: a17305acb585516c83685901e12d1dca402c9d09 -->
+<!-- translated-from: docs/installation.md; source-blob: ebd8abd77e731467a634d74740234b751ec2ed21 -->
 
 <a id="installing-agent-guard"></a>
 
@@ -182,7 +182,7 @@ Codexがagent-guardのhookを再確認待ちまたは無効と報告した場合
 想定どおりのコマンドは、プラグインの `hooks/launch.sh` を `codex` とそのイベントのhook subcommandで実行する1行です。agent-guardのhook同士で異なるのはこのsubcommandだけです。`Stop` のコマンドは次のとおりです。
 
 ```sh
-sh -c 'r=${PLUGIN_ROOT:-}; [ -n "$r" ] && for q in "$r" "${r%/*}/current" "${r%/*}"/[0-9]*.[0-9]*.[0-9]*; do [ -f "$q/hooks/launch.sh" ] && exec sh "$q/hooks/launch.sh" codex hook-stop "$r"; done; while read -r l; do :; done; case ${AGENT_GUARD_INFRA_FAILURE_MODE:-open} in closed) m=closed a=blocking ;; *) m=open a=continuing ;; esac; echo "agent-guard: PLUGIN_ROOT env not set or no hook launcher was found; $a because AGENT_GUARD_INFRA_FAILURE_MODE=$m" >&2; [ "$m" = closed ] && exit 2; exit 0'
+sh -c 'r=${PLUGIN_ROOT:-}; [ -n "$r" ] && for q in "$r" "${r%/*}/current" "${r%/*}"/[0-9]*.[0-9]*.[0-9]*; do [ -f "$q/hooks/launch.sh" ] && exec sh "$q/hooks/launch.sh" codex hook-stop "$r"; done; while read -r l; do :; done; m=${AGENT_GUARD_INFRA_FAILURE_MODE:-}; case $m:hook-stop in open:*|closed:*) ;; *:hook-s*) m=open ;; *) m=unset ;; esac; a=blocking; [ $m = open ] && a=continuing; echo "agent-guard: PLUGIN_ROOT env not set or no hook launcher was found; $a because AGENT_GUARD_INFRA_FAILURE_MODE=$m" >&2; [ $m = open ] && exit 0; exit 2'
 ```
 
 ほかのhookは `hook-pre-tool`、`hook-post-tool`、`hook-session-start`、`hook-user-prompt` を使います。launcherはCodexが信頼するプラグイン内容の一部です。launcherは `bin/agent-guard` を実行する前に選ばれたバージョンが完全かどうかを確かめ、実行ファイルが見つからない場合は `AGENT_GUARD_INFRA_FAILURE_MODE` を適用します。

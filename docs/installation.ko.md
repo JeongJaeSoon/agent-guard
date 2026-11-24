@@ -1,4 +1,4 @@
-<!-- translated-from: docs/installation.md; source-blob: a17305acb585516c83685901e12d1dca402c9d09 -->
+<!-- translated-from: docs/installation.md; source-blob: ebd8abd77e731467a634d74740234b751ec2ed21 -->
 
 <a id="installing-agent-guard"></a>
 
@@ -181,7 +181,7 @@ Codex가 agent-guard hook을 검토 필요나 꺼짐으로 보고하면, `doctor
 예상되는 명령은 플러그인의 `hooks/launch.sh`를 `codex`와 그 이벤트의 hook subcommand로 실행하는 한 줄입니다. agent-guard hook 사이에서는 이 subcommand만 다릅니다. `Stop`의 명령은 다음과 같습니다.
 
 ```sh
-sh -c 'r=${PLUGIN_ROOT:-}; [ -n "$r" ] && for q in "$r" "${r%/*}/current" "${r%/*}"/[0-9]*.[0-9]*.[0-9]*; do [ -f "$q/hooks/launch.sh" ] && exec sh "$q/hooks/launch.sh" codex hook-stop "$r"; done; while read -r l; do :; done; case ${AGENT_GUARD_INFRA_FAILURE_MODE:-open} in closed) m=closed a=blocking ;; *) m=open a=continuing ;; esac; echo "agent-guard: PLUGIN_ROOT env not set or no hook launcher was found; $a because AGENT_GUARD_INFRA_FAILURE_MODE=$m" >&2; [ "$m" = closed ] && exit 2; exit 0'
+sh -c 'r=${PLUGIN_ROOT:-}; [ -n "$r" ] && for q in "$r" "${r%/*}/current" "${r%/*}"/[0-9]*.[0-9]*.[0-9]*; do [ -f "$q/hooks/launch.sh" ] && exec sh "$q/hooks/launch.sh" codex hook-stop "$r"; done; while read -r l; do :; done; m=${AGENT_GUARD_INFRA_FAILURE_MODE:-}; case $m:hook-stop in open:*|closed:*) ;; *:hook-s*) m=open ;; *) m=unset ;; esac; a=blocking; [ $m = open ] && a=continuing; echo "agent-guard: PLUGIN_ROOT env not set or no hook launcher was found; $a because AGENT_GUARD_INFRA_FAILURE_MODE=$m" >&2; [ $m = open ] && exit 0; exit 2'
 ```
 
 나머지 hook은 `hook-pre-tool`, `hook-post-tool`, `hook-session-start`, `hook-user-prompt`를 씁니다. launcher는 Codex가 신뢰하는 플러그인 내용의 일부입니다. launcher는 `bin/agent-guard`를 실행하기 전에 선택된 버전이 완전한지 확인하고, 실행 파일을 찾지 못하면 `AGENT_GUARD_INFRA_FAILURE_MODE`를 적용합니다.

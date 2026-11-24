@@ -270,12 +270,26 @@ the directory during a session, it uses `current` or the newest complete
 installed version instead; it never substitutes another version for a
 directory that still exists but is incomplete. When no binary can be found,
 the launcher applies `AGENT_GUARD_INFRA_FAILURE_MODE`: `closed` blocks with the
-reason on every call and `open` warns once per session; unset is `open` here,
-because the default block for a missing secret scan is decided by the binary
-that could not be found. When no launcher can be
-found at all, for example because the host did not set its plugin-root
-variable, the command line applies the same mode itself and warns on every
-call.
+reason on every call and `open` warns once per session. Unset blocks the
+hooks whose event carries text to or from the agent (`PreToolUse`,
+`UserPromptSubmit`, `PostToolUse` and `PostToolUseFailure`) and continues for
+`Stop` and `SessionStart`; any other value is read as unset. The launcher
+cannot withhold the output of a tool that already ran, because only the
+binary knows the shape each tool's output takes: a blocked `PostToolUse`
+says that the output was not checked and could not be withheld. `PreToolUse`
+has already blocked the tools it covers by then, so this is the output of
+tools only `PostToolUse` covers (`REPL`, `Poll`, `Skill`, `Monitor`, `LSP`,
+`PowerShell` and the MCP resource tools). When no launcher can be found at
+all, for example because the host did not set its plugin-root variable, the
+command line applies the same defaults itself and says so on every call.
+
+For those four hooks the launcher stays as the binary's parent instead of
+being replaced by it, unless the mode is `open`. Exit status 0 and 2 pass
+through. Any other status means the check did not finish, such as a binary
+that crashes on start, and becomes a block with the reason. A `TERM`, `INT`
+or `HUP` sent to the launcher is passed on to the binary, and the launcher
+waits for it; a `KILL` cannot be passed on. `Stop` and `SessionStart` still
+run the binary in place of the launcher.
 
 A Claude `PreToolUse` hook that the host kills at its timeout, cannot start,
 exits with a status other than 0 or 2, or prints stdout that is not one valid

@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'r=${CLAUDE_PLUGIN_ROOT:-}; [ -n \"$r\" ] && for q in \"$r\" \"${r%/*}/current\" \"${r%/*}\"/[0-9]*.[0-9]*.[0-9]*; do [ -f \"$q/hooks/launch.sh\" ] && exec sh \"$q/hooks/launch.sh\" claude hook-pre-tool \"$r\"; done; while read -r l; do :; done; case ${AGENT_GUARD_INFRA_FAILURE_MODE:-open} in closed) m=closed a=blocking ;; *) m=open a=continuing ;; esac; echo \"agent-guard: CLAUDE_PLUGIN_ROOT env not set or no hook launcher was found; $a because AGENT_GUARD_INFRA_FAILURE_MODE=$m\" >&2; [ \"$m\" = closed ] && exit 2; exit 0'",
+            "command": "sh -c 'r=${CLAUDE_PLUGIN_ROOT:-}; [ -n \"$r\" ] && for q in \"$r\" \"${r%/*}/current\" \"${r%/*}\"/[0-9]*.[0-9]*.[0-9]*; do [ -f \"$q/hooks/launch.sh\" ] && exec sh \"$q/hooks/launch.sh\" claude hook-pre-tool \"$r\"; done; while read -r l; do :; done; m=${AGENT_GUARD_INFRA_FAILURE_MODE:-}; case $m:hook-pre-tool in open:*|closed:*) ;; *:hook-s*) m=open ;; *) m=unset ;; esac; a=blocking; [ $m = open ] && a=continuing; echo \"agent-guard: CLAUDE_PLUGIN_ROOT env not set or no hook launcher was found; $a because AGENT_GUARD_INFRA_FAILURE_MODE=$m\" >&2; [ $m = open ] && exit 0; exit 2'",
             "timeout": 60,
             "statusMessage": "agent-guard: checking tool call",
             "onFailure": "block"
@@ -20,7 +20,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'r=${CLAUDE_PLUGIN_ROOT:-}; [ -n \"$r\" ] && for q in \"$r\" \"${r%/*}/current\" \"${r%/*}\"/[0-9]*.[0-9]*.[0-9]*; do [ -f \"$q/hooks/launch.sh\" ] && exec sh \"$q/hooks/launch.sh\" claude hook-post-tool \"$r\"; done; while read -r l; do :; done; case ${AGENT_GUARD_INFRA_FAILURE_MODE:-open} in closed) m=closed a=blocking ;; *) m=open a=continuing ;; esac; echo \"agent-guard: CLAUDE_PLUGIN_ROOT env not set or no hook launcher was found; $a because AGENT_GUARD_INFRA_FAILURE_MODE=$m\" >&2; [ \"$m\" = closed ] && exit 2; exit 0'",
+            "command": "sh -c 'r=${CLAUDE_PLUGIN_ROOT:-}; [ -n \"$r\" ] && for q in \"$r\" \"${r%/*}/current\" \"${r%/*}\"/[0-9]*.[0-9]*.[0-9]*; do [ -f \"$q/hooks/launch.sh\" ] && exec sh \"$q/hooks/launch.sh\" claude hook-post-tool \"$r\"; done; while read -r l; do :; done; m=${AGENT_GUARD_INFRA_FAILURE_MODE:-}; case $m:hook-post-tool in open:*|closed:*) ;; *:hook-s*) m=open ;; *) m=unset ;; esac; a=blocking; [ $m = open ] && a=continuing; echo \"agent-guard: CLAUDE_PLUGIN_ROOT env not set or no hook launcher was found; $a because AGENT_GUARD_INFRA_FAILURE_MODE=$m\" >&2; [ $m = open ] && exit 0; exit 2'",
             "timeout": 20,
             "statusMessage": "agent-guard: scanning tool output"
           }
@@ -33,7 +33,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'r=${CLAUDE_PLUGIN_ROOT:-}; [ -n \"$r\" ] && for q in \"$r\" \"${r%/*}/current\" \"${r%/*}\"/[0-9]*.[0-9]*.[0-9]*; do [ -f \"$q/hooks/launch.sh\" ] && exec sh \"$q/hooks/launch.sh\" claude hook-post-tool-failure \"$r\"; done; while read -r l; do :; done; case ${AGENT_GUARD_INFRA_FAILURE_MODE:-open} in closed) m=closed a=blocking ;; *) m=open a=continuing ;; esac; echo \"agent-guard: CLAUDE_PLUGIN_ROOT env not set or no hook launcher was found; $a because AGENT_GUARD_INFRA_FAILURE_MODE=$m\" >&2; [ \"$m\" = closed ] && exit 2; exit 0'",
+            "command": "sh -c 'r=${CLAUDE_PLUGIN_ROOT:-}; [ -n \"$r\" ] && for q in \"$r\" \"${r%/*}/current\" \"${r%/*}\"/[0-9]*.[0-9]*.[0-9]*; do [ -f \"$q/hooks/launch.sh\" ] && exec sh \"$q/hooks/launch.sh\" claude hook-post-tool-failure \"$r\"; done; while read -r l; do :; done; m=${AGENT_GUARD_INFRA_FAILURE_MODE:-}; case $m:hook-post-tool-failure in open:*|closed:*) ;; *:hook-s*) m=open ;; *) m=unset ;; esac; a=blocking; [ $m = open ] && a=continuing; echo \"agent-guard: CLAUDE_PLUGIN_ROOT env not set or no hook launcher was found; $a because AGENT_GUARD_INFRA_FAILURE_MODE=$m\" >&2; [ $m = open ] && exit 0; exit 2'",
             "timeout": 20,
             "statusMessage": "agent-guard: scanning failed tool output"
           }
@@ -46,7 +46,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'r=${CLAUDE_PLUGIN_ROOT:-}; [ -n \"$r\" ] && for q in \"$r\" \"${r%/*}/current\" \"${r%/*}\"/[0-9]*.[0-9]*.[0-9]*; do [ -f \"$q/hooks/launch.sh\" ] && exec sh \"$q/hooks/launch.sh\" claude hook-stop \"$r\"; done; while read -r l; do :; done; case ${AGENT_GUARD_INFRA_FAILURE_MODE:-open} in closed) m=closed a=blocking ;; *) m=open a=continuing ;; esac; echo \"agent-guard: CLAUDE_PLUGIN_ROOT env not set or no hook launcher was found; $a because AGENT_GUARD_INFRA_FAILURE_MODE=$m\" >&2; [ \"$m\" = closed ] && exit 2; exit 0'",
+            "command": "sh -c 'r=${CLAUDE_PLUGIN_ROOT:-}; [ -n \"$r\" ] && for q in \"$r\" \"${r%/*}/current\" \"${r%/*}\"/[0-9]*.[0-9]*.[0-9]*; do [ -f \"$q/hooks/launch.sh\" ] && exec sh \"$q/hooks/launch.sh\" claude hook-stop \"$r\"; done; while read -r l; do :; done; m=${AGENT_GUARD_INFRA_FAILURE_MODE:-}; case $m:hook-stop in open:*|closed:*) ;; *:hook-s*) m=open ;; *) m=unset ;; esac; a=blocking; [ $m = open ] && a=continuing; echo \"agent-guard: CLAUDE_PLUGIN_ROOT env not set or no hook launcher was found; $a because AGENT_GUARD_INFRA_FAILURE_MODE=$m\" >&2; [ $m = open ] && exit 0; exit 2'",
             "timeout": 20,
             "statusMessage": "agent-guard: scanning changes"
           }
@@ -59,7 +59,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'r=${CLAUDE_PLUGIN_ROOT:-}; [ -n \"$r\" ] && for q in \"$r\" \"${r%/*}/current\" \"${r%/*}\"/[0-9]*.[0-9]*.[0-9]*; do [ -f \"$q/hooks/launch.sh\" ] && exec sh \"$q/hooks/launch.sh\" claude hook-session-start \"$r\"; done; while read -r l; do :; done; case ${AGENT_GUARD_INFRA_FAILURE_MODE:-open} in closed) m=closed a=blocking ;; *) m=open a=continuing ;; esac; echo \"agent-guard: CLAUDE_PLUGIN_ROOT env not set or no hook launcher was found; $a because AGENT_GUARD_INFRA_FAILURE_MODE=$m\" >&2; [ \"$m\" = closed ] && exit 2; exit 0'",
+            "command": "sh -c 'r=${CLAUDE_PLUGIN_ROOT:-}; [ -n \"$r\" ] && for q in \"$r\" \"${r%/*}/current\" \"${r%/*}\"/[0-9]*.[0-9]*.[0-9]*; do [ -f \"$q/hooks/launch.sh\" ] && exec sh \"$q/hooks/launch.sh\" claude hook-session-start \"$r\"; done; while read -r l; do :; done; m=${AGENT_GUARD_INFRA_FAILURE_MODE:-}; case $m:hook-session-start in open:*|closed:*) ;; *:hook-s*) m=open ;; *) m=unset ;; esac; a=blocking; [ $m = open ] && a=continuing; echo \"agent-guard: CLAUDE_PLUGIN_ROOT env not set or no hook launcher was found; $a because AGENT_GUARD_INFRA_FAILURE_MODE=$m\" >&2; [ $m = open ] && exit 0; exit 2'",
             "timeout": 5,
             "statusMessage": "agent-guard: checking setup"
           }
@@ -72,7 +72,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'r=${CLAUDE_PLUGIN_ROOT:-}; [ -n \"$r\" ] && for q in \"$r\" \"${r%/*}/current\" \"${r%/*}\"/[0-9]*.[0-9]*.[0-9]*; do [ -f \"$q/hooks/launch.sh\" ] && exec sh \"$q/hooks/launch.sh\" claude hook-user-prompt \"$r\"; done; while read -r l; do :; done; case ${AGENT_GUARD_INFRA_FAILURE_MODE:-open} in closed) m=closed a=blocking ;; *) m=open a=continuing ;; esac; echo \"agent-guard: CLAUDE_PLUGIN_ROOT env not set or no hook launcher was found; $a because AGENT_GUARD_INFRA_FAILURE_MODE=$m\" >&2; [ \"$m\" = closed ] && exit 2; exit 0'",
+            "command": "sh -c 'r=${CLAUDE_PLUGIN_ROOT:-}; [ -n \"$r\" ] && for q in \"$r\" \"${r%/*}/current\" \"${r%/*}\"/[0-9]*.[0-9]*.[0-9]*; do [ -f \"$q/hooks/launch.sh\" ] && exec sh \"$q/hooks/launch.sh\" claude hook-user-prompt \"$r\"; done; while read -r l; do :; done; m=${AGENT_GUARD_INFRA_FAILURE_MODE:-}; case $m:hook-user-prompt in open:*|closed:*) ;; *:hook-s*) m=open ;; *) m=unset ;; esac; a=blocking; [ $m = open ] && a=continuing; echo \"agent-guard: CLAUDE_PLUGIN_ROOT env not set or no hook launcher was found; $a because AGENT_GUARD_INFRA_FAILURE_MODE=$m\" >&2; [ $m = open ] && exit 0; exit 2'",
             "timeout": 10,
             "statusMessage": "agent-guard: scanning prompt"
           }

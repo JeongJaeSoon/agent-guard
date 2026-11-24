@@ -30,6 +30,11 @@ covers:
   supported version, failing, or not answering its version check in time (see
   the retry and the readiness cache below), or jq, awk or a policy file
   missing, since then no check runs at all;
+- a hook whose plugin binary cannot be found, is not executable, or ends with
+  a status other than 0 or 2 before it finishes, for the hooks that carry text
+  (PreToolUse, the prompt, PostToolUse and PostToolUseFailure). The hook
+  launcher decides this without the binary, so it cannot withhold the output
+  of a tool that already ran (see [integrations](integrations.md));
 - the text that crosses the boundary in this event, which is PreToolUse tool
   input, the prompt and PostToolUse output: a scan of it that started and
   errored, or input over a scan cap, such as a prompt too large for the

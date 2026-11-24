@@ -42,16 +42,20 @@ CLAUDE_POST_MATCHER='^(Write|Edit|MultiEdit|NotebookEdit|Bash|PowerShell|apply_p
 # owns root selection, deleted-root recovery, the no-substitution rule for an
 # existing incomplete root, the host pin and the once-per-session warning.
 # The inline policy runs only when no launcher exists anywhere (root unset or
-# cache gone): it drains stdin, warns on EVERY call in open mode, and exits 2
-# with the reason in closed mode. Keep `${@ROOT_VAR@:-}`: Claude substitutes
+# cache gone): it drains stdin, warns on EVERY call when it continues, and
+# exits 2 with the reason when it blocks. Unset blocks, except for Stop and
+# SessionStart, whose events carry no text to the agent; open and closed
+# apply to every event, as in the launcher. The line has to stay short, so it
+# tells those two by their subcommands being the only ones that start with
+# hook-s (tests/hook-launcher.sh checks every event's default). Keep `${@ROOT_VAR@:-}`: Claude substitutes
 # the exact text `${CLAUDE_PLUGIN_ROOT}` before running the command, and the
 # `:-` form never matches it, so the path arrives only through the environment
-# and cannot break the single-quoted script. Every hop is exec, so the command
-# adds no process.
+# and cannot break the single-quoted script. The command itself only execs;
+# the launcher stays as the binary's parent for a hook that blocks.
 # @ROOT_VAR@ = plugin-root env var the host exports, @HOST@ = hook-contract
 # host tag, @SUB@ = agent-guard hook subcommand for the event.
 PLUGIN_TEMPLATE=$(cat <<'EOF'
-sh -c 'r=${@ROOT_VAR@:-}; [ -n "$r" ] && for q in "$r" "${r%/*}/current" "${r%/*}"/[0-9]*.[0-9]*.[0-9]*; do [ -f "$q/hooks/launch.sh" ] && exec sh "$q/hooks/launch.sh" @HOST@ @SUB@ "$r"; done; while read -r l; do :; done; case ${AGENT_GUARD_INFRA_FAILURE_MODE:-open} in closed) m=closed a=blocking ;; *) m=open a=continuing ;; esac; echo "agent-guard: @ROOT_VAR@ env not set or no hook launcher was found; $a because AGENT_GUARD_INFRA_FAILURE_MODE=$m" >&2; [ "$m" = closed ] && exit 2; exit 0'
+sh -c 'r=${@ROOT_VAR@:-}; [ -n "$r" ] && for q in "$r" "${r%/*}/current" "${r%/*}"/[0-9]*.[0-9]*.[0-9]*; do [ -f "$q/hooks/launch.sh" ] && exec sh "$q/hooks/launch.sh" @HOST@ @SUB@ "$r"; done; while read -r l; do :; done; m=${AGENT_GUARD_INFRA_FAILURE_MODE:-}; case $m:@SUB@ in open:*|closed:*) ;; *:hook-s*) m=open ;; *) m=unset ;; esac; a=blocking; [ $m = open ] && a=continuing; echo "agent-guard: @ROOT_VAR@ env not set or no hook launcher was found; $a because AGENT_GUARD_INFRA_FAILURE_MODE=$m" >&2; [ $m = open ] && exit 0; exit 2'
 EOF
 )
 
