@@ -15075,16 +15075,15 @@ secretish_env_values() {
       return 1
     }
     # exempt_tail for the text after a key-file path or a fill-in placeholder,
-    # with the lines that only open or close a markdown code fence left out:
-    # such a value is usually quoted in one, and a fence line holds no value.
+    # with the bare fence lines that close a markdown code block left out:
+    # such a value is usually quoted in one, and a bare fence holds no value.
     function path_tail(assignment, tail, saved, n, lines, i, kept, found) {
       saved = leaf_tail
       kept = ""
       n = split(leaf_tail, lines, "\n")
       for (i = 1; i <= n; i++)
-        # A language name is short; a longer run after the fence can be a value.
-        if (lines[i] !~ /^[ \t]*```[a-z]*[ \t\r]*$/ \
-            || length(edge_trim(lines[i])) > 15)
+        # Only a bare fence: a word after it can be a value.
+        if (lines[i] !~ /^[ \t]*```[ \t\r]*$/)
           kept = kept (kept == "" ? "" : "\n") lines[i]
       leaf_tail = kept
       found = exempt_tail(assignment, tail)

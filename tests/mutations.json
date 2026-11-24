@@ -674,17 +674,8 @@
   {
     "id": "path-tail-fence-only",
     "rule": "path_tail: only a bare fence line is left out",
-    "old": "        if (lines[i] !~ /^[ \\t]*```[a-z]*[ \\t\\r]*$/ \\",
-    "new": "        if (lines[i] !~ /^[ \\t]*```/ \\",
-    "tests": [
-      "tests/prompt-empty-path-placeholder.sh"
-    ]
-  },
-  {
-    "id": "path-tail-fence-length",
-    "rule": "path_tail: a fence line with a long word after it is kept",
-    "old": "            || length(edge_trim(lines[i])) > 15)",
-    "new": "            || 0)",
+    "old": "        if (lines[i] !~ /^[ \\t]*```[ \\t\\r]*$/)",
+    "new": "        if (lines[i] !~ /^[ \\t]*```/)",
     "tests": [
       "tests/prompt-empty-path-placeholder.sh"
     ]
