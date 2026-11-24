@@ -217,7 +217,7 @@ check 2 "a loop whose literal list names a protected file" 'for f in README.md .
 check 2 "a loop whose later word resolves to a protected file" 'p=.e; for f in README.md "${p}nv"; do cat "$f"; done'
 says "the later loop word is the resolved operand" "matched deny-read-paths entry"
 check 0 "a loop over words resolved to ordinary files" 'p=notes; for f in README.md "${p}.txt"; do cat "$f"; done'
-check 2 "a loop over a glob" 'for f in *; do cat "$f"; done'
+check 0 "a loop over a bare glob reads what the glob typed as an operand reads" 'for f in *; do cat "$f"; done'
 check 2 "a loop over a brace expansion" 'for f in {a,b}; do cat "$f"; done'
 check 2 "a loop over a substitution" 'for f in $(ls); do cat "$f"; done'
 check 2 "a loop over the positional parameters" 'for f; do cat "$f"; done'
@@ -254,6 +254,57 @@ check 2 "a trap that rewrites the loop variable" "trap 'f=$S' DEBUG; for f in RE
 check 2 "a default assignment on an empty loop word" 'p=.e; for f in ""; do : "${f:=${p}nv}"; cat "./$f"; done'
 check 2 "a default assignment on an empty variable" 'p=.e; f=; : "${f:=${p}nv}"; cat "./$f"'
 check 0 "a loop variable inside its body after a nested loop" 'for f in README.md; do for g in a; do :; done; cat "$f"; done'
+
+# Narrowing (#638): a value the guard can follow is checked as that value, and
+# only an operand that stays unknown blocks. Ordinary names pass.
+check 0 "sed in a loop over literal files" 'for f in a.md b.md; do sed -n 1,5p "$f"; done'
+check 0 "grep, head and base64 in a loop over literal files" 'for f in docs/a.md logs/b.log; do grep -c x "$f"; head -3 "$f"; base64 "$f"; done'
+check 0 "a loop variable read inside a substitution" 'for f in a.md b.md; do echo "$f: $(grep -c x "$f")"; done'
+check 0 "a loop variable as an input redirect inside a substitution" 'for f in a.md b.md; do n=$(wc -l < "$f"); echo "$n"; done'
+check 0 "a loop variable read inside backquotes" 'for f in a.md b.md; do echo `head -1 "$f"`; done'
+check 0 "a loop variable read inside a process substitution" 'for f in a.md b.md; do diff <(sort "$f") <(sort "old/$f"); done'
+check 0 "grep in a loop over a glob" 'for f in docs/*.md; do grep x "$f"; done'
+check 0 "tail in a loop over a log glob" 'for f in logs/*.log; do echo "$f"; tail -n 3 "$f"; done'
+check 0 "a loop over a glob and a literal word" 'for f in docs/*.md README.md; do head -1 "$f"; done'
+check 0 "a glob loop variable inside a larger word" 'for f in docs/*.md; do diff "$f" "old/$f"; cat "$f.bak"; done'
+check 0 "a glob loop variable inside a substitution" 'for f in logs/*.log; do echo "$(tail -1 "$f")"; done'
+check 0 "a loop over a glob under the home directory" 'for f in ~/notes/*.md; do head -1 "$f"; done'
+check 0 "a loop over literal files under the home directory" 'for f in ~/notes/a.md ~/notes/b.md; do head -1 "$f"; done'
+check 0 "a loop over a glob after a resolved directory" 'd=docs; for f in "$d"/*.md; do head -1 "$f"; done'
+check 0 "a loop variable before a literal suffix" 'for f in build test; do cat "$f.log"; done'
+check 0 "a loop variable after a literal directory" 'for f in a.md b.md; do cat "docs/$f"; done'
+check 0 "a here-string of a variable" 'grep x <<<"$f"'
+check 0 "a here-string into a reading program in a loop" 'for f in a b; do cat <<<"$f"; done'
+check 0 "a here-string after a blank" 'jq . <<< "$json"'
+check 0 "a here-string into a read loop" 'while read -r l; do echo "$l"; done <<<"$out"'
+check 0 "a literal assignment read by two programs" 'p=logs/build.log; grep -c x "$p"; sed -n 1,5p "$p"'
+check 0 "a literal assignment of a document" 'p=docs/a.md; cat "$p"'
+
+check 2 "a loop word that completes a protected name" 'for f in nv; do cat ".e$f"; done'
+check 2 "a loop word that completes a protected name inside a substitution" 'for f in nv; do echo "$(cat ".e$f")"; done'
+check 2 "a loop word under a key directory" 'p=.s; for f in ~/"${p}sh"/config; do cat "$f"; done'
+check 2 "a loop glob that can name a protected file" 'for f in e*; do cat ".$f"; done'
+check 2 "a loop glob that can name a protected file inside a substitution" 'for f in e*; do echo "$(cat ".$f")"; done'
+check 2 "a loop glob after a resolved protected prefix" 'p=.e; for f in "$p"*; do cat "$f"; done'
+check 2 "a loop glob after a literal word, the glob protected" 'for f in README.md e*; do cat ".$f"; done'
+check 2 "a glob loop value split at an unquoted use" 'for f in docs/*; do cat $f; done'
+check 2 "a glob loop value split at an unquoted use inside a substitution" 'for f in docs/*; do echo "$(cat $f)"; done'
+check 2 "a loop glob after an unknown directory" 'for f in "$D"*; do cat "$f"; done'
+check 2 "a loop list with a variable" 'for f in a.md "$X"; do cat "$f"; done'
+check 2 "a loop list with a substitution" 'for f in a.md $(ls); do cat "$f"; done'
+check 2 "a loop word behind another tilde form" 'for f in ~+/a.md; do cat "$f"; done'
+check 2 "a loop variable after its loop, inside a substitution" 'for f in a.md; do :; done; echo "$(cat "$f")"'
+check 2 "a loop variable reassigned inside a substitution" 'for f in a.md; do echo "$(f=$X; cat "$f")"; done'
+check 2 "an assignment inside a subshell" '(p=docs/a.md); cat "$p"'
+check 2 "a variable reassigned from a substitution before the read" 'p=docs/a.md; p=$(ls | head -1); cat "$p"'
+check 2 "a variable read back before the read" 'p=docs/a.md; read -r p; cat "$p"'
+check 2 "a substitution inside a here-string" 'cat <<<"$(cat "$F")"'
+check 2 "a file operand next to a here-string" 'grep x "$F" <<<"$f"'
+check 2 "a function defined before a substitution that calls it" "g(){ f=$S; }; echo \"\$(f=README.md; g; cat \"\$f\")\""
+check 2 "an IFS change before a substitution" 'IFS=x; p=id_; q="${p}rsaxREADME"; echo "$(cat ${q})"'
+check 2 "a table separator byte in an assigned value" "p=\"a$(printf '\004')f$(printf '\003')README.md\"; echo \"\$(cat \"\$f\")\""
+check 2 "a table separator byte in a loop word" "for g in \"a$(printf '\004')f$(printf '\003')README.md\"; do echo \"\$(cat \"\$f\")\"; done"
+check 2 "a table separator byte in a loop variable name" "for \"x$(printf '\004')f$(printf '\003')README.md\" in a; do echo \"\$(cat \"\$f\")\"; done"
 
 HOST=codex
 check 2 "codex: cat of a command substitution" "cat $S"

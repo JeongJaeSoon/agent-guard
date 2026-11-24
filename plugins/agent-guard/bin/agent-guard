@@ -11030,10 +11030,22 @@ AWK_READ_OPERAND_RECORDS='
     return 0
   }
   # The assignment table as one T record, for the code of a substitution.
+  # A loop variable goes as \005name, or \006name when its list holds a glob,
+  # and \007 names what ends value following there too: n for a function or
+  # trap, i for a changed IFS.
   function tabrec(   k, s) {
     s = ""
     for (k in tab) s = s k "\003" tab[k] "\004"
+    for (k in loopv) s = s (loopg[k] ? "\006" : "\005") k "\003" loopv[k] "\004"
+    if (nofollow || ifsset) s = s "\007\003" (nofollow ? "n" : "") (ifsset ? "i" : "") "\004"
     print "T" s
+  }
+  # One entry of the T record of the code around this one.
+  function inherit(nm, v,   c) {
+    c = substr(nm, 1, 1)
+    if (c == "\007") { if (index(v, "n")) nofollow = 1; if (index(v, "i")) ifsset = 1 }
+    else if (c == "\005" || c == "\006") { nm = substr(nm, 2); loopv[nm] = v; loopd[nm] = 0; loopg[nm] = (c == "\006") }
+    else tab[nm] = v
   }
   # An S record for each substitution in w, or U for one that never closes.
   function subs(w,   i, c, sq, dq, j) {
@@ -11093,7 +11105,7 @@ AWK_READ_OPERAND_RECORDS='
           if (!j) return out "\002"
           inner = substr(w, i + 2, j - 1)
           if (inner == "PWD" && !moved && !("PWD" in tab)) { out = out "."; subst = 1 }
-          else if (looped(inner)) { out = out ((dq || !ifsset) ? "\005" : "\002"); subst = 1 }
+          else if (looped(inner)) { out = out loopuse(inner, dq); subst = 1 }
           else if (inner ~ /^[A-Za-z_][A-Za-z0-9_]*$/ && known(inner)) { out = out word1(lv, dq); subst = 1 }
           else out = out "\002"
           i += j + 1; continue
@@ -11102,7 +11114,7 @@ AWK_READ_OPERAND_RECORDS='
           match(substr(w, i + 1), /^[A-Za-z_][A-Za-z0-9_]*/)
           nm = substr(w, i + 1, RLENGTH)
           if (nm == "PWD" && !moved && !(nm in tab)) { out = out "."; subst = 1 }
-          else if (looped(nm)) { out = out ((dq || !ifsset) ? "\005" : "\002"); subst = 1 }
+          else if (looped(nm)) { out = out loopuse(nm, dq); subst = 1 }
           else if (known(nm)) { out = out word1(lv, dq); subst = 1 } else out = out "\002"
           i += RLENGTH; continue
         }
@@ -11122,6 +11134,10 @@ AWK_READ_OPERAND_RECORDS='
     if (!(nm in loopv) || (cpos && nm in ptab) || (lvn != "" && lvn != nm)) return 0
     lvn = nm; return 1
   }
+  # A use of loop variable nm: \005 where each word of its list stands as it
+  # is. Outside double quotes the value is split and globbed again, so one
+  # from a glob (any file name) or after IFS changed is only known at run time.
+  function loopuse(nm, dq) { return (dq || (!ifsset && !loopg[nm])) ? "\005" : "\002" }
 
   # A value expanded outside double quotes, except in an assignment, is split
   # and globbed, so one with those characters, or after IFS changed, stands
@@ -11231,7 +11247,7 @@ AWK_READ_OPERAND_RECORDS='
   function end_segment(   k) {
     # The list is expanded before the loop variable changes.
     if (mode ~ /^for(in|list)$/) { delete tab[forname]; delete loopv[forname] }
-    if (mode == "forlist" && forok && forl != "" && !nofollow) { loopv[forname] = forl; loopd[forname] = depth }
+    if (mode == "forlist" && forok && forl != "" && !nofollow && forname ~ /^[A-Za-z_][A-Za-z0-9_]*$/) { loopv[forname] = forl; loopd[forname] = depth; loopg[forname] = forg }
     for (k = 1; k <= npa; k++) {
       delete loopv[pan[k]]
       if (cmdseen || cond || depth || nofollow || pav[k] == "\002") delete tab[pan[k]]
@@ -11250,7 +11266,8 @@ AWK_READ_OPERAND_RECORDS='
     add = (nm ~ /\+$/); sub(/\+$/, "", nm)
     if (nm == "IFS") ifsset = 1
     asg = 1; v = value(substr(w, index(w, "=") + 1)); asg = 0
-    if (index(v, "\002") || index(v, "\005")) v = "\002"
+    # A marker or table separator byte leaves the value unknown.
+    if (v ~ /[\001\002\003\004\005\006\007]/) v = "\002"
     # NAME+=value appends to the value it already has.
     if (add) v = (v != "\002" && known(nm)) ? lv v : "\002"
     if (now) delete loopv[nm]
@@ -11298,7 +11315,7 @@ AWK_READ_OPERAND_RECORDS='
     popt["awk"] = popt["gawk"] = popt["mawk"] = popt["nawk"] = " -f --file "
     popt["jq"] = " -f --from-file "
     m = split(ENVIRON["UO_TAB"], a, "\004")
-    for (k = 1; k <= m; k++) if (index(a[k], "\003")) tab[substr(a[k], 1, index(a[k], "\003") - 1)] = substr(a[k], index(a[k], "\003") + 1)
+    for (k = 1; k <= m; k++) if (j = index(a[k], "\003")) inherit(substr(a[k], 1, j - 1), substr(a[k], j + 1))
     end_segment()
   }
   # One shell word. A redirection inside a word (cat<"$F") is read as
@@ -11384,15 +11401,18 @@ AWK_READ_OPERAND_RECORDS='
       # A script operand is outside the reading programs; so is -s input.
       mode = "skip"; return
     }
-    # A loop over literal words without globs gives its variable those words.
+    # A loop over literal words and globs gives its variable those words.
     if (mode == "select") { forget(w); mode = "skip"; return }
     if (mode == "for") { forname = name_of(w); if (forname == "IFS") ifsset = 1; mode = "forin"; return }
-    if (mode == "forin") { if (w == "in") { mode = "forlist"; forl = ""; forok = 1 } else { forget(forname); mode = "skip" }; return }
+    if (mode == "forin") { if (w == "in") { mode = "forlist"; forl = ""; forok = 1; forg = 0 } else { forget(forname); mode = "skip" }; return }
     if (mode == "forlist") {
       ow = value(w)
       n = w; gsub(/\$\{/, "", n)
-      if (index(ow, "\002") || index(ow, "\005") || n ~ /[*?[{~]/ || ow ~ /[*?[ \t\n]/) forok = 0
-      else forl = forl "\005" ow
+      # A glob word stays in the list as written: each value is one of its
+      # matches, so an operand is checked as that glob. ~/ names the home
+      # directory in the deny list too; any other tilde form is unknown.
+      if (index(ow, "\002") || index(ow, "\005") || n ~ /[{]/ || (n ~ /~/ && n !~ /^~\/[^~]*$/) || ow ~ /[ \t\n\001\003\004\006\007\034]/) forok = 0
+      else { if (n ~ /[*?[]/ || ow ~ /[*?[]/) forg = 1; forl = forl "\005" ow }
       return
     }
     if (mode == "skip") return
@@ -11442,7 +11462,8 @@ AWK_READ_OPERAND_RECORDS='
 # cat "$(printf %s .e; printf nv)" or cat "$F" names no protected file there,
 # yet may open one. A literal assignment earlier in the same command is
 # followed (f=README.md; cat "$f"), and its value is matched against the deny
-# list. The pattern or program operand of grep, rg, sed, awk and jq, and the
+# list. The variable of a for loop over literal words or globs stands for each
+# of them, also inside the substitutions of the loop body. The pattern or program operand of grep, rg, sed, awk and jq, and the
 # values of their known options, are not file operands. Command substitutions
 # anywhere, including in unquoted here-document bodies, are read the same way.
 # $2 is the nesting depth; past 8 the command is treated as unresolved.

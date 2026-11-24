@@ -1229,10 +1229,10 @@
     ]
   },
   {
-    "id": "bash-unresolved-operand-loop-glob",
-    "rule": "AWK_READ_OPERAND_RECORDS: a for list with a glob or brace word gives its variable no known values",
-    "old": "      if (index(ow, \"\\002\") || index(ow, \"\\005\") || n ~ /[*?[{~]/ || ow ~ /[*?[ \\t\\n]/) forok = 0\n",
-    "new": "      if (index(ow, \"\\002\") || index(ow, \"\\005\") || ow ~ /[*?[ \\t\\n]/) forok = 0\n",
+    "id": "bash-unresolved-operand-loop-brace",
+    "rule": "AWK_READ_OPERAND_RECORDS: a loop over a brace expansion is unresolved",
+    "old": "      if (index(ow, \"\\002\") || index(ow, \"\\005\") || n ~ /[{]/ || (n ~ /~/ && n !~ /^~\\/[^~]*$/) || ow ~ /[ \\t\\n\\001\\003\\004\\006\\007\\034]/) forok = 0\n",
+    "new": "      if (index(ow, \"\\002\") || index(ow, \"\\005\") || (n ~ /~/ && n !~ /^~\\/[^~]*$/) || ow ~ /[ \\t\\n\\001\\003\\004\\006\\007\\034]/) forok = 0\n",
     "tests": [
       "tests/unresolved-read-operand.sh"
     ]
@@ -1275,9 +1275,9 @@
   },
   {
     "id": "bash-unresolved-operand-loop-value-glob",
-    "rule": "AWK_READ_OPERAND_RECORDS: a for word whose value globs or splits gives no known values",
-    "old": "      if (index(ow, \"\\002\") || index(ow, \"\\005\") || n ~ /[*?[{~]/ || ow ~ /[*?[ \\t\\n]/) forok = 0\n",
-    "new": "      if (index(ow, \"\\002\") || index(ow, \"\\005\") || n ~ /[*?[{~]/) forok = 0\n",
+    "rule": "AWK_READ_OPERAND_RECORDS: a loop word whose resolved value holds a glob character counts as a glob",
+    "old": "      else { if (n ~ /[*?[]/ || ow ~ /[*?[]/) forg = 1; forl = forl \"\\005\" ow }\n",
+    "new": "      else { if (n ~ /[*?[]/) forg = 1; forl = forl \"\\005\" ow }\n",
     "tests": [
       "tests/unresolved-read-operand.sh"
     ]
@@ -1375,8 +1375,116 @@
   {
     "id": "bash-unresolved-operand-loop-ifs",
     "rule": "AWK_READ_OPERAND_RECORDS: an unquoted loop use after IFS changed is unresolved",
-    "old": "          else if (looped(nm)) { out = out ((dq || !ifsset) ? \"\\005\" : \"\\002\"); subst = 1 }\n",
-    "new": "          else if (looped(nm)) { out = out \"\\005\"; subst = 1 }\n",
+    "old": "  function loopuse(nm, dq) { return (dq || (!ifsset && !loopg[nm])) ? \"\\005\" : \"\\002\" }\n",
+    "new": "  function loopuse(nm, dq) { return (dq || !loopg[nm]) ? \"\\005\" : \"\\002\" }\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-loop-in-substitution",
+    "rule": "AWK_READ_OPERAND_RECORDS: a loop variable is known inside the substitutions of the loop body",
+    "old": "    for (k in loopv) s = s (loopg[k] ? \"\\006\" : \"\\005\") k \"\\003\" loopv[k] \"\\004\"\n",
+    "new": "",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-child-function",
+    "rule": "AWK_READ_OPERAND_RECORDS: a function or trap defined outside a substitution ends value following inside it",
+    "old": "    if (nofollow || ifsset) s = s \"\\007\\003\" (nofollow ? \"n\" : \"\") (ifsset ? \"i\" : \"\") \"\\004\"\n",
+    "new": "    if (ifsset) s = s \"\\007\\003i\\004\"\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-child-ifs",
+    "rule": "AWK_READ_OPERAND_RECORDS: an IFS change outside a substitution reaches the unquoted uses inside it",
+    "old": "    if (nofollow || ifsset) s = s \"\\007\\003\" (nofollow ? \"n\" : \"\") (ifsset ? \"i\" : \"\") \"\\004\"\n",
+    "new": "    if (nofollow) s = s \"\\007\\003n\\004\"\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-loop-glob-unquoted",
+    "rule": "AWK_READ_OPERAND_RECORDS: an unquoted use of a glob loop variable is unresolved",
+    "old": "  function loopuse(nm, dq) { return (dq || (!ifsset && !loopg[nm])) ? \"\\005\" : \"\\002\" }\n",
+    "new": "  function loopuse(nm, dq) { return (dq || !ifsset) ? \"\\005\" : \"\\002\" }\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-loop-glob-child",
+    "rule": "AWK_READ_OPERAND_RECORDS: a glob loop variable stays one inside a substitution",
+    "old": "loopg[nm] = (c == \"\\006\") }",
+    "new": "loopg[nm] = 0 }",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-loop-glob-dropped",
+    "rule": "AWK_READ_OPERAND_RECORDS: a glob word of a loop list is checked like its literal words",
+    "old": "      else { if (n ~ /[*?[]/ || ow ~ /[*?[]/) forg = 1; forl = forl \"\\005\" ow }\n",
+    "new": "      else if (n ~ /[*?[]/ || ow ~ /[*?[]/) forg = 1; else forl = forl \"\\005\" ow\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-loop-tilde",
+    "rule": "AWK_READ_OPERAND_RECORDS: a loop word behind a tilde form other than ~/ is unresolved",
+    "old": "      if (index(ow, \"\\002\") || index(ow, \"\\005\") || n ~ /[{]/ || (n ~ /~/ && n !~ /^~\\/[^~]*$/) || ow ~ /[ \\t\\n\\001\\003\\004\\006\\007\\034]/) forok = 0\n",
+    "new": "      if (index(ow, \"\\002\") || index(ow, \"\\005\") || n ~ /[{]/ || ow ~ /[ \\t\\n\\001\\003\\004\\006\\007\\034]/) forok = 0\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-loop-word-bytes",
+    "rule": "AWK_READ_OPERAND_RECORDS: a loop word with a table separator byte is unresolved",
+    "old": "      if (index(ow, \"\\002\") || index(ow, \"\\005\") || n ~ /[{]/ || (n ~ /~/ && n !~ /^~\\/[^~]*$/) || ow ~ /[ \\t\\n\\001\\003\\004\\006\\007\\034]/) forok = 0\n",
+    "new": "      if (index(ow, \"\\002\") || index(ow, \"\\005\") || n ~ /[{]/ || (n ~ /~/ && n !~ /^~\\/[^~]*$/) || ow ~ /[ \\t\\n]/) forok = 0\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-loop-name",
+    "rule": "AWK_READ_OPERAND_RECORDS: a loop variable name that is not an identifier is not followed",
+    "old": " && forname ~ /^[A-Za-z_][A-Za-z0-9_]*$/) {",
+    "new": ") {",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-assign-bytes",
+    "rule": "AWK_READ_OPERAND_RECORDS: an assigned value with a table separator byte is unknown",
+    "old": "    if (v ~ /[\\001\\002\\003\\004\\005\\006\\007]/) v = \"\\002\"\n",
+    "new": "    if (index(v, \"\\002\") || index(v, \"\\005\")) v = \"\\002\"\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-here-string",
+    "rule": "AWK_READ_OPERAND_RECORDS: a here-string feeds text, not a file",
+    "old": "    if (w ~ /^[0-9]*<</) return\n",
+    "new": "",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-here-string-blank",
+    "rule": "AWK_READ_OPERAND_RECORDS: the word after a here-string operator is its text, not an operand",
+    "old": "    if (w ~ /^[0-9]*<<[-<]?$/) { skipw = 1; return }\n",
+    "new": "    if (w ~ /^[0-9]*<<-?$/) { skipw = 1; return }\n",
     "tests": [
       "tests/unresolved-read-operand.sh"
     ]
