@@ -1,4 +1,4 @@
-<!-- translated-from: docs/installation.md; source-blob: 37b9b4ef59ef0ed5a1f8918b41b8549c721dd1fb -->
+<!-- translated-from: docs/installation.md; source-blob: 4ff04373a1982fc933fa88048cea513b7d9b720a -->
 
 <a id="installing-agent-guard"></a>
 
@@ -109,7 +109,7 @@ Homebrew의 치환기 디렉터리는 `$(brew --prefix agent-guard)/libexec/libe
 
 macOS와 Linux에서 실행하려면 `sh`, `awk`, `git`, `jq`, gitleaks 8.30 이상이 필요합니다. gitleaks 버전 확인을 별도 프로세스 그룹에서 실행하기 위한 `setsid` 또는 Perl도 필요합니다. 이 격리로 버전 확인의 시간 제한과 자식 프로세스 정리를 보장합니다. Linux에서는 `sudo apt-get install -y util-linux` 또는 `sudo dnf install -y util-linux`로 `setsid`를 설치하세요. Homebrew formula는 CLI와 함께 Perl을 설치합니다. macOS에서 수동 설치했고 두 도구가 모두 없다면 `brew install perl`을 사용할 수 있습니다.
 
-격리 도구가 없으면 `agent-guard setup`, `doctor`, `check`는 0이 아닌 종료 상태를 반환합니다. `setup --install`은 다운로드 전에 격리 도구 유무를 확인합니다. 도구가 없으면 gitleaks를 다운로드하거나 덮어쓰지 않고 누락 도구의 설치 명령을 출력하며, 도구를 설치한 뒤 gitleaks가 완전히 준비되었는지 다시 확인합니다. 실행 중인 hook은 이 상태를 정상 검사로 취급하지 않으며 `AGENT_GUARD_INFRA_FAILURE_MODE`의 `open` 또는 `closed` 정책을 적용합니다. `open`에서는 gitleaks 없이도 PreToolUse의 보호 경로 검사와 deny 패턴 검사를 계속 실행하고 그 비밀 스캔만 건너뜁니다. 다른 hook은 지금처럼 검사 없이 통과합니다.
+격리 도구가 없으면 `agent-guard setup`, `doctor`, `check`는 0이 아닌 종료 상태를 반환합니다. `setup --install`은 다운로드 전에 격리 도구 유무를 확인합니다. 도구가 없으면 gitleaks를 다운로드하거나 덮어쓰지 않고 누락 도구의 설치 명령을 출력하며, 도구를 설치한 뒤 gitleaks가 완전히 준비되었는지 다시 확인합니다. 실행 중인 hook은 이 상태를 정상 검사로 취급하지 않으며 `AGENT_GUARD_INFRA_FAILURE_MODE`의 정책을 적용합니다. 이 정책은 비밀 스캔을 실행하지 못하면 기본으로 차단합니다. `open`에서는 gitleaks 없이도 PreToolUse의 보호 경로 검사와 deny 패턴 검사를 계속 실행하고 그 비밀 스캔만 건너뜁니다. 다른 hook은 지금처럼 검사 없이 통과합니다.
 
 독립 CLI 또는 Homebrew 명령으로 `agent-guard`가 이미 설치되어 있다면 공식 host 관리 도구에 플러그인 설치를 위임할 수 있습니다.
 
@@ -194,7 +194,7 @@ Codex가 agent-guard hook을 검토 필요나 꺼짐으로 보고하면, `doctor
 예상되는 명령은 플러그인의 `hooks/launch.sh`를 `codex`와 그 이벤트의 hook subcommand로 실행하는 한 줄입니다. agent-guard hook 사이에서는 이 subcommand만 다릅니다. `Stop`의 명령은 다음과 같습니다.
 
 ```sh
-sh -c 'r=${PLUGIN_ROOT:-}; [ -n "$r" ] && for q in "$r" "${r%/*}/current" "${r%/*}"/[0-9]*.[0-9]*.[0-9]*; do [ -f "$q/hooks/launch.sh" ] && exec sh "$q/hooks/launch.sh" codex hook-stop "$r"; done; while read -r l; do :; done; case ${AGENT_GUARD_INFRA_FAILURE_MODE:-open} in closed) m=closed a=blocking ;; *) m=open a=continuing ;; esac; echo "agent-guard: PLUGIN_ROOT env not set or no hook launcher was found; $a because AGENT_GUARD_INFRA_FAILURE_MODE=$m" >&2; [ "$m" = closed ] && exit 2; exit 0'
+sh -c 'r=${PLUGIN_ROOT:-}; [ -n "$r" ] && for q in "$r" "${r%/*}/current" "${r%/*}"/[0-9]*.[0-9]*.[0-9]*; do [ -f "$q/hooks/launch.sh" ] && exec sh "$q/hooks/launch.sh" codex hook-stop "$r"; done; while read -r l; do :; done; m=${AGENT_GUARD_INFRA_FAILURE_MODE:-}; case $m:hook-stop in open:*|closed:*) ;; *:hook-s*) m=open ;; *) m=unset ;; esac; a=blocking; [ $m = open ] && a=continuing; echo "agent-guard: PLUGIN_ROOT env not set or no hook launcher was found; $a because AGENT_GUARD_INFRA_FAILURE_MODE=$m" >&2; [ $m = open ] && exit 0; exit 2'
 ```
 
 나머지 hook은 `hook-pre-tool`, `hook-post-tool`, `hook-session-start`, `hook-user-prompt`를 씁니다. launcher는 Codex가 신뢰하는 플러그인 내용의 일부입니다. launcher는 `bin/agent-guard`를 실행하기 전에 선택된 버전이 완전한지 확인하고, 실행 파일을 찾지 못하면 `AGENT_GUARD_INFRA_FAILURE_MODE`를 적용합니다.

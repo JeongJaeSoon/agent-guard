@@ -15,10 +15,12 @@ file from the release you reviewed, then add the rollout's environment settings.
 Change the tag only through an intentional, reviewed rollout.
 
 The example intentionally has no `env` block. The product defaults are
-`AGENT_GUARD_INFRA_FAILURE_MODE=open` and `AGENT_GUARD_PII_HOOK_MODE=off`. The
+`AGENT_GUARD_INFRA_FAILURE_MODE` unset and `AGENT_GUARD_PII_HOOK_MODE=off`. The
 metadata-only local support log is on by default.
-For a rollout that prioritizes secret protection, use
-`AGENT_GUARD_INFRA_FAILURE_MODE=closed`.
+Unset, a secret scan that could not run blocks and other infrastructure
+failures warn and continue. For a rollout that also blocks those, use
+`AGENT_GUARD_INFRA_FAILURE_MODE=closed`; `open` lets every failure continue
+with a warning.
 PII is opt-in; do not force an
 endpoint-backed provider without a separate privacy review. Set
 `AGENT_GUARD_LOG_MODE=off` only in a release that contains the log and where

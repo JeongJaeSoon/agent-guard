@@ -104,7 +104,7 @@ chmod +x "$CLIENT"
 
 # A client that fails is a scanner failure, never a clean scan.
 rm -rf "$STATE/gitleaks-clean"
-hook hook-pre-tool "$(pre 'ls -la src')" AGENT_GUARD_GITLEAKS_HELPER="$CLIENT" AG_ROUTING_FAIL=1
+hook hook-pre-tool "$(pre 'ls -la src')" AGENT_GUARD_GITLEAKS_HELPER="$CLIENT" AG_ROUTING_FAIL=1 AGENT_GUARD_INFRA_FAILURE_MODE=open
 expect "a failing client follows the open infrastructure policy (warn, allow)" \
   '[ "$(cat "$CASE/h.status")" = 0 ] && grep -q "gitleaks failed while scanning" "$CASE/h.err"'
 rm -rf "$STATE/gitleaks-clean"

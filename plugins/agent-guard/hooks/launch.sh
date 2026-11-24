@@ -18,13 +18,22 @@
 #   else the highest complete semver sibling.
 # - A root that exists but is incomplete is never replaced by a sibling: an
 #   interrupted update can leave a higher directory holding only the binary.
-# - With no binary, AGENT_GUARD_INFRA_FAILURE_MODE=closed exits 2 with the
-#   reason every time; open (the default) warns once per host, session and
-#   mode and exits 0. The session comes from AGENT_GUARD_SESSION_ID, else the
-#   payload's session_id (jq, or a compact-JSON parse without jq), else the
-#   parent PID. A marker that cannot be written still warns.
-# - On success the binary replaces this shell (exec) with
-#   AGENT_GUARD_HOOK_HOST pinned and stdin untouched.
+# - The hooks whose event carries text to or from the agent (hook-pre-tool,
+#   hook-user-prompt, hook-post-tool, hook-post-tool-failure) block when the
+#   check cannot run and AGENT_GUARD_INFRA_FAILURE_MODE is unset; the other
+#   hooks continue. open and closed apply to every hook, and any other value
+#   is read as unset.
+# - With no binary, a block exits 2 with the reason every time; continuing
+#   warns once per host, session and mode and exits 0. The session comes from
+#   AGENT_GUARD_SESSION_ID, else the payload's session_id (jq, or a
+#   compact-JSON parse without jq), else the parent PID. A marker that cannot
+#   be written still warns. The output of a tool that already ran cannot be
+#   withheld here: only the binary knows the shape each tool's output takes.
+# - The binary runs with AGENT_GUARD_HOOK_HOST pinned and stdin untouched. For
+#   a hook that continues it replaces this shell (exec). For a hook that
+#   blocks, this shell stays as its parent: 0 and 2 pass through, any other
+#   status is a check that did not finish and becomes exit 2 with the reason,
+#   and a TERM, INT or HUP sent to this shell is passed on to the binary.
 #
 # The whole body is one brace group, so the shell parses the entire file
 # before running any of it: a truncated or half-replaced launcher fails as a
@@ -48,6 +57,39 @@ case "$sub" in
     esac
     ;;
   *) args_ok=0 ;;
+esac
+
+# Text crosses the agent boundary in these events, so they block unless the
+# mode says open. An unrecognised mode is read as unset.
+text=0
+case "$sub" in
+  hook-pre-tool|hook-user-prompt|hook-post-tool|hook-post-tool-failure) text=$args_ok ;;
+esac
+case "${AGENT_GUARD_INFRA_FAILURE_MODE:-}" in
+  open|closed)
+    mode=$AGENT_GUARD_INFRA_FAILURE_MODE
+    because="AGENT_GUARD_INFRA_FAILURE_MODE=$mode"
+    ;;
+  *)
+    if [ "$text" -eq 1 ]; then
+      mode=closed
+      because='the secret scan did not run (the default when AGENT_GUARD_INFRA_FAILURE_MODE is unset)'
+    else
+      mode=open
+      because='AGENT_GUARD_INFRA_FAILURE_MODE=open'
+    fi
+    ;;
+esac
+unchecked=
+case "$mode" in
+  closed)
+    action=blocking
+    case "$sub" in
+      hook-post-tool|hook-post-tool-failure)
+        unchecked='; the tool output was not checked and could not be withheld' ;;
+    esac
+    ;;
+  *) action=continuing ;;
 esac
 
 semver() {
@@ -101,16 +143,11 @@ if [ "$args_ok" -eq 1 ] && [ -n "$r" ]; then
 fi
 
 if [ ! -x "$x" ]; then
-  mode=${AGENT_GUARD_INFRA_FAILURE_MODE:-open}
-  case "$mode" in
-    closed) action=blocking ;;
-    *) mode=open; action=continuing ;;
-  esac
   p=
   while IFS= read -r line || [ -n "$line" ]; do p=$p$line; done
   if [ "$args_ok" -ne 1 ]; then
     # No trustworthy host to key a marker on: say why on every call.
-    echo "agent-guard: hook launcher was called with an unsupported host or hook subcommand; $action because AGENT_GUARD_INFRA_FAILURE_MODE=$mode" >&2
+    echo "agent-guard: hook launcher was called with an unsupported host or hook subcommand; $action because $because" >&2
     [ "$mode" = closed ] && exit 2
     exit 0
   fi
@@ -142,12 +179,30 @@ if [ ! -x "$x" ]; then
     # Only an existing marker proves this session already warned.
     (set -C; : >"$k") 2>/dev/null || { [ -e "$k" ] && warn=0; }
   fi
-  [ "$warn" -eq 0 ] || echo "agent-guard: $root_var env not set, selected root was incomplete, or no installed binary was found; $action because AGENT_GUARD_INFRA_FAILURE_MODE=$mode" >&2
+  [ "$warn" -eq 0 ] || echo "agent-guard: $root_var env not set, selected root was incomplete, or no installed binary was found$unchecked; $action because $because; reinstall or update the agent-guard plugin, then restart the host" >&2
   [ "$mode" = closed ] && exit 2
   exit 0
 fi
 
 AGENT_GUARD_HOOK_HOST=$host
 export AGENT_GUARD_HOOK_HOST
-exec "$x" "$sub"
+[ "$mode" = closed ] && [ "$text" -eq 1 ] || exec "$x" "$sub"
+
+# This shell stays to see how the binary ends. A background command reads
+# /dev/null unless its input is another descriptor, hence 3.
+got=
+child=
+trap 'got=1; [ -z "$child" ] || kill -TERM "$child" 2>/dev/null' TERM INT HUP
+exec 3<&0
+"$x" "$sub" <&3 3<&- &
+child=$!
+exec 3<&-
+[ -z "$got" ] || kill -TERM "$child" 2>/dev/null
+wait "$child"
+s=$?
+# A trapped signal ends that wait early; this one collects the binary.
+[ -z "$got" ] || { wait "$child" 2>/dev/null; s=143; }
+case "$s" in 0|2) exit "$s" ;; esac
+echo "agent-guard: the hook ended with status $s before it finished its check$unchecked; blocking because $because; retry the call, and reinstall or update the agent-guard plugin if it keeps failing" >&2
+exit 2
 }

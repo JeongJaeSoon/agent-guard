@@ -74,6 +74,18 @@ else
   bad "launcher is a regular file that declares the frozen v1 interface"
 fi
 
+DEFAULT_BLOCK='blocking because the secret scan did not run (the default when AGENT_GUARD_INFRA_FAILURE_MODE is unset)'
+TEXT_SUBS='hook-pre-tool hook-user-prompt hook-post-tool hook-post-tool-failure'
+# A stand-in binary that records its PID, then waits until a TERM arrives.
+term_body=$(cat <<'EOF'
+trap 'echo stopped >"$0.term"; kill "$nap" 2>/dev/null; exit 143' TERM
+echo "$$" >"$0.pid"
+sleep 30 &
+nap=$!
+wait "$nap"
+EOF
+)
+
 shells=sh
 for candidate in dash bash; do
   command -v "$candidate" >/dev/null 2>&1 && shells="$shells $candidate"
@@ -148,7 +160,7 @@ for shell in $shells; do
     # both policies, even though complete siblings exist.
     for incomplete in 4.0.0 5.0.0; do
       printf '{"session_id":"incomplete-%s"}' "$incomplete" \
-        | AGENT_GUARD_WARNING_DIR="$W-incomplete-$incomplete" \
+        | AGENT_GUARD_WARNING_DIR="$W-incomplete-$incomplete" AGENT_GUARD_INFRA_FAILURE_MODE=open \
           "$shell" "$L" "$host" hook-pre-tool "$C/$incomplete" >"$OUT" 2>"$ERR"
       status=$?
       if [ "$status" -eq 0 ] && [ ! -s "$OUT" ] \
@@ -171,7 +183,7 @@ for shell in $shells; do
     done
 
     # 6. Closed mode explains every block, including repeats in one session
-    # and an unrecognised mode value falling back to open.
+    # and an unrecognised mode value is read as unset.
     for attempt in first second; do
       printf '{"session_id":"closed-repeat"}' \
         | AGENT_GUARD_WARNING_DIR="$W-closed" AGENT_GUARD_INFRA_FAILURE_MODE=closed \
@@ -185,12 +197,21 @@ for shell in $shells; do
     done
     printf '{"session_id":"odd-mode"}' \
       | AGENT_GUARD_WARNING_DIR="$W-odd" AGENT_GUARD_INFRA_FAILURE_MODE=sometimes \
-        "$shell" "$L" "$host" hook-pre-tool "$CASE/missing/0.0.0" >"$OUT" 2>"$ERR"
+        "$shell" "$L" "$host" hook-stop "$CASE/missing/0.0.0" >"$OUT" 2>"$ERR"
     status=$?
     if [ "$status" -eq 0 ] && grep -Fq 'continuing because AGENT_GUARD_INFRA_FAILURE_MODE=open' "$ERR"; then
-      ok "$T: an unrecognised policy value is treated as open"
+      ok "$T: an unrecognised policy value is read as unset (Stop continues)"
     else
-      bad "$T: an unrecognised policy value is treated as open (status $status)"
+      bad "$T: an unrecognised policy value is read as unset (Stop continues, status $status)"
+    fi
+    printf '{"session_id":"odd-mode"}' \
+      | AGENT_GUARD_WARNING_DIR="$W-odd" AGENT_GUARD_INFRA_FAILURE_MODE=sometimes \
+        "$shell" "$L" "$host" hook-pre-tool "$CASE/missing/0.0.0" >"$OUT" 2>"$ERR"
+    status=$?
+    if [ "$status" -eq 2 ] && grep -Fq "$DEFAULT_BLOCK" "$ERR"; then
+      ok "$T: an unrecognised policy value is read as unset (PreToolUse blocks)"
+    else
+      bad "$T: an unrecognised policy value is read as unset (PreToolUse blocks, status $status)"
     fi
 
     # 7. Open mode warns once per session across changing parents (Linux
@@ -198,7 +219,7 @@ for shell in $shells; do
     : >"$ERR"
     for sub in hook-pre-tool hook-post-tool hook-stop hook-session-start; do
       printf '{"session_id":"open-once"}' \
-        | AGENT_GUARD_WARNING_DIR="$W-once" \
+        | AGENT_GUARD_WARNING_DIR="$W-once" AGENT_GUARD_INFRA_FAILURE_MODE=open \
           "$shell" -c '"$0" "$1" "$2" "$3" "$4"; :' "$shell" "$L" "$host" "$sub" "$CASE/missing/0.0.0" \
           >"$OUT" 2>>"$ERR"
     done
@@ -223,6 +244,7 @@ for shell in $shells; do
     for sub in hook-pre-tool hook-post-tool; do
       printf '{"session_id":"payload-%s"}' "$sub" \
         | AGENT_GUARD_SESSION_ID=launcher-override AGENT_GUARD_WARNING_DIR="$W-override" \
+          AGENT_GUARD_INFRA_FAILURE_MODE=open \
           "$shell" "$L" "$host" "$sub" "$CASE/missing/0.0.0" >"$OUT" 2>>"$ERR"
     done
     if [ "$(count 'no installed binary was found' "$ERR")" -eq 1 ]; then
@@ -237,7 +259,7 @@ for shell in $shells; do
     : >"$ERR"
     for sub in hook-pre-tool hook-post-tool hook-stop; do
       printf '{"session_id":"no-jq"}' \
-        | PATH="$NO_JQ_PATH" AGENT_GUARD_WARNING_DIR="$W-nojq" \
+        | PATH="$NO_JQ_PATH" AGENT_GUARD_WARNING_DIR="$W-nojq" AGENT_GUARD_INFRA_FAILURE_MODE=open \
           "$shell" -c '"$0" "$1" "$2" "$3" "$4"; :' "$shell" "$L" "$host" "$sub" "$CASE/missing/0.0.0" \
           >"$OUT" 2>>"$ERR"
     done
@@ -328,7 +350,8 @@ for shell in $shells; do
     fi
 
     # 13. The host pin overrides an inherited AGENT_GUARD_HOOK_HOST, and the
-    # binary replaces the launcher process (no extra process per hook).
+    # binary replaces the launcher process for a hook that continues (Stop
+    # here; a hook that carries text under an explicit open, just below).
     P="$CASE/pid-$shell-$host"
     rm -rf "$P"
     mkdir -p "$P"
@@ -344,6 +367,164 @@ for shell in $shells; do
       bad "$T: the binary replaces the launcher process with the host pinned (wrapper pid $(cat "$shell.pid" 2>/dev/null))"
     fi
     rm -f "$shell.pid"
+    printf '{}' | AGENT_GUARD_INFRA_FAILURE_MODE=open \
+      "$shell" -c 'echo "$$" >"$0.pid"; exec "$0" "$1" "$2" "$3" "$4"' \
+      "$shell" "$P/3.0.9/hooks/launch.sh" "$host" hook-pre-tool "$P/3.0.9" >"$OUT" 2>"$ERR"
+    if [ "$(cat "$OUT")" = "$(cat "$shell.pid" 2>/dev/null) $host" ]; then
+      ok "$T: an explicit open keeps the exec for a hook that carries text"
+    else
+      bad "$T: an explicit open keeps the exec for a hook that carries text"
+    fi
+    rm -f "$shell.pid"
+
+    # The hooks whose event carries text to or from the agent block by
+    # default when no binary can run, and say why on every call. Stop and
+    # SessionStart keep the open default.
+    NX="$CASE/noexec-$shell-$host"
+    rm -rf "$NX"
+    mkdir -p "$NX"
+    fake_version "$NX" 3.0.9
+    chmod -x "$NX/3.0.9/bin/agent-guard"
+    for sub in $TEXT_SUBS; do
+      for broken in "missing:$CASE/missing/0.0.0" "not-executable:$NX/3.0.9" "incomplete:$C/4.0.0"; do
+        default_ok=yes
+        for attempt in first second; do
+          printf '{"session_id":"default-block"}' \
+            | AGENT_GUARD_WARNING_DIR="$W-default" \
+              "$shell" "$L" "$host" "$sub" "${broken#*:}" >"$OUT" 2>"$ERR"
+          status=$?
+          [ "$status" -eq 2 ] && [ ! -s "$OUT" ] && grep -Fq "$DEFAULT_BLOCK" "$ERR" \
+            && grep -Fq 'reinstall or update the agent-guard plugin' "$ERR" \
+            && ! grep -Fq '=open' "$ERR" || default_ok=no
+          case "$sub" in
+            hook-post-tool*)
+              grep -Fq 'the tool output was not checked and could not be withheld' "$ERR" || default_ok=no ;;
+            *) ! grep -Fq 'could not be withheld' "$ERR" || default_ok=no ;;
+          esac
+        done
+        if [ "$default_ok" = yes ]; then
+          ok "$T: $sub blocks by default when the binary is ${broken%%:*}"
+        else
+          bad "$T: $sub blocks by default when the binary is ${broken%%:*} (status $status)"
+        fi
+      done
+    done
+    for sub in hook-stop hook-session-start; do
+      printf '{"session_id":"default-open"}' \
+        | AGENT_GUARD_WARNING_DIR="$W-default-$sub" \
+          "$shell" "$L" "$host" "$sub" "$CASE/missing/0.0.0" >"$OUT" 2>"$ERR"
+      status=$?
+      if [ "$status" -eq 0 ] && grep -Fq 'continuing because AGENT_GUARD_INFRA_FAILURE_MODE=open' "$ERR"; then
+        ok "$T: $sub keeps the open default with no binary"
+      else
+        bad "$T: $sub keeps the open default with no binary (status $status)"
+      fi
+    done
+    printf '{"session_id":"explicit-open"}' \
+      | AGENT_GUARD_WARNING_DIR="$W-explicit-open" AGENT_GUARD_INFRA_FAILURE_MODE=open \
+        "$shell" "$L" "$host" hook-user-prompt "$CASE/missing/0.0.0" >"$OUT" 2>"$ERR"
+    status=$?
+    if [ "$status" -eq 0 ] && grep -Fq 'continuing because AGENT_GUARD_INFRA_FAILURE_MODE=open' "$ERR"; then
+      ok "$T: an explicit open lets a hook that carries text continue with no binary"
+    else
+      bad "$T: an explicit open lets a hook that carries text continue with no binary (status $status)"
+    fi
+
+    # A binary that starts and ends with a status other than 0 or 2 did not
+    # finish its check: for the hooks that carry text that is a block with the
+    # reason. 0 and 2 pass through untouched, and so does everything under an
+    # explicit open or for the other hooks.
+    K="$CASE/crash-$shell-$host"
+    rm -rf "$K"
+    mkdir -p "$K"
+    fake_version "$K" 1.0.0 1.0.0 complete 'cat >/dev/null; echo fine; exit 0'
+    fake_version "$K" 1.0.1 1.0.1 complete 'cat >/dev/null; echo partial; exit 1'
+    fake_version "$K" 1.0.2 1.0.2 complete 'cat >/dev/null; echo verdict; echo reason >&2; exit 2'
+    # shellcheck disable=SC2016 # expanded by the fake binary, not here
+    fake_version "$K" 1.0.9 1.0.9 complete 'cat >/dev/null; kill -KILL "$$"'
+    for sub in $TEXT_SUBS; do
+      crash_ok=yes
+      printf '{}' | "$shell" "$K/1.0.1/hooks/launch.sh" "$host" "$sub" "$K/1.0.1" >"$OUT" 2>"$ERR"
+      status=$?
+      [ "$status" -eq 2 ] && grep -Fq 'ended with status 1 before it finished its check' "$ERR" \
+        && grep -Fq "$DEFAULT_BLOCK" "$ERR" || crash_ok=no
+      printf '{}' | "$shell" "$K/1.0.9/hooks/launch.sh" "$host" "$sub" "$K/1.0.9" >"$OUT" 2>"$ERR"
+      status=$?
+      [ "$status" -eq 2 ] && grep -Fq 'ended with status 137 before it finished its check' "$ERR" || crash_ok=no
+      if [ "$crash_ok" = yes ]; then
+        ok "$T: $sub turns a binary that exits 1 or dies of a signal into a block with the reason"
+      else
+        bad "$T: $sub turns a binary that exits 1 or dies of a signal into a block with the reason (status $status)"
+      fi
+      printf '{}' | "$shell" "$K/1.0.0/hooks/launch.sh" "$host" "$sub" "$K/1.0.0" >"$OUT" 2>"$ERR"
+      status=$?
+      pass_ok=yes
+      [ "$status" -eq 0 ] && [ "$(cat "$OUT")" = fine ] && [ ! -s "$ERR" ] || pass_ok=no
+      printf '{}' | "$shell" "$K/1.0.2/hooks/launch.sh" "$host" "$sub" "$K/1.0.2" >"$OUT" 2>"$ERR"
+      status=$?
+      [ "$status" -eq 2 ] && [ "$(cat "$OUT")" = verdict ] && [ "$(cat "$ERR")" = reason ] || pass_ok=no
+      if [ "$pass_ok" = yes ]; then
+        ok "$T: $sub passes the binary's 0 and 2 through with its output untouched"
+      else
+        bad "$T: $sub passes the binary's 0 and 2 through with its output untouched (status $status)"
+      fi
+    done
+    printf '{}' | AGENT_GUARD_INFRA_FAILURE_MODE=open \
+      "$shell" "$K/1.0.1/hooks/launch.sh" "$host" hook-pre-tool "$K/1.0.1" >"$OUT" 2>"$ERR"
+    status=$?
+    if [ "$status" -eq 1 ] && [ "$(cat "$OUT")" = partial ] && [ ! -s "$ERR" ]; then
+      ok "$T: an explicit open passes a crashed binary's status through as before"
+    else
+      bad "$T: an explicit open passes a crashed binary's status through as before (status $status)"
+    fi
+    printf '{}' | AGENT_GUARD_INFRA_FAILURE_MODE=closed \
+      "$shell" "$K/1.0.1/hooks/launch.sh" "$host" hook-post-tool "$K/1.0.1" >"$OUT" 2>"$ERR"
+    status=$?
+    if [ "$status" -eq 2 ] && grep -Fq 'blocking because AGENT_GUARD_INFRA_FAILURE_MODE=closed' "$ERR" \
+       && grep -Fq 'the tool output was not checked and could not be withheld' "$ERR"; then
+      ok "$T: closed mode blocks a crashed PostToolUse binary and says the output was not withheld"
+    else
+      bad "$T: closed mode blocks a crashed PostToolUse binary and says the output was not withheld (status $status)"
+    fi
+    stop_ok=yes
+    for stop_mode in '' closed; do
+      printf '{}' | AGENT_GUARD_INFRA_FAILURE_MODE="$stop_mode" \
+        "$shell" "$K/1.0.1/hooks/launch.sh" "$host" hook-stop "$K/1.0.1" >"$OUT" 2>"$ERR"
+      [ "$?" -eq 1 ] && [ ! -s "$ERR" ] || stop_ok=no
+    done
+    if [ "$stop_ok" = yes ]; then
+      ok "$T: hook-stop still hands a crashed binary's status to the host"
+    else
+      bad "$T: hook-stop still hands a crashed binary's status to the host"
+    fi
+
+    # A TERM that reaches the launcher goes on to the binary, and the launcher
+    # collects it before it leaves: nothing keeps running.
+    G="$CASE/term-$shell-$host"
+    rm -rf "$G"
+    mkdir -p "$G"
+    fake_version "$G" 2.0.0 2.0.0 complete "$term_body"
+    printf '{}' >"$CASE/term-input"
+    "$shell" "$G/2.0.0/hooks/launch.sh" "$host" hook-pre-tool "$G/2.0.0" \
+      <"$CASE/term-input" >"$OUT" 2>"$ERR" &
+    launcher_pid=$!
+    tries=0
+    while [ ! -s "$G/2.0.0/bin/agent-guard.pid" ] && [ "$tries" -lt 100 ]; do
+      sleep 0.1
+      tries=$((tries + 1))
+    done
+    child_pid=$(cat "$G/2.0.0/bin/agent-guard.pid" 2>/dev/null)
+    kill -TERM "$launcher_pid" 2>/dev/null
+    wait "$launcher_pid"
+    status=$?
+    if [ -n "$child_pid" ] && [ "$child_pid" != "$launcher_pid" ] && [ "$status" -eq 2 ] \
+       && [ -s "$G/2.0.0/bin/agent-guard.term" ] && ! kill -0 "$child_pid" 2>/dev/null \
+       && grep -Fq 'before it finished its check' "$ERR"; then
+      ok "$T: a TERM sent to the launcher reaches the binary and leaves nothing running"
+    else
+      bad "$T: a TERM sent to the launcher reaches the binary and leaves nothing running (status $status, child ${child_pid:-none})"
+      [ -z "$child_pid" ] || kill -KILL "$child_pid" 2>/dev/null
+    fi
 
     # 14. Invalid arguments never reach a binary and get the policy.
     for args in "gemini hook-pre-tool" ":empty: hook-pre-tool" "$host scan-staged" \
@@ -420,6 +601,41 @@ for shell in $shells; do
     bad "$shell: the default warning dir matches the CLI warning_root and is private (cli: $cli_root)"
     ls -la "$TD" | sed 's/^/  tmpdir: /'
   fi
+done
+
+# The manifest command answers by itself when no launcher exists anywhere. It
+# follows the same defaults, and an unrecognised value is read as unset.
+for host in claude codex; do
+  case "$host" in
+    claude) manifest="$ROOT/plugins/agent-guard/hooks/hooks.json"; root_var=CLAUDE_PLUGIN_ROOT ;;
+    *) manifest="$ROOT/plugins/agent-guard/hooks.json"; root_var=PLUGIN_ROOT ;;
+  esac
+  for event in $(jq -r '.hooks | keys[]' "$manifest"); do
+    command=$(jq -r --arg e "$event" '.hooks[$e][0].hooks[0].command' "$manifest")
+    case "$event" in
+      Stop|SessionStart) want=0; why='continuing because AGENT_GUARD_INFRA_FAILURE_MODE=open' ;;
+      *) want=2; why='blocking because AGENT_GUARD_INFRA_FAILURE_MODE=unset' ;;
+    esac
+    line_ok=yes
+    for value in '' sometimes; do
+      printf '{}' | env "$root_var=$CASE/no-plugin/0.0.0" AGENT_GUARD_INFRA_FAILURE_MODE="$value" \
+        sh -c "$command" >"$OUT" 2>"$ERR"
+      status=$?
+      [ "$status" -eq "$want" ] && [ ! -s "$OUT" ] && grep -Fq "$why" "$ERR" || line_ok=no
+      [ "$want" -eq 0 ] || ! grep -Fq '=open' "$ERR" || line_ok=no
+    done
+    printf '{}' | env "$root_var=$CASE/no-plugin/0.0.0" AGENT_GUARD_INFRA_FAILURE_MODE=open \
+      sh -c "$command" >"$OUT" 2>"$ERR"
+    [ "$?" -eq 0 ] && grep -Fq 'continuing because AGENT_GUARD_INFRA_FAILURE_MODE=open' "$ERR" || line_ok=no
+    printf '{}' | env "$root_var=$CASE/no-plugin/0.0.0" AGENT_GUARD_INFRA_FAILURE_MODE=closed \
+      sh -c "$command" >"$OUT" 2>"$ERR"
+    [ "$?" -eq 2 ] && grep -Fq 'blocking because AGENT_GUARD_INFRA_FAILURE_MODE=closed' "$ERR" || line_ok=no
+    if [ "$line_ok" = yes ]; then
+      ok "$host $event: the manifest command's own fallback has the event's default (status $want unset)"
+    else
+      bad "$host $event: the manifest command's own fallback has the event's default (want $want unset)"
+    fi
+  done
 done
 
 # 17. A truncated launcher (interrupted copy) fails to parse instead of
