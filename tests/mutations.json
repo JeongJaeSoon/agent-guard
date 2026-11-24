@@ -885,8 +885,8 @@
   {
     "id": "bash-unresolved-operand-unquoted-value",
     "rule": "AWK_READ_OPERAND_RECORDS: an assigned value that globs or splits outside double quotes is unresolved",
-    "old": "  function word1(s, dq) { return (dq || s !~ /[*?[ \\t\\n]/) ? s : \"\\002\" }\n",
-    "new": "  function word1(s, dq) { return s }\n",
+    "old": "  function word1(s, dq) { return (asg || dq || (s !~ /[*?[ \\t\\n]/ && !ifsset)) ? s : \"\\002\" }\n",
+    "new": "  function word1(s, dq) { return (asg || dq || !ifsset) ? s : \"\\002\" }\n",
     "tests": [
       "tests/unresolved-read-operand.sh"
     ]
@@ -914,6 +914,33 @@
     "rule": "AWK_READ_OPERAND_RECORDS: a literal marker byte leaves the word unresolved",
     "old": "    if (index(w, \"\\005\")) gsub(/\\005/, \"\\002\", out)\n",
     "new": "",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-assign-no-split",
+    "rule": "AWK_READ_OPERAND_RECORDS: an assignment value is not split, so it stays known",
+    "old": "  function word1(s, dq) { return (asg || dq || (s !~ /[*?[ \\t\\n]/ && !ifsset)) ? s : \"\\002\" }\n",
+    "new": "  function word1(s, dq) { return (dq || (s !~ /[*?[ \\t\\n]/ && !ifsset)) ? s : \"\\002\" }\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-ifs",
+    "rule": "AWK_READ_OPERAND_RECORDS: after IFS changes, an unquoted value is unresolved",
+    "old": "  function word1(s, dq) { return (asg || dq || (s !~ /[*?[ \\t\\n]/ && !ifsset)) ? s : \"\\002\" }\n",
+    "new": "  function word1(s, dq) { return (asg || dq || (s !~ /[*?[ \\t\\n]/)) ? s : \"\\002\" }\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-ansi-escape",
+    "rule": "AWK_READ_OPERAND_RECORDS: an escape inside $'...' is unresolved",
+    "old": "            if (substr(w, j, 1) == \"\\\\\") { out = out \"\\002\"; j++; continue }\n",
+    "new": "            if (substr(w, j, 1) == \"\\\\\") j++\n",
     "tests": [
       "tests/unresolved-read-operand.sh"
     ]

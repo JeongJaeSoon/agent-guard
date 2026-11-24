@@ -237,6 +237,12 @@ check 2 "an assigned value globbed at an unquoted use" 'p=".*"; cat $p'
 check 0 "an assigned glob value quoted at its use" 'p="*.md"; cat "$p"'
 check 2 "a literal marker byte in an operand" "F=$S; cat \"\$F$(printf '\005')\""
 check 0 "a loop list that reads the old value of its variable" 'f=README.md; for f in "$f"; do cat "$f"; done'
+check 2 "an assignment keeps a value with a space" 'p="some dir/.ssh"; q=$p; cat "$q/config"'
+check 2 "a loop list split by a changed IFS" 'IFS=x; p=.exREADME.md; for f in $p; do cat "${f}nv"; done'
+check 2 "an operand split by a changed IFS" 'IFS=x; p=READMEx.e; cat ${p}nv'
+check 2 "an ANSI-C escape in a loop word" "for f in \$'\\056e'; do cat \"\${f}nv\"; done"
+check 2 "an ANSI-C escape in an assignment" "p=\$'\\056e'; cat \"\${p}nv\""
+check 0 "an ANSI-C word without escapes" "p=\$'README'; cat \"\${p}.md\""
 check 0 "a loop variable inside its body after a nested loop" 'for f in README.md; do for g in a; do :; done; cat "$f"; done'
 
 HOST=codex

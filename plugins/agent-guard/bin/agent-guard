@@ -10712,7 +10712,8 @@ AWK_READ_OPERAND_RECORDS='
         n1 = substr(w, i + 1, 1)
         if (n1 == "\047" && !dq) {
           for (j = i + 2; j <= length(w) && substr(w, j, 1) != "\047"; j++) {
-            if (substr(w, j, 1) == "\\") j++
+            # An escape in $'...' is not decoded here.
+            if (substr(w, j, 1) == "\\") { out = out "\002"; j++; continue }
             out = out substr(w, j, 1)
           }
           i = j; continue
@@ -10760,9 +10761,10 @@ AWK_READ_OPERAND_RECORDS='
     lvn = nm; return 1
   }
 
-  # A value expanded outside double quotes is split and globbed, so one with
-  # those characters stands only as a part known at run time.
-  function word1(s, dq) { return (dq || s !~ /[*?[ \t\n]/) ? s : "\002" }
+  # A value expanded outside double quotes, except in an assignment, is split
+  # and globbed, so one with those characters, or after IFS changed, stands
+  # only as a part known at run time.
+  function word1(s, dq) { return (asg || dq || (s !~ /[*?[ \t\n]/ && !ifsset)) ? s : "\002" }
   function known(nm) {
     if (cpos && nm in ptab) { lv = ptab[nm]; return lv != "\002" }
     if (nm in tab) { lv = tab[nm]; return 1 }
@@ -10846,6 +10848,7 @@ AWK_READ_OPERAND_RECORDS='
   # any of them.
   function forget(w,   k) {
     if (w ~ /[$`]/) { for (k in tab) delete tab[k]; for (k in loopv) delete loopv[k]; return }
+    if (name_of(w) == "IFS") ifsset = 1
     delete tab[name_of(w)]; delete loopv[name_of(w)]
   }
   function name_of(w,   n) {
@@ -10874,7 +10877,8 @@ AWK_READ_OPERAND_RECORDS='
   function assign(w, now,   nm, v, add) {
     nm = substr(w, 1, index(w, "=") - 1); sub(/\[.*/, "", nm)
     add = (nm ~ /\+$/); sub(/\+$/, "", nm)
-    v = value(substr(w, index(w, "=") + 1))
+    if (nm == "IFS") ifsset = 1
+    asg = 1; v = value(substr(w, index(w, "=") + 1)); asg = 0
     if (index(v, "\002") || index(v, "\005")) v = "\002"
     # NAME+=value appends to the value it already has.
     if (add) v = (v != "\002" && known(nm)) ? lv v : "\002"
