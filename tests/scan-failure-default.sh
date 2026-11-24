@@ -220,6 +220,27 @@ check 'the commit gate is blocked by default when its gitleaks scan fails' \
   _ "$s" "$CASE/err" "$default_block"
 hook hook-pre-tool open "$SCANFAIL" "$commit"
 check 'explicit open passes a commit whose gitleaks scan fails' test "$s" -eq 0
+# Git stages untracked files itself for --interactive, and the gate scans them
+# apart from the index. A scanner that fails there is the same failure; files
+# over the scan budget are not, and last until the change is split.
+mkdir -p "$CASE/partfail"
+printf '%s\n' '#!/bin/sh' '[ "$1" != version ] || { echo 8.30.1; exit 0; }' \
+  'case $(cat) in *scan_trip_word*) echo scanner broke >&2; exit 2 ;; esac' 'exit 0' \
+  >"$CASE/partfail/gitleaks"
+chmod +x "$CASE/partfail/gitleaks"
+printf 'scan_trip_word\n' >"$CASE/w/loose.txt"
+interactive='{"tool_name":"Bash","tool_input":{"command":"git commit --interactive -m note"}}'
+hook hook-pre-tool unset "$GOOD" "$interactive"
+check 'control: a clean untracked file passes the commit gate' test "$s" -eq 0
+hook hook-pre-tool unset "$CASE/partfail/gitleaks" "$interactive"
+check 'the commit gate is blocked by default when gitleaks fails on the untracked files' \
+  sh -c 'test "$1" -eq 2 && grep -Fq "$2" "$3"' _ "$s" "$default_block" "$CASE/err"
+rm -f "$CASE/w/loose.txt"
+dd if=/dev/zero of="$CASE/w/loose.dat" bs=1048576 count=4 2>/dev/null || exit 1
+hook hook-pre-tool unset "$GOOD" "$interactive"
+check 'untracked files over the scan budget still continue by default' \
+  sh -c 'test "$1" -eq 0 && grep -Fq "exceeded the scan input limit" "$2"' _ "$s" "$CASE/err"
+rm -f "$CASE/w/loose.dat"
 mkdir -p "$CASE/plain"
 norepo=$(jq -nc --arg d "$CASE/plain" '{tool_name:"Bash",tool_input:{command:"git commit -m note"},cwd:$d}')
 seq_n=$((seq_n + 1))

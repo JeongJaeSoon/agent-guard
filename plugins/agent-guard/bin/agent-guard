@@ -5131,8 +5131,9 @@ scan_commit_candidate() {
     status=$?
     [ "$status" -eq 0 ] || return "$status"
   fi
-  [ "$untracked_status" -eq 0 ] || return "$SCAN_STATUS_UNAVAILABLE"
-  return 0
+  # As it is: over the budget stays "could not run", a scanner that failed
+  # stays a scanner error, and the gate's default differs between them.
+  return "$untracked_status"
 }
 
 # $1 = ignored also lists gitignored files, for a same-command `git add -f`.
