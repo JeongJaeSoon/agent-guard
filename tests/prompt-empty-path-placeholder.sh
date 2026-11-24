@@ -102,5 +102,24 @@ check 2 "ten digits after an empty code span" "Leave $bt$k=$bt 4829105736"
 check 2 "real value after the delimiter and a space" "Set $k= $val"
 check 2 "empty double quotes glued to a value" "$k=\"\"$val"
 
+# A raw exec probe sees one physical line and cannot read the lines below,
+# so it keeps recording these values.
+sh "$ROOT/tests/helpers/extract-functions.sh" "$GUARD" "$CASE_ROOT" secretish_env_values || exit 1
+. "$CASE_ROOT/secretish_env_values.sh"
+raw_check() {
+  label=$1
+  checked=$((checked + 1))
+  if printf '%s\n' "$2" | secretish_env_values probe_raw > "$CASE_ROOT/raw" 2>/dev/null \
+    && [ -s "$CASE_ROOT/raw" ]; then
+    printf 'ok - prompt empty/path %s: %s\n' "$checked" "$label"
+  else
+    printf 'not ok - prompt empty/path %s: %s: raw probe recorded nothing\n' "$checked" "$label"
+    failed=$((failed + 1))
+  fi
+}
+raw_check "raw probe keeps a path with a line below" "$k=$p$nl$val"
+raw_check "raw probe keeps a quoted path" "$k=\"$p\"$nl$val"
+raw_check "raw probe keeps an x run" "$k=xxxxxxxx$nl$val"
+
 printf '%s prompt empty/path checks, %s failed\n' "$checked" "$failed"
 [ "$failed" -eq 0 ]
