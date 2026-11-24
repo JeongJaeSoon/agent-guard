@@ -228,7 +228,7 @@ check 2 "a loop value copied to another variable" 'for f in README.md; do g=$f; 
 check 2 "a loop value after a loop that may not run" "f=$S; if false; then for f in README.md; do :; done; fi; cat \"\$f\""
 check 2 "a loop value after a loop in a pipeline" "f=$S; for f in README.md; do :; done | true; cat \"\$f\""
 check 2 "an empty loop word before an unresolved part" 'for f in ""; do cat "$F$f"; done'
-check 2 "a loop over an unquoted expansion that splits" 'p="README.md .e"; for f in $p; do cat "${f}nv"; done'
+check 2 "a loop over an unquoted expansion that splits" 'p=".e x"; for f in $p; do cat "${f}nv"; done'
 check 0 "a loop variable inside its body after a nested loop" 'for f in README.md; do for g in a; do :; done; cat "$f"; done'
 
 HOST=codex
