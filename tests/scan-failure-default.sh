@@ -240,6 +240,19 @@ dd if=/dev/zero of="$CASE/w/loose.dat" bs=1048576 count=4 2>/dev/null || exit 1
 hook hook-pre-tool unset "$GOOD" "$interactive"
 check 'untracked files over the scan budget still continue by default' \
   sh -c 'test "$1" -eq 0 && grep -Fq "exceeded the scan input limit" "$2"' _ "$s" "$CASE/err"
+# Two git commands in one call: the first cannot be scanned, and the second
+# meets a scanner that fails. The failure decides, whichever comes first.
+git init -q "$CASE/w2" || exit 1
+printf 'scan_trip_word\n' >"$CASE/w2/tripped.txt"
+git -C "$CASE/w2" add tripped.txt || exit 1
+both=$(jq -nc --arg d "$CASE/w2" \
+  '{tool_name:"Bash",tool_input:{command:("git commit --interactive -m note; git -C " + $d + " commit -m note")}}')
+hook hook-pre-tool unset "$GOOD" "$both"
+check 'control: with a working scanner the two commits continue by default' \
+  sh -c 'test "$1" -eq 0 && grep -Fq "exceeded the scan input limit" "$2"' _ "$s" "$CASE/err"
+hook hook-pre-tool unset "$CASE/partfail/gitleaks" "$both"
+check 'a scanner that fails on a later commit is not hidden by an earlier one over the budget' \
+  sh -c 'test "$1" -eq 2 && grep -Fq "$2" "$3"' _ "$s" "$default_block" "$CASE/err"
 rm -f "$CASE/w/loose.dat"
 mkdir -p "$CASE/plain"
 norepo=$(jq -nc --arg d "$CASE/plain" '{tool_name:"Bash",tool_input:{command:"git commit -m note"},cwd:$d}')

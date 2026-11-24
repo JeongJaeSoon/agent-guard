@@ -13276,9 +13276,18 @@ U
           IFS=$git_ifs
           scan_git_command_group "${workdir:-$(pwd)}" "$git_group"
           git_group_status=$?
-          if [ "$git_group_status" -eq 1 ] || [ "$git_scan_status" -eq 0 ]; then
-            git_scan_status=$git_group_status
-          fi
+          # A finding outranks every other status. A scanner that failed
+          # outranks a scan that could not run, whose default is open.
+          case "$git_scan_status:$git_group_status" in
+            1:*|*:0) ;;
+            *:1|0:*) git_scan_status=$git_group_status ;;
+            "$SCAN_STATUS_UNAVAILABLE":*|"$GIT_SCAN_STATUS_NO_REPOSITORY":*)
+              case "$git_group_status" in
+                "$SCAN_STATUS_UNAVAILABLE"|"$GIT_SCAN_STATUS_NO_REPOSITORY") ;;
+                *) git_scan_status=$git_group_status ;;
+              esac
+              ;;
+          esac
         fi
         git_in_group=1
         git_group=
