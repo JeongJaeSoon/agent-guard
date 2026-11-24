@@ -314,6 +314,9 @@ s<a><b>	!
 s'a'b'	!
 s"a"b"	!
 s@a@b@	!
+s:a:b:	!
+s:a@\:\:x[0]:b:	!
+s:(a):$1\:\:x[0]:	!
 s?a?b?	!
 s /a/b/	!
 sxaxbx	!

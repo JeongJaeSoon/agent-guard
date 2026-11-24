@@ -621,8 +621,18 @@
   {
     "id": "perl-sub-other-statement",
     "rule": "perl_script_without_regex: a statement that is not a substitution keeps the whole program",
-    "old": "index(\"/|#,:!%\", d) == 0) exit 1",
-    "new": "index(\"/|#,:!%\", d) == 0) { printf \"%s\", out substr(t, i); exit 0 }",
+    "old": "index(\"/|#,!%\", d) == 0) exit 1",
+    "new": "index(\"/|#,!%\", d) == 0) { printf \"%s\", out substr(t, i); exit 0 }",
+    "tests": [
+      "tests/unit-deny-path.sh",
+      "tests/search-operand-ground-truth.sh"
+    ]
+  },
+  {
+    "id": "perl-sub-colon-delimiter",
+    "rule": "perl_script_without_regex: an escaped `:` delimiter becomes part of a package name",
+    "old": "index(\"/|#,!%\", d)",
+    "new": "index(\"/|#,:!%\", d)",
     "tests": [
       "tests/unit-deny-path.sh",
       "tests/search-operand-ground-truth.sh"

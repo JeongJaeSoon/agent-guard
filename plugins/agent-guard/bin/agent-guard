@@ -8870,7 +8870,9 @@ sed_script_without_regex() {
 # every byte, for anything else:
 # - a statement that is not a substitution, a comment, a second line;
 # - a delimiter other than the fixed characters below: a bracketing pair
-#   nests, and a quote changes how perl reads the text;
+#   nests, and a quote changes how perl reads the text. An escaped delimiter
+#   loses its backslash before perl looks for names, so `:` is not one of
+#   them: `@\:\:x[...]` would be the array `@::x` and its subscript code;
 # - a flag other than g, i, m, s and x: e and ee run the replacement as code;
 # - a code block in a pattern, or a backtick anywhere;
 # - text perl may interpolate. In a pattern `$` stays only where it is an
@@ -8891,7 +8893,7 @@ perl_script_without_regex() {
       while (i <= n && substr(t, i, 1) == " ") i++
       if (i > n) break
       d = substr(t, i + 1, 1)
-      if (substr(t, i, 1) != "s" || d == "" || index("/|#,:!%", d) == 0) exit 1
+      if (substr(t, i, 1) != "s" || d == "" || index("/|#,!%", d) == 0) exit 1
       for (i += 2; i <= n && (c = substr(t, i, 1)) != d; i++) {
         x = substr(t, i + 1, 1)
         if (c == "\\") { if (x == "c") exit 1; i++; continue }
