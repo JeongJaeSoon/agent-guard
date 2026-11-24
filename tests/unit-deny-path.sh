@@ -7,9 +7,9 @@ CASE=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-unit-deny-path.XXXXXX")
 trap 'rm -rf "$CASE"' 0
 sh "$ROOT/tests/helpers/extract-functions.sh" "$SOURCE" "$CASE" \
   deny_path_char_hex_pattern deny_path_shell_expansion_char_pattern deny_path_pin_char_pattern \
-  jq_filter_without_field_names sed_script_without_regex
+  jq_filter_without_field_names sed_script_without_regex perl_script_without_regex
 for function in deny_path_char_hex_pattern deny_path_shell_expansion_char_pattern deny_path_pin_char_pattern \
-  jq_filter_without_field_names sed_script_without_regex; do
+  jq_filter_without_field_names sed_script_without_regex perl_script_without_regex; do
   . "$CASE/$function.sh"
 done
 pass=0 fail=0
@@ -231,5 +231,108 @@ nl='
 status=0
 sed_script_without_regex "s/a/b/${nl}p" >/dev/null 2>&1 || status=$?
 if [ "$status" -ne 0 ]; then ok "sed script refused: a newline"; else bad "sed script refused: a newline"; fi
+# The program of perl -pe or -ne. '!' marks one that must be refused: only s
+# statements with a fixed delimiter, no code and no interpolation qualify.
+while IFS=$tab read -r script expected; do
+  status=0
+  actual=$(perl_script_without_regex "$script" 2>"$CASE/err") || status=$?
+  if [ "$expected" = '!' ]; then
+    if [ "$status" -ne 0 ] && [ -z "$actual" ]; then
+      ok "perl program refused: $script"
+    else
+      bad "perl program refused: $script (got $actual)"
+    fi
+  elif [ "$status" -eq 0 ] && [ "$actual" = "$expected" ] && [ ! -s "$CASE/err" ]; then
+    ok "perl program regex removed: $script"
+  else
+    bad "perl program regex removed: $script (got $status $actual)"
+  fi
+done <<'CASES'
+s/a/b/	s//b/
+s/\e\[[0-9;?]*[ -\/]*[@-~]//g; s/\e\][^\a]*\a//g; s/\r/\n/g	s///g;s///g;s//\n/g
+ s/a/b/ ; s/c/d/gi ;	s//b/;s//d/gi;
+s|a/b|c|g	s||c|g
+s#a#b#	s##b#
+s,a$,b,	s,,b,
+s/(a$|b$)c$/d/	s//d/
+s/(a)(b)/$2$1/	s//$2$1/
+s/(a)/\1 $1./msx	s//\1 $1./msx
+s/(a)(b)/\2\1/	s//\2\1/
+s/a/server.key/	s//server.key/
+s/a\/b/c\/d/	s//c\/d/
+s/a/b\$x/	s//b\$x/
+s/a/b/e	!
+s/a/b/ee	!
+s/a/b/ge	!
+s/a/b/r	!
+s/a(?{ print 1 })/b/	!
+s/a(??{ "b" })/c/	!
+s/a(*{ print 1 })/b/	!
+s/$x/b/	!
+s/${x}/b/	!
+s/$ENV{HOME}/b/	!
+s/a$b/c/	!
+s/@x/b/	!
+s/@{[ 1 ]}/b/	!
+s/a@$x/b/	!
+s/a/$x/	!
+s/a/${\ 1}/	!
+s/a/$&/	!
+s/a/$10/	!
+s/a/$1[0]/	!
+s/a/$1{k}/	!
+s/a/$1->[0]/	!
+s/a/$1::x/	!
+s/(a)/\1[0]/	!
+s/(a)/\1{k}/	!
+s/(a)/\1->[0]/	!
+s/(a)/\1::x/	!
+s/a/b$/	!
+s/a/@x/	!
+s/a/@{[ 1 ]}/	!
+s/a/@-/	!
+s/a/`id`/	!
+s/a\c\$x/b/	!
+s/a/b\c\$x/	!
+s/éa/b/	!
+s/a/b/; print	!
+print; s/a/b/	!
+BEGIN { $| = 1 } s/a/b/	!
+s/a/b/; END { print 1 }	!
+s/a/b/ if /c/	!
+s/a/b/ # c	!
+s/a/b/ s/c/d/	!
+open F, "x"; s/a/b/	!
+system("id")	!
+y/a/b/	!
+tr/a/b/	!
+m/a/	!
+s{a}{b}	!
+s(a)(b)	!
+s[a][b]	!
+s<a><b>	!
+s'a'b'	!
+s"a"b"	!
+s@a@b@	!
+s:a:b:	!
+s:a@\:\:x[0]:b:	!
+s:(a):$1\:\:x[0]:	!
+s?a?b?	!
+s /a/b/	!
+sxaxbx	!
+s/a	!
+s/a/b	!
+s/a\/b/	!
+;	!
+CASES
+for script in '' ' ' "s/a/b/${nl}s/c/d/"; do
+  status=0
+  actual=$(perl_script_without_regex "$script" 2>/dev/null) || status=$?
+  if [ "$status" -ne 0 ] && [ -z "$actual" ]; then
+    ok "perl program refused: empty or more than one line"
+  else
+    bad "perl program refused: empty or more than one line (got $actual)"
+  fi
+done
 printf 'passed: %s\nfailed: %s\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

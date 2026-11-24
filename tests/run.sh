@@ -238,6 +238,7 @@ for file in \
   "$ROOT/tests/deny-read-mask-rules.sh" \
   "$ROOT/tests/deny-read-mask-allow.sh" \
   "$ROOT/tests/gitleaks-resolution.sh" \
+  "$ROOT/tests/scan-failure-default.sh" \
   "$ROOT/tests/gitleaks-probe-cache.sh" \
   "$ROOT/tests/gitleaks-clean-cache.sh" \
   "$ROOT/tests/log-off-state-cache.sh" \
@@ -800,7 +801,8 @@ for manifest_host in claude codex; do
     manifest_norm=$(printf '%s' "$manifest_cmd" | sed \
       -e "s/$manifest_root/__ROOT__/g" \
       -e "s/ $manifest_host hook-/ __HOST__ hook-/g" \
-      -e "s/ $manifest_sub \"/ __SUB__ \"/g")
+      -e "s/ $manifest_sub \"/ __SUB__ \"/g" \
+      -e "s/:$manifest_sub in /:__SUB__ in /")
     if [ -z "$hook_line_shape" ]; then
       hook_line_shape=$manifest_norm
     fi
@@ -891,10 +893,10 @@ printf '%s' "$read_env_payload" \
   | (cd "$PLUGIN_ROOT" && TMPDIR="$TESTTMP/rootvar-claude-unset" env -u CLAUDE_PLUGIN_ROOT -u CODEX_PLUGIN_ROOT sh -c "$claude_pre_tool_command") \
   >"$OUT" 2>"$ERR"
 status=$?
-if [ "$status" -eq 0 ]; then
-  ok "Claude hook command follows the default open infrastructure policy without CLAUDE_PLUGIN_ROOT"
+if [ "$status" -eq 2 ] && grep -q 'blocking because AGENT_GUARD_INFRA_FAILURE_MODE=unset' "$ERR"; then
+  ok "Claude PreToolUse hook command blocks by default without CLAUDE_PLUGIN_ROOT"
 else
-  not_ok "Claude hook command follows the default open infrastructure policy without CLAUDE_PLUGIN_ROOT (expected 0, got $status)"
+  not_ok "Claude PreToolUse hook command blocks by default without CLAUDE_PLUGIN_ROOT (expected 2, got $status)"
   sed 's/^/  stderr: /' "$ERR"
 fi
 if grep -q 'CLAUDE_PLUGIN_ROOT env not set' "$ERR"; then
@@ -941,10 +943,10 @@ printf '%s' "$read_env_payload" \
   | (cd "$PLUGIN_ROOT" && TMPDIR="$TESTTMP/rootvar-codex-unset" env -u PLUGIN_ROOT -u CODEX_PLUGIN_ROOT -u CLAUDE_PLUGIN_ROOT sh -c "$codex_pre_tool_command") \
   >"$OUT" 2>"$ERR"
 status=$?
-if [ "$status" -eq 0 ]; then
-  ok "Codex hook command follows the default open infrastructure policy without PLUGIN_ROOT"
+if [ "$status" -eq 2 ] && grep -q 'blocking because AGENT_GUARD_INFRA_FAILURE_MODE=unset' "$ERR"; then
+  ok "Codex PreToolUse hook command blocks by default without PLUGIN_ROOT"
 else
-  not_ok "Codex hook command follows the default open infrastructure policy without PLUGIN_ROOT (expected 0, got $status)"
+  not_ok "Codex PreToolUse hook command blocks by default without PLUGIN_ROOT (expected 2, got $status)"
   sed 's/^/  stderr: /' "$ERR"
 fi
 if grep -q 'PLUGIN_ROOT env not set' "$ERR"; then
@@ -1059,7 +1061,7 @@ printf '%s' '{"session_id":"incomplete-root","tool_name":"Bash","tool_input":{"c
     AGENT_GUARD_WARNING_DIR="$TESTTMP/incomplete-root-warning" \
     sh -c "$codex_pre_tool_command" >"$OUT" 2>"$ERR"
 status=$?
-if [ "$status" -eq 0 ] && [ ! -s "$OUT" ] \
+if [ "$status" -eq 2 ] && [ ! -s "$OUT" ] \
    && grep -q 'selected root was incomplete' "$ERR"; then
   ok "Codex hook resolver refuses an incomplete selected root without sibling substitution"
 else
@@ -1144,7 +1146,7 @@ for manifest_utility in sh awk sort tail cut cksum mkdir; do
 done
 
 # When a launcher exists but no binary resolves, every event shares one
-# best-effort host/session marker. The warning names the selected policy,
+# best-effort host/session marker under the open policy. The warning names the selected policy,
 # including closed mode. launcher-only/9.9.9 holds only hooks/launch.sh, so the
 # deleted 0.0.0 root reaches a launcher that finds no complete binary.
 mkdir -p "$TESTTMP/launcher-only/9.9.9/hooks"
@@ -1161,6 +1163,7 @@ for manifest_host in codex claude; do
     printf '%s' '{"session_id":"manifest-session"}' \
       | env "$manifest_root=$TESTTMP/launcher-only/0.0.0" \
           AGENT_GUARD_WARNING_DIR="$manifest_warning_dir" \
+          AGENT_GUARD_INFRA_FAILURE_MODE=open \
           sh -c "$manifest_command; :" >/dev/null 2>>"$ERR"
   done
   warning_count=$(grep -c 'no installed binary was found' "$ERR" 2>/dev/null || true)
@@ -1177,6 +1180,7 @@ for manifest_host in codex claude; do
     printf '{"session_id":"payload-%s"}' "$override_event" \
       | env "$manifest_root=$TESTTMP/launcher-only/0.0.0" \
           AGENT_GUARD_SESSION_ID=manifest-override \
+          AGENT_GUARD_INFRA_FAILURE_MODE=open \
           AGENT_GUARD_WARNING_DIR="$TESTTMP/manifest-override-$manifest_host" \
           sh -c "$manifest_command; :" >/dev/null 2>>"$ERR"
   done
@@ -1195,6 +1199,7 @@ for manifest_host in codex claude; do
       | env PATH="$MANIFEST_NO_JQ_PATH" \
           "$manifest_root=$TESTTMP/launcher-only/0.0.0" \
           AGENT_GUARD_WARNING_DIR="$TESTTMP/manifest-no-jq-$manifest_host" \
+          AGENT_GUARD_INFRA_FAILURE_MODE=open \
           /bin/sh -c "$manifest_command; :" >/dev/null 2>>"$ERR"
   done
   no_jq_warning_count=$(grep -c 'no installed binary was found' "$ERR" 2>/dev/null || true)
@@ -1246,6 +1251,7 @@ for manifest_host in codex claude; do
     printf '%s' '{"session_id":"manifest-readonly"}' \
       | env "$manifest_root=$TESTTMP/launcher-only/0.0.0" \
           AGENT_GUARD_WARNING_DIR="$manifest_ro_dir" \
+          AGENT_GUARD_INFRA_FAILURE_MODE=open \
           sh -c "$manifest_command" >"$OUT" 2>"$ERR"
     status=$?
     chmod 0700 "$manifest_ro_dir"
@@ -2447,7 +2453,7 @@ run_expect 2 "prompt guard dies loudly on an unsupported PII mode" \
   prompt_guard_case claude '' Bogus '{"prompt":"hello"}'
 
 # A scanner-infrastructure failure must not clobber the configured mode: with a
-# broken gitleaks and the default open policy, warn stays warn (the assignment
+# broken gitleaks and the explicit open policy, warn stays warn (the assignment
 # probe still detects) instead of silently hardening into a block.
 #
 # The same run is the ground truth for the ONE-response rule. This path raises
@@ -2466,6 +2472,7 @@ chmod +x "$MOCK_BIN/gitleaks-broken"
 prompt_infra_case() { # $1 host, $2 warning dir
   printf '%s' "$prompt_guard_env_json" \
     | AGENT_GUARD_HOOK_HOST="$1" AGENT_GUARD_PROMPT_GUARD_MODE=warn \
+      AGENT_GUARD_INFRA_FAILURE_MODE=open \
       AGENT_GUARD_GITLEAKS_BIN="$MOCK_BIN/gitleaks-broken" \
       AGENT_GUARD_WARNING_DIR="$2" \
       "$PLUGIN_ROOT/bin/agent-guard" hook-user-prompt
@@ -2503,6 +2510,7 @@ fi
 # response object on stdout either: exit 2 carries the reason on stderr.
 printf '%s' "$prompt_guard_env_json" \
   | AGENT_GUARD_HOOK_HOST=claude AGENT_GUARD_GITLEAKS_BIN="$MOCK_BIN/gitleaks-broken" \
+    AGENT_GUARD_INFRA_FAILURE_MODE=open \
     AGENT_GUARD_WARNING_DIR="$TESTTMP/prompt-warn-dir-block" \
     "$PLUGIN_ROOT/bin/agent-guard" hook-user-prompt >"$OUT" 2>"$ERR"
 if [ $? -eq 2 ] && [ ! -s "$OUT" ] && grep -q 'scanner failed' "$ERR"; then
@@ -2523,6 +2531,7 @@ big_prompt_payload=$(LC_ALL=C awk 'BEGIN {
 big_prompt_start=$(date +%s)
 printf '%s' "$big_prompt_payload" \
   | AGENT_GUARD_HOOK_HOST=claude AGENT_GUARD_WARNING_DIR="$TESTTMP/prompt-cap-dir" \
+    AGENT_GUARD_INFRA_FAILURE_MODE=open \
     "$PLUGIN_ROOT/bin/agent-guard" hook-user-prompt >"$OUT" 2>"$ERR"
 big_prompt_status=$?
 big_prompt_elapsed=$(( $(date +%s) - big_prompt_start ))
@@ -3005,6 +3014,8 @@ run_expect 0 "a failed quoted-bracket normalization keeps the protected-path ver
   sh "$ROOT/tests/quoted-bracket-fallback.sh"
 run_expect 0 "status words and named placeholders are prose, real values still block" \
   sh "$ROOT/tests/prompt-prose-placeholder.sh"
+run_expect 0 "empty values, key-file paths and obvious placeholders are not values, real ones still block" \
+  sh "$ROOT/tests/prompt-empty-path-placeholder.sh"
 ambiguous_bash_fixtures="$ROOT/tests/fixtures/ambiguous-bash-protected-path.json"
 ambiguous_bash_cases="$TESTTMP/ambiguous-bash-protected-path.cases"
 if jq -e 'type == "array" and length > 0' "$ambiguous_bash_fixtures" >/dev/null \
@@ -8358,10 +8369,10 @@ PATH="$ERROR_BIN:$PATH" sh -c '
       "'"$PLUGIN_ROOT"'/bin/agent-guard" hook-pre-tool
 ' >"$OUT" 2>"$ERR"
 status=$?
-if [ "$status" -eq 0 ] && grep -q 'AGENT_GUARD_INFRA_FAILURE_MODE=open' "$ERR"; then
-  ok "hook-pre-tool follows the default open policy when gitleaks errors"
+if [ "$status" -eq 2 ] && grep -q 'Blocking because the secret scan did not run' "$ERR"; then
+  ok "hook-pre-tool blocks by default when gitleaks errors"
 else
-  not_ok "hook-pre-tool follows the default open policy when gitleaks errors (expected 0, got $status)"
+  not_ok "hook-pre-tool blocks by default when gitleaks errors (expected 2, got $status)"
   sed 's/^/  stderr: /' "$ERR"
 fi
 
@@ -8586,6 +8597,8 @@ run_expect 0 "regular and linked executable paths select the same payload" \
   "$REAL_SH" "$ROOT/tests/script-location.sh"
 run_expect 0 "deterministic gitleaks resolution and capability diagnostics" \
   "$REAL_SH" "$ROOT/tests/gitleaks-resolution.sh"
+run_expect 0 "a secret scan that did not run blocks by default and other infrastructure failures stay open" \
+  "$REAL_SH" "$ROOT/tests/scan-failure-default.sh"
 run_expect 0 "completed scanner probes retain their status after parent scheduling delay" \
   "$REAL_SH" "$ROOT/tests/gitleaks-probe-completion.sh"
 run_expect 0 "unreaped completed scanner probes retain their exit status" \
@@ -8659,7 +8672,7 @@ done
 DEGRADED_WARNING_DIR="$TESTTMP/degraded-warnings"
 mkdir -p "$DEGRADED_WARNING_DIR"
 printf '%s' '{"session_id":"degraded-session","tool_name":"Bash","tool_input":{"command":"brew install gitleaks"}}' \
-  | AGENT_GUARD_WARNING_DIR="$DEGRADED_WARNING_DIR" \
+  | AGENT_GUARD_WARNING_DIR="$DEGRADED_WARNING_DIR" AGENT_GUARD_INFRA_FAILURE_MODE=open \
     AGENT_GUARD_GITLEAKS_BIN=/nonexistent/gitleaks PATH="$NO_GITLEAKS_BIN" \
     "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
 status=$?
@@ -8676,7 +8689,7 @@ codex_setup_ref="\$setup-agent-guard"
 claude_setup_ref='/agent-guard:setup-agent-guard'
 
 printf '%s' '{"tool_name":"Bash","tool_input":{"command":"brew install gitleaks"}}' \
-  | AGENT_GUARD_HOOK_HOST=codex AGENT_GUARD_GITLEAKS_BIN=/nonexistent/gitleaks PATH="$NO_GITLEAKS_BIN" \
+  | AGENT_GUARD_HOOK_HOST=codex AGENT_GUARD_INFRA_FAILURE_MODE=open AGENT_GUARD_GITLEAKS_BIN=/nonexistent/gitleaks PATH="$NO_GITLEAKS_BIN" \
     "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
 status=$?
 if [ "$status" -eq 0 ] \
@@ -8691,7 +8704,7 @@ else
 fi
 
 printf '%s' '{"tool_name":"Bash","tool_input":{"command":"brew install gitleaks"}}' \
-  | AGENT_GUARD_HOOK_HOST=claude AGENT_GUARD_GITLEAKS_BIN=/nonexistent/gitleaks PATH="$NO_GITLEAKS_BIN" \
+  | AGENT_GUARD_HOOK_HOST=claude AGENT_GUARD_INFRA_FAILURE_MODE=open AGENT_GUARD_GITLEAKS_BIN=/nonexistent/gitleaks PATH="$NO_GITLEAKS_BIN" \
     "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
 status=$?
 if [ "$status" -eq 0 ] \
@@ -8706,7 +8719,7 @@ else
 fi
 
 printf '%s' '{"session_id":"degraded-session","tool_name":"Bash","tool_input":{"command":"echo clean"}}' \
-  | AGENT_GUARD_WARNING_DIR="$DEGRADED_WARNING_DIR" \
+  | AGENT_GUARD_WARNING_DIR="$DEGRADED_WARNING_DIR" AGENT_GUARD_INFRA_FAILURE_MODE=open \
     AGENT_GUARD_GITLEAKS_BIN=/nonexistent/gitleaks PATH="$NO_GITLEAKS_BIN" \
     "$PLUGIN_ROOT/bin/agent-guard" hook-pre-tool >"$OUT" 2>"$ERR"
 status=$?
@@ -8746,6 +8759,7 @@ interval_hook() { # $1 host, $2 subcommand, $3 session, $4 log mode
   printf '%s' "$interval_json" | jq -c --arg s "$3" '. + {session_id: $s}' \
     | env AGENT_GUARD_WARNING_DIR="$INTERVAL_WARN_DIR" AGENT_GUARD_HOOK_HOST="$1" \
         AGENT_GUARD_LOG_MODE="$4" XDG_STATE_HOME="$INTERVAL_STATE_HOME" \
+        AGENT_GUARD_INFRA_FAILURE_MODE=open \
         AGENT_GUARD_GITLEAKS_BIN=/nonexistent/gitleaks PATH="$INTERVAL_BIN" \
         "$PLUGIN_ROOT/bin/agent-guard" "$2" >"$OUT" 2>"$ERR"
 }
@@ -9137,8 +9151,8 @@ expect_json_status 2 "MCP input with secret in nested object is blocked" \
 
 # --- "could not scan" is distinguishable from "found a secret" -------------
 # Direct scan commands retain exit 3. At a hook boundary, infrastructure
-# failures follow AGENT_GUARD_INFRA_FAILURE_MODE (open by default, closed when
-# explicitly selected), while a real detection always blocks.
+# failures follow AGENT_GUARD_INFRA_FAILURE_MODE (unset: closed for a secret
+# scan that did not run, open for the rest), while a real detection blocks.
 
 mkdir -p "$TMP_ROOT/not-a-repo"
 # Canonicalize: $TMPDIR often ends in a slash, so "$TMP_ROOT/not-a-repo" can

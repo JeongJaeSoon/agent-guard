@@ -7,6 +7,8 @@
 set -u
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 BIN="$ROOT/plugins/agent-guard/bin/agent-guard"
+# Name the scanner: with none on PATH every call would be blocked as unscanned.
+export AGENT_GUARD_GITLEAKS_BIN="$ROOT/tests/fixtures/mock-gitleaks"
 CASE=$(mktemp -d "${TMPDIR:-/tmp}/agent-guard-search-operand.XXXXXX")
 trap 'rm -rf "$CASE"' 0
 W="$CASE/w"
@@ -384,6 +386,31 @@ allow sed 's/가.env/x/' list.txt
 allow sed -n '/§8.env/,/§9/p' list.txt
 held sed -E 's/가|.env//' list.txt
 held sed 's/Ａ\/aＡ\/;p;#.env/x/' notes.txt
+allow perl -pe 's/\e\[[0-9;?]*[ -\/]*[@-~]//g; s/\e\][^\a]*\a//g; s/\r/\n/g' notes.txt | grep -v '^\s*$' | sort -u | head -40
+allow perl -0777 -pe 's/\e\[[0-9;]*[a-zA-Z]//g' notes.txt
+allow perl -C -lpe 's#\e\[[0-9;]*m##g' notes.txt 2>/dev/null | head -5
+allow ls -a . | perl -pe 's/^\.e[m-o]v.*$/x/'
+allow perl -pe 's/\.env$/x/' list.txt
+read perl -pe 's/\e\[[0-9;]*m//g' .env
+read ls -a . | perl -pe 's/^(\.e[m-o]v)\n/open(F, $1); <F>/e'
+read ls -a . | perl -ne 's/^(?!\.e[m-o]v$).*\n//; for my $f (split) { open(F, $f) and print <F> }'
+read ls -a . | perl -ne 's/^(?!\.e[m-o]v$).*\n//;' -e 'open(F, (split)[0]) and print <F>'
+read ls -a . | perl -pe 's/^(?!\.e[m-o]v$).*\n//' | xargs cat
+read ls -a . | perl -pe 's/^(\.e[m-o]v)\n/open(F, $1); <F>/'e
+read ls -a . | perl -pe 's/^(\.e[m-o]v)$/\1[open(F, $1) and print <F>]/'
+read ls -a . | perl -pe 's:^\.e[m-o]v\n@\:\:x[open(F, (split)[0]) and print <F>]::'
+read perl -pe 's/\e\[[0-9;]*m//g' 'cat .e[m-o]v |'
+read perl -pe 's/^notes$/@{[ `cat .e[m-o]v` ]}/' list.txt
+read perl -pe 's/^notes@{[ print `cat .e[m-o]v` ]}//' list.txt
+read perl -pe 's/^notes(?{ print `cat .e[m-o]v` })//' list.txt
+read perl -pe 's/^(notes)$/$1[print `cat .e[m-o]v`]/' list.txt
+held perl -pi -e 's/\e\[[0-9;]*m//g' notes.txt
+held perl -pe 's/\e\[[0-9;]*m//g' -i notes.txt
+held perl -w -pe 's/\e\[[0-9;]*m//g' notes.txt
+held perl -pE 's/\e\[[0-9;]*m//g' notes.txt
+held perl -e 's/\e\[[0-9;]*m//g' notes.txt
+held perl -pe 's{\e\[[0-9;]*m}{}g' notes.txt
+held ./swap >/dev/null 2>&1; perl -pe 's/\e\[[0-9;]*m//g' notes.txt
 CASES
 
 # Options from the environment come first and can make the pattern a file.

@@ -229,5 +229,14 @@ else
   sed 's/^/  out: /' "$CASE/post"
 fi
 
+# A secret-named variable's value written to a file is the same leak by a
+# redirect instead of a dump (#497); its suite runs here to keep run.sh as is.
+if sh "$ROOT/tests/secret-env-file-write.sh" >"$CASE/secret-env-write" 2>&1; then
+  ok "secret-named variable values written to a file are blocked; neighbours pass"
+else
+  bad "secret-named variable write suite failed"
+  grep -v '^ok' "$CASE/secret-env-write" | sed 's/^/  /'
+fi
+
 printf '# pass=%s fail=%s\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
