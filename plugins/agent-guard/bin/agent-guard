@@ -10557,7 +10557,7 @@ AWK_READ_OPERAND_RECORDS='
   # w with each resolvable parameter replaced; \002 marks a part only known
   # at run time. Sets subst when a parameter was replaced.
   function value(w,   i, c, n1, out, sq, dq, j, inner, nm) {
-    out = ""; sq = 0; dq = 0; subst = 0
+    out = ""; sq = 0; dq = 0; subst = 0; lvn = ""
     for (i = 1; i <= length(w); i++) {
       c = substr(w, i, 1)
       if (sq) { if (c == "\047") sq = 0; else out = out c; continue }
@@ -10587,6 +10587,7 @@ AWK_READ_OPERAND_RECORDS='
           if (!j) return out "\002"
           inner = substr(w, i + 2, j - 1)
           if (inner == "PWD" && !moved && !("PWD" in tab)) { out = out "."; subst = 1 }
+          else if (looped(inner)) { out = out "\005"; subst = 1 }
           else if (inner ~ /^[A-Za-z_][A-Za-z0-9_]*$/ && known(inner)) { out = out lv; subst = 1 }
           else out = out "\002"
           i += j + 1; continue
@@ -10595,6 +10596,7 @@ AWK_READ_OPERAND_RECORDS='
           match(substr(w, i + 1), /^[A-Za-z_][A-Za-z0-9_]*/)
           nm = substr(w, i + 1, RLENGTH)
           if (nm == "PWD" && !moved && !(nm in tab)) { out = out "."; subst = 1 }
+          else if (looped(nm)) { out = out "\005"; subst = 1 }
           else if (known(nm)) { out = out lv; subst = 1 } else out = out "\002"
           i += RLENGTH; continue
         }
@@ -10606,14 +10608,30 @@ AWK_READ_OPERAND_RECORDS='
   }
   # Whether parameter nm has a known literal value, set in lv. An assignment
   # earlier in the same list of assignments counts while no command follows.
+  # Whether nm is the variable of a for loop over literal words, set in lvn;
+  # one loop variable per word.
+  function looped(nm) {
+    if (!(nm in loopv) || (cpos && nm in ptab) || (lvn != "" && lvn != nm)) return 0
+    lvn = nm; return 1
+  }
   function known(nm) {
     if (cpos && nm in ptab) { lv = ptab[nm]; return lv != "\002" }
     if (nm in tab) { lv = tab[nm]; return 1 }
     return 0
   }
-  function operand(w,   v, t) {
+  # \005 stands for a loop variable; each word of its literal list is checked.
+  function operand(w,   v, n, i, parts) {
     v = value(w)
-    if (index(v, "\002") == 0) { if (subst || forcev) print "V" v; return }
+    if (!index(v, "\005")) { resolved(v, subst || forcev); return }
+    n = split(loopv[lvn], parts, "\005")
+    for (i = 1; i <= n; i++) resolved(swap(v, parts[i]), 1)
+  }
+  function swap(v, s,   k) {
+    while (k = index(v, "\005")) v = substr(v, 1, k - 1) s substr(v, k + 1)
+    return v
+  }
+  function resolved(v, forced,   t) {
+    if (index(v, "\002") == 0) { if (forced) print "V" v; return }
     t = v; sub(/.*\002/, "", t)
     if (!tail_ok(t)) { print "U"; return }
     print "V" t
@@ -10647,7 +10665,7 @@ AWK_READ_OPERAND_RECORDS='
   # unresolved, while code that is dynamic as a whole names no reader.
   function code(w,   v) {
     v = value(w)
-    gsub(/\002/, "\"$__agent_guard_unknown\"", v)
+    gsub(/[\002\005]/, "\"$__agent_guard_unknown\"", v)
     # Code with a replaced parameter was never seen by the raw-text scan.
     if (subst) print "C" v
     tabrec(); print "S" v
@@ -10677,8 +10695,8 @@ AWK_READ_OPERAND_RECORDS='
   # Forget the variable word w names; a name only known at run time may be
   # any of them.
   function forget(w,   k) {
-    if (w ~ /[$`]/) { for (k in tab) delete tab[k]; return }
-    delete tab[name_of(w)]
+    if (w ~ /[$`]/) { for (k in tab) delete tab[k]; for (k in loopv) delete loopv[k]; return }
+    delete tab[name_of(w)]; delete loopv[name_of(w)]
   }
   function name_of(w,   n) {
     n = w; gsub(/["\047]/, "", n); sub(/^\\/, "", n); sub(/.*\//, "", n)
@@ -10687,14 +10705,16 @@ AWK_READ_OPERAND_RECORDS='
   # A plain assignment holds after its segment only when no command follows
   # it there and it is not inside a branch, loop, group or pipeline.
   function end_segment(   k) {
+    if (mode == "forlist" && forok && forl != "") loopv[forname] = substr(forl, 2)
     for (k = 1; k <= npa; k++) {
+      delete loopv[pan[k]]
       if (cmdseen || cond || depth || pav[k] == "\002") delete tab[pan[k]]
       else tab[pan[k]] = pav[k]
     }
     if (prog == "cp" && cppend != "" && cpt) operand(cppend)
     for (k in ptab) delete ptab[k]
     if (mode == "eval" && evalcode != "") code(evalcode)
-    if (clearafter) for (k in tab) delete tab[k]
+    if (clearafter) { for (k in tab) delete tab[k]; for (k in loopv) delete loopv[k] }
     clearafter = 0
     npa = 0; cpos = 1; cmdseen = 0; prog = ""; mode = ""; ddash = 0; patdone = 0
     skipn = 0; fnext = 0; redir = 0; skipw = 0; cppend = ""; cpt = 0; wrap = ""; gotone = 0; jqdata = 0; sedi = 0
@@ -10703,9 +10723,10 @@ AWK_READ_OPERAND_RECORDS='
     nm = substr(w, 1, index(w, "=") - 1); sub(/\[.*/, "", nm)
     add = (nm ~ /\+$/); sub(/\+$/, "", nm)
     v = value(substr(w, index(w, "=") + 1))
-    if (index(v, "\002")) v = "\002"
+    if (index(v, "\002") || index(v, "\005")) v = "\002"
     # NAME+=value appends to the value it already has.
     if (add) v = (v != "\002" && known(nm)) ? lv v : "\002"
+    if (now) delete loopv[nm]
     if (!now) { npa++; pan[npa] = nm; pav[npa] = v; ptab[nm] = v; return }
     if (cond || depth || v == "\002") delete tab[nm]
     else tab[nm] = v
@@ -10820,13 +10841,22 @@ AWK_READ_OPERAND_RECORDS='
     if (mode == "evalnext") { code(w); mode = "skip"; return }
     if (mode == "eval") { evalcode = evalcode (evalcode == "" ? "" : " ") w; return }
     if (mode == "shell") {
-      ow = value(w); if (index(ow, "\002") || subst) ow = w
+      ow = value(w); if (index(ow, "\002") || index(ow, "\005") || subst) ow = w
       if (ow ~ /^-[A-Za-z]*c[A-Za-z]*$/) { mode = "evalnext"; return }
       if (ow ~ /^[-+]/ && ow != "--") { if (ow ~ /^[-+]o$/) skipw = 1; return }
       # A script operand is outside the reading programs; so is -s input.
       mode = "skip"; return
     }
-    if (mode == "for") { delete tab[name_of(w)]; mode = "skip"; return }
+    # A loop over literal words without globs gives its variable those words.
+    if (mode == "for") { forname = name_of(w); delete tab[forname]; delete loopv[forname]; mode = "forin"; return }
+    if (mode == "forin") { mode = (w == "in") ? "forlist" : "skip"; forl = ""; forok = 1; return }
+    if (mode == "forlist") {
+      ow = value(w)
+      n = w; gsub(/\$\{/, "", n)
+      if (index(ow, "\002") || index(ow, "\005") || n ~ /[*?[{~]/ || ow ~ /[*?[]/) forok = 0
+      else forl = forl "\005" ow
+      return
+    }
     if (mode == "skip") return
     if (mode == "case") { if (w == "in") { incase = 1; cpos = 1; mode = "" } ; return }
     # export and readonly without a value keep the value; local and declare may reset it.
@@ -10841,7 +10871,7 @@ AWK_READ_OPERAND_RECORDS='
     # A word with a known value is read as that value ("-e" or "$opt" is -e);
     # a file attached to a replaced option is then matched as resolved text.
     ow = value(w)
-    if (index(ow, "\002")) ow = w
+    if (index(ow, "\002") || index(ow, "\005")) ow = w
     else forcev = subst
     if (!ddash && ow == "--") { forcev = 0; ddash = 1; return }
     # BSD sed takes the backup suffix of -i as the return word, often ''.

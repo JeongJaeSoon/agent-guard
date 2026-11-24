@@ -211,6 +211,20 @@ check 0 "output redirect to a variable" 'printf x > "$OUT"'
 check 0 "heredoc body text with a variable" "cat <<'EOF'${NL}cat \$F${NL}EOF"
 check 0 "a message substitution from a quoted heredoc" "printf '%s\\n' \"\$(cat <<'EOF'${NL}cat \$F here${NL}EOF${NL})\""
 check 0 "cat of a literal ordinary file" 'cat README.md'
+check 0 "a loop over literal ordinary files" 'for f in README.md notes.txt; do cat "$f"; done'
+check 0 "a grep in a loop over literal files" 'for f in src/a.ts notes.txt; do grep -n x $f | head -3; done'
+check 2 "a loop whose literal list names a protected file" 'for f in README.md .e"nv"; do cat "$f"; done'
+check 2 "a loop whose later word resolves to a protected file" 'p=.e; for f in README.md "${p}nv"; do cat "$f"; done'
+says "the later loop word is the resolved operand" "matched deny-read-paths entry"
+check 0 "a loop over words resolved to ordinary files" 'p=notes; for f in README.md "${p}.txt"; do cat "$f"; done'
+check 2 "a loop over a glob" 'for f in *; do cat "$f"; done'
+check 2 "a loop over a brace expansion" 'for f in {a,b}; do cat "$f"; done'
+check 2 "a loop over a substitution" 'for f in $(ls); do cat "$f"; done'
+check 2 "a loop over the positional parameters" 'for f; do cat "$f"; done'
+check 2 "a loop variable reassigned in the body" 'for f in README.md; do f=$(printf x); cat "$f"; done'
+check 2 "a loop variable read back" 'for f in README.md; do read f; cat "$f"; done'
+check 2 "a loop variable joined with a second one" 'for f in a; do for g in b; do cat "$f$g"; done; done'
+check 2 "a loop value copied to another variable" 'for f in README.md; do g=$f; cat "$g"; done'
 
 HOST=codex
 check 2 "codex: cat of a command substitution" "cat $S"

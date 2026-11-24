@@ -782,7 +782,34 @@
   {
     "id": "bash-unresolved-operand-dynamic-target",
     "rule": "bash_unresolved_read_operand: a variable named at run time may be any known one",
-    "old": "    if (w ~ /[$`]/) { for (k in tab) delete tab[k]; return }\n",
+    "old": "    if (w ~ /[$`]/) { for (k in tab) delete tab[k]; for (k in loopv) delete loopv[k]; return }\n",
+    "new": "",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-loop-glob",
+    "rule": "AWK_READ_OPERAND_RECORDS: a for list with a glob or brace word gives its variable no known values",
+    "old": "      if (index(ow, \"\\002\") || index(ow, \"\\005\") || n ~ /[*?[{~]/ || ow ~ /[*?[]/) forok = 0\n",
+    "new": "      if (index(ow, \"\\002\") || index(ow, \"\\005\")) forok = 0\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-loop-values",
+    "rule": "AWK_READ_OPERAND_RECORDS: each literal word of a for list is checked as the operand",
+    "old": "    for (i = 1; i <= n; i++) resolved(swap(v, parts[i]), 1)\n",
+    "new": "    resolved(swap(v, parts[1]), 1)\n",
+    "tests": [
+      "tests/unresolved-read-operand.sh"
+    ]
+  },
+  {
+    "id": "bash-unresolved-operand-loop-reassigned",
+    "rule": "AWK_READ_OPERAND_RECORDS: an assignment in the loop body ends the known loop values",
+    "old": "      delete loopv[pan[k]]\n",
     "new": "",
     "tests": [
       "tests/unresolved-read-operand.sh"
