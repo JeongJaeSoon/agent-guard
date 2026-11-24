@@ -600,6 +600,15 @@
     ]
   },
   {
+    "id": "colon-assignment-no-walk-back",
+    "rule": "find_assignment: a colon assignment after a whitespace run starts where the run starts",
+    "old": "      if (delimiter == \":\")\n        while (assignment_start > 1",
+    "new": "      if (0)\n        while (assignment_start > 1",
+    "tests": [
+      "tests/colon-assignment-equivalence.sh"
+    ]
+  },
+  {
     "id": "bash-unresolved-operand-unwired",
     "rule": "check_bash_command: an operand only known at run time blocks the command",
     "old": "    bash_unresolved_read_operand \"$raw_cmd\" && exit 3\n",
