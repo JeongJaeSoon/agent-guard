@@ -8309,19 +8309,22 @@ search_operand_spans() {
         }
         return ""
       }
-      if (h == "gh" && !nojq && (k = gh_jq_option(a, b))) return "P jq " ws[k + 1] " " we[k + 1] " " wv[k + 1] "\n"
+      if (h == "gh" && !nojq && (k = gh_jq_option(a, b))) {
+        if (wv[k] ~ /^--jq=/) return "P jq " (ws[k] + 5) " " we[k] " " substr(wv[k], 6) "\n"
+        return "P jq " ws[k + 1] " " we[k + 1] " " wv[k + 1] "\n"
+      }
       return ""
     }
-    # The index of the --jq word of a built-in gh query when it is that
-    # option for sure, as in bash_neutralize_first_pipeline: every word
+    # The index of the --jq (or -q) word of a built-in gh query when it is
+    # that option for sure, as in bash_neutralize_first_pipeline: every word
     # literal, no `--` before it, and the word before it no option that could
-    # take --jq as its value. Its value, the next word, is a jq filter gh
-    # runs itself. 0 otherwise.
+    # take it as its value. Its value, the next word or what a bare `--jq=`
+    # leads, is a jq filter gh runs itself. 0 otherwise.
     function gh_jq_option(a, b,   k, prev) {
       if (!gh_query(a, b, 1)) return 0
-      for (k = a + 2; k < b; k++) {
+      for (k = a + 2; k <= b; k++) {
         if (wv[k] == "--") return 0
-        if (wv[k] != "--jq") continue
+        if (!(substr(raw(k), 1, 5) == "--jq=" && length(wv[k]) > 5) && (k == b || wv[k] != "--jq" && wv[k] != "-q")) continue
         prev = wv[k - 1]
         if (substr(prev, 1, 1) == "-" && prev !~ /^(--paginate|--slurp|--include|-i|--silent|--verbose)$/) return 0
         return k

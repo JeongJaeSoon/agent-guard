@@ -647,5 +647,32 @@
       "tests/bash-path-text-data.sh",
       "tests/search-operand-ground-truth.sh"
     ]
+  },
+  {
+    "id": "bash-gh-jq-short-any-option",
+    "rule": "gh --jq (#647): only -q is the short form of --jq",
+    "old": "wv[k] != \"--jq\" && wv[k] != \"-q\")) continue",
+    "new": "wv[k] != \"--jq\" && wv[k] !~ /^-[A-Za-z]$/)) continue",
+    "tests": [
+      "tests/gh-jq-option.sh"
+    ]
+  },
+  {
+    "id": "bash-gh-jq-prev-any-option",
+    "rule": "gh --jq (#647): no option before -q or --jq may take it as its value",
+    "old": "        if (substr(prev, 1, 1) == \"-\" && prev !~ /^(--paginate|--slurp|--include|-i|--silent|--verbose)$/) return 0\n        return k\n",
+    "new": "        return k\n",
+    "tests": [
+      "tests/gh-jq-option.sh"
+    ]
+  },
+  {
+    "id": "bash-gh-jq-any-subcommand",
+    "rule": "gh --jq (#647): only built-in queries that take --jq qualify",
+    "old": "      if (jq) return sub1 ~ /^(api|run view|run list|pr view|pr list|pr checks|pr status|issue view|issue list|issue status|release view|release list|repo view|repo list)$/\n",
+    "new": "      if (jq) return 1\n",
+    "tests": [
+      "tests/gh-jq-option.sh"
+    ]
   }
 ]
