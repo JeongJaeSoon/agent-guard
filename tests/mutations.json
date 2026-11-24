@@ -651,8 +651,8 @@
   {
     "id": "bash-gh-jq-short-any-option",
     "rule": "gh --jq (#647): only -q is the short form of --jq",
-    "old": "if (wv[k] != \"--jq\" && wv[k] != \"-q\") continue",
-    "new": "if (wv[k] != \"--jq\" && wv[k] !~ /^-[A-Za-z]$/) continue",
+    "old": "wv[k] != \"--jq\" && wv[k] != \"-q\")) continue",
+    "new": "wv[k] != \"--jq\" && wv[k] !~ /^-[A-Za-z]$/)) continue",
     "tests": [
       "tests/gh-jq-option.sh"
     ]
