@@ -1,4 +1,4 @@
-<!-- translated-from: docs/verification.md; source-blob: 430d0cf7d223cd0df704094e5988c8c5db4f684e -->
+<!-- translated-from: docs/verification.md; source-blob: 8381bad84419ef2a8e5d9fd60ec518ec9a37fb61 -->
 
 <a id="verification"></a>
 
@@ -102,6 +102,9 @@ Code ModeではClaudeがJavaScriptを書き、1回で複数のツールを呼び
   説明するものではありません。SessionStart以外のhookは、タイムアウトした
   バージョン確認を一度だけ再試行します。そのため、これらのhookでこのコードが
   表示された場合は、バージョン確認が二回続けてタイムアウトしたことを示します。
+  また、同じgitleaksファイルについて直近10分以内に期限切れになった準備判定が
+  なかったことも示します。その判定があれば、hookはこのコードを出さずに検査を
+  実行します。
 - インフラ障害時の `open` モードは、目に見える一度限りの警告後に続行し、`closed` はブロックします。このポリシーはインフラ障害に適用され、秘密情報の検出時はブロックします。空ではなく、形式が不正またはオブジェクトでないPreToolUse・Stop入力は、インフラモードと無関係にブロックされます。PostToolUseはまず独立したparserで有効なhost envelopeを復元し、保守的な置換を出力します。空ではなく、形式が不正またはオブジェクトでないPostToolUse envelopeに対する終了ステータス2は可視の診断であり、完了済みのツール結果を撤回できません。`closed` では、出力を検査できなかったClaudeのPostToolUse hookが、その出力の空でない文字列をすべて置換し、構造は保ちます。終了ステータス2だけでは出力がそのままモデルに届くためです。空のstdinは文書化された例外であり、PreToolUse、PostToolUse、Stopはいずれも応答なしでステータス0を返します。拒否したイベントはすべて報告します。
 - hostが時間制限に達したhookを終了すると、hookが判断を返せないことがあります。Claude Code 2.1.295以降は `PreToolUse` hookのタイムアウトや異常終了時にツール呼び出しをブロックします。ほかのイベントやhostには当てはまりません。GitとCIによる後段の防御を有効にしてください。
 

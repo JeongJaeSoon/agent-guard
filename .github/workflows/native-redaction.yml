@@ -25,10 +25,11 @@ on:
 permissions:
   contents: read
 
-# Replace only obsolete runs of the same PR. Non-PR runs have unique groups.
+# Replace only obsolete runs of the same PR or of an older main push. Manual
+# runs have unique groups.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || (github.event_name == 'push' && github.ref) || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
 
 jobs:
   contracts:
