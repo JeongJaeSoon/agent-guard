@@ -151,7 +151,7 @@ return status 0 with no response. See [Output masking coverage](integrations.md#
   | `credential=credential,`, `api_key=self.api_key,` | `credential=myCredential,`, `api_key=other_key,` |
   | `self.credential = credential`, `this.credential = credential;` | `password = password`, `this.credential = "..."` |
   | `password: userPassword;` at the start of a line | `Server=db;Password=userPassword;`, `user: bob \| password: MyPassword \| host: db` |
-  | `src/schema.ts:14:  credential: CredentialSchema,` (`grep -n` output) | `src/schema.ts:  credential: CredentialSchema,` (no line number), `12:34: password: Password,` |
+  | `src/schema.ts:14:  credential: CredentialSchema,` (`grep -n` output), `src/schema.ts:  credential: CredentialSchema,` (`rg --no-heading` output) | `schema:  credential: CredentialSchema,` (a word, not a file path), `12:34: password: Password,` |
   | `password: HTTPSProxyPassword,`, `password: DATABASE_PASSWORD,` | `password: MyPassword,`, `secret: SecretQzxvWplm,`, `token: Promise<XkqWzp>;` (a word outside the list) |
 
   All of these must hold:
@@ -164,11 +164,14 @@ return status 0 with no response. See [Output masking coverage](integrations.md#
     line count as well. A line locator may come before all of that, as
     `grep -n`, `rg`, `git grep -n`, `cat -n` and `nl` print one:
     `src/schema.ts:14:`, `14:`, the context forms `src/schema.ts-14-` and
-    `14-`, or a padded number and a tab. The locator must carry the line
-    number and start the line, with the same separator on both sides of the
-    number. Its path part is made of letters, digits and `_ . / @ + ~ -`
-    with at least one letter, and does not start with `+` or `-`.
-    `src/schema.ts:` alone, a clock time (`12:34:`), a date (`2024-01-15:`),
+    `14-`, a padded number and a tab, or a number and the arrow the Read
+    tool prints (`14→`). A path with no line number counts too
+    (`src/schema.ts:`, as `rg --no-heading` prints it) when it holds a `/`
+    or a dot and an extension that starts with a letter. The locator must
+    start the line, with the same separator on both sides of the number. Its
+    path part is made of letters, digits and `_ . / @ + ~ -` with at least
+    one letter, and does not start with `+` or `-`.
+    A bare word (`schema:`, `note:`), a clock time (`12:34:`), a date (`2024-01-15:`),
     an address and port (`10.0.0.1:5432:`), a host or pod name
     (`web-1:`), a line and column pair (`src/a.ts:14:9:`), a diff marker
     glued to the path (`+src/schema.ts:14:`) and the tail of other text

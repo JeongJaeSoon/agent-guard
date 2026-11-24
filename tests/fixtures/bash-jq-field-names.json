@@ -302,9 +302,9 @@
   },
   {
     "id": "jq-after-sequenced-command",
-    "expected_status": 2,
-    "classification": "must-block",
-    "description": "a jq after an earlier command in the same shell can be redefined by it",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a command sequenced before jq does not stop the rewrite while nothing in the command can change which jq runs (94S-2135)",
     "command": "gh api x > a.json && jq '.key' a.json"
   },
   {
@@ -379,30 +379,30 @@
   },
   {
     "id": "jq-after-file-writing-command",
-    "expected_status": 2,
-    "classification": "must-block",
-    "description": "a command that can write files may create the file a PATH entry resolves jq to",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a cp whose target cannot name a jq file does not stop the rewrite (94S-2135)",
     "command": "cp a.json b.json; jq '.key' b.json"
   },
   {
     "id": "jq-after-gh",
-    "expected_status": 2,
-    "classification": "must-block",
-    "description": "gh is not on the inert list",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "gh before jq does not stop the rewrite (94S-2135)",
     "command": "gh api x; jq '.key' a.json"
   },
   {
     "id": "jq-after-git",
-    "expected_status": 2,
-    "classification": "must-block",
-    "description": "git is not on the inert list",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "git before jq does not stop the rewrite (94S-2135)",
     "command": "git status; jq '.key' a.json"
   },
   {
     "id": "jq-after-redirect",
-    "expected_status": 2,
-    "classification": "must-block",
-    "description": "a redirection before jq can write a file",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a redirection to a file that cannot be jq does not stop the rewrite (94S-2135)",
     "command": "echo x > a.json; jq '.key' a.json"
   },
   {
@@ -442,9 +442,9 @@
   },
   {
     "id": "jq-after-preload-prefix",
-    "expected_status": 2,
-    "classification": "must-block",
-    "description": "an assignment prefix other than a locale can make an inert command run code",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "an earlier command may run any code, which could read the file itself; it does not stop the rewrite (94S-2135)",
     "command": "LD_PRELOAD=x.so cat a.json; jq '.key' a.json"
   },
   {
@@ -470,9 +470,9 @@
   },
   {
     "id": "jq-after-sed",
-    "expected_status": 2,
-    "classification": "must-block",
-    "description": "sed can write files and is not on the inert list",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a sed before jq does not stop the rewrite (94S-2135)",
     "command": "sed -n p a.log; jq '.key' a.json"
   },
   {

@@ -800,9 +800,9 @@
   },
   {
     "id": "gh-then-jq-field",
-    "expected_status": 2,
-    "classification": "must-still-block",
-    "description": "a gh query sequenced with ; is not on the inert list, so the later jq is not trusted",
+    "expected_status": 0,
+    "classification": "must-pass",
+    "description": "a gh query sequenced with ; does not stop the rewrite of the later jq while nothing in the command can change which jq runs (94S-2135)",
     "command": "gh pr view 12 --json files; jq '.files[] | .key' out.json"
   },
   {

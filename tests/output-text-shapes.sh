@@ -44,7 +44,7 @@ fi
 # finds, so a value shared by two lines would be masked in one line because the
 # other line gave it away, and the cell would not show its own verdict.
 jq -c --arg r "$rnd" --arg h "$hex" --arg w "$weak" --arg g "$marker" '
-  def fill($k): gsub("%R%"; $r + ([97 + $k, 97 + $k] | implode))
+  def fill($k): gsub("%R%"; $r + ([97 + ($k / 26 | floor) % 26, 97 + $k % 26] | implode))
     | gsub("%H%"; $h) | gsub("%W%"; $w) | gsub("%G%"; $g);
   [.lines | to_entries[] | .key as $k | .value.line | fill($k)]' "$FIXTURE" >"$CASE/lines.json" || exit 1
 jq -c '[.lines[] | if .expect == "mask" then .masked else .line end]' \

@@ -236,7 +236,11 @@ held L=$(printf %s app.log); grep accepted $L | sed -E 's/.*\[([0-9.]+):([0-9]+)
 held L=$HOME/logs/app.log; grep accepted $L | sed -E 's/.env/x/' | sort
 held L=s/.env/x/; sed $L list.txt
 held PATH=d; sed 's/.env/x/' list.txt
-held gh api x; jq -n '.tls.key'
+allow cmp list.txt list.txt; jq -n '{a: 1} | .tls.key'
+allow for f in list.txt notes.txt; do jq -R -r '{k: .} | .tls.key' "$f"; done
+read cmp list.txt list.txt; jq -R . tls.key
+read for f in list.txt tls.key; do jq -R -r '{k: .} | .tls.key, .' "$f"; done
+held cp shim pbin/j?; jq -n '.tls.key'
 held git restore . && grep .env
 held echo x >p; grep .env
 held cat list.txt >p | grep .env
